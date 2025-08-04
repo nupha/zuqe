@@ -247,12 +247,13 @@ impl JSContext {
             .install_native_fields(self, &js_array_iterator_proto_funcs)
             .unwrap();
 
+        let array_values = self.0.borrow().class_proto[JS_CLASS_ARRAY as usize]
+            .get_property(self, JS_ATOM_values)
+            .unwrap();
+
         {
             let mut cx = self.0.borrow_mut();
-
-            cx.array_proto_values = cx.class_proto[JS_CLASS_ARRAY as usize]
-                .get_property(self, JS_ATOM_values)
-                .unwrap();
+            cx.array_proto_values = array_values;
             cx.class_proto[JS_CLASS_ARRAY_ITERATOR as usize] = array_iter.into();
         }
     }

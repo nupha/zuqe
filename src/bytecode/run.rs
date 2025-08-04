@@ -1631,10 +1631,8 @@ impl Bytecode {
                         js_method_set_home_object(SP_REF!(-1), SP_REF!(-2).object());
                     }
                     OpCode::DEFINE_METHOD | OpCode::DEFINE_METHOD_COMPUTED => {
-                        // DEFINE_METHOD_COMPUTED:
-                        // [this_obj, name, value, ^] -> [this_obj, ^]
-                        // DEFINE_METHOD:
-                        // [this_obj, value, ^] -> [this_obj, ^]
+                        // DEFINE_METHOD: [this_obj, value, ^] -> [this_obj, ^]
+                        // DEFINE_METHOD_COMPUTED: [this_obj, name, value, ^] -> [this_obj, ^]
                         let (is_computed, mut name, op_flags) =
                             if opcode == OpCode::DEFINE_METHOD_COMPUTED {
                                 // format u8

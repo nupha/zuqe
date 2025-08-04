@@ -117,13 +117,15 @@ pub unsafe fn debug_dump_opcode_one(ctx: &JSContext, b: &Bytecode, pc: usize) ->
         OpcodeFormat::ATOM => {
             let a = read_from_ptr::<u32>(tab.as_ptr().add(pos));
             JSAtom(a).with_utf8(ctx.rt(), |s| {
-                print!(" {a}:{s}");
+                print!(" {a}'{s}");
             });
         }
         f @ (OpcodeFormat::ATOM_U8 | OpcodeFormat::ATOM_U16) => {
-            JSAtom(read_from_ptr::<u32>(tab.as_ptr().add(pos))).with_utf8(ctx.rt(), |s| {
+            let atom = JSAtom(read_from_ptr::<u32>(tab.as_ptr().add(pos)));
+            atom.with_utf8(ctx.rt(), |s| {
                 print!(
-                    " {s}, {}",
+                    " {}'{s}, {}",
+                    atom.0,
                     if f == OpcodeFormat::ATOM_U8 {
                         tab[pos as usize + 4] as usize
                     } else {
@@ -133,8 +135,9 @@ pub unsafe fn debug_dump_opcode_one(ctx: &JSContext, b: &Bytecode, pc: usize) ->
             });
         }
         f @ (OpcodeFormat::ATOM_LABEL_U8 | OpcodeFormat::ATOM_LABEL_U16) => {
-            JSAtom(read_from_ptr::<u32>(tab.as_ptr().add(pos))).with_utf8(ctx.rt(), |s| {
-                print!(" {s}");
+            let atom = JSAtom(read_from_ptr::<u32>(tab.as_ptr().add(pos)));
+            atom.with_utf8(ctx.rt(), |s| {
+                print!(" {}'{s}", atom.0);
             });
 
             // addr = get_u32(tab.as_ptr().offset(pos as isize + 4)) as _;
