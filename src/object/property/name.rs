@@ -1,6 +1,6 @@
 use crate::{
     JS_CLASS_STRING,
-    atom::{AtomDescKind, JS_FreeAtom, JSAtom},
+    atom::{AtomDescKind, JS_ATOM_NULL, JS_FreeAtom, JSAtom},
     context::JSContext,
     error::JSResult,
     iterator::JSIteratorKindEnum,
@@ -58,25 +58,27 @@ impl JSObject {
         let enum_only = flags & JS_GPN_ENUM_ONLY != 0;
 
         for (_, prs) in self.shape().unwrap().0.borrow().prop_defs.iter() {
-            let is_enumerable = prs.flags() & JS_PROP_ENUMERABLE != 0;
-            let kind = prs.atom.kind(ctx.rt());
+            if prs.atom != JS_ATOM_NULL {
+                let is_enumerable = prs.flags() & JS_PROP_ENUMERABLE != 0;
+                let kind = prs.atom.kind(ctx.rt());
 
-            if (enum_only || is_enumerable) && (flags >> (kind as u8)) & 1 != 0 {
-                callback(
-                    ctx,
-                    PropertyEnum {
-                        atom: prs.atom, // NOTE: atom is not duplicated here.
-                        isa: if let Some(num_key) = prs.atom.to_array_index(ctx.rt()) {
-                            PropertyEnumIsa::Index(num_key as u32)
-                        } else if kind == AtomDescKind::JS_ATOM_KIND_STRING {
-                            PropertyEnumIsa::String
-                        } else {
-                            PropertyEnumIsa::Symbol
+                if (!enum_only || is_enumerable) && ((flags >> (kind as u8)) & 1 != 0) {
+                    callback(
+                        ctx,
+                        PropertyEnum {
+                            atom: prs.atom, // NOTE: atom is not duplicated here.
+                            isa: if let Some(num_key) = prs.atom.to_array_index(ctx.rt()) {
+                                PropertyEnumIsa::Index(num_key as u32)
+                            } else if kind == AtomDescKind::JS_ATOM_KIND_STRING {
+                                PropertyEnumIsa::String
+                            } else {
+                                PropertyEnumIsa::Symbol
+                            },
+                            is_enumerable,
+                            exotic: false,
                         },
-                        is_enumerable,
-                        exotic: false,
-                    },
-                )?;
+                    )?;
+                }
             }
         }
 

@@ -1883,11 +1883,11 @@ impl Bytecode {
                         }
                     }
                     OpCode::COPY_DATA_PROPERTIES => {
-                        /* target source excludeList */
-                        /* stack offsets (-1 based):
-                        2 bits for target,
-                        3 bits for source,
-                        2 bits for exclusionList */
+                        // target source excludeList
+                        // stack offsets (-1 based):
+                        // 2 bits for target: SP[-1 - (mask & 3)],
+                        // 3 bits for source: SP[SP_REF!(-1 - ((mask >> 2) & 7)],
+                        // 2 bits for exclusionList: SP[-1 - ((mask >> 5) & 7)]
                         let mask = PC_FETCH!(u8) as i32;
                         if SP_REF!(-1 - (mask & 3))
                             .copy_properties_from(
