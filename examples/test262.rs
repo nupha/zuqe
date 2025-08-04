@@ -363,6 +363,7 @@ fn run_test_file(
     include_harness: bool,
     excludes: Option<&[String]>,
     outf: &mut dyn Write,
+    errf: &mut dyn Write,
 ) {
     write!(outf, "{} ... ", filename.display()).unwrap();
 
@@ -430,8 +431,15 @@ fn run_test_file(
         if run_harness(&ctx, &harness_files).is_err() {
             let exc = ctx.exception();
             let msg = exc.coerce_to_utf8(&ctx).unwrap();
+
+            // write to outf
             writeln!(outf, "FAIL: can't eval harness").unwrap();
             dump_error(&ctx, &exc, msg.as_ref(), outf);
+
+            // write to err
+            write!(errf, "{} ... ", filename.display()).unwrap();
+            writeln!(outf, "FAIL: can't eval harness").unwrap();
+            dump_error(&ctx, &exc, msg.as_ref(), errf);
 
             has_err = true;
         }
@@ -503,6 +511,16 @@ fn run_test_file(
                             )
                             .unwrap();
                             dump_error(&ctx, &exc, msg.as_ref(), outf);
+
+                            // write to err file
+                            write!(errf, "{} ... ", filename.display()).unwrap();
+                            writeln!(
+                                outf,
+                                "fail: expects error class '{}', got '{}'",
+                                ty, err_class
+                            )
+                            .unwrap();
+                            dump_error(&ctx, &exc, msg.as_ref(), errf);
                         }
                     } else {
                         writeln!(outf, "pass").unwrap();
@@ -510,11 +528,22 @@ fn run_test_file(
                 } else {
                     writeln!(outf, "fail").unwrap();
                     dump_error(&ctx, &exc, msg.as_ref(), outf);
+
+                    write!(errf, "{} ... ", filename.display()).unwrap();
+                    dump_error(&ctx, &exc, msg.as_ref(), errf);
                 }
             } else {
                 if let Some(neg) = &negative {
                     writeln!(
                         outf,
+                        "fail: [NEGATIVE] expects error {}",
+                        neg.type_.as_ref().map_or("", |s| s.as_str())
+                    )
+                    .unwrap();
+
+                    write!(errf, "{} ... ", filename.display()).unwrap();
+                    writeln!(
+                        errf,
                         "fail: [NEGATIVE] expects error {}",
                         neg.type_.as_ref().map_or("", |s| s.as_str())
                     )
@@ -525,16 +554,6 @@ fn run_test_file(
             }
         }
     }
-
-    // JS_DumpGCObjects(js.as_mut());
-    // JS_DumpAtoms(js.as_mut());
-
-    // println!("================ free eval result");
-    // JS_DumpGCObjects(js.as_mut());
-    // JS_DumpAtoms(js.as_mut());
-
-    // drop(ctx);
-    // drop(rt);
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -626,6 +645,13 @@ fn main() {
         .open("test262-result.txt")
         .unwrap();
 
+    let mut errf = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open("test262-fail.txt")
+        .unwrap();
+
     // run_test_file(
     //     &Path::new(
     //         //"/Users/johnray/devel/test262/test/harness/propertyhelper-verifyconfigurable-configurable-object.js"
@@ -648,7 +674,7 @@ fn main() {
             let pat = base_path.join(format!("./test/{item}"));
             for fname in glob::glob(pat.to_str().unwrap()).unwrap() {
                 let fname = fname.unwrap();
-                run_test_file(&fname, true, excludes.as_deref(), &mut outf);
+                run_test_file(&fname, true, excludes.as_deref(), &mut outf, &mut errf);
                 outf.flush().unwrap();
             }
         }

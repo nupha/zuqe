@@ -58,45 +58,66 @@ pub fn js_function_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let func_kind = unsafe { std::mem::transmute::<_, JSFunctionKindEnum>(cc.magic() as u8) };
 
     // build function source
-    let mut source = StringContent::with_capacity(64, false).unwrap();
-    source.push_char('(');
+    let mut source = StringContent::with_capacity(64, false).map_err(|_| {
+        ctx.throw_out_of_memory();
+        -1
+    })?;
+    source.push_char('(').unwrap();
     if matches!(
         func_kind,
         JSFunctionKindEnum::JS_FUNC_ASYNC | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
     ) {
-        source.push_str("async");
+        source.push_str("async").unwrap();
     }
-    source.push_str("function");
+    source.push_str("function").unwrap();
 
     if matches!(
         func_kind,
         JSFunctionKindEnum::JS_FUNC_GENERATOR | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
     ) {
-        source.push_char('*');
+        source.push_char('*').unwrap();
     }
-    source.push_str(" anonymous(");
+    source.push_str(" anonymous(").unwrap();
 
     // args and body
     if let Some((body, args)) = cc.arguments().split_last() {
         // args list
         for (i, a) in args.iter().enumerate() {
             if i != 0 {
-                source.push_char(',');
+                source.push_char(',').map_err(|_| {
+                    ctx.throw_out_of_memory();
+                    -1
+                })?;
             }
             let s = a.coerce_to_string(ctx)?;
             let s = unsafe { s.string_unchecked().content() };
-            source.push_str(s.to_str().as_ref());
+            source.push_str(s.to_str().as_ref()).map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?;
         }
-        source.push_str(") {\n");
+        source.push_str(") {\n").map_err(|_| {
+            ctx.throw_out_of_memory();
+            -1
+        })?;
 
         // body
         let s = body.coerce_to_string(ctx)?;
         let s = unsafe { s.string_unchecked().content() };
-        source.push_str(s.to_str().as_ref());
+        source.push_str(s.to_str().as_ref()).map_err(|_| {
+            ctx.throw_out_of_memory();
+            -1
+        })?;
 
-        source.push_str("\n}");
+        source.push_str("\n})").map_err(|_| {
+            ctx.throw_out_of_memory();
+            -1
+        })?;
     } else {
-        source.push_str(") {}");
+        source.push_str(") {})").map_err(|_| {
+            ctx.throw_out_of_memory();
+            -1
+        })?;
     }
 
     // eval to make function
@@ -119,7 +140,7 @@ pub fn js_function_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
             proto = realm.0.borrow().class_proto[func_kind.class_id() as usize].clone();
         }
 
-        let ret = JS_SetPrototypeInternal(ctx, &func_obj, proto, true)?;
+        JS_SetPrototypeInternal(ctx, &func_obj, proto, true)?;
     }
 
     Ok(func_obj)
