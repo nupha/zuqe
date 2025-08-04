@@ -23,7 +23,7 @@ use crate::{
 use super::JSParseState;
 
 impl<'s> JSParseState<'s> {
-    pub unsafe fn parse_object_literal(&mut self) -> Result<(), i32> {
+    pub fn parse_object_literal(&mut self) -> Result<(), i32> {
         self.next_token()?;
 
         // XXX: add an initial length that will be patched back
@@ -45,113 +45,115 @@ impl<'s> JSParseState<'s> {
                 self.emit_u8(2 | (1 << 2));
                 self.emit_op(OpCode::DROP); // pop excludeList
                 self.emit_op(OpCode::DROP); // pop src object
-
-                // next
-                if self.token.val != ',' as i32 {
-                    break;
-                }
-                self.next_token()?;
-            }
-
-            let (name, prop_type) = self.parse_property_name(true, true, false)?;
-
-            if prop_type == PROP_TYPE_VAR {
-                // shortcut for x: x
-                self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                self.emit_atom_dup(name);
-                self.emit_u16(self.cur_func().scope_level as _);
-                self.emit_op(OpCode::DEFINE_FIELD);
-                self.emit_atom_dup(name);
-            } else if self.token.val == CHAR_BRACKET_L {
-                let is_getset = matches!(prop_type, PROP_TYPE_GET | PROP_TYPE_SET);
-                let (func_type, func_kind, op_flags): (
-                    JSParseFunctionEnum,
-                    JSFunctionKindEnum,
-                    i32,
-                ) = if is_getset {
-                    (
-                        // type
-                        if prop_type == PROP_TYPE_GET {
-                            JSParseFunctionEnum::JS_PARSE_FUNC_GETTER
-                        } else {
-                            JSParseFunctionEnum::JS_PARSE_FUNC_SETTER
-                        },
-                        // kind
-                        JSFunctionKindEnum::JS_FUNC_NORMAL,
-                        // opflags
-                        OP_DEFINE_METHOD_GETTER as i32 + prop_type - PROP_TYPE_GET,
-                    )
-                } else {
-                    (
-                        // type
-                        JSParseFunctionEnum::JS_PARSE_FUNC_METHOD,
-                        // kind
-                        if prop_type == PROP_TYPE_STAR {
-                            JSFunctionKindEnum::JS_FUNC_GENERATOR
-                        } else if prop_type == PROP_TYPE_ASYNC {
-                            JSFunctionKindEnum::JS_FUNC_ASYNC
-                        } else if prop_type == PROP_TYPE_ASYNC_STAR {
-                            JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
-                        } else {
-                            JSFunctionKindEnum::JS_FUNC_NORMAL
-                        },
-                        // opflags
-                        OP_DEFINE_METHOD_METHOD as i32,
-                    )
-                };
-
-                if self
-                    .parse_function_decl(func_type, func_kind, JS_ATOM_NULL, start_ptr, start_line)
-                    .is_err()
-                {
-                    JS_FreeAtom(&self.ctx, name);
-                    return Err(-1);
-                }
-
-                if name == JS_ATOM_NULL {
-                    self.emit_op(OpCode::DEFINE_METHOD_COMPUTED);
-                } else {
-                    self.emit_op(OpCode::DEFINE_METHOD);
-                    self.emit_atom_dup(name);
-                }
-                self.emit_u8(op_flags as u8 | OP_DEFINE_METHOD_ENUMERABLE);
             } else {
-                if self.parse_expect(CHAR_COLON).is_err() {
-                    JS_FreeAtom(&self.ctx, name);
-                    return Err(-1);
-                }
-                if self.parse_assign_expr().is_err() {
-                    JS_FreeAtom(&self.ctx, name);
-                    return Err(-1);
-                }
+                let (name, prop_type) = self.parse_property_name(true, true, false)?;
 
-                if name == JS_ATOM_NULL {
-                    set_object_name_computed(self);
-                    self.emit_op(OpCode::DEFINE_ARRAY_EL);
-                    self.emit_op(OpCode::DROP);
-                } else if name == JS_ATOM___proto__ {
-                    if has_proto {
-                        self.throw_syntax_error("duplicate __proto__ property name");
+                if prop_type == PROP_TYPE_VAR {
+                    // shortcut for x: x
+                    self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
+                    self.emit_atom_dup(name);
+                    self.emit_u16(self.cur_func().scope_level as _);
+                    self.emit_op(OpCode::DEFINE_FIELD);
+                    self.emit_atom_dup(name);
+                } else if self.token.val == CHAR_BRACKET_L {
+                    let is_getset = matches!(prop_type, PROP_TYPE_GET | PROP_TYPE_SET);
+                    let (func_type, func_kind, op_flags): (
+                        JSParseFunctionEnum,
+                        JSFunctionKindEnum,
+                        i32,
+                    ) = if is_getset {
+                        (
+                            // type
+                            if prop_type == PROP_TYPE_GET {
+                                JSParseFunctionEnum::JS_PARSE_FUNC_GETTER
+                            } else {
+                                JSParseFunctionEnum::JS_PARSE_FUNC_SETTER
+                            },
+                            // kind
+                            JSFunctionKindEnum::JS_FUNC_NORMAL,
+                            // opflags
+                            OP_DEFINE_METHOD_GETTER as i32 + prop_type - PROP_TYPE_GET,
+                        )
+                    } else {
+                        (
+                            // type
+                            JSParseFunctionEnum::JS_PARSE_FUNC_METHOD,
+                            // kind
+                            if prop_type == PROP_TYPE_STAR {
+                                JSFunctionKindEnum::JS_FUNC_GENERATOR
+                            } else if prop_type == PROP_TYPE_ASYNC {
+                                JSFunctionKindEnum::JS_FUNC_ASYNC
+                            } else if prop_type == PROP_TYPE_ASYNC_STAR {
+                                JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
+                            } else {
+                                JSFunctionKindEnum::JS_FUNC_NORMAL
+                            },
+                            // opflags
+                            OP_DEFINE_METHOD_METHOD as i32,
+                        )
+                    };
+
+                    if self
+                        .parse_function_decl(
+                            func_type,
+                            func_kind,
+                            JS_ATOM_NULL,
+                            start_ptr,
+                            start_line,
+                        )
+                        .is_err()
+                    {
                         JS_FreeAtom(&self.ctx, name);
                         return Err(-1);
                     }
-                    self.emit_op(OpCode::SET_PROTO);
-                    has_proto = true;
-                } else {
-                    self.set_object_name(name);
-                    self.emit_op(OpCode::DEFINE_FIELD);
-                    self.emit_atom_dup(name);
-                }
-            }
 
-            JS_FreeAtom(&self.ctx, name);
+                    if name == JS_ATOM_NULL {
+                        self.emit_op(OpCode::DEFINE_METHOD_COMPUTED);
+                    } else {
+                        self.emit_op(OpCode::DEFINE_METHOD);
+                        self.emit_atom_dup(name);
+                    }
+                    self.emit_u8(op_flags as u8 | OP_DEFINE_METHOD_ENUMERABLE);
+                } else {
+                    if self.parse_expect(CHAR_COLON).is_err() {
+                        JS_FreeAtom(&self.ctx, name);
+                        return Err(-1);
+                    }
+                    if self.parse_assign_expr().is_err() {
+                        JS_FreeAtom(&self.ctx, name);
+                        return Err(-1);
+                    }
+
+                    if name == JS_ATOM_NULL {
+                        unsafe {
+                            set_object_name_computed(self);
+                        }
+                        self.emit_op(OpCode::DEFINE_ARRAY_EL);
+                        self.emit_op(OpCode::DROP);
+                    } else if name == JS_ATOM___proto__ {
+                        if has_proto {
+                            self.throw_syntax_error("duplicate __proto__ property name");
+                            JS_FreeAtom(&self.ctx, name);
+                            return Err(-1);
+                        }
+                        self.emit_op(OpCode::SET_PROTO);
+                        has_proto = true;
+                    } else {
+                        self.set_object_name(name);
+                        self.emit_op(OpCode::DEFINE_FIELD);
+                        self.emit_atom_dup(name);
+                    }
+                }
+
+                JS_FreeAtom(&self.ctx, name);
+            }
 
             // next
             if self.token.val != ',' as i32 {
                 break;
             }
             self.next_token()?;
-        } // while
+        } // while token is '}'
 
         self.parse_expect(CHAR_CURLY_R)
     }
