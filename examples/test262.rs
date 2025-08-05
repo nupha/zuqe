@@ -437,7 +437,7 @@ fn run_test_file(
             dump_error(&ctx, &exc, msg.as_ref(), outf);
 
             // write to err
-            write!(errf, "{} ... ", filename.display()).unwrap();
+            writeln!(errf, "{}", filename.display()).unwrap();
             writeln!(outf, "FAIL: can't eval harness").unwrap();
             dump_error(&ctx, &exc, msg.as_ref(), errf);
 
@@ -513,7 +513,7 @@ fn run_test_file(
                             dump_error(&ctx, &exc, msg.as_ref(), outf);
 
                             // write to err file
-                            write!(errf, "{} ... ", filename.display()).unwrap();
+                            writeln!(errf, "{}", filename.display()).unwrap();
                             writeln!(
                                 outf,
                                 "fail: expects error class '{}', got '{}'",
@@ -529,7 +529,7 @@ fn run_test_file(
                     writeln!(outf, "fail").unwrap();
                     dump_error(&ctx, &exc, msg.as_ref(), outf);
 
-                    write!(errf, "{} ... ", filename.display()).unwrap();
+                    writeln!(errf, "{}", filename.display()).unwrap();
                     dump_error(&ctx, &exc, msg.as_ref(), errf);
                 }
             } else {
@@ -541,7 +541,7 @@ fn run_test_file(
                     )
                     .unwrap();
 
-                    write!(errf, "{} ... ", filename.display()).unwrap();
+                    writeln!(errf, "{}", filename.display()).unwrap();
                     writeln!(
                         errf,
                         "fail: [NEGATIVE] expects error {}",

@@ -1645,6 +1645,7 @@ impl Bytecode {
                         if name == JS_ATOM_NULL {
                             // compute name from value SP[-2]
                             name = if let Ok(a) = SP_REF!(-2).coerce_to_atom(ctx) {
+                                println!("[O.o] {a:?}, {:?}", a.utf8(ctx.rt()));
                                 a
                             } else {
                                 break State::Exception;

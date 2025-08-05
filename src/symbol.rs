@@ -1,19 +1,19 @@
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_SYMBOL, JS_PROP_STRING_DEF,
-    atom::{AtomHintAndId, AtomTypeHint, JSAtom},
+    atom::{AtomTypeHint, JSAtom},
     context::JSContext,
     error::JSResult,
     function::{CallContext, NativeField},
     object::JS_PROP_CONFIGURABLE,
-    string::{JSString, StringContent},
+    string::JSString,
 };
 
 use super::value::JSValue;
 
 impl JSContext {
-    pub fn create_symbol(&self, str: JSString, atom_type: AtomTypeHint) -> JSResult {
+    pub fn create_symbol(&self, str: Option<JSString>, atom_type: AtomTypeHint) -> JSResult {
         let rt = self.rt_mut();
-        let a = rt.register_atom(Some(str), atom_type)?;
+        let a = rt.register_atom(str, atom_type)?;
         let ss = rt.get_atom_desc(a).unwrap();
         Ok(JSValue::Symbol(ss))
     }
@@ -22,7 +22,7 @@ impl JSContext {
     pub fn create_symbol_from_atom(&self, atom: JSAtom, atom_type: AtomTypeHint) -> JSResult {
         debug_assert!(!atom.is_int_type());
         let s = self.rt().get_atom_desc(atom).unwrap().clone();
-        self.create_symbol(s, atom_type)
+        self.create_symbol(Some(s), atom_type)
     }
 }
 
@@ -35,23 +35,6 @@ pub(crate) fn symbol_to_atom(val: &JSValue) -> JSAtom {
     }
 }
 
-/// return TRUE if 'atom' is a symbol with a string description
-pub fn JS_AtomSymbolHasDescription(ctx: &JSContext, atom: JSAtom) -> bool {
-    if atom.is_int_type() {
-        return false;
-    }
-
-    ctx.rt()
-        .get_atom_desc(atom)
-        .map(|p| {
-            matches!(
-                p.atom_info().unwrap(),
-                AtomHintAndId::Symbol(_) | AtomHintAndId::GlobalSymbol(_)
-            ) && !(p.is_empty() && p.is_wide_char())
-        })
-        .unwrap()
-}
-
 pub fn js_symbol_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let new_target = cc.this();
     if !new_target.is_undefined() {
@@ -59,19 +42,18 @@ pub fn js_symbol_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    let ss = if cc.arg(0).is_undefined() {
-        ctx.create_string_from_content(StringContent::Empty)
+    let ss: Option<JSString> = if cc.arg(0).is_undefined() {
+        None
     } else {
-        cc.arg(0).coerce_to_string(ctx)?
+        Some(
+            if let JSValue::String(s) = cc.arg(0).coerce_to_string(ctx)? {
+                s
+            } else {
+                unreachable!()
+            },
+        )
     };
-    ctx.create_symbol(
-        if let JSValue::String(ss) = ss {
-            ss
-        } else {
-            unreachable!()
-        },
-        AtomTypeHint::Symbol,
-    )
+    ctx.create_symbol(ss, AtomTypeHint::Symbol)
 
     // // let mut str: JSValue = mem::zeroed();
     // // let mut p: *mut JSString = mem::zeroed();
@@ -118,7 +100,7 @@ pub fn js_symbol_valueOf(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_symbol_get_description(ctx: &JSContext, cc: CallContext) -> JSResult {
     if let JSValue::Symbol(p) = js_thisSymbolValue(ctx, cc.this())? {
-        if p.is_empty() && !p.is_wide_char() {
+        if p.is_empty() && !p.is_wide() {
             Ok(JSValue::UNDEFINED)
         } else {
             Ok(JSValue::String(p))

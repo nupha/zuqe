@@ -3782,3 +3782,9 @@ pub fn JS_IteratorClose(
 pub fn build_for_in_iterator(ctx: &JSContext, obj: JSValue) -> JSValue {
     ForInIterator::new(ctx, obj).map_or(JSValue::EXCEPTION, JSValue::Object)
 }
+
+/// return TRUE if 'atom' is a symbol with a string description
+#[deprecated(note = "use JSAtom::has_description() instead")]
+pub fn JS_AtomSymbolHasDescription(ctx: &JSContext, atom: JSAtom) -> bool {
+    atom.has_description(ctx)
+}

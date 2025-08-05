@@ -717,7 +717,7 @@ pub fn js_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
     if toLocaleString == 0 && cc.length() > 0 && !cc.arg(0).is_undefined() {
         let sep = cc.arg(0).coerce_to_string(ctx)?;
         let ss = unsafe { sep.string_unchecked() };
-        c = if ss.len() == 1 && !ss.is_wide_char() {
+        c = if ss.len() == 1 && !ss.is_wide() {
             ss.content().as_bytes()[0] as i32
         } else {
             -1

@@ -20,7 +20,6 @@ use crate::{
     },
     stack_frame::StackFrame,
     string::JS_ConcatString3,
-    symbol::JS_AtomSymbolHasDescription,
     value::{JSValue, JSValueConst},
 };
 
@@ -239,7 +238,7 @@ pub fn js_has_unscopable(ctx: &JSContext, obj: &JSValueConst, atom: JSAtom) -> i
 
 pub fn js_get_function_name(ctx: &JSContext, name: JSAtom) -> JSValue {
     let mut name_str = name.to_value(ctx, true);
-    if JS_AtomSymbolHasDescription(ctx, name) {
+    if name.has_description(ctx) {
         name_str = unsafe { JS_ConcatString3(ctx, c"[", name_str, c"]") };
     }
     name_str

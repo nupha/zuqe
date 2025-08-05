@@ -18,7 +18,10 @@ use super::string::JS_STRING_LEN_MAX;
 
 #[derive(Debug)]
 pub enum StringContent {
+    /// string with no content
     Empty,
+    /// null string, sementically differs Empty string.
+    Null,
     Utf8(Vec<u8>),
     Utf16(Vec<u16>),
 }
@@ -83,7 +86,7 @@ impl StringContent {
 
     pub fn reserve(&mut self, cap: usize) -> Result<(), TryReserveError> {
         match self {
-            Self::Empty => {
+            Self::Empty | Self::Null => {
                 let _ = std::mem::replace(self, Self::Utf8(Vec::<u8>::try_with_capacity(cap)?));
                 Ok(())
             }
@@ -94,7 +97,7 @@ impl StringContent {
 
     pub fn try_reserve_exact(&mut self, cap: usize) -> Result<(), TryReserveError> {
         match self {
-            Self::Empty => {
+            Self::Empty | Self::Null => {
                 let _ = std::mem::replace(self, Self::Utf8(Vec::<u8>::try_with_capacity(cap)?));
                 Ok(())
             }
@@ -105,7 +108,7 @@ impl StringContent {
 
     pub fn shrink_to_fit(&mut self) {
         match self {
-            Self::Empty => {}
+            Self::Empty | Self::Null => {}
             Self::Utf8(s) => s.shrink_to_fit(),
             Self::Utf16(s) => s.shrink_to_fit(),
         }
@@ -115,6 +118,7 @@ impl StringContent {
     pub fn copy_to_new(&self) -> Result<Self, TryReserveError> {
         match self {
             Self::Empty => Ok(Self::Empty),
+            Self::Null => Ok(Self::Null),
             Self::Utf8(s) => {
                 let s2 = s.try_clone()?;
                 Ok(Self::Utf8(s2))
@@ -130,7 +134,7 @@ impl StringContent {
         let s = str.as_ref();
         if !s.is_empty() {
             match self {
-                Self::Empty => {
+                Self::Empty | Self::Null => {
                     let cc = if s.is_ascii() {
                         let mut d = Vec::<u8>::try_with_capacity(s.len())?;
                         d.try_extend_from_slice(s.as_bytes())?;
@@ -175,8 +179,8 @@ impl StringContent {
         let orig_content = std::mem::replace(self, Self::Empty);
 
         let new_content: Self = match (orig_content, sref.src) {
-            (s, Self::Empty) => s,
-            (Self::Empty, _) => sref.to_owned()?,
+            (s, Self::Empty | Self::Null) => s,
+            (Self::Empty | Self::Null, _) => sref.to_owned()?,
             (Self::Utf16(mut s1), Self::Utf16(s2)) => {
                 if let Err(e) = s1.try_reserve_exact(s2.len()) {
                     let _ = std::mem::replace(self, Self::Utf16(s1));
@@ -239,7 +243,7 @@ impl StringContent {
 
     pub fn push_u8_slice(&mut self, s8: &[u8]) -> Result<(), TryReserveError> {
         match self {
-            Self::Empty => {
+            Self::Empty | Self::Null => {
                 let d = s8.iter().copied().try_collect::<Vec<_>>()?;
                 let _ = std::mem::replace(self, Self::Utf8(d));
             }
@@ -257,7 +261,7 @@ impl StringContent {
 
     pub fn push_u16_slice(&mut self, s16: &[u16]) -> Result<(), TryReserveError> {
         match self {
-            Self::Empty => {
+            Self::Empty | Self::Null => {
                 let d = s16.iter().copied().try_collect::<Vec<_>>()?;
                 let _ = std::mem::replace(self, Self::Utf16(d));
             }
@@ -308,7 +312,7 @@ impl StringContent {
         let len = std::cmp::max(sz.0, sz.1.unwrap_or(1));
 
         match self {
-            Self::Empty => {
+            Self::Empty | Self::Null => {
                 let mut d = Vec::<u16>::try_with_capacity(len)?;
                 for c in chars {
                     d.try_extend_from_slice(c.encode_utf16(&mut [0; 4]))?;
@@ -370,7 +374,7 @@ impl StringContent {
 
     pub const fn as_bytes(&self) -> &[u8] {
         match self {
-            Self::Empty => &[],
+            Self::Empty | Self::Null => &[],
             Self::Utf8(s) => s.as_slice(),
             Self::Utf16(s) => unsafe {
                 std::slice::from_raw_parts(s.as_ptr().cast::<u8>(), s.len() * 2)
@@ -381,7 +385,7 @@ impl StringContent {
     /// encode content to utf8 str
     pub fn to_str(&self) -> Cow<'_, str> {
         match self {
-            Self::Empty => Cow::Borrowed(""),
+            Self::Empty | Self::Null => Cow::Borrowed(""),
             Self::Utf8(s) => Cow::Borrowed(unsafe { std::str::from_utf8_unchecked(s) }),
             Self::Utf16(s) => Cow::Owned(U16Str::from_slice(s).to_string_lossy()),
         }
@@ -390,7 +394,7 @@ impl StringContent {
     /// string length
     pub fn len(&self) -> usize {
         match self {
-            Self::Empty => 0,
+            Self::Empty | Self::Null => 0,
             Self::Utf8(s) => s.len(),
             Self::Utf16(slice) => {
                 // count unichars
@@ -417,7 +421,7 @@ impl StringContent {
     /// capacity
     pub const fn capacity(&self) -> usize {
         match self {
-            Self::Empty => 0,
+            Self::Empty | Self::Null => 0,
             Self::Utf8(s) => s.capacity(),
             Self::Utf16(s) => s.capacity(),
         }
@@ -425,11 +429,21 @@ impl StringContent {
 
     #[inline(always)]
     pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        matches!(self, Self::Empty)
     }
 
     #[inline(always)]
-    pub const fn is_utf16(&self) -> bool {
+    pub fn is_null(&self) -> bool {
+        matches!(self, Self::Null)
+    }
+
+    #[inline(always)]
+    pub fn is_empty_or_null(&self) -> bool {
+        matches!(self, Self::Empty | Self::Null)
+    }
+
+    #[inline(always)]
+    pub const fn is_wide(&self) -> bool {
         matches!(self, Self::Utf16(_))
     }
 
@@ -475,14 +489,14 @@ impl StringContent {
                     }
                 }
             }
-            Self::Empty => {}
+            Self::Empty | Self::Null => {}
         }
     }
 
     /// get chars iterator
     pub fn chars(&self) -> StringChars<'_> {
         match self {
-            Self::Empty => StringChars::Empty,
+            Self::Empty | Self::Null => StringChars::Empty,
             Self::Utf8(s) => StringChars::Utf8(unsafe { str::from_utf8_unchecked(s) }.chars()),
             Self::Utf16(s) => StringChars::Utf16(U16Str::from_slice(s).chars_lossy()),
         }
@@ -491,7 +505,7 @@ impl StringContent {
     /// get chars iterator
     pub fn chars_indices(&self) -> StringCharIndices<'_> {
         match self {
-            Self::Empty => StringCharIndices::Empty,
+            Self::Empty | Self::Null => StringCharIndices::Empty,
             Self::Utf8(s) => {
                 StringCharIndices::Utf8(unsafe { str::from_utf8_unchecked(s) }.char_indices())
             }
@@ -503,6 +517,7 @@ impl StringContent {
     pub fn eq_str(&self, other: &str) -> bool {
         match self {
             Self::Empty => other.is_empty(),
+            Self::Null => false,
             Self::Utf8(s) => s.len() == other.len() && s.as_slice() == other.as_bytes(),
             Self::Utf16(s) => {
                 let mut a = U16Str::from_slice(s).chars_lossy();
@@ -529,14 +544,10 @@ impl StringContent {
     /// calc hash for string content
     #[inline]
     pub fn calc_hash(&self, atom_type: AtomTypeHint) -> u32 {
-        let mut h = if atom_type == AtomTypeHint::GlobalSymbol {
-            AtomTypeHint::String
-        } else {
-            atom_type
-        } as u32;
+        let mut h = atom_type as u32;
 
         match &self {
-            Self::Empty => h,
+            Self::Empty | Self::Null => h,
             Self::Utf8(s) => {
                 for c in s {
                     h = hash_char((*c) as u32, h);
@@ -682,7 +693,11 @@ impl StringContent {
 impl PartialEq for StringContent {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
+            // don't change arm order
+            (Self::Null, Self::Null) => true,
+            (Self::Null, _) | (_, Self::Null) => false,
             (Self::Empty, _) | (_, Self::Empty) => self.len() == other.len(),
+
             (Self::Utf8(s1), Self::Utf8(s2)) => s1 == s2,
             (Self::Utf16(s1), Self::Utf16(s2)) => s1 == s2,
             (Self::Utf8(s1), Self::Utf16(s2)) => {
@@ -735,6 +750,9 @@ impl Ord for StringContent {
             (Self::Empty, Self::Empty) => Ordering::Equal,
             (Self::Empty, _) => Ordering::Less,
             (_, Self::Empty) => Ordering::Greater,
+            (Self::Null, Self::Null) => Ordering::Equal,
+            (Self::Null, _) => Ordering::Less,
+            (_, Self::Null) => Ordering::Greater,
             (Self::Utf8(s1), Self::Utf8(s2)) => s1.cmp(s2),
             (Self::Utf16(s1), Self::Utf16(s2)) => s1.cmp(s2),
             (Self::Utf8(s1), Self::Utf16(s2)) => {
@@ -849,7 +867,7 @@ impl StringContentSlice<'_> {
         if len == 0 {
             Ok(StringContent::Empty)
         } else {
-            let mut res = StringContent::with_capacity(len, self.src.is_utf16())?;
+            let mut res = StringContent::with_capacity(len, self.src.is_wide())?;
             match self.src {
                 StringContent::Utf8(src) => {
                     let _ = res.push_u8_slice(&src[self.ranges.clone()]);

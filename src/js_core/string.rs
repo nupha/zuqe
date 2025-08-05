@@ -580,7 +580,7 @@ pub fn js_string_repeat(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    let mut res_string = StringContent::with_capacity(n * len, p.is_wide_char()).map_err(|_| {
+    let mut res_string = StringContent::with_capacity(n * len, p.is_wide()).map_err(|_| {
         ctx.throw_out_of_memory();
         -1
     })?;
@@ -864,7 +864,7 @@ pub fn js_string_toLowerCase(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     let sc = match p.content().as_ref() {
-        StringContent::Empty => unreachable!(),
+        StringContent::Empty | StringContent::Null => unreachable!(),
         StringContent::Utf8(s) => {
             let mut d = Vec::<u8>::try_with_capacity(s.len()).map_err(|_| {
                 ctx.throw_out_of_memory();

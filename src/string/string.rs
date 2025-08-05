@@ -80,15 +80,25 @@ impl JSStringInner {
     /// Checks if the string is empty (zero length)
     #[inline(always)]
     pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        self.len() == 0 && !self.is_null()
+    }
+
+    #[inline(always)]
+    pub fn is_null(&self) -> bool {
+        self.content.is_null()
+    }
+
+    #[inline(always)]
+    pub fn is_empty_or_null(&self) -> bool {
+        self.content.is_empty_or_null()
     }
 
     /// Checks if the string uses UTF-16 encoding
     /// Returns true for strings containing non-ASCII characters
     /// Returns false for ASCII-only strings (stored as UTF-8)
     #[inline(always)]
-    pub fn is_wide_char(&self) -> bool {
-        self.content.is_utf16()
+    pub fn is_wide(&self) -> bool {
+        self.content.is_wide()
     }
 
     /// Get hash value of the string.
@@ -195,24 +205,39 @@ impl JSString {
         self.0.id()
     }
 
+    #[inline(always)]
     pub fn rt(&self) -> &JSRuntime {
         self.0.rt()
     }
 
+    #[inline(always)]
     pub fn content(&self) -> &StringContentRc {
         self.0.content()
     }
 
+    #[inline(always)]
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
+    #[inline(always)]
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 
-    pub fn is_wide_char(&self) -> bool {
-        self.0.is_wide_char()
+    #[inline(always)]
+    pub fn is_null(&self) -> bool {
+        self.0.is_null()
+    }
+
+    #[inline(always)]
+    pub fn is_empty_or_null(&self) -> bool {
+        self.0.is_empty_or_null()
+    }
+
+    #[inline(always)]
+    pub fn is_wide(&self) -> bool {
+        self.0.is_wide()
     }
 
     /// Get hash value of the string.
@@ -287,7 +312,7 @@ impl JSString {
         let rep_cc = replacement.content();
 
         let mut res_content =
-            StringContent::with_capacity(str.len(), str.is_wide_char()).map_err(|_| {
+            StringContent::with_capacity(str.len(), str.is_wide()).map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1
             })?;
@@ -464,6 +489,8 @@ impl JSStringWeakref {
 impl JSContext {
     /// create string value from string content.
     pub fn create_string_from_content(&self, content: StringContent) -> JSValue {
+        debug_assert_ne!(content, StringContent::Null);
+
         if content == StringContent::Empty {
             JS_ATOM_empty_string.to_value(self, true)
         } else {
@@ -605,7 +632,7 @@ pub unsafe fn JS_ConcatString3(
     let len3 = str3.count_bytes();
 
     let mut res_string =
-        if let Ok(s) = StringContent::with_capacity(len1 + (*p).len() + len3, p.is_wide_char()) {
+        if let Ok(s) = StringContent::with_capacity(len1 + (*p).len() + len3, p.is_wide()) {
             s
         } else {
             return JSValue::EXCEPTION;

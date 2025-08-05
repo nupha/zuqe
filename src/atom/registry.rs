@@ -1,6 +1,7 @@
 use std::{collections::hash_map::Entry, ffi::CStr, num::NonZeroU16, rc::Rc};
 
 use crate::{
+    atom::{JS_ATOM_HASH_PRIVATE, JS_ATOM_HASH_SYMBOL},
     runtime::JSRuntime,
     string::{JSString, StringContent},
 };
@@ -41,16 +42,16 @@ impl JSRuntime {
     /// returned atom has ownership, caller should free it after use.
     pub(crate) fn register_atom(
         &mut self,
-        mut desc: Option<JSString>,
-        type_hint: AtomTypeHint,
+        mut str: Option<JSString>,
+        mut atom_type: AtomTypeHint,
     ) -> Result<JSAtom, i32> {
         // match str aginst existing atoms, don't register twice for same content.
-        let atom_desc = match type_hint {
+        let atom_desc = match atom_type {
             AtomTypeHint::String | AtomTypeHint::GlobalSymbol => {
-                let ss = desc.take().unwrap();
+                let ss = str.take().unwrap();
 
                 if let Some(at) = ss.atom_info() {
-                    if at.type_hint() == type_hint {
+                    if at.type_hint() == atom_type {
                         let a = at.atom();
                         if !a.is_const() {
                             let _ = Rc::into_raw(ss.0); // leak string strong count
@@ -59,7 +60,7 @@ impl JSRuntime {
                     }
                 }
 
-                let hash = ss.content().calc_hash(type_hint);
+                let hash = ss.content().calc_hash(atom_type);
 
                 // match registered atoms for hash, type and content
                 match self.atom_hash_lut.entry(hash) {
@@ -71,7 +72,7 @@ impl JSRuntime {
                             let aptr = self.atom_slots[u16::from(aid) as usize];
                             if !aptr.is_null() {
                                 let at = unsafe { (*aptr).atom_info().unwrap() };
-                                if at.type_hint() == type_hint
+                                if at.type_hint() == atom_type
                                     && unsafe { (*aptr).content() } == ss.content()
                                 {
                                     // found existing atom, clone and reuse it.
@@ -97,7 +98,7 @@ impl JSRuntime {
             }
             AtomTypeHint::Symbol | AtomTypeHint::Private => {
                 // these atom types are unique, even for same string content.
-                let ss = if let Some(s) = desc.take() {
+                let ss = if let Some(s) = str.take() {
                     if s.atom_info().is_none() {
                         s
                     } else {
@@ -105,10 +106,17 @@ impl JSRuntime {
                         JSString::new(self, s.content().clone())
                     }
                 } else {
-                    JSString::new(self, Rc::new(StringContent::Empty))
+                    // null content string
+                    JSString::new(self, Rc::new(StringContent::Null))
                 };
 
-                let hash = ss.content().calc_hash(type_hint);
+                let hash = if atom_type == AtomTypeHint::Symbol {
+                    JS_ATOM_HASH_SYMBOL
+                } else {
+                    atom_type = AtomTypeHint::Symbol;
+                    JS_ATOM_HASH_PRIVATE
+                };
+                // ss.content().calc_hash(atom_type);
                 ss.set_hash(hash);
                 ss
             }
@@ -139,7 +147,7 @@ impl JSRuntime {
             (None, NonZeroU16::new(self.atom_slots.len() as u16).unwrap())
         };
 
-        atom_desc.set_atom_type(match type_hint {
+        atom_desc.set_atom_type(match atom_type {
             AtomTypeHint::String => AtomHintAndId::String(aid),
             AtomTypeHint::GlobalSymbol => AtomHintAndId::GlobalSymbol(aid),
             AtomTypeHint::Symbol => AtomHintAndId::Symbol(aid),

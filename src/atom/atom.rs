@@ -115,6 +115,23 @@ impl JSAtom {
         }
     }
 
+    /// test if atom has non-null string description
+    pub fn has_description(self, ctx: &JSContext) -> bool {
+        if self.is_int_type() {
+            return false;
+        }
+
+        ctx.rt()
+            .get_atom_desc(self)
+            .map(|p| {
+                let ai = p.atom_info().unwrap();
+                !p.is_null()
+                    && ((matches!(ai, AtomHintAndId::Symbol(_)) && p.hash() == JS_ATOM_HASH_SYMBOL)
+                        || matches!(ai, AtomHintAndId::GlobalSymbol(_)))
+            })
+            .unwrap()
+    }
+
     /// increase atom description ref count.
     #[inline]
     pub fn dup(self, rt: &JSRuntime) -> JSAtom {
@@ -464,7 +481,7 @@ pub fn JS_AtomIsNumericIndex1(ctx: &JSContext, atom: JSAtom) -> JSValue {
     }
 
     let p = ctx.rt().get_atom_desc(atom).expect("INVLID ATOM");
-    if p.is_empty() {
+    if p.is_empty_or_null() {
         return JSValue::UNDEFINED;
     }
 
