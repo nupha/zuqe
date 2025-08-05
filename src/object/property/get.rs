@@ -279,7 +279,7 @@ impl JSValue {
                     let nth = __JS_AtomToUInt32(prop);
                     return if nth < ss.len() as u32 {
                         let ch = ss.content().chars().nth(nth as usize).unwrap();
-                        ctx.create_string_from_char(ch).check_exception()
+                        ctx.create_string_from_char(ch).map(JSValue::String)
                     } else {
                         Ok(JSValue::UNDEFINED)
                     };

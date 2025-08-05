@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use crate::{
     context::JS_MODE_STRICT,
     parse::token::TokenData,
@@ -225,16 +227,11 @@ impl<'s> JSParseState<'s> {
             }
         }
 
-        let str_val = self
-            .ctx
-            .create_string_from_content(content)
-            .check_exception()?;
-
         // update token
         let tok = token.unwrap_or(&mut self.token);
         tok.val = TOK_STRING;
         tok.data = TokenData::Str {
-            str: str_val,
+            str: Rc::new(content),
             sep: sep as i32,
         };
 

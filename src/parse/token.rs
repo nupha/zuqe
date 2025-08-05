@@ -8,6 +8,7 @@ use crate::{
     },
     regexp::is_digit,
     runtime::js_check_stack_overflow,
+    string::{StringContent, StringContentRc},
     unicode::{UTF8_CHAR_LEN_MAX, unicode_from_utf8},
     value::JSValue,
 };
@@ -75,7 +76,7 @@ pub enum TokenData {
     None,
     Char(char),
     Str {
-        str: JSValue,
+        str: StringContentRc,
         sep: i32,
     },
     Num(JSValue),
@@ -126,7 +127,7 @@ impl TokenData {
     }
 
     /// if data is string type, returns string value.
-    pub fn string(&self) -> Option<&JSValue> {
+    pub fn string(&self) -> Option<&StringContentRc> {
         if let Self::Str { str, .. } = self {
             Some(str)
         } else {

@@ -3,6 +3,7 @@ use std::ffi::CStr;
 use crate::{
     parse::token::{TOK_REGEXP, TokenData},
     string::StringContent,
+    value::JSValue,
 };
 
 use super::JSParseState;
@@ -91,9 +92,16 @@ pub unsafe fn js_parse_regexp(s: &mut JSParseState) -> i32 {
 
         s.token.val = TOK_REGEXP;
         s.token.data = TokenData::Regexp {
-            body: s.ctx.create_string_from_content(res_string),
-            flags: s.ctx.create_string_from_content(res_string2),
+            body: s
+                .ctx
+                .create_string_from_content(res_string)
+                .map_or(JSValue::EXCEPTION, JSValue::String),
+            flags: s
+                .ctx
+                .create_string_from_content(res_string2)
+                .map_or(JSValue::EXCEPTION, JSValue::String),
         };
+
         s.buf_ptr = s.buf_ptr.add(offset);
         0
     } else {

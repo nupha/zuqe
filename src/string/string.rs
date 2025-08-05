@@ -267,11 +267,11 @@ impl JSString {
     }
 
     /// get sub string in specified range, and return the sub string value.
-    pub fn sub_string(&self, ctx: &JSContext, start: usize, end: usize) -> JSResult {
+    pub fn sub_string(&self, ctx: &JSContext, start: usize, end: usize) -> Result<JSString, i32> {
         let end = std::cmp::min(end, self.len());
 
         if start == 0 && end == self.len() {
-            Ok(JSValue::String(self.clone()))
+            Ok(self.clone())
         } else {
             let count = end.saturating_sub(start); // if end > start { end - start } else { 0 };
             if count > 0 {
@@ -279,9 +279,9 @@ impl JSString {
                     ctx.throw_out_of_memory();
                     -1
                 })?;
-                ctx.create_string_from_content(sub).check_exception()
+                ctx.create_string_from_content(sub)
             } else {
-                Ok(ctx.create_string_from_content(StringContent::Empty))
+                ctx.create_string_from_content(StringContent::Empty)
             }
         }
     }
@@ -299,7 +299,7 @@ impl JSString {
         captures: &JSValue,       // 命名捕获组对象。（对应 $1, $2 等）
         named_captures: &JSValue, // 命名捕获组。（对应 $<name>）
         replacement: &Self,       // 替换字符串或替换函数。
-    ) -> JSResult {
+    ) -> Result<JSString, i32> {
         let captures_len = if !captures.is_undefined() {
             js_get_length32(ctx, captures)?
         } else {
@@ -394,12 +394,10 @@ impl JSString {
                         let s = captures.get_property_i64(ctx, k as i64)?;
                         if !s.is_undefined() {
                             let sval = s.coerce_to_string(ctx)?;
-                            res_content
-                                .push(unsafe { sval.string_unchecked().content() })
-                                .map_err(|_| {
-                                    ctx.throw_out_of_memory();
-                                    -1
-                                })?;
+                            res_content.push(sval.content()).map_err(|_| {
+                                ctx.throw_out_of_memory();
+                                -1
+                            })?;
                         }
                     } else {
                         res_content
@@ -414,15 +412,13 @@ impl JSString {
                     // $<name> -> names_captures[name]
                     if let Some(k) = rep_cc.find_char('>', j as _) {
                         let name = replacement.sub_string(ctx, j, k)?;
-                        let capture = named_captures.get_property_value(ctx, &name)?;
+                        let capture = named_captures.get_property_value(ctx, &name.into())?;
                         if !capture.is_undefined() {
                             let sval = capture.coerce_to_string(ctx)?;
-                            res_content
-                                .push(unsafe { sval.string_unchecked().content() })
-                                .map_err(|_| {
-                                    ctx.throw_out_of_memory();
-                                    -1
-                                })?;
+                            res_content.push(sval.content()).map_err(|_| {
+                                ctx.throw_out_of_memory();
+                                -1
+                            })?;
                         }
                         j = k + 1;
                     } else {
@@ -455,7 +451,6 @@ impl JSString {
             })?;
 
         ctx.create_string_from_content(res_content)
-            .check_exception()
     }
 
     pub fn downgrade(&self) -> JSStringWeakref {
@@ -488,36 +483,40 @@ impl JSStringWeakref {
 
 impl JSContext {
     /// create string value from string content.
-    pub fn create_string_from_content(&self, content: StringContent) -> JSValue {
-        if content == StringContent::Empty {
-            JS_ATOM_empty_string.to_value(self, true)
+    pub fn create_string_from_content(&self, content: StringContent) -> Result<JSString, i32> {
+        if content.is_empty() {
+            JS_ATOM_empty_string.to_string(self)
         } else {
-            let s = JSString::new(self.rt_mut(), Rc::new(content));
-            JSValue::String(s)
+            Ok(JSString::new(self.rt_mut(), Rc::new(content)))
+        }
+    }
+
+    /// create string value from string content.
+    pub fn create_string_from_content_rc(&self, content: StringContentRc) -> Result<JSString, i32> {
+        if content.is_empty() {
+            JS_ATOM_empty_string.to_string(self)
+        } else {
+            Ok(JSString::new(self.rt_mut(), content))
         }
     }
 
     /// create string jsvalue from an utf8 encoded str.
-    pub fn create_string(&self, str: &str) -> JSValue {
+    pub fn create_string(&self, str: &str) -> Result<JSString, i32> {
         if str.is_empty() {
-            self.rt()
-                .get_atom_desc(JS_ATOM_empty_string)
-                .unwrap()
-                .into()
+            Ok(self.rt().get_atom_desc(JS_ATOM_empty_string).unwrap())
         } else if str.len() > JS_STRING_LEN_MAX {
             self.throw_internal_error("string too long");
-            JSValue::EXCEPTION
-        } else if let Ok(ss) = JSString::from_str(self.rt_mut(), str) {
-            JSValue::String(ss)
+            Err(-1)
         } else {
-            self.throw_out_of_memory();
-            JSValue::EXCEPTION
+            JSString::from_str(self.rt_mut(), str).inspect_err(|_| {
+                self.throw_out_of_memory();
+            })
         }
     }
 
     /// create string value from a single u16 char.
     /// returns JS_EXCEPTION if fail.
-    pub fn create_string_from_char(&self, ch: char) -> JSValue {
+    pub fn create_string_from_char(&self, ch: char) -> Result<JSString, i32> {
         self.create_string_from_content(if ch.is_ascii() {
             StringContent::Utf8(vec![ch as u8])
         } else {
@@ -526,17 +525,16 @@ impl JSContext {
     }
 
     /// create string jsvalue from an utf8 encoded str.
-    pub fn create_string_from_utf8(&self, utf8_bytes: Vec<u8>) -> JSValue {
+    pub fn create_string_from_utf8(&self, utf8_bytes: Vec<u8>) -> Result<JSString, i32> {
         if utf8_bytes.is_empty() {
-            JS_ATOM_empty_string.to_value(self, true)
+            JS_ATOM_empty_string.to_string(self)
         } else if utf8_bytes.len() > JS_STRING_LEN_MAX {
             self.throw_internal_error("string too long");
-            JSValue::EXCEPTION
-        } else if let Ok(ss) = JSString::from_utf8(self.rt_mut(), utf8_bytes) {
-            JSValue::String(ss)
+            Err(-1)
         } else {
-            self.throw_out_of_memory();
-            JSValue::EXCEPTION
+            JSString::from_utf8(self.rt_mut(), utf8_bytes).inspect_err(|_| {
+                self.throw_out_of_memory();
+            })
         }
     }
 }
@@ -594,7 +592,7 @@ pub fn is_num(c: i32) -> bool {
     ('0' as i32..='9' as i32).contains(&c)
 }
 
-pub fn JS_ToStringCheckObject(ctx: &JSContext, val: JSValueConst) -> JSResult {
+pub fn JS_ToStringCheckObject(ctx: &JSContext, val: JSValue) -> Result<JSString, i32> {
     if val.is_undefined_or_null() {
         ctx.throw_type_error("null or undefined are forbidden");
         Err(-1)
@@ -603,6 +601,7 @@ pub fn JS_ToStringCheckObject(ctx: &JSContext, val: JSValueConst) -> JSResult {
     }
 }
 
+#[deprecated(note = "use JSString::is_empty()")]
 pub fn JS_IsEmptyString(v: &JSValue) -> bool {
     if let JSValue::String(s) = v {
         s.is_empty()
@@ -612,38 +611,33 @@ pub fn JS_IsEmptyString(v: &JSValue) -> bool {
 }
 
 /// Note: string value `str2` is consumed inside.
-pub unsafe fn JS_ConcatString3(
+pub fn JS_ConcatString3(
     ctx: &JSContext,
     str1: &CStr,
-    mut str2: JSValue,
+    str2: JSValue,
     str3: &CStr,
-) -> JSValue {
-    if !matches!(str2, JSValue::String(_)) {
-        str2 = str2.coerce_to_string(ctx).unwrap_or(JSValue::EXCEPTION);
-        if str2.is_exception() {
-            return JSValue::EXCEPTION;
-        }
-    }
+) -> Result<JSString, i32> {
+    let p = if let JSValue::String(s) = str2 {
+        s
+    } else {
+        str2.coerce_to_string(ctx)?
+    };
 
-    let p = str2.string_unchecked();
     let len1 = str1.count_bytes();
     let len3 = str3.count_bytes();
 
-    let mut res_string =
-        if let Ok(s) = StringContent::with_capacity(len1 + (*p).len() + len3, p.is_wide()) {
-            s
-        } else {
-            return JSValue::EXCEPTION;
-        };
-
-    let r = res_string
-        .push_str(str1.to_string_lossy().as_ref())
-        .and_then(|_| res_string.push((*p).content()))
-        .and_then(|_| res_string.push_str(str3.to_string_lossy().as_ref()));
-
-    if r.is_err() {
-        return JSValue::EXCEPTION;
-    }
+    let res_string = StringContent::with_capacity(len1 + p.len() + len3, p.is_wide())
+        .and_then(|mut s| {
+            // str1 + str2 + str3
+            s.push_str(str1.to_string_lossy().as_ref())
+                .and_then(|_| s.push(p.content()))
+                .and_then(|_| s.push_str(str3.to_string_lossy().as_ref()))
+                .map(|_| s)
+        })
+        .map_err(|_| {
+            ctx.throw_out_of_memory();
+            -1
+        })?;
 
     ctx.create_string_from_content(res_string)
 }
@@ -651,34 +645,23 @@ pub unsafe fn JS_ConcatString3(
 /// op1 and op2 are converted to strings.
 /// For convience, op1 or op2 = JS_EXCEPTION are accepted and return JSValue::EXCEPTION.
 /// op1 and op2 are consumed
-pub unsafe fn JS_ConcatString(ctx: &JSContext, op1: JSValue, op2: JSValue) -> JSValue {
-    let str1 = if !op1.is_string() {
-        let v = op1.coerce_to_string(ctx).unwrap_or(JSValue::EXCEPTION);
-        if v.is_exception() {
-            return JSValue::EXCEPTION;
-        }
-        v
+pub fn JS_ConcatString(ctx: &JSContext, op1: JSValue, op2: JSValue) -> Result<JSString, i32> {
+    let p1 = if let JSValue::String(s) = op1 {
+        s
     } else {
-        op1
+        op1.coerce_to_string(ctx)?
     };
 
-    let str2 = if !op2.is_string() {
-        let v = op2.coerce_to_string(ctx).unwrap_or(JSValue::EXCEPTION);
-        if v.is_exception() {
-            return JSValue::EXCEPTION;
-        }
-        v
+    let p2 = if let JSValue::String(s) = op2 {
+        s
     } else {
-        op2
+        op2.coerce_to_string(ctx)?
     };
-
-    let p1 = str1.into_string_unchecked();
-    let p2 = str2.into_string_unchecked();
 
     if p1.is_empty() {
-        return p2.clone().into();
+        return Ok(p2);
     } else if p2.is_empty() {
-        return p1.clone().into();
+        return Ok(p1);
     }
 
     match Rc::try_unwrap(p1.0) {
@@ -689,7 +672,7 @@ pub unsafe fn JS_ConcatString(ctx: &JSContext, op1: JSValue, op2: JSValue) -> JS
                     if cc.push(p2.content()).is_err() {
                         ss.content = Rc::new(cc);
                         ctx.throw_out_of_memory();
-                        JSValue::EXCEPTION
+                        Err(-1)
                     } else {
                         ctx.create_string_from_content(cc)
                     }
@@ -698,26 +681,30 @@ pub unsafe fn JS_ConcatString(ctx: &JSContext, op1: JSValue, op2: JSValue) -> JS
                     if let Ok(mut cc2) = cc.copy_to_new() {
                         if cc2.push(p2.content()).is_err() {
                             ctx.throw_out_of_memory();
-                            JSValue::EXCEPTION
+                            Err(-1)
                         } else {
                             ctx.create_string_from_content(cc2)
                         }
                     } else {
                         ctx.throw_out_of_memory();
-                        JSValue::EXCEPTION
+                        Err(-1)
                     }
                 }
             }
         }
         Err(ss) => {
-            if let Ok(new_sc) = ss.content().copy_to_new().and_then(|mut s| {
-                s.push(p2.content())?;
-                Ok(s)
-            }) {
-                ctx.create_string_from_content(new_sc)
-            } else {
-                JSValue::EXCEPTION
-            }
+            let new_sc = ss
+                .content()
+                .copy_to_new()
+                .and_then(|mut s| {
+                    s.push(p2.content())?;
+                    Ok(s)
+                })
+                .map_err(|_| {
+                    ctx.throw_out_of_memory();
+                    -1
+                })?;
+            ctx.create_string_from_content(new_sc)
         }
     }
 }
@@ -767,14 +754,9 @@ impl JSValue {
             };
             Ok(ret)
         } else {
-            let str_val = self.coerce_to_string(ctx)?;
-            Ok(Cow::Owned(unsafe {
-                str_val
-                    .into_string_unchecked()
-                    .content()
-                    .to_str()
-                    .into_owned()
-            }))
+            Ok(Cow::Owned(
+                self.coerce_to_string(ctx)?.content().to_str().into_owned(),
+            ))
         }
     }
 }
@@ -814,7 +796,7 @@ pub unsafe fn strstart(str: *const u8, val: *const u8, ptr: *mut *const u8) -> b
 //
 pub fn js_string_get_own_property(
     ctx: &JSContext,
-    obj: JSValueConst,
+    obj: JSValue,
     prop: JSAtom,
 ) -> Result<Option<JSPropertyDescriptor>, i32> {
     // This is a class exotic method: obj class_id is JS_CLASS_STRING
@@ -831,7 +813,7 @@ pub fn js_string_get_own_property(
                 let ch = p1.content().chars().nth(idx as usize).unwrap();
                 return Ok(Some(JSPropertyDescriptor {
                     flags: JS_PROP_ENUMERABLE as _,
-                    value: ctx.create_string_from_char(ch),
+                    value: ctx.create_string_from_char(ch)?.into(),
                     getter: JSValue::UNDEFINED,
                     setter: JSValue::UNDEFINED,
                 }));

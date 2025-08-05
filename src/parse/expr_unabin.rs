@@ -341,7 +341,7 @@ impl<'s> JSParseState<'s> {
                 debug_assert!(fd.last_opcode_pos > 0);
                 fd.byte_code.truncate(fd.last_opcode_pos as _);
 
-                self.emit_push_const(name.to_value(&self.ctx, false), true)
+                self.emit_push_const(name.to_string(&self.ctx)?.into(), true)
                     .inspect_err(|_| {
                         JS_FreeAtom(&self.ctx, name);
                     })?;

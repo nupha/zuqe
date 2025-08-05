@@ -4,6 +4,7 @@ use crate::{
     defer,
     function::{JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
     module::{JSExportEntry, JSExportTypeEnum, JSImportEntry, ModuleDef, add_star_export_entry},
+    value::JSValue,
 };
 
 use super::{
@@ -41,11 +42,9 @@ impl<'s> JSParseState<'s> {
         }
 
         let module_name = self
-            .token
-            .data
-            .string()
-            .unwrap()
-            .coerce_to_atom(&self.ctx)?;
+            .ctx
+            .create_string_from_content_rc(self.token.data.string().unwrap().clone())
+            .and_then(|s| s.to_atom(&self.ctx))?;
 
         if self.next_token().is_err() {
             JS_FreeAtom(&self.ctx, module_name);
@@ -66,11 +65,9 @@ impl<'s> JSParseState<'s> {
 
         if self.token.val == TOK_STRING {
             module_name = self
-                .token
-                .data
-                .string()
-                .unwrap()
-                .coerce_to_atom(&self.ctx)?;
+                .ctx
+                .create_string_from_content_rc(self.token.data.string().unwrap().clone())
+                .and_then(|s| s.to_atom(&self.ctx))?;
 
             if self.next_token().is_err() {
                 JS_FreeAtom(&self.ctx, module_name);

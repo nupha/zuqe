@@ -8,6 +8,7 @@ use crate::{
     object::JSObject,
     parse::{JS_DetectModule, JSParseState},
     stack_frame::StackFrame,
+    string::JSString,
     value::JSValue,
 };
 
@@ -264,6 +265,26 @@ impl JSContext {
     }
 }
 
+impl JSString {
+    /// eval string source.
+    pub fn eval_as_source(
+        &self,
+        ctx: &JSContext,
+        this_obj: JSValue,
+        flags: u32,
+        scope_idx: i32,
+        filename: &str,
+    ) -> JSValue {
+        ctx.eval_source(
+            &this_obj,
+            self.content().to_str().as_bytes(),
+            filename,
+            flags,
+            scope_idx,
+        )
+    }
+}
+
 impl JSValue {
     /// eval js value `self`.
     /// When `self` is a:
@@ -278,13 +299,10 @@ impl JSValue {
         flags: u32,
         scope_idx: i32,
     ) -> JSValue {
-        if !self.is_string() {
-            self.clone()
+        if let Self::String(s) = self {
+            s.eval_as_source(ctx, this_obj, flags, scope_idx, "<input>")
         } else {
-            match self.coerce_to_utf8(ctx) {
-                Ok(str) => ctx.eval_source(&this_obj, str.as_bytes(), "<input>", flags, scope_idx),
-                Err(_) => JSValue::EXCEPTION,
-            }
+            self.clone()
         }
     }
 }

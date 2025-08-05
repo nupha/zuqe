@@ -19,9 +19,9 @@ pub fn js_object_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
     let mut tag_str: JSValue;
 
     if cc.this().is_null() {
-        tag_str = ctx.create_string("Null");
+        tag_str = ctx.create_string("Null")?.into();
     } else if cc.this().is_undefined() {
-        tag_str = ctx.create_string("Undefined");
+        tag_str = ctx.create_string("Undefined")?.into();
     } else {
         let obj = cc.this().coerce_to_object(ctx)?;
         let atom = if obj.is_array(ctx)? {
@@ -44,11 +44,11 @@ pub fn js_object_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
 
         tag_str = obj.get_property(ctx, JS_ATOM_Symbol_toStringTag)?;
         if !tag_str.is_string() {
-            tag_str = atom.to_value(ctx, true);
+            tag_str = atom.to_string_or_symbol(ctx, true)?;
         }
     }
 
-    unsafe { JS_ConcatString3(ctx, c"[object ", tag_str, c"]").check_exception() }
+    unsafe { JS_ConcatString3(ctx, c"[object ", tag_str, c"]").map(JSValue::String) }
 }
 
 // pub unsafe fn js_object_toLocaleString(

@@ -45,8 +45,8 @@ pub fn js_boolean_toString(ctx: &JSContext, args: CallContext) -> JSResult {
             return Err(-1);
         }
     }
-    .to_value(ctx, true)
-    .check_exception()
+    .to_string(ctx)
+    .map(JSValue::String)
 }
 
 pub fn js_boolean_valueOf(ctx: &JSContext, args: CallContext) -> JSResult {

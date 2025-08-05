@@ -34,10 +34,9 @@ impl JSValue {
                         HINT_NUMBER => JS_ATOM_number,
                         _ => JS_ATOM_default,
                     }
-                    .to_value(ctx, true)
-                    .check_exception()?;
+                    .to_string(ctx)?;
 
-                    let ret = JS_Call(ctx, &method, self, &[hint_val]).check_exception()?;
+                    let ret = JS_Call(ctx, &method, self, &[hint_val.into()]).check_exception()?;
                     return if !ret.is_object() {
                         Ok(ret)
                     } else {

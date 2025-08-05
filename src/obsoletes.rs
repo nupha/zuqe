@@ -61,14 +61,16 @@ pub unsafe fn set_value(ctx: &JSContext, pval: *mut JSValue, new_val: JSValue) {
 
 #[deprecated(note = "use JSContext::create_string() instead")]
 pub unsafe fn JS_NewStringLen(ctx: &JSContext, buf: *const u8, buf_len: usize) -> JSValue {
-    ctx.create_string(std::str::from_utf8_unchecked(std::slice::from_raw_parts(
-        buf, buf_len,
-    )))
+    unreachable!("unused");
+    // ctx.create_string(std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+    //     buf, buf_len,
+    // )))
 }
 
 #[deprecated(note = "use JSContext::create_string_utf8() instead")]
 pub unsafe fn JS_NewString(ctx: &JSContext, str: &CStr) -> JSValue {
-    ctx.create_string(str.to_string_lossy().as_ref())
+    unreachable!("unused");
+    // ctx.create_string(str.to_string_lossy().as_ref())
 }
 
 #[deprecated(note = "use JSRuntime::finalize() instead")]
@@ -357,16 +359,17 @@ pub unsafe fn is_num_string(pval: &mut u32, p: *const JSStringInner) -> bool {
 }
 
 /// `val` is consumed.
-#[deprecated(note = "use JSValue::coerce_to_string_value() instead")]
+#[deprecated(note = "use JSValue::coerce_to_string() instead")]
 pub fn JS_ToStringFree(ctx: &JSContext, val: JSValue) -> JSValue {
-    val.coerce_to_string(ctx).unwrap_or(JSValue::EXCEPTION)
+    unreachable!("unused")
 }
 
 /// `val` is consumed.
 #[deprecated(note = "use JSValue::to_locale_string() instead")]
 pub unsafe fn JS_ToLocaleStringFree(ctx: &JSContext, val: JSValue) -> JSValue {
-    let r = val.to_locale_string(ctx).unwrap_or(JSValue::EXCEPTION);
-    r
+    unreachable!("unused")
+    // let r = val.to_locale_string(ctx).unwrap_or(JSValue::EXCEPTION);
+    // r
 }
 
 #[deprecated(note = "unused")]
@@ -2125,7 +2128,8 @@ pub unsafe fn token_is_pseudo_keyword(s: *mut JSParseState, atom: JSAtom) -> boo
 
 #[deprecated(note = "use JSAtom::to_value() instead")]
 pub unsafe fn __JS_AtomToValue(ctx: &JSContext, atom: JSAtom, force_string: bool) -> JSValue {
-    atom.to_value(ctx, force_string)
+    atom.to_string_or_symbol(ctx, force_string)
+        .unwrap_or(JSValue::EXCEPTION)
 }
 
 #[deprecated(note = "use JSAtom::to_value() instead")]
@@ -2149,7 +2153,8 @@ pub unsafe fn JS_NewAtom(ctx: &JSContext, str: &CStr) -> JSAtom {
 
 #[deprecated(note = "use JSContext::create_atom_string() instead")]
 pub unsafe fn JS_NewAtomString(ctx: &JSContext, str: &str) -> JSValue {
-    ctx.create_atom_string(str).unwrap_or(JSValue::EXCEPTION)
+    ctx.create_atom_string(str)
+        .map_or(JSValue::EXCEPTION, JSValue::String)
 }
 
 #[deprecated(note = "use JSRuntime::register_atom_u32() instead")]
@@ -3081,16 +3086,17 @@ pub unsafe fn JS_NewSymbolFromAtom(
 
 #[deprecated(note = "use JSContext::create_symbol() instead")]
 pub fn JS_NewSymbol(ctx: &JSContext, p: JSString, atom_type: AtomTypeHint) -> JSValue {
-    match ctx.rt_mut().register_atom(Some(p), atom_type) {
-        Ok(a) => {
-            let ss = ctx.rt().get_atom_desc(a).unwrap();
-            JSValue::Symbol(ss)
-        }
-        Err(_) => {
-            ctx.throw_out_of_memory();
-            JSValue::EXCEPTION
-        }
-    }
+    unreachable!("unused");
+    // match ctx.rt_mut().register_atom(Some(p), atom_type) {
+    //     Ok(a) => {
+    //         let ss = ctx.rt().get_atom_desc(a).unwrap();
+    //         JSValue::Symbol(ss)
+    //     }
+    //     Err(_) => {
+    //         ctx.throw_out_of_memory();
+    //         JSValue::EXCEPTION
+    //     }
+    // }
 }
 
 #[deprecated(note = "use JSValue::coerce_to_atom() instead")]

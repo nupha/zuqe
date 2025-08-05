@@ -329,7 +329,7 @@ pub fn js_object_getOwnPropertyDescriptor(ctx: &JSContext, cc: CallContext) -> J
                 ret.define_property_value(
                     ctx,
                     JS_ATOM_writable,
-                    ((desc.flags & JS_PROP_WRITABLE) != 0).into(),
+                    desc.flags & JS_PROP_WRITABLE != 0,
                     flags,
                 )?;
             }
@@ -337,13 +337,13 @@ pub fn js_object_getOwnPropertyDescriptor(ctx: &JSContext, cc: CallContext) -> J
             ret.define_property_value(
                 ctx,
                 JS_ATOM_enumerable,
-                ((desc.flags & JS_PROP_ENUMERABLE) != 0).into(),
+                desc.flags & JS_PROP_ENUMERABLE != 0,
                 flags,
             )?;
             ret.define_property_value(
                 ctx,
                 JS_ATOM_configurable,
-                ((desc.flags & JS_PROP_CONFIGURABLE) != 0).into(),
+                desc.flags & JS_PROP_CONFIGURABLE != 0,
                 flags,
             )?;
 
@@ -359,8 +359,7 @@ pub fn js_object_getOwnPropertyDescriptors(ctx: &JSContext, cc: CallContext) -> 
     let res_obj = ctx.create_base_object()?;
 
     obj.own_property_names_foreach(ctx, JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK, |cx, name| {
-        let atom_value = name.atom.to_value(ctx, false).check_exception()?;
-
+        let atom_value = name.atom.to_string_or_symbol(ctx, false)?;
         let desc = js_object_getOwnPropertyDescriptor(
             ctx,
             CallContext::new(

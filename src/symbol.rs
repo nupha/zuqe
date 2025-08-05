@@ -13,7 +13,7 @@ use super::value::JSValue;
 impl JSContext {
     pub fn create_symbol(&self, str: Option<JSString>, atom_type: AtomTypeHint) -> JSResult {
         let rt = self.rt_mut();
-        let a = rt.register_atom(str, atom_type)?;
+        let a = rt.register_atom_internal(str, atom_type)?;
         let ss = rt.get_atom_desc(a).unwrap();
         Ok(JSValue::Symbol(ss))
     }
@@ -45,13 +45,7 @@ pub fn js_symbol_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let ss: Option<JSString> = if cc.arg(0).is_undefined() {
         None
     } else {
-        Some(
-            if let JSValue::String(s) = cc.arg(0).coerce_to_string(ctx)? {
-                s
-            } else {
-                unreachable!()
-            },
-        )
+        Some(cc.arg(0).coerce_to_string(ctx)?)
     };
     ctx.create_symbol(ss, AtomTypeHint::Symbol)
 
@@ -91,7 +85,7 @@ pub fn js_thisSymbolValue(ctx: &JSContext, this_val: &JSValue) -> JSResult {
 
 pub fn js_symbol_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
     let val = js_thisSymbolValue(ctx, cc.this())?;
-    ctx.create_string(val.repr().as_ref()).check_exception()
+    ctx.create_string(val.repr().as_ref()).map(JSValue::String)
 }
 
 pub fn js_symbol_valueOf(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -120,11 +114,8 @@ pub const js_symbol_proto_funcs: [NativeField; 5] = [
 ];
 
 fn js_symbol_for(ctx: &JSContext, cc: CallContext) -> JSResult {
-    if let JSValue::String(s) = cc.arg(0).coerce_to_string(ctx)? {
-        Ok(JSValue::Symbol(s))
-    } else {
-        unreachable!()
-    }
+    let s = cc.arg(0).coerce_to_string(ctx)?;
+    Ok(JSValue::Symbol(s))
 }
 
 fn js_symbol_keyFor(ctx: &JSContext, cc: CallContext) -> JSResult {

@@ -292,11 +292,12 @@ impl JSObject {
             let val: JSValue;
             match kind {
                 JSIteratorKindEnum::JS_ITERATOR_KIND_KEY => {
-                    val = name.atom.to_value(ctx, false);
-                    if val.is_exception() {
+                    val = if let Ok(v) = name.atom.to_string_or_symbol(ctx, false) {
+                        v
+                    } else {
                         has_err = true;
                         break;
-                    }
+                    };
                 }
                 JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE => {
                     if let Ok(v) = self.get_property(ctx, name.atom) {
@@ -314,11 +315,12 @@ impl JSObject {
                         break;
                     };
 
-                    let key = name.atom.to_value(ctx, false);
-                    if key.is_exception() {
+                    let key = if let Ok(v) = name.atom.to_string_or_symbol(ctx, false) {
+                        v
+                    } else {
                         has_err = true;
                         break;
-                    }
+                    };
                     if val
                         .create_data_property_u32(ctx, 0, key, JS_PROP_THROW)
                         .is_err()

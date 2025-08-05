@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use crate::{
     atom::consts::{JS_ATOM_concat, JS_ATOM_raw},
     bytecode::OpCode,
@@ -83,7 +85,7 @@ impl<'s> JSParseState<'s> {
         self.token.val = TOK_TEMPLATE;
         self.token.data = TokenData::Str {
             sep: c as _,
-            str: self.ctx.create_string_from_content(res_string),
+            str: Rc::new(res_string),
         };
         self.buf_ptr = p;
 
@@ -117,10 +119,14 @@ impl<'s> JSParseState<'s> {
             let mut cooked = self.token.clone();
 
             if call {
+                let txt = self
+                    .ctx
+                    .create_string_from_content_rc(self.token.data.string().unwrap().clone())?;
+
                 raw_array.define_property_value_u32(
                     &self.ctx,
                     depth as _,
-                    self.token.data.string().unwrap().clone(),
+                    txt.into(),
                     JS_PROP_ENUMERABLE | JS_PROP_THROW,
                 )?;
 
@@ -138,10 +144,14 @@ impl<'s> JSParseState<'s> {
                     }
                 }
 
+                let txt = self
+                    .ctx
+                    .create_string_from_content_rc(cooked.data.string().unwrap().clone())?;
+
                 template_object.define_property_value_u32(
                     &self.ctx,
                     depth as _,
-                    cooked.data.string().unwrap().clone(),
+                    txt.into(),
                     JS_PROP_ENUMERABLE | JS_PROP_THROW,
                 )?;
             } else {
@@ -154,9 +164,12 @@ impl<'s> JSParseState<'s> {
                 // }
 
                 p = self.parse_string('`', true, p, Some(&mut cooked))?;
-                let str = unsafe { cooked.data.string().unwrap().string_unchecked() };
+                let str = cooked.data.string().unwrap();
                 if depth == 0 || !str.is_empty() {
-                    self.emit_push_const(JSValue::String(str.clone()), true)?;
+                    self.emit_push_const(
+                        self.ctx.create_string_from_content_rc(str.clone())?.into(),
+                        true,
+                    )?;
 
                     if depth == 0 {
                         if self.token.data.string_sep().unwrap() == b'`' as i32 {

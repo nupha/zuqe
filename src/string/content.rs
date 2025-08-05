@@ -20,11 +20,14 @@ use super::string::JS_STRING_LEN_MAX;
 pub enum StringContent {
     /// string with no content
     Empty,
+
     /// null string - behaves like empty, but is for sementically differ only.
     /// only used when creating an anonymous Symbol,
     Null,
 
+    /// utf8 encoded bytes
     Utf8(Vec<u8>),
+    /// utf16 wide-chars
     Utf16(Vec<u16>),
 }
 

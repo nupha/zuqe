@@ -231,11 +231,11 @@ impl<'s> JSParseState<'s> {
             match self.token.val {
                 TOK_STRING => {
                     name.replace(
-                        self.token
-                            .data
-                            .string()
-                            .unwrap()
-                            .coerce_to_atom(&self.ctx)?
+                        self.ctx
+                            .create_string_from_content_rc(
+                                self.token.data.string().unwrap().clone(),
+                            )
+                            .and_then(|s| s.to_atom(&self.ctx))?
                             .into_rc(self.ctx.rt()),
                     );
                     self.next_token()?;

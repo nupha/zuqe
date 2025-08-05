@@ -180,9 +180,9 @@ impl ModuleDefInner {
     /// set module import.meta props.
     pub fn set_import_meta(&self, ctx: &JSContext, url: &str, is_main: bool) -> Result<(), i32> {
         let meta_obj = self.import_meta(ctx)?;
-        let sval = ctx.create_string(url);
+        let sval = ctx.create_string(url)?;
         meta_obj.define_property_value_str(ctx, "url", sval, JS_PROP_C_W_E)?;
-        meta_obj.define_property_value_str(ctx, "main", is_main.into(), JS_PROP_C_W_E)?;
+        meta_obj.define_property_value_str(ctx, "main", is_main, JS_PROP_C_W_E)?;
         Ok(())
     }
 

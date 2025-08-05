@@ -245,7 +245,12 @@ impl<'s> JSParseState<'s> {
                 self.parse_template(false, core::ptr::null_mut())?;
             }
             TOK_STRING => {
-                self.emit_push_const(self.token.data.string().cloned().unwrap(), true)?;
+                self.emit_push_const(
+                    self.ctx
+                        .create_string_from_content_rc(self.token.data.string().unwrap().clone())?
+                        .into(),
+                    true,
+                )?;
                 self.next_token()?;
             }
 

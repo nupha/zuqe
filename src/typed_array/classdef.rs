@@ -375,7 +375,9 @@ pub fn js_create_typed_array_iterator(ctx: &JSContext, cc: CallContext) -> JSRes
 pub unsafe fn js_typed_array_get_toStringTag(ctx: &JSContext, this_val: JSValueConst) -> JSValue {
     if let Ok(tao) = TryInto::<TypedArray>::try_into(this_val) {
         let class_name = ctx.rt().class_defs[tao.class_id() as usize].class_name;
-        class_name.to_value(ctx, true)
+        class_name
+            .to_string(ctx)
+            .map_or(JSValue::EXCEPTION, JSValue::String)
     } else {
         JSValue::UNDEFINED
     }
@@ -879,11 +881,9 @@ pub fn js_typed_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
 
             match v {
                 Ok(s) => {
-                    unsafe {
-                        if txt.push(s.string_unchecked().content()).is_err() {
-                            ctx.throw_out_of_memory();
-                            return Err(-1);
-                        }
+                    if txt.push(s.content()).is_err() {
+                        ctx.throw_out_of_memory();
+                        return Err(-1);
                     }
 
                     if txt.capacity() - txt.len() < 16 {
@@ -901,7 +901,7 @@ pub fn js_typed_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     }
 
-    ctx.create_string_from_content(txt).check_exception()
+    ctx.create_string_from_content(txt).map(JSValue::String)
 }
 
 pub fn js_typed_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {

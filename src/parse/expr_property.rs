@@ -34,7 +34,11 @@ impl<'s> JSParseState<'s> {
                 return Err(-1);
             }
             if get_prev_opcode(fd) == opcodes::OP_get_super {
-                let val = self.token.atom().unwrap().to_value(&self.ctx, false);
+                let val = self
+                    .token
+                    .atom()
+                    .unwrap()
+                    .to_string_or_symbol(&self.ctx, false)?;
                 self.emit_push_const(val, true)?;
                 self.emit_op(OpCode::GET_SUPER_VALUE);
             } else {

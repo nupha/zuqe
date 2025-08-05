@@ -195,7 +195,8 @@ pub unsafe fn js_function_set_properties(
         .define_property_value(
             ctx,
             JS_ATOM_name,
-            name.to_value(ctx, true),
+            name.to_string(ctx)
+                .map_or(JSValue::EXCEPTION, JSValue::String),
             JS_PROP_CONFIGURABLE,
         )
         .unwrap();

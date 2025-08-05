@@ -237,11 +237,18 @@ pub fn js_has_unscopable(ctx: &JSContext, obj: &JSValueConst, atom: JSAtom) -> i
 }
 
 pub fn js_get_function_name(ctx: &JSContext, name: JSAtom) -> JSValue {
-    let mut name_str = name.to_value(ctx, true);
-    if name.has_description(ctx) {
-        name_str = unsafe { JS_ConcatString3(ctx, c"[", name_str, c"]") };
+    if let Ok(name_str) = name.to_string(ctx) {
+        if name.has_description(ctx) {
+            unsafe {
+                JS_ConcatString3(ctx, c"[", name_str.into(), c"]")
+                    .map_or(JSValue::EXCEPTION, JSValue::String)
+            }
+        } else {
+            name_str.into()
+        }
+    } else {
+        JSValue::EXCEPTION
     }
-    name_str
 }
 
 pub fn js_method_set_home_object(func_obj: &JSValue, home_obj: Option<&JSObject>) {
@@ -271,10 +278,13 @@ pub fn js_method_set_properties(
     home_obj: &JSValue,
 ) -> i32 {
     let mut name_str = js_get_function_name(ctx, name);
+
     if flags & JS_PROP_HAS_GET != 0 {
-        name_str = unsafe { JS_ConcatString3(ctx, c"get ", name_str, c"") };
+        name_str = JS_ConcatString3(ctx, c"get ", name_str, c"")
+            .map_or(JSValue::EXCEPTION, JSValue::String);
     } else if flags & JS_PROP_HAS_SET != 0 {
-        name_str = unsafe { JS_ConcatString3(ctx, c"set ", name_str, c"") };
+        name_str = JS_ConcatString3(ctx, c"set ", name_str, c"")
+            .map_or(JSValue::EXCEPTION, JSValue::String);
     }
 
     if name_str.is_exception() {
@@ -484,7 +494,11 @@ pub fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
         }
 
         unsafe {
-            std::ptr::replace(sp.offset(0), prop.to_value(ctx, false)); // value
+            std::ptr::replace(
+                sp.offset(0),
+                prop.to_string_or_symbol(ctx, false)
+                    .unwrap_or(JSValue::EXCEPTION),
+            ); // value
             std::ptr::replace(sp.offset(1), JSValue::Bool(false)); // done?
         }
     } else {

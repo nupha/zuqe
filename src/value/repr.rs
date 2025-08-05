@@ -72,57 +72,78 @@ impl JSValue {
         }
     }
 
-    /// Convert value `self` to string value.
-    fn do_coerce_to_string(&self, ctx: &JSContext, as_propkey: bool) -> Result<JSValue, i32> {
-        let ret: JSValue = match self {
-            Self::String(s) => s.clone().into(),
-            Self::Int(i) => ctx.create_string_from_utf8(format!("{}", *i).into_bytes()),
-            Self::Bool(b) => if *b { JS_ATOM_true } else { JS_ATOM_false }.to_value(ctx, true),
-            Self::NULL => JS_ATOM_null.to_value(ctx, true),
-            Self::UNDEFINED => JS_ATOM_undefined.to_value(ctx, true),
+    /// Convert value `self` to string or symbol.
+    /// returns String or Symbol value.
+    fn coerce_to_string_or_symbol(
+        &self,
+        ctx: &JSContext,
+        allow_symbol: bool,
+    ) -> Result<JSValue, i32> {
+        let ret: Result<JSValue, i32> = match self {
+            Self::String(s) => Ok(s.clone().into()),
+            Self::Int(i) => ctx
+                .create_string_from_utf8(format!("{}", *i).into_bytes())
+                .map(JSValue::String),
+            Self::Bool(b) => if *b { JS_ATOM_true } else { JS_ATOM_false }
+                .to_string(ctx)
+                .map(JSValue::String),
+            Self::NULL => JS_ATOM_null.to_string(ctx).map(JSValue::String),
+            Self::UNDEFINED => JS_ATOM_undefined.to_string(ctx).map(JSValue::String),
+            Self::Object(_) => self
+                .coerce_to_primitive(ctx, HINT_STRING)?
+                .coerce_to_string_or_symbol(ctx, allow_symbol),
+            Self::Symbol(s) => {
+                if allow_symbol {
+                    Ok(JSValue::Symbol(s.clone()))
+                } else {
+                    ctx.throw_type_error("cannot convert symbol to string");
+                    Err(-1)
+                }
+            }
+            Self::Module(_) => ctx.create_string("[module]").map(JSValue::String),
+            Self::Bytecode(_) => ctx
+                .create_string("[function bytecode]")
+                .map(JSValue::String),
+            Self::Float64(n) => {
+                let s = f64_stringify(*n, 10, None, 0);
+                ctx.create_string(s.as_ref()).map(JSValue::String)
+            }
+            Self::UNINITIALIZED => ctx.create_string("[uninitialized]").map(JSValue::String),
+            Self::CatchOffset(_) => ctx.create_string("[cacthoffset]").map(JSValue::String),
+            Self::AsyncStateResume(_) => {
+                ctx.create_string("[asyncfuncresume]").map(JSValue::String)
+            }
             Self::EXCEPTION => {
                 return Err(-1);
             }
-            Self::Object(_) => {
-                let t = self.coerce_to_primitive(ctx, HINT_STRING)?;
-                t.do_coerce_to_string(ctx, as_propkey)?
-            }
-            Self::Bytecode(_) => ctx.create_string("[function bytecode]"),
-            Self::Symbol(_) => {
-                if as_propkey {
-                    self.clone()
-                } else {
-                    ctx.throw_type_error("cannot convert symbol to string");
-                    JSValue::EXCEPTION
-                }
-            }
-            Self::Module(_) => ctx.create_string("[module]"),
-            Self::Float64(n) => {
-                let s = f64_stringify(*n, 10, None, 0);
-                ctx.create_string(s.as_ref())
-            }
-            Self::UNINITIALIZED => ctx.create_string("[uninitialized]"),
-            Self::CatchOffset(_) => ctx.create_string("[cacthoffset]"),
-            Self::AsyncStateResume(_) => ctx.create_string("[asyncfuncresume]"),
         };
 
-        ret.check_exception()
+        ret
     }
 
     /// Coerce value to string.
     /// Returns a string type value or Err.
     #[inline(always)]
-    pub fn coerce_to_string(&self, ctx: &JSContext) -> JSResult {
-        self.do_coerce_to_string(ctx, false)
+    pub fn coerce_to_string(&self, ctx: &JSContext) -> Result<JSString, i32> {
+        if let Self::String(s) = self.coerce_to_string_or_symbol(ctx, false)? {
+            Ok(s)
+        } else {
+            unreachable!()
+        }
     }
 
     /// Invoking `toLocaleString()` method, returns result value.
     /// `self` is not consumed.
-    pub fn to_locale_string(&self, ctx: &JSContext) -> JSResult {
+    pub fn to_locale_string(&self, ctx: &JSContext) -> Result<JSString, i32> {
         if self.is_undefined_or_null() {
             self.coerce_to_string(ctx)
+        } else if let Self::String(s) =
+            JS_Invoke(ctx, self, JS_ATOM_toLocaleString, &[]).check_exception()?
+        {
+            Ok(s)
         } else {
-            JS_Invoke(ctx, self, JS_ATOM_toLocaleString, &[]).check_exception()
+            ctx.throw_internal_error("toLocaleString() must return string");
+            Err(-1)
         }
     }
 
@@ -130,7 +151,7 @@ impl JSValue {
     /// returns string or symbol value
     #[inline(always)]
     pub fn coerce_to_propkey(&self, ctx: &JSContext) -> Result<JSValue, i32> {
-        self.do_coerce_to_string(ctx, true)
+        self.coerce_to_string_or_symbol(ctx, true)
     }
 }
 

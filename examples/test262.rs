@@ -75,7 +75,7 @@ fn js_string_codePointRange(ctx: &JSContext, cc: CallContext) -> JSResult {
         })?;
     }
 
-    ctx.create_string_from_content(cc).check_exception()
+    ctx.create_string_from_content(cc).map(JSValue::String)
 }
 
 fn js_createRealm(ctx: &JSContext, _: CallContext) -> JSResult {
@@ -221,13 +221,13 @@ pub unsafe fn js_module_set_import_meta(
             .define_property_value_str(
                 ctx,
                 "url",
-                ctx.create_string_from_utf8(aurl.into_bytes()),
+                ctx.create_string_from_utf8(aurl.into_bytes()).unwrap(),
                 JS_PROP_C_W_E,
             )
             .unwrap();
 
         meta_obj
-            .define_property_value_str(ctx, "main", is_main.into(), JS_PROP_C_W_E)
+            .define_property_value_str(ctx, "main", is_main, JS_PROP_C_W_E)
             .unwrap();
 
         0

@@ -38,9 +38,10 @@ impl JSRuntime {
         }
     }
 
-    /// register an atom using JSString.
-    /// returned atom has ownership, caller should free it after use.
-    pub(crate) fn register_atom(
+    /// register an atom from `str` JSString. `str` could be None indicates atom has no string description.
+    /// returns atom with ownership, caller should free it after use.
+    /// Duplicated registration will simply return existing atom cloned.
+    pub(crate) fn register_atom_internal(
         &mut self,
         mut str: Option<JSString>,
         mut atom_type: AtomTypeHint,
@@ -183,13 +184,13 @@ impl JSRuntime {
         str: JSString,
         type_hint: AtomTypeHint,
     ) -> Result<JSAtom, i32> {
-        if let Ok(i) = str.content().parse_u32() {
-            if i <= JS_ATOM_MAX_INT {
-                return Ok(JSAtom::new_u32(i));
-            }
+        if let Ok(i) = str.content().parse_u32()
+            && i <= JS_ATOM_MAX_INT
+        {
+            Ok(JSAtom::new_u32(i))
+        } else {
+            self.register_atom_internal(Some(str), type_hint)
         }
-
-        self.register_atom(Some(str), type_hint)
     }
 
     /// register an atom from str

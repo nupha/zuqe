@@ -354,15 +354,17 @@ pub fn js_promise_all_resolve_element(ctx: &JSContext, mut cc: CallContext) -> J
 
     let obj: JSValue = if resolve_type == PROMISE_MAGIC_allSettled {
         let ob = ctx.create_base_object()?;
-        let strval = ctx
-            .create_string(if is_reject != 0 {
+
+        ob.define_property_value(
+            ctx,
+            JS_ATOM_status,
+            ctx.create_string(if is_reject != 0 {
                 "rejected"
             } else {
                 "fulfilled"
-            })
-            .check_exception()?;
-
-        ob.define_property_value(ctx, JS_ATOM_status, strval, JS_PROP_C_W_E)?;
+            })?,
+            JS_PROP_C_W_E,
+        )?;
         ob.define_property_value(
             ctx,
             if is_reject != 0 {

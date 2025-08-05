@@ -6,7 +6,7 @@ use crate::{
     mem::js_malloc_typed,
     regexp::is_digit,
     runtime::JSRuntime,
-    string::{JSStringInner, StringContent},
+    string::{JSString, JSStringInner, StringContent},
     value::JSValue,
 };
 
@@ -157,22 +157,30 @@ impl JSAtom {
         }
     }
 
-    /// Convert atom to JSValue (String or Symbol), returns EXCEPTION when out of memory.
+    /// Convert atom to String or Symbol value.
     /// Note: atom is not consumed.
-    pub fn to_value(self, ctx: &JSContext, force_string: bool) -> JSValue {
+    pub fn to_string_or_symbol(self, ctx: &JSContext, force_string: bool) -> Result<JSValue, i32> {
         if self.is_int_type() {
             ctx.create_string_from_utf8(format!("{}", __JS_AtomToUInt32(self)).into_bytes())
+                .map(JSValue::String)
         } else {
-            let ss = ctx.rt().get_atom_desc(self).expect("INVALID ATOM").clone();
-
-            if force_string {
+            let ss = ctx.rt().get_atom_desc(self).unwrap();
+            Ok(if force_string {
                 ss.into()
             } else if let AtomHintAndId::String(_) = ss.atom_info().unwrap() {
                 ss.into()
             } else {
-                // Symbol, GlobalSymbol, Private
                 JSValue::Symbol(ss)
-            }
+            })
+        }
+    }
+
+    /// Convert atom to JSString, a short-cut to `Self::to_string_or_symbol(s, true)`.
+    /// Note: atom is not consumed.
+    pub fn to_string(self, ctx: &JSContext) -> Result<JSString, i32> {
+        match self.to_string_or_symbol(ctx, true)? {
+            JSValue::String(s) | JSValue::Symbol(s) => Ok(s),
+            _ => unreachable!(),
         }
     }
 
@@ -297,16 +305,30 @@ impl JSContext {
             }
         }
 
-        let s = self.create_string(str).check_exception()?;
+        let s = self.create_string(str)?;
         self.rt_mut()
-            .register_atom_jsstring(unsafe { s.into_string_unchecked() }, AtomTypeHint::String)
+            .register_atom_jsstring(s, AtomTypeHint::String)
     }
 
-    pub fn create_atom_string(&self, str: &str) -> JSResult {
+    pub fn create_atom_string(&self, str: &str) -> Result<JSString, i32> {
         let atom = self.create_atom(str)?;
-        let val = atom.to_value(self, true).check_exception();
+        let val = atom.to_string(self);
         JS_FreeAtom(self, atom);
         val
+    }
+}
+
+impl JSString {
+    /// convert string to atom
+    pub fn to_atom(&self, ctx: &JSContext) -> Result<JSAtom, i32> {
+        if let Some(a) = self.atom_info() {
+            // str alreay registered as atom
+            Ok(a.atom())
+        } else {
+            // register str as atom
+            ctx.rt_mut()
+                .register_atom_jsstring(self.clone(), AtomTypeHint::String)
+        }
     }
 }
 
@@ -317,26 +339,36 @@ impl JSValue {
         match self {
             JSValue::Int(i) if *i as u32 <= JS_ATOM_MAX_INT => Ok(JSAtom::new_u32(*i as u32)),
             JSValue::Bool(b) => Ok(if *b { JS_ATOM_true } else { JS_ATOM_false }),
-            JSValue::UNDEFINED => Ok(JS_ATOM_undefined),
-            JSValue::NULL => Ok(JS_ATOM_null),
-            JSValue::Symbol(s) => Ok(s.atom_info().unwrap().atom().clone()),
-            JSValue::Float64(_) | JSValue::Object(_) | JSValue::String(_) | JSValue::Int(_) => {
+            JSValue::Symbol(s) => Ok(s.atom_info().unwrap().atom()),
+            JSValue::String(s) => s.to_atom(ctx),
+            JSValue::Object(_) | JSValue::Float64(_) | JSValue::Int(_) => {
                 match self.coerce_to_propkey(ctx)? {
-                    Self::Symbol(s) => Ok(s.atom_info().unwrap().atom().clone()),
-                    Self::String(s) => ctx.rt_mut().register_atom_jsstring(s, AtomTypeHint::String),
+                    Self::Symbol(s) => Ok(s.atom_info().unwrap().atom()),
+                    Self::String(s) => {
+                        if let Some(a) = s.atom_info() {
+                            // str alreay registered as atom
+                            Ok(a.atom())
+                        } else {
+                            // register str as atom
+                            ctx.rt_mut().register_atom_jsstring(s, AtomTypeHint::String)
+                        }
+                    }
                     _ => unreachable!(),
                 }
             }
-            JSValue::EXCEPTION => Err(-1),
+
+            JSValue::UNDEFINED => Ok(JS_ATOM_undefined),
+            JSValue::NULL => Ok(JS_ATOM_null),
 
             JSValue::UNINITIALIZED
             | JSValue::CatchOffset(_)
             | JSValue::Module(_)
             | JSValue::Bytecode(_)
             | JSValue::AsyncStateResume(_) => {
-                ctx.throw_type_error(&format!("cannot convert {} to atom", self.repr()));
+                ctx.throw_type_error(&format!("cannot convert {} to atom", self));
                 Err(-1)
             }
+            JSValue::EXCEPTION => Err(-1),
         }
     }
 }
@@ -530,7 +562,7 @@ pub fn JS_AtomIsNumericIndex1(ctx: &JSContext, atom: JSAtom) -> JSValue {
         // this is ECMA CanonicalNumericIndexString primitive
         if let Ok(num) = JSValue::String(p.clone()).coerce_to_number(ctx) {
             // test num as string is same to original value
-            if let Ok(JSValue::String(str)) = num.coerce_to_string(ctx) {
+            if let Ok(str) = num.coerce_to_string(ctx) {
                 if p.content().eq(str.content()) {
                     num
                 } else {
@@ -566,17 +598,12 @@ pub unsafe fn JS_InitAtoms(rt: &mut JSRuntime) -> Result<(), i32> {
 
 // return a string atom containing name concatenated with str1
 pub unsafe fn js_atom_concat_str(ctx: &JSContext, name: JSAtom, str1: *const u8) -> JSAtom {
-    let str_val = name.to_value(ctx, true);
-    if str_val.is_exception() {
-        return JS_ATOM_NULL;
-    }
-
-    let astr = if let Ok(s) = str_val.coerce_to_utf8(ctx.into()) {
+    let str_val = if let Ok(s) = name.to_string(ctx) {
         s
     } else {
         return JS_ATOM_NULL;
     };
-
+    let astr = str_val.content().to_str();
     let len = astr.len();
     let len1 = CStr::from_ptr(str1.cast()).count_bytes();
     let ttl_len = len + len1 + 1;

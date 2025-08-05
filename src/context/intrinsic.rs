@@ -305,15 +305,12 @@ impl JSContext {
     }
 
     fn intrinsic_string(&self) {
-        let empty_str = JS_ATOM_empty_string
-            .to_value(self, true)
-            .check_exception()
-            .unwrap();
+        let empty_str = JS_ATOM_empty_string.to_string(self).unwrap();
 
         let string_proto: JSValue = self
             .create_object_from_proto(
                 self.0.borrow().class_proto[JS_CLASS_OBJECT as usize].clone(),
-                ObjectDetail::STRING(empty_str),
+                ObjectDetail::STRING(empty_str.into()),
             )
             .unwrap()
             .into();
@@ -364,7 +361,12 @@ impl JSContext {
             a.with_utf8(self.rt(), |s| {
                 let str = s.as_ref().split_once('.').unwrap().1; // skip "Symbol."
                 symbol_ctor
-                    .define_property_value_str(self, str, a.to_value(self, false), 0)
+                    .define_property_value_str(
+                        self,
+                        str,
+                        a.to_string_or_symbol(self, false).unwrap().into(),
+                        0,
+                    )
                     .unwrap();
             });
         }
@@ -619,7 +621,7 @@ impl JSContext {
                     .define_property_value_str(
                         self,
                         "BYTES_PER_ELEMENT",
-                        (1 << typed_array_size_log2(cid)).into(),
+                        1 << typed_array_size_log2(cid),
                         0,
                     )
                     .unwrap();

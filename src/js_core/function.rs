@@ -95,15 +95,15 @@ pub fn js_function_bind(ctx: &JSContext, args: CallContext) -> JSResult {
             .define_property_value(ctx, JS_ATOM_length, len_val, JS_PROP_CONFIGURABLE)
             .unwrap();
 
-        let mut name = args.this_raw().get_property(ctx, JS_ATOM_name)?;
-
-        if !name.is_string() {
-            name = JS_ATOM_empty_string.to_value(ctx, true);
-        }
+        let name = args.this_raw().get_property(ctx, JS_ATOM_name)?;
+        let name = if let JSValue::String(s) = name {
+            s
+        } else {
+            JS_ATOM_empty_string.to_string(ctx)?
+        };
 
         // make bound function name.
-        let bf_name = JS_ConcatString3(ctx, c"bound ", name, c"").check_exception()?;
-
+        let bf_name = JS_ConcatString3(ctx, c"bound ", name.into(), c"")?;
         func_obj.define_property_value(ctx, JS_ATOM_name, bf_name, JS_PROP_CONFIGURABLE)?;
 
         Ok(func_obj.into())
@@ -121,7 +121,7 @@ pub fn js_function_toString(ctx: &JSContext, args: CallContext) -> JSResult {
         let b = bc.0.borrow();
         if b.has_debug {
             if let Some(s) = b.debug.source.as_deref() {
-                return ctx.create_string(s).check_exception();
+                return ctx.create_string(s).map(JSValue::String);
             }
         }
         b.func_kind
@@ -138,10 +138,10 @@ pub fn js_function_toString(ctx: &JSContext, args: CallContext) -> JSResult {
     let suff = c"() {\n    [native code]\n}";
     let mut name = this_val.get_property(ctx, JS_ATOM_name)?;
     if name.is_undefined() {
-        name = JS_ATOM_empty_string.to_value(ctx, true);
+        name = JS_ATOM_empty_string.to_string(ctx)?.into();
     }
 
-    unsafe { JS_ConcatString3(ctx, pref, name, suff).check_exception() }
+    unsafe { JS_ConcatString3(ctx, pref, name, suff).map(JSValue::String) }
 }
 
 pub fn js_function_hasInstance(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -160,7 +160,7 @@ pub fn js_function_proto_fileName(ctx: &JSContext, args: CallContext) -> JSResul
     {
         let b = b.0.borrow();
         if b.has_debug {
-            b.debug.filename.to_value(ctx, true).check_exception()
+            b.debug.filename.to_string_or_symbol(ctx, true)
         } else {
             Ok(JSValue::UNDEFINED)
         }

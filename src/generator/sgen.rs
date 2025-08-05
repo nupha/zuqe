@@ -90,11 +90,12 @@ pub fn js_function_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
                 })?;
             }
             let s = a.coerce_to_string(ctx)?;
-            let s = unsafe { s.string_unchecked().content() };
-            source.push_str(s.to_str().as_ref()).map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
+            source
+                .push_str(s.content().to_str().as_ref())
+                .map_err(|_| {
+                    ctx.throw_out_of_memory();
+                    -1
+                })?;
         }
         source.push_str(") {\n").map_err(|_| {
             ctx.throw_out_of_memory();
@@ -103,11 +104,12 @@ pub fn js_function_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
 
         // body
         let s = body.coerce_to_string(ctx)?;
-        let s = unsafe { s.string_unchecked().content() };
-        source.push_str(s.to_str().as_ref()).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
+        source
+            .push_str(s.content().to_str().as_ref())
+            .map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?;
 
         source.push_str("\n})").map_err(|_| {
             ctx.throw_out_of_memory();

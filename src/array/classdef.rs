@@ -716,13 +716,12 @@ pub fn js_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     if toLocaleString == 0 && cc.length() > 0 && !cc.arg(0).is_undefined() {
         let sep = cc.arg(0).coerce_to_string(ctx)?;
-        let ss = unsafe { sep.string_unchecked() };
-        c = if ss.len() == 1 && !ss.is_wide() {
-            ss.content().as_bytes()[0] as i32
+        c = if sep.len() == 1 && !sep.is_wide() {
+            sep.content().as_bytes()[0] as i32
         } else {
             -1
         };
-        p.replace(ss.clone());
+        p.replace(sep.clone());
     }
 
     let mut content = StringContent::Empty;
@@ -737,24 +736,23 @@ pub fn js_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
             }
         }
 
-        let mut el = obj.get_property_u32(ctx, i as u32)?;
+        let el = obj.get_property_u32(ctx, i as u32)?;
         if !el.is_undefined_or_null() {
-            if toLocaleString != 0 {
-                el = el.to_locale_string(ctx)?;
-            } else if !el.is_string() {
-                el = el.coerce_to_string(ctx)?;
-            }
-
-            content
-                .push(unsafe { el.string_unchecked().content() })
-                .map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?
+            let ss = if toLocaleString != 0 {
+                el.to_locale_string(ctx)?
+            } else if let JSValue::String(s) = el {
+                s
+            } else {
+                el.coerce_to_string(ctx)?
+            };
+            content.push(ss.content()).map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?
         }
     }
 
-    ctx.create_string_from_content(content).check_exception()
+    ctx.create_string_from_content(content).map(JSValue::String)
 }
 
 pub fn js_array_toString(ctx: &JSContext, cc: CallContext) -> JSResult {

@@ -80,7 +80,7 @@ impl JSParseState<'_> {
 
         while let TokenData::Str { str, .. } = &self.token.data {
             debug_assert_eq!(self.token.val, TOK_STRING, "{:?}", self.token);
-            let text: String = str.string().unwrap().content().to_str().into_owned();
+            let text: String = str.to_str().into_owned();
 
             self.next_token()?;
 

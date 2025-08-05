@@ -1,12 +1,8 @@
 use core::f64;
 
 use crate::{
-    bytecode::OpCode,
-    context::JSContext,
-    error::JSResult,
-    number::JSFloat64Union,
-    string::JS_ConcatString,
-    value::{HINT_NONE, JSValue},
+    bytecode::OpCode, context::JSContext, error::JSResult, number::JSFloat64Union,
+    string::JS_ConcatString, value::JSValue,
 };
 
 #[derive(Debug, Clone)]
@@ -359,7 +355,7 @@ impl JSValue {
             (JSValue::String(_), _) | (_, JSValue::String(_))
         ) {
             // add string
-            unsafe { JS_ConcatString(ctx, op1, op2).check_exception() }
+            JS_ConcatString(ctx, op1, op2).map(JSValue::String)
         } else {
             TwoNumbers::new(ctx, op1, op2).map(|bop| bop.add())
         }

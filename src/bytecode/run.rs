@@ -305,7 +305,12 @@ impl Bytecode {
 
                     OpCode::PUSH_ATOM_VALUE => {
                         let a = PC_FETCH!(u32);
-                        SP_PUT!(0, JSAtom(a).to_value(ctx, false));
+                        SP_PUT!(
+                            0,
+                            JSAtom(a)
+                                .to_string_or_symbol(ctx, false)
+                                .unwrap_or(JSValue::EXCEPTION)
+                        );
                         SP_GO!(1);
                     }
                     OpCode::UNDEFINED => {
@@ -1241,7 +1246,11 @@ impl Bytecode {
                                 {
                                     break State::Exception;
                                 } else {
-                                    SP_PUT!(0, atom.to_value(ctx, false));
+                                    SP_PUT!(
+                                        0,
+                                        atom.to_string_or_symbol(ctx, false)
+                                            .unwrap_or(JSValue::EXCEPTION)
+                                    );
                                     SP_GO!(1);
                                 }
                             },
@@ -2088,7 +2097,11 @@ impl Bytecode {
                     OpCode::TYPEOF => {
                         let op1 = SP_PUT!(-1, JSValue::UNDEFINED);
                         let atom = op1.type_of();
-                        SP_PUT!(-1, atom.to_value(ctx, true));
+                        SP_PUT!(
+                            -1,
+                            atom.to_string(ctx)
+                                .map_or(JSValue::EXCEPTION, JSValue::String)
+                        );
                     }
                     OpCode::DELETE => {
                         if js_operator_delete(ctx, sp) != 0 {
@@ -2206,7 +2219,11 @@ impl Bytecode {
                                     }
                                     OpCode::WITH_MAKE_REF => {
                                         // produce a pair object/propname on the stack
-                                        SP_PUT!(0, atom.to_value(ctx, false));
+                                        SP_PUT!(
+                                            0,
+                                            atom.to_string_or_symbol(ctx, false)
+                                                .unwrap_or(JSValue::EXCEPTION)
+                                        );
                                         SP_GO!(1);
                                     }
                                     OpCode::WITH_GET_REF => {

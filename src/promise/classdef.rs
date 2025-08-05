@@ -366,7 +366,7 @@ pub fn js_promise_withResolvers(ctx: &JSContext, cc: CallContext) -> JSResult {
     let (result_promise, resolving_funcs) = ctx.create_promise(cc.this())?;
     let obj = ctx.create_base_object()?;
 
-    obj.define_property_value(ctx, JS_ATOM_promise, result_promise.into(), JS_PROP_C_W_E)?;
+    obj.define_property_value(ctx, JS_ATOM_promise, result_promise, JS_PROP_C_W_E)?;
     obj.define_property_value(
         ctx,
         JS_ATOM_resolve,

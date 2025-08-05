@@ -87,7 +87,7 @@ impl JSContext {
             let _ = o.define_property_value(
                 self,
                 JS_ATOM_message,
-                s,
+                s.map_or(JSValue::EXCEPTION, JSValue::String),
                 JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
             );
 
@@ -222,11 +222,11 @@ impl JSContext {
             dbuf.write_fmt(format_args!("    at {filename}:{line_num}\n"))
                 .map_err(|_| -1)?;
 
-            let str = (*self).create_string(filename);
+            let str = self.create_string(filename);
             error_obj.define_property_value(
                 self,
                 JS_ATOM_fileName,
-                str,
+                str.map_or(JSValue::EXCEPTION, JSValue::String),
                 JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
             )?;
             error_obj.define_property_value(
@@ -322,6 +322,7 @@ impl JSContext {
     ) {
         let tb_val = if let Ok(s) = self.do_build_backtrace(error_obj, file_line, backtrace_flags) {
             self.create_string_from_utf8(s.into_bytes())
+                .map_or(JSValue::UNDEFINED, JSValue::String)
         } else {
             JSValue::NULL
         };
@@ -415,25 +416,25 @@ pub fn js_error_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    let mut name = cc.this().get_property(ctx, JS_ATOM_name)?;
-    name = if name.is_undefined() {
-        JS_ATOM_Error.to_value(ctx, true)
+    let name = cc.this().get_property(ctx, JS_ATOM_name)?;
+    let mut name = if name.is_undefined() {
+        JS_ATOM_Error.to_string(ctx)?
     } else {
         name.coerce_to_string(ctx)?
     };
 
-    let mut msg = cc.this().get_property(ctx, JS_ATOM_message)?;
-    msg = if msg.is_undefined() {
-        JS_ATOM_empty_string.to_value(ctx, true)
+    let msg = cc.this().get_property(ctx, JS_ATOM_message)?;
+    let msg = if msg.is_undefined() {
+        JS_ATOM_empty_string.to_string(ctx)?
     } else {
         msg.coerce_to_string(ctx)?
     };
 
-    if !JS_IsEmptyString(&name) && !JS_IsEmptyString(&msg) {
-        name = unsafe { JS_ConcatString3(ctx, c"", name, c": ").check_exception()? };
+    if !name.is_empty() && !msg.is_empty() {
+        name = unsafe { JS_ConcatString3(ctx, c"", name.into(), c": ")? };
     }
 
-    unsafe { JS_ConcatString(ctx, name, msg).check_exception() }
+    JS_ConcatString(ctx, name.into(), msg.into()).map(JSValue::String)
 }
 
 pub const js_error_proto_funcs: [NativeField; 3] = [

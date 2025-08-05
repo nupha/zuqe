@@ -28,16 +28,18 @@ impl JSObject {
        if JS_PROP_NO_EXOTIC is set, do not call the exotic define_own_property callback.
     */
     /// Note: `prop` is not consumed.
-    pub fn define_property(
+    pub fn define_property<V: Into<JSValue>, G: Into<JSValue>, S: Into<JSValue>>(
         &self,
         ctx: &JSContext,
         prop: JSAtom,
-        val: JSValue,
-        getter: JSValue,
-        setter: JSValue,
+        val: V,
+        getter: G,
+        setter: S,
         flags: u32,
     ) -> Result<bool, i32> {
-        let mut val = val;
+        let getter: JSValue = getter.into();
+        let setter: JSValue = setter.into();
+        let mut val: JSValue = val.into();
 
         loop {
             if let Some((idx, prs_flags)) = self.find_shape_property(prop) {
@@ -243,11 +245,11 @@ impl JSObject {
 
     /// shortcut to add or redefine a new property value.
     /// Note: `prop` is not consumed.
-    pub fn define_property_value(
+    pub fn define_property_value<V: Into<JSValue>>(
         &self,
         ctx: &JSContext,
         prop: JSAtom,
-        val: JSValue,
+        val: V,
         flags: u32,
     ) -> Result<bool, i32> {
         self.define_property(
@@ -264,11 +266,11 @@ impl JSObject {
         )
     }
 
-    pub fn define_property_value_value(
+    pub fn define_property_value_value<V: Into<JSValue>>(
         &self,
         ctx: &JSContext,
         prop: JSValue,
-        val: JSValue,
+        val: V,
         flags: u32,
     ) -> Result<bool, i32> {
         let atom = prop.coerce_to_atom(ctx)?;
@@ -277,11 +279,11 @@ impl JSObject {
         ret
     }
 
-    pub fn define_property_value_str(
+    pub fn define_property_value_str<V: Into<JSValue>>(
         &self,
         ctx: &JSContext,
         prop: &str,
-        val: JSValue,
+        val: V,
         flags: u32,
     ) -> Result<bool, i32> {
         let atom = ctx.create_atom(prop)?;
@@ -517,7 +519,13 @@ pub unsafe fn JS_DefineObjectName(ctx: &JSContext, obj: &JSValue, name: JSAtom, 
         && obj.is_object()
         && !js_object_has_name(obj)
         && obj
-            .define_property_value(ctx, JS_ATOM_name, name.to_value(ctx, true), flags)
+            .define_property_value(
+                ctx,
+                JS_ATOM_name,
+                name.to_string(ctx)
+                    .map_or(JSValue::EXCEPTION, JSValue::String),
+                flags,
+            )
             .is_err()
     {
         -1

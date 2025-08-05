@@ -227,16 +227,14 @@ impl ModuleDef {
         };
         names.sort_by(|a, b| {
             // XXX: should avoid allocation memory in atom comparison
-            let str1 = a.export_name.to_value(ctx, true);
-            let str2 = b.export_name.to_value(ctx, true);
+            let str1 = a.export_name.to_string(ctx);
+            let str2 = b.export_name.to_string(ctx);
 
-            let res = if str1.is_exception() || str2.is_exception() {
+            let res = if str1.is_err() || str2.is_err() {
                 // XXX: raise an error ?
                 Ordering::Equal
             } else {
-                str1.string_unchecked()
-                    .content()
-                    .cmp(str2.string_unchecked().content())
+                str1.unwrap().content().cmp(str2.unwrap().content())
             };
 
             res
@@ -280,9 +278,8 @@ impl ModuleDef {
 
         js_free(ctx, s.exported_names.cast());
 
-        let ms = JS_ATOM_Module.to_value(ctx, true);
-        obj.define_property_value(ctx, JS_ATOM_Symbol_toStringTag, ms, 0)
-            .unwrap();
+        let ms = JS_ATOM_Module.to_string(ctx)?;
+        obj.define_property_value(ctx, JS_ATOM_Symbol_toStringTag, ms, 0)?;
 
         unsafe {
             (*obj.0.obj_flags.as_ptr()).set_extensible(false);

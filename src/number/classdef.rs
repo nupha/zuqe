@@ -228,7 +228,7 @@ pub fn js_number_fmt(ctx: &JSContext, cc: CallContext) -> JSResult {
     };
 
     ctx.create_string_from_utf8(s.into_bytes())
-        .check_exception()
+        .map(JSValue::String)
 }
 
 pub const js_number_proto_funcs: [NativeField; 6] = [

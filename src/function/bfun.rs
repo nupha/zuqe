@@ -206,15 +206,14 @@ impl BytecodeFunction {
         buf.extend_from_slice(b"})");
 
         // create script string
-        let src = ctx
-            .create_string_from_utf8(buf.into_vec())
-            .check_exception()?;
+        let src = ctx.create_string_from_utf8(buf.into_vec())?;
 
         // eval string `src`
         let func_val = {
             // Note: to avoid ctx.0 borrow conflict, fetch global object in advance
             let global = JSValue::Object(ctx.global_obj());
-            src.eval_object(ctx, global, JS_EVAL_TYPE_INDIRECT, -1)
+            JSValue::String(src)
+                .eval_object(ctx, global, JS_EVAL_TYPE_INDIRECT, -1)
                 .check_exception()?
         };
 
