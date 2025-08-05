@@ -1,5 +1,5 @@
-mod char;
 mod content;
+mod iter;
 mod string;
 
-pub use {char::*, content::StringBuf, string::*};
+pub use {content::StringBuf, iter::*, string::*};
