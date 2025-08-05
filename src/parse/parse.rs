@@ -79,9 +79,13 @@ impl JSParseState<'_> {
         let pos = self.get_pos();
 
         while let TokenData::Str { str, .. } = &self.token.data {
-            debug_assert_eq!(self.token.val, TOK_STRING, "{:?}", self.token);
-            let text: String = str.to_str().into_owned();
+            debug_assert!(
+                matches!(self.token.val, TOK_STRING | TOK_TEMPLATE),
+                "{:?}",
+                self.token
+            );
 
+            let txt: String = str.to_str().into_owned();
             self.next_token()?;
 
             let mut has_semi = false;
@@ -113,7 +117,7 @@ impl JSParseState<'_> {
                 break;
             }
 
-            match text.as_str() {
+            match txt.as_str() {
                 "use strict" => {
                     self.cur_func_mut().has_use_strict = true;
                     self.cur_func_mut().js_mode |= JS_MODE_STRICT as u8;
