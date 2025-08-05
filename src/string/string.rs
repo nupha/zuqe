@@ -489,8 +489,6 @@ impl JSStringWeakref {
 impl JSContext {
     /// create string value from string content.
     pub fn create_string_from_content(&self, content: StringContent) -> JSValue {
-        debug_assert_ne!(content, StringContent::Null);
-
         if content == StringContent::Empty {
             JS_ATOM_empty_string.to_value(self, true)
         } else {

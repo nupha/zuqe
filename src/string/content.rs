@@ -693,10 +693,10 @@ impl StringContent {
 impl PartialEq for StringContent {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            // don't change arm order
-            (Self::Null, Self::Null) => true,
-            (Self::Null, _) | (_, Self::Null) => false,
-            (Self::Empty, _) | (_, Self::Empty) => self.len() == other.len(),
+            (Self::Empty | Self::Null, _) | (_, Self::Empty | Self::Null) => {
+                // empty eq empty, null eq null, empty eq null
+                self.len() == other.len()
+            }
 
             (Self::Utf8(s1), Self::Utf8(s2)) => s1 == s2,
             (Self::Utf16(s1), Self::Utf16(s2)) => s1 == s2,
@@ -747,14 +747,20 @@ impl Eq for StringContent {}
 impl Ord for StringContent {
     fn cmp(&self, other: &Self) -> Ordering {
         match (self, other) {
+            // same kind cmp.
             (Self::Empty, Self::Empty) => Ordering::Equal,
-            (Self::Empty, _) => Ordering::Less,
-            (_, Self::Empty) => Ordering::Greater,
             (Self::Null, Self::Null) => Ordering::Equal,
-            (Self::Null, _) => Ordering::Less,
-            (_, Self::Null) => Ordering::Greater,
             (Self::Utf8(s1), Self::Utf8(s2)) => s1.cmp(s2),
             (Self::Utf16(s1), Self::Utf16(s2)) => s1.cmp(s2),
+
+            // null is the smallest.
+            (Self::Null, _) => Ordering::Less,
+            (_, Self::Null) => Ordering::Greater,
+            // empty is greater than null only.
+            (Self::Empty, _) => Ordering::Less,
+            (_, Self::Empty) => Ordering::Greater,
+
+            // utf8 vs utf16 cmp
             (Self::Utf8(s1), Self::Utf16(s2)) => {
                 let mut it1 = unsafe { std::str::from_utf8_unchecked(s1) }.chars();
                 let mut it2 = U16Str::from_slice(s2).chars_lossy();
