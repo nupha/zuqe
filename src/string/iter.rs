@@ -13,7 +13,16 @@ use super::StringBuf;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum StringCharOrCode {
     Char(char),
-    RawCode(u16),
+    BadCode(u16),
+}
+
+impl StringCharOrCode {
+    pub fn to_u32(self) -> u32 {
+        match self {
+            Self::Char(c) => c as u32,
+            Self::BadCode(c) => c as u32,
+        }
+    }
 }
 
 pub struct StringBufIter<'a> {
@@ -52,16 +61,16 @@ impl<'a> Iterator for StringBufIter<'a> {
                 }
 
                 // 非法代理对（单独的高代理或无效组合）→ 保留原始 u16
-                StringCharOrCode::RawCode(high)
+                StringCharOrCode::BadCode(high)
             } else if (0xDC00..=0xDFFF).contains(&high) {
                 // 单独的低代理项 → 保留原始 u16
-                StringCharOrCode::RawCode(high)
+                StringCharOrCode::BadCode(high)
             } else {
                 // 普通 BMP 字符（U+0000..=U+FFFF）
                 if let Some(ch) = char::from_u32(high as u32) {
                     StringCharOrCode::Char(ch)
                 } else {
-                    StringCharOrCode::RawCode(high)
+                    StringCharOrCode::BadCode(high)
                 }
             };
 
