@@ -21,7 +21,7 @@ use crate::{
     iterator::{JSIteratorKindEnum, js_create_array_iterator},
     js_core::js_get_this,
     object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_SpeciesConstructor, js_get_length64},
-    string::StringContent,
+    string::StringBuf,
     typed_array::{Float32Array, Float64Array, typed_array_size_log2},
     value::{HINT_NUMBER, JSValue, JSValueConst},
 };
@@ -856,7 +856,7 @@ pub fn js_typed_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
             ",".into() // default separator
         };
 
-    let mut txt = StringContent::with_capacity(n as usize * 2, false).map_err(|_| {
+    let mut txt = StringBuf::with_capacity(n as usize * 2, false).map_err(|_| {
         ctx.throw_out_of_memory();
         -1
     })?;

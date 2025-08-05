@@ -5,7 +5,7 @@ use crate::{
     bytecode::OpCode,
     object::{JS_PROP_ENUMERABLE, JS_PROP_THROW, seal_template_obj},
     parse::token::TokenData,
-    string::StringContent,
+    string::StringBuf,
     unicode::{UTF8_CHAR_LEN_MAX, unicode_from_utf8},
     value::JSValue,
 };
@@ -21,7 +21,7 @@ impl<'s> JSParseState<'s> {
             };
         }
 
-        let mut res_string = StringContent::Empty;
+        let mut res_string = StringBuf::Empty;
 
         let mut c: char;
         loop {

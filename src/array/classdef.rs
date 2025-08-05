@@ -17,7 +17,7 @@ use crate::{
     number::MAX_SAFE_INTEGER,
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, ObjectDetail, js_get_length64},
     runtime::js_check_stack_overflow,
-    string::{JSString, StringContent},
+    string::{JSString, StringBuf},
     typed_array::{js_typed_array___speciesCreate, js_typed_array_get_length_internal},
     value::JSValue,
 };
@@ -724,7 +724,7 @@ pub fn js_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
         p.replace(sep.clone());
     }
 
-    let mut content = StringContent::Empty;
+    let mut content = StringBuf::Empty;
 
     for i in 0..n {
         if i > 0 {

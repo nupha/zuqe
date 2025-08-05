@@ -6,25 +6,25 @@ use std::{
 };
 
 use crate::{
+    JS_CLASS_STRING,
     atom::{__JS_AtomToUInt32, AtomHintAndId, JSAtom, consts::*},
     class::JSClassExoticMethods,
     context::JSContext,
-    error::JSResult,
     gc::GCObjectHeader,
     object::{
-        GCObjectWeakref, JS_PROP_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC,
+        GCObjectWeakref, JS_PROP_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC, JSObject,
         JSPropertyDescriptor, check_define_prop_flags, js_get_length32,
     },
     runtime::JSRuntime,
     value::{JSValue, JSValueConst},
 };
 
-use super::StringContent;
+use super::StringBuf;
 
 /// Maximum length allowed for JavaScript strings (1GB - 1)
 pub const JS_STRING_LEN_MAX: usize = (1 << 30) - 1;
 
-pub type StringContentRc = Rc<StringContent>;
+pub type StringContentRc = Rc<StringBuf>;
 
 /// Represents a JavaScript string with reference counting and atom support
 ///
@@ -134,11 +134,39 @@ impl JSStringInner {
 #[derive(Clone)]
 pub struct JSString(pub(crate) Rc<JSStringInner>);
 
-/// Convert an Rc<JSStringInner> into JSValue
 impl From<JSString> for JSValue {
     #[inline(always)]
     fn from(value: JSString) -> Self {
         Self::String(value)
+    }
+}
+
+impl TryFrom<JSObject> for JSString {
+    type Error = i32;
+
+    fn try_from(obj: JSObject) -> Result<Self, Self::Error> {
+        if obj.class_id() == JS_CLASS_STRING {
+            // JS_CLASS_STRING object contains string
+            if let Some(JSValue::String(s)) = obj.0.payload.borrow().value().cloned() {
+                Ok(s)
+            } else {
+                unreachable!()
+            }
+        } else {
+            Err(-1)
+        }
+    }
+}
+
+impl TryFrom<JSValue> for JSString {
+    type Error = i32;
+
+    fn try_from(value: JSValue) -> Result<Self, Self::Error> {
+        match value {
+            JSValue::String(s) | JSValue::Symbol(s) => Ok(s),
+            JSValue::Object(o) => o.try_into(),
+            _ => Err(-1),
+        }
     }
 }
 
@@ -178,7 +206,7 @@ impl JSString {
     /// * `Ok(Box<JSStringInner>)` - Newly created string
     /// * `Err(-1)` - Memory allocation or UTF-8 validation failed
     pub fn from_str(rt: &mut JSRuntime, s: &str) -> Result<Self, i32> {
-        let sc = s.parse::<StringContent>()?;
+        let sc = s.parse::<StringBuf>()?;
         Ok(Self::new(rt, Rc::new(sc)))
     }
 
@@ -195,9 +223,11 @@ impl JSString {
     /// # Returns
     /// * `Ok(Box<JSStringInner>)` - Newly created string
     /// * `Err(-1)` - Memory allocation or UTF-8 validation failed
-    pub fn from_utf8(rt: &mut JSRuntime, data: Vec<u8>) -> Result<Self, i32> {
-        let sc = StringContent::from_utf8(data).map_err(|_| -1)?;
-        Ok(Self::new(rt, Rc::new(sc)))
+    pub fn from_utf8(rt: &mut JSRuntime, bytes: Vec<u8>) -> Result<Self, i32> {
+        Ok(Self::new(
+            rt,
+            Rc::new(StringBuf::from_utf8(bytes).map_err(|_| -1)?),
+        ))
     }
 
     #[inline(always)]
@@ -281,7 +311,7 @@ impl JSString {
                 })?;
                 ctx.create_string_from_content(sub)
             } else {
-                ctx.create_string_from_content(StringContent::Empty)
+                ctx.create_string_from_content(StringBuf::Empty)
             }
         }
     }
@@ -311,11 +341,10 @@ impl JSString {
         let rep_len = replacement.len();
         let rep_cc = replacement.content();
 
-        let mut res_content =
-            StringContent::with_capacity(str.len(), str.is_wide()).map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
+        let mut res_content = StringBuf::with_capacity(str.len(), str.is_wide()).map_err(|_| {
+            ctx.throw_out_of_memory();
+            -1
+        })?;
 
         // escape $-patterns in `replacement`
         let mut i = 0_usize;
@@ -483,7 +512,7 @@ impl JSStringWeakref {
 
 impl JSContext {
     /// create string value from string content.
-    pub fn create_string_from_content(&self, content: StringContent) -> Result<JSString, i32> {
+    pub fn create_string_from_content(&self, content: StringBuf) -> Result<JSString, i32> {
         if content.is_empty() {
             JS_ATOM_empty_string.to_string(self)
         } else {
@@ -518,9 +547,9 @@ impl JSContext {
     /// returns JS_EXCEPTION if fail.
     pub fn create_string_from_char(&self, ch: char) -> Result<JSString, i32> {
         self.create_string_from_content(if ch.is_ascii() {
-            StringContent::Utf8(vec![ch as u8])
+            StringBuf::Utf8(vec![ch as u8])
         } else {
-            StringContent::Utf16(ch.encode_utf16(&mut [0; 2]).to_vec())
+            StringBuf::Utf16(ch.encode_utf16(&mut [0; 2]).to_vec())
         })
     }
 
@@ -540,56 +569,13 @@ impl JSContext {
 }
 
 /* return < 0, 0 or > 0 */
-#[deprecated(note = "use StringContent::cmp() instead")]
+#[deprecated(note = "use StringBuf::cmp() instead")]
 pub unsafe fn js_string_compare(ctx: &JSContext, p1: &JSString, p2: &JSString) -> i32 {
     match p1.content().cmp(p2.content()) {
         std::cmp::Ordering::Less => -1,
         std::cmp::Ordering::Equal => 0,
         std::cmp::Ordering::Greater => 1,
     }
-}
-
-unsafe fn memcmp16(a: *const u16, b: *const u16, len: usize) -> i32 {
-    for i in 0..len {
-        let ai = *a.add(i);
-        let bi = *b.add(i);
-        if ai != bi {
-            return ai as i32 - bi as i32;
-        }
-    }
-    0
-}
-
-unsafe fn memcmp16_8(a: *const u16, b: *const u8, len: usize) -> i32 {
-    for i in 0..len {
-        let ai = *a.add(i);
-        let bi = *b.add(i) as u16;
-        if ai != bi {
-            return ai as i32 - bi as i32;
-        }
-    }
-    0
-}
-
-// #[inline(always)]
-// pub unsafe fn hash_string8(str: &str, mut h: u32) -> u32 {
-//     for c in str.as_bytes() {
-//         h = hash_char(char::from_u32_unchecked((*c) as u32), h);
-//     }
-//     h
-// }
-
-// #[inline(always)]
-// pub unsafe fn hash_string16(str: &[u16], mut h: u32) -> u32 {
-//     for c in str {
-//         h = hash_char(char::from_u32_unchecked(*c as u32), h);
-//     }
-//     h
-// }
-
-#[inline(always)]
-pub fn is_num(c: i32) -> bool {
-    ('0' as i32..='9' as i32).contains(&c)
 }
 
 pub fn JS_ToStringCheckObject(ctx: &JSContext, val: JSValue) -> Result<JSString, i32> {
@@ -626,7 +612,7 @@ pub fn JS_ConcatString3(
     let len1 = str1.count_bytes();
     let len3 = str3.count_bytes();
 
-    let res_string = StringContent::with_capacity(len1 + p.len() + len3, p.is_wide())
+    let res_string = StringBuf::with_capacity(len1 + p.len() + len3, p.is_wide())
         .and_then(|mut s| {
             // str1 + str2 + str3
             s.push_str(str1.to_string_lossy().as_ref())
@@ -761,19 +747,6 @@ impl JSValue {
     }
 }
 
-pub unsafe fn js_string_obj_get_length(obj: JSValueConst) -> usize {
-    // This is a class exotic method: obj class_id is JS_CLASS_STRING
-    if let Some(v) = obj.object_unchecked().0.payload.borrow().value() {
-        if v.is_string() {
-            v.string_unchecked().len()
-        } else {
-            0
-        }
-    } else {
-        0
-    }
-}
-
 /// starts_with() equivelent
 pub unsafe fn strstart(str: *const u8, val: *const u8, ptr: *mut *const u8) -> bool {
     let mut p = str;
@@ -794,38 +767,9 @@ pub unsafe fn strstart(str: *const u8, val: *const u8, ptr: *mut *const u8) -> b
 //
 // String class methods
 //
-pub fn js_string_get_own_property(
-    ctx: &JSContext,
-    obj: JSValue,
-    prop: JSAtom,
-) -> Result<Option<JSPropertyDescriptor>, i32> {
-    // This is a class exotic method: obj class_id is JS_CLASS_STRING
-    if prop.is_int_type() {
-        if let JSValue::String(p1) = unsafe { obj.object_unchecked() }
-            .0
-            .payload
-            .borrow()
-            .value()
-            .unwrap()
-        {
-            let idx = __JS_AtomToUInt32(prop);
-            if idx < p1.len() as u32 {
-                let ch = p1.content().chars().nth(idx as usize).unwrap();
-                return Ok(Some(JSPropertyDescriptor {
-                    flags: JS_PROP_ENUMERABLE as _,
-                    value: ctx.create_string_from_char(ch)?.into(),
-                    getter: JSValue::UNDEFINED,
-                    setter: JSValue::UNDEFINED,
-                }));
-            }
-        }
-    }
-
-    Ok(None)
-}
 
 /// prop is not consumed
-pub fn js_string_define_own_property(
+fn string_define_own_property(
     ctx: &JSContext,
     this_obj: &JSValue,
     prop: JSAtom,
@@ -898,25 +842,51 @@ pub fn js_string_define_own_property(
     }
 }
 
-pub fn js_string_delete_property(
-    ctx: &JSContext,
-    obj: JSValueConst,
-    prop: JSAtom,
-) -> Result<bool, i32> {
-    if prop.is_int_type() {
-        let idx = __JS_AtomToUInt32(prop);
-        if idx < unsafe { js_string_obj_get_length(obj) as u32 } {
-            return Ok(false);
-        }
-    }
-
-    Ok(true)
-}
-
 pub static js_string_exotic_methods: JSClassExoticMethods = JSClassExoticMethods {
-    get_own_property: Some(js_string_get_own_property),
-    define_own_property: Some(js_string_define_own_property),
-    delete_property: Some(js_string_delete_property),
+    get_own_property: Some(
+        |ctx: &JSContext,
+         obj: JSValue,
+         prop: JSAtom|
+         -> Result<Option<JSPropertyDescriptor>, i32> {
+            // This is a class exotic method: obj class_id is JS_CLASS_STRING
+            if prop.is_int_type() {
+                if let Some(JSValue::String(s)) = obj
+                    .object()
+                    .and_then(|o| o.0.payload.borrow().value().cloned())
+                {
+                    let idx = __JS_AtomToUInt32(prop);
+                    if idx < s.len() as u32 {
+                        let ch = s.content().chars().nth(idx as usize).unwrap();
+                        return Ok(Some(JSPropertyDescriptor {
+                            flags: JS_PROP_ENUMERABLE as _,
+                            value: ctx.create_string_from_char(ch)?.into(),
+                            getter: JSValue::UNDEFINED,
+                            setter: JSValue::UNDEFINED,
+                        }));
+                    }
+                }
+            }
+
+            Ok(None)
+        },
+    ),
+
+    define_own_property: Some(string_define_own_property),
+
+    delete_property: Some(
+        |_: &JSContext, obj: JSValue, prop: JSAtom| -> Result<bool, i32> {
+            if prop.is_int_type() {
+                let strlen = TryInto::<JSString>::try_into(obj).unwrap().len();
+                let idx = __JS_AtomToUInt32(prop) as usize;
+                if idx < strlen {
+                    return Ok(false);
+                }
+            }
+
+            Ok(true)
+        },
+    ),
+
     get_own_property_names: None,
     has_property: None,
     get_property: None,

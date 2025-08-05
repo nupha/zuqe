@@ -347,7 +347,7 @@ pub unsafe fn js_parse_string(
     // }
 }
 
-#[deprecated(note = "use StringContent::parse_u32() instead")]
+#[deprecated(note = "use StringBuf::parse_u32() instead")]
 pub unsafe fn is_num_string(pval: &mut u32, p: *const JSStringInner) -> bool {
     match (*p).content().parse_u32() {
         Ok(n) => {
@@ -555,9 +555,9 @@ pub unsafe fn js_free_string(rt: &mut JSRuntime, str: *mut JSString) {
     unreachable!("unused");
 }
 
-#[deprecated(note = "use StringContent::cmp() instead")]
+#[deprecated(note = "use StringBuf::cmp() instead")]
 pub unsafe fn js_string_memcmp(p1: *const JSString, p2: *const JSString, len: usize) -> i32 {
-    unreachable!("use StringContent::cmp() instead");
+    unreachable!("use StringBuf::cmp() instead");
 
     // let res: i32;
     // if !(*p1).is_wide_char() {
@@ -588,9 +588,9 @@ pub unsafe fn js_string_memcmp(p1: *const JSString, p2: *const JSString, len: us
     // res
 }
 
-#[deprecated(note = "use StringContent::hash() instead")]
+#[deprecated(note = "use StringBuf::hash() instead")]
 pub unsafe fn hash_string(str: *const JSString, h: u32) -> u32 {
-    unreachable!("use StringContent::hash() instead");
+    unreachable!("use StringBuf::hash() instead");
 }
 
 pub unsafe fn copy_str16(dst: *mut u16, p: *const JSString, offset: usize, len: usize) {
@@ -3793,4 +3793,11 @@ pub fn build_for_in_iterator(ctx: &JSContext, obj: JSValue) -> JSValue {
 #[deprecated(note = "use JSAtom::has_description() instead")]
 pub fn JS_AtomSymbolHasDescription(ctx: &JSContext, atom: JSAtom) -> bool {
     atom.has_description(ctx)
+}
+
+/// if `obj` is a string object, returns its length. otherwise, returns 0.
+/// this func is used as a class exotic method, `obj` is supposed to be an object of JS_CLASS_STRING class.
+#[deprecated(note = "use TryInto<JSString> to convert obj into JSString, then get length")]
+pub(crate) fn js_string_obj_get_length(obj: JSValue) -> usize {
+    TryInto::<JSString>::try_into(obj).map_or(0, |s| s.len())
 }

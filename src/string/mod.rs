@@ -2,6 +2,6 @@ mod content;
 mod string;
 
 pub use {
-    content::{StringChars, StringContent},
+    content::{StringBuf, StringChars},
     string::*,
 };

@@ -2,7 +2,7 @@ use std::ffi::CStr;
 
 use crate::{
     parse::token::{TOK_REGEXP, TokenData},
-    string::StringContent,
+    string::StringBuf,
     value::JSValue,
 };
 
@@ -35,8 +35,8 @@ pub unsafe fn js_parse_regexp(s: &mut JSParseState) -> i32 {
 
     let mut in_class = false;
     let mut offset = 0_usize;
-    let mut res_string = StringContent::Empty;
-    let mut res_string2 = StringContent::Empty;
+    let mut res_string = StringBuf::Empty;
+    let mut res_string2 = StringBuf::Empty;
 
     let len = s.buf_end.offset_from(s.buf_ptr) as usize;
     if let Ok(mut chars) =

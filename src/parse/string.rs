@@ -4,7 +4,7 @@ use crate::{
     context::JS_MODE_STRICT,
     parse::token::TokenData,
     regexp::{from_hex, is_digit},
-    string::StringContent,
+    string::StringBuf,
     unicode::{UTF8_CHAR_LEN_MAX, unicode_from_utf8},
 };
 
@@ -21,7 +21,7 @@ impl<'s> JSParseState<'s> {
         ptr: *const u8,
         token: Option<&mut Token>,
     ) -> Result<*const u8, i32> {
-        let mut content = StringContent::Empty;
+        let mut content = StringBuf::Empty;
         let mut p = ptr;
 
         loop {

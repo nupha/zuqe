@@ -13,7 +13,7 @@ use crate::{
     iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW},
     object::{JS_PROP_CONFIGURABLE, JS_SetPrototypeInternal, ObjectDetail},
     runtime::JSRuntime,
-    string::StringContent,
+    string::StringBuf,
     value::{JSValue, JSValueConst},
 };
 
@@ -58,7 +58,7 @@ pub fn js_function_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let func_kind = unsafe { std::mem::transmute::<_, JSFunctionKindEnum>(cc.magic() as u8) };
 
     // build function source
-    let mut source = StringContent::with_capacity(64, false).map_err(|_| {
+    let mut source = StringBuf::with_capacity(64, false).map_err(|_| {
         ctx.throw_out_of_memory();
         -1
     })?;

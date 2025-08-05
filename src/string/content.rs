@@ -16,8 +16,9 @@ use crate::atom::AtomTypeHint;
 
 use super::string::JS_STRING_LEN_MAX;
 
+/// string content buffer
 #[derive(Debug)]
-pub enum StringContent {
+pub enum StringBuf {
     /// string with no content
     Empty,
 
@@ -31,7 +32,7 @@ pub enum StringContent {
     Utf16(Vec<u16>),
 }
 
-impl FromStr for StringContent {
+impl FromStr for StringBuf {
     type Err = i32;
 
     fn from_str(str: &str) -> Result<Self, Self::Err> {
@@ -56,8 +57,8 @@ impl FromStr for StringContent {
     }
 }
 
-impl StringContent {
-    /// Creates StringContent from UTF-8 encoded bytes
+impl StringBuf {
+    /// Creates StringBuf from UTF-8 encoded bytes
     ///
     /// Handles both ASCII and non-ASCII UTF-8 content:
     /// - ASCII content is stored as-is in UTF-8 format
@@ -179,7 +180,7 @@ impl StringContent {
     }
 
     /// concat other string content to self content, returns a new result string content.
-    pub fn push_content_slice(&mut self, sref: &StringContentSlice) -> Result<(), TryReserveError> {
+    pub fn push_content_slice(&mut self, sref: &StringBufSlice) -> Result<(), TryReserveError> {
         // 使用临时变量存储self的内容,避免借用冲突
         let orig_content = std::mem::replace(self, Self::Empty);
 
@@ -658,17 +659,17 @@ impl StringContent {
         }
     }
 
-    pub fn slice(&self, range: Range<usize>) -> StringContentSlice {
+    pub fn slice(&self, range: Range<usize>) -> StringBufSlice {
         let len = self.len();
 
         if !(0..len).contains(&range.start) {
-            StringContentSlice {
+            StringBufSlice {
                 src: self,
                 ranges: 0..0,
             }
         } else {
             let end = range.end.min(len);
-            StringContentSlice {
+            StringBufSlice {
                 src: self,
                 ranges: range.start..end,
             }
@@ -695,7 +696,7 @@ impl StringContent {
     }
 }
 
-impl PartialEq for StringContent {
+impl PartialEq for StringBuf {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Empty | Self::Null, _) | (_, Self::Empty | Self::Null) => {
@@ -747,9 +748,9 @@ impl PartialEq for StringContent {
     }
 }
 
-impl Eq for StringContent {}
+impl Eq for StringBuf {}
 
-impl Ord for StringContent {
+impl Ord for StringBuf {
     fn cmp(&self, other: &Self) -> Ordering {
         match (self, other) {
             // same kind cmp.
@@ -814,7 +815,7 @@ impl Ord for StringContent {
     }
 }
 
-impl PartialOrd for StringContent {
+impl PartialOrd for StringBuf {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
@@ -857,12 +858,12 @@ impl Iterator for StringCharIndices<'_> {
 }
 
 #[derive(Clone)]
-pub struct StringContentSlice<'a> {
-    src: &'a StringContent,
+pub struct StringBufSlice<'a> {
+    src: &'a StringBuf,
     ranges: Range<usize>,
 }
 
-impl StringContentSlice<'_> {
+impl StringBufSlice<'_> {
     #[inline(always)]
     pub fn len(&self) -> usize {
         self.ranges.len()
@@ -873,17 +874,17 @@ impl StringContentSlice<'_> {
         self.len() == 0
     }
 
-    pub fn to_owned(&self) -> Result<StringContent, TryReserveError> {
+    pub fn to_owned(&self) -> Result<StringBuf, TryReserveError> {
         let len = self.len();
         if len == 0 {
-            Ok(StringContent::Empty)
+            Ok(StringBuf::Empty)
         } else {
-            let mut res = StringContent::with_capacity(len, self.src.is_wide())?;
+            let mut res = StringBuf::with_capacity(len, self.src.is_wide())?;
             match self.src {
-                StringContent::Utf8(src) => {
+                StringBuf::Utf8(src) => {
                     let _ = res.push_u8_slice(&src[self.ranges.clone()]);
                 }
-                StringContent::Utf16(src) => {
+                StringBuf::Utf16(src) => {
                     let _ = res.push_u16_slice(&src[self.ranges.clone()]);
                 }
                 _ => unreachable!(),

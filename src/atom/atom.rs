@@ -6,7 +6,7 @@ use crate::{
     mem::js_malloc_typed,
     regexp::is_digit,
     runtime::JSRuntime,
-    string::{JSString, JSStringInner, StringContent},
+    string::{JSString, JSStringInner, StringBuf},
     value::JSValue,
 };
 
@@ -375,7 +375,7 @@ impl JSValue {
 
 /// find atom by str
 pub fn __JS_FindAtom(rt: &JSRuntime, str: &str, atom_type: AtomTypeHint) -> Option<JSAtom> {
-    let hash = StringContent::calc_hash_for_str(str, atom_type);
+    let hash = StringBuf::calc_hash_for_str(str, atom_type);
 
     if let Some(ids) = rt.atom_hash_lut.get(&hash) {
         for &aid in ids {

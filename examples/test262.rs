@@ -21,7 +21,7 @@ use zhuque::{
     object::JS_PROP_C_W_E,
     promise::{JSPromiseStateEnum, Promise},
     runtime::JSRuntime,
-    string::StringContent,
+    string::StringBuf,
     value::JSValue,
 };
 
@@ -63,7 +63,7 @@ fn js_string_codePointRange(ctx: &JSContext, cc: CallContext) -> JSResult {
         n += end - std::cmp::max(start, 0x10000);
     }
 
-    let mut cc = StringContent::with_capacity(n as _, end >= 0x100).map_err(|_| {
+    let mut cc = StringBuf::with_capacity(n as _, end >= 0x100).map_err(|_| {
         ctx.throw_out_of_memory();
         -1
     })?;

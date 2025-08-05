@@ -8,7 +8,7 @@ use crate::{
     },
     regexp::is_digit,
     runtime::js_check_stack_overflow,
-    string::{StringContent, StringContentRc},
+    string::{StringBuf, StringContentRc},
     unicode::{UTF8_CHAR_LEN_MAX, unicode_from_utf8},
     value::JSValue,
 };

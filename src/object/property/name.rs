@@ -6,7 +6,7 @@ use crate::{
     iterator::JSIteratorKindEnum,
     mem::js_free,
     object::JSObject,
-    string::js_string_obj_get_length,
+    string::JSString,
     value::JSValue,
 };
 
@@ -99,7 +99,7 @@ impl JSObject {
                 }
             } else if self.class_id() == JS_CLASS_STRING {
                 if flags & JS_GPN_STRING_MASK != 0 {
-                    let strlen = unsafe { js_string_obj_get_length(JSValue::Object(self.clone())) };
+                    let strlen = TryInto::<JSString>::try_into(self.clone()).unwrap().len();
                     for i in 0..strlen {
                         callback(
                             ctx,

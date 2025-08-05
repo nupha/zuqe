@@ -3,7 +3,7 @@ use std::{collections::hash_map::Entry, ffi::CStr, num::NonZeroU16, rc::Rc};
 use crate::{
     atom::{JS_ATOM_HASH_PRIVATE, JS_ATOM_HASH_SYMBOL},
     runtime::JSRuntime,
-    string::{JSString, StringContent},
+    string::{JSString, StringBuf},
 };
 
 use super::{
@@ -108,7 +108,7 @@ impl JSRuntime {
                     }
                 } else {
                     // null content string
-                    JSString::new(self, Rc::new(StringContent::Null))
+                    JSString::new(self, Rc::new(StringBuf::Null))
                 };
 
                 let hash = if atom_type == AtomTypeHint::Symbol {

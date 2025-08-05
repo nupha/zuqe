@@ -14,7 +14,7 @@ use crate::{
     regexp::js_is_regexp,
     string::{
         JS_ConcatString, JS_ConcatString3, JS_STRING_LEN_MAX, JS_ToStringCheckObject, JSString,
-        StringContent,
+        StringBuf,
     },
     value::{JSValue, JSValueConst},
 };
@@ -114,7 +114,7 @@ pub fn js_string_concat(ctx: &JSContext, cc: CallContext) -> JSResult {
 // return the position of the first invalid character in the string or
 // -1 if none
 pub(crate) unsafe fn js_string_find_invalid_codepoint(p: &JSString) -> i32 {
-    if let StringContent::Utf16(ws) = p.content().as_ref() {
+    if let StringBuf::Utf16(ws) = p.content().as_ref() {
         U16Str::from_slice(ws)
             .chars()
             .position(|c| c.is_err())
@@ -139,13 +139,13 @@ pub fn js_string_toWellFormed(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Ok(p.into());
     }
 
-    if let StringContent::Utf16(ws) = p.content().as_ref() {
+    if let StringBuf::Utf16(ws) = p.content().as_ref() {
         if let Ok(mut buf) = Vec::<u16>::try_with_capacity(ws.len() * 3 / 2) {
             for c in U16Str::from_slice(ws).chars_lossy() {
                 buf.extend_from_slice(c.encode_utf16(&mut [0; 2]));
             }
             buf.shrink_to_fit();
-            ctx.create_string_from_content(StringContent::Utf16(buf))
+            ctx.create_string_from_content(StringBuf::Utf16(buf))
                 .map(JSValue::String)
         } else {
             Ok(JSValue::EXCEPTION)
@@ -252,7 +252,7 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let mut is_first = true;
     let mut endOfLastMatch = 0_usize;
-    let mut res_string = StringContent::Empty;
+    let mut res_string = StringBuf::Empty;
 
     loop {
         let found = if searchp.is_empty() {
@@ -518,7 +518,7 @@ pub fn js_string_pad(ctx: &JSContext, cc: CallContext) -> JSResult {
             -1
         })?
     } else {
-        StringContent::Empty
+        StringBuf::Empty
     };
 
     n -= len;
@@ -565,7 +565,7 @@ pub fn js_string_repeat(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    let mut res_string = StringContent::with_capacity(n * len, p.is_wide()).map_err(|_| {
+    let mut res_string = StringBuf::with_capacity(n * len, p.is_wide()).map_err(|_| {
         ctx.throw_out_of_memory();
         -1
     })?;
@@ -782,7 +782,7 @@ pub fn string_cmp(p1: &JSString, p2: &JSString, x1: i32, x2: i32, len: i32) -> i
     0
 }
 
-#[deprecated(note = "use StringContent::find_char() instead")]
+#[deprecated(note = "use StringBuf::find_char() instead")]
 pub unsafe fn string_indexof_char(p: *mut JSString, c: i32, from: i32) -> i32 {
     (*p).content()
         .find_char(char::from_u32(c as u32).unwrap(), from as _)
@@ -804,7 +804,7 @@ pub unsafe fn string_indexof_char(p: *mut JSString, c: i32, from: i32) -> i32 {
     // }
 }
 
-#[deprecated(note = "use StringContent::find() instead")]
+#[deprecated(note = "use StringBuf::find() instead")]
 pub unsafe fn string_indexof(p1: *mut JSString, p2: *mut JSString, from: i32) -> i32 {
     debug_assert!(from >= 0);
     (*p1)
@@ -842,8 +842,8 @@ pub fn js_string_toLowerCase(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     let sc = match p.content().as_ref() {
-        StringContent::Empty | StringContent::Null => unreachable!(),
-        StringContent::Utf8(s) => {
+        StringBuf::Empty | StringBuf::Null => unreachable!(),
+        StringBuf::Utf8(s) => {
             let mut d = Vec::<u8>::try_with_capacity(s.len()).map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1
@@ -854,9 +854,9 @@ pub fn js_string_toLowerCase(ctx: &JSContext, cc: CallContext) -> JSResult {
             } else {
                 d.make_ascii_uppercase();
             }
-            StringContent::Utf8(d)
+            StringBuf::Utf8(d)
         }
-        StringContent::Utf16(s) => {
+        StringBuf::Utf16(s) => {
             let mut w = Vec::<u16>::try_with_capacity(s.len() * 3 / 2).map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1
@@ -880,7 +880,7 @@ pub fn js_string_toLowerCase(ctx: &JSContext, cc: CallContext) -> JSResult {
             }
 
             w.shrink_to_fit();
-            StringContent::Utf16(w)
+            StringBuf::Utf16(w)
         }
     };
 
@@ -988,7 +988,7 @@ pub const js_string_iterator_proto_funcs: [NativeField; 2] = [
 ];
 
 pub fn js_string_fromCharCode(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let mut res_string = StringContent::Empty;
+    let mut res_string = StringBuf::Empty;
 
     for a in cc.arguments() {
         let c = a.coerce_to_i32(ctx)?;
@@ -1004,7 +1004,7 @@ pub fn js_string_fromCharCode(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_string_fromCodePoint(ctx: &JSContext, cc: CallContext) -> JSResult {
     // XXX: could pre-compute string length if all arguments are JS_TAG_INT
-    let mut res_string = StringContent::Empty;
+    let mut res_string = StringBuf::Empty;
 
     for a in cc.arguments() {
         let c: i32 = if let JSValue::Int(i) = a {
@@ -1037,7 +1037,7 @@ pub fn js_string_raw(ctx: &JSContext, cc: CallContext) -> JSResult {
         .coerce_to_object(ctx)?;
 
     let n = js_get_length64(ctx, &raw.clone().into())?;
-    let mut res_string = StringContent::Empty;
+    let mut res_string = StringBuf::Empty;
 
     for i in 0..n {
         let str = raw.get_property_i64(ctx, i)?.coerce_to_string(ctx)?;
