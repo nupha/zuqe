@@ -10,7 +10,7 @@ use widestring::{
 
 use super::StringBuf;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum StringCharOrCode {
     Char(char),
     RawCode(u16),
@@ -72,6 +72,7 @@ impl<'a> Iterator for StringBufIter<'a> {
     }
 }
 
+#[deprecated(note = "use StringCharOrCode instead")]
 #[derive(Clone)]
 pub enum StringChars<'a> {
     Empty,
@@ -90,6 +91,7 @@ impl Iterator for StringChars<'_> {
     }
 }
 
+#[deprecated(note = "use StringCharOrCode instead")]
 #[derive(Clone)]
 pub enum StringCharIndices<'a> {
     Empty,
@@ -144,6 +146,7 @@ impl StringBuf {
     }
 
     /// get chars iterator
+    #[deprecated(note = "use StringBuf::iter() instead")]
     pub fn chars(&self) -> StringChars<'_> {
         match self {
             Self::Empty | Self::Null => StringChars::Empty,
@@ -153,6 +156,7 @@ impl StringBuf {
     }
 
     /// get chars iterator
+    #[deprecated(note = "use StringBuf::iter() instead")]
     pub fn chars_indices(&self) -> StringCharIndices<'_> {
         match self {
             Self::Empty | Self::Null => StringCharIndices::Empty,
