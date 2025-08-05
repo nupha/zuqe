@@ -11,40 +11,30 @@ use widestring::{
 use super::StringBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum StringCharOrCode {
+pub enum StringChar {
     Char(char),
-    BadCode(u16),
+    Broken(u16),
 }
 
-impl StringCharOrCode {
+impl StringChar {
     pub fn to_u32(self) -> u32 {
         match self {
             Self::Char(c) => c as u32,
-            Self::BadCode(c) => c as u32,
+            Self::Broken(c) => c as u32,
         }
     }
 }
 
 pub struct StringBufIter<'a> {
     u16_iter: Peekable<std::slice::Iter<'a, u16>>,
-    cur_idx: usize,
-}
-
-impl<'a> StringBufIter<'a> {
-    /// get current cursor index
-    #[inline(always)]
-    pub fn cursor(&self) -> usize {
-        self.cur_idx
-    }
 }
 
 impl<'a> Iterator for StringBufIter<'a> {
-    type Item = StringCharOrCode;
+    type Item = StringChar;
 
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(n) = self.u16_iter.next() {
             let high = *n;
-            self.cur_idx += 1;
 
             let r = if (0xD800..=0xDBFF).contains(&high) {
                 if let Some(low) = self.u16_iter.peek() {
@@ -54,23 +44,22 @@ impl<'a> Iterator for StringBufIter<'a> {
                             ((high - 0xD800) as u32) << 10 | (**low - 0xDC00) as u32 + 0x10000;
                         if let Some(ch) = char::from_u32(code_point) {
                             self.u16_iter.next(); // 消耗低代理项
-                            self.cur_idx += 1;
-                            return Some(StringCharOrCode::Char(ch));
+                            return Some(StringChar::Char(ch));
                         }
                     }
                 }
 
                 // 非法代理对（单独的高代理或无效组合）→ 保留原始 u16
-                StringCharOrCode::BadCode(high)
+                StringChar::Broken(high)
             } else if (0xDC00..=0xDFFF).contains(&high) {
                 // 单独的低代理项 → 保留原始 u16
-                StringCharOrCode::BadCode(high)
+                StringChar::Broken(high)
             } else {
                 // 普通 BMP 字符（U+0000..=U+FFFF）
                 if let Some(ch) = char::from_u32(high as u32) {
-                    StringCharOrCode::Char(ch)
+                    StringChar::Char(ch)
                 } else {
-                    StringCharOrCode::BadCode(high)
+                    StringChar::Broken(high)
                 }
             };
 
@@ -81,7 +70,7 @@ impl<'a> Iterator for StringBufIter<'a> {
     }
 }
 
-#[deprecated(note = "use StringCharOrCode instead")]
+#[deprecated(note = "use StringChar instead")]
 #[derive(Clone)]
 pub enum StringChars<'a> {
     Empty,
@@ -100,7 +89,7 @@ impl Iterator for StringChars<'_> {
     }
 }
 
-#[deprecated(note = "use StringCharOrCode instead")]
+#[deprecated(note = "use StringChar instead")]
 #[derive(Clone)]
 pub enum StringCharIndices<'a> {
     Empty,
@@ -126,10 +115,7 @@ impl StringBuf {
             Self::Empty | Self::Null => {
                 let it = [].iter();
                 let it = it.peekable();
-                StringBufIter {
-                    u16_iter: it,
-                    cur_idx: 0,
-                }
+                StringBufIter { u16_iter: it }
             }
             Self::Utf8(s) => {
                 todo!()
@@ -141,10 +127,7 @@ impl StringBuf {
                     [].iter()
                 };
                 let it = it.peekable();
-                StringBufIter {
-                    u16_iter: it,
-                    cur_idx: index,
-                }
+                StringBufIter { u16_iter: it }
             }
         }
     }

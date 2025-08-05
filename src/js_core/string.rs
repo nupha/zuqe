@@ -14,7 +14,7 @@ use crate::{
     regexp::js_is_regexp,
     string::{
         JS_ConcatString, JS_ConcatString3, JS_STRING_LEN_MAX, JS_ToStringCheckObject, JSString,
-        StringBuf, StringCharOrCode,
+        StringBuf, StringChar,
     },
     value::{JSValue, JSValueConst},
 };
@@ -974,8 +974,8 @@ pub fn js_string_iterator_next(
             it.idx = idx + 1;
             *state = IteratorState::NotDone;
             match c {
-                StringCharOrCode::Char(c) => ctx.create_string_from_char(c),
-                StringCharOrCode::BadCode(c) => {
+                StringChar::Char(c) => ctx.create_string_from_char(c),
+                StringChar::Broken(c) => {
                     ctx.create_string_from_content(if (0..=255).contains(&c) {
                         StringBuf::Utf8(vec![c as u8])
                     } else {
