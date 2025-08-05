@@ -11,6 +11,7 @@ use crate::{
     error::{JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized, JSResult},
     function::JS_Call,
     object::{JSObject, JSProperty},
+    string::StringBuf,
     value::{JS_GetPrototypePrimitive, JSValue},
 };
 
@@ -262,6 +263,7 @@ impl JSObject {
 }
 
 impl JSValue {
+    /// get property `prop` of `self` value.
     pub(crate) fn get_property_internal(
         &self,
         ctx: &JSContext,
@@ -271,21 +273,24 @@ impl JSValue {
     ) -> JSResult {
         match self {
             Self::Object(o) => o.get_property_internal(ctx, prop, this_obj, throw_ref_error),
-            Self::String(ss) => {
+            Self::String(s) => {
                 if prop == JS_ATOM_length {
-                    return Ok(JSValue::from(ss.len() as u32));
-                }
-                if prop.is_int_type() {
-                    let nth = __JS_AtomToUInt32(prop);
-                    return if nth < ss.len() as u32 {
-                        let ch = ss.content().chars().nth(nth as usize).unwrap();
-                        ctx.create_string_from_char(ch).map(JSValue::String)
+                    // string length
+                    Ok(JSValue::from(s.len() as u32))
+                } else if prop.is_int_type() {
+                    // get code at index
+                    let idx = __JS_AtomToUInt32(prop);
+                    if let Some(code) = s.content().get(idx as usize) {
+                        ctx.create_string_from_content(if (0..=255).contains(&code) {
+                            StringBuf::Utf8(vec![code as u8])
+                        } else {
+                            StringBuf::Utf16(vec![code])
+                        })
+                        .map(JSValue::String)
                     } else {
                         Ok(JSValue::UNDEFINED)
-                    };
-                }
-
-                unsafe {
+                    }
+                } else {
                     JS_GetPrototypePrimitive(ctx, self)
                         .object()
                         .map(|o| o.get_property_internal(ctx, prop, this_obj, throw_ref_error))
@@ -306,12 +311,10 @@ impl JSValue {
                 #[cfg(not(debug_assertions))]
                 Err(-1)
             }
-            _ => unsafe {
-                JS_GetPrototypePrimitive(ctx, self)
-                    .object()
-                    .map(|o| o.get_property_internal(ctx, prop, this_obj, throw_ref_error))
-                    .unwrap_or(Ok(JSValue::UNDEFINED))
-            },
+            _ => JS_GetPrototypePrimitive(ctx, self)
+                .object()
+                .map(|o| o.get_property_internal(ctx, prop, this_obj, throw_ref_error))
+                .unwrap_or(Ok(JSValue::UNDEFINED)),
         }
     }
 
@@ -330,8 +333,8 @@ impl JSValue {
     }
 
     pub fn get_property_value(&self, ctx: &JSContext, prop: &JSValue) -> JSResult {
-        if self.is_object() {
-            unsafe { self.object_unchecked().get_property_value(ctx, prop) }
+        if let JSValue::Object(o) = self {
+            o.get_property_value(ctx, prop)
         } else {
             let atom = prop.coerce_to_atom(ctx)?;
             let ret = self.get_property(ctx, atom);

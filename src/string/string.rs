@@ -210,9 +210,9 @@ impl JSString {
         Ok(Self::new(rt, Rc::new(sc)))
     }
 
-    /// Creates a JSStringInner from UTF-8 encoded bytes
+    /// Creates a JSString from UTF-8 encoded bytes
     ///
-    /// Handles both ASCII and non-ASCII UTF-8 content:
+    /// Handles both ASCII and non-ASCII content:
     /// - ASCII content is stored as-is in UTF-8 format
     /// - Non-ASCII content is converted to UTF-16 for better Unicode support
     ///
@@ -245,6 +245,12 @@ impl JSString {
         self.0.content()
     }
 
+    /// get code at index `i`
+    #[inline(always)]
+    pub fn get(&self, i: usize) -> Option<u16> {
+        self.content().get(i)
+    }
+
     #[inline(always)]
     pub fn len(&self) -> usize {
         self.0.len()
@@ -272,12 +278,12 @@ impl JSString {
 
     /// Get hash value of the string.
     #[inline(always)]
-    pub fn hash(&self) -> u32 {
+    pub(crate) fn hash(&self) -> u32 {
         self.0.hash()
     }
 
     /// Save hash value
-    pub fn set_hash(&self, h: u32) {
+    pub(crate) fn set_hash(&self, h: u32) {
         self.0.set_hash(h);
     }
 

@@ -417,6 +417,16 @@ impl StringBuf {
         }
     }
 
+    /// get code at index `i`.
+    /// returns None if index is out of length ranges.
+    pub fn get(&self, i: usize) -> Option<u16> {
+        match self {
+            Self::Empty | Self::Null => None,
+            Self::Utf8(lst) => lst.get(i).map(|n| *n as u16),
+            Self::Utf16(lst) => lst.get(i).map(|n| *n),
+        }
+    }
+
     /// capacity
     pub const fn capacity(&self) -> usize {
         match self {

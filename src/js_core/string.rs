@@ -84,8 +84,13 @@ pub fn js_string_charAt(ctx: &JSContext, cc: CallContext) -> JSResult {
             ctx.create_string("").map(JSValue::String)
         }
     } else {
-        let c = p.content().chars().nth(idx as usize).unwrap();
-        ctx.create_string_from_char(c).map(JSValue::String)
+        let code = p.get(idx as usize).unwrap();
+        ctx.create_string_from_content(if (0..=255).contains(&code) {
+            StringBuf::Utf8(vec![code as u8])
+        } else {
+            StringBuf::Utf16(vec![code])
+        })
+        .map(JSValue::String)
     }
 }
 
