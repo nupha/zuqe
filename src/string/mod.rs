@@ -1,7 +1,5 @@
+mod char;
 mod content;
 mod string;
 
-pub use {
-    content::{StringBuf, StringChars},
-    string::*,
-};
+pub use {char::*, content::StringBuf, string::*};
