@@ -15,6 +15,7 @@ use crate::{
 
 use super::JSIteratorKindEnum;
 
+/// Array or String iterator
 #[derive(Debug)]
 pub struct JSArrayIteratorData {
     pub obj: JSValue,
@@ -40,8 +41,7 @@ impl JSArrayIteratorData {
 pub fn js_create_array_iterator(ctx: &JSContext, cc: CallContext) -> JSResult {
     let kind = unsafe { std::mem::transmute::<u8, JSIteratorKindEnum>(cc.magic() as u8 & 3) };
 
-    let (class_id, arr) = if cc.magic() & 4 != 0 {
-        // string iterator case
+    let (class_id, obj) = if cc.magic() & 4 != 0 {
         (
             JS_CLASS_STRING_ITERATOR,
             JS_ToStringCheckObject(ctx, cc.this().clone())?.into(),
@@ -53,11 +53,7 @@ pub fn js_create_array_iterator(ctx: &JSContext, cc: CallContext) -> JSResult {
         )
     };
 
-    let it = Box::new(JSArrayIteratorData {
-        obj: arr,
-        kind,
-        idx: 0,
-    });
+    let it = Box::new(JSArrayIteratorData { obj, kind, idx: 0 });
     ctx.create_object(if class_id == JS_CLASS_STRING_ITERATOR {
         ObjectDetail::STRING_ITERATOR(it)
     } else {
@@ -82,14 +78,14 @@ pub fn js_array_iterator_next(
 
         // eval array length
         let len = if let Ok(tao) = TryInto::<TypedArray>::try_into(it.obj.clone()) {
-            // `it.obj` is Uint8ClampArray..Float64Array object
+            // is typed array
             if tao.is_detached() {
                 JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
                 return Err(-1);
             }
             tao.length() as u32
         } else {
-            // is ArrayIterator or StringIterator object
+            // is Array or String
             js_get_length32(ctx, &it.obj)?
         };
 

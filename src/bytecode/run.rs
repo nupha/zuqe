@@ -1382,7 +1382,7 @@ impl Bytecode {
                             break State::Exception;
                         } else {
                             SP_GO!(1);
-                            SP_PUT!(0, JSValue::CatchOffset(0));
+                            SP_PUT!(0, JSValue::CatchOffset(0)); // mark for_of_start
                             SP_GO!(1);
                         }
                     }
@@ -1736,7 +1736,8 @@ impl Bytecode {
                     }
                     OpCode::GET_ARRAY_EL => {
                         // [array, prop, ^] -> [value, ^]
-                        let val = SP_REF!(-2)
+                        let array = SP_REF!(-2);
+                        let val = array
                             .get_property_value(ctx, &SP_TAKE!(-1))
                             .unwrap_or(JSValue::EXCEPTION);
                         let is_err = val.is_exception();

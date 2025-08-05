@@ -392,19 +392,10 @@ impl JSValue {
             ctx.throw_type_error("value is not iterable");
             Err(-1)
         } else {
-            if let JSValue::Object(o) = JS_Call(
-                ctx,
-                &self.get_property(ctx, JS_ATOM_Symbol_iterator)?,
-                self,
-                &[],
-            )
-            .check_exception()?
-            {
-                Ok(o)
-            } else {
+            let ret = JS_Call(ctx, &method, self, &[]).check_exception()?;
+            TryInto::<JSObject>::try_into(ret).inspect_err(|_| {
                 ctx.throw_type_error_not_an_object();
-                Err(-1)
-            }
+            })
         }
     }
 

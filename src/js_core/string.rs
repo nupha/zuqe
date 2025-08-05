@@ -14,7 +14,7 @@ use crate::{
     regexp::js_is_regexp,
     string::{
         JS_ConcatString, JS_ConcatString3, JS_STRING_LEN_MAX, JS_ToStringCheckObject, JSString,
-        StringBuf,
+        StringBuf, StringCharOrCode,
     },
     value::{JSValue, JSValueConst},
 };
@@ -968,16 +968,39 @@ pub fn js_string_iterator_next(
         let ss = unsafe { it.obj.string_unchecked() };
         let idx = it.idx;
 
-        if idx >= ss.len() as u32 {
+        // iterate over string buf to get char or code at `idx`
+        let mut str_iter = ss.content().iter_since(idx as usize);
+        if let Some(c) = str_iter.next() {
+            it.idx = idx + 1;
+            *state = IteratorState::NotDone;
+            match c {
+                StringCharOrCode::Char(c) => ctx.create_string_from_char(c),
+                StringCharOrCode::RawCode(c) => {
+                    ctx.create_string_from_content(if (0..=255).contains(&c) {
+                        StringBuf::Utf8(vec![c as u8])
+                    } else {
+                        StringBuf::Utf16(vec![c])
+                    })
+                }
+            }
+            .map(JSValue::String)
+        } else {
             it.obj = JSValue::UNDEFINED;
             *state = IteratorState::Done;
             Ok(JSValue::UNDEFINED)
-        } else {
-            let c = ss.content().chars().nth(idx as usize).unwrap();
-            it.idx = idx + 1;
-            *state = IteratorState::NotDone;
-            ctx.create_string_from_char(c).map(JSValue::String)
         }
+
+        // old logic
+        // if idx >= ss.len() as u32 {
+        //     it_state.obj = JSValue::UNDEFINED;
+        //     *state = IteratorState::Done;
+        //     Ok(JSValue::UNDEFINED)
+        // } else {
+        //     let c = ss.content().chars().nth(idx as usize).unwrap();
+        //     it_state.idx = idx + 1;
+        //     *state = IteratorState::NotDone;
+        //     ctx.create_string_from_char(c).map(JSValue::String)
+        // }
     } else {
         Err(-1)
     }
