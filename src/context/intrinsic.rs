@@ -677,6 +677,26 @@ impl JSContext {
         }
     }
 
+    pub fn intrinsic_regexp(&self) {
+        // JS_AddIntrinsicRegExpCompiler(ctx);
+
+        // let obj = self.create_base_object().unwrap();
+        // obj.install_native_fields(self, js_regexp_proto_funcs)
+        //     .unwrap();
+
+        // let ctor = JS_NewGlobalCConstructor(ctx, "RegExp", js_regexp_constructor, 2, &obj);
+        // ctor.install_native_fields(self, js_regexp_funcs).unwrap();
+
+        // let iter_proto = self.0.borrow().iterator_proto.clone();
+        // let iter = self.create_base_object_from_proto(iter_proto).unwrap();
+        // iter.install_native_fields(self, js_regexp_string_iterator_proto_funcs);
+
+        // let mut cx = self.0.borrow_mut();
+        // cx.class_proto[JS_CLASS_REGEXP] = obj;
+        // cx.class_proto[JS_CLASS_REGEXP_STRING_ITERATOR] = iter;
+        // cx.regexp_ctor = ctor;
+    }
+
     pub fn intrinsic_async(&self) {
         let rt = self.rt_mut();
         debug_assert!(rt.is_class_registered(JS_CLASS_PROMISE));
@@ -796,47 +816,6 @@ impl JSContext {
                 cx.class_proto[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize] = agf_proto;
             });
         }
-
-        // // AsyncGeneratorFunction
-        // {
-        //     let agf_proto = self
-        //         .create_base_object_with_proto(&self.0.borrow().function_proto)
-        //         .unwrap();
-
-        //     agf_proto
-        //         .install_property_entries(self, &js_async_generator_function_proto_funcs)
-        //         .unwrap();
-
-        //     self.class_proto[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize] = agf_proto;
-
-        //     let agf_func = JS_NewCFunction3(
-        //         self,
-        //         std::mem::transmute::<JSCFunctionMagic, JSCFunction>(
-        //             BytecodeFunctionValue::hook_constructor,
-        //         ),
-        //         c"AsyncGeneratorFunction",
-        //         1,
-        //         JSCFunctionEnum::ConstructorOrFuncMagic,
-        //         JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR as i16,
-        //         self.0.borrow().function_ctor,
-        //     );
-
-        //     JS_SetConstructor2(
-        //         self,
-        //         self.class_proto[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize],
-        //         self.class_proto[JS_CLASS_ASYNC_GENERATOR as usize],
-        //         JS_PROP_CONFIGURABLE,
-        //         JS_PROP_CONFIGURABLE,
-        //     );
-        //     JS_SetConstructor2(
-        //         self,
-        //         agf_func,
-        //         self.class_proto[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize],
-        //         0,
-        //         JS_PROP_CONFIGURABLE,
-        //     );
-        //     JS_FreeValue(self, &agf_func);
-        // }
     }
 }
 

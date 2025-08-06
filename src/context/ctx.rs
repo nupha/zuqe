@@ -436,14 +436,11 @@ impl JSRuntime {
     pub fn create_context(&mut self) -> Result<JSContext, i32> {
         let ctx = self.create_context_core()?;
 
-        {
-            ctx.intrinsic_base_objects();
-            ctx.intrinsic_async();
-            ctx.intrinsic_typed_arrays();
-
-            // Math: lazy init object
-            ctx.intrinsic_math();
-        }
+        ctx.intrinsic_base_objects();
+        ctx.intrinsic_async();
+        ctx.intrinsic_typed_arrays();
+        ctx.intrinsic_regexp();
+        ctx.intrinsic_math(); // Math: lazy init object
 
         Ok(ctx)
     }

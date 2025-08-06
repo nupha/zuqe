@@ -25,6 +25,7 @@ impl StringChar {
     }
 }
 
+#[derive(Clone)]
 pub enum StringBufIter<'a> {
     U16(Peekable<std::slice::Iter<'a, u16>>),
     U8(Peekable<std::slice::Iter<'a, u8>>),

@@ -371,7 +371,7 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
         res_string
             .push_chars_iter(
                 sp.content()
-                    .chars()
+                    .iter()
                     .skip(endOfLastMatch as usize)
                     .take(rem_len),
             )
@@ -524,25 +524,23 @@ pub fn js_string_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_string_pad(ctx: &JSContext, cc: CallContext) -> JSResult {
     let padEnd = cc.magic();
-
-    let p = JS_ToStringCheckObject(ctx, cc.this().clone())?;
     let mut n: i32 = cc.arg(0).coerce_to_i32_saturating(ctx)?;
 
+    let p = JS_ToStringCheckObject(ctx, cc.this().clone())?;
     let len = p.len() as i32;
     if len >= n {
         return Ok(p.into());
     }
 
     let mut p1: Option<JSString> = None;
-    let mut c = ' ';
+    let mut c = StringChar::Char(' ');
 
     if cc.length() > 1 && !cc.arg(1).is_undefined() {
         let s = cc.arg(1).coerce_to_string(ctx)?;
         if s.is_empty() {
             return Ok(p.into());
-        }
-        if s.len() == 1 {
-            c = s.content().chars().next().unwrap();
+        } else if s.len() == 1 {
+            c = s.content().iter().next().unwrap();
         } else {
             p1.replace(s);
         }
@@ -565,16 +563,21 @@ pub fn js_string_pad(ctx: &JSContext, cc: CallContext) -> JSResult {
     n -= len;
 
     if let Some(s) = p1 {
-        res_string.push_chars_iter(
-            std::iter::repeat_n(s.content().chars(), (n as usize).div_ceil(s.len())).flatten(),
-        )
+        let src = std::iter::repeat_n(s.content().iter(), (n as usize).div_ceil(s.len())).flatten();
+        res_string.push_chars_iter(src)
+        // res_string.push_chars_iter(
+        //     std::iter::repeat_n(s.content().chars(), (n as usize).div_ceil(s.len())).flatten(),
+        // )
     } else {
         res_string.push_chars_iter(std::iter::repeat_n(c, n as usize))
+        // res_string.push_chars_iter(std::iter::repeat_n(c, n as usize))
     }
     .map_err(|_| {
         ctx.throw_out_of_memory();
         -1
     })?;
+
+    println!("[O.o] {res_string:?}");
 
     if padEnd == 0 {
         res_string.push(p.content()).map_err(|_| {
@@ -610,9 +613,8 @@ pub fn js_string_repeat(ctx: &JSContext, cc: CallContext) -> JSResult {
         ctx.throw_out_of_memory();
         -1
     })?;
-
     res_string
-        .push_chars_iter(std::iter::repeat_n(p.content().chars(), n).flatten())
+        .push_chars_iter(std::iter::repeat_n(p.content().iter(), n).flatten())
         .unwrap();
     res_string.shrink_to_fit();
 
@@ -708,9 +710,9 @@ pub fn check_regexp_g_flag(ctx: &JSContext, regexp: &JSValue) -> i32 {
 }
 
 pub fn js_string_match(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let mut O = cc.this().clone();
+    let O = cc.this().clone();
     let regexp = cc.arg(0);
-    let atom = JSAtom(cc.magic() as u32);
+    let method = JSAtom(cc.magic() as u32);
 
     if O.is_undefined_or_null() {
         ctx.throw_type_error("cannot convert to object");
@@ -718,9 +720,9 @@ pub fn js_string_match(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     if !regexp.is_undefined_or_null() {
-        let matcher = regexp.get_property(ctx, atom)?;
+        let matcher = regexp.get_property(ctx, method)?;
 
-        if atom == JS_ATOM_Symbol_matchAll {
+        if method == JS_ATOM_Symbol_matchAll {
             if check_regexp_g_flag(ctx, regexp) < 0 {
                 return Err(-1);
             }
@@ -732,23 +734,18 @@ pub fn js_string_match(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let S = O.coerce_to_string(ctx)?;
 
+    // make RegExp args
     let mut args_len = 1;
-    let mut args = [const { JSValue::UNDEFINED }; 2];
-    args[0] = regexp.clone();
-
-    if atom == JS_ATOM_Symbol_matchAll {
+    let mut args = [regexp.clone(), JSValue::UNDEFINED];
+    if method == JS_ATOM_Symbol_matchAll {
         args[args_len as usize] = ctx.create_string_from_char('g')?.into();
         args_len += 1;
     }
 
-    let rx = JS_CallConstructor(
-        ctx,
-        &ctx.0.borrow().regexp_ctor,
-        &cc.arguments()[0..args_len],
-    )
-    .check_exception()?;
+    let regexp_ctor = ctx.0.borrow().regexp_ctor.clone(); // avoid borrow for long
+    let re = JS_CallConstructor(ctx, &regexp_ctor, &args[0..args_len]).check_exception()?;
 
-    JS_Invoke(ctx, &rx, atom, &[S.into()]).check_exception()
+    JS_Invoke(ctx, &re, method, &[S.into()]).check_exception()
 }
 
 /// 该函数是 JavaScript 正则替换功能的核心实现，处理了替换字符串中的所有特殊模式，确保符合 ECMAScript 规范要求。

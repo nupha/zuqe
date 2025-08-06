@@ -5,7 +5,7 @@ use {
     widestring::U16Str,
 };
 
-use crate::atom::AtomTypeHint;
+use crate::{atom::AtomTypeHint, string::StringChar};
 
 use super::string::JS_STRING_LEN_MAX;
 
@@ -173,19 +173,21 @@ impl StringBuf {
     }
 
     /// concat other string content to self content, returns a new result string content.
-    pub fn push_content_slice(&mut self, sref: &StringBufSlice) -> Result<(), TryReserveError> {
-        // 使用临时变量存储self的内容,避免借用冲突
+    pub fn push_content_slice(&mut self, source: &StringBufSlice) -> Result<(), TryReserveError> {
+        // use a temp var to hold current self content
         let orig_content = std::mem::replace(self, Self::Empty);
 
-        let new_content: Self = match (orig_content, sref.src) {
+        let new_content: Self = match (orig_content, source.src) {
             (s, Self::Empty | Self::Null) => s,
-            (Self::Empty | Self::Null, _) => sref.to_owned()?,
+            (Self::Empty | Self::Null, _) => source.to_owned()?,
+
+            // same type
             (Self::Utf16(mut s1), Self::Utf16(s2)) => {
                 if let Err(e) = s1.try_reserve_exact(s2.len()) {
                     let _ = std::mem::replace(self, Self::Utf16(s1));
                     return Err(e);
                 } else {
-                    s1.extend_from_slice(&s2.as_slice()[sref.ranges.clone()]);
+                    s1.extend_from_slice(&s2.as_slice()[source.ranges.clone()]);
                     Self::Utf16(s1)
                 }
             }
@@ -194,18 +196,18 @@ impl StringBuf {
                     let _ = std::mem::replace(self, Self::Utf8(s1));
                     return Err(e);
                 } else {
-                    s1.extend_from_slice(&s2.as_slice()[sref.ranges.clone()]);
+                    s1.extend_from_slice(&s2.as_slice()[source.ranges.clone()]);
                     Self::Utf8(s1)
                 }
             }
+
             (Self::Utf16(mut s1), Self::Utf8(s2)) => {
                 if let Err(e) = s1.try_reserve(s2.len()) {
                     let _ = std::mem::replace(self, Self::Utf16(s1));
                     return Err(e);
                 }
-
                 for c in
-                    unsafe { std::str::from_utf8_unchecked(&s2.as_slice()[sref.ranges.clone()]) }
+                    unsafe { std::str::from_utf8_unchecked(&s2.as_slice()[source.ranges.clone()]) }
                         .encode_utf16()
                 {
                     s1.push(c);
@@ -218,7 +220,7 @@ impl StringBuf {
                     Ok(mut buf) => {
                         let a =
                             unsafe { std::str::from_utf8_unchecked(s1.as_slice()) }.encode_utf16();
-                        let b = s2.as_slice()[sref.ranges.clone()].iter().copied();
+                        let b = s2.as_slice()[source.ranges.clone()].iter().copied();
                         buf.extend(a.chain(b));
                         buf.shrink_to_fit();
                         Self::Utf16(buf)
@@ -235,7 +237,7 @@ impl StringBuf {
         Ok(())
     }
 
-    /// concat other string content to self content, returns a new result string content.
+    /// concat other string buf to `self`, returns a new string buf.
     pub fn push(&mut self, other: &Self) -> Result<(), TryReserveError> {
         self.push_content_slice(&other.slice(0..other.len()))
     }
@@ -258,28 +260,52 @@ impl StringBuf {
         Ok(())
     }
 
-    pub fn push_u16_slice(&mut self, s16: &[u16]) -> Result<(), TryReserveError> {
+    // convert Vec<u16> to Vec<u8>
+    unsafe fn wide_to_ascii(mut lst: Vec<u16>) -> Vec<u8> {
+        debug_assert!(!lst.iter().any(|c| *c >= 0x80), "must be ascii content");
+
+        let mut ptr16 = lst.as_mut_ptr();
+        let mut ptr8 = ptr16.cast::<u8>();
+        let ptr = ptr8;
+        let len = lst.len();
+        let cap = lst.capacity();
+
+        for _ in 0..len {
+            *ptr8 = *ptr16 as u8;
+            ptr8 = ptr8.add(1);
+            ptr16 = ptr16.add(1);
+        }
+
+        // IMPORTANT: don't let lst drop
+        std::mem::forget(lst);
+        // re-interpret lst as Vec<u8>
+        let mut a = Vec::from_raw_parts(ptr, len, cap * 2);
+        a.shrink_to_fit();
+        a
+    }
+
+    pub fn push_u16_slice(&mut self, source: &[u16]) -> Result<(), TryReserveError> {
         match self {
             Self::Empty | Self::Null => {
-                let d = s16.iter().copied().try_collect::<Vec<_>>()?;
+                let d = source.iter().copied().try_collect::<Vec<_>>()?;
                 let _ = std::mem::replace(self, Self::Utf16(d));
             }
             Self::Utf8(d) => {
-                if s16.iter().any(|&u| u >= 0x80) {
-                    // s is wide string, migrate to utf16
-                    let mut w = Vec::<u16>::try_with_capacity(d.len() + s16.len())?;
+                if source.iter().any(|&u| u >= 0x80) {
+                    // is wide string, migrate to utf16
+                    let mut w = Vec::<u16>::try_with_capacity(d.len() + source.len())?;
                     w.extend(unsafe { std::str::from_utf8_unchecked(d) }.encode_utf16());
-                    w.extend_from_slice(s16);
+                    w.extend_from_slice(source);
                     let _ = std::mem::replace(self, Self::Utf16(w));
                 } else {
-                    // s is ascii string
-                    d.try_reserve(s16.len())?;
-                    d.extend(s16.iter().map(|c| *c as u8));
+                    // is ascii string
+                    d.try_reserve(source.len())?;
+                    d.extend(source.iter().map(|c| *c as u8));
                 }
             }
             Self::Utf16(d) => {
                 d.try_reserve(d.len())?;
-                d.extend_from_slice(s16);
+                d.extend_from_slice(source);
             }
         }
         Ok(())
@@ -305,64 +331,100 @@ impl StringBuf {
 
     pub fn push_chars_iter(
         &mut self,
-        chars: impl Iterator<Item = char>,
+        chars: impl Iterator<Item = StringChar>,
     ) -> Result<(), TryReserveError> {
         let sz = chars.size_hint();
         let len = std::cmp::max(sz.0, sz.1.unwrap_or(1));
 
         match self {
             Self::Empty | Self::Null => {
-                let mut d = Vec::<u16>::try_with_capacity(len)?;
-                for c in chars {
-                    d.try_extend_from_slice(c.encode_utf16(&mut [0; 4]))?;
-                }
-                if !d.iter().any(|n| *n >= 0x80) {
-                    // is ascii
-                    let mut ptr16 = d.as_mut_ptr();
-                    let mut ptr8 = ptr16.cast::<u8>();
-                    let ptr = ptr8;
-                    let len = d.len();
-                    let cap = d.capacity();
+                let mut lst = Vec::<u16>::new(); // assume wide string at first.
+                lst.try_reserve(len)?;
 
-                    unsafe {
-                        for _ in 0..len {
-                            *ptr8 = *ptr16 as u8;
-                            ptr8 = ptr8.add(1);
-                            ptr16 = ptr16.add(1);
+                for c in chars {
+                    let mut a = [0u16; 2];
+                    lst.try_extend_from_slice(match c {
+                        StringChar::Char(c) => c.encode_utf16(&mut a),
+                        StringChar::Broken(c) => {
+                            a[0] = c;
+                            &a[..1]
                         }
+                    })?;
+                }
 
-                        let mut a = Vec::from_raw_parts(ptr, len, cap * 2);
-                        a.shrink_to_fit();
-                        let _ = std::mem::replace(self, Self::Utf8(a));
-                    }
+                if lst.iter().any(|n| *n >= 0x80) {
+                    // is utf16 content
+                    let _ = std::mem::replace(self, Self::Utf16(lst));
                 } else {
-                    let _ = std::mem::replace(self, Self::Utf16(d));
+                    // is ascii content
+                    let s8 = unsafe { Self::wide_to_ascii(lst) };
+                    let _ = std::mem::replace(self, Self::Utf8(s8));
                 }
             }
-            Self::Utf8(s) => {
-                s.try_reserve(len * 3)?;
+            Self::Utf8(lst) => {
+                let mut s8: Option<Vec<u8>> = Some(lst.try_clone()?);
+                let mut s16: Option<Vec<u16>> = None;
+
                 for c in chars {
-                    s.extend_from_slice(c.encode_utf8(&mut [0; 4]).as_bytes());
-                    if s.capacity() - s.len() < 4 {
-                        s.try_reserve(len / 2)?;
+                    match c {
+                        StringChar::Char(c) => {
+                            let mut a = [0u16; 2];
+                            let bb = c.encode_utf16(&mut a);
+
+                            if let Some(s8) = &mut s8
+                                && bb[0] > 0x80
+                            {
+                                s8.try_push(bb[0] as u8)?;
+                            } else {
+                                if let Some(s16) = &mut s16 {
+                                    s16.try_extend_from_slice(bb)?;
+                                } else {
+                                    let s8 = s8.take().unwrap();
+                                    let mut lst = Vec::<u16>::try_with_capacity(s8.len() + 2)?;
+                                    lst.extend(
+                                        s8.iter()
+                                            .copied()
+                                            .map(|x| x as u16)
+                                            .chain(bb.iter().copied()),
+                                    );
+                                    s16.replace(lst);
+                                }
+                            }
+                        }
+                        StringChar::Broken(c) => {
+                            if let Some(s16) = &mut s16 {
+                                s16.try_push(c)?;
+                            } else {
+                                let s8 = s8.take().unwrap();
+                                let mut lst = Vec::<u16>::try_with_capacity(s8.len() + 2)?;
+                                lst.extend(
+                                    s8.iter()
+                                        .copied()
+                                        .map(|x| x as u16)
+                                        .chain([c].iter().copied()),
+                                );
+                                s16.replace(lst);
+                            }
+                        }
                     }
                 }
 
-                if s.iter().any(|b| *b >= 0x80) {
-                    // non-ascii, convert to U16
-                    let mut w = Vec::<u16>::try_with_capacity(s.len() / 2)?;
-                    for c in unsafe { std::str::from_utf8_unchecked(s) }.encode_utf16() {
-                        w.push(c);
-                    }
-                    let _ = std::mem::replace(self, Self::Utf16(w));
+                if let Some(s8) = s8 {
+                    let _ = std::mem::replace(self, Self::Utf8(s8));
+                } else if let Some(s16) = s16 {
+                    let _ = std::mem::replace(self, Self::Utf16(s16));
                 }
             }
-            Self::Utf16(w) => {
-                w.try_reserve(len)?;
+            Self::Utf16(lst) => {
+                lst.try_reserve(len)?;
                 for c in chars {
-                    w.extend_from_slice(c.encode_utf16(&mut [0; 2]));
-                    if w.capacity() - w.len() <= 2 {
-                        w.try_reserve(len / 2)?;
+                    match c {
+                        StringChar::Char(c) => {
+                            lst.try_extend_from_slice(c.encode_utf16(&mut [0; 2]))?;
+                        }
+                        StringChar::Broken(c) => {
+                            lst.try_push(c)?;
+                        }
                     }
                 }
             }
