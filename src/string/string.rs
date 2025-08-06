@@ -245,7 +245,7 @@ impl JSString {
         self.0.content()
     }
 
-    /// get code at index `i`
+    /// get raw code at index `i`
     #[inline(always)]
     pub fn get(&self, i: usize) -> Option<u16> {
         self.content().get(i)

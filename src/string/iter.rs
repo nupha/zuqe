@@ -137,7 +137,8 @@ impl Iterator for StringCharIndices<'_> {
 }
 
 impl StringBuf {
-    /// iterate over string char or code
+    /// iterate over string chars.
+    /// for invalid sorrogate, returns raw code directly, otherwise returns unichar
     pub fn iter_since(&self, index: usize) -> StringBufIter<'_> {
         match self {
             Self::Empty | Self::Null => StringBufIter::from_u8(&[]),
@@ -150,6 +151,8 @@ impl StringBuf {
         }
     }
 
+    /// iterate over string chars.
+    /// for invalid sorrogate, returns raw code directly, otherwise returns unichar
     #[inline(always)]
     pub fn iter(&self) -> StringBufIter<'_> {
         self.iter_since(0)

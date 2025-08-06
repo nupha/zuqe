@@ -27,18 +27,16 @@ pub fn js_string_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     } else {
         if new_target.is_undefined() && cc.arg(0).is_symbol() {
             if let JSValue::Symbol(p) = cc.arg(0) {
-                unsafe {
-                    JS_ConcatString3(
-                        ctx,
-                        c"Symbol(",
-                        p.atom_info()
-                            .unwrap()
-                            .atom()
-                            .to_string_or_symbol(ctx, true)?,
-                        c")",
-                    )?
-                    .into()
-                }
+                JS_ConcatString3(
+                    ctx,
+                    c"Symbol(",
+                    p.atom_info()
+                        .unwrap()
+                        .atom()
+                        .to_string_or_symbol(ctx, true)?,
+                    c")",
+                )?
+                .into()
             } else {
                 unreachable!()
             }
@@ -56,18 +54,56 @@ pub fn js_string_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_string_charCodeAt(ctx: &JSContext, cc: CallContext) -> JSResult {
+/// impl for `charAt()`, `at()`, `chatCodeAt()`
+pub fn js_string_at(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let str = JS_ToStringCheckObject(ctx, cc.this().clone())?;
+    let what = cc.magic(); // 0: charAt, 1: at, 2: charCodeAt
+
+    let mut idx: i32 = cc.arg(0).coerce_to_i32_saturating(ctx)?;
+    if idx < 0 && what == 1 {
+        // at() allows minus index
+        idx += str.len() as i32;
+    }
+
+    if idx < 0 || idx >= str.len() as i32 {
+        match what {
+            0 => JS_ATOM_empty_string.to_string(ctx).map(JSValue::String),
+            1 => Ok(JSValue::UNDEFINED),
+            2 => Ok(JSValue::Float64(f64::NAN)),
+            _ => unreachable!(),
+        }
+    } else {
+        let code = str.get(idx as usize).unwrap();
+        if what == 2 {
+            // charCodeAt() returns int
+            Ok(JSValue::Int(code as i32))
+        } else {
+            // charAt(), at() returns string
+            ctx.create_string_from_content(if (0..=255).contains(&code) {
+                StringBuf::Utf8(vec![code as u8])
+            } else {
+                StringBuf::Utf16(vec![code])
+            })
+            .map(JSValue::String)
+        }
+    }
+}
+
+#[deprecated(note = "use js_string_at() instead")]
+fn js_string_charCodeAt(ctx: &JSContext, cc: CallContext) -> JSResult {
     let idx: i32 = cc.arg(0).coerce_to_i32_saturating(ctx)?;
     let p = JS_ToStringCheckObject(ctx, cc.this().clone())?;
     if idx < 0 || idx >= p.len() as i32 {
         Ok(JSValue::Float64(f64::NAN))
     } else {
-        let c = p.content().chars().nth(idx as usize).unwrap();
+        let c = p.get(idx as usize).unwrap();
         Ok(JSValue::Int(c as i32))
     }
 }
 
-pub fn js_string_charAt(ctx: &JSContext, cc: CallContext) -> JSResult {
+/// impl for `charAt()`, `at()`
+#[deprecated(note = "use js_string_at() instead")]
+fn js_string_charAt(ctx: &JSContext, cc: CallContext) -> JSResult {
     let is_at = cc.magic();
 
     let p = JS_ToStringCheckObject(ctx, cc.this().clone())?;
@@ -894,9 +930,12 @@ pub fn js_string_toLowerCase(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub const js_string_proto_funcs: [NativeField; 37] = [
     JS_PROP_INT32_DEF!("length", 0, JS_PROP_CONFIGURABLE),
-    JS_CFUNC_NATIVE_DEF!("at", 1, js_string_charAt, 1),
-    JS_CFUNC_NATIVE_DEF!("charCodeAt", 1, js_string_charCodeAt, 0),
-    JS_CFUNC_NATIVE_DEF!("charAt", 1, js_string_charAt, 0),
+    JS_CFUNC_NATIVE_DEF!("charAt", 1, js_string_at, 0),
+    JS_CFUNC_NATIVE_DEF!("at", 1, js_string_at, 1),
+    JS_CFUNC_NATIVE_DEF!("charCodeAt", 1, js_string_at, 2),
+    // JS_CFUNC_NATIVE_DEF!("at", 1, js_string_charAt, 1),
+    // JS_CFUNC_NATIVE_DEF!("charAt", 1, js_string_charAt, 0),
+    // JS_CFUNC_NATIVE_DEF!("charCodeAt", 1, js_string_charCodeAt, 0),
     JS_CFUNC_NATIVE_DEF!("concat", 1, js_string_concat, 0),
     JS_CFUNC_NATIVE_DEF!("codePointAt", 1, js_string_codePointAt, 0),
     JS_CFUNC_NATIVE_DEF!("isWellFormed", 0, js_string_isWellFormed, 0),
