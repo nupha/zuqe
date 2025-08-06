@@ -13,12 +13,29 @@ use super::StringBuf;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum StringChar {
     Char(char),
-    BrokenCode(u16),
+    BrokenCode(u32),
 }
 
 impl From<char> for StringChar {
     fn from(value: char) -> Self {
         Self::Char(value)
+    }
+}
+
+impl From<u8> for StringChar {
+    fn from(value: u8) -> Self {
+        Self::Char(value as char)
+    }
+}
+
+impl From<u16> for StringChar {
+    fn from(value: u16) -> Self {
+        if matches!(value, 0xD800..=0xDBFF | 0xDC00..=0xDFFF) {
+            // invalid high or low surrogate.
+            Self::BrokenCode(value as u32)
+        } else {
+            Self::Char(char::from_u32(value as u32).unwrap())
+        }
     }
 }
 
@@ -85,16 +102,16 @@ impl<'a> StringBufIter<'a> {
                 }
 
                 // 非法代理对（单独的高代理或无效组合）→ 保留原始 u16
-                StringChar::BrokenCode(high)
+                StringChar::BrokenCode(high as u32)
             } else if (0xDC00..=0xDFFF).contains(&high) {
                 // 单独的低代理项 → 保留原始 u16
-                StringChar::BrokenCode(high)
+                StringChar::BrokenCode(high as u32)
             } else {
                 // 普通 BMP 字符（U+0000..=U+FFFF）
                 if let Some(ch) = char::from_u32(high as u32) {
                     StringChar::Char(ch)
                 } else {
-                    StringChar::BrokenCode(high)
+                    StringChar::BrokenCode(high as u32)
                 }
             };
 
@@ -102,6 +119,14 @@ impl<'a> StringBufIter<'a> {
         }
 
         None
+    }
+
+    /// peek next code (not char).
+    pub fn peek(&mut self) -> Option<u16> {
+        match self {
+            Self::U8(it) => it.peek().copied().map(|c| *c as _),
+            Self::U16(it) => it.peek().copied().map(|c| *c),
+        }
     }
 }
 

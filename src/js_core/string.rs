@@ -1015,7 +1015,7 @@ pub fn js_string_iterator_next(
                     ctx.create_string_from_content(if (0..=255).contains(&c) {
                         StringBuf::Utf8(vec![c as u8])
                     } else {
-                        StringBuf::Utf16(vec![c])
+                        StringBuf::Utf16(vec![c as u16])
                     })
                 }
             }

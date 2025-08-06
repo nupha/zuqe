@@ -259,7 +259,6 @@ impl<'s> JSParseState<'s> {
                     .buf_ptr
                     .offset(if t == TOK_DIV_ASSIGN { -2 } else { -1 });
 
-                // parse_regexp:
                 let compile_regexp = self.ctx.0.borrow().compile_regexp;
                 if let Some(cb) = compile_regexp {
                     /* the previous token is '/' or '/=', so no need to free */

@@ -331,7 +331,7 @@ impl StringBuf {
                     self.push_u16_slice(c.encode_utf16(&mut [0; 2]))
                 }
             }
-            StringChar::BrokenCode(c) => self.push_u16(c),
+            StringChar::BrokenCode(c) => self.push_u16(c as u16),
         }
     }
 
@@ -352,7 +352,7 @@ impl StringBuf {
                     lst.try_extend_from_slice(match c {
                         StringChar::Char(c) => c.encode_utf16(&mut a),
                         StringChar::BrokenCode(c) => {
-                            a[0] = c;
+                            a[0] = c as _;
                             &a[..1]
                         }
                     })?;
@@ -399,7 +399,7 @@ impl StringBuf {
                         }
                         StringChar::BrokenCode(c) => {
                             if let Some(s16) = &mut s16 {
-                                s16.try_push(c)?;
+                                s16.try_push(c as u16)?;
                             } else {
                                 let s8 = s8.take().unwrap();
                                 let mut lst = Vec::<u16>::try_with_capacity(s8.len() + 2)?;
@@ -407,7 +407,7 @@ impl StringBuf {
                                     s8.iter()
                                         .copied()
                                         .map(|x| x as u16)
-                                        .chain([c].iter().copied()),
+                                        .chain([c as u16].iter().copied()),
                                 );
                                 s16.replace(lst);
                             }
@@ -429,7 +429,7 @@ impl StringBuf {
                             lst.try_extend_from_slice(c.encode_utf16(&mut [0; 2]))?;
                         }
                         StringChar::BrokenCode(c) => {
-                            lst.try_push(c)?;
+                            lst.try_push(c as u16)?;
                         }
                     }
                 }
