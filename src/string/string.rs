@@ -16,6 +16,7 @@ use crate::{
         JSPropertyDescriptor, check_define_prop_flags, js_get_length32,
     },
     runtime::JSRuntime,
+    string::StringChar,
     value::{JSValue, JSValueConst},
 };
 
@@ -363,35 +364,38 @@ impl JSString {
             } else {
                 break;
             };
+            debug_assert!(j >= i);
 
-            res_content
-                .push_content_slice(&rep_cc.slice(i..j))
-                .map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+            if j > i {
+                res_content
+                    .push_content_slice(&rep_cc.slice(i..j))
+                    .map_err(|_| {
+                        ctx.throw_out_of_memory();
+                        -1
+                    })?;
+            }
 
             let j0 = j;
             j += 1;
-            let c = rep_cc.chars().nth(j as usize).unwrap();
+            let c = rep_cc.iter().nth(j as usize).unwrap();
             j += 1;
 
             match c {
-                '$' => {
+                StringChar::Char('$') => {
                     // $$ -> $
                     res_content.push_char(c).map_err(|_| {
                         ctx.throw_out_of_memory();
                         -1
                     })?;
                 }
-                '&' => {
+                StringChar::Char('&') => {
                     // $& -> matched
                     res_content.push(matched.content()).map_err(|_| {
                         ctx.throw_out_of_memory();
                         -1
                     })?;
                 }
-                '`' => {
+                StringChar::Char('`') => {
                     // $` -> str[0..position]
                     res_content
                         .push_content_slice(&str.content().slice(0..position))
@@ -400,7 +404,7 @@ impl JSString {
                             -1
                         })?;
                 }
-                '\'' => {
+                StringChar::Char('\'') => {
                     // $' -> str[position+matched.len()..]
                     res_content
                         .push_content_slice(
@@ -411,12 +415,13 @@ impl JSString {
                             -1
                         })?;
                 }
-                '0'..'9' => {
+                StringChar::Char(a @ ('0'..'9')) => {
                     // $k -> captures[k]
-                    let mut k = c as u32 - '0' as u32;
+                    let mut k = a as u32 - '0' as u32;
                     if j < rep_len {
-                        let c1 = rep_cc.chars().nth(j as usize).unwrap();
-                        if c1.is_ascii_digit() {
+                        if let Some(StringChar::Char(c1)) = rep_cc.iter().nth(j as usize)
+                            && c1.is_ascii_digit()
+                        {
                             let k1 = k * 10 + (c1 as u32 - '0' as u32);
                             if k1 >= 1 && k1 < captures_len {
                                 k = k1;
@@ -443,7 +448,7 @@ impl JSString {
                             })?;
                     }
                 }
-                '<' if !named_captures.is_undefined() => {
+                StringChar::Char('<') if !named_captures.is_undefined() => {
                     // $<name> -> names_captures[name]
                     if let Some(k) = rep_cc.find_char('>', j as _) {
                         let name = replacement.sub_string(ctx, j, k)?;

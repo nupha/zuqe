@@ -321,11 +321,17 @@ impl StringBuf {
         self.push_u16_slice(&[c])
     }
 
-    pub fn push_char(&mut self, c: char) -> Result<(), TryReserveError> {
-        if c.is_ascii() {
-            self.push_u8(c as u8)
-        } else {
-            self.push_u16_slice(c.encode_utf16(&mut [0; 2]))
+    pub fn push_char<C: Into<StringChar>>(&mut self, c: C) -> Result<(), TryReserveError> {
+        let c: StringChar = c.into();
+        match c {
+            StringChar::Char(c) => {
+                if c.is_ascii() {
+                    self.push_u8(c as u8)
+                } else {
+                    self.push_u16_slice(c.encode_utf16(&mut [0; 2]))
+                }
+            }
+            StringChar::BrokenCode(c) => self.push_u16(c),
         }
     }
 
@@ -345,7 +351,7 @@ impl StringBuf {
                     let mut a = [0u16; 2];
                     lst.try_extend_from_slice(match c {
                         StringChar::Char(c) => c.encode_utf16(&mut a),
-                        StringChar::Broken(c) => {
+                        StringChar::BrokenCode(c) => {
                             a[0] = c;
                             &a[..1]
                         }
@@ -391,7 +397,7 @@ impl StringBuf {
                                 }
                             }
                         }
-                        StringChar::Broken(c) => {
+                        StringChar::BrokenCode(c) => {
                             if let Some(s16) = &mut s16 {
                                 s16.try_push(c)?;
                             } else {
@@ -422,7 +428,7 @@ impl StringBuf {
                         StringChar::Char(c) => {
                             lst.try_extend_from_slice(c.encode_utf16(&mut [0; 2]))?;
                         }
-                        StringChar::Broken(c) => {
+                        StringChar::BrokenCode(c) => {
                             lst.try_push(c)?;
                         }
                     }
@@ -700,7 +706,11 @@ impl StringBuf {
         if !(0..len1).contains(&from) {
             None
         } else {
-            self.chars().skip(from as usize).position(|c| c == ch)
+            let ch = StringChar::Char(ch);
+            self.iter()
+                .skip(from as usize)
+                .position(|c| c == ch)
+                .map(|i| i + from)
         }
     }
 

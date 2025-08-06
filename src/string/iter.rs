@@ -13,14 +13,20 @@ use super::StringBuf;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum StringChar {
     Char(char),
-    Broken(u16),
+    BrokenCode(u16),
+}
+
+impl From<char> for StringChar {
+    fn from(value: char) -> Self {
+        Self::Char(value)
+    }
 }
 
 impl StringChar {
     pub fn to_u32(self) -> u32 {
         match self {
             Self::Char(c) => c as u32,
-            Self::Broken(c) => c as u32,
+            Self::BrokenCode(c) => c as u32,
         }
     }
 }
@@ -79,16 +85,16 @@ impl<'a> StringBufIter<'a> {
                 }
 
                 // 非法代理对（单独的高代理或无效组合）→ 保留原始 u16
-                StringChar::Broken(high)
+                StringChar::BrokenCode(high)
             } else if (0xDC00..=0xDFFF).contains(&high) {
                 // 单独的低代理项 → 保留原始 u16
-                StringChar::Broken(high)
+                StringChar::BrokenCode(high)
             } else {
                 // 普通 BMP 字符（U+0000..=U+FFFF）
                 if let Some(ch) = char::from_u32(high as u32) {
                     StringChar::Char(ch)
                 } else {
-                    StringChar::Broken(high)
+                    StringChar::BrokenCode(high)
                 }
             };
 

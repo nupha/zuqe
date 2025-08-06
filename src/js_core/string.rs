@@ -1011,7 +1011,7 @@ pub fn js_string_iterator_next(
             *state = IteratorState::NotDone;
             match c {
                 StringChar::Char(c) => ctx.create_string_from_char(c),
-                StringChar::Broken(c) => {
+                StringChar::BrokenCode(c) => {
                     ctx.create_string_from_content(if (0..=255).contains(&c) {
                         StringBuf::Utf8(vec![c as u8])
                     } else {
