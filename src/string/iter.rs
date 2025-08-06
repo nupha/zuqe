@@ -25,25 +25,53 @@ impl StringChar {
     }
 }
 
-pub struct StringBufIter<'a> {
-    u16_iter: Peekable<std::slice::Iter<'a, u16>>,
+pub enum StringBufIter<'a> {
+    U16(Peekable<std::slice::Iter<'a, u16>>),
+    U8(Peekable<std::slice::Iter<'a, u8>>),
 }
 
 impl<'a> Iterator for StringBufIter<'a> {
     type Item = StringChar;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(n) = self.u16_iter.next() {
+        match self {
+            Self::U16(it) => Self::next_u16(it),
+            Self::U8(it) => Self::next_u8(it),
+        }
+    }
+}
+
+impl<'a> StringBufIter<'a> {
+    fn from_u16(slice: &'a [u16]) -> Self {
+        let it = slice.iter();
+        let it = it.peekable();
+        Self::U16(it)
+    }
+
+    fn from_u8(slice: &'a [u8]) -> Self {
+        let it = slice.iter();
+        let it = it.peekable();
+        Self::U8(it)
+    }
+
+    #[inline]
+    fn next_u8(it: &mut Peekable<std::slice::Iter<'_, u8>>) -> Option<StringChar> {
+        it.next().map(|c| StringChar::Char(*c as char))
+    }
+
+    #[inline]
+    fn next_u16(it: &mut Peekable<std::slice::Iter<'_, u16>>) -> Option<StringChar> {
+        while let Some(n) = it.next() {
             let high = *n;
 
             let r = if (0xD800..=0xDBFF).contains(&high) {
-                if let Some(low) = self.u16_iter.peek() {
+                if let Some(low) = it.peek() {
                     if (0xDC00..=0xDFFF).contains(*low) {
                         // 合法代理对 → 组合成有效的 Unicode 字符
                         let code_point =
                             ((high - 0xD800) as u32) << 10 | (**low - 0xDC00) as u32 + 0x10000;
                         if let Some(ch) = char::from_u32(code_point) {
-                            self.u16_iter.next(); // 消耗低代理项
+                            it.next(); // 消耗低代理项
                             return Some(StringChar::Char(ch));
                         }
                     }
@@ -112,22 +140,12 @@ impl StringBuf {
     /// iterate over string char or code
     pub fn iter_since(&self, index: usize) -> StringBufIter<'_> {
         match self {
-            Self::Empty | Self::Null => {
-                let it = [].iter();
-                let it = it.peekable();
-                StringBufIter { u16_iter: it }
-            }
+            Self::Empty | Self::Null => StringBufIter::from_u8(&[]),
             Self::Utf8(s) => {
-                todo!()
+                StringBufIter::from_u8(if index < s.len() { &s[index..] } else { &[] })
             }
             Self::Utf16(s) => {
-                let it = if index < s.len() {
-                    s[index..].iter()
-                } else {
-                    [].iter()
-                };
-                let it = it.peekable();
-                StringBufIter { u16_iter: it }
+                StringBufIter::from_u16(if index < s.len() { &s[index..] } else { &[] })
             }
         }
     }
