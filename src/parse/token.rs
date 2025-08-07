@@ -381,15 +381,17 @@ impl<'s> JSParseState<'s> {
                         todo = Some(Todo::DefaultToken('.'))
                     }
                 },
-                '0' => unsafe {
-                    // in strict mode, octal literals are not accepted
-                    if is_digit(*p.add(1)) && self.cur_func().js_mode & JS_MODE_STRICT as u8 != 0 {
+                '0' => {
+                    todo = if is_digit(unsafe { *p.add(1) })
+                        && self.cur_func().js_mode & JS_MODE_STRICT as u8 != 0
+                    {
+                        // in strict mode, octal literals are not accepted
                         self.throw_syntax_error("octal literals are deprecated in strict mode");
-                        todo = Some(Todo::Fail);
+                        Some(Todo::Fail)
                     } else {
-                        todo = Some(Todo::ParseNumber);
-                    }
-                },
+                        Some(Todo::ParseNumber)
+                    };
+                }
                 '1'..='9' => {
                     todo = Some(Todo::ParseNumber);
                 }
@@ -719,17 +721,12 @@ impl<'s> JSParseState<'s> {
                     | ATOD_ACCEPT_UNDERSCORES
                     | ATOD_ACCEPT_SUFFIX,
             )
-        };
-        if ret.is_exception() {
+        }
+        .inspect_err(|_| {
+            // re-throw error as parser syntax error
             let exc_obj = self.ctx.take_exception();
             self.throw(exc_obj);
-            return Err(-1);
-        } else if let JSValue::Float64(d) = ret {
-            if d.is_nan() {
-                self.throw_syntax_error("invalid number literal");
-                return Err(-1);
-            }
-        }
+        })?;
 
         debug_assert!(self.buf_end >= p);
 

@@ -145,8 +145,7 @@ impl JSValue {
                                     std::ptr::addr_of_mut!(p),
                                     0,
                                     ATOD_ACCEPT_BIN_OCT,
-                                )
-                                .check_exception()?
+                                )?
                             };
 
                             p = unsafe { p.add(skip_spaces(p.cast())) };

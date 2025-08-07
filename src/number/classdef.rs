@@ -45,8 +45,7 @@ pub fn js_parseInt(ctx: &JSContext, cc: CallContext) -> JSResult {
                 std::ptr::null_mut(),
                 radix,
                 ATOD_INT_ONLY | ATOD_ACCEPT_PREFIX_AFTER_SIGN,
-            )
-            .check_exception()?
+            )?
         }
     };
 
@@ -60,7 +59,7 @@ pub fn js_parseFloat(ctx: &JSContext, args: CallContext) -> JSResult {
     let skip_spaces_result = unsafe { skip_spaces(p) };
     unsafe {
         p = p.add(skip_spaces_result);
-        js_atof(ctx, p, std::ptr::null_mut(), 10, 0).check_exception()
+        js_atof(ctx, p, std::ptr::null_mut(), 10, 0)
     }
 }
 

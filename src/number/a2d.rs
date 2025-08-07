@@ -1,5 +1,6 @@
 use smallvec::SmallVec;
 
+use crate::error::JSResult;
 use crate::{context::JSContext, error::ErrorKind, string::strstart, value::JSValue};
 
 pub const ATOD_INT_ONLY: i32 = 1 << 0;
@@ -36,7 +37,7 @@ pub unsafe fn js_atof(
     pp: *mut *const u8,
     mut radix: i32,
     flags: i32,
-) -> JSValue {
+) -> JSResult {
     let mut p = str;
     let mut p_start = p;
 
@@ -45,7 +46,8 @@ pub unsafe fn js_atof(
             if !pp.is_null() {
                 *pp = p;
             }
-            return JSValue::Float64(f64::NAN);
+            ctx.throw_type_error("invalid number literal");
+            return Err(-1);
         };
     }
 
@@ -139,11 +141,10 @@ pub unsafe fn js_atof(
                     if is_neg {
                         d = -d;
                     }
-
                     if !pp.is_null() {
                         *pp = p;
                     }
-                    return JSValue::from(d);
+                    return Ok(JSValue::from(d));
                 }
             }
         }
@@ -206,7 +207,7 @@ pub unsafe fn js_atof(
                 *pp = p;
             }
             ctx.throw_out_of_memory();
-            return JSValue::EXCEPTION;
+            return Err(-1);
         }
     }
 
@@ -266,15 +267,15 @@ pub unsafe fn js_atof(
             if !pp.is_null() {
                 *pp = p;
             }
-            val
+            Ok(val)
         }
         ATOD_TYPE_BIG_INT => {
             // fail!();
-            ctx.throw_error(ErrorKind::Syntax, "big int is not supported");
+            ctx.throw_type_error("big int is not supported");
             if !pp.is_null() {
                 *pp = p;
             }
-            JSValue::EXCEPTION
+            Err(-1)
         }
 
         _ => unreachable!(),
