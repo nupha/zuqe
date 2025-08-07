@@ -189,7 +189,7 @@ impl JSFunctionDef {
                     debug_assert!(
                         var_name.ref_count(ctx.rt()) >= _name_refcnt,
                         "[O.o] {var_name:?}, {}",
-                        var_name.utf8(ctx.rt())
+                        var_name.to_utf8(ctx.rt())
                     );
 
                     JS_FreeAtom(ctx, var_name);

@@ -32,8 +32,8 @@ impl ModuleResolveExport {
                     ctx,
                     &format!(
                         "Could not find export '{}' in module '{}'",
-                        export_name.to_str(ctx.rt()),
-                        m.module_name.to_str(ctx.rt()),
+                        export_name.to_utf8(ctx.rt()),
+                        m.module_name.to_utf8(ctx.rt()),
                     ),
                 );
             }
@@ -42,8 +42,8 @@ impl ModuleResolveExport {
                     ctx,
                     &format!(
                         "circular reference when looking for export '{}' in module '{}'",
-                        export_name.to_str(ctx.rt()),
-                        m.module_name.to_str(ctx.rt()),
+                        export_name.to_utf8(ctx.rt()),
+                        m.module_name.to_utf8(ctx.rt()),
                     ),
                 );
             }
@@ -52,8 +52,8 @@ impl ModuleResolveExport {
                     ctx,
                     &format!(
                         "export '{}' in module '{}' is ambiguous",
-                        export_name.to_str(ctx.rt()),
-                        m.module_name.to_str(ctx.rt()),
+                        export_name.to_utf8(ctx.rt()),
+                        m.module_name.to_utf8(ctx.rt()),
                     ),
                 );
             }

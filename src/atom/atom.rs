@@ -219,41 +219,9 @@ impl JSAtom {
     }
 
     /// convert atom to utf8 encoded String
-    #[inline]
-    pub fn utf8(self, rt: &JSRuntime) -> String {
+    #[inline(always)]
+    pub fn to_utf8(self, rt: &JSRuntime) -> String {
         self.with_utf8(rt, |s| s.into_owned())
-    }
-
-    /// convert atom to utf8 Cow str
-    #[deprecated(note = "use JSAtom::utf8() or JSAtom::with_utf8() instead")]
-    pub fn to_str(self, rt: &JSRuntime) -> Cow<'_, str> {
-        if self.is_int_type() {
-            Cow::Owned(format!("{}", __JS_AtomToUInt32(self)))
-        } else {
-            if self.eq(&JS_ATOM_NULL) {
-                Cow::Borrowed("<null>")
-            } else {
-                rt.get_atom_desc(self)
-                    .expect("INVALID ATOM")
-                    .content()
-                    .to_str()
-                    .into_owned()
-                    .into()
-            }
-        }
-    }
-
-    /// convert atom to utf8 owned string
-    #[deprecated(note = "may equivelent to `JSAtom::utf8()`")]
-    pub fn to_utf8_string(&self, ctx: &JSContext) -> Result<String, i32> {
-        // XXX: same result as following?
-        Ok(self.utf8(ctx.rt()))
-
-        // XXX: same result as following?
-        // self.to_value(ctx, true)
-        //     .check_exception()?
-        //     .coerce_to_utf8(ctx)
-        //     .map(|x| x.to_string())
     }
 }
 

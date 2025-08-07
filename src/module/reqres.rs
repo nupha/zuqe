@@ -154,7 +154,7 @@ pub fn js_host_resolve_imported_module_atom(
     base_module_name: JSAtom,
     module_name1: JSAtom,
 ) -> Result<ModuleDef, i32> {
-    let base_cname = base_module_name.to_utf8_string(ctx)?;
-    let cname = module_name1.to_utf8_string(ctx)?;
+    let base_cname = base_module_name.to_utf8(ctx.rt()) ;
+    let cname = module_name1.to_utf8(ctx.rt()) ;
     js_host_resolve_imported_module(ctx, base_cname.as_ref(), &cname)
 }

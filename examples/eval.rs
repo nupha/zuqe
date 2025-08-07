@@ -151,12 +151,8 @@ pub fn js_module_set_import_meta(
 ) -> i32 {
     // make module name to absolute url
     let module_name_atom = md.module_name_atom().dup(&ctx.rt());
-    let module_name = module_name_atom.to_utf8_string(&ctx);
+    let module_name = module_name_atom.to_utf8(ctx.rt());
     JS_FreeAtom(ctx, module_name_atom);
-    if module_name.is_err() {
-        return -1;
-    }
-    let module_name = module_name.unwrap();
 
     let p = PathBuf::from(module_name);
     let mut normalized = PathBuf::new();

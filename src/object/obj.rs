@@ -180,7 +180,7 @@ impl std::fmt::Display for ObjectInner {
         let rt = self.rt();
         let class_id = self.class_id();
         let atom = rt.class_defs[class_id as usize].class_name;
-        let name = atom.to_str(rt);
+        let name = atom.to_utf8(rt);
 
         #[cfg(not(debug_assertions))]
         {

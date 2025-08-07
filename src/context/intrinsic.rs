@@ -629,8 +629,7 @@ impl JSContext {
 
                 let name =
                     JSAtom(JS_ATOM_Uint8ClampedArray.0 + (cid - JS_CLASS_UINT8C_ARRAY) as u32)
-                        .to_utf8_string(self)
-                        .unwrap();
+                        .to_utf8(self.rt());
 
                 let func_obj = self
                     .create_native_function_from_proto(

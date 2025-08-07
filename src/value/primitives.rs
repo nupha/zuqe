@@ -57,7 +57,6 @@ impl JSValue {
                 let method = o.get_property(ctx, prop)?;
                 if method.is_callable() {
                     let ret = JS_Call(ctx, &method, self, &[]).check_exception()?;
-                    println!("[O.o] s={ret:?}");
                     if !ret.is_object() {
                         return Ok(ret);
                     }

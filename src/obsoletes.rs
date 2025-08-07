@@ -3163,8 +3163,8 @@ pub unsafe fn js_resolve_export_throw_error(
                 ctx,
                 &format!(
                     "Could not find export '{}' in module '{}'",
-                    export_name.to_str(ctx.rt()),
-                    m.0.module_name.to_str(ctx.rt()),
+                    export_name.to_utf8(ctx.rt()),
+                    m.0.module_name.to_utf8(ctx.rt()),
                 ),
             );
         }
@@ -3173,8 +3173,8 @@ pub unsafe fn js_resolve_export_throw_error(
                 ctx,
                 &format!(
                     "circular reference when looking for export '{}' in module '{}'",
-                    export_name.to_str(ctx.rt()),
-                    m.0.module_name.to_str(ctx.rt()),
+                    export_name.to_utf8(ctx.rt()),
+                    m.0.module_name.to_utf8(ctx.rt()),
                 ),
             );
         }
@@ -3183,8 +3183,8 @@ pub unsafe fn js_resolve_export_throw_error(
                 ctx,
                 &format!(
                     "export '{}' in module '{}' is ambiguous",
-                    export_name.to_str(ctx.rt()),
-                    m.0.module_name.to_str(ctx.rt()),
+                    export_name.to_utf8(ctx.rt()),
+                    m.0.module_name.to_utf8(ctx.rt()),
                 ),
             );
         }
@@ -3542,7 +3542,7 @@ pub unsafe fn JS_AtomGetKind(ctx: &JSContext, v: JSAtom) -> AtomDescKind {
 /// debug helper: print atom, don't use in production code
 #[deprecated(note = "use JSAtom::to_str() instead")]
 pub unsafe fn print_atom(rt: &JSRuntime, atom: JSAtom) {
-    print!("{}", atom.to_str(rt));
+    print!("{}", atom.to_utf8(rt));
 }
 
 #[deprecated(note = "use JSFunctionDef::new() instead")]

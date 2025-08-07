@@ -520,7 +520,7 @@ pub unsafe fn add_module_variables(ctx: &JSContext, fd: &mut JSFunctionDef) -> i
                     ctx,
                     &format!(
                         "exported variable '{}' does not exist",
-                        me.local_name.to_str(ctx.rt())
+                        me.local_name.to_utf8(ctx.rt())
                     ),
                 );
                 return -1;

@@ -300,7 +300,7 @@ impl JSValue {
             Self::NULL | Self::UNDEFINED => {
                 ctx.throw_type_error(&format!(
                     "cannot read property '{}' of {}",
-                    prop.utf8(ctx.rt()),
+                    prop.to_utf8(ctx.rt()),
                     self
                 ));
                 Err(-1)

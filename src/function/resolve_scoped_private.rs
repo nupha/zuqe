@@ -78,7 +78,7 @@ impl JSFunctionDef {
         // XXX: no line number info
         JS_ThrowSyntaxError(
             ctx,
-            &format!("undefined private field '{}'", var_name.to_str(ctx.rt())),
+            &format!("undefined private field '{}'", var_name.to_utf8(ctx.rt())),
         );
         return Err(-1);
     }

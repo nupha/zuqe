@@ -390,7 +390,7 @@ impl<'s> JSParseState<'s> {
         if md.find_export(export_name).is_some() {
             self.throw_syntax_error(&format!(
                 "duplicate exported name '{}'",
-                export_name.to_str(self.ctx.rt()),
+                export_name.to_utf8(self.ctx.rt()),
             ));
             return Err(-1);
         }

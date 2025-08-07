@@ -575,7 +575,10 @@ pub fn dump_opcodes(
                 } else {
                     unsafe { read_from_ptr::<u16>(bin.as_ptr().add(pos)) as usize }
                 };
-                print!(" {idx}:{}", vars.get(idx).unwrap().var_name.utf8(ctx.rt()));
+                print!(
+                    " {idx}:{}",
+                    vars.get(idx).unwrap().var_name.to_utf8(ctx.rt())
+                );
             }
 
             #[cfg(feature = "short_opcode")]
@@ -589,7 +592,10 @@ pub fn dump_opcodes(
 
             OpcodeFormat::ARG => {
                 let idx = unsafe { read_from_ptr::<u16>(bin.as_ptr().add(pos)) as usize };
-                print!(" {idx}:{}", args.get(idx).unwrap().var_name.utf8(ctx.rt()));
+                print!(
+                    " {idx}:{}",
+                    args.get(idx).unwrap().var_name.to_utf8(ctx.rt())
+                );
             }
 
             #[cfg(feature = "short_opcode")]
@@ -605,7 +611,7 @@ pub fn dump_opcodes(
                 let idx = unsafe { read_from_ptr::<u16>(bin.as_ptr().add(pos)) as usize };
                 print!(
                     " {idx}:{}",
-                    closure_vars.get(idx).unwrap().var_name.utf8(ctx.rt())
+                    closure_vars.get(idx).unwrap().var_name.to_utf8(ctx.rt())
                 );
             }
 
@@ -633,7 +639,11 @@ impl Bytecode {
         let b = self.0.borrow();
 
         if b.has_debug && b.debug.filename != JS_ATOM_NULL {
-            print!("{}:{}: ", b.debug.filename.utf8(ctx.rt()), b.debug.line_num);
+            print!(
+                "{}:{}: ",
+                b.debug.filename.to_utf8(ctx.rt()),
+                b.debug.line_num
+            );
         }
 
         println!(
@@ -643,7 +653,7 @@ impl Bytecode {
             } else {
                 ""
             },
-            b.func_name.utf8(ctx.rt()),
+            b.func_name.to_utf8(ctx.rt()),
         );
 
         if b.js_mode != 0 {
@@ -662,7 +672,7 @@ impl Bytecode {
             if !args.is_empty() {
                 print!("  args:");
                 for arg in args {
-                    print!(" {}", arg.var_name.utf8(ctx.rt()));
+                    print!(" {}", arg.var_name.to_utf8(ctx.rt()));
                 }
                 println!();
             }
@@ -687,7 +697,7 @@ impl Bytecode {
                     }
                 };
 
-                print!("{i:5}: {kind_str} {}", vd.var_name.utf8(ctx.rt()),);
+                print!("{i:5}: {kind_str} {}", vd.var_name.to_utf8(ctx.rt()),);
 
                 if vd.scope_level != 0 {
                     print!(" [level:{} next:{}]", vd.scope_level, vd.scope_next);
@@ -712,7 +722,7 @@ impl Bytecode {
 
                 println!(
                     "{i:5}: {} {var_type}:{loc_type}{} {const_str}",
-                    cv.var_name.utf8(ctx.rt()),
+                    cv.var_name.to_utf8(ctx.rt()),
                     cv.var_idx
                 );
             }

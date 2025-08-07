@@ -575,8 +575,6 @@ pub fn js_string_pad(ctx: &JSContext, cc: CallContext) -> JSResult {
         -1
     })?;
 
-    println!("[O.o] {res_string:?}");
-
     if padEnd == 0 {
         res_string.push(p.content()).map_err(|_| {
             ctx.throw_out_of_memory();

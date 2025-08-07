@@ -60,11 +60,11 @@ impl JSValue {
                 String::from_utf8(buf.to_vec()).unwrap().into()
             }
             Self::Bytecode(b) => {
-                format!("[bytecode {}]", b.0.borrow().func_name.to_str(b.rt())).into()
+                format!("[bytecode {}]", b.0.borrow().func_name.to_utf8(b.rt())).into()
             }
             Self::Object(p) => format!("{p}").into(),
             Self::Symbol(p) => {
-                format!("Symbol({})", p.atom_info().unwrap().atom().to_str(p.rt())).into()
+                format!("Symbol({})", p.atom_info().unwrap().atom().to_utf8(p.rt())).into()
             }
             Self::Module(_) => "[module]".into(),
             Self::CatchOffset(n) => format!("[catchoffset({})]", *n).into(),
