@@ -59,11 +59,11 @@ pub fn f64_stringify<'a>(
     } else {
         // convert -0 to 0
         let mut num = if num == 0.0 { 0.0 } else { num };
-        let mut use_scientific = flags & JS_DTOA_FORCE_EXP != 0;
-        // let mut use_scientific = flags & JS_DTOA_FORCE_EXP != 0 || {
-        //     let ab = num.abs();
-        //     ab >= 1e21 || ab <= 1e-6
-        // };
+        let mut use_scientific = flags & JS_DTOA_FORCE_EXP != 0
+            || (num != 0.0 && {
+                let ab = num.abs();
+                ab >= 1e21 || ab <= 1e-6
+            });
 
         // number of digits after decimal point
         let round: Option<i32> = if let Some(p) = fixed_digits {
