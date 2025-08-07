@@ -10,7 +10,7 @@ use crate::{
         JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE, ObjectDetail,
     },
     stack_frame::StackFrame,
-    string::{JS_ConcatString, JS_ConcatString3, JS_IsEmptyString},
+    string::{JS_ConcatString, JS_ConcatString3},
     value::{JSValue, JSValueConst},
 };
 

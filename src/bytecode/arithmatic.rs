@@ -548,7 +548,6 @@ pub fn js_eq(ctx: &JSContext, op1: JSValue, op2: JSValue) -> Result<bool, i32> {
 
             _ => {
                 false
-                // unreachable!("[O.o] eq values op1={op1:?}, op2={op2:?}");
                 // let op = TwoNumbers::new(ctx, op1, op2)?;
                 // op.partial_cmp()
                 //     .map_or(false, |r| r == std::cmp::Ordering::Equal)

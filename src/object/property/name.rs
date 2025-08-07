@@ -381,7 +381,7 @@ impl JSValue {
         flags: i32,
         kind: JSIteratorKindEnum,
     ) -> JSResult {
-        self.coerce_to_object(ctx)
+        self.to_object(ctx)
             .and_then(|o| o.get_own_property_names_ex(ctx, flags, kind))
     }
 }

@@ -23,7 +23,7 @@ pub fn js_object_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
     } else if cc.this().is_undefined() {
         tag_str = ctx.create_string_from_str("Undefined")?.into();
     } else {
-        let obj = cc.this().coerce_to_object(ctx)?;
+        let obj = cc.this().to_object(ctx)?;
         let atom = if obj.is_array(ctx)? {
             JS_ATOM_Array
         } else if obj.is_callable() {
@@ -71,13 +71,13 @@ pub fn js_object_toLocaleString(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_object_valueOf(ctx: &JSContext, cc: CallContext) -> JSResult {
-    cc.this().coerce_to_object(ctx).map(JSValue::Object)
+    cc.this().to_object(ctx).map(JSValue::Object)
 }
 
 pub fn js_object_hasOwnProperty(ctx: &JSContext, cc: CallContext) -> JSResult {
     // must be done first
     let atom = cc.arg(0).coerce_to_atom(ctx)?;
-    let obj = cc.this().coerce_to_object(ctx).inspect_err(|_| {
+    let obj = cc.this().to_object(ctx).inspect_err(|_| {
         JS_FreeAtom(ctx, atom);
     })?;
 
@@ -88,7 +88,7 @@ pub fn js_object_hasOwnProperty(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_object_isPrototypeOf(ctx: &JSContext, cc: CallContext) -> JSResult {
     if let JSValue::Object(ctor) = cc.arg(0).clone() {
-        let this = cc.this().coerce_to_object(ctx)?;
+        let this = cc.this().to_object(ctx)?;
 
         for p in ctor.prototype_iter(ctx, true) {
             if p? == this {
@@ -126,7 +126,7 @@ pub fn js_object_isPrototypeOf(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_object_propertyIsEnumerable(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj = cc.this().coerce_to_object(ctx)?;
+    let obj = cc.this().to_object(ctx)?;
     let prop = cc.arg(0).coerce_to_atom(ctx)?;
 
     let ret = obj.get_own_property(ctx, prop);
@@ -144,7 +144,7 @@ pub fn js_object_getset___proto__(ctx: &JSContext, cc: CallContext) -> JSResult 
         // getter
         let p = cc
             .this()
-            .coerce_to_object(ctx)
+            .to_object(ctx)
             .and_then(|o| o.prototype(ctx))?;
         Ok(p.map_or(JSValue::NULL, JSValue::Object))
     } else {
@@ -176,7 +176,7 @@ pub unsafe fn js_object___defineGetter__(
     magic: i32,
 ) -> JSValue {
     let obj = this_val
-        .coerce_to_object(ctx)
+        .to_object(ctx)
         .map_or(JSValue::EXCEPTION, JSValue::Object);
     if obj.is_exception() {
         return JSValue::EXCEPTION;
@@ -226,7 +226,7 @@ pub unsafe fn js_object___lookupGetter__(
     setter: i32,
 ) -> JSValue {
     let mut obj = this_val
-        .coerce_to_object(ctx)
+        .to_object(ctx)
         .map_or(JSValue::EXCEPTION, JSValue::Object);
     if obj.is_exception() {
         return JSValue::EXCEPTION;

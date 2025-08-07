@@ -223,7 +223,7 @@ pub fn js_typed_array_from(ctx: &JSContext, args: CallContext) -> JSResult {
             arr.define_property_value_i64(ctx, i as _, v?, JS_PROP_C_W_E | JS_PROP_THROW)?;
         }
     } else {
-        arr = items.coerce_to_object(ctx)?.into();
+        arr = items.to_object(ctx)?.into();
     }
 
     let len = js_get_length64(ctx, &arr)?;

@@ -240,9 +240,8 @@ impl JSContext {
         self.0.borrow_mut().class_proto[class_id as usize] = proto_obj;
     }
 
-    /// make function `func_obj` to be a constructor, set `proto` as its prototype,
+    /// mark function `func_obj` to be a constructor, set `proto` as its prototype,
     /// then add it to global namespace as `name`.
-    /// Note:: both `func_obj` and `proto` are  **NOT CONSUMED**.
     pub fn add_global_constructor(&self, name: &str, func_obj: &JSValue, proto: &JSValue) {
         self.0
             .borrow()

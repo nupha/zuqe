@@ -1,20 +1,13 @@
-use std::{borrow::Cow, clone, rc::Rc};
+use std::{borrow::Cow, rc::Rc};
 
 use smallvec::SmallVec;
 
 use crate::{
-    atom::consts::{
-        JS_ATOM_false, JS_ATOM_null, JS_ATOM_toLocaleString, JS_ATOM_true, JS_ATOM_undefined,
-    },
-    context::JSContext,
-    error::JSResult,
-    function::JS_Invoke,
-    number::f64_stringify,
     runtime::JSRuntime,
-    string::JSString,
+    string::{JSString, StringChar},
 };
 
-use super::{HINT_STRING, JSValue};
+use super::JSValue;
 
 impl JSValue {
     /// get string representation of value.
@@ -31,28 +24,35 @@ impl JSValue {
                 let sep = '\"';
                 let mut buf = SmallVec::<[u8; 128]>::new();
                 buf.push(sep as u8);
-                for c in p.content().chars() {
+
+                for c in p.content().iter() {
                     match c {
-                        '\'' | '"' if c == sep => {
-                            buf.extend_from_slice(format!("\\{c}").as_bytes());
-                        }
-                        '\n' => {
-                            buf.extend_from_slice(b"\\n");
-                        }
-                        '\r' => {
-                            buf.extend_from_slice(b"\\r");
-                        }
-                        '\t' => {
-                            buf.extend_from_slice(b"\\t");
-                        }
-                        '\\' => {
-                            buf.extend_from_slice(b"\\\\");
-                        }
-                        ' '..='~' => {
-                            buf.push(c as u8);
-                        }
-                        _ => {
-                            buf.extend_from_slice(format!("\\u{:04x}", c as u32).as_bytes());
+                        StringChar::Char(c) => match c {
+                            '\'' | '"' if c == sep => {
+                                buf.extend_from_slice(format!("\\{c}").as_bytes());
+                            }
+                            '\n' => {
+                                buf.extend_from_slice(b"\\n");
+                            }
+                            '\r' => {
+                                buf.extend_from_slice(b"\\r");
+                            }
+                            '\t' => {
+                                buf.extend_from_slice(b"\\t");
+                            }
+                            '\\' => {
+                                buf.extend_from_slice(b"\\\\");
+                            }
+                            ' '..='~' => {
+                                buf.push(c as u8);
+                            }
+                            _ => {
+                                buf.extend_from_slice(c.encode_utf8(&mut [0; 4]).as_bytes());
+                            }
+                        },
+
+                        StringChar::BrokenCode(c) => {
+                            buf.extend_from_slice(format!("\\u{:04x}", c).as_bytes());
                         }
                     }
                 }
@@ -85,15 +85,23 @@ pub unsafe fn JS_DumpString(rt: &JSRuntime, p: &JSString) {
     let sep = if ref_cnt == 1 { b'\"' } else { b'\'' } as char;
     print!("{sep}");
 
-    for c in p.content().chars() {
+    for c in p.content().iter() {
         match c {
-            '\'' | '"' if c == sep => print!("\\{c}"),
-            '\n' => print!("\\n"),
-            '\r' => print!("\\r"),
-            '\t' => print!("\\t"),
-            '\\' => print!("\\\\"),
-            ' '..='~' => print!("{c}"),
-            _ => print!("\\u{:04x}", c as u32),
+            StringChar::Char(c) => match c {
+                '\'' | '"' if c == sep => print!("\\{c}"),
+                '\n' => print!("\\n"),
+                '\r' => print!("\\r"),
+                '\t' => print!("\\t"),
+                '\\' => print!("\\\\"),
+                ' '..='~' => print!("{c}"),
+                _ => {
+                    print!("{c}");
+                    // print!("\\u{:04x}", c as u32)
+                }
+            },
+            StringChar::BrokenCode(c) => {
+                print!("\\u{c:04x}")
+            }
         }
     }
 

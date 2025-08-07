@@ -16,7 +16,7 @@ use crate::{
         JS_ConcatString, JS_ConcatString3, JS_STRING_LEN_MAX, JS_ToStringCheckObject, JSString,
         StringBuf, StringChar,
     },
-    value::{JSValue, JSValueConst},
+    value::JSValue,
 };
 
 pub fn js_string_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -44,9 +44,12 @@ pub fn js_string_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     };
 
     if !new_target.is_undefined() {
-        ctx.create_object_apply_ctor(new_target, ObjectDetail::STRING(str_val))
-            .map(JSValue::Object)
-            .map_err(|_| -1)
+        let len = str_val.len();
+        let o = ctx
+            .create_object_apply_ctor(new_target, ObjectDetail::STRING(str_val))
+            .map_err(|_| -1)?;
+        o.define_property_value(ctx, JS_ATOM_length, len as u32, 0)?;
+        Ok(o.into())
     } else {
         Ok(str_val.into())
     }
@@ -1091,10 +1094,8 @@ pub fn js_string_fromCodePoint(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_string_raw(ctx: &JSContext, cc: CallContext) -> JSResult {
     // raw(temp,...a)
-    let cooked = cc.arg(0).coerce_to_object(ctx)?;
-    let raw = cooked
-        .get_property(ctx, JS_ATOM_raw)?
-        .coerce_to_object(ctx)?;
+    let cooked = cc.arg(0).to_object(ctx)?;
+    let raw = cooked.get_property(ctx, JS_ATOM_raw)?.to_object(ctx)?;
 
     let n = js_get_length64(ctx, &raw.clone().into())?;
     let mut res_string = StringBuf::Empty;

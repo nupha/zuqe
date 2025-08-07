@@ -883,7 +883,7 @@ fn string_define_own_property(
         let ob = unsafe { this_obj.object_unchecked() };
         if let JSValue::String(p1) = ob.0.payload.borrow().value().unwrap() {
             let len = p1.len();
-            let nth_char = p1.content().chars().nth(idx as usize);
+            let nth_char = p1.content().iter().nth(idx as usize);
 
             if idx >= len as u32 {
                 def!();
@@ -900,7 +900,7 @@ fn string_define_own_property(
 
                 let p2 = unsafe { val.string_unchecked() };
                 let len2 = p2.len();
-                let nth_char2 = p2.content().chars().next();
+                let nth_char2 = p2.content().iter().next();
 
                 if len2 != 1 {
                     fail!();

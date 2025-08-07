@@ -138,7 +138,7 @@ impl JSValue {
     /// 如果属性不可配置或无效对象则返回 false, 出现异常时返回 Err.
     /// flags 可以是 0、JS_PROP_THROW 或 JS_PROP_THROW_STRICT
     pub fn delete_property(&self, ctx: &JSContext, prop: JSAtom, flags: u32) -> Result<bool, i32> {
-        self.coerce_to_object(ctx)
+        self.to_object(ctx)
             .and_then(|o| o.delete_property_ex(ctx, prop, flags))
     }
 

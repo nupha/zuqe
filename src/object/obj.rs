@@ -182,24 +182,24 @@ impl std::fmt::Display for ObjectInner {
         let atom = rt.class_defs[class_id as usize].class_name;
         let name = atom.to_utf8(rt);
 
+        #[cfg(debug_assertions)]
+        {
+            let sh = self.shape.borrow();
+
+            write!(
+                f,
+                "[{name} id={:p} shape={:p} proto={}]",
+                self.id() as *const std::ffi::c_void,
+                sh.as_ref().map_or(0, |s| s.id()) as *const std::ffi::c_void,
+                sh.as_ref()
+                    .and_then(|s| s.0.borrow().proto.clone())
+                    .map_or("<null>".to_string(), |x| x.to_string())
+            )
+        }
+
         #[cfg(not(debug_assertions))]
         {
             write!(f, "[{name}]")
-        }
-
-        #[cfg(debug_assertions)]
-        {
-            write!(
-                f,
-                "[{name} id={:p} shape={:p} prototype={:p}]",
-                self.id() as *const std::ffi::c_void,
-                self.shape.borrow().as_ref().map_or(0, |s| s.id()) as *const std::ffi::c_void,
-                self.shape
-                    .borrow()
-                    .as_ref()
-                    .and_then(|s| s.0.borrow().proto.clone())
-                    .map_or(0, |x| x.id()) as *const std::ffi::c_void
-            )
         }
     }
 }
@@ -583,8 +583,7 @@ impl JSValue {
     /// Convert value to object equivalent.
     /// Handles primitive wrapping according to ES6 ToObject conversion rules
     /// Returns exception for null/undefined inputs.
-    /// `self` is not consumed
-    pub fn coerce_to_object(&self, ctx: &JSContext) -> Result<JSObject, i32> {
+    pub fn to_object(&self, ctx: &JSContext) -> Result<JSObject, i32> {
         match self {
             Self::Object(o) => Ok(o.clone()),
             Self::Int(_) | Self::Float64(_) => ctx
@@ -593,9 +592,15 @@ impl JSValue {
             Self::Bool(_) => ctx
                 .create_object(ObjectDetail::BOOLEAN(self.clone()))
                 .map_err(|_| -1),
-            Self::String(s) => ctx
-                .create_object(ObjectDetail::STRING(s.clone()))
-                .map_err(|_| -1),
+            Self::String(s) => {
+                // TODO: call String constructor?
+                let len = s.len();
+                let o = ctx
+                    .create_object(ObjectDetail::STRING(s.clone()))
+                    .map_err(|_| -1)?;
+                o.define_property_value(ctx, JS_ATOM_length, len as u32, 0)?;
+                Ok(o)
+            }
             Self::Symbol(s) => ctx
                 .create_object(ObjectDetail::SYMBOL(s.clone()))
                 .map_err(|_| -1),

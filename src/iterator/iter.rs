@@ -56,7 +56,7 @@ impl ForInIterator {
         let obj: JSValue = match val {
             JSValue::Object(_) => val,
             JSValue::NULL | JSValue::UNDEFINED => val,
-            _ => val.coerce_to_object(ctx)?.into(),
+            _ => val.to_object(ctx)?.into(),
         };
         let mut it = Box::new(ForInIterator {
             obj: obj.clone(),

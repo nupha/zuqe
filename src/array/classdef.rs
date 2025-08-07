@@ -125,7 +125,7 @@ pub unsafe fn JS_isConcatSpreadable(ctx: &JSContext, obj: &JSValue) -> Result<bo
 }
 
 pub fn js_array_at(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj: JSValue = cc.this().coerce_to_object(ctx)?.into();
+    let obj: JSValue = cc.this().to_object(ctx)?.into();
     let len = js_get_length64(ctx, &obj)?;
 
     let mut idx: i64 = cc.arg(0).coerce_to_i64_saturating(ctx)?;
@@ -158,7 +158,7 @@ pub fn js_array_at(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj: JSValue = cc.this().coerce_to_object(ctx)?.into();
+    let obj: JSValue = cc.this().to_object(ctx)?.into();
     let len = js_get_length64(ctx, &obj)?;
 
     let mut idx: i64 = cc.arg(0).coerce_to_i64_saturating(ctx)?;
@@ -250,7 +250,7 @@ pub fn js_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_array_concat(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj: JSValue = cc.this().coerce_to_object(ctx)?.into();
+    let obj: JSValue = cc.this().to_object(ctx)?.into();
     let arr = JS_ArraySpeciesCreate(ctx, &obj, &JSValue::Int(0))?;
 
     let mut n = 0;
@@ -298,7 +298,7 @@ pub fn js_array_every(ctx: &JSContext, cc: CallContext) -> JSResult {
         obj = cc.this().clone();
         len = unsafe { js_typed_array_get_length_internal(ctx, &obj)? } as i64;
     } else {
-        obj = cc.this().coerce_to_object(ctx)?.into();
+        obj = cc.this().to_object(ctx)?.into();
         len = js_get_length64(ctx, &obj)?;
     }
 
@@ -422,7 +422,7 @@ pub fn js_array_reduce(ctx: &JSContext, cc: CallContext) -> JSResult {
         obj = cc.this().clone();
         len = unsafe { js_typed_array_get_length_internal(ctx, &obj)? as i64 };
     } else {
-        obj = cc.this().coerce_to_object(ctx)?.into();
+        obj = cc.this().to_object(ctx)?.into();
         len = js_get_length64(ctx, &obj)?;
     }
 
@@ -502,7 +502,7 @@ pub fn js_array_reduce(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj: JSValue = cc.this().coerce_to_object(ctx)?.into();
+    let obj: JSValue = cc.this().to_object(ctx)?.into();
     let len = js_get_length64(ctx, &obj)?;
 
     let mut start = if cc.length() > 1 && !cc.arg(1).is_undefined() {
@@ -528,7 +528,7 @@ pub fn js_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_array_find(ctx: &JSContext, cc: CallContext) -> JSResult {
     let mode = cc.magic();
-    let obj: JSValue = cc.this().coerce_to_object(ctx)?.into();
+    let obj: JSValue = cc.this().to_object(ctx)?.into();
     let len = js_get_length64(ctx, &obj)?;
 
     let func = cc.arg(0);
@@ -589,7 +589,7 @@ pub fn js_array_find(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj: JSValue = cc.this().coerce_to_object(ctx)?.into();
+    let obj: JSValue = cc.this().to_object(ctx)?.into();
     let len = js_get_length64(ctx, &obj)?;
 
     let mut res = -1;
@@ -636,7 +636,7 @@ pub fn js_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_array_lastIndexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj: JSValue = cc.this().coerce_to_object(ctx)?.into();
+    let obj: JSValue = cc.this().to_object(ctx)?.into();
     let len = js_get_length64(ctx, &obj)?;
     let target = cc.arg(0);
 
@@ -665,7 +665,7 @@ pub fn js_array_lastIndexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_array_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj: JSValue = cc.this().coerce_to_object(ctx)?.into();
+    let obj: JSValue = cc.this().to_object(ctx)?.into();
     let len = js_get_length64(ctx, &obj)?;
     let target = cc.arg(0);
 
@@ -708,7 +708,7 @@ pub fn js_array_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
     let toLocaleString = cc.magic();
-    let obj: JSValue = cc.this().coerce_to_object(ctx)?.into();
+    let obj: JSValue = cc.this().to_object(ctx)?.into();
     let n = js_get_length64(ctx, &obj)?;
 
     let mut c = ',' as i32; // default separator
@@ -756,7 +756,7 @@ pub fn js_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_array_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj: JSValue = cc.this().coerce_to_object(ctx)?.into();
+    let obj: JSValue = cc.this().to_object(ctx)?.into();
     let method = obj.get_property(ctx, JS_ATOM_join)?;
 
     if !method.is_callable() {
@@ -769,7 +769,7 @@ pub fn js_array_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_array_pop(ctx: &JSContext, cc: CallContext) -> JSResult {
     let shift = cc.magic();
-    let obj: JSValue = cc.this().coerce_to_object(ctx)?.into();
+    let obj: JSValue = cc.this().to_object(ctx)?.into();
     let len = js_get_length64(ctx, &obj)?;
 
     let mut res = JSValue::UNDEFINED;
@@ -811,7 +811,7 @@ pub fn js_array_pop(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_array_push(ctx: &JSContext, cc: CallContext) -> JSResult {
     let unshift = cc.magic();
 
-    let obj: JSValue = cc.this().coerce_to_object(ctx)?.into();
+    let obj: JSValue = cc.this().to_object(ctx)?.into();
     let len = js_get_length64(ctx, &obj)?;
 
     let newLen = len + cc.length() as i64;
@@ -836,7 +836,7 @@ pub fn js_array_push(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_array_reverse(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj: JSValue = cc.this().coerce_to_object(ctx)?.into();
+    let obj: JSValue = cc.this().to_object(ctx)?.into();
     let len = js_get_length64(ctx, &obj)?;
 
     if len <= 1 {
@@ -906,7 +906,7 @@ pub fn js_array_reverse(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_array_toReversed(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj: JSValue = cc.this().coerce_to_object(ctx)?.into();
+    let obj: JSValue = cc.this().to_object(ctx)?.into();
     let new_len = js_get_length64(ctx, &obj)?;
 
     let res_arr = ctx.create_fast_array(std::cmp::max(new_len, 0) as _)?;
@@ -966,7 +966,7 @@ pub fn js_array_toSorted(ctx: &JSContext, _: CallContext) -> JSResult {
 
 pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
     let splice = cc.magic();
-    let obj: JSValue = cc.this().coerce_to_object(ctx)?.into();
+    let obj: JSValue = cc.this().to_object(ctx)?.into();
     let len = js_get_length64(ctx, &obj)?;
     let start = cc.arg(0).coerce_to_i64_clamp(ctx, 0, len, len)?;
 
@@ -1063,7 +1063,7 @@ pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_array_toSpliced(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj: JSValue = cc.this().coerce_to_object(ctx)?.into();
+    let obj: JSValue = cc.this().to_object(ctx)?.into();
     let len = js_get_length64(ctx, &obj)?;
 
     let start = if cc.length() > 0 {
@@ -1162,7 +1162,7 @@ pub fn js_array_toSpliced(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_array_copyWithin(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj: JSValue = cc.this().coerce_to_object(ctx)?.into();
+    let obj: JSValue = cc.this().to_object(ctx)?.into();
     let len = js_get_length64(ctx, &obj)?;
 
     let from: i64 = cc.arg(1).coerce_to_i64_clamp(ctx, 0, len, len)?;
@@ -1193,7 +1193,7 @@ pub fn js_array_copyWithin(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_array_flatten(ctx: &JSContext, cc: CallContext) -> JSResult {
     let map = cc.magic();
 
-    let source: JSValue = cc.this().coerce_to_object(ctx)?.into();
+    let source: JSValue = cc.this().to_object(ctx)?.into();
     let source_len = js_get_length64(ctx, &source)?;
 
     let mut depth = 1;
@@ -1427,7 +1427,7 @@ pub fn js_array_from(ctx: &JSContext, cc: CallContext) -> JSResult {
             k += 1;
         }
     } else {
-        let array_like: JSValue = items.coerce_to_object(ctx)?.into();
+        let array_like: JSValue = items.to_object(ctx)?.into();
         let len = js_get_length64(ctx, &array_like)?;
 
         res = if cc.this().is_constructor() {

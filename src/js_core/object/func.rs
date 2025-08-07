@@ -27,7 +27,7 @@ pub fn JS_ObjectDefineProperties(
         return Err(-1);
     }
 
-    let props = properties.coerce_to_object(ctx)?;
+    let props = properties.to_object(ctx)?;
 
     if let JSValue::Object(obj) = obj {
         let r = props.own_property_names_foreach(
@@ -60,7 +60,7 @@ pub fn js_object_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     } else {
         match cc.arg(0) {
             JSValue::NULL | JSValue::UNDEFINED => ctx.create_base_object(),
-            a => a.coerce_to_object(ctx),
+            a => a.to_object(ctx),
         }
     }
     .map(JSValue::Object)
@@ -309,7 +309,7 @@ pub fn js_object_getOwnPropertyDescriptor(ctx: &JSContext, cc: CallContext) -> J
         }
     } else {
         cc.arg(0)
-            .coerce_to_object(ctx)
+            .to_object(ctx)
             .map_or(JSValue::UNDEFINED, JSValue::Object)
     };
 
@@ -355,7 +355,7 @@ pub fn js_object_getOwnPropertyDescriptor(ctx: &JSContext, cc: CallContext) -> J
 }
 
 pub fn js_object_getOwnPropertyDescriptors(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj = cc.arg(0).coerce_to_object(ctx)?;
+    let obj = cc.arg(0).to_object(ctx)?;
     let res_obj = ctx.create_base_object()?;
 
     obj.own_property_names_foreach(ctx, JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK, |cx, name| {
@@ -387,12 +387,12 @@ pub fn js_object_is(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 /// Object.assign(obj, source1)
 pub fn js_object_assign(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj = cc.arg(0).coerce_to_object(ctx)?;
+    let obj = cc.arg(0).to_object(ctx)?;
 
     if cc.length() > 1 {
         for a in &cc.arguments()[1..] {
             if !a.is_undefined_or_null() {
-                let s = a.coerce_to_object(ctx)?;
+                let s = a.to_object(ctx)?;
                 obj.copy_properties_from(ctx, &s.into(), None, true)?;
             }
         }
@@ -428,7 +428,7 @@ pub fn js_object_fromEntries(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_object_hasOwn(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj = cc.arg(0).coerce_to_object(ctx)?;
+    let obj = cc.arg(0).to_object(ctx)?;
 
     let atom = cc.arg(1).coerce_to_atom(ctx)?;
 

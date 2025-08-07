@@ -47,10 +47,7 @@ pub fn js_create_array_iterator(ctx: &JSContext, cc: CallContext) -> JSResult {
             JS_ToStringCheckObject(ctx, cc.this().clone())?.into(),
         )
     } else {
-        (
-            JS_CLASS_ARRAY_ITERATOR,
-            cc.this().coerce_to_object(ctx)?.into(),
-        )
+        (JS_CLASS_ARRAY_ITERATOR, cc.this().to_object(ctx)?.into())
     };
 
     let it = Box::new(JSArrayIteratorData { obj, kind, idx: 0 });

@@ -331,7 +331,7 @@ impl Bytecode {
                                     JSValue::Object(ctx.global_obj().clone())
                                 }
                                 _ => {
-                                    if let Ok(v) = this_obj.coerce_to_object(ctx) {
+                                    if let Ok(v) = this_obj.to_object(ctx) {
                                         v.into()
                                     } else {
                                         break State::Exception;
@@ -2126,7 +2126,7 @@ impl Bytecode {
                     }
                     OpCode::TO_OBJECT => {
                         if !SP_REF!(-1).is_object() {
-                            if let Ok(o) = SP_REF!(-1).coerce_to_object(ctx) {
+                            if let Ok(o) = SP_REF!(-1).to_object(ctx) {
                                 SP_PUT!(-1, o.into());
                             } else {
                                 break State::Exception;

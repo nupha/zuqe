@@ -610,7 +610,7 @@ pub fn js_typed_array_set_internal(
         return Err(-1);
     }
 
-    let src_p = src.coerce_to_object(ctx)?;
+    let src_p = src.to_object(ctx)?;
 
     let count: i64;
 
