@@ -1,5 +1,3 @@
-use core::f64;
-
 use crate::{
     bytecode::OpCode, context::JSContext, error::JSResult, number::JSFloat64Union,
     string::JS_ConcatString, value::JSValue,
@@ -39,7 +37,7 @@ impl TwoNumbers {
         )
     }
 
-    /// returns None if has NaN.
+    /// returns None if it has NaN.
     pub fn partial_cmp(&self) -> Option<std::cmp::Ordering> {
         match self {
             Self::Int(a, b) => Some(a.cmp(b)),
@@ -218,16 +216,16 @@ impl UnaryOp {
             UnaryOp::Int(a) => {
                 if a == 0 {
                     // -0 cannot be expressed as integer
-                    JSValue::from_f64_as_is(-0.0)
+                    JSValue::Float64(-0.0)
                 } else if a == i32::MIN {
-                    JSValue::from_f64_as_is(-(a as f64))
+                    JSValue::Float64(-(a as f64))
                 } else {
                     JSValue::Int(-a)
                 }
             }
             UnaryOp::Float(a) => {
                 if a == 0.0 {
-                    JSValue::from_f64_as_is(-0.0)
+                    JSValue::Float64(-0.0)
                 } else {
                     JSValue::from(-a)
                 }

@@ -319,13 +319,13 @@ impl JSContext {
 }
 
 impl JSString {
-    /// convert string to atom
+    /// convert string to atom. if string is not registered as atom, do registration first.
     pub fn to_atom(&self, ctx: &JSContext) -> Result<JSAtom, i32> {
         if let Some(a) = self.atom_info() {
-            // str alreay registered as atom
+            // str already registered as atom
             Ok(a.atom())
         } else {
-            // register str as atom
+            // register string as atom
             ctx.rt_mut()
                 .register_atom_jsstring(self.clone(), AtomTypeHint::String)
         }
@@ -337,29 +337,19 @@ impl JSValue {
     /// returned atom is cloned, caller should free it after use.
     pub fn coerce_to_atom(&self, ctx: &JSContext) -> Result<JSAtom, i32> {
         match self {
-            JSValue::Int(i) if *i as u32 <= JS_ATOM_MAX_INT => Ok(JSAtom::new_u32(*i as u32)),
+            // special or integral atom
             JSValue::Bool(b) => Ok(if *b { JS_ATOM_true } else { JS_ATOM_false }),
-            JSValue::Symbol(s) => Ok(s.atom_info().unwrap().atom()),
-            JSValue::String(s) => s.to_atom(ctx),
-            JSValue::Object(_) | JSValue::Float64(_) | JSValue::Int(_) => {
-                match self.coerce_to_propkey(ctx)? {
-                    Self::Symbol(s) => Ok(s.atom_info().unwrap().atom()),
-                    Self::String(s) => {
-                        if let Some(a) = s.atom_info() {
-                            // str alreay registered as atom
-                            Ok(a.atom())
-                        } else {
-                            // register str as atom
-                            ctx.rt_mut().register_atom_jsstring(s, AtomTypeHint::String)
-                        }
-                    }
-                    _ => unreachable!(),
-                }
-            }
-
             JSValue::UNDEFINED => Ok(JS_ATOM_undefined),
             JSValue::NULL => Ok(JS_ATOM_null),
+            JSValue::Int(i) if *i as u32 <= JS_ATOM_MAX_INT => Ok(JSAtom::new_u32(*i as u32)),
 
+            // atom has description
+            JSValue::String(s) | JSValue::Symbol(s) => s.to_atom(ctx),
+            JSValue::Object(_) | JSValue::Float64(_) | JSValue::Int(_) => {
+                self.coerce_to_string(ctx).and_then(|s| s.to_atom(ctx))
+            }
+
+            // can't convert to atom
             JSValue::UNINITIALIZED
             | JSValue::CatchOffset(_)
             | JSValue::Module(_)
@@ -368,7 +358,13 @@ impl JSValue {
                 ctx.throw_type_error(&format!("cannot convert {} to atom", self));
                 Err(-1)
             }
-            JSValue::EXCEPTION => Err(-1),
+
+            JSValue::EXCEPTION => {
+                #[cfg(debug_assertions)]
+                unreachable!();
+                #[cfg(not(debug_assertions))]
+                Err(-1)
+            }
         }
     }
 }
@@ -527,7 +523,7 @@ pub fn JS_AtomIsNumericIndex1(ctx: &JSContext, atom: JSAtom) -> JSValue {
                 if let Some(c2) = cc.next() {
                     // -0 case is specific
                     if c2 == '0' && len == 2 {
-                        return JSValue::from_f64_as_is(-0.0);
+                        return JSValue::Float64(-0.0);
                     } else {
                         c = c2;
                     }

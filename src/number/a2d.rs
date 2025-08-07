@@ -235,39 +235,27 @@ pub unsafe fn js_atof(
         }
     }
 
+    // update cur ptr
+    if !pp.is_null() {
+        *pp = p;
+    }
+
     match atod_type {
         ATOD_TYPE_FLOAT64 => {
-            let s = std::str::from_utf8(buf.as_slice()).unwrap();
-            let val = if is_float {
-                if let Ok(f) = s.parse::<f64>() {
-                    JSValue::from(f)
-                } else {
-                    fail!();
-                }
-            } else {
-                let len = s.len();
-                if radix == 2 || len <= 8 {
-                    // fast path to parse i32
-                    if let Ok(i) = i32::from_str_radix(s, radix as _) {
-                        JSValue::Int(i)
-                    } else {
-                        fail!();
-                    }
-                } else if let Ok(i) = i64::from_str_radix(s, radix as _) {
-                    if (i32::MIN as i64..=i32::MAX as i64).contains(&i) {
-                        JSValue::Int(i as i32)
-                    } else {
-                        JSValue::from(i)
-                    }
-                } else {
-                    fail!();
-                }
-            };
+            let txt = std::str::from_utf8(buf.as_slice()).unwrap();
 
-            if !pp.is_null() {
-                *pp = p;
+            if !is_float {
+                if let Ok(i) = i64::from_str_radix(txt, radix as _) {
+                    return Ok(JSValue::from(i));
+                }
             }
-            Ok(val)
+
+            // try float64
+            if let Ok(f) = txt.parse::<f64>() {
+                Ok(JSValue::from(f))
+            } else {
+                fail!();
+            }
         }
         ATOD_TYPE_BIG_INT => {
             // fail!();

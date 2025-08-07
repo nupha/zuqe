@@ -4,10 +4,12 @@ use crate::{
     utils::skip_spaces,
     value::{HINT_NUMBER, JSValue, JSValueConst},
 };
+use std::ops::RangeInclusive;
 
 use super::{ATOD_ACCEPT_BIN_OCT, js_atof};
 
-pub const MAX_SAFE_INTEGER: i64 = (1_i64 << 53) - 1;
+pub const MAX_SAFE_INTEGER: i64 = (1_i64) << 53; // (1_i64 << 53) - 1;
+pub const SAFE_INTEGER_RANGE: RangeInclusive<i64> = -MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER;
 pub const JS_FLOAT64_NAN: f64 = f64::NAN;
 
 #[inline(always)]
@@ -49,12 +51,15 @@ impl From<u32> for JSValue {
 }
 
 impl From<i64> for JSValue {
-    #[inline(always)]
+    #[inline]
     fn from(val: i64) -> Self {
         let v32 = val as i32;
         if val == v32 as i64 {
             Self::Int(v32)
         } else {
+            if SAFE_INTEGER_RANGE.contains(&val) {
+                log::warn!("integer {val} will lose precision");
+            }
             Self::from_f64_as_is(val as f64)
         }
     }
@@ -63,10 +68,16 @@ impl From<i64> for JSValue {
 impl From<f64> for JSValue {
     #[inline]
     fn from(d: f64) -> Self {
-        if d.fract() == 0.0 && (i32::MIN as f64..=i32::MAX as f64).contains(&d) {
-            Self::Int(d as i32)
+        if d.fract() == 0.0 {
+            // integral
+            let n = d as i64;
+            if (i32::MIN as i64..=i32::MAX as i64).contains(&n) {
+                Self::Int(n as i32)
+            } else {
+                Self::from_f64_as_is(d)
+            }
         } else {
-            Self::Float64(d)
+            Self::from_f64_as_is(d)
         }
     }
 }
@@ -75,7 +86,7 @@ impl JSValue {
     /// create Float64 value as-is
     #[cfg(not(feature = "nan_boxing"))]
     #[inline(always)]
-    pub(crate) const fn from_f64_as_is(d: f64) -> JSValue {
+    const fn from_f64_as_is(d: f64) -> JSValue {
         JSValue::Float64(d)
     }
 
