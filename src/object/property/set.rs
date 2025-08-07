@@ -4,7 +4,6 @@ use crate::{
     JS_CLASS_INT32_ARRAY, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT, JS_CLASS_UINT8_ARRAY,
     JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
     atom::{__JS_AtomToUInt32, JS_ATOM_NULL, JS_AtomIsNumericIndex, JS_FreeAtom, JSAtom},
-    class::JSClassID,
     context::{JSContext, is_strict_mode},
     error::JS_ThrowReferenceErrorNotDefined,
     function::JS_Call,
@@ -49,24 +48,59 @@ pub(crate) fn call_setter(
 
 #[derive(Debug, Clone, PartialEq)]
 enum SetPropState {
-    /// if prop is found in shape, update value slot.
-    FindInShape,
-    /// use exotic or fast array
-    TryExotic,
     /// walk up proto chain
     WalkUpProto,
-
     /// Add or update property
     Add,
-    /// Create new property on object
-    CreateProp,
+    /// runtime has exception value
+    Err,
     /// Read-only error
-    ErrReadOnly,
+    ReadOnly,
     /// TypedArray out of bounds error
-    ErrTypedArrayOOB(JSClassID),
+    TypedArrayOOB,
 }
 
 impl JSObject {
+    /// set property for fast array.
+    /// returns false means property should be added.
+    fn set_property_fast_array(
+        &self,
+        ctx: &JSContext,
+        prop: JSAtom,
+        val: JSValue,
+        this_obj: JSValue,
+        flags: u32,
+    ) -> Result<bool, SetPropState> {
+        debug_assert!(self.flags().is_fast_array());
+
+        let mut state = SetPropState::WalkUpProto;
+
+        if prop.is_int_type() {
+            let idx = __JS_AtomToUInt32(prop);
+            if idx < self.array_length_unchecked() as u32 {
+                if this_obj.object() == Some(self) {
+                    return this_obj
+                        .set_property_value(ctx, &JSValue::Int(idx as _), val, flags)
+                        .map_err(|_| SetPropState::Err);
+                } else {
+                    state = SetPropState::Add;
+                }
+            } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).contains(&self.class_id()) {
+                state = SetPropState::TypedArrayOOB;
+            }
+        } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).contains(&self.class_id()) {
+            let ret = unsafe { JS_AtomIsNumericIndex(ctx, prop) };
+            if ret != 0 {
+                if ret < 0 {
+                    state = SetPropState::TypedArrayOOB;
+                }
+            }
+        }
+
+        Err(state)
+    }
+
+    /// set property for fast array or using exotic handler.
     fn set_property_exotic(
         &self,
         ctx: &JSContext,
@@ -74,39 +108,15 @@ impl JSObject {
         val: JSValue,
         this_obj: JSValue,
         flags: u32,
-    ) -> Result<bool, Option<SetPropState>> {
+    ) -> Result<bool, SetPropState> {
         debug_assert!(self.flags().is_exotic());
 
-        let mut next_state = SetPropState::WalkUpProto;
-
         if self.flags().is_fast_array() {
-            // set array element
-            if prop.is_int_type() {
-                let idx = __JS_AtomToUInt32(prop);
-                if idx < self.array_length_unchecked() as u32 {
-                    if this_obj.object() == Some(self) {
-                        return this_obj
-                            .set_property_value(ctx, &JSValue::Int(idx as _), val, flags)
-                            .map_err(|_| None);
-                    } else {
-                        next_state = SetPropState::Add;
-                    }
-                } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY)
-                    .contains(&self.class_id())
-                {
-                    next_state = SetPropState::ErrTypedArrayOOB(self.class_id());
-                }
-            } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).contains(&self.class_id()) {
-                let ret = unsafe { JS_AtomIsNumericIndex(ctx, prop) };
-                if ret != 0 {
-                    if ret < 0 {
-                        return Err(None);
-                    }
-                    next_state = SetPropState::ErrTypedArrayOOB(self.class_id());
-                }
-            }
+            self.set_property_fast_array(ctx, prop, val, this_obj, flags)
         } else {
             // use exotic handler
+            let mut next_state = SetPropState::WalkUpProto;
+
             if let Some(em) = unsafe {
                 ctx.rt().class_defs[self.class_id() as usize]
                     .exotic
@@ -121,20 +131,20 @@ impl JSObject {
                         this_obj,
                         flags as _,
                     )
-                    .map_err(|_| None);
+                    .map_err(|_| SetPropState::Err);
                 }
 
                 if let Some(cb) = em.get_own_property {
-                    if let Some(desc) =
-                        cb(ctx, JSValue::Object(self.clone()), prop).map_err(|_| None)?
+                    if let Some(desc) = cb(ctx, JSValue::Object(self.clone()), prop)
+                        .map_err(|_| SetPropState::Err)?
                     {
                         if desc.flags & JS_PROP_GETSET != 0 {
                             return call_setter(ctx, desc.setter.object(), &this_obj, val, flags)
-                                .map_err(|_| None);
+                                .map_err(|_| SetPropState::Err);
                         }
 
                         if desc.flags & JS_PROP_WRITABLE == 0 {
-                            next_state = SetPropState::ErrReadOnly;
+                            next_state = SetPropState::ReadOnly;
                         } else if this_obj.object() == Some(self) {
                             return self
                                 .define_property(
@@ -145,16 +155,16 @@ impl JSObject {
                                     JSValue::UNDEFINED,
                                     JS_PROP_HAS_VALUE,
                                 )
-                                .map_err(|_| None);
+                                .map_err(|_| SetPropState::Err);
                         } else {
                             next_state = SetPropState::Add;
                         }
                     }
                 }
             }
-        }
 
-        Err(Some(next_state))
+            Err(next_state)
+        }
     }
 
     /// 'flags' is a bitmask of JS_PROP_NO_ADD, JS_PROP_THROW or JS_PROP_THROW_STRICT.
@@ -172,207 +182,168 @@ impl JSObject {
     ) -> Result<bool, i32> {
         match this_obj {
             JSValue::Object(this) => {
-                let mut state = if self == this {
-                    SetPropState::FindInShape
-                } else if self.flags().is_exotic() {
-                    SetPropState::TryExotic
-                } else {
-                    SetPropState::WalkUpProto
-                };
+                let mut check_shape = self == this;
 
-                // proto chain walker
-                let mut cur_obj = self.clone();
+                for p in self.prototype_iter(ctx, true) {
+                    let cur_obj = p?;
 
-                loop {
-                    match state {
-                        SetPropState::FindInShape => {
-                            if let Some((idx, prs_flags)) = cur_obj.find_shape_property(prop) {
-                                return cur_obj.put_prop_slot(
-                                    ctx,
-                                    prs_flags,
-                                    prop,
-                                    idx,
-                                    val.clone(),
-                                    this,
-                                    flags,
-                                );
-                            } else if cur_obj.flags().is_exotic() {
-                                state = SetPropState::TryExotic;
-                            } else {
-                                state = SetPropState::WalkUpProto;
-                            }
-                            continue;
-                        }
-                        SetPropState::TryExotic => {
-                            debug_assert!(cur_obj.flags().is_exotic());
-                            match cur_obj.set_property_exotic(
+                    if check_shape {
+                        if let Some((idx, prs_flags)) = cur_obj.find_shape_property(prop) {
+                            return cur_obj.put_prop_slot(
                                 ctx,
+                                prs_flags,
                                 prop,
+                                idx,
                                 val.clone(),
-                                this_obj.clone(),
+                                this,
                                 flags,
-                            ) {
-                                Ok(b) => {
-                                    return Ok(b);
-                                }
-                                Err(None) => {
-                                    return Err(-1);
-                                }
-                                Err(Some(next_state)) => {
-                                    state = next_state;
-                                    continue;
-                                }
-                            }
+                            );
                         }
-                        SetPropState::WalkUpProto => {
-                            state = if let Some(up) =
-                                cur_obj.shape().unwrap().0.borrow().proto.clone()
-                            {
-                                cur_obj = up;
-                                SetPropState::FindInShape
-                            } else {
-                                // at end of proto chain, means `prop` does not exist yet,
-                                // let's add it.
-                                SetPropState::Add
-                            };
-                        }
+                    }
 
-                        SetPropState::Add => {
-                            // update or add property on this_obj.
-                            // target: this_obj
-                            if flags & JS_PROP_NO_ADD != 0 {
-                                JS_ThrowReferenceErrorNotDefined(ctx, prop);
+                    if cur_obj.flags().is_exotic() {
+                        match cur_obj.set_property_exotic(
+                            ctx,
+                            prop,
+                            val.clone(),
+                            this_obj.clone(),
+                            flags,
+                        ) {
+                            Ok(b) => {
+                                return Ok(b);
+                            }
+                            Err(SetPropState::WalkUpProto) => {
+                                // for next prototype
+                                continue;
+                            }
+                            Err(SetPropState::Add) => {
+                                // stop proto iter. do add prop on `this`
+                                break;
+                            }
+                            Err(SetPropState::Err) => {
+                                // has exception
                                 return Err(-1);
                             }
+                            Err(SetPropState::ReadOnly) => {
+                                return if ctx.JS_ThrowTypeErrorReadOnly(flags, prop) {
+                                    Err(-1)
+                                } else {
+                                    Ok(false)
+                                };
+                            }
+                            Err(SetPropState::TypedArrayOOB) => {
+                                // index overflow for typed array.
+                                // ignore index oob, do nothing, returns true
+                                return Ok(true);
+                            }
+                        }
+                    }
 
-                            if !this.flags().extensible() {
-                                return if ctx.throw_type_error_or_false(
-                                    flags as _,
-                                    "object is not extensible",
-                                ) {
+                    // skip shape for first iter only, should do check shape for next.
+                    check_shape = true;
+                } // iterate over proto
+
+                //
+                // update or add property on `this`.
+                //
+                if flags & JS_PROP_NO_ADD != 0 {
+                    JS_ThrowReferenceErrorNotDefined(ctx, prop);
+                    return Err(-1);
+                } else if !this.flags().extensible() {
+                    return if ctx.throw_type_error_or_false(flags as _, "object is not extensible")
+                    {
+                        Err(-1)
+                    } else {
+                        Ok(false)
+                    };
+                }
+
+                if this == self {
+                    let ob_flags = this.flags();
+                    if ob_flags.is_exotic() {
+                        if ob_flags.is_fast_array()
+                            && self.class_id() == JS_CLASS_ARRAY
+                            && prop.is_int_type()
+                        {
+                            // fast array
+                            let idx = __JS_AtomToUInt32(prop);
+                            if idx == self.array_length_unchecked() as u32 {
+                                return self.add_fast_array_element(ctx, val, flags);
+                            }
+                        }
+                    } else {
+                        return this
+                            .add_own_property(ctx, prop, JS_PROP_C_W_E, JSProperty::Normal(val))
+                            .map(|_| true);
+                    }
+                } else {
+                    // generic case: modify the property in `this` if it already exists
+                    match this.get_own_property(ctx, prop)? {
+                        Some(desc) => {
+                            // already exists, update the value
+                            if desc.flags & JS_PROP_GETSET != 0 {
+                                return if ctx
+                                    .throw_type_error_or_false(flags as _, "setter is forbidden")
+                                {
+                                    Err(-1)
+                                } else {
+                                    Ok(false)
+                                };
+                            } else if desc.flags & JS_PROP_WRITABLE == 0
+                                || this.class_id() == JS_CLASS_MODULE_NS
+                            {
+                                return if ctx.JS_ThrowTypeErrorReadOnly(flags, prop) {
                                     Err(-1)
                                 } else {
                                     Ok(false)
                                 };
                             }
 
-                            if this == self {
-                                let ob_flags = this.flags();
-                                if ob_flags.is_exotic() {
-                                    if ob_flags.is_fast_array()
-                                        && self.class_id() == JS_CLASS_ARRAY
-                                        && prop.is_int_type()
-                                    {
-                                        // fast array
-                                        let idx = __JS_AtomToUInt32(prop);
-                                        if idx == self.array_length_unchecked() as u32 {
-                                            return self.add_fast_array_element(ctx, val, flags);
-                                        }
-                                    }
-
-                                    state = SetPropState::CreateProp;
-                                    continue;
-                                } else {
-                                    return this
-                                        .add_own_property(
-                                            ctx,
-                                            prop,
-                                            JS_PROP_C_W_E,
-                                            JSProperty::Normal(val),
-                                        )
-                                        .map(|_| true);
-                                }
-                            } else {
-                                // generic case: modify the property in this_obj if it already exists
-                                match this.get_own_property(ctx, prop)? {
-                                    Some(desc) => {
-                                        // already exists, update the value
-                                        if desc.flags & JS_PROP_GETSET != 0 {
-                                            return if ctx.throw_type_error_or_false(
-                                                flags as _,
-                                                "setter is forbidden",
-                                            ) {
-                                                Err(-1)
-                                            } else {
-                                                Ok(false)
-                                            };
-                                        } else if desc.flags & JS_PROP_WRITABLE == 0
-                                            || this.class_id() == JS_CLASS_MODULE_NS
-                                        {
-                                            state = SetPropState::ErrReadOnly;
-                                            continue;
-                                        }
-
-                                        return this.define_property(
-                                            ctx,
-                                            prop,
-                                            val,
-                                            JSValue::UNDEFINED,
-                                            JSValue::UNDEFINED,
-                                            JS_PROP_HAS_VALUE,
-                                        );
-                                    }
-                                    None => {
-                                        // not found on this_obj, should create
-                                        state = SetPropState::CreateProp;
-                                        continue;
-                                    }
-                                }
-                            }
-                        }
-                        SetPropState::CreateProp => {
-                            // create property on this_obj.
-                            return this.create_property(
+                            return this.define_property(
                                 ctx,
                                 prop,
                                 val,
                                 JSValue::UNDEFINED,
                                 JSValue::UNDEFINED,
-                                flags
-                                    | JS_PROP_HAS_VALUE
-                                    | JS_PROP_HAS_ENUMERABLE
-                                    | JS_PROP_HAS_WRITABLE
-                                    | JS_PROP_HAS_CONFIGURABLE
-                                    | JS_PROP_C_W_E,
+                                JS_PROP_HAS_VALUE,
                             );
                         }
-
-                        SetPropState::ErrReadOnly => {
-                            return if ctx.JS_ThrowTypeErrorReadOnly(flags, prop) {
-                                Err(-1)
-                            } else {
-                                Ok(false)
-                            };
-                        }
-                        SetPropState::ErrTypedArrayOOB(class_id) => {
-                            // must convert the argument even if out of bound access
-                            if matches!(
-                                class_id,
-                                JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY
-                            ) {
-                                unimplemented!()
-                                // let mut v:i64;
-                                // if JS_ToBigInt64Free(ctx, &v, val)!=0{
-                                //     return -1;
-                                // }
-                            } else {
-                                //let _ = val.coerce_to_number_free(ctx)?; // consume val
-                            }
-                            return Ok(true);
+                        None => {
+                            // not found on this, do create laster
                         }
                     }
                 }
+
+                //
+                // prop not found on `this`, create it.
+                //
+                return this.create_property(
+                    ctx,
+                    prop,
+                    val,
+                    JSValue::UNDEFINED,
+                    JSValue::UNDEFINED,
+                    flags
+                        | JS_PROP_HAS_VALUE
+                        | JS_PROP_HAS_ENUMERABLE
+                        | JS_PROP_HAS_WRITABLE
+                        | JS_PROP_HAS_CONFIGURABLE
+                        | JS_PROP_C_W_E,
+                );
             }
 
             JSValue::EXCEPTION => {
-                return Err(-1);
+                #[cfg(debug_assertions)]
+                unreachable!();
+                #[cfg(not(debug_assertions))]
+                Err(-1)
             }
             _ => {
-                return if ctx.throw_type_error_or_false(flags as _, "receiver must be an object") {
+                if ctx.throw_type_error_or_false(flags as _, "receiver must be an object") {
                     Err(-1)
                 } else {
                     Ok(false)
-                };
+                }
             }
         }
     }
@@ -630,15 +601,13 @@ impl JSValue {
     ) -> Result<bool, i32> {
         if let Self::Object(o) = obj {
             o.set_property_internal(ctx, prop, val, this_obj, flags)
+        } else if let JSValue::Object(p) = unsafe { JS_GetPrototypePrimitive(ctx, obj) } {
+            p.set_property_internal(ctx, prop, val, this_obj, flags)
         } else {
-            if let JSValue::Object(p) = unsafe { JS_GetPrototypePrimitive(ctx, obj) } {
-                p.set_property_internal(ctx, prop, val, this_obj, flags)
+            if ctx.throw_type_error_or_false(flags as _, "not an object") {
+                Err(-1)
             } else {
-                if ctx.throw_type_error_or_false(flags as _, "not an object") {
-                    Err(-1)
-                } else {
-                    Ok(false)
-                }
+                Ok(false)
             }
         }
 

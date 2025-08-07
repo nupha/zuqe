@@ -199,8 +199,7 @@ impl JSObject {
         Ok(true)
     }
 
-    /// overwrite property value at specified slot idx.
-    /// if the property is auto init type, do instantiate instead.
+    /// overwrite property value at specified slot idx to a normal value.
     pub(super) fn put_prop_slot(
         &self,
         ctx: &JSContext,
@@ -208,28 +207,25 @@ impl JSObject {
         prop: JSAtom,
         slot_idx: usize,
         value: JSValue,
-        this_obj: &JSObject,
+        this_obj: &JSObject, // only used for getter, setter calling
         flags: u32,
     ) -> Result<bool, i32> {
         if prs_flags & JS_PROP_LENGTH != 0 {
-            // special prop: length
-            // to set .length property of an array object
+            // special prop length: to set .length property of an array object
             debug_assert_eq!(self.class_id(), JS_CLASS_ARRAY);
             debug_assert_eq!(prop, JS_ATOM_length);
             debug_assert_eq!(slot_idx, 0, "length property must be indexed at 0");
-            return self.set_array_length(ctx, value, flags);
-        }
-
-        if prs_flags & JS_PROP_AUTOINIT == JS_PROP_AUTOINIT {
-            // lazy init property
-            let mut pr = std::mem::take(&mut self.0.prop_values.borrow_mut()[slot_idx]);
-            pr.instantiate(self, prop, this_obj)?;
-            debug_assert!(matches!(pr, JSProperty::Normal(_)));
-            debug_assert_eq!(
-                self.find_shape_property(prop).unwrap().1 & JS_PROP_TMASK,
-                JS_PROP_NORMAL
+            self.set_array_length(ctx, value, flags)
+        } else if prs_flags & JS_PROP_AUTOINIT == JS_PROP_AUTOINIT {
+            // lazy init replaced with normal value
+            std::mem::replace(
+                &mut self.0.prop_values.borrow_mut()[slot_idx],
+                JSProperty::Normal(value),
             );
-            self.0.prop_values.borrow_mut()[slot_idx] = pr;
+            self.shape().unwrap().with_mut(|s| {
+                let (_, prs) = s.prop_defs.get_index_mut(slot_idx).unwrap();
+                prs.set_flags(prs.flags() & !JS_PROP_TMASK);
+            });
             Ok(true)
         } else {
             // normal, getter, setter
@@ -237,15 +233,15 @@ impl JSObject {
             match pr {
                 JSProperty::Normal(_) => {
                     if prs_flags & JS_PROP_WRITABLE == 0 {
-                        return if ctx.JS_ThrowTypeErrorReadOnly(flags, prop) {
+                        if ctx.JS_ThrowTypeErrorReadOnly(flags, prop) {
                             Err(-1)
                         } else {
                             Ok(false)
-                        };
+                        }
+                    } else {
+                        self.0.prop_values.borrow_mut()[slot_idx] = JSProperty::Normal(value);
+                        Ok(true)
                     }
-
-                    self.0.prop_values.borrow_mut()[slot_idx] = JSProperty::Normal(value);
-                    Ok(true)
                 }
                 JSProperty::GetSet { setter, .. } => call_setter(
                     ctx,

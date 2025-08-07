@@ -699,6 +699,8 @@ impl Bytecode {
                         }
                     }
                     OpCode::CALL_CONSTRUCTOR => {
+                        // [func, new_target, arg1 .., argN, ^] -> [instance, ^]
+                        // [                  |<-- argc -->|  ]
                         let call_argc = PC_FETCH!(u16) as i32;
                         let call_argv = unsafe { sp.offset(-call_argc as isize) };
                         stack_frame.cur_pc_offset = unsafe { pc.offset_from(pc_base) as _ };

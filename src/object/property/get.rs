@@ -28,8 +28,8 @@ impl JSObject {
         this_obj: &JSValue,
         throw_ref_error: bool,
     ) -> JSResult {
-        for cur_obj in self.prototype_iter(ctx, true) {
-            let cur_obj = cur_obj?;
+        for p in self.prototype_iter(ctx, true) {
+            let cur_obj = p?;
 
             // 1. try own property (in shape)
             if let Some((idx, prs_flags)) = cur_obj.find_shape_property(prop) {
@@ -37,6 +37,7 @@ impl JSObject {
                     JS_PROP_NORMAL => {
                         if let JSProperty::Normal(val) = &cur_obj.0.prop_values.borrow()[idx] {
                             debug_assert!(!val.is_exception());
+
                             Ok(val.clone())
                         } else {
                             unreachable!()
@@ -65,14 +66,16 @@ impl JSObject {
                             cur_obj.find_shape_property(prop).unwrap().1 & JS_PROP_TMASK,
                             JS_PROP_NORMAL
                         );
-                        cur_obj.0.prop_values.borrow_mut()[idx] = pr; // instantiated, write value back
+
+                        // object instantiated, write value back
+                        cur_obj.0.prop_values.borrow_mut()[idx] = pr;
                         Ok(val)
                     }
                     _ => unreachable!(),
                 };
             }
 
-            // 2. try array or exotic handler
+            // 2. try fast array or exotic handler
             let ob_flags = cur_obj.flags();
             if ob_flags.is_exotic() {
                 if ob_flags.is_fast_array() {
