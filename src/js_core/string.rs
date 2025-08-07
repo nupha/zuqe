@@ -23,23 +23,22 @@ pub fn js_string_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let new_target = cc.this();
 
     let str_val: JSValue = if cc.length() == 0 {
-        JS_ATOM_empty_string.to_string_or_symbol(ctx, true)?
+        JS_ATOM_empty_string.to_string(ctx) ?.into()
     } else {
-        if new_target.is_undefined() && cc.arg(0).is_symbol() {
-            if let JSValue::Symbol(p) = cc.arg(0) {
-                JS_ConcatString3(
-                    ctx,
-                    c"Symbol(",
-                    p.atom_info()
-                        .unwrap()
-                        .atom()
-                        .to_string_or_symbol(ctx, true)?,
-                    c")",
-                )?
-                .into()
-            } else {
-                unreachable!()
-            }
+        if let JSValue::Symbol(p) = cc.arg(0)
+            && new_target.is_undefined()
+        {
+            // String(a_symbol)
+            JS_ConcatString3(
+                ctx,
+                c"Symbol(",
+                p.atom_info()
+                    .unwrap()
+                    .atom()
+                    .to_string_or_symbol(ctx, true)?,
+                c")",
+            )?
+            .into()
         } else {
             cc.arg(0).coerce_to_string(ctx)?.into()
         }

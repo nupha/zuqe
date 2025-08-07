@@ -57,12 +57,13 @@ pub fn f64_stringify<'a>(
         }
         .into()
     } else {
-        let mut num = num;
-
-        let mut use_scientific = flags & JS_DTOA_FORCE_EXP != 0 || {
-            let ab = num.abs();
-            ab >= 1e21 || ab <= 1e-6
-        };
+        // convert -0 to 0
+        let mut num = if num == 0.0 { 0.0 } else { num };
+        let mut use_scientific = flags & JS_DTOA_FORCE_EXP != 0;
+        // let mut use_scientific = flags & JS_DTOA_FORCE_EXP != 0 || {
+        //     let ab = num.abs();
+        //     ab >= 1e21 || ab <= 1e-6
+        // };
 
         // number of digits after decimal point
         let round: Option<i32> = if let Some(p) = fixed_digits {
@@ -118,7 +119,7 @@ pub fn f64_stringify<'a>(
             let int64 = num as i64;
 
             if num != int64 as f64 || !(-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&int64) {
-                // if a float or is an integer beyond safe range
+                // is a float or is an integer beyond safe range
                 if let Some(p) = round {
                     format!("{:.1$}", num, p as usize)
                 } else {
