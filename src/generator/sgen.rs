@@ -89,7 +89,7 @@ pub fn js_function_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
                     -1
                 })?;
             }
-            let s = a.coerce_to_string(ctx)?;
+            let s = a.to_string(ctx)?;
             source
                 .push_str(s.content().to_str().as_ref())
                 .map_err(|_| {
@@ -103,7 +103,7 @@ pub fn js_function_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         })?;
 
         // body
-        let s = body.coerce_to_string(ctx)?;
+        let s = body.to_string(ctx)?;
         source
             .push_str(s.content().to_str().as_ref())
             .map_err(|_| {

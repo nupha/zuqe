@@ -19,7 +19,7 @@ fn js_print(ctx: &JSContext, args: CallContext) -> JSResult {
             print!(" ");
         }
         let arg = args.arg(i);
-        print!("{}", arg.coerce_to_utf8(ctx)?);
+        print!("{}", arg.to_utf8(ctx)?);
     }
     println!();
 
@@ -97,13 +97,13 @@ fn main() {
 
         println!(
             "!!! EXCEPTION {exc:?}, [toString] {:?}",
-            exc.coerce_to_string(&ctx)
+            exc.to_string(&ctx)
         );
         if let JSValue::Object(o) = exc {
             o.dump(ctx.rt());
         };
     } else {
-        println!(">>> RESULT: {r:?}, {:?}", r.coerce_to_string(&ctx));
+        println!(">>> RESULT: {r:?}, {:?}", r.to_string(&ctx));
         if let JSValue::Object(o) = &r {
             o.dump(ctx.rt());
         }

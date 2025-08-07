@@ -305,7 +305,7 @@ impl JSContext {
             }
         }
 
-        let s = self.create_string(str)?;
+        let s = self.create_string_from_str(str)?;
         self.rt_mut()
             .register_atom_jsstring(s, AtomTypeHint::String)
     }
@@ -346,7 +346,7 @@ impl JSValue {
             // atom has description
             JSValue::String(s) | JSValue::Symbol(s) => s.to_atom(ctx),
             JSValue::Object(_) | JSValue::Float64(_) | JSValue::Int(_) => {
-                self.coerce_to_string(ctx).and_then(|s| s.to_atom(ctx))
+                self.to_string(ctx).and_then(|s| s.to_atom(ctx))
             }
 
             // can't convert to atom
@@ -558,7 +558,7 @@ pub fn JS_AtomIsNumericIndex1(ctx: &JSContext, atom: JSAtom) -> JSValue {
         // this is ECMA CanonicalNumericIndexString primitive
         if let Ok(num) = JSValue::String(p.clone()).coerce_to_number(ctx) {
             // test num as string is same to original value
-            if let Ok(str) = num.coerce_to_string(ctx) {
+            if let Ok(str) = num.to_string(ctx) {
                 if p.content().eq(str.content()) {
                     num
                 } else {

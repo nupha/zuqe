@@ -15,7 +15,7 @@ pub enum StringBuf {
     /// string with no content
     Empty,
 
-    /// null string - behaves like empty, but is for sementically differ only.
+    /// null string - behaves like empty, but is for semantically differ only.
     /// only used when creating an anonymous Symbol,
     Null,
 

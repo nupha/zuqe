@@ -57,6 +57,7 @@ impl JSValue {
                 let method = o.get_property(ctx, prop)?;
                 if method.is_callable() {
                     let ret = JS_Call(ctx, &method, self, &[]).check_exception()?;
+                    println!("[O.o] s={ret:?}");
                     if !ret.is_object() {
                         return Ok(ret);
                     }
@@ -108,15 +109,6 @@ pub const fn js_object_data_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id
 }
 
 pub fn js_object_data_mark(val: JSValue) {
-    let v = unsafe {
-        val.object_unchecked()
-            .0
-            .payload
-            .borrow()
-            .value()
-            .unwrap()
-            .clone()
-    };
-
+    let v = unsafe { val.object_unchecked().0.payload.borrow().value().unwrap() };
     v.gc_mark();
 }

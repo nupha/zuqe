@@ -83,7 +83,7 @@ impl JSContext {
     pub(crate) fn throw_error_ex(&self, kind: ErrorKind, message: &str, add_backtrace: bool) {
         let proto = self.0.borrow().native_error_proto[kind as usize].clone();
         let exc = if let Ok(o) = self.create_object_from_proto(proto, ObjectDetail::ERROR) {
-            let s = self.create_string(message);
+            let s = self.create_string_from_str(message);
             let _ = o.define_property_value(
                 self,
                 JS_ATOM_message,
@@ -222,7 +222,7 @@ impl JSContext {
             dbuf.write_fmt(format_args!("    at {filename}:{line_num}\n"))
                 .map_err(|_| -1)?;
 
-            let str = self.create_string(filename);
+            let str = self.create_string_from_str(filename);
             error_obj.define_property_value(
                 self,
                 JS_ATOM_fileName,
@@ -420,14 +420,14 @@ pub fn js_error_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
     let mut name = if name.is_undefined() {
         JS_ATOM_Error.to_string(ctx)?
     } else {
-        name.coerce_to_string(ctx)?
+        name.to_string(ctx)?
     };
 
     let msg = cc.this().get_property(ctx, JS_ATOM_message)?;
     let msg = if msg.is_undefined() {
         JS_ATOM_empty_string.to_string(ctx)?
     } else {
-        msg.coerce_to_string(ctx)?
+        msg.to_string(ctx)?
     };
 
     if !name.is_empty() && !msg.is_empty() {

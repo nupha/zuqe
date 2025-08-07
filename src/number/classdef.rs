@@ -18,7 +18,7 @@ pub fn js_thisNumberValue(ctx: &JSContext, this_val: JSValue) -> JSResult {
     } else {
         this_val
             .object()
-            .and_then(|p| p.0.payload.borrow().value().cloned())
+            .and_then(|p| p.0.payload.borrow().value())
             .and_then(|x| if x.is_number() { Some(x) } else { None })
             .ok_or_else(|| {
                 ctx.throw_type_error("not a number");
@@ -33,7 +33,7 @@ pub fn js_parseInt(ctx: &JSContext, cc: CallContext) -> JSResult {
     let ret = if radix != 0 && !(2..=36).contains(&radix) {
         JSValue::Float64(f64::NAN)
     } else {
-        let str = cc.arg(0).coerce_to_utf8(ctx)?;
+        let str = cc.arg(0).to_utf8(ctx)?;
         let mut p = str.as_ptr();
 
         unsafe {
@@ -53,7 +53,7 @@ pub fn js_parseInt(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_parseFloat(ctx: &JSContext, args: CallContext) -> JSResult {
-    let str = args.arg(0).coerce_to_utf8(ctx)?;
+    let str = args.arg(0).to_utf8(ctx)?;
     let mut p = str.as_ptr();
 
     let skip_spaces_result = unsafe { skip_spaces(p) };

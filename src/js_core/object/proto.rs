@@ -19,9 +19,9 @@ pub fn js_object_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
     let mut tag_str: JSValue;
 
     if cc.this().is_null() {
-        tag_str = ctx.create_string("Null")?.into();
+        tag_str = ctx.create_string_from_str("Null")?.into();
     } else if cc.this().is_undefined() {
-        tag_str = ctx.create_string("Undefined")?.into();
+        tag_str = ctx.create_string_from_str("Undefined")?.into();
     } else {
         let obj = cc.this().coerce_to_object(ctx)?;
         let atom = if obj.is_array(ctx)? {

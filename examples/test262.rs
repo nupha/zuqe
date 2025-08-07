@@ -31,7 +31,7 @@ fn js_print(ctx: &JSContext, args: CallContext) -> JSResult {
             print!(" ");
         }
         let arg = args.arg(i);
-        print!("{}", arg.coerce_to_utf8(ctx)?);
+        print!("{}", arg.to_utf8(ctx)?);
     }
     println!();
 
@@ -46,7 +46,7 @@ fn js_detachArrayBuffer(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 fn js_evalScript(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let script = cc.arg(0).coerce_to_utf8(ctx)?;
+    let script = cc.arg(0).to_utf8(ctx)?;
     ctx.eval(script.as_bytes(), "<evalScript>", JS_EVAL_TYPE_GLOBAL)
         .check_exception()
 }
@@ -352,7 +352,7 @@ fn dump_error(ctx: &JSContext, err_val: &JSValue, msg: &str, outf: &mut dyn Writ
         Ok(JSValue::NULL) | Ok(JSValue::UNDEFINED) => {}
         Err(_) => {}
         Ok(s) => {
-            let ss = s.coerce_to_utf8(ctx).unwrap();
+            let ss = s.to_utf8(ctx).unwrap();
             writeln!(outf, "[STACK] {}", ss).unwrap();
         }
     }
@@ -430,7 +430,7 @@ fn run_test_file(
         // eval harness includes
         if run_harness(&ctx, &harness_files).is_err() {
             let exc = ctx.exception();
-            let msg = exc.coerce_to_utf8(&ctx).unwrap();
+            let msg = exc.to_utf8(&ctx).unwrap();
 
             // write to outf
             writeln!(outf, "FAIL: can't eval harness").unwrap();
@@ -493,7 +493,7 @@ fn run_test_file(
                 let msg = if let JSValue::Object(o) = &exc {
                     o.dump(ctx.rt());
                     let msg = o.get_property(&ctx, JS_ATOM_message).unwrap();
-                    msg.coerce_to_utf8(&ctx).unwrap().to_string()
+                    msg.to_utf8(&ctx).unwrap().to_string()
                 } else {
                     "<no msg>".into()
                 };

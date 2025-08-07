@@ -121,7 +121,7 @@ pub fn js_function_toString(ctx: &JSContext, args: CallContext) -> JSResult {
         let b = bc.0.borrow();
         if b.has_debug {
             if let Some(s) = b.debug.source.as_deref() {
-                return ctx.create_string(s).map(JSValue::String);
+                return ctx.create_string_from_str(s).map(JSValue::String);
             }
         }
         b.func_kind

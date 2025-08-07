@@ -139,19 +139,23 @@ impl ObjectDetail {
     }
 
     /// returned value is not duplicated.
-    /// caller should do duplicate if want to reference it.
-    pub const fn value(&self) -> Option<&JSValue> {
+    /// caller should do duplicate if you want to reference it.
+    pub fn value(&self) -> Option<JSValue> {
         match self {
-            Self::NUMBER(a) | Self::STRING(a) | Self::BOOLEAN(a) | Self::SYMBOL(a) => Some(a),
+            Self::NUMBER(a) | Self::BOOLEAN(a) => Some(a.clone()),
+            Self::STRING(a) | Self::SYMBOL(a) => Some(a.clone().into()),
             _ => None,
         }
     }
 
     pub fn replace_value(&mut self, val: JSValue) -> Result<JSValue, i32> {
-        match self {
-            Self::NUMBER(a) | Self::STRING(a) | Self::BOOLEAN(a) | Self::SYMBOL(a) => {
-                Ok(std::mem::replace(a, val))
+        match (self, val) {
+            (Self::NUMBER(a), v @ (JSValue::Int(_) | JSValue::Float64(_))) => {
+                Ok(std::mem::replace(a, v))
             }
+            (Self::BOOLEAN(a), v @ JSValue::Bool(_)) => Ok(std::mem::replace(a, v)),
+            (Self::STRING(a), JSValue::String(s)) => Ok(std::mem::replace(a, s).into()),
+            (Self::SYMBOL(a), JSValue::Symbol(s)) => Ok(std::mem::replace(a, s).into()),
             _ => Err(-1),
         }
     }

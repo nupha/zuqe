@@ -580,7 +580,7 @@ impl JSValue {
         }
     }
 
-    /// Convert JS value to object equivalent
+    /// Convert value to object equivalent.
     /// Handles primitive wrapping according to ES6 ToObject conversion rules
     /// Returns exception for null/undefined inputs.
     /// `self` is not consumed
@@ -593,14 +593,19 @@ impl JSValue {
             Self::Bool(_) => ctx
                 .create_object(ObjectDetail::BOOLEAN(self.clone()))
                 .map_err(|_| -1),
-            Self::String(_) | Self::Symbol(_) => ctx
-                .create_object(ObjectDetail::STRING(self.clone()))
+            Self::String(s) => ctx
+                .create_object(ObjectDetail::STRING(s.clone()))
                 .map_err(|_| -1),
-            Self::NULL | Self::UNDEFINED => {
-                ctx.throw_type_error("cannot convert to object");
+            Self::Symbol(s) => ctx
+                .create_object(ObjectDetail::SYMBOL(s.clone()))
+                .map_err(|_| -1),
+
+            Self::EXCEPTION => {
+                #[cfg(debug_assertions)]
+                unreachable!();
+                #[cfg(not(debug_assertions))]
                 Err(-1)
             }
-            Self::EXCEPTION => Err(-1),
             _ => {
                 ctx.throw_type_error("cannot convert to object");
                 Err(-1)
@@ -796,7 +801,7 @@ pub fn JS_SetConstructorBit(ctx: &JSContext, func_obj: &JSValue, val: bool) -> b
 /// Only works for primitive wrapper objects (Number, String, Boolean, etc.)
 /// Returns -1 on error (invalid object type)
 /// Note: `val` is consumed.
-pub unsafe fn JS_SetObjectData(ctx: &JSContext, obj: JSValue, val: JSValue) -> i32 {
+pub fn JS_SetObjectData(ctx: &JSContext, obj: JSValue, val: JSValue) -> i32 {
     if let Some(o) = obj.object() {
         if let Ok(old) = o.0.payload.borrow_mut().replace_value(val) {
             drop(old);

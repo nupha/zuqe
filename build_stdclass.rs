@@ -43,7 +43,7 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "String",
             "STRING",
-            Some("crate::value::JSValue"),
+            Some("crate::string::JSString"),
             Some("crate::value::js_object_data_finalizer"),
             Some("crate::value::js_object_data_mark")
         ),
@@ -57,7 +57,7 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "Symbol",
             "SYMBOL",
-            Some("crate::value::JSValue"),
+            Some("crate::string::JSString"),
             Some("crate::value::js_object_data_finalizer"),
             Some("crate::value::js_object_data_mark")
         ),

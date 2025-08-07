@@ -358,7 +358,7 @@ pub fn js_promise_all_resolve_element(ctx: &JSContext, mut cc: CallContext) -> J
         ob.define_property_value(
             ctx,
             JS_ATOM_status,
-            ctx.create_string(if is_reject != 0 {
+            ctx.create_string_from_str(if is_reject != 0 {
                 "rejected"
             } else {
                 "fulfilled"

@@ -1,10 +1,7 @@
-use std::{
-    borrow::Cow,
-    cell::Cell,
-    ffi::CStr,
-    rc::{Rc, Weak},
-};
-
+use super::StringBuf;
+use crate::function::JS_Invoke;
+use crate::number::f64_stringify;
+use crate::value::HINT_STRING;
 use crate::{
     JS_CLASS_STRING,
     atom::{__JS_AtomToUInt32, AtomHintAndId, JSAtom, consts::*},
@@ -19,8 +16,13 @@ use crate::{
     string::StringChar,
     value::{JSValue, JSValueConst},
 };
-
-use super::StringBuf;
+use std::str::FromStr;
+use std::{
+    borrow::Cow,
+    cell::Cell,
+    ffi::CStr,
+    rc::{Rc, Weak},
+};
 
 /// Maximum length allowed for JavaScript strings (1GB - 1)
 pub const JS_STRING_LEN_MAX: usize = (1 << 30) - 1;
@@ -148,7 +150,7 @@ impl TryFrom<JSObject> for JSString {
     fn try_from(obj: JSObject) -> Result<Self, Self::Error> {
         if obj.class_id() == JS_CLASS_STRING {
             // JS_CLASS_STRING object contains string
-            if let Some(JSValue::String(s)) = obj.0.payload.borrow().value().cloned() {
+            if let Some(JSValue::String(s)) = obj.0.payload.borrow().value() {
                 Ok(s)
             } else {
                 unreachable!()
@@ -164,7 +166,7 @@ impl TryFrom<JSValue> for JSString {
 
     fn try_from(value: JSValue) -> Result<Self, Self::Error> {
         match value {
-            JSValue::String(s) | JSValue::Symbol(s) => Ok(s),
+            JSValue::String(s) => Ok(s),
             JSValue::Object(o) => o.try_into(),
             _ => Err(-1),
         }
@@ -207,8 +209,7 @@ impl JSString {
     /// * `Ok(Box<JSStringInner>)` - Newly created string
     /// * `Err(-1)` - Memory allocation or UTF-8 validation failed
     pub fn from_str(rt: &mut JSRuntime, s: &str) -> Result<Self, i32> {
-        let sc = s.parse::<StringBuf>()?;
-        Ok(Self::new(rt, Rc::new(sc)))
+        Ok(Self::new(rt, Rc::new(StringBuf::from_str(s)?)))
     }
 
     /// Creates a JSString from UTF-8 encoded bytes
@@ -433,7 +434,7 @@ impl JSString {
                     if (1..captures_len).contains(&k) {
                         let s = captures.get_property_i64(ctx, k as i64)?;
                         if !s.is_undefined() {
-                            let sval = s.coerce_to_string(ctx)?;
+                            let sval = s.to_string(ctx)?;
                             res_content.push(sval.content()).map_err(|_| {
                                 ctx.throw_out_of_memory();
                                 -1
@@ -454,7 +455,7 @@ impl JSString {
                         let name = replacement.sub_string(ctx, j, k)?;
                         let capture = named_captures.get_property_value(ctx, &name.into())?;
                         if !capture.is_undefined() {
-                            let sval = capture.coerce_to_string(ctx)?;
+                            let sval = capture.to_string(ctx)?;
                             res_content.push(sval.content()).map_err(|_| {
                                 ctx.throw_out_of_memory();
                                 -1
@@ -540,8 +541,22 @@ impl JSContext {
         }
     }
 
-    /// create string jsvalue from an utf8 encoded str.
-    pub fn create_string(&self, str: &str) -> Result<JSString, i32> {
+    /// create string from utf8 encoded data.
+    pub fn create_string_from_utf8(&self, utf8_bytes: Vec<u8>) -> Result<JSString, i32> {
+        if utf8_bytes.is_empty() {
+            JS_ATOM_empty_string.to_string(self)
+        } else if utf8_bytes.len() > JS_STRING_LEN_MAX {
+            self.throw_internal_error("string too long");
+            Err(-1)
+        } else {
+            JSString::from_utf8(self.rt_mut(), utf8_bytes).inspect_err(|_| {
+                self.throw_out_of_memory();
+            })
+        }
+    }
+
+    /// create string from str
+    pub fn create_string_from_str(&self, str: &str) -> Result<JSString, i32> {
         if str.is_empty() {
             Ok(self.rt().get_atom_desc(JS_ATOM_empty_string).unwrap())
         } else if str.len() > JS_STRING_LEN_MAX {
@@ -556,26 +571,18 @@ impl JSContext {
 
     /// create string value from a single u16 char.
     /// returns JS_EXCEPTION if fail.
-    pub fn create_string_from_char(&self, ch: char) -> Result<JSString, i32> {
-        self.create_string_from_content(if ch.is_ascii() {
-            StringBuf::Utf8(vec![ch as u8])
-        } else {
-            StringBuf::Utf16(ch.encode_utf16(&mut [0; 2]).to_vec())
-        })
-    }
-
-    /// create string jsvalue from an utf8 encoded str.
-    pub fn create_string_from_utf8(&self, utf8_bytes: Vec<u8>) -> Result<JSString, i32> {
-        if utf8_bytes.is_empty() {
-            JS_ATOM_empty_string.to_string(self)
-        } else if utf8_bytes.len() > JS_STRING_LEN_MAX {
-            self.throw_internal_error("string too long");
-            Err(-1)
-        } else {
-            JSString::from_utf8(self.rt_mut(), utf8_bytes).inspect_err(|_| {
-                self.throw_out_of_memory();
-            })
-        }
+    pub fn create_string_from_char<C: Into<StringChar>>(&self, ch: C) -> Result<JSString, i32> {
+        let buf = match Into::<StringChar>::into(ch) {
+            StringChar::Char(ch) => {
+                if ch.is_ascii() {
+                    StringBuf::Utf8(vec![ch as u8])
+                } else {
+                    StringBuf::Utf16(ch.encode_utf16(&mut [0; 2]).to_vec())
+                }
+            }
+            StringChar::BrokenCode(c) => StringBuf::Utf16(vec![c as u16]),
+        };
+        self.create_string_from_content(buf)
     }
 }
 
@@ -594,7 +601,7 @@ pub fn JS_ToStringCheckObject(ctx: &JSContext, val: JSValue) -> Result<JSString,
         ctx.throw_type_error("null or undefined are forbidden");
         Err(-1)
     } else {
-        val.coerce_to_string(ctx)
+        val.to_string(ctx)
     }
 }
 
@@ -617,7 +624,7 @@ pub fn JS_ConcatString3(
     let p = if let JSValue::String(s) = str2 {
         s
     } else {
-        str2.coerce_to_string(ctx)?
+        str2.to_string(ctx)?
     };
 
     let len1 = str1.count_bytes();
@@ -646,13 +653,13 @@ pub fn JS_ConcatString(ctx: &JSContext, op1: JSValue, op2: JSValue) -> Result<JS
     let p1 = if let JSValue::String(s) = op1 {
         s
     } else {
-        op1.coerce_to_string(ctx)?
+        op1.to_string(ctx)?
     };
 
     let p2 = if let JSValue::String(s) = op2 {
         s
     } else {
-        op2.coerce_to_string(ctx)?
+        op2.to_string(ctx)?
     };
 
     if p1.is_empty() {
@@ -718,47 +725,105 @@ impl JSValue {
         }
     }
 
-    /// get a reference to value's string description.
-    #[inline(always)]
-    pub const fn string(&self) -> Option<&JSString> {
-        if let Self::String(s) | Self::Symbol(s) = self {
-            Some(s)
-        } else {
-            None
+    /// Convert value `self` to string or symbol.
+    /// if `self` itself is not a symbol, string is preferred.
+    /// returns String or Symbol value.
+    pub fn to_string_or_symbol(&self, ctx: &JSContext) -> Result<Self, i32> {
+        match self {
+            Self::String(_) | Self::Symbol(_) => {
+                Ok(self.clone()) // AS-IS original string or symbol
+            }
+            Self::Int(i) => ctx
+                .create_string_from_utf8(format!("{}", *i).into_bytes())
+                .map(Self::String),
+            Self::Bool(b) => if *b { JS_ATOM_true } else { JS_ATOM_false }
+                .to_string(ctx)
+                .map(Self::String),
+            Self::NULL => JS_ATOM_null.to_string(ctx).map(Self::String),
+            Self::UNDEFINED => JS_ATOM_undefined.to_string(ctx).map(Self::String),
+            Self::Object(_) => self
+                .coerce_to_primitive(ctx, HINT_STRING)?
+                .to_string_or_symbol(ctx),
+            Self::Module(_) => ctx.create_string_from_str("[module]").map(Self::String),
+            Self::Bytecode(_) => ctx
+                .create_string_from_str("[function bytecode]")
+                .map(Self::String),
+            Self::Float64(n) => {
+                let s = f64_stringify(*n, 10, None, 0);
+                ctx.create_string_from_str(s.as_ref()).map(Self::String)
+            }
+            Self::UNINITIALIZED => ctx
+                .create_string_from_str("[uninitialized]")
+                .map(Self::String),
+            Self::CatchOffset(_) => ctx
+                .create_string_from_str("[cacthoffset]")
+                .map(Self::String),
+            Self::AsyncStateResume(_) => ctx
+                .create_string_from_str("[asyncfuncresume]")
+                .map(Self::String),
+            Self::EXCEPTION => {
+                #[cfg(debug_assertions)]
+                unreachable!();
+                #[cfg(not(debug_assertions))]
+                Err(-1)
+            }
         }
     }
 
-    /// take string description out from value.
-    /// will panic if value is not string or symbol.
-    pub unsafe fn into_string_unchecked(self) -> JSString {
-        if let Self::String(s) | Self::Symbol(s) = self {
-            s
-        } else {
-            unreachable!()
-        }
-    }
-
-    /// Convert value `self` to utf8 string.
-    pub fn coerce_to_utf8(&self, ctx: &JSContext) -> Result<Cow<'_, str>, i32> {
-        if let Some(p) = self.string() {
-            let cc = p.content();
-            let ret = match cc.to_str() {
-                Cow::Borrowed(str) => {
-                    // use string description content pointer.
-                    Cow::Borrowed(unsafe { (str as *const str).as_ref().unwrap() })
+    /// Coerce value `self` to string.
+    /// if `self` is symbol, returns Err.
+    pub fn to_string(&self, ctx: &JSContext) -> Result<JSString, i32> {
+        match self {
+            Self::String(s) => Ok(s.clone()),
+            Self::Symbol(_) => {
+                ctx.throw_type_error("cannot convert symbol to string");
+                Err(-1)
+            }
+            _ => match self.to_string_or_symbol(ctx)? {
+                JSValue::String(s) => Ok(s),
+                JSValue::Symbol(s) => {
+                    ctx.throw_type_error("cannot convert symbol to string");
+                    Err(-1)
                 }
-                Cow::Owned(t) => Cow::Owned(t),
-            };
-            Ok(ret)
+                _ => unreachable!(),
+            },
+        }
+    }
+
+    /// Invoking `toLocaleString()` method, returns result string.
+    pub fn to_locale_string(&self, ctx: &JSContext) -> Result<JSString, i32> {
+        if self.is_undefined_or_null() {
+            self.to_string(ctx)
+        } else if let Self::String(s) =
+            JS_Invoke(ctx, self, JS_ATOM_toLocaleString, &[]).check_exception()?
+        {
+            Ok(s)
         } else {
-            Ok(Cow::Owned(
-                self.coerce_to_string(ctx)?.content().to_str().into_owned(),
-            ))
+            ctx.throw_internal_error("toLocaleString() must return string");
+            Err(-1)
+        }
+    }
+
+    /// Convert value `self` to utf8 encoded text.
+    pub fn to_utf8(&self, ctx: &JSContext) -> Result<Cow<'_, str>, i32> {
+        match self {
+            Self::String(s) | Self::Symbol(s) => {
+                Ok(match s.content().to_str() {
+                    Cow::Borrowed(str) => {
+                        // use string description content pointer.
+                        Cow::Borrowed(unsafe { (str as *const str).as_ref().unwrap() })
+                    }
+                    o => o,
+                })
+            }
+            _ => Ok(Cow::Owned(
+                self.to_string(ctx)?.content().to_str().into_owned(),
+            )),
         }
     }
 }
 
-/// starts_with() equivelent
+/// starts_with() equivalent
 pub unsafe fn strstart(str: *const u8, val: *const u8, ptr: *mut *const u8) -> bool {
     let mut p = str;
     let mut q = val;
@@ -861,13 +926,12 @@ pub static js_string_exotic_methods: JSClassExoticMethods = JSClassExoticMethods
          -> Result<Option<JSPropertyDescriptor>, i32> {
             // This is a class exotic method: obj class_id is JS_CLASS_STRING
             if prop.is_int_type() {
-                if let Some(JSValue::String(s)) = obj
-                    .object()
-                    .and_then(|o| o.0.payload.borrow().value().cloned())
+                if let Some(JSValue::String(s)) =
+                    obj.object().and_then(|o| o.0.payload.borrow().value())
                 {
                     let idx = __JS_AtomToUInt32(prop);
                     if idx < s.len() as u32 {
-                        let ch = s.content().chars().nth(idx as usize).unwrap();
+                        let ch = s.content().iter().nth(idx as usize).unwrap();
                         return Ok(Some(JSPropertyDescriptor {
                             flags: JS_PROP_ENUMERABLE as _,
                             value: ctx.create_string_from_char(ch)?.into(),

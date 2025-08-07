@@ -22,8 +22,8 @@ use crate::{
 pub fn js_string_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let new_target = cc.this();
 
-    let str_val: JSValue = if cc.length() == 0 {
-        JS_ATOM_empty_string.to_string(ctx) ?.into()
+    let str_val = if cc.length() == 0 {
+        JS_ATOM_empty_string.to_string(ctx)?.into()
     } else {
         if let JSValue::Symbol(p) = cc.arg(0)
             && new_target.is_undefined()
@@ -38,9 +38,8 @@ pub fn js_string_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
                     .to_string_or_symbol(ctx, true)?,
                 c")",
             )?
-            .into()
         } else {
-            cc.arg(0).coerce_to_string(ctx)?.into()
+            cc.arg(0).to_string(ctx)?
         }
     };
 
@@ -49,7 +48,7 @@ pub fn js_string_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
             .map(JSValue::Object)
             .map_err(|_| -1)
     } else {
-        Ok(str_val)
+        Ok(str_val.into())
     }
 }
 
@@ -116,7 +115,7 @@ fn js_string_charAt(ctx: &JSContext, cc: CallContext) -> JSResult {
         if is_at != 0 {
             Ok(JSValue::UNDEFINED)
         } else {
-            ctx.create_string("").map(JSValue::String)
+            ctx.create_string_from_str("").map(JSValue::String)
         }
     } else {
         let code = p.get(idx as usize).unwrap();
@@ -198,8 +197,8 @@ pub fn js_string_toWellFormed(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_string_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
     let lastIndexOf = cc.magic();
 
-    let p = cc.this().coerce_to_string(ctx)?;
-    let p1 = cc.arg(0).coerce_to_string(ctx)?;
+    let p = cc.this().to_string(ctx)?;
+    let p1 = cc.arg(0).to_string(ctx)?;
 
     let len = p.len() as i32;
     let v_len = p1.len() as i32;
@@ -277,12 +276,12 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     }
 
-    let str = this.coerce_to_string(ctx)?;
-    let search_str = search.coerce_to_string(ctx)?;
+    let str = this.to_string(ctx)?;
+    let search_str = search.to_string(ctx)?;
 
     let replace_func = replace.is_callable();
     let replace_str = if !replace_func {
-        Some(replace.coerce_to_string(ctx)?)
+        Some(replace.to_string(ctx)?)
     } else {
         None
     };
@@ -322,7 +321,7 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
                         ],
                     )
                     .check_exception()
-                    .and_then(|v| v.coerce_to_string(ctx))
+                    .and_then(|v| v.to_string(ctx))
                 } else {
                     JSString::get_substitution(
                         ctx,
@@ -408,7 +407,7 @@ pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     }
 
-    let sp = O.coerce_to_string(ctx)?;
+    let sp = O.to_string(ctx)?;
     let s = sp.len() as i32;
 
     let A = ctx.create_array()?;
@@ -420,7 +419,7 @@ pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
         limit.coerce_to_u32(ctx)?
     };
 
-    let rp = separator.coerce_to_string(ctx)?;
+    let rp = separator.to_string(ctx)?;
     let r = rp.len() as i32;
 
     if lim == 0 {
@@ -535,7 +534,7 @@ pub fn js_string_pad(ctx: &JSContext, cc: CallContext) -> JSResult {
     let mut c = StringChar::Char(' ');
 
     if cc.length() > 1 && !cc.arg(1).is_undefined() {
-        let s = cc.arg(1).coerce_to_string(ctx)?;
+        let s = cc.arg(1).to_string(ctx)?;
         if s.is_empty() {
             return Ok(p.into());
         } else if s.len() == 1 {
@@ -628,7 +627,7 @@ pub fn js_string_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
         ctx.throw_type_error("regex not supported");
         return Err(-1);
     }
-    let p1 = cc.arg(0).coerce_to_string(ctx)?;
+    let p1 = cc.arg(0).to_string(ctx)?;
 
     let mut len = p.len() as i32;
     let v_len = p1.len() as i32;
@@ -692,7 +691,7 @@ pub fn check_regexp_g_flag(ctx: &JSContext, regexp: &JSValue) -> i32 {
             return -1;
         }
 
-        let flags = if let Ok(s) = flags.coerce_to_string(ctx) {
+        let flags = if let Ok(s) = flags.to_string(ctx) {
             s
         } else {
             return -1;
@@ -731,7 +730,7 @@ pub fn js_string_match(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     }
 
-    let S = O.coerce_to_string(ctx)?;
+    let S = O.to_string(ctx)?;
 
     // make RegExp args
     let mut args_len = 1;
@@ -855,12 +854,12 @@ pub fn js_string_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
     js_thisStringValue(ctx, cc.this().clone())
 }
 
-pub fn js_thisStringValue(ctx: &JSContext, this_val: JSValueConst) -> JSResult {
+pub fn js_thisStringValue(ctx: &JSContext, this_val: JSValue) -> JSResult {
     if this_val.is_string() {
         Ok(this_val)
     } else if let Some(d) = this_val
         .object()
-        .and_then(|p| p.0.payload.borrow().value().cloned())
+        .and_then(|p| p.0.payload.borrow().value())
         .and_then(|x| if x.is_string() { Some(x) } else { None })
     {
         Ok(d)
@@ -1103,7 +1102,7 @@ pub fn js_string_raw(ctx: &JSContext, cc: CallContext) -> JSResult {
     let mut res_string = StringBuf::Empty;
 
     for i in 0..n {
-        let str = raw.get_property_i64(ctx, i)?.coerce_to_string(ctx)?;
+        let str = raw.get_property_i64(ctx, i)?.to_string(ctx)?;
         res_string.push(str.content()).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
@@ -1111,7 +1110,7 @@ pub fn js_string_raw(ctx: &JSContext, cc: CallContext) -> JSResult {
 
         if i < n - 1 && i + 1 < cc.length() as i64 {
             let val = cc.arg(i as usize + 1);
-            let s = val.coerce_to_string(ctx)?;
+            let s = val.to_string(ctx)?;
             res_string.push(s.content()).map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1

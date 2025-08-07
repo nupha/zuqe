@@ -41,7 +41,7 @@ pub fn js_error_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     arg_index += 1;
 
     if !message.is_undefined() {
-        let msg = message.coerce_to_string(ctx)?;
+        let msg = message.to_string(ctx)?;
         obj.define_property_value(
             ctx,
             JS_ATOM_message,

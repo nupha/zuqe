@@ -45,7 +45,7 @@ pub fn js_symbol_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let ss: Option<JSString> = if cc.arg(0).is_undefined() {
         None
     } else {
-        Some(cc.arg(0).coerce_to_string(ctx)?)
+        Some(cc.arg(0).to_string(ctx)?)
     };
     ctx.create_symbol(ss, AtomTypeHint::Symbol)
 
@@ -74,7 +74,7 @@ pub fn js_thisSymbolValue(ctx: &JSContext, this_val: &JSValue) -> JSResult {
     } else if let JSValue::Object(p) = this_val {
         if p.class_id() == JS_CLASS_SYMBOL {
             if let Some(v) = p.0.payload.borrow().value() {
-                return Ok(v.clone());
+                return Ok(v);
             }
         }
     }
@@ -85,7 +85,8 @@ pub fn js_thisSymbolValue(ctx: &JSContext, this_val: &JSValue) -> JSResult {
 
 pub fn js_symbol_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
     let val = js_thisSymbolValue(ctx, cc.this())?;
-    ctx.create_string(val.repr().as_ref()).map(JSValue::String)
+    ctx.create_string_from_str(val.repr().as_ref())
+        .map(JSValue::String)
 }
 
 pub fn js_symbol_valueOf(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -114,7 +115,7 @@ pub const js_symbol_proto_funcs: [NativeField; 5] = [
 ];
 
 fn js_symbol_for(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let s = cc.arg(0).coerce_to_string(ctx)?;
+    let s = cc.arg(0).to_string(ctx)?;
     Ok(JSValue::Symbol(s))
 }
 
