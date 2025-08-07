@@ -149,21 +149,18 @@ impl JSValue {
                             // is empty or white space string
                             JSValue::Int(0)
                         } else {
-                            let mut r = unsafe {
-                                js_atof(
-                                    ctx,
-                                    p.cast(),
-                                    std::ptr::addr_of_mut!(p),
-                                    0,
-                                    ATOD_ACCEPT_BIN_OCT,
-                                )?
-                            };
-
-                            p = unsafe { p.add(skip_spaces(p.cast())) };
-                            if unsafe { p.offset_from(str_ptr0) as usize } != len {
-                                r = JSValue::Float64(f64::NAN);
+                            unsafe {
+                                js_atof(ctx, p.cast(), &mut p, 0, ATOD_ACCEPT_BIN_OCT)
+                                    .unwrap_or(JSValue::Float64(f64::NAN))
                             }
-                            r
+
+                            // let r =
+                            //     unsafe { js_atof(ctx, p.cast(), &mut p, 0, ATOD_ACCEPT_BIN_OCT)? };
+                            // p = unsafe { p.add(skip_spaces(p.cast())) };
+                            // if unsafe { p.offset_from(str_ptr0) as usize } != len {
+                            //     r = JSValue::Float64(f64::NAN);
+                            // }
+                            // r
                         };
                         break Ok(res);
                     }
