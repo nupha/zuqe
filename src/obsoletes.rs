@@ -164,8 +164,7 @@ pub unsafe fn JS_ToPrimitiveFree(ctx: &JSContext, val: JSValue, hint: i32) -> JS
 
 #[deprecated(note = "use JSValue::coerce_to_primitive() instead")]
 pub unsafe fn JS_ToPrimitive(ctx: &JSContext, val: JSValue, hint: i32) -> JSValue {
-    val.coerce_to_primitive(ctx, hint)
-        .unwrap_or(JSValue::EXCEPTION)
+    val.to_primitive(ctx, hint).unwrap_or(JSValue::EXCEPTION)
 
     //JS_ToPrimitiveFree(ctx, val.dup(), hint)
 }

@@ -742,7 +742,7 @@ impl JSValue {
             Self::NULL => JS_ATOM_null.to_string(ctx).map(Self::String),
             Self::UNDEFINED => JS_ATOM_undefined.to_string(ctx).map(Self::String),
             Self::Object(_) => self
-                .coerce_to_primitive(ctx, HINT_STRING)?
+                .to_primitive(ctx, HINT_STRING)?
                 .to_string_or_symbol(ctx),
             Self::Module(_) => ctx.create_string_from_str("[module]").map(Self::String),
             Self::Bytecode(_) => ctx

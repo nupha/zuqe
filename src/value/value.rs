@@ -1,6 +1,6 @@
 use crate::{
     JS_CLASS_ERROR,
-    atom::{AtomTypeHint, JSAtomStruct},
+    atom::{AtomHintAndId, AtomTypeHint, JSAtomStruct},
     function::{Bytecode, ObjAsyncState},
     module::ModuleDef,
     number::JSFloat64Union,
@@ -114,22 +114,29 @@ pub enum JSValue {
 }
 
 impl PartialEq for JSValue {
+    /// Compare two JSValue of same type
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::UNDEFINED, Self::UNDEFINED)
             | (Self::NULL, Self::NULL)
             | (Self::EXCEPTION, Self::EXCEPTION)
             | (Self::UNINITIALIZED, Self::UNINITIALIZED) => true,
+
             (Self::Bool(b0), Self::Bool(b1)) => *b0 == *b1,
             (Self::Int(i0), Self::Int(i1)) => *i0 == *i1,
-            (Self::String(s0), Self::String(s1)) | (Self::Symbol(s0), Self::Symbol(s1)) => {
-                s0.content() == s1.content()
+            (Self::String(s0), Self::String(s1)) => s0.content() == s1.content(),
+            (Self::Symbol(s0), Self::Symbol(s1)) => {
+                match (s0.atom_info().unwrap(), s1.atom_info().unwrap()) {
+                    (AtomHintAndId::GlobalSymbol(a0), AtomHintAndId::GlobalSymbol(a1)) => a0 == a1,
+                    _ => false,
+                }
             }
             (Self::Float64(f0), Self::Float64(f1)) => f0.eq(f1),
             (Self::Object(l0), Self::Object(r0)) => l0.id() == r0.id(),
             (Self::Bytecode(l0), Self::Bytecode(r0)) => l0.id() == r0.id(),
             (Self::Module(m0), Self::Module(m1)) => m0.id() == m1.id(),
             (Self::CatchOffset(a), Self::CatchOffset(b)) => *a == *b,
+
             _ => false,
         }
     }

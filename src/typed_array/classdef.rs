@@ -347,7 +347,7 @@ pub fn js_typed_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    let val = cc.arg(1).coerce_to_primitive(ctx, HINT_NUMBER)?;
+    let val = cc.arg(1).to_primitive(ctx, HINT_NUMBER)?;
     let arr = js_typed_array_constructor_ta(ctx, &JSValue::UNDEFINED, this_val, p.class_id() as _)?;
     arr.set_property_i64(ctx, idx, val)?;
     Ok(arr)

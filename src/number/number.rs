@@ -169,7 +169,7 @@ impl JSValue {
                     }
                 }
                 Self::Object(_) => {
-                    val = val.coerce_to_primitive(ctx, HINT_NUMBER)?;
+                    val = val.to_primitive(ctx, HINT_NUMBER)?;
                     continue;
                 }
                 Self::Symbol(_) => {

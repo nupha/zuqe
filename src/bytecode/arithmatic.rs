@@ -1,6 +1,11 @@
 use crate::{
-    bytecode::OpCode, context::JSContext, error::JSResult, number::JSFloat64Union,
-    string::JS_ConcatString, value::JSValue,
+    atom::AtomHintAndId,
+    bytecode::OpCode,
+    context::JSContext,
+    error::JSResult,
+    number::JSFloat64Union,
+    string::JS_ConcatString,
+    value::{HINT_NONE, HINT_STRING, JSValue},
 };
 
 #[derive(Debug, Clone)]
@@ -478,14 +483,36 @@ pub fn js_eq(ctx: &JSContext, op1: JSValue, op2: JSValue) -> Result<bool, i32> {
         Ok(res)
     } else {
         // slow path
-        let res = match (&op1, &op2) {
-            (JSValue::String(s1), JSValue::String(s2)) => s1.content().eq(s2.content()),
-            (JSValue::Object(o1), JSValue::Object(o2)) => o1.id() == o2.id(),
-            (JSValue::Symbol(_), _) | (_, JSValue::Symbol(_)) => false,
-
+        let b = match (&op1, &op2) {
             (JSValue::NULL | JSValue::UNDEFINED, JSValue::NULL | JSValue::UNDEFINED) => true,
             (_, JSValue::NULL | JSValue::UNDEFINED) => false, //op1.is_htmldda(),
             (JSValue::NULL | JSValue::UNDEFINED, _) => false, //op2.is_htmldda(),
+
+            // compare object primitive
+            (JSValue::Object(o1), JSValue::Object(o2)) => {
+                // op1, op2 are non-same objects, compare their primitive
+                js_eq(
+                    ctx,
+                    o1.to_primitive(ctx, HINT_NONE)?,
+                    o2.to_primitive(ctx, HINT_NONE)?,
+                )?
+            }
+            (
+                JSValue::Object(o),
+                v @ (JSValue::Int(_)
+                | JSValue::Float64(_)
+                | JSValue::Bool(_)
+                | JSValue::String(_)
+                | JSValue::Symbol(_)),
+            )
+            | (
+                v @ (JSValue::Int(_)
+                | JSValue::Float64(_)
+                | JSValue::Bool(_)
+                | JSValue::String(_)
+                | JSValue::Symbol(_)),
+                JSValue::Object(o),
+            ) => o.to_primitive(ctx, HINT_NONE)?.eq(v),
 
             (
                 JSValue::Int(_) | JSValue::Float64(_) | JSValue::Bool(_),
@@ -495,51 +522,15 @@ pub fn js_eq(ctx: &JSContext, op1: JSValue, op2: JSValue) -> Result<bool, i32> {
             }
 
             _ => {
-                let op = TwoNumbers::new(ctx, op1, op2)?;
-                op.partial_cmp()
-                    .map_or(false, |r| r == std::cmp::Ordering::Equal)
-            } // (JSValue::String(_), JSValue::Int(_) | JSValue::Float64(_))
-              // | (JSValue::Int(_) | JSValue::Float64(_), JSValue::String(_)) => {
-              //     let op = TwoNumbers::new(ctx, op1, op2)?;
-              //     op.partial_cmp()
-              //         .map_or(false, |r| r == std::cmp::Ordering::Equal)
-
-              //     // op1 = op1.coerce_to_number(ctx)?;
-              //     // op2 = op2.coerce_to_number(ctx)?;
-              //     // op1.strict_eq(&op2)
-              // }
-
-              // (
-              //     JSValue::Object(_),
-              //     JSValue::Int(_) | JSValue::Float64(_) | JSValue::String(_) | JSValue::Symbol(_),
-              // )
-              // | (
-              //     JSValue::Int(_) | JSValue::Float64(_) | JSValue::String(_) | JSValue::Symbol(_),
-              //     JSValue::Object(_),
-              // ) => {
-              //     op1 = op1.coerce_to_primitive(ctx, HINT_NONE)?;
-              //     op2 = op2.coerce_to_primitive(ctx, HINT_NONE)?;
-              //     continue;
-              // }
-
-              // (a, b) => match (a, b) {
-              //     (JSValue::String(_), JSValue::String(_))
-              //     | (JSValue::Symbol(_), JSValue::Symbol(_))
-              //     | (JSValue::Object(_), JSValue::Object(_)) => op1.strict_eq(&op2),
-
-              //     (JSValue::Int(_), JSValue::Int(_))
-              //     | (JSValue::Bool(_), JSValue::Bool(_))
-              //     | (JSValue::Float64(_), JSValue::Float64(_)) => {
-              //         unreachable!("op1={:?}, op2={:?}", a, b)
-              //     }
-
-              //     (_, JSValue::NULL | JSValue::UNDEFINED) if a.is_htmldda() => true,
-              //     (JSValue::NULL | JSValue::UNDEFINED, _) if b.is_htmldda() => true,
-              //     _ => false,
-              // },
+                false
+                // unreachable!("[O.o] eq values op1={op1:?}, op2={op2:?}");
+                // let op = TwoNumbers::new(ctx, op1, op2)?;
+                // op.partial_cmp()
+                //     .map_or(false, |r| r == std::cmp::Ordering::Equal)
+            }
         };
 
-        Ok(res)
+        Ok(b)
     }
 }
 
