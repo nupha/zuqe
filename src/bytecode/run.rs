@@ -1958,6 +1958,7 @@ impl Bytecode {
                             && matches!(op1, JSValue::Int(_) | JSValue::Float64(_))
                         {
                             // + before an int or float: do nothing
+                            SP_PUT!(-1, op1);
                         } else {
                             if let Ok(res) =
                                 UnaryOp::new(ctx, op1, true).map(|unary| match opcode {
