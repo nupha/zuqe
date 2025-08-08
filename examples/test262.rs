@@ -341,8 +341,21 @@ fn run_test_script(
     Ok(())
 }
 
-fn dump_error(ctx: &JSContext, err_val: &JSValue, msg: &str, outf: &mut dyn Write) {
-    writeln!(outf, "[MESSAGE] {msg}",).unwrap();
+fn dump_error(
+    ctx: &JSContext,
+    err_val: &JSValue,
+    msg: &str,
+    strict: bool,
+    is_module: bool,
+    is_async: bool,
+    outf: &mut dyn Write,
+) {
+    writeln!(
+        outf,
+        "[ENV] strict={strict}, module={is_module}, async={is_async}"
+    )
+    .unwrap();
+    writeln!(outf, "[MESSAGE] {msg}").unwrap();
 
     match err_val.get_property(ctx, JS_ATOM_stack) {
         Ok(JSValue::NULL) | Ok(JSValue::UNDEFINED) => {}
@@ -430,12 +443,12 @@ fn run_test_file(
 
             // write to outf
             writeln!(outf, "FAIL: can't eval harness").unwrap();
-            dump_error(&ctx, &exc, msg.as_ref(), outf);
+            dump_error(&ctx, &exc, msg.as_ref(), false, false, false, outf);
 
             // write to err
             writeln!(errf, "{}", filename.display()).unwrap();
             writeln!(outf, "FAIL: can't eval harness").unwrap();
-            dump_error(&ctx, &exc, msg.as_ref(), errf);
+            dump_error(&ctx, &exc, msg.as_ref(), false, false, false, errf);
 
             has_err = true;
         }
@@ -485,7 +498,6 @@ fn run_test_file(
                 let exc = ctx.exception();
 
                 println!("EXCEPTION: {:?}", exc);
-                //debug_assert!(!exc.is_undefined_or_null());
                 let msg = if let JSValue::Object(o) = &exc {
                     o.dump(ctx.rt());
                     let msg = o.get_property(&ctx, JS_ATOM_message).unwrap();
@@ -506,7 +518,7 @@ fn run_test_file(
                                 ty, err_class
                             )
                             .unwrap();
-                            dump_error(&ctx, &exc, msg.as_ref(), outf);
+                            dump_error(&ctx, &exc, msg.as_ref(), strict, is_module, is_async, outf);
 
                             // write to err file
                             writeln!(errf, "{}", filename.display()).unwrap();
@@ -516,17 +528,17 @@ fn run_test_file(
                                 ty, err_class
                             )
                             .unwrap();
-                            dump_error(&ctx, &exc, msg.as_ref(), errf);
+                            dump_error(&ctx, &exc, msg.as_ref(), strict, is_module, is_async, errf);
                         }
                     } else {
                         writeln!(outf, "pass").unwrap();
                     }
                 } else {
                     writeln!(outf, "fail").unwrap();
-                    dump_error(&ctx, &exc, msg.as_ref(), outf);
+                    dump_error(&ctx, &exc, msg.as_ref(), strict, is_module, is_async, outf);
 
                     writeln!(errf, "{}", filename.display()).unwrap();
-                    dump_error(&ctx, &exc, msg.as_ref(), errf);
+                    dump_error(&ctx, &exc, msg.as_ref(), strict, is_module, is_async, errf);
                 }
             } else {
                 if let Some(neg) = &negative {
