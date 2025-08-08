@@ -1208,7 +1208,7 @@ pub fn js_array_flatten(ctx: &JSContext, cc: CallContext) -> JSResult {
         mapper_func.ensure_callable(ctx)?;
     } else {
         if cc.length() > 0 && !cc.arg(0).is_undefined() {
-            depth = cc.arg(0).coerce_to_i32_saturating(ctx)?;
+            depth = cc.arg(0).to_i32_saturating(ctx)?;
         }
     }
 

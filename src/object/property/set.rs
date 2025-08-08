@@ -476,7 +476,7 @@ impl JSObject {
                     }
                 }
                 cid @ (JS_CLASS_INT8_ARRAY | JS_CLASS_UINT8_ARRAY) => {
-                    let v = if let Ok(n) = val.coerce_to_i32(ctx) {
+                    let v = if let Ok(n) = val.to_i32(ctx) {
                         n as u8
                     } else {
                         return Err(-1);
@@ -495,7 +495,7 @@ impl JSObject {
                     }
                 }
                 cid @ (JS_CLASS_INT16_ARRAY | JS_CLASS_UINT16_ARRAY) => {
-                    let v = if let Ok(n) = val.coerce_to_i32(ctx) {
+                    let v = if let Ok(n) = val.to_i32(ctx) {
                         n as u16
                     } else {
                         return Err(-1);
@@ -514,7 +514,7 @@ impl JSObject {
                     }
                 }
                 cid @ (JS_CLASS_INT32_ARRAY | JS_CLASS_UINT32_ARRAY) => {
-                    let v = if let Ok(n) = val.coerce_to_i32(ctx) {
+                    let v = if let Ok(n) = val.to_i32(ctx) {
                         n as u32
                     } else {
                         return Err(-1);

@@ -1,12 +1,12 @@
+use super::{ATOD_ACCEPT_BIN_OCT, js_atof};
 use crate::{
     context::JSContext,
     error::{JS_ThrowRangeError, JSResult},
     utils::skip_spaces,
     value::{HINT_NUMBER, JSValue, JSValueConst},
 };
-use std::ops::RangeInclusive;
 use anyhow::__private::not;
-use super::{ATOD_ACCEPT_BIN_OCT, js_atof};
+use std::ops::RangeInclusive;
 
 pub const MAX_SAFE_INTEGER: i64 = (1_i64) << 53; // (1_i64 << 53) - 1;
 pub const SAFE_INTEGER_RANGE: RangeInclusive<i64> = -MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER;
@@ -119,7 +119,7 @@ impl JSValue {
     /// returns JSValue::Int, JSValue::Float64 (could be NaN) value, or Err.
     ///
     /// Because BigInt is not supported, JSToNumberHintEnum does not effect
-    fn coerce_to_num(&self, ctx: &JSContext, flag: JSToNumberHintEnum) -> JSResult {
+    fn to_num_internal(&self, ctx: &JSContext, flag: JSToNumberHintEnum) -> JSResult {
         let mut val = self.clone();
 
         loop {
@@ -186,19 +186,17 @@ impl JSValue {
         }
     }
 
-    /// Convert value to number value.
-    /// returns Int or Float64 (could be NaN) value.
+    /// Convert value to number Int or Float64 (could be NaN).
     #[inline(always)]
-    pub fn coerce_to_number(&self, ctx: &JSContext) -> Result<JSValue, i32> {
-        self.coerce_to_num(ctx, JSToNumberHintEnum::TON_FLAG_NUMBER)
+    pub fn to_number(&self, ctx: &JSContext) -> Result<JSValue, i32> {
+        self.to_num_internal(ctx, JSToNumberHintEnum::TON_FLAG_NUMBER)
     }
 
-    /// Convert value to number value.
-    /// returns JSValue::Int, JSValue::Float64 (could be NaN) value, or Err.
+    /// Convert value to Int, Float64 (could be NaN) value, or Err.
     /// Because BigInt is not supported, this method is same as coerce_to_number()
     #[inline(always)]
-    pub fn coerce_to_numeric(&self, ctx: &JSContext) -> Result<JSValue, i32> {
-        self.coerce_to_num(ctx, JSToNumberHintEnum::TON_FLAG_NUMERIC)
+    pub fn to_numeric(&self, ctx: &JSContext) -> Result<JSValue, i32> {
+        self.to_num_internal(ctx, JSToNumberHintEnum::TON_FLAG_NUMERIC)
     }
 
     pub fn coerce_to_u8_clamp(&self, ctx: &JSContext) -> Result<u8, i32> {
@@ -228,7 +226,7 @@ impl JSValue {
                     return Err(-1);
                 }
                 _ => {
-                    val = val.coerce_to_number(ctx)?;
+                    val = val.to_number(ctx)?;
                 }
             }
         };
@@ -236,8 +234,8 @@ impl JSValue {
         Ok(res as u8)
     }
 
-    /// coerce value to i32.
-    pub fn coerce_to_i32(&self, ctx: &JSContext) -> Result<i32, i32> {
+    /// convert value to i32.
+    pub fn to_i32(&self, ctx: &JSContext) -> Result<i32, i32> {
         let mut val = self.clone();
 
         let ret: i32 = loop {
@@ -278,7 +276,7 @@ impl JSValue {
                     return Err(-1);
                 }
                 _ => {
-                    val = val.coerce_to_number(ctx)?;
+                    val = val.to_number(ctx)?;
                 }
             }
         };
@@ -287,7 +285,7 @@ impl JSValue {
     }
 
     // Note: the integer value is saturated to 32 bits
-    pub fn coerce_to_i32_saturating(&self, ctx: &JSContext) -> Result<i32, i32> {
+    pub fn to_i32_saturating(&self, ctx: &JSContext) -> Result<i32, i32> {
         let mut val = self.clone();
 
         let ret: i32 = loop {
@@ -316,7 +314,7 @@ impl JSValue {
                     return Err(-1);
                 }
                 _ => {
-                    val = val.coerce_to_number(ctx)?;
+                    val = val.to_number(ctx)?;
                 }
             }
         };
@@ -324,14 +322,14 @@ impl JSValue {
         Ok(ret)
     }
 
-    pub fn coerce_to_i32_clamp(
+    pub fn to_i32_clamp(
         &self,
         ctx: &JSContext,
         min: i32,
         max: i32,
         min_offset: i32,
     ) -> Result<i32, i32> {
-        let mut res = self.coerce_to_i32_saturating(ctx)?;
+        let mut res = self.to_i32_saturating(ctx)?;
         if res < min {
             res += min_offset;
             if res < min {
@@ -345,7 +343,7 @@ impl JSValue {
 
     #[inline(always)]
     pub fn coerce_to_u32(&self, ctx: &JSContext) -> Result<u32, i32> {
-        self.coerce_to_i32(ctx).map(|v| v as u32)
+        self.to_i32(ctx).map(|v| v as u32)
     }
 
     pub fn coerce_to_i64_saturating(&self, ctx: &JSContext) -> Result<i64, i32> {
@@ -379,7 +377,7 @@ impl JSValue {
                     return Err(-1);
                 }
                 _ => {
-                    val = val.coerce_to_number(ctx)?;
+                    val = val.to_number(ctx)?;
                 }
             }
         };
@@ -430,7 +428,7 @@ impl JSValue {
             JSValue::NULL => Ok(0.0),
             JSValue::UNDEFINED => Ok(f64::NAN),
             JSValue::EXCEPTION => Err(-1),
-            _ => match self.coerce_to_number(ctx)? {
+            _ => match self.to_number(ctx)? {
                 JSValue::Int(v) => Ok(v as f64),
                 JSValue::Float64(v) => Ok(v),
                 _ => {

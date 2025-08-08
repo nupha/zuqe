@@ -29,7 +29,7 @@ impl JSObject {
             ($p:expr, $idx:expr) => {
                 let lenval = $p.0.prop_values.borrow()[0]
                     .value(ctx, &JSValue::UNDEFINED)?
-                    .coerce_to_i32(ctx);
+                    .to_i32(ctx);
 
                 match lenval {
                     Ok(len) => {

@@ -154,7 +154,7 @@ pub unsafe fn JS_ToPropertyKey(ctx: &JSContext, val: JSValueConst) -> JSValue {
 /// `val` keeps ref count after calling this function.
 #[deprecated(note = "use JSValue::coerce_number() instead")]
 pub unsafe fn JS_ToNumber(ctx: &JSContext, val: JSValueConst) -> JSValue {
-    val.coerce_to_number(ctx).unwrap_or(JSValue::EXCEPTION)
+    val.to_number(ctx).unwrap_or(JSValue::EXCEPTION)
 }
 
 #[deprecated(note = "use JSValue::coerce_to_primitive() + JS_FreeValue() instead")]
@@ -2573,7 +2573,7 @@ pub fn js_async_function_call(
 }
 
 // Note: the integer value is saturated to 32 bits
-#[deprecated(note = "use JSValue::coerce_to_i32_saturating() instead")]
+#[deprecated(note = "use JSValue::to_i32_saturating() instead")]
 pub unsafe fn JS_ToInt32SatFree(ctx: &JSContext, pres: *mut i32, mut val: JSValue) -> i32 {
     let ret: i32 = loop {
         match val {
@@ -2616,13 +2616,13 @@ pub unsafe fn JS_ToInt32SatFree(ctx: &JSContext, pres: *mut i32, mut val: JSValu
 }
 
 /// val is not consumed
-#[deprecated(note = "use JSValue::coerce_to_i32_saturating() instead")]
+#[deprecated(note = "use JSValue::to_i32_saturating() instead")]
 pub unsafe fn JS_ToInt32Sat(ctx: &JSContext, pres: *mut i32, val: &JSValueConst) -> i32 {
     JS_ToInt32SatFree(ctx, pres, val.clone())
 }
 
 /// val is not consumed
-#[deprecated(note = "use JSValue::coerce_to_i32_clamp() instead")]
+#[deprecated(note = "use JSValue::to_i32_clamp() instead")]
 pub unsafe fn JS_ToInt32Clamp(
     ctx: &JSContext,
     pres: *mut i32,
@@ -2631,7 +2631,7 @@ pub unsafe fn JS_ToInt32Clamp(
     max: i32,
     min_offset: i32,
 ) -> i32 {
-    if let Ok(mut res) = val.coerce_to_i32_saturating(ctx) {
+    if let Ok(mut res) = val.to_i32_saturating(ctx) {
         if res < min {
             res += min_offset;
             if res < min {
@@ -2649,17 +2649,17 @@ pub unsafe fn JS_ToInt32Clamp(
 
 #[deprecated(note = "use JSValue::coerce_number() instead")]
 pub unsafe fn JS_ToNumberFree(ctx: &JSContext, val: JSValue) -> JSValue {
-    val.coerce_to_number(ctx).unwrap_or(JSValue::EXCEPTION)
+    val.to_number(ctx).unwrap_or(JSValue::EXCEPTION)
 }
 
 #[deprecated(note = "use JSValue::coerce_numeric() instead")]
 pub unsafe fn JS_ToNumericFree(ctx: &JSContext, val: JSValue) -> JSValue {
-    val.coerce_to_numeric(ctx).unwrap_or(JSValue::EXCEPTION)
+    val.to_numeric(ctx).unwrap_or(JSValue::EXCEPTION)
 }
 
 #[deprecated(note = "use JSValue::coerce_numeric() instead")]
 pub unsafe fn JS_ToNumeric(ctx: &JSContext, val: JSValueConst) -> JSValue {
-    val.coerce_to_numeric(ctx).unwrap_or(JSValue::EXCEPTION)
+    val.to_numeric(ctx).unwrap_or(JSValue::EXCEPTION)
 }
 
 #[deprecated(note = "use JSValue::coerce_to_i64_saturating() instead")]
@@ -2748,16 +2748,16 @@ pub unsafe fn JS_NumberIsInteger(ctx: &JSContext, val: JSValueConst) -> i32 {
     val.is_integral(ctx).map_or(-1, |b| b as i32)
 }
 
-#[deprecated(note = "use JSValue::coerce_to_i32() instead")]
+#[deprecated(note = "use JSValue::to_i32() instead")]
 pub unsafe fn JS_ToInt32Free(ctx: &JSContext, pres: *mut i32, val: JSValue) -> i32 {
-    val.coerce_to_i32(ctx).map_or(-1, |v| {
+    val.to_i32(ctx).map_or(-1, |v| {
         *pres = v;
         0
     })
 }
 
 /// `val` is not consumed
-#[deprecated(note = "use JSValue::coerce_to_i32() instead")]
+#[deprecated(note = "use JSValue::to_i32() instead")]
 pub unsafe fn JS_ToInt32(ctx: &JSContext, val: &JSValueConst) -> Result<i32, i32> {
     let mut n = 0;
     if JS_ToInt32Free(ctx, &mut n, val.clone()) == -1 {

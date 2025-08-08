@@ -480,14 +480,14 @@ pub unsafe fn JS_ToArrayLengthFree(
         }
 
         _ if is_array_ctor => {
-            let v = val.coerce_to_number(ctx)?;
+            let v = val.to_number(ctx)?;
             // won't recurse because v is a number
             len = JS_ToArrayLengthFree(ctx, v, true)?;
         }
         _ => {
             // legacy behavior: must do the conversion twice and compare
             len = val.coerce_to_u32(ctx)?;
-            let v = val.coerce_to_number(ctx)?;
+            let v = val.to_number(ctx)?;
             if len != JS_ToArrayLengthFree(ctx, v, false)? {
                 JS_ThrowRangeError(ctx, "invalid array length");
                 return Err(-1);

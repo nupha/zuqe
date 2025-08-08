@@ -28,7 +28,7 @@ pub fn js_thisNumberValue(ctx: &JSContext, this_val: JSValue) -> JSResult {
 }
 
 pub fn js_parseInt(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let radix: i32 = cc.arg(1).coerce_to_i32(ctx)?;
+    let radix: i32 = cc.arg(1).to_i32(ctx)?;
 
     let ret = if radix != 0 && !(2..=36).contains(&radix) {
         JSValue::Float64(f64::NAN)
@@ -68,7 +68,7 @@ pub fn js_number_valueOf(ctx: &JSContext, args: CallContext) -> JSResult {
 }
 
 pub fn js_get_radix(ctx: &JSContext, val: &JSValue) -> Result<i32, i32> {
-    let radix: i32 = val.coerce_to_i32_saturating(ctx)?;
+    let radix: i32 = val.to_i32_saturating(ctx)?;
     if !(2..=36).contains(&radix) {
         JS_ThrowRangeError(ctx, "radix must be between 2 and 36");
         return Err(-1);
@@ -145,7 +145,7 @@ pub fn js_number_fmt(ctx: &JSContext, cc: CallContext) -> JSResult {
     let a = if a0.is_undefined() {
         None
     } else {
-        let f: i32 = a0.coerce_to_i32_saturating(ctx)?;
+        let f: i32 = a0.to_i32_saturating(ctx)?;
         Some(f)
     };
 
@@ -294,7 +294,7 @@ pub fn js_number_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let val = if cc.length() == 0 {
         JSValue::Int(0)
     } else {
-        cc.arg(0).coerce_to_numeric(ctx)?
+        cc.arg(0).to_numeric(ctx)?
     };
 
     let new_target = cc.this();

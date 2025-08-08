@@ -386,10 +386,10 @@ pub unsafe fn js_typed_array_get_toStringTag(ctx: &JSContext, this_val: JSValueC
 pub fn js_typed_array_copyWithin(ctx: &JSContext, cc: CallContext) -> JSResult {
     let len = unsafe { js_typed_array_get_length_internal(ctx, cc.this())? as i32 };
 
-    let to: i32 = cc.arg(0).coerce_to_i32_clamp(ctx, 0, len, len)?;
-    let from: i32 = cc.arg(1).coerce_to_i32_clamp(ctx, 0, len, len)?;
+    let to: i32 = cc.arg(0).to_i32_clamp(ctx, 0, len, len)?;
+    let from: i32 = cc.arg(1).to_i32_clamp(ctx, 0, len, len)?;
     let final_ = if cc.length() > 2 && !cc.arg(2).is_undefined() {
-        cc.arg(2).coerce_to_i32_clamp(ctx, 0, len, len)?
+        cc.arg(2).to_i32_clamp(ctx, 0, len, len)?
     } else {
         len
     };
@@ -429,12 +429,12 @@ pub fn js_typed_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
     let len = ta.length();
 
     let start = if cc.length() > 1 {
-        cc.arg(1).coerce_to_i32_clamp(ctx, 0, len as _, len as _)?
+        cc.arg(1).to_i32_clamp(ctx, 0, len as _, len as _)?
     } else {
         0
     };
     let final_ = if cc.length() > 2 && !cc.arg(2).is_undefined() {
-        cc.arg(2).coerce_to_i32_clamp(ctx, 0, len as _, len as _)?
+        cc.arg(2).to_i32_clamp(ctx, 0, len as _, len as _)?
     } else {
         len as _
     };
@@ -445,21 +445,21 @@ pub fn js_typed_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
     match ta.class_id() {
         c @ (JS_CLASS_INT8_ARRAY | JS_CLASS_UINT8_ARRAY | JS_CLASS_UINT8C_ARRAY) => {
             data[0] = if c == JS_CLASS_INT8_ARRAY {
-                cc.arg(0).coerce_to_i32(ctx)? as i8 as u8
+                cc.arg(0).to_i32(ctx)? as i8 as u8
             } else {
                 cc.arg(0).coerce_to_u8_clamp(ctx)?
             };
         }
         c @ (JS_CLASS_INT16_ARRAY | JS_CLASS_UINT16_ARRAY) => {
             let bb: [u8; 2] = if c == JS_CLASS_INT16_ARRAY {
-                (cc.arg(0).coerce_to_i32(ctx)? as i16).to_ne_bytes()
+                (cc.arg(0).to_i32(ctx)? as i16).to_ne_bytes()
             } else {
-                (cc.arg(0).coerce_to_i32(ctx)? as u16).to_ne_bytes()
+                (cc.arg(0).to_i32(ctx)? as u16).to_ne_bytes()
             };
             data[..2].copy_from_slice(&bb);
         }
         JS_CLASS_INT32_ARRAY | JS_CLASS_UINT32_ARRAY => {
-            data[..4].copy_from_slice(&cc.arg(0).coerce_to_i32(ctx)?.to_ne_bytes());
+            data[..4].copy_from_slice(&cc.arg(0).to_i32(ctx)?.to_ne_bytes());
         }
         JS_CLASS_FLOAT32_ARRAY => {
             let d: f64 = cc.arg(0).coerce_to_f64(ctx)?;
@@ -660,9 +660,9 @@ pub fn js_typed_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
         (p.length() as i32, typed_array_size_log2(p.class_id()))
     };
 
-    let start: i32 = cc.arg(0).coerce_to_i32_clamp(ctx, 0, src_len, src_len)?;
+    let start: i32 = cc.arg(0).to_i32_clamp(ctx, 0, src_len, src_len)?;
     let final_ = if !cc.arg(1).is_undefined() {
-        cc.arg(1).coerce_to_i32_clamp(ctx, 0, src_len, src_len)?
+        cc.arg(1).to_i32_clamp(ctx, 0, src_len, src_len)?
     } else {
         src_len
     };
@@ -720,9 +720,9 @@ pub fn js_typed_array_subarray(ctx: &JSContext, cc: CallContext) -> JSResult {
     let ta = this_val.clone().typed_array_must(ctx, false)?;
     let len = ta.length() as i32;
 
-    let start: i32 = cc.arg(0).coerce_to_i32_clamp(ctx, 0, len, len)?;
+    let start: i32 = cc.arg(0).to_i32_clamp(ctx, 0, len, len)?;
     let final_ = if !cc.arg(1).is_undefined() {
-        cc.arg(1).coerce_to_i32_clamp(ctx, 0, len, len)?
+        cc.arg(1).to_i32_clamp(ctx, 0, len, len)?
     } else {
         len
     };
@@ -774,9 +774,7 @@ pub fn js_typed_array_sort(ctx: &JSContext, cc: CallContext) -> JSResult {
                             if !has_error {
                                 let r =
                                     JS_Call(ctx, cmp, &JSValue::UNDEFINED, &[$cvt(*a), $cvt(*b)]);
-                                if let Ok(n) =
-                                    r.check_exception().and_then(|v| v.coerce_to_i32(ctx))
-                                {
+                                if let Ok(n) = r.check_exception().and_then(|v| v.to_i32(ctx)) {
                                     if n < 0 {
                                         Ordering::Less
                                     } else if n > 0 {
@@ -950,7 +948,7 @@ pub fn js_typed_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
         inc = -1;
     } else {
         k = if cc.length() > 1 {
-            cc.arg(1).coerce_to_i32_clamp(ctx, 0, len, len)?
+            cc.arg(1).to_i32_clamp(ctx, 0, len, len)?
         } else {
             0
         };

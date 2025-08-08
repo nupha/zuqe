@@ -55,8 +55,8 @@ impl TwoNumbers {
                 }
 
                 (v1, v2) if force_convert => {
-                    op1 = v1.coerce_to_number(ctx)?;
-                    op2 = v2.coerce_to_number(ctx)?;
+                    op1 = v1.to_number(ctx)?;
+                    op2 = v2.to_number(ctx)?;
                 }
 
                 _ => {
@@ -219,13 +219,13 @@ impl UnaryOp {
             JSValue::Float64(f) if allow_float => Ok(UnaryOp::Float(f)),
             _ => {
                 if allow_float {
-                    match val.coerce_to_number(ctx)? {
+                    match val.to_number(ctx)? {
                         JSValue::Int(i) => Ok(UnaryOp::Int(i)),
                         JSValue::Float64(f) => Ok(UnaryOp::Float(f)),
                         _ => unreachable!(),
                     }
                 } else {
-                    val.coerce_to_i32(ctx).map(Self::Int)
+                    val.to_i32(ctx).map(Self::Int)
                 }
             }
         }
@@ -236,7 +236,7 @@ impl UnaryOp {
     pub fn new_int(ctx: &JSContext, op1: JSValue) -> Result<Self, i32> {
         match op1 {
             JSValue::Int(i) => Ok(Self::Int(i)),
-            _ => op1.coerce_to_i32(ctx).map(Self::Int),
+            _ => op1.to_i32(ctx).map(Self::Int),
         }
     }
 

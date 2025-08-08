@@ -52,8 +52,8 @@ fn js_evalScript(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 fn js_string_codePointRange(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let mut start = cc.arg(0).coerce_to_i32(ctx)? as u32;
-    let end = std::cmp::min(cc.arg(1).coerce_to_i32(ctx)? as u32, 0x10ffff + 1);
+    let mut start = cc.arg(0).to_i32(ctx)? as u32;
+    let end = std::cmp::min(cc.arg(1).to_i32(ctx)? as u32, 0x10ffff + 1);
     if start > end {
         start = end;
     }

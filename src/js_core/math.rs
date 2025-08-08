@@ -23,7 +23,7 @@ pub fn js_math_min_max(ctx: &JSContext, cc: CallContext) -> JSResult {
     let mut res_int: Option<i32> = None;
     let mut res_float: Option<f64> = None;
 
-    if let JSValue::Int(r1) = cc.arg(0).coerce_to_number(ctx)? {
+    if let JSValue::Int(r1) = cc.arg(0).to_number(ctx)? {
         res_int = Some(r1);
     } else {
         res_float = Some(cc.arg(0).coerce_to_f64(ctx)?);
@@ -31,11 +31,7 @@ pub fn js_math_min_max(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     if cc.length() > 1 {
         for a in &cc.arguments()[1..] {
-            match (
-                a.coerce_to_number(ctx)?,
-                res_int.as_mut(),
-                res_float.as_mut(),
-            ) {
+            match (a.to_number(ctx)?, res_int.as_mut(), res_float.as_mut()) {
                 (JSValue::Int(n), Some(mx), None) => {
                     let n = n;
                     *mx = if is_max {
@@ -162,8 +158,8 @@ pub fn js_math_hypot(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_math_imul(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let a = cc.arg(0).coerce_to_i32(ctx)?;
-    let b = cc.arg(1).coerce_to_i32(ctx)?;
+    let a = cc.arg(0).to_i32(ctx)?;
+    let b = cc.arg(1).to_i32(ctx)?;
     // purposely ignoring overflow
     Ok(JSValue::Int(a * b))
 }
