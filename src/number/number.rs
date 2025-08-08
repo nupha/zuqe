@@ -5,7 +5,7 @@ use crate::{
     value::{HINT_NUMBER, JSValue, JSValueConst},
 };
 use std::ops::RangeInclusive;
-
+use anyhow::__private::not;
 use super::{ATOD_ACCEPT_BIN_OCT, js_atof};
 
 pub const MAX_SAFE_INTEGER: i64 = (1_i64) << 53; // (1_i64 << 53) - 1;
@@ -174,6 +174,9 @@ impl JSValue {
                     break Err(-1);
                 }
                 Self::EXCEPTION => {
+                    #[cfg(debug_assertions)]
+                    unreachable!();
+                    #[cfg(not(debug_assertions))]
                     break Err(-1);
                 }
                 _ => {
@@ -427,10 +430,9 @@ impl JSValue {
             JSValue::NULL => Ok(0.0),
             JSValue::UNDEFINED => Ok(f64::NAN),
             JSValue::EXCEPTION => Err(-1),
-            _ => match self.clone().coerce_to_number(ctx) {
-                Ok(JSValue::Int(v)) => Ok(v as f64),
-                Ok(JSValue::Float64(v)) => Ok(v),
-                Err(_) => Ok(f64::NAN),
+            _ => match self.coerce_to_number(ctx)? {
+                JSValue::Int(v) => Ok(v as f64),
+                JSValue::Float64(v) => Ok(v),
                 _ => {
                     unreachable!()
                 }
