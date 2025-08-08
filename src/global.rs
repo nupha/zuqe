@@ -30,7 +30,7 @@ impl JSContext {
                 };
             }
 
-            // XXX: should handle JS_PROP_AUTOINIT properties?
+            // XXX: should handle JS_PROP_LAZYINIT properties?
             // XXX: conformance: do these tests in OP_put_var_ref/OP_get_var_ref ?
             if let JSProperty::Normal(JSValue::UNINITIALIZED) =
                 gvobj.0.prop_values.borrow().get(idx).unwrap()
@@ -120,7 +120,7 @@ impl JSContext {
         let gobj = self.global_obj();
         let prs = gobj.find_shape_property(prop).map(|(_, flags)| flags);
 
-        // XXX: should handle JS_PROP_AUTOINIT
+        // XXX: should handle JS_PROP_LAZYINIT
         if flags & DEFINE_GLOBAL_LEX_VAR as u32 != 0 {
             if prs.map_or(false, |f| f & JS_PROP_CONFIGURABLE == 0) {
                 JS_ThrowSyntaxErrorVarRedeclaration(self, prop);
@@ -164,7 +164,6 @@ impl JSContext {
     pub fn get_global_var(&self, prop: JSAtom, throw_ref_error: bool) -> JSValue {
         // no exotic behavior is possible in global_var_obj
         let gvobj = self.global_var_obj();
-
         if let Some((idx, _)) = gvobj.find_shape_property(prop) {
             // found in global var object
             // XXX: should handle JS_PROP_TMASK properties
@@ -206,7 +205,7 @@ impl JSContext {
         let gvobj = self.global_var_obj();
 
         if let Some((idx, prs_flags)) = gvobj.find_shape_property(prop) {
-            // XXX: should handle JS_PROP_AUTOINIT properties?
+            // XXX: should handle JS_PROP_LAZYINIT properties?
             let pr = &mut gvobj.0.prop_values.borrow_mut()[idx];
 
             if flag != 1 {
@@ -238,9 +237,6 @@ impl JSContext {
 
             let gobj = self.global_obj();
             gobj.set_property_internal(self, prop, val, &JSValue::Object(gobj.clone()), flags1)
-
-            // let gobj = &self.0.borrow().global_obj;
-            // JSValue::set_property_internal(self, gobj, prop, val, gobj, flags1)
         }
     }
 }

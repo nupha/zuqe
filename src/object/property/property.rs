@@ -31,7 +31,7 @@ pub const JS_PROP_GETSET: u32 = 1 << 4;
 /// Variable reference property type
 pub const JS_PROP_VARREF: u32 = 2 << 4;
 /// Auto-initialized property type
-pub const JS_PROP_AUTOINIT: u32 = 3 << 4;
+pub const JS_PROP_LAZYINIT: u32 = 3 << 4;
 
 // Property definition flags
 /// Base shift for property definition flags

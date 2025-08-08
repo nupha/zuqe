@@ -1,15 +1,15 @@
-use crate::{
-    JS_CLASS_ARRAY, JS_CLASS_MODULE_NS,
-    atom::{JSAtom, consts::JS_ATOM_length},
-    context::JSContext,
-    object::{JS_PROP_AUTOINIT, JSObject},
-    value::JSValue,
-};
-
 use super::{
     JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
     JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_NORMAL, JS_PROP_TMASK,
     JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty, set::call_setter,
+};
+use crate::obsoletes::set_array_length;
+use crate::{
+    JS_CLASS_ARRAY, JS_CLASS_MODULE_NS,
+    atom::{JSAtom, consts::JS_ATOM_length},
+    context::JSContext,
+    object::{JS_PROP_LAZYINIT, JSObject},
+    value::JSValue,
 };
 
 impl JSObject {
@@ -200,6 +200,7 @@ impl JSObject {
     }
 
     /// overwrite property value at specified slot idx to a normal value.
+    #[inline(always)]
     pub(super) fn put_prop_slot(
         &self,
         ctx: &JSContext,
@@ -210,13 +211,32 @@ impl JSObject {
         this_obj: &JSObject, // only used for getter, setter calling
         flags: u32,
     ) -> Result<bool, i32> {
+        // fast path: normal
+        match prs_flags & (JS_PROP_TMASK | JS_PROP_WRITABLE | JS_PROP_LENGTH) {
+            JS_PROP_WRITABLE => {
+                // non-length, normal, writable
+                self.0.prop_values.borrow_mut()[slot_idx] = JSProperty::Normal(value);
+                return Ok(true);
+            }
+            0 => {
+                // non-length, normal, not-writable
+                return if ctx.JS_ThrowTypeErrorReadOnly(flags, prop) {
+                    Err(-1)
+                } else {
+                    Ok(false)
+                };
+            }
+            _ => {}
+        }
+
+        // slow path: length, getset, lazy
         if prs_flags & JS_PROP_LENGTH != 0 {
             // special prop length: to set .length property of an array object
             debug_assert_eq!(self.class_id(), JS_CLASS_ARRAY);
             debug_assert_eq!(prop, JS_ATOM_length);
             debug_assert_eq!(slot_idx, 0, "length property must be indexed at 0");
             self.set_array_length(ctx, value, flags)
-        } else if prs_flags & JS_PROP_AUTOINIT == JS_PROP_AUTOINIT {
+        } else if prs_flags & JS_PROP_LAZYINIT == JS_PROP_LAZYINIT {
             // lazy init replaced with normal value
             std::mem::replace(
                 &mut self.0.prop_values.borrow_mut()[slot_idx],
@@ -228,21 +248,8 @@ impl JSObject {
             });
             Ok(true)
         } else {
-            // normal, getter, setter
             let pr = self.0.prop_values.borrow()[slot_idx].clone();
             match pr {
-                JSProperty::Normal(_) => {
-                    if prs_flags & JS_PROP_WRITABLE == 0 {
-                        if ctx.JS_ThrowTypeErrorReadOnly(flags, prop) {
-                            Err(-1)
-                        } else {
-                            Ok(false)
-                        }
-                    } else {
-                        self.0.prop_values.borrow_mut()[slot_idx] = JSProperty::Normal(value);
-                        Ok(true)
-                    }
-                }
                 JSProperty::GetSet { setter, .. } => call_setter(
                     ctx,
                     setter.as_ref(),
@@ -263,6 +270,23 @@ impl JSObject {
                         vref.set_value(value);
                         Ok(true)
                     }
+                }
+                JSProperty::Normal(_) => {
+                    #[cfg(debug_assertions)]
+                    unreachable!("can't get here due to fast path");
+                    #[cfg(not(debug_assertions))]
+                    Ok(true)
+
+                    // if prs_flags & JS_PROP_WRITABLE == 0 {
+                    //     if ctx.JS_ThrowTypeErrorReadOnly(flags, prop) {
+                    //         Err(-1)
+                    //     } else {
+                    //         Ok(false)
+                    //     }
+                    // } else {
+                    //     self.0.prop_values.borrow_mut()[slot_idx] = JSProperty::Normal(value);
+                    //     Ok(true)
+                    // }
                 }
                 JSProperty::LazyInit { .. } => {
                     unreachable!();

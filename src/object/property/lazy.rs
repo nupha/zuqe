@@ -7,7 +7,7 @@ use crate::{
     function::{NativeField, NativeFieldDetail},
     module::ModuleDef,
     object::{
-        JS_PROP_AUTOINIT, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_TMASK, JS_PROP_WRITABLE,
+        JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_LAZYINIT, JS_PROP_TMASK, JS_PROP_WRITABLE,
         JSObject, JSShapeProperty,
     },
     runtime::JSRuntime,
@@ -136,7 +136,7 @@ impl JSObject {
         self.add_own_property(
             ctx,
             prop,
-            (flags & JS_PROP_C_W_E) | JS_PROP_AUTOINIT,
+            (flags & JS_PROP_C_W_E) | JS_PROP_LAZYINIT,
             JSProperty::LazyInit {
                 init_type: lazy_init,
                 realm: ctx.downgrade(),

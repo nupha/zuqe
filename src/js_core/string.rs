@@ -44,12 +44,7 @@ pub fn js_string_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     };
 
     if !new_target.is_undefined() {
-        let len = str_val.len();
-        let o = ctx
-            .create_object_apply_ctor(new_target, ObjectDetail::STRING(str_val))
-            .map_err(|_| -1)?;
-        o.define_property_value(ctx, JS_ATOM_length, len as u32, 0)?;
-        Ok(o.into())
+        str_val.to_object(ctx).map(JSValue::Object)
     } else {
         Ok(str_val.into())
     }
@@ -138,8 +133,8 @@ pub fn js_string_codePointAt(ctx: &JSContext, cc: CallContext) -> JSResult {
     if idx < 0 || idx >= p.len() as i32 {
         Ok(JSValue::UNDEFINED)
     } else {
-        let c = p.content().chars().nth(idx as usize).unwrap();
-        Ok(JSValue::Int(c as u32 as i32))
+        let c = p.content().iter().nth(idx as usize).unwrap();
+        Ok(JSValue::from(c.to_u32()))
     }
 }
 
@@ -182,16 +177,18 @@ pub fn js_string_toWellFormed(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     if let StringBuf::Utf16(ws) = p.content().as_ref() {
-        if let Ok(mut buf) = Vec::<u16>::try_with_capacity(ws.len() * 3 / 2) {
-            for c in U16Str::from_slice(ws).chars_lossy() {
-                buf.extend_from_slice(c.encode_utf16(&mut [0; 2]));
-            }
-            buf.shrink_to_fit();
-            ctx.create_string_from_content(StringBuf::Utf16(buf))
-                .map(JSValue::String)
-        } else {
-            Ok(JSValue::EXCEPTION)
+        let mut buf = Vec::<u16>::new();
+        buf.try_reserve_exact(ws.len() * 3 / 2).map_err(|_| {
+            ctx.throw_out_of_memory();
+            -1
+        })?;
+
+        for c in U16Str::from_slice(ws).chars_lossy() {
+            buf.extend_from_slice(c.encode_utf16(&mut [0; 2]));
         }
+        buf.shrink_to_fit();
+        ctx.create_string_from_content(StringBuf::Utf16(buf))
+            .map(JSValue::String)
     } else {
         unreachable!()
     }
@@ -881,7 +878,8 @@ pub fn js_string_toLowerCase(ctx: &JSContext, cc: CallContext) -> JSResult {
     let sc = match p.content().as_ref() {
         StringBuf::Empty | StringBuf::Null => unreachable!(),
         StringBuf::Utf8(s) => {
-            let mut d = Vec::<u8>::try_with_capacity(s.len()).map_err(|_| {
+            let mut d = Vec::<u8>::new();
+            d.try_reserve_exact(s.len()).map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1
             })?;
@@ -894,7 +892,8 @@ pub fn js_string_toLowerCase(ctx: &JSContext, cc: CallContext) -> JSResult {
             StringBuf::Utf8(d)
         }
         StringBuf::Utf16(s) => {
-            let mut w = Vec::<u16>::try_with_capacity(s.len() * 3 / 2).map_err(|_| {
+            let mut w = Vec::<u16>::new();
+            w.try_reserve(s.len() * 3 / 2).map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1
             })?;

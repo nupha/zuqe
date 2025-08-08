@@ -185,11 +185,11 @@ impl JSObject {
                 let mut check_shape = self == this;
 
                 for p in self.prototype_iter(ctx, true) {
-                    let cur_obj = p?;
+                    let self_proto = p?;
 
                     if check_shape {
-                        if let Some((idx, prs_flags)) = cur_obj.find_shape_property(prop) {
-                            return cur_obj.put_prop_slot(
+                        if let Some((idx, prs_flags)) = self_proto.find_shape_property(prop) {
+                            return self_proto.put_prop_slot(
                                 ctx,
                                 prs_flags,
                                 prop,
@@ -201,8 +201,8 @@ impl JSObject {
                         }
                     }
 
-                    if cur_obj.flags().is_exotic() {
-                        match cur_obj.set_property_exotic(
+                    if self_proto.flags().is_exotic() {
+                        match self_proto.set_property_exotic(
                             ctx,
                             prop,
                             val.clone(),

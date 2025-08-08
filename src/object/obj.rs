@@ -1,11 +1,18 @@
 use std::{
     cell::{Cell, RefCell},
+    clone,
     fmt::Formatter,
     ops::Deref,
     ptr::NonNull,
     rc::{Rc, Weak},
 };
 
+use super::{
+    GCObject, JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE,
+    JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_THROW,
+    JS_PROP_WRITABLE, JSProperty, JSShape, ObjectDetail,
+};
+use crate::js_core::string::js_string_constructor;
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
     JS_CLASS_BIG_INT, JS_CLASS_BOOLEAN, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION,
@@ -21,12 +28,6 @@ use crate::{
     proxy::{js_proxy_preventExtensions, js_proxy_setPrototypeOf},
     runtime::JSRuntime,
     value::JSValue,
-};
-
-use super::{
-    GCObject, JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE,
-    JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_THROW,
-    JS_PROP_WRITABLE, JSProperty, JSShape, ObjectDetail,
 };
 
 /// Bit flags and metadata for JavaScript objects
@@ -592,15 +593,7 @@ impl JSValue {
             Self::Bool(_) => ctx
                 .create_object(ObjectDetail::BOOLEAN(self.clone()))
                 .map_err(|_| -1),
-            Self::String(s) => {
-                // TODO: call String constructor?
-                let len = s.len();
-                let o = ctx
-                    .create_object(ObjectDetail::STRING(s.clone()))
-                    .map_err(|_| -1)?;
-                o.define_property_value(ctx, JS_ATOM_length, len as u32, 0)?;
-                Ok(o)
-            }
+            Self::String(s) => s.to_object(ctx),
             Self::Symbol(s) => ctx
                 .create_object(ObjectDetail::SYMBOL(s.clone()))
                 .map_err(|_| -1),

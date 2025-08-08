@@ -1,6 +1,7 @@
 use super::StringBuf;
 use crate::function::JS_Invoke;
 use crate::number::f64_stringify;
+use crate::object::ObjectDetail;
 use crate::value::HINT_STRING;
 use crate::{
     JS_CLASS_STRING,
@@ -302,6 +303,16 @@ impl JSString {
     #[inline(always)]
     pub fn atom_info(&self) -> Option<AtomHintAndId> {
         self.0.atom_info()
+    }
+
+    /// make String class instance with content from string `self`.
+    pub fn to_object(&self, ctx: &JSContext) -> Result<JSObject, i32> {
+        let len = self.len();
+        let o = ctx
+            .create_object(ObjectDetail::STRING(self.clone()))
+            .map_err(|_| -1)?;
+        o.define_property_value(ctx, JS_ATOM_length, len as u32, 0)?;
+        Ok(o)
     }
 
     /// get sub string in specified range, and return the sub string value.

@@ -354,6 +354,7 @@ impl Bytecode {
                         SP_GO!(1);
                     }
                     OpCode::OBJECT => {
+                        // [^] -> [obj, ^]
                         SP_PUT!(
                             0,
                             ctx.create_base_object()
@@ -1034,6 +1035,7 @@ impl Bytecode {
                         }
                     }
                     OpCode::PUT_VAR | OpCode::PUT_VAR_INIT => {
+                        // [val, ^] -> [^]
                         let atom = JSAtom(PC_FETCH!(u32));
                         let res = ctx.set_global_var(
                             atom,

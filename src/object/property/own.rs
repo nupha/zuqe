@@ -3,7 +3,7 @@ use crate::{
     context::JSContext,
     error::JS_ThrowReferenceErrorUninitialized,
     object::{
-        JS_PROP_AUTOINIT, JS_PROP_C_W_E, JS_PROP_GETSET, JS_PROP_NORMAL, JS_PROP_TMASK,
+        JS_PROP_C_W_E, JS_PROP_GETSET, JS_PROP_LAZYINIT, JS_PROP_NORMAL, JS_PROP_TMASK,
         JS_PROP_VARREF, JSObject, JSProperty, JSPropertyDescriptor, JSShape, ObjectInner,
     },
     value::JSValue,
@@ -201,7 +201,7 @@ impl JSObject {
                         return Err(-1);
                     }
                 }
-                JS_PROP_AUTOINIT => {
+                JS_PROP_LAZYINIT => {
                     // Instantiate property
                     let mut pr = std::mem::take(&mut self.0.prop_values.borrow_mut()[idx]);
                     desc.value = pr.instantiate(self, prop, self)?;

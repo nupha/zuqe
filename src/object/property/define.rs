@@ -12,9 +12,9 @@ use crate::{
 };
 
 use super::{
-    JS_PROP_AUTOINIT, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE,
-    JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
-    JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_TMASK, JS_PROP_WRITABLE,
+    JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_HAS_CONFIGURABLE,
+    JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE,
+    JS_PROP_HAS_WRITABLE, JS_PROP_LAZYINIT, JS_PROP_LENGTH, JS_PROP_TMASK, JS_PROP_WRITABLE,
     JSProperty, JSPropertyDescriptor, check_define_prop_flags, get_prop_flags,
 };
 
@@ -61,7 +61,7 @@ impl JSObject {
                     };
                 }
 
-                if prs_flags & JS_PROP_TMASK == JS_PROP_AUTOINIT {
+                if prs_flags & JS_PROP_TMASK == JS_PROP_LAZYINIT {
                     // Instantiate property
                     let mut pr = std::mem::take(&mut self.0.prop_values.borrow_mut()[idx]);
                     val = pr.instantiate(self, prop, self)?;

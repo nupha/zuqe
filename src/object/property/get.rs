@@ -15,7 +15,7 @@ use crate::{
     value::{JS_GetPrototypePrimitive, JSValue},
 };
 
-use super::{JS_PROP_AUTOINIT, JS_PROP_GETSET, JS_PROP_NORMAL, JS_PROP_TMASK, JS_PROP_VARREF};
+use super::{JS_PROP_GETSET, JS_PROP_LAZYINIT, JS_PROP_NORMAL, JS_PROP_TMASK, JS_PROP_VARREF};
 
 impl JSObject {
     /// walk up proto chain and get property in shape or by exotic handler.
@@ -57,7 +57,7 @@ impl JSObject {
                             Ok(val)
                         }
                     }
-                    JS_PROP_AUTOINIT => {
+                    JS_PROP_LAZYINIT => {
                         // Lazy instantiate property.
                         let mut pr = std::mem::take(&mut cur_obj.0.prop_values.borrow_mut()[idx]); // borrow in short
                         let val = pr.instantiate(&cur_obj, prop, self)?;
