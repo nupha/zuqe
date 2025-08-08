@@ -20,11 +20,15 @@ impl JSContext {
         let object = self
             .create_object_from_proto(JSValue::NULL, ObjectDetail::OBJECT)
             .unwrap();
+
+        #[cfg(debug_assertions)]
+        object._debug_set_hint("ObjectProto");
+
         self.0.borrow_mut().class_proto[JS_CLASS_OBJECT as usize] = object.clone().into();
 
         if with_function {
             // Function
-            let func = self
+            let func_obj = self
                 .create_native_function_from_proto(
                     NativeFunctionType::Func(js_function_proto),
                     "",
@@ -34,10 +38,12 @@ impl JSContext {
                 )
                 .unwrap();
 
-            self.with_mut(|cx| {
-                cx.function_proto = func.clone();
-                cx.class_proto[JS_CLASS_BYTECODE_FUNCTION as usize] = func;
-            });
+            #[cfg(debug_assertions)]
+            func_obj.object().unwrap()._debug_set_hint("FunctionProto");
+
+            let mut cx = self.0.borrow_mut();
+            cx.function_proto = func_obj.clone();
+            cx.class_proto[JS_CLASS_BYTECODE_FUNCTION as usize] = func_obj;
         }
 
         if with_errors {

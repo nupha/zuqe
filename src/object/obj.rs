@@ -1,18 +1,13 @@
+#[cfg(debug_assertions)]
+use std::cell::UnsafeCell;
 use std::{
     cell::{Cell, RefCell},
-    clone,
     fmt::Formatter,
     ops::Deref,
     ptr::NonNull,
     rc::{Rc, Weak},
 };
 
-use super::{
-    GCObject, JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE,
-    JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_THROW,
-    JS_PROP_WRITABLE, JSProperty, JSShape, ObjectDetail,
-};
-use crate::js_core::string::js_string_constructor;
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
     JS_CLASS_BIG_INT, JS_CLASS_BOOLEAN, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION,
@@ -28,6 +23,12 @@ use crate::{
     proxy::{js_proxy_preventExtensions, js_proxy_setPrototypeOf},
     runtime::JSRuntime,
     value::JSValue,
+};
+
+use super::{
+    GCObject, JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE,
+    JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_THROW,
+    JS_PROP_WRITABLE, JSProperty, JSShape, ObjectDetail,
 };
 
 /// Bit flags and metadata for JavaScript objects
@@ -168,6 +169,9 @@ pub(crate) struct ObjectInner {
     pub payload: RefCell<ObjectDetail>,
 
     pub gc_mark: Cell<bool>,
+
+    #[cfg(debug_assertions)]
+    pub(crate) _debug_hint: UnsafeCell<Option<&'static str>>,
 }
 
 impl Drop for ObjectInner {
@@ -185,17 +189,21 @@ impl std::fmt::Display for ObjectInner {
 
         #[cfg(debug_assertions)]
         {
-            let sh = self.shape.borrow();
+            write!(f, "[{name} {:p}", self.id() as *const std::ffi::c_void)?;
 
-            write!(
-                f,
-                "[{name} id={:p} shape={:p} proto={}]",
-                self.id() as *const std::ffi::c_void,
-                sh.as_ref().map_or(0, |s| s.id()) as *const std::ffi::c_void,
-                sh.as_ref()
-                    .and_then(|s| s.0.borrow().proto.clone())
-                    .map_or("<null>".to_string(), |x| x.to_string())
-            )
+            if let Some(tag) = unsafe { self._debug_hint.get().as_ref().unwrap() } {
+                write!(f, " {tag}]")
+            } else {
+                let sh = self.shape.borrow();
+                write!(
+                    f,
+                    " shape={:p} proto={}]",
+                    sh.as_ref().map_or(0, |s| s.id()) as *const std::ffi::c_void,
+                    sh.as_ref()
+                        .and_then(|s| s.0.borrow().proto.clone())
+                        .map_or("<null>".to_string(), |x| x.to_string())
+                )
+            }
         }
 
         #[cfg(not(debug_assertions))]
@@ -320,6 +328,9 @@ impl ObjectInner {
             weak_refs: RefCell::new(Vec::new()),
             payload: RefCell::new(isa),
             gc_mark: Cell::new(false),
+
+            #[cfg(debug_assertions)]
+            _debug_hint: UnsafeCell::new(None),
         };
 
         if add_length_prop {
@@ -536,6 +547,15 @@ impl JSObject {
 
     pub fn gc_dump(&self, rt: &crate::runtime::JSRuntime) {
         self.dump(rt);
+    }
+}
+
+#[cfg(debug_assertions)]
+impl JSObject {
+    pub(crate) fn _debug_set_hint(&self, msg: &'static str) {
+        unsafe {
+            (*self.0._debug_hint.get()).replace(msg);
+        }
     }
 }
 

@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use colorized::*;
 use zhuque::{
     atom::JS_FreeAtom,
     context::JSContext,
@@ -13,13 +14,27 @@ use zhuque::{
     value::JSValue,
 };
 
-fn js_print(ctx: &JSContext, args: CallContext) -> JSResult {
-    for i in 0..args.length() {
+fn js_print(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let debug = cc.magic() != 0;
+
+    for i in 0..cc.length() {
         if i > 0 {
             print!(" ");
         }
-        let arg = args.arg(i);
-        print!("{}", arg.to_utf8(ctx)?);
+        let arg = cc.arg(i);
+
+        if debug {
+            colorize_print(
+                if arg.is_object() {
+                    format!("{arg}").into()
+                } else {
+                    arg.to_utf8(ctx)?
+                },
+                Colors::CyanFg,
+            );
+        } else {
+            colorize_print(arg.to_utf8(ctx)?, Colors::GreenFg);
+        }
     }
     println!();
 
@@ -71,7 +86,15 @@ fn main() {
             .set_property_str(
                 &ctx,
                 "print",
-                ctx.create_native_function(NativeFunctionType::Func(js_print), "print", 1, 0)
+                ctx.create_native_function(NativeFunctionType::Func(js_print), "print", 0, 0)
+                    .unwrap(),
+            )
+            .unwrap();
+        global
+            .set_property_str(
+                &ctx,
+                "debug",
+                ctx.create_native_function(NativeFunctionType::Func(js_print), "print", 0, 1)
                     .unwrap(),
             )
             .unwrap();

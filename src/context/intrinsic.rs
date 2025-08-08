@@ -120,6 +120,9 @@ impl JSContext {
             .install_native_fields(self, &js_object_funcs)
             .unwrap();
 
+        #[cfg(debug_assertions)]
+        obj_ctor.object().unwrap()._debug_set_hint("FunctionCtor");
+
         self.0.borrow().class_proto[JS_CLASS_OBJECT as usize]
             .install_native_fields(self, &js_object_proto_funcs)
             .unwrap();
@@ -307,16 +310,22 @@ impl JSContext {
     fn intrinsic_string(&self) {
         let empty_str = JS_ATOM_empty_string.to_string(self).unwrap();
 
-        let string_obj: JSValue = self
-            .create_object_from_proto(
-                self.0.borrow().class_proto[JS_CLASS_OBJECT as usize].clone(),
-                ObjectDetail::STRING(empty_str.into()),
-            )
-            .unwrap()
-            .into();
-        string_obj
-            .install_native_fields(self, &js_string_proto_funcs)
-            .unwrap();
+        let string_obj: JSValue = {
+            let o = self
+                .create_object_from_proto(
+                    self.0.borrow().class_proto[JS_CLASS_OBJECT as usize].clone(),
+                    ObjectDetail::STRING(empty_str.into()),
+                )
+                .unwrap();
+
+            o.install_native_fields(self, &js_string_proto_funcs)
+                .unwrap();
+
+            #[cfg(debug_assertions)]
+            o._debug_set_hint("StringProto");
+
+            o.into()
+        };
 
         let string_ctor = self
             .create_global_constructor("String", js_string_constructor, 1, &string_obj, 0)
@@ -324,6 +333,9 @@ impl JSContext {
         string_ctor
             .install_native_fields(self, &js_string_funcs)
             .unwrap();
+
+        #[cfg(debug_assertions)]
+        string_ctor.object().unwrap()._debug_set_hint("StringCtor");
 
         let string_iter = self
             .create_base_object_from_proto(self.0.borrow().iterator_proto.clone())
