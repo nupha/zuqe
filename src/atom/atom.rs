@@ -1,5 +1,7 @@
 use std::{borrow::Cow, ffi::CStr, hash::Hash, num::NonZeroU16, rc::Rc};
 
+use super::consts::*;
+use crate::string::StringChar;
 use crate::{
     context::JSContext,
     error::JSResult,
@@ -9,8 +11,6 @@ use crate::{
     string::{JSString, JSStringInner, StringBuf},
     value::JSValue,
 };
-
-use super::consts::*;
 
 /// atom descriptor kind
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
@@ -214,7 +214,7 @@ impl JSAtom {
             f(rt.get_atom_desc(self)
                 .expect("INVALID ATOM")
                 .content()
-                .to_str())
+                .to_utf8())
         }
     }
 
@@ -476,48 +476,53 @@ pub fn JS_AtomIsNumericIndex1(ctx: &JSContext, atom: JSAtom) -> JSValue {
         return JSValue::Int(__JS_AtomToUInt32(atom) as _);
     }
 
-    let p = ctx.rt().get_atom_desc(atom).expect("INVLID ATOM");
+    let p = ctx.rt().get_atom_desc(atom).unwrap();
     if p.is_empty_or_null() {
         return JSValue::UNDEFINED;
     }
 
     if let AtomHintAndId::String(_) = p.atom_info().unwrap() {
-        let len = p.len();
+        let buf_len = p.buf_len();
 
         // check for: -0, Infinity, -Infinity
-        let mut cc = p.content().chars();
-        if let Some(mut c) = cc.next() {
-            if c == '-' {
-                if let Some(c2) = cc.next() {
-                    // -0 case is specific
-                    if c2 == '0' && len == 2 {
-                        return JSValue::Float64(-0.0);
-                    } else {
-                        c = c2;
-                    }
-                } else {
-                    return JSValue::UNDEFINED;
-                }
-            }
+        let mut chars = p.content().iter();
 
-            if !c.is_digit(10) {
-                // XXX: should test NaN, but the tests do not check it
-                if c == 'I' {
-                    let mut nfinity = "nfinity".chars();
-                    loop {
-                        match (cc.next(), nfinity.next()) {
-                            (Some(a), Some(b)) if a == b => {}
-                            (None, None) => {
-                                break;
-                            }
-                            _ => {
-                                return JSValue::UNDEFINED;
+        if let Some((_, c)) = chars.next() {
+            if let Some(mut ch) = c.char() {
+                if ch == '-' {
+                    if let Some((_, StringChar::Char(c2))) = chars.next() {
+                        // -0 case is specific
+                        if c2 == '0' && buf_len == 2 {
+                            return JSValue::Float64(-0.0);
+                        } else {
+                            ch = c2;
+                        }
+                    } else {
+                        return JSValue::UNDEFINED;
+                    }
+                }
+
+                if !ch.is_digit(10) {
+                    // XXX: should test NaN, but the tests do not check it
+                    if ch == 'I' {
+                        loop {
+                            match (chars.next(), "nfinity".chars().next()) {
+                                (Some((_, StringChar::Char(a))), Some(b)) if a == b => {}
+                                (None, None) => {
+                                    break; // is Infinity
+                                }
+                                _ => {
+                                    return JSValue::UNDEFINED;
+                                }
                             }
                         }
+                    } else {
+                        return JSValue::UNDEFINED;
                     }
-                } else {
-                    return JSValue::UNDEFINED;
                 }
+            } else {
+                // broken surrogate
+                return JSValue::UNDEFINED;
             }
         }
 
@@ -567,7 +572,7 @@ pub unsafe fn js_atom_concat_str(ctx: &JSContext, name: JSAtom, str1: *const u8)
     } else {
         return JS_ATOM_NULL;
     };
-    let astr = str_val.content().to_str();
+    let astr = str_val.content().to_utf8();
     let len = astr.len();
     let len1 = CStr::from_ptr(str1.cast()).count_bytes();
     let ttl_len = len + len1 + 1;

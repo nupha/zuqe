@@ -716,7 +716,7 @@ pub fn js_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     if toLocaleString == 0 && cc.length() > 0 && !cc.arg(0).is_undefined() {
         let sep = cc.arg(0).to_string(ctx)?;
-        c = if sep.len() == 1 && !sep.is_wide() {
+        c = if sep.buf_len() == 1 && !sep.is_wide() {
             sep.content().as_bytes()[0] as i32
         } else {
             -1

@@ -91,7 +91,7 @@ pub fn js_function_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
             }
             let s = a.to_string(ctx)?;
             source
-                .push_str(s.content().to_str().as_ref())
+                .push_str(s.content().to_utf8().as_ref())
                 .map_err(|_| {
                     ctx.throw_out_of_memory();
                     -1
@@ -105,7 +105,7 @@ pub fn js_function_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         // body
         let s = body.to_string(ctx)?;
         source
-            .push_str(s.content().to_str().as_ref())
+            .push_str(s.content().to_utf8().as_ref())
             .map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1

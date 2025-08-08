@@ -164,7 +164,7 @@ pub fn get_func_name(func: &JSValue) -> Option<String> {
                 if let Some(JSProperty::Normal(JSValue::String(s))) =
                     obj.0.prop_values.borrow().get(idx)
                 {
-                    return Some(s.content().to_str().into_owned());
+                    return Some(s.content().to_utf8().into_owned());
                 } else {
                     unreachable!()
                 }

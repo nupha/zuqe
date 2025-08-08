@@ -25,7 +25,7 @@ impl JSValue {
                 let mut buf = SmallVec::<[u8; 128]>::new();
                 buf.push(sep as u8);
 
-                for c in p.content().iter() {
+                for (_, c) in p.content().iter() {
                     match c {
                         StringChar::Char(c) => match c {
                             '\'' | '"' if c == sep => {
@@ -73,29 +73,24 @@ impl JSValue {
     }
 }
 
-pub unsafe fn JS_DumpString(rt: &JSRuntime, p: &JSString) {
-    // if p.is_null() {
-    //     print!("<null>");
-    //     return;
-    // }
-
+pub fn JS_DumpString(p: &JSString) {
     let ref_cnt = Rc::strong_count(&p.0);
     print!("{ref_cnt}");
 
     let sep = if ref_cnt == 1 { b'\"' } else { b'\'' } as char;
     print!("{sep}");
 
-    for c in p.content().iter() {
+    for (_, c) in p.content().iter() {
         match c {
-            StringChar::Char(c) => match c {
-                '\'' | '"' if c == sep => print!("\\{c}"),
+            StringChar::Char(ch) => match ch {
+                '\'' | '"' if ch == sep => print!("\\{ch}"),
                 '\n' => print!("\\n"),
                 '\r' => print!("\\r"),
                 '\t' => print!("\\t"),
                 '\\' => print!("\\\\"),
-                ' '..='~' => print!("{c}"),
+                ' '..='~' => print!("{ch}"),
                 _ => {
-                    print!("{c}");
+                    print!("{ch}");
                     // print!("\\u{:04x}", c as u32)
                 }
             },

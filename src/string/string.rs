@@ -1,29 +1,31 @@
-use super::StringBuf;
-use crate::function::JS_Invoke;
-use crate::number::f64_stringify;
-use crate::object::ObjectDetail;
-use crate::value::HINT_STRING;
+use std::{
+    borrow::Cow,
+    cell::Cell,
+    ffi::CStr,
+    rc::{Rc, Weak},
+    str::FromStr,
+};
+
 use crate::{
     JS_CLASS_STRING,
     atom::{__JS_AtomToUInt32, AtomHintAndId, JSAtom, consts::*},
     class::JSClassExoticMethods,
     context::JSContext,
+    function::JS_Invoke,
     gc::GCObjectHeader,
+    number::f64_stringify,
+    object::ObjectDetail,
     object::{
         GCObjectWeakref, JS_PROP_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC, JSObject,
         JSPropertyDescriptor, check_define_prop_flags, js_get_length32,
     },
     runtime::JSRuntime,
     string::StringChar,
+    value::HINT_STRING,
     value::{JSValue, JSValueConst},
 };
-use std::str::FromStr;
-use std::{
-    borrow::Cow,
-    cell::Cell,
-    ffi::CStr,
-    rc::{Rc, Weak},
-};
+
+use super::StringBuf;
 
 /// Maximum length allowed for JavaScript strings (1GB - 1)
 pub const JS_STRING_LEN_MAX: usize = (1 << 30) - 1;
@@ -73,18 +75,22 @@ impl JSStringInner {
         &self.content
     }
 
-    /// Returns the length of the string in code units
-    /// For UTF-8 strings, returns byte length
-    /// For UTF-16 strings, returns number of 16-bit units
+    /// count string chars (include broken surrogate code).
     #[inline(always)]
-    pub fn len(&self) -> usize {
-        self.content.len()
+    pub fn char_count(&self) -> usize {
+        self.content.char_count()
+    }
+
+    /// Returns the buffer length
+    #[inline(always)]
+    pub fn buf_len(&self) -> usize {
+        self.content.buf_len()
     }
 
     /// Checks if the string is empty (zero length)
     #[inline(always)]
     pub fn is_empty(&self) -> bool {
-        self.len() == 0 && !self.is_null()
+        self.buf_len() == 0 && !self.is_null()
     }
 
     #[inline(always)]
@@ -176,7 +182,7 @@ impl TryFrom<JSValue> for JSString {
 
 impl std::fmt::Debug for JSString {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = self.content().to_str();
+        let s = self.content().to_utf8();
         write!(f, "{:?}", s.as_ref())
     }
 }
@@ -254,9 +260,16 @@ impl JSString {
         self.content().get(i)
     }
 
+    /// count string chars (include broken surrogate code).
     #[inline(always)]
-    pub fn len(&self) -> usize {
-        self.0.len()
+    pub fn char_count(&self) -> usize {
+        self.0.char_count()
+    }
+
+    /// buffer length.
+    #[inline(always)]
+    pub fn buf_len(&self) -> usize {
+        self.0.buf_len()
     }
 
     #[inline(always)]
@@ -307,19 +320,20 @@ impl JSString {
 
     /// make String class instance with content from string `self`.
     pub fn to_object(&self, ctx: &JSContext) -> Result<JSObject, i32> {
-        let len = self.len();
+        let buf_len = self.buf_len();
         let o = ctx
             .create_object(ObjectDetail::STRING(self.clone()))
             .map_err(|_| -1)?;
-        o.define_property_value(ctx, JS_ATOM_length, len as u32, 0)?;
+        o.define_property_value(ctx, JS_ATOM_length, buf_len as u32, 0)?;
         Ok(o)
     }
 
     /// get sub string in specified range, and return the sub string value.
+    /// `start` and `end` index are about buffer index.
     pub fn sub_string(&self, ctx: &JSContext, start: usize, end: usize) -> Result<JSString, i32> {
-        let end = std::cmp::min(end, self.len());
+        let end = std::cmp::min(end, self.buf_len());
 
-        if start == 0 && end == self.len() {
+        if start == 0 && end == self.buf_len() {
             Ok(self.clone())
         } else {
             let count = end.saturating_sub(start); // if end > start { end - start } else { 0 };
@@ -355,15 +369,15 @@ impl JSString {
             0
         };
 
-        let matched_len = matched.len();
-
-        let rep_len = replacement.len();
+        let matched_len = matched.buf_len();
+        let rep_len = replacement.buf_len();
         let rep_cc = replacement.content();
 
-        let mut res_content = StringBuf::with_capacity(str.len(), str.is_wide()).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
+        let mut res_content =
+            StringBuf::with_capacity(str.buf_len(), str.is_wide()).map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?;
 
         // escape $-patterns in `replacement`
         let mut i = 0_usize;
@@ -389,7 +403,7 @@ impl JSString {
 
             let j0 = j;
             j += 1;
-            let c = rep_cc.iter().nth(j as usize).unwrap();
+            let (_, c) = rep_cc.iter_since(j).next().unwrap();
             j += 1;
 
             match c {
@@ -420,7 +434,7 @@ impl JSString {
                     // $' -> str[position+matched.len()..]
                     res_content
                         .push_content_slice(
-                            &str.content().slice((position + matched_len)..str.len()),
+                            &str.content().slice((position + matched_len)..str.buf_len()),
                         )
                         .map_err(|_| {
                             ctx.throw_out_of_memory();
@@ -431,7 +445,7 @@ impl JSString {
                     // $k -> captures[k]
                     let mut k = a as u32 - '0' as u32;
                     if j < rep_len {
-                        if let Some(StringChar::Char(c1)) = rep_cc.iter().nth(j as usize)
+                        if let Some((_, StringChar::Char(c1))) = rep_cc.iter_since(j).next()
                             && c1.is_ascii_digit()
                         {
                             let k1 = k * 10 + (c1 as u32 - '0' as u32);
@@ -586,7 +600,7 @@ impl JSContext {
         let buf = match Into::<StringChar>::into(ch) {
             StringChar::Char(ch) => {
                 if ch.is_ascii() {
-                    StringBuf::Utf8(vec![ch as u8])
+                    StringBuf::Ascii(vec![ch as u8])
                 } else {
                     StringBuf::Utf16(ch.encode_utf16(&mut [0; 2]).to_vec())
                 }
@@ -641,7 +655,7 @@ pub fn JS_ConcatString3(
     let len1 = str1.count_bytes();
     let len3 = str3.count_bytes();
 
-    let res_string = StringBuf::with_capacity(len1 + p.len() + len3, p.is_wide())
+    let res_string = StringBuf::with_capacity(len1 + p.buf_len() + len3, p.is_wide())
         .and_then(|mut s| {
             // str1 + str2 + str3
             s.push_str(str1.to_string_lossy().as_ref())
@@ -819,7 +833,7 @@ impl JSValue {
     pub fn to_utf8(&self, ctx: &JSContext) -> Result<Cow<'_, str>, i32> {
         match self {
             Self::String(s) | Self::Symbol(s) => {
-                Ok(match s.content().to_str() {
+                Ok(match s.content().to_utf8() {
                     Cow::Borrowed(str) => {
                         // use string description content pointer.
                         Cow::Borrowed(unsafe { (str as *const str).as_ref().unwrap() })
@@ -828,7 +842,7 @@ impl JSValue {
                 })
             }
             _ => Ok(Cow::Owned(
-                self.to_string(ctx)?.content().to_str().into_owned(),
+                self.to_string(ctx)?.content().to_utf8().into_owned(),
             )),
         }
     }
@@ -893,8 +907,8 @@ fn string_define_own_property(
         let idx = __JS_AtomToUInt32(prop);
         let ob = unsafe { this_obj.object_unchecked() };
         if let JSValue::String(p1) = ob.0.payload.borrow().value().unwrap() {
-            let len = p1.len();
-            let nth_char = p1.content().iter().nth(idx as usize);
+            let len = p1.buf_len();
+            let nth_char = p1.content().iter_since(idx as usize).next().map(|(_, c)| c);
 
             if idx >= len as u32 {
                 def!();
@@ -910,8 +924,8 @@ fn string_define_own_property(
                 }
 
                 let p2 = unsafe { val.string_unchecked() };
-                let len2 = p2.len();
-                let nth_char2 = p2.content().iter().next();
+                let len2 = p2.buf_len();
+                let nth_char2 = p2.content().iter().next().map(|(_, c)| c);
 
                 if len2 != 1 {
                     fail!();
@@ -941,8 +955,8 @@ pub static js_string_exotic_methods: JSClassExoticMethods = JSClassExoticMethods
                     obj.object().and_then(|o| o.0.payload.borrow().value())
                 {
                     let idx = __JS_AtomToUInt32(prop);
-                    if idx < s.len() as u32 {
-                        let ch = s.content().iter().nth(idx as usize).unwrap();
+                    if idx < s.buf_len() as u32 {
+                        let (_, ch) = s.content().iter_since(idx as usize).next().unwrap();
                         return Ok(Some(JSPropertyDescriptor {
                             flags: JS_PROP_ENUMERABLE as _,
                             value: ctx.create_string_from_char(ch)?.into(),
@@ -962,9 +976,9 @@ pub static js_string_exotic_methods: JSClassExoticMethods = JSClassExoticMethods
     delete_property: Some(
         |_: &JSContext, obj: JSValue, prop: JSAtom| -> Result<bool, i32> {
             if prop.is_int_type() {
-                let strlen = TryInto::<JSString>::try_into(obj).unwrap().len();
+                let buflen = TryInto::<JSString>::try_into(obj).unwrap().buf_len();
                 let idx = __JS_AtomToUInt32(prop) as usize;
-                if idx < strlen {
+                if idx < buflen {
                     return Ok(false);
                 }
             }

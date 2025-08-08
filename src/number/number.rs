@@ -136,7 +136,7 @@ impl JSValue {
                 }
                 Self::String(s) => {
                     // try parse number
-                    let str = s.content().to_str();
+                    let str = s.content().to_utf8();
                     let len = str.len();
 
                     if len == 0 {

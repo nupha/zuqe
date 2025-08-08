@@ -99,8 +99,11 @@ impl JSObject {
                 }
             } else if self.class_id() == JS_CLASS_STRING {
                 if flags & JS_GPN_STRING_MASK != 0 {
-                    let strlen = TryInto::<JSString>::try_into(self.clone()).unwrap().len();
-                    for i in 0..strlen {
+                    let buf_len = TryInto::<JSString>::try_into(self.clone())
+                        .unwrap()
+                        .buf_len();
+
+                    for i in 0..buf_len {
                         callback(
                             ctx,
                             PropertyEnum {

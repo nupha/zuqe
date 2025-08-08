@@ -46,21 +46,36 @@ impl StringChar {
             Self::BrokenCode(c) => c as u32,
         }
     }
+
+    /// if is broken code, returns None. otherwise returns the char
+    pub fn char(&self) -> Option<char> {
+        if let Self::Char(c) = self {
+            Some(*c)
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Clone)]
 pub enum StringBufIter<'a> {
-    U16(Peekable<std::slice::Iter<'a, u16>>),
-    U8(Peekable<std::slice::Iter<'a, u8>>),
+    U16 {
+        it: Peekable<std::slice::Iter<'a, u16>>,
+        cursor: usize,
+    },
+    U8 {
+        it: Peekable<std::slice::Iter<'a, u8>>,
+        cursor: usize,
+    },
 }
 
 impl<'a> Iterator for StringBufIter<'a> {
-    type Item = StringChar;
+    type Item = (usize, StringChar);
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
-            Self::U16(it) => Self::next_u16(it),
-            Self::U8(it) => Self::next_u8(it),
+            Self::U16 { it, cursor } => Self::next_u16(it, cursor).map(|c| (*cursor, c)),
+            Self::U8 { it, cursor } => Self::next_u8(it, cursor).map(|c| (*cursor, c)),
         }
     }
 }
@@ -69,24 +84,34 @@ impl<'a> StringBufIter<'a> {
     fn from_u16(slice: &'a [u16]) -> Self {
         let it = slice.iter();
         let it = it.peekable();
-        Self::U16(it)
+        Self::U16 { it, cursor: 0 }
     }
 
     fn from_u8(slice: &'a [u8]) -> Self {
         let it = slice.iter();
         let it = it.peekable();
-        Self::U8(it)
+        Self::U8 { it, cursor: 0 }
     }
 
     #[inline]
-    fn next_u8(it: &mut Peekable<std::slice::Iter<'_, u8>>) -> Option<StringChar> {
-        it.next().map(|c| StringChar::Char(*c as char))
+    fn next_u8(
+        it: &mut Peekable<std::slice::Iter<'_, u8>>,
+        cursor: &mut usize,
+    ) -> Option<StringChar> {
+        it.next().map(|c| {
+            *cursor += 1;
+            StringChar::Char(*c as char)
+        })
     }
 
     #[inline]
-    fn next_u16(it: &mut Peekable<std::slice::Iter<'_, u16>>) -> Option<StringChar> {
+    fn next_u16(
+        it: &mut Peekable<std::slice::Iter<'_, u16>>,
+        cursor: &mut usize,
+    ) -> Option<StringChar> {
         while let Some(n) = it.next() {
             let high = *n;
+            *cursor += 1;
 
             let r = if (0xD800..=0xDBFF).contains(&high) {
                 if let Some(low) = it.peek() {
@@ -96,6 +121,7 @@ impl<'a> StringBufIter<'a> {
                             ((high - 0xD800) as u32) << 10 | (**low - 0xDC00) as u32 + 0x10000;
                         if let Some(ch) = char::from_u32(code_point) {
                             it.next(); // 消耗低代理项
+                            *cursor += 1;
                             return Some(StringChar::Char(ch));
                         }
                     }
@@ -121,11 +147,19 @@ impl<'a> StringBufIter<'a> {
         None
     }
 
+    /// get current cursor
+    pub fn cursor(&self) -> usize {
+        match self {
+            Self::U8 { cursor, .. } => *cursor,
+            Self::U16 { cursor, .. } => *cursor,
+        }
+    }
+
     /// peek next code (not char).
     pub fn peek(&mut self) -> Option<u16> {
         match self {
-            Self::U8(it) => it.peek().copied().map(|c| *c as _),
-            Self::U16(it) => it.peek().copied().map(|c| *c),
+            Self::U8 { it, .. } => it.peek().copied().map(|c| *c as _),
+            Self::U16 { it, .. } => it.peek().copied().map(|c| *c),
         }
     }
 }
@@ -169,12 +203,12 @@ impl Iterator for StringCharIndices<'_> {
 }
 
 impl StringBuf {
-    /// iterate over string chars.
-    /// for invalid sorrogate, returns raw code directly, otherwise returns unichar
+    /// iterate over string chars. `index` is the starting buf index.
+    /// for broken surrogate, returns raw code directly, otherwise returns unichar
     pub fn iter_since(&self, index: usize) -> StringBufIter<'_> {
         match self {
             Self::Empty | Self::Null => StringBufIter::from_u8(&[]),
-            Self::Utf8(s) => {
+            Self::Ascii(s) => {
                 StringBufIter::from_u8(if index < s.len() { &s[index..] } else { &[] })
             }
             Self::Utf16(s) => {
@@ -183,8 +217,7 @@ impl StringBuf {
         }
     }
 
-    /// iterate over string chars.
-    /// for invalid sorrogate, returns raw code directly, otherwise returns unichar
+    /// iterate over string chars. short cut to `::iter_since(0)`.
     #[inline(always)]
     pub fn iter(&self) -> StringBufIter<'_> {
         self.iter_since(0)
@@ -195,7 +228,7 @@ impl StringBuf {
     pub fn chars(&self) -> StringChars<'_> {
         match self {
             Self::Empty | Self::Null => StringChars::Empty,
-            Self::Utf8(s) => StringChars::Utf8(unsafe { str::from_utf8_unchecked(s) }.chars()),
+            Self::Ascii(s) => StringChars::Utf8(unsafe { str::from_utf8_unchecked(s) }.chars()),
             Self::Utf16(s) => StringChars::Utf16(U16Str::from_slice(s).chars_lossy()),
         }
     }
@@ -205,7 +238,7 @@ impl StringBuf {
     pub fn chars_indices(&self) -> StringCharIndices<'_> {
         match self {
             Self::Empty | Self::Null => StringCharIndices::Empty,
-            Self::Utf8(s) => {
+            Self::Ascii(s) => {
                 StringCharIndices::Utf8(unsafe { str::from_utf8_unchecked(s) }.char_indices())
             }
             Self::Utf16(s) => StringCharIndices::Utf16(U16Str::from_slice(s).char_indices_lossy()),

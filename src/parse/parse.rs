@@ -85,7 +85,7 @@ impl JSParseState<'_> {
                 self.token
             );
 
-            let txt: String = str.to_str().into_owned();
+            let txt: String = str.to_utf8().into_owned();
             self.next_token()?;
 
             let mut has_semi = false;

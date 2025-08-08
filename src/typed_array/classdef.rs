@@ -884,7 +884,7 @@ pub fn js_typed_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
                         return Err(-1);
                     }
 
-                    if txt.capacity() - txt.len() < 16 {
+                    if txt.capacity() - txt.buf_len() < 16 {
                         if txt.reserve((n - i) as usize * 2).is_err() {
                             ctx.throw_out_of_memory();
                             return Err(-1);

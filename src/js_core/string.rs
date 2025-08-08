@@ -54,14 +54,15 @@ pub fn js_string_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_string_at(ctx: &JSContext, cc: CallContext) -> JSResult {
     let str = JS_ToStringCheckObject(ctx, cc.this().clone())?;
     let what = cc.magic(); // 0: charAt, 1: at, 2: charCodeAt
+    let buf_len = str.buf_len() as i32;
 
-    let mut idx: i32 = cc.arg(0).to_i32_saturating(ctx)?;
-    if idx < 0 && what == 1 {
+    let mut buf_idx: i32 = cc.arg(0).to_i32_saturating(ctx)?;
+    if buf_idx < 0 && what == 1 {
         // at() allows minus index
-        idx += str.len() as i32;
+        buf_idx += buf_len;
     }
 
-    if idx < 0 || idx >= str.len() as i32 {
+    if buf_idx < 0 || buf_idx >= buf_len {
         match what {
             0 => JS_ATOM_empty_string.to_string(ctx).map(JSValue::String),
             1 => Ok(JSValue::UNDEFINED),
@@ -69,14 +70,14 @@ pub fn js_string_at(ctx: &JSContext, cc: CallContext) -> JSResult {
             _ => unreachable!(),
         }
     } else {
-        let code = str.get(idx as usize).unwrap();
+        let code = str.get(buf_idx as usize).unwrap();
         if what == 2 {
             // charCodeAt() returns int
             Ok(JSValue::Int(code as i32))
         } else {
             // charAt(), at() returns string
             ctx.create_string_from_content(if (0..=255).contains(&code) {
-                StringBuf::Utf8(vec![code as u8])
+                StringBuf::Ascii(vec![code as u8])
             } else {
                 StringBuf::Utf16(vec![code])
             })
@@ -85,55 +86,14 @@ pub fn js_string_at(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 }
 
-#[deprecated(note = "use js_string_at() instead")]
-fn js_string_charCodeAt(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let idx: i32 = cc.arg(0).to_i32_saturating(ctx)?;
-    let p = JS_ToStringCheckObject(ctx, cc.this().clone())?;
-    if idx < 0 || idx >= p.len() as i32 {
-        Ok(JSValue::Float64(f64::NAN))
-    } else {
-        let c = p.get(idx as usize).unwrap();
-        Ok(JSValue::Int(c as i32))
-    }
-}
-
-/// impl for `charAt()`, `at()`
-#[deprecated(note = "use js_string_at() instead")]
-fn js_string_charAt(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let is_at = cc.magic();
-
-    let p = JS_ToStringCheckObject(ctx, cc.this().clone())?;
-
-    let mut idx: i32 = cc.arg(0).to_i32_saturating(ctx)?;
-    if idx < 0 && is_at != 0 {
-        idx += p.len() as i32;
-    }
-
-    if idx < 0 || idx >= p.len() as i32 {
-        if is_at != 0 {
-            Ok(JSValue::UNDEFINED)
-        } else {
-            ctx.create_string_from_str("").map(JSValue::String)
-        }
-    } else {
-        let code = p.get(idx as usize).unwrap();
-        ctx.create_string_from_content(if (0..=255).contains(&code) {
-            StringBuf::Utf8(vec![code as u8])
-        } else {
-            StringBuf::Utf16(vec![code])
-        })
-        .map(JSValue::String)
-    }
-}
-
 pub fn js_string_codePointAt(ctx: &JSContext, cc: CallContext) -> JSResult {
     let p = JS_ToStringCheckObject(ctx, cc.this().clone())?;
 
-    let idx: i32 = cc.arg(0).to_i32_saturating(ctx)?;
-    if idx < 0 || idx >= p.len() as i32 {
+    let buf_idx: i32 = cc.arg(0).to_i32_saturating(ctx)?;
+    if buf_idx < 0 || buf_idx >= p.buf_len() as i32 {
         Ok(JSValue::UNDEFINED)
     } else {
-        let c = p.content().iter().nth(idx as usize).unwrap();
+        let (_, c) = p.content().iter_since(buf_idx as usize).next().unwrap();
         Ok(JSValue::from(c.to_u32()))
     }
 }
@@ -200,8 +160,8 @@ pub fn js_string_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
     let p = cc.this().to_string(ctx)?;
     let p1 = cc.arg(0).to_string(ctx)?;
 
-    let len = p.len() as i32;
-    let v_len = p1.len() as i32;
+    let len = p.buf_len() as i32;
+    let v_len = p1.buf_len() as i32;
 
     let start: i32;
     let stop: i32;
@@ -236,7 +196,7 @@ pub fn js_string_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
     if len >= v_len && inc * (stop - start) >= 0 {
         let mut i = start;
         loop {
-            if string_cmp(&p, &p1, i, 0, v_len) == 0 {
+            if string_cmp(&p, &p1, i as usize, 0, v_len as usize) == 0 {
                 ret = i;
                 break;
             }
@@ -277,33 +237,31 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     let str = this.to_string(ctx)?;
-    let search_str = search.to_string(ctx)?;
+    let buf_len = str.buf_len();
 
-    let replace_func = replace.is_callable();
-    let replace_str = if !replace_func {
-        Some(replace.to_string(ctx)?)
+    let search_for = search.to_string(ctx)?;
+    let (replace_func, replace_str) = if replace.is_callable() {
+        (true, None)
     } else {
-        None
+        (false, Some(replace.to_string(ctx)?))
     };
-
-    let sp = str;
-    let searchp = search_str;
 
     let mut is_first = true;
     let mut endOfLastMatch = 0_usize;
     let mut res_string = StringBuf::Empty;
 
     loop {
-        let found = if searchp.is_empty() {
+        let found = if search_for.is_empty() {
             if is_first {
                 Some(0)
-            } else if endOfLastMatch >= sp.len() {
+            } else if endOfLastMatch >= buf_len {
                 None
             } else {
                 Some(endOfLastMatch + 1)
             }
         } else {
-            sp.content().find(searchp.content(), endOfLastMatch as _)
+            str.content()
+                .find(search_for.content(), endOfLastMatch as _)
         };
 
         if let Some(pos) = found {
@@ -315,9 +273,9 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
                         replace,
                         &JSValue::UNDEFINED,
                         &[
-                            searchp.clone().into(),
+                            search_for.clone().into(),
                             JSValue::from(pos as u32),
-                            sp.clone().into(),
+                            str.clone().into(),
                         ],
                     )
                     .check_exception()
@@ -325,8 +283,8 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
                 } else {
                     JSString::get_substitution(
                         ctx,
-                        &searchp,
-                        &sp,
+                        &search_for,
+                        &str,
                         pos as usize,
                         &JSValue::UNDEFINED,
                         &JSValue::UNDEFINED,
@@ -338,7 +296,7 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
             };
 
             res_string
-                .push_content_slice(&sp.content().slice(endOfLastMatch as usize..pos as usize))
+                .push_content_slice(&str.content().slice(endOfLastMatch as usize..pos as usize))
                 .map_err(|_| {
                     ctx.throw_out_of_memory();
                     -1
@@ -348,7 +306,7 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
                 -1
             })?;
 
-            endOfLastMatch = pos + searchp.len();
+            endOfLastMatch = pos + search_for.buf_len();
             is_first = false;
 
             if !is_replace_all {
@@ -356,23 +314,17 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
             }
         } else {
             if is_first {
-                return Ok(sp.into());
+                return Ok(str.into());
             } else {
                 break;
             }
         }
     }
 
-    // concat remainder part of `str`
-    let rem_len = sp.len() - endOfLastMatch as usize;
-    if rem_len > 0 {
+    // concat remainder part of string
+    if endOfLastMatch < str.buf_len() {
         res_string
-            .push_chars_iter(
-                sp.content()
-                    .iter()
-                    .skip(endOfLastMatch as usize)
-                    .take(rem_len),
-            )
+            .push_chars_iter(str.content().iter_since(endOfLastMatch).map(|(_, c)| c))
             .map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1
@@ -408,7 +360,7 @@ pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     let sp = O.to_string(ctx)?;
-    let s = sp.len() as i32;
+    let s = sp.buf_len() as i32;
 
     let A = ctx.create_array()?;
     let mut lengthA = 0;
@@ -420,7 +372,7 @@ pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
     };
 
     let rp = separator.to_string(ctx)?;
-    let r = rp.len() as i32;
+    let r = rp.buf_len() as i32;
 
     if lim == 0 {
         return Ok(A);
@@ -478,7 +430,7 @@ pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_string_substring(ctx: &JSContext, cc: CallContext) -> JSResult {
     let p = JS_ToStringCheckObject(ctx, cc.this().clone())?;
 
-    let len = p.len() as i32;
+    let len = p.buf_len() as i32;
     let a = cc.arg(0).to_i32_clamp(ctx, 0, len, 0)?;
     let b = if !cc.arg(1).is_undefined() {
         cc.arg(1).to_i32_clamp(ctx, 0, len, 0)?
@@ -493,7 +445,7 @@ pub fn js_string_substring(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_string_substr(ctx: &JSContext, cc: CallContext) -> JSResult {
     let p = JS_ToStringCheckObject(ctx, cc.this().clone())?;
-    let len = p.len() as i32;
+    let len = p.buf_len() as i32;
 
     let a: i32 = cc.arg(0).to_i32_clamp(ctx, 0, len, len)?;
     let n = if !cc.arg(1).is_undefined() {
@@ -508,7 +460,7 @@ pub fn js_string_substr(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_string_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
     let p = JS_ToStringCheckObject(ctx, cc.this().clone())?;
-    let len = p.len() as i32;
+    let len = p.buf_len() as i32;
     let start = cc.arg(0).to_i32_clamp(ctx, 0, len, len)?;
     let end = if !cc.arg(1).is_undefined() {
         cc.arg(1).to_i32_clamp(ctx, 0, len, len)?
@@ -525,7 +477,7 @@ pub fn js_string_pad(ctx: &JSContext, cc: CallContext) -> JSResult {
     let mut n: i32 = cc.arg(0).to_i32_saturating(ctx)?;
 
     let p = JS_ToStringCheckObject(ctx, cc.this().clone())?;
-    let len = p.len() as i32;
+    let len = p.buf_len() as i32;
     if len >= n {
         return Ok(p.into());
     }
@@ -537,8 +489,8 @@ pub fn js_string_pad(ctx: &JSContext, cc: CallContext) -> JSResult {
         let s = cc.arg(1).to_string(ctx)?;
         if s.is_empty() {
             return Ok(p.into());
-        } else if s.len() == 1 {
-            c = s.content().iter().next().unwrap();
+        } else if s.buf_len() == 1 {
+            (_, c) = s.content().iter().next().unwrap();
         } else {
             p1.replace(s);
         }
@@ -561,14 +513,14 @@ pub fn js_string_pad(ctx: &JSContext, cc: CallContext) -> JSResult {
     n -= len;
 
     if let Some(s) = p1 {
-        let src = std::iter::repeat_n(s.content().iter(), (n as usize).div_ceil(s.len())).flatten();
+        let src = std::iter::repeat_n(
+            s.content().iter().map(|(_, c)| c),
+            (n as usize).div_ceil(s.buf_len()),
+        )
+        .flatten();
         res_string.push_chars_iter(src)
-        // res_string.push_chars_iter(
-        //     std::iter::repeat_n(s.content().chars(), (n as usize).div_ceil(s.len())).flatten(),
-        // )
     } else {
         res_string.push_chars_iter(std::iter::repeat_n(c, n as usize))
-        // res_string.push_chars_iter(std::iter::repeat_n(c, n as usize))
     }
     .map_err(|_| {
         ctx.throw_out_of_memory();
@@ -596,7 +548,7 @@ pub fn js_string_repeat(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     let n = repeat as usize;
-    let len = p.len();
+    let len = p.buf_len();
     if len == 0 || n == 1 {
         return Ok(p.into());
     }
@@ -610,7 +562,7 @@ pub fn js_string_repeat(ctx: &JSContext, cc: CallContext) -> JSResult {
         -1
     })?;
     res_string
-        .push_chars_iter(std::iter::repeat_n(p.content().iter(), n).flatten())
+        .push_chars_iter(std::iter::repeat_n(p.content().iter().map(|(_, c)| c), n).flatten())
         .unwrap();
     res_string.shrink_to_fit();
 
@@ -627,8 +579,8 @@ pub fn js_string_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
     let p1 = cc.arg(0).to_string(ctx)?;
 
-    let mut len = p.len() as i32;
-    let v_len = p1.len() as i32;
+    let mut len = p.buf_len() as i32;
+    let v_len = p1.buf_len() as i32;
 
     let mut pos = if cc.magic() == 2 {
         len
@@ -661,7 +613,7 @@ pub fn js_string_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     if start >= 0 && start <= stop {
         for i in start..stop {
-            if string_cmp(&p, &p1, i, 0, v_len) == 0 {
+            if string_cmp(&p, &p1, i as usize, 0, v_len as usize) == 0 {
                 ret = true;
                 break;
             }
@@ -788,13 +740,15 @@ pub fn js_string_trim(ctx: &JSContext, cc: CallContext) -> JSResult {
     ctx.create_string_from_content(s).map(JSValue::String)
 }
 
-pub fn string_cmp(p1: &JSString, p2: &JSString, x1: i32, x2: i32, len: i32) -> i32 {
-    let mut it1 = p1.content().chars().skip(x1 as usize);
-    let mut it2 = p2.content().chars().skip(x2 as usize);
+pub fn string_cmp(p1: &JSString, p2: &JSString, x1: usize, x2: usize, len: usize) -> i32 {
+    let mut it1 = p1.content().iter_since(x1);
+    let mut it2 = p2.content().iter_since(x2);
 
     for _ in 0..len {
         match (it1.next(), it2.next()) {
-            (Some(c1), Some(c2)) => {
+            (Some((_, c1)), Some((_, c2))) => {
+                let c1 = c1.to_u32();
+                let c2 = c2.to_u32();
                 if c1 > c2 {
                     return 1;
                 } else if c1 < c2 {
@@ -877,7 +831,7 @@ pub fn js_string_toLowerCase(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let sc = match p.content().as_ref() {
         StringBuf::Empty | StringBuf::Null => unreachable!(),
-        StringBuf::Utf8(s) => {
+        StringBuf::Ascii(s) => {
             let mut d = Vec::<u8>::new();
             d.try_reserve_exact(s.len()).map_err(|_| {
                 ctx.throw_out_of_memory();
@@ -889,7 +843,7 @@ pub fn js_string_toLowerCase(ctx: &JSContext, cc: CallContext) -> JSResult {
             } else {
                 d.make_ascii_uppercase();
             }
-            StringBuf::Utf8(d)
+            StringBuf::Ascii(d)
         }
         StringBuf::Utf16(s) => {
             let mut w = Vec::<u16>::new();
@@ -1000,18 +954,16 @@ pub fn js_string_iterator_next(
 
     if let ObjectDetail::STRING_ITERATOR(it) = isa.deref_mut() {
         let ss = unsafe { it.obj.string_unchecked() };
-        let idx = it.idx;
 
         // iterate over string buf to get char or code at `idx`
-        let mut str_iter = ss.content().iter_since(idx as usize);
-        if let Some(c) = str_iter.next() {
-            it.idx = idx + 1;
+        if let Some((cursor, c)) = ss.content().iter_since(it.idx as usize).next() {
+            it.idx += cursor as u32;
             *state = IteratorState::NotDone;
             match c {
                 StringChar::Char(c) => ctx.create_string_from_char(c),
                 StringChar::BrokenCode(c) => {
                     ctx.create_string_from_content(if (0..=255).contains(&c) {
-                        StringBuf::Utf8(vec![c as u8])
+                        StringBuf::Ascii(vec![c as u8])
                     } else {
                         StringBuf::Utf16(vec![c as u16])
                     })
@@ -1068,25 +1020,45 @@ pub fn js_string_fromCodePoint(ctx: &JSContext, cc: CallContext) -> JSResult {
     // XXX: could pre-compute string length if all arguments are JS_TAG_INT
     let mut res_string = StringBuf::Empty;
 
-    for a in cc.arguments() {
-        let c: i32 = if let JSValue::Int(i) = a {
-            *i
-        } else {
-            let d: f64 = a.coerce_to_f64(ctx)?;
-            d as i32
-        };
-
-        if let Some(c) = char::from_u32(c as u32) {
-            res_string.push_char(c).map_err(|_| {
+    let n = cc.length();
+    if n > 0 {
+        res_string
+            .try_reserve_exact(cc.length() as usize)
+            .map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1
             })?;
-        } else {
-            JS_ThrowRangeError(ctx, "invalid code point");
-            return Err(-1);
+
+        for a in cc.arguments() {
+            let code: i32 = if let JSValue::Int(i) = a {
+                *i
+            } else {
+                let mut d: f64 = a.coerce_to_f64(ctx)?;
+                if d.fract() == 0.0 {
+                    let n = d.trunc() as i64;
+                    if n < 0 || n > 0x10ffff {
+                        -1 // bad code
+                    } else {
+                        n as i32
+                    }
+                } else {
+                    -1 // bad code
+                }
+            };
+
+            if let Some(c) = char::from_u32(code as u32) {
+                res_string.push_char(c).map_err(|_| {
+                    ctx.throw_out_of_memory();
+                    -1
+                })?;
+            } else {
+                JS_ThrowRangeError(ctx, "invalid code point");
+                return Err(-1);
+            }
         }
     }
 
+    res_string.shrink_to_fit();
     ctx.create_string_from_content(res_string)
         .map(JSValue::String)
 }

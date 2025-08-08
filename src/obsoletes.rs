@@ -3798,5 +3798,5 @@ pub fn JS_AtomSymbolHasDescription(ctx: &JSContext, atom: JSAtom) -> bool {
 /// this func is used as a class exotic method, `obj` is supposed to be an object of JS_CLASS_STRING class.
 #[deprecated(note = "use TryInto<JSString> to convert obj into JSString, then get length")]
 pub(crate) fn js_string_obj_get_length(obj: JSValue) -> usize {
-    TryInto::<JSString>::try_into(obj).map_or(0, |s| s.len())
+    TryInto::<JSString>::try_into(obj).map_or(0, |s| s.buf_len())
 }

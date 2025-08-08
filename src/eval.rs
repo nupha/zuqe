@@ -277,7 +277,7 @@ impl JSString {
     ) -> JSValue {
         ctx.eval_source(
             &this_obj,
-            self.content().to_str().as_bytes(),
+            self.content().to_utf8().as_bytes(),
             filename,
             flags,
             scope_idx,

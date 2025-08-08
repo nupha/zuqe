@@ -279,13 +279,13 @@ impl JSValue {
             Self::String(s) => {
                 if prop == JS_ATOM_length {
                     // string length
-                    Ok(JSValue::from(s.len() as u32))
+                    Ok(JSValue::from(s.buf_len() as u32))
                 } else if prop.is_int_type() {
                     // get code at index
                     let idx = __JS_AtomToUInt32(prop);
                     if let Some(code) = s.content().get(idx as usize) {
                         ctx.create_string_from_content(if (0..=255).contains(&code) {
-                            StringBuf::Utf8(vec![code as u8])
+                            StringBuf::Ascii(vec![code as u8])
                         } else {
                             StringBuf::Utf16(vec![code])
                         })
