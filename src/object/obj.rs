@@ -189,15 +189,14 @@ impl std::fmt::Display for ObjectInner {
 
         #[cfg(debug_assertions)]
         {
-            write!(f, "[{name} {:p}", self.id() as *const std::ffi::c_void)?;
-
-            if let Some(tag) = unsafe { self._debug_hint.get().as_ref().unwrap() } {
-                write!(f, " {tag}]")
+            if let Some(hint) = unsafe { self._debug_hint.get().as_ref().unwrap() } {
+                write!(f, "<{hint}>")
             } else {
                 let sh = self.shape.borrow();
                 write!(
                     f,
-                    " shape={:p} proto={}]",
+                    "[{name} {:p} shape={:p} proto={}]",
+                    self.id() as *const std::ffi::c_void,
                     sh.as_ref().map_or(0, |s| s.id()) as *const std::ffi::c_void,
                     sh.as_ref()
                         .and_then(|s| s.0.borrow().proto.clone())
