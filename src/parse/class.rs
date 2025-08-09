@@ -113,7 +113,7 @@ impl<'s> JSParseState<'s> {
 
             let idx = find_private_class_field(&ctx, fd, name, (*fd).scope_level);
             if idx >= 0 {
-                let vd = (*fd).vars.get_mut(idx as usize).unwrap();
+                let vd = (&mut (*fd).vars).get_mut(idx as usize).unwrap();
                 let var_kind = vd.var_kind();
 
                 if matches!(
@@ -706,7 +706,7 @@ impl<'s> JSParseState<'s> {
                 }
                 // patch the start of the function to enable the OP_add_brand_instance code
                 unsafe {
-                    (*cf.fields_init_fd).byte_code[cf.brand_push_pos as usize] =
+                    (&mut (*cf.fields_init_fd).byte_code)[cf.brand_push_pos as usize] =
                         OpCode::PUSH_TRUE as u8;
                 }
             }
@@ -897,7 +897,7 @@ pub unsafe fn add_private_class_field(
         return -1;
     };
 
-    let vd = (*fd).vars.get_mut(idx as usize).unwrap();
+    let vd = (&mut (*fd).vars).get_mut(idx as usize).unwrap();
     vd.set_is_lexical(true);
     vd.set_is_const(true);
     vd.set_is_static_private(is_static);
@@ -912,7 +912,7 @@ pub unsafe fn find_private_class_field(
     name: JSAtom,
     scope_level: i32,
 ) -> i32 {
-    let mut idx = (*fd).scopes[scope_level as usize].first;
+    let mut idx = (&(*fd).scopes)[scope_level as usize].first;
     while idx != -1 {
         let vd = (&(*fd).vars).get(idx as usize).unwrap();
         if vd.scope_level != scope_level {

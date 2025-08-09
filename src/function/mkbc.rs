@@ -399,61 +399,68 @@ pub unsafe fn add_eval_variables(ctx: &JSContext, s: &mut JSFunctionDef) {
     debug_assert!(s.is_eval || s.closure_vars.as_ref().map_or(0, |x| x.len()) == 0);
 
     // XXX: inefficient, but eval performance is less critical
+    // TODO: use parent_iter() iterator
     let mut cur_fd = s as *mut JSFunctionDef;
     loop {
-        let scope_level = (*cur_fd).parent_scope_level;
+        let scope_level = (&*cur_fd).parent_scope_level;
 
-        if let Some(p) = (*cur_fd).parent.as_mut() {
+        if let Some(p) = (&*cur_fd).parent.as_mut() {
             cur_fd = p;
         } else {
             break;
         }
 
         // add 'this' if it was not previously added
-        if !has_this_binding && (*cur_fd).has_this_binding {
-            if (*cur_fd).this_var_idx.is_none() {
-                (*cur_fd)
+        if !has_this_binding && (&*cur_fd).has_this_binding {
+            if (&*cur_fd).this_var_idx.is_none() {
+                (&mut *cur_fd)
                     .this_var_idx
-                    .replace((*cur_fd).add_var_this(ctx).unwrap());
+                    .replace((&mut *cur_fd).add_var_this(ctx).unwrap());
             }
-            if (*cur_fd).new_target_var_idx.is_none() {
-                (*cur_fd)
-                    .new_target_var_idx
-                    .replace((*cur_fd).add_var(ctx, JS_ATOM_new_target).expect("TODO"));
+            if (&*cur_fd).new_target_var_idx.is_none() {
+                (&mut *cur_fd).new_target_var_idx.replace(
+                    (&mut *cur_fd)
+                        .add_var(ctx, JS_ATOM_new_target)
+                        .expect("TODO"),
+                );
             }
-            if (*cur_fd).is_derived_class_constructor
-                && (*cur_fd).this_active_func_var_idx.is_none()
+            if (&*cur_fd).is_derived_class_constructor
+                && (&*cur_fd).this_active_func_var_idx.is_none()
             {
-                (*cur_fd).this_active_func_var_idx.replace(
-                    (*cur_fd)
+                (&mut *cur_fd).this_active_func_var_idx.replace(
+                    (&mut *cur_fd)
                         .add_var(ctx, JS_ATOM_this_active_func)
                         .expect("TODO"),
                 );
             }
-            if (*cur_fd).has_home_object && (*cur_fd).home_object_var_idx.is_none() {
-                (*cur_fd)
-                    .home_object_var_idx
-                    .replace((*cur_fd).add_var(ctx, JS_ATOM__home_object_).expect("TODO"));
+            if (&*cur_fd).has_home_object && (&*cur_fd).home_object_var_idx.is_none() {
+                (&mut *cur_fd).home_object_var_idx.replace(
+                    (&mut *cur_fd)
+                        .add_var(ctx, JS_ATOM__home_object_)
+                        .expect("TODO"),
+                );
             }
             has_this_binding = true;
         }
 
         // add 'arguments' if it was not previously added
-        if !has_arguments_binding && (*cur_fd).has_arguments_binding {
-            (*cur_fd).add_arguments(ctx, false).unwrap();
+        if !has_arguments_binding && (&*cur_fd).has_arguments_binding {
+            (&mut *cur_fd).add_arguments(ctx, false).unwrap();
             has_arguments_binding = true;
         }
 
         // add function name
-        if (*cur_fd).is_func_expr && (*cur_fd).func_name != JS_ATOM_NULL {
-            (*cur_fd).add_func_var(ctx, (*cur_fd).func_name).unwrap();
+        if (&*cur_fd).is_func_expr && (&*cur_fd).func_name != JS_ATOM_NULL {
+            (&mut *cur_fd)
+                .add_func_var(ctx, (*cur_fd).func_name)
+                .unwrap();
         }
 
         // add lexical variables
-        debug_assert!((0..(*cur_fd).scopes.len() as i32).contains(&scope_level));
-        let mut scope_idx = (*cur_fd).scopes[scope_level as usize].first;
+        debug_assert!((0..(&*cur_fd).scopes.len() as i32).contains(&scope_level));
+        let mut scope_idx = (&*cur_fd).scopes[scope_level as usize].first;
         while scope_idx >= 0 {
-            let vd = (*cur_fd).vars.get_mut(scope_idx as usize).unwrap();
+            let vd = (&mut *cur_fd).vars.get_mut(scope_idx as usize).unwrap();
             vd.set_is_captured(true);
             s.get_closure_var2(
                 ctx,
@@ -474,7 +481,7 @@ pub unsafe fn add_eval_variables(ctx: &JSContext, s: &mut JSFunctionDef) {
         if !is_arg_scope {
             // add unscoped variables
             // XXX: propagate is_const and var_kind too ?
-            for (i, vd) in (*cur_fd).args.iter().enumerate() {
+            for (i, vd) in (&*cur_fd).args.iter().enumerate() {
                 if vd.var_name != JS_ATOM_NULL {
                     s.get_closure_var2(
                         ctx,
@@ -509,7 +516,7 @@ pub unsafe fn add_eval_variables(ctx: &JSContext, s: &mut JSFunctionDef) {
                 }
             }
         } else {
-            for (i, vd) in (*cur_fd).vars.iter().enumerate() {
+            for (i, vd) in (&*cur_fd).vars.iter().enumerate() {
                 // do not close top level last result
                 if vd.scope_level == 0 && is_var_in_arg_scope(vd) {
                     s.get_closure_var2(
@@ -528,9 +535,9 @@ pub unsafe fn add_eval_variables(ctx: &JSContext, s: &mut JSFunctionDef) {
             }
         }
 
-        if (*cur_fd).is_eval {
+        if (&*cur_fd).is_eval {
             // add direct eval variables (we are necessarily at the top level)
-            if let Some(cvars) = (*cur_fd).closure_vars.as_ref() {
+            if let Some(cvars) = (&*cur_fd).closure_vars.as_ref() {
                 for (i, cv) in cvars.iter().enumerate() {
                     s.get_closure_var2(
                         ctx,

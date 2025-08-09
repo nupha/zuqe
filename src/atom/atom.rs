@@ -416,7 +416,7 @@ pub unsafe fn JS_FreeAtomStruct(rt: *mut JSRuntime, atom: JSAtom) {
 
     let aptr = unsafe {
         std::ptr::replace(
-            &mut (*rt).atom_slots[aid as usize],
+            (&mut *rt).atom_slots.get_mut(aid as usize).unwrap(),
             std::ptr::null::<JSStringInner>(),
         )
     };
@@ -424,7 +424,7 @@ pub unsafe fn JS_FreeAtomStruct(rt: *mut JSRuntime, atom: JSAtom) {
     debug_assert_eq!(Rc::strong_count(&adesc), 1);
 
     let hash = adesc.hash();
-    let mut ids = (*rt).atom_hash_lut.remove(&hash).unwrap();
+    let mut ids = (&mut *rt).atom_hash_lut.remove(&hash).unwrap();
     debug_assert!(!ids.is_empty());
 
     if ids.len() == 1 {
@@ -435,7 +435,7 @@ pub unsafe fn JS_FreeAtomStruct(rt: *mut JSRuntime, atom: JSAtom) {
             .position(|&x| u16::from(x) == aid as u16)
             .unwrap();
         ids.swap_remove(i);
-        (*rt).atom_hash_lut.insert(hash, ids);
+        (&mut *rt).atom_hash_lut.insert(hash, ids);
     }
 }
 

@@ -117,7 +117,7 @@ impl JSFunctionDef {
                     };
 
                     unsafe {
-                        mark_eval_captured_variables(ctx, self, scope as _);
+                        mark_eval_captured_variables(self, scope as _);
                     }
                     push_vec_u8(&mut bc_out, op);
                     push_vec_u16(&mut bc_out, call_argc);
@@ -127,7 +127,7 @@ impl JSFunctionDef {
                     // convert scope index to adjusted variable index
                     let scope = unsafe { read_from_ptr::<u16>(bc_buf_ptr.add(pos + 1)) };
                     unsafe {
-                        mark_eval_captured_variables(ctx, self, scope as _);
+                        mark_eval_captured_variables(self, scope as _);
                     }
                     push_vec_u8(&mut bc_out, op);
                     push_vec_u16(&mut bc_out, (self.scopes[scope as usize].first + 1) as _);
@@ -510,14 +510,10 @@ impl JSFunctionDef {
     }
 }
 
-pub unsafe fn mark_eval_captured_variables(
-    ctx: &JSContext,
-    s: *mut JSFunctionDef,
-    scope_level: i32,
-) {
-    let mut idx = (*s).scopes[scope_level as usize].first;
+pub fn mark_eval_captured_variables(s: &mut JSFunctionDef, scope_level: i32) {
+    let mut idx = s.scopes[scope_level as usize].first;
     while idx >= 0 {
-        let vd = (*s).vars.get_mut(idx as usize).unwrap();
+        let vd = s.vars.get_mut(idx as usize).unwrap();
         vd.set_is_captured(true);
         idx = vd.scope_next;
     }

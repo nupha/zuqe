@@ -12,9 +12,9 @@ use super::{
 };
 
 impl<'s> JSParseState<'s> {
+    /// parse function call for current function def.
     pub(super) fn parse_func_call(
         &mut self,
-        fd: *mut JSFunctionDef,
         call_type: FuncCallType,
         has_optional_chain: bool,
         optional_chaining_label: &mut i32,
@@ -22,15 +22,13 @@ impl<'s> JSParseState<'s> {
         self.next_token()?;
 
         let opcode = if call_type == FuncCallType::FUNC_CALL_NORMAL {
-            unsafe {
-                self.parse_func_call2(fd, call_type, has_optional_chain, optional_chaining_label)
-            }
+            unsafe { self.parse_func_call2(call_type, has_optional_chain, optional_chaining_label) }
         } else {
             opcodes::OP_invalid
         };
 
         self.parse_func_call3(
-            fd,
+            unsafe { self.cur_func_def.as_mut().unwrap() },
             opcode,
             call_type,
             has_optional_chain,
@@ -40,7 +38,7 @@ impl<'s> JSParseState<'s> {
 
     pub(super) fn parse_func_call3(
         &mut self,
-        fd: *mut JSFunctionDef,
+        fd: &mut JSFunctionDef, // TODO: remove this arg
         opcode: u8,
         call_type: FuncCallType,
         has_optional_chain: bool,
@@ -141,10 +139,8 @@ impl<'s> JSParseState<'s> {
                 }
                 opcodes::OP_eval => {
                     self.emit_op(OpCode::APPLY_EVAL);
-                    self.emit_u16(unsafe { (*fd).scope_level } as _);
-                    unsafe {
-                        (*fd).has_eval_call = true;
-                    }
+                    self.emit_u16(fd.scope_level as _);
+                    fd.has_eval_call = true;
                 }
                 _ => {
                     if call_type == FuncCallType::FUNC_CALL_SUPER_CTOR {
@@ -181,32 +177,30 @@ impl<'s> JSParseState<'s> {
 
     pub(super) unsafe fn parse_func_call2(
         &mut self,
-        fd: *mut JSFunctionDef,
         call_type: FuncCallType,
         has_optional_chain: bool,
         optional_chaining_label: &mut i32,
     ) -> u8 {
-        let mut opcode = get_prev_opcode(fd);
+        let mut opcode = get_prev_opcode(self.cur_func());
         let drop_count: i32;
 
         match opcode {
             opcodes::OP_get_field => {
                 /* keep the object on the stack */
-                (*fd).byte_code[(*fd).last_opcode_pos as usize] = opcodes::OP_get_field2;
+                let fd = self.cur_func_mut();
+                fd.byte_code[fd.last_opcode_pos as usize] = opcodes::OP_get_field2;
                 drop_count = 2;
             }
             opcodes::op_get_field_opt_chain => {
+                let fd = self.cur_func_mut();
                 let opt_chain_label = read_from_ptr::<u32>(
-                    (*fd)
-                        .byte_code
+                    fd.byte_code
                         .as_ptr()
-                        .offset((*fd).last_opcode_pos as isize + 1 + 4 + 1),
+                        .offset(fd.last_opcode_pos as isize + 1 + 4 + 1),
                 );
                 /* keep the object on the stack */
-                (*fd).byte_code[(*fd).last_opcode_pos as usize] = opcodes::OP_get_field2;
-                (*fd)
-                    .byte_code
-                    .truncate((*fd).last_opcode_pos as usize + 1 + 4); // ...size = fd->last_opcode_pos + 1 + 4;
+                fd.byte_code[fd.last_opcode_pos as usize] = opcodes::OP_get_field2;
+                fd.byte_code.truncate(fd.last_opcode_pos as usize + 1 + 4); // ...size = fd->last_opcode_pos + 1 + 4;
                 let next_label = self.emit_goto(OpCode::GOTO, -1);
                 self.emit_label(opt_chain_label as _);
                 /* need an additional undefined value for the
@@ -219,25 +213,27 @@ impl<'s> JSParseState<'s> {
             }
             opcodes::op_scope_get_private_field => {
                 /* keep the object on the stack */
-                (*fd).byte_code[(*fd).last_opcode_pos as usize] =
-                    opcodes::op_scope_get_private_field2;
+                let fd = self.cur_func_mut();
+                fd.byte_code[fd.last_opcode_pos as usize] = opcodes::op_scope_get_private_field2;
                 drop_count = 2;
             }
             opcodes::OP_get_array_el => {
                 /* keep the object on the stack */
-                (*fd).byte_code[(*fd).last_opcode_pos as usize] = opcodes::OP_get_array_el2;
+                let fd = self.cur_func_mut();
+                fd.byte_code[fd.last_opcode_pos as usize] = opcodes::OP_get_array_el2;
                 drop_count = 2;
             }
             opcodes::op_get_array_el_opt_chain => {
+                let fd = self.cur_func_mut();
                 let opt_chain_label = read_from_ptr::<u32>(
-                    (*fd)
-                        .byte_code
+                    fd.byte_code
                         .as_ptr()
-                        .offset((*fd).last_opcode_pos as isize + 1 + 1),
+                        .offset(fd.last_opcode_pos as isize + 1 + 1),
                 );
                 /* keep the object on the stack */
-                (*fd).byte_code[(*fd).last_opcode_pos as usize] = opcodes::OP_get_array_el2;
-                (*fd).byte_code.truncate((*fd).last_opcode_pos as usize + 1);
+                let fd = self.cur_func_mut();
+                fd.byte_code[fd.last_opcode_pos as usize] = opcodes::OP_get_array_el2;
+                fd.byte_code.truncate(fd.last_opcode_pos as usize + 1);
                 let next_label = self.emit_goto(OpCode::GOTO, -1);
                 self.emit_label(opt_chain_label as _);
                 /* need an additional undefined value for the
@@ -249,17 +245,16 @@ impl<'s> JSParseState<'s> {
                 opcode = opcodes::OP_get_array_el;
             }
             opcodes::op_scope_get_var => {
+                let fd = self.cur_func_mut();
                 let name = JSAtom(read_from_ptr::<u32>(
-                    (*fd)
-                        .byte_code
+                    fd.byte_code
                         .as_ptr()
-                        .offset((*fd).last_opcode_pos as isize + 1),
+                        .offset(fd.last_opcode_pos as isize + 1),
                 ));
                 let scope = read_from_ptr::<u16>(
-                    (*fd)
-                        .byte_code
+                    fd.byte_code
                         .as_ptr()
-                        .offset((*fd).last_opcode_pos as isize + 5),
+                        .offset(fd.last_opcode_pos as isize + 5),
                 );
                 if name == JS_ATOM_eval
                     && call_type == FuncCallType::FUNC_CALL_NORMAL
@@ -276,15 +271,16 @@ impl<'s> JSParseState<'s> {
                     /* XXX: always generate the op_scope_get_ref
                     and remove it in variable resolution
                     pass ? */
-                    if (*fd).has_with_scope(scope as _) {
+                    if fd.has_with_scope(scope as _) {
                         opcode = opcodes::op_scope_get_ref;
-                        (&mut (*fd).byte_code)[(*fd).last_opcode_pos as usize] = opcode;
+                        fd.byte_code[fd.last_opcode_pos as usize] = opcode;
                     }
                 }
                 drop_count = 1;
             }
             opcodes::OP_get_super_value => {
-                (*fd).byte_code[(*fd).last_opcode_pos as usize] = opcodes::OP_get_array_el;
+                let fd = self.cur_func_mut();
+                fd.byte_code[fd.last_opcode_pos as usize] = opcodes::OP_get_array_el;
                 /* on stack: this func_obj */
                 opcode = opcodes::OP_get_array_el;
                 drop_count = 2;
@@ -304,7 +300,7 @@ impl<'s> JSParseState<'s> {
 
     fn emit_func_call(
         &mut self,
-        fd: *mut JSFunctionDef,
+        fd: &mut JSFunctionDef,
         call_type: FuncCallType,
         opcode: u8,
         arg_count: u16,
@@ -318,13 +314,12 @@ impl<'s> JSParseState<'s> {
                 self.emit_u16(arg_count);
             }
             opcodes::OP_eval => {
-                debug_assert!(unsafe { (*fd).scope_level } >= 0);
+                debug_assert!(fd.scope_level >= 0);
                 self.emit_op(OpCode::EVAL);
                 self.emit_u16(arg_count);
-                self.emit_u16(unsafe { (*fd).scope_level } as _);
-                unsafe {
-                    (*fd).has_eval_call = true;
-                }
+                self.emit_u16(fd.scope_level as _);
+
+                fd.has_eval_call = true;
             }
             _ => {
                 if call_type == FuncCallType::FUNC_CALL_SUPER_CTOR {

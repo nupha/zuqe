@@ -194,7 +194,7 @@ impl StringBuf {
             // same type
             (Self::Utf16(mut s1), Self::Utf16(s2)) => {
                 if let Err(e) = s1.try_reserve_exact(s2.len()) {
-                    let _ = std::mem::replace(self, Self::Utf16(s1));
+                    *self = Self::Utf16(s1);
                     return Err(e);
                 } else {
                     s1.extend_from_slice(&s2.as_slice()[source.buf_ranges.clone()]);
@@ -203,7 +203,7 @@ impl StringBuf {
             }
             (Self::Ascii(mut s1), Self::Ascii(s2)) => {
                 if let Err(e) = s1.try_reserve_exact(s2.len()) {
-                    let _ = std::mem::replace(self, Self::Ascii(s1));
+                    *self = Self::Ascii(s1);
                     return Err(e);
                 } else {
                     s1.extend_from_slice(&s2.as_slice()[source.buf_ranges.clone()]);
@@ -213,7 +213,7 @@ impl StringBuf {
 
             (Self::Utf16(mut s1), Self::Ascii(s2)) => {
                 if let Err(e) = s1.try_reserve(s2.len()) {
-                    let _ = std::mem::replace(self, Self::Utf16(s1));
+                    *self = Self::Utf16(s1);
                     return Err(e);
                 }
                 for c in unsafe {

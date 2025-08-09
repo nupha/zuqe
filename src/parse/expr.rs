@@ -566,7 +566,6 @@ impl<'s> JSParseState<'s> {
 
                 if self.token.val == b'(' as i32 && accept_lparen {
                     self.parse_func_call(
-                        self.cur_func_def,
                         call_type,
                         has_optional_chain,
                         &mut optional_chaining_label,
@@ -574,13 +573,13 @@ impl<'s> JSParseState<'s> {
                     call_type = FuncCallType::FUNC_CALL_NORMAL;
                 } else if self.token.val == b'[' as i32 {
                     self.parse_array_access(
-                        self.cur_func_def,
+                        unsafe { self.cur_func_def.as_ref().unwrap() },
                         has_optional_chain,
                         &mut optional_chaining_label,
                     )?;
                 } else {
                     self.parse_property(
-                        self.cur_func_def,
+                        unsafe { self.cur_func_def.as_ref().unwrap() },
                         has_optional_chain,
                         &mut optional_chaining_label,
                     )?;
@@ -595,14 +594,13 @@ impl<'s> JSParseState<'s> {
                 call_type = FuncCallType::FUNC_CALL_TEMPLATE;
                 let op = unsafe {
                     self.parse_func_call2(
-                        self.cur_func_def,
                         call_type,
                         has_optional_chain,
                         &mut optional_chaining_label,
                     )
                 };
                 self.parse_func_call3(
-                    self.cur_func_def,
+                    unsafe { self.cur_func_def.as_mut().unwrap() },
                     op,
                     call_type,
                     has_optional_chain,
@@ -611,23 +609,18 @@ impl<'s> JSParseState<'s> {
                 call_type = FuncCallType::FUNC_CALL_NORMAL;
             } else if self.token.val == CHAR_BRACKET_L && accept_lparen {
                 /* function call */
-                self.parse_func_call(
-                    self.cur_func_def,
-                    call_type,
-                    has_optional_chain,
-                    &mut optional_chaining_label,
-                )?;
+                self.parse_func_call(call_type, has_optional_chain, &mut optional_chaining_label)?;
                 call_type = FuncCallType::FUNC_CALL_NORMAL;
             } else if self.token.val == b'.' as i32 {
                 self.next_token()?;
                 self.parse_property(
-                    self.cur_func_def,
+                    unsafe { self.cur_func_def.as_ref().unwrap() },
                     has_optional_chain,
                     &mut optional_chaining_label,
                 )?;
             } else if self.token.val == b'[' as i32 {
                 self.parse_array_access(
-                    self.cur_func_def,
+                    unsafe { self.cur_func_def.as_ref().unwrap() },
                     has_optional_chain,
                     &mut optional_chaining_label,
                 )?;

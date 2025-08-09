@@ -520,7 +520,7 @@ pub fn get_label_pos(s: &JSFunctionDef, mut label: i32) -> i32 {
 }
 
 pub fn skip_dead_code(
-    s: *mut JSFunctionDef,
+    s: &mut JSFunctionDef,
     bc_buf: *const u8,
     bc_len: usize,
     pos: usize,
@@ -540,11 +540,11 @@ pub fn skip_dead_code(
         } else if op == opcodes::op_label {
             unsafe {
                 let label = read_from_ptr::<u32>(bc_buf.add(current_pos as usize + 1));
-                if (*s).update_label_ref_count(label, 0) > 0 {
+                if s.update_label_ref_count(label, 0) > 0 {
                     break;
                 }
 
-                debug_assert!((*s).label_slots[label as usize].pending_relocs.is_empty());
+                debug_assert!(s.label_slots[label as usize].pending_relocs.is_empty());
             }
 
             // if false {
@@ -567,7 +567,7 @@ pub fn skip_dead_code(
             match oi.fmt {
                 OpcodeFormat::LABEL | OpcodeFormat::LABEL_U16 => unsafe {
                     let label = read_from_ptr::<u32>(bc_buf.add(current_pos + 1));
-                    (*s).update_label_ref_count(label, -1);
+                    s.update_label_ref_count(label, -1);
                 },
                 f @ (OpcodeFormat::ATOM_LABEL_U8
                 | OpcodeFormat::ATOM_LABEL_U16
@@ -579,11 +579,11 @@ pub fn skip_dead_code(
                         OpcodeFormat::ATOM_LABEL_U8 | OpcodeFormat::ATOM_LABEL_U16
                     ) {
                         let label = read_from_ptr::<u32>(bc_buf.add(current_pos + 5));
-                        (*s).update_label_ref_count(label, -1);
+                        s.update_label_ref_count(label, -1);
                     }
 
                     let atom = JSAtom(read_from_ptr::<u32>(bc_buf.add(current_pos + 1)));
-                    JS_FreeAtom(&(*s).ctx, atom);
+                    JS_FreeAtom(&s.ctx, atom);
                 },
                 _ => {}
             }
@@ -610,24 +610,24 @@ pub fn get_loc_or_ref(bc: &mut Vec<u8>, is_ref: bool, idx: u16) {
 
 pub unsafe fn instantiate_hoisted_definitions(
     ctx: &JSContext,
-    s: *mut JSFunctionDef,
+    s: &mut JSFunctionDef,
     bc: &mut Vec<u8>,
 ) {
     // add the hoisted functions in arguments and local variables
-    for (i, vd) in (*s).args.iter().enumerate() {
+    for (i, vd) in s.args.iter().enumerate() {
         if vd.func_pool_idx >= 0 {
             push_vec_u8(bc, OpCode::FCLOSURE as u8);
-            push_vec_u32(bc, (*vd).func_pool_idx as u32);
+            push_vec_u32(bc, vd.func_pool_idx as u32);
 
             push_vec_u8(bc, OpCode::PUT_ARG as u8);
             push_vec_u16(bc, i as u16);
         }
     }
 
-    for (i, vd) in (*s).vars.iter().enumerate() {
+    for (i, vd) in s.vars.iter().enumerate() {
         if vd.scope_level == 0 && vd.func_pool_idx >= 0 {
             push_vec_u8(bc, OpCode::FCLOSURE as u8);
-            push_vec_u32(bc, (*vd).func_pool_idx as u32);
+            push_vec_u32(bc, vd.func_pool_idx as u32);
 
             push_vec_u8(bc, OpCode::PUT_LOC as u8);
             push_vec_u16(bc, i as _);
@@ -639,8 +639,8 @@ pub unsafe fn instantiate_hoisted_definitions(
     // the module global variables must be initialized before
     // evaluating the module so that the exported functions are
     // visible if there are cyclic module references
-    if (*s).module.is_some() {
-        let l = (*s)
+    if s.module.is_some() {
+        let l = s
             .add_label()
             .expect("TODO: unhandled create label exception");
         label_next.replace(l);
@@ -650,23 +650,23 @@ pub unsafe fn instantiate_hoisted_definitions(
         push_vec_u8(bc, OpCode::IF_FALSE as u8);
         push_vec_u32(bc, l);
 
-        (*s).update_label_ref_count(l, 1);
+        s.update_label_ref_count(l, 1);
 
         #[cfg(feature = "short_opcode")]
         {
-            (*s).jump_slots_cap += 1;
+            s.jump_slots_cap += 1;
         }
     }
 
     // add the global variables (only happens if JSFunctionDef::is_global_var is true)
-    for hf in (*s).global_vars.iter() {
+    for hf in s.global_vars.iter() {
         let mut has_closure: i32 = 0;
         let mut force_init = hf.force_init();
         let mut idx = 0;
 
         // we are in an eval, so the closure contains all the enclosing variables.
         // If the outer function has a variable environment, create a property for the variable there
-        if let Some(cvars) = (*s).closure_vars.as_ref() {
+        if let Some(cvars) = s.closure_vars.as_ref() {
             for (j, cv) in cvars.iter().enumerate() {
                 idx = j;
                 match cv.var_name {
@@ -689,7 +689,7 @@ pub unsafe fn instantiate_hoisted_definitions(
 
         if has_closure == 0 {
             let mut flags: u32 = 0;
-            if (*s).eval_type != JS_EVAL_TYPE_GLOBAL {
+            if s.eval_type != JS_EVAL_TYPE_GLOBAL {
                 flags |= JS_PROP_CONFIGURABLE;
             }
 
@@ -747,15 +747,15 @@ pub unsafe fn instantiate_hoisted_definitions(
         JS_FreeAtom(ctx, hf.var_name);
     }
 
-    if (*s).module.is_some() {
+    if s.module.is_some() {
         let l = label_next.unwrap();
         push_vec_u8(bc, OpCode::RETURN_UNDEF as u8);
         push_vec_u8(bc, OpCodeTemp::LABEL as u8);
         push_vec_u32(bc, l);
-        (*s).label_slots[l as usize].pos2 = bc.len() as i32;
+        s.label_slots[l as usize].pos2 = bc.len() as i32;
     }
 
-    (*s).global_vars.clear();
+    s.global_vars.clear();
 }
 
 pub struct FunctionDefParentIter<'a> {

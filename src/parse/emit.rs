@@ -593,13 +593,11 @@ impl<'s> JSParseState<'s> {
 }
 
 #[inline(always)]
-pub fn get_prev_opcode(fd: *const JSFunctionDef) -> u8 {
-    unsafe {
-        if (*fd).last_opcode_pos < 0 {
-            OpCode::INVALID as _
-        } else {
-            (*fd).byte_code[(*fd).last_opcode_pos as usize] as _
-        }
+pub fn get_prev_opcode(fd: &JSFunctionDef) -> u8 {
+    if fd.last_opcode_pos < 0 {
+        OpCode::INVALID as _
+    } else {
+        fd.byte_code[fd.last_opcode_pos as usize] as _
     }
 }
 

@@ -205,7 +205,7 @@ impl JSFunctionDef {
             unsafe {
                 if (*cur_fd).is_func_expr && (*cur_fd).func_name == var_name {
                     // add a new variable with the function name
-                    if let Ok(i) = (*cur_fd).add_func_var(ctx, var_name) {
+                    if let Ok(i) = (&mut *cur_fd).add_func_var(ctx, var_name) {
                         var_idx = i as i32;
                     }
                     break;
@@ -215,7 +215,7 @@ impl JSFunctionDef {
             // check eval object
             unsafe {
                 if !is_arg_scope && (*cur_fd).var_object_idx.is_some() && !is_pseudo_var {
-                    let vd = (*cur_fd)
+                    let vd = (&mut *cur_fd)
                         .vars
                         .get_mut((*cur_fd).var_object_idx.unwrap() as usize)
                         .unwrap();
@@ -244,7 +244,7 @@ impl JSFunctionDef {
             // check eval object in argument scope
             unsafe {
                 if !is_pseudo_var && (*cur_fd).arg_var_object_idx.is_some() {
-                    let vd = (*cur_fd)
+                    let vd = (&mut *cur_fd)
                         .vars
                         .get_mut((*cur_fd).arg_var_object_idx.unwrap() as usize)
                         .unwrap();
@@ -347,7 +347,8 @@ impl JSFunctionDef {
             // find the corresponding closure variable
             found_closure = if var_idx & ARGUMENT_VAR_OFFSET != 0 {
                 unsafe {
-                    (*cur_fd).args[(var_idx - ARGUMENT_VAR_OFFSET) as usize].set_is_captured(true);
+                    (&mut *cur_fd).args[(var_idx - ARGUMENT_VAR_OFFSET) as usize]
+                        .set_is_captured(true);
                 }
                 self.get_closure_var(
                     ctx,
@@ -361,7 +362,7 @@ impl JSFunctionDef {
                 )
             } else {
                 let (is_const, is_lexical, var_kind) = {
-                    let vd = unsafe { &mut (*cur_fd).vars[var_idx as usize] };
+                    let vd = unsafe { (&mut *cur_fd).vars.get_mut(var_idx as usize).unwrap() };
                     vd.set_is_captured(true);
                     (vd.is_const(), vd.is_lexical(), vd.var_kind())
                 };

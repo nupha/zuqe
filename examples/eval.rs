@@ -15,29 +15,36 @@ use zhuque::{
 };
 
 fn js_print(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let debug = cc.magic() != 0;
+    let level = cc.magic();
+
+    let color = || {
+        match level {
+            1 => Colors::CyanFg, // debug
+            2 => Colors::GreenFg,
+            3 => Colors::YellowFg,
+            4 => Colors::RedBg,
+            _ => Colors::WhiteFg,
+        }
+    };
 
     for i in 0..cc.length() {
         if i > 0 {
-            print!(" ");
+            colorize_print(" ", color());
         }
+
         let arg = cc.arg(i);
 
-        if debug {
-            colorize_print(
-                if arg.is_object() {
-                    format!("{arg}").into()
-                } else {
-                    arg.to_utf8(ctx)?
-                },
-                Colors::CyanFg,
-            );
-        } else {
-            colorize_print(arg.to_utf8(ctx)?, Colors::GreenFg);
-        }
+        colorize_print(
+            if level == 1 && arg.is_object() {
+                format!("{arg}").into()
+            } else {
+                arg.to_utf8(ctx)?
+            },
+            color(),
+        );
     }
-    println!();
 
+    println!();
     Ok(JSValue::UNDEFINED)
 }
 
@@ -82,20 +89,41 @@ fn main() {
 
     {
         let global = JSValue::Object(ctx.global_obj());
+
+        let printf = NativeFunctionType::Func(js_print);
         global
             .set_property_str(
                 &ctx,
                 "print",
-                ctx.create_native_function(NativeFunctionType::Func(js_print), "print", 0, 0)
-                    .unwrap(),
+                ctx.create_native_function(printf, "print", 0, 0).unwrap(),
             )
             .unwrap();
         global
             .set_property_str(
                 &ctx,
                 "debug",
-                ctx.create_native_function(NativeFunctionType::Func(js_print), "print", 0, 1)
-                    .unwrap(),
+                ctx.create_native_function(printf, "debug", 0, 1).unwrap(),
+            )
+            .unwrap();
+        global
+            .set_property_str(
+                &ctx,
+                "info",
+                ctx.create_native_function(printf, "info", 0, 2).unwrap(),
+            )
+            .unwrap();
+        global
+            .set_property_str(
+                &ctx,
+                "warn",
+                ctx.create_native_function(printf, "warn", 0, 3).unwrap(),
+            )
+            .unwrap();
+        global
+            .set_property_str(
+                &ctx,
+                "error",
+                ctx.create_native_function(printf, "error", 0, 4).unwrap(),
             )
             .unwrap();
     }

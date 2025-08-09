@@ -2071,7 +2071,6 @@ impl Bytecode {
                     }
                     OpCode::STRICT_EQ | OpCode::STRICT_NEQ => {
                         let mut b = SP_TAKE!(-2).strict_eq(&SP_TAKE!(-1));
-                        println!("[O.o] {b}");
                         if opcode == OpCode::STRICT_NEQ {
                             b = !b;
                         }

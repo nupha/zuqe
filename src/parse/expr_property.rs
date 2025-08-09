@@ -12,7 +12,7 @@ use super::{
 impl<'s> JSParseState<'s> {
     pub(super) fn parse_property(
         &mut self,
-        fd: *mut JSFunctionDef,
+        fd: &JSFunctionDef, // TODO: remove this arg
         has_optional_chain: bool,
         optional_chaining_label: &mut i32,
     ) -> Result<(), i32> {
@@ -55,7 +55,7 @@ impl<'s> JSParseState<'s> {
 
     pub(super) fn parse_array_access(
         &mut self,
-        fd: *mut JSFunctionDef,
+        fd: &JSFunctionDef, // TODO: remove this arg
         has_optional_chain: bool,
         optional_chaining_label: &mut i32,
     ) -> Result<(), i32> {
