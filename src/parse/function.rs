@@ -15,9 +15,9 @@ use super::{
     esm::JSParseExportEnum,
     state::{JSParseState, SKIP_HAS_ASSIGNMENT},
     token::{
-        CHAR_BRACKET_L, CHAR_BRACKET_R, CHAR_COMMA, CHAR_CURLY_L, CHAR_CURLY_R, CHAR_EQUAL,
-        CHAR_STAR, TOK_ARROW, TOK_AWAIT, TOK_ELLIPSIS, TOK_FIRST_KEYWORD, TOK_IDENT,
-        TOK_LAST_KEYWORD, TOK_LET, TOK_VAR, TOK_YIELD,
+        CHAR_BRACKET_R, CHAR_COMMA, CHAR_CURLY_L, CHAR_CURLY_R, CHAR_EQUAL, CHAR_STAR, TOK_ARROW,
+        TOK_AWAIT, TOK_ELLIPSIS, TOK_FIRST_KEYWORD, TOK_IDENT, TOK_LAST_KEYWORD, TOK_LET, TOK_VAR,
+        TOK_YIELD,
     },
 };
 
@@ -37,13 +37,12 @@ pub enum JSParseFunctionEnum {
 
 impl<'s> JSParseState<'s> {
     /// Creates a sub function definition (as child of the current function def).
-    /// to parse the function body.
     /// Returns the newly created function definition.
     /// For JS_PARSE_FUNC_STATEMENT, JS_PARSE_FUNC_EXPR, JS_PARSE_FUNC_ARROW and JS_PARSE_FUNC_VAR,
     /// func_name must be JS_ATOM_NULL.
     ///
     /// Note: `func_name` is **CONSUMED** inside.
-    fn parse_function_body(
+    fn parse_function_sub(
         &mut self,
         func_type: JSParseFunctionEnum,
         func_kind: JSFunctionKindEnum,
@@ -53,11 +52,11 @@ impl<'s> JSParseState<'s> {
         is_expr: bool,
     ) -> Result<Box<JSFunctionDef>, i32> {
         // save original cur_func
-        let fd0 = self.cur_func_def;
+        let parent_fd = self.cur_func_def;
 
         let mut sub_fd = JSFunctionDef::new(
             &self.ctx,
-            fd0,
+            parent_fd,
             false,
             is_expr,
             self.filename,
@@ -115,14 +114,13 @@ impl<'s> JSParseState<'s> {
         sub_fd.func_kind = func_kind;
         sub_fd.func_type = func_type;
 
-        // make sub_fd to be the cur_func
+        // set sub_fd to be the cur_func
         let fd1 = sub_fd.deref_mut();
         self.cur_func_def = fd1;
-
         // IMPORTANT: to restore original cur_func on exit.
         let mut self_ptr = unsafe { std::ptr::NonNull::new_unchecked(self) };
         crate::defer!(unsafe {
-            self_ptr.as_mut().cur_func_def = fd0;
+            self_ptr.as_mut().cur_func_def = parent_fd;
         });
 
         //
@@ -155,7 +153,7 @@ impl<'s> JSParseState<'s> {
             fd1.add_arg(&self.ctx, self.token.atom().unwrap())?;
             fd1.defined_arg_count = 1;
         } else if func_type != JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT {
-            if self.token.val == CHAR_BRACKET_L {
+            if self.token.val == '(' as i32 {
                 let mut skip_bits: i32 = 0;
                 /* if there is an '=' inside the parameter list, we
                 consider there is a parameter expression inside */
@@ -165,7 +163,7 @@ impl<'s> JSParseState<'s> {
                 }
                 self.next_token()?;
             } else {
-                self.parse_expect(CHAR_BRACKET_L)?;
+                self.parse_expect('(' as i32)?;
             }
 
             if fd1.has_parameter_expressions {
@@ -173,7 +171,7 @@ impl<'s> JSParseState<'s> {
                 self.push_scope()?;
             }
 
-            while self.token.val != CHAR_BRACKET_R {
+            while self.token.val != ')' as i32 {
                 let rest = if self.token.val == TOK_ELLIPSIS {
                     fd1.has_simple_parameter_list = false;
                     self.next_token()?;
@@ -411,7 +409,7 @@ impl<'s> JSParseState<'s> {
                 }
 
                 // function declareation done, returns new fd.
-                self.cur_func_def = fd0; // restore cur_func to previoud fd
+                self.cur_func_def = parent_fd; // restore cur_func to previoud fd
                 return Ok(sub_fd);
             }
         }
@@ -485,8 +483,8 @@ impl<'s> JSParseState<'s> {
             JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT | JSParseFunctionEnum::JS_PARSE_FUNC_VAR
         );
 
-        // save original cur_func
-        let fd0 = unsafe { self.cur_func_def.as_mut().unwrap() };
+        // save current function def
+        let cur_fd = unsafe { self.cur_func_def.as_mut().unwrap() };
 
         let mut lexical_func_idx: i32 = -1;
         let mut create_func_var = false;
@@ -534,7 +532,7 @@ impl<'s> JSParseState<'s> {
                 }
 
                 if self.token.val == TOK_IDENT
-                    || ((self.token.val == TOK_YIELD && fd0.js_mode & JS_MODE_STRICT as u8 == 0
+                    || ((self.token.val == TOK_YIELD && cur_fd.js_mode & JS_MODE_STRICT as u8 == 0
                         || (self.token.val == TOK_AWAIT && !self.is_module))
                         && func_type == JSParseFunctionEnum::JS_PARSE_FUNC_EXPR)
                 {
@@ -555,16 +553,16 @@ impl<'s> JSParseState<'s> {
             }
         }
 
-        if fd0.is_eval
-            && fd0.eval_type == JS_EVAL_TYPE_MODULE
+        if cur_fd.is_eval
+            && cur_fd.eval_type == JS_EVAL_TYPE_MODULE
             && matches!(
                 func_type,
                 JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT
                     | JSParseFunctionEnum::JS_PARSE_FUNC_VAR
             )
         {
-            if let Some(v) = fd0.find_global_var(func_name) {
-                if v.scope_level == fd0.scope_level {
+            if let Some(v) = cur_fd.find_global_var(func_name) {
+                if v.scope_level == cur_fd.scope_level {
                     self.throw_syntax_error(
                         "invalid redefinition of global identifier in module code",
                     );
@@ -575,27 +573,27 @@ impl<'s> JSParseState<'s> {
         }
 
         if func_type == JSParseFunctionEnum::JS_PARSE_FUNC_VAR {
-            let func_idx = fd0.find_var(func_name).map_or(-1, |x| x as i32);
-            if fd0.js_mode & JS_MODE_STRICT as u8 == 0
+            let func_idx = cur_fd.find_var(func_name).map_or(-1, |x| x as i32);
+            if cur_fd.js_mode & JS_MODE_STRICT as u8 == 0
                 && func_kind == JSFunctionKindEnum::JS_FUNC_NORMAL
-                && fd0
-                    .find_lexical_decl(func_name, fd0.scope_first, false)
+                && cur_fd
+                    .find_lexical_decl(func_name, cur_fd.scope_first, false)
                     .is_none()
                 && !(func_idx >= 0 && func_idx & ARGUMENT_VAR_OFFSET != 0)
-                && !(func_name == JS_ATOM_arguments && fd0.has_arguments_binding)
+                && !(func_name == JS_ATOM_arguments && cur_fd.has_arguments_binding)
             {
                 create_func_var = true;
             }
 
             // Create the lexical name here so that the function closure contains it
-            if fd0.is_eval
-                && matches!(fd0.eval_type, JS_EVAL_TYPE_GLOBAL | JS_EVAL_TYPE_MODULE)
-                && fd0.scope_level == fd0.body_scope
+            if cur_fd.is_eval
+                && matches!(cur_fd.eval_type, JS_EVAL_TYPE_GLOBAL | JS_EVAL_TYPE_MODULE)
+                && cur_fd.scope_level == cur_fd.body_scope
             {
                 // avoid creating a lexical variable in the global scope. XXX: check annex B
-                if let Some(hf) = fd0.find_global_var(func_name) {
+                if let Some(hf) = cur_fd.find_global_var(func_name) {
                     /* XXX: should check scope chain */
-                    if hf.scope_level == fd0.scope_level {
+                    if hf.scope_level == cur_fd.scope_level {
                         self.throw_syntax_error("invalid redefinition of global identifier");
                         JS_FreeAtom(&self.ctx, func_name);
                         return Err(-1);
@@ -605,7 +603,7 @@ impl<'s> JSParseState<'s> {
                 /* Always create a lexical name, fail if at the same scope as existing name */
                 /* Lexical variable will be initialized upon entering scope */
                 // now fd0 is still the cur_func
-                debug_assert_eq!(fd0 as *mut JSFunctionDef, self.cur_func_def);
+                debug_assert_eq!(cur_fd as *mut JSFunctionDef, self.cur_func_def);
                 lexical_func_idx = if let Ok(i) = self.define_var_cur_func(
                     func_name,
                     if func_kind != JSFunctionKindEnum::JS_FUNC_NORMAL {
@@ -622,8 +620,8 @@ impl<'s> JSParseState<'s> {
             }
         }
 
-        // create sub FunctionDef to parse function body, returns new sub fd.
-        let mut fd1 = self.parse_function_body(
+        // parse sub FunctionDef
+        let mut sub_fd = self.parse_function_sub(
             func_type,
             func_kind,
             func_name, // this will be consumed
@@ -631,10 +629,10 @@ impl<'s> JSParseState<'s> {
             function_line_num,
             is_expr,
         )?;
-        debug_assert_eq!(fd1.parent, fd0 as *mut JSFunctionDef);
+        debug_assert_eq!(sub_fd.parent, cur_fd as *mut JSFunctionDef);
         debug_assert_eq!(
             self.cur_func_mut() as *mut JSFunctionDef,
-            fd0 as *mut JSFunctionDef
+            cur_fd as *mut JSFunctionDef
         );
 
         // reparse_ident_token:
@@ -649,7 +647,7 @@ impl<'s> JSParseState<'s> {
 
         // create function object from fd1
         {
-            func_name = fd1.func_name;
+            func_name = sub_fd.func_name;
 
             // the real object will be set at the end of the compilation
             let cp_idx = self
@@ -657,7 +655,7 @@ impl<'s> JSParseState<'s> {
                 .cpool_add(JSValue::NULL)
                 .map_or(-1, |x| x as i32);
 
-            fd1.parent_cpool_idx = cp_idx;
+            sub_fd.parent_cpool_idx = cp_idx;
 
             if is_expr {
                 // for constructors, no code needs to be generated here
@@ -778,7 +776,7 @@ impl<'s> JSParseState<'s> {
 
         // fd1 raw pointer was added to children list of fd0,
         // rust should give up its ownership.
-        let fd_ptr = Box::into_raw(fd1);
+        let fd_ptr = Box::into_raw(sub_fd);
         if !pfd.is_null() {
             unsafe {
                 *pfd = fd_ptr;
@@ -797,17 +795,15 @@ impl<'s> JSParseState<'s> {
         ptr: *const u8,
         function_line_num: i32,
     ) -> Result<(), i32> {
-        unsafe {
-            self.parse_function_decl2(
-                func_type,
-                func_kind,
-                func_name,
-                ptr,
-                function_line_num,
-                JSParseExportEnum::JS_PARSE_EXPORT_NONE,
-                std::ptr::null_mut(),
-            )
-        }
+        self.parse_function_decl2(
+            func_type,
+            func_kind,
+            func_name,
+            ptr,
+            function_line_num,
+            JSParseExportEnum::JS_PARSE_EXPORT_NONE,
+            std::ptr::null_mut(),
+        )
     }
 }
 

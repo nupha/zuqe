@@ -201,6 +201,9 @@ impl BytecodeFunction {
 
             // function body
             buf.extend_from_slice(body.to_utf8(ctx)?.as_bytes());
+        } else {
+            // no arguments
+            buf.extend_from_slice(b"){");
         }
 
         buf.extend_from_slice(b"})");
