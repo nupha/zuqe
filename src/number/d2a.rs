@@ -62,7 +62,7 @@ pub fn f64_stringify<'a>(
         let mut use_scientific = flags & JS_DTOA_FORCE_EXP != 0
             || (num != 0.0 && {
                 let ab = num.abs();
-                ab >= 1e21 || ab <= 1e-6
+                ab >= 1e21 || ab < 1e-6
             });
 
         // number of digits after decimal point
