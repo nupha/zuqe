@@ -132,7 +132,7 @@ pub fn js_host_resolve_imported_module(
     } else {
         js_default_module_normalize_name(ctx, base_cname, cname1)
     }?;
-    let module_name = ctx.create_atom(&name)?;
+    let module_name = JSAtom::new(ctx.rt_mut(), &name)?;
 
     // look at the loaded modules
     if let Some(m) = ctx.find_loaded_module(module_name) {
@@ -154,7 +154,7 @@ pub fn js_host_resolve_imported_module_atom(
     base_module_name: JSAtom,
     module_name1: JSAtom,
 ) -> Result<ModuleDef, i32> {
-    let base_cname = base_module_name.to_utf8(ctx.rt()) ;
-    let cname = module_name1.to_utf8(ctx.rt()) ;
+    let base_cname = base_module_name.to_utf8(ctx.rt());
+    let cname = module_name1.to_utf8(ctx.rt());
     js_host_resolve_imported_module(ctx, base_cname.as_ref(), &cname)
 }

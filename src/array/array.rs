@@ -311,7 +311,7 @@ impl JSObject {
                 if d <= sh.0.borrow().prop_defs.len() {
                     // faster to iterate
                     while cur_len > len {
-                        let atom = ctx.rt_mut().register_atom_u32(cur_len as u32 - 1);
+                        let atom = JSAtom::from_u32(ctx.rt_mut(), cur_len as u32 - 1)?;
                         let ret = self.delete_property(ctx, atom);
                         JS_FreeAtom(ctx, atom);
                         if let Ok(false) = ret {

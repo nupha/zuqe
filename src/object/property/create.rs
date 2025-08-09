@@ -1,6 +1,6 @@
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
-    atom::{__JS_AtomToUInt32, JS_AtomIsNumericIndex, JSAtom, consts::*},
+    atom::{JS_AtomIsNumericIndex, JSAtom, consts::*},
     context::JSContext,
     value::JSValue,
 };
@@ -71,8 +71,8 @@ impl JSObject {
                     let idx: u32;
 
                     if obj_flags.is_fast_array() {
-                        if prop.is_int_type() {
-                            idx = __JS_AtomToUInt32(prop);
+                        if let Some(n) = prop.to_int() {
+                            idx = n;
                             if idx == self.array_length_unchecked() as u32 {
                                 if !self.flags().extensible() {
                                     return if ctx.throw_type_error_or_false(

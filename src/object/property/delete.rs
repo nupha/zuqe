@@ -148,11 +148,7 @@ impl JSValue {
             return self.delete_property(ctx, JSAtom::new_u32(idx as u32), flags);
         }
 
-        let prop = ctx.rt_mut().register_atom_i64(idx);
-        if prop == JS_ATOM_NULL {
-            return Err(-1);
-        }
-
+        let prop = JSAtom::from_i64(ctx.rt_mut(), idx)?;
         let res = self.delete_property(ctx, prop, flags);
         JS_FreeAtom(ctx, prop);
         res

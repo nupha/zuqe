@@ -1,6 +1,6 @@
 use crate::{
     atom::{
-        __JS_FindAtom, AtomTypeHint, JS_ATOM_NULL, JSAtom,
+        AtomTypeHint, JS_ATOM_NULL, JSAtom,
         consts::{JS_ATOM_constructor, JS_ATOM_prototype},
     },
     context::JSContext,
@@ -186,13 +186,13 @@ impl JSRuntime {
 
     /// register a class def to runtime, with given class_id
     pub fn add_class(&mut self, class_id: JSClassID, class_def: &JSClassDef) -> Result<(), i32> {
-        let name = if let Some(a) = __JS_FindAtom(self, class_def.class_name, AtomTypeHint::String)
-        {
-            a
-        } else {
-            self.register_atom_str(class_def.class_name, AtomTypeHint::String)?
-        }
-        .into_rc(self);
+        let name =
+            if let Some(a) = JSAtom::find(self, class_def.class_name, AtomTypeHint::String) {
+                a
+            } else {
+                JSAtom::from_str(self, class_def.class_name, AtomTypeHint::String)?
+            }
+            .into_rc(self);
         unsafe { self.add_class_internal(class_id, class_def, *name) }
     }
 

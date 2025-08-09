@@ -3,10 +3,7 @@ use crate::{
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
     JS_CLASS_INT32_ARRAY, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY,
     JS_CLASS_UINT32_ARRAY,
-    atom::{
-        __JS_AtomToUInt32, JS_ATOM_MAX_INT, JS_ATOM_NULL, JS_AtomIsNumericIndex, JS_FreeAtom,
-        JSAtom, consts::*,
-    },
+    atom::{JS_ATOM_MAX_INT, JS_AtomIsNumericIndex, JS_FreeAtom, JSAtom, consts::*},
     context::JSContext,
     error::{JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized, JSResult},
     function::JS_Call,
@@ -79,8 +76,7 @@ impl JSObject {
             let ob_flags = cur_obj.flags();
             if ob_flags.is_exotic() {
                 if ob_flags.is_fast_array() {
-                    if prop.is_int_type() {
-                        let idx = __JS_AtomToUInt32(prop);
+                    if let Some(idx) = prop.to_int() {
                         if idx < cur_obj.array_length_unchecked() as u32 {
                             return cur_obj.get_property_value(ctx, &JSValue::from(idx));
                         }
@@ -230,7 +226,7 @@ impl JSObject {
 
         // generic path
         {
-            let atom = prop.coerce_to_atom(ctx)?;
+            let atom = prop.to_atom(ctx)?;
             let ret = self.get_property(ctx, atom);
             JS_FreeAtom(ctx, atom);
             ret
@@ -246,19 +242,15 @@ impl JSObject {
         if (idx as u64) <= i32::MAX as u64 {
             self.get_property_value(ctx, &JSValue::Int(idx as i32))
         } else {
-            let prop = ctx.rt_mut().register_atom_i64(idx);
-            if prop == JS_ATOM_NULL {
-                Err(-1)
-            } else {
-                let r = self.get_property(ctx, prop);
-                JS_FreeAtom(ctx, prop);
-                r
-            }
+            let prop = JSAtom::from_i64(ctx.rt_mut(), idx)?;
+            let r = self.get_property(ctx, prop);
+            JS_FreeAtom(ctx, prop);
+            r
         }
     }
 
     pub fn get_property_str(&self, ctx: &JSContext, prop: &str) -> JSResult {
-        let atom = ctx.create_atom(prop)?;
+        let atom = JSAtom::new(ctx.rt_mut(), prop)?;
         let ret = self.get_property(ctx, atom);
         JS_FreeAtom(ctx, atom);
         ret
@@ -280,9 +272,8 @@ impl JSValue {
                 if prop == JS_ATOM_length {
                     // string length
                     Ok(JSValue::from(s.buf_len() as u32))
-                } else if prop.is_int_type() {
+                } else if let Some(idx) = prop.to_int() {
                     // get code at index
-                    let idx = __JS_AtomToUInt32(prop);
                     if let Some(code) = s.content().get(idx as usize) {
                         ctx.create_string_from_content(if (0..=255).contains(&code) {
                             StringBuf::Ascii(vec![code as u8])
@@ -329,7 +320,7 @@ impl JSValue {
 
     /// returns Exception when fail.
     pub fn get_property_str(self, ctx: &JSContext, prop: &str) -> JSResult {
-        let atom = ctx.create_atom(prop)?;
+        let atom = JSAtom::new(ctx.rt_mut(), prop)?;
         let ret = self.get_property(ctx, atom);
         JS_FreeAtom(ctx, atom);
         ret
@@ -339,7 +330,7 @@ impl JSValue {
         if let JSValue::Object(o) = self {
             o.get_property_value(ctx, prop)
         } else {
-            let atom = prop.coerce_to_atom(ctx)?;
+            let atom = prop.to_atom(ctx)?;
             let ret = self.get_property(ctx, atom);
             JS_FreeAtom(ctx, atom);
             ret
@@ -355,14 +346,10 @@ impl JSValue {
         if (idx as u64) <= i32::MAX as u64 {
             self.get_property_value(ctx, &JSValue::Int(idx as i32))
         } else {
-            let atom = ctx.rt_mut().register_atom_i64(idx);
-            if atom == JS_ATOM_NULL {
-                Err(-1)
-            } else {
-                let r = self.get_property(ctx, atom);
-                JS_FreeAtom(ctx, atom);
-                r
-            }
+            let atom = JSAtom::from_i64(ctx.rt_mut(), idx)?;
+            let r = self.get_property(ctx, atom);
+            JS_FreeAtom(ctx, atom);
+            r
         }
     }
 
@@ -379,21 +366,16 @@ impl JSValue {
                 Ok(None)
             }
         } else {
-            let prop = ctx.rt_mut().register_atom_i64(idx);
-            let ret = if prop != JS_ATOM_NULL {
-                self.has_property(ctx, prop).and_then(|b| {
-                    if b {
-                        Ok(Some(
-                            self.get_property_value(ctx, &JSValue::Int(idx as i32))?,
-                        ))
-                    } else {
-                        Ok(None) // does not exist
-                    }
-                })
-            } else {
-                Err(-1) // can't create prop atom
-            };
-
+            let prop = JSAtom::from_i64(ctx.rt_mut(), idx)?;
+            let ret = self.has_property(ctx, prop).and_then(|b| {
+                if b {
+                    Ok(Some(
+                        self.get_property_value(ctx, &JSValue::Int(idx as i32))?,
+                    ))
+                } else {
+                    Ok(None) // does not exist
+                }
+            });
             JS_FreeAtom(ctx, prop);
             ret
         }

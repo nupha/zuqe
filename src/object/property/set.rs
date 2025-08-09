@@ -1,9 +1,9 @@
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
-    JS_CLASS_INT32_ARRAY, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT, JS_CLASS_UINT8_ARRAY,
-    JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
-    atom::{__JS_AtomToUInt32, JS_ATOM_NULL, JS_AtomIsNumericIndex, JS_FreeAtom, JSAtom},
+    JS_CLASS_INT32_ARRAY, JS_CLASS_OBJECT, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY,
+    JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
+    atom::{JS_AtomIsNumericIndex, JS_FreeAtom, JSAtom},
     context::{JSContext, is_strict_mode},
     error::JS_ThrowReferenceErrorNotDefined,
     function::JS_Call,
@@ -18,8 +18,8 @@ use crate::{
 };
 
 use super::{
-    JS_PROP_C_W_E, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE,
-    JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_WRITABLE,
+    JS_PROP_C_W_E, JS_PROP_GETSET, JS_PROP_HAS_VALUE, JS_PROP_NO_ADD, JS_PROP_THROW,
+    JS_PROP_WRITABLE,
 };
 
 pub(crate) fn call_setter(
@@ -77,8 +77,7 @@ impl JSObject {
 
         let mut state = SetPropState::WalkUpProto;
 
-        if prop.is_int_type() {
-            let idx = __JS_AtomToUInt32(prop);
+        if let Some(idx) = prop.to_int() {
             if idx < self.array_length_unchecked() as u32 {
                 if this_obj.object() == Some(self) {
                     return this_obj
@@ -538,7 +537,7 @@ impl JSObject {
         }
 
         // slow_path
-        let atom = prop.coerce_to_atom(ctx)?;
+        let atom = prop.to_atom(ctx)?;
         let ret = self.set_property_internal(ctx, atom, val, &JSValue::Object(self.clone()), flags);
         JS_FreeAtom(ctx, atom);
         ret
@@ -550,7 +549,7 @@ impl JSObject {
     }
 
     pub fn set_property_str(&self, ctx: &JSContext, prop: &str, val: JSValue) -> Result<bool, i32> {
-        let atom = ctx.create_atom(prop)?;
+        let atom = JSAtom::new(ctx.rt_mut(), prop)?;
         let ret = self.set_property(ctx, atom, val);
         JS_FreeAtom(ctx, atom);
         ret
@@ -821,7 +820,7 @@ impl JSValue {
         if let Self::Object(ob) = self {
             ob.set_property_value(ctx, prop, val, flags)
         } else {
-            let atom = prop.coerce_to_atom(ctx)?;
+            let atom = prop.to_atom(ctx)?;
             let ret = Self::set_property_internal(ctx, self, atom, val, self, flags);
             JS_FreeAtom(ctx, atom);
             ret
@@ -839,16 +838,12 @@ impl JSValue {
             return self.set_property_value(ctx, &JSValue::Int(idx as i32), val, JS_PROP_THROW);
         }
 
-        let prop = ctx.rt_mut().register_atom_i64(idx);
-        if prop == JS_ATOM_NULL {
-            return Err(-1);
-        }
-
+        let prop = JSAtom::from_i64(ctx.rt_mut(), idx)?;
         self.set_property(ctx, prop, val)
     }
 
     pub fn set_property_str(&self, ctx: &JSContext, prop: &str, val: JSValue) -> Result<bool, i32> {
-        let atom = ctx.create_atom(prop)?;
+        let atom = JSAtom::new(ctx.rt_mut(), prop)?;
         let ret = self.set_property(ctx, atom, val);
         JS_FreeAtom(ctx, atom);
         ret

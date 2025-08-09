@@ -12,9 +12,8 @@ use super::value::JSValue;
 
 impl JSContext {
     pub fn create_symbol(&self, str: Option<JSString>, atom_type: AtomTypeHint) -> JSResult {
-        let rt = self.rt_mut();
-        let a = rt.register_atom_internal(str, atom_type)?;
-        let ss = rt.get_atom_desc(a).unwrap();
+        let a = JSAtom::new_internal(self.rt_mut(), str, atom_type)?;
+        let ss = self.rt().get_atom_desc(a).unwrap();
         Ok(JSValue::Symbol(ss))
     }
 

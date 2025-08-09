@@ -21,10 +21,10 @@ use super::JSProperty;
 pub enum LazyInit {
     /// Build prototype and set as constructor for target object
     Prototype,
+    /// Build value from field def.
+    Prop(NonNull<NativeField>),
     /// Build module namespace object
     ModuleNS(ModuleDef),
-    /// Build base object installed with given entries.
-    Prop(NonNull<NativeField>),
 }
 
 impl LazyInit {

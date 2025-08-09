@@ -246,7 +246,7 @@ impl<'s> JSParseState<'s> {
                             .data
                             .number()
                             .unwrap()
-                            .coerce_to_atom(&self.ctx)?
+                            .to_atom(&self.ctx)?
                             .into_rc(self.ctx.rt()),
                     );
                     self.next_token()?;

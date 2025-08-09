@@ -1,7 +1,7 @@
 use std::{ops::Deref, ptr::NonNull};
 
 use crate::{
-    atom::JS_FreeAtom,
+    atom::{JS_FreeAtom, JSAtom},
     context::{JSContext, JSContextWeakref},
     defer,
     error::JSResult,
@@ -418,7 +418,7 @@ impl JSContext {
         }
 
         // define properties length and name on function.
-        let name_atom = self.create_atom(name).unwrap();
+        let name_atom = JSAtom::new(self.rt_mut(), name)?;
         unsafe {
             js_function_set_properties(self, &func_obj.clone().into(), name_atom, length as i32);
         }

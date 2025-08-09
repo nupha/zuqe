@@ -31,7 +31,7 @@ pub fn js_operator_delete(ctx: &JSContext, sp: *mut JSValue) -> i32 {
         )
     };
 
-    let atom = op2.coerce_to_atom(ctx).unwrap_or(JS_ATOM_NULL);
+    let atom = op2.to_atom(ctx).unwrap_or(JS_ATOM_NULL);
     if atom == JS_ATOM_NULL {
         return -1;
     }
@@ -73,7 +73,7 @@ pub fn js_operator_in(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
         return Err(-1);
     }
 
-    let atom = prop.coerce_to_atom(ctx)?;
+    let atom = prop.to_atom(ctx)?;
     let ret = obj.has_property(ctx, atom);
     JS_FreeAtom(ctx, atom);
     let b = ret?;
@@ -93,7 +93,7 @@ pub fn js_operator_private_in(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i
             o.check_brand(ctx, &item)?
         } else {
             // field
-            let atom = item.coerce_to_atom(ctx)?;
+            let atom = item.to_atom(ctx)?;
             let b = o.has_shape_property(atom);
             JS_FreeAtom(ctx, atom);
             b
@@ -239,10 +239,8 @@ pub fn js_has_unscopable(ctx: &JSContext, obj: &JSValueConst, atom: JSAtom) -> i
 pub fn js_get_function_name(ctx: &JSContext, name: JSAtom) -> JSValue {
     if let Ok(name_str) = name.to_string(ctx) {
         if name.has_description(ctx) {
-            unsafe {
-                JS_ConcatString3(ctx, c"[", name_str.into(), c"]")
-                    .map_or(JSValue::EXCEPTION, JSValue::String)
-            }
+            JS_ConcatString3(ctx, c"[", name_str.into(), c"]")
+                .map_or(JSValue::EXCEPTION, JSValue::String)
         } else {
             name_str.into()
         }

@@ -172,7 +172,7 @@ impl JSValue {
                 };
 
             if let Some(ob) = self.object() {
-                let brand_atom = brand_sym.coerce_to_atom(ctx).unwrap();
+                let brand_atom = brand_sym.to_atom(ctx).unwrap();
 
                 if ob.has_shape_property(brand_atom) {
                     JS_FreeAtom(ctx, brand_atom);

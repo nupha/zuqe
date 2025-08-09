@@ -4,11 +4,9 @@ use super::consts::*;
 use crate::string::StringChar;
 use crate::{
     context::JSContext,
-    error::JSResult,
     mem::js_malloc_typed,
-    regexp::is_digit,
     runtime::JSRuntime,
-    string::{JSString, JSStringInner, StringBuf},
+    string::{JSString, JSStringInner},
     value::JSValue,
 };
 
@@ -93,12 +91,6 @@ impl JSAtom {
         }
     }
 
-    /// test if the atom is int type
-    #[inline(always)]
-    pub fn is_int_type(self) -> bool {
-        (self.0 & JS_ATOM_TAG_INT) != 0
-    }
-
     /// get atom descriptor kind
     pub fn kind(self, rt: &JSRuntime) -> AtomDescKind {
         if self.is_int_type() {
@@ -132,6 +124,23 @@ impl JSAtom {
             .unwrap()
     }
 
+    /// test if the atom is int type
+    #[inline(always)]
+    pub fn is_int_type(self) -> bool {
+        (self.0 & JS_ATOM_TAG_INT) != 0
+    }
+
+    /// if atom is int, returns the integer value.
+    /// otherwise returns None.
+    #[inline(always)]
+    pub fn to_int(&self) -> Option<u32> {
+        if self.is_int_type() {
+            Some(self.0 & JS_ATOM_MAX_INT)
+        } else {
+            None
+        }
+    }
+
     /// increase atom description ref count.
     #[inline]
     pub fn dup(self, rt: &JSRuntime) -> JSAtom {
@@ -160,8 +169,8 @@ impl JSAtom {
     /// Convert atom to String or Symbol value.
     /// Note: atom is not consumed.
     pub fn to_string_or_symbol(self, ctx: &JSContext, force_string: bool) -> Result<JSValue, i32> {
-        if self.is_int_type() {
-            ctx.create_string_from_utf8(format!("{}", __JS_AtomToUInt32(self)).into_bytes())
+        if let Some(n) = self.to_int() {
+            ctx.create_string_from_utf8(format!("{n}",).into_bytes())
                 .map(JSValue::String)
         } else {
             let ss = ctx.rt().get_atom_desc(self).unwrap();
@@ -188,8 +197,8 @@ impl JSAtom {
     pub fn to_array_index(self, rt: &JSRuntime) -> Option<usize> {
         if self == JS_ATOM_NULL {
             None
-        } else if self.is_int_type() {
-            Some(__JS_AtomToUInt32(self) as usize)
+        } else if let Some(n) = self.to_int() {
+            Some(n as usize)
         } else {
             if let Some(p) = rt.get_atom_desc(self) {
                 if let Some(AtomHintAndId::String(_)) = p.atom_info() {
@@ -208,8 +217,8 @@ impl JSAtom {
     pub fn with_utf8<R>(self, rt: &JSRuntime, f: impl FnOnce(Cow<'_, str>) -> R) -> R {
         if self.eq(&JS_ATOM_NULL) {
             f(Cow::Borrowed("<null>"))
-        } else if self.is_int_type() {
-            f(Cow::Owned(format!("{}", __JS_AtomToUInt32(self))))
+        } else if let Some(n) = self.to_int() {
+            f(Cow::Owned(format!("{n}")))
         } else {
             f(rt.get_atom_desc(self)
                 .expect("INVALID ATOM")
@@ -237,55 +246,6 @@ pub const JS_ATOM_MAX: u32 = u16::MAX as u32 - 1;
 
 pub const ATOM_GET_STR_BUF_SIZE: usize = 64;
 
-#[inline(always)]
-pub fn __JS_AtomToUInt32(atom: JSAtom) -> u32 {
-    atom.0 & !JS_ATOM_TAG_INT
-}
-
-impl JSContext {
-    /// create new or reuse existing atom for `str`.
-    pub fn create_atom(&self, str: &str) -> Result<JSAtom, i32> {
-        // format [xxxx]
-        if str.starts_with('[') {
-            let name2 = &str[1..str.len() - 1]; // chop heading '[', tailing ']'
-            let rt = self.rt_mut();
-
-            // We assume 8 bit non null strings, which is the case for these symbols
-            for i in JS_ATOM_Symbol_toPrimitive.0..JS_ATOM_INIT_COUNT {
-                if let Some(astr) = rt
-                    .atom_slots
-                    .get(i as usize)
-                    .and_then(|p| unsafe { p.as_ref() })
-                {
-                    if astr.content().eq_str(name2) {
-                        return Ok(JSAtom(i).dup(rt));
-                    }
-                }
-            }
-
-            self.throw_internal_error(&format!("unknown atom '{str}'"));
-            return Err(-1);
-        }
-
-        if str.is_empty() || !is_digit(str.as_bytes()[0]) {
-            if let Some(atom) = __JS_FindAtom(&self.rt(), str, AtomTypeHint::String) {
-                return Ok(atom);
-            }
-        }
-
-        let s = self.create_string_from_str(str)?;
-        self.rt_mut()
-            .register_atom_jsstring(s, AtomTypeHint::String)
-    }
-
-    pub fn create_atom_string(&self, str: &str) -> Result<JSString, i32> {
-        let atom = self.create_atom(str)?;
-        let val = atom.to_string(self);
-        JS_FreeAtom(self, atom);
-        val
-    }
-}
-
 impl JSString {
     /// convert string to atom. if string is not registered as atom, do registration first.
     pub fn to_atom(&self, ctx: &JSContext) -> Result<JSAtom, i32> {
@@ -294,16 +254,24 @@ impl JSString {
             Ok(a.atom())
         } else {
             // register string as atom
-            ctx.rt_mut()
-                .register_atom_jsstring(self.clone(), AtomTypeHint::String)
+            JSAtom::from_string(ctx.rt_mut(), self.clone(), AtomTypeHint::String)
         }
     }
 }
 
+impl JSContext {
+    pub fn create_atom_string(&self, str: &str) -> Result<JSString, i32> {
+        let atom = JSAtom::new(self.rt_mut(), str)?; //self.create_atom(str)?;
+        let val = atom.to_string(self);
+        JS_FreeAtom(self, atom);
+        val
+    }
+}
+
 impl JSValue {
-    /// coerce value to atom.
+    /// convert value to atom.
     /// returned atom is cloned, caller should free it after use.
-    pub fn coerce_to_atom(&self, ctx: &JSContext) -> Result<JSAtom, i32> {
+    pub fn to_atom(&self, ctx: &JSContext) -> Result<JSAtom, i32> {
         match self {
             // special or integral atom
             JSValue::Bool(b) => Ok(if *b { JS_ATOM_true } else { JS_ATOM_false }),
@@ -335,50 +303,6 @@ impl JSValue {
             }
         }
     }
-}
-
-/// find atom by str
-pub fn __JS_FindAtom(rt: &JSRuntime, str: &str, atom_type: AtomTypeHint) -> Option<JSAtom> {
-    let hash = StringBuf::calc_hash_for_str(str, atom_type);
-
-    if let Some(ids) = rt.atom_hash_lut.get(&hash) {
-        for &aid in ids {
-            let id = u16::from(aid) as u32;
-            let p = rt.atom_slots[id as usize];
-            debug_assert!(!p.is_null());
-
-            if unsafe {
-                (*p).atom_info().unwrap().type_hint() == atom_type && (*p).content().eq_str(str)
-            } {
-                let a = JSAtom(id);
-
-                if !a.is_const() {
-                    #[cfg(debug_assertions)]
-                    let _refcnt = a.ref_count(rt);
-
-                    // atom will be pass out, dup atom description then leak to keep reference.
-                    unsafe {
-                        let d = Rc::from_raw(p);
-                        let d2 = d.clone();
-                        let _ = Rc::into_raw(d);
-                        let _ = Rc::into_raw(d2);
-                    }
-
-                    #[cfg(debug_assertions)]
-                    debug_assert_eq!(a.ref_count(rt).unwrap(), _refcnt.unwrap() + 1);
-                }
-
-                return Some(a);
-            }
-        }
-    }
-
-    None
-}
-
-#[deprecated(note = "use JSContext::create_atom() instead")]
-pub unsafe fn find_atom(ctx: &JSContext, name: &str) -> JSAtom {
-    ctx.create_atom(name).unwrap_or(JS_ATOM_NULL)
 }
 
 unsafe fn __JS_FreeAtom(rt: *mut JSRuntime, i: JSAtom) {
@@ -439,41 +363,12 @@ pub unsafe fn JS_FreeAtomStruct(rt: *mut JSRuntime, atom: JSAtom) {
     }
 }
 
-/// test if the `atom` can be used as an array index (in 0..u32::MAX range).
-#[deprecated(note = "use JSAtom::to_array_index() instead")]
-pub fn JS_AtomIsArrayIndex(ctx: &JSContext, pval: *mut u32, atom: JSAtom) -> bool {
-    if atom.is_int_type() {
-        unsafe {
-            *pval = __JS_AtomToUInt32(atom);
-        }
-        true
-    } else {
-        if let Some(p) = ctx.rt().get_atom_desc(atom) {
-            if let Some(AtomHintAndId::String(_)) = p.atom_info() {
-                if let Ok(n) = p.content().parse_u32() {
-                    if n != u32::MAX {
-                        unsafe {
-                            *pval = n;
-                        }
-                        return true;
-                    }
-                }
-            }
-        }
-
-        unsafe {
-            *pval = 0;
-        }
-        false
-    }
-}
-
 // This test must be fast if atom is not a numeric index (e.g. a
 // method name). Return JS_UNDEFINED if not a numeric
 // index. JS_EXCEPTION can also be returned.
 pub fn JS_AtomIsNumericIndex1(ctx: &JSContext, atom: JSAtom) -> JSValue {
-    if atom.is_int_type() {
-        return JSValue::Int(__JS_AtomToUInt32(atom) as _);
+    if let Some(n) = atom.to_int() {
+        return JSValue::Int(n as _);
     }
 
     let p = ctx.rt().get_atom_desc(atom).unwrap();
@@ -560,11 +455,6 @@ pub unsafe fn JS_AtomIsNumericIndex(ctx: &JSContext, atom: JSAtom) -> i32 {
     return 1;
 }
 
-#[deprecated(note = "use JSRuntime::init_default_atoms() instead")]
-pub unsafe fn JS_InitAtoms(rt: &mut JSRuntime) -> Result<(), i32> {
-    (*rt).init_default_atoms()
-}
-
 // return a string atom containing name concatenated with str1
 pub unsafe fn js_atom_concat_str(ctx: &JSContext, name: JSAtom, str1: *const u8) -> JSAtom {
     let str_val = if let Ok(s) = name.to_string(ctx) {
@@ -583,8 +473,7 @@ pub unsafe fn js_atom_concat_str(ctx: &JSContext, name: JSAtom, str1: *const u8)
         std::ptr::copy_nonoverlapping(astr.as_ptr().cast(), new_str.as_mut_ptr(), len);
         std::ptr::copy_nonoverlapping(str1, new_str.as_mut_ptr().offset(len as isize), len1);
 
-        ctx.create_atom(std::str::from_utf8_unchecked(&new_str))
-            .unwrap_or(JS_ATOM_NULL)
+        JSAtom::new(ctx.rt_mut(), std::str::from_utf8_unchecked(&new_str)).unwrap_or(JS_ATOM_NULL)
     } else {
         JS_ATOM_NULL
     };

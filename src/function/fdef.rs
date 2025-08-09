@@ -276,7 +276,7 @@ impl JSFunctionDef {
             line_number_last: 0,
             line_number_last_pc: 0,
 
-            filename: ctx.create_atom(filename)?,
+            filename: JSAtom::new(ctx.rt_mut(), filename)?,
             line_num,
             pc2line: None,
             source: None,

@@ -180,16 +180,21 @@ pub fn get_func_name(func: &JSValue) -> Option<String> {
 /// define `length`, `name` properties on func_obj
 pub unsafe fn js_function_set_properties(
     ctx: &JSContext,
-    func_obj: &JSValueConst,
+    func_obj: &JSValue,
     name: JSAtom,
     len: i32,
 ) {
-    let _ = func_obj.define_property_value(
-        ctx,
-        JS_ATOM_length,
-        JSValue::Int(len),
-        JS_PROP_CONFIGURABLE, // ES6 feature non compatible with ES5.1: length is configurable
-    );
+
+    println!("[O.o] js_function_set_properties={name:?} {}", name.to_utf8(ctx.rt()));
+
+    func_obj
+        .define_property_value(
+            ctx,
+            JS_ATOM_length,
+            JSValue::Int(len),
+            JS_PROP_CONFIGURABLE, // ES6 feature non-compatible with ES5.1: length is configurable
+        )
+        .unwrap();
 
     func_obj
         .define_property_value(

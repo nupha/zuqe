@@ -76,7 +76,7 @@ pub fn js_object_valueOf(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_object_hasOwnProperty(ctx: &JSContext, cc: CallContext) -> JSResult {
     // must be done first
-    let atom = cc.arg(0).coerce_to_atom(ctx)?;
+    let atom = cc.arg(0).to_atom(ctx)?;
     let obj = cc.this().to_object(ctx).inspect_err(|_| {
         JS_FreeAtom(ctx, atom);
     })?;
@@ -127,7 +127,7 @@ pub fn js_object_isPrototypeOf(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_object_propertyIsEnumerable(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj = cc.this().to_object(ctx)?;
-    let prop = cc.arg(0).coerce_to_atom(ctx)?;
+    let prop = cc.arg(0).to_atom(ctx)?;
 
     let ret = obj.get_own_property(ctx, prop);
     JS_FreeAtom(ctx, prop);
@@ -142,10 +142,7 @@ pub fn js_object_propertyIsEnumerable(ctx: &JSContext, cc: CallContext) -> JSRes
 pub fn js_object_getset___proto__(ctx: &JSContext, cc: CallContext) -> JSResult {
     if cc.length() == 0 {
         // getter
-        let p = cc
-            .this()
-            .to_object(ctx)
-            .and_then(|o| o.prototype(ctx))?;
+        let p = cc.this().to_object(ctx).and_then(|o| o.prototype(ctx))?;
         Ok(p.map_or(JSValue::NULL, JSValue::Object))
     } else {
         // setter
@@ -189,7 +186,7 @@ pub unsafe fn js_object___defineGetter__(
         return JSValue::EXCEPTION;
     }
 
-    let atom = prop.coerce_to_atom(ctx).unwrap_or(JS_ATOM_NULL);
+    let atom = prop.to_atom(ctx).unwrap_or(JS_ATOM_NULL);
     if atom == JS_ATOM_NULL {
         return JSValue::EXCEPTION;
     }
@@ -232,9 +229,7 @@ pub unsafe fn js_object___lookupGetter__(
         return JSValue::EXCEPTION;
     }
 
-    let prop = (*argv.offset(0))
-        .coerce_to_atom(ctx)
-        .unwrap_or(JS_ATOM_NULL);
+    let prop = (*argv.offset(0)).to_atom(ctx).unwrap_or(JS_ATOM_NULL);
 
     if prop == JS_ATOM_NULL {
         JS_FreeAtom(ctx, prop);

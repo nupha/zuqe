@@ -51,7 +51,7 @@ pub fn js_reflect_construct(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_reflect_deleteProperty(ctx: &JSContext, cc: CallContext) -> JSResult {
     if let JSValue::Object(obj) = cc.arg(0) {
-        let atom = cc.arg(1).coerce_to_atom(ctx)?;
+        let atom = cc.arg(1).to_atom(ctx)?;
         let ret = obj.delete_property(ctx, atom);
         JS_FreeAtom(ctx, atom);
         ret.map(JSValue::Bool)
@@ -66,7 +66,7 @@ pub fn js_reflect_get(ctx: &JSContext, cc: CallContext) -> JSResult {
     if obj.is_object() {
         let prop = cc.arg(1);
         let receiver = if cc.length() > 2 { cc.arg(2) } else { obj };
-        let atom = prop.coerce_to_atom(ctx)?;
+        let atom = prop.to_atom(ctx)?;
         let ret = obj.get_property_internal(ctx, atom, receiver, false)?;
 
         JS_FreeAtom(ctx, atom);
@@ -80,7 +80,7 @@ pub fn js_reflect_get(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_reflect_has(ctx: &JSContext, cc: CallContext) -> JSResult {
     if let JSValue::Object(obj) = cc.arg(0) {
         let prop = cc.arg(1);
-        let atom = prop.coerce_to_atom(ctx)?;
+        let atom = prop.to_atom(ctx)?;
         let ret = obj.has_property(ctx, atom);
         JS_FreeAtom(ctx, atom);
         ret.map(JSValue::Bool)
@@ -96,7 +96,7 @@ pub fn js_reflect_set(ctx: &JSContext, cc: CallContext) -> JSResult {
         let prop = cc.arg(1);
         let val = cc.arg(2);
         let receiver = if cc.length() > 3 { cc.arg(3) } else { obj };
-        let atom = prop.coerce_to_atom(ctx)?;
+        let atom = prop.to_atom(ctx)?;
         let ret = JSValue::set_property_internal(ctx, obj, atom, val.clone(), receiver, 0);
         JS_FreeAtom(ctx, atom);
         ret.map(JSValue::Bool)

@@ -202,10 +202,8 @@ impl JSFunctionDef {
         if let JSValue::String(ss) = &val
             && as_atom
         {
-            if let Ok(atom) = self
-                .ctx
-                .rt_mut()
-                .register_atom_jsstring(ss.clone(), AtomTypeHint::String)
+            if let Ok(atom) =
+                JSAtom::from_string(self.ctx.rt_mut(), ss.clone(), AtomTypeHint::String)
                 && !atom.is_int_type()
             {
                 self.emit_op(OpCode::PUSH_ATOM_VALUE, last_line_num);

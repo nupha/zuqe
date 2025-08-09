@@ -107,7 +107,7 @@ pub fn js_object_defineProperty(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     match (obj, desc) {
         (JSValue::Object(obj), JSValue::Object(desc)) => {
-            let atom = prop.coerce_to_atom(ctx)?;
+            let atom = prop.to_atom(ctx)?;
 
             // magic = 1 if called as Reflect.defineProperty
             let mut flags = 0;
@@ -216,7 +216,7 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
                 JS_ATOM_NULL,
             )
         } else {
-            let atom = key.coerce_to_atom(ctx)?;
+            let atom = key.to_atom(ctx)?;
             (groups.get_property(ctx, atom), atom)
         };
 
@@ -314,7 +314,7 @@ pub fn js_object_getOwnPropertyDescriptor(ctx: &JSContext, cc: CallContext) -> J
     };
 
     let prop = cc.arg(1);
-    let atom = prop.coerce_to_atom(ctx)?.into_rc(ctx.rt());
+    let atom = prop.to_atom(ctx)?.into_rc(ctx.rt());
 
     if let JSValue::Object(p) = &obj {
         if let Some(desc) = p.get_own_property(ctx, *atom)? {
@@ -430,7 +430,7 @@ pub fn js_object_fromEntries(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_object_hasOwn(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj = cc.arg(0).to_object(ctx)?;
 
-    let atom = cc.arg(1).coerce_to_atom(ctx)?;
+    let atom = cc.arg(1).to_atom(ctx)?;
 
     // free atom when exit
     let rt = ctx.rt_ptr();

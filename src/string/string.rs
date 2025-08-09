@@ -8,7 +8,7 @@ use std::{
 
 use crate::{
     JS_CLASS_STRING,
-    atom::{__JS_AtomToUInt32, AtomHintAndId, JSAtom, consts::*},
+    atom::{AtomHintAndId, JSAtom, consts::*},
     class::JSClassExoticMethods,
     context::JSContext,
     function::JS_Invoke,
@@ -30,7 +30,7 @@ use super::StringBuf;
 /// Maximum length allowed for JavaScript strings (1GB - 1)
 pub const JS_STRING_LEN_MAX: usize = (1 << 30) - 1;
 
-pub type StringContentRc = Rc<StringBuf>;
+pub type StringContent = Rc<StringBuf>;
 
 /// Represents a JavaScript string with reference counting and atom support
 ///
@@ -54,7 +54,7 @@ pub struct JSStringInner {
     atom_type: Cell<Option<AtomHintAndId>>,
 
     /// string content
-    content: StringContentRc,
+    content: StringContent,
 
     gc_mark: Cell<bool>,
 }
@@ -71,7 +71,7 @@ impl JSStringInner {
     /// Returns a reference to the underlying string content
     /// Used for string operations and comparisons
     #[inline(always)]
-    pub const fn content(&self) -> &StringContentRc {
+    pub const fn content(&self) -> &StringContent {
         &self.content
     }
 
@@ -189,7 +189,7 @@ impl std::fmt::Debug for JSString {
 
 impl JSString {
     /// create JSString with string content
-    pub fn new(rt: &mut JSRuntime, content: StringContentRc) -> Self {
+    pub fn new(rt: &mut JSRuntime, content: StringContent) -> Self {
         let inner = JSStringInner {
             header: GCObjectHeader::new(rt, 1),
             hash_and_type: Cell::new(0),
@@ -250,7 +250,7 @@ impl JSString {
     }
 
     #[inline(always)]
-    pub fn content(&self) -> &StringContentRc {
+    pub fn content(&self) -> &StringContent {
         self.0.content()
     }
 
@@ -558,7 +558,7 @@ impl JSContext {
     }
 
     /// create string value from string content.
-    pub fn create_string_from_content_rc(&self, content: StringContentRc) -> Result<JSString, i32> {
+    pub fn create_string_from_content_rc(&self, content: StringContent) -> Result<JSString, i32> {
         if content.is_empty() {
             JS_ATOM_empty_string.to_string(self)
         } else {
@@ -903,8 +903,7 @@ fn string_define_own_property(
         };
     }
 
-    if prop.is_int_type() {
-        let idx = __JS_AtomToUInt32(prop);
+    if let Some(idx) = prop.to_int() {
         let ob = unsafe { this_obj.object_unchecked() };
         if let JSValue::String(p1) = ob.0.payload.borrow().value().unwrap() {
             let len = p1.buf_len();
@@ -950,21 +949,18 @@ pub static js_string_exotic_methods: JSClassExoticMethods = JSClassExoticMethods
          prop: JSAtom|
          -> Result<Option<JSPropertyDescriptor>, i32> {
             // This is a class exotic method: obj class_id is JS_CLASS_STRING
-            if prop.is_int_type() {
-                if let Some(JSValue::String(s)) =
+            if let Some(idx) = prop.to_int()
+                && let Some(JSValue::String(s)) =
                     obj.object().and_then(|o| o.0.payload.borrow().value())
-                {
-                    let idx = __JS_AtomToUInt32(prop);
-                    if idx < s.buf_len() as u32 {
-                        let (_, ch) = s.content().iter_since(idx as usize).next().unwrap();
-                        return Ok(Some(JSPropertyDescriptor {
-                            flags: JS_PROP_ENUMERABLE as _,
-                            value: ctx.create_string_from_char(ch)?.into(),
-                            getter: JSValue::UNDEFINED,
-                            setter: JSValue::UNDEFINED,
-                        }));
-                    }
-                }
+                && idx < s.buf_len() as u32
+            {
+                let (_, ch) = s.content().iter_since(idx as usize).next().unwrap();
+                return Ok(Some(JSPropertyDescriptor {
+                    flags: JS_PROP_ENUMERABLE as _,
+                    value: ctx.create_string_from_char(ch)?.into(),
+                    getter: JSValue::UNDEFINED,
+                    setter: JSValue::UNDEFINED,
+                }));
             }
 
             Ok(None)
@@ -975,10 +971,9 @@ pub static js_string_exotic_methods: JSClassExoticMethods = JSClassExoticMethods
 
     delete_property: Some(
         |_: &JSContext, obj: JSValue, prop: JSAtom| -> Result<bool, i32> {
-            if prop.is_int_type() {
+            if let Some(idx) = prop.to_int() {
                 let buflen = TryInto::<JSString>::try_into(obj).unwrap().buf_len();
-                let idx = __JS_AtomToUInt32(prop) as usize;
-                if idx < buflen {
+                if (idx as usize) < buflen {
                     return Ok(false);
                 }
             }

@@ -1657,7 +1657,7 @@ impl Bytecode {
 
                         if name == JS_ATOM_NULL {
                             // compute name from value SP[-2]
-                            name = if let Ok(a) = SP_REF!(-2).coerce_to_atom(ctx) {
+                            name = if let Ok(a) = SP_REF!(-2).to_atom(ctx) {
                                 a
                             } else {
                                 break State::Exception;
@@ -1766,7 +1766,7 @@ impl Bytecode {
                     OpCode::GET_REF_VALUE => {
                         // [obj, prop, ^] -> [obj, value, ^]
                         if SP_REF!(-2).is_undefined() {
-                            if let Ok(atom) = SP_REF!(-1).coerce_to_atom(ctx) {
+                            if let Ok(atom) = SP_REF!(-1).to_atom(ctx) {
                                 JS_ThrowReferenceErrorNotDefined(ctx, atom);
                                 JS_FreeAtom(ctx, atom);
                             }
@@ -1781,7 +1781,7 @@ impl Bytecode {
                         }
                     }
                     OpCode::GET_SUPER_VALUE => {
-                        if let Ok(atom) = SP_REF!(-1).coerce_to_atom(ctx) {
+                        if let Ok(atom) = SP_REF!(-1).to_atom(ctx) {
                             let val =
                                 SP_REF!(-2).get_property_internal(ctx, atom, SP_REF!(-3), false);
                             JS_FreeAtom(ctx, atom);
@@ -1823,7 +1823,7 @@ impl Bytecode {
 
                         if obj.is_undefined() {
                             if is_strict_mode(ctx) {
-                                if let Ok(atom) = prop.coerce_to_atom(ctx) {
+                                if let Ok(atom) = prop.to_atom(ctx) {
                                     JS_ThrowReferenceErrorNotDefined(ctx, atom);
                                     JS_FreeAtom(ctx, atom);
                                 }
@@ -1854,7 +1854,7 @@ impl Bytecode {
                             break State::Exception;
                         }
 
-                        if let Ok(atom) = prop.coerce_to_atom(ctx) {
+                        if let Ok(atom) = prop.to_atom(ctx) {
                             let ret = JSValue::set_property_internal(
                                 ctx,
                                 &obj,

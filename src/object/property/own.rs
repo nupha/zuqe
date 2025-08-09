@@ -1,5 +1,5 @@
 use crate::{
-    atom::{__JS_AtomToUInt32, JS_FreeAtom, JSAtom},
+    atom::{JS_FreeAtom, JSAtom},
     context::JSContext,
     error::JS_ThrowReferenceErrorUninitialized,
     object::{
@@ -137,8 +137,7 @@ impl JSObject {
         let flags = self.flags();
         if flags.is_exotic() {
             if flags.is_fast_array() {
-                if prop.is_int_type() {
-                    let idx = __JS_AtomToUInt32(prop);
+                if let Some(idx) = prop.to_int() {
                     if idx < self.array_length_unchecked() as u32 {
                         // array index is own property
                         return Ok(true);
@@ -158,7 +157,7 @@ impl JSObject {
     }
 
     pub fn has_own_property_str(&self, ctx: &JSContext, prop: &str) -> Result<bool, i32> {
-        let atom = ctx.create_atom(prop)?;
+        let atom = JSAtom::new(ctx.rt_mut(), prop)?;
         let b = self.has_own_property(ctx, atom);
         JS_FreeAtom(ctx, atom);
         b
@@ -219,19 +218,19 @@ impl JSObject {
         }
 
         let flags = self.flags();
+
         if flags.is_exotic() {
             if flags.is_fast_array() {
                 // specific case for fast arrays
-                if prop.is_int_type() {
-                    let idx = __JS_AtomToUInt32(prop);
-                    if idx < self.array_length_unchecked() as u32 {
-                        return Ok(Some(JSPropertyDescriptor {
-                            flags: JS_PROP_C_W_E,
-                            value: self.get_property_value(ctx, &JSValue::from(idx))?,
-                            getter: JSValue::UNDEFINED,
-                            setter: JSValue::UNDEFINED,
-                        }));
-                    }
+                if let Some(idx) = prop.to_int()
+                    && idx < self.array_length_unchecked() as u32
+                {
+                    return Ok(Some(JSPropertyDescriptor {
+                        flags: JS_PROP_C_W_E,
+                        value: self.get_property_value(ctx, &JSValue::from(idx))?,
+                        getter: JSValue::UNDEFINED,
+                        setter: JSValue::UNDEFINED,
+                    }));
                 }
             } else {
                 let em = ctx.rt().class_defs[self.class_id() as usize].exotic;

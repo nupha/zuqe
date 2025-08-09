@@ -1,9 +1,7 @@
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
     array::JS_ToArrayLengthFree,
-    atom::{
-        __JS_AtomToUInt32, JS_ATOM_NULL, JS_AtomIsNumericIndex1, JS_FreeAtom, JSAtom, consts::*,
-    },
+    atom::{JS_ATOM_NULL, JS_AtomIsNumericIndex1, JS_FreeAtom, JSAtom, consts::*},
     bytecode::js_get_function_name,
     context::JSContext,
     number::JS_NumberIsNegativeOrMinusZero,
@@ -116,8 +114,8 @@ impl JSObject {
             if self.flags().is_fast_array() {
                 match self.class_id() {
                     JS_CLASS_ARRAY => {
-                        if prop.is_int_type() {
-                            let idx = __JS_AtomToUInt32(prop) as usize;
+                        if let Some(idx) = prop.to_int() {
+                            let idx = idx as usize;
                             let array_len = self.with_fast_array_values(|a| a.len()).unwrap();
 
                             if idx < array_len {
@@ -142,27 +140,66 @@ impl JSObject {
                         }
                     }
                     JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
-                        if !prop.is_int_type() {
+                        if let Some(idx) = prop.to_int() {
+                            /* if the typed array is detached, p->u.array.count = 0 */
+                            if idx >= self.array_length_unchecked() as u32 {
+                                return if ctx.throw_type_error_or_false(
+                                    flags,
+                                    "out-of-bound index in typed array",
+                                ) {
+                                    Err(-1)
+                                } else {
+                                    Ok(false)
+                                };
+                            }
+
+                            let prop_flags = get_prop_flags(
+                                flags,
+                                JS_PROP_ENUMERABLE | JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+                            );
+                            if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0
+                                || prop_flags
+                                    != (JS_PROP_ENUMERABLE
+                                        | JS_PROP_WRITABLE
+                                        | JS_PROP_CONFIGURABLE)
+                            {
+                                return if ctx.throw_type_error_or_false(
+                                    flags as _,
+                                    "invalid descriptor flags",
+                                ) {
+                                    Err(-1)
+                                } else {
+                                    Ok(false)
+                                };
+                            }
+                            if flags & JS_PROP_HAS_VALUE != 0 {
+                                return self.set_property_value(
+                                    ctx,
+                                    &JSValue::Int(idx as i32),
+                                    val,
+                                    flags,
+                                );
+                            }
+
+                            return Ok(true);
+                        } else {
                             /* slow path with to handle all numeric indexes */
                             let num = JS_AtomIsNumericIndex1(ctx, prop).check_exception()?;
                             if num.is_undefined() {
                                 break; // goto typed_array_done
                             }
 
-                            if let Ok(b) = num.is_integral(ctx) {
-                                if !b {
-                                    return if ctx.throw_type_error_or_false(
-                                        flags,
-                                        "non integer index in typed array",
-                                    ) {
-                                        Err(-1)
-                                    } else {
-                                        Ok(false)
-                                    };
-                                }
-                            } else {
-                                return Err(-1);
-                            };
+                            let b = num.is_integral(ctx)?;
+                            if !b {
+                                return if ctx.throw_type_error_or_false(
+                                    flags,
+                                    "non integer index in typed array",
+                                ) {
+                                    Err(-1)
+                                } else {
+                                    Ok(false)
+                                };
+                            }
 
                             if JS_NumberIsNegativeOrMinusZero(&num) {
                                 return if ctx.throw_type_error_or_false(
@@ -186,46 +223,6 @@ impl JSObject {
                                 };
                             }
                         }
-
-                        let idx = __JS_AtomToUInt32(prop);
-                        /* if the typed array is detached, p->u.array.count = 0 */
-                        if idx >= self.array_length_unchecked() as u32 {
-                            return if ctx.throw_type_error_or_false(
-                                flags,
-                                "out-of-bound index in typed array",
-                            ) {
-                                Err(-1)
-                            } else {
-                                Ok(false)
-                            };
-                        }
-
-                        let prop_flags = get_prop_flags(
-                            flags,
-                            JS_PROP_ENUMERABLE | JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-                        );
-                        if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0
-                            || prop_flags
-                                != (JS_PROP_ENUMERABLE | JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE)
-                        {
-                            return if ctx
-                                .throw_type_error_or_false(flags as _, "invalid descriptor flags")
-                            {
-                                Err(-1)
-                            } else {
-                                Ok(false)
-                            };
-                        }
-                        if flags & JS_PROP_HAS_VALUE != 0 {
-                            return self.set_property_value(
-                                ctx,
-                                &JSValue::Int(idx as i32),
-                                val,
-                                flags,
-                            );
-                        }
-
-                        return Ok(true);
                     }
 
                     #[cfg(debug_assertions)]
@@ -273,7 +270,7 @@ impl JSObject {
         val: V,
         flags: u32,
     ) -> Result<bool, i32> {
-        let atom = prop.coerce_to_atom(ctx)?;
+        let atom = prop.to_atom(ctx)?;
         let ret = self.define_property_value(ctx, atom, val, flags);
         JS_FreeAtom(ctx, atom);
         ret
@@ -286,7 +283,7 @@ impl JSObject {
         val: V,
         flags: u32,
     ) -> Result<bool, i32> {
-        let atom = ctx.create_atom(prop)?;
+        let atom = JSAtom::new(ctx.rt_mut(), prop)?;
         let ret = self.define_property_value(ctx, atom, val, flags);
         JS_FreeAtom(ctx, atom);
         ret
@@ -329,7 +326,7 @@ impl JSObject {
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        let atom = ctx.rt_mut().register_atom_i64(idx);
+        let atom = JSAtom::from_i64(ctx.rt_mut(), idx)?;
         let ret = self.define_property_value(ctx, atom, val, flags);
         JS_FreeAtom(ctx, atom);
         ret
@@ -419,7 +416,7 @@ impl JSValue {
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        let atom = ctx.create_atom(prop)?;
+        let atom = JSAtom::new(ctx.rt_mut(), prop)?;
         let ret = self.define_property_value(ctx, atom, val, flags);
         JS_FreeAtom(ctx, atom);
         ret
@@ -432,7 +429,7 @@ impl JSValue {
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        let atom = prop.coerce_to_atom(ctx)?;
+        let atom = prop.to_atom(ctx)?;
         let ret = self.define_property_value(ctx, atom, val, flags);
         JS_FreeAtom(ctx, atom);
         ret
@@ -460,7 +457,7 @@ impl JSValue {
         flags: u32,
     ) -> Result<bool, i32> {
         // self.define_property_value_value(ctx, JSValue::from_i64(idx), val, flags)
-        let atom = ctx.rt_mut().register_atom_i64(idx);
+        let atom = JSAtom::from_i64(ctx.rt_mut(), idx)?;
         let ret = self.define_property_value(ctx, atom, val, flags);
         JS_FreeAtom(ctx, atom);
         ret
@@ -542,7 +539,7 @@ pub unsafe fn JS_DefineObjectNameComputed(
     flags: u32,
 ) -> i32 {
     if obj.is_object() && !js_object_has_name(obj) {
-        let prop = str_val.coerce_to_atom(ctx).unwrap_or(JS_ATOM_NULL);
+        let prop = str_val.to_atom(ctx).unwrap_or(JS_ATOM_NULL);
         if prop == JS_ATOM_NULL {
             return -1;
         }

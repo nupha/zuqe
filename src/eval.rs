@@ -1,7 +1,7 @@
 use std::{ops::DerefMut, ptr::NonNull};
 
 use crate::{
-    atom::consts::JS_ATOM__eval_,
+    atom::{JSAtom, consts::JS_ATOM__eval_},
     context::{JS_MODE_STRICT, JS_MODE_STRIP, JSContext},
     function::{Bytecode, JSFunctionDef, JSFunctionKindEnum, add_closure_variables},
     module::ModuleDef,
@@ -95,7 +95,7 @@ impl JSContext {
             }
 
             if eval_type == JS_EVAL_TYPE_MODULE {
-                let module_name = self.create_atom(filename)?;
+                let module_name = JSAtom::new(self.rt_mut(), filename)?;
                 js_mode |= JS_MODE_STRICT as u32;
                 (None, Some(ModuleDef::new(self, module_name)), js_mode)
             } else {

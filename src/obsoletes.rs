@@ -9,8 +9,8 @@ use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ARRAY_BUFFER, JS_CLASS_ERROR, JS_CLASS_OBJECT, JS_CLASS_PROXY,
     array_buffer::JSFreeArrayBufferDataFunc,
     atom::{
-        AtomDescKind, AtomHintAndId, AtomTypeHint, JS_ATOM_NULL, JS_FreeAtom, JSAtom, JSAtomStruct,
-        consts::*,
+        AtomDescKind, AtomHintAndId, AtomTypeHint, JS_ATOM_NULL, JS_ATOM_TAG_INT, JS_FreeAtom,
+        JSAtom, JSAtomStruct,
     },
     bytecode::{OpCode, OpCodeTemp, arithmatic::JSStrictEqModeEnum},
     class::{ClassFieldsDef, JSClassDef, JSClassID},
@@ -2137,34 +2137,29 @@ pub unsafe fn JS_AtomToValue(ctx: &JSContext, atom: JSAtom) -> JSValue {
     __JS_AtomToValue(ctx, atom, false)
 }
 
-#[deprecated(note = "use JSContext::create_atom() instead")]
+#[deprecated(note = "use JSAtom::new() instead")]
 pub unsafe fn JS_NewAtomLen(ctx: &JSContext, str: *const u8, len: usize) -> JSAtom {
-    ctx.create_atom(std::str::from_utf8_unchecked(std::slice::from_raw_parts(
-        str, len,
-    )))
-    .unwrap_or(JS_ATOM_NULL)
+    unreachable!("unused");
 }
 
-#[deprecated(note = "use JSContext::create_atom() instead")]
+#[deprecated(note = "use JSAtom::new() instead")]
 pub unsafe fn JS_NewAtom(ctx: &JSContext, str: &CStr) -> JSAtom {
-    ctx.create_atom(str.to_string_lossy().as_ref())
-        .unwrap_or(JS_ATOM_NULL)
+    unreachable!("unused");
 }
 
 #[deprecated(note = "use JSContext::create_atom_string() instead")]
 pub unsafe fn JS_NewAtomString(ctx: &JSContext, str: &str) -> JSValue {
-    ctx.create_atom_string(str)
-        .map_or(JSValue::EXCEPTION, JSValue::String)
+    unreachable!("unused");
 }
 
-#[deprecated(note = "use JSRuntime::register_atom_u32() instead")]
+#[deprecated(note = "use JSAtom::from_u32() instead")]
 pub unsafe fn JS_NewAtomUInt32(ctx: &JSContext, n: u32) -> JSAtom {
-    ctx.rt_mut().register_atom_u32(n)
+    unreachable!("unused");
 }
 
-#[deprecated(note = "use JSRuntime::register_atom_i64() instead")]
+#[deprecated(note = "use JSAtom::from_i64() instead")]
 pub unsafe fn JS_NewAtomInt64(ctx: &JSContext, n: i64) -> JSAtom {
-    ctx.rt_mut().register_atom_i64(n)
+    unreachable!("unused");
 }
 
 #[deprecated(note = "use ObjAsyncState::free_frame() instead")]
@@ -2411,7 +2406,7 @@ pub unsafe fn JS_NewCFunction3(
             ));
 
             // define properties on func_obj: length and name.
-            let name_atom = ctx.create_atom(name).unwrap();
+            let name_atom = JSAtom::new(ctx.rt_mut(), name).unwrap();
 
             js_function_set_properties(ctx, &func_obj.clone().into(), name_atom, length as i32);
             JS_FreeAtom(ctx, name_atom);
@@ -3101,7 +3096,7 @@ pub fn JS_NewSymbol(ctx: &JSContext, p: JSString, atom_type: AtomTypeHint) -> JS
 
 #[deprecated(note = "use JSValue::coerce_to_atom() instead")]
 pub fn JS_ValueToAtom(ctx: &JSContext, val: &JSValue) -> JSAtom {
-    val.coerce_to_atom(ctx).unwrap_or(JS_ATOM_NULL)
+    val.to_atom(ctx).unwrap_or(JS_ATOM_NULL)
 }
 
 #[deprecated(note = "use JSObject::shape_prepare_update() instead")]
@@ -3826,4 +3821,50 @@ pub unsafe fn skip_spaces(pc: *const u8) -> usize {
     }
 
     p.offset_from(p_start) as usize
+}
+
+#[deprecated(note = "use JSAtom::to_int() instead")]
+#[inline(always)]
+pub fn __JS_AtomToUInt32(atom: JSAtom) -> u32 {
+    atom.0 & !JS_ATOM_TAG_INT
+}
+
+/// test if the `atom` can be used as an array index (in 0..u32::MAX range).
+#[deprecated(note = "use JSAtom::to_array_index() instead")]
+pub fn JS_AtomIsArrayIndex(ctx: &JSContext, pval: *mut u32, atom: JSAtom) -> bool {
+    if atom.is_int_type() {
+        unsafe {
+            *pval = __JS_AtomToUInt32(atom);
+        }
+        true
+    } else {
+        if let Some(p) = ctx.rt().get_atom_desc(atom) {
+            if let Some(AtomHintAndId::String(_)) = p.atom_info() {
+                if let Ok(n) = p.content().parse_u32() {
+                    if n != u32::MAX {
+                        unsafe {
+                            *pval = n;
+                        }
+                        return true;
+                    }
+                }
+            }
+        }
+
+        unsafe {
+            *pval = 0;
+        }
+        false
+    }
+}
+
+#[deprecated(note = "use JSRuntime::init_default_atoms() instead")]
+pub unsafe fn JS_InitAtoms(rt: &mut JSRuntime) -> Result<(), i32> {
+    (*rt).init_default_atoms()
+}
+
+/// find atom by str
+#[deprecated(note = "use JSAtom::find() instead")]
+pub fn __JS_FindAtom(rt: &JSRuntime, str: &str, atom_type: AtomTypeHint) -> Option<JSAtom> {
+    JSAtom::find(rt, str, atom_type)
 }

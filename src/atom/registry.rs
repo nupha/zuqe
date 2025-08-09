@@ -7,49 +7,27 @@ use crate::{
 };
 
 use super::{
-    AtomHintAndId, AtomTypeHint, JS_ATOM_MAX_INT, JS_ATOM_NULL, JSAtom,
+    AtomHintAndId, AtomTypeHint, JS_ATOM_MAX_INT, JSAtom,
     consts::{
         JS_ATOM_INIT_COUNT, JS_ATOM_Private_brand, JS_ATOM_Symbol_toPrimitive,
         JS_DEFAULT_ATOMS_TEXT,
     },
 };
 
-impl JSRuntime {
-    /// find atom by jsstring
-    pub fn find_atom_for(&self, jsstr: &JSString) -> Option<JSAtom> {
-        if let Some(at) = jsstr.atom_info() {
-            Some(at.atom())
-        } else {
-            // normally, this won't happen
-            unreachable!();
-
-            // // find in registry
-            // if let Some(ids) = self.atom_hash_lut.get(&jsstr.hash()) {
-            //     for &aid in ids {
-            //         let idx = u16::from(aid) as usize - 1;
-            //         if self.atom_slots[idx].unwrap().as_ptr() as *const JSString
-            //             == jsstr as *const JSString
-            //         {
-            //             return Some(JSAtom(u16::from(aid) as u32));
-            //         }
-            //     }
-            // }
-            // None
-        }
-    }
-
+impl JSAtom {
     /// register an atom from `str` JSString. `str` could be None indicates atom has no string description.
     /// returns atom with ownership, caller should free it after use.
-    /// Duplicated registration will simply return existing atom cloned.
-    pub(crate) fn register_atom_internal(
-        &mut self,
-        mut str: Option<JSString>,
+    /// Duplicated str will return existing atom cloned.
+    pub(crate) fn new_internal(
+        rt: &mut JSRuntime,
+        mut str: Option<JSString>, // TODO: use StringContent instead
         mut atom_type: AtomTypeHint,
-    ) -> Result<JSAtom, i32> {
-        // match str aginst existing atoms, don't register twice for same content.
+    ) -> Result<Self, i32> {
+        // match for existing atoms, don't register twice for same content.
         let atom_desc = match atom_type {
             AtomTypeHint::String | AtomTypeHint::GlobalSymbol => {
                 let ss = str.take().unwrap();
+                debug_assert!(!ss.content().is_null());
 
                 if let Some(at) = ss.atom_info() {
                     if at.type_hint() == atom_type {
@@ -64,13 +42,13 @@ impl JSRuntime {
                 let hash = ss.content().calc_hash(atom_type);
 
                 // match registered atoms for hash, type and content
-                match self.atom_hash_lut.entry(hash) {
+                match rt.atom_hash_lut.entry(hash) {
                     Entry::Vacant(kv) => {
                         kv.insert(Vec::with_capacity(1)); // prepare new entry for hash
                     }
                     Entry::Occupied(kv) => {
                         for &aid in kv.get() {
-                            let aptr = self.atom_slots[u16::from(aid) as usize];
+                            let aptr = rt.atom_slots[u16::from(aid) as usize];
                             if !aptr.is_null() {
                                 let at = unsafe { (*aptr).atom_info().unwrap() };
                                 if at.type_hint() == atom_type
@@ -104,11 +82,11 @@ impl JSRuntime {
                         s
                     } else {
                         // clone to a new jsstring
-                        JSString::new(self, s.content().clone())
+                        JSString::new(rt, s.content().clone())
                     }
                 } else {
                     // null content string
-                    JSString::new(self, Rc::new(StringBuf::Null))
+                    JSString::new(rt, Rc::new(StringBuf::Null))
                 };
 
                 let hash = if atom_type == AtomTypeHint::Symbol {
@@ -127,12 +105,12 @@ impl JSRuntime {
         // register new atom
         //
 
-        if self.atom_hash_lut.len() == self.atom_hash_lut.capacity() {
-            self.atom_hash_lut.try_reserve(16).map_err(|_| -1)?;
+        if rt.atom_hash_lut.len() == rt.atom_hash_lut.capacity() {
+            rt.atom_hash_lut.try_reserve(16).map_err(|_| -1)?;
         }
 
         // find free atom slot
-        let (idx, aid) = if let Some(idx) = self
+        let (idx, aid) = if let Some(idx) = rt
             .atom_slots
             .iter()
             .enumerate()
@@ -142,10 +120,10 @@ impl JSRuntime {
         {
             (Some(idx), NonZeroU16::new(idx as u16).unwrap())
         } else {
-            if self.atom_slots.len() == self.atom_slots.capacity() {
-                self.atom_slots.try_reserve(16).map_err(|_| -1)?;
+            if rt.atom_slots.len() == rt.atom_slots.capacity() {
+                rt.atom_slots.try_reserve(16).map_err(|_| -1)?;
             }
-            (None, NonZeroU16::new(self.atom_slots.len() as u16).unwrap())
+            (None, NonZeroU16::new(rt.atom_slots.len() as u16).unwrap())
         };
 
         atom_desc.set_atom_type(match atom_type {
@@ -155,7 +133,7 @@ impl JSRuntime {
             AtomTypeHint::Private => AtomHintAndId::Private(aid),
         });
 
-        match self.atom_hash_lut.entry(atom_desc.hash()) {
+        match rt.atom_hash_lut.entry(atom_desc.hash()) {
             Entry::Vacant(kv) => {
                 kv.insert(vec![aid]);
             }
@@ -166,59 +144,134 @@ impl JSRuntime {
 
         if let Some(i) = idx {
             debug_assert!(i != 0, "atom slot #0 is not usable");
-            debug_assert!(self.atom_slots[i].is_null(), "atom slot {i} is in use");
+            debug_assert!(rt.atom_slots[i].is_null(), "atom slot {i} is in use");
             debug_assert_eq!(i, u16::from(aid) as usize);
-            self.atom_slots[i] = Rc::into_raw(atom_desc.0);
+            rt.atom_slots[i] = Rc::into_raw(atom_desc.0);
         } else {
-            self.atom_slots.push(Rc::into_raw(atom_desc.0));
-            debug_assert_eq!(self.atom_slots.len() - 1, u16::from(aid) as usize);
+            rt.atom_slots.push(Rc::into_raw(atom_desc.0));
+            debug_assert_eq!(rt.atom_slots.len() - 1, u16::from(aid) as usize);
         }
 
         Ok(JSAtom(aid.get() as u32))
     }
 
-    /// convering a JSString into atom.
+    /// make atom from given JSString.
     /// Note: caller should free the result atom.
-    pub fn register_atom_jsstring(
-        &mut self,
+    pub fn from_string(
+        rt: &mut JSRuntime,
         str: JSString,
         type_hint: AtomTypeHint,
     ) -> Result<JSAtom, i32> {
         if let Ok(i) = str.content().parse_u32()
             && i <= JS_ATOM_MAX_INT
         {
+            // int atom
             Ok(JSAtom::new_u32(i))
         } else {
-            self.register_atom_internal(Some(str), type_hint)
+            Self::new_internal(rt, Some(str), type_hint)
         }
     }
 
-    /// register an atom from str
-    pub fn register_atom_str(&mut self, str: &str, type_hint: AtomTypeHint) -> Result<JSAtom, i32> {
-        let s = JSString::from_str(self, str)?;
-        self.register_atom_jsstring(s, type_hint)
+    /// make atom from str
+    #[inline]
+    pub fn from_str(rt: &mut JSRuntime, str: &str, type_hint: AtomTypeHint) -> Result<Self, i32> {
+        let s = JSString::from_str(rt, str)?;
+        Self::from_string(rt, s, type_hint)
     }
 
-    pub fn register_atom_i64(&mut self, n: i64) -> JSAtom {
+    pub fn from_i64(rt: &mut JSRuntime, n: i64) -> Result<Self, i32> {
         if n as u64 <= JS_ATOM_MAX_INT as u64 {
-            JSAtom::new_u32(n as u32)
+            Ok(Self::new_u32(n as u32))
         } else {
-            if let Ok(tmp) = JSString::from_utf8(self, format!("{n}").into_bytes()) {
-                self.register_atom_jsstring(tmp, AtomTypeHint::String)
-                    .unwrap_or(JS_ATOM_NULL)
-            } else {
-                JS_ATOM_NULL
-            }
+            let s = JSString::from_utf8(rt, format!("{n}").into_bytes())?;
+            Self::from_string(rt, s, AtomTypeHint::String)
         }
     }
 
     #[inline(always)]
-    pub fn register_atom_u32(&mut self, n: u32) -> JSAtom {
-        self.register_atom_i64(n as i64)
+    pub fn from_u32(rt: &mut JSRuntime, n: u32) -> Result<Self, i32> {
+        Self::from_i64(rt, n as i64)
+    }
+
+    /// create new or reuse existing atom for `str`.
+    pub fn new(rt: &mut JSRuntime, str: &str) -> Result<Self, i32> {
+        if str.is_empty() || !str.chars().next().unwrap().is_ascii_digit() {
+            // find atom in registry
+            if let Some(atom) = Self::find(rt, str, AtomTypeHint::String) {
+                return Ok(atom);
+            }
+        }
+        Self::from_str(rt, str, AtomTypeHint::String)
+    }
+
+    /// find atom by str
+    pub fn find(rt: &JSRuntime, str: &str, atom_type: AtomTypeHint) -> Option<Self> {
+        let hash = StringBuf::calc_hash_for_str(str, atom_type);
+
+        if let Some(ids) = rt.atom_hash_lut.get(&hash) {
+            for &aid in ids {
+                let id = u16::from(aid) as u32;
+                let p = rt.atom_slots[id as usize];
+                debug_assert!(!p.is_null());
+
+                if unsafe {
+                    (*p).atom_info().unwrap().type_hint() == atom_type && (*p).content().eq_str(str)
+                } {
+                    let a = JSAtom(id);
+
+                    if !a.is_const() {
+                        #[cfg(debug_assertions)]
+                        let _refcnt = a.ref_count(rt);
+
+                        // atom will be pass out, dup atom description then leak to keep reference.
+                        unsafe {
+                            let d = Rc::from_raw(p);
+                            let d2 = d.clone();
+                            let _ = Rc::into_raw(d);
+                            let _ = Rc::into_raw(d2);
+                        }
+
+                        #[cfg(debug_assertions)]
+                        debug_assert_eq!(a.ref_count(rt).unwrap(), _refcnt.unwrap() + 1);
+                    }
+
+                    return Some(a);
+                }
+            }
+        }
+
+        None
+    }
+}
+
+impl JSRuntime {
+    /// find atom by jsstring.
+    /// TODO: move this to JSAtom impl
+    pub fn find_atom_for(&self, jsstr: &JSString) -> Option<JSAtom> {
+        if let Some(at) = jsstr.atom_info() {
+            Some(at.atom())
+        } else {
+            // normally, this won't happen
+            unreachable!();
+
+            // // find in registry
+            // if let Some(ids) = self.atom_hash_lut.get(&jsstr.hash()) {
+            //     for &aid in ids {
+            //         let idx = u16::from(aid) as usize - 1;
+            //         if self.atom_slots[idx].unwrap().as_ptr() as *const JSString
+            //             == jsstr as *const JSString
+            //         {
+            //             return Some(JSAtom(u16::from(aid) as u32));
+            //         }
+            //     }
+            // }
+            // None
+        }
     }
 
     /// get atom description for atom.
     /// returns None if atom does not exist.
+    /// TODO: move this to JSAtom impl
     pub fn get_atom_desc(&self, atom: JSAtom) -> Option<JSString> {
         debug_assert!(atom.0 != 0);
 
@@ -250,7 +303,7 @@ impl JSRuntime {
             };
 
             let cstr = unsafe { CStr::from_ptr(p.cast()) };
-            self.register_atom_str(cstr.to_str().unwrap(), atom_type)?;
+            JSAtom::from_str(self, cstr.to_str().unwrap(), atom_type)?;
 
             p = unsafe { p.add(cstr.count_bytes() + 1) };
         }

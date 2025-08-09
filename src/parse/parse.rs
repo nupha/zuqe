@@ -243,9 +243,9 @@ impl JSParseState<'_> {
             }
         }
 
-        let atom = self
-            .ctx
-            .create_atom(unsafe { std::str::from_utf8_unchecked(&buf) })?;
+        let atom = JSAtom::new(self.ctx.rt_mut(), unsafe {
+            std::str::from_utf8_unchecked(&buf)
+        })?;
 
         unsafe {
             *input = p; // consume input string: move pointer forward
