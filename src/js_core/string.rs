@@ -1033,7 +1033,7 @@ pub fn js_string_fromCodePoint(ctx: &JSContext, cc: CallContext) -> JSResult {
             let code: i32 = if let JSValue::Int(i) = a {
                 *i
             } else {
-                let mut d: f64 = a.coerce_to_f64(ctx)?;
+                let d: f64 = a.coerce_to_f64(ctx)?;
                 if d.fract() == 0.0 {
                     let n = d.trunc() as i64;
                     if n < 0 || n > 0x10ffff {

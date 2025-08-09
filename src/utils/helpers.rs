@@ -1,9 +1,6 @@
 use std::ffi::c_void;
 
-use crate::{
-    bytecode::opcodes,
-    unicode::{UTF8_CHAR_LEN_MAX, unicode_from_utf8},
-};
+use crate::bytecode::opcodes;
 
 pub trait UncheckedFrom<T>: Sized {
     unsafe fn unchecked_from(value: T) -> Self;
@@ -255,31 +252,6 @@ pub fn get_sleb128(pval: &mut i32, buf: &[u8]) -> Result<usize, i32> {
     let ret = get_leb128(&mut val, buf)?;
     *pval = (val as i32 >> 1) ^ -(val as i32 & 1);
     Ok(ret)
-}
-
-pub unsafe fn skip_spaces(pc: *const u8) -> usize {
-    let p_start = pc;
-    let mut p = pc;
-    let mut p_next = std::ptr::null::<u8>();
-
-    loop {
-        let c = *p as char;
-
-        if c.is_ascii() {
-            if !matches!(c, '\t'..='\r' | ' ') {
-                break;
-            }
-            p = p.offset(1);
-        } else if let Ok(uc) = unicode_from_utf8(p, UTF8_CHAR_LEN_MAX as _, &mut p_next) {
-            if !uc.is_whitespace() {
-                break;
-            } else {
-                p = p_next;
-            }
-        }
-    }
-
-    p.offset_from(p_start) as usize
 }
 
 // /// 类似于 snprintf，将格式化后的字符串写入 `buf`，返回写入的字节数。

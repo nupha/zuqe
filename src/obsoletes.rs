@@ -40,6 +40,7 @@ use crate::{
     runtime::JSRuntime,
     stack_frame::StackFrame,
     string::{JSString, JSStringInner},
+    unicode::{UTF8_CHAR_LEN_MAX, unicode_from_utf8},
     value::{JSValue, JSValueConst},
 };
 
@@ -3799,4 +3800,30 @@ pub fn JS_AtomSymbolHasDescription(ctx: &JSContext, atom: JSAtom) -> bool {
 #[deprecated(note = "use TryInto<JSString> to convert obj into JSString, then get length")]
 pub(crate) fn js_string_obj_get_length(obj: JSValue) -> usize {
     TryInto::<JSString>::try_into(obj).map_or(0, |s| s.buf_len())
+}
+
+#[deprecated]
+pub unsafe fn skip_spaces(pc: *const u8) -> usize {
+    let p_start = pc;
+    let mut p = pc;
+    let mut p_next = std::ptr::null::<u8>();
+
+    loop {
+        let c = *p as char;
+
+        if c.is_ascii() {
+            if !matches!(c, '\t'..='\r' | ' ') {
+                break;
+            }
+            p = p.offset(1);
+        } else if let Ok(uc) = unicode_from_utf8(p, UTF8_CHAR_LEN_MAX as _, &mut p_next) {
+            if !uc.is_whitespace() {
+                break;
+            } else {
+                p = p_next;
+            }
+        }
+    }
+
+    p.offset_from(p_start) as usize
 }

@@ -1,12 +1,12 @@
-use super::{ATOD_ACCEPT_BIN_OCT, js_atof};
+use std::ops::RangeInclusive;
+
 use crate::{
     context::JSContext,
     error::{JS_ThrowRangeError, JSResult},
-    utils::skip_spaces,
     value::{HINT_NUMBER, JSValue, JSValueConst},
 };
-use anyhow::__private::not;
-use std::ops::RangeInclusive;
+
+use super::{ATOD_ACCEPT_BIN_OCT, js_atof};
 
 pub const MAX_SAFE_INTEGER: i64 = (1_i64) << 53; // (1_i64 << 53) - 1;
 pub const SAFE_INTEGER_RANGE: RangeInclusive<i64> = -MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER;
@@ -135,35 +135,29 @@ impl JSValue {
                     break Ok(JSValue::Float64(f64::NAN));
                 }
                 Self::String(s) => {
-                    // try parse number
                     let str = s.content().to_utf8();
-                    let len = str.len();
+                    let str = str.as_ref().trim();
 
-                    if len == 0 {
-                        break Ok(JSValue::Int(0));
+                    let res: JSValue = if str.is_empty() {
+                        JSValue::Int(0)
                     } else {
-                        let str_ptr0 = str.as_ptr();
-                        let mut p = unsafe { str_ptr0.add(skip_spaces(str_ptr0)) };
-
-                        let res: JSValue = if unsafe { p.offset_from(str_ptr0) as usize } == len {
-                            // is empty or white space string
-                            JSValue::Int(0)
-                        } else {
-                            unsafe {
-                                js_atof(ctx, p.cast(), &mut p, 0, ATOD_ACCEPT_BIN_OCT)
-                                    .unwrap_or(JSValue::Float64(f64::NAN))
+                        // FIXME: don't use raw pointer to parse number.
+                        let mut p = str.as_ptr();
+                        if let Ok(num) =
+                            unsafe { js_atof(ctx, p.cast(), &mut p, 0, ATOD_ACCEPT_BIN_OCT) }
+                        {
+                            if unsafe { p.offset_from(str.as_ptr()) != str.len() as isize } {
+                                // `str` has remaining characters that are not part of the number.
+                                // This is not a valid number.
+                                JSValue::Float64(f64::NAN)
+                            } else {
+                                num
                             }
-
-                            // let r =
-                            //     unsafe { js_atof(ctx, p.cast(), &mut p, 0, ATOD_ACCEPT_BIN_OCT)? };
-                            // p = unsafe { p.add(skip_spaces(p.cast())) };
-                            // if unsafe { p.offset_from(str_ptr0) as usize } != len {
-                            //     r = JSValue::Float64(f64::NAN);
-                            // }
-                            // r
-                        };
-                        break Ok(res);
-                    }
+                        } else {
+                            JSValue::Float64(f64::NAN)
+                        }
+                    };
+                    break Ok(res);
                 }
                 Self::Object(_) => {
                     val = val.to_primitive(ctx, HINT_NUMBER)?;

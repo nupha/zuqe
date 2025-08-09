@@ -6,7 +6,6 @@ use crate::{
     js_core::global::{MAGIC_NUM_IS_FINITE, MAGIC_NUM_IS_NAN, js_global_isNaN_isFinite},
     number::{JS_DTOA_FORCE_EXP, is_safe_integer},
     object::ObjectDetail,
-    utils::skip_spaces,
     value::JSValue,
 };
 
@@ -34,14 +33,11 @@ pub fn js_parseInt(ctx: &JSContext, cc: CallContext) -> JSResult {
         JSValue::Float64(f64::NAN)
     } else {
         let str = cc.arg(0).to_utf8(ctx)?;
-        let mut p = str.as_ptr();
-
+        let str = str.as_ref().trim();
         unsafe {
-            let skip_spaces_result = skip_spaces(p);
-            p = p.add(skip_spaces_result);
             js_atof(
                 ctx,
-                p,
+                str.as_ptr(),
                 std::ptr::null_mut(),
                 radix,
                 ATOD_INT_ONLY | ATOD_ACCEPT_PREFIX_AFTER_SIGN,
@@ -54,13 +50,8 @@ pub fn js_parseInt(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_parseFloat(ctx: &JSContext, args: CallContext) -> JSResult {
     let str = args.arg(0).to_utf8(ctx)?;
-    let mut p = str.as_ptr();
-
-    let skip_spaces_result = unsafe { skip_spaces(p) };
-    unsafe {
-        p = p.add(skip_spaces_result);
-        js_atof(ctx, p, std::ptr::null_mut(), 10, 0)
-    }
+    let str = str.as_ref().trim();
+    unsafe { js_atof(ctx, str.as_ptr(), std::ptr::null_mut(), 10, 0) }
 }
 
 pub fn js_number_valueOf(ctx: &JSContext, args: CallContext) -> JSResult {
