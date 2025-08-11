@@ -621,15 +621,6 @@ pub unsafe fn js_string_compare(ctx: &JSContext, p1: &JSString, p2: &JSString) -
     }
 }
 
-pub fn JS_ToStringCheckObject(ctx: &JSContext, val: JSValue) -> Result<JSString, i32> {
-    if val.is_undefined_or_null() {
-        ctx.throw_type_error("null or undefined are forbidden");
-        Err(-1)
-    } else {
-        val.to_string(ctx)
-    }
-}
-
 #[deprecated(note = "use JSString::is_empty()")]
 pub fn JS_IsEmptyString(v: &JSValue) -> bool {
     if let JSValue::String(s) = v {
@@ -812,6 +803,16 @@ impl JSValue {
                 }
                 _ => unreachable!(),
             },
+        }
+    }
+
+    /// Coerce value `val` to string, but null or undefined are forbidden.
+    pub fn to_string_non_undefined_or_null(&self, ctx: &JSContext) -> Result<JSString, i32> {
+        if self.is_undefined_or_null() {
+            ctx.throw_type_error("null or undefined are forbidden");
+            Err(-1)
+        } else {
+            self.to_string(ctx)
         }
     }
 

@@ -3868,3 +3868,14 @@ pub unsafe fn JS_InitAtoms(rt: &mut JSRuntime) -> Result<(), i32> {
 pub fn __JS_FindAtom(rt: &JSRuntime, str: &str, atom_type: AtomTypeHint) -> Option<JSAtom> {
     JSAtom::find(rt, str, atom_type)
 }
+
+#[deprecated(note = "use JSValue::to_string_non_undefined_or_null() instead")]
+pub fn JS_ToStringCheckObject(ctx: &JSContext, val: JSValue) -> Result<JSString, i32> {
+    val.to_string_non_undefined_or_null(ctx)
+    // if val.is_undefined_or_null() {
+    //     ctx.throw_type_error("null or undefined are forbidden");
+    //     Err(-1)
+    // } else {
+    //     val.to_string(ctx)
+    // }
+}

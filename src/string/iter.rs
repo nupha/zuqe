@@ -110,7 +110,7 @@ impl<'a> StringBufIter<'a> {
         cursor: &mut usize,
     ) -> Option<StringChar> {
         while let Some(n) = it.next() {
-            let high = *n;
+            let high = *n as u32;
             *cursor += 1;
 
             let r = if (0xD800..=0xDBFF).contains(&high) {
@@ -118,7 +118,7 @@ impl<'a> StringBufIter<'a> {
                     if (0xDC00..=0xDFFF).contains(*low) {
                         // 合法代理对 → 组合成有效的 Unicode 字符
                         let code_point =
-                            ((high - 0xD800) as u32) << 10 | (**low - 0xDC00) as u32 + 0x10000;
+                            ((high - 0xD800) << 10) + (**low as u32 - 0xDC00) + 0x10000;
                         if let Some(ch) = char::from_u32(code_point) {
                             it.next(); // 消耗低代理项
                             *cursor += 1;

@@ -8,7 +8,6 @@ use crate::{
     function::{CallContext, IteratorState},
     object::{ObjectDetail, js_get_length32},
     runtime::JSRuntime,
-    string::JS_ToStringCheckObject,
     typed_array::TypedArray,
     value::JSValue,
 };
@@ -44,7 +43,7 @@ pub fn js_create_array_iterator(ctx: &JSContext, cc: CallContext) -> JSResult {
     let (class_id, obj) = if cc.magic() & 4 != 0 {
         (
             JS_CLASS_STRING_ITERATOR,
-            JS_ToStringCheckObject(ctx, cc.this().clone())?.into(),
+            cc.this().to_string_non_undefined_or_null(ctx)?.into(),
         )
     } else {
         (JS_CLASS_ARRAY_ITERATOR, cc.this().to_object(ctx)?.into())
