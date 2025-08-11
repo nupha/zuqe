@@ -238,7 +238,7 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     }
 
-    let str = this.to_string(ctx)?;
+    let str = this.to_string_non_undefined_or_null(ctx)?;
     let buf_len = str.buf_len();
 
     let search_for = search.to_string(ctx)?;
@@ -364,7 +364,7 @@ pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
     let sep = separator.to_string(ctx)?;
     let sep_len = sep.buf_len();
 
-    let str = this.to_string(ctx)?;
+    let str = this.to_string_non_undefined_or_null(ctx)?;
     let str_len = str.buf_len();
 
     let ret_arr = ctx.create_array()?;
@@ -619,6 +619,16 @@ pub fn js_string_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 }
 
+pub fn js_string_localeCompare(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let a = cc.this().to_string_non_undefined_or_null(ctx)?;
+    let b = cc.arg(0).to_string(ctx)?;
+    match a.content().cmp(&b.content()) {
+        std::cmp::Ordering::Less => Ok(JSValue::Int(-1)),
+        std::cmp::Ordering::Equal => Ok(JSValue::Int(0)),
+        std::cmp::Ordering::Greater => Ok(JSValue::Int(1)),
+    }
+}
+
 pub fn check_regexp_g_flag(ctx: &JSContext, regexp: &JSValue) -> i32 {
     let ret = if let Ok(b) = js_is_regexp(ctx, &regexp) {
         b
@@ -676,7 +686,7 @@ pub fn js_string_match(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     }
 
-    let S = O.to_string(ctx)?;
+    let S = O.to_string_non_undefined_or_null(ctx)?;
 
     // make RegExp args
     let mut args_len = 1;
@@ -873,7 +883,7 @@ pub fn js_string_toLowerCase(ctx: &JSContext, cc: CallContext) -> JSResult {
     ctx.create_string_from_content(sc).map(JSValue::String)
 }
 
-pub const js_string_proto_funcs: [NativeField; 37] = [
+pub const js_string_proto_funcs: [NativeField; 38] = [
     JS_PROP_INT32_DEF!("length", 0, JS_PROP_CONFIGURABLE),
     JS_CFUNC_NATIVE_DEF!("charAt", 1, js_string_at, 0),
     JS_CFUNC_NATIVE_DEF!("at", 1, js_string_at, 1),
@@ -914,7 +924,7 @@ pub const js_string_proto_funcs: [NativeField; 37] = [
     JS_ALIAS_DEF!("trimLeft", "trimStart"),
     JS_CFUNC_NATIVE_DEF!("toString", 0, js_string_toString, 0),
     JS_CFUNC_NATIVE_DEF!("valueOf", 0, js_string_toString, 0),
-    // JS_CFUNC_DEF!("localeCompare", 1, js_string_localeCompare),
+    JS_CFUNC_NATIVE_DEF!("localeCompare", 1, js_string_localeCompare, 0),
     JS_CFUNC_NATIVE_DEF!("toLowerCase", 0, js_string_toLowerCase, 1),
     JS_CFUNC_NATIVE_DEF!("toUpperCase", 0, js_string_toLowerCase, 0),
     JS_CFUNC_NATIVE_DEF!("toLocaleLowerCase", 0, js_string_toLowerCase, 1),

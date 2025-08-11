@@ -795,15 +795,16 @@ impl StringBuf {
         let sep = '\"';
         print!("{sep}");
 
-        for c in self.chars() {
+        for (_, c) in self.iter() {
             match c {
-                '\'' | '"' if c == sep => print!("\\{c}"),
-                '\n' => print!("\\n"),
-                '\r' => print!("\\r"),
-                '\t' => print!("\\t"),
-                '\\' => print!("\\\\"),
-                ' '..='~' => print!("{c}"),
-                _ => print!("\\u{:04x}", c as u32),
+                StringChar::Char(c @ ('\'' | '"')) if c == sep => print!("\\{c}"),
+                StringChar::Char('\n') => print!("\\n"),
+                StringChar::Char('\r') => print!("\\r"),
+                StringChar::Char('\t') => print!("\\t"),
+                StringChar::Char('\\') => print!("\\\\"),
+                StringChar::Char(c @ (' '..='~')) => print!("{c}"),
+                StringChar::Char(c) => print!("{c}"),
+                StringChar::BrokenCode(c) => print!("\\u{:04x}", c as u32),
             }
         }
 
@@ -868,7 +869,7 @@ impl Eq for StringBuf {}
 impl Ord for StringBuf {
     fn cmp(&self, other: &Self) -> Ordering {
         match (self, other) {
-            // same kind cmp.
+            // for same kind.
             (Self::Empty, Self::Empty) => Ordering::Equal,
             (Self::Null, Self::Null) => Ordering::Equal,
             (Self::Ascii(s1), Self::Ascii(s2)) => s1.cmp(s2),
@@ -877,19 +878,20 @@ impl Ord for StringBuf {
             // null is the smallest.
             (Self::Null, _) => Ordering::Less,
             (_, Self::Null) => Ordering::Greater,
-            // empty is greater than null only.
+            // empty is just greater than null.
             (Self::Empty, _) => Ordering::Less,
             (_, Self::Empty) => Ordering::Greater,
 
             // utf8 vs utf16 cmp
             (Self::Ascii(s1), Self::Utf16(s2)) => {
-                let mut it1 = unsafe { std::str::from_utf8_unchecked(s1) }.chars();
-                let mut it2 = U16Str::from_slice(s2).chars_lossy();
+                let mut it1 = s1.iter();
+                let mut it2 = s2.iter();
                 loop {
                     match (it1.next(), it2.next()) {
                         (Some(a), Some(b)) => {
-                            if a != b {
-                                return a.cmp(&b);
+                            let a = *a as u16;
+                            if a != *b {
+                                return a.cmp(b);
                             }
                         }
                         (None, None) => {
@@ -905,12 +907,13 @@ impl Ord for StringBuf {
                 }
             }
             (Self::Utf16(s1), Self::Ascii(s2)) => {
-                let mut it1 = U16Str::from_slice(s1).chars_lossy();
-                let mut it2 = unsafe { std::str::from_utf8_unchecked(s2) }.chars();
+                let mut it1 = s1.iter();
+                let mut it2 = s2.iter();
                 loop {
                     match (it1.next(), it2.next()) {
                         (Some(a), Some(b)) => {
-                            if a != b {
+                            let b = *b as u16;
+                            if *a != b {
                                 return a.cmp(&b);
                             }
                         }
