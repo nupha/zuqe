@@ -184,9 +184,6 @@ pub unsafe fn js_function_set_properties(
     name: JSAtom,
     len: i32,
 ) {
-
-    println!("[O.o] js_function_set_properties={name:?} {}", name.to_utf8(ctx.rt()));
-
     func_obj
         .define_property_value(
             ctx,

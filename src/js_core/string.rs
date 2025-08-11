@@ -159,7 +159,7 @@ pub fn js_string_toWellFormed(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_string_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
     let lastIndexOf = cc.magic();
 
-    let p = cc.this().to_string(ctx)?;
+    let p = cc.this().to_string_non_undefined_or_null(ctx)?;
     let p1 = cc.arg(0).to_string(ctx)?;
 
     let len = p.buf_len() as i32;
