@@ -2,6 +2,7 @@ use std::{
     borrow::Cow,
     cell::Cell,
     ffi::CStr,
+    ops::Range,
     rc::{Rc, Weak},
     str::FromStr,
 };
@@ -328,17 +329,17 @@ impl JSString {
         Ok(o)
     }
 
-    /// get sub string in specified range, and return the sub string value.
-    /// `start` and `end` index are about buffer index.
-    pub fn sub_string(&self, ctx: &JSContext, start: usize, end: usize) -> Result<JSString, i32> {
-        let end = std::cmp::min(end, self.buf_len());
+    /// make sub string with content of given range.
+    /// range is about buffer index, and end index is exclusive.
+    pub fn sub_string(&self, ctx: &JSContext, range: Range<usize>) -> Result<JSString, i32> {
+        let end = std::cmp::min(range.end, self.buf_len());
 
-        if start == 0 && end == self.buf_len() {
+        if range.start == 0 && end == self.buf_len() {
             Ok(self.clone())
         } else {
-            let count = end.saturating_sub(start); // if end > start { end - start } else { 0 };
+            let count = end.saturating_sub(range.start);
             if count > 0 {
-                let sub = self.content().slice(start..end).to_owned().map_err(|_| {
+                let sub = self.content().slice(range).to_owned().map_err(|_| {
                     ctx.throw_out_of_memory();
                     -1
                 })?;
@@ -477,7 +478,7 @@ impl JSString {
                 StringChar::Char('<') if !named_captures.is_undefined() => {
                     // $<name> -> names_captures[name]
                     if let Some(k) = rep_cc.index_of_char('>', j as _) {
-                        let name = replacement.sub_string(ctx, j, k)?;
+                        let name = replacement.sub_string(ctx, j..k)?;
                         let capture = named_captures.get_property_value(ctx, &name.into())?;
                         if !capture.is_undefined() {
                             let sval = capture.to_string(ctx)?;

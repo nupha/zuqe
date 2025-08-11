@@ -335,94 +335,84 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
-    // split(sep, limit)
-    let O = cc.this().clone();
-
-    if O.is_undefined_or_null() {
+    let this = cc.this();
+    if this.is_undefined_or_null() {
         ctx.throw_type_error("cannot convert to object");
         return Err(-1);
     }
 
     let separator = cc.arg(0);
     let limit = cc.arg(1);
-    let mut args = [const { JSValue::UNDEFINED }; 2];
-    let mut lengthA: u32 = 0;
-
-    if !separator.is_undefined_or_null() {
-        let splitter = separator.get_property(ctx, JS_ATOM_Symbol_split)?;
-        if !splitter.is_undefined_or_null() {
-            args[0] = O;
-            args[1] = limit.clone();
-            return JS_Call(ctx, &splitter, &separator, &args).check_exception();
-        }
-    }
-
-    let sp = O.to_string(ctx)?;
-    let s = sp.buf_len() as i32;
-
-    let A = ctx.create_array()?;
-    let mut lengthA = 0;
-
     let lim = if limit.is_undefined() {
         u32::MAX
     } else {
         limit.coerce_to_u32(ctx)?
     };
 
-    let rp = separator.to_string(ctx)?;
-    let r = rp.buf_len() as i32;
+    if !separator.is_undefined_or_null() {
+        let splitter = separator.get_property(ctx, JS_ATOM_Symbol_split)?;
+        if !splitter.is_undefined_or_null() {
+            return JS_Call(ctx, &splitter, &separator, &[this.clone(), limit.clone()])
+                .check_exception();
+        }
+    }
 
+    let sep = separator.to_string(ctx)?;
+    let sep_len = sep.buf_len();
+
+    let str = this.to_string(ctx)?;
+    let str_len = str.buf_len();
+
+    let ret_arr = ctx.create_array()?;
     if lim == 0 {
-        return Ok(A);
+        return Ok(ret_arr);
     }
-
-    let mut T = JSValue::UNDEFINED;
-    let mut p = 0;
-
-    macro_rules! add_tail {
-        () => {
-            T = sp.sub_string(ctx, p as usize, s as usize)?.into();
-            A.create_data_property_u32(ctx, lengthA as _, T, 0)?;
-            return Ok(A);
-        };
-    }
-
     if separator.is_undefined() {
-        add_tail!();
+        ret_arr.create_data_property_u32(ctx, 0, cc.this().clone(), 0)?;
+        return Ok(ret_arr);
     }
 
-    if s == 0 {
-        if r != 0 {
-            add_tail!();
+    if sep_len == 0 {
+        for (i, (_, c)) in str.content().iter().enumerate().take(lim as usize) {
+            let t = ctx.create_string_from_char(c)?;
+            ret_arr.create_data_property_u32(ctx, i as _, t.into(), 0)?;
         }
-        return Ok(A);
-    }
+    } else {
+        let mut remainder: Option<usize> = Some(0);
+        let mut cursor = 0;
+        let mut count = 0;
 
-    let mut q = p;
-    while {
-        q += if r == 0 { 1 } else { 0 };
-        q
-    } <= s - r - if r == 0 { 1 } else { 0 }
-    {
-        let e = if let Some(i) = sp.content().index_of(rp.content(), q as _) {
-            i as i32
-        } else {
-            break;
-        };
+        while let Some(i) = str.content().index_of(sep.content(), cursor) {
+            let t = str.sub_string(ctx, cursor..cursor + sep_len)?.into();
+            ret_arr.create_data_property_u32(ctx, count as _, t, 0)?;
 
-        T = sp.sub_string(ctx, p as usize, e as usize)?.into();
-        A.create_data_property_u32(ctx, lengthA as _, T, 0)?;
+            count += 1;
+            cursor = i + sep_len;
 
-        lengthA += 1;
-        if lengthA == lim {
-            return Ok(A);
+            match (cursor + sep_len).cmp(&str_len) {
+                std::cmp::Ordering::Greater => {
+                    // no more separator found, break
+                    break;
+                }
+                std::cmp::Ordering::Equal => {
+                    // reached the end of the string, and is seperator, no remainder
+                    remainder = None;
+                    break;
+                }
+                _ => {
+                    remainder = Some(cursor);
+                }
+            }
         }
 
-        p = e + r;
-        q = p;
+        if let Some(i) = remainder {
+            // remaining part
+            let t = str.sub_string(ctx, i..str_len)?.into();
+            ret_arr.create_data_property_u32(ctx, count as _, t, 0)?;
+        }
     }
 
-    add_tail!();
+    Ok(ret_arr)
 }
 
 pub fn js_string_substring(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -437,7 +427,7 @@ pub fn js_string_substring(ctx: &JSContext, cc: CallContext) -> JSResult {
     };
     let (start, end) = if a < b { (a, b) } else { (b, a) };
 
-    p.sub_string(ctx, start as usize, end as usize)
+    p.sub_string(ctx, start as usize..end as usize)
         .map(JSValue::String)
 }
 
@@ -452,7 +442,7 @@ pub fn js_string_substr(ctx: &JSContext, cc: CallContext) -> JSResult {
         len - a
     };
 
-    p.sub_string(ctx, a as usize, (a + n) as usize)
+    p.sub_string(ctx, a as usize..(a + n) as usize)
         .map(JSValue::String)
 }
 
@@ -466,7 +456,7 @@ pub fn js_string_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
         len
     };
 
-    p.sub_string(ctx, start as usize, std::cmp::max(end, start) as usize)
+    p.sub_string(ctx, start as usize..std::cmp::max(end, start) as usize)
         .map(JSValue::String)
 }
 
@@ -579,37 +569,53 @@ pub fn js_string_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
         ctx.throw_type_error("regex not supported");
         return Err(-1);
     }
-    let p1 = cc.arg(0).to_string(ctx)?;
 
-    let len = p.buf_len();
-    let len1 = p1.buf_len();
+    let pat = cc.arg(0).to_string(ctx)?;
 
-    if len1 == 0 {
-        return Ok(JSValue::Bool(true));
-    } else if len1 > len {
-        return Ok(JSValue::Bool(false));
+    let mut str_len = p.buf_len();
+    let pat_len = pat.buf_len();
+
+    let mut pos = if cc.magic() == MAGIC_ENDS_WITH {
+        str_len
+    } else {
+        0
+    };
+    if cc.length() > 1 {
+        let a = cc.arg(1);
+        if !a.is_undefined() {
+            pos = a.to_i32_clamp(ctx, 0, str_len as _, 0)? as usize;
+            if cc.magic() == MAGIC_ENDS_WITH {
+                str_len = pos;
+            }
+        }
     }
 
-    match cc.magic() {
-        MAGIC_INCLUDES => {
-            return Ok(p
+    if pat_len == 0 {
+        Ok(JSValue::Bool(true))
+    } else if pat_len > str_len {
+        Ok(JSValue::Bool(false))
+    } else {
+        match cc.magic() {
+            MAGIC_INCLUDES => Ok(p
                 .content()
-                .index_of(&p1.content(), 0)
-                .map_or(JSValue::Bool(false), |_| JSValue::Bool(true)));
+                .index_of(&pat.content(), pos)
+                .map_or(JSValue::Bool(false), |_| JSValue::Bool(true))),
+
+            m @ (MAGIC_STARTS_WITH | MAGIC_ENDS_WITH) => {
+                let it = p.content().iter_range(if m == MAGIC_ENDS_WITH {
+                    (str_len - pat_len)..str_len
+                } else {
+                    0..pos
+                });
+                Ok(it
+                    .zip(pat.content().iter())
+                    .all(|((_, c1), (_, c2))| c1 == c2)
+                    .then(|| JSValue::Bool(true))
+                    .unwrap_or(JSValue::Bool(false)))
+            }
+
+            _ => unreachable!(),
         }
-        m @ (MAGIC_STARTS_WITH | MAGIC_ENDS_WITH) => {
-            let it = p.content().iter_range(if m == MAGIC_STARTS_WITH {
-                0..len1
-            } else {
-                (len - len1)..len
-            });
-            return Ok(it
-                .zip(p1.content().iter())
-                .all(|((_, c1), (_, c2))| c1 == c2)
-                .then(|| JSValue::Bool(true))
-                .unwrap_or(JSValue::Bool(false)));
-        }
-        _ => unreachable!(),
     }
 }
 

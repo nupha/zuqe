@@ -304,7 +304,11 @@ impl JSValue {
                         d as i32
                     };
                 }
+
                 JSValue::EXCEPTION => {
+                    #[cfg(debug_assertions)]
+                    unreachable!();
+                    #[cfg(not(debug_assertions))]
                     return Err(-1);
                 }
                 _ => {
