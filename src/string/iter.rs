@@ -1,5 +1,6 @@
 use std::{
     iter::Peekable,
+    ops::Range,
     str::{CharIndices, Chars},
 };
 
@@ -203,24 +204,40 @@ impl Iterator for StringCharIndices<'_> {
 }
 
 impl StringBuf {
-    /// iterate over string chars. `index` is the starting buf index.
+    /// iterate over string chars. `range` is the range of buf index.
+    /// if `range` has out of bound, range is intersected with buf.
     /// for broken surrogate, returns raw code directly, otherwise returns unichar
-    pub fn iter_since(&self, index: usize) -> StringBufIter<'_> {
+    pub fn iter_range(&self, range: Range<usize>) -> StringBufIter<'_> {
         match self {
             Self::Empty | Self::Null => StringBufIter::from_u8(&[]),
             Self::Ascii(s) => {
-                StringBufIter::from_u8(if index < s.len() { &s[index..] } else { &[] })
+                if let Some(slice) = s.get(range) {
+                    StringBufIter::from_u8(slice)
+                } else {
+                    StringBufIter::from_u8(&[])
+                }
             }
             Self::Utf16(s) => {
-                StringBufIter::from_u16(if index < s.len() { &s[index..] } else { &[] })
+                if let Some(slice) = s.get(range) {
+                    StringBufIter::from_u16(slice)
+                } else {
+                    StringBufIter::from_u16(&[])
+                }
             }
         }
+    }
+
+    /// iterate over string chars. `index` is the starting buf index.
+    /// for broken surrogate, returns raw code directly, otherwise returns unichar
+    #[inline(always)]
+    pub fn iter_since(&self, index: usize) -> StringBufIter<'_> {
+        self.iter_range(index..self.buf_len())
     }
 
     /// iterate over string chars. short cut to `::iter_since(0)`.
     #[inline(always)]
     pub fn iter(&self) -> StringBufIter<'_> {
-        self.iter_since(0)
+        self.iter_range(0..self.buf_len())
     }
 
     /// get chars iterator

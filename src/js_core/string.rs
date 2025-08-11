@@ -259,7 +259,7 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
             }
         } else {
             str.content()
-                .find(search_for.content(), endOfLastMatch as _)
+                .index_of(search_for.content(), endOfLastMatch as _)
         };
 
         if let Some(pos) = found {
@@ -404,7 +404,7 @@ pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
         q
     } <= s - r - if r == 0 { 1 } else { 0 }
     {
-        let e = if let Some(i) = sp.content().find(rp.content(), q as _) {
+        let e = if let Some(i) = sp.content().index_of(rp.content(), q as _) {
             i as i32
         } else {
             break;
@@ -568,6 +568,10 @@ pub fn js_string_repeat(ctx: &JSContext, cc: CallContext) -> JSResult {
         .map(JSValue::String)
 }
 
+const MAGIC_INCLUDES: i32 = 1;
+const MAGIC_STARTS_WITH: i32 = 2;
+const MAGIC_ENDS_WITH: i32 = 3;
+
 pub fn js_string_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
     let p = cc.this().to_string_non_undefined_or_null(ctx)?;
 
@@ -577,48 +581,36 @@ pub fn js_string_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
     let p1 = cc.arg(0).to_string(ctx)?;
 
-    let mut len = p.buf_len() as i32;
-    let v_len = p1.buf_len() as i32;
+    let len = p.buf_len();
+    let len1 = p1.buf_len();
 
-    let mut pos = if cc.magic() == 2 {
-        len
-    } else if cc.length() > 1 && !cc.arg(1).is_undefined() {
-        cc.arg(1).to_i32_clamp(ctx, 0, len, 0)?
-    } else {
-        0
-    };
-
-    len -= v_len;
-
-    let mut ret = false;
-    let start: i32;
-    let stop: i32;
-
-    if cc.magic() == 0 {
-        start = pos;
-        stop = len;
-    } else {
-        if cc.magic() == 1 {
-            if pos > len {
-                return Ok(JSValue::Bool(ret));
-            }
-        } else {
-            pos -= v_len;
-        }
-        start = pos;
-        stop = pos;
+    if len1 == 0 {
+        return Ok(JSValue::Bool(true));
+    } else if len1 > len {
+        return Ok(JSValue::Bool(false));
     }
 
-    if start >= 0 && start <= stop {
-        for i in start..stop {
-            if string_cmp(&p, &p1, i as usize, 0, v_len as usize) == 0 {
-                ret = true;
-                break;
-            }
+    match cc.magic() {
+        MAGIC_INCLUDES => {
+            return Ok(p
+                .content()
+                .index_of(&p1.content(), 0)
+                .map_or(JSValue::Bool(false), |_| JSValue::Bool(true)));
         }
+        m @ (MAGIC_STARTS_WITH | MAGIC_ENDS_WITH) => {
+            let it = p.content().iter_range(if m == MAGIC_STARTS_WITH {
+                0..len1
+            } else {
+                (len - len1)..len
+            });
+            return Ok(it
+                .zip(p1.content().iter())
+                .all(|((_, c1), (_, c2))| c1 == c2)
+                .then(|| JSValue::Bool(true))
+                .unwrap_or(JSValue::Bool(false)));
+        }
+        _ => unreachable!(),
     }
-
-    Ok(JSValue::Bool(ret))
 }
 
 pub fn check_regexp_g_flag(ctx: &JSContext, regexp: &JSValue) -> i32 {
@@ -645,7 +637,7 @@ pub fn check_regexp_g_flag(ctx: &JSContext, regexp: &JSValue) -> i32 {
             return -1;
         };
 
-        let idx = flags.content().find_char('g', 0);
+        let idx = flags.content().index_of_char('g', 0);
         if idx.is_none() {
             ctx.throw_type_error("regexp must have the 'g' flag");
             return -1;
@@ -771,7 +763,7 @@ pub fn string_cmp(p1: &JSString, p2: &JSString, x1: usize, x2: usize, len: usize
 #[deprecated(note = "use StringBuf::find_char() instead")]
 pub unsafe fn string_indexof_char(p: *mut JSString, c: i32, from: i32) -> i32 {
     (*p).content()
-        .find_char(char::from_u32(c as u32).unwrap(), from as _)
+        .index_of_char(char::from_u32(c as u32).unwrap(), from as _)
         .map_or(-1, |i| i as i32)
 
     // let len = (*p).len() as i32;
@@ -795,7 +787,7 @@ pub unsafe fn string_indexof(p1: *mut JSString, p2: *mut JSString, from: i32) ->
     debug_assert!(from >= 0);
     (*p1)
         .content()
-        .find((*p2).content(), from as _)
+        .index_of((*p2).content(), from as _)
         .map_or(-1, |i| i as i32)
 }
 
@@ -889,9 +881,9 @@ pub const js_string_proto_funcs: [NativeField; 37] = [
     JS_CFUNC_NATIVE_DEF!("toWellFormed", 0, js_string_toWellFormed, 0),
     JS_CFUNC_NATIVE_DEF!("indexOf", 1, js_string_indexOf, 0),
     JS_CFUNC_NATIVE_DEF!("lastIndexOf", 1, js_string_indexOf, 1),
-    JS_CFUNC_NATIVE_DEF!("includes", 1, js_string_includes, 0),
-    JS_CFUNC_NATIVE_DEF!("endsWith", 1, js_string_includes, 2),
-    JS_CFUNC_NATIVE_DEF!("startsWith", 1, js_string_includes, 1),
+    JS_CFUNC_NATIVE_DEF!("includes", 1, js_string_includes, MAGIC_INCLUDES as _),
+    JS_CFUNC_NATIVE_DEF!("endsWith", 1, js_string_includes, MAGIC_ENDS_WITH as _),
+    JS_CFUNC_NATIVE_DEF!("startsWith", 1, js_string_includes, MAGIC_STARTS_WITH as _),
     JS_CFUNC_NATIVE_DEF!("match", 1, js_string_match, JS_ATOM_Symbol_match.0 as _),
     JS_CFUNC_NATIVE_DEF!(
         "matchAll",

@@ -695,46 +695,96 @@ impl StringBuf {
         self.parse_u32_radix(10)
     }
 
-    /// find index of `needle` occurrence in haystack `self`, starting at `from_index`.
-    pub fn find(&self, needle: &Self, from_index: usize) -> Option<usize> {
-        let len1 = self.buf_len();
-        if !(0..len1).contains(&from_index) {
+    /// find index of code occurrence.
+    pub fn index_of_code(&self, code: u16, from_index: usize) -> Option<usize> {
+        if !(0..self.buf_len()).contains(&from_index) {
             return None;
         }
 
+        match self {
+            Self::Empty | Self::Null => None,
+            Self::Ascii(s) => {
+                if code > 0x7F {
+                    None
+                } else {
+                    let c1 = code as u8;
+                    s[from_index..]
+                        .iter()
+                        .position(|&c| c == c1)
+                        .map(|n| n + from_index)
+                }
+            }
+            Self::Utf16(s) => s[from_index..]
+                .iter()
+                .position(|&c| c == code)
+                .map(|n| n + from_index),
+        }
+    }
+
+    /// find index of string buf occurrence in haystack `self`, starting at `from_index`.
+    pub fn index_of(&self, needle: &Self, from_index: usize) -> Option<usize> {
+        let len = self.buf_len();
+        let len1 = needle.buf_len();
+        if !(0..len).contains(&from_index) {
+            return None;
+        }
         if needle.is_empty() {
             return Some(from_index);
         }
-        let needle_chars = needle.iter().map(|(_, c)| c);
-        let num_chars = needle_chars.clone().count();
-        debug_assert!(num_chars > 0);
+        let first = needle.get(0).unwrap().clone();
+        let it2 = needle.iter();
 
-        let mut window = VecDeque::<StringChar>::with_capacity(num_chars);
+        let mut cursor = from_index;
+        while let Some(i) = self.index_of_code(first, cursor) {
+            debug_assert!(cursor + len1 <= len);
 
-        for (cursor, c) in self.iter_since(from_index) {
-            window.push_back(c);
-            if window.len() == num_chars {
-                if window
-                    .iter()
-                    .zip(needle_chars.clone())
-                    .any(|(a, b)| !b.eq(a))
-                {
-                    // not match
-                    window.pop_front();
-                } else {
-                    // match
-                    return Some(from_index + cursor - num_chars);
-                }
+            if self
+                .iter_range(i..(i + len1))
+                .zip(it2.clone())
+                .all(|((_, c1), (_, c2))| c1 == c2)
+            {
+                return Some(i);
+            }
+
+            cursor = i + 1;
+            if cursor + len1 > len {
+                break;
             }
         }
+
+        // not found
+
+        // old logic
+        // let needle_chars = needle.iter().map(|(_, c)| c);
+        // let num_chars = needle_chars.clone().count();
+        // debug_assert!(num_chars > 0);
+
+        // let mut window = VecDeque::<StringChar>::with_capacity(num_chars);
+
+        // for (cursor, c) in self.iter_since(from_index) {
+        //     window.push_back(c);
+        //     if window.len() == num_chars {
+        //         if window
+        //             .iter()
+        //             .zip(needle_chars.clone())
+        //             .any(|(a, b)| !b.eq(a))
+        //         {
+        //             // not match
+        //             window.pop_front();
+        //         } else {
+        //             // match
+        //             return Some(from_index + cursor - num_chars);
+        //         }
+        //     }
+        // }
 
         None
     }
 
-    /// find index of ch occurrence in self, starting at from.
-    pub fn find_char(&self, ch: char, from_index: usize) -> Option<usize> {
-        let len1 = self.buf_len();
-        if !(0..len1).contains(&from_index) {
+    /// find index of char occurrence in self, starting at from.
+    pub fn index_of_char(&self, ch: char, from_index: usize) -> Option<usize> {
+        let len = self.buf_len();
+        if !(0..len).contains(&from_index) {
             None
         } else {
             let ch = StringChar::Char(ch);
@@ -911,6 +961,29 @@ impl PartialOrd for StringBuf {
 pub struct StringBufSlice<'a> {
     src: &'a StringBuf,
     buf_ranges: Range<usize>,
+}
+
+impl std::fmt::Debug for StringBufSlice<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.src {
+            StringBuf::Empty => write!(f, "<StringBufSlice Empty>"),
+            StringBuf::Null => write!(f, "<StringBufSlice Null>"),
+            StringBuf::Ascii(s) => {
+                write!(
+                    f,
+                    "<StringBufSlice ascii {:?}>",
+                    &s[self.buf_ranges.clone()]
+                )
+            }
+            StringBuf::Utf16(s) => {
+                write!(
+                    f,
+                    "<StringBufSlice utf16 {:?}>",
+                    &s[self.buf_ranges.clone()]
+                )
+            }
+        }
+    }
 }
 
 impl StringBufSlice<'_> {

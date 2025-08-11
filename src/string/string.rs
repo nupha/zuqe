@@ -382,7 +382,7 @@ impl JSString {
         // escape $-patterns in `replacement`
         let mut i = 0_usize;
         loop {
-            let mut j = if let Some(x) = rep_cc.find_char('$', i) {
+            let mut j = if let Some(x) = rep_cc.index_of_char('$', i) {
                 if x + 1 >= rep_len {
                     break;
                 }
@@ -476,7 +476,7 @@ impl JSString {
                 }
                 StringChar::Char('<') if !named_captures.is_undefined() => {
                     // $<name> -> names_captures[name]
-                    if let Some(k) = rep_cc.find_char('>', j as _) {
+                    if let Some(k) = rep_cc.index_of_char('>', j as _) {
                         let name = replacement.sub_string(ctx, j, k)?;
                         let capture = named_captures.get_property_value(ctx, &name.into())?;
                         if !capture.is_undefined() {
