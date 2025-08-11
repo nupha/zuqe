@@ -724,9 +724,9 @@ impl StringBuf {
     /// find index of string buf occurrence in haystack `self`, starting at `from_index`.
     pub fn index_of(&self, needle: &Self, from_index: usize) -> Option<usize> {
         let len = self.buf_len();
-        let len1 = needle.buf_len();
+        let needle_len = needle.buf_len();
 
-        if from_index + len1 > len {
+        if from_index + needle_len > len {
             // range out of bound
             None
         } else if needle.is_empty() {
@@ -737,11 +737,11 @@ impl StringBuf {
             let mut cursor = from_index;
 
             while let Some(i) = self.index_of_code(first, cursor) {
-                debug_assert!(cursor + len1 <= len, "{i} + {len1} <= {len}");
+                debug_assert!(cursor + needle_len <= len, "{i} + {needle_len} <= {len}");
 
-                if i + len1 <= len {
+                if i + needle_len <= len {
                     if self
-                        .iter_range(i..(i + len1))
+                        .iter_range(i..(i + needle_len))
                         .zip(it2.clone())
                         .all(|((_, c1), (_, c2))| c1 == c2)
                     {
@@ -751,7 +751,7 @@ impl StringBuf {
 
                 // forward for next occurrence
                 cursor = i + 1;
-                if cursor + len1 > len {
+                if cursor + needle_len > len {
                     break;
                 }
             }

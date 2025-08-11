@@ -70,9 +70,13 @@ pub fn js_symbol_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_thisSymbolValue(ctx: &JSContext, this_val: &JSValue) -> JSResult {
     if this_val.is_symbol() {
         return Ok(this_val.clone());
-    } else if let JSValue::Object(p) = this_val {
+    }
+
+    if let JSValue::Object(p) = this_val {
         if p.class_id() == JS_CLASS_SYMBOL {
-            if let Some(v) = p.0.payload.borrow().value() {
+            let v = p.0.payload.borrow().value().unwrap();
+            debug_assert!(v.is_symbol(), "{v:?}");
+            if v.is_symbol() {
                 return Ok(v);
             }
         }

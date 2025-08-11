@@ -143,7 +143,8 @@ impl ObjectDetail {
     pub fn value(&self) -> Option<JSValue> {
         match self {
             Self::NUMBER(a) | Self::BOOLEAN(a) => Some(a.clone()),
-            Self::STRING(a) | Self::SYMBOL(a) => Some(a.clone().into()),
+            Self::STRING(a) => Some(JSValue::String(a.clone())),
+            Self::SYMBOL(a) => Some(JSValue::Symbol(a.clone())),
             _ => None,
         }
     }

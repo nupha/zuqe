@@ -18,6 +18,10 @@ use crate::{
     value::JSValue,
 };
 
+const MAGIC_INCLUDES: i32 = 1;
+const MAGIC_STARTS_WITH: i32 = 2;
+const MAGIC_ENDS_WITH: i32 = 3;
+
 pub fn js_string_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let new_target = cc.this();
 
@@ -557,10 +561,6 @@ pub fn js_string_repeat(ctx: &JSContext, cc: CallContext) -> JSResult {
     ctx.create_string_from_content(res_string)
         .map(JSValue::String)
 }
-
-const MAGIC_INCLUDES: i32 = 1;
-const MAGIC_STARTS_WITH: i32 = 2;
-const MAGIC_ENDS_WITH: i32 = 3;
 
 pub fn js_string_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
     let p = cc.this().to_string_non_undefined_or_null(ctx)?;

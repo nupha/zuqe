@@ -159,13 +159,13 @@ impl JSValue {
                     };
                     break Ok(res);
                 }
-                Self::Object(_) => {
-                    val = val.to_primitive(ctx, HINT_NUMBER)?;
-                    continue;
-                }
                 Self::Symbol(_) => {
                     ctx.throw_type_error("cannot convert symbol to number");
                     break Err(-1);
+                }
+                Self::Object(o) => {
+                    val = o.to_primitive(ctx, HINT_NUMBER)?;
+                    continue;
                 }
                 Self::EXCEPTION => {
                     #[cfg(debug_assertions)]
