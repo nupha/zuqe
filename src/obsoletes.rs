@@ -3879,3 +3879,29 @@ pub fn JS_ToStringCheckObject(ctx: &JSContext, val: JSValue) -> Result<JSString,
     //     val.to_string(ctx)
     // }
 }
+
+#[deprecated(note = "use JSParseState::parse_regexp() instead")]
+pub unsafe fn js_parse_regexp(s: &mut JSParseState) -> Result<(), i32> {
+    unreachable!("unused")
+}
+
+/// `this_val` is not consumed
+#[deprecated(note = "use JSValue::invoke() instead")]
+pub fn JS_Invoke(ctx: &JSContext, this_val: &JSValue, atom: JSAtom, args: &[JSValue]) -> JSValue {
+    let func_obj = this_val.get_property(ctx, atom);
+    if func_obj.is_err() {
+        return JSValue::EXCEPTION;
+    }
+    JS_Call(ctx, &func_obj.unwrap(), this_val, args)
+}
+
+/// `this_val` is consumed
+#[deprecated(note = "use JSValue::invoke() instead")]
+pub fn JS_InvokeFree(
+    ctx: &JSContext,
+    this_val: JSValue,
+    atom: JSAtom,
+    args: &[JSValue],
+) -> JSValue {
+    JS_Invoke(ctx, &this_val, atom, args)
+}

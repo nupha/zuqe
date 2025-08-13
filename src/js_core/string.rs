@@ -8,7 +8,7 @@ use crate::{
     atom::{JSAtom, consts::*},
     context::JSContext,
     error::{JS_ThrowRangeError, JSResult},
-    function::{CallContext, IteratorState, JS_Call, JS_CallConstructor, JS_Invoke, NativeField},
+    function::{CallContext, IteratorState, JS_Call, JS_CallConstructor, NativeField},
     iterator::{JSIteratorKindEnum, js_create_array_iterator},
     object::{JS_PROP_CONFIGURABLE, ObjectDetail, js_get_length64},
     regexp::js_is_regexp,
@@ -664,42 +664,41 @@ pub fn check_regexp_g_flag(ctx: &JSContext, regexp: &JSValue) -> i32 {
 }
 
 pub fn js_string_match(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let O = cc.this().clone();
-    let regexp = cc.arg(0);
-    let method = JSAtom(cc.magic() as u32);
+    let magic_method = JSAtom(cc.magic() as u32); // match, matchAll, search
 
-    if O.is_undefined_or_null() {
+    let this = cc.this();
+
+    if this.is_undefined_or_null() {
         ctx.throw_type_error("cannot convert to object");
         return Err(-1);
     }
 
-    if !regexp.is_undefined_or_null() {
-        let matcher = regexp.get_property(ctx, method)?;
-
-        if method == JS_ATOM_Symbol_matchAll {
-            if check_regexp_g_flag(ctx, regexp) < 0 {
+    let pattern = cc.arg(0);
+    if !pattern.is_undefined_or_null() {
+        let matcher = pattern.get_property(ctx, magic_method)?;
+        if magic_method == JS_ATOM_Symbol_matchAll {
+            if check_regexp_g_flag(ctx, pattern) < 0 {
                 return Err(-1);
             }
         }
         if !matcher.is_undefined_or_null() {
-            return JS_Call(ctx, &matcher, regexp, &[O]).check_exception();
+            return JS_Call(ctx, &matcher, pattern, std::slice::from_ref(this)).check_exception();
         }
     }
 
-    let S = O.to_string_non_undefined_or_null(ctx)?;
+    let str = this.to_string_non_undefined_or_null(ctx)?;
 
     // make RegExp args
     let mut args_len = 1;
-    let mut args = [regexp.clone(), JSValue::UNDEFINED];
-    if method == JS_ATOM_Symbol_matchAll {
+    let mut args = [pattern.clone(), JSValue::UNDEFINED];
+    if magic_method == JS_ATOM_Symbol_matchAll {
         args[args_len as usize] = ctx.create_string_from_char('g')?.into();
         args_len += 1;
     }
-
     let regexp_ctor = ctx.0.borrow().regexp_ctor.clone(); // avoid borrow for long
-    let re = JS_CallConstructor(ctx, &regexp_ctor, &args[0..args_len]).check_exception()?;
 
-    JS_Invoke(ctx, &re, method, &[S.into()]).check_exception()
+    let re = JS_CallConstructor(ctx, &regexp_ctor, &args[0..args_len]).check_exception()?;
+    re.invoke(ctx, magic_method, &[str.into()])
 }
 
 /// 该函数是 JavaScript 正则替换功能的核心实现，处理了替换字符串中的所有特殊模式，确保符合 ECMAScript 规范要求。

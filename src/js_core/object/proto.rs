@@ -5,7 +5,7 @@ use crate::{
     atom::{JS_ATOM_NULL, JS_FreeAtom, consts::*},
     context::JSContext,
     error::JSResult,
-    function::{CallContext, JS_Invoke, NativeField},
+    function::{CallContext, NativeField},
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE,
         JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW,
@@ -67,7 +67,7 @@ pub fn js_object_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
 // }
 
 pub fn js_object_toLocaleString(ctx: &JSContext, cc: CallContext) -> JSResult {
-    JS_Invoke(ctx, cc.this(), JS_ATOM_toString, &[]).check_exception()
+    cc.this().invoke(ctx, JS_ATOM_toString, &[])
 }
 
 pub fn js_object_valueOf(ctx: &JSContext, cc: CallContext) -> JSResult {

@@ -6,9 +6,8 @@ use crate::{
         ATOD_ACCEPT_BIN_OCT, ATOD_ACCEPT_LEGACY_OCTAL, ATOD_ACCEPT_SUFFIX, ATOD_ACCEPT_UNDERSCORES,
         js_atof,
     },
-    regexp::is_digit,
     runtime::js_check_stack_overflow,
-    string::{StringBuf, StringContent},
+    string::{JSString, StringContent},
     unicode::{UTF8_CHAR_LEN_MAX, unicode_from_utf8},
     value::JSValue,
 };
@@ -86,8 +85,8 @@ pub enum TokenData {
         is_reserved: bool,
     },
     Regexp {
-        body: JSValue,
-        flags: JSValue,
+        pattern: JSString,
+        flags: JSString,
     },
 }
 
@@ -152,16 +151,10 @@ impl TokenData {
         }
     }
 
-    pub fn regexp_body(&self) -> Option<&JSValue> {
-        if let Self::Regexp { body, .. } = self {
-            Some(body)
-        } else {
-            None
-        }
-    }
-    pub fn regexp_flags(&self) -> Option<&JSValue> {
-        if let Self::Regexp { flags, .. } = self {
-            Some(flags)
+    /// regexp pattern and flags
+    pub fn regexp(&self) -> Option<(JSString, JSString)> {
+        if let Self::Regexp { pattern, flags, .. } = self {
+            Some((pattern.clone(), flags.clone()))
         } else {
             None
         }
@@ -382,7 +375,7 @@ impl<'s> JSParseState<'s> {
                     }
                 },
                 '0' => {
-                    todo = if is_digit(unsafe { *p.add(1) })
+                    todo = if unsafe { (*p.add(1)).is_ascii_digit() }
                         && self.cur_func().js_mode & JS_MODE_STRICT as u8 != 0
                     {
                         // in strict mode, octal literals are not accepted

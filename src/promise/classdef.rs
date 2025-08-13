@@ -2,9 +2,8 @@ use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_PROP_STRING_DEF,
     atom::consts::*,
     context::JSContext,
-    defer,
     error::JSResult,
-    function::{CallContext, JS_Call, JS_Invoke, NativeField},
+    function::{CallContext, JS_Call, NativeField},
     js_core::{error::js_aggregate_error_constructor, js_get_this},
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_SpeciesConstructor},
     value::JSValue,
@@ -27,13 +26,8 @@ pub fn js_promise_then(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_promise_catch(ctx: &JSContext, cc: CallContext) -> JSResult {
-    JS_Invoke(
-        ctx,
-        cc.this(),
-        JS_ATOM_then,
-        &[JSValue::UNDEFINED, JSValue::UNDEFINED],
-    )
-    .check_exception()
+    cc.this()
+        .invoke(ctx, JS_ATOM_then, &[JSValue::UNDEFINED, JSValue::UNDEFINED])
 }
 
 pub fn js_promise_then_finally_func(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -64,13 +58,7 @@ pub fn js_promise_then_finally_func(ctx: &JSContext, cc: CallContext) -> JSResul
     )?;
 
     // call promise.then(resolve)
-    JS_Invoke(
-        ctx,
-        &promise,
-        JS_ATOM_then,
-        std::slice::from_ref(&then_func),
-    )
-    .check_exception()
+    promise.invoke(ctx, JS_ATOM_then, std::slice::from_ref(&then_func))
 }
 
 pub fn js_promise_finally(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -95,7 +83,7 @@ pub fn js_promise_finally(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     }
 
-    JS_Invoke(ctx, cc.this(), JS_ATOM_then, &then_funcs).check_exception()
+    cc.this().invoke(ctx, JS_ATOM_then, &then_funcs)
 }
 
 /// returned value is Promise object or Exception.
@@ -249,13 +237,9 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
                 return fail_reject();
             }
 
-            if JS_Invoke(
-                ctx,
-                &next_promise,
-                JS_ATOM_then,
-                &[resolve_element, reject_element],
-            )
-            .is_exception()
+            if next_promise
+                .invoke(ctx, JS_ATOM_then, &[resolve_element, reject_element])
+                .is_err()
             {
                 return fail_reject();
             }
@@ -345,8 +329,8 @@ pub fn js_promise_race(ctx: &JSContext, cc: CallContext) -> JSResult {
                 return fail_reject();
             }
 
-            let ret = JS_Invoke(ctx, &next_promise, JS_ATOM_then, &resolving_funcs);
-            if ret.is_exception() {
+            let ret = next_promise.invoke(ctx, JS_ATOM_then, &resolving_funcs);
+            if ret.is_err() {
                 return fail_reject();
             }
         } else {

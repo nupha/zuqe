@@ -19,8 +19,8 @@ use crate::{
     },
     context::{JS_MODE_STRICT, JSContext, is_strict_mode},
     error::{
-        JS_THROW_ERROR_DELETE_SUPER, JS_THROW_ERROR_ITERATOR_THROW, JS_THROW_VAR_REDECL,
-        JS_THROW_VAR_RO, JS_THROW_VAR_UNINITIALIZED, JS_ThrowReferenceError,
+        JS_BACKTRACE_FLAG_SINGLE_LEVEL, JS_THROW_ERROR_DELETE_SUPER, JS_THROW_ERROR_ITERATOR_THROW,
+        JS_THROW_VAR_REDECL, JS_THROW_VAR_RO, JS_THROW_VAR_UNINITIALIZED, JS_ThrowReferenceError,
         JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized,
         JS_ThrowReferenceErrorUninitialized2, JS_ThrowSyntaxErrorVarRedeclaration,
     },
@@ -42,6 +42,7 @@ use crate::{
     },
     regexp::js_regexp_constructor_internal,
     stack_frame::StackFrame,
+    string::JSString,
     utils::read_from_ptr,
     value::JSValue,
 };
@@ -264,11 +265,13 @@ impl Bytecode {
 
                 match opcode {
                     OpCode::PUSH_I32 => {
+                        // [^] -> [int_value, ^]
                         let a = PC_FETCH!(i32);
                         SP_PUT!(0, JSValue::Int(a));
                         SP_GO!(1);
                     }
                     OpCode::PUSH_CONST => {
+                        // [^] -> [const_val, ^]
                         let id = PC_FETCH!(u32);
                         SP_PUT!(0, CPOOL![id].clone());
                         SP_GO!(1);
@@ -990,14 +993,18 @@ impl Bytecode {
                         };
                     }
                     OpCode::REGEXP => {
-                        let res = unsafe {
-                            js_regexp_constructor_internal(
-                                ctx,
-                                JSValue::UNDEFINED,
-                                SP_TAKE!(-2),
-                                SP_TAKE!(-1),
+                        // [pattern, flags, ^] -> [regexp, ^]
+                        let pattern: JSString = SP_TAKE!(-2).try_into().unwrap();
+                        let flags: JSString = SP_TAKE!(-1).try_into().unwrap();
+
+                        let res = ctx
+                            .create_regexp(
+                                &JSValue::UNDEFINED,
+                                pattern,
+                                flags.content().to_utf8().as_ref(),
                             )
-                        };
+                            .map_or(JSValue::EXCEPTION, JSValue::Object);
+
                         SP_PUT!(-2, res);
                         SP_GO!(-1);
                     }

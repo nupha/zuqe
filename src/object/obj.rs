@@ -297,7 +297,6 @@ impl ObjectInner {
             JS_CLASS_C_FUNCTION => {}
 
             JS_CLASS_REGEXP => {
-                unimplemented!("JS_CLASS_REGEXP");
                 // *(*p).u.regexp.pattern = std::ptr::null_mut();
                 // (*p).u.regexp.bytecode = std::ptr::null_mut();
                 // if !(*ctx.rt)

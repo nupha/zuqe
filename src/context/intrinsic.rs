@@ -3,8 +3,9 @@ use crate::{
     JS_CLASS_ASYNC_FROM_SYNC_ITERATOR, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR,
     JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_BOOLEAN, JS_CLASS_DATAVIEW, JS_CLASS_ERROR,
     JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_NUMBER, JS_CLASS_OBJECT,
-    JS_CLASS_PROMISE, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_STRING, JS_CLASS_STRING_ITERATOR,
-    JS_CLASS_SYMBOL, JS_CLASS_UINT8C_ARRAY,
+    JS_CLASS_PROMISE, JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR,
+    JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_STRING, JS_CLASS_STRING_ITERATOR, JS_CLASS_SYMBOL,
+    JS_CLASS_UINT8C_ARRAY,
     array::{
         js_array_constructor, js_array_funcs, js_array_iterator_proto_funcs, js_array_proto_funcs,
     },
@@ -18,8 +19,8 @@ use crate::{
     context::{JS_MODE_STRICT, JSContext},
     error::{ErrorKind, JSResult, STD_ERROR_NAMES},
     function::{
-        BytecodeFunction, CallContext, JSFunctionKindEnum, NativeField, NativeFunctionType,
-        js_async_function_proto_funcs,
+        BytecodeFunction, CallContext, JSFunctionKindEnum, NativeCallback, NativeField,
+        NativeFunctionType, js_async_function_proto_funcs,
     },
     generator::{
         js_async_generator_function_proto_funcs, js_async_generator_proto_funcs,
@@ -46,6 +47,7 @@ use crate::{
     },
     promise::{Promise, js_promise_funcs, js_promise_proto_funcs},
     reflect::js_reflect_obj,
+    regexp::{js_regexp_constructor, js_regexp_funcs, js_regexp_proto_funcs},
     symbol::{js_symbol_constructor, js_symbol_funcs, js_symbol_proto_funcs},
     typed_array::{
         JS_TYPED_ARRAY_COUNT, js_dataview_constructor, js_dataview_proto_funcs,
@@ -689,23 +691,28 @@ impl JSContext {
     }
 
     pub fn intrinsic_regexp(&self) {
-        // JS_AddIntrinsicRegExpCompiler(ctx);
+        // self.0
+        //     .borrow_mut()
+        //     .compile_regexp
+        //     .replace(js_compile_regexp);
 
-        // let obj = self.create_base_object().unwrap();
-        // obj.install_native_fields(self, js_regexp_proto_funcs)
-        //     .unwrap();
+        let obj = self.create_base_object().unwrap();
+        obj.install_native_fields(self, &js_regexp_proto_funcs)
+            .unwrap();
 
-        // let ctor = JS_NewGlobalCConstructor(ctx, "RegExp", js_regexp_constructor, 2, &obj);
-        // ctor.install_native_fields(self, js_regexp_funcs).unwrap();
+        let ctor = self
+            .create_global_constructor("RegExp", js_regexp_constructor, 2, &obj.clone().into(), 0)
+            .unwrap();
+        ctor.install_native_fields(self, &js_regexp_funcs).unwrap();
 
         // let iter_proto = self.0.borrow().iterator_proto.clone();
         // let iter = self.create_base_object_from_proto(iter_proto).unwrap();
         // iter.install_native_fields(self, js_regexp_string_iterator_proto_funcs);
 
-        // let mut cx = self.0.borrow_mut();
-        // cx.class_proto[JS_CLASS_REGEXP] = obj;
-        // cx.class_proto[JS_CLASS_REGEXP_STRING_ITERATOR] = iter;
-        // cx.regexp_ctor = ctor;
+        let mut cx = self.0.borrow_mut();
+        cx.regexp_ctor = ctor;
+        cx.class_proto[JS_CLASS_REGEXP as usize] = obj.into();
+        //cx.class_proto[JS_CLASS_REGEXP_STRING_ITERATOR as usize] = iter.into();
     }
 
     pub fn intrinsic_async(&self) {

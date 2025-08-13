@@ -4,14 +4,12 @@ use crate::{
     array::{JS_CopySubArray, JS_ToArrayLengthFree},
     atom::consts::{
         JS_ATOM_Symbol_isConcatSpreadable, JS_ATOM_Symbol_iterator, JS_ATOM_Symbol_species,
-        JS_ATOM_constructor, JS_ATOM_join, JS_ATOM_length, JS_ATOM_next, JS_ATOM_set,
+        JS_ATOM_constructor, JS_ATOM_join, JS_ATOM_length, JS_ATOM_set,
     },
     bytecode::arithmatic::JSStrictEqModeEnum,
     context::JSContext,
     error::{JS_ThrowRangeError, JSResult},
-    function::{
-        CallContext, JS_Call, JS_CallConstructor, JS_GetFunctionRealm, JS_Invoke, NativeField,
-    },
+    function::{CallContext, JS_Call, JS_CallConstructor, JS_GetFunctionRealm, NativeField},
     iterator::{JSIteratorKindEnum, js_array_iterator_next, js_create_array_iterator},
     js_core::{js_get_this, object::js_object_toString},
     number::MAX_SAFE_INTEGER,
@@ -406,7 +404,7 @@ pub fn js_array_every(ctx: &JSContext, cc: CallContext) -> JSResult {
             &JSValue::UNDEFINED,
             &[obj, JSValue::Int(n as i32)],
         )?;
-        JS_Invoke(ctx, &arr, JS_ATOM_set, &[ret, JSValue::Int(n as i32)]).check_exception()?;
+        arr.invoke(ctx, JS_ATOM_set, &[ret, JSValue::Int(n as i32)])?;
         ret = arr;
     }
 

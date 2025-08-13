@@ -125,14 +125,15 @@ impl<'s> JSParseState<'s> {
                 JS_FreeAtom(&self.ctx, *atom);
                 *atom = JS_ATOM_NULL;
             }
-            TokenData::Num(n) => {
-                *n = JSValue::UNDEFINED;
-            }
-            TokenData::Regexp { body, flags } => {
-                *body = JSValue::UNDEFINED;
-                *flags = JSValue::UNDEFINED;
-            }
-            TokenData::None | TokenData::Char(_) | TokenData::Str { .. } => {}
+            // TokenData::Num(n) => {
+            //     *n = JSValue::UNDEFINED;
+            // }
+            // TokenData::Regexp { body, flags } => {
+            //     *body = JSValue::UNDEFINED;
+            //     *flags = JSValue::UNDEFINED;
+            // }
+            // TokenData::None | TokenData::Char(_) | TokenData::Str { .. } => {}
+            _ => {}
         }
     }
 

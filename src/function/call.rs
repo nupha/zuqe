@@ -6,7 +6,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{BytecodeFunction, build_arg_list},
-    object::ObjectDetail,
+    object::{JSObject, ObjectDetail},
     stack_frame::StackFrame,
     value::{JSValue, JSValueConst},
 };
@@ -125,6 +125,22 @@ pub enum IteratorState {
 pub const JS_CALL_FLAG_CONSTRUCTOR: i32 = 1 << 0;
 pub const JS_CALL_FLAG_COPY_ARGV: i32 = 1 << 1;
 pub const JS_CALL_FLAG_GENERATOR: i32 = 1 << 2;
+
+impl JSObject {
+    /// invoke method
+    pub fn invoke(&self, ctx: &JSContext, method: JSAtom, args: &[JSValue]) -> JSResult {
+        let func_obj = self.get_property(ctx, method)?;
+        JS_Call(ctx, &func_obj, &self.clone().into(), args).check_exception()
+    }
+}
+
+impl JSValue {
+    /// invoke method
+    pub fn invoke(&self, ctx: &JSContext, method: JSAtom, args: &[JSValue]) -> JSResult {
+        let func_obj = self.get_property(ctx, method)?;
+        JS_Call(ctx, &func_obj, self, args).check_exception()
+    }
+}
 
 /// argv[] is modified if (flags & JS_CALL_FLAG_COPY_ARGV) = 0.
 /// both `this_obj` and `argv` values are not consumed.
@@ -315,26 +331,6 @@ pub fn JS_CallConstructor(ctx: &JSContext, func_obj: &JSValue, args: &[JSValue])
         args,
         JS_CALL_FLAG_COPY_ARGV,
     )
-}
-
-/// `this_val` is not consumed
-pub fn JS_Invoke(ctx: &JSContext, this_val: &JSValue, atom: JSAtom, args: &[JSValue]) -> JSValue {
-    let func_obj = this_val.get_property(ctx, atom);
-    if func_obj.is_err() {
-        return JSValue::EXCEPTION;
-    }
-    JS_Call(ctx, &func_obj.unwrap(), this_val, args)
-}
-
-/// `this_val` is consumed
-#[deprecated(note = "use JS_Invoke() instead")]
-pub fn JS_InvokeFree(
-    ctx: &JSContext,
-    this_val: JSValue,
-    atom: JSAtom,
-    args: &[JSValue],
-) -> JSValue {
-    JS_Invoke(ctx, &this_val, atom, args)
 }
 
 // magic value: 0 = normal apply, 1 = apply for constructor, 2 = Reflect.apply

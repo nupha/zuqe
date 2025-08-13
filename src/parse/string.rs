@@ -3,7 +3,7 @@ use std::rc::Rc;
 use crate::{
     context::JS_MODE_STRICT,
     parse::token::TokenData,
-    regexp::{from_hex, is_digit},
+    regexp::from_hex,
     string::StringBuf,
     unicode::{UTF8_CHAR_LEN_MAX, unicode_from_utf8},
 };
@@ -320,7 +320,7 @@ impl<'s> JSParseState<'s> {
 
                 if allow_utf16 == 2 {
                     // only accept \0 not followed by digit
-                    if cp != 0 || is_digit(*p) {
+                    if cp != 0 || (*p).is_ascii_digit() {
                         return Err(-1);
                     }
                 } else {

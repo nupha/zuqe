@@ -1,82 +1,76 @@
-use std::ffi::CStr;
+use regex::Regex;
 
 use crate::{
+    error::JS_BACKTRACE_FLAG_SINGLE_LEVEL,
     parse::token::{TOK_REGEXP, TokenData},
     string::StringBuf,
-    value::JSValue,
 };
 
 use super::JSParseState;
 
-pub unsafe fn js_parse_regexp(s: &mut JSParseState) -> i32 {
-    macro_rules! fail {
-        () => {
-            return -1;
-        };
-    }
-    macro_rules! eof_error {
-        () => {
-            s.throw_syntax_error("unexpected end of regexp");
-            fail!();
-        };
-    }
-    macro_rules! eol_error {
-        () => {
-            s.throw_syntax_error("unexpected line terminator in regexp");
-            fail!();
-        };
-    }
-    macro_rules! invalid_utf8 {
-        () => {
-            (*s).throw_syntax_error("invalid UTF-8 sequence");
-            fail!();
-        };
-    }
+impl<'s> JSParseState<'s> {
+    pub(super) fn parse_regexp(&mut self) -> Result<(), i32> {
+        let mut chars = std::str::from_utf8(unsafe {
+            let len = self.buf_end.offset_from(self.buf_ptr) as usize;
+            std::slice::from_raw_parts(self.buf_ptr, len)
+        })
+        .map(|x| x.char_indices())
+        .map_err(|_| {
+            self.throw_syntax_error("invalid UTF-8 sequence");
+            -1
+        })?;
 
-    let mut in_class = false;
-    let mut offset = 0_usize;
-    let mut res_string = StringBuf::Empty;
-    let mut res_string2 = StringBuf::Empty;
+        let _ = chars.next(); // skip starting '/'
 
-    let len = s.buf_end.offset_from(s.buf_ptr) as usize;
-    if let Ok(mut chars) =
-        std::str::from_utf8(std::slice::from_raw_parts(s.buf_ptr, len)).map(|x| x.char_indices())
-    {
+        let mut in_class = false;
+        let mut cursor = 0_usize;
+        let mut pattern_str = StringBuf::Empty;
+        let mut flags_str = StringBuf::Empty;
+
         while let Some((i, mut c)) = chars.next() {
-            offset = i;
+            cursor = i;
 
-            if c == '\n' || c == '\r' {
-                eol_error!();
-            } else if c == '/' {
-                if !in_class {
-                    break;
+            match c {
+                '\n' | 'r' => {
+                    self.throw_syntax_error("unexpected end of regexp");
+                    return Err(-1);
                 }
-            } else if c == '[' {
-                in_class = true;
-            } else if c == ']' {
-                // XXX: incorrect as the first character in a class
-                in_class = false;
-            } else if c == '\\' {
-                if res_string.push_char(c).is_err() {
-                    fail!();
-                }
-
-                if let Some((i, c1)) = chars.next() {
-                    offset = i;
-
-                    if c1 == '\n' || c1 == '\r' {
-                        eol_error!();
-                    } else {
-                        c = c1;
+                '/' => {
+                    if !in_class {
+                        break;
                     }
-                } else {
-                    eof_error!();
                 }
+                ']' => {
+                    // XXX: incorrect as the first character in a class
+                    in_class = false;
+                }
+                '\\' => {
+                    pattern_str.push_char(c).map_err(|_| {
+                        self.ctx.throw_out_of_memory();
+                        -1
+                    })?;
+
+                    if let Some((i, c1)) = chars.next() {
+                        cursor = i;
+
+                        if c1 == '\n' || c1 == '\r' {
+                            self.throw_syntax_error("unexpected end of regexp");
+                            return Err(-1);
+                        } else {
+                            c = c1;
+                        }
+                    } else {
+                        self.throw_syntax_error("unexpected end of regexp");
+                        return Err(-1);
+                    }
+                }
+                _ => {}
             }
 
-            if res_string.push_char(c).is_err() {
-                fail!();
-            }
+            pattern_str.push_char(c).map_err(|_| {
+                self.ctx.throw_out_of_memory();
+                -1
+            })?;
         }
 
         // flags
@@ -84,27 +78,44 @@ pub unsafe fn js_parse_regexp(s: &mut JSParseState) -> i32 {
             if !JSParseState::is_ident_next(c) {
                 break;
             }
-            if res_string2.push_char(c).is_err() {
-                fail!();
-            }
-            offset = i;
+            flags_str.push_char(c).map_err(|_| {
+                self.ctx.throw_out_of_memory();
+                -1
+            })?;
+            cursor = i;
         }
 
-        s.token.val = TOK_REGEXP;
-        s.token.data = TokenData::Regexp {
-            body: s
-                .ctx
-                .create_string_from_content(res_string)
-                .map_or(JSValue::EXCEPTION, JSValue::String),
-            flags: s
-                .ctx
-                .create_string_from_content(res_string2)
-                .map_or(JSValue::EXCEPTION, JSValue::String),
-        };
+        // if RegExp is not supported, raise error here
+        // self.throw_syntax_error("RegExp are not supported");
+        // return Err(-1);
 
-        s.buf_ptr = s.buf_ptr.add(offset);
-        0
-    } else {
-        invalid_utf8!();
+        let pattern = self.ctx.create_string_from_content(pattern_str)?;
+        let flags = self.ctx.create_string_from_content(flags_str)?;
+
+        // ensure regexp syntax
+        let _ = Regex::new(&pattern.content().to_utf8()).map_err(|_| {
+            // add the line number info
+            let backtrace_flags =
+                if !self.cur_func_def.is_null() && self.cur_func().backtrace_barrier {
+                    JS_BACKTRACE_FLAG_SINGLE_LEVEL
+                } else {
+                    0
+                };
+
+            let exc = self.ctx.exception();
+            self.ctx.build_backtrace_to(
+                &exc,
+                Some((self.filename, self.token.line_num)),
+                backtrace_flags,
+            );
+
+            -1
+        })?;
+
+        self.token.val = TOK_REGEXP;
+        self.token.data = TokenData::Regexp { pattern, flags };
+
+        self.buf_ptr = unsafe { self.buf_ptr.add(cursor + 1) };
+        Ok(())
     }
 }

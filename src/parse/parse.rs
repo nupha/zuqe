@@ -16,7 +16,6 @@ use crate::{
 
 use super::{
     function::JSParseFunctionEnum,
-    regexp::js_parse_regexp,
     state::{JSParseState, SKIP_HAS_ASSIGNMENT, SKIP_HAS_ELLIPSIS, SKIP_HAS_SEMI},
     statement::DECL_MASK_ALL,
     token::{
@@ -533,8 +532,8 @@ impl JSParseState<'_> {
                             self.buf_ptr
                                 .offset(if t == TOK_DIV_ASSIGN { -2 } else { -1 })
                         };
-                        if unsafe { js_parse_regexp(self) } != 0 {
-                            // XXX: should clear the exception
+                        if self.parse_regexp().is_err() {
+                            let _ = self.ctx.take_exception(); //clear the exception
                             break;
                         }
                     }

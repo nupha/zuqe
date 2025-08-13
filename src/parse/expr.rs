@@ -1,7 +1,6 @@
 use crate::{
     atom::{JS_ATOM_NULL, JS_FreeAtom, JSAtom, consts::*},
     bytecode::{OpCode, OpCodeTemp, SpecialObject, opcodes},
-    error::JS_BACKTRACE_FLAG_SINGLE_LEVEL,
     function::{FuncCallType, JSFunctionKindEnum},
     value::JSValue,
 };
@@ -12,7 +11,6 @@ use super::{
     esm::JSParseExportEnum,
     expr_lvalue::PutLValueEnum,
     function::JSParseFunctionEnum,
-    regexp::js_parse_regexp,
     state::{JSParseState, PF_ARROW_FUNC, PF_IN_ACCEPTED, PF_POSTFIX_CALL, SKIP_HAS_ELLIPSIS},
     token::{
         CHAR_BRACKET_L, CHAR_BRACKET_R, CHAR_COMMA, CHAR_CURLY_L, CHAR_EQUAL, CHAR_SLASH,
@@ -259,50 +257,19 @@ impl<'s> JSParseState<'s> {
                     .buf_ptr
                     .offset(if t == TOK_DIV_ASSIGN { -2 } else { -1 });
 
-                let compile_regexp = self.ctx.0.borrow().compile_regexp;
-                if let Some(cb) = compile_regexp {
-                    /* the previous token is '/' or '/=', so no need to free */
-                    if js_parse_regexp(self) != 0 {
-                        return Err(-1);
-                    }
+                // the previous token is '/' or '/=', so no need to free
+                self.parse_regexp()?;
 
-                    self.emit_push_const(self.token.data.regexp_body().unwrap().clone(), false)?;
+                // emit build RegExp opcode
+                let (pattern, flags) = self.token.data.regexp().unwrap();
+                self.emit_push_const(pattern.into(), false)?;
+                self.emit_push_const(flags.into(), false)?;
+                // we use a specific opcode to be sure the correct
+                // function is called (otherwise the bytecode would have
+                // to be verified by the RegExp constructor)
+                self.emit_op(OpCode::REGEXP);
 
-                    let str = cb(
-                        &self.ctx,
-                        self.token.data.regexp_body().unwrap().clone(),
-                        self.token.data.regexp_flags().unwrap().clone(),
-                    );
-                    if str.is_exception() {
-                        // add the line number info
-                        let backtrace_flags =
-                            if !self.cur_func_def.is_null() && self.cur_func().backtrace_barrier {
-                                JS_BACKTRACE_FLAG_SINGLE_LEVEL
-                            } else {
-                                0
-                            };
-
-                        let exc = self.ctx.exception();
-                        self.ctx.build_backtrace_to(
-                            &exc,
-                            Some((self.filename, self.token.line_num)),
-                            backtrace_flags,
-                        );
-
-                        return Err(-1);
-                    }
-
-                    self.emit_push_const(str, false)?;
-
-                    /* we use a specific opcode to be sure the correct
-                    function is called (otherwise the bytecode would have
-                    to be verified by the RegExp constructor) */
-                    self.emit_op(OpCode::REGEXP);
-                    self.next_token()?;
-                } else {
-                    self.throw_syntax_error("RegExp are not supported");
-                    return Err(-1);
-                }
+                self.next_token()?;
             },
 
             // '('

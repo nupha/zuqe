@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 use std::{borrow::Cow, cmp::Ordering, collections::TryReserveError, ops::Range, str::FromStr};
 use {
     fallible_collections::{FallibleVec, TryClone, TryCollect},
@@ -465,7 +464,7 @@ impl StringBuf {
         match self {
             Self::Empty | Self::Null => Cow::Borrowed(""),
             Self::Ascii(s) => Cow::Borrowed(unsafe { std::str::from_utf8_unchecked(s) }),
-            Self::Utf16(s) => Cow::Owned(U16Str::from_slice(s).to_string_lossy()),
+            Self::Utf16(s) => Cow::Owned(String::from_utf16_lossy(s)),
         }
     }
 
@@ -483,7 +482,7 @@ impl StringBuf {
         match self {
             Self::Empty | Self::Null => 0,
             Self::Ascii(s) => s.len(),
-            Self::Utf16(slice) => {
+            Self::Utf16(_) => {
                 self.iter().count()
 
                 // alternative code:
@@ -977,6 +976,23 @@ impl StringBufSlice<'_> {
     #[inline(always)]
     pub fn is_empty(&self) -> bool {
         self.buf_len() == 0
+    }
+
+    /// encode slice content to utf8 str
+    pub fn to_utf8(&self) -> Cow<'_, str> {
+        if self.is_empty() {
+            Cow::Borrowed("")
+        } else {
+            match self.src {
+                StringBuf::Empty | StringBuf::Null => Cow::Borrowed(""),
+                StringBuf::Ascii(s) => Cow::Borrowed(unsafe {
+                    std::str::from_utf8_unchecked(&s[self.buf_ranges.clone()])
+                }),
+                StringBuf::Utf16(s) => {
+                    Cow::Owned(String::from_utf16_lossy(&s[self.buf_ranges.clone()]))
+                }
+            }
+        }
     }
 
     pub fn to_owned(&self) -> Result<StringBuf, TryReserveError> {

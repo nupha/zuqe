@@ -9,10 +9,11 @@ use std::{
 };
 
 use crate::{
-    error::STD_ERROR_COUNT,
+    error::{JSResult, STD_ERROR_COUNT},
     eval::EvalFunc,
     module::{JSFreeModuleEnum, JSModuleDefWeakref, js_free_modules},
     object::{JSObject, JSShape},
+    regexp::JSRegExp,
     runtime::JSRuntime,
     stack_frame::StackFrame,
     value::JSValue,
@@ -74,7 +75,7 @@ pub struct JSContextInner {
 
     /// Regexp compilation callback
     pub compile_regexp:
-        Option<unsafe fn(ctx: &JSContext, pattern: JSValue, flags: JSValue) -> JSValue>,
+        Option<fn(ctx: &JSContext, pattern: JSValue, flags: Option<&str>) -> Result<JSRegExp, i32>>,
 
     /// eval callback
     pub eval_handle: Option<EvalFunc>,

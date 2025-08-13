@@ -12,7 +12,6 @@ use crate::{
     atom::{AtomHintAndId, JSAtom, consts::*},
     class::JSClassExoticMethods,
     context::JSContext,
-    function::JS_Invoke,
     gc::GCObjectHeader,
     number::f64_stringify,
     object::ObjectDetail,
@@ -821,9 +820,7 @@ impl JSValue {
     pub fn to_locale_string(&self, ctx: &JSContext) -> Result<JSString, i32> {
         if self.is_undefined_or_null() {
             self.to_string(ctx)
-        } else if let Self::String(s) =
-            JS_Invoke(ctx, self, JS_ATOM_toLocaleString, &[]).check_exception()?
-        {
+        } else if let Self::String(s) = self.invoke(ctx, JS_ATOM_toLocaleString, &[])? {
             Ok(s)
         } else {
             ctx.throw_internal_error("toLocaleString() must return string");
