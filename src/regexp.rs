@@ -1,4 +1,4 @@
-use std::{ops::Deref, rc::Rc};
+use std::{borrow::Cow, ops::Deref, rc::Rc, str::FromStr};
 
 use regex::Regex;
 use smallvec::SmallVec;
@@ -8,7 +8,7 @@ use crate::{
     atom::consts::*,
     context::{JS_GetActiveFunction, JSContext},
     error::{ErrorKind, JSResult},
-    function::{CallContext, NativeField},
+    function::{CallContext, NativeField, NativeFunctionType},
     js_core::js_get_this,
     object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, JSObject, ObjectDetail},
     runtime::JSRuntime,
@@ -721,8 +721,147 @@ pub fn js_regexp_Symbol_match(ctx: &JSContext, cc: CallContext) -> JSResult {
     // Ok(A)
 }
 
+fn js_is_standard_regexp(ctx: &JSContext, rx: &JSObject) -> Result<bool, i32> {
+    let val = rx.get_property(ctx, JS_ATOM_constructor)?;
+    if val.is_same(&ctx.0.borrow().regexp_ctor) {
+        let f = rx.get_property(ctx, JS_ATOM_exec)?;
+        Ok(f.match_native_callback(NativeFunctionType::Func(js_regexp_exec), 0))
+    } else {
+        Ok(false)
+    }
+}
+
 pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
-    todo!("RegExp[Symbol.replace]");
+    // [Symbol.replace](str, rep)
+    let Some(this) = cc.this().object() else {
+        ctx.throw_type_error_not_an_object();
+        return Err(-1);
+    };
+
+    let re = js_get_regexp(ctx, this, true).ok_or(-1)?;
+
+    // let mut nextSourcePosition: i32;
+    // let n: i32;
+    // let mut j: i32;
+    // let mut nCaptures: u32 = 0;
+    // let mut position: i64 = 0;
+
+    let str = cc.arg(0).to_string(ctx)?;
+
+    let rep = cc.arg(1);
+    let functionalReplace = rep.is_callable();
+    let rp: Option<String> = if !functionalReplace {
+        Some(rep.to_string(ctx)?.content().to_utf8().into_owned())
+    } else {
+        None
+    };
+
+    let flags = this
+        .get_property(ctx, JS_ATOM_flags)
+        .and_then(|v| v.to_string(ctx))?;
+
+    let is_global = re.flags & LRE_FLAG_GLOBAL as u8 != 0;
+    let fullUnicode = if is_global {
+        this.set_property(ctx, JS_ATOM_lastIndex, JSValue::Int(0))?;
+        flags.content().index_of_char('u', 0).is_some()
+    } else {
+        false
+    };
+
+    if rp.as_ref().map_or(false, |s| s.is_empty()) && is_global && js_is_standard_regexp(ctx, this)?
+    {
+        // fast path: delete only
+        // return JS_RegExpDelete(ctx, this, sp);
+        todo!();
+    }
+
+    let utf8_text = str.content().to_utf8();
+    let mut chars_iter = if str.is_wide() {
+        Some(str.content().iter())
+    } else {
+        None
+    };
+    let mut sbuf =
+        StringBuf::with_capacity(str.buf_len() * 3 / 2, str.is_wide()).map_err(|_| {
+            ctx.throw_out_of_memory();
+            -1
+        })?;
+
+    let mut str_last_index = 0;
+    let mut utf8_cursor = 0;
+
+    for caps in re
+        .regex
+        .captures_iter(&utf8_text)
+        .take(if !is_global { 1 } else { usize::MAX })
+    {
+        if let Some(m) = caps.get(0) {
+            // convert utf8 index to string buf index
+            let pos = if m.start() == 0 {
+                0
+            } else if let Some(it) = chars_iter.as_mut() {
+                let nc = utf8_text[utf8_cursor..m.start()].chars().count();
+                let (post, _) = it.nth(nc - 1).unwrap(); // use nc-1
+                post
+            } else {
+                m.start()
+            };
+            sbuf.push_content_slice(&str.content().slice(str_last_index..pos))
+                .map_err(|_| {
+                    ctx.throw_out_of_memory();
+                    -1
+                })?;
+
+            utf8_cursor = m.end();
+            str_last_index = if utf8_cursor == utf8_text.len() {
+                str.content().buf_len()
+            } else if let Some(it) = chars_iter.as_mut() {
+                let nc = m.as_str().chars().count();
+                it.nth(nc - 1).unwrap().0
+            } else {
+                utf8_cursor
+            };
+
+            if let Some(rep_str) = rp.as_ref() {
+                let t = str
+                    .content()
+                    .substitution2(
+                        pos,
+                        m.as_str(),
+                        rep_str,
+                        |n| caps.get(n).map(|m| m.as_str().into()),
+                        |name| caps.name(name).map(|m| m.as_str().into()),
+                    )
+                    .map_err(|_| {
+                        ctx.throw_out_of_memory();
+                        -1
+                    })?;
+
+                if sbuf.is_empty() {
+                    sbuf = t;
+                } else {
+                    sbuf.push(&t).map_err(|_| {
+                        ctx.throw_out_of_memory();
+                        -1
+                    })?;
+                }
+            } else {
+                // call func
+                todo!()
+            }
+        }
+    }
+
+    // str remainder
+    if str_last_index < str.content().buf_len() {
+        sbuf.push_content_slice(&str.content().slice(str_last_index..str.content().buf_len()))
+            .map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?;
+    }
+
+    ctx.create_string_from_content(sbuf).map(JSValue::String)
 }
 
 pub fn js_regexp_Symbol_search(ctx: &JSContext, cc: CallContext) -> JSResult {

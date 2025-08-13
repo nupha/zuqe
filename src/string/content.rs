@@ -24,6 +24,8 @@ pub enum StringBuf {
     Utf16(Vec<u16>),
 }
 
+const EMPTY: StringBuf = StringBuf::Empty;
+
 impl FromStr for StringBuf {
     type Err = i32;
 
@@ -775,10 +777,9 @@ impl StringBuf {
     /// Note: `range` is about buffer index, not char position.
     pub fn slice(&self, range: Range<usize>) -> StringBufSlice {
         let len = self.buf_len();
-
         if !(0..len).contains(&range.start) {
             StringBufSlice {
-                src: self,
+                src: &EMPTY,
                 buf_ranges: 0..0,
             }
         } else {
@@ -787,6 +788,13 @@ impl StringBuf {
                 src: self,
                 buf_ranges: range.start..end,
             }
+        }
+    }
+
+    pub fn as_slice(&self) -> StringBufSlice {
+        StringBufSlice {
+            src: self,
+            buf_ranges: 0..self.buf_len(),
         }
     }
 
@@ -944,6 +952,12 @@ pub struct StringBufSlice<'a> {
     buf_ranges: Range<usize>,
 }
 
+impl<'a> From<&'a StringBuf> for StringBufSlice<'a> {
+    fn from(value: &'a StringBuf) -> Self {
+        value.as_slice()
+    }
+}
+
 impl std::fmt::Debug for StringBufSlice<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.src {
@@ -968,6 +982,11 @@ impl std::fmt::Debug for StringBufSlice<'_> {
 }
 
 impl StringBufSlice<'_> {
+    #[inline(always)]
+    pub fn is_wide(&self) -> bool {
+        self.src.is_wide()
+    }
+
     #[inline(always)]
     pub fn buf_len(&self) -> usize {
         self.buf_ranges.len()
@@ -1011,6 +1030,25 @@ impl StringBufSlice<'_> {
                 _ => unreachable!(),
             }
             Ok(res)
+        }
+    }
+
+    /// slice of slice
+    pub fn slice(&self, range: Range<usize>) -> StringBufSlice {
+        let len = self.buf_len();
+
+        if !(0..len).contains(&range.start) {
+            StringBufSlice {
+                src: &EMPTY,
+                buf_ranges: 0..0,
+            }
+        } else {
+            let end = range.end.min(len);
+            let base = self.buf_ranges.start;
+            StringBufSlice {
+                src: self.src,
+                buf_ranges: base + range.start..base + end,
+            }
         }
     }
 }
