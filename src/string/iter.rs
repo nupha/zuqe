@@ -185,25 +185,6 @@ impl Iterator for StringChars<'_> {
     }
 }
 
-#[deprecated(note = "use StringChar instead")]
-#[derive(Clone)]
-pub enum StringCharIndices<'a> {
-    Empty,
-    Utf8(CharIndices<'a>),
-    Utf16(CharIndicesLossyUtf16<'a>),
-}
-
-impl Iterator for StringCharIndices<'_> {
-    type Item = (usize, char);
-    fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            Self::Empty => None,
-            Self::Utf8(s) => s.next(),
-            Self::Utf16(s) => s.next(),
-        }
-    }
-}
-
 impl StringBuf {
     /// iterate over string chars. `range` is the range of buf index.
     /// if `range` has out of bound, range is intersected with buf.
@@ -241,25 +222,17 @@ impl StringBuf {
         self.iter_range(0..self.buf_len())
     }
 
-    /// get chars iterator
-    #[deprecated(note = "use StringBuf::iter() instead")]
-    pub fn chars(&self) -> StringChars<'_> {
-        match self {
-            Self::Empty | Self::Null => StringChars::Empty,
-            Self::Ascii(s) => StringChars::Utf8(unsafe { str::from_utf8_unchecked(s) }.chars()),
-            Self::Utf16(s) => StringChars::Utf16(U16Str::from_slice(s).chars_lossy()),
-        }
+    pub fn chars_range_lossy(&self, range: Range<usize>) -> impl Iterator<Item = char> {
+        self.iter_range(range).map(|(_, c)| match c {
+            StringChar::Char(c) => c,
+            StringChar::BrokenCode(_) => '\u{FFFD}',
+        })
     }
 
-    /// get chars iterator
-    #[deprecated(note = "use StringBuf::iter() instead")]
-    pub fn chars_indices(&self) -> StringCharIndices<'_> {
-        match self {
-            Self::Empty | Self::Null => StringCharIndices::Empty,
-            Self::Ascii(s) => {
-                StringCharIndices::Utf8(unsafe { str::from_utf8_unchecked(s) }.char_indices())
-            }
-            Self::Utf16(s) => StringCharIndices::Utf16(U16Str::from_slice(s).char_indices_lossy()),
-        }
+    pub fn chars_lossy(&self) -> impl Iterator<Item = char> {
+        self.iter().map(|(_, c)| match c {
+            StringChar::Char(c) => c,
+            StringChar::BrokenCode(_) => '\u{FFFD}',
+        })
     }
 }

@@ -1,5 +1,6 @@
 use std::ops::DerefMut;
 
+use unicode_normalization::UnicodeNormalization;
 use widestring::U16Str;
 
 use crate::{
@@ -619,10 +620,29 @@ pub fn js_string_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_string_localeCompare(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_string_localeCompare(ctx: &JSContext, cc: CallContext) -> JSResult {
     let a = cc.this().to_string_non_undefined_or_null(ctx)?;
     let b = cc.arg(0).to_string(ctx)?;
-    match a.content().cmp(&b.content()) {
+
+    // locale normalize
+    let mut u1 = a.content().chars_lossy().nfc();
+    let mut u2 = b.content().chars_lossy().nfc();
+
+    let cmp = loop {
+        match (u1.next(), u2.next()) {
+            (Some(c1), Some(c2)) if c1 == c2 => {
+                continue;
+            }
+            (Some(c1), Some(c2)) => {
+                break c1.cmp(&c2);
+            }
+            (None, None) => break std::cmp::Ordering::Equal,
+            (None, Some(_)) => break std::cmp::Ordering::Less,
+            (Some(_), None) => break std::cmp::Ordering::Greater,
+        }
+    };
+
+    match cmp {
         std::cmp::Ordering::Less => Ok(JSValue::Int(-1)),
         std::cmp::Ordering::Equal => Ok(JSValue::Int(0)),
         std::cmp::Ordering::Greater => Ok(JSValue::Int(1)),

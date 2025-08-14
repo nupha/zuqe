@@ -180,10 +180,16 @@ impl TryFrom<JSValue> for JSString {
     }
 }
 
-impl std::fmt::Debug for JSString {
+impl std::fmt::Display for JSString {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = self.content().to_utf8();
-        write!(f, "{:?}", s.as_ref())
+        write!(f, "{s}")
+    }
+}
+
+impl std::fmt::Debug for JSString {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self}")
     }
 }
 
