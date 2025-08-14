@@ -107,145 +107,136 @@ impl JSRegExp {
         let sbuf_slice = sbuf.slice(start..sbuf.buf_len());
         let utf8_text = sbuf_slice.to_utf8();
 
-        if !utf8_text.is_empty() {
-            let prop_flags = JS_PROP_C_W_E | JS_PROP_THROW;
+        let prop_flags = JS_PROP_C_W_E | JS_PROP_THROW;
 
-            // iterator to map utf8 index to str buf index
-            let mut chars_iter = if sbuf.is_wide() {
-                Some(sbuf.iter_since(start).zip(utf8_text.chars()))
-            } else {
-                None
-            };
-
-            let ret = match (mode, is_global) {
-                (RegExpExecMode::Capture, _) | (RegExpExecMode::Match, false) => {
-                    if let Some(caps) = self.regex.captures(&utf8_text)
-                        && (!is_sticky || caps.get(0).unwrap().start() == start)
-                    {
-                        let mut names = SmallVec::<[String; 10]>::new();
-                        for n in self.regex.capture_names().filter_map(|n| n) {
-                            names.push(n.to_string());
-                        }
-
-                        let mut index = 0;
-                        let mut full_text: JSString = JS_ATOM_empty_string.to_string(ctx).unwrap();
-                        let arr = ctx.create_array()?;
-
-                        for (i, cap) in caps.iter().enumerate() {
-                            arr.define_property_value_u32(
-                                ctx,
-                                i as _,
-                                if let Some(m) = cap {
-                                    let s = ctx.create_string_from_str(m.as_str())?;
-                                    if i == 0 {
-                                        full_text = s.clone();
-                                        index = m.start();
-                                    }
-                                    s.into()
-                                } else {
-                                    JSValue::UNDEFINED
-                                },
-                                prop_flags,
-                            )?;
-                        }
-
-                        // groups
-                        let groups = if !names.is_empty() {
-                            let gg = ctx.create_base_object()?;
-                            for name in names {
-                                if let Some(m) = caps.name(&name) {
-                                    gg.define_property_value_str(
-                                        ctx,
-                                        &name,
-                                        ctx.create_string_from_str(m.as_str())?,
-                                        prop_flags,
-                                    )?;
-                                }
-                            }
-                            gg.into()
-                        } else {
-                            JSValue::UNDEFINED
-                        };
-                        arr.define_property_value_str(ctx, "groups", groups, prop_flags)?;
-
-                        // Note: convert utf8 index to string buf index
-                        let start_index = if index == 0 {
-                            start
-                        } else if let Some(mut it) = chars_iter.clone() {
-                            let char_count = utf8_text[..index].chars().count();
-                            let ((i, _), _) = it.nth(char_count).unwrap();
-                            i + start
-                        } else {
-                            index
-                        };
-                        let last_index = start_index + full_text.buf_len();
-
-                        arr.define_property_value_str(
-                            ctx,
-                            "index",
-                            JSValue::Int(start_index as _),
-                            prop_flags,
-                        )?;
-
-                        arr.define_property_value_str(
-                            ctx,
-                            "input",
-                            str.clone().into(),
-                            prop_flags,
-                        )?;
-
-                        Some((arr, last_index))
-                    } else {
-                        None
-                    }
-                }
-                (RegExpExecMode::Match, true) => {
-                    let mut arr: Option<JSValue> = None;
-                    let mut cursor = 0;
-                    let mut n = 0;
-                    while let Some(m) = self.regex.find_at(&utf8_text, cursor)
-                        && (!is_sticky || m.start() == cursor)
-                    {
-                        if arr.is_none() {
-                            let a = ctx.create_array()?;
-                            arr.replace(a);
-                        }
-
-                        arr.as_ref().unwrap().define_property_value_u32(
-                            ctx,
-                            n,
-                            ctx.create_string_from_str(m.as_str())?.into(),
-                            prop_flags,
-                        )?;
-
-                        n += 1;
-                        cursor = m.end();
-                    }
-
-                    if let Some(arr) = arr {
-                        let last_index = if cursor == utf8_text.len() {
-                            sbuf.buf_len()
-                        } else if let Some(it) = &mut chars_iter {
-                            let char_count = utf8_text[..cursor].chars().count();
-                            let ((i, _), _) = it.nth(char_count).unwrap();
-                            i + start
-                        } else {
-                            cursor + start
-                        };
-                        Some((arr, last_index))
-                    } else {
-                        None
-                    }
-                }
-                (RegExpExecMode::Test, _) => {
-                    todo!()
-                }
-            };
-
-            Ok(ret)
+        // iterator to map utf8 index to str buf index
+        let mut chars_iter = if sbuf.is_wide() {
+            Some(sbuf.iter_since(start).zip(utf8_text.chars()))
         } else {
-            Ok(None)
-        }
+            None
+        };
+
+        let ret = match (mode, is_global) {
+            (RegExpExecMode::Capture, _) | (RegExpExecMode::Match, false) => {
+                if let Some(caps) = self.regex.captures(&utf8_text)
+                    && (!is_sticky || caps.get(0).unwrap().start() == start)
+                {
+                    let mut names = SmallVec::<[String; 10]>::new();
+                    for n in self.regex.capture_names().filter_map(|n| n) {
+                        names.push(n.to_string());
+                    }
+
+                    let mut index = 0;
+                    let mut full_text: JSString = JS_ATOM_empty_string.to_string(ctx).unwrap();
+                    let arr = ctx.create_array()?;
+
+                    for (i, cap) in caps.iter().enumerate() {
+                        arr.define_property_value_u32(
+                            ctx,
+                            i as _,
+                            if let Some(m) = cap {
+                                let s = ctx.create_string_from_str(m.as_str())?;
+                                if i == 0 {
+                                    full_text = s.clone();
+                                    index = m.start();
+                                }
+                                s.into()
+                            } else {
+                                JSValue::UNDEFINED
+                            },
+                            prop_flags,
+                        )?;
+                    }
+
+                    // groups
+                    let groups = if !names.is_empty() {
+                        let gg = ctx.create_base_object()?;
+                        for name in names {
+                            if let Some(m) = caps.name(&name) {
+                                gg.define_property_value_str(
+                                    ctx,
+                                    &name,
+                                    ctx.create_string_from_str(m.as_str())?,
+                                    prop_flags,
+                                )?;
+                            }
+                        }
+                        gg.into()
+                    } else {
+                        JSValue::UNDEFINED
+                    };
+                    arr.define_property_value_str(ctx, "groups", groups, prop_flags)?;
+
+                    // Note: convert utf8 index to string buf index
+                    let start_index = if index == 0 {
+                        start
+                    } else if let Some(mut it) = chars_iter.clone() {
+                        let char_count = utf8_text[..index].chars().count();
+                        let ((i, _), _) = it.nth(char_count).unwrap();
+                        i + start
+                    } else {
+                        index
+                    };
+                    let last_index = start_index + full_text.buf_len();
+
+                    arr.define_property_value_str(
+                        ctx,
+                        "index",
+                        JSValue::Int(start_index as _),
+                        prop_flags,
+                    )?;
+
+                    arr.define_property_value_str(ctx, "input", str.clone().into(), prop_flags)?;
+
+                    Some((arr, last_index))
+                } else {
+                    None
+                }
+            }
+            (RegExpExecMode::Match, true) => {
+                let mut arr: Option<JSValue> = None;
+                let mut cursor = 0;
+                let mut n = 0;
+                while let Some(m) = self.regex.find_at(&utf8_text, cursor)
+                    && (!is_sticky || m.start() == cursor)
+                {
+                    if arr.is_none() {
+                        let a = ctx.create_array()?;
+                        arr.replace(a);
+                    }
+
+                    arr.as_ref().unwrap().define_property_value_u32(
+                        ctx,
+                        n,
+                        ctx.create_string_from_str(m.as_str())?.into(),
+                        prop_flags,
+                    )?;
+
+                    n += 1;
+                    cursor = m.end();
+                }
+
+                if let Some(arr) = arr {
+                    let last_index = if cursor == utf8_text.len() {
+                        sbuf.buf_len()
+                    } else if let Some(it) = &mut chars_iter {
+                        let char_count = utf8_text[..cursor].chars().count();
+                        let ((i, _), _) = it.nth(char_count).unwrap();
+                        i + start
+                    } else {
+                        cursor + start
+                    };
+                    Some((arr, last_index))
+                } else {
+                    None
+                }
+            }
+            (RegExpExecMode::Test, _) => {
+                todo!()
+            }
+        };
+
+        Ok(ret)
     }
 }
 
@@ -337,8 +328,7 @@ pub fn js_regexp_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         };
         flags1 = flags_val;
 
-        let src = pattern.content().to_utf8();
-        let regex = Regex::new(src.as_ref()).map_err(|e| {
+        let regex = Regex::new(&pattern.content().to_utf8()).map_err(|e| {
             ctx.throw_error(ErrorKind::Syntax, &e.to_string());
             -1
         })?;
