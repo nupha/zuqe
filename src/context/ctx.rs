@@ -74,6 +74,7 @@ pub struct JSContextInner {
     pub loaded_modules: Vec<JSModuleDefWeakref>,
 
     /// Regexp compilation callback
+    #[deprecated(note = "unused")]
     pub compile_regexp:
         Option<fn(ctx: &JSContext, pattern: JSValue, flags: Option<&str>) -> Result<JSRegExp, i32>>,
 

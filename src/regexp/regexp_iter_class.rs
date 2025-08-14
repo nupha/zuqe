@@ -1,0 +1,91 @@
+use std::ops::DerefMut;
+
+use crate::{
+    JS_ITERATOR_NEXT_DEF, JS_PROP_STRING_DEF,
+    atom::consts::JS_ATOM_lastIndex,
+    context::JSContext,
+    error::JSResult,
+    function::{CallContext, IteratorState, NativeField},
+    object::{JS_PROP_CONFIGURABLE, ObjectDetail},
+    value::JSValue,
+};
+
+use super::JS_RegExpExec;
+
+fn js_regexp_string_iterator_next(
+    ctx: &JSContext,
+    cc: CallContext,
+    state: &mut IteratorState,
+) -> JSResult {
+    let this = cc.this().object().unwrap();
+
+    if let ObjectDetail::REGEXP_STRING_ITERATOR(it) = this.0.payload.borrow_mut().deref_mut() {
+        if it.done {
+            *state = IteratorState::Done;
+            return Ok(JSValue::UNDEFINED);
+        }
+
+        let regexp = &it.iterating_regexp;
+        let str = &it.iterated_string;
+
+        let Ok(match_val) = JS_RegExpExec(
+            ctx,
+            regexp.clone(),
+            ctx.create_string_from_content_rc(str.clone())?,
+        ) else {
+            *state = IteratorState::NotDone;
+            return Err(-1);
+        };
+
+        if match_val.is_null() {
+            it.done = true;
+            *state = IteratorState::Done;
+            return Ok(JSValue::UNDEFINED);
+        }
+
+        if it.global {
+            let matchStr = match_val.get_property_u32(ctx, 0).inspect_err(|_| {
+                *state = IteratorState::NotDone;
+            })?;
+
+            if let JSValue::String(s) = matchStr
+                && s.is_empty()
+            {
+                let last_index = regexp
+                    .get_property(ctx, JS_ATOM_lastIndex)
+                    .and_then(|v| v.coerce_to_u32(ctx))
+                    .inspect_err(|_| {
+                        *state = IteratorState::NotDone;
+                    })? as usize;
+
+                let next_index = if it.unicode && last_index < s.buf_len() && s.is_wide() {
+                    let (i, _) = s.content().iter_since(last_index).next().unwrap();
+                    last_index + i
+                } else {
+                    last_index + 1
+                };
+                regexp
+                    .set_property(ctx, JS_ATOM_lastIndex, JSValue::from(next_index as u32))
+                    .inspect_err(|_| {
+                        *state = IteratorState::NotDone;
+                    })?;
+            }
+        } else {
+            it.done = true;
+        }
+
+        *state = IteratorState::NotDone;
+        Ok(match_val)
+    } else {
+        Err(-1)
+    }
+}
+
+pub const js_regexp_string_iterator_proto_funcs: [NativeField; 2] = [
+    JS_ITERATOR_NEXT_DEF!("next", 0, js_regexp_string_iterator_next, 0),
+    JS_PROP_STRING_DEF!(
+        "[Symbol.toStringTag]",
+        "RegExp String Iterator",
+        JS_PROP_CONFIGURABLE
+    ),
+];

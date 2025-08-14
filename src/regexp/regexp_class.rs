@@ -159,14 +159,13 @@ pub fn js_regexp_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {}
 pub fn js_regexp_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {}
 
 pub fn js_regexp_iterator_mark(val: JSValue) {
-    unsafe {
-        if let ObjectDetail::REGEXP_STRING_ITERATOR(p) =
-            val.object_unchecked().0.payload.borrow().deref()
-        {
-            p.iterating_regexp.gc_mark();
-            p.iterated_string.gc_mark();
-        }
-    }
+    // unsafe {
+    //     if let ObjectDetail::REGEXP_STRING_ITERATOR(p) =
+    //         val.object_unchecked().0.payload.borrow().deref()
+    //     {
+    //         //
+    //     }
+    // }
 }
 
 pub fn js_regexp_get_source(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -443,7 +442,21 @@ pub fn js_regexp_Symbol_matchAll(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let str = cc.arg(0).to_string(ctx)?;
 
-    // make regexp
+    //
+    // make regexp object
+    //
+
+    // let re2 = Rc::new(Regex::new(&str.content().to_utf8()).map_err(|e| {
+    //     ctx.throw_error(ErrorKind::Syntax, &e.to_string());
+    //     -1
+    // })?);
+    // let regexp2 = JSRegExp {
+    //     pattern: str.content().clone(),
+    //     flags_str: re.flags_str.clone(),
+    //     flags: re.flags,
+    //     regex: re2,
+    // };
+
     let regexp_ctor = ctx.0.borrow().regexp_ctor.clone();
     let ctor = JS_SpeciesConstructor(ctx, cc.this(), regexp_ctor)?;
     let matcher = JS_CallConstructor(
@@ -460,8 +473,8 @@ pub fn js_regexp_Symbol_matchAll(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     // make regexp string iterator object
     let isa = JSRegExpStringIteratorData {
-        iterating_regexp: matcher,
-        iterated_string: str.into(),
+        iterating_regexp: matcher.try_into().unwrap(),
+        iterated_string: str.content().clone(),
         global: re.flags & LRE_FLAG_GLOBAL as u8 != 0,
         unicode: re.flags & LRE_FLAG_UTF16 as u8 != 0,
         done: false,
@@ -747,3 +760,20 @@ pub const js_regexp_funcs: [NativeField; 1] = [
     //JS_CFUNC_DEF("__RegExpExec", 2, js_regexp___RegExpExec ),
     //JS_CFUNC_DEF("__RegExpDelete", 2, js_regexp___RegExpDelete ),
 ];
+
+pub(super) fn JS_RegExpExec(ctx: &JSContext, this: JSObject, str: JSString) -> JSResult {
+    let method = this.get_property(ctx, JS_ATOM_exec)?;
+    let args: [JSValue; 1] = [str.into()];
+
+    if method.is_callable() {
+        let ret = JS_Call(ctx, &method, &this.into(), &args).check_exception()?;
+        if !ret.is_object() && !ret.is_null() {
+            ctx.throw_type_error("RegExp exec method must return an object or null");
+            Err(-1)
+        } else {
+            Ok(ret)
+        }
+    } else {
+        js_regexp_exec(ctx, CallContext::new(ctx, this.into(), &args, 0, None))
+    }
+}

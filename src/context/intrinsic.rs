@@ -47,7 +47,10 @@ use crate::{
     },
     promise::{Promise, js_promise_funcs, js_promise_proto_funcs},
     reflect::js_reflect_obj,
-    regexp::{js_regexp_constructor, js_regexp_funcs, js_regexp_proto_funcs},
+    regexp::{
+        js_regexp_constructor, js_regexp_funcs, js_regexp_proto_funcs,
+        js_regexp_string_iterator_proto_funcs,
+    },
     symbol::{js_symbol_constructor, js_symbol_funcs, js_symbol_proto_funcs},
     typed_array::{
         JS_TYPED_ARRAY_COUNT, js_dataview_constructor, js_dataview_proto_funcs,
@@ -705,14 +708,14 @@ impl JSContext {
             .unwrap();
         ctor.install_native_fields(self, &js_regexp_funcs).unwrap();
 
-        // let iter_proto = self.0.borrow().iterator_proto.clone();
-        // let iter = self.create_base_object_from_proto(iter_proto).unwrap();
-        // iter.install_native_fields(self, js_regexp_string_iterator_proto_funcs);
+        let iter_proto = self.0.borrow().iterator_proto.clone();
+        let iter = self.create_base_object_from_proto(iter_proto).unwrap();
+        iter.install_native_fields(self, &js_regexp_string_iterator_proto_funcs);
 
         let mut cx = self.0.borrow_mut();
         cx.regexp_ctor = ctor;
         cx.class_proto[JS_CLASS_REGEXP as usize] = obj.into();
-        //cx.class_proto[JS_CLASS_REGEXP_STRING_ITERATOR as usize] = iter.into();
+        cx.class_proto[JS_CLASS_REGEXP_STRING_ITERATOR as usize] = iter.into();
     }
 
     pub fn intrinsic_async(&self) {

@@ -28,8 +28,8 @@ pub const LRE_FLAG_NAMED_GROUPS: i32 = 1 << 7; // named groups are present in th
 
 #[derive(Debug)]
 pub struct JSRegExpStringIteratorData {
-    pub iterating_regexp: JSValue,
-    pub iterated_string: JSValue,
+    pub iterating_regexp: JSObject,
+    pub iterated_string: StringContent,
     pub global: bool,
     pub unicode: bool,
     pub done: bool,
