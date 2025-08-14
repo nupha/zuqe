@@ -9,7 +9,7 @@ use std::{
 };
 
 use crate::{
-    error::{JSResult, STD_ERROR_COUNT},
+    error::STD_ERROR_COUNT,
     eval::EvalFunc,
     module::{JSFreeModuleEnum, JSModuleDefWeakref, js_free_modules},
     object::{JSObject, JSShape},

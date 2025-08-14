@@ -1,6 +1,6 @@
 use std::{borrow::Cow, collections::TryReserveError};
 
-use crate::string::{StringBuf, content::StringBufSlice};
+use crate::string::{StringBuf, StringChar, content::StringBufSlice};
 
 impl StringBuf {
     // /// 该函数是 JavaScript 正则替换功能的核心实现，处理了替换字符串中的所有特殊模式，确保符合 ECMAScript 规范要求。
@@ -119,7 +119,7 @@ impl StringBuf {
     /// 对应规范：ECMAScript 的 GetSubstitution 抽象操作.
     /// 返回: 包含替换后的字符串值
     #[deprecated]
-    pub fn substitution(
+    pub fn substitution_v0(
         &self,
         position: usize,                     // 匹配发生的位置索引
         matched: Cow<str>,                   // 匹配到的子字符串（对应 $&）
@@ -147,6 +147,24 @@ impl StringBuf {
     ) -> Result<StringBuf, TryReserveError> {
         do_substitution2(
             &self.as_slice(),
+            position,
+            matched,
+            replacement,
+            captures,
+            named_captures,
+        )
+    }
+
+    pub fn substitution<'a>(
+        matched: &str,                                         // 匹配到的子字符串（对应 $&）
+        str: &Self,                                            // 原字串
+        position: usize,                                       // 匹配发生的位置索引
+        replacement: impl Iterator<Item = StringChar>,         // 替换字符串或替换函数。
+        captures: impl Fn(usize) -> Option<Cow<'a, str>>,      // 命名捕获组对象。（对应 $1, $2 等）
+        named_captures: impl Fn(&str) -> Option<Cow<'a, str>>, // 命名捕获组。（对应 $<name>）
+    ) -> Result<StringBuf, TryReserveError> {
+        do_substitution3(
+            &str.as_slice(),
             position,
             matched,
             replacement,
@@ -361,6 +379,116 @@ fn do_substitution2<'a>(
 
     // remainder of replacement
     res.push_str(&replacement[i..])?;
+
+    Ok(res)
+}
+
+/// 该函数是 JavaScript 正则替换功能的核心实现，处理了替换字符串中的所有特殊模式，确保符合 ECMAScript 规范要求。
+///
+/// 实现 JavaScript 字符串替换中的特殊替换模式（如 $&, $1, `$`` 等）
+/// 对应规范：ECMAScript 的 GetSubstitution 抽象操作.
+/// 返回: 包含替换后的字符串值
+fn do_substitution3<'a>(
+    str: &StringBufSlice,                                  // 原始字符串。
+    position: usize,                                       // 匹配发生的位置索引
+    matched: &str,                                         // 匹配到的子字符串（对应 $&）
+    replacement: impl Iterator<Item = StringChar>,         // 替换字符串或替换函数。
+    captures: impl Fn(usize) -> Option<Cow<'a, str>>,      // 命名捕获组对象。（对应 $1, $2 等）
+    named_captures: impl Fn(&str) -> Option<Cow<'a, str>>, // 命名捕获组。（对应 $<name>）
+) -> Result<StringBuf, TryReserveError> {
+    let matched_len = matched.len();
+
+    // alloc result string buf
+    let mut res = StringBuf::with_capacity(matched.len(), str.is_wide())?;
+
+    let mut replace_chars = replacement.peekable();
+
+    // escape $-patterns in `replacement`
+    while let Some(c) = replace_chars.next() {
+        if c == StringChar::Char('$') {
+            if let Some(c1) = replace_chars.next() {
+                match c1 {
+                    StringChar::Char('$') => {
+                        // $$ -> $
+                        res.push_char('$')?;
+                    }
+                    StringChar::Char('&') => {
+                        // $& -> matched
+                        res.push_str(&matched)?;
+                    }
+                    StringChar::Char('`') => {
+                        // $` -> str[0..position]
+                        res.push_content_slice(&str.slice(0..position))?;
+                    }
+                    StringChar::Char('\'') => {
+                        // $' -> str[position+matched.len()..]
+                        res.push_content_slice(
+                            &str.slice((position + matched_len)..str.buf_len()),
+                        )?;
+                    }
+                    StringChar::Char(a @ ('0'..='9')) => {
+                        // $k -> captures[k]
+                        let mut n = a as u32 - '0' as u32;
+                        while let Some(StringChar::Char(c2)) = replace_chars.peek()
+                            && c2.is_ascii_digit()
+                        {
+                            n = n * 10 + (*c2 as u32 - '0' as u32);
+                            let _ = replace_chars.next(); // consume digit
+                        }
+
+                        if n > 0 {
+                            if let Some(s) = captures(n as usize) {
+                                res.push_str(&s)?;
+                            }
+                        } else {
+                            res.push_char(c)?; // $ 
+                            res.push_char(a)?; // 0
+                        }
+                    }
+                    StringChar::Char('<') => {
+                        // $<name> -> names_captures[name]
+                        let name_start = res.buf_len();
+                        res.push_char('<')?;
+
+                        while let Some(c1) = replace_chars.next() {
+                            if c1 == StringChar::Char('>') {
+                                // extract name
+                                let name = res
+                                    .iter_since(name_start)
+                                    .map(|(_, c)| match c {
+                                        StringChar::Char(c) => c,
+                                        StringChar::BrokenCode(_) => '\u{FFFD}',
+                                    })
+                                    .skip(1) // ignore leading <
+                                    .collect::<String>();
+
+                                res.drain(name_start..res.buf_len());
+                                if let Some(s) = named_captures(&name) {
+                                    res.push_str(&s)?;
+                                }
+                            } else {
+                                res.push_char(c1)?;
+                            }
+
+                            if res.buf_len() + 8 < res.capacity() {
+                                res.try_reserve_exact(32)?;
+                            }
+                        }
+                    }
+                    _ => {
+                        res.push_char(c)?;
+                        res.push_char(c1)?;
+                    }
+                }
+            }
+        } else {
+            res.push_char(c)?;
+        }
+
+        if res.buf_len() + 8 < res.capacity() {
+            res.try_reserve_exact(32)?;
+        }
+    }
 
     Ok(res)
 }

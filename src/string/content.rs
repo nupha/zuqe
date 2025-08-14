@@ -117,8 +117,20 @@ impl StringBuf {
     pub fn shrink_to_fit(&mut self) {
         match self {
             Self::Empty | Self::Null => {}
-            Self::Ascii(s) => s.shrink_to_fit(),
-            Self::Utf16(s) => s.shrink_to_fit(),
+            Self::Ascii(s) => {
+                if s.is_empty() {
+                    *self = Self::Empty;
+                } else {
+                    s.shrink_to_fit();
+                }
+            }
+            Self::Utf16(s) => {
+                if s.is_empty() {
+                    *self = Self::Empty;
+                } else {
+                    s.shrink_to_fit();
+                }
+            }
         }
     }
 
@@ -788,6 +800,19 @@ impl StringBuf {
                 src: self,
                 buf_ranges: range.start..end,
             }
+        }
+    }
+
+    /// remove elements from buf in given range
+    pub fn drain(&mut self, range: Range<usize>) {
+        match self {
+            Self::Ascii(b) => {
+                b.drain(range);
+            }
+            Self::Utf16(b) => {
+                b.drain(range);
+            }
+            _ => {}
         }
     }
 

@@ -1,4 +1,4 @@
-use std::{borrow::Cow, ops::Deref, rc::Rc, str::FromStr};
+use std::{ops::Deref, rc::Rc};
 
 use regex::Regex;
 use smallvec::SmallVec;
@@ -8,11 +8,11 @@ use crate::{
     atom::consts::*,
     context::{JS_GetActiveFunction, JSContext},
     error::{ErrorKind, JSResult},
-    function::{CallContext, NativeField, NativeFunctionType},
+    function::{CallContext, JS_Call, NativeField, NativeFunctionType},
     js_core::js_get_this,
     object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, JSObject, ObjectDetail},
     runtime::JSRuntime,
-    string::{JSString, StringBuf, StringChar},
+    string::{JSString, StringBuf, StringChar, StringContent},
     value::JSValue,
 };
 
@@ -380,9 +380,8 @@ pub fn js_regexp_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         re.flags = flags;
     }
 
-    let isa = ObjectDetail::REGEXP(Box::new(re));
     let obj = ctx
-        .create_object_apply_ctor(cc.this(), isa)
+        .create_object_apply_ctor(cc.this(), ObjectDetail::REGEXP(Box::new(re)))
         .map_err(|_| -1)?;
     obj.define_property_value(ctx, JS_ATOM_lastIndex, 0, JS_PROP_WRITABLE)?;
     Ok(obj.into())
@@ -823,19 +822,32 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
             };
 
             if let Some(rep_str) = rp.as_ref() {
-                let t = str
-                    .content()
-                    .substitution2(
-                        pos,
-                        m.as_str(),
-                        rep_str,
-                        |n| caps.get(n).map(|m| m.as_str().into()),
-                        |name| caps.name(name).map(|m| m.as_str().into()),
-                    )
-                    .map_err(|_| {
-                        ctx.throw_out_of_memory();
-                        -1
-                    })?;
+                // let t = str
+                //     .content()
+                //     .substitution2(
+                //         pos,
+                //         m.as_str(),
+                //         rep_str,
+                //         |n| caps.get(n).map(|m| m.as_str().into()),
+                //         |name| caps.name(name).map(|m| m.as_str().into()),
+                //     )
+                //     .map_err(|_| {
+                //         ctx.throw_out_of_memory();
+                //         -1
+                //     })?;
+
+                let t = StringBuf::substitution(
+                    m.as_str(),
+                    str.content(),
+                    pos,
+                    rep_str.chars().map(|c| c.into()),
+                    |n| caps.get(n).map(|m| m.as_str().into()),
+                    |name| caps.name(name).map(|m| m.as_str().into()),
+                )
+                .map_err(|_| {
+                    ctx.throw_out_of_memory();
+                    -1
+                })?;
 
                 if sbuf.is_empty() {
                     sbuf = t;
@@ -847,7 +859,34 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
                 }
             } else {
                 // call func
-                todo!()
+                let prop_flags = JS_PROP_C_W_E | JS_PROP_THROW;
+
+                let obj = ctx.create_array()?;
+                for (i, cap) in caps.iter().enumerate() {
+                    let val = if let Some(m) = cap {
+                        ctx.create_string_from_str(m.as_str())?.into()
+                    } else {
+                        JSValue::UNDEFINED
+                    };
+                    obj.define_property_value_u32(ctx, i as _, val, prop_flags)?;
+                }
+                for (name, matched) in re
+                    .regex
+                    .capture_names()
+                    .filter_map(|n| n.and_then(|n| caps.name(n).map(|m| ((n, m.as_str())))))
+                {
+                    let val = ctx.create_string_from_str(matched)?;
+                    obj.define_property_value_str(ctx, name, val.into(), prop_flags)?;
+                }
+
+                let r = JS_Call(ctx, &rep, &rep, &[obj])
+                    .check_exception()?
+                    .to_string(ctx)?;
+
+                sbuf.push(&r.content()).map_err(|_| {
+                    ctx.throw_out_of_memory();
+                    -1
+                })?;
             }
         }
     }
