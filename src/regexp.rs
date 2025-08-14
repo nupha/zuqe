@@ -902,13 +902,9 @@ fn js_regexp_Symbol_search(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Err(-1);
     };
     let re = js_get_regexp(ctx, this, true).ok_or(-1)?;
+    this.set_property(ctx, JS_ATOM_lastIndex, JSValue::Int(0))?;
 
     let str = cc.arg(0).to_string(ctx)?;
-    let previousLastIndex = this.get_property(ctx, JS_ATOM_lastIndex)?;
-    if previousLastIndex != JSValue::Int(0) {
-        this.set_property(ctx, JS_ATOM_lastIndex, JSValue::Int(0))?;
-    }
-
     let utf8_text = str.content().to_utf8();
 
     if let Some(m) = re.regex.find(&utf8_text) {
@@ -928,7 +924,31 @@ fn js_regexp_Symbol_search(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_regexp_Symbol_split(ctx: &JSContext, cc: CallContext) -> JSResult {
-    todo!("RegExp[Symbol.split]");
+    let Some(this) = cc.this().object() else {
+        ctx.throw_type_error_not_an_object();
+        return Err(-1);
+    };
+    let re = js_get_regexp(ctx, this, true).ok_or(-1)?;
+    this.set_property(ctx, JS_ATOM_lastIndex, JSValue::Int(0))?;
+
+    let str = cc.arg(0).to_string(ctx)?;
+    let limit = cc.arg(1);
+    let limit = if limit.is_undefined() {
+        usize::MAX
+    } else {
+        limit.coerce_to_u32(ctx)? as usize
+    };
+
+    let arr = ctx.create_array()?;
+    let prop_flags = JS_PROP_C_W_E | JS_PROP_THROW;
+
+    // FIXME: consider sticky flag
+    for (i, s) in re.regex.splitn(&str.content().to_utf8(), limit).enumerate() {
+        let val = ctx.create_string_from_str(s)?;
+        arr.define_property_value_u32(ctx, i as _, val.into(), prop_flags)?;
+    }
+
+    Ok(arr)
 }
 
 pub const js_regexp_proto_funcs: [NativeField; 18] = [
