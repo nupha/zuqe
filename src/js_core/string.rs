@@ -90,12 +90,12 @@ pub fn js_string_at(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_string_codePointAt(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let p = cc.this().to_string_non_undefined_or_null(ctx)?;
+    let s = cc.this().to_string_non_undefined_or_null(ctx)?;
     let buf_idx: i32 = cc.arg(0).to_i32_saturating(ctx)?;
-    if buf_idx < 0 || buf_idx >= p.buf_len() as i32 {
+    if buf_idx < 0 || buf_idx >= s.buf_len() as i32 {
         Ok(JSValue::UNDEFINED)
     } else {
-        let (_, c) = p.content().iter_since(buf_idx as usize).next().unwrap();
+        let (_, c) = s.content().iter_since(buf_idx as usize).next().unwrap();
         Ok(JSValue::from(c.to_u32()))
     }
 }
