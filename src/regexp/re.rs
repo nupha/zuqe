@@ -8,9 +8,12 @@ use crate::{
     atom::consts::*,
     context::{JS_GetActiveFunction, JSContext},
     error::{ErrorKind, JSResult},
-    function::{CallContext, JS_Call, NativeField, NativeFunctionType},
+    function::{CallContext, JS_Call, JS_CallConstructor, NativeField, NativeFunctionType},
     js_core::js_get_this,
-    object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, JSObject, ObjectDetail},
+    object::{
+        JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, JS_SpeciesConstructor, JSObject,
+        ObjectDetail,
+    },
     runtime::JSRuntime,
     string::{JSString, StringBuf, StringChar, StringContent},
     value::JSValue,
@@ -49,15 +52,16 @@ pub enum RegExpExecMode {
 
 #[derive(Debug, Clone)]
 pub struct JSRegExp {
-    pattern: JSString,
+    pattern: StringContent,
+    flags_str: StringContent,
     flags: u8,
     regex: Rc<Regex>,
 }
 
 impl JSRegExp {
-    pub fn new(ctx: &JSContext, pattern: JSString, flags_str: &str) -> Result<Self, i32> {
+    pub fn new(ctx: &JSContext, pattern: &JSString, flags_str: &JSString) -> Result<Self, i32> {
         let mut flags = 0u8;
-        for c in flags_str.chars() {
+        for c in flags_str.content().chars_lossy() {
             match c {
                 'g' => {
                     flags |= LRE_FLAG_GLOBAL as u8;
@@ -87,7 +91,8 @@ impl JSRegExp {
         })?);
 
         Ok(Self {
-            pattern,
+            pattern: pattern.content().clone(),
+            flags_str: flags_str.content().clone(),
             regex,
             flags,
         })
@@ -206,6 +211,8 @@ impl JSRegExp {
                         arr.replace(a);
                     }
 
+                    println!("[O.o] match global {n}. cursor={cursor}, m={m:?}");
+
                     arr.as_ref().unwrap().define_property_value_u32(
                         ctx,
                         n,
@@ -255,8 +262,8 @@ impl JSContext {
     pub fn create_regexp(
         &self,
         ctor: &JSValue,
-        pattern: JSString,
-        flags: &str,
+        pattern: &JSString,
+        flags: &JSString,
     ) -> Result<JSObject, i32> {
         let obj = self
             .create_object_apply_ctor(
@@ -275,17 +282,13 @@ and the source pattern */
 pub fn js_regexp_constructor_internal(
     ctx: &JSContext,
     ctor: &JSValue,
-    pattern: JSString,
-    flags: JSValue,
+    pattern: &JSString,
+    flags: &JSValue,
 ) -> Result<JSObject, i32> {
     if !flags.is_undefined() {
-        ctx.create_regexp(
-            ctor,
-            pattern,
-            flags.to_string(ctx)?.content().to_utf8().as_ref(),
-        )
+        ctx.create_regexp(ctor, pattern, &flags.to_string(ctx)?)
     } else {
-        ctx.create_regexp(ctor, pattern, "")
+        ctx.create_regexp(ctor, pattern, &JS_ATOM_empty_string.to_string(ctx).unwrap())
     }
 }
 
@@ -335,7 +338,8 @@ pub fn js_regexp_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         })?;
 
         JSRegExp {
-            pattern,
+            pattern: pattern.content().clone(),
+            flags_str: Rc::new(StringBuf::Empty),
             flags: 0,
             regex: Rc::new(regex),
         }
@@ -343,8 +347,9 @@ pub fn js_regexp_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     if !flags1.is_undefined() {
         let mut flags = 0u8;
+        let flags_str = flags1.to_string(ctx)?;
 
-        for c in flags1.to_string(ctx)?.content().to_utf8().chars() {
+        for c in flags_str.content().to_utf8().chars() {
             match c {
                 'g' => {
                     flags |= LRE_FLAG_GLOBAL as u8;
@@ -369,6 +374,7 @@ pub fn js_regexp_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
 
         re.flags = flags;
+        re.flags_str = flags_str.content().clone();
     }
 
     let obj = ctx
@@ -404,12 +410,17 @@ pub fn js_is_regexp(ctx: &JSContext, obj: &JSValue) -> Result<bool, i32> {
 
 pub fn js_regexp_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {}
 
-pub fn js_regexp_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {
-    unimplemented!();
-}
+pub fn js_regexp_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {}
 
 pub fn js_regexp_iterator_mark(val: JSValue) {
-    unimplemented!();
+    unsafe {
+        if let ObjectDetail::REGEXP_STRING_ITERATOR(p) =
+            val.object_unchecked().0.payload.borrow().deref()
+        {
+            p.iterating_regexp.gc_mark();
+            p.iterated_string.gc_mark();
+        }
+    }
 }
 
 pub fn js_regexp_get_source(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -437,7 +448,7 @@ pub fn js_regexp_get_source(ctx: &JSContext, cc: CallContext) -> JSResult {
 
         /* Escape '/' and newline sequences as needed */
         let mut bra = false;
-        let mut chars = p.content().iter();
+        let mut chars = p.iter();
         while let Some((_, c)) = chars.next() {
             match c {
                 StringChar::Char('\\') => {
@@ -591,7 +602,7 @@ fn js_regexp_compile(ctx: &JSContext, cc: CallContext) -> JSResult {
     let pattern1 = cc.arg(0);
     let flags1 = cc.arg(1);
 
-    let pattern: JSString;
+    let pattern: StringContent;
     let regex: Rc<Regex>;
 
     if let Some(re1) = pattern1.object().and_then(|o| js_get_regexp(ctx, o, false)) {
@@ -603,12 +614,12 @@ fn js_regexp_compile(ctx: &JSContext, cc: CallContext) -> JSResult {
         regex = re1.regex.clone();
     } else {
         pattern = if pattern1.is_undefined() {
-            JS_ATOM_empty_string.to_string(ctx).unwrap()
+            Rc::new(StringBuf::Empty)
         } else {
-            pattern1.to_string(ctx)?
+            pattern1.to_string(ctx)?.content().clone()
         };
 
-        regex = Rc::new(Regex::new(&pattern.content().to_utf8()).map_err(|e| {
+        regex = Rc::new(Regex::new(&pattern.to_utf8()).map_err(|e| {
             ctx.throw_error(ErrorKind::Syntax, &e.to_string());
             -1
         })?);
@@ -664,51 +675,56 @@ pub fn js_regexp_Symbol_match(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Err(-1);
     };
 
-    let is_match_all = cc.magic() == JS_ATOM_Symbol_matchAll.0 as i32;
-
     let re = js_get_regexp(ctx, this, true).ok_or(-1)?;
-    if is_match_all && (re.flags & LRE_FLAG_GLOBAL as u8 == 0) {
-        ctx.throw_type_error("regexp must have the 'g' flag");
-        return Err(-1);
-    }
-
     let str = cc.arg(0).to_string(ctx)?;
 
     let (ret, last_index) = re
-        .exec(
-            ctx,
-            &str,
-            if re.flags & LRE_FLAG_GLOBAL as u8 == 0 {
-                0
-            } else {
-                let val = cc.this().get_property(ctx, JS_ATOM_lastIndex)?;
-                val.coerce_to_length(ctx)? as usize
-            },
-            RegExpExecMode::Match,
-        )?
+        .exec(ctx, &str, 0, RegExpExecMode::Match)?
         .unwrap_or_else(|| (JSValue::NULL, 0));
 
     this.set_property(ctx, JS_ATOM_lastIndex, JSValue::Int(last_index as _))?;
     Ok(ret)
+}
 
-    // let flags = this.get_property(ctx, JS_ATOM_flags)?;
-    // let p = flags.to_string(ctx)?;
-    // let A: JSValue;
+pub fn js_regexp_Symbol_matchAll(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let Some(this) = cc.this().object() else {
+        ctx.throw_type_error_not_an_object();
+        return Err(-1);
+    };
 
-    // let global = p.content().index_of_char('g', 0).is_some();
-    // if !global {
-    //     this.set_property(ctx, JS_ATOM_lastIndex, JSValue::Int(0))?;
-    //     A = js_regexp_exec(ctx, cc)?;
-    // } else {
-    //     let fullUnicode = this
-    //         .get_property(ctx, JS_ATOM_unicode)
-    //         .and_then(|v| v.coerce_to_bool(ctx))?;
+    let re = js_get_regexp(ctx, this, true).ok_or(-1)?;
+    let last_index = this.get_property(ctx, JS_ATOM_lastIndex)?;
 
-    //     this.set_property(ctx, JS_ATOM_lastIndex, JSValue::Int(0))?;
-    //     A = js_regexp_exec(ctx, cc)?;
-    // }
+    let str = cc.arg(0).to_string(ctx)?;
 
-    // Ok(A)
+    // make regexp
+    let regexp_ctor = ctx.0.borrow().regexp_ctor.clone();
+    let ctor = JS_SpeciesConstructor(ctx, cc.this(), regexp_ctor)?;
+    let matcher = JS_CallConstructor(
+        ctx,
+        &ctor,
+        &[
+            str.clone().into(),
+            ctx.create_string_from_content_rc(re.flags_str.clone())?
+                .into(),
+        ],
+    )
+    .check_exception()?;
+    matcher.set_property(ctx, JS_ATOM_lastIndex, last_index)?;
+
+    // make regexp string iterator object
+    let isa = JSRegExpStringIteratorData {
+        iterating_regexp: matcher,
+        iterated_string: str.into(),
+        global: re.flags & LRE_FLAG_GLOBAL as u8 != 0,
+        unicode: re.flags & LRE_FLAG_UTF16 as u8 != 0,
+        done: false,
+    };
+    let iter = ctx
+        .create_object(ObjectDetail::REGEXP_STRING_ITERATOR(Box::new(isa)))
+        .map_err(|_| -1)?;
+
+    Ok(iter.into())
 }
 
 fn js_is_standard_regexp(ctx: &JSContext, rx: &JSObject) -> Result<bool, i32> {
@@ -972,18 +988,8 @@ pub const js_regexp_proto_funcs: [NativeField; 18] = [
     JS_CFUNC_NATIVE_DEF!("test", 1, js_regexp_test, 0),
     JS_CFUNC_NATIVE_DEF!("toString", 0, js_regexp_toString, 0),
     JS_CFUNC_NATIVE_DEF!("[Symbol.replace]", 2, js_regexp_Symbol_replace, 0),
-    JS_CFUNC_NATIVE_DEF!(
-        "[Symbol.match]",
-        1,
-        js_regexp_Symbol_match,
-        JS_ATOM_Symbol_match.0 as _
-    ),
-    JS_CFUNC_NATIVE_DEF!(
-        "[Symbol.matchAll]",
-        1,
-        js_regexp_Symbol_match,
-        JS_ATOM_Symbol_matchAll.0 as _
-    ),
+    JS_CFUNC_NATIVE_DEF!("[Symbol.match]", 1, js_regexp_Symbol_match, 0),
+    JS_CFUNC_NATIVE_DEF!("[Symbol.matchAll]", 1, js_regexp_Symbol_matchAll, 0),
     JS_CFUNC_NATIVE_DEF!("[Symbol.search]", 1, js_regexp_Symbol_search, 0),
     JS_CFUNC_NATIVE_DEF!("[Symbol.split]", 2, js_regexp_Symbol_split, 0),
     //JS_CGETSET_DEF("__source", js_regexp_get___source, NULL ),

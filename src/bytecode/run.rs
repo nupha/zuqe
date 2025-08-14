@@ -19,8 +19,8 @@ use crate::{
     },
     context::{JS_MODE_STRICT, JSContext, is_strict_mode},
     error::{
-        JS_BACKTRACE_FLAG_SINGLE_LEVEL, JS_THROW_ERROR_DELETE_SUPER, JS_THROW_ERROR_ITERATOR_THROW,
-        JS_THROW_VAR_REDECL, JS_THROW_VAR_RO, JS_THROW_VAR_UNINITIALIZED, JS_ThrowReferenceError,
+        JS_THROW_ERROR_DELETE_SUPER, JS_THROW_ERROR_ITERATOR_THROW, JS_THROW_VAR_REDECL,
+        JS_THROW_VAR_RO, JS_THROW_VAR_UNINITIALIZED, JS_ThrowReferenceError,
         JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized,
         JS_ThrowReferenceErrorUninitialized2, JS_ThrowSyntaxErrorVarRedeclaration,
     },
@@ -40,7 +40,6 @@ use crate::{
         JS_PROP_THROW_STRICT, JS_PROP_VARREF, JS_PROP_WRITABLE, JS_SetPrototypeInternal, JSObject,
         JSProperty,
     },
-    regexp::js_regexp_constructor_internal,
     stack_frame::StackFrame,
     string::JSString,
     utils::read_from_ptr,
@@ -996,13 +995,8 @@ impl Bytecode {
                         // [pattern, flags, ^] -> [regexp, ^]
                         let pattern: JSString = SP_TAKE!(-2).try_into().unwrap();
                         let flags: JSString = SP_TAKE!(-1).try_into().unwrap();
-
                         let res = ctx
-                            .create_regexp(
-                                &JSValue::UNDEFINED,
-                                pattern,
-                                flags.content().to_utf8().as_ref(),
-                            )
+                            .create_regexp(&JSValue::UNDEFINED, &pattern, &flags)
                             .map_or(JSValue::EXCEPTION, JSValue::Object);
 
                         SP_PUT!(-2, res);
