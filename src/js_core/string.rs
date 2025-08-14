@@ -667,7 +667,6 @@ pub fn js_string_match(ctx: &JSContext, cc: CallContext) -> JSResult {
     let magic_method = JSAtom(cc.magic() as u32); // match, matchAll, search
 
     let this = cc.this();
-
     if this.is_undefined_or_null() {
         ctx.throw_type_error("cannot convert to object");
         return Err(-1);

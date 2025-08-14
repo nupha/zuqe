@@ -738,13 +738,6 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
     };
 
     let re = js_get_regexp(ctx, this, true).ok_or(-1)?;
-
-    // let mut nextSourcePosition: i32;
-    // let n: i32;
-    // let mut j: i32;
-    // let mut nCaptures: u32 = 0;
-    // let mut position: i64 = 0;
-
     let str = cc.arg(0).to_string(ctx)?;
 
     let rep = cc.arg(1);
@@ -903,8 +896,35 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
     ctx.create_string_from_content(sbuf).map(JSValue::String)
 }
 
-pub fn js_regexp_Symbol_search(ctx: &JSContext, cc: CallContext) -> JSResult {
-    todo!("RegExp[Symbol.search]");
+fn js_regexp_Symbol_search(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let Some(this) = cc.this().object() else {
+        ctx.throw_type_error_not_an_object();
+        return Err(-1);
+    };
+    let re = js_get_regexp(ctx, this, true).ok_or(-1)?;
+
+    let str = cc.arg(0).to_string(ctx)?;
+    let previousLastIndex = this.get_property(ctx, JS_ATOM_lastIndex)?;
+    if previousLastIndex != JSValue::Int(0) {
+        this.set_property(ctx, JS_ATOM_lastIndex, JSValue::Int(0))?;
+    }
+
+    let utf8_text = str.content().to_utf8();
+
+    if let Some(m) = re.regex.find(&utf8_text) {
+        let pos = if m.start() == 0 {
+            0
+        } else if str.content().is_wide() {
+            let nc = utf8_text[..m.start()].chars().count();
+            let (i, _) = str.content().iter().nth(nc - 1).unwrap();
+            i
+        } else {
+            m.start()
+        };
+        Ok(JSValue::from(pos as u32))
+    } else {
+        Ok(JSValue::Int(-1))
+    }
 }
 
 pub fn js_regexp_Symbol_split(ctx: &JSContext, cc: CallContext) -> JSResult {
