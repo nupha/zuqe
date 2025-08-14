@@ -194,6 +194,7 @@ impl JSRegExp {
                 }
             }
             (RegExpExecMode::Match, true) => {
+                // global match returns array match #0
                 let mut arr: Option<JSValue> = None;
                 let mut cursor = 0;
                 let mut n = 0;
@@ -683,7 +684,7 @@ pub fn js_regexp_Symbol_match(ctx: &JSContext, cc: CallContext) -> JSResult {
                 let val = cc.this().get_property(ctx, JS_ATOM_lastIndex)?;
                 val.coerce_to_length(ctx)? as usize
             },
-            RegExpExecMode::Capture,
+            RegExpExecMode::Match,
         )?
         .unwrap_or_else(|| (JSValue::NULL, 0));
 
