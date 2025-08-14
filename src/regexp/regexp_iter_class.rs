@@ -28,14 +28,14 @@ fn js_regexp_string_iterator_next(
         let regexp = &it.iterating_regexp;
         let str = &it.iterated_string;
 
-        let Ok(match_val) = JS_RegExpExec(
+        // initialize state
+        *state = IteratorState::NotDone;
+
+        let match_val = JS_RegExpExec(
             ctx,
             regexp.clone(),
             ctx.create_string_from_content_rc(str.clone())?,
-        ) else {
-            *state = IteratorState::NotDone;
-            return Err(-1);
-        };
+        )?;
 
         if match_val.is_null() {
             it.done = true;
@@ -44,11 +44,7 @@ fn js_regexp_string_iterator_next(
         }
 
         if it.global {
-            let matchStr = match_val.get_property_u32(ctx, 0).inspect_err(|_| {
-                *state = IteratorState::NotDone;
-            })?;
-
-            if let JSValue::String(s) = matchStr
+            if let JSValue::String(s) = match_val.get_property_u32(ctx, 0)?
                 && s.is_empty()
             {
                 let last_index = regexp
@@ -74,7 +70,6 @@ fn js_regexp_string_iterator_next(
             it.done = true;
         }
 
-        *state = IteratorState::NotDone;
         Ok(match_val)
     } else {
         Err(-1)
