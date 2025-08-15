@@ -32,7 +32,7 @@ pub fn js_string_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         if let JSValue::Symbol(p) = cc.arg(0)
             && new_target.is_undefined()
         {
-            // String(a_symbol)
+            // "Symbol(desc)"
             JS_ConcatString3(
                 ctx,
                 c"Symbol(",
@@ -48,7 +48,13 @@ pub fn js_string_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     };
 
     if !new_target.is_undefined() {
-        str_val.to_object(ctx).map(JSValue::Object)
+        // make String object using `new_target` as prototype.
+        let len = str_val.buf_len();
+        let o = ctx
+            .create_object_apply_ctor(new_target, ObjectDetail::STRING(str_val))
+            .map_err(|_| -1)?;
+        o.define_property_value(ctx, JS_ATOM_length, len as u32, 0)?;
+        Ok(o.into())
     } else {
         Ok(str_val.into())
     }

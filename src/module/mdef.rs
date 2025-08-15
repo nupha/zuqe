@@ -744,7 +744,7 @@ pub unsafe fn JS_GetScriptOrModuleName(ctx: &JSContext, n_stack_levels: i32) -> 
     let mut levels = n_stack_levels;
 
     while levels > 0 {
-        sf = (*sf).prev_frame.cast::<StackFrame>();
+        sf = (&*sf).prev_frame.cast::<StackFrame>();
         if sf.is_null() {
             return JS_ATOM_NULL;
         }
@@ -752,7 +752,7 @@ pub unsafe fn JS_GetScriptOrModuleName(ctx: &JSContext, n_stack_levels: i32) -> 
     }
 
     loop {
-        if let JSValue::Object(p) = &(*sf).cur_func {
+        if let JSValue::Object(p) = &(&*sf).cur_func {
             if let Some(b) =
                 p.0.payload
                     .borrow()
@@ -766,7 +766,7 @@ pub unsafe fn JS_GetScriptOrModuleName(ctx: &JSContext, n_stack_levels: i32) -> 
                     }
                     return b.debug.filename.dup(ctx.rt());
                 } else {
-                    sf = (*sf).prev_frame.cast::<StackFrame>(); // walk up
+                    sf = (&*sf).prev_frame.cast::<StackFrame>(); // walk up
                     if sf.is_null() {
                         return JS_ATOM_NULL;
                     }

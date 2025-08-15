@@ -111,14 +111,15 @@ impl JSContext {
 
         // the backtrace is added later if called from a bytecode function
         let sf = rt.cur_stack_frame.cast::<StackFrame>();
+
         let add_backtrace = !rt.in_out_of_memory
             && (sf.is_null()
                 || unsafe {
-                    (*sf)
+                    (&*sf)
                         .cur_func
                         .object()
-                        .and_then(|o| o.0.payload.borrow().func().and_then(|f| f.bytecode.clone()))
-                        .is_none()
+                        .and_then(|o| o.0.payload.borrow().func().map(|f| f.bytecode.is_none()))
+                        .unwrap_or(false)
                 });
 
         self.throw_error_ex(kind, message, add_backtrace);
@@ -268,7 +269,7 @@ impl JSContext {
             let mut backtrace_barrier = false;
 
             if let Some(b) = unsafe {
-                (*sf)
+                (&*sf)
                     .cur_func
                     .object_unchecked()
                     .0

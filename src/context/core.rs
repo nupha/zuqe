@@ -22,7 +22,9 @@ impl JSContext {
             .unwrap();
 
         #[cfg(debug_assertions)]
-        object._debug_set_hint("ObjectProto");
+        object._debug_set_hint(
+            format!("ObjectProto@{:p}", self.id() as *const std::ffi::c_void).into(),
+        );
 
         self.0.borrow_mut().class_proto[JS_CLASS_OBJECT as usize] = object.clone().into();
 
@@ -39,7 +41,9 @@ impl JSContext {
                 .unwrap();
 
             #[cfg(debug_assertions)]
-            func_obj.object().unwrap()._debug_set_hint("FunctionProto");
+            func_obj.object().unwrap()._debug_set_hint(
+                format!("FunctionProto@{:p}", self.id() as *const std::ffi::c_void).into(),
+            );
 
             let mut cx = self.0.borrow_mut();
             cx.function_proto = func_obj.clone();

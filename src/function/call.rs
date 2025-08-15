@@ -5,7 +5,7 @@ use crate::{
     atom::JSAtom,
     context::JSContext,
     error::JSResult,
-    function::{BytecodeFunction, build_arg_list},
+    function::{BytecodeFunction, ObjFunc, build_arg_list},
     object::{JSObject, ObjectDetail},
     stack_frame::StackFrame,
     value::{JSValue, JSValueConst},
@@ -185,7 +185,7 @@ pub fn JS_CallInternal(
                 p.0.payload
                     .borrow()
                     .func()
-                    .map(|f| (f.bytecode.clone().unwrap(), f.home_object.clone()))
+                    .map(|f| (f.bytecode().unwrap(), f.home_object.clone()))
                     .unwrap();
 
             let pc_offset = frame.cur_pc_offset;
@@ -285,10 +285,9 @@ pub fn JS_CallConstructorInternal(
             p.0.payload
                 .borrow()
                 .func()
-                .unwrap()
-                .bytecode
-                .clone()
+                .and_then(ObjFunc::bytecode)
                 .unwrap();
+
         if bc.0.borrow().is_derived_class_constructor {
             JS_CallInternal(ctx, func_obj, &JSValue::UNDEFINED, new_target, args, flags)
         } else {

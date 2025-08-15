@@ -4,7 +4,8 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{
-        CallContext, JS_Call, JSFunctionKindEnum, NativeField, ObjBoundFunc, js_function_apply,
+        CallContext, JS_Call, JSFunctionKindEnum, NativeField, ObjBoundFunc, ObjFunc,
+        js_function_apply,
     },
     object::{JS_PROP_CONFIGURABLE, ObjectDetail},
     string::JS_ConcatString3,
@@ -141,7 +142,7 @@ pub fn js_function_toString(ctx: &JSContext, args: CallContext) -> JSResult {
         name = JS_ATOM_empty_string.to_string(ctx)?.into();
     }
 
-    unsafe { JS_ConcatString3(ctx, pref, name, suff).map(JSValue::String) }
+    JS_ConcatString3(ctx, pref, name, suff).map(JSValue::String)
 }
 
 pub fn js_function_hasInstance(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -156,7 +157,7 @@ pub fn js_function_proto_fileName(ctx: &JSContext, args: CallContext) -> JSResul
     if let Some(b) = args
         .this_raw()
         .object()
-        .and_then(|o| o.0.payload.borrow().func().and_then(|f| f.bytecode.clone()))
+        .and_then(|o| o.0.payload.borrow().func().and_then(ObjFunc::bytecode))
     {
         let b = b.0.borrow();
         if b.has_debug {
@@ -173,7 +174,7 @@ pub fn js_function_proto_lineNumber(_: &JSContext, args: CallContext) -> JSResul
     if let Some(b) = args
         .this_raw()
         .object()
-        .and_then(|o| o.0.payload.borrow().func().and_then(|f| f.bytecode.clone()))
+        .and_then(|o| o.0.payload.borrow().func().and_then(ObjFunc::bytecode))
     {
         let b = b.0.borrow();
         if b.has_debug {

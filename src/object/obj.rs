@@ -171,7 +171,7 @@ pub(crate) struct ObjectInner {
     pub gc_mark: Cell<bool>,
 
     #[cfg(debug_assertions)]
-    pub(crate) _debug_hint: UnsafeCell<Option<&'static str>>,
+    pub(crate) _debug_hint: UnsafeCell<Option<std::borrow::Cow<'static, str>>>,
 }
 
 impl Drop for ObjectInner {
@@ -550,7 +550,7 @@ impl JSObject {
 
 #[cfg(debug_assertions)]
 impl JSObject {
-    pub(crate) fn _debug_set_hint(&self, msg: &'static str) {
+    pub(crate) fn _debug_set_hint(&self, msg: std::borrow::Cow<'static, str>) {
         unsafe {
             (*self.0._debug_hint.get()).replace(msg);
         }

@@ -19,8 +19,8 @@ use crate::{
     context::{JS_MODE_STRICT, JSContext},
     error::{ErrorKind, JSResult, STD_ERROR_NAMES},
     function::{
-        BytecodeFunction, CallContext, JSFunctionKindEnum, NativeCallback, NativeField,
-        NativeFunctionType, js_async_function_proto_funcs,
+        BytecodeFunction, CallContext, JSFunctionKindEnum, NativeField, NativeFunctionType,
+        js_async_function_proto_funcs,
     },
     generator::{
         js_async_generator_function_proto_funcs, js_async_generator_proto_funcs,
@@ -126,7 +126,9 @@ impl JSContext {
             .unwrap();
 
         #[cfg(debug_assertions)]
-        obj_ctor.object().unwrap()._debug_set_hint("FunctionCtor");
+        obj_ctor.object().unwrap()._debug_set_hint(
+            format!("FunctionCtor@{:p}", self.id() as *const std::ffi::c_void).into(),
+        );
 
         self.0.borrow().class_proto[JS_CLASS_OBJECT as usize]
             .install_native_fields(self, &js_object_proto_funcs)
@@ -327,7 +329,9 @@ impl JSContext {
                 .unwrap();
 
             #[cfg(debug_assertions)]
-            o._debug_set_hint("StringProto");
+            o._debug_set_hint(
+                format!("StringProto@{:p}", self.id() as *const std::ffi::c_void).into(),
+            );
 
             o.into()
         };
@@ -340,7 +344,9 @@ impl JSContext {
             .unwrap();
 
         #[cfg(debug_assertions)]
-        string_ctor.object().unwrap()._debug_set_hint("StringCtor");
+        string_ctor.object().unwrap()._debug_set_hint(
+            format!("StringCtor@{:p}", self.id() as *const std::ffi::c_void).into(),
+        );
 
         let string_iter = self
             .create_base_object_from_proto(self.0.borrow().iterator_proto.clone())

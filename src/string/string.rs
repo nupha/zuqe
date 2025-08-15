@@ -793,7 +793,7 @@ impl JSValue {
     }
 
     /// Coerce value `self` to string.
-    /// if `self` is symbol, returns Err.
+    /// if `self` is symbol value, returns Err.
     pub fn to_string(&self, ctx: &JSContext) -> Result<JSString, i32> {
         match self {
             Self::String(s) => Ok(s.clone()),
@@ -803,7 +803,7 @@ impl JSValue {
             }
             _ => match self.to_string_or_symbol(ctx)? {
                 JSValue::String(s) => Ok(s),
-                JSValue::Symbol(s) => {
+                JSValue::Symbol(_) => {
                     ctx.throw_type_error("cannot convert symbol to string");
                     Err(-1)
                 }

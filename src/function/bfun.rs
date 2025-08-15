@@ -38,7 +38,7 @@ impl BytecodeFunction {
             .payload
             .borrow()
             .func()
-            .map(|f| (f.bytecode.clone().unwrap(), f.home_object.clone()))
+            .map(|f| (f.bytecode().unwrap(), f.home_object.clone()))
             .unwrap();
 
         // how many args that should be copied to local buf?

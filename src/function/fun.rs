@@ -87,6 +87,21 @@ pub struct ObjFunc {
     pub home_object: Option<JSObject>,
 }
 
+impl ObjFunc {
+    /// get function bytecode
+    #[inline]
+    pub fn bytecode(&self) -> Option<Bytecode> {
+        self.bytecode.as_ref().cloned()
+    }
+
+    /// get function bytecode realm
+    pub fn realm(&self) -> Option<JSContext> {
+        self.bytecode
+            .as_ref()
+            .and_then(|b| b.0.borrow().realm.upgrade())
+    }
+}
+
 impl JSValue {
     /// check if value `self` is a function or a callable object.
     /// raise exception if not.
@@ -221,7 +236,7 @@ pub fn js_bytecode_function_mark(val: JSValue) {
                 for vr in f.var_refs.iter() {
                     vr.gc_mark();
                 }
-                (f.bytecode.clone(), f.home_object.clone())
+                (f.bytecode(), f.home_object.clone())
             })
             .unwrap();
 

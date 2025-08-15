@@ -136,12 +136,10 @@ impl ObjNativeFunc {
                 .borrow()
                 .deref()
         {
-            (c.handler, c.length, c.magic, c.realm.upgrade())
+            (c.handler, c.length, c.magic, c.realm.upgrade().unwrap())
         } else {
             unreachable!()
         };
-
-        let realm = realm.as_ref().unwrap_or(ctx); // change the current realm
 
         // better to always check stack overflow
         if js_check_stack_overflow(rt, std::mem::size_of::<JSValue>() * arg_length as usize) {
@@ -173,7 +171,7 @@ impl ObjNativeFunc {
             sf.local_buf
                 .try_reserve_exact(arg_length as usize)
                 .map_err(|_| {
-                    ctx.throw_out_of_memory();
+                    realm.throw_out_of_memory();
                     -1
                 })?;
 
@@ -198,8 +196,8 @@ impl ObjNativeFunc {
         let ret_val: JSValue = match callback {
             NativeFunctionType::Func(f) => {
                 let cc =
-                    CallContext::new(realm, this_obj.clone(), sf.args_slice(), magic as _, None);
-                f(realm, cc).unwrap_or(JSValue::EXCEPTION)
+                    CallContext::new(&realm, this_obj.clone(), sf.args_slice(), magic as _, None);
+                f(&realm, cc).unwrap_or(JSValue::EXCEPTION)
             }
             NativeFunctionType::Constructor(f) => {
                 if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
@@ -207,37 +205,37 @@ impl ObjNativeFunc {
                     return Err(-1);
                 }
                 let cc =
-                    CallContext::new(realm, this_obj.clone(), sf.args_slice(), magic as _, None);
-                f(realm, cc).unwrap_or(JSValue::EXCEPTION)
+                    CallContext::new(&realm, this_obj.clone(), sf.args_slice(), magic as _, None);
+                f(&realm, cc).unwrap_or(JSValue::EXCEPTION)
             }
             NativeFunctionType::ConstructorOrFunc(f) => {
                 if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
                     this_obj = &JSValue::UNDEFINED;
                 }
                 let cc =
-                    CallContext::new(realm, this_obj.clone(), sf.args_slice(), magic as _, None);
-                f(realm, cc).unwrap_or(JSValue::EXCEPTION)
+                    CallContext::new(&realm, this_obj.clone(), sf.args_slice(), magic as _, None);
+                f(&realm, cc).unwrap_or(JSValue::EXCEPTION)
             }
             NativeFunctionType::Getter(f) => {
                 debug_assert_eq!(sf.arg_count, 0);
                 let cc =
-                    CallContext::new(realm, this_obj.clone(), sf.args_slice(), magic as _, None);
-                f(realm, cc).unwrap_or(JSValue::EXCEPTION)
+                    CallContext::new(&realm, this_obj.clone(), sf.args_slice(), magic as _, None);
+                f(&realm, cc).unwrap_or(JSValue::EXCEPTION)
             }
             NativeFunctionType::Setter(f) => {
                 debug_assert_eq!(sf.arg_count, 1);
                 let cc =
-                    CallContext::new(realm, this_obj.clone(), sf.args_slice(), magic as _, None);
-                f(realm, cc).unwrap_or(JSValue::EXCEPTION)
+                    CallContext::new(&realm, this_obj.clone(), sf.args_slice(), magic as _, None);
+                f(&realm, cc).unwrap_or(JSValue::EXCEPTION)
             }
             NativeFunctionType::IteratorNext(f) => {
                 let cc =
-                    CallContext::new(realm, this_obj.clone(), sf.args_slice(), magic as _, None);
+                    CallContext::new(&realm, this_obj.clone(), sf.args_slice(), magic as _, None);
                 let mut iter_state = IteratorState::NotDone;
-                let mut r = f(realm, cc, &mut iter_state);
+                let mut r = f(&realm, cc, &mut iter_state);
                 if !r.is_err() && iter_state != IteratorState::NotParsed {
                     r = js_create_iterator_result(
-                        realm,
+                        &realm,
                         r.unwrap(),
                         iter_state == IteratorState::Done,
                     );
@@ -264,7 +262,7 @@ impl ObjNativeFunc {
                         }
                     }
                 }
-                unsafe { f(realm, this_obj.clone(), sf.args_slice()) }
+                unsafe { f(&realm, this_obj.clone(), sf.args_slice()) }
             }
             NativeFunctionType::CConstructorMagic(f)
             | NativeFunctionType::CConstructorOrFuncMagic(f)
@@ -283,47 +281,47 @@ impl ObjNativeFunc {
                         }
                     }
                 }
-                unsafe { f(realm, this_obj.clone(), sf.args_slice(), magic as i32) }
+                unsafe { f(&realm, this_obj.clone(), sf.args_slice(), magic as i32) }
             }
-            NativeFunctionType::CGetter(f) => unsafe { f(realm, this_obj.clone()) },
+            NativeFunctionType::CGetter(f) => unsafe { f(&realm, this_obj.clone()) },
             NativeFunctionType::CSetter(f) => unsafe {
-                f(realm, this_obj.clone(), sf.args_slice()[0].clone())
+                f(&realm, this_obj.clone(), sf.args_slice()[0].clone())
             },
             NativeFunctionType::CGetterMagic(f) => unsafe {
-                f(realm, this_obj.clone(), magic as _)
+                f(&realm, this_obj.clone(), magic as _)
             },
             NativeFunctionType::CSetterMagic(f) => unsafe {
                 f(
-                    realm,
+                    &realm,
                     this_obj.clone(),
                     sf.args_slice().first().cloned().unwrap(),
                     magic as _,
                 )
             },
-            NativeFunctionType::CIteratorNext(f) => unsafe {
+            NativeFunctionType::CIteratorNext(f) => {
                 let mut done = 0;
                 let mut r = f(
-                    realm,
+                    &realm,
                     this_obj.clone(),
                     sf.args_slice(),
                     &mut done,
                     magic as _,
                 );
                 if !r.is_exception() && done != 2 {
-                    r = js_create_iterator_result(realm, r, done != 0)
+                    r = js_create_iterator_result(&realm, r, done != 0)
                         .unwrap_or(JSValue::EXCEPTION);
                 }
                 r
-            },
+            }
 
             NativeFunctionType::FF(f) => sf.args_slice()[0]
-                .coerce_to_f64(realm)
+                .coerce_to_f64(&realm)
                 .map(|n| JSValue::from(unsafe { f(n) }))
                 .unwrap_or(JSValue::EXCEPTION),
             NativeFunctionType::FFF(f) => {
                 let args = sf.args_slice();
-                if let Ok(d1) = args[0].coerce_to_f64(realm)
-                    && let Ok(d2) = args[1].coerce_to_f64(realm)
+                if let Ok(d1) = args[0].coerce_to_f64(&realm)
+                    && let Ok(d2) = args[1].coerce_to_f64(&realm)
                 {
                     JSValue::from(unsafe { f(d1, d2) })
                 } else {

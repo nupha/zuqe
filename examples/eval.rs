@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use colorized::*;
+use libc::cc_t;
 use zhuque::{
     atom::JS_FreeAtom,
     context::JSContext,
@@ -126,6 +127,20 @@ fn main() {
                 ctx.create_native_function(printf, "error", 0, 4).unwrap(),
             )
             .unwrap();
+
+        let f = ctx
+            .create_native_function(
+                NativeFunctionType::Func(|cx, _: CallContext| {
+                    let ctx1 = cx.rt_mut().create_context()?;
+                    let global = JSValue::Object(ctx1.global_obj());
+                    Ok(global)
+                }),
+                "createRealm",
+                1,
+                0,
+            )
+            .unwrap();
+        global.set_property_str(&ctx, "createRealm", f).unwrap();
     }
 
     let r = ctx.eval_auto(script.as_bytes(), &filename);
