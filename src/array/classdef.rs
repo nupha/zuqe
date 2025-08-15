@@ -750,7 +750,8 @@ pub fn js_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     }
 
-    ctx.create_string_from_content(content).map(JSValue::String)
+    ctx.create_string_from_stringbuf(content)
+        .map(JSValue::String)
 }
 
 pub fn js_array_toString(ctx: &JSContext, cc: CallContext) -> JSResult {

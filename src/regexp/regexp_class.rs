@@ -39,10 +39,10 @@ pub fn js_regexp_constructor_internal(
 }
 
 pub fn js_regexp_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let pat = cc.arg(0);
-    let pat_is_regexp = js_is_regexp(ctx, pat)?;
-
+    let mut pat = cc.arg(0).clone();
     let mut flags1 = cc.arg(1).clone();
+
+    let pat_is_regexp = js_is_regexp(ctx, &pat)?;
 
     if cc.this().is_undefined() {
         // called as a function
@@ -58,69 +58,58 @@ pub fn js_regexp_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let mut re = if let Some(re) = pat.object().and_then(|o| js_get_regexp(ctx, o, false)) {
         re
     } else {
-        let (pat_val, flags_val) = if pat_is_regexp {
-            (
-                pat.get_property(ctx, JS_ATOM_source)?,
-                if flags1.is_undefined() {
-                    pat.get_property(ctx, JS_ATOM_flags)?
-                } else {
-                    flags1.clone()
-                },
-            )
+        if pat_is_regexp {
+            pat = pat.get_property(ctx, JS_ATOM_source)?;
+            if flags1.is_undefined() {
+                flags1 = pat.get_property(ctx, JS_ATOM_flags)?;
+            }
+        }
+
+        let pattern = if pat.is_undefined() {
+            Rc::new(StringBuf::Empty)
         } else {
-            (pat.clone(), flags1.clone())
+            pat.to_string(ctx)?.content().clone()
         };
 
-        let pattern = if pat_val.is_undefined() {
-            JS_ATOM_empty_string.to_string(ctx).unwrap()
-        } else {
-            pat_val.to_string(ctx)?
-        };
-        flags1 = flags_val;
-
-        let regex = Regex::new(&pattern.content().to_utf8()).map_err(|e| {
+        let regex = Regex::new(&pattern.to_utf8()).map_err(|e| {
             ctx.throw_error(ErrorKind::Syntax, &e.to_string());
             -1
         })?;
 
         JSRegExp {
-            pattern: pattern.content().clone(),
+            regex: Rc::new(regex),
+            pattern,
             flags_str: Rc::new(StringBuf::Empty),
             flags: 0,
-            regex: Rc::new(regex),
         }
     };
 
     if !flags1.is_undefined() {
-        let mut flags = 0u8;
-        let flags_str = flags1.to_string(ctx)?;
-
-        for c in flags_str.content().to_utf8().chars() {
+        // update flags
+        re.flags_str = flags1.to_string(ctx)?.content().clone();
+        for c in re.flags_str.chars_lossy() {
             match c {
                 'g' => {
-                    flags |= LRE_FLAG_GLOBAL as u8;
+                    re.flags |= LRE_FLAG_GLOBAL as u8;
                 }
                 'i' => {
-                    flags |= LRE_FLAG_IGNORECASE as u8;
+                    re.flags |= LRE_FLAG_IGNORECASE as u8;
                 }
                 'm' => {
-                    flags |= LRE_FLAG_MULTILINE as u8;
+                    re.flags |= LRE_FLAG_MULTILINE as u8;
                 }
                 'u' => {
-                    flags |= LRE_FLAG_UTF16 as u8;
+                    re.flags |= LRE_FLAG_UTF16 as u8;
                 }
                 's' => {
-                    flags |= LRE_FLAG_DOTALL as u8;
+                    re.flags |= LRE_FLAG_DOTALL as u8;
                 }
                 'y' => {
-                    flags |= LRE_FLAG_STICKY as u8;
+                    re.flags |= LRE_FLAG_STICKY as u8;
                 }
                 _ => {}
             }
         }
-
-        re.flags = flags;
-        re.flags_str = flags_str.content().clone();
     }
 
     let obj = ctx
@@ -239,7 +228,7 @@ pub fn js_regexp_get_source(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
 
         buf.shrink_to_fit();
-        ctx.create_string_from_content(buf).map(JSValue::String)
+        ctx.create_string_from_stringbuf(buf).map(JSValue::String)
     } else {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
@@ -334,7 +323,7 @@ pub fn js_regexp_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
         })?;
 
         buf.shrink_to_fit();
-        ctx.create_string_from_content(buf).map(JSValue::String)
+        ctx.create_string_from_stringbuf(buf).map(JSValue::String)
     } else {
         ctx.throw_type_error_not_an_object();
         Err(-1)
@@ -443,29 +432,16 @@ pub fn js_regexp_Symbol_matchAll(ctx: &JSContext, cc: CallContext) -> JSResult {
     let str = cc.arg(0).to_string(ctx)?;
 
     //
-    // make regexp object
+    // make matcher: regexp object
     //
-
-    // let re2 = Rc::new(Regex::new(&str.content().to_utf8()).map_err(|e| {
-    //     ctx.throw_error(ErrorKind::Syntax, &e.to_string());
-    //     -1
-    // })?);
-    // let regexp2 = JSRegExp {
-    //     pattern: str.content().clone(),
-    //     flags_str: re.flags_str.clone(),
-    //     flags: re.flags,
-    //     regex: re2,
-    // };
-
     let regexp_ctor = ctx.0.borrow().regexp_ctor.clone();
     let ctor = JS_SpeciesConstructor(ctx, cc.this(), regexp_ctor)?;
     let matcher = JS_CallConstructor(
         ctx,
         &ctor,
         &[
-            str.clone().into(),
-            ctx.create_string_from_content_rc(re.flags_str.clone())?
-                .into(),
+            this.clone().into(),
+            ctx.create_string_from_content(re.flags_str.clone())?.into(),
         ],
     )
     .check_exception()?;
@@ -659,7 +635,7 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
             })?;
     }
 
-    ctx.create_string_from_content(sbuf).map(JSValue::String)
+    ctx.create_string_from_stringbuf(sbuf).map(JSValue::String)
 }
 
 fn js_regexp_Symbol_search(ctx: &JSContext, cc: CallContext) -> JSResult {

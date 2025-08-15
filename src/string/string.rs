@@ -78,7 +78,7 @@ impl JSStringInner {
     /// count string chars (include broken surrogate code).
     #[inline(always)]
     pub fn char_count(&self) -> usize {
-        self.content.char_count()
+        self.content.chars_count()
     }
 
     /// Returns the buffer length
@@ -348,9 +348,9 @@ impl JSString {
                     ctx.throw_out_of_memory();
                     -1
                 })?;
-                ctx.create_string_from_content(sub)
+                ctx.create_string_from_stringbuf(sub)
             } else {
-                ctx.create_string_from_content(StringBuf::Empty)
+                ctx.create_string_from_stringbuf(StringBuf::Empty)
             }
         }
     }
@@ -522,7 +522,7 @@ impl JSString {
                 -1
             })?;
 
-        ctx.create_string_from_content(res_content)
+        ctx.create_string_from_stringbuf(res_content)
     }
 
     pub fn downgrade(&self) -> JSStringWeakref {
@@ -554,17 +554,17 @@ impl JSStringWeakref {
 }
 
 impl JSContext {
-    /// create string value from string content.
-    pub fn create_string_from_content(&self, content: StringBuf) -> Result<JSString, i32> {
-        if content.is_empty() {
+    /// create string value from string buf.
+    pub fn create_string_from_stringbuf(&self, sbuf: StringBuf) -> Result<JSString, i32> {
+        if sbuf.is_empty() {
             JS_ATOM_empty_string.to_string(self)
         } else {
-            Ok(JSString::new(self.rt_mut(), Rc::new(content)))
+            Ok(JSString::new(self.rt_mut(), Rc::new(sbuf)))
         }
     }
 
     /// create string value from string content.
-    pub fn create_string_from_content_rc(&self, content: StringContent) -> Result<JSString, i32> {
+    pub fn create_string_from_content(&self, content: StringContent) -> Result<JSString, i32> {
         if content.is_empty() {
             JS_ATOM_empty_string.to_string(self)
         } else {
@@ -602,8 +602,8 @@ impl JSContext {
 
     /// create string value from a single u16 char.
     /// returns JS_EXCEPTION if fail.
-    pub fn create_string_from_char<C: Into<StringChar>>(&self, ch: C) -> Result<JSString, i32> {
-        let buf = match Into::<StringChar>::into(ch) {
+    pub fn create_string_from_char(&self, ch: StringChar) -> Result<JSString, i32> {
+        let buf = match ch {
             StringChar::Char(ch) => {
                 if ch.is_ascii() {
                     StringBuf::Ascii(vec![ch as u8])
@@ -613,7 +613,7 @@ impl JSContext {
             }
             StringChar::BrokenCode(c) => StringBuf::Utf16(vec![c as u16]),
         };
-        self.create_string_from_content(buf)
+        self.create_string_from_stringbuf(buf)
     }
 }
 
@@ -665,7 +665,7 @@ pub fn JS_ConcatString3(
             -1
         })?;
 
-    ctx.create_string_from_content(res_string)
+    ctx.create_string_from_stringbuf(res_string)
 }
 
 /// op1 and op2 are converted to strings.
@@ -700,7 +700,7 @@ pub fn JS_ConcatString(ctx: &JSContext, op1: JSValue, op2: JSValue) -> Result<JS
                         ctx.throw_out_of_memory();
                         Err(-1)
                     } else {
-                        ctx.create_string_from_content(cc)
+                        ctx.create_string_from_stringbuf(cc)
                     }
                 }
                 Err(cc) => {
@@ -709,7 +709,7 @@ pub fn JS_ConcatString(ctx: &JSContext, op1: JSValue, op2: JSValue) -> Result<JS
                             ctx.throw_out_of_memory();
                             Err(-1)
                         } else {
-                            ctx.create_string_from_content(cc2)
+                            ctx.create_string_from_stringbuf(cc2)
                         }
                     } else {
                         ctx.throw_out_of_memory();
@@ -730,7 +730,7 @@ pub fn JS_ConcatString(ctx: &JSContext, op1: JSValue, op2: JSValue) -> Result<JS
                     ctx.throw_out_of_memory();
                     -1
                 })?;
-            ctx.create_string_from_content(new_sc)
+            ctx.create_string_from_stringbuf(new_sc)
         }
     }
 }

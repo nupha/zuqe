@@ -1,4 +1,4 @@
-use std::{borrow::Cow, cmp::Ordering, collections::TryReserveError, ops::Range, str::FromStr};
+use std::{borrow::Cow, cmp::Ordering, collections::TryReserveError, ops::Range};
 use {
     fallible_collections::{FallibleVec, TryClone, TryCollect},
     widestring::U16Str,
@@ -26,10 +26,9 @@ pub enum StringBuf {
 
 const EMPTY: StringBuf = StringBuf::Empty;
 
-impl FromStr for StringBuf {
-    type Err = i32;
-
-    fn from_str(str: &str) -> Result<Self, Self::Err> {
+impl StringBuf {
+    /// Creates StringBuf from str
+    pub fn from_str(str: &str) -> Result<Self, i32> {
         debug_assert!(str.len() < JS_STRING_LEN_MAX);
 
         if str.is_empty() {
@@ -42,24 +41,14 @@ impl FromStr for StringBuf {
         } else {
             let mut b = Vec::<u16>::new();
             b.try_reserve_exact(str.len()).map_err(|_| -1)?;
-            for el in str.encode_utf16() {
-                b.push(el);
-            }
+            b.extend(str.encode_utf16());
             b.shrink_to_fit();
             Ok(Self::Utf16(b))
         }
     }
-}
 
-impl StringBuf {
     /// Creates StringBuf from UTF-8 encoded bytes
-    ///
-    /// Handles both ASCII and non-ASCII UTF-8 content:
-    /// - ASCII content is stored as-is in UTF-8 format
-    /// - Non-ASCII content is converted to UTF-16 for better Unicode support
     pub fn from_utf8(data: Vec<u8>) -> Result<Self, i32> {
-        debug_assert!(!data.is_empty());
-
         if data.is_empty() {
             Ok(Self::Empty)
         } else if data.is_ascii() {
@@ -67,10 +56,8 @@ impl StringBuf {
         } else {
             let mut u = Vec::<u16>::new();
             u.try_reserve_exact(data.len() / 2).map_err(|_| -1)?;
-
-            let s = unsafe { String::from_utf8_unchecked(data) };
+            let s = unsafe { std::str::from_utf8_unchecked(&data) };
             u.extend(s.encode_utf16());
-
             u.shrink_to_fit();
             Ok(Self::Utf16(u))
         }
@@ -492,7 +479,7 @@ impl StringBuf {
     }
 
     /// count string chars (include broken surrogate code).
-    pub fn char_count(&self) -> usize {
+    pub fn chars_count(&self) -> usize {
         match self {
             Self::Empty | Self::Null => 0,
             Self::Ascii(s) => s.len(),

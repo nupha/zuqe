@@ -34,7 +34,7 @@ fn js_regexp_string_iterator_next(
         let match_val = JS_RegExpExec(
             ctx,
             regexp.clone(),
-            ctx.create_string_from_content_rc(str.clone())?,
+            ctx.create_string_from_content(str.clone())?,
         )?;
 
         if match_val.is_null() {

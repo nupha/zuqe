@@ -43,7 +43,7 @@ impl<'s> JSParseState<'s> {
 
         let module_name = self
             .ctx
-            .create_string_from_content_rc(self.token.data.string().unwrap().clone())
+            .create_string_from_content(self.token.data.string().unwrap().clone())
             .and_then(|s| s.to_atom(&self.ctx))?;
 
         if self.next_token().is_err() {
@@ -66,7 +66,7 @@ impl<'s> JSParseState<'s> {
         if self.token.val == TOK_STRING {
             module_name = self
                 .ctx
-                .create_string_from_content_rc(self.token.data.string().unwrap().clone())
+                .create_string_from_content(self.token.data.string().unwrap().clone())
                 .and_then(|s| s.to_atom(&self.ctx))?;
 
             if self.next_token().is_err() {

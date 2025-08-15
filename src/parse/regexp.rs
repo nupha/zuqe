@@ -89,8 +89,8 @@ impl<'s> JSParseState<'s> {
         // self.throw_syntax_error("RegExp are not supported");
         // return Err(-1);
 
-        let pattern = self.ctx.create_string_from_content(pattern_str)?;
-        let flags = self.ctx.create_string_from_content(flags_str)?;
+        let pattern = self.ctx.create_string_from_stringbuf(pattern_str)?;
+        let flags = self.ctx.create_string_from_stringbuf(flags_str)?;
 
         // ensure regexp syntax
         let _ = Regex::new(&pattern.content().to_utf8()).map_err(|_| {

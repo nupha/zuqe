@@ -80,7 +80,7 @@ pub fn js_string_at(ctx: &JSContext, cc: CallContext) -> JSResult {
             Ok(JSValue::Int(code as i32))
         } else {
             // charAt(), at() returns string
-            ctx.create_string_from_content(if (0..=255).contains(&code) {
+            ctx.create_string_from_stringbuf(if (0..=255).contains(&code) {
                 StringBuf::Ascii(vec![code as u8])
             } else {
                 StringBuf::Utf16(vec![code])
@@ -150,7 +150,7 @@ pub fn js_string_toWellFormed(ctx: &JSContext, cc: CallContext) -> JSResult {
             buf.extend_from_slice(c.encode_utf16(&mut [0; 2]));
         }
         buf.shrink_to_fit();
-        ctx.create_string_from_content(StringBuf::Utf16(buf))
+        ctx.create_string_from_stringbuf(StringBuf::Utf16(buf))
             .map(JSValue::String)
     } else {
         unreachable!()
@@ -335,7 +335,7 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     // create result string
-    ctx.create_string_from_content(res_string)
+    ctx.create_string_from_stringbuf(res_string)
         .map(JSValue::String)
 }
 
@@ -527,7 +527,7 @@ pub fn js_string_pad(ctx: &JSContext, cc: CallContext) -> JSResult {
         })?;
     }
 
-    ctx.create_string_from_content(res_string)
+    ctx.create_string_from_stringbuf(res_string)
         .map(JSValue::String)
 }
 
@@ -559,7 +559,7 @@ pub fn js_string_repeat(ctx: &JSContext, cc: CallContext) -> JSResult {
         .unwrap();
     res_string.shrink_to_fit();
 
-    ctx.create_string_from_content(res_string)
+    ctx.create_string_from_stringbuf(res_string)
         .map(JSValue::String)
 }
 
@@ -707,17 +707,19 @@ pub fn js_string_match(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let str = this.to_string_non_undefined_or_null(ctx)?;
 
-    // make RegExp args
+    // make RegExp object
     let mut args_len = 1;
     let mut args = [pattern.clone(), JSValue::UNDEFINED];
     if magic_method == JS_ATOM_Symbol_matchAll {
-        args[args_len as usize] = ctx.create_string_from_char('g')?.into();
+        args[args_len as usize] = ctx.create_string_from_char('g'.into())?.into();
         args_len += 1;
     }
-    let regexp_ctor = ctx.0.borrow().regexp_ctor.clone(); // avoid borrow for long
 
-    let re = JS_CallConstructor(ctx, &regexp_ctor, &args[0..args_len]).check_exception()?;
-    re.invoke(ctx, magic_method, &[str.into()])
+    let re_obj = {
+        let ctor = ctx.0.borrow().regexp_ctor.clone(); // avoid borrow for long
+        JS_CallConstructor(ctx, &ctor, &args[0..args_len]).check_exception()?
+    };
+    re_obj.invoke(ctx, magic_method, &[str.into()])
 }
 
 /// 该函数是 JavaScript 正则替换功能的核心实现，处理了替换字符串中的所有特殊模式，确保符合 ECMAScript 规范要求。
@@ -761,7 +763,7 @@ pub fn js_string_trim(ctx: &JSContext, cc: CallContext) -> JSResult {
         -1
     })?;
     s.trim(cc.magic() & 1 != 0, cc.magic() & 2 != 0);
-    ctx.create_string_from_content(s).map(JSValue::String)
+    ctx.create_string_from_stringbuf(s).map(JSValue::String)
 }
 
 pub fn string_cmp(p1: &JSString, p2: &JSString, x1: usize, x2: usize, len: usize) -> i32 {
@@ -898,7 +900,7 @@ pub fn js_string_toLowerCase(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     };
 
-    ctx.create_string_from_content(sc).map(JSValue::String)
+    ctx.create_string_from_stringbuf(sc).map(JSValue::String)
 }
 
 pub const js_string_proto_funcs: [NativeField; 38] = [
@@ -984,9 +986,9 @@ pub fn js_string_iterator_next(
             it.idx += cursor as u32;
             *state = IteratorState::NotDone;
             match c {
-                StringChar::Char(c) => ctx.create_string_from_char(c),
+                StringChar::Char(_) => ctx.create_string_from_char(c),
                 StringChar::BrokenCode(c) => {
-                    ctx.create_string_from_content(if (0..=255).contains(&c) {
+                    ctx.create_string_from_stringbuf(if (0..=255).contains(&c) {
                         StringBuf::Ascii(vec![c as u8])
                     } else {
                         StringBuf::Utf16(vec![c as u16])
@@ -999,18 +1001,6 @@ pub fn js_string_iterator_next(
             *state = IteratorState::Done;
             Ok(JSValue::UNDEFINED)
         }
-
-        // old logic
-        // if idx >= ss.len() as u32 {
-        //     it_state.obj = JSValue::UNDEFINED;
-        //     *state = IteratorState::Done;
-        //     Ok(JSValue::UNDEFINED)
-        // } else {
-        //     let c = ss.content().chars().nth(idx as usize).unwrap();
-        //     it_state.idx = idx + 1;
-        //     *state = IteratorState::NotDone;
-        //     ctx.create_string_from_char(c).map(JSValue::String)
-        // }
     } else {
         Err(-1)
     }
@@ -1036,7 +1026,7 @@ pub fn js_string_fromCharCode(ctx: &JSContext, cc: CallContext) -> JSResult {
         })?;
     }
 
-    ctx.create_string_from_content(res_string)
+    ctx.create_string_from_stringbuf(res_string)
         .map(JSValue::String)
 }
 
@@ -1083,7 +1073,7 @@ pub fn js_string_fromCodePoint(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     res_string.shrink_to_fit();
-    ctx.create_string_from_content(res_string)
+    ctx.create_string_from_stringbuf(res_string)
         .map(JSValue::String)
 }
 
@@ -1112,7 +1102,7 @@ pub fn js_string_raw(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     }
 
-    ctx.create_string_from_content(res_string)
+    ctx.create_string_from_stringbuf(res_string)
         .map(JSValue::String)
 }
 

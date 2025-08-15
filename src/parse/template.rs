@@ -121,7 +121,7 @@ impl<'s> JSParseState<'s> {
             if call {
                 let txt = self
                     .ctx
-                    .create_string_from_content_rc(self.token.data.string().unwrap().clone())?;
+                    .create_string_from_content(self.token.data.string().unwrap().clone())?;
 
                 raw_array.define_property_value_u32(
                     &self.ctx,
@@ -146,7 +146,7 @@ impl<'s> JSParseState<'s> {
 
                 let txt = self
                     .ctx
-                    .create_string_from_content_rc(cooked.data.string().unwrap().clone())?;
+                    .create_string_from_content(cooked.data.string().unwrap().clone())?;
 
                 template_object.define_property_value_u32(
                     &self.ctx,
@@ -167,7 +167,7 @@ impl<'s> JSParseState<'s> {
                 let str = cooked.data.string().unwrap();
                 if depth == 0 || !str.is_empty() {
                     self.emit_push_const(
-                        self.ctx.create_string_from_content_rc(str.clone())?.into(),
+                        self.ctx.create_string_from_content(str.clone())?.into(),
                         true,
                     )?;
 

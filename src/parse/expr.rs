@@ -245,7 +245,7 @@ impl<'s> JSParseState<'s> {
             TOK_STRING => {
                 self.emit_push_const(
                     self.ctx
-                        .create_string_from_content_rc(self.token.data.string().unwrap().clone())?
+                        .create_string_from_content(self.token.data.string().unwrap().clone())?
                         .into(),
                     true,
                 )?;

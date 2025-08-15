@@ -232,7 +232,7 @@ impl<'s> JSParseState<'s> {
                 TOK_STRING => {
                     name.replace(
                         self.ctx
-                            .create_string_from_content_rc(
+                            .create_string_from_content(
                                 self.token.data.string().unwrap().clone(),
                             )
                             .and_then(|s| s.to_atom(&self.ctx))?
