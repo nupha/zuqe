@@ -30,7 +30,7 @@ impl<'s> JSParseState<'s> {
             cursor = i;
 
             match c {
-                '\n' | 'r' => {
+                '\n' | '\r' => {
                     self.throw_syntax_error("unexpected end of regexp");
                     return Err(-1);
                 }
