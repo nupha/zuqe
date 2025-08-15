@@ -169,7 +169,7 @@ pub fn js_build_rest(ctx: &JSContext, first: usize, args: &[JSValue]) -> JSValue
 // XXX: should use ValueArray
 pub fn build_arg_list(ctx: &JSContext, array_arg: &JSValue) -> Result<Box<[JSValue]>, i32> {
     if !array_arg.is_object() {
-        ctx.throw_type_error("not an object");
+        ctx.throw_type_error_not_an_object();
         return Err(-1);
     }
 

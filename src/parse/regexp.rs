@@ -1,7 +1,6 @@
 use regex::Regex;
 
 use crate::{
-    error::JS_BACKTRACE_FLAG_SINGLE_LEVEL,
     parse::token::{TOK_REGEXP, TokenData},
     string::StringBuf,
 };
@@ -92,23 +91,9 @@ impl<'s> JSParseState<'s> {
         let pattern = self.ctx.create_string_from_stringbuf(pattern_str)?;
         let flags = self.ctx.create_string_from_stringbuf(flags_str)?;
 
-        // ensure regexp syntax
-        let _ = Regex::new(&pattern.content().to_utf8()).map_err(|_| {
-            // add the line number info
-            let backtrace_flags =
-                if !self.cur_func_def.is_null() && self.cur_func().backtrace_barrier {
-                    JS_BACKTRACE_FLAG_SINGLE_LEVEL
-                } else {
-                    0
-                };
-
-            let exc = self.ctx.exception();
-            self.ctx.build_backtrace_to(
-                &exc,
-                Some((self.filename, self.token.line_num)),
-                backtrace_flags,
-            );
-
+        // pre-check regexp syntax
+        let _ = Regex::new(&pattern.content().to_utf8()).map_err(|e| {
+            self.throw_syntax_error(&e.to_string());
             -1
         })?;
 

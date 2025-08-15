@@ -372,10 +372,10 @@ impl JSValue {
             if let Self::Object(o) = self {
                 o.copy_properties_from(ctx, src_obj, excluded.object(), setprop)
             } else {
-                if let JSValue::Object(p) = unsafe { JS_GetPrototypePrimitive(ctx, self) } {
+                if let JSValue::Object(p) = JS_GetPrototypePrimitive(ctx, self) {
                     p.copy_properties_from(ctx, src_obj, excluded.object(), setprop)
                 } else {
-                    ctx.throw_type_error("not an object");
+                    ctx.throw_type_error_not_an_object();
                     Err(-1)
                 }
             }

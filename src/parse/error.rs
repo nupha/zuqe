@@ -6,9 +6,9 @@ use crate::{
 use super::state::JSParseState;
 
 impl JSParseState<'_> {
-    /// given an `exc_obj` object, build traceback and throw it as current exception.
+    /// given an exception value, build traceback and throw it as current exception.
     /// old exception will be freed.
-    pub fn throw(&self, exc_obj: JSValue) {
+    pub fn throw(&self, exc: JSValue) {
         let backtrace_flags = if !self.cur_func_def.is_null() && self.cur_func().backtrace_barrier {
             JS_BACKTRACE_FLAG_SINGLE_LEVEL
         } else {
@@ -21,7 +21,7 @@ impl JSParseState<'_> {
             backtrace_flags,
         );
 
-        self.ctx.throw(exc_obj);
+        self.ctx.throw(exc);
     }
 
     pub fn throw_syntax_error(&self, message: &str) {
