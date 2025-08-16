@@ -175,21 +175,25 @@ impl JSRegExp {
                     };
                     arr.define_property_value_str(ctx, "groups", groups, prop_flags)?;
 
-                    // Note: convert utf8 range index to string buf index
+                    // Note: convert utf8 start index to string buf index
                     let start_index = if range.start == 0 {
                         range.start
                     } else if let Some(it) = chars_iter.as_mut() {
-                        let nc = utf8_text[..range.start].chars().count();
-                        let (i, _) = it.nth(nc).unwrap();
+                        let nc = utf8_text[0..range.start].chars().count();
+                        debug_assert!(nc > 0);
+                        let (i, _) = it.nth(nc - 1).unwrap();
                         i
                     } else {
                         range.start
                     } + from;
 
-                    let last_index = if range.end == utf8_text.len() {
+                    let last_index = if range.start == range.end {
+                        start_index
+                    } else if range.end == utf8_text.len() {
                         text.buf_len()
                     } else if let Some(it) = chars_iter.as_mut() {
                         let nc = matched.chars_count();
+                        debug_assert!(nc > 0);
                         let (i, _) = it.nth(nc - 1).unwrap();
                         i
                     } else {
@@ -204,11 +208,13 @@ impl JSRegExp {
                     )?;
 
                     arr.define_property_value_str(ctx, "input", text.clone().into(), prop_flags)?;
+
                     Some((arr, last_index))
                 } else {
                     None
                 }
             }
+
             (RegExpExecMode::Match, true) => {
                 // global match returns array match #0
                 let mut arr: Option<JSValue> = None;
