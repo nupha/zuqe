@@ -620,8 +620,8 @@ impl Bytecode {
         var_refs: &[JSVarRef],
         parent_frame: Option<&mut StackFrame>,
     ) -> JSResult {
-        let bc_func = self.make_closure(ctx, var_refs, parent_frame)?;
-        JS_Call(ctx, &bc_func, &this_obj, &[]).error()
+        self.make_closure(ctx, var_refs, parent_frame)?
+            .call(ctx, &this_obj, &[])
     }
 
     pub fn gc_set_mark(&self, b: bool) {

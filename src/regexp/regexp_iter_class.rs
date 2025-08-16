@@ -34,7 +34,7 @@ fn js_regexp_string_iterator_next(
         let match_val = JS_RegExpExec(
             ctx,
             regexp.clone(),
-            ctx.create_string_from_content(str.clone())?,
+            ctx.create_string_with_content(str.clone())?,
         )?;
 
         if match_val.is_null() {
@@ -44,9 +44,10 @@ fn js_regexp_string_iterator_next(
         }
 
         if it.global {
-            if let JSValue::String(s) = match_val.get_property_u32(ctx, 0)?
-                && s.is_empty()
+            if let JSValue::String(str) = match_val.get_property_u32(ctx, 0)?
+                && str.is_empty()
             {
+                // matched is empty
                 let last_index = regexp
                     .get_property(ctx, JS_ATOM_lastIndex)
                     .and_then(|v| v.coerce_to_u32(ctx))
@@ -54,12 +55,12 @@ fn js_regexp_string_iterator_next(
                         *state = IteratorState::NotDone;
                     })? as usize;
 
-                let next_index = if it.unicode && last_index < s.buf_len() && s.is_wide() {
-                    let (i, _) = s.content().iter_since(last_index).next().unwrap();
-                    last_index + i
-                } else {
-                    last_index + 1
-                };
+                // advance index to next char
+                let next_index = it
+                    .iterated_string
+                    .index_of_next(last_index, it.unicode)
+                    .unwrap_or(last_index + 1);
+
                 regexp
                     .set_property(ctx, JS_ATOM_lastIndex, JSValue::from(next_index as u32))
                     .inspect_err(|_| {

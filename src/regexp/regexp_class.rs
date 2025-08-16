@@ -98,7 +98,7 @@ pub fn js_regexp_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
                 'm' => {
                     re.flags |= LRE_FLAG_MULTILINE as u8;
                 }
-                'u' => {
+                'u' | 'v' => {
                     re.flags |= LRE_FLAG_UTF16 as u8;
                 }
                 's' => {
@@ -228,7 +228,7 @@ pub fn js_regexp_get_source(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
 
         buf.shrink_to_fit();
-        ctx.create_string_from_stringbuf(buf).map(JSValue::String)
+        ctx.create_string_with_buf(buf).map(JSValue::String)
     } else {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
@@ -323,7 +323,7 @@ pub fn js_regexp_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
         })?;
 
         buf.shrink_to_fit();
-        ctx.create_string_from_stringbuf(buf).map(JSValue::String)
+        ctx.create_string_with_buf(buf).map(JSValue::String)
     } else {
         ctx.throw_type_error_not_an_object();
         Err(-1)
@@ -392,9 +392,7 @@ pub fn js_regexp_exec(ctx: &JSContext, cc: CallContext) -> JSResult {
         )?
         .unwrap_or_else(|| (JSValue::NULL, 0));
 
-    if re.flags & (LRE_FLAG_GLOBAL | LRE_FLAG_STICKY) as u8 != 0 {
-        this.set_property(ctx, JS_ATOM_lastIndex, JSValue::Int(last_index as _))?;
-    }
+    this.set_property(ctx, JS_ATOM_lastIndex, JSValue::from(last_index as u32))?;
 
     Ok(ret)
 }
@@ -409,15 +407,67 @@ pub fn js_regexp_Symbol_match(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Err(-1);
     };
 
-    let re = js_get_regexp(ctx, this, true).ok_or(-1)?;
     let str = cc.arg(0).to_string(ctx)?;
 
-    let (ret, last_index) = re
-        .exec(ctx, &str, 0, RegExpExecMode::Match)?
-        .unwrap_or_else(|| (JSValue::NULL, 0));
+    let re = js_get_regexp(ctx, this, true).ok_or(-1)?;
+    let exec = this.get_property(ctx, JS_ATOM_exec)?;
 
-    this.set_property(ctx, JS_ATOM_lastIndex, JSValue::Int(last_index as _))?;
-    Ok(ret)
+    if !exec.is_callable()
+        || exec.match_native_callback(NativeFunctionType::Func(js_regexp_exec), 0)
+    {
+        // fast path: use native regex find_iter()
+        let (ret, last_index) = re
+            .exec(ctx, &str, 0, RegExpExecMode::Match)?
+            .unwrap_or_else(|| (JSValue::NULL, 0));
+        this.set_property(ctx, JS_ATOM_lastIndex, JSValue::Int(last_index as _))?;
+        Ok(ret)
+    } else {
+        // slow path: use customized exec method, and collect matched string to array
+        let arr = ctx.create_array()?;
+        let args = [str.clone().into()];
+
+        let mut cnt = 0;
+        let prop_flags = JS_PROP_C_W_E | JS_PROP_THROW;
+
+        loop {
+            match exec.call(ctx, &cc.this(), &args)? {
+                JSValue::Object(o) => {
+                    let last_index = this
+                        .get_property(ctx, JS_ATOM_lastIndex)?
+                        .coerce_to_u32(ctx)? as usize;
+
+                    let matched = o.get_property_u32(ctx, 0)?.to_string(ctx)?;
+                    if matched.is_empty() {
+                        // matched is empty: advance index manually
+                        let unicode = re.flags & (LRE_FLAG_UTF16 as u8) != 0;
+                        let next_index = str
+                            .content()
+                            .index_of_next(last_index, unicode)
+                            .unwrap_or(last_index + 1);
+
+                        this.set_property(
+                            ctx,
+                            JS_ATOM_lastIndex,
+                            JSValue::from(next_index as u32),
+                        )?;
+                    }
+
+                    arr.define_property_value_u32(ctx, cnt, matched.into(), prop_flags)?;
+                    cnt += 1;
+                }
+                JSValue::NULL => {
+                    this.set_property(ctx, JS_ATOM_lastIndex, JSValue::Int(0))?;
+                    break;
+                }
+                _ => {
+                    ctx.throw_type_error("RegExp exec method must return an object or null");
+                    return Err(-1);
+                }
+            }
+        }
+
+        Ok(arr)
+    }
 }
 
 pub fn js_regexp_Symbol_matchAll(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -441,7 +491,7 @@ pub fn js_regexp_Symbol_matchAll(ctx: &JSContext, cc: CallContext) -> JSResult {
         &ctor,
         &[
             this.clone().into(),
-            ctx.create_string_from_content(re.flags_str.clone())?.into(),
+            ctx.create_string_with_content(re.flags_str.clone())?.into(),
         ],
     )
     .error()?;
@@ -557,20 +607,6 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
             };
 
             if let Some(rep_str) = rp.as_ref() {
-                // let t = str
-                //     .content()
-                //     .substitution2(
-                //         pos,
-                //         m.as_str(),
-                //         rep_str,
-                //         |n| caps.get(n).map(|m| m.as_str().into()),
-                //         |name| caps.name(name).map(|m| m.as_str().into()),
-                //     )
-                //     .map_err(|_| {
-                //         ctx.throw_out_of_memory();
-                //         -1
-                //     })?;
-
                 let t = StringBuf::substitution(
                     m.as_str(),
                     str.content(),
@@ -614,7 +650,7 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
                     obj.define_property_value_str(ctx, name, val.into(), prop_flags)?;
                 }
 
-                let r = JS_Call(ctx, &rep, &rep, &[obj]).error()?.to_string(ctx)?;
+                let r = rep.call(ctx, &rep, &[obj])?.to_string(ctx)?;
 
                 sbuf.push(&r.content()).map_err(|_| {
                     ctx.throw_out_of_memory();
@@ -633,7 +669,7 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
             })?;
     }
 
-    ctx.create_string_from_stringbuf(sbuf).map(JSValue::String)
+    ctx.create_string_with_buf(sbuf).map(JSValue::String)
 }
 
 fn js_regexp_Symbol_search(ctx: &JSContext, cc: CallContext) -> JSResult {

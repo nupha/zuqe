@@ -348,9 +348,9 @@ impl JSString {
                     ctx.throw_out_of_memory();
                     -1
                 })?;
-                ctx.create_string_from_stringbuf(sub)
+                ctx.create_string_with_buf(sub)
             } else {
-                ctx.create_string_from_stringbuf(StringBuf::Empty)
+                ctx.create_string_with_buf(StringBuf::Empty)
             }
         }
     }
@@ -522,7 +522,7 @@ impl JSString {
                 -1
             })?;
 
-        ctx.create_string_from_stringbuf(res_content)
+        ctx.create_string_with_buf(res_content)
     }
 
     pub fn downgrade(&self) -> JSStringWeakref {
@@ -555,7 +555,7 @@ impl JSStringWeakref {
 
 impl JSContext {
     /// create string value from string buf.
-    pub fn create_string_from_stringbuf(&self, sbuf: StringBuf) -> Result<JSString, i32> {
+    pub fn create_string_with_buf(&self, sbuf: StringBuf) -> Result<JSString, i32> {
         if sbuf.is_empty() {
             JS_ATOM_empty_string.to_string(self)
         } else {
@@ -564,7 +564,7 @@ impl JSContext {
     }
 
     /// create string value from string content.
-    pub fn create_string_from_content(&self, content: StringContent) -> Result<JSString, i32> {
+    pub fn create_string_with_content(&self, content: StringContent) -> Result<JSString, i32> {
         if content.is_empty() {
             JS_ATOM_empty_string.to_string(self)
         } else {
@@ -613,7 +613,7 @@ impl JSContext {
             }
             StringChar::BrokenCode(c) => StringBuf::Utf16(vec![c as u16]),
         };
-        self.create_string_from_stringbuf(buf)
+        self.create_string_with_buf(buf)
     }
 }
 
@@ -665,7 +665,7 @@ pub fn JS_ConcatString3(
             -1
         })?;
 
-    ctx.create_string_from_stringbuf(res_string)
+    ctx.create_string_with_buf(res_string)
 }
 
 /// op1 and op2 are converted to strings.
@@ -700,7 +700,7 @@ pub fn JS_ConcatString(ctx: &JSContext, op1: JSValue, op2: JSValue) -> Result<JS
                         ctx.throw_out_of_memory();
                         Err(-1)
                     } else {
-                        ctx.create_string_from_stringbuf(cc)
+                        ctx.create_string_with_buf(cc)
                     }
                 }
                 Err(cc) => {
@@ -709,7 +709,7 @@ pub fn JS_ConcatString(ctx: &JSContext, op1: JSValue, op2: JSValue) -> Result<JS
                             ctx.throw_out_of_memory();
                             Err(-1)
                         } else {
-                            ctx.create_string_from_stringbuf(cc2)
+                            ctx.create_string_with_buf(cc2)
                         }
                     } else {
                         ctx.throw_out_of_memory();
@@ -730,7 +730,7 @@ pub fn JS_ConcatString(ctx: &JSContext, op1: JSValue, op2: JSValue) -> Result<JS
                     ctx.throw_out_of_memory();
                     -1
                 })?;
-            ctx.create_string_from_stringbuf(new_sc)
+            ctx.create_string_with_buf(new_sc)
         }
     }
 }

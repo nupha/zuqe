@@ -81,7 +81,7 @@ pub fn js_string_at(ctx: &JSContext, cc: CallContext) -> JSResult {
             Ok(JSValue::Int(code as i32))
         } else {
             // charAt(), at() returns string
-            ctx.create_string_from_stringbuf(if (0..=255).contains(&code) {
+            ctx.create_string_with_buf(if (0..=255).contains(&code) {
                 StringBuf::Ascii(vec![code as u8])
             } else {
                 StringBuf::Utf16(vec![code])
@@ -151,7 +151,7 @@ pub fn js_string_toWellFormed(ctx: &JSContext, cc: CallContext) -> JSResult {
             buf.extend_from_slice(c.encode_utf16(&mut [0; 2]));
         }
         buf.shrink_to_fit();
-        ctx.create_string_from_stringbuf(StringBuf::Utf16(buf))
+        ctx.create_string_with_buf(StringBuf::Utf16(buf))
             .map(JSValue::String)
     } else {
         unreachable!()
@@ -336,8 +336,7 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     // create result string
-    ctx.create_string_from_stringbuf(res_string)
-        .map(JSValue::String)
+    ctx.create_string_with_buf(res_string).map(JSValue::String)
 }
 
 pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -527,8 +526,7 @@ pub fn js_string_pad(ctx: &JSContext, cc: CallContext) -> JSResult {
         })?;
     }
 
-    ctx.create_string_from_stringbuf(res_string)
-        .map(JSValue::String)
+    ctx.create_string_with_buf(res_string).map(JSValue::String)
 }
 
 pub fn js_string_repeat(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -559,8 +557,7 @@ pub fn js_string_repeat(ctx: &JSContext, cc: CallContext) -> JSResult {
         .unwrap();
     res_string.shrink_to_fit();
 
-    ctx.create_string_from_stringbuf(res_string)
-        .map(JSValue::String)
+    ctx.create_string_with_buf(res_string).map(JSValue::String)
 }
 
 pub fn js_string_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -763,7 +760,7 @@ pub fn js_string_trim(ctx: &JSContext, cc: CallContext) -> JSResult {
         -1
     })?;
     s.trim(cc.magic() & 1 != 0, cc.magic() & 2 != 0);
-    ctx.create_string_from_stringbuf(s).map(JSValue::String)
+    ctx.create_string_with_buf(s).map(JSValue::String)
 }
 
 pub fn string_cmp(p1: &JSString, p2: &JSString, x1: usize, x2: usize, len: usize) -> i32 {
@@ -900,7 +897,7 @@ pub fn js_string_toLowerCase(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     };
 
-    ctx.create_string_from_stringbuf(sc).map(JSValue::String)
+    ctx.create_string_with_buf(sc).map(JSValue::String)
 }
 
 pub const js_string_proto_funcs: [NativeField; 38] = [
@@ -988,7 +985,7 @@ pub fn js_string_iterator_next(
             match c {
                 StringChar::Char(_) => ctx.create_string_from_char(c),
                 StringChar::BrokenCode(c) => {
-                    ctx.create_string_from_stringbuf(if (0..=255).contains(&c) {
+                    ctx.create_string_with_buf(if (0..=255).contains(&c) {
                         StringBuf::Ascii(vec![c as u8])
                     } else {
                         StringBuf::Utf16(vec![c as u16])
@@ -1026,8 +1023,7 @@ pub fn js_string_fromCharCode(ctx: &JSContext, cc: CallContext) -> JSResult {
         })?;
     }
 
-    ctx.create_string_from_stringbuf(res_string)
-        .map(JSValue::String)
+    ctx.create_string_with_buf(res_string).map(JSValue::String)
 }
 
 pub fn js_string_fromCodePoint(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -1073,8 +1069,7 @@ pub fn js_string_fromCodePoint(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     res_string.shrink_to_fit();
-    ctx.create_string_from_stringbuf(res_string)
-        .map(JSValue::String)
+    ctx.create_string_with_buf(res_string).map(JSValue::String)
 }
 
 pub fn js_string_raw(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -1102,8 +1097,7 @@ pub fn js_string_raw(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     }
 
-    ctx.create_string_from_stringbuf(res_string)
-        .map(JSValue::String)
+    ctx.create_string_with_buf(res_string).map(JSValue::String)
 }
 
 pub const js_string_funcs: [NativeField; 3] = [

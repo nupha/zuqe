@@ -275,7 +275,7 @@ impl JSValue {
                 } else if let Some(idx) = prop.to_int() {
                     // get code at index
                     if let Some(code) = s.content().get(idx as usize) {
-                        ctx.create_string_from_stringbuf(if (0..=255).contains(&code) {
+                        ctx.create_string_with_buf(if (0..=255).contains(&code) {
                             StringBuf::Ascii(vec![code as u8])
                         } else {
                             StringBuf::Utf16(vec![code])

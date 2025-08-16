@@ -899,7 +899,7 @@ pub fn js_typed_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     }
 
-    ctx.create_string_from_stringbuf(txt).map(JSValue::String)
+    ctx.create_string_with_buf(txt).map(JSValue::String)
 }
 
 pub fn js_typed_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {

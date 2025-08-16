@@ -64,7 +64,7 @@ impl JSRegExp {
                 'm' => {
                     flags |= LRE_FLAG_MULTILINE as u8;
                 }
-                'u' => {
+                'u' | 'v' => {
                     flags |= LRE_FLAG_UTF16 as u8;
                 }
                 's' => {
@@ -148,7 +148,7 @@ impl JSRegExp {
                                         utf8_text[range.clone()].chars().count()
                                     );
                                 }
-                                ctx.create_string_from_content(s)?.into()
+                                ctx.create_string_with_content(s)?.into()
                             } else {
                                 JSValue::UNDEFINED
                             },
@@ -188,7 +188,7 @@ impl JSRegExp {
                     } + from;
 
                     let last_index = if range.start == range.end {
-                        start_index
+                        range.start
                     } else if range.end == utf8_text.len() {
                         text.buf_len()
                     } else if let Some(it) = chars_iter.as_mut() {

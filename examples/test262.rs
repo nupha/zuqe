@@ -75,7 +75,7 @@ fn js_string_codePointRange(ctx: &JSContext, cc: CallContext) -> JSResult {
         })?;
     }
 
-    ctx.create_string_from_stringbuf(cc).map(JSValue::String)
+    ctx.create_string_with_buf(cc).map(JSValue::String)
 }
 
 fn js_createRealm(ctx: &JSContext, _: CallContext) -> JSResult {
