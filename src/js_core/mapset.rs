@@ -58,7 +58,7 @@ pub fn js_map_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
             let item = item?;
 
             if is_set {
-                JS_Call(ctx, &adder, &obj, &[item]).check_exception()?;
+                JS_Call(ctx, &adder, &obj, &[item]).error()?;
             } else {
                 if !item.is_object() {
                     ctx.throw_type_error_not_an_object();
@@ -66,7 +66,7 @@ pub fn js_map_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
                 }
                 let key = item.get_property_u32(ctx, 0)?;
                 let value = item.get_property_u32(ctx, 1)?;
-                JS_Call(ctx, &adder, &obj, &[key, value]).check_exception()?;
+                JS_Call(ctx, &adder, &obj, &[key, value]).error()?;
             }
         }
     }

@@ -184,7 +184,7 @@ impl JSObject {
                             return Ok(true);
                         } else {
                             /* slow path with to handle all numeric indexes */
-                            let num = JS_AtomIsNumericIndex1(ctx, prop).check_exception()?;
+                            let num = JS_AtomIsNumericIndex1(ctx, prop).error()?;
                             if num.is_undefined() {
                                 break; // goto typed_array_done
                             }

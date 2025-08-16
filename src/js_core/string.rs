@@ -49,12 +49,7 @@ pub fn js_string_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     if !new_target.is_undefined() {
         // make String object using `new_target` as prototype.
-        let len = str_val.buf_len();
-        let o = ctx
-            .create_object_apply_ctor(new_target, ObjectDetail::STRING(str_val))
-            .map_err(|_| -1)?;
-        o.define_property_value(ctx, JS_ATOM_length, len as u32, 0)?;
-        Ok(o.into())
+        str_val.to_object(ctx, new_target).map(JSValue::Object)
     } else {
         Ok(str_val.into())
     }
@@ -241,7 +236,7 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
         let replacer = search.get_property(ctx, JS_ATOM_Symbol_replace)?;
 
         if !replacer.is_undefined_or_null() {
-            return JS_Call(ctx, &replacer, search, &[this, replace.clone()]).check_exception();
+            return JS_Call(ctx, &replacer, search, &[this, replace.clone()]).error();
         }
     }
 
@@ -287,7 +282,7 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
                             str.clone().into(),
                         ],
                     )
-                    .check_exception()
+                    .error()
                     .and_then(|v| v.to_string(ctx))
                 } else {
                     JSString::get_substitution(
@@ -363,8 +358,7 @@ pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
     if !separator.is_undefined_or_null() {
         let splitter = separator.get_property(ctx, JS_ATOM_Symbol_split)?;
         if !splitter.is_undefined_or_null() {
-            return JS_Call(ctx, &splitter, &separator, &[this.clone(), limit.clone()])
-                .check_exception();
+            return JS_Call(ctx, &splitter, &separator, &[this.clone(), limit.clone()]).error();
         }
     }
 
@@ -707,7 +701,7 @@ pub fn js_string_match(ctx: &JSContext, cc: CallContext) -> JSResult {
             }
         }
         if !matcher.is_undefined_or_null() {
-            return JS_Call(ctx, &matcher, pattern, std::slice::from_ref(this)).check_exception();
+            return JS_Call(ctx, &matcher, pattern, std::slice::from_ref(this)).error();
         }
     }
 
@@ -723,7 +717,7 @@ pub fn js_string_match(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let re_obj = {
         let ctor = ctx.0.borrow().regexp_ctor.clone(); // avoid borrow for long
-        JS_CallConstructor(ctx, &ctor, &args[0..args_len]).check_exception()?
+        JS_CallConstructor(ctx, &ctor, &args[0..args_len]).error()?
     };
     re_obj.invoke(ctx, magic_method, &[str.into()])
 }

@@ -46,7 +46,7 @@ pub fn js_reflect_construct(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     let args = build_arg_list(ctx, array_arg)?;
-    JS_CallConstructor2(ctx, func, new_target.clone(), &args).check_exception()
+    JS_CallConstructor2(ctx, func, new_target.clone(), &args).error()
 }
 
 pub fn js_reflect_deleteProperty(ctx: &JSContext, cc: CallContext) -> JSResult {

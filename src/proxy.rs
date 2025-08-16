@@ -78,7 +78,7 @@ pub fn js_proxy_isExtensible(ctx: &JSContext, obj: &JSValue) -> Result<bool, i32
     }
 
     let b = JS_Call(ctx, &method, &s.handler, std::slice::from_ref(&s.target))
-        .check_exception()?
+        .error()?
         .coerce_to_bool(ctx)?;
 
     if b != s.target.is_extensible(ctx)? {
@@ -96,7 +96,7 @@ pub fn js_proxy_preventExtensions(ctx: &JSContext, obj: &JSValue) -> Result<bool
     }
 
     let ret =
-        JS_Call(ctx, &method, &s.handler, std::slice::from_ref(&s.target)).check_exception()?;
+        JS_Call(ctx, &method, &s.handler, std::slice::from_ref(&s.target)).error()?;
 
     let res = ret.coerce_to_bool(ctx)?;
     if res && s.target.is_extensible(ctx)? {
@@ -166,7 +166,7 @@ pub unsafe fn js_proxy_setPrototypeOf(
         &s.handler,
         &[s.target.clone(), proto_val.clone()],
     )
-    .check_exception()?;
+    .error()?;
 
     match ret.coerce_to_bool(ctx) {
         Ok(false) => {

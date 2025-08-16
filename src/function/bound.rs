@@ -78,7 +78,7 @@ impl BoundFunction {
             } else {
                 JS_Call(ctx, &bf.func_obj, &bf.this_val, arg_list.as_slice())
             }
-            .check_exception()
+            .error()
         } else {
             unreachable!()
         }

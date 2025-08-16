@@ -12,10 +12,9 @@ use crate::{
         special_includes, special_indexOf, special_lastIndexOf, special_map, special_reduce,
         special_reduceRight, special_some,
     },
-    atom::consts::{JS_ATOM_Symbol_iterator, JS_ATOM_next},
+    atom::consts::JS_ATOM_Symbol_iterator,
     class::JSClassID,
     context::JSContext,
-    defer,
     error::{JS_ThrowRangeError, JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, JS_Call, JS_CallConstructor, NativeField},
     iterator::{JSIteratorKindEnum, js_create_array_iterator},
@@ -174,7 +173,7 @@ pub fn js_typed_array_constructor_ta(
 }
 
 pub fn js_typed_array_create(ctx: &JSContext, ctor: &JSValue, args: &[JSValue]) -> JSResult {
-    let ret = JS_CallConstructor(ctx, ctor, args).check_exception()?;
+    let ret = JS_CallConstructor(ctx, ctor, args).error()?;
 
     // validate the typed array
     let new_len = unsafe { js_typed_array_get_length_internal(ctx, &ret)? };
@@ -233,7 +232,7 @@ pub fn js_typed_array_from(ctx: &JSContext, args: CallContext) -> JSResult {
     for i in 0..len {
         let mut el = arr.get_property_i64(ctx, i)?;
         if mapping {
-            el = JS_Call(ctx, mapfn, &this_arg, &[el, JSValue::Int(i as i32)]).check_exception()?;
+            el = JS_Call(ctx, mapfn, &this_arg, &[el, JSValue::Int(i as i32)]).error()?;
         }
         res_ta.set_property_i64(ctx, i, el)?;
     }
@@ -580,7 +579,7 @@ pub fn js_typed_array_find(ctx: &JSContext, args: CallContext) -> JSResult {
             this_arg,
             &[val.clone(), index_val.clone(), this_val.clone()],
         )
-        .check_exception()?;
+        .error()?;
 
         if res.coerce_to_bool(ctx).unwrap_or(true) {
             return if matches!(args.magic(), special_findIndex | special_findLastIndex) {
@@ -772,9 +771,10 @@ pub fn js_typed_array_sort(ctx: &JSContext, cc: CallContext) -> JSResult {
 
                         slice.sort_by(|a, b| {
                             if !has_error {
-                                let r =
-                                    JS_Call(ctx, cmp, &JSValue::UNDEFINED, &[$cvt(*a), $cvt(*b)]);
-                                if let Ok(n) = r.check_exception().and_then(|v| v.to_i32(ctx)) {
+                                if let Ok(n) = cmp
+                                    .call(ctx, &JSValue::UNDEFINED, &[$cvt(*a), $cvt(*b)])
+                                    .and_then(|v| v.to_i32(ctx))
+                                {
                                     if n < 0 {
                                         Ordering::Less
                                     } else if n > 0 {

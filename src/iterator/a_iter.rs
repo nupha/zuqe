@@ -141,7 +141,7 @@ pub fn js_async_from_sync_iterator_next(ctx: &JSContext, cc: CallContext) -> JSR
 
             let resolve_reject: [JSValue; 2] = [
                 unsafe {
-                    js_async_from_sync_iterator_unwrap_func_create(ctx, done).check_exception()?
+                    js_async_from_sync_iterator_unwrap_func_create(ctx, done).error()?
                 },
                 JSValue::UNDEFINED,
             ];

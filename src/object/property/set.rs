@@ -36,7 +36,7 @@ pub(crate) fn call_setter(
             this_obj,
             std::slice::from_ref(&val),
         )
-        .check_exception()?;
+        .error()?;
         Ok(true)
     } else {
         if flags & JS_PROP_THROW != 0 || (flags & JS_PROP_THROW_STRICT != 0 && is_strict_mode(ctx))

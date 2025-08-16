@@ -23,7 +23,7 @@ pub fn js_function_call(ctx: &JSContext, args: CallContext) -> JSResult {
     } else {
         JS_Call(ctx, args.this(), &JSValue::UNDEFINED, &[])
     }
-    .check_exception()
+    .error()
 }
 
 pub fn js_function_bind(ctx: &JSContext, args: CallContext) -> JSResult {

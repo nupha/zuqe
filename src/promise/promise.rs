@@ -90,7 +90,7 @@ impl Promise {
         let ret = JS_Call(ctx, &executor, &JSValue::UNDEFINED, &args);
         if ret.is_exception() {
             let error = ctx.take_exception();
-            JS_Call(ctx, &args[1], &JSValue::UNDEFINED, &[error]).check_exception()?;
+            JS_Call(ctx, &args[1], &JSValue::UNDEFINED, &[error]).error()?;
         }
 
         Ok(promise)
@@ -113,7 +113,7 @@ impl Promise {
             Self::new_with_executor(ctx, executor.clone(), &JSValue::UNDEFINED)?
         } else {
             JS_CallConstructor(ctx, ctor, std::slice::from_ref(&executor))
-                .check_exception()?
+                .error()?
                 .try_into()?
         };
 
@@ -388,13 +388,13 @@ pub fn js_promise_all_resolve_element(ctx: &JSContext, mut cc: CallContext) -> J
                 &resolve,
                 &JSValue::UNDEFINED,
                 std::slice::from_ref(&if resolve_type == PROMISE_MAGIC_any {
-                    let error = js_aggregate_error_constructor(ctx, values).check_exception()?;
+                    let error = js_aggregate_error_constructor(ctx, values).error()?;
                     error
                 } else {
                     values
                 }),
             )
-            .check_exception()?;
+            .error()?;
         }
         0 => {}
         _ => {

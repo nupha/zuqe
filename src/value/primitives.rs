@@ -37,7 +37,7 @@ impl JSObject {
                 }
                 .to_string(ctx)?;
 
-                let ret = JS_Call(ctx, &method, &this, &[hint_val.into()]).check_exception()?;
+                let ret = JS_Call(ctx, &method, &this, &[hint_val.into()]).error()?;
                 return if !ret.is_object() {
                     Ok(ret)
                 } else {
@@ -57,7 +57,7 @@ impl JSObject {
         } {
             let method = self.get_property(ctx, prop)?;
             if method.is_callable() {
-                let ret = JS_Call(ctx, &method, &this, &[]).check_exception()?;
+                let ret = JS_Call(ctx, &method, &this, &[]).error()?;
                 if !ret.is_object() {
                     return Ok(ret);
                 }

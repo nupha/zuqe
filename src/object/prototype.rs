@@ -40,7 +40,7 @@ impl JSObject {
     pub fn prototype(&self, ctx: &JSContext) -> Result<Option<JSObject>, i32> {
         if self.class_id() == JS_CLASS_PROXY {
             if let JSValue::Object(o) = unsafe {
-                js_proxy_getPrototypeOf(ctx, &JSValue::Object(self.clone())).check_exception()?
+                js_proxy_getPrototypeOf(ctx, &JSValue::Object(self.clone())).error()?
             } {
                 Ok(Some(o))
             } else {
@@ -76,7 +76,7 @@ impl JSValue {
         if let Self::Object(o) = self {
             Ok(o.prototype(ctx)?.map_or(JSValue::NULL, JSValue::Object))
         } else {
-            unsafe { JS_GetPrototypePrimitive(ctx, self).check_exception() }
+            unsafe { JS_GetPrototypePrimitive(ctx, self).error() }
         }
     }
 }

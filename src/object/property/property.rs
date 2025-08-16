@@ -211,7 +211,7 @@ impl JSProperty {
             }
             Self::GetSet { getter, .. } => {
                 if let Some(fun) = getter {
-                    JS_Call(ctx, &JSValue::Object(fun.clone()), this_obj, &[]).check_exception()
+                    JS_Call(ctx, &JSValue::Object(fun.clone()), this_obj, &[]).error()
                 } else {
                     Ok(JSValue::UNDEFINED)
                 }

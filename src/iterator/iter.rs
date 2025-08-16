@@ -242,8 +242,8 @@ impl ObjectIter {
                 }
                 NativeFunctionType::CIteratorNext(f) => {
                     let mut pdone = 0;
-                    let ret = f(ctx, obj.clone().into(), args, &mut pdone, nfunc.magic as _)
-                        .check_exception()?;
+                    let ret =
+                        f(ctx, obj.clone().into(), args, &mut pdone, nfunc.magic as _).error()?;
 
                     return if let JSValue::Object(ret) = ret {
                         Ok((
@@ -265,7 +265,7 @@ impl ObjectIter {
         }
 
         if let JSValue::Object(o) =
-            JS_Call(ctx, method, &JSValue::Object(obj.clone()), args).check_exception()?
+            JS_Call(ctx, method, &JSValue::Object(obj.clone()), args).error()?
         {
             Ok((o.into(), IteratorState::NotParsed))
         } else {
@@ -321,7 +321,7 @@ impl ObjectIter {
             if !return_method.is_undefined_or_null() {
                 let ret = JS_Call(ctx, &return_method, &obj.clone().into(), &[]);
                 if pending_exc.is_undefined_or_null() {
-                    if !ret.check_exception()?.is_object() {
+                    if !ret.error()?.is_object() {
                         ctx.throw_type_error_not_an_object();
                         return Err(-1);
                     }
@@ -357,30 +357,35 @@ impl ObjectIter {
 }
 
 impl JSValue {
-    /// get object iterator.
-    pub fn iterator_obj(&self, ctx: &JSContext, is_async: bool) -> Result<JSObject, i32> {
+    /// Get `self`'s iterator object by invoking its `[Symbol.iterator]` or `[Symbol.asyncIterator]` method.
+    /// In case of `is_async=true`, while method [Symbol.asyncIterator] is not defined,
+    /// try wrapping the object from `[Symbol.iterator]()` into an AsyncIterator.
+    /// If neither `[Symbol.iterator]` nor `[Symbol.asyncIterator]` are exist,
+    /// returns Err to indicate `self` is not iterable.
+    pub(crate) fn iterator_obj(&self, ctx: &JSContext, is_async: bool) -> Result<JSObject, i32> {
         let method = if is_async {
             let m = self.get_property(ctx, JS_ATOM_Symbol_asyncIterator)?;
             if m.is_undefined_or_null() {
                 // try calling [Symbol.iterator] method to get iterator,
                 // then wrap sync iterator as async iterator.
-                return if let JSValue::Object(obj) = JS_Call(
-                    ctx,
-                    &self.get_property(ctx, JS_ATOM_Symbol_iterator)?,
-                    self,
-                    &[],
-                )
-                .check_exception()?
-                {
-                    let next_method = obj.get_property(ctx, JS_ATOM_next)?;
-                    ctx.create_object(ObjectDetail::ASYNC_FROM_SYNC_ITERATOR(
-                        JSAsyncFromSyncIteratorData { obj, next_method },
+                let it: JSObject = self
+                    .get_property(ctx, JS_ATOM_Symbol_iterator)?
+                    .call(ctx, self, &[])?
+                    .try_into()
+                    .inspect_err(|_| {
+                        ctx.throw_type_error_not_an_object();
+                    })?;
+
+                let next_method = it.get_property(ctx, JS_ATOM_next)?;
+
+                return ctx
+                    .create_object(ObjectDetail::ASYNC_FROM_SYNC_ITERATOR(
+                        JSAsyncFromSyncIteratorData {
+                            obj: it,
+                            next_method,
+                        },
                     ))
-                    .map_err(|_| -1)
-                } else {
-                    ctx.throw_type_error_not_an_object();
-                    Err(-1)
-                };
+                    .map_err(|_| -1);
             } else {
                 m
             }
@@ -388,17 +393,20 @@ impl JSValue {
             self.get_property(ctx, JS_ATOM_Symbol_iterator)?
         };
 
-        if !method.is_callable() {
-            ctx.throw_type_error("value is not iterable");
-            Err(-1)
-        } else {
-            let ret = JS_Call(ctx, &method, self, &[]).check_exception()?;
+        if method.is_callable() {
+            let ret = method.call(ctx, self, &[])?;
             TryInto::<JSObject>::try_into(ret).inspect_err(|_| {
                 ctx.throw_type_error_not_an_object();
             })
+        } else {
+            ctx.throw_type_error("value is not iterable");
+            Err(-1)
         }
     }
 
+    /// Get an instance that implements `Iterator` trait, which can be used to iterate values.
+    /// For underlying, it will use object's `next` method to retrive a value.
+    #[inline]
     pub fn iter(&self, ctx: &JSContext) -> Result<ObjectIter, i32> {
         ObjectIter::new(ctx, self.iterator_obj(ctx, false)?, JS_ATOM_next)
     }
@@ -464,7 +472,7 @@ pub fn js_array_from_iterator(
     obj: &JSValue,
     method: &JSValue,
 ) -> Result<(JSValue, usize), i32> {
-    if let JSValue::Object(obj) = JS_Call(ctx, method, obj, &[]).check_exception()? {
+    if let JSValue::Object(obj) = JS_Call(ctx, method, obj, &[]).error()? {
         let it = ObjectIter::new(ctx, obj, JS_ATOM_next)?;
         let arr = ctx.create_array()?;
 

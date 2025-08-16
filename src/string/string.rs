@@ -261,7 +261,7 @@ impl JSString {
     }
 
     /// get raw code at index `i`
-    #[inline(always)]
+    #[inline]
     pub fn get(&self, i: usize) -> Option<u16> {
         self.content().get(i)
     }
@@ -324,14 +324,14 @@ impl JSString {
         self.0.atom_info()
     }
 
-    /// make String class instance with content from string `self`.
-    pub fn to_object(&self, ctx: &JSContext) -> Result<JSObject, i32> {
-        let buf_len = self.buf_len();
+    /// make String class object with content from string `self`.
+    pub fn to_object(&self, ctx: &JSContext, ctor: &JSValue) -> Result<JSObject, i32> {
+        let len = self.buf_len();
         let o = ctx
-            .create_object(ObjectDetail::STRING(self.clone()))
+            .create_object_apply_ctor(ctor, ObjectDetail::STRING(self.clone()))
             .map_err(|_| -1)?;
-        o.define_property_value(ctx, JS_ATOM_length, buf_len as u32, 0)?;
-        Ok(o)
+        o.define_property_value(ctx, JS_ATOM_length, len as u32, 0)?;
+        Ok(o.into())
     }
 
     /// make sub string with content of given range.

@@ -114,12 +114,12 @@ impl JSObject {
                             prop,
                             this_obj.clone(),
                         )
-                        .check_exception();
+                        .error();
                     }
                     if let Some(cb) = xm.get_own_property {
                         if let Some(desc) = cb(ctx, JSValue::Object(cur_obj.clone()), prop)? {
                             return if desc.flags & JS_PROP_GETSET != 0 {
-                                JS_Call(ctx, &desc.getter, this_obj, &[]).check_exception()
+                                JS_Call(ctx, &desc.getter, this_obj, &[]).error()
                             } else {
                                 debug_assert!(!desc.value.is_exception());
                                 Ok(desc.value)

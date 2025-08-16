@@ -217,7 +217,7 @@ impl BytecodeFunction {
             let global = JSValue::Object(ctx.global_obj());
             JSValue::String(src)
                 .eval_object(ctx, global, JS_EVAL_TYPE_INDIRECT, -1)
-                .check_exception()?
+                .error()?
         };
 
         if !new_target.is_undefined() {

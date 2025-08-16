@@ -238,7 +238,7 @@ impl ModuleDefInner {
 
             // initialize the global variables
             JS_Call(ctx, &JSValue::Object(func_obj), &JSValue::Bool(true), &[])
-                .check_exception()?;
+                .error()?;
         }
 
         let (dfs_ancestor_index, dfs_index, self_id) = {

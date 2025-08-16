@@ -73,7 +73,7 @@ pub fn promise_reaction_job(ctx: &JSContext, args: CallContext) -> JSResult {
     // as an extension, we support undefined as value to avoid
     // creating a dummy promise in the 'await' implementation of async functions
     if !func.is_undefined() {
-        JS_Call(ctx, func, &JSValue::UNDEFINED, &[result]).check_exception()
+        JS_Call(ctx, func, &JSValue::UNDEFINED, &[result]).error()
     } else {
         Ok(JSValue::UNDEFINED)
     }
@@ -101,7 +101,7 @@ pub fn js_promise_resolve_thenable_job(ctx: &JSContext, cc: CallContext) -> JSRe
         );
     }
 
-    res.check_exception()
+    res.error()
 }
 
 impl JSRuntime {

@@ -85,7 +85,7 @@ pub fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
             std::ptr::null_mut(),
         )
     } else {
-        JS_CallConstructor(ctx, &ctor, &[JSValue::from(new_len)]).check_exception()
+        JS_CallConstructor(ctx, &ctor, &[JSValue::from(new_len)]).error()
     }?;
 
     if new_obj.is_same(cc.this()) {

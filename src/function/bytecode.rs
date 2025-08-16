@@ -621,7 +621,7 @@ impl Bytecode {
         parent_frame: Option<&mut StackFrame>,
     ) -> JSResult {
         let bc_func = self.make_closure(ctx, var_refs, parent_frame)?;
-        JS_Call(ctx, &bc_func, &this_obj, &[]).check_exception()
+        JS_Call(ctx, &bc_func, &this_obj, &[]).error()
     }
 
     pub fn gc_set_mark(&self, b: bool) {

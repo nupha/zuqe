@@ -34,7 +34,7 @@ pub fn js_promise_then_finally_func(ctx: &JSContext, cc: CallContext) -> JSResul
     let ctor = cc.data(0);
     let on_finally = cc.data(1);
 
-    let res = JS_Call(ctx, &on_finally, &JSValue::UNDEFINED, &[]).check_exception()?;
+    let res = JS_Call(ctx, &on_finally, &JSValue::UNDEFINED, &[]).error()?;
 
     let promise = {
         let tmp = [res];
@@ -46,7 +46,7 @@ pub fn js_promise_then_finally_func(ctx: &JSContext, cc: CallContext) -> JSResul
         |cx: &JSContext, cc: CallContext| -> JSResult {
             let val = cc.data(0);
             if cc.magic() == 0 {
-                val.check_exception() // resolve
+                val.error() // resolve
             } else {
                 cx.throw(val); // reject
                 Err(-1)
@@ -112,7 +112,7 @@ pub fn js_promise_resolve(ctx: &JSContext, cc: CallContext) -> JSResult {
         &JSValue::UNDEFINED,
         cc.arguments(),
     )
-    .check_exception()?;
+    .error()?;
 
     Ok(result_promise.into())
 }
@@ -134,7 +134,7 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
             &JSValue::UNDEFINED,
             std::slice::from_ref(&error),
         )
-        .check_exception()?;
+        .error()?;
 
         Ok(JSValue::Object(result_promise.clone().into()))
     };
@@ -298,7 +298,7 @@ pub fn js_promise_race(ctx: &JSContext, cc: CallContext) -> JSResult {
             &JSValue::UNDEFINED,
             std::slice::from_ref(&error),
         )
-        .check_exception()?;
+        .error()?;
         Ok(result_promise.clone().into())
     };
 

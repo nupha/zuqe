@@ -388,7 +388,7 @@ pub fn js_regexp_exec(ctx: &JSContext, cc: CallContext) -> JSResult {
                 let val = cc.this().get_property(ctx, JS_ATOM_lastIndex)?;
                 val.coerce_to_length(ctx)? as usize
             },
-            RegExpExecMode::Capture,
+            RegExpExecMode::CaptureOnce,
         )?
         .unwrap_or_else(|| (JSValue::NULL, 0));
 
@@ -444,7 +444,7 @@ pub fn js_regexp_Symbol_matchAll(ctx: &JSContext, cc: CallContext) -> JSResult {
             ctx.create_string_from_content(re.flags_str.clone())?.into(),
         ],
     )
-    .check_exception()?;
+    .error()?;
     matcher.set_property(ctx, JS_ATOM_lastIndex, last_index)?;
 
     // make regexp string iterator object
@@ -614,9 +614,7 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
                     obj.define_property_value_str(ctx, name, val.into(), prop_flags)?;
                 }
 
-                let r = JS_Call(ctx, &rep, &rep, &[obj])
-                    .check_exception()?
-                    .to_string(ctx)?;
+                let r = JS_Call(ctx, &rep, &rep, &[obj]).error()?.to_string(ctx)?;
 
                 sbuf.push(&r.content()).map_err(|_| {
                     ctx.throw_out_of_memory();
@@ -742,7 +740,7 @@ pub(super) fn JS_RegExpExec(ctx: &JSContext, this: JSObject, str: JSString) -> J
     let args: [JSValue; 1] = [str.into()];
 
     if method.is_callable() {
-        let ret = JS_Call(ctx, &method, &this.into(), &args).check_exception()?;
+        let ret = method.call(ctx, &this.into(), &args)?;
         if !ret.is_object() && !ret.is_null() {
             ctx.throw_type_error("RegExp exec method must return an object or null");
             Err(-1)

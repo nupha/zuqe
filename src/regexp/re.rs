@@ -38,7 +38,7 @@ pub struct JSRegExpStringIteratorData {
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(u8)]
 pub enum RegExpExecMode {
-    Capture,
+    CaptureOnce,
     Match,
 }
 
@@ -113,19 +113,18 @@ impl JSRegExp {
         // iterator to map utf8 index to str buf index
         let mut chars_iter = if sbuf.is_wide() {
             Some(sbuf.iter_since(from))
-            // Some(sbuf.iter_since(start).zip(utf8_text.chars()))
         } else {
             None
         };
 
         let ret = match (mode, is_global) {
-            (RegExpExecMode::Capture, _) | (RegExpExecMode::Match, false) => {
+            (RegExpExecMode::CaptureOnce, _) | (RegExpExecMode::Match, false) => {
                 if let Some(caps) = self.regex.captures(&utf8_text)
                     && (!is_sticky || caps.get(0).unwrap().start() == from)
                 {
-                    let mut names = SmallVec::<[String; 10]>::new();
+                    let mut names = SmallVec::<[&str; 8]>::new();
                     for n in self.regex.capture_names().filter_map(|n| n) {
-                        names.push(n.to_string());
+                        names.push(n);
                     }
 
                     let mut range = 0..0;
@@ -142,6 +141,12 @@ impl JSRegExp {
                                 if i == 0 {
                                     matched = s.clone();
                                     range = m.start()..m.end();
+
+                                    #[cfg(debug_assertions)]
+                                    debug_assert_eq!(
+                                        matched.chars_count(),
+                                        utf8_text[range.clone()].chars().count()
+                                    );
                                 }
                                 ctx.create_string_from_content(s)?.into()
                             } else {
@@ -170,25 +175,26 @@ impl JSRegExp {
                     };
                     arr.define_property_value_str(ctx, "groups", groups, prop_flags)?;
 
-                    // Note: convert utf8 start index to string buf index
+                    // Note: convert utf8 range index to string buf index
                     let start_index = if range.start == 0 {
-                        range.start + from
+                        range.start
                     } else if let Some(it) = chars_iter.as_mut() {
                         let nc = utf8_text[..range.start].chars().count();
                         let (i, _) = it.nth(nc).unwrap();
-                        i + from
+                        i
                     } else {
-                        range.start + from
-                    };
+                        range.start
+                    } + from;
+
                     let last_index = if range.end == utf8_text.len() {
                         text.buf_len()
                     } else if let Some(it) = chars_iter.as_mut() {
                         let nc = matched.chars_count();
-                        let (i, _) = it.nth(nc).unwrap();
+                        let (i, _) = it.nth(nc - 1).unwrap();
                         i
                     } else {
                         range.end
-                    };
+                    } + from;
 
                     arr.define_property_value_str(
                         ctx,
@@ -198,7 +204,6 @@ impl JSRegExp {
                     )?;
 
                     arr.define_property_value_str(ctx, "input", text.clone().into(), prop_flags)?;
-
                     Some((arr, last_index))
                 } else {
                     None

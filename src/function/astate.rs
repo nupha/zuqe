@@ -281,7 +281,7 @@ impl ObjAsyncState {
             arg_list,
             JS_CALL_FLAG_GENERATOR,
         )
-        .check_exception();
+        .error();
 
         let completed = match ret {
             Ok(JSValue::UNDEFINED) => {

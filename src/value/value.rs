@@ -315,30 +315,24 @@ impl JSValue {
         }
     }
 
-    /// Test if value `self` can be called like a function, that means value is a:
+    /// Test if value `self` can be called, that means value is a:
     ///
     /// - Compiled bytecode functions
     /// - Proxy objects that wrapping a function
     /// - Objects of native class which has `call` handler
+    #[inline]
     pub fn is_callable(&self) -> bool {
-        if let Self::Object(ob) = self {
-            ob.is_callable()
-        } else {
-            false
-        }
+        self.object().map_or(false, JSObject::is_callable)
     }
 
     pub fn is_error(&self) -> bool {
-        if let JSValue::Object(o) = self {
-            o.class_id() == JS_CLASS_ERROR
-        } else {
-            false
-        }
+        self.object()
+            .map_or(false, |o| o.class_id() == JS_CLASS_ERROR)
     }
 
-    /// check if self is an exception. returns Err if yes, otherwise returns Ok(value)
-    #[inline(always)]
-    pub fn check_exception(self) -> Result<Self, i32> {
+    /// if `self` is an exception, returns Err if yes; Otherwise returns Ok(self)
+    #[inline]
+    pub fn error(self) -> Result<Self, i32> {
         if self.is_exception() {
             Err(-1)
         } else {

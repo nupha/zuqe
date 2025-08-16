@@ -599,7 +599,7 @@ impl JSValue {
         }
     }
 
-    /// Convert value to object equivalent.
+    /// Convert value to object.
     /// Handles primitive wrapping according to ES6 ToObject conversion rules
     /// Returns exception for null/undefined inputs.
     pub fn to_object(&self, ctx: &JSContext) -> Result<JSObject, i32> {
@@ -611,7 +611,7 @@ impl JSValue {
             Self::Bool(_) => ctx
                 .create_object(ObjectDetail::BOOLEAN(self.clone()))
                 .map_err(|_| -1),
-            Self::String(s) => s.to_object(ctx),
+            Self::String(s) => s.to_object(ctx, &JSValue::UNDEFINED),
             Self::Symbol(s) => ctx
                 .create_object(ObjectDetail::SYMBOL(s.clone()))
                 .map_err(|_| -1),

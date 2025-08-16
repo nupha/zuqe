@@ -523,7 +523,7 @@ impl ModuleDef {
 
             // eval bytecode function
             JS_Call(ctx, &md_func, &JSValue::UNDEFINED, &[])
-                .check_exception()
+                .error()
                 .map_err(|_| ctx.take_exception())?;
 
             // Original solution: run bytecode function in async manner.

@@ -131,7 +131,7 @@ pub fn js_function_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
             JS_EVAL_TYPE_INDIRECT,
             -1,
         )
-        .check_exception()?;
+        .error()?;
 
     // set prototype, if provided by `this`
     let new_target = cc.this();
@@ -263,7 +263,7 @@ pub fn js_generator_next(
                 if func_state.is_completed() {
                     /* finalize the execution in case of exception or normal return */
                     g.free_generator_stack_rt(ctx.rt());
-                    return func_ret.check_exception();
+                    return func_ret.error();
                 }
 
                 debug_assert!(func_ret.is_int());
@@ -290,7 +290,7 @@ pub fn js_generator_next(
                     IteratorState::NotDone
                 };
 
-                ret_val.check_exception()
+                ret_val.error()
             }
             WhatToDo::Done => {
                 // execution is finished

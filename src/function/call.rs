@@ -127,18 +127,33 @@ pub const JS_CALL_FLAG_COPY_ARGV: i32 = 1 << 1;
 pub const JS_CALL_FLAG_GENERATOR: i32 = 1 << 2;
 
 impl JSObject {
-    /// invoke method
+    /// call `method` of `self` object.
+    #[inline]
     pub fn invoke(&self, ctx: &JSContext, method: JSAtom, args: &[JSValue]) -> JSResult {
-        let func_obj = self.get_property(ctx, method)?;
-        JS_Call(ctx, &func_obj, &self.clone().into(), args).check_exception()
+        self.get_property(ctx, method)?
+            .call(ctx, &self.clone().into(), args)
     }
 }
 
 impl JSValue {
+    /// call `self`. if `self` value is not callable, returns not function error.
+    #[inline(always)]
+    pub fn call(&self, ctx: &JSContext, this_obj: &Self, args: &[JSValue]) -> JSResult {
+        JS_CallInternal(
+            ctx,
+            self,
+            this_obj,
+            JSValue::UNDEFINED,
+            args,
+            JS_CALL_FLAG_COPY_ARGV,
+        )
+        .error()
+    }
+
     /// invoke method
+    #[inline]
     pub fn invoke(&self, ctx: &JSContext, method: JSAtom, args: &[JSValue]) -> JSResult {
-        let func_obj = self.get_property(ctx, method)?;
-        JS_Call(ctx, &func_obj, self, args).check_exception()
+        self.get_property(ctx, method)?.call(ctx, self, args)
     }
 }
 
@@ -224,6 +239,7 @@ pub fn JS_CallInternal(
     }
 }
 
+#[deprecated(note = "use JSValue::call() instead")]
 #[inline(always)]
 pub fn JS_Call(
     ctx: &JSContext,
@@ -231,14 +247,9 @@ pub fn JS_Call(
     this_obj: &JSValue,
     args: &[JSValue],
 ) -> JSValue {
-    JS_CallInternal(
-        ctx,
-        func_obj,
-        this_obj,
-        JSValue::UNDEFINED,
-        args,
-        JS_CALL_FLAG_COPY_ARGV,
-    )
+    func_obj
+        .call(ctx, this_obj, args)
+        .unwrap_or(JSValue::EXCEPTION)
 }
 
 /// call func_obj, and free func_obj
@@ -334,21 +345,20 @@ pub fn JS_CallConstructor(ctx: &JSContext, func_obj: &JSValue, args: &[JSValue])
 
 // magic value: 0 = normal apply, 1 = apply for constructor, 2 = Reflect.apply
 pub fn js_function_apply(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let this_val = cc.this_raw();
+    let this_val = cc.this();
     this_val.ensure_callable(ctx)?;
 
     let this_arg = cc.arg(0);
     let array_arg = cc.arg(1);
 
     if array_arg.is_undefined_or_null() && cc.magic() != 2 {
-        return Ok(JS_Call(ctx, &this_val, this_arg, &[]));
+        return this_val.call(ctx, this_arg, &[]);
     }
 
     let arg_list = build_arg_list(ctx, &array_arg)?;
-    let ret = if cc.magic() & 1 != 0 {
-        JS_CallConstructor2(ctx, &this_val, this_arg.clone(), arg_list.as_ref())
+    if cc.magic() & 1 != 0 {
+        JS_CallConstructor2(ctx, this_val, this_arg.clone(), arg_list.as_ref()).error()
     } else {
-        JS_Call(ctx, &this_val, &this_arg, arg_list.as_ref())
-    };
-    Ok(ret)
+        this_val.call(ctx, &this_arg, arg_list.as_ref())
+    }
 }

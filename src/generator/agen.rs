@@ -282,12 +282,9 @@ impl ObjAsyncGenerator {
 
     fn resolve_or_reject(&mut self, ctx: &JSContext, result: &JSValue, is_reject: bool) {
         let next = self.queue.remove(0);
-        JS_Call(
-            ctx,
-            &next.resolving_funcs[is_reject as usize],
-            &JSValue::UNDEFINED,
-            std::slice::from_ref(result),
-        );
+        next.resolving_funcs[is_reject as usize]
+            .call(ctx, &JSValue::UNDEFINED, std::slice::from_ref(result))
+            .unwrap();
     }
 
     pub fn resolve(&mut self, ctx: &JSContext, value: JSValue, done: bool) {

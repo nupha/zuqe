@@ -198,7 +198,7 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
             &ctx.0.borrow().global_obj,
             &[val.clone(), JSValue::from(idx)],
         )
-        .check_exception()?;
+        .error()?;
 
         // get prop value array and key atom
         let (props_arr, key_atom): (JSResult, JSAtom) = if is_map != 0 {
@@ -211,7 +211,7 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
                         std::slice::from_ref(&key).as_ptr() as _,
                         0,
                     )
-                    .check_exception()
+                    .error()
                 },
                 JS_ATOM_NULL,
             )

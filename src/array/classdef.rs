@@ -104,7 +104,7 @@ fn JS_ArraySpeciesCreate(ctx: &JSContext, obj: &JSValue, len_val: &JSValue) -> J
             ),
         )
     } else {
-        JS_CallConstructor(ctx, &ctor, std::slice::from_ref(len_val)).check_exception()
+        JS_CallConstructor(ctx, &ctor, std::slice::from_ref(len_val)).error()
     }
 }
 
@@ -359,14 +359,8 @@ pub fn js_array_every(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
 
         if present {
-            let index_val = JSValue::from(k).check_exception()?;
-            let res = JS_Call(
-                ctx,
-                &func,
-                &this_arg,
-                &[val.clone(), index_val, obj.clone()],
-            )
-            .check_exception()?;
+            let index_val = JSValue::from(k).error()?;
+            let res = func.call(ctx, &this_arg, &[val.clone(), index_val, obj.clone()])?;
 
             match special {
                 s if s == special_every || s == special_every | special_TA => {
@@ -484,14 +478,14 @@ pub fn js_array_reduce(ctx: &JSContext, cc: CallContext) -> JSResult {
         };
 
         if present {
-            let index_val = JSValue::from(k1 as i64).check_exception()?;
+            let index_val = JSValue::from(k1 as i64).error()?;
             let acc1 = JS_Call(
                 ctx,
                 &func,
                 &JSValue::UNDEFINED,
                 &[acc, val.clone(), index_val, obj.clone()],
             )
-            .check_exception()?;
+            .error()?;
             acc = acc1;
         }
     }
@@ -563,7 +557,7 @@ pub fn js_array_find(ctx: &JSContext, cc: CallContext) -> JSResult {
             this_arg,
             &[val.clone(), index_val.clone(), this_val.clone()],
         )
-        .check_exception()?;
+        .error()?;
 
         if res.coerce_to_bool(ctx)? {
             // found
@@ -762,7 +756,7 @@ pub fn js_array_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
         // Use intrinsic Object.prototype.toString
         js_object_toString(ctx, CallContext::new(ctx, obj, &[], 0, None))
     } else {
-        JS_Call(ctx, &method, &obj, &[]).check_exception()
+        JS_Call(ctx, &method, &obj, &[]).error()
     }
 }
 
@@ -1254,7 +1248,7 @@ fn JS_FlattenIntoArray(
                         this_arg,
                         &[el, JSValue::from(sourceIndex), source.clone()],
                     )
-                    .check_exception()?;
+                    .error()?;
                 }
 
                 if depth > 0 {
@@ -1403,34 +1397,34 @@ pub fn js_array_from(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     let mut k: i64 = 0;
-    let res: JSValue;
 
-    if !items
+    let res: JSValue = if !items
         .get_property(ctx, JS_ATOM_Symbol_iterator)?
         .is_undefined()
     {
         // `items` is iterable
-        res = if cc.this().is_constructor() {
-            JS_CallConstructor(ctx, cc.this(), &[]).check_exception()?
+        let arr = if cc.this().is_constructor() {
+            JS_CallConstructor(ctx, cc.this(), &[]).error()?
         } else {
             ctx.create_array()?
         };
 
-        for el in items.iter(ctx)? {
+        let it = items.iter(ctx)?;
+        for el in it {
             let mut el = el?;
             if mapping {
-                el = JS_Call(ctx, mapfn, this_arg, &[el, JSValue::Int(k as i32)])
-                    .check_exception()?;
+                el = mapfn.call(ctx, this_arg, &[el, JSValue::Int(k as i32)])?;
             }
-            res.define_property_value_i64(ctx, k, el, JS_PROP_C_W_E | JS_PROP_THROW)?;
+            arr.define_property_value_i64(ctx, k, el, JS_PROP_C_W_E | JS_PROP_THROW)?;
             k += 1;
         }
+
+        arr
     } else {
         let array_like: JSValue = items.to_object(ctx)?.into();
         let len = js_get_length64(ctx, &array_like)?;
-
-        res = if cc.this().is_constructor() {
-            JS_CallConstructor(ctx, cc.this(), &[JSValue::from(len)]).check_exception()?
+        let arr = if cc.this().is_constructor() {
+            JS_CallConstructor(ctx, cc.this(), &[JSValue::from(len)]).error()?
         } else {
             js_array_constructor(
                 ctx,
@@ -1439,16 +1433,16 @@ pub fn js_array_from(ctx: &JSContext, cc: CallContext) -> JSResult {
         };
 
         for i in 0..len {
-            let mut v = array_like.get_property_i64(ctx, i)?;
+            let mut el = array_like.get_property_i64(ctx, i)?;
             if mapping {
-                v = JS_Call(ctx, mapfn, this_arg, &[v, JSValue::Int(i as i32)])
-                    .check_exception()?;
+                el = mapfn.call(ctx, this_arg, &[el, JSValue::Int(i as i32)])?;
             }
-            res.define_property_value_i64(ctx, i, v, JS_PROP_C_W_E | JS_PROP_THROW)?;
+            arr.define_property_value_i64(ctx, i, el, JS_PROP_C_W_E | JS_PROP_THROW)?;
         }
 
         k = len;
-    }
+        arr
+    };
 
     res.set_property(ctx, JS_ATOM_length, JSValue::from(k as u32))?;
     Ok(res)
@@ -1456,7 +1450,7 @@ pub fn js_array_from(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_array_of(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj = if cc.this().is_constructor() {
-        JS_CallConstructor(ctx, cc.this(), &[JSValue::Int(cc.length() as i32)]).check_exception()?
+        JS_CallConstructor(ctx, cc.this(), &[JSValue::Int(cc.length() as i32)]).error()?
     } else {
         ctx.create_array()?
     };
