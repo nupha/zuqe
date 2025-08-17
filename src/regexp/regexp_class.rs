@@ -378,7 +378,7 @@ pub fn js_regexp_exec(ctx: &JSContext, cc: CallContext) -> JSResult {
     let re = js_get_regexp(ctx, this, true).ok_or(-1)?;
     let str = cc.arg(0).to_string(ctx)?;
 
-    if let Some(caps) = re.capture(
+    if let Some(cap_list) = re.capture(
         &str,
         if re.flags & LRE_FLAG_GLOBAL as u8 == 0 {
             0
@@ -389,20 +389,12 @@ pub fn js_regexp_exec(ctx: &JSContext, cc: CallContext) -> JSResult {
     ) {
         let arr = ctx.create_array()?;
         let mut group = JSValue::UNDEFINED;
+
         let prop_flags = JS_PROP_C_W_E | JS_PROP_THROW;
         let mut last_index = 0;
 
-        for (i, (range, name)) in caps.iter().enumerate() {
-            if i == 0 {
-                last_index = range.end;
-            }
-
+        for (i, (range, name)) in cap_list.iter().enumerate() {
             let val: JSValue = str.sub_string(ctx, range.clone())?.into();
-
-            println!(
-                "[O.o] captured: range={range:?}, last_index={last_index}, content={:?}",
-                val
-            );
 
             arr.define_property_value_u32(ctx, i as _, val.clone(), prop_flags)?;
 
@@ -412,9 +404,20 @@ pub fn js_regexp_exec(ctx: &JSContext, cc: CallContext) -> JSResult {
                 }
                 group.define_property_value_str(ctx, name, val, prop_flags)?;
             }
+
+            if i == 0 {
+                arr.define_property_value(
+                    ctx,
+                    JS_ATOM_index,
+                    JSValue::Int(range.start as i32),
+                    prop_flags,
+                )?;
+                last_index = range.end;
+            }
         }
 
         arr.define_property_value(ctx, JS_ATOM_groups, group, prop_flags)?;
+        arr.define_property_value(ctx, JS_ATOM_input, str.into(), prop_flags)?;
         this.set_property(ctx, JS_ATOM_lastIndex, JSValue::from(last_index as u32))?;
 
         Ok(arr)
@@ -544,30 +547,6 @@ pub fn js_regexp_Symbol_matchAll(ctx: &JSContext, cc: CallContext) -> JSResult {
     let last_index = this.get_property(ctx, JS_ATOM_lastIndex)?;
 
     let str = cc.arg(0).to_string(ctx)?;
-
-    // O.o
-    #[cfg(debug_assertions)]
-    {
-        // re.debug_find(&str, 0, |t, range, m| {
-        //     //
-        // });
-
-        println!(
-            "[O.o] regex pattern={:?}, flags={:?}",
-            re.pattern.to_utf8(),
-            re.flags_str.to_utf8()
-        );
-
-        if let Some(caps) = re.capture(&str, 0) {
-            for (i, (range, name)) in caps.iter().enumerate() {
-                println!(
-                    "[O.o] capture {i}: name={name:?}, range={:?}, content={:?}",
-                    *range,
-                    str.content().iter_range(range.clone()).collect::<Vec<_>>()
-                );
-            }
-        }
-    }
 
     //
     // make matcher: regexp object
