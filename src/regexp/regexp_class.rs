@@ -1,4 +1,7 @@
-use std::{ops::Deref, rc::Rc};
+use std::{
+    ops::{Deref, Range},
+    rc::Rc,
+};
 
 use regex::bytes::Regex;
 
@@ -364,6 +367,46 @@ fn js_regexp_compile(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(cc.this().clone())
 }
 
+fn make_regexp_capture_array(
+    ctx: &JSContext,
+    text: JSString,
+    cap_list: &[(Range<usize>, Option<&str>)],
+) -> Result<(JSValue, usize), i32> {
+    let arr = ctx.create_array()?;
+    let mut group = JSValue::UNDEFINED;
+
+    let prop_flags = JS_PROP_C_W_E | JS_PROP_THROW;
+    let mut last_index = 0;
+
+    for (i, (range, name)) in cap_list.iter().enumerate() {
+        let val: JSValue = text.sub_string(ctx, range.clone())?.into();
+
+        arr.define_property_value_u32(ctx, i as _, val.clone(), prop_flags)?;
+
+        if let Some(name) = name {
+            if group.is_undefined() {
+                group = ctx.create_base_object()?.into();
+            }
+            group.define_property_value_str(ctx, name, val, prop_flags)?;
+        }
+
+        if i == 0 {
+            arr.define_property_value(
+                ctx,
+                JS_ATOM_index,
+                JSValue::Int(range.start as i32),
+                prop_flags,
+            )?;
+            last_index = range.end;
+        }
+    }
+
+    arr.define_property_value(ctx, JS_ATOM_groups, group, prop_flags)?;
+    arr.define_property_value(ctx, JS_ATOM_input, text.into(), prop_flags)?;
+
+    Ok((arr, last_index))
+}
+
 pub fn js_regexp_exec(ctx: &JSContext, cc: CallContext) -> JSResult {
     let Some(this) = cc.this().object() else {
         ctx.throw_type_error_not_an_object();
@@ -382,41 +425,8 @@ pub fn js_regexp_exec(ctx: &JSContext, cc: CallContext) -> JSResult {
             val.coerce_to_length(ctx)? as usize
         },
     ) {
-        let arr = ctx.create_array()?;
-        let mut group = JSValue::UNDEFINED;
-
-        let prop_flags = JS_PROP_C_W_E | JS_PROP_THROW;
-        let mut last_index = 0;
-
-        for (i, (range, name)) in cap_list.iter().enumerate() {
-            let val: JSValue = str.sub_string(ctx, range.clone())?.into();
-
-            println!("[O.o]**************** {i}: range={range:?}, val={val:?}");
-
-            arr.define_property_value_u32(ctx, i as _, val.clone(), prop_flags)?;
-
-            if let Some(name) = name {
-                if group.is_undefined() {
-                    group = ctx.create_base_object()?.into();
-                }
-                group.define_property_value_str(ctx, name, val, prop_flags)?;
-            }
-
-            if i == 0 {
-                arr.define_property_value(
-                    ctx,
-                    JS_ATOM_index,
-                    JSValue::Int(range.start as i32),
-                    prop_flags,
-                )?;
-                last_index = range.end;
-            }
-        }
-
-        arr.define_property_value(ctx, JS_ATOM_groups, group, prop_flags)?;
-        arr.define_property_value(ctx, JS_ATOM_input, str.into(), prop_flags)?;
+        let (arr, last_index) = make_regexp_capture_array(ctx, str, &cap_list)?;
         this.set_property(ctx, JS_ATOM_lastIndex, JSValue::from(last_index as u32))?;
-
         Ok(arr)
     } else {
         this.set_property(ctx, JS_ATOM_lastIndex, JSValue::Int(0))?;
@@ -461,36 +471,46 @@ pub fn js_regexp_Symbol_match(ctx: &JSContext, cc: CallContext) -> JSResult {
         || exec.match_native_callback(NativeFunctionType::Func(js_regexp_exec), 0)
     {
         // fast path: use native regex find()
-        let found = re.find(&str, 0);
-        if !found.is_empty() {
-            let arr = ctx.create_array()?;
-            let prop_flags = JS_PROP_C_W_E | JS_PROP_THROW;
-            let mut last_index = 0;
+        if re.flags & LRE_FLAG_GLOBAL as u8 != 0 {
+            // has g flag: use find(), returns array of match
+            let found = re.find(&str, 0);
+            if !found.is_empty() {
+                let arr = ctx.create_array()?;
+                let prop_flags = JS_PROP_C_W_E | JS_PROP_THROW;
+                let mut last_index = 0;
 
-            for (i, range) in found.iter().enumerate() {
-                let val = str.sub_string(ctx, range.clone())?;
+                for (i, range) in found.iter().enumerate() {
+                    let val = str.sub_string(ctx, range.clone())?;
 
-                println!(
-                    "[O.o]****** {i} range={range:?}, val={val:?}, chars={:?}",
-                    str.content().iter_range(range.clone()).collect::<Vec<_>>()
-                );
+                    arr.define_property_value_u32(ctx, i as _, val.into(), prop_flags)?;
+                    last_index = range.end;
+                }
 
-                arr.define_property_value_u32(ctx, i as _, val.into(), prop_flags)?;
-                last_index = range.end;
+                this.set_property(ctx, JS_ATOM_lastIndex, JSValue::from(last_index as u32))?;
+                Ok(arr.into())
+            } else {
+                this.set_property(ctx, JS_ATOM_lastIndex, JSValue::Int(0))?;
+                Ok(JSValue::NULL)
             }
-
-            this.set_property(ctx, JS_ATOM_lastIndex, JSValue::from(last_index as u32))?;
-            Ok(arr.into())
         } else {
-            this.set_property(ctx, JS_ATOM_lastIndex, JSValue::Int(0))?;
-            Ok(JSValue::NULL)
+            // use capture, returns exec data
+            if let Some(cap_list) = re.capture(
+                &str,
+                if re.flags & LRE_FLAG_GLOBAL as u8 == 0 {
+                    0
+                } else {
+                    let val = cc.this().get_property(ctx, JS_ATOM_lastIndex)?;
+                    val.coerce_to_length(ctx)? as usize
+                },
+            ) {
+                let (arr, last_index) = make_regexp_capture_array(ctx, str, &cap_list)?;
+                this.set_property(ctx, JS_ATOM_lastIndex, JSValue::from(last_index as u32))?;
+                Ok(arr)
+            } else {
+                this.set_property(ctx, JS_ATOM_lastIndex, JSValue::Int(0))?;
+                Ok(JSValue::NULL)
+            }
         }
-
-        // let (ret, last_index) = re
-        //     .exec(ctx, &str, 0, RegExpExecMode::Match)?
-        //     .unwrap_or_else(|| (JSValue::NULL, 0));
-        // this.set_property(ctx, JS_ATOM_lastIndex, JSValue::Int(last_index as _))?;
-        // Ok(ret)
     } else {
         // slow path: use customized exec method, and collect matched string to array
         let arr = ctx.create_array()?;
