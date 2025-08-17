@@ -436,24 +436,6 @@ pub fn js_regexp_exec(ctx: &JSContext, cc: CallContext) -> JSResult {
         this.set_property(ctx, JS_ATOM_lastIndex, JSValue::Int(0))?;
         Ok(JSValue::NULL)
     }
-
-    // let (ret, last_index) = re
-    //     .exec(
-    //         ctx,
-    //         &str,
-    //         if re.flags & LRE_FLAG_GLOBAL as u8 == 0 {
-    //             0
-    //         } else {
-    //             let val = cc.this().get_property(ctx, JS_ATOM_lastIndex)?;
-    //             val.coerce_to_length(ctx)? as usize
-    //         },
-    //         RegExpExecMode::CaptureOnce,
-    //     )?
-    //     .unwrap_or_else(|| (JSValue::NULL, 0));
-
-    // this.set_property(ctx, JS_ATOM_lastIndex, JSValue::from(last_index as u32))?;
-
-    // Ok(ret)
 }
 
 pub fn js_regexp_test(ctx: &JSContext, cc: CallContext) -> JSResult {

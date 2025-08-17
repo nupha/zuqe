@@ -773,17 +773,17 @@ impl StringBuf {
         }
     }
 
-    /// get index of next unichar or code.
-    pub fn index_of_next(&self, cur_index: usize, must_char: bool) -> Option<usize> {
-        if cur_index < self.buf_len() {
+    /// get index of next char or code nearest to `pos` .
+    pub fn index_of_next(&self, pos: usize, must_char: bool) -> Option<usize> {
+        if pos < self.buf_len() {
             if must_char && self.is_wide() {
-                for (i, c) in self.iter_since(cur_index) {
+                for (i, c) in self.iter_since(pos) {
                     if matches!(c, StringChar::Char(_)) {
-                        return Some(cur_index + i);
+                        return Some(i);
                     }
                 }
             } else {
-                return Some(cur_index + 1);
+                return Some(pos + 1);
             }
         }
 
