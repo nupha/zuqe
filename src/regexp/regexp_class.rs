@@ -17,7 +17,7 @@ use crate::{
         ObjectDetail,
     },
     runtime::JSRuntime,
-    string::{JSString, StringBuf, StringChar, StringContent},
+    string::{JSString, StringBuf, StringChar, StringContent, map_utf8_to_utf16_range},
     value::JSValue,
 };
 
@@ -650,6 +650,13 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
     let mut str_last_index = 0;
     let mut utf8_cursor = 0;
 
+    let utf16 = if str.is_wide() {
+        let bb = str.content().as_bytes();
+        Some(unsafe { std::slice::from_raw_parts(bb.as_ptr().cast::<u16>(), bb.len() / 2) })
+    } else {
+        None
+    };
+
     for caps in re
         .regex
         .captures_iter(utf8_text.as_bytes())
@@ -657,15 +664,14 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
     {
         if let Some(m) = caps.get(0) {
             // convert utf8 index to string buf index
-            let pos = if m.start() == 0 {
-                0
-            } else if let Some(it) = chars_iter.as_mut() {
-                let nc = utf8_text[utf8_cursor..m.start()].chars().count();
-                let (post, _) = it.nth(nc - 1).unwrap(); // use nc-1
-                post
+            let range = if let Some(s16) = utf16 {
+                map_utf8_to_utf16_range(utf8_text.as_bytes(), s16, m.range())
             } else {
-                m.start()
+                m.range()
             };
+
+            let pos = range.start;
+
             sbuf.push_content_slice(&str.content().slice(str_last_index..pos))
                 .map_err(|_| {
                     ctx.throw_out_of_memory();
@@ -673,14 +679,8 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
                 })?;
 
             utf8_cursor = m.end();
-            str_last_index = if utf8_cursor == utf8_text.len() {
-                str.content().buf_len()
-            } else if let Some(it) = chars_iter.as_mut() {
-                let nc = std::str::from_utf8(m.as_bytes()).unwrap().chars().count();
-                it.nth(nc - 1).unwrap().0
-            } else {
-                utf8_cursor
-            };
+
+            str_last_index = range.end;
 
             if let Some(rep_str) = rp.as_ref() {
                 let t = StringBuf::substitution(
@@ -734,7 +734,9 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
                     obj.define_property_value_str(ctx, name, val.into(), prop_flags)?;
                 }
 
-                let r = rep.call(ctx, &rep, &[obj])?.to_string(ctx)?;
+                let r = rep
+                    .call(ctx, &rep, &[obj, JSValue::Int(pos as i32)])?
+                    .to_string(ctx)?;
 
                 sbuf.push(&r.content()).map_err(|_| {
                     ctx.throw_out_of_memory();
