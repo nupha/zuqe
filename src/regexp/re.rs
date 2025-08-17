@@ -158,13 +158,6 @@ impl JSRegExp {
 
             if last_range != match_range {
                 res.push(match_range.clone());
-                // println!(
-                //     "[O.o] match: {m:?}, sbuf_range={start_index}..{end_index}, sbuf_content={:?}",
-                //     text.content()
-                //         .iter_range(start_index..end_index)
-                //         .map(|(_, c)| c)
-                //         .collect::<Vec<_>>()
-                // );
                 last_range = match_range;
             }
         }

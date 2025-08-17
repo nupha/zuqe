@@ -146,22 +146,22 @@ fn map_utf8_to_utf16_pos_ceil(s8: &[u8], s16: &[u16], pos: usize) -> usize {
             .0;
 
         // check char is broken by range.end
-        match pos - end_char_floor {
-            0 => {
-                // not broken
-            }
-            1 => {}
-            2 => {
-                // take surrogate low
-                if utf8_test_first_byte(s8[end_char_floor]) == 4 {
+        if pos > end_char_floor {
+            let nbytes = utf8_test_first_byte(s8[end_char_floor]) as usize;
+            match nbytes - (pos - end_char_floor) {
+                1 => {}
+                2 => {
+                    // take surrogate low
+                    if nbytes == 4 {
+                        idx -= 1;
+                    }
+                }
+                3 => {
+                    // take surrogate high
                     idx -= 1;
                 }
+                _ => unreachable!(),
             }
-            3 => {
-                // take surrogate high
-                idx -= 1;
-            }
-            _ => unreachable!(),
         }
 
         idx

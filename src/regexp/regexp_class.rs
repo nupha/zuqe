@@ -396,6 +396,8 @@ pub fn js_regexp_exec(ctx: &JSContext, cc: CallContext) -> JSResult {
         for (i, (range, name)) in cap_list.iter().enumerate() {
             let val: JSValue = str.sub_string(ctx, range.clone())?.into();
 
+            println!("[O.o]**************** {i}: range={range:?}, val={val:?}");
+
             arr.define_property_value_u32(ctx, i as _, val.clone(), prop_flags)?;
 
             if let Some(name) = name {
@@ -472,6 +474,12 @@ pub fn js_regexp_Symbol_match(ctx: &JSContext, cc: CallContext) -> JSResult {
 
             for (i, range) in found.iter().enumerate() {
                 let val = str.sub_string(ctx, range.clone())?;
+
+                println!(
+                    "[O.o]****** {i} range={range:?}, val={val:?}, chars={:?}",
+                    str.content().iter_range(range.clone()).collect::<Vec<_>>()
+                );
+
                 arr.define_property_value_u32(ctx, i as _, val.into(), prop_flags)?;
                 last_index = range.end;
             }
