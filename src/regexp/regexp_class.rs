@@ -370,7 +370,7 @@ fn js_regexp_compile(ctx: &JSContext, cc: CallContext) -> JSResult {
 fn make_regexp_capture_array(
     ctx: &JSContext,
     text: JSString,
-    cap_list: &[(Range<usize>, Option<&str>)],
+    cap_list: &[(Option<Range<usize>>, Option<&str>)],
 ) -> Result<(JSValue, usize), i32> {
     let arr = ctx.create_array()?;
     let mut group = JSValue::UNDEFINED;
@@ -379,7 +379,21 @@ fn make_regexp_capture_array(
     let mut last_index = 0;
 
     for (i, (range, name)) in cap_list.iter().enumerate() {
-        let val: JSValue = text.sub_string(ctx, range.clone())?.into();
+        let val: JSValue = if let Some(range) = range {
+            if i == 0 {
+                arr.define_property_value(
+                    ctx,
+                    JS_ATOM_index,
+                    JSValue::Int(range.start as i32),
+                    prop_flags,
+                )?;
+                last_index = range.end;
+            }
+
+            text.sub_string(ctx, range.clone())?.into()
+        } else {
+            JSValue::UNDEFINED
+        };
 
         arr.define_property_value_u32(ctx, i as _, val.clone(), prop_flags)?;
 
@@ -388,16 +402,6 @@ fn make_regexp_capture_array(
                 group = ctx.create_base_object()?.into();
             }
             group.define_property_value_str(ctx, name, val, prop_flags)?;
-        }
-
-        if i == 0 {
-            arr.define_property_value(
-                ctx,
-                JS_ATOM_index,
-                JSValue::Int(range.start as i32),
-                prop_flags,
-            )?;
-            last_index = range.end;
         }
     }
 

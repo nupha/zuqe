@@ -169,7 +169,7 @@ impl JSRegExp {
         &self,
         text: &JSString,
         from: usize,
-    ) -> Option<Box<[(Range<usize>, Option<&str>)]>> {
+    ) -> Option<Box<[(Option<Range<usize>>, Option<&str>)]>> {
         let sbuf = text.content();
         if from > sbuf.buf_len() {
             return None;
@@ -179,7 +179,7 @@ impl JSRegExp {
         let utf8_text = sbuf_slice.to_utf8();
 
         if let Some(caps) = self.regex.captures(utf8_text.as_bytes()) {
-            let mut res = Vec::<(Range<usize>, Option<&str>)>::new();
+            let mut res = Vec::<(Option<Range<usize>>, Option<&str>)>::new();
 
             for (cap, name) in caps.iter().zip(self.regex.capture_names()) {
                 if let Some(m) = cap {
@@ -198,7 +198,9 @@ impl JSRegExp {
 
                     let start_index = range.start + from;
                     let end_index = range.end + from;
-                    res.push(((start_index..end_index), name));
+                    res.push((Some(start_index..end_index), name));
+                } else {
+                    res.push((None, name))
                 }
             }
 
