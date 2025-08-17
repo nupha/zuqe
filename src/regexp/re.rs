@@ -126,7 +126,7 @@ impl JSRegExp {
         let is_sticky = self.flags & LRE_FLAG_STICKY as u8 != 0;
 
         let mut cursor = 0;
-        let mut last_range = 0..0;
+        let mut last_range = usize::MAX..usize::MAX;
         let mut res = Vec::<Range<usize>>::with_capacity(32);
 
         for m in self

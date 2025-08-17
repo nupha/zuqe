@@ -20,7 +20,7 @@ use crate::{
 
 use super::{
     JSRegExp, JSRegExpStringIteratorData, LRE_FLAG_DOTALL, LRE_FLAG_GLOBAL, LRE_FLAG_IGNORECASE,
-    LRE_FLAG_INDICES, LRE_FLAG_MULTILINE, LRE_FLAG_STICKY, LRE_FLAG_UTF16, RegExpExecMode,
+    LRE_FLAG_INDICES, LRE_FLAG_MULTILINE, LRE_FLAG_STICKY, LRE_FLAG_UTF16,
 };
 
 /* create a RegExp object from a string containing the RegExp bytecode
@@ -55,8 +55,17 @@ pub fn js_regexp_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     }
 
-    let mut re = if let Some(re) = pat.object().and_then(|o| js_get_regexp(ctx, o, false)) {
-        re
+    let mut pattern: StringContent = Rc::new(StringBuf::Empty);
+    let mut flags_str: StringContent = Rc::new(StringBuf::Empty);
+
+    let re = if let Some(re) = pat.object().and_then(|o| js_get_regexp(ctx, o, false)) {
+        if flags1.is_undefined() {
+            Some(re)
+        } else {
+            pattern = re.pattern.clone();
+            flags_str = re.flags_str.clone();
+            None
+        }
     } else {
         if pat_is_regexp {
             pat = pat.get_property(ctx, JS_ATOM_source)?;
@@ -65,51 +74,37 @@ pub fn js_regexp_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
             }
         }
 
-        let pattern = if pat.is_undefined() {
+        pattern = if pat.is_undefined() {
             Rc::new(StringBuf::Empty)
         } else {
             pat.to_string(ctx)?.content().clone()
         };
 
-        let (re, flags) = JSRegExp::new_re(ctx, &pattern.to_utf8(), "".chars()).map_err(|e| {
-            ctx.throw_error(ErrorKind::Syntax, &e.to_string());
-            -1
-        })?;
+        flags_str = if !flags1.is_undefined() {
+            flags1.to_string(ctx)?.content().clone()
+        } else {
+            Rc::new(StringBuf::Empty)
+        };
+
+        None
+    };
+
+    let re = if let Some(re) = re {
+        re
+    } else {
+        let (re, flags) = JSRegExp::new_re(ctx, &pattern.to_utf8(), flags_str.chars_lossy())
+            .map_err(|e| {
+                ctx.throw_error(ErrorKind::Syntax, &e.to_string());
+                -1
+            })?;
+
         JSRegExp {
             regex: Rc::new(re),
             pattern,
-            flags_str: Rc::new(StringBuf::Empty),
+            flags_str,
             flags,
         }
     };
-
-    if !flags1.is_undefined() {
-        // update flags
-        re.flags_str = flags1.to_string(ctx)?.content().clone();
-        for c in re.flags_str.chars_lossy() {
-            match c {
-                'g' => {
-                    re.flags |= LRE_FLAG_GLOBAL as u8;
-                }
-                'i' => {
-                    re.flags |= LRE_FLAG_IGNORECASE as u8;
-                }
-                'm' => {
-                    re.flags |= LRE_FLAG_MULTILINE as u8;
-                }
-                'u' | 'v' => {
-                    re.flags |= LRE_FLAG_UTF16 as u8;
-                }
-                's' => {
-                    re.flags |= LRE_FLAG_DOTALL as u8;
-                }
-                'y' => {
-                    re.flags |= LRE_FLAG_STICKY as u8;
-                }
-                _ => {}
-            }
-        }
-    }
 
     let obj = ctx
         .create_object_apply_ctor(cc.this(), ObjectDetail::REGEXP(Box::new(re)))

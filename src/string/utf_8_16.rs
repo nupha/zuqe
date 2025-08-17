@@ -60,8 +60,8 @@ fn map_utf8_to_utf16_pos_floor(s8: &[u8], s16: &[u16], pos: usize) -> usize {
     let mut it = U16CharIter::new(s16, 0);
     let utf8_text = unsafe { str::from_utf8_unchecked(s8) };
 
-    let (start_char_floor, start_index) = if pos == 0 {
-        (pos, pos)
+    let start_index = if pos == 0 {
+        pos
     } else {
         // detect char boundary at pos
         // let char_bound = utf8_char_boundary_at(s8, pos);
@@ -109,7 +109,7 @@ fn map_utf8_to_utf16_pos_floor(s8: &[u8], s16: &[u16], pos: usize) -> usize {
             _ => unreachable!(),
         }
 
-        (char_bound, idx)
+        idx
     };
 
     start_index
@@ -180,8 +180,13 @@ pub(crate) fn map_utf8_to_utf16_range(
     if s8_range.start == 0 && s8_range.len() == s8.len() {
         0..s16.len() // all content
     } else {
-        map_utf8_to_utf16_pos_floor(s8, s16, s8_range.start)
-            ..map_utf8_to_utf16_pos_ceil(s8, s16, s8_range.end)
+        let start = map_utf8_to_utf16_pos_floor(s8, s16, s8_range.start);
+        if s8_range.len() == 0 {
+            start..start
+        } else {
+            let end = map_utf8_to_utf16_pos_ceil(s8, s16, s8_range.end);
+            start..end
+        }
     }
 }
 

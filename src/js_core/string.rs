@@ -682,23 +682,24 @@ pub fn check_regexp_g_flag(ctx: &JSContext, regexp: &JSValue) -> i32 {
 
 pub fn js_string_match(ctx: &JSContext, cc: CallContext) -> JSResult {
     let magic_method = JSAtom(cc.magic() as u32); // match, matchAll, search
-
     let this = cc.this();
+
     if this.is_undefined_or_null() {
         ctx.throw_type_error("cannot convert to object");
         return Err(-1);
     }
 
-    let pattern = cc.arg(0);
-    if !pattern.is_undefined_or_null() {
-        let matcher = pattern.get_property(ctx, magic_method)?;
+    let regexp = cc.arg(0);
+
+    if !regexp.is_undefined_or_null() {
+        let matcher = regexp.get_property(ctx, magic_method)?;
         if magic_method == JS_ATOM_Symbol_matchAll {
-            if check_regexp_g_flag(ctx, pattern) < 0 {
+            if check_regexp_g_flag(ctx, regexp) < 0 {
                 return Err(-1);
             }
         }
         if !matcher.is_undefined_or_null() {
-            return JS_Call(ctx, &matcher, pattern, std::slice::from_ref(this)).error();
+            return matcher.call(ctx, regexp, std::slice::from_ref(this));
         }
     }
 
@@ -706,7 +707,7 @@ pub fn js_string_match(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     // make RegExp object
     let mut args_len = 1;
-    let mut args = [pattern.clone(), JSValue::UNDEFINED];
+    let mut args = [regexp.clone(), JSValue::UNDEFINED];
     if magic_method == JS_ATOM_Symbol_matchAll {
         args[args_len as usize] = ctx.create_string_from_char('g'.into())?.into();
         args_len += 1;
