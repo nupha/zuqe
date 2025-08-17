@@ -1,13 +1,13 @@
 use std::{ops::Deref, rc::Rc};
 
-use regex::Regex;
+use regex::bytes::Regex;
 
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_REGEXP,
     atom::consts::*,
     context::{JS_GetActiveFunction, JSContext},
     error::{ErrorKind, JSResult},
-    function::{CallContext, JS_Call, JS_CallConstructor, NativeField, NativeFunctionType},
+    function::{CallContext, JS_CallConstructor, NativeField, NativeFunctionType},
     js_core::js_get_this,
     object::{
         JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, JS_SpeciesConstructor, JSObject,
@@ -71,16 +71,15 @@ pub fn js_regexp_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
             pat.to_string(ctx)?.content().clone()
         };
 
-        let regex = Regex::new(&pattern.to_utf8()).map_err(|e| {
+        let (re, flags) = JSRegExp::new_re(ctx, &pattern.to_utf8(), "".chars()).map_err(|e| {
             ctx.throw_error(ErrorKind::Syntax, &e.to_string());
             -1
         })?;
-
         JSRegExp {
-            regex: Rc::new(regex),
+            regex: Rc::new(re),
             pattern,
             flags_str: Rc::new(StringBuf::Empty),
-            flags: 0,
+            flags,
         }
     };
 
@@ -353,10 +352,11 @@ fn js_regexp_compile(ctx: &JSContext, cc: CallContext) -> JSResult {
             pattern1.to_string(ctx)?.content().clone()
         };
 
-        regex = Rc::new(Regex::new(&pattern.to_utf8()).map_err(|e| {
+        let (re, _) = JSRegExp::new_re(ctx, &pattern.to_utf8(), "".chars()).map_err(|e| {
             ctx.throw_error(ErrorKind::Syntax, &e.to_string());
             -1
-        })?);
+        })?;
+        regex = Rc::new(re);
     }
 
     cc.this()
@@ -378,23 +378,68 @@ pub fn js_regexp_exec(ctx: &JSContext, cc: CallContext) -> JSResult {
     let re = js_get_regexp(ctx, this, true).ok_or(-1)?;
     let str = cc.arg(0).to_string(ctx)?;
 
-    let (ret, last_index) = re
-        .exec(
-            ctx,
-            &str,
-            if re.flags & LRE_FLAG_GLOBAL as u8 == 0 {
-                0
-            } else {
-                let val = cc.this().get_property(ctx, JS_ATOM_lastIndex)?;
-                val.coerce_to_length(ctx)? as usize
-            },
-            RegExpExecMode::CaptureOnce,
-        )?
-        .unwrap_or_else(|| (JSValue::NULL, 0));
+    if let Some(caps) = re.capture(
+        &str,
+        if re.flags & LRE_FLAG_GLOBAL as u8 == 0 {
+            0
+        } else {
+            let val = cc.this().get_property(ctx, JS_ATOM_lastIndex)?;
+            val.coerce_to_length(ctx)? as usize
+        },
+    ) {
+        let arr = ctx.create_array()?;
+        let mut group = JSValue::UNDEFINED;
+        let prop_flags = JS_PROP_C_W_E | JS_PROP_THROW;
+        let mut last_index = 0;
 
-    this.set_property(ctx, JS_ATOM_lastIndex, JSValue::from(last_index as u32))?;
+        for (i, (range, name)) in caps.iter().enumerate() {
+            if i == 0 {
+                last_index = range.end;
+            }
 
-    Ok(ret)
+            let val: JSValue = str.sub_string(ctx, range.clone())?.into();
+
+            println!(
+                "[O.o] captured: range={range:?}, last_index={last_index}, content={:?}",
+                val
+            );
+
+            arr.define_property_value_u32(ctx, i as _, val.clone(), prop_flags)?;
+
+            if let Some(name) = name {
+                if group.is_undefined() {
+                    group = ctx.create_base_object()?.into();
+                }
+                group.define_property_value_str(ctx, name, val, prop_flags)?;
+            }
+        }
+
+        arr.define_property_value(ctx, JS_ATOM_groups, group, prop_flags)?;
+        this.set_property(ctx, JS_ATOM_lastIndex, JSValue::from(last_index as u32))?;
+
+        Ok(arr)
+    } else {
+        this.set_property(ctx, JS_ATOM_lastIndex, JSValue::Int(0))?;
+        Ok(JSValue::NULL)
+    }
+
+    // let (ret, last_index) = re
+    //     .exec(
+    //         ctx,
+    //         &str,
+    //         if re.flags & LRE_FLAG_GLOBAL as u8 == 0 {
+    //             0
+    //         } else {
+    //             let val = cc.this().get_property(ctx, JS_ATOM_lastIndex)?;
+    //             val.coerce_to_length(ctx)? as usize
+    //         },
+    //         RegExpExecMode::CaptureOnce,
+    //     )?
+    //     .unwrap_or_else(|| (JSValue::NULL, 0));
+
+    // this.set_property(ctx, JS_ATOM_lastIndex, JSValue::from(last_index as u32))?;
+
+    // Ok(ret)
 }
 
 pub fn js_regexp_test(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -415,12 +460,31 @@ pub fn js_regexp_Symbol_match(ctx: &JSContext, cc: CallContext) -> JSResult {
     if !exec.is_callable()
         || exec.match_native_callback(NativeFunctionType::Func(js_regexp_exec), 0)
     {
-        // fast path: use native regex find_iter()
-        let (ret, last_index) = re
-            .exec(ctx, &str, 0, RegExpExecMode::Match)?
-            .unwrap_or_else(|| (JSValue::NULL, 0));
-        this.set_property(ctx, JS_ATOM_lastIndex, JSValue::Int(last_index as _))?;
-        Ok(ret)
+        // fast path: use native regex find()
+        let found = re.find(&str, 0);
+        if !found.is_empty() {
+            let arr = ctx.create_array()?;
+            let prop_flags = JS_PROP_C_W_E | JS_PROP_THROW;
+            let mut last_index = 0;
+
+            for (i, range) in found.iter().enumerate() {
+                let val = str.sub_string(ctx, range.clone())?;
+                arr.define_property_value_u32(ctx, i as _, val.into(), prop_flags)?;
+                last_index = range.end;
+            }
+
+            this.set_property(ctx, JS_ATOM_lastIndex, JSValue::from(last_index as u32))?;
+            Ok(arr.into())
+        } else {
+            this.set_property(ctx, JS_ATOM_lastIndex, JSValue::Int(0))?;
+            Ok(JSValue::NULL)
+        }
+
+        // let (ret, last_index) = re
+        //     .exec(ctx, &str, 0, RegExpExecMode::Match)?
+        //     .unwrap_or_else(|| (JSValue::NULL, 0));
+        // this.set_property(ctx, JS_ATOM_lastIndex, JSValue::Int(last_index as _))?;
+        // Ok(ret)
     } else {
         // slow path: use customized exec method, and collect matched string to array
         let arr = ctx.create_array()?;
@@ -480,6 +544,30 @@ pub fn js_regexp_Symbol_matchAll(ctx: &JSContext, cc: CallContext) -> JSResult {
     let last_index = this.get_property(ctx, JS_ATOM_lastIndex)?;
 
     let str = cc.arg(0).to_string(ctx)?;
+
+    // O.o
+    #[cfg(debug_assertions)]
+    {
+        // re.debug_find(&str, 0, |t, range, m| {
+        //     //
+        // });
+
+        println!(
+            "[O.o] regex pattern={:?}, flags={:?}",
+            re.pattern.to_utf8(),
+            re.flags_str.to_utf8()
+        );
+
+        if let Some(caps) = re.capture(&str, 0) {
+            for (i, (range, name)) in caps.iter().enumerate() {
+                println!(
+                    "[O.o] capture {i}: name={name:?}, range={:?}, content={:?}",
+                    *range,
+                    str.content().iter_range(range.clone()).collect::<Vec<_>>()
+                );
+            }
+        }
+    }
 
     //
     // make matcher: regexp object
@@ -576,7 +664,7 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     for caps in re
         .regex
-        .captures_iter(&utf8_text)
+        .captures_iter(utf8_text.as_bytes())
         .take(if !is_global { 1 } else { usize::MAX })
     {
         if let Some(m) = caps.get(0) {
@@ -600,7 +688,7 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
             str_last_index = if utf8_cursor == utf8_text.len() {
                 str.content().buf_len()
             } else if let Some(it) = chars_iter.as_mut() {
-                let nc = m.as_str().chars().count();
+                let nc = std::str::from_utf8(m.as_bytes()).unwrap().chars().count();
                 it.nth(nc - 1).unwrap().0
             } else {
                 utf8_cursor
@@ -608,12 +696,18 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
 
             if let Some(rep_str) = rp.as_ref() {
                 let t = StringBuf::substitution(
-                    m.as_str(),
+                    std::str::from_utf8(m.as_bytes()).unwrap(),
                     str.content(),
                     pos,
                     rep_str.chars().map(|c| c.into()),
-                    |n| caps.get(n).map(|m| m.as_str().into()),
-                    |name| caps.name(name).map(|m| m.as_str().into()),
+                    |n| {
+                        caps.get(n)
+                            .map(|m| std::str::from_utf8(m.as_bytes()).unwrap().into())
+                    },
+                    |name| {
+                        caps.name(name)
+                            .map(|m| std::str::from_utf8(m.as_bytes()).unwrap().into())
+                    },
                 )
                 .map_err(|_| {
                     ctx.throw_out_of_memory();
@@ -635,17 +729,19 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
                 let obj = ctx.create_array()?;
                 for (i, cap) in caps.iter().enumerate() {
                     let val = if let Some(m) = cap {
-                        ctx.create_string_from_str(m.as_str())?.into()
+                        ctx.create_string_from_str(std::str::from_utf8(m.as_bytes()).unwrap())?
+                            .into()
                     } else {
                         JSValue::UNDEFINED
                     };
                     obj.define_property_value_u32(ctx, i as _, val, prop_flags)?;
                 }
-                for (name, matched) in re
-                    .regex
-                    .capture_names()
-                    .filter_map(|n| n.and_then(|n| caps.name(n).map(|m| ((n, m.as_str())))))
-                {
+                for (name, matched) in re.regex.capture_names().filter_map(|n| {
+                    n.and_then(|n| {
+                        caps.name(n)
+                            .map(|m| ((n, std::str::from_utf8(m.as_bytes()).unwrap())))
+                    })
+                }) {
                     let val = ctx.create_string_from_str(matched)?;
                     obj.define_property_value_str(ctx, name, val.into(), prop_flags)?;
                 }
@@ -683,7 +779,7 @@ fn js_regexp_Symbol_search(ctx: &JSContext, cc: CallContext) -> JSResult {
     let str = cc.arg(0).to_string(ctx)?;
     let utf8_text = str.content().to_utf8();
 
-    if let Some(m) = re.regex.find(&utf8_text) {
+    if let Some(m) = re.regex.find(utf8_text.as_bytes()) {
         let pos = if m.start() == 0 {
             0
         } else if str.content().is_wide() {
@@ -719,8 +815,12 @@ pub fn js_regexp_Symbol_split(ctx: &JSContext, cc: CallContext) -> JSResult {
     let prop_flags = JS_PROP_C_W_E | JS_PROP_THROW;
 
     // FIXME: consider sticky flag
-    for (i, s) in re.regex.splitn(&str.content().to_utf8(), limit).enumerate() {
-        let val = ctx.create_string_from_str(s)?;
+    for (i, s) in re
+        .regex
+        .splitn(str.content().to_utf8().as_bytes(), limit)
+        .enumerate()
+    {
+        let val = ctx.create_string_from_str(std::str::from_utf8(s).unwrap())?;
         arr.define_property_value_u32(ctx, i as _, val.into(), prop_flags)?;
     }
 

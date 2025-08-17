@@ -1,4 +1,4 @@
-use regex::Regex;
+use regex::bytes::Regex;
 
 use crate::{
     parse::token::{TOK_REGEXP, TokenData},

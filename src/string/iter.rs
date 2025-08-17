@@ -1,17 +1,8 @@
-use std::{
-    iter::Peekable,
-    ops::Range,
-    str::{CharIndices, Chars},
-};
-
-use widestring::{
-    U16Str,
-    ustr::{CharIndicesLossyUtf16, CharsLossyUtf16},
-};
+use std::{iter::Peekable, ops::Range};
 
 use super::StringBuf;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum StringChar {
     Char(char),
     BrokenCode(u32),
@@ -40,6 +31,25 @@ impl From<u16> for StringChar {
     }
 }
 
+impl std::fmt::Display for StringChar {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Char(c) => {
+                write!(f, "{c}")
+            }
+            Self::BrokenCode(c) => {
+                write!(f, "\\u{{{:4X}}}", *c)
+            }
+        }
+    }
+}
+
+impl std::fmt::Debug for StringChar {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "'{}'", self.to_string())
+    }
+}
+
 impl StringChar {
     pub fn to_u32(self) -> u32 {
         match self {
@@ -59,72 +69,31 @@ impl StringChar {
 }
 
 #[derive(Clone)]
-pub enum StringBufIter<'a> {
-    U16 {
-        it: Peekable<std::slice::Iter<'a, u16>>,
-        cursor: usize,
-    },
-    U8 {
-        it: Peekable<std::slice::Iter<'a, u8>>,
-        cursor: usize,
-    },
+pub struct U16CharIter<'a> {
+    data: Peekable<std::slice::Iter<'a, u16>>,
+    cursor: usize,
 }
 
-impl<'a> Iterator for StringBufIter<'a> {
+impl<'a> Iterator for U16CharIter<'a> {
     type Item = (usize, StringChar);
 
+    /// returns (next_pos, char)
     fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            Self::U16 { it, cursor } => Self::next_u16(it, cursor).map(|c| (*cursor, c)),
-            Self::U8 { it, cursor } => Self::next_u8(it, cursor).map(|c| (*cursor, c)),
-        }
-    }
-}
-
-impl<'a> StringBufIter<'a> {
-    fn from_u16(slice: &'a [u16]) -> Self {
-        let it = slice.iter();
-        let it = it.peekable();
-        Self::U16 { it, cursor: 0 }
-    }
-
-    fn from_u8(slice: &'a [u8]) -> Self {
-        let it = slice.iter();
-        let it = it.peekable();
-        Self::U8 { it, cursor: 0 }
-    }
-
-    #[inline]
-    fn next_u8(
-        it: &mut Peekable<std::slice::Iter<'_, u8>>,
-        cursor: &mut usize,
-    ) -> Option<StringChar> {
-        it.next().map(|c| {
-            *cursor += 1;
-            StringChar::Char(*c as char)
-        })
-    }
-
-    #[inline]
-    fn next_u16(
-        it: &mut Peekable<std::slice::Iter<'_, u16>>,
-        cursor: &mut usize,
-    ) -> Option<StringChar> {
-        while let Some(n) = it.next() {
+        while let Some(n) = self.data.next() {
             let high = *n as u32;
-            *cursor += 1;
+            self.cursor += 1;
 
             let r = if (0xD800..=0xDBFF).contains(&high) {
-                if let Some(low) = it.peek() {
+                if let Some(low) = self.data.peek() {
                     if (0xDC00..=0xDFFF).contains(*low) {
                         // 合法代理对 → 组合成有效的 Unicode 字符
                         let code_point =
                             ((high - 0xD800) << 10) + (**low as u32 - 0xDC00) + 0x10000;
 
                         if let Some(ch) = char::from_u32(code_point) {
-                            it.next(); // 消耗低代理项
-                            *cursor += 1;
-                            return Some(StringChar::Char(ch));
+                            self.data.next(); // 消耗低代理项
+                            self.cursor += 1;
+                            return Some((self.cursor, StringChar::Char(ch)));
                         }
                     }
                 }
@@ -143,17 +112,70 @@ impl<'a> StringBufIter<'a> {
                 }
             };
 
-            return Some(r);
+            return Some((self.cursor, r));
         }
 
         None
+    }
+}
+
+impl<'a> U16CharIter<'a> {
+    pub fn new(slice: &'a [u16], base_index: usize) -> Self {
+        let it = slice.iter();
+        let it = it.peekable();
+        Self {
+            data: it,
+            cursor: base_index,
+        }
+    }
+
+    /// peek next code (not char).
+    pub fn peek(&mut self) -> Option<u16> {
+        self.data.peek().copied().map(|c| *c)
+    }
+}
+
+#[derive(Clone)]
+pub enum StringBufIter<'a> {
+    U16(U16CharIter<'a>),
+    U8 {
+        it: Peekable<std::slice::Iter<'a, u8>>,
+        cursor: usize,
+    },
+}
+
+impl<'a> Iterator for StringBufIter<'a> {
+    type Item = (usize, StringChar);
+
+    /// returns (next_pos, char)
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::U16(it) => it.next(),
+            Self::U8 { it, cursor } => it.next().map(|c| {
+                *cursor += 1;
+                (*cursor, StringChar::Char(*c as char))
+            }),
+        }
+    }
+}
+
+impl<'a> StringBufIter<'a> {
+    fn from_u16(slice: &'a [u16], base_index: usize) -> Self {
+        Self::U16(U16CharIter::new(slice, base_index))
+    }
+
+    fn from_u8(slice: &'a [u8], base_index: usize) -> Self {
+        Self::U8 {
+            it: slice.iter().peekable(),
+            cursor: base_index,
+        }
     }
 
     /// get current cursor
     pub fn cursor(&self) -> usize {
         match self {
             Self::U8 { cursor, .. } => *cursor,
-            Self::U16 { cursor, .. } => *cursor,
+            Self::U16(it) => it.cursor,
         }
     }
 
@@ -161,26 +183,7 @@ impl<'a> StringBufIter<'a> {
     pub fn peek(&mut self) -> Option<u16> {
         match self {
             Self::U8 { it, .. } => it.peek().copied().map(|c| *c as _),
-            Self::U16 { it, .. } => it.peek().copied().map(|c| *c),
-        }
-    }
-}
-
-#[deprecated(note = "use StringChar instead")]
-#[derive(Clone)]
-pub enum StringChars<'a> {
-    Empty,
-    Utf8(Chars<'a>),
-    Utf16(CharsLossyUtf16<'a>),
-}
-
-impl Iterator for StringChars<'_> {
-    type Item = char;
-    fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            Self::Empty => None,
-            Self::Utf8(s) => s.next(),
-            Self::Utf16(s) => s.next(),
+            Self::U16(it) => it.peek(),
         }
     }
 }
@@ -191,19 +194,19 @@ impl StringBuf {
     /// for broken surrogate, returns raw code directly, otherwise returns unichar
     pub fn iter_range(&self, range: Range<usize>) -> StringBufIter<'_> {
         match self {
-            Self::Empty | Self::Null => StringBufIter::from_u8(&[]),
+            Self::Empty | Self::Null => StringBufIter::from_u8(&[], range.start),
             Self::Ascii(s) => {
-                if let Some(slice) = s.get(range) {
-                    StringBufIter::from_u8(slice)
+                if let Some(slice) = s.get(range.clone()) {
+                    StringBufIter::from_u8(slice, range.start)
                 } else {
-                    StringBufIter::from_u8(&[])
+                    StringBufIter::from_u8(&[], range.start)
                 }
             }
             Self::Utf16(s) => {
-                if let Some(slice) = s.get(range) {
-                    StringBufIter::from_u16(slice)
+                if let Some(slice) = s.get(range.clone()) {
+                    StringBufIter::from_u16(slice, range.start)
                 } else {
-                    StringBufIter::from_u16(&[])
+                    StringBufIter::from_u16(&[], range.start)
                 }
             }
         }

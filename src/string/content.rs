@@ -820,7 +820,7 @@ impl StringBuf {
         }
     }
 
-    pub fn as_slice(&self) -> StringBufSlice {
+    pub fn as_slice(&self) -> StringBufSlice<'_> {
         StringBufSlice {
             src: self,
             buf_ranges: 0..self.buf_len(),
@@ -1024,6 +1024,19 @@ impl StringBufSlice<'_> {
     #[inline(always)]
     pub fn is_empty(&self) -> bool {
         self.buf_len() == 0
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        let bb = self.src.as_bytes();
+        if self.is_wide() && !bb.is_empty() {
+            if self.is_wide() {
+                &bb[(self.buf_ranges.start * 2)..(self.buf_ranges.end * 2)]
+            } else {
+                &bb[self.buf_ranges.clone()]
+            }
+        } else {
+            bb
+        }
     }
 
     /// encode slice content to utf8 str
