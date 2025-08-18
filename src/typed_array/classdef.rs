@@ -16,7 +16,7 @@ use crate::{
     class::JSClassID,
     context::JSContext,
     error::{JS_ThrowRangeError, JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
-    function::{CallContext, JS_Call, JS_CallConstructor, NativeField},
+    function::{CallContext, FieldDef, JS_CallConstructor},
     iterator::{JSIteratorKindEnum, js_create_array_iterator},
     js_core::js_get_this,
     object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_SpeciesConstructor, js_get_length64},
@@ -173,7 +173,7 @@ pub fn js_typed_array_constructor_ta(
 }
 
 pub fn js_typed_array_create(ctx: &JSContext, ctor: &JSValue, args: &[JSValue]) -> JSResult {
-    let ret = JS_CallConstructor(ctx, ctor, args).error()?;
+    let ret = JS_CallConstructor(ctx, ctor, args).err()?;
 
     // validate the typed array
     let new_len = unsafe { js_typed_array_get_length_internal(ctx, &ret)? };
@@ -232,7 +232,7 @@ pub fn js_typed_array_from(ctx: &JSContext, args: CallContext) -> JSResult {
     for i in 0..len {
         let mut el = arr.get_property_i64(ctx, i)?;
         if mapping {
-            el = JS_Call(ctx, mapfn, &this_arg, &[el, JSValue::Int(i as i32)]).error()?;
+            el = mapfn.call(ctx, &this_arg, &[el, JSValue::Int(i as i32)])?;
         }
         res_ta.set_property_i64(ctx, i, el)?;
     }
@@ -250,7 +250,7 @@ pub fn js_typed_array_of(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(obj)
 }
 
-pub const js_typed_array_base_funcs: [NativeField; 3] = [
+pub static js_typed_array_base_funcs: [FieldDef; 3] = [
     JS_CFUNC_NATIVE_DEF!("from", 1, js_typed_array_from, 0),
     JS_CFUNC_NATIVE_DEF!("of", 0, js_typed_array_of, 0),
     JS_CGETSET_DEF!("[Symbol.species]", js_get_this, NONE),
@@ -573,13 +573,11 @@ pub fn js_typed_array_find(ctx: &JSContext, args: CallContext) -> JSResult {
         let index_val = JSValue::Int(k);
         let val = this_val.get_property_value(ctx, &index_val)?;
 
-        let res = JS_Call(
+        let res = func.call(
             ctx,
-            func,
             this_arg,
             &[val.clone(), index_val.clone(), this_val.clone()],
-        )
-        .error()?;
+        )?;
 
         if res.coerce_to_bool(ctx).unwrap_or(true) {
             return if matches!(args.magic(), special_findIndex | special_findLastIndex) {
@@ -1132,7 +1130,7 @@ pub fn js_typed_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
     })
 }
 
-pub const js_typed_array_base_proto_funcs: [NativeField; 36] = [
+pub static js_typed_array_base_proto_funcs: [FieldDef; 36] = [
     JS_CGETSET_DEF!("length", js_typed_array_get_length, NONE),
     JS_CFUNC_NATIVE_DEF!("at", 1, js_typed_array_at, 0),
     JS_CFUNC_NATIVE_DEF!("with", 2, js_typed_array_with, 0),

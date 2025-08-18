@@ -26,9 +26,8 @@ use crate::{
     },
     eval::JS_EVAL_TYPE_DIRECT,
     function::{
-        Bytecode, CallContext, JS_Call, JS_CallConstructorInternal, JS_CallInternal,
-        JSFunctionKindEnum, JSVarRef, build_arg_list, js_build_arguments,
-        js_build_mapped_arguments, js_function_apply,
+        Bytecode, CallContext, JS_CallConstructorInternal, JS_CallInternal, JSFunctionKindEnum,
+        JSVarRef, build_arg_list, js_build_arguments, js_build_mapped_arguments, js_function_apply,
     },
     generator::{FUNC_RET_AWAIT, FUNC_RET_INITIAL_YIELD, FUNC_RET_YIELD, FUNC_RET_YIELD_STAR},
     iterator::ObjectIter,
@@ -975,7 +974,9 @@ impl Bytecode {
                                     JSValue::UNDEFINED
                                 }
                             } else {
-                                JS_Call(ctx, func_val, &JSValue::UNDEFINED, &arg_list)
+                                func_val
+                                    .call(ctx, &JSValue::UNDEFINED, &arg_list)
+                                    .unwrap_or(JSValue::EXCEPTION)
                             };
 
                             if ret_val.is_exception() {
@@ -1448,16 +1449,14 @@ impl Bytecode {
                     OpCode::ITERATOR_NEXT => {
                         // [iter_obj, next, catch_offset, val, ^] -> [iter_obj, next, catch_offset, val2, ^]
                         // [      -4,   -3,           -2,  -1, 0]
-                        let ret = JS_Call(
-                            ctx,
-                            SP_REF!(-3),                       // next
-                            SP_REF!(-4),                       // iter_obj
-                            std::slice::from_ref(SP_REF!(-1)), // val
-                        );
-                        if ret.is_exception() {
-                            break State::Exception;
-                        } else {
+                        //
+                        // SP[-3]: next_method, SP[-4]: iter_obj, SP[-1]: val
+                        if let Ok(ret) =
+                            SP_REF!(-3).call(ctx, SP_REF!(-4), std::slice::from_ref(SP_REF!(-1)))
+                        {
                             SP_PUT!(-1, ret);
+                        } else {
+                            break State::Exception;
                         }
                     }
                     OpCode::ITERATOR_CALL => {
@@ -1476,20 +1475,18 @@ impl Bytecode {
                             let ret_flag = if method.is_undefined_or_null() {
                                 true
                             } else {
-                                let ret = JS_Call(
+                                if let Ok(ret) = method.call(
                                     ctx,
-                                    &method,
                                     SP_REF!(-4),
                                     if flags & 2 != 0 {
                                         &[]
                                     } else {
                                         std::slice::from_ref(SP_REF!(-1))
                                     },
-                                );
-                                if ret.is_exception() {
-                                    break State::Exception;
-                                } else {
+                                ) {
                                     SP_PUT!(-1, ret);
+                                } else {
+                                    break State::Exception;
                                 }
                                 false
                             };

@@ -4,8 +4,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{
-        CallContext, JS_Call, JSFunctionKindEnum, NativeField, ObjBoundFunc, ObjFunc,
-        js_function_apply,
+        CallContext, FieldDef, JSFunctionKindEnum, ObjBoundFunc, ObjFunc, js_function_apply,
     },
     object::{JS_PROP_CONFIGURABLE, ObjectDetail},
     string::JS_ConcatString3,
@@ -14,16 +13,14 @@ use crate::{
 
 pub fn js_function_call(ctx: &JSContext, args: CallContext) -> JSResult {
     if args.length() > 0 {
-        JS_Call(
+        args.this().call(
             ctx,
-            args.this(),
             args.arg(0),
             &args.arguments()[1..], // chop first argument (thisArg)
         )
     } else {
-        JS_Call(ctx, args.this(), &JSValue::UNDEFINED, &[])
+        args.this().call(ctx, &JSValue::UNDEFINED, &[])
     }
-    .error()
 }
 
 pub fn js_function_bind(ctx: &JSContext, args: CallContext) -> JSResult {
@@ -187,7 +184,7 @@ pub fn js_function_proto_lineNumber(_: &JSContext, args: CallContext) -> JSResul
     }
 }
 
-pub const js_function_proto_funcs: [NativeField; 7] = [
+pub static js_function_proto_funcs: [FieldDef; 7] = [
     JS_CFUNC_NATIVE_DEF!("call", 1, js_function_call, 0),
     JS_CFUNC_NATIVE_DEF!("apply", 2, js_function_apply, 0),
     JS_CFUNC_NATIVE_DEF!("bind", 1, js_function_bind, 0),

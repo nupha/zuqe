@@ -8,8 +8,8 @@ use crate::{
     },
     bytecode::arithmatic::JSStrictEqModeEnum,
     context::JSContext,
-    error::{JS_ThrowRangeError, JSResult},
-    function::{CallContext, JS_Call, JS_CallConstructor, JS_GetFunctionRealm, NativeField},
+    error::JSResult,
+    function::{CallContext, FieldDef, JS_CallConstructor, JS_GetFunctionRealm},
     iterator::{JSIteratorKindEnum, js_array_iterator_next, js_create_array_iterator},
     js_core::{js_get_this, object::js_object_toString},
     number::MAX_SAFE_INTEGER,
@@ -104,7 +104,7 @@ fn JS_ArraySpeciesCreate(ctx: &JSContext, obj: &JSValue, len_val: &JSValue) -> J
             ),
         )
     } else {
-        JS_CallConstructor(ctx, &ctor, std::slice::from_ref(len_val)).error()
+        JS_CallConstructor(ctx, &ctor, std::slice::from_ref(len_val)).err()
     }
 }
 
@@ -165,7 +165,7 @@ pub fn js_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     if idx < 0 || idx >= len {
-        JS_ThrowRangeError(ctx, "out of bound");
+        ctx.throw_range_error("out of bound");
         return Err(-1);
     }
 
@@ -359,7 +359,7 @@ pub fn js_array_every(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
 
         if present {
-            let index_val = JSValue::from(k).error()?;
+            let index_val = JSValue::from(k).err()?;
             let res = func.call(ctx, &this_arg, &[val.clone(), index_val, obj.clone()])?;
 
             match special {
@@ -478,15 +478,12 @@ pub fn js_array_reduce(ctx: &JSContext, cc: CallContext) -> JSResult {
         };
 
         if present {
-            let index_val = JSValue::from(k1 as i64).error()?;
-            let acc1 = JS_Call(
+            let index_val = JSValue::from(k1 as i64).err()?;
+            acc = func.call(
                 ctx,
-                &func,
                 &JSValue::UNDEFINED,
                 &[acc, val.clone(), index_val, obj.clone()],
-            )
-            .error()?;
-            acc = acc1;
+            )?;
         }
     }
 
@@ -551,13 +548,11 @@ pub fn js_array_find(ctx: &JSContext, cc: CallContext) -> JSResult {
     while k != end {
         let index_val = JSValue::from(k);
         let val = obj.get_property_value(ctx, &index_val)?;
-        let res = JS_Call(
+        let res = func.call(
             ctx,
-            func,
             this_arg,
             &[val.clone(), index_val.clone(), this_val.clone()],
-        )
-        .error()?;
+        )?;
 
         if res.coerce_to_bool(ctx)? {
             // found
@@ -755,7 +750,7 @@ pub fn js_array_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
         // Use intrinsic Object.prototype.toString
         js_object_toString(ctx, CallContext::new(ctx, obj, &[], 0, None))
     } else {
-        JS_Call(ctx, &method, &obj, &[]).error()
+        method.call(ctx, &obj, &[])
     }
 }
 
@@ -1241,13 +1236,11 @@ fn JS_FlattenIntoArray(
         match source.try_get_property_i64(ctx, sourceIndex)? {
             Some(mut el) => {
                 if !mapper_func.is_undefined() {
-                    el = JS_Call(
+                    el = mapper_func.call(
                         ctx,
-                        mapper_func,
                         this_arg,
                         &[el, JSValue::from(sourceIndex), source.clone()],
-                    )
-                    .error()?;
+                    )?;
                 }
 
                 if depth > 0 {
@@ -1296,7 +1289,7 @@ fn JS_FlattenIntoArray(
     Ok(target_index)
 }
 
-pub const js_array_proto_funcs: [NativeField; 39] = [
+pub static js_array_proto_funcs: [FieldDef; 39] = [
     JS_CFUNC_NATIVE_DEF!("at", 1, js_array_at, 0),
     JS_CFUNC_NATIVE_DEF!("with", 2, js_array_with, 0),
     JS_CFUNC_NATIVE_DEF!("concat", 1, js_array_concat, 0),
@@ -1363,7 +1356,7 @@ pub const js_array_proto_funcs: [NativeField; 39] = [
     ),
 ];
 
-pub const js_array_iterator_proto_funcs: [NativeField; 2] = [
+pub static js_array_iterator_proto_funcs: [FieldDef; 2] = [
     JS_NATIVE_ITERATOR_NEXT_DEF!("next", 0, js_array_iterator_next, 0),
     JS_PROP_STRING_DEF!(
         "[Symbol.toStringTag]",
@@ -1403,7 +1396,7 @@ pub fn js_array_from(ctx: &JSContext, cc: CallContext) -> JSResult {
     {
         // `items` is iterable
         let arr = if cc.this().is_constructor() {
-            JS_CallConstructor(ctx, cc.this(), &[]).error()?
+            JS_CallConstructor(ctx, cc.this(), &[]).err()?
         } else {
             ctx.create_array()?
         };
@@ -1423,7 +1416,7 @@ pub fn js_array_from(ctx: &JSContext, cc: CallContext) -> JSResult {
         let array_like: JSValue = items.to_object(ctx)?.into();
         let len = js_get_length64(ctx, &array_like)?;
         let arr = if cc.this().is_constructor() {
-            JS_CallConstructor(ctx, cc.this(), &[JSValue::from(len)]).error()?
+            JS_CallConstructor(ctx, cc.this(), &[JSValue::from(len)]).err()?
         } else {
             js_array_constructor(
                 ctx,
@@ -1449,7 +1442,7 @@ pub fn js_array_from(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_array_of(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj = if cc.this().is_constructor() {
-        JS_CallConstructor(ctx, cc.this(), &[JSValue::Int(cc.length() as i32)]).error()?
+        JS_CallConstructor(ctx, cc.this(), &[JSValue::Int(cc.length() as i32)]).err()?
     } else {
         ctx.create_array()?
     };
@@ -1467,7 +1460,7 @@ pub fn js_array_isArray(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(JSValue::Bool(cc.arg(0).is_array(ctx)?))
 }
 
-pub const js_array_funcs: [NativeField; 4] = [
+pub static js_array_funcs: [FieldDef; 4] = [
     JS_CFUNC_NATIVE_DEF!("isArray", 1, js_array_isArray, 0),
     JS_CFUNC_NATIVE_DEF!("from", 1, js_array_from, 0),
     JS_CFUNC_NATIVE_DEF!("of", 0, js_array_of, 0),

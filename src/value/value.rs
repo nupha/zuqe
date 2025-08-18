@@ -332,7 +332,7 @@ impl JSValue {
 
     /// if `self` is an exception, returns Err if yes; Otherwise returns Ok(self)
     #[inline]
-    pub fn error(self) -> Result<Self, i32> {
+    pub fn err(self) -> Result<Self, i32> {
         if self.is_exception() {
             Err(-1)
         } else {

@@ -24,7 +24,7 @@ pub const JS_DEF_OBJECT: u8 = 8;
 pub const JS_DEF_ALIAS: u8 = 9;
 
 #[derive(Clone)]
-pub struct NativeField {
+pub struct FieldDef {
     pub name: &'static str,
     pub detail: NativeFieldDetail,
     pub prop_flags: u8,
@@ -47,7 +47,7 @@ pub enum NativeFieldDetail {
         base: i32,
     },
     /// Lazy init object
-    Object(Cow<'static, [NativeField]>),
+    Object(Cow<'static, [FieldDef]>),
     Str(&'static str),
     Int32(i32),
     Int64(i64),
@@ -59,7 +59,7 @@ impl JSObject {
     pub fn install_native_fields(
         &self,
         ctx: &JSContext,
-        entries: &[NativeField],
+        entries: &[FieldDef],
     ) -> Result<(), i32> {
         for entry in entries {
             let atom = ctx.make_lazy_prop_atom(entry.name)?;
@@ -73,7 +73,7 @@ impl JSObject {
         &self,
         ctx: &JSContext,
         atom: JSAtom,
-        e: &NativeField,
+        e: &FieldDef,
     ) -> Result<(), i32> {
         let val: JSValue;
         let mut prop_flags = e.prop_flags;
@@ -122,7 +122,7 @@ impl JSObject {
                     ctx,
                     atom,
                     LazyInit::Prop(unsafe {
-                        NonNull::new_unchecked(e as *const NativeField as *mut NativeField)
+                        NonNull::new_unchecked(e as *const FieldDef as *mut FieldDef)
                     }),
                     prop_flags as _,
                 );
@@ -173,7 +173,7 @@ impl JSValue {
     pub fn install_native_fields(
         &self,
         ctx: &JSContext,
-        entries: &[NativeField],
+        entries: &[FieldDef],
     ) -> Result<(), i32> {
         if let Self::Object(o) = self {
             o.install_native_fields(ctx, entries)
@@ -187,7 +187,7 @@ impl JSValue {
     //     &self,
     //     ctx: &JSContext,
     //     atom: JSAtom,
-    //     e: &NativeField,
+    //     e: &FieldDef,
     // ) -> Result<(), i32> {
     //     let val: JSValue;
     //     let mut prop_flags = e.prop_flags;
@@ -235,7 +235,7 @@ impl JSValue {
     //                     ctx,
     //                     atom,
     //                     LazyInit::Prop(NonNull::new_unchecked(
-    //                         e as *const NativeField as *mut NativeField,
+    //                         e as *const FieldDef as *mut FieldDef,
     //                     )),
     //                     prop_flags as _,
     //                 )

@@ -10,7 +10,7 @@ use crate::{
     atom::consts::*,
     context::{JS_GetActiveFunction, JSContext},
     error::{ErrorKind, JSResult},
-    function::{CallContext, JS_CallConstructor, NativeField, NativeFunctionType},
+    function::{CallContext, JS_CallConstructor, FieldDef, NativeFunctionType},
     js_core::js_get_this,
     object::{
         JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, JS_SpeciesConstructor, JSObject,
@@ -570,7 +570,7 @@ pub fn js_regexp_Symbol_matchAll(ctx: &JSContext, cc: CallContext) -> JSResult {
             ctx.create_string_with_content(re.flags_str.clone())?.into(),
         ],
     )
-    .error()?;
+    .err()?;
     matcher.set_property(ctx, JS_ATOM_lastIndex, last_index)?;
 
     // make regexp string iterator object
@@ -817,7 +817,7 @@ pub fn js_regexp_Symbol_split(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(arr)
 }
 
-pub const js_regexp_proto_funcs: [NativeField; 18] = [
+pub static js_regexp_proto_funcs: [FieldDef; 18] = [
     JS_CGETSET_NATIVE_DEF!("flags", js_regexp_get_flags, NONE, 0),
     JS_CGETSET_NATIVE_DEF!("source", js_regexp_get_source, NONE, 0),
     JS_CGETSET_NATIVE_DEF!("global", js_regexp_get_flag, NONE, LRE_FLAG_GLOBAL as _),
@@ -855,7 +855,7 @@ pub const js_regexp_proto_funcs: [NativeField; 18] = [
     //JS_CGETSET_DEF("__flags", js_regexp_get___flags, NULL ),
 ];
 
-pub const js_regexp_funcs: [NativeField; 1] = [
+pub static js_regexp_funcs: [FieldDef; 1] = [
     JS_CGETSET_DEF!("[Symbol.species]", js_get_this, NONE),
     //JS_CFUNC_DEF("__RegExpExec", 2, js_regexp___RegExpExec ),
     //JS_CFUNC_DEF("__RegExpDelete", 2, js_regexp___RegExpDelete ),

@@ -5,7 +5,7 @@ use crate::{
     context::{JS_GetActiveFunction, JSContext},
     defer,
     error::JSResult,
-    function::{CallContext, JS_Call, NativeField},
+    function::{CallContext, FieldDef},
     iterator::JSIteratorKindEnum,
     js_core::mapset::{js_map_constructor, js_map_get, js_map_set},
     number::MAX_SAFE_INTEGER,
@@ -192,13 +192,8 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
             return Err(-1);
         }
 
-        let key = JS_Call(
-            ctx,
-            &cb,
-            &ctx.0.borrow().global_obj,
-            &[val.clone(), JSValue::from(idx)],
-        )
-        .error()?;
+        let global = ctx.0.borrow().global_obj.clone();
+        let key = cb.call(ctx, &global, &[val.clone(), JSValue::from(idx)])?;
 
         // get prop value array and key atom
         let (props_arr, key_atom): (JSResult, JSAtom) = if is_map != 0 {
@@ -211,7 +206,7 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
                         std::slice::from_ref(&key).as_ptr() as _,
                         0,
                     )
-                    .error()
+                    .err()
                 },
                 JS_ATOM_NULL,
             )
@@ -442,7 +437,7 @@ pub fn js_object_hasOwn(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(JSValue::Bool(obj.get_own_property(ctx, atom)?.is_some()))
 }
 
-pub const js_object_funcs: [NativeField; 23] = [
+pub static js_object_funcs: [FieldDef; 23] = [
     JS_CFUNC_NATIVE_DEF!("create", 2, js_object_create, 0),
     JS_CFUNC_NATIVE_DEF!("getPrototypeOf", 1, js_object_getPrototypeOf, 0),
     JS_CFUNC_NATIVE_DEF!("setPrototypeOf", 2, js_object_setPrototypeOf, 0),

@@ -2,7 +2,6 @@ use crate::{
     JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING, JS_CLASS_SYMBOL,
     atom::consts::*,
     context::JSContext,
-    function::JS_Call,
     object::{JSObject, ObjectDetail},
     runtime::JSRuntime,
     value::{HINT_FORCE_ORDINARY, HINT_NUMBER, HINT_STRING, JSValue},
@@ -21,7 +20,7 @@ impl JSObject {
         let ignore_toPrimitive_method = hint & HINT_FORCE_ORDINARY != 0;
         let hint = hint & !HINT_FORCE_ORDINARY;
 
-        let this = self.clone().into();
+        let this: JSValue = self.clone().into();
 
         if !ignore_toPrimitive_method {
             // try .toPrimitive() method
@@ -37,7 +36,7 @@ impl JSObject {
                 }
                 .to_string(ctx)?;
 
-                let ret = JS_Call(ctx, &method, &this, &[hint_val.into()]).error()?;
+                let ret = method.call(ctx, &this, &[hint_val.into()])?;
                 return if !ret.is_object() {
                     Ok(ret)
                 } else {
@@ -57,7 +56,7 @@ impl JSObject {
         } {
             let method = self.get_property(ctx, prop)?;
             if method.is_callable() {
-                let ret = JS_Call(ctx, &method, &this, &[]).error()?;
+                let ret = method.call(ctx, &this, &[])?;
                 if !ret.is_object() {
                     return Ok(ret);
                 }

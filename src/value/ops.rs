@@ -4,7 +4,6 @@ use crate::{
     JS_CLASS_PROXY,
     atom::{JSAtom, consts::*},
     context::JSContext,
-    function::JS_Call,
     object::{JSObject, ObjectDetail},
     value::JSValue,
 };
@@ -71,15 +70,14 @@ impl JSObject {
     /// equivalent to js: `self instanceof ty`
     pub fn instance_of(&self, ctx: &JSContext, ctor: &JSValue) -> Result<bool, i32> {
         let method = ctor.get_property(ctx, JS_ATOM_Symbol_hasInstance)?;
-
         if !method.is_undefined_or_null() {
-            let ret = JS_Call(
-                ctx,
-                &method,
-                &ctor,
-                std::slice::from_ref(&JSValue::Object(self.clone())),
-            );
-            return ret.coerce_to_bool(ctx);
+            return method
+                .call(
+                    ctx,
+                    &ctor,
+                    std::slice::from_ref(&JSValue::Object(self.clone())),
+                )
+                .and_then(|v| v.coerce_to_bool(ctx));
         }
 
         // legacy case

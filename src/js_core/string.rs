@@ -9,7 +9,7 @@ use crate::{
     atom::{JSAtom, consts::*},
     context::JSContext,
     error::JSResult,
-    function::{CallContext, IteratorState, JS_CallConstructor, NativeField},
+    function::{CallContext, FieldDef, IteratorState, JS_CallConstructor},
     iterator::{JSIteratorKindEnum, js_create_array_iterator},
     object::{JS_PROP_CONFIGURABLE, ObjectDetail, js_get_length64},
     regexp::js_is_regexp,
@@ -714,7 +714,7 @@ pub fn js_string_match(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let re_obj = {
         let ctor = ctx.0.borrow().regexp_ctor.clone(); // avoid borrow for long
-        JS_CallConstructor(ctx, &ctor, &args[0..args_len]).error()?
+        JS_CallConstructor(ctx, &ctor, &args[0..args_len]).err()?
     };
     re_obj.invoke(ctx, magic_method, &[str.into()])
 }
@@ -942,7 +942,7 @@ fn js_string_normalize(ctx: &JSContext, cc: CallContext) -> JSResult {
         .map(JSValue::String)
 }
 
-pub const js_string_proto_funcs: [NativeField; 39] = [
+pub static js_string_proto_funcs: [FieldDef; 39] = [
     JS_PROP_INT32_DEF!("length", 0, JS_PROP_CONFIGURABLE),
     JS_CFUNC_NATIVE_DEF!("charAt", 1, js_string_at, 0),
     JS_CFUNC_NATIVE_DEF!("at", 1, js_string_at, 1),
@@ -1043,7 +1043,7 @@ pub fn js_string_iterator_next(
     }
 }
 
-pub const js_string_iterator_proto_funcs: [NativeField; 2] = [
+pub static js_string_iterator_proto_funcs: [FieldDef; 2] = [
     JS_NATIVE_ITERATOR_NEXT_DEF!("next", 0, js_string_iterator_next, 0),
     JS_PROP_STRING_DEF!(
         "[Symbol.toStringTag]",
@@ -1140,7 +1140,7 @@ pub fn js_string_raw(ctx: &JSContext, cc: CallContext) -> JSResult {
     ctx.create_string_with_buf(res_string).map(JSValue::String)
 }
 
-pub const js_string_funcs: [NativeField; 3] = [
+pub const js_string_funcs: [FieldDef; 3] = [
     JS_CFUNC_NATIVE_DEF!("fromCharCode", 1, js_string_fromCharCode, 0),
     JS_CFUNC_NATIVE_DEF!("fromCodePoint", 1, js_string_fromCodePoint, 0),
     JS_CFUNC_NATIVE_DEF!("raw", 1, js_string_raw, 0),

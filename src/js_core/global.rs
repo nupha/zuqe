@@ -3,7 +3,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     eval::JS_EVAL_TYPE_INDIRECT,
-    function::{CallContext, NativeField},
+    function::{CallContext, FieldDef},
     number::{js_parseFloat, js_parseInt},
     value::JSValue,
 };
@@ -13,7 +13,7 @@ pub fn js_global_eval(ctx: &JSContext, cc: CallContext) -> JSResult {
     let global = JSValue::Object(ctx.global_obj());
     cc.arg(0)
         .eval_object(ctx, global, JS_EVAL_TYPE_INDIRECT, -1)
-        .error()
+        .err()
 }
 
 pub const MAGIC_NUM_IS_NAN: i32 = 1;
@@ -30,7 +30,7 @@ pub fn js_global_isNaN_isFinite(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 // global objects
-pub const js_global_props: [NativeField; 7] = [
+pub static js_global_props: [FieldDef; 7] = [
     JS_CFUNC_NATIVE_DEF!("parseInt", 2, js_parseInt, 0),
     JS_CFUNC_NATIVE_DEF!("parseFloat", 1, js_parseFloat, 0),
     JS_CFUNC_NATIVE_DEF!("isNaN", 1, js_global_isNaN_isFinite, MAGIC_NUM_IS_NAN as _),

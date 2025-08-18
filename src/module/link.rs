@@ -1,6 +1,6 @@
 use crate::{
-    atom::consts::JS_ATOM__star_, context::JSContext, function::JS_Call,
-    runtime::js_check_stack_overflow, value::JSValue,
+    atom::consts::JS_ATOM__star_, context::JSContext, runtime::js_check_stack_overflow,
+    value::JSValue,
 };
 
 use super::{
@@ -237,8 +237,7 @@ impl ModuleDefInner {
             }
 
             // initialize the global variables
-            JS_Call(ctx, &JSValue::Object(func_obj), &JSValue::Bool(true), &[])
-                .error()?;
+            JSValue::Object(func_obj).call(ctx, &JSValue::Bool(true), &[])?;
         }
 
         let (dfs_ancestor_index, dfs_index, self_id) = {

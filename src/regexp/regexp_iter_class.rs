@@ -5,7 +5,7 @@ use crate::{
     atom::consts::JS_ATOM_lastIndex,
     context::JSContext,
     error::JSResult,
-    function::{CallContext, IteratorState, NativeField},
+    function::{CallContext, IteratorState, FieldDef},
     object::{JS_PROP_CONFIGURABLE, ObjectDetail},
     value::JSValue,
 };
@@ -77,7 +77,7 @@ fn js_regexp_string_iterator_next(
     }
 }
 
-pub const js_regexp_string_iterator_proto_funcs: [NativeField; 2] = [
+pub static js_regexp_string_iterator_proto_funcs: [FieldDef; 2] = [
     JS_ITERATOR_NEXT_DEF!("next", 0, js_regexp_string_iterator_next, 0),
     JS_PROP_STRING_DEF!(
         "[Symbol.toStringTag]",

@@ -7,7 +7,7 @@ use crate::{
     error::JSResult,
     eval::JS_EVAL_TYPE_INDIRECT,
     function::{
-        CallContext, IteratorState, JS_GetFunctionRealm, JSFunctionKindEnum, NativeField,
+        CallContext, FieldDef, IteratorState, JS_GetFunctionRealm, JSFunctionKindEnum,
         ObjAsyncState,
     },
     iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW},
@@ -131,7 +131,7 @@ pub fn js_function_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
             JS_EVAL_TYPE_INDIRECT,
             -1,
         )
-        .error()?;
+        .err()?;
 
     // set prototype, if provided by `this`
     let new_target = cc.this();
@@ -263,7 +263,7 @@ pub fn js_generator_next(
                 if func_state.is_completed() {
                     /* finalize the execution in case of exception or normal return */
                     g.free_generator_stack_rt(ctx.rt());
-                    return func_ret.error();
+                    return func_ret.err();
                 }
 
                 debug_assert!(func_ret.is_int());
@@ -290,7 +290,7 @@ pub fn js_generator_next(
                     IteratorState::NotDone
                 };
 
-                ret_val.error()
+                ret_val.err()
             }
             WhatToDo::Done => {
                 // execution is finished
@@ -313,14 +313,14 @@ pub fn js_generator_next(
     }
 }
 
-pub const js_generator_proto_funcs: [NativeField; 4] = [
+pub static js_generator_proto_funcs: [FieldDef; 4] = [
     JS_ITERATOR_NEXT_DEF!("next", 1, js_generator_next, GEN_MAGIC_NEXT as _),
     JS_ITERATOR_NEXT_DEF!("return", 1, js_generator_next, GEN_MAGIC_RETURN as _),
     JS_ITERATOR_NEXT_DEF!("throw", 1, js_generator_next, GEN_MAGIC_THROW as _),
     JS_PROP_STRING_DEF!("[Symbol.toStringTag]", "Generator", JS_PROP_CONFIGURABLE),
 ];
 
-pub const js_generator_function_proto_funcs: [NativeField; 1] = [JS_PROP_STRING_DEF!(
+pub static js_generator_function_proto_funcs: [FieldDef; 1] = [JS_PROP_STRING_DEF!(
     "[Symbol.toStringTag]",
     "GeneratorFunction",
     JS_PROP_CONFIGURABLE

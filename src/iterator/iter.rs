@@ -5,7 +5,7 @@ use crate::{
     atom::{JS_ATOM_NULL, JS_FreeAtomRT, JSAtom, consts::*},
     context::JSContext,
     error::JSResult,
-    function::{CallContext, IteratorState, JS_Call, NativeField, NativeFunctionType},
+    function::{CallContext, FieldDef, IteratorState, NativeFunctionType},
     iterator::JSAsyncFromSyncIteratorData,
     map::MapKV,
     object::{
@@ -243,7 +243,7 @@ impl ObjectIter {
                 NativeFunctionType::CIteratorNext(f) => {
                     let mut pdone = 0;
                     let ret =
-                        f(ctx, obj.clone().into(), args, &mut pdone, nfunc.magic as _).error()?;
+                        f(ctx, obj.clone().into(), args, &mut pdone, nfunc.magic as _).err()?;
 
                     return if let JSValue::Object(ret) = ret {
                         Ok((
@@ -264,12 +264,9 @@ impl ObjectIter {
             }
         }
 
-        if let JSValue::Object(o) =
-            JS_Call(ctx, method, &JSValue::Object(obj.clone()), args).error()?
-        {
+        if let JSValue::Object(o) = method.call(ctx, &JSValue::Object(obj.clone()), args)? {
             Ok((o.into(), IteratorState::NotParsed))
         } else {
-            // bytecode function must return an object
             ctx.throw_type_error("iterator must return an object");
             Err(-1)
         }
@@ -319,9 +316,9 @@ impl ObjectIter {
 
         if let Ok(return_method) = obj.get_property(ctx, JS_ATOM_return) {
             if !return_method.is_undefined_or_null() {
-                let ret = JS_Call(ctx, &return_method, &obj.clone().into(), &[]);
+                let ret = return_method.call(ctx, &obj.clone().into(), &[]);
                 if pending_exc.is_undefined_or_null() {
-                    if !ret.error()?.is_object() {
+                    if !ret?.is_object() {
                         ctx.throw_type_error_not_an_object();
                         return Err(-1);
                     }
@@ -472,7 +469,7 @@ pub fn js_array_from_iterator(
     obj: &JSValue,
     method: &JSValue,
 ) -> Result<(JSValue, usize), i32> {
-    if let JSValue::Object(obj) = JS_Call(ctx, method, obj, &[]).error()? {
+    if let JSValue::Object(obj) = method.call(ctx, obj, &[])? {
         let it = ObjectIter::new(ctx, obj, JS_ATOM_next)?;
         let arr = ctx.create_array()?;
 
@@ -492,7 +489,7 @@ pub fn js_iterator_proto_iterator(_: &JSContext, cc: CallContext) -> JSResult {
     Ok(cc.this().clone())
 }
 
-pub const js_iterator_proto_funcs: [NativeField; 1] = [JS_CFUNC_NATIVE_DEF!(
+pub static js_iterator_proto_funcs: [FieldDef; 1] = [JS_CFUNC_NATIVE_DEF!(
     "[Symbol.iterator]",
     0,
     js_iterator_proto_iterator,

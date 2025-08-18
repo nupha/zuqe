@@ -6,7 +6,6 @@ use crate::{
     atom::{JS_ATOM_MAX_INT, JS_AtomIsNumericIndex, JS_FreeAtom, JSAtom, consts::*},
     context::JSContext,
     error::{JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized, JSResult},
-    function::JS_Call,
     object::{JSObject, JSProperty},
     string::StringBuf,
     value::{JS_GetPrototypePrimitive, JSValue},
@@ -114,12 +113,12 @@ impl JSObject {
                             prop,
                             this_obj.clone(),
                         )
-                        .error();
+                        .err();
                     }
                     if let Some(cb) = xm.get_own_property {
                         if let Some(desc) = cb(ctx, JSValue::Object(cur_obj.clone()), prop)? {
                             return if desc.flags & JS_PROP_GETSET != 0 {
-                                JS_Call(ctx, &desc.getter, this_obj, &[]).error()
+                                desc.getter.call(ctx, this_obj, &[])
                             } else {
                                 debug_assert!(!desc.value.is_exception());
                                 Ok(desc.value)

@@ -17,9 +17,9 @@ use crate::{
     context::JSContext,
     error::{JS_ThrowRangeError, JS_ThrowSyntaxError, JSResult},
     function::{
-        BlockEnv, Bytecode, JS_Call, JSCFunction, JSCFunctionMagic, JSFunctionDef,
+        BlockEnv, Bytecode, FieldDef, JSCFunction, JSCFunctionMagic, JSFunctionDef,
         JSFunctionKindEnum, JSGlobalVar, JSVarDefEnum, JSVarKindEnum, JSVarRef, Label,
-        NativeCallback, NativeField, NativeFunctionType, ObjAsyncState, ObjNativeFunc, RelocEntry,
+        NativeCallback, NativeFunctionType, ObjAsyncState, ObjNativeFunc, RelocEntry,
         js_function_set_properties,
     },
     gc::{GCObjectHeader, JSGCObjectTypeEnum},
@@ -31,8 +31,8 @@ use crate::{
     },
     number::{JSToNumberHintEnum, MAX_SAFE_INTEGER},
     object::{
-        JS_PROP_C_W_E, JSObject, JSProperty, JSPropertyDescriptor, JSShape, JSShapeProperty,
-        ObjectDetail, PropertyEnum,
+        JSObject, JSProperty, JSPropertyDescriptor, JSShape, JSShapeProperty, ObjectDetail,
+        PropertyEnum,
     },
     parse::{JSParseExportEnum, JSParseFunctionEnum, JSParseState},
     promise::{JSPromiseReactionData, JSPromiseStateEnum, JobCallback, Promise},
@@ -2971,7 +2971,7 @@ pub unsafe fn js_parse_destructuring_var(s: *mut JSParseState, tok: i32, is_arg:
 pub unsafe fn JS_SetPropertyFunctionList(
     ctx: &JSContext,
     obj: &JSValueConst,
-    tab: *const NativeField,
+    tab: *const FieldDef,
     len: usize,
 ) {
     unreachable!("unused");
@@ -2984,7 +2984,7 @@ pub unsafe fn JS_InstantiateFunctionListItem(
     ctx: &JSContext,
     obj: &JSValueConst,
     atom: JSAtom,
-    e: *const NativeField,
+    e: *const FieldDef,
 ) -> i32 {
     unreachable!("unused");
 }
@@ -3885,6 +3885,32 @@ pub unsafe fn js_parse_regexp(s: &mut JSParseState) -> Result<(), i32> {
     unreachable!("unused")
 }
 
+#[deprecated(note = "use JSValue::call() instead")]
+#[inline(always)]
+pub fn JS_Call(
+    ctx: &JSContext,
+    func_obj: &JSValue,
+    this_obj: &JSValue,
+    args: &[JSValue],
+) -> JSValue {
+    func_obj
+        .call(ctx, this_obj, args)
+        .unwrap_or(JSValue::EXCEPTION)
+}
+
+/// call func_obj, and free func_obj
+#[deprecated(note = "use JS_Call() instead")]
+pub fn JS_CallFree(
+    ctx: &JSContext,
+    func_obj: JSValueConst,
+    this_obj: JSValueConst,
+    args: &[JSValue],
+) -> JSValue {
+    func_obj
+        .call(ctx, &this_obj, args)
+        .unwrap_or(JSValue::EXCEPTION)
+}
+
 /// `this_val` is not consumed
 #[deprecated(note = "use JSValue::invoke() instead")]
 pub fn JS_Invoke(ctx: &JSContext, this_val: &JSValue, atom: JSAtom, args: &[JSValue]) -> JSValue {
@@ -3904,4 +3930,9 @@ pub fn JS_InvokeFree(
     args: &[JSValue],
 ) -> JSValue {
     JS_Invoke(ctx, &this_val, atom, args)
+}
+
+#[deprecated(note = "use JSContext::take_exception() instead")]
+pub unsafe fn JS_GetException(ctx: &JSContext) -> JSValue {
+    ctx.take_exception()
 }

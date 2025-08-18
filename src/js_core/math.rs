@@ -3,7 +3,7 @@ use crate::{
     JS_PROP_STRING_DEF,
     context::JSContext,
     error::JSResult,
-    function::{CallContext, NativeField},
+    function::{CallContext, FieldDef},
     number::JSFloat64Union,
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
     value::JSValue,
@@ -190,7 +190,7 @@ pub fn js_math_random(ctx: &JSContext, _: CallContext) -> JSResult {
     Ok(JSValue::Float64(unsafe { u.d } - 1.0))
 }
 
-pub const js_math_funcs: [NativeField; 44] = [
+pub static js_math_funcs: [FieldDef; 44] = [
     JS_CFUNC_NATIVE_DEF!("min", 2, js_math_min_max, 0),
     JS_CFUNC_NATIVE_DEF!("max", 2, js_math_min_max, 1),
     //
@@ -263,7 +263,7 @@ pub const js_math_funcs: [NativeField; 44] = [
     JS_PROP_DOUBLE_DEF!("SQRT2", 1.4142135623730951, 0),
 ];
 
-pub const js_math_obj: [NativeField; 1] = [JS_OBJECT_DEF!(
+pub static js_math_obj: [FieldDef; 1] = [JS_OBJECT_DEF!(
     "Math",
     &js_math_funcs,
     JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE

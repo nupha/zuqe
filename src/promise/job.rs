@@ -1,11 +1,6 @@
 use crate::{
-    context::JSContext,
-    error::JSResult,
-    function::{CallContext, JS_Call},
-    promise::Promise,
-    runtime::JSRuntime,
-    utils::UncheckedInto,
-    value::JSValue,
+    context::JSContext, error::JSResult, function::CallContext, promise::Promise,
+    runtime::JSRuntime, value::JSValue,
 };
 
 pub type JobCallback = for<'a> fn(ctx: &'a JSContext, args: CallContext<'a>) -> JSResult;
@@ -60,7 +55,9 @@ pub fn promise_reaction_job(ctx: &JSContext, args: CallContext) -> JSResult {
             arg.clone()
         }
     } else {
-        JS_Call(ctx, handler, &JSValue::UNDEFINED, std::slice::from_ref(arg))
+        handler
+            .call(ctx, &JSValue::UNDEFINED, std::slice::from_ref(arg))
+            .unwrap_or(JSValue::EXCEPTION)
     };
 
     is_reject = result.is_exception();
@@ -73,7 +70,7 @@ pub fn promise_reaction_job(ctx: &JSContext, args: CallContext) -> JSResult {
     // as an extension, we support undefined as value to avoid
     // creating a dummy promise in the 'await' implementation of async functions
     if !func.is_undefined() {
-        JS_Call(ctx, func, &JSValue::UNDEFINED, &[result]).error()
+        func.call(ctx, &JSValue::UNDEFINED, &[result])
     } else {
         Ok(JSValue::UNDEFINED)
     }
@@ -87,21 +84,13 @@ pub fn js_promise_resolve_thenable_job(ctx: &JSContext, cc: CallContext) -> JSRe
 
     let promise: Promise = cc.arg(0).clone().try_into()?;
     let thenable = cc.arg(1);
-    let then = cc.arg(2);
+    let thenf = cc.arg(2);
     let rr = promise.create_resolving_functions(ctx)?;
 
-    let res = JS_Call(ctx, then, thenable, &rr);
-    if res.is_exception() {
-        let error = ctx.take_exception();
-        JS_Call(
-            ctx,
-            &rr[1], // reject
-            &JSValue::UNDEFINED,
-            &[error],
-        );
-    }
-
-    res.error()
+    thenf.call(ctx, thenable, &rr).inspect_err(|_| {
+        let exc = ctx.take_exception();
+        let _ = rr[1].call(ctx, &JSValue::UNDEFINED, &[exc]);
+    })
 }
 
 impl JSRuntime {

@@ -4,7 +4,7 @@ use crate::{
     class::JSClassID,
     context::JSContext,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
-    function::{CallContext, JS_CallConstructor, NativeField},
+    function::{CallContext, FieldDef, JS_CallConstructor},
     js_core::js_get_this,
     object::{JS_PROP_CONFIGURABLE, JS_SpeciesConstructor},
     value::JSValue,
@@ -20,12 +20,12 @@ pub fn js_array_buffer_isView(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(JSValue::Bool(res))
 }
 
-pub const js_array_buffer_funcs: [NativeField; 2] = [
+pub static js_array_buffer_funcs: [FieldDef; 2] = [
     JS_CFUNC_NATIVE_DEF!("isView", 1, js_array_buffer_isView, 0),
     JS_CGETSET_DEF!("[Symbol.species]", js_get_this, NONE),
 ];
 
-pub const js_shared_array_buffer_funcs: [NativeField; 1] =
+pub static js_shared_array_buffer_funcs: [FieldDef; 1] =
     [JS_CGETSET_DEF!("[Symbol.species]", js_get_this, NONE)];
 
 //
@@ -85,7 +85,7 @@ pub fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
             std::ptr::null_mut(),
         )
     } else {
-        JS_CallConstructor(ctx, &ctor, &[JSValue::from(new_len)]).error()
+        JS_CallConstructor(ctx, &ctor, &[JSValue::from(new_len)]).err()
     }?;
 
     if new_obj.is_same(cc.this()) {
@@ -140,7 +140,7 @@ pub fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(new_obj.into())
 }
 
-pub const js_array_buffer_proto_funcs: [NativeField; 3] = [
+pub static js_array_buffer_proto_funcs: [FieldDef; 3] = [
     JS_CGETSET_MAGIC_DEF!(
         "byteLength",
         js_array_buffer_get_byteLength,
@@ -156,7 +156,7 @@ pub const js_array_buffer_proto_funcs: [NativeField; 3] = [
     JS_PROP_STRING_DEF!("[Symbol.toStringTag]", "ArrayBuffer", JS_PROP_CONFIGURABLE),
 ];
 
-pub const js_shared_array_buffer_proto_funcs: [NativeField; 3] = [
+pub static js_shared_array_buffer_proto_funcs: [FieldDef; 3] = [
     JS_CGETSET_MAGIC_DEF!(
         "byteLength",
         js_array_buffer_get_byteLength,

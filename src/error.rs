@@ -5,7 +5,7 @@ use crate::{
     atom::{JS_ATOM_NULL, JSAtom, consts::*},
     class::JSClassID,
     context::{JSContext, is_strict_mode},
-    function::{Bytecode, CallContext, NativeField, get_func_name},
+    function::{Bytecode, CallContext, FieldDef, get_func_name},
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE, ObjectDetail,
     },
@@ -49,12 +49,13 @@ pub const JS_THROW_ERROR_ITERATOR_THROW: u8 = 4;
 
 impl JSContext {
     /// Get current exception value
+    #[inline]
     pub fn exception(&self) -> &JSValue {
         &self.rt().cur_exception
     }
 
     /// get current exception value, and reset current_exception to null.
-    #[inline]
+    #[inline(always)]
     pub(crate) fn take_exception(&self) -> JSValue {
         self.set_exception(JSValue::NULL)
     }
@@ -197,11 +198,6 @@ impl JSContext {
 pub const JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL: i32 = 1 << 0;
 /* only taken into account if filename is provided */
 pub const JS_BACKTRACE_FLAG_SINGLE_LEVEL: i32 = 1 << 1;
-
-#[deprecated(note = "use JSContext::take_exception() instead")]
-pub unsafe fn JS_GetException(ctx: &JSContext) -> JSValue {
-    ctx.take_exception()
-}
 
 /* Note: it is important that no exception is returned by this function */
 pub fn is_backtrace_needed(obj: &JSValueConst) -> bool {
@@ -442,13 +438,13 @@ pub fn js_error_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
     };
 
     if !name.is_empty() && !msg.is_empty() {
-        name = unsafe { JS_ConcatString3(ctx, c"", name.into(), c": ")? };
+        name = JS_ConcatString3(ctx, c"", name.into(), c": ")?;
     }
 
     JS_ConcatString(ctx, name.into(), msg.into()).map(JSValue::String)
 }
 
-pub const js_error_proto_funcs: [NativeField; 3] = [
+pub static js_error_proto_funcs: [FieldDef; 3] = [
     JS_CFUNC_NATIVE_DEF!("toString", 0, js_error_toString, 0),
     JS_PROP_STRING_DEF!("name", "Error", JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE),
     JS_PROP_STRING_DEF!("message", "", JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE),

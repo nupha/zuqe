@@ -5,7 +5,7 @@ use crate::{
     atom::{JS_AtomIsNumericIndex, JSAtom, consts::*},
     context::{JSContext, JSContextWeakref},
     error::JSResult,
-    function::{JS_Call, JSVarRef},
+    function::JSVarRef,
     object::{JSObject, LazyInit},
     proxy::js_proxy_isExtensible,
     value::{JS_GetPrototypePrimitive, JSValue},
@@ -211,7 +211,7 @@ impl JSProperty {
             }
             Self::GetSet { getter, .. } => {
                 if let Some(fun) = getter {
-                    JS_Call(ctx, &JSValue::Object(fun.clone()), this_obj, &[]).error()
+                    JSValue::Object(fun.clone()).call(ctx, this_obj, &[])
                 } else {
                     Ok(JSValue::UNDEFINED)
                 }

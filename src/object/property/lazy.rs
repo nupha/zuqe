@@ -4,7 +4,7 @@ use crate::{
     atom::{JSAtom, consts::JS_ATOM_constructor},
     context::JSContext,
     error::JSResult,
-    function::{NativeField, NativeFieldDetail},
+    function::{FieldDef, NativeFieldDetail},
     module::ModuleDef,
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_LAZYINIT, JS_PROP_TMASK, JS_PROP_WRITABLE,
@@ -22,7 +22,7 @@ pub enum LazyInit {
     /// Build prototype and set as constructor for target object
     Prototype,
     /// Build value from field def.
-    Prop(NonNull<NativeField>),
+    Prop(NonNull<FieldDef>),
     /// Build module namespace object
     ModuleNS(ModuleDef),
 }

@@ -2,12 +2,11 @@ use std::collections::HashMap;
 
 use crate::{
     JS_CLASS_MAP,
-    atom::consts::{JS_ATOM_add, JS_ATOM_next, JS_ATOM_set},
+    atom::consts::{JS_ATOM_add, JS_ATOM_set},
     class::JSClassID,
     context::JSContext,
-    defer,
     error::JSResult,
-    function::{CallContext, JS_Call},
+    function::CallContext,
     map::JSMapState,
     object::ObjectDetail,
     value::{JSValue, JSValueConst},
@@ -58,7 +57,7 @@ pub fn js_map_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
             let item = item?;
 
             if is_set {
-                JS_Call(ctx, &adder, &obj, &[item]).error()?;
+                adder.call(ctx, &obj, &[item])?;
             } else {
                 if !item.is_object() {
                     ctx.throw_type_error_not_an_object();
@@ -66,7 +65,7 @@ pub fn js_map_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
                 }
                 let key = item.get_property_u32(ctx, 0)?;
                 let value = item.get_property_u32(ctx, 1)?;
-                JS_Call(ctx, &adder, &obj, &[key, value]).error()?;
+                adder.call(ctx, &obj, &[key, value])?;
             }
         }
     }

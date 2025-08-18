@@ -3,7 +3,7 @@ use crate::{
     atom::JS_FreeAtom,
     context::JSContext,
     error::JSResult,
-    function::{CallContext, JS_CallConstructor2, NativeField, build_arg_list, js_function_apply},
+    function::{CallContext, FieldDef, JS_CallConstructor2, build_arg_list, js_function_apply},
     iterator::JSIteratorKindEnum,
     js_core::object::{
         js_object_defineProperty, js_object_getOwnPropertyDescriptor, js_object_getPrototypeOf,
@@ -46,7 +46,7 @@ pub fn js_reflect_construct(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     let args = build_arg_list(ctx, array_arg)?;
-    JS_CallConstructor2(ctx, func, new_target.clone(), &args).error()
+    JS_CallConstructor2(ctx, func, new_target.clone(), &args).err()
 }
 
 pub fn js_reflect_deleteProperty(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -123,7 +123,7 @@ pub fn js_reflect_ownKeys(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 }
 
-pub const js_reflect_funcs: [NativeField; 14] = [
+pub static js_reflect_funcs: [FieldDef; 14] = [
     JS_CFUNC_NATIVE_DEF!("apply", 3, js_reflect_apply, 0),
     JS_CFUNC_NATIVE_DEF!("construct", 2, js_reflect_construct, 0),
     JS_CFUNC_NATIVE_DEF!("defineProperty", 3, js_object_defineProperty, 1),
@@ -145,7 +145,7 @@ pub const js_reflect_funcs: [NativeField; 14] = [
     JS_PROP_STRING_DEF!("[Symbol.toStringTag]", "Reflect", JS_PROP_CONFIGURABLE),
 ];
 
-pub const js_reflect_obj: [NativeField; 1] = [JS_OBJECT_DEF!(
+pub static js_reflect_obj: [FieldDef; 1] = [JS_OBJECT_DEF!(
     "Reflect",
     &js_reflect_funcs,
     JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE

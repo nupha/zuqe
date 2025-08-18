@@ -101,7 +101,7 @@ pub fn js_array_iterator_next(
             JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE => {
                 let val = it.obj.get_property_u32(ctx, idx)?;
                 let num = JSValue::from(idx);
-                unsafe { js_create_array(ctx, 2, [num, val].as_ptr()).error() }
+                unsafe { js_create_array(ctx, 2, [num, val].as_ptr()).err() }
             }
         }
     } else {

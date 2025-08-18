@@ -48,7 +48,7 @@ fn js_detachArrayBuffer(ctx: &JSContext, cc: CallContext) -> JSResult {
 fn js_evalScript(ctx: &JSContext, cc: CallContext) -> JSResult {
     let script = cc.arg(0).to_utf8(ctx)?;
     ctx.eval(script.as_bytes(), "<evalScript>", JS_EVAL_TYPE_GLOBAL)
-        .error()
+        .err()
 }
 
 fn js_string_codePointRange(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -258,7 +258,7 @@ fn run_harness(ctx: &JSContext, harness_files: &[PathBuf]) -> Result<(), i32> {
             file.as_os_str().to_string_lossy().as_ref(),
             JS_EVAL_TYPE_GLOBAL,
         )
-        .error()?;
+        .err()?;
     }
 
     Ok(())
@@ -337,7 +337,7 @@ fn run_test_script(
         }
     }
 
-    ret_val.error()?;
+    ret_val.err()?;
     Ok(())
 }
 

@@ -19,7 +19,7 @@ use crate::{
     context::{JS_MODE_STRICT, JSContext},
     error::{ErrorKind, JSResult, STD_ERROR_NAMES},
     function::{
-        BytecodeFunction, CallContext, JSFunctionKindEnum, NativeField, NativeFunctionType,
+        BytecodeFunction, CallContext, JSFunctionKindEnum, FieldDef, NativeFunctionType,
         js_async_function_proto_funcs,
     },
     generator::{
@@ -491,7 +491,7 @@ impl JSContext {
     }
 
     /// create global object
-    pub fn intrinsic_global_object(&self, fields: &[NativeField]) {
+    pub fn intrinsic_global_object(&self, fields: &[FieldDef]) {
         let global = self.create_base_object().unwrap();
         global.install_native_fields(self, fields).unwrap();
         let global: JSValue = global.into();

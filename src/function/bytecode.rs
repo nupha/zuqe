@@ -11,7 +11,7 @@ use crate::{
     bytecode::{OpcodeFormat, opcode_info_final, opcode_info_intermediate},
     context::{JSContext, JSContextWeakref},
     error::JSResult,
-    function::{JS_Call, JSVarRef},
+    function::JSVarRef,
     gc::GCObjectHeader,
     object::GCObject,
     runtime::JSRuntime,

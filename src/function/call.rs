@@ -147,7 +147,7 @@ impl JSValue {
             args,
             JS_CALL_FLAG_COPY_ARGV,
         )
-        .error()
+        .err()
     }
 
     /// invoke method
@@ -237,30 +237,6 @@ pub fn JS_CallInternal(
             JSValue::EXCEPTION
         }
     }
-}
-
-#[deprecated(note = "use JSValue::call() instead")]
-#[inline(always)]
-pub fn JS_Call(
-    ctx: &JSContext,
-    func_obj: &JSValue,
-    this_obj: &JSValue,
-    args: &[JSValue],
-) -> JSValue {
-    func_obj
-        .call(ctx, this_obj, args)
-        .unwrap_or(JSValue::EXCEPTION)
-}
-
-/// call func_obj, and free func_obj
-#[deprecated(note = "use JS_Call() instead")]
-pub fn JS_CallFree(
-    ctx: &JSContext,
-    func_obj: JSValueConst,
-    this_obj: JSValueConst,
-    args: &[JSValue],
-) -> JSValue {
-    JS_Call(ctx, &func_obj, &this_obj, args)
 }
 
 pub fn JS_CallConstructorInternal(
@@ -357,7 +333,7 @@ pub fn js_function_apply(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let arg_list = build_arg_list(ctx, &array_arg)?;
     if cc.magic() & 1 != 0 {
-        JS_CallConstructor2(ctx, this_val, this_arg.clone(), arg_list.as_ref()).error()
+        JS_CallConstructor2(ctx, this_val, this_arg.clone(), arg_list.as_ref()).err()
     } else {
         this_val.call(ctx, &this_arg, arg_list.as_ref())
     }

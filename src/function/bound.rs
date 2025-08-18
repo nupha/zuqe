@@ -9,7 +9,7 @@ use crate::{
     value::JSValue,
 };
 
-use super::{JS_CALL_FLAG_CONSTRUCTOR, JS_Call, JS_CallConstructor2};
+use super::{JS_CALL_FLAG_CONSTRUCTOR, JS_CallConstructor2};
 
 #[derive(Debug)]
 pub struct ObjBoundFunc {
@@ -74,11 +74,10 @@ impl BoundFunction {
                 if func_obj.is_same(&new_target) {
                     new_target = bf.func_obj.clone();
                 }
-                JS_CallConstructor2(ctx, &bf.func_obj, new_target, arg_list.as_slice())
+                JS_CallConstructor2(ctx, &bf.func_obj, new_target, arg_list.as_slice()).err()
             } else {
-                JS_Call(ctx, &bf.func_obj, &bf.this_val, arg_list.as_slice())
+                bf.func_obj.call(ctx, &bf.this_val, arg_list.as_slice())
             }
-            .error()
         } else {
             unreachable!()
         }

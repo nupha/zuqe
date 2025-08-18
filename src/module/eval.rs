@@ -3,9 +3,9 @@ use crate::{
     context::JSContext,
     error::JSResult,
     eval::{Compiled, JS_EVAL_FLAG_STRIP, JS_EVAL_TYPE_MODULE},
-    function::{AsyncFunction, CallContext, JS_Call, ObjAsyncState},
+    function::{CallContext, ObjAsyncState},
     module::{JSModuleStatus, ModuleDefInner},
-    promise::{Promise, js_promise_then},
+    promise::Promise,
     runtime::js_check_stack_overflow,
     value::JSValue,
 };
@@ -25,12 +25,8 @@ impl ModuleDefInner {
 
         if unsafe { (*self.promise.as_ptr()).is_some() } {
             debug_assert_eq!(self.cycle_root.borrow().as_ref().unwrap().id(), self.id());
-            JS_Call(
-                ctx,
-                unsafe { &(*self.resolving_funcs.as_ptr())[0] },
-                &JSValue::UNDEFINED,
-                &[JSValue::UNDEFINED],
-            );
+            let func = unsafe { &(*self.resolving_funcs.as_ptr())[0] };
+            let _ = func.call(ctx, &JSValue::UNDEFINED, &[JSValue::UNDEFINED]);
         }
     }
 }
@@ -108,7 +104,7 @@ impl ModuleDef {
                 if !m.0.async_evaluation.get() {
                     debug_assert_eq!(m.status(), JSModuleStatus::JS_MODULE_STATUS_EVALUATED);
                     let func_obj = unsafe { (*m.0.resolving_funcs.as_ptr())[0].clone() }; // resolve func
-                    JS_Call(ctx, &func_obj, &JSValue::UNDEFINED, &[JSValue::UNDEFINED]);
+                    let _ = func_obj.call(ctx, &JSValue::UNDEFINED, &[JSValue::UNDEFINED]);
                 }
                 debug_assert!(stack_top.is_none());
             }
@@ -127,7 +123,7 @@ impl ModuleDef {
 
                 let func_obj = unsafe { (*m.0.resolving_funcs.as_ptr())[1].clone() }; // reject func
                 let exc = unsafe { (*m.0.eval_exception.as_ptr()).clone() };
-                JS_Call(ctx, &func_obj, &JSValue::UNDEFINED, &[exc]);
+                let _ = func_obj.call(ctx, &JSValue::UNDEFINED, &[exc]);
             }
         }
 
@@ -494,12 +490,8 @@ impl ModuleDef {
 
         if unsafe { (*md.0.promise.as_ptr()).is_some() } {
             debug_assert_eq!(md.0.cycle_root.borrow().as_ref().unwrap().id(), md.id());
-            JS_Call(
-                ctx,
-                unsafe { &(*md.0.resolving_funcs.as_ptr())[1] },
-                &JSValue::UNDEFINED,
-                std::slice::from_ref(&err_val),
-            );
+            let func = unsafe { &(*md.0.resolving_funcs.as_ptr())[1] };
+            let _ = func.call(ctx, &JSValue::UNDEFINED, std::slice::from_ref(&err_val));
         }
 
         Ok(JSValue::UNDEFINED)
@@ -522,28 +514,9 @@ impl ModuleDef {
             );
 
             // eval bytecode function
-            JS_Call(ctx, &md_func, &JSValue::UNDEFINED, &[])
-                .error()
+            md_func
+                .call(ctx, &JSValue::UNDEFINED, &[])
                 .map_err(|_| ctx.take_exception())?;
-
-            // Original solution: run bytecode function in async manner.
-            // let promise = {
-            //     let afunc = AsyncFunction::try_from(func).unwrap();
-            //     afunc
-            //         .call(ctx, JSValue::UNDEFINED, &[], 0)
-            //         .map_err(|_| ctx.take_exception())? // return Err with current exception
-            // };
-            // match promise.state().unwrap() {
-            //     JSPromiseStateEnum::JS_PROMISE_FULFILLED => {}
-            //     JSPromiseStateEnum::JS_PROMISE_REJECTED => {
-            //         let val = promise.result();
-            //         return Err(val);
-            //     }
-            //     JSPromiseStateEnum::JS_PROMISE_PENDING => {
-            //         ctx.throw_type_error("promise is pending");
-            //         return Err(ctx.take_exception());
-            //     }
-            // }
         }
 
         Ok(())

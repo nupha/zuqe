@@ -6,7 +6,6 @@ use crate::{
     atom::{JS_AtomIsNumericIndex, JS_FreeAtom, JSAtom},
     context::{JSContext, is_strict_mode},
     error::JS_ThrowReferenceErrorNotDefined,
-    function::JS_Call,
     object::{
         JS_PROP_LAZYINIT, JS_PROP_NORMAL, JS_PROP_THROW_STRICT, JS_PROP_TMASK, JSObject, JSProperty,
     },
@@ -30,13 +29,7 @@ pub(crate) fn call_setter(
     flags: u32,
 ) -> Result<bool, i32> {
     if let Some(func) = setter {
-        JS_Call(
-            ctx,
-            &JSValue::Object(func.clone()),
-            this_obj,
-            std::slice::from_ref(&val),
-        )
-        .error()?;
+        JSValue::Object(func.clone()).call(ctx, this_obj, std::slice::from_ref(&val))?;
         Ok(true)
     } else {
         if flags & JS_PROP_THROW != 0 || (flags & JS_PROP_THROW_STRICT != 0 && is_strict_mode(ctx))

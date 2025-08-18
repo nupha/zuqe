@@ -9,7 +9,7 @@ use crate::{
     atom::consts::*,
     context::JSContext,
     error::JSResult,
-    function::{CallContext, JS_Call, JS_CallConstructor, js_function_set_properties},
+    function::{CallContext, JS_CallConstructor, js_function_set_properties},
     js_core::error::js_aggregate_error_constructor,
     object::{JS_PROP_C_W_E, JSObject, ObjectDetail},
     object_cast,
@@ -87,10 +87,10 @@ impl Promise {
         );
 
         let args = promise.create_resolving_functions(ctx)?;
-        let ret = JS_Call(ctx, &executor, &JSValue::UNDEFINED, &args);
-        if ret.is_exception() {
-            let error = ctx.take_exception();
-            JS_Call(ctx, &args[1], &JSValue::UNDEFINED, &[error]).error()?;
+
+        if executor.call(ctx, &JSValue::UNDEFINED, &args).is_err() {
+            let exc = ctx.take_exception();
+            args[1].call(ctx, &JSValue::UNDEFINED, &[exc])?;
         }
 
         Ok(promise)
@@ -113,7 +113,7 @@ impl Promise {
             Self::new_with_executor(ctx, executor.clone(), &JSValue::UNDEFINED)?
         } else {
             JS_CallConstructor(ctx, ctor, std::slice::from_ref(&executor))
-                .error()?
+                .err()?
                 .try_into()?
         };
 
@@ -383,18 +383,16 @@ pub fn js_promise_all_resolve_element(ctx: &JSContext, mut cc: CallContext) -> J
 
     match remainingElementsCount_add(ctx, resolve_element_env, -1)? {
         1 => {
-            JS_Call(
+            resolve.call(
                 ctx,
-                &resolve,
                 &JSValue::UNDEFINED,
                 std::slice::from_ref(&if resolve_type == PROMISE_MAGIC_any {
-                    let error = js_aggregate_error_constructor(ctx, values).error()?;
+                    let error = js_aggregate_error_constructor(ctx, values).err()?;
                     error
                 } else {
                     values
                 }),
-            )
-            .error()?;
+            )?;
         }
         0 => {}
         _ => {

@@ -6,11 +6,10 @@ use crate::{
     object::{JS_PROP_CONFIGURABLE, JSObject, ObjectDetail},
     object_cast,
     promise::{Promise, js_promise_resolve},
-    utils::UncheckedInto,
     value::JSValue,
 };
 
-use super::{CallContext, JS_Call, NativeField};
+use super::{CallContext, FieldDef};
 
 /// An async function object
 #[repr(transparent)]
@@ -71,12 +70,12 @@ fn async_function_resume(ctx: &JSContext, state: &ObjAsyncState) {
             Ok(val) => {
                 // normal return
                 let func = state.0.borrow().resolving_funcs[0].clone(); // resolve: short borrow
-                JS_Call(ctx, &func, &JSValue::UNDEFINED, std::slice::from_ref(&val));
+                let _ = func.call(ctx, &JSValue::UNDEFINED, std::slice::from_ref(&val));
             }
             Err(_) => {
                 let func = state.0.borrow().resolving_funcs[1].clone(); // reject: short borrow
                 let error = ctx.take_exception();
-                JS_Call(ctx, &func, &JSValue::UNDEFINED, &[error]);
+                let _ = func.call(ctx, &JSValue::UNDEFINED, &[error]);
             }
         }
     } else {
@@ -90,12 +89,9 @@ fn async_function_resume(ctx: &JSContext, state: &ObjAsyncState) {
         };
         let promise: Promise = if promise.is_exception() {
             let exc = ctx.take_exception();
-            JS_Call(
-                ctx,
-                &state.0.borrow().resolving_funcs[1],
-                &JSValue::UNDEFINED,
-                std::slice::from_ref(&exc),
-            )
+            let func = state.0.borrow().resolving_funcs[1].clone();
+            func.call(ctx, &JSValue::UNDEFINED, std::slice::from_ref(&exc))
+                .unwrap()
         } else {
             promise
         }
@@ -107,12 +103,8 @@ fn async_function_resume(ctx: &JSContext, state: &ObjAsyncState) {
                 rr
             } else {
                 let error = ctx.take_exception();
-                JS_Call(
-                    ctx,
-                    &state.0.borrow().resolving_funcs[1],
-                    &JSValue::UNDEFINED,
-                    &[error],
-                );
+                let func = state.0.borrow().resolving_funcs[1].clone();
+                let _ = func.call(ctx, &JSValue::UNDEFINED, &[error]);
                 [const { JSValue::UNDEFINED }; 2]
             };
 
@@ -125,12 +117,8 @@ fn async_function_resume(ctx: &JSContext, state: &ObjAsyncState) {
 
         if res.is_err() {
             let exc = ctx.take_exception();
-            JS_Call(
-                ctx,
-                &state.0.borrow().resolving_funcs[1],
-                &JSValue::UNDEFINED,
-                &[exc],
-            );
+            let func = &state.0.borrow().resolving_funcs[1].clone();
+            let _ = func.call(ctx, &JSValue::UNDEFINED, &[exc]);
         }
     }
 }
@@ -199,7 +187,7 @@ pub fn js_async_function_resolve_call(
     Ok(JSValue::UNDEFINED)
 }
 
-pub const js_async_function_proto_funcs: [NativeField; 1] = [JS_PROP_STRING_DEF!(
+pub static js_async_function_proto_funcs: [FieldDef; 1] = [JS_PROP_STRING_DEF!(
     "[Symbol.toStringTag]",
     "AsyncFunction",
     JS_PROP_CONFIGURABLE

@@ -4,7 +4,6 @@ use crate::{
     atom::{JSAtom, consts::*},
     context::JSContext,
     error::JS_ThrowTypeErrorRevokedProxy,
-    function::JS_Call,
     object::{JS_PreventExtensions, JS_SetPrototypeInternal, ObjectDetail},
     runtime::{JSRuntime, js_check_stack_overflow},
     value::{JSValue, JSValueConst},
@@ -77,8 +76,8 @@ pub fn js_proxy_isExtensible(ctx: &JSContext, obj: &JSValue) -> Result<bool, i32
         return s.target.is_extensible(ctx);
     }
 
-    let b = JS_Call(ctx, &method, &s.handler, std::slice::from_ref(&s.target))
-        .error()?
+    let b = method
+        .call(ctx, &s.handler, std::slice::from_ref(&s.target))?
         .coerce_to_bool(ctx)?;
 
     if b != s.target.is_extensible(ctx)? {
@@ -95,10 +94,9 @@ pub fn js_proxy_preventExtensions(ctx: &JSContext, obj: &JSValue) -> Result<bool
         return JS_PreventExtensions(ctx, &s.target);
     }
 
-    let ret =
-        JS_Call(ctx, &method, &s.handler, std::slice::from_ref(&s.target)).error()?;
-
+    let ret = method.call(ctx, &s.handler, std::slice::from_ref(&s.target))?;
     let res = ret.coerce_to_bool(ctx)?;
+
     if res && s.target.is_extensible(ctx)? {
         ctx.throw_type_error("proxy: inconsistent preventExtensions");
         return Err(-1);
@@ -118,11 +116,9 @@ pub unsafe fn js_proxy_getPrototypeOf(ctx: &JSContext, obj: &JSValueConst) -> JS
         return s.target.prototype(ctx).unwrap_or(JSValue::EXCEPTION);
     }
 
-    let ret = JS_Call(ctx, &method, &s.handler, std::slice::from_ref(&s.target));
-    if ret.is_exception() {
-        return ret;
-    }
-
+    let Ok(ret) = method.call(ctx, &s.handler, std::slice::from_ref(&s.target)) else {
+        return JSValue::EXCEPTION;
+    };
     if !matches!(ret, JSValue::NULL | JSValue::Object(_)) {
         ctx.throw_type_error("proxy: inconsistent prototype");
         return JSValue::EXCEPTION;
@@ -160,13 +156,7 @@ pub unsafe fn js_proxy_setPrototypeOf(
         return JS_SetPrototypeInternal(ctx, &s.target, proto_val, throw_flag);
     }
 
-    let ret = JS_Call(
-        ctx,
-        &method,
-        &s.handler,
-        &[s.target.clone(), proto_val.clone()],
-    )
-    .error()?;
+    let ret = method.call(ctx, &s.handler, &[s.target.clone(), proto_val.clone()])?;
 
     match ret.coerce_to_bool(ctx) {
         Ok(false) => {

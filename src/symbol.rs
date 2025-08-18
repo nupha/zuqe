@@ -3,7 +3,7 @@ use crate::{
     atom::{AtomTypeHint, JSAtom},
     context::JSContext,
     error::JSResult,
-    function::{CallContext, NativeField},
+    function::{CallContext, FieldDef},
     object::JS_PROP_CONFIGURABLE,
     string::JSString,
 };
@@ -108,7 +108,7 @@ pub fn js_symbol_get_description(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 }
 
-pub const js_symbol_proto_funcs: [NativeField; 5] = [
+pub static js_symbol_proto_funcs: [FieldDef; 5] = [
     JS_CFUNC_NATIVE_DEF!("toString", 0, js_symbol_toString, 0),
     JS_CFUNC_NATIVE_DEF!("valueOf", 0, js_symbol_valueOf, 0),
     // XXX: should have writable: false
@@ -137,7 +137,7 @@ fn js_symbol_keyFor(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 }
 
-pub const js_symbol_funcs: [NativeField; 2] = [
+pub static js_symbol_funcs: [FieldDef; 2] = [
     JS_CFUNC_NATIVE_DEF!("for", 1, js_symbol_for, 0),
     JS_CFUNC_NATIVE_DEF!("keyFor", 1, js_symbol_keyFor, 0),
 ];

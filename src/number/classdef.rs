@@ -2,7 +2,7 @@ use crate::{
     JS_ALIAS_BASE_DEF, JS_CFUNC_NATIVE_DEF, JS_PROP_DOUBLE_DEF,
     context::JSContext,
     error::{JS_ThrowRangeError, JSResult},
-    function::{CallContext, NativeField},
+    function::{CallContext, FieldDef},
     js_core::global::{MAGIC_NUM_IS_FINITE, MAGIC_NUM_IS_NAN, js_global_isNaN_isFinite},
     number::{JS_DTOA_FORCE_EXP, is_safe_integer},
     object::ObjectDetail,
@@ -221,7 +221,7 @@ pub fn js_number_fmt(ctx: &JSContext, cc: CallContext) -> JSResult {
         .map(JSValue::String)
 }
 
-pub const js_number_proto_funcs: [NativeField; 6] = [
+pub static js_number_proto_funcs: [FieldDef; 6] = [
     JS_CFUNC_NATIVE_DEF!("toFixed", 1, js_number_fmt, FMT_TO_FIXED as i16),
     JS_CFUNC_NATIVE_DEF!("toPrecision", 1, js_number_fmt, FMT_TO_PRECISION as i16),
     JS_CFUNC_NATIVE_DEF!("toExponential", 1, js_number_fmt, FMT_TO_EXPONENTIAL as i16),
@@ -258,7 +258,7 @@ pub fn js_number_isSafeInteger(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(is_safe_integer(d).into())
 }
 
-pub const js_number_funcs: [NativeField; 14] = [
+pub static js_number_funcs: [FieldDef; 14] = [
     // global ParseInt and parseFloat should be defined already or delayed
     JS_ALIAS_BASE_DEF!("parseInt", "parseInt", 0),
     JS_ALIAS_BASE_DEF!("parseFloat", "parseFloat", 0),

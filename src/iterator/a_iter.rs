@@ -5,7 +5,7 @@ use crate::{
     atom::consts::*,
     context::JSContext,
     error::JSResult,
-    function::{CallContext, IteratorState, JS_Call, NativeField},
+    function::{CallContext, FieldDef, IteratorState},
     iterator::ObjectIter,
     object::{JSObject, ObjectDetail},
     promise::{Promise, js_promise_resolve},
@@ -51,7 +51,7 @@ pub unsafe fn js_async_from_sync_iterator_unwrap_func_create(
 pub fn js_async_from_sync_iterator_next(ctx: &JSContext, cc: CallContext) -> JSResult {
     let done_resolve =
         |rr: [JSValue; 2], err: JSValue, is_reject: usize, promise: Promise| -> JSValue {
-            JS_Call(ctx, &rr[is_reject], &JSValue::UNDEFINED, &[err]);
+            let _ = rr[is_reject].call(ctx, &JSValue::UNDEFINED, &[err]);
             promise.into()
         };
 
@@ -140,9 +140,7 @@ pub fn js_async_from_sync_iterator_next(ctx: &JSContext, cc: CallContext) -> JSR
             };
 
             let resolve_reject: [JSValue; 2] = [
-                unsafe {
-                    js_async_from_sync_iterator_unwrap_func_create(ctx, done).error()?
-                },
+                unsafe { js_async_from_sync_iterator_unwrap_func_create(ctx, done).err()? },
                 JSValue::UNDEFINED,
             ];
             value_wrapper_promise.reaction(ctx, &resolve_reject, &resolving_funcs)?;
@@ -180,7 +178,7 @@ pub fn js_async_from_sync_iterator_mark(val: JSValue) {
     }
 }
 
-pub const js_async_from_sync_iterator_proto_funcs: [NativeField; 3] = [
+pub static js_async_from_sync_iterator_proto_funcs: [FieldDef; 3] = [
     JS_CFUNC_NATIVE_DEF!(
         "next",
         1,

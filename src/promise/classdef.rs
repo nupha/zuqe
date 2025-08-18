@@ -3,7 +3,7 @@ use crate::{
     atom::consts::*,
     context::JSContext,
     error::JSResult,
-    function::{CallContext, JS_Call, NativeField},
+    function::{CallContext, FieldDef},
     js_core::{error::js_aggregate_error_constructor, js_get_this},
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_SpeciesConstructor},
     value::JSValue,
@@ -34,7 +34,7 @@ pub fn js_promise_then_finally_func(ctx: &JSContext, cc: CallContext) -> JSResul
     let ctor = cc.data(0);
     let on_finally = cc.data(1);
 
-    let res = JS_Call(ctx, &on_finally, &JSValue::UNDEFINED, &[]).error()?;
+    let res = on_finally.call(ctx, &JSValue::UNDEFINED, &[])?;
 
     let promise = {
         let tmp = [res];
@@ -46,7 +46,7 @@ pub fn js_promise_then_finally_func(ctx: &JSContext, cc: CallContext) -> JSResul
         |cx: &JSContext, cc: CallContext| -> JSResult {
             let val = cc.data(0);
             if cc.magic() == 0 {
-                val.error() // resolve
+                val.err() // resolve
             } else {
                 cx.throw(val); // reject
                 Err(-1)
@@ -105,15 +105,7 @@ pub fn js_promise_resolve(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     let (result_promise, resolving_funcs) = ctx.create_promise(cc.this())?;
-
-    JS_Call(
-        ctx,
-        &resolving_funcs[is_reject as usize],
-        &JSValue::UNDEFINED,
-        cc.arguments(),
-    )
-    .error()?;
-
+    resolving_funcs[is_reject as usize].call(ctx, &JSValue::UNDEFINED, cc.arguments())?;
     Ok(result_promise.into())
 }
 
@@ -128,14 +120,7 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let fail_reject = || -> JSResult {
         let error = ctx.take_exception();
-        JS_Call(
-            ctx,
-            &resolving_funcs[1],
-            &JSValue::UNDEFINED,
-            std::slice::from_ref(&error),
-        )
-        .error()?;
-
+        resolving_funcs[1].call(ctx, &JSValue::UNDEFINED, std::slice::from_ref(&error))?;
         Ok(JSValue::Object(result_promise.clone().into()))
     };
 
@@ -177,15 +162,11 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
     let mut index = 0;
     for item in it {
         if let Ok(item) = item {
-            let next_promise = JS_Call(
-                ctx,
-                &promise_resolve,
-                cc.this(),
-                std::slice::from_ref(&item),
-            );
-            if next_promise.is_exception() {
+            let Ok(next_promise) =
+                promise_resolve.call(ctx, cc.this(), std::slice::from_ref(&item))
+            else {
                 return fail_reject();
-            }
+            };
 
             let resolve_element_data = [
                 JSValue::Bool(false),
@@ -260,13 +241,12 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
                 values = error;
             }
 
-            let ret = JS_Call(
+            let ret = resolving_funcs[is_promise_any as usize].call(
                 ctx,
-                &resolving_funcs[is_promise_any as usize],
                 &JSValue::UNDEFINED,
                 std::slice::from_ref(&values),
             );
-            if ret.is_exception() {
+            if ret.is_err() {
                 return fail_reject();
             }
         }
@@ -292,13 +272,7 @@ pub fn js_promise_race(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let fail_reject = || -> JSResult {
         let error = ctx.take_exception();
-        JS_Call(
-            ctx,
-            &resolving_funcs[1],
-            &JSValue::UNDEFINED,
-            std::slice::from_ref(&error),
-        )
-        .error()?;
+        resolving_funcs[1].call(ctx, &JSValue::UNDEFINED, std::slice::from_ref(&error))?;
         Ok(result_promise.clone().into())
     };
 
@@ -311,29 +285,20 @@ pub fn js_promise_race(ctx: &JSContext, cc: CallContext) -> JSResult {
         return fail_reject();
     }
 
-    let it = if let Ok(x) = cc.arg(0).iter(ctx) {
-        x
-    } else {
+    let Ok(it) = cc.arg(0).iter(ctx) else {
         return fail_reject();
     };
+    let this = cc.this();
 
     for item in it {
-        if let Ok(item) = item {
-            let next_promise = JS_Call(
-                ctx,
-                &promise_resolve,
-                cc.this(),
-                std::slice::from_ref(&item),
-            );
-            if next_promise.is_exception() {
-                return fail_reject();
-            }
-
-            let ret = next_promise.invoke(ctx, JS_ATOM_then, &resolving_funcs);
-            if ret.is_err() {
-                return fail_reject();
-            }
-        } else {
+        if item
+            .and_then(|val| {
+                promise_resolve
+                    .call(ctx, this, std::slice::from_ref(&val))
+                    .and_then(|pr| pr.invoke(ctx, JS_ATOM_then, &resolving_funcs))
+            })
+            .is_err()
+        {
             return fail_reject();
         }
     }
@@ -367,7 +332,7 @@ pub fn js_promise_withResolvers(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(obj.into())
 }
 
-pub const js_promise_funcs: [NativeField; 8] = [
+pub static js_promise_funcs: [FieldDef; 8] = [
     JS_CFUNC_NATIVE_DEF!("resolve", 1, js_promise_resolve, 0),
     JS_CFUNC_NATIVE_DEF!("reject", 1, js_promise_resolve, 1),
     JS_CFUNC_NATIVE_DEF!("all", 1, js_promise_all, PROMISE_MAGIC_all as _),
@@ -395,7 +360,7 @@ pub const js_promise_funcs: [NativeField; 8] = [
 //     Err(-1)
 // }
 
-pub const js_promise_proto_funcs: [NativeField; 4] = [
+pub static js_promise_proto_funcs: [FieldDef; 4] = [
     JS_CFUNC_NATIVE_DEF!("then", 2, js_promise_then, 0),
     JS_CFUNC_NATIVE_DEF!("catch", 1, js_promise_catch, 0),
     JS_CFUNC_NATIVE_DEF!("finally", 1, js_promise_finally, 0),
