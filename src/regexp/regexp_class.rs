@@ -710,6 +710,7 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
                         Ok(None)
                     }
                 },
+                length,
                 |name| {
                     if let Some(g) = groups.as_ref() {
                         let val = g.get_property_str(ctx, name).unwrap();

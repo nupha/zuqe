@@ -1,5 +1,7 @@
 use std::{borrow::Cow, collections::TryReserveError};
 
+use smallvec::SmallVec;
+
 use crate::string::{StringBuf, StringChar, StringContent, content::StringBufSlice};
 
 impl StringBuf {
@@ -178,8 +180,9 @@ impl StringBuf {
         str: &Self,         // 原字串
         position: usize,    // 匹配发生的位置索引
         replacement: &Self, // 替换字符串或替换函数。
-        captures: impl Fn(usize) -> Result<Option<StringContent>, i32>, // 命名捕获组对象。（对应 $1, $2 等）
-        named_captures: impl Fn(&str) -> Result<Option<StringContent>, i32>, // 命名捕获组。（对应 $<name>）
+        captures: impl Fn(usize) -> Result<Option<StringContent>, i32>, // 捕获（对应 $1, $2 等）
+        captures_len: usize, // 最大捕获ID
+        named_captures: impl Fn(&str) -> Result<Option<StringContent>, i32>, // 命名捕获（对应 $<name>）
     ) -> Result<StringBuf, Option<TryReserveError>> {
         do_substitution4(
             str,
@@ -187,6 +190,7 @@ impl StringBuf {
             matched,
             replacement,
             captures,
+            captures_len,
             named_captures,
         )
     }
@@ -411,8 +415,8 @@ fn do_substitution3<'a>(
     position: usize,                                       // 匹配发生的位置索引
     matched: &str,                                         // 匹配到的子字符串（对应 $&）
     replacement: impl Iterator<Item = StringChar>,         // 替换字符串或替换函数。
-    captures: impl Fn(usize) -> Option<Cow<'a, str>>,      // 命名捕获组对象。（对应 $1, $2 等）
-    named_captures: impl Fn(&str) -> Option<Cow<'a, str>>, // 命名捕获组。（对应 $<name>）
+    captures: impl Fn(usize) -> Option<Cow<'a, str>>,      // 捕获（对应 $1, $2 等）
+    named_captures: impl Fn(&str) -> Option<Cow<'a, str>>, // 命名捕获（对应 $<name>）
 ) -> Result<StringBuf, TryReserveError> {
     let matched_len = matched.len();
 
@@ -521,8 +525,9 @@ fn do_substitution4<'a>(
     position: usize,                                                     // 匹配发生的位置索引
     matched: &StringBuf,     // 匹配到的子字符串（对应 $&）
     replacement: &StringBuf, // 替换字符串或替换函数。
-    captures: impl Fn(usize) -> Result<Option<StringContent>, i32>, // 命名捕获组对象。（对应 $1, $2 等）
-    named_captures: impl Fn(&str) -> Result<Option<StringContent>, i32>, // 命名捕获组。（对应 $<name>）
+    captures: impl Fn(usize) -> Result<Option<StringContent>, i32>, // 捕获（对应 $1, $2 等）
+    captures_len: usize,     // 最大捕获ID
+    named_captures: impl Fn(&str) -> Result<Option<StringContent>, i32>, // 命名捕获（对应 $<name>）
 ) -> Result<StringBuf, Option<TryReserveError>> {
     // alloc result string buf
     let mut sbuf = StringBuf::with_capacity(matched.buf_len(), str.is_wide())?;
@@ -553,16 +558,22 @@ fn do_substitution4<'a>(
                     }
                     StringChar::Char(a @ ('0'..='9')) => {
                         // $k -> captures[k]
-                        let mut n = a as u32 - '0' as u32;
+                        let mut id = a as u32 - '0' as u32;
+
                         while let Some(c2) = replace_chars.peek()
                             && (c2 < 0x80 && (c2 as u8).is_ascii_digit())
                         {
-                            n = n * 10 + (c2 as u32 - '0' as u32);
-                            let _ = replace_chars.next(); // consume digit
+                            let n1 = id * 10 + (c2 as u32 - '0' as u32);
+                            if n1 < captures_len as u32 {
+                                id = n1;
+                                let _ = replace_chars.next(); // consume digit
+                            } else {
+                                break;
+                            }
                         }
 
-                        if n > 0 {
-                            if let Some(s) = captures(n as usize).map_err(|_| None)? {
+                        if id > 0 {
+                            if let Some(s) = captures(id as usize).map_err(|_| None)? {
                                 sbuf.push(&s).map_err(|e| Some(e))?;
                             }
                         } else {
