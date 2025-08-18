@@ -559,8 +559,7 @@ fn do_substitution4<'a>(
                     StringChar::Char(a @ ('0'..='9')) => {
                         // $k -> captures[k]
                         let mut id = a as u32 - '0' as u32;
-
-                        while let Some(c2) = replace_chars.peek()
+                        if let Some(c2) = replace_chars.peek()
                             && (c2 < 0x80 && (c2 as u8).is_ascii_digit())
                         {
                             let n1 = id * 10 + (c2 as u32 - '0' as u32);
