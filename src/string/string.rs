@@ -601,7 +601,6 @@ impl JSContext {
     }
 
     /// create string value from a single u16 char.
-    /// returns JS_EXCEPTION if fail.
     pub fn create_string_from_char(&self, ch: StringChar) -> Result<JSString, i32> {
         let buf = match ch {
             StringChar::Char(ch) => {
@@ -611,7 +610,7 @@ impl JSContext {
                     StringBuf::Utf16(ch.encode_utf16(&mut [0; 2]).to_vec())
                 }
             }
-            StringChar::BrokenCode(c) => StringBuf::Utf16(vec![c as u16]),
+            StringChar::Code(c) => StringBuf::Utf16(vec![c]),
         };
         self.create_string_with_buf(buf)
     }

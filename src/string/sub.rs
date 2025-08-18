@@ -457,7 +457,7 @@ fn do_substitution3<'a>(
                                     .iter_since(name_start)
                                     .map(|(_, c)| match c {
                                         StringChar::Char(c) => c,
-                                        StringChar::BrokenCode(_) => '\u{FFFD}',
+                                        StringChar::Code(_) => '\u{FFFD}',
                                     })
                                     .skip(1) // ignore leading <
                                     .collect::<String>();

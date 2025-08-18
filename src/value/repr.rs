@@ -51,8 +51,8 @@ impl JSValue {
                             }
                         },
 
-                        StringChar::BrokenCode(c) => {
-                            buf.extend_from_slice(format!("\\u{:04x}", c).as_bytes());
+                        StringChar::Code(c) => {
+                            buf.extend_from_slice(format!("\\u{c:04X}").as_bytes());
                         }
                     }
                 }
@@ -94,8 +94,8 @@ pub fn JS_DumpString(p: &JSString) {
                     // print!("\\u{:04x}", c as u32)
                 }
             },
-            StringChar::BrokenCode(c) => {
-                print!("\\u{c:04x}")
+            StringChar::Code(c) => {
+                print!("\\u{c:04X}")
             }
         }
     }

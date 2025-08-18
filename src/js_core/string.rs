@@ -464,36 +464,39 @@ pub fn js_string_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_string_pad(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let padEnd = cc.magic();
-    let mut n: i32 = cc.arg(0).to_i32_saturating(ctx)?;
+    let is_pad_end = cc.magic() != 0;
+    let mut ttl_len: i32 = cc.arg(0).to_i32_saturating(ctx)?;
 
-    let p = cc.this().to_string_non_undefined_or_null(ctx)?;
-    let len = p.buf_len() as i32;
-    if len >= n {
-        return Ok(p.into());
+    let str = cc.this().to_string_non_undefined_or_null(ctx)?;
+    let len = str.buf_len() as i32;
+    if len >= ttl_len {
+        return Ok(str.into());
     }
+    ttl_len -= len;
 
-    let mut p1: Option<JSString> = None;
-    let mut c = StringChar::Char(' ');
+    let mut fill_str: Option<JSString> = None;
+    let mut fill_u16 = StringChar::Char(' ');
 
     if cc.length() > 1 && !cc.arg(1).is_undefined() {
         let s = cc.arg(1).to_string(ctx)?;
         if s.is_empty() {
-            return Ok(p.into());
-        } else if s.buf_len() == 1 {
-            (_, c) = s.content().iter().next().unwrap();
+            return Ok(str.into());
+        }
+
+        if s.buf_len() == 1 {
+            fill_u16 = StringChar::Code(s.content().get(0).unwrap());
         } else {
-            p1.replace(s);
+            fill_str.replace(s);
         }
     }
 
-    if n > JS_STRING_LEN_MAX as i32 {
+    if ttl_len > JS_STRING_LEN_MAX as i32 {
         ctx.throw_internal_error("string too long");
         return Err(-1);
     }
 
-    let mut res_string = if padEnd != 0 {
-        p.content().copy_to_new().map_err(|_| {
+    let mut sbuf = if is_pad_end {
+        str.content().copy_to_new().map_err(|_| {
             ctx.throw_out_of_memory();
             -1
         })?
@@ -501,31 +504,38 @@ pub fn js_string_pad(ctx: &JSContext, cc: CallContext) -> JSResult {
         StringBuf::Empty
     };
 
-    n -= len;
-
-    if let Some(s) = p1 {
+    if let Some(s) = fill_str {
+        // fill with str
         let src = std::iter::repeat_n(
-            s.content().iter().map(|(_, c)| c),
-            (n as usize).div_ceil(s.buf_len()),
+            s.content().iter_codepoint(),
+            (ttl_len as usize).div_ceil(s.buf_len()),
         )
-        .flatten();
-        res_string.push_chars_iter(src)
+        .flatten()
+        .take(ttl_len as usize);
+
+        sbuf.push_u16_iter(src)
     } else {
-        res_string.push_chars_iter(std::iter::repeat_n(c, n as usize))
+        // fill with char
+        sbuf.push_chars_iter(std::iter::repeat_n(fill_u16, ttl_len as usize))
     }
     .map_err(|_| {
         ctx.throw_out_of_memory();
         -1
     })?;
 
-    if padEnd == 0 {
-        res_string.push(p.content()).map_err(|_| {
+    if !is_pad_end {
+        sbuf.push(str.content()).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
         })?;
     }
 
-    ctx.create_string_with_buf(res_string).map(JSValue::String)
+    println!(
+        "[O.o] padEnd sbuf: {:?}",
+        sbuf.iter_codepoint().collect::<Vec<_>>()
+    );
+
+    ctx.create_string_with_buf(sbuf).map(JSValue::String)
 }
 
 pub fn js_string_repeat(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -1024,13 +1034,11 @@ pub fn js_string_iterator_next(
             *state = IteratorState::NotDone;
             match c {
                 StringChar::Char(_) => ctx.create_string_from_char(c),
-                StringChar::BrokenCode(c) => {
-                    ctx.create_string_with_buf(if (0..=255).contains(&c) {
-                        StringBuf::Ascii(vec![c as u8])
-                    } else {
-                        StringBuf::Utf16(vec![c as u16])
-                    })
-                }
+                StringChar::Code(c) => ctx.create_string_with_buf(if (0..=255).contains(&c) {
+                    StringBuf::Ascii(vec![c as u8])
+                } else {
+                    StringBuf::Utf16(vec![c])
+                }),
             }
             .map(JSValue::String)
         } else {
