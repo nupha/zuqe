@@ -224,7 +224,7 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     let search = cc.arg(0);
-    let replace = cc.arg(1);
+    let replacement = cc.arg(1);
 
     if !search.is_undefined_or_null() {
         if is_replace_all {
@@ -234,9 +234,8 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
 
         let replacer = search.get_property(ctx, JS_ATOM_Symbol_replace)?;
-
         if !replacer.is_undefined_or_null() {
-            return replacer.call(ctx, search, &[this, replace.clone()]);
+            return replacer.call(ctx, search, &[this, replacement.clone()]);
         }
     }
 
@@ -244,10 +243,10 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
     let buf_len = str.buf_len();
 
     let search_for = search.to_string(ctx)?;
-    let (replace_func, replace_str) = if replace.is_callable() {
+    let (replace_func, replace_str) = if replacement.is_callable() {
         (true, None)
     } else {
-        (false, Some(replace.to_string(ctx)?))
+        (false, Some(replacement.to_string(ctx)?))
     };
 
     let mut is_first = true;
@@ -272,7 +271,7 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
             // calculate replacement
             let replacement = {
                 let res = if replace_func {
-                    replace
+                    replacement
                         .call(
                             ctx,
                             &JSValue::UNDEFINED,

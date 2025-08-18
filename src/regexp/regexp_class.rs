@@ -3,6 +3,7 @@ use std::{
     rc::Rc,
 };
 
+use libc::group;
 use regex::bytes::Regex;
 
 use crate::{
@@ -10,11 +11,14 @@ use crate::{
     atom::consts::*,
     context::{JS_GetActiveFunction, JSContext},
     error::{ErrorKind, JSResult},
-    function::{CallContext, JS_CallConstructor, FieldDef, NativeFunctionType},
+    function::{
+        BytecodeFunction, CallContext, FieldDef, JS_CallConstructor, NativeFunctionType,
+        js_function_apply,
+    },
     js_core::js_get_this,
     object::{
         JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, JS_SpeciesConstructor, JSObject,
-        ObjectDetail,
+        ObjectDetail, js_get_length32,
     },
     runtime::JSRuntime,
     string::{JSString, StringBuf, StringChar, StringContent, map_utf8_to_utf16_range},
@@ -605,13 +609,12 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Err(-1);
     };
 
-    let re = js_get_regexp(ctx, this, true).ok_or(-1)?;
     let str = cc.arg(0).to_string(ctx)?;
 
     let rep = cc.arg(1);
-    let functionalReplace = rep.is_callable();
-    let rp: Option<String> = if !functionalReplace {
-        Some(rep.to_string(ctx)?.content().to_utf8().into_owned())
+    let rep_is_func = rep.is_callable();
+    let rep_str: Option<StringContent> = if !rep_is_func {
+        Some(rep.to_string(ctx)?.content().clone())
     } else {
         None
     };
@@ -620,133 +623,131 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
         .get_property(ctx, JS_ATOM_flags)
         .and_then(|v| v.to_string(ctx))?;
 
-    let is_global = re.flags & LRE_FLAG_GLOBAL as u8 != 0;
-    let fullUnicode = if is_global {
+    let is_global = flags.content().index_of_char('g', 0).is_some();
+    let is_unicode = if is_global {
         this.set_property(ctx, JS_ATOM_lastIndex, JSValue::Int(0))?;
         flags.content().index_of_char('u', 0).is_some()
     } else {
         false
     };
 
-    if rp.as_ref().map_or(false, |s| s.is_empty()) && is_global && js_is_standard_regexp(ctx, this)?
+    if rep_str.as_ref().map_or(false, |s| s.is_empty())
+        && is_global
+        && js_is_standard_regexp(ctx, this)?
     {
         // fast path: delete only
         // return JS_RegExpDelete(ctx, this, sp);
         todo!();
     }
 
-    let utf8_text = str.content().to_utf8();
-    let mut chars_iter = if str.is_wide() {
-        Some(str.content().iter())
-    } else {
-        None
-    };
     let mut sbuf =
         StringBuf::with_capacity(str.buf_len() * 3 / 2, str.is_wide()).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
         })?;
 
-    let mut str_last_index = 0;
-    let mut utf8_cursor = 0;
+    // regexp match results list
+    let mut matches = Vec::<JSObject>::with_capacity(16);
 
-    let utf16 = if str.is_wide() {
-        let bb = str.content().as_bytes();
-        Some(unsafe { std::slice::from_raw_parts(bb.as_ptr().cast::<u16>(), bb.len() / 2) })
-    } else {
-        None
-    };
-
-    for caps in re
-        .regex
-        .captures_iter(utf8_text.as_bytes())
-        .take(if !is_global { 1 } else { usize::MAX })
+    while let Ok(m) = TryInto::<JSObject>::try_into(JS_RegExpExec(ctx, this.clone(), str.clone())?)
     {
-        if let Some(m) = caps.get(0) {
-            // convert utf8 index to string buf index
-            let range = if let Some(s16) = utf16 {
-                map_utf8_to_utf16_range(utf8_text.as_bytes(), s16, m.range())
-            } else {
-                m.range()
-            };
+        if let Ok(s) = TryInto::<JSString>::try_into(m.get_property_u32(ctx, 0)?) {
+            if s.is_empty() {
+                // always advance of at least one char
+                let last_index = this
+                    .get_property(ctx, JS_ATOM_lastIndex)?
+                    .coerce_to_length(ctx)?;
 
-            let pos = range.start;
+                let next_index = str
+                    .content()
+                    .index_of_next(last_index as usize, is_unicode)
+                    .unwrap_or(last_index as usize + 1);
+                this.set_property(ctx, JS_ATOM_lastIndex, JSValue::from(next_index as u32))?;
+            }
+        }
 
-            sbuf.push_content_slice(&str.content().slice(str_last_index..pos))
-                .map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+        matches.push(m);
+        if !is_global {
+            break;
+        }
+    }
 
-            utf8_cursor = m.end();
+    for m in matches {
+        let index = m
+            .get_property(ctx, JS_ATOM_index)
+            .and_then(|v| v.coerce_to_u32(ctx))? as usize;
 
-            str_last_index = range.end;
+        if let Some(rep_str) = rep_str.as_ref() {
+            // replacement string
+            let matched = m.get_property_u32(ctx, 0).and_then(|v| v.to_string(ctx))?;
+            let length = m
+                .get_property(ctx, JS_ATOM_length)
+                .and_then(|v| v.coerce_to_u32(ctx))? as usize;
 
-            if let Some(rep_str) = rp.as_ref() {
-                let t = StringBuf::substitution(
-                    std::str::from_utf8(m.as_bytes()).unwrap(),
-                    str.content(),
-                    pos,
-                    rep_str.chars().map(|c| c.into()),
-                    |n| {
-                        caps.get(n)
-                            .map(|m| std::str::from_utf8(m.as_bytes()).unwrap().into())
-                    },
-                    |name| {
-                        caps.name(name)
-                            .map(|m| std::str::from_utf8(m.as_bytes()).unwrap().into())
-                    },
-                )
-                .map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+            let groups = TryInto::<JSObject>::try_into(m.get_property(ctx, JS_ATOM_groups)?).ok();
 
-                if sbuf.is_empty() {
-                    sbuf = t;
-                } else {
-                    sbuf.push(&t).map_err(|_| {
-                        ctx.throw_out_of_memory();
-                        -1
-                    })?;
-                }
-            } else {
-                // call func
-                let prop_flags = JS_PROP_C_W_E | JS_PROP_THROW;
-
-                let obj = ctx.create_array()?;
-                for (i, cap) in caps.iter().enumerate() {
-                    let val = if let Some(m) = cap {
-                        ctx.create_string_from_str(std::str::from_utf8(m.as_bytes()).unwrap())?
-                            .into()
+            let t = StringBuf::substitution_buf(
+                matched.content(),
+                str.content(),
+                index,
+                rep_str,
+                |n| {
+                    if n < length {
+                        m.get_property_u32(ctx, n as _)
+                            .and_then(|v| v.to_string(ctx))
+                            .map(|s| Some(s.content().clone()))
                     } else {
-                        JSValue::UNDEFINED
-                    };
-                    obj.define_property_value_u32(ctx, i as _, val, prop_flags)?;
+                        Ok(None)
+                    }
+                },
+                |name| {
+                    if let Some(g) = groups.as_ref() {
+                        let val = g.get_property_str(ctx, name).unwrap();
+                        if !val.is_undefined() {
+                            Ok(Some(val.to_string(ctx)?.content().clone()))
+                        } else {
+                            Ok(None)
+                        }
+                    } else {
+                        Ok(None)
+                    }
+                },
+            )
+            .map_err(|e| {
+                if e.is_some() {
+                    ctx.throw_out_of_memory();
                 }
-                for (name, matched) in re.regex.capture_names().filter_map(|n| {
-                    n.and_then(|n| {
-                        caps.name(n)
-                            .map(|m| ((n, std::str::from_utf8(m.as_bytes()).unwrap())))
-                    })
-                }) {
-                    let val = ctx.create_string_from_str(matched)?;
-                    obj.define_property_value_str(ctx, name, val.into(), prop_flags)?;
-                }
+                -1
+            })?;
 
-                let r = rep
-                    .call(ctx, &rep, &[obj, JSValue::Int(pos as i32)])?
-                    .to_string(ctx)?;
-
-                sbuf.push(&r.content()).map_err(|_| {
+            if sbuf.is_empty() {
+                sbuf = t;
+            } else {
+                sbuf.push(&t).map_err(|_| {
                     ctx.throw_out_of_memory();
                     -1
                 })?;
             }
+        } else {
+            // functional replacement
+            let rem = js_function_apply(
+                ctx,
+                CallContext::new(ctx, rep.clone(), &[JSValue::UNDEFINED, m.into()], 0, None),
+            )?
+            .to_string(ctx)?;
+
+            sbuf.push(&rem.content()).map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?;
         }
     }
 
-    // str remainder
+    // remainder part of original `str`
+    let str_last_index = this
+        .get_property(ctx, JS_ATOM_lastIndex)?
+        .coerce_to_length(ctx)? as usize;
+
     if str_last_index < str.content().buf_len() {
         sbuf.push_content_slice(&str.content().slice(str_last_index..str.content().buf_len()))
             .map_err(|_| {
