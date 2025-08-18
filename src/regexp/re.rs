@@ -86,7 +86,7 @@ impl JSRegExp {
         let re = RegexBuilder::new(pattern)
             .unicode(flags & LRE_FLAG_UTF16 as u8 != 0)
             .multi_line(flags & LRE_FLAG_MULTILINE as u8 != 0)
-            .case_insensitive(flags & LRE_FLAG_IGNORECASE as u8 == 0)
+            .case_insensitive(flags & LRE_FLAG_IGNORECASE as u8 != 0)
             .build()
             .map_err(|e| {
                 ctx.throw_error(ErrorKind::Syntax, &e.to_string());

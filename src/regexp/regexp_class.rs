@@ -672,14 +672,24 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     }
 
+    let mut pos = 0;
+
     for m in matches {
+        let matched = m.get_property_u32(ctx, 0).and_then(|v| v.to_string(ctx))?;
         let index = m
             .get_property(ctx, JS_ATOM_index)
             .and_then(|v| v.coerce_to_u32(ctx))? as usize;
 
+        sbuf.push_content_slice(&str.content().slice(pos..index))
+            .map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?;
+
+        pos = index + matched.buf_len();
+
         if let Some(rep_str) = rep_str.as_ref() {
             // replacement string
-            let matched = m.get_property_u32(ctx, 0).and_then(|v| v.to_string(ctx))?;
             let length = m
                 .get_property(ctx, JS_ATOM_length)
                 .and_then(|v| v.coerce_to_u32(ctx))? as usize;
@@ -720,36 +730,28 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
                 -1
             })?;
 
-            if sbuf.is_empty() {
-                sbuf = t;
-            } else {
-                sbuf.push(&t).map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
-            }
+            sbuf.push(&t).map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?;
         } else {
             // functional replacement
-            let rem = js_function_apply(
+            let t = js_function_apply(
                 ctx,
                 CallContext::new(ctx, rep.clone(), &[JSValue::UNDEFINED, m.into()], 0, None),
             )?
             .to_string(ctx)?;
 
-            sbuf.push(&rem.content()).map_err(|_| {
+            sbuf.push(&t.content()).map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1
             })?;
-        }
+        };
     }
 
-    // remainder part of original `str`
-    let str_last_index = this
-        .get_property(ctx, JS_ATOM_lastIndex)?
-        .coerce_to_length(ctx)? as usize;
-
-    if str_last_index < str.content().buf_len() {
-        sbuf.push_content_slice(&str.content().slice(str_last_index..str.content().buf_len()))
+    // concat remaining part of `str`
+    if pos < str.content().buf_len() {
+        sbuf.push_content_slice(&str.content().slice(pos..str.content().buf_len()))
             .map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1

@@ -531,11 +531,6 @@ pub fn js_string_pad(ctx: &JSContext, cc: CallContext) -> JSResult {
         })?;
     }
 
-    println!(
-        "[O.o] padEnd sbuf: {:?}",
-        sbuf.iter_codepoint().collect::<Vec<_>>()
-    );
-
     ctx.create_string_with_buf(sbuf).map(JSValue::String)
 }
 
