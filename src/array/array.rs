@@ -4,7 +4,7 @@ use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_PROXY,
     atom::{JS_FreeAtom, JSAtom, consts::JS_ATOM_length},
     context::JSContext,
-    error::{ErrorKind, JS_ThrowRangeError, JSResult},
+    error::{ErrorKind, JSResult},
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE,
         JSObject, JSProperty, ObjectDetail,
@@ -462,7 +462,7 @@ pub unsafe fn JS_ToArrayLengthFree(
         }
         JSValue::Int(v) => {
             if v < 0 {
-                JS_ThrowRangeError(ctx, "invalid array length");
+                ctx.throw_range_error("invalid array length");
                 return Err(-1);
             }
             len = v as u32;
@@ -474,7 +474,7 @@ pub unsafe fn JS_ToArrayLengthFree(
             len = d as u32;
             if len as f64 != d {
                 // f64 can't convert to u32
-                JS_ThrowRangeError(ctx, "invalid array length");
+                ctx.throw_range_error("invalid array length");
                 return Err(-1);
             }
         }
@@ -489,7 +489,7 @@ pub unsafe fn JS_ToArrayLengthFree(
             len = val.coerce_to_u32(ctx)?;
             let v = val.to_number(ctx)?;
             if len != JS_ToArrayLengthFree(ctx, v, false)? {
-                JS_ThrowRangeError(ctx, "invalid array length");
+                ctx.throw_range_error("invalid array length");
                 return Err(-1);
             }
         }

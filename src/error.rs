@@ -126,6 +126,11 @@ impl JSContext {
     }
 
     #[inline(always)]
+    pub fn throw_range_error(&self, message: &str) {
+        self.throw_error(ErrorKind::Range, message);
+    }
+
+    #[inline(always)]
     pub fn throw_internal_error(&self, message: &str) {
         self.throw_error(ErrorKind::Internal, message);
     }
@@ -381,6 +386,7 @@ pub fn JS_ThrowTypeErrorPrivateNotFound(ctx: &JSContext, atom: JSAtom) {
     ));
 }
 
+#[deprecated(note = "use JSContext::throw_range_error() instead")]
 pub fn JS_ThrowRangeError(ctx: &JSContext, message: &str) {
     ctx.throw_error(ErrorKind::Range, message);
 }

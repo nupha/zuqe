@@ -8,8 +8,8 @@ use crate::{
     JS_PROP_STRING_DEF,
     atom::{JSAtom, consts::*},
     context::JSContext,
-    error::{JS_ThrowRangeError, JSResult},
-    function::{CallContext, IteratorState, JS_Call, JS_CallConstructor, NativeField},
+    error::JSResult,
+    function::{CallContext, IteratorState, JS_CallConstructor, NativeField},
     iterator::{JSIteratorKindEnum, js_create_array_iterator},
     object::{JS_PROP_CONFIGURABLE, ObjectDetail, js_get_length64},
     regexp::js_is_regexp,
@@ -236,7 +236,7 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
         let replacer = search.get_property(ctx, JS_ATOM_Symbol_replace)?;
 
         if !replacer.is_undefined_or_null() {
-            return JS_Call(ctx, &replacer, search, &[this, replace.clone()]).error();
+            return replacer.call(ctx, search, &[this, replace.clone()]);
         }
     }
 
@@ -272,18 +272,17 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
             // calculate replacement
             let replacement = {
                 let res = if replace_func {
-                    JS_Call(
-                        ctx,
-                        replace,
-                        &JSValue::UNDEFINED,
-                        &[
-                            search_for.clone().into(),
-                            JSValue::from(pos as u32),
-                            str.clone().into(),
-                        ],
-                    )
-                    .error()
-                    .and_then(|v| v.to_string(ctx))
+                    replace
+                        .call(
+                            ctx,
+                            &JSValue::UNDEFINED,
+                            &[
+                                search_for.clone().into(),
+                                JSValue::from(pos as u32),
+                                str.clone().into(),
+                            ],
+                        )
+                        .and_then(|v| v.to_string(ctx))
                 } else {
                     JSString::get_substitution(
                         ctx,
@@ -357,7 +356,7 @@ pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
     if !separator.is_undefined_or_null() {
         let splitter = separator.get_property(ctx, JS_ATOM_Symbol_split)?;
         if !splitter.is_undefined_or_null() {
-            return JS_Call(ctx, &splitter, &separator, &[this.clone(), limit.clone()]).error();
+            return separator.call(ctx, &separator, &[this.clone(), limit.clone()]);
         }
     }
 
@@ -534,7 +533,7 @@ pub fn js_string_repeat(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let repeat: i64 = cc.arg(0).coerce_to_i64_saturating(ctx)?;
     if !(0..=2147483647).contains(&repeat) {
-        JS_ThrowRangeError(ctx, "invalid repeat count");
+        ctx.throw_range_error("invalid repeat count");
         return Err(-1);
     }
 
@@ -901,14 +900,53 @@ pub fn js_string_toLowerCase(ctx: &JSContext, cc: CallContext) -> JSResult {
     ctx.create_string_with_buf(sc).map(JSValue::String)
 }
 
-pub const js_string_proto_funcs: [NativeField; 38] = [
+fn js_string_normalize(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let val = cc.this().to_string_non_undefined_or_null(ctx)?;
+
+    enum UnicodeNormalizationEnum {
+        NFC,
+        NFD,
+        NFKC,
+        NFKD,
+    }
+    let n_type = if cc.length() == 0 || cc.arg(0).is_undefined() {
+        UnicodeNormalizationEnum::NFC
+    } else {
+        match cc.arg(0) {
+            JSValue::NULL => {
+                ctx.throw_range_error("bad normalization form");
+                return Err(-1);
+            }
+            form => match form.to_string(ctx)?.content().to_utf8().as_ref() {
+                "NFC" => UnicodeNormalizationEnum::NFC,
+                "NFD" => UnicodeNormalizationEnum::NFD,
+                "NFKC" => UnicodeNormalizationEnum::NFKC,
+                "NFKD" => UnicodeNormalizationEnum::NFKD,
+                _ => {
+                    ctx.throw_range_error("bad normalization form");
+                    return Err(-1);
+                }
+            },
+        }
+    };
+
+    let chars_it = val.content().chars_lossy();
+    let ns = match n_type {
+        UnicodeNormalizationEnum::NFC => String::from_iter(chars_it.nfc()),
+        UnicodeNormalizationEnum::NFD => String::from_iter(chars_it.nfd()),
+        UnicodeNormalizationEnum::NFKC => String::from_iter(chars_it.nfkc()),
+        UnicodeNormalizationEnum::NFKD => String::from_iter(chars_it.nfkd()),
+    };
+
+    ctx.create_string_from_utf8(ns.into_bytes())
+        .map(JSValue::String)
+}
+
+pub const js_string_proto_funcs: [NativeField; 39] = [
     JS_PROP_INT32_DEF!("length", 0, JS_PROP_CONFIGURABLE),
     JS_CFUNC_NATIVE_DEF!("charAt", 1, js_string_at, 0),
     JS_CFUNC_NATIVE_DEF!("at", 1, js_string_at, 1),
     JS_CFUNC_NATIVE_DEF!("charCodeAt", 1, js_string_at, 2),
-    // JS_CFUNC_NATIVE_DEF!("at", 1, js_string_charAt, 1),
-    // JS_CFUNC_NATIVE_DEF!("charAt", 1, js_string_charAt, 0),
-    // JS_CFUNC_NATIVE_DEF!("charCodeAt", 1, js_string_charCodeAt, 0),
     JS_CFUNC_NATIVE_DEF!("concat", 1, js_string_concat, 0),
     JS_CFUNC_NATIVE_DEF!("codePointAt", 1, js_string_codePointAt, 0),
     JS_CFUNC_NATIVE_DEF!("isWellFormed", 0, js_string_isWellFormed, 0),
@@ -947,6 +985,7 @@ pub const js_string_proto_funcs: [NativeField; 38] = [
     JS_CFUNC_NATIVE_DEF!("toUpperCase", 0, js_string_toLowerCase, 0),
     JS_CFUNC_NATIVE_DEF!("toLocaleLowerCase", 0, js_string_toLowerCase, 1),
     JS_CFUNC_NATIVE_DEF!("toLocaleUpperCase", 0, js_string_toLowerCase, 0),
+    JS_CFUNC_NATIVE_DEF!("normalize", 0, js_string_normalize, 0),
     JS_CFUNC_NATIVE_DEF!(
         "[Symbol.iterator]",
         0,
@@ -1063,7 +1102,7 @@ pub fn js_string_fromCodePoint(ctx: &JSContext, cc: CallContext) -> JSResult {
                     -1
                 })?;
             } else {
-                JS_ThrowRangeError(ctx, "invalid code point");
+                ctx.throw_range_error("invalid code point");
                 return Err(-1);
             }
         }
