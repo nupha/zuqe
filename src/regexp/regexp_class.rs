@@ -676,8 +676,13 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     for m in matches {
         let matched = m.get_property_u32(ctx, 0).and_then(|v| v.to_string(ctx))?;
+
         let index = m
             .get_property(ctx, JS_ATOM_index)
+            .and_then(|v| v.coerce_to_u32(ctx))? as usize;
+
+        let length = m
+            .get_property(ctx, JS_ATOM_length)
             .and_then(|v| v.coerce_to_u32(ctx))? as usize;
 
         sbuf.push_content_slice(&str.content().slice(pos..index))
@@ -690,9 +695,6 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
 
         if let Some(rep_str) = rep_str.as_ref() {
             // replacement string
-            let length = m
-                .get_property(ctx, JS_ATOM_length)
-                .and_then(|v| v.coerce_to_u32(ctx))? as usize;
 
             let groups = TryInto::<JSObject>::try_into(m.get_property(ctx, JS_ATOM_groups)?).ok();
 
@@ -703,9 +705,12 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
                 rep_str,
                 |n| {
                     if n < length {
-                        m.get_property_u32(ctx, n as _)
-                            .and_then(|v| v.to_string(ctx))
-                            .map(|s| Some(s.content().clone()))
+                        let v = m.get_property_u32(ctx, n as _)?;
+                        if !v.is_undefined() {
+                            Ok(Some(v.to_string(ctx)?.content().clone()))
+                        } else {
+                            Ok(None)
+                        }
                     } else {
                         Ok(None)
                     }
@@ -736,7 +741,23 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
                 -1
             })?;
         } else {
-            // functional replacement
+            // functional replacement.
+
+            // append extra argument `index`, `str` to array
+            m.define_property_value_i64(
+                ctx,
+                length as i64,
+                JSValue::Int(index as i32),
+                JS_PROP_C_W_E | JS_PROP_THROW,
+            )?;
+            m.define_property_value_i64(
+                ctx,
+                length as i64 + 1,
+                str.clone().into(),
+                JS_PROP_C_W_E | JS_PROP_THROW,
+            )?;
+
+            // apply replacement function
             let t = js_function_apply(
                 ctx,
                 CallContext::new(ctx, rep.clone(), &[JSValue::UNDEFINED, m.into()], 0, None),

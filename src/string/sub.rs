@@ -566,8 +566,6 @@ fn do_substitution4<'a>(
                             if (1..captures_len as u32).contains(&n1) {
                                 id = n1;
                                 let _ = replace_chars.next(); // consume digit
-                            } else {
-                                break;
                             }
                         }
 
