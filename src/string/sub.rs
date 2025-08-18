@@ -564,7 +564,7 @@ fn do_substitution4<'a>(
                             && (c2 < 0x80 && (c2 as u8).is_ascii_digit())
                         {
                             let n1 = id * 10 + (c2 as u32 - '0' as u32);
-                            if n1 < captures_len as u32 {
+                            if (1..captures_len as u32).contains(&n1) {
                                 id = n1;
                                 let _ = replace_chars.next(); // consume digit
                             } else {
@@ -572,7 +572,7 @@ fn do_substitution4<'a>(
                             }
                         }
 
-                        if id > 0 {
+                        if (1..captures_len as u32).contains(&id) {
                             if let Some(s) = captures(id as usize).map_err(|_| None)? {
                                 sbuf.push(&s).map_err(|e| Some(e))?;
                             }
