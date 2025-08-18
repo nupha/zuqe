@@ -465,10 +465,12 @@ pub fn js_string_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_string_pad(ctx: &JSContext, cc: CallContext) -> JSResult {
     let is_pad_end = cc.magic() != 0;
-    let mut ttl_len: i32 = cc.arg(0).to_i32_saturating(ctx)?;
 
+    // don't change parse args order.
     let str = cc.this().to_string_non_undefined_or_null(ctx)?;
     let len = str.buf_len() as i32;
+
+    let mut ttl_len: i32 = cc.arg(0).to_i32_saturating(ctx)?;
     if len >= ttl_len {
         return Ok(str.into());
     }

@@ -752,47 +752,46 @@ impl JSValue {
     pub fn to_string_or_symbol(&self, ctx: &JSContext) -> Result<Self, i32> {
         match self {
             Self::String(_) | Self::Symbol(_) => {
-                Ok(self.clone()) // AS-IS original string or symbol
+                Ok(self.clone()) // string or symbol 'as-is'
             }
+
             Self::Int(i) => ctx
                 .create_string_from_utf8(format!("{}", *i).into_bytes())
                 .map(Self::String),
             Self::Bool(b) => if *b { JS_ATOM_true } else { JS_ATOM_false }
                 .to_string(ctx)
                 .map(Self::String),
-            Self::NULL => JS_ATOM_null.to_string(ctx).map(Self::String),
-            Self::UNDEFINED => JS_ATOM_undefined.to_string(ctx).map(Self::String),
-            Self::Object(_) => self
-                .to_primitive(ctx, HINT_STRING)?
-                .to_string_or_symbol(ctx),
-            Self::Module(_) => ctx.create_string_from_str("[module]").map(Self::String),
-            Self::Bytecode(_) => ctx
-                .create_string_from_str("[function bytecode]")
-                .map(Self::String),
             Self::Float64(n) => {
                 let s = f64_stringify(*n, 10, None, 0);
                 ctx.create_string_from_str(s.as_ref()).map(Self::String)
             }
-            Self::UNINITIALIZED => ctx
-                .create_string_from_str("[uninitialized]")
+
+            Self::NULL => JS_ATOM_null.to_string(ctx).map(Self::String),
+            Self::UNDEFINED => JS_ATOM_undefined.to_string(ctx).map(Self::String),
+
+            Self::Object(_) => self
+                .to_primitive(ctx, HINT_STRING)?
+                .to_string_or_symbol(ctx),
+
+            Self::Bytecode(_) => ctx
+                .create_string_from_str("[function bytecode]")
                 .map(Self::String),
-            Self::CatchOffset(_) => ctx
-                .create_string_from_str("[cacthoffset]")
-                .map(Self::String),
-            Self::AsyncStateResume(_) => ctx
-                .create_string_from_str("[asyncfuncresume]")
-                .map(Self::String),
+
             Self::EXCEPTION => {
                 #[cfg(debug_assertions)]
                 unreachable!();
                 #[cfg(not(debug_assertions))]
                 Err(-1)
             }
+
+            _ => ctx
+                .create_string_from_str("[unsupported type]")
+                .map(Self::String),
         }
     }
 
     /// Coerce value `self` to string.
-    /// if `self` is symbol value, returns Err.
+    /// if `self` is a symbol, returns Err.
     pub fn to_string(&self, ctx: &JSContext) -> Result<JSString, i32> {
         match self {
             Self::String(s) => Ok(s.clone()),
