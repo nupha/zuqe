@@ -316,39 +316,32 @@ impl<'s> JSParseState<'s> {
                 }
             }
             c @ ('0'..='7') => {
-                let cp = c as u32 - '0' as u32;
-
+                let mut code = c as u32 - '0' as u32;
                 if allow_utf16 == 2 {
                     // only accept \0 not followed by digit
-                    if cp != 0 || (*p).is_ascii_digit() {
+                    if code != 0 || (*p).is_ascii_digit() {
                         return Err(-1);
                     }
                 } else {
                     // parse a legacy octal sequence
-                    self.throw_syntax_error("octal escape sequence is not supported");
-                    return Err(-1);
-
-                    // TODO parse \0nnn octal sequence - legacy
-                    // let p0 = p;
-                    // loop {
-                    //     if !((*p) as char).is_digit(8) {
-                    //         break;
-                    //     } else {
-                    //         p = p.add(1);
-                    //     }
-                    // }
-                    // let s = std::str::from_utf8(std::slice::from_raw_parts(
-                    //     p0,
-                    //     p.offset_from(p0) as usize,
-                    // ))
-                    // .map_err(|_| -1)?;
-                    // c = char::from_u32(u32::from_str_radix(s, 8).map_err(|_| -1)?).ok_or(-1)?;
+                    for _ in 0..2 {
+                        let v = (*p) as u32 - '0' as u32;
+                        if v > 7 {
+                            break;
+                        } else {
+                            code = (code << 3) | v;
+                            p = p.add(1);
+                            if code >= 32 {
+                                break;
+                            }
+                        }
+                    }
                 }
 
-                cp
+                code
             }
             _ => {
-                return Err(-2);
+                return Err(-1);
             }
         };
 

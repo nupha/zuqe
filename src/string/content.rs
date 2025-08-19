@@ -593,48 +593,56 @@ impl StringBuf {
     }
 
     pub fn trim(&mut self, left: bool, right: bool) {
-        match self {
-            Self::Ascii(s) => {
-                if right {
-                    if let Some(n) = unsafe { str::from_utf8_unchecked(s) }
-                        .chars()
-                        .rev()
-                        .position(|c| !c.is_whitespace())
-                    {
-                        s.truncate(s.len() - n);
+        let len = self.buf_len();
+        if len > 0 {
+            let mut start: Option<usize> = if left { None } else { Some(0) };
+            let mut end: usize = if right { 0 } else { len };
+
+            let mut pos = 0;
+            for (i, c) in self.iter() {
+                if let StringChar::Char(ch) = c {
+                    if !ch.is_whitespace() {
+                        if start.is_none() {
+                            start.replace(pos);
+                        }
+                        if i > end {
+                            end = i;
+                        }
                     }
                 }
-                if left {
-                    if let Some(n) = unsafe { str::from_utf8_unchecked(s) }
-                        .chars()
-                        .position(|c| !c.is_whitespace())
-                    {
-                        s.drain(0..n);
-                    }
-                }
-                s.shrink_to_fit();
+                pos = i;
             }
-            Self::Utf16(ws) => {
-                if right {
-                    if let Some(n) = U16Str::from_slice(ws)
-                        .chars_lossy()
-                        .rev()
-                        .position(|c| !c.is_whitespace())
-                    {
-                        let len = ws.len();
-                        ws.truncate(len - n);
+
+            let start = start.unwrap_or(0);
+            if start > 0 || end < len {
+                match self {
+                    Self::Ascii(s) => {
+                        if (start..end).is_empty() {
+                            s.clear();
+                        } else {
+                            if end < len {
+                                s.truncate(end);
+                            }
+                            if start > 0 {
+                                s.drain(0..start);
+                            }
+                        }
                     }
-                }
-                if left {
-                    if let Some(n) = U16Str::from_slice(ws)
-                        .chars_lossy()
-                        .position(|c| !c.is_whitespace())
-                    {
-                        ws.drain(0..n);
+                    Self::Utf16(s) => {
+                        if (start..end).is_empty() {
+                            s.clear();
+                        } else {
+                            if end < len {
+                                s.truncate(end);
+                            }
+                            if start > 0 {
+                                s.drain(0..start);
+                            }
+                        }
                     }
+                    Self::Empty | Self::Null => {}
                 }
             }
-            Self::Empty | Self::Null => {}
         }
     }
 

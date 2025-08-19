@@ -744,8 +744,8 @@ pub fn js_string_match(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_string_trim(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let p = cc.this().to_string_non_undefined_or_null(ctx)?;
-    let mut s = p.content().copy_to_new().map_err(|_| {
+    let str = cc.this().to_string_non_undefined_or_null(ctx)?;
+    let mut s = str.content().copy_to_new().map_err(|_| {
         ctx.throw_out_of_memory();
         -1
     })?;
