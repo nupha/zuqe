@@ -3,25 +3,22 @@ use std::{
     rc::Rc,
 };
 
-use libc::group;
 use regex::bytes::Regex;
+use smallvec::SmallVec;
 
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_REGEXP,
     atom::consts::*,
     context::{JS_GetActiveFunction, JSContext},
     error::{ErrorKind, JSResult},
-    function::{
-        BytecodeFunction, CallContext, FieldDef, JS_CallConstructor, NativeFunctionType,
-        js_function_apply,
-    },
+    function::{CallContext, FieldDef, JS_CallConstructor, NativeFunctionType, js_function_apply},
     js_core::js_get_this,
     object::{
         JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, JS_SpeciesConstructor, JSObject,
-        ObjectDetail, js_get_length32,
+        ObjectDetail,
     },
     runtime::JSRuntime,
-    string::{JSString, StringBuf, StringChar, StringContent, map_utf8_to_utf16_range},
+    string::{JSString, StringBuf, StringChar, StringContent},
     value::JSValue,
 };
 
@@ -426,11 +423,11 @@ pub fn js_regexp_exec(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     if let Some(cap_list) = re.capture(
         &str,
-        if re.flags & LRE_FLAG_GLOBAL as u8 == 0 {
-            0
-        } else {
+        if re.flags & LRE_FLAG_GLOBAL as u8 != 0 {
             let val = cc.this().get_property(ctx, JS_ATOM_lastIndex)?;
             val.coerce_to_length(ctx)? as usize
+        } else {
+            0
         },
     ) {
         let (arr, last_index) = make_regexp_capture_array(ctx, str, &cap_list)?;
@@ -647,8 +644,7 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
         })?;
 
     // regexp match results list
-    let mut matches = Vec::<JSObject>::with_capacity(16);
-
+    let mut matches = SmallVec::<[JSObject; 10]>::new();
     while let Ok(m) = TryInto::<JSObject>::try_into(JS_RegExpExec(ctx, this.clone(), str.clone())?)
     {
         if let Ok(s) = TryInto::<JSString>::try_into(m.get_property_u32(ctx, 0)?) {

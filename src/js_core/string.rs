@@ -283,15 +283,33 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
                         )
                         .and_then(|v| v.to_string(ctx))
                 } else {
-                    JSString::get_substitution(
-                        ctx,
-                        &search_for,
-                        &str,
+                    let sb = StringBuf::substitution_buf(
+                        &search_for.content(),
+                        str.content(),
                         pos as usize,
-                        &JSValue::UNDEFINED,
-                        &JSValue::UNDEFINED,
-                        replace_str.as_ref().unwrap(),
+                        replace_str.as_ref().unwrap().content(),
+                        |_| Ok(None),
+                        0,
+                        |_| Ok(None),
                     )
+                    .map_err(|e| {
+                        if e.is_some() {
+                            ctx.throw_out_of_memory();
+                        }
+                        -1
+                    })?;
+
+                    ctx.create_string_with_buf(sb)
+
+                    // JSString::get_substitution(
+                    //     ctx,
+                    //     &search_for,
+                    //     &str,
+                    //     pos as usize,
+                    //     &JSValue::UNDEFINED,
+                    //     &JSValue::UNDEFINED,
+                    //     replace_str.as_ref().unwrap(),
+                    // )
                 }?;
 
                 res
@@ -723,40 +741,6 @@ pub fn js_string_match(ctx: &JSContext, cc: CallContext) -> JSResult {
         JS_CallConstructor(ctx, &ctor, &args[0..args_len]).err()?
     };
     re_obj.invoke(ctx, magic_method, &[str.into()])
-}
-
-/// 该函数是 JavaScript 正则替换功能的核心实现，处理了替换字符串中的所有特殊模式，确保符合 ECMAScript 规范要求。
-///
-/// 实现 JavaScript 字符串替换中的特殊替换模式（如 $&, $1, `$`` 等）
-/// 对应规范：ECMAScript 的 GetSubstitution 抽象操作.
-/// 返回: 包含替换后的字符串值
-#[deprecated(note = "use JSString::get_substitution() instead")]
-pub fn js_string___GetSubstitution(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let matched = cc.arg(0);
-    let str = cc.arg(1);
-    let position = cc.arg(2).coerce_to_u32(ctx)?;
-    let captures = cc.arg(3);
-    let namedCaptures = cc.arg(4);
-    let replacement = cc.arg(5);
-
-    let sp = unsafe { str.string_unchecked() };
-    let rp = unsafe { replacement.string_unchecked() };
-
-    if !replacement.is_string() || !str.is_string() {
-        ctx.throw_type_error("not a string");
-        return Err(-1);
-    }
-
-    JSString::get_substitution(
-        ctx,
-        unsafe { matched.string_unchecked() },
-        sp,
-        position as _,
-        captures,
-        namedCaptures,
-        rp,
-    )
-    .map(JSValue::String)
 }
 
 pub fn js_string_trim(ctx: &JSContext, cc: CallContext) -> JSResult {

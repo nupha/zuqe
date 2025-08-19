@@ -4,7 +4,6 @@ use std::{
     ffi::CStr,
     ops::Range,
     rc::{Rc, Weak},
-    str::FromStr,
 };
 
 use crate::{
@@ -17,7 +16,7 @@ use crate::{
     object::ObjectDetail,
     object::{
         GCObjectWeakref, JS_PROP_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC, JSObject,
-        JSPropertyDescriptor, check_define_prop_flags, js_get_length32,
+        JSPropertyDescriptor, check_define_prop_flags,
     },
     runtime::JSRuntime,
     string::StringChar,
@@ -353,176 +352,6 @@ impl JSString {
                 ctx.create_string_with_buf(StringBuf::Empty)
             }
         }
-    }
-
-    /// 该函数是 JavaScript 正则替换功能的核心实现，处理了替换字符串中的所有特殊模式，确保符合 ECMAScript 规范要求。
-    ///
-    /// 实现 JavaScript 字符串替换中的特殊替换模式（如 $&, $1, `$`` 等）
-    /// 对应规范：ECMAScript 的 GetSubstitution 抽象操作.
-    /// 返回: 包含替换后的字符串值
-    pub fn get_substitution(
-        ctx: &JSContext,
-        matched: &Self,           // 匹配到的子字符串（对应 $&）
-        str: &Self,               // 原始字符串。
-        position: usize,          // 匹配发生的位置索引
-        captures: &JSValue,       // 命名捕获组对象。（对应 $1, $2 等）
-        named_captures: &JSValue, // 命名捕获组。（对应 $<name>）
-        replacement: &Self,       // 替换字符串或替换函数。
-    ) -> Result<JSString, i32> {
-        let captures_len = if !captures.is_undefined() {
-            js_get_length32(ctx, captures)?
-        } else {
-            0
-        };
-
-        let matched_len = matched.buf_len();
-        let rep_len = replacement.buf_len();
-        let rep_cc = replacement.content();
-
-        let mut res_content =
-            StringBuf::with_capacity(str.buf_len(), str.is_wide()).map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
-
-        // escape $-patterns in `replacement`
-        let mut i = 0_usize;
-        loop {
-            let mut j = if let Some(x) = rep_cc.index_of_char('$', i) {
-                if x + 1 >= rep_len {
-                    break;
-                }
-                x as usize
-            } else {
-                break;
-            };
-            debug_assert!(j >= i);
-
-            if j > i {
-                res_content
-                    .push_content_slice(&rep_cc.slice(i..j))
-                    .map_err(|_| {
-                        ctx.throw_out_of_memory();
-                        -1
-                    })?;
-            }
-
-            let j0 = j;
-            j += 1;
-            let (_, c) = rep_cc.iter_since(j).next().unwrap();
-            j += 1;
-
-            match c {
-                StringChar::Char('$') => {
-                    // $$ -> $
-                    res_content.push_char(c).map_err(|_| {
-                        ctx.throw_out_of_memory();
-                        -1
-                    })?;
-                }
-                StringChar::Char('&') => {
-                    // $& -> matched
-                    res_content.push(matched.content()).map_err(|_| {
-                        ctx.throw_out_of_memory();
-                        -1
-                    })?;
-                }
-                StringChar::Char('`') => {
-                    // $` -> str[0..position]
-                    res_content
-                        .push_content_slice(&str.content().slice(0..position))
-                        .map_err(|_| {
-                            ctx.throw_out_of_memory();
-                            -1
-                        })?;
-                }
-                StringChar::Char('\'') => {
-                    // $' -> str[position+matched.len()..]
-                    res_content
-                        .push_content_slice(
-                            &str.content().slice((position + matched_len)..str.buf_len()),
-                        )
-                        .map_err(|_| {
-                            ctx.throw_out_of_memory();
-                            -1
-                        })?;
-                }
-                StringChar::Char(a @ ('0'..'9')) => {
-                    // $k -> captures[k]
-                    let mut k = a as u32 - '0' as u32;
-                    if j < rep_len {
-                        if let Some((_, StringChar::Char(c1))) = rep_cc.iter_since(j).next()
-                            && c1.is_ascii_digit()
-                        {
-                            let k1 = k * 10 + (c1 as u32 - '0' as u32);
-                            if k1 >= 1 && k1 < captures_len {
-                                k = k1;
-                                j += 1;
-                            }
-                        }
-                    }
-
-                    if (1..captures_len).contains(&k) {
-                        let s = captures.get_property_i64(ctx, k as i64)?;
-                        if !s.is_undefined() {
-                            let sval = s.to_string(ctx)?;
-                            res_content.push(sval.content()).map_err(|_| {
-                                ctx.throw_out_of_memory();
-                                -1
-                            })?;
-                        }
-                    } else {
-                        res_content
-                            .push_content_slice(&rep_cc.slice(j0..j))
-                            .map_err(|_| {
-                                ctx.throw_out_of_memory();
-                                -1
-                            })?;
-                    }
-                }
-                StringChar::Char('<') if !named_captures.is_undefined() => {
-                    // $<name> -> names_captures[name]
-                    if let Some(k) = rep_cc.index_of_char('>', j as _) {
-                        let name = replacement.sub_string(ctx, j..k)?;
-                        let capture = named_captures.get_property_value(ctx, &name.into())?;
-                        if !capture.is_undefined() {
-                            let sval = capture.to_string(ctx)?;
-                            res_content.push(sval.content()).map_err(|_| {
-                                ctx.throw_out_of_memory();
-                                -1
-                            })?;
-                        }
-                        j = k + 1;
-                    } else {
-                        res_content
-                            .push_content_slice(&rep_cc.slice(j0..j))
-                            .map_err(|_| {
-                                ctx.throw_out_of_memory();
-                                -1
-                            })?;
-                    }
-                }
-                _ => {
-                    res_content
-                        .push_content_slice(&rep_cc.slice(j0..j))
-                        .map_err(|_| {
-                            ctx.throw_out_of_memory();
-                            -1
-                        })?;
-                }
-            }
-
-            i = j;
-        }
-
-        res_content
-            .push_content_slice(&rep_cc.slice(i..rep_len))
-            .map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
-
-        ctx.create_string_with_buf(res_content)
     }
 
     pub fn downgrade(&self) -> JSStringWeakref {
