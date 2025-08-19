@@ -148,12 +148,6 @@ impl std::fmt::Display for JSValue {
     }
 }
 
-// impl std::fmt::Debug for JSValue {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         write!(f, "{}", self)
-//     }
-// }
-
 // #[cfg(not(feature = "nan_boxing"))]
 // mod nnb_value {
 //     use std::{ffi::c_void, mem::ManuallyDrop};

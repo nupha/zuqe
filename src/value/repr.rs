@@ -2,10 +2,7 @@ use std::{borrow::Cow, rc::Rc};
 
 use smallvec::SmallVec;
 
-use crate::{
-    runtime::JSRuntime,
-    string::{JSString, StringChar},
-};
+use crate::string::{JSString, StringChar};
 
 use super::JSValue;
 

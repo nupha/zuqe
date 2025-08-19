@@ -316,7 +316,8 @@ impl<'s> JSParseState<'s> {
                 }
             }
             c @ ('0'..='7') => {
-                let mut code = c as u32 - '0' as u32;
+                let mut code = c as u32 - '0' as u32; // digit #1
+
                 if allow_utf16 == 2 {
                     // only accept \0 not followed by digit
                     if code != 0 || (*p).is_ascii_digit() {
@@ -324,14 +325,21 @@ impl<'s> JSParseState<'s> {
                     }
                 } else {
                     // parse a legacy octal sequence
-                    for _ in 0..2 {
+                    // digit #2,3
+                    for i in 0..2 {
+                        if !(*p).is_ascii_digit() {
+                            break;
+                        }
+
                         let v = (*p) as u32 - '0' as u32;
                         if v > 7 {
                             break;
                         } else {
                             code = (code << 3) | v;
                             p = p.add(1);
-                            if code >= 32 {
+
+                            // digit #1,2 should less than 32
+                            if i == 0 && code >= 32 {
                                 break;
                             }
                         }

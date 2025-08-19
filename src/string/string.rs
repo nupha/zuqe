@@ -13,23 +13,19 @@ use crate::{
     context::JSContext,
     gc::GCObjectHeader,
     number::f64_stringify,
-    object::ObjectDetail,
     object::{
         GCObjectWeakref, JS_PROP_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC, JSObject,
-        JSPropertyDescriptor, check_define_prop_flags,
+        JSPropertyDescriptor, ObjectDetail, check_define_prop_flags,
     },
     runtime::JSRuntime,
-    string::StringChar,
-    value::HINT_STRING,
-    value::{JSValue, JSValueConst},
+    string::{StringChar, StringContent},
+    value::{HINT_STRING, JSValue, JSValueConst},
 };
 
 use super::StringBuf;
 
 /// Maximum length allowed for JavaScript strings (1GB - 1)
 pub const JS_STRING_LEN_MAX: usize = (1 << 30) - 1;
-
-pub type StringContent = Rc<StringBuf>;
 
 /// Represents a JavaScript string with reference counting and atom support
 ///
@@ -58,11 +54,19 @@ pub struct JSStringInner {
     gc_mark: Cell<bool>,
 }
 
+impl std::fmt::Debug for JSStringInner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.content)
+    }
+}
+
 impl JSStringInner {
+    #[inline(always)]
     pub fn id(&self) -> usize {
         self as *const Self as usize
     }
 
+    #[inline(always)]
     pub fn rt(&self) -> &JSRuntime {
         self.header.rt()
     }
@@ -188,7 +192,8 @@ impl std::fmt::Display for JSString {
 
 impl std::fmt::Debug for JSString {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{self}")
+        // write!(f, "{self}")
+        write!(f, "{:?}", self.0)
     }
 }
 
