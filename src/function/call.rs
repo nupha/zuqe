@@ -127,11 +127,30 @@ pub const JS_CALL_FLAG_COPY_ARGV: i32 = 1 << 1;
 pub const JS_CALL_FLAG_GENERATOR: i32 = 1 << 2;
 
 impl JSObject {
-    /// call `method` of `self` object.
+    /// call function `self.method`
     #[inline]
     pub fn invoke(&self, ctx: &JSContext, method: JSAtom, args: &[JSValue]) -> JSResult {
         self.get_property(ctx, method)?
             .call(ctx, &self.clone().into(), args)
+    }
+
+    /// call `self.method` function if property `method` is neither null nor undefined.
+    /// otherwise, returns None
+    pub fn invoke_defined(
+        &self,
+        ctx: &JSContext,
+        method: JSAtom,
+        args: &[JSValue],
+    ) -> Option<JSResult> {
+        if let Ok(m) = self.get_property(ctx, method) {
+            if !m.is_undefined_or_null() {
+                Some(m.call(ctx, &self.clone().into(), args))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
     }
 }
 
@@ -150,10 +169,29 @@ impl JSValue {
         .err()
     }
 
-    /// invoke method
+    /// call function `self.method`
     #[inline]
     pub fn invoke(&self, ctx: &JSContext, method: JSAtom, args: &[JSValue]) -> JSResult {
         self.get_property(ctx, method)?.call(ctx, self, args)
+    }
+
+    /// call `self.method` function if property `method` is neither null nor undefined.
+    /// otherwise, returns None
+    pub fn invoke_defined(
+        &self,
+        ctx: &JSContext,
+        method: JSAtom,
+        args: &[JSValue],
+    ) -> Option<JSResult> {
+        if let Ok(m) = self.get_property(ctx, method) {
+            if !m.is_undefined_or_null() {
+                Some(m.call(ctx, self, args))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
     }
 }
 

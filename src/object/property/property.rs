@@ -438,6 +438,7 @@ pub fn js_get_length32(ctx: &JSContext, obj: &JSValue) -> Result<u32, i32> {
 }
 
 /// Get object `length` property as i64
+#[deprecated(note = "use JSValue::get_property() + JSValue::coerce_to_length() combination")]
 pub fn js_get_length64(ctx: &JSContext, obj: &JSValue) -> Result<i64, i32> {
     obj.get_property(ctx, JS_ATOM_length)?.coerce_to_length(ctx)
 }

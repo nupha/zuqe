@@ -15,10 +15,10 @@ use crate::{
     js_core::js_get_this,
     object::{
         JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, JS_SpeciesConstructor, JSObject,
-        ObjectDetail,
+        ObjectDetail, js_get_length64,
     },
     runtime::JSRuntime,
-    string::{JSString, StringBuf, StringChar, StringContent},
+    string::{JS_ConcatString3, JSString, StringBuf, StringChar, StringContent},
     value::JSValue,
 };
 
@@ -804,13 +804,12 @@ fn js_regexp_Symbol_search(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 }
 
+/// [Symbol.split](str, limit)
 pub fn js_regexp_Symbol_split(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let Some(this) = cc.this().object() else {
+    let Some(this_obj) = cc.this().object() else {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
     };
-    let re = js_get_regexp(ctx, this, true).ok_or(-1)?;
-    this.set_property(ctx, JS_ATOM_lastIndex, JSValue::Int(0))?;
 
     let str = cc.arg(0).to_string(ctx)?;
     let limit = cc.arg(1);
@@ -820,17 +819,84 @@ pub fn js_regexp_Symbol_split(ctx: &JSContext, cc: CallContext) -> JSResult {
         limit.coerce_to_u32(ctx)? as usize
     };
 
+    // make RegExp as splitter
+    let (splitter, flag_unicode) = {
+        let mut flags = this_obj.get_property(ctx, JS_ATOM_flags)?.to_string(ctx)?;
+        let u = flags.content().index_of_char('u', 0).is_some();
+        if flags.content().index_of_char('y', 0).is_none() {
+            flags = JS_ConcatString3(ctx, c"", flags.into(), c"y")?;
+        }
+
+        let regexp_ctor = ctx.0.borrow().regexp_ctor.clone();
+        let ctor = JS_SpeciesConstructor(ctx, cc.this(), regexp_ctor)?;
+
+        let re = JS_CallConstructor(ctx, &ctor, &[cc.this().clone(), flags.into()]).err()?;
+        (re, u)
+    };
+
     let arr = ctx.create_array()?;
     let prop_flags = JS_PROP_C_W_E | JS_PROP_THROW;
+    let mut idx = 0_usize;
 
-    // FIXME: consider sticky flag
-    for (i, s) in re
-        .regex
-        .splitn(str.content().to_utf8().as_bytes(), limit)
-        .enumerate()
-    {
-        let val = ctx.create_string_from_str(std::str::from_utf8(s).unwrap())?;
-        arr.define_property_value_u32(ctx, i as _, val.into(), prop_flags)?;
+    let len = str.buf_len();
+    let mut last_index = 0;
+    let mut start = 0;
+
+    while last_index < len {
+        // match regexp from `pos`
+        let m = {
+            splitter.set_property(ctx, JS_ATOM_lastIndex, JSValue::Int(last_index as i32))?;
+            JS_RegExpExec(ctx, this_obj.clone(), str.clone())?
+        };
+
+        if m.is_null() {
+            // no match: advance index
+            last_index = str
+                .content()
+                .index_of_next(last_index, flag_unicode)
+                .unwrap_or(len);
+        } else {
+            let mut e = splitter
+                .get_property(ctx, JS_ATOM_lastIndex)?
+                .coerce_to_length(ctx)? as usize;
+            if e > len {
+                e = len;
+            }
+            if e == start {
+                // empty: advance index
+                last_index = str
+                    .content()
+                    .index_of_next(last_index, flag_unicode)
+                    .unwrap_or(len);
+            } else {
+                let sub = str.sub_string(ctx, start..e)?;
+                arr.define_property_value_u32(ctx, idx as u32, sub.into(), prop_flags)?;
+                idx += 1;
+                if idx == limit {
+                    break;
+                }
+                start = e;
+
+                // append captures 1.. to array
+                let ncaps = m.get_property(ctx, JS_ATOM_length)?.coerce_to_length(ctx)? as usize;
+                for c in 1..ncaps {
+                    let sub = m.get_property_u32(ctx, c as u32)?;
+                    arr.define_property_value_u32(ctx, idx as _, sub, prop_flags)?;
+                    idx += 1;
+                    if idx == limit {
+                        break;
+                    }
+                }
+
+                last_index = e;
+            }
+        }
+    }
+
+    // remaining part of str
+    if start < len && idx < limit {
+        let substr = str.sub_string(ctx, start..len)?;
+        arr.define_property_value_u32(ctx, idx as u32, substr.into(), prop_flags)?;
     }
 
     Ok(arr)

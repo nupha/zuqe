@@ -3936,3 +3936,34 @@ pub fn JS_InvokeFree(
 pub unsafe fn JS_GetException(ctx: &JSContext) -> JSValue {
     ctx.take_exception()
 }
+
+#[deprecated(note = "use StringBuf::find() instead")]
+pub unsafe fn string_indexof(p1: *mut JSString, p2: *mut JSString, from: i32) -> i32 {
+    debug_assert!(from >= 0);
+    (*p1)
+        .content()
+        .index_of((*p2).content(), from as _)
+        .map_or(-1, |i| i as i32)
+}
+
+#[deprecated(note = "use StringBuf::find_char() instead")]
+pub unsafe fn string_indexof_char(p: *mut JSString, c: i32, from: i32) -> i32 {
+    (*p).content()
+        .index_of_char(char::from_u32(c as u32).unwrap(), from as _)
+        .map_or(-1, |i| i as i32)
+
+    // let len = (*p).len() as i32;
+    // if (0..len).contains(&from) {
+    //     let mut it = (*p).content().chars().enumerate().skip(from as _);
+
+    //     if (*p).is_wide_char() || c & !0xff == 0 {
+    //         it.find(|(_, ch)| (*ch) as i32 == c)
+    //             .map(|(i, _)| i as i32)
+    //             .unwrap_or(-1)
+    //     } else {
+    //         -1
+    //     }
+    // } else {
+    //     -1
+    // }
+}

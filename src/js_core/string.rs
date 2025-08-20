@@ -371,9 +371,10 @@ pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
     };
 
     if !separator.is_undefined_or_null() {
-        let splitter = separator.get_property(ctx, JS_ATOM_Symbol_split)?;
-        if !splitter.is_undefined_or_null() {
-            return separator.call(ctx, &separator, &[this.clone(), limit.clone()]);
+        if let Some(r) =
+            separator.invoke_defined(ctx, JS_ATOM_Symbol_split, &[this.clone(), limit.clone()])
+        {
+            return r;
         }
     }
 
@@ -783,37 +784,6 @@ pub fn string_cmp(p1: &JSString, p2: &JSString, x1: usize, x2: usize, len: usize
     0
 }
 
-#[deprecated(note = "use StringBuf::find_char() instead")]
-pub unsafe fn string_indexof_char(p: *mut JSString, c: i32, from: i32) -> i32 {
-    (*p).content()
-        .index_of_char(char::from_u32(c as u32).unwrap(), from as _)
-        .map_or(-1, |i| i as i32)
-
-    // let len = (*p).len() as i32;
-    // if (0..len).contains(&from) {
-    //     let mut it = (*p).content().chars().enumerate().skip(from as _);
-
-    //     if (*p).is_wide_char() || c & !0xff == 0 {
-    //         it.find(|(_, ch)| (*ch) as i32 == c)
-    //             .map(|(i, _)| i as i32)
-    //             .unwrap_or(-1)
-    //     } else {
-    //         -1
-    //     }
-    // } else {
-    //     -1
-    // }
-}
-
-#[deprecated(note = "use StringBuf::find() instead")]
-pub unsafe fn string_indexof(p1: *mut JSString, p2: *mut JSString, from: i32) -> i32 {
-    debug_assert!(from >= 0);
-    (*p1)
-        .content()
-        .index_of((*p2).content(), from as _)
-        .map_or(-1, |i| i as i32)
-}
-
 /// also used for String.prototype.valueOf
 pub fn js_string_toString(ctx: &JSContext, cc: CallContext) -> Result<JSValue, i32> {
     js_thisStringValue(ctx, cc.this().clone()).map(JSValue::String)
@@ -824,20 +794,6 @@ fn js_thisStringValue(ctx: &JSContext, this_val: JSValue) -> Result<JSString, i3
     TryInto::<JSString>::try_into(this_val.clone()).inspect_err(|_| {
         ctx.throw_type_error("not a string");
     })
-
-    // original code
-    // if this_val.is_string() {
-    //     Ok(this_val)
-    // } else if let Some(d) = this_val
-    //     .object()
-    //     .and_then(|p| p.0.payload.borrow().value())
-    //     .and_then(|x| if x.is_string() { Some(x) } else { None })
-    // {
-    //     Ok(d)
-    // } else {
-    //     ctx.throw_type_error("not a string");
-    //     Err(-1)
-    // }
 }
 
 pub fn js_string_toLowerCase(ctx: &JSContext, cc: CallContext) -> JSResult {
