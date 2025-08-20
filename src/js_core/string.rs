@@ -372,7 +372,7 @@ pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     if !separator.is_undefined_or_null() {
         if let Some(r) =
-            separator.invoke_defined(ctx, JS_ATOM_Symbol_split, &[this.clone(), limit.clone()])
+            separator.invoke_defined(ctx, JS_ATOM_Symbol_split, &[this.clone(), limit.clone()])?
         {
             return r;
         }

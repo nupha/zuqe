@@ -141,16 +141,12 @@ impl JSObject {
         ctx: &JSContext,
         method: JSAtom,
         args: &[JSValue],
-    ) -> Option<JSResult> {
-        if let Ok(m) = self.get_property(ctx, method) {
-            if !m.is_undefined_or_null() {
-                Some(m.call(ctx, &self.clone().into(), args))
-            } else {
-                None
-            }
-        } else {
-            None
+    ) -> Result<Option<JSResult>, i32> {
+        let m = self.get_property(ctx, method)?;
+        if !m.is_undefined_or_null() {
+            return Ok(Some(m.call(ctx, &self.clone().into(), args)));
         }
+        Ok(None)
     }
 }
 
@@ -182,16 +178,12 @@ impl JSValue {
         ctx: &JSContext,
         method: JSAtom,
         args: &[JSValue],
-    ) -> Option<JSResult> {
-        if let Ok(m) = self.get_property(ctx, method) {
-            if !m.is_undefined_or_null() {
-                Some(m.call(ctx, self, args))
-            } else {
-                None
-            }
-        } else {
-            None
+    ) -> Result<Option<JSResult>, i32> {
+        let m = self.get_property(ctx, method)?;
+        if !m.is_undefined_or_null() {
+            return Ok(Some(m.call(ctx, self, args)));
         }
+        Ok(None)
     }
 }
 
