@@ -240,7 +240,11 @@ impl<'s> JSParseState<'s> {
 
     /// parse char escape \u{XXXX}, \uXXXX, \xXX.
     /// `pp` points to next char of '\'.
-    /// returns code as u32, could be invalid unicode
+    ///
+    /// Returns:
+    /// - Code point (u32)
+    /// - Err(-1): invalid escape sequence
+    /// - Err(-2): unprocessed
     pub(super) unsafe fn parse_string_escape(
         &mut self,
         pp: *mut *const u8,
@@ -349,7 +353,7 @@ impl<'s> JSParseState<'s> {
                 code
             }
             _ => {
-                return Err(-1);
+                return Err(-2);
             }
         };
 
