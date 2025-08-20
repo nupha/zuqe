@@ -380,7 +380,7 @@ impl JSValue {
     pub fn arith_add(ctx: &JSContext, mut op1: Self, mut op2: Self) -> JSResult {
         loop {
             match (op1, op2) {
-                // fast path to exit: (int,int), (f64,f64)
+                // path to exit:
                 (Self::Int(a), Self::Int(b)) => {
                     return Ok(JSValue::from(
                         a as i64 + b as i64, // result may overflow i32 ranges
@@ -389,8 +389,12 @@ impl JSValue {
                 (Self::Float64(a), Self::Float64(b)) => {
                     return Ok(JSValue::from(a + b));
                 }
+                (Self::Int(i), Self::Float64(f)) | (Self::Float64(f), Self::Int(i)) => {
+                    return Ok(JSValue::from(i as f64 + f));
+                }
 
                 //
+                // conversion
                 // don't change following arm order
                 //
                 (a @ Self::Object(_), b) | (a, b @ Self::Object(_)) => {
@@ -401,7 +405,6 @@ impl JSValue {
                     // add string
                     return JS_ConcatString(ctx, a, b).map(JSValue::String);
                 }
-
                 (a, b) => {
                     op1 = a.to_number(ctx)?;
                     op2 = b.to_number(ctx)?;
