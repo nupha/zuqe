@@ -872,7 +872,7 @@ impl std::fmt::Debug for StringBuf {
 
                 for (_, c) in self.iter() {
                     match c {
-                        StringChar::Char(c @ ('\'' | '"')) if c == sep => {
+                        StringChar::Char(c) if c == sep => {
                             write!(f, "\\{c}")?;
                         }
                         StringChar::Char('\n') => {

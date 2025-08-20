@@ -67,7 +67,14 @@ pub fn js_regexp_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
             Some(re)
         } else {
             pattern = re.pattern.clone();
-            flags_str = re.flags_str.clone();
+            flags_str = if flags1.is_undefined() {
+                re.flags_str.clone()
+            } else {
+                TryInto::<JSString>::try_into(flags1)
+                    .unwrap()
+                    .content()
+                    .clone()
+            };
             None
         }
     } else {
@@ -419,15 +426,12 @@ pub fn js_regexp_exec(ctx: &JSContext, cc: CallContext) -> JSResult {
     let re = js_get_regexp(ctx, this, true).ok_or(-1)?;
     let str = cc.arg(0).to_string(ctx)?;
 
-    if let Some(cap_list) = re.capture(
-        &str,
-        if re.flags & LRE_FLAG_GLOBAL as u8 != 0 {
-            let val = cc.this().get_property(ctx, JS_ATOM_lastIndex)?;
-            val.coerce_to_length(ctx)? as usize
-        } else {
-            0
-        },
-    ) {
+    let is_sticky = re.flags & LRE_FLAG_STICKY as u8 != 0;
+    let from = {
+        let val = cc.this().get_property(ctx, JS_ATOM_lastIndex)?;
+        val.coerce_to_length(ctx)? as usize
+    };
+    if let Some(cap_list) = re.capture(&str, from) {
         let (arr, last_index) = make_regexp_capture_array(ctx, str, &cap_list)?;
         this.set_property(ctx, JS_ATOM_lastIndex, JSValue::from(last_index as u32))?;
         Ok(arr)
@@ -831,22 +835,40 @@ pub fn js_regexp_Symbol_split(ctx: &JSContext, cc: CallContext) -> JSResult {
         let ctor = JS_SpeciesConstructor(ctx, cc.this(), regexp_ctor)?;
 
         let re = JS_CallConstructor(ctx, &ctor, &[cc.this().clone(), flags.into()]).err()?;
-        (re, u)
+        (TryInto::<JSObject>::try_into(re).unwrap(), u)
     };
 
     let arr = ctx.create_array()?;
+    if limit == 0 {
+        return Ok(arr);
+    }
+
     let prop_flags = JS_PROP_C_W_E | JS_PROP_THROW;
     let mut idx = 0_usize;
 
+    if str.is_empty() {
+        let z = JS_RegExpExec(ctx, splitter.clone(), str.clone())?;
+        if z.is_null() {
+            // not match: add tail, must be an empty str
+            arr.define_property_value_u32(
+                ctx,
+                idx as u32,
+                JS_ATOM_empty_string.to_string(ctx).unwrap().into(),
+                prop_flags,
+            )?;
+        }
+        return Ok(arr);
+    }
+
     let len = str.buf_len();
+    let mut split_start = 0;
     let mut last_index = 0;
-    let mut start = 0;
 
     while last_index < len {
         // match regexp from `pos`
         let m = {
             splitter.set_property(ctx, JS_ATOM_lastIndex, JSValue::Int(last_index as i32))?;
-            JS_RegExpExec(ctx, this_obj.clone(), str.clone())?
+            JS_RegExpExec(ctx, splitter.clone(), str.clone())?
         };
 
         if m.is_null() {
@@ -863,18 +885,18 @@ pub fn js_regexp_Symbol_split(ctx: &JSContext, cc: CallContext) -> JSResult {
             if next_index > len {
                 next_index = len;
             }
-            if next_index == start {
+            if next_index == split_start {
                 // empty: advance index
                 last_index = str
                     .content()
                     .index_of_next(last_index, flag_unicode)
                     .unwrap_or(len);
             } else {
-                let sub = str.sub_string(ctx, start..last_index)?;
+                let sub = str.sub_string(ctx, split_start..last_index)?;
                 arr.define_property_value_u32(ctx, idx as u32, sub.into(), prop_flags)?;
                 idx += 1;
                 if idx == limit {
-                    break;
+                    return Ok(arr);
                 }
 
                 // append captures 1.. to array
@@ -884,21 +906,20 @@ pub fn js_regexp_Symbol_split(ctx: &JSContext, cc: CallContext) -> JSResult {
                     arr.define_property_value_u32(ctx, idx as _, sub, prop_flags)?;
                     idx += 1;
                     if idx == limit {
-                        break;
+                        return Ok(arr);
                     }
                 }
 
-                start = next_index;
+                split_start = next_index;
                 last_index = next_index;
             }
         }
     }
 
     // remaining part of str
-    if start < len && idx < limit {
-        let substr = str.sub_string(ctx, start..len)?;
-        arr.define_property_value_u32(ctx, idx as u32, substr.into(), prop_flags)?;
-    }
+    split_start = std::cmp::min(split_start, len);
+    let rem = str.sub_string(ctx, split_start..len)?;
+    arr.define_property_value_u32(ctx, idx as u32, rem.into(), prop_flags)?;
 
     Ok(arr)
 }

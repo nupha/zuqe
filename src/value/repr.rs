@@ -1,7 +1,5 @@
 use std::{borrow::Cow, rc::Rc};
 
-use smallvec::SmallVec;
-
 use crate::string::{JSString, StringChar};
 
 use super::JSValue;
@@ -18,43 +16,45 @@ impl JSValue {
             Self::UNINITIALIZED => "[uninitialized]".into(),
             Self::Float64(n) => format!("{:14}", *n).into(),
             Self::String(p) => {
-                let sep = '\"';
-                let mut buf = SmallVec::<[u8; 128]>::new();
-                buf.push(sep as u8);
+                format!("{p:?}").into()
 
-                for (_, c) in p.content().iter() {
-                    match c {
-                        StringChar::Char(c) => match c {
-                            '\'' | '"' if c == sep => {
-                                buf.extend_from_slice(format!("\\{c}").as_bytes());
-                            }
-                            '\n' => {
-                                buf.extend_from_slice(b"\\n");
-                            }
-                            '\r' => {
-                                buf.extend_from_slice(b"\\r");
-                            }
-                            '\t' => {
-                                buf.extend_from_slice(b"\\t");
-                            }
-                            '\\' => {
-                                buf.extend_from_slice(b"\\\\");
-                            }
-                            ' '..='~' => {
-                                buf.push(c as u8);
-                            }
-                            _ => {
-                                buf.extend_from_slice(c.encode_utf8(&mut [0; 4]).as_bytes());
-                            }
-                        },
+                // let sep = '\"';
+                // let mut buf = SmallVec::<[u8; 128]>::new();
+                // buf.push(sep as u8);
 
-                        StringChar::Code(c) => {
-                            buf.extend_from_slice(format!("\\u{c:04X}").as_bytes());
-                        }
-                    }
-                }
-                buf.push(sep as u8);
-                String::from_utf8(buf.to_vec()).unwrap().into()
+                // for (_, c) in p.content().iter() {
+                //     match c {
+                //         StringChar::Char(c) => match c {
+                //             '\'' | '"' if c == sep => {
+                //                 buf.extend_from_slice(format!("\\{c}").as_bytes());
+                //             }
+                //             '\n' => {
+                //                 buf.extend_from_slice(b"\\n");
+                //             }
+                //             '\r' => {
+                //                 buf.extend_from_slice(b"\\r");
+                //             }
+                //             '\t' => {
+                //                 buf.extend_from_slice(b"\\t");
+                //             }
+                //             '\\' => {
+                //                 buf.extend_from_slice(b"\\\\");
+                //             }
+                //             ' '..='~' => {
+                //                 buf.push(c as u8);
+                //             }
+                //             _ => {
+                //                 buf.extend_from_slice(c.encode_utf8(&mut [0; 4]).as_bytes());
+                //             }
+                //         },
+
+                //         StringChar::Code(c) => {
+                //             buf.extend_from_slice(format!("\\u{c:04X}").as_bytes());
+                //         }
+                //     }
+                // }
+                // buf.push(sep as u8);
+                // String::from_utf8(buf.to_vec()).unwrap().into()
             }
             Self::Bytecode(b) => {
                 format!("[bytecode {}]", b.0.borrow().func_name.to_utf8(b.rt())).into()

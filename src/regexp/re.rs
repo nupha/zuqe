@@ -179,6 +179,12 @@ impl JSRegExp {
         let utf8_text = sbuf_slice.to_utf8();
 
         if let Some(caps) = self.regex.captures(utf8_text.as_bytes()) {
+            println!(
+                "[O.o] capture from={from}, sticky={}, range={:?}",
+                self.flags & LRE_FLAG_STICKY as u8 != 0,
+                caps.get(0).unwrap().range()
+            );
+
             if self.flags & LRE_FLAG_STICKY as u8 != 0 && caps.get(0).unwrap().start() != 0 {
                 return None;
             }

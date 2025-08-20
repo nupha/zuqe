@@ -390,12 +390,7 @@ pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     if separator.is_undefined() {
-        ret_arr.define_property_value_u32(
-            ctx,
-            0,
-            cc.this().clone(),
-            JS_PROP_C_W_E | JS_PROP_THROW,
-        )?;
+        ret_arr.define_property_value_u32(ctx, 0, str.into(), JS_PROP_C_W_E | JS_PROP_THROW)?;
         return Ok(ret_arr);
     }
 
@@ -426,7 +421,9 @@ pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
             cursor = i + sep_len;
         }
 
-        if cursor < str_len && idx < lim {
+        if idx < lim {
+            cursor = std::cmp::min(cursor, str_len);
+
             // remaining part of str
             let t = str.sub_string(ctx, cursor..str_len)?;
             ret_arr.define_property_value_u32(
