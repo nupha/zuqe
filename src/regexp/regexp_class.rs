@@ -856,26 +856,26 @@ pub fn js_regexp_Symbol_split(ctx: &JSContext, cc: CallContext) -> JSResult {
                 .index_of_next(last_index, flag_unicode)
                 .unwrap_or(len);
         } else {
-            let mut e = splitter
+            let mut next_index = splitter
                 .get_property(ctx, JS_ATOM_lastIndex)?
                 .coerce_to_length(ctx)? as usize;
-            if e > len {
-                e = len;
+
+            if next_index > len {
+                next_index = len;
             }
-            if e == start {
+            if next_index == start {
                 // empty: advance index
                 last_index = str
                     .content()
                     .index_of_next(last_index, flag_unicode)
                     .unwrap_or(len);
             } else {
-                let sub = str.sub_string(ctx, start..e)?;
+                let sub = str.sub_string(ctx, start..last_index)?;
                 arr.define_property_value_u32(ctx, idx as u32, sub.into(), prop_flags)?;
                 idx += 1;
                 if idx == limit {
                     break;
                 }
-                start = e;
 
                 // append captures 1.. to array
                 let ncaps = m.get_property(ctx, JS_ATOM_length)?.coerce_to_length(ctx)? as usize;
@@ -888,7 +888,8 @@ pub fn js_regexp_Symbol_split(ctx: &JSContext, cc: CallContext) -> JSResult {
                     }
                 }
 
-                last_index = e;
+                start = next_index;
+                last_index = next_index;
             }
         }
     }

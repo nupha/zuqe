@@ -11,7 +11,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef, IteratorState, JS_CallConstructor},
     iterator::{JSIteratorKindEnum, js_create_array_iterator},
-    object::{JS_PROP_CONFIGURABLE, ObjectDetail, js_get_length64},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, ObjectDetail, js_get_length64},
     regexp::js_is_regexp,
     string::{
         JS_ConcatString, JS_ConcatString3, JS_STRING_LEN_MAX, JSString, StringBuf, StringChar,
@@ -388,48 +388,53 @@ pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
     if lim == 0 {
         return Ok(ret_arr);
     }
+
     if separator.is_undefined() {
-        ret_arr.create_data_property_u32(ctx, 0, cc.this().clone(), 0)?;
+        ret_arr.define_property_value_u32(
+            ctx,
+            0,
+            cc.this().clone(),
+            JS_PROP_C_W_E | JS_PROP_THROW,
+        )?;
         return Ok(ret_arr);
     }
 
     if sep_len == 0 {
         for (i, (_, c)) in str.content().iter().enumerate().take(lim as usize) {
             let t = ctx.create_string_from_char(c)?;
-            ret_arr.create_data_property_u32(ctx, i as _, t.into(), 0)?;
+            ret_arr.define_property_value_u32(
+                ctx,
+                i as _,
+                t.into(),
+                JS_PROP_C_W_E | JS_PROP_THROW,
+            )?;
         }
     } else {
-        let mut remainder: Option<usize> = Some(0);
         let mut cursor = 0;
-        let mut count = 0;
+        let mut idx = 0u32;
 
-        while let Some(i) = str.content().index_of(sep.content(), cursor) {
-            let t = str.sub_string(ctx, cursor..cursor + sep_len)?.into();
-            ret_arr.create_data_property_u32(ctx, count as _, t, 0)?;
+        let sc = sep.content();
+        let cc = str.content();
 
-            count += 1;
-            cursor = i + sep_len;
-
-            match (cursor + sep_len).cmp(&str_len) {
-                std::cmp::Ordering::Greater => {
-                    // no more separator found, break
-                    break;
-                }
-                std::cmp::Ordering::Equal => {
-                    // reached the end of the string, and is seperator, no remainder
-                    remainder = None;
-                    break;
-                }
-                _ => {
-                    remainder = Some(cursor);
-                }
+        while let Some(i) = cc.index_of(sc, cursor) {
+            let t = str.sub_string(ctx, cursor..i)?;
+            ret_arr.define_property_value_u32(ctx, idx, t.into(), JS_PROP_C_W_E | JS_PROP_THROW)?;
+            idx += 1;
+            if idx == lim {
+                break;
             }
+            cursor = i + sep_len;
         }
 
-        if let Some(i) = remainder {
-            // remaining part
-            let t = str.sub_string(ctx, i..str_len)?.into();
-            ret_arr.create_data_property_u32(ctx, count as _, t, 0)?;
+        if cursor < str_len && idx < lim {
+            // remaining part of str
+            let t = str.sub_string(ctx, cursor..str_len)?;
+            ret_arr.define_property_value_u32(
+                ctx,
+                idx as _,
+                t.into(),
+                JS_PROP_C_W_E | JS_PROP_THROW,
+            )?;
         }
     }
 

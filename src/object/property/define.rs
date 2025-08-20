@@ -488,7 +488,9 @@ impl JSValue {
         )
     }
 
-    /// `val` is consumed.
+    #[deprecated(
+        note = "use JSValue::define_property_value_i64() or JSValue::define_property_value_u32()"
+    )]
     #[inline(always)]
     pub fn create_data_property_u32(
         &self,
@@ -497,12 +499,7 @@ impl JSValue {
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        self.define_property_value_i64(
-            ctx,
-            idx,
-            val,
-            flags | JS_PROP_CONFIGURABLE | JS_PROP_ENUMERABLE | JS_PROP_WRITABLE,
-        )
+        self.define_property_value_i64(ctx, idx, val, flags | JS_PROP_C_W_E)
     }
 }
 
