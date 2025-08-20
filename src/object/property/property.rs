@@ -117,7 +117,7 @@ impl JSPropertyDescriptor {
         if desc.has_property(ctx, JS_ATOM_configurable)? {
             let conf = desc.get_property(ctx, JS_ATOM_configurable)?;
             flags |= JS_PROP_HAS_CONFIGURABLE;
-            if conf.coerce_to_bool(ctx)? {
+            if conf.to_bool()? {
                 flags |= JS_PROP_CONFIGURABLE;
             }
         }
@@ -125,7 +125,7 @@ impl JSPropertyDescriptor {
         if desc.has_property(ctx, JS_ATOM_writable)? {
             let conf = desc.get_property(ctx, JS_ATOM_writable)?;
             flags |= JS_PROP_HAS_WRITABLE;
-            if conf.coerce_to_bool(ctx)? {
+            if conf.to_bool()? {
                 flags |= JS_PROP_WRITABLE;
             }
         }
@@ -133,7 +133,7 @@ impl JSPropertyDescriptor {
         if desc.has_property(ctx, JS_ATOM_enumerable)? {
             let conf = desc.get_property(ctx, JS_ATOM_enumerable)?;
             flags |= JS_PROP_HAS_ENUMERABLE;
-            if conf.coerce_to_bool(ctx)? {
+            if conf.to_bool()? {
                 flags |= JS_PROP_ENUMERABLE;
             }
         }

@@ -338,7 +338,7 @@ pub fn js_promise_all_resolve_element(ctx: &JSContext, mut cc: CallContext) -> J
     let resolve_type = cc.magic() & 3;
     let is_reject = cc.magic() & 4;
 
-    let alreadyCalled = cc.data(0).coerce_to_bool(ctx)?;
+    let alreadyCalled = cc.data(0).to_bool()?;
     let values = cc.data(2);
     let resolve = cc.data(3);
     let resolve_element_env = cc.data(4);

@@ -814,24 +814,30 @@ pub unsafe fn string_indexof(p1: *mut JSString, p2: *mut JSString, from: i32) ->
         .map_or(-1, |i| i as i32)
 }
 
-/* also used for String.prototype.valueOf */
-pub fn js_string_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
-    js_thisStringValue(ctx, cc.this().clone())
+/// also used for String.prototype.valueOf
+pub fn js_string_toString(ctx: &JSContext, cc: CallContext) -> Result<JSValue, i32> {
+    js_thisStringValue(ctx, cc.this().clone()).map(JSValue::String)
 }
 
-pub fn js_thisStringValue(ctx: &JSContext, this_val: JSValue) -> JSResult {
-    if this_val.is_string() {
-        Ok(this_val)
-    } else if let Some(d) = this_val
-        .object()
-        .and_then(|p| p.0.payload.borrow().value())
-        .and_then(|x| if x.is_string() { Some(x) } else { None })
-    {
-        Ok(d)
-    } else {
+#[inline]
+fn js_thisStringValue(ctx: &JSContext, this_val: JSValue) -> Result<JSString, i32> {
+    TryInto::<JSString>::try_into(this_val.clone()).inspect_err(|_| {
         ctx.throw_type_error("not a string");
-        Err(-1)
-    }
+    })
+
+    // original code
+    // if this_val.is_string() {
+    //     Ok(this_val)
+    // } else if let Some(d) = this_val
+    //     .object()
+    //     .and_then(|p| p.0.payload.borrow().value())
+    //     .and_then(|x| if x.is_string() { Some(x) } else { None })
+    // {
+    //     Ok(d)
+    // } else {
+    //     ctx.throw_type_error("not a string");
+    //     Err(-1)
+    // }
 }
 
 pub fn js_string_toLowerCase(ctx: &JSContext, cc: CallContext) -> JSResult {

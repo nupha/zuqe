@@ -5,7 +5,7 @@ use crate::{
     JS_CLASS_UINT32_ARRAY, JS_PROP_STRING_DEF,
     class::JSClassID,
     context::JSContext,
-    error::{JS_ThrowRangeError, JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
+    error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, FieldDef},
     mem::js_malloc_typed,
     number::JSFloat64Union,
@@ -44,14 +44,14 @@ impl JSContext {
         let byte_length = abuf.byte_length();
 
         if offset > byte_length {
-            JS_ThrowRangeError(self, "invalid byteOffset");
+            self.throw_range_error("invalid byteOffset");
             return Err(-1);
         }
 
         let mut len = byte_length - offset;
         if let Some(l) = length {
             if l > len {
-                JS_ThrowRangeError(self, "invalid byteLength");
+                self.throw_range_error("invalid byteLength");
                 return Err(-1);
             } else {
                 len = l;
@@ -116,7 +116,7 @@ pub fn js_dataview_getValue(ctx: &JSContext, args: CallContext) -> JSResult {
 
     // is little endian? default to BE
     let le = if args.length() > 1 {
-        args.arg(1).coerce_to_bool(ctx)?
+        args.arg(1).to_bool()?
     } else {
         false // default to BE
     };
@@ -140,7 +140,7 @@ pub fn js_dataview_getValue(ctx: &JSContext, args: CallContext) -> JSResult {
         }
 
         if pos + size > ta.byte_length as usize {
-            JS_ThrowRangeError(ctx, "out of bound");
+            ctx.throw_range_error("out of bound");
             return Err(-1);
         }
 
@@ -259,7 +259,7 @@ pub fn js_dataview_setValue(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     let le = if cc.length() > 2 {
-        cc.arg(2).coerce_to_bool(ctx)?
+        cc.arg(2).to_bool()?
     } else {
         false
     };
@@ -270,7 +270,7 @@ pub fn js_dataview_setValue(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Err(-1);
     }
     if pos + size > byte_length as usize {
-        JS_ThrowRangeError(ctx, "out of bound");
+        ctx.throw_range_error("out of bound");
         return Err(-1);
     }
 

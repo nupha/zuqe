@@ -579,7 +579,7 @@ pub fn js_typed_array_find(ctx: &JSContext, args: CallContext) -> JSResult {
             &[val.clone(), index_val.clone(), this_val.clone()],
         )?;
 
-        if res.coerce_to_bool(ctx).unwrap_or(true) {
+        if res.to_bool().unwrap_or(true) {
             return if matches!(args.magic(), special_findIndex | special_findLastIndex) {
                 Ok(index_val)
             } else {

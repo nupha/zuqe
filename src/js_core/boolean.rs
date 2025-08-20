@@ -9,7 +9,7 @@ use crate::{
 };
 
 pub fn js_boolean_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let val = JSValue::Bool(cc.arg(0).coerce_to_bool(ctx).unwrap_or(true));
+    let val = JSValue::Bool(cc.arg(0).to_bool().unwrap_or(true));
 
     let new_target = cc.this();
     if !new_target.is_undefined() {

@@ -132,7 +132,7 @@ pub fn js_is_regexp(ctx: &JSContext, obj: &JSValue) -> Result<bool, i32> {
     if let JSValue::Object(o) = obj {
         let m = o.get_property(ctx, JS_ATOM_Symbol_match)?;
         if !m.is_undefined() {
-            m.coerce_to_bool(ctx)
+            m.to_bool()
         } else {
             Ok(js_get_regexp(ctx, o, false).is_some())
         }
@@ -270,9 +270,7 @@ pub fn js_regexp_get_flags(ctx: &JSContext, cc: CallContext) -> JSResult {
         let mut pos = 0_usize;
 
         for (name, ch) in TESTS.iter() {
-            if o.get_property_str(ctx, *name)
-                .and_then(|b| b.coerce_to_bool(ctx))?
-            {
+            if o.get_property_str(ctx, *name).and_then(|b| b.to_bool())? {
                 str[pos] = *ch;
                 pos += 1;
             }

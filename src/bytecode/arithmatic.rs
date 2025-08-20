@@ -60,7 +60,7 @@ impl TwoNumbers {
                 }
 
                 _ => {
-                    return Err(-1); // cannot convert to number
+                    return Err(-1); // don't convert to number
                 }
             }
         }
@@ -377,15 +377,36 @@ impl JSValue {
     }
 
     /// arithmatic add of two values.
-    pub fn arith_add(ctx: &JSContext, op1: Self, op2: Self) -> JSResult {
-        if matches!(
-            (&op1, &op2),
-            (JSValue::String(_), _) | (_, JSValue::String(_))
-        ) {
-            // add string
-            JS_ConcatString(ctx, op1, op2).map(JSValue::String)
-        } else {
-            TwoNumbers::from_values(ctx, op1, op2, true).map(|bop| bop.add())
+    pub fn arith_add(ctx: &JSContext, mut op1: Self, mut op2: Self) -> JSResult {
+        loop {
+            match (op1, op2) {
+                // fast path to exit: (int,int), (f64,f64)
+                (Self::Int(a), Self::Int(b)) => {
+                    return Ok(JSValue::from(
+                        a as i64 + b as i64, // result may overflow i32 ranges
+                    ));
+                }
+                (Self::Float64(a), Self::Float64(b)) => {
+                    return Ok(JSValue::from(a + b));
+                }
+
+                //
+                // don't change following arm order
+                //
+                (a @ Self::Object(_), b) | (a, b @ Self::Object(_)) => {
+                    op1 = a.to_primitive(ctx, HINT_NONE)?;
+                    op2 = b.to_primitive(ctx, HINT_NONE)?;
+                }
+                (a @ JSValue::String(_), b) | (a, b @ JSValue::String(_)) => {
+                    // add string
+                    return JS_ConcatString(ctx, a, b).map(JSValue::String);
+                }
+
+                (a, b) => {
+                    op1 = a.to_number(ctx)?;
+                    op2 = b.to_number(ctx)?;
+                }
+            }
         }
     }
 

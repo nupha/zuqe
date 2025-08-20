@@ -77,7 +77,7 @@ impl JSObject {
                     &ctor,
                     std::slice::from_ref(&JSValue::Object(self.clone())),
                 )
-                .and_then(|v| v.coerce_to_bool(ctx));
+                .and_then(|v| v.to_bool());
         }
 
         // legacy case

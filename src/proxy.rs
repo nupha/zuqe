@@ -78,7 +78,7 @@ pub fn js_proxy_isExtensible(ctx: &JSContext, obj: &JSValue) -> Result<bool, i32
 
     let b = method
         .call(ctx, &s.handler, std::slice::from_ref(&s.target))?
-        .coerce_to_bool(ctx)?;
+        .to_bool()?;
 
     if b != s.target.is_extensible(ctx)? {
         ctx.throw_type_error("proxy: inconsistent isExtensible");
@@ -95,7 +95,7 @@ pub fn js_proxy_preventExtensions(ctx: &JSContext, obj: &JSValue) -> Result<bool
     }
 
     let ret = method.call(ctx, &s.handler, std::slice::from_ref(&s.target))?;
-    let res = ret.coerce_to_bool(ctx)?;
+    let res = ret.to_bool()?;
 
     if res && s.target.is_extensible(ctx)? {
         ctx.throw_type_error("proxy: inconsistent preventExtensions");
@@ -158,7 +158,7 @@ pub unsafe fn js_proxy_setPrototypeOf(
 
     let ret = method.call(ctx, &s.handler, &[s.target.clone(), proto_val.clone()])?;
 
-    match ret.coerce_to_bool(ctx) {
+    match ret.to_bool() {
         Ok(false) => {
             if throw_flag {
                 ctx.throw_type_error("proxy: bad prototype");

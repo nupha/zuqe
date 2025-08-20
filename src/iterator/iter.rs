@@ -287,7 +287,7 @@ impl ObjectIter {
             (ret, IteratorState::NotParsed) => {
                 let done = ret
                     .get_property(ctx, JS_ATOM_done)?
-                    .coerce_to_bool(ctx)
+                    .to_bool()
                     .unwrap_or(false);
 
                 Ok((
@@ -415,7 +415,7 @@ pub unsafe fn JS_IteratorGetCompleteValue(
     pdone: *mut bool,
 ) -> JSValue {
     if let Ok(done_val) = obj.get_property(ctx, JS_ATOM_done) {
-        let done = done_val.coerce_to_bool(ctx).unwrap();
+        let done = done_val.to_bool().unwrap();
 
         if let Ok(value) = obj.get_property(ctx, JS_ATOM_value) {
             *pdone = done;

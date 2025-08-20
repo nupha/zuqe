@@ -1782,13 +1782,13 @@ pub unsafe fn typed_array_get_length(ctx: &JSContext, p: *mut JSValue) -> usize 
 
 /// returns Err if val is an exception.
 /// `val` is consumed
-#[deprecated(note = "use JSValue::coerce_to_bool() instead")]
+#[deprecated(note = "use JSValue::to_bool() instead")]
 pub unsafe fn JS_ToBoolFree(ctx: &JSContext, val: JSValue) -> Result<bool, i32> {
-    val.coerce_to_bool(ctx)
+    val.to_bool()
 }
-#[deprecated(note = "use JSValue::coerce_to_bool() instead")]
+#[deprecated(note = "use JSValue::to_bool() instead")]
 pub unsafe fn JS_ToBool(ctx: &JSContext, val: &JSValueConst) -> Result<bool, i32> {
-    val.coerce_to_bool(ctx)
+    val.to_bool()
 }
 
 #[deprecated(note = "use JSValue::get_own_property_names2() instead")]

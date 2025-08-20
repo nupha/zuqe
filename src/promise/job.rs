@@ -41,7 +41,7 @@ pub fn promise_reaction_job(ctx: &JSContext, args: CallContext) -> JSResult {
     debug_assert_eq!(args.length(), 5);
 
     let handler = args.arg(2);
-    let mut is_reject = args.arg(3).coerce_to_bool(ctx)?;
+    let mut is_reject = args.arg(3).to_bool()?;
     let arg = args.arg(4);
 
     #[cfg(DUMP_PROMISE)]

@@ -116,7 +116,7 @@ pub unsafe fn JS_isConcatSpreadable(ctx: &JSContext, obj: &JSValue) -> Result<bo
     let tmp = obj.get_property(ctx, JS_ATOM_Symbol_isConcatSpreadable)?;
 
     if !tmp.is_undefined() {
-        tmp.coerce_to_bool(ctx)
+        tmp.to_bool()
     } else {
         obj.is_array(ctx)
     }
@@ -364,13 +364,13 @@ pub fn js_array_every(ctx: &JSContext, cc: CallContext) -> JSResult {
 
             match special {
                 s if s == special_every || s == special_every | special_TA => {
-                    if let Ok(false) = res.coerce_to_bool(ctx) {
+                    if let Ok(false) = res.to_bool() {
                         ret = JSValue::Bool(false);
                         break;
                     }
                 }
                 s if s == special_some || s == special_some | special_TA => {
-                    if res.coerce_to_bool(ctx).unwrap_or(true) {
+                    if res.to_bool().unwrap_or(true) {
                         ret = JSValue::Bool(true);
                         break;
                     }
@@ -382,7 +382,7 @@ pub fn js_array_every(ctx: &JSContext, cc: CallContext) -> JSResult {
                     ret.set_property_value(ctx, &JSValue::Int(k as i32), res, JS_PROP_THROW)?;
                 }
                 s if s == special_filter || s == special_filter | special_TA => {
-                    if res.coerce_to_bool(ctx).unwrap_or(true) {
+                    if res.to_bool().unwrap_or(true) {
                         ret.define_property_value_i64(ctx, n, val, JS_PROP_C_W_E | JS_PROP_THROW)?;
                         n += 1;
                     }
@@ -554,7 +554,7 @@ pub fn js_array_find(ctx: &JSContext, cc: CallContext) -> JSResult {
             &[val.clone(), index_val.clone(), this_val.clone()],
         )?;
 
-        if res.coerce_to_bool(ctx)? {
+        if res.to_bool()? {
             // found
             return if matches!(mode, special_findIndex | special_findLastIndex) {
                 Ok(index_val)

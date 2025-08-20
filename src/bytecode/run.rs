@@ -1312,7 +1312,7 @@ impl Bytecode {
                             JSValue::Bool(b) => b,
                             JSValue::UNDEFINED | JSValue::NULL => false,
                             _ => {
-                                if let Ok(x) = op_1.coerce_to_bool(ctx) {
+                                if let Ok(x) = op_1.to_bool() {
                                     x
                                 } else {
                                     break State::Exception;
@@ -1504,7 +1504,7 @@ impl Bytecode {
                             JSValue::Bool(b) => *b,
                             JSValue::NULL | JSValue::UNDEFINED => false,
                             _ => {
-                                if let Ok(b) = op_1.coerce_to_bool(ctx) {
+                                if let Ok(b) = op_1.to_bool() {
                                     b
                                 } else {
                                     break State::Exception;

@@ -8,14 +8,14 @@ use crate::{
 };
 
 impl From<bool> for JSValue {
-    #[inline]
+    #[inline(always)]
     fn from(value: bool) -> Self {
         JSValue::Bool(value)
     }
 }
 
 impl JSObject {
-    /// Convert value to primitive (non-object) value
+    /// Coerce value to primitive (non-object) value
     pub fn to_primitive(&self, ctx: &JSContext, hint: i32) -> Result<JSValue, i32> {
         let ignore_toPrimitive_method = hint & HINT_FORCE_ORDINARY != 0;
         let hint = hint & !HINT_FORCE_ORDINARY;
@@ -69,7 +69,8 @@ impl JSObject {
 }
 
 impl JSValue {
-    /// Convert value to primitive (non-object) value
+    /// Coerce value to primitive (non-object) value
+    #[inline]
     pub fn to_primitive(&self, ctx: &JSContext, hint: i32) -> Result<JSValue, i32> {
         if let Self::Object(o) = self {
             o.to_primitive(ctx, hint)
@@ -78,14 +79,15 @@ impl JSValue {
         }
     }
 
-    pub fn coerce_to_bool(&self, ctx: &JSContext) -> Result<bool, i32> {
+    /// coerce value to bool
+    pub fn to_bool(&self) -> Result<bool, i32> {
         match self {
             JSValue::NULL | JSValue::UNDEFINED => Ok(false),
             JSValue::Int(i) => Ok(*i != 0),
             JSValue::Bool(b) => Ok(*b),
             JSValue::Object(o) => Ok(!o.flags().is_htmldda()),
             JSValue::String(s) => Ok(!s.is_empty()),
-            JSValue::Float64(d) => Ok(!(*d).is_nan() && *d != 0.0),
+            JSValue::Float64(d) => Ok(!d.is_nan() && *d != 0.0),
             JSValue::EXCEPTION => Err(-1),
             _ => Ok(true),
         }

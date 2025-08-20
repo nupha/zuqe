@@ -227,7 +227,7 @@ pub fn js_has_unscopable(ctx: &JSContext, obj: &JSValueConst, atom: JSAtom) -> i
 
     if arr.is_object() {
         if let Ok(val) = arr.get_property(ctx, atom) {
-            val.coerce_to_bool(ctx).map_or(-1, |b| b as i32)
+            val.to_bool().map_or(-1, |b| b as i32)
         } else {
             -1
         }
