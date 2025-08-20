@@ -364,11 +364,6 @@ pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let separator = cc.arg(0);
     let limit = cc.arg(1);
-    let lim = if limit.is_undefined() {
-        u32::MAX
-    } else {
-        limit.coerce_to_u32(ctx)?
-    };
 
     if !separator.is_undefined_or_null() {
         if let Some(r) =
@@ -383,6 +378,12 @@ pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let str = this.to_string_non_undefined_or_null(ctx)?;
     let str_len = str.buf_len();
+
+    let lim = if limit.is_undefined() {
+        u32::MAX
+    } else {
+        limit.coerce_to_u32(ctx)?
+    };
 
     let ret_arr = ctx.create_array()?;
     if lim == 0 {
