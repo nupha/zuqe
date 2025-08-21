@@ -340,7 +340,7 @@ impl JSValue {
     }
 
     #[inline(always)]
-    pub fn coerce_to_u32(&self, ctx: &JSContext) -> Result<u32, i32> {
+    pub fn to_u32(&self, ctx: &JSContext) -> Result<u32, i32> {
         self.to_i32(ctx).map(|v| v as u32)
     }
 

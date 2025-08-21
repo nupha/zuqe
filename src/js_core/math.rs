@@ -165,7 +165,7 @@ pub fn js_math_imul(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_math_clz32(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let a = cc.arg(0).coerce_to_u32(ctx)?;
+    let a = cc.arg(0).to_u32(ctx)?;
     let r: u32 = if a == 0 { 32 } else { a.leading_zeros() };
     Ok(JSValue::Int(r as i32))
 }

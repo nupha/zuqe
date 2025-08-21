@@ -9,7 +9,7 @@ use crate::{
     context::JSContext,
     error::ErrorKind,
     object::{JS_PROP_WRITABLE, JSObject, ObjectDetail},
-    string::{JSString, StringContent},
+    string::{JSString, StringContent, map_utf8_to_utf16_range},
     value::JSValue,
 };
 
@@ -48,7 +48,7 @@ pub struct JSRegExp {
     pub(crate) pattern: StringContent,
     pub(crate) flags_str: StringContent,
     pub(crate) flags: u8,
-    pub(crate) regex: Rc<Regex>,
+    pub(super) regex: Rc<Regex>,
 }
 
 impl JSRegExp {
@@ -83,30 +83,42 @@ impl JSRegExp {
             }
         }
 
-        let re = RegexBuilder::new(pattern)
-            .unicode(flags & LRE_FLAG_UTF16 as u8 != 0)
-            .multi_line(flags & LRE_FLAG_MULTILINE as u8 != 0)
-            .case_insensitive(flags & LRE_FLAG_IGNORECASE as u8 != 0)
-            .build()
-            .map_err(|e| {
-                ctx.throw_error(ErrorKind::Syntax, &e.to_string());
-                -1
-            })?;
+        let re = RegexBuilder::new(match pattern {
+            "[]" => {
+                // pattern `[]` is not allowed in regex.
+                // use `$^` to mimic equivelent effect.
+                "$^"
+            }
+            "[^]" => {
+                // pattern `[^]` is not allowed in regex.
+                // use `.` to mimic equivelent effect.
+                "."
+            }
+            _ => pattern,
+        })
+        .unicode(flags & LRE_FLAG_UTF16 as u8 != 0)
+        .multi_line(flags & LRE_FLAG_MULTILINE as u8 != 0)
+        .case_insensitive(flags & LRE_FLAG_IGNORECASE as u8 != 0)
+        .build()
+        .map_err(|e| {
+            ctx.throw_error(ErrorKind::Syntax, &e.to_string());
+            -1
+        })?;
 
         Ok((re, flags))
     }
 
-    pub fn new(ctx: &JSContext, pattern: &JSString, flags_str: &JSString) -> Result<Self, i32> {
-        let (re, flags) = Self::new_re(
-            ctx,
-            &pattern.content().to_utf8(),
-            flags_str.content().chars_lossy(),
-        )?;
+    pub fn new(
+        ctx: &JSContext,
+        pattern: StringContent,
+        flags_str: StringContent,
+    ) -> Result<Self, i32> {
+        let (re, flags) = Self::new_re(ctx, &pattern.to_utf8(), flags_str.chars_lossy())?;
         let regex = Rc::new(re);
 
         Ok(Self {
-            pattern: pattern.content().clone(),
-            flags_str: flags_str.content().clone(),
+            pattern,
+            flags_str,
             regex,
             flags,
         })
@@ -179,12 +191,6 @@ impl JSRegExp {
         let utf8_text = sbuf_slice.to_utf8();
 
         if let Some(caps) = self.regex.captures(utf8_text.as_bytes()) {
-            println!(
-                "[O.o] capture from={from}, sticky={}, range={:?}",
-                self.flags & LRE_FLAG_STICKY as u8 != 0,
-                caps.get(0).unwrap().range()
-            );
-
             if self.flags & LRE_FLAG_STICKY as u8 != 0 && caps.get(0).unwrap().start() != 0 {
                 return None;
             }
@@ -194,13 +200,10 @@ impl JSRegExp {
             for (cap, name) in caps.iter().zip(self.regex.capture_names()) {
                 if let Some(m) = cap {
                     let range = if sbuf_slice.is_wide() {
-                        use crate::string::map_utf8_to_utf16_range;
-
                         let s16 = unsafe {
                             let bb = sbuf_slice.as_bytes();
                             std::slice::from_raw_parts(bb.as_ptr().cast::<u16>(), bb.len() / 2)
                         };
-
                         map_utf8_to_utf16_range(utf8_text.as_bytes(), s16, m.range())
                     } else {
                         m.range()
@@ -241,7 +244,11 @@ impl JSContext {
         let obj = self
             .create_object_apply_ctor(
                 ctor,
-                ObjectDetail::REGEXP(Box::new(JSRegExp::new(self, pattern, flags)?)),
+                ObjectDetail::REGEXP(Box::new(JSRegExp::new(
+                    self,
+                    pattern.content().clone(),
+                    flags.content().clone(),
+                )?)),
             )
             .map_err(|_| -1)?;
 

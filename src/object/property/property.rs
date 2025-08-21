@@ -434,7 +434,7 @@ pub const unsafe fn check_define_prop_flags(prop_flags: u32, flags: u32) -> bool
 /// Get object `length` property as u32
 pub fn js_get_length32(ctx: &JSContext, obj: &JSValue) -> Result<u32, i32> {
     obj.get_property(ctx, JS_ATOM_length)
-        .and_then(|v| v.coerce_to_u32(ctx))
+        .and_then(|v| v.to_u32(ctx))
 }
 
 /// Get object `length` property as i64

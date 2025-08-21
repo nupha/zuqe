@@ -373,19 +373,22 @@ pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     }
 
-    let sep = separator.to_string(ctx)?;
-    let sep_len = sep.buf_len();
-
+    // don't change following parse order of str, limit, sep
     let str = this.to_string_non_undefined_or_null(ctx)?;
     let str_len = str.buf_len();
 
     let lim = if limit.is_undefined() {
-        u32::MAX
+        0xffff_ffff
     } else {
-        limit.coerce_to_u32(ctx)?
+        limit.to_u32(ctx)?
     };
 
+    let sep = separator.to_string(ctx)?;
+    let sep_len = sep.buf_len();
+
+    // create result array
     let ret_arr = ctx.create_array()?;
+
     if lim == 0 {
         return Ok(ret_arr);
     }

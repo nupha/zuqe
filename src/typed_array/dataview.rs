@@ -239,7 +239,7 @@ pub fn js_dataview_setValue(ctx: &JSContext, cc: CallContext) -> JSResult {
     let mut v64 = 0_u64;
 
     if class_id <= JS_CLASS_UINT32_ARRAY {
-        v = val.coerce_to_u32(ctx)?;
+        v = val.to_u32(ctx)?;
     } else if class_id <= JS_CLASS_BIG_UINT64_ARRAY {
         ctx.throw_type_error("BigInt is not supported");
         return Err(-1);

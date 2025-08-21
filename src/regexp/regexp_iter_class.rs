@@ -5,7 +5,7 @@ use crate::{
     atom::consts::JS_ATOM_lastIndex,
     context::JSContext,
     error::JSResult,
-    function::{CallContext, IteratorState, FieldDef},
+    function::{CallContext, FieldDef, IteratorState},
     object::{JS_PROP_CONFIGURABLE, ObjectDetail},
     value::JSValue,
 };
@@ -50,7 +50,7 @@ fn js_regexp_string_iterator_next(
                 // matched is empty
                 let last_index = regexp
                     .get_property(ctx, JS_ATOM_lastIndex)
-                    .and_then(|v| v.coerce_to_u32(ctx))
+                    .and_then(|v| v.to_u32(ctx))
                     .inspect_err(|_| {
                         *state = IteratorState::NotDone;
                     })? as usize;

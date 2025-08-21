@@ -2763,15 +2763,15 @@ pub unsafe fn JS_ToInt32(ctx: &JSContext, val: &JSValueConst) -> Result<i32, i32
     }
 }
 
-#[deprecated(note = "use JSValue::coerce_to_u32() instead")]
+#[deprecated(note = "use JSValue::to_u32() instead")]
 pub unsafe fn JS_ToUint32(ctx: &JSContext, val: &JSValue) -> Result<u32, i32> {
-    val.coerce_to_u32(ctx)
+    val.to_u32(ctx)
 }
 
 #[inline(always)]
-#[deprecated(note = "use JSValue::coerce_to_u32() instead")]
+#[deprecated(note = "use JSValue::to_u32() instead")]
 pub unsafe fn JS_ToUint32Free(ctx: &JSContext, val: JSValue) -> Result<u32, i32> {
-    val.coerce_to_u32(ctx)
+    val.to_u32(ctx)
 }
 
 #[deprecated(note = "use JSValue::coerce_to_u8_clamp() instead")]

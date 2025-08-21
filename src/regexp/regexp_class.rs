@@ -3,7 +3,6 @@ use std::{
     rc::Rc,
 };
 
-use regex::bytes::Regex;
 use smallvec::SmallVec;
 
 use crate::{
@@ -15,7 +14,7 @@ use crate::{
     js_core::js_get_this,
     object::{
         JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, JS_SpeciesConstructor, JSObject,
-        ObjectDetail, js_get_length64,
+        ObjectDetail,
     },
     runtime::JSRuntime,
     string::{JS_ConcatString3, JSString, StringBuf, StringChar, StringContent},
@@ -334,41 +333,42 @@ pub fn js_regexp_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 fn js_regexp_compile(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let re = js_get_regexp(ctx, cc.this().object().unwrap(), true).ok_or(-1)?;
-
     let pattern1 = cc.arg(0);
     let flags1 = cc.arg(1);
 
     let pattern: StringContent;
-    let regex: Rc<Regex>;
+    let flags_str: StringContent;
 
-    if let Some(re1) = pattern1.object().and_then(|o| js_get_regexp(ctx, o, false)) {
+    if let Some(re0) = pattern1.object().and_then(|o| js_get_regexp(ctx, o, false)) {
         if flags1.is_undefined() {
             ctx.throw_type_error("flags must be undefined");
             return Err(-1);
         }
-        pattern = re1.pattern.clone();
-        regex = re1.regex.clone();
+
+        pattern = re0.pattern.clone();
+        flags_str = if flags1.is_undefined() {
+            re0.flags_str.clone()
+        } else {
+            flags1.to_string(ctx)?.content().clone()
+        }
     } else {
         pattern = if pattern1.is_undefined() {
             Rc::new(StringBuf::Empty)
         } else {
             pattern1.to_string(ctx)?.content().clone()
         };
-
-        let (re, _) = JSRegExp::new_re(ctx, &pattern.to_utf8(), "".chars()).map_err(|e| {
-            ctx.throw_error(ErrorKind::Syntax, &e.to_string());
-            -1
-        })?;
-        regex = Rc::new(re);
+        flags_str = if flags1.is_undefined() {
+            Rc::new(StringBuf::Empty)
+        } else {
+            flags1.to_string(ctx)?.content().clone()
+        };
     }
+
+    let re = Box::new(JSRegExp::new(ctx, pattern, flags_str)?);
+    *cc.this().object().unwrap().0.payload.borrow_mut() = ObjectDetail::REGEXP(re);
 
     cc.this()
         .set_property(ctx, JS_ATOM_lastIndex, JSValue::Int(0))?;
-
-    // TODO: mutable.
-    // re.pattern = pattern;
-    // re.regex = regex;
 
     Ok(cc.this().clone())
 }
@@ -511,9 +511,8 @@ pub fn js_regexp_Symbol_match(ctx: &JSContext, cc: CallContext) -> JSResult {
         loop {
             match exec.call(ctx, &cc.this(), &args)? {
                 JSValue::Object(o) => {
-                    let last_index = this
-                        .get_property(ctx, JS_ATOM_lastIndex)?
-                        .coerce_to_u32(ctx)? as usize;
+                    let last_index =
+                        this.get_property(ctx, JS_ATOM_lastIndex)?.to_u32(ctx)? as usize;
 
                     let matched = o.get_property_u32(ctx, 0)?.to_string(ctx)?;
                     if matched.is_empty() {
@@ -677,11 +676,11 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
 
         let index = m
             .get_property(ctx, JS_ATOM_index)
-            .and_then(|v| v.coerce_to_u32(ctx))? as usize;
+            .and_then(|v| v.to_u32(ctx))? as usize;
 
         let length = m
             .get_property(ctx, JS_ATOM_length)
-            .and_then(|v| v.coerce_to_u32(ctx))? as usize;
+            .and_then(|v| v.to_u32(ctx))? as usize;
 
         sbuf.push_content_slice(&str.content().slice(pos..index))
             .map_err(|_| {
@@ -820,7 +819,7 @@ pub fn js_regexp_Symbol_split(ctx: &JSContext, cc: CallContext) -> JSResult {
     let limit = if limit.is_undefined() {
         usize::MAX
     } else {
-        limit.coerce_to_u32(ctx)? as usize
+        limit.to_u32(ctx)? as usize
     };
 
     // make RegExp as splitter

@@ -301,7 +301,7 @@ impl JSObject {
                 .first()
                 .map(|pr| pr.value(ctx, &JSValue::UNDEFINED))
                 .unwrap() // `length` property must be defined in slot #0
-                .and_then(|v| v.coerce_to_u32(ctx))? as usize;
+                .and_then(|v| v.to_u32(ctx))? as usize;
 
             if len < cur_len {
                 // shrink
@@ -486,7 +486,7 @@ pub unsafe fn JS_ToArrayLengthFree(
         }
         _ => {
             // legacy behavior: must do the conversion twice and compare
-            len = val.coerce_to_u32(ctx)?;
+            len = val.to_u32(ctx)?;
             let v = val.to_number(ctx)?;
             if len != JS_ToArrayLengthFree(ctx, v, false)? {
                 ctx.throw_range_error("invalid array length");
