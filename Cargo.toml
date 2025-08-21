@@ -2,7 +2,7 @@
 name = "zhuque"
 version = "0.0.0"
 edition = "2024"
-description = "A tiny javascript engine"
+description = "A simple javascript engine"
 authors = ["johnray <996351336@qq.com>"]
 build = "build.rs"
 
@@ -42,8 +42,9 @@ widestring = "1.1"
 unicode-case-mapping = "1.0.0"
 fallible_collections = "0.5"
 unicode-xid = "0.2"
-regex = "1.0"
 unicode-normalization = "0.1"
+# TODO: could use fancy_regex for complex regexp support?
+regex = "1.0"
 
 [build-dependencies]
 cc = "1.0"

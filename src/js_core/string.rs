@@ -300,16 +300,6 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
                     })?;
 
                     ctx.create_string_with_buf(sb)
-
-                    // JSString::get_substitution(
-                    //     ctx,
-                    //     &search_for,
-                    //     &str,
-                    //     pos as usize,
-                    //     &JSValue::UNDEFINED,
-                    //     &JSValue::UNDEFINED,
-                    //     replace_str.as_ref().unwrap(),
-                    // )
                 }?;
 
                 res

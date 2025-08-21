@@ -426,14 +426,15 @@ pub fn js_regexp_exec(ctx: &JSContext, cc: CallContext) -> JSResult {
     let re = js_get_regexp(ctx, this, true).ok_or(-1)?;
     let str = cc.arg(0).to_string(ctx)?;
 
-    let is_sticky = re.flags & LRE_FLAG_STICKY as u8 != 0;
     let from = {
         let val = cc.this().get_property(ctx, JS_ATOM_lastIndex)?;
         val.coerce_to_length(ctx)? as usize
     };
     if let Some(cap_list) = re.capture(&str, from) {
         let (arr, last_index) = make_regexp_capture_array(ctx, str, &cap_list)?;
-        this.set_property(ctx, JS_ATOM_lastIndex, JSValue::from(last_index as u32))?;
+        if re.flags & (LRE_FLAG_GLOBAL | LRE_FLAG_STICKY) as u8 != 0 {
+            this.set_property(ctx, JS_ATOM_lastIndex, JSValue::from(last_index as u32))?;
+        }
         Ok(arr)
     } else {
         this.set_property(ctx, JS_ATOM_lastIndex, JSValue::Int(0))?;
@@ -629,14 +630,14 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
         false
     };
 
-    if rep_str.as_ref().map_or(false, |s| s.is_empty())
-        && is_global
-        && js_is_standard_regexp(ctx, this)?
-    {
-        // fast path: delete only
-        // return JS_RegExpDelete(ctx, this, sp);
-        todo!();
-    }
+    // if rep_str.as_ref().map_or(false, |s| s.is_empty())
+    //     && is_global
+    //     && js_is_standard_regexp(ctx, this)?
+    // {
+    //     // fast path: delete only
+    //     // return JS_RegExpDelete(ctx, this, sp);
+    //     todo!();
+    // }
 
     let mut sbuf =
         StringBuf::with_capacity(str.buf_len() * 3 / 2, str.is_wide()).map_err(|_| {
@@ -785,25 +786,36 @@ fn js_regexp_Symbol_search(ctx: &JSContext, cc: CallContext) -> JSResult {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
     };
-    let re = js_get_regexp(ctx, this, true).ok_or(-1)?;
-    this.set_property(ctx, JS_ATOM_lastIndex, JSValue::Int(0))?;
+
+    let prev_last_index = this
+        .get_property(ctx, JS_ATOM_lastIndex)?
+        .coerce_to_index(ctx)? as usize;
+
+    if prev_last_index != 0 {
+        this.set_property(ctx, JS_ATOM_lastIndex, JSValue::Int(0))?;
+    }
 
     let str = cc.arg(0).to_string(ctx)?;
-    let utf8_text = str.content().to_utf8();
 
-    if let Some(m) = re.regex.find(utf8_text.as_bytes()) {
-        let pos = if m.start() == 0 {
-            0
-        } else if str.content().is_wide() {
-            let nc = utf8_text[..m.start()].chars().count();
-            let (i, _) = str.content().iter().nth(nc - 1).unwrap();
-            i
-        } else {
-            m.start()
-        };
-        Ok(JSValue::from(pos as u32))
-    } else {
+    let m = JS_RegExpExec(ctx, this.clone(), str.clone())?;
+    let cur_last_index = this
+        .get_property(ctx, JS_ATOM_lastIndex)?
+        .coerce_to_index(ctx)? as usize;
+
+    if cur_last_index != prev_last_index {
+        // restore original lastIndex
+        this.set_property(
+            ctx,
+            JS_ATOM_lastIndex,
+            JSValue::from(prev_last_index as u32),
+        )?;
+    }
+
+    if m.is_null() {
         Ok(JSValue::Int(-1))
+    } else {
+        let index = m.get_property(ctx, JS_ATOM_index)?.coerce_to_index(ctx)?;
+        Ok(JSValue::Int(index as i32))
     }
 }
 
