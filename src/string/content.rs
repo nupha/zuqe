@@ -1134,7 +1134,7 @@ impl StringBufSlice<'_> {
     }
 
     /// slice of slice
-    pub fn slice(&self, range: Range<usize>) -> StringBufSlice {
+    pub fn slice(&self, range: Range<usize>) -> StringBufSlice<'_> {
         let len = self.buf_len();
 
         if !(0..len).contains(&range.start) {

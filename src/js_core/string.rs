@@ -620,20 +620,29 @@ pub fn js_string_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
                 .map_or(JSValue::Bool(false), |_| JSValue::Bool(true))),
 
             m @ (MAGIC_STARTS_WITH | MAGIC_ENDS_WITH) => {
-                let it = p.content().iter_range(if m == MAGIC_ENDS_WITH {
+                let mut it1 = p.content().iter_range(if m == MAGIC_ENDS_WITH {
                     (str_len - pat_len)..str_len
                 } else {
-                    if pos > 0 {
-                        pos..(pat_len - pos)
-                    } else {
-                        0..pat_len
-                    }
+                    if pos > 0 { pos..str_len } else { 0..str_len }
                 });
-                Ok(it
-                    .zip(pat.content().iter())
-                    .all(|((_, c1), (_, c2))| c1 == c2)
-                    .then(|| JSValue::Bool(true))
-                    .unwrap_or(JSValue::Bool(false)))
+                let mut it2 = pat.content().iter();
+
+                let b = loop {
+                    match (it1.next(), it2.next()) {
+                        (Some((_, c1)), Some((_, c2))) => {
+                            if c1 != c2 {
+                                break false;
+                            }
+                        }
+                        (_, None) => {
+                            break true;
+                        }
+                        (None, _) => {
+                            break false;
+                        }
+                    }
+                };
+                Ok(b.into())
             }
 
             _ => unreachable!(),
