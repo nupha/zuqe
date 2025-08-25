@@ -806,55 +806,50 @@ fn js_thisStringValue(ctx: &JSContext, this_val: JSValue) -> Result<JSString, i3
 }
 
 pub fn js_string_toLowerCase(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let to_lower = cc.magic();
+    let to_lower = cc.magic() != 0;
 
     let p = cc.this().to_string_non_undefined_or_null(ctx)?;
     if p.is_empty() {
         return Ok(p.into());
     }
 
-    let sc = match p.content().as_ref() {
+    let str = p.content();
+
+    let sc = match str.as_ref() {
         StringBuf::Empty | StringBuf::Null => unreachable!(),
         StringBuf::Ascii(s) => {
-            let mut d = Vec::<u8>::new();
-            d.try_reserve_exact(s.len()).map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
-            d.extend_from_slice(s);
-            if to_lower != 0 {
-                d.make_ascii_lowercase();
-            } else {
-                d.make_ascii_uppercase();
-            }
-            StringBuf::Ascii(d)
+            let s8 = str.to_utf8();
+            StringBuf::Ascii(
+                if to_lower {
+                    s8.to_ascii_lowercase()
+                } else {
+                    s8.to_ascii_uppercase()
+                }
+                .into_bytes(),
+            )
         }
         StringBuf::Utf16(s) => {
-            let mut w = Vec::<u16>::new();
-            w.try_reserve(s.len() * 3 / 2).map_err(|_| {
+            let mut buf = StringBuf::with_capacity(s.len() * 2, true).map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1
             })?;
 
-            let it: Box<dyn Iterator<Item = char>> = if to_lower != 0 {
-                Box::new(
-                    U16Str::from_slice(s)
-                        .chars_lossy()
-                        .flat_map(|c| c.to_lowercase()),
-                )
-            } else {
-                Box::new(
-                    U16Str::from_slice(s)
-                        .chars_lossy()
-                        .flat_map(|c| c.to_uppercase()),
-                )
-            };
-            for c in it {
-                w.extend_from_slice(c.encode_utf16(&mut [0; 2]));
-            }
+            let s8 = str.to_utf8();
+            buf.push_u16_iter(
+                if to_lower {
+                    s8.to_lowercase()
+                } else {
+                    s8.to_uppercase()
+                }
+                .encode_utf16(),
+            )
+            .map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?;
 
-            w.shrink_to_fit();
-            StringBuf::Utf16(w)
+            buf.shrink_to_fit();
+            buf
         }
     };
 
