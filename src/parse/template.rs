@@ -135,25 +135,26 @@ impl<'s> JSParseState<'s> {
                 match self.parse_string('`', false, p, Some(&mut cooked)) {
                     Ok(p2) => {
                         p = p2;
+
+                        let txt = self
+                            .ctx
+                            .create_string_with_content(cooked.data.string().unwrap().clone())?;
+                        template_object.define_property_value_u32(
+                            &self.ctx,
+                            depth as _,
+                            txt.into(),
+                            JS_PROP_ENUMERABLE | JS_PROP_THROW,
+                        )?;
                     }
                     Err(_) => {
-                        // TODO: this is not nessecary, because ::drop() will handle string value free
-                        // if let TokenData::Str { str, .. } = &mut cooked.data {
-                        //     *str = JSValue::UNDEFINED;
-                        // }
+                        template_object.define_property_value_u32(
+                            &self.ctx,
+                            depth as _,
+                            JSValue::UNDEFINED,
+                            JS_PROP_ENUMERABLE | JS_PROP_THROW,
+                        )?;
                     }
                 }
-
-                let txt = self
-                    .ctx
-                    .create_string_with_content(cooked.data.string().unwrap().clone())?;
-
-                template_object.define_property_value_u32(
-                    &self.ctx,
-                    depth as _,
-                    txt.into(),
-                    JS_PROP_ENUMERABLE | JS_PROP_THROW,
-                )?;
             } else {
                 // re-parse the string with escape sequences and throw a
                 // syntax error if it contains invalid sequences

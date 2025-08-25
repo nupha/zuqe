@@ -17,7 +17,7 @@ impl<'s> JSParseState<'s> {
         optional_chaining_label: &mut i32,
     ) -> Result<(), i32> {
         if self.token.val == TOK_PRIVATE_NAME {
-            /* private class field */
+            // private class field
             if get_prev_opcode(fd) == opcodes::OP_get_super {
                 self.throw_syntax_error("private class field forbidden after super");
                 return Err(-1);

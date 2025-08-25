@@ -325,7 +325,6 @@ impl<'s> JSParseState<'s> {
                 self.emit_op(OpCode::PUSH_TRUE);
             }
             TOK_IDENT => {
-                let name: JSAtom;
                 if self.token.data.is_reserved() {
                     self.throw_reserved_identifier_error();
                     return Err(-1);
@@ -371,9 +370,8 @@ impl<'s> JSParseState<'s> {
                             source_line_num,
                         )?;
                     } else {
-                        name = JS_ATOM_async.dup(self.ctx.rt());
                         self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                        self.emit_u32(name.0);
+                        self.emit_u32(JS_ATOM_async.dup(self.ctx.rt()).0);
                         self.emit_u16(self.cur_func().scope_level as _);
                     }
                 } else {
@@ -386,14 +384,12 @@ impl<'s> JSParseState<'s> {
                         return Err(-1);
                     }
 
-                    name = self.token.atom().unwrap().dup(self.ctx.rt());
-
+                    let name = self.token.atom().unwrap().dup(self.ctx.rt());
                     self.next_token().inspect_err(|_| {
                         JS_FreeAtom(&self.ctx, name);
                     })?;
-
                     self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                    self.emit_u32(name.0); // `name` is referenced here
+                    self.emit_u32(name.0);
                     self.emit_u16(self.cur_func().scope_level as _);
                 }
             }
@@ -557,25 +553,24 @@ impl<'s> JSParseState<'s> {
                     self.throw_syntax_error("template literal cannot appear in an optional chain");
                     return Err(-1);
                 }
-
-                call_type = FuncCallType::FUNC_CALL_TEMPLATE;
-                let op = unsafe {
+                let opcode = unsafe {
                     self.parse_func_call2(
-                        call_type,
+                        FuncCallType::FUNC_CALL_TEMPLATE,
                         has_optional_chain,
                         &mut optional_chaining_label,
                     )
                 };
-                self.parse_func_call3(
+
+                let mut argc = 0;
+                self.parse_template(true, &mut argc)?;
+                self.emit_func_call(
                     unsafe { self.cur_func_def.as_mut().unwrap() },
-                    op,
-                    call_type,
-                    has_optional_chain,
-                    &mut optional_chaining_label,
-                )?;
-                call_type = FuncCallType::FUNC_CALL_NORMAL;
-            } else if self.token.val == CHAR_BRACKET_L && accept_lparen {
-                /* function call */
+                    FuncCallType::FUNC_CALL_TEMPLATE,
+                    opcode,
+                    argc as _,
+                );
+            } else if self.token.val == '(' as i32 && accept_lparen {
+                // function call
                 self.parse_func_call(call_type, has_optional_chain, &mut optional_chaining_label)?;
                 call_type = FuncCallType::FUNC_CALL_NORMAL;
             } else if self.token.val == b'.' as i32 {

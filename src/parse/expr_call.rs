@@ -26,7 +26,6 @@ impl<'s> JSParseState<'s> {
         } else {
             opcodes::OP_invalid
         };
-
         self.parse_func_call3(
             unsafe { self.cur_func_def.as_mut().unwrap() },
             opcode,
@@ -36,7 +35,7 @@ impl<'s> JSParseState<'s> {
         )
     }
 
-    pub(super) fn parse_func_call3(
+    fn parse_func_call3(
         &mut self,
         fd: &mut JSFunctionDef, // TODO: remove this arg
         opcode: u8,
@@ -45,14 +44,6 @@ impl<'s> JSParseState<'s> {
         optional_chaining_label: &mut i32,
     ) -> Result<(), i32> {
         match call_type {
-            FuncCallType::FUNC_CALL_TEMPLATE => {
-                let mut argc = 0;
-                self.parse_template(true, &mut argc)?;
-                self.emit_func_call(fd, call_type, opcode, argc as _);
-            }
-            FuncCallType::FUNC_CALL_NEW => {
-                self.emit_op(OpCode::DUP); // new.target = function
-            }
             FuncCallType::FUNC_CALL_SUPER_CTOR => {
                 self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
                 self.emit_atom_dup(JS_ATOM_this_active_func);
@@ -64,7 +55,17 @@ impl<'s> JSParseState<'s> {
                 self.emit_atom_dup(JS_ATOM_new_target);
                 self.emit_u16(0);
             }
-            FuncCallType::FUNC_CALL_NORMAL => {}
+            FuncCallType::FUNC_CALL_NEW => {
+                self.emit_op(OpCode::DUP); // new.target = function
+            }
+
+            #[cfg(debug_assertions)]
+            FuncCallType::FUNC_CALL_TEMPLATE => {
+                unreachable!(
+                    "parse template call won't go here, it should been done in Self::parse_postfix_expr()"
+                );
+            }
+            FuncCallType::FUNC_CALL_NORMAL | FuncCallType::FUNC_CALL_TEMPLATE => {}
         }
 
         // parse arguments
@@ -186,7 +187,7 @@ impl<'s> JSParseState<'s> {
 
         match opcode {
             opcodes::OP_get_field => {
-                /* keep the object on the stack */
+                // keep the object on the stack
                 let fd = self.cur_func_mut();
                 fd.byte_code[fd.last_opcode_pos as usize] = opcodes::OP_get_field2;
                 drop_count = 2;
@@ -298,7 +299,7 @@ impl<'s> JSParseState<'s> {
         opcode
     }
 
-    fn emit_func_call(
+    pub(super) fn emit_func_call(
         &mut self,
         fd: &mut JSFunctionDef,
         call_type: FuncCallType,
