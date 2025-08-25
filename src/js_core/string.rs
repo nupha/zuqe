@@ -623,7 +623,11 @@ pub fn js_string_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
                 let it = p.content().iter_range(if m == MAGIC_ENDS_WITH {
                     (str_len - pat_len)..str_len
                 } else {
-                    0..pos
+                    if pos > 0 {
+                        pos..(pat_len - pos)
+                    } else {
+                        0..pat_len
+                    }
                 });
                 Ok(it
                     .zip(pat.content().iter())
