@@ -13,7 +13,7 @@ use crate::{
 use super::{state::JSParseState, token::TOK_TEMPLATE};
 
 impl<'s> JSParseState<'s> {
-    pub unsafe fn parse_template_part(&mut self, mut p: *const u8) -> Result<(), i32> {
+    pub(super) fn parse_template_part(&mut self, mut p: *const u8) -> Result<(), i32> {
         let mut sbuf = StringBuf::Empty;
 
         loop {
@@ -22,16 +22,16 @@ impl<'s> JSParseState<'s> {
                 return Err(-1);
             }
 
-            let mut ch = *p as char;
-            p = p.offset(1);
+            let mut ch = unsafe { *p as char };
+            p = unsafe { p.offset(1) };
 
             match ch {
                 '`' => {
                     break; // ` template end part
                 }
-                '$' if *p == b'{' => {
+                '$' if unsafe { *p } == b'{' => {
                     // ${ template start or middle part
-                    p = p.offset(1);
+                    p = unsafe { p.offset(1) };
                     break;
                 }
                 _ => {}
@@ -46,15 +46,17 @@ impl<'s> JSParseState<'s> {
                     self.throw_syntax_error("unexpected end of string");
                     return Err(-1);
                 } else {
-                    ch = *p as char;
-                    p = p.offset(1);
+                    unsafe {
+                        ch = *p as char;
+                        p = p.offset(1);
+                    }
                 }
             }
 
             if ch == '\r' {
                 // newline sequences are normalized as single '\n'
-                if *p == b'\n' {
-                    p = p.offset(1);
+                if unsafe { *p } == b'\n' {
+                    p = unsafe { p.offset(1) };
                 }
                 ch = '\n';
             }
@@ -63,12 +65,13 @@ impl<'s> JSParseState<'s> {
                 self.line_num += 1;
             } else if !ch.is_ascii() {
                 let mut p_next = std::ptr::null::<u8>();
-                ch = unicode_from_utf8(p.offset(-1), UTF8_CHAR_LEN_MAX as _, &mut p_next).map_err(
-                    |_| {
-                        self.throw_syntax_error("invalid UTF-8 sequence");
-                        -1
-                    },
-                )?;
+                // TODO: use str::from_utf8() instead
+                ch =
+                    unicode_from_utf8(unsafe { p.offset(-1) }, UTF8_CHAR_LEN_MAX as _, &mut p_next)
+                        .map_err(|_| {
+                            self.throw_syntax_error("invalid UTF-8 sequence");
+                            -1
+                        })?;
                 p = p_next;
             }
 
@@ -213,7 +216,7 @@ impl<'s> JSParseState<'s> {
             self.got_lf = false;
             self.last_line_num = self.token.line_num;
 
-            unsafe { self.parse_template_part(self.buf_ptr)? }
+            self.parse_template_part(self.buf_ptr)?
         }
 
         self.parse_expect(TOK_TEMPLATE)

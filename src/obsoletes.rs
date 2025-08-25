@@ -1187,7 +1187,8 @@ pub unsafe fn new_label(s: *mut JSParseState) -> i32 {
 
 #[deprecated(note = "use JSParseState::parse_template_part() instead")]
 pub unsafe fn js_parse_template_part(s: *mut JSParseState, p: *const u8) -> i32 {
-    (*s).parse_template_part(p).map_or(-1, |_| 0)
+    unreachable!("unused");
+    // (*s).parse_template_part(p).map_or(-1, |_| 0)
 }
 
 #[deprecated(note = "use JSParseState::push_state() instead")]
