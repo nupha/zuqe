@@ -16,7 +16,7 @@ impl<'s> JSParseState<'s> {
     pub(super) fn parse_template_part(&mut self, mut p: *const u8) -> Result<(), i32> {
         let mut sbuf = StringBuf::Empty;
 
-        loop {
+        let sep = loop {
             if p >= self.buf_end {
                 self.throw_syntax_error("unexpected end of string");
                 return Err(-1);
@@ -27,12 +27,12 @@ impl<'s> JSParseState<'s> {
 
             match ch {
                 '`' => {
-                    break; // ` template end part
+                    break ch; // ` template end part
                 }
                 '$' if unsafe { *p } == b'{' => {
                     // ${ template start or middle part
                     p = unsafe { p.offset(1) };
-                    break;
+                    break ch;
                 }
                 _ => {}
             }
@@ -80,11 +80,11 @@ impl<'s> JSParseState<'s> {
                 self.ctx.throw_out_of_memory();
                 -1
             })?;
-        }
+        };
 
         self.token.val = TOK_TEMPLATE;
         self.token.data = TokenData::Str {
-            sep: '`' as _, // template seperator: `
+            sep: sep as i32, // could be '`' or '$'
             str: Rc::new(sbuf),
         };
         self.buf_ptr = p;

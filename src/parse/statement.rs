@@ -139,8 +139,8 @@ impl<'s> JSParseState<'s> {
                 self.emit_op(OpCode::THROW);
                 self.parse_expect_semi()?;
             }
-            tok @ (TOK_LET | TOK_CONST | TOK_VAR) => {
-                todo.replace(TodoState::HasLet(tok));
+            t @ (TOK_LET | TOK_CONST | TOK_VAR) => {
+                todo.replace(TodoState::HasLet(t));
             }
             TOK_IF => {
                 stmt_if(self)?;
@@ -154,7 +154,7 @@ impl<'s> JSParseState<'s> {
             TOK_FOR => {
                 stmt_for(self, *label_name)?;
             }
-            tok @ (TOK_BREAK | TOK_CONTINUE) => {
+            t @ (TOK_BREAK | TOK_CONTINUE) => {
                 self.next_token()?;
 
                 // check for continue or break label
@@ -167,7 +167,7 @@ impl<'s> JSParseState<'s> {
                     JS_ATOM_NULL
                 };
 
-                if self.emit_break(label, tok == TOK_CONTINUE) != 0 {
+                if self.emit_break(label, t == TOK_CONTINUE) != 0 {
                     return Err(-1);
                 }
                 if label != JS_ATOM_NULL {
@@ -226,7 +226,7 @@ impl<'s> JSParseState<'s> {
                 js_unsupported_keyword(self, JSAtom(a as u32));
                 return Err(-1);
             }
-            _ => {
+            t => {
                 todo.replace(TodoState::HasExpr);
             }
         }
