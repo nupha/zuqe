@@ -211,13 +211,13 @@ impl<'s> JSParseState<'s> {
                 '\0' => {
                     todo = Some(Todo::DefaultToken('\0'));
                 }
-                '`' => unsafe {
-                    if self.parse_template_part(p.offset(1)).is_err() {
+                '`' => {
+                    if unsafe { self.parse_template_part(p.offset(1)).is_err() } {
                         todo = Some(Todo::Fail);
                     } else {
                         p = self.buf_ptr;
                     }
-                },
+                }
                 c @ ('\'' | '\"') => match self.parse_string(c, true, unsafe { p.add(1) }, None) {
                     Ok(p2) => {
                         p = p2;

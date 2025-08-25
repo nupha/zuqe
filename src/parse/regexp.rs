@@ -52,7 +52,7 @@ impl<'s> JSParseState<'s> {
                     if let Some((i, c1)) = chars.next() {
                         cursor = i;
 
-                        if c1 == '\n' || c1 == '\r' {
+                        if matches!(c1, '\n' | '\r') {
                             self.throw_syntax_error("unexpected end of regexp");
                             return Err(-1);
                         } else {

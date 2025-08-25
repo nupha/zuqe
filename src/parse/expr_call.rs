@@ -70,7 +70,6 @@ impl<'s> JSParseState<'s> {
 
         // parse arguments
         let mut arg_count = 0;
-
         while self.token.val != ')' as i32 {
             if arg_count >= 65535 {
                 self.throw_syntax_error("Too many call arguments");
@@ -89,9 +88,11 @@ impl<'s> JSParseState<'s> {
             }
 
             // accept a trailing comma before the ')'
-            self.parse_expect(CHAR_COMMA)?;
+            self.parse_expect(',' as i32)?;
         }
 
+        // TODO: use match self.token.val {} instead
+        // XXX
         if self.token.val == TOK_ELLIPSIS {
             // ellipsis args, e.g.: f(...[a,b,c]), f(a,b, ...[x,y,z])
             self.emit_op(OpCode::ARRAY_FROM);

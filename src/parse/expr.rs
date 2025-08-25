@@ -517,7 +517,6 @@ impl<'s> JSParseState<'s> {
         }
 
         let mut optional_chaining_label = -1;
-
         loop {
             let mut has_optional_chain: bool = false;
 

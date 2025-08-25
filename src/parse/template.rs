@@ -14,25 +14,18 @@ use super::{state::JSParseState, token::TOK_TEMPLATE};
 
 impl<'s> JSParseState<'s> {
     pub unsafe fn parse_template_part(&mut self, mut p: *const u8) -> Result<(), i32> {
-        macro_rules! template_error {
-            ($msg:expr) => {
-                self.throw_syntax_error($msg);
-                return Err(-1);
-            };
-        }
+        let mut sbuf = StringBuf::Empty;
 
-        let mut res_string = StringBuf::Empty;
-
-        let mut c: char;
         loop {
             if p >= self.buf_end {
-                template_error!("unexpected end of string");
+                self.throw_syntax_error("unexpected end of string");
+                return Err(-1);
             }
 
-            c = *p as char;
+            let mut ch = *p as char;
             p = p.offset(1);
 
-            match c {
+            match ch {
                 '`' => {
                     break; // ` template end part
                 }
@@ -41,33 +34,36 @@ impl<'s> JSParseState<'s> {
                     p = p.offset(1);
                     break;
                 }
-                '\\' => {
-                    res_string.push_char(c).map_err(|_| {
-                        self.ctx.throw_out_of_memory();
-                        -1
-                    })?;
-                    if p >= self.buf_end {
-                        template_error!("unexpected end of string");
-                    } else {
-                        c = *p as char;
-                        p = p.offset(1);
-                    }
-                }
-                '\r' => {
-                    // newline sequences are normalized as single '\n'
-                    if *p == b'\n' {
-                        p = p.offset(1);
-                    }
-                    c = '\n';
-                }
                 _ => {}
             }
 
-            if c == '\n' {
+            if ch == '\\' {
+                sbuf.push_char(ch).map_err(|_| {
+                    self.ctx.throw_out_of_memory();
+                    -1
+                })?;
+                if p >= self.buf_end {
+                    self.throw_syntax_error("unexpected end of string");
+                    return Err(-1);
+                } else {
+                    ch = *p as char;
+                    p = p.offset(1);
+                }
+            }
+
+            if ch == '\r' {
+                // newline sequences are normalized as single '\n'
+                if *p == b'\n' {
+                    p = p.offset(1);
+                }
+                ch = '\n';
+            }
+
+            if ch == '\n' {
                 self.line_num += 1;
-            } else if c.is_ascii() {
+            } else if !ch.is_ascii() {
                 let mut p_next = std::ptr::null::<u8>();
-                c = unicode_from_utf8(p.offset(-1), UTF8_CHAR_LEN_MAX as _, &mut p_next).map_err(
+                ch = unicode_from_utf8(p.offset(-1), UTF8_CHAR_LEN_MAX as _, &mut p_next).map_err(
                     |_| {
                         self.throw_syntax_error("invalid UTF-8 sequence");
                         -1
@@ -76,16 +72,17 @@ impl<'s> JSParseState<'s> {
                 p = p_next;
             }
 
-            if res_string.push_char(c).is_err() {
+            // append char to buf
+            sbuf.push_char(ch).map_err(|_| {
                 self.ctx.throw_out_of_memory();
-                return Err(-1);
-            }
+                -1
+            })?;
         }
 
         self.token.val = TOK_TEMPLATE;
         self.token.data = TokenData::Str {
-            sep: c as _,
-            str: Rc::new(res_string),
+            sep: '`' as _, // template seperator: `
+            str: Rc::new(sbuf),
         };
         self.buf_ptr = p;
 
