@@ -7,7 +7,8 @@ use crate::{
     context::{JSContext, is_strict_mode},
     error::JS_ThrowReferenceErrorNotDefined,
     object::{
-        JS_PROP_LAZYINIT, JS_PROP_NORMAL, JS_PROP_THROW_STRICT, JS_PROP_TMASK, JSObject, JSProperty,
+        JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_WRITABLE, JS_PROP_LAZYINIT,
+        JS_PROP_NORMAL, JS_PROP_THROW_STRICT, JS_PROP_TMASK, JSObject, JSProperty,
     },
     typed_array::{
         Float32Array, Float64Array, Int8Array, Int16Array, Int32Array, TypedArray, Uint8Array,
@@ -292,7 +293,12 @@ impl JSObject {
                         val,
                         JSValue::UNDEFINED,
                         JSValue::UNDEFINED,
-                        JS_PROP_C_W_E,
+                        flags
+                            | JS_PROP_HAS_VALUE
+                            | JS_PROP_HAS_ENUMERABLE
+                            | JS_PROP_HAS_WRITABLE
+                            | JS_PROP_HAS_CONFIGURABLE
+                            | JS_PROP_C_W_E,
                     )?;
                     Ok(true)
                 }

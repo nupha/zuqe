@@ -1,6 +1,6 @@
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
-    atom::{JS_ATOM_MAX_INT, JS_ATOM_NULL, JS_FreeAtom, JSAtom},
+    atom::{JS_ATOM_MAX_INT, JS_FreeAtom, JSAtom},
     context::{JSContext, is_strict_mode},
     object::JSObject,
     value::JSValue,
@@ -9,34 +9,32 @@ use crate::{
 use super::{JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT};
 
 impl JSObject {
-    /// delete a property in shape or by exotic handler.
-    /// returns false if the property is not configurable; true is delete is successful.
-    /// prop is consumed, and free'd once.
+    /// delete an own property in shape or by exotic handler.
+    ///
+    /// Returns:
+    /// - false if the property is not configurable;
+    /// - true if successfully deleted.
+    ///
+    /// Note: `prop` is not consumed.
     pub fn delete_property(&self, ctx: &JSContext, prop: JSAtom) -> Result<bool, i32> {
         let obj_flags = self.flags();
 
+        println!(
+            "[O.o] delete property: {prop:?}, {:?}",
+            prop.to_utf8(ctx.rt())
+        );
+
         loop {
             // find in shape properties
-            if let Some((idx, prs_flags)) = self
-                .shape()
-                .unwrap()
-                .0
-                .borrow()
-                .prop_defs
-                .get_full(&prop.0)
-                .map(|(i, _, p)| (i, p.flags()))
-            {
-                // shape property found
+            if let Some((idx, prs_flags)) = self.find_shape_property(prop) {
                 if prs_flags & JS_PROP_CONFIGURABLE == 0 {
                     return Ok(false);
                 }
 
                 self.shape_prepare_update(ctx)?;
 
-                // remove property value
-                drop(self.0.prop_values.borrow_mut().remove(idx));
-
-                // remove shape property
+                // remove shape property defination.
+                // shape hash is unchanged, even a field is removed.
                 let prs = self
                     .shape()
                     .unwrap()
@@ -45,8 +43,11 @@ impl JSObject {
                     .prop_defs
                     .shift_remove(&prop.0)
                     .unwrap();
-                debug_assert_eq!(prop, prs.atom);
-                JS_FreeAtom(ctx, prop);
+
+                JS_FreeAtom(ctx, prs.atom);
+
+                // remove property value
+                drop(self.0.prop_values.borrow_mut().remove(idx));
 
                 return Ok(true);
             }
@@ -57,10 +58,10 @@ impl JSObject {
                     if let Some(idx) = prop.to_array_index(ctx.rt()) {
                         match self.class_id() {
                             JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
-                                match self
+                                if self
                                     .with_fast_array_values_mut(|lst| -> Result<bool, i32> {
                                         if idx == lst.len() - 1 {
-                                            // remove tail
+                                            // remove the last
                                             lst.pop();
                                             Ok(true)
                                         } else if idx < lst.len() {
@@ -72,15 +73,12 @@ impl JSObject {
                                     })
                                     .unwrap()?
                                 {
-                                    true => {
-                                        // early exit for fast array
-                                        return Ok(true);
-                                    }
-                                    false => {
-                                        // convert to sparse array, then delete property
-                                        self.destruct_fast_array(ctx)?;
-                                        continue; // redo
-                                    }
+                                    // early exit for fast array
+                                    return Ok(true);
+                                } else {
+                                    // convert to sparse array, then do delete
+                                    self.destruct_fast_array(ctx)?;
+                                    continue;
                                 }
                             }
                             JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
@@ -96,11 +94,13 @@ impl JSObject {
                     }
                 } else {
                     // use exotic delete_property callback
-                    let em = ctx.rt().class_defs[self.class_id() as usize].exotic;
-                    if !em.is_null() {
-                        if let Some(cb) = unsafe { (*em).delete_property } {
-                            return cb(ctx, JSValue::Object(self.clone()), prop);
-                        }
+                    if let Some(cb) = unsafe {
+                        ctx.rt().class_defs[self.class_id() as usize]
+                            .exotic
+                            .as_ref()
+                            .and_then(|m| m.delete_property)
+                    } {
+                        return cb(ctx, JSValue::Object(self.clone()), prop);
                     }
                 }
             }
@@ -108,7 +108,7 @@ impl JSObject {
             break;
         }
 
-        // not found
+        // prop not found
         Ok(true)
     }
 

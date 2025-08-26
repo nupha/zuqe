@@ -42,45 +42,25 @@ pub struct Array(pub(crate) JSObject);
 object_cast!(Array, JS_CLASS_ARRAY);
 
 impl JSContext {
-    /// create an Array object with capacity.
-    pub fn create_array(&self, capacity: usize) -> Result<Array, i32> {
-        if capacity > MAX_SAFE_INTEGER as usize {
-            self.throw_error(ErrorKind::Range, "invalid array length");
-            return Err(-1);
-        }
-
-        let obj = self
-            .create_object_with_shape(
-                self.0.borrow().array_shape.clone().unwrap(),
-                ObjectDetail::ARRAY(ArrayObjPayload { slots: Vec::new() }),
-            )
-            .map(JSValue::Object)
-            .map_err(|_| -1)?;
-
-        let fa: Array = obj.try_into().unwrap();
-        debug_assert!(fa.0.flags().is_fast_array());
-
-        // set array length
-        fa.0.set_array_length(self, capacity, true)?;
-
-        Ok(fa)
-    }
-
+    /// create an Array with element values
     pub fn create_array_with_values(&self, values: Vec<JSValue>) -> Result<Array, i32> {
         let len = values.len();
-        let obj = self
+
+        let fa = self
             .create_object_with_shape(
                 self.0.borrow().array_shape.clone().unwrap(),
                 ObjectDetail::ARRAY(ArrayObjPayload { slots: values }),
             )
-            .map(JSValue::Object)
+            .map(Array)
             .map_err(|_| -1)?;
 
-        let fa: Array = obj.try_into().unwrap();
+        debug_assert!(fa.0.flags().is_exotic());
         debug_assert!(fa.0.flags().is_fast_array());
 
         // set array length
-        fa.0.set_array_length(self, len, true)?;
+        if len > 0 {
+            fa.0.set_array_length(self, len, true)?;
+        }
 
         Ok(fa)
     }
@@ -93,6 +73,15 @@ impl JSContext {
                 -1
             },
         )?)
+    }
+
+    /// create an Array object with capacity.
+    pub fn create_array(&self, capacity: usize) -> Result<Array, i32> {
+        if capacity > MAX_SAFE_INTEGER as usize {
+            self.throw_error(ErrorKind::Range, "invalid array length");
+            return Err(-1);
+        }
+        self.create_array_with_values(Vec::new())
     }
 }
 
@@ -296,7 +285,7 @@ impl JSObject {
             self.0.prop_values.borrow_mut()[0] = JSProperty::Normal(JSValue::from(len as i64));
         } else {
             // Note: length is always a uint32 because the object is an array
-            let mut cur_len = self
+            let mut arr_len = self
                 .0
                 .prop_values
                 .borrow()
@@ -305,39 +294,39 @@ impl JSObject {
                 .unwrap() // `length` property must be defined in slot #0
                 .and_then(|v| v.to_u32(ctx))? as usize;
 
-            if len < cur_len {
-                // shrink
+            if len < arr_len {
+                // delete index property
                 let mut sh = self.shape().unwrap();
-                let d = cur_len - len;
+                let d = arr_len - len;
+                let propdef_len = sh.0.borrow().prop_defs.len();
 
-                if d <= sh.0.borrow().prop_defs.len() {
+                if d <= propdef_len {
                     // faster to iterate
-                    while cur_len > len {
-                        let atom = JSAtom::from_u32(ctx.rt_mut(), cur_len as u32 - 1)?;
+                    while arr_len > len {
+                        let atom = JSAtom::from_u32(ctx.rt_mut(), arr_len as u32 - 1)?;
                         let ret = self.delete_property(ctx, atom);
                         JS_FreeAtom(ctx, atom);
                         if let Ok(false) = ret {
                             break; // property is not configurable
                         }
-                        cur_len -= 1;
+                        arr_len -= 1;
                     }
                 } else {
                     // faster to iterate thru all the properties.
                     // Need two passes in case one of the property is not  configurable
-                    cur_len = len;
-
+                    arr_len = len;
                     sh.with_mut(|sh| {
                         for pr in sh.prop_defs.values() {
-                            if let Some(idx) = pr.atom.to_array_index(ctx.rt()) {
-                                if idx >= cur_len && pr.flags() & JS_PROP_CONFIGURABLE == 0 {
-                                    cur_len = idx + 1;
+                            if let Some(i) = pr.atom.to_array_index(ctx.rt()) {
+                                if i >= arr_len && (pr.flags() & JS_PROP_CONFIGURABLE == 0) {
+                                    arr_len = i + 1;
                                 }
                             }
                         }
                     });
 
-                    let num_props = sh.0.borrow().prop_defs.len();
-                    for i in 0..num_props {
+                    // Hint: to avoid index conflict, do remove from tail to head
+                    for i in (0..propdef_len).rev() {
                         let prop =
                             sh.0.borrow()
                                 .prop_defs
@@ -346,7 +335,7 @@ impl JSObject {
                                 .unwrap();
 
                         if let Some(idx) = prop.to_array_index(ctx.rt()) {
-                            if idx >= cur_len {
+                            if idx >= arr_len {
                                 self.delete_property(ctx, prop).unwrap();
                                 // WARNING: the shape may have been modified
                                 sh = self.shape().unwrap();
@@ -355,13 +344,13 @@ impl JSObject {
                     }
                 }
             } else {
-                cur_len = len;
+                arr_len = len;
             }
 
             // #0 is the `length`
-            self.0.prop_values.borrow_mut()[0] = JSProperty::Normal(JSValue::from(cur_len as u32));
+            self.0.prop_values.borrow_mut()[0] = JSProperty::Normal(JSValue::from(arr_len as u32));
 
-            if cur_len > len {
+            if arr_len > len {
                 return if ctx.throw_type_error_or_false(
                     if throw_error { JS_PROP_THROW } else { 0 },
                     "not configurable",

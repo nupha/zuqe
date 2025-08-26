@@ -13,8 +13,11 @@ use super::{
 
 impl JSObject {
     /// Similar to define_property(), usually used to initialize property for new instance.
-    /// If property already exists, modify its slot value;
-    /// otherwise add as own property and set slot value.
+    ///
+    /// - If property already exists, update its value;
+    /// - If property is integer and self is fast array,
+    ///   update indexed value. Will destruct fast array to sparse array when needed.
+    /// - otherwise, call `add_own_property()` to add a shape property.
     /// `prop` is not consumed.
     pub fn create_property(
         &self,
@@ -25,43 +28,40 @@ impl JSObject {
         setter: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        macro_rules! update_array_length {
-            ($p:expr, $idx:expr) => {
-                let lenval = $p.0.prop_values.borrow()[0]
-                    .value(ctx, &JSValue::UNDEFINED)?
-                    .to_i32(ctx);
+        let update_array_length_fn = |obj: &JSObject, idx: usize| -> Option<Result<bool, i32>> {
+            let len_val = obj.0.prop_values.borrow()[0]
+                .value(ctx, &JSValue::UNDEFINED)
+                .and_then(|v| v.coerce_to_length(ctx));
 
-                match lenval {
-                    Ok(len) => {
-                        if ($idx as i32 + 1) > len {
-                            // prop #0 of Array is length
-                            let prop0_flags = $p
-                                .shape()
-                                .map(|sh| sh.0.borrow().prop_defs.first().unwrap().1.flags())
-                                .unwrap();
+            match len_val {
+                Ok(len) => {
+                    if (idx as i64 + 1) > len {
+                        // prop index 0 is `length`
+                        let prop0_flags = obj
+                            .shape()
+                            .map(|sh| sh.0.borrow().prop_defs.first().unwrap().1.flags())
+                            .unwrap();
 
-                            if prop0_flags & JS_PROP_WRITABLE == 0 {
-                                return if ctx.JS_ThrowTypeErrorReadOnly(flags, JS_ATOM_length) {
-                                    Ok(false)
-                                } else {
-                                    Err(-1)
-                                };
-                            }
-
-                            $p.0.prop_values.borrow_mut()[0] =
-                                JSProperty::Normal(JSValue::from($idx as u32 + 1))
+                        if prop0_flags & JS_PROP_WRITABLE == 0 {
+                            return Some(if ctx.JS_ThrowTypeErrorReadOnly(flags, JS_ATOM_length) {
+                                Ok(false)
+                            } else {
+                                Err(-1)
+                            });
                         }
+
+                        obj.0.prop_values.borrow_mut()[0] =
+                            JSProperty::Normal(JSValue::from(idx as i64 + 1));
                     }
-                    Err(e) => {
-                        return if ctx.can_throw_error(flags) {
-                            Err(e)
-                        } else {
-                            Ok(false)
-                        }
-                    }
+                    None
                 }
-            };
-        }
+                Err(e) => Some(if ctx.can_throw_error(flags) {
+                    Err(e)
+                } else {
+                    Ok(false)
+                }),
+            }
+        };
 
         let obj_flags = self.flags();
 
@@ -69,12 +69,11 @@ impl JSObject {
         if obj_flags.is_exotic() {
             match self.class_id() {
                 JS_CLASS_ARRAY => {
-                    let idx: u32;
-
                     if obj_flags.is_fast_array() {
                         if let Some(n) = prop.to_int() {
-                            idx = n;
-                            if idx == self.array_length_unchecked() as u32 {
+                            let idx = n as usize;
+
+                            if idx == self.array_length_unchecked() {
                                 if !self.flags().extensible() {
                                     return if ctx.throw_type_error_or_false(
                                         flags as _,
@@ -94,14 +93,18 @@ impl JSObject {
                                             Ok(false)
                                         };
                                     }
-                                    update_array_length!(self, idx);
+                                    if let Some(ret) = update_array_length_fn(self, idx) {
+                                        return ret;
+                                    }
                                 }
 
                                 let prop_flags = get_prop_flags(flags, 0);
                                 if prop_flags != JS_PROP_C_W_E {
                                     match self.destruct_fast_array(ctx) {
                                         Ok(_) => {
-                                            update_array_length!(self, idx);
+                                            if let Some(ret) = update_array_length_fn(self, idx) {
+                                                return ret;
+                                            }
                                         }
                                         Err(e) => {
                                             return if ctx.can_throw_error(flags) {
@@ -112,7 +115,7 @@ impl JSObject {
                                         }
                                     }
                                 } else {
-                                    // fast array: exit early for fast array
+                                    // fast array append element.
                                     return self.add_fast_array_element(ctx, val, flags);
                                 }
                             } else {
@@ -123,9 +126,12 @@ impl JSObject {
                                         Ok(false)
                                     };
                                 }
-                                update_array_length!(self, idx);
+                                if let Some(ret) = update_array_length_fn(self, idx) {
+                                    return ret;
+                                }
                             }
                         } else if let Some(idx) = prop.to_array_index(ctx.rt()) {
+                            // convert fast array to sparse array
                             if let Err(e) = self.destruct_fast_array(ctx) {
                                 return if ctx.can_throw_error(flags) {
                                     Err(e)
@@ -133,10 +139,14 @@ impl JSObject {
                                     Ok(false)
                                 };
                             }
-                            update_array_length!(self, idx);
+                            if let Some(ret) = update_array_length_fn(self, idx) {
+                                return ret;
+                            }
                         }
                     } else if let Some(idx) = prop.to_array_index(ctx.rt()) {
-                        update_array_length!(self, idx);
+                        if let Some(ret) = update_array_length_fn(self, idx) {
+                            return ret;
+                        }
                     }
                 }
                 JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {

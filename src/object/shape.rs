@@ -11,9 +11,8 @@ use crate::{
     atom::{JS_FreeAtomRT, JSAtom},
     context::JSContext,
     gc::GCObjectHeader,
-    object::{GCObject, GCObjectWeakref, ObjectDetail},
+    object::{GCObject, GCObjectWeakref},
     runtime::JSRuntime,
-    value::JSValue,
 };
 
 use super::{
@@ -56,9 +55,9 @@ pub(crate) struct JSShapeInner {
     /// If false, the shape is guaranteed not to have small array index properties
     pub has_small_array_index: bool,
 
-    /// current hash value.
-    /// TODO: use Option<u32>, remove is_hashed
+    /// shape hash value.
     pub hash: u32,
+    /// TODO: hash is calculated on the fly. is_hashed is always true, should be removed
     pub is_hashed: bool,
 
     pub proto: Option<JSObject>,
@@ -75,19 +74,24 @@ impl Drop for JSShapeInner {
 
 impl JSShapeInner {
     /// create a new empty shape with prototype 'proto' and given capacity.
-    /// Note: `proto` is not consumed.
     fn new(
         ctx: &JSContext,
         proto: Option<JSObject>,
         props: IndexMap<u32, JSShapeProperty>,
     ) -> Result<Self, i32> {
+        //calc shape hash
+        let mut hash = shape_initial_hash(proto.as_ref().map_or(0, |p| p.id()));
+        for (_, prs) in props.iter() {
+            hash = shape_hasher_u32(shape_hasher_u32(hash, prs.atom.0), prs.flags());
+        }
+
         Ok(Self {
             header: GCObjectHeader::new(ctx.rt_mut(), 1),
-            has_small_array_index: false,
-            hash: shape_initial_hash(proto.as_ref().map_or(0, |p| p.id())),
-            is_hashed: true,
             proto,
             prop_defs: props,
+            has_small_array_index: false,
+            hash,
+            is_hashed: true,
         })
     }
 
@@ -140,7 +144,6 @@ impl JSShape {
     /// create a new empty shape with prototype 'proto' and given property slots capacity.
     /// new shape is not registered,
     /// new shape is added to gc list.
-    /// Note: `proto` is not consumed.
     pub fn with_capacity(
         ctx: &JSContext,
         proto: Option<JSObject>,
@@ -200,9 +203,7 @@ impl JSShape {
             }
         }
 
-        let mut sh = JSShapeInner::new(ctx, b.proto.clone(), props)?;
-        sh.hash = b.hash;
-        sh.is_hashed = true;
+        let sh = JSShapeInner::new(ctx, b.proto.clone(), props)?;
         let shape = Self(Rc::new(RefCell::new(sh)));
 
         ctx.rt_mut()
@@ -250,7 +251,7 @@ impl JSShape {
     /// the shape is guaranteed to be unregistered.
     ///
     /// Note:
-    /// - Shape must be exclusive when calling this, that means the strong count is 1.
+    /// - Shape `self` must *NOT* be shared when calling this.
     /// - `prop` is not consumed.
     pub(crate) fn add_shape_property(
         &self,
@@ -261,23 +262,23 @@ impl JSShape {
     ) -> Result<usize, i32> {
         debug_assert_eq!(self.strong_count(), 1, "shape must not be shared");
 
-        let (shape_id, is_hashed, cur_len, cur_hash) = {
+        let (shape_id, is_hashed, old_len, old_hash) = {
             let s = self.0.borrow();
             (s.id(), s.is_hashed, s.prop_defs.len(), s.hash)
         };
 
         #[cfg(debug_assertions)]
         if prop_flags & JS_PROP_LENGTH != 0 {
-            debug_assert_eq!(cur_len, 0, "length property must be indexed 0")
+            debug_assert_eq!(old_len, 0, "length must be the first shape prop")
         }
 
         let new_hash = if is_hashed {
-            ctx.rt_mut().unregister_shape(shape_id, cur_hash);
-            shape_hasher_u32(shape_hasher_u32(cur_hash, prop.0), prop_flags)
+            ctx.rt_mut().unregister_shape(shape_id, old_hash);
+            shape_hasher_u32(shape_hasher_u32(old_hash, prop.0), prop_flags)
         } else {
             0
         };
-        let new_len = cur_len + 1;
+        let new_len = old_len + 1;
 
         if let Some(ob) = obj {
             ob.grow_prop_value_slots(new_len).inspect_err(|_| {
@@ -485,7 +486,7 @@ impl ObjectInner {
                 self.shape.borrow_mut().replace(new_sh);
                 true
             } else {
-                // already exclusive: unregister
+                // exclusive: unregister
                 ctx.rt_mut().unregister_shape(shape_id, hash);
                 false
             }

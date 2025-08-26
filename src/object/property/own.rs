@@ -111,10 +111,11 @@ impl JSObject {
             .is_some_and(|sh| sh.0.borrow().prop_defs.get(&prop.0).is_some())
     }
 
-    /// Find shape property by prop atom, a.k.a find_own_property().
-    /// Returns shape property index and flags if the prop exists.
+    /// Find shape property by prop atom.
+    /// Returns shape property index and prop flags if the prop exists.
+    ///
     /// `prop` is not consumed.
-    #[inline(always)]
+    #[inline]
     pub(crate) fn find_shape_property(&self, prop: JSAtom) -> Option<(usize, u32)> {
         self.shape().and_then(|sh| {
             sh.0.borrow()
