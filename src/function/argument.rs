@@ -2,7 +2,7 @@ use crate::error::JSResult;
 use crate::object::JSObject;
 use crate::{
     JS_CLASS_OBJECT,
-    array::JSObjectArray,
+    array::ArrayObjPayload,
     atom::{JSAtom, consts::*},
     context::JSContext,
     object::{
@@ -29,7 +29,7 @@ impl JSContext {
 pub unsafe fn js_build_arguments(ctx: &JSContext, args: &[JSValue]) -> JSValue {
     let obj: JSObject = if let Ok(o) = ctx.create_object_from_proto(
         ctx.0.borrow().class_proto[JS_CLASS_OBJECT as usize].clone(),
-        ObjectDetail::ARGUMENTS(JSObjectArray::default()),
+        ObjectDetail::ARGUMENTS(ArrayObjPayload::default()),
     ) {
         o
     } else {

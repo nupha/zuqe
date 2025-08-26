@@ -37,7 +37,7 @@ pub enum JSPromiseStateEnum {
 }
 
 #[derive(Debug)]
-pub struct ObjPromise {
+pub struct PromiseObjPayload {
     pub promise_state: JSPromiseStateEnum,
 
     /// list of JSPromiseReactionData.link: #0 for fulfill, #1 for reject.
@@ -73,7 +73,7 @@ impl Promise {
         executor.ensure_callable(ctx)?;
 
         // make promise payload
-        let s = Box::new(ObjPromise {
+        let s = Box::new(PromiseObjPayload {
             promise_state: JSPromiseStateEnum::JS_PROMISE_PENDING,
             promise_reactions: [Vec::new(), Vec::new()],
             promise_result: JSValue::UNDEFINED,
@@ -171,7 +171,7 @@ impl Promise {
     }
 
     /// get Promise meta data.
-    fn with_meta<R>(&self, f: impl FnOnce(&ObjPromise) -> R) -> Option<R> {
+    fn with_meta<R>(&self, f: impl FnOnce(&PromiseObjPayload) -> R) -> Option<R> {
         if let ObjectDetail::PROMISE(p) = self.0.0.payload.borrow().deref() {
             Some(f(p))
         } else {
@@ -180,7 +180,7 @@ impl Promise {
     }
 
     /// get Promise meta data.
-    fn with_meta_mut<R>(&self, f: impl FnOnce(&mut ObjPromise) -> R) -> Option<R> {
+    fn with_meta_mut<R>(&self, f: impl FnOnce(&mut PromiseObjPayload) -> R) -> Option<R> {
         if let ObjectDetail::PROMISE(p) = self.0.0.payload.borrow_mut().deref_mut() {
             Some(f(p))
         } else {

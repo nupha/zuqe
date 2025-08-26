@@ -1,5 +1,3 @@
-use std::{ffi::c_void, mem::ManuallyDrop};
-
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_PROXY,
     atom::{JS_FreeAtom, JSAtom, consts::JS_ATOM_length},
@@ -9,53 +7,22 @@ use crate::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE,
         JSObject, JSProperty, ObjectDetail,
     },
+    object_cast,
     proxy::js_proxy_isArray,
     runtime::JSRuntime,
-    typed_array::ObjTypedArray,
     value::{JSValue, JSValueConst},
 };
 
 #[derive(Debug, Default)]
-pub struct JSObjectArray {
-    pub size: u32,
-    pub values: Vec<JSValue>,
+pub struct ArrayObjPayload {
+    slots: Vec<JSValue>,
 }
 
-#[deprecated]
-#[derive(Clone, Copy)]
-pub union JSObjectArrayU1 {
-    /// for JS_CLASS_ARRAY, JS_CLASS_ARGUMENTS
-    pub size: u32,
+#[repr(transparent)]
+#[derive(Debug, Clone)]
+pub struct Array(JSObject);
 
-    /// for JS_CLASS_UINT8C_ARRAY..JS_CLASS_FLOAT64_ARRAY
-    #[deprecated]
-    pub typed_array: *mut ObjTypedArray,
-}
-
-#[deprecated]
-pub union JSObjectArrayDataUnion {
-    /// for JS_CLASS_ARRAY, JS_CLASS_ARGUMENTS. store element values.
-    pub values: ManuallyDrop<Vec<JSValue>>,
-
-    //
-    // following are deprecated fields
-    //
-    /// for JS_CLASS_UINT8C_ARRAY..JS_CLASS_FLOAT64_ARRAY.
-    /// pointer to start of ArrayBuffer buffer
-    #[deprecated(note = "don't save TypedArray buf pointer, this will be removed")]
-    pub ptr: *mut c_void,
-
-    pub int8_ptr: *mut i8,    /* JS_CLASS_INT8_ARRAY */
-    pub uint8_ptr: *mut u8,   /* JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY */
-    pub int16_ptr: *mut i16,  /* JS_CLASS_INT16_ARRAY */
-    pub uint16_ptr: *mut u16, /* JS_CLASS_UINT16_ARRAY */
-    pub int32_ptr: *mut i32,  /* JS_CLASS_INT32_ARRAY */
-    pub uint32_ptr: *mut u32, /* JS_CLASS_UINT32_ARRAY */
-    pub int64_ptr: *mut i64,  /* JS_CLASS_INT64_ARRAY */
-    pub uint64_ptr: *mut u64, /* JS_CLASS_UINT64_ARRAY */
-    pub float_ptr: *mut f32,  /* JS_CLASS_FLOAT32_ARRAY */
-    pub double_ptr: *mut f64, /* JS_CLASS_FLOAT64_ARRAY */
-}
+object_cast!(Array, JS_CLASS_ARRAY);
 
 impl JSContext {
     /// create an array value.
@@ -63,10 +30,7 @@ impl JSContext {
     pub fn create_array(&self) -> JSResult {
         self.create_object_with_shape(
             self.0.borrow().array_shape.clone().unwrap(),
-            ObjectDetail::ARRAY(JSObjectArray {
-                size: 0,
-                values: Vec::new(),
-            }),
+            ObjectDetail::ARRAY(ArrayObjPayload { slots: Vec::new() }),
         )
         .map(JSValue::Object)
         .map_err(|_| -1)
@@ -159,7 +123,7 @@ impl JSObject {
                 .payload
                 .borrow()
                 .array()
-                .map(|a| f(a.values.as_slice()))
+                .map(|a| f(a.slots.as_slice()))
         } else {
             None
         }
@@ -175,7 +139,7 @@ impl JSObject {
                 .payload
                 .borrow_mut()
                 .array_mut()
-                .map(|a| f(&mut a.values))
+                .map(|a| f(&mut a.slots))
         } else {
             None
         }
@@ -242,7 +206,7 @@ impl JSObject {
     pub fn array_length_unchecked(&self) -> usize {
         if let Some(array) = self.0.payload.borrow().array() {
             // ARRAY or ARGUMENT
-            array.values.len()
+            array.slots.len()
         } else if let Some(ta) = self.0.payload.borrow().typed_array() {
             // typed array or dataview
             ta.count as usize
@@ -414,39 +378,6 @@ impl JSValue {
 #[deprecated(note = "use JSObject::destruct_fast_array() instead")]
 pub fn convert_fast_array_to_array(ctx: &JSContext, obj: &JSObject) -> i32 {
     obj.destruct_fast_array(ctx).map_or(-1, |_| 0)
-
-    // debug_assert!(obj.with(|p| {
-    //     p.obj_flags.get().is_fast_array()
-    //         && matches!(p.class_id(), JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS)
-    // }));
-
-    // if obj.shape_prepare_update(ctx).is_err() {
-    //     return -1;
-    // }
-
-    // // clear fast array list, take values out as `items`
-    // let items = obj
-    //     .with_fast_array_values_mut(|lst| std::mem::replace(lst, Vec::new()))
-    //     .unwrap();
-
-    // for (i, v) in items.into_iter().enumerate() {
-    //     // add_property cannot fail here
-    //     // but __JS_AtomFromUInt32(i) fails for i > i32::MAX
-    //     obj.add_shape_property_then(
-    //         ctx,
-    //         JSAtom::new_u32(i as _), // int as property name
-    //         JS_PROP_C_W_E,
-    //         |pr| {
-    //             *pr = JSProperty::Normal(v);
-    //         },
-    //     )
-    //     .expect("FIXME: add_property error");
-    // }
-
-    // unsafe {
-    //     (*obj.0.obj_flags.as_ptr()).set_fast_array(false);
-    // }
-    // 0
 }
 
 pub unsafe fn JS_ToArrayLengthFree(

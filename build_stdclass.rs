@@ -28,7 +28,7 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "Array",
             "ARRAY",
-            Some("crate::array::JSObjectArray"),
+            Some("crate::array::ArrayObjPayload"),
             Some("crate::array::js_array_finalizer"),
             Some("crate::array::js_array_mark")
         ),
@@ -64,7 +64,7 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "Arguments",
             "ARGUMENTS",
-            Some("crate::array::JSObjectArray"),
+            Some("crate::array::ArrayObjPayload"),
             Some("crate::array::js_array_finalizer"),
             Some("crate::array::js_array_mark")
         ),
@@ -324,7 +324,7 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "Promise",
             "PROMISE",
-            Some("Box<crate::promise::ObjPromise>"),
+            Some("Box<crate::promise::PromiseObjPayload>"),
             Some("crate::promise::Promise::hook_finalizer"),
             Some("crate::promise::Promise::hook_mark")
         ),

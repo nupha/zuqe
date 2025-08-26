@@ -1,7 +1,7 @@
 use std::ops::DerefMut;
 
 use crate::{
-    array::JSObjectArray,
+    array::ArrayObjPayload,
     array_buffer::ObjArrayBuffer,
     function::{ObjAsyncState, ObjFunc},
     map::JSMapState,
@@ -13,22 +13,22 @@ use crate::{
 include!(concat!(env!("OUT_DIR"), "/class_payload.rs"));
 
 impl ObjectDetail {
-    pub const fn array(&self) -> Option<&JSObjectArray> {
+    pub const fn array(&self) -> Option<&ArrayObjPayload> {
         match self {
             Self::ARRAY(a) | Self::ARGUMENTS(a) => Some(a),
             _ => None,
         }
     }
-    pub const fn array_mut(&mut self) -> Option<&mut JSObjectArray> {
+    pub const fn array_mut(&mut self) -> Option<&mut ArrayObjPayload> {
         match self {
             Self::ARRAY(a) | Self::ARGUMENTS(a) => Some(a),
             _ => None,
         }
     }
-    pub fn with_array<R>(&self, f: impl FnOnce(&JSObjectArray) -> R) -> Option<R> {
+    pub fn with_array<R>(&self, f: impl FnOnce(&ArrayObjPayload) -> R) -> Option<R> {
         self.array().map(f)
     }
-    pub fn with_array_mut<R>(&mut self, f: impl FnOnce(&mut JSObjectArray) -> R) -> Option<R> {
+    pub fn with_array_mut<R>(&mut self, f: impl FnOnce(&mut ArrayObjPayload) -> R) -> Option<R> {
         self.array_mut().map(f)
     }
 

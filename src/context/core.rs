@@ -1,6 +1,6 @@
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_ERROR, JS_CLASS_OBJECT,
-    array::JSObjectArray,
+    array::ArrayObjPayload,
     atom::consts::{JS_ATOM_empty_string, JS_ATOM_length, JS_ATOM_message, JS_ATOM_name},
     context::JSContext,
     error::{STD_ERROR_NAMES, js_error_proto_funcs},
@@ -91,7 +91,7 @@ impl JSContext {
             let array = self
                 .create_object_from_proto(
                     object.clone().into(),
-                    ObjectDetail::ARRAY(JSObjectArray::default()),
+                    ObjectDetail::ARRAY(ArrayObjPayload::default()),
                 )
                 .unwrap();
 

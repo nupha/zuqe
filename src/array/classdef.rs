@@ -20,7 +20,7 @@ use crate::{
     value::JSValue,
 };
 
-use super::JSObjectArray;
+use super::ArrayObjPayload;
 
 pub const special_find: i32 = 0;
 pub const special_findIndex: i32 = 1;
@@ -45,7 +45,7 @@ pub fn js_array_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let new_target = cc.this();
 
     let obj = ctx
-        .create_object_apply_ctor(new_target, ObjectDetail::ARRAY(JSObjectArray::default()))
+        .create_object_apply_ctor(new_target, ObjectDetail::ARRAY(ArrayObjPayload::default()))
         .map_err(|_| -1)?;
 
     if cc.length() == 1 && cc.arg(0).is_number() {
