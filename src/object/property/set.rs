@@ -340,7 +340,7 @@ impl JSObject {
                 JS_CLASS_ARRAY => {
                     // fast path: fast array
                     let ob_flags = self.flags();
-                    if ob_flags.is_fast_array() && ob_flags.extensible() {
+                    if idx >= 0 && ob_flags.is_fast_array() && ob_flags.extensible() {
                         let r = self
                             .with_fast_array_values_mut(|lst| -> Result<Option<bool>, i32> {
                                 match idx.cmp(&(lst.len() as i32)) {
