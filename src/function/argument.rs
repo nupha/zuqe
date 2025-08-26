@@ -53,7 +53,7 @@ pub unsafe fn js_build_arguments(ctx: &JSContext, args: &[JSValue]) -> JSValue {
     if !args.is_empty() {
         // initialize fast array values
         if obj
-            .with_fast_array_values_mut(|lst, _| -> Result<(), i32> {
+            .with_fast_array_values_mut(|lst| -> Result<(), i32> {
                 lst.try_reserve_exact(args.len()).map_err(|_| -1)?;
                 lst.extend(args.iter().cloned());
                 Ok(())
@@ -191,7 +191,7 @@ pub fn build_arg_list(ctx: &JSContext, array_arg: &JSValue) -> Result<Box<[JSVal
     })?;
 
     if unsafe { array_arg.object_unchecked() }
-        .with_fast_array_values(|a, _| {
+        .with_fast_array_values(|a| {
             if a.len() == len as usize {
                 // fast array: clone values
                 tab.extend(a.iter().cloned());

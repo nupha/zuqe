@@ -175,7 +175,7 @@ impl JSObject {
             match self.class_id() {
                 JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
                     if let Some(el) = self
-                        .with_fast_array_values(|lst, _| {
+                        .with_fast_array_values(|lst| {
                             if nth < lst.len() {
                                 Some(lst[nth as usize].clone()) // return element value
                             } else {

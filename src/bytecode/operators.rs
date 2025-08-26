@@ -338,14 +338,14 @@ pub unsafe fn js_append_enumerate(ctx: &JSContext, sp: *mut JSValue) -> Result<(
             .match_native_callback(NativeFunctionType::IteratorNext(js_array_iterator_next), 0)
     {
         // fast path: fast array
-        src.with_fast_array_values(|lst, _| -> Result<bool, i32> {
+        src.with_fast_array_values(|lst| -> Result<bool, i32> {
             if lst.len() == len {
                 // `src` is a fast array
                 for v in lst {
                     dest.define_property_value_u32(ctx, pos as _, v.clone(), JS_PROP_C_W_E)?;
                     pos += 1;
                 }
-                Ok(false) // fast path applied, don't try slow path
+                Ok(false) // early exit for fast path (don't go slow path)
             } else {
                 Ok(true) // try slow path
             }

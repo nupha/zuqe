@@ -113,8 +113,7 @@ impl JSObject {
                     JS_CLASS_ARRAY => {
                         if let Some(idx) = prop.to_int() {
                             let idx = idx as usize;
-                            let array_len =
-                                self.with_fast_array_values(|lst, _| lst.len()).unwrap();
+                            let array_len = self.with_fast_array_values(|lst| lst.len()).unwrap();
 
                             if idx < array_len {
                                 // update value in list
@@ -128,7 +127,7 @@ impl JSObject {
                                     continue; // redo_prop_update
                                 }
                                 if flags & JS_PROP_HAS_VALUE != 0 {
-                                    self.with_fast_array_values_mut(|lst, _| {
+                                    self.with_fast_array_values_mut(|lst| {
                                         lst[idx] = val;
                                     })
                                     .unwrap();

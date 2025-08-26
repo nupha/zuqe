@@ -58,7 +58,7 @@ impl JSObject {
                         match self.class_id() {
                             JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
                                 match self
-                                    .with_fast_array_values_mut(|lst, _| -> Result<bool, i32> {
+                                    .with_fast_array_values_mut(|lst| -> Result<bool, i32> {
                                         if idx == lst.len() - 1 {
                                             // remove tail
                                             lst.pop();

@@ -159,7 +159,7 @@ pub fn js_array_at(ctx: &JSContext, cc: CallContext) -> JSResult {
         // bad index
         JSValue::UNDEFINED
     } else if let Some(val) = obj
-        .with_fast_array_values(|a, _| {
+        .with_fast_array_values(|a| {
             if a.len() == len as usize {
                 Some(a[idx as usize].clone())
             } else {
@@ -196,9 +196,9 @@ pub fn js_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
     let arr = ctx.create_array(std::cmp::max(len, 0) as usize)?;
 
     arr.0
-        .with_fast_array_values_mut(|dst, _| -> Result<(), i32> {
+        .with_fast_array_values_mut(|dst| -> Result<(), i32> {
             if obj
-                .with_fast_array_values(|src, _| {
+                .with_fast_array_values(|src| {
                     if src.len() == len as usize {
                         // fast array
                         for v in &src[0..(idx as usize)] {
@@ -616,7 +616,7 @@ pub fn js_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
 
         // try fast array
         let found = obj
-            .with_fast_array_values(|lst, _| {
+            .with_fast_array_values(|lst| {
                 let start = n as usize;
                 for (i, el) in lst[start..].iter().enumerate() {
                     if target.strict_eq_with_mode(el, JSStrictEqModeEnum::JS_EQ_STRICT) {
@@ -690,7 +690,7 @@ pub fn js_array_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
             0
         };
 
-        if let Some(found) = obj.with_fast_array_values(|lst, _| {
+        if let Some(found) = obj.with_fast_array_values(|lst| {
             let start = n as usize;
             for el in &lst[start..] {
                 if target.strict_eq_with_mode(el, JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO) {
@@ -790,7 +790,7 @@ pub fn js_array_pop(ctx: &JSContext, cc: CallContext) -> JSResult {
     if len > 0 {
         new_len = len - 1;
 
-        if let Some(r) = obj.with_fast_array_values_mut(|lst, _| {
+        if let Some(r) = obj.with_fast_array_values_mut(|lst| {
             if lst.len() == len as usize {
                 Some(if shift != 0 {
                     lst.remove(0)
@@ -857,7 +857,7 @@ pub fn js_array_reverse(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     // try fast array
     let done = obj
-        .with_fast_array_values_mut(|lst, _| {
+        .with_fast_array_values_mut(|lst| {
             if lst.len() == len as usize {
                 lst.reverse();
                 true
@@ -926,9 +926,9 @@ pub fn js_array_toReversed(ctx: &JSContext, cc: CallContext) -> JSResult {
     if new_len > 0 {
         res_arr
             .0
-            .with_fast_array_values_mut(|dst, _| {
+            .with_fast_array_values_mut(|dst| {
                 let fast_done = obj
-                    .with_fast_array_values(|src, _| {
+                    .with_fast_array_values(|src| {
                         if src.len() == new_len as usize {
                             for v in src.iter().rev() {
                                 dst.push(v.clone());
@@ -1021,7 +1021,7 @@ pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
     let mut k = start;
     let mut n = 0;
 
-    obj.with_fast_array_values(|lst, _| -> Result<(), i32> {
+    obj.with_fast_array_values(|lst| -> Result<(), i32> {
         // in case of fast array
         // XXX: should share code with fast array constructor
         while k < final_ && k < lst.len() as i64 {
@@ -1114,7 +1114,7 @@ pub fn js_array_toSpliced(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     res_arr
         .0
-        .with_fast_array_values_mut(|new_lst, _| -> Result<(), i32> {
+        .with_fast_array_values_mut(|new_lst| -> Result<(), i32> {
             macro_rules! error {
                 ($i:expr) => {
                     // fill rest with undefined, because array finalizer will free elements too.
@@ -1126,7 +1126,7 @@ pub fn js_array_toSpliced(ctx: &JSContext, cc: CallContext) -> JSResult {
             }
 
             let fast_done = obj
-                .with_fast_array_values(|src, _| {
+                .with_fast_array_values(|src| {
                     if src.len() == len as usize {
                         for v in &src[..start as usize] {
                             new_lst.push(v.clone());

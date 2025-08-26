@@ -21,20 +21,17 @@ use crate::{
 #[derive(Debug, Default)]
 pub struct ArrayObjPayload {
     slots: Vec<JSValue>,
-    len: usize,
 }
 
 impl ArrayObjPayload {
     pub fn with_capacity(cap: usize) -> Result<Self, TryReserveError> {
-        debug_assert!(cap > 0);
-        let mut slots = Vec::<JSValue>::new();
-        slots.try_reserve_exact(cap)?;
-        Ok(Self { slots, len: cap })
+        Ok(Self {
+            slots: Vec::<JSValue>::new(),
+        })
     }
 
     pub fn new(data: Vec<JSValue>) -> Self {
-        let len = data.len();
-        Self { slots: data, len }
+        Self { slots: data }
     }
 }
 
@@ -55,10 +52,7 @@ impl JSContext {
         let obj = self
             .create_object_with_shape(
                 self.0.borrow().array_shape.clone().unwrap(),
-                ObjectDetail::ARRAY(ArrayObjPayload {
-                    slots: Vec::new(),
-                    len: capacity,
-                }),
+                ObjectDetail::ARRAY(ArrayObjPayload { slots: Vec::new() }),
             )
             .map(JSValue::Object)
             .map_err(|_| -1)?;
@@ -77,7 +71,7 @@ impl JSContext {
         let obj = self
             .create_object_with_shape(
                 self.0.borrow().array_shape.clone().unwrap(),
-                ObjectDetail::ARRAY(ArrayObjPayload { slots: values, len }),
+                ObjectDetail::ARRAY(ArrayObjPayload { slots: values }),
             )
             .map(JSValue::Object)
             .map_err(|_| -1)?;
@@ -131,7 +125,7 @@ impl JSObject {
 
             // clear dense array list, take values out
             let items = self
-                .with_fast_array_values_mut(|lst, _| std::mem::replace(lst, Vec::new()))
+                .with_fast_array_values_mut(|lst| std::mem::replace(lst, Vec::new()))
                 .unwrap();
 
             for (i, v) in items.into_iter().enumerate() {
@@ -154,13 +148,13 @@ impl JSObject {
     }
 
     /// if object is Array or Argument class, and is fast array, returns values slice.
-    pub fn with_fast_array_values<R>(&self, f: impl FnOnce(&[JSValue], usize) -> R) -> Option<R> {
+    pub fn with_fast_array_values<R>(&self, f: impl FnOnce(&[JSValue]) -> R) -> Option<R> {
         if self.flags().is_fast_array() {
             self.0
                 .payload
                 .borrow()
                 .array()
-                .map(|a| f(a.slots.as_slice(), a.len))
+                .map(|a| f(a.slots.as_slice()))
         } else {
             None
         }
@@ -169,14 +163,14 @@ impl JSObject {
     /// if object is Array or Argument class, and is fast array, returns values slice.
     pub fn with_fast_array_values_mut<R>(
         &self,
-        f: impl FnOnce(&mut Vec<JSValue>, usize) -> R,
+        f: impl FnOnce(&mut Vec<JSValue>) -> R,
     ) -> Option<R> {
         if self.flags().is_fast_array() {
             self.0
                 .payload
                 .borrow_mut()
                 .array_mut()
-                .map(|a| f(&mut a.slots, a.len))
+                .map(|a| f(&mut a.slots))
         } else {
             None
         }
@@ -194,7 +188,7 @@ impl JSObject {
 
         // extend the array by one
         // XXX: convert to slow array if new_len > u32::MAX elements
-        let new_len = self.with_fast_array_values(|lst, _| lst.len() + 1).unwrap();
+        let new_len = self.with_fast_array_values(|lst| lst.len() + 1).unwrap();
 
         // first element in `prop_values` is the array length.
         // update the length if necessary. We assume that if the length is
@@ -229,7 +223,7 @@ impl JSObject {
         }
 
         // add new value to list
-        self.with_fast_array_values_mut(|lst, _| -> Result<bool, i32> {
+        self.with_fast_array_values_mut(|lst| -> Result<bool, i32> {
             lst.try_push(val).map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1
@@ -292,7 +286,7 @@ impl JSObject {
 
         if self.flags().is_fast_array() {
             // fast array
-            self.with_fast_array_values_mut(|lst, _| {
+            self.with_fast_array_values_mut(|lst| {
                 let old_len = lst.len();
                 if len < old_len {
                     lst.drain(len..old_len);
@@ -404,7 +398,7 @@ impl JSValue {
 
     /// if value is Array or Argument class, and is fast array, returns values slice.
     #[inline]
-    pub fn with_fast_array_values<R>(&self, f: impl FnOnce(&[JSValue], usize) -> R) -> Option<R> {
+    pub fn with_fast_array_values<R>(&self, f: impl FnOnce(&[JSValue]) -> R) -> Option<R> {
         self.object().and_then(|o| o.with_fast_array_values(f))
     }
 
@@ -414,7 +408,7 @@ impl JSValue {
     #[inline]
     pub fn with_fast_array_values_mut<R>(
         &self,
-        f: impl FnOnce(&mut Vec<JSValue>, usize) -> R,
+        f: impl FnOnce(&mut Vec<JSValue>) -> R,
     ) -> Option<R> {
         self.object().and_then(|o| o.with_fast_array_values_mut(f))
     }
@@ -491,7 +485,7 @@ pub fn JS_CopySubArray(
 
     if let Some(fast) = fast_array {
         // fast array
-        fast.with_fast_array_values_mut(|lst, _| {
+        fast.with_fast_array_values_mut(|lst| {
             let len = lst.len();
 
             // calc actual copy count
@@ -543,7 +537,7 @@ pub fn js_array_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {}
 
 pub fn js_array_mark(val: JSValue) {
     unsafe {
-        val.object_unchecked().with_fast_array_values(|lst, _| {
+        val.object_unchecked().with_fast_array_values(|lst| {
             for v in lst {
                 v.gc_mark();
             }

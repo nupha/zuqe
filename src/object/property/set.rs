@@ -348,7 +348,7 @@ impl JSObject {
                             Done,
                         }
                         let s = self
-                            .with_fast_array_values_mut(|lst, _| -> Result<State, i32> {
+                            .with_fast_array_values_mut(|lst| -> Result<State, i32> {
                                 match idx.cmp(&(lst.len() as i32)) {
                                     std::cmp::Ordering::Less => {
                                         // update array element
@@ -414,7 +414,7 @@ impl JSObject {
                 }
                 JS_CLASS_ARGUMENTS => {
                     let done = self
-                        .with_fast_array_values_mut(|lst, _| -> bool {
+                        .with_fast_array_values_mut(|lst| -> bool {
                             if idx < lst.len() as i32 {
                                 lst[idx as usize] = val.clone();
                                 true
