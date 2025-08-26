@@ -188,6 +188,7 @@ impl JSAtom {
         }
     }
 
+    /// a sub-range for ::from_i64()
     #[inline(always)]
     pub fn from_u32(rt: &mut JSRuntime, n: u32) -> Result<Self, i32> {
         Self::from_i64(rt, n as i64)

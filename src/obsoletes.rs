@@ -7,6 +7,7 @@ use std::{
 
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ARRAY_BUFFER, JS_CLASS_ERROR, JS_CLASS_OBJECT, JS_CLASS_PROXY,
+    array::Array,
     array_buffer::JSFreeArrayBufferDataFunc,
     atom::{
         AtomDescKind, AtomHintAndId, AtomTypeHint, JS_ATOM_NULL, JS_ATOM_TAG_INT, JS_FreeAtom,
@@ -1372,7 +1373,8 @@ pub unsafe fn add_pc2line_info(s: *mut JSFunctionDef, pc: u32, line_num: i32) {
 
 #[deprecated(note = "use JSContext::create_array() instead")]
 pub unsafe fn JS_NewArray(ctx: &JSContext) -> JSValue {
-    ctx.create_array().unwrap_or(JSValue::EXCEPTION)
+    unreachable!("unused")
+    // ctx.create_array().unwrap_or(JSValue::EXCEPTION)
 }
 
 #[deprecated(note = "use JSContext::create_object_from_shape() instead")]
@@ -3967,4 +3969,9 @@ pub unsafe fn string_indexof_char(p: *mut JSString, c: i32, from: i32) -> i32 {
     // } else {
     //     -1
     // }
+}
+
+#[deprecated(note = "use JSContext::create_array_with_values() instead")]
+pub fn js_create_array(ctx: &JSContext, tab: &[JSValue]) -> Result<Array, i32> {
+    unreachable!("unused");
 }

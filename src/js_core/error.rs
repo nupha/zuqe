@@ -45,7 +45,7 @@ pub fn js_error_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         obj.define_property_value(
             ctx,
             JS_ATOM_message,
-            msg,
+            msg.into(),
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
         )?;
     }

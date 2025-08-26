@@ -278,8 +278,12 @@ impl ModuleDef {
 
         js_free(ctx, s.exported_names.cast());
 
-        let ms = JS_ATOM_Module.to_string(ctx)?;
-        obj.define_property_value(ctx, JS_ATOM_Symbol_toStringTag, ms, 0)?;
+        obj.define_property_value(
+            ctx,
+            JS_ATOM_Symbol_toStringTag,
+            JS_ATOM_Module.to_string(ctx)?.into(),
+            0,
+        )?;
 
         unsafe {
             (*obj.0.obj_flags.as_ptr()).set_extensible(false);

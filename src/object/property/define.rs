@@ -26,18 +26,16 @@ impl JSObject {
        if JS_PROP_NO_EXOTIC is set, do not call the exotic define_own_property callback.
     */
     /// Note: `prop` is not consumed.
-    pub fn define_property<V: Into<JSValue>, G: Into<JSValue>, S: Into<JSValue>>(
+    pub fn define_property(
         &self,
         ctx: &JSContext,
         prop: JSAtom,
-        val: V,
-        getter: G,
-        setter: S,
+        val: JSValue,
+        getter: JSValue,
+        setter: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        let getter: JSValue = getter.into();
-        let setter: JSValue = setter.into();
-        let mut val: JSValue = val.into();
+        let mut val: JSValue = val;
 
         loop {
             if let Some((idx, prs_flags)) = self.find_shape_property(prop) {
@@ -242,11 +240,11 @@ impl JSObject {
 
     /// shortcut to add or redefine a new property value.
     /// Note: `prop` is not consumed.
-    pub fn define_property_value<V: Into<JSValue>>(
+    pub fn define_property_value(
         &self,
         ctx: &JSContext,
         prop: JSAtom,
-        val: V,
+        val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
         self.define_property(
@@ -263,11 +261,11 @@ impl JSObject {
         )
     }
 
-    pub fn define_property_value_value<V: Into<JSValue>>(
+    pub fn define_property_value_value(
         &self,
         ctx: &JSContext,
         prop: JSValue,
-        val: V,
+        val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
         let atom = prop.to_atom(ctx)?;
@@ -276,11 +274,11 @@ impl JSObject {
         ret
     }
 
-    pub fn define_property_value_str<V: Into<JSValue>>(
+    pub fn define_property_value_str(
         &self,
         ctx: &JSContext,
         prop: &str,
-        val: V,
+        val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
         let atom = JSAtom::new(ctx.rt_mut(), prop)?;
@@ -303,6 +301,7 @@ impl JSObject {
     }
 
     #[inline(always)]
+    #[deprecated]
     pub fn create_data_property_u32(
         &self,
         ctx: &JSContext,
@@ -310,12 +309,18 @@ impl JSObject {
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        self.define_property_value_i64(
-            ctx,
-            idx,
-            val,
-            flags | JS_PROP_CONFIGURABLE | JS_PROP_ENUMERABLE | JS_PROP_WRITABLE,
-        )
+        self.define_property_value_i64(ctx, idx, val, flags | JS_PROP_C_W_E)
+    }
+
+    #[inline(always)]
+    pub fn define_property_value_u32(
+        &self,
+        ctx: &JSContext,
+        idx: u32,
+        val: JSValue,
+        flags: u32,
+    ) -> Result<bool, i32> {
+        self.define_property_value(ctx, JSAtom::new_u32(idx), val, flags)
     }
 
     #[inline]
@@ -435,7 +440,6 @@ impl JSValue {
         ret
     }
 
-    /// Note: `val` is consumed.
     #[inline(always)]
     pub fn define_property_value_u32(
         &self,
@@ -447,7 +451,6 @@ impl JSValue {
         self.define_property_value(ctx, JSAtom::new_u32(idx), val, flags)
     }
 
-    /// Note: `val` is consumed.
     #[inline(always)]
     pub fn define_property_value_i64(
         &self,
@@ -463,8 +466,6 @@ impl JSValue {
         ret
     }
 
-    /// define getter, setter property.
-    /// Note: both `getter` and `setter` are consumed.
     #[inline(always)]
     pub fn define_property_getset(
         &self,

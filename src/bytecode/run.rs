@@ -768,14 +768,14 @@ impl Bytecode {
                         // el1, el2 ... elN ^ -> array ^
                         let call_argc = PC_FETCH!(u16) as i32;
 
-                        if let Ok(arr) = ctx.create_array() {
+                        if let Ok(arr) = ctx.create_array(call_argc as usize) {
                             // push elements to array
                             let call_argv = unsafe { sp.offset(-call_argc as isize) };
                             for i in 0..call_argc as isize {
                                 let val = unsafe {
                                     std::ptr::replace(call_argv.offset(i), JSValue::UNDEFINED)
                                 };
-                                let ret = arr.define_property_value(
+                                let ret = arr.0.define_property_value(
                                     ctx,
                                     JSAtom::new_u32(i as u32),
                                     val,
@@ -788,7 +788,7 @@ impl Bytecode {
                             SP_GO!(-call_argc);
 
                             // push array on stack top
-                            SP_PUT!(0, arr);
+                            SP_PUT!(0, arr.into());
                             SP_GO!(1);
                         } else {
                             break State::Exception;

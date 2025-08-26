@@ -16,13 +16,18 @@ use crate::{
 
 impl JSContext {
     pub(crate) fn build_rest(&self, first: usize, args: &[JSValue]) -> JSResult {
-        let arr = self.create_array()?;
+        let arr = self.create_array(0)?;
         if !args.is_empty() {
             for (i, v) in args.iter().enumerate().skip(first) {
-                arr.define_property_value_u32(self, (i - first) as _, v.clone(), JS_PROP_C_W_E)?;
+                arr.0.define_property_value_u32(
+                    self,
+                    (i - first) as u32,
+                    v.clone(),
+                    JS_PROP_C_W_E,
+                )?;
             }
         }
-        Ok(arr)
+        Ok(arr.into())
     }
 }
 

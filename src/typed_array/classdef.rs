@@ -7,8 +7,8 @@ use crate::{
     JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY,
     JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
     array::{
-        js_array_every, js_array_reduce, special_TA, special_every, special_filter, special_find,
-        special_findIndex, special_findLast, special_findLastIndex, special_forEach,
+        Array, js_array_every, js_array_reduce, special_TA, special_every, special_filter,
+        special_find, special_findIndex, special_findLast, special_findLastIndex, special_forEach,
         special_includes, special_indexOf, special_lastIndexOf, special_map, special_reduce,
         special_reduceRight, special_some,
     },
@@ -210,20 +210,19 @@ pub fn js_typed_array_from(ctx: &JSContext, args: CallContext) -> JSResult {
         }
     }
 
-    let arr: JSValue;
-
-    if !items
+    let arr: JSValue = if !items
         .get_property(ctx, JS_ATOM_Symbol_iterator)?
         .is_undefined()
     {
         // target is enumerable
-        arr = ctx.create_array()?;
+        let fa = ctx.create_array(0)?;
         for (i, v) in items.iter(ctx)?.enumerate() {
-            arr.define_property_value_i64(ctx, i as _, v?, JS_PROP_C_W_E | JS_PROP_THROW)?;
+            fa.0.define_property_value_i64(ctx, i as _, v?, JS_PROP_C_W_E | JS_PROP_THROW)?;
         }
+        fa.into()
     } else {
-        arr = items.to_object(ctx)?.into();
-    }
+        items.to_object(ctx)?.into()
+    };
 
     let len = js_get_length64(ctx, &arr)?;
     let len_val = JSValue::from(len);

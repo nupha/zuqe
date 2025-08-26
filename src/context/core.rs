@@ -69,7 +69,7 @@ impl JSContext {
                 err.define_property_value(
                     self,
                     JS_ATOM_name,
-                    name,
+                    JSValue::String(name),
                     JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
                 )
                 .unwrap();
@@ -77,7 +77,7 @@ impl JSContext {
                 err.define_property_value(
                     self,
                     JS_ATOM_message,
-                    msg.clone(),
+                    JSValue::String(msg.clone()),
                     JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
                 )
                 .unwrap();

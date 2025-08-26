@@ -119,7 +119,7 @@ pub fn js_regexp_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj = ctx
         .create_object_apply_ctor(cc.this(), ObjectDetail::REGEXP(Box::new(re)))
         .map_err(|_| -1)?;
-    obj.define_property_value(ctx, JS_ATOM_lastIndex, 0, JS_PROP_WRITABLE)?;
+    obj.define_property_value(ctx, JS_ATOM_lastIndex, JSValue::Int(0), JS_PROP_WRITABLE)?;
     Ok(obj.into())
 }
 
@@ -378,7 +378,7 @@ fn make_regexp_capture_array(
     text: JSString,
     cap_list: &[(Option<Range<usize>>, Option<&str>)],
 ) -> Result<(JSValue, usize), i32> {
-    let arr = ctx.create_array()?;
+    let arr = ctx.create_array(0)?;
     let mut group = JSValue::UNDEFINED;
 
     let prop_flags = JS_PROP_C_W_E | JS_PROP_THROW;
@@ -387,7 +387,7 @@ fn make_regexp_capture_array(
     for (i, (range, name)) in cap_list.iter().enumerate() {
         let val: JSValue = if let Some(range) = range {
             if i == 0 {
-                arr.define_property_value(
+                arr.0.define_property_value(
                     ctx,
                     JS_ATOM_index,
                     JSValue::Int(range.start as i32),
@@ -401,7 +401,8 @@ fn make_regexp_capture_array(
             JSValue::UNDEFINED
         };
 
-        arr.define_property_value_u32(ctx, i as _, val.clone(), prop_flags)?;
+        arr.0
+            .define_property_value_u32(ctx, i as _, val.clone(), prop_flags)?;
 
         if let Some(name) = name {
             if group.is_undefined() {
@@ -411,10 +412,12 @@ fn make_regexp_capture_array(
         }
     }
 
-    arr.define_property_value(ctx, JS_ATOM_groups, group, prop_flags)?;
-    arr.define_property_value(ctx, JS_ATOM_input, text.into(), prop_flags)?;
+    arr.0
+        .define_property_value(ctx, JS_ATOM_groups, group, prop_flags)?;
+    arr.0
+        .define_property_value(ctx, JS_ATOM_input, text.into(), prop_flags)?;
 
-    Ok((arr, last_index))
+    Ok((arr.into(), last_index))
 }
 
 pub fn js_regexp_exec(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -465,14 +468,15 @@ pub fn js_regexp_Symbol_match(ctx: &JSContext, cc: CallContext) -> JSResult {
             // has g flag: use find(), returns array of match
             let found = re.find(&str, 0);
             if !found.is_empty() {
-                let arr = ctx.create_array()?;
+                let arr = ctx.create_array(0)?;
                 let prop_flags = JS_PROP_C_W_E | JS_PROP_THROW;
                 let mut last_index = 0;
 
                 for (i, range) in found.iter().enumerate() {
                     let val = str.sub_string(ctx, range.clone())?;
 
-                    arr.define_property_value_u32(ctx, i as _, val.into(), prop_flags)?;
+                    arr.0
+                        .define_property_value_u32(ctx, i as _, val.into(), prop_flags)?;
                     last_index = range.end;
                 }
 
@@ -503,7 +507,7 @@ pub fn js_regexp_Symbol_match(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     } else {
         // slow path: use customized exec method, and collect matched string to array
-        let arr = ctx.create_array()?;
+        let arr = ctx.create_array(0)?;
         let args = [str.clone().into()];
 
         let mut cnt = 0;
@@ -531,7 +535,8 @@ pub fn js_regexp_Symbol_match(ctx: &JSContext, cc: CallContext) -> JSResult {
                         )?;
                     }
 
-                    arr.define_property_value_u32(ctx, cnt, matched.into(), prop_flags)?;
+                    arr.0
+                        .define_property_value_u32(ctx, cnt, matched.into(), prop_flags)?;
                     cnt += 1;
                 }
                 JSValue::NULL => {
@@ -545,7 +550,7 @@ pub fn js_regexp_Symbol_match(ctx: &JSContext, cc: CallContext) -> JSResult {
             }
         }
 
-        Ok(arr)
+        Ok(arr.into())
     }
 }
 
@@ -849,9 +854,9 @@ pub fn js_regexp_Symbol_split(ctx: &JSContext, cc: CallContext) -> JSResult {
         (TryInto::<JSObject>::try_into(re).unwrap(), u)
     };
 
-    let arr = ctx.create_array()?;
+    let arr = ctx.create_array(0)?;
     if limit == 0 {
-        return Ok(arr);
+        return Ok(arr.into());
     }
 
     let prop_flags = JS_PROP_C_W_E | JS_PROP_THROW;
@@ -861,14 +866,14 @@ pub fn js_regexp_Symbol_split(ctx: &JSContext, cc: CallContext) -> JSResult {
         let z = JS_RegExpExec(ctx, splitter.clone(), str.clone())?;
         if z.is_null() {
             // not match: add tail, must be an empty str
-            arr.define_property_value_u32(
+            arr.0.define_property_value_u32(
                 ctx,
                 idx as u32,
                 JS_ATOM_empty_string.to_string(ctx).unwrap().into(),
                 prop_flags,
             )?;
         }
-        return Ok(arr);
+        return Ok(arr.into());
     }
 
     let len = str.buf_len();
@@ -904,20 +909,22 @@ pub fn js_regexp_Symbol_split(ctx: &JSContext, cc: CallContext) -> JSResult {
                     .unwrap_or(len);
             } else {
                 let sub = str.sub_string(ctx, split_start..last_index)?;
-                arr.define_property_value_u32(ctx, idx as u32, sub.into(), prop_flags)?;
+                arr.0
+                    .define_property_value_u32(ctx, idx as u32, sub.into(), prop_flags)?;
                 idx += 1;
                 if idx == limit {
-                    return Ok(arr);
+                    return Ok(arr.into());
                 }
 
                 // append captures 1.. to array
                 let ncaps = m.get_property(ctx, JS_ATOM_length)?.coerce_to_length(ctx)? as usize;
                 for c in 1..ncaps {
                     let sub = m.get_property_u32(ctx, c as u32)?;
-                    arr.define_property_value_u32(ctx, idx as _, sub, prop_flags)?;
+                    arr.0
+                        .define_property_value_u32(ctx, idx as _, sub, prop_flags)?;
                     idx += 1;
                     if idx == limit {
-                        return Ok(arr);
+                        return Ok(arr.into());
                     }
                 }
 
@@ -930,9 +937,10 @@ pub fn js_regexp_Symbol_split(ctx: &JSContext, cc: CallContext) -> JSResult {
     // remaining part of str
     split_start = std::cmp::min(split_start, len);
     let rem = str.sub_string(ctx, split_start..len)?;
-    arr.define_property_value_u32(ctx, idx as u32, rem.into(), prop_flags)?;
+    arr.0
+        .define_property_value_u32(ctx, idx as u32, rem.into(), prop_flags)?;
 
-    Ok(arr)
+    Ok(arr.into())
 }
 
 pub static js_regexp_proto_funcs: [FieldDef; 18] = [

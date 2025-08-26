@@ -14,8 +14,8 @@ use crate::{
     gc::GCObjectHeader,
     number::f64_stringify,
     object::{
-        GCObjectWeakref, JS_PROP_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC, JSObject,
-        JSPropertyDescriptor, ObjectDetail, check_define_prop_flags,
+        GCObjectWeakref, JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC,
+        JSObject, JSPropertyDescriptor, ObjectDetail, check_define_prop_flags,
     },
     runtime::JSRuntime,
     string::{StringChar, StringContent},
@@ -334,7 +334,13 @@ impl JSString {
         let o = ctx
             .create_object_apply_ctor(ctor, ObjectDetail::STRING(self.clone()))
             .map_err(|_| -1)?;
-        o.define_property_value(ctx, JS_ATOM_length, len as u32, 0)?;
+
+        o.define_property_value(
+            ctx,
+            JS_ATOM_length,
+            JSValue::from(len as u32),
+            JS_PROP_C_W_E,
+        )?;
         Ok(o.into())
     }
 

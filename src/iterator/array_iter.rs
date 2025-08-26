@@ -2,7 +2,6 @@ use std::ops::{Deref, DerefMut};
 
 use crate::{
     JS_CLASS_ARRAY_ITERATOR, JS_CLASS_STRING_ITERATOR,
-    array::js_create_array,
     context::JSContext,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, IteratorState},
@@ -101,7 +100,7 @@ pub fn js_array_iterator_next(
             JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE => {
                 let val = it.obj.get_property_u32(ctx, idx)?;
                 let num = JSValue::from(idx);
-                unsafe { js_create_array(ctx, 2, [num, val].as_ptr()).err() }
+                ctx.create_array_with_values(&[num, val]).map(|a| a.into())
             }
         }
     } else {

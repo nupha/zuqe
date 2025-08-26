@@ -457,11 +457,12 @@ pub fn js_for_in_iterator_mark(val: JSValue) {
 
 pub fn iterator_to_array(ctx: &JSContext, items: &JSValue) -> JSResult {
     let it = items.iter(ctx)?;
-    let arr = ctx.create_array()?;
+    let arr = ctx.create_array(0)?;
     for (i, v) in it.enumerate() {
-        arr.define_property_value(ctx, JSAtom(i as u32), v?, JS_PROP_C_W_E | JS_PROP_THROW)?;
+        arr.0
+            .define_property_value_i64(ctx, i as i64, v?, JS_PROP_C_W_E | JS_PROP_THROW)?;
     }
-    Ok(arr)
+    Ok(arr.into())
 }
 
 pub fn js_array_from_iterator(
@@ -471,14 +472,15 @@ pub fn js_array_from_iterator(
 ) -> Result<(JSValue, usize), i32> {
     if let JSValue::Object(obj) = method.call(ctx, obj, &[])? {
         let it = ObjectIter::new(ctx, obj, JS_ATOM_next)?;
-        let arr = ctx.create_array()?;
+        let arr = ctx.create_array(0)?;
 
         let mut k = 0_i64;
         for val in it {
-            arr.create_data_property_u32(ctx, k, val?, JS_PROP_THROW)?;
+            arr.0
+                .define_property_value_i64(ctx, k, val?, JS_PROP_C_W_E | JS_PROP_THROW)?;
             k += 1;
         }
-        Ok((arr, k as usize))
+        Ok((arr.into(), k as usize))
     } else {
         ctx.throw_type_error_not_an_object();
         Err(-1)

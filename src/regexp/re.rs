@@ -1,6 +1,4 @@
-#[cfg(debug_assertions)]
-use std::ops::Range;
-use std::rc::Rc;
+use std::{ops::Range, rc::Rc};
 
 use regex::bytes::{Regex, RegexBuilder};
 
@@ -252,7 +250,7 @@ impl JSContext {
             )
             .map_err(|_| -1)?;
 
-        obj.define_property_value(self, JS_ATOM_lastIndex, 0, JS_PROP_WRITABLE)?;
+        obj.define_property_value(self, JS_ATOM_lastIndex, JSValue::Int(0), JS_PROP_WRITABLE)?;
         Ok(obj)
     }
 }

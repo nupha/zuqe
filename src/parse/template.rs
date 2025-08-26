@@ -99,12 +99,10 @@ impl<'s> JSParseState<'s> {
         if call {
             // Create a template object: an array of cooked strings
             // Create an array of raw strings and store it to the raw property
-            template_object = self.ctx.create_array()?;
-
+            template_object = self.ctx.create_array(0)?.into();
             self.emit_push_const(template_object.clone(), false)?;
 
-            raw_array = self.ctx.create_array()?;
-
+            raw_array = self.ctx.create_array(0)?.into();
             template_object.define_property_value(
                 &self.ctx,
                 JS_ATOM_raw,

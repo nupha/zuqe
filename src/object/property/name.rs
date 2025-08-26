@@ -5,7 +5,7 @@ use crate::{
     error::JSResult,
     iterator::JSIteratorKindEnum,
     mem::js_free,
-    object::JSObject,
+    object::{JS_PROP_C_W_E, JSObject},
     string::JSString,
     value::JSValue,
 };
@@ -269,7 +269,7 @@ impl JSObject {
         kind: JSIteratorKindEnum,
     ) -> JSResult {
         // make result array
-        let ret_array = ctx.create_array()?;
+        let ret_array = ctx.create_array(0)?;
         let lst = self.query_own_property_names(ctx, flags & !JS_GPN_ENUM_ONLY)?;
 
         let mut idx: u32 = 0;
@@ -311,8 +311,8 @@ impl JSObject {
                     }
                 }
                 JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE => {
-                    val = if let Ok(a) = ctx.create_array() {
-                        a
+                    val = if let Ok(a) = ctx.create_array(0) {
+                        a.into()
                     } else {
                         has_err = true;
                         break;
@@ -325,7 +325,7 @@ impl JSObject {
                         break;
                     };
                     if val
-                        .create_data_property_u32(ctx, 0, key, JS_PROP_THROW)
+                        .define_property_value_u32(ctx, 0, key, JS_PROP_C_W_E | JS_PROP_THROW)
                         .is_err()
                     {
                         has_err = true;
@@ -334,7 +334,7 @@ impl JSObject {
 
                     if let Ok(v2) = self.get_property(ctx, name.atom) {
                         if val
-                            .create_data_property_u32(ctx, 1, v2, JS_PROP_THROW)
+                            .define_property_value_u32(ctx, 1, v2, JS_PROP_C_W_E | JS_PROP_THROW)
                             .is_err()
                         {
                             has_err = true;
@@ -349,7 +349,8 @@ impl JSObject {
 
             // append to result array
             if ret_array
-                .create_data_property_u32(ctx, idx as _, val, 0)
+                .0
+                .define_property_value_i64(ctx, idx as _, val, JS_PROP_C_W_E)
                 .is_err()
             {
                 has_err = true;
@@ -363,7 +364,11 @@ impl JSObject {
             JS_FreeAtom(ctx, name.atom);
         }
 
-        if has_err { Err(-1) } else { Ok(ret_array) }
+        if has_err {
+            Err(-1)
+        } else {
+            Ok(ret_array.into())
+        }
     }
 }
 

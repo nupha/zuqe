@@ -134,20 +134,16 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
         return fail_reject();
     };
 
-    let it = if let Ok(x) = cc.arg(0).iter(ctx) {
-        x
+    let Ok(it) = cc.arg(0).iter(ctx) else {
+        return fail_reject();
+    };
+    let mut values: JSValue = if let Ok(a) = ctx.create_array(0) {
+        a.into()
     } else {
         return fail_reject();
     };
-
-    let mut values = if let Ok(a) = ctx.create_array() {
-        a
-    } else {
-        return fail_reject();
-    };
-
-    let resolve_element_env = if let Ok(a) = ctx.create_array() {
-        a
+    let resolve_element_env: JSValue = if let Ok(a) = ctx.create_array(2) {
+        a.into()
     } else {
         return fail_reject();
     };
@@ -171,7 +167,7 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
             let resolve_element_data = [
                 JSValue::Bool(false),
                 JSValue::Int(index),
-                values.clone(),
+                values.clone().into(),
                 resolving_funcs[is_promise_any as usize].clone(),
                 resolve_element_env.clone(),
             ];
@@ -315,7 +311,7 @@ pub fn js_promise_withResolvers(ctx: &JSContext, cc: CallContext) -> JSResult {
     let (result_promise, resolving_funcs) = ctx.create_promise(cc.this())?;
     let obj = ctx.create_base_object()?;
 
-    obj.define_property_value(ctx, JS_ATOM_promise, result_promise, JS_PROP_C_W_E)?;
+    obj.define_property_value(ctx, JS_ATOM_promise, result_promise.into(), JS_PROP_C_W_E)?;
     obj.define_property_value(
         ctx,
         JS_ATOM_resolve,

@@ -217,13 +217,15 @@ pub unsafe fn js_module_set_import_meta(
             .define_property_value_str(
                 ctx,
                 "url",
-                ctx.create_string_from_utf8(aurl.into_bytes()).unwrap(),
+                ctx.create_string_from_utf8(aurl.into_bytes())
+                    .unwrap()
+                    .into(),
                 JS_PROP_C_W_E,
             )
             .unwrap();
 
         meta_obj
-            .define_property_value_str(ctx, "main", is_main, JS_PROP_C_W_E)
+            .define_property_value_str(ctx, "main", is_main.into(), JS_PROP_C_W_E)
             .unwrap();
 
         0

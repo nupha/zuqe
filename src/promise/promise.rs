@@ -336,7 +336,7 @@ pub fn remainingElementsCount_add(
 
 pub fn js_promise_all_resolve_element(ctx: &JSContext, mut cc: CallContext) -> JSResult {
     let resolve_type = cc.magic() & 3;
-    let is_reject = cc.magic() & 4;
+    let is_reject = cc.magic() & 4 != 0;
 
     let alreadyCalled = cc.data(0).to_bool()?;
     let values = cc.data(2);
@@ -356,16 +356,13 @@ pub fn js_promise_all_resolve_element(ctx: &JSContext, mut cc: CallContext) -> J
         ob.define_property_value(
             ctx,
             JS_ATOM_status,
-            ctx.create_string_from_str(if is_reject != 0 {
-                "rejected"
-            } else {
-                "fulfilled"
-            })?,
+            ctx.create_string_from_str(if is_reject { "rejected" } else { "fulfilled" })?
+                .into(),
             JS_PROP_C_W_E,
         )?;
         ob.define_property_value(
             ctx,
-            if is_reject != 0 {
+            if is_reject {
                 JS_ATOM_reason
             } else {
                 JS_ATOM_value

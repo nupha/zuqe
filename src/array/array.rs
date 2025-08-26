@@ -2,7 +2,8 @@ use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_PROXY,
     atom::{JS_FreeAtom, JSAtom, consts::JS_ATOM_length},
     context::JSContext,
-    error::{ErrorKind, JSResult},
+    error::ErrorKind,
+    number::MAX_SAFE_INTEGER,
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE,
         JSObject, JSProperty, ObjectDetail,
@@ -10,7 +11,7 @@ use crate::{
     object_cast,
     proxy::js_proxy_isArray,
     runtime::JSRuntime,
-    value::{JSValue, JSValueConst},
+    value::JSValue,
 };
 
 #[derive(Debug, Default)]
@@ -20,48 +21,44 @@ pub struct ArrayObjPayload {
 
 #[repr(transparent)]
 #[derive(Debug, Clone)]
-pub struct Array(JSObject);
+pub struct Array(pub(crate) JSObject);
 
 object_cast!(Array, JS_CLASS_ARRAY);
 
 impl JSContext {
-    /// create an array value.
-    /// TODO: return Array type (should be defined as struct Array(JSObject))
-    pub fn create_array(&self) -> JSResult {
-        self.create_object_with_shape(
-            self.0.borrow().array_shape.clone().unwrap(),
-            ObjectDetail::ARRAY(ArrayObjPayload { slots: Vec::new() }),
-        )
-        .map(JSValue::Object)
-        .map_err(|_| -1)
-    }
-
-    /// create a fast array value. `capacity` indicates reserved space.
-    /// returns Array value
-    pub fn create_fast_array(&self, capacity: usize) -> JSResult {
-        if capacity > i32::MAX as usize {
+    /// create an Array object with specified length capacity.
+    pub fn create_array(&self, length: usize) -> Result<Array, i32> {
+        if length > MAX_SAFE_INTEGER as usize {
             self.throw_error(ErrorKind::Range, "invalid array length");
             return Err(-1);
         }
 
-        let arr = self.create_array()?;
-        unsafe {
-            debug_assert!(
-                arr.object_unchecked().flags().is_fast_array(),
-                "must be a fast array"
-            );
+        let obj = self
+            .create_object_with_shape(
+                self.0.borrow().array_shape.clone().unwrap(),
+                ObjectDetail::ARRAY(ArrayObjPayload { slots: Vec::new() }),
+            )
+            .map(JSValue::Object)
+            .map_err(|_| -1)?;
+
+        let fa: Array = obj.try_into().unwrap();
+        debug_assert!(fa.0.flags().is_fast_array());
+
+        if length > 0 {
+            fa.0.with_fast_array_values_mut(|lst| lst.try_reserve_exact(length))
+                .unwrap()
+                .map_err(|_| -1)?;
         }
 
-        if capacity > 0 {
-            unsafe {
-                arr.object_unchecked()
-                    .with_fast_array_values_mut(|lst| lst.try_reserve_exact(capacity))
-                    .unwrap()
-                    .map_err(|_| -1)?;
-            }
-        }
+        Ok(fa)
+    }
 
-        Ok(arr)
+    pub fn create_array_with_values(&self, values: &[JSValue]) -> Result<Array, i32> {
+        let fa = self.create_array(values.len())?;
+        for (i, v) in values.iter().enumerate() {
+            fa.0.define_property_value_i64(self, i as _, v.clone(), JS_PROP_C_W_E)?;
+        }
+        Ok(fa)
     }
 }
 
@@ -498,23 +495,6 @@ pub fn JS_CopySubArray(
     }
 
     Ok(())
-}
-
-pub unsafe fn js_create_array(ctx: &JSContext, len: i32, tab: *const JSValueConst) -> JSValue {
-    if let Ok(obj) = ctx.create_array() {
-        for i in 0..len {
-            if obj
-                .create_data_property_u32(ctx, i as _, (*tab.offset(i as isize)).clone(), 0)
-                .is_err()
-            {
-                return JSValue::EXCEPTION;
-            }
-        }
-
-        obj
-    } else {
-        JSValue::EXCEPTION
-    }
 }
 
 pub fn js_array_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {}

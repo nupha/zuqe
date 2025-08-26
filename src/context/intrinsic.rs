@@ -19,7 +19,7 @@ use crate::{
     context::{JS_MODE_STRICT, JSContext},
     error::{ErrorKind, JSResult, STD_ERROR_NAMES},
     function::{
-        BytecodeFunction, CallContext, JSFunctionKindEnum, FieldDef, NativeFunctionType,
+        BytecodeFunction, CallContext, FieldDef, JSFunctionKindEnum, NativeFunctionType,
         js_async_function_proto_funcs,
     },
     generator::{
@@ -644,7 +644,7 @@ impl JSContext {
                     .define_property_value_str(
                         self,
                         "BYTES_PER_ELEMENT",
-                        1 << typed_array_size_log2(cid),
+                        JSValue::Int(1 << typed_array_size_log2(cid)),
                         0,
                     )
                     .unwrap();

@@ -102,7 +102,7 @@ pub fn js_function_bind(ctx: &JSContext, args: CallContext) -> JSResult {
 
         // make bound function name.
         let bf_name = JS_ConcatString3(ctx, c"bound ", name.into(), c"")?;
-        func_obj.define_property_value(ctx, JS_ATOM_name, bf_name, JS_PROP_CONFIGURABLE)?;
+        func_obj.define_property_value(ctx, JS_ATOM_name, bf_name.into(), JS_PROP_CONFIGURABLE)?;
 
         Ok(func_obj.into())
     }

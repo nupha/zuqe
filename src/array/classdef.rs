@@ -169,9 +169,9 @@ pub fn js_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    let arr = ctx.create_fast_array(std::cmp::max(len, 0) as usize)?;
+    let arr = ctx.create_array(std::cmp::max(len, 0) as usize)?;
 
-    unsafe { arr.object_unchecked() }
+    arr.0
         .with_fast_array_values_mut(|dst| -> Result<(), i32> {
             if obj
                 .with_fast_array_values(|src| {
@@ -243,8 +243,9 @@ pub fn js_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
         })
         .unwrap()?;
 
-    arr.set_property(ctx, JS_ATOM_length, JSValue::from(len))?;
-    Ok(arr)
+    arr.0
+        .set_property(ctx, JS_ATOM_length, JSValue::from(len))?;
+    Ok(arr.into())
 }
 
 pub fn js_array_concat(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -330,7 +331,7 @@ pub fn js_array_every(ctx: &JSContext, cc: CallContext) -> JSResult {
             )?;
         }
         s if s == special_filter | special_TA => {
-            ret = ctx.create_array()?;
+            ret = ctx.create_array(0)?.into();
         }
         _ => {
             ret = JSValue::UNDEFINED;
@@ -896,49 +897,52 @@ pub fn js_array_toReversed(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj: JSValue = cc.this().to_object(ctx)?.into();
     let new_len = js_get_length64(ctx, &obj)?;
 
-    let res_arr = ctx.create_fast_array(std::cmp::max(new_len, 0) as _)?;
+    let res_arr = ctx.create_array(std::cmp::max(new_len, 0) as _)?;
 
     if new_len > 0 {
-        let a = unsafe { res_arr.object_unchecked() };
-        a.with_fast_array_values_mut(|dst| {
-            let fast_done = obj
-                .with_fast_array_values(|src| {
-                    if src.len() == new_len as usize {
-                        for v in src.iter().rev() {
-                            dst.push(v.clone());
+        res_arr
+            .0
+            .with_fast_array_values_mut(|dst| {
+                let fast_done = obj
+                    .with_fast_array_values(|src| {
+                        if src.len() == new_len as usize {
+                            for v in src.iter().rev() {
+                                dst.push(v.clone());
+                            }
+                            true
+                        } else {
+                            false
                         }
-                        true
-                    } else {
-                        false
-                    }
-                })
-                .unwrap_or(false);
+                    })
+                    .unwrap_or(false);
 
-            let mut has_err = false;
-            if !fast_done {
-                // slow array
-                // Query order is observable; test262 expects descending order.
-                for i in (0..new_len).rev() {
-                    if has_err {
-                        // Exception: set remaining elements to undefined.
-                        dst.push(JSValue::UNDEFINED);
-                    } else if let Ok(v) = obj.try_get_property_i64(ctx, i) {
-                        dst.push(v.unwrap_or(JSValue::UNDEFINED));
-                    } else {
-                        dst.push(JSValue::UNDEFINED);
-                        has_err = true;
+                let mut has_err = false;
+                if !fast_done {
+                    // slow array
+                    // Query order is observable; test262 expects descending order.
+                    for i in (0..new_len).rev() {
+                        if has_err {
+                            // Exception: set remaining elements to undefined.
+                            dst.push(JSValue::UNDEFINED);
+                        } else if let Ok(v) = obj.try_get_property_i64(ctx, i) {
+                            dst.push(v.unwrap_or(JSValue::UNDEFINED));
+                        } else {
+                            dst.push(JSValue::UNDEFINED);
+                            has_err = true;
+                        }
                     }
                 }
-            }
 
-            if has_err { Err(-1) } else { Ok(()) }
-        })
-        .unwrap()?;
+                if has_err { Err(-1) } else { Ok(()) }
+            })
+            .unwrap()?;
 
-        res_arr.set_property(ctx, JS_ATOM_length, JSValue::from(new_len))?;
+        res_arr
+            .0
+            .set_property(ctx, JS_ATOM_length, JSValue::from(new_len))?;
     }
 
-    Ok(res_arr)
+    Ok(res_arr.into())
 }
 
 pub fn js_array_sort(ctx: &JSContext, _: CallContext) -> JSResult {
@@ -1079,12 +1083,13 @@ pub fn js_array_toSpliced(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     // create result array
-    let res_arr = ctx.create_fast_array(std::cmp::max(new_len, 0) as _)?;
+    let res_arr = ctx.create_array(std::cmp::max(new_len, 0) as _)?;
     if new_len <= 0 {
-        return Ok(res_arr);
+        return Ok(res_arr.into());
     }
 
-    unsafe { res_arr.object_unchecked() }
+    res_arr
+        .0
         .with_fast_array_values_mut(|new_lst| -> Result<(), i32> {
             macro_rules! error {
                 ($i:expr) => {
@@ -1143,9 +1148,11 @@ pub fn js_array_toSpliced(ctx: &JSContext, cc: CallContext) -> JSResult {
         })
         .unwrap()?;
 
-    res_arr.set_property(ctx, JS_ATOM_length, JSValue::from(new_len))?;
+    res_arr
+        .0
+        .set_property(ctx, JS_ATOM_length, JSValue::from(new_len))?;
 
-    Ok(res_arr)
+    Ok(res_arr.into())
 }
 
 pub fn js_array_copyWithin(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -1398,7 +1405,7 @@ pub fn js_array_from(ctx: &JSContext, cc: CallContext) -> JSResult {
         let arr = if cc.this().is_constructor() {
             JS_CallConstructor(ctx, cc.this(), &[]).err()?
         } else {
-            ctx.create_array()?
+            ctx.create_array(0)?.into()
         };
 
         let it = items.iter(ctx)?;
@@ -1444,7 +1451,7 @@ pub fn js_array_of(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj = if cc.this().is_constructor() {
         JS_CallConstructor(ctx, cc.this(), &[JSValue::Int(cc.length() as i32)]).err()?
     } else {
-        ctx.create_array()?
+        ctx.create_array(0)?.into()
     };
 
     for i in 0..cc.length() {

@@ -221,7 +221,7 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
 
         if props_arr.is_undefined() {
             // entry is missing, create the entry
-            props_arr = ctx.create_array()?;
+            props_arr = ctx.create_array(0)?.into();
 
             // set to groups
             if is_map != 0 {
@@ -324,7 +324,7 @@ pub fn js_object_getOwnPropertyDescriptor(ctx: &JSContext, cc: CallContext) -> J
                 ret.define_property_value(
                     ctx,
                     JS_ATOM_writable,
-                    desc.flags & JS_PROP_WRITABLE != 0,
+                    JSValue::Bool(desc.flags & JS_PROP_WRITABLE != 0),
                     flags,
                 )?;
             }
@@ -332,13 +332,13 @@ pub fn js_object_getOwnPropertyDescriptor(ctx: &JSContext, cc: CallContext) -> J
             ret.define_property_value(
                 ctx,
                 JS_ATOM_enumerable,
-                desc.flags & JS_PROP_ENUMERABLE != 0,
+                JSValue::Bool(desc.flags & JS_PROP_ENUMERABLE != 0),
                 flags,
             )?;
             ret.define_property_value(
                 ctx,
                 JS_ATOM_configurable,
-                desc.flags & JS_PROP_CONFIGURABLE != 0,
+                JSValue::Bool(desc.flags & JS_PROP_CONFIGURABLE != 0),
                 flags,
             )?;
 
