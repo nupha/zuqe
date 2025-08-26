@@ -1,7 +1,9 @@
+use fallible_collections::TryCollect;
+
 use crate::{
     JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_NATIVE_ITERATOR_NEXT_DEF,
     JS_PROP_STRING_DEF,
-    array::{JS_CopySubArray, JS_ToArrayLengthFree},
+    array::JS_CopySubArray,
     atom::consts::{
         JS_ATOM_Symbol_isConcatSpreadable, JS_ATOM_Symbol_iterator, JS_ATOM_Symbol_species,
         JS_ATOM_constructor, JS_ATOM_join, JS_ATOM_length, JS_ATOM_set,
@@ -44,18 +46,40 @@ pub const special_reduceRight: i32 = 1;
 pub fn js_array_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let new_target = cc.this();
 
-    let obj = ctx
-        .create_object_apply_ctor(new_target, ObjectDetail::ARRAY(ArrayObjPayload::default()))
-        .map_err(|_| -1)?;
+    let obj = if cc.length() == 1 && cc.arg(0).is_number() {
+        let cap = cc.arg(0).to_array_length(ctx, true)?;
+        let arr = ctx
+            .create_object_apply_ctor(
+                new_target,
+                ObjectDetail::ARRAY(ArrayObjPayload::with_capacity(cap).map_err(|_| {
+                    ctx.throw_out_of_memory();
+                    -1
+                })?),
+            )
+            .map_err(|_| -1)?;
 
-    if cc.length() == 1 && cc.arg(0).is_number() {
-        let len = unsafe { JS_ToArrayLengthFree(ctx, cc.arg(0).clone(), true)? };
-        obj.set_property(ctx, JS_ATOM_length, JSValue::from(len))?;
+        arr.set_array_length(ctx, cap, true)?;
+        // arr.set_property(ctx, JS_ATOM_length, JSValue::from(len as u32))?;
+        arr
     } else {
-        for (i, a) in cc.arguments().iter().enumerate() {
-            obj.set_property_u32(ctx, i as u32, a.clone())?;
-        }
-    }
+        let slots = cc
+            .arguments()
+            .iter()
+            .cloned()
+            .try_collect::<Vec<_>>()
+            .map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?;
+        let len = slots.len();
+
+        let arr = ctx
+            .create_object_apply_ctor(new_target, ObjectDetail::ARRAY(ArrayObjPayload::new(slots)))
+            .map_err(|_| -1)?;
+        arr.set_array_length(ctx, len, true)?;
+        // arr.set_property(ctx, JS_ATOM_length, JSValue::from(len as u32))?;
+        arr
+    };
 
     Ok(obj.into())
 }
@@ -135,7 +159,7 @@ pub fn js_array_at(ctx: &JSContext, cc: CallContext) -> JSResult {
         // bad index
         JSValue::UNDEFINED
     } else if let Some(val) = obj
-        .with_fast_array_values(|a| {
+        .with_fast_array_values(|a, _| {
             if a.len() == len as usize {
                 Some(a[idx as usize].clone())
             } else {
@@ -172,9 +196,9 @@ pub fn js_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
     let arr = ctx.create_array(std::cmp::max(len, 0) as usize)?;
 
     arr.0
-        .with_fast_array_values_mut(|dst| -> Result<(), i32> {
+        .with_fast_array_values_mut(|dst, _| -> Result<(), i32> {
             if obj
-                .with_fast_array_values(|src| {
+                .with_fast_array_values(|src, _| {
                     if src.len() == len as usize {
                         // fast array
                         for v in &src[0..(idx as usize)] {
@@ -592,7 +616,7 @@ pub fn js_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
 
         // try fast array
         let found = obj
-            .with_fast_array_values(|lst| {
+            .with_fast_array_values(|lst, _| {
                 let start = n as usize;
                 for (i, el) in lst[start..].iter().enumerate() {
                     if target.strict_eq_with_mode(el, JSStrictEqModeEnum::JS_EQ_STRICT) {
@@ -666,7 +690,7 @@ pub fn js_array_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
             0
         };
 
-        if let Some(found) = obj.with_fast_array_values(|lst| {
+        if let Some(found) = obj.with_fast_array_values(|lst, _| {
             let start = n as usize;
             for el in &lst[start..] {
                 if target.strict_eq_with_mode(el, JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO) {
@@ -675,7 +699,7 @@ pub fn js_array_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
             }
             false
         }) {
-            // is fast array
+            // early exit for fast array
             return Ok(JSValue::Bool(found));
         }
 
@@ -766,7 +790,7 @@ pub fn js_array_pop(ctx: &JSContext, cc: CallContext) -> JSResult {
     if len > 0 {
         new_len = len - 1;
 
-        if let Some(r) = obj.with_fast_array_values_mut(|lst| {
+        if let Some(r) = obj.with_fast_array_values_mut(|lst, _| {
             if lst.len() == len as usize {
                 Some(if shift != 0 {
                     lst.remove(0)
@@ -833,7 +857,7 @@ pub fn js_array_reverse(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     // try fast array
     let done = obj
-        .with_fast_array_values_mut(|lst| {
+        .with_fast_array_values_mut(|lst, _| {
             if lst.len() == len as usize {
                 lst.reverse();
                 true
@@ -902,9 +926,9 @@ pub fn js_array_toReversed(ctx: &JSContext, cc: CallContext) -> JSResult {
     if new_len > 0 {
         res_arr
             .0
-            .with_fast_array_values_mut(|dst| {
+            .with_fast_array_values_mut(|dst, _| {
                 let fast_done = obj
-                    .with_fast_array_values(|src| {
+                    .with_fast_array_values(|src, _| {
                         if src.len() == new_len as usize {
                             for v in src.iter().rev() {
                                 dst.push(v.clone());
@@ -918,7 +942,7 @@ pub fn js_array_toReversed(ctx: &JSContext, cc: CallContext) -> JSResult {
 
                 let mut has_err = false;
                 if !fast_done {
-                    // slow array
+                    // slow path for sparse array
                     // Query order is observable; test262 expects descending order.
                     for i in (0..new_len).rev() {
                         if has_err {
@@ -997,7 +1021,7 @@ pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
     let mut k = start;
     let mut n = 0;
 
-    obj.with_fast_array_values(|lst| -> Result<(), i32> {
+    obj.with_fast_array_values(|lst, _| -> Result<(), i32> {
         // in case of fast array
         // XXX: should share code with fast array constructor
         while k < final_ && k < lst.len() as i64 {
@@ -1090,7 +1114,7 @@ pub fn js_array_toSpliced(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     res_arr
         .0
-        .with_fast_array_values_mut(|new_lst| -> Result<(), i32> {
+        .with_fast_array_values_mut(|new_lst, _| -> Result<(), i32> {
             macro_rules! error {
                 ($i:expr) => {
                     // fill rest with undefined, because array finalizer will free elements too.
@@ -1102,7 +1126,7 @@ pub fn js_array_toSpliced(ctx: &JSContext, cc: CallContext) -> JSResult {
             }
 
             let fast_done = obj
-                .with_fast_array_values(|src| {
+                .with_fast_array_values(|src, _| {
                     if src.len() == len as usize {
                         for v in &src[..start as usize] {
                             new_lst.push(v.clone());

@@ -78,7 +78,7 @@ impl JSObject {
 
             match self.class_id() {
                 JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
-                    self.with_fast_array_values(|lst| {
+                    self.with_fast_array_values(|lst, _| {
                         for (i, v) in lst.iter().enumerate() {
                             if i != 0 {
                                 print!(", ");

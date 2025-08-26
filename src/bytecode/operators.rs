@@ -332,13 +332,13 @@ pub unsafe fn js_append_enumerate(ctx: &JSContext, sp: *mut JSValue) -> Result<(
 
     let it = src.iter(ctx)?;
 
-    let try_slow_array = if is_array_iterator
+    let is_sparse_array = if is_array_iterator
         && it
             .next_method
             .match_native_callback(NativeFunctionType::IteratorNext(js_array_iterator_next), 0)
     {
         // fast path: fast array
-        src.with_fast_array_values(|lst| -> Result<bool, i32> {
+        src.with_fast_array_values(|lst, _| -> Result<bool, i32> {
             if lst.len() == len {
                 // `src` is a fast array
                 for v in lst {
@@ -355,8 +355,8 @@ pub unsafe fn js_append_enumerate(ctx: &JSContext, sp: *mut JSValue) -> Result<(
         true
     };
 
-    if try_slow_array {
-        // general case: slow array, use iterator
+    if is_sparse_array {
+        // slow path for sparse array, use iterator
         for value in it {
             dest.define_property_value_u32(ctx, pos as _, value?, JS_PROP_C_W_E)?;
             pos += 1;

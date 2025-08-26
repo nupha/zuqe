@@ -1,6 +1,5 @@
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
-    array::JS_ToArrayLengthFree,
     atom::{JS_ATOM_NULL, JS_AtomIsNumericIndex1, JS_FreeAtom, JSAtom, consts::*},
     bytecode::js_get_function_name,
     context::JSContext,
@@ -42,8 +41,8 @@ impl JSObject {
                 if prs_flags & JS_PROP_LENGTH != 0 && flags & JS_PROP_HAS_VALUE != 0 {
                     // is `length` property
                     // the range of the Array length property is always tested before
-                    let array_length = unsafe { JS_ToArrayLengthFree(ctx, val, false)? };
-                    val = JSValue::from(array_length);
+                    let array_length = val.to_array_length(ctx, false)?;
+                    val = JSValue::from(array_length as u32);
                 }
 
                 //
@@ -114,9 +113,11 @@ impl JSObject {
                     JS_CLASS_ARRAY => {
                         if let Some(idx) = prop.to_int() {
                             let idx = idx as usize;
-                            let array_len = self.with_fast_array_values(|a| a.len()).unwrap();
+                            let array_len =
+                                self.with_fast_array_values(|lst, _| lst.len()).unwrap();
 
                             if idx < array_len {
+                                // update value in list
                                 let prop_flags = get_prop_flags(flags, JS_PROP_C_W_E);
                                 if prop_flags != JS_PROP_C_W_E {
                                     self.destruct_fast_array(ctx)?;
@@ -127,12 +128,11 @@ impl JSObject {
                                     continue; // redo_prop_update
                                 }
                                 if flags & JS_PROP_HAS_VALUE != 0 {
-                                    self.with_fast_array_values_mut(|lst| {
+                                    self.with_fast_array_values_mut(|lst, _| {
                                         lst[idx] = val;
                                     })
                                     .unwrap();
                                 }
-
                                 return Ok(true);
                             }
                         }

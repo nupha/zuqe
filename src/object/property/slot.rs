@@ -1,15 +1,15 @@
-use super::{
-    JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
-    JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_NORMAL, JS_PROP_TMASK,
-    JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty, set::call_setter,
-};
-use crate::obsoletes::set_array_length;
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_MODULE_NS,
     atom::{JSAtom, consts::JS_ATOM_length},
     context::JSContext,
-    object::{JS_PROP_LAZYINIT, JSObject},
+    object::{JS_PROP_LAZYINIT, JS_PROP_THROW, JSObject},
     value::JSValue,
+};
+
+use super::{
+    JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
+    JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_NORMAL, JS_PROP_TMASK,
+    JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty, set::call_setter,
 };
 
 impl JSObject {
@@ -113,9 +113,14 @@ impl JSObject {
             }
         } else if prs_flags & JS_PROP_LENGTH != 0 {
             // special property: length
-            debug_assert_eq!(idx, 0, "length property must be index at 0");
+            debug_assert_eq!(idx, 0, "length property must be index 0");
+
             if flags & JS_PROP_HAS_VALUE != 0 {
-                self.set_array_length(ctx, val, flags)
+                self.set_array_length(
+                    ctx,
+                    val.to_array_length(ctx, false)? as usize,
+                    flags & JS_PROP_THROW != 0,
+                )
             } else {
                 Ok(true)
             }
@@ -229,13 +234,21 @@ impl JSObject {
             _ => {}
         }
 
-        // slow path: length, getset, lazy
+        //
+        // slow path: for length, getset, lazy
+        //
+
         if prs_flags & JS_PROP_LENGTH != 0 {
-            // special prop length: to set .length property of an array object
+            // special prop length: to set .length property of an array-like object
             debug_assert_eq!(self.class_id(), JS_CLASS_ARRAY);
             debug_assert_eq!(prop, JS_ATOM_length);
-            debug_assert_eq!(slot_idx, 0, "length property must be indexed at 0");
-            self.set_array_length(ctx, value, flags)
+            debug_assert_eq!(slot_idx, 0, "length property must be index 0");
+
+            self.set_array_length(
+                ctx,
+                value.to_array_length(ctx, false)?,
+                flags & JS_PROP_THROW != 0,
+            )
         } else if prs_flags & JS_PROP_LAZYINIT == JS_PROP_LAZYINIT {
             // lazy init replaced with normal value
             std::mem::replace(

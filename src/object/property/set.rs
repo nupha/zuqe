@@ -335,25 +335,33 @@ impl JSObject {
             let idx = *idx;
             let mut ta_out_of_bound = false;
 
-            // try fast path: fast array
+            //
+            // fast path
+            //
             match self.class_id() {
                 JS_CLASS_ARRAY => {
-                    // fast path: fast array
                     let ob_flags = self.flags();
                     if idx >= 0 && ob_flags.is_fast_array() && ob_flags.extensible() {
-                        let r = self
-                            .with_fast_array_values_mut(|lst| -> Result<Option<bool>, i32> {
+                        enum State {
+                            Append,
+                            Slow,
+                            Done,
+                        }
+                        let s = self
+                            .with_fast_array_values_mut(|lst, _| -> Result<State, i32> {
                                 match idx.cmp(&(lst.len() as i32)) {
                                     std::cmp::Ordering::Less => {
                                         // update array element
                                         lst[idx as usize] = val.clone();
-                                        return Ok(Some(true));
+                                        Ok(State::Done)
                                     }
                                     std::cmp::Ordering::Equal => {
-                                        // find int prop through prototype chain
+                                        // idx==len: extend lst by one.
                                         let mut use_slow_path = false;
-                                        let mut up = self.shape().unwrap().0.borrow().proto.clone();
 
+                                        // find int prop through prototype chain.
+                                        // Note: can't use ::prototype_iter() here, because of payload borrow conflict.
+                                        let mut up = self.shape().unwrap().0.borrow().proto.clone();
                                         while let Some(p) = up {
                                             let sh1 = p.shape().unwrap();
                                             match p.class_id() {
@@ -374,45 +382,39 @@ impl JSObject {
                                                     break;
                                                 }
                                             }
-
                                             up = sh1.0.borrow().proto.clone();
                                         }
 
-                                        if !use_slow_path {
-                                            // append to array
-                                            lst.try_reserve_exact(1).map_err(|_| {
-                                                ctx.throw_out_of_memory();
-                                                -1
-                                            })?;
-                                            lst.push(val.clone());
-
-                                            // update prop length
-                                            self.0.prop_values.borrow_mut()[0] =
-                                                JSProperty::Normal(JSValue::Int(lst.len() as i32));
-
-                                            return Ok(Some(true));
-                                        }
+                                        Ok(if !use_slow_path {
+                                            State::Append
+                                        } else {
+                                            State::Slow
+                                        })
                                     }
-                                    std::cmp::Ordering::Greater => {}
+                                    std::cmp::Ordering::Greater => {
+                                        // go slow path
+                                        Ok(State::Slow)
+                                    }
                                 }
-
-                                Ok(None)
                             })
                             .unwrap()?;
 
-                        match r {
-                            Some(b) => {
-                                return Ok(b); // done
+                        match s {
+                            State::Append => {
+                                return self.add_fast_array_element(ctx, val, flags);
                             }
-                            None => {
-                                // leave to slow array
+                            State::Done => {
+                                return Ok(true);
+                            }
+                            State::Slow => {
+                                // go to slow path
                             }
                         }
                     }
                 }
                 JS_CLASS_ARGUMENTS => {
                     let done = self
-                        .with_fast_array_values_mut(|lst| -> bool {
+                        .with_fast_array_values_mut(|lst, _| -> bool {
                             if idx < lst.len() as i32 {
                                 lst[idx as usize] = val.clone();
                                 true
@@ -529,7 +531,9 @@ impl JSObject {
             }
         }
 
-        // slow_path
+        //
+        // slow path
+        //
         let atom = prop.to_atom(ctx)?;
         let ret = self.set_property_internal(ctx, atom, val, &JSValue::Object(self.clone()), flags);
         JS_FreeAtom(ctx, atom);

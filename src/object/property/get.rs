@@ -27,13 +27,12 @@ impl JSObject {
         for p in self.prototype_iter(ctx, true) {
             let cur_obj = p?;
 
-            // 1. try own property (in shape)
+            // 1. search own property (in shape)
             if let Some((idx, prs_flags)) = cur_obj.find_shape_property(prop) {
                 return match prs_flags & JS_PROP_TMASK {
                     JS_PROP_NORMAL => {
                         if let JSProperty::Normal(val) = &cur_obj.0.prop_values.borrow()[idx] {
                             debug_assert!(!val.is_exception());
-
                             Ok(val.clone())
                         } else {
                             unreachable!()
@@ -176,7 +175,7 @@ impl JSObject {
             match self.class_id() {
                 JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
                     if let Some(el) = self
-                        .with_fast_array_values(|lst| {
+                        .with_fast_array_values(|lst, _| {
                             if nth < lst.len() {
                                 Some(lst[nth as usize].clone()) // return element value
                             } else {
@@ -223,7 +222,7 @@ impl JSObject {
             }
         }
 
-        // generic path
+        // slow path
         {
             let atom = prop.to_atom(ctx)?;
             let ret = self.get_property(ctx, atom);

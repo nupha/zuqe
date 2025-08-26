@@ -2305,9 +2305,10 @@ pub unsafe fn JS_IsArray(ctx: &JSContext, val: &JSValueConst) -> Result<bool, i3
 /// returns 0,1,-1
 #[deprecated(note = "use JSObject::set_array_length() instead")]
 pub unsafe fn set_array_length(ctx: &JSContext, p: *mut JSValue, val: JSValue, flags: u32) -> i32 {
-    (*p).object_unchecked()
-        .set_array_length(ctx, val, flags)
-        .map_or(-1, |b| b as i32)
+    unreachable!("unused")
+    // (*p).object_unchecked()
+    //     .set_array_length2(ctx, val, flags)
+    //     .map_or(-1, |b| b as i32)
 }
 
 /// `val` is duplicated inside
@@ -3974,4 +3975,20 @@ pub unsafe fn string_indexof_char(p: *mut JSString, c: i32, from: i32) -> i32 {
 #[deprecated(note = "use JSContext::create_array_with_values() instead")]
 pub fn js_create_array(ctx: &JSContext, tab: &[JSValue]) -> Result<Array, i32> {
     unreachable!("unused");
+}
+
+/// can be called on Array or Arguments objects. return < 0 if memory alloc error.
+/// returns -1 if fail.
+#[deprecated(note = "use JSObject::destruct_fast_array() instead")]
+pub fn convert_fast_array_to_array(ctx: &JSContext, obj: &JSObject) -> i32 {
+    obj.destruct_fast_array(ctx).map_or(-1, |_| 0)
+}
+
+#[deprecated(note = "use JSValue::to_array_length() instead")]
+pub unsafe fn JS_ToArrayLengthFree(
+    ctx: &JSContext,
+    val: JSValue,
+    is_array_ctor: bool,
+) -> Result<u32, i32> {
+    val.to_array_length(ctx, is_array_ctor).map(|v| v as u32)
 }

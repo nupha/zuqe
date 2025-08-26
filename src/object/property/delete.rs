@@ -58,12 +58,13 @@ impl JSObject {
                         match self.class_id() {
                             JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
                                 match self
-                                    .with_fast_array_values_mut(|lst| -> Result<bool, i32> {
+                                    .with_fast_array_values_mut(|lst, _| -> Result<bool, i32> {
                                         if idx == lst.len() - 1 {
+                                            // remove tail
                                             lst.pop();
                                             Ok(true)
                                         } else if idx < lst.len() {
-                                            // convert to slow array, then delete property
+                                            // should convert to sparse array, then delete property
                                             Ok(false)
                                         } else {
                                             unreachable!()
@@ -72,10 +73,11 @@ impl JSObject {
                                     .unwrap()?
                                 {
                                     true => {
-                                        return Ok(true); // fast array done
+                                        // early exit for fast array
+                                        return Ok(true);
                                     }
                                     false => {
-                                        // convert to slow array, then delete property
+                                        // convert to sparse array, then delete property
                                         self.destruct_fast_array(ctx)?;
                                         continue; // redo
                                     }

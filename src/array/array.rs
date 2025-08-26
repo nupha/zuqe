@@ -1,3 +1,7 @@
+use std::collections::TryReserveError;
+
+use fallible_collections::{FallibleVec, TryCollect};
+
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_PROXY,
     atom::{JS_FreeAtom, JSAtom, consts::JS_ATOM_length},
@@ -17,6 +21,21 @@ use crate::{
 #[derive(Debug, Default)]
 pub struct ArrayObjPayload {
     slots: Vec<JSValue>,
+    len: usize,
+}
+
+impl ArrayObjPayload {
+    pub fn with_capacity(cap: usize) -> Result<Self, TryReserveError> {
+        debug_assert!(cap > 0);
+        let mut slots = Vec::<JSValue>::new();
+        slots.try_reserve_exact(cap)?;
+        Ok(Self { slots, len: cap })
+    }
+
+    pub fn new(data: Vec<JSValue>) -> Self {
+        let len = data.len();
+        Self { slots: data, len }
+    }
 }
 
 #[repr(transparent)]
@@ -26,9 +45,9 @@ pub struct Array(pub(crate) JSObject);
 object_cast!(Array, JS_CLASS_ARRAY);
 
 impl JSContext {
-    /// create an Array object with specified length capacity.
-    pub fn create_array(&self, length: usize) -> Result<Array, i32> {
-        if length > MAX_SAFE_INTEGER as usize {
+    /// create an Array object with capacity.
+    pub fn create_array(&self, capacity: usize) -> Result<Array, i32> {
+        if capacity > MAX_SAFE_INTEGER as usize {
             self.throw_error(ErrorKind::Range, "invalid array length");
             return Err(-1);
         }
@@ -36,7 +55,10 @@ impl JSContext {
         let obj = self
             .create_object_with_shape(
                 self.0.borrow().array_shape.clone().unwrap(),
-                ObjectDetail::ARRAY(ArrayObjPayload { slots: Vec::new() }),
+                ObjectDetail::ARRAY(ArrayObjPayload {
+                    slots: Vec::new(),
+                    len: capacity,
+                }),
             )
             .map(JSValue::Object)
             .map_err(|_| -1)?;
@@ -44,21 +66,39 @@ impl JSContext {
         let fa: Array = obj.try_into().unwrap();
         debug_assert!(fa.0.flags().is_fast_array());
 
-        if length > 0 {
-            fa.0.with_fast_array_values_mut(|lst| lst.try_reserve_exact(length))
-                .unwrap()
-                .map_err(|_| -1)?;
-        }
+        // set array length
+        fa.0.set_array_length(self, capacity, true)?;
 
         Ok(fa)
     }
 
-    pub fn create_array_with_values(&self, values: &[JSValue]) -> Result<Array, i32> {
-        let fa = self.create_array(values.len())?;
-        for (i, v) in values.iter().enumerate() {
-            fa.0.define_property_value_i64(self, i as _, v.clone(), JS_PROP_C_W_E)?;
-        }
+    pub fn create_array_with_values(&self, values: Vec<JSValue>) -> Result<Array, i32> {
+        let len = values.len();
+        let obj = self
+            .create_object_with_shape(
+                self.0.borrow().array_shape.clone().unwrap(),
+                ObjectDetail::ARRAY(ArrayObjPayload { slots: values, len }),
+            )
+            .map(JSValue::Object)
+            .map_err(|_| -1)?;
+
+        let fa: Array = obj.try_into().unwrap();
+        debug_assert!(fa.0.flags().is_fast_array());
+
+        // set array length
+        fa.0.set_array_length(self, len, true)?;
+
         Ok(fa)
+    }
+
+    #[inline]
+    pub fn create_array_from_slice(&self, values: &[JSValue]) -> Result<Array, i32> {
+        self.create_array_with_values(values.iter().cloned().try_collect::<Vec<_>>().map_err(
+            |_| {
+                self.throw_out_of_memory();
+                -1
+            },
+        )?)
     }
 }
 
@@ -78,7 +118,7 @@ impl JSObject {
         self.flags().is_fast_array()
     }
 
-    /// if object `self` is fast array, convert it to slow array.
+    /// if object `self` is fast array, convert it to sparse array.
     /// can be called on Array or Arguments objects only.
     pub(crate) fn destruct_fast_array(&self, ctx: &JSContext) -> Result<(), i32> {
         debug_assert!(matches!(
@@ -89,9 +129,9 @@ impl JSObject {
         if self.is_fast_array() {
             self.shape_prepare_update(ctx)?;
 
-            // clear fast array list, take values out as `items`
+            // clear dense array list, take values out
             let items = self
-                .with_fast_array_values_mut(|lst| std::mem::replace(lst, Vec::new()))
+                .with_fast_array_values_mut(|lst, _| std::mem::replace(lst, Vec::new()))
                 .unwrap();
 
             for (i, v) in items.into_iter().enumerate() {
@@ -114,13 +154,13 @@ impl JSObject {
     }
 
     /// if object is Array or Argument class, and is fast array, returns values slice.
-    pub fn with_fast_array_values<R>(&self, f: impl FnOnce(&[JSValue]) -> R) -> Option<R> {
+    pub fn with_fast_array_values<R>(&self, f: impl FnOnce(&[JSValue], usize) -> R) -> Option<R> {
         if self.flags().is_fast_array() {
             self.0
                 .payload
                 .borrow()
                 .array()
-                .map(|a| f(a.slots.as_slice()))
+                .map(|a| f(a.slots.as_slice(), a.len))
         } else {
             None
         }
@@ -129,20 +169,20 @@ impl JSObject {
     /// if object is Array or Argument class, and is fast array, returns values slice.
     pub fn with_fast_array_values_mut<R>(
         &self,
-        f: impl FnOnce(&mut Vec<JSValue>) -> R,
+        f: impl FnOnce(&mut Vec<JSValue>, usize) -> R,
     ) -> Option<R> {
         if self.flags().is_fast_array() {
             self.0
                 .payload
                 .borrow_mut()
                 .array_mut()
-                .map(|a| f(&mut a.slots))
+                .map(|a| f(&mut a.slots, a.len))
         } else {
             None
         }
     }
 
-    /// Preconditions: 'p' must be of class JS_CLASS_ARRAY, p is fast_array and p is extensible.
+    /// Preconditions: 'self' must be of class JS_CLASS_ARRAY, self is fast_array and is extensible.
     /// returns Err if fail, true if append successfully, false if can't append due to read-only but flags indicates don't throw exception.
     pub fn add_fast_array_element(
         &self,
@@ -154,20 +194,20 @@ impl JSObject {
 
         // extend the array by one
         // XXX: convert to slow array if new_len > u32::MAX elements
-        let new_len = self.with_fast_array_values(|lst| lst.len() + 1).unwrap();
+        let new_len = self.with_fast_array_values(|lst, _| lst.len() + 1).unwrap();
 
         // first element in `prop_values` is the array length.
         // update the length if necessary. We assume that if the length is
         // not an integer, then if it >= 2^31.
         // Note: check array length to int in advance, to avoid prop_values borrow conflict.
-        let len = if let JSProperty::Normal(JSValue::Int(len)) = &self.0.prop_values.borrow()[0] {
-            Some(*len)
+        let len = if let JSProperty::Normal(JSValue::Int(n)) = &self.0.prop_values.borrow()[0] {
+            Some(*n)
         } else {
             // unreachable!();
             None
         };
-        if let Some(cur_len) = len {
-            if new_len > cur_len as usize {
+        if let Some(arr_len) = len {
+            if new_len > arr_len as usize {
                 if self
                     .shape()
                     .and_then(|sh| sh.0.borrow().prop_defs.get_index(0).map(|(_, p)| p.flags()))
@@ -181,18 +221,19 @@ impl JSObject {
                         Ok(false)
                     };
                 }
-                // update to new length
+
+                // update `length`
                 self.0.prop_values.borrow_mut()[0] =
                     JSProperty::Normal(JSValue::Int(new_len as i32));
             }
         }
 
-        // add to value list
-        self.with_fast_array_values_mut(|lst| -> Result<bool, i32> {
-            if lst.len() == lst.capacity() {
-                lst.try_reserve(1).map_err(|_| -1)?;
-            }
-            lst.push(val);
+        // add new value to list
+        self.with_fast_array_values_mut(|lst, _| -> Result<bool, i32> {
+            lst.try_push(val).map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?;
             Ok(true)
         })
         .unwrap()
@@ -212,19 +253,22 @@ impl JSObject {
         }
     }
 
-    /// set the length property of an array-like object.
-    /// returns
+    /// Update `length` property of an array-like object.
+    ///
+    /// Returns:
     /// - true if length is updated,
     /// - false if can't update length property and JS_THROW flag is not set,
     /// - Err if can't update length property ahd JS_THOW flag is set.
-    pub fn set_array_length(&self, ctx: &JSContext, val: JSValue, flags: u32) -> Result<bool, i32> {
-        let len = unsafe { JS_ToArrayLengthFree(ctx, val, false)? as usize };
-
-        // check if length property is writable?
+    pub fn set_array_length(
+        &self,
+        ctx: &JSContext,
+        len: usize,
+        throw_error: bool,
+    ) -> Result<bool, i32> {
         if self
             .shape()
             .and_then(|sh| {
-                //prop `length` is #0
+                // prop `length` must be index 0
                 debug_assert!(
                     sh.0.borrow().prop_defs[0].flags() & JS_PROP_LENGTH != 0,
                     "Object don't have length property"
@@ -235,8 +279,11 @@ impl JSObject {
             & JS_PROP_WRITABLE
             == 0
         {
-            // not writable
-            return if ctx.JS_ThrowTypeErrorReadOnly(flags, JS_ATOM_length) {
+            // prop `length` is not writable
+            return if ctx.throw_type_error_or_false(
+                if throw_error { JS_PROP_THROW } else { 0 },
+                "'length' is read-only",
+            ) {
                 Err(-1)
             } else {
                 Ok(false)
@@ -244,15 +291,15 @@ impl JSObject {
         }
 
         if self.flags().is_fast_array() {
-            // is fast array.
-            self.with_fast_array_values_mut(|lst| {
+            // fast array
+            self.with_fast_array_values_mut(|lst, _| {
                 let old_len = lst.len();
                 if len < old_len {
                     lst.drain(len..old_len);
                 }
             })
             .unwrap();
-            self.0.prop_values.borrow_mut()[0] = JSProperty::Normal(JSValue::from(len as u32));
+            self.0.prop_values.borrow_mut()[0] = JSProperty::Normal(JSValue::from(len as i64));
         } else {
             // Note: length is always a uint32 because the object is an array
             let mut cur_len = self
@@ -321,7 +368,10 @@ impl JSObject {
             self.0.prop_values.borrow_mut()[0] = JSProperty::Normal(JSValue::from(cur_len as u32));
 
             if cur_len > len {
-                return if ctx.throw_type_error_or_false(flags as _, "not configurable") {
+                return if ctx.throw_type_error_or_false(
+                    if throw_error { JS_PROP_THROW } else { 0 },
+                    "not configurable",
+                ) {
                     Err(-1)
                 } else {
                     Ok(false)
@@ -354,7 +404,7 @@ impl JSValue {
 
     /// if value is Array or Argument class, and is fast array, returns values slice.
     #[inline]
-    pub fn with_fast_array_values<R>(&self, f: impl FnOnce(&[JSValue]) -> R) -> Option<R> {
+    pub fn with_fast_array_values<R>(&self, f: impl FnOnce(&[JSValue], usize) -> R) -> Option<R> {
         self.object().and_then(|o| o.with_fast_array_values(f))
     }
 
@@ -364,66 +414,58 @@ impl JSValue {
     #[inline]
     pub fn with_fast_array_values_mut<R>(
         &self,
-        f: impl FnOnce(&mut Vec<JSValue>) -> R,
+        f: impl FnOnce(&mut Vec<JSValue>, usize) -> R,
     ) -> Option<R> {
         self.object().and_then(|o| o.with_fast_array_values_mut(f))
     }
-}
 
-/// can be called on Array or Arguments objects. return < 0 if memory alloc error.
-/// returns -1 if fail.
-#[deprecated(note = "use JSObject::destruct_fast_array() instead")]
-pub fn convert_fast_array_to_array(ctx: &JSContext, obj: &JSObject) -> i32 {
-    obj.destruct_fast_array(ctx).map_or(-1, |_| 0)
-}
+    /// coerce value `self` to array length
+    pub fn to_array_length(&self, ctx: &JSContext, is_array_ctor: bool) -> Result<usize, i32> {
+        let len: usize;
 
-pub unsafe fn JS_ToArrayLengthFree(
-    ctx: &JSContext,
-    val: JSValue,
-    is_array_ctor: bool,
-) -> Result<u32, i32> {
-    let len: u32;
-
-    match val {
-        JSValue::NULL => {
-            len = 0;
-        }
-        JSValue::Int(v) => {
-            if v < 0 {
-                ctx.throw_range_error("invalid array length");
-                return Err(-1);
+        match self {
+            Self::NULL => {
+                len = 0;
             }
-            len = v as u32;
-        }
-        JSValue::Bool(b) => {
-            len = b as u32;
-        }
-        JSValue::Float64(d) => {
-            len = d as u32;
-            if len as f64 != d {
-                // f64 can't convert to u32
-                ctx.throw_range_error("invalid array length");
-                return Err(-1);
+            Self::Int(v) => {
+                let n = *v;
+                if n < 0 {
+                    ctx.throw_range_error("invalid array length");
+                    return Err(-1);
+                }
+                len = n as usize;
             }
-        }
+            Self::Bool(b) => {
+                len = *b as usize;
+            }
+            Self::Float64(d) => {
+                len = *d as usize;
+                if len as f64 != *d {
+                    // f64 can't convert to u32
+                    ctx.throw_range_error("invalid array length");
+                    return Err(-1);
+                }
+            }
 
-        _ if is_array_ctor => {
-            let v = val.to_number(ctx)?;
-            // won't recurse because v is a number
-            len = JS_ToArrayLengthFree(ctx, v, true)?;
-        }
-        _ => {
-            // legacy behavior: must do the conversion twice and compare
-            len = val.to_u32(ctx)?;
-            let v = val.to_number(ctx)?;
-            if len != JS_ToArrayLengthFree(ctx, v, false)? {
-                ctx.throw_range_error("invalid array length");
-                return Err(-1);
+            _ => {
+                if is_array_ctor {
+                    let v = self.to_number(ctx)?;
+                    // won't recurse because v is a number
+                    len = v.to_array_length(ctx, true)?;
+                } else {
+                    // legacy behavior: must do the conversion twice and compare
+                    len = self.to_u32(ctx)? as usize;
+                    let v = self.to_number(ctx)?;
+                    if len != v.to_array_length(ctx, false)? {
+                        ctx.throw_range_error("invalid array length");
+                        return Err(-1);
+                    }
+                }
             }
         }
+
+        Ok(len)
     }
-
-    Ok(len)
 }
 
 /// 将数组 obj 中从 from_pos 开始的 count 个元素复制到 to_pos 开始的位置。
@@ -449,7 +491,7 @@ pub fn JS_CopySubArray(
 
     if let Some(fast) = fast_array {
         // fast array
-        fast.with_fast_array_values_mut(|lst| {
+        fast.with_fast_array_values_mut(|lst, _| {
             let len = lst.len();
 
             // calc actual copy count
@@ -501,7 +543,7 @@ pub fn js_array_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {}
 
 pub fn js_array_mark(val: JSValue) {
     unsafe {
-        val.object_unchecked().with_fast_array_values(|lst| {
+        val.object_unchecked().with_fast_array_values(|lst, _| {
             for v in lst {
                 v.gc_mark();
             }
