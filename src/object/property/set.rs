@@ -247,7 +247,7 @@ impl JSObject {
                     }
                 }
 
-                // update own property
+                // update own property of `this`
                 if let Some((idx, prs_flags)) = update_own {
                     return this.put_prop_slot(ctx, prs_flags, prop, idx, val.clone(), this, flags);
                 }
@@ -279,21 +279,23 @@ impl JSObject {
                     }
                 }
 
-                // add new property
+                //
+                // add new property on `this`
+                //
                 if flags & JS_PROP_NO_ADD != 0 {
                     JS_ThrowReferenceErrorNotDefined(ctx, prop);
                     return Err(-1);
-                } else if !this.flags().extensible() {
-                    return if ctx.throw_type_error_or_false(flags as _, "object is not extensible")
-                    {
-                        Err(-1)
-                    } else {
-                        Ok(false)
-                    };
+                } else {
+                    this.create_property(
+                        ctx,
+                        prop,
+                        val,
+                        JSValue::UNDEFINED,
+                        JSValue::UNDEFINED,
+                        JS_PROP_C_W_E,
+                    )?;
+                    Ok(true)
                 }
-
-                this.add_own_property(ctx, prop, JS_PROP_C_W_E, JSProperty::Normal(val))?;
-                Ok(true)
             }
 
             JSValue::EXCEPTION => {

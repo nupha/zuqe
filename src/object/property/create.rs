@@ -63,8 +63,9 @@ impl JSObject {
             };
         }
 
-        // add a new property or modify an existing exotic one
         let obj_flags = self.flags();
+
+        // add a new property or modify an existing exotic one
         if obj_flags.is_exotic() {
             match self.class_id() {
                 JS_CLASS_ARRAY => {
