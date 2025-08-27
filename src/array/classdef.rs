@@ -157,23 +157,16 @@ pub fn js_array_at(ctx: &JSContext, cc: CallContext) -> JSResult {
         idx = len + idx;
     }
 
-    let ret: JSValue = if idx < 0 {
-        // bad index
-        JSValue::UNDEFINED
+    let ret: JSValue = if idx < 0 || idx >= len {
+        JSValue::UNDEFINED // bad index
     } else if let Some(val) = obj
-        .with_fast_array_values(|a| {
-            if a.len() == len as usize {
-                Some(a[idx as usize].clone())
-            } else {
-                None
-            }
-        })
+        .with_fast_array_values(|lst| lst.get(idx as usize).cloned())
         .flatten()
     {
         // fast array element
         val
     } else {
-        // slow array
+        // sparse array
         obj.try_get_property_i64(ctx, idx)?
             .unwrap_or(JSValue::UNDEFINED)
     };

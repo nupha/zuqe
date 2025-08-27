@@ -211,7 +211,7 @@ impl JSObject {
         ctx: &JSContext,
         prs_flags: u32,
         prop: JSAtom,
-        slot_idx: usize,
+        index: usize,
         value: JSValue,
         this_obj: &JSObject, // only used for getter, setter calling
         flags: u32,
@@ -220,7 +220,7 @@ impl JSObject {
         match prs_flags & (JS_PROP_TMASK | JS_PROP_WRITABLE | JS_PROP_LENGTH) {
             JS_PROP_WRITABLE => {
                 // non-length, normal, writable
-                self.0.prop_values.borrow_mut()[slot_idx] = JSProperty::Normal(value);
+                self.0.prop_values.borrow_mut()[index] = JSProperty::Normal(value);
                 return Ok(true);
             }
             0 => {
@@ -235,14 +235,14 @@ impl JSObject {
         }
 
         //
-        // slow path: for length, getset, lazy
+        // slow path: length, setter, lazy
         //
 
         if prs_flags & JS_PROP_LENGTH != 0 {
             // special prop length: to set .length property of an array-like object
             debug_assert_eq!(self.class_id(), JS_CLASS_ARRAY);
             debug_assert_eq!(prop, JS_ATOM_length);
-            debug_assert_eq!(slot_idx, 0, "length property must be index 0");
+            debug_assert_eq!(index, 0, "length property must be index 0");
 
             self.set_array_length(
                 ctx,
@@ -252,16 +252,17 @@ impl JSObject {
         } else if prs_flags & JS_PROP_LAZYINIT == JS_PROP_LAZYINIT {
             // lazy init replaced with normal value
             std::mem::replace(
-                &mut self.0.prop_values.borrow_mut()[slot_idx],
+                &mut self.0.prop_values.borrow_mut()[index],
                 JSProperty::Normal(value),
             );
             self.shape().unwrap().with_mut(|s| {
-                let (_, prs) = s.prop_defs.get_index_mut(slot_idx).unwrap();
+                let (_, prs) = s.prop_defs.get_index_mut(index).unwrap();
                 prs.set_flags(prs.flags() & !JS_PROP_TMASK);
             });
             Ok(true)
         } else {
-            let pr = self.0.prop_values.borrow()[slot_idx].clone();
+            // setter
+            let pr = self.0.prop_values.borrow()[index].clone();
             match pr {
                 JSProperty::GetSet { setter, .. } => call_setter(
                     ctx,

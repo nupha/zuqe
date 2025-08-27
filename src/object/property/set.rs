@@ -179,24 +179,12 @@ impl JSObject {
             JSValue::Object(this) => {
                 let mut update_own: Option<(usize, u32)> = None;
 
-                for p in self.prototype_iter(ctx, true) {
-                    let proto = p?;
+                for up in self.prototype_iter(ctx, true) {
+                    let proto = up?;
 
                     // find own property
                     if let Some((idx, prs_flags)) = proto.find_shape_property(prop) {
                         match prs_flags & JS_PROP_TMASK {
-                            JS_PROP_GETSET => {
-                                // use setter
-                                return this.put_prop_slot(
-                                    ctx,
-                                    prs_flags,
-                                    prop,
-                                    idx,
-                                    val.clone(),
-                                    this,
-                                    flags,
-                                );
-                            }
                             JS_PROP_NORMAL | JS_PROP_LAZYINIT => {
                                 if proto.eq(this) {
                                     // should update own property of `this`
@@ -204,7 +192,26 @@ impl JSObject {
                                     break;
                                 }
                             }
-                            _ => {}
+                            JS_PROP_GETSET => {
+                                // use setter
+                                if let JSProperty::GetSet { setter, .. } =
+                                    proto.0.prop_values.borrow()[idx].clone()
+                                {
+                                    return call_setter(
+                                        ctx,
+                                        setter.as_ref(),
+                                        &this.clone().into(),
+                                        val.clone(),
+                                        flags,
+                                    );
+                                } else {
+                                    unreachable!()
+                                }
+                            }
+                            _ => {
+                                #[cfg(debug_assertions)]
+                                unreachable!();
+                            }
                         }
                     }
 
