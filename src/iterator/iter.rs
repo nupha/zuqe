@@ -9,7 +9,7 @@ use crate::{
     iterator::JSAsyncFromSyncIteratorData,
     map::MapKV,
     object::{
-        JS_GPN_ENUM_ONLY, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
+        JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SET_ENUM, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
         JS_PROP_THROW, JSObject, ObjectPayload, PropertyEnum,
     },
     runtime::JSRuntime,
@@ -81,14 +81,14 @@ impl ForInIterObjPayload {
                     // no enumerable property, is fast array.
                     // we only store the number of elements
                     it.is_array = true;
-                    it.prop_count = ob.array_elements_count() as u32;
+                    it.prop_count = ob.fast_array_count() as u32;
                 }
             }
 
             if !it.is_array {
                 // obj is not an array: query own property names list
                 let names =
-                    ob.query_own_property_names(ctx, JS_GPN_STRING_MASK | JS_GPN_SET_ENUM)?;
+                    ob.query_own_property_names(ctx, JS_GPN_INDEX_MASK | JS_GPN_SET_ENUM)?;
                 it.prop_count = names.len() as _;
                 it.prop_enums = names;
             }
@@ -116,7 +116,7 @@ impl ForInIterObjPayload {
                     let mut props_count: u32 = 0;
                     cur_obj.own_property_names_foreach(
                         ctx,
-                        JS_GPN_STRING_MASK | JS_GPN_ENUM_ONLY,
+                        JS_GPN_INDEX_MASK | JS_GPN_ENUM_ONLY,
                         |_, _| {
                             props_count += 1;
                             Ok(())
@@ -139,7 +139,7 @@ impl ForInIterObjPayload {
             let lst = unsafe {
                 self.obj
                     .object_unchecked()
-                    .query_own_property_names(ctx, JS_GPN_STRING_MASK | JS_GPN_SET_ENUM)
+                    .query_own_property_names(ctx, JS_GPN_INDEX_MASK | JS_GPN_SET_ENUM)
             }?;
             self.is_array = false;
             self.prop_count = lst.len() as _;

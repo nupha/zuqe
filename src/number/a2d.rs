@@ -1,7 +1,7 @@
 use smallvec::SmallVec;
 
 use crate::error::JSResult;
-use crate::{context::JSContext, error::ErrorKind, string::strstart, value::JSValue};
+use crate::{context::JSContext, string::strstart, value::JSValue};
 
 pub const ATOD_INT_ONLY: i32 = 1 << 0;
 /* accept Oo and Ob prefixes in addition to 0x prefix if radix = 0 */
@@ -29,6 +29,78 @@ pub const fn to_digit(c: u8) -> i32 {
     } else {
         36 // '$'
     }
+}
+
+/// parse str to i64
+pub(crate) fn parse_i64(str: &str) -> Result<i64, i32> {
+    let (str, minus) = if str.starts_with('-') {
+        (&str[1..], true)
+    } else {
+        (str, false)
+    };
+
+    let len = str.len();
+    if len == 0 {
+        return Err(-1);
+    }
+
+    let mut num: i64 = 0;
+
+    for (i, ch) in str.char_indices() {
+        if ch.is_ascii_digit() {
+            if i == 0 && ch == '0' {
+                // starting with '0'
+                return if len != 1 { Err(-1) } else { Ok(0) };
+            }
+
+            let n = ch as i64 - '0' as i64;
+            num = num
+                .checked_mul(10)
+                .and_then(|x| x.checked_add(n))
+                .ok_or(-1)?;
+        } else if i > 0 && ch == '_' {
+            //skip '_'
+        } else {
+            return Err(-1);
+        }
+    }
+
+    if minus {
+        num = num.checked_mul(-1).ok_or(-1)?;
+    }
+    Ok(num)
+}
+
+/// parse str to u32
+pub(crate) fn parse_u32(str: &str) -> Result<u32, i32> {
+    let len = str.len();
+    if len == 0 || len > 10 {
+        return Err(-1);
+    }
+
+    let mut num: u32 = 0;
+
+    for (i, ch) in str.char_indices() {
+        if ch.is_ascii_digit() {
+            if i == 0 && ch == '0' {
+                // starting with '0'
+                return if len != 1 { Err(-1) } else { Ok(0) };
+            }
+
+            let n = ch as u64 - '0' as u64;
+            let n64: u64 = (num as u64) * 10 + n;
+            if n64 >> 32 != 0 {
+                return Err(-1); // u32 overflow
+            }
+            num = n64 as u32;
+        } else if i > 0 && ch == '_' {
+            //skip '_'
+        } else {
+            return Err(-1);
+        }
+    }
+
+    Ok(num)
 }
 
 pub unsafe fn js_atof(

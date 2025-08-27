@@ -435,9 +435,9 @@ pub unsafe fn expand_fast_array(ctx: &JSContext, p: *mut JSValue, new_len: u32) 
     // return 0;
 }
 
-#[deprecated(note = "use JSContext::create_array() instead")]
+#[deprecated(note = "use JSContext::create_array_with_capacity() instead")]
 pub unsafe fn js_allocate_fast_array(ctx: &JSContext, len: i64) -> JSValue {
-    unreachable!("use JSContext::create_array() instead");
+    unreachable!("use JSContext::create_array_with_capacity() instead");
 }
 
 #[deprecated(note = "use JSParseState::parse_string_escape() instead")]
@@ -2708,9 +2708,9 @@ pub unsafe fn JS_ToNumberHintFree(
     // JSValue::do_coerce_to_number_free(ctx, val, flag).unwrap_or(JSValue::EXCEPTION)
 }
 
-#[deprecated(note = "use JSValue::to_index() instead")]
-pub fn JS_ToIndex(ctx: &JSContext, val: &JSValue) -> Result<u64, i32> {
-    val.to_index(ctx).map(|v| v as u64)
+#[deprecated(note = "use JSValue::to_array_index() instead")]
+pub fn JS_ToIndex(ctx: &JSContext, val: &JSValue) -> Result<i64, i32> {
+    val.to_array_index(ctx)
 }
 
 #[deprecated(note = "use JSValue::from_i32() instead")]
@@ -3514,7 +3514,7 @@ pub fn __JS_AtomIsConst(v: JSAtom) -> bool {
 
 #[deprecated(note = "use JSAtom::is_int_type() instead")]
 pub fn __JS_AtomIsTaggedInt(v: JSAtom) -> bool {
-    v.is_int_type()
+    v.is_small_int()
 }
 
 #[deprecated(note = "use JSAtom::from_u32() instead")]
@@ -3834,9 +3834,9 @@ pub fn __JS_AtomToUInt32(atom: JSAtom) -> u32 {
 }
 
 /// test if the `atom` can be used as an array index (in 0..u32::MAX range).
-#[deprecated(note = "use JSAtom::to_index() instead")]
+#[deprecated(note = "use JSAtom::to_array_index() instead")]
 pub fn JS_AtomIsArrayIndex(ctx: &JSContext, pval: *mut u32, atom: JSAtom) -> bool {
-    if atom.is_int_type() {
+    if atom.is_small_int() {
         unsafe {
             *pval = __JS_AtomToUInt32(atom);
         }

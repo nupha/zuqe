@@ -301,7 +301,7 @@ impl JSShape {
 
         let mut s = self.0.borrow_mut();
         s.prop_defs.insert(prop.0, prs);
-        s.has_small_array_index |= prop.is_int_type();
+        s.has_small_array_index |= prop.is_small_int();
 
         Ok(new_len)
     }

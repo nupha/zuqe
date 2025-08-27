@@ -423,21 +423,10 @@ impl JSValue {
         }
     }
 
-    /// convert value to length between [0, MAX_SAFE_INTEGER].
+    /// convert value to length between \[0, MAX_SAFE_INTEGER\].
     #[inline]
     pub fn to_length(&self, ctx: &JSContext) -> Result<i64, i32> {
         self.to_i64_clamp(ctx, 0, MAX_SAFE_INTEGER, 0)
-    }
-
-    /// coerce value to index between [0, MAX_SAFE_INTEGER].
-    pub fn to_index(&self, ctx: &JSContext) -> Result<u64, i32> {
-        let i: i64 = self.to_i64_saturating(ctx)?;
-        if !(0..=MAX_SAFE_INTEGER).contains(&i) {
-            ctx.throw_range_error("invalid array index");
-            Err(-1)
-        } else {
-            Ok(i as u64)
-        }
     }
 }
 

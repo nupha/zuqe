@@ -1,11 +1,10 @@
 use std::{collections::hash_map::Entry, ffi::CStr, num::NonZeroU16, rc::Rc};
 
 use crate::{
-    atom::{
-        JS_ATOM_HASH_PRIVATE, JS_ATOM_HASH_SYMBOL, JS_ATOM_TAG_INT, consts::JS_ATOM_empty_string,
-    },
+    atom::{JS_ATOM_HASH_PRIVATE, JS_ATOM_HASH_SYMBOL, JS_ATOM_TAG_INT},
+    number::parse_u32,
     runtime::JSRuntime,
-    string::{JSString, StringBuf, parse_u32_radix},
+    string::{JSString, StringBuf},
 };
 
 use super::{
@@ -175,7 +174,7 @@ impl JSAtom {
 
     /// make atom from `str`
     pub fn from_str(rt: &mut JSRuntime, str: &str, type_hint: AtomTypeHint) -> Result<Self, i32> {
-        if let Ok(i) = parse_u32_radix(str, 10)
+        if let Ok(i) = parse_u32(str)
             && i <= JS_ATOM_MAX_INT
         {
             Ok(JSAtom::new_small_int(i))

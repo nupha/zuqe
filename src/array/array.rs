@@ -67,26 +67,33 @@ impl JSContext {
         )?)
     }
 
+    /// create an Array object with pre-allocated capacity.
+    /// `cap` is allowed no greater than i32::MAX
+    pub(super) fn create_array_with_capacity(&self, cap: usize) -> Result<Array, i32> {
+        if cap <= i32::MAX as usize {
+            let mut lst = Vec::<JSValue>::new();
+            if cap > 0 {
+                lst.try_reserve_exact(cap).map_err(|_| {
+                    self.throw_out_of_memory();
+                    -1
+                })?;
+            }
+            let fa = self.create_array_with_values(lst)?;
+            if cap > 0 {
+                fa.0.set_array_length(self, cap as u32, true)?;
+            }
+            Ok(fa)
+        } else {
+            self.throw_range_error("invalid array length");
+            Err(-1)
+        }
+    }
+
     /// create an empty Array
     #[inline(always)]
     pub fn create_array(&self) -> Result<Array, i32> {
         self.create_array_with_values(Vec::new())
     }
-
-    // /// create a sparse Array object with capacity.
-    // pub(super) fn create_sparse_array(&self, capacity: usize) -> Result<Array, i32> {
-    //     debug_assert!(capacity > 0);
-    //     if capacity <= MAX_SAFE_INTEGER as usize {
-    //         let fa = self.create_array_with_values(Vec::new())?;
-    //         if capacity > 0 {
-    //             fa.0.set_array_length(self, capacity as u32, true)?;
-    //         }
-    //         Ok(fa)
-    //     } else {
-    //         self.throw_range_error("invalid array length");
-    //         Err(-1)
-    //     }
-    // }
 }
 
 impl JSObject {
@@ -230,13 +237,13 @@ impl JSObject {
     /// - for Array or Argument instance, return elements count (not property `length`);
     /// - for TypedArray or DataView instance, return elements count;
     /// - __Panic__ when object is not an Array, Argument, TypedArray or DataView.
-    pub(crate) fn array_elements_count(&self) -> usize {
+    pub(crate) fn fast_array_count(&self) -> u32 {
         if let Some(ap) = self.0.payload.borrow().array() {
             // ARRAY or ARGUMENT
-            ap.values.len()
+            ap.values.len() as u32
         } else if let Some(ta) = self.0.payload.borrow().typed_array() {
             // typed array or dataview
-            ta.count as usize
+            ta.count
         } else {
             unreachable!("expect argument, array, typed array or dataview")
         }
@@ -251,11 +258,9 @@ impl JSObject {
     pub fn set_array_length(
         &self,
         ctx: &JSContext,
-        len: u32,
+        length: u32,
         throw_error: bool,
     ) -> Result<bool, i32> {
-        let len = len as usize;
-
         if self
             .shape()
             .and_then(|sh| {
@@ -284,15 +289,15 @@ impl JSObject {
         if self.flags().is_fast_array() {
             // fast array
             self.with_fast_array_values_mut(|lst| {
-                let old_len = lst.len();
-                if len < old_len {
-                    lst.drain(len..old_len);
+                let old_len = lst.len() as u32;
+                if length < old_len {
+                    lst.drain(length as usize..old_len as usize);
                 }
             })
             .unwrap();
-            self.0.prop_values.borrow_mut()[0] = JSProperty::Normal(JSValue::from(len as i64));
+            self.0.prop_values.borrow_mut()[0] = JSProperty::Normal(JSValue::from(length as i64));
         } else {
-            // Note: length is always a uint32 because the object is an array
+            // Note: prop `length` must be less than u32::MAX
             let mut arr_len = self
                 .0
                 .prop_values
@@ -300,17 +305,17 @@ impl JSObject {
                 .first()
                 .map(|pr| pr.value(ctx, &JSValue::UNDEFINED))
                 .unwrap() // `length` property must be defined in slot #0
-                .and_then(|v| v.to_u32(ctx))? as usize;
+                .and_then(|v| v.to_u32(ctx))?;
 
-            if len < arr_len {
+            if length < arr_len {
                 // delete index property
                 let mut sh = self.shape().unwrap();
-                let d = arr_len - len;
-                let propdef_len = sh.0.borrow().prop_defs.len();
+                let d = arr_len - length;
+                let propdef_len = sh.0.borrow().prop_defs.len() as u32;
 
                 if d <= propdef_len {
                     // faster to iterate
-                    while arr_len > len {
+                    while arr_len > length {
                         let atom = JSAtom::from_u32(ctx.rt_mut(), arr_len as u32 - 1)?;
                         let ret = self.delete_property(ctx, atom);
                         JS_FreeAtom(ctx, atom);
@@ -322,10 +327,10 @@ impl JSObject {
                 } else {
                     // faster to iterate thru all the properties.
                     // Need two passes in case one of the property is not  configurable
-                    arr_len = len;
+                    arr_len = length;
                     sh.with_mut(|sh| {
                         for pr in sh.prop_defs.values() {
-                            if let Some(i) = pr.atom.to_index(ctx.rt()) {
+                            if let Some(i) = pr.atom.to_array_index(ctx.rt()) {
                                 if i >= arr_len && (pr.flags() & JS_PROP_CONFIGURABLE == 0) {
                                     arr_len = i + 1;
                                 }
@@ -338,11 +343,11 @@ impl JSObject {
                         let prop =
                             sh.0.borrow()
                                 .prop_defs
-                                .get_index(i)
+                                .get_index(i as usize)
                                 .map(|(_, prs)| prs.atom)
                                 .unwrap();
 
-                        if let Some(idx) = prop.to_index(ctx.rt()) {
+                        if let Some(idx) = prop.to_array_index(ctx.rt()) {
                             if idx >= arr_len {
                                 self.delete_property(ctx, prop).unwrap();
                                 // WARNING: the shape may have been modified
@@ -352,13 +357,13 @@ impl JSObject {
                     }
                 }
             } else {
-                arr_len = len;
+                arr_len = length;
             }
 
             // #0 is the `length`
             self.0.prop_values.borrow_mut()[0] = JSProperty::Normal(JSValue::from(arr_len as u32));
 
-            if arr_len > len {
+            if arr_len > length {
                 return if ctx.throw_type_error_or_false(
                     if throw_error { JS_PROP_THROW } else { 0 },
                     "not configurable",
@@ -394,7 +399,7 @@ impl JSValue {
     }
 
     /// if value is Array or Argument class, and is fast array, returns values slice.
-    #[inline]
+    #[inline(always)]
     pub fn with_fast_array_values<R>(&self, f: impl FnOnce(&[JSValue]) -> R) -> Option<R> {
         self.object().and_then(|o| o.with_fast_array_values(f))
     }
@@ -402,7 +407,7 @@ impl JSValue {
     /// if value is Array or Argument class, and is a fast array,
     /// run closure with values slice,
     /// otherwise returns None.
-    #[inline]
+    #[inline(always)]
     pub fn with_fast_array_values_mut<R>(
         &self,
         f: impl FnOnce(&mut Vec<JSValue>) -> R,
@@ -410,8 +415,7 @@ impl JSValue {
         self.object().and_then(|o| o.with_fast_array_values_mut(f))
     }
 
-    /// coerce value to valid array length.
-    /// array length can't be greater than 2^32-1 (u32::MAX) per js specification.
+    /// coerce value to array length, which is in range \[0, 2^32-1\].
     pub fn to_array_length(&self, ctx: &JSContext, is_array_ctor: bool) -> Result<u32, i32> {
         let len: u32;
 
@@ -457,6 +461,17 @@ impl JSValue {
         }
 
         Ok(len)
+    }
+
+    /// coerce value to array index, which is in range \[0, MAX_SAFE_INTEGER\].
+    pub fn to_array_index(&self, ctx: &JSContext) -> Result<i64, i32> {
+        let i: i64 = self.to_i64_saturating(ctx)?;
+        if (0..=MAX_SAFE_INTEGER).contains(&i) {
+            Ok(i)
+        } else {
+            ctx.throw_range_error("invalid array index");
+            Err(-1)
+        }
     }
 }
 

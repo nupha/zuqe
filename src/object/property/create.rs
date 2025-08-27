@@ -28,38 +28,46 @@ impl JSObject {
         setter: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        let update_array_length_fn = |obj: &JSObject, idx: usize| -> Option<Result<bool, i32>> {
-            let len_val = obj.0.prop_values.borrow()[0]
-                .value(ctx, &JSValue::UNDEFINED)
-                .and_then(|v| v.to_length(ctx));
+        let update_array_length_fn = |arr: &JSObject, idx: u32| -> Option<Result<bool, i32>> {
+            // Note: array length must <= u32::MAX
+            if idx < u32::MAX {
+                let cur_len = arr.0.prop_values.borrow()[0]
+                    .value(ctx, &JSValue::UNDEFINED)
+                    .and_then(|v| v.to_length(ctx));
 
-            match len_val {
-                Ok(len) => {
-                    if (idx as i64 + 1) > len {
-                        // prop index 0 is `length`
-                        let prop0_flags = obj
-                            .shape()
-                            .map(|sh| sh.0.borrow().prop_defs.first().unwrap().1.flags())
-                            .unwrap();
+                match cur_len {
+                    Ok(len0) => {
+                        let new_len = idx + 1;
+                        if new_len as i64 > len0 {
+                            // prop index 0 is `length`
+                            let prop0_flags = arr
+                                .shape()
+                                .map(|sh| sh.0.borrow().prop_defs.first().unwrap().1.flags())
+                                .unwrap();
 
-                        if prop0_flags & JS_PROP_WRITABLE == 0 {
-                            return Some(if ctx.JS_ThrowTypeErrorReadOnly(flags, JS_ATOM_length) {
-                                Ok(false)
-                            } else {
-                                Err(-1)
-                            });
+                            if prop0_flags & JS_PROP_WRITABLE == 0 {
+                                return Some(
+                                    if ctx.JS_ThrowTypeErrorReadOnly(flags, JS_ATOM_length) {
+                                        Ok(false)
+                                    } else {
+                                        Err(-1)
+                                    },
+                                );
+                            }
+
+                            arr.0.prop_values.borrow_mut()[0] =
+                                JSProperty::Normal(JSValue::from(new_len));
                         }
-
-                        obj.0.prop_values.borrow_mut()[0] =
-                            JSProperty::Normal(JSValue::from(idx as i64 + 1));
+                        None
                     }
-                    None
+                    Err(e) => Some(if ctx.can_throw_error(flags) {
+                        Err(e)
+                    } else {
+                        Ok(false)
+                    }),
                 }
-                Err(e) => Some(if ctx.can_throw_error(flags) {
-                    Err(e)
-                } else {
-                    Ok(false)
-                }),
+            } else {
+                None
             }
         };
 
@@ -70,10 +78,10 @@ impl JSObject {
             match self.class_id() {
                 JS_CLASS_ARRAY => {
                     if obj_flags.is_fast_array() {
-                        if let Some(n) = prop.to_int() {
-                            let idx = n as usize;
+                        if let Some(n) = prop.to_small_int() {
+                            let idx = n;
 
-                            if idx == self.array_elements_count() {
+                            if idx == self.fast_array_count() {
                                 if !self.flags().extensible() {
                                     return if ctx.throw_type_error_or_false(
                                         flags as _,
@@ -130,7 +138,7 @@ impl JSObject {
                                     return ret;
                                 }
                             }
-                        } else if let Some(idx) = prop.to_index(ctx.rt()) {
+                        } else if let Some(idx) = prop.to_array_index(ctx.rt()) {
                             // convert fast array to sparse array
                             if let Err(e) = self.destruct_fast_array(ctx) {
                                 return if ctx.can_throw_error(flags) {
@@ -143,7 +151,7 @@ impl JSObject {
                                 return ret;
                             }
                         }
-                    } else if let Some(idx) = prop.to_index(ctx.rt()) {
+                    } else if let Some(idx) = prop.to_array_index(ctx.rt()) {
                         if let Some(ret) = update_array_length_fn(self, idx) {
                             return ret;
                         }

@@ -13,7 +13,7 @@ use crate::{
         js_create_array_iterator,
     },
     object::{
-        JS_DefineObjectName, JS_DefineObjectNameComputed, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK,
+        JS_DefineObjectName, JS_DefineObjectNameComputed, JS_GPN_SET_ENUM, JS_GPN_INDEX_MASK,
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
         JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE, JS_SetConstructorBit, ObjectPayload,
         js_get_length32,
@@ -448,7 +448,7 @@ pub fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
                 let names = unsafe {
                     it.obj
                         .object_unchecked()
-                        .query_own_property_names(ctx, JS_GPN_STRING_MASK | JS_GPN_SET_ENUM)?
+                        .query_own_property_names(ctx, JS_GPN_INDEX_MASK | JS_GPN_SET_ENUM)?
                 };
                 it.prop_count = names.len() as _;
                 it.prop_enums = names;

@@ -76,7 +76,9 @@ pub const PROP_TYPE_ASYNC_STAR: i32 = 6;
 pub const PROP_TYPE_PRIVATE: i32 = 1 << 4;
 
 // Get property names flags
-/// Include string properties
+/// Include array or string index properties
+pub const JS_GPN_INDEX_MASK: i32 = 1 << 0;
+#[deprecated(note = "renamed to JS_GPN_INDEX_MASK")]
 pub const JS_GPN_STRING_MASK: i32 = 1 << 0;
 /// Include symbol properties
 pub const JS_GPN_SYMBOL_MASK: i32 = 1 << 1;
@@ -84,7 +86,8 @@ pub const JS_GPN_SYMBOL_MASK: i32 = 1 << 1;
 pub const JS_GPN_PRIVATE_MASK: i32 = 1 << 2;
 /// Only include enumerable properties
 pub const JS_GPN_ENUM_ONLY: i32 = 1 << 4;
-/// Set the is_enumerable field in JSPropertyEnum
+/// set theJSPropertyEnum.is_enumerable field
+#[deprecated(note = "has no effect")]
 pub const JS_GPN_SET_ENUM: i32 = 1 << 5;
 
 #[derive(Debug, Clone)]
@@ -296,7 +299,7 @@ impl JSObject {
         excluded: Option<&Self>,
         setprop: bool,
     ) -> Result<(), i32> {
-        let mut gpn_flags = JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK | JS_GPN_ENUM_ONLY;
+        let mut gpn_flags = JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK | JS_GPN_ENUM_ONLY;
 
         if source.flags().is_exotic()
             && unsafe {
@@ -338,6 +341,13 @@ impl JSObject {
 
             Ok(())
         })
+    }
+
+    /// Read `length` property defined on `self`.
+    /// if `length` property is null or undefined, returns 0.
+    /// returned integer is in range [0..MAX_SAFE_INTEGER]
+    pub fn get_length_prop(&self, ctx: &JSContext) -> Result<i64, i32> {
+        self.get_property(ctx, JS_ATOM_length)?.to_length(ctx)
     }
 }
 
@@ -382,6 +392,13 @@ impl JSValue {
         } else {
             Ok(())
         }
+    }
+
+    /// Read `length` property defined on `self`.
+    /// if `length` property is null or undefined, returns 0.
+    /// The returned integer is in range [0..MAX_SAFE_INTEGER]
+    pub fn get_length_prop(&self, ctx: &JSContext) -> Result<i64, i32> {
+        self.get_property(ctx, JS_ATOM_length)?.to_length(ctx)
     }
 }
 
@@ -432,13 +449,14 @@ pub const unsafe fn check_define_prop_flags(prop_flags: u32, flags: u32) -> bool
 }
 
 /// Get object `length` property as u32
+#[deprecated(note = "use JSValue::get_length_prop() instead")]
 pub fn js_get_length32(ctx: &JSContext, obj: &JSValue) -> Result<u32, i32> {
     obj.get_property(ctx, JS_ATOM_length)
         .and_then(|v| v.to_u32(ctx))
 }
 
 /// Get object `length` property as i64
-#[deprecated(note = "use JSValue::get_property() + JSValue::to_length() combination")]
+#[deprecated(note = "use JSObject::get_length_prop() or JSValue::get_length_prop() instead")]
 pub fn js_get_length64(ctx: &JSContext, obj: &JSValue) -> Result<i64, i32> {
-    obj.get_property(ctx, JS_ATOM_length)?.to_length(ctx)
+    obj.get_length_prop(ctx)
 }

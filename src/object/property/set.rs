@@ -71,8 +71,8 @@ impl JSObject {
 
         let mut state = SetPropState::WalkUpProto;
 
-        if let Some(idx) = prop.to_int() {
-            if idx < self.array_elements_count() as u32 {
+        if let Some(idx) = prop.to_small_int() {
+            if idx < self.fast_array_count() as u32 {
                 if this_obj.object() == Some(self) {
                     return this_obj
                         .set_property_value(ctx, &JSValue::Int(idx as _), val, flags)

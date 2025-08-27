@@ -111,7 +111,7 @@ impl JSObject {
             if self.flags().is_fast_array() {
                 match self.class_id() {
                     JS_CLASS_ARRAY => {
-                        if let Some(idx) = prop.to_int() {
+                        if let Some(idx) = prop.to_small_int() {
                             let idx = idx as usize;
                             let array_len = self.with_fast_array_values(|lst| lst.len()).unwrap();
 
@@ -137,9 +137,9 @@ impl JSObject {
                         }
                     }
                     JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
-                        if let Some(idx) = prop.to_int() {
+                        if let Some(idx) = prop.to_small_int() {
                             /* if the typed array is detached, p->u.array.count = 0 */
-                            if idx >= self.array_elements_count() as u32 {
+                            if idx >= self.fast_array_count() as u32 {
                                 return if ctx.throw_type_error_or_false(
                                     flags,
                                     "out-of-bound index in typed array",
@@ -209,7 +209,7 @@ impl JSObject {
                                 };
                             }
 
-                            if !prop.is_int_type() {
+                            if !prop.is_small_int() {
                                 return if ctx.throw_type_error_or_false(
                                     flags,
                                     "out-of-bound index in typed array",

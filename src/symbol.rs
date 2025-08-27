@@ -19,7 +19,7 @@ impl JSContext {
 
     /// `atom` must be a non-numeric string atom
     pub fn create_symbol_from_atom(&self, atom: JSAtom, atom_type: AtomTypeHint) -> JSResult {
-        debug_assert!(!atom.is_int_type());
+        debug_assert!(!atom.is_small_int());
         let s = self.rt().get_atom_desc(atom).unwrap().clone();
         self.create_symbol(Some(s), atom_type)
     }

@@ -26,7 +26,7 @@ use crate::{
 };
 
 use super::{
-    GCObject, JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE,
+    GCObject, JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE,
     JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_THROW,
     JS_PROP_WRITABLE, JSProperty, JSShape, ObjectPayload,
 };
@@ -654,7 +654,7 @@ impl JSValue {
 
             p.own_property_names_foreach(
                 ctx,
-                JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK,
+                JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK,
                 |cx, name| {
                     let prop = name.atom;
                     let mut flags = JS_PROP_THROW | JS_PROP_HAS_CONFIGURABLE;
@@ -693,7 +693,7 @@ impl JSValue {
         let p = unsafe { self.object_unchecked() };
         let mut check_unsealed: Option<bool> = None;
 
-        p.own_property_names_foreach(ctx, JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK, |cx, name| {
+        p.own_property_names_foreach(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK, |cx, name| {
             if check_unsealed.is_none() {
                 if let Some(desc) = p.get_own_property(cx, name.atom)? {
                     if desc.flags & JS_PROP_CONFIGURABLE != 0

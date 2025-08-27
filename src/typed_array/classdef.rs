@@ -61,11 +61,11 @@ pub fn js_typed_array_constructor(ctx: &JSContext, cc: CallContext) -> JSResult 
             p.class_id(),
             JS_CLASS_ARRAY_BUFFER | JS_CLASS_SHARED_ARRAY_BUFFER
         ) {
-            let offset = cc.arg(1).to_index(ctx)? as usize;
+            let offset = cc.arg(1).to_array_index(ctx)? as usize;
 
             let a2 = cc.arg(2);
             let len = if !a2.is_undefined() {
-                a2.to_index(ctx)? as usize
+                a2.to_array_index(ctx)? as usize
             } else {
                 0
             };
@@ -75,7 +75,7 @@ pub fn js_typed_array_constructor(ctx: &JSContext, cc: CallContext) -> JSResult 
             ctx.create_typed_array_from(new_target, cc.arg(0), 0, 0, class_id as _)
         }
     } else {
-        let len = cc.arg(0).to_index(ctx)? as usize;
+        let len = cc.arg(0).to_array_index(ctx)? as usize;
         ctx.create_typed_array_from(new_target, &JSValue::UNDEFINED, 0, len, class_id as _)
     }
 }

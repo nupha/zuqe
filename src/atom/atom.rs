@@ -87,7 +87,7 @@ impl JSAtom {
 
     /// get atom descriptor kind
     pub fn kind(self, rt: &JSRuntime) -> AtomDescKind {
-        if self.is_int_type() {
+        if self.is_small_int() {
             return AtomDescKind::JS_ATOM_KIND_STRING;
         }
 
@@ -103,7 +103,7 @@ impl JSAtom {
 
     /// test if atom has non-null string description
     pub fn has_description(self, ctx: &JSContext) -> bool {
-        if self.is_int_type() {
+        if self.is_small_int() {
             return false;
         }
 
@@ -118,18 +118,18 @@ impl JSAtom {
             .unwrap()
     }
 
-    /// test if the atom is int type
+    /// test if the atom is small int type
     #[inline(always)]
-    pub fn is_int_type(self) -> bool {
+    pub fn is_small_int(self) -> bool {
         (self.0 & JS_ATOM_TAG_INT) != 0
     }
 
-    /// if atom is int, returns the integer value.
-    /// otherwise returns None.
-    #[inline(always)]
-    pub fn to_int(&self) -> Option<u32> {
-        if self.is_int_type() {
-            Some(self.0 & JS_ATOM_MAX_INT)
+    /// if atom is integral and the int is in range [0, JS_ATOM_MAX_INT],
+    /// returns the integer.
+    #[inline]
+    pub fn to_small_int(&self) -> Option<u32> {
+        if self.is_small_int() {
+            Some(self.0 & !JS_ATOM_TAG_INT)
         } else {
             None
         }
@@ -163,7 +163,7 @@ impl JSAtom {
     /// Convert atom to String or Symbol value.
     /// Note: atom is not consumed.
     pub fn to_string_or_symbol(self, ctx: &JSContext, force_string: bool) -> Result<JSValue, i32> {
-        if let Some(n) = self.to_int() {
+        if let Some(n) = self.to_small_int() {
             ctx.create_string_from_utf8(format!("{n}",).into_bytes())
                 .map(JSValue::String)
         } else {
@@ -187,20 +187,38 @@ impl JSAtom {
         }
     }
 
-    /// if the atom can be used as an array index (in 0..u32::MAX range), returns the index.
-    pub fn to_index(self, rt: &JSRuntime) -> Option<usize> {
+    /// if atom can be used as array index, which is an int in range \[0, 2^32-1), returns the int.
+    pub fn to_array_index(self, rt: &JSRuntime) -> Option<u32> {
         if self == JS_ATOM_NULL {
             None
-        } else if let Some(n) = self.to_int() {
-            Some(n as usize)
+        } else if let Some(n) = self.to_small_int() {
+            Some(n)
         } else {
             if let Some(p) = rt.get_atom_desc(self) {
                 if let Some(AtomHintAndId::String(_)) = p.atom_info() {
-                    if let Ok(n) = p.content().parse_u32() {
-                        if n != u32::MAX {
-                            return Some(n as usize);
-                        }
+                    // Per js specification, array length could be 2^32-1 in max,
+                    // thus array index must be less than u32::MAX.
+                    if let Ok(n) = p.content().parse_u32()
+                        && n < u32::MAX
+                    {
+                        return Some(n);
                     }
+                }
+            }
+            None
+        }
+    }
+
+    /// if atom can be represented/parsed as an i64, returns the i64.
+    pub fn to_i64(self, rt: &JSRuntime) -> Option<i64> {
+        if self == JS_ATOM_NULL {
+            None
+        } else if let Some(n) = self.to_small_int() {
+            Some(n as i64)
+        } else {
+            if let Some(p) = rt.get_atom_desc(self) {
+                if let Some(AtomHintAndId::String(_)) = p.atom_info() {
+                    return p.content().parse_i64().ok();
                 }
             }
             None
@@ -211,7 +229,7 @@ impl JSAtom {
     pub fn with_utf8<R>(self, rt: &JSRuntime, f: impl FnOnce(Cow<'_, str>) -> R) -> R {
         if self.eq(&JS_ATOM_NULL) {
             f(Cow::Borrowed("<null>"))
-        } else if let Some(n) = self.to_int() {
+        } else if let Some(n) = self.to_small_int() {
             f(Cow::Owned(format!("{n}")))
         } else {
             f(rt.get_atom_desc(self)
@@ -368,7 +386,7 @@ pub unsafe fn JS_FreeAtomStruct(rt: *mut JSRuntime, atom: JSAtom) {
 // method name). Return JS_UNDEFINED if not a numeric
 // index. JS_EXCEPTION can also be returned.
 pub fn JS_AtomIsNumericIndex1(ctx: &JSContext, atom: JSAtom) -> JSValue {
-    if let Some(n) = atom.to_int() {
+    if let Some(n) = atom.to_small_int() {
         return JSValue::Int(n as _);
     }
 

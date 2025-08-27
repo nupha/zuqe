@@ -50,15 +50,15 @@ impl JSObject {
             // for array index or exotic.
             if obj_flags.is_exotic() {
                 if obj_flags.is_fast_array() {
-                    if let Some(idx) = prop.to_index(ctx.rt()) {
+                    if let Some(idx) = prop.to_array_index(ctx.rt()) {
                         match self.class_id() {
                             JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
-                                let cnt = self.array_elements_count();
+                                let cnt = self.fast_array_count();
                                 if idx < cnt {
                                     if self
                                         .with_fast_array_values_mut(|lst| -> bool {
-                                            debug_assert_eq!(lst.len(), cnt);
-                                            if idx == lst.len() - 1 {
+                                            debug_assert_eq!(lst.len(), cnt as usize);
+                                            if idx == lst.len() as u32 - 1 {
                                                 // remove the last.
                                                 // returns true to indicate delete is done.
                                                 lst.pop();
@@ -81,7 +81,7 @@ impl JSObject {
                                 }
                             }
                             JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
-                                if idx < self.array_elements_count() {
+                                if idx < self.fast_array_count() {
                                     // delete element of a TypedArray is not allowed.
                                     return Ok(false);
                                 }

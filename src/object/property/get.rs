@@ -74,8 +74,8 @@ impl JSObject {
             let ob_flags = cur_obj.flags();
             if ob_flags.is_exotic() {
                 if ob_flags.is_fast_array() {
-                    if let Some(idx) = prop.to_int() {
-                        if idx < cur_obj.array_elements_count() as u32 {
+                    if let Some(idx) = prop.to_small_int() {
+                        if idx < cur_obj.fast_array_count() as u32 {
                             return cur_obj.get_property_value(ctx, &JSValue::from(idx));
                         }
 
@@ -270,7 +270,7 @@ impl JSValue {
                 if prop == JS_ATOM_length {
                     // string length
                     Ok(JSValue::from(s.buf_len() as u32))
-                } else if let Some(idx) = prop.to_int() {
+                } else if let Some(idx) = prop.to_small_int() {
                     // get code at index
                     if let Some(code) = s.content().get(idx as usize) {
                         ctx.create_string_with_buf(if (0..=255).contains(&code) {

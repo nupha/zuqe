@@ -10,7 +10,7 @@ use crate::{
         js_object_isExtensible, js_object_preventExtensions,
     },
     object::{
-        JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE,
+        JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE,
         JS_SetPrototypeInternal,
     },
     value::JSValue,
@@ -114,7 +114,7 @@ pub fn js_reflect_ownKeys(ctx: &JSContext, cc: CallContext) -> JSResult {
     if let JSValue::Object(obj) = cc.arg(0) {
         obj.get_own_property_names_ex(
             ctx,
-            JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK,
+            JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK,
             JSIteratorKindEnum::JS_ITERATOR_KIND_KEY,
         )
     } else {

@@ -2,29 +2,30 @@ use crate::{
     JS_CLASS_STRING,
     atom::{AtomDescKind, JS_ATOM_NULL, JS_FreeAtom, JSAtom},
     context::JSContext,
-    error::JSResult,
+    error::{JS_ThrowReferenceErrorUninitialized, JSResult},
     iterator::JSIteratorKindEnum,
     mem::js_free,
-    object::{JS_PROP_C_W_E, JSObject},
+    object::{JS_GPN_SET_ENUM, JS_PROP_C_W_E, JS_PROP_TMASK, JS_PROP_VARREF, JSObject, JSProperty},
     string::JSString,
     value::JSValue,
 };
 
-use super::{JS_GPN_ENUM_ONLY, JS_GPN_STRING_MASK, JS_PROP_ENUMERABLE, JS_PROP_THROW};
+use super::{JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_PROP_ENUMERABLE, JS_PROP_THROW};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PropertyEnumIsa {
-    Index(u32),
+pub enum PropertyKeyKind {
     String,
     Symbol,
+    /// in range \[0, u32::MAX)
+    ArrayIndex(u32),
 }
 
 #[derive(Debug)]
 pub struct PropertyEnum {
     pub atom: JSAtom,
+    pub isa: PropertyKeyKind,
     pub is_enumerable: bool,
-    pub isa: PropertyEnumIsa,
-    pub exotic: bool,
+    pub is_exotic: bool,
 }
 
 impl JSObject {
@@ -57,48 +58,74 @@ impl JSObject {
     ) -> Result<(), i32> {
         let enum_only = flags & JS_GPN_ENUM_ONLY != 0;
 
-        for (_, prs) in self.shape().unwrap().0.borrow().prop_defs.iter() {
+        // 1. shape props
+        for (i, (_, prs)) in self
+            .shape()
+            .unwrap()
+            .0
+            .borrow()
+            .prop_defs
+            .iter()
+            .enumerate()
+        {
             if prs.atom != JS_ATOM_NULL {
                 let is_enumerable = prs.flags() & JS_PROP_ENUMERABLE != 0;
                 let kind = prs.atom.kind(ctx.rt());
 
                 if (!enum_only || is_enumerable) && ((flags >> (kind as u8)) & 1 != 0) {
+                    // need to raise an exception in case of the module
+                    // name space (implicit GetOwnProperty)
+                    if prs.flags() & JS_PROP_TMASK == JS_PROP_VARREF
+                        && flags & (JS_GPN_ENUM_ONLY | JS_GPN_SET_ENUM) != 0
+                    {
+                        if let JSProperty::VarRef(vref) =
+                            self.0.prop_values.borrow().get(i).unwrap()
+                        {
+                            if vref.value().is_uninitialized() {
+                                JS_ThrowReferenceErrorUninitialized(ctx, prs.atom);
+                                return Err(-1);
+                            }
+                        }
+                    }
+
                     callback(
                         ctx,
                         PropertyEnum {
                             atom: prs.atom, // NOTE: atom is not duplicated here.
-                            isa: if let Some(num_key) = prs.atom.to_index(ctx.rt()) {
-                                PropertyEnumIsa::Index(num_key as u32)
+                            isa: if let Some(idx) = prs.atom.to_array_index(ctx.rt()) {
+                                PropertyKeyKind::ArrayIndex(idx as u32)
                             } else if kind == AtomDescKind::JS_ATOM_KIND_STRING {
-                                PropertyEnumIsa::String
+                                PropertyKeyKind::String
                             } else {
-                                PropertyEnumIsa::Symbol
+                                PropertyKeyKind::Symbol
                             },
                             is_enumerable,
-                            exotic: false,
+                            is_exotic: false,
                         },
                     )?;
                 }
             }
         }
 
-        if self.flags().is_exotic() {
-            if self.flags().is_fast_array() {
-                if (flags & JS_GPN_STRING_MASK) != 0 {
-                    for i in 0..self.array_elements_count() {
+        // 2. exotic or array index
+        let obj_flags = self.flags();
+        if obj_flags.is_exotic() {
+            if obj_flags.is_fast_array() {
+                if flags & JS_GPN_INDEX_MASK != 0 {
+                    for i in 0..self.fast_array_count() {
                         callback(
                             ctx,
                             PropertyEnum {
                                 atom: JSAtom::new_small_int(i as u32),
                                 is_enumerable: true,
-                                isa: PropertyEnumIsa::Index(i as u32),
-                                exotic: false,
+                                isa: PropertyKeyKind::ArrayIndex(i as u32),
+                                is_exotic: false,
                             },
                         )?;
                     }
                 }
             } else if self.class_id() == JS_CLASS_STRING {
-                if flags & JS_GPN_STRING_MASK != 0 {
+                if flags & JS_GPN_INDEX_MASK != 0 {
                     let buf_len = TryInto::<JSString>::try_into(self.clone())
                         .unwrap()
                         .buf_len();
@@ -109,8 +136,8 @@ impl JSObject {
                             PropertyEnum {
                                 atom: JSAtom::new_small_int(i as u32),
                                 is_enumerable: true,
-                                isa: PropertyEnumIsa::Index(i as u32),
-                                exotic: false,
+                                isa: PropertyKeyKind::ArrayIndex(i as u32),
+                                is_exotic: false,
                             },
                         )?;
                     }
@@ -119,13 +146,13 @@ impl JSObject {
                 ctx.rt().class_defs[self.class_id() as usize]
                     .exotic
                     .as_ref()
-                    .and_then(|xm| xm.get_own_property_names)
+                    .and_then(|m| m.get_own_property_names)
             } {
-                let mut tab_exotic = std::ptr::null_mut::<PropertyEnum>();
+                let mut exotic_ptr = std::ptr::null_mut::<PropertyEnum>();
                 let mut exotic_count: u32 = 0;
                 if f(
                     ctx,
-                    &mut tab_exotic,
+                    &mut exotic_ptr,
                     &mut exotic_count,
                     JSValue::Object(self.clone()),
                 ) != 0
@@ -135,34 +162,43 @@ impl JSObject {
 
                 // Note: exotic keys comes after the object own properties.
                 let mut has_err = false;
-
                 for i in 0..exotic_count {
-                    let atom = unsafe { (*tab_exotic.offset(i as isize)).atom };
-
+                    let atom = unsafe { (*exotic_ptr.offset(i as isize)).atom };
                     if !has_err {
-                        let is_enumerable =
-                            unsafe { (*tab_exotic.offset(i as isize)).is_enumerable };
-                        let kind = atom.kind(ctx.rt());
-                        if (flags & JS_GPN_ENUM_ONLY == 0 || is_enumerable)
-                            && ((flags >> (kind as u8)) & 1) != 0
-                        {
-                            let isa = if let Some(num_key) = atom.to_index(ctx.rt()) {
-                                PropertyEnumIsa::Index(num_key as u32)
-                            } else if kind == AtomDescKind::JS_ATOM_KIND_STRING {
-                                PropertyEnumIsa::String
-                            } else {
-                                PropertyEnumIsa::Symbol
-                            };
-                            has_err = callback(
-                                ctx,
-                                PropertyEnum {
-                                    atom,
-                                    is_enumerable,
-                                    isa,
-                                    exotic: true,
-                                },
-                            )
-                            .is_err();
+                        let atom_kind = atom.kind(ctx.rt());
+                        if (flags >> (atom_kind as u8)) & 1 != 0 {
+                            // XXX: what's the purpose to read `is_enumerable` from descr?
+                            // why not use is_enumerable set in exotic get_own_property callback?
+                            //
+                            // if flags & (JS_GPN_SET_ENUM | JS_GPN_ENUM_ONLY) != 0 {
+                            //     let mut is_enumerable = false;
+                            //     if let Some(d) = self.get_own_property(ctx, atom)? {
+                            //         is_enumerable = d.flags & JS_PROP_ENUMERABLE != 0;
+                            //     }
+                            // }
+
+                            let is_enumerable =
+                                unsafe { (*exotic_ptr.offset(i as isize)).is_enumerable };
+
+                            if is_enumerable || flags & JS_GPN_ENUM_ONLY == 0 {
+                                let isa = if let Some(i) = atom.to_array_index(ctx.rt()) {
+                                    PropertyKeyKind::ArrayIndex(i as u32)
+                                } else if atom_kind == AtomDescKind::JS_ATOM_KIND_STRING {
+                                    PropertyKeyKind::String
+                                } else {
+                                    PropertyKeyKind::Symbol
+                                };
+                                has_err = callback(
+                                    ctx,
+                                    PropertyEnum {
+                                        atom,
+                                        isa,
+                                        is_enumerable,
+                                        is_exotic: true,
+                                    },
+                                )
+                                .is_err();
+                            }
                         }
                     }
 
@@ -170,7 +206,7 @@ impl JSObject {
                 }
 
                 unsafe {
-                    js_free(ctx, tab_exotic.cast());
+                    js_free(ctx, exotic_ptr.cast());
                 }
 
                 if has_err {
@@ -205,7 +241,7 @@ impl JSObject {
                 })?;
             }
 
-            if !pp.exotic {
+            if !pp.is_exotic {
                 sort_cnt += 1;
             }
 
@@ -226,21 +262,21 @@ impl JSObject {
         // Note: sort owned number, string, symbol only, exotic keys are not sorted.
         if sort_cnt > 0 {
             lst[0..sort_cnt].sort_by(|p1, p2| match (p1.isa, p2.isa) {
-                (PropertyEnumIsa::Index(i1), PropertyEnumIsa::Index(i2)) => {
+                (PropertyKeyKind::ArrayIndex(i1), PropertyKeyKind::ArrayIndex(i2)) => {
                     i1.cmp(&i2) // for both index, order by integer
                 }
                 (
-                    PropertyEnumIsa::String | PropertyEnumIsa::Symbol,
-                    PropertyEnumIsa::String | PropertyEnumIsa::Symbol,
+                    PropertyKeyKind::String | PropertyKeyKind::Symbol,
+                    PropertyKeyKind::String | PropertyKeyKind::Symbol,
                 ) => {
                     // string vs symbol: keep insert sequence
                     std::cmp::Ordering::Equal
                 }
-                (PropertyEnumIsa::Index(_), _) => {
+                (PropertyKeyKind::ArrayIndex(_), _) => {
                     // index always comes before string or symbol
                     std::cmp::Ordering::Less
                 }
-                (_, PropertyEnumIsa::Index(_)) => {
+                (_, PropertyKeyKind::ArrayIndex(_)) => {
                     // index always comes before string or symbol
                     std::cmp::Ordering::Greater
                 }

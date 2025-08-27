@@ -204,7 +204,7 @@ impl JSFunctionDef {
         {
             if let Ok(atom) =
                 JSAtom::from_string(self.ctx.rt_mut(), ss.clone(), AtomTypeHint::String)
-                && !atom.is_int_type()
+                && !atom.is_small_int()
             {
                 self.emit_op(OpCode::PUSH_ATOM_VALUE, last_line_num);
                 self.emit_u32(atom.0);

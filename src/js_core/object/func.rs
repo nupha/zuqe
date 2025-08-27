@@ -10,7 +10,7 @@ use crate::{
     js_core::mapset::{js_map_constructor, js_map_get, js_map_set},
     number::MAX_SAFE_INTEGER,
     object::{
-        JS_GPN_ENUM_ONLY, JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_C_W_E,
+        JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_C_W_E,
         JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_THROW, JS_PROP_WRITABLE,
         JS_PreventExtensions, JS_SetPrototypeInternal, ObjectPayload, PropertyEnum,
     },
@@ -32,7 +32,7 @@ pub fn JS_ObjectDefineProperties(
     if let JSValue::Object(obj) = obj {
         let r = props.own_property_names_foreach(
             ctx,
-            JS_GPN_ENUM_ONLY | JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK,
+            JS_GPN_ENUM_ONLY | JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK,
             |cx, name: PropertyEnum| {
                 let desc = props.get_property(cx, name.atom)?;
                 if let JSValue::Object(desc) = desc {
@@ -141,7 +141,7 @@ pub fn js_object_defineProperties(ctx: &JSContext, cc: CallContext) -> JSResult 
 pub fn js_object_getOwnPropertyNames(ctx: &JSContext, cc: CallContext) -> JSResult {
     cc.arg(0).get_own_property_names2(
         ctx,
-        JS_GPN_STRING_MASK,
+        JS_GPN_INDEX_MASK,
         JSIteratorKindEnum::JS_ITERATOR_KIND_KEY,
     )
 }
@@ -164,7 +164,7 @@ pub fn js_object_keys(ctx: &JSContext, cc: CallContext) -> JSResult {
     );
 
     cc.arg(0)
-        .get_own_property_names2(ctx, JS_GPN_ENUM_ONLY | JS_GPN_STRING_MASK, unsafe {
+        .get_own_property_names2(ctx, JS_GPN_ENUM_ONLY | JS_GPN_INDEX_MASK, unsafe {
             std::mem::transmute::<u8, JSIteratorKindEnum>(kind as u8)
         })
 }
@@ -353,7 +353,7 @@ pub fn js_object_getOwnPropertyDescriptors(ctx: &JSContext, cc: CallContext) -> 
     let obj = cc.arg(0).to_object(ctx)?;
     let res_obj = ctx.create_base_object()?;
 
-    obj.own_property_names_foreach(ctx, JS_GPN_STRING_MASK | JS_GPN_SYMBOL_MASK, |cx, name| {
+    obj.own_property_names_foreach(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK, |cx, name| {
         let atom_value = name.atom.to_string_or_symbol(ctx, false)?;
         let desc = js_object_getOwnPropertyDescriptor(
             ctx,

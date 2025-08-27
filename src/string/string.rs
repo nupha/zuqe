@@ -746,7 +746,7 @@ fn string_define_own_property(
         };
     }
 
-    if let Some(idx) = prop.to_int() {
+    if let Some(idx) = prop.to_small_int() {
         let ob = unsafe { this_obj.object_unchecked() };
         if let JSValue::String(p1) = ob.0.payload.borrow().value().unwrap() {
             let len = p1.buf_len();
@@ -792,7 +792,7 @@ pub static js_string_exotic_methods: JSClassExoticMethods = JSClassExoticMethods
          prop: JSAtom|
          -> Result<Option<JSPropertyDescriptor>, i32> {
             // This is a class exotic method: obj class_id is JS_CLASS_STRING
-            if let Some(idx) = prop.to_int()
+            if let Some(idx) = prop.to_small_int()
                 && let Some(JSValue::String(s)) =
                     obj.object().and_then(|o| o.0.payload.borrow().value())
                 && idx < s.buf_len() as u32
@@ -814,7 +814,7 @@ pub static js_string_exotic_methods: JSClassExoticMethods = JSClassExoticMethods
 
     delete_property: Some(
         |_: &JSContext, obj: JSValue, prop: JSAtom| -> Result<bool, i32> {
-            if let Some(idx) = prop.to_int() {
+            if let Some(idx) = prop.to_small_int() {
                 let buflen = TryInto::<JSString>::try_into(obj).unwrap().buf_len();
                 if (idx as usize) < buflen {
                     return Ok(false);
