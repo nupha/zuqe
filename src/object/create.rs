@@ -4,7 +4,7 @@ use crate::{
     atom::consts::JS_ATOM_prototype,
     context::JSContext,
     function::JS_GetFunctionRealm,
-    object::{JSObject, JSShape, ObjectDetail, ObjectInner},
+    object::{JSObject, JSShape, ObjectPayload, ObjectInner},
     value::JSValue,
 };
 
@@ -14,8 +14,8 @@ impl JSContext {
     pub(crate) fn create_object_with_shape(
         &self,
         shape: JSShape,
-        payload: ObjectDetail,
-    ) -> Result<JSObject, ObjectDetail> {
+        payload: ObjectPayload,
+    ) -> Result<JSObject, ObjectPayload> {
         let obj = JSObject(Rc::new(ObjectInner::new(self, Some(shape), payload)?));
         self.rt_mut()
             .gc_add_object(obj.id(), obj.downgrade().into());
@@ -32,8 +32,8 @@ impl JSContext {
     pub fn create_object_from_proto(
         &self,
         proto: JSValue,
-        payload: ObjectDetail,
-    ) -> Result<JSObject, ObjectDetail> {
+        payload: ObjectPayload,
+    ) -> Result<JSObject, ObjectPayload> {
         // find shape by prototype
         let shape = {
             let proto_ob = if let JSValue::Object(o) = proto {
@@ -64,8 +64,8 @@ impl JSContext {
     pub fn create_object_apply_ctor(
         &self,
         ctor: &JSValue,
-        payload: ObjectDetail,
-    ) -> Result<JSObject, ObjectDetail> {
+        payload: ObjectPayload,
+    ) -> Result<JSObject, ObjectPayload> {
         let class_id = payload.class_id();
 
         let proto = if ctor.is_undefined() {
@@ -92,7 +92,7 @@ impl JSContext {
     /// create new object with `payload` data.
     /// New object's prototype and shape are determined by `payload` automatically.
     #[inline]
-    pub fn create_object(&self, payload: ObjectDetail) -> Result<JSObject, ObjectDetail> {
+    pub fn create_object(&self, payload: ObjectPayload) -> Result<JSObject, ObjectPayload> {
         self.create_object_from_proto(
             self.0.borrow().class_proto[payload.class_id() as usize].clone(),
             payload,
@@ -102,13 +102,13 @@ impl JSContext {
     /// create new basic object with specified prototype `proto`.
     #[inline(always)]
     pub fn create_base_object_from_proto(&self, proto: JSValue) -> Result<JSObject, i32> {
-        self.create_object_from_proto(proto, ObjectDetail::OBJECT)
+        self.create_object_from_proto(proto, ObjectPayload::OBJECT)
             .map_err(|_| -1)
     }
 
     /// Create new basic object using default Object prototype
     #[inline(always)]
     pub fn create_base_object(&self) -> Result<JSObject, i32> {
-        self.create_object(ObjectDetail::OBJECT).map_err(|_| -1)
+        self.create_object(ObjectPayload::OBJECT).map_err(|_| -1)
     }
 }

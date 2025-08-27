@@ -7,7 +7,7 @@ use crate::{
     context::{JSContext, is_strict_mode},
     function::{Bytecode, CallContext, FieldDef, get_func_name},
     object::{
-        JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE, ObjectDetail,
+        JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE, ObjectPayload,
     },
     stack_frame::StackFrame,
     string::{JS_ConcatString, JS_ConcatString3},
@@ -83,7 +83,7 @@ impl JSContext {
     /// old exception will be freed.
     pub(crate) fn throw_error_ex(&self, kind: ErrorKind, message: &str, add_backtrace: bool) {
         let proto = self.0.borrow().native_error_proto[kind as usize].clone();
-        let exc = if let Ok(o) = self.create_object_from_proto(proto, ObjectDetail::ERROR) {
+        let exc = if let Ok(o) = self.create_object_from_proto(proto, ObjectPayload::ERROR) {
             let s = self.create_string_from_str(message);
             let _ = o.define_property_value(
                 self,

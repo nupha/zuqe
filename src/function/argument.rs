@@ -7,7 +7,7 @@ use crate::{
     context::JSContext,
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_VARREF,
-        JS_PROP_WRITABLE, JSProperty, ObjectDetail, js_get_length32,
+        JS_PROP_WRITABLE, JSProperty, ObjectPayload, js_get_length32,
     },
     runtime::JS_MAX_LOCAL_VARS,
     stack_frame::StackFrame,
@@ -16,7 +16,7 @@ use crate::{
 
 impl JSContext {
     pub(crate) fn build_rest(&self, first: usize, args: &[JSValue]) -> JSResult {
-        let arr = self.create_array(0)?;
+        let arr = self.create_array( )?;
         if !args.is_empty() {
             for (i, v) in args.iter().enumerate().skip(first) {
                 arr.0.define_property_value_u32(
@@ -34,7 +34,7 @@ impl JSContext {
 pub unsafe fn js_build_arguments(ctx: &JSContext, args: &[JSValue]) -> JSValue {
     let obj: JSObject = if let Ok(o) = ctx.create_object_from_proto(
         ctx.0.borrow().class_proto[JS_CLASS_OBJECT as usize].clone(),
-        ObjectDetail::ARGUMENTS(ArrayObjPayload::default()),
+        ObjectPayload::ARGUMENTS(ArrayObjPayload::default()),
     ) {
         o
     } else {
@@ -98,7 +98,7 @@ pub unsafe fn js_build_mapped_arguments(
 ) -> JSValue {
     let val: JSValue = if let Ok(o) = ctx.create_object_from_proto(
         ctx.0.borrow().class_proto[JS_CLASS_OBJECT as usize].clone(),
-        ObjectDetail::MAPPED_ARGUMENTS,
+        ObjectPayload::MAPPED_ARGUMENTS,
     ) {
         o.into()
     } else {

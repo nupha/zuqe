@@ -6,7 +6,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{BytecodeFunction, ObjFunc, build_arg_list},
-    object::{JSObject, ObjectDetail},
+    object::{JSObject, ObjectPayload},
     stack_frame::StackFrame,
     value::{JSValue, JSValueConst},
 };
@@ -310,7 +310,7 @@ pub fn JS_CallConstructorInternal(
         } else {
             // legacy constructor behavior
             let this: JSValue =
-                if let Ok(o) = ctx.create_object_apply_ctor(&new_target, ObjectDetail::OBJECT) {
+                if let Ok(o) = ctx.create_object_apply_ctor(&new_target, ObjectPayload::OBJECT) {
                     o.into()
                 } else {
                     return JSValue::EXCEPTION;

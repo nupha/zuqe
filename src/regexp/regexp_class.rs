@@ -14,7 +14,7 @@ use crate::{
     js_core::js_get_this,
     object::{
         JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, JS_SpeciesConstructor, JSObject,
-        ObjectDetail,
+        ObjectPayload,
     },
     runtime::JSRuntime,
     string::{JS_ConcatString3, JSString, StringBuf, StringChar, StringContent},
@@ -117,14 +117,14 @@ pub fn js_regexp_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     };
 
     let obj = ctx
-        .create_object_apply_ctor(cc.this(), ObjectDetail::REGEXP(Box::new(re)))
+        .create_object_apply_ctor(cc.this(), ObjectPayload::REGEXP(Box::new(re)))
         .map_err(|_| -1)?;
     obj.define_property_value(ctx, JS_ATOM_lastIndex, JSValue::Int(0), JS_PROP_WRITABLE)?;
     Ok(obj.into())
 }
 
 pub fn js_get_regexp(ctx: &JSContext, obj: &JSObject, throw_error: bool) -> Option<JSRegExp> {
-    if let ObjectDetail::REGEXP(re) = obj.0.payload.borrow().deref() {
+    if let ObjectPayload::REGEXP(re) = obj.0.payload.borrow().deref() {
         Some(*re.clone())
     } else {
         if throw_error {
@@ -147,13 +147,13 @@ pub fn js_is_regexp(ctx: &JSContext, obj: &JSValue) -> Result<bool, i32> {
     }
 }
 
-pub fn js_regexp_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {}
+pub fn js_regexp_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
 
-pub fn js_regexp_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {}
+pub fn js_regexp_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
 
 pub fn js_regexp_iterator_mark(val: JSValue) {
     // unsafe {
-    //     if let ObjectDetail::REGEXP_STRING_ITERATOR(p) =
+    //     if let ObjectPayload::REGEXP_STRING_ITERATOR(p) =
     //         val.object_unchecked().0.payload.borrow().deref()
     //     {
     //         //
@@ -365,7 +365,7 @@ fn js_regexp_compile(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     let re = Box::new(JSRegExp::new(ctx, pattern, flags_str)?);
-    *cc.this().object().unwrap().0.payload.borrow_mut() = ObjectDetail::REGEXP(re);
+    *cc.this().object().unwrap().0.payload.borrow_mut() = ObjectPayload::REGEXP(re);
 
     cc.this()
         .set_property(ctx, JS_ATOM_lastIndex, JSValue::Int(0))?;
@@ -378,7 +378,7 @@ fn make_regexp_capture_array(
     text: JSString,
     cap_list: &[(Option<Range<usize>>, Option<&str>)],
 ) -> Result<(JSValue, usize), i32> {
-    let arr = ctx.create_array(0)?;
+    let arr = ctx.create_array()?;
     let mut group = JSValue::UNDEFINED;
 
     let prop_flags = JS_PROP_C_W_E | JS_PROP_THROW;
@@ -468,7 +468,7 @@ pub fn js_regexp_Symbol_match(ctx: &JSContext, cc: CallContext) -> JSResult {
             // has g flag: use find(), returns array of match
             let found = re.find(&str, 0);
             if !found.is_empty() {
-                let arr = ctx.create_array(0)?;
+                let arr = ctx.create_array()?;
                 let prop_flags = JS_PROP_C_W_E | JS_PROP_THROW;
                 let mut last_index = 0;
 
@@ -507,7 +507,7 @@ pub fn js_regexp_Symbol_match(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     } else {
         // slow path: use customized exec method, and collect matched string to array
-        let arr = ctx.create_array(0)?;
+        let arr = ctx.create_array()?;
         let args = [str.clone().into()];
 
         let mut cnt = 0;
@@ -590,7 +590,7 @@ pub fn js_regexp_Symbol_matchAll(ctx: &JSContext, cc: CallContext) -> JSResult {
         done: false,
     };
     let iter = ctx
-        .create_object(ObjectDetail::REGEXP_STRING_ITERATOR(Box::new(isa)))
+        .create_object(ObjectPayload::REGEXP_STRING_ITERATOR(Box::new(isa)))
         .map_err(|_| -1)?;
 
     Ok(iter.into())
@@ -854,7 +854,7 @@ pub fn js_regexp_Symbol_split(ctx: &JSContext, cc: CallContext) -> JSResult {
         (TryInto::<JSObject>::try_into(re).unwrap(), u)
     };
 
-    let arr = ctx.create_array(0)?;
+    let arr = ctx.create_array()?;
     if limit == 0 {
         return Ok(arr.into());
     }

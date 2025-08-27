@@ -43,7 +43,7 @@ use crate::{
     number::{js_number_constructor, js_number_funcs, js_number_proto_funcs},
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET,
-        JS_PROP_HAS_SET, JS_PROP_WRITABLE, ObjectDetail, js_object_seal,
+        JS_PROP_HAS_SET, JS_PROP_WRITABLE, ObjectPayload, js_object_seal,
     },
     promise::{Promise, js_promise_funcs, js_promise_proto_funcs},
     reflect::js_reflect_obj,
@@ -272,7 +272,7 @@ impl JSContext {
         let number_obj = self
             .create_object_from_proto(
                 self.0.borrow().class_proto[JS_CLASS_OBJECT as usize].clone(),
-                ObjectDetail::NUMBER(JSValue::Int(0)),
+                ObjectPayload::NUMBER(JSValue::Int(0)),
             )
             .unwrap();
         number_obj
@@ -294,7 +294,7 @@ impl JSContext {
         let bool_obj = self
             .create_object_from_proto(
                 self.0.borrow().class_proto[JS_CLASS_OBJECT as usize].clone(),
-                ObjectDetail::BOOLEAN(JSValue::Bool(false)),
+                ObjectPayload::BOOLEAN(JSValue::Bool(false)),
             )
             .unwrap();
 
@@ -321,7 +321,7 @@ impl JSContext {
             let o = self
                 .create_object_from_proto(
                     self.0.borrow().class_proto[JS_CLASS_OBJECT as usize].clone(),
-                    ObjectDetail::STRING(empty_str.into()),
+                    ObjectPayload::STRING(empty_str.into()),
                 )
                 .unwrap();
 

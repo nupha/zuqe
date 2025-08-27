@@ -3,7 +3,7 @@ use std::ops::Deref;
 use crate::{
     context::JSContext,
     error::JSResult,
-    object::{JSObject, ObjectDetail},
+    object::{JSObject, ObjectPayload},
     object_cast,
     runtime::JSRuntime,
     value::JSValue,
@@ -25,11 +25,11 @@ pub struct BoundFunction(JSObject);
 object_cast!(BoundFunction, crate::JS_CLASS_BOUND_FUNCTION);
 
 impl BoundFunction {
-    pub fn hook_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {}
+    pub fn hook_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
 
     pub fn hook_mark(val: JSValue) {
         unsafe {
-            if let ObjectDetail::BOUND_FUNCTION(bf) =
+            if let ObjectPayload::BOUND_FUNCTION(bf) =
                 val.object_unchecked().0.payload.borrow().deref()
             {
                 val.gc_mark();
@@ -52,7 +52,7 @@ impl BoundFunction {
     ) -> JSResult {
         let isa = unsafe { func_obj.object_unchecked().0.payload.borrow() };
 
-        if let ObjectDetail::BOUND_FUNCTION(bf) = isa.deref() {
+        if let ObjectPayload::BOUND_FUNCTION(bf) = isa.deref() {
             let arg_count = bf.bind_args.len() + args.len() as usize;
 
             // if js_check_stack_overflow(&ctx.rt(), std::mem::size_of::<JSValue>() * arg_count) {

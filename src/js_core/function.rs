@@ -6,7 +6,7 @@ use crate::{
     function::{
         CallContext, FieldDef, JSFunctionKindEnum, ObjBoundFunc, ObjFunc, js_function_apply,
     },
-    object::{JS_PROP_CONFIGURABLE, ObjectDetail},
+    object::{JS_PROP_CONFIGURABLE, ObjectPayload},
     string::JS_ConcatString3,
     value::JSValue,
 };
@@ -52,7 +52,7 @@ pub fn js_function_bind(ctx: &JSContext, args: CallContext) -> JSResult {
     let func_obj = ctx
         .create_object_from_proto(
             ctx.0.borrow().function_proto.clone(),
-            ObjectDetail::BOUND_FUNCTION(bf),
+            ObjectPayload::BOUND_FUNCTION(bf),
         )
         .map_err(|_| -1)?;
 

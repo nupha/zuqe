@@ -15,7 +15,7 @@ use crate::{
     object::{
         JS_DefineObjectName, JS_DefineObjectNameComputed, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK,
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
-        JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE, JS_SetConstructorBit, ObjectDetail,
+        JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE, JS_SetConstructorBit, ObjectPayload,
         js_get_length32,
     },
     stack_frame::StackFrame,
@@ -165,7 +165,7 @@ pub fn js_op_define_class(
     let func = ctx
         .create_object_from_proto(
             parent_class,
-            ObjectDetail::BYTECODE_FUNCTION(ObjFunc::default()),
+            ObjectPayload::BYTECODE_FUNCTION(ObjFunc::default()),
         )
         .map_err(|_| -1)?;
 
@@ -395,7 +395,7 @@ pub fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
 
     let ob = unsafe { enum_obj.object_unchecked() };
 
-    if let ObjectDetail::FOR_IN_ITERATOR(it) = ob.0.payload.borrow_mut().deref_mut() {
+    if let ObjectPayload::FOR_IN_ITERATOR(it) = ob.0.payload.borrow_mut().deref_mut() {
         let mut prop: JSAtom;
 
         loop {

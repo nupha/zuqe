@@ -2,7 +2,7 @@ use crate::{
     JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING, JS_CLASS_SYMBOL,
     atom::consts::*,
     context::JSContext,
-    object::{JSObject, ObjectDetail},
+    object::{JSObject, ObjectPayload},
     runtime::JSRuntime,
     value::{HINT_FORCE_ORDINARY, HINT_NUMBER, HINT_STRING, JSValue},
 };
@@ -106,7 +106,7 @@ pub fn JS_GetPrototypePrimitive(ctx: &JSContext, val: &JSValue) -> JSValue {
     })
 }
 
-pub const fn js_object_data_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {
+pub const fn js_object_data_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {
     // free object data
     // JS_FreeValueRT(
     //     rt,

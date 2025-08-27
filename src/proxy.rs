@@ -4,7 +4,7 @@ use crate::{
     atom::{JSAtom, consts::*},
     context::JSContext,
     error::JS_ThrowTypeErrorRevokedProxy,
-    object::{JS_PreventExtensions, JS_SetPrototypeInternal, ObjectDetail},
+    object::{JS_PreventExtensions, JS_SetPrototypeInternal, ObjectPayload},
     runtime::{JSRuntime, js_check_stack_overflow},
     value::{JSValue, JSValueConst},
 };
@@ -22,7 +22,7 @@ pub unsafe fn get_proxy_method<'a>(
     obj: &'a JSValueConst,
     name: JSAtom,
 ) -> Result<(JSValue, &'a ObjProxy), i32> {
-    if let ObjectDetail::PROXY(s) = obj.object_unchecked().0.payload.borrow().deref() {
+    if let ObjectPayload::PROXY(s) = obj.object_unchecked().0.payload.borrow().deref() {
         unimplemented!()
 
         // // safer to test recursion in all proxy methods
@@ -52,7 +52,7 @@ pub unsafe fn get_proxy_method<'a>(
 
 pub fn js_proxy_isArray(ctx: &JSContext, val: &JSValue) -> Result<bool, i32> {
     if let JSValue::Object(p) = val {
-        if let ObjectDetail::PROXY(s) = p.0.payload.borrow().deref() {
+        if let ObjectPayload::PROXY(s) = p.0.payload.borrow().deref() {
             if js_check_stack_overflow(ctx.rt(), 0) {
                 ctx.throw_stack_overflow();
                 return Err(-1);
@@ -180,7 +180,7 @@ pub unsafe fn js_proxy_setPrototypeOf(
     }
 }
 
-pub fn js_proxy_finalizer(rt: &mut JSRuntime, is: &ObjectDetail, id: usize) {
+pub fn js_proxy_finalizer(rt: &mut JSRuntime, is: &ObjectPayload, id: usize) {
     unimplemented!();
 }
 

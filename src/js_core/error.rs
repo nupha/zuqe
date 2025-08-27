@@ -5,7 +5,7 @@ use crate::{
     error::{ErrorKind, JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL, JSResult},
     function::{CallContext, JS_GetFunctionRealm},
     iterator::iterator_to_array,
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, ObjectDetail},
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, ObjectPayload},
     value::JSValue,
 };
 
@@ -29,7 +29,7 @@ pub fn js_error_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     let obj = ctx
-        .create_object_from_proto(proto, ObjectDetail::ERROR)
+        .create_object_from_proto(proto, ObjectPayload::ERROR)
         .map_err(|_| -1)?;
 
     let mut arg_index = if cc.magic() == ErrorKind::Aggregate as i32 {
@@ -89,7 +89,7 @@ pub fn js_error_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_aggregate_error_constructor(ctx: &JSContext, errors: JSValue) -> JSValue {
     if let Ok(obj) = ctx.create_object_from_proto(
         ctx.0.borrow().native_error_proto[ErrorKind::Aggregate as usize].clone(),
-        ObjectDetail::ERROR,
+        ObjectPayload::ERROR,
     ) {
         obj.define_property_value(
             ctx,

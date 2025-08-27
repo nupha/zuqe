@@ -269,7 +269,7 @@ impl JSObject {
         kind: JSIteratorKindEnum,
     ) -> JSResult {
         // make result array
-        let ret_array = ctx.create_array(0)?;
+        let ret_array = ctx.create_array()?;
         let lst = self.query_own_property_names(ctx, flags & !JS_GPN_ENUM_ONLY)?;
 
         let mut idx: u32 = 0;
@@ -311,7 +311,7 @@ impl JSObject {
                     }
                 }
                 JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE => {
-                    val = if let Ok(a) = ctx.create_array(0) {
+                    val = if let Ok(a) = ctx.create_array() {
                         a.into()
                     } else {
                         has_err = true;

@@ -9,7 +9,7 @@ use crate::{
     gc::set_cycle_flag,
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE, JSObject, JSPropertyDescriptor,
-        ObjectDetail, PropertyEnum,
+        ObjectPayload, PropertyEnum,
     },
     runtime::JSRuntime,
     value::JSValue,
@@ -25,7 +25,7 @@ pub const OP_DEFINE_METHOD_ENUMERABLE: u8 = 4;
 pub type JSClassID = u32;
 
 /// instance finalizer callback, obj is the object payload.
-pub type JSClassFinalizer = fn(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize);
+pub type JSClassFinalizer = fn(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize);
 
 pub type JSClassGCMark = fn(val: JSValue);
 

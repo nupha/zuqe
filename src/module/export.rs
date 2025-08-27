@@ -11,7 +11,7 @@ use crate::{
     module::{ModuleDef, ModuleDefInner, ModuleResolveExport},
     object::{
         JS_PROP_ENUMERABLE, JS_PROP_VARREF, JS_PROP_WRITABLE, JSObject, JSProperty, LazyInit,
-        ObjectDetail,
+        ObjectPayload,
     },
 };
 
@@ -158,7 +158,7 @@ impl ModuleDef {
 
     /// build module ns object
     unsafe fn make_ns(&self, ctx: &JSContext) -> Result<JSObject, i32> {
-        let obj = ctx.create_object(ObjectDetail::MODULE_NS).map_err(|_| -1)?;
+        let obj = ctx.create_object(ObjectPayload::MODULE_NS).map_err(|_| -1)?;
 
         let mut s_s = GetExportNamesState::default();
         let s = &mut s_s;

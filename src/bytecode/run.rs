@@ -768,7 +768,7 @@ impl Bytecode {
                         // el1, el2 ... elN ^ -> array ^
                         let call_argc = PC_FETCH!(u16) as i32;
 
-                        if let Ok(arr) = ctx.create_array(call_argc as usize) {
+                        if let Ok(arr) = ctx.create_array() {
                             // push elements to array
                             let call_argv = unsafe { sp.offset(-call_argc as isize) };
                             for i in 0..call_argc as isize {

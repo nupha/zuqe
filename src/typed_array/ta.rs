@@ -9,7 +9,7 @@ use crate::{
     context::JSContext,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     iterator::js_array_from_iterator,
-    object::{JSObject, JSObjectWeakref, ObjectDetail, js_get_length64},
+    object::{JSObject, JSObjectWeakref, ObjectPayload, js_get_length64},
     runtime::JSRuntime,
     value::{JSValue, JSValueConst},
 };
@@ -450,15 +450,15 @@ impl JSContext {
     ) -> JSResult {
         let arr = Box::new(ObjTypedArray::new(self, buffer, class_id, offset, count)?);
         let isa = match class_id {
-            JS_CLASS_UINT8C_ARRAY => ObjectDetail::UINT8C_ARRAY(arr),
-            JS_CLASS_UINT8_ARRAY => ObjectDetail::UINT8_ARRAY(arr),
-            JS_CLASS_INT8_ARRAY => ObjectDetail::INT8_ARRAY(arr),
-            JS_CLASS_UINT16_ARRAY => ObjectDetail::UINT16_ARRAY(arr),
-            JS_CLASS_INT16_ARRAY => ObjectDetail::INT16_ARRAY(arr),
-            JS_CLASS_UINT32_ARRAY => ObjectDetail::UINT32_ARRAY(arr),
-            JS_CLASS_INT32_ARRAY => ObjectDetail::UINT32_ARRAY(arr),
-            JS_CLASS_FLOAT32_ARRAY => ObjectDetail::FLOAT32_ARRAY(arr),
-            JS_CLASS_FLOAT64_ARRAY => ObjectDetail::FLOAT64_ARRAY(arr),
+            JS_CLASS_UINT8C_ARRAY => ObjectPayload::UINT8C_ARRAY(arr),
+            JS_CLASS_UINT8_ARRAY => ObjectPayload::UINT8_ARRAY(arr),
+            JS_CLASS_INT8_ARRAY => ObjectPayload::INT8_ARRAY(arr),
+            JS_CLASS_UINT16_ARRAY => ObjectPayload::UINT16_ARRAY(arr),
+            JS_CLASS_INT16_ARRAY => ObjectPayload::INT16_ARRAY(arr),
+            JS_CLASS_UINT32_ARRAY => ObjectPayload::UINT32_ARRAY(arr),
+            JS_CLASS_INT32_ARRAY => ObjectPayload::UINT32_ARRAY(arr),
+            JS_CLASS_FLOAT32_ARRAY => ObjectPayload::FLOAT32_ARRAY(arr),
+            JS_CLASS_FLOAT64_ARRAY => ObjectPayload::FLOAT64_ARRAY(arr),
             c @ (JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY) => {
                 self.throw_type_error(&format!(
                     "typed array for {} is unsupported",
@@ -683,7 +683,7 @@ pub fn js_typed_array_set_internal(
     Ok(JSValue::UNDEFINED)
 }
 
-pub fn js_typed_array_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {
+pub fn js_typed_array_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {
     if let Some(ta) = isa.typed_array() {
         // during the GC the finalizers are called in an arbitrary
         // order so the ArrayBuffer finalizer may have been called

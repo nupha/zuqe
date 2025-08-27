@@ -215,7 +215,7 @@ pub fn js_typed_array_from(ctx: &JSContext, args: CallContext) -> JSResult {
         .is_undefined()
     {
         // target is enumerable
-        let fa = ctx.create_array(0)?;
+        let fa = ctx.create_array()?;
         for (i, v) in items.iter(ctx)?.enumerate() {
             fa.0.define_property_value_i64(ctx, i as _, v?, JS_PROP_C_W_E | JS_PROP_THROW)?;
         }

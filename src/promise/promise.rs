@@ -11,7 +11,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, JS_CallConstructor, js_function_set_properties},
     js_core::error::js_aggregate_error_constructor,
-    object::{JS_PROP_C_W_E, JSObject, ObjectDetail},
+    object::{JS_PROP_C_W_E, JSObject, ObjectPayload},
     object_cast,
     promise::JSPromiseReactionData,
     runtime::JSRuntime,
@@ -82,7 +82,7 @@ impl Promise {
 
         // create js object of promise class
         let promise = Self(
-            ctx.create_object_apply_ctor(new_target, ObjectDetail::PROMISE(s))
+            ctx.create_object_apply_ctor(new_target, ObjectPayload::PROMISE(s))
                 .map_err(|_| -1)?,
         );
 
@@ -117,7 +117,7 @@ impl Promise {
                 .try_into()?
         };
 
-        if let ObjectDetail::C_FUNCTION_DATA(s) = unsafe { executor.object_unchecked() }
+        if let ObjectPayload::C_FUNCTION_DATA(s) = unsafe { executor.object_unchecked() }
             .0
             .payload
             .borrow()
@@ -155,9 +155,9 @@ impl Promise {
                 .create_object_from_proto(
                     function_proto,
                     if i == 0 {
-                        ObjectDetail::PROMISE_RESOLVE_FUNCTION(s)
+                        ObjectPayload::PROMISE_RESOLVE_FUNCTION(s)
                     } else {
-                        ObjectDetail::PROMISE_REJECT_FUNCTION(s)
+                        ObjectPayload::PROMISE_REJECT_FUNCTION(s)
                     },
                 )
                 .map_err(|_| -1)?;
@@ -172,7 +172,7 @@ impl Promise {
 
     /// get Promise meta data.
     fn with_meta<R>(&self, f: impl FnOnce(&PromiseObjPayload) -> R) -> Option<R> {
-        if let ObjectDetail::PROMISE(p) = self.0.0.payload.borrow().deref() {
+        if let ObjectPayload::PROMISE(p) = self.0.0.payload.borrow().deref() {
             Some(f(p))
         } else {
             None
@@ -181,7 +181,7 @@ impl Promise {
 
     /// get Promise meta data.
     fn with_meta_mut<R>(&self, f: impl FnOnce(&mut PromiseObjPayload) -> R) -> Option<R> {
-        if let ObjectDetail::PROMISE(p) = self.0.0.payload.borrow_mut().deref_mut() {
+        if let ObjectPayload::PROMISE(p) = self.0.0.payload.borrow_mut().deref_mut() {
             Some(f(p))
         } else {
             None
@@ -290,8 +290,8 @@ impl Promise {
         Ok(JSValue::UNDEFINED)
     }
 
-    pub fn hook_finalizer(_: &mut JSRuntime, _: &ObjectDetail, _: usize) {
-        // if let ObjectDetail::PROMISE(s) = isa {
+    pub fn hook_finalizer(_: &mut JSRuntime, _: &ObjectPayload, _: usize) {
+        // if let ObjectPayload::PROMISE(s) = isa {
         //     for i in 0..2 {
         //         list_foreach_safe(&mut s.as_mut().unwrap().promise_reactions[i], |el| {
         //             let rd = list_entry!(el, JSPromiseReactionData, link);
@@ -303,7 +303,7 @@ impl Promise {
 
     pub fn hook_mark(val: JSValue) {
         let p = unsafe { val.object_unchecked() };
-        if let ObjectDetail::PROMISE(s) = p.0.payload.borrow().deref() {
+        if let ObjectPayload::PROMISE(s) = p.0.payload.borrow().deref() {
             for i in 0..2 {
                 for rd in s.promise_reactions[i].iter() {
                     rd.resolving_funcs[0].gc_mark();

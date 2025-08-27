@@ -11,7 +11,7 @@ use crate::{
         ObjAsyncState,
     },
     iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW},
-    object::{JS_PROP_CONFIGURABLE, JS_SetPrototypeInternal, ObjectDetail},
+    object::{JS_PROP_CONFIGURABLE, JS_SetPrototypeInternal, ObjectPayload},
     runtime::JSRuntime,
     string::StringBuf,
     value::{JSValue, JSValueConst},
@@ -165,13 +165,13 @@ pub fn js_generator_function_call(
     g.func_state.as_ref().unwrap().resume(ctx)?;
 
     // create js object of generator class
-    ctx.create_object_apply_ctor(func_obj, ObjectDetail::GENERATOR(g))
+    ctx.create_object_apply_ctor(func_obj, ObjectPayload::GENERATOR(g))
         .map(JSValue::Object)
         .map_err(|_| -1)
 }
 
-pub fn js_generator_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {
-    if let ObjectDetail::GENERATOR(s) = isa {
+pub fn js_generator_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {
+    if let ObjectPayload::GENERATOR(s) = isa {
         //s.free_generator_stack_rt(rt);
     }
 }
@@ -187,7 +187,7 @@ pub fn js_generator_next(
 ) -> JSResult {
     *iter_state = IteratorState::Done;
 
-    if let ObjectDetail::GENERATOR(g) = cc
+    if let ObjectPayload::GENERATOR(g) = cc
         .this()
         .object()
         .unwrap()

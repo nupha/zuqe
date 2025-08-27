@@ -2,7 +2,7 @@ use std::ops::DerefMut;
 
 use crate::{
     context::JSContext,
-    object::{JS_SpeciesConstructor, ObjectDetail},
+    object::{JS_SpeciesConstructor, ObjectPayload},
     value::JSValue,
 };
 
@@ -64,7 +64,7 @@ impl Promise {
         });
 
         let mut payload = self.0.0.payload.borrow_mut();
-        if let ObjectDetail::PROMISE(p) = payload.deref_mut() {
+        if let ObjectPayload::PROMISE(p) = payload.deref_mut() {
             if p.promise_state == JSPromiseStateEnum::JS_PROMISE_PENDING {
                 // register pending to call later in micro task job
                 p.promise_reactions[0].push(rd1);

@@ -513,13 +513,13 @@ pub fn gen_class_payload(outfile: &Path) {
 
     let lines: Vec<String> = vec![
         "use crate::{  class::{JSClassID }};\n".to_string(),
-        "// TODO: rename to ClassPayload?\n#[repr(u8)]\n#[derive(Debug)]\npub enum ObjectDetail {"
+        "// TODO: rename to ClassPayload?\n#[repr(u8)]\n#[derive(Debug)]\npub enum ObjectPayload {"
             .to_string(),
         items.join(",\n"),
         "}".to_string(),
         "".to_string(),
         // impl
-        "impl ObjectDetail {".to_string(),
+        "impl ObjectPayload {".to_string(),
         format!(
             "pub const fn class_id(&self)->JSClassID {{ match self {{ {} }} }}",
             getid_arms.join(",\n")

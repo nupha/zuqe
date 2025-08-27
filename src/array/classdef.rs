@@ -15,7 +15,7 @@ use crate::{
     iterator::{JSIteratorKindEnum, js_array_iterator_next, js_create_array_iterator},
     js_core::{js_get_this, object::js_object_toString},
     number::MAX_SAFE_INTEGER,
-    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, ObjectDetail, js_get_length64},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, ObjectPayload, js_get_length64},
     runtime::js_check_stack_overflow,
     string::{JSString, StringBuf},
     typed_array::{js_typed_array___speciesCreate, js_typed_array_get_length_internal},
@@ -51,12 +51,7 @@ pub fn js_array_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         let arr = ctx
             .create_object_apply_ctor(
                 new_target,
-                ObjectDetail::ARRAY(ArrayObjPayload::with_capacity(cap as usize).map_err(
-                    |_| {
-                        ctx.throw_out_of_memory();
-                        -1
-                    },
-                )?),
+                ObjectPayload::ARRAY(ArrayObjPayload::new(Vec::new())),
             )
             .map_err(|_| -1)?;
 
@@ -76,7 +71,10 @@ pub fn js_array_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         let len = slots.len() as u32;
 
         let arr = ctx
-            .create_object_apply_ctor(new_target, ObjectDetail::ARRAY(ArrayObjPayload::new(slots)))
+            .create_object_apply_ctor(
+                new_target,
+                ObjectPayload::ARRAY(ArrayObjPayload::new(slots)),
+            )
             .map_err(|_| -1)?;
         arr.set_array_length(ctx, len, true)?;
         // arr.set_property(ctx, JS_ATOM_length, JSValue::from(len as u32))?;
@@ -182,13 +180,12 @@ pub fn js_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
     if idx < 0 {
         idx = len + idx;
     }
-
     if idx < 0 || idx >= len {
         ctx.throw_range_error("out of bound");
         return Err(-1);
     }
 
-    let arr = ctx.create_array(std::cmp::max(len, 0) as usize)?;
+    let arr = ctx.create_array()?;
 
     arr.0
         .with_fast_array_values_mut(|dst| -> Result<(), i32> {
@@ -350,7 +347,7 @@ pub fn js_array_every(ctx: &JSContext, cc: CallContext) -> JSResult {
             )?;
         }
         s if s == special_filter | special_TA => {
-            ret = ctx.create_array(0)?.into();
+            ret = ctx.create_array()?.into();
         }
         _ => {
             ret = JSValue::UNDEFINED;
@@ -916,7 +913,7 @@ pub fn js_array_toReversed(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj: JSValue = cc.this().to_object(ctx)?.into();
     let new_len = js_get_length64(ctx, &obj)?;
 
-    let res_arr = ctx.create_array(std::cmp::max(new_len, 0) as _)?;
+    let res_arr = ctx.create_array()?;
 
     if new_len > 0 {
         res_arr
@@ -1102,7 +1099,7 @@ pub fn js_array_toSpliced(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     // create result array
-    let res_arr = ctx.create_array(std::cmp::max(new_len, 0) as _)?;
+    let res_arr = ctx.create_array()?;
     if new_len <= 0 {
         return Ok(res_arr.into());
     }
@@ -1424,7 +1421,7 @@ pub fn js_array_from(ctx: &JSContext, cc: CallContext) -> JSResult {
         let arr = if cc.this().is_constructor() {
             JS_CallConstructor(ctx, cc.this(), &[]).err()?
         } else {
-            ctx.create_array(0)?.into()
+            ctx.create_array()?.into()
         };
 
         let it = items.iter(ctx)?;
@@ -1470,7 +1467,7 @@ pub fn js_array_of(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj = if cc.this().is_constructor() {
         JS_CallConstructor(ctx, cc.this(), &[JSValue::Int(cc.length() as i32)]).err()?
     } else {
-        ctx.create_array(0)?.into()
+        ctx.create_array()?.into()
     };
 
     for i in 0..cc.length() {

@@ -3,7 +3,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::ObjAsyncState,
-    object::{JS_PROP_CONFIGURABLE, JSObject, ObjectDetail},
+    object::{JS_PROP_CONFIGURABLE, JSObject, ObjectPayload},
     object_cast,
     promise::{Promise, js_promise_resolve},
     value::JSValue,
@@ -133,9 +133,9 @@ pub unsafe fn js_async_function_resolve_create(
         let func_obj = ctx
             .create_object_from_proto(ctx.0.borrow().function_proto.clone(), {
                 if i == 0 {
-                    ObjectDetail::ASYNC_FUNCTION_RESOLVE(s.clone())
+                    ObjectPayload::ASYNC_FUNCTION_RESOLVE(s.clone())
                 } else {
-                    ObjectDetail::ASYNC_FUNCTION_REJECT(s.clone())
+                    ObjectPayload::ASYNC_FUNCTION_REJECT(s.clone())
                 }
             })
             .map_err(|_| -1)?;

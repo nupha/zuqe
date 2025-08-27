@@ -28,7 +28,7 @@ use crate::{
 use super::{
     GCObject, JS_GPN_STRING_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE,
     JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_THROW,
-    JS_PROP_WRITABLE, JSProperty, JSShape, ObjectDetail,
+    JS_PROP_WRITABLE, JSProperty, JSShape, ObjectPayload,
 };
 
 /// Bit flags and metadata for JavaScript objects
@@ -166,7 +166,7 @@ pub(crate) struct ObjectInner {
     pub weak_refs: RefCell<Vec<JSObjectWeakref>>,
 
     /// object payload
-    pub payload: RefCell<ObjectDetail>,
+    pub payload: RefCell<ObjectPayload>,
 
     pub gc_mark: Cell<bool>,
 
@@ -216,8 +216,8 @@ impl ObjectInner {
     pub(crate) fn new(
         ctx: &JSContext,
         shape: Option<JSShape>,
-        isa: ObjectDetail,
-    ) -> Result<Self, ObjectDetail> {
+        isa: ObjectPayload,
+    ) -> Result<Self, ObjectPayload> {
         ctx.rt_mut().gc_req = true;
         //js_trigger_gc(ctx.rt_mut(), std::mem::size_of::<JSValue>());
 
@@ -376,11 +376,11 @@ impl ObjectInner {
     /// - Objects of native class which has `call` handler
     pub fn is_callable(&self) -> bool {
         match self.payload.borrow().deref() {
-            ObjectDetail::BYTECODE_FUNCTION(_)
-            | ObjectDetail::GENERATOR_FUNCTION(_)
-            | ObjectDetail::ASYNC_FUNCTION(_)
-            | ObjectDetail::ASYNC_GENERATOR_FUNCTION(_) => true,
-            ObjectDetail::PROXY(x) => x.is_func,
+            ObjectPayload::BYTECODE_FUNCTION(_)
+            | ObjectPayload::GENERATOR_FUNCTION(_)
+            | ObjectPayload::ASYNC_FUNCTION(_)
+            | ObjectPayload::ASYNC_GENERATOR_FUNCTION(_) => true,
+            ObjectPayload::PROXY(x) => x.is_func,
             p => {
                 // check if class proto has exotic call handler
                 self.rt()
@@ -606,14 +606,14 @@ impl JSValue {
         match self {
             Self::Object(o) => Ok(o.clone()),
             Self::Int(_) | Self::Float64(_) => ctx
-                .create_object(ObjectDetail::NUMBER(self.clone()))
+                .create_object(ObjectPayload::NUMBER(self.clone()))
                 .map_err(|_| -1),
             Self::Bool(_) => ctx
-                .create_object(ObjectDetail::BOOLEAN(self.clone()))
+                .create_object(ObjectPayload::BOOLEAN(self.clone()))
                 .map_err(|_| -1),
             Self::String(s) => s.to_object(ctx, &JSValue::UNDEFINED),
             Self::Symbol(s) => ctx
-                .create_object(ObjectDetail::SYMBOL(s.clone()))
+                .create_object(ObjectPayload::SYMBOL(s.clone()))
                 .map_err(|_| -1),
 
             Self::EXCEPTION => {

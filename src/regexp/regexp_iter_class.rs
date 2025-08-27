@@ -6,7 +6,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{CallContext, FieldDef, IteratorState},
-    object::{JS_PROP_CONFIGURABLE, ObjectDetail},
+    object::{JS_PROP_CONFIGURABLE, ObjectPayload},
     value::JSValue,
 };
 
@@ -19,7 +19,7 @@ fn js_regexp_string_iterator_next(
 ) -> JSResult {
     let this = cc.this().object().unwrap();
 
-    if let ObjectDetail::REGEXP_STRING_ITERATOR(it) = this.0.payload.borrow_mut().deref_mut() {
+    if let ObjectPayload::REGEXP_STRING_ITERATOR(it) = this.0.payload.borrow_mut().deref_mut() {
         if it.done {
             *state = IteratorState::Done;
             return Ok(JSValue::UNDEFINED);

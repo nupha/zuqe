@@ -10,7 +10,7 @@ use crate::{
     map::MapKV,
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_SET_ENUM, JS_GPN_STRING_MASK, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
-        JS_PROP_THROW, JSObject, ObjectDetail, PropertyEnum,
+        JS_PROP_THROW, JSObject, ObjectPayload, PropertyEnum,
     },
     runtime::JSRuntime,
     value::{JSValue, JSValueConst},
@@ -94,7 +94,7 @@ impl ForInIterator {
             }
         }
 
-        ctx.create_object_from_proto(JSValue::NULL, ObjectDetail::FOR_IN_ITERATOR(it))
+        ctx.create_object_from_proto(JSValue::NULL, ObjectPayload::FOR_IN_ITERATOR(it))
             .map_err(|_| -1)
     }
 
@@ -228,7 +228,7 @@ impl ObjectIter {
         args: &[JSValue],
     ) -> Result<(JSValue, IteratorState), i32> {
         if let JSValue::Object(p) = method
-            && let ObjectDetail::C_FUNCTION(nfunc) = p.0.payload.borrow().deref()
+            && let ObjectPayload::C_FUNCTION(nfunc) = p.0.payload.borrow().deref()
         {
             // fast path for the built-in iterators (avoid creating the
             // intermediate result object)
@@ -376,7 +376,7 @@ impl JSValue {
                 let next_method = it.get_property(ctx, JS_ATOM_next)?;
 
                 return ctx
-                    .create_object(ObjectDetail::ASYNC_FROM_SYNC_ITERATOR(
+                    .create_object(ObjectPayload::ASYNC_FROM_SYNC_ITERATOR(
                         JSAsyncFromSyncIteratorData {
                             obj: it,
                             next_method,
@@ -438,8 +438,8 @@ pub fn js_create_iterator_result(ctx: &JSContext, value: JSValue, done: bool) ->
     Ok(obj.into())
 }
 
-pub fn js_for_in_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, _id: usize) {
-    if let ObjectDetail::FOR_IN_ITERATOR(it) = isa {
+pub fn js_for_in_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, _id: usize) {
+    if let ObjectPayload::FOR_IN_ITERATOR(it) = isa {
         if !it.is_array {
             for x in it.prop_enums.iter() {
                 JS_FreeAtomRT(rt, x.atom);
@@ -450,14 +450,14 @@ pub fn js_for_in_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, _id:
 
 pub fn js_for_in_iterator_mark(val: JSValue) {
     let p = unsafe { val.object_unchecked() };
-    if let ObjectDetail::FOR_IN_ITERATOR(it) = p.0.payload.borrow().deref() {
+    if let ObjectPayload::FOR_IN_ITERATOR(it) = p.0.payload.borrow().deref() {
         it.obj.gc_mark();
     }
 }
 
 pub fn iterator_to_array(ctx: &JSContext, items: &JSValue) -> JSResult {
     let it = items.iter(ctx)?;
-    let arr = ctx.create_array(0)?;
+    let arr = ctx.create_array( )?;
     for (i, v) in it.enumerate() {
         arr.0
             .define_property_value_i64(ctx, i as i64, v?, JS_PROP_C_W_E | JS_PROP_THROW)?;
@@ -472,7 +472,7 @@ pub fn js_array_from_iterator(
 ) -> Result<(JSValue, usize), i32> {
     if let JSValue::Object(obj) = method.call(ctx, obj, &[])? {
         let it = ObjectIter::new(ctx, obj, JS_ATOM_next)?;
-        let arr = ctx.create_array(0)?;
+        let arr = ctx.create_array( )?;
 
         let mut k = 0_i64;
         for val in it {

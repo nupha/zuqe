@@ -1,5 +1,3 @@
-use std::collections::TryReserveError;
-
 use fallible_collections::{FallibleVec, TryCollect};
 
 use crate::{
@@ -10,7 +8,7 @@ use crate::{
     number::MAX_SAFE_INTEGER,
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE,
-        JSObject, JSProperty, ObjectDetail,
+        JSObject, JSProperty, ObjectPayload,
     },
     object_cast,
     proxy::js_proxy_isArray,
@@ -24,12 +22,6 @@ pub struct ArrayObjPayload {
 }
 
 impl ArrayObjPayload {
-    pub fn with_capacity(cap: usize) -> Result<Self, TryReserveError> {
-        Ok(Self {
-            slots: Vec::<JSValue>::new(),
-        })
-    }
-
     pub fn new(data: Vec<JSValue>) -> Self {
         Self { slots: data }
     }
@@ -45,12 +37,12 @@ impl JSContext {
     /// create an Array with element values
     pub fn create_array_with_values(&self, values: Vec<JSValue>) -> Result<Array, i32> {
         let len = values.len();
-        debug_assert!(len <= MAX_SAFE_INTEGER as usize);
+        debug_assert!(len <= u32::MAX as usize);
 
         let fa = self
             .create_object_with_shape(
                 self.0.borrow().array_shape.clone().unwrap(),
-                ObjectDetail::ARRAY(ArrayObjPayload { slots: values }),
+                ObjectPayload::ARRAY(ArrayObjPayload { slots: values }),
             )
             .map(Array)
             .map_err(|_| -1)?;
@@ -76,14 +68,26 @@ impl JSContext {
         )?)
     }
 
-    /// create an Array object with capacity.
-    pub fn create_array(&self, capacity: usize) -> Result<Array, i32> {
-        if capacity > u32::MAX as usize {
-            self.throw_error(ErrorKind::Range, "invalid array length");
-            return Err(-1);
-        }
+    /// create an empty Array
+    #[inline(always)]
+    pub fn create_array(&self) -> Result<Array, i32> {
         self.create_array_with_values(Vec::new())
     }
+
+    // /// create a sparse Array object with capacity.
+    // pub(super) fn create_sparse_array(&self, capacity: usize) -> Result<Array, i32> {
+    //     debug_assert!(capacity > 0);
+    //     if capacity <= MAX_SAFE_INTEGER as usize {
+    //         let fa = self.create_array_with_values(Vec::new())?;
+    //         if capacity > 0 {
+    //             fa.0.set_array_length(self, capacity as u32, true)?;
+    //         }
+    //         Ok(fa)
+    //     } else {
+    //         self.throw_range_error("invalid array length");
+    //         Err(-1)
+    //     }
+    // }
 }
 
 impl JSObject {
@@ -538,7 +542,7 @@ pub fn JS_CopySubArray(
     Ok(())
 }
 
-pub fn js_array_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {}
+pub fn js_array_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
 
 pub fn js_array_mark(val: JSValue) {
     unsafe {

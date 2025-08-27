@@ -12,7 +12,7 @@ use crate::{
 
 include!(concat!(env!("OUT_DIR"), "/class_payload.rs"));
 
-impl ObjectDetail {
+impl ObjectPayload {
     pub const fn array(&self) -> Option<&ArrayObjPayload> {
         match self {
             Self::ARRAY(a) | Self::ARGUMENTS(a) => Some(a),

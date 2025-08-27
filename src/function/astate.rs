@@ -10,7 +10,7 @@ use crate::{
     error::JSResult,
     function::BytecodeFunction,
     gc::GCObjectHeader,
-    object::{GCObjectWeakref, ObjectDetail},
+    object::{GCObjectWeakref, ObjectPayload},
     runtime::{JSRuntime, js_check_stack_overflow},
     stack_frame::StackFrame,
     value::JSValue,
@@ -327,7 +327,7 @@ impl ObjAsyncState {
         println!("{:14p} [async_function]", self.id() as *const Self);
     }
 
-    pub fn hook_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {}
+    pub fn hook_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
 
     pub fn hook_mark(val: JSValue) {
         if let Some(s) = val

@@ -137,12 +137,12 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
     let Ok(it) = cc.arg(0).iter(ctx) else {
         return fail_reject();
     };
-    let mut values: JSValue = if let Ok(a) = ctx.create_array(0) {
+    let mut values: JSValue = if let Ok(a) = ctx.create_array() {
         a.into()
     } else {
         return fail_reject();
     };
-    let resolve_element_env: JSValue = if let Ok(a) = ctx.create_array(2) {
+    let resolve_element_env: JSValue = if let Ok(a) = ctx.create_array() {
         a.into()
     } else {
         return fail_reject();

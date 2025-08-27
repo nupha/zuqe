@@ -5,7 +5,7 @@ use crate::{
     atom::consts::*,
     context::JSContext,
     error::JSResult,
-    object::ObjectDetail,
+    object::ObjectPayload,
     runtime::JSRuntime,
     value::{JSValue, JSValueConst},
 };
@@ -88,7 +88,7 @@ impl PromiseResolvingFunc {
         }
     }
 
-    pub fn hook_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {}
+    pub fn hook_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
 
     pub fn hook_mark(val: JSValueConst) {
         let isa = unsafe { val.object_unchecked().0.payload.borrow() };

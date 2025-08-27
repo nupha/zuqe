@@ -9,7 +9,7 @@ use crate::{
     error::{JS_ThrowTypeErrorRevokedProxy, JSResult},
     function::JSVarRef,
     object::{
-        JS_PROP_CONFIGURABLE, JS_PROP_NORMAL, JS_PROP_TMASK, JSObject, JSProperty, ObjectDetail,
+        JS_PROP_CONFIGURABLE, JS_PROP_NORMAL, JS_PROP_TMASK, JSObject, JSProperty, ObjectPayload,
     },
     runtime::JSRuntime,
     value::{JSValue, JSValueConst},
@@ -134,13 +134,13 @@ pub fn JS_GetFunctionRealm(ctx: &JSContext, func_obj: &JSValueConst) -> Result<J
     let p = unsafe { func_obj.object_unchecked() };
 
     match p.0.payload.borrow().deref() {
-        ObjectDetail::C_FUNCTION(cfunc) => {
+        ObjectPayload::C_FUNCTION(cfunc) => {
             realm = cfunc.realm.upgrade().unwrap_or(ctx.clone());
         }
-        ObjectDetail::BYTECODE_FUNCTION(fo)
-        | ObjectDetail::GENERATOR_FUNCTION(fo)
-        | ObjectDetail::ASYNC_FUNCTION(fo)
-        | ObjectDetail::ASYNC_GENERATOR_FUNCTION(fo) => {
+        ObjectPayload::BYTECODE_FUNCTION(fo)
+        | ObjectPayload::GENERATOR_FUNCTION(fo)
+        | ObjectPayload::ASYNC_FUNCTION(fo)
+        | ObjectPayload::ASYNC_GENERATOR_FUNCTION(fo) => {
             realm = fo
                 .bytecode
                 .as_ref()
@@ -151,7 +151,7 @@ pub fn JS_GetFunctionRealm(ctx: &JSContext, func_obj: &JSValueConst) -> Result<J
                 .upgrade()
                 .unwrap_or(ctx.clone());
         }
-        ObjectDetail::PROXY(s) => {
+        ObjectPayload::PROXY(s) => {
             if s.is_revoked {
                 JS_ThrowTypeErrorRevokedProxy(ctx);
                 return Err(-1);
@@ -159,7 +159,7 @@ pub fn JS_GetFunctionRealm(ctx: &JSContext, func_obj: &JSValueConst) -> Result<J
                 realm = JS_GetFunctionRealm(ctx, &s.target)?;
             }
         }
-        ObjectDetail::BOUND_FUNCTION(bfunc) => {
+        ObjectPayload::BOUND_FUNCTION(bfunc) => {
             realm = JS_GetFunctionRealm(ctx, &bfunc.func_obj)?;
         }
         _ => {
@@ -223,7 +223,7 @@ pub fn js_function_proto(_: &JSContext, _: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
-pub fn js_bytecode_function_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {}
+pub fn js_bytecode_function_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
 
 pub fn js_bytecode_function_mark(val: JSValue) {
     let p = unsafe { val.object_unchecked() };

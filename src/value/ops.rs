@@ -4,7 +4,7 @@ use crate::{
     JS_CLASS_PROXY,
     atom::{JSAtom, consts::*},
     context::JSContext,
-    object::{JSObject, ObjectDetail},
+    object::{JSObject, ObjectPayload},
     value::JSValue,
 };
 
@@ -20,7 +20,7 @@ impl JSObject {
             return Ok(false);
         }
         if let JSValue::Object(ty) = ctor {
-            if let ObjectDetail::BOUND_FUNCTION(bfunc) = ty.0.payload.borrow().deref() {
+            if let ObjectPayload::BOUND_FUNCTION(bfunc) = ty.0.payload.borrow().deref() {
                 return bfunc.func_obj.instance_of(ctx, ctor);
             }
         } else {

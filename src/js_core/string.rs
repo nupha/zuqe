@@ -11,7 +11,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef, IteratorState, JS_CallConstructor},
     iterator::{JSIteratorKindEnum, js_create_array_iterator},
-    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, ObjectDetail, js_get_length64},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, ObjectPayload, js_get_length64},
     regexp::js_is_regexp,
     string::{
         JS_ConcatString, JS_ConcatString3, JS_STRING_LEN_MAX, JSString, StringBuf, StringChar,
@@ -377,7 +377,7 @@ pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
     let sep_len = sep.buf_len();
 
     // create result array
-    let ret_arr = ctx.create_array(0)?;
+    let ret_arr = ctx.create_array()?;
 
     if lim == 0 {
         return Ok(ret_arr.into());
@@ -978,7 +978,7 @@ pub fn js_string_iterator_next(
 ) -> JSResult {
     let mut isa = unsafe { cc.this().object_unchecked().0.payload.borrow_mut() };
 
-    if let ObjectDetail::STRING_ITERATOR(it) = isa.deref_mut() {
+    if let ObjectPayload::STRING_ITERATOR(it) = isa.deref_mut() {
         let ss = unsafe { it.obj.string_unchecked() };
 
         // iterate over string buf to get char or code at `idx`

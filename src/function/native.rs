@@ -7,7 +7,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, IteratorState, JS_CALL_FLAG_CONSTRUCTOR},
     iterator::js_create_iterator_result,
-    object::{JSObject, ObjectDetail},
+    object::{JSObject, ObjectPayload},
     runtime::{JSRuntime, js_check_stack_overflow},
     stack_frame::StackFrame,
     value::JSValue,
@@ -129,7 +129,7 @@ impl ObjNativeFunc {
     ) -> JSResult {
         let rt = ctx.rt_mut();
 
-        let (callback, arg_length, magic, realm) = if let ObjectDetail::C_FUNCTION(c) =
+        let (callback, arg_length, magic, realm) = if let ObjectPayload::C_FUNCTION(c) =
             unsafe { func_obj.object_unchecked() }
                 .0
                 .payload
@@ -336,13 +336,13 @@ impl ObjNativeFunc {
         Ok(ret_val)
     }
 
-    pub fn hook_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {
-        debug_assert!(matches!(isa, ObjectDetail::C_FUNCTION(_)));
+    pub fn hook_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {
+        debug_assert!(matches!(isa, ObjectPayload::C_FUNCTION(_)));
     }
 
     pub fn hook_mark(val: JSValue) {
         unsafe {
-            if let ObjectDetail::C_FUNCTION(cfunc) =
+            if let ObjectPayload::C_FUNCTION(cfunc) =
                 val.object_unchecked().0.payload.borrow().deref()
             {
                 // println!("[O.o] TODO cfunction mark");
@@ -360,7 +360,7 @@ impl JSObject {
     /// Checks if Object is native function of specific type.
     /// Matches both the callback pointer and magic.
     pub fn match_native_callback(&self, callback: NativeFunctionType, magic: i32) -> bool {
-        if let ObjectDetail::C_FUNCTION(cfunc) = self.0.payload.borrow().deref() {
+        if let ObjectPayload::C_FUNCTION(cfunc) = self.0.payload.borrow().deref() {
             cfunc.magic == magic as i16 && callback.eq(&cfunc.handler)
         } else {
             false
@@ -394,7 +394,7 @@ impl JSContext {
         let func_obj = self
             .create_object_from_proto(
                 proto,
-                ObjectDetail::C_FUNCTION(ObjNativeFunc {
+                ObjectPayload::C_FUNCTION(ObjNativeFunc {
                     handler: call,
                     length,
                     magic,

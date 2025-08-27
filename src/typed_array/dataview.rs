@@ -9,7 +9,7 @@ use crate::{
     function::{CallContext, FieldDef},
     mem::js_malloc_typed,
     number::JSFloat64Union,
-    object::{JS_PROP_CONFIGURABLE, JSObjectWeakref, ObjectDetail},
+    object::{JS_PROP_CONFIGURABLE, JSObjectWeakref, ObjectPayload},
     typed_array::TypedArray,
     value::JSValue,
 };
@@ -75,7 +75,7 @@ impl JSContext {
 
         // create dataview instance
         let o = self
-            .create_object_apply_ctor(new_target, ObjectDetail::DATAVIEW(ta))
+            .create_object_apply_ctor(new_target, ObjectPayload::DATAVIEW(ta))
             .map_err(|_| -1)?;
 
         // set back ref to the new created DataView object

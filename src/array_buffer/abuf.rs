@@ -13,7 +13,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::CallContext,
-    object::{JSObjectWeakref, ObjectDetail},
+    object::{JSObjectWeakref, ObjectPayload},
     runtime::JSRuntime,
     value::{JSValue, JSValueConst},
 };
@@ -216,9 +216,9 @@ impl JSContext {
         self.create_object_apply_ctor(
             new_target,
             if class_id == JS_CLASS_ARRAY_BUFFER {
-                ObjectDetail::ARRAY_BUFFER(ab)
+                ObjectPayload::ARRAY_BUFFER(ab)
             } else {
-                ObjectDetail::SHARED_ARRAY_BUFFER(ab)
+                ObjectPayload::SHARED_ARRAY_BUFFER(ab)
             },
         )
         .map(JSValue::Object)
@@ -363,7 +363,7 @@ pub unsafe fn JS_DetachArrayBuffer(ctx: &JSContext, obj: &JSValueConst) {
 }
 
 // also used for SharedArrayBuffer
-pub fn js_array_buffer_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {
+pub fn js_array_buffer_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {
     let abuf = isa.array_buffer().unwrap();
 
     // free content

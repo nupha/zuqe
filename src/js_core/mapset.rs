@@ -8,7 +8,7 @@ use crate::{
     error::JSResult,
     function::CallContext,
     map::JSMapState,
-    object::ObjectDetail,
+    object::ObjectPayload,
     value::{JSValue, JSValueConst},
 };
 
@@ -29,10 +29,10 @@ pub fn js_map_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         .create_object_apply_ctor(
             new_target,
             match magic {
-                0 => ObjectDetail::MAP(s),
-                1 => ObjectDetail::SET(s),
-                2 => ObjectDetail::WEAKMAP(s),
-                3 => ObjectDetail::WEAKSET(s),
+                0 => ObjectPayload::MAP(s),
+                1 => ObjectPayload::SET(s),
+                2 => ObjectPayload::WEAKMAP(s),
+                3 => ObjectPayload::WEAKSET(s),
                 _ => unreachable!(),
             },
         )

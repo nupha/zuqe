@@ -9,7 +9,7 @@ use crate::{
         Bytecode, JSFunctionKindEnum, JSVarRef, ObjFunc, func_kind_to_class_id,
         js_class_has_bytecode, js_function_set_properties,
     },
-    object::{JS_PROP_WRITABLE, JS_SetConstructorBit, JSObject, LazyInit, ObjectDetail},
+    object::{JS_PROP_WRITABLE, JS_SetConstructorBit, JSObject, LazyInit, ObjectPayload},
     runtime::JS_MAX_LOCAL_VARS,
     stack_frame::StackFrame,
     value::JSValue,
@@ -295,16 +295,16 @@ impl Bytecode {
                 ctx,
                 ctx.create_object(match func_kind {
                     JSFunctionKindEnum::JS_FUNC_NORMAL => {
-                        ObjectDetail::BYTECODE_FUNCTION(ObjFunc::default())
+                        ObjectPayload::BYTECODE_FUNCTION(ObjFunc::default())
                     }
                     JSFunctionKindEnum::JS_FUNC_GENERATOR => {
-                        ObjectDetail::GENERATOR_FUNCTION(ObjFunc::default())
+                        ObjectPayload::GENERATOR_FUNCTION(ObjFunc::default())
                     }
                     JSFunctionKindEnum::JS_FUNC_ASYNC => {
-                        ObjectDetail::ASYNC_FUNCTION(ObjFunc::default())
+                        ObjectPayload::ASYNC_FUNCTION(ObjFunc::default())
                     }
                     JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR => {
-                        ObjectDetail::ASYNC_GENERATOR_FUNCTION(ObjFunc::default())
+                        ObjectPayload::ASYNC_GENERATOR_FUNCTION(ObjFunc::default())
                     }
                 })
                 .map_err(|_| -1)?,

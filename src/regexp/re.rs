@@ -6,7 +6,7 @@ use crate::{
     atom::consts::*,
     context::JSContext,
     error::ErrorKind,
-    object::{JS_PROP_WRITABLE, JSObject, ObjectDetail},
+    object::{JS_PROP_WRITABLE, JSObject, ObjectPayload},
     string::{JSString, StringContent, map_utf8_to_utf16_range},
     value::JSValue,
 };
@@ -242,7 +242,7 @@ impl JSContext {
         let obj = self
             .create_object_apply_ctor(
                 ctor,
-                ObjectDetail::REGEXP(Box::new(JSRegExp::new(
+                ObjectPayload::REGEXP(Box::new(JSRegExp::new(
                     self,
                     pattern.content().clone(),
                     flags.content().clone(),

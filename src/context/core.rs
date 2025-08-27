@@ -5,7 +5,7 @@ use crate::{
     context::JSContext,
     error::{STD_ERROR_NAMES, js_error_proto_funcs},
     function::{NativeFunctionType, js_function_proto},
-    object::ObjectDetail,
+    object::ObjectPayload,
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_INITIAL_HASH_SIZE, JS_PROP_LENGTH, JS_PROP_WRITABLE, JSShape,
     },
@@ -18,7 +18,7 @@ impl JSContext {
     pub fn init_core_objects_ex(&self, with_function: bool, with_array: bool, with_errors: bool) {
         // Object
         let object = self
-            .create_object_from_proto(JSValue::NULL, ObjectDetail::OBJECT)
+            .create_object_from_proto(JSValue::NULL, ObjectPayload::OBJECT)
             .unwrap();
 
         #[cfg(debug_assertions)]
@@ -62,7 +62,7 @@ impl JSContext {
             let msg = JS_ATOM_empty_string.to_string(self).unwrap();
             for (i, name) in STD_ERROR_NAMES.iter().enumerate() {
                 let err = self
-                    .create_object_from_proto(error.clone().into(), ObjectDetail::OBJECT)
+                    .create_object_from_proto(error.clone().into(), ObjectPayload::OBJECT)
                     .unwrap();
 
                 let name = self.create_atom_string(name).unwrap();
@@ -91,7 +91,7 @@ impl JSContext {
             let array = self
                 .create_object_from_proto(
                     object.clone().into(),
-                    ObjectDetail::ARRAY(ArrayObjPayload::default()),
+                    ObjectPayload::ARRAY(ArrayObjPayload::default()),
                 )
                 .unwrap();
 

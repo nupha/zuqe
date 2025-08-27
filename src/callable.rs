@@ -7,7 +7,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, NativeCallback, js_function_set_properties},
     mem::js_malloc_typed,
-    object::ObjectDetail,
+    object::ObjectPayload,
     runtime::JSRuntime,
     value::JSValue,
 };
@@ -96,7 +96,7 @@ impl JSContext {
         let func_obj: JSValue = self
             .create_object_from_proto(
                 self.0.borrow().function_proto.clone(),
-                ObjectDetail::C_FUNCTION_DATA(JSCFunctionDataRecord::new(
+                ObjectPayload::C_FUNCTION_DATA(JSCFunctionDataRecord::new(
                     self, callback, length, magic, data,
                 )?),
             )
@@ -123,7 +123,7 @@ impl CallableValue {
         flags: i32,
     ) -> JSResult {
         let mut isa = unsafe { func_obj.object_unchecked().0.payload.borrow_mut() };
-        if let ObjectDetail::C_FUNCTION_DATA(s) = isa.deref_mut() {
+        if let ObjectPayload::C_FUNCTION_DATA(s) = isa.deref_mut() {
             let f = s.func.clone();
             let cc = CallContext::new(
                 ctx,
@@ -138,11 +138,11 @@ impl CallableValue {
         }
     }
 
-    pub fn hook_finalizer(rt: &mut JSRuntime, isa: &ObjectDetail, id: usize) {}
+    pub fn hook_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
 
     pub fn hook_mark(val: JSValue) {
         unsafe {
-            if let ObjectDetail::C_FUNCTION_DATA(p) =
+            if let ObjectPayload::C_FUNCTION_DATA(p) =
                 val.object_unchecked().0.payload.borrow().deref()
             {
                 for d in p.as_ref().data() {
