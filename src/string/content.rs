@@ -685,41 +685,46 @@ impl StringBuf {
         h
     }
 
-    /// if string is correct representation of u32, convert to u32. otherwise, returns Err
+    /// parse string content to u32.
     pub fn parse_u32_radix(&self, radix: u8) -> Result<u32, i32> {
-        let len = self.buf_len();
-        if len == 0 || len > 10 {
-            return Err(-1);
+        if let Self::Ascii(s) = self {
+            parse_u32_radix(std::str::from_utf8(s).map_err(|_| -1)?, radix)
+        } else {
+            Err(-1) // can't parse utf16, empty, null to u32
         }
 
-        let mut ret: u32 = 0;
+        // generic code may like this:
+        // let len = self.buf_len();
+        // if len == 0 || len > 10 {
+        //     return Err(-1);
+        // }
 
-        for (i, c) in self.iter() {
-            let ch = c.char().ok_or(-1)?; // broken code
+        // let mut ret: u32 = 0;
+        // for (i, c) in self.iter() {
+        //     let ch = c.char().ok_or(-1)?; // broken code
 
-            if ch.is_ascii_digit() {
-                if i == 0 && ch == '0' {
-                    return if len != 1 { Err(-1) } else { Ok(0) };
-                }
+        //     if ch.is_ascii_digit() {
+        //         if i == 0 && ch == '0' {
+        //             return if len != 1 { Err(-1) } else { Ok(0) };
+        //         }
 
-                let n = ch as u64 - '0' as u64;
-                if n < radix as u64 {
-                    let n64: u64 = (ret as u64) * 10 + n;
-                    if n64 >> 32 != 0 {
-                        return Err(-1); // u32 overflow
-                    }
-                    ret = n64 as u32;
-                } else {
-                    return Err(-1);
-                }
-            } else if i > 0 && ch == '_' {
-                //skip '_'
-            } else {
-                return Err(-1);
-            }
-        }
-
-        Ok(ret)
+        //         let n = ch as u64 - '0' as u64;
+        //         if n < radix as u64 {
+        //             let n64: u64 = (ret as u64) * 10 + n;
+        //             if n64 >> 32 != 0 {
+        //                 return Err(-1); // u32 overflow
+        //             }
+        //             ret = n64 as u32;
+        //         } else {
+        //             return Err(-1);
+        //         }
+        //     } else if i > 0 && ch == '_' {
+        //         //skip '_'
+        //     } else {
+        //         return Err(-1);
+        //     }
+        // }
+        // Ok(ret)
     }
 
     /// if string is correct representation of u32, convert to u32. otherwise, returns Err
@@ -1207,6 +1212,42 @@ fn is_char_visible(ch: char) -> bool {
         // 其他字符
         _ => !ch.is_control()
     }
+}
+
+/// parse str to u32
+pub(crate) fn parse_u32_radix(str: &str, radix: u8) -> Result<u32, i32> {
+    let len = str.len();
+    if len == 0 || len > 10 {
+        return Err(-1);
+    }
+
+    let mut num: u32 = 0;
+
+    for (i, ch) in str.char_indices() {
+        if ch.is_ascii_digit() {
+            if i == 0 && ch == '0' {
+                // starting with '0'
+                return if len != 1 { Err(-1) } else { Ok(0) };
+            }
+
+            let n = ch as u64 - '0' as u64;
+            if n < radix as u64 {
+                let n64: u64 = (num as u64) * 10 + n;
+                if n64 >> 32 != 0 {
+                    return Err(-1); // u32 overflow
+                }
+                num = n64 as u32;
+            } else {
+                return Err(-1);
+            }
+        } else if i > 0 && ch == '_' {
+            //skip '_'
+        } else {
+            return Err(-1);
+        }
+    }
+
+    Ok(num)
 }
 
 pub type StringContent = std::rc::Rc<StringBuf>;

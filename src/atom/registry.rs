@@ -1,9 +1,11 @@
 use std::{collections::hash_map::Entry, ffi::CStr, num::NonZeroU16, rc::Rc};
 
 use crate::{
-    atom::{JS_ATOM_HASH_PRIVATE, JS_ATOM_HASH_SYMBOL, JS_ATOM_TAG_INT},
+    atom::{
+        JS_ATOM_HASH_PRIVATE, JS_ATOM_HASH_SYMBOL, JS_ATOM_TAG_INT, consts::JS_ATOM_empty_string,
+    },
     runtime::JSRuntime,
-    string::{JSString, StringBuf},
+    string::{JSString, StringBuf, parse_u32_radix},
 };
 
 use super::{
@@ -165,23 +167,26 @@ impl JSAtom {
         if let Ok(i) = str.content().parse_u32()
             && i <= JS_ATOM_MAX_INT
         {
-            // int atom
             Ok(JSAtom::new_small_int(i))
         } else {
             Self::new_internal(rt, Some(str), type_hint)
         }
     }
 
-    /// make atom from str
-    #[inline]
+    /// make atom from `str`
     pub fn from_str(rt: &mut JSRuntime, str: &str, type_hint: AtomTypeHint) -> Result<Self, i32> {
-        let s = JSString::from_str(rt, str)?;
-        Self::from_string(rt, s, type_hint)
+        if let Ok(i) = parse_u32_radix(str, 10)
+            && i <= JS_ATOM_MAX_INT
+        {
+            Ok(JSAtom::new_small_int(i))
+        } else {
+            let s = JSString::from_str(rt, str)?;
+            Self::from_string(rt, s, type_hint)
+        }
     }
 
-    #[inline]
     pub fn from_i64(rt: &mut JSRuntime, n: i64) -> Result<Self, i32> {
-        if n <= JS_ATOM_MAX_INT as i64 {
+        if n >= 0 && n <= JS_ATOM_MAX_INT as i64 {
             Ok(Self::new_small_int(n as u32))
         } else {
             let s = JSString::from_utf8(rt, format!("{n}").into_bytes())?;
@@ -214,6 +219,8 @@ impl JSAtom {
                 return Ok(atom);
             }
         }
+
+        // str is possibally an integer
         Self::from_str(rt, str, AtomTypeHint::String)
     }
 

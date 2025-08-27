@@ -970,7 +970,8 @@ pub fn js_array_toSorted(ctx: &JSContext, _: CallContext) -> JSResult {
 }
 
 pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let splice = cc.magic();
+    let is_splice = cc.magic() != 0;
+
     let obj: JSValue = cc.this().to_object(ctx)?.into();
     let len = js_get_length64(ctx, &obj)?;
     let start = cc.arg(0).to_i64_clamp(ctx, 0, len, len)?;
@@ -978,7 +979,7 @@ pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
     let item_count: u32;
     let mut del_count: i64 = 0;
 
-    let count = if splice != 0 {
+    let count = if is_splice {
         if cc.length() == 0 {
             item_count = 0;
             del_count = 0;
@@ -995,7 +996,7 @@ pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
         del_count
     } else {
-        item_count = 0; /* avoid warning */
+        item_count = 0;
         let final_ = if !cc.arg(1).is_undefined() {
             cc.arg(1).to_i64_clamp(ctx, 0, len, len)?
         } else {
@@ -1007,26 +1008,33 @@ pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
     let len_val = JSValue::from(count);
     let arr = JS_ArraySpeciesCreate(ctx, &obj, &len_val)?;
 
-    let final_ = start + count;
+    let end = start + count;
     let mut k = start;
     let mut n = 0;
 
-    obj.with_fast_array_values(|lst| -> Result<(), i32> {
+    if let Some(r) = obj.with_fast_array_values(|lst| -> Result<(), i32> {
         // in case of fast array
         // XXX: should share code with fast array constructor
-        while k < final_ && k < lst.len() as i64 {
-            arr.create_data_property_u32(ctx, n as _, lst[k as usize].clone(), JS_PROP_THROW)?;
+        let len = lst.len() as i64;
+        while k < end && k < len {
+            arr.define_property_value_i64(
+                ctx,
+                n,
+                lst[k as usize].clone(),
+                JS_PROP_C_W_E | JS_PROP_THROW,
+            )?;
             k += 1;
             n += 1;
         }
         Ok(())
-    })
-    .unwrap()?;
+    }) {
+        r?;
+    }
 
     // Copy the remaining elements if any (handle case of inherited properties)
-    while k < final_ {
+    while k < end {
         if let Some(v) = obj.try_get_property_i64(ctx, k)? {
-            arr.create_data_property_u32(ctx, n as _, v, JS_PROP_THROW)?;
+            arr.define_property_value_i64(ctx, n, v, JS_PROP_C_W_E | JS_PROP_THROW)?;
         }
         k += 1;
         n += 1;
@@ -1034,9 +1042,8 @@ pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     arr.set_property(ctx, JS_ATOM_length, JSValue::from(n))?;
 
-    if splice != 0 {
+    if is_splice {
         let new_len = len + item_count as i64 - del_count;
-
         if item_count as i64 != del_count {
             JS_CopySubArray(
                 ctx,
