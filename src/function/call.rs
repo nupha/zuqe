@@ -5,7 +5,7 @@ use crate::{
     atom::JSAtom,
     context::JSContext,
     error::JSResult,
-    function::{BytecodeFunction, ObjFunc, build_arg_list},
+    function::{BytecodeFunction, FuncObjPayload, build_arg_list},
     object::{JSObject, ObjectPayload},
     stack_frame::StackFrame,
     value::{JSValue, JSValueConst},
@@ -302,7 +302,7 @@ pub fn JS_CallConstructorInternal(
             p.0.payload
                 .borrow()
                 .func()
-                .and_then(ObjFunc::bytecode)
+                .and_then(FuncObjPayload::bytecode)
                 .unwrap();
 
         if bc.0.borrow().is_derived_class_constructor {

@@ -132,17 +132,17 @@ fn JS_ArraySpeciesCreate(ctx: &JSContext, obj: &JSValue, len_val: &JSValue) -> J
     }
 }
 
-pub unsafe fn JS_isConcatSpreadable(ctx: &JSContext, obj: &JSValue) -> Result<bool, i32> {
-    if !obj.is_object() {
-        return Ok(false);
-    }
-
-    let tmp = obj.get_property(ctx, JS_ATOM_Symbol_isConcatSpreadable)?;
-
-    if !tmp.is_undefined() {
-        tmp.to_bool()
+/// check `obj[Symbol.isConcatSpreabable]` property
+pub fn JS_isConcatSpreadable(ctx: &JSContext, obj: &JSValue) -> Result<bool, i32> {
+    if obj.is_object() {
+        let s = obj.get_property(ctx, JS_ATOM_Symbol_isConcatSpreadable)?;
+        if !s.is_undefined() {
+            s.to_bool()
+        } else {
+            obj.is_array(ctx)
+        }
     } else {
-        obj.is_array(ctx)
+        Ok(false)
     }
 }
 
@@ -265,25 +265,24 @@ pub fn js_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_array_concat(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj: JSValue = cc.this().to_object(ctx)?.into();
-    let arr = JS_ArraySpeciesCreate(ctx, &obj, &JSValue::Int(0))?;
+    let this: JSValue = cc.this().to_object(ctx)?.into();
+    let arr = JS_ArraySpeciesCreate(ctx, &this, &JSValue::Int(0))?;
 
     let mut n = 0;
 
     for i in -1..cc.length() as i32 {
-        let e = if i < 0 { &obj } else { cc.arg(i as usize) };
-        let spreadable = unsafe { JS_isConcatSpreadable(ctx, e)? };
+        let v = if i < 0 { &this } else { cc.arg(i as usize) };
+        let spreadable = JS_isConcatSpreadable(ctx, v)?;
 
         if spreadable {
-            let len = js_get_length64(ctx, &e)?;
-
+            let len = js_get_length64(ctx, v)?;
             if n + len > MAX_SAFE_INTEGER {
                 ctx.throw_type_error("Array loo long");
                 return Err(-1);
             }
 
             for k in 0..len {
-                if let Some(val) = e.try_get_property_i64(ctx, k)? {
+                if let Some(val) = v.try_get_property_i64(ctx, k)? {
                     arr.define_property_value_i64(ctx, n, val, JS_PROP_C_W_E | JS_PROP_THROW)?;
                 }
                 n += 1;
@@ -294,7 +293,7 @@ pub fn js_array_concat(ctx: &JSContext, cc: CallContext) -> JSResult {
                 return Err(-1);
             }
 
-            arr.define_property_value_i64(ctx, n, e.clone(), JS_PROP_C_W_E | JS_PROP_THROW)?;
+            arr.define_property_value_i64(ctx, n, v.clone(), JS_PROP_C_W_E | JS_PROP_THROW)?;
             n += 1;
         }
     }

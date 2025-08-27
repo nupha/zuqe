@@ -3,7 +3,7 @@ use crate::{
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
     JS_CLASS_INT32_ARRAY, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8_ARRAY,
     JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
-    array_buffer::ObjArrayBuffer,
+    array_buffer::ArrayBufObjPayload,
     atom::consts::JS_ATOM_Symbol_iterator,
     class::JSClassID,
     context::JSContext,
@@ -29,7 +29,7 @@ pub fn typed_array_size_log2(classid: JSClassID) -> u8 {
 }
 
 #[derive(Debug)]
-pub struct ObjTypedArray {
+pub struct TypedArrayObjPayload {
     /// back reference to the TypedArray/DataView object.
     pub obj: JSObjectWeakref,
 
@@ -44,7 +44,7 @@ pub struct ObjTypedArray {
     pub count: u32,
 }
 
-impl ObjTypedArray {
+impl TypedArrayObjPayload {
     /// create typed array payload with underlying array buffer `buffer`,
     /// offset in array buffer and type array element count.
     /// Note: `buffer` is consumed.
@@ -117,7 +117,7 @@ impl ObjTypedArray {
     }
 
     /// get underlaying array buffer.
-    pub fn array_buffer(&self) -> ObjArrayBuffer {
+    pub fn array_buffer(&self) -> ArrayBufObjPayload {
         self.buffer
             .0
             .payload
@@ -193,7 +193,7 @@ impl TypedArray {
     }
 
     /// run closure with typed array data.
-    pub fn with<R>(&self, f: impl FnOnce(&ObjTypedArray) -> R) -> R {
+    pub fn with<R>(&self, f: impl FnOnce(&TypedArrayObjPayload) -> R) -> R {
         self.0
             .inner()
             .payload
@@ -448,7 +448,9 @@ impl JSContext {
         count: usize,
         class_id: JSClassID,
     ) -> JSResult {
-        let arr = Box::new(ObjTypedArray::new(self, buffer, class_id, offset, count)?);
+        let arr = Box::new(TypedArrayObjPayload::new(
+            self, buffer, class_id, offset, count,
+        )?);
         let isa = match class_id {
             JS_CLASS_UINT8C_ARRAY => ObjectPayload::UINT8C_ARRAY(arr),
             JS_CLASS_UINT8_ARRAY => ObjectPayload::UINT8_ARRAY(arr),

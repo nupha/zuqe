@@ -26,7 +26,7 @@ pub const LRE_FLAG_INDICES: i32 = 1 << 6; // Unused by libregexp, just recorded.
 pub const LRE_FLAG_NAMED_GROUPS: i32 = 1 << 7; // named groups are present in the regexp
 
 #[derive(Debug)]
-pub struct JSRegExpStringIteratorData {
+pub struct RegExpStringIterPayload {
     pub iterating_regexp: JSObject,
     pub iterated_string: StringContent,
     pub global: bool,

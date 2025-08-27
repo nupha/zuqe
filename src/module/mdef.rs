@@ -11,7 +11,7 @@ use crate::{
     class::JSClassExoticMethods,
     context::{JSContext, JSContextInner},
     error::{JS_ThrowSyntaxError, JSResult},
-    function::{JSFunctionDef, JSVarKindEnum, JSVarRef, ObjFunc},
+    function::{JSFunctionDef, JSVarKindEnum, JSVarRef, FuncObjPayload},
     module::{JSExportEntry, JSExportTypeEnum, JSImportEntry, JSModuleStatus, ModuleDependency},
     object::{JS_PROP_C_W_E, JSObject, ObjectPayload},
     promise::Promise,
@@ -226,7 +226,7 @@ impl ModuleDefInner {
                     if self.has_tla.get() {
                         // b.0.borrow_mut().js_mode |= JS_MODE_ASYNC as u8;
                         // (
-                        //     ObjectPayload::ASYNC_FUNCTION(ObjFunc {
+                        //     ObjectPayload::ASYNC_FUNCTION(FuncObjPayload {
                         //         bytecode: Some(b.clone()),
                         //         var_refs,
                         //         home_object: None,
@@ -234,7 +234,7 @@ impl ModuleDefInner {
                         //     JS_CLASS_BYTECODE_FUNCTION,
                         // )
                         (
-                            ObjectPayload::BYTECODE_FUNCTION(ObjFunc {
+                            ObjectPayload::BYTECODE_FUNCTION(FuncObjPayload {
                                 bytecode: Some(bc.clone()),
                                 var_refs,
                                 home_object: None,
@@ -243,7 +243,7 @@ impl ModuleDefInner {
                         )
                     } else {
                         (
-                            ObjectPayload::BYTECODE_FUNCTION(ObjFunc {
+                            ObjectPayload::BYTECODE_FUNCTION(FuncObjPayload {
                                 bytecode: Some(bc.clone()),
                                 var_refs,
                                 home_object: None,
@@ -686,7 +686,7 @@ pub unsafe fn js_create_module_bytecode_function(
     //         if m.0.has_tla.get() {
     //             // b.0.borrow_mut().js_mode |= JS_MODE_ASYNC as u8;
     //             // (
-    //             //     ObjectPayload::ASYNC_FUNCTION(ObjFunc {
+    //             //     ObjectPayload::ASYNC_FUNCTION(FuncObjPayload {
     //             //         bytecode: Some(b.clone()),
     //             //         var_refs,
     //             //         home_object: None,
@@ -694,7 +694,7 @@ pub unsafe fn js_create_module_bytecode_function(
     //             //     JS_CLASS_BYTECODE_FUNCTION,
     //             // )
     //             (
-    //                 ObjectPayload::BYTECODE_FUNCTION(ObjFunc {
+    //                 ObjectPayload::BYTECODE_FUNCTION(FuncObjPayload {
     //                     bytecode: Some(b.clone()),
     //                     var_refs,
     //                     home_object: None,
@@ -703,7 +703,7 @@ pub unsafe fn js_create_module_bytecode_function(
     //             )
     //         } else {
     //             (
-    //                 ObjectPayload::BYTECODE_FUNCTION(ObjFunc {
+    //                 ObjectPayload::BYTECODE_FUNCTION(FuncObjPayload {
     //                     bytecode: Some(b.clone()),
     //                     var_refs,
     //                     home_object: None,

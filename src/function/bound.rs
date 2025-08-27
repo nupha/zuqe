@@ -12,7 +12,7 @@ use crate::{
 use super::{JS_CALL_FLAG_CONSTRUCTOR, JS_CallConstructor2};
 
 #[derive(Debug)]
-pub struct ObjBoundFunc {
+pub struct BoundFuncObjPayload {
     pub func_obj: JSValue,
     pub this_val: JSValue,
     pub bind_args: Vec<JSValue>,

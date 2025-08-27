@@ -2,11 +2,11 @@ use std::ops::DerefMut;
 
 use crate::{
     array::ArrayObjPayload,
-    array_buffer::ObjArrayBuffer,
-    function::{ObjAsyncState, ObjFunc},
+    array_buffer::ArrayBufObjPayload,
+    function::{FuncObjPayload, AsyncObjPayload},
     map::JSMapState,
     promise::ObjPromiseResolvingState,
-    typed_array::ObjTypedArray,
+    typed_array::TypedArrayObjPayload,
     value::JSValue,
 };
 
@@ -32,20 +32,20 @@ impl ObjectPayload {
         self.array_mut().map(f)
     }
 
-    pub const fn array_buffer(&self) -> Option<&ObjArrayBuffer> {
+    pub const fn array_buffer(&self) -> Option<&ArrayBufObjPayload> {
         match self {
             Self::ARRAY_BUFFER(a) | Self::SHARED_ARRAY_BUFFER(a) => Some(a),
             _ => None,
         }
     }
-    pub const fn array_buffer_mut(&mut self) -> Option<&mut ObjArrayBuffer> {
+    pub const fn array_buffer_mut(&mut self) -> Option<&mut ArrayBufObjPayload> {
         match self {
             Self::ARRAY_BUFFER(a) | Self::SHARED_ARRAY_BUFFER(a) => Some(a),
             _ => None,
         }
     }
 
-    pub fn typed_array(&self) -> Option<&ObjTypedArray> {
+    pub fn typed_array(&self) -> Option<&TypedArrayObjPayload> {
         match self {
             Self::UINT8C_ARRAY(a)
             | Self::INT8_ARRAY(a)
@@ -62,7 +62,7 @@ impl ObjectPayload {
             _ => None,
         }
     }
-    pub fn typed_array_mut(&mut self) -> Option<&mut ObjTypedArray> {
+    pub fn typed_array_mut(&mut self) -> Option<&mut TypedArrayObjPayload> {
         match self {
             Self::UINT8C_ARRAY(a)
             | Self::INT8_ARRAY(a)
@@ -79,12 +79,12 @@ impl ObjectPayload {
             _ => None,
         }
     }
-    pub fn with_typed_array<R>(&self, f: impl FnOnce(&ObjTypedArray) -> R) -> Option<R> {
+    pub fn with_typed_array<R>(&self, f: impl FnOnce(&TypedArrayObjPayload) -> R) -> Option<R> {
         self.typed_array().map(f)
     }
     pub fn with_typed_array_mut<R>(
         &mut self,
-        f: impl FnOnce(&mut ObjTypedArray) -> R,
+        f: impl FnOnce(&mut TypedArrayObjPayload) -> R,
     ) -> Option<R> {
         self.typed_array_mut().map(f)
     }
@@ -112,7 +112,7 @@ impl ObjectPayload {
         }
     }
 
-    pub const fn func(&self) -> Option<&ObjFunc> {
+    pub const fn func(&self) -> Option<&FuncObjPayload> {
         match self {
             Self::BYTECODE_FUNCTION(f)
             | Self::GENERATOR_FUNCTION(f)
@@ -121,7 +121,7 @@ impl ObjectPayload {
             _ => None,
         }
     }
-    pub const fn func_mut(&mut self) -> Option<&mut ObjFunc> {
+    pub const fn func_mut(&mut self) -> Option<&mut FuncObjPayload> {
         match self {
             Self::BYTECODE_FUNCTION(f)
             | Self::GENERATOR_FUNCTION(f)
@@ -131,7 +131,7 @@ impl ObjectPayload {
         }
     }
 
-    pub const fn async_func_state(&self) -> Option<&ObjAsyncState> {
+    pub const fn async_func_state(&self) -> Option<&AsyncObjPayload> {
         match self {
             Self::ASYNC_FUNCTION_RESOLVE(a) | Self::ASYNC_FUNCTION_REJECT(a) => Some(a),
             _ => None,

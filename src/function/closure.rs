@@ -6,7 +6,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{
-        Bytecode, JSFunctionKindEnum, JSVarRef, ObjFunc, func_kind_to_class_id,
+        Bytecode, FuncObjPayload, JSFunctionKindEnum, JSVarRef, func_kind_to_class_id,
         js_class_has_bytecode, js_function_set_properties,
     },
     object::{JS_PROP_WRITABLE, JS_SetConstructorBit, JSObject, LazyInit, ObjectPayload},
@@ -295,16 +295,16 @@ impl Bytecode {
                 ctx,
                 ctx.create_object(match func_kind {
                     JSFunctionKindEnum::JS_FUNC_NORMAL => {
-                        ObjectPayload::BYTECODE_FUNCTION(ObjFunc::default())
+                        ObjectPayload::BYTECODE_FUNCTION(FuncObjPayload::default())
                     }
                     JSFunctionKindEnum::JS_FUNC_GENERATOR => {
-                        ObjectPayload::GENERATOR_FUNCTION(ObjFunc::default())
+                        ObjectPayload::GENERATOR_FUNCTION(FuncObjPayload::default())
                     }
                     JSFunctionKindEnum::JS_FUNC_ASYNC => {
-                        ObjectPayload::ASYNC_FUNCTION(ObjFunc::default())
+                        ObjectPayload::ASYNC_FUNCTION(FuncObjPayload::default())
                     }
                     JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR => {
-                        ObjectPayload::ASYNC_GENERATOR_FUNCTION(ObjFunc::default())
+                        ObjectPayload::ASYNC_GENERATOR_FUNCTION(FuncObjPayload::default())
                     }
                 })
                 .map_err(|_| -1)?,

@@ -18,14 +18,14 @@ use crate::{
     context::JSContext,
     error::{ErrorKind, JS_ThrowSyntaxError, JSResult},
     function::{
-        BlockEnv, Bytecode, FieldDef, JSCFunction, JSCFunctionMagic, JSFunctionDef,
-        JSFunctionKindEnum, JSGlobalVar, JSVarDefEnum, JSVarKindEnum, JSVarRef, Label,
-        NativeCallback, NativeFunctionType, ObjAsyncState, ObjNativeFunc, RelocEntry,
+        AsyncObjPayload, BlockEnv, Bytecode, FieldDef, JSCFunction, JSCFunctionMagic,
+        JSFunctionDef, JSFunctionKindEnum, JSGlobalVar, JSVarDefEnum, JSVarKindEnum, JSVarRef,
+        Label, NativeCallback, NativeFunctionType, ObjNativeFunc, RelocEntry,
         js_function_set_properties,
     },
     gc::{GCObjectHeader, JSGCObjectTypeEnum},
     generator::ObjAsyncGenerator,
-    iterator::{ForInIterator, JSIteratorKindEnum},
+    iterator::{ForInIterObjPayload, JSIteratorKindEnum},
     module::{
         JSExportEntry, JSExportTypeEnum, JSResolveEntry, JSResolveResultEnum, ModuleDef,
         ModuleDefInner,
@@ -1610,27 +1610,27 @@ pub unsafe fn JS_DumpGCObjects(rt: *mut JSRuntime) {
     unreachable!("unused");
 }
 
-#[deprecated(note = "use ObjAsyncState::finalize() instead")]
-pub unsafe fn __async_func_free(rt: *mut JSRuntime, s: *mut ObjAsyncState) {
+#[deprecated(note = "use AsyncObjPayload::finalize() instead")]
+pub unsafe fn __async_func_free(rt: *mut JSRuntime, s: *mut AsyncObjPayload) {
     unreachable!("unused");
 }
 
-#[deprecated(note = "use ObjAsyncState::free() instead")]
-pub unsafe fn async_func_free(rt: *mut JSRuntime, s: *mut ObjAsyncState) {
+#[deprecated(note = "use AsyncObjPayload::free() instead")]
+pub unsafe fn async_func_free(rt: *mut JSRuntime, s: *mut AsyncObjPayload) {
     unreachable!("unused");
 }
 
-/// make new ObjAsyncState (used by generator and async functions)
-#[deprecated(note = "use ObjAsyncState::new() instead")]
+/// make new AsyncObjPayload (used by generator and async functions)
+#[deprecated(note = "use AsyncObjPayload::new() instead")]
 pub unsafe fn async_func_init(
     ctx: &JSContext,
     func_obj: JSValueConst,
     this_obj: JSValueConst,
     argc: i32,
     argv: *const JSValueConst,
-) -> *mut ObjAsyncState {
-    unreachable!("use ObjAsyncState::new() instead");
-    // ObjAsyncState::new(
+) -> *mut AsyncObjPayload {
+    unreachable!("use AsyncObjPayload::new() instead");
+    // AsyncObjPayload::new(
     //     ctx,
     //     func_obj,
     //     this_obj,
@@ -2165,8 +2165,8 @@ pub unsafe fn JS_NewAtomInt64(ctx: &JSContext, n: i64) -> JSAtom {
     unreachable!("unused");
 }
 
-#[deprecated(note = "use ObjAsyncState::free_frame() instead")]
-pub unsafe fn async_func_free_frame(rt: *mut JSRuntime, s: *mut ObjAsyncState) {
+#[deprecated(note = "use AsyncObjPayload::free_frame() instead")]
+pub unsafe fn async_func_free_frame(rt: *mut JSRuntime, s: *mut AsyncObjPayload) {
     unreachable!("unused");
 }
 
@@ -2555,8 +2555,8 @@ pub fn JS_SetGlobalVar(ctx: &JSContext, prop: JSAtom, val: JSValue, flag: u32) -
     ctx.set_global_var(prop, val, flag).map_or(-1, |_| 0)
 }
 
-#[deprecated(note = "use ObjAsyncState::resume() instead")]
-pub fn async_func_resume(ctx: &JSContext, af: &ObjAsyncState) -> JSValue {
+#[deprecated(note = "use AsyncObjPayload::resume() instead")]
+pub fn async_func_resume(ctx: &JSContext, af: &AsyncObjPayload) -> JSValue {
     af.resume(ctx).unwrap_or(JSValue::EXCEPTION)
 }
 
@@ -3316,10 +3316,10 @@ pub unsafe fn js_array_buffer_constructor3(
     unreachable!()
 }
 
-/// the callback to free ObjArrayBuffer.
-/// - opaque: ObjArrayBuffer.opaque field
-/// - data: ObjArrayBuffer.data field
-/// - data_length: ObjArrayBuffer.byte_length field
+/// the callback to free ArrayBufObjPayload.
+/// - opaque: ArrayBufObjPayload.opaque field
+/// - data: ArrayBufObjPayload.data field
+/// - data_length: ArrayBufObjPayload.byte_length field
 #[deprecated(note = "not used")]
 pub unsafe fn js_array_buffer_free(
     rt: *mut JSRuntime,
@@ -3785,7 +3785,7 @@ pub fn JS_IteratorClose(
 
 #[deprecated(note = "use JSForInIterator::new() instead")]
 pub fn build_for_in_iterator(ctx: &JSContext, obj: JSValue) -> JSValue {
-    ForInIterator::new(ctx, obj).map_or(JSValue::EXCEPTION, JSValue::Object)
+    ForInIterObjPayload::new(ctx, obj).map_or(JSValue::EXCEPTION, JSValue::Object)
 }
 
 /// return TRUE if 'atom' is a symbol with a string description

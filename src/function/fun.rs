@@ -75,7 +75,7 @@ pub enum FuncCallType {
 }
 
 #[derive(Debug, Default)]
-pub struct ObjFunc {
+pub struct FuncObjPayload {
     pub bytecode: Option<Bytecode>,
 
     /// closure variable refrences
@@ -87,7 +87,7 @@ pub struct ObjFunc {
     pub home_object: Option<JSObject>,
 }
 
-impl ObjFunc {
+impl FuncObjPayload {
     /// get function bytecode
     #[inline]
     pub fn bytecode(&self) -> Option<Bytecode> {

@@ -1,7 +1,7 @@
 use crate::{
     JS_CLASS_ERROR,
     atom::{AtomHintAndId, AtomTypeHint, JSAtomStruct},
-    function::{Bytecode, ObjAsyncState},
+    function::{Bytecode, AsyncObjPayload},
     module::ModuleDef,
     number::JSFloat64Union,
     object::JSObject,
@@ -110,7 +110,7 @@ pub enum JSValue {
     Bytecode(Bytecode),
 
     /// Special for async state resume execution only
-    AsyncStateResume(ObjAsyncState),
+    AsyncStateResume(AsyncObjPayload),
 }
 
 impl PartialEq for JSValue {

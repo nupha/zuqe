@@ -169,7 +169,7 @@ static ATOM_DEFS: &[&str] = &[
     "Date",
     "Function",
     "GeneratorFunction",
-    "ForInIterator",
+    "ForInIterObjPayload",
     "RegExp",
     "ArrayBuffer",
     "SharedArrayBuffer",

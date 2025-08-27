@@ -5,7 +5,7 @@ use crate::{
     JS_PROP_STRING_DEF,
     context::JSContext,
     error::JSResult,
-    function::{CallContext, FieldDef, ObjAsyncState},
+    function::{CallContext, FieldDef, AsyncObjPayload},
     iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW, js_create_iterator_result},
     object::{JS_PROP_CONFIGURABLE, JSObjectWeakref, ObjectPayload},
     promise::{Promise, js_promise_resolve},
@@ -34,7 +34,7 @@ pub struct ObjAsyncGenerator {
     pub state: JSAsyncGeneratorStateEnum,
 
     /// None for state AWAITING_RETURN and COMPLETED
-    pub func_state: Option<ObjAsyncState>,
+    pub func_state: Option<AsyncObjPayload>,
 
     /// list of JSAsyncGeneratorRequest
     pub queue: Vec<Box<JSAsyncGeneratorRequest>>,
@@ -83,7 +83,7 @@ impl AsyncGeneratorValue {
         let s = Box::new(ObjAsyncGenerator {
             generator: JSObjectWeakref::default(),
             state: JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_SUSPENDED_START,
-            func_state: Some(ObjAsyncState::new(ctx, func_obj, this_obj.clone(), args)?),
+            func_state: Some(AsyncObjPayload::new(ctx, func_obj, this_obj.clone(), args)?),
             queue: Vec::with_capacity(1),
         });
 

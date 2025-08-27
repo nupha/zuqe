@@ -32,7 +32,7 @@ pub struct JSMapIteratorData {
 }
 
 #[derive(Debug)]
-pub struct ForInIterator {
+pub struct ForInIterObjPayload {
     pub obj: JSValue,
     /// obj is an array?
     pub is_array: bool,
@@ -49,8 +49,8 @@ pub struct ForInIterator {
     pub prop_count: u32,
 }
 
-impl ForInIterator {
-    /// create new object with ForInIterator payload for given value.
+impl ForInIterObjPayload {
+    /// create new object with ForInIterObjPayload payload for given value.
     /// the new object is of CLASS_FOR_IN_ITERATOR class.
     pub fn new(ctx: &JSContext, val: JSValue) -> Result<JSObject, i32> {
         let obj: JSValue = match val {
@@ -58,7 +58,7 @@ impl ForInIterator {
             JSValue::NULL | JSValue::UNDEFINED => val,
             _ => val.to_object(ctx)?.into(),
         };
-        let mut it = Box::new(ForInIterator {
+        let mut it = Box::new(ForInIterObjPayload {
             obj: obj.clone(),
             idx: 0,
             prop_count: 0,
@@ -457,7 +457,7 @@ pub fn js_for_in_iterator_mark(val: JSValue) {
 
 pub fn iterator_to_array(ctx: &JSContext, items: &JSValue) -> JSResult {
     let it = items.iter(ctx)?;
-    let arr = ctx.create_array( )?;
+    let arr = ctx.create_array()?;
     for (i, v) in it.enumerate() {
         arr.0
             .define_property_value_i64(ctx, i as i64, v?, JS_PROP_C_W_E | JS_PROP_THROW)?;
@@ -472,7 +472,7 @@ pub fn js_array_from_iterator(
 ) -> Result<(JSValue, usize), i32> {
     if let JSValue::Object(obj) = method.call(ctx, obj, &[])? {
         let it = ObjectIter::new(ctx, obj, JS_ATOM_next)?;
-        let arr = ctx.create_array( )?;
+        let arr = ctx.create_array()?;
 
         let mut k = 0_i64;
         for val in it {

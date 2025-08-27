@@ -4,7 +4,8 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{
-        CallContext, FieldDef, JSFunctionKindEnum, ObjBoundFunc, ObjFunc, js_function_apply,
+        BoundFuncObjPayload, CallContext, FieldDef, FuncObjPayload, JSFunctionKindEnum,
+        js_function_apply,
     },
     object::{JS_PROP_CONFIGURABLE, ObjectPayload},
     string::JS_ConcatString3,
@@ -28,7 +29,7 @@ pub fn js_function_bind(ctx: &JSContext, args: CallContext) -> JSResult {
 
     this_val.ensure_callable(ctx)?;
 
-    let mut bf = Box::new(ObjBoundFunc {
+    let mut bf = Box::new(BoundFuncObjPayload {
         func_obj: this_val.clone(),
         this_val: args.arg(0).clone(), // argument #0 is for `this`
         bind_args: Vec::new(),
@@ -151,11 +152,12 @@ pub fn js_function_hasInstance(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_function_proto_fileName(ctx: &JSContext, args: CallContext) -> JSResult {
-    if let Some(b) = args
-        .this_raw()
-        .object()
-        .and_then(|o| o.0.payload.borrow().func().and_then(ObjFunc::bytecode))
-    {
+    if let Some(b) = args.this_raw().object().and_then(|o| {
+        o.0.payload
+            .borrow()
+            .func()
+            .and_then(FuncObjPayload::bytecode)
+    }) {
         let b = b.0.borrow();
         if b.has_debug {
             b.debug.filename.to_string_or_symbol(ctx, true)
@@ -168,11 +170,12 @@ pub fn js_function_proto_fileName(ctx: &JSContext, args: CallContext) -> JSResul
 }
 
 pub fn js_function_proto_lineNumber(_: &JSContext, args: CallContext) -> JSResult {
-    if let Some(b) = args
-        .this_raw()
-        .object()
-        .and_then(|o| o.0.payload.borrow().func().and_then(ObjFunc::bytecode))
-    {
+    if let Some(b) = args.this_raw().object().and_then(|o| {
+        o.0.payload
+            .borrow()
+            .func()
+            .and_then(FuncObjPayload::bytecode)
+    }) {
         let b = b.0.borrow();
         if b.has_debug {
             Ok(JSValue::Int(b.debug.line_num as i32))

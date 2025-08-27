@@ -169,17 +169,17 @@ impl AsyncStateInner {
 /// async execution state.
 /// used to save execution state of an async function or generator.
 #[derive(Debug, Clone)]
-pub struct ObjAsyncState(pub(crate) Rc<RefCell<Pin<Box<AsyncStateInner>>>>);
+pub struct AsyncObjPayload(pub(crate) Rc<RefCell<Pin<Box<AsyncStateInner>>>>);
 
-impl ObjAsyncState {
-    /// create new ObjAsyncState, register to gc tracking list.
+impl AsyncObjPayload {
+    /// create new AsyncObjPayload, register to gc tracking list.
     pub fn new_with_resolvings(
         ctx: &JSContext,
         resolvings: [JSValue; 2],
         func_obj: &JSValue,
         this_obj: JSValue,
         args: &[JSValue],
-    ) -> Result<ObjAsyncState, i32> {
+    ) -> Result<AsyncObjPayload, i32> {
         let inner = AsyncStateInner::new(ctx, resolvings, func_obj, this_obj, args)?;
 
         // fix var_base_ptr field: it's self referenced
@@ -213,14 +213,14 @@ impl ObjAsyncState {
         Ok(sframe)
     }
 
-    /// create new ObjAsyncState, register to gc tracking list.
+    /// create new AsyncObjPayload, register to gc tracking list.
     #[inline(always)]
     pub fn new(
         ctx: &JSContext,
         func_obj: &JSValue,
         this_obj: JSValue,
         args: &[JSValue],
-    ) -> Result<ObjAsyncState, i32> {
+    ) -> Result<AsyncObjPayload, i32> {
         Self::new_with_resolvings(
             ctx,
             [const { JSValue::UNDEFINED }; 2],
@@ -353,7 +353,7 @@ impl AsyncStateWeakref {
         Self(Weak::new())
     }
 
-    pub fn upgrade(&self) -> Option<ObjAsyncState> {
-        self.0.upgrade().map(ObjAsyncState)
+    pub fn upgrade(&self) -> Option<AsyncObjPayload> {
+        self.0.upgrade().map(AsyncObjPayload)
     }
 }

@@ -22,8 +22,8 @@ use crate::{
 };
 
 use super::{
-    JSRegExp, JSRegExpStringIteratorData, LRE_FLAG_DOTALL, LRE_FLAG_GLOBAL, LRE_FLAG_IGNORECASE,
-    LRE_FLAG_INDICES, LRE_FLAG_MULTILINE, LRE_FLAG_STICKY, LRE_FLAG_UTF16,
+    JSRegExp, LRE_FLAG_DOTALL, LRE_FLAG_GLOBAL, LRE_FLAG_IGNORECASE, LRE_FLAG_INDICES,
+    LRE_FLAG_MULTILINE, LRE_FLAG_STICKY, LRE_FLAG_UTF16, RegExpStringIterPayload,
 };
 
 /* create a RegExp object from a string containing the RegExp bytecode
@@ -582,7 +582,7 @@ pub fn js_regexp_Symbol_matchAll(ctx: &JSContext, cc: CallContext) -> JSResult {
     matcher.set_property(ctx, JS_ATOM_lastIndex, last_index)?;
 
     // make regexp string iterator object
-    let isa = JSRegExpStringIteratorData {
+    let isa = RegExpStringIterPayload {
         iterating_regexp: matcher.try_into().unwrap(),
         iterated_string: str.content().clone(),
         global: re.flags & LRE_FLAG_GLOBAL as u8 != 0,

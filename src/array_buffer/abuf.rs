@@ -150,9 +150,9 @@ impl JSArrayBufferInner {
 }
 
 #[derive(Debug, Clone)]
-pub struct ObjArrayBuffer(pub(crate) Rc<RefCell<JSArrayBufferInner>>);
+pub struct ArrayBufObjPayload(pub(crate) Rc<RefCell<JSArrayBufferInner>>);
 
-impl ObjArrayBuffer {
+impl ArrayBufObjPayload {
     #[inline(always)]
     pub fn is_detached(&self) -> bool {
         self.0.borrow().detached
@@ -209,7 +209,7 @@ impl JSContext {
                 array_list: Vec::new(),
                 opaque,
             };
-            ObjArrayBuffer(Rc::new(RefCell::new(inner)))
+            ArrayBufObjPayload(Rc::new(RefCell::new(inner)))
         };
 
         // create array buffer or shared array buffer instance

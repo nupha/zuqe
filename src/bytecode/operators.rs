@@ -1,13 +1,13 @@
 use std::ops::DerefMut;
 
-use crate::iterator::{ForInIterator, ObjectIter};
+use crate::iterator::{ForInIterObjPayload, ObjectIter};
 use crate::object::JSObject;
 use crate::{
     JS_CLASS_OBJECT,
     atom::{JS_ATOM_NULL, JS_FreeAtom, JSAtom, consts::*},
     class::JS_DEFINE_CLASS_HAS_HERITAGE,
     context::JSContext,
-    function::{JSFunctionKindEnum, JSVarRef, NativeFunctionType, ObjFunc},
+    function::{FuncObjPayload, JSFunctionKindEnum, JSVarRef, NativeFunctionType},
     iterator::{
         JS_IteratorGetCompleteValue, JSIteratorKindEnum, js_array_iterator_next,
         js_create_array_iterator,
@@ -165,7 +165,7 @@ pub fn js_op_define_class(
     let func = ctx
         .create_object_from_proto(
             parent_class,
-            ObjectPayload::BYTECODE_FUNCTION(ObjFunc::default()),
+            ObjectPayload::BYTECODE_FUNCTION(FuncObjPayload::default()),
         )
         .map_err(|_| -1)?;
 
@@ -375,7 +375,7 @@ pub unsafe fn js_append_enumerate(ctx: &JSContext, sp: *mut JSValue) -> Result<(
 pub fn js_for_in_start(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
     unsafe {
         let obj = std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED);
-        let it = ForInIterator::new(ctx, obj).map_or(JSValue::EXCEPTION, JSValue::Object);
+        let it = ForInIterObjPayload::new(ctx, obj).map_or(JSValue::EXCEPTION, JSValue::Object);
 
         std::ptr::replace(sp.offset(-1), it);
 

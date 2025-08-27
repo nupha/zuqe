@@ -8,7 +8,7 @@ use crate::{
 
 use super::{ATOD_ACCEPT_BIN_OCT, js_atof};
 
-pub const MAX_SAFE_INTEGER: i64 = (1_i64) << 53; // (1_i64 << 53) - 1;
+pub const MAX_SAFE_INTEGER: i64 = (1_i64 << 53) - 1;
 pub const SAFE_INTEGER_RANGE: RangeInclusive<i64> = -MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER;
 pub const JS_FLOAT64_NAN: f64 = f64::NAN;
 
