@@ -2,7 +2,7 @@ use std::ops::RangeInclusive;
 
 use crate::{
     context::JSContext,
-    error::{JS_ThrowRangeError, JSResult},
+    error::JSResult,
     value::{HINT_NUMBER, JSValue, JSValueConst},
 };
 
@@ -57,9 +57,11 @@ impl From<i64> for JSValue {
         if val == v32 as i64 {
             Self::Int(v32)
         } else {
+            #[cfg(debug_assertions)]
             if SAFE_INTEGER_RANGE.contains(&val) {
                 log::warn!("integer {val} will lose precision");
             }
+
             Self::from_f64_as_is(val as f64)
         }
     }
@@ -406,16 +408,6 @@ impl JSValue {
     #[inline(always)]
     pub fn coerce_to_length(&self, ctx: &JSContext) -> Result<i64, i32> {
         self.coerce_to_i64_clamp(ctx, 0, MAX_SAFE_INTEGER, 0)
-    }
-
-    /// coerce value to valid array index between 0..=MAX_SAFE_INTEGER.
-    pub fn coerce_to_index(&self, ctx: &JSContext) -> Result<usize, i32> {
-        let v: i64 = self.coerce_to_i64_saturating(ctx)?;
-        if !(0..=MAX_SAFE_INTEGER).contains(&v) {
-            JS_ThrowRangeError(ctx, "invalid array index");
-            return Err(-1);
-        }
-        Ok(v as usize)
     }
 
     pub fn coerce_to_f64(&self, ctx: &JSContext) -> Result<f64, i32> {

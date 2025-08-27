@@ -45,6 +45,7 @@ impl JSContext {
     /// create an Array with element values
     pub fn create_array_with_values(&self, values: Vec<JSValue>) -> Result<Array, i32> {
         let len = values.len();
+        debug_assert!(len <= MAX_SAFE_INTEGER as usize);
 
         let fa = self
             .create_object_with_shape(
@@ -59,7 +60,7 @@ impl JSContext {
 
         // set array length
         if len > 0 {
-            fa.0.set_array_length(self, len, true)?;
+            fa.0.set_array_length(self, len as u32, true)?;
         }
 
         Ok(fa)
@@ -77,7 +78,7 @@ impl JSContext {
 
     /// create an Array object with capacity.
     pub fn create_array(&self, capacity: usize) -> Result<Array, i32> {
-        if capacity > MAX_SAFE_INTEGER as usize {
+        if capacity > u32::MAX as usize {
             self.throw_error(ErrorKind::Range, "invalid array length");
             return Err(-1);
         }
@@ -245,9 +246,11 @@ impl JSObject {
     pub fn set_array_length(
         &self,
         ctx: &JSContext,
-        len: usize,
+        len: u32,
         throw_error: bool,
     ) -> Result<bool, i32> {
+        let len = len as usize;
+
         if self
             .shape()
             .and_then(|sh| {
@@ -402,9 +405,10 @@ impl JSValue {
         self.object().and_then(|o| o.with_fast_array_values_mut(f))
     }
 
-    /// coerce value `self` to array length
-    pub fn to_array_length(&self, ctx: &JSContext, is_array_ctor: bool) -> Result<usize, i32> {
-        let len: usize;
+    /// coerce value to valid array length.
+    /// array length can't be greater than 2^32-1 (u32::MAX) per js specification.
+    pub fn to_array_length(&self, ctx: &JSContext, is_array_ctor: bool) -> Result<u32, i32> {
+        let len: u32;
 
         match self {
             Self::NULL => {
@@ -416,13 +420,13 @@ impl JSValue {
                     ctx.throw_range_error("invalid array length");
                     return Err(-1);
                 }
-                len = n as usize;
+                len = n as u32;
             }
             Self::Bool(b) => {
-                len = *b as usize;
+                len = *b as u32;
             }
             Self::Float64(d) => {
-                len = *d as usize;
+                len = *d as u32;
                 if len as f64 != *d {
                     // f64 can't convert to u32
                     ctx.throw_range_error("invalid array length");
@@ -437,7 +441,7 @@ impl JSValue {
                     len = v.to_array_length(ctx, true)?;
                 } else {
                     // legacy behavior: must do the conversion twice and compare
-                    len = self.to_u32(ctx)? as usize;
+                    len = self.to_u32(ctx)?;
                     let v = self.to_number(ctx)?;
                     if len != v.to_array_length(ctx, false)? {
                         ctx.throw_range_error("invalid array length");
@@ -448,6 +452,18 @@ impl JSValue {
         }
 
         Ok(len)
+    }
+
+    /// coerce value to valid array index.
+    pub fn to_array_index(&self, ctx: &JSContext) -> Result<usize, i32> {
+        // FIXME: array index no greater than 2^32-2, fix to use u32 type.
+        // XXX
+        let v: i64 = self.coerce_to_i64_saturating(ctx)?;
+        if !(0..=MAX_SAFE_INTEGER).contains(&v) {
+            ctx.throw_range_error("invalid array index");
+            return Err(-1);
+        }
+        Ok(v as usize)
     }
 }
 

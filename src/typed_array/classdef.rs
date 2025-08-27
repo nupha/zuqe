@@ -7,15 +7,15 @@ use crate::{
     JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY,
     JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
     array::{
-        Array, js_array_every, js_array_reduce, special_TA, special_every, special_filter,
-        special_find, special_findIndex, special_findLast, special_findLastIndex, special_forEach,
+        js_array_every, js_array_reduce, special_TA, special_every, special_filter, special_find,
+        special_findIndex, special_findLast, special_findLastIndex, special_forEach,
         special_includes, special_indexOf, special_lastIndexOf, special_map, special_reduce,
         special_reduceRight, special_some,
     },
     atom::consts::JS_ATOM_Symbol_iterator,
     class::JSClassID,
     context::JSContext,
-    error::{JS_ThrowRangeError, JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
+    error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, FieldDef, JS_CallConstructor},
     iterator::{JSIteratorKindEnum, js_create_array_iterator},
     js_core::js_get_this,
@@ -61,11 +61,11 @@ pub fn js_typed_array_constructor(ctx: &JSContext, cc: CallContext) -> JSResult 
             p.class_id(),
             JS_CLASS_ARRAY_BUFFER | JS_CLASS_SHARED_ARRAY_BUFFER
         ) {
-            let offset = cc.arg(1).coerce_to_index(ctx)?;
+            let offset = cc.arg(1).to_array_index(ctx)?;
 
             let a2 = cc.arg(2);
             let len = if !a2.is_undefined() {
-                a2.coerce_to_index(ctx)?
+                a2.to_array_index(ctx)?
             } else {
                 0
             };
@@ -75,7 +75,7 @@ pub fn js_typed_array_constructor(ctx: &JSContext, cc: CallContext) -> JSResult 
             ctx.create_typed_array_from(new_target, cc.arg(0), 0, 0, class_id as _)
         }
     } else {
-        let len = cc.arg(0).coerce_to_index(ctx)?;
+        let len = cc.arg(0).to_array_index(ctx)?;
         ctx.create_typed_array_from(new_target, &JSValue::UNDEFINED, 0, len, class_id as _)
     }
 }
@@ -341,7 +341,7 @@ pub fn js_typed_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
         idx += len;
     }
     if idx < 0 || idx >= len {
-        JS_ThrowRangeError(ctx, "out of bound");
+        ctx.throw_range_error("out of bound");
         return Err(-1);
     }
 

@@ -794,7 +794,7 @@ fn js_regexp_Symbol_search(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let prev_last_index = this
         .get_property(ctx, JS_ATOM_lastIndex)?
-        .coerce_to_index(ctx)? as usize;
+        .to_array_index(ctx)? as usize;
 
     if prev_last_index != 0 {
         this.set_property(ctx, JS_ATOM_lastIndex, JSValue::Int(0))?;
@@ -805,7 +805,7 @@ fn js_regexp_Symbol_search(ctx: &JSContext, cc: CallContext) -> JSResult {
     let m = JS_RegExpExec(ctx, this.clone(), str.clone())?;
     let cur_last_index = this
         .get_property(ctx, JS_ATOM_lastIndex)?
-        .coerce_to_index(ctx)? as usize;
+        .to_array_index(ctx)? as usize;
 
     if cur_last_index != prev_last_index {
         // restore original lastIndex
@@ -819,7 +819,7 @@ fn js_regexp_Symbol_search(ctx: &JSContext, cc: CallContext) -> JSResult {
     if m.is_null() {
         Ok(JSValue::Int(-1))
     } else {
-        let index = m.get_property(ctx, JS_ATOM_index)?.coerce_to_index(ctx)?;
+        let index = m.get_property(ctx, JS_ATOM_index)?.to_array_index(ctx)?;
         Ok(JSValue::Int(index as i32))
     }
 }

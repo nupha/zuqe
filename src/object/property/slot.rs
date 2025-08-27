@@ -118,7 +118,7 @@ impl JSObject {
             if flags & JS_PROP_HAS_VALUE != 0 {
                 self.set_array_length(
                     ctx,
-                    val.to_array_length(ctx, false)? as usize,
+                    val.to_array_length(ctx, false)?,
                     flags & JS_PROP_THROW != 0,
                 )
             } else {

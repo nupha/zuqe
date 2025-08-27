@@ -1,7 +1,7 @@
 use crate::{
     JS_ALIAS_BASE_DEF, JS_CFUNC_NATIVE_DEF, JS_PROP_DOUBLE_DEF,
     context::JSContext,
-    error::{JS_ThrowRangeError, JSResult},
+    error::JSResult,
     function::{CallContext, FieldDef},
     js_core::global::{MAGIC_NUM_IS_FINITE, MAGIC_NUM_IS_NAN, js_global_isNaN_isFinite},
     number::{JS_DTOA_FORCE_EXP, is_safe_integer},
@@ -61,7 +61,7 @@ pub fn js_number_valueOf(ctx: &JSContext, args: CallContext) -> JSResult {
 pub fn js_get_radix(ctx: &JSContext, val: &JSValue) -> Result<i32, i32> {
     let radix: i32 = val.to_i32_saturating(ctx)?;
     if !(2..=36).contains(&radix) {
-        JS_ThrowRangeError(ctx, "radix must be between 2 and 36");
+        ctx.throw_range_error("radix must be between 2 and 36");
         return Err(-1);
     }
     Ok(radix)
@@ -158,7 +158,7 @@ pub fn js_number_fmt(ctx: &JSContext, cc: CallContext) -> JSResult {
                     a.unwrap_or(10)
                 };
                 if !(2..=36).contains(&base) {
-                    JS_ThrowRangeError(ctx, "radix must be between 2 and 36");
+                    ctx.throw_range_error("radix must be between 2 and 36");
 
                     return Err(-1);
                 }
@@ -170,7 +170,7 @@ pub fn js_number_fmt(ctx: &JSContext, cc: CallContext) -> JSResult {
             FMT_TO_FIXED => {
                 let f = a.unwrap_or(0);
                 if !(0..=20).contains(&f) {
-                    JS_ThrowRangeError(ctx, "invalid number of digits");
+                    ctx.throw_range_error("invalid number of digits");
                     return Err(-1);
                 }
                 let scale = 10_f64.powf(f as f64);
@@ -189,7 +189,7 @@ pub fn js_number_fmt(ctx: &JSContext, cc: CallContext) -> JSResult {
                 10,
                 if let Some(p) = a {
                     if !(1..=100).contains(&p) {
-                        JS_ThrowRangeError(ctx, "invalid number of digits");
+                        ctx.throw_range_error("invalid number of digits");
                         return Err(-1);
                     }
                     Some(p as u32)
@@ -202,7 +202,7 @@ pub fn js_number_fmt(ctx: &JSContext, cc: CallContext) -> JSResult {
 
             FMT_TO_EXPONENTIAL => if let Some(f) = a {
                 if !(0..=20).contains(&f) {
-                    JS_ThrowRangeError(ctx, "invalid number of digits");
+                    ctx.throw_range_error("invalid number of digits");
                     return Err(-1);
                 }
                 f64_stringify(d, 10, Some(f as u32 + 1), JS_DTOA_FORCE_EXP)

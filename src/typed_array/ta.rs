@@ -7,7 +7,7 @@ use crate::{
     atom::consts::JS_ATOM_Symbol_iterator,
     class::JSClassID,
     context::JSContext,
-    error::{JS_ThrowRangeError, JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
+    error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     iterator::js_array_from_iterator,
     object::{JSObject, JSObjectWeakref, ObjectDetail, js_get_length64},
     runtime::JSRuntime,
@@ -72,18 +72,18 @@ impl ObjTypedArray {
 
             let byte_length = abuf.byte_length();
             if (offset & ((1 << size_log2) - 1) != 0) || offset > byte_length {
-                JS_ThrowRangeError(ctx, "invalid offset");
+                ctx.throw_range_error("invalid offset");
                 return Err(-1);
             }
 
             if count == 0 {
                 if byte_length & ((1 << size_log2) - 1) != 0 {
-                    JS_ThrowRangeError(ctx, "invalid length");
+                    ctx.throw_range_error("invalid length");
                     return Err(-1);
                 }
                 count = (byte_length - offset) >> size_log2;
             } else if (offset + (count << size_log2)) > byte_length {
-                JS_ThrowRangeError(ctx, "invalid length");
+                ctx.throw_range_error("invalid length");
                 return Err(-1);
             }
 
@@ -606,7 +606,7 @@ pub fn js_typed_array_set_internal(
 
     let offset: i64 = off.coerce_to_i64_saturating(ctx)?;
     if offset < 0 {
-        JS_ThrowRangeError(ctx, "invalid array length");
+        ctx.throw_range_error("invalid array length");
         return Err(-1);
     }
 
@@ -632,7 +632,7 @@ pub fn js_typed_array_set_internal(
                 return Err(-1);
             }
             if offset > p.length() as i64 - count {
-                JS_ThrowRangeError(ctx, "invalid array length");
+                ctx.throw_range_error("invalid array length");
                 return Err(-1);
             }
 
@@ -669,7 +669,7 @@ pub fn js_typed_array_set_internal(
         _ => {
             count = js_get_length64(ctx, &src_p.clone().into())?;
             if offset > p.length() as i64 - count {
-                JS_ThrowRangeError(ctx, "invalid array length");
+                ctx.throw_range_error("invalid array length");
                 return Err(-1);
             }
 

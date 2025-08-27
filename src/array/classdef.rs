@@ -51,10 +51,12 @@ pub fn js_array_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         let arr = ctx
             .create_object_apply_ctor(
                 new_target,
-                ObjectDetail::ARRAY(ArrayObjPayload::with_capacity(cap).map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?),
+                ObjectDetail::ARRAY(ArrayObjPayload::with_capacity(cap as usize).map_err(
+                    |_| {
+                        ctx.throw_out_of_memory();
+                        -1
+                    },
+                )?),
             )
             .map_err(|_| -1)?;
 
@@ -71,7 +73,7 @@ pub fn js_array_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
                 ctx.throw_out_of_memory();
                 -1
             })?;
-        let len = slots.len();
+        let len = slots.len() as u32;
 
         let arr = ctx
             .create_object_apply_ctor(new_target, ObjectDetail::ARRAY(ArrayObjPayload::new(slots)))

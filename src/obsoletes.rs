@@ -16,7 +16,7 @@ use crate::{
     bytecode::{OpCode, OpCodeTemp, arithmatic::JSStrictEqModeEnum},
     class::{ClassFieldsDef, JSClassDef, JSClassID},
     context::JSContext,
-    error::{JS_ThrowRangeError, JS_ThrowSyntaxError, JSResult},
+    error::{ErrorKind, JS_ThrowSyntaxError, JSResult},
     function::{
         BlockEnv, Bytecode, FieldDef, JSCFunction, JSCFunctionMagic, JSFunctionDef,
         JSFunctionKindEnum, JSGlobalVar, JSVarDefEnum, JSVarKindEnum, JSVarRef, Label,
@@ -2686,6 +2686,11 @@ pub unsafe fn JS_ToInt64Clamp(
     unreachable!("unused");
 }
 
+#[deprecated(note = "use JSContext::throw_range_error() instead")]
+pub fn JS_ThrowRangeError(ctx: &JSContext, message: &str) {
+    ctx.throw_error(ErrorKind::Range, message);
+}
+
 /// convert a value to a length between 0 and MAX_SAFE_INTEGER.
 #[deprecated(note = "use JSValue::coerce_to_length() instead")]
 pub unsafe fn JS_ToLengthFree(ctx: &JSContext, val: JSValue) -> Result<i64, i32> {
@@ -2703,11 +2708,11 @@ pub unsafe fn JS_ToNumberHintFree(
     // JSValue::do_coerce_to_number_free(ctx, val, flag).unwrap_or(JSValue::EXCEPTION)
 }
 
-#[deprecated(note = "use JSValue::coerce_to_index() instead")]
+#[deprecated(note = "use JSValue::to_array_index() instead")]
 pub fn JS_ToIndex(ctx: &JSContext, val: &JSValue) -> Result<u64, i32> {
     let v: i64 = val.coerce_to_i64_saturating(ctx)?;
     if !(0..=MAX_SAFE_INTEGER).contains(&v) {
-        JS_ThrowRangeError(ctx, "invalid array index");
+        ctx.throw_range_error("invalid array index");
         return Err(-1);
     }
     Ok(v as u64)

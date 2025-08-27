@@ -307,12 +307,12 @@ impl JSContext {
 }
 
 pub fn js_array_buffer_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let size = cc.arg(0).coerce_to_index(ctx)?;
+    let size = cc.arg(0).to_array_index(ctx)?;
     ctx.create_array_buffer_ex(cc.this(), JS_CLASS_ARRAY_BUFFER, size, std::ptr::null_mut())
 }
 
 pub fn js_shared_array_buffer_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let len = cc.arg(0).coerce_to_index(ctx)?;
+    let len = cc.arg(0).to_array_index(ctx)?;
     ctx.create_array_buffer_ex(
         cc.this(),
         JS_CLASS_SHARED_ARRAY_BUFFER,

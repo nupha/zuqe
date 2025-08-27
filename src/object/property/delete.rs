@@ -19,11 +19,6 @@ impl JSObject {
     pub fn delete_property(&self, ctx: &JSContext, prop: JSAtom) -> Result<bool, i32> {
         let obj_flags = self.flags();
 
-        println!(
-            "[O.o] delete property: {prop:?}, {:?}",
-            prop.to_utf8(ctx.rt())
-        );
-
         loop {
             // find in shape properties
             if let Some((idx, prs_flags)) = self.find_shape_property(prop) {

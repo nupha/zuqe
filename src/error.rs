@@ -382,11 +382,6 @@ pub fn JS_ThrowTypeErrorPrivateNotFound(ctx: &JSContext, atom: JSAtom) {
     ));
 }
 
-#[deprecated(note = "use JSContext::throw_range_error() instead")]
-pub fn JS_ThrowRangeError(ctx: &JSContext, message: &str) {
-    ctx.throw_error(ErrorKind::Range, message);
-}
-
 pub fn JS_ThrowSyntaxError(ctx: &JSContext, message: &str) {
     ctx.throw_error(ErrorKind::Syntax, message);
 }
