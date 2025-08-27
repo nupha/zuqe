@@ -17,12 +17,12 @@ use crate::{
 
 #[derive(Debug, Default)]
 pub struct ArrayObjPayload {
-    slots: Vec<JSValue>,
+    values: Vec<JSValue>,
 }
 
 impl ArrayObjPayload {
     pub fn new(data: Vec<JSValue>) -> Self {
-        Self { slots: data }
+        Self { values: data }
     }
 }
 
@@ -41,7 +41,7 @@ impl JSContext {
         let fa = self
             .create_object_with_shape(
                 self.0.borrow().array_shape.clone().unwrap(),
-                ObjectPayload::ARRAY(ArrayObjPayload { slots: values }),
+                ObjectPayload::ARRAY(ArrayObjPayload { values }),
             )
             .map(Array)
             .map_err(|_| -1)?;
@@ -126,7 +126,7 @@ impl JSObject {
                 // but __JS_AtomFromUInt32(i) fails for i > i32::MAX
                 self.add_own_property(
                     ctx,
-                    JSAtom::new_u32(i as _), // int as property name
+                    JSAtom::new_small_int(i as _), // int as property name
                     JS_PROP_C_W_E,
                     JSProperty::Normal(v),
                 )?;
@@ -147,7 +147,7 @@ impl JSObject {
                 .payload
                 .borrow()
                 .array()
-                .map(|a| f(a.slots.as_slice()))
+                .map(|a| f(a.values.as_slice()))
         } else {
             None
         }
@@ -163,7 +163,7 @@ impl JSObject {
                 .payload
                 .borrow_mut()
                 .array_mut()
-                .map(|a| f(&mut a.slots))
+                .map(|a| f(&mut a.values))
         } else {
             None
         }
@@ -226,12 +226,14 @@ impl JSObject {
         .unwrap()
     }
 
-    /// get array object length.
-    /// will panic if `self` is not an Array, Argument, or TypedArray.
-    pub fn array_length_unchecked(&self) -> usize {
-        if let Some(array) = self.0.payload.borrow().array() {
+    /// Get array length:
+    /// - for Array or Argument instance, return elements count (not property `length`);
+    /// - for TypedArray or DataView instance, return elements count;
+    /// - __Panic__ when object is not an Array, Argument, TypedArray or DataView.
+    pub(crate) fn array_elements_count(&self) -> usize {
+        if let Some(ap) = self.0.payload.borrow().array() {
             // ARRAY or ARGUMENT
-            array.slots.len()
+            ap.values.len()
         } else if let Some(ta) = self.0.payload.borrow().typed_array() {
             // typed array or dataview
             ta.count as usize

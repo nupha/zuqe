@@ -75,7 +75,7 @@ impl JSObject {
             if ob_flags.is_exotic() {
                 if ob_flags.is_fast_array() {
                     if let Some(idx) = prop.to_int() {
-                        if idx < cur_obj.array_length_unchecked() as u32 {
+                        if idx < cur_obj.array_elements_count() as u32 {
                             return cur_obj.get_property_value(ctx, &JSValue::from(idx));
                         }
 
@@ -341,7 +341,8 @@ impl JSValue {
     }
 
     pub fn get_property_i64(&self, ctx: &JSContext, idx: i64) -> JSResult {
-        if (idx as u64) <= i32::MAX as u64 {
+        if idx <= i32::MAX as i64 {
+            // fast path
             self.get_property_value(ctx, &JSValue::Int(idx as i32))
         } else {
             let atom = JSAtom::from_i64(ctx.rt_mut(), idx)?;
@@ -351,31 +352,41 @@ impl JSValue {
         }
     }
 
-    /// Check if an object has a generalized numeric property `idx`.
+    /// Check if `self` has a generalized numeric property `idx`.
+    /// If yes, get property value of the prop `idx`.
     /// Returns Err for exception, Ok(Some(_)) if property exists, Ok(None) if proprty does not exist.
     pub fn try_get_property_i64(&self, ctx: &JSContext, idx: i64) -> Result<Option<JSValue>, i32> {
-        if idx as u64 <= JS_ATOM_MAX_INT as u64 {
-            // fast path
-            if self.has_property(ctx, JSAtom::new_u32(idx as u32))? {
-                Ok(Some(
-                    self.get_property_value(ctx, &JSValue::Int(idx as i32))?,
-                ))
+        let atom = JSAtom::from_i64(ctx.rt_mut(), idx)?;
+        let ret = self.has_property(ctx, atom).and_then(|found| {
+            if found {
+                Ok(Some(self.get_property(ctx, atom)?))
             } else {
                 Ok(None)
             }
-        } else {
-            let prop = JSAtom::from_i64(ctx.rt_mut(), idx)?;
-            let ret = self.has_property(ctx, prop).and_then(|b| {
-                if b {
-                    Ok(Some(
-                        self.get_property_value(ctx, &JSValue::Int(idx as i32))?,
-                    ))
-                } else {
-                    Ok(None) // does not exist
-                }
-            });
-            JS_FreeAtom(ctx, prop);
-            ret
-        }
+        });
+        JS_FreeAtom(ctx, atom);
+        ret
+
+        // if idx <= JS_ATOM_MAX_INT as i64 {
+        //     // fast path
+        //     if self.has_property(ctx, JSAtom::new_u32(idx as u32))? {
+        //         Ok(Some(
+        //             self.get_property_value(ctx, &JSValue::Int(idx as i32))?,
+        //         ))
+        //     } else {
+        //         Ok(None)
+        //     }
+        // } else {
+        //     let atom = JSAtom::from_i64(ctx.rt_mut(), idx)?;
+        //     let ret = self.has_property(ctx, atom).and_then(|found| {
+        //         if found {
+        //             Ok(Some(self.get_property(ctx, atom)?))
+        //         } else {
+        //             Ok(None)
+        //         }
+        //     });
+        //     JS_FreeAtom(ctx, atom);
+        //     ret
+        // }
     }
 }

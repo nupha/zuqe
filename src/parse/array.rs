@@ -53,7 +53,7 @@ pub unsafe fn js_parse_array_literal(s: *mut JSParseState) -> i32 {
                 return -1;
             }
             (*s).emit_op(OpCode::DEFINE_FIELD);
-            (*s).emit_u32(JSAtom::new_u32(idx).0);
+            (*s).emit_u32(JSAtom::new_small_int(idx).0);
             need_length = false;
         }
         idx += 1;

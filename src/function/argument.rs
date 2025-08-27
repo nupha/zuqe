@@ -16,7 +16,7 @@ use crate::{
 
 impl JSContext {
     pub(crate) fn build_rest(&self, first: usize, args: &[JSValue]) -> JSResult {
-        let arr = self.create_array( )?;
+        let arr = self.create_array()?;
         if !args.is_empty() {
             for (i, v) in args.iter().enumerate().skip(first) {
                 arr.0.define_property_value_u32(
@@ -121,7 +121,7 @@ pub unsafe fn js_build_mapped_arguments(
             Ok(vr) => {
                 if p.add_own_property(
                     ctx,
-                    JSAtom::new_u32(i as u32),
+                    JSAtom::new_small_int(i as u32),
                     JS_PROP_C_W_E | JS_PROP_VARREF,
                     JSProperty::VarRef(vr),
                 )

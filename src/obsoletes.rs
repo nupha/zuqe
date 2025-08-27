@@ -3519,7 +3519,7 @@ pub fn __JS_AtomIsTaggedInt(v: JSAtom) -> bool {
 
 #[deprecated(note = "use JSAtom::from_u32() instead")]
 pub fn __JS_AtomFromUInt32(n: u32) -> JSAtom {
-    JSAtom::new_u32(n)
+    JSAtom::new_small_int(n)
 }
 
 #[deprecated(note = "use JSAtom::dup() instead")]

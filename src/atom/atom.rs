@@ -71,12 +71,6 @@ impl AtomHintAndId {
 pub struct JSAtom(pub(crate) u32);
 
 impl JSAtom {
-    /// create atom for u32 integer
-    #[inline(always)]
-    pub fn new_u32(n: u32) -> Self {
-        Self(n | JS_ATOM_TAG_INT)
-    }
-
     /// check if is const atom?
     #[inline(always)]
     pub fn is_const(self) -> bool {
@@ -273,15 +267,22 @@ impl JSValue {
     /// returned atom is cloned, caller should free it after use.
     pub fn to_atom(&self, ctx: &JSContext) -> Result<JSAtom, i32> {
         match self {
-            // special or integral atom
-            JSValue::Bool(b) => Ok(if *b { JS_ATOM_true } else { JS_ATOM_false }),
             JSValue::UNDEFINED => Ok(JS_ATOM_undefined),
             JSValue::NULL => Ok(JS_ATOM_null),
-            JSValue::Int(i) if *i as u32 <= JS_ATOM_MAX_INT => Ok(JSAtom::new_u32(*i as u32)),
+            JSValue::Bool(b) => Ok(if *b { JS_ATOM_true } else { JS_ATOM_false }),
+
+            JSValue::Int(i) => {
+                let i = *i;
+                if i as u32 <= JS_ATOM_MAX_INT {
+                    Ok(JSAtom::new_small_int(i as u32))
+                } else {
+                    JSAtom::from_i64(ctx.rt_mut(), i as i64)
+                }
+            }
 
             // atom has description
             JSValue::String(s) | JSValue::Symbol(s) => s.to_atom(ctx),
-            JSValue::Object(_) | JSValue::Float64(_) | JSValue::Int(_) => {
+            JSValue::Object(_) | JSValue::Float64(_) => {
                 self.to_string(ctx).and_then(|s| s.to_atom(ctx))
             }
 

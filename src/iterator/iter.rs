@@ -81,7 +81,7 @@ impl ForInIterObjPayload {
                     // no enumerable property, is fast array.
                     // we only store the number of elements
                     it.is_array = true;
-                    it.prop_count = ob.array_length_unchecked() as u32;
+                    it.prop_count = ob.array_elements_count() as u32;
                 }
             }
 

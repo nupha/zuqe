@@ -1,7 +1,7 @@
 use std::{collections::hash_map::Entry, ffi::CStr, num::NonZeroU16, rc::Rc};
 
 use crate::{
-    atom::{JS_ATOM_HASH_PRIVATE, JS_ATOM_HASH_SYMBOL},
+    atom::{JS_ATOM_HASH_PRIVATE, JS_ATOM_HASH_SYMBOL, JS_ATOM_TAG_INT},
     runtime::JSRuntime,
     string::{JSString, StringBuf},
 };
@@ -166,7 +166,7 @@ impl JSAtom {
             && i <= JS_ATOM_MAX_INT
         {
             // int atom
-            Ok(JSAtom::new_u32(i))
+            Ok(JSAtom::new_small_int(i))
         } else {
             Self::new_internal(rt, Some(str), type_hint)
         }
@@ -179,19 +179,31 @@ impl JSAtom {
         Self::from_string(rt, s, type_hint)
     }
 
+    #[inline]
     pub fn from_i64(rt: &mut JSRuntime, n: i64) -> Result<Self, i32> {
-        if n as u64 <= JS_ATOM_MAX_INT as u64 {
-            Ok(Self::new_u32(n as u32))
+        if n <= JS_ATOM_MAX_INT as i64 {
+            Ok(Self::new_small_int(n as u32))
         } else {
             let s = JSString::from_utf8(rt, format!("{n}").into_bytes())?;
             Self::from_string(rt, s, AtomTypeHint::String)
         }
     }
 
-    /// a sub-range for ::from_i64()
-    #[inline(always)]
+    #[inline]
     pub fn from_u32(rt: &mut JSRuntime, n: u32) -> Result<Self, i32> {
-        Self::from_i64(rt, n as i64)
+        if n <= JS_ATOM_MAX_INT {
+            Ok(Self::new_small_int(n))
+        } else {
+            Self::from_i64(rt, n as i64)
+        }
+    }
+
+    /// Make an small integral atom.
+    /// Small integral atom is primitive, and do not need to register.
+    #[inline(always)]
+    pub(crate) fn new_small_int(n: u32) -> Self {
+        debug_assert!(n <= JS_ATOM_MAX_INT);
+        Self(n | JS_ATOM_TAG_INT)
     }
 
     /// create new or reuse existing atom for `str`.

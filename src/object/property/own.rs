@@ -139,7 +139,7 @@ impl JSObject {
         if flags.is_exotic() {
             if flags.is_fast_array() {
                 if let Some(idx) = prop.to_int() {
-                    if idx < self.array_length_unchecked() as u32 {
+                    if idx < self.array_elements_count() as u32 {
                         // array index is own property
                         return Ok(true);
                     }
@@ -224,7 +224,7 @@ impl JSObject {
             if flags.is_fast_array() {
                 // specific case for fast arrays
                 if let Some(idx) = prop.to_int()
-                    && idx < self.array_length_unchecked() as u32
+                    && idx < self.array_elements_count() as u32
                 {
                     return Ok(Some(JSPropertyDescriptor {
                         flags: JS_PROP_C_W_E,

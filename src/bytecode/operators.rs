@@ -456,7 +456,7 @@ pub fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
             } else {
                 // enumerate on props_enum of current it.obj.
                 if it.is_array {
-                    prop = JSAtom::new_u32(it.idx);
+                    prop = JSAtom::new_small_int(it.idx);
                     it.idx += 1;
                 } else {
                     prop = it.prop_enums[it.idx as usize].atom;

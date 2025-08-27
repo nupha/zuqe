@@ -139,7 +139,7 @@ impl JSObject {
                     JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
                         if let Some(idx) = prop.to_int() {
                             /* if the typed array is detached, p->u.array.count = 0 */
-                            if idx >= self.array_length_unchecked() as u32 {
+                            if idx >= self.array_elements_count() as u32 {
                                 return if ctx.throw_type_error_or_false(
                                     flags,
                                     "out-of-bound index in typed array",
@@ -319,7 +319,7 @@ impl JSObject {
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        self.define_property_value(ctx, JSAtom::new_u32(idx), val, flags)
+        self.define_property_value(ctx, JSAtom::new_small_int(idx), val, flags)
     }
 
     #[inline]
@@ -447,7 +447,7 @@ impl JSValue {
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        self.define_property_value(ctx, JSAtom::new_u32(idx), val, flags)
+        self.define_property_value(ctx, JSAtom::new_small_int(idx), val, flags)
     }
 
     #[inline(always)]

@@ -85,11 +85,11 @@ impl JSObject {
         if self.flags().is_exotic() {
             if self.flags().is_fast_array() {
                 if (flags & JS_GPN_STRING_MASK) != 0 {
-                    for i in 0..self.array_length_unchecked() {
+                    for i in 0..self.array_elements_count() {
                         callback(
                             ctx,
                             PropertyEnum {
-                                atom: JSAtom::new_u32(i as u32),
+                                atom: JSAtom::new_small_int(i as u32),
                                 is_enumerable: true,
                                 isa: PropertyEnumIsa::Index(i as u32),
                                 exotic: false,
@@ -107,7 +107,7 @@ impl JSObject {
                         callback(
                             ctx,
                             PropertyEnum {
-                                atom: JSAtom::new_u32(i as u32),
+                                atom: JSAtom::new_small_int(i as u32),
                                 is_enumerable: true,
                                 isa: PropertyEnumIsa::Index(i as u32),
                                 exotic: false,

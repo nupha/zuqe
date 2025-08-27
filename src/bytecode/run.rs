@@ -777,7 +777,7 @@ impl Bytecode {
                                 };
                                 let ret = arr.0.define_property_value(
                                     ctx,
-                                    JSAtom::new_u32(i as u32),
+                                    JSAtom::new_small_int(i as u32),
                                     val,
                                     JS_PROP_C_W_E | JS_PROP_THROW,
                                 );

@@ -406,7 +406,7 @@ fn js_arguments_define_own_property(
     if p.flags().is_fast_array()
         && prop
             .to_index(ctx.rt())
-            .map_or(false, |i| i < p.array_length_unchecked())
+            .map_or(false, |i| i < p.array_elements_count())
     {
         if p.destruct_fast_array(ctx).is_err() {
             return -1;

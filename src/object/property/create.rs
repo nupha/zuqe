@@ -73,7 +73,7 @@ impl JSObject {
                         if let Some(n) = prop.to_int() {
                             let idx = n as usize;
 
-                            if idx == self.array_length_unchecked() {
+                            if idx == self.array_elements_count() {
                                 if !self.flags().extensible() {
                                     return if ctx.throw_type_error_or_false(
                                         flags as _,

@@ -72,7 +72,7 @@ impl JSObject {
         let mut state = SetPropState::WalkUpProto;
 
         if let Some(idx) = prop.to_int() {
-            if idx < self.array_length_unchecked() as u32 {
+            if idx < self.array_elements_count() as u32 {
                 if this_obj.object() == Some(self) {
                     return this_obj
                         .set_property_value(ctx, &JSValue::Int(idx as _), val, flags)

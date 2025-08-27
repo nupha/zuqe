@@ -47,38 +47,42 @@ impl JSObject {
                 return Ok(true);
             }
 
-            // check for array index or exotic.
+            // for array index or exotic.
             if obj_flags.is_exotic() {
                 if obj_flags.is_fast_array() {
                     if let Some(idx) = prop.to_index(ctx.rt()) {
                         match self.class_id() {
                             JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
-                                if self
-                                    .with_fast_array_values_mut(|lst| -> Result<bool, i32> {
-                                        if idx == lst.len() - 1 {
-                                            // remove the last
-                                            lst.pop();
-                                            Ok(true)
-                                        } else if idx < lst.len() {
-                                            // should convert to sparse array, then delete property
-                                            Ok(false)
-                                        } else {
-                                            unreachable!()
-                                        }
-                                    })
-                                    .unwrap()?
-                                {
-                                    // early exit for fast array
-                                    return Ok(true);
-                                } else {
-                                    // convert to sparse array, then do delete
-                                    self.destruct_fast_array(ctx)?;
-                                    continue;
+                                let cnt = self.array_elements_count();
+                                if idx < cnt {
+                                    if self
+                                        .with_fast_array_values_mut(|lst| -> bool {
+                                            debug_assert_eq!(lst.len(), cnt);
+                                            if idx == lst.len() - 1 {
+                                                // remove the last.
+                                                // returns true to indicate delete is done.
+                                                lst.pop();
+                                                true
+                                            } else {
+                                                // returns false to
+                                                // indicate convert to sparse array, then delete property
+                                                false
+                                            }
+                                        })
+                                        .unwrap()
+                                    {
+                                        // early exit for fast array
+                                        return Ok(true);
+                                    } else {
+                                        // convert to sparse array, then do delete
+                                        self.destruct_fast_array(ctx)?;
+                                        continue;
+                                    }
                                 }
                             }
                             JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
-                                if idx < self.array_length_unchecked() {
-                                    // can't delete element of a TypedArray
+                                if idx < self.array_elements_count() {
+                                    // delete element of a TypedArray is not allowed.
                                     return Ok(false);
                                 }
                             }
@@ -142,7 +146,7 @@ impl JSValue {
     pub fn delete_property_i64(&self, ctx: &JSContext, idx: i64, flags: u32) -> Result<bool, i32> {
         if (idx as u64) <= JS_ATOM_MAX_INT as u64 {
             // fast path for fast arrays
-            return self.delete_property(ctx, JSAtom::new_u32(idx as u32), flags);
+            return self.delete_property(ctx, JSAtom::new_small_int(idx as u32), flags);
         }
 
         let prop = JSAtom::from_i64(ctx.rt_mut(), idx)?;
