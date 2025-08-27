@@ -5,12 +5,14 @@ use crate::{
     error::{JS_ThrowReferenceErrorUninitialized, JSResult},
     iterator::JSIteratorKindEnum,
     mem::js_free,
-    object::{JS_GPN_SET_ENUM, JS_PROP_C_W_E, JS_PROP_TMASK, JS_PROP_VARREF, JSObject, JSProperty},
+    object::{JS_PROP_C_W_E, JS_PROP_TMASK, JS_PROP_VARREF, JSObject, JSProperty},
     string::JSString,
     value::JSValue,
 };
 
-use super::{JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_PROP_ENUMERABLE, JS_PROP_THROW};
+use super::{
+    JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SET_ENUM, JS_PROP_ENUMERABLE, JS_PROP_THROW,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PropertyKeyKind {
@@ -21,7 +23,7 @@ pub enum PropertyKeyKind {
 }
 
 #[derive(Debug)]
-pub struct PropertyEnum {
+pub struct PropertyKey {
     pub atom: JSAtom,
     pub isa: PropertyKeyKind,
     pub is_enumerable: bool,
@@ -54,7 +56,7 @@ impl JSObject {
         &self,
         ctx: &JSContext,
         flags: i32,
-        mut callback: impl FnMut(&JSContext, PropertyEnum) -> Result<(), i32>,
+        mut callback: impl FnMut(&JSContext, PropertyKey) -> Result<(), i32>,
     ) -> Result<(), i32> {
         let enum_only = flags & JS_GPN_ENUM_ONLY != 0;
 
@@ -90,7 +92,7 @@ impl JSObject {
 
                     callback(
                         ctx,
-                        PropertyEnum {
+                        PropertyKey {
                             atom: prs.atom, // NOTE: atom is not duplicated here.
                             isa: if let Some(idx) = prs.atom.to_array_index(ctx.rt()) {
                                 PropertyKeyKind::ArrayIndex(idx as u32)
@@ -115,7 +117,7 @@ impl JSObject {
                     for i in 0..self.fast_array_count() {
                         callback(
                             ctx,
-                            PropertyEnum {
+                            PropertyKey {
                                 atom: JSAtom::new_small_int(i as u32),
                                 is_enumerable: true,
                                 isa: PropertyKeyKind::ArrayIndex(i as u32),
@@ -133,7 +135,7 @@ impl JSObject {
                     for i in 0..buf_len {
                         callback(
                             ctx,
-                            PropertyEnum {
+                            PropertyKey {
                                 atom: JSAtom::new_small_int(i as u32),
                                 is_enumerable: true,
                                 isa: PropertyKeyKind::ArrayIndex(i as u32),
@@ -148,7 +150,7 @@ impl JSObject {
                     .as_ref()
                     .and_then(|m| m.get_own_property_names)
             } {
-                let mut exotic_ptr = std::ptr::null_mut::<PropertyEnum>();
+                let mut exotic_ptr = std::ptr::null_mut::<PropertyKey>();
                 let mut exotic_count: u32 = 0;
                 if f(
                     ctx,
@@ -190,7 +192,7 @@ impl JSObject {
                                 };
                                 has_err = callback(
                                     ctx,
-                                    PropertyEnum {
+                                    PropertyKey {
                                         atom,
                                         isa,
                                         is_enumerable,
@@ -229,8 +231,8 @@ impl JSObject {
         &self,
         ctx: &JSContext,
         flags: i32,
-    ) -> Result<Box<[PropertyEnum]>, i32> {
-        let mut lst = Vec::<PropertyEnum>::with_capacity(16);
+    ) -> Result<Box<[PropertyKey]>, i32> {
+        let mut lst = Vec::<PropertyKey>::with_capacity(16);
         let mut sort_cnt = 0;
 
         let r = self.own_property_names_foreach(ctx, flags, |cx, pp| {

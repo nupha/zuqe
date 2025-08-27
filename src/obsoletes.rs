@@ -33,7 +33,7 @@ use crate::{
     number::{JSToNumberHintEnum, MAX_SAFE_INTEGER},
     object::{
         JSObject, JSProperty, JSPropertyDescriptor, JSShape, JSShapeProperty, ObjectPayload,
-        PropertyEnum,
+        PropertyKey,
     },
     parse::{JSParseExportEnum, JSParseFunctionEnum, JSParseState},
     promise::{JSPromiseReactionData, JSPromiseStateEnum, JobCallback, Promise},
@@ -1807,7 +1807,7 @@ pub unsafe fn JS_GetOwnPropertyNames2(
 }
 
 // #[deprecated]
-// pub unsafe fn js_free_prop_enum(ctx: &JSContext, tab: *mut PropertyEnum, len: usize) {
+// pub unsafe fn js_free_prop_enum(ctx: &JSContext, tab: *mut PropertyKey, len: usize) {
 //     if !tab.is_null() {
 //         for i in 0..len {
 //             JS_FreeAtom(ctx, (*tab.add(i)).atom);
@@ -1820,7 +1820,7 @@ pub unsafe fn JS_GetOwnPropertyNames2(
 #[deprecated(note = "use JSObject::query_own_property_names() instead")]
 pub unsafe fn JS_GetOwnPropertyNamesInternal(
     ctx: &JSContext,
-    ptab: *mut *mut PropertyEnum,
+    ptab: *mut *mut PropertyKey,
     plen: *mut u32,
     p: *mut JSValue,
     flags: i32,
@@ -2322,8 +2322,7 @@ pub unsafe fn JS_CreateProperty(
     setter: JSValue,
     flags: u32,
 ) -> Result<bool, i32> {
-    (*p).object_unchecked()
-        .create_property(ctx, prop, val, getter, setter, flags)
+    unreachable!("unused");
 }
 
 #[deprecated(note = "use JSValue::has_property() instead")]

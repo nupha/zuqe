@@ -343,9 +343,10 @@ impl JSObject {
         })
     }
 
-    /// Read `length` property defined on `self`.
-    /// if `length` property is null or undefined, returns 0.
-    /// returned integer is in range [0..MAX_SAFE_INTEGER]
+    /// Read _length_ property defined on `self`.
+    /// if _length_ property is null or undefined, returns 0.
+    ///
+    /// Returned length is in range \[0, MAX_SAFE_INTEGER\]
     pub fn get_length_prop(&self, ctx: &JSContext) -> Result<i64, i32> {
         self.get_property(ctx, JS_ATOM_length)?.to_length(ctx)
     }
@@ -394,9 +395,10 @@ impl JSValue {
         }
     }
 
-    /// Read `length` property defined on `self`.
-    /// if `length` property is null or undefined, returns 0.
-    /// The returned integer is in range [0..MAX_SAFE_INTEGER]
+    /// Read _length_ property defined on `self`.
+    /// if _length_ property is null or undefined, returns 0.
+    ///
+    /// Returned length is in range \[0, MAX_SAFE_INTEGER\]
     pub fn get_length_prop(&self, ctx: &JSContext) -> Result<i64, i32> {
         self.get_property(ctx, JS_ATOM_length)?.to_length(ctx)
     }

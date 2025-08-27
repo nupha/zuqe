@@ -9,7 +9,7 @@ use crate::{
     gc::set_cycle_flag,
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE, JSObject, JSPropertyDescriptor,
-        ObjectPayload, PropertyEnum,
+        ObjectPayload, PropertyKey,
     },
     runtime::JSRuntime,
     value::JSValue,
@@ -65,7 +65,7 @@ pub type DeletePropertyFn = fn(ctx: &JSContext, val: JSValue, prop: JSAtom) -> R
 pub struct JSClassExoticMethods {
     pub get_own_property: Option<GetOwnPropertyFn>,
     pub get_own_property_names:
-        Option<fn(&JSContext, *mut *mut PropertyEnum, *mut u32, JSValue) -> i32>,
+        Option<fn(&JSContext, *mut *mut PropertyKey, *mut u32, JSValue) -> i32>,
     pub delete_property: Option<DeletePropertyFn>,
     pub define_own_property: Option<DefineOwnPropertyFn>,
     pub has_property: Option<HasPropertyFn>,

@@ -17,7 +17,7 @@ use crate::{
     number::MAX_SAFE_INTEGER,
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW,
-        JSObject, ObjectPayload, PropertyKeyKind, js_get_length64,
+        ObjectPayload, PropertyKeyKind, js_get_length64,
     },
     runtime::js_check_stack_overflow,
     string::{JSString, StringBuf},
@@ -960,11 +960,13 @@ pub fn js_array_toReversed(ctx: &JSContext, cc: CallContext) -> JSResult {
             Ok(arr.into())
         }
     } else {
-        ctx.create_array() // empty
+        // empty array
+        ctx.create_array()
     };
 
     fa.map(|a| a.into())
 
+    // old code
     // let res_arr = ctx.create_array_with_capacity(std::cmp::max(len, 0) as usize)?;
     // res_arr
     //     .0

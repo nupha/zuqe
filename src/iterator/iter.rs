@@ -10,7 +10,7 @@ use crate::{
     map::MapKV,
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SET_ENUM, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
-        JS_PROP_THROW, JSObject, ObjectPayload, PropertyEnum,
+        JS_PROP_THROW, JSObject, ObjectPayload, PropertyKey,
     },
     runtime::JSRuntime,
     value::{JSValue, JSValueConst},
@@ -43,7 +43,7 @@ pub struct ForInIterObjPayload {
     pub idx: u32,
 
     /// enumerable props list
-    pub prop_enums: Box<[PropertyEnum]>,
+    pub prop_enums: Box<[PropertyKey]>,
     /// for fast array, this equals length of array.
     /// for non fast array, this equals to prop_enums.len()
     pub prop_count: u32,

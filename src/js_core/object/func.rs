@@ -12,7 +12,7 @@ use crate::{
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_C_W_E,
         JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_THROW, JS_PROP_WRITABLE,
-        JS_PreventExtensions, JS_SetPrototypeInternal, ObjectPayload, PropertyEnum,
+        JS_PreventExtensions, JS_SetPrototypeInternal, ObjectPayload, PropertyKey,
     },
     value::JSValue,
 };
@@ -33,7 +33,7 @@ pub fn JS_ObjectDefineProperties(
         let r = props.own_property_names_foreach(
             ctx,
             JS_GPN_ENUM_ONLY | JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK,
-            |cx, name: PropertyEnum| {
+            |cx, name: PropertyKey| {
                 let desc = props.get_property(cx, name.atom)?;
                 if let JSValue::Object(desc) = desc {
                     obj.define_property_desc(cx, name.atom, &desc, JS_PROP_THROW)
