@@ -1,9 +1,8 @@
 use fallible_collections::TryCollect;
 
 use crate::{
-    JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_NATIVE_ITERATOR_NEXT_DEF,
+    JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_CLASS_ARRAY, JS_NATIVE_ITERATOR_NEXT_DEF,
     JS_PROP_STRING_DEF,
-    array::JS_CopySubArray,
     atom::consts::{
         JS_ATOM_Symbol_isConcatSpreadable, JS_ATOM_Symbol_iterator, JS_ATOM_Symbol_species,
         JS_ATOM_constructor, JS_ATOM_join, JS_ATOM_length, JS_ATOM_set,
@@ -1174,27 +1173,29 @@ pub fn js_array_copyWithin(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj: JSValue = cc.this().to_object(ctx)?.into();
     let len = js_get_length64(ctx, &obj)?;
 
-    let from: i64 = cc.arg(1).to_i64_clamp(ctx, 0, len, len)?;
     let to: i64 = cc.arg(0).to_i64_clamp(ctx, 0, len, len)?;
-    let final_ = if cc.length() > 2 && !cc.arg(2).is_undefined() {
+    let start: i64 = cc.arg(1).to_i64_clamp(ctx, 0, len, len)?;
+    let end = if cc.length() > 2 && !cc.arg(2).is_undefined() {
         cc.arg(2).to_i64_clamp(ctx, 0, len, len)?
     } else {
         len
     };
 
-    let count = std::cmp::min(final_ - from, len - to);
-    JS_CopySubArray(
-        ctx,
-        &obj,
-        to as _,
-        from as _,
-        count as _,
-        if from < to && to < from + count {
-            -1
-        } else {
-            1
-        },
-    )?;
+    let count = std::cmp::min(end - start, len - to);
+    if count > 0 {
+        JS_CopySubArray(
+            ctx,
+            &obj,
+            to as _,
+            start as _,
+            count as _,
+            if start < to && to < start + count {
+                -1
+            } else {
+                1
+            },
+        )?;
+    }
 
     Ok(obj)
 }
@@ -1488,3 +1489,73 @@ pub static js_array_funcs: [FieldDef; 4] = [
     JS_CFUNC_NATIVE_DEF!("of", 0, js_array_of, 0),
     JS_CGETSET_DEF!("[Symbol.species]", js_get_this, NONE),
 ];
+
+/// 将数组 obj 中从 start_pos 开始的 count 个元素复制到 to_pos 开始的位置。
+/// - 正向复制（dir > 0）：从 start_pos 到 start_pos + count - 1 的元素依次复制到 to_pos 到 to_pos + count - 1。
+/// - 反向复制（dir < 0）：从 start_pos + count - 1 到 start_pos 的元素依次复制到 to_pos + count - 1 到 to_pos。
+fn JS_CopySubArray(
+    ctx: &JSContext,
+    obj: &JSValue,
+    to_pos: usize,
+    start_pos: usize,
+    count: usize,
+    dir: i32,
+) -> Result<(), i32> {
+    let fast_array = if let JSValue::Object(o) = obj {
+        if o.flags().is_fast_array() && o.class_id() == JS_CLASS_ARRAY {
+            Some(o)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    if let Some(fa) = fast_array {
+        fa.with_fast_array_values_mut(|lst| {
+            let len = lst.len();
+
+            // calc actual copy count
+            let cnt1 = if start_pos + count > len {
+                if len > start_pos { len - start_pos } else { 0 }
+            } else {
+                count
+            };
+            let cnt2 = if to_pos + count > len {
+                if len > to_pos { len - to_pos } else { 0 }
+            } else {
+                count
+            };
+            let cnt = std::cmp::min(cnt1, cnt2);
+
+            if cnt > 0 {
+                if dir > 0 {
+                    for i in 0..cnt {
+                        let v1 = lst[start_pos + i].clone();
+                        lst[to_pos + i] = v1;
+                    }
+                } else {
+                    for i in (0..cnt).rev() {
+                        let v1 = lst[start_pos + i].clone();
+                        lst[to_pos + i] = v1;
+                    }
+                }
+            }
+        })
+        .unwrap();
+    } else {
+        // sparse array
+        for i in 0..count {
+            match obj.try_get_property_i64(ctx, (start_pos + i) as i64)? {
+                Some(val) => {
+                    obj.set_property_i64(ctx, (to_pos + i) as _, val)?;
+                }
+                None => {
+                    obj.delete_property_i64(ctx, (to_pos + 1) as _, JS_PROP_THROW)?;
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
