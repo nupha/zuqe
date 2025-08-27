@@ -761,15 +761,12 @@ pub fn js_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_array_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj: JSValue = cc.this().to_object(ctx)?.into();
-    let method = obj.get_property(ctx, JS_ATOM_join)?;
-
-    if !method.is_callable() {
-        // Use intrinsic Object.prototype.toString
-        js_object_toString(ctx, CallContext::new(ctx, obj, &[], 0, None))
-    } else {
-        method.call(ctx, &obj, &[])
-    }
+    let obj = cc.this().to_object(ctx)?;
+    obj.invoke_callable(ctx, JS_ATOM_join, &[])?
+        .unwrap_or_else(|| {
+            // `join` not found, use intrinsic Object.prototype.toString
+            js_object_toString(ctx, CallContext::new(ctx, obj.into(), &[], 0, None))
+        })
 }
 
 pub fn js_array_pop(ctx: &JSContext, cc: CallContext) -> JSResult {

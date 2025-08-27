@@ -11,44 +11,79 @@ use crate::{
         JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW,
         JS_SetPrototypeInternal,
     },
-    string::JS_ConcatString3,
     value::{JSValue, JSValueConst},
 };
 
 pub fn js_object_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let mut tag_str: JSValue;
+    let t = match cc.this() {
+        v @ (JSValue::NULL | JSValue::UNDEFINED) => format!("{v}"),
+        v => {
+            let obj = v.to_object(ctx)?;
+            let tag_str =
+                if let JSValue::String(s) = obj.get_property(ctx, JS_ATOM_Symbol_toStringTag)? {
+                    format!("{s}")
+                } else {
+                    let atom = if obj.is_array(ctx)? {
+                        JS_ATOM_Array
+                    } else if obj.is_callable() {
+                        JS_ATOM_Function
+                    } else {
+                        match obj.class_id() {
+                            cid @ (JS_CLASS_STRING
+                            | JS_CLASS_ARGUMENTS
+                            | JS_CLASS_MAPPED_ARGUMENTS
+                            | JS_CLASS_ERROR
+                            | JS_CLASS_BOOLEAN
+                            | JS_CLASS_NUMBER
+                            | JS_CLASS_DATE
+                            | JS_CLASS_REGEXP) => ctx.rt().class_defs[cid as usize].class_name,
+                            _ => JS_ATOM_Object,
+                        }
+                    };
 
-    if cc.this().is_null() {
-        tag_str = ctx.create_string_from_str("Null")?.into();
-    } else if cc.this().is_undefined() {
-        tag_str = ctx.create_string_from_str("Undefined")?.into();
-    } else {
-        let obj = cc.this().to_object(ctx)?;
-        let atom = if obj.is_array(ctx)? {
-            JS_ATOM_Array
-        } else if obj.is_callable() {
-            JS_ATOM_Function
-        } else {
-            match obj.class_id() {
-                cid @ (JS_CLASS_STRING
-                | JS_CLASS_ARGUMENTS
-                | JS_CLASS_MAPPED_ARGUMENTS
-                | JS_CLASS_ERROR
-                | JS_CLASS_BOOLEAN
-                | JS_CLASS_NUMBER
-                | JS_CLASS_DATE
-                | JS_CLASS_REGEXP) => ctx.rt().class_defs[cid as usize].class_name,
-                _ => JS_ATOM_Object,
-            }
-        };
+                    let v = atom.to_string_or_symbol(ctx, true)?;
+                    format!("{v}")
+                };
 
-        tag_str = obj.get_property(ctx, JS_ATOM_Symbol_toStringTag)?;
-        if !tag_str.is_string() {
-            tag_str = atom.to_string_or_symbol(ctx, true)?;
+            format!("[object {tag_str}]")
         }
-    }
+    };
 
-    unsafe { JS_ConcatString3(ctx, c"[object ", tag_str, c"]").map(JSValue::String) }
+    ctx.create_string_from_utf8(t.into_bytes())
+        .map(JSValue::String)
+
+    // let mut tag_str: JSValue;
+    // if cc.this().is_null() {
+    //     tag_str = ctx.create_string_from_str("Null")?.into();
+    // } else if cc.this().is_undefined() {
+    //     tag_str = ctx.create_string_from_str("Undefined")?.into();
+    // } else {
+    //     let obj = cc.this().to_object(ctx)?;
+    //     let atom = if obj.is_array(ctx)? {
+    //         JS_ATOM_Array
+    //     } else if obj.is_callable() {
+    //         JS_ATOM_Function
+    //     } else {
+    //         match obj.class_id() {
+    //             cid @ (JS_CLASS_STRING
+    //             | JS_CLASS_ARGUMENTS
+    //             | JS_CLASS_MAPPED_ARGUMENTS
+    //             | JS_CLASS_ERROR
+    //             | JS_CLASS_BOOLEAN
+    //             | JS_CLASS_NUMBER
+    //             | JS_CLASS_DATE
+    //             | JS_CLASS_REGEXP) => ctx.rt().class_defs[cid as usize].class_name,
+    //             _ => JS_ATOM_Object,
+    //         }
+    //     };
+
+    //     tag_str = obj.get_property(ctx, JS_ATOM_Symbol_toStringTag)?;
+    //     if !tag_str.is_string() {
+    //         tag_str = atom.to_string_or_symbol(ctx, true)?;
+    //     }
+    // }
+
+    // unsafe { JS_ConcatString3(ctx, c"[object ", tag_str, c"]").map(JSValue::String) }
 }
 
 // pub unsafe fn js_object_toLocaleString(

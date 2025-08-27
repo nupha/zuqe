@@ -83,7 +83,7 @@ impl JSObject {
                             if i != 0 {
                                 print!(", ");
                             }
-                            v.repr();
+                            print!("{v}");
                         }
                     });
                 }
@@ -129,7 +129,7 @@ impl JSObject {
                 if let Some(pr) = prop_values.get(idx) {
                     match pr {
                         JSProperty::Normal(val) => {
-                            print!("{}", val.repr());
+                            print!("{val}");
                         }
                         JSProperty::GetSet { getter, setter } => {
                             print!(
@@ -168,11 +168,11 @@ impl JSObject {
                 if b.closure_var_count != 0 {
                     print!(" Closure:");
                     for vr in func.var_refs.iter() {
-                        print!(" {}", vr.value().repr());
+                        print!(" {}", vr.value());
                     }
 
-                    if let Some(o) = func.home_object.clone() {
-                        print!(" HomeObject: {}", JSValue::Object(o).repr());
+                    if let Some(o) = &func.home_object {
+                        print!(" HomeObject: {o}");
                     }
                 }
             });

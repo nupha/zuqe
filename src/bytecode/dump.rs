@@ -114,7 +114,7 @@ pub fn dump_opcode_one(ctx: &JSContext, b: &Bytecode, pc: usize) -> usize {
 
         OpcodeFormat::CONST => {
             let idx = unsafe { read_from_ptr::<u32>(tab.as_ptr().add(pos)) };
-            print!(" {idx}:{}", b.load_const(idx as usize).unwrap().repr());
+            print!(" {idx}:{}", b.load_const(idx as usize).unwrap());
         }
         OpcodeFormat::ATOM => {
             let a = unsafe { read_from_ptr::<u32>(tab.as_ptr().add(pos)) };

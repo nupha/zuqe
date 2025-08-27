@@ -1,7 +1,7 @@
 use crate::{
     JS_CLASS_ERROR,
     atom::{AtomHintAndId, AtomTypeHint, JSAtomStruct},
-    function::{Bytecode, AsyncObjPayload},
+    function::{AsyncObjPayload, Bytecode},
     module::ModuleDef,
     number::JSFloat64Union,
     object::JSObject,
@@ -139,12 +139,6 @@ impl PartialEq for JSValue {
 
             _ => false,
         }
-    }
-}
-
-impl std::fmt::Display for JSValue {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.repr())
     }
 }
 

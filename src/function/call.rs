@@ -128,6 +128,8 @@ pub const JS_CALL_FLAG_GENERATOR: i32 = 1 << 2;
 
 impl JSObject {
     /// call function `self.method`
+    ///
+    /// `method` is not consumed
     #[inline]
     pub fn invoke(&self, ctx: &JSContext, method: JSAtom, args: &[JSValue]) -> JSResult {
         self.get_property(ctx, method)?
@@ -136,6 +138,8 @@ impl JSObject {
 
     /// call `self.method` function if property `method` is neither null nor undefined.
     /// otherwise, returns None
+    ///
+    /// `method` is not consumed
     pub fn invoke_defined(
         &self,
         ctx: &JSContext,
@@ -144,6 +148,23 @@ impl JSObject {
     ) -> Result<Option<JSResult>, i32> {
         let m = self.get_property(ctx, method)?;
         if !m.is_undefined_or_null() {
+            return Ok(Some(m.call(ctx, &self.clone().into(), args)));
+        }
+        Ok(None)
+    }
+
+    /// call `self.method` if property `method` is callable.
+    /// otherwise, returns None
+    ///
+    /// `method` is not consumed
+    pub fn invoke_callable(
+        &self,
+        ctx: &JSContext,
+        method: JSAtom,
+        args: &[JSValue],
+    ) -> Result<Option<JSResult>, i32> {
+        let m = self.get_property(ctx, method)?;
+        if !m.is_callable() {
             return Ok(Some(m.call(ctx, &self.clone().into(), args)));
         }
         Ok(None)
@@ -166,13 +187,17 @@ impl JSValue {
     }
 
     /// call function `self.method`
+    ///
+    /// `method` is not consumed
     #[inline]
     pub fn invoke(&self, ctx: &JSContext, method: JSAtom, args: &[JSValue]) -> JSResult {
         self.get_property(ctx, method)?.call(ctx, self, args)
     }
 
     /// call `self.method` function if property `method` is neither null nor undefined.
-    /// otherwise, returns None
+    /// otherwise, returns None.
+    ///
+    /// `method` is not consumed
     pub fn invoke_defined(
         &self,
         ctx: &JSContext,
@@ -182,6 +207,23 @@ impl JSValue {
         let m = self.get_property(ctx, method)?;
         if !m.is_undefined_or_null() {
             return Ok(Some(m.call(ctx, self, args)));
+        }
+        Ok(None)
+    }
+
+    /// call `self.method` if property `method` is callable.
+    /// otherwise, returns None
+    ///
+    /// `method` is not consumed
+    pub fn invoke_callable(
+        &self,
+        ctx: &JSContext,
+        method: JSAtom,
+        args: &[JSValue],
+    ) -> Result<Option<JSResult>, i32> {
+        let m = self.get_property(ctx, method)?;
+        if !m.is_callable() {
+            return Ok(Some(m.call(ctx, &self.clone().into(), args)));
         }
         Ok(None)
     }
