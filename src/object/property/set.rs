@@ -514,7 +514,7 @@ impl JSObject {
                     }
                 }
                 JS_CLASS_FLOAT32_ARRAY => {
-                    let d = val.coerce_to_f64(ctx)?;
+                    let d = val.to_f64(ctx)?;
                     let r = Float32Array(TypedArray(self.clone())).set_element(idx as _, d as _);
 
                     if r.is_err() {
@@ -524,7 +524,7 @@ impl JSObject {
                     }
                 }
                 JS_CLASS_FLOAT64_ARRAY => {
-                    let d = val.coerce_to_f64(ctx)?;
+                    let d = val.to_f64(ctx)?;
                     let r = Float64Array(TypedArray(self.clone())).set_element(idx as _, d);
                     if r.is_err() {
                         ta_out_of_bound = true;

@@ -130,7 +130,7 @@ const FMT_TO_LOCALE_STRING: i32 = 5;
 
 pub fn js_number_fmt(ctx: &JSContext, cc: CallContext) -> JSResult {
     let val = js_thisNumberValue(ctx, cc.this_raw())?;
-    let mut d: f64 = val.coerce_to_f64(ctx)?;
+    let mut d: f64 = val.to_f64(ctx)?;
 
     let a0 = cc.arg(0);
     let a = if a0.is_undefined() {
@@ -163,7 +163,7 @@ pub fn js_number_fmt(ctx: &JSContext, cc: CallContext) -> JSResult {
                     return Err(-1);
                 }
 
-                let d: f64 = val.coerce_to_f64(ctx)?;
+                let d: f64 = val.to_f64(ctx)?;
                 f64_stringify(d, base as _, None, 0).into_owned()
             }
 
@@ -254,7 +254,7 @@ pub fn js_number_isSafeInteger(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Ok(JSValue::Bool(false));
     }
 
-    let d: f64 = val.coerce_to_f64(ctx)?;
+    let d: f64 = val.to_f64(ctx)?;
     Ok(is_safe_integer(d).into())
 }
 

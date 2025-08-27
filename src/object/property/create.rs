@@ -31,7 +31,7 @@ impl JSObject {
         let update_array_length_fn = |obj: &JSObject, idx: usize| -> Option<Result<bool, i32>> {
             let len_val = obj.0.prop_values.borrow()[0]
                 .value(ctx, &JSValue::UNDEFINED)
-                .and_then(|v| v.coerce_to_length(ctx));
+                .and_then(|v| v.to_length(ctx));
 
             match len_val {
                 Ok(len) => {
@@ -130,7 +130,7 @@ impl JSObject {
                                     return ret;
                                 }
                             }
-                        } else if let Some(idx) = prop.to_array_index(ctx.rt()) {
+                        } else if let Some(idx) = prop.to_index(ctx.rt()) {
                             // convert fast array to sparse array
                             if let Err(e) = self.destruct_fast_array(ctx) {
                                 return if ctx.can_throw_error(flags) {
@@ -143,7 +143,7 @@ impl JSObject {
                                 return ret;
                             }
                         }
-                    } else if let Some(idx) = prop.to_array_index(ctx.rt()) {
+                    } else if let Some(idx) = prop.to_index(ctx.rt()) {
                         if let Some(ret) = update_array_length_fn(self, idx) {
                             return ret;
                         }

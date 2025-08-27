@@ -112,7 +112,7 @@ impl JSValue {
         if !self.is_number() {
             Ok(false)
         } else {
-            let d = self.coerce_to_f64(ctx)?;
+            let d = self.to_f64(ctx)?;
             Ok(d.is_finite() && d.fract() == 0.0)
         }
     }
@@ -346,7 +346,7 @@ impl JSValue {
         self.to_i32(ctx).map(|v| v as u32)
     }
 
-    pub fn coerce_to_i64_saturating(&self, ctx: &JSContext) -> Result<i64, i32> {
+    pub fn to_i64_saturating(&self, ctx: &JSContext) -> Result<i64, i32> {
         let mut val = self.clone();
 
         let res: i64 = loop {
@@ -385,14 +385,15 @@ impl JSValue {
         Ok(res)
     }
 
-    pub fn coerce_to_i64_clamp(
+    /// [min, max] is inclusive range.
+    pub fn to_i64_clamp(
         &self,
         ctx: &JSContext,
         min: i64,
         max: i64,
         neg_offset: i64,
     ) -> Result<i64, i32> {
-        let mut res = self.coerce_to_i64_saturating(ctx)?;
+        let mut res = self.to_i64_saturating(ctx)?;
         if res < 0 {
             res += neg_offset;
         }
@@ -404,13 +405,7 @@ impl JSValue {
         Ok(res)
     }
 
-    /// convert value to i64 length between 0 and MAX_SAFE_INTEGER.
-    #[inline(always)]
-    pub fn coerce_to_length(&self, ctx: &JSContext) -> Result<i64, i32> {
-        self.coerce_to_i64_clamp(ctx, 0, MAX_SAFE_INTEGER, 0)
-    }
-
-    pub fn coerce_to_f64(&self, ctx: &JSContext) -> Result<f64, i32> {
+    pub fn to_f64(&self, ctx: &JSContext) -> Result<f64, i32> {
         match self {
             JSValue::Int(i) => Ok(*i as f64),
             JSValue::Bool(b) => Ok(*b as i32 as f64),
@@ -425,6 +420,23 @@ impl JSValue {
                     unreachable!()
                 }
             },
+        }
+    }
+
+    /// convert value to length between [0, MAX_SAFE_INTEGER].
+    #[inline]
+    pub fn to_length(&self, ctx: &JSContext) -> Result<i64, i32> {
+        self.to_i64_clamp(ctx, 0, MAX_SAFE_INTEGER, 0)
+    }
+
+    /// coerce value to index between [0, MAX_SAFE_INTEGER].
+    pub fn to_index(&self, ctx: &JSContext) -> Result<u64, i32> {
+        let i: i64 = self.to_i64_saturating(ctx)?;
+        if !(0..=MAX_SAFE_INTEGER).contains(&i) {
+            ctx.throw_range_error("invalid array index");
+            Err(-1)
+        } else {
+            Ok(i as u64)
         }
     }
 }

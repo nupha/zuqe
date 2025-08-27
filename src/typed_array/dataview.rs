@@ -88,13 +88,13 @@ impl JSContext {
 pub fn js_dataview_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let buffer = cc.arg(0);
     let offset = if cc.length() > 1 {
-        cc.arg(1).to_array_index(ctx)?
+        cc.arg(1).to_index(ctx)?
     } else {
         0
     };
 
     let length: Option<usize> = if cc.length() > 2 && !cc.arg(2).is_undefined() {
-        Some(cc.arg(2).to_array_index(ctx)?)
+        Some(cc.arg(2).to_index(ctx)? as usize)
     } else {
         None
     };
@@ -112,7 +112,7 @@ pub fn js_dataview_getValue(ctx: &JSContext, args: CallContext) -> JSResult {
 
     let size = 1 << typed_array_size_log2(class_id);
 
-    let pos = args.arg(0).to_array_index(ctx)?;
+    let pos = args.arg(0).to_index(ctx)? as usize;
 
     // is little endian? default to BE
     let le = if args.length() > 1 {
@@ -232,7 +232,7 @@ pub fn js_dataview_setValue(ctx: &JSContext, cc: CallContext) -> JSResult {
     let ta = TypedArray::try_from(this_obj).unwrap();
 
     let size = 1 << typed_array_size_log2(class_id);
-    let pos = cc.arg(0).to_array_index(ctx)?;
+    let pos = cc.arg(0).to_index(ctx)? as usize;
 
     let val = cc.arg(1);
     let mut v = 0_u32;
@@ -244,7 +244,7 @@ pub fn js_dataview_setValue(ctx: &JSContext, cc: CallContext) -> JSResult {
         ctx.throw_type_error("BigInt is not supported");
         return Err(-1);
     } else {
-        let d: f64 = val.coerce_to_f64(ctx)?;
+        let d: f64 = val.to_f64(ctx)?;
         if class_id == JS_CLASS_FLOAT32_ARRAY {
             union U {
                 f: f32,

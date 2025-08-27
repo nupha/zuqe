@@ -67,9 +67,9 @@ pub fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     let len = abuf.byte_length() as i64;
-    let start: i64 = cc.arg(0).coerce_to_i64_clamp(ctx, 0, len, len)?;
+    let start: i64 = cc.arg(0).to_i64_clamp(ctx, 0, len, len)?;
     let end = if !cc.arg(1).is_undefined() {
-        cc.arg(1).coerce_to_i64_clamp(ctx, 0, len, len)?
+        cc.arg(1).to_i64_clamp(ctx, 0, len, len)?
     } else {
         len
     };

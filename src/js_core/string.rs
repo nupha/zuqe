@@ -174,7 +174,7 @@ pub fn js_string_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
     if lastIndexOf != 0 {
         let mut pos = len - v_len;
         if cc.length() > 1 {
-            let d: f64 = cc.arg(1).coerce_to_f64(ctx)?;
+            let d: f64 = cc.arg(1).to_f64(ctx)?;
             if !d.is_nan() {
                 if d <= 0.0 {
                     pos = 0;
@@ -559,7 +559,7 @@ pub fn js_string_pad(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_string_repeat(ctx: &JSContext, cc: CallContext) -> JSResult {
     let p = cc.this().to_string_non_undefined_or_null(ctx)?;
 
-    let repeat: i64 = cc.arg(0).coerce_to_i64_saturating(ctx)?;
+    let repeat: i64 = cc.arg(0).to_i64_saturating(ctx)?;
     if !(0..=2147483647).contains(&repeat) {
         ctx.throw_range_error("invalid repeat count");
         return Err(-1);
@@ -1044,7 +1044,7 @@ pub fn js_string_fromCodePoint(ctx: &JSContext, cc: CallContext) -> JSResult {
             let code: i32 = if let JSValue::Int(i) = a {
                 *i
             } else {
-                let d: f64 = a.coerce_to_f64(ctx)?;
+                let d: f64 = a.to_f64(ctx)?;
                 if d.fract() == 0.0 {
                     let n = d.trunc() as i64;
                     if n < 0 || n > 0x10ffff {
@@ -1082,7 +1082,7 @@ pub fn js_string_raw(ctx: &JSContext, cc: CallContext) -> JSResult {
     let mut res_string = StringBuf::Empty;
 
     for i in 0..n {
-        let str = raw.get_property_i64(ctx, i)?.to_string(ctx)?;
+        let str = raw.get_property_i64(ctx, i as i64)?.to_string(ctx)?;
         res_string.push(str.content()).map_err(|_| {
             ctx.throw_out_of_memory();
             -1

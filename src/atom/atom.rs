@@ -194,7 +194,7 @@ impl JSAtom {
     }
 
     /// if the atom can be used as an array index (in 0..u32::MAX range), returns the index.
-    pub fn to_array_index(self, rt: &JSRuntime) -> Option<usize> {
+    pub fn to_index(self, rt: &JSRuntime) -> Option<usize> {
         if self == JS_ATOM_NULL {
             None
         } else if let Some(n) = self.to_int() {

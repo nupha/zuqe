@@ -4,7 +4,6 @@ use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_PROXY,
     atom::{JS_FreeAtom, JSAtom, consts::JS_ATOM_length},
     context::JSContext,
-    error::ErrorKind,
     number::MAX_SAFE_INTEGER,
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE,
@@ -324,7 +323,7 @@ impl JSObject {
                     arr_len = len;
                     sh.with_mut(|sh| {
                         for pr in sh.prop_defs.values() {
-                            if let Some(i) = pr.atom.to_array_index(ctx.rt()) {
+                            if let Some(i) = pr.atom.to_index(ctx.rt()) {
                                 if i >= arr_len && (pr.flags() & JS_PROP_CONFIGURABLE == 0) {
                                     arr_len = i + 1;
                                 }
@@ -341,7 +340,7 @@ impl JSObject {
                                 .map(|(_, prs)| prs.atom)
                                 .unwrap();
 
-                        if let Some(idx) = prop.to_array_index(ctx.rt()) {
+                        if let Some(idx) = prop.to_index(ctx.rt()) {
                             if idx >= arr_len {
                                 self.delete_property(ctx, prop).unwrap();
                                 // WARNING: the shape may have been modified
@@ -456,18 +455,6 @@ impl JSValue {
         }
 
         Ok(len)
-    }
-
-    /// coerce value to valid array index.
-    pub fn to_array_index(&self, ctx: &JSContext) -> Result<usize, i32> {
-        // FIXME: array index no greater than 2^32-2, fix to use u32 type.
-        // XXX
-        let v: i64 = self.coerce_to_i64_saturating(ctx)?;
-        if !(0..=MAX_SAFE_INTEGER).contains(&v) {
-            ctx.throw_range_error("invalid array index");
-            return Err(-1);
-        }
-        Ok(v as usize)
     }
 }
 

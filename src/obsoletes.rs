@@ -2662,19 +2662,19 @@ pub unsafe fn JS_ToNumeric(ctx: &JSContext, val: JSValueConst) -> JSValue {
     val.to_numeric(ctx).unwrap_or(JSValue::EXCEPTION)
 }
 
-#[deprecated(note = "use JSValue::coerce_to_i64_saturating() instead")]
+#[deprecated(note = "use JSValue::to_i64_saturating() instead")]
 pub unsafe fn JS_ToInt64SatFree(ctx: &JSContext, pres: *mut i64, mut val: JSValue) -> i32 {
     unreachable!("unused");
 }
 
 /// val is not consumed
-#[deprecated(note = "use JSValue::coerce_to_i64_saturating() instead")]
+#[deprecated(note = "use JSValue::to_i64_saturating() instead")]
 pub unsafe fn JS_ToInt64Sat(ctx: &JSContext, pres: *mut i64, val: &JSValueConst) -> i32 {
     unreachable!("unused");
 }
 
 /// val is not consumed
-#[deprecated(note = "use JSValue::coerce_to_i64_clamp() instead")]
+#[deprecated(note = "use JSValue::to_i64_clamp() instead")]
 pub unsafe fn JS_ToInt64Clamp(
     ctx: &JSContext,
     pres: *mut i64,
@@ -2692,7 +2692,7 @@ pub fn JS_ThrowRangeError(ctx: &JSContext, message: &str) {
 }
 
 /// convert a value to a length between 0 and MAX_SAFE_INTEGER.
-#[deprecated(note = "use JSValue::coerce_to_length() instead")]
+#[deprecated(note = "use JSValue::to_length() instead")]
 pub unsafe fn JS_ToLengthFree(ctx: &JSContext, val: JSValue) -> Result<i64, i32> {
     unreachable!("unused");
 }
@@ -2708,14 +2708,9 @@ pub unsafe fn JS_ToNumberHintFree(
     // JSValue::do_coerce_to_number_free(ctx, val, flag).unwrap_or(JSValue::EXCEPTION)
 }
 
-#[deprecated(note = "use JSValue::to_array_index() instead")]
+#[deprecated(note = "use JSValue::to_index() instead")]
 pub fn JS_ToIndex(ctx: &JSContext, val: &JSValue) -> Result<u64, i32> {
-    let v: i64 = val.coerce_to_i64_saturating(ctx)?;
-    if !(0..=MAX_SAFE_INTEGER).contains(&v) {
-        ctx.throw_range_error("invalid array index");
-        return Err(-1);
-    }
-    Ok(v as u64)
+    val.to_index(ctx).map(|v| v as u64)
 }
 
 #[deprecated(note = "use JSValue::from_i32() instead")]
@@ -2793,18 +2788,18 @@ pub unsafe fn JS_ToUint8Clamp(ctx: &JSContext, pres: *mut i32, val: &JSValue) ->
     unreachable!("unused");
 }
 
-#[deprecated(note = "use JSValue::coerce_to_f64() instead")]
+#[deprecated(note = "use JSValue::to_f64() instead")]
 pub unsafe fn JS_ToFloat64Free(ctx: &JSContext, pres: *mut f64, val: JSValue) -> i32 {
     unreachable!("unused");
 }
 
-#[deprecated(note = "use JSValue::coerce_to_f64() instead")]
+#[deprecated(note = "use JSValue::to_f64() instead")]
 pub unsafe fn JS_ToFloat64(ctx: &JSContext, pres: *mut f64, val: &JSValueConst) -> i32 {
     JS_ToFloat64Free(ctx, pres, val.clone())
 }
 
 /// Note: `val` is consumed
-#[deprecated(note = "use JSValue::coerce_to_f64() instead")]
+#[deprecated(note = "use JSValue::to_f64() instead")]
 pub unsafe fn __JS_ToFloat64Free(ctx: &JSContext, pres: *mut f64, val: JSValue) -> i32 {
     unreachable!("unused");
 }
@@ -3839,7 +3834,7 @@ pub fn __JS_AtomToUInt32(atom: JSAtom) -> u32 {
 }
 
 /// test if the `atom` can be used as an array index (in 0..u32::MAX range).
-#[deprecated(note = "use JSAtom::to_array_index() instead")]
+#[deprecated(note = "use JSAtom::to_index() instead")]
 pub fn JS_AtomIsArrayIndex(ctx: &JSContext, pval: *mut u32, atom: JSAtom) -> bool {
     if atom.is_int_type() {
         unsafe {

@@ -431,7 +431,7 @@ pub fn js_regexp_exec(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let from = {
         let val = cc.this().get_property(ctx, JS_ATOM_lastIndex)?;
-        val.coerce_to_length(ctx)? as usize
+        val.to_length(ctx)? as usize
     };
     if let Some(cap_list) = re.capture(&str, from) {
         let (arr, last_index) = make_regexp_capture_array(ctx, str, &cap_list)?;
@@ -494,7 +494,7 @@ pub fn js_regexp_Symbol_match(ctx: &JSContext, cc: CallContext) -> JSResult {
                     0
                 } else {
                     let val = cc.this().get_property(ctx, JS_ATOM_lastIndex)?;
-                    val.coerce_to_length(ctx)? as usize
+                    val.to_length(ctx)? as usize
                 },
             ) {
                 let (arr, last_index) = make_regexp_capture_array(ctx, str, &cap_list)?;
@@ -657,9 +657,7 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
         if let Ok(s) = TryInto::<JSString>::try_into(m.get_property_u32(ctx, 0)?) {
             if s.is_empty() {
                 // always advance of at least one char
-                let last_index = this
-                    .get_property(ctx, JS_ATOM_lastIndex)?
-                    .coerce_to_length(ctx)?;
+                let last_index = this.get_property(ctx, JS_ATOM_lastIndex)?.to_length(ctx)?;
 
                 let next_index = str
                     .content()
@@ -792,9 +790,7 @@ fn js_regexp_Symbol_search(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Err(-1);
     };
 
-    let prev_last_index = this
-        .get_property(ctx, JS_ATOM_lastIndex)?
-        .to_array_index(ctx)? as usize;
+    let prev_last_index = this.get_property(ctx, JS_ATOM_lastIndex)?.to_index(ctx)? as usize;
 
     if prev_last_index != 0 {
         this.set_property(ctx, JS_ATOM_lastIndex, JSValue::Int(0))?;
@@ -803,9 +799,7 @@ fn js_regexp_Symbol_search(ctx: &JSContext, cc: CallContext) -> JSResult {
     let str = cc.arg(0).to_string(ctx)?;
 
     let m = JS_RegExpExec(ctx, this.clone(), str.clone())?;
-    let cur_last_index = this
-        .get_property(ctx, JS_ATOM_lastIndex)?
-        .to_array_index(ctx)? as usize;
+    let cur_last_index = this.get_property(ctx, JS_ATOM_lastIndex)?.to_index(ctx)? as usize;
 
     if cur_last_index != prev_last_index {
         // restore original lastIndex
@@ -819,7 +813,7 @@ fn js_regexp_Symbol_search(ctx: &JSContext, cc: CallContext) -> JSResult {
     if m.is_null() {
         Ok(JSValue::Int(-1))
     } else {
-        let index = m.get_property(ctx, JS_ATOM_index)?.to_array_index(ctx)?;
+        let index = m.get_property(ctx, JS_ATOM_index)?.to_index(ctx)?;
         Ok(JSValue::Int(index as i32))
     }
 }
@@ -896,7 +890,7 @@ pub fn js_regexp_Symbol_split(ctx: &JSContext, cc: CallContext) -> JSResult {
         } else {
             let mut next_index = splitter
                 .get_property(ctx, JS_ATOM_lastIndex)?
-                .coerce_to_length(ctx)? as usize;
+                .to_length(ctx)? as usize;
 
             if next_index > len {
                 next_index = len;
@@ -917,7 +911,7 @@ pub fn js_regexp_Symbol_split(ctx: &JSContext, cc: CallContext) -> JSResult {
                 }
 
                 // append captures 1.. to array
-                let ncaps = m.get_property(ctx, JS_ATOM_length)?.coerce_to_length(ctx)? as usize;
+                let ncaps = m.get_property(ctx, JS_ATOM_length)?.to_length(ctx)? as usize;
                 for c in 1..ncaps {
                     let sub = m.get_property_u32(ctx, c as u32)?;
                     arr.0

@@ -150,9 +150,9 @@ pub fn js_array_at(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj: JSValue = cc.this().to_object(ctx)?.into();
     let len = js_get_length64(ctx, &obj)?;
 
-    let mut idx: i64 = cc.arg(0).coerce_to_i64_saturating(ctx)?;
+    let mut idx: i64 = cc.arg(0).to_i64_saturating(ctx)?;
     if idx < 0 {
-        idx = len + idx;
+        idx += len;
     }
 
     let ret: JSValue = if idx < 0 || idx >= len {
@@ -176,7 +176,7 @@ pub fn js_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj: JSValue = cc.this().to_object(ctx)?.into();
     let len = js_get_length64(ctx, &obj)?;
 
-    let mut idx: i64 = cc.arg(0).coerce_to_i64_saturating(ctx)?;
+    let mut idx: i64 = cc.arg(0).to_i64_saturating(ctx)?;
     if idx < 0 {
         idx = len + idx;
     }
@@ -495,7 +495,7 @@ pub fn js_array_reduce(ctx: &JSContext, cc: CallContext) -> JSResult {
         };
 
         if present {
-            let index_val = JSValue::from(k1 as i64).err()?;
+            let index_val = JSValue::from(k1).err()?;
             acc = func.call(
                 ctx,
                 &JSValue::UNDEFINED,
@@ -512,13 +512,13 @@ pub fn js_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
     let len = js_get_length64(ctx, &obj)?;
 
     let mut start = if cc.length() > 1 && !cc.arg(1).is_undefined() {
-        cc.arg(1).coerce_to_i64_clamp(ctx, 0, len, len)?
+        cc.arg(1).to_i64_clamp(ctx, 0, len, len)?
     } else {
         0
     };
 
     let end = if cc.length() > 2 && !cc.arg(2).is_undefined() {
-        cc.arg(2).coerce_to_i64_clamp(ctx, 0, len, len)?
+        cc.arg(2).to_i64_clamp(ctx, 0, len, len)?
     } else {
         len
     };
@@ -599,7 +599,7 @@ pub fn js_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
     let mut res = -1;
     if len > 0 {
         let mut n = if cc.length() > 1 {
-            cc.arg(1).coerce_to_i64_clamp(ctx, 0, len, len)?
+            cc.arg(1).to_i64_clamp(ctx, 0, len, len)?
         } else {
             0
         };
@@ -648,7 +648,7 @@ pub fn js_array_lastIndexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     if len > 0 {
         let cnt = if cc.length() > 1 {
-            cc.arg(1).coerce_to_i64_clamp(ctx, -1, len - 1, len)?
+            cc.arg(1).to_i64_clamp(ctx, -1, len - 1, len)?
         } else {
             len - 1
         };
@@ -677,7 +677,7 @@ pub fn js_array_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     if len > 0 {
         let mut n = if cc.length() > 1 {
-            cc.arg(1).coerce_to_i64_clamp(ctx, 0, len, len)?
+            cc.arg(1).to_i64_clamp(ctx, 0, len, len)?
         } else {
             0
         };
@@ -818,8 +818,8 @@ pub fn js_array_push(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj: JSValue = cc.this().to_object(ctx)?.into();
     let len = js_get_length64(ctx, &obj)?;
 
-    let newLen = len + cc.length() as i64;
-    if newLen > MAX_SAFE_INTEGER {
+    let new_len = len + cc.length() as i64;
+    if new_len > MAX_SAFE_INTEGER {
         ctx.throw_type_error("Array loo long");
         return Err(-1);
     }
@@ -834,9 +834,9 @@ pub fn js_array_push(ctx: &JSContext, cc: CallContext) -> JSResult {
         obj.set_property_i64(ctx, from + i as i64, cc.arg(i).clone())?;
     }
 
-    obj.set_property(ctx, JS_ATOM_length, JSValue::from(newLen))?;
+    obj.set_property(ctx, JS_ATOM_length, JSValue::from(new_len))?;
 
-    Ok(JSValue::from(newLen))
+    Ok(JSValue::from(new_len))
 }
 
 pub fn js_array_reverse(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -975,7 +975,7 @@ pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
     let splice = cc.magic();
     let obj: JSValue = cc.this().to_object(ctx)?.into();
     let len = js_get_length64(ctx, &obj)?;
-    let start = cc.arg(0).coerce_to_i64_clamp(ctx, 0, len, len)?;
+    let start = cc.arg(0).to_i64_clamp(ctx, 0, len, len)?;
 
     let item_count: u32;
     let mut del_count: i64 = 0;
@@ -989,7 +989,7 @@ pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
             del_count = len - start;
         } else {
             item_count = (cc.length() - 2) as u32;
-            del_count = cc.arg(1).coerce_to_i64_clamp(ctx, 0, len - start, 0)?;
+            del_count = cc.arg(1).to_i64_clamp(ctx, 0, len - start, 0)?;
         }
         if len + item_count as i64 - del_count > MAX_SAFE_INTEGER {
             ctx.throw_type_error("Array loo long");
@@ -999,7 +999,7 @@ pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
     } else {
         item_count = 0; /* avoid warning */
         let final_ = if !cc.arg(1).is_undefined() {
-            cc.arg(1).coerce_to_i64_clamp(ctx, 0, len, len)?
+            cc.arg(1).to_i64_clamp(ctx, 0, len, len)?
         } else {
             len
         };
@@ -1074,7 +1074,7 @@ pub fn js_array_toSpliced(ctx: &JSContext, cc: CallContext) -> JSResult {
     let len = js_get_length64(ctx, &obj)?;
 
     let start = if cc.length() > 0 {
-        cc.arg(0).coerce_to_i64_clamp(ctx, 0, len, len)?
+        cc.arg(0).to_i64_clamp(ctx, 0, len, len)?
     } else {
         0
     };
@@ -1084,7 +1084,7 @@ pub fn js_array_toSpliced(ctx: &JSContext, cc: CallContext) -> JSResult {
         del = len - start;
     }
     if cc.length() > 1 {
-        del = cc.arg(1).coerce_to_i64_clamp(ctx, 0, del, 0)?;
+        del = cc.arg(1).to_i64_clamp(ctx, 0, del, 0)?;
     }
 
     let mut add = 0_i64;
@@ -1175,10 +1175,10 @@ pub fn js_array_copyWithin(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj: JSValue = cc.this().to_object(ctx)?.into();
     let len = js_get_length64(ctx, &obj)?;
 
-    let from: i64 = cc.arg(1).coerce_to_i64_clamp(ctx, 0, len, len)?;
-    let to: i64 = cc.arg(0).coerce_to_i64_clamp(ctx, 0, len, len)?;
+    let from: i64 = cc.arg(1).to_i64_clamp(ctx, 0, len, len)?;
+    let to: i64 = cc.arg(0).to_i64_clamp(ctx, 0, len, len)?;
     let final_ = if cc.length() > 2 && !cc.arg(2).is_undefined() {
-        cc.arg(2).coerce_to_i64_clamp(ctx, 0, len, len)?
+        cc.arg(2).to_i64_clamp(ctx, 0, len, len)?
     } else {
         len
     };

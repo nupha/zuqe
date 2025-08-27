@@ -315,13 +315,13 @@ impl ObjNativeFunc {
             }
 
             NativeFunctionType::FF(f) => sf.args_slice()[0]
-                .coerce_to_f64(&realm)
+                .to_f64(&realm)
                 .map(|n| JSValue::from(unsafe { f(n) }))
                 .unwrap_or(JSValue::EXCEPTION),
             NativeFunctionType::FFF(f) => {
                 let args = sf.args_slice();
-                if let Ok(d1) = args[0].coerce_to_f64(&realm)
-                    && let Ok(d2) = args[1].coerce_to_f64(&realm)
+                if let Ok(d1) = args[0].to_f64(&realm)
+                    && let Ok(d2) = args[1].to_f64(&realm)
                 {
                     JSValue::from(unsafe { f(d1, d2) })
                 } else {

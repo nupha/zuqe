@@ -604,7 +604,7 @@ pub fn js_typed_array_set_internal(
         return Err(-1);
     }
 
-    let offset: i64 = off.coerce_to_i64_saturating(ctx)?;
+    let offset: i64 = off.to_i64_saturating(ctx)?;
     if offset < 0 {
         ctx.throw_range_error("invalid array length");
         return Err(-1);

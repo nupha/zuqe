@@ -67,7 +67,7 @@ impl JSObject {
                         ctx,
                         PropertyEnum {
                             atom: prs.atom, // NOTE: atom is not duplicated here.
-                            isa: if let Some(num_key) = prs.atom.to_array_index(ctx.rt()) {
+                            isa: if let Some(num_key) = prs.atom.to_index(ctx.rt()) {
                                 PropertyEnumIsa::Index(num_key as u32)
                             } else if kind == AtomDescKind::JS_ATOM_KIND_STRING {
                                 PropertyEnumIsa::String
@@ -146,7 +146,7 @@ impl JSObject {
                         if (flags & JS_GPN_ENUM_ONLY == 0 || is_enumerable)
                             && ((flags >> (kind as u8)) & 1) != 0
                         {
-                            let isa = if let Some(num_key) = atom.to_array_index(ctx.rt()) {
+                            let isa = if let Some(num_key) = atom.to_index(ctx.rt()) {
                                 PropertyEnumIsa::Index(num_key as u32)
                             } else if kind == AtomDescKind::JS_ATOM_KIND_STRING {
                                 PropertyEnumIsa::String

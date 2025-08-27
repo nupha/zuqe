@@ -61,11 +61,11 @@ pub fn js_typed_array_constructor(ctx: &JSContext, cc: CallContext) -> JSResult 
             p.class_id(),
             JS_CLASS_ARRAY_BUFFER | JS_CLASS_SHARED_ARRAY_BUFFER
         ) {
-            let offset = cc.arg(1).to_array_index(ctx)?;
+            let offset = cc.arg(1).to_index(ctx)? as usize;
 
             let a2 = cc.arg(2);
             let len = if !a2.is_undefined() {
-                a2.to_array_index(ctx)?
+                a2.to_index(ctx)? as usize
             } else {
                 0
             };
@@ -75,7 +75,7 @@ pub fn js_typed_array_constructor(ctx: &JSContext, cc: CallContext) -> JSResult 
             ctx.create_typed_array_from(new_target, cc.arg(0), 0, 0, class_id as _)
         }
     } else {
-        let len = cc.arg(0).to_array_index(ctx)?;
+        let len = cc.arg(0).to_index(ctx)? as usize;
         ctx.create_typed_array_from(new_target, &JSValue::UNDEFINED, 0, len, class_id as _)
     }
 }
@@ -180,7 +180,7 @@ pub fn js_typed_array_create(ctx: &JSContext, ctor: &JSValue, args: &[JSValue]) 
 
     if args.len() == 1 {
         // ensure that it is large enough
-        let len = args[0].coerce_to_length(ctx)?;
+        let len = args[0].to_length(ctx)?;
         if new_len < len as u32 {
             ctx.throw_type_error("TypedArray length is too small");
             return Err(-1);
@@ -319,7 +319,7 @@ pub fn js_typed_array_at(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    let mut idx: i64 = cc.arg(0).coerce_to_i64_saturating(ctx)?;
+    let mut idx: i64 = cc.arg(0).to_i64_saturating(ctx)?;
     let len = p.length() as i64;
     if idx < 0 {
         idx += len;
@@ -335,7 +335,7 @@ pub fn js_typed_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
     let this_val = cc.this().clone();
     let p = this_val.clone().typed_array_must(ctx, false)?;
 
-    let mut idx: i64 = cc.arg(0).coerce_to_i64_saturating(ctx)?;
+    let mut idx: i64 = cc.arg(0).to_i64_saturating(ctx)?;
     let len = p.length() as i64;
     if idx < 0 {
         idx += len;
@@ -460,7 +460,7 @@ pub fn js_typed_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
             data[..4].copy_from_slice(&cc.arg(0).to_i32(ctx)?.to_ne_bytes());
         }
         JS_CLASS_FLOAT32_ARRAY => {
-            let d: f64 = cc.arg(0).coerce_to_f64(ctx)?;
+            let d: f64 = cc.arg(0).to_f64(ctx)?;
             let bb = unsafe {
                 #[repr(C)]
                 union Float32Union {
@@ -474,7 +474,7 @@ pub fn js_typed_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
             data[..4].copy_from_slice(&bb);
         }
         JS_CLASS_FLOAT64_ARRAY => {
-            let d: f64 = cc.arg(0).coerce_to_f64(ctx)?;
+            let d: f64 = cc.arg(0).to_f64(ctx)?;
             data.copy_from_slice(&d.to_ne_bytes());
         }
         c @ (JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY) => {
@@ -920,7 +920,7 @@ pub fn js_typed_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
     if special == special_lastIndexOf {
         k = len - 1;
         if cc.length() > 1 {
-            d = cc.arg(1).coerce_to_f64(ctx)?;
+            d = cc.arg(1).to_f64(ctx)?;
             if d.is_nan() {
                 k = 0;
             } else {
