@@ -5,14 +5,14 @@ use crate::{
     JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_CLASS_ARRAY, JS_NATIVE_ITERATOR_NEXT_DEF,
     JS_PROP_STRING_DEF,
     atom::consts::{
-        JS_ATOM_Symbol_isConcatSpreadable, JS_ATOM_Symbol_iterator, JS_ATOM_Symbol_species,
-        JS_ATOM_constructor, JS_ATOM_join, JS_ATOM_length, JS_ATOM_set,
+        JS_ATOM_Symbol_isConcatSpreadable, JS_ATOM_Symbol_species, JS_ATOM_constructor,
+        JS_ATOM_join, JS_ATOM_length, JS_ATOM_next, JS_ATOM_set,
     },
     bytecode::arithmatic::JSStrictEqModeEnum,
     context::JSContext,
     error::JSResult,
     function::{CallContext, FieldDef, JS_CallConstructor, JS_GetFunctionRealm},
-    iterator::{JSIteratorKindEnum, js_array_iterator_next, js_create_array_iterator},
+    iterator::{JSIteratorKindEnum, ObjectIter, js_array_iterator_next, js_create_array_iterator},
     js_core::{js_get_this, object::js_object_toString},
     number::MAX_SAFE_INTEGER,
     object::{
@@ -46,10 +46,11 @@ pub const special_TA: i32 = 8;
 pub const special_reduce: i32 = 0;
 pub const special_reduceRight: i32 = 1;
 
-pub fn js_array_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub(crate) fn js_array_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let new_target = cc.this();
 
     let obj = if cc.length() == 1 && cc.arg(0).is_number() {
+        // new Array(capacity) case
         let cap = cc.arg(0).to_array_length(ctx, true)?;
         let arr = ctx
             .create_object_apply_ctor(
@@ -59,10 +60,10 @@ pub fn js_array_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
             .map_err(|_| -1)?;
 
         arr.set_array_length(ctx, cap, true)?;
-        // arr.set_property(ctx, JS_ATOM_length, JSValue::from(len as u32))?;
         arr
     } else {
-        let slots = cc
+        // new Array(el1, el2, ...) case
+        let list = cc
             .arguments()
             .iter()
             .cloned()
@@ -71,13 +72,10 @@ pub fn js_array_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
                 ctx.throw_out_of_memory();
                 -1
             })?;
-        let len = slots.len() as u32;
+        let len = list.len() as u32;
 
         let arr = ctx
-            .create_object_apply_ctor(
-                new_target,
-                ObjectPayload::ARRAY(ArrayObjPayload::new(slots)),
-            )
+            .create_object_apply_ctor(new_target, ObjectPayload::ARRAY(ArrayObjPayload::new(list)))
             .map_err(|_| -1)?;
         arr.set_array_length(ctx, len, true)?;
         arr
@@ -1449,7 +1447,7 @@ pub static js_array_iterator_proto_funcs: [FieldDef; 2] = [
 // static array functions
 //
 
-pub fn js_array_from(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_array_from(ctx: &JSContext, cc: CallContext) -> JSResult {
     // from(items, mapfn = void 0, this_arg = void 0)
 
     let items = cc.arg(0);
@@ -1470,44 +1468,39 @@ pub fn js_array_from(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let mut k: i64 = 0;
 
-    let res: JSValue = if !items
-        .get_property(ctx, JS_ATOM_Symbol_iterator)?
-        .is_undefined()
-    {
+    let res: JSValue = if let Some(it_obj) = items.get_iterator(ctx, false)? {
         // `items` is iterable
+        let it = ObjectIter::new(ctx, it_obj, JS_ATOM_next)?;
+
         let arr = if cc.this().is_constructor() {
             JS_CallConstructor(ctx, cc.this(), &[]).err()?
         } else {
             ctx.create_array()?.into()
         };
 
-        let it = items.iter(ctx)?;
         for el in it {
-            let mut el = el?;
+            let mut val = el?;
             if mapping {
-                el = mapfn.call(ctx, this_arg, &[el, JSValue::Int(k as i32)])?;
+                val = mapfn.call(ctx, this_arg, &[val, JSValue::Int(k as i32)])?;
             }
-            arr.define_property_value_i64(ctx, k, el, JS_PROP_C_W_E | JS_PROP_THROW)?;
+            arr.define_property_value_i64(ctx, k, val, JS_PROP_C_W_E | JS_PROP_THROW)?;
             k += 1;
         }
 
         arr
     } else {
-        let array_like: JSValue = items.to_object(ctx)?.into();
-        let len = js_get_length64(ctx, &array_like)?;
+        let src = items.to_object(ctx)?;
+        let len = src.get_length_prop(ctx)?;
         let len_val = JSValue::from(len);
 
         let arr = if cc.this().is_constructor() {
             JS_CallConstructor(ctx, cc.this(), &[len_val]).err()?
         } else {
-            js_array_constructor(
-                ctx,
-                CallContext::new(ctx, JSValue::UNDEFINED, &[len_val], 0, None),
-            )?
+            ctx.create_array_with_capacity(len as usize)?.into()
         };
 
         for i in 0..len {
-            let mut el = array_like.get_property_i64(ctx, i)?;
+            let mut el = src.get_property_i64(ctx, i)?;
             if mapping {
                 el = mapfn.call(ctx, this_arg, &[el, JSValue::Int(i as i32)])?;
             }
@@ -1629,28 +1622,6 @@ fn copy_sub_array(
                 }
             }
         }
-
-        // let mut i = 0;
-        // while i < count {
-        //     let (from, to) = if dir < 0 {
-        //         (start_pos + count - i - 1, to_pos + count - i - 1)
-        //     } else {
-        //         (start_pos + i, to_pos + i)
-        //     };
-
-        //     if ids.contains(&from) {
-        //         match obj.try_get_property_i64(ctx, from as i64)? {
-        //             Some(val) => {
-        //                 obj.set_property_i64(ctx, to as _, val)?;
-        //             }
-        //             None => {
-        //                 obj.delete_property_i64(ctx, to as _)?;
-        //             }
-        //         }
-        //     }
-
-        //     i += 1;
-        // }
     }
 
     Ok(())

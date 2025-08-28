@@ -13,7 +13,7 @@ use crate::{
         js_create_array_iterator,
     },
     object::{
-        JS_DefineObjectName, JS_DefineObjectNameComputed, JS_GPN_SET_ENUM, JS_GPN_INDEX_MASK,
+        JS_DefineObjectName, JS_DefineObjectNameComputed, JS_GPN_INDEX_MASK, JS_GPN_SET_ENUM,
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
         JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE, JS_SetConstructorBit, ObjectPayload,
         js_get_length32,
@@ -514,7 +514,7 @@ pub fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
 /// if fail, sp[-1] is not consumed.
 /// obj -> enum_rec (3 slots)
 pub fn js_for_of_start(ctx: &JSContext, sp: *mut JSValue, is_async: bool) -> Result<(), i32> {
-    let iter_obj = unsafe { &*sp.offset(-1) }.iterator_obj(ctx, is_async)?;
+    let iter_obj = unsafe { &*sp.offset(-1) }.get_iterator_must(ctx, is_async)?;
     let next = iter_obj.get_property(ctx, JS_ATOM_next)?;
     unsafe {
         std::ptr::replace(sp.offset(-1), iter_obj.into());
@@ -530,7 +530,7 @@ pub unsafe fn js_for_of_next(ctx: &JSContext, sp: *mut JSValue, base: i32) -> Re
 
     if let JSValue::Object(iter_obj) = &*sp.offset(base as isize) {
         if let Ok((v, d)) =
-            ObjectIter::do_next_with_method(ctx, iter_obj, &*sp.offset((base + 1) as isize), &[])
+            ObjectIter::fetch_next(ctx, iter_obj, &*sp.offset((base + 1) as isize), &[])
         {
             done = d;
             value = if done {

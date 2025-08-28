@@ -976,15 +976,22 @@ pub fn js_string_iterator_next(
     cc: CallContext,
     state: &mut IteratorState,
 ) -> JSResult {
-    let mut isa = unsafe { cc.this().object_unchecked().0.payload.borrow_mut() };
-
-    if let ObjectPayload::STRING_ITERATOR(it) = isa.deref_mut() {
+    if let ObjectPayload::STRING_ITERATOR(it) = cc
+        .this()
+        .object()
+        .unwrap()
+        .0
+        .payload
+        .borrow_mut()
+        .deref_mut()
+    {
         let ss = unsafe { it.obj.string_unchecked() };
 
         // iterate over string buf to get char or code at `idx`
-        if let Some((cursor, c)) = ss.content().iter_since(it.idx as usize).next() {
-            it.idx += cursor as u32;
+        if let Some((next_idx, c)) = ss.content().iter_since(it.idx as usize).next() {
+            it.idx = next_idx as u32;
             *state = IteratorState::NotDone;
+
             match c {
                 StringChar::Char(_) => ctx.create_string_from_char(c),
                 StringChar::Code(c) => ctx.create_string_with_buf(if (0..=255).contains(&c) {
