@@ -361,7 +361,8 @@ impl JSObject {
 }
 
 impl JSValue {
-    // return Err if exception (proxy case) or TRUE/FALSE
+    /// check if `self` is an Array object
+    /// return Err if exception (proxy case) or TRUE/FALSE
     pub fn is_array(&self, ctx: &JSContext) -> Result<bool, i32> {
         if let JSValue::Object(p) = self {
             p.is_array(ctx)

@@ -791,16 +791,22 @@ pub static js_string_exotic_methods: JSClassExoticMethods = JSClassExoticMethods
          obj: JSValue,
          prop: JSAtom|
          -> Result<Option<JSPropertyDescriptor>, i32> {
-            // This is a class exotic method: obj class_id is JS_CLASS_STRING
+            // This is a class exotic method for JS_CLASS_STRING object
             if let Some(idx) = prop.to_small_int()
                 && let Some(JSValue::String(s)) =
                     obj.object().and_then(|o| o.0.payload.borrow().value())
                 && idx < s.buf_len() as u32
             {
-                let (_, ch) = s.content().iter_since(idx as usize).next().unwrap();
+                let code = s.content().get(idx as usize).unwrap();
                 return Ok(Some(JSPropertyDescriptor {
                     flags: JS_PROP_ENUMERABLE as _,
-                    value: ctx.create_string_from_char(ch)?.into(),
+                    value: ctx
+                        .create_string_with_buf(if code < 0x80 {
+                            StringBuf::Ascii(vec![code as u8])
+                        } else {
+                            StringBuf::Utf16(vec![code])
+                        })?
+                        .into(),
                     getter: JSValue::UNDEFINED,
                     setter: JSValue::UNDEFINED,
                 }));
