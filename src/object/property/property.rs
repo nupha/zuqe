@@ -244,6 +244,7 @@ impl JSObject {
         }
     }
 
+    /// test if property `prop` exists, check along proto chain.
     pub fn has_property(&self, ctx: &JSContext, prop: JSAtom) -> Result<bool, i32> {
         let mut p = self.clone();
 
@@ -262,28 +263,27 @@ impl JSObject {
                 }
             }
 
-            match p.get_own_property(ctx, prop)? {
-                None => {
-                    if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).contains(&p.class_id()) {
-                        match unsafe { JS_AtomIsNumericIndex(ctx, prop) } {
-                            0 => {}
-                            -1 => {
-                                return Err(-1);
-                            }
-                            _ => {
-                                return Ok(false);
-                            }
-                        }
-                    }
+            if p.get_own_property(ctx, prop)?.is_some() {
+                return Ok(true);
+            }
 
-                    // walk up proto chain
-                    if let Some(up) = p.shape().unwrap().0.borrow().proto.clone() {
-                        p = up;
-                    } else {
-                        break;
+            if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).contains(&p.class_id()) {
+                match unsafe { JS_AtomIsNumericIndex(ctx, prop) } {
+                    0 => {}
+                    -1 => {
+                        return Err(-1);
+                    }
+                    _ => {
+                        return Ok(false);
                     }
                 }
-                Some(_) => return Ok(true),
+            }
+
+            // walk up proto chain
+            if let Some(up) = p.shape().unwrap().0.borrow().proto.clone() {
+                p = up;
+            } else {
+                break;
             }
         }
 

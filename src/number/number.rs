@@ -50,16 +50,40 @@ impl From<u32> for JSValue {
     }
 }
 
+// impl TryFrom<i64> for JSValue {
+//     type Error = i32;
+
+//     /// try convert an i64 to JSValue.
+//     /// if integer is beyond safe integer range, will raise Err.
+//     fn try_from(val: i64) -> Result<Self, Self::Error> {
+//         let v32 = val as i32;
+//         if val == v32 as i64 {
+//             Ok(Self::Int(v32))
+//         } else if SAFE_INTEGER_RANGE.contains(&val) {
+//             Ok(Self::from_f64_as_is(val as f64))
+//         } else {
+//             #[cfg(debug_assertions)]
+//             log::warn!("integer {val} will lose precision");
+//             Err(-1)
+//         }
+//     }
+// }
+
 impl From<i64> for JSValue {
-    #[inline]
+    /// convert an i64 to JSValue.
+    ///
+    /// if value beyonds \[-2^53, 2^53\] range, precision is not guaranteed.
     fn from(val: i64) -> Self {
         let v32 = val as i32;
         if val == v32 as i64 {
             Self::Int(v32)
         } else {
             #[cfg(debug_assertions)]
-            if SAFE_INTEGER_RANGE.contains(&val) {
-                log::warn!("integer {val} will lose precision");
+            {
+                const PRECISION_RANGE: RangeInclusive<i64> = -(1_i64 << 53)..=1_i64 << 53;
+                if !PRECISION_RANGE.contains(&val) {
+                    log::warn!("integer {val} will lose precision");
+                }
             }
 
             Self::from_f64_as_is(val as f64)
@@ -68,7 +92,6 @@ impl From<i64> for JSValue {
 }
 
 impl From<f64> for JSValue {
-    #[inline]
     fn from(d: f64) -> Self {
         if d.fract() == 0.0 {
             // integral

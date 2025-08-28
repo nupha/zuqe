@@ -133,6 +133,17 @@ impl JSObject {
             }
         }
     }
+
+    pub fn delete_property_i64(&self, ctx: &JSContext, idx: i64) -> Result<bool, i32> {
+        if (0..JS_ATOM_MAX_INT as i64).contains(&idx) {
+            self.delete_property(ctx, JSAtom::new_small_int(idx as u32))
+        } else {
+            let atom = JSAtom::from_i64(ctx.rt_mut(), idx)?;
+            let res = self.delete_property(ctx, atom);
+            JS_FreeAtom(ctx, atom);
+            res
+        }
+    }
 }
 
 impl JSValue {
@@ -144,14 +155,13 @@ impl JSValue {
     }
 
     pub fn delete_property_i64(&self, ctx: &JSContext, idx: i64, flags: u32) -> Result<bool, i32> {
-        if (idx as u64) <= JS_ATOM_MAX_INT as u64 {
-            // fast path for fast arrays
-            return self.delete_property(ctx, JSAtom::new_small_int(idx as u32), flags);
+        if (0..JS_ATOM_MAX_INT as i64).contains(&idx) {
+            self.delete_property(ctx, JSAtom::new_small_int(idx as u32), flags)
+        } else {
+            let atom = JSAtom::from_i64(ctx.rt_mut(), idx)?;
+            let res = self.delete_property(ctx, atom, flags);
+            JS_FreeAtom(ctx, atom);
+            res
         }
-
-        let prop = JSAtom::from_i64(ctx.rt_mut(), idx)?;
-        let res = self.delete_property(ctx, prop, flags);
-        JS_FreeAtom(ctx, prop);
-        res
     }
 }

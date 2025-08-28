@@ -264,13 +264,6 @@ impl JSObject {
             // setter
             let pr = self.0.prop_values.borrow()[index].clone();
             match pr {
-                JSProperty::GetSet { setter, .. } => call_setter(
-                    ctx,
-                    setter.as_ref(),
-                    &JSValue::Object(this_obj.clone()),
-                    value,
-                    flags,
-                ),
                 JSProperty::VarRef(vref) => {
                     // JS_PROP_WRITABLE is always true for variable references,
                     // but they are write protected in module name spaces.
@@ -301,6 +294,16 @@ impl JSObject {
                     //     self.0.prop_values.borrow_mut()[slot_idx] = JSProperty::Normal(value);
                     //     Ok(true)
                     // }
+                }
+                JSProperty::GetSet { setter, .. } => {
+                    unreachable!();
+                    // call_setter(
+                    //     ctx,
+                    //     setter.as_ref(),
+                    //     &JSValue::Object(this_obj.clone()),
+                    //     value,
+                    //     flags,
+                    // )
                 }
                 JSProperty::LazyInit { .. } => {
                     unreachable!();

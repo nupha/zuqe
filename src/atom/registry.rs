@@ -185,7 +185,7 @@ impl JSAtom {
     }
 
     pub fn from_i64(rt: &mut JSRuntime, n: i64) -> Result<Self, i32> {
-        if n >= 0 && n <= JS_ATOM_MAX_INT as i64 {
+        if (0..JS_ATOM_MAX_INT as i64).contains(&n) {
             Ok(Self::new_small_int(n as u32))
         } else {
             let s = JSString::from_utf8(rt, format!("{n}").into_bytes())?;

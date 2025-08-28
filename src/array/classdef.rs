@@ -17,7 +17,7 @@ use crate::{
     number::MAX_SAFE_INTEGER,
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW,
-        ObjectPayload, PropertyKeyKind, js_get_length64,
+        JSObject, ObjectPayload, PropertyKeyKind, js_get_length64,
     },
     runtime::js_check_stack_overflow,
     string::{JSString, StringBuf},
@@ -175,8 +175,8 @@ pub fn js_array_at(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj: JSValue = cc.this().to_object(ctx)?.into();
-    let len = js_get_length64(ctx, &obj)?;
+    let obj = cc.this().to_object(ctx)?;
+    let len = obj.get_length_prop(ctx)?;
 
     let mut idx: i64 = cc.arg(0).to_i64_saturating(ctx)?;
     if idx < 0 {
@@ -377,7 +377,7 @@ pub fn js_array_every(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
 
         if present {
-            let index_val = JSValue::from(k).err()?;
+            let index_val = JSValue::from(k);
             let res = func.call(ctx, &this_arg, &[val.clone(), index_val, obj.clone()])?;
 
             match special {
@@ -496,7 +496,7 @@ pub fn js_array_reduce(ctx: &JSContext, cc: CallContext) -> JSResult {
         };
 
         if present {
-            let index_val = JSValue::from(k1).err()?;
+            let index_val = JSValue::from(k1);
             acc = func.call(
                 ctx,
                 &JSValue::UNDEFINED,
@@ -621,7 +621,7 @@ pub fn js_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
             .flatten();
 
         if let Some(i) = found {
-            return Ok(JSValue::from(i as i64));
+            return Ok(JSValue::from(i as u32));
         }
 
         // try properties
@@ -764,15 +764,15 @@ pub fn js_array_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj = cc.this().to_object(ctx)?;
     obj.invoke_callable(ctx, JS_ATOM_join, &[])?
         .unwrap_or_else(|| {
-            // `join` not found, use intrinsic Object.prototype.toString
+            // use intrinsic `Object.prototype.toString`
             js_object_toString(ctx, CallContext::new(ctx, obj.into(), &[], 0, None))
         })
 }
 
 pub fn js_array_pop(ctx: &JSContext, cc: CallContext) -> JSResult {
     let shift = cc.magic();
-    let obj: JSValue = cc.this().to_object(ctx)?.into();
-    let len = js_get_length64(ctx, &obj)?;
+    let obj = cc.this().to_object(ctx)?;
+    let len = obj.get_length_prop(ctx)?;
 
     let mut res = JSValue::UNDEFINED;
     let mut new_len = 0;
@@ -797,11 +797,11 @@ pub fn js_array_pop(ctx: &JSContext, cc: CallContext) -> JSResult {
             // slow array
             if shift != 0 {
                 res = obj.get_property_i64(ctx, 0)?;
-                JS_CopySubArray(ctx, &obj, 0, 1, len as usize - 1, 1)?;
+                copy_sub_array(ctx, &obj, 0, 1, len as usize - 1, 1)?;
             } else {
                 res = obj.get_property_i64(ctx, new_len)?;
             }
-            obj.delete_property_i64(ctx, new_len, JS_PROP_THROW)?;
+            obj.delete_property_i64(ctx, new_len)?;
         }
     }
 
@@ -813,8 +813,8 @@ pub fn js_array_pop(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_array_push(ctx: &JSContext, cc: CallContext) -> JSResult {
     let unshift = cc.magic();
 
-    let obj: JSValue = cc.this().to_object(ctx)?.into();
-    let len = js_get_length64(ctx, &obj)?;
+    let obj = cc.this().to_object(ctx)?;
+    let len = obj.get_length_prop(ctx)?;
 
     let new_len = len + cc.length() as i64;
     if new_len > MAX_SAFE_INTEGER {
@@ -824,7 +824,7 @@ pub fn js_array_push(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let mut from = len;
     if unshift != 0 && cc.length() > 0 {
-        JS_CopySubArray(ctx, &obj, cc.length() as _, 0, len as usize, -1)?;
+        copy_sub_array(ctx, &obj, cc.length() as _, 0, len as usize, -1)?;
         from = 0;
     }
 
@@ -1022,8 +1022,8 @@ pub fn js_array_toSorted(ctx: &JSContext, _: CallContext) -> JSResult {
 pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
     let is_splice = cc.magic() != 0;
 
-    let obj: JSValue = cc.this().to_object(ctx)?.into();
-    let len = js_get_length64(ctx, &obj)?;
+    let obj = cc.this().to_object(ctx)?;
+    let len = obj.get_length_prop(ctx)?;
     let start = cc.arg(0).to_i64_clamp(ctx, 0, len, len)?;
 
     let item_count: u32;
@@ -1056,7 +1056,7 @@ pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
     };
 
     let len_val = JSValue::from(count);
-    let arr = JS_ArraySpeciesCreate(ctx, &obj, &len_val)?;
+    let arr = JS_ArraySpeciesCreate(ctx, &obj.clone().into(), &len_val)?;
 
     let end = start + count;
     let mut k = start;
@@ -1095,7 +1095,7 @@ pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
     if is_splice {
         let new_len = len + item_count as i64 - del_count;
         if item_count as i64 != del_count {
-            JS_CopySubArray(
+            copy_sub_array(
                 ctx,
                 &obj,
                 start as usize + item_count as usize,
@@ -1110,7 +1110,7 @@ pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
 
             while k > new_len {
                 k -= 1;
-                obj.delete_property_i64(ctx, k, JS_PROP_THROW)?;
+                obj.delete_property_i64(ctx, k)?;
             }
         }
 
@@ -1227,8 +1227,8 @@ pub fn js_array_toSpliced(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_array_copyWithin(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj: JSValue = cc.this().to_object(ctx)?.into();
-    let len = js_get_length64(ctx, &obj)?;
+    let obj = cc.this().to_object(ctx)?;
+    let len = obj.get_length_prop(ctx)?;
 
     let to: i64 = cc.arg(0).to_i64_clamp(ctx, 0, len, len)?;
     let start: i64 = cc.arg(1).to_i64_clamp(ctx, 0, len, len)?;
@@ -1240,7 +1240,7 @@ pub fn js_array_copyWithin(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let count = std::cmp::min(end - start, len - to);
     if count > 0 {
-        JS_CopySubArray(
+        copy_sub_array(
             ctx,
             &obj,
             to as _,
@@ -1254,7 +1254,7 @@ pub fn js_array_copyWithin(ctx: &JSContext, cc: CallContext) -> JSResult {
         )?;
     }
 
-    Ok(obj)
+    Ok(obj.into())
 }
 
 pub fn js_array_flatten(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -1495,12 +1495,14 @@ pub fn js_array_from(ctx: &JSContext, cc: CallContext) -> JSResult {
     } else {
         let array_like: JSValue = items.to_object(ctx)?.into();
         let len = js_get_length64(ctx, &array_like)?;
+        let len_val = JSValue::from(len);
+
         let arr = if cc.this().is_constructor() {
-            JS_CallConstructor(ctx, cc.this(), &[JSValue::from(len)]).err()?
+            JS_CallConstructor(ctx, cc.this(), &[len_val]).err()?
         } else {
             js_array_constructor(
                 ctx,
-                CallContext::new(ctx, JSValue::UNDEFINED, &[JSValue::from(len)], 0, None),
+                CallContext::new(ctx, JSValue::UNDEFINED, &[len_val], 0, None),
             )?
         };
 
@@ -1550,6 +1552,114 @@ pub static js_array_funcs: [FieldDef; 4] = [
 /// 将数组 obj 中从 start_pos 开始的 count 个元素复制到 to_pos 开始的位置。
 /// - 正向复制（dir > 0）：从 start_pos 到 start_pos + count - 1 的元素依次复制到 to_pos 到 to_pos + count - 1。
 /// - 反向复制（dir < 0）：从 start_pos + count - 1 到 start_pos 的元素依次复制到 to_pos + count - 1 到 to_pos。
+fn copy_sub_array(
+    ctx: &JSContext,
+    obj: &JSObject,
+    to_pos: usize,
+    start_pos: usize,
+    count: usize,
+    dir: i32,
+) -> Result<(), i32> {
+    if count == 0 {
+        return Ok(());
+    }
+
+    let fast_array = if obj.flags().is_fast_array() && obj.class_id() == JS_CLASS_ARRAY {
+        Some(obj)
+    } else {
+        None
+    };
+
+    if let Some(fa) = fast_array {
+        fa.with_fast_array_values_mut(|lst| {
+            let len = lst.len();
+
+            // calc actual copy count
+            let cnt1 = if start_pos + count > len {
+                if len > start_pos { len - start_pos } else { 0 }
+            } else {
+                count
+            };
+            let cnt2 = if to_pos + count > len {
+                if len > to_pos { len - to_pos } else { 0 }
+            } else {
+                count
+            };
+            let cnt = std::cmp::min(cnt1, cnt2);
+
+            if cnt > 0 {
+                if dir > 0 {
+                    for i in 0..cnt {
+                        let v1 = lst[start_pos + i].clone();
+                        lst[to_pos + i] = v1;
+                    }
+                } else {
+                    for i in (0..cnt).rev() {
+                        let v1 = lst[start_pos + i].clone();
+                        lst[to_pos + i] = v1;
+                    }
+                }
+            }
+        })
+        .unwrap();
+    } else {
+        // sparse array
+        let mut ids = SmallVec::<[usize; 64]>::new();
+        obj.own_property_names_foreach(ctx, JS_GPN_INDEX_MASK | JS_GPN_ENUM_ONLY, |_, pk| {
+            if let PropertyKeyKind::ArrayIndex(i) = pk.isa {
+                ids.push(i as _);
+            }
+            Ok(())
+        })?;
+
+        ids.sort();
+        for i in ids {
+            let (from, to) = if dir < 0 {
+                (start_pos + count - i - 1, to_pos + count - i - 1)
+            } else {
+                (start_pos + i, to_pos + i)
+            };
+
+            match obj.try_get_property_i64(ctx, from as i64)? {
+                Some(val) => {
+                    obj.set_property_i64(ctx, to as _, val)?;
+                }
+                None => {
+                    obj.delete_property_i64(ctx, to as _)?;
+                }
+            }
+        }
+
+        // let mut i = 0;
+        // while i < count {
+        //     let (from, to) = if dir < 0 {
+        //         (start_pos + count - i - 1, to_pos + count - i - 1)
+        //     } else {
+        //         (start_pos + i, to_pos + i)
+        //     };
+
+        //     if ids.contains(&from) {
+        //         match obj.try_get_property_i64(ctx, from as i64)? {
+        //             Some(val) => {
+        //                 obj.set_property_i64(ctx, to as _, val)?;
+        //             }
+        //             None => {
+        //                 obj.delete_property_i64(ctx, to as _)?;
+        //             }
+        //         }
+        //     }
+
+        //     i += 1;
+        // }
+    }
+
+    Ok(())
+}
+
+/// 将数组 obj 中从 start_pos 开始的 count 个元素复制到 to_pos 开始的位置。
+/// - 正向复制（dir > 0）：从 start_pos 到 start_pos + count - 1 的元素依次复制到 to_pos 到 to_pos + count - 1。
+/// - 反向复制（dir < 0）：从 start_pos + count - 1 到 start_pos 的元素依次复制到 to_pos + count - 1 到 to_pos。
+#[deprecated(note = "use copy_sub_array() instead")]
 fn JS_CopySubArray(
     ctx: &JSContext,
     obj: &JSValue,

@@ -3,9 +3,10 @@ use crate::{
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
     JS_CLASS_INT32_ARRAY, JS_CLASS_OBJECT, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY,
     JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
-    atom::{JS_AtomIsNumericIndex, JS_FreeAtom, JSAtom},
+    atom::{JS_ATOM_MAX_INT, JS_AtomIsNumericIndex, JS_FreeAtom, JSAtom},
     context::{JSContext, is_strict_mode},
     error::JS_ThrowReferenceErrorNotDefined,
+    number::{MAX_SAFE_INTEGER, SAFE_INTEGER_RANGE},
     object::{
         JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_WRITABLE, JS_PROP_LAZYINIT,
         JS_PROP_NORMAL, JS_PROP_THROW_STRICT, JS_PROP_TMASK, JSObject, JSProperty,
@@ -96,7 +97,7 @@ impl JSObject {
     }
 
     /// set property for fast array or using exotic handler.
-    fn set_property_exotic(
+    fn set_property_exotic_or_fast_array(
         &self,
         ctx: &JSContext,
         prop: JSAtom,
@@ -167,6 +168,8 @@ impl JSObject {
     ///
     /// In most cases, self==this_obj, except in case of Reflect.set(target, prop, val, [[receiver]]),
     /// where `self` is _target_, and `this_obj` is _receiver_.
+    ///
+    /// `prop` is not consumed.
     pub(crate) fn set_property_internal(
         &self,
         ctx: &JSContext,
@@ -182,7 +185,7 @@ impl JSObject {
                 for up in self.prototype_iter(ctx, true) {
                     let proto = up?;
 
-                    // find own property
+                    // find in shape property
                     if let Some((idx, prs_flags)) = proto.find_shape_property(prop) {
                         match prs_flags & JS_PROP_TMASK {
                             JS_PROP_NORMAL | JS_PROP_LAZYINIT => {
@@ -217,7 +220,7 @@ impl JSObject {
 
                     // try exotic or fast array
                     if proto.flags().is_exotic() {
-                        match proto.set_property_exotic(
+                        match proto.set_property_exotic_or_fast_array(
                             ctx,
                             prop,
                             val.clone(),
@@ -261,8 +264,13 @@ impl JSObject {
                 }
 
                 if this.flags().is_exotic() {
-                    match this.set_property_exotic(ctx, prop, val.clone(), this_obj.clone(), flags)
-                    {
+                    match this.set_property_exotic_or_fast_array(
+                        ctx,
+                        prop,
+                        val.clone(),
+                        this_obj.clone(),
+                        flags,
+                    ) {
                         Ok(b) => {
                             return Ok(b);
                         }
@@ -327,6 +335,7 @@ impl JSObject {
         }
     }
 
+    /// `prop` is not consumed.
     #[inline(always)]
     pub fn set_property(&self, ctx: &JSContext, prop: JSAtom, val: JSValue) -> Result<bool, i32> {
         self.set_property_internal(
@@ -346,28 +355,45 @@ impl JSObject {
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        if let JSValue::Int(idx) = prop {
-            let idx = *idx;
-            let mut ta_out_of_bound = false;
+        // check if prop is a u32
+        let int_key = match prop {
+            JSValue::Int(i) if *i >= 0 => Some(*i as u32),
+            JSValue::Float64(f) if *f >= 0.0 => {
+                if f.fract() == 0.0 {
+                    let n = f.trunc() as i64;
+                    if n <= u32::MAX as i64 {
+                        Some(n as u32)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
 
-            //
-            // fast path
-            //
+        if let Some(idx) = int_key {
+            let mut oob = false;
+
+            // fast path: fast array
             match self.class_id() {
                 JS_CLASS_ARRAY => {
                     let ob_flags = self.flags();
-                    if idx >= 0 && ob_flags.is_fast_array() && ob_flags.extensible() {
+                    if ob_flags.is_fast_array() && ob_flags.extensible() {
+                        let idx = idx as usize;
+
                         enum State {
                             Append,
-                            Slow,
+                            SlowPath,
                             Done,
                         }
                         let s = self
                             .with_fast_array_values_mut(|lst| -> Result<State, i32> {
-                                match idx.cmp(&(lst.len() as i32)) {
+                                match idx.cmp(&(lst.len())) {
                                     std::cmp::Ordering::Less => {
                                         // update array element
-                                        lst[idx as usize] = val.clone();
+                                        lst[idx] = val.clone();
                                         Ok(State::Done)
                                     }
                                     std::cmp::Ordering::Equal => {
@@ -403,13 +429,10 @@ impl JSObject {
                                         Ok(if !use_slow_path {
                                             State::Append
                                         } else {
-                                            State::Slow
+                                            State::SlowPath
                                         })
                                     }
-                                    std::cmp::Ordering::Greater => {
-                                        // go slow path
-                                        Ok(State::Slow)
-                                    }
+                                    std::cmp::Ordering::Greater => Ok(State::SlowPath),
                                 }
                             })
                             .unwrap()?;
@@ -421,27 +444,28 @@ impl JSObject {
                             State::Done => {
                                 return Ok(true);
                             }
-                            State::Slow => {
-                                // go to slow path
-                            }
+                            State::SlowPath => {}
                         }
                     }
                 }
                 JS_CLASS_ARGUMENTS => {
-                    let done = self
+                    let idx = idx as usize;
+                    if self
                         .with_fast_array_values_mut(|lst| -> bool {
-                            if idx < lst.len() as i32 {
-                                lst[idx as usize] = val.clone();
+                            if idx < lst.len() {
+                                lst[idx] = val.clone();
                                 true
                             } else {
                                 false
                             }
                         })
-                        .unwrap();
-                    if done {
-                        return Ok(true); // done fast array
+                        .unwrap()
+                    {
+                        // early exit for fast array
+                        return Ok(true);
                     }
                 }
+
                 //
                 // typed array
                 //
@@ -451,7 +475,7 @@ impl JSObject {
                         .set_element(idx as _, v)
                         .is_err()
                     {
-                        ta_out_of_bound = true;
+                        oob = true;
                     } else {
                         return Ok(true);
                     }
@@ -470,7 +494,7 @@ impl JSObject {
                     };
 
                     if r.is_err() {
-                        ta_out_of_bound = true;
+                        oob = true;
                     } else {
                         return Ok(true);
                     }
@@ -489,7 +513,7 @@ impl JSObject {
                     };
 
                     if r.is_err() {
-                        ta_out_of_bound = true;
+                        oob = true;
                     } else {
                         return Ok(true);
                     }
@@ -508,7 +532,7 @@ impl JSObject {
                     };
 
                     if r.is_err() {
-                        ta_out_of_bound = true;
+                        oob = true;
                     } else {
                         return Ok(true);
                     }
@@ -518,7 +542,7 @@ impl JSObject {
                     let r = Float32Array(TypedArray(self.clone())).set_element(idx as _, d as _);
 
                     if r.is_err() {
-                        ta_out_of_bound = true;
+                        oob = true;
                     } else {
                         return Ok(true);
                     }
@@ -527,7 +551,7 @@ impl JSObject {
                     let d = val.to_f64(ctx)?;
                     let r = Float64Array(TypedArray(self.clone())).set_element(idx as _, d);
                     if r.is_err() {
-                        ta_out_of_bound = true;
+                        oob = true;
                     } else {
                         return Ok(true);
                     }
@@ -536,19 +560,15 @@ impl JSObject {
                     unimplemented!()
                 }
 
-                _ => {
-                    // go slow path
-                }
+                _ => {}
             }
 
-            if ta_out_of_bound {
+            if oob {
                 return Ok(true);
             }
         }
 
-        //
         // slow path
-        //
         let atom = prop.to_atom(ctx)?;
         let ret = self.set_property_internal(ctx, atom, val, &JSValue::Object(self.clone()), flags);
         JS_FreeAtom(ctx, atom);
@@ -558,6 +578,19 @@ impl JSObject {
     #[inline(always)]
     pub fn set_property_u32(&self, ctx: &JSContext, idx: u32, val: JSValue) -> Result<bool, i32> {
         self.set_property_value(ctx, &JSValue::from(idx), val, JS_PROP_THROW)
+    }
+
+    #[inline]
+    pub fn set_property_i64(&self, ctx: &JSContext, idx: i64, val: JSValue) -> Result<bool, i32> {
+        if (0..=u32::MAX as i64).contains(&idx) {
+            // fast path
+            self.set_property_u32(ctx, idx as u32, val)
+        } else {
+            let atom = JSAtom::from_i64(ctx.rt_mut(), idx)?;
+            let r = self.set_property(ctx, atom, val);
+            JS_FreeAtom(ctx, atom);
+            r
+        }
     }
 
     pub fn set_property_str(&self, ctx: &JSContext, prop: &str, val: JSValue) -> Result<bool, i32> {
@@ -574,6 +607,8 @@ impl JSValue {
     ///
     /// **In most cases, obj==this_obj, except in case of Reflect.set(obj, val, [receiver]),
     /// where obj (must be an object), and this_obj is for receiver.**
+    ///
+    /// `prop` is not consumed.
     pub(crate) fn set_property_internal(
         ctx: &JSContext,
         obj: &JSValue,
@@ -595,6 +630,7 @@ impl JSValue {
         }
     }
 
+    /// `prop` is not consumed.
     #[inline(always)]
     pub fn set_property(&self, ctx: &JSContext, prop: JSAtom, val: JSValue) -> Result<bool, i32> {
         Self::set_property_internal(ctx, self, prop, val, self, JS_PROP_THROW)
@@ -622,14 +658,17 @@ impl JSValue {
         self.set_property_value(ctx, &JSValue::from(idx), val, JS_PROP_THROW)
     }
 
+    #[inline]
     pub fn set_property_i64(&self, ctx: &JSContext, idx: i64, val: JSValue) -> Result<bool, i32> {
-        if (idx as u64) <= i32::MAX as u64 {
-            // fast path for fast arrays
-            return self.set_property_value(ctx, &JSValue::Int(idx as i32), val, JS_PROP_THROW);
+        if (0..u32::MAX as i64).contains(&idx) {
+            // fast path
+            self.set_property_u32(ctx, idx as u32, val)
+        } else {
+            let atom = JSAtom::from_i64(ctx.rt_mut(), idx)?;
+            let r = self.set_property(ctx, atom, val);
+            JS_FreeAtom(ctx, atom);
+            r
         }
-
-        let prop = JSAtom::from_i64(ctx.rt_mut(), idx)?;
-        self.set_property(ctx, prop, val)
     }
 
     pub fn set_property_str(&self, ctx: &JSContext, prop: &str, val: JSValue) -> Result<bool, i32> {

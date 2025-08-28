@@ -36,7 +36,6 @@ impl JSContext {
     /// create an Array with element values
     pub fn create_array_with_values(&self, values: Vec<JSValue>) -> Result<Array, i32> {
         let len = values.len();
-        debug_assert!(len <= u32::MAX as usize);
 
         let fa = self
             .create_object_with_shape(
@@ -295,7 +294,7 @@ impl JSObject {
                 }
             })
             .unwrap();
-            self.0.prop_values.borrow_mut()[0] = JSProperty::Normal(JSValue::from(length as i64));
+            self.0.prop_values.borrow_mut()[0] = JSProperty::Normal(JSValue::from(length));
         } else {
             // Note: prop `length` must be less than u32::MAX
             let mut arr_len = self

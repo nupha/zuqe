@@ -161,10 +161,7 @@ fn main() {
         let exc = ctx.exception();
         debug_assert!(!exc.is_undefined_or_null());
 
-        println!(
-            "!!! EXCEPTION {exc:?}, [toString] {:?}",
-            exc.to_string(&ctx)
-        );
+        println!("!!! EXCEPTION {exc:?}: {:?}", exc.to_string(&ctx));
         if let JSValue::Object(o) = exc {
             o.dump(ctx.rt());
         };

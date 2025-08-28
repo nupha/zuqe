@@ -325,6 +325,7 @@ pub fn js_typed_array_at(ctx: &JSContext, cc: CallContext) -> JSResult {
         idx += len;
     }
     if idx < 0 || idx >= len {
+        ctx.throw_range_error("invalid array index");
         return Err(-1);
     }
 

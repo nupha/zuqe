@@ -95,11 +95,11 @@ impl TwoNumbers {
     pub fn mul(self) -> JSValue {
         match self {
             TwoNumbers::Int(a, b) => {
-                let v = (a as i64) * (b as i64);
-                if v == 0 && (a | b) < 0 {
+                let n = (a as i64) * (b as i64);
+                if n == 0 && (a | b) < 0 {
                     JSValue::Float64(-0.0)
                 } else {
-                    JSValue::from(v)
+                    JSValue::from(n)
                 }
             }
             TwoNumbers::Float(a, b) => JSValue::Float64(a * b),
@@ -149,7 +149,8 @@ impl TwoNumbers {
                 } else if a == 0 {
                     JSValue::Int(0)
                 } else if b > 0 {
-                    JSValue::from((a as i64).pow(b as u32))
+                    let v = (a as i64).pow(b as u32);
+                    JSValue::from(v)
                 } else {
                     JSValue::from((a as f64).powf(b as f64))
                 }
@@ -273,7 +274,7 @@ impl UnaryOp {
         match self {
             UnaryOp::Int(a) => {
                 if a == i32::MAX {
-                    JSValue::from(a as i64 + 1)
+                    JSValue::from(a as u32 + 1)
                 } else {
                     JSValue::Int(a + 1)
                 }
