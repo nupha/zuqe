@@ -765,32 +765,34 @@ impl Bytecode {
                         }
                     }
                     OpCode::ARRAY_FROM => {
-                        // el1, el2 ... elN ^ -> array ^
+                        // [el1, el2 ... elN, ^] -> [array, ^]
                         let call_argc = PC_FETCH!(u16) as i32;
 
-                        if let Ok(arr) = ctx.create_array() {
-                            // push elements to array
+                        let mut list = Vec::<JSValue>::new();
+                        if list.try_reserve_exact(call_argc as usize).is_ok() {
+                            // collect elements
                             let call_argv = unsafe { sp.offset(-call_argc as isize) };
                             for i in 0..call_argc as isize {
                                 let val = unsafe {
                                     std::ptr::replace(call_argv.offset(i), JSValue::UNDEFINED)
                                 };
-                                let ret = arr.0.define_property_value(
-                                    ctx,
-                                    JSAtom::new_small_int(i as u32),
-                                    val,
-                                    JS_PROP_C_W_E | JS_PROP_THROW,
-                                );
-                                if ret.is_err() {
-                                    break 'opcodes State::Exception;
+                                list.push(val);
+                            }
+
+                            // create array with collected elements
+                            match ctx.create_array_with_values(list) {
+                                Ok(arr) => {
+                                    SP_GO!(-call_argc);
+                                    // push array on stack top
+                                    SP_PUT!(0, arr.into());
+                                    SP_GO!(1);
+                                }
+                                Err(_) => {
+                                    break State::Exception;
                                 }
                             }
-                            SP_GO!(-call_argc);
-
-                            // push array on stack top
-                            SP_PUT!(0, arr.into());
-                            SP_GO!(1);
                         } else {
+                            ctx.throw_out_of_memory();
                             break State::Exception;
                         }
                     }

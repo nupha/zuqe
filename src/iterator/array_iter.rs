@@ -62,16 +62,22 @@ pub fn js_array_iterator_next(
     cc: CallContext,
     state: &mut IteratorState,
 ) -> JSResult {
-    let mut isa = unsafe { cc.this().object_unchecked().0.payload.borrow_mut() };
-
-    if let ObjectPayload::ARRAY_ITERATOR(it) = isa.deref_mut() {
+    if let ObjectPayload::ARRAY_ITERATOR(it) = cc
+        .this()
+        .object()
+        .unwrap()
+        .0
+        .payload
+        .borrow_mut()
+        .deref_mut()
+    {
         if it.obj.is_undefined() {
             *state = IteratorState::Done;
             return Ok(JSValue::UNDEFINED);
         }
 
         // eval array length
-        let len = if let Ok(tao) = TryInto::<TypedArray>::try_into(it.obj.clone()) {
+        let len = if let Ok(tao) = TypedArray::try_from(it.obj.clone()) {
             // is typed array
             if tao.is_detached() {
                 JS_ThrowTypeErrorDetachedArrayBuffer(ctx);

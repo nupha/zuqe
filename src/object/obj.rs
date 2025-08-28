@@ -216,7 +216,7 @@ impl ObjectInner {
     pub(crate) fn new(
         ctx: &JSContext,
         shape: Option<JSShape>,
-        isa: ObjectPayload,
+        payload: ObjectPayload,
     ) -> Result<Self, ObjectPayload> {
         ctx.rt_mut().gc_req = true;
         //js_trigger_gc(ctx.rt_mut(), std::mem::size_of::<JSValue>());
@@ -225,17 +225,16 @@ impl ObjectInner {
         let mut prop_values = Vec::<JSProperty>::new();
         if let Some(sh) = &shape {
             let prop_count = sh.0.borrow().prop_defs.len();
-
             if prop_values
                 .try_reserve_exact(std::cmp::max(JS_PROP_INITIAL_SIZE as usize, prop_count))
                 .is_err()
             {
                 ctx.throw_out_of_memory();
-                return Err(isa);
+                return Err(payload);
             };
 
             for _ in 0..prop_count {
-                prop_values.push(JSProperty::Normal(JSValue::UNDEFINED))
+                prop_values.push(JSProperty::default())
             }
         }
 
@@ -253,7 +252,7 @@ impl ObjectInner {
 
         let mut add_length_prop = false;
 
-        match isa.class_id() {
+        match payload.class_id() {
             JS_CLASS_OBJECT => {}
 
             JS_CLASS_BYTECODE_FUNCTION
@@ -267,17 +266,19 @@ impl ObjectInner {
                 flags.set_exotic(true);
                 flags.set_fast_array(true);
 
-                // Array: the length property is always at index 0
                 if shape_id.unwrap()
                     == ctx
                         .0
                         .borrow()
                         .array_shape
                         .as_ref()
-                        .map_or(usize::MAX, |a| a.id())
+                        .map_or(usize::MAX, |sh| sh.id())
                 {
+                    // set length property to 0
                     prop_values[0] = JSProperty::Normal(JSValue::Int(0));
                 } else {
+                    // we are creating the Array proto object.
+                    // by this moment, the default shape for array is not initialized yet.
                     add_length_prop = true;
                 };
             }
@@ -324,7 +325,7 @@ impl ObjectInner {
             shape: RefCell::new(shape),
             prop_values: RefCell::new(prop_values),
             weak_refs: RefCell::new(Vec::new()),
-            payload: RefCell::new(isa),
+            payload: RefCell::new(payload),
             gc_mark: Cell::new(false),
 
             #[cfg(debug_assertions)]
@@ -332,7 +333,7 @@ impl ObjectInner {
         };
 
         if add_length_prop {
-            // only used for the fast array, cannot fail
+            // only used for the Array prototype object
             obj.add_own_property(
                 ctx,
                 JS_ATOM_length,

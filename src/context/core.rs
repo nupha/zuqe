@@ -87,21 +87,21 @@ impl JSContext {
         }
 
         if with_array {
-            // Array: the array prototype is an array
-            let array = self
+            // 1. make Array prototype object
+            let array_proto = self
                 .create_object_from_proto(
                     object.clone().into(),
                     ObjectPayload::ARRAY(ArrayObjPayload::default()),
                 )
                 .unwrap();
 
-            self.0.borrow_mut().class_proto[JS_CLASS_ARRAY as usize] = array.clone().into();
+            self.0.borrow_mut().class_proto[JS_CLASS_ARRAY as usize] = array_proto.clone().into();
 
-            let array_shape0 =
-                JSShape::with_capacity(self, Some(array.clone()), JS_PROP_INITIAL_HASH_SIZE, 1)
-                    .unwrap();
-            // define length property at index 0
-            array_shape0
+            // 2. make default shape for Array
+            let array_shape = JSShape::new(self, Some(array_proto.clone()), 1).unwrap();
+
+            // define length property, index=0
+            array_shape
                 .add_shape_property(
                     self,
                     JS_ATOM_length,
@@ -109,7 +109,8 @@ impl JSContext {
                     None,
                 )
                 .unwrap();
-            self.0.borrow_mut().array_shape.replace(array_shape0);
+
+            self.0.borrow_mut().array_shape.replace(array_shape);
         }
 
         /* XXX: could test it on first context creation to ensure that no

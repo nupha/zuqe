@@ -11,7 +11,7 @@ use crate::{
     atom::{JS_FreeAtomRT, JSAtom},
     context::JSContext,
     gc::GCObjectHeader,
-    object::{GCObject, GCObjectWeakref},
+    object::{GCObject, GCObjectWeakref, JS_PROP_WRITABLE},
     runtime::JSRuntime,
 };
 
@@ -24,25 +24,30 @@ use super::{
 /// Property defination in shape
 #[derive(Debug, Clone)]
 pub struct JSShapeProperty {
-    // flags:   6 bits: JS_PROP_XXX
-    // hash_next:  26 bits: 0 if last in list
-    bitfield: u32,
-
     pub atom: JSAtom,
+    flags: u32,
 }
 
 impl JSShapeProperty {
-    const NEXT_HASH_MASK: u32 = 0x03FF_FFFF; // lower 26-bits
-    const FLAGS_MASK: u32 = 0xFC00_0000; // upper 6-bits
-
     #[inline(always)]
     pub const fn flags(&self) -> u32 {
-        (self.bitfield & Self::FLAGS_MASK) >> 26
+        self.flags
     }
 
     #[inline]
     pub const fn set_flags(&mut self, f: u32) {
-        self.bitfield = (self.bitfield & !Self::FLAGS_MASK) | ((f & 0x3f) << 26);
+        self.flags = f;
+    }
+
+    /// is special property `length`?
+    #[inline(always)]
+    pub fn is_length(&self) -> bool {
+        self.flags & JS_PROP_LENGTH != 0
+    }
+
+    #[inline(always)]
+    pub fn is_writable(&self) -> bool {
+        self.flags & JS_PROP_WRITABLE != 0
     }
 }
 
@@ -141,41 +146,37 @@ impl std::fmt::Debug for JSShape {
 }
 
 impl JSShape {
-    /// create a new empty shape with prototype 'proto' and given property slots capacity.
+    /// create a shape with prototype 'proto' and property capacity.
     /// new shape is not registered,
     /// new shape is added to gc list.
-    pub fn with_capacity(
-        ctx: &JSContext,
-        proto: Option<JSObject>,
-        hash_size: usize,
-        prop_size: i32,
-    ) -> Result<Self, i32> {
-        let mut prop_slots = IndexMap::<u32, JSShapeProperty>::new();
-        prop_slots.try_reserve_exact(prop_size as _).map_err(|_| {
+    pub fn new(ctx: &JSContext, proto: Option<JSObject>, prop_cap: i32) -> Result<Self, i32> {
+        let mut prop_defs = IndexMap::<u32, JSShapeProperty>::new();
+        prop_defs.try_reserve_exact(prop_cap as _).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
         })?;
 
         let shape = Self(Rc::new(RefCell::new(JSShapeInner::new(
-            ctx, proto, prop_slots,
+            ctx, proto, prop_defs,
         )?)));
+
         ctx.rt_mut()
             .gc_add_object(shape.id(), shape.downgrade().into());
 
         Ok(shape)
     }
 
-    /// create a new empty shape with prototype 'proto'.
-    /// Note: `proto` is not consumed.
-    #[inline(always)]
-    pub fn new(ctx: &JSContext, proto: Option<JSObject>) -> Result<Self, i32> {
-        Self::with_capacity(
-            ctx,
-            proto,
-            JS_PROP_INITIAL_HASH_SIZE,
-            JS_PROP_INITIAL_SIZE as _,
-        )
-    }
+    // /// create a new empty shape with prototype 'proto'.
+    // /// Note: `proto` is not consumed.
+    // #[inline(always)]
+    // pub fn new(ctx: &JSContext, proto: Option<JSObject>) -> Result<Self, i32> {
+    //     Self::new(
+    //         ctx,
+    //         proto,
+    //         JS_PROP_INITIAL_HASH_SIZE,
+    //         JS_PROP_INITIAL_SIZE as _,
+    //     )
+    // }
 
     /// Clone to a new shape from this shape by coping property definitions.
     /// The new shape is not registered. The new shape is added to gc object list.
@@ -192,12 +193,12 @@ impl JSShape {
                 -1
             })?;
 
-            for (id, pr) in props0.iter() {
+            for (id, sp) in props0.iter() {
                 props.insert(
                     *id,
                     JSShapeProperty {
-                        bitfield: pr.bitfield,
-                        atom: pr.atom.dup(ctx.rt()),
+                        flags: sp.flags,
+                        atom: sp.atom.dup(ctx.rt()),
                     },
                 );
             }
@@ -295,7 +296,7 @@ impl JSShape {
 
         let mut prs = JSShapeProperty {
             atom: prop.dup(ctx.rt()),
-            bitfield: 0,
+            flags: 0,
         };
         prs.set_flags(prop_flags);
 

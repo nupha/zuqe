@@ -4,7 +4,7 @@ use crate::{
     atom::consts::JS_ATOM_prototype,
     context::JSContext,
     function::JS_GetFunctionRealm,
-    object::{JSObject, JSShape, ObjectPayload, ObjectInner},
+    object::{JSObject, JSShape, ObjectInner, ObjectPayload},
     value::JSValue,
 };
 
@@ -44,7 +44,7 @@ impl JSContext {
             match self.rt().find_shape_by_proto(proto_ob.as_ref()) {
                 Some(sh) => sh,
                 None => {
-                    if let Ok(sh) = JSShape::new(self, proto_ob) {
+                    if let Ok(sh) = JSShape::new(self, proto_ob, 0) {
                         sh
                     } else {
                         return Err(payload);

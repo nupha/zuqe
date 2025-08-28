@@ -237,17 +237,16 @@ impl JSObject {
         //
         // slow path: length, setter, lazy
         //
-
         if prs_flags & JS_PROP_LENGTH != 0 {
             // special prop length: to set .length property of an array-like object
             debug_assert_eq!(self.class_id(), JS_CLASS_ARRAY);
             debug_assert_eq!(prop, JS_ATOM_length);
-            debug_assert_eq!(index, 0, "length property must be index 0");
+            debug_assert_eq!(index, 0);
 
             self.set_array_length(
                 ctx,
                 value.to_array_length(ctx, false)?,
-                flags & JS_PROP_THROW != 0,
+                ctx.can_throw_error(flags),
             )
         } else if prs_flags & JS_PROP_LAZYINIT == JS_PROP_LAZYINIT {
             // lazy init replaced with normal value

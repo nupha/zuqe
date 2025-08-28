@@ -254,31 +254,16 @@ impl JSObject {
     /// - true if length is updated,
     /// - false if can't update length property and JS_THROW flag is not set,
     /// - Err if can't update length property ahd JS_THOW flag is set.
-    pub fn set_array_length(
-        &self,
-        ctx: &JSContext,
-        length: u32,
-        throw_error: bool,
-    ) -> Result<bool, i32> {
-        if self
-            .shape()
-            .and_then(|sh| {
-                // prop `length` must be index 0
-                debug_assert!(
-                    sh.0.borrow().prop_defs[0].flags() & JS_PROP_LENGTH != 0,
-                    "Object don't have length property"
-                );
-                sh.0.borrow().prop_defs.get_index(0).map(|(_, p)| p.flags())
-            })
-            .unwrap()
-            & JS_PROP_WRITABLE
-            == 0
-        {
-            // prop `length` is not writable
-            return if ctx.throw_type_error_or_false(
-                if throw_error { JS_PROP_THROW } else { 0 },
-                "'length' is read-only",
-            ) {
+    pub fn set_array_length(&self, ctx: &JSContext, length: u32, throw: bool) -> Result<bool, i32> {
+        #[cfg(debug_assertions)]
+        debug_assert!(
+            self.shape().unwrap().0.borrow().prop_defs[0].is_length(),
+            "missing length property at index 0"
+        );
+
+        if !self.shape().unwrap().0.borrow().prop_defs[0].is_writable() {
+            return if throw {
+                ctx.throw_type_error("'length' is read-only");
                 Err(-1)
             } else {
                 Ok(false)
@@ -297,7 +282,7 @@ impl JSObject {
             self.0.prop_values.borrow_mut()[0] = JSProperty::Normal(JSValue::from(length));
         } else {
             // Note: prop `length` must be less than u32::MAX
-            let mut arr_len = self
+            let mut old_len = self
                 .0
                 .prop_values
                 .borrow()
@@ -306,32 +291,32 @@ impl JSObject {
                 .unwrap() // `length` property must be defined in slot #0
                 .and_then(|v| v.to_u32(ctx))?;
 
-            if length < arr_len {
+            if length < old_len {
                 // delete index property
                 let mut sh = self.shape().unwrap();
-                let d = arr_len - length;
+                let d = old_len - length;
                 let propdef_len = sh.0.borrow().prop_defs.len() as u32;
 
                 if d <= propdef_len {
                     // faster to iterate
-                    while arr_len > length {
-                        let atom = JSAtom::from_u32(ctx.rt_mut(), arr_len as u32 - 1)?;
+                    while old_len > length {
+                        let atom = JSAtom::from_u32(ctx.rt_mut(), old_len as u32 - 1)?;
                         let ret = self.delete_property(ctx, atom);
                         JS_FreeAtom(ctx, atom);
                         if let Ok(false) = ret {
                             break; // property is not configurable
                         }
-                        arr_len -= 1;
+                        old_len -= 1;
                     }
                 } else {
                     // faster to iterate thru all the properties.
                     // Need two passes in case one of the property is not  configurable
-                    arr_len = length;
+                    old_len = length;
                     sh.with_mut(|sh| {
                         for pr in sh.prop_defs.values() {
                             if let Some(i) = pr.atom.to_array_index(ctx.rt()) {
-                                if i >= arr_len && (pr.flags() & JS_PROP_CONFIGURABLE == 0) {
-                                    arr_len = i + 1;
+                                if i >= old_len && (pr.flags() & JS_PROP_CONFIGURABLE == 0) {
+                                    old_len = i + 1;
                                 }
                             }
                         }
@@ -347,7 +332,7 @@ impl JSObject {
                                 .unwrap();
 
                         if let Some(idx) = prop.to_array_index(ctx.rt()) {
-                            if idx >= arr_len {
+                            if idx >= old_len {
                                 self.delete_property(ctx, prop).unwrap();
                                 // WARNING: the shape may have been modified
                                 sh = self.shape().unwrap();
@@ -356,17 +341,14 @@ impl JSObject {
                     }
                 }
             } else {
-                arr_len = length;
+                old_len = length;
             }
 
-            // #0 is the `length`
-            self.0.prop_values.borrow_mut()[0] = JSProperty::Normal(JSValue::from(arr_len as u32));
+            self.0.prop_values.borrow_mut()[0] = JSProperty::Normal(JSValue::from(old_len as u32));
 
-            if arr_len > length {
-                return if ctx.throw_type_error_or_false(
-                    if throw_error { JS_PROP_THROW } else { 0 },
-                    "not configurable",
-                ) {
+            if old_len > length {
+                return if throw {
+                    ctx.throw_type_error("'length' is not configurable");
                     Err(-1)
                 } else {
                     Ok(false)
