@@ -286,6 +286,7 @@ impl JSObject {
             .unwrap();
             self.0.prop_values.borrow_mut()[0] = JSProperty::Normal(JSValue::from(length));
         } else {
+            // sparse array
             // Note: prop `length` must be less than u32::MAX
             let mut old_len = self
                 .0
@@ -306,7 +307,7 @@ impl JSObject {
                     // faster to iterate
                     while old_len > length {
                         let atom = JSAtom::from_u32(ctx.rt_mut(), old_len as u32 - 1)?;
-                        let ret = self.delete_property(ctx, atom);
+                        let ret = self.delete_property_internal(ctx, atom);
                         JS_FreeAtom(ctx, atom);
                         if let Ok(false) = ret {
                             break; // property is not configurable
@@ -338,7 +339,9 @@ impl JSObject {
 
                         if let Some(idx) = prop.to_array_index(ctx.rt()) {
                             if idx >= old_len {
-                                self.delete_property(ctx, prop).unwrap();
+                                let _r = self.delete_property_internal(ctx, prop);
+                                debug_assert!(_r.is_ok());
+
                                 // WARNING: the shape may have been modified
                                 sh = self.shape().unwrap();
                             }

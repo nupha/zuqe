@@ -1,12 +1,12 @@
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
     atom::{JS_ATOM_MAX_INT, JS_FreeAtom, JSAtom},
-    context::{JSContext, is_strict_mode},
+    context::JSContext,
     object::JSObject,
     value::JSValue,
 };
 
-use super::{JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT};
+use super::JS_PROP_CONFIGURABLE;
 
 impl JSObject {
     /// delete an own property in shape or by exotic handler.
@@ -14,9 +14,10 @@ impl JSObject {
     /// Returns:
     /// - false if the property is not configurable;
     /// - true if successfully deleted.
+    /// - Err on failure. e.g. fail to prepare shape update, fail to convert fast array to sparse array etc.
     ///
     /// Note: `prop` is not consumed.
-    pub fn delete_property(&self, ctx: &JSContext, prop: JSAtom) -> Result<bool, i32> {
+    pub fn delete_property_internal(&self, ctx: &JSContext, prop: JSAtom) -> Result<bool, i32> {
         let obj_flags = self.flags();
 
         loop {
@@ -113,18 +114,11 @@ impl JSObject {
 
     /// 如果属性不可配置或无效对象则返回 false, 出现异常时返回 Err.
     /// flags 可以是 0、JS_PROP_THROW 或 JS_PROP_THROW_STRICT
-    pub fn delete_property_ex(
-        &self,
-        ctx: &JSContext,
-        prop: JSAtom,
-        flags: u32,
-    ) -> Result<bool, i32> {
-        match self.delete_property(ctx, prop) {
-            Ok(b) => Ok(b),
-            Err(_) => {
-                if flags & JS_PROP_THROW != 0
-                    || (flags & JS_PROP_THROW_STRICT != 0 && is_strict_mode(ctx))
-                {
+    pub fn delete_property(&self, ctx: &JSContext, prop: JSAtom, flags: u32) -> Result<bool, i32> {
+        match self.delete_property_internal(ctx, prop)? {
+            true => Ok(true),
+            false => {
+                if ctx.should_throw_error(flags) {
                     ctx.throw_type_error("could not delete property");
                     Err(-1)
                 } else {
@@ -134,12 +128,13 @@ impl JSObject {
         }
     }
 
-    pub fn delete_property_i64(&self, ctx: &JSContext, idx: i64) -> Result<bool, i32> {
+    pub fn delete_property_i64(&self, ctx: &JSContext, idx: i64, flags: u32) -> Result<bool, i32> {
         if (0..JS_ATOM_MAX_INT as i64).contains(&idx) {
-            self.delete_property(ctx, JSAtom::new_small_int(idx as u32))
+            // fast path for fast array
+            self.delete_property(ctx, JSAtom::new_small_int(idx as u32), flags)
         } else {
             let atom = JSAtom::from_i64(ctx.rt_mut(), idx)?;
-            let res = self.delete_property(ctx, atom);
+            let res = self.delete_property(ctx, atom, flags);
             JS_FreeAtom(ctx, atom);
             res
         }
@@ -149,19 +144,15 @@ impl JSObject {
 impl JSValue {
     /// 如果属性不可配置或无效对象则返回 false, 出现异常时返回 Err.
     /// flags 可以是 0、JS_PROP_THROW 或 JS_PROP_THROW_STRICT
+    #[inline]
     pub fn delete_property(&self, ctx: &JSContext, prop: JSAtom, flags: u32) -> Result<bool, i32> {
         self.to_object(ctx)
-            .and_then(|o| o.delete_property_ex(ctx, prop, flags))
+            .and_then(|o| o.delete_property(ctx, prop, flags))
     }
 
+    #[inline]
     pub fn delete_property_i64(&self, ctx: &JSContext, idx: i64, flags: u32) -> Result<bool, i32> {
-        if (0..JS_ATOM_MAX_INT as i64).contains(&idx) {
-            self.delete_property(ctx, JSAtom::new_small_int(idx as u32), flags)
-        } else {
-            let atom = JSAtom::from_i64(ctx.rt_mut(), idx)?;
-            let res = self.delete_property(ctx, atom, flags);
-            JS_FreeAtom(ctx, atom);
-            res
-        }
+        self.to_object(ctx)
+            .and_then(|o| o.delete_property_i64(ctx, idx, flags))
     }
 }

@@ -2117,7 +2117,7 @@ impl Bytecode {
                     }
                     OpCode::DELETE_VAR => {
                         let atom = JSAtom(PC_FETCH!(u32));
-                        match ctx.global_obj().delete_property(ctx, atom) {
+                        match ctx.global_obj().delete_property(ctx, atom, 0) {
                             Ok(ret) => {
                                 SP_PUT!(0, JSValue::Bool(ret));
                                 SP_GO!(1);

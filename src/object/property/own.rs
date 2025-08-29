@@ -314,7 +314,7 @@ impl JSObject {
                         }
                         None
                     }
-                    Err(e) => Some(if ctx.can_throw_error(flags) {
+                    Err(e) => Some(if ctx.should_throw_error(flags) {
                         Err(e)
                     } else {
                         Ok(false)
@@ -349,7 +349,7 @@ impl JSObject {
 
                                 if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0 {
                                     if let Err(e) = self.destruct_fast_array(ctx) {
-                                        return if ctx.can_throw_error(flags) {
+                                        return if ctx.should_throw_error(flags) {
                                             Err(e)
                                         } else {
                                             Ok(false)
@@ -369,7 +369,7 @@ impl JSObject {
                                             }
                                         }
                                         Err(e) => {
-                                            return if ctx.can_throw_error(flags) {
+                                            return if ctx.should_throw_error(flags) {
                                                 Err(e)
                                             } else {
                                                 Ok(false)
@@ -382,7 +382,7 @@ impl JSObject {
                                 }
                             } else {
                                 if let Err(e) = self.destruct_fast_array(ctx) {
-                                    return if ctx.can_throw_error(flags) {
+                                    return if ctx.should_throw_error(flags) {
                                         Err(e)
                                     } else {
                                         Ok(false)
@@ -395,7 +395,7 @@ impl JSObject {
                         } else if let Some(idx) = prop.to_array_index(ctx.rt()) {
                             // convert fast array to sparse array
                             if let Err(e) = self.destruct_fast_array(ctx) {
-                                return if ctx.can_throw_error(flags) {
+                                return if ctx.should_throw_error(flags) {
                                     Err(e)
                                 } else {
                                     Ok(false)
@@ -443,7 +443,7 @@ impl JSObject {
                                     flags as _,
                                 );
                                 return if r < 0 {
-                                    if ctx.can_throw_error(flags) {
+                                    if ctx.should_throw_error(flags) {
                                         Err(-1)
                                     } else {
                                         Ok(false)

@@ -246,7 +246,7 @@ impl JSObject {
             self.set_array_length(
                 ctx,
                 value.to_array_length(ctx, false)?,
-                ctx.can_throw_error(flags),
+                ctx.should_throw_error(flags),
             )
         } else if prs_flags & JS_PROP_LAZYINIT == JS_PROP_LAZYINIT {
             // lazy init replaced with normal value

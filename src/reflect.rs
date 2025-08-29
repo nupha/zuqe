@@ -10,8 +10,8 @@ use crate::{
         js_object_isExtensible, js_object_preventExtensions,
     },
     object::{
-        JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE,
-        JS_SetPrototypeInternal,
+        JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_THROW,
+        JS_PROP_WRITABLE, JS_SetPrototypeInternal,
     },
     value::JSValue,
 };
@@ -52,7 +52,7 @@ pub fn js_reflect_construct(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_reflect_deleteProperty(ctx: &JSContext, cc: CallContext) -> JSResult {
     if let JSValue::Object(obj) = cc.arg(0) {
         let atom = cc.arg(1).to_atom(ctx)?;
-        let ret = obj.delete_property(ctx, atom);
+        let ret = obj.delete_property(ctx, atom, JS_PROP_THROW);
         JS_FreeAtom(ctx, atom);
         ret.map(JSValue::Bool)
     } else {

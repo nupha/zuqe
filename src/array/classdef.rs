@@ -801,7 +801,7 @@ pub fn js_array_pop(ctx: &JSContext, cc: CallContext) -> JSResult {
             } else {
                 res = obj.get_property_i64(ctx, new_len)?;
             }
-            obj.delete_property_i64(ctx, new_len)?;
+            obj.delete_property_i64(ctx, new_len, JS_PROP_THROW)?;
         }
     }
 
@@ -1110,7 +1110,7 @@ pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
 
             while k > new_len {
                 k -= 1;
-                obj.delete_property_i64(ctx, k)?;
+                obj.delete_property_i64(ctx, k, JS_PROP_THROW)?;
             }
         }
 
@@ -1610,7 +1610,7 @@ fn copy_sub_array(
         if let Some(v) = obj.try_get_property_i64(ctx, from as _)? {
             obj.set_property_i64(ctx, to as _, v)?;
         } else {
-            obj.delete_property_i64(ctx, to as _)?;
+            obj.delete_property_i64(ctx, to as _, JS_PROP_THROW)?;
         }
     }
 
