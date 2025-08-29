@@ -1,3 +1,5 @@
+use std::ops::RangeBounds;
+
 use fallible_collections::TryCollect;
 use smallvec::SmallVec;
 
@@ -1557,82 +1559,58 @@ fn copy_sub_array(
         return Ok(());
     }
 
-    let fast_array = if obj.flags().is_fast_array() && obj.class_id() == JS_CLASS_ARRAY {
-        Some(obj)
-    } else {
-        None
-    };
+    let mut start_pos = start_pos;
+    let mut to_pos = to_pos;
+    let mut count = count;
 
-    if let Some(fa) = fast_array {
-        let destruct_to_sparse = fa
+    // let mut from_range = start_pos..start_pos + count;
+    // let mut to_range = to_pos..to_pos + count;
+
+    if obj.flags().is_fast_array() && obj.class_id() == JS_CLASS_ARRAY {
+        let done_count = obj
             .with_fast_array_values_mut(|lst| {
                 let len = lst.len();
-
-                let mut del_start: usize = usize::MAX;
-                let mut del_end: usize = 0;
-
                 for i in 0..count {
                     let (from, to) = if dir < 0 {
-                        // right to left
                         (start_pos + count - i - 1, to_pos + count - i - 1)
                     } else {
-                        // lefgt to right
                         (start_pos + i, to_pos + i)
                     };
-                    let to_in_bound = (0..len).contains(&to);
-                    let from_in_bound = (0..len).contains(&from);
 
-                    if from_in_bound && to_in_bound {
+                    if from < len && to < len {
                         lst[to] = lst[from].clone();
                     } else {
-                        // from or to index is out of range, should deleted `to`
-                        if to_in_bound {
-                            // set to JSValue::UNINITIALIZED -
-                            // a special value that instructs not to add element as property
-                            // when destructing fast array to sparce array
-                            lst[to] = JSValue::UNINITIALIZED;
-
-                            del_start = std::cmp::min(del_start, to);
-                            del_end = std::cmp::max(del_end, to);
-                        }
+                        return i;
                     }
                 }
 
-                del_start <= del_end
+                count
             })
             .unwrap();
 
-        if destruct_to_sparse {
-            // destruct fast array to sparse array.
-            // the JSValue::UNINITIALIZED element will not be added as sparse array property.
-            obj.destruct_fast_array(ctx)?;
+        if done_count == count {
+            return Ok(()); // early exit for fast path
         }
-    } else {
-        // sparse array
-        let mut ids = SmallVec::<[usize; 64]>::new();
-        obj.own_property_names_foreach(ctx, JS_GPN_INDEX_MASK | JS_GPN_ENUM_ONLY, |_, pk| {
-            if let PropertyKeyKind::ArrayIndex(i) = pk.isa {
-                ids.push(i as _);
-            }
-            Ok(())
-        })?;
 
-        ids.sort();
-        for i in ids {
-            let (from, to) = if dir < 0 {
-                (start_pos + count - i - 1, to_pos + count - i - 1)
-            } else {
-                (start_pos + i, to_pos + i)
-            };
+        // leave some parts to slow path
+        debug_assert!(done_count < count);
+        count -= done_count;
+        start_pos += done_count;
+        to_pos += done_count;
+    }
 
-            match obj.try_get_property_i64(ctx, from as i64)? {
-                Some(val) => {
-                    obj.set_property_i64(ctx, to as _, val)?;
-                }
-                None => {
-                    obj.delete_property_i64(ctx, to as _)?;
-                }
-            }
+    // slow path, may destruct fast array to sparse array
+    for i in 0..count {
+        let (from, to) = if dir < 0 {
+            (start_pos + count - i - 1, to_pos + count - i - 1)
+        } else {
+            (start_pos + i, to_pos + i)
+        };
+
+        if let Some(v) = obj.try_get_property_i64(ctx, from as _)? {
+            obj.set_property_i64(ctx, to as _, v)?;
+        } else {
+            obj.delete_property_i64(ctx, to as _)?;
         }
     }
 

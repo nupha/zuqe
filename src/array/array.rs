@@ -110,8 +110,10 @@ impl JSObject {
         self.flags().is_fast_array()
     }
 
-    /// if object `self` is fast array, convert it to sparse array.
-    /// can be called on Array or Arguments objects only.
+    /// if `self` is a fast array, convert it to sparse array,
+    /// valid elements (non UNINITIALIZED) will be added as property with integral name.
+    ///
+    /// Note: for Array or Arguments object only.
     pub(crate) fn destruct_fast_array(&self, ctx: &JSContext) -> Result<(), i32> {
         debug_assert!(matches!(
             self.class_id(),
