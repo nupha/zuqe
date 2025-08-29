@@ -8,7 +8,6 @@ use std::{
 use crate::{
     context::{JS_MODE_ASYNC, JSContext},
     error::JSResult,
-    function::BytecodeFunction,
     gc::GCObjectHeader,
     object::{GCObjectWeakref, ObjectPayload},
     runtime::{JSRuntime, js_check_stack_overflow},

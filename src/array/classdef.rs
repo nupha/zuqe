@@ -1564,37 +1564,49 @@ fn copy_sub_array(
     };
 
     if let Some(fa) = fast_array {
-        fa.with_fast_array_values_mut(|lst| {
-            let len = lst.len();
+        let destruct_to_sparse = fa
+            .with_fast_array_values_mut(|lst| {
+                let len = lst.len();
 
-            // calc actual copy count
-            let cnt1 = if start_pos + count > len {
-                if len > start_pos { len - start_pos } else { 0 }
-            } else {
-                count
-            };
-            let cnt2 = if to_pos + count > len {
-                if len > to_pos { len - to_pos } else { 0 }
-            } else {
-                count
-            };
-            let cnt = std::cmp::min(cnt1, cnt2);
+                let mut del_start: usize = usize::MAX;
+                let mut del_end: usize = 0;
 
-            if cnt > 0 {
-                if dir > 0 {
-                    for i in 0..cnt {
-                        let v1 = lst[start_pos + i].clone();
-                        lst[to_pos + i] = v1;
-                    }
-                } else {
-                    for i in (0..cnt).rev() {
-                        let v1 = lst[start_pos + i].clone();
-                        lst[to_pos + i] = v1;
+                for i in 0..count {
+                    let (from, to) = if dir < 0 {
+                        // right to left
+                        (start_pos + count - i - 1, to_pos + count - i - 1)
+                    } else {
+                        // lefgt to right
+                        (start_pos + i, to_pos + i)
+                    };
+                    let to_in_bound = (0..len).contains(&to);
+                    let from_in_bound = (0..len).contains(&from);
+
+                    if from_in_bound && to_in_bound {
+                        lst[to] = lst[from].clone();
+                    } else {
+                        // from or to index is out of range, should deleted `to`
+                        if to_in_bound {
+                            // set to JSValue::UNINITIALIZED -
+                            // a special value that instructs not to add element as property
+                            // when destructing fast array to sparce array
+                            lst[to] = JSValue::UNINITIALIZED;
+
+                            del_start = std::cmp::min(del_start, to);
+                            del_end = std::cmp::max(del_end, to);
+                        }
                     }
                 }
-            }
-        })
-        .unwrap();
+
+                del_start <= del_end
+            })
+            .unwrap();
+
+        if destruct_to_sparse {
+            // destruct fast array to sparse array.
+            // the JSValue::UNINITIALIZED element will not be added as sparse array property.
+            obj.destruct_fast_array(ctx)?;
+        }
     } else {
         // sparse array
         let mut ids = SmallVec::<[usize; 64]>::new();

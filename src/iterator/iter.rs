@@ -410,47 +410,6 @@ impl JSValue {
             ctx.throw_type_error("value is not iterable");
             -1
         })
-
-        // /// old code
-        // let method = if is_async {
-        //     let m = self.get_property(ctx, JS_ATOM_Symbol_asyncIterator)?;
-        //     if m.is_undefined_or_null() {
-        //         // try calling [Symbol.iterator] method to get iterator,
-        //         // then wrap sync iterator as async iterator.
-        //         let it: JSObject = self
-        //             .get_property(ctx, JS_ATOM_Symbol_iterator)?
-        //             .call(ctx, self, &[])?
-        //             .try_into()
-        //             .inspect_err(|_| {
-        //                 ctx.throw_type_error_not_an_object();
-        //             })?;
-
-        //         let next_method = it.get_property(ctx, JS_ATOM_next)?;
-
-        //         return ctx
-        //             .create_object(ObjectPayload::ASYNC_FROM_SYNC_ITERATOR(
-        //                 JSAsyncFromSyncIteratorData {
-        //                     obj: it,
-        //                     next_method,
-        //                 },
-        //             ))
-        //             .map_err(|_| -1);
-        //     } else {
-        //         m
-        //     }
-        // } else {
-        //     self.get_property(ctx, JS_ATOM_Symbol_iterator)?
-        // };
-
-        // if method.is_callable() {
-        //     let ret = method.call(ctx, self, &[])?;
-        //     TryInto::<JSObject>::try_into(ret).inspect_err(|_| {
-        //         ctx.throw_type_error_not_an_object();
-        //     })
-        // } else {
-        //     ctx.throw_type_error("value is not iterable");
-        //     Err(-1)
-        // }
     }
 
     /// Return an instance that implements `Iterator` trait, which can be used to iterate JSValue.

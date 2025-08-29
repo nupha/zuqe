@@ -6,8 +6,7 @@ use crate::{
     context::JSContext,
     number::MAX_SAFE_INTEGER,
     object::{
-        JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE,
-        JSObject, JSProperty, ObjectPayload,
+        JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, JSObject, JSProperty, ObjectPayload,
     },
     object_cast,
     proxy::js_proxy_isArray,
@@ -122,7 +121,7 @@ impl JSObject {
         if self.is_fast_array() {
             self.shape_prepare_update(ctx)?;
 
-            // clear dense array list, take values out
+            // take array list out
             let items = self
                 .with_fast_array_values_mut(|lst| std::mem::replace(lst, Vec::new()))
                 .unwrap();
@@ -130,12 +129,16 @@ impl JSObject {
             for (i, v) in items.into_iter().enumerate() {
                 // add_property cannot fail here
                 // but __JS_AtomFromUInt32(i) fails for i > i32::MAX
-                self.add_own_property(
-                    ctx,
-                    JSAtom::new_small_int(i as _), // int as property name
-                    JS_PROP_C_W_E,
-                    JSProperty::Normal(v),
-                )?;
+                //
+                // Note: special JSValue::UNINITIALIZED is used to indicate not adding this as property
+                if !v.is_uninitialized() {
+                    self.add_own_property(
+                        ctx,
+                        JSAtom::new_small_int(i as _),
+                        JS_PROP_C_W_E,
+                        JSProperty::Normal(v),
+                    )?;
+                }
             }
 
             unsafe {
