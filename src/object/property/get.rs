@@ -1,8 +1,8 @@
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
-    JS_CLASS_INT32_ARRAY, JS_CLASS_STRING, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY,
-    JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
+    JS_CLASS_INT32_ARRAY, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY,
+    JS_CLASS_UINT32_ARRAY,
     atom::{JS_ATOM_MAX_INT, JS_AtomIsNumericIndex, JS_FreeAtom, JSAtom, consts::*},
     context::JSContext,
     error::{JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized, JSResult},
@@ -311,13 +311,10 @@ impl JSValue {
                     // string length
                     Ok(JSValue::from(s.buf_len() as u32))
                 } else if let Some(idx) = prop.to_small_int() {
+                    // code point at idx
                     if let Some(code) = s.content().get(idx as usize) {
-                        ctx.create_string_with_buf(if code < 0x80 {
-                            StringBuf::Ascii(vec![code as u8])
-                        } else {
-                            StringBuf::Utf16(vec![code])
-                        })
-                        .map(JSValue::String)
+                        ctx.create_string_from_char(code.into())
+                            .map(JSValue::String)
                     } else {
                         Ok(JSValue::UNDEFINED)
                     }

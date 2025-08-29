@@ -81,12 +81,8 @@ pub fn js_string_at(ctx: &JSContext, cc: CallContext) -> JSResult {
             Ok(JSValue::Int(code as i32))
         } else {
             // charAt(), at() returns string
-            ctx.create_string_with_buf(if (0..=255).contains(&code) {
-                StringBuf::Ascii(vec![code as u8])
-            } else {
-                StringBuf::Utf16(vec![code])
-            })
-            .map(JSValue::String)
+            ctx.create_string_from_char(code.into())
+                .map(JSValue::String)
         }
     }
 }
@@ -991,16 +987,7 @@ pub fn js_string_iterator_next(
         if let Some((next_idx, c)) = ss.content().iter_since(it.idx as usize).next() {
             it.idx = next_idx as u32;
             *state = IteratorState::NotDone;
-
-            match c {
-                StringChar::Char(_) => ctx.create_string_from_char(c),
-                StringChar::Code(c) => ctx.create_string_with_buf(if (0..=255).contains(&c) {
-                    StringBuf::Ascii(vec![c as u8])
-                } else {
-                    StringBuf::Utf16(vec![c])
-                }),
-            }
-            .map(JSValue::String)
+            ctx.create_string_from_char(c).map(JSValue::String)
         } else {
             it.obj = JSValue::UNDEFINED;
             *state = IteratorState::Done;

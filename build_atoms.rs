@@ -1,6 +1,6 @@
 use std::path::Path;
 
-static ATOM_DEFS: &[&str] = &[
+static ATOM_DESCR_DEFS: &[&str] = &[
     "null",
     "false",
     "true",
@@ -240,7 +240,7 @@ static ATOM_DEFS: &[&str] = &[
 ];
 
 pub fn gen_atoms(outfile: &Path) {
-    let text = ATOM_DEFS
+    let mut text = ATOM_DESCR_DEFS
         .iter()
         .map(|t| match *t {
             "empty_string" => "".to_string(),
@@ -251,15 +251,9 @@ pub fn gen_atoms(outfile: &Path) {
         })
         .collect::<Vec<_>>();
 
-    let full_cstr_buf = text.iter().map(|t| format!("{t}\\0")).collect::<String>();
-
     let mut output = Vec::<String>::with_capacity(1024);
 
-    output.push(format!(
-        "pub const JS_DEFAULT_ATOMS_TEXT: &[u8] = b\"{full_cstr_buf}\";"
-    ));
-
-    for (i, txt) in ATOM_DEFS.iter().enumerate() {
+    for (i, txt) in ATOM_DESCR_DEFS.iter().enumerate() {
         let label = if txt.len() > 2 && txt.starts_with("<") && txt.ends_with(">") {
             format!("_{}_", &txt[1..txt.len() - 1])
         } else if txt.len() > 2 && txt.starts_with("*") && txt.ends_with("*") {
@@ -279,20 +273,22 @@ pub fn gen_atoms(outfile: &Path) {
         ))
     }
 
+    assert_eq!(text.len(), ATOM_DESCR_DEFS.len());
+
     output.push("".into());
 
     output.push(format!(
         "/// count of builtin const atoms\npub const JS_ATOM_INIT_COUNT:u32={};",
-        ATOM_DEFS.len() + 1
+        ATOM_DESCR_DEFS.len() + 1
     ));
 
     output.push(format!(
         "/// the first builtin const atom\npub const JS_ATOM_FIRST: JSAtom = JS_ATOM_{};",
-        ATOM_DEFS.first().unwrap()
+        ATOM_DESCR_DEFS.first().unwrap()
     ));
     output.push(format!(
         "/// the last builtin const atom\npub const JS_ATOM_LAST: JSAtom = JS_ATOM_{};",
-        ATOM_DEFS.last().unwrap()
+        ATOM_DESCR_DEFS.last().unwrap()
     ));
 
     output.push("pub const JS_ATOM_LAST_KEYWORD: JSAtom = JS_ATOM_super;".into());
@@ -302,12 +298,42 @@ pub fn gen_atoms(outfile: &Path) {
     // Symbol_XXX
     output.push(format!(
         "/// the first builtin const Symbol_XXX atom\npub const JS_ATOM_FIRST_SYMBOL: JSAtom = JS_ATOM_{};",
-        ATOM_DEFS.iter().find(|x|x.starts_with("Symbol_")).unwrap()
+        ATOM_DESCR_DEFS.iter().find(|x|x.starts_with("Symbol_")).unwrap()
     ));
     output.push(format!(
         "/// the last builtin const Symbol_XXX atom\npub const JS_ATOM_LAST_SYMBOL: JSAtom = JS_ATOM_{};",
-        ATOM_DEFS.iter().rev().find(|x|x.starts_with("Symbol_")).unwrap()
+        ATOM_DESCR_DEFS.iter().rev().find(|x|x.starts_with("Symbol_")).unwrap()
+    ));
+
+    // generate atoms for commonly used ascii char.
+    // and make ascii char to atoms LUT
+    let mut atom_id = text.len() as u32;
+    output.push(format!(
+        "/// atom lut for ascii char 0-0x79\npub const JS_ATOM_ASCII_LUT: [JSAtom;{}] = [",
+        0x80
+    ));
+    for c in 0..0x80 {
+        text.push(format!("\\x{c:02x}"));
+        output.push(format!("JSAtom({atom_id}), // {c}"));
+        atom_id += 1;
+    }
+    output.push("];".into());
+
+    // full atom text data
+    let full_cstr_buf = text.iter().map(|t| format!("{t}\\0")).collect::<String>();
+    output.push(format!(
+        "\n\npub const JS_DEFAULT_ATOMS_TEXT: &[u8] = b\"{full_cstr_buf}\";"
     ));
 
     std::fs::write(outfile, output.join("\n")).unwrap();
+
+    let o = std::process::Command::new("rustfmt")
+        .arg("--")
+        .arg(outfile)
+        .output()
+        .expect("Failed to execute rustfmt");
+    if !o.status.success() {
+        eprintln!("rustfmt failed: {}", String::from_utf8_lossy(&o.stderr));
+        std::process::exit(1);
+    }
 }

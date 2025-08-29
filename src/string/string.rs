@@ -420,9 +420,14 @@ impl JSContext {
             self.throw_internal_error("string too long");
             Err(-1)
         } else {
-            JSString::from_utf8(self.rt_mut(), utf8_bytes).inspect_err(|_| {
-                self.throw_out_of_memory();
-            })
+            if utf8_bytes.len() == 1 && utf8_bytes[0] < 0x80 {
+                // ascii char
+                JS_ATOM_ASCII_LUT[utf8_bytes[0] as usize].to_string(self)
+            } else {
+                JSString::from_utf8(self.rt_mut(), utf8_bytes).inspect_err(|_| {
+                    self.throw_out_of_memory();
+                })
+            }
         }
     }
 
@@ -434,9 +439,14 @@ impl JSContext {
             self.throw_internal_error("string too long");
             Err(-1)
         } else {
-            JSString::from_str(self.rt_mut(), str).inspect_err(|_| {
-                self.throw_out_of_memory();
-            })
+            if str.len() == 1 && str.as_bytes()[0] < 0x80 {
+                // ascii char
+                JS_ATOM_ASCII_LUT[str.as_bytes()[0] as usize].to_string(self)
+            } else {
+                JSString::from_str(self.rt_mut(), str).inspect_err(|_| {
+                    self.throw_out_of_memory();
+                })
+            }
         }
     }
 
@@ -445,7 +455,7 @@ impl JSContext {
         let buf = match ch {
             StringChar::Char(ch) => {
                 if ch.is_ascii() {
-                    StringBuf::Ascii(vec![ch as u8])
+                    return JS_ATOM_ASCII_LUT[ch as usize].to_string(self);
                 } else {
                     StringBuf::Utf16(ch.encode_utf16(&mut [0; 2]).to_vec())
                 }
@@ -800,13 +810,7 @@ pub static js_string_exotic_methods: JSClassExoticMethods = JSClassExoticMethods
                 let code = s.content().get(idx as usize).unwrap();
                 return Ok(Some(JSPropertyDescriptor {
                     flags: JS_PROP_ENUMERABLE as _,
-                    value: ctx
-                        .create_string_with_buf(if code < 0x80 {
-                            StringBuf::Ascii(vec![code as u8])
-                        } else {
-                            StringBuf::Utf16(vec![code])
-                        })?
-                        .into(),
+                    value: ctx.create_string_from_char(code.into())?.into(),
                     getter: JSValue::UNDEFINED,
                     setter: JSValue::UNDEFINED,
                 }));
