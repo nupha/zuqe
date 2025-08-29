@@ -9,15 +9,21 @@ use crate::{
 use super::JS_PROP_CONFIGURABLE;
 
 impl JSObject {
-    /// delete an own property in shape or by exotic handler.
+    /// Delete an own property.
+    ///
+    /// The property is in shape, or delete via exotic/fast-array handler.
     ///
     /// Returns:
-    /// - false if the property is not configurable;
-    /// - true if successfully deleted.
-    /// - Err on failure. e.g. fail to prepare shape update, fail to convert fast array to sparse array etc.
+    /// - Ok(false) if property is not configurable;
+    /// - Ok(true) if successfully deleted.
+    /// - Err() on failure. e.g. fail to prepare shape update, fail to convert fast array to sparse array etc.
     ///
     /// Note: `prop` is not consumed.
-    pub fn delete_property_internal(&self, ctx: &JSContext, prop: JSAtom) -> Result<bool, i32> {
+    pub(crate) fn delete_property_internal(
+        &self,
+        ctx: &JSContext,
+        prop: JSAtom,
+    ) -> Result<bool, i32> {
         let obj_flags = self.flags();
 
         loop {
