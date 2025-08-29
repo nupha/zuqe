@@ -63,19 +63,17 @@ fn js_string_codePointRange(ctx: &JSContext, cc: CallContext) -> JSResult {
         n += end - std::cmp::max(start, 0x10000);
     }
 
-    let mut cc = StringBuf::with_capacity(n as _, end >= 0x100).map_err(|_| {
-        ctx.throw_out_of_memory();
-        -1
-    })?;
+    let mut cc = Vec::<u8>::with_capacity(n as usize);
 
     for i in start..end {
-        cc.push_char(char::from_u32(i).unwrap()).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
+        cc.extend_from_slice(
+            char::from_u32(i)
+                .unwrap()
+                .encode_utf8(&mut [0u8; 4])
+                .as_bytes(),
+        );
     }
-
-    ctx.create_string_with_buf(cc).map(JSValue::String)
+    ctx.create_string_from_utf8(cc).map(JSValue::String)
 }
 
 fn js_createRealm(ctx: &JSContext, _: CallContext) -> JSResult {

@@ -199,7 +199,7 @@ impl std::fmt::Debug for JSString {
 
 impl JSString {
     /// create JSString with string content
-    pub fn new(rt: &mut JSRuntime, content: StringContent) -> Self {
+    pub(crate) fn new(rt: &mut JSRuntime, content: StringContent) -> Self {
         let inner = JSStringInner {
             header: GCObjectHeader::new(rt, 1),
             hash_and_type: Cell::new(0),
@@ -225,7 +225,7 @@ impl JSString {
     /// # Returns
     /// * `Ok(Box<JSStringInner>)` - Newly created string
     /// * `Err(-1)` - Memory allocation or UTF-8 validation failed
-    pub fn from_str(rt: &mut JSRuntime, s: &str) -> Result<Self, i32> {
+    pub(crate) fn from_str(rt: &mut JSRuntime, s: &str) -> Result<Self, i32> {
         Ok(Self::new(rt, Rc::new(StringBuf::from_str(s)?)))
     }
 
@@ -242,7 +242,7 @@ impl JSString {
     /// # Returns
     /// * `Ok(Box<JSStringInner>)` - Newly created string
     /// * `Err(-1)` - Memory allocation or UTF-8 validation failed
-    pub fn from_utf8(rt: &mut JSRuntime, bytes: Vec<u8>) -> Result<Self, i32> {
+    pub(crate) fn from_utf8(rt: &mut JSRuntime, bytes: Vec<u8>) -> Result<Self, i32> {
         Ok(Self::new(
             rt,
             Rc::new(StringBuf::from_utf8(bytes).map_err(|_| -1)?),
@@ -395,7 +395,7 @@ impl JSStringWeakref {
 
 impl JSContext {
     /// create string value from string buf.
-    pub fn create_string_with_buf(&self, sbuf: StringBuf) -> Result<JSString, i32> {
+    pub(crate) fn create_string_with_buf(&self, sbuf: StringBuf) -> Result<JSString, i32> {
         if sbuf.is_empty() {
             JS_ATOM_empty_string.to_string(self)
         } else {
@@ -404,7 +404,10 @@ impl JSContext {
     }
 
     /// create string value from string content.
-    pub fn create_string_with_content(&self, content: StringContent) -> Result<JSString, i32> {
+    pub(crate) fn create_string_with_content(
+        &self,
+        content: StringContent,
+    ) -> Result<JSString, i32> {
         if content.is_empty() {
             JS_ATOM_empty_string.to_string(self)
         } else {
