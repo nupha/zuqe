@@ -204,9 +204,8 @@ impl JSObject {
                             }
                             JS_PROP_GETSET => {
                                 // use setter
-                                if let JSProperty::GetSet { setter, .. } =
-                                    proto.0.prop_values.borrow()[idx].clone()
-                                {
+                                let gs = proto.0.prop_values.borrow()[idx].clone(); // avoid borrow conflict
+                                if let JSProperty::GetSet { setter, .. } = gs {
                                     return call_setter(
                                         ctx,
                                         setter.as_ref(),

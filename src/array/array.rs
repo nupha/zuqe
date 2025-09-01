@@ -5,7 +5,10 @@ use smallvec::SmallVec;
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_PROXY,
-    atom::{JS_FreeAtom, JSAtom, consts::JS_ATOM_length},
+    atom::{
+        JS_FreeAtom, JSAtom,
+        consts::{JS_ATOM_empty_string, JS_ATOM_length},
+    },
     context::JSContext,
     number::MAX_SAFE_INTEGER,
     object::{
@@ -81,108 +84,80 @@ impl Array {
         Ok(())
     }
 
-    fn sort_values_default(values: &mut [(JSValue, StringContent)]) {
-        values.sort_by(|a, b| {
-            match (&a.0, &b.0) {
-                // undefined is always the greatest
-                (JSValue::UNDEFINED, JSValue::UNDEFINED) => std::cmp::Ordering::Equal,
-                (JSValue::UNDEFINED, _) => std::cmp::Ordering::Less,
-                (_, JSValue::UNDEFINED) => std::cmp::Ordering::Greater,
-                _ => {
-                    // compare by string
-                    a.1.as_ref().cmp(b.1.as_ref())
-                }
-            }
-        });
-    }
-
-    fn sort_values_by(ctx: &JSContext, values: &mut [JSValue], cmpfn: &JSValue) -> Result<(), i32> {
-        let mut has_err = false;
-
-        values.sort_by(|a, b| {
-            if !has_err {
-                match cmpfn.call(ctx, &JSValue::UNDEFINED, &[a.clone(), b.clone()]) {
-                    Ok(r) => match r {
-                        JSValue::Int(n) => {
-                            if n == 0 {
-                                std::cmp::Ordering::Equal
-                            } else if n < 0 {
-                                std::cmp::Ordering::Greater // a < b 
-                            } else {
-                                std::cmp::Ordering::Less // a > b
-                            }
-                        }
-                        r => {
-                            if let Ok(f) = r.to_f64(ctx) {
-                                if f == 0.0 {
-                                    std::cmp::Ordering::Equal
-                                } else if f < 0.0 {
-                                    std::cmp::Ordering::Greater // a < b
-                                } else {
-                                    std::cmp::Ordering::Less // a > b
-                                }
-                            } else {
-                                has_err = true;
-                                std::cmp::Ordering::Equal
-                            }
-                        }
-                    },
-                    Err(_) => {
-                        has_err = true;
-                        std::cmp::Ordering::Equal
-                    }
-                }
-            } else {
-                std::cmp::Ordering::Equal
-            }
-        });
-
-        if has_err { Err(-1) } else { Ok(()) }
-    }
-
     /// sort array-like object `obj`.
     pub fn sort(ctx: &JSContext, obj: &JSObject, cmp: Option<&JSValue>) -> Result<(), i32> {
         if let Some(f) = cmp {
             f.ensure_callable(ctx)?;
         }
 
-        let len = obj.get_length_prop(ctx)?;
-        if len == 0 {
+        let arr_len = obj.get_length_prop(ctx)?;
+        if arr_len <= 1 {
             return Ok(());
         }
 
+        //
         // fast path
+        //
         if let Some(fa) = obj
             .with_fast_array_values_mut(|lst| {
-                if lst.len() == len as usize {
+                if lst.len() == arr_len as usize {
                     if let Some(cmp) = cmp {
-                        Some(Self::sort_values_by(ctx, lst, cmp))
+                        let mut slots = Vec::<JSValue>::new();
+                        if let Err(e) = slots.try_reserve_exact(arr_len as usize).map_err(|_| {
+                            ctx.throw_out_of_memory();
+                            -1
+                        }) {
+                            return Some(Err(e));
+                        }
+                        slots.extend(lst.iter().filter(|x| !x.is_undefined()).cloned());
+
+                        if sort_values_by(ctx, &mut slots, cmp).is_err() {
+                            return Some(Err(-1));
+                        }
+
+                        let slots_len = slots.len();
+                        for (i, v) in slots.into_iter().enumerate() {
+                            lst[i] = v;
+                        }
+                        for i in slots_len..lst.len() {
+                            lst[i] = JSValue::UNDEFINED;
+                        }
+
+                        Some(Ok(()))
                     } else {
                         let mut slots = Vec::<(JSValue, StringContent)>::new();
-                        if let Err(e) = slots.try_reserve_exact(len as usize).map_err(|_| {
+                        if let Err(e) = slots.try_reserve_exact(arr_len as usize).map_err(|_| {
                             ctx.throw_out_of_memory();
                             -1
                         }) {
                             return Some(Err(e));
                         }
 
-                        for v in lst.as_mut_slice() {
+                        for v in lst.iter().filter(|v| !v.is_undefined()) {
                             let v = v.clone();
-                            let Ok(s) = v.to_string(ctx) else {
+                            if let Ok(s) = v.to_string(ctx) {
+                                slots.push((v, s.content().clone()));
+                            } else {
                                 return Some(Err(-1));
-                            };
-                            slots.push((v, s.content().clone()));
+                            }
                         }
-                        Self::sort_values_default(&mut slots);
+
+                        sort_values_default(&mut slots);
+
+                        let slots_len = slots.len();
                         for (i, (v, _)) in slots.into_iter().enumerate() {
                             lst[i] = v;
                         }
+                        for i in slots_len..lst.len() {
+                            lst[i] = JSValue::UNDEFINED;
+                        }
+
                         Some(Ok(()))
                     }
                 } else {
                     // must be an empty list with pre-defined length.
                     // for example, created by `Array(10)`
-                    debug_assert!(lst.is_empty(), "{lst:?}, len={len}");
+                    debug_assert!(lst.is_empty(), "{lst:?}, len={arr_len}");
                     None
                 }
             })
@@ -191,77 +166,133 @@ impl Array {
             return fa; // early exit for fast array
         }
 
+        //
         // slow path: `obj` is sparse array.
-        // collect values to a slot array, sort the slot, then set values back to obj.
+        //
+        let mut undefined_count = 0;
+        let mut first_missing: Option<usize> = None;
+
         if let Some(cmp) = cmp {
             let mut slots = Vec::<JSValue>::new();
-            slots.try_reserve_exact(len as usize).map_err(|_| {
+            slots.try_reserve_exact(arr_len as usize).map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1
             })?;
-            for i in 0..len {
-                slots.push(
-                    obj.try_get_property_i64(ctx, i)?
-                        .unwrap_or(JSValue::UNDEFINED),
-                );
-            }
-            Array::sort_values_by(ctx, slots.as_mut_slice(), cmp)?;
-            if matches!(obj.0.class_id(), JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS) {
-                // is sparse Array or Argument
-                Self::set_elements(ctx, obj, slots)?;
-            } else {
-                for (i, v) in slots.into_iter().enumerate() {
-                    obj.set_property_u32(ctx, i as u32, v)?;
+            for i in 0..arr_len {
+                if let Some(v) = obj.try_get_property_i64(ctx, i)? {
+                    if v.is_undefined() {
+                        undefined_count += 1;
+                    } else {
+                        slots.push(v);
+                    }
+                } else if first_missing.is_none() {
+                    first_missing.replace(i as usize);
                 }
+            }
+
+            sort_values_by(ctx, slots.as_mut_slice(), cmp)?;
+
+            let slots_len = slots.len() as i64;
+            for (i, v) in slots.into_iter().enumerate() {
+                obj.set_property_u32(ctx, i as u32, v)?;
+            }
+            if undefined_count > 0 {
+                for i in slots_len..(slots_len + undefined_count) {
+                    obj.set_property_u32(ctx, i as u32, JSValue::UNDEFINED)?;
+                }
+            }
+            for i in (slots_len + undefined_count) as i64..arr_len {
+                obj.delete_property_i64(ctx, i, JS_PROP_THROW)?;
             }
         } else {
             let mut slots = Vec::<(JSValue, StringContent)>::with_capacity(16);
-            slots.try_reserve_exact(len as usize).map_err(|_| {
+            slots.try_reserve_exact(arr_len as usize).map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1
             })?;
 
-            let mut undefined_count = 0;
-            for i in 0..len {
+            for i in 0..arr_len {
                 if let Some(v) = obj.try_get_property_i64(ctx, i)? {
-                    let s = v.to_string(ctx)?;
-                    slots.push((v, s.content().clone()));
-                } else {
-                    undefined_count += 1;
+                    if v.is_undefined() {
+                        undefined_count += 1;
+                    } else {
+                        let s = v.to_string(ctx)?;
+                        slots.push((v, s.content().clone()));
+                    }
+                } else if first_missing.is_none() {
+                    first_missing.replace(i as usize);
                 }
             }
 
-            Array::sort_values_default(slots.as_mut_slice());
+            sort_values_default(slots.as_mut_slice());
 
-            if matches!(obj.0.class_id(), JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS) {
-                // is sparse Array or Argument
-                let mut lst = Vec::<JSValue>::new();
-                lst.try_reserve_exact(slots.len() + undefined_count)
-                    .map_err(|_| {
-                        ctx.throw_out_of_memory();
-                        -1
-                    })?;
-                lst.extend(slots.into_iter().map(|(v, _)| v));
-                if undefined_count > 0 {
-                    lst.extend(std::iter::repeat_n(JSValue::UNDEFINED, undefined_count));
+            let slots_len = slots.len() as i64;
+            for (i, (v, _)) in slots.into_iter().enumerate() {
+                obj.set_property_u32(ctx, i as u32, v)?;
+            }
+            if undefined_count > 0 {
+                for i in slots_len..(slots_len + undefined_count) {
+                    obj.set_property_u32(ctx, i as u32, JSValue::UNDEFINED)?;
                 }
-                Self::set_elements(ctx, obj, lst)?;
-            } else {
-                // set index property
-                let undefined_base = slots.len();
-                for (i, (v, _)) in slots.into_iter().enumerate() {
-                    obj.set_property_u32(ctx, i as u32, v)?;
-                }
-                if undefined_count > 0 {
-                    for i in undefined_base..(undefined_base + undefined_count) {
-                        obj.set_property_u32(ctx, i as u32, JSValue::UNDEFINED)?;
-                    }
-                }
+            }
+            for i in (slots_len + undefined_count) as i64..arr_len {
+                obj.delete_property_i64(ctx, i, JS_PROP_THROW)?;
             }
         }
 
         Ok(())
     }
+}
+
+fn sort_values_default(values: &mut [(JSValue, StringContent)]) {
+    values.sort_by(|a, b| {
+        // compare by string
+        a.1.as_ref().cmp(b.1.as_ref())
+    });
+}
+
+fn sort_values_by(ctx: &JSContext, values: &mut [JSValue], cmpfn: &JSValue) -> Result<(), i32> {
+    let mut has_err = false;
+
+    values.sort_by(|a, b| {
+        if !has_err {
+            match cmpfn.call(ctx, &JSValue::UNDEFINED, &[a.clone(), b.clone()]) {
+                Ok(r) => match r {
+                    JSValue::Int(n) => {
+                        if n == 0 {
+                            std::cmp::Ordering::Equal
+                        } else if n > 0 {
+                            std::cmp::Ordering::Greater
+                        } else {
+                            std::cmp::Ordering::Less
+                        }
+                    }
+                    r => {
+                        if let Ok(f) = r.to_f64(ctx) {
+                            if f == 0.0 {
+                                std::cmp::Ordering::Equal
+                            } else if f > 0.0 {
+                                std::cmp::Ordering::Greater
+                            } else {
+                                std::cmp::Ordering::Less
+                            }
+                        } else {
+                            has_err = true;
+                            std::cmp::Ordering::Equal
+                        }
+                    }
+                },
+                Err(_) => {
+                    has_err = true;
+                    std::cmp::Ordering::Equal
+                }
+            }
+        } else {
+            std::cmp::Ordering::Equal
+        }
+    });
+
+    if has_err { Err(-1) } else { Ok(()) }
 }
 
 impl JSContext {
