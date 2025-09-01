@@ -305,20 +305,6 @@ pub fn gen_atoms(outfile: &Path) {
         ATOM_DESCR_DEFS.iter().rev().find(|x|x.starts_with("Symbol_")).unwrap()
     ));
 
-    // generate atoms for commonly used ascii char.
-    // and make ascii char to atoms LUT
-    let mut atom_id = text.len() as u32;
-    output.push(format!(
-        "/// atom lut for ascii char 0-0x79\npub const JS_ATOM_ASCII_LUT: [JSAtom;{}] = [",
-        0x80
-    ));
-    for c in 0..0x80 {
-        text.push(format!("\\x{c:02x}"));
-        output.push(format!("JSAtom({atom_id}), // {c}"));
-        atom_id += 1;
-    }
-    output.push("];".into());
-
     // full atom text data
     let full_cstr_buf = text.iter().map(|t| format!("{t}\\0")).collect::<String>();
     output.push(format!(
