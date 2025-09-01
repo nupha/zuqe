@@ -9,7 +9,7 @@ use crate::{
     number::{MAX_SAFE_INTEGER, SAFE_INTEGER_RANGE},
     object::{
         JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_WRITABLE, JS_PROP_LAZYINIT,
-        JS_PROP_NORMAL, JS_PROP_THROW_STRICT, JS_PROP_TMASK, JSObject, JSProperty,
+        JS_PROP_LENGTH, JS_PROP_NORMAL, JS_PROP_THROW_STRICT, JS_PROP_TMASK, JSObject, JSProperty,
     },
     typed_array::{
         Float32Array, Float64Array, Int8Array, Int16Array, Int32Array, TypedArray, Uint8Array,
@@ -188,7 +188,14 @@ impl JSObject {
                     // find in shape property
                     if let Some((idx, prs_flags)) = proto.find_shape_property(prop) {
                         match prs_flags & JS_PROP_TMASK {
-                            JS_PROP_NORMAL | JS_PROP_LAZYINIT => {
+                            JS_PROP_NORMAL => {
+                                if proto.eq(this) {
+                                    // should update own property of `this`
+                                    update_own = Some((idx, prs_flags));
+                                    break;
+                                }
+                            }
+                            JS_PROP_LAZYINIT => {
                                 if proto.eq(this) {
                                     // should update own property of `this`
                                     update_own = Some((idx, prs_flags));

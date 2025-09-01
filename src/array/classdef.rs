@@ -1483,8 +1483,6 @@ fn js_array_from(ctx: &JSContext, cc: CallContext) -> JSResult {
         let it = ObjectIter::new(ctx, iter, JS_ATOM_next)?;
 
         for el in it {
-            println!("[O.o] #{k}: {el:?}");
-
             let mut val = el?;
             if mapping {
                 val = mapfn.call(ctx, this_arg, &[val, JSValue::Int(k as i32)])?;

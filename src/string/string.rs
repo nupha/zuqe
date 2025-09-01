@@ -335,12 +335,7 @@ impl JSString {
             .create_object_apply_ctor(ctor, ObjectPayload::STRING(self.clone()))
             .map_err(|_| -1)?;
 
-        o.define_property_value(
-            ctx,
-            JS_ATOM_length,
-            JSValue::from(len as u32),
-            JS_PROP_C_W_E,
-        )?;
+        o.define_property_value(ctx, JS_ATOM_length, JSValue::from(len as u32), 0)?;
         Ok(o.into())
     }
 
