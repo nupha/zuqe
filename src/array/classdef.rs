@@ -7,10 +7,10 @@ use crate::{
     JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_CLASS_ARRAY, JS_NATIVE_ITERATOR_NEXT_DEF,
     JS_PROP_STRING_DEF,
     atom::consts::{
-        JS_ATOM_Symbol_isConcatSpreadable, JS_ATOM_Symbol_species, JS_ATOM_constructor,
-        JS_ATOM_join, JS_ATOM_length, JS_ATOM_next, JS_ATOM_set,
+        JS_ATOM_Symbol_isConcatSpreadable, JS_ATOM_Symbol_iterator, JS_ATOM_Symbol_species,
+        JS_ATOM_constructor, JS_ATOM_join, JS_ATOM_length, JS_ATOM_next, JS_ATOM_set,
     },
-    bytecode::arithmatic::JSStrictEqModeEnum,
+    bytecode::{arithmatic::JSStrictEqModeEnum, js_for_of_start},
     context::JSContext,
     error::JSResult,
     function::{CallContext, FieldDef, JS_CallConstructor, JS_GetFunctionRealm},
@@ -1470,15 +1470,17 @@ fn js_array_from(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let mut k: i64 = 0;
 
-    let res: JSValue = if let Some(it_obj) = items.get_iterator(ctx, false)? {
-        // `items` is iterable
-        let it = ObjectIter::new(ctx, it_obj, JS_ATOM_next)?;
-
+    let it = items.get_property(ctx, JS_ATOM_Symbol_iterator)?;
+    let res: JSValue = if !it.is_undefined() {
+        // `items` has [Symbo.iterator] method
         let arr = if cc.this().is_constructor() {
             JS_CallConstructor(ctx, cc.this(), &[]).err()?
         } else {
             ctx.create_array()?.into()
         };
+
+        let iter = items.get_iterator_must(ctx, false)?;
+        let it = ObjectIter::new(ctx, iter.clone().try_into().unwrap(), JS_ATOM_next)?;
 
         for el in it {
             let mut val = el?;

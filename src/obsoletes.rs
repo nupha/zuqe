@@ -3680,7 +3680,7 @@ pub unsafe fn code_has_label(s: *mut std::ffi::c_void, mut pos: usize, label: u3
     unreachable!("unused")
 }
 
-#[deprecated(note = "use JSObject::call_iterator_method() instead")]
+#[deprecated(note = "use ObjectIter iterator")]
 pub fn JS_GetIterator2(ctx: &JSContext, obj: &JSValueConst, method: &JSValueConst) -> JSValue {
     let enum_obj = JS_Call(ctx, method, obj, &[]);
     if enum_obj.is_exception() {
@@ -3695,7 +3695,7 @@ pub fn JS_GetIterator2(ctx: &JSContext, obj: &JSValueConst, method: &JSValueCons
     return enum_obj;
 }
 
-#[deprecated(note = "use JSObject::iterator() instead")]
+#[deprecated(note = "use JSObject::get_iterator_must() instead")]
 pub fn JS_GetIterator(ctx: &JSContext, obj: &JSValueConst, is_async: bool) -> JSValue {
     unreachable!("unused");
     // let iter = if is_async {

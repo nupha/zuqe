@@ -42,9 +42,9 @@ pub const JS_STRING_LEN_MAX: usize = (1 << 30) - 1;
 pub struct JSStringInner {
     header: GCObjectHeader,
 
-    // Hash value
+    /// when registered as atom, this is hash value for atom.
+    /// 0 if string is not registered as atom.
     hash_and_type: Cell<u32>,
-
     /// atom info of string, None if not registered as atom.
     atom_type: Cell<Option<AtomHintAndId>>,
 

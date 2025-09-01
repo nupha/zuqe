@@ -512,7 +512,9 @@ pub fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
 /// Get enumerate object and next method of sp[-1] object.
 /// Note: new values are updated to sp[-1], sp[0], old value in sp[-1] is consumed.
 /// if fail, sp[-1] is not consumed.
-/// obj -> enum_rec (3 slots)
+#[deprecated(
+    note = "use JSValue::get_iterator_must() and JSValue::get_property(JS_ATOM_next) combination"
+)]
 pub fn js_for_of_start(ctx: &JSContext, sp: *mut JSValue, is_async: bool) -> Result<(), i32> {
     let iter_obj = unsafe { &*sp.offset(-1) }.get_iterator_must(ctx, is_async)?;
     let next = iter_obj.get_property(ctx, JS_ATOM_next)?;
@@ -520,7 +522,6 @@ pub fn js_for_of_start(ctx: &JSContext, sp: *mut JSValue, is_async: bool) -> Res
         std::ptr::replace(sp.offset(-1), iter_obj.into());
         std::ptr::replace(sp.offset(0), next);
     }
-
     Ok(())
 }
 

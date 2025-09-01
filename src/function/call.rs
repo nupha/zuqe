@@ -224,7 +224,8 @@ impl JSValue {
     ) -> Result<Option<JSResult>, i32> {
         let m = self.get_property(ctx, method)?;
         if m.is_callable() {
-            Ok(Some(m.call(ctx, &self.clone().into(), args)))
+            let r = m.call(ctx, &self.clone().into(), args);
+            Ok(Some(r))
         } else {
             Ok(None)
         }
