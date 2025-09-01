@@ -1,4 +1,7 @@
+use std::ops::DerefMut;
+
 use fallible_collections::{FallibleVec, TryCollect};
+use smallvec::SmallVec;
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_PROXY,
@@ -6,11 +9,13 @@ use crate::{
     context::JSContext,
     number::MAX_SAFE_INTEGER,
     object::{
-        JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, JSObject, JSProperty, ObjectPayload,
+        JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_LENGTH,
+        JS_PROP_THROW, JS_PROP_WRITABLE, JSObject, JSProperty, ObjectPayload, PropertyKeyKind,
     },
     object_cast,
     proxy::js_proxy_isArray,
     runtime::JSRuntime,
+    string::StringContent,
     value::JSValue,
 };
 
@@ -29,7 +34,202 @@ impl ArrayObjPayload {
 #[derive(Debug, Clone)]
 pub struct Array(pub(crate) JSObject);
 
-object_cast!(Array, JS_CLASS_ARRAY);
+object_cast!(Array, JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS);
+
+impl Array {
+    /// set values list to Array, make `arr` a fast array.
+    /// Note: for Array and Arguments class objects only.
+    fn set_elements(ctx: &JSContext, obj: &JSObject, values: Vec<JSValue>) -> Result<(), i32> {
+        matches!(obj.class_id(), JS_CLASS_ARGUMENTS | JS_CLASS_ARRAY);
+
+        if !obj.flags().is_fast_array() {
+            // if `self` is sparse array, delete all index properties
+            let mut del = SmallVec::<[u32; 64]>::new();
+            obj.own_property_names_foreach(ctx, JS_GPN_INDEX_MASK | JS_GPN_ENUM_ONLY, |_, p| {
+                if let PropertyKeyKind::ArrayIndex(i) = p.isa {
+                    del.push(i);
+                }
+                Ok(())
+            })?;
+
+            for i in del {
+                obj.delete_property_i64(ctx, i as _, JS_PROP_THROW)?;
+            }
+        }
+
+        let len = values.len();
+        // use fast array list
+        match obj.0.payload.borrow_mut().deref_mut() {
+            ObjectPayload::ARRAY(p) | ObjectPayload::ARGUMENTS(p) => {
+                p.values = values;
+            }
+            _ => unreachable!(),
+        }
+
+        // mark self is fast array
+        unsafe {
+            (&mut *obj.0.obj_flags.as_ptr()).set_fast_array(true);
+        }
+
+        // set array length, can't fail
+        debug_assert!(
+            obj.shape().unwrap().0.borrow().prop_defs[0].flags() & JS_PROP_LENGTH != 0,
+            "Array.length property must be index 0"
+        );
+        obj.0.prop_values.borrow_mut()[0] = JSProperty::Normal(JSValue::from(len as u32));
+
+        Ok(())
+    }
+
+    pub(crate) fn sort_values_default(values: &mut [(JSValue, StringContent)]) {
+        values.sort_by(|a, b| {
+            match (&a.0, &b.0) {
+                // undefined is always the greatest
+                (JSValue::UNDEFINED, JSValue::UNDEFINED) => std::cmp::Ordering::Equal,
+                (JSValue::UNDEFINED, _) => std::cmp::Ordering::Greater,
+                (_, JSValue::UNDEFINED) => std::cmp::Ordering::Less,
+                _ => {
+                    // compare by string
+                    a.1.as_ref().cmp(b.1.as_ref())
+                }
+            }
+        });
+    }
+
+    pub(crate) fn sort_values_by(
+        ctx: &JSContext,
+        values: &mut [JSValue],
+        cmpfn: &JSValue,
+    ) -> Result<(), i32> {
+        let mut has_err = false;
+
+        values.sort_by(|a, b| {
+            if !has_err {
+                match cmpfn.call(ctx, &JSValue::UNDEFINED, &[a.clone(), b.clone()]) {
+                    Ok(r) => match r {
+                        JSValue::Int(n) => {
+                            if n == 0 {
+                                std::cmp::Ordering::Equal
+                            } else if n > 0 {
+                                std::cmp::Ordering::Greater
+                            } else {
+                                std::cmp::Ordering::Less
+                            }
+                        }
+                        r => {
+                            if let Ok(f) = r.to_f64(ctx) {
+                                if f == 0.0 {
+                                    std::cmp::Ordering::Equal
+                                } else if f > 0.0 {
+                                    std::cmp::Ordering::Greater
+                                } else {
+                                    std::cmp::Ordering::Less
+                                }
+                            } else {
+                                has_err = true;
+                                std::cmp::Ordering::Equal
+                            }
+                        }
+                    },
+                    Err(_) => {
+                        has_err = true;
+                        std::cmp::Ordering::Equal
+                    }
+                }
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        });
+
+        if has_err { Err(-1) } else { Ok(()) }
+    }
+
+    /// sort array `arr`. after sort, the array is sure to be a fast array.
+    pub fn sort(ctx: &JSContext, arr: &JSObject, cmp: Option<&JSValue>) -> Result<(), i32> {
+        if let Some(f) = cmp {
+            f.ensure_callable(ctx)?;
+        }
+
+        let len = arr.get_length_prop(ctx)?;
+
+        if let Some(cmp) = cmp {
+            let mut values = Vec::<JSValue>::with_capacity(16);
+            for i in 0..len {
+                if values.len() == values.capacity() {
+                    values.try_reserve(values.capacity() * 3 / 2).map_err(|_| {
+                        ctx.throw_out_of_memory();
+                        -1
+                    })?;
+                }
+                if let Some(v) = arr.try_get_property_i64(ctx, i)? {
+                    values.push(v);
+                } else {
+                    values.push(JSValue::UNDEFINED);
+                }
+            }
+            values.shrink_to_fit();
+            Array::sort_values_by(ctx, values.as_mut_slice(), cmp)?;
+
+            if matches!(arr.0.class_id(), JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS) {
+                Self::set_elements(ctx, arr, values)?;
+            } else {
+                for (i, v) in values.into_iter().enumerate() {
+                    arr.set_property_u32(ctx, i as u32, v)?;
+                }
+            }
+        } else {
+            let mut slots = Vec::<(JSValue, StringContent)>::with_capacity(16);
+            let mut undefined_count = 0;
+
+            for i in 0..len {
+                if let Some(v) = arr.try_get_property_i64(ctx, i)? {
+                    if slots.len() == slots.capacity() {
+                        slots.try_reserve(slots.capacity() * 3 / 2).map_err(|_| {
+                            ctx.throw_out_of_memory();
+                            -1
+                        })?;
+                    }
+                    let s = v.to_string(ctx)?;
+                    slots.push((v, s.content().clone()));
+                } else {
+                    undefined_count += 1;
+                }
+            }
+
+            Array::sort_values_default(slots.as_mut_slice());
+
+            if matches!(arr.0.class_id(), JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS) {
+                {}
+                let mut lst = Vec::<JSValue>::new();
+                lst.try_reserve_exact(slots.len() + undefined_count)
+                    .map_err(|_| {
+                        ctx.throw_out_of_memory();
+                        -1
+                    })?;
+                lst.extend(slots.into_iter().map(|(v, _)| v));
+                if undefined_count > 0 {
+                    lst.extend(std::iter::repeat_n(JSValue::UNDEFINED, undefined_count));
+                }
+
+                // set sorted list to array
+                Self::set_elements(ctx, arr, lst)?;
+            } else {
+                // set index property
+                let undefined_base = slots.len();
+                for (i, (v, _)) in slots.into_iter().enumerate() {
+                    arr.set_property_u32(ctx, i as u32, v)?;
+                }
+                if undefined_count > 0 {
+                    for i in undefined_base..(undefined_base + undefined_count) {
+                        arr.set_property_u32(ctx, i as u32, JSValue::UNDEFINED)?;
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
 
 impl JSContext {
     /// create an Array with element values

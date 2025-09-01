@@ -1,16 +1,15 @@
-use std::ops::RangeBounds;
-
 use fallible_collections::TryCollect;
 use smallvec::SmallVec;
 
 use crate::{
     JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_CLASS_ARRAY, JS_NATIVE_ITERATOR_NEXT_DEF,
     JS_PROP_STRING_DEF,
+    array::Array,
     atom::consts::{
         JS_ATOM_Symbol_isConcatSpreadable, JS_ATOM_Symbol_iterator, JS_ATOM_Symbol_species,
         JS_ATOM_constructor, JS_ATOM_join, JS_ATOM_length, JS_ATOM_next, JS_ATOM_set,
     },
-    bytecode::{arithmatic::JSStrictEqModeEnum, js_for_of_start},
+    bytecode::arithmatic::JSStrictEqModeEnum,
     context::JSContext,
     error::JSResult,
     function::{CallContext, FieldDef, JS_CallConstructor, JS_GetFunctionRealm},
@@ -22,7 +21,7 @@ use crate::{
         JSObject, ObjectPayload, PropertyKeyKind, js_get_length64,
     },
     runtime::js_check_stack_overflow,
-    string::{JSString, StringBuf},
+    string::{JSString, StringBuf, StringContent},
     typed_array::{js_typed_array___speciesCreate, js_typed_array_get_length_internal},
     value::JSValue,
 };
@@ -963,14 +962,72 @@ pub fn js_array_toReversed(ctx: &JSContext, cc: CallContext) -> JSResult {
     fa.map(|a| a.into())
 }
 
-pub fn js_array_sort(ctx: &JSContext, _: CallContext) -> JSResult {
-    ctx.throw_internal_error("sort is not implemented yet");
-    Err(-1)
+fn js_array_sort(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let cmpfn = {
+        let f = cc.arg(0);
+        if !f.is_undefined() {
+            f.ensure_callable(ctx)?;
+            Some(f)
+        } else {
+            None
+        }
+    };
+
+    let obj = cc.this().to_object(ctx)?;
+    Array::sort(ctx, &obj, cmpfn)?;
+    Ok(obj.into())
 }
 
-pub fn js_array_toSorted(ctx: &JSContext, _: CallContext) -> JSResult {
-    ctx.throw_internal_error("toSorted is not implemented yet");
-    Err(-1)
+fn js_array_toSorted(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let cmpfn = {
+        let f = cc.arg(0);
+        if !f.is_undefined() {
+            f.ensure_callable(ctx)?;
+            Some(f)
+        } else {
+            None
+        }
+    };
+
+    let obj = cc.this().to_object(ctx)?;
+    let len = obj.get_length_prop(ctx)?;
+    if len > u32::MAX as i64 {
+        ctx.throw_range_error("invalid array length");
+        return Err(-1);
+    }
+
+    let new_lst: Vec<JSValue> = if len > 0 {
+        if let Some(dst) = obj.with_fast_array_values(|src| {
+            // `this` is fast array
+            debug_assert_eq!(src.len(), len as usize);
+            src.iter().cloned().try_collect::<Vec<JSValue>>()
+        }) {
+            // fast path
+            dst.map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?
+        } else {
+            // slow path
+            let mut dst = Vec::<JSValue>::new();
+            dst.try_reserve_exact(len as usize).map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?;
+
+            for i in 0..len {
+                let v = obj.try_get_property_i64(ctx, i)?;
+                dst.push(v.unwrap_or(JSValue::UNDEFINED));
+            }
+            dst
+        }
+    } else {
+        Vec::new()
+    };
+
+    let arr = ctx.create_array_with_values(new_lst)?;
+    Array::sort(ctx, &arr.0, cmpfn)?;
+    Ok(arr.into())
 }
 
 pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {

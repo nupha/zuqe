@@ -16,7 +16,11 @@ impl std::fmt::Display for JSValue {
                 format!("Symbol({})", p.atom_info().unwrap().atom().to_utf8(p.rt())).into()
             }
             Self::Object(p) => format!("{p}").into(),
-            Self::Float64(n) => format!("{:14}", *n).into(),
+            Self::Float64(n) => match *n {
+                f64::INFINITY => "Infinity".into(),
+                f64::NEG_INFINITY => "-Infinity".into(),
+                n => format!("{n}").into(),
+            },
 
             Self::Module(_) => "[module]".into(),
             Self::Bytecode(b) => {
