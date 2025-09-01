@@ -1,5 +1,5 @@
 use crate::{
-    JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
+    JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
     atom::{JS_AtomIsNumericIndex, JS_FreeAtom, JSAtom, consts::JS_ATOM_length},
     context::JSContext,
     error::JS_ThrowReferenceErrorUninitialized,
@@ -282,60 +282,77 @@ impl JSObject {
         setter: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        let update_array_length_fn = |arr: &JSObject, idx: u32| -> Option<Result<bool, i32>> {
-            // Note: array length must <= u32::MAX
-            if idx < u32::MAX {
-                let cur_len = arr.0.prop_values.borrow()[0]
-                    .value(ctx, &JSValue::UNDEFINED)
-                    .and_then(|v| v.to_length(ctx));
+        let update_array_length_fn =
+            |arr: &JSObject, idx: u32, cur_len: i64| -> Option<Result<bool, i32>> {
+                // Note: array length must <= u32::MAX
+                if idx < u32::MAX {
+                    let new_len = idx + 1;
+                    if new_len > cur_len as u32 {
+                        // prop index 0 is `length`
+                        let prop0_flags = arr
+                            .shape()
+                            .map(|sh| sh.0.borrow().prop_defs.first().unwrap().1.flags())
+                            .unwrap();
 
-                match cur_len {
-                    Ok(len0) => {
-                        let new_len = idx + 1;
-                        if new_len as i64 > len0 {
-                            // prop index 0 is `length`
-                            let prop0_flags = arr
-                                .shape()
-                                .map(|sh| sh.0.borrow().prop_defs.first().unwrap().1.flags())
-                                .unwrap();
-
-                            if prop0_flags & JS_PROP_WRITABLE == 0 {
-                                return Some(
-                                    if ctx.JS_ThrowTypeErrorReadOnly(flags, JS_ATOM_length) {
-                                        Ok(false)
-                                    } else {
-                                        Err(-1)
-                                    },
-                                );
-                            }
-
-                            arr.0.prop_values.borrow_mut()[0] =
-                                JSProperty::Normal(JSValue::from(new_len));
+                        if prop0_flags & JS_PROP_WRITABLE == 0 {
+                            return Some(if ctx.JS_ThrowTypeErrorReadOnly(flags, JS_ATOM_length) {
+                                Ok(false)
+                            } else {
+                                Err(-1)
+                            });
                         }
-                        None
+
+                        arr.0.prop_values.borrow_mut()[0] =
+                            JSProperty::Normal(JSValue::from(new_len));
                     }
-                    Err(e) => Some(if ctx.should_throw_error(flags) {
-                        Err(e)
-                    } else {
-                        Ok(false)
-                    }),
+                    None
+                } else {
+                    None
                 }
-            } else {
-                None
-            }
-        };
+            };
 
         let obj_flags = self.flags();
 
         // add a new property or modify an existing exotic one
         if obj_flags.is_exotic() {
             match self.class_id() {
-                JS_CLASS_ARRAY => {
+                JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
+                    // get current `length`
+                    let Ok(arr_len) = self.0.prop_values.borrow()[0]
+                        .value(ctx, &JSValue::UNDEFINED)
+                        .and_then(|v| v.to_length(ctx))
+                    else {
+                        return if ctx.should_throw_error(flags) {
+                            Err(-1)
+                        } else {
+                            Ok(false)
+                        };
+                    };
+
                     if obj_flags.is_fast_array() {
                         if let Some(n) = prop.to_small_int() {
                             let idx = n;
 
-                            if idx == self.fast_array_count() {
+                            // count of elements list
+                            let list_count = self.fast_array_count();
+
+                            if list_count != arr_len as u32 {
+                                // Note: in case list_count not equal to array length,
+                                // that indicates the Array has empty list, but
+                                // having pre-defined length property: a=Array(10);
+                                // the array is marked fast-array, and have length 10, but the list is empty.
+                                // when adding an element to array in this case, destruct fast-array to sparse
+                                // and use slow path.
+                                debug_assert_eq!(list_count, 0);
+                                if let Err(e) = self.destruct_fast_array(ctx) {
+                                    return if ctx.should_throw_error(flags) {
+                                        Err(e)
+                                    } else {
+                                        Ok(false)
+                                    };
+                                }
+                            } else if idx == list_count {
+                                // extend fast list by 1
                                 if !self.flags().extensible() {
                                     return if ctx.throw_type_error_or_false(
                                         flags as _,
@@ -355,7 +372,7 @@ impl JSObject {
                                             Ok(false)
                                         };
                                     }
-                                    if let Some(ret) = update_array_length_fn(self, idx) {
+                                    if let Some(ret) = update_array_length_fn(self, idx, arr_len) {
                                         return ret;
                                     }
                                 }
@@ -364,7 +381,9 @@ impl JSObject {
                                 if prop_flags != JS_PROP_C_W_E {
                                     match self.destruct_fast_array(ctx) {
                                         Ok(_) => {
-                                            if let Some(ret) = update_array_length_fn(self, idx) {
+                                            if let Some(ret) =
+                                                update_array_length_fn(self, idx, arr_len)
+                                            {
                                                 return ret;
                                             }
                                         }
@@ -381,6 +400,8 @@ impl JSObject {
                                     return self.add_fast_array_element(ctx, val, flags);
                                 }
                             } else {
+                                // leaves a hole between `arr_idx` and `idx`,
+                                // this should be sparse array.
                                 if let Err(e) = self.destruct_fast_array(ctx) {
                                     return if ctx.should_throw_error(flags) {
                                         Err(e)
@@ -388,7 +409,7 @@ impl JSObject {
                                         Ok(false)
                                     };
                                 }
-                                if let Some(ret) = update_array_length_fn(self, idx) {
+                                if let Some(ret) = update_array_length_fn(self, idx, arr_len) {
                                     return ret;
                                 }
                             }
@@ -401,16 +422,17 @@ impl JSObject {
                                     Ok(false)
                                 };
                             }
-                            if let Some(ret) = update_array_length_fn(self, idx) {
+                            if let Some(ret) = update_array_length_fn(self, idx, arr_len) {
                                 return ret;
                             }
                         }
                     } else if let Some(idx) = prop.to_array_index(ctx.rt()) {
-                        if let Some(ret) = update_array_length_fn(self, idx) {
+                        if let Some(ret) = update_array_length_fn(self, idx, arr_len) {
                             return ret;
                         }
                     }
-                }
+                } // Array, Arguments
+
                 JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
                     let ret = unsafe { JS_AtomIsNumericIndex(ctx, prop) };
                     if ret != 0 {

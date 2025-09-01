@@ -972,7 +972,6 @@ fn js_array_sort(ctx: &JSContext, cc: CallContext) -> JSResult {
             None
         }
     };
-
     let obj = cc.this().to_object(ctx)?;
     Array::sort(ctx, &obj, cmpfn)?;
     Ok(obj.into())
@@ -1014,7 +1013,6 @@ fn js_array_toSorted(ctx: &JSContext, cc: CallContext) -> JSResult {
                 ctx.throw_out_of_memory();
                 -1
             })?;
-
             for i in 0..len {
                 let v = obj.try_get_property_i64(ctx, i)?;
                 dst.push(v.unwrap_or(JSValue::UNDEFINED));
@@ -1575,9 +1573,6 @@ fn copy_sub_array(
     let mut start_pos = start_pos;
     let mut to_pos = to_pos;
     let mut count = count;
-
-    // let mut from_range = start_pos..start_pos + count;
-    // let mut to_range = to_pos..to_pos + count;
 
     if obj.flags().is_fast_array() && obj.class_id() == JS_CLASS_ARRAY {
         let done_count = obj

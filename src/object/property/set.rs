@@ -389,6 +389,7 @@ impl JSObject {
                     let ob_flags = self.flags();
                     if ob_flags.is_fast_array() && ob_flags.extensible() {
                         let idx = idx as usize;
+                        let len = self.get_length_prop(ctx)?;
 
                         enum State {
                             Append,
@@ -397,49 +398,58 @@ impl JSObject {
                         }
                         let s = self
                             .with_fast_array_values_mut(|lst| -> Result<State, i32> {
-                                match idx.cmp(&(lst.len())) {
-                                    std::cmp::Ordering::Less => {
-                                        // update array element
-                                        lst[idx] = val.clone();
-                                        Ok(State::Done)
-                                    }
-                                    std::cmp::Ordering::Equal => {
-                                        // idx==len: extend lst by one.
-                                        let mut use_slow_path = false;
-
-                                        // find int prop through prototype chain.
-                                        // Note: can't use ::prototype_iter() here, because of payload borrow conflict.
-                                        let mut up = self.shape().unwrap().0.borrow().proto.clone();
-                                        while let Some(p) = up {
-                                            let sh1 = p.shape().unwrap();
-                                            match p.class_id() {
-                                                JS_CLASS_ARRAY => {
-                                                    if !p.flags().is_fast_array() {
-                                                        use_slow_path = true;
-                                                        break;
-                                                    }
-                                                }
-                                                JS_CLASS_OBJECT => {
-                                                    if sh1.0.borrow().has_small_array_index {
-                                                        use_slow_path = true;
-                                                        break;
-                                                    }
-                                                }
-                                                _ => {
-                                                    use_slow_path = true;
-                                                    break;
-                                                }
-                                            }
-                                            up = sh1.0.borrow().proto.clone();
+                                if lst.len() != len as usize {
+                                    debug_assert!(
+                                        lst.is_empty(),
+                                        "must be an empty Array list with pre-defined length"
+                                    );
+                                    Ok(State::SlowPath)
+                                } else {
+                                    match idx.cmp(&(lst.len())) {
+                                        std::cmp::Ordering::Less => {
+                                            // update array element
+                                            lst[idx] = val.clone();
+                                            Ok(State::Done)
                                         }
+                                        std::cmp::Ordering::Equal => {
+                                            // idx==len: extend lst by one.
+                                            let mut use_slow_path = false;
 
-                                        Ok(if !use_slow_path {
-                                            State::Append
-                                        } else {
-                                            State::SlowPath
-                                        })
+                                            // find int prop through prototype chain.
+                                            // Note: can't use ::prototype_iter() here, because of payload borrow conflict.
+                                            let mut up =
+                                                self.shape().unwrap().0.borrow().proto.clone();
+                                            while let Some(p) = up {
+                                                let sh1 = p.shape().unwrap();
+                                                match p.class_id() {
+                                                    JS_CLASS_ARRAY => {
+                                                        if !p.flags().is_fast_array() {
+                                                            use_slow_path = true;
+                                                            break;
+                                                        }
+                                                    }
+                                                    JS_CLASS_OBJECT => {
+                                                        if sh1.0.borrow().has_small_array_index {
+                                                            use_slow_path = true;
+                                                            break;
+                                                        }
+                                                    }
+                                                    _ => {
+                                                        use_slow_path = true;
+                                                        break;
+                                                    }
+                                                }
+                                                up = sh1.0.borrow().proto.clone();
+                                            }
+
+                                            Ok(if !use_slow_path {
+                                                State::Append
+                                            } else {
+                                                State::SlowPath
+                                            })
+                                        }
+                                        std::cmp::Ordering::Greater => Ok(State::SlowPath),
                                     }
-                                    std::cmp::Ordering::Greater => Ok(State::SlowPath),
                                 }
                             })
                             .unwrap()?;

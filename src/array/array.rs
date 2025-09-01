@@ -81,13 +81,13 @@ impl Array {
         Ok(())
     }
 
-    pub(crate) fn sort_values_default(values: &mut [(JSValue, StringContent)]) {
+    fn sort_values_default(values: &mut [(JSValue, StringContent)]) {
         values.sort_by(|a, b| {
             match (&a.0, &b.0) {
                 // undefined is always the greatest
                 (JSValue::UNDEFINED, JSValue::UNDEFINED) => std::cmp::Ordering::Equal,
-                (JSValue::UNDEFINED, _) => std::cmp::Ordering::Greater,
-                (_, JSValue::UNDEFINED) => std::cmp::Ordering::Less,
+                (JSValue::UNDEFINED, _) => std::cmp::Ordering::Less,
+                (_, JSValue::UNDEFINED) => std::cmp::Ordering::Greater,
                 _ => {
                     // compare by string
                     a.1.as_ref().cmp(b.1.as_ref())
@@ -96,11 +96,7 @@ impl Array {
         });
     }
 
-    pub(crate) fn sort_values_by(
-        ctx: &JSContext,
-        values: &mut [JSValue],
-        cmpfn: &JSValue,
-    ) -> Result<(), i32> {
+    fn sort_values_by(ctx: &JSContext, values: &mut [JSValue], cmpfn: &JSValue) -> Result<(), i32> {
         let mut has_err = false;
 
         values.sort_by(|a, b| {
@@ -110,20 +106,20 @@ impl Array {
                         JSValue::Int(n) => {
                             if n == 0 {
                                 std::cmp::Ordering::Equal
-                            } else if n > 0 {
-                                std::cmp::Ordering::Greater
+                            } else if n < 0 {
+                                std::cmp::Ordering::Greater // a < b 
                             } else {
-                                std::cmp::Ordering::Less
+                                std::cmp::Ordering::Less // a > b
                             }
                         }
                         r => {
                             if let Ok(f) = r.to_f64(ctx) {
                                 if f == 0.0 {
                                     std::cmp::Ordering::Equal
-                                } else if f > 0.0 {
-                                    std::cmp::Ordering::Greater
+                                } else if f < 0.0 {
+                                    std::cmp::Ordering::Greater // a < b
                                 } else {
-                                    std::cmp::Ordering::Less
+                                    std::cmp::Ordering::Less // a > b
                                 }
                             } else {
                                 has_err = true;
@@ -144,51 +140,90 @@ impl Array {
         if has_err { Err(-1) } else { Ok(()) }
     }
 
-    /// sort array `arr`. after sort, the array is sure to be a fast array.
-    pub fn sort(ctx: &JSContext, arr: &JSObject, cmp: Option<&JSValue>) -> Result<(), i32> {
+    /// sort array-like object `obj`.
+    pub fn sort(ctx: &JSContext, obj: &JSObject, cmp: Option<&JSValue>) -> Result<(), i32> {
         if let Some(f) = cmp {
             f.ensure_callable(ctx)?;
         }
 
-        let len = arr.get_length_prop(ctx)?;
+        let len = obj.get_length_prop(ctx)?;
+        if len == 0 {
+            return Ok(());
+        }
 
-        if let Some(cmp) = cmp {
-            let mut values = Vec::<JSValue>::with_capacity(16);
-            for i in 0..len {
-                if values.len() == values.capacity() {
-                    values.try_reserve(values.capacity() * 3 / 2).map_err(|_| {
-                        ctx.throw_out_of_memory();
-                        -1
-                    })?;
-                }
-                if let Some(v) = arr.try_get_property_i64(ctx, i)? {
-                    values.push(v);
+        // fast path
+        if let Some(fa) = obj
+            .with_fast_array_values_mut(|lst| {
+                if lst.len() == len as usize {
+                    if let Some(cmp) = cmp {
+                        Some(Self::sort_values_by(ctx, lst, cmp))
+                    } else {
+                        let mut slots = Vec::<(JSValue, StringContent)>::new();
+                        if let Err(e) = slots.try_reserve_exact(len as usize).map_err(|_| {
+                            ctx.throw_out_of_memory();
+                            -1
+                        }) {
+                            return Some(Err(e));
+                        }
+
+                        for v in lst.as_mut_slice() {
+                            let v = v.clone();
+                            let Ok(s) = v.to_string(ctx) else {
+                                return Some(Err(-1));
+                            };
+                            slots.push((v, s.content().clone()));
+                        }
+                        Self::sort_values_default(&mut slots);
+                        for (i, (v, _)) in slots.into_iter().enumerate() {
+                            lst[i] = v;
+                        }
+                        Some(Ok(()))
+                    }
                 } else {
-                    values.push(JSValue::UNDEFINED);
+                    // must be an empty list with pre-defined length.
+                    // for example, created by `Array(10)`
+                    debug_assert!(lst.is_empty(), "{lst:?}, len={len}");
+                    None
                 }
-            }
-            values.shrink_to_fit();
-            Array::sort_values_by(ctx, values.as_mut_slice(), cmp)?;
+            })
+            .flatten()
+        {
+            return fa; // early exit for fast array
+        }
 
-            if matches!(arr.0.class_id(), JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS) {
-                Self::set_elements(ctx, arr, values)?;
+        // slow path: `obj` is sparse array.
+        // collect values to a slot array, sort the slot, then set values back to obj.
+        if let Some(cmp) = cmp {
+            let mut slots = Vec::<JSValue>::new();
+            slots.try_reserve_exact(len as usize).map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?;
+            for i in 0..len {
+                slots.push(
+                    obj.try_get_property_i64(ctx, i)?
+                        .unwrap_or(JSValue::UNDEFINED),
+                );
+            }
+            Array::sort_values_by(ctx, slots.as_mut_slice(), cmp)?;
+            if matches!(obj.0.class_id(), JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS) {
+                // is sparse Array or Argument
+                Self::set_elements(ctx, obj, slots)?;
             } else {
-                for (i, v) in values.into_iter().enumerate() {
-                    arr.set_property_u32(ctx, i as u32, v)?;
+                for (i, v) in slots.into_iter().enumerate() {
+                    obj.set_property_u32(ctx, i as u32, v)?;
                 }
             }
         } else {
             let mut slots = Vec::<(JSValue, StringContent)>::with_capacity(16);
-            let mut undefined_count = 0;
+            slots.try_reserve_exact(len as usize).map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?;
 
+            let mut undefined_count = 0;
             for i in 0..len {
-                if let Some(v) = arr.try_get_property_i64(ctx, i)? {
-                    if slots.len() == slots.capacity() {
-                        slots.try_reserve(slots.capacity() * 3 / 2).map_err(|_| {
-                            ctx.throw_out_of_memory();
-                            -1
-                        })?;
-                    }
+                if let Some(v) = obj.try_get_property_i64(ctx, i)? {
                     let s = v.to_string(ctx)?;
                     slots.push((v, s.content().clone()));
                 } else {
@@ -198,8 +233,8 @@ impl Array {
 
             Array::sort_values_default(slots.as_mut_slice());
 
-            if matches!(arr.0.class_id(), JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS) {
-                {}
+            if matches!(obj.0.class_id(), JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS) {
+                // is sparse Array or Argument
                 let mut lst = Vec::<JSValue>::new();
                 lst.try_reserve_exact(slots.len() + undefined_count)
                     .map_err(|_| {
@@ -210,18 +245,16 @@ impl Array {
                 if undefined_count > 0 {
                     lst.extend(std::iter::repeat_n(JSValue::UNDEFINED, undefined_count));
                 }
-
-                // set sorted list to array
-                Self::set_elements(ctx, arr, lst)?;
+                Self::set_elements(ctx, obj, lst)?;
             } else {
                 // set index property
                 let undefined_base = slots.len();
                 for (i, (v, _)) in slots.into_iter().enumerate() {
-                    arr.set_property_u32(ctx, i as u32, v)?;
+                    obj.set_property_u32(ctx, i as u32, v)?;
                 }
                 if undefined_count > 0 {
                     for i in undefined_base..(undefined_base + undefined_count) {
-                        arr.set_property_u32(ctx, i as u32, JSValue::UNDEFINED)?;
+                        obj.set_property_u32(ctx, i as u32, JSValue::UNDEFINED)?;
                     }
                 }
             }
