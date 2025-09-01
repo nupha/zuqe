@@ -186,84 +186,84 @@ pub fn js_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
         ctx.throw_range_error("out of bound");
         return Err(-1);
     }
+    if len > u32::MAX as i64 {
+        ctx.throw_range_error("invalid array length");
+        return Err(-1);
+    }
 
-    let arr = ctx.create_array_with_capacity(len as usize)?;
+    let new_lst = if let Some(dst) = obj.with_fast_array_values(|src| {
+        // `this` is fast array: copy list
+        debug_assert_eq!(src.len(), len as usize);
+        src.iter().cloned().try_collect::<Vec<JSValue>>()
+    }) {
+        let mut dst = dst.map_err(|_| {
+            ctx.throw_out_of_memory();
+            -1
+        })?;
+        // modified element
+        dst[idx as usize] = cc.arg(1).clone();
+        dst
+    } else {
+        // slow path
+        let mut dst = Vec::<JSValue>::new();
+        dst.try_reserve_exact(len as usize).map_err(|_| {
+            ctx.throw_out_of_memory();
+            -1
+        })?;
 
-    arr.0
-        .with_fast_array_values_mut(|dst| -> Result<(), i32> {
-            if obj
-                .with_fast_array_values(|src| {
-                    if src.len() == len as usize {
-                        // fast array
-                        for v in &src[0..(idx as usize)] {
-                            dst.push(v.clone());
-                        }
-
-                        // the modified element
-                        dst.push(cc.arg(1).clone());
-
-                        for v in &src[idx as usize..] {
-                            dst.push(v.clone());
-                        }
-
-                        Some(())
-                    } else {
-                        None
-                    }
-                })
-                .flatten()
-                .is_none()
-            {
-                // slow array
-                // 0..idx
-                for i in 0..idx {
-                    match obj.try_get_property_i64(ctx, i) {
-                        Ok(Some(v)) => {
-                            dst.push(v);
-                        }
-                        Ok(None) => {
-                            dst.push(JSValue::UNDEFINED);
-                        }
-                        Err(_) => {
-                            // fill rest with undefined
-                            for _ in i..len {
-                                dst.push(JSValue::UNDEFINED);
-                            }
-                            return Err(-1);
-                        }
-                    }
+        for i in 0..idx {
+            match obj.try_get_property_i64(ctx, i) {
+                Ok(Some(v)) => {
+                    dst.push(v);
                 }
-
-                // updated value
-                dst.push(cc.arg(1).clone());
-
-                // idx..end
-                for i in idx..len {
-                    match obj.try_get_property_i64(ctx, i) {
-                        Ok(Some(v)) => {
-                            dst.push(v);
-                        }
-                        Ok(None) => {
-                            dst.push(JSValue::UNDEFINED);
-                        }
-                        Err(_) => {
-                            // fill rest with undefined
-                            for _ in i..len {
-                                dst.push(JSValue::UNDEFINED);
-                            }
-                            return Err(-1);
-                        }
+                Ok(None) => {
+                    dst.push(JSValue::UNDEFINED);
+                }
+                Err(_) => {
+                    // fill rest with undefined
+                    for _ in i..len {
+                        dst.push(JSValue::UNDEFINED);
                     }
+                    return Err(-1);
                 }
             }
+        }
 
-            Ok(())
-        })
-        .unwrap()?;
+        // the modified element
+        dst.push(cc.arg(1).clone());
 
-    arr.0
-        .set_property(ctx, JS_ATOM_length, JSValue::from(len))?;
-    Ok(arr.into())
+        // idx+1..end
+        for i in (idx + 1)..len {
+            match obj.try_get_property_i64(ctx, i) {
+                Ok(Some(v)) => {
+                    dst.push(v);
+                }
+                Ok(None) => {
+                    dst.push(JSValue::UNDEFINED);
+                }
+                Err(_) => {
+                    // fill rest with undefined
+                    for _ in i..len {
+                        dst.push(JSValue::UNDEFINED);
+                    }
+                    return Err(-1);
+                }
+            }
+        }
+        dst
+    };
+
+    debug_assert_eq!(new_lst.len(), len as usize);
+
+    // make Array with values
+    #[cfg(debug_assertions)]
+    {
+        let arr = ctx.create_array_with_values(new_lst)?;
+        debug_assert_eq!(arr.0.get_length_prop(ctx).unwrap(), len);
+        Ok(arr.into())
+    }
+    #[cfg(not(debug_assertions))]
+    ctx.create_array_with_values(new_lst).map(|a| a.into())
 }
 
 pub fn js_array_concat(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -806,7 +806,6 @@ pub fn js_array_pop(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     obj.set_property(ctx, JS_ATOM_length, JSValue::from(new_len))?;
-
     Ok(res)
 }
 
@@ -962,51 +961,6 @@ pub fn js_array_toReversed(ctx: &JSContext, cc: CallContext) -> JSResult {
     };
 
     fa.map(|a| a.into())
-
-    // old code
-    // let res_arr = ctx.create_array_with_capacity(std::cmp::max(len, 0) as usize)?;
-    // res_arr
-    //     .0
-    //     .with_fast_array_values_mut(|dst| {
-    //         if obj
-    //             .with_fast_array_values(|src| {
-    //                 if src.len() == len as usize {
-    //                     for v in src.iter().rev() {
-    //                         dst.push(v.clone());
-    //                     }
-    //                     true
-    //                 } else {
-    //                     false
-    //                 }
-    //             })
-    //             .unwrap_or(false)
-    //         {
-    //             // fast array done
-    //             return Ok(());
-    //         }
-
-    //         // slow path for sparse array
-    //         // Query order is observable; test262 expects descending order.
-    //         let mut has_err = false;
-    //         for i in (0..len).rev() {
-    //             if has_err {
-    //                 // Exception: set remaining elements to undefined.
-    //                 dst.push(JSValue::UNDEFINED);
-    //             } else if let Ok(v) = obj.try_get_property_i64(ctx, i) {
-    //                 dst.push(v.unwrap_or(JSValue::UNDEFINED));
-    //             } else {
-    //                 dst.push(JSValue::UNDEFINED);
-    //                 has_err = true;
-    //             }
-    //         }
-    //         if has_err { Err(-1) } else { Ok(()) }
-    //     })
-    //     .unwrap()?;
-
-    // res_arr
-    //     .0
-    //     .set_property(ctx, JS_ATOM_length, JSValue::from(len))?;
-    // Ok(res_arr.into())
 }
 
 pub fn js_array_sort(ctx: &JSContext, _: CallContext) -> JSResult {
