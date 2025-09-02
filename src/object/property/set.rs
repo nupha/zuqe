@@ -3,13 +3,12 @@ use crate::{
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
     JS_CLASS_INT32_ARRAY, JS_CLASS_OBJECT, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY,
     JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
-    atom::{JS_ATOM_MAX_INT, JS_AtomIsNumericIndex, JS_FreeAtom, JSAtom},
+    atom::{JS_AtomIsNumericIndex, JS_FreeAtom, JSAtom},
     context::{JSContext, is_strict_mode},
     error::JS_ThrowReferenceErrorNotDefined,
-    number::{MAX_SAFE_INTEGER, SAFE_INTEGER_RANGE},
     object::{
         JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_WRITABLE, JS_PROP_LAZYINIT,
-        JS_PROP_LENGTH, JS_PROP_NORMAL, JS_PROP_THROW_STRICT, JS_PROP_TMASK, JSObject, JSProperty,
+        JS_PROP_NORMAL, JS_PROP_THROW_STRICT, JS_PROP_TMASK, JSObject, JSProperty,
     },
     typed_array::{
         Float32Array, Float64Array, Int8Array, Int16Array, Int32Array, TypedArray, Uint8Array,
@@ -58,8 +57,11 @@ enum SetPropState {
 }
 
 impl JSObject {
-    /// set property for fast array.
-    /// returns false means property should be added.
+    /// Set indexed element value of a fast array.
+    ///
+    /// Returns:
+    /// * true - the indexed element was updated.
+    /// * false - the index does not exist.
     fn set_property_fast_array(
         &self,
         ctx: &JSContext,
@@ -388,7 +390,6 @@ impl JSObject {
                     let ob_flags = self.flags();
                     if ob_flags.is_fast_array() && ob_flags.extensible() {
                         let idx = idx as usize;
-                        let len = self.get_length_prop(ctx)?;
 
                         enum State {
                             Append,
@@ -397,57 +398,52 @@ impl JSObject {
                         }
                         let s = self
                             .with_fast_array_values_mut(|lst| -> Result<State, i32> {
-                                if lst.len() != len as usize {
-                                    debug_assert!(
-                                        lst.is_empty(),
-                                        "must be an empty Array list with pre-defined length"
-                                    );
-                                    Ok(State::SlowPath)
-                                } else {
-                                    match idx.cmp(&(lst.len())) {
-                                        std::cmp::Ordering::Less => {
-                                            // update array element
-                                            lst[idx] = val.clone();
-                                            Ok(State::Done)
-                                        }
-                                        std::cmp::Ordering::Equal => {
-                                            // idx==len: extend lst by one.
-                                            let mut use_slow_path = false;
+                                match idx.cmp(&(lst.len())) {
+                                    std::cmp::Ordering::Less => {
+                                        // update existing list element
+                                        lst[idx] = val.clone();
+                                        Ok(State::Done)
+                                    }
+                                    std::cmp::Ordering::Equal => {
+                                        // add one element to list
+                                        let mut use_slow_path = false;
 
-                                            // find int prop through prototype chain.
-                                            // Note: can't use ::prototype_iter() here, because of payload borrow conflict.
-                                            let mut up =
-                                                self.shape().unwrap().0.borrow().proto.clone();
-                                            while let Some(p) = up {
-                                                let sh1 = p.shape().unwrap();
-                                                match p.class_id() {
-                                                    JS_CLASS_ARRAY => {
-                                                        if !p.flags().is_fast_array() {
-                                                            use_slow_path = true;
-                                                            break;
-                                                        }
-                                                    }
-                                                    JS_CLASS_OBJECT => {
-                                                        if sh1.0.borrow().has_small_array_index {
-                                                            use_slow_path = true;
-                                                            break;
-                                                        }
-                                                    }
-                                                    _ => {
+                                        // find int prop through prototype chain.
+                                        // Note: can't use ::prototype_iter() here, because of payload borrow conflict.
+                                        let mut up = self.shape().unwrap().0.borrow().proto.clone();
+                                        while let Some(p) = up {
+                                            let sh1 = p.shape().unwrap();
+                                            match p.class_id() {
+                                                JS_CLASS_ARRAY => {
+                                                    if !p.flags().is_fast_array() {
                                                         use_slow_path = true;
                                                         break;
                                                     }
                                                 }
-                                                up = sh1.0.borrow().proto.clone();
+                                                JS_CLASS_OBJECT => {
+                                                    if sh1.0.borrow().has_small_array_index {
+                                                        use_slow_path = true;
+                                                        break;
+                                                    }
+                                                }
+                                                _ => {
+                                                    use_slow_path = true;
+                                                    break;
+                                                }
                                             }
-
-                                            Ok(if !use_slow_path {
-                                                State::Append
-                                            } else {
-                                                State::SlowPath
-                                            })
+                                            up = sh1.0.borrow().proto.clone();
                                         }
-                                        std::cmp::Ordering::Greater => Ok(State::SlowPath),
+
+                                        Ok(if !use_slow_path {
+                                            State::Append
+                                        } else {
+                                            State::SlowPath
+                                        })
+                                    }
+                                    std::cmp::Ordering::Greater => {
+                                        // make a hold in list,
+                                        // go slow path, destruct to sparse array
+                                        Ok(State::SlowPath)
                                     }
                                 }
                             })

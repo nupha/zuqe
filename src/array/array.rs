@@ -5,10 +5,7 @@ use smallvec::SmallVec;
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_PROXY,
-    atom::{
-        JS_FreeAtom, JSAtom,
-        consts::{JS_ATOM_empty_string, JS_ATOM_length},
-    },
+    atom::{JS_FreeAtom, JSAtom, consts::JS_ATOM_length},
     context::JSContext,
     number::MAX_SAFE_INTEGER,
     object::{
@@ -95,74 +92,53 @@ impl Array {
             return Ok(());
         }
 
-        //
         // fast path
-        //
-        if let Some(fa) = obj
-            .with_fast_array_values_mut(|lst| {
-                if lst.len() == arr_len as usize {
-                    if let Some(cmp) = cmp {
-                        let mut slots = Vec::<JSValue>::new();
-                        if let Err(e) = slots.try_reserve_exact(arr_len as usize).map_err(|_| {
-                            ctx.throw_out_of_memory();
-                            -1
-                        }) {
-                            return Some(Err(e));
-                        }
-                        slots.extend(lst.iter().filter(|x| !x.is_undefined()).cloned());
+        if let Some(fa) = obj.with_fast_array_values_mut(|lst| -> Result<(), i32> {
+            debug_assert!(lst.len() <= arr_len as usize);
 
-                        if sort_values_by(ctx, &mut slots, cmp).is_err() {
-                            return Some(Err(-1));
-                        }
+            if let Some(cmp) = cmp {
+                let mut slots = Vec::<JSValue>::new();
+                slots.try_reserve_exact(lst.len()).map_err(|_| {
+                    ctx.throw_out_of_memory();
+                    -1
+                })?;
+                slots.extend(lst.iter().filter(|x| !x.is_undefined()).cloned());
 
-                        let slots_len = slots.len();
-                        for (i, v) in slots.into_iter().enumerate() {
-                            lst[i] = v;
-                        }
-                        for i in slots_len..lst.len() {
-                            lst[i] = JSValue::UNDEFINED;
-                        }
+                sort_values_by(ctx, &mut slots, cmp)?;
 
-                        Some(Ok(()))
-                    } else {
-                        let mut slots = Vec::<(JSValue, StringContent)>::new();
-                        if let Err(e) = slots.try_reserve_exact(arr_len as usize).map_err(|_| {
-                            ctx.throw_out_of_memory();
-                            -1
-                        }) {
-                            return Some(Err(e));
-                        }
-
-                        for v in lst.iter().filter(|v| !v.is_undefined()) {
-                            let v = v.clone();
-                            if let Ok(s) = v.to_string(ctx) {
-                                slots.push((v, s.content().clone()));
-                            } else {
-                                return Some(Err(-1));
-                            }
-                        }
-
-                        sort_values_default(&mut slots);
-
-                        let slots_len = slots.len();
-                        for (i, (v, _)) in slots.into_iter().enumerate() {
-                            lst[i] = v;
-                        }
-                        for i in slots_len..lst.len() {
-                            lst[i] = JSValue::UNDEFINED;
-                        }
-
-                        Some(Ok(()))
-                    }
-                } else {
-                    // must be an empty list with pre-defined length.
-                    // for example, created by `Array(10)`
-                    debug_assert!(lst.is_empty(), "{lst:?}, len={arr_len}");
-                    None
+                let slots_len = slots.len();
+                for (i, v) in slots.into_iter().enumerate() {
+                    lst[i] = v;
                 }
-            })
-            .flatten()
-        {
+                for i in slots_len..lst.len() {
+                    lst[i] = JSValue::UNDEFINED;
+                }
+            } else {
+                let mut slots = Vec::<(JSValue, StringContent)>::new();
+                slots.try_reserve_exact(lst.len()).map_err(|_| {
+                    ctx.throw_out_of_memory();
+                    -1
+                })?;
+
+                for v in lst.iter().filter(|v| !v.is_undefined()) {
+                    let v = v.clone();
+                    let s = v.to_string(ctx)?;
+                    slots.push((v, s.content().clone()));
+                }
+
+                sort_values_default(&mut slots);
+
+                let slots_len = slots.len();
+                for (i, (v, _)) in slots.into_iter().enumerate() {
+                    lst[i] = v;
+                }
+                for i in slots_len..lst.len() {
+                    lst[i] = JSValue::UNDEFINED;
+                }
+            }
+
+            Ok(())
+        }) {
             return fa; // early exit for fast array
         }
 
@@ -465,7 +441,9 @@ impl JSObject {
         let len = if let JSProperty::Normal(JSValue::Int(n)) = &self.0.prop_values.borrow()[0] {
             Some(*n)
         } else {
-            // unreachable!();
+            #[cfg(debug_assertions)]
+            unreachable!();
+            #[cfg(not(debug_assertions))]
             None
         };
         if let Some(arr_len) = len {
@@ -477,7 +455,8 @@ impl JSObject {
                     & JS_PROP_WRITABLE
                     == 0
                 {
-                    return if ctx.JS_ThrowTypeErrorReadOnly(flags, JS_ATOM_length) {
+                    return if ctx.should_throw_error(flags) {
+                        ctx.throw_type_error("'length' is read-only");
                         Err(-1)
                     } else {
                         Ok(false)
@@ -490,7 +469,7 @@ impl JSObject {
             }
         }
 
-        // add new value to list
+        // add new element to list
         self.with_fast_array_values_mut(|lst| -> Result<bool, i32> {
             lst.try_push(val).map_err(|_| {
                 ctx.throw_out_of_memory();
@@ -501,7 +480,7 @@ impl JSObject {
         .unwrap()
     }
 
-    /// Get array length:
+    /// Get fast array list length:
     /// - for Array or Argument instance, return elements count (not property `length`);
     /// - for TypedArray or DataView instance, return elements count;
     /// - __Panic__ when object is not an Array, Argument, TypedArray or DataView.

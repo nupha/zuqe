@@ -604,9 +604,9 @@ impl JSValue {
     /// Handles primitive wrapping according to ES6 ToObject conversion rules.
     ///
     /// For example:
-    /// - integer 1 => [[object 1]]
-    /// - bool true => [[object true]]
-    /// - string "abc" => [[object "abc"]]
+    /// - integer 1 => \[object 1\]
+    /// - bool true => \[object true\]
+    /// - string "abc" => \[object "abc"\]
     ///
     /// Returns Err for null/undefined.
     pub fn to_object(&self, ctx: &JSContext) -> Result<JSObject, i32> {

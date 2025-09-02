@@ -21,7 +21,7 @@ use crate::{
         JSObject, ObjectPayload, PropertyKeyKind, js_get_length64,
     },
     runtime::js_check_stack_overflow,
-    string::{JSString, StringBuf, StringContent},
+    string::{JSString, StringBuf},
     typed_array::{js_typed_array___speciesCreate, js_typed_array_get_length_internal},
     value::JSValue,
 };
@@ -1134,8 +1134,8 @@ pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_array_toSpliced(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj: JSValue = cc.this().to_object(ctx)?.into();
-    let len = js_get_length64(ctx, &obj)?;
+    let obj = cc.this().to_object(ctx)?;
+    let len = obj.get_length_prop(ctx)?;
 
     let start = if cc.length() > 0 {
         cc.arg(0).to_i64_clamp(ctx, 0, len, len)?
@@ -1181,16 +1181,17 @@ pub fn js_array_toSpliced(ctx: &JSContext, cc: CallContext) -> JSResult {
                 };
             }
 
-            let fast_done = obj
-                .with_fast_array_values(|src| {
-                    if src.len() == len as usize {
-                        for v in &src[..start as usize] {
+            // fast path
+            if !obj
+                .with_fast_array_values(|lst| {
+                    if lst.len() == len as usize {
+                        for v in &lst[..start as usize] {
                             new_lst.push(v.clone());
                         }
                         for j in 0..add {
                             new_lst.push(cc.arg((2 + j) as usize).clone());
                         }
-                        for v in &src[(start + del) as usize..] {
+                        for v in &lst[(start + del) as usize..] {
                             new_lst.push(v.clone());
                         }
 
@@ -1199,10 +1200,9 @@ pub fn js_array_toSpliced(ctx: &JSContext, cc: CallContext) -> JSResult {
                         false
                     }
                 })
-                .unwrap_or(false);
-
-            if !fast_done {
-                // slow array
+                .unwrap_or(false)
+            {
+                // slow path: sparse array
                 for i in 0..start {
                     if let Ok(val) = obj.try_get_property_i64(ctx, i) {
                         new_lst.push(val.unwrap_or(JSValue::UNDEFINED));
@@ -1211,10 +1211,9 @@ pub fn js_array_toSpliced(ctx: &JSContext, cc: CallContext) -> JSResult {
                     }
                 }
 
-                for j in 0..add {
-                    new_lst.push(cc.arg((2 + j) as usize).clone());
+                for i in 0..add {
+                    new_lst.push(cc.arg((2 + i) as usize).clone());
                 }
-
                 for i in (start + del)..len {
                     if let Ok(val) = obj.try_get_property_i64(ctx, i) {
                         new_lst.push(val.unwrap_or(JSValue::UNDEFINED));

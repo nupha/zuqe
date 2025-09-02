@@ -332,27 +332,11 @@ impl JSObject {
                     if obj_flags.is_fast_array() {
                         if let Some(n) = prop.to_small_int() {
                             let idx = n;
-
-                            // count of elements list
                             let list_count = self.fast_array_count();
-
-                            if list_count != arr_len as u32 {
-                                // Note: in case list_count not equal to array length,
-                                // that indicates the Array has empty list, but
-                                // having pre-defined length property: a=Array(10);
-                                // the array is marked fast-array, and have length 10, but the list is empty.
-                                // when adding an element to array in this case, destruct fast-array to sparse
-                                // and use slow path.
-                                debug_assert_eq!(list_count, 0);
-                                if let Err(e) = self.destruct_fast_array(ctx) {
-                                    return if ctx.should_throw_error(flags) {
-                                        Err(e)
-                                    } else {
-                                        Ok(false)
-                                    };
-                                }
-                            } else if idx == list_count {
-                                // extend fast list by 1
+                            if idx == list_count {
+                                // fast array: extend fast list by 1
+                                // Note: in case list_count not equal to array list length,
+                                // the Array is sparse, use slow path.
                                 if !self.flags().extensible() {
                                     return if ctx.throw_type_error_or_false(
                                         flags as _,
