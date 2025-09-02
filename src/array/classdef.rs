@@ -769,34 +769,37 @@ pub fn js_array_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_array_pop(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let shift = cc.magic();
+    let shift = cc.magic() == 1;
     let obj = cc.this().to_object(ctx)?;
-    let len = obj.get_length_prop(ctx)?;
+    let arr_len = obj.get_length_prop(ctx)?;
 
     let mut res = JSValue::UNDEFINED;
     let mut new_len = 0;
 
-    if len > 0 {
-        new_len = len - 1;
+    if arr_len > 0 {
+        new_len = arr_len - 1;
 
-        if let Some(r) = obj.with_fast_array_values_mut(|lst| {
-            if lst.len() == len as usize {
-                Some(if shift != 0 {
-                    lst.remove(0)
+        if let Some(r) = obj
+            .with_fast_array_values_mut(|lst| {
+                if lst.len() == arr_len as usize {
+                    Some(if shift {
+                        lst.remove(0)
+                    } else {
+                        lst.pop().unwrap()
+                    })
                 } else {
-                    lst.pop().unwrap()
-                })
-            } else {
-                None
-            }
-        }) {
-            // is fast array
-            res = r.unwrap_or(JSValue::UNDEFINED);
+                    None
+                }
+            })
+            .flatten()
+        {
+            // fast array pop/shift
+            res = r;
         } else {
-            // slow array
-            if shift != 0 {
+            // slow path
+            if shift {
                 res = obj.get_property_i64(ctx, 0)?;
-                copy_sub_array(ctx, &obj, 0, 1, len as usize - 1, 1)?;
+                copy_sub_array(ctx, &obj, 0, 1, arr_len as usize - 1, 1)?;
             } else {
                 res = obj.get_property_i64(ctx, new_len)?;
             }
