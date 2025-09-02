@@ -1,5 +1,4 @@
 use fallible_collections::TryCollect;
-use smallvec::SmallVec;
 
 use crate::{
     JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_CLASS_ARRAY, JS_NATIVE_ITERATOR_NEXT_DEF,
@@ -17,8 +16,8 @@ use crate::{
     js_core::{js_get_this, object::js_object_toString},
     number::MAX_SAFE_INTEGER,
     object::{
-        JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW,
-        JSObject, ObjectPayload, PropertyKeyKind, js_get_length64,
+        JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, JSObject, ObjectPayload,
+        js_get_length64,
     },
     runtime::js_check_stack_overflow,
     string::{JSString, StringBuf},
@@ -933,29 +932,20 @@ pub fn js_array_toReversed(ctx: &JSContext, cc: CallContext) -> JSResult {
             ctx.create_array_with_values(rlst)
         } else {
             // sparse array
-            let mut ids = SmallVec::<[u32; 16]>::new();
-            this.own_property_names_foreach(ctx, JS_GPN_INDEX_MASK | JS_GPN_ENUM_ONLY, |_, p| {
-                if let PropertyKeyKind::ArrayIndex(i) = p.isa
-                    && i < len
-                {
-                    ids.push(i);
-                }
-
-                Ok(())
+            let mut rlst = Vec::<JSValue>::new();
+            rlst.try_reserve_exact(len as usize).map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
             })?;
 
-            ids.sort();
-            ids.reverse();
-
-            let arr = ctx.create_array()?;
-            if !ids.is_empty() {
-                let base = len - 1;
-                for i in ids {
-                    let v = this.get_property_u32(ctx, i)?;
-                    arr.0.set_property_u32(ctx, base - i, v)?;
-                }
+            // Query order is observable; test262 expects descending order.
+            for i in (0..len).rev() {
+                rlst.push(
+                    this.try_get_property_i64(ctx, i as i64)?
+                        .unwrap_or(JSValue::UNDEFINED),
+                );
             }
-            Ok(arr.into())
+            ctx.create_array_with_values(rlst)
         }
     } else {
         // empty array
