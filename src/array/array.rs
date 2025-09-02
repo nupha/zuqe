@@ -5,7 +5,7 @@ use smallvec::SmallVec;
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_PROXY,
-    atom::{JS_FreeAtom, JSAtom, consts::JS_ATOM_length},
+    atom::{JS_FreeAtom, JSAtom},
     context::JSContext,
     number::MAX_SAFE_INTEGER,
     object::{

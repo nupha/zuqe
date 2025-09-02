@@ -1039,18 +1039,18 @@ pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
     let start = cc.arg(0).to_i64_clamp(ctx, 0, len, len)?;
 
     let item_count: u32;
-    let mut del_count: i64 = 0;
+    let del_count: i64;
 
     let count = if is_splice {
         if cc.length() == 0 {
-            item_count = 0;
             del_count = 0;
-        } else if cc.length() == 1 {
             item_count = 0;
+        } else if cc.length() == 1 {
             del_count = len - start;
+            item_count = 0;
         } else {
-            item_count = (cc.length() - 2) as u32;
             del_count = cc.arg(1).to_i64_clamp(ctx, 0, len - start, 0)?;
+            item_count = (cc.length() - 2) as u32;
         }
         if len + item_count as i64 - del_count > MAX_SAFE_INTEGER {
             ctx.throw_type_error("Array loo long");
@@ -1059,24 +1059,25 @@ pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
         del_count
     } else {
         item_count = 0;
-        let final_ = if !cc.arg(1).is_undefined() {
+        del_count = 0;
+        let end = if !cc.arg(1).is_undefined() {
             cc.arg(1).to_i64_clamp(ctx, 0, len, len)?
         } else {
             len
         };
-        std::cmp::max(final_ - start, 0)
+        std::cmp::max(end - start, 0)
     };
 
+    // make return Array
     let len_val = JSValue::from(count);
     let arr = JS_ArraySpeciesCreate(ctx, &obj.clone().into(), &len_val)?;
 
     let end = start + count;
+
     let mut k = start;
     let mut n = 0;
 
     if let Some(r) = obj.with_fast_array_values(|lst| -> Result<(), i32> {
-        // in case of fast array
-        // XXX: should share code with fast array constructor
         let len = lst.len() as i64;
         while k < end && k < len {
             arr.define_property_value_i64(
@@ -1120,9 +1121,8 @@ pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
                 },
             )?;
 
-            while k > new_len {
-                k -= 1;
-                obj.delete_property_i64(ctx, k, JS_PROP_THROW)?;
+            for i in (new_len..len).rev() {
+                obj.delete_property_i64(ctx, i, JS_PROP_THROW)?;
             }
         }
 
