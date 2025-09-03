@@ -2,9 +2,17 @@ use std::ops::Deref;
 
 use crate::{
     JS_CLASS_PROXY,
-    atom::{JSAtom, consts::*},
+    atom::{JS_FreeAtom, JSAtom, consts::*},
+    class::JSClassExoticMethods,
     context::JSContext,
-    object::{JS_SetPrototypeInternal, JSObject, ObjectPayload},
+    error::JSResult,
+    object::{
+        JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_GETSET,
+        JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
+        JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_THROW, JS_PROP_WRITABLE,
+        JS_SetPrototypeInternal, JSObject, JSPropertyDescriptor, ObjectPayload, PropertyKey,
+        check_define_prop_flags,
+    },
     object_cast,
     runtime::{JSRuntime, js_check_stack_overflow},
     value::JSValue,
@@ -12,6 +20,7 @@ use crate::{
 
 #[derive(Debug)]
 pub struct ProxyObjPayload {
+    /// TODO: use JSObject?
     pub target: JSValue,
     pub handler: JSValue,
     pub is_func: bool,
@@ -177,6 +186,12 @@ impl Proxy {
         }
     }
 
+    /// get proxied method
+    #[inline(always)]
+    pub fn get_method(&self, ctx: &JSContext, name: JSAtom) -> Result<JSValue, i32> {
+        self.payload().get_method(ctx, name)
+    }
+
     pub fn is_array(&self, ctx: &JSContext) -> Result<bool, i32> {
         if js_check_stack_overflow(ctx.rt(), 0) {
             ctx.throw_stack_overflow();
@@ -237,3 +252,496 @@ impl JSObject {
         unsafe { &*(self as *const JSObject as *const Proxy) }
     }
 }
+
+//
+// Proxy class exotic methods
+//
+
+fn js_proxy_get_own_property(
+    ctx: &JSContext,
+    obj: JSValue,
+    prop: JSAtom,
+) -> Result<Option<JSPropertyDescriptor>, i32> {
+    let Some(px) = obj.object().and_then(|x| x.as_proxy()).map(|x| x.payload()) else {
+        return Err(-1);
+    };
+
+    let method = px.get_method(ctx, JS_ATOM_getOwnPropertyDescriptor)?;
+    if method.is_undefined() {
+        return px.target.get_own_property(ctx, prop);
+    }
+
+    let trap_result_obj = method.call(
+        ctx,
+        &px.handler,
+        &[px.target.clone(), prop.to_string(ctx)?.into()],
+    )?;
+    if !matches!(trap_result_obj, JSValue::Object(_) | JSValue::UNDEFINED) {
+        ctx.throw_type_error("proxy: inconsistent getOwnPropertyDescriptor ");
+        return Err(-1);
+    }
+
+    let target_desc = px.target.get_own_property(ctx, prop)?;
+
+    if let JSValue::Object(trap_result_obj) = trap_result_obj {
+        let result_desc = JSPropertyDescriptor::parse(ctx, &trap_result_obj)?;
+
+        if let Some(target_desc) = &target_desc {
+            // convert result_desc.flags to defineProperty flags
+            let flags1 = result_desc.flags
+                | JS_PROP_HAS_CONFIGURABLE
+                | JS_PROP_HAS_ENUMERABLE
+                | if result_desc.flags & JS_PROP_GETSET != 0 {
+                    JS_PROP_HAS_GET | JS_PROP_HAS_SET
+                } else {
+                    JS_PROP_HAS_VALUE | JS_PROP_HAS_WRITABLE
+                };
+
+            // XXX: not complete check: need to compare value & getter/setter as in defineproperty
+            if !check_define_prop_flags(target_desc.flags, flags1) {
+                ctx.throw_type_error("proxy: inconsistent getOwnPropertyDescriptor");
+                return Err(-1);
+            }
+        } else {
+            if !px.target.is_extensible(ctx)? {
+                ctx.throw_type_error("proxy: inconsistent getOwnPropertyDescriptor");
+                return Err(-1);
+            }
+        }
+
+        if result_desc.flags & JS_PROP_CONFIGURABLE == 0 {
+            if target_desc
+                .as_ref()
+                .map_or(true, |d| d.flags & JS_PROP_CONFIGURABLE != 0)
+            {
+                ctx.throw_type_error("proxy: inconsistent getOwnPropertyDescriptor");
+                return Err(-1);
+            }
+
+            if result_desc.flags & (JS_PROP_GETSET | JS_PROP_WRITABLE) == 0
+                && target_desc
+                    .as_ref()
+                    .map_or(false, |d| d.flags & JS_PROP_WRITABLE != 0)
+            {
+                // proxy-missing-checks
+                ctx.throw_type_error("proxy: inconsistent getOwnPropertyDescriptor");
+                return Err(-1);
+            }
+        }
+
+        Ok(Some(result_desc))
+    } else {
+        // trap_result_obj is undefined
+        if let Some(desc) = target_desc {
+            if (desc.flags & JS_PROP_CONFIGURABLE == 0)
+                || !px.target.object().unwrap().flags().extensible()
+            {
+                ctx.throw_type_error("proxy: inconsistent getOwnPropertyDescriptor");
+                return Err(-1);
+            }
+        }
+
+        Ok(None)
+    }
+}
+
+fn js_proxy_define_own_property(
+    ctx: &JSContext,
+    obj: &JSValue,
+    prop: JSAtom,
+    val: JSValue,
+    getter: JSValue,
+    setter: JSValue,
+    flags: i32,
+) -> Result<bool, i32> {
+    let flags = flags as u32;
+
+    let Some(px) = obj.object().and_then(|x| x.as_proxy()).map(|x| x.payload()) else {
+        return Err(-1);
+    };
+
+    let method = px.get_method(ctx, JS_ATOM_defineProperty)?;
+    if method.is_undefined() {
+        return px
+            .target
+            .define_property(ctx, prop, val, getter, setter, flags);
+    }
+
+    let ret = method
+        .call(
+            ctx,
+            &px.handler,
+            &[
+                px.target.clone(),
+                prop.to_string(ctx)?.into(),
+                JSPropertyDescriptor {
+                    value: val.clone(),
+                    getter: getter.clone(),
+                    setter: setter.clone(),
+                    flags,
+                }
+                .make_object(ctx)?
+                .into(),
+            ],
+        )?
+        .to_bool()?;
+
+    if !ret {
+        return if flags & JS_PROP_THROW != 0 {
+            ctx.throw_type_error("proxy: defineProperty exception");
+            Err(-1)
+        } else {
+            Ok(false)
+        };
+    }
+
+    let res = px.target.get_own_property(ctx, prop)?;
+    let setting_not_configurable =
+        flags & (JS_PROP_HAS_CONFIGURABLE | JS_PROP_CONFIGURABLE) == JS_PROP_HAS_CONFIGURABLE;
+
+    if let Some(desc) = res {
+        if !check_define_prop_flags(desc.flags, flags)
+            || (desc.flags & JS_PROP_CONFIGURABLE != 0 && setting_not_configurable)
+        {
+            ctx.throw_type_error("proxy: inconsistent defineProperty");
+            return Err(-1);
+        }
+
+        if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0 {
+            if desc.flags & (JS_PROP_GETSET | JS_PROP_CONFIGURABLE) == JS_PROP_GETSET {
+                if (flags & JS_PROP_HAS_GET) != 0 && !getter.is_same(&desc.getter) {
+                    ctx.throw_type_error("proxy: inconsistent defineProperty");
+                    return Err(-1);
+                }
+                if (flags & JS_PROP_HAS_SET) != 0 && !setter.is_same(&desc.setter) {
+                    ctx.throw_type_error("proxy: inconsistent defineProperty");
+                    return Err(-1);
+                }
+            }
+        } else if flags & JS_PROP_HAS_VALUE != 0 {
+            if desc.flags & (JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE) == JS_PROP_WRITABLE
+                && (flags & JS_PROP_WRITABLE) == 0
+            {
+                // missing-proxy-check feature
+                ctx.throw_type_error("proxy: inconsistent defineProperty");
+                return Err(-1);
+            } else if desc.flags & (JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE) == 0
+                && !val.is_same(&desc.value)
+            {
+                ctx.throw_type_error("proxy: inconsistent defineProperty");
+                return Err(-1);
+            }
+        }
+        if (flags & JS_PROP_HAS_WRITABLE) != 0 {
+            if (desc.flags & (JS_PROP_GETSET | JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE))
+                == JS_PROP_WRITABLE
+            {
+                // proxy-missing-checks
+                ctx.throw_type_error("proxy: inconsistent defineProperty");
+                return Err(-1);
+            }
+        }
+    } else {
+        if setting_not_configurable || px.target.object().unwrap().flags().extensible() {
+            ctx.throw_type_error("proxy: inconsistent defineProperty");
+            return Err(-1);
+        }
+    }
+
+    Ok(true)
+}
+
+fn js_proxy_delete_property(ctx: &JSContext, obj: JSValue, atom: JSAtom) -> Result<bool, i32> {
+    let Some(px) = obj.object().and_then(|x| x.as_proxy()).map(|x| x.payload()) else {
+        return Err(-1);
+    };
+
+    let method = px.get_method(ctx, JS_ATOM_deleteProperty)?;
+    if method.is_undefined() {
+        return px.target.delete_property(ctx, atom, 0);
+    }
+
+    let res = method
+        .call(
+            ctx,
+            &px.handler,
+            &[px.target.clone(), atom.to_string(ctx)?.into()],
+        )?
+        .to_bool()?;
+
+    if res {
+        if let Some(desc) = px.target.get_own_property(ctx, atom)? {
+            if desc.flags & JS_PROP_CONFIGURABLE == 0 {
+                ctx.throw_type_error("proxy: inconsistent deleteProperty");
+                return Err(-1);
+            }
+            if !px.target.is_extensible(ctx)? {
+                ctx.throw_type_error("proxy: inconsistent deleteProperty");
+                return Err(-1);
+            }
+        }
+    }
+
+    Ok(res)
+}
+
+fn js_proxy_get_own_property_names(
+    ctx: &JSContext,
+    obj: &JSObject,
+) -> Result<Box<[PropertyKey]>, i32> {
+    let Some(px) = obj.as_proxy().map(|x| x.payload()) else {
+        return Err(-1);
+    };
+
+    if px.is_revoked {
+        ctx.throw_type_error_revoked_proxy();
+        return Err(-1);
+    }
+
+    let method = px.get_method(ctx, JS_ATOM_ownKeys)?;
+    if method.is_undefined() {
+        return px
+            .target
+            .object()
+            .unwrap()
+            .query_own_property_names(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK);
+    }
+
+    let prop_array = method.call(ctx, &px.handler, std::slice::from_ref(&px.target))?;
+    let len = prop_array.get_length_prop(ctx)? as usize;
+
+    let mut tab = Vec::<PropertyKey>::new();
+    if len > 0 {
+        tab.try_reserve_exact(len).map_err(|_| {
+            ctx.throw_out_of_memory();
+            -1
+        })?;
+    }
+
+    for i in 0..len {
+        let val = prop_array.get_property_u32(ctx, i as u32)?;
+        if !matches!(val, JSValue::String(_) | JSValue::Symbol(_)) {
+            ctx.throw_type_error("proxy: properties must be strings or symbols");
+            return Err(-1);
+        }
+
+        let atom = val.to_atom(ctx)?;
+
+        if !tab.is_empty() {
+            if tab.iter().any(|k| k.atom == atom) {
+                for x in tab.drain(..) {
+                    JS_FreeAtom(ctx, x.atom);
+                }
+                ctx.throw_type_error("proxy: duplicate property");
+                return Err(-1);
+            }
+        }
+        tab.push(PropertyKey::new(ctx, atom, false, false));
+    }
+
+    // check if there are non configurable properties
+    let is_extensible = px.target.is_extensible(ctx)?;
+    let mut has_err = false;
+
+    for k2 in px
+        .target
+        .object()
+        .unwrap()
+        .query_own_property_names(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK)?
+    {
+        if !has_err {
+            if px.is_revoked {
+                ctx.throw_type_error_revoked_proxy();
+                has_err = true;
+            } else {
+                match px.target.get_own_property(ctx, k2.atom) {
+                    Ok(Some(desc)) => {
+                        // safety, property should be found
+                        if desc.flags & JS_PROP_CONFIGURABLE == 0 || !is_extensible {
+                            if let Some(p) = tab.iter_mut().find(|p| p.atom == k2.atom) {
+                                // mark the property as found
+                                if !is_extensible {
+                                    p.is_enumerable = true;
+                                }
+                            } else {
+                                ctx.throw_type_error(
+                                    "proxy: target property must be present in proxy ownKeys",
+                                );
+                                has_err = true;
+                            }
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(_) => {
+                        has_err = true;
+                    }
+                }
+            }
+        }
+
+        JS_FreeAtom(ctx, k2.atom);
+    }
+    if has_err {
+        return Err(-1);
+    }
+
+    if !is_extensible {
+        // check that all property in 'tab' were checked
+        if tab.iter().any(|p| !p.is_enumerable) {
+            // found an item with is_enumerable=FALSE
+            ctx.throw_type_error(
+                "proxy: property not present in target were returned by non extensible proxy",
+            );
+            return Err(-1);
+        }
+    }
+
+    Ok(tab.into_boxed_slice())
+}
+
+fn js_proxy_has(ctx: &JSContext, obj: &JSObject, atom: JSAtom) -> Result<bool, i32> {
+    let Some(px) = obj.as_proxy().map(|x| x.payload()) else {
+        return Err(-1);
+    };
+
+    let method = px.get_method(ctx, JS_ATOM_has)?;
+    if method.is_undefined() {
+        return px.target.has_property(ctx, atom);
+    }
+
+    let ret = method
+        .call(
+            ctx,
+            &px.handler,
+            &[px.target.clone(), atom.to_string(ctx)?.into()],
+        )?
+        .to_bool()?;
+
+    if !ret {
+        if let Some(desc) = px.target.get_own_property(ctx, atom)? {
+            if desc.flags & JS_PROP_CONFIGURABLE == 0
+                || !px.target.object().unwrap().flags().extensible()
+            {
+                ctx.throw_type_error("proxy: inconsistent has");
+                return Err(-1);
+            }
+        }
+
+        if let Some(desc) = px.target.get_own_property(ctx, atom)? {
+            if desc.flags & JS_PROP_CONFIGURABLE == 0
+                || !px.target.object().unwrap().flags().extensible()
+            {
+                ctx.throw_type_error("proxy: inconsistent has");
+                return Err(-1);
+            }
+        }
+    }
+
+    Ok(ret)
+}
+
+fn js_proxy_get(ctx: &JSContext, obj: JSValue, atom: JSAtom, receiver: JSValue) -> JSResult {
+    let Some(px) = obj.object().and_then(|p| p.as_proxy()).map(|x| x.payload()) else {
+        return Err(-1);
+    };
+
+    let method = px.get_method(ctx, JS_ATOM_get)?;
+
+    // Note: recursion is possible thru the prototype of s.target
+    if method.is_undefined() {
+        return px.target.get_property_internal(ctx, atom, &receiver, false);
+    }
+
+    let ret = method.call(
+        ctx,
+        &px.handler,
+        &[px.target.clone(), atom.to_string(ctx)?.into(), receiver],
+    )?;
+
+    if let Some(desc) = px.target.get_own_property(ctx, atom)? {
+        if desc.flags & (JS_PROP_GETSET | JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE) == 0 {
+            if !desc.value.is_same(&ret) {
+                ctx.throw_type_error("proxy: inconsistent get ");
+                return Err(-1);
+            }
+        } else if desc.flags & (JS_PROP_GETSET | JS_PROP_CONFIGURABLE) == JS_PROP_GETSET {
+            if desc.getter.is_undefined() && !ret.is_undefined() {
+                ctx.throw_type_error("proxy: inconsistent get ");
+                return Err(-1);
+            }
+        }
+    }
+
+    Ok(ret)
+}
+
+fn js_proxy_set(
+    ctx: &JSContext,
+    obj: JSValue,
+    atom: JSAtom,
+    value: JSValue,
+    receiver: JSValue,
+    flags: i32,
+) -> Result<bool, i32> {
+    let Some(s) = obj.object().and_then(|p| p.as_proxy()).map(|x| x.payload()) else {
+        return Err(-1);
+    };
+
+    let method = s.get_method(ctx, JS_ATOM_set)?;
+    if method.is_undefined() {
+        return JSValue::set_property_internal(
+            ctx,
+            &s.target,
+            atom,
+            value,
+            &receiver,
+            flags as u32,
+        );
+    }
+
+    let ret = method
+        .call(
+            ctx,
+            &s.handler,
+            &[
+                s.target.clone(),
+                atom.to_string(ctx)?.into(),
+                value.clone(),
+                receiver,
+            ],
+        )?
+        .to_bool()?;
+
+    if ret {
+        if let Some(desc) = s.target.get_own_property(ctx, atom)? {
+            if desc.flags & (JS_PROP_GETSET | JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE) == 0 {
+                if !desc.value.is_same(&value) {
+                    ctx.throw_type_error("proxy: inconsistent set");
+                    return Err(-1);
+                }
+            } else if desc.flags & (JS_PROP_GETSET | JS_PROP_CONFIGURABLE) == JS_PROP_GETSET
+                && !desc.setter.is_undefined()
+            {
+                ctx.throw_type_error("proxy: inconsistent set");
+                return Err(-1);
+            }
+        }
+    } else {
+        if ctx.should_throw_error(flags as u32) {
+            ctx.throw_type_error("proxy: cannot set property");
+            return Err(-1);
+        }
+    }
+
+    Ok(ret)
+}
+
+pub static js_proxy_exotic_methods: JSClassExoticMethods = JSClassExoticMethods {
+    get_own_property: Some(js_proxy_get_own_property),
+    define_own_property: Some(js_proxy_define_own_property),
+    delete_property: Some(js_proxy_delete_property),
+    get_own_property_names: Some(js_proxy_get_own_property_names),
+    has_property: Some(js_proxy_has),
+    get_property: Some(js_proxy_get),
+    set_property: Some(js_proxy_set),
+};

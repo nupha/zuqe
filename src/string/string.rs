@@ -727,7 +727,7 @@ pub unsafe fn strstart(str: *const u8, val: *const u8, ptr: *mut *const u8) -> b
 }
 
 //
-// String class methods
+// String class exotic methods
 //
 
 /// prop is not consumed
@@ -735,32 +735,32 @@ fn string_define_own_property(
     ctx: &JSContext,
     this_obj: &JSValue,
     prop: JSAtom,
-    val: JSValueConst,
-    getter: JSValueConst,
-    setter: JSValueConst,
+    val: JSValue,
+    getter: JSValue,
+    setter: JSValue,
     flags: i32,
-) -> i32 {
+) -> Result<bool, i32> {
     macro_rules! fail {
         () => {
-            return if ctx.throw_type_error_or_false(flags as _, "property is not configurable") {
-                0
+            return if ctx.should_throw_error(flags as _) {
+                ctx.throw_type_error("property is not configurable");
+                Err(-1)
             } else {
-                -1
+                Ok(false)
             };
         };
     }
+
     macro_rules! def {
         () => {
-            return this_obj
-                .define_property(
-                    ctx,
-                    prop,
-                    val,
-                    getter,
-                    setter,
-                    flags as u32 | JS_PROP_NO_EXOTIC,
-                )
-                .map_or(-1, |b| b as i32);
+            return this_obj.define_property(
+                ctx,
+                prop,
+                val,
+                getter,
+                setter,
+                flags as u32 | JS_PROP_NO_EXOTIC,
+            );
         };
     }
 
@@ -773,7 +773,7 @@ fn string_define_own_property(
             if idx >= len as u32 {
                 def!();
             }
-            if unsafe { !check_define_prop_flags(JS_PROP_ENUMERABLE, flags as _) } {
+            if !check_define_prop_flags(JS_PROP_ENUMERABLE, flags as _) {
                 fail!();
             }
 
@@ -794,7 +794,7 @@ fn string_define_own_property(
                     fail!();
                 }
             }
-            1
+            Ok(true)
         } else {
             def!();
         }

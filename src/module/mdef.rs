@@ -11,7 +11,7 @@ use crate::{
     class::JSClassExoticMethods,
     context::{JSContext, JSContextInner},
     error::{JS_ThrowSyntaxError, JSResult},
-    function::{JSFunctionDef, JSVarKindEnum, JSVarRef, FuncObjPayload},
+    function::{FuncObjPayload, JSFunctionDef, JSVarKindEnum, JSVarRef},
     module::{JSExportEntry, JSExportTypeEnum, JSImportEntry, JSModuleStatus, ModuleDependency},
     object::{JS_PROP_C_W_E, JSObject, ObjectPayload},
     promise::Promise,
@@ -562,8 +562,8 @@ pub fn js_default_module_normalize_name(
 }
 
 /* Unfortunately, the spec gives a different behavior from GetOwnProperty ! */
-fn js_module_ns_has(ctx: &JSContext, obj: &JSObject, prop: JSAtom) -> i32 {
-    (!obj.has_shape_property(prop)) as i32
+fn js_module_ns_has(ctx: &JSContext, obj: &JSObject, prop: JSAtom) -> Result<bool, i32> {
+    Ok(!obj.has_shape_property(prop))
 }
 
 pub static js_module_ns_exotic_methods: JSClassExoticMethods = JSClassExoticMethods {

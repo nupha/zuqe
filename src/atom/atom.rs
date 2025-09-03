@@ -281,8 +281,9 @@ impl JSContext {
 }
 
 impl JSValue {
-    /// convert value to atom.
-    /// returned atom is cloned, caller should free it after use.
+    /// convert value to atom. if value is not string or symbol, corece value to string then convert to atom.
+    ///
+    /// Note: returned atom is cloned, caller should free it after use.
     pub fn to_atom(&self, ctx: &JSContext) -> Result<JSAtom, i32> {
         match self {
             JSValue::UNDEFINED => Ok(JS_ATOM_undefined),

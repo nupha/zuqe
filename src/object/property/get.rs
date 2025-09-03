@@ -96,13 +96,13 @@ impl JSObject {
                             };
                         }
                     }
-                } else if let Some(xm) = unsafe {
+                } else if let Some(m) = unsafe {
                     ctx.rt().class_defs[cur_obj.class_id() as usize]
                         .exotic
                         .as_ref()
                 } {
                     // use exotic handlers
-                    if let Some(cb) = xm.get_property {
+                    if let Some(cb) = m.get_property {
                         /* XXX: should pass throw_ref_error */
                         /* Note: if 'p' is a prototype, it can be
                         freed in the called function */
@@ -111,10 +111,9 @@ impl JSObject {
                             JSValue::Object(cur_obj.clone()),
                             prop,
                             this_obj.clone(),
-                        )
-                        .err();
+                        );
                     }
-                    if let Some(cb) = xm.get_own_property {
+                    if let Some(cb) = m.get_own_property {
                         if let Some(desc) = cb(ctx, JSValue::Object(cur_obj.clone()), prop)? {
                             return if desc.flags & JS_PROP_GETSET != 0 {
                                 desc.getter.call(ctx, this_obj, &[])

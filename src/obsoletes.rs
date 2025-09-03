@@ -1667,7 +1667,9 @@ pub fn JS_IsError(val: &JSValueConst) -> bool {
 }
 
 /// Note: `val` is consumed
-#[deprecated(note = "use JSValue::set_property_internal() instead")]
+#[deprecated(
+    note = "use JSValue::set_property_internal() or JSObject::set_property_internal() instead"
+)]
 pub unsafe fn JS_SetPropertyInternal(
     ctx: &JSContext,
     obj: JSValueConst,
@@ -2136,7 +2138,7 @@ pub unsafe fn __JS_AtomToValue(ctx: &JSContext, atom: JSAtom, force_string: bool
         .unwrap_or(JSValue::EXCEPTION)
 }
 
-#[deprecated(note = "use JSAtom::to_value() instead")]
+#[deprecated(note = "use JSAtom::to_string().into() instead")]
 pub unsafe fn JS_AtomToValue(ctx: &JSContext, atom: JSAtom) -> JSValue {
     __JS_AtomToValue(ctx, atom, false)
 }
@@ -2180,7 +2182,7 @@ pub unsafe fn JS_IsExtensible(ctx: &JSContext, obj: &JSValue) -> Result<bool, i3
 /* Return -1 if exception,
 FALSE if the property does not exist, TRUE if it exists. If TRUE is
 returned, the property descriptor 'desc' is filled present. */
-#[deprecated(note = "use JSObject::get_own_property() instead")]
+#[deprecated(note = "use JSValue::get_own_property() or JSObject::get_own_property() instead")]
 pub unsafe fn JS_GetOwnPropertyInternal(
     ctx: &JSContext,
     desc: *mut JSPropertyDescriptor,
@@ -4149,4 +4151,24 @@ pub unsafe fn js_proxy_setPrototypeOf(
             Ok(true)
         }
     }
+}
+
+#[deprecated(note = "use JSPropertyDescriptor::parse() instead")]
+pub fn js_obj_to_desc(
+    ctx: *const JSContext,
+    d: *mut JSPropertyDescriptor,
+    desc: JSValueConst,
+) -> i32 {
+    unreachable!("unused");
+}
+
+#[deprecated(note = "use JSPropertyDescriptor::make_object() instead")]
+pub fn js_create_desc(
+    ctx: *const JSContext,
+    val: JSValue,
+    getter: JSValue,
+    setter: JSValue,
+    flags: u32,
+) -> JSValue {
+    unreachable!("unused")
 }

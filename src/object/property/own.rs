@@ -439,7 +439,7 @@ impl JSObject {
                             unsafe { ctx.rt().class_defs[cid as usize].exotic.as_ref() }
                         {
                             if let Some(cb) = em.define_own_property {
-                                let r = cb(
+                                return match cb(
                                     ctx,
                                     &JSValue::Object(self.clone()),
                                     prop,
@@ -447,15 +447,15 @@ impl JSObject {
                                     getter,
                                     setter,
                                     flags as _,
-                                );
-                                return if r < 0 {
-                                    if ctx.should_throw_error(flags) {
-                                        Err(-1)
-                                    } else {
-                                        Ok(false)
+                                ) {
+                                    Ok(b) => Ok(b),
+                                    Err(e) => {
+                                        if ctx.should_throw_error(flags) {
+                                            Err(e)
+                                        } else {
+                                            Ok(false)
+                                        }
                                     }
-                                } else {
-                                    Ok(r != 0)
                                 };
                             }
 

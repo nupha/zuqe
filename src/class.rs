@@ -45,12 +45,20 @@ pub type DefineOwnPropertyFn = fn(
     getter: JSValue,
     setter: JSValue,
     flags: i32,
-) -> i32;
-pub type HasPropertyFn = fn(ctx: &JSContext, target: &JSObject, prop: JSAtom) -> i32;
-pub type GetPropertyFn =
-    fn(ctx: &JSContext, target: JSValue, prop: JSAtom, this_obj: JSValue) -> JSValue;
+) -> Result<bool, i32>;
+
+pub type HasPropertyFn = fn(ctx: &JSContext, target: &JSObject, prop: JSAtom) -> Result<bool, i32>;
+
+/// TODO: change target type to &JSObject
 pub type GetOwnPropertyFn =
     fn(ctx: &JSContext, target: JSValue, prop: JSAtom) -> Result<Option<JSPropertyDescriptor>, i32>;
+
+pub type GetOwnPropertyNamesFn =
+    fn(ctx: &JSContext, target: &JSObject) -> Result<Box<[PropertyKey]>, i32>;
+
+pub type GetPropertyFn =
+    fn(ctx: &JSContext, target: JSValue, prop: JSAtom, this_obj: JSValue) -> JSResult;
+
 pub type SetPropertyFn = fn(
     ctx: &JSContext,
     target: JSValue,
@@ -59,13 +67,14 @@ pub type SetPropertyFn = fn(
     this_obj: JSValue,
     flags: i32,
 ) -> Result<bool, i32>;
-pub type DeletePropertyFn = fn(ctx: &JSContext, val: JSValue, prop: JSAtom) -> Result<bool, i32>;
+
+/// TODO: change target type to &JSObject
+pub type DeletePropertyFn = fn(ctx: &JSContext, target: JSValue, prop: JSAtom) -> Result<bool, i32>;
 
 #[derive(Copy, Clone, Default)]
 pub struct JSClassExoticMethods {
     pub get_own_property: Option<GetOwnPropertyFn>,
-    pub get_own_property_names:
-        Option<fn(&JSContext, *mut *mut PropertyKey, *mut u32, JSValue) -> i32>,
+    pub get_own_property_names: Option<GetOwnPropertyNamesFn>,
     pub delete_property: Option<DeletePropertyFn>,
     pub define_own_property: Option<DefineOwnPropertyFn>,
     pub has_property: Option<HasPropertyFn>,
@@ -399,31 +408,27 @@ fn js_arguments_define_own_property(
     getter: JSValue,
     setter: JSValue,
     flags: i32,
-) -> i32 {
-    let p = unsafe { this_obj.object_unchecked() };
+) -> Result<bool, i32> {
+    let p = this_obj.object().unwrap();
 
-    /* convert to normal array when redefining an existing numeric field */
+    // convert to normal array when redefining an existing numeric field
     if p.flags().is_fast_array()
         && prop
             .to_array_index(ctx.rt())
             .map_or(false, |i| i < p.fast_array_count())
     {
-        if p.destruct_fast_array(ctx).is_err() {
-            return -1;
-        }
+        p.destruct_fast_array(ctx)?;
     }
 
-    /* run the default define own property */
-    this_obj
-        .define_property(
-            ctx,
-            prop,
-            val,
-            getter,
-            setter,
-            flags as u32 | JS_PROP_NO_EXOTIC,
-        )
-        .map_or(-1, |b| b as i32)
+    // run the default define own property
+    this_obj.define_property(
+        ctx,
+        prop,
+        val,
+        getter,
+        setter,
+        flags as u32 | JS_PROP_NO_EXOTIC,
+    )
 }
 
 pub static js_arguments_exotic_methods: JSClassExoticMethods = JSClassExoticMethods {

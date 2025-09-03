@@ -177,6 +177,47 @@ impl JSPropertyDescriptor {
             setter,
         })
     }
+
+    /// build object from descriptor
+    pub fn make_object(&self, ctx: &JSContext) -> Result<JSObject, i32> {
+        let ret = ctx.create_base_object()?;
+
+        if self.flags & JS_PROP_HAS_GET != 0 {
+            ret.define_property_value(ctx, JS_ATOM_get, self.getter.clone(), JS_PROP_C_W_E);
+        }
+        if self.flags & JS_PROP_HAS_SET != 0 {
+            ret.define_property_value(ctx, JS_ATOM_set, self.setter.clone(), JS_PROP_C_W_E);
+        }
+        if self.flags & JS_PROP_HAS_VALUE != 0 {
+            ret.define_property_value(ctx, JS_ATOM_value, self.value.clone(), JS_PROP_C_W_E);
+        }
+        if self.flags & JS_PROP_HAS_WRITABLE != 0 {
+            ret.define_property_value(
+                ctx,
+                JS_ATOM_writable,
+                (self.flags & JS_PROP_WRITABLE != 0).into(),
+                JS_PROP_C_W_E,
+            );
+        }
+        if self.flags & JS_PROP_HAS_ENUMERABLE != 0 {
+            ret.define_property_value(
+                ctx,
+                JS_ATOM_enumerable,
+                (self.flags & JS_PROP_ENUMERABLE != 0).into(),
+                JS_PROP_C_W_E,
+            );
+        }
+        if self.flags & JS_PROP_HAS_CONFIGURABLE != 0 {
+            ret.define_property_value(
+                ctx,
+                JS_ATOM_configurable,
+                (self.flags & JS_PROP_CONFIGURABLE != 0).into(),
+                JS_PROP_C_W_E,
+            );
+        }
+
+        Ok(ret)
+    }
 }
 
 /// the property content
@@ -254,10 +295,7 @@ impl JSObject {
                         .as_ref()
                         .and_then(|x| x.has_property)
                 } {
-                    return match cb(ctx, &p, prop) {
-                        -1 => Err(-1),
-                        n => Ok(n != 0),
-                    };
+                    return cb(ctx, &p, prop);
                 }
             }
 
@@ -412,7 +450,7 @@ pub const fn get_prop_flags(flags: u32, def_flags: u32) -> u32 {
 
 /// Checks if property flags are valid for property definition
 /// Returns false if the flags are invalid
-pub const unsafe fn check_define_prop_flags(prop_flags: u32, flags: u32) -> bool {
+pub const fn check_define_prop_flags(prop_flags: u32, flags: u32) -> bool {
     let has_accessor;
     let is_getset;
 

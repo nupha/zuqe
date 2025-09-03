@@ -30,6 +30,27 @@ pub struct PropertyKey {
     pub is_exotic: bool,
 }
 
+impl PropertyKey {
+    pub fn new(ctx: &JSContext, atom: JSAtom, is_enumerable: bool, is_exotic: bool) -> Self {
+        let kind = atom.kind(ctx.rt());
+
+        let isa = if let Some(idx) = atom.to_array_index(ctx.rt()) {
+            PropertyKeyKind::ArrayIndex(idx as u32)
+        } else if kind == AtomDescKind::JS_ATOM_KIND_STRING {
+            PropertyKeyKind::String
+        } else {
+            PropertyKeyKind::Symbol
+        };
+
+        Self {
+            atom,
+            isa,
+            is_enumerable,
+            is_exotic,
+        }
+    }
+}
+
 impl JSObject {
     /// Iterates over all own properties of object `self` and executes `callback` for each property.
     ///
@@ -90,21 +111,7 @@ impl JSObject {
                         }
                     }
 
-                    callback(
-                        ctx,
-                        PropertyKey {
-                            atom: prs.atom, // NOTE: atom is not duplicated here.
-                            isa: if let Some(idx) = prs.atom.to_array_index(ctx.rt()) {
-                                PropertyKeyKind::ArrayIndex(idx as u32)
-                            } else if kind == AtomDescKind::JS_ATOM_KIND_STRING {
-                                PropertyKeyKind::String
-                            } else {
-                                PropertyKeyKind::Symbol
-                            },
-                            is_enumerable,
-                            is_exotic: false,
-                        },
-                    )?;
+                    callback(ctx, PropertyKey::new(ctx, prs.atom, is_enumerable, false))?;
                 }
             }
         }
@@ -150,24 +157,13 @@ impl JSObject {
                     .as_ref()
                     .and_then(|m| m.get_own_property_names)
             } {
-                let mut exotic_ptr = std::ptr::null_mut::<PropertyKey>();
-                let mut exotic_count: u32 = 0;
-                if f(
-                    ctx,
-                    &mut exotic_ptr,
-                    &mut exotic_count,
-                    JSValue::Object(self.clone()),
-                ) != 0
-                {
-                    return Err(-1);
-                }
-
                 // Note: exotic keys comes after the object own properties.
                 let mut has_err = false;
-                for i in 0..exotic_count {
-                    let atom = unsafe { (*exotic_ptr.offset(i as isize)).atom };
+
+                for pk in f(ctx, self)? {
                     if !has_err {
-                        let atom_kind = atom.kind(ctx.rt());
+                        let atom_kind = pk.atom.kind(ctx.rt());
+
                         if (flags >> (atom_kind as u8)) & 1 != 0 {
                             // XXX: what's the purpose to read `is_enumerable` from descr?
                             // why not use is_enumerable set in exotic get_own_property callback?
@@ -179,11 +175,8 @@ impl JSObject {
                             //     }
                             // }
 
-                            let is_enumerable =
-                                unsafe { (*exotic_ptr.offset(i as isize)).is_enumerable };
-
-                            if is_enumerable || flags & JS_GPN_ENUM_ONLY == 0 {
-                                let isa = if let Some(i) = atom.to_array_index(ctx.rt()) {
+                            if pk.is_enumerable || flags & JS_GPN_ENUM_ONLY == 0 {
+                                let isa = if let Some(i) = pk.atom.to_array_index(ctx.rt()) {
                                     PropertyKeyKind::ArrayIndex(i as u32)
                                 } else if atom_kind == AtomDescKind::JS_ATOM_KIND_STRING {
                                     PropertyKeyKind::String
@@ -193,9 +186,9 @@ impl JSObject {
                                 has_err = callback(
                                     ctx,
                                     PropertyKey {
-                                        atom,
+                                        atom: pk.atom,
                                         isa,
-                                        is_enumerable,
+                                        is_enumerable: pk.is_enumerable,
                                         is_exotic: true,
                                     },
                                 )
@@ -204,11 +197,7 @@ impl JSObject {
                         }
                     }
 
-                    JS_FreeAtom(ctx, atom);
-                }
-
-                unsafe {
-                    js_free(ctx, exotic_ptr.cast());
+                    JS_FreeAtom(ctx, pk.atom);
                 }
 
                 if has_err {
@@ -223,9 +212,8 @@ impl JSObject {
     /// Gets all property names that belong to this object
     ///
     /// Returns a sorted list containing:
-    /// - Property names (numbers, strings, symbols)
-    /// - Sorted by: numbers first, then strings, symbols, and exotic names
-    /// - Each atom is cloned (dup) so that it needs to be freed by caller
+    /// - Property names (numbers, strings, symbols). The atom is cloned, it should be freed by caller.
+    /// - Sorted by: numbers first, then strings, symbols, and exotic names.
     /// - Can be filtered using flags
     pub(crate) fn query_own_property_names(
         &self,
