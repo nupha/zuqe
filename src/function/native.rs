@@ -417,9 +417,7 @@ impl JSContext {
 
         // define properties length and name on function.
         let name_atom = JSAtom::new(self.rt_mut(), name)?;
-        unsafe {
-            js_function_set_properties(self, &func_obj.clone().into(), name_atom, length as i32);
-        }
+        js_function_set_properties(self, &func_obj, name_atom, length as i32);
         JS_FreeAtom(self, name_atom);
 
         Ok(func_obj.into())

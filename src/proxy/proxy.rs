@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use std::{cell::Cell, ops::Deref};
 
 use crate::{
     JS_CLASS_PROXY,
@@ -23,7 +23,7 @@ pub struct ProxyObjPayload {
     pub target: JSObject,
     pub handler: JSValue,
     pub is_func: bool,
-    pub is_revoked: bool,
+    pub is_revoked: Cell<bool>,
 }
 
 impl ProxyObjPayload {
@@ -35,7 +35,7 @@ impl ProxyObjPayload {
             return Err(-1);
         }
 
-        if self.is_revoked {
+        if self.is_revoked.get() {
             ctx.throw_type_error_revoked_proxy();
             return Err(-1);
         }
@@ -211,7 +211,7 @@ impl Proxy {
         }
 
         let p = self.payload();
-        if p.is_revoked {
+        if p.is_revoked.get() {
             ctx.throw_type_error_revoked_proxy();
             Err(-1)
         } else {
@@ -503,7 +503,7 @@ fn js_proxy_get_own_property_names(
         return Err(-1);
     };
 
-    if px.is_revoked {
+    if px.is_revoked.get() {
         ctx.throw_type_error_revoked_proxy();
         return Err(-1);
     }
@@ -556,31 +556,26 @@ fn js_proxy_get_own_property_names(
         .query_own_property_names(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK)?
     {
         if !has_err {
-            if px.is_revoked {
-                ctx.throw_type_error_revoked_proxy();
-                has_err = true;
-            } else {
-                match px.target.get_own_property(ctx, k2.atom) {
-                    Ok(Some(desc)) => {
-                        // safety, property should be found
-                        if desc.flags & JS_PROP_CONFIGURABLE == 0 || !is_extensible {
-                            if let Some(p) = tab.iter_mut().find(|p| p.atom == k2.atom) {
-                                // mark the property as found
-                                if !is_extensible {
-                                    p.is_enumerable = true;
-                                }
-                            } else {
-                                ctx.throw_type_error(
-                                    "proxy: target property must be present in proxy ownKeys",
-                                );
-                                has_err = true;
+            match px.target.get_own_property(ctx, k2.atom) {
+                Ok(Some(desc)) => {
+                    // safety, property should be found
+                    if desc.flags & JS_PROP_CONFIGURABLE == 0 || !is_extensible {
+                        if let Some(p) = tab.iter_mut().find(|p| p.atom == k2.atom) {
+                            // mark the property as found
+                            if !is_extensible {
+                                p.is_enumerable = true;
                             }
+                        } else {
+                            ctx.throw_type_error(
+                                "proxy: target property must be present in proxy ownKeys",
+                            );
+                            has_err = true;
                         }
                     }
-                    Ok(None) => {}
-                    Err(_) => {
-                        has_err = true;
-                    }
+                }
+                Ok(None) => {}
+                Err(_) => {
+                    has_err = true;
                 }
             }
         }

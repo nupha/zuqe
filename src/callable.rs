@@ -7,7 +7,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, NativeCallback, js_function_set_properties},
     mem::js_malloc_typed,
-    object::ObjectPayload,
+    object::{JSObject, ObjectPayload},
     runtime::JSRuntime,
     value::JSValue,
 };
@@ -92,21 +92,17 @@ impl JSContext {
         length: u8,
         magic: i32,
         data: &[JSValue],
-    ) -> JSResult {
-        let func_obj: JSValue = self
+    ) -> Result<JSObject, i32> {
+        let func_obj = self
             .create_object_from_proto(
                 self.0.borrow().function_proto.clone(),
                 ObjectPayload::C_FUNCTION_DATA(JSCFunctionDataRecord::new(
                     self, callback, length, magic, data,
                 )?),
             )
-            .map_err(|_| -1)?
-            .into();
+            .map_err(|_| -1)?;
 
-        unsafe {
-            js_function_set_properties(self, &func_obj, JS_ATOM_empty_string, length as _);
-        }
-
+        js_function_set_properties(self, &func_obj, JS_ATOM_empty_string, length as _);
         Ok(func_obj)
     }
 }

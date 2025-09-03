@@ -55,7 +55,7 @@ pub enum NativeFieldDetail {
 }
 
 impl JSObject {
-    pub fn install_native_fields(&self, ctx: &JSContext, entries: &[FieldDef]) -> Result<(), i32> {
+    pub fn install_field_defs(&self, ctx: &JSContext, entries: &[FieldDef]) -> Result<(), i32> {
         for entry in entries {
             let atom = ctx.make_lazy_prop_atom(entry.name)?;
             self.install_native_field_entry(ctx, atom, entry)?;
@@ -162,9 +162,9 @@ impl JSObject {
 }
 
 impl JSValue {
-    pub fn install_native_fields(&self, ctx: &JSContext, entries: &[FieldDef]) -> Result<(), i32> {
+    pub fn install_field_defs(&self, ctx: &JSContext, entries: &[FieldDef]) -> Result<(), i32> {
         if let Self::Object(o) = self {
-            o.install_native_fields(ctx, entries)
+            o.install_field_defs(ctx, entries)
         } else {
             ctx.throw_type_error_not_an_object();
             Err(-1)

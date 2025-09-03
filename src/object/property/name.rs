@@ -4,7 +4,6 @@ use crate::{
     context::JSContext,
     error::{JS_ThrowReferenceErrorUninitialized, JSResult},
     iterator::JSIteratorKindEnum,
-    mem::js_free,
     object::{JS_PROP_C_W_E, JS_PROP_TMASK, JS_PROP_VARREF, JSObject, JSProperty},
     string::JSString,
     value::JSValue,

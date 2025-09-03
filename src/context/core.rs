@@ -55,7 +55,7 @@ impl JSContext {
             let error = self.create_base_object().unwrap();
             self.0.borrow_mut().class_proto[JS_CLASS_ERROR as usize] = error.clone().into();
             error
-                .install_native_fields(self, &js_error_proto_funcs)
+                .install_field_defs(self, &js_error_proto_funcs)
                 .unwrap();
 
             // standard error objects

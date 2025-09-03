@@ -175,7 +175,7 @@ impl JSRuntime {
         rt.init_default_atoms()?;
         rt.shape_registry.try_reserve(16).map_err(|_| -1)?;
 
-        // register intrinsic classes
+        // register standard intrinsic classes
         rt.add_classes(&STD_CLASS_DEFS, JS_CLASS_OBJECT)?;
 
         // setup common classes

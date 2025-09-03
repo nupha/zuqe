@@ -393,7 +393,7 @@ fn run_test_file(
     match (config.features.as_deref(), excludes) {
         (Some(features), Some(excl)) => {
             if features.iter().any(|x| excl.contains(x)) {
-                write!(outf, "skip");
+                writeln!(outf, "skip");
                 return;
             }
         }

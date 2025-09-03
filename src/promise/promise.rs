@@ -59,17 +59,12 @@ object_cast!(Promise, JS_CLASS_PROMISE);
 impl Promise {
     /// create new Promise object with given executor function.
     /// `new_target` - the 'new' operator target.
-    /// Note:  `executor` is not consumed, and must be callable.
+    /// `executor` must be a callable object.
     pub(super) fn new_with_executor(
         ctx: &JSContext,
-        executor: JSValue,
+        executor: JSObject,
         new_target: &JSValue,
     ) -> Result<Self, i32> {
-        // debug_assert_eq!(
-        //     executor.object_unchecked().class_id(),
-        //     JS_CLASS_C_FUNCTION_DATA | JS_CLASS_BYTECODE_FUNCTION
-        // );
-
         executor.ensure_callable(ctx)?;
 
         // make promise payload
@@ -88,7 +83,10 @@ impl Promise {
 
         let args = promise.create_resolving_functions(ctx)?;
 
-        if executor.call(ctx, &JSValue::UNDEFINED, &args).is_err() {
+        if JSValue::from(executor)
+            .call(ctx, &JSValue::UNDEFINED, &args)
+            .is_err()
+        {
             let exc = ctx.take_exception();
             args[1].call(ctx, &JSValue::UNDEFINED, &[exc])?;
         }
@@ -112,17 +110,12 @@ impl Promise {
         let result_promise: Self = if ctor.is_undefined() {
             Self::new_with_executor(ctx, executor.clone(), &JSValue::UNDEFINED)?
         } else {
-            JS_CallConstructor(ctx, ctor, std::slice::from_ref(&executor))
+            JS_CallConstructor(ctx, ctor, std::slice::from_ref(&executor.clone().into()))
                 .err()?
                 .try_into()?
         };
 
-        if let ObjectPayload::C_FUNCTION_DATA(s) = unsafe { executor.object_unchecked() }
-            .0
-            .payload
-            .borrow()
-            .deref()
-        {
+        if let ObjectPayload::C_FUNCTION_DATA(s) = executor.0.payload.borrow().deref() {
             let data = s.data();
             debug_assert!(!data.is_empty());
 
@@ -161,10 +154,8 @@ impl Promise {
                     },
                 )
                 .map_err(|_| -1)?;
-            let func: JSValue = func_obj.into();
-
-            unsafe { js_function_set_properties(ctx, &func, JS_ATOM_empty_string, 1) };
-            resolving_funcs[i as usize] = func;
+            js_function_set_properties(ctx, &func_obj, JS_ATOM_empty_string, 1);
+            resolving_funcs[i as usize] = func_obj.into();
         }
 
         Ok(resolving_funcs)
@@ -272,7 +263,12 @@ impl JSContext {
 impl Promise {
     /// the native callback for Promise constructor function
     pub fn hook_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
-        Promise::new_with_executor(ctx, cc.arg(0).clone(), cc.this()).map(|p| p.into())
+        Promise::new_with_executor(
+            ctx,
+            cc.arg(0).ensure_callable(ctx)?.object().unwrap().clone(),
+            cc.this(),
+        )
+        .map(|p| p.into())
     }
 
     /// callback to execute a promise:

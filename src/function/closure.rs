@@ -279,7 +279,7 @@ impl Bytecode {
         ctx: &JSContext,
         cur_var_refs: &[JSVarRef],
         parent_frame: Option<&mut StackFrame>,
-    ) -> JSResult {
+    ) -> Result<JSObject, i32> {
         let (func_kind, name, has_prototype, defined_arg_count) = {
             let b = self.0.borrow();
             (
@@ -290,41 +290,37 @@ impl Bytecode {
             )
         };
 
-        let closure: JSValue = self
-            .make_closure_to(
-                ctx,
-                ctx.create_object(match func_kind {
-                    JSFunctionKindEnum::JS_FUNC_NORMAL => {
-                        ObjectPayload::BYTECODE_FUNCTION(FuncObjPayload::default())
-                    }
-                    JSFunctionKindEnum::JS_FUNC_GENERATOR => {
-                        ObjectPayload::GENERATOR_FUNCTION(FuncObjPayload::default())
-                    }
-                    JSFunctionKindEnum::JS_FUNC_ASYNC => {
-                        ObjectPayload::ASYNC_FUNCTION(FuncObjPayload::default())
-                    }
-                    JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR => {
-                        ObjectPayload::ASYNC_GENERATOR_FUNCTION(FuncObjPayload::default())
-                    }
-                })
-                .map_err(|_| -1)?,
-                cur_var_refs,
-                parent_frame,
-            )?
-            .into();
+        let closure = self.make_closure_to(
+            ctx,
+            ctx.create_object(match func_kind {
+                JSFunctionKindEnum::JS_FUNC_NORMAL => {
+                    ObjectPayload::BYTECODE_FUNCTION(FuncObjPayload::default())
+                }
+                JSFunctionKindEnum::JS_FUNC_GENERATOR => {
+                    ObjectPayload::GENERATOR_FUNCTION(FuncObjPayload::default())
+                }
+                JSFunctionKindEnum::JS_FUNC_ASYNC => {
+                    ObjectPayload::ASYNC_FUNCTION(FuncObjPayload::default())
+                }
+                JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR => {
+                    ObjectPayload::ASYNC_GENERATOR_FUNCTION(FuncObjPayload::default())
+                }
+            })
+            .map_err(|_| -1)?,
+            cur_var_refs,
+            parent_frame,
+        )?;
 
-        unsafe {
-            js_function_set_properties(
-                ctx,
-                &closure,
-                if name == JS_ATOM_NULL {
-                    JS_ATOM_empty_string
-                } else {
-                    name
-                },
-                defined_arg_count as _,
-            );
-        }
+        js_function_set_properties(
+            ctx,
+            &closure,
+            if name == JS_ATOM_NULL {
+                JS_ATOM_empty_string
+            } else {
+                name
+            },
+            defined_arg_count as _,
+        );
 
         if matches!(
             func_kind,
@@ -348,32 +344,17 @@ impl Bytecode {
             // add the 'prototype' property: delay instantiation to avoid
             // creating cycles for every javascript function. The prototype
             // object is created on the fly when first accessed
-            JS_SetConstructorBit(ctx, &closure, true);
+            JS_SetConstructorBit(ctx, &closure.clone().into(), true);
 
-            unsafe {
-                closure
-                    .object_unchecked()
-                    .define_lazy_property(
-                        ctx,
-                        JS_ATOM_prototype,
-                        LazyInit::Prototype,
-                        JS_PROP_WRITABLE,
-                    )
-                    .unwrap();
-            }
+            closure.define_lazy_property(
+                ctx,
+                JS_ATOM_prototype,
+                LazyInit::Prototype,
+                JS_PROP_WRITABLE,
+            )?;
         }
 
-        debug_assert!(
-            closure
-                .object()
-                .unwrap()
-                .0
-                .payload
-                .borrow()
-                .func()
-                .is_some()
-        );
-
+        debug_assert!(closure.0.payload.borrow().func().is_some());
         Ok(closure)
     }
 }

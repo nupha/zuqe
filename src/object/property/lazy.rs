@@ -56,7 +56,7 @@ impl LazyInit {
                     NativeFieldDetail::Str(s) => ctx.create_atom_string(s)?.into(),
                     NativeFieldDetail::Object(list) => {
                         let obj = ctx.create_base_object()?;
-                        obj.install_native_fields(ctx, list.as_ref())?;
+                        obj.install_field_defs(ctx, list.as_ref())?;
                         obj.into()
                     }
                     _ => {

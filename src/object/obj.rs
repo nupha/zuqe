@@ -512,6 +512,11 @@ impl JSObject {
         self.0.is_callable()
     }
 
+    #[inline(always)]
+    pub fn is_constructor(&self) -> bool {
+        self.flags().is_constructor()
+    }
+
     /// return Err(-1) for Proxy only
     pub fn prevent_extensions(&self, ctx: &JSContext) -> Result<bool, i32> {
         self.as_proxy().map_or_else(

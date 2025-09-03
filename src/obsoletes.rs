@@ -15,7 +15,7 @@ use crate::{
         JSAtom, JSAtomStruct, consts::*,
     },
     bytecode::{OpCode, OpCodeTemp, arithmatic::JSStrictEqModeEnum},
-    class::{ClassFieldsDef, JSClassDef, JSClassID},
+    class::{ClassFieldsDef, JSClassDef, JSClassID, JSClassShortDef},
     context::JSContext,
     error::{ErrorKind, JS_ThrowSyntaxError, JSResult},
     function::{
@@ -209,6 +209,15 @@ pub unsafe fn JS_IsRegisteredClass(rt: &JSRuntime, class_id: JSClassID) -> bool 
     (*rt).is_class_registered(class_id)
 }
 
+#[deprecated(note = "use JSRuntime::add_classes() instead")]
+pub unsafe fn init_class_range(
+    rt: &mut JSRuntime,
+    tab: &[JSClassShortDef],
+    start: JSClassID,
+) -> Result<(), i32> {
+    (*rt).add_classes(tab, start)
+}
+
 #[deprecated(note = "not used")]
 pub unsafe fn check_exception_free(ctx: &JSContext, obj: JSValue) -> bool {
     unreachable!("unused");
@@ -305,7 +314,7 @@ pub unsafe fn JS_NewCFunctionData(
         magic,
         std::slice::from_raw_parts(data, data_count as usize),
     )
-    .unwrap_or(JSValue::EXCEPTION)
+    .map_or(JSValue::EXCEPTION, JSValue::Object)
 }
 
 /// op1, op2 ref_count unchanged
@@ -395,7 +404,7 @@ pub unsafe fn JS_NewClass(
     class_id: JSClassID,
     class_def: *const JSClassDef,
 ) -> Result<(), i32> {
-    (*rt).add_class(class_id, class_def.as_ref().unwrap())
+    unreachable!("unused")
 }
 
 /* create a new object internal class. Return -1 if error, 0 if OK. The finalizer can be NULL if none is needed. */
@@ -1831,7 +1840,7 @@ pub unsafe fn JS_GetOwnPropertyNamesInternal(
     unreachable!("unused");
 }
 
-#[deprecated(note = "use JSContext::create_object_with_proto_and_classid() instead")]
+#[deprecated(note = "use JSContext::create_object_from_proto() instead")]
 pub unsafe fn JS_NewObjectProtoClass(
     ctx: &JSContext,
     proto_val: JSValueConst,
@@ -2414,7 +2423,7 @@ pub unsafe fn JS_NewCFunction3(
             // define properties on func_obj: length and name.
             let name_atom = JSAtom::new(ctx.rt_mut(), name).unwrap();
 
-            js_function_set_properties(ctx, &func_obj.clone().into(), name_atom, length as i32);
+            js_function_set_properties(ctx, &func_obj, name_atom, length as i32);
             JS_FreeAtom(ctx, name_atom);
 
             func_obj.into()
@@ -2824,7 +2833,7 @@ pub unsafe fn js_closure(
     parent_frame: Option<&mut StackFrame>,
 ) -> JSValue {
     bc.make_closure(ctx, cur_var_refs, parent_frame)
-        .unwrap_or(JSValue::EXCEPTION)
+        .map_or(JSValue::EXCEPTION, JSValue::Object)
 }
 
 #[deprecated(note = "use Bytecode::make_closure_to() instead")]
@@ -2985,7 +2994,7 @@ pub unsafe fn JS_SetPropertyFunctionList(
     //     .unwrap();
 }
 
-#[deprecated(note = "use JSValue::install_native_fields() instead")]
+#[deprecated(note = "use JSValue::install_field_defs() instead")]
 pub unsafe fn JS_InstantiateFunctionListItem(
     ctx: &JSContext,
     obj: &JSValueConst,

@@ -3,7 +3,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     eval::{Compiled, JS_EVAL_FLAG_STRIP, JS_EVAL_TYPE_MODULE},
-    function::{CallContext, AsyncObjPayload},
+    function::{AsyncObjPayload, CallContext},
     module::{JSModuleStatus, ModuleDefInner},
     promise::Promise,
     runtime::js_check_stack_overflow,
@@ -349,13 +349,15 @@ impl ModuleDef {
                 0,
                 0,
                 &data,
-            )?,
+            )?
+            .into(),
             ctx.create_native_callable_object(
                 ModuleDef::execute_async_reject_callback,
                 0,
                 0,
                 &data,
-            )?,
+            )?
+            .into(),
         )?;
 
         Ok(())

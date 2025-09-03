@@ -45,7 +45,7 @@ pub unsafe fn js_async_from_sync_iterator_unwrap_func_create(
         0,
         &[JSValue::Bool(done)],
     )
-    .unwrap_or(JSValue::EXCEPTION)
+    .map_or(JSValue::EXCEPTION, JSValue::Object)
 }
 
 pub fn js_async_from_sync_iterator_next(ctx: &JSContext, cc: CallContext) -> JSResult {

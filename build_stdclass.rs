@@ -312,7 +312,7 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         // Proxy
         //
         class_def!(
-            "Proxy",
+            "Object", // Proxy class name is Object
             "PROXY",
             Some("Box<crate::proxy::ProxyObjPayload>"),
             Some("crate::proxy::Proxy::hook_finalizer"),

@@ -653,7 +653,7 @@ impl Bytecode {
                             SP_PUT!(
                                 0,
                                 bc.make_closure(ctx, closure_var_refs, Some(stack_frame))
-                                    .unwrap_or(JSValue::EXCEPTION)
+                                    .map_or(JSValue::EXCEPTION, JSValue::Object)
                             );
                             SP_GO!(1);
                             if SP_REF!(-1).is_exception() {

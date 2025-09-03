@@ -90,20 +90,18 @@ pub struct JSClassShortDef {
 
 #[derive(Copy, Clone)]
 pub struct JSClassDef {
-    pub class_name: &'static str,
     pub finalizer: Option<JSClassFinalizer>,
     pub gc_mark: Option<JSClassGCMark>,
 
-    /// native callback when called
+    /// callback handler when called
     pub call: Option<ClassCallFn>,
-
+    /// exotic method handlers
     pub exotic: *const JSClassExoticMethods,
 }
 
 impl Default for JSClassDef {
     fn default() -> Self {
         Self {
-            class_name: "",
             finalizer: None,
             gc_mark: None,
             call: None,
@@ -128,18 +126,10 @@ pub struct JSClass {
     pub exotic: *const JSClassExoticMethods,
 }
 
-#[deprecated(note = "use JSRuntime::add_classes() instead")]
-pub unsafe fn init_class_range(
-    rt: &mut JSRuntime,
-    tab: &[JSClassShortDef],
-    start: JSClassID,
-) -> Result<(), i32> {
-    (*rt).add_classes(tab, start)
-}
-
 impl JSRuntime {
     /// create a new object internal class. The finalizer can be NULL if none is needed.
-    unsafe fn add_class_internal(
+    /// `name` is not consumed.
+    pub(crate) fn add_class_internal(
         &mut self,
         class_id: JSClassID,
         class_def: &JSClassDef,
@@ -193,32 +183,38 @@ impl JSRuntime {
         Ok(())
     }
 
-    /// register a class def to runtime, with given class_id
-    pub fn add_class(&mut self, class_id: JSClassID, class_def: &JSClassDef) -> Result<(), i32> {
-        let name =
-            if let Some(a) = JSAtom::find(self, class_def.class_name, AtomTypeHint::String) {
-                a
-            } else {
-                JSAtom::from_str(self, class_def.class_name, AtomTypeHint::String)?
-            }
-            .into_rc(self);
-        unsafe { self.add_class_internal(class_id, class_def, *name) }
+    /// register a class, with given class_id and class name str.
+    pub(crate) fn add_class(
+        &mut self,
+        class_id: JSClassID,
+        class_def: &JSClassDef,
+        name: &str,
+    ) -> Result<(), i32> {
+        let name = if let Some(a) = JSAtom::find(self, name, AtomTypeHint::String) {
+            a
+        } else {
+            JSAtom::from_str(self, name, AtomTypeHint::String)?
+        }
+        .into_rc(self);
+        self.add_class_internal(class_id, class_def, *name)
     }
 
-    pub fn add_classes(&mut self, tab: &[JSClassShortDef], start: JSClassID) -> Result<(), i32> {
+    /// add multiple class defs.
+    pub(crate) fn add_classes(
+        &mut self,
+        tab: &[JSClassShortDef],
+        start: JSClassID,
+    ) -> Result<(), i32> {
         let mut class_id = start;
-        for el in tab {
+
+        for item in tab {
             let cd = JSClassDef {
-                class_name: "",
                 exotic: std::ptr::null(),
-                finalizer: el.finalizer,
-                gc_mark: el.gc_mark,
+                finalizer: item.finalizer,
+                gc_mark: item.gc_mark,
                 call: None,
             };
-            unsafe {
-                self.add_class_internal(class_id, &cd, el.class_name)?;
-            }
-
+            self.add_class_internal(class_id, &cd, item.class_name)?;
             class_id += 1;
         }
 

@@ -102,6 +102,19 @@ impl FuncObjPayload {
     }
 }
 
+impl JSObject {
+    /// check if `self` is a function or a callable object.
+    /// raise exception if not.
+    pub fn ensure_callable(&self, ctx: &JSContext) -> Result<&Self, i32> {
+        if self.is_callable() {
+            Ok(self)
+        } else {
+            ctx.throw_type_error("not a function");
+            Err(-1)
+        }
+    }
+}
+
 impl JSValue {
     /// check if value `self` is a function or a callable object.
     /// raise exception if not.
@@ -152,12 +165,12 @@ pub fn JS_GetFunctionRealm(ctx: &JSContext, func_obj: &JSValue) -> Result<JSCont
                 .upgrade()
                 .unwrap_or(ctx.clone());
         }
-        ObjectPayload::PROXY(s) => {
-            if s.is_revoked {
+        ObjectPayload::PROXY(px) => {
+            if px.is_revoked.get() {
                 ctx.throw_type_error_revoked_proxy();
                 return Err(-1);
             } else {
-                realm = JS_GetFunctionRealm(ctx, &s.target.clone().into())?;
+                realm = JS_GetFunctionRealm(ctx, &px.target.clone().into())?;
             }
         }
         ObjectPayload::BOUND_FUNCTION(bfunc) => {
@@ -193,13 +206,8 @@ pub fn get_func_name(func: &JSValue) -> Option<String> {
     }
 }
 
-/// define `length`, `name` properties on func_obj
-pub unsafe fn js_function_set_properties(
-    ctx: &JSContext,
-    func_obj: &JSValue,
-    name: JSAtom,
-    len: i32,
-) {
+/// define `length` and `name` properties on function object `func_obj`
+pub fn js_function_set_properties(ctx: &JSContext, func_obj: &JSObject, name: JSAtom, len: i32) {
     func_obj
         .define_property_value(
             ctx,

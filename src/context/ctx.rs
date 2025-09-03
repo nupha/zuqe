@@ -439,6 +439,7 @@ impl JSRuntime {
         let ctx = self.create_context_core()?;
 
         ctx.intrinsic_base_objects();
+        ctx.intrinsic_proxy();
         ctx.intrinsic_async();
         ctx.intrinsic_typed_arrays();
         ctx.intrinsic_regexp();
