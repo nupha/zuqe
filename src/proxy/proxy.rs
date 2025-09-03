@@ -20,8 +20,7 @@ use crate::{
 
 #[derive(Debug)]
 pub struct ProxyObjPayload {
-    /// TODO: use JSObject?
-    pub target: JSValue,
+    pub target: JSObject,
     pub handler: JSValue,
     pub is_func: bool,
     pub is_revoked: bool,
@@ -54,7 +53,7 @@ impl ProxyObjPayload {
             self.target.is_extensible(ctx)
         } else {
             let b = method
-                .call(ctx, &self.handler, std::slice::from_ref(&self.target))?
+                .call(ctx, &self.handler, &[self.target.clone().into()])?
                 .to_bool()?;
 
             if b != self.target.is_extensible(ctx)? {
@@ -72,7 +71,7 @@ impl ProxyObjPayload {
             return self.target.prevent_extensions(ctx);
         } else {
             let b = method
-                .call(ctx, &self.handler, std::slice::from_ref(&self.target))?
+                .call(ctx, &self.handler, &[self.target.clone().into()])?
                 .to_bool()?;
 
             if b && self.target.is_extensible(ctx)? {
@@ -87,10 +86,13 @@ impl ProxyObjPayload {
     pub fn get_prototype_of(&self, ctx: &JSContext) -> Result<JSValue, i32> {
         let method = self.get_method(ctx, JS_ATOM_getPrototypeOf)?;
         if method.is_undefined() {
-            return self.target.prototype(ctx);
+            return self
+                .target
+                .prototype(ctx)
+                .map(|v| v.map_or(JSValue::NULL, JSValue::Object));
         }
 
-        let ret = method.call(ctx, &self.handler, std::slice::from_ref(&self.target))?;
+        let ret = method.call(ctx, &self.handler, &[self.target.clone().into()])?;
         if !matches!(ret, JSValue::NULL | JSValue::Object(_)) {
             ctx.throw_type_error("proxy: inconsistent prototype");
             return Err(-1);
@@ -100,7 +102,12 @@ impl ProxyObjPayload {
             Ok(ret)
         } else {
             // check invariant
-            if self.target.prototype(ctx)? != ret {
+            if self
+                .target
+                .prototype(ctx)?
+                .map_or(JSValue::NULL, JSValue::Object)
+                != ret
+            {
                 ctx.throw_type_error("proxy: inconsistent prototype");
                 Err(-1)
             } else {
@@ -117,13 +124,13 @@ impl ProxyObjPayload {
     ) -> Result<bool, i32> {
         let method = self.get_method(ctx, JS_ATOM_setPrototypeOf)?;
         if method.is_undefined() {
-            return JS_SetPrototypeInternal(ctx, &self.target, proto_val, throw);
+            return JS_SetPrototypeInternal(ctx, &self.target.clone().into(), proto_val, throw);
         }
 
         let ret = method.call(
             ctx,
             &self.handler,
-            &[self.target.clone(), proto_val.clone()],
+            &[self.target.clone().into(), proto_val.clone()],
         )?;
 
         match ret.to_bool() {
@@ -137,7 +144,12 @@ impl ProxyObjPayload {
             }
             Ok(true) | Err(_) => {
                 if !self.target.is_extensible(ctx)? {
-                    if proto_val != self.target.prototype(ctx)? {
+                    if proto_val
+                        != self
+                            .target
+                            .prototype(ctx)?
+                            .map_or(JSValue::NULL, JSValue::Object)
+                    {
                         ctx.throw_type_error("proxy: inconsistent prototype");
                         return Err(-1);
                     }
@@ -274,7 +286,7 @@ fn js_proxy_get_own_property(
     let trap_result_obj = method.call(
         ctx,
         &px.handler,
-        &[px.target.clone(), prop.to_string(ctx)?.into()],
+        &[px.target.clone().into(), prop.to_string(ctx)?.into()],
     )?;
     if !matches!(trap_result_obj, JSValue::Object(_) | JSValue::UNDEFINED) {
         ctx.throw_type_error("proxy: inconsistent getOwnPropertyDescriptor ");
@@ -333,9 +345,7 @@ fn js_proxy_get_own_property(
     } else {
         // trap_result_obj is undefined
         if let Some(desc) = target_desc {
-            if (desc.flags & JS_PROP_CONFIGURABLE == 0)
-                || !px.target.object().unwrap().flags().extensible()
-            {
+            if (desc.flags & JS_PROP_CONFIGURABLE == 0) || !px.target.flags().extensible() {
                 ctx.throw_type_error("proxy: inconsistent getOwnPropertyDescriptor");
                 return Err(-1);
             }
@@ -372,7 +382,7 @@ fn js_proxy_define_own_property(
             ctx,
             &px.handler,
             &[
-                px.target.clone(),
+                px.target.clone().into(),
                 prop.to_string(ctx)?.into(),
                 JSPropertyDescriptor {
                     value: val.clone(),
@@ -442,7 +452,7 @@ fn js_proxy_define_own_property(
             }
         }
     } else {
-        if setting_not_configurable || px.target.object().unwrap().flags().extensible() {
+        if setting_not_configurable || px.target.flags().extensible() {
             ctx.throw_type_error("proxy: inconsistent defineProperty");
             return Err(-1);
         }
@@ -465,7 +475,7 @@ fn js_proxy_delete_property(ctx: &JSContext, obj: JSValue, atom: JSAtom) -> Resu
         .call(
             ctx,
             &px.handler,
-            &[px.target.clone(), atom.to_string(ctx)?.into()],
+            &[px.target.clone().into(), atom.to_string(ctx)?.into()],
         )?
         .to_bool()?;
 
@@ -502,12 +512,10 @@ fn js_proxy_get_own_property_names(
     if method.is_undefined() {
         return px
             .target
-            .object()
-            .unwrap()
             .query_own_property_names(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK);
     }
 
-    let prop_array = method.call(ctx, &px.handler, std::slice::from_ref(&px.target))?;
+    let prop_array = method.call(ctx, &px.handler, &[px.target.clone().into()])?;
     let len = prop_array.get_length_prop(ctx)? as usize;
 
     let mut tab = Vec::<PropertyKey>::new();
@@ -545,8 +553,6 @@ fn js_proxy_get_own_property_names(
 
     for k2 in px
         .target
-        .object()
-        .unwrap()
         .query_own_property_names(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK)?
     {
         if !has_err {
@@ -613,24 +619,20 @@ fn js_proxy_has(ctx: &JSContext, obj: &JSObject, atom: JSAtom) -> Result<bool, i
         .call(
             ctx,
             &px.handler,
-            &[px.target.clone(), atom.to_string(ctx)?.into()],
+            &[px.target.clone().into(), atom.to_string(ctx)?.into()],
         )?
         .to_bool()?;
 
     if !ret {
         if let Some(desc) = px.target.get_own_property(ctx, atom)? {
-            if desc.flags & JS_PROP_CONFIGURABLE == 0
-                || !px.target.object().unwrap().flags().extensible()
-            {
+            if desc.flags & JS_PROP_CONFIGURABLE == 0 || !px.target.flags().extensible() {
                 ctx.throw_type_error("proxy: inconsistent has");
                 return Err(-1);
             }
         }
 
         if let Some(desc) = px.target.get_own_property(ctx, atom)? {
-            if desc.flags & JS_PROP_CONFIGURABLE == 0
-                || !px.target.object().unwrap().flags().extensible()
-            {
+            if desc.flags & JS_PROP_CONFIGURABLE == 0 || !px.target.flags().extensible() {
                 ctx.throw_type_error("proxy: inconsistent has");
                 return Err(-1);
             }
@@ -655,7 +657,11 @@ fn js_proxy_get(ctx: &JSContext, obj: JSValue, atom: JSAtom, receiver: JSValue) 
     let ret = method.call(
         ctx,
         &px.handler,
-        &[px.target.clone(), atom.to_string(ctx)?.into(), receiver],
+        &[
+            px.target.clone().into(),
+            atom.to_string(ctx)?.into(),
+            receiver,
+        ],
     )?;
 
     if let Some(desc) = px.target.get_own_property(ctx, atom)? {
@@ -691,7 +697,7 @@ fn js_proxy_set(
     if method.is_undefined() {
         return JSValue::set_property_internal(
             ctx,
-            &s.target,
+            &s.target.clone().into(),
             atom,
             value,
             &receiver,
@@ -704,7 +710,7 @@ fn js_proxy_set(
             ctx,
             &s.handler,
             &[
-                s.target.clone(),
+                s.target.clone().into(),
                 atom.to_string(ctx)?.into(),
                 value.clone(),
                 receiver,

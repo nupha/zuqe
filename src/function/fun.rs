@@ -6,13 +6,13 @@ use crate::{
     atom::{JSAtom, consts::*},
     class::JSClassID,
     context::JSContext,
-    error::{JS_ThrowTypeErrorRevokedProxy, JSResult},
+    error::JSResult,
     function::JSVarRef,
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_NORMAL, JS_PROP_TMASK, JSObject, JSProperty, ObjectPayload,
     },
     runtime::JSRuntime,
-    value::{JSValue, JSValueConst},
+    value::JSValue,
 };
 
 use super::{Bytecode, CallContext};
@@ -125,7 +125,8 @@ pub(crate) const fn js_class_has_bytecode(class_id: JSClassID) -> bool {
     )
 }
 
-pub fn JS_GetFunctionRealm(ctx: &JSContext, func_obj: &JSValueConst) -> Result<JSContext, i32> {
+/// TODO: change func_obj type to JSObject
+pub fn JS_GetFunctionRealm(ctx: &JSContext, func_obj: &JSValue) -> Result<JSContext, i32> {
     if !func_obj.is_object() {
         return Ok(ctx.clone());
     }
@@ -153,10 +154,10 @@ pub fn JS_GetFunctionRealm(ctx: &JSContext, func_obj: &JSValueConst) -> Result<J
         }
         ObjectPayload::PROXY(s) => {
             if s.is_revoked {
-                JS_ThrowTypeErrorRevokedProxy(ctx);
+                ctx.throw_type_error_revoked_proxy();
                 return Err(-1);
             } else {
-                realm = JS_GetFunctionRealm(ctx, &s.target)?;
+                realm = JS_GetFunctionRealm(ctx, &s.target.clone().into())?;
             }
         }
         ObjectPayload::BOUND_FUNCTION(bfunc) => {

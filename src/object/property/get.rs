@@ -7,7 +7,6 @@ use crate::{
     context::JSContext,
     error::{JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized, JSResult},
     object::{JSObject, JSProperty},
-    string::StringBuf,
     value::{JS_GetPrototypePrimitive, JSValue},
 };
 

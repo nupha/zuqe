@@ -183,13 +183,13 @@ impl JSPropertyDescriptor {
         let ret = ctx.create_base_object()?;
 
         if self.flags & JS_PROP_HAS_GET != 0 {
-            ret.define_property_value(ctx, JS_ATOM_get, self.getter.clone(), JS_PROP_C_W_E);
+            ret.define_property_value(ctx, JS_ATOM_get, self.getter.clone(), JS_PROP_C_W_E)?;
         }
         if self.flags & JS_PROP_HAS_SET != 0 {
-            ret.define_property_value(ctx, JS_ATOM_set, self.setter.clone(), JS_PROP_C_W_E);
+            ret.define_property_value(ctx, JS_ATOM_set, self.setter.clone(), JS_PROP_C_W_E)?;
         }
         if self.flags & JS_PROP_HAS_VALUE != 0 {
-            ret.define_property_value(ctx, JS_ATOM_value, self.value.clone(), JS_PROP_C_W_E);
+            ret.define_property_value(ctx, JS_ATOM_value, self.value.clone(), JS_PROP_C_W_E)?;
         }
         if self.flags & JS_PROP_HAS_WRITABLE != 0 {
             ret.define_property_value(
@@ -197,7 +197,7 @@ impl JSPropertyDescriptor {
                 JS_ATOM_writable,
                 (self.flags & JS_PROP_WRITABLE != 0).into(),
                 JS_PROP_C_W_E,
-            );
+            )?;
         }
         if self.flags & JS_PROP_HAS_ENUMERABLE != 0 {
             ret.define_property_value(
@@ -205,7 +205,7 @@ impl JSPropertyDescriptor {
                 JS_ATOM_enumerable,
                 (self.flags & JS_PROP_ENUMERABLE != 0).into(),
                 JS_PROP_C_W_E,
-            );
+            )?;
         }
         if self.flags & JS_PROP_HAS_CONFIGURABLE != 0 {
             ret.define_property_value(
@@ -213,7 +213,7 @@ impl JSPropertyDescriptor {
                 JS_ATOM_configurable,
                 (self.flags & JS_PROP_CONFIGURABLE != 0).into(),
                 JS_PROP_C_W_E,
-            );
+            )?;
         }
 
         Ok(ret)

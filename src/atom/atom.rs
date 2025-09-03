@@ -1,14 +1,14 @@
 use std::{borrow::Cow, ffi::CStr, hash::Hash, num::NonZeroU16, rc::Rc};
 
-use super::consts::*;
-use crate::string::StringChar;
 use crate::{
     context::JSContext,
     mem::js_malloc_typed,
     runtime::JSRuntime,
-    string::{JSString, JSStringInner},
+    string::{JSString, JSStringInner, StringChar},
     value::JSValue,
 };
+
+use super::consts::*;
 
 /// atom descriptor kind
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
