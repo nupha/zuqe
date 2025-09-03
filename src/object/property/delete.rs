@@ -118,18 +118,16 @@ impl JSObject {
         Ok(true)
     }
 
-    /// 如果属性不可配置或无效对象则返回 false, 出现异常时返回 Err.
-    /// flags 可以是 0、JS_PROP_THROW 或 JS_PROP_THROW_STRICT
     pub fn delete_property(&self, ctx: &JSContext, prop: JSAtom, flags: u32) -> Result<bool, i32> {
-        match self.delete_property_internal(ctx, prop)? {
-            true => Ok(true),
-            false => {
-                if ctx.should_throw_error(flags) {
-                    ctx.throw_type_error("could not delete property");
-                    Err(-1)
-                } else {
-                    Ok(false)
-                }
+        if self.delete_property_internal(ctx, prop)? {
+            Ok(true)
+        } else {
+            // not configurable
+            if ctx.should_throw_error(flags) {
+                ctx.throw_type_error("could not delete property");
+                Err(-1)
+            } else {
+                Ok(false)
             }
         }
     }

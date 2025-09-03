@@ -234,6 +234,15 @@ impl JSObject {
             break;
         } // loop
 
+        if !self.flags().extensible() {
+            return if ctx.should_throw_error(flags) {
+                ctx.throw_type_error("object is not extensible");
+                Err(-1)
+            } else {
+                Ok(false)
+            };
+        }
+
         self.create_property(ctx, prop, val, getter.clone(), setter.clone(), flags)
     }
 

@@ -115,12 +115,12 @@ impl JSObject {
             // use exotic handler
             let mut next_state = SetPropState::WalkUpProto;
 
-            if let Some(em) = unsafe {
+            if let Some(m) = unsafe {
                 ctx.rt().class_defs[self.class_id() as usize]
                     .exotic
                     .as_ref()
             } {
-                if let Some(cb) = em.set_property {
+                if let Some(cb) = m.set_property {
                     return cb(
                         ctx,
                         JSValue::Object(self.clone()),
@@ -132,7 +132,7 @@ impl JSObject {
                     .map_err(|_| SetPropState::Err);
                 }
 
-                if let Some(cb) = em.get_own_property {
+                if let Some(cb) = m.get_own_property {
                     if let Some(desc) = cb(ctx, JSValue::Object(self.clone()), prop)
                         .map_err(|_| SetPropState::Err)?
                     {
@@ -271,60 +271,68 @@ impl JSObject {
                     return this.put_prop_slot(ctx, prs_flags, prop, idx, val.clone(), this, flags);
                 }
 
-                if this.flags().is_exotic() {
-                    match this.set_property_exotic_or_fast_array(
-                        ctx,
-                        prop,
-                        val.clone(),
-                        this_obj.clone(),
-                        flags,
-                    ) {
-                        Ok(b) => {
-                            return Ok(b);
-                        }
-                        Err(SetPropState::WalkUpProto) => {}
-                        Err(SetPropState::Add) => {}
-                        Err(SetPropState::Err) => {
-                            // has exception
-                            return Err(-1);
-                        }
-                        Err(SetPropState::ReadOnly) => {
-                            return if ctx.JS_ThrowTypeErrorReadOnly(flags, prop) {
-                                Err(-1)
-                            } else {
-                                Ok(false)
-                            };
-                        }
-                        Err(SetPropState::TypedArrayOOB) => {
-                            // index overflow for typed array.
-                            // ignore index oob, do nothing, returns true
-                            return Ok(true);
-                        }
-                    }
-                }
+                // if this.flags().is_exotic() {
+                //     let r = this.set_property_exotic_or_fast_array(
+                //         ctx,
+                //         prop,
+                //         val.clone(),
+                //         this_obj.clone(),
+                //         flags,
+                //     );
+                //     match r {
+                //         Ok(b) => {
+                //             return Ok(b);
+                //         }
+                //         Err(SetPropState::WalkUpProto) => {}
+                //         Err(SetPropState::Add) => {}
+                //         Err(SetPropState::Err) => {
+                //             // has exception
+                //             return Err(-1);
+                //         }
+                //         Err(SetPropState::ReadOnly) => {
+                //             return if ctx.JS_ThrowTypeErrorReadOnly(flags, prop) {
+                //                 Err(-1)
+                //             } else {
+                //                 Ok(false)
+                //             };
+                //         }
+                //         Err(SetPropState::TypedArrayOOB) => {
+                //             // index overflow for typed array.
+                //             // ignore index oob, do nothing, returns true
+                //             return Ok(true);
+                //         }
+                //     }
+                // }
 
                 //
-                // add new property on `this`
+                // create own property on `this`
                 //
                 if flags & JS_PROP_NO_ADD != 0 {
                     JS_ThrowReferenceErrorNotDefined(ctx, prop);
                     return Err(-1);
-                } else {
-                    this.create_property(
-                        ctx,
-                        prop,
-                        val,
-                        JSValue::UNDEFINED,
-                        JSValue::UNDEFINED,
-                        flags
-                            | JS_PROP_HAS_VALUE
-                            | JS_PROP_HAS_ENUMERABLE
-                            | JS_PROP_HAS_WRITABLE
-                            | JS_PROP_HAS_CONFIGURABLE
-                            | JS_PROP_C_W_E,
-                    )?;
-                    Ok(true)
                 }
+                if !this.flags().extensible() {
+                    return if ctx.should_throw_error(flags) {
+                        ctx.throw_type_error("object is not extensible");
+                        Err(-1)
+                    } else {
+                        Ok(false)
+                    };
+                }
+                this.create_property(
+                    ctx,
+                    prop,
+                    val,
+                    JSValue::UNDEFINED,
+                    JSValue::UNDEFINED,
+                    flags
+                        | JS_PROP_HAS_VALUE
+                        | JS_PROP_HAS_ENUMERABLE
+                        | JS_PROP_HAS_WRITABLE
+                        | JS_PROP_HAS_CONFIGURABLE
+                        | JS_PROP_C_W_E,
+                )?;
+                Ok(true)
             }
 
             JSValue::EXCEPTION => {
@@ -334,7 +342,8 @@ impl JSObject {
                 Err(-1)
             }
             _ => {
-                if ctx.throw_type_error_or_false(flags as _, "receiver must be an object") {
+                if ctx.should_throw_error(flags) {
+                    ctx.throw_type_error("receiver must be an object");
                     Err(-1)
                 } else {
                     Ok(false)

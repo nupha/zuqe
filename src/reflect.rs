@@ -52,7 +52,7 @@ pub fn js_reflect_construct(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_reflect_deleteProperty(ctx: &JSContext, cc: CallContext) -> JSResult {
     if let JSValue::Object(obj) = cc.arg(0) {
         let atom = cc.arg(1).to_atom(ctx)?;
-        let ret = obj.delete_property(ctx, atom, JS_PROP_THROW);
+        let ret = obj.delete_property(ctx, atom, 0);
         JS_FreeAtom(ctx, atom);
         ret.map(JSValue::Bool)
     } else {

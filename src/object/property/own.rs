@@ -334,9 +334,6 @@ impl JSObject {
                             let idx = n;
                             let list_count = self.fast_array_count();
                             if idx == list_count {
-                                // fast array: extend fast list by 1
-                                // Note: in case list_count not equal to array list length,
-                                // the Array is sparse, use slow path.
                                 if !self.flags().extensible() {
                                     return if ctx.throw_type_error_or_false(
                                         flags as _,
@@ -439,7 +436,7 @@ impl JSObject {
                             unsafe { ctx.rt().class_defs[cid as usize].exotic.as_ref() }
                         {
                             if let Some(cb) = em.define_own_property {
-                                return match cb(
+                                return cb(
                                     ctx,
                                     &JSValue::Object(self.clone()),
                                     prop,
@@ -447,16 +444,7 @@ impl JSObject {
                                     getter,
                                     setter,
                                     flags as _,
-                                ) {
-                                    Ok(b) => Ok(b),
-                                    Err(e) => {
-                                        if ctx.should_throw_error(flags) {
-                                            Err(e)
-                                        } else {
-                                            Ok(false)
-                                        }
-                                    }
-                                };
+                                );
                             }
 
                             if !self.is_extensible(ctx).unwrap_or(false) {

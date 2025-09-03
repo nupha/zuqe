@@ -469,11 +469,10 @@ fn js_proxy_define_own_property(
         };
     }
 
-    let res = px.target.get_own_property(ctx, prop)?;
     let setting_not_configurable =
         flags & (JS_PROP_HAS_CONFIGURABLE | JS_PROP_CONFIGURABLE) == JS_PROP_HAS_CONFIGURABLE;
 
-    if let Some(desc) = res {
+    if let Some(desc) = px.target.get_own_property(ctx, prop)? {
         if !check_define_prop_flags(desc.flags, flags)
             || (desc.flags & JS_PROP_CONFIGURABLE != 0 && setting_not_configurable)
         {
@@ -506,7 +505,7 @@ fn js_proxy_define_own_property(
                 return Err(-1);
             }
         }
-        if (flags & JS_PROP_HAS_WRITABLE) != 0 {
+        if flags & JS_PROP_HAS_WRITABLE != 0 {
             if (desc.flags & (JS_PROP_GETSET | JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE))
                 == JS_PROP_WRITABLE
             {
@@ -516,7 +515,7 @@ fn js_proxy_define_own_property(
             }
         }
     } else {
-        if setting_not_configurable || px.target.flags().extensible() {
+        if setting_not_configurable || !px.target.flags().extensible() {
             ctx.throw_type_error("proxy: inconsistent defineProperty");
             return Err(-1);
         }
