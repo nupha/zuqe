@@ -1,13 +1,12 @@
 use std::ffi::c_void;
 
 use crate::{
-    JS_CLASS_FLOAT64_ARRAY, JS_CLASS_PROXY, JS_CLASS_UINT8C_ARRAY,
+    JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
     atom::{JS_AtomIsNumericIndex, JSAtom, consts::*},
     context::{JSContext, JSContextWeakref},
     error::JSResult,
     function::JSVarRef,
     object::{JSObject, LazyInit},
-    proxy::js_proxy_isExtensible,
     value::{JS_GetPrototypePrimitive, JSValue},
 };
 
@@ -236,12 +235,11 @@ impl JSProperty {
 }
 
 impl JSObject {
+    /// check if object is extensible.
+    /// in case `self` is a Proxy object, may return Err.
     pub fn is_extensible(&self, ctx: &JSContext) -> Result<bool, i32> {
-        if self.class_id() == JS_CLASS_PROXY {
-            js_proxy_isExtensible(ctx, &JSValue::Object(self.clone()))
-        } else {
-            Ok(self.flags().extensible())
-        }
+        self.as_proxy()
+            .map_or_else(|| Ok(self.flags().extensible()), |p| p.is_extensible(ctx))
     }
 
     /// test if property `prop` exists, check along proto chain.

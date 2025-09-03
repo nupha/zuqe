@@ -269,27 +269,27 @@ pub fn js_object_isExtensible(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_object_preventExtensions(ctx: &JSContext, cc: CallContext) -> JSResult {
     let reflect = cc.magic();
-    let obj = cc.arg(0);
+    let arg = cc.arg(0);
 
-    if !obj.is_object() {
+    if let Some(obj) = arg.object() {
+        let ret = obj.prevent_extensions(ctx)?;
+        if reflect != 0 {
+            Ok(JSValue::Bool(ret))
+        } else {
+            if !ret {
+                ctx.throw_type_error("proxy preventExtensions handler returned false");
+                Err(-1)
+            } else {
+                Ok(obj.clone().into())
+            }
+        }
+    } else {
         return if reflect != 0 {
             ctx.throw_type_error_not_an_object();
             Err(-1)
         } else {
-            Ok(obj.clone())
+            Ok(arg.clone())
         };
-    }
-
-    let ret = JS_PreventExtensions(ctx, obj)?;
-    if reflect != 0 {
-        Ok(JSValue::Bool(ret))
-    } else {
-        if !ret {
-            ctx.throw_type_error("proxy preventExtensions handler returned false");
-            Err(-1)
-        } else {
-            Ok(obj.clone())
-        }
     }
 }
 

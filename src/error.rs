@@ -172,6 +172,11 @@ impl JSContext {
         self.throw_type_error("not a symbol");
     }
 
+    #[inline(always)]
+    pub fn throw_type_error_revoked_proxy(&self) {
+        self.throw_type_error("revoked proxy");
+    }
+
     pub fn throw_type_error_invalid_class(&self, class_id: JSClassID) {
         let name = self.rt().class_defs[class_id as usize].class_name;
         self.throw_type_error(&format!("{} object expected", name.to_utf8(self.rt())))
@@ -367,6 +372,7 @@ pub fn JS_ThrowReferenceErrorUninitialized2(ctx: &JSContext, b: &Bytecode, idx: 
     JS_ThrowReferenceErrorUninitialized(ctx, atom);
 }
 
+#[deprecated(note = "use JSContext::throw_type_error_revoked_proxy() instead")]
 pub fn JS_ThrowTypeErrorRevokedProxy(ctx: &JSContext) {
     ctx.throw_type_error("revoked proxy");
 }

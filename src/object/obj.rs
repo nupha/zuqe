@@ -20,7 +20,6 @@ use crate::{
     error::JSResult,
     function::CallContext,
     object::GCObjectWeakref,
-    proxy::{js_proxy_preventExtensions, js_proxy_setPrototypeOf},
     runtime::JSRuntime,
     value::JSValue,
 };
@@ -513,6 +512,19 @@ impl JSObject {
         self.0.is_callable()
     }
 
+    /// return Err(-1) for Proxy only
+    pub fn prevent_extensions(&self, ctx: &JSContext) -> Result<bool, i32> {
+        self.as_proxy().map_or_else(
+            || {
+                unsafe {
+                    (*self.0.obj_flags.as_ptr()).set_extensible(false);
+                }
+                Ok(true)
+            },
+            |p| p.prevent_extensions(ctx),
+        )
+    }
+
     #[inline(always)]
     pub fn downgrade(&self) -> JSObjectWeakref {
         JSObjectWeakref(Rc::downgrade(&self.0))
@@ -521,11 +533,6 @@ impl JSObject {
     #[cfg(debug_assertions)]
     pub fn ref_count(&self) -> usize {
         Rc::strong_count(&self.0)
-    }
-
-    pub(crate) fn with<R>(&self, f: impl FnOnce(&ObjectInner) -> R) -> R {
-        let o = self.0.deref();
-        f(o)
     }
 
     // fn gc_status(&self) -> GCObjectStatus {
@@ -644,11 +651,16 @@ impl JSValue {
         }
     }
 
+    #[inline]
+    pub fn prevent_extensions(&self, ctx: &JSContext) -> Result<bool, i32> {
+        self.object()
+            .map_or(Ok(false), |o| o.prevent_extensions(ctx))
+    }
+
     /// Seal object if the value is an object, otherwise returns the value itself duplicated.
     pub fn seal(self, ctx: &JSContext, freeze: bool) -> Result<Self, i32> {
         if let JSValue::Object(p) = &self {
-            let this = JSValue::Object(p.clone());
-            if !JS_PreventExtensions(ctx, &this)? {
+            if !p.prevent_extensions(ctx)? {
                 ctx.throw_type_error("proxy preventExtensions handler returned false");
                 return Err(-1);
             }
@@ -668,7 +680,7 @@ impl JSValue {
                         }
                     }
 
-                    this.define_property(
+                    p.define_property(
                         cx,
                         prop,
                         JSValue::UNDEFINED,
@@ -757,8 +769,9 @@ pub fn JS_SetPrototypeInternal(
         if can_throw && !obj.is_object() {
             return Ok(true);
         }
-        if p.class_id() == JS_CLASS_PROXY {
-            return unsafe { js_proxy_setPrototypeOf(ctx, obj, proto_val, can_throw) };
+
+        if let Some(px) = p.as_proxy() {
+            return px.set_prototype_of(ctx, proto_val, can_throw);
         }
 
         if p.shape().unwrap().0.borrow().proto.as_ref() == proto {
@@ -773,6 +786,7 @@ pub fn JS_SetPrototypeInternal(
                 return Ok(false);
             }
         }
+
         if let Some(up) = proto {
             // check if there is a cycle
             let mut p1 = up.clone();
@@ -787,7 +801,7 @@ pub fn JS_SetPrototypeInternal(
                     }
                 }
 
-                // Note: for Proxy objects, proto is NULL
+                // Note: for Proxy object, proto is NULL
                 if let Some(p2) = p1.shape().and_then(|s| s.0.borrow().proto.clone()) {
                     p1 = p2;
                 } else {
@@ -885,11 +899,11 @@ pub fn seal_template_obj(ctx: &JSContext, obj: JSValue) -> i32 {
     0
 }
 
-/// return Err(-1) if exception (Proxy object only) or TRUE/FALSE
+#[deprecated(note = "use JSObject::prevent_extensions() or JSValue::prevent_extensions() instead")]
 pub fn JS_PreventExtensions(ctx: &JSContext, obj: &JSValue) -> Result<bool, i32> {
     if let JSValue::Object(p) = obj {
         if p.class_id() == JS_CLASS_PROXY {
-            js_proxy_preventExtensions(ctx, obj)
+            obj.prevent_extensions(ctx)
         } else {
             unsafe {
                 (*p.0.obj_flags.as_ptr()).set_extensible(false);

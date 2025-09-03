@@ -1,9 +1,9 @@
-use crate::JS_CLASS_PROXY;
-use crate::context::JSContext;
-use crate::error::JSResult;
-use crate::object::JSObject;
-use crate::proxy::js_proxy_getPrototypeOf;
-use crate::value::{JS_GetPrototypePrimitive, JSValue};
+use crate::{
+    context::JSContext,
+    error::JSResult,
+    object::JSObject,
+    value::{JS_GetPrototypePrimitive, JSValue},
+};
 
 pub struct ObjectPrototypeIter {
     ctx: JSContext,
@@ -38,14 +38,8 @@ impl JSObject {
     /// Return an object if it has prototype, None for no prototype.
     /// Returns Err in case of Proxy object.
     pub fn prototype(&self, ctx: &JSContext) -> Result<Option<JSObject>, i32> {
-        if self.class_id() == JS_CLASS_PROXY {
-            if let JSValue::Object(o) = unsafe {
-                js_proxy_getPrototypeOf(ctx, &JSValue::Object(self.clone())).err()?
-            } {
-                Ok(Some(o))
-            } else {
-                Ok(None)
-            }
+        if let Some(p) = self.as_proxy() {
+            Ok(JSObject::try_from(p.get_prototype_of(ctx)?).ok())
         } else {
             Ok(self.shape().and_then(|s| s.0.borrow().proto.clone()))
         }
@@ -76,7 +70,7 @@ impl JSValue {
         if let Self::Object(o) = self {
             Ok(o.prototype(ctx)?.map_or(JSValue::NULL, JSValue::Object))
         } else {
-            unsafe { JS_GetPrototypePrimitive(ctx, self).err() }
+            JS_GetPrototypePrimitive(ctx, self).err()
         }
     }
 }

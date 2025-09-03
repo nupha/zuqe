@@ -314,9 +314,9 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "Proxy",
             "PROXY",
-            Some("Box<crate::proxy::ObjProxy>"),
-            Some("crate::proxy::js_proxy_finalizer"),
-            Some("crate::proxy::js_proxy_mark")
+            Some("Box<crate::proxy::ProxyObjPayload>"),
+            Some("crate::proxy::Proxy::hook_finalizer"),
+            Some("crate::proxy::Proxy::hook_mark")
         ),
         //
         // Async stuff
@@ -513,8 +513,7 @@ pub fn gen_class_payload(outfile: &Path) {
 
     let lines: Vec<String> = vec![
         "use crate::{  class::{JSClassID }};\n".to_string(),
-        "// TODO: rename to ClassPayload?\n#[repr(u8)]\n#[derive(Debug)]\npub enum ObjectPayload {"
-            .to_string(),
+        "#[derive(Debug)]\npub enum ObjectPayload {".to_string(),
         items.join(",\n"),
         "}".to_string(),
         "".to_string(),

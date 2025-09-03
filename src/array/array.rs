@@ -13,7 +13,6 @@ use crate::{
         JS_PROP_THROW, JS_PROP_WRITABLE, JSObject, JSProperty, ObjectPayload, PropertyKeyKind,
     },
     object_cast,
-    proxy::js_proxy_isArray,
     runtime::JSRuntime,
     string::StringContent,
     value::JSValue,
@@ -335,11 +334,11 @@ impl JSContext {
 }
 
 impl JSObject {
-    // return Err if exception (proxy case) or TRUE/FALSE
+    /// return Err if exception (proxy case) or TRUE/FALSE
     pub fn is_array(&self, ctx: &JSContext) -> Result<bool, i32> {
         let class_id = self.class_id();
         if class_id == JS_CLASS_PROXY {
-            js_proxy_isArray(ctx, &JSValue::Object(self.clone()))
+            unsafe { self.as_proxy_unchecked().is_array(ctx) }
         } else {
             Ok(class_id == JS_CLASS_ARRAY)
         }

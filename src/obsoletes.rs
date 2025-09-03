@@ -2,6 +2,7 @@
 
 use std::{
     ffi::{CStr, c_char, c_void},
+    ops::Deref,
     ptr::NonNull,
 };
 
@@ -11,7 +12,7 @@ use crate::{
     array_buffer::JSFreeArrayBufferDataFunc,
     atom::{
         AtomDescKind, AtomHintAndId, AtomTypeHint, JS_ATOM_NULL, JS_ATOM_TAG_INT, JS_FreeAtom,
-        JSAtom, JSAtomStruct,
+        JSAtom, JSAtomStruct, consts::*,
     },
     bytecode::{OpCode, OpCodeTemp, arithmatic::JSStrictEqModeEnum},
     class::{ClassFieldsDef, JSClassDef, JSClassID},
@@ -32,13 +33,13 @@ use crate::{
     },
     number::{JSToNumberHintEnum, MAX_SAFE_INTEGER},
     object::{
-        JSObject, JSProperty, JSPropertyDescriptor, JSShape, JSShapeProperty, ObjectPayload,
-        PropertyKey,
+        JS_SetPrototypeInternal, JSObject, JSProperty, JSPropertyDescriptor, JSShape,
+        JSShapeProperty, ObjectPayload, PropertyKey,
     },
     parse::{JSParseExportEnum, JSParseFunctionEnum, JSParseState},
     promise::{JSPromiseReactionData, JSPromiseStateEnum, JobCallback, Promise},
-    proxy::js_proxy_isArray,
-    runtime::JSRuntime,
+    proxy::ProxyObjPayload,
+    runtime::{JSRuntime, js_check_stack_overflow},
     stack_frame::StackFrame,
     string::{JSString, JSStringInner},
     unicode::{UTF8_CHAR_LEN_MAX, unicode_from_utf8},
@@ -3990,4 +3991,162 @@ pub unsafe fn JS_ToArrayLengthFree(
     is_array_ctor: bool,
 ) -> Result<u32, i32> {
     val.to_array_length(ctx, is_array_ctor).map(|v| v as u32)
+}
+
+#[deprecated(note = "use Proxy::get_method() instead")]
+pub unsafe fn get_proxy_method<'a>(
+    ctx: &'a JSContext,
+    obj: &'a JSValueConst,
+    name: JSAtom,
+) -> Result<(JSValue, &'a ProxyObjPayload), i32> {
+    if let ObjectPayload::PROXY(s) = obj.object_unchecked().0.payload.borrow().deref() {
+        unimplemented!()
+    } else {
+        unreachable!()
+    }
+}
+
+#[deprecated(note = "use Proxy::hook_finalizer instead")]
+pub fn js_proxy_finalizer(rt: &mut JSRuntime, is: &ObjectPayload, id: usize) {
+    unimplemented!();
+}
+
+#[deprecated(note = "use Proxy::hook_mark instead")]
+pub fn js_proxy_mark(val: JSValue) {
+    unimplemented!();
+}
+
+#[deprecated(note = "use Proxy::is_array() instead")]
+pub fn js_proxy_isArray(ctx: &JSContext, val: &JSValue) -> Result<bool, i32> {
+    if let JSValue::Object(p) = val {
+        if let ObjectPayload::PROXY(s) = p.0.payload.borrow().deref() {
+            if js_check_stack_overflow(ctx.rt(), 0) {
+                ctx.throw_stack_overflow();
+                return Err(-1);
+            }
+            if s.is_revoked {
+                ctx.throw_type_error_revoked_proxy();
+                return Err(-1);
+            }
+            s.target.is_array(ctx)
+        } else {
+            Ok(false)
+        }
+    } else {
+        Ok(false)
+    }
+}
+
+#[deprecated(note = "use Proxy::is_extensible() instead")]
+pub fn js_proxy_isExtensible(ctx: &JSContext, obj: &JSValue) -> Result<bool, i32> {
+    let (method, s) = unsafe { get_proxy_method(ctx, obj, JS_ATOM_isExtensible)? };
+    if method.is_undefined() {
+        return s.target.is_extensible(ctx);
+    }
+
+    let b = method
+        .call(ctx, &s.handler, std::slice::from_ref(&s.target))?
+        .to_bool()?;
+
+    if b != s.target.is_extensible(ctx)? {
+        ctx.throw_type_error("proxy: inconsistent isExtensible");
+        return Err(-1);
+    }
+
+    Ok(b)
+}
+
+#[deprecated(note = "use Proxy::prevent_extensions() instead")]
+pub fn js_proxy_preventExtensions(ctx: &JSContext, obj: &JSValue) -> Result<bool, i32> {
+    let (method, s) = unsafe { get_proxy_method(ctx, obj, JS_ATOM_preventExtensions)? };
+    if method.is_undefined() {
+        return s.target.prevent_extensions(ctx);
+    }
+
+    let ret = method.call(ctx, &s.handler, std::slice::from_ref(&s.target))?;
+    let res = ret.to_bool()?;
+
+    if res && s.target.is_extensible(ctx)? {
+        ctx.throw_type_error("proxy: inconsistent preventExtensions");
+        return Err(-1);
+    }
+
+    Ok(res)
+}
+
+#[deprecated(note = "use Proxy::get_prototype_of() instead")]
+pub unsafe fn js_proxy_getPrototypeOf(ctx: &JSContext, obj: &JSValueConst) -> JSValue {
+    let (method, s) = if let Ok((m, s)) = get_proxy_method(ctx, obj, JS_ATOM_getPrototypeOf) {
+        (m, s)
+    } else {
+        return JSValue::EXCEPTION;
+    };
+
+    if method.is_undefined() {
+        return s.target.prototype(ctx).unwrap_or(JSValue::EXCEPTION);
+    }
+
+    let Ok(ret) = method.call(ctx, &s.handler, std::slice::from_ref(&s.target)) else {
+        return JSValue::EXCEPTION;
+    };
+    if !matches!(ret, JSValue::NULL | JSValue::Object(_)) {
+        ctx.throw_type_error("proxy: inconsistent prototype");
+        return JSValue::EXCEPTION;
+    }
+
+    match s.target.is_extensible(ctx) {
+        Ok(false) => {
+            // check invariant
+            let proto1 = if let Ok(p) = s.target.prototype(ctx) {
+                p
+            } else {
+                return JSValue::EXCEPTION;
+            };
+
+            if proto1 != ret {
+                ctx.throw_type_error("proxy: inconsistent prototype");
+                JSValue::EXCEPTION
+            } else {
+                ret
+            }
+        }
+        Ok(true) => ret,
+        Err(_) => JSValue::EXCEPTION,
+    }
+}
+
+#[deprecated(note = "use Proxy::set_prototype_of instead")]
+pub unsafe fn js_proxy_setPrototypeOf(
+    ctx: &JSContext,
+    obj: &JSValue,
+    proto_val: JSValue,
+    throw_flag: bool,
+) -> Result<bool, i32> {
+    let (method, s) = get_proxy_method(ctx, obj, JS_ATOM_setPrototypeOf)?;
+    if method.is_undefined() {
+        return JS_SetPrototypeInternal(ctx, &s.target, proto_val, throw_flag);
+    }
+
+    let ret = method.call(ctx, &s.handler, &[s.target.clone(), proto_val.clone()])?;
+
+    match ret.to_bool() {
+        Ok(false) => {
+            if throw_flag {
+                ctx.throw_type_error("proxy: bad prototype");
+                Err(-1)
+            } else {
+                Ok(false)
+            }
+        }
+        Ok(true) | Err(_) => {
+            if !s.target.is_extensible(ctx)? {
+                let proto1 = s.target.prototype(ctx)?;
+                if proto_val != proto1 {
+                    ctx.throw_type_error("proxy: inconsistent prototype");
+                    return Err(-1);
+                }
+            }
+            Ok(true)
+        }
+    }
 }
