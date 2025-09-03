@@ -310,17 +310,23 @@ fn js_proxy_call_constructor(
         return Err(-1);
     }
 
-    let method = s.get_method(ctx, JS_ATOM_constructor)?;
+    let method = s.get_method(ctx, JS_ATOM_construct)?;
     if method.is_undefined() {
         return JS_CallConstructor2(ctx, &s.target.clone().into(), new_target.clone(), args).err();
     }
 
     let arg_array = ctx.create_array_from_slice(args)?;
-    method.call(
+    let ret = method.call(
         ctx,
         &s.handler,
         &[s.target.clone().into(), arg_array.into(), new_target],
-    )
+    )?;
+    if !ret.is_object() {
+        ctx.throw_type_error_not_an_object();
+        Err(-1)
+    } else {
+        Ok(ret)
+    }
 }
 
 //
