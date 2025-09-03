@@ -681,15 +681,12 @@ impl JSValue {
         }
     }
 
-    /// Invoking `toLocaleString()` method, returns result string.
-    pub fn to_locale_string(&self, ctx: &JSContext) -> Result<JSString, i32> {
+    /// Invoking `toLocaleString()` method.
+    pub fn to_locale_string(&self, ctx: &JSContext) -> Result<JSValue, i32> {
         if self.is_undefined_or_null() {
-            self.to_string(ctx)
-        } else if let Self::String(s) = self.invoke(ctx, JS_ATOM_toLocaleString, &[])? {
-            Ok(s)
+            self.to_string(ctx).map(JSValue::String)
         } else {
-            ctx.throw_internal_error("toLocaleString() must return string");
-            Err(-1)
+            self.invoke(ctx, JS_ATOM_toLocaleString, &[])
         }
     }
 

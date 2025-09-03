@@ -710,14 +710,14 @@ pub fn js_array_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let toLocaleString = cc.magic();
+    let to_locale_string = cc.magic() == 1;
     let obj = cc.this().to_object(ctx)?;
-    let n = obj.get_length_prop(ctx)?;
+    let len = obj.get_length_prop(ctx)?;
 
-    let mut c = ',' as i32; // default separator
+    let mut c = b',' as i32; // default separator
     let mut p: Option<JSString> = None;
 
-    if toLocaleString == 0 && cc.length() > 0 && !cc.arg(0).is_undefined() {
+    if !to_locale_string && cc.length() > 0 && !cc.arg(0).is_undefined() {
         let sep = cc.arg(0).to_string(ctx)?;
         c = if sep.buf_len() == 1 && !sep.is_wide() {
             sep.content().as_bytes()[0] as i32
@@ -727,35 +727,35 @@ pub fn js_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
         p.replace(sep.clone());
     }
 
-    let mut content = StringBuf::Empty;
+    let mut sbuf = StringBuf::Empty;
 
-    for i in 0..n {
+    for i in 0..len {
         if i > 0 {
             // append separator
             if c >= 0 {
-                let _ = content.push_u8(c as u8);
+                let _ = sbuf.push_u8(c as u8);
             } else {
-                let _ = content.push(p.as_ref().unwrap().content());
+                let _ = sbuf.push(p.as_ref().unwrap().content());
             }
         }
 
-        let el = obj.get_property_u32(ctx, i as u32)?;
+        let el = obj.get_property_i64(ctx, i)?;
         if !el.is_undefined_or_null() {
-            let ss = if toLocaleString != 0 {
-                el.to_locale_string(ctx)?
+            let ss = if to_locale_string {
+                el.to_locale_string(ctx)?.to_string(ctx)?
             } else if let JSValue::String(s) = el {
                 s
             } else {
                 el.to_string(ctx)?
             };
-            content.push(ss.content()).map_err(|_| {
+            sbuf.push(ss.content()).map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1
             })?
         }
     }
 
-    ctx.create_string_with_buf(content).map(JSValue::String)
+    ctx.create_string_with_buf(sbuf).map(JSValue::String)
 }
 
 pub fn js_array_toString(ctx: &JSContext, cc: CallContext) -> JSResult {

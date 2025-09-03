@@ -869,34 +869,23 @@ pub fn js_typed_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
 
         let el = this_val.get_property_u32(ctx, i)?;
         if !el.is_undefined_or_null() {
-            let v = if to_locale {
-                el.to_locale_string(ctx)
+            let s = if to_locale {
+                el.to_locale_string(ctx)?.to_string(ctx)?
             } else {
-                el.to_string(ctx)
+                el.to_string(ctx)?
             };
 
-            match v {
-                Ok(s) => {
-                    if txt.push(s.content()).is_err() {
-                        ctx.throw_out_of_memory();
-                        return Err(-1);
-                    }
-
-                    if txt.capacity() - txt.buf_len() < 16 {
-                        if txt.reserve((n - i) as usize * 2).is_err() {
-                            ctx.throw_out_of_memory();
-                            return Err(-1);
-                        }
-                    }
-                }
-                Err(e) => {
-                    ctx.throw_type_error("toString failed");
-                    return Err(e);
+            if txt.capacity() - txt.buf_len() < s.buf_len() {
+                if txt.reserve((n - i) as usize * 2).is_err() {
+                    ctx.throw_out_of_memory();
+                    return Err(-1);
                 }
             }
+            txt.push(s.content()).unwrap();
         }
     }
 
+    txt.shrink_to_fit();
     ctx.create_string_with_buf(txt).map(JSValue::String)
 }
 
