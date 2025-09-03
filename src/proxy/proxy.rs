@@ -6,6 +6,7 @@ use crate::{
     class::JSClassExoticMethods,
     context::JSContext,
     error::JSResult,
+    function::{CallContext, JS_CALL_FLAG_CONSTRUCTOR, JS_CallConstructor2},
     object::{
         JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_GETSET,
         JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
@@ -27,7 +28,7 @@ pub struct ProxyObjPayload {
 }
 
 impl ProxyObjPayload {
-    /// get proxied method
+    /// get proxied method. returns function object or undefined
     pub fn get_method(&self, ctx: &JSContext, name: JSAtom) -> Result<JSValue, i32> {
         // safer to test recursion in all proxy methods
         if js_check_stack_overflow(ctx.rt(), 0) {
@@ -167,6 +168,38 @@ pub struct Proxy(pub(crate) JSObject);
 object_cast!(Proxy, JS_CLASS_PROXY);
 
 impl Proxy {
+    pub fn hook_call(
+        ctx: &JSContext,
+        func_obj: &JSValue,
+        this_obj: &JSValue,
+        args: &[JSValue],
+        flags: i32,
+    ) -> JSResult {
+        let proxy = Proxy::try_from(func_obj.clone()).unwrap();
+
+        if flags & JS_CALL_FLAG_CONSTRUCTOR != 0 {
+            return js_proxy_call_constructor(ctx, &proxy, this_obj.clone(), args);
+        }
+
+        let px = proxy.payload();
+        if !px.is_func {
+            ctx.throw_type_error("not a function");
+            return Err(-1);
+        }
+
+        let method = px.get_method(ctx, JS_ATOM_apply)?;
+        if method.is_undefined() {
+            return JSValue::from(px.target.clone()).call(ctx, this_obj, args);
+        }
+
+        let arg_array = ctx.create_array_from_slice(args)?;
+        method.call(
+            ctx,
+            &px.handler,
+            &[px.target.clone().into(), this_obj.clone(), arg_array.into()],
+        )
+    }
+
     pub fn hook_finalizer(rt: &mut JSRuntime, _: &ObjectPayload, _: usize) {
         // this is done via rust drop()
         // if let ObjectPayload::Proxy(p) = payload {
@@ -263,6 +296,31 @@ impl JSObject {
         debug_assert_eq!(self.class_id(), JS_CLASS_PROXY);
         unsafe { &*(self as *const JSObject as *const Proxy) }
     }
+}
+
+fn js_proxy_call_constructor(
+    ctx: &JSContext,
+    func_obj: &Proxy,
+    new_target: JSValue,
+    args: &[JSValue],
+) -> JSResult {
+    let s = func_obj.payload();
+    if !s.target.is_constructor() {
+        ctx.throw_type_error("not a constructor");
+        return Err(-1);
+    }
+
+    let method = s.get_method(ctx, JS_ATOM_constructor)?;
+    if method.is_undefined() {
+        return JS_CallConstructor2(ctx, &s.target.clone().into(), new_target.clone(), args).err();
+    }
+
+    let arg_array = ctx.create_array_from_slice(args)?;
+    method.call(
+        ctx,
+        &s.handler,
+        &[s.target.clone().into(), arg_array.into(), new_target],
+    )
 }
 
 //

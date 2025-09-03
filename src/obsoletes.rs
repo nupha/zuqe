@@ -3983,7 +3983,7 @@ pub unsafe fn string_indexof_char(p: *mut JSString, c: i32, from: i32) -> i32 {
     // }
 }
 
-#[deprecated(note = "use JSContext::create_array_with_values() instead")]
+#[deprecated(note = "use JSContext::create_array_from_slice() instead")]
 pub fn js_create_array(ctx: &JSContext, tab: &[JSValue]) -> Result<Array, i32> {
     unreachable!("unused");
 }

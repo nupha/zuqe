@@ -5,7 +5,7 @@ use crate::{
     atom::JSAtom,
     context::JSContext,
     error::JSResult,
-    function::{BytecodeFunction, FuncObjPayload, build_arg_list},
+    function::{BoundFunction, BytecodeFunction, FuncObjPayload, build_arg_list},
     object::{JSObject, ObjectPayload},
     stack_frame::StackFrame,
     value::{JSValue, JSValueConst},

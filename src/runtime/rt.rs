@@ -11,7 +11,7 @@ use crate::{
     JS_CLASS_ASYNC_FUNCTION_RESOLVE, JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_BOUND_FUNCTION,
     JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_MODULE_NS,
     JS_CLASS_OBJECT, JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
-    JS_CLASS_STRING, STD_CLASS_DEFS,
+    JS_CLASS_PROXY, JS_CLASS_STRING, STD_CLASS_DEFS,
     array_buffer::JSSharedArrayBufferFunctions,
     atom::JS_FreeAtomRT,
     callable::CallableValue,
@@ -24,6 +24,7 @@ use crate::{
     module::{JSModuleLoaderFunc, JSModuleNormalizeFunc, js_module_ns_exotic_methods},
     object::{GCObjectWeakref, JSShapeWeakref},
     promise::{JSHostPromiseRejectionTracker, JSJobEntry, PromiseResolvingFunc},
+    proxy::{Proxy, js_proxy_exotic_methods},
     stack_frame::StackFrame,
     string::{JSStringInner, js_string_exotic_methods},
     utils::js_get_stack_pointer,
@@ -196,6 +197,12 @@ impl JSRuntime {
             rt.class_defs[JS_CLASS_GENERATOR_FUNCTION as usize]
                 .call
                 .replace(js_generator_function_call);
+
+            // setup Proxy
+            rt.class_defs[JS_CLASS_PROXY as usize].exotic = &js_proxy_exotic_methods;
+            rt.class_defs[JS_CLASS_PROXY as usize]
+                .call
+                .replace(Proxy::hook_call);
         }
 
         // setup async related classes

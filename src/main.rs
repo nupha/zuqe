@@ -12,7 +12,7 @@ fn main() {
         let ctx = js
             .create_context_customize(|c| {
                 c.init_core_objects_ex(false, false, false);
-                c.intrinsic_global_object(&[]);
+                c.intrinsic_global(&[]);
                 Ok(())
             })
             .unwrap();

@@ -489,17 +489,26 @@ impl JSContext {
     }
 
     /// create global object
-    pub fn intrinsic_global_object(&self, fields: &[FieldDef]) {
-        let global = self.create_base_object().unwrap();
-        global.install_field_defs(self, fields).unwrap();
-        let global: JSValue = global.into();
+    pub fn intrinsic_global(&self, fields: &[FieldDef]) {
+        let gobj = self.create_base_object().unwrap();
+        gobj.install_field_defs(self, fields).unwrap();
 
-        // define prop `globalThis`
+        let global: JSValue = gobj.into();
+
+        // define name `globalThis` and `global`
         // Note: global object is self referenced here.
         global
             .define_property_value(
                 self,
                 JS_ATOM_globalThis,
+                global.clone(),
+                JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
+            )
+            .unwrap();
+        global
+            .define_property_value(
+                self,
+                JS_ATOM_global,
                 global.clone(),
                 JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
             )
@@ -518,7 +527,7 @@ impl JSContext {
         // global object - this must come first.
         {
             // isNan, parseInt, undefined, NaN etc
-            self.intrinsic_global_object(&js_global_props);
+            self.intrinsic_global(&js_global_props);
 
             // Reflect: create as autoinit object in global
             self.global_obj()
