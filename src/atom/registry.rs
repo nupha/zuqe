@@ -96,7 +96,6 @@ impl JSAtom {
                     atom_type = AtomTypeHint::Symbol;
                     JS_ATOM_HASH_PRIVATE
                 };
-                // ss.content().calc_hash(atom_type);
                 ss.set_hash(hash);
                 ss
             }

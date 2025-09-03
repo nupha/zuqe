@@ -23,9 +23,9 @@ pub enum AtomDescKind {
 #[repr(u8)]
 pub enum AtomTypeHint {
     String = 1,
-    GlobalSymbol = 2,
-    Symbol = 3,
-    Private = 4,
+    GlobalSymbol,
+    Symbol,
+    Private,
 }
 
 /// atom id and type

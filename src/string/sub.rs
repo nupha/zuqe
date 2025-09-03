@@ -1,6 +1,6 @@
-use std::{borrow::Cow, collections::TryReserveError};
+use std::collections::TryReserveError;
 
-use crate::string::{StringBuf, StringChar, StringContent, content::StringBufSlice};
+use crate::string::{StringBuf, StringChar, StringContent};
 
 impl StringBuf {
     pub fn substitution_buf<'a>(
