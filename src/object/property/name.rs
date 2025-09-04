@@ -136,7 +136,7 @@ impl JSObject {
                 if flags & JS_GPN_INDEX_MASK != 0 {
                     let buf_len = TryInto::<JSString>::try_into(self.clone())
                         .unwrap()
-                        .buf_len();
+                        .len();
 
                     for i in 0..buf_len {
                         callback(

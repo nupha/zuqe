@@ -645,11 +645,10 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
     //     todo!();
     // }
 
-    let mut sbuf =
-        StringBuf::with_capacity(str.buf_len() * 3 / 2, str.is_wide()).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
+    let mut sbuf = StringBuf::with_capacity(str.len() * 3 / 2, str.is_wide()).map_err(|_| {
+        ctx.throw_out_of_memory();
+        -1
+    })?;
 
     // regexp match results list
     let mut matches = SmallVec::<[JSObject; 10]>::new();
@@ -693,7 +692,7 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
                 -1
             })?;
 
-        pos = index + matched.buf_len();
+        pos = index + matched.len();
 
         if let Some(rep_str) = rep_str.as_ref() {
             // replacement string
@@ -875,7 +874,7 @@ pub fn js_regexp_Symbol_split(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Ok(arr.into());
     }
 
-    let len = str.buf_len();
+    let len = str.len();
     let mut split_start = 0;
     let mut last_index = 0;
 

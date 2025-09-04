@@ -307,7 +307,7 @@ impl JSValue {
             Self::String(s) => {
                 if prop == JS_ATOM_length {
                     // string length
-                    Ok(JSValue::from(s.buf_len() as u32))
+                    Ok(JSValue::from(s.len() as u32))
                 } else if let Some(idx) = prop.to_small_int() {
                     // code point at idx
                     if let Some(code) = s.content().get(idx as usize) {

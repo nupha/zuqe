@@ -60,7 +60,7 @@ pub fn js_string_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_string_at(ctx: &JSContext, cc: CallContext) -> JSResult {
     let str = cc.this().to_string_non_undefined_or_null(ctx)?;
     let what = cc.magic(); // 0: charAt, 1: at, 2: charCodeAt
-    let buf_len = str.buf_len() as i32;
+    let buf_len = str.len() as i32;
 
     let mut buf_idx: i32 = cc.arg(0).to_i32_saturating(ctx)?;
     if buf_idx < 0 && what == 1 {
@@ -91,7 +91,7 @@ pub fn js_string_at(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_string_codePointAt(ctx: &JSContext, cc: CallContext) -> JSResult {
     let s = cc.this().to_string_non_undefined_or_null(ctx)?;
     let buf_idx: i32 = cc.arg(0).to_i32_saturating(ctx)?;
-    if buf_idx < 0 || buf_idx >= s.buf_len() as i32 {
+    if buf_idx < 0 || buf_idx >= s.len() as i32 {
         Ok(JSValue::UNDEFINED)
     } else {
         let (_, c) = s.content().iter_since(buf_idx as usize).next().unwrap();
@@ -161,8 +161,8 @@ pub fn js_string_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
     let p = cc.this().to_string_non_undefined_or_null(ctx)?;
     let p1 = cc.arg(0).to_string(ctx)?;
 
-    let len = p.buf_len() as i32;
-    let v_len = p1.buf_len() as i32;
+    let len = p.len() as i32;
+    let v_len = p1.len() as i32;
 
     let start: i32;
     let stop: i32;
@@ -316,7 +316,7 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
                     -1
                 })?;
 
-            endOfLastMatch = pos + search_for.buf_len();
+            endOfLastMatch = pos + search_for.len();
             is_first = false;
 
             if !is_replace_all {
@@ -332,7 +332,7 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     // concat remainder part of string
-    if endOfLastMatch < str.buf_len() {
+    if endOfLastMatch < str.len() {
         res_string
             .push_chars_iter(cc.iter_since(endOfLastMatch).map(|(_, c)| c))
             .map_err(|_| {
@@ -365,7 +365,7 @@ pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     // don't change following parse order of str, limit, sep
     let str = this.to_string_non_undefined_or_null(ctx)?;
-    let str_len = str.buf_len();
+    let str_len = str.len();
 
     let lim = if limit.is_undefined() {
         0xffff_ffff
@@ -374,7 +374,7 @@ pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
     };
 
     let sep = separator.to_string(ctx)?;
-    let sep_len = sep.buf_len();
+    let sep_len = sep.len();
 
     // create result array
     let ret_arr = ctx.create_array()?;
@@ -442,7 +442,7 @@ pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_string_substring(ctx: &JSContext, cc: CallContext) -> JSResult {
     let p = cc.this().to_string_non_undefined_or_null(ctx)?;
 
-    let len = p.buf_len() as i32;
+    let len = p.len() as i32;
     let a = cc.arg(0).to_i32_clamp(ctx, 0, len, 0)?;
     let b = if !cc.arg(1).is_undefined() {
         cc.arg(1).to_i32_clamp(ctx, 0, len, 0)?
@@ -457,7 +457,7 @@ pub fn js_string_substring(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_string_substr(ctx: &JSContext, cc: CallContext) -> JSResult {
     let p = cc.this().to_string_non_undefined_or_null(ctx)?;
-    let len = p.buf_len() as i32;
+    let len = p.len() as i32;
 
     let a: i32 = cc.arg(0).to_i32_clamp(ctx, 0, len, len)?;
     let n = if !cc.arg(1).is_undefined() {
@@ -472,7 +472,7 @@ pub fn js_string_substr(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_string_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
     let p = cc.this().to_string_non_undefined_or_null(ctx)?;
-    let len = p.buf_len() as i32;
+    let len = p.len() as i32;
     let start = cc.arg(0).to_i32_clamp(ctx, 0, len, len)?;
     let end = if !cc.arg(1).is_undefined() {
         cc.arg(1).to_i32_clamp(ctx, 0, len, len)?
@@ -489,7 +489,7 @@ pub fn js_string_pad(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     // don't change parse args order.
     let str = cc.this().to_string_non_undefined_or_null(ctx)?;
-    let len = str.buf_len() as i32;
+    let len = str.len() as i32;
 
     let mut ttl_len: i32 = cc.arg(0).to_i32_saturating(ctx)?;
     if len >= ttl_len {
@@ -506,7 +506,7 @@ pub fn js_string_pad(ctx: &JSContext, cc: CallContext) -> JSResult {
             return Ok(str.into());
         }
 
-        if s.buf_len() == 1 {
+        if s.len() == 1 {
             fill_u16 = StringChar::Code(s.content().get(0).unwrap());
         } else {
             fill_str.replace(s);
@@ -531,7 +531,7 @@ pub fn js_string_pad(ctx: &JSContext, cc: CallContext) -> JSResult {
         // fill with str
         let src = std::iter::repeat_n(
             s.content().iter_codepoint(),
-            (ttl_len as usize).div_ceil(s.buf_len()),
+            (ttl_len as usize).div_ceil(s.len()),
         )
         .flatten()
         .take(ttl_len as usize);
@@ -566,7 +566,7 @@ pub fn js_string_repeat(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     let n = repeat as usize;
-    let len = p.buf_len();
+    let len = p.len();
     if len == 0 || n == 1 {
         return Ok(p.into());
     }
@@ -597,8 +597,8 @@ pub fn js_string_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let pat = cc.arg(0).to_string(ctx)?;
 
-    let mut str_len = p.buf_len();
-    let pat_len = pat.buf_len();
+    let mut str_len = p.len();
+    let pat_len = pat.len();
 
     let mut pos = if cc.magic() == MAGIC_ENDS_WITH {
         str_len

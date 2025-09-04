@@ -39,7 +39,7 @@ pub const JS_STRING_LEN_MAX: usize = (1 << 30) - 1;
 /// - A regular string with dynamic content
 /// - An atom string (interned for efficiency)
 /// - A symbol string (unique identifier)
-pub struct JSStringInner {
+pub(crate) struct JSStringInner {
     header: GCObjectHeader,
 
     /// when registered as atom, this is hash value for atom.
@@ -80,7 +80,7 @@ impl JSStringInner {
 
     /// count string chars (include broken surrogate code).
     #[inline(always)]
-    pub fn char_count(&self) -> usize {
+    pub fn chars_count(&self) -> usize {
         self.content.chars_count()
     }
 
@@ -272,13 +272,13 @@ impl JSString {
 
     /// count string chars (include broken surrogate code).
     #[inline(always)]
-    pub fn char_count(&self) -> usize {
-        self.0.char_count()
+    pub fn chars_count(&self) -> usize {
+        self.0.chars_count()
     }
 
-    /// buffer length.
+    /// codepoint length.
     #[inline(always)]
-    pub fn buf_len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.0.len()
     }
 
@@ -330,7 +330,7 @@ impl JSString {
 
     /// make String class object with content from string `self`.
     pub fn to_object(&self, ctx: &JSContext, ctor: &JSValue) -> Result<JSObject, i32> {
-        let len = self.buf_len();
+        let len = self.len();
         let o = ctx
             .create_object_apply_ctor(ctor, ObjectPayload::STRING(self.clone()))
             .map_err(|_| -1)?;
@@ -342,9 +342,9 @@ impl JSString {
     /// make sub string with content of given range.
     /// range is about buffer index, and end index is exclusive.
     pub fn sub_string(&self, ctx: &JSContext, range: Range<usize>) -> Result<JSString, i32> {
-        let end = std::cmp::min(range.end, self.buf_len());
+        let end = std::cmp::min(range.end, self.len());
 
-        if range.start == 0 && end == self.buf_len() {
+        if range.start == 0 && end == self.len() {
             Ok(self.clone())
         } else {
             let count = end.saturating_sub(range.start);
@@ -420,14 +420,6 @@ impl JSContext {
             JSString::from_utf8(self.rt_mut(), utf8_bytes).inspect_err(|_| {
                 self.throw_out_of_memory();
             })
-            // if utf8_bytes.len() == 1 && utf8_bytes[0] < 0x80 {
-            //     // ascii char
-            //     JS_ATOM_ASCII_LUT[utf8_bytes[0] as usize].to_string(self)
-            // } else {
-            //     JSString::from_utf8(self.rt_mut(), utf8_bytes).inspect_err(|_| {
-            //         self.throw_out_of_memory();
-            //     })
-            // }
         }
     }
 
@@ -442,24 +434,15 @@ impl JSContext {
             JSString::from_str(self.rt_mut(), str).inspect_err(|_| {
                 self.throw_out_of_memory();
             })
-            // if str.len() == 1 && str.as_bytes()[0] < 0x80 {
-            //     // ascii char
-            //     JS_ATOM_ASCII_LUT[str.as_bytes()[0] as usize].to_string(self)
-            // } else {
-            //     JSString::from_str(self.rt_mut(), str).inspect_err(|_| {
-            //         self.throw_out_of_memory();
-            //     })
-            // }
         }
     }
 
-    /// create string value from a single u16 char.
+    /// create string value from a single string char.
     pub fn create_string_from_char(&self, ch: StringChar) -> Result<JSString, i32> {
         let buf = match ch {
             StringChar::Char(ch) => {
                 if ch.is_ascii() {
                     StringBuf::Ascii(vec![ch as u8])
-                    // return JS_ATOM_ASCII_LUT[ch as usize].to_string(self);
                 } else {
                     StringBuf::Utf16(ch.encode_utf16(&mut [0; 2]).to_vec())
                 }
@@ -473,25 +456,6 @@ impl JSContext {
             }
         };
         self.create_string_with_buf(buf)
-    }
-}
-
-/* return < 0, 0 or > 0 */
-#[deprecated(note = "use StringBuf::cmp() instead")]
-pub unsafe fn js_string_compare(ctx: &JSContext, p1: &JSString, p2: &JSString) -> i32 {
-    match p1.content().cmp(p2.content()) {
-        std::cmp::Ordering::Less => -1,
-        std::cmp::Ordering::Equal => 0,
-        std::cmp::Ordering::Greater => 1,
-    }
-}
-
-#[deprecated(note = "use JSString::is_empty()")]
-pub fn JS_IsEmptyString(v: &JSValue) -> bool {
-    if let JSValue::String(s) = v {
-        s.is_empty()
-    } else {
-        false
     }
 }
 
@@ -511,7 +475,7 @@ pub fn JS_ConcatString3(
     let len1 = str1.count_bytes();
     let len3 = str3.count_bytes();
 
-    let res_string = StringBuf::with_capacity(len1 + p.buf_len() + len3, p.is_wide())
+    let res_string = StringBuf::with_capacity(len1 + p.len() + len3, p.is_wide())
         .and_then(|mut s| {
             // str1 + str2 + str3
             s.push_str(str1.to_string_lossy().as_ref())
@@ -739,7 +703,7 @@ fn string_define_own_property(
     if let Some(idx) = prop.to_small_int() {
         let ob = unsafe { this_obj.object_unchecked() };
         if let JSValue::String(p1) = ob.0.payload.borrow().value().unwrap() {
-            let len = p1.buf_len();
+            let len = p1.len();
             let nth_char = p1.content().iter_since(idx as usize).next().map(|(_, c)| c);
 
             if idx >= len as u32 {
@@ -756,7 +720,7 @@ fn string_define_own_property(
                 }
 
                 let p2 = unsafe { val.string_unchecked() };
-                let len2 = p2.buf_len();
+                let len2 = p2.len();
                 let nth_char2 = p2.content().iter().next().map(|(_, c)| c);
 
                 if len2 != 1 {
@@ -785,7 +749,7 @@ pub static js_string_exotic_methods: JSClassExoticMethods = JSClassExoticMethods
             if let Some(idx) = prop.to_small_int()
                 && let Some(JSValue::String(s)) =
                     obj.object().and_then(|o| o.0.payload.borrow().value())
-                && idx < s.buf_len() as u32
+                && idx < s.len() as u32
             {
                 let code = s.content().get(idx as usize).unwrap();
                 return Ok(Some(JSPropertyDescriptor {
@@ -805,7 +769,7 @@ pub static js_string_exotic_methods: JSClassExoticMethods = JSClassExoticMethods
     delete_property: Some(
         |_: &JSContext, obj: JSValue, prop: JSAtom| -> Result<bool, i32> {
             if let Some(idx) = prop.to_small_int() {
-                let buflen = TryInto::<JSString>::try_into(obj).unwrap().buf_len();
+                let buflen = TryInto::<JSString>::try_into(obj).unwrap().len();
                 if (idx as usize) < buflen {
                     return Ok(false);
                 }

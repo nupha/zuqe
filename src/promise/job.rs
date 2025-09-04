@@ -3,11 +3,11 @@ use crate::{
     runtime::JSRuntime, value::JSValue,
 };
 
-pub type JobCallback = for<'a> fn(ctx: &'a JSContext, args: CallContext<'a>) -> JSResult;
+pub type JobCallbackFn = for<'a> fn(ctx: &'a JSContext, args: CallContext<'a>) -> JSResult;
 
 pub struct JSJobEntry {
     pub ctx: JSContext,
-    pub callback: JobCallback,
+    pub callback: JobCallbackFn,
 
     /// args array, 5 in max
     pub args: [JSValue; 5],
@@ -17,7 +17,7 @@ pub struct JSJobEntry {
 impl JSContext {
     /// Append a job to queue.
     /// Note: `args` values are not consumed, args count must not greater than 5.
-    pub(super) fn queue_job(&self, callback: JobCallback, args: &[JSValue]) -> Result<(), i32> {
+    pub(super) fn queue_job(&self, callback: JobCallbackFn, args: &[JSValue]) -> Result<(), i32> {
         debug_assert!(args.len() < 6);
 
         let mut job = Box::new(JSJobEntry {

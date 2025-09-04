@@ -397,7 +397,7 @@ pub fn JS_AtomIsNumericIndex1(ctx: &JSContext, atom: JSAtom) -> JSValue {
     }
 
     if let AtomHintAndId::String(_) = p.atom_info().unwrap() {
-        let buf_len = p.buf_len();
+        let buf_len = p.len();
 
         // check for: -0, Infinity, -Infinity
         let mut chars = p.content().iter();

@@ -37,7 +37,7 @@ use crate::{
         JSShapeProperty, ObjectPayload, PropertyKey,
     },
     parse::{JSParseExportEnum, JSParseFunctionEnum, JSParseState},
-    promise::{JSPromiseReactionData, JSPromiseStateEnum, JobCallback, Promise},
+    promise::{JSPromiseReactionData, JSPromiseStateEnum, JobCallbackFn, Promise},
     proxy::ProxyObjPayload,
     runtime::{JSRuntime, js_check_stack_overflow},
     stack_frame::StackFrame,
@@ -677,7 +677,7 @@ pub unsafe fn JS_FreeCString(ctx: &JSContext, ptr: *const c_char) {
 #[deprecated(note = "use JSContext::enqueue_job() instead")]
 pub unsafe fn JS_EnqueueJob(
     ctx: &JSContext,
-    job_func: *mut JobCallback,
+    job_func: *mut JobCallbackFn,
     argc: i32,
     argv: *const JSValueConst,
 ) -> i32 {
@@ -3097,21 +3097,30 @@ pub unsafe fn JS_NewSymbolFromAtom(
 #[deprecated(note = "use JSContext::create_symbol() instead")]
 pub fn JS_NewSymbol(ctx: &JSContext, p: JSString, atom_type: AtomTypeHint) -> JSValue {
     unreachable!("unused");
-    // match ctx.rt_mut().register_atom(Some(p), atom_type) {
-    //     Ok(a) => {
-    //         let ss = ctx.rt().get_atom_desc(a).unwrap();
-    //         JSValue::Symbol(ss)
-    //     }
-    //     Err(_) => {
-    //         ctx.throw_out_of_memory();
-    //         JSValue::EXCEPTION
-    //     }
-    // }
 }
 
 #[deprecated(note = "use JSValue::coerce_to_atom() instead")]
 pub fn JS_ValueToAtom(ctx: &JSContext, val: &JSValue) -> JSAtom {
     val.to_atom(ctx).unwrap_or(JS_ATOM_NULL)
+}
+
+/* return < 0, 0 or > 0 */
+#[deprecated(note = "use StringBuf::cmp() instead")]
+pub unsafe fn js_string_compare(ctx: &JSContext, p1: &JSString, p2: &JSString) -> i32 {
+    match p1.content().cmp(p2.content()) {
+        std::cmp::Ordering::Less => -1,
+        std::cmp::Ordering::Equal => 0,
+        std::cmp::Ordering::Greater => 1,
+    }
+}
+
+#[deprecated(note = "use JSString::is_empty()")]
+pub fn JS_IsEmptyString(v: &JSValue) -> bool {
+    if let JSValue::String(s) = v {
+        s.is_empty()
+    } else {
+        false
+    }
 }
 
 #[deprecated(note = "use JSObject::shape_prepare_update() instead")]
@@ -3688,7 +3697,7 @@ pub unsafe fn compute_pc2line_info(s: *mut JSFunctionDef) {
 }
 
 #[deprecated(note = "use JSFunctionDef::code_has_label() instead")]
-pub unsafe fn code_has_label(s: *mut std::ffi::c_void, mut pos: usize, label: u32) -> bool {
+pub unsafe fn code_has_label(s: *mut std::ffi::c_void, pos: usize, label: u32) -> bool {
     unreachable!("unused")
 }
 
@@ -3809,7 +3818,7 @@ pub fn JS_AtomSymbolHasDescription(ctx: &JSContext, atom: JSAtom) -> bool {
 /// this func is used as a class exotic method, `obj` is supposed to be an object of JS_CLASS_STRING class.
 #[deprecated(note = "use TryInto<JSString> to convert obj into JSString, then get length")]
 pub(crate) fn js_string_obj_get_length(obj: JSValue) -> usize {
-    TryInto::<JSString>::try_into(obj).map_or(0, |s| s.buf_len())
+    TryInto::<JSString>::try_into(obj).map_or(0, |s| s.len())
 }
 
 #[deprecated]
