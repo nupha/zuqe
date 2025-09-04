@@ -72,8 +72,7 @@ impl StringContent {
             Ok(StringBuf::Empty)
         } else {
             match self {
-                Self::Empty => Ok(StringBuf::Empty),
-                Self::Null => Ok(StringBuf::Null),
+                Self::Empty | Self::Null => Ok(StringBuf::Empty),
                 Self::Ascii(s) => {
                     let lst = s
                         .iter()
@@ -576,7 +575,6 @@ impl From<StringBuf> for StringContent {
     fn from(value: StringBuf) -> Self {
         match value {
             StringBuf::Empty => Self::Empty,
-            StringBuf::Null => Self::Null,
             StringBuf::Ascii(s) => Self::Ascii(s.into()),
             StringBuf::Utf16(s) => Self::Utf16(s.into()),
         }
@@ -602,7 +600,7 @@ impl StringBuf {
 
         let new_data: StringBuf = match (orig_data, content) {
             (s, StringContent::Empty | StringContent::Null) => s,
-            (Self::Empty | Self::Null, _) => content.to_buf_range(range)?,
+            (Self::Empty, _) => content.to_buf_range(range)?,
 
             // same type
             (Self::Utf16(mut s1), StringContent::Utf16(s2)) => {

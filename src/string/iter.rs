@@ -219,7 +219,7 @@ impl StringBuf {
     /// if `range` has out of bound, range is intersected with buf.
     pub fn iter_codepoint_range(&self, range: Range<usize>) -> StringCodepointIter<'_> {
         match self {
-            Self::Empty | Self::Null => StringCodepointIter::U8([].iter().peekable()),
+            Self::Empty => StringCodepointIter::U8([].iter().peekable()),
             Self::Ascii(s) => {
                 if let Some(slice) = s.get(range) {
                     StringCodepointIter::U8(slice.iter().peekable())
@@ -254,7 +254,7 @@ impl StringBuf {
     /// for broken surrogate, returns raw code directly, otherwise returns unichar
     pub fn iter_range(&self, range: Range<usize>) -> StringCharIter<'_> {
         match self {
-            Self::Empty | Self::Null => StringCharIter::from_u8(&[], range.start),
+            Self::Empty => StringCharIter::from_u8(&[], range.start),
             Self::Ascii(s) => {
                 if let Some(slice) = s.get(range.clone()) {
                     StringCharIter::from_u8(slice, range.start)

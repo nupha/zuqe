@@ -12,10 +12,6 @@ pub enum StringBuf {
     /// string with no content
     Empty,
 
-    /// null string - behaves like empty, but is for semantically differ only.
-    /// only used when creating an anonymous Symbol,
-    Null,
-
     /// utf8 encoded bytes
     Ascii(Vec<u8>),
     /// utf16 wide-chars
@@ -75,7 +71,7 @@ impl StringBuf {
 
     pub fn try_reserve(&mut self, cap: usize) -> Result<(), TryReserveError> {
         match self {
-            Self::Empty | Self::Null => {
+            Self::Empty => {
                 let mut d = Vec::<u8>::new();
                 d.try_reserve(cap)?;
                 *self = Self::Ascii(d);
@@ -88,7 +84,7 @@ impl StringBuf {
 
     pub fn try_reserve_exact(&mut self, cap: usize) -> Result<(), TryReserveError> {
         match self {
-            Self::Empty | Self::Null => {
+            Self::Empty => {
                 let mut d = Vec::<u8>::new();
                 d.try_reserve_exact(cap)?;
                 *self = Self::Ascii(d);
@@ -101,7 +97,7 @@ impl StringBuf {
 
     pub fn shrink_to_fit(&mut self) {
         match self {
-            Self::Empty | Self::Null => {}
+            Self::Empty => {}
             Self::Ascii(s) => {
                 if s.is_empty() {
                     *self = Self::Empty;
@@ -123,7 +119,7 @@ impl StringBuf {
         let s = str.as_ref();
         if !s.is_empty() {
             match self {
-                Self::Empty | Self::Null => {
+                Self::Empty => {
                     let cc = if s.is_ascii() {
                         let mut d = Vec::<u8>::new();
                         d.try_reserve_exact(s.len())?;
@@ -170,8 +166,8 @@ impl StringBuf {
         let orig_content = std::mem::replace(self, Self::Empty);
 
         let new_content: Self = match (orig_content, source.src) {
-            (s, Self::Empty | Self::Null) => s,
-            (Self::Empty | Self::Null, _) => source.to_owned()?,
+            (s, Self::Empty) => s,
+            (Self::Empty, _) => source.to_owned()?,
 
             // same type
             (Self::Utf16(mut s1), Self::Utf16(s2)) => {
@@ -234,7 +230,7 @@ impl StringBuf {
 
     pub fn push_u8_slice(&mut self, s8: &[u8]) -> Result<(), TryReserveError> {
         match self {
-            Self::Empty | Self::Null => {
+            Self::Empty => {
                 let d = s8.iter().copied().try_collect::<Vec<_>>()?;
                 let _ = std::mem::replace(self, Self::Ascii(d));
             }
@@ -252,7 +248,7 @@ impl StringBuf {
 
     pub fn push_u16_slice(&mut self, source: &[u16]) -> Result<(), TryReserveError> {
         match self {
-            Self::Empty | Self::Null => {
+            Self::Empty => {
                 if source.iter().any(|x| *x >= 0x80) {
                     // utf16
                     let d16 = source.iter().copied().try_collect::<Vec<_>>()?;
@@ -290,7 +286,7 @@ impl StringBuf {
         source: impl Iterator<Item = u16>,
     ) -> Result<(), TryReserveError> {
         match self {
-            Self::Empty | Self::Null => {
+            Self::Empty => {
                 let d16 = source.try_collect::<Vec<_>>()?;
                 if d16.iter().any(|x| *x >= 0x80) {
                     // utf16
@@ -379,7 +375,7 @@ impl StringBuf {
         let len = std::cmp::max(sz.0, sz.1.unwrap_or(1));
 
         match self {
-            Self::Empty | Self::Null => {
+            Self::Empty => {
                 let mut lst = Vec::<u16>::new(); // assume wide string at first.
                 lst.try_reserve(len)?;
 
@@ -481,7 +477,7 @@ impl StringBuf {
     /// encode content to utf8 str
     pub fn to_utf8(&self) -> Cow<'_, str> {
         match self {
-            Self::Empty | Self::Null => Cow::Borrowed(""),
+            Self::Empty => Cow::Borrowed(""),
             Self::Ascii(s) => Cow::Borrowed(unsafe { std::str::from_utf8_unchecked(s) }),
             Self::Utf16(s) => Cow::Owned(String::from_utf16_lossy(s)),
         }
@@ -490,7 +486,7 @@ impl StringBuf {
     /// buffer capacity
     pub const fn capacity(&self) -> usize {
         match self {
-            Self::Empty | Self::Null => 0,
+            Self::Empty => 0,
             Self::Ascii(s) => s.capacity(),
             Self::Utf16(s) => s.capacity(),
         }
@@ -499,7 +495,7 @@ impl StringBuf {
     /// buffer length, count of codepoints.
     pub fn len(&self) -> usize {
         match self {
-            Self::Empty | Self::Null => 0,
+            Self::Empty => 0,
             Self::Ascii(s) => s.len(),
             Self::Utf16(s) => s.len(),
         }
@@ -508,7 +504,7 @@ impl StringBuf {
     /// count chars (include broken surrogate codepoint).
     pub fn chars_count(&self) -> usize {
         match self {
-            Self::Empty | Self::Null => 0,
+            Self::Empty => 0,
             Self::Ascii(s) => s.len(),
             Self::Utf16(_) => self.iter().count(),
         }
@@ -518,7 +514,7 @@ impl StringBuf {
     /// returns None if index is out of bound.
     pub fn get(&self, index: usize) -> Option<u16> {
         match self {
-            Self::Empty | Self::Null => None,
+            Self::Empty => None,
             Self::Ascii(lst) => lst.get(index).map(|n| *n as u16),
             Self::Utf16(lst) => lst.get(index).map(|n| *n),
         }
@@ -582,7 +578,7 @@ impl StringBuf {
                             }
                         }
                     }
-                    Self::Empty | Self::Null => {}
+                    Self::Empty => {}
                 }
             }
         }
@@ -595,7 +591,7 @@ impl StringBuf {
         }
 
         match self {
-            Self::Empty | Self::Null => None,
+            Self::Empty => None,
             Self::Ascii(s) => {
                 if code > 0x7F {
                     None
@@ -729,7 +725,6 @@ impl std::fmt::Debug for StringBuf {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Empty => write!(f, "\"\""),
-            Self::Null => write!(f, "<null>"),
             _ => {
                 let sep = '\"';
                 write!(f, "{sep}")?;
@@ -786,7 +781,6 @@ impl std::fmt::Debug for StringBufSlice<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.src {
             StringBuf::Empty => write!(f, "<StringBufSlice Empty>"),
-            StringBuf::Null => write!(f, "<StringBufSlice Null>"),
             StringBuf::Ascii(s) => {
                 write!(
                     f,
@@ -827,7 +821,7 @@ impl StringBufSlice<'_> {
             Cow::Borrowed("")
         } else {
             match self.src {
-                StringBuf::Empty | StringBuf::Null => Cow::Borrowed(""),
+                StringBuf::Empty => Cow::Borrowed(""),
                 StringBuf::Ascii(s) => Cow::Borrowed(unsafe {
                     std::str::from_utf8_unchecked(&s[self.buf_ranges.clone()])
                 }),
