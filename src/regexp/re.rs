@@ -122,14 +122,12 @@ impl JSRegExp {
         })
     }
 
-    pub fn find(&self, text: &JSString, from: usize) -> Box<[Range<usize>]> {
-        let sbuf = text.content();
-        if from > sbuf.buf_len() {
+    pub fn find(&self, content: &StringContent, from: usize) -> Box<[Range<usize>]> {
+        if from > content.len() {
             return Box::new([]);
         }
 
-        let sbuf_slice = sbuf.slice(from..sbuf.buf_len());
-        let utf8_text = sbuf_slice.to_utf8();
+        let utf8_str = content.to_utf8_range(from..content.len());
 
         let is_global = self.flags & LRE_FLAG_GLOBAL as u8 != 0;
         let is_unicode = self.flags & LRE_FLAG_UTF16 as u8 != 0;
@@ -141,7 +139,7 @@ impl JSRegExp {
 
         for m in self
             .regex
-            .find_iter(utf8_text.as_bytes())
+            .find_iter(utf8_str.as_bytes())
             .take(if is_global { usize::MAX } else { 1 })
         {
             if is_sticky && m.start() != cursor {
@@ -150,14 +148,9 @@ impl JSRegExp {
 
             cursor = m.end();
 
-            let range = if sbuf_slice.is_wide() {
-                use crate::string::map_utf8_to_utf16_range;
-
-                let s16 = {
-                    let bb = sbuf_slice.as_bytes();
-                    unsafe { std::slice::from_raw_parts(bb.as_ptr().cast::<u16>(), bb.len() / 2) }
-                };
-                map_utf8_to_utf16_range(utf8_text.as_bytes(), s16, m.range())
+            let range = if let Some(w) = content.utf16() {
+                let s16 = &w[from..];
+                map_utf8_to_utf16_range(utf8_str.as_bytes(), s16, m.range())
             } else {
                 m.range()
             };
@@ -177,18 +170,16 @@ impl JSRegExp {
 
     pub fn capture(
         &self,
-        text: &JSString,
+        content: &StringContent,
         from: usize,
     ) -> Option<Box<[(Option<Range<usize>>, Option<&str>)]>> {
-        let sbuf = text.content();
-        if from > sbuf.buf_len() {
+        if from > content.len() {
             return None;
         }
 
-        let sbuf_slice = sbuf.slice(from..sbuf.buf_len());
-        let utf8_text = sbuf_slice.to_utf8();
+        let utf8_str = content.to_utf8_range(from..content.len());
 
-        if let Some(caps) = self.regex.captures(utf8_text.as_bytes()) {
+        if let Some(caps) = self.regex.captures(utf8_str.as_bytes()) {
             if self.flags & LRE_FLAG_STICKY as u8 != 0 && caps.get(0).unwrap().start() != 0 {
                 return None;
             }
@@ -197,12 +188,9 @@ impl JSRegExp {
 
             for (cap, name) in caps.iter().zip(self.regex.capture_names()) {
                 if let Some(m) = cap {
-                    let range = if sbuf_slice.is_wide() {
-                        let s16 = unsafe {
-                            let bb = sbuf_slice.as_bytes();
-                            std::slice::from_raw_parts(bb.as_ptr().cast::<u16>(), bb.len() / 2)
-                        };
-                        map_utf8_to_utf16_range(utf8_text.as_bytes(), s16, m.range())
+                    let range = if let Some(w) = content.utf16() {
+                        let s16 = &w[from..];
+                        map_utf8_to_utf16_range(utf8_str.as_bytes(), s16, m.range())
                     } else {
                         m.range()
                     };

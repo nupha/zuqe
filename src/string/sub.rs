@@ -2,7 +2,7 @@ use std::collections::TryReserveError;
 
 use crate::string::{StringBuf, StringChar, StringContent};
 
-impl StringBuf {
+impl StringContent {
     pub fn substitution_buf<'a>(
         matched: &Self,     // 匹配到的子字符串（对应 $&）
         str: &Self,         // 原字串
@@ -30,16 +30,16 @@ impl StringBuf {
 /// 对应规范：ECMAScript 的 GetSubstitution 抽象操作.
 /// 返回: 包含替换后的字符串值
 fn do_substitution<'a>(
-    str: &StringBuf,                                                     // 原始字符串。
-    position: usize,                                                     // 匹配发生的位置索引
-    matched: &StringBuf,     // 匹配到的子字符串（对应 $&）
-    replacement: &StringBuf, // 替换字符串或替换函数。
+    str: &StringContent,                                            // 原始字符串。
+    position: usize,                                                // 匹配发生的位置索引
+    matched: &StringContent,                                        // 匹配到的子字符串（对应 $&）
+    replacement: &StringContent,                                    // 替换字符串或替换函数。
     captures: impl Fn(usize) -> Result<Option<StringContent>, i32>, // 捕获（对应 $1, $2 等）
-    captures_len: usize,     // 最大捕获ID
+    captures_len: usize,                                            // 最大捕获ID
     named_captures: impl Fn(&str) -> Result<Option<StringContent>, i32>, // 命名捕获（对应 $<name>）
 ) -> Result<StringBuf, Option<TryReserveError>> {
     // alloc result string buf
-    let mut sbuf = StringBuf::with_capacity(matched.buf_len(), str.is_wide())?;
+    let mut sbuf = StringBuf::with_capacity(matched.len(), str.is_wide())?;
     let mut replace_chars = replacement.iter();
 
     // escape $-patterns in `replacement`
@@ -53,17 +53,15 @@ fn do_substitution<'a>(
                     }
                     StringChar::Char('&') => {
                         // $& -> matched
-                        sbuf.push(matched)?;
+                        sbuf.push_content(matched)?;
                     }
                     StringChar::Char('`') => {
                         // $` -> str[0..position]
-                        sbuf.push_content_slice(&str.slice(0..position))?;
+                        sbuf.push_content_range(str, 0..position)?;
                     }
                     StringChar::Char('\'') => {
                         // $' -> str[position+matched.len()..]
-                        sbuf.push_content_slice(
-                            &str.slice((position + matched.buf_len())..str.buf_len()),
-                        )?;
+                        sbuf.push_content_range(str, (position + matched.len())..str.len())?;
                     }
                     StringChar::Char(a @ ('0'..='9')) => {
                         // $k -> captures[k]
@@ -80,7 +78,7 @@ fn do_substitution<'a>(
 
                         if (1..captures_len as u32).contains(&id) {
                             if let Some(s) = captures(id as usize).map_err(|_| None)? {
-                                sbuf.push(&s).map_err(|e| Some(e))?;
+                                sbuf.push_content(&s).map_err(|e| Some(e))?;
                             }
                         } else {
                             sbuf.push_char(c)?; // $ 
@@ -106,7 +104,7 @@ fn do_substitution<'a>(
 
                                 sbuf.drain(name_start..sbuf.buf_len());
                                 if let Some(s) = named_captures(&name).map_err(|_| None)? {
-                                    sbuf.push(&s)?;
+                                    sbuf.push_content(&s)?;
                                 }
                             } else {
                                 sbuf.push_char(c1)?;

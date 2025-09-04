@@ -21,7 +21,7 @@ impl<'s> JSParseState<'s> {
         ptr: *const u8,
         token: Option<&mut Token>,
     ) -> Result<*const u8, i32> {
-        let mut content = StringBuf::Empty;
+        let mut sbuf = StringBuf::Empty;
         let mut p = ptr;
 
         loop {
@@ -32,8 +32,8 @@ impl<'s> JSParseState<'s> {
                 return Err(-1);
             }
 
-            if content.capacity() == content.buf_len() {
-                content.try_reserve_exact(32).map_err(|_| {
+            if sbuf.capacity() == sbuf.buf_len() {
+                sbuf.try_reserve_exact(32).map_err(|_| {
                     self.ctx.throw_out_of_memory();
                     -1
                 })?;
@@ -221,9 +221,9 @@ impl<'s> JSParseState<'s> {
 
             // add char_code to string content
             if let Some(uc) = char::from_u32(char_code) {
-                content.push_char(uc).unwrap(); // can't fail
+                sbuf.push_char(uc).unwrap(); // can't fail
             } else {
-                content.push_u16(char_code as u16).unwrap(); // can't fail
+                sbuf.push_u16(char_code as u16).unwrap(); // can't fail
             }
         }
 
@@ -231,7 +231,7 @@ impl<'s> JSParseState<'s> {
         let tok = token.unwrap_or(&mut self.token);
         tok.val = TOK_STRING;
         tok.data = TokenData::Str {
-            str: Rc::new(content),
+            str: sbuf.into(),
             sep: sep as i32,
         };
 

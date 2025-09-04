@@ -85,7 +85,7 @@ impl<'s> JSParseState<'s> {
         self.token.val = TOK_TEMPLATE;
         self.token.data = TokenData::Str {
             sep: sep as i32, // could be '`' or '$'
-            str: Rc::new(sbuf),
+            str: sbuf.into(),
         };
         self.buf_ptr = p;
 

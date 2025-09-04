@@ -58,8 +58,8 @@ pub fn js_regexp_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     }
 
-    let mut pattern: StringContent = Rc::new(StringBuf::Empty);
-    let mut flags_str: StringContent = Rc::new(StringBuf::Empty);
+    let mut pattern: StringContent = StringContent::Empty;
+    let mut flags_str: StringContent = StringContent::Empty;
 
     let re = if let Some(re) = pat.object().and_then(|o| js_get_regexp(ctx, o, false)) {
         if flags1.is_undefined() {
@@ -85,7 +85,7 @@ pub fn js_regexp_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
 
         pattern = if pat.is_undefined() {
-            Rc::new(StringBuf::Empty)
+            StringContent::Empty
         } else {
             pat.to_string(ctx)?.content().clone()
         };
@@ -93,7 +93,7 @@ pub fn js_regexp_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         flags_str = if !flags1.is_undefined() {
             flags1.to_string(ctx)?.content().clone()
         } else {
-            Rc::new(StringBuf::Empty)
+            StringContent::Empty
         };
 
         None
@@ -179,7 +179,7 @@ pub fn js_regexp_get_source(ctx: &JSContext, cc: CallContext) -> JSResult {
             return ctx.create_string_from_str("(?:))").map(JSValue::String);
         }
 
-        let mut buf = StringBuf::with_capacity(p.buf_len() * 3 / 2, p.is_wide()).map_err(|_| {
+        let mut buf = StringBuf::with_capacity(p.len() * 3 / 2, p.is_wide()).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
         })?;
@@ -304,7 +304,7 @@ pub fn js_regexp_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
             .get_property(ctx, JS_ATOM_source)
             .and_then(|v| v.to_string(ctx))?;
 
-        buf.push(&pattern.content()).map_err(|_| {
+        buf.push_content(&pattern.content()).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
         })?;
@@ -319,7 +319,7 @@ pub fn js_regexp_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
             .get_property(ctx, JS_ATOM_flags)
             .and_then(|v| v.to_string(ctx))?;
 
-        buf.push(&flags.content()).map_err(|_| {
+        buf.push_content(flags.content()).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
         })?;
@@ -353,12 +353,12 @@ fn js_regexp_compile(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     } else {
         pattern = if pattern1.is_undefined() {
-            Rc::new(StringBuf::Empty)
+            StringContent::Empty
         } else {
             pattern1.to_string(ctx)?.content().clone()
         };
         flags_str = if flags1.is_undefined() {
-            Rc::new(StringBuf::Empty)
+            StringContent::Empty
         } else {
             flags1.to_string(ctx)?.content().clone()
         };
@@ -429,11 +429,12 @@ pub fn js_regexp_exec(ctx: &JSContext, cc: CallContext) -> JSResult {
     let re = js_get_regexp(ctx, this, true).ok_or(-1)?;
     let str = cc.arg(0).to_string(ctx)?;
 
-    let from = {
-        let val = cc.this().get_property(ctx, JS_ATOM_lastIndex)?;
-        val.to_length(ctx)? as usize
-    };
-    if let Some(cap_list) = re.capture(&str, from) {
+    let from = cc
+        .this()
+        .get_property(ctx, JS_ATOM_lastIndex)?
+        .to_length(ctx)? as usize;
+
+    if let Some(cap_list) = re.capture(str.content(), from) {
         let (arr, last_index) = make_regexp_capture_array(ctx, str, &cap_list)?;
         if re.flags & (LRE_FLAG_GLOBAL | LRE_FLAG_STICKY) as u8 != 0 {
             this.set_property(ctx, JS_ATOM_lastIndex, JSValue::from(last_index as u32))?;
@@ -466,7 +467,7 @@ pub fn js_regexp_Symbol_match(ctx: &JSContext, cc: CallContext) -> JSResult {
         // fast path: use native regex find()
         if re.flags & LRE_FLAG_GLOBAL as u8 != 0 {
             // has g flag: use find(), returns array of match
-            let found = re.find(&str, 0);
+            let found = re.find(str.content(), 0);
             if !found.is_empty() {
                 let arr = ctx.create_array()?;
                 let prop_flags = JS_PROP_C_W_E | JS_PROP_THROW;
@@ -489,7 +490,7 @@ pub fn js_regexp_Symbol_match(ctx: &JSContext, cc: CallContext) -> JSResult {
         } else {
             // use capture, returns exec data
             if let Some(cap_list) = re.capture(
-                &str,
+                str.content(),
                 if re.flags & LRE_FLAG_GLOBAL as u8 == 0 {
                     0
                 } else {
@@ -686,7 +687,7 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
             .get_property(ctx, JS_ATOM_length)
             .and_then(|v| v.to_u32(ctx))? as usize;
 
-        sbuf.push_content_slice(&str.content().slice(pos..index))
+        sbuf.push_content_range(str.content(), pos..index)
             .map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1
@@ -699,7 +700,7 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
 
             let groups = TryInto::<JSObject>::try_into(m.get_property(ctx, JS_ATOM_groups)?).ok();
 
-            let t = StringBuf::substitution_buf(
+            let t = StringContent::substitution_buf(
                 matched.content(),
                 str.content(),
                 index,
@@ -765,7 +766,7 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
             )?
             .to_string(ctx)?;
 
-            sbuf.push(&t.content()).map_err(|_| {
+            sbuf.push_content(&t.content()).map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1
             })?;
@@ -773,8 +774,8 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     // concat remaining part of `str`
-    if pos < str.content().buf_len() {
-        sbuf.push_content_slice(&str.content().slice(pos..str.content().buf_len()))
+    if pos < str.content().len() {
+        sbuf.push_content_range(str.content(), pos..str.content().len())
             .map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1

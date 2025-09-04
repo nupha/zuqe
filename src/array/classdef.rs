@@ -719,8 +719,10 @@ pub fn js_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     if !to_locale_string && cc.length() > 0 && !cc.arg(0).is_undefined() {
         let sep = cc.arg(0).to_string(ctx)?;
-        c = if sep.buf_len() == 1 && !sep.is_wide() {
-            sep.content().as_bytes()[0] as i32
+        c = if let Some(a) = sep.content().ascii()
+            && a.len() == 1
+        {
+            a[0] as i32
         } else {
             -1
         };
@@ -735,7 +737,7 @@ pub fn js_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
             if c >= 0 {
                 let _ = sbuf.push_u8(c as u8);
             } else {
-                let _ = sbuf.push(p.as_ref().unwrap().content());
+                let _ = sbuf.push_content(p.as_ref().unwrap().content());
             }
         }
 
@@ -748,7 +750,7 @@ pub fn js_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
             } else {
                 el.to_string(ctx)?
             };
-            sbuf.push(ss.content()).map_err(|_| {
+            sbuf.push_content(ss.content()).map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1
             })?

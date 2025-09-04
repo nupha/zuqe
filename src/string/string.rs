@@ -14,12 +14,12 @@ use crate::{
     gc::GCObjectHeader,
     number::f64_stringify,
     object::{
-        GCObjectWeakref, JS_PROP_C_W_E, JS_PROP_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC,
-        JSObject, JSPropertyDescriptor, ObjectPayload, check_define_prop_flags,
+        GCObjectWeakref, JS_PROP_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC, JSObject,
+        JSPropertyDescriptor, ObjectPayload, check_define_prop_flags,
     },
     runtime::JSRuntime,
     string::{StringChar, StringContent},
-    value::{HINT_STRING, JSValue, JSValueConst},
+    value::{HINT_STRING, JSValue},
 };
 
 use super::StringBuf;
@@ -84,16 +84,16 @@ impl JSStringInner {
         self.content.chars_count()
     }
 
-    /// Returns the buffer length
+    /// Returns the codepoint length
     #[inline(always)]
-    pub fn buf_len(&self) -> usize {
-        self.content.buf_len()
+    pub fn len(&self) -> usize {
+        self.content.len()
     }
 
     /// Checks if the string is empty (zero length)
     #[inline(always)]
     pub fn is_empty(&self) -> bool {
-        self.buf_len() == 0 && !self.is_null()
+        self.len() == 0 && !self.is_null()
     }
 
     #[inline(always)]
@@ -226,7 +226,7 @@ impl JSString {
     /// * `Ok(Box<JSStringInner>)` - Newly created string
     /// * `Err(-1)` - Memory allocation or UTF-8 validation failed
     pub(crate) fn from_str(rt: &mut JSRuntime, s: &str) -> Result<Self, i32> {
-        Ok(Self::new(rt, Rc::new(StringBuf::from_str(s)?)))
+        Ok(Self::new(rt, StringBuf::from_str(s)?.into()))
     }
 
     /// Creates a JSString from UTF-8 encoded bytes
@@ -245,7 +245,7 @@ impl JSString {
     pub(crate) fn from_utf8(rt: &mut JSRuntime, bytes: Vec<u8>) -> Result<Self, i32> {
         Ok(Self::new(
             rt,
-            Rc::new(StringBuf::from_utf8(bytes).map_err(|_| -1)?),
+            StringBuf::from_utf8(bytes).map_err(|_| -1)?.into(),
         ))
     }
 
@@ -279,7 +279,7 @@ impl JSString {
     /// buffer length.
     #[inline(always)]
     pub fn buf_len(&self) -> usize {
-        self.0.buf_len()
+        self.0.len()
     }
 
     #[inline(always)]
@@ -349,13 +349,12 @@ impl JSString {
         } else {
             let count = end.saturating_sub(range.start);
             if count > 0 {
-                let sub = self.content().slice(range).to_owned().map_err(|_| {
+                ctx.create_string_with_buf(self.content().to_buf_range(range).map_err(|_| {
                     ctx.throw_out_of_memory();
                     -1
-                })?;
-                ctx.create_string_with_buf(sub)
+                })?)
             } else {
-                ctx.create_string_with_buf(StringBuf::Empty)
+                ctx.create_string_with_content(StringContent::Empty)
             }
         }
     }
@@ -394,7 +393,7 @@ impl JSContext {
         if sbuf.is_empty() {
             JS_ATOM_empty_string.to_string(self)
         } else {
-            Ok(JSString::new(self.rt_mut(), Rc::new(sbuf)))
+            Ok(JSString::new(self.rt_mut(), sbuf.into()))
         }
     }
 
@@ -516,7 +515,7 @@ pub fn JS_ConcatString3(
         .and_then(|mut s| {
             // str1 + str2 + str3
             s.push_str(str1.to_string_lossy().as_ref())
-                .and_then(|_| s.push(p.content()))
+                .and_then(|_| s.push_content(p.content()))
                 .and_then(|_| s.push_str(str3.to_string_lossy().as_ref()))
                 .map(|_| s)
         })
@@ -550,49 +549,22 @@ pub fn JS_ConcatString(ctx: &JSContext, op1: JSValue, op2: JSValue) -> Result<JS
         return Ok(p1);
     }
 
-    match Rc::try_unwrap(p1.0) {
-        Ok(mut ss) => {
-            // p1 ref count == 1
-            match Rc::try_unwrap(ss.content) {
-                Ok(mut cc) => {
-                    if cc.push(p2.content()).is_err() {
-                        ss.content = Rc::new(cc);
-                        ctx.throw_out_of_memory();
-                        Err(-1)
-                    } else {
-                        ctx.create_string_with_buf(cc)
-                    }
+    // concat p1, p2
+    let buf =
+        p1.0.content()
+            .to_buf()
+            .and_then(|mut lst| {
+                if let Err(e) = lst.push_content(p2.content()) {
+                    Err(e)
+                } else {
+                    Ok(lst)
                 }
-                Err(cc) => {
-                    if let Ok(mut cc2) = cc.copy_to_new() {
-                        if cc2.push(p2.content()).is_err() {
-                            ctx.throw_out_of_memory();
-                            Err(-1)
-                        } else {
-                            ctx.create_string_with_buf(cc2)
-                        }
-                    } else {
-                        ctx.throw_out_of_memory();
-                        Err(-1)
-                    }
-                }
-            }
-        }
-        Err(ss) => {
-            let new_sc = ss
-                .content()
-                .copy_to_new()
-                .and_then(|mut s| {
-                    s.push(p2.content())?;
-                    Ok(s)
-                })
-                .map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
-            ctx.create_string_with_buf(new_sc)
-        }
-    }
+            })
+            .map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?;
+    ctx.create_string_with_buf(buf)
 }
 
 impl JSValue {

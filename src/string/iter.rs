@@ -160,11 +160,11 @@ impl<'a> Iterator for StringCharIter<'a> {
 }
 
 impl<'a> StringCharIter<'a> {
-    fn from_u16(slice: &'a [u16], base_index: usize) -> Self {
+    pub fn from_u16(slice: &'a [u16], base_index: usize) -> Self {
         Self::U16(U16CharIter::new(slice, base_index))
     }
 
-    fn from_u8(slice: &'a [u8], base_index: usize) -> Self {
+    pub fn from_u8(slice: &'a [u8], base_index: usize) -> Self {
         Self::U8 {
             it: slice.iter().peekable(),
             cursor: base_index,

@@ -221,8 +221,8 @@ impl Array {
 
 fn sort_values_default(values: &mut [(JSValue, StringContent)]) {
     values.sort_by(|a, b| {
-        // compare by string
-        a.1.as_ref().cmp(b.1.as_ref())
+        // compare string content
+        a.1.cmp(&b.1)
     });
 }
 

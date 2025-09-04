@@ -187,7 +187,7 @@ impl StringBuf {
     }
 
     /// concat other string content to self content, returns a new result string content.
-    pub fn push_content_slice(&mut self, source: &StringBufSlice) -> Result<(), TryReserveError> {
+    pub fn push_buf_slice(&mut self, source: &StringBufSlice) -> Result<(), TryReserveError> {
         // use a temp var to hold current self content
         let orig_content = std::mem::replace(self, Self::Empty);
 
@@ -251,7 +251,7 @@ impl StringBuf {
 
     /// concat other string buf to `self`, returns a new string buf.
     pub fn push(&mut self, other: &Self) -> Result<(), TryReserveError> {
-        self.push_content_slice(&other.slice(0..other.buf_len()))
+        self.push_buf_slice(&other.slice(0..other.buf_len()))
     }
 
     pub fn push_u8_slice(&mut self, s8: &[u8]) -> Result<(), TryReserveError> {
@@ -269,6 +269,41 @@ impl StringBuf {
                 w.extend(unsafe { std::str::from_utf8_unchecked(s8) }.encode_utf16());
             }
         }
+        Ok(())
+    }
+
+    pub fn push_u16_slice(&mut self, source: &[u16]) -> Result<(), TryReserveError> {
+        match self {
+            Self::Empty | Self::Null => {
+                if source.iter().any(|x| *x >= 0x80) {
+                    // utf16
+                    let d16 = source.iter().copied().try_collect::<Vec<_>>()?;
+                    *self = Self::Utf16(d16);
+                } else {
+                    // ascii
+                    let d8 = source.iter().map(|c| *c as u8).try_collect::<Vec<_>>()?;
+                    *self = Self::Ascii(d8);
+                }
+            }
+            Self::Ascii(d) => {
+                if source.iter().any(|&u| u >= 0x80) {
+                    // migrate to utf16
+                    let mut d16 = Vec::<u16>::new();
+                    d16.try_reserve_exact(d.len() + source.len())?;
+                    d16.extend(unsafe { std::str::from_utf8_unchecked(d) }.encode_utf16());
+                    d16.try_extend_from_slice(source)?;
+                    *self = Self::Utf16(d16);
+                } else {
+                    d.try_reserve_exact(source.len())?;
+                    d.extend(source.iter().map(|c| *c as u8));
+                }
+            }
+            Self::Utf16(d) => {
+                d.try_reserve_exact(d.len())?;
+                d.extend_from_slice(source);
+            }
+        }
+
         Ok(())
     }
 
@@ -328,41 +363,6 @@ impl StringBuf {
                     }
                     d16.push(c);
                 }
-            }
-        }
-
-        Ok(())
-    }
-
-    pub fn push_u16_slice(&mut self, source: &[u16]) -> Result<(), TryReserveError> {
-        match self {
-            Self::Empty | Self::Null => {
-                if source.iter().any(|x| *x >= 0x80) {
-                    // utf16
-                    let d16 = source.iter().copied().try_collect::<Vec<_>>()?;
-                    *self = Self::Utf16(d16);
-                } else {
-                    // ascii
-                    let d8 = source.iter().map(|c| *c as u8).try_collect::<Vec<_>>()?;
-                    *self = Self::Ascii(d8);
-                }
-            }
-            Self::Ascii(d) => {
-                if source.iter().any(|&u| u >= 0x80) {
-                    // migrate to utf16
-                    let mut d16 = Vec::<u16>::new();
-                    d16.try_reserve_exact(d.len() + source.len())?;
-                    d16.extend(unsafe { std::str::from_utf8_unchecked(d) }.encode_utf16());
-                    d16.try_extend_from_slice(source)?;
-                    *self = Self::Utf16(d16);
-                } else {
-                    d.try_reserve_exact(source.len())?;
-                    d.extend(source.iter().map(|c| *c as u8));
-                }
-            }
-            Self::Utf16(d) => {
-                d.try_reserve_exact(d.len())?;
-                d.extend_from_slice(source);
             }
         }
 
@@ -627,117 +627,6 @@ impl StringBuf {
                     Self::Empty | Self::Null => {}
                 }
             }
-        }
-    }
-
-    /// compare string content with str
-    pub fn eq_str(&self, other: &str) -> bool {
-        match self {
-            Self::Empty => other.is_empty(),
-            Self::Null => false,
-            Self::Ascii(s) => s.len() == other.len() && s.as_slice() == other.as_bytes(),
-            Self::Utf16(s) => {
-                let mut a = U16Str::from_slice(s).chars_lossy();
-                let mut b = other.chars();
-                loop {
-                    match (a.next(), b.next()) {
-                        (Some(a), Some(b)) => {
-                            if a != b {
-                                return false;
-                            }
-                        }
-                        (None, None) => {
-                            return true;
-                        }
-                        _ => {
-                            return false;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /// calc hash for string content
-    #[inline]
-    pub fn calc_hash(&self, atom_type: AtomTypeHint) -> u32 {
-        let mut h = atom_type as u32;
-
-        match &self {
-            Self::Empty | Self::Null => h,
-            Self::Ascii(s) => {
-                for c in s {
-                    h = hash_char((*c) as u32, h);
-                }
-                h
-            }
-            Self::Utf16(s) => {
-                for c in s.as_slice() {
-                    h = hash_char((*c) as u32, h);
-                }
-                h
-            }
-        }
-    }
-
-    /// calc hash value for str
-    #[inline(always)]
-    pub(crate) fn calc_hash_for_str(str: &str, atom_type: AtomTypeHint) -> u32 {
-        let mut h = atom_type as u32;
-        for c in str.encode_utf16() {
-            h = hash_char(c as u32, h);
-        }
-        h
-    }
-
-    /// parse string content to u32.
-    pub fn parse_u32(&self) -> Result<u32, i32> {
-        if let Self::Ascii(s) = self {
-            parse_u32(std::str::from_utf8(s).map_err(|_| -1)?)
-        } else {
-            Err(-1) // can't parse utf16, empty, null to u32
-        }
-
-        // generic code may like this:
-        // let len = self.buf_len();
-        // if len == 0 || len > 10 {
-        //     return Err(-1);
-        // }
-
-        // let mut ret: u32 = 0;
-        // for (i, c) in self.iter() {
-        //     let ch = c.char().ok_or(-1)?; // broken code
-
-        //     if ch.is_ascii_digit() {
-        //         if i == 0 && ch == '0' {
-        //             return if len != 1 { Err(-1) } else { Ok(0) };
-        //         }
-
-        //         let n = ch as u64 - '0' as u64;
-        //         if n < radix as u64 {
-        //             let n64: u64 = (ret as u64) * 10 + n;
-        //             if n64 >> 32 != 0 {
-        //                 return Err(-1); // u32 overflow
-        //             }
-        //             ret = n64 as u32;
-        //         } else {
-        //             return Err(-1);
-        //         }
-        //     } else if i > 0 && ch == '_' {
-        //         //skip '_'
-        //     } else {
-        //         return Err(-1);
-        //     }
-        // }
-        // Ok(ret)
-    }
-
-    /// parse string content to i64.
-    pub fn parse_i64(&self) -> Result<i64, i32> {
-        if let Self::Ascii(s) = self {
-            parse_i64(std::str::from_utf8(s).map_err(|_| -1)?)
-        } else {
-            Err(-1)
         }
     }
 
@@ -1166,11 +1055,6 @@ impl StringBufSlice<'_> {
     }
 }
 
-#[inline(always)]
-const fn hash_char(c: u32, h: u32) -> u32 {
-    h.wrapping_mul(263).wrapping_add(c)
-}
-
 /// inplace convert Vec<u16> to Vec<u8>
 unsafe fn s16_into_s8(mut d16: Vec<u16>) -> Vec<u8> {
     debug_assert!(!d16.iter().any(|c| *c >= 0x80), "must be ascii content");
@@ -1193,7 +1077,7 @@ unsafe fn s16_into_s8(mut d16: Vec<u16>) -> Vec<u8> {
     Vec::from_raw_parts(ptr, len, cap * 2)
 }
 
-fn is_char_visible(ch: char) -> bool {
+pub(super) fn is_char_visible(ch: char) -> bool {
     let code_point = ch as u32;
 
     // 明确的不可见字符范围
@@ -1221,5 +1105,3 @@ fn is_char_visible(ch: char) -> bool {
         _ => !ch.is_control()
     }
 }
-
-pub type StringContent = std::rc::Rc<StringBuf>;

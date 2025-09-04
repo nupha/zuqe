@@ -881,7 +881,7 @@ pub fn js_typed_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
                     return Err(-1);
                 }
             }
-            txt.push(s.content()).unwrap();
+            txt.push_content(s.content()).unwrap();
         }
     }
 

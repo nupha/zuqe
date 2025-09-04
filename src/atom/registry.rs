@@ -4,7 +4,7 @@ use crate::{
     atom::{JS_ATOM_HASH_PRIVATE, JS_ATOM_HASH_SYMBOL, JS_ATOM_TAG_INT},
     number::parse_u32,
     runtime::JSRuntime,
-    string::{JSString, StringBuf},
+    string::{JSString, StringContent},
 };
 
 use super::{
@@ -87,7 +87,7 @@ impl JSAtom {
                     }
                 } else {
                     // null content string
-                    JSString::new(rt, Rc::new(StringBuf::Null))
+                    JSString::new(rt, StringContent::Null)
                 };
 
                 let hash = if atom_type == AtomTypeHint::Symbol {
@@ -224,7 +224,7 @@ impl JSAtom {
 
     /// find atom by str
     pub fn find(rt: &JSRuntime, str: &str, atom_type: AtomTypeHint) -> Option<Self> {
-        let hash = StringBuf::calc_hash_for_str(str, atom_type);
+        let hash = StringContent::calc_hash_for_str(str, atom_type);
 
         if let Some(ids) = rt.atom_hash_lut.get(&hash) {
             for &aid in ids {
