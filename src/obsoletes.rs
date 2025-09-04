@@ -2141,13 +2141,14 @@ pub unsafe fn token_is_pseudo_keyword(s: *mut JSParseState, atom: JSAtom) -> boo
     //     && !(*s).token.data.ident_has_escape()
 }
 
-#[deprecated(note = "use JSAtom::to_value() instead")]
+#[deprecated(note = "use JSAtom::to_string_or_symbol() instead")]
 pub unsafe fn __JS_AtomToValue(ctx: &JSContext, atom: JSAtom, force_string: bool) -> JSValue {
-    atom.to_string_or_symbol(ctx, force_string)
-        .unwrap_or(JSValue::EXCEPTION)
+    unreachable!("unused")
+    // atom.to_string_or_symbol(ctx, force_string)
+    //     .unwrap_or(JSValue::EXCEPTION)
 }
 
-#[deprecated(note = "use JSAtom::to_string().into() instead")]
+#[deprecated(note = "use JSAtom::to_string_or_symbol() instead")]
 pub unsafe fn JS_AtomToValue(ctx: &JSContext, atom: JSAtom) -> JSValue {
     __JS_AtomToValue(ctx, atom, false)
 }

@@ -351,7 +351,7 @@ fn js_proxy_get_own_property(
     let trap_result_obj = method.call(
         ctx,
         &px.handler,
-        &[px.target.clone().into(), prop.to_string(ctx)?.into()],
+        &[px.target.clone().into(), prop.to_string_or_symbol(ctx)?],
     )?;
     if !matches!(trap_result_obj, JSValue::Object(_) | JSValue::UNDEFINED) {
         ctx.throw_type_error("proxy: inconsistent getOwnPropertyDescriptor ");
@@ -448,7 +448,7 @@ fn js_proxy_define_own_property(
             &px.handler,
             &[
                 px.target.clone().into(),
-                prop.to_string(ctx)?.into(),
+                prop.to_string_or_symbol(ctx)?,
                 JSPropertyDescriptor {
                     value: val.clone(),
                     getter: getter.clone(),
@@ -539,7 +539,7 @@ fn js_proxy_delete_property(ctx: &JSContext, obj: JSValue, atom: JSAtom) -> Resu
         .call(
             ctx,
             &px.handler,
-            &[px.target.clone().into(), atom.to_string(ctx)?.into()],
+            &[px.target.clone().into(), atom.to_string_or_symbol(ctx)?],
         )?
         .to_bool()?;
 
@@ -678,7 +678,7 @@ fn js_proxy_has(ctx: &JSContext, obj: &JSObject, atom: JSAtom) -> Result<bool, i
         .call(
             ctx,
             &px.handler,
-            &[px.target.clone().into(), atom.to_string(ctx)?.into()],
+            &[px.target.clone().into(), atom.to_string_or_symbol(ctx)?],
         )?
         .to_bool()?;
 
@@ -712,14 +712,12 @@ fn js_proxy_get(ctx: &JSContext, obj: JSValue, atom: JSAtom, receiver: JSValue) 
         return px.target.get_property_internal(ctx, atom, &receiver, false);
     }
 
-    println!("[O.o] atom={}", atom.to_utf8(ctx.rt()));
-
     let ret = method.call(
         ctx,
         &px.handler,
         &[
             px.target.clone().into(),
-            atom.to_string(ctx)?.into(),
+            atom.to_string_or_symbol(ctx)?,
             receiver,
         ],
     )?;
@@ -771,7 +769,7 @@ fn js_proxy_set(
             &s.handler,
             &[
                 s.target.clone().into(),
-                atom.to_string(ctx)?.into(),
+                atom.to_string_or_symbol(ctx)?,
                 value.clone(),
                 receiver,
             ],

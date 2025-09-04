@@ -35,10 +35,10 @@ fn js_print(ctx: &JSContext, cc: CallContext) -> JSResult {
         let arg = cc.arg(i);
 
         colorize_print(
-            if level != 1 && arg.is_object() {
-                arg.to_utf8(ctx)?
+            if level == 1 && arg.is_object() {
+                format!("{arg:?}")
             } else {
-                format!("{arg}").into()
+                format!("{arg}")
             },
             color(),
         );

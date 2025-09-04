@@ -40,9 +40,7 @@ pub fn js_object_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
                             _ => JS_ATOM_Object,
                         }
                     };
-
-                    let v = atom.to_string_or_symbol(ctx, true)?;
-                    format!("{v}")
+                    format!("{}", atom.to_string(ctx)?)
                 };
 
             format!("[object {tag_str}]")

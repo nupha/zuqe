@@ -160,7 +160,7 @@ pub fn js_function_proto_fileName(ctx: &JSContext, args: CallContext) -> JSResul
     }) {
         let b = b.0.borrow();
         if b.has_debug {
-            b.debug.filename.to_string_or_symbol(ctx, true)
+            b.debug.filename.to_string(ctx).map(JSValue::String)
         } else {
             Ok(JSValue::UNDEFINED)
         }

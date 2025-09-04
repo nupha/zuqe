@@ -50,7 +50,7 @@ impl JSContext {
             }
         };
 
-        let v1 = prop.to_string_or_symbol(self, false)?;
+        let v1 = prop.to_string_or_symbol(self)?;
         Ok(Some((v0, v1)))
     }
 

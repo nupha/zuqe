@@ -37,10 +37,7 @@ pub fn js_string_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
             JS_ConcatString3(
                 ctx,
                 c"Symbol(",
-                p.atom_info()
-                    .unwrap()
-                    .atom()
-                    .to_string_or_symbol(ctx, true)?,
+                p.atom_info().unwrap().atom().to_string(ctx)?.into(),
                 c")",
             )?
         } else {
@@ -823,7 +820,6 @@ pub fn js_string_toLowerCase(ctx: &JSContext, cc: CallContext) -> JSResult {
     // let str = p.content();
 
     let sc = match p.content() {
-        StringContent::Empty | StringContent::Null => unreachable!(),
         StringContent::Ascii(s) => {
             let s8 = unsafe { str::from_utf8_unchecked(s) };
             StringBuf::Ascii(
@@ -857,6 +853,8 @@ pub fn js_string_toLowerCase(ctx: &JSContext, cc: CallContext) -> JSResult {
             buf.shrink_to_fit();
             buf
         }
+
+        _ => unreachable!(),
     };
 
     ctx.create_string_with_buf(sc).map(JSValue::String)

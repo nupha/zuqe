@@ -250,7 +250,7 @@ impl Bytecode {
 
         'restart: loop {
             // loop running bytecodes
-            let state: State = 'opcodes: loop {
+            let state: State = loop {
                 #[cfg(all(debug_assertions, feature = "dump_bytecode"))]
                 unsafe {
                     let pos = pc.offset_from(pc_base) as usize;
@@ -309,7 +309,7 @@ impl Bytecode {
                         SP_PUT!(
                             0,
                             JSAtom(a)
-                                .to_string_or_symbol(ctx, false)
+                                .to_string_or_symbol(ctx)
                                 .unwrap_or(JSValue::EXCEPTION)
                         );
                         SP_GO!(1);
@@ -1256,8 +1256,7 @@ impl Bytecode {
                                 } else {
                                     SP_PUT!(
                                         0,
-                                        atom.to_string_or_symbol(ctx, false)
-                                            .unwrap_or(JSValue::EXCEPTION)
+                                        atom.to_string_or_symbol(ctx).unwrap_or(JSValue::EXCEPTION)
                                     );
                                     SP_GO!(1);
                                 }
@@ -2226,7 +2225,7 @@ impl Bytecode {
                                         // produce a pair object/propname on the stack
                                         SP_PUT!(
                                             0,
-                                            atom.to_string_or_symbol(ctx, false)
+                                            atom.to_string_or_symbol(ctx)
                                                 .unwrap_or(JSValue::EXCEPTION)
                                         );
                                         SP_GO!(1);

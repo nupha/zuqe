@@ -93,17 +93,12 @@ impl JSStringInner {
     /// Checks if the string is empty (zero length)
     #[inline(always)]
     pub fn is_empty(&self) -> bool {
-        self.len() == 0 && !self.is_null()
+        self.len() == 0 && !self.is_ident()
     }
 
     #[inline(always)]
-    pub fn is_null(&self) -> bool {
-        self.content.is_null()
-    }
-
-    #[inline(always)]
-    pub fn is_empty_or_null(&self) -> bool {
-        self.content.is_empty_or_null()
+    pub fn is_ident(&self) -> bool {
+        self.content.is_ident()
     }
 
     /// Checks if the string uses UTF-16 encoding
@@ -288,13 +283,8 @@ impl JSString {
     }
 
     #[inline(always)]
-    pub fn is_null(&self) -> bool {
-        self.0.is_null()
-    }
-
-    #[inline(always)]
-    pub fn is_empty_or_null(&self) -> bool {
-        self.0.is_empty_or_null()
+    pub fn is_ident(&self) -> bool {
+        self.0.is_ident()
     }
 
     #[inline(always)]

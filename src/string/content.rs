@@ -11,11 +11,14 @@ use crate::{
 
 /// read-only, ref-counted bytes that represents a string.
 #[derive(Clone)]
+#[repr(u8)]
 pub enum StringContent {
     Empty,
-    Null,
     Ascii(Rc<[u8]>),
     Utf16(Rc<[u16]>),
+
+    /// identical content. used for anonymous Symbol atom.
+    Ident,
 }
 
 impl StringContent {
@@ -24,14 +27,10 @@ impl StringContent {
         matches!(self, Self::Empty)
     }
 
+    /// is identical content
     #[inline(always)]
-    pub fn is_null(&self) -> bool {
-        matches!(self, Self::Null)
-    }
-
-    #[inline(always)]
-    pub fn is_empty_or_null(&self) -> bool {
-        matches!(self, Self::Empty | Self::Null)
+    pub fn is_ident(&self) -> bool {
+        matches!(self, Self::Ident)
     }
 
     #[inline(always)]
@@ -60,7 +59,7 @@ impl StringContent {
     /// codepoint length.
     pub fn len(&self) -> usize {
         match self {
-            Self::Empty | Self::Null => 0,
+            Self::Empty | Self::Ident => 0,
             Self::Ascii(s) => s.len(),
             Self::Utf16(s) => s.len(),
         }
@@ -72,7 +71,7 @@ impl StringContent {
             Ok(StringBuf::Empty)
         } else {
             match self {
-                Self::Empty | Self::Null => Ok(StringBuf::Empty),
+                Self::Empty | Self::Ident => Ok(StringBuf::Empty),
                 Self::Ascii(s) => {
                     let lst = s
                         .iter()
@@ -107,7 +106,7 @@ impl StringContent {
         } else {
             let range = range.start..std::cmp::min(range.end, self.len());
             match self {
-                Self::Empty | Self::Null => Cow::Borrowed(""),
+                Self::Empty | Self::Ident => Cow::Borrowed(""),
                 Self::Ascii(s) => {
                     Cow::Borrowed(unsafe { std::str::from_utf8_unchecked(&s[range]) })
                 }
@@ -126,7 +125,7 @@ impl StringContent {
     /// returns None if index is out of bound.
     pub fn get(&self, index: usize) -> Option<u16> {
         match self {
-            Self::Empty | Self::Null => None,
+            Self::Empty | Self::Ident => None,
             Self::Ascii(lst) => lst.get(index).map(|n| *n as u16),
             Self::Utf16(lst) => lst.get(index).map(|n| *n),
         }
@@ -136,7 +135,7 @@ impl StringContent {
     /// if `range` has out of bound, range is intersected with buf.
     pub fn iter_codepoint_range(&self, range: Range<usize>) -> StringCodepointIter<'_> {
         match self {
-            Self::Empty | Self::Null => StringCodepointIter::U8([].iter().peekable()),
+            Self::Empty | Self::Ident => StringCodepointIter::U8([].iter().peekable()),
             Self::Ascii(s) => {
                 if let Some(slice) = s.get(range) {
                     StringCodepointIter::U8(slice.iter().peekable())
@@ -171,7 +170,7 @@ impl StringContent {
     /// for broken surrogate, returns raw code directly, otherwise returns unichar
     pub fn iter_range(&self, range: Range<usize>) -> StringCharIter<'_> {
         match self {
-            Self::Empty | Self::Null => StringCharIter::from_u8(&[], range.start),
+            Self::Empty | Self::Ident => StringCharIter::from_u8(&[], range.start),
             Self::Ascii(s) => {
                 if let Some(slice) = s.get(range.clone()) {
                     StringCharIter::from_u8(slice, range.start)
@@ -220,7 +219,7 @@ impl StringContent {
     /// count string chars (include broken surrogate code).
     pub fn chars_count(&self) -> usize {
         match self {
-            Self::Empty | Self::Null => 0,
+            Self::Empty | Self::Ident => 0,
             Self::Ascii(s) => s.len(),
             Self::Utf16(_) => self.iter().count(),
         }
@@ -233,7 +232,7 @@ impl StringContent {
         }
 
         match self {
-            Self::Empty | Self::Null => None,
+            Self::Empty | Self::Ident => None,
             Self::Ascii(s) => {
                 if code > 0x7F {
                     None
@@ -325,7 +324,6 @@ impl StringContent {
     pub fn eq_str(&self, other: &str) -> bool {
         match self {
             Self::Empty => other.is_empty(),
-            Self::Null => false,
             Self::Ascii(s) => s.len() == other.len() && s.as_ref() == other.as_bytes(),
             Self::Utf16(s) => {
                 let mut a = U16Str::from_slice(s).chars_lossy();
@@ -346,6 +344,7 @@ impl StringContent {
                     }
                 }
             }
+            Self::Ident => false,
         }
     }
 
@@ -372,7 +371,7 @@ impl StringContent {
     pub fn calc_hash(&self, atom_type: AtomTypeHint) -> u32 {
         let mut h = atom_type as u32;
         match &self {
-            Self::Empty | Self::Null => h,
+            Self::Empty | Self::Ident => h,
             Self::Ascii(s) => {
                 for c in s.iter() {
                     h = hash_char((*c) as u32, h);
@@ -403,7 +402,7 @@ impl std::fmt::Debug for StringContent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Empty => write!(f, "\"\""),
-            Self::Null => write!(f, "<null>"),
+            Self::Ident => write!(f, "<ident>"),
             _ => {
                 let sep = '\"';
                 write!(f, "{sep}")?;
@@ -447,11 +446,6 @@ impl std::fmt::Debug for StringContent {
 impl PartialEq for StringContent {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Empty | Self::Null, _) | (_, Self::Empty | Self::Null) => {
-                // empty eq empty, null eq null, empty eq null
-                self.len() == other.len()
-            }
-
             (Self::Ascii(s1), Self::Ascii(s2)) => s1 == s2,
             (Self::Utf16(s1), Self::Utf16(s2)) => s1 == s2,
             (Self::Ascii(s1), Self::Utf16(s2)) => {
@@ -492,6 +486,10 @@ impl PartialEq for StringContent {
                     }
                 }
             }
+
+            (Self::Empty, Self::Empty) => true,
+            (Self::Ident, Self::Ident) => false, // idents are never equal
+            _ => false,
         }
     }
 }
@@ -502,17 +500,9 @@ impl Ord for StringContent {
     fn cmp(&self, other: &Self) -> Ordering {
         match (self, other) {
             // for same kind.
-            (Self::Empty, Self::Empty) => Ordering::Equal,
-            (Self::Null, Self::Null) => Ordering::Equal,
             (Self::Ascii(s1), Self::Ascii(s2)) => s1.cmp(s2),
             (Self::Utf16(s1), Self::Utf16(s2)) => s1.cmp(s2),
-
-            // null is the smallest.
-            (Self::Null, _) => Ordering::Less,
-            (_, Self::Null) => Ordering::Greater,
-            // empty is just greater than null.
-            (Self::Empty, _) => Ordering::Less,
-            (_, Self::Empty) => Ordering::Greater,
+            (Self::Empty, Self::Empty) | (Self::Ident, Self::Ident) => Ordering::Equal,
 
             // utf8 vs utf16 cmp
             (Self::Ascii(s1), Self::Utf16(s2)) => {
@@ -561,6 +551,14 @@ impl Ord for StringContent {
                     }
                 }
             }
+
+            // ident is the greatest.
+            (Self::Ident, _) => Ordering::Greater,
+            (_, Self::Ident) => Ordering::Less,
+
+            // empty is the smallest
+            (Self::Empty, _) => Ordering::Less,
+            (_, Self::Empty) => Ordering::Greater,
         }
     }
 }
@@ -599,7 +597,7 @@ impl StringBuf {
         let orig_data = std::mem::replace(self, Self::Empty);
 
         let new_data: StringBuf = match (orig_data, content) {
-            (s, StringContent::Empty | StringContent::Null) => s,
+            (s, StringContent::Empty | StringContent::Ident) => s,
             (Self::Empty, _) => content.to_buf_range(range)?,
 
             // same type

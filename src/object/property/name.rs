@@ -134,9 +134,7 @@ impl JSObject {
                 }
             } else if self.class_id() == JS_CLASS_STRING {
                 if flags & JS_GPN_INDEX_MASK != 0 {
-                    let buf_len = TryInto::<JSString>::try_into(self.clone())
-                        .unwrap()
-                        .len();
+                    let buf_len = TryInto::<JSString>::try_into(self.clone()).unwrap().len();
 
                     for i in 0..buf_len {
                         callback(
@@ -320,7 +318,7 @@ impl JSObject {
             let val: JSValue;
             match kind {
                 JSIteratorKindEnum::JS_ITERATOR_KIND_KEY => {
-                    val = if let Ok(v) = name.atom.to_string_or_symbol(ctx, false) {
+                    val = if let Ok(v) = name.atom.to_string_or_symbol(ctx) {
                         v
                     } else {
                         has_err = true;
@@ -343,7 +341,7 @@ impl JSObject {
                         break;
                     };
 
-                    let key = if let Ok(v) = name.atom.to_string_or_symbol(ctx, false) {
+                    let key = if let Ok(v) = name.atom.to_string_or_symbol(ctx) {
                         v
                     } else {
                         has_err = true;

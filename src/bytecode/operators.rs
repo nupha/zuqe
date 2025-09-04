@@ -494,8 +494,7 @@ pub fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
         unsafe {
             std::ptr::replace(
                 sp.offset(0),
-                prop.to_string_or_symbol(ctx, false)
-                    .unwrap_or(JSValue::EXCEPTION),
+                prop.to_string_or_symbol(ctx).unwrap_or(JSValue::EXCEPTION),
             ); // value
             std::ptr::replace(sp.offset(1), JSValue::Bool(false)); // done?
         }

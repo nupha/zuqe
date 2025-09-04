@@ -354,7 +354,7 @@ pub fn js_object_getOwnPropertyDescriptors(ctx: &JSContext, cc: CallContext) -> 
     let res_obj = ctx.create_base_object()?;
 
     obj.own_property_names_foreach(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK, |cx, name| {
-        let atom_value = name.atom.to_string_or_symbol(ctx, false)?;
+        let atom_value = name.atom.to_string_or_symbol(ctx)?;
         let desc = js_object_getOwnPropertyDescriptor(
             ctx,
             CallContext::new(

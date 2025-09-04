@@ -464,9 +464,8 @@ impl JSValue {
             (JSValue::Int(a), JSValue::Int(b)) => *a == *b,
             (JSValue::Bool(a), JSValue::Bool(b)) => *a == *b,
             (JSValue::NULL, JSValue::NULL) | (JSValue::UNDEFINED, JSValue::UNDEFINED) => true,
-            (JSValue::String(a), JSValue::String(b)) | (JSValue::Symbol(a), JSValue::Symbol(b)) => {
-                a.content() == b.content()
-            }
+            (JSValue::String(a), JSValue::String(b)) => a.content() == b.content(),
+            (JSValue::Symbol(a), JSValue::Symbol(b)) => a.atom_info() == b.atom_info(),
             (JSValue::Object(a), JSValue::Object(b)) => a == b,
             (JSValue::Int(a), JSValue::Float64(b)) => cmp_f64(*a as f64, *b),
             (JSValue::Float64(a), JSValue::Int(b)) => cmp_f64(*a, *b as f64),

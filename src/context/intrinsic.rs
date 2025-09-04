@@ -385,7 +385,7 @@ impl JSContext {
                     .define_property_value_str(
                         self,
                         str,
-                        a.to_string_or_symbol(self, false).unwrap().into(),
+                        a.to_string_or_symbol(self).unwrap().into(),
                         0,
                     )
                     .unwrap();

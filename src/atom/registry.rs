@@ -1,4 +1,7 @@
-use std::{collections::hash_map::Entry, ffi::CStr, num::NonZeroU16, rc::Rc};
+use std::{
+    cell::Cell, collections::hash_map::Entry, ffi::CStr, num::NonZeroU16, rc::Rc,
+    sync::atomic::AtomicUsize,
+};
 
 use crate::{
     atom::{JS_ATOM_HASH_PRIVATE, JS_ATOM_HASH_SYMBOL, JS_ATOM_TAG_INT},
@@ -16,19 +19,19 @@ use super::{
 };
 
 impl JSAtom {
-    /// register an atom from `str` JSString. `str` could be None indicates atom has no string description.
+    /// register an atom from `str`. `str` could be None when atom has no description.
     /// returns atom with ownership, caller should free it after use.
-    /// Duplicated str will return existing atom cloned.
+    /// Same `str` will return the matched existing atom.
     pub(crate) fn new_internal(
         rt: &mut JSRuntime,
-        mut str: Option<JSString>, // TODO: use StringContent instead
+        mut str: Option<JSString>,
         mut atom_type: AtomTypeHint,
     ) -> Result<Self, i32> {
         // match for existing atoms, don't register twice for same content.
         let atom_desc = match atom_type {
             AtomTypeHint::String | AtomTypeHint::GlobalSymbol => {
                 let ss = str.take().unwrap();
-                debug_assert!(!ss.content().is_null());
+                debug_assert!(!ss.content().is_ident());
 
                 if let Some(at) = ss.atom_info() {
                     if at.type_hint() == atom_type {
@@ -53,7 +56,7 @@ impl JSAtom {
                             if !aptr.is_null() {
                                 let at = unsafe { (*aptr).atom_info().unwrap() };
                                 if at.type_hint() == atom_type
-                                    && unsafe { (*aptr).content() } == ss.content()
+                                    && unsafe { (&*aptr).content() } == ss.content()
                                 {
                                     // found existing atom, clone and reuse it.
                                     let a = at.atom();
@@ -86,8 +89,8 @@ impl JSAtom {
                         JSString::new(rt, s.content().clone())
                     }
                 } else {
-                    // null content string
-                    JSString::new(rt, StringContent::Null)
+                    // anonymous symbol use identical atom
+                    JSString::new(rt, StringContent::Ident)
                 };
 
                 let hash = if atom_type == AtomTypeHint::Symbol {
@@ -104,7 +107,6 @@ impl JSAtom {
         //
         // register new atom
         //
-
         if rt.atom_hash_lut.len() == rt.atom_hash_lut.capacity() {
             rt.atom_hash_lut.try_reserve(16).map_err(|_| -1)?;
         }
