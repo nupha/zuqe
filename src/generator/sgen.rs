@@ -7,8 +7,8 @@ use crate::{
     error::JSResult,
     eval::JS_EVAL_TYPE_INDIRECT,
     function::{
-        CallContext, FieldDef, IteratorState, JS_GetFunctionRealm, JSFunctionKindEnum,
-        AsyncObjPayload,
+        AsyncObjPayload, CallContext, FieldDef, IteratorState, JS_GetFunctionRealm,
+        JSFunctionKindEnum,
     },
     iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW},
     object::{JS_PROP_CONFIGURABLE, JS_SetPrototypeInternal, ObjectPayload},
@@ -126,7 +126,7 @@ pub fn js_function_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let func_obj = ctx
         .eval_source(
             &JSValue::Object(ctx.global_obj()),
-            source.as_bytes(),
+            source.to_utf8().as_bytes(),
             "<input>",
             JS_EVAL_TYPE_INDIRECT,
             -1,

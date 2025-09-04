@@ -1,14 +1,8 @@
-use std::{borrow::Cow, cmp::Ordering, collections::TryReserveError, ops::Range};
-use {
-    fallible_collections::{FallibleVec, TryClone, TryCollect},
-    widestring::U16Str,
-};
+use std::{borrow::Cow, collections::TryReserveError, ops::Range};
 
-use crate::{
-    atom::AtomTypeHint,
-    number::{parse_i64, parse_u32},
-    string::StringChar,
-};
+use fallible_collections::{FallibleVec, TryClone, TryCollect};
+
+use crate::string::StringChar;
 
 use super::string::JS_STRING_LEN_MAX;
 
@@ -79,7 +73,7 @@ impl StringBuf {
         }
     }
 
-    pub fn reserve(&mut self, cap: usize) -> Result<(), TryReserveError> {
+    pub fn try_reserve(&mut self, cap: usize) -> Result<(), TryReserveError> {
         match self {
             Self::Empty | Self::Null => {
                 let mut d = Vec::<u8>::new();
@@ -121,22 +115,6 @@ impl StringBuf {
                 } else {
                     s.shrink_to_fit();
                 }
-            }
-        }
-    }
-
-    /// create a new string content by coping content.
-    pub fn copy_to_new(&self) -> Result<Self, TryReserveError> {
-        match self {
-            Self::Empty => Ok(Self::Empty),
-            Self::Null => Ok(Self::Null),
-            Self::Ascii(s) => {
-                let s2 = s.try_clone()?;
-                Ok(Self::Ascii(s2))
-            }
-            Self::Utf16(s) => {
-                let s2 = s.try_clone()?;
-                Ok(Self::Utf16(s2))
             }
         }
     }
@@ -251,7 +229,7 @@ impl StringBuf {
 
     /// concat other string buf to `self`, returns a new string buf.
     pub fn push(&mut self, other: &Self) -> Result<(), TryReserveError> {
-        self.push_buf_slice(&other.slice(0..other.buf_len()))
+        self.push_buf_slice(&other.slice(0..other.len()))
     }
 
     pub fn push_u8_slice(&mut self, s8: &[u8]) -> Result<(), TryReserveError> {
@@ -500,50 +478,12 @@ impl StringBuf {
         Ok(())
     }
 
-    pub const fn as_bytes(&self) -> &[u8] {
-        match self {
-            Self::Empty | Self::Null => &[],
-            Self::Ascii(s) => s.as_slice(),
-            Self::Utf16(s) => unsafe {
-                std::slice::from_raw_parts(s.as_ptr().cast::<u8>(), s.len() * 2)
-            },
-        }
-    }
-
     /// encode content to utf8 str
     pub fn to_utf8(&self) -> Cow<'_, str> {
         match self {
             Self::Empty | Self::Null => Cow::Borrowed(""),
             Self::Ascii(s) => Cow::Borrowed(unsafe { std::str::from_utf8_unchecked(s) }),
             Self::Utf16(s) => Cow::Owned(String::from_utf16_lossy(s)),
-        }
-    }
-
-    /// buffer length.
-    pub fn buf_len(&self) -> usize {
-        match self {
-            Self::Empty | Self::Null => 0,
-            Self::Ascii(s) => s.len(),
-            Self::Utf16(s) => s.len(),
-        }
-    }
-
-    /// count string chars (include broken surrogate code).
-    pub fn chars_count(&self) -> usize {
-        match self {
-            Self::Empty | Self::Null => 0,
-            Self::Ascii(s) => s.len(),
-            Self::Utf16(_) => self.iter().count(),
-        }
-    }
-
-    /// get code at buffer index.
-    /// returns None if index is out of bound.
-    pub fn get(&self, buf_index: usize) -> Option<u16> {
-        match self {
-            Self::Empty | Self::Null => None,
-            Self::Ascii(lst) => lst.get(buf_index).map(|n| *n as u16),
-            Self::Utf16(lst) => lst.get(buf_index).map(|n| *n),
         }
     }
 
@@ -556,19 +496,37 @@ impl StringBuf {
         }
     }
 
+    /// buffer length, count of codepoints.
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Empty | Self::Null => 0,
+            Self::Ascii(s) => s.len(),
+            Self::Utf16(s) => s.len(),
+        }
+    }
+
+    /// count chars (include broken surrogate codepoint).
+    pub fn chars_count(&self) -> usize {
+        match self {
+            Self::Empty | Self::Null => 0,
+            Self::Ascii(s) => s.len(),
+            Self::Utf16(_) => self.iter().count(),
+        }
+    }
+
+    /// get code at buffer index.
+    /// returns None if index is out of bound.
+    pub fn get(&self, index: usize) -> Option<u16> {
+        match self {
+            Self::Empty | Self::Null => None,
+            Self::Ascii(lst) => lst.get(index).map(|n| *n as u16),
+            Self::Utf16(lst) => lst.get(index).map(|n| *n),
+        }
+    }
+
     #[inline(always)]
     pub fn is_empty(&self) -> bool {
         matches!(self, Self::Empty)
-    }
-
-    #[inline(always)]
-    pub fn is_null(&self) -> bool {
-        matches!(self, Self::Null)
-    }
-
-    #[inline(always)]
-    pub fn is_empty_or_null(&self) -> bool {
-        matches!(self, Self::Empty | Self::Null)
     }
 
     #[inline(always)]
@@ -577,7 +535,7 @@ impl StringBuf {
     }
 
     pub fn trim(&mut self, left: bool, right: bool) {
-        let len = self.buf_len();
+        let len = self.len();
         if len > 0 {
             let mut start: Option<usize> = if left { None } else { Some(0) };
             let mut end: usize = if right { 0 } else { len };
@@ -631,8 +589,8 @@ impl StringBuf {
     }
 
     /// find index of code occurrence.
-    pub fn index_of_code(&self, code: u16, from_index: usize) -> Option<usize> {
-        if !(0..self.buf_len()).contains(&from_index) {
+    pub(super) fn index_of_code(&self, code: u16, from_index: usize) -> Option<usize> {
+        if !(0..self.len()).contains(&from_index) {
             return None;
         }
 
@@ -657,9 +615,9 @@ impl StringBuf {
     }
 
     /// find index of string buf occurrence in haystack `self`, starting at `from_index`.
-    pub fn index_of(&self, needle: &Self, from_index: usize) -> Option<usize> {
-        let len = self.buf_len();
-        let needle_len = needle.buf_len();
+    pub(super) fn index_of(&self, needle: &Self, from_index: usize) -> Option<usize> {
+        let len = self.len();
+        let needle_len = needle.len();
 
         if from_index + needle_len > len {
             // range out of bound
@@ -696,8 +654,12 @@ impl StringBuf {
     }
 
     /// find index of char occurrence in self, starting at from.
-    pub fn index_of_char<C: Into<StringChar>>(&self, ch: C, from_index: usize) -> Option<usize> {
-        let len = self.buf_len();
+    pub(super) fn index_of_char<C: Into<StringChar>>(
+        &self,
+        ch: C,
+        from_index: usize,
+    ) -> Option<usize> {
+        let len = self.len();
         if !(0..len).contains(&from_index) {
             None
         } else {
@@ -709,8 +671,8 @@ impl StringBuf {
     }
 
     /// get index of next char or code nearest to `pos` .
-    pub fn index_of_next(&self, pos: usize, must_char: bool) -> Option<usize> {
-        if pos < self.buf_len() {
+    pub(super) fn index_of_next(&self, pos: usize, must_char: bool) -> Option<usize> {
+        if pos < self.len() {
             if must_char && self.is_wide() {
                 for (i, c) in self.iter_since(pos) {
                     if matches!(c, StringChar::Char(_)) {
@@ -723,23 +685,6 @@ impl StringBuf {
         }
 
         None
-    }
-
-    /// Note: `range` is about buffer index, not char position.
-    pub fn slice(&self, range: Range<usize>) -> StringBufSlice<'_> {
-        let len = self.buf_len();
-        if !(0..len).contains(&range.start) {
-            StringBufSlice {
-                src: &EMPTY,
-                buf_ranges: 0..0,
-            }
-        } else {
-            let end = range.end.min(len);
-            StringBufSlice {
-                src: self,
-                buf_ranges: range.start..end,
-            }
-        }
     }
 
     /// remove elements from buf in given range
@@ -755,10 +700,27 @@ impl StringBuf {
         }
     }
 
-    pub fn as_slice(&self) -> StringBufSlice<'_> {
+    /// Note: `range` is about buffer index, not char position.
+    pub(super) fn slice(&self, range: Range<usize>) -> StringBufSlice<'_> {
+        let len = self.len();
+        if !(0..len).contains(&range.start) {
+            StringBufSlice {
+                src: &EMPTY,
+                buf_ranges: 0..0,
+            }
+        } else {
+            let end = range.end.min(len);
+            StringBufSlice {
+                src: self,
+                buf_ranges: range.start..end,
+            }
+        }
+    }
+
+    pub(super) fn as_slice(&self) -> StringBufSlice<'_> {
         StringBufSlice {
             src: self,
-            buf_ranges: 0..self.buf_len(),
+            buf_ranges: 0..self.len(),
         }
     }
 }
@@ -805,133 +767,6 @@ impl std::fmt::Debug for StringBuf {
                 write!(f, "{sep}")
             }
         }
-    }
-}
-
-impl PartialEq for StringBuf {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Empty | Self::Null, _) | (_, Self::Empty | Self::Null) => {
-                // empty eq empty, null eq null, empty eq null
-                self.buf_len() == other.buf_len()
-            }
-
-            (Self::Ascii(s1), Self::Ascii(s2)) => s1 == s2,
-            (Self::Utf16(s1), Self::Utf16(s2)) => s1 == s2,
-            (Self::Ascii(s1), Self::Utf16(s2)) => {
-                let mut it1 = unsafe { std::str::from_utf8_unchecked(s1) }.chars();
-                let mut it2 = U16Str::from_slice(s2).chars_lossy();
-                loop {
-                    match (it1.next(), it2.next()) {
-                        (Some(a), Some(b)) => {
-                            if a != b {
-                                return false;
-                            }
-                        }
-                        (None, None) => {
-                            return true;
-                        }
-                        _ => {
-                            return false;
-                        }
-                    }
-                }
-            }
-            (Self::Utf16(s1), Self::Ascii(s2)) => {
-                let mut it1 = U16Str::from_slice(s1).chars_lossy();
-                let mut it2 = unsafe { std::str::from_utf8_unchecked(s2) }.chars();
-                loop {
-                    match (it1.next(), it2.next()) {
-                        (Some(a), Some(b)) => {
-                            if a != b {
-                                return false;
-                            }
-                        }
-                        (None, None) => {
-                            return true;
-                        }
-                        _ => {
-                            return false;
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-impl Eq for StringBuf {}
-
-impl Ord for StringBuf {
-    fn cmp(&self, other: &Self) -> Ordering {
-        match (self, other) {
-            // for same kind.
-            (Self::Empty, Self::Empty) => Ordering::Equal,
-            (Self::Null, Self::Null) => Ordering::Equal,
-            (Self::Ascii(s1), Self::Ascii(s2)) => s1.cmp(s2),
-            (Self::Utf16(s1), Self::Utf16(s2)) => s1.cmp(s2),
-
-            // null is the smallest.
-            (Self::Null, _) => Ordering::Less,
-            (_, Self::Null) => Ordering::Greater,
-            // empty is just greater than null.
-            (Self::Empty, _) => Ordering::Less,
-            (_, Self::Empty) => Ordering::Greater,
-
-            // utf8 vs utf16 cmp
-            (Self::Ascii(s1), Self::Utf16(s2)) => {
-                let mut it1 = s1.iter();
-                let mut it2 = s2.iter();
-                loop {
-                    match (it1.next(), it2.next()) {
-                        (Some(a), Some(b)) => {
-                            let a = *a as u16;
-                            if a != *b {
-                                return a.cmp(b);
-                            }
-                        }
-                        (None, None) => {
-                            return Ordering::Equal;
-                        }
-                        (Some(_), None) => {
-                            return Ordering::Greater;
-                        }
-                        (None, Some(_)) => {
-                            return Ordering::Less;
-                        }
-                    }
-                }
-            }
-            (Self::Utf16(s1), Self::Ascii(s2)) => {
-                let mut it1 = s1.iter();
-                let mut it2 = s2.iter();
-                loop {
-                    match (it1.next(), it2.next()) {
-                        (Some(a), Some(b)) => {
-                            let b = *b as u16;
-                            if *a != b {
-                                return a.cmp(&b);
-                            }
-                        }
-                        (None, None) => {
-                            return Ordering::Equal;
-                        }
-                        (Some(_), None) => {
-                            return Ordering::Greater;
-                        }
-                        (None, Some(_)) => {
-                            return Ordering::Less;
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-impl PartialOrd for StringBuf {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
     }
 }
 
@@ -984,19 +819,6 @@ impl StringBufSlice<'_> {
     #[inline(always)]
     pub fn is_empty(&self) -> bool {
         self.buf_len() == 0
-    }
-
-    pub fn as_bytes(&self) -> &[u8] {
-        let bb = self.src.as_bytes();
-        if self.is_wide() && !bb.is_empty() {
-            if self.is_wide() {
-                &bb[(self.buf_ranges.start * 2)..(self.buf_ranges.end * 2)]
-            } else {
-                &bb[self.buf_ranges.clone()]
-            }
-        } else {
-            bb
-        }
     }
 
     /// encode slice content to utf8 str

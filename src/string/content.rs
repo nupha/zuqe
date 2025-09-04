@@ -39,15 +39,6 @@ impl StringContent {
         matches!(self, Self::Utf16(_))
     }
 
-    /// codepoint length.
-    pub fn len(&self) -> usize {
-        match self {
-            Self::Empty | Self::Null => 0,
-            Self::Ascii(s) => s.len(),
-            Self::Utf16(s) => s.len(),
-        }
-    }
-
     /// get u8 slice if content is ascii
     pub fn ascii(&self) -> Option<&[u8]> {
         if let Self::Ascii(s) = self {
@@ -63,6 +54,15 @@ impl StringContent {
             Some(s.as_ref())
         } else {
             None
+        }
+    }
+
+    /// codepoint length.
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Empty | Self::Null => 0,
+            Self::Ascii(s) => s.len(),
+            Self::Utf16(s) => s.len(),
         }
     }
 
@@ -125,11 +125,11 @@ impl StringContent {
 
     /// get codepoint at index.
     /// returns None if index is out of bound.
-    pub fn get(&self, buf_index: usize) -> Option<u16> {
+    pub fn get(&self, index: usize) -> Option<u16> {
         match self {
             Self::Empty | Self::Null => None,
-            Self::Ascii(lst) => lst.get(buf_index).map(|n| *n as u16),
-            Self::Utf16(lst) => lst.get(buf_index).map(|n| *n),
+            Self::Ascii(lst) => lst.get(index).map(|n| *n as u16),
+            Self::Utf16(lst) => lst.get(index).map(|n| *n),
         }
     }
 
@@ -357,39 +357,6 @@ impl StringContent {
         } else {
             Err(-1) // can't parse utf16, empty, null to u32
         }
-
-        // generic code may like this:
-        // let len = self.buf_len();
-        // if len == 0 || len > 10 {
-        //     return Err(-1);
-        // }
-
-        // let mut ret: u32 = 0;
-        // for (i, c) in self.iter() {
-        //     let ch = c.char().ok_or(-1)?; // broken code
-
-        //     if ch.is_ascii_digit() {
-        //         if i == 0 && ch == '0' {
-        //             return if len != 1 { Err(-1) } else { Ok(0) };
-        //         }
-
-        //         let n = ch as u64 - '0' as u64;
-        //         if n < radix as u64 {
-        //             let n64: u64 = (ret as u64) * 10 + n;
-        //             if n64 >> 32 != 0 {
-        //                 return Err(-1); // u32 overflow
-        //             }
-        //             ret = n64 as u32;
-        //         } else {
-        //             return Err(-1);
-        //         }
-        //     } else if i > 0 && ch == '_' {
-        //         //skip '_'
-        //     } else {
-        //         return Err(-1);
-        //     }
-        // }
-        // Ok(ret)
     }
 
     /// convert content to i64.
@@ -401,11 +368,10 @@ impl StringContent {
         }
     }
 
-    /// calc hash for string content
+    /// calc hash for content
     #[inline]
     pub fn calc_hash(&self, atom_type: AtomTypeHint) -> u32 {
         let mut h = atom_type as u32;
-
         match &self {
             Self::Empty | Self::Null => h,
             Self::Ascii(s) => {
@@ -423,7 +389,7 @@ impl StringContent {
         }
     }
 
-    /// calc hash value for str
+    /// calc hash for given `str`
     #[inline(always)]
     pub(crate) fn calc_hash_for_str(str: &str, atom_type: AtomTypeHint) -> u32 {
         let mut h = atom_type as u32;

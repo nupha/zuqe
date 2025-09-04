@@ -32,7 +32,7 @@ impl<'s> JSParseState<'s> {
                 return Err(-1);
             }
 
-            if sbuf.capacity() == sbuf.buf_len() {
+            if sbuf.capacity() == sbuf.len() {
                 sbuf.try_reserve_exact(32).map_err(|_| {
                     self.ctx.throw_out_of_memory();
                     -1

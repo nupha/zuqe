@@ -87,7 +87,7 @@ fn do_substitution<'a>(
                     }
                     StringChar::Char('<') => {
                         // $<name> -> names_captures[name]
-                        let name_start = sbuf.buf_len();
+                        let name_start = sbuf.len();
                         sbuf.push_str("$<")?;
 
                         while let Some((_, c1)) = replace_chars.next() {
@@ -102,7 +102,7 @@ fn do_substitution<'a>(
                                     .skip(2) // chop leading $<
                                     .collect::<String>();
 
-                                sbuf.drain(name_start..sbuf.buf_len());
+                                sbuf.drain(name_start..sbuf.len());
                                 if let Some(s) = named_captures(&name).map_err(|_| None)? {
                                     sbuf.push_content(&s)?;
                                 }
@@ -110,7 +110,7 @@ fn do_substitution<'a>(
                                 sbuf.push_char(c1)?;
                             }
 
-                            if sbuf.buf_len() + 8 < sbuf.capacity() {
+                            if sbuf.len() + 8 < sbuf.capacity() {
                                 sbuf.try_reserve_exact(16)?;
                             }
                         }
@@ -127,7 +127,7 @@ fn do_substitution<'a>(
             sbuf.push_char(c)?;
         }
 
-        if sbuf.buf_len() + 8 < sbuf.capacity() {
+        if sbuf.len() + 8 < sbuf.capacity() {
             sbuf.try_reserve_exact(32)?;
         }
     }

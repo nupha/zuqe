@@ -240,7 +240,7 @@ impl StringBuf {
     /// iterate over string code points. `index` is the starting buf index.
     #[inline(always)]
     pub fn iter_codepoint_since(&self, index: usize) -> StringCodepointIter<'_> {
-        self.iter_codepoint_range(index..self.buf_len())
+        self.iter_codepoint_range(index..self.len())
     }
 
     /// iterate over string code points. short cut to `::iter_codepoint_since(0)`.
@@ -277,13 +277,13 @@ impl StringBuf {
     /// for broken surrogate, returns raw code directly, otherwise returns unichar
     #[inline(always)]
     pub fn iter_since(&self, index: usize) -> StringCharIter<'_> {
-        self.iter_range(index..self.buf_len())
+        self.iter_range(index..self.len())
     }
 
     /// iterate over string chars. short cut to `::iter_since(0)`.
     #[inline(always)]
     pub fn iter(&self) -> StringCharIter<'_> {
-        self.iter_range(0..self.buf_len())
+        self.iter_range(0..self.len())
     }
 
     pub fn chars_range_lossy(&self, range: Range<usize>) -> impl Iterator<Item = char> {
