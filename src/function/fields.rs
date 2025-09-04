@@ -58,18 +58,13 @@ impl JSObject {
     pub fn install_field_defs(&self, ctx: &JSContext, entries: &[FieldDef]) -> Result<(), i32> {
         for entry in entries {
             let atom = ctx.make_lazy_prop_atom(entry.name)?;
-            self.install_native_field_entry(ctx, atom, entry)?;
+            self.install_field_entry(ctx, atom, entry)?;
             JS_FreeAtom(ctx, atom);
         }
         Ok(())
     }
 
-    fn install_native_field_entry(
-        &self,
-        ctx: &JSContext,
-        atom: JSAtom,
-        e: &FieldDef,
-    ) -> Result<(), i32> {
+    fn install_field_entry(&self, ctx: &JSContext, atom: JSAtom, e: &FieldDef) -> Result<(), i32> {
         let val: JSValue;
         let mut prop_flags = e.prop_flags;
 

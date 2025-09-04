@@ -1700,10 +1700,10 @@ impl Bytecode {
                         }
                         let mut ret =
                             js_method_set_properties(ctx, func_obj, name, flags, this_obj);
-                        if ret >= 0 {
+                        if ret.is_ok() {
                             ret = this_obj
                                 .define_property(ctx, name, value, getter, setter, flags)
-                                .map_or(-1, |b| b as i32);
+                                .map(|_| ());
                         }
 
                         if is_computed {
@@ -1714,7 +1714,7 @@ impl Bytecode {
                             SP_GO!(-1);
                         }
 
-                        if ret < 0 {
+                        if ret.is_err() {
                             break State::Exception;
                         }
                     }

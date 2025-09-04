@@ -494,7 +494,7 @@ fn js_proxy_define_own_property(
             }
         } else if flags & JS_PROP_HAS_VALUE != 0 {
             if desc.flags & (JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE) == JS_PROP_WRITABLE
-                && (flags & JS_PROP_WRITABLE) == 0
+                && flags & JS_PROP_WRITABLE == 0
             {
                 // missing-proxy-check feature
                 ctx.throw_type_error("proxy: inconsistent defineProperty");
@@ -784,7 +784,7 @@ fn js_proxy_set(
                     return Err(-1);
                 }
             } else if desc.flags & (JS_PROP_GETSET | JS_PROP_CONFIGURABLE) == JS_PROP_GETSET
-                && !desc.setter.is_undefined()
+                && desc.setter.is_undefined()
             {
                 ctx.throw_type_error("proxy: inconsistent set");
                 return Err(-1);

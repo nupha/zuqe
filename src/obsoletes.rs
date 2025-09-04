@@ -2358,7 +2358,7 @@ pub unsafe fn find_own_property1(p: *mut JSValue, atom: JSAtom) -> *mut JSShapeP
 /// Sets ppr to the property value pointer if found, null otherwise
 /// Returns the property shape pointer if found, null otherwise
 #[inline(always)]
-#[deprecated(note = "use JSObject::find_own_property() instead")]
+#[deprecated(note = "use JSObject::find_shape_property() instead")]
 pub unsafe fn find_own_property(
     ppr: *mut *mut JSProperty,
     p: *mut JSValue,
@@ -3007,7 +3007,7 @@ pub unsafe fn JS_InstantiateFunctionListItem(
 
 /* Note: the property value is not initialized. Return NULL if memory
 error. */
-#[deprecated(note = "use JSObject::add_property() instead")]
+#[deprecated(note = "use JSObject::add_own_property() instead")]
 pub unsafe fn add_property(
     ctx: &JSContext,
     p: *mut JSValue,

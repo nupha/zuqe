@@ -90,7 +90,7 @@ impl JSProperty {
             master_obj.shape_prepare_update(&realm)?;
             let val = init_type.instantiate(&realm, this_obj);
 
-            // reset LAZY flag to NORMAL
+            // update property type from LAZY_INIT to NORMAL
             master_obj.shape().unwrap().with_mut(|s| {
                 if let Some(prs) = s.prop_defs.get_mut(&prop.0) {
                     prs.set_flags(prs.flags() & !JS_PROP_TMASK);

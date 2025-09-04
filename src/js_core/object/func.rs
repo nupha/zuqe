@@ -159,7 +159,7 @@ pub fn js_object_keys(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     debug_assert!(
         (JSIteratorKindEnum::JS_ITERATOR_KIND_KEY as i32
-            ..=JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i32)
+            ..=JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE as i32)
             .contains(&kind)
     );
 

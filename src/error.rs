@@ -182,8 +182,14 @@ impl JSContext {
         self.throw_type_error(&format!("{} object expected", name.to_utf8(self.rt())))
     }
 
+    /// atom is not consumed
+    pub fn throw_type_error_read_only(&self, atom: JSAtom) {
+        self.throw_type_error(&format!("'{}' is read-only", atom.to_utf8(self.rt())))
+    }
+
     /// flags: 1=raise exception; 0=don't raise exception
     /// returns: true=exception raised; false=no exception raised
+    #[deprecated(note = "use JSContext::throw_type_error_read_only() instead")]
     pub fn JS_ThrowTypeErrorReadOnly(&self, flags: u32, atom: JSAtom) -> bool {
         self.throw_type_error_or_false(
             flags,

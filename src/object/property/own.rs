@@ -430,6 +430,7 @@ impl JSObject {
                         };
                     }
                 }
+
                 cid => {
                     if flags & JS_PROP_NO_EXOTIC == 0 {
                         if let Some(em) =

@@ -264,39 +264,27 @@ pub fn js_method_set_home_object(func_obj: &JSValue, home_obj: Option<&JSObject>
     }
 }
 
-// Modify the name of a method according to the atom and
-// 'flags'. 'flags' is a bitmask of JS_PROP_HAS_GET and
-// JS_PROP_HAS_SET. Also set the home object of the method.
-// Return < 0 if exception.
+/// Modify the name of a method according to the atom and
+/// 'flags'. 'flags' is a bitmask of JS_PROP_HAS_GET and
+/// JS_PROP_HAS_SET. Also set the home object of the method.
 pub fn js_method_set_properties(
     ctx: &JSContext,
     func_obj: &JSValue,
     name: JSAtom,
     flags: u32,
     home_obj: &JSValue,
-) -> i32 {
-    let mut name_str = js_get_function_name(ctx, name);
+) -> Result<(), i32> {
+    let mut name_str = js_get_function_name(ctx, name).err()?;
 
     if flags & JS_PROP_HAS_GET != 0 {
-        name_str = JS_ConcatString3(ctx, c"get ", name_str, c"")
-            .map_or(JSValue::EXCEPTION, JSValue::String);
+        name_str = JS_ConcatString3(ctx, c"get ", name_str, c"").map(JSValue::String)?;
     } else if flags & JS_PROP_HAS_SET != 0 {
-        name_str = JS_ConcatString3(ctx, c"set ", name_str, c"")
-            .map_or(JSValue::EXCEPTION, JSValue::String);
+        name_str = JS_ConcatString3(ctx, c"set ", name_str, c"").map(JSValue::String)?;
     }
 
-    if name_str.is_exception() {
-        return -1;
-    }
-    if func_obj
-        .define_property_value(ctx, JS_ATOM_name, name_str, JS_PROP_CONFIGURABLE)
-        .is_err()
-    {
-        return -1;
-    }
-
+    func_obj.define_property_value(ctx, JS_ATOM_name, name_str, JS_PROP_CONFIGURABLE)?;
     js_method_set_home_object(func_obj, home_obj.object());
-    0
+    Ok(())
 }
 
 /// 将可迭代对象`SP[-1]`中的所有元素，追加到目标数组`SP[-3]`从`SP[-2]`起始的位置。
