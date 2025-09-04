@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 
 use colorized::*;
-use libc::cc_t;
 use zhuque::{
     atom::JS_FreeAtom,
     context::JSContext,
@@ -36,7 +35,7 @@ fn js_print(ctx: &JSContext, cc: CallContext) -> JSResult {
         let arg = cc.arg(i);
 
         colorize_print(
-            if (level != 1 && arg.is_object()) {
+            if level != 1 && arg.is_object() {
                 arg.to_utf8(ctx)?
             } else {
                 format!("{arg}").into()
@@ -192,7 +191,7 @@ fn main() {
 pub fn js_module_loader(
     ctx: &JSContext,
     module_name: &str,
-    opaque: *mut std::ffi::c_void,
+    _: *mut std::ffi::c_void,
 ) -> Result<ModuleDef, i32> {
     match std::fs::read(module_name) {
         Ok(buf) => {

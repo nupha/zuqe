@@ -240,7 +240,7 @@ static ATOM_DESCR_DEFS: &[&str] = &[
 ];
 
 pub fn gen_atoms(outfile: &Path) {
-    let mut text = ATOM_DESCR_DEFS
+    let text = ATOM_DESCR_DEFS
         .iter()
         .map(|t| match *t {
             "empty_string" => "".to_string(),

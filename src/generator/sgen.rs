@@ -48,11 +48,6 @@ impl ObjGenerator {
     }
 }
 
-#[deprecated(note = "use ObjGenerator::free_generator_stack_rt() instead")]
-pub unsafe fn free_generator_stack_rt(rt: *mut JSRuntime, s: *mut ObjGenerator) {
-    (*s).free_generator_stack_rt(rt.as_mut().unwrap());
-}
-
 // XXX: add a specific eval mode so that Function("}), ({") is rejected
 pub fn js_function_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let func_kind = unsafe { std::mem::transmute::<_, JSFunctionKindEnum>(cc.magic() as u8) };
@@ -171,12 +166,12 @@ pub fn js_generator_function_call(
 }
 
 pub fn js_generator_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {
-    if let ObjectPayload::GENERATOR(s) = isa {
+    if let ObjectPayload::GENERATOR(_) = isa {
         //s.free_generator_stack_rt(rt);
     }
 }
 
-pub fn js_generator_mark(val: JSValue) {
+pub fn js_generator_mark(_: JSValue) {
     unimplemented!();
 }
 

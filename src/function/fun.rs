@@ -232,7 +232,7 @@ pub fn js_function_proto(_: &JSContext, _: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
-pub fn js_bytecode_function_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
+pub fn js_bytecode_function_finalizer(_rt: &mut JSRuntime, _isa: &ObjectPayload, _id: usize) {}
 
 pub fn js_bytecode_function_mark(val: JSValue) {
     let p = unsafe { val.object_unchecked() };

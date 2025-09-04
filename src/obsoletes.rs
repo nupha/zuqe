@@ -25,7 +25,7 @@ use crate::{
         js_function_set_properties,
     },
     gc::{GCObjectHeader, JSGCObjectTypeEnum},
-    generator::ObjAsyncGenerator,
+    generator::{ObjAsyncGenerator, ObjGenerator},
     iterator::{ForInIterObjPayload, JSIteratorKindEnum},
     module::{
         JSExportEntry, JSExportTypeEnum, JSResolveEntry, JSResolveResultEnum, ModuleDef,
@@ -4084,4 +4084,9 @@ pub fn js_create_desc(
     flags: u32,
 ) -> JSValue {
     unreachable!("unused")
+}
+
+#[deprecated(note = "use ObjGenerator::free_generator_stack_rt() instead")]
+pub unsafe fn free_generator_stack_rt(rt: *mut JSRuntime, s: *mut ObjGenerator) {
+    (*s).free_generator_stack_rt(rt.as_mut().unwrap());
 }

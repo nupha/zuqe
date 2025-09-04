@@ -59,7 +59,7 @@ impl JSContext {
     ) -> Result<Compiled, i32> {
         let eval_type = flags & JS_EVAL_TYPE_MASK;
 
-        let mut sframe: Option<&mut StackFrame> = None;
+        let sframe: Option<&mut StackFrame>;
         let mut cur_frame_func: Option<JSObject> = None;
 
         // get bytecode, module of current stack frame
