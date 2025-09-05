@@ -38,7 +38,7 @@ object_cast!(Array, JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS);
 impl Array {
     /// set values list to Array, make `arr` a fast array.
     /// Note: for Array and Arguments class objects only.
-    pub(crate) fn reset_elements(
+    pub(crate) fn reset_fast_array(
         ctx: &JSContext,
         obj: &JSObject,
         values: Vec<JSValue>,

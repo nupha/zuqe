@@ -1074,18 +1074,21 @@ pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
     if arr.is_fast_array()
         && let Some(r) = obj.with_fast_array_values(|lst| -> Result<(), i32> {
             // fast code
-            let lst2 = lst
+            let items = lst
                 .iter()
-                .take(end as usize)
+                .skip(start as usize)
+                .take(count as usize)
                 .cloned()
                 .try_collect::<Vec<_>>()
                 .map_err(|_| {
                     ctx.throw_out_of_memory();
                     -1
                 })?;
-            n = lst2.len() as i64;
-            k += n;
-            Array::reset_elements(ctx, arr.object().unwrap(), lst2)?;
+            if !items.is_empty() {
+                n = items.len() as i64;
+                k += n;
+                Array::reset_fast_array(ctx, arr.object().unwrap(), items)?;
+            }
 
             // generic code
             // let len = lst.len() as i64;
