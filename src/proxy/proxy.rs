@@ -707,6 +707,7 @@ fn js_proxy_get(ctx: &JSContext, obj: JSValue, atom: JSAtom, receiver: JSValue) 
     };
 
     let method = px.get_method(ctx, JS_ATOM_get)?;
+
     // Note: recursion is possible thru the prototype of s.target
     if method.is_undefined() {
         return px.target.get_property_internal(ctx, atom, &receiver, false);

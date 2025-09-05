@@ -46,9 +46,9 @@ impl JSObject {
                 }
 
                 //
-                // property already exists
+                // property exists
                 //
-                if unsafe { !check_define_prop_flags(prs_flags, flags) } {
+                if !check_define_prop_flags(prs_flags, flags) {
                     return if ctx.throw_type_error_or_false(flags, "property is not configurable") {
                         Err(-1)
                     } else {
@@ -385,9 +385,9 @@ impl JSValue {
         &self,
         ctx: &JSContext,
         prop: JSAtom,
-        val: JSValue,
-        getter: JSValue,
-        setter: JSValue,
+        val: JSValue,    // TODO: use Option<JSValue> to eliminate JS_PROP_HAS_XXX
+        getter: JSValue, // TODO: use Option<JSValue> to eliminate JS_PROP_HAS_XXX
+        setter: JSValue, // TODO: use Option<JSValue> to eliminate JS_PROP_HAS_XXX
         flags: u32,
     ) -> Result<bool, i32> {
         if let Self::Object(p) = self {
@@ -398,7 +398,7 @@ impl JSValue {
         }
     }
 
-    /// short cut to add or redefine a new property value.
+    /// add or update a property with value in `self`.
     /// Note: `prop` is not consumed.
     #[inline(always)]
     pub fn define_property_value(

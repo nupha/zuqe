@@ -7,6 +7,7 @@ use crate::{
     atom::consts::{
         JS_ATOM_Symbol_isConcatSpreadable, JS_ATOM_Symbol_iterator, JS_ATOM_Symbol_species,
         JS_ATOM_constructor, JS_ATOM_join, JS_ATOM_length, JS_ATOM_next, JS_ATOM_set,
+        JS_ATOM_toString,
     },
     bytecode::arithmatic::JSStrictEqModeEnum,
     context::JSContext,
@@ -1060,29 +1061,48 @@ pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
         std::cmp::max(end - start, 0)
     };
 
+    let end = start + count;
+
     // make return Array
     let len_val = JSValue::from(count);
     let arr = JS_ArraySpeciesCreate(ctx, &obj.clone().into(), &len_val)?;
 
-    let end = start + count;
-
     let mut k = start;
     let mut n = 0;
 
-    if let Some(r) = obj.with_fast_array_values(|lst| -> Result<(), i32> {
-        let len = lst.len() as i64;
-        while k < end && k < len {
-            arr.define_property_value_i64(
-                ctx,
-                n,
-                lst[k as usize].clone(),
-                JS_PROP_C_W_E | JS_PROP_THROW,
-            )?;
-            k += 1;
-            n += 1;
-        }
-        Ok(())
-    }) {
+    // Special case fast arrays
+    if arr.is_fast_array()
+        && let Some(r) = obj.with_fast_array_values(|lst| -> Result<(), i32> {
+            // fast code
+            let lst2 = lst
+                .iter()
+                .take(end as usize)
+                .cloned()
+                .try_collect::<Vec<_>>()
+                .map_err(|_| {
+                    ctx.throw_out_of_memory();
+                    -1
+                })?;
+            n = lst2.len() as i64;
+            k += n;
+            Array::reset_elements(ctx, arr.object().unwrap(), lst2)?;
+
+            // generic code
+            // let len = lst.len() as i64;
+            // while k < end && k < len {
+            //     arr.define_property_value_i64(
+            //         ctx,
+            //         n,
+            //         lst[k as usize].clone(),
+            //         JS_PROP_C_W_E | JS_PROP_THROW,
+            //     )?;
+            //     k += 1;
+            //     n += 1;
+            // }
+
+            Ok(())
+        })
+    {
         r?;
     }
 

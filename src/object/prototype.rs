@@ -5,28 +5,20 @@ use crate::{
     value::{JS_GetPrototypePrimitive, JSValue},
 };
 
+/// To iterate over the prototype chain of an object
 pub struct ObjectPrototypeIter {
     ctx: JSContext,
-    cur_obj: Option<Result<JSObject, i32>>,
+    cur_obj: Option<JSObject>,
 }
 
 impl Iterator for ObjectPrototypeIter {
-    type Item = Result<JSObject, i32>;
+    type Item = JSObject;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(p) = self.cur_obj.take() {
-            if let Ok(p) = &p {
-                match p.prototype(&self.ctx) {
-                    Ok(Some(up)) => {
-                        self.cur_obj.replace(Ok(up));
-                    }
-                    Ok(None) => {}
-                    Err(_) => {
-                        self.cur_obj.replace(Err(-1));
-                    }
-                }
-            }
-            Some(p)
+        if let Some(obj) = self.cur_obj.take() {
+            let proto = obj.shape().and_then(|s| s.0.borrow().proto.clone());
+            self.cur_obj = proto;
+            Some(obj)
         } else {
             None
         }
@@ -46,17 +38,15 @@ impl JSObject {
     }
 
     /// get prototype chain walk iterator.
-    pub fn prototype_iter(&self, ctx: &JSContext, include_self: bool) -> ObjectPrototypeIter {
+    /// To iterate over the prototype chain of an object.
+    /// Note: only check the `proto` field of shape, no proxy considered.
+    pub fn proto_iter(&self, ctx: &JSContext, include_self: bool) -> ObjectPrototypeIter {
         ObjectPrototypeIter {
             ctx: ctx.clone(),
             cur_obj: if include_self {
-                Some(Ok(self.clone()))
+                Some(self.clone())
             } else {
-                match self.prototype(ctx) {
-                    Ok(Some(p)) => Some(Ok(p)),
-                    Ok(None) => None,
-                    Err(e) => Some(Err(e)),
-                }
+                self.shape().and_then(|s| s.0.borrow().proto.clone())
             },
         }
     }

@@ -41,9 +41,7 @@ impl JSObject {
     ) -> Result<bool, i32> {
         match this_obj {
             JSValue::Object(this) => {
-                for up in self.prototype_iter(ctx, true) {
-                    let proto = up?;
-
+                for proto in self.proto_iter(ctx, true) {
                     // 1. check shape property
                     while let Some((idx, prs_flags)) = proto.find_shape_property(prop) {
                         match prs_flags & JS_PROP_TMASK {

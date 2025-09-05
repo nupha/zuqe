@@ -136,8 +136,8 @@ pub fn js_object_isPrototypeOf(ctx: &JSContext, cc: CallContext) -> JSResult {
     if let JSValue::Object(ctor) = cc.arg(0).clone() {
         let this = cc.this().to_object(ctx)?;
 
-        for p in ctor.prototype_iter(ctx, true) {
-            if p? == this {
+        for p in ctor.proto_iter(ctx, true) {
+            if p == this {
                 return Ok(JSValue::Bool(true));
             }
 
@@ -147,28 +147,6 @@ pub fn js_object_isPrototypeOf(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     Ok(JSValue::Bool(false))
-
-    // original logic
-    // let mut target = cc.arg(0).clone();
-    // if !target.is_object() {
-    //     return Ok(JSValue::Bool(false));
-    // }
-    // let ob = cc.this().coerce_to_object(ctx)?;
-
-    // let res: bool = loop {
-    //     // walk up prototype chain
-    //     target = target.prototype(ctx)?;
-    //     if target.is_null() {
-    //         break false;
-    //     }
-    //     if ob == unsafe { target.object_unchecked().clone() } {
-    //         break true;
-    //     }
-
-    //     // avoid infinite loop (possible with proxies)
-    //     ctx.poll_interrupts()?;
-    // };
-    // Ok(JSValue::Bool(res))
 }
 
 pub fn js_object_propertyIsEnumerable(ctx: &JSContext, cc: CallContext) -> JSResult {

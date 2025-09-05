@@ -23,17 +23,13 @@ pub enum StringContent {
 impl PartialEq for StringContent {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Ascii(s1), Self::Ascii(s2)) => {
-                debug_assert!(!s1.is_empty());
-                debug_assert!(!s2.is_empty());
-
-                let d1 = s1.as_ref();
-                let d2 = s2.as_ref();
-                println!("[O.o] ascii:ascii {d1:?}, {d2:?}");
-                s1.as_ref() == s2.as_ref()
-            }
+            // same kind
+            (Self::Ascii(s1), Self::Ascii(s2)) => s1.as_ref() == s2.as_ref(),
             (Self::Utf16(s1), Self::Utf16(s2)) => s1.as_ref() == s2.as_ref(),
+            (Self::Empty, Self::Empty) => true,
+            (Self::Ident, Self::Ident) => false, // idents are never equal
 
+            // ascii vs utf16
             (Self::Ascii(s1), Self::Utf16(s2)) => {
                 let mut it1 = unsafe { std::str::from_utf8_unchecked(s1) }.chars();
                 let mut it2 = U16Str::from_slice(s2).chars_lossy();
@@ -72,9 +68,6 @@ impl PartialEq for StringContent {
                     }
                 }
             }
-
-            (Self::Empty, Self::Empty) => true,
-            (Self::Ident, Self::Ident) => false, // idents are never equal
 
             #[cfg(debug_assertions)]
             (Self::Empty, s) | (s, Self::Empty) => {
@@ -600,6 +593,7 @@ impl From<StringBuf> for StringContent {
                 if s.is_empty() {
                     Self::Empty
                 } else {
+                    debug_assert!(s.is_ascii());
                     Self::Ascii(s.into())
                 }
             }
@@ -607,6 +601,7 @@ impl From<StringBuf> for StringContent {
                 if s.is_empty() {
                     Self::Empty
                 } else {
+                    debug_assert!(s.iter().any(|c| *c >= 0x80));
                     Self::Utf16(s.into())
                 }
             }

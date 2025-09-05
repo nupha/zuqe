@@ -345,6 +345,7 @@ impl ObjectInner {
         Ok(obj)
     }
 
+    #[inline(always)]
     pub fn id(&self) -> usize {
         self as *const Self as usize
     }
@@ -354,16 +355,17 @@ impl ObjectInner {
         self.rt
     }
 
-    #[inline(always)]
+    #[inline]
     pub const fn rt(&self) -> &JSRuntime {
         unsafe { self.rt.as_ref() }
     }
 
-    #[inline(always)]
+    #[inline]
     pub const fn rt_mut(&self) -> &mut JSRuntime {
         unsafe { self.rt.as_ptr().as_mut().unwrap() }
     }
 
+    #[inline]
     pub fn class_id(&self) -> JSClassID {
         self.payload.borrow().class_id()
     }
@@ -420,12 +422,14 @@ impl ObjectInner {
 pub struct JSObject(pub(crate) Rc<ObjectInner>);
 
 impl PartialEq for JSObject {
+    #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.id() == other.id()
     }
 }
 
 impl From<JSObject> for JSValue {
+    #[inline(always)]
     fn from(value: JSObject) -> Self {
         Self::Object(value)
     }
@@ -434,6 +438,7 @@ impl From<JSObject> for JSValue {
 impl TryFrom<JSValue> for JSObject {
     type Error = i32;
 
+    #[inline]
     fn try_from(value: JSValue) -> Result<Self, Self::Error> {
         if let JSValue::Object(o) = value {
             Ok(o)
@@ -444,6 +449,7 @@ impl TryFrom<JSValue> for JSObject {
 }
 
 impl From<JSObject> for GCObject {
+    #[inline(always)]
     fn from(value: JSObject) -> Self {
         Self::Object(value)
     }
@@ -482,7 +488,7 @@ impl JSObject {
     }
 
     /// Get object class id
-    #[inline(always)]
+    #[inline]
     pub fn class_id(&self) -> JSClassID {
         self.0.payload.borrow().class_id()
     }
@@ -493,7 +499,7 @@ impl JSObject {
         self.rt().class_defs[self.class_id() as usize].class_name
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn flags(&self) -> ObjectFlags {
         self.0.obj_flags.get()
     }
@@ -530,7 +536,7 @@ impl JSObject {
         )
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn downgrade(&self) -> JSObjectWeakref {
         JSObjectWeakref(Rc::downgrade(&self.0))
     }
@@ -539,14 +545,6 @@ impl JSObject {
     pub fn ref_count(&self) -> usize {
         Rc::strong_count(&self.0)
     }
-
-    // fn gc_status(&self) -> GCObjectStatus {
-    //     self.0.header.borrow().gc_status()
-    // }
-
-    // fn gc_set_status(&self, s: GCObjectStatus) {
-    //     self.0.borrow_mut().header.gc_set_status(s)
-    // }
 
     pub fn gc_has_mark(&self) -> bool {
         self.0.gc_mark.get()

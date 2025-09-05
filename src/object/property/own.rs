@@ -436,8 +436,8 @@ impl JSObject {
                         if let Some(em) =
                             unsafe { ctx.rt().class_defs[cid as usize].exotic.as_ref() }
                         {
-                            if let Some(cb) = em.define_own_property {
-                                return cb(
+                            if let Some(f) = em.define_own_property {
+                                return f(
                                     ctx,
                                     &JSValue::Object(self.clone()),
                                     prop,
@@ -448,11 +448,9 @@ impl JSObject {
                                 );
                             }
 
-                            if !self.is_extensible(ctx).unwrap_or(false) {
-                                return if ctx.throw_type_error_or_false(
-                                    flags as _,
-                                    "object is not extensible",
-                                ) {
+                            if !self.is_extensible(ctx)? {
+                                return if ctx.should_throw_error(flags) {
+                                    ctx.throw_type_error("object is not extensible");
                                     Err(-1)
                                 } else {
                                     Ok(false)
