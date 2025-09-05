@@ -174,10 +174,6 @@ impl JSAtom {
         } else {
             let ss = ctx.rt().get_atom_desc(*self).unwrap();
             let ret: JSValue = if force_string {
-                if ss.content().is_ident() {
-                    ctx.throw_type_error("can't convert anonymous symbol to string");
-                    return Err(-1);
-                }
                 ss.into()
             } else if let AtomHintAndId::String(_) = ss.atom_info().unwrap() {
                 ss.into() // atom for string
