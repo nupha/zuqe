@@ -86,7 +86,7 @@ impl JSValue {
 impl JSContext {
     /// Create a C_FUNCTION_DATA class object, which behaves like a native function, with attached data.
     /// Note: `data` values are not consumed.
-    pub fn create_native_callable_object(
+    pub fn create_native_function_with_data(
         &self,
         callback: NativeCallback,
         length: u8,

@@ -208,24 +208,19 @@ pub fn get_func_name(func: &JSValue) -> Option<String> {
 
 /// define `length` and `name` properties on function object `func_obj`
 pub fn js_function_set_properties(ctx: &JSContext, func_obj: &JSObject, name: JSAtom, len: i32) {
-    func_obj
-        .define_property_value(
-            ctx,
-            JS_ATOM_length,
-            JSValue::Int(len),
-            JS_PROP_CONFIGURABLE, // ES6 feature non-compatible with ES5.1: length is configurable
-        )
-        .unwrap();
-
-    func_obj
-        .define_property_value(
-            ctx,
-            JS_ATOM_name,
-            name.to_string(ctx)
-                .map_or(JSValue::EXCEPTION, JSValue::String),
-            JS_PROP_CONFIGURABLE,
-        )
-        .unwrap();
+    let _ = func_obj.define_property_value(
+        ctx,
+        JS_ATOM_length,
+        JSValue::Int(len),
+        JS_PROP_CONFIGURABLE, // ES6 feature non-compatible with ES5.1: length is configurable
+    );
+    let _ = func_obj.define_property_value(
+        ctx,
+        JS_ATOM_name,
+        name.to_string(ctx)
+            .map_or(JSValue::EXCEPTION, JSValue::String),
+        JS_PROP_CONFIGURABLE,
+    );
 }
 
 pub fn js_function_proto(_: &JSContext, _: CallContext) -> JSResult {

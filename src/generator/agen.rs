@@ -388,7 +388,7 @@ pub unsafe fn js_async_generator_resolve_function_create(
     let resolving_funcs = [JSValue::UNDEFINED, JSValue::UNDEFINED];
 
     for i in 0..2 {
-        let func = ctx.create_native_callable_object(
+        let func = ctx.create_native_function_with_data(
             js_async_generator_resolve_function,
             1,
             i + if is_resume_next { 2 } else { 0 },

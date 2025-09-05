@@ -12,7 +12,7 @@ use crate::{
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_C_W_E,
         JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_THROW, JS_PROP_WRITABLE,
-        JS_PreventExtensions, JS_SetPrototypeInternal, ObjectPayload, PropertyKey,
+        JS_SetPrototypeInternal, ObjectPayload, PropertyKey,
     },
     value::JSValue,
 };
@@ -268,12 +268,12 @@ pub fn js_object_isExtensible(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_object_preventExtensions(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let reflect = cc.magic();
+    let reflect = cc.magic() != 0;
     let arg = cc.arg(0);
 
     if let Some(obj) = arg.object() {
         let ret = obj.prevent_extensions(ctx)?;
-        if reflect != 0 {
+        if reflect {
             Ok(JSValue::Bool(ret))
         } else {
             if !ret {
@@ -284,7 +284,7 @@ pub fn js_object_preventExtensions(ctx: &JSContext, cc: CallContext) -> JSResult
             }
         }
     } else {
-        return if reflect != 0 {
+        return if reflect {
             ctx.throw_type_error_not_an_object();
             Err(-1)
         } else {
@@ -294,56 +294,58 @@ pub fn js_object_preventExtensions(ctx: &JSContext, cc: CallContext) -> JSResult
 }
 
 pub fn js_object_getOwnPropertyDescriptor(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj = if cc.magic() != 0 {
-        // Reflect.getOwnPropertyDescriptor case
+    let reflect = cc.magic() != 0;
+
+    let obj = if reflect {
+        // Reflect.getOwnPropertyDescriptor
         if let JSValue::Object(p) = cc.arg(0) {
-            JSValue::Object(p.clone())
+            p.clone()
         } else {
             ctx.throw_type_error_not_an_object();
             return Err(-1);
         }
     } else {
-        cc.arg(0)
-            .to_object(ctx)
-            .map_or(JSValue::UNDEFINED, JSValue::Object)
+        if let Ok(o) = cc.arg(0).to_object(ctx) {
+            o
+        } else {
+            return Ok(JSValue::UNDEFINED);
+        }
     };
 
     let prop = cc.arg(1);
     let atom = prop.to_atom(ctx)?.into_rc(ctx.rt());
 
-    if let JSValue::Object(p) = &obj {
-        if let Some(desc) = p.get_own_property(ctx, *atom)? {
-            let ret = ctx.create_base_object()?;
+    if let Some(desc) = obj.get_own_property(ctx, *atom)? {
+        let ret = ctx.create_base_object()?;
+        let prop_flags = JS_PROP_C_W_E | JS_PROP_THROW;
 
-            let flags = JS_PROP_C_W_E | JS_PROP_THROW;
-            if desc.flags & JS_PROP_GETSET != 0 {
-                ret.define_property_value(ctx, JS_ATOM_get, desc.getter, flags)?;
-                ret.define_property_value(ctx, JS_ATOM_set, desc.setter, flags)?;
-            } else {
-                ret.define_property_value(ctx, JS_ATOM_value, desc.value, flags)?;
-                ret.define_property_value(
-                    ctx,
-                    JS_ATOM_writable,
-                    JSValue::Bool(desc.flags & JS_PROP_WRITABLE != 0),
-                    flags,
-                )?;
-            }
-
+        if desc.flags & JS_PROP_GETSET != 0 {
+            ret.define_property_value(ctx, JS_ATOM_get, desc.getter, prop_flags)?;
+            ret.define_property_value(ctx, JS_ATOM_set, desc.setter, prop_flags)?;
+        } else {
+            ret.define_property_value(ctx, JS_ATOM_value, desc.value, prop_flags)?;
             ret.define_property_value(
                 ctx,
-                JS_ATOM_enumerable,
-                JSValue::Bool(desc.flags & JS_PROP_ENUMERABLE != 0),
-                flags,
+                JS_ATOM_writable,
+                JSValue::Bool(desc.flags & JS_PROP_WRITABLE != 0),
+                prop_flags,
             )?;
-            ret.define_property_value(
-                ctx,
-                JS_ATOM_configurable,
-                JSValue::Bool(desc.flags & JS_PROP_CONFIGURABLE != 0),
-                flags,
-            )?;
-
-            return Ok(ret.into());
         }
+
+        ret.define_property_value(
+            ctx,
+            JS_ATOM_enumerable,
+            JSValue::Bool(desc.flags & JS_PROP_ENUMERABLE != 0),
+            prop_flags,
+        )?;
+        ret.define_property_value(
+            ctx,
+            JS_ATOM_configurable,
+            JSValue::Bool(desc.flags & JS_PROP_CONFIGURABLE != 0),
+            prop_flags,
+        )?;
+
+        return Ok(ret.into());
     }
 
     Ok(JSValue::UNDEFINED)

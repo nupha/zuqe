@@ -10,8 +10,8 @@ use crate::{
         js_object_isExtensible, js_object_preventExtensions,
     },
     object::{
-        JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_THROW,
-        JS_PROP_WRITABLE, JS_SetPrototypeInternal,
+        JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE,
+        JS_SetPrototypeInternal,
     },
     value::JSValue,
 };
@@ -91,16 +91,19 @@ pub fn js_reflect_has(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_reflect_set(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj = cc.arg(0);
-    if obj.is_object() {
+    let target = cc.arg(0);
+
+    if target.is_object() {
         let prop = cc.arg(1);
         let val = cc.arg(2);
-        let receiver = if cc.length() > 3 { cc.arg(3) } else { obj };
+        let receiver = if cc.length() > 3 { cc.arg(3) } else { target };
         let atom = prop.to_atom(ctx)?;
-        let ret = JSValue::set_property_internal(ctx, obj, atom, val.clone(), receiver, 0);
+        let ret = JSValue::set_property_internal(ctx, target, atom, val.clone(), receiver, 0);
         JS_FreeAtom(ctx, atom);
         ret.map(JSValue::Bool)
     } else {
+        // TODO: fix to allow `target` be non-object.
+        // XXX
         ctx.throw_type_error_not_an_object();
         Err(-1)
     }

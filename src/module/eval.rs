@@ -344,14 +344,14 @@ impl ModuleDef {
         let data = [JSValue::Module(self.clone())];
         promise.then(
             ctx,
-            ctx.create_native_callable_object(
+            ctx.create_native_function_with_data(
                 ModuleDef::execute_async_fulfill_callback,
                 0,
                 0,
                 &data,
             )?
             .into(),
-            ctx.create_native_callable_object(
+            ctx.create_native_function_with_data(
                 ModuleDef::execute_async_reject_callback,
                 0,
                 0,

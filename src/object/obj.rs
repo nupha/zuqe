@@ -521,9 +521,9 @@ impl JSObject {
     pub fn prevent_extensions(&self, ctx: &JSContext) -> Result<bool, i32> {
         self.as_proxy().map_or_else(
             || {
-                unsafe {
-                    (*self.0.obj_flags.as_ptr()).set_extensible(false);
-                }
+                let mut f = self.0.obj_flags.get();
+                f.set_extensible(false);
+                self.0.obj_flags.set(f);
                 Ok(true)
             },
             |p| p.prevent_extensions(ctx),

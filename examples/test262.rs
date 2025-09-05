@@ -21,7 +21,6 @@ use zhuque::{
     object::JS_PROP_C_W_E,
     promise::{JSPromiseStateEnum, Promise},
     runtime::JSRuntime,
-    string::StringBuf,
     value::JSValue,
 };
 

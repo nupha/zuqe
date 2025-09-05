@@ -43,7 +43,7 @@ pub fn js_promise_then_finally_func(ctx: &JSContext, cc: CallContext) -> JSResul
     };
 
     let then_func: JSValue = ctx
-        .create_native_callable_object(
+        .create_native_function_with_data(
             |cx: &JSContext, cc: CallContext| -> JSResult {
                 let val = cc.data(0);
                 if cc.magic() == 0 {
@@ -76,7 +76,12 @@ pub fn js_promise_finally(ctx: &JSContext, cc: CallContext) -> JSResult {
         let func_data = [ctor, on_finally.clone()];
         for i in 0..2 {
             then_funcs[i] = ctx
-                .create_native_callable_object(js_promise_then_finally_func, 1, i as _, &func_data)?
+                .create_native_function_with_data(
+                    js_promise_then_finally_func,
+                    1,
+                    i as _,
+                    &func_data,
+                )?
                 .into();
         }
     }
@@ -169,7 +174,7 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
                 resolving_funcs[is_promise_any as usize].clone(),
                 resolve_element_env.clone(),
             ];
-            let mut resolve_element: JSValue = if let Ok(v) = ctx.create_native_callable_object(
+            let mut resolve_element: JSValue = if let Ok(v) = ctx.create_native_function_with_data(
                 js_promise_all_resolve_element,
                 1,
                 cc.magic(),
@@ -182,7 +187,7 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
 
             let reject_element: JSValue = match cc.magic() {
                 PROMISE_MAGIC_allSettled => {
-                    if let Ok(r) = ctx.create_native_callable_object(
+                    if let Ok(r) = ctx.create_native_function_with_data(
                         js_promise_all_resolve_element,
                         1,
                         cc.magic() | 4,

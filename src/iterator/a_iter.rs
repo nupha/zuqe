@@ -39,7 +39,7 @@ pub unsafe fn js_async_from_sync_iterator_unwrap_func_create(
     ctx: &JSContext,
     done: bool,
 ) -> JSValue {
-    ctx.create_native_callable_object(
+    ctx.create_native_function_with_data(
         js_async_from_sync_iterator_unwrap,
         1,
         0,

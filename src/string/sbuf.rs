@@ -9,12 +9,8 @@ use super::string::JS_STRING_LEN_MAX;
 /// string content buffer
 #[repr(u8)]
 pub enum StringBuf {
-    /// string with no content
     Empty,
-
-    /// utf8 encoded bytes
     Ascii(Vec<u8>),
-    /// utf16 wide-chars
     Utf16(Vec<u16>),
 }
 

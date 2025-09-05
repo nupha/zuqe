@@ -537,6 +537,9 @@ pub fn js_eq(ctx: &JSContext, op1: JSValue, op2: JSValue) -> Result<bool, i32> {
             (_, JSValue::NULL | JSValue::UNDEFINED) => false, //op1.is_htmldda(),
             (JSValue::NULL | JSValue::UNDEFINED, _) => false, //op2.is_htmldda(),
 
+            (JSValue::String(s1), JSValue::String(s2)) => s1.content() == s2.content(),
+            (JSValue::Symbol(s1), JSValue::Symbol(s2)) => s1.atom_info() == s2.atom_info(),
+
             // compare object primitive
             (JSValue::Object(o1), JSValue::Object(o2)) => {
                 // op1, op2 are non-same objects, compare their primitive

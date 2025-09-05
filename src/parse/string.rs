@@ -32,13 +32,6 @@ impl<'s> JSParseState<'s> {
                 return Err(-1);
             }
 
-            if sbuf.capacity() == sbuf.len() {
-                sbuf.try_reserve_exact(32).map_err(|_| {
-                    self.ctx.throw_out_of_memory();
-                    -1
-                })?;
-            }
-
             let mut char_code: u32 = 0;
 
             match unsafe { (*p) as char } {
@@ -220,6 +213,12 @@ impl<'s> JSParseState<'s> {
             }
 
             // add char_code to string content
+            if sbuf.capacity() == sbuf.len() {
+                sbuf.try_reserve_exact(32).map_err(|_| {
+                    self.ctx.throw_out_of_memory();
+                    -1
+                })?;
+            }
             if let Some(uc) = char::from_u32(char_code) {
                 sbuf.push_char(uc).unwrap(); // can't fail
             } else {

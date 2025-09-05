@@ -45,11 +45,14 @@ fn js_proxy_revocable(ctx: &JSContext, cc: CallContext) -> JSResult {
         CallContext::new(ctx, JSValue::UNDEFINED, cc.arguments(), 0, None),
     )?;
 
-    let revoke_obj = ctx.create_native_callable_object(
-        |_, cc| -> JSResult {
-            let proxy = Proxy::try_from(cc.data(0)).unwrap();
-            let px = proxy.payload();
-            px.is_revoked.set(true);
+    // create revoke function
+    let revoke_obj = ctx.create_native_function_with_data(
+        |_, mut cc| -> JSResult {
+            if let Ok(p) = Proxy::try_from(cc.data(0)) {
+                p.payload().is_revoked.set(true);
+                // clear attached data (Proxy value)
+                let _ = cc.replace_data(0, JSValue::NULL);
+            }
             Ok(JSValue::UNDEFINED)
         },
         0,

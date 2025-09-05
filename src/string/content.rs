@@ -16,9 +16,203 @@ pub enum StringContent {
     Empty,
     Ascii(Rc<[u8]>),
     Utf16(Rc<[u16]>),
-
     /// identical content. used for anonymous Symbol atom.
     Ident,
+}
+
+impl PartialEq for StringContent {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Ascii(s1), Self::Ascii(s2)) => {
+                debug_assert!(!s1.is_empty());
+                debug_assert!(!s2.is_empty());
+
+                let d1 = s1.as_ref();
+                let d2 = s2.as_ref();
+                println!("[O.o] ascii:ascii {d1:?}, {d2:?}");
+                s1.as_ref() == s2.as_ref()
+            }
+            (Self::Utf16(s1), Self::Utf16(s2)) => s1.as_ref() == s2.as_ref(),
+
+            (Self::Ascii(s1), Self::Utf16(s2)) => {
+                let mut it1 = unsafe { std::str::from_utf8_unchecked(s1) }.chars();
+                let mut it2 = U16Str::from_slice(s2).chars_lossy();
+                loop {
+                    match (it1.next(), it2.next()) {
+                        (Some(a), Some(b)) => {
+                            if a != b {
+                                return false;
+                            }
+                        }
+                        (None, None) => {
+                            return true;
+                        }
+                        _ => {
+                            return false;
+                        }
+                    }
+                }
+            }
+            (Self::Utf16(s1), Self::Ascii(s2)) => {
+                let mut it1 = U16Str::from_slice(s1).chars_lossy();
+                let mut it2 = unsafe { std::str::from_utf8_unchecked(s2) }.chars();
+                loop {
+                    match (it1.next(), it2.next()) {
+                        (Some(a), Some(b)) => {
+                            if a != b {
+                                return false;
+                            }
+                        }
+                        (None, None) => {
+                            return true;
+                        }
+                        _ => {
+                            return false;
+                        }
+                    }
+                }
+            }
+
+            (Self::Empty, Self::Empty) => true,
+            (Self::Ident, Self::Ident) => false, // idents are never equal
+
+            #[cfg(debug_assertions)]
+            (Self::Empty, s) | (s, Self::Empty) => {
+                debug_assert!(!s.is_empty(), "ascii or utf16 string cannot be empty");
+                false
+            }
+
+            _ => false,
+        }
+    }
+}
+
+impl Eq for StringContent {}
+
+impl Ord for StringContent {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            // for same kind.
+            (StringContent::Ascii(s1), StringContent::Ascii(s2)) => s1.cmp(s2),
+            (StringContent::Utf16(s1), StringContent::Utf16(s2)) => s1.cmp(s2),
+            (StringContent::Empty, StringContent::Empty)
+            | (StringContent::Ident, StringContent::Ident) => Ordering::Equal,
+
+            // utf8 vs utf16 cmp
+            (StringContent::Ascii(s1), StringContent::Utf16(s2)) => {
+                let mut it1 = s1.iter();
+                let mut it2 = s2.iter();
+                loop {
+                    match (it1.next(), it2.next()) {
+                        (Some(a), Some(b)) => {
+                            let a = *a as u16;
+                            if a != *b {
+                                return a.cmp(b);
+                            }
+                        }
+                        (None, None) => {
+                            return Ordering::Equal;
+                        }
+                        (Some(_), None) => {
+                            return Ordering::Greater;
+                        }
+                        (None, Some(_)) => {
+                            return Ordering::Less;
+                        }
+                    }
+                }
+            }
+            (StringContent::Utf16(s1), StringContent::Ascii(s2)) => {
+                let mut it1 = s1.iter();
+                let mut it2 = s2.iter();
+                loop {
+                    match (it1.next(), it2.next()) {
+                        (Some(a), Some(b)) => {
+                            let b = *b as u16;
+                            if *a != b {
+                                return a.cmp(&b);
+                            }
+                        }
+                        (None, None) => {
+                            return Ordering::Equal;
+                        }
+                        (Some(_), None) => {
+                            return Ordering::Greater;
+                        }
+                        (None, Some(_)) => {
+                            return Ordering::Less;
+                        }
+                    }
+                }
+            }
+
+            // ident is the greatest.
+            (StringContent::Ident, _) => Ordering::Greater,
+            (_, StringContent::Ident) => Ordering::Less,
+
+            // empty is the smallest
+            (StringContent::Empty, _) => Ordering::Less,
+            (_, StringContent::Empty) => Ordering::Greater,
+        }
+    }
+}
+
+impl PartialOrd for StringContent {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl std::fmt::Debug for StringContent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // match self {
+        //     Self::Empty => write!(f, "Empty"),
+        //     Self::Ascii(arg0) => f.debug_tuple("Ascii").field(arg0).finish(),
+        //     Self::Utf16(arg0) => f.debug_tuple("Utf16").field(arg0).finish(),
+        //     Self::Ident => write!(f, "Ident"),
+        // }
+
+        match self {
+            Self::Empty => write!(f, "\"\""),
+            Self::Ident => write!(f, "<ident>"),
+            _ => {
+                let sep = '\"';
+                write!(f, "{sep}")?;
+
+                for (_, c) in self.iter() {
+                    match c {
+                        StringChar::Char(c) if c == sep => {
+                            write!(f, "\\{c}")?;
+                        }
+                        StringChar::Char('\n') => {
+                            write!(f, "\\n")?;
+                        }
+                        StringChar::Char('\r') => {
+                            write!(f, "\\r")?;
+                        }
+                        StringChar::Char('\t') => {
+                            write!(f, "\\t")?;
+                        }
+                        StringChar::Char('\\') => {
+                            write!(f, "\\\\")?;
+                        }
+                        StringChar::Char(c) => {
+                            if !is_char_visible(c) {
+                                write!(f, "\\u{:04X}", c as u32)?;
+                            } else {
+                                write!(f, "{c}")?;
+                            }
+                        }
+                        StringChar::Code(c) => {
+                            write!(f, "\\u{c:04X}")?;
+                        }
+                    }
+                }
+
+                write!(f, "{sep}")
+            }
+        }
+    }
 }
 
 impl StringContent {
@@ -398,183 +592,24 @@ impl StringContent {
     }
 }
 
-impl std::fmt::Debug for StringContent {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Empty => write!(f, "\"\""),
-            Self::Ident => write!(f, "<ident>"),
-            _ => {
-                let sep = '\"';
-                write!(f, "{sep}")?;
-
-                for (_, c) in self.iter() {
-                    match c {
-                        StringChar::Char(c) if c == sep => {
-                            write!(f, "\\{c}")?;
-                        }
-                        StringChar::Char('\n') => {
-                            write!(f, "\\n")?;
-                        }
-                        StringChar::Char('\r') => {
-                            write!(f, "\\r")?;
-                        }
-                        StringChar::Char('\t') => {
-                            write!(f, "\\t")?;
-                        }
-                        StringChar::Char('\\') => {
-                            write!(f, "\\\\")?;
-                        }
-                        StringChar::Char(c) => {
-                            if !is_char_visible(c) {
-                                write!(f, "\\u{:04X}", c as u32)?;
-                            } else {
-                                write!(f, "{c}")?;
-                            }
-                        }
-                        StringChar::Code(c) => {
-                            write!(f, "\\u{c:04X}")?;
-                        }
-                    }
-                }
-
-                write!(f, "{sep}")
-            }
-        }
-    }
-}
-
-impl PartialEq for StringContent {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Ascii(s1), Self::Ascii(s2)) => s1 == s2,
-            (Self::Utf16(s1), Self::Utf16(s2)) => s1 == s2,
-            (Self::Ascii(s1), Self::Utf16(s2)) => {
-                let mut it1 = unsafe { std::str::from_utf8_unchecked(s1) }.chars();
-                let mut it2 = U16Str::from_slice(s2).chars_lossy();
-                loop {
-                    match (it1.next(), it2.next()) {
-                        (Some(a), Some(b)) => {
-                            if a != b {
-                                return false;
-                            }
-                        }
-                        (None, None) => {
-                            return true;
-                        }
-                        _ => {
-                            return false;
-                        }
-                    }
-                }
-            }
-            (Self::Utf16(s1), Self::Ascii(s2)) => {
-                let mut it1 = U16Str::from_slice(s1).chars_lossy();
-                let mut it2 = unsafe { std::str::from_utf8_unchecked(s2) }.chars();
-                loop {
-                    match (it1.next(), it2.next()) {
-                        (Some(a), Some(b)) => {
-                            if a != b {
-                                return false;
-                            }
-                        }
-                        (None, None) => {
-                            return true;
-                        }
-                        _ => {
-                            return false;
-                        }
-                    }
-                }
-            }
-
-            (Self::Empty, Self::Empty) => true,
-            (Self::Ident, Self::Ident) => false, // idents are never equal
-            _ => false,
-        }
-    }
-}
-
-impl Eq for StringContent {}
-
-impl Ord for StringContent {
-    fn cmp(&self, other: &Self) -> Ordering {
-        match (self, other) {
-            // for same kind.
-            (Self::Ascii(s1), Self::Ascii(s2)) => s1.cmp(s2),
-            (Self::Utf16(s1), Self::Utf16(s2)) => s1.cmp(s2),
-            (Self::Empty, Self::Empty) | (Self::Ident, Self::Ident) => Ordering::Equal,
-
-            // utf8 vs utf16 cmp
-            (Self::Ascii(s1), Self::Utf16(s2)) => {
-                let mut it1 = s1.iter();
-                let mut it2 = s2.iter();
-                loop {
-                    match (it1.next(), it2.next()) {
-                        (Some(a), Some(b)) => {
-                            let a = *a as u16;
-                            if a != *b {
-                                return a.cmp(b);
-                            }
-                        }
-                        (None, None) => {
-                            return Ordering::Equal;
-                        }
-                        (Some(_), None) => {
-                            return Ordering::Greater;
-                        }
-                        (None, Some(_)) => {
-                            return Ordering::Less;
-                        }
-                    }
-                }
-            }
-            (Self::Utf16(s1), Self::Ascii(s2)) => {
-                let mut it1 = s1.iter();
-                let mut it2 = s2.iter();
-                loop {
-                    match (it1.next(), it2.next()) {
-                        (Some(a), Some(b)) => {
-                            let b = *b as u16;
-                            if *a != b {
-                                return a.cmp(&b);
-                            }
-                        }
-                        (None, None) => {
-                            return Ordering::Equal;
-                        }
-                        (Some(_), None) => {
-                            return Ordering::Greater;
-                        }
-                        (None, Some(_)) => {
-                            return Ordering::Less;
-                        }
-                    }
-                }
-            }
-
-            // ident is the greatest.
-            (Self::Ident, _) => Ordering::Greater,
-            (_, Self::Ident) => Ordering::Less,
-
-            // empty is the smallest
-            (Self::Empty, _) => Ordering::Less,
-            (_, Self::Empty) => Ordering::Greater,
-        }
-    }
-}
-
-impl PartialOrd for StringContent {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
 impl From<StringBuf> for StringContent {
     fn from(value: StringBuf) -> Self {
         match value {
             StringBuf::Empty => Self::Empty,
-            StringBuf::Ascii(s) => Self::Ascii(s.into()),
-            StringBuf::Utf16(s) => Self::Utf16(s.into()),
+            StringBuf::Ascii(s) => {
+                if s.is_empty() {
+                    Self::Empty
+                } else {
+                    Self::Ascii(s.into())
+                }
+            }
+            StringBuf::Utf16(s) => {
+                if s.is_empty() {
+                    Self::Empty
+                } else {
+                    Self::Utf16(s.into())
+                }
+            }
         }
     }
 }

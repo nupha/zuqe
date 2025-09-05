@@ -100,7 +100,7 @@ impl Promise {
     ///  - when provided, will call this function to create customized Promise object,
     ///  - when it is `undefined`, creates default Promise object.
     pub fn new(ctx: &JSContext, ctor: &JSValue) -> Result<(Promise, [JSValue; 2]), i32> {
-        let executor = ctx.create_native_callable_object(
+        let executor = ctx.create_native_function_with_data(
             Promise::hook_executor,
             2,
             0,

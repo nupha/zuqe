@@ -1,3 +1,5 @@
+#[cfg(debug_assertions)]
+use crate::JS_CLASS_PROXY;
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_ARGUMENTS, JS_CLASS_BOOLEAN,
     JS_CLASS_DATE, JS_CLASS_ERROR, JS_CLASS_MAPPED_ARGUMENTS, JS_CLASS_NUMBER, JS_CLASS_REGEXP,
@@ -37,13 +39,24 @@ pub fn js_object_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
                             | JS_CLASS_NUMBER
                             | JS_CLASS_DATE
                             | JS_CLASS_REGEXP) => ctx.rt().class_defs[cid as usize].class_name,
+
                             _ => JS_ATOM_Object,
                         }
                     };
                     format!("{}", atom.to_string(ctx)?)
                 };
 
-            format!("[object {tag_str}]")
+            #[cfg(debug_assertions)]
+            let cap = if obj.class_id() == JS_CLASS_PROXY {
+                "proxy"
+            } else {
+                "object"
+            };
+
+            #[cfg(not(debug_assertions))]
+            let cap = "object";
+
+            format!("[{cap} {tag_str}]")
         }
     };
 
