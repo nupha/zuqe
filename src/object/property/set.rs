@@ -39,6 +39,28 @@ impl JSObject {
         this_obj: &JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
+        macro_rules! fail {
+            ($msg:expr) => {
+                return if ctx.should_throw_error(flags) {
+                    ctx.throw_type_error($msg);
+                    Err(-1)
+                } else {
+                    Ok(false)
+                }
+            };
+        }
+
+        macro_rules! fail_read_only {
+            ($prop:expr) => {
+                return if ctx.should_throw_error(flags) {
+                    ctx.throw_type_error_read_only($prop);
+                    Err(-1)
+                } else {
+                    Ok(false)
+                }
+            };
+        }
+
         match this_obj {
             JSValue::Object(this) => {
                 for proto in self.proto_iter(ctx, true) {
@@ -58,27 +80,17 @@ impl JSObject {
                                     );
                                 }
 
-                                return if prs_flags & JS_PROP_WRITABLE != 0 {
+                                if prs_flags & JS_PROP_WRITABLE != 0 {
                                     this.0.prop_values.borrow_mut()[idx] = JSProperty::Normal(val);
-                                    Ok(true)
+                                    return Ok(true);
                                 } else {
-                                    if ctx.should_throw_error(flags) {
-                                        ctx.throw_type_error_read_only(prop);
-                                        Err(-1)
-                                    } else {
-                                        Ok(false)
-                                    }
-                                };
+                                    fail_read_only!(prop)
+                                }
                             }
                             JS_PROP_VARREF if proto.eq(this) => {
                                 // in case proto == this
                                 if this.class_id() == JS_CLASS_MODULE_NS {
-                                    return if ctx.should_throw_error(flags) {
-                                        ctx.throw_type_error_read_only(prop);
-                                        Err(-1)
-                                    } else {
-                                        Ok(false)
-                                    };
+                                    fail_read_only!(prop)
                                 }
 
                                 if let Some(JSProperty::VarRef(vref)) =
@@ -92,7 +104,9 @@ impl JSObject {
                             }
 
                             JS_PROP_GETSET => {
-                                let gs = proto.0.prop_values.borrow()[idx].clone();
+                                let gs = unsafe {
+                                    proto.0.prop_values.borrow().get_unchecked(idx).clone()
+                                };
                                 return if let JSProperty::GetSet { setter, .. } = gs {
                                     call_setter(ctx, setter.as_ref(), this_obj, val, flags)
                                 } else {
@@ -108,12 +122,7 @@ impl JSObject {
                             JS_PROP_NORMAL | JS_PROP_VARREF => {
                                 // in case proto != this
                                 if prs_flags & JS_PROP_WRITABLE == 0 {
-                                    return if ctx.should_throw_error(flags) {
-                                        ctx.throw_type_error_read_only(prop);
-                                        Err(-1)
-                                    } else {
-                                        Ok(false)
-                                    };
+                                    fail_read_only!(prop)
                                 }
                                 break;
                             }
@@ -186,12 +195,7 @@ impl JSObject {
                                     }
 
                                     if desc.flags & JS_PROP_WRITABLE == 0 {
-                                        return if ctx.should_throw_error(flags) {
-                                            ctx.throw_type_error_read_only(prop);
-                                            Err(-1)
-                                        } else {
-                                            Ok(false)
-                                        };
+                                        fail_read_only!(prop)
                                     }
 
                                     if proto.eq(this) {
@@ -215,12 +219,7 @@ impl JSObject {
                     return Err(-1);
                 }
                 if !this.flags().extensible() {
-                    return if ctx.should_throw_error(flags) {
-                        ctx.throw_type_error("object is not extensible");
-                        Err(-1)
-                    } else {
-                        Ok(false)
-                    };
+                    fail!("object is not extensible")
                 }
 
                 if this == self {
@@ -241,22 +240,12 @@ impl JSObject {
                     // generic case: modify the property in `this` if it already exists
                     if let Some(desc) = this.get_own_property(ctx, prop)? {
                         if desc.flags & JS_PROP_GETSET != 0 {
-                            return if ctx.should_throw_error(flags) {
-                                ctx.throw_type_error("setter is forbidden");
-                                Err(-1)
-                            } else {
-                                Ok(false)
-                            };
+                            fail!("setter is forbidden")
                         } else {
                             if desc.flags & JS_PROP_WRITABLE == 0
                                 || this.class_id() == JS_CLASS_MODULE_NS
                             {
-                                return if ctx.should_throw_error(flags) {
-                                    ctx.throw_type_error_read_only(prop);
-                                    Err(-1)
-                                } else {
-                                    Ok(false)
-                                };
+                                fail_read_only!(prop);
                             }
 
                             return this.define_property(
@@ -294,12 +283,7 @@ impl JSObject {
                 Err(-1)
             }
             _ => {
-                if ctx.should_throw_error(flags) {
-                    ctx.throw_type_error("receiver must be an object");
-                    Err(-1)
-                } else {
-                    Ok(false)
-                }
+                fail!("receiver must be an object")
             }
         }
     }
@@ -362,7 +346,9 @@ impl JSObject {
                                 match idx.cmp(&(lst.len())) {
                                     std::cmp::Ordering::Less => {
                                         // update existing list element
-                                        lst[idx] = val.clone();
+                                        unsafe {
+                                            *lst.get_unchecked_mut(idx) = val.clone();
+                                        }
                                         Ok(State::Done)
                                     }
                                     std::cmp::Ordering::Equal => {
@@ -426,7 +412,9 @@ impl JSObject {
                     if self
                         .with_fast_array_values_mut(|lst| -> bool {
                             if idx < lst.len() {
-                                lst[idx] = val.clone();
+                                unsafe {
+                                    *lst.get_unchecked_mut(idx) = val.clone();
+                                }
                                 true
                             } else {
                                 false
@@ -609,6 +597,7 @@ impl JSValue {
         Self::set_property_internal(ctx, self, prop, val, self, JS_PROP_THROW)
     }
 
+    #[inline]
     pub fn set_property_value(
         &self,
         ctx: &JSContext,
@@ -644,6 +633,7 @@ impl JSValue {
         }
     }
 
+    #[inline]
     pub fn set_property_str(&self, ctx: &JSContext, prop: &str, val: JSValue) -> Result<bool, i32> {
         let atom = JSAtom::new(ctx.rt_mut(), prop)?;
         let ret = self.set_property(ctx, atom, val);
