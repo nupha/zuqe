@@ -318,7 +318,11 @@ pub unsafe fn js_atof(
 
             if !is_float {
                 if let Ok(i) = i64::from_str_radix(txt, radix as _) {
-                    return Ok(JSValue::from(i));
+                    return Ok(if i == 0 && is_neg {
+                        JSValue::Float64(-0.0) // -0
+                    } else {
+                        JSValue::from(i)
+                    });
                 }
             }
 

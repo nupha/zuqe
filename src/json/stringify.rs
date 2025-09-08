@@ -1,13 +1,15 @@
+use fallible_collections::TryCollect;
+use smallvec::SmallVec;
+
 use crate::{
     JS_CLASS_NUMBER, JS_CLASS_STRING,
-    array::{js_array_includes, js_array_pop, js_array_push},
-    atom::consts::{JS_ATOM_empty_string, JS_ATOM_toJSON},
+    atom::{
+        JS_FreeAtom,
+        consts::{JS_ATOM_empty_string, JS_ATOM_toJSON},
+    },
     context::JSContext,
     error::JSResult,
-    function::CallContext,
-    iterator::JSIteratorKindEnum::JS_ITERATOR_KIND_KEY,
-    js_core::object::js_object_keys,
-    object::JS_PROP_C_W_E,
+    object::{JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_PROP_C_W_E},
     string::{StringBuf, StringContent},
     value::JSValue,
 };
@@ -15,8 +17,11 @@ use crate::{
 #[derive(Default)]
 pub(super) struct JSONStringifyContext {
     replacer_func: JSValue,
-    stack: JSValue,         // Vec<JSValue>
-    property_list: JSValue, // Vec<JSValue>
+    stack: SmallVec<[JSValue; 16]>,
+
+    /// selected property names.
+    selected_props: Option<SmallVec<[JSValue; 16]>>,
+
     gap: StringContent,
     empty: JSValue,
     buf: StringBuf,
@@ -28,10 +33,8 @@ pub fn JS_JSONStringify(
     replacer: JSValue,
     space: JSValue,
 ) -> JSResult {
-    let mut space: JSValue = space;
-
     let mut jsc = JSONStringifyContext {
-        stack: ctx.create_array()?.into(),
+        stack: SmallVec::new(),
         empty: JS_ATOM_empty_string.to_string(ctx).unwrap().into(),
         ..Default::default()
     };
@@ -40,41 +43,74 @@ pub fn JS_JSONStringify(
         jsc.replacer_func = replacer;
     } else {
         if replacer.is_array(ctx)? {
-            /* XXX: enumeration is not fully correct */
-            jsc.property_list = ctx.create_array()?.into();
-            let mut j = 0;
+            let mut selected = SmallVec::<[JSValue; 16]>::new();
             for i in 0..replacer.get_length_prop(ctx)? {
-                let mut v = replacer.get_property_i64(ctx, i)?;
-                if let Some(p) = v.object() {
-                    if matches!(p.class_id(), JS_CLASS_STRING | JS_CLASS_NUMBER) {
-                        v = v.to_string(ctx)?.into();
-                    } else {
-                        continue;
+                match replacer.get_property_i64(ctx, i)? {
+                    JSValue::Object(p) => {
+                        if let Some(
+                            pv @ (JSValue::String(_) | JSValue::Int(_) | JSValue::Float64(_)),
+                        ) = p.0.payload.borrow().value()
+                        {
+                            let a = pv.to_atom(ctx)?;
+                            if let Ok(p) = a.to_string_or_symbol(ctx) {
+                                if !selected.iter().any(|x| p.eq(x)) {
+                                    selected.push(p);
+                                }
+                                JS_FreeAtom(ctx, a);
+                            } else {
+                                JS_FreeAtom(ctx, a);
+                                return Err(-1);
+                            }
+                        }
                     }
-                } else if v.is_number() {
-                    v = v.to_string(ctx)?.into();
-                } else if !v.is_string() {
-                    continue;
+                    v @ (JSValue::String(_) | JSValue::Int(_) | JSValue::Float64(_)) => {
+                        let a = v.to_atom(ctx)?;
+                        if let Ok(p) = a.to_string_or_symbol(ctx) {
+                            if !selected.iter().any(|x| p.eq(x)) {
+                                selected.push(p);
+                            }
+                            JS_FreeAtom(ctx, a);
+                        } else {
+                            JS_FreeAtom(ctx, a);
+                            return Err(-1);
+                        }
+                    }
+                    _ => {}
                 }
 
-                let present = js_array_includes(
-                    ctx,
-                    CallContext::new_simple(
-                        ctx,
-                        jsc.property_list.clone(),
-                        std::slice::from_ref(&v),
-                    ),
-                )?
-                .to_bool()?;
+                // if let Some(p) = nam.object() {
+                //     if matches!(p.class_id(), JS_CLASS_STRING | JS_CLASS_NUMBER) {
+                //         nam = nam.to_string(ctx)?.into();
+                //     } else {
+                //         continue;
+                //     }
+                // } else if nam.is_number() {
+                //     nam = nam.to_string(ctx)?.into();
+                // } else if !nam.is_string() {
+                //     continue;
+                // }
 
-                if !present {
-                    jsc.property_list.set_property_i64(ctx, j, v)?;
-                    j += 1;
-                }
+                // let present = js_array_includes(
+                //     ctx,
+                //     CallContext::new_simple(
+                //         ctx,
+                //         jsc.property_list.clone(),
+                //         std::slice::from_ref(&nam),
+                //     ),
+                // )?
+                // .to_bool()?;
+
+                // if !present {
+                //     jsc.property_list.set_property_i64(ctx, j, nam)?;
+                //     j += 1;
+                // }
             }
+
+            jsc.selected_props.replace(selected);
         }
     }
 
+    let mut space: JSValue = space;
     if let Some(p) = space.object() {
         match p.class_id() {
             JS_CLASS_NUMBER => {
@@ -113,12 +149,13 @@ pub fn JS_JSONStringify(
     wrapper.define_property_value(ctx, JS_ATOM_empty_string, obj.clone(), JS_PROP_C_W_E)?;
 
     let empty = jsc.empty.clone();
-    let val = js_json_check(ctx, &mut jsc, &wrapper, obj, empty)?;
+    let val = js_json_check(ctx, &mut jsc, &wrapper, obj, &empty)?;
     if val.is_undefined() {
         return Ok(JSValue::UNDEFINED);
     }
 
-    js_json_to_str(ctx, &mut jsc, val, &StringBuf::Empty)?;
+    js_json_to_str(ctx, &mut jsc, &val, &StringBuf::Empty)?;
+    jsc.buf.shrink_to_fit();
     ctx.create_string_with_buf(jsc.buf).map(JSValue::String)
 }
 
@@ -127,17 +164,17 @@ fn js_json_check(
     jsc: &mut JSONStringifyContext,
     holder: &JSValue,
     mut val: JSValue,
-    key: JSValue,
+    key: &JSValue,
 ) -> JSResult {
     if val.is_object() {
         let f = val.get_property(ctx, JS_ATOM_toJSON)?;
         if f.is_callable() {
-            val = f.call(ctx, &val, std::slice::from_ref(&key))?;
+            val = f.call(ctx, &val, std::slice::from_ref(key))?;
         }
     }
 
     let ret = if !jsc.replacer_func.is_undefined() {
-        jsc.replacer_func.call(ctx, holder, &[key, val])?
+        jsc.replacer_func.call(ctx, holder, &[key.clone(), val])?
     } else {
         val
     };
@@ -145,18 +182,16 @@ fn js_json_check(
     match &ret {
         JSValue::Object(o) => {
             if o.is_callable() {
-                Ok(ret)
-            } else {
                 Ok(JSValue::UNDEFINED)
+            } else {
+                Ok(ret)
             }
         }
         JSValue::NULL
         | JSValue::Bool(_)
         | JSValue::String(_)
         | JSValue::Int(_)
-        | JSValue::Float64(_) => {
-            return Ok(ret);
-        }
+        | JSValue::Float64(_) => Ok(ret),
 
         #[cfg(debug_assertions)]
         JSValue::EXCEPTION => {
@@ -169,10 +204,10 @@ fn js_json_check(
 fn js_json_to_str(
     ctx: &JSContext,
     jsc: &mut JSONStringifyContext,
-    val: JSValue,
+    val: &JSValue,
     indent: &StringBuf,
 ) -> Result<(), i32> {
-    let sbuf: StringBuf = match &val {
+    let sbuf: StringBuf = match val {
         JSValue::Object(o) => {
             if let Some(pv) = o.0.payload.borrow().value() {
                 // object of primitive value
@@ -224,12 +259,7 @@ fn js_json_to_str(
             }
 
             // check for circular ref
-            if js_array_includes(
-                ctx,
-                CallContext::new_simple(ctx, jsc.stack.clone(), std::slice::from_ref(&val)),
-            )?
-            .to_bool()?
-            {
+            if jsc.stack.iter().any(|v| val.eq(v)) {
                 ctx.throw_type_error("circular reference");
                 return Err(-1);
             }
@@ -259,10 +289,11 @@ fn js_json_to_str(
             };
 
             // push current val to stack
-            js_array_push(
-                ctx,
-                CallContext::new_simple(ctx, jsc.stack.clone(), std::slice::from_ref(&val)),
-            )?;
+            jsc.stack.try_reserve(16).map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?;
+            jsc.stack.push(val.clone());
 
             if val.is_array(ctx)? {
                 let len = val.get_length_prop(ctx)?;
@@ -290,13 +321,13 @@ fn js_json_to_str(
                         jsc,
                         &val,
                         val.get_property_i64(ctx, i)?,
-                        JSValue::from(i),
+                        &JSValue::from(i),
                     )?;
                     if v.is_undefined() {
                         v = JSValue::NULL;
                     }
 
-                    js_json_to_str(ctx, jsc, v, &indent1)?;
+                    js_json_to_str(ctx, jsc, &v, &indent1)?;
                 }
 
                 jsc.buf.try_reserve(indent.len() + 2).map_err(|_| {
@@ -309,38 +340,47 @@ fn js_json_to_str(
                 }
                 jsc.buf.push_char(']').unwrap();
             } else {
-                let tab = if !jsc.property_list.is_undefined() {
-                    jsc.property_list.clone()
+                let tab = if let Some(sels) = jsc.selected_props.take() {
+                    sels.into_iter().try_collect::<Vec<_>>().map_err(|_| {
+                        ctx.throw_out_of_memory();
+                        -1
+                    })?
                 } else {
-                    js_object_keys(
-                        ctx,
-                        CallContext::new(
-                            ctx,
-                            JSValue::UNDEFINED,
-                            std::slice::from_ref(&val),
-                            JS_ITERATOR_KIND_KEY as _,
-                            None,
-                        ),
-                    )?
+                    let pks = val.to_object(ctx).and_then(|o| {
+                        o.query_own_property_names(ctx, JS_GPN_ENUM_ONLY | JS_GPN_INDEX_MASK)
+                    })?;
+
+                    let mut lst = Vec::<JSValue>::new();
+                    lst.try_reserve_exact(pks.len()).map_err(|_| {
+                        ctx.throw_out_of_memory();
+                        -1
+                    })?;
+
+                    let mut has_err = false;
+                    for pk in pks {
+                        if !has_err {
+                            if let Ok(k) = pk.atom.to_string_or_symbol(ctx) {
+                                lst.push(k);
+                            } else {
+                                has_err = true;
+                            }
+                        }
+                        JS_FreeAtom(ctx, pk.atom);
+                    }
+                    lst
                 };
-                let len = tab.get_length_prop(ctx)?;
+
                 jsc.buf.push_char('{').map_err(|_| {
                     ctx.throw_out_of_memory();
                     -1
                 })?;
 
                 let mut has_content = false;
-                for i in 0..len {
-                    let prop = tab.get_property_i64(ctx, i)?;
-                    let v = js_json_check(
-                        ctx,
-                        jsc,
-                        &val,
-                        val.get_property_value(ctx, &prop)?,
-                        prop.clone(),
-                    )?;
+                for prop in tab {
+                    let el =
+                        js_json_check(ctx, jsc, &val, val.get_property_value(ctx, &prop)?, &prop)?;
 
-                    if !v.is_undefined() {
+                    if !el.is_undefined() {
                         if has_content {
                             jsc.buf.push_char(',').map_err(|_| {
                                 ctx.throw_out_of_memory();
@@ -369,10 +409,56 @@ fn js_json_to_str(
                         jsc.buf.push_char(':').unwrap();
                         jsc.buf.push(&sep1).unwrap();
 
-                        js_json_to_str(ctx, jsc, v, &indent1)?;
+                        js_json_to_str(ctx, jsc, &el, &indent1)?;
                         has_content = true;
                     }
                 }
+
+                // let len = tab.get_length_prop(ctx)?;
+                // let mut has_content = false;
+                // for i in 0..len {
+                //     let prop = tab.get_property_i64(ctx, i)?;
+                //     let v = js_json_check(
+                //         ctx,
+                //         jsc,
+                //         &val,
+                //         val.get_property_value(ctx, &prop)?,
+                //         prop.clone(),
+                //     )?;
+
+                //     if !v.is_undefined() {
+                //         if has_content {
+                //             jsc.buf.push_char(',').map_err(|_| {
+                //                 ctx.throw_out_of_memory();
+                //                 -1
+                //             })?;
+                //         }
+
+                //         let key = prop
+                //             .to_string(ctx)
+                //             .unwrap()
+                //             .content()
+                //             .quote()
+                //             .map_err(|_| {
+                //                 ctx.throw_out_of_memory();
+                //                 -1
+                //             })?;
+
+                //         jsc.buf
+                //             .try_reserve(sep.len() + key.len() + sep1.len() + 1)
+                //             .map_err(|_| {
+                //                 ctx.throw_out_of_memory();
+                //                 -1
+                //             })?;
+                //         jsc.buf.push(&sep).unwrap();
+                //         jsc.buf.push(&key).unwrap();
+                //         jsc.buf.push_char(':').unwrap();
+                //         jsc.buf.push(&sep1).unwrap();
+
+                //         js_json_to_str(ctx, jsc, v, &indent1)?;
+                //         has_content = true;
+                //     }
+                // }
 
                 if has_content && !jsc.gap.is_empty() {
                     jsc.buf.try_reserve(indent.len() + 1).map_err(|_| {
@@ -389,7 +475,7 @@ fn js_json_to_str(
                 })?;
             }
 
-            js_array_pop(ctx, CallContext::new_simple(ctx, jsc.stack.clone(), &[]))?;
+            jsc.stack.pop();
             return Ok(());
         }
 

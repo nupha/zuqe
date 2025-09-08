@@ -503,8 +503,7 @@ impl JSParseState<'_> {
                     if c == '`' as i32 {
                         // continue the parsing of the template
                         self.clear_atom_in_token();
-                        // Resume TOK_TEMPLATE parsing (s->token.line_num and
-                        // s->token.ptr are OK)
+                        // Resume TOK_TEMPLATE parsing (s->token.line_num and s->token.ptr are OK)
                         self.got_lf = false;
                         self.last_line_num = self.token.line_num;
                         if self.parse_template_part(self.buf_ptr).is_err() {

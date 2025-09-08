@@ -1173,8 +1173,9 @@ pub unsafe fn add_var(ctx: &JSContext, fd: *mut JSFunctionDef, name: JSAtom) -> 
 // return the constant pool index. 'val' is not duplicated.
 #[deprecated(note = "use JSParseState::cpool_add() instead")]
 pub unsafe fn cpool_add(s: *mut JSParseState, ctx: &JSContext, val: JSValue) -> i32 {
-    let fd = (*s).cur_func_mut();
-    fd.cpool_add(val).map_or(-1, |x| x as i32)
+    unreachable!("unused");
+    // let fd = (*s).cur_func_mut();
+    // fd.cpool_add(val).map_or(-1, |x| x as i32)
 }
 
 #[deprecated(note = "use LabelInfo::add_reloc() instead")]
@@ -1198,7 +1199,8 @@ pub unsafe fn new_label_fd(fd: *mut JSFunctionDef, label: i32) -> i32 {
 
 #[deprecated(note = "use JSFunctionDef::add_label() instead")]
 pub unsafe fn new_label(s: *mut JSParseState) -> i32 {
-    (*s).cur_func_mut().add_label().map_or(-1, |x| x as i32)
+    unreachable!("unused");
+    // (*s).cur_func_mut().add_label().map_or(-1, |x| x as i32)
 }
 
 #[deprecated(note = "use JSParseState::parse_template_part() instead")]
@@ -1209,17 +1211,20 @@ pub unsafe fn js_parse_template_part(s: *mut JSParseState, p: *const u8) -> i32 
 
 #[deprecated(note = "use JSParseState::push_state() instead")]
 pub unsafe fn push_scope(s: *mut JSParseState) -> i32 {
-    (*s).push_scope().map_or(-1, |x| x as i32)
+    unreachable!("unused");
+    // (*s).push_scope().map_or(-1, |x| x as i32)
 }
 
 #[deprecated(note = "use JSParseState::pop_state() instead")]
 pub unsafe fn pop_scope(s: *mut JSParseState) {
-    (*s).pop_scope();
+    unreachable!("unused");
+    // (*s).pop_scope();
 }
 
 #[deprecated(note = "use JSParseState::close_scopes() instead")]
 pub unsafe fn close_scopes(s: *mut JSParseState, scope: i32, scope_stop: i32) {
-    (*s).close_scopes(scope, scope_stop);
+    unreachable!("unused");
+    // (*s).close_scopes(scope, scope_stop);
 }
 
 // 'c' is the first character. Return JS_ATOM_NULL in case of error
@@ -2123,7 +2128,8 @@ pub unsafe fn set_object_name(s: *mut JSParseState, name: JSAtom) {
 
 #[deprecated(note = "use JSParseState::next_token() instead")]
 pub unsafe fn next_token(s: *mut JSParseState) -> i32 {
-    if (*s).next_token().is_err() { -1 } else { 0 }
+    unreachable!("unused");
+    // if (*s).next_token().is_err() { -1 } else { 0 }
 }
 
 // #[deprecated(note = "use JSParseState::free_token() instead")]
@@ -3421,23 +3427,27 @@ pub unsafe fn js_parse_skip_parens_token(
 
 #[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_u8(s: *mut JSParseState, val: u8) {
-    (*s).cur_func_mut().emit_u8(val)
+    unreachable!("unused");
+    // (*s).cur_func_mut().emit_u8(val)
 }
 
 #[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_u16(s: *mut JSParseState, val: u16) {
-    (*s).cur_func_mut().emit_u16(val)
+    unreachable!("unused");
+    // (*s).cur_func_mut().emit_u16(val)
 }
 
 #[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_u32(s: *mut JSParseState, val: u32) {
-    (*s).cur_func_mut().emit_u32(val)
+    unreachable!("unused");
+    // (*s).cur_func_mut().emit_u32(val)
 }
 
 /// emit an atom, increase ref_count
 #[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
 pub unsafe fn emit_atom_dup(s: *mut JSParseState, name: JSAtom) {
-    (*s).cur_func_mut().emit_atom_dup(name)
+    unreachable!("unused");
+    // (*s).cur_func_mut().emit_atom_dup(name)
 }
 
 #[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
@@ -4095,4 +4105,27 @@ pub fn js_create_desc(
 #[deprecated(note = "use ObjGenerator::free_generator_stack_rt() instead")]
 pub unsafe fn free_generator_stack_rt(rt: *mut JSRuntime, s: *mut ObjGenerator) {
     (*s).free_generator_stack_rt(rt.as_mut().unwrap());
+}
+
+#[deprecated(note = "use JSParseState::get_pos() instead")]
+pub unsafe fn js_parse_get_pos(s: *mut JSParseState, sp: *mut c_void /*JSParsePos*/) -> i32 {
+    unreachable!("unused");
+    // (*sp).last_line_num = (*s).last_line_num;
+    // (*sp).line_num = (*s).token.line_num;
+    // (*sp).ptr = (*s).token.ptr;
+    // (*sp).got_lf = (*s).got_lf;
+    // 0
+}
+
+#[deprecated(note = "use JSParseState::seek_token() instead")]
+pub unsafe fn js_parse_seek_token(
+    s: *mut JSParseState,
+    sp: *const c_void, /*JSParsePos*/
+) -> i32 {
+    unreachable!("unused");
+    // if (*s).seek_token(sp.as_ref().unwrap()).is_err() {
+    //     -1
+    // } else {
+    //     0
+    // }
 }

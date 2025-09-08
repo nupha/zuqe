@@ -1,6 +1,9 @@
 use std::collections::TryReserveError;
 
-use crate::string::{StringBuf, StringChar, StringCodepointIter, StringContent};
+use crate::{
+    string::{StringBuf, StringChar, StringCharIter, StringContent},
+    unicode::UTF8_CHAR_LEN_MAX,
+};
 
 impl StringContent {
     pub fn substitution_buf<'a>(
@@ -26,7 +29,7 @@ impl StringContent {
     /// make quoted string from buf
     #[inline]
     pub fn quote(&self) -> Result<StringBuf, TryReserveError> {
-        quote_string_internal(self.iter_codepoint(), self.len(), self.is_wide())
+        quote_string_internal(self.iter(), self.len())
     }
 }
 
@@ -145,62 +148,107 @@ impl StringBuf {
     /// make quoted string from buf
     #[inline]
     pub fn quote(&self) -> Result<Self, TryReserveError> {
-        quote_string_internal(self.iter_codepoint(), self.len(), self.is_wide())
+        quote_string_internal(self.iter(), self.len())
     }
 }
 
 /// quote string with leading and tailing '"'.
-fn quote_string_internal(
-    src: StringCodepointIter,
-    len: usize,
-    is_wide: bool,
-) -> Result<StringBuf, TryReserveError> {
-    let mut buf = StringBuf::with_capacity(len + 2, is_wide)?;
+fn quote_string_internal(src: StringCharIter, len: usize) -> Result<StringBuf, TryReserveError> {
+    let mut buf = StringBuf::with_capacity(len + 2, false)?;
     buf.push_char('"').unwrap();
 
-    for c in src {
-        if c < 0x80 {
-            match c as u8 {
-                b'\t' => {
+    for (_, ch) in src {
+        if buf.capacity() - buf.len() < UTF8_CHAR_LEN_MAX {
+            buf.try_reserve(64)?;
+        }
+
+        match ch {
+            StringChar::Char(c) => match c {
+                '\t' => {
                     buf.push_str("\\t")?;
                     continue;
                 }
-                b'\r' => {
+                '\r' => {
                     buf.push_str("\\r")?;
                     continue;
                 }
-                b'\n' => {
+                '\n' => {
                     buf.push_str("\\n")?;
                     continue;
                 }
-                0x08 => {
+                '\u{0008}' => {
                     buf.push_str("\\x08")?;
                     continue;
                 }
-                0x0C => {
+                '\u{000C}' => {
                     buf.push_str("\\x0C")?;
                     continue;
                 }
-                b'"' => {
+                '"' => {
                     buf.push_str("\\\"")?;
                     continue;
                 }
-                b'\\' => {
+                '\\' => {
                     buf.push_str("\\\\")?;
                     continue;
                 }
-
-                _ => {}
+                c if (c as u32) < 32 => {
+                    buf.push_str(&format!("\\u{:04x}", c as u8))?;
+                }
+                _ => {
+                    buf.push_char(c)?;
+                }
+            },
+            StringChar::Code(c) => {
+                buf.push_str(&format!("\\u{:04x}", c))?;
             }
         }
 
-        if c < 32 || (c >= 0xd800 && c < 0xe000) {
-            buf.push_str(&format!("\\{:04x}", c))?;
-        } else {
-            buf.push_u16(c)?;
-        }
+        // if c < 0x80 {
+        //     match c as u8 {
+        //         b'\t' => {
+        //             buf.push_str("\\t")?;
+        //             continue;
+        //         }
+        //         b'\r' => {
+        //             buf.push_str("\\r")?;
+        //             continue;
+        //         }
+        //         b'\n' => {
+        //             buf.push_str("\\n")?;
+        //             continue;
+        //         }
+        //         0x08 => {
+        //             buf.push_str("\\x08")?;
+        //             continue;
+        //         }
+        //         0x0C => {
+        //             buf.push_str("\\x0C")?;
+        //             continue;
+        //         }
+        //         b'"' => {
+        //             buf.push_str("\\\"")?;
+        //             continue;
+        //         }
+        //         b'\\' => {
+        //             buf.push_str("\\\\")?;
+        //             continue;
+        //         }
+        //         c if c < 32 => {
+        //             buf.push_str(&format!("\\u{:04x}", c))?;
+        //         }
+        //         _ => {
+        //             buf.push_u8(c as u8)?;
+        //         }
+        //     }
+        // } else if (0xd800..0xe000).contains(&c) {
+        //     buf.push_str(&format!("\\u{:04x}", c))?;
+        // } else {
+        //     buf.push_u16(c)?;
+        // }
     }
 
     buf.push_char('"')?;
+    buf.shrink_to_fit();
     Ok(buf)
 }

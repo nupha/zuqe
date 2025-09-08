@@ -209,7 +209,7 @@ impl JSObject {
     /// Gets all property names that belong to this object
     ///
     /// Returns a sorted list containing:
-    /// - Property names (numbers, strings, symbols). The atom is cloned, it should be freed by caller.
+    /// - Property names (numbers, strings, symbols). Note: The atom was cloned, it should be freed by caller.
     /// - Sorted by: numbers first, then strings, symbols, and exotic names.
     /// - Can be filtered using flags
     pub(crate) fn query_own_property_names(

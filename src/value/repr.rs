@@ -19,6 +19,8 @@ impl std::fmt::Display for JSValue {
             Self::Float64(n) => match *n {
                 f64::INFINITY => "Infinity".into(),
                 f64::NEG_INFINITY => "-Infinity".into(),
+                0.0 if n.is_sign_negative() => "-0".into(),
+                0.0 => "0".into(),
                 n => format!("{n}").into(),
             },
 

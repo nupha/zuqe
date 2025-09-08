@@ -135,42 +135,36 @@ impl<'s> JSParseState<'s> {
     }
 
     /// free atom if any.
-    pub fn clear_atom_in_token(&mut self) {
+    pub(super) fn clear_atom_in_token(&mut self) {
         match &mut self.token.data {
             TokenData::Ident { atom, .. } => {
                 JS_FreeAtom(&self.ctx, *atom);
                 *atom = JS_ATOM_NULL;
             }
-            // TokenData::Num(n) => {
-            //     *n = JSValue::UNDEFINED;
-            // }
-            // TokenData::Regexp { body, flags } => {
-            //     *body = JSValue::UNDEFINED;
-            //     *flags = JSValue::UNDEFINED;
-            // }
-            // TokenData::None | TokenData::Char(_) | TokenData::Str { .. } => {}
             _ => {}
         }
+
+        self.token.data = TokenData::None;
     }
 
     /// Get current function def being parsed.
     /// Will panic if cur_func is null.
     #[inline(always)]
-    pub const fn cur_func(&self) -> &JSFunctionDef {
+    pub(crate) const fn cur_func(&self) -> &JSFunctionDef {
         unsafe { self.cur_func_def.as_ref().unwrap() }
     }
 
     /// Get current function def being parsed.
     /// Will panic if cur_func is null.
     #[inline(always)]
-    pub const fn cur_func_mut(&self) -> &mut JSFunctionDef {
+    pub(crate) const fn cur_func_mut(&self) -> &mut JSFunctionDef {
         unsafe { self.cur_func_def.as_mut().unwrap() }
     }
 
     /// Run closure with cur_func mut ref.
     /// If cur_func is null, returns None.
     #[inline]
-    pub fn with_cur_func_mut<R>(
+    pub(super) fn with_cur_func_mut<R>(
         &mut self,
         f: impl FnOnce(&mut JSParseState, &mut JSFunctionDef) -> R,
     ) -> Option<R> {
@@ -183,7 +177,7 @@ impl<'s> JSParseState<'s> {
     ///
     /// * `Ok(scope_id)` - ID of the newly created scope
     /// * `Err(-1)` - If scope creation fails
-    pub fn push_scope(&mut self) -> Result<u16, i32> {
+    pub(super) fn push_scope(&mut self) -> Result<u16, i32> {
         if !self.cur_func_def.is_null() {
             unsafe { (*self.cur_func_def).push_scope(self.last_line_num) }
         } else {
@@ -195,7 +189,7 @@ impl<'s> JSParseState<'s> {
     }
 
     /// Perform pop scope on current function def. For detail, see JSFunctionDef::pop_scope()
-    pub fn pop_scope(&mut self) {
+    pub(super) fn pop_scope(&mut self) {
         if !self.cur_func_def.is_null() {
             let last_line_num = self.last_line_num;
             unsafe {
@@ -208,7 +202,7 @@ impl<'s> JSParseState<'s> {
     }
 
     /// Perform close scopes on current function def. For detail, see JSFunctionDef::close_scopes()
-    pub fn close_scopes(&mut self, scope: i32, scope_stop: i32) {
+    pub(super) fn close_scopes(&mut self, scope: i32, scope_stop: i32) {
         if !self.cur_func_def.is_null() {
             unsafe {
                 (*self.cur_func_def).close_scopes(scope as _, scope_stop as _, self.last_line_num);
@@ -243,22 +237,4 @@ pub struct JSParsePos {
     pub got_lf: bool,
     /// Pointer to position in source buffer
     pub ptr: *const u8,
-}
-
-#[deprecated(note = "use JSParseState::get_pos() instead")]
-pub unsafe fn js_parse_get_pos(s: *mut JSParseState, sp: *mut JSParsePos) -> i32 {
-    (*sp).last_line_num = (*s).last_line_num;
-    (*sp).line_num = (*s).token.line_num;
-    (*sp).ptr = (*s).token.ptr;
-    (*sp).got_lf = (*s).got_lf;
-    0
-}
-
-#[deprecated(note = "use JSParseState::seek_token() instead")]
-pub unsafe fn js_parse_seek_token(s: *mut JSParseState, sp: *const JSParsePos) -> i32 {
-    if (*s).seek_token(sp.as_ref().unwrap()).is_err() {
-        -1
-    } else {
-        0
-    }
 }

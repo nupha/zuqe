@@ -93,6 +93,7 @@ impl<'s> JSParseState<'s> {
                         }
                         c1 @ ('0'..='9') => {
                             if self.cur_func_def.is_null() {
+                                // parsing JSON
                                 if do_throw {
                                     self.throw_syntax_error(
                                         "malformed escape sequence in string literal",
@@ -151,8 +152,8 @@ impl<'s> JSParseState<'s> {
 
                     if let Some(ch) = do_parse_escape.take() {
                         match unsafe { self.parse_string_escape(&mut p, 1) } {
-                            Ok(cp) => {
-                                char_code = cp;
+                            Ok(x) => {
+                                char_code = x;
                             }
                             Err(-1) => {
                                 if do_throw {
@@ -163,8 +164,9 @@ impl<'s> JSParseState<'s> {
                                 return Err(-1);
                             }
                             Err(-2) => {
-                                // treat backslash as literal character
+                                // ignore the '\' (could output a warning)
                                 char_code = ch as u32;
+                                p = unsafe { p.add(1) };
                             }
                             _ => unreachable!(),
                         }

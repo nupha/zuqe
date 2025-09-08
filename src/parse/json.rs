@@ -1,5 +1,3 @@
-use std::ptr::NonNull;
-
 use smallvec::SmallVec;
 
 use crate::{
@@ -36,7 +34,7 @@ fn json_parse_expect(s: &mut JSParseState, tok: i32) -> Result<(), i32> {
 }
 
 /// 'c' is the first character.
-pub unsafe fn json_parse_ident(
+unsafe fn json_parse_ident(
     s: &mut JSParseState,
     pp: &mut *const u8,
     mut c: u8,
@@ -57,7 +55,7 @@ pub unsafe fn json_parse_ident(
         if c >= 128 || !JSParseState::is_ident_next(c as _) {
             break;
         }
-        p = p.offset(1);
+        p = p.add(1);
     }
 
     let atom = JSAtom::new(s.ctx.rt_mut(), std::str::from_utf8(&buf).map_err(|_| -1)?)?;
@@ -65,13 +63,14 @@ pub unsafe fn json_parse_ident(
     Ok(atom)
 }
 
-pub unsafe fn json_parse_value(s: &mut JSParseState) -> JSResult {
+unsafe fn json_parse_value(s: &mut JSParseState) -> JSResult {
     let mut val: JSValue = JSValue::NULL;
 
     match s.token.val {
         // '{'
         CHAR_CURLY_L => {
             json_next_token(s)?;
+
             val = s.ctx.create_base_object()?.into();
             if s.token.val != b'}' as i32 {
                 loop {
@@ -105,22 +104,36 @@ pub unsafe fn json_parse_value(s: &mut JSParseState) -> JSResult {
         // '['
         CHAR_SQUARE_L => {
             json_next_token(s)?;
-            val = s.ctx.create_array()?.into();
+
+            let mut lst = Vec::<JSValue>::new();
             if s.token.val != ']' as i32 {
-                let mut idx = 0u32;
-                loop {
+                'arr: loop {
                     let el = json_parse_value(s)?;
-                    val.define_property_value_u32(&s.ctx, idx, el, JS_PROP_C_W_E)?;
-                    if s.token.val != ',' as i32 {
-                        break;
+
+                    if lst.len() == lst.capacity() {
+                        lst.try_reserve(32).map_err(|_| {
+                            s.ctx.throw_out_of_memory();
+                            -1
+                        })?;
                     }
+                    lst.push(el);
+
+                    if s.token.val != ',' as i32 {
+                        break 'arr;
+                    }
+
                     json_next_token(s)?;
-                    idx += 1;
+
                     if s.ext_json && s.token.val == b']' as i32 {
-                        break;
+                        break 'arr;
                     }
                 }
             }
+
+            // make Array
+            lst.shrink_to_fit();
+            val = s.ctx.create_array_with_values(lst)?.into();
+
             json_parse_expect(s, b']' as i32)?;
         }
         TOK_STRING => {
@@ -178,14 +191,13 @@ pub unsafe fn json_parse_value(s: &mut JSParseState) -> JSResult {
     Ok(val)
 }
 
-pub unsafe fn json_next_token(s: &mut JSParseState) -> Result<(), i32> {
+unsafe fn json_next_token(s: &mut JSParseState) -> Result<(), i32> {
     if js_check_stack_overflow(s.ctx.rt(), 0) {
         s.throw_syntax_error("stack overflow");
         return Err(-1);
     }
 
     s.clear_atom_in_token();
-    // free_token(s, &mut s.token);
 
     enum Todo {
         DefaultToken(i32),
@@ -197,40 +209,28 @@ pub unsafe fn json_next_token(s: &mut JSParseState) -> Result<(), i32> {
     s.last_line_num = s.token.line_num;
 
     let todo = 'redo: loop {
+        if p >= s.buf_end {
+            s.token.val = TOK_EOF;
+            s.token.data = TokenData::None;
+            s.buf_ptr = s.buf_end;
+            return Ok(());
+        }
+
         s.token.line_num = s.line_num;
         s.token.ptr = p;
 
         match *p {
-            0 => {
-                if p >= s.buf_end {
-                    s.token.val = TOK_EOF;
-                } else {
-                    // goto def_token
-                    // C2RS: goto def_token -> fall through to default arm
-                    break Todo::DefaultToken(0); // break match, then handle via bottom logic
-                }
+            b'\0' => {
+                break Todo::DefaultToken(0);
             }
-            b'\\' => {
-                if !s.ext_json {
-                    // JSON does not accept single quoted strings
-                    // goto def_token
-                    break Todo::DefaultToken('\\' as _); // fall through to default handling
+            c @ (b'\'' | b'"') => {
+                if c == b'\'' && !s.ext_json {
+                    // standard JSON does not accept single quoted strings
+                    break Todo::DefaultToken('\'' as _);
                 }
-                // fall through to quoted string case
-                // C2RS: emulate fallthrough by directly calling js_parse_string with '\"'
-                if let Ok(r) = s.parse_string('\"', true, p.offset(1), None) {
-                    p = r;
-                } else {
-                    break Todo::Fail;
-                }
-                // successfully parsed string, jump to end
-                s.buf_ptr = p;
-                return Ok(());
-            }
-            b'"' => {
+
                 if let Ok(r) = s.parse_string('"', true, p.add(1), None) {
                     p = r;
-                    // after success, go to end
                     s.buf_ptr = p;
                     return Ok(());
                 } else {
@@ -239,19 +239,16 @@ pub unsafe fn json_next_token(s: &mut JSParseState) -> Result<(), i32> {
             }
             b'\r' => {
                 // accept DOS and MAC newline sequences
-                if *p.offset(1) == b'\n' {
-                    p = p.offset(1);
+                if *p.add(1) == b'\n' {
+                    p = p.add(1);
                 }
-                // fall thru
-                p = p.offset(1);
+                p = p.add(1);
                 s.line_num += 1;
-                // goto redo
                 continue 'redo;
             }
             b'\n' => {
-                p = p.offset(1);
+                p = p.add(1);
                 s.line_num += 1;
-                // goto redo
                 continue 'redo;
             }
             //b'\f' | b'\v'
@@ -260,11 +257,11 @@ pub unsafe fn json_next_token(s: &mut JSParseState) -> Result<(), i32> {
                     // JSONWhitespace does not match <VT>, nor <FF>
                     break Todo::DefaultToken(c as _);
                 }
-                p = p.offset(1);
+                p = p.add(1);
                 continue 'redo;
             }
             b' ' | b'\t' => {
-                p = p.offset(1);
+                p = p.add(1);
                 continue 'redo;
             }
             b'/' => {
@@ -272,38 +269,38 @@ pub unsafe fn json_next_token(s: &mut JSParseState) -> Result<(), i32> {
                     // JSON does not accept comments
                     break Todo::DefaultToken('/' as _);
                 }
-                if *p.offset(1) == b'*' {
+                if *p.add(1) == b'*' {
                     // comment
-                    p = p.offset(2);
+                    p = p.add(2);
                     loop {
-                        if *p == 0 && p >= s.buf_end {
+                        if p >= s.buf_end {
                             s.throw_syntax_error("unexpected end of comment");
                             break;
                         }
-                        if *p == b'*' && *p.offset(1) == b'/' {
-                            p = p.offset(2);
+
+                        if *p == b'*' && *p.add(1) == b'/' {
+                            p = p.add(2);
                             break;
                         }
                         if *p == b'\n' {
                             s.line_num += 1;
-                            p = p.offset(1);
+                            p = p.add(1);
                         } else if *p == b'\r' {
-                            p = p.offset(1);
+                            p = p.add(1);
                         } else if *p >= 0x80 {
                             if unicode_from_utf8(p, UTF8_CHAR_LEN_MAX as _, &mut p).is_err() {
-                                p = p.offset(1); // skip invalid UTF-8
+                                p = p.add(1); // skip invalid UTF-8
                             }
                         } else {
-                            p = p.offset(1);
+                            p = p.add(1);
                         }
                     }
-                    // goto redo
                     continue 'redo;
                 } else if *p.offset(1) == b'/' {
                     // line comment
                     p = p.offset(2);
                     loop {
-                        if *p == 0 && p >= s.buf_end {
+                        if p >= s.buf_end {
                             break;
                         }
                         if matches!(*p, b'\r' | b'\n') {
@@ -322,7 +319,6 @@ pub unsafe fn json_next_token(s: &mut JSParseState) -> Result<(), i32> {
                             p = p.offset(1);
                         }
                     }
-                    // goto redo
                     continue 'redo;
                 } else {
                     break Todo::DefaultToken('/' as _);
@@ -330,7 +326,7 @@ pub unsafe fn json_next_token(s: &mut JSParseState) -> Result<(), i32> {
             }
             c @ (b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'$') => {
                 // identifier : only pure ascii characters are accepted
-                p = p.offset(1);
+                p = p.add(1);
                 if let Ok(atom) = json_parse_ident(s, &mut p, c) {
                     s.token.data = TokenData::Ident {
                         atom,
@@ -338,15 +334,17 @@ pub unsafe fn json_next_token(s: &mut JSParseState) -> Result<(), i32> {
                         is_reserved: false,
                     };
                     s.token.val = TOK_IDENT;
+                    s.buf_ptr = p;
+                    return Ok(());
                 } else {
                     break Todo::Fail;
                 }
             }
             b'+' => {
-                if !s.ext_json || !(*p.offset(1)).is_ascii_digit() {
+                if !s.ext_json || !(*p.add(1)).is_ascii_digit() {
                     break Todo::DefaultToken('+' as _);
                 }
-                if let Ok(q) = parse_number_logic(s, p) {
+                if let Ok(q) = json_parse_value_number(s, p) {
                     p = q;
                     s.buf_ptr = q;
                     return Ok(());
@@ -355,10 +353,10 @@ pub unsafe fn json_next_token(s: &mut JSParseState) -> Result<(), i32> {
                 };
             }
             b'0' => {
-                if (*p.offset(1)).is_ascii_digit() {
+                if (*p.add(1)).is_ascii_digit() {
                     break Todo::DefaultToken('0' as _);
                 }
-                if let Ok(q) = parse_number_logic(s, p) {
+                if let Ok(q) = json_parse_value_number(s, p) {
                     p = q;
                     s.buf_ptr = q;
                     return Ok(());
@@ -367,10 +365,10 @@ pub unsafe fn json_next_token(s: &mut JSParseState) -> Result<(), i32> {
                 };
             }
             b'-' => {
-                if !(*p.offset(1)).is_ascii_digit() {
+                if !(*p.add(1)).is_ascii_digit() {
                     break Todo::DefaultToken('-' as _);
                 }
-                if let Ok(q) = parse_number_logic(s, p) {
+                if let Ok(q) = json_parse_value_number(s, p) {
                     p = q;
                     s.buf_ptr = q;
                     return Ok(());
@@ -379,7 +377,7 @@ pub unsafe fn json_next_token(s: &mut JSParseState) -> Result<(), i32> {
                 };
             }
             b'1'..=b'9' => {
-                if let Ok(q) = parse_number_logic(s, p) {
+                if let Ok(q) = json_parse_value_number(s, p) {
                     p = q;
                     s.buf_ptr = q;
                     return Ok(());
@@ -387,11 +385,11 @@ pub unsafe fn json_next_token(s: &mut JSParseState) -> Result<(), i32> {
                     break Todo::Fail;
                 };
             }
+            c if c >= 128 => {
+                s.throw_syntax_error("unexpected character");
+                break Todo::Fail;
+            }
             c => {
-                if c >= 128 {
-                    s.throw_syntax_error("unexpected character");
-                    break Todo::Fail;
-                }
                 break Todo::DefaultToken(c as _);
             }
         }
@@ -400,7 +398,7 @@ pub unsafe fn json_next_token(s: &mut JSParseState) -> Result<(), i32> {
     match todo {
         Todo::DefaultToken(c) => {
             s.token.val = c;
-            p = p.offset(1);
+            p = p.add(1);
 
             s.buf_ptr = p;
             return Ok(());
@@ -414,7 +412,7 @@ pub unsafe fn json_next_token(s: &mut JSParseState) -> Result<(), i32> {
 
 // Helper function to encapsulate number parsing logic
 // Returns new pointer on success, or null pointer on failure (to signal goto fail)
-fn parse_number_logic(s: &mut JSParseState, mut p: *const u8) -> Result<*const u8, i32> {
+fn json_parse_value_number(s: &mut JSParseState, mut p: *const u8) -> Result<*const u8, i32> {
     let flags: i32;
     let radix: i32;
 

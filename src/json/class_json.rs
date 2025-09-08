@@ -15,9 +15,8 @@ use crate::{
 
 use super::stringify::JS_JSONStringify;
 
-#[inline]
+#[inline(always)]
 fn js_json_stringify(ctx: &JSContext, cc: CallContext) -> JSResult {
-    // stringify(val, replacer, space)
     JS_JSONStringify(ctx, cc.arg(0).clone(), cc.arg(1).clone(), cc.arg(2).clone())
 }
 
@@ -68,8 +67,8 @@ fn internalize_json_property(
 }
 
 fn js_json_parse(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let str = cc.arg(0).to_utf8(ctx)?;
-    let mut obj = JS_ParseJSON(ctx, str.as_bytes(), "<input>")?;
+    let s = cc.arg(0).to_string(ctx)?;
+    let mut obj = JS_ParseJSON(ctx, s.content().to_utf8().as_bytes(), "<input>")?;
 
     if cc.length() > 1 && cc.arg(1).is_callable() {
         let reviver = cc.arg(1);
