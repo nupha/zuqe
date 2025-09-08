@@ -20,6 +20,12 @@ pub enum StringContent {
     Ident,
 }
 
+impl Default for StringContent {
+    fn default() -> Self {
+        StringContent::Empty
+    }
+}
+
 impl PartialEq for StringContent {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -252,7 +258,8 @@ impl StringContent {
         }
     }
 
-    /// create string buf from content
+    /// create string buf from content.
+    /// if range is out of content length, take the rest content till end.
     pub fn to_buf_range(&self, range: Range<usize>) -> Result<StringBuf, TryReserveError> {
         if range.is_empty() || range.start >= self.len() {
             Ok(StringBuf::Empty)
@@ -353,24 +360,22 @@ impl StringContent {
     }
 
     /// iterate over string chars. `range` is the range of buf index.
-    /// if `range` has out of bound, range is intersected with buf.
+    /// if `range` is out of bounds, the intersected range is applied.
     /// for broken surrogate, returns raw code directly, otherwise returns unichar
     pub fn iter_range(&self, range: Range<usize>) -> StringCharIter<'_> {
-        match self {
-            Self::Empty | Self::Ident => StringCharIter::from_u8(&[], range.start),
-            Self::Ascii(s) => {
-                if let Some(slice) = s.get(range.clone()) {
-                    StringCharIter::from_u8(slice, range.start)
-                } else {
-                    StringCharIter::from_u8(&[], range.start)
-                }
-            }
-            Self::Utf16(s) => {
-                if let Some(slice) = s.get(range.clone()) {
-                    StringCharIter::from_u16(slice, range.start)
-                } else {
-                    StringCharIter::from_u16(&[], range.start)
-                }
+        if range.is_empty() || range.start >= self.len() {
+            StringCharIter::from_u8(&[], range.start)
+        } else {
+            match self {
+                Self::Empty | Self::Ident => StringCharIter::from_u8(&[], 0),
+                Self::Ascii(s) => StringCharIter::from_u8(
+                    &s[range.start..std::cmp::min(range.end, s.len())],
+                    range.start,
+                ),
+                Self::Utf16(s) => StringCharIter::from_u16(
+                    &s[range.start..std::cmp::min(range.end, s.len())],
+                    range.start,
+                ),
             }
         }
     }
@@ -611,6 +616,7 @@ impl From<StringBuf> for StringContent {
 
 impl StringBuf {
     /// concat other string content to self content, returns a new result string content.
+    /// if `range` is out of bounds, the intersectioned range will be applied.
     pub fn push_content_range(
         &mut self,
         content: &StringContent,
@@ -620,7 +626,7 @@ impl StringBuf {
             return Ok(());
         }
 
-        // fix range
+        // intersect range
         let range = range.start..std::cmp::min(range.end, content.len());
 
         // use a temp var to hold current self content

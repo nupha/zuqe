@@ -369,6 +369,11 @@ pub unsafe fn is_num_string(pval: &mut u32, p: *const JSStringInner) -> bool {
     }
 }
 
+#[deprecated(note = "use JSValue::is_number() instead")]
+pub fn JS_IsNumber(v: JSValue) -> bool {
+    v.is_number()
+}
+
 /// `val` is consumed.
 #[deprecated(note = "use JSValue::coerce_to_string() instead")]
 pub fn JS_ToStringFree(ctx: &JSContext, val: JSValue) -> JSValue {
@@ -644,17 +649,17 @@ pub unsafe fn js_new_string_char(ctx: &JSContext, c: u16) -> JSValue {
 /* return (NULL, 0) if exception. */
 /* return pointer into a JSString with a live ref_count */
 /* cesu8 determines if non-BMP1 codepoints are encoded as 1 or 2 utf-8 sequences */
-#[deprecated(note = "use JSValue::to_utf8_string() instead")]
+#[deprecated(note = "use JSValue::to_utf8() instead")]
 pub unsafe fn JS_ToCStringLen2(
     ctx: &JSContext,
     plen: *mut usize,
     val1: JSValueConst,
     cesu8: bool,
 ) -> *const c_char {
-    unreachable!("use JSValue::to_utf8_string() instead");
+    unreachable!("use JSValue::to_utf8() instead");
 }
 
-#[deprecated(note = "use JSValue::to_utf8_string() instead")]
+#[deprecated(note = "use JSValue::to_utf8() instead")]
 pub unsafe fn JS_ToCStringLen(
     ctx: &JSContext,
     plen: *mut usize,
@@ -663,7 +668,7 @@ pub unsafe fn JS_ToCStringLen(
     unreachable!("unused");
 }
 
-#[deprecated(note = "use JSValue::to_utf8_string() instead")]
+#[deprecated(note = "use JSValue::to_utf8() instead")]
 pub unsafe fn JS_ToCString(ctx: &JSContext, val1: JSValueConst) -> *const c_char {
     unreachable!("unused");
 }
@@ -2659,17 +2664,17 @@ pub unsafe fn JS_ToInt32Clamp(
     }
 }
 
-#[deprecated(note = "use JSValue::coerce_number() instead")]
+#[deprecated(note = "use JSValue::to_number() instead")]
 pub unsafe fn JS_ToNumberFree(ctx: &JSContext, val: JSValue) -> JSValue {
     val.to_number(ctx).unwrap_or(JSValue::EXCEPTION)
 }
 
-#[deprecated(note = "use JSValue::coerce_numeric() instead")]
+#[deprecated(note = "use JSValue::to_numeric() instead")]
 pub unsafe fn JS_ToNumericFree(ctx: &JSContext, val: JSValue) -> JSValue {
     val.to_numeric(ctx).unwrap_or(JSValue::EXCEPTION)
 }
 
-#[deprecated(note = "use JSValue::coerce_numeric() instead")]
+#[deprecated(note = "use JSValue::to_numeric() instead")]
 pub unsafe fn JS_ToNumeric(ctx: &JSContext, val: JSValueConst) -> JSValue {
     val.to_numeric(ctx).unwrap_or(JSValue::EXCEPTION)
 }

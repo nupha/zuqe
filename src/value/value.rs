@@ -113,6 +113,12 @@ pub enum JSValue {
     AsyncStateResume(AsyncObjPayload),
 }
 
+impl Default for JSValue {
+    fn default() -> Self {
+        JSValue::UNDEFINED
+    }
+}
+
 impl PartialEq for JSValue {
     /// Compare two JSValue of same type
     fn eq(&self, other: &Self) -> bool {

@@ -443,7 +443,9 @@ impl JSRuntime {
         ctx.intrinsic_async();
         ctx.intrinsic_typed_arrays();
         ctx.intrinsic_regexp();
+
         ctx.intrinsic_math(); // Math: lazy init object
+        ctx.intrinsic_json(); // JSON: lazy init object
 
         Ok(ctx)
     }

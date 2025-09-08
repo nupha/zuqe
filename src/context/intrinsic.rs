@@ -3,7 +3,7 @@ use crate::{
     JS_CLASS_ASYNC_FROM_SYNC_ITERATOR, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR,
     JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_BOOLEAN, JS_CLASS_DATAVIEW, JS_CLASS_ERROR,
     JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_NUMBER, JS_CLASS_OBJECT,
-    JS_CLASS_PROMISE, JS_CLASS_PROXY, JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR,
+    JS_CLASS_PROMISE, JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR,
     JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_STRING, JS_CLASS_STRING_ITERATOR, JS_CLASS_SYMBOL,
     JS_CLASS_UINT8C_ARRAY,
     array::{
@@ -15,7 +15,7 @@ use crate::{
         js_shared_array_buffer_proto_funcs,
     },
     atom::{JSAtom, consts::*},
-    class::{JS_SetConstructor, JS_SetConstructor2, JSClassDef, JSClassID},
+    class::{JS_SetConstructor, JS_SetConstructor2, JSClassID},
     context::{JS_MODE_STRICT, JSContext},
     error::{ErrorKind, JSResult, STD_ERROR_NAMES},
     function::{
@@ -40,6 +40,7 @@ use crate::{
             js_string_proto_funcs,
         },
     },
+    json::js_json_obj,
     number::{js_number_constructor, js_number_funcs, js_number_proto_funcs},
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET,
@@ -869,6 +870,14 @@ impl JSContext {
                 cx.class_proto[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize] = agf_proto;
             });
         }
+    }
+
+    pub fn intrinsic_json(&self) {
+        self.0
+            .borrow()
+            .global_obj
+            .install_field_defs(self, &js_json_obj)
+            .unwrap();
     }
 }
 

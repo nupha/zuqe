@@ -23,7 +23,6 @@ pub struct CallContext<'a> {
 }
 
 impl<'a> CallContext<'a> {
-    /// `this_value` is not consumed, `args` values are not consumed, `data` values are not consumed.
     pub(crate) fn new(
         ctx: &'a JSContext,
         this_value: JSValue,
@@ -38,6 +37,11 @@ impl<'a> CallContext<'a> {
             magic,
             data,
         }
+    }
+
+    #[inline(always)]
+    pub(crate) fn new_simple(ctx: &'a JSContext, this: JSValue, args: &'a [JSValue]) -> Self {
+        Self::new(ctx, this, args, 0, None)
     }
 
     pub fn ctx(&self) -> &JSContext {

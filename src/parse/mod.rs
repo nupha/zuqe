@@ -13,6 +13,7 @@ mod expr_property;
 mod expr_unabin;
 mod expr_yield;
 mod function;
+mod json;
 mod obj;
 mod parse;
 mod regexp;
@@ -26,6 +27,7 @@ mod var;
 pub use {
     esm::{JS_DetectModule, JSParseExportEnum},
     function::JSParseFunctionEnum,
+    json::*,
     parse::*,
     state::JSParseState,
 };

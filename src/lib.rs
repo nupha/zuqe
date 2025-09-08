@@ -19,6 +19,7 @@ pub mod generator;
 pub mod global;
 pub mod iterator;
 pub mod js_core;
+pub mod json;
 pub mod map;
 pub mod mem;
 pub mod module;

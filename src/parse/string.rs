@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use crate::{
     context::JS_MODE_STRICT,
     parse::token::TokenData,
@@ -14,7 +12,8 @@ use super::{
 };
 
 impl<'s> JSParseState<'s> {
-    pub fn parse_string(
+    /// `token`: None for self.token
+    pub(super) fn parse_string(
         &mut self,
         sep: char,
         do_throw: bool,

@@ -99,7 +99,7 @@ impl Default for TokenData {
 impl TokenData {
     /// if data is ident, returns then atom.
     /// Returned atom is not duplicated. Caller must dup if need to reference it.
-    fn ident_atom(&self) -> Option<JSAtom> {
+    pub fn ident_atom(&self) -> Option<JSAtom> {
         if let Self::Ident { atom, .. } = self {
             Some(*atom) // not duplicated here!
         } else {

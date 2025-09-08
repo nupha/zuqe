@@ -7,7 +7,6 @@ use crate::{
     atom::consts::{
         JS_ATOM_Symbol_isConcatSpreadable, JS_ATOM_Symbol_iterator, JS_ATOM_Symbol_species,
         JS_ATOM_constructor, JS_ATOM_join, JS_ATOM_length, JS_ATOM_next, JS_ATOM_set,
-        JS_ATOM_toString,
     },
     bytecode::arithmatic::JSStrictEqModeEnum,
     context::JSContext,
@@ -415,7 +414,7 @@ pub fn js_array_every(ctx: &JSContext, cc: CallContext) -> JSResult {
             &JSValue::UNDEFINED,
             &[obj, JSValue::Int(n as i32)],
         )?;
-        arr.invoke(ctx, JS_ATOM_set, &[ret, JSValue::Int(n as i32)])?;
+        arr.invoke(ctx, JS_ATOM_set, std::slice::from_ref(&ret))?;
         ret = arr;
     }
 
@@ -669,8 +668,8 @@ pub fn js_array_lastIndexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_array_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj: JSValue = cc.this().to_object(ctx)?.into();
-    let len = js_get_length64(ctx, &obj)?;
+    let obj = cc.this().to_object(ctx)?;
+    let len = obj.get_length_prop(ctx)?;
     let target = cc.arg(0);
 
     let mut res = false;

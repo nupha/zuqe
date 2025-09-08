@@ -14,6 +14,12 @@ pub enum StringBuf {
     Utf16(Vec<u16>),
 }
 
+impl Default for StringBuf {
+    fn default() -> Self {
+        Self::Empty
+    }
+}
+
 static EMPTY: StringBuf = StringBuf::Empty;
 
 impl StringBuf {

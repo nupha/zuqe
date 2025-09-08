@@ -70,28 +70,27 @@ pub struct JSParseState<'s> {
 
 impl Drop for JSParseState<'_> {
     fn drop(&mut self) {
+        #[cfg(debug_assertions)]
+        println!("[O.o] JSParseState::drop()");
+
         self.clear_atom_in_token();
     }
 }
 
 impl<'s> JSParseState<'s> {
-    /// Creates a new parser state with root function def.
+    /// Create new parser state.
     ///
     /// # Arguments
     /// * `ctx` - JavaScript context pointer
-    /// * `fd` - The root function def pointer
-    /// * `input` - Input buffer containing source code
-    /// * `input_len` - Length of input buffer
+    /// * `fd` - The root function def pointer. could be null.
+    /// * `source` - Buffer containing source code
     /// * `filename` - Name of source file
-    pub fn new(
+    fn new_internal(
         ctx: &JSContext,
-        fd: NonNull<JSFunctionDef>,
+        fd: *mut JSFunctionDef,
         source: &'s [u8],
         filename: &'s str,
     ) -> Self {
-        // TODO: create root function def
-        // let mut fd = JSFunctionDef::new(ctx, std::ptr::null_mut(), false, false, filename, 1)?;
-
         Self {
             ctx: ctx.clone(),
 
@@ -110,12 +109,29 @@ impl<'s> JSParseState<'s> {
             },
 
             last_ptr: std::ptr::null(),
-            cur_func_def: fd.as_ptr(),
+            cur_func_def: fd,
             is_module: false,
             allow_html_comments: false,
             ext_json: false,
             got_lf: false,
         }
+    }
+
+    /// Create new parser state with root function def.
+    #[inline(always)]
+    pub fn new(
+        ctx: &JSContext,
+        fd: NonNull<JSFunctionDef>,
+        source: &'s [u8],
+        filename: &'s str,
+    ) -> Self {
+        Self::new_internal(ctx, fd.as_ptr(), source, filename)
+    }
+
+    /// Create new parser state for json (which don't have function def).
+    #[inline(always)]
+    pub fn new_for_json(ctx: &JSContext, source: &'s [u8], filename: &'s str) -> Self {
+        Self::new_internal(ctx, std::ptr::null_mut(), source, filename)
     }
 
     /// free atom if any.

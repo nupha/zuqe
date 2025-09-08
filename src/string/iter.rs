@@ -250,24 +250,22 @@ impl StringBuf {
     }
 
     /// iterate over string chars. `range` is the range of buf index.
-    /// if `range` has out of bound, range is intersected with buf.
+    /// if `range` is out of bounds, the intersected range is applied.
     /// for broken surrogate, returns raw code directly, otherwise returns unichar
     pub fn iter_range(&self, range: Range<usize>) -> StringCharIter<'_> {
-        match self {
-            Self::Empty => StringCharIter::from_u8(&[], range.start),
-            Self::Ascii(s) => {
-                if let Some(slice) = s.get(range.clone()) {
-                    StringCharIter::from_u8(slice, range.start)
-                } else {
-                    StringCharIter::from_u8(&[], range.start)
-                }
-            }
-            Self::Utf16(s) => {
-                if let Some(slice) = s.get(range.clone()) {
-                    StringCharIter::from_u16(slice, range.start)
-                } else {
-                    StringCharIter::from_u16(&[], range.start)
-                }
+        if range.is_empty() || range.start >= self.len() {
+            StringCharIter::from_u8(&[], range.start)
+        } else {
+            match self {
+                Self::Empty => StringCharIter::from_u8(&[], 0),
+                Self::Ascii(s) => StringCharIter::from_u8(
+                    &s[range.start..std::cmp::min(range.end, s.len())],
+                    range.start,
+                ),
+                Self::Utf16(s) => StringCharIter::from_u16(
+                    &s[range.start..std::cmp::min(range.end, s.len())],
+                    range.start,
+                ),
             }
         }
     }
