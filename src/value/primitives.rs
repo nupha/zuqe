@@ -2,6 +2,7 @@ use crate::{
     JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING, JS_CLASS_SYMBOL,
     atom::consts::*,
     context::JSContext,
+    error::JSResult,
     object::{JSObject, ObjectPayload},
     runtime::JSRuntime,
     value::{HINT_FORCE_ORDINARY, HINT_NUMBER, HINT_STRING, JSValue},
@@ -15,8 +16,8 @@ impl From<bool> for JSValue {
 }
 
 impl JSObject {
-    /// Coerce value to primitive (non-object) value
-    pub fn to_primitive(&self, ctx: &JSContext, hint: i32) -> Result<JSValue, i32> {
+    /// Coerce object to primitive (non-object) value
+    pub fn to_primitive(&self, ctx: &JSContext, hint: i32) -> JSResult {
         let ignore_toPrimitive_method = hint & HINT_FORCE_ORDINARY != 0;
         let hint = hint & !HINT_FORCE_ORDINARY;
 
@@ -65,6 +66,12 @@ impl JSObject {
 
         ctx.throw_type_error("cannot coerce to primitive");
         Err(-1)
+    }
+
+    /// Coerce object to number (Int or Float64)
+    #[inline(always)]
+    pub fn to_number(&self, ctx: &JSContext) -> JSResult {
+        self.to_primitive(ctx, HINT_NUMBER)
     }
 }
 

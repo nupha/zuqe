@@ -189,7 +189,7 @@ impl JSValue {
                     break Err(-1);
                 }
                 Self::Object(o) => {
-                    val = o.to_primitive(ctx, HINT_NUMBER)?;
+                    val = o.to_number(ctx)?;
                     continue;
                 }
                 Self::EXCEPTION => {

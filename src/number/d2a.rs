@@ -56,8 +56,8 @@ pub fn f64_stringify<'a>(
             "Infinity"
         }
         .into()
-    } else if num == 0.0 && num.is_sign_negative() {
-        "-0".into()
+    } else if num == 0.0 {
+        "0".into()
     } else {
         let mut num = num;
         let mut use_scientific = flags & JS_DTOA_FORCE_EXP != 0

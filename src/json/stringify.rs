@@ -2,7 +2,7 @@ use fallible_collections::TryCollect;
 use smallvec::SmallVec;
 
 use crate::{
-    JS_CLASS_NUMBER, JS_CLASS_STRING,
+    JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING,
     atom::{
         JS_FreeAtom,
         consts::{JS_ATOM_empty_string, JS_ATOM_toJSON},
@@ -44,66 +44,33 @@ pub fn JS_JSONStringify(
     } else {
         if replacer.is_array(ctx)? {
             let mut selected = SmallVec::<[JSValue; 16]>::new();
+
             for i in 0..replacer.get_length_prop(ctx)? {
-                match replacer.get_property_i64(ctx, i)? {
-                    JSValue::Object(p) => {
-                        if let Some(
-                            pv @ (JSValue::String(_) | JSValue::Int(_) | JSValue::Float64(_)),
-                        ) = p.0.payload.borrow().value()
-                        {
-                            let a = pv.to_atom(ctx)?;
-                            if let Ok(p) = a.to_string_or_symbol(ctx) {
-                                if !selected.iter().any(|x| p.eq(x)) {
-                                    selected.push(p);
-                                }
-                                JS_FreeAtom(ctx, a);
-                            } else {
-                                JS_FreeAtom(ctx, a);
-                                return Err(-1);
-                            }
-                        }
-                    }
-                    v @ (JSValue::String(_) | JSValue::Int(_) | JSValue::Float64(_)) => {
-                        let a = v.to_atom(ctx)?;
-                        if let Ok(p) = a.to_string_or_symbol(ctx) {
-                            if !selected.iter().any(|x| p.eq(x)) {
-                                selected.push(p);
-                            }
-                            JS_FreeAtom(ctx, a);
+                let k: Option<JSValue> = match replacer.get_property_i64(ctx, i)? {
+                    JSValue::Object(o) => {
+                        if matches!(o.class_id(), JS_CLASS_STRING | JS_CLASS_NUMBER) {
+                            let k: JSValue = JSValue::Object(o).to_string(ctx)?.into();
+                            Some(k)
                         } else {
-                            JS_FreeAtom(ctx, a);
-                            return Err(-1);
+                            None
                         }
                     }
-                    _ => {}
+                    v @ JSValue::String(_) => Some(v),
+                    v if v.is_number() => {
+                        let k: JSValue = v.to_string(ctx)?.into();
+                        Some(k)
+                    }
+                    _ => {
+                        continue;
+                    }
+                };
+
+                // add non-duplicated property name
+                if let Some(k) = k {
+                    if !selected.iter().any(|x| k.eq(x)) {
+                        selected.push(k);
+                    }
                 }
-
-                // if let Some(p) = nam.object() {
-                //     if matches!(p.class_id(), JS_CLASS_STRING | JS_CLASS_NUMBER) {
-                //         nam = nam.to_string(ctx)?.into();
-                //     } else {
-                //         continue;
-                //     }
-                // } else if nam.is_number() {
-                //     nam = nam.to_string(ctx)?.into();
-                // } else if !nam.is_string() {
-                //     continue;
-                // }
-
-                // let present = js_array_includes(
-                //     ctx,
-                //     CallContext::new_simple(
-                //         ctx,
-                //         jsc.property_list.clone(),
-                //         std::slice::from_ref(&nam),
-                //     ),
-                // )?
-                // .to_bool()?;
-
-                // if !present {
-                //     jsc.property_list.set_property_i64(ctx, j, nam)?;
-                //     j += 1;
-                // }
             }
 
             jsc.selected_props.replace(selected);
@@ -207,55 +174,39 @@ fn js_json_to_str(
     val: &JSValue,
     indent: &StringBuf,
 ) -> Result<(), i32> {
-    let sbuf: StringBuf = match val {
+    match val {
         JSValue::Object(o) => {
-            if let Some(pv) = o.0.payload.borrow().value() {
-                // object of primitive value
-                match pv {
-                    JSValue::String(s) => {
-                        return s
-                            .content()
-                            .quote()
-                            .and_then(|qs| jsc.buf.push(&qs))
-                            .map_err(|_| {
-                                ctx.throw_out_of_memory();
-                                -1
-                            });
-                    }
-                    JSValue::Float64(d) => {
-                        return jsc.buf.push_str(&format!("{d}")).map_err(|_| {
+            match o.class_id() {
+                JS_CLASS_STRING => {
+                    return val
+                        .to_string(ctx)?
+                        .content()
+                        .quote()
+                        .and_then(|qs| jsc.buf.push(&qs))
+                        .map_err(|_| {
                             ctx.throw_out_of_memory();
                             -1
                         });
-                    }
-                    JSValue::Int(n) => {
-                        return jsc.buf.push_str(&format!("{n}")).map_err(|_| {
-                            ctx.throw_out_of_memory();
-                            -1
-                        });
-                    }
-                    JSValue::Bool(b) => {
-                        return jsc
-                            .buf
-                            .push_str(if b { "true" } else { "false" })
-                            .map_err(|_| {
-                                ctx.throw_out_of_memory();
-                                -1
-                            });
-                    }
-                    JSValue::Symbol(_) => {
-                        // symbol is not allowed in json
-                        return Ok(());
-                    }
-                    _ => {
-                        #[cfg(debug_assertions)]
-                        unreachable!();
-                        #[cfg(not(debug_assertions))]
-                        {
-                            std::hint::unreachable_unchecked();
-                        }
-                    }
                 }
+                JS_CLASS_NUMBER => {
+                    return jsc
+                        .buf
+                        .push_content(o.to_number(ctx)?.to_string(ctx)?.content())
+                        .map_err(|_| {
+                            ctx.throw_out_of_memory();
+                            -1
+                        });
+                }
+                JS_CLASS_BOOLEAN => {
+                    return jsc
+                        .buf
+                        .push_content(val.to_string(ctx)?.content())
+                        .map_err(|_| {
+                            ctx.throw_out_of_memory();
+                            -1
+                        });
+                }
+                _ => {}
             }
 
             // check for circular ref
@@ -282,7 +233,7 @@ fn js_json_to_str(
                 if !jsc.gap.is_empty() {
                     s1.push_char('\n').unwrap();
                 }
-                s1.push(&indent1);
+                s1.push(&indent1).unwrap();
                 (s1, StringBuf::from_str(" ")?)
             } else {
                 (StringBuf::Empty, StringBuf::Empty)
@@ -414,52 +365,6 @@ fn js_json_to_str(
                     }
                 }
 
-                // let len = tab.get_length_prop(ctx)?;
-                // let mut has_content = false;
-                // for i in 0..len {
-                //     let prop = tab.get_property_i64(ctx, i)?;
-                //     let v = js_json_check(
-                //         ctx,
-                //         jsc,
-                //         &val,
-                //         val.get_property_value(ctx, &prop)?,
-                //         prop.clone(),
-                //     )?;
-
-                //     if !v.is_undefined() {
-                //         if has_content {
-                //             jsc.buf.push_char(',').map_err(|_| {
-                //                 ctx.throw_out_of_memory();
-                //                 -1
-                //             })?;
-                //         }
-
-                //         let key = prop
-                //             .to_string(ctx)
-                //             .unwrap()
-                //             .content()
-                //             .quote()
-                //             .map_err(|_| {
-                //                 ctx.throw_out_of_memory();
-                //                 -1
-                //             })?;
-
-                //         jsc.buf
-                //             .try_reserve(sep.len() + key.len() + sep1.len() + 1)
-                //             .map_err(|_| {
-                //                 ctx.throw_out_of_memory();
-                //                 -1
-                //             })?;
-                //         jsc.buf.push(&sep).unwrap();
-                //         jsc.buf.push(&key).unwrap();
-                //         jsc.buf.push_char(':').unwrap();
-                //         jsc.buf.push(&sep1).unwrap();
-
-                //         js_json_to_str(ctx, jsc, v, &indent1)?;
-                //         has_content = true;
-                //     }
-                // }
-
                 if has_content && !jsc.gap.is_empty() {
                     jsc.buf.try_reserve(indent.len() + 1).map_err(|_| {
                         ctx.throw_out_of_memory();
@@ -476,30 +381,31 @@ fn js_json_to_str(
             }
 
             jsc.stack.pop();
-            return Ok(());
+            Ok(())
         }
 
-        JSValue::String(s) => s.content().quote().map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?,
-        JSValue::Float64(d) => {
-            if d.is_finite() {
-                StringBuf::from_str(format!("{d}").as_str())
-            } else {
-                StringBuf::from_str("null")
-            }?
-        }
-        JSValue::Int(i) => StringBuf::from_str(format!("{i}").as_str())?,
-        JSValue::Bool(b) => StringBuf::from_str(if *b { "true" } else { "false" })?,
-        JSValue::NULL => StringBuf::from_str("null")?,
-        _ => {
-            return Ok(());
-        }
-    };
-
-    jsc.buf.push(&sbuf).map_err(|_| {
-        ctx.throw_out_of_memory();
-        -1
-    })
+        JSValue::String(s) => s
+            .content()
+            .quote()
+            .and_then(|qs| jsc.buf.push(&qs))
+            .map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            }),
+        JSValue::Float64(_) | JSValue::Int(_) => jsc
+            .buf
+            .push_content(val.to_number(ctx)?.to_string(ctx)?.content())
+            .map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            }),
+        JSValue::Bool(_) | JSValue::NULL => jsc
+            .buf
+            .push_content(val.to_string(ctx)?.content())
+            .map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            }),
+        _ => Ok(()),
+    }
 }
