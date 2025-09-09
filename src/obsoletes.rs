@@ -1824,7 +1824,7 @@ pub unsafe fn JS_GetOwnPropertyNames2(
     kind: JSIteratorKindEnum,
 ) -> JSValue {
     target
-        .get_own_property_names2(ctx, flags, kind)
+        .build_own_property_kvs_array(ctx, flags, kind)
         .unwrap_or(JSValue::EXCEPTION)
 }
 

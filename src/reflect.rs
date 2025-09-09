@@ -114,8 +114,9 @@ pub fn js_reflect_setPrototypeOf(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_reflect_ownKeys(ctx: &JSContext, cc: CallContext) -> JSResult {
-    if let JSValue::Object(obj) = cc.arg(0) {
-        obj.get_own_property_names_ex(
+    let val = cc.arg(0);
+    if val.is_object() {
+        val.build_own_property_kvs_array(
             ctx,
             JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK,
             JSIteratorKindEnum::JS_ITERATOR_KIND_KEY,

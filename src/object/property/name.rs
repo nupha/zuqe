@@ -212,7 +212,7 @@ impl JSObject {
     /// - Property names (numbers, strings, symbols). Note: The atom was cloned, it should be freed by caller.
     /// - Sorted by: numbers first, then strings, symbols, and exotic names.
     /// - Can be filtered using flags
-    pub(crate) fn query_own_property_names(
+    pub fn query_own_property_names(
         &self,
         ctx: &JSContext,
         flags: i32,
@@ -273,7 +273,7 @@ impl JSObject {
         Ok(lst.into_boxed_slice())
     }
 
-    /// Gets an array containing object properties based on specified iteration mode
+    /// Gets object's own properties [key, value] pairs.
     ///
     /// # Arguments
     /// * `ctx` - JavaScript context
@@ -281,21 +281,23 @@ impl JSObject {
     /// * `kind` - Iteration mode (keys, values, or entries)
     ///
     /// # Returns
-    /// * Array of property keys, values or [key,value] pairs
-    /// * Exception if operation fails
+    /// * List of property [key,value] pairs
     ///
     /// Similar to JavaScript's Object.keys(), Object.values(), Object.entries()
-    pub(crate) fn get_own_property_names_ex(
+    pub fn query_own_property_kvs(
         &self,
         ctx: &JSContext,
         flags: i32,
         kind: JSIteratorKindEnum,
-    ) -> JSResult {
-        // make result array
-        let ret_array = ctx.create_array()?;
+    ) -> Result<Box<[(JSValue, JSValue)]>, i32> {
         let lst = self.query_own_property_names(ctx, flags & !JS_GPN_ENUM_ONLY)?;
 
-        let mut idx: u32 = 0;
+        let mut ret = Vec::<(JSValue, JSValue)>::new();
+        ret.try_reserve_exact(lst.len()).map_err(|_| {
+            ctx.throw_out_of_memory();
+            -1
+        })?;
+
         let mut has_err = false;
         for name in lst.iter() {
             if flags & JS_GPN_ENUM_ONLY != 0 {
@@ -315,74 +317,48 @@ impl JSObject {
                 }
             }
 
-            let val: JSValue;
-            match kind {
-                JSIteratorKindEnum::JS_ITERATOR_KIND_KEY => {
-                    val = if let Ok(v) = name.atom.to_string_or_symbol(ctx) {
-                        v
-                    } else {
-                        has_err = true;
-                        break;
-                    };
-                }
-                JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE => {
-                    if let Ok(v) = self.get_property(ctx, name.atom) {
-                        val = v;
-                    } else {
-                        has_err = true;
-                        break;
-                    }
-                }
-                JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE => {
-                    val = if let Ok(a) = ctx.create_array() {
-                        a.into()
-                    } else {
-                        has_err = true;
-                        break;
-                    };
+            if !has_err {
+                let mut key = JSValue::UNDEFINED;
+                let mut val = JSValue::UNDEFINED;
 
-                    let key = if let Ok(v) = name.atom.to_string_or_symbol(ctx) {
-                        v
-                    } else {
-                        has_err = true;
-                        break;
-                    };
-                    if val
-                        .define_property_value_u32(ctx, 0, key, JS_PROP_C_W_E | JS_PROP_THROW)
-                        .is_err()
-                    {
-                        has_err = true;
-                        break;
-                    }
-
-                    if let Ok(v2) = self.get_property(ctx, name.atom) {
-                        if val
-                            .define_property_value_u32(ctx, 1, v2, JS_PROP_C_W_E | JS_PROP_THROW)
-                            .is_err()
-                        {
+                match kind {
+                    JSIteratorKindEnum::JS_ITERATOR_KIND_KEY => {
+                        if let Ok(v) = name.atom.to_string_or_symbol(ctx) {
+                            key = v;
+                        } else {
                             has_err = true;
                             break;
                         }
-                    } else {
-                        has_err = true;
-                        break;
+                    }
+                    JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE => {
+                        if let Ok(v) = self.get_property(ctx, name.atom) {
+                            val = v;
+                        } else {
+                            has_err = true;
+                            break;
+                        }
+                    }
+                    JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE => {
+                        if let Ok(v) = name.atom.to_string_or_symbol(ctx) {
+                            key = v;
+                        } else {
+                            has_err = true;
+                            break;
+                        };
+                        if let Ok(v) = self.get_property(ctx, name.atom) {
+                            val = v;
+                        } else {
+                            has_err = true;
+                            break;
+                        }
                     }
                 }
+
+                ret.push((key, val));
             }
+        }
 
-            // append to result array
-            if ret_array
-                .0
-                .define_property_value_i64(ctx, idx as _, val, JS_PROP_C_W_E)
-                .is_err()
-            {
-                has_err = true;
-                break;
-            }
-
-            idx += 1;
-        } // for
-
+        // free atoms
         for name in lst.iter() {
             JS_FreeAtom(ctx, name.atom);
         }
@@ -390,12 +366,34 @@ impl JSObject {
         if has_err {
             Err(-1)
         } else {
-            Ok(ret_array.into())
+            Ok(ret.into_boxed_slice())
         }
     }
 }
 
 impl JSValue {
+    /// Gets object's own properties [key, value] pairs.
+    ///
+    /// # Arguments
+    /// * `ctx` - JavaScript context
+    /// * `flags` - Property filter flags
+    /// * `kind` - Iteration mode (keys, values, or entries)
+    ///
+    /// # Returns
+    /// * List of property [key,value] pairs
+    ///
+    /// Similar to JavaScript's Object.keys(), Object.values(), Object.entries()
+    #[inline]
+    pub fn query_own_property_kvs(
+        &self,
+        ctx: &JSContext,
+        flags: i32,
+        kind: JSIteratorKindEnum,
+    ) -> Result<Box<[(JSValue, JSValue)]>, i32> {
+        self.to_object(ctx)?
+            .query_own_property_kvs(ctx, flags, kind)
+    }
+
     /// Returns an value (Array object) containing the own properties of `self` value
     /// based on the specified iteration kind.
     ///
@@ -405,14 +403,35 @@ impl JSValue {
     /// - An array of [key, value] pairs (for kind = KEY_AND_VALUE)
     ///
     /// Properties are sorted according to the standard JavaScript property enumeration order.
-    #[inline]
-    pub fn get_own_property_names2(
+    pub(crate) fn build_own_property_kvs_array(
         &self,
         ctx: &JSContext,
         flags: i32,
         kind: JSIteratorKindEnum,
     ) -> JSResult {
-        self.to_object(ctx)
-            .and_then(|o| o.get_own_property_names_ex(ctx, flags, kind))
+        let kvs = self.query_own_property_kvs(ctx, flags, kind)?;
+
+        let mut lst = Vec::<JSValue>::new();
+        lst.try_reserve_exact(kvs.len()).map_err(|_| {
+            ctx.throw_out_of_memory();
+            -1
+        })?;
+
+        for (key, val) in kvs {
+            match kind {
+                JSIteratorKindEnum::JS_ITERATOR_KIND_KEY => {
+                    lst.push(key);
+                }
+                JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE => {
+                    lst.push(val);
+                }
+                JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE => {
+                    let o = ctx.create_array_with_values(vec![key, val])?;
+                    lst.push(o.into());
+                }
+            }
+        }
+
+        ctx.create_array_with_values(lst).map(|a| a.into())
     }
 }

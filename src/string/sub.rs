@@ -177,11 +177,11 @@ fn quote_string_internal(src: StringCharIter, len: usize) -> Result<StringBuf, T
                     continue;
                 }
                 '\u{0008}' => {
-                    buf.push_str("\\x08")?;
+                    buf.push_str("\\b")?;
                     continue;
                 }
                 '\u{000C}' => {
-                    buf.push_str("\\x0C")?;
+                    buf.push_str("\\f")?;
                     continue;
                 }
                 '"' => {

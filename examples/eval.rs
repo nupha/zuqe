@@ -165,7 +165,12 @@ fn main() {
             o.dump(ctx.rt());
         };
     } else {
-        println!(">>> RESULT: {r:?}, {:?}", r.to_string(&ctx));
+        let s = r.to_string(&ctx);
+        println!(
+            ">>> RESULT: {r:?}, {:?}, {}",
+            s.clone(),
+            s.map_or("<ERR>".into(), |s| s.to_string())
+        );
         if let JSValue::Object(o) = &r {
             o.dump(ctx.rt());
         }

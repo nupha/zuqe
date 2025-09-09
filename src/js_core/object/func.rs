@@ -139,7 +139,7 @@ pub fn js_object_defineProperties(ctx: &JSContext, cc: CallContext) -> JSResult 
 }
 
 pub fn js_object_getOwnPropertyNames(ctx: &JSContext, cc: CallContext) -> JSResult {
-    cc.arg(0).get_own_property_names2(
+    cc.arg(0).build_own_property_kvs_array(
         ctx,
         JS_GPN_INDEX_MASK,
         JSIteratorKindEnum::JS_ITERATOR_KIND_KEY,
@@ -147,7 +147,7 @@ pub fn js_object_getOwnPropertyNames(ctx: &JSContext, cc: CallContext) -> JSResu
 }
 
 pub fn js_object_getOwnPropertySymbols(ctx: &JSContext, cc: CallContext) -> JSResult {
-    cc.arg(0).get_own_property_names2(
+    cc.arg(0).build_own_property_kvs_array(
         ctx,
         JS_GPN_SYMBOL_MASK,
         JSIteratorKindEnum::JS_ITERATOR_KIND_KEY,
@@ -164,7 +164,7 @@ pub fn js_object_keys(ctx: &JSContext, cc: CallContext) -> JSResult {
     );
 
     cc.arg(0)
-        .get_own_property_names2(ctx, JS_GPN_ENUM_ONLY | JS_GPN_INDEX_MASK, unsafe {
+        .build_own_property_kvs_array(ctx, JS_GPN_ENUM_ONLY | JS_GPN_INDEX_MASK, unsafe {
             std::mem::transmute::<u8, JSIteratorKindEnum>(kind as u8)
         })
 }

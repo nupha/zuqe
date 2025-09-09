@@ -142,6 +142,12 @@ impl JSStringInner {
 #[derive(Clone)]
 pub struct JSString(pub(crate) Rc<JSStringInner>);
 
+impl PartialEq for JSString {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.content() == other.0.content()
+    }
+}
+
 impl From<JSString> for JSValue {
     #[inline(always)]
     fn from(value: JSString) -> Self {

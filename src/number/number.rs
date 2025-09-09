@@ -3,7 +3,7 @@ use std::ops::RangeInclusive;
 use crate::{
     context::JSContext,
     error::JSResult,
-    value::{HINT_NUMBER, JSValue, JSValueConst},
+    value::{JSValue, JSValueConst},
 };
 
 use super::{ATOD_ACCEPT_BIN_OCT, js_atof};
@@ -184,13 +184,13 @@ impl JSValue {
                     };
                     break Ok(res);
                 }
-                Self::Symbol(_) => {
-                    ctx.throw_type_error("cannot convert symbol to number");
-                    break Err(-1);
-                }
                 Self::Object(o) => {
                     val = o.to_number(ctx)?;
                     continue;
+                }
+                Self::Symbol(_) => {
+                    ctx.throw_type_error("cannot convert symbol to number");
+                    break Err(-1);
                 }
                 Self::EXCEPTION => {
                     #[cfg(debug_assertions)]
