@@ -114,8 +114,14 @@ impl JSObject {
                                 };
                             }
                             JS_PROP_LAZYINIT => {
-                                proto.0.prop_values.borrow_mut()[idx]
-                                    .instantiate(&proto, prop, &proto)?;
+                                unsafe {
+                                    proto
+                                        .0
+                                        .prop_values
+                                        .borrow_mut()
+                                        .get_unchecked_mut(idx)
+                                        .instantiate(&proto, idx, &proto)?;
+                                }
                                 continue;
                             }
 

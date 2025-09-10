@@ -4166,3 +4166,37 @@ pub fn JS_ObjectDefineProperties(
     //     Err(-1)
     // }
 }
+
+#[deprecated]
+pub unsafe fn js_autoinit_get_id(pr: *const JSProperty) -> i32 {
+    unreachable!("unuese");
+}
+
+#[deprecated(note = "use JSProperty::realm() instead")]
+pub unsafe fn js_autoinit_get_realm(pr: &JSProperty) -> JSContext {
+    if let JSProperty::LazyInit { realm, .. } = pr {
+        realm.upgrade().unwrap()
+    } else {
+        unreachable!()
+    }
+}
+
+#[deprecated]
+pub unsafe fn js_autoinit_free(rt: &JSRuntime, pr: *const JSProperty) {}
+
+/* warning: 'prs' is reallocated after it */
+#[deprecated(note = "use JSProperty::auto_init() instead")]
+pub unsafe fn JS_AutoInitProperty(
+    ctx: &JSContext,
+    p: &JSValue,
+    prop: JSAtom,
+    pr: &JSProperty,
+    mut prs: *mut JSShapeProperty,
+) -> i32 {
+    unreachable!("unused");
+}
+
+#[deprecated(note = "unused")]
+pub unsafe fn js_free_desc(ctx: &JSContext, desc: *mut JSPropertyDescriptor) {
+    unreachable!("unused");
+}

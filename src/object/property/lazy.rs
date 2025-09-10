@@ -8,9 +8,8 @@ use crate::{
     module::ModuleDef,
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_LAZYINIT, JS_PROP_TMASK, JS_PROP_WRITABLE,
-        JSObject, JSShapeProperty,
+        JSObject,
     },
-    runtime::JSRuntime,
     value::JSValue,
 };
 
@@ -71,12 +70,18 @@ impl LazyInit {
 }
 
 impl JSProperty {
-    /// instantiate lazy property.
-    /// panic if property is not Lazy init type.
+    /// Instantiate lazy object, and set instantiated value back to the property value slot as normal value,
+    /// change shape property kind to NORMAL.
+    ///
+    /// - `master_obj` is the object that owns this `self` property.
+    /// - `this_obj` is the `this` bind used to call instantiate function.
+    /// - `idx` is the index of the property in the shape.
+    ///
+    /// Note: will panic if property is not lazy type.
     pub(super) fn instantiate(
         &mut self,
         master_obj: &JSObject,
-        prop: JSAtom,
+        idx: usize,
         this_obj: &JSObject,
     ) -> JSResult {
         if let JSProperty::LazyInit {
@@ -86,24 +91,19 @@ impl JSProperty {
         } = self
         {
             let realm = realm.upgrade().unwrap();
-
             master_obj.shape_prepare_update(&realm)?;
             let val = init_type.instantiate(&realm, this_obj);
 
-            // update property type from LAZY_INIT to NORMAL
-            master_obj.shape().unwrap().with_mut(|s| {
-                if let Some(prs) = s.prop_defs.get_mut(&prop.0) {
+            // modify shape property kind to NORMAL
+            master_obj.shape().unwrap().with_mut(|sh| {
+                if let Some((_, prs)) = sh.prop_defs.get_index_mut(idx) {
                     prs.set_flags(prs.flags() & !JS_PROP_TMASK);
                 } else {
                     unreachable!();
-                    // println!(
-                    //     "Fail to instantiate lazy property '{}'",
-                    //     prop.to_str(realm.rt())
-                    // );
                 }
             });
 
-            // set property normal value
+            // set instantiated value back
             if let Ok(val) = val {
                 *self = JSProperty::Normal(val.clone());
                 Ok(val)
@@ -144,35 +144,6 @@ impl JSObject {
             },
         )
     }
-}
-
-#[deprecated]
-pub unsafe fn js_autoinit_get_id(pr: *const JSProperty) -> i32 {
-    unreachable!("unuese");
-}
-
-#[deprecated(note = "use JSProperty::realm() instead")]
-pub unsafe fn js_autoinit_get_realm(pr: &JSProperty) -> JSContext {
-    if let JSProperty::LazyInit { realm, .. } = pr {
-        realm.upgrade().unwrap()
-    } else {
-        unreachable!()
-    }
-}
-
-#[deprecated]
-pub unsafe fn js_autoinit_free(rt: &JSRuntime, pr: *const JSProperty) {}
-
-/* warning: 'prs' is reallocated after it */
-#[deprecated(note = "use JSProperty::auto_init() instead")]
-pub unsafe fn JS_AutoInitProperty(
-    ctx: &JSContext,
-    p: &JSValue,
-    prop: JSAtom,
-    pr: &JSProperty,
-    mut prs: *mut JSShapeProperty,
-) -> i32 {
-    unreachable!("unused");
 }
 
 // /// return the value associated to the autoinit property or an exception

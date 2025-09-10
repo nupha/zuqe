@@ -303,7 +303,7 @@ fn js_json_to_str(
                     lst.into()
                 } else {
                     // query own property names.
-                    let kvs = val.query_own_property_kvs(
+                    let kvs = val.get_own_property_kvs(
                         ctx,
                         JS_GPN_ENUM_ONLY | JS_GPN_INDEX_MASK,
                         JSIteratorKindEnum::JS_ITERATOR_KIND_KEY,

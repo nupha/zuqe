@@ -50,17 +50,15 @@ impl JSObject {
                         }
                     }
                     JS_PROP_LAZYINIT => {
-                        // Lazy instantiate property.
-                        let mut pr = std::mem::take(&mut proto.0.prop_values.borrow_mut()[idx]); // borrow in short
-                        let val = pr.instantiate(&proto, prop, self)?;
-                        debug_assert!(matches!(pr, JSProperty::Normal(_)));
-                        debug_assert_eq!(
-                            proto.find_shape_property(prop).unwrap().1 & JS_PROP_TMASK,
-                            JS_PROP_NORMAL
-                        );
-
-                        // object instantiated, write value back
-                        proto.0.prop_values.borrow_mut()[idx] = pr;
+                        // instantiate lazy object.
+                        let val = unsafe {
+                            proto
+                                .0
+                                .prop_values
+                                .borrow_mut()
+                                .get_unchecked_mut(idx)
+                                .instantiate(&proto, idx, self)?
+                        };
                         Ok(val)
                     }
                     _ => unreachable!(),

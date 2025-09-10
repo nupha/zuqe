@@ -212,22 +212,15 @@ impl JSObject {
                                 .prop_values
                                 .borrow_mut()
                                 .get_unchecked_mut(idx)
-                                .instantiate(self, prop, self)?
+                                .instantiate(self, idx, self)?
                         };
-                        // let mut pr = std::mem::take(&mut self.0.prop_values.borrow_mut()[idx]);
-                        // desc.value = pr.instantiate(self, prop, self)?;
-                        // debug_assert!(matches!(pr, JSProperty::Normal(_)));
-                        // self.0.prop_values.borrow_mut()[idx] = pr;
-                        debug_assert_eq!(
-                            self.find_shape_property(prop).unwrap().1 & JS_PROP_TMASK,
-                            JS_PROP_NORMAL
-                        );
                         continue;
                     }
                     _ => {
                         unreachable!();
                     }
                 }
+
                 return Ok(Some(desc));
             } else {
                 break;

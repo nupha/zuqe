@@ -4,7 +4,7 @@ use crate::{
     context::JSContext,
     error::{JS_ThrowReferenceErrorUninitialized, JSResult},
     iterator::JSIteratorKindEnum,
-    object::{JS_PROP_C_W_E, JS_PROP_TMASK, JS_PROP_VARREF, JSObject, JSProperty},
+    object::{JS_PROP_TMASK, JS_PROP_VARREF, JSObject, JSProperty},
     string::JSString,
     value::JSValue,
 };
@@ -199,9 +199,9 @@ impl JSObject {
         Ok(())
     }
 
-    /// Gets all property names that belong to this object
+    /// Gets all own property names of `self` object.
     ///
-    /// Returns a sorted list containing:
+    /// Returns a sorted list of property names info:
     /// - Property names (numbers, strings, symbols). Note: The atom was cloned, it should be freed by caller.
     /// - Sorted by: numbers first, then strings, symbols, and exotic names.
     /// - Can be filtered using flags
@@ -232,7 +232,7 @@ impl JSObject {
         });
 
         if r.is_err() {
-            // free lst elements' atom
+            // free atoms
             lst.iter().for_each(|p| {
                 JS_FreeAtom(ctx, p.atom);
             });
@@ -277,7 +277,7 @@ impl JSObject {
     /// * List of property [key,value] pairs
     ///
     /// Similar to JavaScript's Object.keys(), Object.values(), Object.entries()
-    pub fn query_own_property_kvs(
+    pub fn get_own_property_kvs(
         &self,
         ctx: &JSContext,
         flags: i32,
@@ -377,14 +377,13 @@ impl JSValue {
     ///
     /// Similar to JavaScript's Object.keys(), Object.values(), Object.entries()
     #[inline]
-    pub fn query_own_property_kvs(
+    pub fn get_own_property_kvs(
         &self,
         ctx: &JSContext,
         flags: i32,
         kind: JSIteratorKindEnum,
     ) -> Result<Box<[(JSValue, JSValue)]>, i32> {
-        self.to_object(ctx)?
-            .query_own_property_kvs(ctx, flags, kind)
+        self.to_object(ctx)?.get_own_property_kvs(ctx, flags, kind)
     }
 
     /// Returns an value (Array object) containing the own properties of `self` value
@@ -402,7 +401,7 @@ impl JSValue {
         flags: i32,
         kind: JSIteratorKindEnum,
     ) -> JSResult {
-        let kvs = self.query_own_property_kvs(ctx, flags, kind)?;
+        let kvs = self.get_own_property_kvs(ctx, flags, kind)?;
 
         let mut lst = Vec::<JSValue>::new();
         lst.try_reserve_exact(kvs.len()).map_err(|_| {

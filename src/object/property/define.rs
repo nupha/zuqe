@@ -5,8 +5,8 @@ use crate::{
     context::JSContext,
     number::JS_NumberIsNegativeOrMinusZero,
     object::{
-        JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_NORMAL, JS_PROP_THROW,
-        JSObject, PropertyKey, js_object_has_name,
+        JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_THROW, JSObject,
+        PropertyKey, js_object_has_name,
     },
     value::JSValue,
 };
@@ -15,7 +15,7 @@ use super::{
     JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_HAS_CONFIGURABLE,
     JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE,
     JS_PROP_HAS_WRITABLE, JS_PROP_LAZYINIT, JS_PROP_LENGTH, JS_PROP_TMASK, JS_PROP_WRITABLE,
-    JSProperty, JSPropertyDescriptor, check_define_prop_flags, get_prop_flags,
+    JSPropertyDescriptor, check_define_prop_flags, get_prop_flags,
 };
 
 impl JSObject {
@@ -32,12 +32,12 @@ impl JSObject {
         &self,
         ctx: &JSContext,
         prop: JSAtom,
-        val: JSValue,
+        value: JSValue,
         getter: JSValue,
         setter: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        let mut val: JSValue = val;
+        let mut val: JSValue = value;
 
         loop {
             if let Some((idx, prs_flags)) = self.find_shape_property(prop) {
@@ -60,13 +60,13 @@ impl JSObject {
 
                 if prs_flags & JS_PROP_TMASK == JS_PROP_LAZYINIT {
                     // Instantiate lazy property
-                    let mut pr = std::mem::take(&mut self.0.prop_values.borrow_mut()[idx]);
-                    pr.instantiate(self, prop, self)?;
-                    debug_assert!(matches!(pr, JSProperty::Normal(_)));
-                    debug_assert_eq!(
-                        self.find_shape_property(prop).unwrap().1 & JS_PROP_TMASK,
-                        JS_PROP_NORMAL
-                    );
+                    unsafe {
+                        self.0
+                            .prop_values
+                            .borrow_mut()
+                            .get_unchecked_mut(idx)
+                            .instantiate(self, idx, self)?;
+                    }
                     continue;
                 }
 
@@ -537,11 +537,6 @@ impl JSValue {
     ) -> Result<bool, i32> {
         self.define_property_value_i64(ctx, idx, val, flags | JS_PROP_C_W_E)
     }
-}
-
-#[deprecated(note = "unused")]
-pub unsafe fn js_free_desc(ctx: &JSContext, desc: *mut JSPropertyDescriptor) {
-    unreachable!("unused");
 }
 
 pub unsafe fn JS_DefineObjectName(ctx: &JSContext, obj: &JSValue, name: JSAtom, flags: u32) -> i32 {
