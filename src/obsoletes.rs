@@ -12,7 +12,7 @@ use crate::{
     array_buffer::JSFreeArrayBufferDataFunc,
     atom::{
         AtomDescKind, AtomHintAndId, AtomTypeHint, JS_ATOM_NULL, JS_ATOM_TAG_INT, JS_FreeAtom,
-        JSAtom, JSAtomStruct, consts::*,
+        JSAtom, JSAtomStruct,
     },
     bytecode::{OpCode, OpCodeTemp, arithmatic::JSStrictEqModeEnum},
     class::{ClassFieldsDef, JSClassDef, JSClassID, JSClassShortDef},
@@ -33,6 +33,7 @@ use crate::{
     },
     number::{JSToNumberHintEnum, MAX_SAFE_INTEGER},
     object::{
+        JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_THROW,
         JS_SetPrototypeInternal, JSObject, JSProperty, JSPropertyDescriptor, JSShape,
         JSShapeProperty, ObjectPayload, PropertyKey,
     },
@@ -1839,7 +1840,7 @@ pub unsafe fn JS_GetOwnPropertyNames2(
 // }
 
 // ptab and its atoms must be freed by the user.
-#[deprecated(note = "use JSObject::query_own_property_names() instead")]
+#[deprecated(note = "use JSObject::get_own_property_names() instead")]
 pub unsafe fn JS_GetOwnPropertyNamesInternal(
     ctx: &JSContext,
     ptab: *mut *mut PropertyKey,
@@ -4127,5 +4128,41 @@ pub unsafe fn js_parse_seek_token(
     //     -1
     // } else {
     //     0
+    // }
+}
+
+#[deprecated(note = "use JSObject::define_property_desc_multi() instead")]
+pub fn JS_ObjectDefineProperties(
+    ctx: &JSContext,
+    obj: &JSValue,
+    properties: &JSValue,
+) -> Result<(), i32> {
+    unreachable!("unused");
+
+    // if !obj.is_object() {
+    //     ctx.throw_type_error_not_an_object();
+    //     return Err(-1);
+    // }
+
+    // let props = properties.to_object(ctx)?;
+
+    // if let JSValue::Object(obj) = obj {
+    //     props.own_property_names_foreach(
+    //         ctx,
+    //         JS_GPN_ENUM_ONLY | JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK,
+    //         |cx, name: PropertyKey| {
+    //             let desc = props.get_property(cx, name.atom)?;
+    //             if let JSValue::Object(desc) = desc {
+    //                 obj.define_property_desc(cx, name.atom, &desc, JS_PROP_THROW)
+    //                     .map(|_| ())
+    //             } else {
+    //                 ctx.throw_type_error_not_an_object();
+    //                 return Err(-1);
+    //             }
+    //         },
+    //     )
+    // } else {
+    //     ctx.throw_type_error_not_an_object();
+    //     Err(-1)
     // }
 }

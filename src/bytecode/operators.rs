@@ -436,7 +436,7 @@ pub fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
                 let names = unsafe {
                     it.obj
                         .object_unchecked()
-                        .query_own_property_names(ctx, JS_GPN_INDEX_MASK | JS_GPN_SET_ENUM)?
+                        .get_own_property_names(ctx, JS_GPN_INDEX_MASK | JS_GPN_SET_ENUM)?
                 };
                 it.prop_count = names.len() as _;
                 it.prop_enums = names;

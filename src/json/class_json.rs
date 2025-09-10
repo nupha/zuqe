@@ -42,7 +42,7 @@ fn internalize_json_property(
             len = o.get_length_prop(ctx)? as u32;
             pks = [].into();
         } else {
-            pks = o.query_own_property_names(ctx, JS_GPN_ENUM_ONLY | JS_GPN_INDEX_MASK)?;
+            pks = o.get_own_property_names(ctx, JS_GPN_ENUM_ONLY | JS_GPN_INDEX_MASK)?;
             len = pks.len() as u32;
         }
 

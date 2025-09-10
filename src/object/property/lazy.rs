@@ -72,7 +72,7 @@ impl LazyInit {
 
 impl JSProperty {
     /// instantiate lazy property.
-    /// panic if property is not AutoInit type any more.
+    /// panic if property is not Lazy init type.
     pub(super) fn instantiate(
         &mut self,
         master_obj: &JSObject,

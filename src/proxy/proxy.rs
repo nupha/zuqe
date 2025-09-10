@@ -6,7 +6,7 @@ use crate::{
     class::JSClassExoticMethods,
     context::JSContext,
     error::JSResult,
-    function::{CallContext, JS_CALL_FLAG_CONSTRUCTOR, JS_CallConstructor2},
+    function::{JS_CALL_FLAG_CONSTRUCTOR, JS_CallConstructor2},
     object::{
         JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_GETSET,
         JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
@@ -576,7 +576,7 @@ fn js_proxy_get_own_property_names(
     if method.is_undefined() {
         return px
             .target
-            .query_own_property_names(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK);
+            .get_own_property_names(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK);
     }
 
     let prop_array = method.call(ctx, &px.handler, &[px.target.clone().into()])?;
@@ -617,7 +617,7 @@ fn js_proxy_get_own_property_names(
 
     for k2 in px
         .target
-        .query_own_property_names(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK)?
+        .get_own_property_names(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK)?
     {
         if !has_err {
             match px.target.get_own_property(ctx, k2.atom) {

@@ -4,7 +4,10 @@ use crate::{
     bytecode::js_get_function_name,
     context::JSContext,
     number::JS_NumberIsNegativeOrMinusZero,
-    object::{JS_PROP_NORMAL, JSObject, js_object_has_name},
+    object::{
+        JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_NORMAL, JS_PROP_THROW,
+        JSObject, PropertyKey, js_object_has_name,
+    },
     value::JSValue,
 };
 
@@ -25,7 +28,7 @@ impl JSObject {
        if JS_PROP_NO_EXOTIC is set, do not call the exotic define_own_property callback.
     */
     /// Note: `prop` is not consumed.
-    pub fn define_property(
+    pub(crate) fn define_property(
         &self,
         ctx: &JSContext,
         prop: JSAtom,
@@ -45,11 +48,10 @@ impl JSObject {
                     val = JSValue::from(array_length as u32);
                 }
 
-                //
-                // property exists
-                //
+                // property already exists
                 if !check_define_prop_flags(prs_flags, flags) {
-                    return if ctx.throw_type_error_or_false(flags, "property is not configurable") {
+                    return if ctx.should_throw_error(flags) {
+                        ctx.throw_type_error("property is not configurable");
                         Err(-1)
                     } else {
                         Ok(false)
@@ -57,57 +59,65 @@ impl JSObject {
                 }
 
                 if prs_flags & JS_PROP_TMASK == JS_PROP_LAZYINIT {
-                    // Instantiate property
+                    // Instantiate lazy property
                     let mut pr = std::mem::take(&mut self.0.prop_values.borrow_mut()[idx]);
-                    val = pr.instantiate(self, prop, self)?;
+                    pr.instantiate(self, prop, self)?;
                     debug_assert!(matches!(pr, JSProperty::Normal(_)));
                     debug_assert_eq!(
                         self.find_shape_property(prop).unwrap().1 & JS_PROP_TMASK,
                         JS_PROP_NORMAL
                     );
-                    self.0.prop_values.borrow_mut()[idx] = pr;
+                    continue;
                 }
 
                 let res = if flags
-                    & (JS_PROP_HAS_VALUE | JS_PROP_HAS_WRITABLE | JS_PROP_HAS_GET | JS_PROP_HAS_SET)
+                    & (JS_PROP_HAS_VALUE | JS_PROP_HAS_GET | JS_PROP_HAS_SET | JS_PROP_WRITABLE)
                     != 0
                 {
                     if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0 {
+                        // update to getter/setter property
                         self.update_prop_slot_getset(
                             ctx, prop, prs_flags, idx, getter, setter, flags,
-                        )?
+                        )
                     } else {
-                        self.update_prop_slot_normal(ctx, prop, prs_flags, idx, val, flags)?
+                        // update to normal property
+                        self.update_prop_slot_normal(ctx, prop, prs_flags, idx, val, flags)
                     }
                 } else {
-                    false
+                    Ok(true)
                 };
 
                 // update shape property flag
                 let mut mask = 0;
-                if flags & JS_PROP_HAS_CONFIGURABLE != 0 {
-                    mask |= JS_PROP_CONFIGURABLE;
-                }
-                if flags & JS_PROP_HAS_ENUMERABLE != 0 {
-                    mask |= JS_PROP_ENUMERABLE;
-                }
-                if flags & JS_PROP_LENGTH == 0 {
-                    // special prop '.length' must not be writable,
-                    // while non-length property could be writable.
-                    if flags & JS_PROP_HAS_WRITABLE != 0 {
+                let new_flags = if flags & JS_PROP_LENGTH != 0 {
+                    if flags & (JS_PROP_HAS_WRITABLE | JS_PROP_WRITABLE) == JS_PROP_HAS_WRITABLE {
+                        // has {writable:false} setting for `length` property
                         mask |= JS_PROP_WRITABLE;
                     }
-                }
+                    0
+                } else {
+                    if flags & JS_PROP_HAS_WRITABLE != 0 {
+                        // has {writable:XXX} setting
+                        mask |= JS_PROP_WRITABLE;
+                    }
+                    if flags & JS_PROP_HAS_CONFIGURABLE != 0 {
+                        mask |= JS_PROP_CONFIGURABLE;
+                    }
+                    if flags & JS_PROP_HAS_ENUMERABLE != 0 {
+                        mask |= JS_PROP_ENUMERABLE;
+                    }
+
+                    flags & mask
+                };
 
                 // Note: shape may have been changed, should reload current shape property
                 let (_, prs_flags2) = self.find_shape_property(prop).unwrap();
-                self.update_shape_property_flags(ctx, prop, (prs_flags2 & !mask) | (flags & mask))?;
+                self.update_shape_property_flags(ctx, prop, (prs_flags2 & !mask) | new_flags)?;
 
-                return Ok(res);
+                return res;
             }
 
-            // at this point, shape property does not exist.
-            // try fast array element
+            // shape property does not exist, try fast array element
             if self.flags().is_fast_array() {
                 match self.class_id() {
                     JS_CLASS_ARRAY => {
@@ -234,15 +244,6 @@ impl JSObject {
             break;
         } // loop
 
-        if !self.flags().extensible() {
-            return if ctx.should_throw_error(flags) {
-                ctx.throw_type_error("object is not extensible");
-                Err(-1)
-            } else {
-                Ok(false)
-            };
-        }
-
         self.create_property(ctx, prop, val, getter.clone(), setter.clone(), flags)
     }
 
@@ -295,31 +296,6 @@ impl JSObject {
         ret
     }
 
-    /// define property using descriptor object configuration.
-    /// `prop` is not consumed.
-    pub fn define_property_desc(
-        &self,
-        ctx: &JSContext,
-        prop: JSAtom,
-        desc: &JSObject,
-        flags: u32,
-    ) -> Result<bool, i32> {
-        let d = JSPropertyDescriptor::parse(ctx, desc)?;
-        self.define_property(ctx, prop, d.value, d.getter, d.setter, d.flags | flags)
-    }
-
-    #[inline(always)]
-    #[deprecated]
-    pub fn create_data_property_u32(
-        &self,
-        ctx: &JSContext,
-        idx: i64,
-        val: JSValue,
-        flags: u32,
-    ) -> Result<bool, i32> {
-        self.define_property_value_i64(ctx, idx, val, flags | JS_PROP_C_W_E)
-    }
-
     #[inline(always)]
     pub fn define_property_value_u32(
         &self,
@@ -368,6 +344,57 @@ impl JSObject {
                 | JS_PROP_HAS_ENUMERABLE,
         )
     }
+
+    /// define property using descriptor object configuration.
+    /// `prop` is not consumed.
+    #[inline]
+    pub fn define_property_desc(
+        &self,
+        ctx: &JSContext,
+        prop: JSAtom,
+        desc: &JSValue,
+        flags: u32,
+    ) -> Result<bool, i32> {
+        let d = JSPropertyDescriptor::from_value(ctx, desc)?;
+        self.define_property(ctx, prop, d.value, d.getter, d.setter, d.flags | flags)
+    }
+
+    /// define multiple properties using a descriptor defination object.
+    pub fn define_property_desc_multi(
+        &self,
+        ctx: &JSContext,
+        properties: &JSValue,
+    ) -> Result<(), i32> {
+        let props = properties.to_object(ctx)?;
+
+        // Note: each property of `props` is a descriptor object
+        props.own_property_names_foreach(
+            ctx,
+            JS_GPN_ENUM_ONLY | JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK,
+            |_, key: PropertyKey| -> Result<(), i32> {
+                let desc = props.get_property(ctx, key.atom)?;
+                println!(
+                    "[O.o] prop={:?}, desc={:?}",
+                    key.atom.to_utf8(ctx.rt()),
+                    desc
+                );
+                self.define_property_desc(ctx, key.atom, &desc, JS_PROP_THROW)?;
+                Ok(())
+            },
+        )
+    }
+
+    #[inline(always)]
+    #[deprecated]
+    pub fn create_data_property_u32(
+        &self,
+        ctx: &JSContext,
+        idx: i64,
+        val: JSValue,
+        flags: u32,
+    ) -> Result<bool, i32> {
+        self.define_property_value_i64(ctx, idx, val, flags | JS_PROP_C_W_E)
+    }
 }
 
 // TODO: these methods on JSValue are not needed.
@@ -381,7 +408,7 @@ impl JSValue {
        if JS_PROP_NO_EXOTIC is set, do not call the exotic define_own_property callback.
     */
     /// Note: `prop` is not consumed.
-    pub fn define_property(
+    pub(crate) fn define_property(
         &self,
         ctx: &JSContext,
         prop: JSAtom,
@@ -398,20 +425,20 @@ impl JSValue {
         }
     }
 
-    /// add or update a property with value in `self`.
+    /// add or update a property with `value`.
     /// Note: `prop` is not consumed.
     #[inline(always)]
     pub fn define_property_value(
         &self,
         ctx: &JSContext,
         prop: JSAtom,
-        val: JSValue,
+        value: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
         self.define_property(
             ctx,
             prop,
-            val,
+            value,
             JSValue::UNDEFINED,
             JSValue::UNDEFINED,
             flags

@@ -87,8 +87,7 @@ impl ForInIterObjPayload {
 
             if !it.is_array {
                 // obj is not an array: query own property names list
-                let names =
-                    ob.query_own_property_names(ctx, JS_GPN_INDEX_MASK | JS_GPN_SET_ENUM)?;
+                let names = ob.get_own_property_names(ctx, JS_GPN_INDEX_MASK | JS_GPN_SET_ENUM)?;
                 it.prop_count = names.len() as _;
                 it.prop_enums = names;
             }
@@ -139,7 +138,7 @@ impl ForInIterObjPayload {
             let lst = unsafe {
                 self.obj
                     .object_unchecked()
-                    .query_own_property_names(ctx, JS_GPN_INDEX_MASK | JS_GPN_SET_ENUM)
+                    .get_own_property_names(ctx, JS_GPN_INDEX_MASK | JS_GPN_SET_ENUM)
             }?;
             self.is_array = false;
             self.prop_count = lst.len() as _;

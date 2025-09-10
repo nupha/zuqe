@@ -534,41 +534,41 @@ impl JSObject {
         } else {
             // sparse array
             // Note: prop `length` must be less than u32::MAX
-            let mut old_len = self
+            let mut cur_len = self
                 .0
                 .prop_values
                 .borrow()
                 .first()
                 .map(|pr| pr.value(ctx, &JSValue::UNDEFINED))
-                .unwrap() // `length` property must be defined in slot #0
+                .unwrap()
                 .and_then(|v| v.to_u32(ctx))?;
 
-            if length < old_len {
+            if length < cur_len {
                 // delete index property
                 let mut sh = self.shape().unwrap();
-                let d = old_len - length;
+                let d = cur_len - length;
                 let propdef_len = sh.0.borrow().prop_defs.len() as u32;
 
                 if d <= propdef_len {
                     // faster to iterate
-                    while old_len > length {
-                        let atom = JSAtom::from_u32(ctx.rt_mut(), old_len as u32 - 1)?;
+                    while cur_len > length {
+                        let atom = JSAtom::from_u32(ctx.rt_mut(), cur_len as u32 - 1)?;
                         let ret = self.delete_property_internal(ctx, atom);
                         JS_FreeAtom(ctx, atom);
                         if let Ok(false) = ret {
                             break; // property is not configurable
                         }
-                        old_len -= 1;
+                        cur_len -= 1;
                     }
                 } else {
                     // faster to iterate thru all the properties.
                     // Need two passes in case one of the property is not  configurable
-                    old_len = length;
+                    cur_len = length;
                     sh.with_mut(|sh| {
                         for pr in sh.prop_defs.values() {
                             if let Some(i) = pr.atom.to_array_index(ctx.rt()) {
-                                if i >= old_len && (pr.flags() & JS_PROP_CONFIGURABLE == 0) {
-                                    old_len = i + 1;
+                                if i >= cur_len && (pr.flags() & JS_PROP_CONFIGURABLE == 0) {
+                                    cur_len = i + 1;
                                 }
                             }
                         }
@@ -584,7 +584,7 @@ impl JSObject {
                                 .unwrap();
 
                         if let Some(idx) = prop.to_array_index(ctx.rt()) {
-                            if idx >= old_len {
+                            if idx >= cur_len {
                                 let _r = self.delete_property_internal(ctx, prop);
                                 debug_assert!(_r.is_ok());
 
@@ -595,14 +595,17 @@ impl JSObject {
                     }
                 }
             } else {
-                old_len = length;
+                cur_len = length;
             }
 
-            self.0.prop_values.borrow_mut()[0] = JSProperty::Normal(JSValue::from(old_len as u32));
+            unsafe {
+                *self.0.prop_values.borrow_mut().get_unchecked_mut(0) =
+                    JSProperty::Normal(JSValue::from(cur_len as u32));
+            }
 
-            if old_len > length {
+            if cur_len > length {
                 return if throw {
-                    ctx.throw_type_error("'length' is not configurable");
+                    ctx.throw_type_error("not configurable");
                     Err(-1)
                 } else {
                     Ok(false)

@@ -174,55 +174,67 @@ impl JSObject {
         ctx: &JSContext,
         prop: JSAtom,
     ) -> Result<Option<JSPropertyDescriptor>, i32> {
-        if let Some((idx, prs_flags)) = self.find_shape_property(prop) {
-            let mut desc = JSPropertyDescriptor {
-                flags: prs_flags & JS_PROP_C_W_E,
-                ..Default::default()
-            };
+        loop {
+            if let Some((idx, prs_flags)) = self.find_shape_property(prop) {
+                let mut desc = JSPropertyDescriptor {
+                    flags: prs_flags & JS_PROP_C_W_E,
+                    ..Default::default()
+                };
 
-            match prs_flags & JS_PROP_TMASK {
-                JS_PROP_NORMAL => {
-                    desc.value =
-                        self.0.prop_values.borrow()[idx].value(ctx, &JSValue::UNDEFINED)?;
-                }
-                JS_PROP_GETSET => {
-                    desc.flags |= JS_PROP_GETSET;
-                    if let JSProperty::GetSet { getter, setter } =
-                        self.0.prop_values.borrow()[idx].clone()
-                    {
-                        desc.getter = getter.map_or(JSValue::UNDEFINED, JSValue::Object);
-                        desc.setter = setter.map_or(JSValue::UNDEFINED, JSValue::Object);
-                    } else {
-                        unreachable!()
+                match prs_flags & JS_PROP_TMASK {
+                    JS_PROP_NORMAL => {
+                        desc.value =
+                            self.0.prop_values.borrow()[idx].value(ctx, &JSValue::UNDEFINED)?;
+                    }
+                    JS_PROP_GETSET => {
+                        desc.flags |= JS_PROP_GETSET;
+                        if let JSProperty::GetSet { getter, setter } =
+                            self.0.prop_values.borrow()[idx].clone()
+                        {
+                            desc.getter = getter.map_or(JSValue::UNDEFINED, JSValue::Object);
+                            desc.setter = setter.map_or(JSValue::UNDEFINED, JSValue::Object);
+                        } else {
+                            unreachable!()
+                        }
+                    }
+                    JS_PROP_VARREF => {
+                        desc.value =
+                            self.0.prop_values.borrow()[idx].value(ctx, &JSValue::UNDEFINED)?;
+                        if desc.value.is_uninitialized() {
+                            JS_ThrowReferenceErrorUninitialized(ctx, prop);
+                            return Err(-1);
+                        }
+                    }
+                    JS_PROP_LAZYINIT => {
+                        // Instantiate lazy object
+                        desc.value = unsafe {
+                            self.0
+                                .prop_values
+                                .borrow_mut()
+                                .get_unchecked_mut(idx)
+                                .instantiate(self, prop, self)?
+                        };
+                        // let mut pr = std::mem::take(&mut self.0.prop_values.borrow_mut()[idx]);
+                        // desc.value = pr.instantiate(self, prop, self)?;
+                        // debug_assert!(matches!(pr, JSProperty::Normal(_)));
+                        // self.0.prop_values.borrow_mut()[idx] = pr;
+                        debug_assert_eq!(
+                            self.find_shape_property(prop).unwrap().1 & JS_PROP_TMASK,
+                            JS_PROP_NORMAL
+                        );
+                        continue;
+                    }
+                    _ => {
+                        unreachable!();
                     }
                 }
-                JS_PROP_VARREF => {
-                    desc.value =
-                        self.0.prop_values.borrow()[idx].value(ctx, &JSValue::UNDEFINED)?;
-                    if desc.value.is_uninitialized() {
-                        JS_ThrowReferenceErrorUninitialized(ctx, prop);
-                        return Err(-1);
-                    }
-                }
-                JS_PROP_LAZYINIT => {
-                    // Instantiate property
-                    let mut pr = std::mem::take(&mut self.0.prop_values.borrow_mut()[idx]);
-                    desc.value = pr.instantiate(self, prop, self)?;
-                    debug_assert!(matches!(pr, JSProperty::Normal(_)));
-                    debug_assert_eq!(
-                        self.find_shape_property(prop).unwrap().1 & JS_PROP_TMASK,
-                        JS_PROP_NORMAL
-                    );
-                    self.0.prop_values.borrow_mut()[idx] = pr;
-                }
-                _ => {}
+                return Ok(Some(desc));
+            } else {
+                break;
             }
-
-            return Ok(Some(desc));
         }
 
         let flags = self.flags();
-
         if flags.is_exotic() {
             if flags.is_fast_array() {
                 // specific case for fast arrays
@@ -236,13 +248,13 @@ impl JSObject {
                         setter: JSValue::UNDEFINED,
                     }));
                 }
-            } else {
-                let em = ctx.rt().class_defs[self.class_id() as usize].exotic;
-                if !em.is_null() {
-                    if let Some(cb) = unsafe { (*em).get_own_property } {
-                        return cb(ctx, JSValue::Object(self.clone()), prop);
-                    }
-                }
+            } else if let Some(f) = unsafe {
+                ctx.rt().class_defs[self.class_id() as usize]
+                    .exotic
+                    .as_ref()
+                    .and_then(|xm| xm.get_own_property)
+            } {
+                return f(ctx, JSValue::Object(self.clone()), prop);
             }
         }
 
@@ -284,31 +296,28 @@ impl JSObject {
     ) -> Result<bool, i32> {
         let update_array_length_fn =
             |arr: &JSObject, idx: u32, cur_len: i64| -> Option<Result<bool, i32>> {
-                // Note: array length must <= u32::MAX
-                if idx < u32::MAX {
-                    let new_len = idx + 1;
-                    if new_len > cur_len as u32 {
-                        // prop index 0 is `length`
-                        let prop0_flags = arr
-                            .shape()
-                            .map(|sh| sh.0.borrow().prop_defs.first().unwrap().1.flags())
-                            .unwrap();
+                debug_assert!(idx < u32::MAX, "array length<=u32::MAX, so idx<u32::MAX");
 
-                        if prop0_flags & JS_PROP_WRITABLE == 0 {
-                            return Some(if ctx.JS_ThrowTypeErrorReadOnly(flags, JS_ATOM_length) {
-                                Ok(false)
-                            } else {
-                                Err(-1)
-                            });
-                        }
+                if idx + 1 > cur_len as u32 {
+                    // prop index 0 is `length`
+                    let prs_flags = arr
+                        .shape()
+                        .map(|sh| sh.0.borrow().prop_defs.first().unwrap().1.flags())
+                        .unwrap();
 
-                        arr.0.prop_values.borrow_mut()[0] =
-                            JSProperty::Normal(JSValue::from(new_len));
+                    if prs_flags & JS_PROP_WRITABLE == 0 {
+                        return if ctx.should_throw_error(flags) {
+                            ctx.throw_type_error_read_only(JS_ATOM_length);
+                            Some(Err(-1))
+                        } else {
+                            None
+                        };
                     }
-                    None
-                } else {
-                    None
+
+                    arr.0.prop_values.borrow_mut()[0] = JSProperty::Normal(JSValue::from(idx + 1));
                 }
+
+                None
             };
 
         let obj_flags = self.flags();
@@ -330,8 +339,7 @@ impl JSObject {
                     };
 
                     if obj_flags.is_fast_array() {
-                        if let Some(n) = prop.to_small_int() {
-                            let idx = n;
+                        if let Some(idx) = prop.to_small_int() {
                             let list_count = self.fast_array_count();
                             if idx == list_count {
                                 if !self.flags().extensible() {
@@ -382,7 +390,7 @@ impl JSObject {
                                 }
                             } else {
                                 // leaves a hole between `arr_idx` and `idx`,
-                                // this should be sparse array.
+                                // will degrade to sparse array.
                                 if let Err(e) = self.destruct_fast_array(ctx) {
                                     return if ctx.should_throw_error(flags) {
                                         Err(e)

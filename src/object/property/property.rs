@@ -86,7 +86,6 @@ pub const JS_GPN_PRIVATE_MASK: i32 = 1 << 2;
 /// Only include enumerable properties
 pub const JS_GPN_ENUM_ONLY: i32 = 1 << 4;
 /// set theJSPropertyEnum.is_enumerable field
-#[deprecated(note = "has no effect")]
 pub const JS_GPN_SET_ENUM: i32 = 1 << 5;
 
 #[derive(Debug, Clone)]
@@ -176,6 +175,16 @@ impl JSPropertyDescriptor {
             getter,
             setter,
         })
+    }
+
+    /// Parse a value to JSPropertyDescriptor.
+    #[inline]
+    pub(crate) fn from_value(ctx: &JSContext, desc: &JSValue) -> Result<Self, i32> {
+        if let Some(o) = desc.object() {
+            Self::parse(ctx, o)
+        } else {
+            Ok(Self::default())
+        }
     }
 
     /// build object from descriptor

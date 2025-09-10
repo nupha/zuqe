@@ -9,9 +9,7 @@ use crate::{
     value::JSValue,
 };
 
-use super::{
-    JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SET_ENUM, JS_PROP_ENUMERABLE, JS_PROP_THROW,
-};
+use super::{JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SET_ENUM, JS_PROP_ENUMERABLE};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PropertyKeyKind {
@@ -156,23 +154,18 @@ impl JSObject {
             } {
                 // Note: exotic keys comes after the object own properties.
                 let mut has_err = false;
-
                 for pk in f(ctx, self)? {
                     if !has_err {
                         let atom_kind = pk.atom.kind(ctx.rt());
-
                         if (flags >> (atom_kind as u8)) & 1 != 0 {
-                            // XXX: what's the purpose to read `is_enumerable` from descr?
-                            // why not use is_enumerable set in exotic get_own_property callback?
-                            //
-                            // if flags & (JS_GPN_SET_ENUM | JS_GPN_ENUM_ONLY) != 0 {
-                            //     let mut is_enumerable = false;
-                            //     if let Some(d) = self.get_own_property(ctx, atom)? {
-                            //         is_enumerable = d.flags & JS_PROP_ENUMERABLE != 0;
-                            //     }
-                            // }
+                            let mut is_enumerable = false;
+                            if flags & (JS_GPN_SET_ENUM | JS_GPN_ENUM_ONLY) != 0 {
+                                if let Some(d) = self.get_own_property(ctx, pk.atom)? {
+                                    is_enumerable = d.flags & JS_PROP_ENUMERABLE != 0;
+                                }
+                            }
 
-                            if pk.is_enumerable || flags & JS_GPN_ENUM_ONLY == 0 {
+                            if is_enumerable || flags & JS_GPN_ENUM_ONLY == 0 {
                                 let isa = if let Some(i) = pk.atom.to_array_index(ctx.rt()) {
                                     PropertyKeyKind::ArrayIndex(i as u32)
                                 } else if atom_kind == AtomDescKind::JS_ATOM_KIND_STRING {
@@ -212,7 +205,7 @@ impl JSObject {
     /// - Property names (numbers, strings, symbols). Note: The atom was cloned, it should be freed by caller.
     /// - Sorted by: numbers first, then strings, symbols, and exotic names.
     /// - Can be filtered using flags
-    pub fn query_own_property_names(
+    pub fn get_own_property_names(
         &self,
         ctx: &JSContext,
         flags: i32,
@@ -222,7 +215,7 @@ impl JSObject {
 
         let r = self.own_property_names_foreach(ctx, flags, |cx, pp| {
             if lst.len() == lst.capacity() {
-                lst.try_reserve_exact(16).map_err(|_| {
+                lst.try_reserve_exact(8).map_err(|_| {
                     cx.throw_out_of_memory();
                     -1
                 })?;
@@ -290,7 +283,7 @@ impl JSObject {
         flags: i32,
         kind: JSIteratorKindEnum,
     ) -> Result<Box<[(JSValue, JSValue)]>, i32> {
-        let lst = self.query_own_property_names(ctx, flags & !JS_GPN_ENUM_ONLY)?;
+        let lst = self.get_own_property_names(ctx, flags & !JS_GPN_ENUM_ONLY)?;
 
         let mut ret = Vec::<(JSValue, JSValue)>::new();
         ret.try_reserve_exact(lst.len()).map_err(|_| {

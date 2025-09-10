@@ -2,7 +2,7 @@ use crate::{
     JS_CLASS_ARRAY, JS_CLASS_MODULE_NS,
     atom::{JSAtom, consts::JS_ATOM_length},
     context::JSContext,
-    object::{JS_PROP_LAZYINIT, JS_PROP_THROW, JSObject},
+    object::{JS_PROP_LAZYINIT, JSObject},
     value::JSValue,
 };
 
@@ -13,7 +13,7 @@ use super::{
 };
 
 impl JSObject {
-    /// update property value as normal at specified slot `idx`
+    /// update normal property value at slot `idx`
     pub(super) fn update_prop_slot_normal(
         &self,
         ctx: &JSContext,
@@ -61,7 +61,7 @@ impl JSObject {
             }
         }
 
-        // write value
+        // update value
         if prs_flags & JS_PROP_TMASK == JS_PROP_VARREF {
             let slot = &mut self.0.prop_values.borrow_mut()[idx];
             if let JSProperty::VarRef(vref) = slot {
@@ -112,14 +112,11 @@ impl JSObject {
                 unreachable!();
             }
         } else if prs_flags & JS_PROP_LENGTH != 0 {
-            // special property: length
-            debug_assert_eq!(idx, 0, "length property must be index 0");
-
             if flags & JS_PROP_HAS_VALUE != 0 {
                 self.set_array_length(
                     ctx,
                     val.to_array_length(ctx, false)?,
-                    flags & JS_PROP_THROW != 0,
+                    ctx.should_throw_error(flags),
                 )
             } else {
                 Ok(true)
