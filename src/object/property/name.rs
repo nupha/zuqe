@@ -28,6 +28,7 @@ pub struct PropertyKey {
 }
 
 impl PropertyKey {
+    /// Note: `atom` is used **AS-IS**: it's ownership is transparent, it's neither cloned nor consumed inside.
     pub fn new(ctx: &JSContext, atom: JSAtom, is_enumerable: bool, is_exotic: bool) -> Self {
         let kind = atom.kind(ctx.rt());
 

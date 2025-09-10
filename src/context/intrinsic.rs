@@ -44,7 +44,7 @@ use crate::{
     number::{js_number_constructor, js_number_funcs, js_number_proto_funcs},
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET,
-        JS_PROP_HAS_SET, JS_PROP_WRITABLE, JS_SetConstructorBit, ObjectPayload, js_object_seal,
+        JS_PROP_HAS_SET, JS_PROP_WRITABLE, JS_SetConstructorBit, ObjectPayload,
     },
     promise::{Promise, js_promise_funcs, js_promise_proto_funcs},
     proxy::{Proxy, js_proxy_constructor, js_proxy_funcs},
@@ -100,17 +100,7 @@ impl JSContext {
             )
             .unwrap();
 
-        js_object_seal(
-            self,
-            CallContext::new(
-                self,
-                JSValue::UNDEFINED,
-                std::slice::from_ref(&throw_type_error),
-                1,
-                None,
-            ),
-        )
-        .unwrap();
+        throw_type_error.seal(self, true).unwrap();
     }
 
     fn intrinsic_object(&self) {

@@ -1,5 +1,3 @@
-#[cfg(debug_assertions)]
-use std::cell::UnsafeCell;
 use std::{
     cell::{Cell, RefCell},
     fmt::Formatter,
@@ -7,6 +5,9 @@ use std::{
     ptr::NonNull,
     rc::{Rc, Weak},
 };
+
+#[cfg(debug_assertions)]
+use std::cell::UnsafeCell;
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
@@ -18,8 +19,7 @@ use crate::{
     class::JSClassID,
     context::JSContext,
     error::JSResult,
-    function::CallContext,
-    object::GCObjectWeakref,
+    object::{GCObjectWeakref, PropertyKey},
     runtime::JSRuntime,
     value::JSValue,
 };
@@ -536,6 +536,36 @@ impl JSObject {
         )
     }
 
+    /// check if object is sealed.
+    pub fn is_sealed(&self, ctx: &JSContext, is_frozen: bool) -> Result<bool, i32> {
+        const NOT_SEALED_ERR: i32 = i32::MAX;
+
+        if let Err(e) = self.own_property_names_foreach(
+            ctx,
+            JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK,
+            |_, name| {
+                if let Some(desc) = self.get_own_property(ctx, name.atom)? {
+                    if desc.flags & JS_PROP_CONFIGURABLE != 0
+                        || (is_frozen && (desc.flags & JS_PROP_WRITABLE != 0))
+                    {
+                        // found writable prop: that means object is not sealed
+                        // return Err to stop iterate name
+                        return Err(NOT_SEALED_ERR);
+                    }
+                }
+                Ok(())
+            },
+        ) {
+            return if e == NOT_SEALED_ERR {
+                Ok(false) // not sealed
+            } else {
+                Err(e) // real error
+            };
+        }
+
+        self.is_extensible(ctx).map(|b| !b)
+    }
+
     #[inline]
     pub fn downgrade(&self) -> JSObjectWeakref {
         JSObjectWeakref(Rc::downgrade(&self.0))
@@ -663,7 +693,7 @@ impl JSValue {
     }
 
     /// Seal object if the value is an object, otherwise returns the value itself duplicated.
-    pub fn seal(self, ctx: &JSContext, freeze: bool) -> Result<Self, i32> {
+    pub fn seal(&self, ctx: &JSContext, freeze: bool) -> Result<(), i32> {
         if let JSValue::Object(p) = &self {
             if !p.prevent_extensions(ctx)? {
                 ctx.throw_type_error("proxy preventExtensions handler returned false");
@@ -685,6 +715,8 @@ impl JSValue {
                         }
                     }
 
+                    // equivelent to set {configurable: false},
+                    // or {configurable:false, writable: false} if freeze=true
                     p.define_property(
                         cx,
                         prop,
@@ -699,38 +731,15 @@ impl JSValue {
             )?;
         }
 
-        Ok(self)
+        Ok(())
     }
 
     /// check if value is sealed. Object value will check property, Non-object value is always treated as sealed.
     pub fn is_sealed(&self, ctx: &JSContext, is_frozen: bool) -> Result<bool, i32> {
-        if !self.is_object() {
-            return Ok(true);
-        }
-
-        let p = unsafe { self.object_unchecked() };
-        let mut check_unsealed: Option<bool> = None;
-
-        p.own_property_names_foreach(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK, |cx, name| {
-            if check_unsealed.is_none() {
-                if let Some(desc) = p.get_own_property(cx, name.atom)? {
-                    if desc.flags & JS_PROP_CONFIGURABLE != 0
-                        || (is_frozen && (desc.flags & JS_PROP_WRITABLE != 0))
-                    {
-                        // has any writable prop - not sealed
-                        check_unsealed.replace(true);
-                    }
-                }
-            }
-
-            Ok(())
-        })?;
-
-        if check_unsealed.is_some() {
-            // not sealed
-            Ok(false)
+        if let Some(o) = self.object() {
+            o.is_sealed(ctx, is_frozen)
         } else {
-            self.is_extensible(ctx)
+            Ok(true)
         }
     }
 }
@@ -834,12 +843,6 @@ pub fn JS_PreventExtensions(ctx: &JSContext, obj: &JSValue) -> Result<bool, i32>
     } else {
         Ok(false)
     }
-}
-
-pub fn js_object_seal(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let freeze_flag = cc.magic();
-    let obj = cc.arg(0).clone();
-    obj.seal(ctx, freeze_flag != 0)
 }
 
 pub fn JS_SpeciesConstructor(

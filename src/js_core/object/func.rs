@@ -387,7 +387,10 @@ pub fn js_object_assign(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_object_seal(ctx: &JSContext, cc: CallContext) -> JSResult {
-    cc.arg(0).clone().seal(ctx, cc.magic() != 0)
+    let freeze = cc.magic() == 1;
+    let obj = cc.arg(0).clone();
+    obj.seal(ctx, freeze)?;
+    Ok(obj)
 }
 
 pub fn js_object_isSealed(ctx: &JSContext, cc: CallContext) -> JSResult {
