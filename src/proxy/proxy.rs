@@ -10,9 +10,8 @@ use crate::{
     object::{
         JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_GETSET,
         JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
-        JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_THROW, JS_PROP_WRITABLE,
-        JS_SetPrototypeInternal, JSObject, JSPropertyDescriptor, ObjectPayload, PropertyKey,
-        check_define_prop_flags,
+        JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_THROW, JS_PROP_WRITABLE, JSObject,
+        JSPropertyDescriptor, ObjectPayload, PropertyKey, check_define_prop_flags,
     },
     object_cast,
     runtime::{JSRuntime, js_check_stack_overflow},
@@ -125,7 +124,7 @@ impl ProxyObjPayload {
     ) -> Result<bool, i32> {
         let method = self.get_method(ctx, JS_ATOM_setPrototypeOf)?;
         if method.is_undefined() {
-            return JS_SetPrototypeInternal(ctx, &self.target.clone().into(), proto_val, throw);
+            return self.target.set_prototype_internal(ctx, proto_val, throw);
         }
 
         let ret = method.call(

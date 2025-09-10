@@ -7,7 +7,7 @@ use crate::{
     error::JSResult,
     eval::JS_EVAL_TYPE_INDIRECT,
     function::{CallContext, JS_CALL_FLAG_COPY_ARGV, JS_GetFunctionRealm},
-    object::{JS_SetPrototypeInternal, JSObject},
+    object::JSObject,
     object_cast,
     runtime::js_check_stack_overflow,
     stack_frame::StackFrame,
@@ -228,7 +228,7 @@ impl BytecodeFunction {
                 proto = realm.0.borrow().class_proto[func_kind.class_id() as usize].clone();
             }
 
-            JS_SetPrototypeInternal(ctx, &func_val, proto, true)?;
+            func_val.set_prototype_internal(ctx, proto, true)?;
         }
 
         Ok(func_val)

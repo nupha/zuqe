@@ -9,10 +9,7 @@ use crate::{
         js_object_defineProperty, js_object_getOwnPropertyDescriptor, js_object_getPrototypeOf,
         js_object_isExtensible, js_object_preventExtensions,
     },
-    object::{
-        JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE,
-        JS_SetPrototypeInternal,
-    },
+    object::{JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
     value::JSValue,
 };
 
@@ -110,7 +107,9 @@ pub fn js_reflect_set(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_reflect_setPrototypeOf(ctx: &JSContext, cc: CallContext) -> JSResult {
-    JS_SetPrototypeInternal(ctx, cc.arg(0), cc.arg(1).clone(), false).map(JSValue::Bool)
+    cc.arg(0)
+        .set_prototype_internal(ctx, cc.arg(1).clone(), false)
+        .map(JSValue::Bool)
 }
 
 pub fn js_reflect_ownKeys(ctx: &JSContext, cc: CallContext) -> JSResult {

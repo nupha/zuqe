@@ -11,7 +11,7 @@ use crate::{
         JSFunctionKindEnum,
     },
     iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW},
-    object::{JS_PROP_CONFIGURABLE, JS_SetPrototypeInternal, ObjectPayload},
+    object::{JS_PROP_CONFIGURABLE, ObjectPayload},
     runtime::JSRuntime,
     string::StringBuf,
     value::{JSValue, JSValueConst},
@@ -137,7 +137,7 @@ pub fn js_function_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
             proto = realm.0.borrow().class_proto[func_kind.class_id() as usize].clone();
         }
 
-        JS_SetPrototypeInternal(ctx, &func_obj, proto, true)?;
+        func_obj.set_prototype_internal(ctx, proto, true)?;
     }
 
     Ok(func_obj)

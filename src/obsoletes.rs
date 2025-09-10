@@ -31,16 +31,15 @@ use crate::{
         JSExportEntry, JSExportTypeEnum, JSResolveEntry, JSResolveResultEnum, ModuleDef,
         ModuleDefInner,
     },
-    number::{JSToNumberHintEnum, MAX_SAFE_INTEGER},
+    number::JSToNumberHintEnum,
     object::{
-        JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_THROW,
-        JS_SetPrototypeInternal, JSObject, JSProperty, JSPropertyDescriptor, JSShape,
-        JSShapeProperty, ObjectPayload, PropertyKey,
+        JSObject, JSProperty, JSPropertyDescriptor, JSShape, JSShapeProperty, ObjectPayload,
+        PropertyKey,
     },
     parse::{JSParseExportEnum, JSParseFunctionEnum, JSParseState},
     promise::{JSPromiseReactionData, JSPromiseStateEnum, JobCallbackFn, Promise},
     proxy::ProxyObjPayload,
-    runtime::{JSRuntime, js_check_stack_overflow},
+    runtime::JSRuntime,
     stack_frame::StackFrame,
     string::{JSString, JSStringInner},
     unicode::{UTF8_CHAR_LEN_MAX, unicode_from_utf8},
@@ -4199,4 +4198,14 @@ pub unsafe fn JS_AutoInitProperty(
 #[deprecated(note = "unused")]
 pub unsafe fn js_free_desc(ctx: &JSContext, desc: *mut JSPropertyDescriptor) {
     unreachable!("unused");
+}
+
+#[deprecated(note = "use JSValue::set_prototype_internal() instead")]
+pub fn JS_SetPrototypeInternal(
+    ctx: &JSContext,
+    obj: &JSValue,
+    proto_val: JSValue,
+    throw_flag: bool,
+) -> Result<bool, i32> {
+    obj.set_prototype_internal(ctx, proto_val, throw_flag)
 }

@@ -11,7 +11,6 @@ use crate::{
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE,
         JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW,
-        JS_SetPrototypeInternal,
     },
     value::{JSValue, JSValueConst},
 };
@@ -182,7 +181,7 @@ pub fn js_object_getset___proto__(ctx: &JSContext, cc: CallContext) -> JSResult 
             Ok(JSValue::UNDEFINED)
         } else {
             // `proto` is an object or null
-            JS_SetPrototypeInternal(ctx, &this_val, proto.clone(), true)?;
+            this_val.set_prototype_internal(ctx, proto.clone(), true)?;
             Ok(JSValue::UNDEFINED)
         }
     }

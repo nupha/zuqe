@@ -36,8 +36,7 @@ use crate::{
         JS_DefineObjectName, JS_DefineObjectNameComputed, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE,
         JS_PROP_ENUMERABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET,
         JS_PROP_HAS_SET, JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW,
-        JS_PROP_THROW_STRICT, JS_PROP_VARREF, JS_PROP_WRITABLE, JS_SetPrototypeInternal, JSObject,
-        JSProperty,
+        JS_PROP_THROW_STRICT, JS_PROP_VARREF, JS_PROP_WRITABLE, JSObject, JSProperty,
     },
     stack_frame::StackFrame,
     string::JSString,
@@ -1632,7 +1631,10 @@ impl Bytecode {
                         // [this_obj, proto, ^] -> [this_obj, ^]
                         let proto = SP_TAKE!(-1);
                         if proto.is_object() || proto.is_null() {
-                            if JS_SetPrototypeInternal(ctx, SP_REF!(-2), proto, true).is_err() {
+                            if SP_REF!(-2)
+                                .set_prototype_internal(ctx, proto, true)
+                                .is_err()
+                            {
                                 break State::Exception;
                             }
                             SP_GO!(-1);

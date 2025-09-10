@@ -12,7 +12,7 @@ use crate::{
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_C_W_E,
         JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_THROW, JS_PROP_WRITABLE,
-        JS_SetPrototypeInternal, ObjectPayload,
+        ObjectPayload,
     },
     value::JSValue,
 };
@@ -61,7 +61,7 @@ pub fn js_object_getPrototypeOf(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_object_setPrototypeOf(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj = cc.arg(0);
-    JS_SetPrototypeInternal(ctx, obj, cc.arg(1).clone(), true)?;
+    obj.set_prototype_internal(ctx, cc.arg(1).clone(), true)?;
     Ok(obj.clone())
 }
 
