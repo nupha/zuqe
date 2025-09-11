@@ -2241,7 +2241,7 @@ pub unsafe fn JS_GetOwnProperty(
     }
 }
 
-#[deprecated(note = "use JSValue::copy_properties_from() instead")]
+#[deprecated(note = "use JSValue::copy_data_properties_from() instead")]
 pub unsafe fn JS_CopyDataProperties(
     ctx: &JSContext,
     target: JSValue,
@@ -2249,7 +2249,7 @@ pub unsafe fn JS_CopyDataProperties(
     excluded: JSValue,
     setprop: bool,
 ) -> Result<(), i32> {
-    target.copy_properties_from(ctx, &source, &excluded, setprop)
+    target.copy_data_properties_from(ctx, &source, &excluded, setprop)
 }
 
 #[deprecated(note = "use JSValue::ordinary_instance_of() instead")]

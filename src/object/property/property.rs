@@ -2,10 +2,11 @@ use std::ffi::c_void;
 
 use crate::{
     JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
-    atom::{JS_AtomIsNumericIndex, JSAtom, consts::*},
+    atom::{JS_AtomIsNumericIndex, JS_FreeAtom, JSAtom, consts::*},
     context::{JSContext, JSContextWeakref},
     error::JSResult,
     function::JSVarRef,
+    iterator::JSIteratorKindEnum,
     object::{JSObject, LazyInit},
     value::{JS_GetPrototypePrimitive, JSValue},
 };
@@ -336,9 +337,9 @@ impl JSObject {
         Ok(false)
     }
 
-    /// copy and assign enumerable properties from `source` value to `self`.
+    /// copy and assign enumerable properties from `source` to `self`.
     /// equivelent to js `Object::assign(self, source)`
-    pub fn copy_properties_from(
+    pub fn copy_data_properties_from(
         &self,
         ctx: &JSContext,
         source: &Self,
@@ -346,7 +347,6 @@ impl JSObject {
         setprop: bool,
     ) -> Result<(), i32> {
         let mut gpn_flags = JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK | JS_GPN_ENUM_ONLY;
-
         if source.flags().is_exotic()
             && unsafe {
                 ctx.rt().class_defs[source.class_id() as usize]
@@ -361,32 +361,83 @@ impl JSObject {
             gpn_flags &= !JS_GPN_ENUM_ONLY;
         }
 
-        source.own_property_names_foreach(ctx, gpn_flags, |cx, name| -> Result<(), i32> {
+        let keys = source.get_own_property_names(ctx, gpn_flags)?;
+        let mut has_err = false;
+
+        for k in keys.iter() {
             if let Some(excl) = excluded {
-                if excl.get_own_property(ctx, name.atom)?.is_some() {
-                    return Ok(()); // excluded prop, skip
+                let Ok(skip) = excl.get_own_property(ctx, k.atom).map(|x| x.is_some()) else {
+                    has_err = true;
+                    break;
+                };
+                if skip {
+                    continue; // excluded prop, skip
                 }
             }
 
             if gpn_flags & JS_GPN_ENUM_ONLY == 0 {
-                if let Some(desc) = source.get_own_property(ctx, name.atom)? {
+                if let Some(desc) = source.get_own_property(ctx, k.atom)? {
                     if desc.flags & JS_PROP_ENUMERABLE == 0 {
-                        return Ok(()); // skip if non enumerable
+                        continue; // skip if non enumerable
                     }
                 } else {
-                    return Ok(()); // skip if prop does not exsit
+                    continue; // skip if prop does not exist
                 }
             }
 
-            let val = source.get_property(cx, name.atom)?;
-            if setprop {
-                self.set_property(cx, name.atom, val)?;
-            } else {
-                self.define_property_value(cx, name.atom, val, JS_PROP_C_W_E)?;
+            match source.get_property(ctx, k.atom) {
+                Ok(val) => {
+                    if if setprop {
+                        self.set_property(ctx, k.atom, val)
+                    } else {
+                        self.define_property_value(ctx, k.atom, val, JS_PROP_C_W_E)
+                    }
+                    .is_err()
+                    {
+                        has_err = true;
+                        break;
+                    }
+                }
+                Err(_) => {
+                    has_err = true;
+                    break;
+                }
             }
+        }
 
-            Ok(())
-        })
+        // free atoms
+        for key in keys {
+            JS_FreeAtom(ctx, key.atom);
+        }
+
+        if has_err { Err(-1) } else { Ok(()) }
+
+        // source.own_property_names_foreach(ctx, gpn_flags, |cx, name| -> Result<(), i32> {
+        //     if let Some(excl) = excluded {
+        //         if excl.get_own_property(ctx, name.atom)?.is_some() {
+        //             return Ok(()); // excluded prop, skip
+        //         }
+        //     }
+
+        //     if gpn_flags & JS_GPN_ENUM_ONLY == 0 {
+        //         if let Some(desc) = source.get_own_property(ctx, name.atom)? {
+        //             if desc.flags & JS_PROP_ENUMERABLE == 0 {
+        //                 return Ok(()); // skip if non enumerable
+        //             }
+        //         } else {
+        //             return Ok(()); // skip if prop does not exsit
+        //         }
+        //     }
+
+        //     let val = source.get_property(cx, name.atom)?;
+        //     if setprop {
+        //         self.set_property(cx, name.atom, val)?;
+        //     } else {
+        //         self.define_property_value(cx, name.atom, val, JS_PROP_C_W_E)?;
+        //     }
+
+        //     Ok(())
+        // })
     }
 
     /// Read _length_ property defined on `self`.
@@ -418,7 +469,7 @@ impl JSValue {
 
     /// copy and assign enumerable properties from `source` value to `self`.
     /// equivelent to js `Object::assign(self, source)`
-    pub fn copy_properties_from(
+    pub fn copy_data_properties_from(
         &self,
         ctx: &JSContext,
         source: &Self,
@@ -427,10 +478,10 @@ impl JSValue {
     ) -> Result<(), i32> {
         if let Self::Object(src_obj) = source {
             if let Self::Object(o) = self {
-                o.copy_properties_from(ctx, src_obj, excluded.object(), setprop)
+                o.copy_data_properties_from(ctx, src_obj, excluded.object(), setprop)
             } else {
                 if let JSValue::Object(p) = JS_GetPrototypePrimitive(ctx, self) {
-                    p.copy_properties_from(ctx, src_obj, excluded.object(), setprop)
+                    p.copy_data_properties_from(ctx, src_obj, excluded.object(), setprop)
                 } else {
                     ctx.throw_type_error_not_an_object();
                     Err(-1)

@@ -1906,7 +1906,7 @@ impl Bytecode {
                         // 2 bits for exclusionList: SP[-1 - ((mask >> 5) & 7)]
                         let mask = PC_FETCH!(u8) as i32;
                         if SP_REF!(-1 - (mask & 3))
-                            .copy_properties_from(
+                            .copy_data_properties_from(
                                 ctx,
                                 SP_REF!(-1 - ((mask >> 2) & 7)),
                                 SP_REF!(-1 - ((mask >> 5) & 7)),

@@ -352,8 +352,8 @@ pub fn js_object_assign(ctx: &JSContext, cc: CallContext) -> JSResult {
     if cc.length() > 1 {
         for a in &cc.arguments()[1..] {
             if !a.is_undefined_or_null() {
-                let s = a.to_object(ctx)?;
-                obj.copy_properties_from(ctx, &s.into(), None, true)?;
+                let src = a.to_object(ctx)?;
+                obj.copy_data_properties_from(ctx, &src.into(), None, true)?;
             }
         }
     }

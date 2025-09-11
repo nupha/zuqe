@@ -291,6 +291,7 @@ impl JSObject {
         })?;
 
         let mut has_err = false;
+
         for name in lst.iter() {
             if flags & JS_GPN_ENUM_ONLY != 0 {
                 match self.get_own_property(ctx, name.atom) {
@@ -381,7 +382,8 @@ impl JSValue {
         flags: i32,
         kind: JSIteratorKindEnum,
     ) -> Result<Box<[(JSValue, JSValue)]>, i32> {
-        self.to_object(ctx)?.get_own_property_kvs(ctx, flags, kind)
+        self.to_object(ctx)
+            .and_then(|o| o.get_own_property_kvs(ctx, flags, kind))
     }
 
     /// Returns an value (Array object) containing the own properties of `self` value
