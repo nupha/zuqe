@@ -1,5 +1,5 @@
-#[cfg(debug_assertions)]
-use crate::JS_CLASS_PROXY;
+use std::borrow::Cow;
+
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_ARGUMENTS, JS_CLASS_BOOLEAN,
     JS_CLASS_DATE, JS_CLASS_ERROR, JS_CLASS_MAPPED_ARGUMENTS, JS_CLASS_NUMBER, JS_CLASS_REGEXP,
@@ -16,100 +16,45 @@ use crate::{
 };
 
 pub fn js_object_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let t = match cc.this() {
-        v @ (JSValue::NULL | JSValue::UNDEFINED) => format!("{v}"),
+    let tag: Cow<str> = match cc.this() {
+        JSValue::NULL => "Null".into(),
+        JSValue::UNDEFINED => "Undefined".into(),
         v => {
             let obj = v.to_object(ctx)?;
-            let tag_str =
-                if let JSValue::String(s) = obj.get_property(ctx, JS_ATOM_Symbol_toStringTag)? {
-                    format!("{s}")
-                } else {
-                    let atom = if obj.is_array(ctx)? {
-                        JS_ATOM_Array
-                    } else if obj.is_callable() {
-                        JS_ATOM_Function
-                    } else {
-                        match obj.class_id() {
-                            cid @ (JS_CLASS_STRING
-                            | JS_CLASS_ARGUMENTS
-                            | JS_CLASS_MAPPED_ARGUMENTS
-                            | JS_CLASS_ERROR
-                            | JS_CLASS_BOOLEAN
-                            | JS_CLASS_NUMBER
-                            | JS_CLASS_DATE
-                            | JS_CLASS_REGEXP) => ctx.rt().class_defs[cid as usize].class_name,
 
-                            _ => JS_ATOM_Object,
-                        }
-                    };
-                    format!("{}", atom.to_string(ctx)?)
-                };
-
-            #[cfg(debug_assertions)]
-            let cap = if obj.class_id() == JS_CLASS_PROXY {
-                "proxy"
+            // eval tag atom
+            let atom = if obj.is_array(ctx)? {
+                JS_ATOM_Array
+            } else if obj.is_callable() {
+                JS_ATOM_Function
             } else {
-                "object"
+                match obj.class_id() {
+                    cid @ (JS_CLASS_STRING
+                    | JS_CLASS_ARGUMENTS
+                    | JS_CLASS_MAPPED_ARGUMENTS
+                    | JS_CLASS_ERROR
+                    | JS_CLASS_BOOLEAN
+                    | JS_CLASS_NUMBER
+                    | JS_CLASS_DATE
+                    | JS_CLASS_REGEXP) => ctx.rt().class_defs[cid as usize].class_name,
+
+                    _ => JS_ATOM_Object,
+                }
             };
 
-            #[cfg(not(debug_assertions))]
-            let cap = "object";
-
-            format!("[{cap} {tag_str}]")
+            // get [Symbol.toStringTag] property, if got no string, use tag atom above.
+            if let JSValue::String(s) = obj.get_property(ctx, JS_ATOM_Symbol_toStringTag)? {
+                format!("{s}")
+            } else {
+                format!("{}", atom.to_string(ctx)?)
+            }
+            .into()
         }
     };
 
-    ctx.create_string_from_utf8(t.into_bytes())
+    ctx.create_string_from_utf8(format!("[object {tag}]").into_bytes())
         .map(JSValue::String)
-
-    // let mut tag_str: JSValue;
-    // if cc.this().is_null() {
-    //     tag_str = ctx.create_string_from_str("Null")?.into();
-    // } else if cc.this().is_undefined() {
-    //     tag_str = ctx.create_string_from_str("Undefined")?.into();
-    // } else {
-    //     let obj = cc.this().to_object(ctx)?;
-    //     let atom = if obj.is_array(ctx)? {
-    //         JS_ATOM_Array
-    //     } else if obj.is_callable() {
-    //         JS_ATOM_Function
-    //     } else {
-    //         match obj.class_id() {
-    //             cid @ (JS_CLASS_STRING
-    //             | JS_CLASS_ARGUMENTS
-    //             | JS_CLASS_MAPPED_ARGUMENTS
-    //             | JS_CLASS_ERROR
-    //             | JS_CLASS_BOOLEAN
-    //             | JS_CLASS_NUMBER
-    //             | JS_CLASS_DATE
-    //             | JS_CLASS_REGEXP) => ctx.rt().class_defs[cid as usize].class_name,
-    //             _ => JS_ATOM_Object,
-    //         }
-    //     };
-
-    //     tag_str = obj.get_property(ctx, JS_ATOM_Symbol_toStringTag)?;
-    //     if !tag_str.is_string() {
-    //         tag_str = atom.to_string_or_symbol(ctx, true)?;
-    //     }
-    // }
-
-    // unsafe { JS_ConcatString3(ctx, c"[object ", tag_str, c"]").map(JSValue::String) }
 }
-
-// pub unsafe fn js_object_toLocaleString(
-//     ctx: &JSContext,
-//     this_val: JSValueConst,
-//     argc: i32,
-//     argv: *mut JSValueConst,
-// ) -> JSValue {
-//     JS_Invoke(
-//         ctx,
-//         this_val,
-//         JS_ATOM_toString,
-//         0,
-//         std::ptr::null_mut(),
-//     )
-// }
 
 pub fn js_object_toLocaleString(ctx: &JSContext, cc: CallContext) -> JSResult {
     cc.this().invoke(ctx, JS_ATOM_toString, &[])

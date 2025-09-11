@@ -96,11 +96,11 @@ impl JSObject {
                         .exotic
                         .as_ref()
                 } {
-                    // use exotic handlers
                     if let Some(cb) = m.get_property {
                         // XXX: should pass throw_ref_error
                         return cb(ctx, proto.clone().into(), prop, this_obj.clone());
                     }
+
                     if let Some(cb) = m.get_own_property {
                         if let Some(desc) = cb(ctx, JSValue::Object(proto.clone()), prop)? {
                             return if desc.flags & JS_PROP_GETSET != 0 {
