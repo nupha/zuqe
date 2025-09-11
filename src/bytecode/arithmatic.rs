@@ -1,10 +1,12 @@
+use std::cmp::Ordering;
+
 use crate::{
     bytecode::OpCode,
     context::JSContext,
     error::JSResult,
     number::JSFloat64Union,
     string::JS_ConcatString,
-    value::{HINT_NONE, JSValue},
+    value::{HINT_NONE, HINT_NUMBER, JSValue},
 };
 
 #[derive(Debug, Clone)]
@@ -492,6 +494,103 @@ impl JSValue {
     #[inline(always)]
     pub fn is_same0(&self, other: &JSValue) -> bool {
         self.strict_eq_with_mode(other, JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO)
+    }
+
+    /// compare to order value `self` to `other`.
+    pub fn sort_cmp(&self, ctx: &JSContext, other: &Self) -> Result<Ordering, i32> {
+        let mut v1 = self.clone();
+        let mut v2 = other.clone();
+
+        loop {
+            match (&v1, &v2) {
+                (JSValue::Int(a), JSValue::Int(b)) => {
+                    return Ok(a.cmp(b));
+                }
+                (JSValue::Bool(a), JSValue::Bool(b)) => {
+                    return Ok(a.cmp(b));
+                }
+                (JSValue::String(a), JSValue::String(b))
+                | (JSValue::Symbol(a), JSValue::Symbol(b)) => {
+                    return Ok(a.0.partial_cmp(&b.0).unwrap());
+                }
+
+                // string is prior to symbol
+                (JSValue::String(_), JSValue::Symbol(_)) => {
+                    return Ok(Ordering::Less);
+                }
+                (JSValue::Symbol(_), JSValue::String(_)) => {
+                    return Ok(Ordering::Greater);
+                }
+
+                (JSValue::Float64(a), JSValue::Float64(b)) => {
+                    return Ok(match (a.is_nan(), b.is_nan()) {
+                        (true, true) => Ordering::Equal,
+                        (true, false) => Ordering::Greater,
+                        (false, true) => Ordering::Less,
+                        (false, false) => a.partial_cmp(&b).unwrap_or(Ordering::Equal),
+                    });
+                }
+                (JSValue::Int(a), JSValue::Float64(b)) => {
+                    let d = *a as f64;
+                    let a = &d;
+                    return Ok(match (a.is_nan(), b.is_nan()) {
+                        (true, true) => Ordering::Equal,
+                        (true, false) => Ordering::Greater,
+                        (false, true) => Ordering::Less,
+                        (false, false) => a.partial_cmp(&b).unwrap_or(Ordering::Equal),
+                    });
+                }
+                (JSValue::Float64(a), JSValue::Int(b)) => {
+                    let d = *b as f64;
+                    let b = &d;
+                    return Ok(match (a.is_nan(), b.is_nan()) {
+                        (true, true) => Ordering::Equal,
+                        (true, false) => Ordering::Greater,
+                        (false, true) => Ordering::Less,
+                        (false, false) => a.partial_cmp(&b).unwrap_or(Ordering::Equal),
+                    });
+                }
+
+                (JSValue::UNDEFINED, JSValue::UNDEFINED) | (JSValue::NULL, JSValue::NULL) => {
+                    return Ok(Ordering::Equal);
+                }
+
+                // undefined is always the last
+                (JSValue::UNDEFINED, _) => {
+                    return Ok(Ordering::Greater);
+                }
+                (_, JSValue::UNDEFINED) => {
+                    return Ok(Ordering::Less);
+                }
+
+                (JSValue::NULL, JSValue::Float64(d)) => {
+                    return if d.is_nan() {
+                        Ok(Ordering::Less) // null < NaN
+                    } else {
+                        Ok(0.0.partial_cmp(d).unwrap())
+                    };
+                }
+                (JSValue::Float64(d), JSValue::NULL) => {
+                    return if d.is_nan() {
+                        Ok(Ordering::Greater) // NaN > null
+                    } else {
+                        Ok(d.partial_cmp(&0.0).unwrap())
+                    };
+                }
+
+                // convert
+                (JSValue::NULL, _) => {
+                    v1 = JSValue::Int(0);
+                }
+                (_, JSValue::NULL) => {
+                    v2 = JSValue::Int(0);
+                }
+                (a, b) => {
+                    v1 = a.to_primitive(ctx, HINT_NUMBER)?;
+                    v2 = b.to_primitive(ctx, HINT_NUMBER)?;
+                }
+            }
+        }
     }
 }
 

@@ -246,12 +246,18 @@ impl JSObject {
                 (PropertyKeyKind::ArrayIndex(i1), PropertyKeyKind::ArrayIndex(i2)) => {
                     i1.cmp(&i2) // for both index, order by integer
                 }
+
                 (
                     PropertyKeyKind::String | PropertyKeyKind::Symbol,
                     PropertyKeyKind::String | PropertyKeyKind::Symbol,
                 ) => {
-                    // string vs symbol: keep insert sequence
-                    std::cmp::Ordering::Equal
+                    // // string vs symbol: keep insert sequence
+                    // std::cmp::Ordering::Equal
+
+                    // sort string/symbol
+                    let s1 = p1.atom.to_string_or_symbol(ctx).unwrap();
+                    let s2 = p2.atom.to_string_or_symbol(ctx).unwrap();
+                    s1.sort_cmp(ctx, &s2).unwrap()
                 }
                 (PropertyKeyKind::ArrayIndex(_), _) => {
                     // index always comes before string or symbol

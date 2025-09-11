@@ -692,7 +692,7 @@ impl JSValue {
             .map_or(Ok(false), |o| o.prevent_extensions(ctx))
     }
 
-    /// Seal object if the value is an object, otherwise returns the value itself duplicated.
+    /// Seal object if the value is an object.
     pub fn seal(&self, ctx: &JSContext, freeze: bool) -> Result<(), i32> {
         if let JSValue::Object(p) = &self {
             if !p.prevent_extensions(ctx)? {

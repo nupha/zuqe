@@ -350,9 +350,13 @@ impl StringBuf {
         self.push_u8_slice(&[c])
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn push_u16(&mut self, c: u16) -> Result<(), TryReserveError> {
-        self.push_u16_slice(&[c])
+        if c < 0x80 {
+            self.push_u8_slice(&[c as u8])
+        } else {
+            self.push_u16_slice(&[c])
+        }
     }
 
     pub fn push_char<C: Into<StringChar>>(&mut self, c: C) -> Result<(), TryReserveError> {

@@ -183,7 +183,8 @@ impl JSPropertyDescriptor {
         if let Some(o) = desc.object() {
             Self::parse(ctx, o)
         } else {
-            Ok(Self::default())
+            ctx.throw_type_error_not_an_object();
+            Err(-1)
         }
     }
 

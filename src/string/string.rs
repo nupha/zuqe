@@ -1,6 +1,7 @@
 use std::{
     borrow::Cow,
     cell::Cell,
+    cmp::Ordering,
     ffi::CStr,
     ops::Range,
     rc::{Rc, Weak},
@@ -52,6 +53,49 @@ pub(crate) struct JSStringInner {
     content: StringContent,
 
     gc_mark: Cell<bool>,
+}
+
+impl PartialEq for JSStringInner {
+    fn eq(&self, other: &Self) -> bool {
+        self.content() == other.content()
+    }
+}
+
+impl Eq for JSStringInner {}
+
+impl PartialOrd for JSStringInner {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        let a1 = self.atom_info();
+        let a2 = other.atom_info();
+
+        let r = match (a1, a2) {
+            // symbol-atom vs non-atom: symbol is greater
+            (None, Some(AtomHintAndId::Symbol(_) | AtomHintAndId::GlobalSymbol(_))) => {
+                Ordering::Less
+            }
+            (Some(AtomHintAndId::Symbol(_) | AtomHintAndId::GlobalSymbol(_)), None) => {
+                Ordering::Greater
+            }
+
+            // symbol-atom vs string-atom: symbol is greater
+            (
+                Some(AtomHintAndId::String(_) | AtomHintAndId::Private(_)),
+                Some(AtomHintAndId::Symbol(_) | AtomHintAndId::GlobalSymbol(_)),
+            ) => Ordering::Less,
+            (
+                Some(AtomHintAndId::Symbol(_) | AtomHintAndId::GlobalSymbol(_)),
+                Some(AtomHintAndId::String(_) | AtomHintAndId::Private(_)),
+            ) => Ordering::Greater,
+
+            // non-atom vs non-atom
+            // string-atom vs string-atom
+            // symbol-atom vs symbol-atom
+            // string-atom vs non-atom
+            _ => self.content.cmp(&other.content),
+        };
+
+        Some(r)
+    }
 }
 
 impl std::fmt::Debug for JSStringInner {

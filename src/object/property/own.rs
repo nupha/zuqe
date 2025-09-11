@@ -318,7 +318,7 @@ impl JSObject {
         // add a new property or modify an existing exotic one
         if obj_flags.is_exotic() {
             match self.class_id() {
-                JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
+                JS_CLASS_ARRAY => {
                     // get current `length`
                     let Ok(arr_len) = self.0.prop_values.borrow()[0]
                         .value(ctx, &JSValue::UNDEFINED)

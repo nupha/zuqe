@@ -47,20 +47,6 @@ pub fn js_symbol_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         Some(cc.arg(0).to_string(ctx)?)
     };
     ctx.create_symbol(ss, AtomTypeHint::Symbol)
-
-    // // let mut str: JSValue = mem::zeroed();
-    // // let mut p: *mut JSString = mem::zeroed();
-
-    // if argc == 0 || JS_IsUndefined(*argv.offset(0)) {
-    //     p = std::ptr::null_mut();
-    // } else {
-    //     str = JS_ToString(ctx, *argv.offset(0));
-    //     if JS_IsException(str) {
-    //         return JS_EXCEPTION;
-    //     }
-    //     p = JS_VALUE_GET_STRING(str);
-    // }
-    // return crate::obsoletes::JS_NewSymbol(ctx, p, JS_ATOM_TYPE_SYMBOL);
 }
 
 //

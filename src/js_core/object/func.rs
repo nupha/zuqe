@@ -90,31 +90,6 @@ pub fn js_object_defineProperty(ctx: &JSContext, cc: CallContext) -> JSResult {
         ctx.throw_type_error_not_an_object();
         Err(-1)
     }
-
-    // match (obj, desc) {
-    //     (JSValue::Object(obj), JSValue::Object(desc)) => {
-    //         let atom = prop.to_atom(ctx)?;
-
-    //         // magic = 1 if called as Reflect.defineProperty
-    //         let mut flags = 0;
-    //         if cc.magic() == 0 {
-    //             flags |= JS_PROP_THROW;
-    //         }
-    //         let ret = obj.define_property_desc(ctx, atom, desc, flags);
-    //         JS_FreeAtom(ctx, atom);
-
-    //         let b = ret?;
-    //         Ok(if cc.magic() != 0 {
-    //             JSValue::Bool(b)
-    //         } else {
-    //             JSValue::Object(obj.clone())
-    //         })
-    //     }
-    //     _ => {
-    //         ctx.throw_type_error_not_an_object();
-    //         Err(-1)
-    //     }
-    // }
 }
 
 /// defineProperties(obj, properties)
