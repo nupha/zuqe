@@ -240,33 +240,26 @@ impl JSObject {
             return Err(-1);
         }
 
-        // Note: sort owned number, string, symbol only, exotic keys are not sorted.
+        // Note: sort in index, string, symbol segments
         if sort_cnt > 0 {
             lst[0..sort_cnt].sort_by(|p1, p2| match (p1.isa, p2.isa) {
-                (PropertyKeyKind::ArrayIndex(i1), PropertyKeyKind::ArrayIndex(i2)) => {
-                    i1.cmp(&i2) // for both index, order by integer
-                }
+                // index vs index: order by integer
+                (PropertyKeyKind::ArrayIndex(i1), PropertyKeyKind::ArrayIndex(i2)) => i1.cmp(&i2),
 
-                (
-                    PropertyKeyKind::String | PropertyKeyKind::Symbol,
-                    PropertyKeyKind::String | PropertyKeyKind::Symbol,
-                ) => {
+                // index is always prior to string or symbol
+                (PropertyKeyKind::ArrayIndex(_), _) => std::cmp::Ordering::Less,
+                (_, PropertyKeyKind::ArrayIndex(_)) => std::cmp::Ordering::Greater,
+
+                // string vs string, symbol vs symbol: in defined order.
+                (PropertyKeyKind::String, PropertyKeyKind::String)
+                | (PropertyKeyKind::Symbol, PropertyKeyKind::Symbol) => {
                     // // string vs symbol: keep insert sequence
-                    // std::cmp::Ordering::Equal
+                    std::cmp::Ordering::Equal
+                }
 
-                    // sort string/symbol
-                    let s1 = p1.atom.to_string_or_symbol(ctx).unwrap();
-                    let s2 = p2.atom.to_string_or_symbol(ctx).unwrap();
-                    s1.sort_cmp(ctx, &s2).unwrap()
-                }
-                (PropertyKeyKind::ArrayIndex(_), _) => {
-                    // index always comes before string or symbol
-                    std::cmp::Ordering::Less
-                }
-                (_, PropertyKeyKind::ArrayIndex(_)) => {
-                    // index always comes before string or symbol
-                    std::cmp::Ordering::Greater
-                }
+                // string is always prior to symbol
+                (PropertyKeyKind::String, PropertyKeyKind::Symbol) => std::cmp::Ordering::Less,
+                (PropertyKeyKind::Symbol, PropertyKeyKind::String) => std::cmp::Ordering::Greater,
             });
         }
 
@@ -274,14 +267,13 @@ impl JSObject {
     }
 
     /// Gets object's own properties [key, value] pairs.
+    /// Returns list of property [key,value] pairs, sorted according to js specification.
     ///
-    /// # Arguments
+    /// Arguments
     /// * `ctx` - JavaScript context
     /// * `flags` - Property filter flags
     /// * `kind` - Iteration mode (keys, values, or entries)
     ///
-    /// # Returns
-    /// * List of property [key,value] pairs
     ///
     /// Similar to JavaScript's Object.keys(), Object.values(), Object.entries()
     pub fn get_own_property_kvs(
@@ -373,14 +365,13 @@ impl JSObject {
 
 impl JSValue {
     /// Gets object's own properties [key, value] pairs.
+    /// Returns list of property [key,value] pairs, sorted according to js specification.
     ///
-    /// # Arguments
+    /// Arguments
     /// * `ctx` - JavaScript context
     /// * `flags` - Property filter flags
     /// * `kind` - Iteration mode (keys, values, or entries)
     ///
-    /// # Returns
-    /// * List of property [key,value] pairs
     ///
     /// Similar to JavaScript's Object.keys(), Object.values(), Object.entries()
     #[inline]
@@ -400,8 +391,6 @@ impl JSValue {
     /// - An array of property keys (for kind = KEY)
     /// - An array of property values (for kind = VALUE)
     /// - An array of [key, value] pairs (for kind = KEY_AND_VALUE)
-    ///
-    /// Properties are sorted according to the standard JavaScript property enumeration order.
     pub(crate) fn build_own_property_kvs_array(
         &self,
         ctx: &JSContext,
