@@ -6,7 +6,6 @@ use crate::{
     context::{JSContext, JSContextWeakref},
     error::JSResult,
     function::JSVarRef,
-    iterator::JSIteratorKindEnum,
     object::{JSObject, LazyInit},
     value::{JS_GetPrototypePrimitive, JSValue},
 };

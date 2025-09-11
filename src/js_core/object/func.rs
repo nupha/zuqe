@@ -97,8 +97,11 @@ pub fn js_object_defineProperties(ctx: &JSContext, cc: CallContext) -> JSResult 
     let obj = cc.arg(0);
     if let Some(o) = obj.object() {
         o.define_property_desc_multi(ctx, cc.arg(1))?;
+        Ok(obj.clone())
+    } else {
+        ctx.throw_type_error_not_an_object();
+        Err(-1)
     }
-    Ok(obj.clone())
 }
 
 pub fn js_object_getOwnPropertyNames(ctx: &JSContext, cc: CallContext) -> JSResult {

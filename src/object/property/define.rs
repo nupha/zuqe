@@ -359,7 +359,9 @@ impl JSObject {
         self.define_property(ctx, prop, d.value, d.getter, d.setter, d.flags | flags)
     }
 
-    /// define multiple properties using a descriptor defination object.
+    /// define multiple properties with descriptor defination object.
+    ///
+    /// equivelent to js `Object.defineProperties(properties)`
     pub fn define_property_desc_multi(
         &self,
         ctx: &JSContext,
