@@ -394,7 +394,6 @@ pub fn js_object_fromEntries(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_object_hasOwn(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj = cc.arg(0).to_object(ctx)?;
-
     let atom = cc.arg(1).to_atom(ctx)?;
 
     // free atom when exit

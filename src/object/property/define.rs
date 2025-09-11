@@ -373,11 +373,6 @@ impl JSObject {
             JS_GPN_ENUM_ONLY | JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK,
             |_, key: PropertyKey| -> Result<(), i32> {
                 let desc = props.get_property(ctx, key.atom)?;
-                println!(
-                    "[O.o] prop={:?}, desc={:?}",
-                    key.atom.to_utf8(ctx.rt()),
-                    desc
-                );
                 self.define_property_desc(ctx, key.atom, &desc, JS_PROP_THROW)?;
                 Ok(())
             },

@@ -272,13 +272,13 @@ pub const JS_ATOM_MAX: u32 = u16::MAX as u32 - 1;
 pub const ATOM_GET_STR_BUF_SIZE: usize = 64;
 
 impl JSString {
-    /// convert string to atom. if string is not registered as atom, do registration first.
+    /// convert string to atom. if string is not registered as atom yet, do registration.
     pub fn to_atom(&self, ctx: &JSContext) -> Result<JSAtom, i32> {
         if let Some(a) = self.atom_info() {
             // str already registered as atom
             Ok(a.atom())
         } else {
-            // register string as atom
+            // register as string atom
             JSAtom::from_string(ctx.rt_mut(), self.clone(), AtomTypeHint::String)
         }
     }
@@ -298,41 +298,53 @@ impl JSValue {
     ///
     /// Note: returned atom is cloned, caller should free it after use.
     pub fn to_atom(&self, ctx: &JSContext) -> Result<JSAtom, i32> {
-        match self {
-            JSValue::UNDEFINED => Ok(JS_ATOM_undefined),
-            JSValue::NULL => Ok(JS_ATOM_null),
-            JSValue::Bool(b) => Ok(if *b { JS_ATOM_true } else { JS_ATOM_false }),
+        let mut val = self.clone();
 
-            JSValue::Int(i) => {
-                let i = *i;
-                if i as u32 <= JS_ATOM_MAX_INT {
-                    Ok(JSAtom::new_small_int(i as u32))
-                } else {
-                    JSAtom::from_i64(ctx.rt_mut(), i as i64)
+        loop {
+            match val {
+                JSValue::UNDEFINED => {
+                    return Ok(JS_ATOM_undefined);
                 }
-            }
+                JSValue::NULL => {
+                    return Ok(JS_ATOM_null);
+                }
+                JSValue::Bool(b) => {
+                    return Ok(if b { JS_ATOM_true } else { JS_ATOM_false });
+                }
+                JSValue::Int(i) => {
+                    return if i as u32 <= JS_ATOM_MAX_INT {
+                        Ok(JSAtom::new_small_int(i as u32))
+                    } else {
+                        JSAtom::from_i64(ctx.rt_mut(), i as i64)
+                    };
+                }
 
-            // atom has description
-            JSValue::String(s) | JSValue::Symbol(s) => s.to_atom(ctx),
-            JSValue::Object(_) | JSValue::Float64(_) => {
-                self.to_string(ctx).and_then(|s| s.to_atom(ctx))
-            }
+                // atom has description
+                JSValue::String(s) | JSValue::Symbol(s) => {
+                    return s.to_atom(ctx);
+                }
 
-            // can't convert to atom
-            JSValue::UNINITIALIZED
-            | JSValue::CatchOffset(_)
-            | JSValue::Module(_)
-            | JSValue::Bytecode(_)
-            | JSValue::AsyncStateResume(_) => {
-                ctx.throw_type_error(&format!("cannot convert {} to atom", self));
-                Err(-1)
-            }
+                JSValue::Object(_) | JSValue::Float64(_) => {
+                    val = self.to_string_or_symbol(ctx)?;
+                    continue;
+                }
 
-            JSValue::EXCEPTION => {
-                #[cfg(debug_assertions)]
-                unreachable!();
-                #[cfg(not(debug_assertions))]
-                Err(-1)
+                // can't convert to atom
+                JSValue::UNINITIALIZED
+                | JSValue::CatchOffset(_)
+                | JSValue::Module(_)
+                | JSValue::Bytecode(_)
+                | JSValue::AsyncStateResume(_) => {
+                    ctx.throw_type_error(&format!("cannot convert {} to atom", self));
+                    return Err(-1);
+                }
+
+                JSValue::EXCEPTION => {
+                    #[cfg(debug_assertions)]
+                    unreachable!();
+                    #[cfg(not(debug_assertions))]
+                    Err(-1)
+                }
             }
         }
     }
