@@ -22,16 +22,24 @@ use crate::{
 const MONTH_DAYS: [u8; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 const MONTH_NAMES: &str = "JanFebMarAprMayJunJulAugSepOctNovDec";
 const WEEKDAY_NAMES: &str = "SunMonTueWedThuFriSat";
-const INVALID_TIMESTAMP: i64 = -MAX_SAFE_INTEGER;
+const INVALID_TIMESTAMP: i64 = i64::MIN;
 
-#[inline(always)]
 fn floor_div(a: i64, b: i64) -> i64 {
-    a / b
+    let m = a % b;
+    return (a - (m + if m < 0 { b } else { 0 })) / b;
 }
 
 fn math_mod(a: i64, b: i64) -> i64 {
     let m = a % b;
     m + if m < 0 { b } else { 0 }
+}
+
+fn time_clip(t: f64) -> f64 {
+    if (-8.64e15..=8.64e15).contains(&t) {
+        t.trunc() + 0.0 // convert -0 to +0
+    } else {
+        f64::NAN
+    }
 }
 
 #[inline(always)]
@@ -71,13 +79,13 @@ fn year_from_days(days: &mut i64) -> i64 {
 }
 
 /// make unix timestamp from fields of [year, mon, day, hour, min, sec, ms]
-fn make_timestamp(fields: &[i64; 7], is_local: bool) -> i64 {
-    let mut m = fields[1] % 12;
+fn make_timestamp(fields: &[f64; 7], is_local: bool) -> Option<i64> {
+    let mut m = (fields[1] % 12.0) as i32;
     if m < 0 {
         m += 12;
     }
-    let y = fields[0] + fields[1] / 12;
-    let mut days = days_from_year(y);
+    let y = fields[0] as i64 + (fields[1] / 12.0).floor() as i64;
+    let mut days = days_from_year(y) as f64;
 
     for i in 0..m {
         let mut md = MONTH_DAYS[i as usize] as i64;
@@ -85,25 +93,27 @@ fn make_timestamp(fields: &[i64; 7], is_local: bool) -> i64 {
             // Feb: test leap year
             md += days_in_year(y) - 365;
         }
-        days += md;
+        days += md as f64;
     }
-    days += fields[2] - 1;
+    days += fields[2] - 1.0;
 
-    let h = fields[3] * 3600000 + fields[4] * 60000 + fields[5] * 1000 + fields[6];
-    let mut ts = days * 86400000 + h;
+    let h = fields[3] * 3600000.0 + fields[4] * 60000.0 + fields[5] * 1000.0 + fields[6];
+    let mut ts = days * 86400000.0 + h;
     if is_local {
-        ts += get_timezone_offset(ts) as i64 * 60000;
+        ts += get_timezone_offset(ts as i64) as f64 * 60000.0;
     }
-    ts
+
+    let r = time_clip(ts);
+    if r.is_finite() { Some(r as i64) } else { None }
 }
 
 fn timestamp_to_fields(tm_val: i64, is_local: bool, force: bool) -> Option<[i64; 9]> {
     let mut d: i64 = 0;
     let mut tz: i64 = 0;
 
-    if tm_val == INVALID_TIMESTAMP {
+    if !(-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&tm_val) {
         if !force {
-            return None; // NaN
+            return None; // invalid
         }
     } else {
         d = tm_val;
@@ -323,8 +333,8 @@ fn skip_non_spaces(buf: &[u8]) -> usize {
     p
 }
 
-fn timestamp_parse(buf: &[u8]) -> Option<i64> {
-    let mut fields: [i64; 7] = [0, 1, 1, 0, 0, 0, 0];
+fn datetime_parse(buf: &[u8]) -> Option<i64> {
+    let mut fields: [f64; 7] = [0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0];
     let mut is_local = false;
     let mut tz: i64;
 
@@ -335,7 +345,7 @@ fn timestamp_parse(buf: &[u8]) -> Option<i64> {
             let Some((n, mut idx)) = string_get_signed_digits(buf) else {
                 return None;
             };
-            fields[0] = n;
+            fields[0] = n as f64;
 
             for i in 1..7 {
                 if idx >= buf.len() {
@@ -364,19 +374,19 @@ fn timestamp_parse(buf: &[u8]) -> Option<i64> {
                     let Some((n, adv)) = string_get_milliseconds(&buf[idx..]) else {
                         return None;
                     };
-                    fields[6] = n;
+                    fields[6] = n as f64;
                     idx += adv;
                 } else {
                     let (n, adv) = string_get_digits(&buf[idx..]);
                     if adv == 0 {
                         return None;
                     };
-                    fields[i as usize] = n;
+                    fields[i as usize] = n as f64;
                     idx += adv;
                 }
             }
 
-            fields[1] -= 1; // month is 0-based
+            fields[1] -= 1.0; // month is 0-based
 
             // parse the time zone offset if present: [+-]HH:mm or [+-]HHmm
             tz = 0;
@@ -444,20 +454,20 @@ fn timestamp_parse(buf: &[u8]) -> Option<i64> {
                 if adv == 0 {
                     return None;
                 };
-                fields[2] = n;
+                fields[2] = n as f64;
                 p += adv;
 
                 let Some((n, adv)) = string_get_month(&buf[p..]) else {
                     return None;
                 };
-                fields[1] = n;
+                fields[1] = n as f64;
                 p += adv;
             } else {
                 // month first
                 let Some((n, adv)) = string_get_month(&buf[p..]) else {
                     return None;
                 };
-                fields[1] = n;
+                fields[1] = n as f64;
                 p += adv;
 
                 p += skip_spaces(&buf[p..]);
@@ -467,14 +477,14 @@ fn timestamp_parse(buf: &[u8]) -> Option<i64> {
                     if adv == 0 {
                         return None;
                     }
-                    fields[2] = n;
+                    fields[2] = n as f64;
                 }
             }
 
             // year
             p += skip_spaces(&buf[p..]);
             if let Some((n, adv)) = string_get_signed_digits(&buf[p..]) {
-                fields[0] = n;
+                fields[0] = n as f64;
                 p += adv;
             } else {
                 return None;
@@ -494,7 +504,7 @@ fn timestamp_parse(buf: &[u8]) -> Option<i64> {
 
                     let (n, adv) = string_get_digits(&buf[p..]);
                     if adv > 0 {
-                        fields[3 + i] = n;
+                        fields[3 + i] = n as f64;
                         p += adv;
                     } else {
                         return None;
@@ -538,7 +548,7 @@ fn timestamp_parse(buf: &[u8]) -> Option<i64> {
         }
     }
 
-    Some(make_timestamp(&fields, is_local) - tz * 60000)
+    make_timestamp(&fields, is_local).map(|ts| ts - tz * 60000)
 }
 
 /// fmt:
@@ -722,13 +732,21 @@ impl Datetime {
         }
     }
 
-    pub fn from_fields(fields: &[i64; 7]) -> Self {
-        Self::from_timestamp_ms(make_timestamp(fields, true))
-    }
-
     #[inline(always)]
     pub fn now() -> Self {
         Self::from_system_time(SystemTime::now())
+    }
+
+    pub fn from_fields(fields: &[f64; 7], is_local: bool) -> Self {
+        if let Some(ts) = make_timestamp(fields, is_local) {
+            Self { timestamp_ms: ts }
+        } else {
+            Self::INVALID
+        }
+    }
+
+    pub fn parse(str: &[u8]) -> Option<Self> {
+        datetime_parse(str).map(Self::from_timestamp_ms)
     }
 
     #[inline(always)]
@@ -753,7 +771,18 @@ impl Datetime {
 impl From<i64> for Datetime {
     #[inline(always)]
     fn from(val: i64) -> Self {
-        Self { timestamp_ms: val }
+        Self::from_timestamp_ms(val)
+    }
+}
+
+impl From<f64> for Datetime {
+    fn from(val: f64) -> Self {
+        let ts = time_clip(val);
+        if ts.is_finite() {
+            Self::from_timestamp_ms(ts as i64)
+        } else {
+            Self::INVALID
+        }
     }
 }
 
@@ -797,34 +826,35 @@ pub fn js_date_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         cc.length()
     };
 
-    let tm_val: Option<i64> = match nargs {
-        0 => Some(Datetime::now().timestamp()),
+    let tm: Datetime = match nargs {
+        0 => Datetime::now(),
         1 => {
             if let Some(ts) = cc.arg(0).object().and_then(|p| {
                 if let ObjectPayload::DATE(dt) = p.0.payload.borrow().deref() {
-                    Some(dt.timestamp())
+                    Some(*dt)
                 } else {
                     None
                 }
             }) {
-                Some(ts)
+                ts
             } else {
                 match cc.arg(0).to_primitive(ctx, HINT_NONE)? {
-                    JSValue::String(s) => timestamp_parse(s.content().to_utf8().as_bytes()),
-                    v => Some(v.to_i64_clamp(ctx, -MAX_SAFE_INTEGER, MAX_SAFE_INTEGER, 0)?),
+                    JSValue::String(s) => Datetime::parse(s.content().to_utf8().as_bytes())
+                        .unwrap_or(Datetime::INVALID),
+                    v => v.to_f64(ctx)?.into(),
                 }
             }
         }
         n => {
-            let mut fields = [0_i64; 7];
+            let mut fields: [f64; 7] = [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0];
             let mut has_invalid = false;
 
             for i in 0..std::cmp::min(n, 7) {
                 let d = cc.arg(i).to_f64(ctx)?;
                 if d.is_finite() {
-                    fields[i] = d.trunc() as i64;
-                    if i == 0 && (0..100).contains(&fields[0]) {
-                        fields[0] += 100;
+                    fields[i] = d.trunc();
+                    if i == 0 && (0.0..100.0).contains(&fields[0]) {
+                        fields[0] += 100.0;
                     }
                 } else {
                     has_invalid = true;
@@ -832,20 +862,18 @@ pub fn js_date_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
                 }
             }
             if has_invalid {
-                None
+                Datetime::INVALID
             } else {
-                Some(make_timestamp(&fields, true))
+                Datetime::from_fields(&fields, true)
             }
         }
     };
 
-    let tm_val = tm_val.unwrap_or(INVALID_TIMESTAMP);
-
     if new_target.is_undefined() {
         // invoked as a function, returns toString()
-        datetime_format(ctx, tm_val, 0x13).map(JSValue::String)
+        datetime_format(ctx, tm.into(), 0x13).map(JSValue::String)
     } else {
-        ctx.create_object_apply_ctor(new_target, ObjectPayload::DATE(tm_val.into()))
+        ctx.create_object_apply_ctor(new_target, ObjectPayload::DATE(tm))
             .map(JSValue::Object)
             .map_err(|_| -1)
     }
@@ -977,11 +1005,17 @@ fn set_date_field_internal(
         let tm2: Datetime = if !has_invalid && n > 0 {
             make_timestamp(
                 &[
-                    fields[0], fields[1], fields[2], fields[3], fields[4], fields[5], fields[6],
+                    fields[0] as f64,
+                    fields[1] as f64,
+                    fields[2] as f64,
+                    fields[3] as f64,
+                    fields[4] as f64,
+                    fields[5] as f64,
+                    fields[6] as f64,
                 ],
                 is_local,
             )
-            .into()
+            .map_or(Datetime::INVALID, Datetime::from_timestamp_ms)
         } else {
             Datetime::INVALID
         };
@@ -1090,29 +1124,28 @@ fn js_Date_now(_: &JSContext, _: CallContext) -> JSResult {
 
 fn js_Date_parse(ctx: &JSContext, cc: CallContext) -> JSResult {
     let s = cc.arg(0).to_string(ctx)?;
-    let tm_val =
-        timestamp_parse(s.content().to_utf8().as_bytes()).unwrap_or(Datetime::INVALID.timestamp());
-    Ok(JSValue::from(tm_val))
+    let tm = Datetime::parse(s.content().to_utf8().as_bytes()).unwrap_or(Datetime::INVALID);
+    Ok(tm.into())
 }
 
 fn js_Date_UTC(ctx: &JSContext, cc: CallContext) -> JSResult {
-    // UTC(y, mon, d, h, m, s, ms)
-    if cc.length() == 0 {
-        Ok(JSValue::from(Datetime::INVALID.timestamp()))
+    let dt = if cc.length() == 0 {
+        Datetime::INVALID
     } else {
-        let mut fields: [i64; 7] = [0, 0, 1, 0, 0, 0, 0];
+        let mut fields: [f64; 7] = [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0];
         for (i, a) in cc.arguments().iter().take(7).enumerate() {
             let v = a.to_f64(ctx)?;
             if !v.is_finite() {
                 return Ok(JSValue::Float64(f64::NAN));
             }
-            fields[i] = v.trunc() as i64;
-            if i == 0 && (0..100).contains(&fields[0]) {
-                fields[0] += 1900;
+            fields[i] = v.trunc();
+            if i == 0 && (0.0..100.0).contains(&fields[0]) {
+                fields[0] += 1900.0;
             }
         }
-        Ok(JSValue::from(make_timestamp(&fields, false)))
-    }
+        Datetime::from_fields(&fields, false)
+    };
+    Ok(dt.into())
 }
 
 pub static js_date_funcs: [FieldDef; 3] = [
