@@ -1,9 +1,9 @@
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ARRAY_BUFFER, JS_CLASS_ARRAY_ITERATOR,
     JS_CLASS_ASYNC_FROM_SYNC_ITERATOR, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR,
-    JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_BOOLEAN, JS_CLASS_DATAVIEW, JS_CLASS_ERROR,
-    JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_NUMBER, JS_CLASS_OBJECT,
-    JS_CLASS_PROMISE, JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR,
+    JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_BOOLEAN, JS_CLASS_DATAVIEW, JS_CLASS_DATE,
+    JS_CLASS_ERROR, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_NUMBER,
+    JS_CLASS_OBJECT, JS_CLASS_PROMISE, JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR,
     JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_STRING, JS_CLASS_STRING_ITERATOR, JS_CLASS_SYMBOL,
     JS_CLASS_UINT8C_ARRAY,
     array::{
@@ -17,6 +17,7 @@ use crate::{
     atom::{JSAtom, consts::*},
     class::{JS_SetConstructor, JS_SetConstructor2, JSClassID},
     context::{JS_MODE_STRICT, JSContext},
+    date::{js_date_constructor, js_date_funcs, js_date_proto_funcs},
     error::{ErrorKind, JSResult, STD_ERROR_NAMES},
     function::{
         BytecodeFunction, CallContext, FieldDef, JSFunctionKindEnum, NativeFunctionType,
@@ -439,6 +440,18 @@ impl JSContext {
             0,
             JS_PROP_CONFIGURABLE,
         );
+    }
+
+    pub fn intrinsic_date(&self) {
+        let obj: JSValue = self.create_base_object().unwrap().into();
+        obj.install_field_defs(self, &js_date_proto_funcs).unwrap();
+
+        let ctor = self
+            .create_global_constructor("Date", js_date_constructor, 7, &obj, 0)
+            .unwrap();
+        ctor.install_field_defs(self, &js_date_funcs).unwrap();
+
+        self.0.borrow_mut().class_proto[JS_CLASS_DATE as usize] = obj;
     }
 
     fn intrinsic_eval(&self) {

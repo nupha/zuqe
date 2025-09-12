@@ -417,7 +417,7 @@ impl StringBuf {
                             let bb = c.encode_utf16(&mut a);
 
                             if let Some(s8) = &mut s8
-                                && bb[0] > 0x80
+                                && bb[0] < 0x80
                             {
                                 s8.try_push(bb[0] as u8)?;
                             } else {

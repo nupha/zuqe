@@ -273,16 +273,6 @@ impl JSProperty {
             Self::LazyInit { .. } => Ok(JSValue::UNDEFINED),
         }
     }
-
-    // /// get realm of a lazy init property.
-    // /// for other property types, returns None.
-    // pub(crate) fn auto_init_realm(&self) -> Option<JSContext> {
-    //     if let JSProperty::LazyInit { realm, .. } = self {
-    //         realm.upgrade()
-    //     } else {
-    //         None
-    //     }
-    // }
 }
 
 impl JSObject {
@@ -410,33 +400,6 @@ impl JSObject {
         }
 
         if has_err { Err(-1) } else { Ok(()) }
-
-        // source.own_property_names_foreach(ctx, gpn_flags, |cx, name| -> Result<(), i32> {
-        //     if let Some(excl) = excluded {
-        //         if excl.get_own_property(ctx, name.atom)?.is_some() {
-        //             return Ok(()); // excluded prop, skip
-        //         }
-        //     }
-
-        //     if gpn_flags & JS_GPN_ENUM_ONLY == 0 {
-        //         if let Some(desc) = source.get_own_property(ctx, name.atom)? {
-        //             if desc.flags & JS_PROP_ENUMERABLE == 0 {
-        //                 return Ok(()); // skip if non enumerable
-        //             }
-        //         } else {
-        //             return Ok(()); // skip if prop does not exsit
-        //         }
-        //     }
-
-        //     let val = source.get_property(cx, name.atom)?;
-        //     if setprop {
-        //         self.set_property(cx, name.atom, val)?;
-        //     } else {
-        //         self.define_property_value(cx, name.atom, val, JS_PROP_C_W_E)?;
-        //     }
-
-        //     Ok(())
-        // })
     }
 
     /// Read _length_ property defined on `self`.
