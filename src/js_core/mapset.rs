@@ -7,7 +7,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::CallContext,
-    map::JSMapState,
+    mapset::JSMapState,
     object::ObjectPayload,
     value::{JSValue, JSValueConst},
 };

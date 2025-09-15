@@ -3,8 +3,8 @@ use std::ops::DerefMut;
 use crate::{
     array::ArrayObjPayload,
     array_buffer::ArrayBufObjPayload,
-    function::{FuncObjPayload, AsyncObjPayload},
-    map::JSMapState,
+    function::{AsyncObjPayload, FuncObjPayload},
+    mapset::JSMapState,
     promise::ObjPromiseResolvingState,
     typed_array::TypedArrayObjPayload,
     value::JSValue,

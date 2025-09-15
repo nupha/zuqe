@@ -7,7 +7,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef, IteratorState, NativeFunctionType},
     iterator::JSAsyncFromSyncIteratorData,
-    map::MapKV,
+    mapset::MapKV,
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SET_ENUM, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
         JS_PROP_THROW, JSObject, ObjectPayload, PropertyKey,

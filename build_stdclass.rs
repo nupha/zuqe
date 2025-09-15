@@ -72,7 +72,7 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "Date",
             "DATE",
-            Some("crate::date::Timestamp"),
+            Some("crate::date::Datetime"),
             Some("crate::value::js_object_data_finalizer"),
             Some("crate::value::js_object_data_mark")
         ),
@@ -241,44 +241,44 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "Map",
             "MAP",
-            Some("Box<crate::map::JSMapState>"),
-            Some("crate::map::JSMapState::hook_finalizer"),
-            Some("crate::map::JSMapState::hook_mark")
+            Some("Box<crate::mapset::JSMapState>"),
+            Some("crate::mapset::JSMapState::hook_finalizer"),
+            Some("crate::mapset::JSMapState::hook_mark")
         ),
         class_def!(
             "Set",
             "SET",
-            Some("Box<crate::map::JSMapState>"),
-            Some("crate::map::JSMapState::hook_finalizer"),
-            Some("crate::map::JSMapState::hook_mark")
+            Some("Box<crate::mapset::JSMapState>"),
+            Some("crate::mapset::JSMapState::hook_finalizer"),
+            Some("crate::mapset::JSMapState::hook_mark")
         ),
         class_def!(
             "WeakMap",
             "WEAKMAP",
-            Some("Box<crate::map::JSMapState>"),
-            Some("crate::map::JSMapState::hook_finalizer"),
-            Some("crate::map::JSMapState::hook_mark")
+            Some("Box<crate::mapset::JSMapState>"),
+            Some("crate::mapset::JSMapState::hook_finalizer"),
+            Some("crate::mapset::JSMapState::hook_mark")
         ),
         class_def!(
             "WeakSet",
             "WEAKSET",
-            Some("Box<crate::map::JSMapState>"),
-            Some("crate::map::JSMapState::hook_finalizer"),
-            Some("crate::map::JSMapState::hook_mark")
+            Some("Box<crate::mapset::JSMapState>"),
+            Some("crate::mapset::JSMapState::hook_finalizer"),
+            Some("crate::mapset::JSMapState::hook_mark")
         ),
         class_def!(
             "Map_Iterator",
             "MAP_ITERATOR",
             Some("Box<crate::iterator::JSMapIteratorData>"),
-            Some("crate::map::js_map_iterator_finalizer"),
-            Some("crate::map::js_map_iterator_mark")
+            Some("crate::mapset::js_map_iterator_finalizer"),
+            Some("crate::mapset::js_map_iterator_mark")
         ),
         class_def!(
             "Set_Iterator",
             "SET_ITERATOR",
             Some("Box<crate::iterator::JSMapIteratorData>"),
-            Some("crate::map::js_map_iterator_finalizer"),
-            Some("crate::map::js_map_iterator_mark")
+            Some("crate::mapset::js_map_iterator_finalizer"),
+            Some("crate::mapset::js_map_iterator_mark")
         ),
         class_def!(
             "Array_Iterator",

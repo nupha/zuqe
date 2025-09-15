@@ -21,7 +21,7 @@ pub mod global;
 pub mod iterator;
 pub mod js_core;
 pub mod json;
-pub mod map;
+pub mod mapset;
 pub mod mem;
 pub mod module;
 pub mod number;
