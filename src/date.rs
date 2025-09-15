@@ -98,6 +98,7 @@ fn make_timestamp(fields: &[f64; 7], is_local: bool) -> Option<i64> {
     days += fields[2] - 1.0;
 
     let h = fields[3] * 3600000.0 + fields[4] * 60000.0 + fields[5] * 1000.0 + fields[6];
+
     let mut ts = days * 86400000.0 + h;
     if is_local {
         ts += get_timezone_offset(ts as i64) as f64 * 60000.0;
@@ -249,29 +250,17 @@ fn string_get_signed_digits(buf: &[u8]) -> Option<(i64, usize)> {
 
 // parse a fixed width numeric field
 fn string_get_fixed_width_digits(sp: &[u8], n: usize) -> Option<(i64, usize)> {
+    debug_assert!(n <= sp.len());
     let mut v: i64 = 0;
     let mut cnt = n;
-    let mut adv = 0;
-
-    for (i, c) in sp.iter().enumerate() {
+    for c in sp.iter().take(n) {
         if (b'0'..=b'9').contains(c) {
             v = v * 10 + (*c - b'0') as i64;
             cnt -= 1;
-        } else {
-            if i == 0 {
-                return None;
-            } else {
-                adv = i;
-                break;
-            }
         }
     }
 
-    if cnt == 0 {
-        Some((v, if adv == 0 { sp.len() } else { adv }))
-    } else {
-        None
-    }
+    if cnt == 0 { Some((v, n)) } else { None }
 }
 
 /// parse milliseconds as a fractional part, round to nearest
@@ -307,7 +296,7 @@ fn find_substring(needle: &[u8], haystack: &[u8]) -> Option<usize> {
 fn string_get_month(sp: &[u8]) -> Option<(i64, usize)> {
     let p = skip_spaces(sp);
     if p < sp.len() - 3 {
-        find_substring(&sp[p..p + 3], MONTH_NAMES.as_bytes()).map(|n| ((n / 3) as i64, n))
+        find_substring(&sp[p..p + 3], MONTH_NAMES.as_bytes()).map(|n| ((n / 3) as i64, p + 3))
     } else {
         None
     }
@@ -478,36 +467,40 @@ fn datetime_parse(buf: &[u8]) -> Option<i64> {
                         return None;
                     }
                     fields[2] = n as f64;
+                    p += adv;
                 }
             }
 
             // year
-            p += skip_spaces(&buf[p..]);
-            if let Some((n, adv)) = string_get_signed_digits(&buf[p..]) {
-                fields[0] = n as f64;
-                p += adv;
-            } else {
-                return None;
-            }
+            if p < buf.len() {
+                p += skip_spaces(&buf[p..]);
 
-            // hour, min, seconds
-            p += skip_spaces(&buf[p..]);
-            for i in 0..3 {
-                if p < buf.len() {
-                    if matches!(i, 1 | 2) {
-                        if buf[p] != b':' {
-                            return None;
-                        } else {
-                            p += 1;
+                if let Some((n, adv)) = string_get_signed_digits(&buf[p..]) {
+                    fields[0] = n as f64;
+                    p += adv;
+                } else {
+                    return None;
+                }
+
+                // hour, min, seconds
+                p += skip_spaces(&buf[p..]);
+                for i in 0..3 {
+                    if p < buf.len() {
+                        if matches!(i, 1 | 2) {
+                            if buf[p] != b':' {
+                                return None;
+                            } else {
+                                p += 1;
+                            }
                         }
-                    }
 
-                    let (n, adv) = string_get_digits(&buf[p..]);
-                    if adv > 0 {
-                        fields[3 + i] = n as f64;
-                        p += adv;
-                    } else {
-                        return None;
+                        let (n, adv) = string_get_digits(&buf[p..]);
+                        if adv > 0 {
+                            fields[3 + i] = n as f64;
+                            p += adv;
+                        } else {
+                            return None;
+                        }
                     }
                 }
             }
@@ -515,17 +508,11 @@ fn datetime_parse(buf: &[u8]) -> Option<i64> {
             // XXX: parse optional milliseconds?
 
             // parse the time zone offset if present: [+-]HHmm
-            is_local = false;
             tz = 0;
-            loop {
-                if p >= buf.len() {
-                    break;
-                }
-
+            while p < buf.len() {
                 match buf[p] {
                     sgn @ (b'+' | b'-') => {
                         p += 1;
-
                         let Some((hh, adv)) = string_get_fixed_width_digits(&buf[p..], 2) else {
                             return None;
                         };
@@ -599,6 +586,13 @@ fn datetime_format(ctx: &JSContext, tm_val: i64, flags: i32) -> Result<JSString,
                     ctx.throw_out_of_memory();
                     -1
                 })?;
+                if part == 3 {
+                    // space beteween date and time
+                    buf.push_char(' ').map_err(|_| {
+                        ctx.throw_out_of_memory();
+                        -1
+                    })?;
+                }
             }
             1 => {
                 let s = format!(
@@ -612,6 +606,7 @@ fn datetime_format(ctx: &JSContext, tm_val: i64, flags: i32) -> Result<JSString,
                     -1
                 })?;
                 if part == 3 {
+                    // space beteween date and time
                     buf.push_char(' ').map_err(|_| {
                         ctx.throw_out_of_memory();
                         -1
@@ -619,7 +614,7 @@ fn datetime_format(ctx: &JSContext, tm_val: i64, flags: i32) -> Result<JSString,
                 }
             }
             2 => {
-                let s = if y >= 0 && y <= 9999 {
+                let s = if (0..10000).contains(&y) {
                     format!("{y:04}-{:02}-{d:02}T", mon + 1)
                 } else {
                     format!("{y:+07}-{:02}-{d:02}T", mon + 1)
@@ -1039,7 +1034,7 @@ fn set_date_field(ctx: &JSContext, cc: CallContext) -> JSResult {
 fn js_date_setYear(ctx: &JSContext, cc: CallContext) -> JSResult {
     let mut y = cc.arg(0).to_f64(ctx)?;
     if y.is_finite() {
-        y.trunc();
+        y = y.trunc();
         if (0.0..100.0).contains(&y) {
             y += 1900.0;
         }
