@@ -63,7 +63,7 @@ impl JSObject {
 
         match this_obj {
             JSValue::Object(this) => {
-                for proto in self.proto_iter(ctx, true) {
+                for proto in self.shape_proto_iter(true) {
                     // 1. check shape property
                     while let Some((idx, prs_flags)) = proto.find_shape_property(prop) {
                         match prs_flags & JS_PROP_TMASK {

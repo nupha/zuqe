@@ -23,7 +23,7 @@ impl JSObject {
         this_obj: &JSValue,
         throw_ref_error: bool,
     ) -> JSResult {
-        for proto in self.proto_iter(ctx, true) {
+        for proto in self.shape_proto_iter(true) {
             // 1. search own property (in shape)
             if let Some((idx, prs_flags)) = proto.find_shape_property(prop) {
                 return match prs_flags & JS_PROP_TMASK {

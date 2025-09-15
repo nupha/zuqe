@@ -78,19 +78,28 @@ pub fn js_object_hasOwnProperty(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_object_isPrototypeOf(ctx: &JSContext, cc: CallContext) -> JSResult {
     if let JSValue::Object(ctor) = cc.arg(0).clone() {
-        let this = cc.this().to_object(ctx)?;
+        let obj = cc.this().to_object(ctx)?;
 
-        for p in ctor.proto_iter(ctx, true) {
-            if p == this {
-                return Ok(JSValue::Bool(true));
-            }
+        let mut cur_obj = ctor.clone();
+        let b = loop {
+            if let Some(p) = cur_obj.prototype(ctx)? {
+                if p == obj {
+                    break true;
+                } else {
+                    cur_obj = p;
+                }
+            } else {
+                break false;
+            };
 
             // avoid infinite loop (possible with proxies)
             ctx.poll_interrupts()?;
-        }
-    }
+        };
 
-    Ok(JSValue::Bool(false))
+        Ok(b.into())
+    } else {
+        Ok(JSValue::Bool(false))
+    }
 }
 
 pub fn js_object_propertyIsEnumerable(ctx: &JSContext, cc: CallContext) -> JSResult {

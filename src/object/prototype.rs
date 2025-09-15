@@ -5,19 +5,18 @@ use crate::{
     value::{JS_GetPrototypePrimitive, JSValue},
 };
 
-/// To iterate over the prototype chain of an object
-pub struct ObjectPrototypeIter {
-    ctx: JSContext,
-    cur_obj: Option<JSObject>,
+/// To iterate over shape proto chain of an object
+pub struct ObjectShapeProtoIter {
+    obj: Option<JSObject>,
 }
 
-impl Iterator for ObjectPrototypeIter {
+impl Iterator for ObjectShapeProtoIter {
     type Item = JSObject;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(obj) = self.cur_obj.take() {
+        if let Some(obj) = self.obj.take() {
             let proto = obj.shape().and_then(|s| s.0.borrow().proto.clone());
-            self.cur_obj = proto;
+            self.obj = proto;
             Some(obj)
         } else {
             None
@@ -26,9 +25,11 @@ impl Iterator for ObjectPrototypeIter {
 }
 
 impl JSObject {
-    /// Get prototype object of `self`.
-    /// Return an object if it has prototype, None for no prototype.
-    /// Returns Err in case of Proxy object.
+    /// Get prototype object of `self`, both shape and proxy are considered.
+    ///
+    /// Returns:
+    /// - Some(object) if it has prototype, None for no prototype.
+    /// - Err in case Proxy object calling getPrototypeOf() failed.
     pub fn prototype(&self, ctx: &JSContext) -> Result<Option<JSObject>, i32> {
         if let Some(p) = self.as_proxy() {
             Ok(JSObject::try_from(p.get_prototype_of(ctx)?).ok())
@@ -37,13 +38,12 @@ impl JSObject {
         }
     }
 
-    /// get prototype chain walk iterator.
-    /// To iterate over the prototype chain of an object.
-    /// Note: only check the `proto` field of shape, no proxy considered.
-    pub fn proto_iter(&self, ctx: &JSContext, include_self: bool) -> ObjectPrototypeIter {
-        ObjectPrototypeIter {
-            ctx: ctx.clone(),
-            cur_obj: if include_self {
+    /// Get shape proto chain iterator, to iterate over the proto chain of an object.
+    ///
+    /// **Note: this iterator only concerns the `proto` field of shape, no proxy case is considered.**
+    pub fn shape_proto_iter(&self, include_self: bool) -> ObjectShapeProtoIter {
+        ObjectShapeProtoIter {
+            obj: if include_self {
                 Some(self.clone())
             } else {
                 self.shape().and_then(|s| s.0.borrow().proto.clone())

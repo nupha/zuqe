@@ -274,7 +274,8 @@ pub fn js_object_getOwnPropertyDescriptor(ctx: &JSContext, cc: CallContext) -> J
         if let Ok(o) = cc.arg(0).to_object(ctx) {
             o
         } else {
-            return Ok(JSValue::UNDEFINED);
+            ctx.throw_type_error_not_an_object();
+            return Err(-1);
         }
     };
 
