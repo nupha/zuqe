@@ -1,5 +1,5 @@
 use std::{
-    ops::{Deref, DerefMut},
+    ops::{Deref, DerefMut, RangeInclusive},
     os::unix::raw::time_t,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -13,7 +13,6 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{CallContext, FieldDef},
-    number::MAX_SAFE_INTEGER,
     object::ObjectPayload,
     string::{JSString, StringBuf, StringChar},
     value::{HINT_FORCE_ORDINARY, HINT_NONE, HINT_NUMBER, HINT_STRING, JSValue},
@@ -22,7 +21,9 @@ use crate::{
 const MONTH_DAYS: [u8; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 const MONTH_NAMES: &str = "JanFebMarAprMayJunJulAugSepOctNovDec";
 const WEEKDAY_NAMES: &str = "SunMonTueWedThuFriSat";
+
 const INVALID_TIMESTAMP: i64 = i64::MIN;
+const VALID_TIMESTAMP_RANGE: RangeInclusive<i64> = -8640000000000000..=8640000000000000;
 
 fn floor_div(a: i64, b: i64) -> i64 {
     let m = a % b;
@@ -34,6 +35,7 @@ fn math_mod(a: i64, b: i64) -> i64 {
     m + if m < 0 { b } else { 0 }
 }
 
+/// returns NaN if the timestamp is invalid
 fn time_clip(t: f64) -> f64 {
     if (-8.64e15..=8.64e15).contains(&t) {
         t.trunc() + 0.0 // convert -0 to +0
@@ -109,7 +111,7 @@ fn make_timestamp(fields: &[f64; 7], is_local: bool) -> Option<i64> {
 }
 
 fn timestamp_to_fields(tm_val: i64, is_local: bool) -> Option<[i64; 9]> {
-    if !(-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&tm_val) {
+    if !VALID_TIMESTAMP_RANGE.contains(&tm_val) {
         return None; // invalid
     }
 
@@ -575,7 +577,7 @@ fn datetime_format(ctx: &JSContext, tm_val: i64, flags: i32) -> Result<JSString,
         match fmt {
             0 => {
                 let s = format!(
-                    "{:3}, {d:02} {:3} {y:0>width$}",
+                    "{:3}, {d:02} {:3} {y:0width$}",
                     &WEEKDAY_NAMES[wd as usize * 3..(wd as usize * 3 + 3)],
                     &MONTH_NAMES[mon as usize * 3..(mon as usize * 3 + 3)],
                     width = if y < 0 { 5 } else { 4 }
@@ -594,7 +596,7 @@ fn datetime_format(ctx: &JSContext, tm_val: i64, flags: i32) -> Result<JSString,
             }
             1 => {
                 let s = format!(
-                    "{:3} {:3} {d:02} {y:0>width$}",
+                    "{:3} {:3} {d:02} {y:0width$}",
                     &WEEKDAY_NAMES[wd as usize * 3..(wd as usize * 3 + 3)],
                     &MONTH_NAMES[mon as usize * 3..(mon as usize * 3 + 3)],
                     width = if y < 0 { 5 } else { 4 }
@@ -624,7 +626,7 @@ fn datetime_format(ctx: &JSContext, tm_val: i64, flags: i32) -> Result<JSString,
             }
             3 => {
                 let s = format!(
-                    "{:02}/{d:02}/{y:0>width$}",
+                    "{:02}/{d:02}/{y:0width$}",
                     mon + 1,
                     width = if y < 0 { 5 } else { 4 }
                 );
@@ -706,7 +708,7 @@ impl Datetime {
     #[inline(always)]
     pub fn from_timestamp_ms(ts: i64) -> Self {
         Self {
-            timestamp_ms: if (-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&ts) {
+            timestamp_ms: if VALID_TIMESTAMP_RANGE.contains(&ts) {
                 ts
             } else {
                 INVALID_TIMESTAMP
@@ -719,7 +721,6 @@ impl Datetime {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_else(|e| e.duration());
 
-        debug_assert!(duration.as_millis() <= MAX_SAFE_INTEGER as u128);
         Self {
             timestamp_ms: duration.as_millis() as i64,
         }
@@ -757,7 +758,7 @@ impl Datetime {
 
     #[inline(always)]
     pub fn invalid(&self) -> bool {
-        !(-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&self.timestamp_ms)
+        !VALID_TIMESTAMP_RANGE.contains(&self.timestamp_ms)
     }
 }
 
@@ -897,7 +898,7 @@ fn js_date_setTime(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let a = cc.arg(0).to_f64(ctx)?;
     let dt2 = if a.is_finite() {
-        Datetime::from_timestamp_ms(a.trunc() as i64)
+        Datetime::from_timestamp_ms(a.trunc() as i64) // will clip inside
     } else {
         Datetime::INVALID
     };
@@ -1016,10 +1017,9 @@ fn set_date_field_internal(
 
     if let ObjectPayload::DATE(dt) = this.object().unwrap().0.payload.borrow_mut().deref_mut() {
         // Note: to pass test262
-        // only if dt2 is invalid, and `this` timestamp is invalid too, update the timestamp.
-        // condition equivelent to !(dt2.invalid() && this_is_bad)
+        // only `this` timestamp is invalid, and not setting `year`, do update the timestamp.
         // `this` timestamp could have been updated in valueOf() method.
-        if !this_is_bad || dt2.invalid() {
+        if first_field == 0 || !this_is_bad {
             *dt = dt2;
         }
 
