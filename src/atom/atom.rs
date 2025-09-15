@@ -343,7 +343,7 @@ impl JSValue {
                     #[cfg(debug_assertions)]
                     unreachable!();
                     #[cfg(not(debug_assertions))]
-                    Err(-1)
+                    return Err(-1);
                 }
             }
         }

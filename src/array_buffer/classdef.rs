@@ -1,6 +1,6 @@
 use crate::{
-    JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_CGETSET_MAGIC_DEF, JS_CLASS_ARRAY_BUFFER,
-    JS_CLASS_DATAVIEW, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY, JS_PROP_STRING_DEF,
+    JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_ARRAY_BUFFER, JS_CLASS_DATAVIEW,
+    JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY, JS_PROP_STRING_DEF,
     class::JSClassID,
     context::JSContext,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
@@ -22,31 +22,30 @@ pub fn js_array_buffer_isView(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub static js_array_buffer_funcs: [FieldDef; 2] = [
     JS_CFUNC_NATIVE_DEF!("isView", 1, js_array_buffer_isView, 0),
-    JS_CGETSET_DEF!("[Symbol.species]", js_get_this, NONE),
+    JS_CGETSET_NATIVE_DEF!("[Symbol.species]", js_get_this, NONE, 0),
 ];
 
-pub static js_shared_array_buffer_funcs: [FieldDef; 1] =
-    [JS_CGETSET_DEF!("[Symbol.species]", js_get_this, NONE)];
+pub static js_shared_array_buffer_funcs: [FieldDef; 1] = [JS_CGETSET_NATIVE_DEF!(
+    "[Symbol.species]",
+    js_get_this,
+    NONE,
+    0
+)];
 
 //
 // Prototype
 //
 
-pub unsafe fn js_array_buffer_get_byteLength(
-    ctx: &JSContext,
-    this_val: JSValue,
-    class_id: i32,
-) -> JSValue {
-    this_val
-        .object_unchecked()
+pub fn js_array_buffer_get_byteLength(_: &JSContext, cc: CallContext) -> JSResult {
+    cc.this()
+        .object()
+        .unwrap()
         .0
         .payload
         .borrow()
         .array_buffer()
-        .map_or(
-            JSValue::EXCEPTION,
-            |p| JSValue::from(p.byte_length() as i32),
-        )
+        .map(|p| JSValue::Int(p.byte_length() as i32))
+        .ok_or(-1)
 }
 
 pub fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -141,7 +140,7 @@ pub fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub static js_array_buffer_proto_funcs: [FieldDef; 3] = [
-    JS_CGETSET_MAGIC_DEF!(
+    JS_CGETSET_NATIVE_DEF!(
         "byteLength",
         js_array_buffer_get_byteLength,
         NONE,
@@ -157,7 +156,7 @@ pub static js_array_buffer_proto_funcs: [FieldDef; 3] = [
 ];
 
 pub static js_shared_array_buffer_proto_funcs: [FieldDef; 3] = [
-    JS_CGETSET_MAGIC_DEF!(
+    JS_CGETSET_NATIVE_DEF!(
         "byteLength",
         js_array_buffer_get_byteLength,
         NONE,

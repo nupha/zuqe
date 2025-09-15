@@ -1,8 +1,8 @@
 use fallible_collections::TryCollect;
 
 use crate::{
-    JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_CLASS_ARRAY, JS_NATIVE_ITERATOR_NEXT_DEF,
-    JS_PROP_STRING_DEF,
+    JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_ARRAY,
+    JS_NATIVE_ITERATOR_NEXT_DEF, JS_PROP_STRING_DEF,
     array::Array,
     atom::consts::{
         JS_ATOM_Symbol_isConcatSpreadable, JS_ATOM_Symbol_iterator, JS_ATOM_Symbol_species,
@@ -1568,7 +1568,7 @@ pub static js_array_funcs: [FieldDef; 4] = [
     JS_CFUNC_NATIVE_DEF!("isArray", 1, js_array_isArray, 0),
     JS_CFUNC_NATIVE_DEF!("from", 1, js_array_from, 0),
     JS_CFUNC_NATIVE_DEF!("of", 0, js_array_of, 0),
-    JS_CGETSET_DEF!("[Symbol.species]", js_get_this, NONE),
+    JS_CGETSET_NATIVE_DEF!("[Symbol.species]", js_get_this, NONE, 0),
 ];
 
 /// 将数组 obj 中从 start_pos 开始的 count 个元素复制到 to_pos 开始的位置。

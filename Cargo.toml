@@ -57,10 +57,10 @@ colorized = "1.0"
 
 [profile.release]
 opt-level = "s"
-lto = "fat"
-codegen-units = 1
+lto = "thin"
 panic = "abort"
 strip = "symbols"
+codegen-units = 1
 
 [profile.release.package."*"]
 opt-level = "s"

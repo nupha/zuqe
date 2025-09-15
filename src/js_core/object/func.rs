@@ -164,16 +164,10 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
         // get prop value array and key atom
         let (props_arr, key_atom): (JSResult, JSAtom) = if is_map != 0 {
             (
-                unsafe {
-                    js_map_get(
-                        ctx,
-                        groups.clone(),
-                        1,
-                        std::slice::from_ref(&key).as_ptr() as _,
-                        0,
-                    )
-                    .err()
-                },
+                js_map_get(
+                    ctx,
+                    CallContext::new_simple(ctx, groups.clone(), std::slice::from_ref(&key)),
+                ),
                 JS_ATOM_NULL,
             )
         } else {

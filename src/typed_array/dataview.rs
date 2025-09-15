@@ -1,8 +1,8 @@
 use crate::{
-    JS_CFUNC_NATIVE_DEF, JS_CGETSET_MAGIC_DEF, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
-    JS_CLASS_DATAVIEW, JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY,
-    JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT16_ARRAY,
-    JS_CLASS_UINT32_ARRAY, JS_PROP_STRING_DEF,
+    JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_BIG_INT64_ARRAY,
+    JS_CLASS_BIG_UINT64_ARRAY, JS_CLASS_DATAVIEW, JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY,
+    JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY, JS_CLASS_UINT8_ARRAY,
+    JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY, JS_PROP_STRING_DEF,
     class::JSClassID,
     context::JSContext,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
@@ -321,9 +321,9 @@ pub fn js_dataview_setValue(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub static js_dataview_proto_funcs: [FieldDef; 20] = [
-    JS_CGETSET_MAGIC_DEF!("buffer", js_typed_array_get_buffer, NONE, 1),
-    JS_CGETSET_MAGIC_DEF!("byteLength", js_typed_array_get_byteLength, NONE, 1),
-    JS_CGETSET_MAGIC_DEF!("byteOffset", js_typed_array_get_byteOffset, NONE, 1),
+    JS_CGETSET_NATIVE_DEF!("buffer", js_typed_array_get_buffer, NONE, 1),
+    JS_CGETSET_NATIVE_DEF!("byteLength", js_typed_array_get_byteLength, NONE, 1),
+    JS_CGETSET_NATIVE_DEF!("byteOffset", js_typed_array_get_byteOffset, NONE, 1),
     JS_CFUNC_NATIVE_DEF!(
         "getInt8",
         1,

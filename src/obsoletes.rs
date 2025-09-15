@@ -27,6 +27,7 @@ use crate::{
     gc::{GCObjectHeader, JSGCObjectTypeEnum},
     generator::{ObjAsyncGenerator, ObjGenerator},
     iterator::{ForInIterObjPayload, JSIteratorKindEnum},
+    mapset::{JSMapState, MapPair},
     module::{
         JSExportEntry, JSExportTypeEnum, JSResolveEntry, JSResolveResultEnum, ModuleDef,
         ModuleDefInner,
@@ -1866,7 +1867,7 @@ pub unsafe fn JS_NewObjectProtoClass(
 /// - class_id: JS_CLASS_* identifier
 ///
 /// Returns New object or Exception
-#[deprecated(note = "use JSContext::create_object_with_classid() instead")]
+#[deprecated(note = "use JSContext::create_object() instead")]
 pub unsafe fn JS_NewObjectClass(ctx: &JSContext, class_id: JSClassID) -> JSValue {
     unreachable!("unused");
 
@@ -4208,4 +4209,39 @@ pub fn JS_SetPrototypeInternal(
     throw_flag: bool,
 ) -> Result<bool, i32> {
     obj.set_prototype_internal(ctx, proto_val, throw_flag)
+}
+
+// XXX: could normalize strings to speed up comparison
+#[deprecated(note = "use MapKV::normalize_key() instead")]
+pub unsafe fn map_normalize_key(ctx: &JSContext, key: JSValueConst) -> JSValueConst {
+    MapPair::normalize_key(key)
+}
+
+// XXX: better hash ?
+#[deprecated(note = "use JSValue::hash() instead")]
+pub unsafe fn map_hash_key(ctx: &JSContext, key: JSValueConst) -> u32 {
+    key.hash()
+}
+
+#[deprecated(note = "use JSMapState::find() instead")]
+pub unsafe fn map_find_record(
+    ctx: &JSContext,
+    s: *mut JSMapState,
+    key: JSValueConst,
+) -> *mut MapPair {
+    unreachable!("unused");
+}
+
+#[deprecated(note = "use JSMapState::add_kv() instead")]
+pub unsafe fn map_add_record(
+    ctx: &JSContext,
+    s: *mut JSMapState,
+    key: JSValueConst,
+) -> *mut MapPair {
+    unreachable!("unused");
+}
+
+#[deprecated]
+pub unsafe fn map_hash_resize(ctx: &JSContext, s: *mut JSMapState) {
+    unreachable!("unused")
 }

@@ -6,7 +6,7 @@ use std::{
 use smallvec::SmallVec;
 
 use crate::{
-    JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_REGEXP,
+    JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_REGEXP,
     atom::consts::*,
     context::{JS_GetActiveFunction, JSContext},
     error::{ErrorKind, JSResult},
@@ -980,7 +980,7 @@ pub static js_regexp_proto_funcs: [FieldDef; 18] = [
 ];
 
 pub static js_regexp_funcs: [FieldDef; 1] = [
-    JS_CGETSET_DEF!("[Symbol.species]", js_get_this, NONE),
+    JS_CGETSET_NATIVE_DEF!("[Symbol.species]", js_get_this, NONE, 0),
     //JS_CFUNC_DEF("__RegExpExec", 2, js_regexp___RegExpExec ),
     //JS_CFUNC_DEF("__RegExpDelete", 2, js_regexp___RegExpDelete ),
 ];

@@ -7,8 +7,8 @@ pub mod math;
 pub mod object;
 pub mod string;
 
-use crate::{context::JSContext, value::JSValue};
+use crate::{context::JSContext, error::JSResult, function::CallContext};
 
-pub unsafe fn js_get_this(ctx: &JSContext, this_val: JSValue) -> JSValue {
-    this_val
+pub fn js_get_this(_: &JSContext, cc: CallContext) -> JSResult {
+    Ok(cc.this().clone())
 }

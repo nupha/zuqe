@@ -1,5 +1,5 @@
 use crate::{
-    JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_PROP_STRING_DEF,
+    JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_PROP_STRING_DEF,
     atom::consts::*,
     context::JSContext,
     error::JSResult,
@@ -341,7 +341,7 @@ pub static js_promise_funcs: [FieldDef; 8] = [
     JS_CFUNC_NATIVE_DEF!("any", 1, js_promise_all, PROMISE_MAGIC_any as _),
     JS_CFUNC_NATIVE_DEF!("race", 1, js_promise_race, 0),
     JS_CFUNC_NATIVE_DEF!("withResolvers", 0, js_promise_withResolvers, 0),
-    JS_CGETSET_DEF!("[Symbol.species]", js_get_this, NONE),
+    JS_CGETSET_NATIVE_DEF!("[Symbol.species]", js_get_this, NONE, 0),
 ];
 
 //

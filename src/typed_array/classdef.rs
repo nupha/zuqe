@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 
 use crate::{
-    JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_DEF, JS_CGETSET_MAGIC_DEF, JS_CLASS_ARRAY_BUFFER,
+    JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_ARRAY_BUFFER,
     JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY, JS_CLASS_FLOAT32_ARRAY,
     JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY,
     JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY,
@@ -252,64 +252,49 @@ pub fn js_typed_array_of(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub static js_typed_array_base_funcs: [FieldDef; 3] = [
     JS_CFUNC_NATIVE_DEF!("from", 1, js_typed_array_from, 0),
     JS_CFUNC_NATIVE_DEF!("of", 0, js_typed_array_of, 0),
-    JS_CGETSET_DEF!("[Symbol.species]", js_get_this, NONE),
+    JS_CGETSET_NATIVE_DEF!("[Symbol.species]", js_get_this, NONE, 0),
 ];
 
 //
 // Prototype
 //
 
-pub unsafe fn js_typed_array_get_length(ctx: &JSContext, this_val: JSValueConst) -> JSValue {
-    if let Ok(p) = this_val.typed_array_must(ctx, false) {
-        (p.length() as i32).into()
-    } else {
-        JSValue::EXCEPTION
-    }
+pub fn js_typed_array_get_length(ctx: &JSContext, cc: CallContext) -> JSResult {
+    cc.this()
+        .clone()
+        .typed_array_must(ctx, false)
+        .map(|p| JSValue::Int(p.length() as i32))
 }
 
-pub unsafe fn js_typed_array_get_buffer(
-    ctx: &JSContext,
-    this_val: JSValue,
-    is_dataview: i32,
-) -> JSValue {
-    this_val
-        .typed_array_must(ctx, is_dataview != 0)
+pub fn js_typed_array_get_buffer(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let is_dataview = cc.magic() != 0;
+    cc.this()
+        .clone()
+        .typed_array_must(ctx, is_dataview)
         .map(|p| JSValue::Object(p.with(|ta| ta.buffer.clone())))
-        .unwrap_or(JSValue::EXCEPTION)
 }
 
-pub unsafe fn js_typed_array_get_byteLength(
-    ctx: &JSContext,
-    this_val: JSValue,
-    is_dataview: i32,
-) -> JSValue {
-    if let Ok(p) = this_val.typed_array_must(ctx, is_dataview != 0) {
-        if p.is_detached() {
-            if is_dataview != 0 {
-                JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-                JSValue::EXCEPTION
-            } else {
-                JSValue::Int(0)
-            }
+pub fn js_typed_array_get_byteLength(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let is_dataview = cc.magic() != 0;
+
+    let p = cc.this().clone().typed_array_must(ctx, is_dataview)?;
+    if p.is_detached() {
+        if is_dataview {
+            JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+            Err(-1)
         } else {
-            JSValue::Int(p.with(|ta| ta.byte_length) as i32)
+            Ok(JSValue::Int(0))
         }
     } else {
-        JSValue::EXCEPTION
+        Ok(JSValue::Int(p.with(|ta| ta.byte_length) as i32))
     }
 }
 
-pub unsafe fn js_typed_array_get_byteOffset(
-    ctx: &JSContext,
-    this_val: JSValueConst,
-    is_dataview: i32,
-) -> JSValue {
-    if let Ok(p) = this_val.typed_array_must(ctx, is_dataview != 0) {
-        p.array_buffer_byte_offset(ctx, is_dataview != 0)
-            .map_or(JSValue::EXCEPTION, |n| JSValue::from(n as i32))
-    } else {
-        JSValue::EXCEPTION
-    }
+pub fn js_typed_array_get_byteOffset(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let is_dataview = cc.magic() != 0;
+    let p = cc.this().clone().typed_array_must(ctx, is_dataview)?;
+    p.array_buffer_byte_offset(ctx, is_dataview)
+        .map(|n| JSValue::Int(n as i32))
 }
 
 pub fn js_typed_array_at(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -352,7 +337,7 @@ pub fn js_typed_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(arr)
 }
 
-pub fn js_typed_array_set(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_typed_array_set(ctx: &JSContext, cc: CallContext) -> JSResult {
     let offset = if cc.length() > 1 {
         cc.arg(1)
     } else {
@@ -361,7 +346,7 @@ pub fn js_typed_array_set(ctx: &JSContext, cc: CallContext) -> JSResult {
     js_typed_array_set_internal(ctx, cc.this(), cc.arg(0), offset)
 }
 
-pub fn js_create_typed_array_iterator(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_create_typed_array_iterator(ctx: &JSContext, cc: CallContext) -> JSResult {
     let tao = cc.this().clone().typed_array_must(ctx, false)?;
     if tao.is_detached() {
         JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
@@ -371,18 +356,16 @@ pub fn js_create_typed_array_iterator(ctx: &JSContext, cc: CallContext) -> JSRes
     }
 }
 
-pub unsafe fn js_typed_array_get_toStringTag(ctx: &JSContext, this_val: JSValueConst) -> JSValue {
-    if let Ok(tao) = TryInto::<TypedArray>::try_into(this_val) {
+fn js_typed_array_get_toStringTag(ctx: &JSContext, cc: CallContext) -> JSResult {
+    if let Ok(tao) = TypedArray::try_from(cc.this().clone()) {
         let class_name = ctx.rt().class_defs[tao.class_id() as usize].class_name;
-        class_name
-            .to_string(ctx)
-            .map_or(JSValue::EXCEPTION, JSValue::String)
+        class_name.to_string(ctx).map(JSValue::String)
     } else {
-        JSValue::UNDEFINED
+        Ok(JSValue::UNDEFINED)
     }
 }
 
-pub fn js_typed_array_copyWithin(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_typed_array_copyWithin(ctx: &JSContext, cc: CallContext) -> JSResult {
     let len = unsafe { js_typed_array_get_length_internal(ctx, cc.this())? as i32 };
 
     let to: i32 = cc.arg(0).to_i32_clamp(ctx, 0, len, len)?;
@@ -1120,12 +1103,12 @@ pub fn js_typed_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub static js_typed_array_base_proto_funcs: [FieldDef; 36] = [
-    JS_CGETSET_DEF!("length", js_typed_array_get_length, NONE),
+    JS_CGETSET_NATIVE_DEF!("length", js_typed_array_get_length, NONE, 0),
     JS_CFUNC_NATIVE_DEF!("at", 1, js_typed_array_at, 0),
     JS_CFUNC_NATIVE_DEF!("with", 2, js_typed_array_with, 0),
-    JS_CGETSET_MAGIC_DEF!("buffer", js_typed_array_get_buffer, NONE, 0),
-    JS_CGETSET_MAGIC_DEF!("byteLength", js_typed_array_get_byteLength, NONE, 0),
-    JS_CGETSET_MAGIC_DEF!("byteOffset", js_typed_array_get_byteOffset, NONE, 0),
+    JS_CGETSET_NATIVE_DEF!("buffer", js_typed_array_get_buffer, NONE, 0),
+    JS_CGETSET_NATIVE_DEF!("byteLength", js_typed_array_get_byteLength, NONE, 0),
+    JS_CGETSET_NATIVE_DEF!("byteOffset", js_typed_array_get_byteOffset, NONE, 0),
     JS_CFUNC_NATIVE_DEF!("set", 1, js_typed_array_set, 0),
     JS_CFUNC_NATIVE_DEF!(
         "values",
@@ -1146,7 +1129,12 @@ pub static js_typed_array_base_proto_funcs: [FieldDef; 36] = [
         js_create_typed_array_iterator,
         JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE as i16
     ),
-    JS_CGETSET_DEF!("[Symbol.toStringTag]", js_typed_array_get_toStringTag, NONE),
+    JS_CGETSET_NATIVE_DEF!(
+        "[Symbol.toStringTag]",
+        js_typed_array_get_toStringTag,
+        NONE,
+        0
+    ),
     JS_CFUNC_NATIVE_DEF!("copyWithin", 2, js_typed_array_copyWithin, 0),
     JS_CFUNC_NATIVE_DEF!(
         "every",

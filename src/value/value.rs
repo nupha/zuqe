@@ -335,7 +335,7 @@ impl JSValue {
         (id * 3163) as u32
     }
 
-    /// calculate hash for jsvalue
+    /// calculate value hash
     pub fn hash(&self) -> u32 {
         let h: u32 = match self {
             Self::Object(o) => Self::id_to_hash(o.id()),
@@ -343,7 +343,11 @@ impl JSValue {
                 let u = JSFloat64Union { uint64: *d as u64 };
                 unsafe { (u.uint32[0] ^ u.uint32[1]) * 3163 }
             }
-            Self::String(s) | Self::Symbol(s) => s.content().calc_hash(AtomTypeHint::String),
+            Self::String(s) => s.content().calc_hash(AtomTypeHint::String),
+            Self::Symbol(s) => {
+                let a = s.atom_info().unwrap();
+                s.content().calc_hash(a.type_hint())
+            }
             Self::Float64(d) => {
                 let mut d = *d;
                 if d.is_nan() {

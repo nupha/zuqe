@@ -401,9 +401,11 @@ impl ObjectInner {
 
         while let Some(w) = self.weak_refs.borrow_mut().pop() {
             if let Some(o) = w.upgrade() {
-                let mut py = o.0.payload.borrow_mut();
-                let ms = py.map_state_mut().unwrap();
-                ms.remove_weak(self)
+                o.0.payload
+                    .borrow_mut()
+                    .map_state_mut()
+                    .unwrap()
+                    .remove_weak_obj(self)
             }
         }
 
