@@ -108,20 +108,18 @@ fn make_timestamp(fields: &[f64; 7], is_local: bool) -> Option<i64> {
     if r.is_finite() { Some(r as i64) } else { None }
 }
 
-fn timestamp_to_fields(tm_val: i64, is_local: bool, force: bool) -> Option<[i64; 9]> {
+fn timestamp_to_fields(tm_val: i64, is_local: bool) -> Option<[i64; 9]> {
+    if !(-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&tm_val) {
+        return None; // invalid
+    }
+
     let mut d: i64 = 0;
     let mut tz: i64 = 0;
 
-    if !(-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&tm_val) {
-        if !force {
-            return None; // invalid
-        }
-    } else {
-        d = tm_val;
-        if is_local {
-            tz = -get_timezone_offset(d) as i64;
-            d += tz * 60000;
-        }
+    d = tm_val;
+    if is_local {
+        tz = -get_timezone_offset(d) as i64;
+        d += tz * 60000;
     }
 
     let h = math_mod(d, 86400000);
@@ -548,7 +546,7 @@ fn datetime_format(ctx: &JSContext, tm_val: i64, flags: i32) -> Result<JSString,
     let fmt = (flags >> 4) & 0x0F;
     let part = flags & 0x0F;
 
-    let Some(fields) = timestamp_to_fields(tm_val, fmt & 1 != 0, false) else {
+    let Some(fields) = timestamp_to_fields(tm_val, fmt & 1 != 0) else {
         return if fmt == 2 {
             ctx.throw_range_error("Date value is NaN");
             Err(-1)
@@ -894,20 +892,22 @@ fn js_date_getTime(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 fn js_date_setTime(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let Some(obj) = cc.this().object() else {
-        ctx.throw_type_error_not_an_object();
-        return Err(-1);
-    };
+    let this = cc.this();
+    let _ = JS_ThisTimeValue(ctx, this)?;
 
     let a = cc.arg(0).to_f64(ctx)?;
-    let a = a.trunc() as i64;
-
-    if let ObjectPayload::DATE(dt) = obj.0.payload.borrow_mut().deref_mut() {
-        let tm = Datetime::from_timestamp_ms(a);
-        *dt = tm;
-        Ok(tm.into())
+    let dt2 = if a.is_finite() {
+        Datetime::from_timestamp_ms(a.trunc() as i64)
     } else {
-        Ok(JSValue::Float64(f64::NAN))
+        Datetime::INVALID
+    };
+
+    if let ObjectPayload::DATE(dt) = this.object().unwrap().0.payload.borrow_mut().deref_mut() {
+        *dt = dt2;
+        Ok(dt2.into())
+    } else {
+        ctx.throw_type_error("not a Date object");
+        Err(-1)
     }
 }
 
@@ -959,7 +959,7 @@ fn get_date_field(ctx: &JSContext, cc: CallContext) -> JSResult {
     let is_local = magic & 0x0F != 0;
     let n = (magic >> 4) & 0x0F;
 
-    if let Some(mut fields) = timestamp_to_fields(tm.into(), is_local, false) {
+    if let Some(mut fields) = timestamp_to_fields(tm.into(), is_local) {
         if magic & 0x100 != 0 {
             // getYear
             fields[0] -= 1900;
@@ -976,54 +976,57 @@ fn set_date_field_internal(
     args: &[JSValue],
     magic: i32,
 ) -> JSResult {
-    let tm = JS_ThisTimeValue(ctx, this)?;
-
     let first_field = (magic >> 8) & 0x0F;
     let end_field = (magic >> 4) & 0x0F;
     let is_local = magic & 0x0F != 0;
 
-    debug_assert!(end_field >= first_field);
-
-    if let Some(mut fields) = timestamp_to_fields(tm.into(), is_local, first_field == 0) {
-        // Argument coercion is observable and must be done unconditionally.
-        let mut has_invalid = false;
-        let n = (end_field - first_field) as usize;
-
-        for (i, v) in args.iter().take(n).enumerate() {
-            let a = v.to_f64(ctx)?;
-            if !a.is_finite() {
-                has_invalid = true;
+    let (mut fields, this_is_bad) =
+        if let Some(ff) = timestamp_to_fields(JS_ThisTimeValue(ctx, this)?.into(), is_local) {
+            let mut ff2: [f64; 7] = [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0];
+            for (i, n) in ff.into_iter().take(7).enumerate() {
+                ff2[i] = n as f64;
             }
-            fields[first_field as usize + i] = a.trunc() as i64;
-        }
-
-        let tm2: Datetime = if !has_invalid && n > 0 {
-            make_timestamp(
-                &[
-                    fields[0] as f64,
-                    fields[1] as f64,
-                    fields[2] as f64,
-                    fields[3] as f64,
-                    fields[4] as f64,
-                    fields[5] as f64,
-                    fields[6] as f64,
-                ],
-                is_local,
-            )
-            .map_or(Datetime::INVALID, Datetime::from_timestamp_ms)
+            (Some(ff2), false)
+        } else if first_field == 0 {
+            // set year will re-vive an invalid date
+            (Some([0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0]), true)
         } else {
-            Datetime::INVALID
+            (None, true)
         };
 
-        if let ObjectPayload::DATE(dt) = this.object().unwrap().0.payload.borrow_mut().deref_mut() {
-            *dt = tm2;
-            Ok(tm2.into())
+    let field_range = first_field as usize..end_field as usize;
+    for (v, i) in args.iter().zip(field_range.into_iter()) {
+        let a = v.to_f64(ctx)?;
+        if a.is_finite() {
+            if let Some(f) = &mut fields {
+                f[i] = a.trunc();
+            }
         } else {
-            ctx.throw_type_error("not a Date object");
-            Err(-1)
+            fields.take();
         }
+    }
+
+    let dt2: Datetime = if let Some(fields) = fields
+        && !args.is_empty()
+    {
+        make_timestamp(&fields, is_local).map_or(Datetime::INVALID, Datetime::from_timestamp_ms)
     } else {
-        Ok(JSValue::Float64(f64::NAN))
+        Datetime::INVALID
+    };
+
+    if let ObjectPayload::DATE(dt) = this.object().unwrap().0.payload.borrow_mut().deref_mut() {
+        // Note: to pass test262
+        // only if dt2 is invalid, and `this` timestamp is invalid too, update the timestamp.
+        // condition equivelent to !(dt2.invalid() && this_is_bad)
+        // `this` timestamp could have been updated in valueOf() method.
+        if !this_is_bad || dt2.invalid() {
+            *dt = dt2;
+        }
+
+        Ok(dt2.into())
+    } else {
+        ctx.throw_type_error("not a Date object");
+        Err(-1)
     }
 }
 
