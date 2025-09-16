@@ -73,7 +73,7 @@ impl JSObject {
                                     // set array length
                                     debug_assert_eq!(this.class_id(), JS_CLASS_ARRAY);
                                     debug_assert_eq!(prop, JS_ATOM_length);
-                                    return this.set_array_length(
+                                    return this.as_Array().unwrap().set_length(
                                         ctx,
                                         val.to_array_length(ctx, false)?,
                                         ctx.should_throw_error(flags),

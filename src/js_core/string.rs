@@ -381,16 +381,14 @@ pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     if separator.is_undefined() {
-        ret_arr
-            .0
-            .define_property_value_u32(ctx, 0, str.into(), JS_PROP_C_W_E | JS_PROP_THROW)?;
+        ret_arr.define_property_value_u32(ctx, 0, str.into(), JS_PROP_C_W_E | JS_PROP_THROW)?;
         return Ok(ret_arr.into());
     }
 
     if sep_len == 0 {
         for (i, (_, c)) in str.content().iter().enumerate().take(lim as usize) {
             let t = ctx.create_string_from_char(c)?;
-            ret_arr.0.define_property_value_u32(
+            ret_arr.define_property_value_u32(
                 ctx,
                 i as _,
                 t.into(),
@@ -406,12 +404,7 @@ pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
 
         while let Some(i) = cc.index_of(sc, cursor) {
             let t = str.sub_string(ctx, cursor..i)?;
-            ret_arr.0.define_property_value_u32(
-                ctx,
-                idx,
-                t.into(),
-                JS_PROP_C_W_E | JS_PROP_THROW,
-            )?;
+            ret_arr.define_property_value_u32(ctx, idx, t.into(), JS_PROP_C_W_E | JS_PROP_THROW)?;
             idx += 1;
             if idx == lim {
                 break;
@@ -424,7 +417,7 @@ pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
 
             // remaining part of str
             let t = str.sub_string(ctx, cursor..str_len)?;
-            ret_arr.0.define_property_value_u32(
+            ret_arr.define_property_value_u32(
                 ctx,
                 idx as _,
                 t.into(),

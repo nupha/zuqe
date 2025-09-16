@@ -1,6 +1,7 @@
 use std::ops::Deref;
 
 use crate::{
+    JS_CLASS_BOUND_FUNCTION,
     context::JSContext,
     error::JSResult,
     object::{JSObject, ObjectPayload},
@@ -22,7 +23,7 @@ pub struct BoundFuncObjPayload {
 #[derive(Debug, Clone)]
 pub struct BoundFunction(JSObject);
 
-object_cast!(BoundFunction, crate::JS_CLASS_BOUND_FUNCTION);
+object_cast!(BoundFunction, JS_CLASS_BOUND_FUNCTION);
 
 impl BoundFunction {
     pub fn hook_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}

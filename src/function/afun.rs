@@ -1,5 +1,5 @@
 use crate::{
-    JS_CLASS_ASYNC_FUNCTION_REJECT, JS_PROP_STRING_DEF,
+    JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT, JS_PROP_STRING_DEF,
     context::JSContext,
     error::JSResult,
     function::AsyncObjPayload,
@@ -16,7 +16,7 @@ use super::{CallContext, FieldDef};
 #[derive(Debug, Clone)]
 pub struct AsyncFunction(pub(crate) JSObject);
 
-object_cast!(AsyncFunction, crate::JS_CLASS_ASYNC_FUNCTION);
+object_cast!(AsyncFunction, JS_CLASS_ASYNC_FUNCTION);
 
 impl AsyncFunction {
     /// call async function

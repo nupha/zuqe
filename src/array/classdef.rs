@@ -49,18 +49,19 @@ pub const special_reduceRight: i32 = 1;
 pub(crate) fn js_array_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let new_target = cc.this();
 
-    let obj = if cc.length() == 1 && cc.arg(0).is_number() {
+    let (arr, len) = if cc.length() == 1 && cc.arg(0).is_number() {
         // new Array(capacity) case
         let cap = cc.arg(0).to_array_length(ctx, true)?;
-        let arr = ctx
-            .create_object_apply_ctor(
+        let arr = Array::try_from(
+            ctx.create_object_apply_ctor(
                 new_target,
                 ObjectPayload::ARRAY(ArrayObjPayload::new(Vec::new())),
             )
-            .map_err(|_| -1)?;
+            .map_err(|_| -1)?,
+        )
+        .unwrap();
 
-        arr.set_array_length(ctx, cap, true)?;
-        arr
+        (arr, cap)
     } else {
         // new Array(el1, el2, ...) case
         let list = cc
@@ -74,14 +75,19 @@ pub(crate) fn js_array_constructor(ctx: &JSContext, cc: CallContext) -> JSResult
             })?;
         let len = list.len() as u32;
 
-        let arr = ctx
-            .create_object_apply_ctor(new_target, ObjectPayload::ARRAY(ArrayObjPayload::new(list)))
-            .map_err(|_| -1)?;
-        arr.set_array_length(ctx, len, true)?;
-        arr
+        let arr = Array::try_from(
+            ctx.create_object_apply_ctor(
+                new_target,
+                ObjectPayload::ARRAY(ArrayObjPayload::new(list)),
+            )
+            .map_err(|_| -1)?,
+        )
+        .unwrap();
+        (arr, len)
     };
 
-    Ok(obj.into())
+    arr.set_length(ctx, len, true)?;
+    Ok(arr.into())
 }
 
 fn JS_ArraySpeciesCreate(ctx: &JSContext, obj: &JSValue, len_val: &JSValue) -> JSResult {
@@ -257,7 +263,7 @@ pub fn js_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
     #[cfg(debug_assertions)]
     {
         let arr = ctx.create_array_with_values(new_lst)?;
-        debug_assert_eq!(arr.0.get_length_prop(ctx).unwrap(), len);
+        debug_assert_eq!(arr.get_length_prop(ctx).unwrap(), len);
         Ok(arr.into())
     }
     #[cfg(not(debug_assertions))]
@@ -669,14 +675,14 @@ pub fn js_array_lastIndexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_array_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj = cc.this().clone().ensure_object(ctx)?;
-    let len = obj.get_length_prop(ctx)?;
+    let length = obj.get_length_prop(ctx)?;
     let target = cc.arg(0);
 
     let mut res = false;
 
-    if len > 0 {
+    if length > 0 {
         let mut n = if cc.length() > 1 {
-            cc.arg(1).to_i64_clamp(ctx, 0, len, len)?
+            cc.arg(1).to_i64_clamp(ctx, 0, length, length)?
         } else {
             0
         };
@@ -688,14 +694,21 @@ pub fn js_array_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
                     return true;
                 }
             }
-            false
+
+            if target.is_undefined() && lst.len() < length as usize {
+                // fast array has less elements than prop `length` suggests
+                // includes `undefined`
+                true
+            } else {
+                false
+            }
         }) {
             // early exit for fast array
             return Ok(JSValue::Bool(found));
         }
 
-        // try properties
-        while n < len {
+        // sparse array
+        while n < length {
             let val: JSValue = obj.get_property_i64(ctx, n)?.into();
             let b = target.strict_eq_with_mode(&val, JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO);
             if b {
@@ -1019,7 +1032,7 @@ fn js_array_toSorted(ctx: &JSContext, cc: CallContext) -> JSResult {
     };
 
     let arr = ctx.create_array_with_values(new_lst)?;
-    Array::sort(ctx, &arr.0, cmpfn)?;
+    Array::sort(ctx, &arr, cmpfn)?;
     Ok(arr.into())
 }
 
@@ -1186,7 +1199,6 @@ pub fn js_array_toSpliced(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     res_arr
-        .0
         .with_fast_array_values_mut(|new_lst| -> Result<(), i32> {
             macro_rules! error {
                 ($i:expr) => {
@@ -1244,10 +1256,7 @@ pub fn js_array_toSpliced(ctx: &JSContext, cc: CallContext) -> JSResult {
         })
         .unwrap()?;
 
-    res_arr
-        .0
-        .set_property(ctx, JS_ATOM_length, JSValue::from(new_len))?;
-
+    res_arr.set_property(ctx, JS_ATOM_length, JSValue::from(new_len))?;
     Ok(res_arr.into())
 }
 

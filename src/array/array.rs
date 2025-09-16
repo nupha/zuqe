@@ -29,13 +29,137 @@ impl ArrayObjPayload {
     }
 }
 
-#[repr(transparent)]
+/// Object representing an Array, Arguments instance.
 #[derive(Debug, Clone)]
-pub struct Array(pub(crate) JSObject);
+#[repr(transparent)]
+pub struct Array(JSObject);
 
 object_cast!(Array, JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS);
 
 impl Array {
+    #[inline(always)]
+    pub fn is_fast_array(&self) -> bool {
+        self.flags().is_fast_array()
+    }
+
+    /// Update `length` property of an array-like object.
+    ///
+    /// Returns:
+    /// - true if length is updated,
+    /// - false if can't update length property and JS_THROW flag is not set,
+    /// - Err if can't update length property ahd JS_THOW flag is set.
+    pub fn set_length(&self, ctx: &JSContext, length: u32, throw: bool) -> Result<bool, i32> {
+        #[cfg(debug_assertions)]
+        debug_assert!(
+            self.shape().unwrap().0.borrow().prop_defs[0].is_length(),
+            "missing length property at index 0"
+        );
+
+        if !self.shape().unwrap().0.borrow().prop_defs[0].is_writable() {
+            return if throw {
+                ctx.throw_type_error("'length' is read-only");
+                Err(-1)
+            } else {
+                Ok(false)
+            };
+        }
+
+        if self.is_fast_array() {
+            // fast array
+            self.with_fast_array_values_mut(|lst| {
+                let old_len = lst.len() as u32;
+                if length < old_len {
+                    lst.drain(length as usize..old_len as usize);
+                }
+            })
+            .unwrap();
+            self.0.0.prop_values.borrow_mut()[0] = JSProperty::Normal(JSValue::from(length));
+        } else {
+            // sparse array
+            // Note: prop `length` must be less than u32::MAX
+            let mut cur_len = self
+                .0
+                .0
+                .prop_values
+                .borrow()
+                .first()
+                .map(|pr| pr.value(ctx, &JSValue::UNDEFINED))
+                .unwrap()
+                .and_then(|v| v.to_u32(ctx))?;
+
+            if length < cur_len {
+                // delete index property
+                let mut sh = self.shape().unwrap();
+                let d = cur_len - length;
+                let propdef_len = sh.0.borrow().prop_defs.len() as u32;
+
+                if d <= propdef_len {
+                    // faster to iterate
+                    while cur_len > length {
+                        let atom = JSAtom::from_u32(ctx.rt_mut(), cur_len as u32 - 1)?;
+                        let ret = self.delete_property_internal(ctx, atom);
+                        JS_FreeAtom(ctx, atom);
+                        if let Ok(false) = ret {
+                            break; // property is not configurable
+                        }
+                        cur_len -= 1;
+                    }
+                } else {
+                    // faster to iterate thru all the properties.
+                    // Need two passes in case one of the property is not  configurable
+                    cur_len = length;
+                    sh.with_mut(|sh| {
+                        for pr in sh.prop_defs.values() {
+                            if let Some(i) = pr.atom.to_array_index(ctx.rt()) {
+                                if i >= cur_len && (pr.flags() & JS_PROP_CONFIGURABLE == 0) {
+                                    cur_len = i + 1;
+                                }
+                            }
+                        }
+                    });
+
+                    // Hint: to avoid index conflict, do remove from tail to head
+                    for i in (0..propdef_len).rev() {
+                        let prop =
+                            sh.0.borrow()
+                                .prop_defs
+                                .get_index(i as usize)
+                                .map(|(_, prs)| prs.atom)
+                                .unwrap();
+
+                        if let Some(idx) = prop.to_array_index(ctx.rt()) {
+                            if idx >= cur_len {
+                                let _r = self.delete_property_internal(ctx, prop);
+                                debug_assert!(_r.is_ok());
+
+                                // WARNING: the shape may have been modified
+                                sh = self.shape().unwrap();
+                            }
+                        }
+                    }
+                }
+            } else {
+                cur_len = length;
+            }
+
+            unsafe {
+                *self.0.0.prop_values.borrow_mut().get_unchecked_mut(0) =
+                    JSProperty::Normal(JSValue::from(cur_len as u32));
+            }
+
+            if cur_len > length {
+                return if throw {
+                    ctx.throw_type_error("not configurable");
+                    Err(-1)
+                } else {
+                    Ok(false)
+                };
+            }
+        }
+
+        Ok(true)
+    }
+
     /// set values list to Array, make `arr` a fast array.
     /// Note: for Array and Arguments class objects only.
     pub(crate) fn reset_fast_array(
@@ -292,7 +416,7 @@ impl JSContext {
 
         // set array length
         if len > 0 {
-            fa.0.set_array_length(self, len as u32, true)?;
+            fa.set_length(self, len as u32, true)?;
         }
 
         Ok(fa)
@@ -321,7 +445,7 @@ impl JSContext {
             }
             let fa = self.create_array_with_values(lst)?;
             if cap > 0 {
-                fa.0.set_array_length(self, cap as u32, true)?;
+                fa.set_length(self, cap as u32, true)?;
             }
             Ok(fa)
         } else {
@@ -497,123 +621,6 @@ impl JSObject {
         } else {
             unreachable!("expect argument, array, typed array or dataview")
         }
-    }
-
-    /// Update `length` property of an array-like object.
-    ///
-    /// Returns:
-    /// - true if length is updated,
-    /// - false if can't update length property and JS_THROW flag is not set,
-    /// - Err if can't update length property ahd JS_THOW flag is set.
-    pub fn set_array_length(&self, ctx: &JSContext, length: u32, throw: bool) -> Result<bool, i32> {
-        #[cfg(debug_assertions)]
-        debug_assert!(
-            self.shape().unwrap().0.borrow().prop_defs[0].is_length(),
-            "missing length property at index 0"
-        );
-
-        if !self.shape().unwrap().0.borrow().prop_defs[0].is_writable() {
-            return if throw {
-                ctx.throw_type_error("'length' is read-only");
-                Err(-1)
-            } else {
-                Ok(false)
-            };
-        }
-
-        if self.flags().is_fast_array() {
-            // fast array
-            self.with_fast_array_values_mut(|lst| {
-                let old_len = lst.len() as u32;
-                if length < old_len {
-                    lst.drain(length as usize..old_len as usize);
-                }
-            })
-            .unwrap();
-            self.0.prop_values.borrow_mut()[0] = JSProperty::Normal(JSValue::from(length));
-        } else {
-            // sparse array
-            // Note: prop `length` must be less than u32::MAX
-            let mut cur_len = self
-                .0
-                .prop_values
-                .borrow()
-                .first()
-                .map(|pr| pr.value(ctx, &JSValue::UNDEFINED))
-                .unwrap()
-                .and_then(|v| v.to_u32(ctx))?;
-
-            if length < cur_len {
-                // delete index property
-                let mut sh = self.shape().unwrap();
-                let d = cur_len - length;
-                let propdef_len = sh.0.borrow().prop_defs.len() as u32;
-
-                if d <= propdef_len {
-                    // faster to iterate
-                    while cur_len > length {
-                        let atom = JSAtom::from_u32(ctx.rt_mut(), cur_len as u32 - 1)?;
-                        let ret = self.delete_property_internal(ctx, atom);
-                        JS_FreeAtom(ctx, atom);
-                        if let Ok(false) = ret {
-                            break; // property is not configurable
-                        }
-                        cur_len -= 1;
-                    }
-                } else {
-                    // faster to iterate thru all the properties.
-                    // Need two passes in case one of the property is not  configurable
-                    cur_len = length;
-                    sh.with_mut(|sh| {
-                        for pr in sh.prop_defs.values() {
-                            if let Some(i) = pr.atom.to_array_index(ctx.rt()) {
-                                if i >= cur_len && (pr.flags() & JS_PROP_CONFIGURABLE == 0) {
-                                    cur_len = i + 1;
-                                }
-                            }
-                        }
-                    });
-
-                    // Hint: to avoid index conflict, do remove from tail to head
-                    for i in (0..propdef_len).rev() {
-                        let prop =
-                            sh.0.borrow()
-                                .prop_defs
-                                .get_index(i as usize)
-                                .map(|(_, prs)| prs.atom)
-                                .unwrap();
-
-                        if let Some(idx) = prop.to_array_index(ctx.rt()) {
-                            if idx >= cur_len {
-                                let _r = self.delete_property_internal(ctx, prop);
-                                debug_assert!(_r.is_ok());
-
-                                // WARNING: the shape may have been modified
-                                sh = self.shape().unwrap();
-                            }
-                        }
-                    }
-                }
-            } else {
-                cur_len = length;
-            }
-
-            unsafe {
-                *self.0.prop_values.borrow_mut().get_unchecked_mut(0) =
-                    JSProperty::Normal(JSValue::from(cur_len as u32));
-            }
-
-            if cur_len > length {
-                return if throw {
-                    ctx.throw_type_error("not configurable");
-                    Err(-1)
-                } else {
-                    Ok(false)
-                };
-            }
-        }
-
-        Ok(true)
     }
 }
 

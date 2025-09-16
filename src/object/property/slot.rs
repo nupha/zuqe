@@ -113,11 +113,13 @@ impl JSObject {
             }
         } else if prs_flags & JS_PROP_LENGTH != 0 {
             if flags & JS_PROP_HAS_VALUE != 0 {
-                self.set_array_length(
-                    ctx,
-                    val.to_array_length(ctx, false)?,
-                    ctx.should_throw_error(flags),
-                )
+                unsafe {
+                    self.as_Array_unchecked().set_length(
+                        ctx,
+                        val.to_array_length(ctx, false)?,
+                        ctx.should_throw_error(flags),
+                    )
+                }
             } else {
                 Ok(true)
             }
@@ -222,7 +224,8 @@ impl JSObject {
             }
             0 => {
                 // non-length, normal, not-writable
-                return if ctx.JS_ThrowTypeErrorReadOnly(flags, prop) {
+                return if ctx.should_throw_error(flags) {
+                    ctx.throw_type_error_read_only(prop);
                     Err(-1)
                 } else {
                     Ok(false)
@@ -240,11 +243,13 @@ impl JSObject {
             debug_assert_eq!(prop, JS_ATOM_length);
             debug_assert_eq!(index, 0);
 
-            self.set_array_length(
-                ctx,
-                value.to_array_length(ctx, false)?,
-                ctx.should_throw_error(flags),
-            )
+            unsafe {
+                self.as_Array_unchecked().set_length(
+                    ctx,
+                    value.to_array_length(ctx, false)?,
+                    ctx.should_throw_error(flags),
+                )
+            }
         } else if prs_flags & JS_PROP_LAZYINIT == JS_PROP_LAZYINIT {
             // lazy init replaced with normal value
             std::mem::replace(
@@ -264,7 +269,8 @@ impl JSObject {
                     // JS_PROP_WRITABLE is always true for variable references,
                     // but they are write protected in module name spaces.
                     if self.class_id() == JS_CLASS_MODULE_NS {
-                        if ctx.JS_ThrowTypeErrorReadOnly(flags, prop) {
+                        if ctx.should_throw_error(flags) {
+                            ctx.throw_type_error_read_only(prop);
                             Err(-1)
                         } else {
                             Ok(false)

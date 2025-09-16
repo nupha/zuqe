@@ -12,12 +12,12 @@ pub use {dump::*, gcobj::*, obj::*, payload::*, private::*, property::*, shape::
 
 #[macro_export]
 macro_rules! object_cast {
-    ($ty:ident, $class_id:expr) => {
+    ($ty:ident, $($class_id:tt)|+) => {
         impl TryFrom<JSObject> for $ty {
             type Error = i32;
 
             fn try_from(obj: JSObject) -> Result<Self, Self::Error> {
-                if obj.class_id() == $class_id {
+                if matches!(obj.class_id(), $($class_id)|+) {
                     Ok(Self(obj))
                 } else {
                     Err(-1)
@@ -51,11 +51,20 @@ macro_rules! object_cast {
             }
         }
 
+        impl std::ops::Deref for $ty {
+            type Target = JSObject;
+
+            #[inline(always)]
+            fn deref(&self) -> &Self::Target {
+                &self.0
+            }
+        }
+
         impl JSObject {
             paste::paste! {
                 #[inline]
                 pub fn [<as_ $ty>](&self) -> Option<&$ty>{
-                    if self.class_id() == $class_id {
+                    if matches!(self.class_id(), $($class_id)|+) {
                         Some(unsafe { &*(self as *const Self as *const $ty) })
                     } else {
                         None
@@ -64,7 +73,7 @@ macro_rules! object_cast {
 
                 #[inline(always)]
                 pub unsafe fn [<as_ $ty _unchecked>](&self) -> &[<$ty>] {
-                    debug_assert_eq!(self.class_id(), $class_id);
+                    debug_assert!(matches!(self.class_id(), $($class_id)|+));
                     unsafe { &*(self as *const Self as *const $ty) }
                 }
             }

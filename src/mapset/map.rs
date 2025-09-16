@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    JS_CLASS_MAP,
+    JS_CLASS_MAP, JS_CLASS_SET, JS_CLASS_WEAKMAP, JS_CLASS_WEAKSET,
     context::JSContext,
     object::{JSObject, JSObjectWeakref, ObjectInner, ObjectPayload},
     object_cast,
@@ -309,6 +309,16 @@ impl JSMapState {
         }
     }
 }
+
+/// Object representing a Map, Set, WeakMap, WeakSet instance.
+#[derive(Debug, Clone)]
+#[repr(transparent)]
+pub struct MapSet(pub(crate) JSObject);
+
+object_cast!(
+    MapSet,
+    JS_CLASS_MAP | JS_CLASS_SET | JS_CLASS_WEAKMAP | JS_CLASS_WEAKSET
+);
 
 impl JSContext {
     pub fn create_map_with_entries(&self, entries: JSMapState) -> Result<JSObject, i32> {

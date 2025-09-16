@@ -7,7 +7,6 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef, IteratorState, NativeFunctionType},
     iterator::JSAsyncFromSyncIteratorData,
-    mapset::MapPair,
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SET_ENUM, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
         JS_PROP_THROW, JSObject, ObjectPayload, PropertyKey,
@@ -462,8 +461,7 @@ pub fn iterator_to_array(ctx: &JSContext, items: &JSValue) -> JSResult {
     let it = items.iter(ctx)?;
     let arr = ctx.create_array()?;
     for (i, v) in it.enumerate() {
-        arr.0
-            .define_property_value_i64(ctx, i as i64, v?, JS_PROP_C_W_E | JS_PROP_THROW)?;
+        arr.define_property_value_i64(ctx, i as i64, v?, JS_PROP_C_W_E | JS_PROP_THROW)?;
     }
     Ok(arr.into())
 }
@@ -479,8 +477,7 @@ pub fn js_array_from_iterator(
 
         let mut k = 0_i64;
         for val in it {
-            arr.0
-                .define_property_value_i64(ctx, k, val?, JS_PROP_C_W_E | JS_PROP_THROW)?;
+            arr.define_property_value_i64(ctx, k, val?, JS_PROP_C_W_E | JS_PROP_THROW)?;
             k += 1;
         }
         Ok((arr.into(), k as usize))

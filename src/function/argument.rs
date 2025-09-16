@@ -19,12 +19,7 @@ impl JSContext {
         let arr = self.create_array()?;
         if !args.is_empty() {
             for (i, v) in args.iter().enumerate().skip(first) {
-                arr.0.define_property_value_u32(
-                    self,
-                    (i - first) as u32,
-                    v.clone(),
-                    JS_PROP_C_W_E,
-                )?;
+                arr.define_property_value_u32(self, (i - first) as u32, v.clone(), JS_PROP_C_W_E)?;
             }
         }
         Ok(arr.into())
