@@ -2,10 +2,10 @@ use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ARRAY_BUFFER, JS_CLASS_ARRAY_ITERATOR,
     JS_CLASS_ASYNC_FROM_SYNC_ITERATOR, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR,
     JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_BOOLEAN, JS_CLASS_DATAVIEW, JS_CLASS_DATE,
-    JS_CLASS_ERROR, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_MAP, JS_CLASS_NUMBER,
-    JS_CLASS_OBJECT, JS_CLASS_PROMISE, JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR,
-    JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_STRING, JS_CLASS_STRING_ITERATOR, JS_CLASS_SYMBOL,
-    JS_CLASS_UINT8C_ARRAY,
+    JS_CLASS_ERROR, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_MAP,
+    JS_CLASS_MAP_ITERATOR, JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_PROMISE, JS_CLASS_REGEXP,
+    JS_CLASS_REGEXP_STRING_ITERATOR, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_STRING,
+    JS_CLASS_STRING_ITERATOR, JS_CLASS_SYMBOL, JS_CLASS_UINT8C_ARRAY,
     array::{
         js_array_constructor, js_array_funcs, js_array_iterator_proto_funcs, js_array_proto_funcs,
     },
@@ -42,7 +42,7 @@ use crate::{
         },
     },
     json::js_json_obj,
-    mapset::{js_map_constructor, js_map_funcs, js_map_proto_funcs},
+    mapset::{js_map_constructor, js_map_funcs, js_map_iterator_proto_funcs, js_map_proto_funcs},
     number::{js_number_constructor, js_number_funcs, js_number_proto_funcs},
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET,
@@ -467,6 +467,18 @@ impl JSContext {
             ctor.install_field_defs(self, &js_map_funcs).unwrap();
 
             self.0.borrow_mut().class_proto[JS_CLASS_MAP as usize] = obj;
+        }
+
+        // MapIterator
+        {
+            let proto: JSValue = self
+                .create_base_object_from_proto(self.0.borrow().iterator_proto.clone())
+                .unwrap()
+                .into();
+            proto
+                .install_field_defs(self, &js_map_iterator_proto_funcs)
+                .unwrap();
+            self.0.borrow_mut().class_proto[JS_CLASS_MAP_ITERATOR as usize] = proto;
         }
     }
 

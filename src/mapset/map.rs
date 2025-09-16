@@ -263,27 +263,3 @@ impl JSContext {
             .map(Map)
     }
 }
-
-pub fn js_map_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
-
-pub fn js_map_iterator_mark(val: JSValue) {
-    if let Some(o) = val.as_object() {
-        if let Some(it) = o.0.payload.borrow().map_iterator_state() {
-            it.obj.gc_mark();
-
-            match &it.cur_record {
-                MapPair::Strong { key, value } => {
-                    key.gc_mark();
-                    value.gc_mark();
-                }
-                MapPair::Weak { key, value } => {
-                    if let Some(o) = key.upgrade() {
-                        o.gc_mark();
-                    }
-                    value.gc_mark();
-                }
-                _ => {}
-            }
-        }
-    }
-}

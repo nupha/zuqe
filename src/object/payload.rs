@@ -123,6 +123,12 @@ impl ObjectPayload {
             _ => None,
         }
     }
+    pub fn map_iterator_state_mut(&mut self) -> Option<&mut JSMapIteratorData> {
+        match self {
+            Self::MAP_ITERATOR(a) | Self::SET_ITERATOR(a) => Some(a.deref_mut()),
+            _ => None,
+        }
+    }
 
     pub const fn func(&self) -> Option<&FuncObjPayload> {
         match self {

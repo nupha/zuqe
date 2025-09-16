@@ -229,21 +229,18 @@ pub fn js_map_forEach(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 fn js_create_map_iterator(ctx: &JSContext, cc: CallContext) -> JSResult {
+    debug_assert!(matches!(cc.magic() >> 2, 0 | 1 | 2));
+    let kind = unsafe { std::mem::transmute::<u8, JSIteratorKindEnum>(cc.magic() as u8 >> 2) };
+
     // ensure `this` is an object of expected class_id
     let this = cc.this();
     let _ = this.retrive_object_payload(ctx, Some(JS_CLASS_MAP + (cc.magic() & 3) as JSClassID))?;
 
-    debug_assert!(matches!(cc.magic() >> 2, 0 | 1 | 2));
-    let kind = unsafe { std::mem::transmute::<u8, JSIteratorKindEnum>(cc.magic() as u8 >> 2) };
-
     // create iterator object
     let it = Box::new(JSMapIteratorData {
-        obj: this.clone(),
+        obj: this.as_object().cloned(),
         kind,
-        cur_record: MapPair::Strong {
-            key: JSValue::UNDEFINED,
-            value: JSValue::UNDEFINED,
-        },
+        index: 0,
     });
     ctx.create_object(match cc.magic() & 1 {
         0 => ObjectPayload::MAP_ITERATOR(it),
