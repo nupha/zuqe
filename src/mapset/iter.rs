@@ -43,6 +43,7 @@ pub fn js_map_iterator_mark(val: JSValue) {
 }
 
 fn js_map_iterator_next(ctx: &JSContext, cc: CallContext, state: &mut IteratorState) -> JSResult {
+    let is_set = cc.magic() & 1 != 0;
     *state = IteratorState::NotDone;
 
     let mut r = cc
@@ -70,12 +71,16 @@ fn js_map_iterator_next(ctx: &JSContext, cc: CallContext, state: &mut IteratorSt
 
                 match kv {
                     MapPair::Strong { key, value } => {
-                        pair.replace((key.clone(), value.clone()));
+                        let val = if is_set { key.clone() } else { value.clone() };
+                        pair.replace((key.clone(), val));
                         break;
                     }
                     MapPair::Weak { key, value } => {
                         if let Some(key) = key.upgrade() {
-                            pair.replace((key.into(), value.clone()));
+                            pair.replace((
+                                key.clone().into(),
+                                if is_set { key.into() } else { value.clone() },
+                            ));
                             break;
                         }
                     }

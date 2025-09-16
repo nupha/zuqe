@@ -170,6 +170,8 @@ pub fn js_map_get_size(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_map_forEach(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let is_set = cc.magic() & 1 == 1;
+
     let func = cc.arg(0);
     let this_arg = cc.arg(1);
     func.ensure_callable(ctx)?;
@@ -205,7 +207,18 @@ pub fn js_map_forEach(ctx: &JSContext, cc: CallContext) -> JSResult {
                 MapPair::Removed => None,
             };
             if let Some((key, val)) = pair {
-                if func.call(ctx, this_arg, &[val, key, this.clone()]).is_err() {
+                if func
+                    .call(
+                        ctx,
+                        this_arg,
+                        &if is_set {
+                            [key.clone(), key, this.clone()]
+                        } else {
+                            [val, key, this.clone()]
+                        },
+                    )
+                    .is_err()
+                {
                     has_err = true;
                     break;
                 }
@@ -287,7 +300,7 @@ pub static js_map_proto_funcs: [FieldDef; 12] = [
 ];
 
 pub static js_set_proto_funcs: [FieldDef; 11] = [
-    JS_CFUNC_NATIVE_DEF!("add", 2, js_map_set, 1),
+    JS_CFUNC_NATIVE_DEF!("add", 1, js_map_set, 1),
     JS_CFUNC_NATIVE_DEF!("has", 1, js_map_has, 1),
     JS_CFUNC_NATIVE_DEF!("delete", 1, js_map_delete, 1),
     JS_CFUNC_NATIVE_DEF!("clear", 0, js_map_clear, 1),
@@ -323,7 +336,7 @@ pub static js_weakmap_proto_funcs: [FieldDef; 5] = [
 ];
 
 pub static js_weakset_proto_funcs: [FieldDef; 4] = [
-    JS_CFUNC_NATIVE_DEF!("add", 2, js_map_set, 3),
+    JS_CFUNC_NATIVE_DEF!("add", 1, js_map_set, 3),
     JS_CFUNC_NATIVE_DEF!("has", 1, js_map_has, 3),
     JS_CFUNC_NATIVE_DEF!("delete", 1, js_map_delete, 3),
     JS_PROP_STRING_DEF!(
