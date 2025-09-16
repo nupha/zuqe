@@ -123,3 +123,12 @@ pub static js_map_iterator_proto_funcs: [FieldDef; 2] = [
         JS_PROP_CONFIGURABLE as i16
     ),
 ];
+
+pub static js_set_iterator_proto_funcs: [FieldDef; 2] = [
+    JS_ITERATOR_NEXT_DEF!("next", 0, js_map_iterator_next, 1),
+    JS_PROP_STRING_DEF!(
+        "[Symbol.toStringTag]",
+        "Set Iterator",
+        JS_PROP_CONFIGURABLE as i16
+    ),
+];

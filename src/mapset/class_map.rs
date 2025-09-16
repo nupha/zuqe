@@ -15,13 +15,13 @@ use crate::{
 
 use super::iter::JSMapIteratorData;
 
-const MAGIC_SET: i32 = 1 << 0;
+const MAGIC_SET: i32 = 1;
 const MAGIC_WEAK: i32 = 1 << 1;
 
 pub fn js_map_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let magic = cc.magic();
-    let is_set = (magic & MAGIC_SET) != 0;
-    let is_weak = (magic & MAGIC_WEAK) != 0;
+    let is_set = magic == 1;
+    let is_weak = matches!(magic, 2 | 3);
     let new_target = cc.this();
 
     let s = Box::new(JSMapState::new(is_weak, 16));
@@ -99,21 +99,25 @@ pub fn js_map_set(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    let value = if cc.magic() & MAGIC_SET != 0 {
-        &JSValue::UNDEFINED
-    } else {
-        cc.arg(1)
-    };
-
-    s.set(ctx, key.clone(), value.clone())?;
-
-    if s.is_weak() {
-        key.as_object()
-            .unwrap()
-            .0
-            .weak_refs
-            .borrow_mut()
-            .push(this.as_object().unwrap().downgrade());
+    if s.upsert(
+        ctx,
+        key.clone(),
+        if cc.magic() & 1 != 0 {
+            JSValue::UNDEFINED // set or weakset
+        } else {
+            cc.arg(1).clone() // map or weakmap
+        },
+    )? {
+        // new inserted pair
+        // make backref for key object if is weak
+        if s.is_weak() {
+            key.as_object()
+                .unwrap()
+                .0
+                .weak_refs
+                .borrow_mut()
+                .push(this.as_object().unwrap().downgrade());
+        }
     }
 
     Ok(this.clone())
@@ -150,12 +154,7 @@ pub fn js_map_delete(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_map_has(ctx: &JSContext, cc: CallContext) -> JSResult {
     cc.this()
         .retrive_object_payload(ctx, Some(JS_CLASS_MAP + cc.magic() as JSClassID))
-        .map(|r| {
-            r.map_state()
-                .unwrap()
-                .find(cc.arg(0))
-                .unwrap_or(JSValue::UNDEFINED)
-        })
+        .map(|r| r.map_state().unwrap().find(cc.arg(0)).is_some().into())
 }
 
 pub fn js_map_clear(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -290,55 +289,52 @@ pub static js_map_proto_funcs: [FieldDef; 12] = [
     JS_PROP_STRING_DEF!("[Symbol.toStringTag]", "Map", JS_PROP_CONFIGURABLE as i16),
 ];
 
-// fn js_map_groupBy_v1(ctx: &JSContext, cc: CallContext) -> JSResult {
-//     // check must be observed before argv[0] is accessed
-//     let func = cc.arg(1);
-//     func.ensure_callable(ctx)?;
+pub static js_set_proto_funcs: [FieldDef; 11] = [
+    JS_CFUNC_NATIVE_DEF!("add", 2, js_map_set, 1),
+    JS_CFUNC_NATIVE_DEF!("has", 1, js_map_has, 1),
+    JS_CFUNC_NATIVE_DEF!("delete", 1, js_map_delete, 1),
+    JS_CFUNC_NATIVE_DEF!("clear", 0, js_map_clear, 1),
+    JS_CGETSET_NATIVE_DEF!("size", js_map_get_size, NONE, 1),
+    JS_CFUNC_NATIVE_DEF!("forEach", 1, js_map_forEach, 1),
+    JS_CFUNC_NATIVE_DEF!(
+        "values",
+        0,
+        js_create_map_iterator,
+        ((JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16) << 2) | 1
+    ),
+    JS_ALIAS_DEF!("keys", "values"),
+    JS_ALIAS_DEF!("[Symbol.iterator]", "values"),
+    JS_CFUNC_NATIVE_DEF!(
+        "entries",
+        0,
+        js_create_map_iterator,
+        ((JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE as i16) << 2) | 1
+    ),
+    JS_PROP_STRING_DEF!("[Symbol.toStringTag]", "Set", JS_PROP_CONFIGURABLE as i16),
+];
 
-//     let groups = js_map_constructor(ctx, CallContext::new_simple(ctx, JSValue::UNDEFINED, &[]))?;
-//     let global = ctx.0.borrow().global_obj.clone(); // clone to avoid borrow too long
+pub static js_weakmap_proto_funcs: [FieldDef; 5] = [
+    JS_CFUNC_NATIVE_DEF!("set", 2, js_map_set, 2),
+    JS_CFUNC_NATIVE_DEF!("get", 1, js_map_get, 2),
+    JS_CFUNC_NATIVE_DEF!("has", 1, js_map_has, 2),
+    JS_CFUNC_NATIVE_DEF!("delete", 1, js_map_delete, 2),
+    JS_PROP_STRING_DEF!(
+        "[Symbol.toStringTag]",
+        "WeakMap",
+        JS_PROP_CONFIGURABLE as i16
+    ),
+];
 
-//     for (idx, val) in cc.arg(0).iter(ctx)?.enumerate() {
-//         if idx as i64 >= MAX_SAFE_INTEGER {
-//             ctx.throw_type_error("too many elements");
-//             return Err(-1);
-//         }
-
-//         let val = val?;
-//         let key = func.call(ctx, &global, &[val.clone(), JSValue::from(idx as u32)])?;
-
-//         // get prop value array and key atom
-//         let mut props_arr = js_map_get(
-//             ctx,
-//             CallContext::new_simple(ctx, groups.clone(), std::slice::from_ref(&key)),
-//         )?;
-
-//         // don't change order
-//         if props_arr.is_undefined() {
-//             // entry is missing, create the entry
-//             props_arr = ctx.create_array()?.into();
-
-//             // set to groups
-//             js_map_set(
-//                 ctx,
-//                 CallContext::new(
-//                     ctx,
-//                     groups.clone(),
-//                     &[key.clone(), props_arr.clone()],
-//                     0,
-//                     None,
-//                 ),
-//             )?;
-//         }
-
-//         js_array_push(
-//             ctx,
-//             CallContext::new(ctx, props_arr, std::slice::from_ref(&val), 0, None),
-//         )?;
-//     }
-
-//     Ok(groups)
-// }
+pub static js_weakset_proto_funcs: [FieldDef; 4] = [
+    JS_CFUNC_NATIVE_DEF!("add", 2, js_map_set, 3),
+    JS_CFUNC_NATIVE_DEF!("has", 1, js_map_has, 3),
+    JS_CFUNC_NATIVE_DEF!("delete", 1, js_map_delete, 3),
+    JS_PROP_STRING_DEF!(
+        "[Symbol.toStringTag]",
+        "WeakSet",
+        JS_PROP_CONFIGURABLE as i16
+    ),
+];
 
 fn js_map_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
     // check must be observed before argv[0] is accessed
@@ -376,7 +372,7 @@ fn js_map_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
     for (key, mut lst) in groups {
         lst.shrink_to_fit();
         let arr = ctx.create_array_with_values(lst)?;
-        ms.set(ctx, key, arr.into())?;
+        ms.upsert(ctx, key, arr.into())?;
     }
 
     ctx.create_map_with_entries(ms).map(|map| map.into())
@@ -386,3 +382,10 @@ pub static js_map_funcs: [FieldDef; 2] = [
     JS_CFUNC_NATIVE_DEF!("groupBy", 2, js_map_groupBy, 0),
     JS_CGETSET_NATIVE_DEF!("[Symbol.species]", js_get_this, NONE, 0),
 ];
+
+pub static js_set_funcs: [FieldDef; 1] = [JS_CGETSET_NATIVE_DEF!(
+    "[Symbol.species]",
+    js_get_this,
+    NONE,
+    0
+)];

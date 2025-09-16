@@ -236,7 +236,7 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
             Some("crate::value::js_object_data_mark")
         ),
         //
-        //
+        // map set and iterators
         //
         class_def!(
             "Map",
@@ -301,6 +301,9 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
             Some("crate::regexp::js_regexp_iterator_finalizer"),
             Some("crate::regexp::js_regexp_iterator_mark")
         ),
+        //
+        //
+        //
         class_def!(
             "Generator",
             "GENERATOR",

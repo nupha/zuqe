@@ -87,8 +87,9 @@ impl JSMapState {
         // }
     }
 
-    /// update or insert key-value pair
-    pub fn set(&mut self, ctx: &JSContext, key: JSValue, value: JSValue) -> Result<(), i32> {
+    /// update or insert key-value pair.
+    /// returns false if the value is updated, true if the key-value pair is inserted
+    pub fn upsert(&mut self, ctx: &JSContext, key: JSValue, value: JSValue) -> Result<bool, i32> {
         let key = MapPair::normalize_key(key);
 
         if self.is_weak && !key.is_object() {
@@ -149,9 +150,11 @@ impl JSMapState {
                     lst.push(idx);
                 })
                 .insert_entry(vec![idx]);
-        }
 
-        Ok(())
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
 
     /// find value by key.
