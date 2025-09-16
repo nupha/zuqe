@@ -15,9 +15,6 @@ use crate::{
 
 use super::iter::JSMapIteratorData;
 
-const MAGIC_SET: i32 = 1;
-const MAGIC_WEAK: i32 = 1 << 1;
-
 pub fn js_map_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let magic = cc.magic();
     let is_set = magic == 1;
@@ -375,7 +372,7 @@ fn js_map_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
         ms.upsert(ctx, key, arr.into())?;
     }
 
-    ctx.create_map_with_entries(ms).map(|map| map.into())
+    ctx.create_map_with_entries(ms).map(JSValue::Object)
 }
 
 pub static js_map_funcs: [FieldDef; 2] = [
