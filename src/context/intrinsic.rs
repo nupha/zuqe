@@ -34,7 +34,6 @@ use crate::{
         error::js_error_constructor,
         function::js_function_proto_funcs,
         global::{js_global_eval, js_global_props},
-        mapset::{js_map_constructor, js_map_funcs, js_map_proto_funcs},
         math::js_math_obj,
         object::{js_object_constructor, js_object_funcs, js_object_proto_funcs},
         string::{
@@ -43,13 +42,14 @@ use crate::{
         },
     },
     json::js_json_obj,
+    mapset::{js_map_constructor, js_map_funcs, js_map_proto_funcs},
     number::{js_number_constructor, js_number_funcs, js_number_proto_funcs},
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET,
         JS_PROP_HAS_SET, JS_PROP_WRITABLE, JS_SetConstructorBit, ObjectPayload,
     },
     promise::{Promise, js_promise_funcs, js_promise_proto_funcs},
-    proxy::{Proxy, js_proxy_constructor, js_proxy_funcs},
+    proxy::{js_proxy_constructor, js_proxy_funcs},
     reflect::js_reflect_obj,
     regexp::{
         js_regexp_constructor, js_regexp_funcs, js_regexp_proto_funcs,
