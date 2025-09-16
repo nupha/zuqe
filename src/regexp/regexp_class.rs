@@ -179,7 +179,7 @@ pub fn js_regexp_get_source(ctx: &JSContext, cc: CallContext) -> JSResult {
             return ctx.create_string_from_str("(?:))").map(JSValue::String);
         }
 
-        let mut buf = StringBuf::with_capacity(p.len() * 3 / 2, p.is_wide()).map_err(|_| {
+        let mut buf = StringBuf::with_capacity(p.len(), false).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
         })?;
@@ -643,7 +643,7 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
     //     todo!();
     // }
 
-    let mut sbuf = StringBuf::with_capacity(str.len() * 3 / 2, str.is_wide()).map_err(|_| {
+    let mut sbuf = StringBuf::with_capacity(str.len(), false).map_err(|_| {
         ctx.throw_out_of_memory();
         -1
     })?;

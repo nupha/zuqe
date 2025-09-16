@@ -231,11 +231,12 @@ impl JSObject {
                 if this == self {
                     if this.flags().is_exotic() {
                         if let Some(idx) = prop.to_small_int()
-                            && this.class_id() == JS_CLASS_ARRAY
-                            && this.flags().is_fast_array()
+                            && let Some(arr) = this.as_Array()
+                            && arr.is_fast_array()
+                        // && arr.class_id() == JS_CLASS_ARRAY // should exclude JS_CLASS_ARGUMENTS?
                         {
-                            if idx == this.fast_array_count() {
-                                return this.add_fast_array_element(ctx, val, flags);
+                            if idx == arr.fast_array_count() {
+                                return arr.add_fast_array_element(ctx, val, flags);
                             }
                         }
                     } else {

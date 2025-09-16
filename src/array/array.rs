@@ -1,5 +1,3 @@
-use std::ops::DerefMut;
-
 use fallible_collections::{FallibleVec, TryCollect};
 use smallvec::SmallVec;
 
@@ -42,6 +40,13 @@ impl Array {
         self.flags().is_fast_array()
     }
 
+    /// get `length` property value
+    pub fn get_length_prop(&self, ctx: &JSContext) -> Result<i64, i32> {
+        self.0.0.prop_values.borrow()[0]
+            .value(ctx, &JSValue::UNDEFINED)
+            .and_then(|v| v.to_length(ctx))
+    }
+
     /// Update `length` property of an array-like object.
     ///
     /// Returns:
@@ -77,15 +82,7 @@ impl Array {
         } else {
             // sparse array
             // Note: prop `length` must be less than u32::MAX
-            let mut cur_len = self
-                .0
-                .0
-                .prop_values
-                .borrow()
-                .first()
-                .map(|pr| pr.value(ctx, &JSValue::UNDEFINED))
-                .unwrap()
-                .and_then(|v| v.to_u32(ctx))?;
+            let mut cur_len = self.get_length_prop(ctx)? as u32;
 
             if length < cur_len {
                 // delete index property
@@ -163,16 +160,14 @@ impl Array {
     /// set values list to Array, make `arr` a fast array.
     /// Note: for Array and Arguments class objects only.
     pub(crate) fn reset_fast_array(
+        &self,
         ctx: &JSContext,
-        obj: &JSObject,
         values: Vec<JSValue>,
     ) -> Result<(), i32> {
-        matches!(obj.class_id(), JS_CLASS_ARGUMENTS | JS_CLASS_ARRAY);
-
-        if !obj.flags().is_fast_array() {
+        if !self.is_fast_array() {
             // if `self` is sparse array, delete all index properties
             let mut del = SmallVec::<[u32; 64]>::new();
-            obj.own_property_names_foreach(ctx, JS_GPN_INDEX_MASK | JS_GPN_ENUM_ONLY, |_, p| {
+            self.own_property_names_foreach(ctx, JS_GPN_INDEX_MASK | JS_GPN_ENUM_ONLY, |_, p| {
                 if let PropertyKeyKind::ArrayIndex(i) = p.isa {
                     del.push(i);
                 }
@@ -180,30 +175,26 @@ impl Array {
             })?;
 
             for i in del {
-                obj.delete_property_i64(ctx, i as _, JS_PROP_THROW)?;
+                self.delete_property_i64(ctx, i as _, JS_PROP_THROW)?;
             }
         }
 
         let len = values.len();
-        // use fast array list
-        match obj.0.payload.borrow_mut().deref_mut() {
-            ObjectPayload::ARRAY(p) | ObjectPayload::ARGUMENTS(p) => {
-                p.values = values;
-            }
-            _ => unreachable!(),
-        }
 
-        // mark self is fast array
+        // use fast array list
+        self.0.0.payload.borrow_mut().array_mut().unwrap().values = values;
+
+        // set fast array flag
         unsafe {
-            (&mut *obj.0.obj_flags.as_ptr()).set_fast_array(true);
+            (&mut *self.0.0.obj_flags.as_ptr()).set_fast_array(true);
         }
 
         // set array length, can't fail
         debug_assert!(
-            obj.shape().unwrap().0.borrow().prop_defs[0].flags() & JS_PROP_LENGTH != 0,
+            self.shape().unwrap().0.borrow().prop_defs[0].flags() & JS_PROP_LENGTH != 0,
             "Array.length property must be index 0"
         );
-        obj.0.prop_values.borrow_mut()[0] = JSProperty::Normal(JSValue::from(len as u32));
+        self.0.0.prop_values.borrow_mut()[0] = JSProperty::Normal(JSValue::from(len as u32));
 
         Ok(())
     }

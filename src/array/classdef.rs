@@ -1099,7 +1099,9 @@ pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
             if !items.is_empty() {
                 n = items.len() as i64;
                 k += n;
-                Array::reset_fast_array(ctx, arr.as_object().unwrap(), items)?;
+                arr.as_object_Array()
+                    .unwrap()
+                    .reset_fast_array(ctx, items)?;
             }
 
             // generic code

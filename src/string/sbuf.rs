@@ -206,6 +206,7 @@ impl StringBuf {
                 s1.shrink_to_fit();
                 Self::Utf16(s1)
             }
+
             (Self::Ascii(s1), Self::Utf16(s2)) => {
                 let mut buf = Vec::<u16>::new();
                 if let Err(e) = buf.try_reserve_exact(s1.len() + s2.len()) {
@@ -216,8 +217,13 @@ impl StringBuf {
                 let a = unsafe { std::str::from_utf8_unchecked(s1.as_slice()) }.encode_utf16();
                 let b = s2.as_slice()[source.buf_ranges.clone()].iter().copied();
                 buf.extend(a.chain(b));
-                buf.shrink_to_fit();
-                Self::Utf16(buf)
+
+                if !buf.iter().any(|c| *c >= 0x80) {
+                    // ascii
+                    Self::Ascii(unsafe { s16_into_s8(buf) })
+                } else {
+                    Self::Utf16(buf)
+                }
             }
         };
 
@@ -325,11 +331,8 @@ impl StringBuf {
                     }
                 }
 
-                if let Some(mut d16) = s16.take() {
-                    d16.shrink_to_fit();
+                if let Some(d16) = s16.take() {
                     *self = Self::Utf16(d16);
-                } else {
-                    d8.shrink_to_fit();
                 }
             }
             Self::Utf16(d16) => {
@@ -397,69 +400,51 @@ impl StringBuf {
                 }
 
                 if lst.iter().any(|n| *n >= 0x80) {
-                    // is utf16 content
+                    // is wide string
                     *self = Self::Utf16(lst);
                 } else {
-                    // is ascii content
-                    let mut s8 = unsafe { s16_into_s8(lst) };
-                    s8.shrink_to_fit();
+                    // is ascii string
+                    let s8 = unsafe { s16_into_s8(lst) };
                     *self = Self::Ascii(s8);
                 }
             }
             Self::Ascii(lst) => {
-                let mut s8: Option<Vec<u8>> = Some(lst.try_clone()?);
                 let mut s16: Option<Vec<u16>> = None;
 
                 for c in chars {
                     match c {
                         StringChar::Char(c) => {
-                            let mut a = [0u16; 2];
-                            let bb = c.encode_utf16(&mut a);
-
-                            if let Some(s8) = &mut s8
-                                && bb[0] < 0x80
-                            {
-                                s8.try_push(bb[0] as u8)?;
+                            if let Some(d16) = s16.as_mut() {
+                                d16.try_extend_from_slice(c.encode_utf16(&mut [0u16; 2]))?;
                             } else {
-                                if let Some(s16) = &mut s16 {
-                                    s16.try_extend_from_slice(bb)?;
+                                if c.is_ascii() {
+                                    lst.try_push(c as u8)?;
                                 } else {
-                                    let s8 = s8.take().unwrap();
-                                    let mut lst = Vec::<u16>::new();
-                                    lst.try_reserve(s8.len() + 2)?;
-                                    lst.extend(
-                                        s8.iter()
-                                            .copied()
-                                            .map(|x| x as u16)
-                                            .chain(bb.iter().copied()),
-                                    );
-                                    s16.replace(lst);
+                                    let mut d16 = Vec::<u16>::with_capacity(lst.len() + 16);
+                                    d16.extend(lst.iter().map(|c| *c as u16));
+                                    d16.extend_from_slice(c.encode_utf16(&mut [0u16; 2]));
+                                    s16.replace(d16);
                                 }
                             }
                         }
                         StringChar::Code(c) => {
+                            debug_assert!(c >= 0x80);
+
                             if let Some(s16) = &mut s16 {
                                 s16.try_push(c)?;
                             } else {
-                                let s8 = s8.take().unwrap();
-                                let mut lst = Vec::<u16>::new();
-                                lst.try_reserve(s8.len() + 2)?;
-                                lst.extend(
-                                    s8.iter()
-                                        .copied()
-                                        .map(|x| x as u16)
-                                        .chain([c as u16].iter().copied()),
-                                );
-                                s16.replace(lst);
+                                let mut d16 = Vec::<u16>::new();
+                                d16.try_reserve(lst.len() + 16)?;
+                                d16.extend(lst.iter().map(|x| *x as u16));
+                                d16.push(c);
+                                s16.replace(d16);
                             }
                         }
                     }
                 }
 
-                if let Some(s8) = s8 {
-                    let _ = std::mem::replace(self, Self::Ascii(s8));
-                } else if let Some(s16) = s16 {
-                    let _ = std::mem::replace(self, Self::Utf16(s16));
+                if let Some(d16) = s16.take() {
+                    *self = Self::Utf16(d16);
                 }
             }
             Self::Utf16(lst) => {
@@ -574,7 +559,7 @@ impl StringBuf {
                     }
                     Self::Utf16(s) => {
                         if (start..end).is_empty() {
-                            s.clear();
+                            *self = StringBuf::Empty;
                         } else {
                             if end < len {
                                 s.truncate(end);
@@ -839,21 +824,14 @@ impl StringBufSlice<'_> {
     }
 
     pub fn to_owned(&self) -> Result<StringBuf, TryReserveError> {
-        let len = self.buf_len();
-        if len == 0 {
+        if self.is_empty() {
             Ok(StringBuf::Empty)
         } else {
-            let mut res = StringBuf::with_capacity(len, self.src.is_wide())?;
             match self.src {
-                StringBuf::Ascii(src) => {
-                    let _ = res.push_u8_slice(&src[self.buf_ranges.clone()]);
-                }
-                StringBuf::Utf16(src) => {
-                    let _ = res.push_u16_slice(&src[self.buf_ranges.clone()]);
-                }
+                StringBuf::Ascii(src) => Ok(StringBuf::Ascii(src.try_clone()?)),
+                StringBuf::Utf16(src) => Ok(StringBuf::Utf16(src.try_clone()?)),
                 _ => unreachable!(),
             }
-            Ok(res)
         }
     }
 
@@ -878,7 +856,7 @@ impl StringBufSlice<'_> {
 }
 
 /// inplace convert Vec<u16> to Vec<u8>
-unsafe fn s16_into_s8(mut d16: Vec<u16>) -> Vec<u8> {
+pub(super) unsafe fn s16_into_s8(mut d16: Vec<u16>) -> Vec<u8> {
     debug_assert!(!d16.iter().any(|c| *c >= 0x80), "must be ascii content");
 
     let mut ptr16 = d16.as_mut_ptr();

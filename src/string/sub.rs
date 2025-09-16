@@ -48,7 +48,7 @@ fn do_substitution<'a>(
     named_captures: impl Fn(&str) -> Result<Option<StringContent>, i32>, // 命名捕获（对应 $<name>）
 ) -> Result<StringBuf, Option<TryReserveError>> {
     // alloc result string buf
-    let mut sbuf = StringBuf::with_capacity(matched.len(), str.is_wide())?;
+    let mut sbuf = StringBuf::with_capacity(matched.len(), false)?;
     let mut replace_chars = replacement.iter();
 
     // escape $-patterns in `replacement`

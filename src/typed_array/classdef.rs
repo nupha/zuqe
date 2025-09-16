@@ -835,7 +835,7 @@ pub fn js_typed_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
             ",".into() // default separator
         };
 
-    let mut txt = StringBuf::with_capacity(n as usize * 2, false).map_err(|_| {
+    let mut txt = StringBuf::with_capacity(n as usize, false).map_err(|_| {
         ctx.throw_out_of_memory();
         -1
     })?;

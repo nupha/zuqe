@@ -515,7 +515,7 @@ pub fn JS_ConcatString3(
     let len1 = str1.count_bytes();
     let len3 = str3.count_bytes();
 
-    let res_string = StringBuf::with_capacity(len1 + p.len() + len3, p.is_wide())
+    let res_string = StringBuf::with_capacity(len1 + p.len() + len3, false)
         .and_then(|mut s| {
             // str1 + str2 + str3
             s.push_str(str1.to_string_lossy().as_ref())

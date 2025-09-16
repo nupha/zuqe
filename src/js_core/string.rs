@@ -488,7 +488,7 @@ pub fn js_string_pad(ctx: &JSContext, cc: CallContext) -> JSResult {
     ttl_len -= len;
 
     let mut fill_str: Option<JSString> = None;
-    let mut fill_u16 = StringChar::Char(' ');
+    let mut fill_char = StringChar::Char(' ');
 
     if cc.length() > 1 && !cc.arg(1).is_undefined() {
         let s = cc.arg(1).to_string(ctx)?;
@@ -497,7 +497,7 @@ pub fn js_string_pad(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
 
         if s.len() == 1 {
-            fill_u16 = StringChar::Code(s.content().get(0).unwrap());
+            fill_char = StringChar::from(s.content().get(0).unwrap());
         } else {
             fill_str.replace(s);
         }
@@ -529,7 +529,7 @@ pub fn js_string_pad(ctx: &JSContext, cc: CallContext) -> JSResult {
         sbuf.push_u16_iter(src)
     } else {
         // fill with char
-        sbuf.push_chars_iter(std::iter::repeat_n(fill_u16, ttl_len as usize))
+        sbuf.push_chars_iter(std::iter::repeat_n(fill_char, ttl_len as usize))
     }
     .map_err(|_| {
         ctx.throw_out_of_memory();
@@ -565,7 +565,7 @@ pub fn js_string_repeat(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    let mut res_string = StringBuf::with_capacity(n * len, p.is_wide()).map_err(|_| {
+    let mut res_string = StringBuf::with_capacity(n * len, false).map_err(|_| {
         ctx.throw_out_of_memory();
         -1
     })?;
@@ -825,7 +825,7 @@ pub fn js_string_toLowerCase(ctx: &JSContext, cc: CallContext) -> JSResult {
             )
         }
         StringContent::Utf16(s) => {
-            let mut buf = StringBuf::with_capacity(s.len() * 2, true).map_err(|_| {
+            let mut buf = StringBuf::with_capacity(s.len(), false).map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1
             })?;

@@ -6,7 +6,9 @@ use widestring::U16Str;
 use crate::{
     atom::AtomTypeHint,
     number::{parse_i64, parse_u32},
-    string::{StringBuf, StringChar, StringCharIter, StringCodepointIter, is_char_visible},
+    string::{
+        StringBuf, StringChar, StringCharIter, StringCodepointIter, is_char_visible, s16_into_s8,
+    },
 };
 
 /// read-only, ref-counted bytes that represents a string.
@@ -276,13 +278,16 @@ impl StringContent {
                     Ok(StringBuf::Ascii(lst))
                 }
                 Self::Utf16(s) => {
-                    let lst = s
-                        .iter()
-                        .skip(range.start)
-                        .take(range.len())
-                        .copied()
-                        .try_collect::<Vec<_>>()?;
-                    Ok(StringBuf::Utf16(lst))
+                    let it = s.iter().skip(range.start).take(range.len());
+                    if it.clone().any(|c| *c >= 0x80) {
+                        // wide string
+                        let lst = it.copied().try_collect::<Vec<_>>()?;
+                        Ok(StringBuf::Utf16(lst))
+                    } else {
+                        // ascii string
+                        let lst = it.map(|c| *c as u8).try_collect::<Vec<_>>()?;
+                        Ok(StringBuf::Ascii(lst))
+                    }
                 }
             }
         }
@@ -606,8 +611,14 @@ impl From<StringBuf> for StringContent {
                 if s.is_empty() {
                     Self::Empty
                 } else {
-                    debug_assert!(s.iter().any(|c| *c >= 0x80));
-                    Self::Utf16(s.into())
+                    // debug_assert!(s.iter().any(|c| *c >= 0x80));
+
+                    if !s.iter().any(|c| *c >= 0x80) {
+                        // ascii
+                        Self::Ascii(unsafe { s16_into_s8(s).into() })
+                    } else {
+                        Self::Utf16(s.into())
+                    }
                 }
             }
         }
@@ -665,7 +676,6 @@ impl StringBuf {
                 {
                     s1.push(c);
                 }
-                s1.shrink_to_fit();
                 Self::Utf16(s1)
             }
             (Self::Ascii(s1), StringContent::Utf16(s2)) => {
@@ -678,8 +688,13 @@ impl StringBuf {
                 let a = unsafe { std::str::from_utf8_unchecked(s1.as_slice()) }.encode_utf16();
                 let b = s2[range.clone()].iter().copied();
                 buf.extend(a.chain(b));
-                buf.shrink_to_fit();
-                Self::Utf16(buf)
+
+                if !buf.iter().any(|c| *c >= 0x80) {
+                    // is ascii
+                    Self::Ascii(unsafe { s16_into_s8(buf) })
+                } else {
+                    Self::Utf16(buf)
+                }
             }
         };
 

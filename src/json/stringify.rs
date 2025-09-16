@@ -4,15 +4,10 @@ use smallvec::SmallVec;
 
 use crate::{
     JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING,
-    atom::{
-        JS_FreeAtom,
-        consts::{JS_ATOM_empty_string, JS_ATOM_toJSON},
-    },
+    atom::consts::{JS_ATOM_empty_string, JS_ATOM_toJSON},
     context::JSContext,
     error::JSResult,
-    function::CallContext,
-    iterator::JSIteratorKindEnum::{self, JS_ITERATOR_KIND_KEY},
-    js_core::object::js_object_keys,
+    iterator::JSIteratorKindEnum,
     object::{JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_PROP_C_W_E},
     string::{JSString, StringBuf, StringContent},
     value::JSValue,
@@ -101,7 +96,7 @@ pub fn JS_JSONStringify(
                 .clone()
         };
     } else if let JSValue::String(s) = space {
-        let mut b = StringBuf::with_capacity(s.len(), s.is_wide()).map_err(|_| {
+        let mut b = StringBuf::with_capacity(s.len(), false).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
         })?;
@@ -220,13 +215,11 @@ fn js_json_to_str(
                 return Err(-1);
             }
 
-            let mut indent1 =
-                StringBuf::with_capacity(indent.len() + jsc.gap.len(), indent.is_wide()).map_err(
-                    |_| {
-                        ctx.throw_out_of_memory();
-                        -1
-                    },
-                )?;
+            let mut indent1 = StringBuf::with_capacity(indent.len() + jsc.gap.len(), false)
+                .map_err(|_| {
+                    ctx.throw_out_of_memory();
+                    -1
+                })?;
             indent1.push(indent).unwrap();
             indent1.push_content(&jsc.gap).unwrap();
 
