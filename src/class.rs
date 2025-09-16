@@ -405,7 +405,7 @@ fn js_arguments_define_own_property(
     setter: JSValue,
     flags: i32,
 ) -> Result<bool, i32> {
-    let p = this_obj.object().unwrap();
+    let p = this_obj.as_object().unwrap();
 
     // convert to normal array when redefining an existing numeric field
     if p.flags().is_fast_array()

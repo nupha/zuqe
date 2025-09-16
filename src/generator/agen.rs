@@ -5,7 +5,7 @@ use crate::{
     JS_PROP_STRING_DEF,
     context::JSContext,
     error::JSResult,
-    function::{CallContext, FieldDef, AsyncObjPayload},
+    function::{AsyncObjPayload, CallContext, FieldDef},
     iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW, js_create_iterator_result},
     object::{JS_PROP_CONFIGURABLE, JSObjectWeakref, ObjectPayload},
     promise::{Promise, js_promise_resolve},
@@ -64,7 +64,7 @@ impl JSValue {
     pub unsafe fn as_async_generator_unchecked(self) -> AsyncGeneratorValue {
         debug_assert!(matches!(self, Self::Object(_)));
         debug_assert!(matches!(
-            self.object_unchecked().class_id(),
+            self.as_object_unchecked().class_id(),
             JS_CLASS_ASYNC_GENERATOR | JS_CLASS_ASYNC_GENERATOR_FUNCTION
         ));
 
@@ -108,7 +108,7 @@ impl AsyncGeneratorValue {
     pub fn hook_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
 
     pub fn hook_mark(val: JSValue) {
-        let p = unsafe { val.object_unchecked() };
+        let p = unsafe { val.as_object_unchecked() };
 
         if let ObjectPayload::ASYNC_GENERATOR(Some(gd)) = p.0.payload.borrow().deref() {
             if let Some(st) = &gd.func_state {
@@ -402,7 +402,7 @@ pub unsafe fn js_async_generator_resolve_function_create(
 pub fn js_async_generator_resolve_function(ctx: &JSContext, args: CallContext) -> JSResult {
     let is_reject = args.magic() & 1 != 0;
     let val = args.arg(0);
-    let mut isa = unsafe { val.object_unchecked().0.payload.borrow_mut() };
+    let mut isa = unsafe { val.as_object_unchecked().0.payload.borrow_mut() };
 
     if let ObjectPayload::ASYNC_GENERATOR(Some(p)) = isa.deref_mut() {
         if args.magic() >= 2 {
@@ -464,7 +464,7 @@ pub fn js_async_generator_next(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     if let Some(ObjectPayload::ASYNC_GENERATOR(p)) = cc
         .this()
-        .object()
+        .as_object()
         .map(|o| o.0.payload.borrow_mut())
         .as_deref_mut()
     {

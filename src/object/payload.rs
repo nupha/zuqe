@@ -1,10 +1,16 @@
-use std::ops::DerefMut;
+use std::{
+    cell::{Ref, RefMut},
+    ops::{Deref, DerefMut},
+};
 
 use crate::{
     array::ArrayObjPayload,
     array_buffer::ArrayBufObjPayload,
+    context::JSContext,
     function::{AsyncObjPayload, FuncObjPayload},
+    iterator::JSMapIteratorData,
     mapset::JSMapState,
+    object::JSObject,
     promise::ObjPromiseResolvingState,
     typed_array::TypedArrayObjPayload,
     value::JSValue,
@@ -112,6 +118,13 @@ impl ObjectPayload {
         }
     }
 
+    pub fn map_iterator_state(&self) -> Option<&JSMapIteratorData> {
+        match self {
+            Self::MAP_ITERATOR(a) | Self::SET_ITERATOR(a) => Some(a.deref()),
+            _ => None,
+        }
+    }
+
     pub const fn func(&self) -> Option<&FuncObjPayload> {
         match self {
             Self::BYTECODE_FUNCTION(f)
@@ -158,6 +171,82 @@ impl ObjectPayload {
             (Self::STRING(a), JSValue::String(s)) => Ok(std::mem::replace(a, s).into()),
             (Self::SYMBOL(a), JSValue::Symbol(s)) => Ok(std::mem::replace(a, s).into()),
             _ => Err(-1),
+        }
+    }
+}
+
+impl JSObject {
+    /// get object's payload borrow ref.
+    /// if the object is not the required class_id (optional),
+    /// throws type error.
+    pub(crate) fn retrive_payload(
+        &self,
+        ctx: &JSContext,
+        class_id: Option<JSClassID>,
+    ) -> Result<Ref<'_, ObjectPayload>, i32> {
+        if class_id.map_or(true, |id| self.class_id() == id) {
+            Ok(self.0.payload.borrow())
+        } else {
+            ctx.throw_type_error_invalid_class(class_id.unwrap());
+            Err(-1)
+        }
+    }
+
+    /// get object's payload borrow ref.
+    /// if the object is not the required class_id (optional),
+    /// throws type error.
+    pub(crate) fn retrive_payload_mut(
+        &self,
+        ctx: &JSContext,
+        class_id: Option<JSClassID>,
+    ) -> Result<RefMut<'_, ObjectPayload>, i32> {
+        if class_id.map_or(true, |id| self.class_id() == id) {
+            Ok(self.0.payload.borrow_mut())
+        } else {
+            ctx.throw_type_error_invalid_class(class_id.unwrap());
+            Err(-1)
+        }
+    }
+}
+
+impl JSValue {
+    /// get object value's payload borrow ref.
+    /// if the value is not an object, or optionally is not the required class_id,
+    /// throws type error.
+    pub(crate) fn retrive_object_payload(
+        &self,
+        ctx: &JSContext,
+        class_id: Option<JSClassID>,
+    ) -> Result<Ref<'_, ObjectPayload>, i32> {
+        if let Some(o) = self.as_object() {
+            o.retrive_payload(ctx, class_id)
+        } else {
+            if let Some(id) = class_id {
+                ctx.throw_type_error_invalid_class(id);
+            } else {
+                ctx.throw_type_error_not_an_object();
+            }
+            Err(-1)
+        }
+    }
+
+    /// get object value's payload borrow ref.
+    /// if the value is not an object, or optionally is not the required class_id,
+    /// throws type error.
+    pub(crate) fn retrive_object_payload_mut(
+        &self,
+        ctx: &JSContext,
+        class_id: Option<JSClassID>,
+    ) -> Result<RefMut<'_, ObjectPayload>, i32> {
+        if let Some(o) = self.as_object() {
+            o.retrive_payload_mut(ctx, class_id)
+        } else {
+            if let Some(id) = class_id {
+                ctx.throw_type_error_invalid_class(id);
+            } else {
+                ctx.throw_type_error_not_an_object();
+            }
+            Err(-1)
         }
     }
 }

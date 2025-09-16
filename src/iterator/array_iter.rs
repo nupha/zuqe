@@ -25,7 +25,7 @@ impl JSArrayIteratorData {
     pub fn hook_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
 
     pub fn hook_mark(val: JSValue) {
-        let p = unsafe { val.object_unchecked() };
+        let p = unsafe { val.as_object_unchecked() };
         if let ObjectPayload::ARRAY_ITERATOR(it) | ObjectPayload::STRING_ITERATOR(it) =
             p.0.payload.borrow().deref()
         {
@@ -44,7 +44,10 @@ pub fn js_create_array_iterator(ctx: &JSContext, cc: CallContext) -> JSResult {
             cc.this().to_string_non_undefined_or_null(ctx)?.into(),
         )
     } else {
-        (JS_CLASS_ARRAY_ITERATOR, cc.this().to_object(ctx)?.into())
+        (
+            JS_CLASS_ARRAY_ITERATOR,
+            cc.this().clone().ensure_object(ctx)?.into(),
+        )
     };
 
     let it = Box::new(JSArrayIteratorData { obj, kind, idx: 0 });
@@ -64,7 +67,7 @@ pub fn js_array_iterator_next(
 ) -> JSResult {
     if let ObjectPayload::ARRAY_ITERATOR(it) = cc
         .this()
-        .object()
+        .as_object()
         .unwrap()
         .0
         .payload

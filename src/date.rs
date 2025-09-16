@@ -823,7 +823,7 @@ pub fn js_date_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let tm: Datetime = match nargs {
         0 => Datetime::now(),
         1 => {
-            if let Some(ts) = cc.arg(0).object().and_then(|p| {
+            if let Some(ts) = cc.arg(0).as_object().and_then(|p| {
                 if let ObjectPayload::DATE(dt) = p.0.payload.borrow().deref() {
                     Some(*dt)
                 } else {
@@ -874,7 +874,7 @@ pub fn js_date_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 fn JS_ThisTimeValue(ctx: &JSContext, this: &JSValue) -> Result<Datetime, i32> {
-    if let Some(t) = this.object().and_then(|o| {
+    if let Some(t) = this.as_object().and_then(|o| {
         if let ObjectPayload::DATE(dt) = o.0.payload.borrow().deref() {
             Some(*dt)
         } else {
@@ -903,7 +903,7 @@ fn js_date_setTime(ctx: &JSContext, cc: CallContext) -> JSResult {
         Datetime::INVALID
     };
 
-    if let ObjectPayload::DATE(dt) = this.object().unwrap().0.payload.borrow_mut().deref_mut() {
+    if let ObjectPayload::DATE(dt) = this.as_object().unwrap().0.payload.borrow_mut().deref_mut() {
         *dt = dt2;
         Ok(dt2.into())
     } else {
@@ -919,7 +919,7 @@ fn get_date_string(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 fn js_date_Symbol_toPrimitive(ctx: &JSContext, cc: CallContext) -> JSResult {
     // Symbol_toPrimitive(hint)
-    let Some(obj) = cc.this().object() else {
+    let Some(obj) = cc.this().as_object() else {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
     };
@@ -1015,7 +1015,7 @@ fn set_date_field_internal(
         Datetime::INVALID
     };
 
-    if let ObjectPayload::DATE(dt) = this.object().unwrap().0.payload.borrow_mut().deref_mut() {
+    if let ObjectPayload::DATE(dt) = this.as_object().unwrap().0.payload.borrow_mut().deref_mut() {
         // Note: to pass test262
         // only `this` timestamp is invalid, and not setting `year`, do update the timestamp.
         // `this` timestamp could have been updated in valueOf() method.
@@ -1046,7 +1046,7 @@ fn js_date_setYear(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 fn js_date_toJSON(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj = cc.this().to_object(ctx)?;
+    let obj = cc.this().clone().ensure_object(ctx)?;
 
     let tv = obj.to_primitive(ctx, HINT_NUMBER)?;
     if tv.is_number() {

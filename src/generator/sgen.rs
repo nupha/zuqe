@@ -184,7 +184,7 @@ pub fn js_generator_next(
 
     if let ObjectPayload::GENERATOR(g) = cc
         .this()
-        .object()
+        .as_object()
         .unwrap()
         .0
         .as_ref()

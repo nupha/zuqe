@@ -141,12 +141,12 @@ impl JSObject {
         flags: u32,
     ) -> Result<bool, i32> {
         let new_getter = if flags & JS_PROP_HAS_GET != 0 && getter.is_callable() {
-            getter.object()
+            getter.as_object()
         } else {
             None
         };
         let new_setter = if flags & JS_PROP_HAS_SET != 0 && setter.is_callable() {
-            setter.object()
+            setter.as_object()
         } else {
             None
         };

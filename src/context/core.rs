@@ -41,7 +41,7 @@ impl JSContext {
                 .unwrap();
 
             #[cfg(debug_assertions)]
-            func_obj.object().unwrap()._debug_set_hint(
+            func_obj.as_object().unwrap()._debug_set_hint(
                 format!("FunctionProto@{:p}", self.id() as *const std::ffi::c_void).into(),
             );
 

@@ -2,7 +2,7 @@ use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ARRAY_BUFFER, JS_CLASS_ARRAY_ITERATOR,
     JS_CLASS_ASYNC_FROM_SYNC_ITERATOR, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR,
     JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_BOOLEAN, JS_CLASS_DATAVIEW, JS_CLASS_DATE,
-    JS_CLASS_ERROR, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_NUMBER,
+    JS_CLASS_ERROR, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_MAP, JS_CLASS_NUMBER,
     JS_CLASS_OBJECT, JS_CLASS_PROMISE, JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR,
     JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_STRING, JS_CLASS_STRING_ITERATOR, JS_CLASS_SYMBOL,
     JS_CLASS_UINT8C_ARRAY,
@@ -34,6 +34,7 @@ use crate::{
         error::js_error_constructor,
         function::js_function_proto_funcs,
         global::{js_global_eval, js_global_props},
+        mapset::{js_map_constructor, js_map_funcs, js_map_proto_funcs},
         math::js_math_obj,
         object::{js_object_constructor, js_object_funcs, js_object_proto_funcs},
         string::{
@@ -117,7 +118,7 @@ impl JSContext {
         obj_ctor.install_field_defs(self, &js_object_funcs).unwrap();
 
         #[cfg(debug_assertions)]
-        obj_ctor.object().unwrap()._debug_set_hint(
+        obj_ctor.as_object().unwrap()._debug_set_hint(
             format!("FunctionCtor@{:p}", self.id() as *const std::ffi::c_void).into(),
         );
 
@@ -334,7 +335,7 @@ impl JSContext {
             .unwrap();
 
         #[cfg(debug_assertions)]
-        string_ctor.object().unwrap()._debug_set_hint(
+        string_ctor.as_object().unwrap()._debug_set_hint(
             format!("StringCtor@{:p}", self.id() as *const std::ffi::c_void).into(),
         );
 
@@ -452,6 +453,21 @@ impl JSContext {
         ctor.install_field_defs(self, &js_date_funcs).unwrap();
 
         self.0.borrow_mut().class_proto[JS_CLASS_DATE as usize] = obj;
+    }
+
+    pub fn intrinsic_mapset(&self) {
+        // Map
+        {
+            let obj: JSValue = self.create_base_object().unwrap().into();
+            obj.install_field_defs(self, &js_map_proto_funcs).unwrap();
+
+            let ctor = self
+                .create_global_constructor("Map", js_map_constructor, 0, &obj, 0)
+                .unwrap();
+            ctor.install_field_defs(self, &js_map_funcs).unwrap();
+
+            self.0.borrow_mut().class_proto[JS_CLASS_MAP as usize] = obj;
+        }
     }
 
     fn intrinsic_eval(&self) {
@@ -895,7 +911,7 @@ fn js_throw_type_error(ctx: &JSContext, cc: CallContext) -> JSResult {
 fn js_function_proto_caller(ctx: &JSContext, cc: CallContext) -> JSResult {
     let throw_type_error = cc
         .this()
-        .object()
+        .as_object()
         .and_then(|o| {
             o.0.payload.borrow().func().and_then(|f| {
                 f.bytecode.as_ref().map(|bc| {

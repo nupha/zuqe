@@ -55,7 +55,7 @@ impl AsyncStateInner {
         args: &[JSValue],
     ) -> Result<Self, i32> {
         let (arg_count, var_count, stack_size, js_mode) = {
-            let isa = unsafe { func_obj.object_unchecked().0.payload.borrow() };
+            let isa = unsafe { func_obj.as_object_unchecked().0.payload.borrow() };
             let bc = isa.func().unwrap().bytecode.as_ref().unwrap();
             let b = bc.0.borrow();
             (b.arg_count, b.var_count, b.stack_size, b.js_mode)
@@ -330,7 +330,7 @@ impl AsyncObjPayload {
 
     pub fn hook_mark(val: JSValue) {
         if let Some(s) = val
-            .object()
+            .as_object()
             .and_then(|p| p.0.payload.borrow().async_func_state().cloned())
         {
             s.gc_mark();

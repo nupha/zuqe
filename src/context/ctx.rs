@@ -288,13 +288,13 @@ impl JSContext {
     /// get global object
     #[inline]
     pub fn global_obj(&self) -> JSObject {
-        unsafe { self.0.borrow().global_obj.object_unchecked().clone() }
+        unsafe { self.0.borrow().global_obj.as_object_unchecked().clone() }
     }
 
     /// get global var object
     #[inline]
     pub fn global_var_obj(&self) -> JSObject {
-        unsafe { self.0.borrow().global_var_obj.object_unchecked().clone() }
+        unsafe { self.0.borrow().global_var_obj.as_object_unchecked().clone() }
     }
 
     /// Pushes a new stack frame onto the execution stack
@@ -443,6 +443,7 @@ impl JSRuntime {
         ctx.intrinsic_async();
         ctx.intrinsic_typed_arrays();
         ctx.intrinsic_regexp();
+        ctx.intrinsic_mapset();
         ctx.intrinsic_date();
 
         ctx.intrinsic_math(); // Math: lazy init object

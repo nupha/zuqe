@@ -193,7 +193,7 @@ impl JSObject {
                                     if desc.flags & JS_PROP_GETSET != 0 {
                                         return call_setter(
                                             ctx,
-                                            desc.setter.object(),
+                                            desc.setter.as_object(),
                                             &this.clone().into(),
                                             val,
                                             flags,

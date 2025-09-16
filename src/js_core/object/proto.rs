@@ -20,7 +20,7 @@ pub fn js_object_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
         JSValue::NULL => "Null".into(),
         JSValue::UNDEFINED => "Undefined".into(),
         v => {
-            let obj = v.to_object(ctx)?;
+            let obj = v.clone().ensure_object(ctx)?;
 
             // eval tag atom
             let atom = if obj.is_array(ctx)? {
@@ -61,13 +61,13 @@ pub fn js_object_toLocaleString(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_object_valueOf(ctx: &JSContext, cc: CallContext) -> JSResult {
-    cc.this().to_object(ctx).map(JSValue::Object)
+    cc.this().clone().ensure_object(ctx).map(JSValue::Object)
 }
 
 pub fn js_object_hasOwnProperty(ctx: &JSContext, cc: CallContext) -> JSResult {
     // must be done first
     let atom = cc.arg(0).to_atom(ctx)?;
-    let obj = cc.this().to_object(ctx).inspect_err(|_| {
+    let obj = cc.this().clone().ensure_object(ctx).inspect_err(|_| {
         JS_FreeAtom(ctx, atom);
     })?;
 
@@ -78,7 +78,7 @@ pub fn js_object_hasOwnProperty(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_object_isPrototypeOf(ctx: &JSContext, cc: CallContext) -> JSResult {
     if let JSValue::Object(ctor) = cc.arg(0).clone() {
-        let obj = cc.this().to_object(ctx)?;
+        let obj = cc.this().clone().ensure_object(ctx)?;
 
         let mut cur_obj = ctor.clone();
         let b = loop {
@@ -103,7 +103,7 @@ pub fn js_object_isPrototypeOf(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_object_propertyIsEnumerable(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj = cc.this().to_object(ctx)?;
+    let obj = cc.this().clone().ensure_object(ctx)?;
     let prop = cc.arg(0).to_atom(ctx)?;
 
     let ret = obj.get_own_property(ctx, prop);
@@ -119,7 +119,11 @@ pub fn js_object_propertyIsEnumerable(ctx: &JSContext, cc: CallContext) -> JSRes
 pub fn js_object_getset___proto__(ctx: &JSContext, cc: CallContext) -> JSResult {
     if cc.length() == 0 {
         // getter
-        let p = cc.this().to_object(ctx).and_then(|o| o.prototype(ctx))?;
+        let p = cc
+            .this()
+            .clone()
+            .ensure_object(ctx)
+            .and_then(|o| o.prototype(ctx))?;
         Ok(p.map_or(JSValue::NULL, JSValue::Object))
     } else {
         // setter
@@ -150,7 +154,7 @@ pub unsafe fn js_object___defineGetter__(
     magic: i32,
 ) -> JSValue {
     let obj = this_val
-        .to_object(ctx)
+        .ensure_object(ctx)
         .map_or(JSValue::EXCEPTION, JSValue::Object);
     if obj.is_exception() {
         return JSValue::EXCEPTION;
@@ -200,7 +204,7 @@ pub unsafe fn js_object___lookupGetter__(
     setter: i32,
 ) -> JSValue {
     let mut obj = this_val
-        .to_object(ctx)
+        .ensure_object(ctx)
         .map_or(JSValue::EXCEPTION, JSValue::Object);
     if obj.is_exception() {
         return JSValue::EXCEPTION;

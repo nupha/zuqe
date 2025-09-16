@@ -130,7 +130,7 @@ impl ObjNativeFunc {
         let rt = ctx.rt_mut();
 
         let (callback, arg_length, magic, realm) = if let ObjectPayload::C_FUNCTION(c) =
-            unsafe { func_obj.object_unchecked() }
+            unsafe { func_obj.as_object_unchecked() }
                 .0
                 .payload
                 .borrow()
@@ -343,7 +343,7 @@ impl ObjNativeFunc {
     pub fn hook_mark(val: JSValue) {
         unsafe {
             if let ObjectPayload::C_FUNCTION(cfunc) =
-                val.object_unchecked().0.payload.borrow().deref()
+                val.as_object_unchecked().0.payload.borrow().deref()
             {
                 // println!("[O.o] TODO cfunction mark");
                 // mark_func(rt, &cfunc.realm);

@@ -741,7 +741,7 @@ fn string_define_own_property(
     }
 
     if let Some(idx) = prop.to_small_int() {
-        let ob = unsafe { this_obj.object_unchecked() };
+        let ob = unsafe { this_obj.as_object_unchecked() };
         if let JSValue::String(p1) = ob.0.payload.borrow().value().unwrap() {
             let len = p1.len();
             let nth_char = p1.content().iter_since(idx as usize).next().map(|(_, c)| c);
@@ -788,7 +788,7 @@ pub static js_string_exotic_methods: JSClassExoticMethods = JSClassExoticMethods
             // This is a class exotic method for JS_CLASS_STRING object
             if let Some(idx) = prop.to_small_int()
                 && let Some(JSValue::String(s)) =
-                    obj.object().and_then(|o| o.0.payload.borrow().value())
+                    obj.as_object().and_then(|o| o.0.payload.borrow().value())
                 && idx < s.len() as u32
             {
                 let code = s.content().get(idx as usize).unwrap();

@@ -221,7 +221,7 @@ pub fn js_typed_array_from(ctx: &JSContext, args: CallContext) -> JSResult {
         }
         fa.into()
     } else {
-        items.to_object(ctx)?.into()
+        items.clone().ensure_object(ctx)?.into()
     };
 
     let len = js_get_length64(ctx, &arr)?;

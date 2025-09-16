@@ -145,7 +145,7 @@ pub fn JS_GetFunctionRealm(ctx: &JSContext, func_obj: &JSValue) -> Result<JSCont
     }
 
     let realm: JSContext;
-    let p = unsafe { func_obj.object_unchecked() };
+    let p = unsafe { func_obj.as_object_unchecked() };
 
     match p.0.payload.borrow().deref() {
         ObjectPayload::C_FUNCTION(cfunc) => {
@@ -187,7 +187,7 @@ pub fn JS_GetFunctionRealm(ctx: &JSContext, func_obj: &JSValue) -> Result<JSCont
 pub fn get_func_name(func: &JSValue) -> Option<String> {
     // in order to avoid executing arbitrary code during the stack trace generation,
     // we only look at simple 'name' properties containing a string.
-    if let Some(obj) = func.object() {
+    if let Some(obj) = func.as_object() {
         if let Some((idx, prs_flags)) = obj.find_shape_property(JS_ATOM_name) {
             if prs_flags & JS_PROP_TMASK == JS_PROP_NORMAL {
                 if let Some(JSProperty::Normal(JSValue::String(s))) =
@@ -230,7 +230,7 @@ pub fn js_function_proto(_: &JSContext, _: CallContext) -> JSResult {
 pub fn js_bytecode_function_finalizer(_rt: &mut JSRuntime, _isa: &ObjectPayload, _id: usize) {}
 
 pub fn js_bytecode_function_mark(val: JSValue) {
-    let p = unsafe { val.object_unchecked() };
+    let p = unsafe { val.as_object_unchecked() };
 
     let (bf, home_obj) =
         p.0.payload

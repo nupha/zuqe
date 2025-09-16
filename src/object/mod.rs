@@ -1,14 +1,14 @@
 mod create;
-mod detail;
 mod dump;
 mod gcobj;
 mod obj;
+mod payload;
 mod private;
 mod property;
 mod prototype;
 mod shape;
 
-pub use {detail::*, dump::*, gcobj::*, obj::*, private::*, property::*, shape::*};
+pub use {dump::*, gcobj::*, obj::*, payload::*, private::*, property::*, shape::*};
 
 #[macro_export]
 macro_rules! object_cast {

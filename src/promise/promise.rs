@@ -265,7 +265,7 @@ impl Promise {
     pub fn hook_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         Promise::new_with_executor(
             ctx,
-            cc.arg(0).ensure_callable(ctx)?.object().unwrap().clone(),
+            cc.arg(0).ensure_callable(ctx)?.as_object().unwrap().clone(),
             cc.this(),
         )
         .map(|p| p.into())
@@ -298,7 +298,7 @@ impl Promise {
     }
 
     pub fn hook_mark(val: JSValue) {
-        let p = unsafe { val.object_unchecked() };
+        let p = unsafe { val.as_object_unchecked() };
         if let ObjectPayload::PROMISE(s) = p.0.payload.borrow().deref() {
             for i in 0..2 {
                 for rd in s.promise_reactions[i].iter() {

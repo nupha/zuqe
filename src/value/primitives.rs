@@ -125,6 +125,6 @@ pub const fn js_object_data_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, i
 }
 
 pub fn js_object_data_mark(val: JSValue) {
-    let v = unsafe { val.object_unchecked().0.payload.borrow().value().unwrap() };
+    let v = unsafe { val.as_object_unchecked().0.payload.borrow().value().unwrap() };
     v.gc_mark();
 }

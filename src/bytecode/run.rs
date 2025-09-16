@@ -331,7 +331,7 @@ impl Bytecode {
                                     JSValue::Object(ctx.global_obj().clone())
                                 }
                                 _ => {
-                                    if let Ok(v) = this_obj.to_object(ctx) {
+                                    if let Ok(v) = this_obj.clone().ensure_object(ctx) {
                                         v.into()
                                     } else {
                                         break State::Exception;
@@ -1242,7 +1242,7 @@ impl Bytecode {
                         match var_ref {
                             Ok(vr) => unsafe {
                                 if SP_REF!(-1)
-                                    .object_unchecked()
+                                    .as_object_unchecked()
                                     .add_own_property(
                                         ctx,
                                         atom,
@@ -1642,7 +1642,7 @@ impl Bytecode {
                     }
                     OpCode::SET_HOME_OBJECT => {
                         // [home_obj, func, ^] -> [home_obj, func, ^]
-                        js_method_set_home_object(SP_REF!(-1), SP_REF!(-2).object());
+                        js_method_set_home_object(SP_REF!(-1), SP_REF!(-2).as_object());
                     }
                     OpCode::DEFINE_METHOD | OpCode::DEFINE_METHOD_COMPUTED => {
                         // DEFINE_METHOD: [this_obj, value, ^] -> [this_obj, ^]
@@ -2130,7 +2130,7 @@ impl Bytecode {
                     }
                     OpCode::TO_OBJECT => {
                         if !SP_REF!(-1).is_object() {
-                            if let Ok(o) = SP_REF!(-1).to_object(ctx) {
+                            if let Ok(o) = SP_REF!(-1).clone().ensure_object(ctx) {
                                 SP_PUT!(-1, o.into());
                             } else {
                                 break State::Exception;

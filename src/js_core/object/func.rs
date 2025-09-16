@@ -25,7 +25,7 @@ pub fn js_object_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     } else {
         match cc.arg(0) {
             JSValue::NULL | JSValue::UNDEFINED => ctx.create_base_object(),
-            a => a.to_object(ctx),
+            a => a.clone().ensure_object(ctx),
         }
     }
     .map(JSValue::Object)
@@ -69,7 +69,7 @@ pub fn js_object_defineProperty(ctx: &JSContext, cc: CallContext) -> JSResult {
     let prop = cc.arg(1);
     let desc = cc.arg(2);
 
-    if let Some(obj) = cc.arg(0).object() {
+    if let Some(obj) = cc.arg(0).as_object() {
         let atom = prop.to_atom(ctx)?;
 
         // magic = 1 if called as Reflect.defineProperty
@@ -95,7 +95,7 @@ pub fn js_object_defineProperty(ctx: &JSContext, cc: CallContext) -> JSResult {
 /// defineProperties(obj, properties)
 pub fn js_object_defineProperties(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj = cc.arg(0);
-    if let Some(o) = obj.object() {
+    if let Some(o) = obj.as_object() {
         o.define_property_desc_multi(ctx, cc.arg(1))?;
         Ok(obj.clone())
     } else {
@@ -231,7 +231,7 @@ pub fn js_object_preventExtensions(ctx: &JSContext, cc: CallContext) -> JSResult
     let reflect = cc.magic() != 0;
     let arg = cc.arg(0);
 
-    if let Some(obj) = arg.object() {
+    if let Some(obj) = arg.as_object() {
         let ret = obj.prevent_extensions(ctx)?;
         if reflect {
             Ok(JSValue::Bool(ret))
@@ -265,7 +265,7 @@ pub fn js_object_getOwnPropertyDescriptor(ctx: &JSContext, cc: CallContext) -> J
             return Err(-1);
         }
     } else {
-        if let Ok(o) = cc.arg(0).to_object(ctx) {
+        if let Ok(o) = cc.arg(0).clone().ensure_object(ctx) {
             o
         } else {
             ctx.throw_type_error_not_an_object();
@@ -313,7 +313,7 @@ pub fn js_object_getOwnPropertyDescriptor(ctx: &JSContext, cc: CallContext) -> J
 }
 
 pub fn js_object_getOwnPropertyDescriptors(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj = cc.arg(0).to_object(ctx)?;
+    let obj = cc.arg(0).clone().ensure_object(ctx)?;
     let res_obj = ctx.create_base_object()?;
 
     obj.own_property_names_foreach(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK, |cx, name| {
@@ -345,12 +345,12 @@ pub fn js_object_is(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 /// Object.assign(obj, source1)
 pub fn js_object_assign(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj = cc.arg(0).to_object(ctx)?;
+    let obj = cc.arg(0).clone().ensure_object(ctx)?;
 
     if cc.length() > 1 {
         for a in &cc.arguments()[1..] {
             if !a.is_undefined_or_null() {
-                let src = a.to_object(ctx)?;
+                let src = a.clone().ensure_object(ctx)?;
                 obj.copy_data_properties_from(ctx, &src.into(), None, true)?;
             }
         }
@@ -377,7 +377,7 @@ pub fn js_object_fromEntries(ctx: &JSContext, cc: CallContext) -> JSResult {
     // RequireObjectCoercible() not necessary because it is tested in
     // JS_GetIterator() by JS_GetProperty()
     for item in cc.arg(0).iter(ctx)? {
-        if let Some(o) = item?.object() {
+        if let Some(o) = item?.as_object() {
             let key = o.get_property_u32(ctx, 0)?;
             let value = o.get_property_u32(ctx, 1)?;
             obj.define_property_value_value(ctx, key, value, JS_PROP_C_W_E | JS_PROP_THROW)?;
@@ -391,7 +391,7 @@ pub fn js_object_fromEntries(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_object_hasOwn(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj = cc.arg(0).to_object(ctx)?;
+    let obj = cc.arg(0).clone().ensure_object(ctx)?;
     let atom = cc.arg(1).to_atom(ctx)?;
 
     // free atom when exit

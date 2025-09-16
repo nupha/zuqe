@@ -203,7 +203,7 @@ impl ModuleDef {
                             if let Some(vr) = var_ref {
                                 vr
                             } else {
-                                let p1 = (*module.0.bytecode.as_ptr()).object_unchecked();
+                                let p1 = (*module.0.bytecode.as_ptr()).as_object_unchecked();
                                 p1.0.payload.borrow().func().unwrap().var_refs[var_idx as usize]
                                     .clone()
                             },

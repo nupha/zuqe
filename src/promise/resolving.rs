@@ -34,7 +34,7 @@ impl PromiseResolvingFunc {
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
-        let p = unsafe { func_obj.object_unchecked() };
+        let p = unsafe { func_obj.as_object_unchecked() };
         let payload = p.0.payload.borrow();
         let class_id = payload.class_id();
         matches!(
@@ -91,7 +91,7 @@ impl PromiseResolvingFunc {
     pub fn hook_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
 
     pub fn hook_mark(val: JSValueConst) {
-        let isa = unsafe { val.object_unchecked().0.payload.borrow() };
+        let isa = unsafe { val.as_object_unchecked().0.payload.borrow() };
         if let Some(s) = isa.promise_func_data() {
             s.promise.0.gc_mark();
         }

@@ -80,7 +80,7 @@ pub fn JS_JSONStringify(
     }
 
     let mut space: JSValue = space;
-    if let Some(p) = space.object() {
+    if let Some(p) = space.as_object() {
         match p.class_id() {
             JS_CLASS_NUMBER => {
                 space = space.to_number(ctx)?;

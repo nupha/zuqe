@@ -38,7 +38,7 @@ pub static js_shared_array_buffer_funcs: [FieldDef; 1] = [JS_CGETSET_NATIVE_DEF!
 
 pub fn js_array_buffer_get_byteLength(_: &JSContext, cc: CallContext) -> JSResult {
     cc.this()
-        .object()
+        .as_object()
         .unwrap()
         .0
         .payload
@@ -51,7 +51,7 @@ pub fn js_array_buffer_get_byteLength(_: &JSContext, cc: CallContext) -> JSResul
 pub fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
     let abuf = unsafe {
         cc.this()
-            .object_unchecked()
+            .as_object_unchecked()
             .0
             .payload
             .borrow()
@@ -92,7 +92,7 @@ pub fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    if unsafe { new_obj.object_unchecked() }
+    if unsafe { new_obj.as_object_unchecked() }
         .0
         .payload
         .borrow()
@@ -102,7 +102,7 @@ pub fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    let mut new_abuf = unsafe { new_obj.object_unchecked() }
+    let mut new_abuf = unsafe { new_obj.as_object_unchecked() }
         .0
         .payload
         .borrow()

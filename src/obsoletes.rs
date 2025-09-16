@@ -1898,13 +1898,13 @@ pub unsafe fn JS_NewObject(ctx: &JSContext) -> JSValue {
 /// `val` is consumed
 #[deprecated(note = "use JSValue::coerce_to_object() instead")]
 pub fn JS_ToObject(ctx: &JSContext, val: JSValue) -> JSValue {
-    val.to_object(ctx)
+    val.ensure_object(ctx)
         .map_or(JSValue::EXCEPTION, JSValue::Object)
 }
 
 #[deprecated(note = "use JSValue::coerce_to_object() instead")]
 pub unsafe fn JS_ToObjectFree(ctx: &JSContext, val: JSValue) -> JSValue {
-    val.to_object(ctx)
+    val.ensure_object(ctx)
         .map_or(JSValue::EXCEPTION, JSValue::Object)
 }
 
@@ -2859,7 +2859,7 @@ pub(crate) unsafe fn js_closure2(
 ) -> JSValue {
     bc.make_closure_to(
         ctx,
-        func_obj.object_unchecked().clone(),
+        func_obj.as_object_unchecked().clone(),
         cur_var_refs,
         parent_frame,
     )
@@ -4036,7 +4036,7 @@ pub unsafe fn get_proxy_method<'a>(
     obj: &'a JSValueConst,
     name: JSAtom,
 ) -> Result<(JSValue, &'a ProxyObjPayload), i32> {
-    if let ObjectPayload::PROXY(s) = obj.object_unchecked().0.payload.borrow().deref() {
+    if let ObjectPayload::PROXY(s) = obj.as_object_unchecked().0.payload.borrow().deref() {
         unimplemented!()
     } else {
         unreachable!()

@@ -623,7 +623,7 @@ impl JSObjectWeakref {
 }
 
 impl JSValue {
-    pub const fn object(&self) -> Option<&JSObject> {
+    pub const fn as_object(&self) -> Option<&JSObject> {
         if let Self::Object(ob) = self {
             Some(ob)
         } else {
@@ -631,7 +631,7 @@ impl JSValue {
         }
     }
 
-    pub unsafe fn object_unchecked(&self) -> &JSObject {
+    pub unsafe fn as_object_unchecked(&self) -> &JSObject {
         if let Self::Object(ob) = self {
             ob
         } else {
@@ -653,19 +653,17 @@ impl JSValue {
     /// - string "abc" => \[object "abc"\]
     ///
     /// Returns Err for null/undefined.
-    pub fn to_object(&self, ctx: &JSContext) -> Result<JSObject, i32> {
+    pub fn ensure_object(self, ctx: &JSContext) -> Result<JSObject, i32> {
         match self {
-            Self::Object(o) => Ok(o.clone()),
+            Self::Object(o) => Ok(o),
             Self::Int(_) | Self::Float64(_) => ctx
-                .create_object(ObjectPayload::NUMBER(self.clone()))
+                .create_object(ObjectPayload::NUMBER(self))
                 .map_err(|_| -1),
             Self::Bool(_) => ctx
-                .create_object(ObjectPayload::BOOLEAN(self.clone()))
+                .create_object(ObjectPayload::BOOLEAN(self))
                 .map_err(|_| -1),
             Self::String(s) => s.to_object(ctx, &JSValue::UNDEFINED),
-            Self::Symbol(s) => ctx
-                .create_object(ObjectPayload::SYMBOL(s.clone()))
-                .map_err(|_| -1),
+            Self::Symbol(s) => ctx.create_object(ObjectPayload::SYMBOL(s)).map_err(|_| -1),
 
             Self::EXCEPTION => {
                 #[cfg(debug_assertions)]
@@ -674,7 +672,7 @@ impl JSValue {
                 Err(-1)
             }
             _ => {
-                ctx.throw_type_error("cannot convert to object");
+                ctx.throw_type_error_not_an_object();
                 Err(-1)
             }
         }
@@ -690,7 +688,7 @@ impl JSValue {
 
     #[inline]
     pub fn prevent_extensions(&self, ctx: &JSContext) -> Result<bool, i32> {
-        self.object()
+        self.as_object()
             .map_or(Ok(false), |o| o.prevent_extensions(ctx))
     }
 
@@ -738,7 +736,7 @@ impl JSValue {
 
     /// check if value is sealed. Object value will check property, Non-object value is always treated as sealed.
     pub fn is_sealed(&self, ctx: &JSContext, is_frozen: bool) -> Result<bool, i32> {
-        if let Some(o) = self.object() {
+        if let Some(o) = self.as_object() {
             o.is_sealed(ctx, is_frozen)
         } else {
             Ok(true)
@@ -771,7 +769,7 @@ pub fn JS_SetConstructorBit(ctx: &JSContext, func_obj: &JSValue, val: bool) -> b
 /// Returns -1 on error (invalid object type)
 /// Note: `val` is consumed.
 pub fn JS_SetObjectData(ctx: &JSContext, obj: JSValue, val: JSValue) -> i32 {
-    if let Some(o) = obj.object() {
+    if let Some(o) = obj.as_object() {
         if let Ok(old) = o.0.payload.borrow_mut().replace_value(val) {
             drop(old);
             0
@@ -793,7 +791,7 @@ pub fn JS_SetObjectData(ctx: &JSContext, obj: JSValue, val: JSValue) -> i32 {
 /// 2. 'name' is a non-empty string
 /// 3. 'name' is a symbol with description
 pub fn js_object_has_name(obj: &JSValue) -> bool {
-    let ob = unsafe { obj.object_unchecked() };
+    let ob = unsafe { obj.as_object_unchecked() };
     if let Some((idx, _)) = ob.find_shape_property(JS_ATOM_name) {
         if let JSProperty::Normal(JSValue::String(ss)) = ob.0.prop_values.borrow().get(idx).unwrap()
         {
@@ -808,7 +806,7 @@ pub fn js_object_has_name(obj: &JSValue) -> bool {
 
 /// Note: all the fields are already sealed except length
 pub fn seal_template_obj(ctx: &JSContext, obj: JSValue) -> i32 {
-    let p = unsafe { obj.object_unchecked() };
+    let p = unsafe { obj.as_object_unchecked() };
 
     let (_, cur_flags) = p
         .find_shape_property(JS_ATOM_length)

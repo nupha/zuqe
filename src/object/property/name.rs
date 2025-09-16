@@ -382,7 +382,8 @@ impl JSValue {
         flags: i32,
         kind: JSIteratorKindEnum,
     ) -> Result<Box<[(JSValue, JSValue)]>, i32> {
-        self.to_object(ctx)
+        self.clone()
+            .ensure_object(ctx)
             .and_then(|o| o.get_own_property_kvs(ctx, flags, kind))
     }
 

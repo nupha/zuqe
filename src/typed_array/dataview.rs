@@ -29,7 +29,7 @@ impl JSContext {
         length: Option<usize>,
     ) -> JSResult {
         let abuf = buffer
-            .object()
+            .as_object()
             .and_then(|o| o.0.payload.borrow().array_buffer().cloned())
             .ok_or_else(|| {
                 self.throw_type_error("expect an ArrayBuffer");
@@ -62,7 +62,7 @@ impl JSContext {
             if let Some(ptr) = js_malloc_typed::<TypedArrayObjPayload>(self, 1, false) {
                 ptr.write(TypedArrayObjPayload {
                     obj: JSObjectWeakref::default(),
-                    buffer: buffer.object_unchecked().clone(), // underlaying array buffer
+                    buffer: buffer.as_object_unchecked().clone(), // underlaying array buffer
                     offset: offset as u32,
                     byte_length: len as _,
                     count: 0,
@@ -106,7 +106,7 @@ pub fn js_dataview_getValue(ctx: &JSContext, args: CallContext) -> JSResult {
     let class_id = args.magic() as JSClassID;
 
     debug_assert_eq!(
-        unsafe { this_obj.object_unchecked().class_id() },
+        unsafe { this_obj.as_object_unchecked().class_id() },
         JS_CLASS_DATAVIEW
     );
 
@@ -121,7 +121,7 @@ pub fn js_dataview_getValue(ctx: &JSContext, args: CallContext) -> JSResult {
         false // default to BE
     };
 
-    let isa = unsafe { this_obj.object_unchecked().0.payload.borrow() };
+    let isa = unsafe { this_obj.as_object_unchecked().0.payload.borrow() };
     let ta = isa.typed_array().unwrap();
 
     unsafe {
@@ -225,7 +225,7 @@ pub fn js_dataview_setValue(ctx: &JSContext, cc: CallContext) -> JSResult {
     let class_id = cc.magic() as JSClassID;
 
     debug_assert_eq!(
-        unsafe { this_obj.object_unchecked().class_id() },
+        unsafe { this_obj.as_object_unchecked().class_id() },
         JS_CLASS_DATAVIEW
     );
 

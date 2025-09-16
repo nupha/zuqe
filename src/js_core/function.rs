@@ -113,7 +113,7 @@ pub fn js_function_toString(ctx: &JSContext, args: CallContext) -> JSResult {
     let this_val = args.this_raw();
 
     this_val.ensure_callable(ctx)?;
-    let p = unsafe { this_val.object_unchecked() };
+    let p = unsafe { this_val.as_object_unchecked() };
 
     let func_kind = if let Some(func) = p.0.payload.borrow().func() {
         let bc = func.bytecode.as_ref().unwrap();
@@ -152,7 +152,7 @@ pub fn js_function_hasInstance(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_function_proto_fileName(ctx: &JSContext, args: CallContext) -> JSResult {
-    if let Some(b) = args.this_raw().object().and_then(|o| {
+    if let Some(b) = args.this_raw().as_object().and_then(|o| {
         o.0.payload
             .borrow()
             .func()
@@ -170,7 +170,7 @@ pub fn js_function_proto_fileName(ctx: &JSContext, args: CallContext) -> JSResul
 }
 
 pub fn js_function_proto_lineNumber(_: &JSContext, args: CallContext) -> JSResult {
-    if let Some(b) = args.this_raw().object().and_then(|o| {
+    if let Some(b) = args.this_raw().as_object().and_then(|o| {
         o.0.payload
             .borrow()
             .func()

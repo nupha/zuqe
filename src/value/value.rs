@@ -311,11 +311,11 @@ impl JSValue {
     /// - Objects of native class which has `call` handler
     #[inline]
     pub fn is_callable(&self) -> bool {
-        self.object().map_or(false, JSObject::is_callable)
+        self.as_object().map_or(false, JSObject::is_callable)
     }
 
     pub fn is_error(&self) -> bool {
-        self.object()
+        self.as_object()
             .map_or(false, |o| o.class_id() == JS_CLASS_ERROR)
     }
 
@@ -341,7 +341,7 @@ impl JSValue {
             Self::Object(o) => Self::id_to_hash(o.id()),
             Self::Int(d) => {
                 let u = JSFloat64Union { uint64: *d as u64 };
-                unsafe { (u.uint32[0] ^ u.uint32[1]) * 3163 }
+                unsafe { (u.uint32[0] ^ u.uint32[1]).wrapping_mul(3163) }
             }
             Self::String(s) => s.content().calc_hash(AtomTypeHint::String),
             Self::Symbol(s) => {
@@ -354,7 +354,7 @@ impl JSValue {
                     d = f64::NAN;
                 }
                 let u = JSFloat64Union { d };
-                unsafe { (u.uint32[0] ^ u.uint32[1]) * 3163 }
+                unsafe { (u.uint32[0] ^ u.uint32[1]).wrapping_mul(3163) }
             }
             Self::UNDEFINED | Self::NULL | Self::UNINITIALIZED | Self::EXCEPTION => 0,
             Self::Bool(b) => *b as u32,
@@ -362,7 +362,7 @@ impl JSValue {
             Self::Module(m) => Self::id_to_hash(m.id()),
             Self::CatchOffset(i) => {
                 let u = JSFloat64Union { uint64: *i as u64 };
-                unsafe { (u.uint32[0] ^ u.uint32[1]) * 3163 }
+                unsafe { (u.uint32[0] ^ u.uint32[1]).wrapping_mul(3163) }
             }
             Self::AsyncStateResume(f) => Self::id_to_hash(f.id()),
         };

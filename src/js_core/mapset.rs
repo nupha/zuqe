@@ -6,6 +6,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     iterator::{JSIteratorKindEnum, JSMapIteratorData},
+    js_core::{js_get_this, object::js_object_groupBy},
     mapset::{JSMapState, MapPair},
     object::{JS_PROP_CONFIGURABLE, ObjectPayload},
     value::JSValue,
@@ -70,32 +71,26 @@ pub fn js_map_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_map_get(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let p = cc.this().object().unwrap();
-    if p.class_id() != JS_CLASS_MAP + cc.magic() as JSClassID {
-        ctx.throw_type_error_invalid_class(JS_CLASS_MAP + cc.magic() as JSClassID);
-        return Err(-1);
-    }
+    let key = cc.arg(0);
 
-    Ok(p.0
-        .payload
-        .borrow()
-        .map_state()
-        .unwrap()
-        .find(cc.arg(0))
-        .unwrap_or(JSValue::UNDEFINED))
+    cc.this()
+        .retrive_object_payload(ctx, Some(JS_CLASS_MAP + cc.magic() as JSClassID))
+        .map(|r| {
+            r.map_state()
+                .unwrap()
+                .find(key)
+                .unwrap_or(JSValue::UNDEFINED)
+        })
 }
 
 pub fn js_map_set(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let p = cc.this().object().unwrap();
-    if p.class_id() != JS_CLASS_MAP + cc.magic() as JSClassID {
-        ctx.throw_type_error_invalid_class(JS_CLASS_MAP + cc.magic() as JSClassID);
-        return Err(-1);
-    }
-
-    let mut isa = p.0.payload.borrow_mut();
-    let s = isa.map_state_mut().unwrap();
-
+    let this = cc.this();
     let key = cc.arg(0);
+
+    let mut r =
+        this.retrive_object_payload_mut(ctx, Some(JS_CLASS_MAP + cc.magic() as JSClassID))?;
+
+    let s = r.map_state_mut().unwrap();
     if s.is_weak() && !key.is_object() {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
@@ -110,96 +105,91 @@ pub fn js_map_set(ctx: &JSContext, cc: CallContext) -> JSResult {
     s.add(ctx, key.clone(), value.clone())?;
 
     if s.is_weak() {
-        let kob = key.object().unwrap();
-        kob.0.weak_refs.borrow_mut().push(p.downgrade());
+        key.as_object()
+            .unwrap()
+            .0
+            .weak_refs
+            .borrow_mut()
+            .push(this.as_object().unwrap().downgrade());
     }
 
-    Ok(cc.this().clone())
+    Ok(this.clone())
 }
 
 pub fn js_map_delete(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let p = cc.this().object().unwrap();
-    if p.class_id() != JS_CLASS_MAP + cc.magic() as JSClassID {
-        ctx.throw_type_error_invalid_class(JS_CLASS_MAP + cc.magic() as JSClassID);
-        return Err(-1);
-    }
-
-    let mut isa = p.0.payload.borrow_mut();
-    let s = isa.map_state_mut().unwrap();
+    let this = cc.this();
     let key = cc.arg(0);
-    if s.find(key).is_some() {
-        s.remove(cc.arg(0));
 
-        if s.is_weak() {
-            let kob = key.object().unwrap();
-            kob.0
-                .weak_refs
-                .borrow_mut()
-                .retain(|w| w.upgrade().map_or(false, |o| !o.eq(p)));
-        }
+    this.retrive_object_payload_mut(ctx, Some(JS_CLASS_MAP + cc.magic() as JSClassID))
+        .map(|mut r| {
+            let s = r.map_state_mut().unwrap();
 
-        Ok(JSValue::Bool(true))
-    } else {
-        Ok(JSValue::Bool(false))
-    }
+            if s.find(key).is_some() {
+                s.remove(key);
+
+                if s.is_weak() {
+                    let this_obj = this.as_object().unwrap();
+                    let kobj = key.as_object().unwrap();
+
+                    kobj.0
+                        .weak_refs
+                        .borrow_mut()
+                        .retain(|w| w.upgrade().map_or(false, |o| !o.eq(this_obj)));
+                }
+
+                JSValue::Bool(true)
+            } else {
+                JSValue::Bool(false)
+            }
+        })
 }
 
 pub fn js_map_has(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let p = cc.this().object().unwrap();
-    if p.class_id() != JS_CLASS_MAP + cc.magic() as JSClassID {
-        ctx.throw_type_error_invalid_class(JS_CLASS_MAP + cc.magic() as JSClassID);
-        return Err(-1);
-    }
-
-    Ok(p.0
-        .payload
-        .borrow()
-        .map_state()
-        .unwrap()
-        .find(cc.arg(0))
-        .unwrap_or(JSValue::UNDEFINED))
+    cc.this()
+        .retrive_object_payload(ctx, Some(JS_CLASS_MAP + cc.magic() as JSClassID))
+        .map(|r| {
+            r.map_state()
+                .unwrap()
+                .find(cc.arg(0))
+                .unwrap_or(JSValue::UNDEFINED)
+        })
 }
 
 pub fn js_map_clear(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let p = cc.this().object().unwrap();
-    if p.class_id() != JS_CLASS_MAP + cc.magic() as JSClassID {
-        ctx.throw_type_error_invalid_class(JS_CLASS_MAP + cc.magic() as JSClassID);
-        return Err(-1);
-    }
-
-    p.0.payload.borrow_mut().map_state_mut().unwrap().clear();
-    Ok(JSValue::UNDEFINED)
+    cc.this()
+        .retrive_object_payload_mut(ctx, Some(JS_CLASS_MAP + cc.magic() as JSClassID))
+        .map(|mut r| {
+            r.map_state_mut().unwrap().clear();
+            JSValue::UNDEFINED
+        })
 }
 
 pub fn js_map_get_size(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let p = cc.this().object().unwrap();
-    if p.class_id() != JS_CLASS_MAP + cc.magic() as JSClassID {
-        ctx.throw_type_error_invalid_class(JS_CLASS_MAP + cc.magic() as JSClassID);
-        return Err(-1);
-    }
-    Ok(JSValue::Int(
-        p.0.payload.borrow().map_state().unwrap().len() as i32,
-    ))
+    cc.this()
+        .retrive_object_payload(ctx, Some(JS_CLASS_MAP + cc.magic() as JSClassID))
+        .map(|r| JSValue::Int(r.map_state().unwrap().len() as i32))
 }
 
 pub fn js_map_forEach(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let this = cc.this();
-    let p = this.object().unwrap();
-    if p.class_id() != JS_CLASS_MAP + cc.magic() as JSClassID {
-        ctx.throw_type_error_invalid_class(JS_CLASS_MAP + cc.magic() as JSClassID);
-        return Err(-1);
-    }
-
     let func = cc.arg(0);
     let this_arg = cc.arg(1);
     func.ensure_callable(ctx)?;
 
-    p.0.payload.borrow_mut().map_state_mut().unwrap().lock();
+    // lock map, and ensure this is an object of expected class_id.
+    {
+        let mut pl = cc
+            .this()
+            .retrive_object_payload_mut(ctx, Some(JS_CLASS_MAP + cc.magic() as JSClassID))?;
+        pl.map_state_mut().unwrap().lock();
+    }
 
+    let this = cc.this();
+    let obj = this.as_object().unwrap();
     let mut i = 0;
+
     loop {
         let pair = {
-            let isa = p.0.payload.borrow();
+            let isa = obj.0.payload.borrow();
             let s = isa.map_state().unwrap();
             if let Some(kv) = s.slots.get(i) {
                 match kv {
@@ -229,26 +219,23 @@ pub fn js_map_forEach(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     }
 
-    p.0.payload.borrow_mut().map_state_mut().unwrap().unlock();
+    // unlock map
+    obj.0.payload.borrow_mut().map_state_mut().unwrap().unlock();
 
     Ok(JSValue::UNDEFINED)
 }
 
 fn js_create_map_iterator(ctx: &JSContext, cc: CallContext) -> JSResult {
+    // ensure `this` is an object of expected class_id
+    let this = cc.this();
+    let _ = this.retrive_object_payload(ctx, Some(JS_CLASS_MAP + (cc.magic() & 3) as JSClassID))?;
+
     debug_assert!(matches!(cc.magic() >> 2, 0 | 1 | 2));
     let kind = unsafe { std::mem::transmute::<u8, JSIteratorKindEnum>(cc.magic() as u8 >> 2) };
-    let class_id = JS_CLASS_MAP + (cc.magic() & 3) as JSClassID; // map,set,weakmap,weakset
 
-    let p = cc.this().object().unwrap();
-    if p.class_id() != class_id {
-        ctx.throw_type_error_invalid_class(class_id);
-        return Err(-1);
-    }
-
-    let s = p.0.payload.borrow().map_state().unwrap();
-
+    // create iterator object
     let it = Box::new(JSMapIteratorData {
-        obj: cc.this().clone(),
+        obj: this.clone(),
         kind,
         cur_record: MapPair::Strong {
             key: JSValue::UNDEFINED,
@@ -292,4 +279,9 @@ pub static js_map_proto_funcs: [FieldDef; 12] = [
     ),
     JS_ALIAS_DEF!("[Symbol.iterator]", "entries"),
     JS_PROP_STRING_DEF!("[Symbol.toStringTag]", "Map", JS_PROP_CONFIGURABLE as i16),
+];
+
+pub static js_map_funcs: [FieldDef; 2] = [
+    JS_CFUNC_NATIVE_DEF!("groupBy", 2, js_object_groupBy, 1),
+    JS_CGETSET_NATIVE_DEF!("[Symbol.species]", js_get_this, NONE, 0),
 ];

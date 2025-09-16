@@ -69,8 +69,16 @@ impl JSContext {
             debug_assert!(unsafe { (*sf_ptr).cur_func.is_object() });
 
             sframe = unsafe { sf_ptr.as_mut() };
-            cur_frame_func =
-                unsafe { Some(sframe.as_ref().unwrap().cur_func.object_unchecked().clone()) };
+            cur_frame_func = unsafe {
+                Some(
+                    sframe
+                        .as_ref()
+                        .unwrap()
+                        .cur_func
+                        .as_object_unchecked()
+                        .clone(),
+                )
+            };
 
             let bc = cur_frame_func
                 .as_ref()
@@ -218,7 +226,7 @@ impl JSContext {
                     sf_ptr.as_mut().unwrap()
                 };
                 // current function of stack frame
-                let frame_func = unsafe { sframe.cur_func.object_unchecked().clone() };
+                let frame_func = unsafe { sframe.cur_func.as_object_unchecked().clone() };
                 let payload = frame_func.0.payload.borrow();
                 let var_refs = payload.func().unwrap().var_refs.as_slice();
 

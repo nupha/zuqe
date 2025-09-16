@@ -12,12 +12,12 @@ use crate::{
 };
 
 pub fn js_proxy_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let Some(target) = cc.arg(0).object() else {
+    let Some(target) = cc.arg(0).as_object() else {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
     };
 
-    let Some(handler) = cc.arg(1).object() else {
+    let Some(handler) = cc.arg(1).as_object() else {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
     };

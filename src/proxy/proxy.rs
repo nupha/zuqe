@@ -207,7 +207,7 @@ impl Proxy {
     }
 
     pub fn hook_mark(val: JSValue) {
-        if let ObjectPayload::PROXY(p) = val.object().unwrap().0.payload.borrow().deref() {
+        if let ObjectPayload::PROXY(p) = val.as_object().unwrap().0.payload.borrow().deref() {
             p.target.gc_mark();
             p.handler.gc_mark();
         }
@@ -338,7 +338,7 @@ fn js_proxy_get_own_property(
     obj: JSValue,
     prop: JSAtom,
 ) -> Result<Option<JSPropertyDescriptor>, i32> {
-    let Some(px) = obj.object().and_then(|x| x.as_proxy()).map(|x| x.payload()) else {
+    let Some(px) = obj.as_object().and_then(|x| x.as_proxy()).map(|x| x.payload()) else {
         return Err(-1);
     };
 
@@ -430,7 +430,7 @@ fn js_proxy_define_own_property(
 ) -> Result<bool, i32> {
     let flags = flags as u32;
 
-    let Some(px) = obj.object().and_then(|x| x.as_proxy()).map(|x| x.payload()) else {
+    let Some(px) = obj.as_object().and_then(|x| x.as_proxy()).map(|x| x.payload()) else {
         return Err(-1);
     };
 
@@ -525,7 +525,7 @@ fn js_proxy_define_own_property(
 }
 
 fn js_proxy_delete_property(ctx: &JSContext, obj: JSValue, atom: JSAtom) -> Result<bool, i32> {
-    let Some(px) = obj.object().and_then(|x| x.as_proxy()).map(|x| x.payload()) else {
+    let Some(px) = obj.as_object().and_then(|x| x.as_proxy()).map(|x| x.payload()) else {
         return Err(-1);
     };
 
@@ -701,7 +701,7 @@ fn js_proxy_has(ctx: &JSContext, obj: &JSObject, atom: JSAtom) -> Result<bool, i
 }
 
 fn js_proxy_get(ctx: &JSContext, obj: JSValue, atom: JSAtom, receiver: JSValue) -> JSResult {
-    let Some(px) = obj.object().and_then(|p| p.as_proxy()).map(|x| x.payload()) else {
+    let Some(px) = obj.as_object().and_then(|p| p.as_proxy()).map(|x| x.payload()) else {
         return Err(-1);
     };
 
@@ -746,7 +746,7 @@ fn js_proxy_set(
     receiver: JSValue,
     flags: i32,
 ) -> Result<bool, i32> {
-    let Some(s) = obj.object().and_then(|p| p.as_proxy()).map(|x| x.payload()) else {
+    let Some(s) = obj.as_object().and_then(|p| p.as_proxy()).map(|x| x.payload()) else {
         return Err(-1);
     };
 

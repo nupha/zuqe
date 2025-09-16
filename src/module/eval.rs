@@ -331,7 +331,7 @@ impl ModuleDef {
         // Hint: bytecode is now a Function object
         let md_func = unsafe { (*self.0.bytecode.as_ptr()).clone() };
         debug_assert_eq!(
-            md_func.object().unwrap().class_id(),
+            md_func.as_object().unwrap().class_id(),
             JS_CLASS_BYTECODE_FUNCTION
         );
 
@@ -511,7 +511,7 @@ impl ModuleDef {
             // is bytecode function
             let md_func = unsafe { (*self.0.bytecode.as_ptr()).clone() };
             debug_assert_eq!(
-                md_func.object().unwrap().class_id(),
+                md_func.as_object().unwrap().class_id(),
                 JS_CLASS_BYTECODE_FUNCTION
             );
 

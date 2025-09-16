@@ -61,7 +61,7 @@ pub fn js_regexp_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let mut pattern: StringContent = StringContent::Empty;
     let mut flags_str: StringContent = StringContent::Empty;
 
-    let re = if let Some(re) = pat.object().and_then(|o| js_get_regexp(ctx, o, false)) {
+    let re = if let Some(re) = pat.as_object().and_then(|o| js_get_regexp(ctx, o, false)) {
         if flags1.is_undefined() {
             Some(re)
         } else {
@@ -339,7 +339,7 @@ fn js_regexp_compile(ctx: &JSContext, cc: CallContext) -> JSResult {
     let pattern: StringContent;
     let flags_str: StringContent;
 
-    if let Some(re0) = pattern1.object().and_then(|o| js_get_regexp(ctx, o, false)) {
+    if let Some(re0) = pattern1.as_object().and_then(|o| js_get_regexp(ctx, o, false)) {
         if flags1.is_undefined() {
             ctx.throw_type_error("flags must be undefined");
             return Err(-1);
@@ -365,7 +365,7 @@ fn js_regexp_compile(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     let re = Box::new(JSRegExp::new(ctx, pattern, flags_str)?);
-    *cc.this().object().unwrap().0.payload.borrow_mut() = ObjectPayload::REGEXP(re);
+    *cc.this().as_object().unwrap().0.payload.borrow_mut() = ObjectPayload::REGEXP(re);
 
     cc.this()
         .set_property(ctx, JS_ATOM_lastIndex, JSValue::Int(0))?;
@@ -421,7 +421,7 @@ fn make_regexp_capture_array(
 }
 
 pub fn js_regexp_exec(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let Some(this) = cc.this().object() else {
+    let Some(this) = cc.this().as_object() else {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
     };
@@ -451,7 +451,7 @@ pub fn js_regexp_test(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_regexp_Symbol_match(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let Some(this) = cc.this().object() else {
+    let Some(this) = cc.this().as_object() else {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
     };
@@ -556,7 +556,7 @@ pub fn js_regexp_Symbol_match(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_regexp_Symbol_matchAll(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let Some(this) = cc.this().object() else {
+    let Some(this) = cc.this().as_object() else {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
     };
@@ -609,7 +609,7 @@ fn js_is_standard_regexp(ctx: &JSContext, rx: &JSObject) -> Result<bool, i32> {
 
 pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
     // [Symbol.replace](str, rep)
-    let Some(this) = cc.this().object() else {
+    let Some(this) = cc.this().as_object() else {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
     };
@@ -785,7 +785,7 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 fn js_regexp_Symbol_search(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let Some(this) = cc.this().object() else {
+    let Some(this) = cc.this().as_object() else {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
     };
@@ -824,7 +824,7 @@ fn js_regexp_Symbol_search(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 /// [Symbol.split](str, limit)
 pub fn js_regexp_Symbol_split(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let Some(this_obj) = cc.this().object() else {
+    let Some(this_obj) = cc.this().as_object() else {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
     };

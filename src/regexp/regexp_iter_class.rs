@@ -17,7 +17,7 @@ fn js_regexp_string_iterator_next(
     cc: CallContext,
     state: &mut IteratorState,
 ) -> JSResult {
-    let this = cc.this().object().unwrap();
+    let this = cc.this().as_object().unwrap();
 
     if let ObjectPayload::REGEXP_STRING_ITERATOR(it) = this.0.payload.borrow_mut().deref_mut() {
         if it.done {

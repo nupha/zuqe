@@ -28,7 +28,7 @@ pub enum JSIteratorKindEnum {
 pub struct JSMapIteratorData {
     pub obj: JSValue,
     pub kind: JSIteratorKindEnum,
-    pub cur_record: MapPair,
+    pub(crate) cur_record: MapPair,
 }
 
 #[derive(Debug)]
@@ -56,7 +56,7 @@ impl ForInIterObjPayload {
         let obj: JSValue = match val {
             JSValue::Object(_) => val,
             JSValue::NULL | JSValue::UNDEFINED => val,
-            _ => val.to_object(ctx)?.into(),
+            _ => val.ensure_object(ctx)?.into(),
         };
         let mut it = Box::new(ForInIterObjPayload {
             obj: obj.clone(),
@@ -101,7 +101,7 @@ impl ForInIterObjPayload {
     /// returns true if the enumeration is finished.
     pub fn prepare_prototype_chain_enum(&mut self, ctx: &JSContext) -> Result<bool, i32> {
         // fast path: check if there are enumerable properties in the prototype chain
-        let mut cur_obj = unsafe { self.obj.object_unchecked().clone() };
+        let mut cur_obj = unsafe { self.obj.as_object_unchecked().clone() };
         loop {
             match cur_obj.prototype(ctx)? {
                 None => {
@@ -137,7 +137,7 @@ impl ForInIterObjPayload {
         if self.is_array {
             let lst = unsafe {
                 self.obj
-                    .object_unchecked()
+                    .as_object_unchecked()
                     .get_own_property_names(ctx, JS_GPN_INDEX_MASK | JS_GPN_SET_ENUM)
             }?;
             self.is_array = false;
@@ -459,7 +459,7 @@ pub fn js_for_in_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, _id
 }
 
 pub fn js_for_in_iterator_mark(val: JSValue) {
-    let p = unsafe { val.object_unchecked() };
+    let p = unsafe { val.as_object_unchecked() };
     if let ObjectPayload::FOR_IN_ITERATOR(it) = p.0.payload.borrow().deref() {
         it.obj.gc_mark();
     }

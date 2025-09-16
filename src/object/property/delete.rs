@@ -150,13 +150,15 @@ impl JSValue {
     /// flags 可以是 0、JS_PROP_THROW 或 JS_PROP_THROW_STRICT
     #[inline]
     pub fn delete_property(&self, ctx: &JSContext, prop: JSAtom, flags: u32) -> Result<bool, i32> {
-        self.to_object(ctx)
+        self.clone()
+            .ensure_object(ctx)
             .and_then(|o| o.delete_property(ctx, prop, flags))
     }
 
     #[inline]
     pub fn delete_property_i64(&self, ctx: &JSContext, idx: i64, flags: u32) -> Result<bool, i32> {
-        self.to_object(ctx)
+        self.clone()
+            .ensure_object(ctx)
             .and_then(|o| o.delete_property_i64(ctx, idx, flags))
     }
 }

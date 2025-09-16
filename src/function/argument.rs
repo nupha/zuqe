@@ -105,7 +105,7 @@ pub unsafe fn js_build_mapped_arguments(
         return JSValue::EXCEPTION;
     };
 
-    let p = val.object_unchecked();
+    let p = val.as_object_unchecked();
 
     // add the length property (cannot fail)
     p.add_own_property(
@@ -190,7 +190,7 @@ pub fn build_arg_list(ctx: &JSContext, array_arg: &JSValue) -> Result<Box<[JSVal
         -1
     })?;
 
-    if unsafe { array_arg.object_unchecked() }
+    if unsafe { array_arg.as_object_unchecked() }
         .with_fast_array_values(|a| {
             if a.len() == len as usize {
                 // fast array: clone values

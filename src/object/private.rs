@@ -11,7 +11,7 @@ use super::JS_PROP_C_W_E;
 impl JSObject {
     /// check if `self` has own property suggested by `func.<home_object>.<brand>`.
     pub fn check_brand(&self, ctx: &JSContext, func: &JSValue) -> Result<bool, i32> {
-        if let Some(home_obj) = func.object().and_then(|o| {
+        if let Some(home_obj) = func.as_object().and_then(|o| {
             o.0.payload
                 .borrow()
                 .func()
@@ -171,7 +171,7 @@ impl JSValue {
                     br
                 };
 
-            if let Some(ob) = self.object() {
+            if let Some(ob) = self.as_object() {
                 let brand_atom = brand_sym.to_atom(ctx).unwrap();
 
                 if ob.has_shape_property(brand_atom) {

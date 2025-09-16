@@ -612,7 +612,7 @@ pub fn js_typed_array_set_internal(
         return Err(-1);
     }
 
-    let src_p = src.to_object(ctx)?;
+    let src_p = src.clone().ensure_object(ctx)?;
 
     let count: i64;
 
@@ -708,7 +708,7 @@ pub fn js_typed_array_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usi
 }
 
 pub fn js_typed_array_mark(val: JSValue) {
-    let p = unsafe { val.object_unchecked() };
+    let p = unsafe { val.as_object_unchecked() };
     if let Some(ta) = p.0.payload.borrow().typed_array() {
         // mark underlaying array buffer
         // println!("[O.o] TODO typed array mark");

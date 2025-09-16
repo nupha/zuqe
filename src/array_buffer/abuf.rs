@@ -304,12 +304,12 @@ pub fn js_shared_array_buffer_constructor(ctx: &JSContext, cc: CallContext) -> J
 }
 
 pub unsafe fn JS_DetachArrayBuffer(ctx: &JSContext, obj: &JSValue) {
-    if obj.object_unchecked().class_id() != JS_CLASS_ARRAY_BUFFER {
+    if obj.as_object_unchecked().class_id() != JS_CLASS_ARRAY_BUFFER {
         return;
     }
 
     if let Some(abuf) = obj
-        .object_unchecked()
+        .as_object_unchecked()
         .0
         .payload
         .borrow_mut()

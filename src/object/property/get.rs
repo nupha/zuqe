@@ -307,7 +307,7 @@ impl JSValue {
                     }
                 } else {
                     JS_GetPrototypePrimitive(ctx, self)
-                        .object()
+                        .as_object()
                         .map(|o| o.get_property_internal(ctx, prop, this_obj, throw_ref_error))
                         .unwrap_or(Ok(JSValue::UNDEFINED))
                 }
@@ -327,7 +327,7 @@ impl JSValue {
                 Err(-1)
             }
             _ => JS_GetPrototypePrimitive(ctx, self)
-                .object()
+                .as_object()
                 .map(|o| o.get_property_internal(ctx, prop, this_obj, throw_ref_error))
                 .unwrap_or(Ok(JSValue::UNDEFINED)),
         }

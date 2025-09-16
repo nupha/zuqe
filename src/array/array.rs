@@ -640,7 +640,7 @@ impl JSValue {
     /// if value is Array or Argument class, and is fast array, returns values slice.
     #[inline(always)]
     pub fn with_fast_array_values<R>(&self, f: impl FnOnce(&[JSValue]) -> R) -> Option<R> {
-        self.object().and_then(|o| o.with_fast_array_values(f))
+        self.as_object().and_then(|o| o.with_fast_array_values(f))
     }
 
     /// if value is Array or Argument class, and is a fast array,
@@ -651,7 +651,7 @@ impl JSValue {
         &self,
         f: impl FnOnce(&mut Vec<JSValue>) -> R,
     ) -> Option<R> {
-        self.object().and_then(|o| o.with_fast_array_values_mut(f))
+        self.as_object().and_then(|o| o.with_fast_array_values_mut(f))
     }
 
     /// coerce value to array length, which is in range \[0, 2^32-1\].
@@ -718,7 +718,7 @@ pub fn js_array_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
 
 pub fn js_array_mark(val: JSValue) {
     unsafe {
-        val.object_unchecked().with_fast_array_values(|lst| {
+        val.as_object_unchecked().with_fast_array_values(|lst| {
             for v in lst {
                 v.gc_mark();
             }

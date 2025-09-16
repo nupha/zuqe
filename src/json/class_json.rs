@@ -33,7 +33,7 @@ fn internalize_json_property(
 
     let val = holder.get_property(ctx, name)?;
 
-    if let Some(o) = val.object() {
+    if let Some(o) = val.as_object() {
         let is_array = o.is_array(ctx)?;
         let len: u32;
         let pks: Box<[PropertyKey]>;

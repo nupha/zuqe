@@ -193,7 +193,7 @@ impl ModuleDefInner {
                                         } else {
                                             unsafe {
                                                 (*module.0.bytecode.as_ptr())
-                                                    .object_unchecked()
+                                                    .as_object_unchecked()
                                                     .0
                                                     .payload
                                                     .borrow()

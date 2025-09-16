@@ -283,7 +283,7 @@ pub fn js_method_set_properties(
     }
 
     func_obj.define_property_value(ctx, JS_ATOM_name, name_str, JS_PROP_CONFIGURABLE)?;
-    js_method_set_home_object(func_obj, home_obj.object());
+    js_method_set_home_object(func_obj, home_obj.as_object());
     Ok(())
 }
 
@@ -381,7 +381,7 @@ pub fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
     let enum_obj = unsafe { &*sp.offset(-1) };
     debug_assert!(enum_obj.is_object());
 
-    let ob = unsafe { enum_obj.object_unchecked() };
+    let ob = unsafe { enum_obj.as_object_unchecked() };
 
     if let ObjectPayload::FOR_IN_ITERATOR(it) = ob.0.payload.borrow_mut().deref_mut() {
         let mut prop: JSAtom;
@@ -435,7 +435,7 @@ pub fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
 
                 let names = unsafe {
                     it.obj
-                        .object_unchecked()
+                        .as_object_unchecked()
                         .get_own_property_names(ctx, JS_GPN_INDEX_MASK | JS_GPN_SET_ENUM)?
                 };
                 it.prop_count = names.len() as _;
@@ -453,7 +453,7 @@ pub fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
                     it.idx += 1;
                     if it.in_prototype_chain {
                         // slow case: we are in the prototype chain
-                        match unsafe { enum_obj.object_unchecked().get_own_property(ctx, prop)? } {
+                        match unsafe { enum_obj.as_object_unchecked().get_own_property(ctx, prop)? } {
                             Some(_) => {
                                 continue; // already visited
                             }

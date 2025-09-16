@@ -118,7 +118,7 @@ impl JSContext {
                 || unsafe {
                     (&*sf)
                         .cur_func
-                        .object()
+                        .as_object()
                         .and_then(|o| o.0.payload.borrow().func().map(|f| f.bytecode.is_none()))
                         .unwrap_or(false)
                 });
@@ -283,7 +283,7 @@ impl JSContext {
             if let Some(b) = unsafe {
                 (&*sf)
                     .cur_func
-                    .object_unchecked()
+                    .as_object_unchecked()
                     .0
                     .payload
                     .borrow()

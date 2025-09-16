@@ -32,17 +32,6 @@ impl MapPair {
         }
         key
     }
-
-    pub fn set_value(&mut self, val: JSValue) {
-        match self {
-            Self::Strong { value, .. } | Self::Weak { value, .. } => {
-                *value = val;
-            }
-            Self::Removed => {
-                unreachable!();
-            }
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -99,7 +88,7 @@ impl JSMapState {
         let hash = key.hash();
         let kv = if self.is_weak {
             MapPair::Weak {
-                key: key.object().unwrap().downgrade(),
+                key: key.as_object().unwrap().downgrade(),
                 value,
             }
         } else {
@@ -128,7 +117,7 @@ impl JSMapState {
             lst.iter().find_map(|i| match self.slots.get(*i) {
                 Some(MapPair::Weak { key: k, value }) => {
                     debug_assert!(self.is_weak);
-                    if let Some(o) = value.object() {
+                    if let Some(o) = value.as_object() {
                         k.upgrade()
                             .and_then(|k| if k.eq(o) { Some(value.clone()) } else { None })
                     } else {
@@ -203,7 +192,7 @@ impl JSMapState {
                 }
                 Some(MapPair::Weak { key: k, .. }) => {
                     debug_assert!(self.is_weak);
-                    let kobj = unsafe { key.object_unchecked() };
+                    let kobj = unsafe { key.as_object_unchecked() };
                     if k.upgrade().map_or(false, |k| !k.eq(kobj)) {
                         self.slots[*i] = MapPair::Removed;
                         false
@@ -240,7 +229,7 @@ impl JSMapState {
     pub fn hook_finalizer(_: &mut JSRuntime, _: &ObjectPayload, _: usize) {}
 
     pub fn hook_mark(val: JSValue) {
-        let p = unsafe { val.object_unchecked() };
+        let p = unsafe { val.as_object_unchecked() };
         if let Some(s) = p.0.payload.borrow().map_state() {
             for kv in s.slots.iter() {
                 match kv {
@@ -258,30 +247,26 @@ impl JSMapState {
     }
 }
 
-// /// Remove the weak reference from the object weak reference list.
-// /// we don't use a doubly linked list to save space,
-// /// assuming a given object has few weak references to it
-// pub unsafe fn delete_weak_ref(mr: *mut JSMapRecord) {
-//     let mut pmr = std::ptr::addr_of_mut!((*mr).key.object_unchecked().first_weak_ref);
-//     let mut mr1: *mut JSMapRecord;
-
-//     loop {
-//         mr1 = *pmr;
-//         debug_assert!(!mr1.is_null());
-
-//         if mr1 == mr {
-//             break;
-//         }
-//         pmr = std::ptr::addr_of_mut!((*mr1).next_weak_ref);
-//     }
-
-//     *pmr = (*mr1).next_weak_ref;
-// }
-
-pub fn js_map_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {
-    unimplemented!();
-}
+pub fn js_map_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
 
 pub fn js_map_iterator_mark(val: JSValue) {
-    unimplemented!();
+    if let Some(o) = val.as_object() {
+        if let Some(it) = o.0.payload.borrow().map_iterator_state() {
+            it.obj.gc_mark();
+
+            match &it.cur_record {
+                MapPair::Strong { key, value } => {
+                    key.gc_mark();
+                    value.gc_mark();
+                }
+                MapPair::Weak { key, value } => {
+                    if let Some(o) = key.upgrade() {
+                        o.gc_mark();
+                    }
+                    value.gc_mark();
+                }
+                _ => {}
+            }
+        }
+    }
 }
