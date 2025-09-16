@@ -43,6 +43,8 @@ pub struct JSMapState {
     pub(crate) slots: Vec<MapPair>,
     /// hash lookup table
     pub(crate) lut: HashMap<u32, Vec<usize>>,
+    /// removed count
+    remove_count: u32,
     /// map lock count.
     /// when map is locked, it can't do slot compression. forEach will lock the map.
     lock: u16,
@@ -54,6 +56,7 @@ impl JSMapState {
             is_weak,
             slots: Vec::with_capacity(cap),
             lut: HashMap::with_capacity(cap),
+            remove_count: 0,
             lock: 0,
         }
     }
@@ -77,35 +80,76 @@ impl JSMapState {
 
     /// compress removed slot items
     fn compress_removed(&mut self) {
-        debug_assert_eq!(self.lock, 0);
-        self.slots.retain(|v| !matches!(v, MapPair::Removed));
+        // debug_assert_eq!(self.lock, 0);
+        // if self.remove_count > 0 {
+        //     self.slots.retain(|v| !matches!(v, MapPair::Removed));
+        //     self.remove_count = 0;
+        // }
     }
 
-    pub fn add(&mut self, ctx: &JSContext, key: JSValue, value: JSValue) -> Result<(), i32> {
+    /// update or insert key-value pair
+    pub fn set(&mut self, ctx: &JSContext, key: JSValue, value: JSValue) -> Result<(), i32> {
+        let key = MapPair::normalize_key(key);
+
         if self.is_weak && !key.is_object() {
             ctx.throw_type_error_not_an_object();
             return Err(-1);
         }
 
         let hash = key.hash();
-        let kv = if self.is_weak {
-            MapPair::Weak {
-                key: key.as_object().unwrap().downgrade(),
-                value,
-            }
+
+        let idx = if let Some(lst) = self.lut.get(&hash) {
+            lst.iter().find_map(|i| match self.slots.get_mut(*i) {
+                Some(MapPair::Weak { key: k, value: v }) => {
+                    debug_assert!(self.is_weak);
+                    let Some(o) = key.as_object() else {
+                        unreachable!()
+                    };
+                    k.upgrade().and_then(|k| {
+                        if k.eq(o) {
+                            *v = value.clone();
+                            Some(*i)
+                        } else {
+                            None
+                        }
+                    })
+                }
+                Some(MapPair::Strong { key: k, value: v }) => {
+                    debug_assert!(!self.is_weak);
+                    if key.is_same0(k) {
+                        *v = value.clone();
+                        Some(*i)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            })
         } else {
-            MapPair::Strong { key, value }
+            None
         };
 
-        self.slots.push(kv);
-        let idx = self.slots.len() - 1;
+        if idx.is_none() {
+            // key not found, insert
+            let kv = if self.is_weak {
+                MapPair::Weak {
+                    key: key.as_object().unwrap().downgrade(),
+                    value,
+                }
+            } else {
+                MapPair::Strong { key, value }
+            };
 
-        self.lut
-            .entry(hash)
-            .and_modify(|lst| {
-                lst.push(idx);
-            })
-            .insert_entry(vec![idx]);
+            self.slots.push(kv);
+            let idx = self.slots.len() - 1;
+
+            self.lut
+                .entry(hash)
+                .and_modify(|lst| {
+                    lst.push(idx);
+                })
+                .insert_entry(vec![idx]);
+        }
 
         Ok(())
     }
@@ -118,8 +162,7 @@ impl JSMapState {
         if let Some(lst) = self.lut.get(&hash) {
             lst.iter().find_map(|i| match self.slots.get(*i) {
                 Some(MapPair::Weak { key: k, value }) => {
-                    debug_assert!(self.is_weak);
-                    if let Some(o) = value.as_object() {
+                    if let Some(o) = key.as_object() {
                         k.upgrade()
                             .and_then(|k| if k.eq(o) { Some(value.clone()) } else { None })
                     } else {
@@ -127,7 +170,6 @@ impl JSMapState {
                     }
                 }
                 Some(MapPair::Strong { key: k, value }) => {
-                    debug_assert!(!self.is_weak);
                     if key.is_same0(k) {
                         Some(value.clone())
                     } else {
@@ -138,6 +180,48 @@ impl JSMapState {
             })
         } else {
             None
+        }
+    }
+
+    /// remove an entry by key.
+    pub fn remove(&mut self, key: &JSValue) {
+        let key = MapPair::normalize_key(key.clone());
+        let hash = key.hash();
+
+        // remove from lut
+        let purge_lut = if let Some(lst) = self.lut.get_mut(&hash) {
+            lst.retain(|i| match self.slots.get(*i) {
+                Some(MapPair::Strong { key: k, .. }) => {
+                    if key.is_same0(k) {
+                        self.slots[*i] = MapPair::Removed;
+                        self.remove_count += 1;
+                        false
+                    } else {
+                        true
+                    }
+                }
+                Some(MapPair::Weak { key: k, .. }) => {
+                    let kobj = unsafe { key.as_object_unchecked() };
+                    if k.upgrade().map_or(false, |k| !k.eq(kobj)) {
+                        self.slots[*i] = MapPair::Removed;
+                        self.remove_count += 1;
+                        false
+                    } else {
+                        true
+                    }
+                }
+                _ => false,
+            });
+            lst.is_empty()
+        } else {
+            false
+        };
+        if purge_lut {
+            self.lut.remove(&hash);
+        }
+
+        if self.lock == 0 {
+            self.compress_removed();
         }
     }
 
@@ -175,57 +259,19 @@ impl JSMapState {
         }
     }
 
-    /// remove an entry by key.
-    pub fn remove(&mut self, key: &JSValue) {
-        let key = MapPair::normalize_key(key.clone());
-        let hash = key.hash();
-
-        // remove from lut
-        let purge_lut = if let Some(lst) = self.lut.get_mut(&hash) {
-            lst.retain(|i| match self.slots.get(*i) {
-                Some(MapPair::Strong { key: k, .. }) => {
-                    debug_assert!(!self.is_weak);
-                    if key.eq(k) {
-                        self.slots[*i] = MapPair::Removed;
-                        false
-                    } else {
-                        true
-                    }
-                }
-                Some(MapPair::Weak { key: k, .. }) => {
-                    debug_assert!(self.is_weak);
-                    let kobj = unsafe { key.as_object_unchecked() };
-                    if k.upgrade().map_or(false, |k| !k.eq(kobj)) {
-                        self.slots[*i] = MapPair::Removed;
-                        false
-                    } else {
-                        true
-                    }
-                }
-                _ => false,
-            });
-            lst.is_empty()
-        } else {
-            false
-        };
-        if purge_lut {
-            self.lut.remove(&hash);
-        }
-
-        if self.lock == 0 {
-            self.compress_removed();
-        }
-    }
-
-    #[inline(always)]
+    #[inline]
     pub fn len(&self) -> usize {
-        self.slots.len()
+        self.slots
+            .iter()
+            .filter(|kv| !matches!(kv, MapPair::Removed))
+            .count()
     }
 
     #[inline(always)]
     pub fn clear(&mut self) {
         self.lut.clear();
         self.slots.clear();
+        self.remove_count = 0;
     }
 
     pub fn hook_finalizer(_: &mut JSRuntime, _: &ObjectPayload, _: usize) {}

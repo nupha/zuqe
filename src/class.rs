@@ -263,9 +263,8 @@ impl JSContext {
     }
 
     /// create a new native constructor, add it to global namespace.
-    /// `proto` is the prototype object, it is **NOT CONSUMED**.
     /// returns new constructor function.
-    pub fn create_global_constructor_ex(
+    fn create_global_constructor_internal(
         &self,
         name: &str,
         handler: NativeFunctionType,
@@ -285,10 +284,9 @@ impl JSContext {
     }
 
     /// create a new native constructor, add it to global namespace.
-    /// `proto` is the prototype object, it is **NOT CONSUMED**.
     /// returns new constructor function.
     #[inline(always)]
-    pub fn create_global_constructor(
+    pub fn create_global_constructor_or_func(
         &self,
         name: &str,
         callback: NativeCallback,
@@ -296,7 +294,7 @@ impl JSContext {
         proto: &JSValue,
         magic: i16,
     ) -> JSResult {
-        self.create_global_constructor_ex(
+        self.create_global_constructor_internal(
             name,
             NativeFunctionType::ConstructorOrFunc(callback),
             length,
@@ -306,7 +304,6 @@ impl JSContext {
     }
 
     /// create a new native constructor, add it to global namespace.
-    /// `proto` is the prototype object, it is **NOT CONSUMED**.
     /// returns new constructor function.
     #[inline(always)]
     pub fn create_global_constructor_only(
@@ -317,7 +314,7 @@ impl JSContext {
         proto: &JSValue,
         magic: i16,
     ) -> JSResult {
-        self.create_global_constructor_ex(
+        self.create_global_constructor_internal(
             name,
             NativeFunctionType::Constructor(callback),
             length,

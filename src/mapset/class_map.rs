@@ -105,7 +105,7 @@ pub fn js_map_set(ctx: &JSContext, cc: CallContext) -> JSResult {
         cc.arg(1)
     };
 
-    s.add(ctx, key.clone(), value.clone())?;
+    s.set(ctx, key.clone(), value.clone())?;
 
     if s.is_weak() {
         key.as_object()
@@ -178,54 +178,63 @@ pub fn js_map_forEach(ctx: &JSContext, cc: CallContext) -> JSResult {
     let this_arg = cc.arg(1);
     func.ensure_callable(ctx)?;
 
-    // lock map, and ensure this is an object of expected class_id.
-    {
-        let mut pl = cc
-            .this()
-            .retrive_object_payload_mut(ctx, Some(JS_CLASS_MAP + cc.magic() as JSClassID))?;
-        pl.map_state_mut().unwrap().lock();
-    }
+    // lock map, and ensure `this` is an object of expected class_id.
+    cc.this()
+        .retrive_object_payload_mut(ctx, Some(JS_CLASS_MAP + cc.magic() as JSClassID))?
+        .map_state_mut()
+        .unwrap()
+        .lock();
 
     let this = cc.this();
-    let obj = this.as_object().unwrap();
+    let mut has_err = false;
+    let map_obj = this.as_object().unwrap();
     let mut i = 0;
 
     loop {
-        let pair = {
-            let isa = obj.0.payload.borrow();
-            let s = isa.map_state().unwrap();
-            if let Some(kv) = s.slots.get(i) {
-                match kv {
-                    MapPair::Strong { key, value } => Some((key.clone(), value.clone())),
-                    MapPair::Weak { key, value } => {
-                        key.upgrade().map(|k| (JSValue::Object(k), value.clone()))
-                    }
-                    _ => None,
+        // get index `i`
+        let kv = map_obj
+            .0
+            .payload
+            .borrow()
+            .map_state()
+            .unwrap()
+            .slots
+            .get(i)
+            .cloned();
+
+        if let Some(kv) = kv {
+            let pair = match kv {
+                MapPair::Strong { key, value } => Some((key, value)),
+                MapPair::Weak { key, value } => key.upgrade().map(|k| (JSValue::Object(k), value)),
+                MapPair::Removed => None,
+            };
+            if let Some((key, val)) = pair {
+                if func.call(ctx, this_arg, &[val, key, this.clone()]).is_err() {
+                    has_err = true;
+                    break;
                 }
-            } else {
-                None
             }
-        };
-
-        if let Some((key, val)) = pair {
-            if func.call(ctx, this_arg, &[key, val, this.clone()]).is_err() {
-                break;
-            }
-
-            // if ctx.poll_interrupts().is_err() {
-            //     break;
-            // }
-
             i += 1;
         } else {
+            // end of slot
             break;
         }
     }
 
     // unlock map
-    obj.0.payload.borrow_mut().map_state_mut().unwrap().unlock();
+    map_obj
+        .0
+        .payload
+        .borrow_mut()
+        .map_state_mut()
+        .unwrap()
+        .unlock();
 
-    Ok(JSValue::UNDEFINED)
+    if has_err {
+        Err(-1)
+    } else {
+        Ok(JSValue::UNDEFINED)
+    }
 }
 
 fn js_create_map_iterator(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -367,7 +376,7 @@ fn js_map_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
     for (key, mut lst) in groups {
         lst.shrink_to_fit();
         let arr = ctx.create_array_with_values(lst)?;
-        ms.add(ctx, key, arr.into())?;
+        ms.set(ctx, key, arr.into())?;
     }
 
     ctx.create_map_with_entries(ms).map(|map| map.into())

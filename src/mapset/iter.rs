@@ -16,7 +16,11 @@ use crate::{
 pub struct JSMapIteratorData {
     /// None if iterator is done.
     pub obj: Option<JSObject>,
+
+    /// result kind
     pub kind: JSIteratorKindEnum,
+
+    /// current index of mapset slot
     pub(crate) index: usize,
 }
 

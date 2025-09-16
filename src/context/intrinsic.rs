@@ -107,7 +107,7 @@ impl JSContext {
 
     fn intrinsic_object(&self) {
         let obj_ctor = self
-            .create_global_constructor(
+            .create_global_constructor_or_func(
                 "Object",
                 js_object_constructor,
                 1,
@@ -194,7 +194,7 @@ impl JSContext {
             .unwrap();
 
         let array_ctor = self
-            .create_global_constructor(
+            .create_global_constructor_or_func(
                 "Array",
                 js_array_constructor,
                 1,
@@ -273,7 +273,7 @@ impl JSContext {
         let number_proto: JSValue = number_obj.into();
 
         let number_ctor = self
-            .create_global_constructor("Number", js_number_constructor, 1, &number_proto, 0)
+            .create_global_constructor_or_func("Number", js_number_constructor, 1, &number_proto, 0)
             .unwrap();
         number_ctor
             .install_field_defs(self, &js_number_funcs)
@@ -294,7 +294,7 @@ impl JSContext {
             .install_field_defs(self, &js_boolean_proto_funcs)
             .unwrap();
 
-        self.create_global_constructor(
+        self.create_global_constructor_or_func(
             "Boolean",
             js_boolean_constructor,
             1,
@@ -328,7 +328,7 @@ impl JSContext {
         };
 
         let string_ctor = self
-            .create_global_constructor("String", js_string_constructor, 1, &string_obj, 0)
+            .create_global_constructor_or_func("String", js_string_constructor, 1, &string_obj, 0)
             .unwrap();
         string_ctor
             .install_field_defs(self, &js_string_funcs)
@@ -357,7 +357,7 @@ impl JSContext {
             .unwrap();
 
         let symbol_ctor = self
-            .create_global_constructor(
+            .create_global_constructor_or_func(
                 "Symbol",
                 js_symbol_constructor,
                 0,
@@ -448,7 +448,7 @@ impl JSContext {
         obj.install_field_defs(self, &js_date_proto_funcs).unwrap();
 
         let ctor = self
-            .create_global_constructor("Date", js_date_constructor, 7, &obj, 0)
+            .create_global_constructor_or_func("Date", js_date_constructor, 7, &obj, 0)
             .unwrap();
         ctor.install_field_defs(self, &js_date_funcs).unwrap();
 
@@ -462,7 +462,7 @@ impl JSContext {
             obj.install_field_defs(self, &js_map_proto_funcs).unwrap();
 
             let ctor = self
-                .create_global_constructor("Map", js_map_constructor, 0, &obj, 0)
+                .create_global_constructor_only("Map", js_map_constructor, 0, &obj, 0)
                 .unwrap();
             ctor.install_field_defs(self, &js_map_funcs).unwrap();
 
@@ -744,7 +744,13 @@ impl JSContext {
             .unwrap();
 
         let ctor = self
-            .create_global_constructor("RegExp", js_regexp_constructor, 2, &obj.clone().into(), 0)
+            .create_global_constructor_or_func(
+                "RegExp",
+                js_regexp_constructor,
+                2,
+                &obj.clone().into(),
+                0,
+            )
             .unwrap();
         ctor.install_field_defs(self, &js_regexp_funcs).unwrap();
 
