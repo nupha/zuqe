@@ -6,9 +6,7 @@ use crate::{
     error::{STD_ERROR_NAMES, js_error_proto_funcs},
     function::{NativeFunctionType, js_function_proto},
     object::ObjectPayload,
-    object::{
-        JS_PROP_CONFIGURABLE, JS_PROP_INITIAL_HASH_SIZE, JS_PROP_LENGTH, JS_PROP_WRITABLE, JSShape,
-    },
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_WRITABLE, JSShape},
     value::JSValue,
 };
 

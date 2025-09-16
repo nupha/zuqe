@@ -2,12 +2,13 @@ use crate::{
     JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_MAP, JS_PROP_STRING_DEF,
     atom::consts::{JS_ATOM_add, JS_ATOM_set},
     class::JSClassID,
-    context::JSContext,
+    context::{JSContext, is_strict_mode},
     error::JSResult,
     function::{CallContext, FieldDef},
     iterator::{JSIteratorKindEnum, JSMapIteratorData},
-    js_core::{js_get_this, object::js_object_groupBy},
+    js_core::js_get_this,
     mapset::{JSMapState, MapPair},
+    number::MAX_SAFE_INTEGER,
     object::{JS_PROP_CONFIGURABLE, ObjectPayload},
     value::JSValue,
 };
@@ -281,7 +282,99 @@ pub static js_map_proto_funcs: [FieldDef; 12] = [
     JS_PROP_STRING_DEF!("[Symbol.toStringTag]", "Map", JS_PROP_CONFIGURABLE as i16),
 ];
 
+// fn js_map_groupBy_v1(ctx: &JSContext, cc: CallContext) -> JSResult {
+//     // check must be observed before argv[0] is accessed
+//     let func = cc.arg(1);
+//     func.ensure_callable(ctx)?;
+
+//     let groups = js_map_constructor(ctx, CallContext::new_simple(ctx, JSValue::UNDEFINED, &[]))?;
+//     let global = ctx.0.borrow().global_obj.clone(); // clone to avoid borrow too long
+
+//     for (idx, val) in cc.arg(0).iter(ctx)?.enumerate() {
+//         if idx as i64 >= MAX_SAFE_INTEGER {
+//             ctx.throw_type_error("too many elements");
+//             return Err(-1);
+//         }
+
+//         let val = val?;
+//         let key = func.call(ctx, &global, &[val.clone(), JSValue::from(idx as u32)])?;
+
+//         // get prop value array and key atom
+//         let mut props_arr = js_map_get(
+//             ctx,
+//             CallContext::new_simple(ctx, groups.clone(), std::slice::from_ref(&key)),
+//         )?;
+
+//         // don't change order
+//         if props_arr.is_undefined() {
+//             // entry is missing, create the entry
+//             props_arr = ctx.create_array()?.into();
+
+//             // set to groups
+//             js_map_set(
+//                 ctx,
+//                 CallContext::new(
+//                     ctx,
+//                     groups.clone(),
+//                     &[key.clone(), props_arr.clone()],
+//                     0,
+//                     None,
+//                 ),
+//             )?;
+//         }
+
+//         js_array_push(
+//             ctx,
+//             CallContext::new(ctx, props_arr, std::slice::from_ref(&val), 0, None),
+//         )?;
+//     }
+
+//     Ok(groups)
+// }
+
+fn js_map_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
+    // check must be observed before argv[0] is accessed
+    let func = cc.arg(1);
+    func.ensure_callable(ctx)?;
+
+    let this_val = if is_strict_mode(ctx) {
+        JSValue::UNDEFINED
+    } else {
+        ctx.0.borrow().global_obj.clone() // clone to avoid borrow too long
+    };
+
+    let mut groups = Vec::<(JSValue, Vec<JSValue>)>::with_capacity(16);
+
+    for (idx, val) in cc.arg(0).iter(ctx)?.enumerate() {
+        if idx as i64 >= MAX_SAFE_INTEGER {
+            ctx.throw_type_error("too many elements");
+            return Err(-1);
+        }
+
+        let val = val?;
+        let key = func.call(ctx, &this_val, &[val.clone(), JSValue::from(idx as u32)])?;
+        let key = MapPair::normalize_key(key);
+
+        if let Some(i) = groups.iter().position(|(k, _)| k == &key) {
+            groups[i].1.push(val);
+        } else {
+            let mut lst = Vec::<JSValue>::with_capacity(8);
+            lst.push(val);
+            groups.push((key, lst));
+        }
+    }
+
+    let mut ms = JSMapState::new(false, groups.len());
+    for (key, mut lst) in groups {
+        lst.shrink_to_fit();
+        let arr = ctx.create_array_with_values(lst)?;
+        ms.add(ctx, key, arr.into())?;
+    }
+
+    ctx.create_map_with_entries(ms).map(|map| map.into())
+}
+
 pub static js_map_funcs: [FieldDef; 2] = [
-    JS_CFUNC_NATIVE_DEF!("groupBy", 2, js_object_groupBy, 1),
+    JS_CFUNC_NATIVE_DEF!("groupBy", 2, js_map_groupBy, 0),
     JS_CGETSET_NATIVE_DEF!("[Symbol.species]", js_get_this, NONE, 0),
 ];

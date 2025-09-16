@@ -342,7 +342,7 @@ impl JSObject {
     pub fn is_array(&self, ctx: &JSContext) -> Result<bool, i32> {
         let class_id = self.class_id();
         if class_id == JS_CLASS_PROXY {
-            unsafe { self.as_proxy_unchecked().is_array(ctx) }
+            unsafe { self.as_Proxy_unchecked().is_array(ctx) }
         } else {
             Ok(class_id == JS_CLASS_ARRAY)
         }
@@ -651,7 +651,8 @@ impl JSValue {
         &self,
         f: impl FnOnce(&mut Vec<JSValue>) -> R,
     ) -> Option<R> {
-        self.as_object().and_then(|o| o.with_fast_array_values_mut(f))
+        self.as_object()
+            .and_then(|o| o.with_fast_array_values_mut(f))
     }
 
     /// coerce value to array length, which is in range \[0, 2^32-1\].

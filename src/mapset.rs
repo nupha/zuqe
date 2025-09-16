@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 
 use crate::{
+    JS_CLASS_MAP,
     context::JSContext,
-    object::{JSObjectWeakref, ObjectInner, ObjectPayload},
+    object::{JSObject, JSObjectWeakref, ObjectInner, ObjectPayload},
+    object_cast,
     runtime::JSRuntime,
     value::JSValue,
 };
@@ -244,6 +246,21 @@ impl JSMapState {
                 }
             }
         }
+    }
+}
+
+/// the Map object
+#[derive(Debug, Clone)]
+#[repr(transparent)]
+pub struct Map(pub(crate) JSObject);
+
+object_cast!(Map, JS_CLASS_MAP);
+
+impl JSContext {
+    pub fn create_map_with_entries(&self, entries: JSMapState) -> Result<Map, i32> {
+        self.create_object(ObjectPayload::MAP(Box::new(entries)))
+            .map_err(|_| -1)
+            .map(Map)
     }
 }
 

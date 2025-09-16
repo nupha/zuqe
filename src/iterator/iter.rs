@@ -411,8 +411,8 @@ impl JSValue {
         })
     }
 
-    /// Return an instance that implements `Iterator` trait, which can be used to iterate JSValue.
-    /// Underlying the iterator, it uses `next` method to retrive next value.
+    /// Return an object that implements `Iterator` trait to iterate JSValue.
+    /// The iterator uses `next()` method to retrive next value.
     #[inline]
     pub fn iter(&self, ctx: &JSContext) -> Result<ObjectIter, i32> {
         ObjectIter::new(ctx, self.get_iterator_must(ctx, false)?, JS_ATOM_next)

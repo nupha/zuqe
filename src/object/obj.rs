@@ -527,7 +527,7 @@ impl JSObject {
 
     /// return Err(-1) for Proxy only
     pub fn prevent_extensions(&self, ctx: &JSContext) -> Result<bool, i32> {
-        self.as_proxy().map_or_else(
+        self.as_Proxy().map_or_else(
             || {
                 let mut f = self.0.obj_flags.get();
                 f.set_extensible(false);

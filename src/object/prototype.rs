@@ -31,7 +31,7 @@ impl JSObject {
     /// - Some(object) if it has prototype, None for no prototype.
     /// - Err in case Proxy object calling getPrototypeOf() failed.
     pub fn prototype(&self, ctx: &JSContext) -> Result<Option<JSObject>, i32> {
-        if let Some(p) = self.as_proxy() {
+        if let Some(p) = self.as_Proxy() {
             Ok(JSObject::try_from(p.get_prototype_of(ctx)?).ok())
         } else {
             Ok(self.shape().and_then(|s| s.0.borrow().proto.clone()))
@@ -69,7 +69,7 @@ impl JSObject {
             return Err(-1);
         };
 
-        if let Some(px) = self.as_proxy() {
+        if let Some(px) = self.as_Proxy() {
             return px.set_prototype_of(ctx, proto_val, throw_flag);
         }
         if self.shape().unwrap().0.borrow().proto.as_ref() == proto {

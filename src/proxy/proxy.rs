@@ -279,25 +279,6 @@ impl Proxy {
     }
 }
 
-impl JSObject {
-    /// if `self` is an instance of Proxy class, cast it to &Proxy.
-    #[inline]
-    pub fn as_proxy(&self) -> Option<&Proxy> {
-        if self.class_id() == JS_CLASS_PROXY {
-            Some(unsafe { &*(self as *const JSObject as *const Proxy) })
-        } else {
-            None
-        }
-    }
-
-    /// assume `self` is an instance of Proxy class, cast it to &Proxy.
-    #[inline(always)]
-    pub unsafe fn as_proxy_unchecked(&self) -> &Proxy {
-        debug_assert_eq!(self.class_id(), JS_CLASS_PROXY);
-        unsafe { &*(self as *const JSObject as *const Proxy) }
-    }
-}
-
 fn js_proxy_call_constructor(
     ctx: &JSContext,
     func_obj: &Proxy,
@@ -338,7 +319,11 @@ fn js_proxy_get_own_property(
     obj: JSValue,
     prop: JSAtom,
 ) -> Result<Option<JSPropertyDescriptor>, i32> {
-    let Some(px) = obj.as_object().and_then(|x| x.as_proxy()).map(|x| x.payload()) else {
+    let Some(px) = obj
+        .as_object()
+        .and_then(|x| x.as_Proxy())
+        .map(|x| x.payload())
+    else {
         return Err(-1);
     };
 
@@ -430,7 +415,11 @@ fn js_proxy_define_own_property(
 ) -> Result<bool, i32> {
     let flags = flags as u32;
 
-    let Some(px) = obj.as_object().and_then(|x| x.as_proxy()).map(|x| x.payload()) else {
+    let Some(px) = obj
+        .as_object()
+        .and_then(|x| x.as_Proxy())
+        .map(|x| x.payload())
+    else {
         return Err(-1);
     };
 
@@ -525,7 +514,11 @@ fn js_proxy_define_own_property(
 }
 
 fn js_proxy_delete_property(ctx: &JSContext, obj: JSValue, atom: JSAtom) -> Result<bool, i32> {
-    let Some(px) = obj.as_object().and_then(|x| x.as_proxy()).map(|x| x.payload()) else {
+    let Some(px) = obj
+        .as_object()
+        .and_then(|x| x.as_Proxy())
+        .map(|x| x.payload())
+    else {
         return Err(-1);
     };
 
@@ -562,7 +555,7 @@ fn js_proxy_get_own_property_names(
     ctx: &JSContext,
     obj: &JSObject,
 ) -> Result<Box<[PropertyKey]>, i32> {
-    let Some(px) = obj.as_proxy().map(|x| x.payload()) else {
+    let Some(px) = obj.as_Proxy().map(|x| x.payload()) else {
         return Err(-1);
     };
 
@@ -664,7 +657,7 @@ fn js_proxy_get_own_property_names(
 }
 
 fn js_proxy_has(ctx: &JSContext, obj: &JSObject, atom: JSAtom) -> Result<bool, i32> {
-    let Some(px) = obj.as_proxy().map(|x| x.payload()) else {
+    let Some(px) = obj.as_Proxy().map(|x| x.payload()) else {
         return Err(-1);
     };
 
@@ -701,7 +694,11 @@ fn js_proxy_has(ctx: &JSContext, obj: &JSObject, atom: JSAtom) -> Result<bool, i
 }
 
 fn js_proxy_get(ctx: &JSContext, obj: JSValue, atom: JSAtom, receiver: JSValue) -> JSResult {
-    let Some(px) = obj.as_object().and_then(|p| p.as_proxy()).map(|x| x.payload()) else {
+    let Some(px) = obj
+        .as_object()
+        .and_then(|p| p.as_Proxy())
+        .map(|x| x.payload())
+    else {
         return Err(-1);
     };
 
@@ -746,7 +743,11 @@ fn js_proxy_set(
     receiver: JSValue,
     flags: i32,
 ) -> Result<bool, i32> {
-    let Some(s) = obj.as_object().and_then(|p| p.as_proxy()).map(|x| x.payload()) else {
+    let Some(s) = obj
+        .as_object()
+        .and_then(|p| p.as_Proxy())
+        .map(|x| x.payload())
+    else {
         return Err(-1);
     };
 

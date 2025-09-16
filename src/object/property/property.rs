@@ -279,7 +279,7 @@ impl JSObject {
     /// check if object is extensible.
     /// in case `self` is a Proxy object, may return Err.
     pub fn is_extensible(&self, ctx: &JSContext) -> Result<bool, i32> {
-        self.as_proxy()
+        self.as_Proxy()
             .map_or_else(|| Ok(self.flags().extensible()), |p| p.is_extensible(ctx))
     }
 

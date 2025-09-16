@@ -50,5 +50,37 @@ macro_rules! object_cast {
                 Self::Object(value.into())
             }
         }
+
+        impl JSObject {
+            paste::paste! {
+                #[inline]
+                pub fn [<as_ $ty>](&self) -> Option<&$ty>{
+                    if self.class_id() == $class_id {
+                        Some(unsafe { &*(self as *const Self as *const $ty) })
+                    } else {
+                        None
+                    }
+                }
+
+                #[inline(always)]
+                pub unsafe fn [<as_ $ty _unchecked>](&self) -> &[<$ty>] {
+                    debug_assert_eq!(self.class_id(), $class_id);
+                    unsafe { &*(self as *const Self as *const $ty) }
+                }
+            }
+        }
+
+        impl JSValue {
+            paste::paste! {
+                #[inline]
+                pub fn [<as_object_ $ty>](&self) -> Option<&$ty>{
+                    if let Some(o) = self.as_object(){
+                        o.[<as_ $ty>]()
+                    } else {
+                        None
+                    }
+                }
+            }
+        }
     };
 }

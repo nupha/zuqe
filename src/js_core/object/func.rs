@@ -136,33 +136,36 @@ pub fn js_object_keys(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
-    // "is function?" check must be observed before argv[0] is accessed
-    let cb = cc.arg(1);
-    cb.ensure_callable(ctx)?;
+    let is_map = cc.magic() == 1;
+    debug_assert!(
+        !is_map,
+        "deprecated: use js_map_groupBy for Map.groupBy() instead"
+    );
 
-    let it = cc.arg(0).iter(ctx)?;
+    // check must be observed before argv[0] is accessed
+    let func = cc.arg(1);
+    func.ensure_callable(ctx)?;
 
-    let is_map = cc.magic();
-    let groups = if is_map != 0 {
-        js_map_constructor(ctx, CallContext::new(ctx, JSValue::UNDEFINED, &[], 0, None))?
+    let groups = if is_map {
+        js_map_constructor(ctx, CallContext::new_simple(ctx, JSValue::UNDEFINED, &[]))?
     } else {
         ctx.create_base_object_from_proto(JSValue::NULL)?.into()
     };
 
+    let global = ctx.0.borrow().global_obj.clone(); // clone to avoid borrow too long
     let mut idx: i64 = 0;
-    for val in it {
-        let val = val?;
 
+    for val in cc.arg(0).iter(ctx)? {
         if idx >= MAX_SAFE_INTEGER {
             ctx.throw_type_error("too many elements");
             return Err(-1);
         }
 
-        let global = ctx.0.borrow().global_obj.clone();
-        let key = cb.call(ctx, &global, &[val.clone(), JSValue::from(idx)])?;
+        let val = val?;
+        let key = func.call(ctx, &global, &[val.clone(), JSValue::from(idx)])?;
 
         // get prop value array and key atom
-        let (props_arr, key_atom): (JSResult, JSAtom) = if is_map != 0 {
+        let (props_arr, key_atom): (JSResult, JSAtom) = if is_map {
             (
                 js_map_get(
                     ctx,
@@ -184,7 +187,7 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
             props_arr = ctx.create_array()?.into();
 
             // set to groups
-            if is_map != 0 {
+            if is_map {
                 js_map_set(
                     ctx,
                     CallContext::new(

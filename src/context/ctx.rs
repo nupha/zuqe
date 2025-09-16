@@ -368,6 +368,7 @@ pub const JS_MODE_STRIP: i32 = 1 << 1;
 pub const JS_MODE_MATH: i32 = 1 << 2;
 pub const JS_MODE_ASYNC: i32 = 1 << 3; /* async function */
 
+/// test if content is currently in strict mode
 pub fn is_strict_mode(ctx: &JSContext) -> bool {
     unsafe {
         let sf = ctx.rt().cur_stack_frame.cast::<StackFrame>();
