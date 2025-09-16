@@ -25,13 +25,6 @@ pub enum JSIteratorKindEnum {
 }
 
 #[derive(Debug)]
-pub struct JSMapIteratorData {
-    pub obj: JSValue,
-    pub kind: JSIteratorKindEnum,
-    pub(crate) cur_record: MapPair,
-}
-
-#[derive(Debug)]
 pub struct ForInIterObjPayload {
     pub obj: JSValue,
     /// obj is an array?

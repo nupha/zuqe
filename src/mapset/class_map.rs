@@ -5,13 +5,15 @@ use crate::{
     context::{JSContext, is_strict_mode},
     error::JSResult,
     function::{CallContext, FieldDef},
-    iterator::{JSIteratorKindEnum, JSMapIteratorData},
+    iterator::JSIteratorKindEnum,
     js_core::js_get_this,
     mapset::{JSMapState, MapPair},
     number::MAX_SAFE_INTEGER,
     object::{JS_PROP_CONFIGURABLE, ObjectPayload},
     value::JSValue,
 };
+
+use super::iter::JSMapIteratorData;
 
 const MAGIC_SET: i32 = 1 << 0;
 const MAGIC_WEAK: i32 = 1 << 1;

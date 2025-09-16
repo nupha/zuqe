@@ -269,14 +269,14 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "Map_Iterator",
             "MAP_ITERATOR",
-            Some("Box<crate::iterator::JSMapIteratorData>"),
+            Some("Box<crate::mapset::JSMapIteratorData>"),
             Some("crate::mapset::js_map_iterator_finalizer"),
             Some("crate::mapset::js_map_iterator_mark")
         ),
         class_def!(
             "Set_Iterator",
             "SET_ITERATOR",
-            Some("Box<crate::iterator::JSMapIteratorData>"),
+            Some("Box<crate::mapset::JSMapIteratorData>"),
             Some("crate::mapset::js_map_iterator_finalizer"),
             Some("crate::mapset::js_map_iterator_mark")
         ),
