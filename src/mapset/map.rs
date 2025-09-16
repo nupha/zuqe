@@ -204,13 +204,25 @@ impl JSMapState {
                     }
                 }
                 Some(MapPair::Weak { key: k, .. }) => {
-                    let kobj = unsafe { key.as_object_unchecked() };
-                    if k.upgrade().map_or(false, |k| !k.eq(kobj)) {
-                        self.slots[*i] = MapPair::Removed;
-                        self.remove_count += 1;
-                        false
+                    if let Some(k) = k.upgrade() {
+                        if k.eq(unsafe { key.as_object_unchecked() }) {
+                            self.slots[*i] = MapPair::Removed;
+                            self.remove_count += 1;
+                            false
+                        } else {
+                            true
+                        }
                     } else {
-                        true
+                        // generally, this shouldn't happen
+                        #[cfg(debug_assertions)]
+                        unreachable!();
+
+                        #[cfg(not(debug_assertions))]
+                        {
+                            self.slots[*i] = MapPair::Removed;
+                            self.remove_count += 1;
+                            false
+                        }
                     }
                 }
                 _ => false,

@@ -17,7 +17,7 @@ use super::iter::JSMapIteratorData;
 
 pub fn js_map_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let magic = cc.magic();
-    let is_set = magic == 1;
+    let is_set = magic & 1 == 1;
     let is_weak = matches!(magic, 2 | 3);
     let new_target = cc.this();
 
@@ -33,6 +33,7 @@ pub fn js_map_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
                 _ => unreachable!(),
             },
         )
+        .map(JSValue::Object)
         .map_err(|_| -1)?;
 
     let arr = if cc.length() > 0 {
@@ -41,8 +42,6 @@ pub fn js_map_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         &JSValue::UNDEFINED
     };
 
-    let obj: JSValue = obj.into();
-
     if !arr.is_undefined_or_null() {
         let adder = obj.get_property(ctx, if is_set { JS_ATOM_add } else { JS_ATOM_set })?;
         if !adder.is_callable() {
@@ -50,19 +49,19 @@ pub fn js_map_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
             return Err(-1);
         }
 
-        for item in arr.iter(ctx)? {
-            let item = item?;
-
+        for el in arr.iter(ctx)? {
+            let item = el?;
             if is_set {
                 adder.call(ctx, &obj, &[item])?;
             } else {
-                if !item.is_object() {
+                if let Some(o) = item.as_object() {
+                    let key = o.get_property_u32(ctx, 0)?;
+                    let value = o.get_property_u32(ctx, 1)?;
+                    adder.call(ctx, &obj, &[key, value])?;
+                } else {
                     ctx.throw_type_error_not_an_object();
                     return Err(-1);
                 }
-                let key = item.get_property_u32(ctx, 0)?;
-                let value = item.get_property_u32(ctx, 1)?;
-                adder.call(ctx, &obj, &[key, value])?;
             }
         }
     }
@@ -99,13 +98,13 @@ pub fn js_map_set(ctx: &JSContext, cc: CallContext) -> JSResult {
     if s.upsert(
         ctx,
         key.clone(),
-        if cc.magic() & 1 != 0 {
+        if cc.magic() & 1 == 1 {
             JSValue::UNDEFINED // set or weakset
         } else {
             cc.arg(1).clone() // map or weakmap
         },
     )? {
-        // new inserted pair
+        // inserted pair
         // make backref for key object if is weak
         if s.is_weak() {
             key.as_object()
@@ -127,7 +126,6 @@ pub fn js_map_delete(ctx: &JSContext, cc: CallContext) -> JSResult {
     this.retrive_object_payload_mut(ctx, Some(JS_CLASS_MAP + cc.magic() as JSClassID))
         .map(|mut r| {
             let s = r.map_state_mut().unwrap();
-
             if s.find(key).is_some() {
                 s.remove(key);
 
