@@ -1,33 +1,19 @@
-use std::{borrow::Cow, rc::Rc};
+use std::borrow::Cow;
 
-use crate::{
-    context::JSContext,
-    number::f64_stringify,
-    string::{JSString, StringChar},
-};
+use crate::{context::JSContext, number::f64_stringify};
 
 use super::JSValue;
 
 impl JSValue {
     /// Get value representation string.
-    pub fn repr(&self, ctx: &JSContext) -> Result<Cow<'_, str>, i32> {
+    pub fn repr(&self, ctx: &JSContext) -> Result<String, i32> {
         match self {
-            Self::String(s) => {
-                Ok(match s.content().to_utf8() {
-                    Cow::Borrowed(str) => {
-                        // use string description content pointer.
-                        Cow::Borrowed(unsafe { (str as *const str).as_ref().unwrap() })
-                    }
-                    o => o,
-                })
-            }
+            Self::String(s) => Ok(s.content().to_utf8().into_owned()),
             Self::Symbol(p) => {
                 let s = p.atom_info().unwrap().atom().to_utf8(ctx.rt());
                 Ok(format!("Symbol({s})").into())
             }
-            _ => Ok(Cow::Owned(
-                self.to_string(ctx)?.content().to_utf8().into_owned(),
-            )),
+            _ => Ok(self.to_string(ctx)?.content().to_utf8().into_owned()),
         }
     }
 }
@@ -61,32 +47,32 @@ impl std::fmt::Debug for JSValue {
     }
 }
 
-pub fn JS_DumpString(p: &JSString) {
-    let ref_cnt = Rc::strong_count(&p.0);
-    print!("{ref_cnt}");
+// pub fn JS_DumpString(p: &JSString) {
+//     let ref_cnt = Rc::strong_count(&p.0);
+//     print!("{ref_cnt}");
 
-    let sep = if ref_cnt == 1 { b'\"' } else { b'\'' } as char;
-    print!("{sep}");
+//     let sep = if ref_cnt == 1 { b'\"' } else { b'\'' } as char;
+//     print!("{sep}");
 
-    for (_, c) in p.content().iter() {
-        match c {
-            StringChar::Char(ch) => match ch {
-                '\'' | '"' if ch == sep => print!("\\{ch}"),
-                '\n' => print!("\\n"),
-                '\r' => print!("\\r"),
-                '\t' => print!("\\t"),
-                '\\' => print!("\\\\"),
-                ' '..='~' => print!("{ch}"),
-                _ => {
-                    print!("{ch}");
-                    // print!("\\u{:04x}", c as u32)
-                }
-            },
-            StringChar::Code(c) => {
-                print!("\\u{c:04X}")
-            }
-        }
-    }
+//     for (_, c) in p.content().iter() {
+//         match c {
+//             StringChar::Char(ch) => match ch {
+//                 '\'' | '"' if ch == sep => print!("\\{ch}"),
+//                 '\n' => print!("\\n"),
+//                 '\r' => print!("\\r"),
+//                 '\t' => print!("\\t"),
+//                 '\\' => print!("\\\\"),
+//                 ' '..='~' => print!("{ch}"),
+//                 _ => {
+//                     print!("{ch}");
+//                     // print!("\\u{:04x}", c as u32)
+//                 }
+//             },
+//             StringChar::Code(c) => {
+//                 print!("\\u{c:04X}")
+//             }
+//         }
+//     }
 
-    print!("{sep}");
-}
+//     print!("{sep}");
+// }
