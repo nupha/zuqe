@@ -772,11 +772,13 @@ impl<'s> JSParseState<'s> {
         p
     }
 
-    pub fn seek_token(&mut self, pos: &JSParsePos) -> Result<(), i32> {
+    /// start to seek token from `pos`
+    pub(super) fn seek_token(&mut self, pos: &JSParsePos) -> Result<(), i32> {
         self.token.line_num = pos.last_line_num;
         self.line_num = pos.line_num;
         self.buf_ptr = pos.ptr;
         self.got_lf = pos.got_lf;
+
         self.next_token()
     }
 

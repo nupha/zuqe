@@ -218,21 +218,17 @@ pub fn js_op_define_class(
     Ok(())
 }
 
-pub fn js_has_unscopable(ctx: &JSContext, obj: &JSValueConst, atom: JSAtom) -> i32 {
-    let arr = if let Ok(x) = obj.get_property(ctx, JS_ATOM_Symbol_unscopables) {
-        x
+/// test if `atom` property is true in value's \[Symbol.unscopables\] scope.
+///
+/// `atom` is not consumed.
+pub(super) fn js_has_unscopable(ctx: &JSContext, obj: &JSValue, atom: JSAtom) -> Result<bool, i32> {
+    if let Some(o) = obj
+        .get_property(ctx, JS_ATOM_Symbol_unscopables)?
+        .as_object()
+    {
+        o.get_property(ctx, atom)?.to_bool()
     } else {
-        return -1;
-    };
-
-    if arr.is_object() {
-        if let Ok(val) = arr.get_property(ctx, atom) {
-            val.to_bool().map_or(-1, |b| b as i32)
-        } else {
-            -1
-        }
-    } else {
-        0
+        Ok(false)
     }
 }
 
@@ -453,7 +449,8 @@ pub fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
                     it.idx += 1;
                     if it.in_prototype_chain {
                         // slow case: we are in the prototype chain
-                        match unsafe { enum_obj.as_object_unchecked().get_own_property(ctx, prop)? } {
+                        match unsafe { enum_obj.as_object_unchecked().get_own_property(ctx, prop)? }
+                        {
                             Some(_) => {
                                 continue; // already visited
                             }

@@ -18,8 +18,10 @@ impl JSParseState<'_> {
             return Ok(());
         }
 
+        // save current pos
         let pos = self.get_pos();
 
+        // seeking sole strings within current code block to check for directives.
         while let TokenData::Str { str, .. } = &self.token.data {
             debug_assert!(
                 matches!(self.token.val, TOK_STRING | TOK_TEMPLATE),
@@ -59,13 +61,14 @@ impl JSParseState<'_> {
                 break;
             }
 
-            self.handle_directives(&txt);
+            self.handle_directive(&txt);
         }
 
+        // restart from saved position
         self.seek_token(&pos)
     }
 
-    fn handle_directives(&mut self, directive: &str) {
+    fn handle_directive(&mut self, directive: &str) {
         match directive {
             "use strict" => {
                 let cfn = self.cur_func_mut();
@@ -74,6 +77,15 @@ impl JSParseState<'_> {
             }
             "use strip" => {
                 self.cur_func_mut().js_mode |= JS_MODE_STRIP as u8;
+            }
+
+            #[cfg(debug_assertions)]
+            "use debug_dump_run" => {
+                self.cur_func_mut().debug.dump_run = true;
+            }
+            #[cfg(debug_assertions)]
+            "use debug_dump_run_stack" => {
+                self.cur_func_mut().debug.dump_run_stack = true;
             }
 
             _ => {}

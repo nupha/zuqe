@@ -20,7 +20,7 @@ use super::{
         CHAR_SEMI, CHAR_SLASH, CHAR_SQUARE_L, CHAR_SQUARE_R, TOK_CONST, TOK_DEC, TOK_DIV_ASSIGN,
         TOK_ELLIPSIS, TOK_EOF, TOK_EXPORT, TOK_FALSE, TOK_FUNCTION, TOK_IDENT, TOK_IMPORT, TOK_INC,
         TOK_LET, TOK_NULL, TOK_NUMBER, TOK_OF, TOK_REGEXP, TOK_STRING, TOK_TEMPLATE, TOK_THIS,
-        TOK_TRUE, token_keyword_to_str,
+        TOK_TRUE, TOK_VAR, token_keyword_to_str,
     },
 };
 
@@ -206,10 +206,9 @@ impl JSParseState<'_> {
 
     /// test if `c` could be used as first char of an ident
     #[inline]
-    pub const fn is_ident_first(c: char) -> bool {
+    pub(super) const fn is_ident_first(c: char) -> bool {
         if c.is_ascii() {
             matches!(c,  '$' | 'A'..='Z' | 'a'..='z' | '_')
-            // (lre_id_start_table_ascii[(c >> 5) as usize] >> (c & 31)) as i32 & 1
         } else {
             #[cfg(feature = "all_unicode")]
             {

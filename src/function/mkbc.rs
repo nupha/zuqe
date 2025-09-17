@@ -143,7 +143,11 @@ impl JSFunctionDef {
             stack_size,
 
             has_debug: false,
-            debug: BytecodeDebugInfo::default(),
+            debug: BytecodeDebugInfo {
+                #[cfg(debug_assertions)]
+                debug_setting: self.debug,
+                ..Default::default()
+            },
 
             cpool_count: self.cpool.len() as _,
             arg_count: self.args.len() as _,

@@ -791,10 +791,13 @@ impl JSFunctionDef {
         }
     }
 
-    /// test if `var_name` is in the variable object on the stack.
-    /// If it is the case, handle it and jump to 'label_done'.
+    /// Tests if `var_name` exists in the variable object on the stack.
+    /// If exists, handle it and jump to 'label_done'.
     /// If argument `label_done` is None, new label will be created.
-    /// Returns the original label_done or new created label for label_done.
+    /// Returns the id of the matched or new created label for `label_done`.
+    ///
+    /// `is_with` suggests the search is in a **with()** environment or global scope.
+    ///
     /// `var_name` is not consumed.
     fn var_object_test(
         &mut self,

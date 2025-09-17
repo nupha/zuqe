@@ -2535,6 +2535,7 @@ pub fn JS_DefineGlobalFunction(
 #[deprecated(note = "use JSContext::get_global_var() instead")]
 pub fn JS_GetGlobalVar(ctx: &JSContext, prop: JSAtom, throw_ref_error: bool) -> JSValue {
     ctx.get_global_var(prop, throw_ref_error)
+        .unwrap_or(JSValue::EXCEPTION)
 }
 
 // construct a reference to a global variable

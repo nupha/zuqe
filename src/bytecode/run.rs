@@ -247,18 +247,42 @@ impl Bytecode {
             Done(JSValue, bool),
         }
 
+        #[cfg(all(debug_assertions, feature = "dump_bytecode"))]
+        let mut debug_setting: Option<crate::function::BytecodeDebugSetting> = None;
+
         'restart: loop {
-            // loop running bytecodes
             let state: State = loop {
+                //
                 #[cfg(all(debug_assertions, feature = "dump_bytecode"))]
                 if super::dump::DUMP_RUN_INSTRUCTION {
-                    super::dump::dump_run_instruction(
-                        ctx,
-                        self,
-                        unsafe { pc.offset_from(pc_base) as usize },
-                        sp_base,
-                        sp,
-                    );
+                    if debug_setting.is_none() {
+                        let b = stack_frame
+                            .cur_func
+                            .as_object()
+                            .and_then(|o| {
+                                o.0.payload.borrow().func().and_then(|f| {
+                                    f.bytecode().map(|bc| bc.with(|bc| bc.debug.debug_setting))
+                                })
+                            })
+                            .unwrap_or(crate::function::BytecodeDebugSetting::default());
+                        debug_setting.replace(b);
+                    }
+
+                    if debug_setting.map_or(false, |s| s.dump_run) {
+                        let dump_run_stack = debug_setting.map(|s| s.dump_run_stack).unwrap();
+
+                        super::dump::dump_run_instruction(
+                            ctx,
+                            self,
+                            unsafe { pc.offset_from(pc_base) as usize },
+                            if dump_run_stack {
+                                sp_base
+                            } else {
+                                std::ptr::null()
+                            },
+                            if dump_run_stack { sp } else { std::ptr::null() },
+                        );
+                    }
                 }
 
                 let opcode = unsafe { std::mem::transmute::<u8, OpCode>(PC_FETCH!(u8)) };
@@ -1030,13 +1054,13 @@ impl Bytecode {
                         }
                     }
                     OpCode::GET_VAR_UNDEF | OpCode::GET_VAR => {
+                        // [^] -> [value, ^]
                         let atom = JSAtom(PC_FETCH!(u32));
-                        let val = ctx.get_global_var(atom, opcode == OpCode::GET_VAR);
-                        if val.is_exception() {
-                            break State::Exception;
-                        } else {
+                        if let Ok(val) = ctx.get_global_var(atom, opcode == OpCode::GET_VAR) {
                             SP_PUT!(0, val);
                             SP_GO!(1);
+                        } else {
+                            break State::Exception;
                         }
                     }
                     OpCode::PUT_VAR | OpCode::PUT_VAR_INIT => {
@@ -2168,36 +2192,33 @@ impl Bytecode {
                     | OpCode::WITH_MAKE_REF
                     | OpCode::WITH_GET_REF
                     | OpCode::WITH_GET_REF_UNDEF => {
+                        // [env_obj, ^] -> [^]
                         let atom = JSAtom(PC_FETCH!(u32));
                         let diff = PC_FETCH!(i32);
-                        let is_with = PC_FETCH!(u8);
+                        let is_with = PC_FETCH!(u8) != 0;
 
-                        let obj: &JSValue = SP_REF!(-1);
+                        let env_obj = SP_REF!(-1);
 
-                        if let Ok(ret) = obj.has_property(ctx, atom) {
-                            let has_with = if ret {
-                                if is_with != 0 {
-                                    let r = js_has_unscopable(ctx, obj, atom);
-                                    if r < 0 {
-                                        break State::Exception;
-                                    }
-
-                                    if r != 0 {
-                                        false // not with
+                        if let Ok(ret) = env_obj.has_property(ctx, atom) {
+                            let in_env_obj = if ret {
+                                if is_with {
+                                    if let Ok(b) = js_has_unscopable(ctx, env_obj, atom) {
+                                        !b
                                     } else {
-                                        true
+                                        break State::Exception;
                                     }
                                 } else {
                                     true
                                 }
                             } else {
-                                false // not with
+                                false // not in with env obj
                             };
 
-                            if has_with {
+                            if in_env_obj {
+                                // get atom in with env obj.
                                 match opcode {
                                     OpCode::WITH_GET_VAR => {
-                                        if let Ok(val) = obj.get_property(ctx, atom) {
+                                        if let Ok(val) = env_obj.get_property(ctx, atom) {
                                             SP_PUT!(-1, val);
                                         } else {
                                             break State::Exception;
@@ -2207,10 +2228,10 @@ impl Bytecode {
                                         // XXX: check if strict mode
                                         let ret = JSValue::set_property_internal(
                                             ctx,
-                                            obj,
+                                            env_obj,
                                             atom,
                                             SP_TAKE!(-2),
-                                            obj,
+                                            env_obj,
                                             JS_PROP_THROW_STRICT,
                                         );
                                         SP_TAKE!(-1);
@@ -2220,10 +2241,8 @@ impl Bytecode {
                                         }
                                     }
                                     OpCode::WITH_DELETE_VAR => {
-                                        if let Ok(ret) =
-                                            obj.delete_property(ctx, atom, JS_PROP_THROW)
-                                        {
-                                            SP_PUT!(-1, JSValue::Bool(ret));
+                                        if let Ok(b) = env_obj.delete_property(ctx, atom, 0) {
+                                            SP_PUT!(-1, JSValue::Bool(b));
                                         } else {
                                             break State::Exception;
                                         }
@@ -2239,7 +2258,7 @@ impl Bytecode {
                                     }
                                     OpCode::WITH_GET_REF => {
                                         // produce a pair object/method on the stack
-                                        if let Ok(val) = obj.get_property(ctx, atom) {
+                                        if let Ok(val) = env_obj.get_property(ctx, atom) {
                                             SP_PUT!(0, val);
                                             SP_GO!(1);
                                         } else {
@@ -2248,7 +2267,7 @@ impl Bytecode {
                                     }
                                     OpCode::WITH_GET_REF_UNDEF => {
                                         // produce a pair undefined/function on the stack
-                                        if let Ok(val) = obj.get_property(ctx, atom) {
+                                        if let Ok(val) = env_obj.get_property(ctx, atom) {
                                             SP_PUT!(-1, JSValue::UNDEFINED);
                                             SP_PUT!(0, val);
                                             SP_GO!(1);
@@ -2257,13 +2276,16 @@ impl Bytecode {
                                         }
                                     }
                                     _ => {
-                                        unreachable!()
+                                        #[cfg(debug_assertions)]
+                                        unreachable!();
+                                        #[cfg(not(debug_assertions))]
+                                        std::hint::unreachable_unchecked();
                                     }
                                 }
+
                                 PC_GO!(diff - 5);
                             } else {
-                                // no with
-                                // if not jumping, drop the object argument
+                                // if not jumping, drop the env_obj in stack
                                 SP_TAKE!(-1);
                                 SP_GO!(-1);
                             }
@@ -2319,6 +2341,25 @@ impl Bytecode {
                         break State::Exception;
                     }
                 } // match opcode
+
+                #[cfg(all(debug_assertions, feature = "dump_bytecode"))]
+                if debug_setting.map_or(false, |s| s.dump_run && s.dump_run_stack) {
+                    let oi = super::opcode_info_final(opcode as u8);
+                    if oi.n_push > 0 {
+                        super::dump::dump_run_stack(
+                            ctx,
+                            unsafe {
+                                std::slice::from_raw_parts(
+                                    sp.offset(-(oi.n_push as isize)),
+                                    oi.n_push as usize,
+                                )
+                            },
+                            false,
+                            oi.n_push as _,
+                            '+',
+                        );
+                    }
+                }
             }; // opcodes loop
 
             // process state

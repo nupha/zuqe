@@ -19,6 +19,13 @@ use crate::{
 
 use super::Label;
 
+#[cfg(debug_assertions)]
+#[derive(Default, Debug, Clone, Copy)]
+pub(crate) struct BytecodeDebugSetting {
+    pub dump_run: bool,
+    pub dump_run_stack: bool,
+}
+
 #[derive(Debug)]
 pub struct JSFunctionDef {
     pub ctx: JSContext,
@@ -178,6 +185,9 @@ pub struct JSFunctionDef {
 
     /// 是否包含await（用于模块eval）
     pub has_await: bool,
+
+    #[cfg(debug_assertions)]
+    pub(crate) debug: BytecodeDebugSetting,
 }
 
 impl Drop for JSFunctionDef {
@@ -283,6 +293,9 @@ impl JSFunctionDef {
 
             module: None,
             has_await: false,
+
+            #[cfg(debug_assertions)]
+            debug: BytecodeDebugSetting::default(),
         };
 
         let fd = unsafe {

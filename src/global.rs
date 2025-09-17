@@ -1,7 +1,7 @@
 use crate::{
     atom::JSAtom,
     context::{JSContext, is_strict_mode},
-    error::{JS_ThrowReferenceErrorUninitialized, JS_ThrowSyntaxErrorVarRedeclaration},
+    error::{JS_ThrowReferenceErrorUninitialized, JS_ThrowSyntaxErrorVarRedeclaration, JSResult},
     function::{DEFINE_GLOBAL_FUNC_VAR, DEFINE_GLOBAL_LEX_VAR},
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE,
@@ -161,7 +161,7 @@ impl JSContext {
         Ok(())
     }
 
-    pub fn get_global_var(&self, prop: JSAtom, throw_ref_error: bool) -> JSValue {
+    pub fn get_global_var(&self, prop: JSAtom, throw_ref_error: bool) -> JSResult {
         // no exotic behavior is possible in global_var_obj
         let gvobj = self.global_var_obj();
         if let Some((idx, _)) = gvobj.find_shape_property(prop) {
@@ -170,9 +170,9 @@ impl JSContext {
             match gvobj.0.prop_values.borrow().get(idx).unwrap() {
                 JSProperty::Normal(JSValue::UNINITIALIZED) => {
                     JS_ThrowReferenceErrorUninitialized(self, prop);
-                    JSValue::EXCEPTION
+                    Err(-1)
                 }
-                JSProperty::Normal(v) => v.clone(),
+                JSProperty::Normal(v) => Ok(v.clone()),
                 _ => {
                     unreachable!()
                 }
@@ -181,7 +181,6 @@ impl JSContext {
             // search global object
             let gobj = self.global_obj();
             gobj.get_property_internal(self, prop, &JSValue::Object(gobj.clone()), throw_ref_error)
-                .unwrap_or(JSValue::EXCEPTION)
         }
     }
 

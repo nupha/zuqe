@@ -6,6 +6,8 @@ use std::{
     rc::{Rc, Weak},
 };
 
+#[cfg(debug_assertions)]
+use crate::function::BytecodeDebugSetting;
 use crate::{
     atom::{JS_ATOM_NULL, JS_FreeAtomRT, JSAtom},
     bytecode::{OpcodeFormat, opcode_info_final, opcode_info_intermediate},
@@ -28,6 +30,9 @@ pub struct BytecodeDebugInfo {
     pub line_num: i32,
     pub source: Option<String>,
     pub pc2line_buf: Option<Vec<u8>>,
+
+    #[cfg(debug_assertions)]
+    pub(crate) debug_setting: BytecodeDebugSetting,
 }
 
 impl Default for BytecodeDebugInfo {
@@ -37,6 +42,9 @@ impl Default for BytecodeDebugInfo {
             line_num: 0,
             source: None,
             pc2line_buf: None,
+
+            #[cfg(debug_assertions)]
+            debug_setting: BytecodeDebugSetting::default(),
         }
     }
 }
@@ -465,11 +473,11 @@ impl Bytecode {
         unsafe { self.0.borrow().header.rt_ptr().as_ref() }
     }
 
-    pub fn with<R>(&self, f: impl FnOnce(&BytecodeInner) -> R) -> R {
+    pub(crate) fn with<R>(&self, f: impl FnOnce(&BytecodeInner) -> R) -> R {
         f(self.0.borrow().deref())
     }
 
-    pub fn with_mut<R>(&self, f: impl FnOnce(&mut BytecodeInner) -> R) -> R {
+    pub(crate) fn with_mut<R>(&self, f: impl FnOnce(&mut BytecodeInner) -> R) -> R {
         f(self.0.borrow_mut().deref_mut())
     }
 
@@ -608,10 +616,6 @@ impl Bytecode {
         self.0.borrow().find_line_num(pc_value)
     }
 
-    pub fn gc_has_mark(&self) -> bool {
-        self.0.borrow().header.gc_has_mark()
-    }
-
     /// Evaluate bytecode: make a closure function with the bytecode, then eval the function.
     pub fn eval(
         &self,
@@ -621,6 +625,10 @@ impl Bytecode {
         parent_frame: Option<&mut StackFrame>,
     ) -> JSResult {
         JSValue::from(self.make_closure(ctx, var_refs, parent_frame)?).call(ctx, &this_obj, &[])
+    }
+
+    pub fn gc_has_mark(&self) -> bool {
+        self.0.borrow().header.gc_has_mark()
     }
 
     pub fn gc_set_mark(&self, b: bool) {

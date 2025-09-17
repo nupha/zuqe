@@ -94,15 +94,16 @@ pub(crate) fn dump_opcodes(
                 | OpcodeFormat::ATOM_LABEL_U16
                 | OpcodeFormat::LABEL
                 | OpcodeFormat::LABEL_U16) => {
+                    pos += 1; // skip opcode
                     if matches!(
                         f,
                         OpcodeFormat::ATOM_LABEL_U8 | OpcodeFormat::ATOM_LABEL_U16
                     ) {
-                        pos += 4;
+                        pos += 4; // skip atom
                     }
-                    pos += 1;
-                    let addr = unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos as _)) };
 
+                    // read label addr
+                    let addr = unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos as _)) };
                     let pc = match pass {
                         1 => labels[addr as usize].pos,
                         2 => labels[addr as usize].pos2,
@@ -647,10 +648,9 @@ fn print_lines(source: &str, from_line: usize, to_line: usize) {
 // }
 
 pub(super) const DUMP_RUN_INSTRUCTION: bool = true;
-pub(super) const DUMP_RUN_STACK: bool = true;
+pub(super) const DUMP_RUN_STACK: bool = false;
 
 /// dump instruction (opcode and params) at given pc.
-/// `sp` is the stack top pointer.
 pub(super) fn dump_run_instruction(
     ctx: &JSContext,
     b: &Bytecode,
@@ -658,7 +658,9 @@ pub(super) fn dump_run_instruction(
     sp_base: *const JSValue,
     sp_top: *const JSValue,
 ) -> usize {
-    debug_assert!(sp_base <= sp_top);
+    if !sp_top.is_null() {
+        debug_assert!(sp_base <= sp_top);
+    }
 
     let mut pos = pc;
     let tab = b.opcodes();
@@ -786,14 +788,9 @@ pub(super) fn dump_run_instruction(
                 print!(" {}'{s}", atom.0);
             });
 
-            // addr = get_u32(tab.as_ptr().offset(pos as isize + 4)) as _;
-            // if pass == 1 {
-            //     print!(", {}:{}", addr, (*label_slots.offset(addr as isize)).pos);
-            // } else if pass == 2 {
-            //     print!(", {}:{}", addr, (*label_slots.offset(addr as isize)).pos2);
-            // } else if pass == 3 {
-            //     print!(", {}", addr + pos + 4);
-            // }
+            // label
+            let diff = unsafe { read_from_ptr::<i32>(tab.as_ptr().add(pos as usize + 4)) };
+            print!(", {diff}");
 
             if f == OpcodeFormat::ATOM_LABEL_U8 {
                 print!(", {}", unsafe { *tab.as_ptr().add(pos + 8) });
@@ -802,6 +799,9 @@ pub(super) fn dump_run_instruction(
                     read_from_ptr::<u16>(tab.as_ptr().add(pos + 8))
                 });
             }
+
+            // print jump abs pos
+            print!("   ;; {diff} -> @{}", diff + pos as i32 + 4)
         }
 
         #[cfg(feature = "short_opcode")]
@@ -872,34 +872,51 @@ pub(super) fn dump_run_instruction(
 
     println!();
 
-    // if DUMP_RUN_STACK && oi.n_pop > 0 {
-    //     dump_run_stack(ctx, unsafe {
-    //         std::slice::from_raw_parts(sp_top.offset(-(oi.n_pop as isize)), oi.n_pop as usize)
-    //     });
-    // }
-    if DUMP_RUN_STACK && (oi.n_push > 0 || oi.n_pop > 0) {
-        dump_run_stack(ctx, unsafe {
-            std::slice::from_raw_parts(sp_base, sp_top.offset_from(sp_base) as usize)
-        });
+    if !sp_top.is_null() && (oi.n_push > 0 || oi.n_pop > 0) {
+        dump_run_stack(
+            ctx,
+            unsafe { std::slice::from_raw_parts(sp_base, sp_top.offset_from(sp_base) as usize) },
+            true,
+            oi.n_pop as _,
+            '✕',
+        );
     }
 
     size
 }
 
-fn dump_run_stack(ctx: &JSContext, stack: &[JSValue]) {
+pub(super) fn dump_run_stack(
+    ctx: &JSContext,
+    stack: &[JSValue],
+    tree: bool,
+    mark_count: usize,
+    mark: char,
+) {
     let n = stack.len();
-    for (i, v) in stack.iter().enumerate() {
-        println!("{:>10}─ {}", if i == n - 1 { '└' } else { '├' }, {
-            let mut s = format!("{:?}", v.to_utf8(ctx).unwrap());
-            if !v.is_string() {
-                s = s[1..s.len() - 1].to_string();
-            }
+    debug_assert!(mark_count <= n);
+    let mark_start = n - mark_count;
 
-            if s.chars().count() > 80 {
-                s.chars().take(80).collect::<String>() + "…"
+    for (i, v) in stack.iter().enumerate() {
+        println!(
+            "{:>10}{} {}",
+            if tree {
+                if i == n - 1 { "└─" } else { "├─" }
             } else {
-                s.to_string()
+                ""
+            },
+            if i >= mark_start { mark } else { ' ' },
+            {
+                let mut s = format!("{:?}", v.to_utf8(ctx).unwrap());
+                if !v.is_string() {
+                    s = s[1..s.len() - 1].to_string();
+                }
+
+                if s.chars().count() > 80 {
+                    s.chars().take(80).collect::<String>() + "…"
+                } else {
+                    s.to_string()
+                }
             }
-        });
+        );
     }
 }
