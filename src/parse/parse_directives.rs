@@ -22,14 +22,26 @@ impl JSParseState<'_> {
         let pos = self.get_pos();
 
         // seeking sole strings within current code block to check for directives.
-        while let TokenData::Str { str, .. } = &self.token.data {
+        while let TokenData::Str { .. } = &self.token.data {
             debug_assert!(
                 matches!(self.token.val, TOK_STRING | TOK_TEMPLATE),
                 "{:?}",
                 self.token
             );
 
-            let txt: String = str.to_utf8().into_owned();
+            // Note: don't use string content, it may be escaped.
+            // instead, we extract raw bytes from last token ptr to current buf ptr.
+            // this bytes content includes 2 quotes, convert it to str.
+            let str = str::from_utf8(unsafe {
+                debug_assert!(self.token.ptr <= self.buf_ptr.offset(-2));
+
+                std::slice::from_raw_parts(
+                    self.token.ptr.add(1),                                 // ingore leading quote
+                    self.buf_ptr.offset_from(self.token.ptr) as usize - 2, // length exclude 2 quotes
+                )
+            })
+            .map(|s| s.to_string());
+
             self.next_token()?;
 
             let mut has_semi = false;
@@ -61,7 +73,9 @@ impl JSParseState<'_> {
                 break;
             }
 
-            self.handle_directive(&txt);
+            if let Ok(s) = str {
+                self.handle_directive(&s);
+            }
         }
 
         // restart from saved position
@@ -79,11 +93,11 @@ impl JSParseState<'_> {
                 self.cur_func_mut().js_mode |= JS_MODE_STRIP as u8;
             }
 
-            #[cfg(debug_assertions)]
+            #[cfg(all(debug_assertions, feature = "dump_bytecode"))]
             "use debug_dump_run" => {
                 self.cur_func_mut().debug.dump_run = true;
             }
-            #[cfg(debug_assertions)]
+            #[cfg(all(debug_assertions, feature = "dump_bytecode"))]
             "use debug_dump_run_stack" => {
                 self.cur_func_mut().debug.dump_run_stack = true;
             }

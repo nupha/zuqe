@@ -22,7 +22,9 @@ use super::Label;
 #[cfg(debug_assertions)]
 #[derive(Default, Debug, Clone, Copy)]
 pub(crate) struct BytecodeDebugSetting {
+    #[cfg(feature = "dump_bytecode")]
     pub dump_run: bool,
+    #[cfg(feature = "dump_bytecode")]
     pub dump_run_stack: bool,
 }
 
