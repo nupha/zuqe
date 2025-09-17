@@ -2,7 +2,7 @@
 
 use crate::{
     atom::{JS_ATOM_NULL, JSAtom},
-    bytecode::{OpCode, OpcodeFormat},
+    bytecode::OpcodeFormat,
     context::{JS_MODE_ASYNC, JS_MODE_STRICT, JSContext},
     function::{
         Bytecode, JSClosureVar, JSFunctionKindEnum, JSVarDef, JSVarKindEnum, Label, PC2LINE_BASE,
@@ -18,7 +18,7 @@ use super::{
 };
 
 /// dump opcodes binary in pass 1,2,3
-pub fn dump_opcodes(
+pub(crate) fn dump_opcodes(
     ctx: &JSContext,
     pass: i32,
     bin: &[u8],
@@ -31,8 +31,6 @@ pub fn dump_opcodes(
     labels: &[Label], // for pass 1, 2 only
     bc: Option<&Bytecode>,
 ) {
-    use crate::{bytecode::OpcodeFormat, utils::read_from_ptr};
-
     let len = bin.len();
     let use_short_opcodes = bc.is_some();
     let op_max = if use_short_opcodes {
@@ -657,8 +655,11 @@ pub(super) fn dump_run_instruction(
     ctx: &JSContext,
     b: &Bytecode,
     pc: usize,
-    sp: *const JSValue,
+    sp_base: *const JSValue,
+    sp_top: *const JSValue,
 ) -> usize {
+    debug_assert!(sp_base <= sp_top);
+
     let mut pos = pc;
     let tab = b.opcodes();
     let op = tab[pos];
@@ -871,9 +872,14 @@ pub(super) fn dump_run_instruction(
 
     println!();
 
-    if DUMP_RUN_STACK && oi.n_pop > 0 {
+    // if DUMP_RUN_STACK && oi.n_pop > 0 {
+    //     dump_run_stack(ctx, unsafe {
+    //         std::slice::from_raw_parts(sp_top.offset(-(oi.n_pop as isize)), oi.n_pop as usize)
+    //     });
+    // }
+    if DUMP_RUN_STACK && (oi.n_push > 0 || oi.n_pop > 0) {
         dump_run_stack(ctx, unsafe {
-            std::slice::from_raw_parts(sp.offset(-(oi.n_pop as isize)), oi.n_pop as usize)
+            std::slice::from_raw_parts(sp_base, sp_top.offset_from(sp_base) as usize)
         });
     }
 
@@ -884,11 +890,15 @@ fn dump_run_stack(ctx: &JSContext, stack: &[JSValue]) {
     let n = stack.len();
     for (i, v) in stack.iter().enumerate() {
         println!("{:>10}─ {}", if i == n - 1 { '└' } else { '├' }, {
-            let s = format!("{:?}", v.to_utf8(ctx).unwrap());
+            let mut s = format!("{:?}", v.to_utf8(ctx).unwrap());
+            if !v.is_string() {
+                s = s[1..s.len() - 1].to_string();
+            }
+
             if s.chars().count() > 80 {
-                s[1..].chars().take(80).collect::<String>() + " ..."
+                s.chars().take(80).collect::<String>() + "…"
             } else {
-                s[1..s.len() - 1].to_string()
+                s.to_string()
             }
         });
     }

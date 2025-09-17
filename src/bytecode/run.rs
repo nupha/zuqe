@@ -256,6 +256,7 @@ impl Bytecode {
                         ctx,
                         self,
                         unsafe { pc.offset_from(pc_base) as usize },
+                        sp_base,
                         sp,
                     );
                 }
@@ -2140,6 +2141,8 @@ impl Bytecode {
                         }
                     }
                     OpCode::TO_PROPKEY | OpCode::TO_PROPKEY2 => {
+                        // TO_PROPKEY: [value, ^] -> [string_or_symbol, ^]
+                        // TOP_PROPKEY2: [target, value, ^] -> [target, string_or_symbol, ^]
                         if opcode == OpCode::TO_PROPKEY2 {
                             // must be tested first
                             if SP_REF!(-2).is_undefined_or_null() {
