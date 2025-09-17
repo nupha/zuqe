@@ -1289,11 +1289,7 @@ pub unsafe fn js_parse_program(s: &mut JSParseState) -> i32 {
 
 #[deprecated(note = "use JSParseState::parse_directives() instead")]
 pub unsafe fn js_parse_directives(s: *mut JSParseState) -> i32 {
-    if (*s).parse_directives().is_err() {
-        -1
-    } else {
-        0
-    }
+    unreachable!("unused");
 }
 
 #[deprecated(note = "use JSParseState::parse_source_element() instead")]

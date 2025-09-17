@@ -16,6 +16,7 @@ mod function;
 mod json;
 mod obj;
 mod parse;
+mod parse_directives;
 mod regexp;
 mod state;
 mod statement;
