@@ -1046,7 +1046,7 @@ fn js_date_setYear(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 fn js_date_toJSON(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj = cc.this().clone().ensure_object(ctx)?;
+    let obj = cc.this().clone().objectify(ctx)?;
 
     let tv = obj.to_primitive(ctx, HINT_NUMBER)?;
     if tv.is_number() {

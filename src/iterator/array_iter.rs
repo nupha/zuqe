@@ -46,7 +46,7 @@ pub fn js_create_array_iterator(ctx: &JSContext, cc: CallContext) -> JSResult {
     } else {
         (
             JS_CLASS_ARRAY_ITERATOR,
-            cc.this().clone().ensure_object(ctx)?.into(),
+            cc.this().clone().objectify(ctx)?.into(),
         )
     };
 

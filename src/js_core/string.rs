@@ -1063,8 +1063,8 @@ pub fn js_string_fromCodePoint(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_string_raw(ctx: &JSContext, cc: CallContext) -> JSResult {
     // raw(temp,...a)
-    let cooked = cc.arg(0).clone().ensure_object(ctx)?;
-    let raw = cooked.get_property(ctx, JS_ATOM_raw)?.ensure_object(ctx)?;
+    let cooked = cc.arg(0).clone().objectify(ctx)?;
+    let raw = cooked.get_property(ctx, JS_ATOM_raw)?.objectify(ctx)?;
 
     let n = js_get_length64(ctx, &raw.clone().into())?;
     let mut res_string = StringBuf::Empty;

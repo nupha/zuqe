@@ -1898,13 +1898,13 @@ pub unsafe fn JS_NewObject(ctx: &JSContext) -> JSValue {
 /// `val` is consumed
 #[deprecated(note = "use JSValue::coerce_to_object() instead")]
 pub fn JS_ToObject(ctx: &JSContext, val: JSValue) -> JSValue {
-    val.ensure_object(ctx)
+    val.objectify(ctx)
         .map_or(JSValue::EXCEPTION, JSValue::Object)
 }
 
 #[deprecated(note = "use JSValue::coerce_to_object() instead")]
 pub unsafe fn JS_ToObjectFree(ctx: &JSContext, val: JSValue) -> JSValue {
-    val.ensure_object(ctx)
+    val.objectify(ctx)
         .map_or(JSValue::EXCEPTION, JSValue::Object)
 }
 

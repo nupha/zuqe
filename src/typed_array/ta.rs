@@ -612,7 +612,7 @@ pub fn js_typed_array_set_internal(
         return Err(-1);
     }
 
-    let src_p = src.clone().ensure_object(ctx)?;
+    let src_p = src.clone().objectify(ctx)?;
 
     let count: i64;
 

@@ -367,7 +367,7 @@ impl JSObject {
         ctx: &JSContext,
         properties: &JSValue,
     ) -> Result<(), i32> {
-        let props = properties.clone().ensure_object(ctx)?;
+        let props = properties.clone().objectify(ctx)?;
 
         // Note: each property of `props` is a descriptor object
         props.own_property_names_foreach(

@@ -153,7 +153,7 @@ pub fn JS_isConcatSpreadable(ctx: &JSContext, obj: &JSValue) -> Result<bool, i32
 }
 
 pub fn js_array_at(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj: JSValue = cc.this().clone().ensure_object(ctx)?.into();
+    let obj: JSValue = cc.this().clone().objectify(ctx)?.into();
     let len = js_get_length64(ctx, &obj)?;
 
     let mut idx: i64 = cc.arg(0).to_i64_saturating(ctx)?;
@@ -179,7 +179,7 @@ pub fn js_array_at(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj = cc.this().clone().ensure_object(ctx)?;
+    let obj = cc.this().clone().objectify(ctx)?;
     let len = obj.get_length_prop(ctx)?;
 
     let mut idx: i64 = cc.arg(0).to_i64_saturating(ctx)?;
@@ -271,7 +271,7 @@ pub fn js_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_array_concat(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let this: JSValue = cc.this().clone().ensure_object(ctx)?.into();
+    let this: JSValue = cc.this().clone().objectify(ctx)?.into();
     let arr = JS_ArraySpeciesCreate(ctx, &this, &JSValue::Int(0))?;
 
     let mut n = 0;
@@ -318,7 +318,7 @@ pub fn js_array_every(ctx: &JSContext, cc: CallContext) -> JSResult {
         obj = cc.this().clone();
         len = unsafe { js_typed_array_get_length_internal(ctx, &obj)? } as i64;
     } else {
-        obj = cc.this().clone().ensure_object(ctx)?.into();
+        obj = cc.this().clone().objectify(ctx)?.into();
         len = js_get_length64(ctx, &obj)?;
     }
 
@@ -436,7 +436,7 @@ pub fn js_array_reduce(ctx: &JSContext, cc: CallContext) -> JSResult {
         obj = cc.this().clone();
         len = unsafe { js_typed_array_get_length_internal(ctx, &obj)? as i64 };
     } else {
-        obj = cc.this().clone().ensure_object(ctx)?.into();
+        obj = cc.this().clone().objectify(ctx)?.into();
         len = js_get_length64(ctx, &obj)?;
     }
 
@@ -513,7 +513,7 @@ pub fn js_array_reduce(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj: JSValue = cc.this().clone().ensure_object(ctx)?.into();
+    let obj: JSValue = cc.this().clone().objectify(ctx)?.into();
     let len = js_get_length64(ctx, &obj)?;
 
     let mut start = if cc.length() > 1 && !cc.arg(1).is_undefined() {
@@ -539,7 +539,7 @@ pub fn js_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_array_find(ctx: &JSContext, cc: CallContext) -> JSResult {
     let mode = cc.magic();
-    let obj: JSValue = cc.this().clone().ensure_object(ctx)?.into();
+    let obj: JSValue = cc.this().clone().objectify(ctx)?.into();
     let len = js_get_length64(ctx, &obj)?;
 
     let func = cc.arg(0);
@@ -598,7 +598,7 @@ pub fn js_array_find(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj: JSValue = cc.this().clone().ensure_object(ctx)?.into();
+    let obj: JSValue = cc.this().clone().objectify(ctx)?.into();
     let len = js_get_length64(ctx, &obj)?;
 
     let mut res = -1;
@@ -645,7 +645,7 @@ pub fn js_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_array_lastIndexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj: JSValue = cc.this().clone().ensure_object(ctx)?.into();
+    let obj: JSValue = cc.this().clone().objectify(ctx)?.into();
     let len = js_get_length64(ctx, &obj)?;
     let target = cc.arg(0);
 
@@ -674,7 +674,7 @@ pub fn js_array_lastIndexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_array_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj = cc.this().clone().ensure_object(ctx)?;
+    let obj = cc.this().clone().objectify(ctx)?;
     let length = obj.get_length_prop(ctx)?;
     let target = cc.arg(0);
 
@@ -724,7 +724,7 @@ pub fn js_array_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
     let to_locale_string = cc.magic() == 1;
-    let obj = cc.this().clone().ensure_object(ctx)?;
+    let obj = cc.this().clone().objectify(ctx)?;
     let len = obj.get_length_prop(ctx)?;
 
     let mut c = b',' as i32; // default separator
@@ -774,7 +774,7 @@ pub fn js_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_array_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj = cc.this().clone().ensure_object(ctx)?;
+    let obj = cc.this().clone().objectify(ctx)?;
     obj.invoke_callable(ctx, JS_ATOM_join, &[])?
         .unwrap_or_else(|| {
             // use intrinsic `Object.prototype.toString`
@@ -784,7 +784,7 @@ pub fn js_array_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_array_pop(ctx: &JSContext, cc: CallContext) -> JSResult {
     let shift = cc.magic() == 1;
-    let obj = cc.this().clone().ensure_object(ctx)?;
+    let obj = cc.this().clone().objectify(ctx)?;
     let arr_len = obj.get_length_prop(ctx)?;
 
     let mut res = JSValue::UNDEFINED;
@@ -828,7 +828,7 @@ pub fn js_array_pop(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_array_push(ctx: &JSContext, cc: CallContext) -> JSResult {
     let unshift = cc.magic();
 
-    let obj = cc.this().clone().ensure_object(ctx)?;
+    let obj = cc.this().clone().objectify(ctx)?;
     let len = obj.get_length_prop(ctx)?;
 
     let new_len = len + cc.length() as i64;
@@ -853,7 +853,7 @@ pub fn js_array_push(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_array_reverse(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj: JSValue = cc.this().clone().ensure_object(ctx)?.into();
+    let obj: JSValue = cc.this().clone().objectify(ctx)?.into();
     let len = js_get_length64(ctx, &obj)?;
 
     if len <= 1 {
@@ -923,7 +923,7 @@ pub fn js_array_reverse(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_array_toReversed(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let this = cc.this().clone().ensure_object(ctx)?;
+    let this = cc.this().clone().objectify(ctx)?;
     let len = {
         let n = this.get_length_prop(ctx)?;
         if n > u32::MAX as i64 {
@@ -980,7 +980,7 @@ fn js_array_sort(ctx: &JSContext, cc: CallContext) -> JSResult {
             None
         }
     };
-    let obj = cc.this().clone().ensure_object(ctx)?;
+    let obj = cc.this().clone().objectify(ctx)?;
     Array::sort(ctx, &obj, cmpfn)?;
     Ok(obj.into())
 }
@@ -996,7 +996,7 @@ fn js_array_toSorted(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     };
 
-    let obj = cc.this().clone().ensure_object(ctx)?;
+    let obj = cc.this().clone().objectify(ctx)?;
     let len = obj.get_length_prop(ctx)?;
     if len > u32::MAX as i64 {
         ctx.throw_range_error("invalid array length");
@@ -1039,7 +1039,7 @@ fn js_array_toSorted(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
     let is_splice = cc.magic() != 0;
 
-    let obj = cc.this().clone().ensure_object(ctx)?;
+    let obj = cc.this().clone().objectify(ctx)?;
     let len = obj.get_length_prop(ctx)?;
     let start = cc.arg(0).to_i64_clamp(ctx, 0, len, len)?;
 
@@ -1166,7 +1166,7 @@ pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_array_toSpliced(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj = cc.this().clone().ensure_object(ctx)?;
+    let obj = cc.this().clone().objectify(ctx)?;
     let len = obj.get_length_prop(ctx)?;
 
     let start = if cc.length() > 0 {
@@ -1263,7 +1263,7 @@ pub fn js_array_toSpliced(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_array_copyWithin(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj = cc.this().clone().ensure_object(ctx)?;
+    let obj = cc.this().clone().objectify(ctx)?;
     let len = obj.get_length_prop(ctx)?;
 
     let to: i64 = cc.arg(0).to_i64_clamp(ctx, 0, len, len)?;
@@ -1296,7 +1296,7 @@ pub fn js_array_copyWithin(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_array_flatten(ctx: &JSContext, cc: CallContext) -> JSResult {
     let map = cc.magic();
 
-    let source: JSValue = cc.this().clone().ensure_object(ctx)?.into();
+    let source: JSValue = cc.this().clone().objectify(ctx)?.into();
     let source_len = js_get_length64(ctx, &source)?;
 
     let mut depth = 1;
@@ -1529,7 +1529,7 @@ fn js_array_from(ctx: &JSContext, cc: CallContext) -> JSResult {
 
         arr
     } else {
-        let src = items.clone().ensure_object(ctx)?;
+        let src = items.clone().objectify(ctx)?;
         let len = src.get_length_prop(ctx)?;
         let len_val = JSValue::from(len);
 

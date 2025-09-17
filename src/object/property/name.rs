@@ -383,7 +383,7 @@ impl JSValue {
         kind: JSIteratorKindEnum,
     ) -> Result<Box<[(JSValue, JSValue)]>, i32> {
         self.clone()
-            .ensure_object(ctx)
+            .objectify(ctx)
             .and_then(|o| o.get_own_property_kvs(ctx, flags, kind))
     }
 

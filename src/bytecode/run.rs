@@ -251,11 +251,13 @@ impl Bytecode {
             // loop running bytecodes
             let state: State = loop {
                 #[cfg(all(debug_assertions, feature = "dump_bytecode"))]
-                unsafe {
-                    let pos = pc.offset_from(pc_base) as usize;
-                    print!("[O.o] RUN {:5}: ", pos);
-                    crate::bytecode::dump::dump_opcode_one(ctx, self, pos);
-                    println!();
+                if super::dump::DUMP_RUN_INSTRUCTION {
+                    super::dump::dump_run_instruction(
+                        ctx,
+                        self,
+                        unsafe { pc.offset_from(pc_base) as usize },
+                        sp,
+                    );
                 }
 
                 let opcode = unsafe { std::mem::transmute::<u8, OpCode>(PC_FETCH!(u8)) };
@@ -331,7 +333,7 @@ impl Bytecode {
                                     JSValue::Object(ctx.global_obj().clone())
                                 }
                                 _ => {
-                                    if let Ok(v) = this_obj.clone().ensure_object(ctx) {
+                                    if let Ok(v) = this_obj.clone().objectify(ctx) {
                                         v.into()
                                     } else {
                                         break State::Exception;
@@ -473,6 +475,13 @@ impl Bytecode {
                         SP_PUT!(0, SP_REF!(-1).clone());
                         SP_GO!(1);
                     }
+                    OpCode::DUP1 => {
+                        // Stack operation: [a, b, ^] -> [a, a, b, ^]
+                        // Duplicates the second value from top and places it below top
+                        SP_PUT!(0, SP_TAKE!(-1));
+                        SP_PUT!(-1, SP_REF!(-2).clone());
+                        SP_GO!(1);
+                    }
                     OpCode::DUP2 => {
                         // Stack operation: [a, b, ^] -> [a, b, a, b, ^] where ^ is stack top
                         // Duplicates the top two values on the stack
@@ -487,13 +496,6 @@ impl Bytecode {
                         SP_PUT!(1, SP_REF!(-2).clone());
                         SP_PUT!(2, SP_REF!(-1).clone());
                         SP_GO!(3);
-                    }
-                    OpCode::DUP1 => {
-                        // Stack operation: [a, b, ^] -> [a, a, b, ^]
-                        // Duplicates the second value from top and places it below top
-                        SP_PUT!(0, SP_TAKE!(-1));
-                        SP_PUT!(-1, SP_REF!(-2).clone());
-                        SP_GO!(1);
                     }
                     OpCode::INSERT2 => {
                         // Stack operation: [obj, a, ^] -> [a, obj, a, ^]
@@ -1089,6 +1091,7 @@ impl Bytecode {
                         }
                     }
                     OpCode::GET_LOC => {
+                        // [^] -> [value, ^]
                         let idx = PC_FETCH!(u16);
                         SP_PUT!(0, VAR_REF!(idx).clone());
                         SP_GO!(1);
@@ -2127,8 +2130,9 @@ impl Bytecode {
                         }
                     }
                     OpCode::TO_OBJECT => {
+                        // [val, ^] -> [object, ^]
                         if !SP_REF!(-1).is_object() {
-                            if let Ok(o) = SP_REF!(-1).clone().ensure_object(ctx) {
+                            if let Ok(o) = SP_REF!(-1).clone().objectify(ctx) {
                                 SP_PUT!(-1, o.into());
                             } else {
                                 break State::Exception;
@@ -2305,9 +2309,9 @@ impl Bytecode {
 
                     OpCode::INVALID | _ => {
                         ctx.throw_internal_error(&format!(
-                            "invalid opcode: pc={}, opcode=0x{:02x}",
+                            "invalid opcode: 0x{:02x}, pc={}",
+                            opcode as u8,
                             unsafe { pc.offset_from(pc_base) - 1 },
-                            opcode as u8
                         ));
                         break State::Exception;
                     }

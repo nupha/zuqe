@@ -644,16 +644,17 @@ impl JSValue {
         }
     }
 
-    /// Convert value to object.
+    /// Migrage value to object.
     /// Handles primitive wrapping according to ES6 ToObject conversion rules.
     ///
     /// For example:
-    /// - integer 1 => \[object 1\]
-    /// - bool true => \[object true\]
-    /// - string "abc" => \[object "abc"\]
-    ///
-    /// Returns Err for null/undefined.
-    pub fn ensure_object(self, ctx: &JSContext) -> Result<JSObject, i32> {
+    /// - object => object (as-is)
+    /// - 10 => \[object 10\]
+    /// - true => \[object true\]
+    /// - "abc" => \[object "abc"\]
+    /// - Symbol() => \[object Symbol()\]
+    /// - null, undefined => Error
+    pub fn objectify(self, ctx: &JSContext) -> Result<JSObject, i32> {
         match self {
             Self::Object(o) => Ok(o),
             Self::Int(_) | Self::Float64(_) => ctx

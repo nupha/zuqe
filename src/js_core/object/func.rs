@@ -25,7 +25,7 @@ pub fn js_object_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     } else {
         match cc.arg(0) {
             JSValue::NULL | JSValue::UNDEFINED => ctx.create_base_object(),
-            a => a.clone().ensure_object(ctx),
+            a => a.clone().objectify(ctx),
         }
     }
     .map(JSValue::Object)
@@ -268,7 +268,7 @@ pub fn js_object_getOwnPropertyDescriptor(ctx: &JSContext, cc: CallContext) -> J
             return Err(-1);
         }
     } else {
-        if let Ok(o) = cc.arg(0).clone().ensure_object(ctx) {
+        if let Ok(o) = cc.arg(0).clone().objectify(ctx) {
             o
         } else {
             ctx.throw_type_error_not_an_object();
@@ -316,7 +316,7 @@ pub fn js_object_getOwnPropertyDescriptor(ctx: &JSContext, cc: CallContext) -> J
 }
 
 pub fn js_object_getOwnPropertyDescriptors(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj = cc.arg(0).clone().ensure_object(ctx)?;
+    let obj = cc.arg(0).clone().objectify(ctx)?;
     let res_obj = ctx.create_base_object()?;
 
     obj.own_property_names_foreach(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK, |cx, name| {
@@ -348,12 +348,12 @@ pub fn js_object_is(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 /// Object.assign(obj, source1)
 pub fn js_object_assign(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj = cc.arg(0).clone().ensure_object(ctx)?;
+    let obj = cc.arg(0).clone().objectify(ctx)?;
 
     if cc.length() > 1 {
         for a in &cc.arguments()[1..] {
             if !a.is_undefined_or_null() {
-                let src = a.clone().ensure_object(ctx)?;
+                let src = a.clone().objectify(ctx)?;
                 obj.copy_data_properties_from(ctx, &src.into(), None, true)?;
             }
         }
@@ -394,7 +394,7 @@ pub fn js_object_fromEntries(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_object_hasOwn(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let obj = cc.arg(0).clone().ensure_object(ctx)?;
+    let obj = cc.arg(0).clone().objectify(ctx)?;
     let atom = cc.arg(1).to_atom(ctx)?;
 
     // free atom when exit

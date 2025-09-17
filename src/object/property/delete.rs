@@ -151,14 +151,14 @@ impl JSValue {
     #[inline]
     pub fn delete_property(&self, ctx: &JSContext, prop: JSAtom, flags: u32) -> Result<bool, i32> {
         self.clone()
-            .ensure_object(ctx)
+            .objectify(ctx)
             .and_then(|o| o.delete_property(ctx, prop, flags))
     }
 
     #[inline]
     pub fn delete_property_i64(&self, ctx: &JSContext, idx: i64, flags: u32) -> Result<bool, i32> {
         self.clone()
-            .ensure_object(ctx)
+            .objectify(ctx)
             .and_then(|o| o.delete_property_i64(ctx, idx, flags))
     }
 }

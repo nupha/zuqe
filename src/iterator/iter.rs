@@ -48,7 +48,7 @@ impl ForInIterObjPayload {
         let obj: JSValue = match val {
             JSValue::Object(_) => val,
             JSValue::NULL | JSValue::UNDEFINED => val,
-            _ => val.ensure_object(ctx)?.into(),
+            _ => val.objectify(ctx)?.into(),
         };
         let mut it = Box::new(ForInIterObjPayload {
             obj: obj.clone(),
