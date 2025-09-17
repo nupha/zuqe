@@ -335,7 +335,7 @@ impl JSValue {
                 | JSValue::Module(_)
                 | JSValue::Bytecode(_)
                 | JSValue::AsyncStateResume(_) => {
-                    ctx.throw_type_error(&format!("cannot convert {} to atom", self));
+                    ctx.throw_type_error("cannot convert to atom");
                     return Err(-1);
                 }
 

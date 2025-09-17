@@ -1,10 +1,38 @@
 use std::{borrow::Cow, rc::Rc};
 
-use crate::string::{JSString, StringChar};
+use crate::{
+    context::JSContext,
+    number::f64_stringify,
+    string::{JSString, StringChar},
+};
 
 use super::JSValue;
 
-impl std::fmt::Display for JSValue {
+impl JSValue {
+    /// Get value representation string.
+    pub fn repr(&self, ctx: &JSContext) -> Result<Cow<'_, str>, i32> {
+        match self {
+            Self::String(s) => {
+                Ok(match s.content().to_utf8() {
+                    Cow::Borrowed(str) => {
+                        // use string description content pointer.
+                        Cow::Borrowed(unsafe { (str as *const str).as_ref().unwrap() })
+                    }
+                    o => o,
+                })
+            }
+            Self::Symbol(p) => {
+                let s = p.atom_info().unwrap().atom().to_utf8(ctx.rt());
+                Ok(format!("Symbol({s})").into())
+            }
+            _ => Ok(Cow::Owned(
+                self.to_string(ctx)?.content().to_utf8().into_owned(),
+            )),
+        }
+    }
+}
+
+impl std::fmt::Debug for JSValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let str: Cow<str> = match self {
             Self::Int(i) => format!("{}", *i).into(),
@@ -16,13 +44,7 @@ impl std::fmt::Display for JSValue {
                 format!("Symbol({})", p.atom_info().unwrap().atom().to_utf8(p.rt())).into()
             }
             Self::Object(p) => format!("{p}").into(),
-            Self::Float64(n) => match *n {
-                f64::INFINITY => "Infinity".into(),
-                f64::NEG_INFINITY => "-Infinity".into(),
-                // 0.0 if n.is_sign_negative() => "-0".into(),
-                0.0 => "0".into(),
-                n => format!("{n}").into(),
-            },
+            Self::Float64(n) => f64_stringify(*n, 10, None, 0),
 
             Self::Module(_) => "[module]".into(),
             Self::Bytecode(b) => {

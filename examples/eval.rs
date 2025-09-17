@@ -38,7 +38,7 @@ fn js_print(ctx: &JSContext, cc: CallContext) -> JSResult {
             if level == 1 && arg.is_object() {
                 format!("{arg:?}")
             } else {
-                format!("{arg}")
+                format!("{:?}", arg.repr(ctx))
             },
             color(),
         );

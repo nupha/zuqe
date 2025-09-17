@@ -29,9 +29,10 @@ impl JSParseState<'_> {
                 self.token
             );
 
-            // Note: don't use string content, it may be escaped.
-            // instead, we extract raw bytes from last token ptr to current buf ptr.
-            // this bytes content includes 2 quotes, convert it to str.
+            // Note: don't use parsed string content, it could have been escaped.
+            // instead, we extract raw bytes as-is from input ranging
+            // last token ptr through current buf ptr.
+            // this range of bytes includes 2 quote chars.
             let str = str::from_utf8(unsafe {
                 debug_assert!(self.token.ptr <= self.buf_ptr.offset(-2));
 

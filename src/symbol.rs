@@ -74,7 +74,8 @@ pub fn js_thisSymbolValue(ctx: &JSContext, this_val: &JSValue) -> JSResult {
 
 pub fn js_symbol_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
     let val = js_thisSymbolValue(ctx, cc.this())?;
-    ctx.create_string_from_utf8(format!("{val}").into_bytes())
+    let s = val.repr(ctx)?;
+    ctx.create_string_from_utf8(s.into_owned().into_bytes())
         .map(JSValue::String)
 }
 

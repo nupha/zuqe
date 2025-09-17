@@ -1,5 +1,4 @@
 use std::{
-    borrow::Cow,
     cell::Cell,
     cmp::Ordering,
     ffi::CStr,
@@ -663,24 +662,6 @@ impl JSValue {
             self.to_string(ctx).map(JSValue::String)
         } else {
             self.invoke(ctx, JS_ATOM_toLocaleString, &[])
-        }
-    }
-
-    /// Convert value `self` to utf8 encoded text.
-    pub fn to_utf8(&self, ctx: &JSContext) -> Result<Cow<'_, str>, i32> {
-        match self {
-            Self::String(s) | Self::Symbol(s) => {
-                Ok(match s.content().to_utf8() {
-                    Cow::Borrowed(str) => {
-                        // use string description content pointer.
-                        Cow::Borrowed(unsafe { (str as *const str).as_ref().unwrap() })
-                    }
-                    o => o,
-                })
-            }
-            _ => Ok(Cow::Owned(
-                self.to_string(ctx)?.content().to_utf8().into_owned(),
-            )),
         }
     }
 }

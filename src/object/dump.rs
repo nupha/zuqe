@@ -3,7 +3,6 @@ use crate::{
     object::{GCObject, JSProperty, JSShapeInner},
     runtime::JSRuntime,
     typed_array::typed_array_size_log2,
-    value::JSValue,
 };
 
 use super::{JSObject, JSShape};
@@ -83,7 +82,7 @@ impl JSObject {
                             if i != 0 {
                                 print!(", ");
                             }
-                            print!("{v}");
+                            print!("{v:?}");
                         }
                     });
                 }
@@ -129,7 +128,7 @@ impl JSObject {
                 if let Some(pr) = prop_values.get(idx) {
                     match pr {
                         JSProperty::Normal(val) => {
-                            print!("{val}");
+                            print!("{val:?}");
                         }
                         JSProperty::GetSet { getter, setter } => {
                             print!(
@@ -168,7 +167,7 @@ impl JSObject {
                 if b.closure_var_count != 0 {
                     print!(" Closure:");
                     for vr in func.var_refs.iter() {
-                        print!(" {}", vr.value());
+                        print!(" {:?}", vr.value());
                     }
 
                     if let Some(o) = &func.home_object {

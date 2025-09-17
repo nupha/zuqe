@@ -301,7 +301,7 @@ pub(crate) fn dump_opcodes(
 
             OpcodeFormat::CONST => {
                 let idx = unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos)) as usize };
-                print!(" {idx}:{}", cpools[idx]);
+                print!(" {idx}:{}", cpools[idx].repr(ctx).unwrap());
             }
             OpcodeFormat::ATOM => {
                 let a = unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos)) };
@@ -760,7 +760,10 @@ pub(super) fn dump_run_instruction(
 
         OpcodeFormat::CONST => {
             let idx = unsafe { read_from_ptr::<u32>(tab.as_ptr().add(pos)) };
-            print!(" {idx}:{}", b.load_const(idx as usize).unwrap());
+            print!(
+                " {idx}:{}",
+                b.load_const(idx as usize).unwrap().repr(ctx).unwrap()
+            );
         }
         OpcodeFormat::ATOM => {
             let a = unsafe { read_from_ptr::<u32>(tab.as_ptr().add(pos)) };
@@ -906,7 +909,7 @@ pub(super) fn dump_run_stack(
             },
             if i >= mark_start { mark } else { ' ' },
             {
-                let mut s = format!("{:?}", v.to_utf8(ctx).unwrap());
+                let mut s = format!("{:?}", v.repr(ctx).unwrap());
                 if !v.is_string() {
                     s = s[1..s.len() - 1].to_string();
                 }

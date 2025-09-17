@@ -830,7 +830,7 @@ pub fn js_typed_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
     let n = unsafe { js_typed_array_get_length_internal(ctx, this_val)? };
     let sep: std::borrow::Cow<'_, str> =
         if !to_locale && cc.length() > 0 && !cc.arg(0).is_undefined() {
-            cc.arg(0).to_utf8(ctx)?
+            cc.arg(0).repr(ctx)?
         } else {
             ",".into() // default separator
         };

@@ -195,12 +195,12 @@ impl BytecodeFunction {
                 if i != 0 {
                     buf.push(b',');
                 }
-                buf.extend_from_slice(a.to_utf8(ctx)?.as_bytes());
+                buf.extend_from_slice(a.repr(ctx)?.as_bytes());
             }
             buf.extend_from_slice(b"){");
 
             // function body
-            buf.extend_from_slice(body.to_utf8(ctx)?.as_bytes());
+            buf.extend_from_slice(body.repr(ctx)?.as_bytes());
         } else {
             // no arguments
             buf.extend_from_slice(b"){");

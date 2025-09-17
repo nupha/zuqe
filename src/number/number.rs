@@ -93,7 +93,10 @@ impl From<i64> for JSValue {
 
 impl From<f64> for JSValue {
     fn from(d: f64) -> Self {
-        if d.fract() == 0.0 {
+        if d == 0.0 && d.is_sign_negative() {
+            // -0
+            Self::from_f64_as_is(d)
+        } else if d.fract() == 0.0 {
             // integral
             let n = d as i64;
             if (i32::MIN as i64..=i32::MAX as i64).contains(&n) {

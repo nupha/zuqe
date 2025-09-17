@@ -316,11 +316,15 @@ impl JSValue {
                         .unwrap_or(Ok(JSValue::UNDEFINED))
                 }
             }
-            Self::NULL | Self::UNDEFINED => {
+            v @ (Self::NULL | Self::UNDEFINED) => {
                 ctx.throw_type_error(&format!(
                     "cannot read property '{}' of {}",
                     prop.to_utf8(ctx.rt()),
-                    self
+                    if v.is_undefined() {
+                        "undefined"
+                    } else {
+                        "null"
+                    }
                 ));
                 Err(-1)
             }

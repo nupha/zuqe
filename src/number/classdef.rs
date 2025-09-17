@@ -32,7 +32,7 @@ pub fn js_parseInt(ctx: &JSContext, cc: CallContext) -> JSResult {
     let ret = if radix != 0 && !(2..=36).contains(&radix) {
         JSValue::Float64(f64::NAN)
     } else {
-        let str = cc.arg(0).to_utf8(ctx)?;
+        let str = cc.arg(0).repr(ctx)?;
         let str = str.as_ref().trim();
         unsafe {
             js_atof(
@@ -49,7 +49,7 @@ pub fn js_parseInt(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_parseFloat(ctx: &JSContext, args: CallContext) -> JSResult {
-    let str = args.arg(0).to_utf8(ctx)?;
+    let str = args.arg(0).repr(ctx)?;
     let str = str.as_ref().trim();
     unsafe { js_atof(ctx, str.as_ptr(), std::ptr::null_mut(), 10, 0) }
 }
