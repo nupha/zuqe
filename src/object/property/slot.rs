@@ -23,7 +23,7 @@ impl JSObject {
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        // check configurable
+        // 1. check configurable
         match prs_flags & JS_PROP_TMASK {
             JS_PROP_NORMAL => {
                 if prs_flags & (JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE) == 0
@@ -61,7 +61,7 @@ impl JSObject {
             }
         }
 
-        // update value
+        // 2. update value
         if prs_flags & JS_PROP_TMASK == JS_PROP_VARREF {
             let slot = &mut self.0.prop_values.borrow_mut()[idx];
             if let JSProperty::VarRef(vref) = slot {

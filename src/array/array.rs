@@ -42,9 +42,14 @@ impl Array {
 
     /// get `length` property value
     pub fn get_length_prop(&self, ctx: &JSContext) -> Result<i64, i32> {
-        self.0.0.prop_values.borrow()[0]
-            .value(ctx, &JSValue::UNDEFINED)
-            .and_then(|v| v.to_length(ctx))
+        if let JSProperty::Normal(v) = &self.0.0.prop_values.borrow()[0] {
+            v.to_length(ctx)
+        } else {
+            #[cfg(debug_assertions)]
+            unreachable!();
+            #[cfg(not(debug_assertions))]
+            std::hint::unreachable_unchecked();
+        }
     }
 
     /// Update `length` property of an array-like object.

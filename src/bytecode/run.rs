@@ -380,18 +380,17 @@ impl Bytecode {
                                 }
                             }
                             SpecialObject::MappedArguments => {
-                                SP_PUT!(
-                                    0,
-                                    js_build_mapped_arguments(
-                                        ctx,
-                                        args,
-                                        stack_frame,
-                                        std::cmp::min(
-                                            args.len() as i32,
-                                            self.0.borrow().arg_count as i32
-                                        ),
-                                    )
-                                );
+                                let ma = js_build_mapped_arguments(
+                                    ctx,
+                                    args,
+                                    stack_frame,
+                                    std::cmp::min(
+                                        args.len() as i32,
+                                        self.0.borrow().arg_count as i32,
+                                    ),
+                                )
+                                .map_or(JSValue::EXCEPTION, JSValue::Object);
+                                SP_PUT!(0, ma);
                                 SP_GO!(1);
                                 if SP_REF!(-1).is_exception() {
                                     break State::Exception;
@@ -1740,8 +1739,7 @@ impl Bytecode {
                     }
                     OpCode::GET_ARRAY_EL => {
                         // [array, prop, ^] -> [value, ^]
-                        let array = SP_REF!(-2);
-                        let val = array
+                        let val = SP_REF!(-2)
                             .get_property_value(ctx, &SP_TAKE!(-1))
                             .unwrap_or(JSValue::EXCEPTION);
                         let is_err = val.is_exception();

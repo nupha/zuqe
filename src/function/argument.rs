@@ -85,80 +85,62 @@ pub unsafe fn js_build_arguments(ctx: &JSContext, args: &[JSValue]) -> JSValue {
 }
 
 /// legacy arguments object: add references to the function arguments
-pub unsafe fn js_build_mapped_arguments(
+pub fn js_build_mapped_arguments(
     ctx: &JSContext,
     args: &[JSValue],
     sf: &mut StackFrame,
     arg_count: i32,
-) -> JSValue {
-    let val: JSValue = if let Ok(o) = ctx.create_object_from_proto(
-        ctx.0.borrow().class_proto[JS_CLASS_OBJECT as usize].clone(),
-        ObjectPayload::MAPPED_ARGUMENTS,
-    ) {
-        o.into()
-    } else {
-        return JSValue::EXCEPTION;
-    };
+) -> Result<JSObject, i32> {
+    let obj = ctx
+        .create_object_from_proto(
+            ctx.0.borrow().class_proto[JS_CLASS_OBJECT as usize].clone(),
+            ObjectPayload::MAPPED_ARGUMENTS,
+        )
+        .map_err(|_| -1)?;
 
-    let p = val.as_object_unchecked();
-
-    // add the length property (cannot fail)
-    p.add_own_property(
+    // add the `length` property
+    obj.add_own_property(
         ctx,
         JS_ATOM_length,
         JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
         JSProperty::Normal(JSValue::Int(args.len() as i32)),
-    )
-    .unwrap();
+    )?;
 
     for i in 0..arg_count {
-        match sf.get_var_ref(ctx, i as _, true) {
-            Ok(vr) => {
-                if p.add_own_property(
-                    ctx,
-                    JSAtom::new_small_int(i as u32),
-                    JS_PROP_C_W_E | JS_PROP_VARREF,
-                    JSProperty::VarRef(vr),
-                )
-                .is_err()
-                {
-                    return JSValue::EXCEPTION;
-                }
-            }
-            Err(_) => {
-                return JSValue::EXCEPTION;
-            }
-        }
+        let vref = sf.get_var_ref(ctx, i as _, true)?;
+        obj.add_own_property(
+            ctx,
+            JSAtom::new_small_int(i as u32),
+            JS_PROP_C_W_E | JS_PROP_VARREF,
+            JSProperty::VarRef(vref),
+        )?;
     }
 
     // the arguments not mapped to the arguments of the function can be normal properties
     for i in arg_count as usize..args.len() {
-        if val
-            .define_property_value_u32(ctx, i as _, args[i].clone(), JS_PROP_C_W_E)
-            .is_err()
-        {
-            return JSValue::EXCEPTION;
-        }
+        obj.define_property_value_u32(ctx, i as _, args[i].clone(), JS_PROP_C_W_E)?;
     }
 
-    let _ = val.define_property_value(
+    obj.define_property_value(
         ctx,
         JS_ATOM_Symbol_iterator,
         ctx.0.borrow().array_proto_values.clone(),
         JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
-    );
+    )?;
 
     // callee returns this function in non strict mode
-    let _ = val.define_property_value(
+    obj.define_property_value(
         ctx,
         JS_ATOM_callee,
-        (*ctx.rt().cur_stack_frame.cast::<StackFrame>())
-            .cur_func
-            .clone(),
+        unsafe {
+            (*ctx.rt().cur_stack_frame.cast::<StackFrame>())
+                .cur_func
+                .clone()
+        },
         JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
-    );
+    )?;
 
-    val
+    Ok(obj)
 }
 
 #[deprecated(note = "use JSContext::build_rest() instead")]

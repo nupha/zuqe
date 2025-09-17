@@ -207,7 +207,7 @@ impl Bytecode {
 
     pub fn gc_sweep(&self) {
         self.cpools_slice().iter().for_each(|v| {
-            v.gc_mark();
+            v.gc_sweep();
         });
     }
 }

@@ -256,7 +256,7 @@ impl Default for JSProperty {
 
 impl JSProperty {
     /// retrive property value
-    pub fn value(&self, ctx: &JSContext, this_obj: &JSValue) -> JSResult {
+    pub(super) fn value(&self, ctx: &JSContext, this_obj: &JSValue) -> JSResult {
         match self {
             Self::Normal(v) => {
                 debug_assert!(!v.is_exception());

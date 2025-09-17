@@ -131,6 +131,20 @@ pub const JS_CALL_FLAG_COPY_ARGV: i32 = 1 << 1;
 pub const JS_CALL_FLAG_GENERATOR: i32 = 1 << 2;
 
 impl JSObject {
+    /// call `self` object. if object is not callable, returns not function error.
+    #[inline(always)]
+    pub fn call(&self, ctx: &JSContext, this_obj: &JSValue, args: &[JSValue]) -> JSResult {
+        JS_CallInternal(
+            ctx,
+            &self.clone().into(),
+            this_obj,
+            JSValue::UNDEFINED,
+            args,
+            JS_CALL_FLAG_COPY_ARGV,
+        )
+        .err()
+    }
+
     /// call function `self.method`
     ///
     /// `method` is not consumed
@@ -177,7 +191,7 @@ impl JSObject {
 }
 
 impl JSValue {
-    /// call `self`. if `self` value is not callable, returns not function error.
+    /// call `self` value. if value is not callable, returns not function error.
     #[inline(always)]
     pub fn call(&self, ctx: &JSContext, this_obj: &Self, args: &[JSValue]) -> JSResult {
         JS_CallInternal(

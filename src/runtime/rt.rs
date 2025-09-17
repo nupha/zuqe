@@ -242,7 +242,12 @@ impl JSRuntime {
         #[cfg(not(debug_assertions))]
         self.context_list.clear();
 
-        self.gc();
+        #[cfg(debug_assertions)]
+        {
+            // drop runtime will drop objects automatically,
+            // this gc() call is for testing purpose only.
+            self.gc();
+        }
 
         // #[cfg(feature = "dump_leaks")]
         // {

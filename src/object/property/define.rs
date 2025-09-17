@@ -71,7 +71,7 @@ impl JSObject {
                 }
 
                 let res = if flags
-                    & (JS_PROP_HAS_VALUE | JS_PROP_HAS_GET | JS_PROP_HAS_SET | JS_PROP_WRITABLE)
+                    & (JS_PROP_HAS_VALUE | JS_PROP_HAS_WRITABLE | JS_PROP_HAS_GET | JS_PROP_HAS_SET)
                     != 0
                 {
                     if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0 {
