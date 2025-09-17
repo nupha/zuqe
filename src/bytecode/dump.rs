@@ -647,9 +647,6 @@ fn print_lines(source: &str, from_line: usize, to_line: usize) {
 //     // p
 // }
 
-pub(super) const DUMP_RUN_INSTRUCTION: bool = true;
-pub(super) const DUMP_RUN_STACK: bool = false;
-
 /// dump instruction (opcode and params) at given pc.
 pub(super) fn dump_run_instruction(
     ctx: &JSContext,

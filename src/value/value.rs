@@ -93,7 +93,7 @@ mod nb_value {
 pub use nb_value::*;
 
 #[repr(u8)]
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum JSValue {
     UNDEFINED,
     NULL,

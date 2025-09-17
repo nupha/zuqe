@@ -20,7 +20,7 @@ use crate::{
     },
     stack_frame::StackFrame,
     string::JS_ConcatString3,
-    value::{JSValue, JSValueConst},
+    value::JSValue,
 };
 
 pub fn js_operator_delete(ctx: &JSContext, sp: *mut JSValue) -> i32 {

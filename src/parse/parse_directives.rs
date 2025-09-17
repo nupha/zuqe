@@ -95,12 +95,12 @@ impl JSParseState<'_> {
             }
 
             #[cfg(all(debug_assertions, feature = "dump_bytecode"))]
-            "use debug_dump_run" => {
-                self.cur_func_mut().debug.dump_run = true;
+            "debug dump_run" => {
+                self.cur_func_mut().debug.dump_run = 1;
             }
             #[cfg(all(debug_assertions, feature = "dump_bytecode"))]
-            "use debug_dump_run_stack" => {
-                self.cur_func_mut().debug.dump_run_stack = true;
+            "debug dump_run_stack" => {
+                self.cur_func_mut().debug.dump_run = 2;
             }
 
             _ => {}

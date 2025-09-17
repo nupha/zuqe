@@ -588,7 +588,7 @@ impl JSValue {
     pub fn to_string_or_symbol(&self, ctx: &JSContext) -> Result<Self, i32> {
         match self {
             Self::String(_) | Self::Symbol(_) => {
-                Ok(self.clone()) // string or symbol 'as-is'
+                Ok(self.clone()) // string or symbol: as-is
             }
 
             Self::Int(i) => ctx
@@ -601,7 +601,6 @@ impl JSValue {
                 let s = f64_stringify(*n, 10, None, 0);
                 ctx.create_string_from_str(s.as_ref()).map(Self::String)
             }
-
             Self::NULL => JS_ATOM_null.to_string(ctx).map(Self::String),
             Self::UNDEFINED => JS_ATOM_undefined.to_string(ctx).map(Self::String),
 
@@ -619,10 +618,10 @@ impl JSValue {
                 #[cfg(not(debug_assertions))]
                 Err(-1)
             }
-
-            _ => ctx
-                .create_string_from_str("[unsupported type]")
-                .map(Self::String),
+            _ => {
+                ctx.throw_type_error("can't convert to string or symbol");
+                Err(-1)
+            }
         }
     }
 

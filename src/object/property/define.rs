@@ -48,7 +48,6 @@ impl JSObject {
                     val = JSValue::from(array_length as u32);
                 }
 
-                // property already exists
                 if !check_define_prop_flags(prs_flags, flags) {
                     return if ctx.should_throw_error(flags) {
                         ctx.throw_type_error("property is not configurable");

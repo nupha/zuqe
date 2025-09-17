@@ -257,7 +257,11 @@ impl UnaryOp {
             }
             UnaryOp::Float(a) => {
                 if a == 0.0 {
-                    JSValue::Float64(-0.0)
+                    if a.is_sign_negative() {
+                        JSValue::Int(0)
+                    } else {
+                        JSValue::Float64(-0.0)
+                    }
                 } else {
                     JSValue::from(-a)
                 }

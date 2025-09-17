@@ -11,6 +11,7 @@ use crate::{
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_NORMAL, JS_PROP_TMASK, JSObject, JSProperty, ObjectPayload,
     },
+    object_cast,
     runtime::JSRuntime,
     value::JSValue,
 };
@@ -102,6 +103,38 @@ impl FuncObjPayload {
     }
 }
 
+/// represents a bytecode function, generator function, async function or async generator function,
+/// which have bytecode.
+#[derive(Debug, Clone)]
+#[repr(transparent)]
+pub struct BCFunction(JSObject);
+
+object_cast!(
+    BCFunction,
+    JS_CLASS_BYTECODE_FUNCTION
+        | JS_CLASS_GENERATOR_FUNCTION
+        | JS_CLASS_ASYNC_FUNCTION
+        | JS_CLASS_ASYNC_GENERATOR_FUNCTION
+);
+
+impl BCFunction {
+    #[inline]
+    pub fn is_async(&self) -> bool {
+        matches!(
+            self.class_id(),
+            JS_CLASS_ASYNC_FUNCTION | JS_CLASS_ASYNC_GENERATOR_FUNCTION
+        )
+    }
+
+    #[inline]
+    pub fn is_generator(&self) -> bool {
+        matches!(
+            self.class_id(),
+            JS_CLASS_GENERATOR_FUNCTION | JS_CLASS_ASYNC_GENERATOR_FUNCTION
+        )
+    }
+}
+
 impl JSObject {
     /// check if `self` is a function or a callable object.
     /// raise exception if not.
@@ -109,7 +142,7 @@ impl JSObject {
         if self.is_callable() {
             Ok(self)
         } else {
-            ctx.throw_type_error("not a function");
+            ctx.throw_type_error("not callable");
             Err(-1)
         }
     }
@@ -122,20 +155,10 @@ impl JSValue {
         if self.is_callable() {
             Ok(self)
         } else {
-            ctx.throw_type_error("not a function");
+            ctx.throw_type_error("not callable");
             Err(-1)
         }
     }
-}
-
-pub(crate) const fn js_class_has_bytecode(class_id: JSClassID) -> bool {
-    matches!(
-        class_id,
-        JS_CLASS_BYTECODE_FUNCTION
-            | JS_CLASS_GENERATOR_FUNCTION
-            | JS_CLASS_ASYNC_FUNCTION
-            | JS_CLASS_ASYNC_GENERATOR_FUNCTION
-    )
 }
 
 /// TODO: change func_obj type to JSObject

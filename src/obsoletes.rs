@@ -7,7 +7,9 @@ use std::{
 };
 
 use crate::{
-    JS_CLASS_ARRAY, JS_CLASS_ARRAY_BUFFER, JS_CLASS_ERROR, JS_CLASS_OBJECT, JS_CLASS_PROXY,
+    JS_CLASS_ARRAY, JS_CLASS_ARRAY_BUFFER, JS_CLASS_ASYNC_FUNCTION,
+    JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_ERROR,
+    JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_OBJECT, JS_CLASS_PROXY,
     array::Array,
     array_buffer::JSFreeArrayBufferDataFunc,
     atom::{
@@ -4241,4 +4243,15 @@ pub unsafe fn map_add_record(
 #[deprecated]
 pub unsafe fn map_hash_resize(ctx: &JSContext, s: *mut JSMapState) {
     unreachable!("unused")
+}
+
+#[deprecated(note = "use JSObject::as_BCFunction().is_some() to check")]
+pub(crate) const fn js_class_has_bytecode(class_id: JSClassID) -> bool {
+    matches!(
+        class_id,
+        JS_CLASS_BYTECODE_FUNCTION
+            | JS_CLASS_GENERATOR_FUNCTION
+            | JS_CLASS_ASYNC_FUNCTION
+            | JS_CLASS_ASYNC_GENERATOR_FUNCTION
+    )
 }

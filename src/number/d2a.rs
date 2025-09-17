@@ -57,7 +57,7 @@ pub fn f64_stringify<'a>(
         }
         .into()
     } else if num == 0.0 {
-        if num.is_sign_negative() { "-0" } else { "0" }.into()
+        "0".into() // +0.0, -0.0 -> 0
     } else {
         let mut num = num;
         let mut use_scientific = flags & JS_DTOA_FORCE_EXP != 0

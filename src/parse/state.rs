@@ -70,9 +70,6 @@ pub struct JSParseState<'s> {
 
 impl Drop for JSParseState<'_> {
     fn drop(&mut self) {
-        #[cfg(debug_assertions)]
-        println!("[O.o] JSParseState::drop()");
-
         self.clear_atom_in_token();
     }
 }

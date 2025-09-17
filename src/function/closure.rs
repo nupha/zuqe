@@ -1,18 +1,13 @@
-use fallible_collections::FallibleVec;
-
 use crate::{
-    JS_CLASS_ASYNC_GENERATOR, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_GENERATOR,
+    JS_CLASS_ASYNC_GENERATOR, JS_CLASS_GENERATOR,
     atom::{JS_ATOM_NULL, JSAtom, consts::*},
     context::JSContext,
-    error::JSResult,
     function::{
-        Bytecode, FuncObjPayload, JSFunctionKindEnum, JSVarRef, func_kind_to_class_id,
-        js_class_has_bytecode, js_function_set_properties,
+        Bytecode, FuncObjPayload, JSFunctionKindEnum, JSVarRef, js_function_set_properties,
     },
     object::{JS_PROP_WRITABLE, JS_SetConstructorBit, JSObject, LazyInit, ObjectPayload},
     runtime::JS_MAX_LOCAL_VARS,
     stack_frame::StackFrame,
-    value::JSValue,
 };
 
 use super::{ARG_SCOPE_END, JSFunctionDef, JSVarDef, JSVarKindEnum, is_var_in_arg_scope};
@@ -227,9 +222,8 @@ impl Bytecode {
         parent_frame: Option<&mut StackFrame>,
     ) -> Result<JSObject, i32> {
         debug_assert!(
-            js_class_has_bytecode(target.class_id()),
-            "class {} does not have bytecode",
-            target.class_id()
+            target.as_BCFunction().is_some(),
+            "object does not contain bytecode",
         );
 
         // borrow func_obj in code block only

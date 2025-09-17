@@ -252,9 +252,8 @@ impl Bytecode {
 
         'restart: loop {
             let state: State = loop {
-                //
                 #[cfg(all(debug_assertions, feature = "dump_bytecode"))]
-                if super::dump::DUMP_RUN_INSTRUCTION {
+                {
                     if debug_setting.is_none() {
                         let b = stack_frame
                             .cur_func
@@ -268,19 +267,14 @@ impl Bytecode {
                         debug_setting.replace(b);
                     }
 
-                    if debug_setting.map_or(false, |s| s.dump_run) {
-                        let dump_run_stack = debug_setting.map(|s| s.dump_run_stack).unwrap();
-
+                    let dr = debug_setting.map_or(0, |s| s.dump_run);
+                    if dr != 0 {
                         super::dump::dump_run_instruction(
                             ctx,
                             self,
                             unsafe { pc.offset_from(pc_base) as usize },
-                            if dump_run_stack {
-                                sp_base
-                            } else {
-                                std::ptr::null()
-                            },
-                            if dump_run_stack { sp } else { std::ptr::null() },
+                            if dr == 2 { sp_base } else { std::ptr::null() },
+                            if dr == 2 { sp } else { std::ptr::null() },
                         );
                     }
                 }
@@ -2343,7 +2337,7 @@ impl Bytecode {
                 } // match opcode
 
                 #[cfg(all(debug_assertions, feature = "dump_bytecode"))]
-                if debug_setting.map_or(false, |s| s.dump_run && s.dump_run_stack) {
+                if debug_setting.map_or(0, |s| s.dump_run) == 2 {
                     let oi = super::opcode_info_final(opcode as u8);
                     if oi.n_push > 0 {
                         super::dump::dump_run_stack(
