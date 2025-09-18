@@ -151,19 +151,25 @@ fn main() {
                             std::thread::sleep(std::time::Duration::from_millis(100));
                         }
                         Ok(false) => {
-                            println!("[O.o] promise done, print result ...");
+                            let v = pr.result();
+                            println!("promise state: {:?}", pr.state());
+                            println!("promise result: {v:?}");
                             break;
                         }
                         Err(_) => {
-                            println!("[O.o] error in tick");
+                            println!("--- Error in promise job ---");
+
+                            let exc = ctx.exception();
+                            debug_assert!(!exc.is_undefined_or_null()); // FIXME: this assert fails!
+
+                            println!("!!! EXCEPTION {exc:?}: {:?}", exc.to_string(&ctx));
+                            if let JSValue::Object(o) = exc {
+                                o.dump(ctx.rt());
+                            };
                             break;
                         }
                     }
                 }
-
-                let v = pr.result();
-                println!("promise state: {:?}", pr.state());
-                println!("promise result: {v:?}");
             } else {
                 let s = v.to_string(&ctx);
                 println!(

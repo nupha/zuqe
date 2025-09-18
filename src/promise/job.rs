@@ -105,21 +105,18 @@ impl JSRuntime {
         // fetch the first pending job and execute it
         if let Some(job) = self.job_list.pop_front() {
             let res = {
-                let cc = CallContext::new(
+                (job.callback)(
                     &job.ctx,
-                    JSValue::UNDEFINED,
-                    &job.args[..job.argc as usize],
-                    0,
-                    None,
-                );
-                (job.callback)(&job.ctx, cc)
+                    CallContext::new_simple(
+                        &job.ctx,
+                        JSValue::UNDEFINED,
+                        &job.args[..job.argc as usize],
+                    ),
+                )
             };
 
-            if res.is_ok() {
-                Ok(Some(job.ctx))
-            } else {
-                Err((job.ctx, -1))
-            }
+            let ctx = job.ctx;
+            res.map(|_| Some(ctx.clone())).map_err(|_| (ctx, -1))
         } else {
             Ok(None) // no job to run
         }

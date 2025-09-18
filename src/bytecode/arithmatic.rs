@@ -169,21 +169,47 @@ impl TwoNumbers {
     }
 
     pub fn shl(self) -> JSValue {
-        match self {
-            Self::Int(v1, v2) => JSValue::from((v1 as u32) << (v2 & 0x1f)),
-            Self::Float(v1, v2) => JSValue::from((v1.trunc() as u32) << (v2.trunc() as u32 & 0x1f)),
-        }
-    }
-
-    pub fn shr(self) -> JSValue {
-        match self {
-            Self::Int(v1, v2) => JSValue::from((v1 as u32) >> (v2 & 0x1f)),
-            Self::Float(v1, v2) => JSValue::from((v1.trunc() as u32) >> (v2.trunc() as u32 & 0x1f)),
-        }
+        let (a, b) = match self {
+            Self::Int(v1, v2) => (v1, v2),
+            Self::Float(v1, v2) => {
+                let v1 = if v1.is_finite() {
+                    v1 as u64 as u32 as i32
+                } else {
+                    0
+                };
+                let v2 = if v2.is_finite() {
+                    v2 as u64 as u32 as i32
+                } else {
+                    0
+                };
+                (v1, v2)
+            }
+        };
+        JSValue::Int(a << (b & 0x1f))
     }
 
     pub fn sar(self) -> JSValue {
-        self.shr()
+        let (a, b) = match self {
+            Self::Int(v1, v2) => (v1, v2),
+            Self::Float(v1, v2) => {
+                let v1 = if v1.is_finite() { v1 as u64 as i32 } else { 0 };
+                let v2 = if v2.is_finite() { v2 as u64 as i32 } else { 0 };
+                (v1, v2)
+            }
+        };
+        JSValue::Int(a >> (b & 0x1f))
+    }
+
+    pub fn shr(self) -> JSValue {
+        let (a, b) = match self {
+            Self::Int(v1, v2) => (v1 as u32, v2 as u32),
+            Self::Float(v1, v2) => {
+                let v1 = if v1.is_finite() { v1 as u64 as u32 } else { 0 };
+                let v2 = if v2.is_finite() { v2 as u64 as u32 } else { 0 };
+                (v1, v2)
+            }
+        };
+        JSValue::from(a >> (b & 0x1f))
     }
 
     pub fn and(self) -> JSValue {
@@ -327,8 +353,8 @@ pub(super) fn op_binary_logic(
         OpCode::SHR => bop.shr(),
         OpCode::SAR => bop.sar(),
         OpCode::AND => bop.and(),
-        OpCode::OR => bop.or(),
         OpCode::XOR => bop.xor(),
+        OpCode::OR => bop.or(),
         _ => unreachable!(),
     })?;
 

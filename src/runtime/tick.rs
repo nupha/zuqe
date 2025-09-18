@@ -4,7 +4,7 @@ impl JSRuntime {
     pub fn tick(&mut self) -> Result<bool, i32> {
         if self.gc_req {
             // FIXME: gc is buggy.
-            //self.gc();
+            // self.gc();
 
             self.malloc_gc_threshold =
                 self.malloc_state.malloc_size + (self.malloc_state.malloc_size >> 1);
