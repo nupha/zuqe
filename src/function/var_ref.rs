@@ -13,7 +13,7 @@ use crate::{
     value::JSValue,
 };
 
-use super::AsyncObjPayload;
+use super::AsyncFuncState;
 
 #[repr(u8)]
 #[derive(Debug, Clone)]
@@ -26,7 +26,7 @@ pub enum VarRefState {
         var_idx: u16,
         /// raw pointer to variable value
         pvalue: NonNull<JSValue>,
-        async_func: Option<AsyncObjPayload>,
+        async_func: Option<AsyncFuncState>,
     },
 }
 
@@ -62,7 +62,7 @@ impl JSVarRefInner {
         var_idx: u16,
         is_arg: bool,
         pvalue: NonNull<JSValue>,
-        async_func: Option<AsyncObjPayload>,
+        async_func: Option<AsyncFuncState>,
     ) -> Self {
         let mut vr = Self {
             header: GCObjectHeader::new(rt, 1),
@@ -162,7 +162,7 @@ impl JSVarRefInner {
     }
 
     /// get async function state pointer
-    pub fn async_func(&self) -> Option<AsyncObjPayload> {
+    pub fn async_func(&self) -> Option<AsyncFuncState> {
         if let VarRefState::Bind { async_func, .. } = &self.state {
             async_func.clone()
         } else {
@@ -183,7 +183,7 @@ impl JSVarRefInner {
             }
             VarRefState::Bind { async_func, .. } => {
                 // if !async_func.is_null() {
-                //     AsyncObjPayload::free(rt, async_func);
+                //     AsyncFuncState::free(rt, async_func);
                 // }
             }
         }
@@ -207,7 +207,7 @@ impl JSVarRef {
         var_idx: u16,
         is_arg: bool,
         pvalue: NonNull<JSValue>,
-        async_func: Option<AsyncObjPayload>,
+        async_func: Option<AsyncFuncState>,
     ) -> JSVarRef {
         let inner = JSVarRefInner::new_bind(rt, var_idx, is_arg, pvalue, async_func);
         let s = Rc::new(RefCell::new(inner));
@@ -269,7 +269,7 @@ impl JSVarRef {
 
     /// get async function state pointer
     #[inline(always)]
-    pub fn async_func(&self) -> Option<AsyncObjPayload> {
+    pub fn async_func(&self) -> Option<AsyncFuncState> {
         self.0.borrow().async_func()
     }
 

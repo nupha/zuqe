@@ -5,7 +5,7 @@ use crate::{
     atom::JSAtom,
     context::JSContext,
     error::JSResult,
-    function::{BytecodeFunction, FuncObjPayload, build_arg_list},
+    function::{FuncObjPayload, build_arg_list},
     object::{JSObject, ObjectPayload},
     stack_frame::StackFrame,
     value::{JSValue, JSValueConst},
@@ -266,13 +266,14 @@ pub fn JS_CallInternal(
 
     match func_obj {
         JSValue::Object(o) => {
-            if let Ok(bf) = BytecodeFunction::try_from(o.clone()) {
+            if let Some(bf) = o.as_BytecodeFunction() {
                 bf.call(caller_ctx, this_obj, new_target, args, flags)
             } else {
                 // non bytecode function: bound function, native function, async function etc.
                 // use callback defined on the class.
-                if let Some(cb) = caller_ctx.rt().class_defs[o.class_id() as usize].call {
-                    cb(caller_ctx, func_obj, this_obj, args, flags).unwrap_or(JSValue::EXCEPTION)
+                if let Some(call_fn) = caller_ctx.rt().class_defs[o.class_id() as usize].call {
+                    call_fn(caller_ctx, func_obj, this_obj, args, flags)
+                        .unwrap_or(JSValue::EXCEPTION)
                 } else {
                     caller_ctx.throw_type_error("not callable");
                     JSValue::EXCEPTION
@@ -280,12 +281,13 @@ pub fn JS_CallInternal(
             }
         }
         JSValue::AsyncStateResume(state) => {
-            // `func_obj` is a generator function, get attached JSFuncAsyncState.
-            // the JSFuncAsyncState provides a dedicated stack frame for the async function
+            // `func_obj` is a generator function
             debug_assert!(flags & JS_CALL_FLAG_GENERATOR != 0);
 
             let mut s = state.0.borrow_mut();
             let throw_flag = s.throw_flag;
+
+            // state has a dedicated stack frame for async function
             let frame = unsafe { &mut s.as_mut().get_unchecked_mut().frame };
 
             let p = unsafe { frame.cur_func.as_object_unchecked().clone() };

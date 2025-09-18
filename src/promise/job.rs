@@ -35,15 +35,12 @@ impl JSContext {
     }
 }
 
-pub fn promise_reaction_job(ctx: &JSContext, args: CallContext) -> JSResult {
+pub(super) fn promise_reaction_job(ctx: &JSContext, args: CallContext) -> JSResult {
     debug_assert_eq!(args.length(), 5);
 
     let handler = args.arg(2);
     let mut is_reject = args.arg(3).to_bool()?;
     let arg = args.arg(4);
-
-    #[cfg(DUMP_PROMISE)]
-    println!("promise_reaction_job: is_reject={}", is_reject);
 
     let mut result = if handler.is_undefined() {
         if is_reject {
@@ -63,12 +60,12 @@ pub fn promise_reaction_job(ctx: &JSContext, args: CallContext) -> JSResult {
         result = ctx.take_exception();
     }
 
-    let func = args.arg(is_reject as usize); // resolve or reject function
+    let func = args.arg(is_reject as usize);
 
     // as an extension, we support undefined as value to avoid
     // creating a dummy promise in the 'await' implementation of async functions
     if !func.is_undefined() {
-        func.call(ctx, &JSValue::UNDEFINED, &[result])
+        func.call(ctx, &JSValue::UNDEFINED, std::slice::from_ref(&result))
     } else {
         Ok(JSValue::UNDEFINED)
     }
@@ -76,9 +73,6 @@ pub fn promise_reaction_job(ctx: &JSContext, args: CallContext) -> JSResult {
 
 pub fn js_promise_resolve_thenable_job(ctx: &JSContext, cc: CallContext) -> JSResult {
     debug_assert_eq!(cc.length(), 3);
-
-    #[cfg(feature = "DUMP_PROMISE")]
-    println!("js_promise_resolve_thenable_job");
 
     let promise: Promise = cc.arg(0).clone().try_into()?;
     let thenable = cc.arg(1);

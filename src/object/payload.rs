@@ -7,7 +7,7 @@ use crate::{
     array::ArrayObjPayload,
     array_buffer::ArrayBufObjPayload,
     context::JSContext,
-    function::{AsyncObjPayload, FuncObjPayload},
+    function::{AsyncFuncState, FuncObjPayload},
     mapset::{JSMapIteratorData, JSMapState},
     object::JSObject,
     promise::PromiseResolvingPayload,
@@ -149,7 +149,7 @@ impl ObjectPayload {
         }
     }
 
-    pub const fn async_func_state(&self) -> Option<&AsyncObjPayload> {
+    pub const fn async_func_state(&self) -> Option<&AsyncFuncState> {
         match self {
             Self::ASYNC_FUNCTION_RESOLVE(a) | Self::ASYNC_FUNCTION_REJECT(a) => Some(a),
             _ => None,

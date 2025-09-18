@@ -40,13 +40,8 @@ impl PromiseResolving {
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
-        let p = unsafe { func_obj.as_object_unchecked() };
-        let payload = p.0.payload.borrow();
-        let class_id = payload.class_id();
-        matches!(
-            class_id,
-            JS_CLASS_PROMISE_RESOLVE_FUNCTION | JS_CLASS_PROMISE_REJECT_FUNCTION
-        );
+        let resolv = func_obj.as_object_PromiseResolving().unwrap();
+        let payload = resolv.0.retrive_payload(ctx, None)?;
 
         if let Some(s) = payload.promise_func_data() {
             if s.resolved.get() {
@@ -55,7 +50,7 @@ impl PromiseResolving {
 
             s.resolved.set(true);
 
-            let is_reject = class_id - JS_CLASS_PROMISE_RESOLVE_FUNCTION != 0;
+            let is_reject = payload.class_id() == JS_CLASS_PROMISE_REJECT_FUNCTION;
             let resolution = if args.len() > 0 {
                 args[0].clone()
             } else {
@@ -87,11 +82,9 @@ impl PromiseResolving {
             } else {
                 s.promise.fulfill_or_reject(ctx, ctx.take_exception(), true);
             }
-
-            Ok(JSValue::UNDEFINED)
-        } else {
-            Ok(JSValue::UNDEFINED)
         }
+
+        Ok(JSValue::UNDEFINED)
     }
 
     pub fn hook_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}

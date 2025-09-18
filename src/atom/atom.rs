@@ -329,7 +329,6 @@ impl JSValue {
                     continue;
                 }
 
-                // can't convert to atom
                 JSValue::UNINITIALIZED
                 | JSValue::CatchOffset(_)
                 | JSValue::Module(_)

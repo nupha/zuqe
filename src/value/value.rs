@@ -1,7 +1,7 @@
 use crate::{
     JS_CLASS_ERROR,
     atom::{AtomTypeHint, JSAtomStruct},
-    function::{AsyncObjPayload, Bytecode},
+    function::{AsyncFuncState, Bytecode},
     module::ModuleDef,
     number::JSFloat64Union,
     object::JSObject,
@@ -110,7 +110,7 @@ pub enum JSValue {
     Bytecode(Bytecode),
 
     /// Special for async state resume execution only
-    AsyncStateResume(AsyncObjPayload),
+    AsyncStateResume(AsyncFuncState),
 }
 
 impl Default for JSValue {
@@ -364,7 +364,7 @@ impl JSValue {
                 let u = JSFloat64Union { uint64: *i as u64 };
                 unsafe { (u.uint32[0] ^ u.uint32[1]).wrapping_mul(3163) }
             }
-            Self::AsyncStateResume(f) => Self::id_to_hash(f.id()),
+            Self::AsyncStateResume(a) => Self::id_to_hash(a.id()),
         };
 
         let tag = unsafe { *<*const _>::from(self).cast::<u8>() };

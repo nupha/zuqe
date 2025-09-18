@@ -62,11 +62,11 @@ impl Promise {
 
         self.with_mut(|p| {
             if p.promise_state == JSPromiseStateEnum::JS_PROMISE_PENDING {
-                // register pending to call later in micro task job
+                // queue action to be performed later in job tick (a.k.a. microtask)
                 p.promise_reactions[0].push(a0);
                 p.promise_reactions[1].push(a1);
             } else {
-                // call immediately
+                // perform action immediately
                 if p.promise_state == JSPromiseStateEnum::JS_PROMISE_REJECTED && !p.is_handled {
                     if let Some(cb) = ctx.rt().host_promise_rejection_tracker {
                         cb(

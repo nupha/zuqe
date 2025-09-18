@@ -205,17 +205,17 @@ impl Promise {
     /// call chained reactions which was registered by `then()`, `catch()` or `finally()`.
     /// Note: `value` is not consumed (duplicated inside).
     pub(super) fn fulfill_or_reject(&self, ctx: &JSContext, value: JSValue, is_reject: bool) {
-        let (promise_state, is_handled) = self.with_mut(|s| {
-            debug_assert_eq!(s.promise_state, JSPromiseStateEnum::JS_PROMISE_PENDING);
+        let (promise_state, is_handled) = self.with_mut(|p| {
+            debug_assert_eq!(p.promise_state, JSPromiseStateEnum::JS_PROMISE_PENDING);
 
-            s.promise_result = value.clone();
-            s.promise_state = if is_reject {
+            p.promise_result = value.clone();
+            p.promise_state = if is_reject {
                 JSPromiseStateEnum::JS_PROMISE_REJECTED
             } else {
                 JSPromiseStateEnum::JS_PROMISE_FULFILLED
             };
 
-            (s.promise_state, s.is_handled)
+            (p.promise_state, p.is_handled)
         });
 
         if promise_state == JSPromiseStateEnum::JS_PROMISE_REJECTED && !is_handled {

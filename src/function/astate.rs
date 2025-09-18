@@ -168,17 +168,17 @@ impl AsyncStateInner {
 /// async execution state.
 /// used to save execution state of an async function or generator.
 #[derive(Debug, Clone)]
-pub struct AsyncObjPayload(pub(crate) Rc<RefCell<Pin<Box<AsyncStateInner>>>>);
+pub struct AsyncFuncState(pub(crate) Rc<RefCell<Pin<Box<AsyncStateInner>>>>);
 
-impl AsyncObjPayload {
-    /// create new AsyncObjPayload, register to gc tracking list.
+impl AsyncFuncState {
+    /// create new AsyncFuncState, register to gc tracking list.
     pub fn new_with_resolvings(
         ctx: &JSContext,
         resolvings: [JSValue; 2],
         func_obj: &JSValue,
         this_obj: JSValue,
         args: &[JSValue],
-    ) -> Result<AsyncObjPayload, i32> {
+    ) -> Result<AsyncFuncState, i32> {
         let inner = AsyncStateInner::new(ctx, resolvings, func_obj, this_obj, args)?;
 
         // fix var_base_ptr field: it's self referenced
@@ -212,14 +212,14 @@ impl AsyncObjPayload {
         Ok(sframe)
     }
 
-    /// create new AsyncObjPayload, register to gc tracking list.
+    /// create new AsyncFuncState, register to gc tracking list.
     #[inline(always)]
     pub fn new(
         ctx: &JSContext,
         func_obj: &JSValue,
         this_obj: JSValue,
         args: &[JSValue],
-    ) -> Result<AsyncObjPayload, i32> {
+    ) -> Result<AsyncFuncState, i32> {
         Self::new_with_resolvings(
             ctx,
             [const { JSValue::UNDEFINED }; 2],
@@ -266,7 +266,6 @@ impl AsyncObjPayload {
         // short borrow to avoid conflict
         let (this_val, arg_list) = {
             let b = self.0.borrow();
-
             (b.this_val.clone(), unsafe {
                 std::slice::from_raw_parts(b.arg_ptr().as_ptr(), b.arg_count())
             })
@@ -285,10 +284,11 @@ impl AsyncObjPayload {
         let completed = match ret {
             Ok(JSValue::UNDEFINED) => {
                 debug_assert!(self.0.borrow().frame.cur_sp_offset > 0);
+                // get stack top value
                 ret = Ok(unsafe {
                     std::ptr::replace(
                         // HINT: stack_cur_ptr advances the addr of stack top value by 1.
-                        // subtract 1 to access stack top value addr.
+                        // subtract 1 is the right addr for stack top.
                         self.0.borrow().frame.stack_cur_ptr().offset(-1).as_ptr(),
                         JSValue::UNDEFINED,
                     )
@@ -352,7 +352,7 @@ impl AsyncStateWeakref {
         Self(Weak::new())
     }
 
-    pub fn upgrade(&self) -> Option<AsyncObjPayload> {
-        self.0.upgrade().map(AsyncObjPayload)
+    pub fn upgrade(&self) -> Option<AsyncFuncState> {
+        self.0.upgrade().map(AsyncFuncState)
     }
 }

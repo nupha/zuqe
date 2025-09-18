@@ -355,16 +355,16 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "AsyncFunctionResolve",
             "ASYNC_FUNCTION_RESOLVE",
-            Some("crate::function::AsyncObjPayload"),
-            Some("crate::function::AsyncObjPayload::hook_finalizer"),
-            Some("crate::function::AsyncObjPayload::hook_mark")
+            Some("crate::function::AsyncFuncState"),
+            Some("crate::function::AsyncFuncState::hook_finalizer"),
+            Some("crate::function::AsyncFuncState::hook_mark")
         ),
         class_def!(
             "AsyncFunctionReject",
             "ASYNC_FUNCTION_REJECT",
-            Some("crate::function::AsyncObjPayload"),
-            Some("crate::function::AsyncObjPayload::hook_finalizer"),
-            Some("crate::function::AsyncObjPayload::hook_mark")
+            Some("crate::function::AsyncFuncState"),
+            Some("crate::function::AsyncFuncState::hook_finalizer"),
+            Some("crate::function::AsyncFuncState::hook_mark")
         ),
         class_def!(
             "empty_string", // JS_ATOM_empty_string

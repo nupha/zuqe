@@ -7,7 +7,7 @@ use crate::{
     error::JSResult,
     eval::JS_EVAL_TYPE_INDIRECT,
     function::{
-        AsyncObjPayload, CallContext, FieldDef, IteratorState, JS_GetFunctionRealm,
+        AsyncFuncState, CallContext, FieldDef, IteratorState, JS_GetFunctionRealm,
         JSFunctionKindEnum,
     },
     iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW},
@@ -35,7 +35,7 @@ pub const FUNC_RET_INITIAL_YIELD: i32 = 3;
 #[derive(Debug)]
 pub struct ObjGenerator {
     pub state: JSGeneratorStateEnum,
-    pub func_state: Option<AsyncObjPayload>,
+    pub func_state: Option<AsyncFuncState>,
 }
 
 impl ObjGenerator {
@@ -148,7 +148,7 @@ pub fn js_generator_function_call(
     args: &[JSValue],
     flags: i32,
 ) -> JSResult {
-    let func_state = AsyncObjPayload::new(ctx, func_obj, this_obj.clone(), args)?;
+    let func_state = AsyncFuncState::new(ctx, func_obj, this_obj.clone(), args)?;
     let g = ObjGenerator {
         state: JSGeneratorStateEnum::JS_GENERATOR_STATE_SUSPENDED_START,
         func_state: Some(func_state),

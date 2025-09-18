@@ -3,7 +3,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     eval::{Compiled, JS_EVAL_FLAG_STRIP, JS_EVAL_TYPE_MODULE},
-    function::{AsyncObjPayload, CallContext},
+    function::{AsyncFuncState, CallContext},
     module::{JSModuleStatus, ModuleDefInner},
     promise::Promise,
     runtime::js_check_stack_overflow,
@@ -337,7 +337,7 @@ impl ModuleDef {
 
         let (promise, _) = ctx.create_promise(&JSValue::UNDEFINED)?;
 
-        let astate = AsyncObjPayload::new(ctx, &md_func, JSValue::UNDEFINED, &[])?;
+        let astate = AsyncFuncState::new(ctx, &md_func, JSValue::UNDEFINED, &[])?;
         astate.resume(ctx)?;
 
         // reaction with promise

@@ -1,7 +1,7 @@
 use crate::{
     JS_CLASS_OBJECT,
     context::JSContext,
-    function::{AsyncObjPayload, Bytecode, JSVarRef, VarRefState},
+    function::{AsyncFuncState, Bytecode, JSVarRef, VarRefState},
     module::{JSExportTypeEnum, ModuleDef},
     object::{JSObject, JSProperty, JSShape, LazyInit},
     stack_frame::StackFrame,
@@ -237,7 +237,7 @@ impl JSVarRef {
     }
 }
 
-impl AsyncObjPayload {
+impl AsyncFuncState {
     pub fn gc_mark(&self) {
         let s = self.0.borrow();
         s.this_val.gc_mark();

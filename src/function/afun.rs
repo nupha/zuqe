@@ -2,7 +2,7 @@ use crate::{
     JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT, JS_PROP_STRING_DEF,
     context::JSContext,
     error::JSResult,
-    function::AsyncObjPayload,
+    function::AsyncFuncState,
     object::{JS_PROP_CONFIGURABLE, JSObject, ObjectPayload},
     object_cast,
     promise::{Promise, js_promise_resolve},
@@ -19,34 +19,7 @@ pub struct AsyncFunction(pub(crate) JSObject);
 object_cast!(AsyncFunction, JS_CLASS_ASYNC_FUNCTION);
 
 impl AsyncFunction {
-    /// call async function
-    pub fn call(
-        &self,
-        ctx: &JSContext,
-        this_obj: JSValue,
-        args: &[JSValue],
-        flags: i32,
-    ) -> Result<Promise, i32> {
-        // create promise and resolving handlers
-        let (promise, resolving_funcs) = ctx.create_promise(&JSValue::UNDEFINED)?;
-
-        // create state for async function execution
-        let state = AsyncObjPayload::new_with_resolvings(
-            ctx,
-            resolving_funcs,
-            &JSValue::Object(self.0.clone()),
-            this_obj,
-            args,
-        )?;
-
-        // start to execute async func
-        async_function_resume(ctx, &state);
-
-        Ok(promise)
-    }
-
     /// hook to call an async function
-    #[inline]
     pub fn hook_call(
         ctx: &JSContext,
         func_obj: &JSValue,
@@ -54,32 +27,43 @@ impl AsyncFunction {
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
-        let afunc = AsyncFunction::try_from(func_obj.clone())?;
-        afunc
-            .call(ctx, this_obj.clone(), args, flags)
-            .map(|p| p.into())
+        debug_assert!(func_obj.as_object_AsyncFunction().is_some());
+
+        // create promise and resolving handlers
+        let (promise, resolving_funcs) = ctx.create_promise(&JSValue::UNDEFINED)?;
+        // create state to execute async function
+        let s = AsyncFuncState::new_with_resolvings(
+            ctx,
+            resolving_funcs,
+            func_obj,
+            this_obj.clone(),
+            args,
+        )?;
+        async_function_resume(ctx, &s);
+
+        Ok(promise.into())
     }
 }
 
-/// Resume an async function on its execution state
-fn async_function_resume(ctx: &JSContext, state: &AsyncObjPayload) {
-    let func_ret = state.resume(ctx);
+/// Resume async function execution with an given state
+fn async_function_resume(ctx: &JSContext, s: &AsyncFuncState) {
+    let func_ret = s.resume(ctx);
 
-    if state.is_completed() {
+    if s.is_completed() {
         match func_ret {
             Ok(val) => {
                 // normal return
-                let func = state.0.borrow().resolving_funcs[0].clone(); // resolve: short borrow
+                let func = s.0.borrow().resolving_funcs[0].clone(); // resolve: short borrow
                 let _ = func.call(ctx, &JSValue::UNDEFINED, std::slice::from_ref(&val));
             }
             Err(_) => {
-                let func = state.0.borrow().resolving_funcs[1].clone(); // reject: short borrow
+                let func = s.0.borrow().resolving_funcs[1].clone(); // reject: short borrow
                 let error = ctx.take_exception();
                 let _ = func.call(ctx, &JSValue::UNDEFINED, &[error]);
             }
         }
     } else {
-        let cur_sp = state.0.borrow().frame.stack_cur_ptr();
+        let cur_sp = s.0.borrow().frame.stack_cur_ptr();
         let value = unsafe { std::ptr::replace(cur_sp.offset(-1).as_ptr(), JSValue::UNDEFINED) };
         let promise_ctor = ctx.0.borrow().promise_ctor.clone();
 
@@ -89,7 +73,7 @@ fn async_function_resume(ctx: &JSContext, state: &AsyncObjPayload) {
         };
         let promise: Promise = if promise.is_exception() {
             let exc = ctx.take_exception();
-            let func = state.0.borrow().resolving_funcs[1].clone();
+            let func = s.0.borrow().resolving_funcs[1].clone();
             func.call(ctx, &JSValue::UNDEFINED, std::slice::from_ref(&exc))
                 .unwrap()
         } else {
@@ -98,15 +82,14 @@ fn async_function_resume(ctx: &JSContext, state: &AsyncObjPayload) {
         .try_into()
         .unwrap();
 
-        let resolving_funcs =
-            if let Ok(rr) = unsafe { js_async_function_resolve_create(ctx, state) } {
-                rr
-            } else {
-                let error = ctx.take_exception();
-                let func = state.0.borrow().resolving_funcs[1].clone();
-                let _ = func.call(ctx, &JSValue::UNDEFINED, &[error]);
-                [const { JSValue::UNDEFINED }; 2]
-            };
+        let resolving_funcs = if let Ok(rr) = js_async_function_resolve_create(ctx, s) {
+            rr
+        } else {
+            let error = ctx.take_exception();
+            let func = s.0.borrow().resolving_funcs[1].clone();
+            let _ = func.call(ctx, &JSValue::UNDEFINED, &[error]);
+            [const { JSValue::UNDEFINED }; 2]
+        };
 
         let res = promise.reaction(
             ctx,
@@ -117,15 +100,15 @@ fn async_function_resume(ctx: &JSContext, state: &AsyncObjPayload) {
 
         if res.is_err() {
             let exc = ctx.take_exception();
-            let func = &state.0.borrow().resolving_funcs[1].clone();
+            let func = &s.0.borrow().resolving_funcs[1].clone();
             let _ = func.call(ctx, &JSValue::UNDEFINED, &[exc]);
         }
     }
 }
 
-pub unsafe fn js_async_function_resolve_create(
+fn js_async_function_resolve_create(
     ctx: &JSContext,
-    s: &AsyncObjPayload,
+    s: &AsyncFuncState,
 ) -> Result<[JSValue; 2], i32> {
     let mut resolving_funcs = [const { JSValue::UNDEFINED }; 2];
 
@@ -146,7 +129,7 @@ pub unsafe fn js_async_function_resolve_create(
     return Ok(resolving_funcs);
 }
 
-pub fn js_async_function_resolve_call(
+pub(crate) fn js_async_function_resolve_call(
     ctx: &JSContext,
     func_obj: &JSValue,
     this_obj: &JSValue,
