@@ -3,6 +3,7 @@
 use std::{
     io::{Read, Write},
     path::{Path, PathBuf},
+    sync::atomic::{AtomicI32, Ordering},
 };
 
 use serde::Deserialize;
@@ -19,10 +20,13 @@ use zhuque::{
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
     module::{JS_SetModuleLoaderFunc, ModuleDef},
     object::JS_PROP_C_W_E,
-    promise::JSPromiseStateEnum,
+    promise::{JSPromiseStateEnum, Promise},
     runtime::JSRuntime,
     value::JSValue,
 };
+
+/// counter of "Test262:AsyncTestComplete" messages
+static ASYNC_DONE: AtomicI32 = AtomicI32::new(0);
 
 fn js_print(ctx: &JSContext, args: CallContext) -> JSResult {
     for i in 0..args.length() {
@@ -30,10 +34,16 @@ fn js_print(ctx: &JSContext, args: CallContext) -> JSResult {
             print!(" ");
         }
         let arg = args.arg(i);
-        print!("{}", arg.repr(ctx)?);
+        let repr = arg.repr(ctx)?;
+        print!("{}", repr);
+
+        if repr.eq("Test262:AsyncTestComplete") {
+            ASYNC_DONE.fetch_add(1, Ordering::SeqCst);
+        } else if repr.starts_with("Test262:AsyncTestFailure") {
+            ASYNC_DONE.store(2, Ordering::SeqCst);
+        }
     }
     println!();
-
     Ok(JSValue::UNDEFINED)
 }
 
@@ -268,7 +278,12 @@ fn run_test_script(
     is_module: bool,
     is_async: bool,
     is_strict: bool,
-) -> Result<JSValue, i32> {
+) -> Result<(), i32> {
+    if is_async {
+        ASYNC_DONE.store(0, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    // eval
     let res = if is_module {
         ctx.eval_module_source(
             script.as_bytes(),
@@ -284,27 +299,29 @@ fn run_test_script(
         )?
     };
 
-    if is_async || is_module {
-        // result is a Promise
-        let promise = if let JSValue::Module(md) = res {
-            md.promise().unwrap()
-        } else {
-            res.try_into().unwrap()
+    let promise = if is_module {
+        let JSValue::Module(md) = res else {
+            unreachable!("expect module value");
         };
+        md.promise()
+    } else if is_async {
+        Promise::try_from(res).ok()
+    } else {
+        None
+    };
 
-        // counter of "Test262:AsyncTestComplete" messages
-        let async_done = 0;
-
+    if let Some(promise) = promise {
         // tick pending jobs
         loop {
             if ctx.rt_mut().tick()? {
                 // need more ticks
                 std::thread::sleep(std::time::Duration::from_millis(5));
+                continue;
             } else {
                 // no pending job
                 if is_async {
                     // test if the test called $DONE() once
-                    if async_done != 1 {
+                    if ASYNC_DONE.load(std::sync::atomic::Ordering::SeqCst) != 1 {
                         ctx.throw_type_error("$DONE() not called");
                         return Err(-1);
                     }
@@ -326,11 +343,9 @@ fn run_test_script(
                 break;
             }
         }
-
-        Ok(JSValue::UNDEFINED)
-    } else {
-        Ok(res)
     }
+
+    Ok(())
 }
 
 fn dump_error(

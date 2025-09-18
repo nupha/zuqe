@@ -27,7 +27,7 @@ use crate::{
         js_function_set_properties,
     },
     gc::{GCObjectHeader, JSGCObjectTypeEnum},
-    generator::{ObjAsyncGenerator, ObjGenerator},
+    generator::{AsyncGeneratorObjPayload, ObjGenerator},
     iterator::{ForInIterObjPayload, JSIteratorKindEnum},
     mapset::{JSMapState, MapPair},
     module::{
@@ -493,9 +493,9 @@ pub unsafe fn get_var_ref(
     unreachable!("use JSStackFrame::get_var_ref() instead")
 }
 
-#[deprecated(note = "use ObjAsyncGenerator::dispose() instead")]
-pub unsafe fn js_async_generator_free(rt: *mut JSRuntime, s: *mut ObjAsyncGenerator) {
-    unreachable!("use ObjAsyncGenerator::dispose() instead");
+#[deprecated(note = "use AsyncGeneratorObjPayload::dispose() instead")]
+pub unsafe fn js_async_generator_free(rt: *mut JSRuntime, s: *mut AsyncGeneratorObjPayload) {
+    unreachable!("use AsyncGeneratorObjPayload::dispose() instead");
 }
 
 #[deprecated(note = "use AsyncGeneratorValue::function_call() instead")]
@@ -3028,21 +3028,21 @@ pub unsafe fn add_property(
     unreachable!("unused")
 }
 
-#[deprecated(note = "use ObjAsyncGenerator::resume_next() instead")]
-pub unsafe fn js_async_generator_resume_next(ctx: &JSContext, s: *mut ObjAsyncGenerator) {
+#[deprecated(note = "use AsyncGeneratorObjPayload::resume_next() instead")]
+pub unsafe fn js_async_generator_resume_next(ctx: &JSContext, s: *mut AsyncGeneratorObjPayload) {
     (*s).resume_next(ctx);
 }
 
-#[deprecated(note = "use ObjAsyncGenerator::complete() instead")]
-pub unsafe fn js_async_generator_complete(ctx: &JSContext, s: *mut ObjAsyncGenerator) {
+#[deprecated(note = "use AsyncGeneratorObjPayload::complete() instead")]
+pub unsafe fn js_async_generator_complete(ctx: &JSContext, s: *mut AsyncGeneratorObjPayload) {
     (*s).complete();
 }
 
 /// `value` is not consumed.
-#[deprecated(note = "use ObjAsyncGenerator::resolve() instead")]
+#[deprecated(note = "use AsyncGeneratorObjPayload::resolve() instead")]
 pub unsafe fn js_async_generator_resolve(
     ctx: &JSContext,
-    s: *mut ObjAsyncGenerator,
+    s: *mut AsyncGeneratorObjPayload,
     value: JSValueConst,
     done: bool,
 ) {
@@ -3050,19 +3050,19 @@ pub unsafe fn js_async_generator_resolve(
 }
 
 #[inline(always)]
-#[deprecated(note = "use ObjAsyncGenerator::reject() instead")]
+#[deprecated(note = "use AsyncGeneratorObjPayload::reject() instead")]
 pub unsafe fn js_async_generator_reject(
     ctx: &JSContext,
-    s: *mut ObjAsyncGenerator,
+    s: *mut AsyncGeneratorObjPayload,
     exception: JSValueConst,
 ) {
     (*s).reject(ctx, exception);
 }
 
-#[deprecated(note = "use ObjAsyncGenerator::resolve_or_reject() instead")]
+#[deprecated(note = "use AsyncGeneratorObjPayload::resolve_or_reject() instead")]
 pub unsafe fn js_async_generator_resolve_or_reject(
     ctx: &JSContext,
-    s: *mut ObjAsyncGenerator,
+    s: *mut AsyncGeneratorObjPayload,
     result: JSValueConst,
     is_reject: bool,
 ) {

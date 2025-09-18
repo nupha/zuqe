@@ -156,7 +156,7 @@ impl ModuleDef {
                 if let Some(o) = (*self.0.meta_obj.as_ptr()).as_ref() {
                     o.gc_mark();
                 }
-                (*self.0.promise.as_ptr()).as_ref().map(|p| p.0.gc_mark());
+                (*self.0.promise.as_ptr()).as_ref().map(|p| p.gc_mark());
                 (*self.0.resolving_funcs.as_ptr())[0].gc_mark();
                 (*self.0.resolving_funcs.as_ptr())[1].gc_mark();
             }

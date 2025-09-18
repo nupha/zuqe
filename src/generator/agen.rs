@@ -27,8 +27,8 @@ pub enum JSAsyncGeneratorStateEnum {
 }
 
 #[derive(Debug)]
-pub struct ObjAsyncGenerator {
-    /// reference back to the object (const)
+pub struct AsyncGeneratorObjPayload {
+    /// reference back to the generator object (const)
     pub generator: JSObjectWeakref,
 
     pub state: JSAsyncGeneratorStateEnum,
@@ -80,29 +80,29 @@ impl AsyncGeneratorValue {
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
-        let s = Box::new(ObjAsyncGenerator {
+        let s = Box::new(AsyncGeneratorObjPayload {
             generator: JSObjectWeakref::default(),
             state: JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_SUSPENDED_START,
             func_state: Some(AsyncObjPayload::new(ctx, func_obj, this_obj.clone(), args)?),
             queue: Vec::with_capacity(1),
         });
 
-        // execute the function up to 'OP_initial_yield' (no yield nor await are possible)
+        // execute the function till 'OpCode::INITIAL_YIELD' (no yield nor await are possible)
         s.func_state.as_ref().unwrap().resume(ctx)?;
 
-        // create AsyncGenerator instance
-        let ob = ctx
+        // create AsyncGenerator object
+        let agen = ctx
             .create_object_apply_ctor(func_obj, ObjectPayload::ASYNC_GENERATOR(Some(s)))
             .map_err(|_| -1)?;
 
         // fix generator field.
-        if let ObjectPayload::ASYNC_GENERATOR(Some(s)) = ob.0.payload.borrow_mut().deref_mut() {
-            s.generator = ob.downgrade();
+        if let ObjectPayload::ASYNC_GENERATOR(Some(s)) = agen.0.payload.borrow_mut().deref_mut() {
+            s.generator = agen.downgrade();
         } else {
             unreachable!()
         }
 
-        Ok(ob.into())
+        Ok(agen.into())
     }
 
     pub fn hook_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
@@ -125,7 +125,7 @@ impl AsyncGeneratorValue {
     }
 }
 
-impl ObjAsyncGenerator {
+impl AsyncGeneratorObjPayload {
     pub fn resume_next(&mut self, ctx: &JSContext) {
         enum State {
             Resume,
@@ -254,7 +254,7 @@ impl ObjAsyncGenerator {
                                 self.resolve(ctx, value, false);
                             }
                             FUNC_RET_AWAIT => {
-                                if unsafe { js_async_generator_await(ctx, self, value).is_err() } {
+                                if js_async_generator_await(ctx, self, value).is_err() {
                                     // exception: throw it
                                     self.func_state.as_ref().unwrap().set_throw_flag(true);
                                     continue 'resume;
@@ -293,14 +293,14 @@ impl ObjAsyncGenerator {
     }
 
     #[inline(always)]
-    pub fn reject(self: &mut ObjAsyncGenerator, ctx: &JSContext, exception: JSValue) {
+    pub fn reject(self: &mut AsyncGeneratorObjPayload, ctx: &JSContext, exception: JSValue) {
         self.resolve_or_reject(ctx, &exception, true);
     }
 }
 
 pub fn js_async_generator_completed_return(
     ctx: &JSContext,
-    s: &mut ObjAsyncGenerator,
+    s: &mut AsyncGeneratorObjPayload,
     value: JSValue,
 ) -> Result<(), i32> {
     let promise: Promise = match {
@@ -348,7 +348,7 @@ pub fn js_async_generator_completed_return(
 
 pub fn js_async_generator_await(
     ctx: &JSContext,
-    s: &mut ObjAsyncGenerator,
+    s: &mut AsyncGeneratorObjPayload,
     value: JSValueConst,
 ) -> Result<(), i32> {
     let promise: Promise = {
@@ -462,13 +462,13 @@ pub fn js_async_generator_resolve_function(ctx: &JSContext, args: CallContext) -
 pub fn js_async_generator_next(ctx: &JSContext, cc: CallContext) -> JSResult {
     let (promise, resolving_funcs) = ctx.create_promise(&JSValue::UNDEFINED)?;
 
-    if let Some(ObjectPayload::ASYNC_GENERATOR(p)) = cc
+    if let Some(ObjectPayload::ASYNC_GENERATOR(ag)) = cc
         .this()
         .as_object()
         .map(|o| o.0.payload.borrow_mut())
         .as_deref_mut()
     {
-        let p = p.as_mut().unwrap();
+        let p = ag.as_mut().unwrap();
 
         let req = Box::new(JSAsyncGeneratorRequest {
             completion_type: cc.magic(),
@@ -482,7 +482,7 @@ pub fn js_async_generator_next(ctx: &JSContext, cc: CallContext) -> JSResult {
             p.resume_next(ctx);
         }
     } else {
-        ctx.throw_type_error("not an AsyncGeneratorValue object");
+        ctx.throw_type_error("not an AsyncGenerator object");
         let err = ctx.take_exception();
         resolving_funcs[1].call(ctx, &JSValue::UNDEFINED, &[err])?;
     }

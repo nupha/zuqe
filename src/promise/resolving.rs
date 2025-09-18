@@ -93,7 +93,7 @@ impl PromiseResolvingFunc {
     pub fn hook_mark(val: JSValueConst) {
         let isa = unsafe { val.as_object_unchecked().0.payload.borrow() };
         if let Some(s) = isa.promise_func_data() {
-            s.promise.0.gc_mark();
+            s.promise.gc_mark();
         }
     }
 }

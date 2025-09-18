@@ -63,14 +63,14 @@ fn main() {
     let filename = args.get(1).unwrap().clone();
     let script = std::fs::read_to_string(&filename).unwrap();
 
-    let mut js = JSRuntime::new(JS_DEFAULT_MALLOC_FUNCTIONS, std::ptr::null_mut()).unwrap();
+    let mut rt = JSRuntime::new(JS_DEFAULT_MALLOC_FUNCTIONS, std::ptr::null_mut()).unwrap();
 
     unsafe {
-        JS_SetModuleLoaderFunc(js.as_mut(), None, js_module_loader, std::ptr::null_mut());
+        JS_SetModuleLoaderFunc(rt.as_mut(), None, js_module_loader, std::ptr::null_mut());
     }
 
     // the default context
-    let ctx = js.create_context().unwrap();
+    let ctx = rt.create_context().unwrap();
 
     // the customized ctx
     // let ctx = js
@@ -146,14 +146,19 @@ fn main() {
         Ok(v) => {
             if let Some(pr) = v.as_object_Promise() {
                 loop {
-                    match js.tick() {
+                    match rt.tick() {
                         Ok(true) => {
                             std::thread::sleep(std::time::Duration::from_millis(100));
+                            continue;
                         }
                         Ok(false) => {
                             let v = pr.result();
-                            println!("promise state: {:?}", pr.state());
-                            println!("promise result: {v:?}");
+                            println!("promise state:  {:?}", pr.state());
+                            println!(
+                                "promise result: {:?}",
+                                // v.repr(&ctx),
+                                v.to_string(&ctx)
+                            );
                             break;
                         }
                         Err(_) => {

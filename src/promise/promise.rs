@@ -52,7 +52,7 @@ pub struct PromiseObjPayload {
 
 #[repr(transparent)]
 #[derive(Debug, Clone)]
-pub struct Promise(pub(crate) JSObject);
+pub struct Promise(JSObject);
 
 object_cast!(Promise, JS_CLASS_PROMISE);
 

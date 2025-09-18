@@ -26,13 +26,11 @@ impl JSContext {
             args: [const { JSValue::UNDEFINED }; 5],
             argc: args.len() as u8,
         });
-
         for (i, v) in args.iter().enumerate() {
             job.args[i] = v.clone();
         }
 
         self.rt_mut().job_list.push_back(job);
-
         Ok(())
     }
 }
@@ -115,8 +113,11 @@ impl JSRuntime {
                 )
             };
 
-            let ctx = job.ctx;
-            res.map(|_| Some(ctx.clone())).map_err(|_| (ctx, -1))
+            if res.is_ok() {
+                Ok(Some(job.ctx))
+            } else {
+                Err((job.ctx, -1))
+            }
         } else {
             Ok(None) // no job to run
         }

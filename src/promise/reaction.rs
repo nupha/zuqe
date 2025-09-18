@@ -63,7 +63,7 @@ impl Promise {
             },
         });
 
-        let mut payload = self.0.0.payload.borrow_mut();
+        let mut payload = self.0.payload.borrow_mut();
         if let ObjectPayload::PROMISE(p) = payload.deref_mut() {
             if p.promise_state == JSPromiseStateEnum::JS_PROMISE_PENDING {
                 // register pending to call later in micro task job
