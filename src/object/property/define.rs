@@ -6,7 +6,7 @@ use crate::{
     number::JS_NumberIsNegativeOrMinusZero,
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_THROW, JSObject,
-        PropertyKey, js_object_has_name,
+        JSProperty, PropertyKey,
     },
     value::JSValue,
 };
@@ -380,6 +380,52 @@ impl JSObject {
         )
     }
 
+    /// define name property with value `name` in object.
+    /// if name property already exists, don't define again.
+    ///
+    /// Note: `name` is not consumed.
+    pub fn define_name(&self, ctx: &JSContext, name: JSAtom, flags: u32) -> Result<bool, i32> {
+        if name == JS_ATOM_NULL {
+            ctx.throw_type_error("invalid name");
+            Err(-1)
+        } else if !self.has_name() {
+            self.define_property_value(ctx, JS_ATOM_name, name.to_string(ctx)?.into(), flags)
+        } else {
+            Ok(false)
+        }
+    }
+
+    pub fn define_name_computed(
+        &self,
+        ctx: &JSContext,
+        str_val: &JSValue,
+        flags: u32,
+    ) -> Result<bool, i32> {
+        if !self.has_name() {
+            let atom = str_val.to_atom(ctx)?;
+            let name_str = js_get_function_name(ctx, atom);
+            JS_FreeAtom(ctx, atom);
+            self.define_property_value(ctx, JS_ATOM_name, name_str.err()?, flags)
+        } else {
+            Ok(false)
+        }
+    }
+
+    /// Check if object has 'name' property with non-empty normal string.
+    fn has_name(&self) -> bool {
+        if let Some((idx, _)) = self.find_shape_property(JS_ATOM_name) {
+            if let JSProperty::Normal(JSValue::String(s)) =
+                self.0.prop_values.borrow().get(idx).unwrap()
+            {
+                !s.is_empty()
+            } else {
+                true
+            }
+        } else {
+            false
+        }
+    }
+
     #[inline(always)]
     #[deprecated]
     pub fn create_data_property_u32(
@@ -533,53 +579,4 @@ impl JSValue {
     ) -> Result<bool, i32> {
         self.define_property_value_i64(ctx, idx, val, flags | JS_PROP_C_W_E)
     }
-}
-
-pub unsafe fn JS_DefineObjectName(ctx: &JSContext, obj: &JSValue, name: JSAtom, flags: u32) -> i32 {
-    if name != JS_ATOM_NULL
-        && obj.is_object()
-        && !js_object_has_name(obj)
-        && obj
-            .define_property_value(
-                ctx,
-                JS_ATOM_name,
-                name.to_string(ctx)
-                    .map_or(JSValue::EXCEPTION, JSValue::String),
-                flags,
-            )
-            .is_err()
-    {
-        -1
-    } else {
-        0
-    }
-}
-
-/// Note: `obj` and `str_val` are not consumed.
-pub unsafe fn JS_DefineObjectNameComputed(
-    ctx: &JSContext,
-    obj: &JSValue,
-    str_val: &JSValue,
-    flags: u32,
-) -> i32 {
-    if obj.is_object() && !js_object_has_name(obj) {
-        let prop = str_val.to_atom(ctx).unwrap_or(JS_ATOM_NULL);
-        if prop == JS_ATOM_NULL {
-            return -1;
-        }
-
-        let name_str = js_get_function_name(ctx, prop);
-        JS_FreeAtom(ctx, prop);
-        if name_str.is_exception() {
-            return -1;
-        }
-        if obj
-            .define_property_value(ctx, JS_ATOM_name, name_str, flags)
-            .is_err()
-        {
-            return -1;
-        }
-    }
-
-    0
 }

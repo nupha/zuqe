@@ -14,9 +14,9 @@ use crate::{
     array_buffer::JSFreeArrayBufferDataFunc,
     atom::{
         AtomDescKind, AtomHintAndId, AtomTypeHint, JS_ATOM_NULL, JS_ATOM_TAG_INT, JS_FreeAtom,
-        JSAtom, JSAtomStruct,
+        JSAtom, JSAtomStruct, consts::JS_ATOM_name,
     },
-    bytecode::{OpCode, OpCodeTemp, arithmatic::JSStrictEqModeEnum},
+    bytecode::{OpCode, OpCodeTemp, arithmatic::JSStrictEqModeEnum, js_get_function_name},
     class::{ClassFieldsDef, JSClassDef, JSClassID, JSClassShortDef},
     context::JSContext,
     error::{ErrorKind, JS_ThrowSyntaxError, JSResult},
@@ -4254,4 +4254,65 @@ pub(crate) const fn js_class_has_bytecode(class_id: JSClassID) -> bool {
             | JS_CLASS_ASYNC_FUNCTION
             | JS_CLASS_ASYNC_GENERATOR_FUNCTION
     )
+}
+
+/// Check if object has a valid 'name' property
+/// Returns true if:
+/// 1. Has a non-normal 'name' property (getter/setter)
+/// 2. 'name' is a non-empty string
+/// 3. 'name' is a symbol with description
+#[deprecated(note = "use JSObject::has_name() instead")]
+pub fn js_object_has_name(obj: &JSValue) -> bool {
+    unreachable!("unused");
+}
+
+#[deprecated(note = "use JSObject::define_name() instead")]
+pub fn JS_DefineObjectName(ctx: &JSContext, obj: &JSValue, name: JSAtom, flags: u32) -> i32 {
+    if name != JS_ATOM_NULL
+        && obj.is_object()
+        && !js_object_has_name(obj)
+        && obj
+            .define_property_value(
+                ctx,
+                JS_ATOM_name,
+                name.to_string(ctx)
+                    .map_or(JSValue::EXCEPTION, JSValue::String),
+                flags,
+            )
+            .is_err()
+    {
+        -1
+    } else {
+        0
+    }
+}
+
+/// Note: `obj` and `str_val` are not consumed.
+#[deprecated(note = "use JSObject::define_name_computed() instead")]
+pub unsafe fn JS_DefineObjectNameComputed(
+    ctx: &JSContext,
+    obj: &JSValue,
+    str_val: &JSValue,
+    flags: u32,
+) -> i32 {
+    if obj.is_object() && !js_object_has_name(obj) {
+        let prop = str_val.to_atom(ctx).unwrap_or(JS_ATOM_NULL);
+        if prop == JS_ATOM_NULL {
+            return -1;
+        }
+
+        let name_str = js_get_function_name(ctx, prop);
+        JS_FreeAtom(ctx, prop);
+        if name_str.is_exception() {
+            return -1;
+        }
+        if obj
+            .define_property_value(ctx, JS_ATOM_name, name_str, flags)
+            .is_err()
+        {
+            return -1;
+        }
+    }
+
+    0
 }

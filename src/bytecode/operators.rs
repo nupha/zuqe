@@ -13,10 +13,9 @@ use crate::{
         js_create_array_iterator,
     },
     object::{
-        JS_DefineObjectName, JS_DefineObjectNameComputed, JS_GPN_INDEX_MASK, JS_GPN_SET_ENUM,
-        JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
-        JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE, JS_SetConstructorBit, ObjectPayload,
-        js_get_length32,
+        JS_GPN_INDEX_MASK, JS_GPN_SET_ENUM, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE,
+        JS_PROP_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW, JS_PROP_THROW_STRICT,
+        JS_PROP_WRITABLE, JS_SetConstructorBit, ObjectPayload, js_get_length32,
     },
     stack_frame::StackFrame,
     string::JS_ConcatString3,
@@ -179,19 +178,18 @@ pub fn js_op_define_class(
         JS_ATOM_length,
         JSValue::Int(bc.0.borrow().defined_arg_count as i32),
         JS_PROP_CONFIGURABLE,
-    )
-    .unwrap();
+    )?;
 
     if is_computed_name {
-        if unsafe { JS_DefineObjectNameComputed(ctx, &ctor, &*sp.offset(-3), JS_PROP_CONFIGURABLE) }
-            < 0
-        {
-            return Err(-1);
-        }
+        ctor.as_object().unwrap().define_name_computed(
+            ctx,
+            unsafe { &*sp.offset(-3) },
+            JS_PROP_CONFIGURABLE,
+        )?;
     } else {
-        if unsafe { JS_DefineObjectName(ctx, &ctor, class_name, JS_PROP_CONFIGURABLE) } < 0 {
-            return Err(-1);
-        }
+        ctor.as_object()
+            .unwrap()
+            .define_name(ctx, class_name, JS_PROP_CONFIGURABLE)?;
     }
 
     // the constructor property must be first. It can be overridden by
@@ -232,7 +230,7 @@ pub(super) fn js_has_unscopable(ctx: &JSContext, obj: &JSValue, atom: JSAtom) ->
     }
 }
 
-pub fn js_get_function_name(ctx: &JSContext, name: JSAtom) -> JSValue {
+pub(crate) fn js_get_function_name(ctx: &JSContext, name: JSAtom) -> JSValue {
     if let Ok(name_str) = name.to_string(ctx) {
         if name.has_description(ctx) {
             JS_ConcatString3(ctx, c"[", name_str.into(), c"]")

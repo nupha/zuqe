@@ -631,6 +631,7 @@ impl JSValue {
         }
     }
 
+    #[deprecated]
     pub unsafe fn as_object_unchecked(&self) -> &JSObject {
         if let Self::Object(ob) = self {
             ob
@@ -783,25 +784,6 @@ pub fn JS_SetObjectData(ctx: &JSContext, obj: JSValue, val: JSValue) -> i32 {
             ctx.throw_type_error("invalid object type");
         }
         -1
-    }
-}
-
-/// Check if object has a valid 'name' property
-/// Returns true if:
-/// 1. Has a non-normal 'name' property (getter/setter)
-/// 2. 'name' is a non-empty string
-/// 3. 'name' is a symbol with description
-pub fn js_object_has_name(obj: &JSValue) -> bool {
-    let ob = unsafe { obj.as_object_unchecked() };
-    if let Some((idx, _)) = ob.find_shape_property(JS_ATOM_name) {
-        if let JSProperty::Normal(JSValue::String(ss)) = ob.0.prop_values.borrow().get(idx).unwrap()
-        {
-            !ss.is_empty()
-        } else {
-            true
-        }
-    } else {
-        false
     }
 }
 

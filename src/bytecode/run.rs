@@ -33,10 +33,10 @@ use crate::{
     iterator::ObjectIter,
     module::{js_dynamic_import, js_import_meta},
     object::{
-        JS_DefineObjectName, JS_DefineObjectNameComputed, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE,
-        JS_PROP_ENUMERABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET,
-        JS_PROP_HAS_SET, JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW,
-        JS_PROP_THROW_STRICT, JS_PROP_VARREF, JS_PROP_WRITABLE, JSObject, JSProperty,
+        JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_HAS_CONFIGURABLE,
+        JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE,
+        JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_VARREF,
+        JS_PROP_WRITABLE, JSObject, JSProperty,
     },
     stack_frame::StackFrame,
     string::JSString,
@@ -1625,26 +1625,25 @@ impl Bytecode {
                         }
                     }
                     OpCode::SET_NAME => {
-                        // [this_obj, ^] -> [this_obj, ^]
+                        // [obj, ^] -> [obj, ^]
                         let atom = JSAtom(PC_FETCH!(u32));
-                        let ret = unsafe {
-                            JS_DefineObjectName(ctx, SP_REF!(-1), atom, JS_PROP_CONFIGURABLE)
-                        };
-                        if ret < 0 {
+                        if SP_REF!(-1)
+                            .as_object()
+                            .ok_or(-1)
+                            .and_then(|o| o.define_name(ctx, atom, JS_PROP_CONFIGURABLE))
+                            .is_err()
+                        {
                             break State::Exception;
                         }
                     }
                     OpCode::SET_NAME_COMPUTED => {
-                        // [this_obj, name, ^] -> [this_obj, name, ^]
-                        let ret = unsafe {
-                            JS_DefineObjectNameComputed(
-                                ctx,
-                                SP_REF!(-1),
-                                SP_REF!(-2),
-                                JS_PROP_CONFIGURABLE,
-                            )
-                        };
-                        if ret < 0 {
+                        // [obj, name, ^] -> [obj, name, ^]
+                        if SP_REF!(-1)
+                            .as_object()
+                            .unwrap()
+                            .define_name_computed(ctx, SP_REF!(-2), JS_PROP_CONFIGURABLE)
+                            .is_err()
+                        {
                             break State::Exception;
                         }
                     }

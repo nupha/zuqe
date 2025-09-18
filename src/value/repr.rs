@@ -1,44 +1,53 @@
-use std::borrow::Cow;
-
 use crate::{context::JSContext, number::f64_stringify};
 
 use super::JSValue;
 
 impl JSValue {
-    fn repr_simple(&self) -> Option<Cow<'static, str>> {
+    /// Get representation string of `self` value.
+    /// repr string if used for interactive prompting only.
+    pub fn repr(&self, ctx: &JSContext) -> Result<String, i32> {
         match self {
-            Self::Int(i) => Some(format!("{}", *i).into()),
-            Self::Bool(b) => Some(if *b { "true" } else { "false" }.into()),
+            // simple value types
+            Self::Int(i) => Ok(format!("{}", *i).into()),
+            Self::Bool(b) => Ok(if *b { "true" } else { "false" }.into()),
             Self::Float64(n) => {
-                Some(if *n == 0.0 {
+                Ok(if *n == 0.0 {
                     // distinct '0' and '-0'
                     if n.is_sign_negative() { "-0" } else { "0" }.into()
                 } else {
                     f64_stringify(*n, 10, None, 0).into()
                 })
             }
-            Self::NULL => Some("null".into()),
-            Self::UNDEFINED => Some("undefined".into()),
-            Self::Bytecode(_) => Some("[function bytecode]".into()),
-            _ => None,
-        }
-    }
+            Self::NULL => Ok("null".into()),
+            Self::UNDEFINED => Ok("undefined".into()),
+            Self::Module(_) => Ok("[module]".into()),
 
-    /// Get representation string of `self` value.
-    pub fn repr(&self, ctx: &JSContext) -> Result<String, i32> {
-        match self {
+            // complex value types
             Self::String(s) => Ok(s.content().to_utf8().into_owned()),
             Self::Symbol(p) => {
                 let s = p.atom_info().unwrap().atom().to_utf8(ctx.rt());
                 Ok(format!("Symbol({s})").into())
             }
-            _ => {
-                if let Some(s) = self.repr_simple() {
-                    Ok(s.into_owned())
+            Self::Object(o) => {
+                if let Some(v) = { o.0.payload.borrow().value() } {
+                    // primitive object
+                    Ok(format!("[object {}]", v.repr(ctx)?))
                 } else {
-                    Ok(self.to_string(ctx)?.content().to_utf8().into_owned())
+                    Ok(format!(
+                        "[object {}]",
+                        o.class_name().to_string(ctx)?.content().to_utf8()
+                    ))
                 }
             }
+            Self::Bytecode(b) => {
+                Ok(format!("[bytecode {}]", b.0.borrow().func_name.to_utf8(b.rt())).into())
+            }
+
+            // internal value types
+            Self::EXCEPTION => Ok("<exception>".into()),
+            Self::UNINITIALIZED => Ok("<uninitialized>".into()),
+            Self::CatchOffset(n) => Ok(format!("<catchoffset {}>", *n).into()),
+            Self::AsyncStateResume(_) => Ok("<asyncfuncresume>".into()),
         }
     }
 }
