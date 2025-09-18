@@ -321,8 +321,9 @@ fn run_test_script(
                 // no pending job
                 if is_async {
                     // test if the test called $DONE() once
-                    if ASYNC_DONE.load(std::sync::atomic::Ordering::SeqCst) != 1 {
-                        ctx.throw_type_error("$DONE() not called");
+                    let n = ASYNC_DONE.load(Ordering::SeqCst);
+                    if n != 1 {
+                        ctx.throw_type_error(&format!("$DONE() not called {n}"));
                         return Err(-1);
                     }
                 } else {

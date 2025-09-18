@@ -94,17 +94,14 @@ impl JSRuntime {
     /// None: there is no pending job.
     /// Err: fail in execute job. ctx is the context of the executed job.
     pub fn execute_job_once(&mut self) -> Result<Option<JSContext>, (JSContext, i32)> {
-        // fetch the first pending job and execute it
         if let Some(job) = self.job_list.pop_front() {
             let res = {
-                (job.callback)(
+                let cc = CallContext::new_simple(
                     &job.ctx,
-                    CallContext::new_simple(
-                        &job.ctx,
-                        JSValue::UNDEFINED,
-                        &job.args[..job.argc as usize],
-                    ),
-                )
+                    JSValue::UNDEFINED,
+                    &job.args[..job.argc as usize],
+                );
+                (job.callback)(&job.ctx, cc)
             };
 
             if res.is_ok() {
@@ -113,7 +110,7 @@ impl JSRuntime {
                 Err((job.ctx, -1))
             }
         } else {
-            Ok(None) // no job to run
+            Ok(None) // no job in queue
         }
     }
 }

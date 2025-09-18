@@ -7,7 +7,7 @@ use crate::{
     error::JSResult,
     function::{AsyncFuncState, CallContext, FieldDef},
     iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW, js_create_iterator_result},
-    object::{JS_PROP_CONFIGURABLE, JSObjectWeakref, ObjectPayload},
+    object::{JS_PROP_CONFIGURABLE, JSObject, JSObjectWeakref, ObjectPayload},
     promise::{Promise, js_promise_resolve},
     runtime::JSRuntime,
     value::{JSValue, JSValueConst},
@@ -331,25 +331,25 @@ pub fn js_async_generator_completed_return(
     }
     .try_into()?;
 
-    let resolving_funcs1 = unsafe {
-        js_async_generator_resolve_function_create(
-            ctx,
-            JSValue::Object(s.generator.upgrade().unwrap()),
-            true,
-        )?
-    };
+    let resolving_funcs = js_async_generator_resolve_function_create(
+        ctx,
+        JSValue::Object(s.generator.upgrade().unwrap()),
+        true,
+    )?;
+    debug_assert!(resolving_funcs[0].is_callable());
+    debug_assert!(resolving_funcs[1].is_callable());
 
     promise.reaction(
         ctx,
-        &resolving_funcs1,
+        &resolving_funcs,
         &[JSValue::UNDEFINED, JSValue::UNDEFINED],
     )
 }
 
-pub fn js_async_generator_await(
+fn js_async_generator_await(
     ctx: &JSContext,
     s: &mut AsyncGeneratorObjPayload,
-    value: JSValueConst,
+    value: JSValue,
 ) -> Result<(), i32> {
     let promise: Promise = {
         let cc = CallContext::new(
@@ -362,13 +362,13 @@ pub fn js_async_generator_await(
         js_promise_resolve(ctx, cc)?.try_into()?
     };
 
-    let resolving_funcs = unsafe {
-        js_async_generator_resolve_function_create(
-            ctx,
-            JSValue::Object(s.generator.upgrade().unwrap()),
-            false,
-        )?
-    };
+    let resolving_funcs = js_async_generator_resolve_function_create(
+        ctx,
+        JSValue::Object(s.generator.upgrade().unwrap()),
+        false,
+    )?;
+    debug_assert!(resolving_funcs[0].is_callable());
+    debug_assert!(resolving_funcs[1].is_callable());
 
     promise.reaction(
         ctx,
@@ -378,63 +378,77 @@ pub fn js_async_generator_await(
     )
 }
 
-/// create [resolve, reject] functions for async `generator`.
-/// `generator` is not consumed.
-pub unsafe fn js_async_generator_resolve_function_create(
+/// create pair of functions to handle fullfil and reject.
+fn js_async_generator_resolve_function_create(
     ctx: &JSContext,
     generator: JSValue,
     is_resume_next: bool,
 ) -> Result<[JSValue; 2], i32> {
-    let resolving_funcs = [JSValue::UNDEFINED, JSValue::UNDEFINED];
-
-    for i in 0..2 {
-        let func = ctx.create_native_function_with_data(
+    let resolving_funcs: [JSValue; 2] = [
+        // handle fullfil
+        ctx.create_native_function_with_data(
             js_async_generator_resolve_function,
             1,
-            i + if is_resume_next { 2 } else { 0 },
+            if is_resume_next { 2 } else { 0 },
             std::slice::from_ref(&generator),
-        )?;
-    }
+        )?
+        .into(),
+        // handle reject
+        ctx.create_native_function_with_data(
+            js_async_generator_resolve_function,
+            1,
+            if is_resume_next { 3 } else { 1 },
+            std::slice::from_ref(&generator),
+        )?
+        .into(),
+    ];
 
     Ok(resolving_funcs)
 }
 
-pub fn js_async_generator_resolve_function(ctx: &JSContext, args: CallContext) -> JSResult {
-    let is_reject = args.magic() & 1 != 0;
-    let val = args.arg(0);
-    let mut isa = unsafe { val.as_object_unchecked().0.payload.borrow_mut() };
+fn js_async_generator_resolve_function(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let is_reject = cc.magic() & 1 != 0;
+    let arg = cc.arg(0);
 
-    if let ObjectPayload::ASYNC_GENERATOR(Some(p)) = isa.deref_mut() {
-        if args.magic() >= 2 {
+    if let ObjectPayload::ASYNC_GENERATOR(Some(s)) = cc
+        .data(0)
+        .as_object()
+        .unwrap()
+        .0
+        .payload
+        .borrow_mut()
+        .deref_mut()
+    {
+        if cc.magic() >= 2 {
             // resume next case in AWAITING_RETURN state
             debug_assert!(matches!(
-                p.state,
+                s.state,
                 JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_AWAITING_RETURN
                     | JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_COMPLETED
             ));
 
-            p.state = JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_COMPLETED;
+            s.state = JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_COMPLETED;
             if is_reject {
-                p.reject(ctx, val.clone());
+                s.reject(ctx, arg.clone());
             } else {
-                p.resolve(ctx, val.clone(), true);
+                s.resolve(ctx, arg.clone(), true);
             }
         } else {
             // restart function execution after await()
             debug_assert_eq!(
-                p.state,
+                s.state,
                 JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_EXECUTING
             );
 
-            p.func_state.as_ref().unwrap().set_throw_flag(is_reject);
+            s.func_state.as_ref().unwrap().set_throw_flag(is_reject);
 
             if is_reject {
-                ctx.throw(val.clone());
+                ctx.throw(arg.clone());
             } else {
                 // return value of await.
                 unsafe {
                     std::ptr::replace(
-                        p.func_state
+                        s.func_state
                             .as_ref()
                             .unwrap()
                             .0
@@ -445,12 +459,12 @@ pub fn js_async_generator_resolve_function(ctx: &JSContext, args: CallContext) -
                             .stack_cur_ptr()
                             .offset(-1)
                             .as_ptr(),
-                        val.clone(),
+                        arg.clone(),
                     );
                 }
             }
 
-            p.resume_next(ctx);
+            s.resume_next(ctx);
         }
 
         Ok(JSValue::UNDEFINED)
@@ -468,7 +482,7 @@ pub fn js_async_generator_next(ctx: &JSContext, cc: CallContext) -> JSResult {
         .map(|o| o.0.payload.borrow_mut())
         .as_deref_mut()
     {
-        let p = ag.as_mut().unwrap();
+        let s = ag.as_mut().unwrap();
 
         let req = Box::new(JSAsyncGeneratorRequest {
             completion_type: cc.magic(),
@@ -476,10 +490,10 @@ pub fn js_async_generator_next(ctx: &JSContext, cc: CallContext) -> JSResult {
             promise: promise.clone().into(),
             resolving_funcs,
         });
-        p.queue.push(req);
+        s.queue.push(req);
 
-        if p.state != JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_EXECUTING {
-            p.resume_next(ctx);
+        if s.state != JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_EXECUTING {
+            s.resume_next(ctx);
         }
     } else {
         ctx.throw_type_error("not an AsyncGenerator object");

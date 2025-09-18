@@ -21,17 +21,16 @@ impl Promise {
     /// Add a chained reaction to `self` Promise.
     ///
     /// Arguments:
-    /// - `reaction_funcs` - function pair to act as reaction handler,
-    ///    usually customized performing function.
-    /// - `cap_resolving_funcs` - function pair of wrapper promise,
-    ///    which hook up the wrapper Promise and `reaction_funcs` activation.
+    /// - `reaction_funcs` - reaction callback functions, user's logic.
+    /// - `cap_resolving_funcs` - resolving functions of wrapper promise,
+    ///    which activates the `reaction_funcs` execution.
     pub fn reaction(
         &self,
         ctx: &JSContext,
         reaction_funcs: &[JSValue; 2],
         cap_resolving_funcs: &[JSValue; 2],
     ) -> Result<(), i32> {
-        let a0 = Box::new(JSPromiseReactionData {
+        let callback0 = Box::new(JSPromiseReactionData {
             resolving_funcs: [
                 cap_resolving_funcs[0].clone(),
                 cap_resolving_funcs[1].clone(),
@@ -45,7 +44,7 @@ impl Promise {
                 }
             },
         });
-        let a1 = Box::new(JSPromiseReactionData {
+        let callback1 = Box::new(JSPromiseReactionData {
             resolving_funcs: [
                 cap_resolving_funcs[0].clone(),
                 cap_resolving_funcs[1].clone(),
@@ -60,41 +59,41 @@ impl Promise {
             },
         });
 
-        self.with_mut(|p| {
-            if p.promise_state == JSPromiseStateEnum::JS_PROMISE_PENDING {
+        self.with_mut(|s| {
+            if s.promise_state == JSPromiseStateEnum::JS_PROMISE_PENDING {
                 // queue action to be performed later in job tick (a.k.a. microtask)
-                p.promise_reactions[0].push(a0);
-                p.promise_reactions[1].push(a1);
+                s.promise_reactions[0].push(callback0);
+                s.promise_reactions[1].push(callback1);
             } else {
                 // perform action immediately
-                if p.promise_state == JSPromiseStateEnum::JS_PROMISE_REJECTED && !p.is_handled {
+                if s.promise_state == JSPromiseStateEnum::JS_PROMISE_REJECTED && !s.is_handled {
                     if let Some(cb) = ctx.rt().host_promise_rejection_tracker {
                         cb(
                             ctx,
                             self.clone(),
-                            p.promise_result.clone(),
+                            s.promise_result.clone(),
                             true as i32,
                             ctx.rt().host_promise_rejection_tracker_opaque,
                         );
                     }
                 }
 
-                let act = if p.promise_state == JSPromiseStateEnum::JS_PROMISE_FULFILLED {
-                    a0
+                let act = if s.promise_state == JSPromiseStateEnum::JS_PROMISE_FULFILLED {
+                    callback0
                 } else {
-                    a1
+                    callback1
                 };
                 let args: [JSValue; 5] = [
                     act.resolving_funcs[0].clone(),
                     act.resolving_funcs[1].clone(),
                     act.handler,
-                    JSValue::Bool(p.promise_state == JSPromiseStateEnum::JS_PROMISE_REJECTED), // is reject?
-                    p.promise_result.clone(),
+                    JSValue::Bool(s.promise_state == JSPromiseStateEnum::JS_PROMISE_REJECTED), // is reject?
+                    s.promise_result.clone(),
                 ];
                 ctx.queue_job(promise_reaction_job, &args).unwrap();
             }
 
-            p.is_handled = true;
+            s.is_handled = true;
         });
 
         Ok(())

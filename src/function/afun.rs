@@ -19,7 +19,7 @@ pub struct AsyncFunction(pub(crate) JSObject);
 object_cast!(AsyncFunction, JS_CLASS_ASYNC_FUNCTION);
 
 impl AsyncFunction {
-    /// hook to call an async function
+    /// hook to call an async function class object
     pub fn hook_call(
         ctx: &JSContext,
         func_obj: &JSValue,
@@ -31,6 +31,7 @@ impl AsyncFunction {
 
         // create promise and resolving handlers
         let (promise, resolving_funcs) = ctx.create_promise(&JSValue::UNDEFINED)?;
+
         // create state to execute async function
         let s = AsyncFuncState::new_with_resolvings(
             ctx,
