@@ -23,7 +23,7 @@ use crate::{
     mem::{JS_DEFAULT_STACK_SIZE, JSMallocFunctions, JSMallocState},
     module::{JSModuleLoaderFunc, JSModuleNormalizeFunc, js_module_ns_exotic_methods},
     object::{GCObjectWeakref, JSShapeWeakref},
-    promise::{JSHostPromiseRejectionTracker, JSJobEntry, PromiseResolvingFunc},
+    promise::{JSHostPromiseRejectionTracker, JSJobEntry, PromiseResolving},
     proxy::{Proxy, js_proxy_exotic_methods},
     stack_frame::StackFrame,
     string::{JSStringInner, js_string_exotic_methods},
@@ -208,9 +208,9 @@ impl JSRuntime {
         // setup async related classes
         {
             rt.class_defs[JS_CLASS_PROMISE_RESOLVE_FUNCTION as usize].call =
-                Some(PromiseResolvingFunc::hook_call);
+                Some(PromiseResolving::hook_call);
             rt.class_defs[JS_CLASS_PROMISE_REJECT_FUNCTION as usize].call =
-                Some(PromiseResolvingFunc::hook_call);
+                Some(PromiseResolving::hook_call);
 
             rt.class_defs[JS_CLASS_ASYNC_FUNCTION as usize].call = Some(AsyncFunction::hook_call);
             rt.class_defs[JS_CLASS_ASYNC_FUNCTION_RESOLVE as usize].call =

@@ -18,9 +18,10 @@ use super::{
 // Instance methods
 //
 
-// TODO: should return Result<Promise>
 pub fn js_promise_then(ctx: &JSContext, cc: CallContext) -> JSResult {
-    Promise::try_from(cc.this().clone())?
+    cc.this()
+        .as_object_Promise()
+        .unwrap()
         .then(ctx, cc.arg(0).clone(), cc.arg(1).clone())
         .map(|p| p.into())
 }

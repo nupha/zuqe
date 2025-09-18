@@ -328,13 +328,13 @@ fn run_test_script(
                 } else {
                     // check if the returned promise is fulfilled
                     match promise.state() {
-                        Ok(JSPromiseStateEnum::JS_PROMISE_FULFILLED) => {}
-                        Ok(JSPromiseStateEnum::JS_PROMISE_REJECTED) => {
+                        JSPromiseStateEnum::JS_PROMISE_FULFILLED => {}
+                        JSPromiseStateEnum::JS_PROMISE_REJECTED => {
                             ctx.throw(promise.result());
                             return Err(-1);
                         }
-                        Ok(JSPromiseStateEnum::JS_PROMISE_PENDING) | Err(_) => {
-                            ctx.throw_type_error("promise not fulfilled");
+                        JSPromiseStateEnum::JS_PROMISE_PENDING => {
+                            ctx.throw_type_error("promise is pending");
                             return Err(-1);
                         }
                     };

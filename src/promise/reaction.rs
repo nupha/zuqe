@@ -1,10 +1,4 @@
-use std::ops::DerefMut;
-
-use crate::{
-    context::JSContext,
-    object::{JS_SpeciesConstructor, ObjectPayload},
-    value::JSValue,
-};
+use crate::{context::JSContext, object::JS_SpeciesConstructor, value::JSValue};
 
 use super::{JSPromiseStateEnum, Promise, job::promise_reaction_job};
 
@@ -24,51 +18,53 @@ impl Default for JSPromiseReactionData {
 }
 
 impl Promise {
-    /// Register chained reaction to `self` promise.
-    /// `resolve_reject` - functions to use as reaction handler.
-    /// `cap_resolving_funcs` - [resolve, reject] functions of wrapper promise.
-    /// Note: `resolve_reject` and `cap_resolving_funcs` are not consumed.
+    /// Add a chained reaction to `self` Promise.
+    ///
+    /// Arguments:
+    /// - `reaction_funcs` - function pair to act as reaction handler,
+    ///    usually customized performing function.
+    /// - `cap_resolving_funcs` - function pair of wrapper promise,
+    ///    which hook up the wrapper Promise and `reaction_funcs` activation.
     pub fn reaction(
         &self,
         ctx: &JSContext,
-        resolve_reject: &[JSValue; 2],
+        reaction_funcs: &[JSValue; 2],
         cap_resolving_funcs: &[JSValue; 2],
     ) -> Result<(), i32> {
-        let rd1 = Box::new(JSPromiseReactionData {
+        let a0 = Box::new(JSPromiseReactionData {
             resolving_funcs: [
                 cap_resolving_funcs[0].clone(),
                 cap_resolving_funcs[1].clone(),
             ],
             handler: {
-                let h = resolve_reject[0].clone();
+                let h = reaction_funcs[0].clone();
                 if !h.is_callable() {
                     JSValue::UNDEFINED
                 } else {
-                    h.clone()
+                    h
                 }
             },
         });
-        let rd2 = Box::new(JSPromiseReactionData {
+        let a1 = Box::new(JSPromiseReactionData {
             resolving_funcs: [
                 cap_resolving_funcs[0].clone(),
                 cap_resolving_funcs[1].clone(),
             ],
             handler: {
-                let h = resolve_reject[1].clone();
+                let h = reaction_funcs[1].clone();
                 if !h.is_callable() {
                     JSValue::UNDEFINED
                 } else {
-                    h.clone()
+                    h
                 }
             },
         });
 
-        let mut payload = self.0.payload.borrow_mut();
-        if let ObjectPayload::PROMISE(p) = payload.deref_mut() {
+        self.with_mut(|p| {
             if p.promise_state == JSPromiseStateEnum::JS_PROMISE_PENDING {
                 // register pending to call later in micro task job
-                p.promise_reactions[0].push(rd1);
-                p.promise_reactions[1].push(rd2);
+                p.promise_reactions[0].push(a0);
+                p.promise_reactions[1].push(a1);
             } else {
                 // call immediately
                 if p.promise_state == JSPromiseStateEnum::JS_PROMISE_REJECTED && !p.is_handled {
@@ -83,15 +79,15 @@ impl Promise {
                     }
                 }
 
-                let rd = if p.promise_state == JSPromiseStateEnum::JS_PROMISE_FULFILLED {
-                    rd1 // 0 resolve
+                let act = if p.promise_state == JSPromiseStateEnum::JS_PROMISE_FULFILLED {
+                    a0
                 } else {
-                    rd2 // 1 reject
+                    a1
                 };
                 let args: [JSValue; 5] = [
-                    rd.resolving_funcs[0].clone(),
-                    rd.resolving_funcs[1].clone(),
-                    rd.handler,
+                    act.resolving_funcs[0].clone(),
+                    act.resolving_funcs[1].clone(),
+                    act.handler,
                     JSValue::Bool(p.promise_state == JSPromiseStateEnum::JS_PROMISE_REJECTED), // is reject?
                     p.promise_result.clone(),
                 ];
@@ -99,29 +95,20 @@ impl Promise {
             }
 
             p.is_handled = true;
-            Ok(())
-        } else {
-            unreachable!()
-        }
+        });
+
+        Ok(())
     }
 
     /// create new promise for `then()`, register reaction handlers to `self` promise.
     /// `resolve` and `reject` are callback functions.
     /// `resolve` and `reject` are not consumed.
-    pub fn then(&self, ctx: &JSContext, resolve: JSValue, reject: JSValue) -> Result<Self, i32> {
-        // check guard
-        // let _ = unsafe {
-        //     self.0
-        //         .object_unchecked()
-        //         .opaque_must::<PromiseObjPayload>(JS_CLASS_PROMISE, ctx)?
-        // };
-
+    pub fn then(&self, ctx: &JSContext, fullfil: JSValue, reject: JSValue) -> Result<Self, i32> {
         let ctor = JS_SpeciesConstructor(ctx, &self.clone().into(), JSValue::UNDEFINED)?;
-        let (result_promise, resolving_funcs) = ctx.create_promise(&ctor)?;
+        let (promise2, resolving_hooks) = ctx.create_promise(&ctor)?;
 
         // perform reaction
-        self.reaction(ctx, &[resolve, reject], &resolving_funcs)?;
-
-        Ok(result_promise)
+        self.reaction(ctx, &[fullfil, reject], &resolving_hooks)?;
+        Ok(promise2)
     }
 }

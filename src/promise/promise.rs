@@ -18,7 +18,7 @@ use crate::{
     value::{JSValue, JSValueConst},
 };
 
-use super::{ObjPromiseResolvingState, job::promise_reaction_job};
+use super::{PromiseResolvingPayload, job::promise_reaction_job};
 
 pub type JSHostPromiseRejectionTracker = fn(
     ctx: &JSContext,
@@ -107,7 +107,7 @@ impl Promise {
             &[JSValue::UNDEFINED, JSValue::UNDEFINED], // resolving functions, initially undefined
         )?;
 
-        let result_promise: Self = if ctor.is_undefined() {
+        let promise: Self = if ctor.is_undefined() {
             Self::new_with_executor(ctx, executor.clone(), &JSValue::UNDEFINED)?
         } else {
             JS_CallConstructor(ctx, ctor, std::slice::from_ref(&executor.clone().into()))
@@ -124,7 +124,7 @@ impl Promise {
             }
 
             let resolving_funcs = [data[0].clone(), data[1].clone()];
-            Ok((result_promise.into(), resolving_funcs))
+            Ok((promise.into(), resolving_funcs))
         } else {
             unreachable!()
         }
@@ -138,13 +138,12 @@ impl Promise {
         let resolved = Rc::new(Cell::new(false));
 
         for i in 0..2 {
-            let s = ObjPromiseResolvingState {
+            let function_proto = ctx.0.borrow().function_proto.clone();
+            let s = Box::new(PromiseResolvingPayload {
                 promise: self.clone(),
                 resolved: resolved.clone(), // shared between two functions
-            };
-
-            let function_proto = ctx.0.borrow().function_proto.clone();
-            let func_obj = ctx
+            });
+            let func = ctx
                 .create_object_from_proto(
                     function_proto,
                     if i == 0 {
@@ -154,63 +153,70 @@ impl Promise {
                     },
                 )
                 .map_err(|_| -1)?;
-            js_function_set_properties(ctx, &func_obj, JS_ATOM_empty_string, 1);
-            resolving_funcs[i as usize] = func_obj.into();
+            js_function_set_properties(ctx, &func, JS_ATOM_empty_string, 1);
+            resolving_funcs[i as usize] = func.into();
         }
 
         Ok(resolving_funcs)
     }
 
-    /// get Promise meta data.
-    fn with_meta<R>(&self, f: impl FnOnce(&PromiseObjPayload) -> R) -> Option<R> {
+    /// run closure with Promise payload.
+    pub(super) fn with<R>(&self, f: impl FnOnce(&PromiseObjPayload) -> R) -> R {
         if let ObjectPayload::PROMISE(p) = self.0.0.payload.borrow().deref() {
-            Some(f(p))
+            f(p)
         } else {
-            None
+            #[cfg(debug_assertions)]
+            unreachable!();
+            #[cfg(not(debug_assertions))]
+            unsafe {
+                std::hint::unreachable_unchecked();
+            }
         }
     }
 
-    /// get Promise meta data.
-    fn with_meta_mut<R>(&self, f: impl FnOnce(&mut PromiseObjPayload) -> R) -> Option<R> {
+    /// run closure with Promise payload.
+    pub(super) fn with_mut<R>(&self, f: impl FnOnce(&mut PromiseObjPayload) -> R) -> R {
         if let ObjectPayload::PROMISE(p) = self.0.0.payload.borrow_mut().deref_mut() {
-            Some(f(p))
+            f(p)
         } else {
-            None
+            #[cfg(debug_assertions)]
+            unreachable!();
+            #[cfg(not(debug_assertions))]
+            unsafe {
+                std::hint::unreachable_unchecked();
+            }
         }
     }
 
     /// get Promise state.
-    #[inline(always)]
-    pub fn state(&self) -> Result<JSPromiseStateEnum, i32> {
-        self.with_meta(|s| s.promise_state).ok_or(-1)
+    #[inline]
+    pub fn state(&self) -> JSPromiseStateEnum {
+        self.with(|s| s.promise_state)
     }
 
     /// get Promise result.
     /// returned value is duplicated, caller must free it.
     #[inline]
     pub fn result(&self) -> JSValue {
-        self.with_meta(|s| s.promise_result.clone())
-            .unwrap_or(JSValue::UNDEFINED)
+        self.with(|s| s.promise_result.clone())
     }
 
     /// save resolving resultand update promise status to 'fulfilled' or 'rejected'.
     /// call chained reactions which was registered by `then()`, `catch()` or `finally()`.
     /// Note: `value` is not consumed (duplicated inside).
     pub(super) fn fulfill_or_reject(&self, ctx: &JSContext, value: JSValue, is_reject: bool) {
-        let (promise_state, is_handled) = self
-            .with_meta_mut(|s| {
-                debug_assert_eq!(s.promise_state, JSPromiseStateEnum::JS_PROMISE_PENDING);
+        let (promise_state, is_handled) = self.with_mut(|s| {
+            debug_assert_eq!(s.promise_state, JSPromiseStateEnum::JS_PROMISE_PENDING);
 
-                s.promise_result = value.clone();
-                s.promise_state = if is_reject {
-                    JSPromiseStateEnum::JS_PROMISE_REJECTED
-                } else {
-                    JSPromiseStateEnum::JS_PROMISE_FULFILLED
-                };
+            s.promise_result = value.clone();
+            s.promise_state = if is_reject {
+                JSPromiseStateEnum::JS_PROMISE_REJECTED
+            } else {
+                JSPromiseStateEnum::JS_PROMISE_FULFILLED
+            };
 
-                (s.promise_state, s.is_handled)
-            })
-            .unwrap();
+            (s.promise_state, s.is_handled)
+        });
 
         if promise_state == JSPromiseStateEnum::JS_PROMISE_REJECTED && !is_handled {
             if let Some(cb) = ctx.rt().host_promise_rejection_tracker {
@@ -225,19 +231,17 @@ impl Promise {
         }
 
         // call chained reactions registered by `then()`, `catch()` or `finally()`
-        let mut rd_list = self
-            .with_meta_mut(|s| {
-                std::mem::replace(&mut s.promise_reactions[is_reject as usize], Vec::new())
-            })
-            .unwrap();
+        let mut reactions = self.with_mut(|s| {
+            std::mem::replace(&mut s.promise_reactions[is_reject as usize], Vec::new())
+        });
 
-        for rd in rd_list.drain(..) {
+        for act in reactions.drain(..) {
             ctx.queue_job(
                 promise_reaction_job,
                 &[
-                    rd.resolving_funcs[0].clone(),
-                    rd.resolving_funcs[1].clone(),
-                    rd.handler,
+                    act.resolving_funcs[0].clone(),
+                    act.resolving_funcs[1].clone(),
+                    act.handler,
                     JSValue::Bool(is_reject),
                     value.clone(),
                 ],
@@ -298,18 +302,30 @@ impl Promise {
     }
 
     pub fn hook_mark(val: JSValue) {
-        let p = unsafe { val.as_object_unchecked() };
-        if let ObjectPayload::PROMISE(s) = p.0.payload.borrow().deref() {
-            for i in 0..2 {
-                for rd in s.promise_reactions[i].iter() {
-                    rd.resolving_funcs[0].gc_mark();
-                    rd.resolving_funcs[1].gc_mark();
-                    rd.handler.gc_mark();
+        if let Some(promise) = val.as_object_Promise() {
+            promise.with(|s| {
+                for i in 0..2 {
+                    for rd in s.promise_reactions[i].iter() {
+                        rd.resolving_funcs[0].gc_mark();
+                        rd.resolving_funcs[1].gc_mark();
+                        rd.handler.gc_mark();
+                    }
                 }
-            }
-
-            s.promise_result.gc_mark();
+                s.promise_result.gc_mark();
+            });
         }
+
+        // if let ObjectPayload::PROMISE(s) = p.0.payload.borrow().deref() {
+        //     for i in 0..2 {
+        //         for rd in s.promise_reactions[i].iter() {
+        //             rd.resolving_funcs[0].gc_mark();
+        //             rd.resolving_funcs[1].gc_mark();
+        //             rd.handler.gc_mark();
+        //         }
+        //     }
+
+        //     s.promise_result.gc_mark();
+        // }
     }
 }
 

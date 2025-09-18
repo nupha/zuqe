@@ -728,7 +728,7 @@ pub unsafe fn JS_PromiseState(
     ctx: &JSContext,
     promise: JSValue,
 ) -> Result<JSPromiseStateEnum, i32> {
-    Promise::try_from(promise).unwrap().state()
+    unreachable!("unused");
 }
 
 /// to free `fd` and all its children

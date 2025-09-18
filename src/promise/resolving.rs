@@ -5,7 +5,8 @@ use crate::{
     atom::consts::*,
     context::JSContext,
     error::JSResult,
-    object::ObjectPayload,
+    object::{JSObject, ObjectPayload},
+    object_cast,
     runtime::JSRuntime,
     value::{JSValue, JSValueConst},
 };
@@ -14,19 +15,24 @@ use super::{Promise, js_promise_resolve_thenable_job};
 
 /// State of promise resolving function.
 #[derive(Debug, Clone)]
-pub struct ObjPromiseResolvingState {
+pub struct PromiseResolvingPayload {
     /// the target Promise
     pub promise: Promise,
     /// is resolved?
     pub resolved: Rc<Cell<bool>>,
 }
 
-/// Promise resolving function
+/// Represent Promise resolve, reject function object
 #[repr(transparent)]
 #[derive(Debug, Clone)]
-pub struct PromiseResolvingFunc(JSValue);
+pub struct PromiseResolving(JSObject);
 
-impl PromiseResolvingFunc {
+object_cast!(
+    PromiseResolving,
+    JS_CLASS_PROMISE_RESOLVE_FUNCTION | JS_CLASS_PROMISE_REJECT_FUNCTION
+);
+
+impl PromiseResolving {
     pub fn hook_call(
         ctx: &JSContext,
         func_obj: &JSValue,
