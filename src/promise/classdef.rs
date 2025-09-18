@@ -27,7 +27,7 @@ pub fn js_promise_then(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_promise_catch(ctx: &JSContext, cc: CallContext) -> JSResult {
     cc.this()
-        .invoke(ctx, JS_ATOM_then, &[JSValue::UNDEFINED, JSValue::UNDEFINED])
+        .invoke(ctx, JS_ATOM_then, &[JSValue::UNDEFINED, cc.arg(1).clone()])
 }
 
 pub fn js_promise_then_finally_func(ctx: &JSContext, cc: CallContext) -> JSResult {

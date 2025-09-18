@@ -10,7 +10,7 @@ use std::{
 
 use crate::{
     error::STD_ERROR_COUNT,
-    eval::EvalFunc,
+    eval::EvalFn,
     module::{JSFreeModuleEnum, JSModuleDefWeakref, js_free_modules},
     object::{JSObject, JSShape},
     regexp::JSRegExp,
@@ -79,7 +79,7 @@ pub struct JSContextInner {
         Option<fn(ctx: &JSContext, pattern: JSValue, flags: Option<&str>) -> Result<JSRegExp, i32>>,
 
     /// eval callback
-    pub eval_handle: Option<EvalFunc>,
+    pub eval_handle: Option<EvalFn>,
 
     /// User data pointer
     pub user_opaque: *mut std::ffi::c_void,

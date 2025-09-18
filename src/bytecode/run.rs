@@ -940,7 +940,7 @@ impl Bytecode {
                                 )
                             } else {
                                 // eval() returns undefined
-                                JSValue::UNDEFINED
+                                Ok(JSValue::UNDEFINED)
                             }
                         } else {
                             JS_CallInternal(
@@ -953,6 +953,7 @@ impl Bytecode {
                                 },
                                 0,
                             )
+                            .err()
                         };
 
                         // pop and drop values on stack since `func_val` position
@@ -968,12 +969,12 @@ impl Bytecode {
                             sp = unsafe { sp.offset(-call_argc as isize - 1) };
                         }
 
-                        if ret_val.is_exception() {
-                            break State::Exception;
-                        } else {
+                        if let Ok(v) = ret_val {
                             // push result value on stack
-                            SP_PUT!(0, ret_val);
+                            SP_PUT!(0, v);
                             SP_GO!(1);
+                        } else {
+                            break State::Exception;
                         }
                     }
                     OpCode::APPLY_EVAL => {
@@ -992,22 +993,20 @@ impl Bytecode {
                                     )
                                 } else {
                                     // eval() returns undefined
-                                    JSValue::UNDEFINED
+                                    Ok(JSValue::UNDEFINED)
                                 }
                             } else {
-                                func_val
-                                    .call(ctx, &JSValue::UNDEFINED, &arg_list)
-                                    .unwrap_or(JSValue::EXCEPTION)
+                                func_val.call(ctx, &JSValue::UNDEFINED, &arg_list)
                             };
 
-                            if ret_val.is_exception() {
-                                break State::Exception;
-                            } else {
+                            if let Ok(v) = ret_val {
                                 SP_TAKE!(-2);
                                 SP_TAKE!(-1);
                                 SP_GO!(-2);
-                                SP_PUT!(0, ret_val);
+                                SP_PUT!(0, v);
                                 SP_GO!(1);
+                            } else {
+                                break State::Exception;
                             }
                         } else {
                             break State::Exception;

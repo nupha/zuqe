@@ -142,43 +142,48 @@ fn main() {
         global.set_property_str(&ctx, "createRealm", f).unwrap();
     }
 
-    let r = ctx.eval_auto(script.as_bytes(), &filename);
+    match ctx.eval_auto(script.as_bytes(), &filename) {
+        Ok(v) => {
+            if let Some(pr) = v.as_object_Promise() {
+                loop {
+                    match js.tick() {
+                        Ok(true) => {
+                            std::thread::sleep(std::time::Duration::from_millis(100));
+                        }
+                        Ok(false) => {
+                            println!("[O.o] promise done, print result ...");
+                            break;
+                        }
+                        Err(_) => {
+                            println!("[O.o] error in tick");
+                            break;
+                        }
+                    }
+                }
 
-    loop {
-        match js.tick() {
-            Ok(true) => {
-                std::thread::sleep(std::time::Duration::from_millis(100));
+                let v = pr.result();
+                println!("promise state: {:?}", pr.state());
+                println!("promise result: {v:?}");
+            } else {
+                let s = v.to_string(&ctx);
+                println!(
+                    ">>> RESULT: {v:?}, {:?}, {}",
+                    s.clone(),
+                    s.map_or("<ERR>".into(), |s| s.to_string())
+                );
+                if let JSValue::Object(o) = &v {
+                    o.dump(ctx.rt());
+                }
             }
-            Ok(false) => {
-                break;
-            }
-            Err(_) => {}
         }
-    }
+        Err(_) => {
+            let exc = ctx.exception();
+            debug_assert!(!exc.is_undefined_or_null());
 
-    if r.is_exception() {
-        let exc = ctx.exception();
-        debug_assert!(!exc.is_undefined_or_null());
-
-        println!("!!! EXCEPTION {exc:?}: {:?}", exc.to_string(&ctx));
-        if let JSValue::Object(o) = exc {
-            o.dump(ctx.rt());
-        };
-    } else {
-        let s = r.to_string(&ctx);
-        println!(
-            ">>> RESULT: {r:?}, {:?}, {}",
-            s.clone(),
-            s.map_or("<ERR>".into(), |s| s.to_string())
-        );
-        if let JSValue::Object(o) = &r {
-            o.dump(ctx.rt());
-        }
-
-        if let Ok(pr) = Promise::try_from(r) {
-            let v = pr.result();
-            println!("promise state: {:?}", pr.state());
-            println!("promise result: {v:?}");
+            println!("!!! EXCEPTION {exc:?}: {:?}", exc.to_string(&ctx));
+            if let JSValue::Object(o) = exc {
+                o.dump(ctx.rt());
+            };
         }
     }
 

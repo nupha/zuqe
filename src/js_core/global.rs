@@ -14,7 +14,6 @@ pub fn js_global_eval(ctx: &JSContext, cc: CallContext) -> JSResult {
     let global = JSValue::Object(ctx.global_obj());
     cc.arg(0)
         .eval_object(ctx, global, JS_EVAL_TYPE_INDIRECT, -1)
-        .err()
 }
 
 pub const MAGIC_NUM_IS_NAN: i32 = 1;

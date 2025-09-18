@@ -19,7 +19,7 @@ use zhuque::{
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
     module::{JS_SetModuleLoaderFunc, ModuleDef},
     object::JS_PROP_C_W_E,
-    promise::{JSPromiseStateEnum, Promise},
+    promise::JSPromiseStateEnum,
     runtime::JSRuntime,
     value::JSValue,
 };
@@ -46,8 +46,7 @@ fn js_detachArrayBuffer(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 fn js_evalScript(ctx: &JSContext, cc: CallContext) -> JSResult {
     let script = cc.arg(0).repr(ctx)?;
-    ctx.eval(script.as_bytes(), "<evalScript>", JS_EVAL_TYPE_GLOBAL)
-        .err()
+    ctx.eval(script.as_bytes(), "<eval>", JS_EVAL_TYPE_GLOBAL)
 }
 
 fn js_string_codePointRange(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -256,8 +255,7 @@ fn run_harness(ctx: &JSContext, harness_files: &[PathBuf]) -> Result<(), i32> {
             src.as_bytes(),
             file.as_os_str().to_string_lossy().as_ref(),
             JS_EVAL_TYPE_GLOBAL,
-        )
-        .err()?;
+        )?;
     }
 
     Ok(())
@@ -270,74 +268,69 @@ fn run_test_script(
     is_module: bool,
     is_async: bool,
     is_strict: bool,
-) -> Result<(), i32> {
-    let mut ret_val = if is_module {
+) -> Result<JSValue, i32> {
+    let res = if is_module {
         ctx.eval_module_source(
             script.as_bytes(),
             filename.as_os_str().to_str().unwrap(),
             false,
         )
-        .map_or(JSValue::EXCEPTION, JSValue::Module)
+        .map(JSValue::Module)?
     } else {
         ctx.eval(
             script.as_bytes(),
             filename.as_os_str().to_str().unwrap(),
             JS_EVAL_TYPE_GLOBAL | if is_strict { JS_EVAL_FLAG_STRICT } else { 0 },
-        )
+        )?
     };
 
-    let has_promise = is_async || is_module;
-    let async_done = 0; // counter of "Test262:AsyncTestComplete" messages
+    if is_async || is_module {
+        // result is a Promise
+        let promise = if let JSValue::Module(md) = res {
+            md.promise().unwrap()
+        } else {
+            res.try_into().unwrap()
+        };
 
-    if has_promise && !ret_val.is_exception() {
-        if let JSValue::Module(md) = ret_val {
-            ret_val = md.promise().map_or(JSValue::UNDEFINED, |p| p.into());
-        }
+        // counter of "Test262:AsyncTestComplete" messages
+        let async_done = 0;
 
-        // ret_val is Promise, execute pending jobs
+        // tick pending jobs
         loop {
-            match ctx.rt_mut().tick() {
-                Ok(true) => {
-                    // need more ticks
-                    std::thread::sleep(std::time::Duration::from_millis(5));
-                }
-                Ok(false) => {
-                    // no pending job
-                    if is_async {
-                        // test if the test called $DONE() once
-                        if async_done != 1 {
-                            ctx.throw_type_error("$DONE() not called")
-                        }
-                        ret_val = JSValue::UNDEFINED;
-                    } else {
-                        // check if the returned promise is fulfilled
-                        let promise = Promise::try_from(ret_val).unwrap();
-
-                        ret_val = match promise.state() {
-                            Ok(JSPromiseStateEnum::JS_PROMISE_FULFILLED) => JSValue::UNDEFINED,
-                            Ok(JSPromiseStateEnum::JS_PROMISE_REJECTED) => {
-                                ctx.throw(promise.result());
-                                JSValue::EXCEPTION
-                            }
-                            Ok(JSPromiseStateEnum::JS_PROMISE_PENDING) | Err(_) => {
-                                ctx.throw_type_error("promise not fulfilled");
-                                JSValue::EXCEPTION
-                            }
-                        };
+            if ctx.rt_mut().tick()? {
+                // need more ticks
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            } else {
+                // no pending job
+                if is_async {
+                    // test if the test called $DONE() once
+                    if async_done != 1 {
+                        ctx.throw_type_error("$DONE() not called");
+                        return Err(-1);
                     }
-                    break;
+                } else {
+                    // check if the returned promise is fulfilled
+                    match promise.state() {
+                        Ok(JSPromiseStateEnum::JS_PROMISE_FULFILLED) => {}
+                        Ok(JSPromiseStateEnum::JS_PROMISE_REJECTED) => {
+                            ctx.throw(promise.result());
+                            return Err(-1);
+                        }
+                        Ok(JSPromiseStateEnum::JS_PROMISE_PENDING) | Err(_) => {
+                            ctx.throw_type_error("promise not fulfilled");
+                            return Err(-1);
+                        }
+                    };
                 }
-                Err(_) => {
-                    ret_val = JSValue::EXCEPTION;
-                    break;
-                }
-                _ => {}
+
+                break;
             }
         }
-    }
 
-    ret_val.err()?;
-    Ok(())
+        Ok(JSValue::UNDEFINED)
+    } else {
+        Ok(res)
+    }
 }
 
 fn dump_error(

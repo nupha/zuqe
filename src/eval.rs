@@ -3,6 +3,7 @@ use std::{ops::DerefMut, ptr::NonNull};
 use crate::{
     atom::{JSAtom, consts::JS_ATOM__eval_},
     context::{JS_MODE_STRICT, JS_MODE_STRIP, JSContext},
+    error::JSResult,
     function::{Bytecode, JSFunctionDef, JSFunctionKindEnum, add_closure_variables},
     module::ModuleDef,
     object::JSObject,
@@ -13,16 +14,15 @@ use crate::{
 };
 
 /// Native function to handle `eval`, returns eval result.
-/// `input` is script source with zero-terminated (\0) byte indicating end.
-/// `this_obj` must not be consumed.
-pub type EvalFunc = fn(
+/// `input` is script source.
+pub type EvalFn = fn(
     ctx: &JSContext,
     this_obj: &JSValue,
     input: &[u8],
     filename: &str,
     flags: u32,
     scope_idx: i32,
-) -> JSValue;
+) -> JSResult;
 
 // Eval types
 pub const JS_EVAL_TYPE_GLOBAL: u32 = 0 << 0;
@@ -69,16 +69,15 @@ impl JSContext {
             debug_assert!(unsafe { (*sf_ptr).cur_func.is_object() });
 
             sframe = unsafe { sf_ptr.as_mut() };
-            cur_frame_func = unsafe {
-                Some(
-                    sframe
-                        .as_ref()
-                        .unwrap()
-                        .cur_func
-                        .as_object_unchecked()
-                        .clone(),
-                )
-            };
+            cur_frame_func = Some(
+                sframe
+                    .as_ref()
+                    .unwrap()
+                    .cur_func
+                    .as_object()
+                    .cloned()
+                    .unwrap(),
+            );
 
             let bc = cur_frame_func
                 .as_ref()
@@ -206,18 +205,16 @@ impl JSContext {
         filename: &str,
         flags: u32,
         scope_idx: i32,
-    ) -> JSValue {
+    ) -> JSResult {
         if flags & JS_EVAL_FLAG_COMPILE_ONLY != 0 {
             panic!(
                 "don't use JS_EVAL_FLAG_COMPILE_ONLY flag in eval().\nif you want compile only, use ::compile() method."
             );
         }
 
-        match self.compile(source, filename, flags, scope_idx) {
-            Ok(Compiled::GlobalOrIndirect(bc)) => bc
-                .eval(self, this_obj, &[], None)
-                .unwrap_or(JSValue::EXCEPTION),
-            Ok(Compiled::Direct(bc)) => {
+        match self.compile(source, filename, flags, scope_idx)? {
+            Compiled::GlobalOrIndirect(bc) => bc.eval(self, this_obj, &[], None),
+            Compiled::Direct(bc) => {
                 // stack frame
                 let sframe = unsafe {
                     let sf_ptr = self.rt().cur_stack_frame.cast::<StackFrame>();
@@ -226,15 +223,13 @@ impl JSContext {
                     sf_ptr.as_mut().unwrap()
                 };
                 // current function of stack frame
-                let frame_func = unsafe { sframe.cur_func.as_object_unchecked().clone() };
+                let frame_func = sframe.cur_func.as_object().cloned().unwrap();
                 let payload = frame_func.0.payload.borrow();
                 let var_refs = payload.func().unwrap().var_refs.as_slice();
 
                 bc.eval(self, this_obj, var_refs, Some(sframe))
-                    .unwrap_or(JSValue::EXCEPTION)
             }
-            Ok(Compiled::Module(m)) => m.eval(self).map_or(JSValue::EXCEPTION, |p| p.into()),
-            Err(_) => JSValue::EXCEPTION,
+            Compiled::Module(m) => m.eval(self).map(|p| p.into()),
         }
     }
 
@@ -246,13 +241,13 @@ impl JSContext {
         source: &[u8],
         filename: &str,
         flags: u32,
-    ) -> JSValue {
+    ) -> JSResult {
         debug_assert!(matches!(flags & JS_EVAL_TYPE_MASK, JS_EVAL_TYPE_GLOBAL));
         self.eval_source(&this_obj, source, filename, flags, -1)
     }
 
     /// eval script with global as `this` binding.
-    pub fn eval(&self, source: &[u8], filename: &str, eval_flags: u32) -> JSValue {
+    pub fn eval(&self, source: &[u8], filename: &str, eval_flags: u32) -> JSResult {
         let global = self.0.borrow().global_obj.clone();
         self.eval_this(global, source, filename, eval_flags)
     }
@@ -260,11 +255,11 @@ impl JSContext {
     /// auto-detect type of source. if source is module, eval as module, otherwise eval as global.
     /// - when eval as module (`url` ends with **.mjs** or `source` has top-level await), returns module value;
     /// - when eval as global, returns normal eval result value.
-    pub fn eval_auto(&self, source: &[u8], url: &str) -> JSValue {
+    pub fn eval_auto(&self, source: &[u8], url: &str) -> JSResult {
         let is_module = url.ends_with(".mjs") || unsafe { JS_DetectModule(source) };
         if is_module {
             self.eval_module_source(source, url, false)
-                .map_or(JSValue::EXCEPTION, |m| m.into())
+                .map(JSValue::Module)
         } else {
             self.eval(source, url, JS_EVAL_TYPE_GLOBAL)
         }
@@ -280,7 +275,7 @@ impl JSString {
         flags: u32,
         scope_idx: i32,
         filename: &str,
-    ) -> JSValue {
+    ) -> JSResult {
         ctx.eval_source(
             &this_obj,
             self.content().to_utf8().as_bytes(),
@@ -304,11 +299,11 @@ impl JSValue {
         this_obj: JSValue,
         flags: u32,
         scope_idx: i32,
-    ) -> JSValue {
+    ) -> JSResult {
         if let Self::String(s) = self {
             s.eval_as_source(ctx, this_obj, flags, scope_idx, "<input>")
         } else {
-            self.clone()
+            Ok(self.clone())
         }
     }
 }

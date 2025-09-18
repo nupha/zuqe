@@ -118,15 +118,13 @@ pub fn js_function_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     // eval to make function
-    let func_obj = ctx
-        .eval_source(
-            &JSValue::Object(ctx.global_obj()),
-            source.to_utf8().as_bytes(),
-            "<input>",
-            JS_EVAL_TYPE_INDIRECT,
-            -1,
-        )
-        .err()?;
+    let func_obj = ctx.eval_source(
+        &JSValue::Object(ctx.global_obj()),
+        source.to_utf8().as_bytes(),
+        "<input>",
+        JS_EVAL_TYPE_INDIRECT,
+        -1,
+    )?;
 
     // set prototype, if provided by `this`
     let new_target = cc.this();
