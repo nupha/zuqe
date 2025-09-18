@@ -7,10 +7,10 @@ use crate::{
     error::JSResult,
     function::{AsyncFuncState, CallContext, FieldDef},
     iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW, js_create_iterator_result},
-    object::{JS_PROP_CONFIGURABLE, JSObject, JSObjectWeakref, ObjectPayload},
+    object::{JS_PROP_CONFIGURABLE, JSObjectWeakref, ObjectPayload},
     promise::{Promise, js_promise_resolve},
     runtime::JSRuntime,
-    value::{JSValue, JSValueConst},
+    value::JSValue,
 };
 
 use super::{FUNC_RET_AWAIT, FUNC_RET_YIELD, FUNC_RET_YIELD_STAR};
@@ -27,7 +27,7 @@ pub enum JSAsyncGeneratorStateEnum {
 }
 
 #[derive(Debug)]
-pub struct AsyncGeneratorObjPayload {
+pub struct AsyncGeneratorState {
     /// reference back to the generator object (const)
     pub generator: JSObjectWeakref,
 
@@ -80,7 +80,7 @@ impl AsyncGeneratorValue {
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
-        let s = Box::new(AsyncGeneratorObjPayload {
+        let s = Box::new(AsyncGeneratorState {
             generator: JSObjectWeakref::default(),
             state: JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_SUSPENDED_START,
             func_state: Some(AsyncFuncState::new(ctx, func_obj, this_obj.clone(), args)?),
@@ -125,7 +125,7 @@ impl AsyncGeneratorValue {
     }
 }
 
-impl AsyncGeneratorObjPayload {
+impl AsyncGeneratorState {
     pub fn resume_next(&mut self, ctx: &JSContext) {
         enum State {
             Resume,
@@ -293,14 +293,14 @@ impl AsyncGeneratorObjPayload {
     }
 
     #[inline(always)]
-    pub fn reject(self: &mut AsyncGeneratorObjPayload, ctx: &JSContext, exception: JSValue) {
+    pub fn reject(self: &mut AsyncGeneratorState, ctx: &JSContext, exception: JSValue) {
         self.resolve_or_reject(ctx, &exception, true);
     }
 }
 
 pub fn js_async_generator_completed_return(
     ctx: &JSContext,
-    s: &mut AsyncGeneratorObjPayload,
+    s: &mut AsyncGeneratorState,
     value: JSValue,
 ) -> Result<(), i32> {
     let promise: Promise = match {
@@ -348,7 +348,7 @@ pub fn js_async_generator_completed_return(
 
 fn js_async_generator_await(
     ctx: &JSContext,
-    s: &mut AsyncGeneratorObjPayload,
+    s: &mut AsyncGeneratorState,
     value: JSValue,
 ) -> Result<(), i32> {
     let promise: Promise = {

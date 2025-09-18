@@ -383,7 +383,7 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "AsyncGeneratorValue",
             "ASYNC_GENERATOR",
-            Some("Option<Box<crate::generator::AsyncGeneratorObjPayload>>"),
+            Some("Option<Box<crate::generator::AsyncGeneratorState>>"),
             Some("crate::generator::AsyncGeneratorValue::hook_finalizer"),
             Some("crate::generator::AsyncGeneratorValue::hook_mark")
         ),
