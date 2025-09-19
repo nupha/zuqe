@@ -109,7 +109,11 @@ pub fn js_promise_resolve(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     let (result_promise, resolving_funcs) = ctx.create_promise(cc.this())?;
-    resolving_funcs[is_reject as usize].call(ctx, &JSValue::UNDEFINED, cc.arguments())?;
+    resolving_funcs[is_reject as usize].call(
+        ctx,
+        &JSValue::UNDEFINED,
+        std::slice::from_ref(cc.arg(0)),
+    )?;
     Ok(result_promise.into())
 }
 

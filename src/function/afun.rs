@@ -32,7 +32,7 @@ impl AsyncFunction {
         // create promise and resolving handlers
         let (promise, resolving_funcs) = ctx.create_promise(&JSValue::UNDEFINED)?;
 
-        // create state to execute async function
+        // async state is on stack
         let s = AsyncFuncState::new_with_resolvings(
             ctx,
             resolving_funcs,
@@ -64,31 +64,31 @@ fn async_function_resume(ctx: &JSContext, s: &AsyncFuncState) {
             }
         }
     } else {
-        let cur_sp = s.0.borrow().frame.stack_cur_ptr();
-        let value = unsafe { std::ptr::replace(cur_sp.offset(-1).as_ptr(), JSValue::UNDEFINED) };
-        let promise_ctor = ctx.0.borrow().promise_ctor.clone();
-
-        let promise = {
-            let cc = CallContext::new(ctx, promise_ctor, std::slice::from_ref(&value), 0, None);
-            js_promise_resolve(ctx, cc).unwrap_or(JSValue::EXCEPTION)
+        let value = unsafe {
+            let cur_sp = s.0.borrow().frame.stack_cur_ptr();
+            std::ptr::replace(cur_sp.offset(-1).as_ptr(), JSValue::UNDEFINED)
         };
-        let promise: Promise = if promise.is_exception() {
+
+        // await
+        let promise = if let Ok(p) = {
+            let ctor = ctx.0.borrow().promise_ctor.clone();
+            let cc = CallContext::new_simple(ctx, ctor, std::slice::from_ref(&value));
+            js_promise_resolve(ctx, cc)
+        } {
+            Promise::try_from(p).unwrap()
+        } else {
             let exc = ctx.take_exception();
             let func = s.0.borrow().resolving_funcs[1].clone();
-            func.call(ctx, &JSValue::UNDEFINED, std::slice::from_ref(&exc))
-                .unwrap()
-        } else {
-            promise
-        }
-        .try_into()
-        .unwrap();
+            let _ = func.call(ctx, &JSValue::UNDEFINED, std::slice::from_ref(&exc)); // TODO what to do if exception?
+            return;
+        };
 
         let resolving_funcs = if let Ok(rr) = js_async_function_resolve_create(ctx, s) {
             rr
         } else {
             let error = ctx.take_exception();
             let func = s.0.borrow().resolving_funcs[1].clone();
-            let _ = func.call(ctx, &JSValue::UNDEFINED, &[error]);
+            let _ = func.call(ctx, &JSValue::UNDEFINED, std::slice::from_ref(&error));
             [const { JSValue::UNDEFINED }; 2]
         };
 

@@ -2,31 +2,6 @@ use std::ffi::c_void;
 
 use crate::bytecode::opcodes;
 
-pub trait UncheckedFrom<T>: Sized {
-    unsafe fn unchecked_from(value: T) -> Self;
-}
-
-pub trait UncheckedInto<T>: Sized {
-    unsafe fn unchecked_into(self) -> T;
-}
-
-impl<T> UncheckedFrom<T> for T {
-    #[inline(always)]
-    unsafe fn unchecked_from(t: T) -> T {
-        t
-    }
-}
-
-impl<T, U> UncheckedInto<U> for T
-where
-    U: UncheckedFrom<T>,
-{
-    #[inline]
-    unsafe fn unchecked_into(self) -> U {
-        U::unchecked_from(self)
-    }
-}
-
 fn get_frame_address(level: usize) -> Option<*const c_void> {
     // NOTE: 除了libc, 还可以用backtrace实现
 
@@ -254,32 +229,8 @@ pub fn get_sleb128(pval: &mut i32, buf: &[u8]) -> Result<usize, i32> {
     Ok(ret)
 }
 
-// /// 类似于 snprintf，将格式化后的字符串写入 `buf`，返回写入的字节数。
-// /// 如果缓冲区不够大，会截断而不是溢出。
-// pub(crate) fn snprintf(buf: &mut [u8], fmt: &str, args: std::fmt::Arguments<'_>) -> usize {
-//     struct BufferWriter<'a>(&'a mut [u8], usize);
-//     impl<'a> std::fmt::Write for BufferWriter<'a> {
-//         fn write_str(&mut self, s: &str) -> std::fmt::Result {
-//             let bytes = s.as_bytes();
-//             let remaining = self.0.len().saturating_sub(self.1);
-//             let copy_len = bytes.len().min(remaining);
-
-//             if copy_len > 0 {
-//                 self.0[self.1..self.1 + copy_len].copy_from_slice(&bytes[..copy_len]);
-//                 self.1 += copy_len;
-//             }
-//             Ok(()) // 即使截断，也返回 Ok，类似 snprintf 的行为
-//         }
-//     }
-
-//     let mut writer = BufferWriter(buf, 0);
-//     let _ = std::fmt::Write::write_fmt(&mut writer, format_args!(fmt), args);
-//     let _ = std::fmt::Write::write!(&mut writer, args);
-//     writer.1 // 返回实际写入的字节数
-// }
-
 //
-// PROP DEFS
+// FIELD DEFINATION MACROS
 //
 
 #[macro_export]

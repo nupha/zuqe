@@ -271,8 +271,8 @@ pub fn JS_CallInternal(
             } else {
                 // non bytecode function: bound function, native function, async function etc.
                 // use callback defined on the class.
-                if let Some(call_fn) = caller_ctx.rt().class_defs[o.class_id() as usize].call {
-                    call_fn(caller_ctx, func_obj, this_obj, args, flags)
+                if let Some(call_func) = caller_ctx.rt().class_defs[o.class_id() as usize].call {
+                    call_func(caller_ctx, func_obj, this_obj, args, flags)
                         .unwrap_or(JSValue::EXCEPTION)
                 } else {
                     caller_ctx.throw_type_error("not callable");

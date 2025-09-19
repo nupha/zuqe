@@ -39,7 +39,7 @@ use crate::{
         PropertyKey,
     },
     parse::{JSParseExportEnum, JSParseFunctionEnum, JSParseState},
-    promise::{JSPromiseReactionData, JSPromiseStateEnum, JobCallbackFn, Promise},
+    promise::{JSPromiseReactionData, JSPromiseStateEnum, JobHandleFn, Promise},
     proxy::ProxyObjPayload,
     runtime::JSRuntime,
     stack_frame::StackFrame,
@@ -684,7 +684,7 @@ pub unsafe fn JS_FreeCString(ctx: &JSContext, ptr: *const c_char) {
 #[deprecated(note = "use JSContext::enqueue_job() instead")]
 pub unsafe fn JS_EnqueueJob(
     ctx: &JSContext,
-    job_func: *mut JobCallbackFn,
+    job_func: *mut JobHandleFn,
     argc: i32,
     argv: *const JSValueConst,
 ) -> i32 {
@@ -2582,8 +2582,7 @@ pub fn async_func_resume(ctx: &JSContext, af: &AsyncFuncState) -> JSValue {
     af.resume(ctx).unwrap_or(JSValue::EXCEPTION)
 }
 
-/// call an async function
-#[deprecated(note = "use AsyncFunction::call() instead")]
+#[deprecated(note = "use AsyncFunction::hook_call() instead")]
 pub fn js_async_function_call(
     ctx: &JSContext,
     func_obj: &JSValue,
@@ -4315,3 +4314,6 @@ pub unsafe fn JS_DefineObjectNameComputed(
 
     0
 }
+
+#[deprecated(note = "use PromiseResolveFunc::hook_call() instead")]
+pub fn js_promise_resolve_function_call() {}

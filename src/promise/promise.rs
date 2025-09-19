@@ -200,55 +200,6 @@ impl Promise {
     pub fn result(&self) -> JSValue {
         self.with(|s| s.promise_result.clone())
     }
-
-    /// save resolving resultand update promise status to 'fulfilled' or 'rejected'.
-    /// call chained reactions which was registered by `then()`, `catch()` or `finally()`.
-    /// Note: `value` is not consumed (duplicated inside).
-    pub(super) fn fulfill_or_reject(&self, ctx: &JSContext, value: JSValue, is_reject: bool) {
-        let (promise_state, is_handled) = self.with_mut(|p| {
-            debug_assert_eq!(p.promise_state, JSPromiseStateEnum::JS_PROMISE_PENDING);
-
-            p.promise_result = value.clone();
-            p.promise_state = if is_reject {
-                JSPromiseStateEnum::JS_PROMISE_REJECTED
-            } else {
-                JSPromiseStateEnum::JS_PROMISE_FULFILLED
-            };
-
-            (p.promise_state, p.is_handled)
-        });
-
-        if promise_state == JSPromiseStateEnum::JS_PROMISE_REJECTED && !is_handled {
-            if let Some(cb) = ctx.rt().host_promise_rejection_tracker {
-                cb(
-                    ctx,
-                    self.clone(),
-                    value.clone(),
-                    0,
-                    ctx.rt().host_promise_rejection_tracker_opaque,
-                );
-            }
-        }
-
-        // call chained reactions registered by `then()`, `catch()` or `finally()`
-        let mut reactions = self.with_mut(|s| {
-            std::mem::replace(&mut s.promise_reactions[is_reject as usize], Vec::new())
-        });
-
-        for act in reactions.drain(..) {
-            ctx.queue_job(
-                promise_reaction_job,
-                &[
-                    act.resolving_funcs[0].clone(),
-                    act.resolving_funcs[1].clone(),
-                    act.handler,
-                    JSValue::Bool(is_reject),
-                    value.clone(),
-                ],
-            )
-            .unwrap();
-        }
-    }
 }
 
 impl JSContext {

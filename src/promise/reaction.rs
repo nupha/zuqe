@@ -21,7 +21,7 @@ impl Promise {
     /// Add a chained reaction to `self` Promise.
     ///
     /// Arguments:
-    /// - `reaction_funcs` - reaction callback functions, user's logic.
+    /// - `reaction_funcs` - [success, fail] reaction callback functions, user's logic.
     /// - `cap_resolving_funcs` - resolving functions of wrapper promise,
     ///    which activates the `reaction_funcs` execution.
     pub fn reaction(
@@ -30,7 +30,8 @@ impl Promise {
         reaction_funcs: &[JSValue; 2],
         cap_resolving_funcs: &[JSValue; 2],
     ) -> Result<(), i32> {
-        let callback0 = Box::new(JSPromiseReactionData {
+        // TODO: should use Box::try_new() when stable
+        let success = Box::new(JSPromiseReactionData {
             resolving_funcs: [
                 cap_resolving_funcs[0].clone(),
                 cap_resolving_funcs[1].clone(),
@@ -44,7 +45,9 @@ impl Promise {
                 }
             },
         });
-        let callback1 = Box::new(JSPromiseReactionData {
+
+        // TODO: should use Box::try_new() when stable
+        let fail = Box::new(JSPromiseReactionData {
             resolving_funcs: [
                 cap_resolving_funcs[0].clone(),
                 cap_resolving_funcs[1].clone(),
@@ -61,11 +64,11 @@ impl Promise {
 
         self.with_mut(|s| {
             if s.promise_state == JSPromiseStateEnum::JS_PROMISE_PENDING {
-                // queue action to be performed later in job tick (a.k.a. microtask)
-                s.promise_reactions[0].push(callback0);
-                s.promise_reactions[1].push(callback1);
+                // add to promise's waiting reactions list
+                s.promise_reactions[0].push(success);
+                s.promise_reactions[1].push(fail);
             } else {
-                // perform action immediately
+                // queue as job
                 if s.promise_state == JSPromiseStateEnum::JS_PROMISE_REJECTED && !s.is_handled {
                     if let Some(cb) = ctx.rt().host_promise_rejection_tracker {
                         cb(
@@ -79,18 +82,16 @@ impl Promise {
                 }
 
                 let act = if s.promise_state == JSPromiseStateEnum::JS_PROMISE_FULFILLED {
-                    callback0
+                    success
                 } else {
-                    callback1
+                    fail
                 };
-                let args: [JSValue; 5] = [
-                    act.resolving_funcs[0].clone(),
-                    act.resolving_funcs[1].clone(),
-                    act.handler,
-                    JSValue::Bool(s.promise_state == JSPromiseStateEnum::JS_PROMISE_REJECTED), // is reject?
-                    s.promise_result.clone(),
-                ];
-                ctx.queue_job(promise_reaction_job, &args).unwrap();
+                let is_reject = s.promise_state == JSPromiseStateEnum::JS_PROMISE_REJECTED;
+                let result = s.promise_result.clone();
+                let cx = ctx.clone();
+                ctx.queue_job(move || {
+                    promise_reaction_job(&cx, act.resolving_funcs, act.handler, is_reject, result)
+                });
             }
 
             s.is_handled = true;
@@ -102,12 +103,12 @@ impl Promise {
     /// create new promise for `then()`, register reaction handlers to `self` promise.
     /// `resolve` and `reject` are callback functions.
     /// `resolve` and `reject` are not consumed.
-    pub fn then(&self, ctx: &JSContext, fullfil: JSValue, reject: JSValue) -> Result<Self, i32> {
+    pub fn then(&self, ctx: &JSContext, success: JSValue, fail: JSValue) -> Result<Self, i32> {
         let ctor = JS_SpeciesConstructor(ctx, &self.clone().into(), JSValue::UNDEFINED)?;
         let (promise2, resolving_hooks) = ctx.create_promise(&ctor)?;
 
         // perform reaction
-        self.reaction(ctx, &[fullfil, reject], &resolving_hooks)?;
+        self.reaction(ctx, &[success, fail], &resolving_hooks)?;
         Ok(promise2)
     }
 }

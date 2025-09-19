@@ -283,7 +283,6 @@ fn run_test_script(
         ASYNC_DONE.store(0, std::sync::atomic::Ordering::SeqCst);
     }
 
-    // eval
     let res = if is_module {
         ctx.eval_module_source(
             script.as_bytes(),
@@ -299,49 +298,42 @@ fn run_test_script(
         )?
     };
 
-    let promise = if is_module {
-        let JSValue::Module(md) = res else {
-            unreachable!("expect module value");
-        };
-        md.promise()
-    } else if is_async {
-        Promise::try_from(res).ok()
-    } else {
-        None
-    };
-
-    if let Some(promise) = promise {
+    if is_async || is_module {
         // tick pending jobs
-        loop {
-            if ctx.rt_mut().tick()? {
-                // need more ticks
-                std::thread::sleep(std::time::Duration::from_millis(5));
-                continue;
-            } else {
-                // no pending job
-                if is_async {
-                    // test if the test called $DONE() once
-                    let n = ASYNC_DONE.load(Ordering::SeqCst);
-                    if n != 1 {
-                        ctx.throw_type_error(&format!("$DONE() not called {n}"));
-                        return Err(-1);
-                    }
-                } else {
-                    // check if the returned promise is fulfilled
-                    match promise.state() {
-                        JSPromiseStateEnum::JS_PROMISE_FULFILLED => {}
-                        JSPromiseStateEnum::JS_PROMISE_REJECTED => {
-                            ctx.throw(promise.result());
-                            return Err(-1);
-                        }
-                        JSPromiseStateEnum::JS_PROMISE_PENDING => {
-                            ctx.throw_type_error("promise is pending");
-                            return Err(-1);
-                        }
-                    };
-                }
+        while ctx.rt_mut().tick()? {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
 
-                break;
+        if is_async {
+            // test if the test called $DONE() once
+            let n = ASYNC_DONE.load(Ordering::SeqCst);
+            if n != 1 {
+                ctx.throw_type_error(&format!("$DONE() not called {n}"));
+                return Err(-1);
+            }
+        }
+
+        if let Some(promise) = if is_module {
+            let JSValue::Module(md) = res else {
+                unreachable!("expect module value");
+            };
+            md.promise()
+        } else if is_async {
+            Promise::try_from(res).ok()
+        } else {
+            None
+        } {
+            // check if the returned promise is fulfilled
+            match promise.state() {
+                JSPromiseStateEnum::JS_PROMISE_FULFILLED => {}
+                JSPromiseStateEnum::JS_PROMISE_REJECTED => {
+                    ctx.throw(promise.result());
+                    return Err(-1);
+                }
+                JSPromiseStateEnum::JS_PROMISE_PENDING => {
+                    ctx.throw_type_error("promise is pending");
+                    return Err(-1);
+                }
             }
         }
     }
@@ -401,7 +393,7 @@ fn run_test_file(
     match (config.features.as_deref(), excludes) {
         (Some(features), Some(excl)) => {
             if features.iter().any(|x| excl.contains(x)) {
-                writeln!(outf, "skip");
+                writeln!(outf, "skip").unwrap();
                 return;
             }
         }
