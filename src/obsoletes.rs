@@ -39,7 +39,7 @@ use crate::{
         PropertyKey,
     },
     parse::{JSParseExportEnum, JSParseFunctionEnum, JSParseState},
-    promise::{JSPromiseReactionData, JSPromiseStateEnum, JobHandleFn, Promise},
+    promise::{JSPromiseReactionData, JSPromiseStateEnum, Promise},
     proxy::ProxyObjPayload,
     runtime::JSRuntime,
     stack_frame::StackFrame,
@@ -684,7 +684,7 @@ pub unsafe fn JS_FreeCString(ctx: &JSContext, ptr: *const c_char) {
 #[deprecated(note = "use JSContext::enqueue_job() instead")]
 pub unsafe fn JS_EnqueueJob(
     ctx: &JSContext,
-    job_func: *mut JobHandleFn,
+    job_func: *mut c_void,
     argc: i32,
     argv: *const JSValueConst,
 ) -> i32 {
