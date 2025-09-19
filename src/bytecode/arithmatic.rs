@@ -16,56 +16,88 @@ pub(super) enum TwoNumbers {
 }
 
 impl TwoNumbers {
-    /// if value is not int, bool or float, and force_convert is true, try convert value to number.
+    pub fn from_values0(op1: &JSValue, op2: &JSValue) -> Option<Self> {
+        match (op1, op2) {
+            (JSValue::Int(a), JSValue::Int(b)) => Some(Self::Int(*a, *b)),
+            (JSValue::Bool(a), JSValue::Bool(b)) => Some(Self::Int(*a as i32, *b as i32)),
+            (JSValue::Int(a), JSValue::Bool(b)) => Some(Self::Int(*a, *b as i32)),
+            (JSValue::Bool(a), JSValue::Int(b)) => Some(Self::Int(*a as i32, *b)),
+            (JSValue::Float64(a), JSValue::Float64(b)) => Some(Self::Float(*a, *b)),
+            (JSValue::Int(a), JSValue::Float64(b)) => Some(Self::Float(*a as f64, *b)),
+            (JSValue::Float64(a), JSValue::Int(b)) => Some(Self::Float(*a, *b as f64)),
+            (JSValue::Bool(a), JSValue::Float64(b)) => Some(Self::Float(*a as i32 as f64, *b)),
+            (JSValue::Float64(a), JSValue::Bool(b)) => Some(Self::Float(*a, *b as i32 as f64)),
+            _ => None,
+        }
+    }
+
+    /// if `coerce`is true, try coerce non- number/boolean value to number.
     pub fn from_values(
         ctx: &JSContext,
-        val1: JSValue,
-        val2: JSValue,
-        force_convert: bool,
+        val1: &JSValue,
+        val2: &JSValue,
+        coerce: bool,
     ) -> Result<Self, i32> {
-        let mut op1 = val1;
-        let mut op2 = val2;
+        if let Some(n2) = Self::from_values0(val1, val2) {
+            Ok(n2)
+        } else if coerce {
+            let mut op1 = val1.clone();
+            let mut op2 = val2.clone();
 
-        loop {
-            match (op1, op2) {
-                (JSValue::Int(a), JSValue::Int(b)) => {
-                    return Ok(Self::Int(a, b));
-                }
-                (JSValue::Bool(a), JSValue::Bool(b)) => {
-                    return Ok(Self::Int(a as i32, b as i32));
-                }
-                (JSValue::Int(a), JSValue::Bool(b)) => {
-                    return Ok(Self::Int(a, b as i32));
-                }
-                (JSValue::Bool(a), JSValue::Int(b)) => {
-                    return Ok(Self::Int(a as i32, b));
-                }
-                (JSValue::Float64(a), JSValue::Float64(b)) => {
-                    return Ok(Self::Float(a, b));
-                }
-                (JSValue::Int(a), JSValue::Float64(b)) => {
-                    return Ok(Self::Float(a as f64, b));
-                }
-                (JSValue::Float64(a), JSValue::Int(b)) => {
-                    return Ok(Self::Float(a, b as f64));
-                }
-                (JSValue::Bool(a), JSValue::Float64(b)) => {
-                    return Ok(Self::Float(a as i32 as f64, b));
-                }
-                (JSValue::Float64(a), JSValue::Bool(b)) => {
-                    return Ok(Self::Float(a, b as i32 as f64));
-                }
-
-                (v1, v2) if force_convert => {
-                    op1 = v1.to_number(ctx)?;
-                    op2 = v2.to_number(ctx)?;
-                }
-
-                _ => {
-                    return Err(-1); // don't convert to number
+            loop {
+                op1 = op1.to_number(ctx)?;
+                op2 = op2.to_number(ctx)?;
+                if let Some(n2) = Self::from_values0(&op1, &op2) {
+                    break Ok(n2);
                 }
             }
+        } else {
+            Err(-1)
         }
+
+        // let mut op1 = val1.clone();
+        // let mut op2 = val2.clone();
+
+        // loop {
+        //     match (op1, op2) {
+        //         (JSValue::Int(a), JSValue::Int(b)) => {
+        //             return Ok(Self::Int(a, b));
+        //         }
+        //         (JSValue::Bool(a), JSValue::Bool(b)) => {
+        //             return Ok(Self::Int(a as i32, b as i32));
+        //         }
+        //         (JSValue::Int(a), JSValue::Bool(b)) => {
+        //             return Ok(Self::Int(a, b as i32));
+        //         }
+        //         (JSValue::Bool(a), JSValue::Int(b)) => {
+        //             return Ok(Self::Int(a as i32, b));
+        //         }
+        //         (JSValue::Float64(a), JSValue::Float64(b)) => {
+        //             return Ok(Self::Float(a, b));
+        //         }
+        //         (JSValue::Int(a), JSValue::Float64(b)) => {
+        //             return Ok(Self::Float(a as f64, b));
+        //         }
+        //         (JSValue::Float64(a), JSValue::Int(b)) => {
+        //             return Ok(Self::Float(a, b as f64));
+        //         }
+        //         (JSValue::Bool(a), JSValue::Float64(b)) => {
+        //             return Ok(Self::Float(a as i32 as f64, b));
+        //         }
+        //         (JSValue::Float64(a), JSValue::Bool(b)) => {
+        //             return Ok(Self::Float(a, b as i32 as f64));
+        //         }
+
+        //         (v1, v2) if coerce => {
+        //             op1 = v1.to_number(ctx)?;
+        //             op2 = v2.to_number(ctx)?;
+        //         }
+
+        //         _ => {
+        //             return Err(-1);
+        //         }
+        //     }
+        // }
     }
 
     /// returns None if it has NaN.
@@ -120,6 +152,8 @@ impl TwoNumbers {
             TwoNumbers::Int(a, b) => {
                 if b == 0 {
                     JSValue::Float64(f64::NAN)
+                } else if a < 0 {
+                    JSValue::from((a as f64) % (b as f64))
                 } else {
                     JSValue::from(a % b)
                 }
@@ -344,8 +378,8 @@ pub(super) fn op_binary_logic(
 ) -> Result<*mut JSValue, i32> {
     let res = TwoNumbers::from_values(
         ctx,
-        unsafe { std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED) },
-        unsafe { std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED) },
+        &unsafe { std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED) },
+        &unsafe { std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED) },
         true,
     )
     .map(|bop| match opcode {
@@ -403,14 +437,17 @@ impl JSValue {
                 Ok(Some(s1.content().cmp(s2.content())))
             }
             _ => {
-                let op = TwoNumbers::from_values(ctx, self.clone(), other.clone(), true)?;
+                let op = TwoNumbers::from_values(ctx, self, other, true)?;
                 Ok(op.partial_cmp())
             }
         }
     }
 
     /// arithmatic add of two values.
-    pub fn arith_add(ctx: &JSContext, mut op1: Self, mut op2: Self) -> JSResult {
+    pub fn arith_add(ctx: &JSContext, op1: &Self, op2: &Self) -> JSResult {
+        let mut op1 = op1.clone();
+        let mut op2 = op2.clone();
+
         loop {
             match (op1, op2) {
                 // path to exit:
@@ -447,27 +484,27 @@ impl JSValue {
     }
 
     #[inline(always)]
-    pub fn arith_sub(ctx: &JSContext, op1: Self, op2: Self) -> JSResult {
+    pub fn arith_sub(ctx: &JSContext, op1: &Self, op2: &Self) -> JSResult {
         TwoNumbers::from_values(ctx, op1, op2, true).map(|bop| bop.sub())
     }
 
     #[inline(always)]
-    pub fn arith_mul(ctx: &JSContext, op1: Self, op2: Self) -> JSResult {
+    pub fn arith_mul(ctx: &JSContext, op1: &Self, op2: &Self) -> JSResult {
         TwoNumbers::from_values(ctx, op1, op2, true).map(|bop| bop.mul())
     }
 
     #[inline(always)]
-    pub fn arith_div(ctx: &JSContext, op1: Self, op2: Self) -> JSResult {
+    pub fn arith_div(ctx: &JSContext, op1: &Self, op2: &Self) -> JSResult {
         TwoNumbers::from_values(ctx, op1, op2, true).map(|bop| bop.div())
     }
 
     #[inline(always)]
-    pub fn arith_mod(ctx: &JSContext, op1: Self, op2: Self) -> JSResult {
+    pub fn arith_mod(ctx: &JSContext, op1: &Self, op2: &Self) -> JSResult {
         TwoNumbers::from_values(ctx, op1, op2, true).map(|bop| bop.mod_())
     }
 
     #[inline(always)]
-    pub fn arith_pow(ctx: &JSContext, op1: Self, op2: Self) -> JSResult {
+    pub fn arith_pow(ctx: &JSContext, op1: &Self, op2: &Self) -> JSResult {
         TwoNumbers::from_values(ctx, op1, op2, true).map(|bop| bop.pow())
     }
 
@@ -649,69 +686,110 @@ impl JSValue {
 //     }
 // }
 
-/// test arith equality: op1 == op2
-pub fn js_eq(ctx: &JSContext, op1: JSValue, op2: JSValue) -> Result<bool, i32> {
-    if op1 == op2 {
-        Ok(true)
-    } else if let Ok(bop) = TwoNumbers::from_values(ctx, op1.clone(), op2.clone(), false) {
-        // fast path
-        let res = bop
+/// test arith equality (no-strict eq): val1 == val2
+pub fn js_eq(ctx: &JSContext, val1: &JSValue, val2: &JSValue) -> Result<bool, i32> {
+    // fast path
+    if val1 == val2 {
+        return Ok(true);
+    } else if let Some(n2) = TwoNumbers::from_values0(val1, val2) {
+        return Ok(n2
             .partial_cmp()
-            .map_or(false, |r| r == std::cmp::Ordering::Equal);
-        Ok(res)
-    } else {
-        // slow path
-        let b = match (&op1, &op2) {
-            (JSValue::NULL | JSValue::UNDEFINED, JSValue::NULL | JSValue::UNDEFINED) => true,
-            (_, JSValue::NULL | JSValue::UNDEFINED) => false, //op1.is_htmldda(),
-            (JSValue::NULL | JSValue::UNDEFINED, _) => false, //op2.is_htmldda(),
+            .map_or(false, |r| r == std::cmp::Ordering::Equal));
+    }
 
-            (JSValue::String(s1), JSValue::String(s2)) => s1.content() == s2.content(),
-            (JSValue::Symbol(s1), JSValue::Symbol(s2)) => s1.atom_info() == s2.atom_info(),
+    // slow path
+    let mut op1 = val1.clone();
+    let mut op2 = val2.clone();
 
-            // compare object primitive
-            (JSValue::Object(o1), JSValue::Object(o2)) => {
-                // op1, op2 are non-same objects, compare their primitive
-                js_eq(
-                    ctx,
-                    o1.to_primitive(ctx, HINT_NONE)?,
-                    o2.to_primitive(ctx, HINT_NONE)?,
-                )?
+    let b = loop {
+        match (&op1, &op2) {
+            // null == undefined
+            (JSValue::NULL | JSValue::UNDEFINED, JSValue::NULL | JSValue::UNDEFINED) => {
+                break true;
             }
+
+            (_, JSValue::NULL | JSValue::UNDEFINED) | (JSValue::NULL | JSValue::UNDEFINED, _) => {
+                break false;
+            }
+
+            // number vs string
+            (JSValue::Int(i), JSValue::String(s)) | (JSValue::String(s), JSValue::Int(i)) => {
+                let str = s.content();
+                break if let Ok(n) = str.parse_i64() {
+                    *i as i64 == n
+                } else if let Some(n) = str.parse_f64(ctx) {
+                    *i as f64 == n
+                } else {
+                    false
+                };
+            }
+            (JSValue::Float64(f), JSValue::String(s))
+            | (JSValue::String(s), JSValue::Float64(f)) => {
+                break if let Some(n) = s.content().parse_f64(ctx) {
+                    *f == n
+                } else {
+                    false
+                };
+            }
+
+            // boolean vs string
+            (JSValue::Bool(b), JSValue::String(s)) | (JSValue::String(s), JSValue::Bool(b)) => {
+                break if let Ok(n) = s.content().parse_i64() {
+                    *b as i64 == n
+                } else {
+                    false
+                };
+            }
+
+            // object vs object
+            (JSValue::Object(o1), JSValue::Object(o2)) => {
+                op1 = o1.to_primitive(ctx, HINT_NONE)?;
+                op2 = o2.to_primitive(ctx, HINT_NONE)?;
+            }
+
+            // object vs number/string/boolean/string/symbol
             (
                 JSValue::Object(o),
-                v @ (JSValue::Int(_)
+                JSValue::Int(_)
                 | JSValue::Float64(_)
                 | JSValue::Bool(_)
                 | JSValue::String(_)
-                | JSValue::Symbol(_)),
-            )
-            | (
-                v @ (JSValue::Int(_)
+                | JSValue::Symbol(_),
+            ) => {
+                op1 = o.to_primitive(ctx, HINT_NONE)?;
+            }
+            (
+                JSValue::Int(_)
                 | JSValue::Float64(_)
                 | JSValue::Bool(_)
                 | JSValue::String(_)
-                | JSValue::Symbol(_)),
+                | JSValue::Symbol(_),
                 JSValue::Object(o),
-            ) => o.to_primitive(ctx, HINT_NONE)?.eq(v),
+            ) => {
+                op2 = o.to_primitive(ctx, HINT_NONE)?;
+            }
 
+            #[cfg(debug_assertions)]
             (
                 JSValue::Int(_) | JSValue::Float64(_) | JSValue::Bool(_),
                 JSValue::Int(_) | JSValue::Float64(_) | JSValue::Bool(_),
             ) => {
-                unreachable!("op1={op1:?}, op2={op2:?}");
+                unreachable!("op1={:?}, op2={:?}, handled in fast path", op1, op2);
             }
 
             _ => {
-                false
-                // let op = TwoNumbers::new(ctx, op1, op2)?;
-                // op.partial_cmp()
-                //     .map_or(false, |r| r == std::cmp::Ordering::Equal)
+                break false;
             }
-        };
+        }
 
-        Ok(b)
-    }
+        if let Some(n2) = TwoNumbers::from_values0(&op1, &op2) {
+            break n2
+                .partial_cmp()
+                .map_or(false, |r| r == std::cmp::Ordering::Equal);
+        }
+    };
+
+    Ok(b)
 }
 
 // /// slow test equality for op1 and op2.

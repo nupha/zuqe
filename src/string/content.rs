@@ -5,10 +5,12 @@ use widestring::U16Str;
 
 use crate::{
     atom::AtomTypeHint,
-    number::{parse_i64, parse_u32},
+    context::JSContext,
+    number::{ATOD_ACCEPT_BIN_OCT, js_atof, parse_i64, parse_u32},
     string::{
         StringBuf, StringChar, StringCharIter, StringCodepointIter, is_char_visible, s16_into_s8,
     },
+    value::JSValue,
 };
 
 /// read-only, ref-counted bytes that represents a string.
@@ -545,7 +547,7 @@ impl StringContent {
         }
     }
 
-    /// convert content to u32.
+    /// parse content as u32.
     pub fn parse_u32(&self) -> Result<u32, i32> {
         if let Self::Ascii(s) = self {
             parse_u32(std::str::from_utf8(s).map_err(|_| -1)?)
@@ -554,12 +556,39 @@ impl StringContent {
         }
     }
 
-    /// convert content to i64.
+    /// parse content as i64.
     pub fn parse_i64(&self) -> Result<i64, i32> {
         if let Self::Ascii(s) = self {
             parse_i64(std::str::from_utf8(s).map_err(|_| -1)?)
         } else {
             Err(-1)
+        }
+    }
+
+    /// parse content as f64.
+    pub fn parse_f64(&self, ctx: &JSContext) -> Option<f64> {
+        let str = self.to_utf8();
+        let str = str.as_ref().trim();
+
+        if str.is_empty() {
+            Some(0.0)
+        } else {
+            let mut p = str.as_ptr();
+            if let Ok(num) = unsafe { js_atof(ctx, p.cast(), &mut p, 0, ATOD_ACCEPT_BIN_OCT) } {
+                if unsafe { p.offset_from(str.as_ptr()) != str.len() as isize } {
+                    // `str` has remaining characters that are not part of the number.
+                    // This is not a valid number.
+                    None
+                } else {
+                    Some(match num {
+                        JSValue::Int(i) => i as f64,
+                        JSValue::Float64(f) => f,
+                        _ => unreachable!(),
+                    })
+                }
+            } else {
+                None
+            }
         }
     }
 

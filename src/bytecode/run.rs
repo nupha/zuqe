@@ -1945,12 +1945,12 @@ impl Bytecode {
                         let op1 = SP_TAKE!(-2);
                         let op2 = SP_TAKE!(-1);
                         let res = match opcode {
-                            OpCode::ADD => JSValue::arith_add(ctx, op1, op2),
-                            OpCode::SUB => JSValue::arith_sub(ctx, op1, op2),
-                            OpCode::MUL => JSValue::arith_mul(ctx, op1, op2),
-                            OpCode::DIV => JSValue::arith_div(ctx, op1, op2),
-                            OpCode::MOD => JSValue::arith_mod(ctx, op1, op2),
-                            OpCode::POW => JSValue::arith_pow(ctx, op1, op2),
+                            OpCode::ADD => JSValue::arith_add(ctx, &op1, &op2),
+                            OpCode::SUB => JSValue::arith_sub(ctx, &op1, &op2),
+                            OpCode::MUL => JSValue::arith_mul(ctx, &op1, &op2),
+                            OpCode::DIV => JSValue::arith_div(ctx, &op1, &op2),
+                            OpCode::MOD => JSValue::arith_mod(ctx, &op1, &op2),
+                            OpCode::POW => JSValue::arith_pow(ctx, &op1, &op2),
                             _ => unreachable!(),
                         };
 
@@ -1967,7 +1967,7 @@ impl Bytecode {
                         SP_GO!(-1);
 
                         let pv = VAR_REF![idx];
-                        if let Ok(val) = JSValue::arith_add(ctx, pv.clone(), op1) {
+                        if let Ok(val) = JSValue::arith_add(ctx, pv, &op1) {
                             *pv = val;
                         } else {
                             break State::Exception;
@@ -2078,11 +2078,8 @@ impl Bytecode {
                     OpCode::EQ | OpCode::NEQ => {
                         let op1 = SP_TAKE!(-2);
                         let op2 = SP_TAKE!(-1);
-                        if let Ok(b) = js_eq(ctx, op1, op2) {
-                            SP_PUT!(
-                                -2,
-                                JSValue::Bool(if opcode == OpCode::NEQ { !b } else { b })
-                            );
+                        if let Ok(b) = js_eq(ctx, &op1, &op2) {
+                            SP_PUT!(-2, JSValue::Bool(b ^ (opcode == OpCode::NEQ)));
                             SP_GO!(-1);
                         } else {
                             break State::Exception;
