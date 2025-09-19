@@ -18,7 +18,7 @@ use crate::{
     value::{JSValue, JSValueConst},
 };
 
-use super::{PromiseResolvingPayload, job::promise_reaction_job};
+use super::PromiseResolvingPayload;
 
 pub type JSHostPromiseRejectionTracker = fn(
     ctx: &JSContext,
@@ -265,18 +265,6 @@ impl Promise {
                 s.promise_result.gc_mark();
             });
         }
-
-        // if let ObjectPayload::PROMISE(s) = p.0.payload.borrow().deref() {
-        //     for i in 0..2 {
-        //         for rd in s.promise_reactions[i].iter() {
-        //             rd.resolving_funcs[0].gc_mark();
-        //             rd.resolving_funcs[1].gc_mark();
-        //             rd.handler.gc_mark();
-        //         }
-        //     }
-
-        //     s.promise_result.gc_mark();
-        // }
     }
 }
 

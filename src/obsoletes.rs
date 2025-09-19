@@ -766,7 +766,7 @@ pub unsafe fn reject_promise(ctx: &JSContext, promise: Promise, value: JSValueCo
     unreachable!("use Promise::reject() instead");
 }
 
-#[deprecated(note = "use Promise::then() instead")]
+#[deprecated(note = "use Promise::reaction() instead")]
 pub unsafe fn perform_promise_then(
     ctx: &JSContext,
     promise: Promise,

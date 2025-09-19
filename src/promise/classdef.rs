@@ -28,7 +28,7 @@ pub fn js_promise_then(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_promise_catch(ctx: &JSContext, cc: CallContext) -> JSResult {
     cc.this()
-        .invoke(ctx, JS_ATOM_then, &[JSValue::UNDEFINED, cc.arg(1).clone()])
+        .invoke(ctx, JS_ATOM_then, &[JSValue::UNDEFINED, cc.arg(0).clone()])
 }
 
 pub fn js_promise_then_finally_func(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -66,17 +66,14 @@ pub fn js_promise_then_finally_func(ctx: &JSContext, cc: CallContext) -> JSResul
 
 pub fn js_promise_finally(ctx: &JSContext, cc: CallContext) -> JSResult {
     let on_finally = cc.arg(0);
-
-    let ctor = JS_SpeciesConstructor(ctx, cc.this(), JSValue::UNDEFINED)?;
-
-    let mut then_funcs = [JSValue::UNDEFINED, JSValue::UNDEFINED];
-
-    if !on_finally.is_callable() {
-        then_funcs = [on_finally.clone(), on_finally.clone()];
+    let then_funcs = if !on_finally.is_callable() {
+        [on_finally.clone(), on_finally.clone()]
     } else {
+        let ctor = JS_SpeciesConstructor(ctx, cc.this(), JSValue::UNDEFINED)?;
         let func_data = [ctor, on_finally.clone()];
+        let mut rr = [JSValue::UNDEFINED, JSValue::UNDEFINED];
         for i in 0..2 {
-            then_funcs[i] = ctx
+            rr[i] = ctx
                 .create_native_function_with_data(
                     js_promise_then_finally_func,
                     1,
@@ -85,7 +82,8 @@ pub fn js_promise_finally(ctx: &JSContext, cc: CallContext) -> JSResult {
                 )?
                 .into();
         }
-    }
+        rr
+    };
 
     cc.this().invoke(ctx, JS_ATOM_then, &then_funcs)
 }

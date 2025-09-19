@@ -91,7 +91,7 @@ pub struct JSRuntime {
     pub host_promise_rejection_tracker_opaque: *mut c_void,
 
     /// queued jobs
-    pub job_list: VecDeque<Job>,
+    pub(crate) job_list: VecDeque<Job>,
 
     pub module_normalize_func: Option<JSModuleNormalizeFunc>,
     pub module_loader_func: Option<JSModuleLoaderFunc>,

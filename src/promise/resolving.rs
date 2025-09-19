@@ -126,12 +126,9 @@ impl Promise {
         }
 
         // call chained reactions registered by `then()`, `catch()` or `finally()`
-        let mut reactions = self.with_mut(|s| {
-            [
-                std::mem::replace(&mut s.promise_reactions[0], Vec::new()),
-                std::mem::replace(&mut s.promise_reactions[1], Vec::new()),
-            ]
-        });
+        let mut reactions = self
+            .with_mut(|s| std::mem::replace(&mut s.promise_reactions, [Vec::new(), Vec::new()]));
+
         for act in reactions[is_reject as usize].drain(..) {
             let cx = ctx.clone();
             let val = value.clone();

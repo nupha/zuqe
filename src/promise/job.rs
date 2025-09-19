@@ -3,7 +3,7 @@ use crate::{
 };
 
 #[repr(transparent)]
-pub struct Job(Box<dyn FnOnce() -> JSResult>);
+pub(crate) struct Job(Box<dyn FnOnce() -> JSResult>);
 
 impl Job {
     #[inline(always)]
@@ -85,7 +85,6 @@ impl JSRuntime {
             job.run()?;
             Ok(Some(()))
         } else {
-            // no job in queue
             Ok(None)
         }
     }
