@@ -272,7 +272,7 @@ impl JSValue {
                     break b as i32;
                 }
                 Self::Float64(d) => {
-                    break f64_to_i32(d);
+                    break js_f64_to_i32(d);
                 }
                 Self::EXCEPTION => {
                     return Err(-1);
@@ -411,6 +411,7 @@ impl JSValue {
         Ok(res)
     }
 
+    /// coerce value to f64.
     pub fn to_f64(&self, ctx: &JSContext) -> Result<f64, i32> {
         match self {
             JSValue::Int(i) => Ok(*i as f64),
@@ -418,7 +419,12 @@ impl JSValue {
             JSValue::Float64(n) => Ok(*n),
             JSValue::NULL => Ok(0.0),
             JSValue::UNDEFINED => Ok(f64::NAN),
-            JSValue::EXCEPTION => Err(-1),
+
+            #[cfg(debug_assertions)]
+            JSValue::EXCEPTION => {
+                unreachable!()
+            }
+
             _ => match self.to_number(ctx)? {
                 JSValue::Int(v) => Ok(v as f64),
                 JSValue::Float64(v) => Ok(v),
@@ -444,48 +450,6 @@ pub enum JSToNumberHintEnum {
     TON_FLAG_NUMERIC,
 }
 
-// /* same as JS_ToNumber() but return 0 in case of NaN/Undefined */
-// pub unsafe fn JS_ToIntegerFree(ctx: &JSContext, mut val: JSValue) -> JSValue {
-//     let ret: JSValue;
-
-//     loop {
-//         match val {
-//             JSValue::UNDEFINED | JSValue::NULL => {
-//                 ret = JSValue::Int(0);
-//             }
-//             JSValue::Bool(b) => {
-//                 ret = JSValue::Int(b as i32);
-//             }
-//             JSValue::Int(i) => {
-//                 ret = JSValue::Int(i);
-//             }
-//             JSValue::Float64(d) => {
-//                 if d.is_nan() {
-//                     ret = 0.into();
-//                 } else {
-//                     /* convert -0 to +0 */
-//                     let d = d.trunc() + 0.0;
-//                     ret = JSValue::Float64(d);
-//                 }
-//             }
-//             JSValue::EXCEPTION => {
-//                 ret = val;
-//             }
-//             _ => {
-//                 val = JS_ToNumberFree(ctx, val);
-//                 if val.is_exception() {
-//                     return val;
-//                 }
-//                 continue;
-//             }
-//         }
-
-//         break;
-//     }
-
-//     ret
-// }
-
 pub const fn JS_NumberIsNegativeOrMinusZero(val: &JSValueConst) -> bool {
     match val {
         JSValue::Int(v) => *v < 0,
@@ -497,7 +461,8 @@ pub const fn JS_NumberIsNegativeOrMinusZero(val: &JSValueConst) -> bool {
     }
 }
 
-pub(crate) fn f64_to_i32(d: f64) -> i32 {
+/// convert f64 to i32 according to the ECMAScript rules (not rust rules).
+pub(crate) fn js_f64_to_i32(d: f64) -> i32 {
     let u = JSFloat64Union { d };
 
     // we avoid doing fmod(x, 2^32)
@@ -513,7 +478,7 @@ pub(crate) fn f64_to_i32(d: f64) -> i32 {
         let mut ret = (v >> 32) as i32;
         // take the sign into account
         if unsafe { u.uint64 >> 63 } != 0 {
-            ret = -ret;
+            ret = ret.wrapping_neg();
         }
         ret
     } else {
