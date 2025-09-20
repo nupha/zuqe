@@ -256,7 +256,7 @@ impl JSValue {
         Ok(res as u8)
     }
 
-    /// convert value to i32.
+    /// coerce value to i32.
     pub fn to_i32(&self, ctx: &JSContext) -> Result<i32, i32> {
         let mut val = self.clone();
 
@@ -272,27 +272,7 @@ impl JSValue {
                     break b as i32;
                 }
                 Self::Float64(d) => {
-                    let u = JSFloat64Union { d };
-
-                    // we avoid doing fmod(x, 2^32)
-                    let e = unsafe { (u.uint64 >> 52) & 0x7ff } as i32;
-                    break if e <= (1023 + 30) {
-                        // fast case
-                        d as i32
-                    } else if e <= (1023 + 30 + 53) {
-                        /* remainder modulo 2^32 */
-                        let mut v = unsafe { (u.uint64 & ((1u64 << 52) - 1)) | (1u64 << 52) };
-                        v <<= (e - 1023 - 52 + 32) as u32;
-
-                        let mut ret = (v >> 32) as i32;
-                        // take the sign into account
-                        if unsafe { u.uint64 >> 63 } != 0 {
-                            ret = -ret;
-                        }
-                        ret
-                    } else {
-                        0 // also handles NaN and +inf
-                    };
+                    break f64_to_i32(d);
                 }
                 Self::EXCEPTION => {
                     return Err(-1);
@@ -514,5 +494,29 @@ pub const fn JS_NumberIsNegativeOrMinusZero(val: &JSValueConst) -> bool {
             unsafe { (u.uint64 >> 63) != 0 }
         }
         _ => false,
+    }
+}
+
+pub(crate) fn f64_to_i32(d: f64) -> i32 {
+    let u = JSFloat64Union { d };
+
+    // we avoid doing fmod(x, 2^32)
+    let e = unsafe { (u.uint64 >> 52) & 0x7ff } as i32;
+    if e <= (1023 + 30) {
+        // fast case
+        d as i32
+    } else if e <= (1023 + 30 + 53) {
+        // remainder modulo 2^32
+        let mut v = unsafe { (u.uint64 & ((1u64 << 52) - 1)) | (1u64 << 52) };
+        v <<= (e - 1023 - 52 + 32) as u32;
+
+        let mut ret = (v >> 32) as i32;
+        // take the sign into account
+        if unsafe { u.uint64 >> 63 } != 0 {
+            ret = -ret;
+        }
+        ret
+    } else {
+        0 // also handles NaN and +inf
     }
 }
