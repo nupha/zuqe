@@ -139,7 +139,7 @@ impl JSObject {
     /// check if `self` is a function or a callable object.
     /// raise exception if not.
     pub fn ensure_callable(&self, ctx: &JSContext) -> Result<&Self, i32> {
-        if self.is_callable() {
+        if self.is_function() {
             Ok(self)
         } else {
             ctx.throw_type_error("not callable");
@@ -152,7 +152,7 @@ impl JSValue {
     /// check if value `self` is a function or a callable object.
     /// raise exception if not.
     pub fn ensure_callable(&self, ctx: &JSContext) -> Result<&Self, i32> {
-        if self.is_callable() {
+        if self.is_function() {
             Ok(self)
         } else {
             ctx.throw_type_error("not callable");

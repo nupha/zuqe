@@ -147,7 +147,7 @@ impl JSPropertyDescriptor {
         if desc.has_property(ctx, JS_ATOM_get)? {
             flags |= JS_PROP_HAS_GET;
             getter = desc.get_property(ctx, JS_ATOM_get)?;
-            if !(getter.is_undefined() || getter.is_callable()) {
+            if !(getter.is_undefined() || getter.is_function()) {
                 ctx.throw_type_error("invalid getter");
                 return Err(-1);
             }
@@ -156,7 +156,7 @@ impl JSPropertyDescriptor {
         if desc.has_property(ctx, JS_ATOM_set)? {
             flags |= JS_PROP_HAS_SET;
             setter = desc.get_property(ctx, JS_ATOM_set)?;
-            if !(setter.is_undefined() || setter.is_callable()) {
+            if !(setter.is_undefined() || setter.is_function()) {
                 ctx.throw_type_error("invalid setter");
                 return Err(-1);
             }

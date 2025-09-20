@@ -174,9 +174,9 @@ pub unsafe fn JS_ToPrimitive(ctx: &JSContext, val: JSValue, hint: i32) -> JSValu
     //JS_ToPrimitiveFree(ctx, val.dup(), hint)
 }
 
-#[deprecated(note = "use JSValue::is_callable() instead")]
+#[deprecated(note = "use JSValue::is_function() instead")]
 pub unsafe fn JS_IsFunction(ctx: &JSContext, val: JSValueConst) -> bool {
-    val.is_callable()
+    val.is_function()
 }
 
 #[deprecated(note = "use JSValue::is_constructor() instead")]
@@ -3767,7 +3767,7 @@ pub fn JS_GetIterator(ctx: &JSContext, obj: &JSValueConst, is_async: bool) -> JS
     //     v
     // };
 
-    // if !iter.is_callable() {
+    // if !iter.is_function() {
     //     ctx.throw_type_error("value is not iterable");
     //     return JSValue::EXCEPTION;
     // }

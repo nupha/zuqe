@@ -484,12 +484,12 @@ impl JSObject {
             if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0 {
                 // getset property
                 JSProperty::GetSet {
-                    getter: if flags & JS_PROP_HAS_GET != 0 && getter.is_callable() {
+                    getter: if flags & JS_PROP_HAS_GET != 0 && getter.is_function() {
                         getter.as_object().cloned()
                     } else {
                         None
                     },
-                    setter: if flags & JS_PROP_HAS_SET != 0 && setter.is_callable() {
+                    setter: if flags & JS_PROP_HAS_SET != 0 && setter.is_function() {
                         setter.as_object().cloned()
                     } else {
                         None

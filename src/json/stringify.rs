@@ -37,7 +37,7 @@ pub fn JS_JSONStringify(
         buf: StringBuf::Empty,
     };
 
-    if replacer.is_callable() {
+    if replacer.is_function() {
         jsc.replacer_func = replacer;
     } else {
         if replacer.is_array(ctx)? {
@@ -135,7 +135,7 @@ fn js_json_check(
 
     if val.is_object() {
         let f = val.get_property(ctx, JS_ATOM_toJSON)?;
-        if f.is_callable() {
+        if f.is_function() {
             val = f.call(ctx, &val, std::slice::from_ref(&key))?;
         }
     }
@@ -148,7 +148,7 @@ fn js_json_check(
 
     match &ret {
         JSValue::Object(o) => {
-            if o.is_callable() {
+            if o.is_function() {
                 Ok(JSValue::UNDEFINED)
             } else {
                 Ok(ret)

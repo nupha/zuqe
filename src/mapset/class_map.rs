@@ -44,7 +44,7 @@ pub fn js_map_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     if !arr.is_undefined_or_null() {
         let adder = obj.get_property(ctx, if is_set { JS_ATOM_add } else { JS_ATOM_set })?;
-        if !adder.is_callable() {
+        if !adder.is_function() {
             ctx.throw_type_error("set/add is not a function");
             return Err(-1);
         }

@@ -56,7 +56,7 @@ impl JSObject {
             [JS_ATOM_valueOf, JS_ATOM_toString]
         } {
             let method = self.get_property(ctx, prop)?;
-            if method.is_callable() {
+            if method.is_function() {
                 let ret = method.call(ctx, &this, &[])?;
                 if !ret.is_object() {
                     return Ok(ret);

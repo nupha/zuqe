@@ -16,7 +16,7 @@ impl JSObject {
         ctx: &JSContext,
         ctor: &JSValue,
     ) -> Result<bool, i32> {
-        if !ctor.is_callable() {
+        if !ctor.is_function() {
             return Ok(false);
         }
         if let JSValue::Object(ty) = ctor {
@@ -80,7 +80,7 @@ impl JSValue {
             Self::Object(p) => {
                 if p.flags().is_htmldda() {
                     JS_ATOM_undefined
-                } else if self.is_callable() {
+                } else if self.is_function() {
                     JS_ATOM_function
                 } else {
                     JS_ATOM_object
@@ -105,7 +105,7 @@ impl JSValue {
             }
         }
 
-        if ctor.is_callable() {
+        if ctor.is_function() {
             // legacy case
             if let Some(o) = self.as_object() {
                 o.ordinary_instance_of(ctx, ctor)

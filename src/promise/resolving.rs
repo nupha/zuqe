@@ -67,7 +67,7 @@ impl PromiseResolveFunc {
             }
 
             if let Ok(then) = resolution.get_property(ctx, JS_ATOM_then) {
-                if !then.is_callable() {
+                if !then.is_function() {
                     s.promise.fulfill_or_reject(ctx, resolution, is_reject);
                 } else {
                     let promise = s.promise.clone();
@@ -130,7 +130,7 @@ impl Promise {
             ],
             handler: {
                 let h = reaction_funcs[0].clone();
-                if !h.is_callable() {
+                if !h.is_function() {
                     JSValue::UNDEFINED
                 } else {
                     h
@@ -146,7 +146,7 @@ impl Promise {
             ],
             handler: {
                 let h = reaction_funcs[1].clone();
-                if !h.is_callable() {
+                if !h.is_function() {
                     JSValue::UNDEFINED
                 } else {
                     h

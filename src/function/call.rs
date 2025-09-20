@@ -182,7 +182,7 @@ impl JSObject {
         args: &[JSValue],
     ) -> Result<Option<JSResult>, i32> {
         let m = self.get_property(ctx, method)?;
-        if m.is_callable() {
+        if m.is_function() {
             Ok(Some(m.call(ctx, &self.clone().into(), args)))
         } else {
             Ok(None)
@@ -241,7 +241,7 @@ impl JSValue {
         args: &[JSValue],
     ) -> Result<Option<JSResult>, i32> {
         let m = self.get_property(ctx, method)?;
-        if m.is_callable() {
+        if m.is_function() {
             let r = m.call(ctx, &self.clone().into(), args);
             Ok(Some(r))
         } else {

@@ -336,8 +336,8 @@ pub fn js_async_generator_completed_return(
         JSValue::Object(s.generator.upgrade().unwrap()),
         true,
     )?;
-    debug_assert!(resolving_funcs[0].is_callable());
-    debug_assert!(resolving_funcs[1].is_callable());
+    debug_assert!(resolving_funcs[0].is_function());
+    debug_assert!(resolving_funcs[1].is_function());
 
     promise.reaction(
         ctx,
@@ -367,8 +367,8 @@ fn js_async_generator_await(
         JSValue::Object(s.generator.upgrade().unwrap()),
         false,
     )?;
-    debug_assert!(resolving_funcs[0].is_callable());
-    debug_assert!(resolving_funcs[1].is_callable());
+    debug_assert!(resolving_funcs[0].is_function());
+    debug_assert!(resolving_funcs[1].is_function());
 
     promise.reaction(
         ctx,

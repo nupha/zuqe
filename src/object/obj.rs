@@ -376,7 +376,7 @@ impl ObjectInner {
     /// - native function
     /// - Proxy objects that wrapping a function
     /// - Objects of native class which has `call` handler
-    pub fn is_callable(&self) -> bool {
+    pub fn is_function(&self) -> bool {
         match self.payload.borrow().deref() {
             ObjectPayload::BYTECODE_FUNCTION(_) => true,
             ObjectPayload::PROXY(x) => x.is_func,
@@ -517,8 +517,8 @@ impl JSObject {
     /// - Proxy objects that wrapping a function
     /// - Objects of native class which has `call` handler
     #[inline(always)]
-    pub fn is_callable(&self) -> bool {
-        self.0.is_callable()
+    pub fn is_function(&self) -> bool {
+        self.0.is_function()
     }
 
     #[inline(always)]

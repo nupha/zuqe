@@ -70,7 +70,7 @@ fn js_json_parse(ctx: &JSContext, cc: CallContext) -> JSResult {
     let s = cc.arg(0).to_string(ctx)?;
     let mut obj = JS_ParseJSON(ctx, s.content().to_utf8().as_bytes(), "<input>")?;
 
-    if cc.length() > 1 && cc.arg(1).is_callable() {
+    if cc.length() > 1 && cc.arg(1).is_function() {
         let reviver = cc.arg(1);
         let root: JSValue = ctx.create_base_object()?.into();
         root.define_property_value(ctx, JS_ATOM_empty_string, obj.clone(), JS_PROP_C_W_E)?;

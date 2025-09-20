@@ -25,7 +25,7 @@ pub fn js_object_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
             // eval tag atom
             let atom = if obj.is_array(ctx)? {
                 JS_ATOM_Array
-            } else if obj.is_callable() {
+            } else if obj.is_function() {
                 JS_ATOM_Function
             } else {
                 match obj.class_id() {

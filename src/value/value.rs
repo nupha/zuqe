@@ -310,8 +310,8 @@ impl JSValue {
     /// - Proxy objects that wrapping a function
     /// - Objects of native class which has `call` handler
     #[inline]
-    pub fn is_callable(&self) -> bool {
-        self.as_object().map_or(false, JSObject::is_callable)
+    pub fn is_function(&self) -> bool {
+        self.as_object().map_or(false, JSObject::is_function)
     }
 
     pub fn is_error(&self) -> bool {

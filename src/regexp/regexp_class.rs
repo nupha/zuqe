@@ -461,7 +461,7 @@ pub fn js_regexp_Symbol_match(ctx: &JSContext, cc: CallContext) -> JSResult {
     let re = js_get_regexp(ctx, this, true).ok_or(-1)?;
     let exec = this.get_property(ctx, JS_ATOM_exec)?;
 
-    if !exec.is_callable()
+    if !exec.is_function()
         || exec.match_native_callback(NativeFunctionType::Func(js_regexp_exec), 0)
     {
         // fast path: use native regex find()
@@ -615,7 +615,7 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
     let str = cc.arg(0).to_string(ctx)?;
 
     let rep = cc.arg(1);
-    let rep_is_func = rep.is_callable();
+    let rep_is_func = rep.is_function();
     let rep_str: Option<StringContent> = if !rep_is_func {
         Some(rep.to_string(ctx)?.content().clone())
     } else {
@@ -984,7 +984,7 @@ pub(super) fn JS_RegExpExec(ctx: &JSContext, this: JSObject, str: JSString) -> J
     let method = this.get_property(ctx, JS_ATOM_exec)?;
     let args: [JSValue; 1] = [str.into()];
 
-    if method.is_callable() {
+    if method.is_function() {
         let ret = method.call(ctx, &this.into(), &args)?;
         if !ret.is_object() && !ret.is_null() {
             ctx.throw_type_error("RegExp exec method must return an object or null");

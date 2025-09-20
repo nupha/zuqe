@@ -28,7 +28,7 @@ pub fn js_proxy_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
             ObjectPayload::PROXY(Box::new(ProxyObjPayload {
                 target: target.clone(),
                 handler: handler.clone().into(),
-                is_func: target.is_callable(),
+                is_func: target.is_function(),
                 is_revoked: Cell::new(false),
             })),
         )

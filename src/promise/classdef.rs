@@ -66,7 +66,7 @@ pub fn js_promise_then_finally_func(ctx: &JSContext, cc: CallContext) -> JSResul
 
 pub fn js_promise_finally(ctx: &JSContext, cc: CallContext) -> JSResult {
     let on_finally = cc.arg(0);
-    let then_funcs = if !on_finally.is_callable() {
+    let then_funcs = if !on_finally.is_function() {
         [on_finally.clone(), on_finally.clone()]
     } else {
         let ctor = JS_SpeciesConstructor(ctx, cc.this(), JSValue::UNDEFINED)?;
