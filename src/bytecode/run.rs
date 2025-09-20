@@ -2060,7 +2060,7 @@ impl Bytecode {
                         let op1 = SP_TAKE!(-2);
                         let op2 = SP_TAKE!(-1);
 
-                        if let Ok(rel) = op1.arith_compare(ctx, &op2) {
+                        if let Ok(rel) = op1.arith_cmp(ctx, &op2) {
                             let b = match (rel, opcode) {
                                 (Some(std::cmp::Ordering::Less), OpCode::LT | OpCode::LTE)
                                 | (Some(std::cmp::Ordering::Greater), OpCode::GT | OpCode::GTE)

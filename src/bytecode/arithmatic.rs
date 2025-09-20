@@ -418,19 +418,46 @@ pub enum JSStrictEqModeEnum {
 impl JSValue {
     /// arithmatic compare of two values.
     /// returns None only if value converted to NaN
-    pub fn arith_compare(
+    pub fn arith_cmp(
         &self,
         ctx: &JSContext,
-        other: &Self,
+        other: &JSValue,
     ) -> Result<Option<std::cmp::Ordering>, i32> {
-        match (self, other) {
-            (JSValue::String(s1), JSValue::String(s2)) => {
-                // string compare
-                Ok(Some(s1.content().cmp(s2.content())))
+        // fast path
+        if let Some(n2) = TwoNumbers::from_values0(self, other) {
+            return Ok(n2.partial_cmp());
+        }
+
+        // slow path
+        let mut op1 = self.clone();
+        let mut op2 = other.clone();
+        loop {
+            match (&op1, &op2) {
+                // string vs string
+                (JSValue::String(s1), JSValue::String(s2)) => {
+                    return Ok(Some(s1.content().cmp(s2.content())));
+                }
+
+                // object vs any
+                (JSValue::Object(o1), JSValue::Object(o2)) => {
+                    op1 = o1.to_primitive(ctx, HINT_NUMBER)?;
+                    op2 = o2.to_primitive(ctx, HINT_NUMBER)?;
+                }
+                (JSValue::Object(o), _) => {
+                    op1 = o.to_primitive(ctx, HINT_NUMBER)?;
+                }
+                (_, JSValue::Object(o)) => {
+                    op2 = o.to_primitive(ctx, HINT_NUMBER)?;
+                }
+
+                _ => {
+                    op1 = op1.to_number(ctx)?;
+                    op2 = op2.to_number(ctx)?;
+                }
             }
-            _ => {
-                let op = TwoNumbers::from_values(ctx, self, other, true)?;
-                Ok(op.partial_cmp())
+
+            if let Some(n2) = TwoNumbers::from_values0(&op1, &op2) {
+                return Ok(n2.partial_cmp());
             }
         }
     }
