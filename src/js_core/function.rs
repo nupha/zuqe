@@ -144,7 +144,7 @@ pub fn js_function_toString(ctx: &JSContext, args: CallContext) -> JSResult {
 }
 
 pub fn js_function_hasInstance(ctx: &JSContext, cc: CallContext) -> JSResult {
-    if let JSValue::Object(o) = cc.arg(0) {
+    if let Some(o) = cc.arg(0).as_object() {
         o.ordinary_instance_of(ctx, cc.this()).map(JSValue::Bool)
     } else {
         Ok(JSValue::Bool(false))

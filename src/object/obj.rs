@@ -378,16 +378,13 @@ impl ObjectInner {
     /// - Objects of native class which has `call` handler
     pub fn is_callable(&self) -> bool {
         match self.payload.borrow().deref() {
-            ObjectPayload::BYTECODE_FUNCTION(_)
-            | ObjectPayload::GENERATOR_FUNCTION(_)
-            | ObjectPayload::ASYNC_FUNCTION(_)
-            | ObjectPayload::ASYNC_GENERATOR_FUNCTION(_) => true,
+            ObjectPayload::BYTECODE_FUNCTION(_) => true,
             ObjectPayload::PROXY(x) => x.is_func,
-            p => {
+            isa => {
                 // check if class proto has exotic call handler
                 self.rt()
                     .class_defs
-                    .get(p.class_id() as usize)
+                    .get(isa.class_id() as usize)
                     .and_then(|c| c.call)
                     .is_some()
             }

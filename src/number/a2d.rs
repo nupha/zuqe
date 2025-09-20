@@ -1,7 +1,6 @@
 use smallvec::SmallVec;
 
-use crate::error::JSResult;
-use crate::{context::JSContext, string::strstart, value::JSValue};
+use crate::{context::JSContext, error::JSResult, string::strstart, value::JSValue};
 
 pub const ATOD_INT_ONLY: i32 = 1 << 0;
 /* accept Oo and Ob prefixes in addition to 0x prefix if radix = 0 */

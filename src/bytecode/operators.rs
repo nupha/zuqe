@@ -48,14 +48,14 @@ pub fn js_operator_delete(ctx: &JSContext, sp: *mut JSValue) -> i32 {
 }
 
 pub fn js_operator_instanceof(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
-    let (obj, ctor) = unsafe {
+    let (val, ctor) = unsafe {
         (
             std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED),
             std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED),
         )
     };
 
-    let b = obj.instance_of(ctx, &ctor)?;
+    let b = val.instance_of(ctx, &ctor)?;
     unsafe {
         std::ptr::replace(sp.offset(-2), JSValue::Bool(b));
     }

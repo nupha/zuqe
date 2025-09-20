@@ -9,8 +9,8 @@ use crate::{
 };
 
 impl JSObject {
-    /// check if object `self` is instance of constructor `ctor`.
-    /// equivalent to js: `self instanceof ctor`
+    /// test if object `self` is instance of `ctor`.
+    /// Equivalent to: `self instanceof ctor`
     pub(crate) fn ordinary_instance_of(
         &self,
         ctx: &JSContext,
@@ -65,29 +65,6 @@ impl JSObject {
             }
         }
     }
-
-    /// check if object `self` is instance of constructor `ctor`.
-    /// equivalent to js: `self instanceof ty`
-    pub fn instance_of(&self, ctx: &JSContext, ctor: &JSValue) -> Result<bool, i32> {
-        let method = ctor.get_property(ctx, JS_ATOM_Symbol_hasInstance)?;
-        if !method.is_undefined_or_null() {
-            return method
-                .call(
-                    ctx,
-                    &ctor,
-                    std::slice::from_ref(&JSValue::Object(self.clone())),
-                )
-                .and_then(|v| v.to_bool());
-        }
-
-        // legacy case
-        if !ctor.is_callable() {
-            ctx.throw_type_error("invalid 'instanceof' right operand");
-            return Err(-1);
-        }
-
-        self.ordinary_instance_of(ctx, ctor)
-    }
 }
 
 impl JSValue {
@@ -116,18 +93,28 @@ impl JSValue {
         }
     }
 
-    /// check if value `self` is instance of constructor `ctor`.
-    /// equivalent to js: `self instanceof ctor`
+    /// Test if value `self` is instance of `ctor`.
+    /// Equivalent to `self instanceof ctor`
     pub fn instance_of(&self, ctx: &JSContext, ctor: &JSValue) -> Result<bool, i32> {
         if ctor.is_object() {
-            if let Self::Object(o) = self {
-                o.instance_of(ctx, ctor)
+            let method = ctor.get_property(ctx, JS_ATOM_Symbol_hasInstance)?;
+            if !method.is_undefined_or_null() {
+                return method
+                    .call(ctx, &ctor, std::slice::from_ref(self))
+                    .and_then(|v| v.to_bool());
+            }
+        }
+
+        if ctor.is_callable() {
+            // legacy case
+            if let Some(o) = self.as_object() {
+                o.ordinary_instance_of(ctx, ctor)
             } else {
                 Ok(false)
             }
         } else {
             ctx.throw_type_error("invalid 'instanceof' right operand");
-            return Err(-1);
+            Err(-1)
         }
     }
 }
