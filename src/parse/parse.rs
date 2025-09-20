@@ -526,7 +526,7 @@ impl JSParseState<'_> {
     }
 }
 
-pub fn skip_shebang(start_ptr: *const u8, end_ptr: *const u8) -> *const u8 {
+pub(super) fn skip_shebang(start_ptr: *const u8, end_ptr: *const u8) -> *const u8 {
     let mut p = start_ptr;
 
     if unsafe { *p == b'#' && *p.add(1) == b'!' } {

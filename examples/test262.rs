@@ -387,7 +387,8 @@ fn run_test_file(
         let cfg = serde_yaml::from_str::<TestConfig>(front_matter).unwrap();
         cfg
     } else {
-        TestConfig::default()
+        // no config, exit
+        return;
     };
 
     match (config.features.as_deref(), excludes) {
@@ -659,17 +660,6 @@ fn main() {
         .truncate(true)
         .open("test262-fail.txt")
         .unwrap();
-
-    // run_test_file(
-    //     &Path::new(
-    //         //"/Users/johnray/devel/test262/test/harness/propertyhelper-verifyconfigurable-configurable-object.js"
-    //         "/Users/johnray/devel/test262/test/harness/asyncHelpers-throwsAsync-custom-typeerror.js",
-    //         // "/Users/johnray/devel/test262/test/harness/asyncHelpers-throwsAsync-incorrect-ctor.js",
-    //     ),
-    //     true,
-    //     &mut fp,
-    // );
-    // fp.flush().unwrap();
 
     if let Some(tests) = app_cfg.tests.take() {
         let excludes = if let Some(lst) = app_cfg.exclude_features.take() {

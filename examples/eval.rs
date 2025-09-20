@@ -157,13 +157,12 @@ fn main() {
 
     match ctx.eval_auto(script.as_bytes(), &filename) {
         Ok(v) => {
-            let s = v.to_string(&ctx);
             println!(
-                ">>> RESULT: {v:?}, {:?}, {}",
-                s.clone(),
-                s.map_or("<ERR>".into(), |s| s.to_string())
+                ">>> RESULT: {v:?}, {}",
+                v.repr(&ctx).unwrap_or("<can't repr>".to_string())
             );
             if let JSValue::Object(o) = &v {
+                println!("    OBJECT DUMP");
                 o.dump(ctx.rt());
             }
 
@@ -177,11 +176,7 @@ fn main() {
                         if let Some(pr) = v.as_object_Promise() {
                             let r = pr.result();
                             println!("promise state:  {:?}", pr.state());
-                            println!(
-                                "promise result: {:?}",
-                                // v.repr(&ctx),
-                                r.to_string(&ctx)
-                            );
+                            println!("promise result: {r:?}, {:?}", r.repr(&ctx),);
                         }
                         break;
                     }
@@ -199,49 +194,6 @@ fn main() {
                     }
                 }
             }
-
-            // if let Some(pr) = v.as_object_Promise() {
-            //     loop {
-            //         match rt.tick() {
-            //             Ok(true) => {
-            //                 std::thread::sleep(std::time::Duration::from_millis(100));
-            //                 continue;
-            //             }
-            //             Ok(false) => {
-            //                 let v = pr.result();
-            //                 println!("promise state:  {:?}", pr.state());
-            //                 println!(
-            //                     "promise result: {:?}",
-            //                     // v.repr(&ctx),
-            //                     v.to_string(&ctx)
-            //                 );
-            //                 break;
-            //             }
-            //             Err(_) => {
-            //                 println!("--- Error in promise job ---");
-
-            //                 let exc = ctx.exception();
-            //                 debug_assert!(!exc.is_undefined_or_null()); // FIXME: this assert fails!
-
-            //                 println!("!!! EXCEPTION {exc:?}: {:?}", exc.to_string(&ctx));
-            //                 if let JSValue::Object(o) = exc {
-            //                     o.dump(ctx.rt());
-            //                 };
-            //                 break;
-            //             }
-            //         }
-            //     }
-            // } else {
-            //     let s = v.to_string(&ctx);
-            //     println!(
-            //         ">>> RESULT: {v:?}, {:?}, {}",
-            //         s.clone(),
-            //         s.map_or("<ERR>".into(), |s| s.to_string())
-            //     );
-            //     if let JSValue::Object(o) = &v {
-            //         o.dump(ctx.rt());
-            //     }
-            // }
         }
         Err(_) => {
             let exc = ctx.exception();

@@ -471,6 +471,23 @@ impl<'s> JSParseState<'s> {
 
         Ok(())
     }
+
+    /// return true if `input` is esm source, that means skip comments and expect:
+    /// * 'import' keyword not followed by '(' or '.' char;
+    /// * 'export' keyword;
+    pub fn detect_module(input: &[u8]) -> bool {
+        let buf_p = input.as_ptr();
+        let mut p = skip_shebang(buf_p, unsafe { buf_p.add(input.len()) });
+
+        match unsafe { simple_next_token(&mut p, false) } {
+            TOK_IMPORT => {
+                let tok = unsafe { simple_next_token(&mut p, false) };
+                !matches!(tok, CHAR_BRACKET_L | CHAR_DOT)
+            }
+            TOK_EXPORT => true,
+            _ => false,
+        }
+    }
 }
 
 /// Parse an identifier and return its atom.
@@ -484,17 +501,16 @@ fn parse_export_name(s: &JSParseState) -> Result<JSAtom, i32> {
     }
 }
 
-/// return true if 'input' contains the source of a module
-/// (heuristic). 'input' must be a zero terminated.
-//
-/// Heuristic: skip comments and expect 'import' keyword not followed by '(' or '.' or export keyword.
-pub unsafe fn JS_DetectModule(input: &[u8]) -> bool {
+/// return true if `input` source is esm, that means skip comments and expect:
+/// * 'import' keyword not followed by '(' or '.' char;
+/// * 'export' keyword;
+pub(super) fn detect_module(input: &[u8]) -> bool {
     let buf_p = input.as_ptr();
-    let mut p = skip_shebang(buf_p, buf_p.add(input.len()));
+    let mut p = skip_shebang(buf_p, unsafe { buf_p.add(input.len()) });
 
-    match simple_next_token(&mut p, false) {
+    match unsafe { simple_next_token(&mut p, false) } {
         TOK_IMPORT => {
-            let tok = simple_next_token(&mut p, false);
+            let tok = unsafe { simple_next_token(&mut p, false) };
             !matches!(tok, CHAR_BRACKET_L | CHAR_DOT)
         }
         TOK_EXPORT => true,

@@ -26,9 +26,5 @@ mod token;
 mod var;
 
 pub use {
-    esm::{JS_DetectModule, JSParseExportEnum},
-    function::JSParseFunctionEnum,
-    json::*,
-    parse::*,
-    state::JSParseState,
+    esm::JSParseExportEnum, function::JSParseFunctionEnum, json::*, parse::*, state::JSParseState,
 };

@@ -4317,3 +4317,24 @@ pub unsafe fn JS_DefineObjectNameComputed(
 
 #[deprecated(note = "use PromiseResolveFunc::hook_call() instead")]
 pub fn js_promise_resolve_function_call() {}
+
+/// return true if 'input' contains the source of a module
+/// (heuristic). 'input' must be a zero terminated.
+//
+/// Heuristic: skip comments and expect 'import' keyword not followed by '(' or '.' or export keyword.
+#[deprecated(note = "use JSParseState::detect_module() instead")]
+pub unsafe fn JS_DetectModule(input: &[u8]) -> bool {
+    unreachable!("unused");
+
+    // let buf_p = input.as_ptr();
+    // let mut p = skip_shebang(buf_p, buf_p.add(input.len()));
+
+    // match simple_next_token(&mut p, false) {
+    //     TOK_IMPORT => {
+    //         let tok = simple_next_token(&mut p, false);
+    //         !matches!(tok, CHAR_BRACKET_L | CHAR_DOT)
+    //     }
+    //     TOK_EXPORT => true,
+    //     _ => false,
+    // }
+}

@@ -7,7 +7,7 @@ use crate::{
     function::{Bytecode, JSFunctionDef, JSFunctionKindEnum, add_closure_variables},
     module::ModuleDef,
     object::JSObject,
-    parse::{JS_DetectModule, JSParseState},
+    parse::JSParseState,
     stack_frame::StackFrame,
     string::JSString,
     value::JSValue,
@@ -62,8 +62,8 @@ impl JSContext {
         let sframe: Option<&mut StackFrame>;
         let mut cur_frame_func: Option<JSObject> = None;
 
-        // get bytecode, module of current stack frame
-        let (cur_frame_bc, module, js_mode) = if eval_type == JS_EVAL_TYPE_DIRECT {
+        // get (bytecode, module, js_mode) of current stack frame
+        let (bytecode, module, js_mode) = if eval_type == JS_EVAL_TYPE_DIRECT {
             let sf_ptr = self.rt().cur_stack_frame.cast::<StackFrame>();
             debug_assert!(!sf_ptr.is_null());
             debug_assert!(unsafe { (*sf_ptr).cur_func.is_object() });
@@ -117,7 +117,7 @@ impl JSContext {
         fd.func_name = JS_ATOM__eval_.dup(self.rt());
         fd.js_mode = js_mode as u8;
 
-        if let Some(bc) = &cur_frame_bc {
+        if let Some(bc) = &bytecode {
             debug_assert_eq!(eval_type, JS_EVAL_TYPE_DIRECT, "must be direct eval type");
             debug_assert!(module.is_none(), "must not be module");
             {
@@ -132,10 +132,7 @@ impl JSContext {
                 add_closure_variables(self, &mut fd, &bc, scope_idx)?;
             }
         } else {
-            debug_assert_ne!(
-                eval_type, JS_EVAL_TYPE_DIRECT,
-                "must not be direct eval type"
-            );
+            debug_assert_ne!(eval_type, JS_EVAL_TYPE_DIRECT, "can't be direct eval type");
             fd.new_target_allowed = false;
             fd.super_call_allowed = false;
             fd.super_allowed = false;
@@ -154,23 +151,24 @@ impl JSContext {
         fd.body_scope = fd.push_scope(0)? as i32;
         debug_assert_eq!(fd.body_scope, 1);
 
-        // create parse state with root fd, parse source.
-        let mut ps = JSParseState::new(
+        // create parse state with root fd, then parse source.
+        let mut parser = JSParseState::new(
             self,
             unsafe { NonNull::new_unchecked(fd.as_mut()) },
             source,
             filename,
         );
         debug_assert_eq!(
-            ps.cur_func_mut() as *mut JSFunctionDef,
+            parser.cur_func_mut() as *mut JSFunctionDef,
             fd.deref_mut() as *mut JSFunctionDef
         );
-        ps.is_module = module.is_some();
-        ps.allow_html_comments = module.is_none();
+        parser.is_module = module.is_some();
+        parser.allow_html_comments = module.is_none();
 
-        ps.skip_shebang();
-        ps.parse_program()?;
+        parser.skip_shebang();
+        parser.parse_program()?;
 
+        // has top-level await?
         let has_await = fd.has_await;
 
         // compile function def to bytecode.
@@ -256,7 +254,7 @@ impl JSContext {
     /// - when eval as module (`url` ends with **.mjs** or `source` has top-level await), returns module value;
     /// - when eval as global, returns normal eval result value.
     pub fn eval_auto(&self, source: &[u8], url: &str) -> JSResult {
-        let is_module = url.ends_with(".mjs") || unsafe { JS_DetectModule(source) };
+        let is_module = url.ends_with(".mjs") || JSParseState::detect_module(source);
         if is_module {
             self.eval_module_source(source, url, false)
                 .map(JSValue::Module)
