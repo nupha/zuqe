@@ -9,11 +9,11 @@ use std::{
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT,
     JS_CLASS_ASYNC_FUNCTION_RESOLVE, JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_BOUND_FUNCTION,
-    JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_MODULE_NS,
-    JS_CLASS_OBJECT, JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
-    JS_CLASS_PROXY, JS_CLASS_STRING, STD_CLASS_DEFS,
+    JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA, JS_CLASS_GENERATOR_FUNCTION,
+    JS_CLASS_INIT_COUNT, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT, JS_CLASS_PROMISE_REJECT_FUNCTION,
+    JS_CLASS_PROMISE_RESOLVE_FUNCTION, JS_CLASS_PROXY, JS_CLASS_STRING, STD_CLASS_DEFS,
     array_buffer::JSSharedArrayBufferFunctions,
-    atom::JS_FreeAtomRT,
+    atom::{JS_FreeAtomRT, consts::JS_ATOM_empty_string},
     callable::CallableValue,
     class::{JSClass, js_arguments_exotic_methods},
     context::JSContext,
@@ -134,7 +134,7 @@ impl JSRuntime {
                 lst
             },
 
-            class_defs: Vec::new(),
+            class_defs: Vec::with_capacity(JS_CLASS_INIT_COUNT),
 
             cur_stack_frame: std::ptr::null_mut(),
             host_promise_rejection_tracker_opaque: std::ptr::null_mut(),
@@ -176,7 +176,7 @@ impl JSRuntime {
         rt.init_default_atoms()?;
         rt.shape_registry.try_reserve(16).map_err(|_| -1)?;
 
-        // register standard intrinsic classes
+        // register builtin classes
         rt.add_classes(&STD_CLASS_DEFS, JS_CLASS_OBJECT)?;
 
         // setup common classes
@@ -187,13 +187,13 @@ impl JSRuntime {
 
             rt.class_defs[JS_CLASS_C_FUNCTION as usize]
                 .call
-                .replace(ObjNativeFunc::hook_call);
+                .replace(ObjNativeFunc::class_call);
             rt.class_defs[JS_CLASS_C_FUNCTION_DATA as usize]
                 .call
-                .replace(CallableValue::hook_call);
+                .replace(CallableValue::class_call);
             rt.class_defs[JS_CLASS_BOUND_FUNCTION as usize]
                 .call
-                .replace(BoundFunction::hook_call);
+                .replace(BoundFunction::class_call);
             rt.class_defs[JS_CLASS_GENERATOR_FUNCTION as usize]
                 .call
                 .replace(js_generator_function_call);
@@ -202,24 +202,24 @@ impl JSRuntime {
             rt.class_defs[JS_CLASS_PROXY as usize].exotic = &js_proxy_exotic_methods;
             rt.class_defs[JS_CLASS_PROXY as usize]
                 .call
-                .replace(Proxy::hook_call);
+                .replace(Proxy::class_call);
         }
 
         // setup async related classes
         {
             rt.class_defs[JS_CLASS_PROMISE_RESOLVE_FUNCTION as usize].call =
-                Some(PromiseResolveFunc::hook_call);
+                Some(PromiseResolveFunc::class_call);
             rt.class_defs[JS_CLASS_PROMISE_REJECT_FUNCTION as usize].call =
-                Some(PromiseResolveFunc::hook_call);
+                Some(PromiseResolveFunc::class_call);
 
-            rt.class_defs[JS_CLASS_ASYNC_FUNCTION as usize].call = Some(AsyncFunction::hook_call);
+            rt.class_defs[JS_CLASS_ASYNC_FUNCTION as usize].call = Some(AsyncFunction::class_call);
             rt.class_defs[JS_CLASS_ASYNC_FUNCTION_RESOLVE as usize].call =
                 Some(js_async_function_resolve_call);
             rt.class_defs[JS_CLASS_ASYNC_FUNCTION_REJECT as usize].call =
                 Some(js_async_function_resolve_call);
 
             rt.class_defs[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize].call =
-                Some(AsyncGeneratorValue::hook_call);
+                Some(AsyncGeneratorValue::class_call);
         }
 
         JS_UpdateStackTop(rt.as_mut());

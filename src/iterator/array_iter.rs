@@ -22,9 +22,9 @@ pub struct JSArrayIteratorData {
 }
 
 impl JSArrayIteratorData {
-    pub fn hook_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
+    pub fn class_finalizer(rt: &mut JSRuntime, isa: ObjectPayload, id: usize) {}
 
-    pub fn hook_mark(val: JSValue) {
+    pub fn class_mark(val: JSValue) {
         let p = unsafe { val.as_object_unchecked() };
         if let ObjectPayload::ARRAY_ITERATOR(it) | ObjectPayload::STRING_ITERATOR(it) =
             p.0.payload.borrow().deref()

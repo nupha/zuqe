@@ -345,7 +345,7 @@ pub unsafe fn JS_DetachArrayBuffer(ctx: &JSContext, obj: &JSValue) {
 }
 
 // also used for SharedArrayBuffer
-pub fn js_array_buffer_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {
+pub fn js_array_buffer_finalizer(rt: &mut JSRuntime, isa: ObjectPayload, id: usize) {
     let abuf = isa.array_buffer().unwrap();
 
     // free content

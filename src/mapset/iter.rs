@@ -30,7 +30,7 @@ pub struct MapIterator(pub(crate) JSObject);
 
 object_cast!(MapIterator, JS_CLASS_MAP_ITERATOR);
 
-pub fn js_map_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
+pub fn js_map_iterator_finalizer(rt: &mut JSRuntime, isa: ObjectPayload, id: usize) {}
 
 pub fn js_map_iterator_mark(val: JSValue) {
     if let Some(o) = val.as_object() {

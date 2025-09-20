@@ -167,7 +167,7 @@ pub struct Proxy(pub(crate) JSObject);
 object_cast!(Proxy, JS_CLASS_PROXY);
 
 impl Proxy {
-    pub fn hook_call(
+    pub fn class_call(
         ctx: &JSContext,
         func_obj: &JSValue,
         this_obj: &JSValue,
@@ -199,14 +199,14 @@ impl Proxy {
         )
     }
 
-    pub fn hook_finalizer(rt: &mut JSRuntime, _: &ObjectPayload, _: usize) {
+    pub fn class_finalizer(rt: &mut JSRuntime, _: ObjectPayload, _: usize) {
         // this is done via rust drop()
         // if let ObjectPayload::Proxy(p) = payload {
         //     // free p.target and p.handler
         // }
     }
 
-    pub fn hook_mark(val: JSValue) {
+    pub fn class_mark(val: JSValue) {
         if let ObjectPayload::PROXY(p) = val.as_object().unwrap().0.payload.borrow().deref() {
             p.target.gc_mark();
             p.handler.gc_mark();

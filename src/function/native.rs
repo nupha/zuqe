@@ -120,7 +120,7 @@ pub struct ObjNativeFunc {
 }
 
 impl ObjNativeFunc {
-    pub fn hook_call(
+    pub fn class_call(
         ctx: &JSContext,
         func_obj: &JSValue,
         mut this_obj: &JSValue,
@@ -336,11 +336,11 @@ impl ObjNativeFunc {
         Ok(ret_val)
     }
 
-    pub fn hook_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {
+    pub fn class_finalizer(rt: &mut JSRuntime, isa: ObjectPayload, id: usize) {
         debug_assert!(matches!(isa, ObjectPayload::C_FUNCTION(_)));
     }
 
-    pub fn hook_mark(val: JSValue) {
+    pub fn class_mark(val: JSValue) {
         unsafe {
             if let ObjectPayload::C_FUNCTION(cfunc) =
                 val.as_object_unchecked().0.payload.borrow().deref()

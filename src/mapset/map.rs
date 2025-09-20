@@ -289,9 +289,9 @@ impl JSMapState {
         self.remove_count = 0;
     }
 
-    pub fn hook_finalizer(_: &mut JSRuntime, _: &ObjectPayload, _: usize) {}
+    pub fn class_finalizer(_: &mut JSRuntime, _: ObjectPayload, _: usize) {}
 
-    pub fn hook_mark(val: JSValue) {
+    pub fn class_mark(val: JSValue) {
         let p = unsafe { val.as_object_unchecked() };
         if let Some(s) = p.0.payload.borrow().map_state() {
             for kv in s.slots.iter() {

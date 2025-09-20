@@ -164,7 +164,7 @@ pub fn js_async_from_sync_iterator_next(ctx: &JSContext, cc: CallContext) -> JSR
     }
 }
 
-pub fn js_async_from_sync_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {
+pub fn js_async_from_sync_iterator_finalizer(rt: &mut JSRuntime, isa: ObjectPayload, id: usize) {
     // if let ObjectPayload::ASYNC_FROM_SYNC_ITERATOR(p) = val.object_unchecked().isa() {
     //     drop(Box::from_raw(p));
     // }

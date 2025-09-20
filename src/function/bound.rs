@@ -26,9 +26,9 @@ pub struct BoundFunction(JSObject);
 object_cast!(BoundFunction, JS_CLASS_BOUND_FUNCTION);
 
 impl BoundFunction {
-    pub fn hook_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
+    pub fn class_finalizer(rt: &mut JSRuntime, isa: ObjectPayload, id: usize) {}
 
-    pub fn hook_mark(val: JSValue) {
+    pub fn class_mark(val: JSValue) {
         unsafe {
             if let ObjectPayload::BOUND_FUNCTION(bf) =
                 val.as_object_unchecked().0.payload.borrow().deref()
@@ -44,7 +44,7 @@ impl BoundFunction {
         }
     }
 
-    pub fn hook_call(
+    pub fn class_call(
         ctx: &JSContext,
         func_obj: &JSValue,
         this_obj: &JSValue,

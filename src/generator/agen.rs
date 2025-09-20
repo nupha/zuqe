@@ -73,7 +73,7 @@ impl JSValue {
 }
 
 impl AsyncGeneratorValue {
-    pub fn hook_call(
+    pub fn class_call(
         ctx: &JSContext,
         func_obj: &JSValue,
         this_obj: &JSValue,
@@ -105,9 +105,9 @@ impl AsyncGeneratorValue {
         Ok(agen.into())
     }
 
-    pub fn hook_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
+    pub fn class_finalizer(rt: &mut JSRuntime, isa: ObjectPayload, id: usize) {}
 
-    pub fn hook_mark(val: JSValue) {
+    pub fn class_mark(val: JSValue) {
         let p = unsafe { val.as_object_unchecked() };
 
         if let ObjectPayload::ASYNC_GENERATOR(Some(gd)) = p.0.payload.borrow().deref() {

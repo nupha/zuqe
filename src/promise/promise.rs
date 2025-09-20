@@ -37,17 +37,28 @@ pub enum JSPromiseStateEnum {
 }
 
 #[derive(Debug)]
-pub struct PromiseObjPayload {
-    pub promise_state: JSPromiseStateEnum,
+pub struct PromisePayload {
+    promise_state: JSPromiseStateEnum,
 
-    /// list of JSPromiseReactionData.link: #0 for fulfill, #1 for reject.
+    /// list of pending reactions: #0 for fulfill, #1 for reject.
     pub promise_reactions: [Vec<Box<JSPromiseReactionData>>; 2],
 
-    /// Note: will be freed in Promise::hook_finalizer().
     pub promise_result: JSValue,
 
     /// Note: only useful to debug
     pub is_handled: bool,
+}
+
+impl PromisePayload {
+    #[inline(always)]
+    pub fn state(&self) -> JSPromiseStateEnum {
+        self.promise_state
+    }
+
+    #[inline(always)]
+    pub fn set_state(&mut self, s: JSPromiseStateEnum) {
+        self.promise_state = s;
+    }
 }
 
 #[repr(transparent)]
@@ -68,7 +79,7 @@ impl Promise {
         executor.ensure_callable(ctx)?;
 
         // make promise payload
-        let s = Box::new(PromiseObjPayload {
+        let s = Box::new(PromisePayload {
             promise_state: JSPromiseStateEnum::JS_PROMISE_PENDING,
             promise_reactions: [Vec::new(), Vec::new()],
             promise_result: JSValue::UNDEFINED,
@@ -101,7 +112,7 @@ impl Promise {
     ///  - when it is `undefined`, creates default Promise object.
     pub fn new(ctx: &JSContext, ctor: &JSValue) -> Result<(Promise, [JSValue; 2]), i32> {
         let executor = ctx.create_native_function_with_data(
-            Promise::hook_executor,
+            Promise::class_executor,
             2,
             0,
             &[JSValue::UNDEFINED, JSValue::UNDEFINED], // resolving functions, initially undefined
@@ -161,7 +172,7 @@ impl Promise {
     }
 
     /// run closure with Promise payload.
-    pub(super) fn with<R>(&self, f: impl FnOnce(&PromiseObjPayload) -> R) -> R {
+    pub(super) fn with<R>(&self, f: impl FnOnce(&PromisePayload) -> R) -> R {
         if let ObjectPayload::PROMISE(p) = self.0.0.payload.borrow().deref() {
             f(p)
         } else {
@@ -175,7 +186,7 @@ impl Promise {
     }
 
     /// run closure with Promise payload.
-    pub(super) fn with_mut<R>(&self, f: impl FnOnce(&mut PromiseObjPayload) -> R) -> R {
+    pub(super) fn with_mut<R>(&self, f: impl FnOnce(&mut PromisePayload) -> R) -> R {
         if let ObjectPayload::PROMISE(p) = self.0.0.payload.borrow_mut().deref_mut() {
             f(p)
         } else {
@@ -217,7 +228,7 @@ impl JSContext {
 //
 impl Promise {
     /// the native callback for Promise constructor function
-    pub fn hook_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
+    pub fn class_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         Promise::new_with_executor(
             ctx,
             cc.arg(0).ensure_callable(ctx)?.as_object().unwrap().clone(),
@@ -229,7 +240,7 @@ impl Promise {
     /// callback to execute a promise:
     /// setting resolve and reject functions as attaching data of 'executor'.
     /// arg#0: resolve function, arg#1: reject function
-    fn hook_executor(ctx: &JSContext, mut cc: CallContext) -> JSResult {
+    fn class_executor(ctx: &JSContext, mut cc: CallContext) -> JSResult {
         for i in 0..2 {
             if !cc.data(i).is_undefined() {
                 ctx.throw_type_error("resolving function already set");
@@ -241,18 +252,14 @@ impl Promise {
         Ok(JSValue::UNDEFINED)
     }
 
-    pub fn hook_finalizer(_: &mut JSRuntime, _: &ObjectPayload, _: usize) {
-        // if let ObjectPayload::PROMISE(s) = isa {
-        //     for i in 0..2 {
-        //         list_foreach_safe(&mut s.as_mut().unwrap().promise_reactions[i], |el| {
-        //             let rd = list_entry!(el, JSPromiseReactionData, link);
-        //             Box::from_raw(rd).dispose(rt.as_mut().unwrap());
-        //         });
-        //     }
+    pub fn class_finalizer(_: &mut JSRuntime, isa: ObjectPayload, _: usize) {
+        // if let ObjectPayload::PROMISE(mut s) = isa {
+        //     s.promise_reactions[0].clear();
+        //     s.promise_reactions[1].clear();
         // }
     }
 
-    pub fn hook_mark(val: JSValue) {
+    pub fn class_mark(val: JSValue) {
         if let Some(promise) = val.as_object_Promise() {
             promise.with(|s| {
                 for i in 0..2 {

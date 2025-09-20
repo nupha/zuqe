@@ -147,9 +147,9 @@ pub fn js_is_regexp(ctx: &JSContext, obj: &JSValue) -> Result<bool, i32> {
     }
 }
 
-pub fn js_regexp_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
+pub fn js_regexp_finalizer(rt: &mut JSRuntime, isa: ObjectPayload, id: usize) {}
 
-pub fn js_regexp_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
+pub fn js_regexp_iterator_finalizer(rt: &mut JSRuntime, isa: ObjectPayload, id: usize) {}
 
 pub fn js_regexp_iterator_mark(val: JSValue) {
     // unsafe {

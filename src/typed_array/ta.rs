@@ -685,7 +685,7 @@ pub fn js_typed_array_set_internal(
     Ok(JSValue::UNDEFINED)
 }
 
-pub fn js_typed_array_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {
+pub fn js_typed_array_finalizer(rt: &mut JSRuntime, isa: ObjectPayload, id: usize) {
     if let Some(ta) = isa.typed_array() {
         // during the GC the finalizers are called in an arbitrary
         // order so the ArrayBuffer finalizer may have been called

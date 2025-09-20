@@ -81,8 +81,8 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
             "Function",
             "C_FUNCTION",
             Some("crate::function::ObjNativeFunc"),
-            Some("crate::function::ObjNativeFunc::hook_finalizer"),
-            Some("crate::function::ObjNativeFunc::hook_mark")
+            Some("crate::function::ObjNativeFunc::class_finalizer"),
+            Some("crate::function::ObjNativeFunc::class_mark")
         ),
         class_def!(
             "Function",
@@ -95,15 +95,15 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
             "Function",
             "BOUND_FUNCTION",
             Some("Box<crate::function::BoundFuncObjPayload>"),
-            Some("crate::function::BoundFunction::hook_finalizer"),
-            Some("crate::function::BoundFunction::hook_mark")
+            Some("crate::function::BoundFunction::class_finalizer"),
+            Some("crate::function::BoundFunction::class_mark")
         ),
         class_def!(
             "Function",
             "C_FUNCTION_DATA",
             Some("Box<crate::callable::JSCFunctionDataRecord>"),
-            Some("crate::callable::CallableValue::hook_finalizer"),
-            Some("crate::callable::CallableValue::hook_mark")
+            Some("crate::callable::CallableValue::class_finalizer"),
+            Some("crate::callable::CallableValue::class_mark")
         ),
         class_def!(
             "GeneratorFunction",
@@ -242,29 +242,29 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
             "Map",
             "MAP",
             Some("Box<crate::mapset::JSMapState>"),
-            Some("crate::mapset::JSMapState::hook_finalizer"),
-            Some("crate::mapset::JSMapState::hook_mark")
+            Some("crate::mapset::JSMapState::class_finalizer"),
+            Some("crate::mapset::JSMapState::class_mark")
         ),
         class_def!(
             "Set",
             "SET",
             Some("Box<crate::mapset::JSMapState>"),
-            Some("crate::mapset::JSMapState::hook_finalizer"),
-            Some("crate::mapset::JSMapState::hook_mark")
+            Some("crate::mapset::JSMapState::class_finalizer"),
+            Some("crate::mapset::JSMapState::class_mark")
         ),
         class_def!(
             "WeakMap",
             "WEAKMAP",
             Some("Box<crate::mapset::JSMapState>"),
-            Some("crate::mapset::JSMapState::hook_finalizer"),
-            Some("crate::mapset::JSMapState::hook_mark")
+            Some("crate::mapset::JSMapState::class_finalizer"),
+            Some("crate::mapset::JSMapState::class_mark")
         ),
         class_def!(
             "WeakSet",
             "WEAKSET",
             Some("Box<crate::mapset::JSMapState>"),
-            Some("crate::mapset::JSMapState::hook_finalizer"),
-            Some("crate::mapset::JSMapState::hook_mark")
+            Some("crate::mapset::JSMapState::class_finalizer"),
+            Some("crate::mapset::JSMapState::class_mark")
         ),
         class_def!(
             "Map_Iterator",
@@ -284,15 +284,15 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
             "Array_Iterator",
             "ARRAY_ITERATOR",
             Some("Box<crate::iterator::JSArrayIteratorData>"),
-            Some("crate::iterator::JSArrayIteratorData::hook_finalizer"),
-            Some("crate::iterator::JSArrayIteratorData::hook_mark")
+            Some("crate::iterator::JSArrayIteratorData::class_finalizer"),
+            Some("crate::iterator::JSArrayIteratorData::class_mark")
         ),
         class_def!(
             "String_Iterator",
             "STRING_ITERATOR",
             Some("Box<crate::iterator::JSArrayIteratorData>"),
-            Some("crate::iterator::JSArrayIteratorData::hook_finalizer"),
-            Some("crate::iterator::JSArrayIteratorData::hook_mark")
+            Some("crate::iterator::JSArrayIteratorData::class_finalizer"),
+            Some("crate::iterator::JSArrayIteratorData::class_mark")
         ),
         class_def!(
             "RegExp_String_Iterator",
@@ -318,8 +318,8 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
             "Object", // Proxy class name is Object
             "PROXY",
             Some("Box<crate::proxy::ProxyObjPayload>"),
-            Some("crate::proxy::Proxy::hook_finalizer"),
-            Some("crate::proxy::Proxy::hook_mark")
+            Some("crate::proxy::Proxy::class_finalizer"),
+            Some("crate::proxy::Proxy::class_mark")
         ),
         //
         // Async stuff
@@ -327,23 +327,23 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "Promise",
             "PROMISE",
-            Some("Box<crate::promise::PromiseObjPayload>"),
-            Some("crate::promise::Promise::hook_finalizer"),
-            Some("crate::promise::Promise::hook_mark")
+            Some("Box<crate::promise::PromisePayload>"),
+            Some("crate::promise::Promise::class_finalizer"),
+            Some("crate::promise::Promise::class_mark")
         ),
         class_def!(
             "PromiseResolveFunction",
             "PROMISE_RESOLVE_FUNCTION",
             Some("Box<crate::promise::PromiseResolvingPayload>"),
-            Some("crate::promise::PromiseResolveFunc::hook_finalizer"),
-            Some("crate::promise::PromiseResolveFunc::hook_mark")
+            Some("crate::promise::PromiseResolveFunc::class_finalizer"),
+            Some("crate::promise::PromiseResolveFunc::class_mark")
         ),
         class_def!(
             "PromiseRejectFunction",
             "PROMISE_REJECT_FUNCTION",
             Some("Box<crate::promise::PromiseResolvingPayload>"),
-            Some("crate::promise::PromiseResolveFunc::hook_finalizer"),
-            Some("crate::promise::PromiseResolveFunc::hook_mark")
+            Some("crate::promise::PromiseResolveFunc::class_finalizer"),
+            Some("crate::promise::PromiseResolveFunc::class_mark")
         ),
         class_def!(
             "AsyncFunction",
@@ -356,15 +356,15 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
             "AsyncFunctionResolve",
             "ASYNC_FUNCTION_RESOLVE",
             Some("crate::function::AsyncFuncState"),
-            Some("crate::function::AsyncFuncState::hook_finalizer"),
-            Some("crate::function::AsyncFuncState::hook_mark")
+            Some("crate::function::AsyncFuncState::class_finalizer"),
+            Some("crate::function::AsyncFuncState::class_mark")
         ),
         class_def!(
             "AsyncFunctionReject",
             "ASYNC_FUNCTION_REJECT",
             Some("crate::function::AsyncFuncState"),
-            Some("crate::function::AsyncFuncState::hook_finalizer"),
-            Some("crate::function::AsyncFuncState::hook_mark")
+            Some("crate::function::AsyncFuncState::class_finalizer"),
+            Some("crate::function::AsyncFuncState::class_mark")
         ),
         class_def!(
             "empty_string", // JS_ATOM_empty_string
@@ -384,8 +384,8 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
             "AsyncGeneratorValue",
             "ASYNC_GENERATOR",
             Some("Option<Box<crate::generator::AsyncGeneratorState>>"),
-            Some("crate::generator::AsyncGeneratorValue::hook_finalizer"),
-            Some("crate::generator::AsyncGeneratorValue::hook_mark")
+            Some("crate::generator::AsyncGeneratorValue::class_finalizer"),
+            Some("crate::generator::AsyncGeneratorValue::class_mark")
         ),
     ]
 });
@@ -393,17 +393,12 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
 pub fn gen_std_class_defs(outfile: &Path) {
     let class_defs = Lazy::force(&CLASS_DEF_LIST);
 
-    let mut enums = Vec::<String>::with_capacity(128);
     let mut cdefs = Vec::<String>::with_capacity(128);
     let mut consts = Vec::<String>::with_capacity(128);
 
     let mut async_start: Option<usize> = None;
     let mut async_end: Option<usize> = None;
 
-    enums.push(
-        "#[repr(u32)]\n#[derive(Debug,Clone,Copy,PartialEq,Eq,PartialOrd,Ord)]\npub enum JSClassStdId {"
-            .to_string(),
-    );
     cdefs.push(format!(
         "pub const STD_CLASS_DEFS: [JSClassShortDef;{}] = [",
         class_defs.len()
@@ -420,12 +415,6 @@ pub fn gen_std_class_defs(outfile: &Path) {
                 async_end = Some(i);
             }
             _ => {}
-        }
-
-        if i == 0 {
-            enums.push(format!("{}=1,", cdef.const_name));
-        } else {
-            enums.push(format!("{},", cdef.const_name));
         }
 
         cdefs.push(format!(
@@ -445,18 +434,13 @@ pub fn gen_std_class_defs(outfile: &Path) {
     }
 
     consts.push(format!(
-        "pub const JS_CLASS_INIT_COUNT: JSClassID={};",
+        "pub const JS_CLASS_INIT_COUNT: usize={};",
         class_defs.len() + 1
     ));
-
-    enums.push("InitCount, // for count only".to_string());
-    enums.push("}".to_string());
     cdefs.push("];".to_string());
 
     let lines = [
         "use crate::{atom::consts::*, class::{JSClassID, JSClassShortDef}};\n".to_string(),
-        // enums.join("\n"),
-        // "".to_string(),
         consts.join("\n"),
         "".to_string(),
         cdefs.join("\n"),
@@ -488,7 +472,7 @@ pub fn gen_std_class_defs(outfile: &Path) {
 pub fn gen_class_payload(outfile: &Path) {
     let class_defs = Lazy::force(&CLASS_DEF_LIST);
 
-    let mut items = Vec::<String>::with_capacity(class_defs.len() + 8);
+    let mut items = Vec::<String>::with_capacity(class_defs.len() + 10);
     let mut getid_arms = Vec::<String>::with_capacity(class_defs.len() + 8);
 
     for cdef in class_defs {
@@ -516,15 +500,16 @@ pub fn gen_class_payload(outfile: &Path) {
 
     let lines: Vec<String> = vec![
         "use crate::{  class::{JSClassID }};\n".to_string(),
-        "#[derive(Debug)]\npub enum ObjectPayload {".to_string(),
+        // ObjectPayload
+        "#[derive(Debug)]\npub enum ObjectPayload {\n".to_string(),
         items.join(",\n"),
         "}".to_string(),
         "".to_string(),
         // impl
         "impl ObjectPayload {".to_string(),
         format!(
-            "pub const fn class_id(&self)->JSClassID {{ match self {{ {} }} }}",
-            getid_arms.join(",\n")
+            "pub fn class_id(&self)->JSClassID {{ match self {{ {} }} }}",
+            getid_arms.join(",\n"),
         ),
         "}".to_string(),
     ];

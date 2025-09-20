@@ -33,7 +33,7 @@ object_cast!(
 );
 
 impl PromiseResolveFunc {
-    pub fn hook_call(
+    pub fn class_call(
         ctx: &JSContext,
         func_obj: &JSValue,
         this_val: &JSValue,
@@ -84,9 +84,9 @@ impl PromiseResolveFunc {
         Ok(JSValue::UNDEFINED)
     }
 
-    pub fn hook_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
+    pub fn class_finalizer(rt: &mut JSRuntime, isa: ObjectPayload, id: usize) {}
 
-    pub fn hook_mark(val: JSValueConst) {
+    pub fn class_mark(val: JSValueConst) {
         let isa = unsafe { val.as_object_unchecked().0.payload.borrow() };
         if let Some(s) = isa.promise_func_data() {
             s.promise.gc_mark();
@@ -155,35 +155,44 @@ impl Promise {
         });
 
         self.with_mut(|s| {
-            if s.promise_state == JSPromiseStateEnum::JS_PROMISE_PENDING {
-                // add to promise's waiting reactions list
-                s.promise_reactions[0].push(success);
-                s.promise_reactions[1].push(fail);
-            } else {
-                // queue as job
-                if s.promise_state == JSPromiseStateEnum::JS_PROMISE_REJECTED && !s.is_handled {
-                    if let Some(cb) = ctx.rt().host_promise_rejection_tracker {
-                        cb(
-                            ctx,
-                            self.clone(),
-                            s.promise_result.clone(),
-                            true as i32,
-                            ctx.rt().host_promise_rejection_tracker_opaque,
-                        );
-                    }
+            match s.state() {
+                JSPromiseStateEnum::JS_PROMISE_PENDING => {
+                    // add to promise's waiting reactions list
+                    s.promise_reactions[0].push(success);
+                    s.promise_reactions[1].push(fail);
                 }
+                state => {
+                    // queue as job
+                    if state == JSPromiseStateEnum::JS_PROMISE_REJECTED && !s.is_handled {
+                        if let Some(cb) = ctx.rt().host_promise_rejection_tracker {
+                            cb(
+                                ctx,
+                                self.clone(),
+                                s.promise_result.clone(),
+                                true as i32,
+                                ctx.rt().host_promise_rejection_tracker_opaque,
+                            );
+                        }
+                    }
 
-                let act = if s.promise_state == JSPromiseStateEnum::JS_PROMISE_FULFILLED {
-                    success
-                } else {
-                    fail
-                };
-                let is_reject = s.promise_state == JSPromiseStateEnum::JS_PROMISE_REJECTED;
-                let result = s.promise_result.clone();
-                let cx = ctx.clone();
-                ctx.queue_job(move || {
-                    promise_reaction_job(&cx, act.resolving_funcs, act.handler, is_reject, result)
-                });
+                    let act = if state == JSPromiseStateEnum::JS_PROMISE_FULFILLED {
+                        success
+                    } else {
+                        fail
+                    };
+                    let is_reject = state == JSPromiseStateEnum::JS_PROMISE_REJECTED;
+                    let result = s.promise_result.clone();
+                    let cx = ctx.clone();
+                    ctx.queue_job(move || {
+                        promise_reaction_job(
+                            &cx,
+                            act.resolving_funcs,
+                            act.handler,
+                            is_reject,
+                            result,
+                        )
+                    });
+                }
             }
 
             s.is_handled = true;
@@ -209,16 +218,17 @@ impl Promise {
     /// Note: `value` is not consumed (duplicated inside).
     pub(super) fn fulfill_or_reject(&self, ctx: &JSContext, value: JSValue, is_reject: bool) {
         let (promise_state, is_handled) = self.with_mut(|p| {
-            debug_assert_eq!(p.promise_state, JSPromiseStateEnum::JS_PROMISE_PENDING);
+            debug_assert_eq!(p.state(), JSPromiseStateEnum::JS_PROMISE_PENDING);
 
-            p.promise_result = value.clone();
-            p.promise_state = if is_reject {
+            let state = if is_reject {
                 JSPromiseStateEnum::JS_PROMISE_REJECTED
             } else {
                 JSPromiseStateEnum::JS_PROMISE_FULFILLED
             };
+            p.set_state(state);
+            p.promise_result = value.clone();
 
-            (p.promise_state, p.is_handled)
+            (state, p.is_handled)
         });
 
         if promise_state == JSPromiseStateEnum::JS_PROMISE_REJECTED && !is_handled {

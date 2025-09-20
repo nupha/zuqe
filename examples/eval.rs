@@ -9,7 +9,6 @@ use zhuque::{
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
     module::{JS_SetModuleLoaderFunc, ModuleDef},
     object::JS_PROP_C_W_E,
-    promise::Promise,
     runtime::JSRuntime,
     value::JSValue,
 };

@@ -4,7 +4,6 @@ use crate::{
     defer,
     function::{JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
     module::{JSExportEntry, JSExportTypeEnum, JSImportEntry, ModuleDef, add_star_export_entry},
-    value::JSValue,
 };
 
 use super::{

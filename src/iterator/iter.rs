@@ -440,7 +440,7 @@ pub fn js_create_iterator_result(ctx: &JSContext, value: JSValue, done: bool) ->
     Ok(obj.into())
 }
 
-pub fn js_for_in_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, _id: usize) {
+pub fn js_for_in_iterator_finalizer(rt: &mut JSRuntime, isa: ObjectPayload, _id: usize) {
     if let ObjectPayload::FOR_IN_ITERATOR(it) = isa {
         if !it.is_array {
             for x in it.prop_enums.iter() {

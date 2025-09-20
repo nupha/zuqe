@@ -24,8 +24,9 @@ pub const OP_DEFINE_METHOD_ENUMERABLE: u8 = 4;
 
 pub type JSClassID = u32;
 
-/// instance finalizer callback, obj is the object payload.
-pub type JSClassFinalizer = fn(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize);
+/// class instance finalize callback.
+/// `isa` is the object's payload.
+pub type JSClassFinalizer = fn(rt: &mut JSRuntime, isa: ObjectPayload, id: usize);
 
 pub type JSClassGCMark = fn(val: JSValue);
 
@@ -112,24 +113,34 @@ impl Default for JSClassDef {
 
 #[derive(Debug, Clone)]
 pub struct JSClass {
-    /// 0 means free entry
     pub class_id: JSClassID,
-
     pub class_name: JSAtom,
-    pub finalizer: Option<JSClassFinalizer>,
-    pub gc_mark: Option<JSClassGCMark>,
-
     /// native callback when called
     pub call: Option<ClassCallFn>,
-
     /// pointers for exotic behavior, can be NULL if none are present
     pub exotic: *const JSClassExoticMethods,
+
+    pub gc_mark: Option<JSClassGCMark>,
+    pub finalizer: Option<JSClassFinalizer>,
+}
+
+impl Default for JSClass {
+    fn default() -> Self {
+        Self {
+            class_id: 0,
+            class_name: JS_ATOM_NULL,
+            call: None,
+            exotic: std::ptr::null(),
+            gc_mark: None,
+            finalizer: None,
+        }
+    }
 }
 
 impl JSRuntime {
     /// create a new object internal class. The finalizer can be NULL if none is needed.
-    /// `name` is not consumed.
-    pub(crate) fn add_class_internal(
+    /// Note `name` is not consumed.
+    fn add_class_internal(
         &mut self,
         class_id: JSClassID,
         class_def: &JSClassDef,
@@ -156,57 +167,34 @@ impl JSRuntime {
                         .extend(std::iter::repeat_n(JSValue::NULL, grow));
                 }
 
-                // grow class array, fill slots with empty class entries
+                // grow class array, fill slots with empty class
                 self.class_defs.try_reserve(grow).map_err(|_| -1)?;
-                for _ in 0..grow {
-                    self.class_defs.push(JSClass {
-                        class_id: 0,
-                        class_name: JS_ATOM_NULL,
-                        finalizer: None,
-                        gc_mark: None,
-                        call: None,
-                        exotic: std::ptr::null(),
-                    });
-                }
+                self.class_defs
+                    .extend(std::iter::repeat_n(JSClass::default(), grow));
             }
         }
 
         self.class_defs[class_id as usize] = JSClass {
             class_id,
             class_name: name.dup(self),
-            finalizer: class_def.finalizer,
-            gc_mark: class_def.gc_mark,
             call: class_def.call,
             exotic: class_def.exotic,
+            gc_mark: class_def.gc_mark,
+            finalizer: class_def.finalizer,
         };
 
         Ok(())
-    }
-
-    /// register a class, with given class_id and class name str.
-    pub(crate) fn add_class(
-        &mut self,
-        class_id: JSClassID,
-        class_def: &JSClassDef,
-        name: &str,
-    ) -> Result<(), i32> {
-        let name = if let Some(a) = JSAtom::find(self, name, AtomTypeHint::String) {
-            a
-        } else {
-            JSAtom::from_str(self, name, AtomTypeHint::String)?
-        }
-        .into_rc(self);
-        self.add_class_internal(class_id, class_def, *name)
     }
 
     /// add multiple class defs.
     pub(crate) fn add_classes(
         &mut self,
         tab: &[JSClassShortDef],
-        start: JSClassID,
+        start_id: JSClassID,
     ) -> Result<(), i32> {
-        let mut class_id = start;
+        debug_assert!(start_id > 0);
 
+        let mut class_id = start_id;
         for item in tab {
             let cd = JSClassDef {
                 exotic: std::ptr::null(),
@@ -221,7 +209,6 @@ impl JSRuntime {
         Ok(())
     }
 
-    #[inline(always)]
     pub fn is_class_registered(&self, class_id: JSClassID) -> bool {
         class_id < self.class_defs.len() as JSClassID
             && self.class_defs[class_id as usize].class_id != 0

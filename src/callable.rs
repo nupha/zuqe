@@ -78,7 +78,10 @@ impl JSValue {
     /// as C_FUNCTION_DATA class object
     pub unsafe fn as_callbable_unchecked(self) -> CallableValue {
         debug_assert!(self.is_object());
-        debug_assert_eq!(self.as_object_unchecked().class_id(), JS_CLASS_C_FUNCTION_DATA);
+        debug_assert_eq!(
+            self.as_object_unchecked().class_id(),
+            JS_CLASS_C_FUNCTION_DATA
+        );
         std::mem::transmute(self)
     }
 }
@@ -111,7 +114,7 @@ impl JSContext {
 // Hooks
 //
 impl CallableValue {
-    pub fn hook_call(
+    pub fn class_call(
         ctx: &JSContext,
         func_obj: &JSValue,
         this_val: &JSValue,
@@ -134,9 +137,9 @@ impl CallableValue {
         }
     }
 
-    pub fn hook_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
+    pub fn class_finalizer(rt: &mut JSRuntime, isa: ObjectPayload, id: usize) {}
 
-    pub fn hook_mark(val: JSValue) {
+    pub fn class_mark(val: JSValue) {
         unsafe {
             if let ObjectPayload::C_FUNCTION_DATA(p) =
                 val.as_object_unchecked().0.payload.borrow().deref()

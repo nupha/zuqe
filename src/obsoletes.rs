@@ -1497,15 +1497,15 @@ pub fn JS_RunGC(rt: &mut JSRuntime) {
     rt.gc();
 }
 
-#[deprecated(note = "use JSMapState::hook_finalizer() instead")]
+#[deprecated(note = "use JSMapState::class_finalizer() instead")]
 pub unsafe fn js_map_finalizer(rt: *mut JSRuntime, val: JSValue) {
     unreachable!("unused");
 }
 
-#[deprecated(note = "use JSMapState::hook_mark() instead")]
+#[deprecated(note = "use JSMapState::class_mark() instead")]
 pub unsafe fn js_map_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
     unreachable!("unused");
-    // JSMapState::hook_mark(rt, val, mark_func);
+    // JSMapState::class_mark(rt, val, mark_func);
 }
 
 // for debug only: dump an object without side effect
@@ -2582,7 +2582,7 @@ pub fn async_func_resume(ctx: &JSContext, af: &AsyncFuncState) -> JSValue {
     af.resume(ctx).unwrap_or(JSValue::EXCEPTION)
 }
 
-#[deprecated(note = "use AsyncFunction::hook_call() instead")]
+#[deprecated(note = "use AsyncFunction::class_call() instead")]
 pub fn js_async_function_call(
     ctx: &JSContext,
     func_obj: &JSValue,
@@ -4040,12 +4040,12 @@ pub unsafe fn get_proxy_method<'a>(
     }
 }
 
-#[deprecated(note = "use Proxy::hook_finalizer instead")]
+#[deprecated(note = "use Proxy::class_finalizer instead")]
 pub fn js_proxy_finalizer(rt: &mut JSRuntime, is: &ObjectPayload, id: usize) {
     unimplemented!();
 }
 
-#[deprecated(note = "use Proxy::hook_mark instead")]
+#[deprecated(note = "use Proxy::class_mark instead")]
 pub fn js_proxy_mark(val: JSValue) {
     unimplemented!();
 }
@@ -4315,7 +4315,7 @@ pub unsafe fn JS_DefineObjectNameComputed(
     0
 }
 
-#[deprecated(note = "use PromiseResolveFunc::hook_call() instead")]
+#[deprecated(note = "use PromiseResolveFunc::class_call() instead")]
 pub fn js_promise_resolve_function_call() {}
 
 /// return true if 'input' contains the source of a module

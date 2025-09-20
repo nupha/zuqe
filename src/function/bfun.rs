@@ -156,7 +156,7 @@ impl BytecodeFunction {
     /// ```js
     /// const f = new Function("a", "b", "return a+b")
     /// ```
-    pub fn hook_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
+    pub fn class_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         debug_assert!((0..4).contains(&cc.magic()));
 
         // XXX: add a specific eval mode so that Function("}), ({") is rejected

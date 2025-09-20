@@ -326,9 +326,9 @@ impl AsyncFuncState {
         println!("{:14p} [async_function]", self.id() as *const Self);
     }
 
-    pub fn hook_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
+    pub fn class_finalizer(rt: &mut JSRuntime, isa: ObjectPayload, id: usize) {}
 
-    pub fn hook_mark(val: JSValue) {
+    pub fn class_mark(val: JSValue) {
         if let Some(s) = val
             .as_object()
             .and_then(|p| p.0.payload.borrow().async_func_state().cloned())

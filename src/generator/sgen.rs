@@ -163,7 +163,7 @@ pub fn js_generator_function_call(
         .map_err(|_| -1)
 }
 
-pub fn js_generator_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {
+pub fn js_generator_finalizer(rt: &mut JSRuntime, isa: ObjectPayload, id: usize) {
     if let ObjectPayload::GENERATOR(_) = isa {
         //s.free_generator_stack_rt(rt);
     }

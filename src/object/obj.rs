@@ -1,7 +1,7 @@
 use std::{
     cell::{Cell, RefCell},
     fmt::Formatter,
-    ops::Deref,
+    ops::{Deref, DerefMut},
     ptr::NonNull,
     rc::{Rc, Weak},
 };
@@ -19,7 +19,7 @@ use crate::{
     class::JSClassID,
     context::JSContext,
     error::JSResult,
-    object::{GCObjectWeakref, PropertyKey},
+    object::GCObjectWeakref,
     runtime::JSRuntime,
     value::JSValue,
 };
@@ -409,10 +409,14 @@ impl ObjectInner {
             }
         }
 
-        // call class finalizer
+        // call class finalizer.
+        // object won't be accessed any more, so we can take payload out
         let rt = unsafe { self.rt_ptr().as_mut() };
         if let Some(f) = rt.class_defs[self.class_id() as usize].finalizer {
-            f(rt, self.payload.borrow().deref(), self.id());
+            let id = self.id();
+            let isa =
+                std::mem::replace(self.payload.borrow_mut().deref_mut(), ObjectPayload::OBJECT);
+            f(rt, isa, id);
         }
 
         // untrack from gc

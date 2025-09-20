@@ -720,7 +720,7 @@ impl JSValue {
     }
 }
 
-pub fn js_array_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
+pub fn js_array_finalizer(rt: &mut JSRuntime, isa: ObjectPayload, id: usize) {}
 
 pub fn js_array_mark(val: JSValue) {
     unsafe {

@@ -143,7 +143,7 @@ impl JSContext {
 
         let function_ctor = self
             .create_native_function(
-                NativeFunctionType::ConstructorOrFunc(BytecodeFunction::hook_constructor),
+                NativeFunctionType::ConstructorOrFunc(BytecodeFunction::class_constructor),
                 "Function",
                 1,
                 JSFunctionKindEnum::JS_FUNC_NORMAL as _,
@@ -860,7 +860,7 @@ impl JSContext {
 
             let promise_ctor = self
                 .create_native_function(
-                    NativeFunctionType::Constructor(Promise::hook_constructor),
+                    NativeFunctionType::Constructor(Promise::class_constructor),
                     "Promise",
                     1,
                     0,
@@ -889,7 +889,7 @@ impl JSContext {
 
             let af_ctor = self
                 .create_native_function_from_proto(
-                    NativeFunctionType::ConstructorOrFunc(BytecodeFunction::hook_constructor),
+                    NativeFunctionType::ConstructorOrFunc(BytecodeFunction::class_constructor),
                     "AsyncFunction",
                     1,
                     JSFunctionKindEnum::JS_FUNC_ASYNC as i16,
@@ -944,7 +944,7 @@ impl JSContext {
 
             let agf_ctor = self
                 .create_native_function_from_proto(
-                    NativeFunctionType::ConstructorOrFunc(BytecodeFunction::hook_constructor),
+                    NativeFunctionType::ConstructorOrFunc(BytecodeFunction::class_constructor),
                     "AsyncGeneratorFunction",
                     1,
                     JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR as i16,
