@@ -31,7 +31,7 @@ impl TwoNumbers {
         }
     }
 
-    /// if `coerce`is true, try coerce non- number/boolean value to number.
+    /// if `coerce`is true, try coerce non-number, non-boolean value to number.
     pub fn from_values(
         ctx: &JSContext,
         val1: &JSValue,
@@ -54,50 +54,6 @@ impl TwoNumbers {
         } else {
             Err(-1)
         }
-
-        // let mut op1 = val1.clone();
-        // let mut op2 = val2.clone();
-
-        // loop {
-        //     match (op1, op2) {
-        //         (JSValue::Int(a), JSValue::Int(b)) => {
-        //             return Ok(Self::Int(a, b));
-        //         }
-        //         (JSValue::Bool(a), JSValue::Bool(b)) => {
-        //             return Ok(Self::Int(a as i32, b as i32));
-        //         }
-        //         (JSValue::Int(a), JSValue::Bool(b)) => {
-        //             return Ok(Self::Int(a, b as i32));
-        //         }
-        //         (JSValue::Bool(a), JSValue::Int(b)) => {
-        //             return Ok(Self::Int(a as i32, b));
-        //         }
-        //         (JSValue::Float64(a), JSValue::Float64(b)) => {
-        //             return Ok(Self::Float(a, b));
-        //         }
-        //         (JSValue::Int(a), JSValue::Float64(b)) => {
-        //             return Ok(Self::Float(a as f64, b));
-        //         }
-        //         (JSValue::Float64(a), JSValue::Int(b)) => {
-        //             return Ok(Self::Float(a, b as f64));
-        //         }
-        //         (JSValue::Bool(a), JSValue::Float64(b)) => {
-        //             return Ok(Self::Float(a as i32 as f64, b));
-        //         }
-        //         (JSValue::Float64(a), JSValue::Bool(b)) => {
-        //             return Ok(Self::Float(a, b as i32 as f64));
-        //         }
-
-        //         (v1, v2) if coerce => {
-        //             op1 = v1.to_number(ctx)?;
-        //             op2 = v2.to_number(ctx)?;
-        //         }
-
-        //         _ => {
-        //             return Err(-1);
-        //         }
-        //     }
-        // }
     }
 
     /// returns None if it has NaN.
@@ -110,25 +66,25 @@ impl TwoNumbers {
 
     pub fn add(self) -> JSValue {
         match self {
-            TwoNumbers::Int(a, b) => {
+            Self::Int(a, b) => {
                 JSValue::from(
                     a as i64 + b as i64, // result may overflow i32 ranges
                 )
             }
-            TwoNumbers::Float(a, b) => JSValue::from(a + b),
+            Self::Float(a, b) => JSValue::from(a + b),
         }
     }
 
     pub fn sub(self) -> JSValue {
         match self {
-            TwoNumbers::Int(a, b) => JSValue::from(a - b),
-            TwoNumbers::Float(a, b) => JSValue::from(a - b),
+            Self::Int(a, b) => JSValue::from(a - b),
+            Self::Float(a, b) => JSValue::from(a - b),
         }
     }
 
     pub fn mul(self) -> JSValue {
         match self {
-            TwoNumbers::Int(a, b) => {
+            Self::Int(a, b) => {
                 let n = (a as i64) * (b as i64);
                 if n == 0 && (a | b) < 0 {
                     JSValue::Float64(-0.0)
@@ -136,20 +92,20 @@ impl TwoNumbers {
                     JSValue::from(n)
                 }
             }
-            TwoNumbers::Float(a, b) => JSValue::Float64(a * b),
+            Self::Float(a, b) => JSValue::Float64(a * b),
         }
     }
 
     pub fn div(self) -> JSValue {
         match self {
-            TwoNumbers::Int(a, b) => JSValue::from((a as f64) / (b as f64)),
-            TwoNumbers::Float(a, b) => JSValue::from(a / b),
+            Self::Int(a, b) => JSValue::from((a as f64) / (b as f64)),
+            Self::Float(a, b) => JSValue::from(a / b),
         }
     }
 
     pub fn mod_(self) -> JSValue {
         match self {
-            TwoNumbers::Int(a, b) => {
+            Self::Int(a, b) => {
                 if b == 0 {
                     JSValue::Float64(f64::NAN)
                 } else if a < 0 {
@@ -158,19 +114,11 @@ impl TwoNumbers {
                     JSValue::from(a % b)
                 }
             }
-            TwoNumbers::Float(a, b) => {
+            Self::Float(a, b) => {
                 if b == 0.0 {
                     JSValue::Float64(f64::NAN)
                 } else {
-                    // IEEE754 fmod()
-                    let n = (a / b).trunc(); // 向零取整
-                    let mut m = a - n * b; // 计算 fmod 结果
-                    m = if m == 0.0 && (a < 0.0 || a < 0.0) {
-                        -0.0
-                    } else {
-                        m
-                    };
-                    JSValue::from(m)
+                    JSValue::from(a % b)
                 }
             }
         }
@@ -178,7 +126,7 @@ impl TwoNumbers {
 
     pub fn pow(self) -> JSValue {
         match self {
-            TwoNumbers::Int(a, b) => {
+            Self::Int(a, b) => {
                 if b == 1 || (a == 0 && b == 0) {
                     // pow(0,0)=1
                     JSValue::Int(1)
@@ -191,7 +139,7 @@ impl TwoNumbers {
                     JSValue::from((a as f64).powf(b as f64))
                 }
             }
-            TwoNumbers::Float(a, b) => {
+            Self::Float(a, b) => {
                 if !b.is_finite() && a.abs() == 1.0 {
                     // not compatible with IEEE 754
                     JSValue::Float64(f64::NAN)

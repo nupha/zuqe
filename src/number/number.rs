@@ -21,7 +21,7 @@ pub(crate) fn is_safe_integer(d: f64) -> bool {
 /// XXX
 #[derive(Debug, Clone, Copy)]
 pub enum IntOrFloat {
-    Int32(i32),
+    Int64(i64),
     Float64(f64),
 }
 
