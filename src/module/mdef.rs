@@ -104,7 +104,7 @@ impl Drop for ModuleDefInner {
 
 impl ModuleDefInner {
     /// 'name' is consumed
-    pub fn new(ctx: &JSContext, name: JSAtom) -> Self {
+    fn new(ctx: &JSContext, name: JSAtom) -> Self {
         let o = Self {
             rt: ctx.rt_ptr(),
             gc_mark: Cell::new(false),
@@ -166,7 +166,7 @@ impl ModuleDefInner {
             self.meta_obj.replace(Some(o.clone()));
             Ok(o)
         } else {
-            // lazy initialize meta object
+            // create meta object
             let o = ctx
                 .create_base_object_from_proto(JSValue::NULL)
                 .inspect_err(|_| {
@@ -352,9 +352,10 @@ impl From<ModuleDef> for JSValue {
 impl ModuleDef {
     /// create bytecode module def.
     /// 'name' is consumed
-    pub fn new(ctx: &JSContext, name: JSAtom) -> Self {
-        let inner = ModuleDefInner::new(ctx, name);
-        Self(Rc::new(inner))
+    pub(crate) fn new(ctx: &JSContext, name: JSAtom) -> Self {
+        let m = Self(Rc::new(ModuleDefInner::new(ctx, name)));
+        ctx.0.borrow_mut().loaded_modules.push(m.downgrade());
+        m
     }
 
     /// get module `import.meta` object.
@@ -404,62 +405,6 @@ impl JSModuleDefWeakref {
     pub fn upgrade(&self) -> Option<ModuleDef> {
         self.0.upgrade().map(ModuleDef)
     }
-}
-
-/// Note: 'name' is freed on error
-#[deprecated(note = "use JSModuleDefInner::new() instead")]
-pub unsafe fn js_new_module_def(ctx: &JSContext, name: JSAtom) -> *mut ModuleDefInner {
-    unreachable!("unused");
-    // if let Ok(m) = JSModuleDefInner::new(ctx, name) {
-    //     Box::into_raw(m) // take ownership
-    // } else {
-    //     std::ptr::null_mut()
-    // }
-}
-
-#[deprecated(note = "see impl Drop for JSModuleDefInner")]
-pub unsafe fn js_free_module_def(ctx: &JSContext, m: *mut ModuleDefInner) {
-    unreachable!("unused")
-
-    // JS_FreeAtom(ctx, (*m).module_name);
-
-    // for i in 0..(*m).req_module_entries_count {
-    //     let rme: *mut ModuleDependency = (*m).dependencies.offset(i as isize);
-    //     JS_FreeAtom(ctx, (*rme).module_name);
-    // }
-    // js_free(ctx, (*m).dependencies.cast());
-
-    // for me in (*m).export_entries.drain(..) {
-    //     if let JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { var_ref, .. } = me.export_type {
-    //         debug_assert!(var_ref.is_some());
-    //         if let Some(vr) = var_ref {
-    //             JSVarRef::free(ctx.rt_mut(), vr.cast());
-    //         }
-    //     }
-
-    //     JS_FreeAtom(ctx, me.export_name);
-    //     JS_FreeAtom(ctx, me.local_name);
-    // }
-
-    // js_free(ctx, (*m).star_export_entries.cast());
-
-    // for i in 0..(*m).import_entries_count {
-    //     let mi: *mut JSImportEntry = (*m).import_entries.offset(i as isize);
-    //     JS_FreeAtom(ctx, (*mi).import_name);
-    // }
-    // js_free(ctx, (*m).import_entries.cast());
-    // js_free(ctx, (*m).async_parent_modules.cast());
-
-    // JS_FreeValue(ctx, &(*m).module_ns);
-    // JS_FreeValue(ctx, &(*m).func_obj);
-    // JS_FreeValue(ctx, (*m).eval_exception);
-    // JS_FreeValue(ctx, (*m).meta_obj);
-    // JS_FreeValue(ctx, (*m).promise);
-    // JS_FreeValue(ctx, (*m).resolving_funcs[0]);
-    // JS_FreeValue(ctx, (*m).resolving_funcs[1]);
-    // list_del(&mut (*m).link);
-
-    // drop(Box::from_raw(m));
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -732,7 +677,7 @@ pub unsafe fn js_create_module_bytecode_function(
 
 // return JS_ATOM_NULL if the name cannot be found. Only works with
 // not striped bytecode functions.
-pub unsafe fn JS_GetScriptOrModuleName(ctx: &JSContext, n_stack_levels: i32) -> JSAtom {
+pub fn JS_GetScriptOrModuleName(ctx: &JSContext, n_stack_levels: i32) -> JSAtom {
     // XXX: currently we just use the filename of the englobing
     // function from the debug info. May need to add a ScriptOrModule
     // info in Bytecode.
@@ -744,7 +689,7 @@ pub unsafe fn JS_GetScriptOrModuleName(ctx: &JSContext, n_stack_levels: i32) -> 
     let mut levels = n_stack_levels;
 
     while levels > 0 {
-        sf = (&*sf).prev_frame.cast::<StackFrame>();
+        sf = unsafe { (&*sf).prev_frame.cast::<StackFrame>() };
         if sf.is_null() {
             return JS_ATOM_NULL;
         }
@@ -752,7 +697,7 @@ pub unsafe fn JS_GetScriptOrModuleName(ctx: &JSContext, n_stack_levels: i32) -> 
     }
 
     loop {
-        if let JSValue::Object(p) = &(&*sf).cur_func {
+        if let JSValue::Object(p) = unsafe { &(&*sf).cur_func } {
             if let Some(b) =
                 p.0.payload
                     .borrow()
@@ -766,7 +711,7 @@ pub unsafe fn JS_GetScriptOrModuleName(ctx: &JSContext, n_stack_levels: i32) -> 
                     }
                     return b.debug.filename.dup(ctx.rt());
                 } else {
-                    sf = (&*sf).prev_frame.cast::<StackFrame>(); // walk up
+                    sf = unsafe { (&*sf).prev_frame.cast::<StackFrame>() }; // walk up
                     if sf.is_null() {
                         return JS_ATOM_NULL;
                     }
@@ -786,7 +731,7 @@ pub unsafe fn JS_GetImportMeta(ctx: &JSContext, m: *mut ModuleDefInner) -> JSVal
 }
 
 /// get module import.meta object of context current execution.
-pub unsafe fn js_import_meta(ctx: &JSContext) -> Result<JSObject, i32> {
+pub fn js_import_meta(ctx: &JSContext) -> Result<JSObject, i32> {
     let filename = JS_GetScriptOrModuleName(ctx, 0);
     if filename == JS_ATOM_NULL {
         ctx.throw_type_error("import.meta not supported in this context");
@@ -797,6 +742,7 @@ pub unsafe fn js_import_meta(ctx: &JSContext) -> Result<JSObject, i32> {
     // Bytecode
     let m = ctx.find_loaded_module(filename);
     JS_FreeAtom(ctx, filename);
+
     if let Some(m) = m {
         m.import_meta(ctx)
     } else {

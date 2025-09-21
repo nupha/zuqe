@@ -14,7 +14,7 @@ use zhuque::{
         consts::{JS_ATOM_message, JS_ATOM_stack},
     },
     context::JSContext,
-    error::{JS_ThrowReferenceError, JSResult},
+    error::JSResult,
     eval::{JS_EVAL_FLAG_STRICT, JS_EVAL_TYPE_GLOBAL},
     function::{CallContext, NativeFunctionType},
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
@@ -177,10 +177,7 @@ pub fn js_module_loader(
             Ok(md)
         }
         Err(_) => {
-            JS_ThrowReferenceError(
-                ctx,
-                &format!("could not load module filename '{module_name}'"),
-            );
+            ctx.throw_reference_error(&format!("could not load module filename '{module_name}'"));
             Err(-1)
         }
     }

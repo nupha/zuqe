@@ -580,7 +580,7 @@ impl JSObject {
                     & JS_PROP_WRITABLE
                     == 0
                 {
-                    return if ctx.should_throw_error(flags) {
+                    return if ctx.can_throw(flags) {
                         ctx.throw_type_error("'length' is read-only");
                         Err(-1)
                     } else {

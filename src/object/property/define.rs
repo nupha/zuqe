@@ -49,7 +49,7 @@ impl JSObject {
                 }
 
                 if !check_define_prop_flags(prs_flags, flags) {
-                    return if ctx.should_throw_error(flags) {
+                    return if ctx.can_throw(flags) {
                         ctx.throw_type_error("property is not configurable");
                         Err(-1)
                     } else {

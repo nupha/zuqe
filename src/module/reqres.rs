@@ -1,7 +1,6 @@
 use crate::{
-    atom::JSAtom,
+    atom::{JS_FreeAtom, JSAtom},
     context::JSContext,
-    error::JS_ThrowReferenceError,
     module::{ModuleDef, js_default_module_normalize_name},
 };
 
@@ -49,7 +48,8 @@ impl ModuleDef {
 }
 
 impl JSContext {
-    /// find the loaded module by module name
+    /// find the loaded module by module name.
+    /// Note: `name` is not consumed.
     pub fn find_loaded_module(&self, name: JSAtom) -> Option<ModuleDef> {
         self.0.borrow_mut().loaded_modules.iter().find_map(|w| {
             if let Some(m) = w.upgrade() {
@@ -136,15 +136,20 @@ pub fn js_host_resolve_imported_module(
 
     // look at the loaded modules
     if let Some(m) = ctx.find_loaded_module(module_name) {
+        JS_FreeAtom(ctx, module_name);
         return Ok(m); // already loaded
     }
+
+    JS_FreeAtom(ctx, module_name);
 
     // load the module
     if let Some(cb) = ctx.rt().module_loader_func {
         cb(ctx, &name, ctx.rt().module_loader_opaque)
     } else {
-        log::warn!("module loader function is not set, can't import module.");
-        JS_ThrowReferenceError(ctx, &format!("could not load module '{}'", name));
+        #[cfg(debug_assertions)]
+        println!("module loader function is not set, can't import module.");
+
+        ctx.throw_reference_error(&format!("could not load module '{}'", name));
         Err(-1)
     }
 }

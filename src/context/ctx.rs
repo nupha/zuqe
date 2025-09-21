@@ -207,12 +207,6 @@ impl JSContextInner {
 
         self.class_proto.clear();
 
-        #[cfg(debug_assertions)]
-        {
-            self.loaded_modules.retain(|w| w.upgrade().is_some());
-            debug_assert!(self.loaded_modules.is_empty());
-        }
-
         #[cfg(feature = "dump_atoms")]
         JS_DumpAtoms(rt);
 
@@ -222,15 +216,6 @@ impl JSContextInner {
         #[cfg(feature = "dump_objects")]
         self.rt_mut().gc_dump_objects(1);
 
-        #[cfg(feature = "DUMP_MEM")]
-        {
-            let mut stats: JSMemoryUsage;
-            JS_ComputeMemoryUsage(rt, &mut stats);
-            JS_DumpMemoryUsage(stdout, &stats, rt);
-        }
-
-        js_free_modules(self, JSFreeModuleEnum::JS_FREE_MODULE_ALL);
-
         println!("[O.o][TODO] do gc when context dropped");
         // let rt = self.rt_mut();
         // if rt.gc_phase != JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES {
@@ -238,6 +223,21 @@ impl JSContextInner {
         //         rt.gc_free_zeroed();
         //     }
         // }
+
+        // free modules
+        js_free_modules(self, JSFreeModuleEnum::JS_FREE_MODULE_ALL);
+        #[cfg(debug_assertions)]
+        {
+            // self.loaded_modules.retain(|w| w.upgrade().is_some());
+            debug_assert!(self.loaded_modules.is_empty());
+        }
+
+        #[cfg(feature = "DUMP_MEM")]
+        {
+            let mut stats: JSMemoryUsage;
+            JS_ComputeMemoryUsage(rt, &mut stats);
+            JS_DumpMemoryUsage(stdout, &stats, rt);
+        }
     }
 }
 

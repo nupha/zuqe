@@ -123,7 +123,7 @@ impl JSObject {
             Ok(true)
         } else {
             // not configurable
-            if ctx.should_throw_error(flags) {
+            if ctx.can_throw(flags) {
                 ctx.throw_type_error("could not delete property");
                 Err(-1)
             } else {

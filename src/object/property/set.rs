@@ -41,7 +41,7 @@ impl JSObject {
     ) -> Result<bool, i32> {
         macro_rules! fail {
             ($msg:expr) => {
-                return if ctx.should_throw_error(flags) {
+                return if ctx.can_throw(flags) {
                     ctx.throw_type_error($msg);
                     Err(-1)
                 } else {
@@ -52,7 +52,7 @@ impl JSObject {
 
         macro_rules! fail_read_only {
             ($prop:expr) => {
-                return if ctx.should_throw_error(flags) {
+                return if ctx.can_throw(flags) {
                     ctx.throw_type_error_read_only($prop);
                     Err(-1)
                 } else {
@@ -76,7 +76,7 @@ impl JSObject {
                                     return this.as_Array().unwrap().set_length(
                                         ctx,
                                         val.to_array_length(ctx, false)?,
-                                        ctx.should_throw_error(flags),
+                                        ctx.can_throw(flags),
                                     );
                                 }
 

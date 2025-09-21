@@ -791,7 +791,7 @@ fn js_proxy_set(
             }
         }
     } else {
-        if ctx.should_throw_error(flags as u32) {
+        if ctx.can_throw(flags as u32) {
             ctx.throw_type_error("proxy: cannot set property");
             return Err(-1);
         }

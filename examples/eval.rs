@@ -4,7 +4,7 @@ use colorized::*;
 use zhuque::{
     atom::JS_FreeAtom,
     context::JSContext,
-    error::{JS_ThrowReferenceError, JSResult},
+    error::JSResult,
     function::{CallContext, NativeFunctionType},
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
     module::{JS_SetModuleLoaderFunc, ModuleDef},
@@ -165,6 +165,12 @@ fn main() {
                 o.dump(ctx.rt());
             }
 
+            let promise = if let JSValue::Module(md) = &v {
+                md.promise()
+            } else {
+                v.as_object_Promise().cloned()
+            };
+
             loop {
                 match rt.tick() {
                     Ok(true) => {
@@ -172,10 +178,11 @@ fn main() {
                         continue;
                     }
                     Ok(false) => {
-                        if let Some(pr) = v.as_object_Promise() {
+                        if let Some(pr) = promise {
                             let r = pr.result();
                             println!("promise state:  {:?}", pr.state());
-                            println!("promise result: {r:?}, {:?}", r.repr(&ctx),);
+                            println!("promise result: {r:?}, {:?}", r.repr(&ctx));
+                            println!("{:?}", r.to_string(&ctx));
                         }
                         break;
                     }
@@ -227,7 +234,7 @@ pub fn js_module_loader(
             Ok(md)
         }
         Err(_) => {
-            JS_ThrowReferenceError(ctx, &format!("could not run module '{module_name}'"));
+            ctx.throw_reference_error(&format!("could not run module '{module_name}'"));
             Err(-1)
         }
     }

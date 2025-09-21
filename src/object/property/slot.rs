@@ -117,7 +117,7 @@ impl JSObject {
                     self.as_Array_unchecked().set_length(
                         ctx,
                         val.to_array_length(ctx, false)?,
-                        ctx.should_throw_error(flags),
+                        ctx.can_throw(flags),
                     )
                 }
             } else {
@@ -224,7 +224,7 @@ impl JSObject {
             }
             0 => {
                 // non-length, normal, not-writable
-                return if ctx.should_throw_error(flags) {
+                return if ctx.can_throw(flags) {
                     ctx.throw_type_error_read_only(prop);
                     Err(-1)
                 } else {
@@ -247,7 +247,7 @@ impl JSObject {
                 self.as_Array_unchecked().set_length(
                     ctx,
                     value.to_array_length(ctx, false)?,
-                    ctx.should_throw_error(flags),
+                    ctx.can_throw(flags),
                 )
             }
         } else if prs_flags & JS_PROP_LAZYINIT == JS_PROP_LAZYINIT {
@@ -269,7 +269,7 @@ impl JSObject {
                     // JS_PROP_WRITABLE is always true for variable references,
                     // but they are write protected in module name spaces.
                     if self.class_id() == JS_CLASS_MODULE_NS {
-                        if ctx.should_throw_error(flags) {
+                        if ctx.can_throw(flags) {
                             ctx.throw_type_error_read_only(prop);
                             Err(-1)
                         } else {

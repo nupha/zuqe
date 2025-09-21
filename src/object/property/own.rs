@@ -299,7 +299,7 @@ impl JSObject {
                         .unwrap();
 
                     if prs_flags & JS_PROP_WRITABLE == 0 {
-                        return if ctx.should_throw_error(flags) {
+                        return if ctx.can_throw(flags) {
                             ctx.throw_type_error_read_only(JS_ATOM_length);
                             Some(Err(-1))
                         } else {
@@ -324,7 +324,7 @@ impl JSObject {
                         .value(ctx, &JSValue::UNDEFINED)
                         .and_then(|v| v.to_length(ctx))
                     else {
-                        return if ctx.should_throw_error(flags) {
+                        return if ctx.can_throw(flags) {
                             Err(-1)
                         } else {
                             Ok(false)
@@ -348,7 +348,7 @@ impl JSObject {
 
                                 if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0 {
                                     if let Err(e) = self.destruct_fast_array(ctx) {
-                                        return if ctx.should_throw_error(flags) {
+                                        return if ctx.can_throw(flags) {
                                             Err(e)
                                         } else {
                                             Ok(false)
@@ -370,7 +370,7 @@ impl JSObject {
                                             }
                                         }
                                         Err(e) => {
-                                            return if ctx.should_throw_error(flags) {
+                                            return if ctx.can_throw(flags) {
                                                 Err(e)
                                             } else {
                                                 Ok(false)
@@ -385,7 +385,7 @@ impl JSObject {
                                 // leaves a hole between `arr_idx` and `idx`,
                                 // will degrade to sparse array.
                                 if let Err(e) = self.destruct_fast_array(ctx) {
-                                    return if ctx.should_throw_error(flags) {
+                                    return if ctx.can_throw(flags) {
                                         Err(e)
                                     } else {
                                         Ok(false)
@@ -398,7 +398,7 @@ impl JSObject {
                         } else if let Some(idx) = prop.to_array_index(ctx.rt()) {
                             // convert fast array to sparse array
                             if let Err(e) = self.destruct_fast_array(ctx) {
-                                return if ctx.should_throw_error(flags) {
+                                return if ctx.can_throw(flags) {
                                     Err(e)
                                 } else {
                                     Ok(false)
@@ -450,7 +450,7 @@ impl JSObject {
                             }
 
                             if !self.is_extensible(ctx)? {
-                                return if ctx.should_throw_error(flags) {
+                                return if ctx.can_throw(flags) {
                                     ctx.throw_type_error("object is not extensible");
                                     Err(-1)
                                 } else {

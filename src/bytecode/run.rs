@@ -20,9 +20,9 @@ use crate::{
     context::{JS_MODE_STRICT, JSContext, is_strict_mode},
     error::{
         JS_THROW_ERROR_DELETE_SUPER, JS_THROW_ERROR_ITERATOR_THROW, JS_THROW_VAR_REDECL,
-        JS_THROW_VAR_RO, JS_THROW_VAR_UNINITIALIZED, JS_ThrowReferenceError,
-        JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized,
-        JS_ThrowReferenceErrorUninitialized2, JS_ThrowSyntaxErrorVarRedeclaration,
+        JS_THROW_VAR_RO, JS_THROW_VAR_UNINITIALIZED, JS_ThrowReferenceErrorNotDefined,
+        JS_ThrowReferenceErrorUninitialized, JS_ThrowReferenceErrorUninitialized2,
+        JS_ThrowSyntaxErrorVarRedeclaration,
     },
     eval::JS_EVAL_TYPE_DIRECT,
     function::{
@@ -893,7 +893,7 @@ impl Bytecode {
 
                         match type_ {
                             JS_THROW_VAR_RO => {
-                                ctx.JS_ThrowTypeErrorReadOnly(JS_PROP_THROW, atom);
+                                ctx.throw_type_error_read_only(atom);
                             }
                             JS_THROW_VAR_REDECL => {
                                 JS_ThrowSyntaxErrorVarRedeclaration(ctx, atom);
@@ -902,7 +902,7 @@ impl Bytecode {
                                 JS_ThrowReferenceErrorUninitialized(ctx, atom);
                             }
                             JS_THROW_ERROR_DELETE_SUPER => {
-                                JS_ThrowReferenceError(ctx, "unsupported reference to 'super'");
+                                ctx.throw_reference_error("unsupported reference to 'super'");
                             }
                             JS_THROW_ERROR_ITERATOR_THROW => {
                                 ctx.throw_type_error("iterator does not have a throw method");
@@ -1230,7 +1230,7 @@ impl Bytecode {
                         let idx = PC_FETCH!(u16);
                         let pval = VAR_REF![idx];
                         if !pval.is_uninitialized() {
-                            JS_ThrowReferenceError(ctx, "'this' can be initialized only once");
+                            ctx.throw_reference_error("'this' can be initialized only once");
                             break State::Exception;
                         } else {
                             *pval = SP_TAKE!(-1);

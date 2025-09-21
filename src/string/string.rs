@@ -698,7 +698,7 @@ fn string_define_own_property(
 ) -> Result<bool, i32> {
     macro_rules! fail {
         () => {
-            return if ctx.should_throw_error(flags as _) {
+            return if ctx.can_throw(flags as _) {
                 ctx.throw_type_error("property is not configurable");
                 Err(-1)
             } else {

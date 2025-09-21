@@ -145,15 +145,15 @@ impl JSContext {
         self.throw_error(ErrorKind::Type, message);
     }
 
-    /// test if allowed to throw error for flags
+    /// test if allowed to throw error according to `flags`
     #[inline(always)]
-    pub fn should_throw_error(&self, flags: u32) -> bool {
+    pub fn can_throw(&self, flags: u32) -> bool {
         flags & JS_PROP_THROW != 0 || (flags & JS_PROP_THROW_STRICT != 0 && is_strict_mode(self))
     }
 
     /// returns: true=exception raised; false=no exception raised
     pub fn throw_type_error_or_false(&self, flags: u32, message: &str) -> bool {
-        if self.should_throw_error(flags) {
+        if self.can_throw(flags) {
             self.throw_type_error(message);
             true
         } else {
@@ -186,14 +186,9 @@ impl JSContext {
         self.throw_type_error(&format!("'{}' is read-only", atom.to_utf8(self.rt())))
     }
 
-    /// flags: 1=raise exception; 0=don't raise exception
-    /// returns: true=exception raised; false=no exception raised
-    #[deprecated(note = "use JSContext::throw_type_error_read_only() instead")]
-    pub fn JS_ThrowTypeErrorReadOnly(&self, flags: u32, atom: JSAtom) -> bool {
-        self.throw_type_error_or_false(
-            flags,
-            &format!("'{}' is read-only", atom.to_utf8(self.rt())),
-        )
+    #[inline(always)]
+    pub fn throw_reference_error(&self, message: &str) {
+        self.throw_error(ErrorKind::Reference, message)
     }
 
     pub fn throw_out_of_memory(&self) {
@@ -348,21 +343,14 @@ impl JSContext {
 
 pub fn JS_ThrowReferenceErrorUninitialized(ctx: &JSContext, name: JSAtom) {
     if name == JS_ATOM_NULL {
-        JS_ThrowReferenceError(ctx, "lexical variable is not initialized");
+        ctx.throw_reference_error("lexical variable is not initialized");
     } else {
-        JS_ThrowReferenceError(
-            ctx,
-            &format!("{} is not initialized", name.to_utf8(&ctx.rt())),
-        );
+        ctx.throw_reference_error(&format!("{} is not initialized", name.to_utf8(&ctx.rt())));
     }
 }
 
-pub fn JS_ThrowReferenceError(ctx: &JSContext, message: &str) {
-    ctx.throw_error(ErrorKind::Reference, message)
-}
-
 pub fn JS_ThrowReferenceErrorNotDefined(ctx: &JSContext, name: JSAtom) {
-    JS_ThrowReferenceError(ctx, &format!("'{}' is not defined", name.to_utf8(ctx.rt())))
+    ctx.throw_reference_error(&format!("'{}' is not defined", name.to_utf8(ctx.rt())))
 }
 
 pub fn JS_ThrowReferenceErrorUninitialized2(ctx: &JSContext, b: &Bytecode, idx: u16, is_ref: bool) {

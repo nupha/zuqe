@@ -4338,3 +4338,54 @@ pub unsafe fn JS_DetectModule(input: &[u8]) -> bool {
     //     _ => false,
     // }
 }
+
+/// Note: 'name' is freed on error
+#[deprecated(note = "use JSModuleDefInner::new() instead")]
+pub unsafe fn js_new_module_def(ctx: &JSContext, name: JSAtom) -> *mut ModuleDefInner {
+    unreachable!("unused");
+}
+
+#[deprecated(note = "see impl Drop for JSModuleDefInner")]
+pub unsafe fn js_free_module_def(ctx: &JSContext, m: *mut ModuleDefInner) {
+    unreachable!("unused")
+
+    // JS_FreeAtom(ctx, (*m).module_name);
+
+    // for i in 0..(*m).req_module_entries_count {
+    //     let rme: *mut ModuleDependency = (*m).dependencies.offset(i as isize);
+    //     JS_FreeAtom(ctx, (*rme).module_name);
+    // }
+    // js_free(ctx, (*m).dependencies.cast());
+
+    // for me in (*m).export_entries.drain(..) {
+    //     if let JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { var_ref, .. } = me.export_type {
+    //         debug_assert!(var_ref.is_some());
+    //         if let Some(vr) = var_ref {
+    //             JSVarRef::free(ctx.rt_mut(), vr.cast());
+    //         }
+    //     }
+
+    //     JS_FreeAtom(ctx, me.export_name);
+    //     JS_FreeAtom(ctx, me.local_name);
+    // }
+
+    // js_free(ctx, (*m).star_export_entries.cast());
+
+    // for i in 0..(*m).import_entries_count {
+    //     let mi: *mut JSImportEntry = (*m).import_entries.offset(i as isize);
+    //     JS_FreeAtom(ctx, (*mi).import_name);
+    // }
+    // js_free(ctx, (*m).import_entries.cast());
+    // js_free(ctx, (*m).async_parent_modules.cast());
+
+    // JS_FreeValue(ctx, &(*m).module_ns);
+    // JS_FreeValue(ctx, &(*m).func_obj);
+    // JS_FreeValue(ctx, (*m).eval_exception);
+    // JS_FreeValue(ctx, (*m).meta_obj);
+    // JS_FreeValue(ctx, (*m).promise);
+    // JS_FreeValue(ctx, (*m).resolving_funcs[0]);
+    // JS_FreeValue(ctx, (*m).resolving_funcs[1]);
+    // list_del(&mut (*m).link);
+
+    // drop(Box::from_raw(m));
+}

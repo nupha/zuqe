@@ -23,11 +23,8 @@ impl JSContext {
         let v0: JSValue = if let Some((idx, prs_flags)) = gvobj.find_shape_property(prop) {
             // check writable flag
             if prs_flags & JS_PROP_WRITABLE == 0 {
-                return if self.JS_ThrowTypeErrorReadOnly(JS_PROP_THROW, prop) {
-                    Err(-1)
-                } else {
-                    Ok(None)
-                };
+                self.throw_type_error_read_only(prop);
+                return Err(-1);
             }
 
             // XXX: should handle JS_PROP_LAZYINIT properties?
@@ -215,11 +212,8 @@ impl JSContext {
                     }
                     _ => {
                         if prs_flags & JS_PROP_WRITABLE == 0 {
-                            return if self.JS_ThrowTypeErrorReadOnly(JS_PROP_THROW, prop) {
-                                Err(-1)
-                            } else {
-                                Ok(false)
-                            };
+                            self.throw_type_error_read_only(prop);
+                            return Err(-1);
                         }
                     }
                 }
