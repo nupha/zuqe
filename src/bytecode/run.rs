@@ -1647,17 +1647,18 @@ impl Bytecode {
                         }
                     }
                     OpCode::SET_PROTO => {
-                        // [this_obj, proto, ^] -> [this_obj, ^]
-                        let proto = SP_TAKE!(-1);
+                        // [obj, proto, ^] -> [obj, ^]
+                        let proto = SP_REF!(-1);
                         if proto.is_object() || proto.is_null() {
                             if SP_REF!(-2)
-                                .set_prototype_internal(ctx, proto, true)
+                                .set_prototype_internal(ctx, proto.clone(), true)
                                 .is_err()
                             {
                                 break State::Exception;
                             }
-                            SP_GO!(-1);
                         }
+                        SP_TAKE!(-1);
+                        SP_GO!(-1);
                     }
                     OpCode::SET_HOME_OBJECT => {
                         // [home_obj, func, ^] -> [home_obj, func, ^]

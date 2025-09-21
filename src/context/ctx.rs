@@ -190,6 +190,14 @@ impl JSContextInner {
     }
 
     pub(crate) fn finalize(&mut self) {
+        // free modules
+        js_free_modules(self, JSFreeModuleEnum::JS_FREE_MODULE_ALL);
+        #[cfg(debug_assertions)]
+        {
+            // self.loaded_modules.retain(|w| w.upgrade().is_some());
+            debug_assert!(self.loaded_modules.is_empty());
+        }
+
         self.array_shape.take();
         self.function_ctor = JSValue::UNDEFINED;
         self.array_ctor = JSValue::UNDEFINED;
@@ -223,14 +231,6 @@ impl JSContextInner {
         //         rt.gc_free_zeroed();
         //     }
         // }
-
-        // free modules
-        js_free_modules(self, JSFreeModuleEnum::JS_FREE_MODULE_ALL);
-        #[cfg(debug_assertions)]
-        {
-            // self.loaded_modules.retain(|w| w.upgrade().is_some());
-            debug_assert!(self.loaded_modules.is_empty());
-        }
 
         #[cfg(feature = "DUMP_MEM")]
         {

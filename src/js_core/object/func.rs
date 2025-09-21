@@ -55,7 +55,6 @@ pub fn js_object_getPrototypeOf(ctx: &JSContext, cc: CallContext) -> JSResult {
             return Err(-1);
         }
     }
-
     val.prototype(ctx)
 }
 
