@@ -4291,26 +4291,7 @@ pub unsafe fn JS_DefineObjectNameComputed(
     str_val: &JSValue,
     flags: u32,
 ) -> i32 {
-    if obj.is_object() && !js_object_has_name(obj) {
-        let prop = str_val.to_atom(ctx).unwrap_or(JS_ATOM_NULL);
-        if prop == JS_ATOM_NULL {
-            return -1;
-        }
-
-        let name_str = js_get_function_name(ctx, prop);
-        JS_FreeAtom(ctx, prop);
-        if name_str.is_exception() {
-            return -1;
-        }
-        if obj
-            .define_property_value(ctx, JS_ATOM_name, name_str, flags)
-            .is_err()
-        {
-            return -1;
-        }
-    }
-
-    0
+    unreachable!("unused");
 }
 
 #[deprecated(note = "use PromiseResolveFunc::class_call() instead")]

@@ -167,7 +167,7 @@ impl JSObject {
         b
     }
 
-    /// get own property.
+    /// get own property descriptor.
     /// Returns None if own property does not exist.
     pub fn get_own_property(
         &self,

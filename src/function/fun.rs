@@ -135,7 +135,6 @@ impl BCFunction {
     }
 
     /// get bytecode of function
-    #[inline]
     pub fn bytecode(&self) -> Bytecode {
         self.0
             .0

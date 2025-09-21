@@ -2,6 +2,7 @@ use std::ops::DerefMut;
 
 use crate::iterator::{ForInIterObjPayload, ObjectIter};
 use crate::object::JSObject;
+use crate::string::JSString;
 use crate::{
     JS_CLASS_OBJECT,
     atom::{JS_ATOM_NULL, JS_FreeAtom, JSAtom, consts::*},
@@ -230,16 +231,12 @@ pub(super) fn js_has_unscopable(ctx: &JSContext, obj: &JSValue, atom: JSAtom) ->
     }
 }
 
-pub(crate) fn js_get_function_name(ctx: &JSContext, name: JSAtom) -> JSValue {
-    if let Ok(name_str) = name.to_string(ctx) {
-        if name.has_description(ctx) {
-            JS_ConcatString3(ctx, c"[", name_str.into(), c"]")
-                .map_or(JSValue::EXCEPTION, JSValue::String)
-        } else {
-            name_str.into()
-        }
+pub(crate) fn js_get_function_name(ctx: &JSContext, name: JSAtom) -> Result<JSString, i32> {
+    let name_str = name.to_string(ctx)?;
+    if name.has_description(ctx) {
+        JS_ConcatString3(ctx, c"[", name_str.into(), c"]")
     } else {
-        JSValue::EXCEPTION
+        Ok(name_str)
     }
 }
 
@@ -268,15 +265,15 @@ pub fn js_method_set_properties(
     flags: u32,
     home_obj: &JSValue,
 ) -> Result<(), i32> {
-    let mut name_str = js_get_function_name(ctx, name).err()?;
+    let mut name_str: JSString = js_get_function_name(ctx, name)?;
 
     if flags & JS_PROP_HAS_GET != 0 {
-        name_str = JS_ConcatString3(ctx, c"get ", name_str, c"").map(JSValue::String)?;
+        name_str = JS_ConcatString3(ctx, c"get ", name_str.into(), c"")?;
     } else if flags & JS_PROP_HAS_SET != 0 {
-        name_str = JS_ConcatString3(ctx, c"set ", name_str, c"").map(JSValue::String)?;
+        name_str = JS_ConcatString3(ctx, c"set ", name_str.into(), c"")?;
     }
 
-    func_obj.define_property_value(ctx, JS_ATOM_name, name_str, JS_PROP_CONFIGURABLE)?;
+    func_obj.define_property_value(ctx, JS_ATOM_name, name_str.into(), JS_PROP_CONFIGURABLE)?;
     js_method_set_home_object(func_obj, home_obj.as_object());
     Ok(())
 }

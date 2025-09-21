@@ -1636,7 +1636,7 @@ impl Bytecode {
                         }
                     }
                     OpCode::SET_NAME_COMPUTED => {
-                        // [obj, name, ^] -> [obj, name, ^]
+                        // [name, value, ^] -> [name, value, ^]
                         if SP_REF!(-1)
                             .as_object()
                             .unwrap()

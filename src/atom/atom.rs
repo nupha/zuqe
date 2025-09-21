@@ -162,41 +162,48 @@ impl JSAtom {
     }
 
     /// Convert atom to String or Symbol value.
-    /// Note: `self` is not consumed.
-    fn to_string_or_symbol_internal(
-        &self,
-        ctx: &JSContext,
-        force_string: bool,
-    ) -> Result<JSValue, i32> {
+    fn to_string_or_symbol_internal(&self, ctx: &JSContext) -> Result<JSValue, i32> {
         if let Some(n) = self.to_small_int() {
             ctx.create_string_from_utf8(format!("{n}",).into_bytes())
                 .map(JSValue::String)
         } else {
-            let ss = ctx.rt().get_atom_desc(*self).unwrap();
-            let ret: JSValue = if force_string {
-                ss.into()
-            } else if let AtomHintAndId::String(_) = ss.atom_info().unwrap() {
-                ss.into() // atom for string
-            } else {
-                JSValue::Symbol(ss) // atom for symbol
-            };
-            Ok(ret)
+            let desc = ctx.rt().get_atom_desc(*self).unwrap();
+            match desc.atom_info().unwrap() {
+                AtomHintAndId::String(_) | AtomHintAndId::Private(_) => Ok(JSValue::String(desc)),
+                AtomHintAndId::Symbol(_) | AtomHintAndId::GlobalSymbol(_) => {
+                    Ok(JSValue::Symbol(desc))
+                }
+            }
         }
     }
 
     /// Convert atom to String or Symbol value. returns String or Symbol
-    /// Note: `self` is not consumed.
     #[inline(always)]
     pub fn to_string_or_symbol(&self, ctx: &JSContext) -> Result<JSValue, i32> {
-        self.to_string_or_symbol_internal(ctx, false)
+        self.to_string_or_symbol_internal(ctx)
     }
 
-    /// Convert atom to JSString.
-    /// Note: `self` is not consumed.
+    /// Force convert atom to JSString.
     pub fn to_string(&self, ctx: &JSContext) -> Result<JSString, i32> {
-        match self.to_string_or_symbol_internal(ctx, true)? {
-            JSValue::String(s) | JSValue::Symbol(s) => Ok(s),
-            _ => unreachable!(),
+        match self.to_string_or_symbol(ctx)? {
+            JSValue::String(s) => {
+                debug_assert!(!s.content().is_ident());
+                Ok(s)
+            }
+            JSValue::Symbol(s) => {
+                // force symbol to string
+                if s.content().is_ident() {
+                    JS_ATOM_empty_string.to_string(ctx)
+                } else {
+                    Ok(s)
+                }
+            }
+            _ => {
+                #[cfg(debug_assertions)]
+                unreachable!();
+                #[cfg(not(debug_assertions))]
+                std::hint::unreachable_unchecked();
+            }
         }
     }
 

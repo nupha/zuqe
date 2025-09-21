@@ -392,7 +392,7 @@ impl JSObject {
             let atom = str_val.to_atom(ctx)?;
             let name_str = js_get_function_name(ctx, atom);
             JS_FreeAtom(ctx, atom);
-            self.define_property_value(ctx, JS_ATOM_name, name_str.err()?, flags)
+            self.define_property_value(ctx, JS_ATOM_name, name_str?.into(), flags)
         } else {
             Ok(false)
         }

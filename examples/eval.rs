@@ -163,7 +163,7 @@ fn main() {
         ctx.eval(
             script.as_bytes(),
             &filename,
-            JS_EVAL_TYPE_GLOBAL | JS_EVAL_FLAG_ASYNC,
+            JS_EVAL_TYPE_GLOBAL, // | JS_EVAL_FLAG_ASYNC,
         )
     };
     match res {
