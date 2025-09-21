@@ -269,19 +269,6 @@ impl JSObject {
         )
     }
 
-    pub fn define_property_value_value(
-        &self,
-        ctx: &JSContext,
-        prop: JSValue,
-        val: JSValue,
-        flags: u32,
-    ) -> Result<bool, i32> {
-        let atom = prop.to_atom(ctx)?;
-        let ret = self.define_property_value(ctx, atom, val, flags);
-        JS_FreeAtom(ctx, atom);
-        ret
-    }
-
     pub fn define_property_value_str(
         &self,
         ctx: &JSContext,
@@ -504,19 +491,6 @@ impl JSValue {
         ret
     }
 
-    pub fn define_property_value_value(
-        &self,
-        ctx: &JSContext,
-        prop: &JSValue,
-        val: JSValue,
-        flags: u32,
-    ) -> Result<bool, i32> {
-        let atom = prop.to_atom(ctx)?;
-        let ret = self.define_property_value(ctx, atom, val, flags);
-        JS_FreeAtom(ctx, atom);
-        ret
-    }
-
     #[inline(always)]
     pub fn define_property_value_u32(
         &self,
@@ -536,7 +510,6 @@ impl JSValue {
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        // self.define_property_value_value(ctx, JSValue::from_i64(idx), val, flags)
         let atom = JSAtom::from_i64(ctx.rt_mut(), idx)?;
         let ret = self.define_property_value(ctx, atom, val, flags);
         JS_FreeAtom(ctx, atom);

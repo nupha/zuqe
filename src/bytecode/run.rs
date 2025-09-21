@@ -1892,13 +1892,24 @@ impl Bytecode {
                         }
                     }
                     OpCode::DEFINE_ARRAY_EL => {
-                        // [array, prop, value, ^] -> [array, prop, ^]
-                        let ret = SP_REF!(-3).define_property_value_value(
-                            ctx,
-                            SP_REF!(-2),
-                            SP_TAKE!(-1),
-                            JS_PROP_C_W_E | JS_PROP_THROW,
-                        );
+                        // [obj, prop, value, ^] -> [obj, prop, ^]
+
+                        // FIXME: test262 fail
+                        // converting `prop` to atom may invoke toString/valueOf method, which may modify `value`.
+                        // this bytecode has cloned value on stack, this may break the spec.
+                        let val = SP_TAKE!(-1);
+
+                        let ret = SP_REF!(-2).to_atom(ctx).and_then(|a| {
+                            let r = SP_REF!(-3).define_property_value(
+                                ctx,
+                                a,
+                                val,
+                                JS_PROP_C_W_E | JS_PROP_THROW,
+                            );
+                            JS_FreeAtom(ctx, a);
+                            r
+                        });
+
                         SP_GO!(-1);
                         if ret.is_err() {
                             break State::Exception;

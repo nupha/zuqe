@@ -853,7 +853,7 @@ pub unsafe fn JS_DefinePropertyValueStr(
         .map_or(-1, |b| b as i32)
 }
 
-#[deprecated(note = "use JSValue::defined_property_value_value() instead")]
+#[deprecated(note = "unused")]
 pub unsafe fn JS_DefinePropertyValueValue(
     ctx: &JSContext,
     this_obj: JSValueConst,
@@ -861,9 +861,7 @@ pub unsafe fn JS_DefinePropertyValueValue(
     val: JSValue,
     flags: u32,
 ) -> i32 {
-    this_obj
-        .define_property_value_value(ctx, &prop, val, flags)
-        .map_or(-1, |b| b as i32)
+    unreachable!("unused")
 }
 
 #[deprecated(note = "use JSValue::create_data_property_u32() instead")]

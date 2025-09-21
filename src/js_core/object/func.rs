@@ -382,7 +382,11 @@ pub fn js_object_fromEntries(ctx: &JSContext, cc: CallContext) -> JSResult {
         if let Some(o) = item?.as_object() {
             let key = o.get_property_u32(ctx, 0)?;
             let value = o.get_property_u32(ctx, 1)?;
-            obj.define_property_value_value(ctx, key, value, JS_PROP_C_W_E | JS_PROP_THROW)?;
+
+            let atom = key.to_atom(ctx)?;
+            let r = obj.define_property_value(ctx, atom, value, JS_PROP_C_W_E | JS_PROP_THROW);
+            JS_FreeAtom(ctx, atom);
+            r?;
         } else {
             ctx.throw_type_error_not_an_object();
             return Err(-1);
