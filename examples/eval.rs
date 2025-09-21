@@ -5,6 +5,7 @@ use zhuque::{
     atom::JS_FreeAtom,
     context::JSContext,
     error::JSResult,
+    eval::JS_EVAL_FLAG_ASYNC,
     function::{CallContext, NativeFunctionType},
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
     module::{JS_SetModuleLoaderFunc, ModuleDef},
@@ -154,7 +155,7 @@ fn main() {
             .unwrap();
     }
 
-    match ctx.eval_auto(script.as_bytes(), &filename) {
+    match ctx.eval_auto(script.as_bytes(), &filename, true) {
         Ok(v) => {
             println!(
                 ">>> RESULT: {v:?}, {}",

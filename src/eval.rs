@@ -36,6 +36,7 @@ pub const JS_EVAL_FLAG_STRICT: u32 = 1 << 3;
 pub const JS_EVAL_FLAG_STRIP: u32 = 1 << 4;
 pub const JS_EVAL_FLAG_COMPILE_ONLY: u32 = 1 << 5;
 pub const JS_EVAL_FLAG_BACKTRACE_BARRIER: u32 = 1 << 6;
+/// allow top-level-await eval
 pub const JS_EVAL_FLAG_ASYNC: u32 = 1 << 7;
 
 pub(crate) enum Compiled {
@@ -254,13 +255,17 @@ impl JSContext {
     /// - when eval as module (`url` ends with **.mjs** or `source` is detected to be a module),
     ///   returns module value;
     /// - when eval as global, returns normal eval result value.
-    pub fn eval_auto(&self, source: &[u8], url: &str) -> JSResult {
+    pub fn eval_auto(&self, source: &[u8], url: &str, allow_tla: bool) -> JSResult {
         let is_module = url.ends_with(".mjs") || JSParseState::detect_module(source);
         if is_module {
             self.eval_module_source(source, url, false)
                 .map(JSValue::Module)
         } else {
-            self.eval(source, url, JS_EVAL_TYPE_GLOBAL)
+            self.eval(
+                source,
+                url,
+                JS_EVAL_TYPE_GLOBAL | if allow_tla { JS_EVAL_FLAG_ASYNC } else { 0 },
+            )
         }
     }
 }
