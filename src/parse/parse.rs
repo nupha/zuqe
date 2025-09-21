@@ -79,14 +79,12 @@ impl JSParseState<'_> {
                 )
             }
             TOK_EXPORT if is_module => self.parse_export(),
-
             // peek_token is needed to avoid confusion with 'import()' or 'import.meta'
             TOK_IMPORT
                 if is_module && !matches!(self.peek_token(false), CHAR_BRACKET_L | CHAR_DOT) =>
             {
                 self.parse_import()
             }
-
             _ => {
                 if self.token_is_pseudo_keyword(JS_ATOM_async)
                     && self.peek_token(true) == TOK_FUNCTION

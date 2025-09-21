@@ -3,7 +3,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     eval::{Compiled, JS_EVAL_FLAG_STRIP, JS_EVAL_TYPE_MODULE},
-    function::{AsyncFuncState, CallContext},
+    function::{AsyncFuncState, AsyncFunction, CallContext},
     module::{JSModuleStatus, ModuleDefInner},
     promise::Promise,
     runtime::js_check_stack_overflow,
@@ -56,9 +56,8 @@ impl ModuleDef {
         }
     }
 
-    /// Run the <eval> function of the module and of all its dependent modules.
-    /// Returns a Promise.
-    pub fn eval(&self, ctx: &JSContext) -> Result<Promise, i32> {
+    /// Run the <eval> function of the `self` module and of all its dependent modules.
+    pub(crate) fn eval(&self, ctx: &JSContext) -> Result<Promise, i32> {
         debug_assert!(matches!(
             self.status(),
             JSModuleStatus::JS_MODULE_STATUS_UNLINKED
@@ -66,9 +65,6 @@ impl ModuleDef {
                 | JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
                 | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
         ));
-
-        self.make_module_function(ctx)?;
-        self.link(ctx)?;
 
         let m = match self.status() {
             JSModuleStatus::JS_MODULE_STATUS_LINKED => self.clone(),
@@ -92,7 +88,7 @@ impl ModuleDef {
 
         let mut stack_top: Option<ModuleDef> = None;
 
-        match m.do_eval(ctx, 0, &mut stack_top) {
+        match m.eval_internal(ctx, 0, &mut stack_top) {
             Ok(_) => {
                 debug_assert!(matches!(
                     m.status(),
@@ -132,7 +128,7 @@ impl ModuleDef {
 
     /// InnerModuleEvaluation, returns depth index or Err.
     /// `index`: depth index
-    fn do_eval(
+    fn eval_internal(
         &self,
         ctx: &JSContext,
         index: i32,
@@ -143,28 +139,11 @@ impl ModuleDef {
             return Err(ctx.take_exception());
         }
 
-        #[cfg(DUMP_MODULE_RESOLVE)]
-        {
-            let mut buf1: [u8; ATOM_GET_STR_BUF_SIZE] = [0; ATOM_GET_STR_BUF_SIZE];
-            println!(
-                "js_inner_module_evaluation '{}':\n",
-                JS_AtomGetStr(
-                    ctx,
-                    buf1.as_mut_ptr(),
-                    mem::size_of_val(&buf1),
-                    (*m).module_name
-                )
-            );
-        }
-
         match self.status() {
             JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
             | JSModuleStatus::JS_MODULE_STATUS_EVALUATED => {
                 return if self.0.eval_has_exception.get() {
-                    unsafe {
-                        let exc = (*self.0.eval_exception.as_ptr()).clone();
-                        Err(exc)
-                    }
+                    Err(unsafe { (*self.0.eval_exception.as_ptr()).clone() })
                 } else {
                     Ok(index)
                 };
@@ -193,7 +172,7 @@ impl ModuleDef {
 
         for dep in self.0.dependencies.borrow().iter() {
             let mut dep_m = dep.module.clone().unwrap();
-            index = dep_m.do_eval(ctx, index, stack_top)?;
+            index = dep_m.eval_internal(ctx, index, stack_top)?;
 
             let (
                 mut m1_status,
@@ -212,7 +191,6 @@ impl ModuleDef {
                     dep_m.0.async_evaluation.get(),
                 )
             };
-
             debug_assert!(matches!(
                 m1_status,
                 JSModuleStatus::JS_MODULE_STATUS_EVALUATING
@@ -228,7 +206,6 @@ impl ModuleDef {
             } else {
                 dep_m = m1_cycle_root;
 
-                // reload states
                 (
                     m1_status,
                     m1_dfs_ancestor_index,
@@ -246,7 +223,6 @@ impl ModuleDef {
                         dep_m.0.async_evaluation.get(),
                     )
                 };
-
                 debug_assert!(matches!(
                     m1_status,
                     JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
@@ -265,7 +241,7 @@ impl ModuleDef {
 
                 let lst = &mut dep_m.0.async_parent_modules.borrow_mut();
                 if lst.len() == lst.capacity() {
-                    if lst.try_reserve(8).is_err() {
+                    if lst.try_reserve(1).is_err() {
                         ctx.throw_out_of_memory();
                         return Err(ctx.take_exception());
                     }
@@ -281,6 +257,7 @@ impl ModuleDef {
                 self.0.async_evaluation.get(),
             )
         };
+
         if pending_async_dependencies > 0 {
             debug_assert!(!async_evaluation);
             self.0.async_evaluation.set(true);
@@ -302,6 +279,7 @@ impl ModuleDef {
 
         let (dfs_ancestor_index, dfs_index) =
             { (self.0.dfs_ancestor_index.get(), self.0.dfs_index.get()) };
+
         debug_assert!(dfs_ancestor_index <= dfs_index);
         if dfs_index == dfs_ancestor_index {
             loop {
@@ -317,7 +295,7 @@ impl ModuleDef {
 
                 // spec bug: cycle_root must be assigned before the test
                 m1.0.cycle_root.replace(Some(self.clone()));
-                if m1.id() == self.id() {
+                if m1.eq(self) {
                     break;
                 }
             }
@@ -326,7 +304,7 @@ impl ModuleDef {
         Ok(index)
     }
 
-    /// execute module in async manner
+    /// execute module function in async manner
     fn execute_async(&self, ctx: &JSContext) -> Result<(), i32> {
         // Hint: bytecode is now a Function object
         let md_func = unsafe { (*self.0.bytecode.as_ptr()).clone() };
@@ -335,12 +313,9 @@ impl ModuleDef {
             JS_CLASS_BYTECODE_FUNCTION
         );
 
-        let (promise, _) = ctx.create_promise(&JSValue::UNDEFINED)?;
+        // execute bytecode function in async manner.
+        let promise = md_func.call_async(ctx, &JSValue::UNDEFINED, &[], 0)?;
 
-        let astate = AsyncFuncState::new(ctx, &md_func, JSValue::UNDEFINED, &[])?;
-        astate.resume(ctx)?;
-
-        // reaction with promise
         let data = [JSValue::Module(self.clone())];
         promise.then(
             ctx,
@@ -540,17 +515,24 @@ impl JSContext {
     /// eval `source` as module. `url` is used to identify the module.
     /// returns the new module def.
     pub fn eval_module(&self, source: &[u8], url: &str, strip: bool) -> Result<ModuleDef, i32> {
-        // compile, then set import.meta, then run.
+        // compile module bytecode
         let md = ModuleDef::compile(self, source, url, strip)?;
+        // set import.meta
         md.0.set_import_meta(self, url, true)?;
+        // build module function
+        md.create_module_function(self)?;
 
+        md.link(self)?;
+
+        // evel module function
         let _ = md.eval(self)?;
+
         Ok(md)
     }
 }
 
 // spec: InnerModuleEvaluation. Return (index, JSValue::UNDEFINED) or (-1, exception)
-#[deprecated(note = "use ModuleDef::do_eval() instead")]
+#[deprecated(note = "use ModuleDef::eval_internal() instead")]
 pub unsafe fn js_inner_module_evaluation(
     ctx: &JSContext,
     m: *mut ModuleDef,
@@ -558,7 +540,7 @@ pub unsafe fn js_inner_module_evaluation(
     pstack_top: &mut Option<ModuleDef>,
     pvalue: *mut JSValue,
 ) -> i32 {
-    match (*m).do_eval(ctx, index, pstack_top) {
+    match (*m).eval_internal(ctx, index, pstack_top) {
         Ok(index) => {
             *pvalue = JSValue::UNDEFINED;
             return index;

@@ -83,7 +83,12 @@ impl AsyncGeneratorValue {
         let s = Box::new(AsyncGeneratorState {
             generator: JSObjectWeakref::default(),
             state: JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_SUSPENDED_START,
-            func_state: Some(AsyncFuncState::new(ctx, func_obj, this_obj.clone(), args)?),
+            func_state: Some(AsyncFuncState::new(
+                ctx,
+                func_obj.as_object_BCFunction().unwrap().clone(),
+                this_obj.clone(),
+                args,
+            )?),
             queue: Vec::with_capacity(1),
         });
 

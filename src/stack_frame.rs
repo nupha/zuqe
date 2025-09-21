@@ -23,6 +23,8 @@ pub struct StackFrame {
     /// - async function/generator  object
     /// - native function object
     /// - undefined, which means stack frame is detached (cleared)
+    ///
+    /// TODO: use BCFunction type?
     pub cur_func: JSValue,
 
     /// Buffer storing arguments, local variables, and stack space

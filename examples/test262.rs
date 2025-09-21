@@ -297,6 +297,14 @@ fn run_test_script(
         )?
     };
 
+    let promise = if let JSValue::Module(md) = &res {
+        md.promise()
+    } else if is_async {
+        res.as_object_Promise().cloned()
+    } else {
+        None
+    };
+
     while ctx.rt_mut().tick()? {
         std::thread::sleep(std::time::Duration::from_millis(3));
     }
@@ -311,26 +319,18 @@ fn run_test_script(
     }
 
     if is_async || is_module {
-        let promise = if is_module {
-            let JSValue::Module(md) = res else {
-                unreachable!("expect module value");
-            };
-            md.promise()
-        } else {
-            Promise::try_from(res).ok()
-        };
-        if let Some(promise) = promise {
-            // check if the returned promise is fulfilled
-            match promise.state() {
-                JSPromiseStateEnum::JS_PROMISE_FULFILLED => {}
-                JSPromiseStateEnum::JS_PROMISE_REJECTED => {
-                    ctx.throw(promise.result());
-                    return Err(-1);
-                }
-                JSPromiseStateEnum::JS_PROMISE_PENDING => {
-                    ctx.throw_type_error("promise is pending");
-                    return Err(-1);
-                }
+        let promise = promise.unwrap();
+
+        // check if the returned promise is fulfilled
+        match promise.state() {
+            JSPromiseStateEnum::JS_PROMISE_FULFILLED => {}
+            JSPromiseStateEnum::JS_PROMISE_REJECTED => {
+                ctx.throw(promise.result());
+                return Err(-1);
+            }
+            JSPromiseStateEnum::JS_PROMISE_PENDING => {
+                ctx.throw_type_error("promise is pending");
+                return Err(-1);
             }
         }
     }

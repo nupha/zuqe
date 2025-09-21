@@ -8,6 +8,7 @@ use std::{
 use crate::{
     context::{JS_MODE_ASYNC, JSContext},
     error::JSResult,
+    function::BCFunction,
     gc::GCObjectHeader,
     object::{GCObjectWeakref, ObjectPayload},
     runtime::{JSRuntime, js_check_stack_overflow},
@@ -50,13 +51,12 @@ impl AsyncStateInner {
     fn new(
         ctx: &JSContext,
         resolvings: [JSValue; 2],
-        func_obj: &JSValue,
+        bc_func: BCFunction,
         this_obj: JSValue,
         args: &[JSValue],
     ) -> Result<Self, i32> {
         let (arg_count, var_count, stack_size, js_mode) = {
-            let isa = unsafe { func_obj.as_object_unchecked().0.payload.borrow() };
-            let bc = isa.func().unwrap().bytecode.as_ref().unwrap();
+            let bc = bc_func.bytecode();
             let b = bc.0.borrow();
             (b.arg_count, b.var_count, b.stack_size, b.js_mode)
         };
@@ -97,7 +97,7 @@ impl AsyncStateInner {
 
             frame: Box::new(StackFrame {
                 js_mode: js_mode as i32 | JS_MODE_ASYNC,
-                cur_func: func_obj.clone(),
+                cur_func: bc_func.into(),
                 arg_base_ptr: local_buf.as_mut_ptr(),
                 arg_real_count: args.len() as _,
                 arg_count: arg_count as _,
@@ -175,11 +175,11 @@ impl AsyncFuncState {
     pub fn new_with_resolvings(
         ctx: &JSContext,
         resolvings: [JSValue; 2],
-        func_obj: &JSValue,
+        bc_func: BCFunction,
         this_obj: JSValue,
         args: &[JSValue],
     ) -> Result<AsyncFuncState, i32> {
-        let inner = AsyncStateInner::new(ctx, resolvings, func_obj, this_obj, args)?;
+        let inner = AsyncStateInner::new(ctx, resolvings, bc_func, this_obj, args)?;
 
         // fix var_base_ptr field: it's self referenced
         let mut pinned = Box::pin(inner);
@@ -216,14 +216,14 @@ impl AsyncFuncState {
     #[inline(always)]
     pub fn new(
         ctx: &JSContext,
-        func_obj: &JSValue,
+        bc_func: BCFunction,
         this_obj: JSValue,
         args: &[JSValue],
-    ) -> Result<AsyncFuncState, i32> {
+    ) -> Result<Self, i32> {
         Self::new_with_resolvings(
             ctx,
             [const { JSValue::UNDEFINED }; 2],
-            func_obj,
+            bc_func,
             this_obj,
             args,
         )
@@ -254,7 +254,7 @@ impl AsyncFuncState {
         }
     }
 
-    /// Resume execution of the async state.
+    /// Resume execution of the async function.
     pub fn resume(&self, ctx: &JSContext) -> JSResult {
         debug_assert!(!self.0.borrow().is_completed);
 

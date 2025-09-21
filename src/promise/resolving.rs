@@ -116,7 +116,7 @@ impl Promise {
     /// - `reaction_funcs` - [success, fail] reaction callback functions, user's logic.
     /// - `cap_resolving_funcs` - resolving functions of wrapper promise,
     ///    which activates the `reaction_funcs` execution.
-    pub fn reaction(
+    pub(crate) fn reaction(
         &self,
         ctx: &JSContext,
         reaction_funcs: &[JSValue; 2],
@@ -207,8 +207,6 @@ impl Promise {
     pub fn then(&self, ctx: &JSContext, success: JSValue, fail: JSValue) -> Result<Self, i32> {
         let ctor = JS_SpeciesConstructor(ctx, &self.clone().into(), JSValue::UNDEFINED)?;
         let (promise2, resolving_hooks) = ctx.create_promise(&ctor)?;
-
-        // perform reaction
         self.reaction(ctx, &[success, fail], &resolving_hooks)?;
         Ok(promise2)
     }

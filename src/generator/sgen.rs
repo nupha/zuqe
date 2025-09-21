@@ -148,7 +148,12 @@ pub fn js_generator_function_call(
     args: &[JSValue],
     flags: i32,
 ) -> JSResult {
-    let func_state = AsyncFuncState::new(ctx, func_obj, this_obj.clone(), args)?;
+    let func_state = AsyncFuncState::new(
+        ctx,
+        func_obj.as_object_BCFunction().unwrap().clone(),
+        this_obj.clone(),
+        args,
+    )?;
     let g = ObjGenerator {
         state: JSGeneratorStateEnum::JS_GENERATOR_STATE_SUSPENDED_START,
         func_state: Some(func_state),

@@ -133,6 +133,18 @@ impl BCFunction {
             JS_CLASS_GENERATOR_FUNCTION | JS_CLASS_ASYNC_GENERATOR_FUNCTION
         )
     }
+
+    /// get bytecode of function
+    #[inline]
+    pub fn bytecode(&self) -> Bytecode {
+        self.0
+            .0
+            .payload
+            .borrow()
+            .func()
+            .and_then(|f| f.bytecode())
+            .unwrap()
+    }
 }
 
 impl JSObject {

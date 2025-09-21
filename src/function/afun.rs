@@ -1,8 +1,9 @@
 use crate::{
-    JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT, JS_PROP_STRING_DEF,
+    JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT, JS_CLASS_BYTECODE_FUNCTION,
+    JS_PROP_STRING_DEF,
     context::JSContext,
     error::JSResult,
-    function::AsyncFuncState,
+    function::{AsyncFuncState, BCFunction},
     object::{JS_PROP_CONFIGURABLE, JSObject, ObjectPayload},
     object_cast,
     promise::{Promise, js_promise_resolve},
@@ -19,7 +20,7 @@ pub struct AsyncFunction(pub(crate) JSObject);
 object_cast!(AsyncFunction, JS_CLASS_ASYNC_FUNCTION);
 
 impl AsyncFunction {
-    /// hook to call an async function class object
+    /// hook to call an run function in async manner
     pub fn class_call(
         ctx: &JSContext,
         func_obj: &JSValue,
@@ -27,22 +28,89 @@ impl AsyncFunction {
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
-        debug_assert!(func_obj.as_object_AsyncFunction().is_some());
+        debug_assert_eq!(
+            func_obj.as_object().unwrap().class_id(),
+            JS_CLASS_ASYNC_FUNCTION
+        );
 
-        // create promise and resolving handlers
+        func_obj
+            .call_async(ctx, this_obj, args, flags)
+            .map(|p| p.into())
+
+        // // create promise and resolving handlers
+        // let (promise, resolving_funcs) = ctx.create_promise(&JSValue::UNDEFINED)?;
+
+        // // async state is on stack
+        // let s = AsyncFuncState::new_with_resolvings(
+        //     ctx,
+        //     resolving_funcs,
+        //     func_obj.as_object_BCFunction().unwrap().clone(),
+        //     this_obj.clone(),
+        //     args,
+        // )?;
+        // async_function_resume(ctx, &s);
+
+        // Ok(promise.into())
+    }
+}
+
+impl BCFunction {
+    /// call a bc function in async manner
+    pub fn call_async(
+        &self,
+        ctx: &JSContext,
+        this_obj: &JSValue,
+        args: &[JSValue],
+        flags: i32,
+    ) -> Result<Promise, i32> {
         let (promise, resolving_funcs) = ctx.create_promise(&JSValue::UNDEFINED)?;
-
-        // async state is on stack
-        let s = AsyncFuncState::new_with_resolvings(
+        async_function_resume(
             ctx,
-            resolving_funcs,
-            func_obj,
-            this_obj.clone(),
-            args,
-        )?;
-        async_function_resume(ctx, &s);
-
+            &AsyncFuncState::new_with_resolvings(
+                ctx,
+                resolving_funcs,
+                self.clone(),
+                this_obj.clone(),
+                args,
+            )?,
+        );
         Ok(promise.into())
+    }
+}
+
+impl JSObject {
+    /// call a bc function object in async manner
+    pub fn call_async(
+        &self,
+        ctx: &JSContext,
+        this_obj: &JSValue,
+        args: &[JSValue],
+        flags: i32,
+    ) -> Result<Promise, i32> {
+        if let Some(bcf) = self.as_BCFunction() {
+            bcf.call_async(ctx, this_obj, args, flags)
+        } else {
+            ctx.throw_type_error("not a function with bytecode");
+            Err(-1)
+        }
+    }
+}
+
+impl JSValue {
+    /// call a bc function object in async manner
+    pub fn call_async(
+        &self,
+        ctx: &JSContext,
+        this_obj: &JSValue,
+        args: &[JSValue],
+        flags: i32,
+    ) -> Result<Promise, i32> {
+        if let Some(bcf) = self.as_object_BCFunction() {
+            bcf.call_async(ctx, this_obj, args, flags)
+        } else {
+            ctx.throw_type_error("not a function with bytecode");
+            Err(-1)
+        }
     }
 }
 

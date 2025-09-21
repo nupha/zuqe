@@ -156,8 +156,8 @@ fn main() {
             .unwrap();
     }
 
-    let res = if JSParseState::detect_module(script.as_bytes()) {
-        ctx.eval_module(script.as_bytes(), &filename, true)
+    let res = if filename.ends_with(".mjs") || JSParseState::detect_module(script.as_bytes()) {
+        ctx.eval_module(script.as_bytes(), &filename, false)
             .map(JSValue::Module)
     } else {
         ctx.eval(

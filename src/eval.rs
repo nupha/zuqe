@@ -24,11 +24,11 @@ pub type EvalFn = fn(
 ) -> JSResult;
 
 // Eval types
-pub const JS_EVAL_TYPE_GLOBAL: u32 = 0 << 0;
-pub const JS_EVAL_TYPE_MODULE: u32 = 1 << 0;
-pub const JS_EVAL_TYPE_DIRECT: u32 = 2 << 0;
-pub const JS_EVAL_TYPE_INDIRECT: u32 = 3 << 0;
-pub const JS_EVAL_TYPE_MASK: u32 = 3 << 0;
+pub const JS_EVAL_TYPE_GLOBAL: u32 = 0;
+pub const JS_EVAL_TYPE_MODULE: u32 = 1;
+pub const JS_EVAL_TYPE_DIRECT: u32 = 2;
+pub const JS_EVAL_TYPE_INDIRECT: u32 = 3;
+pub const JS_EVAL_TYPE_MASK: u32 = 3;
 
 // Eval flags
 pub const JS_EVAL_FLAG_STRICT: u32 = 1 << 3;
@@ -165,7 +165,7 @@ impl JSContext {
         parser.is_module = module.is_some();
         parser.allow_html_comments = module.is_none();
 
-        parser.skip_shebang();
+        // parser.skip_shebang();
         parser.parse_program()?;
 
         // has top-level await?
