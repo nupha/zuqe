@@ -549,7 +549,7 @@ impl JSContext {
              flags: u32,
              scope_idx: i32|
              -> JSResult {
-                ctx.eval_source(this_obj, input, filename, flags, scope_idx)
+                ctx.eval_internal(this_obj, input, filename, flags, scope_idx)
             },
         );
 

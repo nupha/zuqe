@@ -5,11 +5,12 @@ use zhuque::{
     atom::JS_FreeAtom,
     context::JSContext,
     error::JSResult,
-    eval::JS_EVAL_FLAG_ASYNC,
+    eval::{JS_EVAL_FLAG_ASYNC, JS_EVAL_TYPE_GLOBAL},
     function::{CallContext, NativeFunctionType},
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
     module::{JS_SetModuleLoaderFunc, ModuleDef},
     object::JS_PROP_C_W_E,
+    parse::JSParseState,
     runtime::JSRuntime,
     value::JSValue,
 };
@@ -155,7 +156,17 @@ fn main() {
             .unwrap();
     }
 
-    match ctx.eval_auto(script.as_bytes(), &filename, true) {
+    let res = if JSParseState::detect_module(script.as_bytes()) {
+        ctx.eval_module(script.as_bytes(), &filename, true)
+            .map(JSValue::Module)
+    } else {
+        ctx.eval(
+            script.as_bytes(),
+            &filename,
+            JS_EVAL_TYPE_GLOBAL | JS_EVAL_FLAG_ASYNC,
+        )
+    };
+    match res {
         Ok(v) => {
             println!(
                 ">>> RESULT: {v:?}, {}",
@@ -212,16 +223,6 @@ fn main() {
             };
         }
     }
-
-    // JS_DumpGCObjects(js.as_mut());
-    // JS_DumpAtoms(js.as_mut());
-
-    // println!("================ free eval result");
-    // JS_DumpGCObjects(js.as_mut());
-    // JS_DumpAtoms(js.as_mut());
-
-    // drop(ctx);
-    // drop(js);
 }
 
 pub fn js_module_loader(
@@ -231,7 +232,7 @@ pub fn js_module_loader(
 ) -> Result<ModuleDef, i32> {
     match std::fs::read(module_name) {
         Ok(buf) => {
-            let md = ctx.eval_module_source(&buf, module_name, false)?;
+            let md = ctx.eval_module(&buf, module_name, false)?;
             Ok(md)
         }
         Err(_) => {

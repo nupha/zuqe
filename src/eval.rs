@@ -9,7 +9,6 @@ use crate::{
     object::JSObject,
     parse::JSParseState,
     stack_frame::StackFrame,
-    string::JSString,
     value::JSValue,
 };
 
@@ -36,7 +35,7 @@ pub const JS_EVAL_FLAG_STRICT: u32 = 1 << 3;
 pub const JS_EVAL_FLAG_STRIP: u32 = 1 << 4;
 pub const JS_EVAL_FLAG_COMPILE_ONLY: u32 = 1 << 5;
 pub const JS_EVAL_FLAG_BACKTRACE_BARRIER: u32 = 1 << 6;
-/// allow top-level-await eval
+/// allow top-level-await in eval
 pub const JS_EVAL_FLAG_ASYNC: u32 = 1 << 7;
 
 pub(crate) enum Compiled {
@@ -197,7 +196,7 @@ impl JSContext {
     /// * GLOBAL
     /// * DIRECT
     /// * INDIRECT
-    pub(crate) fn eval_source(
+    pub(crate) fn eval_internal(
         &self,
         this_obj: &JSValue,
         source: &[u8],
@@ -242,51 +241,13 @@ impl JSContext {
         flags: u32,
     ) -> JSResult {
         debug_assert!(matches!(flags & JS_EVAL_TYPE_MASK, JS_EVAL_TYPE_GLOBAL));
-        self.eval_source(&this_obj, source, filename, flags, -1)
+        self.eval_internal(&this_obj, source, filename, flags, -1)
     }
 
     /// eval script with global as `this` binding.
     pub fn eval(&self, source: &[u8], filename: &str, eval_flags: u32) -> JSResult {
         let global = self.0.borrow().global_obj.clone();
         self.eval_this(global, source, filename, eval_flags)
-    }
-
-    /// auto-detect type of source. if source is module, eval as module, otherwise eval as global.
-    /// - when eval as module (`url` ends with **.mjs** or `source` is detected to be a module),
-    ///   returns module value;
-    /// - when eval as global, returns normal eval result value.
-    pub fn eval_auto(&self, source: &[u8], url: &str, allow_tla: bool) -> JSResult {
-        let is_module = url.ends_with(".mjs") || JSParseState::detect_module(source);
-        if is_module {
-            self.eval_module_source(source, url, false)
-                .map(JSValue::Module)
-        } else {
-            self.eval(
-                source,
-                url,
-                JS_EVAL_TYPE_GLOBAL | if allow_tla { JS_EVAL_FLAG_ASYNC } else { 0 },
-            )
-        }
-    }
-}
-
-impl JSString {
-    /// eval string source.
-    pub fn eval_as_source(
-        &self,
-        ctx: &JSContext,
-        this_obj: JSValue,
-        flags: u32,
-        scope_idx: i32,
-        filename: &str,
-    ) -> JSResult {
-        ctx.eval_source(
-            &this_obj,
-            self.content().to_utf8().as_bytes(),
-            filename,
-            flags,
-            scope_idx,
-        )
     }
 }
 
@@ -305,7 +266,13 @@ impl JSValue {
         scope_idx: i32,
     ) -> JSResult {
         if let Self::String(s) = self {
-            s.eval_as_source(ctx, this_obj, flags, scope_idx, "<input>")
+            ctx.eval_internal(
+                &this_obj,
+                s.content().to_utf8().as_bytes(),
+                "<string>",
+                flags,
+                scope_idx,
+            )
         } else {
             Ok(self.clone())
         }

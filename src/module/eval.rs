@@ -539,12 +539,7 @@ impl ModuleDef {
 impl JSContext {
     /// eval `source` as module. `url` is used to identify the module.
     /// returns the new module def.
-    pub fn eval_module_source(
-        &self,
-        source: &[u8],
-        url: &str,
-        strip: bool,
-    ) -> Result<ModuleDef, i32> {
+    pub fn eval_module(&self, source: &[u8], url: &str, strip: bool) -> Result<ModuleDef, i32> {
         // compile, then set import.meta, then run.
         let md = ModuleDef::compile(self, source, url, strip)?;
         md.0.set_import_meta(self, url, true)?;

@@ -215,7 +215,13 @@ impl BytecodeFunction {
         let func_val = {
             // Note: to avoid ctx.0 borrow conflict, fetch global object in advance
             let global = JSValue::Object(ctx.global_obj());
-            src.eval_as_source(ctx, global, JS_EVAL_TYPE_INDIRECT, -1, "<input>")?
+            ctx.eval_internal(
+                &global,
+                src.content().to_utf8().as_bytes(),
+                "<input>",
+                JS_EVAL_TYPE_INDIRECT,
+                -1,
+            )?
         };
 
         if !new_target.is_undefined() {

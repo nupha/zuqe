@@ -15,7 +15,7 @@ use zhuque::{
     },
     context::JSContext,
     error::JSResult,
-    eval::{JS_EVAL_FLAG_STRICT, JS_EVAL_TYPE_GLOBAL},
+    eval::{JS_EVAL_FLAG_ASYNC, JS_EVAL_FLAG_STRICT, JS_EVAL_TYPE_GLOBAL},
     function::{CallContext, NativeFunctionType},
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
     module::{JS_SetModuleLoaderFunc, ModuleDef},
@@ -169,7 +169,7 @@ pub fn js_module_loader(
             }
             let aurl = format!("{}", normalized.display());
 
-            let md = ctx.eval_module_source(buf.as_slice(), &aurl, false)?;
+            let md = ctx.eval_module(buf.as_slice(), &aurl, false)?;
             // // XXX: could propagate the exception
             // unsafe {
             //     js_module_set_import_meta(ctx, &func_val, true as i32, false);
@@ -281,7 +281,7 @@ fn run_test_script(
     }
 
     let res = if is_module {
-        ctx.eval_module_source(
+        ctx.eval_module(
             script.as_bytes(),
             filename.as_os_str().to_str().unwrap(),
             false,
@@ -291,35 +291,35 @@ fn run_test_script(
         ctx.eval(
             script.as_bytes(),
             filename.as_os_str().to_str().unwrap(),
-            JS_EVAL_TYPE_GLOBAL | if is_strict { JS_EVAL_FLAG_STRICT } else { 0 },
+            JS_EVAL_TYPE_GLOBAL
+                | if is_strict { JS_EVAL_FLAG_STRICT } else { 0 }
+                | if is_async { JS_EVAL_FLAG_ASYNC } else { 0 },
         )?
     };
 
+    while ctx.rt_mut().tick()? {
+        std::thread::sleep(std::time::Duration::from_millis(3));
+    }
+
+    if is_async {
+        // test if the test called $DONE() once
+        let n = ASYNC_DONE.load(Ordering::SeqCst);
+        if n != 1 {
+            ctx.throw_type_error(&format!("$DONE() not called {n}"));
+            return Err(-1);
+        }
+    }
+
     if is_async || is_module {
-        // tick pending jobs
-        while ctx.rt_mut().tick()? {
-            std::thread::sleep(std::time::Duration::from_millis(5));
-        }
-
-        if is_async {
-            // test if the test called $DONE() once
-            let n = ASYNC_DONE.load(Ordering::SeqCst);
-            if n != 1 {
-                ctx.throw_type_error(&format!("$DONE() not called {n}"));
-                return Err(-1);
-            }
-        }
-
-        if let Some(promise) = if is_module {
+        let promise = if is_module {
             let JSValue::Module(md) = res else {
                 unreachable!("expect module value");
             };
             md.promise()
-        } else if is_async {
-            Promise::try_from(res).ok()
         } else {
-            None
-        } {
+            Promise::try_from(res).ok()
+        };
+        if let Some(promise) = promise {
             // check if the returned promise is fulfilled
             match promise.state() {
                 JSPromiseStateEnum::JS_PROMISE_FULFILLED => {}
