@@ -35,7 +35,7 @@ impl JSObject {
                     HINT_NUMBER => JS_ATOM_number,
                     _ => JS_ATOM_default,
                 }
-                .to_string(ctx)?;
+                .force_string(ctx)?;
 
                 let ret = method.call(ctx, &this, &[hint_val.into()])?;
                 return if !ret.is_object() {

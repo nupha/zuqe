@@ -232,7 +232,7 @@ pub(super) fn js_has_unscopable(ctx: &JSContext, obj: &JSValue, atom: JSAtom) ->
 }
 
 pub(crate) fn js_get_function_name(ctx: &JSContext, name: JSAtom) -> Result<JSString, i32> {
-    let name_str = name.to_string(ctx)?;
+    let name_str = name.force_string(ctx)?;
     if name.has_description(ctx) {
         JS_ConcatString3(ctx, c"[", name_str.into(), c"]")
     } else {
@@ -474,7 +474,7 @@ pub fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
         unsafe {
             std::ptr::replace(
                 sp.offset(0),
-                prop.to_string_or_symbol(ctx).unwrap_or(JSValue::EXCEPTION),
+                prop.string_or_symbol(ctx).unwrap_or(JSValue::EXCEPTION),
             ); // value
             std::ptr::replace(sp.offset(1), JSValue::Bool(false)); // done?
         }

@@ -98,7 +98,7 @@ pub fn js_function_bind(ctx: &JSContext, args: CallContext) -> JSResult {
         let name = if let JSValue::String(s) = name {
             s
         } else {
-            JS_ATOM_empty_string.to_string(ctx)?
+            JS_ATOM_empty_string.force_string(ctx)?
         };
 
         // make bound function name.
@@ -137,7 +137,7 @@ pub fn js_function_toString(ctx: &JSContext, args: CallContext) -> JSResult {
     let suff = c"() {\n    [native code]\n}";
     let mut name = this_val.get_property(ctx, JS_ATOM_name)?;
     if name.is_undefined() {
-        name = JS_ATOM_empty_string.to_string(ctx)?.into();
+        name = JS_ATOM_empty_string.force_string(ctx)?.into();
     }
 
     JS_ConcatString3(ctx, pref, name, suff).map(JSValue::String)
@@ -160,7 +160,7 @@ pub fn js_function_proto_fileName(ctx: &JSContext, args: CallContext) -> JSResul
     }) {
         let b = b.0.borrow();
         if b.has_debug {
-            b.debug.filename.to_string(ctx).map(JSValue::String)
+            b.debug.filename.force_string(ctx).map(JSValue::String)
         } else {
             Ok(JSValue::UNDEFINED)
         }

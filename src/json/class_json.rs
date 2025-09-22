@@ -63,7 +63,7 @@ fn internalize_json_property(
         }
     }
 
-    reviver.call(ctx, holder, &[name.to_string_or_symbol(ctx)?, val])
+    reviver.call(ctx, holder, &[name.string_or_symbol(ctx)?, val])
 }
 
 fn js_json_parse(ctx: &JSContext, cc: CallContext) -> JSResult {

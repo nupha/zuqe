@@ -329,7 +329,7 @@ impl Bytecode {
                         SP_PUT!(
                             0,
                             JSAtom(a)
-                                .to_string_or_symbol(ctx)
+                                .string_or_symbol(ctx)
                                 .unwrap_or(JSValue::EXCEPTION)
                         );
                         SP_GO!(1);
@@ -1275,7 +1275,7 @@ impl Bytecode {
                                 } else {
                                     SP_PUT!(
                                         0,
-                                        atom.to_string_or_symbol(ctx).unwrap_or(JSValue::EXCEPTION)
+                                        atom.string_or_symbol(ctx).unwrap_or(JSValue::EXCEPTION)
                                     );
                                     SP_GO!(1);
                                 }
@@ -2132,7 +2132,7 @@ impl Bytecode {
                         let atom = op1.type_of();
                         SP_PUT!(
                             -1,
-                            atom.to_string(ctx)
+                            atom.force_string(ctx)
                                 .map_or(JSValue::EXCEPTION, JSValue::String)
                         );
                     }
@@ -2252,7 +2252,7 @@ impl Bytecode {
                                         // produce a pair object/propname on the stack
                                         SP_PUT!(
                                             0,
-                                            atom.to_string_or_symbol(ctx)
+                                            atom.string_or_symbol(ctx)
                                                 .unwrap_or(JSValue::EXCEPTION)
                                         );
                                         SP_GO!(1);

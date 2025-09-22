@@ -316,7 +316,7 @@ impl JSObject {
 
                 match kind {
                     JSIteratorKindEnum::JS_ITERATOR_KIND_KEY => {
-                        if let Ok(v) = name.atom.to_string_or_symbol(ctx) {
+                        if let Ok(v) = name.atom.string_or_symbol(ctx) {
                             key = v;
                         } else {
                             has_err = true;
@@ -332,7 +332,7 @@ impl JSObject {
                         }
                     }
                     JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE => {
-                        if let Ok(v) = name.atom.to_string_or_symbol(ctx) {
+                        if let Ok(v) = name.atom.string_or_symbol(ctx) {
                             key = v;
                         } else {
                             has_err = true;

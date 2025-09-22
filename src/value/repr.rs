@@ -35,7 +35,7 @@ impl JSValue {
                 } else {
                     Ok(format!(
                         "[object {}]",
-                        o.class_name().to_string(ctx)?.content().to_utf8()
+                        o.class_name().force_string(ctx)?.content().to_utf8()
                     ))
                 }
             }

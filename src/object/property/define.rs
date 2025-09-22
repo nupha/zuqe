@@ -376,7 +376,7 @@ impl JSObject {
             ctx.throw_type_error("invalid name");
             Err(-1)
         } else if !self.has_name() {
-            self.define_property_value(ctx, JS_ATOM_name, name.to_string(ctx)?.into(), flags)
+            self.define_property_value(ctx, JS_ATOM_name, name.force_string(ctx)?.into(), flags)
         } else {
             Ok(false)
         }

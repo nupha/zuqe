@@ -430,7 +430,7 @@ impl JSContext {
     /// create string value from string buf.
     pub(crate) fn create_string_with_buf(&self, sbuf: StringBuf) -> Result<JSString, i32> {
         if sbuf.is_empty() {
-            JS_ATOM_empty_string.to_string(self)
+            JS_ATOM_empty_string.force_string(self)
         } else {
             Ok(JSString::new(self.rt_mut(), sbuf.into()))
         }
@@ -442,7 +442,7 @@ impl JSContext {
         content: StringContent,
     ) -> Result<JSString, i32> {
         if content.is_empty() {
-            JS_ATOM_empty_string.to_string(self)
+            JS_ATOM_empty_string.force_string(self)
         } else {
             Ok(JSString::new(self.rt_mut(), content))
         }
@@ -451,7 +451,7 @@ impl JSContext {
     /// create string from utf8 encoded data.
     pub fn create_string_from_utf8(&self, utf8_bytes: Vec<u8>) -> Result<JSString, i32> {
         if utf8_bytes.is_empty() {
-            JS_ATOM_empty_string.to_string(self)
+            JS_ATOM_empty_string.force_string(self)
         } else if utf8_bytes.len() > JS_STRING_LEN_MAX {
             self.throw_internal_error("string too long");
             Err(-1)
@@ -595,14 +595,14 @@ impl JSValue {
                 .create_string_from_utf8(format!("{}", *i).into_bytes())
                 .map(Self::String),
             Self::Bool(b) => if *b { JS_ATOM_true } else { JS_ATOM_false }
-                .to_string(ctx)
+                .force_string(ctx)
                 .map(Self::String),
             Self::Float64(n) => {
                 let s = f64_stringify(*n, 10, None, 0);
                 ctx.create_string_from_str(s.as_ref()).map(Self::String)
             }
-            Self::NULL => JS_ATOM_null.to_string(ctx).map(Self::String),
-            Self::UNDEFINED => JS_ATOM_undefined.to_string(ctx).map(Self::String),
+            Self::NULL => JS_ATOM_null.force_string(ctx).map(Self::String),
+            Self::UNDEFINED => JS_ATOM_undefined.force_string(ctx).map(Self::String),
 
             Self::Object(_) => self
                 .to_primitive(ctx, HINT_STRING)

@@ -46,7 +46,7 @@ pub fn js_object_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
             if let JSValue::String(s) = obj.get_property(ctx, JS_ATOM_Symbol_toStringTag)? {
                 format!("{s}")
             } else {
-                format!("{}", atom.to_string(ctx)?)
+                format!("{}", atom.force_string(ctx)?)
             }
             .into()
         }

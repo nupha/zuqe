@@ -162,7 +162,7 @@ impl JSAtom {
     }
 
     /// Convert atom to String or Symbol value.
-    fn to_string_or_symbol_internal(&self, ctx: &JSContext) -> Result<JSValue, i32> {
+    pub fn string_or_symbol(&self, ctx: &JSContext) -> Result<JSValue, i32> {
         if let Some(n) = self.to_small_int() {
             ctx.create_string_from_utf8(format!("{n}",).into_bytes())
                 .map(JSValue::String)
@@ -177,15 +177,10 @@ impl JSAtom {
         }
     }
 
-    /// Convert atom to String or Symbol value. returns String or Symbol
-    #[inline(always)]
-    pub fn to_string_or_symbol(&self, ctx: &JSContext) -> Result<JSValue, i32> {
-        self.to_string_or_symbol_internal(ctx)
-    }
-
-    /// Force convert atom to JSString.
-    pub fn to_string(&self, ctx: &JSContext) -> Result<JSString, i32> {
-        match self.to_string_or_symbol(ctx)? {
+    /// Force convert atom to String.
+    /// If atom is Symbol kind, returns its string descriptor.
+    pub fn force_string(&self, ctx: &JSContext) -> Result<JSString, i32> {
+        match self.string_or_symbol(ctx)? {
             JSValue::String(s) => {
                 debug_assert!(!s.content().is_ident());
                 Ok(s)
@@ -193,7 +188,7 @@ impl JSAtom {
             JSValue::Symbol(s) => {
                 // force symbol to string
                 if s.content().is_ident() {
-                    JS_ATOM_empty_string.to_string(ctx)
+                    JS_ATOM_empty_string.force_string(ctx)
                 } else {
                     Ok(s)
                 }
@@ -294,7 +289,7 @@ impl JSString {
 impl JSContext {
     pub fn create_atom_string(&self, str: &str) -> Result<JSString, i32> {
         let atom = JSAtom::new(self.rt_mut(), str)?; //self.create_atom(str)?;
-        let val = atom.to_string(self);
+        let val = atom.force_string(self);
         JS_FreeAtom(self, atom);
         val
     }
@@ -508,7 +503,7 @@ pub unsafe fn JS_AtomIsNumericIndex(ctx: &JSContext, atom: JSAtom) -> i32 {
 
 // return a string atom containing name concatenated with str1
 pub unsafe fn js_atom_concat_str(ctx: &JSContext, name: JSAtom, str1: *const u8) -> JSAtom {
-    let str_val = if let Ok(s) = name.to_string(ctx) {
+    let str_val = if let Ok(s) = name.force_string(ctx) {
         s
     } else {
         return JS_ATOM_NULL;

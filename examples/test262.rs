@@ -257,7 +257,12 @@ struct Negative {
 
 fn run_harness(ctx: &JSContext, harness_files: &[PathBuf]) -> Result<(), i32> {
     for file in harness_files {
-        let src = std::fs::read_to_string(&file).unwrap();
+        let src = std::fs::read_to_string(&file)
+            .inspect_err(|_| {
+                println!("Failed to read file: {}", file.display());
+            })
+            .unwrap();
+
         ctx.eval(
             src.as_bytes(),
             file.as_os_str().to_string_lossy().as_ref(),
@@ -366,7 +371,7 @@ fn dump_error(
 
 fn run_test_file(
     filename: &Path,
-    include_harness: bool,
+    harness_path: &Path,
     excludes: Option<&[String]>,
     outf: &mut dyn Write,
     errf: &mut dyn Write,
@@ -398,28 +403,17 @@ fn run_test_file(
         _ => {}
     }
 
-    let mut harness_files = Vec::<PathBuf>::new();
-
-    if include_harness {
-        let harness_path = filename
-            .ancestors()
-            .find(|p| p.ends_with("test"))
-            .and_then(|p| p.parent().map(|parent| parent.to_path_buf()))
-            .unwrap_or("".into())
-            .join("harness");
-
-        harness_files = vec![harness_path.join("assert.js"), harness_path.join("sta.js")];
-
-        if let Some(lst) = &config.flags {
-            if lst.iter().any(|s| s == "async") {
-                harness_files.push(harness_path.join("doneprintHandle.js"));
-            }
+    // collect included harness files
+    let mut harness_files = Vec::<PathBuf>::with_capacity(16);
+    harness_files.extend_from_slice(&[harness_path.join("assert.js"), harness_path.join("sta.js")]);
+    if let Some(ff) = &config.flags {
+        if ff.iter().any(|s| s == "async") {
+            harness_files.push(harness_path.join("doneprintHandle.js"));
         }
-
-        if let Some(includes) = config.includes {
-            for include in includes {
-                harness_files.push(harness_path.join(include));
-            }
+    }
+    if let Some(includes) = config.includes {
+        for include in includes {
+            harness_files.push(harness_path.join(include));
         }
     }
 
@@ -434,19 +428,35 @@ fn run_test_file(
     let mut has_err = false;
 
     if !harness_files.is_empty() {
-        // eval harness includes
+        // eval included harness files
         if run_harness(&ctx, &harness_files).is_err() {
             let exc = ctx.exception();
-            let msg = exc.repr(&ctx).unwrap();
+            let msg = exc.to_string(&ctx).unwrap();
 
             // write to outf
             writeln!(outf, "FAIL: can't eval harness").unwrap();
-            dump_error(&ctx, &exc, msg.as_ref(), false, false, false, outf);
+            dump_error(
+                &ctx,
+                &exc,
+                msg.content().to_utf8().as_ref(),
+                false,
+                false,
+                false,
+                outf,
+            );
 
             // write to err
             writeln!(errf, "{}", filename.display()).unwrap();
             writeln!(outf, "FAIL: can't eval harness").unwrap();
-            dump_error(&ctx, &exc, msg.as_ref(), false, false, false, errf);
+            dump_error(
+                &ctx,
+                &exc,
+                msg.content().to_utf8().as_ref(),
+                false,
+                false,
+                false,
+                errf,
+            );
 
             has_err = true;
         }
@@ -616,6 +626,8 @@ fn main() {
         base_path = s.into()
     }
 
+    let harness_path = base_path.join("harness");
+
     let mut out_path: PathBuf = if let Some(txt) = app_cfg.out_path.take() {
         let p = PathBuf::from(txt);
         match std::fs::metadata(&p) {
@@ -669,7 +681,13 @@ fn main() {
             let pat = base_path.join(format!("./test/{item}"));
             for fname in glob::glob(pat.to_str().unwrap()).unwrap() {
                 let fname = fname.unwrap();
-                run_test_file(&fname, true, excludes.as_deref(), &mut outf, &mut errf);
+                run_test_file(
+                    &fname,
+                    &harness_path,
+                    excludes.as_deref(),
+                    &mut outf,
+                    &mut errf,
+                );
                 outf.flush().unwrap();
             }
         }

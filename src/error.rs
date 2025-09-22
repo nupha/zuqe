@@ -422,14 +422,14 @@ pub fn js_error_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let name = cc.this().get_property(ctx, JS_ATOM_name)?;
     let mut name = if name.is_undefined() {
-        JS_ATOM_Error.to_string(ctx)?
+        JS_ATOM_Error.force_string(ctx)?
     } else {
         name.to_string(ctx)?
     };
 
     let msg = cc.this().get_property(ctx, JS_ATOM_message)?;
     let msg = if msg.is_undefined() {
-        JS_ATOM_empty_string.to_string(ctx)?
+        JS_ATOM_empty_string.force_string(ctx)?
     } else {
         msg.to_string(ctx)?
     };

@@ -227,8 +227,8 @@ impl ModuleDef {
         };
         names.sort_by(|a, b| {
             // XXX: should avoid allocation memory in atom comparison
-            let str1 = a.export_name.to_string(ctx);
-            let str2 = b.export_name.to_string(ctx);
+            let str1 = a.export_name.force_string(ctx);
+            let str2 = b.export_name.force_string(ctx);
 
             let res = if str1.is_err() || str2.is_err() {
                 // XXX: raise an error ?
@@ -281,7 +281,7 @@ impl ModuleDef {
         obj.define_property_value(
             ctx,
             JS_ATOM_Symbol_toStringTag,
-            JS_ATOM_Module.to_string(ctx)?.into(),
+            JS_ATOM_Module.force_string(ctx)?.into(),
             0,
         )?;
 

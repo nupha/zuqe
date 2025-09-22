@@ -32,7 +32,7 @@ pub fn JS_JSONStringify(
         replacer_func: JSValue::UNDEFINED,
         stack: SmallVec::new(),
         replacer_props: None,
-        empty: JS_ATOM_empty_string.to_string(ctx).unwrap(),
+        empty: JS_ATOM_empty_string.force_string(ctx).unwrap(),
         gap: StringContent::Empty,
         buf: StringBuf::Empty,
     };

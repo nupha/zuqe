@@ -35,7 +35,11 @@ pub fn js_regexp_constructor_internal(
     if !flags.is_undefined() {
         ctx.create_regexp(ctor, pattern, &flags.to_string(ctx)?)
     } else {
-        ctx.create_regexp(ctor, pattern, &JS_ATOM_empty_string.to_string(ctx).unwrap())
+        ctx.create_regexp(
+            ctor,
+            pattern,
+            &JS_ATOM_empty_string.force_string(ctx).unwrap(),
+        )
     }
 }
 
@@ -645,8 +649,7 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
 
         if let Some(rep_str) = rep_str.as_ref() {
             // replacement string
-
-            let groups = TryInto::<JSObject>::try_into(m.get_property(ctx, JS_ATOM_groups)?).ok();
+            let groups = JSObject::try_from(m.get_property(ctx, JS_ATOM_groups)?).ok();
 
             let t = StringContent::substitution_buf(
                 matched.content(),
@@ -668,7 +671,7 @@ pub fn js_regexp_Symbol_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
                 length,
                 |name| {
                     if let Some(g) = groups.as_ref() {
-                        let val = g.get_property_str(ctx, name).unwrap();
+                        let val = g.get_property_str(ctx, name)?;
                         if !val.is_undefined() {
                             Ok(Some(val.to_string(ctx)?.content().clone()))
                         } else {
@@ -816,7 +819,7 @@ pub fn js_regexp_Symbol_split(ctx: &JSContext, cc: CallContext) -> JSResult {
             arr.define_property_value_u32(
                 ctx,
                 idx as u32,
-                JS_ATOM_empty_string.to_string(ctx).unwrap().into(),
+                JS_ATOM_empty_string.force_string(ctx).unwrap().into(),
                 prop_flags,
             )?;
         }

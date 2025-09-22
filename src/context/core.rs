@@ -57,7 +57,7 @@ impl JSContext {
                 .unwrap();
 
             // standard error objects
-            let msg = JS_ATOM_empty_string.to_string(self).unwrap();
+            let msg = JS_ATOM_empty_string.force_string(self).unwrap();
             for (i, name) in STD_ERROR_NAMES.iter().enumerate() {
                 let err = self
                     .create_object_from_proto(error.clone().into(), ObjectPayload::OBJECT)

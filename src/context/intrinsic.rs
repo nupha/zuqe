@@ -314,7 +314,7 @@ impl JSContext {
     }
 
     fn intrinsic_string(&self) {
-        let empty_str = JS_ATOM_empty_string.to_string(self).unwrap();
+        let empty_str = JS_ATOM_empty_string.force_string(self).unwrap();
 
         let string_obj: JSValue = {
             let o = self
@@ -385,7 +385,7 @@ impl JSContext {
                     .define_property_value_str(
                         self,
                         str,
-                        a.to_string_or_symbol(self).unwrap().into(),
+                        a.string_or_symbol(self).unwrap().into(),
                         0,
                     )
                     .unwrap();

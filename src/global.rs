@@ -47,7 +47,7 @@ impl JSContext {
             }
         };
 
-        let v1 = prop.to_string_or_symbol(self)?;
+        let v1 = prop.string_or_symbol(self)?;
         Ok(Some((v0, v1)))
     }
 

@@ -4271,7 +4271,7 @@ pub fn JS_DefineObjectName(ctx: &JSContext, obj: &JSValue, name: JSAtom, flags: 
             .define_property_value(
                 ctx,
                 JS_ATOM_name,
-                name.to_string(ctx)
+                name.force_string(ctx)
                     .map_or(JSValue::EXCEPTION, JSValue::String),
                 flags,
             )

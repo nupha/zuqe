@@ -28,7 +28,7 @@ pub fn js_string_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let new_target = cc.this();
 
     let str_val = if cc.length() == 0 {
-        JS_ATOM_empty_string.to_string(ctx)?.into()
+        JS_ATOM_empty_string.force_string(ctx)?.into()
     } else {
         if let JSValue::Symbol(p) = cc.arg(0)
             && new_target.is_undefined()
@@ -37,7 +37,7 @@ pub fn js_string_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
             JS_ConcatString3(
                 ctx,
                 c"Symbol(",
-                p.atom_info().unwrap().atom().to_string(ctx)?.into(),
+                p.atom_info().unwrap().atom().force_string(ctx)?.into(),
                 c")",
             )?
         } else {
@@ -67,7 +67,7 @@ pub fn js_string_at(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     if buf_idx < 0 || buf_idx >= buf_len {
         match what {
-            0 => JS_ATOM_empty_string.to_string(ctx).map(JSValue::String),
+            0 => JS_ATOM_empty_string.force_string(ctx).map(JSValue::String),
             1 => Ok(JSValue::UNDEFINED),
             2 => Ok(JSValue::Float64(f64::NAN)),
             _ => unreachable!(),
