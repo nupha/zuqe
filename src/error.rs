@@ -191,6 +191,11 @@ impl JSContext {
         self.throw_error(ErrorKind::Reference, message)
     }
 
+    #[inline(always)]
+    pub fn throw_syntax_error(&self, message: &str) {
+        self.throw_error(ErrorKind::Syntax, message);
+    }
+
     pub fn throw_out_of_memory(&self) {
         if !self.rt().in_out_of_memory {
             self.rt_mut().in_out_of_memory = true;
@@ -381,15 +386,13 @@ pub fn JS_ThrowTypeErrorPrivateNotFound(ctx: &JSContext, atom: JSAtom) {
     ));
 }
 
+#[deprecated(note = "use JSContext::throw_syntax_error() instead")]
 pub fn JS_ThrowSyntaxError(ctx: &JSContext, message: &str) {
     ctx.throw_error(ErrorKind::Syntax, message);
 }
 
 pub fn JS_ThrowSyntaxErrorVarRedeclaration(ctx: &JSContext, prop: JSAtom) {
-    JS_ThrowSyntaxError(
-        ctx,
-        &format!("redeclaration of '{}'", prop.to_utf8(ctx.rt())),
-    );
+    ctx.throw_syntax_error(&format!("redeclaration of '{}'", prop.to_utf8(ctx.rt())));
 }
 
 /// used to avoid catching interrupt exceptions

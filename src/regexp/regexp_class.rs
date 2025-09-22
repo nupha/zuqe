@@ -1,7 +1,4 @@
-use std::{
-    ops::{Deref, Range},
-    rc::Rc,
-};
+use std::{ops::Deref, rc::Rc};
 
 use smallvec::SmallVec;
 
@@ -9,7 +6,7 @@ use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_REGEXP,
     atom::consts::*,
     context::{JS_GetActiveFunction, JSContext},
-    error::{ErrorKind, JSResult},
+    error::JSResult,
     function::{CallContext, FieldDef, JS_CallConstructor, NativeFunctionType, js_function_apply},
     js_core::js_get_this,
     object::{
@@ -24,6 +21,7 @@ use crate::{
 use super::{
     JSRegExp, LRE_FLAG_DOTALL, LRE_FLAG_GLOBAL, LRE_FLAG_IGNORECASE, LRE_FLAG_INDICES,
     LRE_FLAG_MULTILINE, LRE_FLAG_STICKY, LRE_FLAG_UTF16, RegExpStringIterPayload,
+    make_regexp_capture_array,
 };
 
 /* create a RegExp object from a string containing the RegExp bytecode
@@ -69,10 +67,7 @@ pub fn js_regexp_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
             flags_str = if flags1.is_undefined() {
                 re.flags_str.clone()
             } else {
-                TryInto::<JSString>::try_into(flags1)
-                    .unwrap()
-                    .content()
-                    .clone()
+                flags1.to_string(ctx).map(|s| s.content().clone())?
             };
             None
         }
@@ -102,12 +97,7 @@ pub fn js_regexp_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let re = if let Some(re) = re {
         re
     } else {
-        let (re, flags) = JSRegExp::new_re(ctx, &pattern.to_utf8(), flags_str.chars_lossy())
-            .map_err(|e| {
-                ctx.throw_error(ErrorKind::Syntax, &e.to_string());
-                -1
-            })?;
-
+        let (re, flags) = JSRegExp::build_re(ctx, &pattern.to_utf8(), flags_str.chars_lossy())?;
         JSRegExp {
             regex: Rc::new(re),
             pattern,
@@ -179,7 +169,7 @@ pub fn js_regexp_get_source(ctx: &JSContext, cc: CallContext) -> JSResult {
             return ctx.create_string_from_str("(?:))").map(JSValue::String);
         }
 
-        let mut buf = StringBuf::with_capacity(p.len(), false).map_err(|_| {
+        let mut buf = StringBuf::with_capacity(p.len(), p.is_wide()).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
         })?;
@@ -190,52 +180,51 @@ pub fn js_regexp_get_source(ctx: &JSContext, cc: CallContext) -> JSResult {
         while let Some((_, c)) = chars.next() {
             match c {
                 StringChar::Char('\\') => {
-                    buf.push_char('\\');
+                    let _ = buf.push_char('\\');
                     if let Some((_, x)) = chars.next() {
-                        buf.push_char(x);
+                        let _ = buf.push_char(x);
                     }
                 }
                 StringChar::Char(']') => {
                     bra = false;
-                    buf.push_char(']');
+                    let _ = buf.push_char(']');
                 }
                 StringChar::Char('[') => {
                     if !bra {
                         if chars.peek() == Some(']' as u32 as u16) {
                             // [] case
                             chars.next(); // consume ']'
-                            buf.push_str("[]");
+                            let _ = buf.push_str("[]");
                             continue;
                         }
                         bra = true;
                     }
-                    buf.push_char('[');
+                    let _ = buf.push_char('[');
                 }
                 StringChar::Char('\n') => {
-                    buf.push_char('\n');
+                    let _ = buf.push_char('\n');
                 }
                 StringChar::Char('\r') => {
-                    buf.push_char('\r');
+                    let _ = buf.push_char('\r');
                 }
 
                 StringChar::Char('/') => {
                     if bra {
-                        buf.push_str("\\/");
+                        let _ = buf.push_str("\\/");
                     } else {
-                        buf.push_char('/');
+                        let _ = buf.push_char('/');
                     }
                 }
                 c => {
-                    buf.push_char(c);
+                    let _ = buf.push_char(c);
                 }
             }
         }
 
-        buf.shrink_to_fit();
         ctx.create_string_with_buf(buf).map(JSValue::String)
     } else {
         ctx.throw_type_error_not_an_object();
-        return Err(-1);
+        Err(-1)
     }
 }
 
@@ -376,50 +365,6 @@ fn js_regexp_compile(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(cc.this().clone())
 }
 
-fn make_regexp_capture_array(
-    ctx: &JSContext,
-    text: JSString,
-    cap_list: &[(Option<Range<usize>>, Option<&str>)],
-) -> Result<(JSValue, usize), i32> {
-    let arr = ctx.create_array()?;
-    let mut group = JSValue::UNDEFINED;
-
-    let prop_flags = JS_PROP_C_W_E | JS_PROP_THROW;
-    let mut last_index = 0;
-
-    for (i, (range, name)) in cap_list.iter().enumerate() {
-        let val: JSValue = if let Some(range) = range {
-            if i == 0 {
-                arr.define_property_value(
-                    ctx,
-                    JS_ATOM_index,
-                    JSValue::Int(range.start as i32),
-                    prop_flags,
-                )?;
-                last_index = range.end;
-            }
-
-            text.sub_string(ctx, range.clone())?.into()
-        } else {
-            JSValue::UNDEFINED
-        };
-
-        arr.define_property_value_u32(ctx, i as _, val.clone(), prop_flags)?;
-
-        if let Some(name) = name {
-            if group.is_undefined() {
-                group = ctx.create_base_object()?.into();
-            }
-            group.define_property_value_str(ctx, name, val, prop_flags)?;
-        }
-    }
-
-    arr.define_property_value(ctx, JS_ATOM_groups, group, prop_flags)?;
-    arr.define_property_value(ctx, JS_ATOM_input, text.into(), prop_flags)?;
-
-    Ok((arr.into(), last_index))
-}
-
 pub fn js_regexp_exec(ctx: &JSContext, cc: CallContext) -> JSResult {
     let Some(this) = cc.this().as_object() else {
         ctx.throw_type_error_not_an_object();
@@ -435,7 +380,8 @@ pub fn js_regexp_exec(ctx: &JSContext, cc: CallContext) -> JSResult {
         .to_length(ctx)? as usize;
 
     if let Some(cap_list) = re.capture(str.content(), from) {
-        let (arr, last_index) = make_regexp_capture_array(ctx, str, &cap_list)?;
+        let (arr, last_index) =
+            make_regexp_capture_array(ctx, str, &cap_list, re.flags & LRE_FLAG_INDICES as u8 != 0)?;
         if re.flags & (LRE_FLAG_GLOBAL | LRE_FLAG_STICKY) as u8 != 0 {
             this.set_property(ctx, JS_ATOM_lastIndex, JSValue::from(last_index as u32))?;
         }
@@ -447,7 +393,7 @@ pub fn js_regexp_exec(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_regexp_test(ctx: &JSContext, cc: CallContext) -> JSResult {
-    js_regexp_exec(ctx, cc).map(|v| JSValue::Bool(v.is_null()))
+    js_regexp_exec(ctx, cc).map(|v| JSValue::Bool(!v.is_null()))
 }
 
 pub fn js_regexp_Symbol_match(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -475,7 +421,6 @@ pub fn js_regexp_Symbol_match(ctx: &JSContext, cc: CallContext) -> JSResult {
 
                 for (i, range) in found.iter().enumerate() {
                     let val = str.sub_string(ctx, range.clone())?;
-
                     arr.define_property_value_u32(ctx, i as _, val.into(), prop_flags)?;
                     last_index = range.end;
                 }
@@ -497,7 +442,13 @@ pub fn js_regexp_Symbol_match(ctx: &JSContext, cc: CallContext) -> JSResult {
                     val.to_length(ctx)? as usize
                 },
             ) {
-                let (arr, last_index) = make_regexp_capture_array(ctx, str, &cap_list)?;
+                let (arr, last_index) = make_regexp_capture_array(
+                    ctx,
+                    str,
+                    &cap_list,
+                    re.flags & LRE_FLAG_INDICES as u8 != 0,
+                )?;
+
                 this.set_property(ctx, JS_ATOM_lastIndex, JSValue::from(last_index as u32))?;
                 Ok(arr)
             } else {

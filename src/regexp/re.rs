@@ -5,8 +5,7 @@ use regex::bytes::{Regex, RegexBuilder};
 use crate::{
     atom::consts::*,
     context::JSContext,
-    error::ErrorKind,
-    object::{JS_PROP_WRITABLE, JSObject, ObjectPayload},
+    object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, JSObject, ObjectPayload},
     string::{JSString, StringContent, map_utf8_to_utf16_range},
     value::JSValue,
 };
@@ -50,37 +49,45 @@ pub struct JSRegExp {
 }
 
 impl JSRegExp {
-    pub(crate) fn new_re(
+    pub(crate) fn build_re(
         ctx: &JSContext,
         pattern: &str,
-        flags_str: impl Iterator<Item = char>,
+        flags: impl Iterator<Item = char>,
     ) -> Result<(Regex, u8), i32> {
-        let mut flags = 0u8;
+        let mut ff = 0u8;
 
-        for c in flags_str {
+        for c in flags {
             match c {
+                'd' => {
+                    ff |= LRE_FLAG_INDICES as u8;
+                }
                 'g' => {
-                    flags |= LRE_FLAG_GLOBAL as u8;
+                    ff |= LRE_FLAG_GLOBAL as u8;
                 }
                 'i' => {
-                    flags |= LRE_FLAG_IGNORECASE as u8;
+                    ff |= LRE_FLAG_IGNORECASE as u8;
                 }
                 'm' => {
-                    flags |= LRE_FLAG_MULTILINE as u8;
-                }
-                'u' | 'v' => {
-                    flags |= LRE_FLAG_UTF16 as u8;
+                    ff |= LRE_FLAG_MULTILINE as u8;
                 }
                 's' => {
-                    flags |= LRE_FLAG_DOTALL as u8;
+                    ff |= LRE_FLAG_DOTALL as u8;
+                }
+                'u' | 'v' => {
+                    ff |= LRE_FLAG_UTF16 as u8;
                 }
                 'y' => {
-                    flags |= LRE_FLAG_STICKY as u8;
+                    ff |= LRE_FLAG_STICKY as u8;
                 }
-                _ => {}
+                _ => {
+                    ctx.throw_syntax_error("Invalid regular expression flags");
+                    return Err(-1);
+                }
             }
         }
 
+        // Note: pattern `[]`， `[^]` is valid for js, but is invalid in crate regex.
+        // should replace with equivalent pattern in regex.
         let re = RegexBuilder::new(match pattern {
             "[]" => {
                 // pattern `[]` is not allowed in regex.
@@ -94,31 +101,27 @@ impl JSRegExp {
             }
             _ => pattern,
         })
-        .unicode(flags & LRE_FLAG_UTF16 as u8 != 0)
-        .multi_line(flags & LRE_FLAG_MULTILINE as u8 != 0)
-        .case_insensitive(flags & LRE_FLAG_IGNORECASE as u8 != 0)
+        .unicode(ff & LRE_FLAG_UTF16 as u8 != 0)
+        .multi_line(ff & LRE_FLAG_MULTILINE as u8 != 0)
+        .case_insensitive(ff & LRE_FLAG_IGNORECASE as u8 != 0)
         .build()
         .map_err(|e| {
-            ctx.throw_error(ErrorKind::Syntax, &e.to_string());
+            ctx.throw_syntax_error(&e.to_string());
             -1
         })?;
 
-        Ok((re, flags))
+        Ok((re, ff))
     }
 
-    pub fn new(
-        ctx: &JSContext,
-        pattern: StringContent,
-        flags_str: StringContent,
-    ) -> Result<Self, i32> {
-        let (re, flags) = Self::new_re(ctx, &pattern.to_utf8(), flags_str.chars_lossy())?;
+    pub fn new(ctx: &JSContext, pattern: StringContent, flags: StringContent) -> Result<Self, i32> {
+        let (re, ff) = Self::build_re(ctx, &pattern.to_utf8(), flags.chars_lossy())?;
         let regex = Rc::new(re);
 
         Ok(Self {
             pattern,
-            flags_str,
+            flags_str: flags,
             regex,
-            flags,
+            flags: ff,
         })
     }
 
@@ -241,4 +244,94 @@ impl JSContext {
         obj.define_property_value(self, JS_ATOM_lastIndex, JSValue::Int(0), JS_PROP_WRITABLE)?;
         Ok(obj)
     }
+}
+
+/// build Array object to hold regexp matches.
+pub(super) fn make_regexp_capture_array(
+    ctx: &JSContext,
+    text: JSString,
+    range_and_name: &[(Option<Range<usize>>, Option<&str>)],
+    with_indices: bool,
+) -> Result<(JSValue, usize), i32> {
+    let mut start_index = 0;
+    let mut last_index = 0;
+
+    let mut lst = Vec::<JSValue>::new();
+    lst.try_reserve(range_and_name.len()).map_err(|_| {
+        ctx.throw_out_of_memory();
+        -1
+    })?;
+
+    let mut indices = if with_indices {
+        let mut idx_lst = Vec::<JSValue>::new();
+        idx_lst.try_reserve(range_and_name.len()).map_err(|_| {
+            ctx.throw_out_of_memory();
+            -1
+        })?;
+        Some((idx_lst, JSValue::UNDEFINED))
+    } else {
+        None
+    };
+
+    let prop_flags = JS_PROP_C_W_E | JS_PROP_THROW;
+    let mut group = JSValue::UNDEFINED;
+
+    for (i, (range, name)) in range_and_name.iter().enumerate() {
+        let val: JSValue = if let Some(range) = range {
+            if i == 0 {
+                start_index = range.start;
+                last_index = range.end;
+            }
+            text.sub_string(ctx, range.clone())?.into()
+        } else {
+            JSValue::UNDEFINED
+        };
+
+        lst.push(val.clone());
+
+        if let Some(name) = name {
+            if group.is_undefined() {
+                group = ctx.create_base_object()?.into();
+            }
+            group.define_property_value_str(ctx, name, val, prop_flags)?;
+        }
+
+        if let Some((idxlst, idxgroup)) = &mut indices {
+            let idx = if let Some(r) = range {
+                ctx.create_array_with_values(vec![
+                    JSValue::Int(r.start as i32),
+                    JSValue::Int(r.end as i32),
+                ])?
+                .into()
+            } else {
+                JSValue::UNDEFINED
+            };
+            idxlst.push(idx.clone());
+
+            if let Some(name) = name {
+                if idxgroup.is_undefined() {
+                    *idxgroup = ctx.create_base_object()?.into();
+                }
+                idxgroup.define_property_value_str(ctx, name, idx, prop_flags)?;
+            }
+        }
+    }
+
+    let arr = ctx.create_array_with_values(lst)?;
+    arr.define_property_value(
+        ctx,
+        JS_ATOM_index,
+        JSValue::Int(start_index as i32),
+        prop_flags,
+    )?;
+    arr.define_property_value(ctx, JS_ATOM_groups, group, prop_flags)?;
+    arr.define_property_value(ctx, JS_ATOM_input, text.into(), prop_flags)?;
+
+    if let Some((idxlst, idxgrp)) = indices {
+        let idxarr = ctx.create_array_with_values(idxlst)?;
+        idxarr.define_property_value(ctx, JS_ATOM_groups, idxgrp, prop_flags)?;
+        arr.define_property_value(ctx, JS_ATOM_indices, idxarr.into(), prop_flags)?;
+    }
+
+    Ok((arr.into(), last_index))
 }

@@ -6,11 +6,10 @@ use std::{
 };
 
 use crate::{
-    JS_CLASS_ASYNC_FUNCTION, JS_CLASS_BYTECODE_FUNCTION,
     atom::{JS_ATOM_NULL, JS_FreeAtom, JS_FreeAtomRT, JSAtom},
     class::JSClassExoticMethods,
     context::{JSContext, JSContextInner},
-    error::{JS_ThrowSyntaxError, JSResult},
+    error::JSResult,
     function::{FuncObjPayload, JSFunctionDef, JSVarKindEnum, JSVarRef},
     module::{JSExportEntry, JSExportTypeEnum, JSImportEntry, JSModuleStatus, ModuleDependency},
     object::{JS_PROP_C_W_E, JSObject, ObjectPayload},
@@ -429,13 +428,10 @@ pub unsafe fn add_module_variables(ctx: &JSContext, fd: &mut JSFunctionDef) -> i
             if let Some(idx) = fd.find_closure_var(me.local_name) {
                 *var_idx = idx;
             } else {
-                JS_ThrowSyntaxError(
-                    ctx,
-                    &format!(
-                        "exported variable '{}' does not exist",
-                        me.local_name.to_utf8(ctx.rt())
-                    ),
-                );
+                ctx.throw_syntax_error(&format!(
+                    "exported variable '{}' does not exist",
+                    me.local_name.to_utf8(ctx.rt())
+                ));
                 return -1;
             }
         }

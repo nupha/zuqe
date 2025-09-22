@@ -583,7 +583,7 @@ impl JSValue {
     }
 
     /// Convert value `self` to string or symbol.
-    /// if `self` itself is not a symbol, string is preferred.
+    /// if `self` is not a symbol, string is preferred.
     /// returns String or Symbol value.
     pub fn to_string_or_symbol(&self, ctx: &JSContext) -> Result<Self, i32> {
         match self {
@@ -605,8 +605,8 @@ impl JSValue {
             Self::UNDEFINED => JS_ATOM_undefined.to_string(ctx).map(Self::String),
 
             Self::Object(_) => self
-                .to_primitive(ctx, HINT_STRING)?
-                .to_string_or_symbol(ctx),
+                .to_primitive(ctx, HINT_STRING)
+                .and_then(|s| s.to_string_or_symbol(ctx)),
 
             Self::Bytecode(_) => ctx
                 .create_string_from_str("[function bytecode]")
@@ -616,7 +616,7 @@ impl JSValue {
                 #[cfg(debug_assertions)]
                 unreachable!();
                 #[cfg(not(debug_assertions))]
-                Err(-1)
+                std::hint::unreachable_unchecked();
             }
             _ => {
                 ctx.throw_type_error("can't convert to string or symbol");
@@ -626,7 +626,7 @@ impl JSValue {
     }
 
     /// Coerce value `self` to string.
-    /// if `self` is a symbol, returns Err.
+    /// if `self` is symbol, will return Err.
     pub fn to_string(&self, ctx: &JSContext) -> Result<JSString, i32> {
         match self {
             Self::String(s) => Ok(s.clone()),

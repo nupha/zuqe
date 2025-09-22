@@ -1,7 +1,6 @@
-use regex::bytes::Regex;
-
 use crate::{
     parse::token::{TOK_REGEXP, TokenData},
+    regexp::JSRegExp,
     string::StringBuf,
 };
 
@@ -91,18 +90,12 @@ impl<'s> JSParseState<'s> {
         let pattern = self.ctx.create_string_with_buf(pattern_str)?;
         let flags = self.ctx.create_string_with_buf(flags_str)?;
 
-        // pre-check regexp syntax.
-        {
-            // Note that `[]`， `[^]` is valid for js, but is invalid for regex.
-            let pat = pattern.content().to_utf8();
-
-            if !matches!(pat.as_ref(), "[]" | "[^]") {
-                let _ = Regex::new(&pat).map_err(|e| {
-                    self.throw_syntax_error(&e.to_string());
-                    -1
-                })?;
-            }
-        }
+        // try perform regexp compile to pre-check pattern and flags syntax
+        JSRegExp::build_re(
+            &self.ctx,
+            pattern.content().to_utf8().as_ref(),
+            flags.content().chars_lossy(),
+        )?;
 
         self.token.val = TOK_REGEXP;
         self.token.data = TokenData::Regexp { pattern, flags };

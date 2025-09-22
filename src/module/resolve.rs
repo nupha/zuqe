@@ -4,7 +4,6 @@ use crate::{
         consts::{JS_ATOM__star_, JS_ATOM_default},
     },
     context::JSContext,
-    error::JS_ThrowSyntaxError,
     module::{JSExportEntry, JSExportTypeEnum, JSResolveEntry, ModuleDef, ModuleDefInner},
 };
 
@@ -28,34 +27,25 @@ impl ModuleResolveExport {
         match self {
             Self::Found { .. } => {}
             Self::NotFound => {
-                JS_ThrowSyntaxError(
-                    ctx,
-                    &format!(
-                        "Could not find export '{}' in module '{}'",
-                        export_name.to_utf8(ctx.rt()),
-                        m.module_name.to_utf8(ctx.rt()),
-                    ),
-                );
+                ctx.throw_syntax_error(&format!(
+                    "Could not find export '{}' in module '{}'",
+                    export_name.to_utf8(ctx.rt()),
+                    m.module_name.to_utf8(ctx.rt()),
+                ));
             }
             Self::Circular => {
-                JS_ThrowSyntaxError(
-                    ctx,
-                    &format!(
-                        "circular reference when looking for export '{}' in module '{}'",
-                        export_name.to_utf8(ctx.rt()),
-                        m.module_name.to_utf8(ctx.rt()),
-                    ),
-                );
+                ctx.throw_syntax_error(&format!(
+                    "circular reference when looking for export '{}' in module '{}'",
+                    export_name.to_utf8(ctx.rt()),
+                    m.module_name.to_utf8(ctx.rt()),
+                ));
             }
             Self::Ambiguous => {
-                JS_ThrowSyntaxError(
-                    ctx,
-                    &format!(
-                        "export '{}' in module '{}' is ambiguous",
-                        export_name.to_utf8(ctx.rt()),
-                        m.module_name.to_utf8(ctx.rt()),
-                    ),
-                );
+                ctx.throw_syntax_error(&format!(
+                    "export '{}' in module '{}' is ambiguous",
+                    export_name.to_utf8(ctx.rt()),
+                    m.module_name.to_utf8(ctx.rt()),
+                ));
             }
         }
     }

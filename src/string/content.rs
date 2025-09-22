@@ -415,7 +415,7 @@ impl StringContent {
         })
     }
 
-    /// count string chars (include broken surrogate code).
+    /// count string chars, include broken invalid code.
     pub fn chars_count(&self) -> usize {
         match self {
             Self::Empty | Self::Ident => 0,

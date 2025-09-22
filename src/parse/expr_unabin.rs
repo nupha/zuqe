@@ -5,7 +5,7 @@ use crate::{
     },
     bytecode::{OpCode, OpCodeTemp, opcodes},
     context::JS_MODE_STRICT,
-    error::{JS_THROW_ERROR_DELETE_SUPER, JS_ThrowSyntaxError},
+    error::JS_THROW_ERROR_DELETE_SUPER,
     function::JSFunctionDef,
     parse::{
         state::{PF_ARROW_FUNC, PF_IN_ACCEPTED, PF_POW_ALLOWED},
@@ -286,8 +286,7 @@ impl<'s> JSParseState<'s> {
                 postfix exponential, ES7 specifies that -2**2 is a
                 syntax error. */
                 if parse_flags & PF_POW_FORBIDDEN != 0 {
-                    JS_ThrowSyntaxError(
-                        &self.ctx,
+                    self.ctx.throw_syntax_error(
                         "unparenthesized unary expression can't appear on the left-hand side of '**'",
                     );
                     return Err(-1);

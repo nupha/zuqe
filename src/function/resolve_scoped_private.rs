@@ -2,7 +2,7 @@ use crate::{
     atom::{JS_ATOM_NULL, JS_FreeAtom, JSAtom, js_atom_concat_str},
     bytecode::opcodes,
     context::JSContext,
-    error::{JS_THROW_VAR_RO, JS_ThrowSyntaxError},
+    error::JS_THROW_VAR_RO,
     function::{JSFunctionDef, JSVarKindEnum, get_loc_or_ref},
 };
 
@@ -76,10 +76,10 @@ impl JSFunctionDef {
         }
 
         // XXX: no line number info
-        JS_ThrowSyntaxError(
-            ctx,
-            &format!("undefined private field '{}'", var_name.to_utf8(ctx.rt())),
-        );
+        ctx.throw_syntax_error(&format!(
+            "undefined private field '{}'",
+            var_name.to_utf8(ctx.rt())
+        ));
         return Err(-1);
     }
 
