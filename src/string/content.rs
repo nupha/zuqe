@@ -1,4 +1,11 @@
-use std::{borrow::Cow, cmp::Ordering, collections::TryReserveError, ops::Range, rc::Rc};
+use std::{
+    borrow::Cow,
+    cell::RefCell,
+    cmp::Ordering,
+    collections::{HashMap, TryReserveError},
+    ops::{Deref, Range},
+    rc::{Rc, Weak},
+};
 
 use fallible_collections::TryCollect;
 use widestring::U16Str;
@@ -9,13 +16,14 @@ use crate::{
     string::{
         StringBuf, StringChar, StringCharIter, StringCodepointIter, is_char_visible, s16_into_s8,
     },
+    utils::hash_u32_from_base,
     value::JSValue,
 };
 
 /// read-only, ref-counted bytes that represents a string.
 #[derive(Clone)]
 #[repr(u8)]
-pub enum StringContent {
+pub enum StringData {
     Empty,
     Ascii(Rc<[u8]>),
     Utf16(Rc<[u16]>),
@@ -23,13 +31,13 @@ pub enum StringContent {
     Ident,
 }
 
-impl Default for StringContent {
+impl Default for StringData {
     fn default() -> Self {
-        StringContent::Empty
+        StringData::Empty
     }
 }
 
-impl PartialEq for StringContent {
+impl PartialEq for StringData {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             // same kind
@@ -89,19 +97,20 @@ impl PartialEq for StringContent {
     }
 }
 
-impl Eq for StringContent {}
+impl Eq for StringData {}
 
-impl Ord for StringContent {
+impl Ord for StringData {
     fn cmp(&self, other: &Self) -> Ordering {
         match (self, other) {
             // for same kind.
-            (StringContent::Ascii(s1), StringContent::Ascii(s2)) => s1.cmp(s2),
-            (StringContent::Utf16(s1), StringContent::Utf16(s2)) => s1.cmp(s2),
-            (StringContent::Empty, StringContent::Empty)
-            | (StringContent::Ident, StringContent::Ident) => Ordering::Equal,
+            (StringData::Ascii(s1), StringData::Ascii(s2)) => s1.cmp(s2),
+            (StringData::Utf16(s1), StringData::Utf16(s2)) => s1.cmp(s2),
+            (StringData::Empty, StringData::Empty) | (StringData::Ident, StringData::Ident) => {
+                Ordering::Equal
+            }
 
             // utf8 vs utf16 cmp
-            (StringContent::Ascii(s1), StringContent::Utf16(s2)) => {
+            (StringData::Ascii(s1), StringData::Utf16(s2)) => {
                 let mut it1 = s1.iter();
                 let mut it2 = s2.iter();
                 loop {
@@ -124,7 +133,7 @@ impl Ord for StringContent {
                     }
                 }
             }
-            (StringContent::Utf16(s1), StringContent::Ascii(s2)) => {
+            (StringData::Utf16(s1), StringData::Ascii(s2)) => {
                 let mut it1 = s1.iter();
                 let mut it2 = s2.iter();
                 loop {
@@ -149,23 +158,23 @@ impl Ord for StringContent {
             }
 
             // ident is the greatest.
-            (StringContent::Ident, _) => Ordering::Greater,
-            (_, StringContent::Ident) => Ordering::Less,
+            (StringData::Ident, _) => Ordering::Greater,
+            (_, StringData::Ident) => Ordering::Less,
 
             // empty is the smallest
-            (StringContent::Empty, _) => Ordering::Less,
-            (_, StringContent::Empty) => Ordering::Greater,
+            (StringData::Empty, _) => Ordering::Less,
+            (_, StringData::Empty) => Ordering::Greater,
         }
     }
 }
 
-impl PartialOrd for StringContent {
+impl PartialOrd for StringData {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl std::fmt::Debug for StringContent {
+impl std::fmt::Debug for StringData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Empty => write!(f, "\"\""),
@@ -210,7 +219,7 @@ impl std::fmt::Debug for StringContent {
     }
 }
 
-impl StringContent {
+impl StringData {
     #[inline(always)]
     pub fn is_empty(&self) -> bool {
         matches!(self, Self::Empty)
@@ -539,6 +548,38 @@ impl StringContent {
         }
     }
 
+    /// compare content with stringbuf
+    pub fn eq_buf(&self, other: &StringBuf) -> bool {
+        match (self, other) {
+            (Self::Empty, b) => b.is_empty(),
+            (Self::Ascii(s), StringBuf::Ascii(b)) => s.as_ref() == b.as_slice(),
+            (Self::Utf16(s), StringBuf::Utf16(b)) => s.as_ref() == b.as_slice(),
+
+            (Self::Utf16(s), StringBuf::Ascii(b)) => {
+                if s.len() == b.len() {
+                    for (a, b) in s.iter().zip(b.iter().map(|x| *x as u16)) {
+                        if *a != b {
+                            return false;
+                        }
+                    }
+                }
+                true
+            }
+            (Self::Ascii(s), StringBuf::Utf16(b)) => {
+                if s.len() == b.len() {
+                    for (a, b) in s.iter().map(|x| *x as u16).zip(b.iter()) {
+                        if a != *b {
+                            return false;
+                        }
+                    }
+                }
+                true
+            }
+
+            _ => false,
+        }
+    }
+
     /// parse content as u32.
     pub fn parse_u32(&self) -> Result<u32, i32> {
         if let Self::Ascii(s) = self {
@@ -585,9 +626,36 @@ impl StringContent {
     }
 }
 
-impl From<StringBuf> for StringContent {
-    fn from(value: StringBuf) -> Self {
-        match value {
+/// calculates hash of a sequence of chars (code points)
+fn hash_codepoints(s: impl Iterator<Item = StringChar>) -> u32 {
+    let mut h = 0; // init hash
+    s.for_each(|c| {
+        h = hash_u32_from_base(h, c.to_u32());
+    });
+    h
+}
+
+impl Drop for StringData {
+    fn drop(&mut self) {
+        match self {
+            Self::Ascii(s) => {
+                if Rc::strong_count(s) == 1 {
+                    Self::unintern(self);
+                }
+            }
+            Self::Utf16(s) => {
+                if Rc::strong_count(s) == 1 {
+                    Self::unintern(self);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+impl StringData {
+    fn new_internal(buf: StringBuf) -> Self {
+        match buf {
             StringBuf::Empty => Self::Empty,
             StringBuf::Ascii(s) => {
                 if s.is_empty() {
@@ -601,8 +669,6 @@ impl From<StringBuf> for StringContent {
                 if s.is_empty() {
                     Self::Empty
                 } else {
-                    // debug_assert!(s.iter().any(|c| *c >= 0x80));
-
                     if !s.iter().any(|c| *c >= 0x80) {
                         // ascii
                         Self::Ascii(unsafe { s16_into_s8(s).into() })
@@ -613,87 +679,126 @@ impl From<StringBuf> for StringContent {
             }
         }
     }
-}
 
-impl StringBuf {
-    /// concat other string content to self content, returns a new result string content.
-    /// if `range` is out of bounds, the intersectioned range will be applied.
-    pub fn push_content_range(
-        &mut self,
-        content: &StringContent,
-        range: Range<usize>,
-    ) -> Result<(), TryReserveError> {
-        if range.is_empty() || range.start >= content.len() {
-            return Ok(());
+    thread_local! {
+        static STRING_CONTENT_INTERN_DICT: RefCell<HashMap<u32, Vec<StringDataWeakref>>> = RefCell::new(HashMap::new());
+    }
+
+    /// get or make a string content interned
+    fn intern(buf: StringBuf) -> StringData {
+        if buf.is_empty() {
+            return Self::Empty;
         }
 
-        // intersect range
-        let range = range.start..std::cmp::min(range.end, content.len());
-
-        // use a temp var to hold current self content
-        let orig_data = std::mem::replace(self, Self::Empty);
-
-        let new_data: StringBuf = match (orig_data, content) {
-            (s, StringContent::Empty | StringContent::Ident) => s,
-            (Self::Empty, _) => content.to_buf_range(range)?,
-
-            // same type
-            (Self::Utf16(mut s1), StringContent::Utf16(s2)) => {
-                if let Err(e) = s1.try_reserve_exact(s2.len()) {
-                    *self = Self::Utf16(s1);
-                    return Err(e);
+        let hash = hash_codepoints(buf.iter().map(|(_, c)| c));
+        Self::STRING_CONTENT_INTERN_DICT.with_borrow_mut(|lut| {
+            if let Some(lst) = lut.get_mut(&hash) {
+                if let Some(s) = lst.iter().find_map(|w| w.upgrade()) {
+                    if s.eq_buf(&buf) {
+                        s
+                    } else {
+                        let s = StringData::new_internal(buf);
+                        lst.push(s.downgrade());
+                        s
+                    }
                 } else {
-                    s1.extend_from_slice(&s2[range.clone()]);
-                    Self::Utf16(s1)
+                    let s = StringData::new_internal(buf);
+                    lst.push(s.downgrade());
+                    s
+                }
+            } else {
+                let s = StringData::new_internal(buf);
+                lut.insert(hash, vec![s.downgrade()]);
+                s
+            }
+        })
+    }
+
+    /// remove a string content from the intern pool
+    fn unintern(cc: &StringData) {
+        let hash = hash_codepoints(cc.iter().map(|(_, c)| c));
+
+        Self::STRING_CONTENT_INTERN_DICT.with_borrow_mut(|lut| {
+            if let Some(lst) = lut.get_mut(&hash) {
+                lst.retain(|w| {
+                    if let Some(w) = w.upgrade() {
+                        !w.eq(cc)
+                    } else {
+                        false
+                    }
+                });
+                if lst.is_empty() {
+                    lut.remove(&hash);
                 }
             }
-            (Self::Ascii(mut s1), StringContent::Ascii(s2)) => {
-                if let Err(e) = s1.try_reserve_exact(s2.len()) {
-                    *self = Self::Ascii(s1);
-                    return Err(e);
-                } else {
-                    s1.extend_from_slice(&s2[range.clone()]);
-                    Self::Ascii(s1)
-                }
-            }
+        })
+    }
 
-            (Self::Utf16(mut s1), StringContent::Ascii(s2)) => {
-                if let Err(e) = s1.try_reserve(s2.len()) {
-                    *self = Self::Utf16(s1);
-                    return Err(e);
-                }
-                for c in unsafe { std::str::from_utf8_unchecked(&s2[range.clone()]) }.encode_utf16()
-                {
-                    s1.push(c);
-                }
-                Self::Utf16(s1)
-            }
-            (Self::Ascii(s1), StringContent::Utf16(s2)) => {
-                let mut buf = Vec::<u16>::new();
-                if let Err(e) = buf.try_reserve_exact(s1.len() + s2.len()) {
-                    *self = Self::Ascii(s1); // restore original
-                    return Err(e);
-                }
+    fn downgrade(&self) -> StringDataWeakref {
+        match self {
+            StringData::Ascii(s) => StringDataWeakref::Ascii(Rc::downgrade(s)),
+            StringData::Utf16(s) => StringDataWeakref::Utf16(Rc::downgrade(s)),
+            StringData::Empty => StringDataWeakref::Empty,
+            StringData::Ident => StringDataWeakref::Ident,
+        }
+    }
+}
 
-                let a = unsafe { std::str::from_utf8_unchecked(s1.as_slice()) }.encode_utf16();
-                let b = s2[range.clone()].iter().copied();
-                buf.extend(a.chain(b));
+impl From<StringBuf> for StringData {
+    #[inline(always)]
+    fn from(value: StringBuf) -> Self {
+        Self::intern(value)
+    }
+}
 
-                if !buf.iter().any(|c| *c >= 0x80) {
-                    // is ascii
-                    Self::Ascii(unsafe { s16_into_s8(buf) })
-                } else {
-                    Self::Utf16(buf)
-                }
-            }
-        };
+#[derive(Clone)]
+#[repr(u8)]
+enum StringDataWeakref {
+    Empty,
+    Ascii(Weak<[u8]>),
+    Utf16(Weak<[u16]>),
+    Ident,
+}
 
-        *self = new_data;
-        Ok(())
+impl StringDataWeakref {
+    pub fn upgrade(&self) -> Option<StringData> {
+        match self {
+            StringDataWeakref::Ascii(s) => s.upgrade().map(StringData::Ascii),
+            StringDataWeakref::Utf16(s) => s.upgrade().map(StringData::Utf16),
+            StringDataWeakref::Empty => Some(StringData::Empty),
+            StringDataWeakref::Ident => Some(StringData::Ident),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[repr(transparent)]
+pub struct StringContent(StringData);
+
+impl Deref for StringContent {
+    type Target = StringData;
+
+    #[inline(always)]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<StringBuf> for StringContent {
+    #[inline(always)]
+    fn from(buf: StringBuf) -> Self {
+        Self(StringData::from(buf))
+    }
+}
+
+impl StringContent {
+    #[inline(always)]
+    pub fn empty() -> Self {
+        StringContent(StringData::Empty)
     }
 
     #[inline(always)]
-    pub fn push_content(&mut self, content: &StringContent) -> Result<(), TryReserveError> {
-        self.push_content_range(content, 0..content.len())
+    pub fn ident() -> Self {
+        Self(StringData::Ident)
     }
 }

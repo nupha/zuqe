@@ -60,8 +60,8 @@ pub fn js_regexp_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     }
 
-    let mut pattern: StringContent = StringContent::Empty;
-    let mut flags_str: StringContent = StringContent::Empty;
+    let mut pattern: StringContent = StringContent::empty();
+    let mut flags_str: StringContent = StringContent::empty();
 
     let re = if let Some(re) = pat.as_object().and_then(|o| js_get_regexp(ctx, o, false)) {
         if flags1.is_undefined() {
@@ -84,7 +84,7 @@ pub fn js_regexp_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
 
         pattern = if pat.is_undefined() {
-            StringContent::Empty
+            StringContent::empty()
         } else {
             pat.to_string(ctx)?.content().clone()
         };
@@ -92,7 +92,7 @@ pub fn js_regexp_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         flags_str = if !flags1.is_undefined() {
             flags1.to_string(ctx)?.content().clone()
         } else {
-            StringContent::Empty
+            StringContent::empty()
         };
 
         None
@@ -349,12 +349,12 @@ fn js_regexp_compile(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     } else {
         pattern = if pattern1.is_undefined() {
-            StringContent::Empty
+            StringContent::empty()
         } else {
             pattern1.to_string(ctx)?.content().clone()
         };
         flags_str = if flags1.is_undefined() {
-            StringContent::Empty
+            StringContent::empty()
         } else {
             flags1.to_string(ctx)?.content().clone()
         };

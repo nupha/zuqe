@@ -33,7 +33,7 @@ pub fn JS_JSONStringify(
         stack: SmallVec::new(),
         replacer_props: None,
         empty: JS_ATOM_empty_string.force_string(ctx).unwrap(),
-        gap: StringContent::Empty,
+        gap: StringContent::empty(),
         buf: StringBuf::Empty,
     };
 
@@ -106,7 +106,7 @@ pub fn JS_JSONStringify(
         })?;
         jsc.gap = ctx.create_string_with_buf(b)?.content().clone();
     } else {
-        jsc.gap = StringContent::Empty;
+        jsc.gap = StringContent::empty();
     }
 
     let wrapper: JSValue = ctx.create_base_object()?.into();

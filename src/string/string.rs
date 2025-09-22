@@ -186,6 +186,7 @@ impl JSStringInner {
 pub struct JSString(pub(crate) Rc<JSStringInner>);
 
 impl PartialEq for JSString {
+    #[inline(always)]
     fn eq(&self, other: &Self) -> bool {
         self.0.content() == other.0.content()
     }
@@ -392,7 +393,7 @@ impl JSString {
                     -1
                 })?)
             } else {
-                ctx.create_string_with_content(StringContent::Empty)
+                ctx.create_string_with_content(StringContent::empty())
             }
         }
     }

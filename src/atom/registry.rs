@@ -4,8 +4,8 @@ use crate::{
     atom::{JS_ATOM_HASH_PRIVATE, JS_ATOM_HASH_SYMBOL, JS_ATOM_TAG_INT},
     number::parse_u32,
     runtime::JSRuntime,
-    string::{JSString, StringContent},
-    utils::hash_u32_with_base,
+    string::{JSString, StringContent, StringData},
+    utils::hash_u32_from_base,
 };
 
 use super::{
@@ -88,7 +88,7 @@ impl JSAtom {
                     }
                 } else {
                     // anonymous symbol use identical atom
-                    JSString::new(rt, StringContent::Ident)
+                    JSString::new(rt, StringContent::ident())
                 };
 
                 let hash = if atom_type == AtomTypeHint::Symbol {
@@ -264,21 +264,12 @@ impl JSAtom {
     /// calc hash for content when using as an atom descriptor
     pub(crate) fn calc_atom_hash_content(desc: &StringContent, atom_type: AtomTypeHint) -> u32 {
         let mut h = atom_type as u32;
-        match &desc {
-            StringContent::Empty | StringContent::Ident => h,
-            StringContent::Ascii(s) => {
-                for c in s.iter() {
-                    h = hash_u32_with_base(h, (*c) as u32);
-                }
-                h
-            }
-            StringContent::Utf16(s) => {
-                for c in s.iter() {
-                    h = hash_u32_with_base(h, (*c) as u32);
-                }
-                h
+        if !desc.is_empty() && !desc.is_ident() {
+            for (_, c) in desc.iter() {
+                h = hash_u32_from_base(h, c.to_u32());
             }
         }
+        h
     }
 
     /// calc hash for str when using as an atom descriptor
@@ -286,7 +277,7 @@ impl JSAtom {
     pub(crate) fn calc_atom_hash_str(str: &str, atom_type: AtomTypeHint) -> u32 {
         let mut h = atom_type as u32;
         for c in str.encode_utf16() {
-            h = hash_u32_with_base(h, c as u32);
+            h = hash_u32_from_base(h, c as u32);
         }
         h
     }

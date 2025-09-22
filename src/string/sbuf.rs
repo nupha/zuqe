@@ -1,10 +1,17 @@
-use std::{borrow::Cow, collections::TryReserveError, ops::Range};
+use std::{
+    borrow::Cow,
+    collections::TryReserveError,
+    ops::{Deref, Range},
+};
 
 use fallible_collections::{FallibleVec, TryClone, TryCollect};
 
 use crate::string::StringChar;
 
-use super::string::JS_STRING_LEN_MAX;
+use super::{
+    content::{StringContent, StringData},
+    string::JS_STRING_LEN_MAX,
+};
 
 /// string content buffer
 #[repr(u8)]
@@ -17,6 +24,26 @@ pub enum StringBuf {
 impl Default for StringBuf {
     fn default() -> Self {
         Self::Empty
+    }
+}
+
+impl From<Vec<u8>> for StringBuf {
+    fn from(v: Vec<u8>) -> Self {
+        if v.is_empty() {
+            Self::Empty
+        } else {
+            Self::Ascii(v)
+        }
+    }
+}
+
+impl From<Vec<u16>> for StringBuf {
+    fn from(v: Vec<u16>) -> Self {
+        if v.is_empty() {
+            Self::Empty
+        } else {
+            Self::Utf16(v)
+        }
     }
 }
 
@@ -475,6 +502,87 @@ impl StringBuf {
         }
 
         Ok(())
+    }
+
+    /// concat other string content to self content, returns a new result string content.
+    /// if `range` is out of bounds, the intersectioned range will be applied.
+    pub fn push_content_range(
+        &mut self,
+        content: &StringContent,
+        range: Range<usize>,
+    ) -> Result<(), TryReserveError> {
+        if range.is_empty() || range.start >= content.len() {
+            return Ok(());
+        }
+
+        // intersect range
+        let range = range.start..std::cmp::min(range.end, content.len());
+
+        // use a temp var to hold current self content
+        let orig_data = std::mem::replace(self, Self::Empty);
+
+        let new_data: StringBuf = match (orig_data, content.deref()) {
+            (s, StringData::Empty | StringData::Ident) => s,
+            (Self::Empty, _) => content.to_buf_range(range)?,
+
+            // same type
+            (Self::Utf16(mut s1), StringData::Utf16(s2)) => {
+                if let Err(e) = s1.try_reserve_exact(s2.len()) {
+                    *self = Self::Utf16(s1);
+                    return Err(e);
+                } else {
+                    s1.extend_from_slice(&s2[range.clone()]);
+                    Self::Utf16(s1)
+                }
+            }
+            (Self::Ascii(mut s1), StringData::Ascii(s2)) => {
+                if let Err(e) = s1.try_reserve_exact(s2.len()) {
+                    *self = Self::Ascii(s1);
+                    return Err(e);
+                } else {
+                    s1.extend_from_slice(&s2[range.clone()]);
+                    Self::Ascii(s1)
+                }
+            }
+
+            (Self::Utf16(mut s1), StringData::Ascii(s2)) => {
+                if let Err(e) = s1.try_reserve(s2.len()) {
+                    *self = Self::Utf16(s1);
+                    return Err(e);
+                }
+                for c in unsafe { std::str::from_utf8_unchecked(&s2[range.clone()]) }.encode_utf16()
+                {
+                    s1.push(c);
+                }
+                Self::Utf16(s1)
+            }
+            (Self::Ascii(s1), StringData::Utf16(s2)) => {
+                let mut buf = Vec::<u16>::new();
+                if let Err(e) = buf.try_reserve_exact(s1.len() + s2.len()) {
+                    *self = Self::Ascii(s1); // restore original
+                    return Err(e);
+                }
+
+                let a = unsafe { std::str::from_utf8_unchecked(s1.as_slice()) }.encode_utf16();
+                let b = s2[range.clone()].iter().copied();
+                buf.extend(a.chain(b));
+
+                if !buf.iter().any(|c| *c >= 0x80) {
+                    // is ascii
+                    Self::Ascii(unsafe { s16_into_s8(buf) })
+                } else {
+                    Self::Utf16(buf)
+                }
+            }
+        };
+
+        *self = new_data;
+        Ok(())
+    }
+
+    #[inline(always)]
+    pub fn push_content(&mut self, content: &StringContent) -> Result<(), TryReserveError> {
+        self.push_content_range(content, 0..content.len())
     }
 
     /// encode content to utf8 str

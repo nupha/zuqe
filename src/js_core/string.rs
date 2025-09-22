@@ -1,4 +1,4 @@
-use std::ops::DerefMut;
+use std::ops::{Deref, DerefMut};
 
 use unicode_normalization::UnicodeNormalization;
 use widestring::U16Str;
@@ -15,7 +15,7 @@ use crate::{
     regexp::js_is_regexp,
     string::{
         JS_ConcatString, JS_ConcatString3, JS_STRING_LEN_MAX, JSString, StringBuf, StringChar,
-        StringContent,
+        StringContent, StringData,
     },
     value::JSValue,
 };
@@ -144,9 +144,7 @@ pub fn js_string_toWellFormed(ctx: &JSContext, cc: CallContext) -> JSResult {
         for c in U16Str::from_slice(ws).chars_lossy() {
             buf.extend_from_slice(c.encode_utf16(&mut [0; 2]));
         }
-        buf.shrink_to_fit();
-        ctx.create_string_with_content(StringContent::Utf16(buf.into()))
-            .map(JSValue::String)
+        ctx.create_string_with_buf(buf.into()).map(JSValue::String)
     } else {
         unreachable!()
     }
@@ -810,10 +808,8 @@ pub fn js_string_toLowerCase(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Ok(p.into());
     }
 
-    // let str = p.content();
-
-    let sc = match p.content() {
-        StringContent::Ascii(s) => {
+    let sc = match p.content().deref() {
+        StringData::Ascii(s) => {
             let s8 = unsafe { str::from_utf8_unchecked(s) };
             StringBuf::Ascii(
                 if to_lower {
@@ -824,7 +820,7 @@ pub fn js_string_toLowerCase(ctx: &JSContext, cc: CallContext) -> JSResult {
                 .into_bytes(),
             )
         }
-        StringContent::Utf16(s) => {
+        StringData::Utf16(s) => {
             let mut buf = StringBuf::with_capacity(s.len(), false).map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1
@@ -843,7 +839,6 @@ pub fn js_string_toLowerCase(ctx: &JSContext, cc: CallContext) -> JSResult {
                 -1
             })?;
 
-            buf.shrink_to_fit();
             buf
         }
 
