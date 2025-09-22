@@ -122,7 +122,7 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "RegExp",
             "REGEXP",
-            Some("Box<crate::regexp::JSRegExp>"),
+            Some("Box<crate::regexp::RegExpData>"),
             Some("crate::regexp::js_regexp_finalizer"),
             None
         ),

@@ -1,7 +1,6 @@
 use crate::{
     context::JS_MODE_STRICT,
     parse::token::TokenData,
-    regexp::from_hex,
     string::StringBuf,
     unicode::{UTF8_CHAR_LEN_MAX, unicode_from_utf8},
 };
@@ -359,5 +358,15 @@ impl<'s> JSParseState<'s> {
 
         *pp = p;
         Ok(code)
+    }
+}
+
+#[inline]
+const fn from_hex(c: u8) -> Result<u8, i32> {
+    match c {
+        b'0'..=b'9' => Ok(c - b'0'),
+        b'A'..=b'F' => Ok(c - b'A' + 10),
+        b'a'..=b'f' => Ok(c - b'a' + 10),
+        _ => Err(-1),
     }
 }

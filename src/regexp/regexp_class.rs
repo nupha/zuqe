@@ -13,14 +13,15 @@ use crate::{
         JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, JS_SpeciesConstructor, JSObject,
         ObjectPayload,
     },
+    regexp::RegExp,
     runtime::JSRuntime,
     string::{JS_ConcatString3, JSString, StringBuf, StringChar, StringContent},
     value::JSValue,
 };
 
 use super::{
-    JSRegExp, LRE_FLAG_DOTALL, LRE_FLAG_GLOBAL, LRE_FLAG_IGNORECASE, LRE_FLAG_INDICES,
-    LRE_FLAG_MULTILINE, LRE_FLAG_STICKY, LRE_FLAG_UTF16, RegExpStringIterPayload,
+    LRE_FLAG_DOTALL, LRE_FLAG_GLOBAL, LRE_FLAG_IGNORECASE, LRE_FLAG_INDICES, LRE_FLAG_MULTILINE,
+    LRE_FLAG_STICKY, LRE_FLAG_UTF16, RegExpData, RegExpStringIterPayload,
     make_regexp_capture_array,
 };
 
@@ -31,14 +32,26 @@ pub fn js_regexp_constructor_internal(
     ctor: &JSValue,
     pattern: &JSString,
     flags: &JSValue,
-) -> Result<JSObject, i32> {
+) -> Result<RegExp, i32> {
     if !flags.is_undefined() {
-        ctx.create_regexp(ctor, pattern, &flags.to_string(ctx)?)
-    } else {
-        ctx.create_regexp(
+        RegExp::create(
+            ctx,
             ctor,
-            pattern,
-            &JS_ATOM_empty_string.force_string(ctx).unwrap(),
+            pattern.content().clone(),
+            flags.to_string(ctx)?.content().clone(),
+        )
+    } else {
+        RegExp::create(
+            ctx,
+            ctor,
+            pattern.content().clone(),
+            if flags.is_undefined() {
+                JS_ATOM_empty_string.force_string(ctx)
+            } else {
+                flags.to_string(ctx)
+            }?
+            .content()
+            .clone(),
         )
     }
 }
@@ -101,8 +114,8 @@ pub fn js_regexp_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let re = if let Some(re) = re {
         re
     } else {
-        let (re, flags) = JSRegExp::build_re(ctx, &pattern.to_utf8(), flags_str.chars_lossy())?;
-        JSRegExp {
+        let (re, flags) = RegExpData::compile_re(ctx, &pattern.to_utf8(), flags_str.chars_lossy())?;
+        RegExpData {
             regex: Rc::new(re),
             pattern,
             flags_str,
@@ -117,7 +130,7 @@ pub fn js_regexp_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(obj.into())
 }
 
-pub fn js_get_regexp(ctx: &JSContext, obj: &JSObject, throw_error: bool) -> Option<JSRegExp> {
+pub fn js_get_regexp(ctx: &JSContext, obj: &JSObject, throw_error: bool) -> Option<RegExpData> {
     if let ObjectPayload::REGEXP(re) = obj.0.payload.borrow().deref() {
         Some(*re.clone())
     } else {
@@ -360,7 +373,7 @@ fn js_regexp_compile(ctx: &JSContext, cc: CallContext) -> JSResult {
         };
     }
 
-    let re = Box::new(JSRegExp::new(ctx, pattern, flags_str)?);
+    let re = Box::new(RegExpData::create(ctx, pattern, flags_str)?);
     *cc.this().as_object().unwrap().0.payload.borrow_mut() = ObjectPayload::REGEXP(re);
 
     cc.this()

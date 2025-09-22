@@ -1,11 +1,13 @@
-use std::{ops::Range, rc::Rc};
+use std::{borrow::Cow, ops::Range, rc::Rc};
 
 use regex::bytes::{Regex, RegexBuilder};
 
 use crate::{
+    JS_CLASS_REGEXP,
     atom::consts::*,
     context::JSContext,
     object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, JSObject, ObjectPayload},
+    object_cast,
     string::{JSString, StringContent, map_utf8_to_utf16_range},
     value::JSValue,
 };
@@ -41,15 +43,15 @@ pub enum RegExpExecMode {
 }
 
 #[derive(Clone, Debug)]
-pub struct JSRegExp {
+pub struct RegExpData {
     pub(crate) pattern: StringContent,
     pub(crate) flags_str: StringContent,
     pub(crate) flags: u8,
     pub(super) regex: Rc<Regex>,
 }
 
-impl JSRegExp {
-    pub(crate) fn build_re(
+impl RegExpData {
+    pub(crate) fn compile_re(
         ctx: &JSContext,
         pattern: &str,
         flags: impl Iterator<Item = char>,
@@ -87,7 +89,7 @@ impl JSRegExp {
 
         // Note: pattern `[]`， `[^]` is valid for js, but is invalid for Regex.
         // should replace with equivalent pattern for Regex.
-        let pat = match pattern {
+        let mut pat: Cow<str> = match pattern {
             "[]" => {
                 // pattern `[]` is not allowed in regex.
                 // use `$^` to mimic equivelent effect.
@@ -99,9 +101,68 @@ impl JSRegExp {
                 "."
             }
             _ => pattern,
-        };
+        }
+        .into();
 
-        let re = RegexBuilder::new(pat)
+        // in some cases, regexp is supposed to enable unicode mode by default:
+        // 1. pattern contains non-ascii characters
+        // 2. pattern has \xFF or \uFFFF pattern char.
+        if !pat.is_ascii() {
+            ff |= LRE_FLAG_UTF16 as u8;
+        }
+
+        if pat.chars().any(|c| c == '\\') {
+            // has escape: check for \xFF, \uFFFF; check for \> \<
+            let mut pat2 = String::with_capacity(pat.len());
+            let mut has_unicode = ff & LRE_FLAG_UTF16 as u8 != 0;
+            let mut expect_hex: Option<i32> = None;
+            let mut it = pattern.chars().peekable();
+
+            while let Some(c) = it.next() {
+                pat2.push(c);
+
+                match c {
+                    '\\' => {
+                        if let Some(c1) = it.peek() {
+                            match *c1 {
+                                'x' if !has_unicode => {
+                                    // \xFF
+                                    expect_hex = Some(2);
+                                    it.next();
+                                    pat2.push('x');
+                                }
+                                'u' if !has_unicode => {
+                                    // \uFFFF
+                                    expect_hex = Some(4);
+                                    it.next();
+                                    pat2.push('u');
+                                }
+                                '>' | '<' => {
+                                    // replace \\> with >, \\< with <
+                                    pat2.pop(); // chop \\
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    '0'..='9' | 'A'..='F' | 'a'..='f' if !has_unicode => {
+                        if let Some(cnt) = &mut expect_hex {
+                            *cnt -= 1;
+                            if *cnt == 0 {
+                                ff |= LRE_FLAG_UTF16 as u8;
+                                has_unicode = true;
+                                expect_hex = None;
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            pat = Cow::Owned(pat2);
+        }
+
+        let re = RegexBuilder::new(pat.as_ref())
             .unicode(ff & LRE_FLAG_UTF16 as u8 != 0)
             .multi_line(ff & LRE_FLAG_MULTILINE as u8 != 0)
             .case_insensitive(ff & LRE_FLAG_IGNORECASE as u8 != 0)
@@ -114,8 +175,12 @@ impl JSRegExp {
         Ok((re, ff))
     }
 
-    pub fn new(ctx: &JSContext, pattern: StringContent, flags: StringContent) -> Result<Self, i32> {
-        let (re, ff) = Self::build_re(ctx, &pattern.to_utf8(), flags.chars_lossy())?;
+    pub(super) fn create(
+        ctx: &JSContext,
+        pattern: StringContent,
+        flags: StringContent,
+    ) -> Result<Self, i32> {
+        let (re, ff) = Self::compile_re(ctx, &pattern.to_utf8(), flags.chars_lossy())?;
         Ok(Self {
             pattern,
             flags_str: flags,
@@ -212,36 +277,29 @@ impl JSRegExp {
     }
 }
 
-pub const fn from_hex(c: u8) -> Result<u8, i32> {
-    match c {
-        b'0'..=b'9' => Ok(c - b'0'),
-        b'A'..=b'F' => Ok(c - b'A' + 10),
-        b'a'..=b'f' => Ok(c - b'a' + 10),
-        _ => Err(-1),
-    }
-}
+#[derive(Debug, Clone)]
+#[repr(transparent)]
+pub struct RegExp(JSObject);
 
-impl JSContext {
-    /// create RegExp object
-    pub fn create_regexp(
-        &self,
+object_cast!(RegExp, JS_CLASS_REGEXP);
+
+impl RegExp {
+    pub fn create(
+        ctx: &JSContext,
         ctor: &JSValue,
-        pattern: &JSString,
-        flags: &JSString,
-    ) -> Result<JSObject, i32> {
-        let obj = self
-            .create_object_apply_ctor(
+        pattern: StringContent,
+        flags: StringContent,
+    ) -> Result<Self, i32> {
+        let re = Self(
+            ctx.create_object_apply_ctor(
                 ctor,
-                ObjectPayload::REGEXP(Box::new(JSRegExp::new(
-                    self,
-                    pattern.content().clone(),
-                    flags.content().clone(),
-                )?)),
+                ObjectPayload::REGEXP(Box::new(RegExpData::create(ctx, pattern, flags)?)),
             )
-            .map_err(|_| -1)?;
+            .map_err(|_| -1)?,
+        );
 
-        obj.define_property_value(self, JS_ATOM_lastIndex, JSValue::Int(0), JS_PROP_WRITABLE)?;
-        Ok(obj)
+        re.define_property_value(ctx, JS_ATOM_lastIndex, JSValue::Int(0), JS_PROP_WRITABLE)?;
+        Ok(re)
     }
 }
 

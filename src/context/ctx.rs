@@ -13,7 +13,7 @@ use crate::{
     eval::EvalFn,
     module::{JSFreeModuleEnum, JSModuleDefWeakref, js_free_modules},
     object::{JSObject, JSShape},
-    regexp::JSRegExp,
+    regexp::RegExpData,
     runtime::JSRuntime,
     stack_frame::StackFrame,
     value::JSValue,
@@ -75,8 +75,9 @@ pub struct JSContextInner {
 
     /// Regexp compilation callback
     #[deprecated(note = "unused")]
-    pub compile_regexp:
-        Option<fn(ctx: &JSContext, pattern: JSValue, flags: Option<&str>) -> Result<JSRegExp, i32>>,
+    pub compile_regexp: Option<
+        fn(ctx: &JSContext, pattern: JSValue, flags: Option<&str>) -> Result<RegExpData, i32>,
+    >,
 
     /// eval callback
     pub eval_handle: Option<EvalFn>,

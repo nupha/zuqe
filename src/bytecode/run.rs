@@ -38,6 +38,7 @@ use crate::{
         JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_VARREF,
         JS_PROP_WRITABLE, JSObject, JSProperty,
     },
+    regexp::RegExp,
     stack_frame::StackFrame,
     string::JSString,
     utils::read_from_ptr,
@@ -1014,13 +1015,17 @@ impl Bytecode {
                     }
                     OpCode::REGEXP => {
                         // [pattern, flags, ^] -> [regexp, ^]
-                        let pattern: JSString = SP_TAKE!(-2).try_into().unwrap();
-                        let flags: JSString = SP_TAKE!(-1).try_into().unwrap();
-                        let res = ctx
-                            .create_regexp(&JSValue::UNDEFINED, &pattern, &flags)
-                            .map_or(JSValue::EXCEPTION, JSValue::Object);
+                        let pattern = JSString::try_from(SP_TAKE!(-2)).unwrap();
+                        let flags = JSString::try_from(SP_TAKE!(-1)).unwrap();
+                        let re = RegExp::create(
+                            ctx,
+                            &JSValue::UNDEFINED,
+                            pattern.content().clone(),
+                            flags.content().clone(),
+                        )
+                        .map_or(JSValue::EXCEPTION, |o| o.into());
 
-                        SP_PUT!(-2, res);
+                        SP_PUT!(-2, re);
                         SP_GO!(-1);
                     }
                     OpCode::GET_SUPER => {

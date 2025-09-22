@@ -1,6 +1,6 @@
 use crate::{
     parse::token::{TOK_REGEXP, TokenData},
-    regexp::JSRegExp,
+    regexp::RegExpData,
     string::StringBuf,
 };
 
@@ -91,7 +91,7 @@ impl<'s> JSParseState<'s> {
         let flags = self.ctx.create_string_with_buf(flags_str)?;
 
         // try perform regexp compile to pre-check pattern and flags syntax
-        JSRegExp::build_re(
+        RegExpData::compile_re(
             &self.ctx,
             pattern.content().to_utf8().as_ref(),
             flags.content().chars_lossy(),
