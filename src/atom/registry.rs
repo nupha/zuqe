@@ -4,7 +4,7 @@ use crate::{
     atom::{JS_ATOM_HASH_PRIVATE, JS_ATOM_HASH_SYMBOL, JS_ATOM_TAG_INT},
     number::parse_u32,
     runtime::JSRuntime,
-    string::{JSString, StringContent, StringData},
+    string::{JSString, StringContent},
     utils::hash_u32_from_base,
 };
 

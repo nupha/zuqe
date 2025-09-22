@@ -714,7 +714,10 @@ impl StringData {
         })
     }
 
-    /// remove a string content from the intern pool
+    /// remove a string content from the intern pool.
+    /// this is called when last reference of string content is dropped.
+    ///
+    /// See `StringData::drop()`
     fn unintern(cc: &StringData) {
         let hash = hash_codepoints(cc.iter().map(|(_, c)| c));
 
@@ -771,7 +774,7 @@ impl StringDataWeakref {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct StringContent(StringData);
 
@@ -788,6 +791,12 @@ impl From<StringBuf> for StringContent {
     #[inline(always)]
     fn from(buf: StringBuf) -> Self {
         Self(StringData::from(buf))
+    }
+}
+
+impl std::fmt::Debug for StringContent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
     }
 }
 

@@ -5,6 +5,11 @@ mod string;
 mod sub;
 mod utf_8_16;
 
-pub use {content::*, iter::*, sbuf::*, string::*};
+pub use {
+    content::{StringContent, StringData},
+    iter::*,
+    sbuf::*,
+    string::*,
+};
 
 pub(crate) use utf_8_16::*;
