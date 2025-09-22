@@ -4,7 +4,6 @@ use fallible_collections::TryCollect;
 use widestring::U16Str;
 
 use crate::{
-    atom::AtomTypeHint,
     context::JSContext,
     number::{ATOD_ACCEPT_BIN_OCT, js_atof, parse_i64, parse_u32},
     string::{
@@ -168,13 +167,6 @@ impl PartialOrd for StringContent {
 
 impl std::fmt::Debug for StringContent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // match self {
-        //     Self::Empty => write!(f, "Empty"),
-        //     Self::Ascii(arg0) => f.debug_tuple("Ascii").field(arg0).finish(),
-        //     Self::Utf16(arg0) => f.debug_tuple("Utf16").field(arg0).finish(),
-        //     Self::Ident => write!(f, "Ident"),
-        // }
-
         match self {
             Self::Empty => write!(f, "\"\""),
             Self::Ident => write!(f, "<ident>"),
@@ -591,37 +583,6 @@ impl StringContent {
             }
         }
     }
-
-    /// calc hash for content
-    #[inline]
-    pub fn calc_hash(&self, atom_type: AtomTypeHint) -> u32 {
-        let mut h = atom_type as u32;
-        match &self {
-            Self::Empty | Self::Ident => h,
-            Self::Ascii(s) => {
-                for c in s.iter() {
-                    h = hash_char((*c) as u32, h);
-                }
-                h
-            }
-            Self::Utf16(s) => {
-                for c in s.iter() {
-                    h = hash_char((*c) as u32, h);
-                }
-                h
-            }
-        }
-    }
-
-    /// calc hash for given `str`
-    #[inline(always)]
-    pub(crate) fn calc_hash_for_str(str: &str, atom_type: AtomTypeHint) -> u32 {
-        let mut h = atom_type as u32;
-        for c in str.encode_utf16() {
-            h = hash_char(c as u32, h);
-        }
-        h
-    }
 }
 
 impl From<StringBuf> for StringContent {
@@ -735,9 +696,4 @@ impl StringBuf {
     pub fn push_content(&mut self, content: &StringContent) -> Result<(), TryReserveError> {
         self.push_content_range(content, 0..content.len())
     }
-}
-
-#[inline(always)]
-const fn hash_char(c: u32, h: u32) -> u32 {
-    h.wrapping_mul(263).wrapping_add(c)
 }

@@ -236,7 +236,6 @@ impl std::fmt::Display for JSString {
 
 impl std::fmt::Debug for JSString {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // write!(f, "{self}")
         write!(f, "{:?}", self.0)
     }
 }

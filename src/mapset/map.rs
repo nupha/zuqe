@@ -6,6 +6,7 @@ use crate::{
     object::{JSObject, JSObjectWeakref, ObjectInner, ObjectPayload},
     object_cast,
     runtime::JSRuntime,
+    utils::hash_usize,
     value::JSValue,
 };
 
@@ -243,7 +244,7 @@ impl JSMapState {
     pub(crate) fn remove_weak_obj(&mut self, obj: &ObjectInner) {
         debug_assert!(self.is_weak);
 
-        let hash = JSValue::id_to_hash(obj.id());
+        let hash = hash_usize(obj.id());
 
         // remove from lut
         let purge_lut = if let Some(lst) = self.lut.get_mut(&hash) {

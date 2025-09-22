@@ -229,6 +229,18 @@ pub fn get_sleb128(pval: &mut i32, buf: &[u8]) -> Result<usize, i32> {
     Ok(ret)
 }
 
+/// calc hash for base_hash adding an extra u32
+#[inline(always)]
+pub(crate) const fn hash_u32_with_base(base_hash: u32, extra: u32) -> u32 {
+    base_hash.wrapping_mul(263).wrapping_add(extra)
+}
+
+/// calc hash for usize
+#[inline(always)]
+pub(crate) const fn hash_usize(id: usize) -> u32 {
+    id.wrapping_mul(3163) as u32
+}
+
 //
 // FIELD DEFINATION MACROS
 //

@@ -1,11 +1,12 @@
 use crate::{
     JS_CLASS_ERROR,
-    atom::{AtomTypeHint, JSAtomStruct},
+    atom::{AtomTypeHint, JSAtom, JSAtomStruct},
     function::{AsyncFuncState, Bytecode},
     module::ModuleDef,
     number::JSFloat64Union,
     object::JSObject,
     string::JSString,
+    utils::hash_usize,
 };
 
 #[cfg(feature = "nan_boxing")]
@@ -329,24 +330,18 @@ impl JSValue {
         }
     }
 
-    /// calculate hash for given `id`
-    #[inline(always)]
-    pub(crate) const fn id_to_hash(id: usize) -> u32 {
-        (id * 3163) as u32
-    }
-
-    /// calculate value hash
+    /// calc hash of value
     pub fn hash(&self) -> u32 {
         let h: u32 = match self {
-            Self::Object(o) => Self::id_to_hash(o.id()),
+            Self::Object(o) => hash_usize(o.id()),
             Self::Int(d) => {
                 let u = JSFloat64Union { uint64: *d as u64 };
                 unsafe { (u.uint32[0] ^ u.uint32[1]).wrapping_mul(3163) }
             }
-            Self::String(s) => s.content().calc_hash(AtomTypeHint::String),
+            Self::String(s) => JSAtom::calc_atom_hash_content(s.content(), AtomTypeHint::String),
             Self::Symbol(s) => {
                 let a = s.atom_info().unwrap();
-                s.content().calc_hash(a.type_hint())
+                JSAtom::calc_atom_hash_content(s.content(), a.type_hint())
             }
             Self::Float64(d) => {
                 let mut d = *d;
@@ -358,13 +353,13 @@ impl JSValue {
             }
             Self::UNDEFINED | Self::NULL | Self::UNINITIALIZED | Self::EXCEPTION => 0,
             Self::Bool(b) => *b as u32,
-            Self::Bytecode(f) => Self::id_to_hash(f.id()),
-            Self::Module(m) => Self::id_to_hash(m.id()),
+            Self::Bytecode(f) => hash_usize(f.id()),
+            Self::Module(m) => hash_usize(m.id()),
             Self::CatchOffset(i) => {
                 let u = JSFloat64Union { uint64: *i as u64 };
                 unsafe { (u.uint32[0] ^ u.uint32[1]).wrapping_mul(3163) }
             }
-            Self::AsyncStateResume(a) => Self::id_to_hash(a.id()),
+            Self::AsyncStateResume(a) => hash_usize(a.id()),
         };
 
         let tag = unsafe { *<*const _>::from(self).cast::<u8>() };

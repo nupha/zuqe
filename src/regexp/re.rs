@@ -1,6 +1,6 @@
 use std::{ops::Range, rc::Rc};
 
-use fancy_regex::{Regex, RegexBuilder};
+use regex::bytes::{Regex, RegexBuilder};
 
 use crate::{
     atom::consts::*,
@@ -55,7 +55,6 @@ impl JSRegExp {
         flags: impl Iterator<Item = char>,
     ) -> Result<(Regex, u8), i32> {
         let mut ff = 0u8;
-
         for c in flags {
             match c {
                 'd' => {
@@ -86,30 +85,24 @@ impl JSRegExp {
             }
         }
 
-        println!(
-            "[O.o] patter={pattern:?}, re={:?}",
-            fancy_regex::Regex::new(pattern)
-        );
-
-        // Note: pattern `[]`， `[^]` is valid for js, but is invalid in crate 'regex'.
-        // should replace with equivalent pattern for regex.
-        // let pat = match pattern {
-        //     "[]" => {
-        //         // pattern `[]` is not allowed in regex.
-        //         // use `$^` to mimic equivelent effect.
-        //         "$^"
-        //     }
-        //     "[^]" => {
-        //         // pattern `[^]` is not allowed in regex.
-        //         // use `.` to mimic equivelent effect.
-        //         "."
-        //     }
-        //     _ => pattern,
-        // };
-        let pat = pattern;
+        // Note: pattern `[]`， `[^]` is valid for js, but is invalid for Regex.
+        // should replace with equivalent pattern for Regex.
+        let pat = match pattern {
+            "[]" => {
+                // pattern `[]` is not allowed in regex.
+                // use `$^` to mimic equivelent effect.
+                "$^"
+            }
+            "[^]" => {
+                // pattern `[^]` is not allowed in regex.
+                // use `.` to mimic equivelent effect.
+                "."
+            }
+            _ => pattern,
+        };
 
         let re = RegexBuilder::new(pat)
-            .unicode_mode(ff & LRE_FLAG_UTF16 as u8 != 0)
+            .unicode(ff & LRE_FLAG_UTF16 as u8 != 0)
             .multi_line(ff & LRE_FLAG_MULTILINE as u8 != 0)
             .case_insensitive(ff & LRE_FLAG_IGNORECASE as u8 != 0)
             .build()
@@ -123,23 +116,17 @@ impl JSRegExp {
 
     pub fn new(ctx: &JSContext, pattern: StringContent, flags: StringContent) -> Result<Self, i32> {
         let (re, ff) = Self::build_re(ctx, &pattern.to_utf8(), flags.chars_lossy())?;
-        let regex = Rc::new(re);
-
         Ok(Self {
             pattern,
             flags_str: flags,
-            regex,
+            regex: Rc::new(re),
             flags: ff,
         })
     }
 
-    pub fn find(
-        &self,
-        content: &StringContent,
-        from: usize,
-    ) -> Result<Box<[Range<usize>]>, fancy_regex::Error> {
+    pub fn find(&self, content: &StringContent, from: usize) -> Box<[Range<usize>]> {
         if from > content.len() {
-            return Ok(Box::new([]));
+            return Box::new([]);
         }
 
         let utf8_str = content.to_utf8_range(from..content.len());
@@ -152,13 +139,11 @@ impl JSRegExp {
         let mut last_range = usize::MAX..usize::MAX;
         let mut res = Vec::<Range<usize>>::with_capacity(32);
 
-        for m in
-            self.regex
-                .find_iter(utf8_str.as_ref())
-                .take(if is_global { usize::MAX } else { 1 })
+        for m in self
+            .regex
+            .find_iter(utf8_str.as_bytes())
+            .take(if is_global { usize::MAX } else { 1 })
         {
-            let m = m?;
-
             if is_sticky && m.start() != cursor {
                 break;
             }
@@ -182,23 +167,23 @@ impl JSRegExp {
             }
         }
 
-        Ok(res.into())
+        res.into()
     }
 
     pub fn capture(
         &self,
         content: &StringContent,
         from: usize,
-    ) -> Result<Option<Box<[(Option<Range<usize>>, Option<&str>)]>>, fancy_regex::Error> {
+    ) -> Option<Box<[(Option<Range<usize>>, Option<&str>)]>> {
         if from > content.len() {
-            return Ok(None);
+            return None;
         }
 
         let utf8_str = content.to_utf8_range(from..content.len());
 
-        if let Some(caps) = self.regex.captures(utf8_str.as_ref())? {
+        if let Some(caps) = self.regex.captures(utf8_str.as_bytes()) {
             if self.flags & LRE_FLAG_STICKY as u8 != 0 && caps.get(0).unwrap().start() != 0 {
-                return Ok(None);
+                return None;
             }
 
             let mut res = Vec::<(Option<Range<usize>>, Option<&str>)>::new();
@@ -220,9 +205,9 @@ impl JSRegExp {
                 }
             }
 
-            Ok(Some(res.into()))
+            Some(res.into())
         } else {
-            Ok(None)
+            None
         }
     }
 }

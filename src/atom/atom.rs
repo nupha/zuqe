@@ -568,7 +568,7 @@ pub unsafe fn JS_DumpAtoms(rt: &JSRuntime) {
                 "  {}: {{ {} {:08x} {:?}",
                 i + JS_ATOM_INIT_COUNT as usize,
                 p.atom_info().unwrap().type_hint() as u8,
-                p.content().calc_hash(AtomTypeHint::String),
+                JSAtom::calc_atom_hash_content(p.content(), AtomTypeHint::String),
                 p.content()
             );
 

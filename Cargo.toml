@@ -43,7 +43,7 @@ widestring = "1.1"
 fallible_collections = "0.5"
 unicode-xid = "0.2"
 unicode-normalization = "0.1"
-fancy-regex = "0.16"
+regex = "1.11"
 
 [build-dependencies]
 cc = "1.0"

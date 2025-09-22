@@ -1016,7 +1016,6 @@ pub fn js_string_fromCharCode(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_string_fromCodePoint(ctx: &JSContext, cc: CallContext) -> JSResult {
-    // XXX: could pre-compute string length if all arguments are JS_TAG_INT
     let mut sbuf = StringBuf::Empty;
 
     if cc.length() > 0 {

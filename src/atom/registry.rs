@@ -1,13 +1,11 @@
-use std::{
-    cell::Cell, collections::hash_map::Entry, ffi::CStr, num::NonZeroU16, rc::Rc,
-    sync::atomic::AtomicUsize,
-};
+use std::{collections::hash_map::Entry, ffi::CStr, num::NonZeroU16, rc::Rc};
 
 use crate::{
     atom::{JS_ATOM_HASH_PRIVATE, JS_ATOM_HASH_SYMBOL, JS_ATOM_TAG_INT},
     number::parse_u32,
     runtime::JSRuntime,
     string::{JSString, StringContent},
+    utils::hash_u32_with_base,
 };
 
 use super::{
@@ -43,7 +41,7 @@ impl JSAtom {
                     }
                 }
 
-                let hash = ss.content().calc_hash(atom_type);
+                let hash = Self::calc_atom_hash_content(ss.content(), atom_type);
 
                 // match registered atoms for hash, type and content
                 match rt.atom_hash_lut.entry(hash) {
@@ -226,7 +224,7 @@ impl JSAtom {
 
     /// find atom by str
     pub fn find(rt: &JSRuntime, str: &str, atom_type: AtomTypeHint) -> Option<Self> {
-        let hash = StringContent::calc_hash_for_str(str, atom_type);
+        let hash = Self::calc_atom_hash_str(str, atom_type);
 
         if let Some(ids) = rt.atom_hash_lut.get(&hash) {
             for &aid in ids {
@@ -261,6 +259,36 @@ impl JSAtom {
         }
 
         None
+    }
+
+    /// calc hash for content when using as an atom descriptor
+    pub(crate) fn calc_atom_hash_content(desc: &StringContent, atom_type: AtomTypeHint) -> u32 {
+        let mut h = atom_type as u32;
+        match &desc {
+            StringContent::Empty | StringContent::Ident => h,
+            StringContent::Ascii(s) => {
+                for c in s.iter() {
+                    h = hash_u32_with_base(h, (*c) as u32);
+                }
+                h
+            }
+            StringContent::Utf16(s) => {
+                for c in s.iter() {
+                    h = hash_u32_with_base(h, (*c) as u32);
+                }
+                h
+            }
+        }
+    }
+
+    /// calc hash for str when using as an atom descriptor
+    #[inline]
+    pub(crate) fn calc_atom_hash_str(str: &str, atom_type: AtomTypeHint) -> u32 {
+        let mut h = atom_type as u32;
+        for c in str.encode_utf16() {
+            h = hash_u32_with_base(h, c as u32);
+        }
+        h
     }
 }
 
