@@ -197,7 +197,9 @@ impl JSAtom {
                 #[cfg(debug_assertions)]
                 unreachable!();
                 #[cfg(not(debug_assertions))]
-                std::hint::unreachable_unchecked();
+                unsafe {
+                    std::hint::unreachable_unchecked();
+                }
             }
         }
     }

@@ -11,11 +11,11 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef, IteratorState, JS_CallConstructor},
     iterator::{JSIteratorKindEnum, js_create_array_iterator},
-    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, ObjectPayload, js_get_length64},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, ObjectPayload},
     regexp::js_is_regexp,
     string::{
         JS_ConcatString, JS_ConcatString3, JS_STRING_LEN_MAX, JSString, StringBuf, StringChar,
-        StringCharIter, StringContent,
+        StringContent,
     },
     value::JSValue,
 };
@@ -1017,20 +1017,21 @@ pub fn js_string_fromCharCode(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_string_fromCodePoint(ctx: &JSContext, cc: CallContext) -> JSResult {
     // XXX: could pre-compute string length if all arguments are JS_TAG_INT
-    let mut res_string = StringBuf::Empty;
+    let mut sbuf = StringBuf::Empty;
 
-    let n = cc.length();
-    if n > 0 {
-        res_string
-            .try_reserve_exact(cc.length() as usize)
-            .map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
+    if cc.length() > 0 {
+        sbuf.try_reserve_exact(cc.length()).map_err(|_| {
+            ctx.throw_out_of_memory();
+            -1
+        })?;
 
         for a in cc.arguments() {
             let code: i32 = if let JSValue::Int(i) = a {
-                *i
+                if (0..=0x10ffff).contains(i) {
+                    *i
+                } else {
+                    -1 // bad code
+                }
             } else {
                 let d: f64 = a.to_f64(ctx)?;
                 if d.fract() == 0.0 {
@@ -1045,8 +1046,8 @@ pub fn js_string_fromCodePoint(ctx: &JSContext, cc: CallContext) -> JSResult {
                 }
             };
 
-            if let Some(c) = char::from_u32(code as u32) {
-                res_string.push_char(c).map_err(|_| {
+            if code >= 0 {
+                sbuf.push_u32(code as u32).map_err(|_| {
                     ctx.throw_out_of_memory();
                     -1
                 })?;
@@ -1057,8 +1058,7 @@ pub fn js_string_fromCodePoint(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     }
 
-    res_string.shrink_to_fit();
-    ctx.create_string_with_buf(res_string).map(JSValue::String)
+    ctx.create_string_with_buf(sbuf).map(JSValue::String)
 }
 
 pub fn js_string_raw(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -1066,12 +1066,12 @@ pub fn js_string_raw(ctx: &JSContext, cc: CallContext) -> JSResult {
     let cooked = cc.arg(0).clone().objectify(ctx)?;
     let raw = cooked.get_property(ctx, JS_ATOM_raw)?.objectify(ctx)?;
 
-    let n = js_get_length64(ctx, &raw.clone().into())?;
-    let mut res_string = StringBuf::Empty;
+    let n = raw.get_length_prop(ctx)?;
+    let mut sbuf = StringBuf::Empty;
 
     for i in 0..n {
-        let str = raw.get_property_i64(ctx, i as i64)?.to_string(ctx)?;
-        res_string.push_content(str.content()).map_err(|_| {
+        let str = raw.get_property_i64(ctx, i)?.to_string(ctx)?;
+        sbuf.push_content(str.content()).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
         })?;
@@ -1079,14 +1079,14 @@ pub fn js_string_raw(ctx: &JSContext, cc: CallContext) -> JSResult {
         if i < n - 1 && i + 1 < cc.length() as i64 {
             let val = cc.arg(i as usize + 1);
             let s = val.to_string(ctx)?;
-            res_string.push_content(s.content()).map_err(|_| {
+            sbuf.push_content(s.content()).map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1
             })?;
         }
     }
 
-    ctx.create_string_with_buf(res_string).map(JSValue::String)
+    ctx.create_string_with_buf(sbuf).map(JSValue::String)
 }
 
 pub const js_string_funcs: [FieldDef; 3] = [

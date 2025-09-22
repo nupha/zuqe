@@ -616,7 +616,9 @@ impl JSValue {
                 #[cfg(debug_assertions)]
                 unreachable!();
                 #[cfg(not(debug_assertions))]
-                std::hint::unreachable_unchecked();
+                unsafe {
+                    std::hint::unreachable_unchecked();
+                }
             }
             _ => {
                 ctx.throw_type_error("can't convert to string or symbol");

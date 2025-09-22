@@ -43,8 +43,7 @@ widestring = "1.1"
 fallible_collections = "0.5"
 unicode-xid = "0.2"
 unicode-normalization = "0.1"
-# TODO: could use fancy_regex for complex regexp support?
-regex = "1.0"
+fancy-regex = "0.16"
 
 [build-dependencies]
 cc = "1.0"

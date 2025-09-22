@@ -362,6 +362,18 @@ impl StringBuf {
         }
     }
 
+    pub fn push_u32(&mut self, c: u32) -> Result<(), TryReserveError> {
+        if c >= 0x10000 {
+            // push utf16 surrogate pair
+            let h = c - 0x10000;
+            self.push_u16_slice(&[((h >> 10) + 0xd800) as u16, ((h & 0x3ff) + 0xdc00) as u16])
+        } else if c < 0x80 {
+            self.push_u8(c as u8)
+        } else {
+            self.push_u16(c as u16)
+        }
+    }
+
     pub fn push_char<C: Into<StringChar>>(&mut self, c: C) -> Result<(), TryReserveError> {
         let c: StringChar = c.into();
         match c {

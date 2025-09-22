@@ -383,7 +383,10 @@ pub fn js_regexp_exec(ctx: &JSContext, cc: CallContext) -> JSResult {
         .get_property(ctx, JS_ATOM_lastIndex)?
         .to_length(ctx)? as usize;
 
-    if let Some(cap_list) = re.capture(str.content(), from) {
+    if let Some(cap_list) = re.capture(str.content(), from).map_err(|e| {
+        ctx.throw_type_error(&e.to_string());
+        -1
+    })? {
         let (arr, last_index) =
             make_regexp_capture_array(ctx, str, &cap_list, re.flags & LRE_FLAG_INDICES as u8 != 0)?;
         if re.flags & (LRE_FLAG_GLOBAL | LRE_FLAG_STICKY) as u8 != 0 {
@@ -417,7 +420,11 @@ pub fn js_regexp_Symbol_match(ctx: &JSContext, cc: CallContext) -> JSResult {
         // fast path: use native regex find()
         if re.flags & LRE_FLAG_GLOBAL as u8 != 0 {
             // has g flag: use find(), returns array of match
-            let found = re.find(str.content(), 0);
+            let found = re.find(str.content(), 0).map_err(|e| {
+                ctx.throw_type_error(&e.to_string());
+                -1
+            })?;
+
             if !found.is_empty() {
                 let arr = ctx.create_array()?;
                 let prop_flags = JS_PROP_C_W_E | JS_PROP_THROW;
@@ -437,15 +444,21 @@ pub fn js_regexp_Symbol_match(ctx: &JSContext, cc: CallContext) -> JSResult {
             }
         } else {
             // use capture, returns exec data
-            if let Some(cap_list) = re.capture(
-                str.content(),
-                if re.flags & LRE_FLAG_GLOBAL as u8 == 0 {
-                    0
-                } else {
-                    let val = cc.this().get_property(ctx, JS_ATOM_lastIndex)?;
-                    val.to_length(ctx)? as usize
-                },
-            ) {
+            if let Some(cap_list) = re
+                .capture(
+                    str.content(),
+                    if re.flags & LRE_FLAG_GLOBAL as u8 == 0 {
+                        0
+                    } else {
+                        let val = cc.this().get_property(ctx, JS_ATOM_lastIndex)?;
+                        val.to_length(ctx)? as usize
+                    },
+                )
+                .map_err(|e| {
+                    ctx.throw_type_error(&e.to_string());
+                    -1
+                })?
+            {
                 let (arr, last_index) = make_regexp_capture_array(
                     ctx,
                     str,
