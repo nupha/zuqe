@@ -7,6 +7,7 @@ authors = ["johnray <996351336@qq.com>"]
 build = "build.rs"
 
 [features]
+string_intern = []
 nan_boxing = []
 short_opcode = []
 all_unicode = []
@@ -20,6 +21,7 @@ dump_bytecode = []
 dump_gc_free = []
 
 default = [
+    "string_intern",
     "atomics",
     "dump_leaks",
     "dump_objects",
@@ -56,18 +58,20 @@ glob = "0.3"
 colorized = "1.0"
 
 [profile.release]
-opt-level = "s"
-lto = "thin"
+overflow-checks = false
+opt-level = 3
+lto = "fat"
 panic = "abort"
 strip = "symbols"
 codegen-units = 1
 
 [profile.release.package."*"]
-opt-level = "s"
+overflow-checks = false
+opt-level = 3
 strip = "symbols"
 
-[lib]
-lib = "src/lib.rs"
+# [lib]
+# lib = "src/lib.rs"
 
 # [examples]
 # eval = "examples/eval.rs"

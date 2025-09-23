@@ -635,26 +635,23 @@ fn hash_codepoints(s: impl Iterator<Item = StringChar>) -> u32 {
     h
 }
 
-impl Drop for StringData {
-    fn drop(&mut self) {
-        match self {
-            Self::Ascii(s) => {
-                if Rc::strong_count(s) == 1 {
-                    Self::unintern(self);
-                }
-            }
-            Self::Utf16(s) => {
-                if Rc::strong_count(s) == 1 {
-                    Self::unintern(self);
-                }
-            }
-            _ => {}
+impl From<StringBuf> for StringData {
+    #[inline(always)]
+    fn from(value: StringBuf) -> Self {
+        #[cfg(feature = "string_intern")]
+        {
+            Self::intern(value)
+        }
+
+        #[cfg(not(feature = "string_intern"))]
+        {
+            Self::from_buf(value)
         }
     }
 }
 
 impl StringData {
-    fn new_internal(buf: StringBuf) -> Self {
+    fn from_buf(buf: StringBuf) -> Self {
         match buf {
             StringBuf::Empty => Self::Empty,
             StringBuf::Ascii(s) => {
@@ -679,7 +676,29 @@ impl StringData {
             }
         }
     }
+}
 
+#[cfg(feature = "string_intern")]
+impl Drop for StringData {
+    fn drop(&mut self) {
+        match self {
+            Self::Ascii(s) => {
+                if Rc::strong_count(s) == 1 {
+                    Self::unintern(self);
+                }
+            }
+            Self::Utf16(s) => {
+                if Rc::strong_count(s) == 1 {
+                    Self::unintern(self);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+#[cfg(feature = "string_intern")]
+impl StringData {
     thread_local! {
         static STRING_CONTENT_INTERN_DICT: RefCell<HashMap<u32, Vec<StringDataWeakref>>> = RefCell::new(HashMap::new());
     }
@@ -697,17 +716,17 @@ impl StringData {
                     if s.eq_buf(&buf) {
                         s
                     } else {
-                        let s = StringData::new_internal(buf);
+                        let s = StringData::from_buf(buf);
                         lst.push(s.downgrade());
                         s
                     }
                 } else {
-                    let s = StringData::new_internal(buf);
+                    let s = StringData::from_buf(buf);
                     lst.push(s.downgrade());
                     s
                 }
             } else {
-                let s = StringData::new_internal(buf);
+                let s = StringData::from_buf(buf);
                 lut.insert(hash, vec![s.downgrade()]);
                 s
             }
@@ -747,13 +766,7 @@ impl StringData {
     }
 }
 
-impl From<StringBuf> for StringData {
-    #[inline(always)]
-    fn from(value: StringBuf) -> Self {
-        Self::intern(value)
-    }
-}
-
+#[cfg(feature = "string_intern")]
 #[derive(Clone)]
 #[repr(u8)]
 enum StringDataWeakref {
@@ -763,6 +776,7 @@ enum StringDataWeakref {
     Ident,
 }
 
+#[cfg(feature = "string_intern")]
 impl StringDataWeakref {
     pub fn upgrade(&self) -> Option<StringData> {
         match self {

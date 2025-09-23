@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Instant};
 
 use colorized::*;
 use zhuque::{
@@ -156,6 +156,8 @@ fn main() {
             .unwrap();
     }
 
+    let tm = Instant::now();
+
     let res = if filename.ends_with(".mjs") || JSParseState::detect_module(script.as_bytes()) {
         ctx.eval_module(script.as_bytes(), &filename, false)
             .map(JSValue::Module)
@@ -223,6 +225,8 @@ fn main() {
             };
         }
     }
+
+    println!("use time: {} ms", tm.elapsed().as_millis());
 }
 
 pub fn js_module_loader(

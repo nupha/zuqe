@@ -1,6 +1,7 @@
 #![allow(non_snake_case)]
 
 use std::{
+    collections::HashSet,
     io::{Read, Write},
     path::{Path, PathBuf},
     sync::atomic::{AtomicI32, Ordering},
@@ -20,7 +21,7 @@ use zhuque::{
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
     module::{JS_SetModuleLoaderFunc, ModuleDef},
     object::JS_PROP_C_W_E,
-    promise::{JSPromiseStateEnum, Promise},
+    promise::JSPromiseStateEnum,
     runtime::JSRuntime,
     value::JSValue,
 };
@@ -577,6 +578,7 @@ pub struct AppConfig {
     base_path: Option<String>,
     out_path: Option<String>,
     tests: Option<Vec<String>>,
+    exclude_tests: Option<Vec<String>>,
     exclude_features: Option<Vec<String>>,
 }
 
@@ -670,6 +672,17 @@ fn main() {
         .open("test262-fail.txt")
         .unwrap();
 
+    let mut exclude_tests = HashSet::<PathBuf>::with_capacity(128);
+    if let Some(skip_tests) = app_cfg.exclude_tests.take() {
+        for item in skip_tests {
+            let pat = base_path.join(format!("./test/{item}"));
+            for fname in glob::glob(pat.to_str().unwrap()).unwrap() {
+                let fname = fname.unwrap();
+                exclude_tests.insert(fname);
+            }
+        }
+    }
+
     if let Some(tests) = app_cfg.tests.take() {
         let excludes = if let Some(lst) = app_cfg.exclude_features.take() {
             if lst.is_empty() { None } else { Some(lst) }
@@ -681,14 +694,16 @@ fn main() {
             let pat = base_path.join(format!("./test/{item}"));
             for fname in glob::glob(pat.to_str().unwrap()).unwrap() {
                 let fname = fname.unwrap();
-                run_test_file(
-                    &fname,
-                    &harness_path,
-                    excludes.as_deref(),
-                    &mut outf,
-                    &mut errf,
-                );
-                outf.flush().unwrap();
+                if !exclude_tests.contains(&fname) {
+                    run_test_file(
+                        &fname,
+                        &harness_path,
+                        excludes.as_deref(),
+                        &mut outf,
+                        &mut errf,
+                    );
+                    outf.flush().unwrap();
+                }
             }
         }
     }
