@@ -43,4 +43,6 @@ pub mod value;
 #[deprecated(note = "unused stuff")]
 pub mod obsoletes;
 
+pub(crate) mod branch_hints;
+
 include!(concat!(env!("OUT_DIR"), "/std_class_def.rs"));

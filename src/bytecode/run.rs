@@ -3,6 +3,7 @@ use crate::{
         AtomTypeHint, JS_ATOM_NULL, JS_FreeAtom, JSAtom,
         consts::{JS_ATOM_return, JS_ATOM_throw},
     },
+    branch_hints::unlikely,
     bytecode::{
         OpCode, SpecialObject,
         arithmatic::{UnaryOp, js_eq, op_binary_logic},
@@ -255,7 +256,7 @@ impl Bytecode {
             let state: State = loop {
                 #[cfg(all(debug_assertions, feature = "dump_bytecode"))]
                 {
-                    if debug_setting.is_none() {
+                    if unlikely(debug_setting.is_none()) {
                         let b = stack_frame
                             .cur_func
                             .as_object()
@@ -269,7 +270,7 @@ impl Bytecode {
                     }
 
                     let dr = debug_setting.map_or(0, |s| s.dump_run);
-                    if dr != 0 {
+                    if unlikely(dr != 0) {
                         super::dump::dump_run_instruction(
                             ctx,
                             self,
@@ -383,7 +384,7 @@ impl Bytecode {
                                 .map_or(JSValue::EXCEPTION, JSValue::Object)
                         );
                         SP_GO!(1);
-                        if SP_REF!(-1).is_exception() {
+                        if unlikely(SP_REF!(-1).is_exception()) {
                             break State::Exception;
                         }
                     }
@@ -397,7 +398,7 @@ impl Bytecode {
                             SpecialObject::Arguments => {
                                 SP_PUT!(0, js_build_arguments(ctx, args));
                                 SP_GO!(1);
-                                if SP_REF!(-1).is_exception() {
+                                if unlikely(SP_REF!(-1).is_exception()) {
                                     break State::Exception;
                                 }
                             }
@@ -414,7 +415,7 @@ impl Bytecode {
                                 .map_or(JSValue::EXCEPTION, JSValue::Object);
                                 SP_PUT!(0, ma);
                                 SP_GO!(1);
-                                if SP_REF!(-1).is_exception() {
+                                if unlikely(SP_REF!(-1).is_exception()) {
                                     break State::Exception;
                                 }
                             }
@@ -444,7 +445,7 @@ impl Bytecode {
                                         .map_or(JSValue::EXCEPTION, JSValue::Object)
                                 );
                                 SP_GO!(1);
-                                if SP_REF!(-1).is_exception() {
+                                if unlikely(SP_REF!(-1).is_exception()) {
                                     break State::Exception;
                                 }
                             }
@@ -454,7 +455,7 @@ impl Bytecode {
                                     js_import_meta(ctx).map_or(JSValue::EXCEPTION, JSValue::Object)
                                 );
                                 SP_GO!(1);
-                                if SP_REF!(-1).is_exception() {
+                                if unlikely(SP_REF!(-1).is_exception()) {
                                     break State::Exception;
                                 }
                             }
@@ -468,7 +469,7 @@ impl Bytecode {
                                 .unwrap_or(JSValue::EXCEPTION)
                         );
                         SP_GO!(1);
-                        if SP_REF!(-1).is_exception() {
+                        if unlikely(SP_REF!(-1).is_exception()) {
                             break State::Exception;
                         }
                     }
@@ -704,15 +705,15 @@ impl Bytecode {
                             unsafe { std::slice::from_raw_parts(call_argv, call_argc as usize) },
                             0,
                         );
-                        if ret_val.is_exception() {
+                        if unlikely(ret_val.is_exception()) {
                             break State::Exception;
                         } else if opcode == OpCode::TAIL_CALL {
                             break State::Done(ret_val, false);
                         } else {
                             for i in -1..call_argc as isize {
-                                drop(unsafe {
+                                unsafe {
                                     std::ptr::replace(call_argv.offset(i), JSValue::UNDEFINED)
-                                });
+                                };
                             }
                             SP_GO!(-(call_argc as i32 + 1));
 
@@ -734,16 +735,16 @@ impl Bytecode {
                             unsafe { std::slice::from_raw_parts(call_argv, call_argc as usize) },
                             0,
                         );
-                        if ret_val.is_exception() {
+                        if unlikely(ret_val.is_exception()) {
                             break State::Exception;
                         } else {
                             for i in -2..call_argc {
-                                drop(unsafe {
+                                unsafe {
                                     std::ptr::replace(
                                         call_argv.offset(i as isize),
                                         JSValue::UNDEFINED,
                                     )
-                                });
+                                };
                             }
                             SP_GO!(-(call_argc + 2));
 
@@ -766,7 +767,7 @@ impl Bytecode {
                             unsafe { std::slice::from_raw_parts(call_argv, call_argc as usize) },
                             0,
                         );
-                        if ret_val.is_exception() {
+                        if unlikely(ret_val.is_exception()) {
                             break State::Exception;
                         }
 
@@ -1255,7 +1256,7 @@ impl Bytecode {
                                 .map_or(JSValue::EXCEPTION, JSValue::Object)
                         );
                         SP_GO!(1);
-                        if SP_REF!(-1).is_exception() {
+                        if unlikely(SP_REF!(-1).is_exception()) {
                             break State::Exception;
                         }
 
@@ -1593,7 +1594,7 @@ impl Bytecode {
                         SP_GO!(-1);
 
                         // because has done go(-1), so SP[-1] is orginal SP[-2]
-                        if SP_REF!(-1).is_exception() {
+                        if unlikely(SP_REF!(-1).is_exception()) {
                             break State::Exception;
                         }
                     }
@@ -1772,7 +1773,7 @@ impl Bytecode {
 
                         SP_PUT!(-2, val);
                         SP_GO!(-1);
-                        if is_err {
+                        if unlikely(is_err) {
                             break State::Exception;
                         }
                     }
@@ -1784,7 +1785,7 @@ impl Bytecode {
                                 .get_property_value(ctx, SP_REF!(-1))
                                 .unwrap_or(JSValue::EXCEPTION)
                         );
-                        if SP_REF!(-1).is_exception() {
+                        if unlikely(SP_REF!(-1).is_exception()) {
                             break State::Exception;
                         }
                     }
@@ -2372,36 +2373,6 @@ impl Bytecode {
 
             // process state
             match state {
-                State::Exception => {
-                    // calc offset index from pc and sp pointers
-                    let (pc_offset, sp_offset) = unsafe {
-                        (
-                            pc.offset_from(pc_base) as usize,
-                            sp.offset_from(sp_base) as usize,
-                        )
-                    };
-
-                    if let Some((new_pc, new_sp)) =
-                        stack_frame.handle_exception(ctx, pc_offset, sp_offset)
-                    {
-                        // continue running, update pc and sp pointer, and jump
-                        unsafe {
-                            pc = pc_base.offset(new_pc as _);
-                            sp = sp_base.offset(new_sp as _);
-                        }
-                        continue 'restart;
-                    } else {
-                        // abort with sp=0, pc unchanged
-                        stack_frame.handle_exit(
-                            ctx,
-                            pc_offset,
-                            0,
-                            self.0.borrow().func_kind != JSFunctionKindEnum::JS_FUNC_NORMAL,
-                        );
-                        return JSValue::EXCEPTION;
-                    }
-                }
-
                 State::Done(ret_val, is_generator) => {
                     stack_frame.handle_exit(
                         ctx,
@@ -2410,6 +2381,81 @@ impl Bytecode {
                         is_generator,
                     );
                     return ret_val;
+                }
+
+                State::Exception => {
+                    #[cold]
+                    fn handle_exception(
+                        ctx: &JSContext,
+                        stack_frame: &mut StackFrame,
+                        pc: *const u8,
+                        pc_base: *const u8,
+                        sp: *mut JSValue,
+                        sp_base: *mut JSValue,
+                        is_generator: bool,
+                    ) -> Option<(*const u8, *mut JSValue)> {
+                        // calc offset index from pc and sp pointers
+                        let (pc_offset, sp_offset) = unsafe {
+                            (
+                                pc.offset_from(pc_base) as usize,
+                                sp.offset_from(sp_base) as usize,
+                            )
+                        };
+
+                        if let Some((new_pc, new_sp)) =
+                            stack_frame.handle_exception(ctx, pc_offset, sp_offset)
+                        {
+                            // continue running, update pc and sp pointer, and jump
+                            unsafe {
+                                Some((pc_base.offset(new_pc as _), sp_base.offset(new_sp as _)))
+                            }
+                        } else {
+                            // abort with sp=0, pc unchanged
+                            stack_frame.handle_exit(ctx, pc_offset, 0, is_generator);
+                            None
+                        }
+                    }
+
+                    let is_generator =
+                        self.0.borrow().func_kind != JSFunctionKindEnum::JS_FUNC_NORMAL;
+
+                    if let Some((pc2, sp2)) =
+                        handle_exception(ctx, stack_frame, pc, pc_base, sp, sp_base, is_generator)
+                    {
+                        pc = pc2;
+                        sp = sp2;
+                        continue 'restart;
+                    } else {
+                        return JSValue::EXCEPTION;
+                    }
+
+                    // // calc offset index from pc and sp pointers
+                    // let (pc_offset, sp_offset) = unsafe {
+                    //     (
+                    //         pc.offset_from(pc_base) as usize,
+                    //         sp.offset_from(sp_base) as usize,
+                    //     )
+                    // };
+
+                    // if let Some((new_pc, new_sp)) =
+                    //     stack_frame.handle_exception(ctx, pc_offset, sp_offset)
+                    // {
+                    //     // continue running, update pc and sp pointer, and jump
+                    //     unsafe {
+                    //         pc = pc_base.offset(new_pc as _);
+                    //         sp = sp_base.offset(new_sp as _);
+                    //     }
+                    //     continue 'restart;
+                    // } else {
+                    //     // abort with sp=0, pc unchanged
+                    //     stack_frame.handle_exit(
+                    //         ctx,
+                    //         pc_offset,
+                    //         0,
+                    //         self.0.borrow().func_kind != JSFunctionKindEnum::JS_FUNC_NORMAL,
+                    //     );
+                    //     return JSValue::EXCEPTION;
+                    // }
                 }
             }
         } // opcodes loop

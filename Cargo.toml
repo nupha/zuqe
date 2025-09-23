@@ -70,8 +70,8 @@ overflow-checks = false
 opt-level = 3
 strip = "symbols"
 
-# [lib]
-# lib = "src/lib.rs"
+[lib]
+lib = "src/lib.rs"
 
 # [examples]
 # eval = "examples/eval.rs"
