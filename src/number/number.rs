@@ -63,7 +63,7 @@ impl From<i64> for JSValue {
             {
                 const PRECISION_RANGE: RangeInclusive<i64> = -(1_i64 << 53)..=1_i64 << 53;
                 if !PRECISION_RANGE.contains(&val) {
-                    log::warn!("integer {val} will lose precision");
+                    println!("integer {val} will lose precision");
                 }
             }
 

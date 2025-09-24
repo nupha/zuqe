@@ -188,7 +188,7 @@ fn main() {
             loop {
                 match rt.tick() {
                     Ok(true) => {
-                        std::thread::sleep(std::time::Duration::from_millis(100));
+                        std::thread::sleep(std::time::Duration::from_millis(1));
                         continue;
                     }
                     Ok(false) => {

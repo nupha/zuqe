@@ -367,57 +367,57 @@ pub unsafe fn js_resize_array(
 //     0
 // }
 
-pub mod alloca {
-    use std::{
-        mem::{ManuallyDrop, MaybeUninit},
-        os::raw::c_void,
-    };
+// pub mod alloca {
+//     use std::{
+//         mem::{ManuallyDrop, MaybeUninit},
+//         os::raw::c_void,
+//     };
 
-    type Callback = unsafe extern "C-unwind" fn(ptr: *mut MaybeUninit<u8>, data: *mut c_void);
+//     type Callback = unsafe extern "C-unwind" fn(ptr: *mut MaybeUninit<u8>, data: *mut c_void);
 
-    #[link(name = "alloca", kind = "static")]
-    unsafe extern "C-unwind" {
-        unsafe fn c_alloca_callback(size: usize, callback: Callback, opaque: *mut c_void);
-    }
+//     #[link(name = "alloca", kind = "static")]
+//     unsafe extern "C-unwind" {
+//         unsafe fn c_alloca_callback(size: usize, callback: Callback, opaque: *mut c_void);
+//     }
 
-    unsafe extern "C-unwind" fn trampoline<F: FnOnce(*mut MaybeUninit<u8>)>(
-        ptr: *mut MaybeUninit<u8>,
-        data: *mut c_void,
-    ) {
-        let f = ManuallyDrop::take(&mut *(data as *mut ManuallyDrop<F>));
-        f(ptr);
-    }
+//     unsafe extern "C-unwind" fn trampoline<F: FnOnce(*mut MaybeUninit<u8>)>(
+//         ptr: *mut MaybeUninit<u8>,
+//         data: *mut c_void,
+//     ) {
+//         let f = ManuallyDrop::take(&mut *(data as *mut ManuallyDrop<F>));
+//         f(ptr);
+//     }
 
-    #[inline(always)]
-    fn get_trampoline<F: FnOnce(*mut MaybeUninit<u8>)>(_closure: &F) -> Callback {
-        trampoline::<F>
-    }
+//     #[inline(always)]
+//     fn get_trampoline<F: FnOnce(*mut MaybeUninit<u8>)>(_closure: &F) -> Callback {
+//         trampoline::<F>
+//     }
 
-    pub fn with_alloca<R>(size: usize, f: impl FnOnce(&mut [MaybeUninit<u8>]) -> R) -> R {
-        let mut ret = MaybeUninit::<R>::uninit();
+//     pub fn with_alloca<R>(size: usize, f: impl FnOnce(&mut [MaybeUninit<u8>]) -> R) -> R {
+//         let mut ret = MaybeUninit::<R>::uninit();
 
-        let closure = |ptr| {
-            let slice = unsafe { std::slice::from_raw_parts_mut(ptr, size) };
-            ret.write(f(slice));
-        };
-        let trampoline = get_trampoline(&closure);
-        let mut closure_data = ManuallyDrop::new(closure);
+//         let closure = |ptr| {
+//             let slice = unsafe { std::slice::from_raw_parts_mut(ptr, size) };
+//             ret.write(f(slice));
+//         };
+//         let trampoline = get_trampoline(&closure);
+//         let mut closure_data = ManuallyDrop::new(closure);
 
-        unsafe {
-            c_alloca_callback(
-                size,
-                trampoline,
-                std::ptr::addr_of_mut!(closure_data).cast(),
-            );
+//         unsafe {
+//             c_alloca_callback(
+//                 size,
+//                 trampoline,
+//                 std::ptr::addr_of_mut!(closure_data).cast(),
+//             );
 
-            ret.assume_init()
-        }
-    }
+//             ret.assume_init()
+//         }
+//     }
 
-    pub fn with_alloca_zeroed<R>(size: usize, f: impl FnOnce(&mut [u8]) -> R) -> R {
-        with_alloca(size, |memory| unsafe {
-            std::ptr::write_bytes(memory.as_mut_ptr(), 0, size);
-            f(std::mem::transmute(memory))
-        })
-    }
-}
+//     pub fn with_alloca_zeroed<R>(size: usize, f: impl FnOnce(&mut [u8]) -> R) -> R {
+//         with_alloca(size, |memory| unsafe {
+//             std::ptr::write_bytes(memory.as_mut_ptr(), 0, size);
+//             f(std::mem::transmute(memory))
+//         })
+//     }
+// }
