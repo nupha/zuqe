@@ -1,6 +1,7 @@
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
     atom::{JS_ATOM_MAX_INT, JS_FreeAtom, JSAtom},
+    branch_hints::unlikely,
     context::JSContext,
     object::JSObject,
     value::JSValue,
@@ -29,29 +30,27 @@ impl JSObject {
         loop {
             // find in shape properties
             if let Some((idx, prs_flags)) = self.find_shape_property(prop) {
-                if prs_flags & JS_PROP_CONFIGURABLE == 0 {
-                    return Ok(false);
-                }
+                return if unlikely(prs_flags & JS_PROP_CONFIGURABLE == 0) {
+                    Ok(false)
+                } else {
+                    self.shape_prepare_update(ctx)?;
+                    // remove shape property defination.
+                    // shape hash is unchanged, even a field is removed.
+                    let prs = self
+                        .shape()
+                        .unwrap()
+                        .0
+                        .borrow_mut()
+                        .prop_defs
+                        .shift_remove(&prop.0)
+                        .unwrap();
 
-                self.shape_prepare_update(ctx)?;
+                    JS_FreeAtom(ctx, prs.atom);
+                    // remove property value
+                    drop(self.0.prop_values.borrow_mut().remove(idx));
 
-                // remove shape property defination.
-                // shape hash is unchanged, even a field is removed.
-                let prs = self
-                    .shape()
-                    .unwrap()
-                    .0
-                    .borrow_mut()
-                    .prop_defs
-                    .shift_remove(&prop.0)
-                    .unwrap();
-
-                JS_FreeAtom(ctx, prs.atom);
-
-                // remove property value
-                drop(self.0.prop_values.borrow_mut().remove(idx));
-
-                return Ok(true);
+                    Ok(true)
+                };
             }
 
             // for array index or exotic.

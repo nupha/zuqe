@@ -3,6 +3,7 @@ use std::ffi::c_void;
 use crate::{
     JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
     atom::{JS_AtomIsNumericIndex, JS_FreeAtom, JSAtom, consts::*},
+    branch_hints::unlikely,
     context::{JSContext, JSContextWeakref},
     error::JSResult,
     function::JSVarRef,
@@ -147,7 +148,7 @@ impl JSPropertyDescriptor {
         if desc.has_property(ctx, JS_ATOM_get)? {
             flags |= JS_PROP_HAS_GET;
             getter = desc.get_property(ctx, JS_ATOM_get)?;
-            if !(getter.is_undefined() || getter.is_function()) {
+            if unlikely(!(getter.is_undefined() || getter.is_function())) {
                 ctx.throw_type_error("invalid getter");
                 return Err(-1);
             }
@@ -156,25 +157,26 @@ impl JSPropertyDescriptor {
         if desc.has_property(ctx, JS_ATOM_set)? {
             flags |= JS_PROP_HAS_SET;
             setter = desc.get_property(ctx, JS_ATOM_set)?;
-            if !(setter.is_undefined() || setter.is_function()) {
+            if unlikely(!(setter.is_undefined() || setter.is_function())) {
                 ctx.throw_type_error("invalid setter");
                 return Err(-1);
             }
         }
 
-        if flags & (JS_PROP_HAS_SET | JS_PROP_HAS_GET) != 0
-            && flags & (JS_PROP_HAS_VALUE | JS_PROP_HAS_WRITABLE) != 0
-        {
+        if unlikely(
+            flags & (JS_PROP_HAS_SET | JS_PROP_HAS_GET) != 0
+                && flags & (JS_PROP_HAS_VALUE | JS_PROP_HAS_WRITABLE) != 0,
+        ) {
             ctx.throw_type_error("cannot have setter/getter and value or writable");
-            return Err(-1);
+            Err(-1)
+        } else {
+            Ok(Self {
+                flags,
+                value,
+                getter,
+                setter,
+            })
         }
-
-        Ok(Self {
-            flags,
-            value,
-            getter,
-            setter,
-        })
     }
 
     /// Parse a value to JSPropertyDescriptor.
@@ -399,7 +401,7 @@ impl JSObject {
             JS_FreeAtom(ctx, key.atom);
         }
 
-        if has_err { Err(-1) } else { Ok(()) }
+        if unlikely(has_err) { Err(-1) } else { Ok(()) }
     }
 
     /// Read _length_ property defined on `self`.

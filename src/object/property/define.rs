@@ -1,6 +1,7 @@
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
     atom::{JS_ATOM_NULL, JS_AtomIsNumericIndex1, JS_FreeAtom, JSAtom, consts::*},
+    branch_hints::unlikely,
     bytecode::js_get_function_name,
     context::JSContext,
     number::JS_NumberIsNegativeOrMinusZero,
@@ -163,31 +164,25 @@ impl JSObject {
                                 flags,
                                 JS_PROP_ENUMERABLE | JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
                             );
-                            if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0
-                                || prop_flags
-                                    != (JS_PROP_ENUMERABLE
-                                        | JS_PROP_WRITABLE
-                                        | JS_PROP_CONFIGURABLE)
-                            {
-                                return if ctx.throw_type_error_or_false(
-                                    flags as _,
-                                    "invalid descriptor flags",
-                                ) {
+
+                            return if unlikely(
+                                flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0
+                                    || prop_flags
+                                        != (JS_PROP_ENUMERABLE
+                                            | JS_PROP_WRITABLE
+                                            | JS_PROP_CONFIGURABLE),
+                            ) {
+                                if ctx.can_throw(flags) {
+                                    ctx.throw_type_error("invalid descriptor flags");
                                     Err(-1)
                                 } else {
                                     Ok(false)
-                                };
-                            }
-                            if flags & JS_PROP_HAS_VALUE != 0 {
-                                return self.set_property_value(
-                                    ctx,
-                                    &JSValue::Int(idx as i32),
-                                    val,
-                                    flags,
-                                );
-                            }
-
-                            return Ok(true);
+                                }
+                            } else if flags & JS_PROP_HAS_VALUE != 0 {
+                                self.set_property_value(ctx, &JSValue::Int(idx as i32), val, flags)
+                            } else {
+                                Ok(true)
+                            };
                         } else {
                             /* slow path with to handle all numeric indexes */
                             let num = JS_AtomIsNumericIndex1(ctx, prop).err()?;
@@ -195,8 +190,7 @@ impl JSObject {
                                 break; // goto typed_array_done
                             }
 
-                            let b = num.is_integral(ctx)?;
-                            if !b {
+                            if unlikely(!num.is_integral(ctx)?) {
                                 return if ctx.throw_type_error_or_false(
                                     flags,
                                     "non integer index in typed array",
@@ -205,28 +199,27 @@ impl JSObject {
                                 } else {
                                     Ok(false)
                                 };
-                            }
-
-                            if JS_NumberIsNegativeOrMinusZero(&num) {
-                                return if ctx.throw_type_error_or_false(
-                                    flags as _,
-                                    "negative index in typed array",
-                                ) {
-                                    Err(-1)
-                                } else {
-                                    Ok(false)
-                                };
-                            }
-
-                            if !prop.is_small_int() {
-                                return if ctx.throw_type_error_or_false(
-                                    flags,
-                                    "out-of-bound index in typed array",
-                                ) {
-                                    Err(-1)
-                                } else {
-                                    Ok(false)
-                                };
+                            } else {
+                                if JS_NumberIsNegativeOrMinusZero(&num) {
+                                    return if ctx.throw_type_error_or_false(
+                                        flags as _,
+                                        "negative index in typed array",
+                                    ) {
+                                        Err(-1)
+                                    } else {
+                                        Ok(false)
+                                    };
+                                }
+                                if !prop.is_small_int() {
+                                    return if ctx.throw_type_error_or_false(
+                                        flags,
+                                        "out-of-bound index in typed array",
+                                    ) {
+                                        Err(-1)
+                                    } else {
+                                        Ok(false)
+                                    };
+                                }
                             }
                         }
                     }

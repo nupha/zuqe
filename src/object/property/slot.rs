@@ -1,6 +1,7 @@
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_MODULE_NS,
     atom::{JSAtom, consts::JS_ATOM_length},
+    branch_hints::unlikely,
     context::JSContext,
     object::{JS_PROP_LAZYINIT, JSObject},
     value::JSValue,
@@ -26,9 +27,10 @@ impl JSObject {
         // 1. check configurable
         match prs_flags & JS_PROP_TMASK {
             JS_PROP_NORMAL => {
-                if prs_flags & (JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE) == 0
-                    && flags & JS_PROP_HAS_VALUE != 0
-                {
+                if unlikely(
+                    prs_flags & (JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE) == 0
+                        && flags & JS_PROP_HAS_VALUE != 0,
+                ) {
                     return if !val
                         .is_same(&self.0.prop_values.borrow()[idx].value(ctx, &JSValue::UNDEFINED)?)
                     {
@@ -64,9 +66,10 @@ impl JSObject {
         // 2. update value
         if prs_flags & JS_PROP_TMASK == JS_PROP_VARREF {
             let slot = &mut self.0.prop_values.borrow_mut()[idx];
+
             if let JSProperty::VarRef(vref) = slot {
                 if flags & JS_PROP_HAS_VALUE != 0 {
-                    if self.class_id() == JS_CLASS_MODULE_NS {
+                    if unlikely(self.class_id() == JS_CLASS_MODULE_NS) {
                         /* JS_PROP_WRITABLE is always true for variable
                         references, but they are write protected in module name
                         spaces. */
@@ -87,7 +90,7 @@ impl JSObject {
 
                 // if writable is set to false, no longer a reference (for mapped arguments)
                 if flags & (JS_PROP_HAS_WRITABLE | JS_PROP_WRITABLE) == JS_PROP_HAS_WRITABLE {
-                    if self.class_id() == JS_CLASS_MODULE_NS {
+                    if unlikely(self.class_id() == JS_CLASS_MODULE_NS) {
                         return if ctx.throw_type_error_or_false(
                             flags,
                             "module namespace properties have writable = false",
@@ -96,22 +99,23 @@ impl JSObject {
                         } else {
                             Ok(false)
                         };
+                    } else {
+                        self.shape_prepare_update(ctx)?;
+                        self.shape().unwrap().with_mut(|s| {
+                            // Note: s must be an exclusive shape, so we can modify it.
+                            let prs = s.prop_defs.get_mut(&prop.0).unwrap();
+                            prs.set_flags(prs.flags() & !(JS_PROP_TMASK | JS_PROP_WRITABLE));
+                            debug_assert_eq!(prs.flags() & JS_PROP_TMASK, JS_PROP_NORMAL);
+                        });
+                        *slot = JSProperty::Normal(vref.value().clone());
                     }
-
-                    self.shape_prepare_update(ctx)?;
-                    self.shape().unwrap().with_mut(|s| {
-                        // Note: s must be an exclusive shape, so we can modify it.
-                        let prs = s.prop_defs.get_mut(&prop.0).unwrap();
-                        prs.set_flags(prs.flags() & !(JS_PROP_TMASK | JS_PROP_WRITABLE));
-                        debug_assert_eq!(prs.flags() & JS_PROP_TMASK, JS_PROP_NORMAL);
-                    });
-                    *slot = JSProperty::Normal(vref.value().clone());
                 }
+
                 Ok(true)
             } else {
                 unreachable!();
             }
-        } else if prs_flags & JS_PROP_LENGTH != 0 {
+        } else if unlikely(prs_flags & JS_PROP_LENGTH != 0) {
             if flags & JS_PROP_HAS_VALUE != 0 {
                 unsafe {
                     self.as_Array_unchecked().set_length(
@@ -172,22 +176,23 @@ impl JSObject {
             if let JSProperty::GetSet { getter, setter } =
                 self.0.prop_values.borrow().get(idx).unwrap()
             {
-                if prs_flags & JS_PROP_CONFIGURABLE == 0
-                    && ((flags & JS_PROP_HAS_GET != 0 && new_getter != getter.as_ref())
-                        || (flags & JS_PROP_HAS_SET != 0 && new_setter != setter.as_ref()))
-                {
+                if unlikely(
+                    prs_flags & JS_PROP_CONFIGURABLE == 0
+                        && ((flags & JS_PROP_HAS_GET != 0 && new_getter != getter.as_ref())
+                            || (flags & JS_PROP_HAS_SET != 0 && new_setter != setter.as_ref())),
+                ) {
                     return if ctx.throw_type_error_or_false(flags, "property is not configurable") {
                         Err(-1)
                     } else {
                         Ok(false)
                     };
-                }
-
-                if flags & JS_PROP_HAS_GET == 0 {
-                    old_getter = getter.clone();
-                }
-                if flags & JS_PROP_HAS_SET == 0 {
-                    old_setter = setter.clone();
+                } else {
+                    if flags & JS_PROP_HAS_GET == 0 {
+                        old_getter = getter.clone();
+                    }
+                    if flags & JS_PROP_HAS_SET == 0 {
+                        old_setter = setter.clone();
+                    }
                 }
             } else {
                 unreachable!()
@@ -205,7 +210,7 @@ impl JSObject {
 
     /// overwrite property value at specified slot idx to a normal value.
     #[inline(always)]
-    pub(super) fn put_prop_slot(
+    fn put_prop_slot(
         &self,
         ctx: &JSContext,
         prs_flags: u32,
