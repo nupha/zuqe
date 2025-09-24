@@ -84,10 +84,7 @@ pub enum TokenData {
         has_escape: bool,
         is_reserved: bool,
     },
-    Regexp {
-        pattern: JSString,
-        flags: JSString,
-    },
+    Regexp(usize),
 }
 
 impl Default for TokenData {
@@ -151,10 +148,10 @@ impl TokenData {
         }
     }
 
-    /// regexp pattern and flags
-    pub fn regexp(&self) -> Option<(JSString, JSString)> {
-        if let Self::Regexp { pattern, flags, .. } = self {
-            Some((pattern.clone(), flags.clone()))
+    /// pre-compiled regexp data id
+    pub fn regexp(&self) -> Option<usize> {
+        if let Self::Regexp(id) = self {
+            Some(*id)
         } else {
             None
         }

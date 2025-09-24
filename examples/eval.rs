@@ -64,6 +64,7 @@ fn main() {
     let filename = args.get(1).unwrap().clone();
     let script = std::fs::read_to_string(&filename).unwrap();
 
+    let tm0 = Instant::now();
     let mut rt = JSRuntime::new(JS_DEFAULT_MALLOC_FUNCTIONS, std::ptr::null_mut()).unwrap();
 
     unsafe {
@@ -156,6 +157,9 @@ fn main() {
             .unwrap();
     }
 
+    println!("*** prepare use time: {} ms", tm0.elapsed().as_millis());
+
+    println!("start running ...");
     let tm = Instant::now();
 
     let res = if filename.ends_with(".mjs") || JSParseState::detect_module(script.as_bytes()) {
@@ -226,7 +230,7 @@ fn main() {
         }
     }
 
-    println!("use time: {} ms", tm.elapsed().as_millis());
+    println!("*** run use time: {} ms", tm.elapsed().as_millis());
 }
 
 pub fn js_module_loader(

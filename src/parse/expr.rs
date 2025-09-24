@@ -261,9 +261,12 @@ impl<'s> JSParseState<'s> {
                 self.parse_regexp()?;
 
                 // emit build RegExp opcode
-                let (pattern, flags) = self.token.data.regexp().unwrap();
-                self.emit_push_const(pattern.into(), false)?;
-                self.emit_push_const(flags.into(), false)?;
+                let re_id = self.token.data.regexp().unwrap();
+                self.emit_push_const(
+                    JS_ATOM_empty_string.force_string(&self.ctx).unwrap().into(),
+                    false,
+                )?;
+                self.emit_push_const(JSValue::Int(re_id as i32), false)?;
                 // we use a specific opcode to be sure the correct
                 // function is called (otherwise the bytecode would have
                 // to be verified by the RegExp constructor)

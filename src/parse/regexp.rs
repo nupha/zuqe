@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use crate::{
     parse::token::{TOK_REGEXP, TokenData},
     regexp::RegExpData,
@@ -90,15 +92,17 @@ impl<'s> JSParseState<'s> {
         let pattern = self.ctx.create_string_with_buf(pattern_str)?;
         let flags = self.ctx.create_string_with_buf(flags_str)?;
 
-        // try perform regexp compile to pre-check pattern and flags syntax
-        RegExpData::compile_re(
+        // pre compile regexpdata
+        let regexp = RegExpData::create(
             &self.ctx,
-            pattern.content().to_utf8().as_ref(),
-            flags.content().chars_lossy(),
+            pattern.content().clone(),
+            flags.content().clone(),
         )?;
+        self.ctx.rt_mut().regexp_precompiled.push(regexp);
+        let id = self.ctx.rt().regexp_precompiled.len() - 1;
 
         self.token.val = TOK_REGEXP;
-        self.token.data = TokenData::Regexp { pattern, flags };
+        self.token.data = TokenData::Regexp(id);
 
         self.buf_ptr = unsafe { self.buf_ptr.add(cursor + 1) };
         Ok(())

@@ -175,7 +175,7 @@ impl RegExpData {
         Ok((re, ff))
     }
 
-    pub(super) fn create(
+    pub(crate) fn create(
         ctx: &JSContext,
         pattern: StringContent,
         flags: StringContent,
@@ -284,22 +284,23 @@ pub struct RegExp(JSObject);
 object_cast!(RegExp, JS_CLASS_REGEXP);
 
 impl RegExp {
+    pub(crate) fn from(ctx: &JSContext, ctor: &JSValue, re: Box<RegExpData>) -> Result<Self, i32> {
+        let o = Self(
+            ctx.create_object_apply_ctor(ctor, ObjectPayload::REGEXP(re))
+                .map_err(|_| -1)?,
+        );
+        o.define_property_value(ctx, JS_ATOM_lastIndex, JSValue::Int(0), JS_PROP_WRITABLE)?;
+        Ok(o)
+    }
+
+    #[inline(always)]
     pub fn create(
         ctx: &JSContext,
         ctor: &JSValue,
         pattern: StringContent,
         flags: StringContent,
     ) -> Result<Self, i32> {
-        let re = Self(
-            ctx.create_object_apply_ctor(
-                ctor,
-                ObjectPayload::REGEXP(Box::new(RegExpData::create(ctx, pattern, flags)?)),
-            )
-            .map_err(|_| -1)?,
-        );
-
-        re.define_property_value(ctx, JS_ATOM_lastIndex, JSValue::Int(0), JS_PROP_WRITABLE)?;
-        Ok(re)
+        RegExpData::create(ctx, pattern, flags).and_then(|re| Self::from(ctx, ctor, Box::new(re)))
     }
 }
 

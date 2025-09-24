@@ -1009,19 +1009,14 @@ impl Bytecode {
                         };
                     }
                     OpCode::REGEXP => {
-                        // [pattern, flags, ^] -> [regexp, ^]
-                        let pattern = JSString::try_from(SP_TAKE!(-2)).unwrap();
-                        let flags = JSString::try_from(SP_TAKE!(-1)).unwrap();
-                        let re = RegExp::create(
-                            ctx,
-                            &JSValue::UNDEFINED,
-                            pattern.content().clone(),
-                            flags.content().clone(),
-                        )
-                        .map_or(JSValue::EXCEPTION, |o| o.into());
-
-                        SP_PUT!(-2, re);
-                        SP_GO!(-1);
+                        // [pattern, pre_compiled_id, ^] -> [regexp, ^]
+                        if let JSValue::Int(re_id) = SP_TAKE!(-1) {
+                            let re = Box::new(ctx.rt().regexp_precompiled[re_id as usize].clone());
+                            let regexp = RegExp::from(ctx, &JSValue::UNDEFINED, re)
+                                .map_or(JSValue::EXCEPTION, |o| o.into());
+                            SP_PUT!(-2, regexp);
+                            SP_GO!(-1);
+                        };
                     }
                     OpCode::GET_SUPER => {
                         if let Ok(proto) = SP_REF!(-1).prototype(ctx) {

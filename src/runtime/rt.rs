@@ -6,6 +6,8 @@ use std::{
     rc::Rc,
 };
 
+use regex::bytes::Regex;
+
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT,
     JS_CLASS_ASYNC_FUNCTION_RESOLVE, JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_BOUND_FUNCTION,
@@ -13,7 +15,7 @@ use crate::{
     JS_CLASS_INIT_COUNT, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT, JS_CLASS_PROMISE_REJECT_FUNCTION,
     JS_CLASS_PROMISE_RESOLVE_FUNCTION, JS_CLASS_PROXY, JS_CLASS_STRING, STD_CLASS_DEFS,
     array_buffer::JSSharedArrayBufferFunctions,
-    atom::{JS_FreeAtomRT, consts::JS_ATOM_empty_string},
+    atom::JS_FreeAtomRT,
     callable::CallableValue,
     class::{JSClass, js_arguments_exotic_methods},
     context::JSContext,
@@ -25,6 +27,7 @@ use crate::{
     object::{GCObjectWeakref, JSShapeWeakref},
     promise::{JSHostPromiseRejectionTracker, Job, PromiseResolveFunc},
     proxy::{Proxy, js_proxy_exotic_methods},
+    regexp::RegExpData,
     stack_frame::StackFrame,
     string::{JSStringInner, js_string_exotic_methods},
     utils::js_get_stack_pointer,
@@ -83,6 +86,9 @@ pub struct JSRuntime {
 
     // stack frame of currently executing function
     pub cur_stack_frame: *mut Pin<StackFrame>,
+
+    /// pre-compiled regexp in parsing state.
+    pub regexp_precompiled: Vec<RegExpData>,
 
     pub interrupt_handler: Option<JSInterruptHandler>,
     pub interrupt_opaque: *mut c_void,
@@ -154,6 +160,7 @@ impl JSRuntime {
             stack_top: 0,
             stack_limit: 0,
             cur_exception: JSValue::NULL,
+            regexp_precompiled: Vec::new(),
             in_out_of_memory: false,
             interrupt_handler: None,
             host_promise_rejection_tracker: None,
