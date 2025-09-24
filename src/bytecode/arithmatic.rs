@@ -314,7 +314,7 @@ impl UnaryOp {
     }
 }
 
-#[inline(always)]
+#[inline]
 pub(super) fn op_binary_logic(
     ctx: &JSContext,
     opcode: OpCode,
@@ -361,7 +361,7 @@ pub(super) fn op_binary_logic(
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u8)]
-pub enum JSStrictEqModeEnum {
+pub enum StrictEqMode {
     JS_EQ_STRICT,
     JS_EQ_SAME_VALUE,
     JS_EQ_SAME_VALUE_ZERO,
@@ -481,7 +481,7 @@ impl JSValue {
 
     /// compare JSValues equality in given mode.
     /// Note: `self` and `other` are not consumed.
-    pub(crate) fn strict_eq_with_mode(&self, other: &JSValue, eq_mode: JSStrictEqModeEnum) -> bool {
+    pub(crate) fn strict_eq_with_mode(&self, other: &JSValue, eq_mode: StrictEqMode) -> bool {
         if std::mem::discriminant(self) == std::mem::discriminant(other) {
             match (self, other) {
                 (JSValue::Float64(a), JSValue::Int(b)) => cmp_f64(*a, *b as f64, eq_mode),
@@ -493,22 +493,28 @@ impl JSValue {
         }
     }
 
-    /// compare JSValues equality.
+    /// test arithmatical equality (no-strict-eq): self == other?
+    #[inline(always)]
+    pub fn arith_eq(&self, ctx: &JSContext, other: &Self) -> Result<bool, i32> {
+        js_eq(ctx, self, other)
+    }
+
+    /// test strict equality (strict-eq): self === other?
     #[inline(always)]
     pub fn strict_eq(&self, other: &JSValue) -> bool {
-        self.strict_eq_with_mode(other, JSStrictEqModeEnum::JS_EQ_STRICT)
+        self.strict_eq_with_mode(other, StrictEqMode::JS_EQ_STRICT)
     }
 
-    /// compare if two values are strictly same. (-0!=0)
+    /// test if two values are strictly same. (-0!=0)
     #[inline(always)]
     pub fn is_same(&self, other: &JSValue) -> bool {
-        self.strict_eq_with_mode(other, JSStrictEqModeEnum::JS_EQ_SAME_VALUE)
+        self.strict_eq_with_mode(other, StrictEqMode::JS_EQ_SAME_VALUE)
     }
 
-    /// compare if two values are strictly same. (-0==0)
+    /// test if two values are strictly same. (-0==0)
     #[inline(always)]
     pub fn is_same0(&self, other: &JSValue) -> bool {
-        self.strict_eq_with_mode(other, JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO)
+        self.strict_eq_with_mode(other, StrictEqMode::JS_EQ_SAME_VALUE_ZERO)
     }
 
     /// get order of `self` and `other`.
@@ -611,7 +617,7 @@ impl JSValue {
 }
 
 /// test arith equality (no-strict eq): val1 == val2
-pub fn js_eq(ctx: &JSContext, val1: &JSValue, val2: &JSValue) -> Result<bool, i32> {
+fn js_eq(ctx: &JSContext, val1: &JSValue, val2: &JSValue) -> Result<bool, i32> {
     if std::mem::discriminant(val1) == std::mem::discriminant(val2) {
         return Ok(val1 == val2);
     } else if let Some(n2) = TwoNumbers::from_values0(val1, val2) {
@@ -717,20 +723,25 @@ pub fn js_eq(ctx: &JSContext, val1: &JSValue, val2: &JSValue) -> Result<bool, i3
 }
 
 /// compare two f64 numbers
-fn cmp_f64(d1: f64, d2: f64, eq_mode: JSStrictEqModeEnum) -> bool {
-    if eq_mode >= JSStrictEqModeEnum::JS_EQ_SAME_VALUE {
-        if d1.is_nan() || d2.is_nan() {
-            d1.is_nan() == d2.is_nan()
-        } else if eq_mode == JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO {
-            // +0 == -0
+fn cmp_f64(d1: f64, d2: f64, eq_mode: StrictEqMode) -> bool {
+    match eq_mode {
+        StrictEqMode::JS_EQ_STRICT => {
+            // NaN return false, +0 == -0
             d1 == d2
-        } else {
+        }
+
+        // cmp NaN
+        _ if d1.is_nan() || d2.is_nan() => d1.is_nan() == d2.is_nan(),
+
+        StrictEqMode::JS_EQ_SAME_VALUE => {
             // +0 != -0
             let u1 = JSFloat64Union { d: d1 };
             let u2 = JSFloat64Union { d: d2 };
             unsafe { u1.uint64 == u2.uint64 }
         }
-    } else {
-        d1 == d2 // NaN return false, +0 == -0
+        StrictEqMode::JS_EQ_SAME_VALUE_ZERO => {
+            // +0 == -0
+            d1 == d2
+        }
     }
 }

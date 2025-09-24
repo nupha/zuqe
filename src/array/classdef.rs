@@ -8,7 +8,7 @@ use crate::{
         JS_ATOM_Symbol_isConcatSpreadable, JS_ATOM_Symbol_iterator, JS_ATOM_Symbol_species,
         JS_ATOM_constructor, JS_ATOM_join, JS_ATOM_length, JS_ATOM_next, JS_ATOM_set,
     },
-    bytecode::arithmatic::JSStrictEqModeEnum,
+    bytecode::arithmatic::StrictEqMode,
     context::JSContext,
     error::JSResult,
     function::{CallContext, FieldDef, JS_CallConstructor, JS_GetFunctionRealm},
@@ -616,7 +616,7 @@ pub fn js_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
             .with_fast_array_values(|lst| {
                 let start = n as usize;
                 for (i, el) in lst[start..].iter().enumerate() {
-                    if target.strict_eq_with_mode(el, JSStrictEqModeEnum::JS_EQ_STRICT) {
+                    if target.strict_eq_with_mode(el, StrictEqMode::JS_EQ_STRICT) {
                         return Some(start + i); // found
                     }
                 }
@@ -631,7 +631,7 @@ pub fn js_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
         // try properties
         while n < len {
             if let Some(v) = obj.try_get_property_i64(ctx, n)? {
-                let b = target.strict_eq_with_mode(&v, JSStrictEqModeEnum::JS_EQ_STRICT);
+                let b = target.strict_eq_with_mode(&v, StrictEqMode::JS_EQ_STRICT);
                 if b {
                     res = n;
                     break;
@@ -661,7 +661,7 @@ pub fn js_array_lastIndexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
         // TODO: should special case fast arrays
         for n in (0..=cnt).rev() {
             if let Some(v) = obj.try_get_property_i64(ctx, n)? {
-                let b = target.strict_eq_with_mode(&v, JSStrictEqModeEnum::JS_EQ_STRICT);
+                let b = target.strict_eq_with_mode(&v, StrictEqMode::JS_EQ_STRICT);
                 if b {
                     res = n;
                     break;
@@ -690,7 +690,7 @@ pub fn js_array_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
         if let Some(found) = obj.with_fast_array_values(|lst| {
             let start = n as usize;
             for el in &lst[start..] {
-                if target.strict_eq_with_mode(el, JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO) {
+                if target.strict_eq_with_mode(el, StrictEqMode::JS_EQ_SAME_VALUE_ZERO) {
                     return true;
                 }
             }
@@ -710,7 +710,7 @@ pub fn js_array_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
         // sparse array
         while n < length {
             let val: JSValue = obj.get_property_i64(ctx, n)?.into();
-            let b = target.strict_eq_with_mode(&val, JSStrictEqModeEnum::JS_EQ_SAME_VALUE_ZERO);
+            let b = target.strict_eq_with_mode(&val, StrictEqMode::JS_EQ_SAME_VALUE_ZERO);
             if b {
                 res = true;
                 break;

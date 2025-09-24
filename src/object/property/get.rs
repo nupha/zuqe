@@ -4,6 +4,7 @@ use crate::{
     JS_CLASS_INT32_ARRAY, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY,
     JS_CLASS_UINT32_ARRAY,
     atom::{JS_ATOM_MAX_INT, JS_AtomIsNumericIndex, JS_FreeAtom, JSAtom, consts::*},
+    branch_hints::unlikely,
     context::JSContext,
     error::{JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized, JSResult},
     object::{JSObject, JSProperty},
@@ -54,7 +55,7 @@ impl JSObject {
                     JS_PROP_VARREF => {
                         let pr = cur_obj.0.prop_values.borrow()[idx].clone(); // borrow in short
                         let val = pr.value(ctx, this_obj)?;
-                        if val.is_uninitialized() {
+                        if unlikely(val.is_uninitialized()) {
                             JS_ThrowReferenceErrorUninitialized(ctx, prop);
                             Err(-1)
                         } else {
@@ -90,7 +91,7 @@ impl JSObject {
                     {
                         let ret = unsafe { JS_AtomIsNumericIndex(ctx, prop) };
                         if ret != 0 {
-                            return if ret < 0 {
+                            return if unlikely(ret < 0) {
                                 Err(-1)
                             } else {
                                 Ok(JSValue::UNDEFINED)
@@ -109,7 +110,7 @@ impl JSObject {
 
                     if let Some(cb) = m.get_own_property {
                         if let Some(desc) = cb(ctx, JSValue::Object(cur_obj.clone()), prop)? {
-                            return if desc.flags & JS_PROP_GETSET != 0 {
+                            return if unlikely(desc.flags & JS_PROP_GETSET != 0) {
                                 desc.getter.call(ctx, this_obj, &[])
                             } else {
                                 debug_assert!(!desc.value.is_exception());
@@ -121,7 +122,7 @@ impl JSObject {
             }
         }
 
-        if throw_ref_error {
+        if unlikely(throw_ref_error) {
             JS_ThrowReferenceErrorNotDefined(ctx, prop);
             Err(-1)
         } else {
@@ -300,7 +301,7 @@ impl JSValue {
         match self {
             Self::Object(o) => o.get_property_internal(ctx, prop, this_obj, throw_ref_error),
             Self::String(s) => {
-                if prop == JS_ATOM_length {
+                if unlikely(prop == JS_ATOM_length) {
                     // string length
                     Ok(JSValue::from(s.len() as u32))
                 } else if let Some(idx) = prop.to_small_int() {

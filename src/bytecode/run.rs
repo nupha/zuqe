@@ -6,7 +6,7 @@ use crate::{
     branch_hints::unlikely,
     bytecode::{
         OpCode, SpecialObject,
-        arithmatic::{UnaryOp, js_eq, op_binary_logic},
+        arithmatic::{UnaryOp, op_binary_logic},
         operators::{
             js_append_enumerate, js_for_in_next, js_for_in_start, js_for_of_next, js_for_of_start,
             js_has_unscopable, js_iterator_get_value_done, js_method_set_home_object,
@@ -2085,7 +2085,7 @@ impl Bytecode {
                     OpCode::EQ | OpCode::NEQ => {
                         let op1 = SP_TAKE!(-2);
                         let op2 = SP_TAKE!(-1);
-                        if let Ok(b) = js_eq(ctx, &op1, &op2) {
+                        if let Ok(b) = op1.arith_eq(ctx, &op2) {
                             SP_PUT!(-2, JSValue::Bool(b ^ (opcode == OpCode::NEQ)));
                             SP_GO!(-1);
                         } else {

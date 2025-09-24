@@ -16,7 +16,7 @@ use crate::{
         AtomDescKind, AtomHintAndId, AtomTypeHint, JS_ATOM_NULL, JS_ATOM_TAG_INT, JS_FreeAtom,
         JSAtom, JSAtomStruct, consts::JS_ATOM_name,
     },
-    bytecode::{OpCode, OpCodeTemp, arithmatic::JSStrictEqModeEnum, js_get_function_name},
+    bytecode::{OpCode, OpCodeTemp, arithmatic::StrictEqMode, js_get_function_name},
     class::{ClassFieldsDef, JSClassDef, JSClassID, JSClassShortDef},
     context::JSContext,
     error::{ErrorKind, JS_ThrowSyntaxError, JSResult},
@@ -1093,7 +1093,7 @@ pub unsafe fn js_strict_eq2(
     ctx: &JSContext,
     op1: JSValue,
     op2: JSValue,
-    eq_mode: JSStrictEqModeEnum,
+    eq_mode: StrictEqMode,
 ) -> bool {
     unreachable!("use JSValue::strict_eq_with_mode() instead");
     // let res = op1.strict_eq_with_mode(op2, eq_mode);

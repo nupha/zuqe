@@ -180,6 +180,7 @@ impl JSContext {
         self.throw_type_error("revoked proxy");
     }
 
+    #[cold]
     pub fn throw_type_error_invalid_class(&self, class_id: JSClassID) {
         let name = self.rt().class_defs[class_id as usize].class_name;
         self.throw_type_error(&format!("{} object expected", name.to_utf8(self.rt())))

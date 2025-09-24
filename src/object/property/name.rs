@@ -1,6 +1,7 @@
 use crate::{
     JS_CLASS_STRING,
     atom::{AtomDescKind, JS_ATOM_NULL, JS_FreeAtom, JSAtom},
+    branch_hints::unlikely,
     context::JSContext,
     error::{JS_ThrowReferenceErrorUninitialized, JSResult},
     iterator::JSIteratorKindEnum,
@@ -96,13 +97,14 @@ impl JSObject {
                 if (!enum_only || is_enumerable) && ((flags >> (kind as u8)) & 1 != 0) {
                     // need to raise an exception in case of the module
                     // name space (implicit GetOwnProperty)
-                    if prs.flags() & JS_PROP_TMASK == JS_PROP_VARREF
-                        && flags & (JS_GPN_ENUM_ONLY | JS_GPN_SET_ENUM) != 0
-                    {
+                    if unlikely(
+                        prs.flags() & JS_PROP_TMASK == JS_PROP_VARREF
+                            && flags & (JS_GPN_ENUM_ONLY | JS_GPN_SET_ENUM) != 0,
+                    ) {
                         if let JSProperty::VarRef(vref) =
                             self.0.prop_values.borrow().get(i).unwrap()
                         {
-                            if vref.value().is_uninitialized() {
+                            if unlikely(vref.value().is_uninitialized()) {
                                 JS_ThrowReferenceErrorUninitialized(ctx, prs.atom);
                                 return Err(-1);
                             }
@@ -191,7 +193,7 @@ impl JSObject {
                     JS_FreeAtom(ctx, pk.atom);
                 }
 
-                if has_err {
+                if unlikely(has_err) {
                     return Err(-1);
                 }
             }
@@ -215,7 +217,7 @@ impl JSObject {
         let mut sort_cnt = 0;
 
         let r = self.own_property_names_foreach(ctx, flags, |cx, pp| {
-            if lst.len() == lst.capacity() {
+            if unlikely(lst.len() == lst.capacity()) {
                 lst.try_reserve_exact(8).map_err(|_| {
                     cx.throw_out_of_memory();
                     -1
@@ -232,7 +234,7 @@ impl JSObject {
             Ok(())
         });
 
-        if r.is_err() {
+        if unlikely(r.is_err()) {
             // free atoms
             lst.iter().for_each(|p| {
                 JS_FreeAtom(ctx, p.atom);
@@ -356,7 +358,7 @@ impl JSObject {
             JS_FreeAtom(ctx, name.atom);
         }
 
-        if has_err {
+        if unlikely(has_err) {
             Err(-1)
         } else {
             Ok(ret.into_boxed_slice())

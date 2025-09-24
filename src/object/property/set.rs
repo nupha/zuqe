@@ -4,12 +4,12 @@ use crate::{
     JS_CLASS_INT32_ARRAY, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT, JS_CLASS_UINT8_ARRAY,
     JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
     atom::{JS_AtomIsNumericIndex, JS_FreeAtom, JSAtom, consts::JS_ATOM_length},
-    context::{JSContext, is_strict_mode},
+    branch_hints::unlikely,
+    context::JSContext,
     error::JS_ThrowReferenceErrorNotDefined,
     object::{
         JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_WRITABLE, JS_PROP_LAZYINIT,
-        JS_PROP_LENGTH, JS_PROP_NORMAL, JS_PROP_THROW_STRICT, JS_PROP_TMASK, JS_PROP_VARREF,
-        JSObject, JSProperty,
+        JS_PROP_LENGTH, JS_PROP_NORMAL, JS_PROP_TMASK, JS_PROP_VARREF, JSObject, JSProperty,
     },
     typed_array::{
         Float32Array, Float64Array, Int8Array, Int16Array, Int32Array, TypedArray, Uint8Array,
@@ -69,7 +69,7 @@ impl JSObject {
                 match prs_flags & JS_PROP_TMASK {
                     JS_PROP_NORMAL if cur_obj.eq(this) => {
                         // possible to update property value, when proto == this
-                        if prs_flags & JS_PROP_LENGTH != 0 {
+                        if unlikely(prs_flags & JS_PROP_LENGTH != 0) {
                             // set array length
                             debug_assert_eq!(this.class_id(), JS_CLASS_ARRAY);
                             debug_assert_eq!(prop, JS_ATOM_length);
@@ -80,7 +80,7 @@ impl JSObject {
                             );
                         }
 
-                        if prs_flags & JS_PROP_WRITABLE != 0 {
+                        if unlikely(prs_flags & JS_PROP_WRITABLE != 0) {
                             this.0.prop_values.borrow_mut()[idx] = JSProperty::Normal(val);
                             return Ok(true);
                         } else {
@@ -89,7 +89,7 @@ impl JSObject {
                     }
 
                     JS_PROP_VARREF if cur_obj.eq(this) => {
-                        if this.class_id() == JS_CLASS_MODULE_NS {
+                        if unlikely(this.class_id() == JS_CLASS_MODULE_NS) {
                             fail_read_only!(prop)
                         }
 
@@ -126,7 +126,7 @@ impl JSObject {
 
                     JS_PROP_NORMAL | JS_PROP_VARREF => {
                         // in case proto != this
-                        if prs_flags & JS_PROP_WRITABLE == 0 {
+                        if unlikely(prs_flags & JS_PROP_WRITABLE == 0) {
                             fail_read_only!(prop)
                         }
                         break;
@@ -151,18 +151,17 @@ impl JSObject {
                         } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY)
                             .contains(&cur_obj.class_id())
                         {
-                            // typed array oob
-                            return Ok(true);
+                            return Ok(true); // typed array oob
                         }
                     } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY)
                         .contains(&cur_obj.class_id())
                     {
                         let ret = unsafe { JS_AtomIsNumericIndex(ctx, prop) };
-                        if ret < 0 {
+                        if unlikely(ret < 0) {
                             return Err(-1);
-                        } else if ret == 1 {
-                            // typed array oob
-                            return Ok(true);
+                        }
+                        if ret == 1 {
+                            return Ok(true); // typed array oob
                         }
                     }
                 } else if let Some(xm) = unsafe {
@@ -194,7 +193,7 @@ impl JSObject {
                                 );
                             }
 
-                            if desc.flags & JS_PROP_WRITABLE == 0 {
+                            if unlikely(desc.flags & JS_PROP_WRITABLE == 0) {
                                 fail_read_only!(prop)
                             }
 
@@ -214,11 +213,10 @@ impl JSObject {
             }
         }
 
-        if flags & JS_PROP_NO_ADD != 0 {
+        if unlikely(flags & JS_PROP_NO_ADD != 0) {
             JS_ThrowReferenceErrorNotDefined(ctx, prop);
             return Err(-1);
-        }
-        if !this.flags().extensible() {
+        } else if unlikely(!this.flags().extensible()) {
             fail!("object is not extensible")
         }
 
@@ -240,21 +238,23 @@ impl JSObject {
         } else {
             // generic case: modify the property in `this` if it already exists
             if let Some(desc) = this.get_own_property(ctx, prop)? {
-                if desc.flags & JS_PROP_GETSET != 0 {
+                if unlikely(desc.flags & JS_PROP_GETSET != 0) {
                     fail!("setter is forbidden")
                 } else {
-                    if desc.flags & JS_PROP_WRITABLE == 0 || this.class_id() == JS_CLASS_MODULE_NS {
+                    if unlikely(
+                        desc.flags & JS_PROP_WRITABLE == 0 || this.class_id() == JS_CLASS_MODULE_NS,
+                    ) {
                         fail_read_only!(prop);
+                    } else {
+                        return this.define_property(
+                            ctx,
+                            prop,
+                            val,
+                            JSValue::UNDEFINED,
+                            JSValue::UNDEFINED,
+                            JS_PROP_HAS_VALUE,
+                        );
                     }
-
-                    return this.define_property(
-                        ctx,
-                        prop,
-                        val,
-                        JSValue::UNDEFINED,
-                        JSValue::UNDEFINED,
-                        JS_PROP_HAS_VALUE,
-                    );
                 }
             }
         }
@@ -413,10 +413,11 @@ impl JSObject {
                 //
                 JS_CLASS_UINT8C_ARRAY => {
                     let v = val.coerce_to_u8_clamp(ctx)?;
-                    if Uint8Array(TypedArray(self.clone()))
-                        .set_element(idx as _, v)
-                        .is_err()
-                    {
+                    if unlikely(
+                        Uint8Array(TypedArray(self.clone()))
+                            .set_element(idx as _, v)
+                            .is_err(),
+                    ) {
                         oob = true;
                     } else {
                         return Ok(true);
@@ -434,8 +435,7 @@ impl JSObject {
                     } else {
                         Uint8Array(TypedArray(self.clone())).set_element(idx as _, v as _)
                     };
-
-                    if r.is_err() {
+                    if unlikely(r.is_err()) {
                         oob = true;
                     } else {
                         return Ok(true);
@@ -453,8 +453,7 @@ impl JSObject {
                     } else {
                         Uint16Array(TypedArray(self.clone())).set_element(idx as _, v as _)
                     };
-
-                    if r.is_err() {
+                    if unlikely(r.is_err()) {
                         oob = true;
                     } else {
                         return Ok(true);
@@ -472,8 +471,7 @@ impl JSObject {
                     } else {
                         Uint32Array(TypedArray(self.clone())).set_element(idx as _, v as _)
                     };
-
-                    if r.is_err() {
+                    if unlikely(r.is_err()) {
                         oob = true;
                     } else {
                         return Ok(true);
@@ -482,8 +480,7 @@ impl JSObject {
                 JS_CLASS_FLOAT32_ARRAY => {
                     let d = val.to_f64(ctx)?;
                     let r = Float32Array(TypedArray(self.clone())).set_element(idx as _, d as _);
-
-                    if r.is_err() {
+                    if unlikely(r.is_err()) {
                         oob = true;
                     } else {
                         return Ok(true);
@@ -492,7 +489,7 @@ impl JSObject {
                 JS_CLASS_FLOAT64_ARRAY => {
                     let d = val.to_f64(ctx)?;
                     let r = Float64Array(TypedArray(self.clone())).set_element(idx as _, d);
-                    if r.is_err() {
+                    if unlikely(r.is_err()) {
                         oob = true;
                     } else {
                         return Ok(true);
@@ -564,11 +561,12 @@ impl JSValue {
         } else if let JSValue::Object(p) = JS_GetPrototypePrimitive(ctx, obj) {
             p.set_property_internal(ctx, prop, val, receiver, flags)
         } else {
-            if ctx.throw_type_error_or_false(flags as _, "not an object") {
+            return if unlikely(ctx.can_throw(flags)) {
+                ctx.throw_type_error_not_an_object();
                 Err(-1)
             } else {
                 Ok(false)
-            }
+            };
         }
     }
 
@@ -633,12 +631,10 @@ fn call_setter(
     if let Some(func) = setter {
         JSValue::Object(func.clone()).call(ctx, this_obj, std::slice::from_ref(&val))?;
         Ok(true)
+    } else if unlikely(ctx.can_throw(flags)) {
+        ctx.throw_type_error("no setter for property");
+        Err(-1)
     } else {
-        if flags & JS_PROP_THROW != 0 || (flags & JS_PROP_THROW_STRICT != 0 && is_strict_mode(ctx))
-        {
-            ctx.throw_type_error("no setter for property");
-            return Err(-1);
-        }
         Ok(false)
     }
 }
