@@ -3,9 +3,10 @@ use std::ops::DerefMut;
 use crate::{
     JS_CLASS_BYTECODE_FUNCTION,
     atom::JSAtom,
+    branch_hints::unlikely,
     context::JSContext,
     error::JSResult,
-    function::{FuncObjPayload, build_arg_list},
+    function::{BCFuncPayload, build_arg_list},
     object::{JSObject, ObjectPayload},
     stack_frame::StackFrame,
     value::{JSValue, JSValueConst},
@@ -295,7 +296,7 @@ pub fn JS_CallInternal(
                 p.0.payload
                     .borrow()
                     .func()
-                    .map(|f| (f.bytecode().unwrap(), f.home_object.clone()))
+                    .map(|f| (f.bytecode().cloned().unwrap(), f.home_object.clone()))
                     .unwrap();
 
             let pc_offset = frame.cur_pc_offset;
@@ -367,7 +368,8 @@ pub fn JS_CallConstructorInternal(
             p.0.payload
                 .borrow()
                 .func()
-                .and_then(FuncObjPayload::bytecode)
+                .and_then(BCFuncPayload::bytecode)
+                .cloned()
                 .unwrap();
 
         if bc.0.borrow().is_derived_class_constructor {
@@ -417,12 +419,12 @@ pub fn JS_CallConstructor(ctx: &JSContext, func_obj: &JSValue, args: &[JSValue])
 // magic value: 0 = normal apply, 1 = apply for constructor, 2 = Reflect.apply
 pub fn js_function_apply(ctx: &JSContext, cc: CallContext) -> JSResult {
     let this_val = cc.this();
-    this_val.ensure_callable(ctx)?;
+    this_val.ensure_function(ctx)?;
 
     let this_arg = cc.arg(0);
     let array_arg = cc.arg(1);
 
-    if array_arg.is_undefined_or_null() && cc.magic() != 2 {
+    if unlikely(array_arg.is_undefined_or_null() && cc.magic() != 2) {
         return this_val.call(ctx, this_arg, &[]);
     }
 

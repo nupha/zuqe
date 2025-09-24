@@ -328,7 +328,7 @@ pub fn js_array_every(ctx: &JSContext, cc: CallContext) -> JSResult {
     } else {
         &JSValue::UNDEFINED
     };
-    func.ensure_callable(ctx)?;
+    func.ensure_function(ctx)?;
 
     let mut ret: JSValue;
     match special {
@@ -441,7 +441,7 @@ pub fn js_array_reduce(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     let func = cc.arg(0);
-    func.ensure_callable(ctx)?;
+    func.ensure_function(ctx)?;
 
     let mut acc: JSValue;
     let mut k = 0;
@@ -543,7 +543,7 @@ pub fn js_array_find(ctx: &JSContext, cc: CallContext) -> JSResult {
     let len = js_get_length64(ctx, &obj)?;
 
     let func = cc.arg(0);
-    func.ensure_callable(ctx)?;
+    func.ensure_function(ctx)?;
 
     let this_val = cc.this();
     let this_arg = if cc.length() > 1 {
@@ -974,7 +974,7 @@ fn js_array_sort(ctx: &JSContext, cc: CallContext) -> JSResult {
     let cmpfn = {
         let f = cc.arg(0);
         if !f.is_undefined() {
-            f.ensure_callable(ctx)?;
+            f.ensure_function(ctx)?;
             Some(f)
         } else {
             None
@@ -989,7 +989,7 @@ fn js_array_toSorted(ctx: &JSContext, cc: CallContext) -> JSResult {
     let cmpfn = {
         let f = cc.arg(0);
         if !f.is_undefined() {
-            f.ensure_callable(ctx)?;
+            f.ensure_function(ctx)?;
             Some(f)
         } else {
             None
@@ -1308,7 +1308,7 @@ pub fn js_array_flatten(ctx: &JSContext, cc: CallContext) -> JSResult {
         if cc.length() > 1 {
             this_arg = cc.arg(1);
         }
-        mapper_func.ensure_callable(ctx)?;
+        mapper_func.ensure_function(ctx)?;
     } else {
         if cc.length() > 0 && !cc.arg(0).is_undefined() {
             depth = cc.arg(0).to_i32_saturating(ctx)?;
@@ -1496,7 +1496,7 @@ fn js_array_from(ctx: &JSContext, cc: CallContext) -> JSResult {
     if cc.length() > 1 {
         mapfn = cc.arg(1);
         if !mapfn.is_undefined() {
-            mapfn.ensure_callable(ctx)?;
+            mapfn.ensure_function(ctx)?;
             mapping = true;
             if cc.length() > 2 {
                 this_arg = cc.arg(2);

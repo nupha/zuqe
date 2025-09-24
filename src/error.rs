@@ -61,13 +61,15 @@ impl JSContext {
 
     /// set new obj to current_exception, returns the old exception value.
     /// Note: returned value should be freed by caller
+    #[cold]
     fn set_exception(&self, obj: JSValue) -> JSValue {
         std::mem::replace(&mut self.rt_mut().cur_exception, obj)
     }
 
     /// put `obj` to current_exception, free old exception.
     /// Note: `obj` is consumed.
-    #[inline(always)]
+    #[inline(never)]
+    #[cold]
     pub fn throw(&self, obj: JSValue) {
         // strict debug guard: don't allow to throw null or undefined.
         #[cfg(debug_assertions)]
@@ -80,6 +82,7 @@ impl JSContext {
 
     /// make error object and throw it as current exception.
     /// old exception will be freed.
+    #[cold]
     pub(crate) fn throw_error_ex(&self, kind: ErrorKind, message: &str, add_backtrace: bool) {
         let proto = self.0.borrow().native_error_proto[kind as usize].clone();
         let exc = if let Ok(o) = self.create_object_from_proto(proto, ObjectPayload::ERROR) {
@@ -106,6 +109,7 @@ impl JSContext {
 
     /// make error object and throw it as current exception.
     /// old exception will be freed.
+    #[cold]
     pub fn throw_error(&self, kind: ErrorKind, message: &str) {
         let rt = self.rt();
 
@@ -196,6 +200,7 @@ impl JSContext {
         self.throw_error(ErrorKind::Syntax, message);
     }
 
+    #[cold]
     pub fn throw_out_of_memory(&self) {
         if !self.rt().in_out_of_memory {
             self.rt_mut().in_out_of_memory = true;
@@ -210,6 +215,7 @@ pub const JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL: i32 = 1 << 0;
 pub const JS_BACKTRACE_FLAG_SINGLE_LEVEL: i32 = 1 << 1;
 
 /* Note: it is important that no exception is returned by this function */
+#[cold]
 pub fn is_backtrace_needed(obj: &JSValueConst) -> bool {
     if let JSValue::Object(p) = obj {
         if p.class_id() != JS_CLASS_ERROR {
@@ -223,6 +229,7 @@ pub fn is_backtrace_needed(obj: &JSValueConst) -> bool {
 }
 
 impl JSContext {
+    #[cold]
     fn do_build_backtrace(
         &self,
         error_obj: &JSValue,
@@ -324,6 +331,7 @@ impl JSContext {
     /// build traceback, set it as property of `error_obj`.
     /// if filename/line number is provided, they are defined as property of `error_obj` too.
     /// `error_obj` is not consumed.
+    #[cold]
     pub fn build_backtrace_to(
         &self,
         error_obj: &JSValue,

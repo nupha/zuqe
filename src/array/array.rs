@@ -4,6 +4,7 @@ use smallvec::SmallVec;
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_PROXY,
     atom::{JS_FreeAtom, JSAtom},
+    branch_hints::unlikely,
     context::JSContext,
     number::MAX_SAFE_INTEGER,
     object::{
@@ -209,11 +210,11 @@ impl Array {
     /// sort array-like object `obj`.
     pub fn sort(ctx: &JSContext, obj: &JSObject, cmp: Option<&JSValue>) -> Result<(), i32> {
         if let Some(f) = cmp {
-            f.ensure_callable(ctx)?;
+            f.ensure_function(ctx)?;
         }
 
         let arr_len = obj.get_length_prop(ctx)?;
-        if arr_len <= 1 {
+        if unlikely(arr_len <= 1) {
             return Ok(());
         }
 
@@ -573,13 +574,12 @@ impl JSObject {
         };
         if let Some(arr_len) = len {
             if new_len > arr_len as usize {
-                if self
+                let r = self
                     .shape()
                     .and_then(|sh| sh.0.borrow().prop_defs.get_index(0).map(|(_, p)| p.flags()))
-                    .unwrap()
-                    & JS_PROP_WRITABLE
-                    == 0
-                {
+                    .unwrap();
+
+                if unlikely(r & JS_PROP_WRITABLE == 0) {
                     return if ctx.can_throw(flags) {
                         ctx.throw_type_error("'length' is read-only");
                         Err(-1)

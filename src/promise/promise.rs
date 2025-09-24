@@ -76,7 +76,7 @@ impl Promise {
         executor: JSObject,
         new_target: &JSValue,
     ) -> Result<Self, i32> {
-        executor.ensure_callable(ctx)?;
+        executor.ensure_function(ctx)?;
 
         // make promise payload
         let s = Box::new(PromisePayload {
@@ -131,7 +131,7 @@ impl Promise {
             debug_assert!(!data.is_empty());
 
             for item in data.iter().take(2) {
-                item.ensure_callable(ctx)?;
+                item.ensure_function(ctx)?;
             }
 
             let resolving_funcs = [data[0].clone(), data[1].clone()];
@@ -231,7 +231,7 @@ impl Promise {
     pub fn class_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         Promise::new_with_executor(
             ctx,
-            cc.arg(0).ensure_callable(ctx)?.as_object().unwrap().clone(),
+            cc.arg(0).ensure_function(ctx)?.as_object().unwrap().clone(),
             cc.this(),
         )
         .map(|p| p.into())

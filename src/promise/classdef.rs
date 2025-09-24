@@ -1,6 +1,7 @@
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_PROP_STRING_DEF,
     atom::consts::*,
+    branch_hints::unlikely,
     context::JSContext,
     error::JSResult,
     function::{CallContext, FieldDef},
@@ -131,7 +132,7 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
     };
 
     let promise_resolve = if let Ok(x) = cc.this().get_property(ctx, JS_ATOM_resolve) {
-        if x.ensure_callable(ctx).is_err() {
+        if unlikely(x.ensure_function(ctx).is_err()) {
             return fail_reject();
         } else {
             x
@@ -280,7 +281,7 @@ pub fn js_promise_race(ctx: &JSContext, cc: CallContext) -> JSResult {
         .get_property(ctx, JS_ATOM_resolve)
         .unwrap_or(JSValue::EXCEPTION);
 
-    if promise_resolve.is_exception() || promise_resolve.ensure_callable(ctx).is_err() {
+    if unlikely(promise_resolve.is_exception() || promise_resolve.ensure_function(ctx).is_err()) {
         return fail_reject();
     }
 

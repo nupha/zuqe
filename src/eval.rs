@@ -86,7 +86,7 @@ impl JSContext {
                 .payload
                 .borrow()
                 .func()
-                .and_then(|f| f.bytecode());
+                .and_then(|f| f.bytecode().cloned());
 
             let mode = bc.as_ref().unwrap().0.borrow().js_mode as u32;
             (bc, None, mode)

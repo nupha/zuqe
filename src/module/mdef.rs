@@ -10,7 +10,7 @@ use crate::{
     class::JSClassExoticMethods,
     context::{JSContext, JSContextInner},
     error::JSResult,
-    function::{FuncObjPayload, JSFunctionDef, JSVarKindEnum, JSVarRef},
+    function::{BCFuncPayload, JSFunctionDef, JSVarKindEnum, JSVarRef},
     module::{JSExportEntry, JSExportTypeEnum, JSImportEntry, JSModuleStatus, ModuleDependency},
     object::{JS_PROP_C_W_E, JSObject, ObjectPayload},
     promise::Promise,
@@ -221,7 +221,7 @@ impl ModuleDefInner {
                     }
                 }
 
-                let isa = ObjectPayload::BYTECODE_FUNCTION(FuncObjPayload {
+                let isa = ObjectPayload::BYTECODE_FUNCTION(BCFuncPayload {
                     bytecode: Some(bc.clone()),
                     var_refs,
                     home_object: None,

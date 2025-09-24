@@ -4,7 +4,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{
-        BoundFuncObjPayload, CallContext, FieldDef, FuncObjPayload, JSFunctionKindEnum,
+        BCFuncPayload, BoundFuncObjPayload, CallContext, FieldDef, JSFunctionKindEnum,
         js_function_apply,
     },
     object::{JS_PROP_CONFIGURABLE, ObjectPayload},
@@ -26,8 +26,7 @@ pub fn js_function_call(ctx: &JSContext, args: CallContext) -> JSResult {
 
 pub fn js_function_bind(ctx: &JSContext, args: CallContext) -> JSResult {
     let this_val = args.this();
-
-    this_val.ensure_callable(ctx)?;
+    this_val.ensure_function(ctx)?;
 
     let mut bf = Box::new(BoundFuncObjPayload {
         func_obj: this_val.clone(),
@@ -111,8 +110,7 @@ pub fn js_function_bind(ctx: &JSContext, args: CallContext) -> JSResult {
 
 pub fn js_function_toString(ctx: &JSContext, args: CallContext) -> JSResult {
     let this_val = args.this_raw();
-
-    this_val.ensure_callable(ctx)?;
+    this_val.ensure_function(ctx)?;
     let p = unsafe { this_val.as_object_unchecked() };
 
     let func_kind = if let Some(func) = p.0.payload.borrow().func() {
@@ -152,15 +150,18 @@ pub fn js_function_hasInstance(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_function_proto_fileName(ctx: &JSContext, args: CallContext) -> JSResult {
-    if let Some(b) = args.this_raw().as_object().and_then(|o| {
+    if let Some((has_debug, filename)) = args.this_raw().as_object().and_then(|o| {
         o.0.payload
             .borrow()
             .func()
-            .and_then(FuncObjPayload::bytecode)
+            .and_then(BCFuncPayload::bytecode)
+            .map(|bc| {
+                let b = bc.0.borrow();
+                (b.has_debug, b.debug.filename)
+            })
     }) {
-        let b = b.0.borrow();
-        if b.has_debug {
-            b.debug.filename.force_string(ctx).map(JSValue::String)
+        if has_debug {
+            filename.force_string(ctx).map(JSValue::String)
         } else {
             Ok(JSValue::UNDEFINED)
         }
@@ -170,15 +171,18 @@ pub fn js_function_proto_fileName(ctx: &JSContext, args: CallContext) -> JSResul
 }
 
 pub fn js_function_proto_lineNumber(_: &JSContext, args: CallContext) -> JSResult {
-    if let Some(b) = args.this_raw().as_object().and_then(|o| {
+    if let Some((has_debug, line_num)) = args.this_raw().as_object().and_then(|o| {
         o.0.payload
             .borrow()
             .func()
-            .and_then(FuncObjPayload::bytecode)
+            .and_then(BCFuncPayload::bytecode)
+            .map(|bc| {
+                let b = bc.0.borrow();
+                (b.has_debug, b.debug.line_num)
+            })
     }) {
-        let b = b.0.borrow();
-        if b.has_debug {
-            Ok(JSValue::Int(b.debug.line_num as i32))
+        if has_debug {
+            Ok(JSValue::Int(line_num))
         } else {
             Ok(JSValue::UNDEFINED)
         }

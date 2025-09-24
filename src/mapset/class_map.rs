@@ -171,8 +171,8 @@ pub fn js_map_forEach(ctx: &JSContext, cc: CallContext) -> JSResult {
     let is_set = cc.magic() & 1 == 1;
 
     let func = cc.arg(0);
+    func.ensure_function(ctx)?;
     let this_arg = cc.arg(1);
-    func.ensure_callable(ctx)?;
 
     // lock map, and ensure `this` is an object of expected class_id.
     cc.this()
@@ -347,7 +347,7 @@ pub static js_weakset_proto_funcs: [FieldDef; 4] = [
 fn js_map_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
     // check must be observed before argv[0] is accessed
     let func = cc.arg(1);
-    func.ensure_callable(ctx)?;
+    func.ensure_function(ctx)?;
 
     let this_val = if is_strict_mode(ctx) {
         JSValue::UNDEFINED

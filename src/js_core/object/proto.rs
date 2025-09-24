@@ -5,6 +5,7 @@ use crate::{
     JS_CLASS_DATE, JS_CLASS_ERROR, JS_CLASS_MAPPED_ARGUMENTS, JS_CLASS_NUMBER, JS_CLASS_REGEXP,
     JS_CLASS_STRING,
     atom::{JS_ATOM_NULL, JS_FreeAtom, consts::*},
+    branch_hints::unlikely,
     context::JSContext,
     error::JSResult,
     function::{CallContext, FieldDef},
@@ -163,7 +164,7 @@ pub unsafe fn js_object___defineGetter__(
     let prop = &(*argv.offset(0));
     let value = &(*argv.offset(1));
 
-    if value.ensure_callable(ctx).is_err() {
+    if unlikely(value.ensure_function(ctx).is_err()) {
         return JSValue::EXCEPTION;
     }
 

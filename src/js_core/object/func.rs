@@ -143,7 +143,7 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     // check must be observed before argv[0] is accessed
     let func = cc.arg(1);
-    func.ensure_callable(ctx)?;
+    func.ensure_function(ctx)?;
 
     let groups = if is_map {
         js_map_constructor(ctx, CallContext::new_simple(ctx, JSValue::UNDEFINED, &[]))?

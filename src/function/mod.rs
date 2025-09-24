@@ -9,7 +9,6 @@ mod closure;
 mod cpool;
 mod fdef;
 mod fields;
-mod fun;
 mod label;
 mod mkbc;
 mod native;
@@ -25,6 +24,5 @@ mod var_ref;
 
 pub use {
     afun::*, argument::*, astate::*, bfun::*, bound::*, bytecode::*, call::*, closure::*, fdef::*,
-    fields::*, fun::*, label::*, native::*, optimize::*, resolve_vars::*, scope::*, var::*,
-    var_ref::*,
+    fields::*, label::*, native::*, optimize::*, resolve_vars::*, scope::*, var::*, var_ref::*,
 };

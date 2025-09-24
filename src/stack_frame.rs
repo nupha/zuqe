@@ -119,6 +119,7 @@ impl StackFrame {
     /// Returns:
     /// - Some((pc, sp)) if exception was caught (continue execution at new position)
     /// - None if exception is uncaught (abort execution)
+    #[cold]
     pub(crate) fn handle_exception(
         &mut self,
         ctx: &JSContext,
@@ -212,6 +213,7 @@ impl StackFrame {
     }
 
     /// Cleans ups for stack frame
+    #[cold]
     pub(crate) fn clear(&mut self) {
         self.cur_func = JSValue::UNDEFINED;
         self.local_buf.clear();

@@ -13,6 +13,7 @@ use crate::{
         special_reduceRight, special_some,
     },
     atom::consts::JS_ATOM_Symbol_iterator,
+    branch_hints::unlikely,
     class::JSClassID,
     context::JSContext,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
@@ -202,7 +203,7 @@ pub fn js_typed_array_from(ctx: &JSContext, args: CallContext) -> JSResult {
     if argc > 1 {
         mapfn = args.arg(1);
         if !mapfn.is_undefined() {
-            mapfn.ensure_callable(ctx)?;
+            mapfn.ensure_function(ctx)?;
             mapping = true;
             if argc > 2 {
                 this_arg = args.arg(2).clone();
@@ -379,7 +380,7 @@ fn js_typed_array_copyWithin(ctx: &JSContext, cc: CallContext) -> JSResult {
     let count = std::cmp::min(final_ - from, len - to);
     if count > 0 {
         let tao: TypedArray = cc.this().clone().try_into()?;
-        if tao.is_detached() {
+        if unlikely(tao.is_detached()) {
             JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
             return Err(-1);
         }
@@ -404,7 +405,7 @@ fn js_typed_array_copyWithin(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_typed_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
     let ta = TypedArray::try_from(cc.this().clone())?;
 
-    if ta.is_detached() {
+    if unlikely(ta.is_detached()) {
         JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
         return Err(-1);
     }
@@ -530,7 +531,7 @@ pub fn js_typed_array_find(ctx: &JSContext, args: CallContext) -> JSResult {
     let this_val = args.this();
 
     let len = unsafe { js_typed_array_get_length_internal(ctx, this_val)? as i32 };
-    let func = args.arg(0).ensure_callable(ctx)?;
+    let func = args.arg(0).ensure_function(ctx)?;
 
     let this_arg = if args.length() > 1 {
         args.arg(0)
@@ -729,8 +730,8 @@ pub fn js_typed_array_sort(ctx: &JSContext, cc: CallContext) -> JSResult {
     let this_val = cc.this();
     let cmp = cc.arg(0);
 
-    if !cmp.is_undefined() && cmp.ensure_callable(ctx).is_err() {
-        return Err(-1);
+    if unlikely(!cmp.is_undefined()) {
+        cmp.ensure_function(ctx)?;
     }
 
     let len = unsafe { js_typed_array_get_length_internal(ctx, this_val)? };

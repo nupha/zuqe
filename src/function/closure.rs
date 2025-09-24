@@ -2,9 +2,7 @@ use crate::{
     JS_CLASS_ASYNC_GENERATOR, JS_CLASS_GENERATOR,
     atom::{JS_ATOM_NULL, JSAtom, consts::*},
     context::JSContext,
-    function::{
-        Bytecode, FuncObjPayload, JSFunctionKindEnum, JSVarRef, js_function_set_properties,
-    },
+    function::{BCFuncPayload, Bytecode, JSFunctionKindEnum, JSVarRef, js_function_set_properties},
     object::{JS_PROP_WRITABLE, JS_SetConstructorBit, JSObject, LazyInit, ObjectPayload},
     runtime::JS_MAX_LOCAL_VARS,
     stack_frame::StackFrame,
@@ -288,16 +286,16 @@ impl Bytecode {
             ctx,
             ctx.create_object(match func_kind {
                 JSFunctionKindEnum::JS_FUNC_NORMAL => {
-                    ObjectPayload::BYTECODE_FUNCTION(FuncObjPayload::default())
+                    ObjectPayload::BYTECODE_FUNCTION(BCFuncPayload::default())
                 }
                 JSFunctionKindEnum::JS_FUNC_GENERATOR => {
-                    ObjectPayload::GENERATOR_FUNCTION(FuncObjPayload::default())
+                    ObjectPayload::GENERATOR_FUNCTION(BCFuncPayload::default())
                 }
                 JSFunctionKindEnum::JS_FUNC_ASYNC => {
-                    ObjectPayload::ASYNC_FUNCTION(FuncObjPayload::default())
+                    ObjectPayload::ASYNC_FUNCTION(BCFuncPayload::default())
                 }
                 JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR => {
-                    ObjectPayload::ASYNC_GENERATOR_FUNCTION(FuncObjPayload::default())
+                    ObjectPayload::ASYNC_GENERATOR_FUNCTION(BCFuncPayload::default())
                 }
             })
             .map_err(|_| -1)?,

@@ -5,7 +5,7 @@ use crate::{
     function::{JSFunctionDef, JSFunctionKindEnum},
     parse::class::js_parse_function_class_fields_init,
     utils::{push_vec_u8, push_vec_u16, push_vec_u32},
-    value::{JSValue, JSValueConst},
+    value::JSValue,
 };
 
 use super::state::JSParseState;

@@ -2489,9 +2489,9 @@ pub fn JS_GetFunctionBytecode(val: &JSValueConst) -> *mut Bytecode {
     unreachable!("unused");
 }
 
-#[deprecated(note = "use JSValue::ensure_callable() instead")]
+#[deprecated(note = "use JSValue::ensure_function() instead")]
 pub unsafe fn check_function(ctx: &JSContext, obj: JSValueConst) -> Result<(), i32> {
-    obj.ensure_callable(ctx)?;
+    obj.ensure_function(ctx)?;
     Ok(())
 }
 
@@ -4420,7 +4420,7 @@ pub unsafe fn js_create_module_bytecode_function(
     //         if m.0.has_tla.get() {
     //             // b.0.borrow_mut().js_mode |= JS_MODE_ASYNC as u8;
     //             // (
-    //             //     ObjectPayload::ASYNC_FUNCTION(FuncObjPayload {
+    //             //     ObjectPayload::ASYNC_FUNCTION(BCFuncPayload {
     //             //         bytecode: Some(b.clone()),
     //             //         var_refs,
     //             //         home_object: None,
@@ -4428,7 +4428,7 @@ pub unsafe fn js_create_module_bytecode_function(
     //             //     JS_CLASS_BYTECODE_FUNCTION,
     //             // )
     //             (
-    //                 ObjectPayload::BYTECODE_FUNCTION(FuncObjPayload {
+    //                 ObjectPayload::BYTECODE_FUNCTION(BCFuncPayload {
     //                     bytecode: Some(b.clone()),
     //                     var_refs,
     //                     home_object: None,
@@ -4437,7 +4437,7 @@ pub unsafe fn js_create_module_bytecode_function(
     //             )
     //         } else {
     //             (
-    //                 ObjectPayload::BYTECODE_FUNCTION(FuncObjPayload {
+    //                 ObjectPayload::BYTECODE_FUNCTION(BCFuncPayload {
     //                     bytecode: Some(b.clone()),
     //                     var_refs,
     //                     home_object: None,

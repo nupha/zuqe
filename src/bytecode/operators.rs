@@ -8,7 +8,7 @@ use crate::{
     atom::{JS_ATOM_NULL, JS_FreeAtom, JSAtom, consts::*},
     class::JS_DEFINE_CLASS_HAS_HERITAGE,
     context::JSContext,
-    function::{FuncObjPayload, JSFunctionKindEnum, JSVarRef, NativeFunctionType},
+    function::{BCFuncPayload, JSFunctionKindEnum, JSVarRef, NativeFunctionType},
     iterator::{
         JS_IteratorGetCompleteValue, JSIteratorKindEnum, js_array_iterator_next,
         js_create_array_iterator,
@@ -165,7 +165,7 @@ pub fn js_op_define_class(
     let func = ctx
         .create_object_from_proto(
             parent_class,
-            ObjectPayload::BYTECODE_FUNCTION(FuncObjPayload::default()),
+            ObjectPayload::BYTECODE_FUNCTION(BCFuncPayload::default()),
         )
         .map_err(|_| -1)?;
 

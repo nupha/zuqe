@@ -1,6 +1,7 @@
 use crate::{
     JS_CLASS_ERROR,
     atom::{AtomTypeHint, JSAtom, JSAtomStruct},
+    branch_hints::unlikely,
     function::{AsyncFuncState, Bytecode},
     module::ModuleDef,
     number::JSFloat64Union,
@@ -323,7 +324,7 @@ impl JSValue {
     /// if `self` is an exception, returns Err if yes; Otherwise returns Ok(self)
     #[inline]
     pub fn err(self) -> Result<Self, i32> {
-        if self.is_exception() {
+        if unlikely(self.is_exception()) {
             Err(-1)
         } else {
             Ok(self)

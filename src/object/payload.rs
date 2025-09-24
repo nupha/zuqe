@@ -7,7 +7,7 @@ use crate::{
     array::ArrayObjPayload,
     array_buffer::ArrayBufObjPayload,
     context::JSContext,
-    function::{AsyncFuncState, FuncObjPayload},
+    function::{AsyncFuncState, BCFuncPayload},
     mapset::{JSMapIteratorData, JSMapState},
     object::JSObject,
     promise::PromiseResolvingPayload,
@@ -130,7 +130,7 @@ impl ObjectPayload {
         }
     }
 
-    pub const fn func(&self) -> Option<&FuncObjPayload> {
+    pub const fn func(&self) -> Option<&BCFuncPayload> {
         match self {
             Self::BYTECODE_FUNCTION(f)
             | Self::GENERATOR_FUNCTION(f)
@@ -139,7 +139,7 @@ impl ObjectPayload {
             _ => None,
         }
     }
-    pub const fn func_mut(&mut self) -> Option<&mut FuncObjPayload> {
+    pub const fn func_mut(&mut self) -> Option<&mut BCFuncPayload> {
         match self {
             Self::BYTECODE_FUNCTION(f)
             | Self::GENERATOR_FUNCTION(f)
