@@ -758,7 +758,15 @@ fn js_proxy_set(
             &s.target.clone().into(),
             atom,
             value,
-            &receiver,
+            match receiver {
+                JSValue::NULL | JSValue::UNDEFINED => None,
+                JSValue::Object(o) => Some(o),
+                _ => {
+                    ctx.throw_type_error("receiver must be an object");
+                    return Err(-1);
+                }
+            }
+            .as_ref(),
             flags as u32,
         );
     }

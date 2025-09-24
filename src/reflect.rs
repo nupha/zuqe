@@ -95,7 +95,22 @@ pub fn js_reflect_set(ctx: &JSContext, cc: CallContext) -> JSResult {
         let val = cc.arg(2);
         let receiver = if cc.length() > 3 { cc.arg(3) } else { target };
         let atom = prop.to_atom(ctx)?;
-        let ret = JSValue::set_property_internal(ctx, target, atom, val.clone(), receiver, 0);
+
+        let ret = JSValue::set_property_internal(
+            ctx,
+            target,
+            atom,
+            val.clone(),
+            match receiver {
+                JSValue::NULL | JSValue::UNDEFINED => None,
+                JSValue::Object(o) => Some(o),
+                _ => {
+                    ctx.throw_type_error("receiver must be an object");
+                    return Err(-1);
+                }
+            },
+            0,
+        );
         JS_FreeAtom(ctx, atom);
         ret.map(JSValue::Bool)
     } else {

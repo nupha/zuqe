@@ -1550,18 +1550,18 @@ impl Bytecode {
                         }
                     }
                     OpCode::PUT_FIELD => {
-                        // [this_obj, value, ^] -> [^]
+                        // [obj, value, ^] -> [^]
                         let atom = JSAtom(PC_FETCH!(u32));
-                        let this_obj = SP_TAKE!(-2);
+                        let obj = SP_TAKE!(-2);
                         let value = SP_TAKE!(-1);
                         SP_GO!(-2);
 
                         let r = JSValue::set_property_internal(
                             ctx,
-                            &this_obj,
+                            &obj,
                             atom,
                             value,
-                            &this_obj,
+                            None,
                             JS_PROP_THROW_STRICT,
                         );
                         if unlikely(r.is_err()) {
@@ -1874,7 +1874,11 @@ impl Bytecode {
                                 &obj,
                                 atom,
                                 val,
-                                &this_obj,
+                                if let JSValue::Object(o) = &this_obj {
+                                    Some(o)
+                                } else {
+                                    unreachable!()
+                                },
                                 JS_PROP_THROW_STRICT,
                             );
                             JS_FreeAtom(ctx, atom);
@@ -2224,7 +2228,7 @@ impl Bytecode {
                                             env_obj,
                                             atom,
                                             SP_TAKE!(-2),
-                                            env_obj,
+                                            None,
                                             JS_PROP_THROW_STRICT,
                                         );
                                         SP_TAKE!(-1);
