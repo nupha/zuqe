@@ -12,7 +12,7 @@ use crate::{
     class::JSClassExoticMethods,
     context::JSContext,
     gc::GCObjectHeader,
-    number::f64_stringify,
+    number::{ATOD_ACCEPT_BIN_OCT, f64_stringify, js_atof},
     object::{
         GCObjectWeakref, JS_PROP_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC, JSObject,
         JSPropertyDescriptor, ObjectPayload, check_define_prop_flags,
@@ -394,6 +394,30 @@ impl JSString {
                 })?)
             } else {
                 ctx.create_string_with_content(StringContent::empty())
+            }
+        }
+    }
+
+    /// coerce string to number. if can't convert string to number, returns NAN.
+    pub fn to_number(&self, ctx: &JSContext) -> JSValue {
+        let str = self.content().to_utf8();
+        let str = str.as_ref().trim();
+
+        if str.is_empty() {
+            JSValue::Int(0)
+        } else {
+            let mut p = str.as_ptr();
+            if let Ok(num) = unsafe { js_atof(ctx, p.cast(), &mut p, 0, ATOD_ACCEPT_BIN_OCT) } {
+                if unsafe { p.offset_from(str.as_ptr()) != str.len() as isize } {
+                    // `str` has remaining characters that are not part of the number:
+                    // not a valid number.
+                    JSValue::Float64(f64::NAN)
+                } else {
+                    num
+                }
+            } else {
+                let _ = ctx.take_exception();
+                JSValue::Float64(f64::NAN)
             }
         }
     }

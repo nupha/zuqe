@@ -162,7 +162,7 @@ impl JSAtom {
         str: JSString,
         type_hint: AtomTypeHint,
     ) -> Result<JSAtom, i32> {
-        if let Ok(i) = str.content().parse_u32()
+        if let Some(i) = str.content().parse_u32()
             && i <= JS_ATOM_MAX_INT
         {
             Ok(JSAtom::new_small_int(i))
@@ -173,7 +173,7 @@ impl JSAtom {
 
     /// make atom from `str`
     pub fn from_str(rt: &mut JSRuntime, str: &str, type_hint: AtomTypeHint) -> Result<Self, i32> {
-        if let Ok(i) = parse_u32(str)
+        if let Some(i) = parse_u32(str)
             && i <= JS_ATOM_MAX_INT
         {
             Ok(JSAtom::new_small_int(i))

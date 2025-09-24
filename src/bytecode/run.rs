@@ -41,7 +41,6 @@ use crate::{
     },
     regexp::RegExp,
     stack_frame::StackFrame,
-    string::JSString,
     utils::read_from_ptr,
     value::JSValue,
 };

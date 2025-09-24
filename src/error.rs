@@ -72,10 +72,10 @@ impl JSContext {
     #[cold]
     pub fn throw(&self, obj: JSValue) {
         // strict debug guard: don't allow to throw null or undefined.
-        #[cfg(debug_assertions)]
-        if obj.is_undefined_or_null() {
-            panic!("throw a null or undefined value is not recommended");
-        }
+        // #[cfg(debug_assertions)]
+        // if obj.is_undefined_or_null() {
+        //     panic!("throw a null or undefined value is not recommended");
+        // }
 
         self.set_exception(obj);
     }

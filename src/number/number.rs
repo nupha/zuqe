@@ -6,8 +6,6 @@ use crate::{
     value::{JSValue, JSValueConst},
 };
 
-use super::{ATOD_ACCEPT_BIN_OCT, js_atof};
-
 pub const MAX_SAFE_INTEGER: i64 = (1_i64 << 53) - 1;
 pub const SAFE_INTEGER_RANGE: RangeInclusive<i64> = -MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER;
 pub const JS_FLOAT64_NAN: f64 = f64::NAN;
@@ -17,12 +15,71 @@ pub(crate) fn is_safe_integer(d: f64) -> bool {
     f64::is_finite(d) && d.floor() == d && d.abs() <= MAX_SAFE_INTEGER as f64
 }
 
-/// TODO: use this enum to represent an int or float.
-/// XXX
 #[derive(Debug, Clone, Copy)]
 pub enum IntOrFloat {
     Int64(i64),
     Float64(f64),
+}
+
+impl From<f64> for IntOrFloat {
+    #[inline]
+    fn from(d: f64) -> Self {
+        if d == 0.0 {
+            if d.is_sign_negative() {
+                Self::Float64(-0.0)
+            } else {
+                Self::Int64(0)
+            }
+        } else if d.fract() == 0.0 && is_safe_integer(d) {
+            Self::Int64(d as i64)
+        } else {
+            Self::Float64(d)
+        }
+    }
+}
+
+impl From<i64> for IntOrFloat {
+    #[inline(always)]
+    fn from(val: i64) -> Self {
+        Self::Int64(val)
+    }
+}
+
+impl From<IntOrFloat> for JSValue {
+    fn from(value: IntOrFloat) -> Self {
+        match value {
+            IntOrFloat::Int64(i) => JSValue::from(i),
+            IntOrFloat::Float64(f) => JSValue::from(f),
+        }
+    }
+}
+
+impl IntOrFloat {
+    pub fn to_i64(&self) -> Option<i64> {
+        match self {
+            Self::Int64(val) => Some(*val),
+            Self::Float64(val) => {
+                if is_safe_integer(*val) {
+                    Some(*val as i64)
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    pub fn to_f64(&self) -> Option<f64> {
+        match self {
+            IntOrFloat::Int64(val) => {
+                if (-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&val) {
+                    Some(*val as f64)
+                } else {
+                    None
+                }
+            }
+            IntOrFloat::Float64(val) => Some(*val),
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -125,7 +182,7 @@ impl JSValue {
     }
 
     /// Convert value to number value.
-    /// returns JSValue::Int, JSValue::Float64 (could be NaN) value, or Err.
+    /// returns JSValue::Int, JSValue::Float64 value, or Err.
     ///
     /// Because BigInt is not supported, JSToNumberHintEnum does not effect
     fn to_num_internal(&self, ctx: &JSContext, flag: JSToNumberHintEnum) -> JSResult {
@@ -144,31 +201,7 @@ impl JSValue {
                     break Ok(JSValue::Float64(f64::NAN));
                 }
                 Self::String(s) => {
-                    // parse string to int or float
-                    let str = s.content().to_utf8();
-                    let str = str.as_ref().trim();
-
-                    let res: JSValue = if str.is_empty() {
-                        // "" -> 0
-                        JSValue::Int(0)
-                    } else {
-                        // FIXME: don't use raw pointer to parse number.
-                        let mut p = str.as_ptr();
-                        if let Ok(num) =
-                            unsafe { js_atof(ctx, p.cast(), &mut p, 0, ATOD_ACCEPT_BIN_OCT) }
-                        {
-                            if unsafe { p.offset_from(str.as_ptr()) != str.len() as isize } {
-                                // `str` has remaining characters that are not part of the number.
-                                // This is not a valid number.
-                                JSValue::Float64(f64::NAN)
-                            } else {
-                                num
-                            }
-                        } else {
-                            JSValue::Float64(f64::NAN)
-                        }
-                    };
-                    break Ok(res);
+                    break Ok(s.to_number(ctx));
                 }
                 Self::Object(o) => {
                     val = o.to_number(ctx)?;

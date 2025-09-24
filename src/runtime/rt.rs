@@ -6,8 +6,6 @@ use std::{
     rc::Rc,
 };
 
-use regex::bytes::Regex;
-
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT,
     JS_CLASS_ASYNC_FUNCTION_RESOLVE, JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_BOUND_FUNCTION,
@@ -124,9 +122,6 @@ impl JSRuntime {
             malloc_limit: usize::MAX,
             ..Default::default()
         };
-
-        // ms.malloc_count += 1;
-        // ms.malloc_size += std::mem::size_of::<JSRuntime>() + MALLOC_OVERHEAD;
 
         let mut rt = Box::new(JSRuntime {
             mf,

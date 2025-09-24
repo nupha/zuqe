@@ -51,9 +51,3 @@ pub fn unlikely_critical(expr: bool) -> bool {
         false
     }
 }
-
-#[cfg(not(target_arch = "xtensa"))]
-#[inline(always)]
-pub fn unlikely_critical(expr: bool) -> bool {
-    unlikely(expr)
-}

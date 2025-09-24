@@ -362,13 +362,7 @@ pub unsafe fn js_parse_string(
 
 #[deprecated(note = "use StringBuf::parse_u32() instead")]
 pub unsafe fn is_num_string(pval: &mut u32, p: *const JSStringInner) -> bool {
-    match (*p).content().parse_u32() {
-        Ok(n) => {
-            *pval = n;
-            true
-        }
-        Err(_) => false,
-    }
+    unreachable!("unused");
 }
 
 #[deprecated(note = "use JSValue::is_number() instead")]
@@ -3876,7 +3870,7 @@ pub fn JS_AtomIsArrayIndex(ctx: &JSContext, pval: *mut u32, atom: JSAtom) -> boo
     } else {
         if let Some(p) = ctx.rt().get_atom_desc(atom) {
             if let Some(AtomHintAndId::String(_)) = p.atom_info() {
-                if let Ok(n) = p.content().parse_u32() {
+                if let Some(n) = p.content().parse_u32() {
                     if n != u32::MAX {
                         unsafe {
                             *pval = n;

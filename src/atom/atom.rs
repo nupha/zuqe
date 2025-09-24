@@ -215,7 +215,7 @@ impl JSAtom {
                 if let Some(AtomHintAndId::String(_)) = p.atom_info() {
                     // Per js specification, array length could be 2^32-1 in max,
                     // thus array index must be less than u32::MAX.
-                    if let Ok(n) = p.content().parse_u32()
+                    if let Some(n) = p.content().parse_u32()
                         && n < u32::MAX
                     {
                         return Some(n);
@@ -235,7 +235,7 @@ impl JSAtom {
         } else {
             if let Some(p) = rt.get_atom_desc(self) {
                 if let Some(AtomHintAndId::String(_)) = p.atom_info() {
-                    return p.content().parse_i64().ok();
+                    return p.content().parse_i64();
                 }
             }
             None

@@ -20,13 +20,17 @@ impl TwoNumbers {
         match (op1, op2) {
             (JSValue::Int(a), JSValue::Int(b)) => Some(Self::Int(*a, *b)),
             (JSValue::Bool(a), JSValue::Bool(b)) => Some(Self::Int(*a as i32, *b as i32)),
-            (JSValue::Int(a), JSValue::Bool(b)) => Some(Self::Int(*a, *b as i32)),
-            (JSValue::Bool(a), JSValue::Int(b)) => Some(Self::Int(*a as i32, *b)),
             (JSValue::Float64(a), JSValue::Float64(b)) => Some(Self::Float(*a, *b)),
+
             (JSValue::Int(a), JSValue::Float64(b)) => Some(Self::Float(*a as f64, *b)),
             (JSValue::Float64(a), JSValue::Int(b)) => Some(Self::Float(*a, *b as f64)),
+
+            (JSValue::Int(a), JSValue::Bool(b)) => Some(Self::Int(*a, *b as i32)),
+            (JSValue::Bool(a), JSValue::Int(b)) => Some(Self::Int(*a as i32, *b)),
+
             (JSValue::Bool(a), JSValue::Float64(b)) => Some(Self::Float(*a as i32 as f64, *b)),
             (JSValue::Float64(a), JSValue::Bool(b)) => Some(Self::Float(*a, *b as i32 as f64)),
+
             _ => None,
         }
     }
@@ -655,10 +659,10 @@ impl JSValue {
 
 /// test arith equality (no-strict eq): val1 == val2
 pub fn js_eq(ctx: &JSContext, val1: &JSValue, val2: &JSValue) -> Result<bool, i32> {
-    // fast path
-    if val1 == val2 {
-        return Ok(true);
+    if std::mem::discriminant(val1) == std::mem::discriminant(val2) {
+        return Ok(val1 == val2);
     } else if let Some(n2) = TwoNumbers::from_values0(val1, val2) {
+        // fast path
         return Ok(n2
             .partial_cmp()
             .map_or(false, |r| r == std::cmp::Ordering::Equal));
@@ -675,36 +679,34 @@ pub fn js_eq(ctx: &JSContext, val1: &JSValue, val2: &JSValue) -> Result<bool, i3
                 break true;
             }
 
+            // null,undefined vs others
             (_, JSValue::NULL | JSValue::UNDEFINED) | (JSValue::NULL | JSValue::UNDEFINED, _) => {
                 break false;
             }
 
             // number vs string
             (JSValue::Int(i), JSValue::String(s)) | (JSValue::String(s), JSValue::Int(i)) => {
-                let str = s.content();
-                break if let Ok(n) = str.parse_i64() {
-                    *i as i64 == n
-                } else if let Some(n) = str.parse_f64(ctx) {
-                    *i as f64 == n
-                } else {
-                    false
+                break match s.to_number(ctx) {
+                    JSValue::Int(v) => v == *i,
+                    JSValue::Float64(v) => v == 0.0 && *i == 0, // -0 == 0
+                    _ => false,
                 };
             }
             (JSValue::Float64(f), JSValue::String(s))
             | (JSValue::String(s), JSValue::Float64(f)) => {
-                break if let Some(n) = s.content().parse_f64(ctx) {
-                    *f == n
-                } else {
-                    false
+                break match s.to_number(ctx) {
+                    JSValue::Int(v) => v as f64 == *f,
+                    JSValue::Float64(v) => v == *f,
+                    _ => false,
                 };
             }
 
             // boolean vs string
             (JSValue::Bool(b), JSValue::String(s)) | (JSValue::String(s), JSValue::Bool(b)) => {
-                break if let Ok(n) = s.content().parse_i64() {
-                    *b as i64 == n
-                } else {
-                    false
+                break match s.to_number(ctx) {
+                    JSValue::Int(v) => v == *b as i32,
+                    JSValue::Float64(v) => v == 0.0 && *b == false, // -0 == false
+                    _ => false,
                 };
             }
 
@@ -749,7 +751,9 @@ pub fn js_eq(ctx: &JSContext, val1: &JSValue, val2: &JSValue) -> Result<bool, i3
             }
         }
 
-        if let Some(n2) = TwoNumbers::from_values0(&op1, &op2) {
+        if std::mem::discriminant(&op1) == std::mem::discriminant(&op2) {
+            break op1 == op2;
+        } else if let Some(n2) = TwoNumbers::from_values0(&op1, &op2) {
             break n2
                 .partial_cmp()
                 .map_or(false, |r| r == std::cmp::Ordering::Equal);
