@@ -165,7 +165,7 @@ impl JSContext {
         parser.is_module = module.is_some();
         parser.allow_html_comments = module.is_none();
 
-        // parser.skip_shebang();
+        parser.skip_shebang();
         parser.parse_program()?;
 
         // has top-level await?
