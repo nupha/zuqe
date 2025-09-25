@@ -131,14 +131,8 @@ impl TwoNumbers {
     pub fn pow(self) -> JSValue {
         match self {
             Self::Int(a, b) => {
-                if b == 1 || (a == 0 && b == 0) {
-                    // pow(0,0)=1
-                    JSValue::Int(1)
-                } else if a == 0 {
-                    JSValue::Int(0)
-                } else if b > 0 {
-                    let v = (a as i64).pow(b as u32);
-                    JSValue::from(v)
+                if b >= 0 {
+                    JSValue::from(a.pow(b as u32))
                 } else {
                     JSValue::from((a as f64).powf(b as f64))
                 }
