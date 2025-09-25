@@ -152,11 +152,13 @@ impl ModuleDef {
                 }
 
                 (*self.0.bytecode.as_ptr()).gc_mark();
-                (*self.0.eval_exception.as_ptr()).gc_mark();
+                if let Some(exc) = self.eval_exception() {
+                    exc.gc_mark();
+                }
                 if let Some(o) = (*self.0.meta_obj.as_ptr()).as_ref() {
                     o.gc_mark();
                 }
-                (*self.0.promise.as_ptr()).as_ref().map(|p| p.gc_mark());
+                self.promise().map(|p| p.gc_mark());
                 (*self.0.resolving_funcs.as_ptr())[0].gc_mark();
                 (*self.0.resolving_funcs.as_ptr())[1].gc_mark();
             }
@@ -175,7 +177,7 @@ impl ModuleDef {
     pub fn gc_sweep(&self) {
         self.0.module_ns.take();
         self.0.bytecode.set(JSValue::UNDEFINED);
-        self.0.eval_exception.set(JSValue::UNDEFINED);
+        self.set_eval_exception(None);
         self.0.meta_obj.take();
         self.0.promise.take();
         self.0

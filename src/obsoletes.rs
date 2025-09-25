@@ -21,17 +21,18 @@ use crate::{
     context::JSContext,
     error::{ErrorKind, JS_ThrowSyntaxError, JSResult},
     function::{
-        AsyncFuncState, BlockEnv, Bytecode, FieldDef, JSCFunction, JSCFunctionMagic, JSFunctionDef,
-        JSFunctionKindEnum, JSGlobalVar, JSVarDefEnum, JSVarKindEnum, JSVarRef, Label,
-        NativeCallback, NativeFunctionType, ObjNativeFunc, RelocEntry, js_function_set_properties,
+        AsyncFuncState, BlockEnv, Bytecode, CallContext, FieldDef, JSCFunction, JSCFunctionMagic,
+        JSFunctionDef, JSFunctionKindEnum, JSGlobalVar, JSVarDefEnum, JSVarKindEnum, JSVarRef,
+        Label, NativeCallback, NativeFunctionType, ObjNativeFunc, RelocEntry,
+        js_function_set_properties,
     },
     gc::{GCObjectHeader, JSGCObjectTypeEnum},
     generator::{AsyncGeneratorState, ObjGenerator},
     iterator::{ForInIterObjPayload, JSIteratorKindEnum},
     mapset::{JSMapState, MapPair},
     module::{
-        JSExportEntry, JSExportTypeEnum, JSResolveEntry, JSResolveResultEnum, ModuleDef,
-        ModuleDefInner,
+        ExecModuleList, JSExportEntry, JSExportTypeEnum, JSResolveEntry, JSResolveResultEnum,
+        ModuleDef, ModuleDefInner,
     },
     number::JSToNumberHintEnum,
     object::{
@@ -4469,4 +4470,100 @@ pub unsafe fn JS_NewModuleValue(m: ModuleDef) -> JSValue {
 #[deprecated(note = "use ModuleDef::create_module_function() instead")]
 pub unsafe fn js_create_module_function(ctx: &JSContext, m: &ModuleDef) -> i32 {
     unreachable!("unused");
+}
+
+// spec: InnerModuleEvaluation. Return (index, JSValue::UNDEFINED) or (-1, exception)
+#[deprecated(note = "use ModuleDef::eval_internal() instead")]
+pub unsafe fn js_inner_module_evaluation(
+    ctx: &JSContext,
+    m: *mut ModuleDef,
+    index: i32,
+    pstack_top: &mut Option<ModuleDef>,
+    pvalue: *mut JSValue,
+) -> i32 {
+    unreachable!("unused");
+}
+
+#[deprecated(note = "use ModuleDef::execute_async() instead")]
+pub unsafe fn js_execute_async_module(ctx: &JSContext, m: *mut ModuleDef) -> i32 {
+    unreachable!("unused");
+    // (*m).execute_async(ctx).map_or(-1, |_| -1)
+}
+
+#[deprecated(note = "use ModuleDef::execute_sync() instead")]
+pub unsafe fn js_execute_sync_module(
+    ctx: &JSContext,
+    m: *mut ModuleDef,
+    pvalue: *mut JSValue,
+) -> i32 {
+    unreachable!("unused");
+}
+
+#[deprecated(note = "use ModuleDef::execute_async_reject_callback() instead")]
+pub fn js_async_module_execution_rejected(ctx: &JSContext, args: CallContext) -> JSResult {
+    unreachable!("unused");
+    // ModuleDef::execute_async_reject_callback(ctx, args)
+}
+
+#[deprecated(note = "use gather_module_ancestors() instead")]
+pub unsafe fn gather_available_ancestors(
+    ctx: &JSContext,
+    module: *mut ModuleDef,
+    exec_list: &mut ExecModuleList,
+) -> i32 {
+    unreachable!("use gather_module_ancestors() instead");
+
+    // if js_check_stack_overflow(ctx.rt(), 0) {
+    //     JS_ThrowStackOverflow(ctx);
+    //     return -1;
+    // }
+
+    // for i in 0..(*module).async_parent_modules_count {
+    //     let m = *(*module).async_parent_modules.offset(i as isize);
+    //     if unsafe { !(*m).in_execution_list(exec_list) } && !(*(*m).cycle_root).eval_has_exception {
+    //         debug_assert_eq!(
+    //             (*m).status,
+    //             JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
+    //         );
+    //         debug_assert!(!(*m).eval_has_exception);
+    //         debug_assert!((*m).async_evaluation);
+    //         debug_assert!((*m).pending_async_dependencies > 0);
+
+    //         (*m).pending_async_dependencies -= 1;
+    //         if (*m).pending_async_dependencies == 0 {
+    //             if js_resize_array(
+    //                 ctx,
+    //                 &mut exec_list.tab as *mut _ as *mut *mut _,
+    //                 std::mem::size_of::<*mut ModuleDef>() as _,
+    //                 &mut exec_list.size,
+    //                 exec_list.count + 1,
+    //             ) != 0
+    //             {
+    //                 return -1;
+    //             }
+    //             *exec_list.tab.offset((*exec_list).count as isize) = m;
+    //             exec_list.count += 1;
+
+    //             if !(*m).has_tla {
+    //                 if gather_available_ancestors(ctx, m, exec_list) < 0 {
+    //                     return -1;
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
+
+    // 0
+}
+
+#[deprecated(note = "use ModuleDef::in_execution_list() instead")]
+pub unsafe fn find_in_exec_module_list(exec_list: &mut ExecModuleList, m: *mut ModuleDef) -> bool {
+    (*m).in_execution_list(exec_list)
+
+    // for i in 0..(*exec_list).count {
+    //     if *(*exec_list).tab.offset(i as isize) == m {
+    //         return true;
+    //     }
+    // }
+    // false
 }

@@ -1,5 +1,5 @@
 use std::{
-    cell::{Cell, RefCell},
+    cell::{Cell, RefCell, UnsafeCell},
     path::PathBuf,
     ptr::NonNull,
     rc::{Rc, Weak},
@@ -71,8 +71,8 @@ pub(crate) struct ModuleDefInner {
     pub dfs_index: Cell<i32>,
     pub dfs_ancestor_index: Cell<i32>,
 
-    pub stack_prev: RefCell<Option<ModuleDef>>,
-    pub cycle_root: RefCell<Option<ModuleDef>>,
+    pub(super) stack_prev: RefCell<Option<ModuleDef>>,
+    pub(super) cycle_root: RefCell<Option<ModuleDef>>,
 
     //
     // temp use during js_module_evaluate()
@@ -86,10 +86,7 @@ pub(crate) struct ModuleDefInner {
     pub promise: Cell<Option<Promise>>, /* corresponds to spec field: capability */
     pub resolving_funcs: Cell<[JSValue; 2]>, /* corresponds to spec field: capability */
 
-    /* true if evaluation yielded an exception. It is saved in
-    eval_exception */
-    pub eval_has_exception: Cell<bool>,
-    pub eval_exception: Cell<JSValue>,
+    pub eval_exception: UnsafeCell<Option<JSValue>>,
 
     /// the `import.meta` object of module
     pub meta_obj: Cell<Option<JSObject>>,
@@ -143,8 +140,7 @@ impl ModuleDefInner {
 
             promise: Cell::new(None),
             resolving_funcs: Cell::new([const { JSValue::UNDEFINED }; 2]),
-            eval_has_exception: Cell::new(false),
-            eval_exception: Cell::new(JSValue::UNDEFINED),
+            eval_exception: UnsafeCell::new(None),
 
             meta_obj: Cell::new(None),
         };
@@ -341,9 +337,29 @@ impl ModuleDef {
         self.0.id()
     }
 
-    /// get promise of module <eval> function result
+    /// get module loading promise
+    #[inline(always)]
     pub fn promise(&self) -> Option<Promise> {
         unsafe { (*self.0.promise.as_ptr()).as_ref().cloned() }
+    }
+
+    /// get eval exception. None means no exception.
+    #[inline(always)]
+    pub fn eval_exception(&self) -> Option<JSValue> {
+        unsafe {
+            let p = &*self.0.eval_exception.get();
+            p.clone()
+        }
+    }
+
+    /// set eval exception
+    pub fn set_eval_exception(&self, exc: Option<JSValue>) {
+        debug_assert!(exc.as_ref().map_or(true, |v| !v.is_undefined_or_null()));
+
+        unsafe {
+            let p = &mut *self.0.eval_exception.get();
+            *p = exc;
+        }
     }
 
     pub fn downgrade(&self) -> JSModuleDefWeakref {

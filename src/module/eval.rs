@@ -1,9 +1,11 @@
+use std::ops::DerefMut;
+
 use crate::{
     JS_CLASS_BYTECODE_FUNCTION,
     context::JSContext,
     error::JSResult,
     eval::{Compiled, JS_EVAL_FLAG_STRIP, JS_EVAL_TYPE_MODULE},
-    function::{AsyncFuncState, AsyncFunction, CallContext},
+    function::CallContext,
     module::{JSModuleStatus, ModuleDefInner},
     promise::Promise,
     runtime::js_check_stack_overflow,
@@ -25,9 +27,15 @@ impl ModuleDefInner {
 
         if unsafe { (*self.promise.as_ptr()).is_some() } {
             debug_assert_eq!(self.cycle_root.borrow().as_ref().unwrap().id(), self.id());
+
             let func = unsafe { &(*self.resolving_funcs.as_ptr())[0] };
             let _ = func.call(ctx, &JSValue::UNDEFINED, &[JSValue::UNDEFINED]);
         }
+    }
+
+    #[inline(always)]
+    fn set_status(&self, status: JSModuleStatus) {
+        self.status.set(status);
     }
 }
 
@@ -35,6 +43,21 @@ impl ModuleDef {
     #[inline(always)]
     pub fn status(&self) -> JSModuleStatus {
         self.0.status.get()
+    }
+
+    #[inline(always)]
+    fn set_status(&self, status: JSModuleStatus) {
+        self.0.set_status(status);
+    }
+
+    #[inline(always)]
+    fn cycle_root(&self) -> Option<ModuleDef> {
+        self.0.cycle_root.borrow().as_ref().cloned()
+    }
+
+    fn set_cycle_root(&self, root: ModuleDef) {
+        debug_assert!(self.0.cycle_root.borrow().as_ref().is_none());
+        self.0.cycle_root.borrow_mut().deref_mut().replace(root);
     }
 
     /// compile source as module, don't run.
@@ -69,16 +92,14 @@ impl ModuleDef {
         let m = match self.status() {
             JSModuleStatus::JS_MODULE_STATUS_LINKED => self.clone(),
             JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
-            | JSModuleStatus::JS_MODULE_STATUS_EVALUATED => {
-                self.0.cycle_root.borrow().as_ref().cloned().unwrap()
-            }
+            | JSModuleStatus::JS_MODULE_STATUS_EVALUATED => self.cycle_root().unwrap(),
             _ => {
                 unreachable!()
             }
         };
 
         // a promise may be created only on the cycle_root of a cycle
-        if let Some(p) = unsafe { (*m.0.promise.as_ptr()).clone() } {
+        if let Some(p) = m.promise() {
             return Ok(p);
         }
 
@@ -95,7 +116,7 @@ impl ModuleDef {
                     JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
                         | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
                 ));
-                debug_assert!(!m.0.eval_has_exception.get());
+                debug_assert!(m.eval_exception().is_none(), "{:?}", m.eval_exception());
 
                 if !m.0.async_evaluation.get() {
                     debug_assert_eq!(m.status(), JSModuleStatus::JS_MODULE_STATUS_EVALUATED);
@@ -107,19 +128,19 @@ impl ModuleDef {
             Err(result) => {
                 while let Some(m1) = stack_top.take() {
                     debug_assert_eq!(m1.status(), JSModuleStatus::JS_MODULE_STATUS_EVALUATING);
-                    m1.0.status.set(JSModuleStatus::JS_MODULE_STATUS_EVALUATED);
-                    m1.0.eval_has_exception.set(true);
-                    m1.0.eval_exception.replace(result.clone());
-                    m1.0.cycle_root.replace(Some(m.clone())); // spec bug: should be present
+
+                    m1.set_status(JSModuleStatus::JS_MODULE_STATUS_EVALUATED);
+                    m1.set_eval_exception(Some(result.clone()));
+                    m1.set_cycle_root(m.clone()); // spec bug: should be present
+
                     stack_top = m1.0.stack_prev.take();
                 }
 
                 debug_assert_eq!(m.status(), JSModuleStatus::JS_MODULE_STATUS_EVALUATED);
-                debug_assert!(m.0.eval_has_exception.get());
 
                 let func_obj = unsafe { (*m.0.resolving_funcs.as_ptr())[1].clone() }; // reject func
-                let exc = unsafe { (*m.0.eval_exception.as_ptr()).clone() };
-                let _ = func_obj.call(ctx, &JSValue::UNDEFINED, &[exc]);
+                let exc = m.eval_exception().unwrap();
+                let _ = func_obj.call(ctx, &JSValue::UNDEFINED, std::slice::from_ref(&exc));
             }
         }
 
@@ -142,8 +163,8 @@ impl ModuleDef {
         match self.status() {
             JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
             | JSModuleStatus::JS_MODULE_STATUS_EVALUATED => {
-                return if self.0.eval_has_exception.get() {
-                    Err(unsafe { (*self.0.eval_exception.as_ptr()).clone() })
+                return if let Some(exc) = self.eval_exception() {
+                    Err(exc)
                 } else {
                     Ok(index)
                 };
@@ -157,89 +178,51 @@ impl ModuleDef {
             }
         }
 
-        self.0
-            .status
-            .set(JSModuleStatus::JS_MODULE_STATUS_EVALUATING);
+        self.set_status(JSModuleStatus::JS_MODULE_STATUS_EVALUATING);
         self.0.dfs_index.set(index);
         self.0.dfs_ancestor_index.set(index);
         self.0.pending_async_dependencies.set(0);
 
-        // push 'm' on stack
+        // push 'self' on stack
         self.0.stack_prev.replace(stack_top.take());
         stack_top.replace(self.clone());
 
         let mut index = index + 1;
 
         for dep in self.0.dependencies.borrow().iter() {
-            let mut dep_m = dep.module.clone().unwrap();
-            index = dep_m.eval_internal(ctx, index, stack_top)?;
+            let mut m1 = dep.module.clone().unwrap();
 
-            let (
-                mut m1_status,
-                mut m1_dfs_ancestor_index,
-                mut m1_cycle_root,
-                mut m1_eval_has_exception,
-                mut m1_eval_exception,
-                mut m1_async_eval,
-            ) = {
-                (
-                    dep_m.status(),
-                    dep_m.0.dfs_ancestor_index.get(),
-                    dep_m.0.cycle_root.borrow().as_ref().cloned().unwrap(),
-                    dep_m.0.eval_has_exception.get(),
-                    unsafe { (*dep_m.0.eval_exception.as_ptr()).clone() },
-                    dep_m.0.async_evaluation.get(),
-                )
-            };
+            index = m1.eval_internal(ctx, index, stack_top)?;
             debug_assert!(matches!(
-                m1_status,
+                m1.status(),
                 JSModuleStatus::JS_MODULE_STATUS_EVALUATING
                     | JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
                     | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
             ));
 
-            if m1_status == JSModuleStatus::JS_MODULE_STATUS_EVALUATING {
+            if m1.status() == JSModuleStatus::JS_MODULE_STATUS_EVALUATING {
                 self.0.dfs_ancestor_index.set(std::cmp::min(
                     self.0.dfs_ancestor_index.get(),
-                    m1_dfs_ancestor_index,
+                    m1.0.dfs_ancestor_index.get(),
                 ));
             } else {
-                dep_m = m1_cycle_root;
-
-                (
-                    m1_status,
-                    m1_dfs_ancestor_index,
-                    m1_cycle_root,
-                    m1_eval_has_exception,
-                    m1_eval_exception,
-                    m1_async_eval,
-                ) = {
-                    (
-                        dep_m.status(),
-                        dep_m.0.dfs_ancestor_index.get(),
-                        dep_m.0.cycle_root.borrow().as_ref().cloned().unwrap(),
-                        dep_m.0.eval_has_exception.get(),
-                        unsafe { (*dep_m.0.eval_exception.as_ptr()).clone() },
-                        dep_m.0.async_evaluation.get(),
-                    )
-                };
+                m1 = m1.cycle_root().unwrap();
                 debug_assert!(matches!(
-                    m1_status,
+                    m1.status(),
                     JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
                         | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
                 ));
-
-                if m1_eval_has_exception {
-                    return Err(m1_eval_exception);
+                if let Some(exc) = m1.eval_exception() {
+                    return Err(exc);
                 }
             }
 
-            if m1_async_eval {
+            if m1.0.async_evaluation.get() {
                 self.0
                     .pending_async_dependencies
                     .set(self.0.pending_async_dependencies.get() + 1);
 
-                let lst = &mut dep_m.0.async_parent_modules.borrow_mut();
+                let lst = &mut m1.0.async_parent_modules.borrow_mut();
                 if lst.len() == lst.capacity() {
                     if lst.try_reserve(1).is_err() {
                         ctx.throw_out_of_memory();
@@ -287,14 +270,15 @@ impl ModuleDef {
                 let m1 = stack_top.take().unwrap();
                 *stack_top = m1.0.stack_prev.take();
 
-                m1.0.status.set(if !m1.0.async_evaluation.get() {
+                m1.set_status(if !m1.0.async_evaluation.get() {
                     JSModuleStatus::JS_MODULE_STATUS_EVALUATED
                 } else {
                     JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
                 });
 
                 // spec bug: cycle_root must be assigned before the test
-                m1.0.cycle_root.replace(Some(self.clone()));
+                m1.set_cycle_root(self.clone());
+
                 if m1.eq(self) {
                     break;
                 }
@@ -347,7 +331,7 @@ impl ModuleDef {
         };
 
         if md.status() == JSModuleStatus::JS_MODULE_STATUS_EVALUATED {
-            debug_assert!(md.0.eval_has_exception.get());
+            debug_assert!(md.eval_exception().is_some());
             return Ok(JSValue::UNDEFINED);
         }
 
@@ -355,7 +339,7 @@ impl ModuleDef {
             md.status(),
             JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
         );
-        debug_assert!(!md.0.eval_has_exception.get());
+        debug_assert!(md.eval_exception().is_none());
         debug_assert!(md.0.async_evaluation.get());
 
         md.0.async_evaluation.set(false);
@@ -400,7 +384,7 @@ impl ModuleDef {
 
         for m in exec_list {
             if m.status() == JSModuleStatus::JS_MODULE_STATUS_EVALUATED {
-                debug_assert!(m.0.eval_has_exception.get());
+                debug_assert!(m.eval_exception().is_some());
             } else if m.0.has_tla.get() {
                 m.execute_async(ctx)?;
             } else {
@@ -411,9 +395,10 @@ impl ModuleDef {
                     Err(e) => {
                         let arglist = [e];
                         let mut data = [JSValue::Module(m.clone())];
-                        let cc1 =
-                            CallContext::new(ctx, JSValue::UNDEFINED, &arglist, 0, Some(&mut data));
-                        Self::execute_async_reject_callback(ctx, cc1)?;
+                        Self::execute_async_reject_callback(
+                            ctx,
+                            CallContext::new(ctx, JSValue::UNDEFINED, &arglist, 0, Some(&mut data)),
+                        )?;
                     }
                 }
             }
@@ -438,7 +423,7 @@ impl ModuleDef {
         let err_val = cc.arg(0);
 
         if md.status() == JSModuleStatus::JS_MODULE_STATUS_EVALUATED {
-            debug_assert!(md.0.eval_has_exception.get());
+            debug_assert!(md.eval_exception().is_some());
             return Ok(JSValue::UNDEFINED);
         }
 
@@ -446,12 +431,11 @@ impl ModuleDef {
             md.status(),
             JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
         );
-        debug_assert!(!md.0.eval_has_exception.get());
+        debug_assert!(md.eval_exception().is_none());
         debug_assert!(md.0.async_evaluation.get());
 
-        md.0.eval_has_exception.set(true);
-        md.0.eval_exception.set(err_val.clone());
-        md.0.status.set(JSModuleStatus::JS_MODULE_STATUS_EVALUATED);
+        md.set_eval_exception(Some(err_val.clone()));
+        md.set_status(JSModuleStatus::JS_MODULE_STATUS_EVALUATED);
 
         for m in md.0.async_parent_modules.borrow().iter() {
             let mut data = [JSValue::Module(m.clone())];
@@ -465,8 +449,9 @@ impl ModuleDef {
             Self::execute_async_reject_callback(ctx, cc).unwrap();
         }
 
-        if unsafe { (*md.0.promise.as_ptr()).is_some() } {
-            debug_assert_eq!(md.0.cycle_root.borrow().as_ref().unwrap().id(), md.id());
+        if md.promise().is_some() {
+            debug_assert_eq!(md.cycle_root().unwrap().id(), md.id());
+
             let func = unsafe { &(*md.0.resolving_funcs.as_ptr())[1] };
             let _ = func.call(ctx, &JSValue::UNDEFINED, std::slice::from_ref(&err_val));
         }
@@ -532,55 +517,6 @@ impl JSContext {
     }
 }
 
-// spec: InnerModuleEvaluation. Return (index, JSValue::UNDEFINED) or (-1, exception)
-#[deprecated(note = "use ModuleDef::eval_internal() instead")]
-pub unsafe fn js_inner_module_evaluation(
-    ctx: &JSContext,
-    m: *mut ModuleDef,
-    index: i32,
-    pstack_top: &mut Option<ModuleDef>,
-    pvalue: *mut JSValue,
-) -> i32 {
-    match (*m).eval_internal(ctx, index, pstack_top) {
-        Ok(index) => {
-            *pvalue = JSValue::UNDEFINED;
-            return index;
-        }
-        Err(err_val) => {
-            *pvalue = err_val;
-            return -1;
-        }
-    }
-}
-
-#[deprecated(note = "use ModuleDef::execute_async() instead")]
-pub unsafe fn js_execute_async_module(ctx: &JSContext, m: *mut ModuleDef) -> i32 {
-    (*m).execute_async(ctx).map_or(-1, |_| -1)
-}
-
-#[deprecated(note = "use ModuleDef::execute_sync() instead")]
-pub unsafe fn js_execute_sync_module(
-    ctx: &JSContext,
-    m: *mut ModuleDef,
-    pvalue: *mut JSValue,
-) -> i32 {
-    match (*m).execute_sync(ctx) {
-        Ok(()) => {
-            *pvalue = JSValue::UNDEFINED;
-            0
-        }
-        Err(err_val) => {
-            *pvalue = err_val;
-            -1
-        }
-    }
-}
-
-#[deprecated(note = "use ModuleDef::execute_async_reject_callback() instead")]
-pub fn js_async_module_execution_rejected(ctx: &JSContext, args: CallContext) -> JSResult {
-    ModuleDef::execute_async_reject_callback(ctx, args)
-}
-
 pub struct ExecModuleList {
     pub tab: *mut *mut ModuleDef,
     pub count: i32,
@@ -609,17 +545,13 @@ fn gather_module_ancestors(
 
     for m in module.0.async_parent_modules.borrow().iter() {
         if !result.iter().any(|x| x.id() == m.id())
-            && m.0
-                .cycle_root
-                .borrow()
-                .as_ref()
-                .map_or(false, |r| r.0.eval_has_exception.get())
+            && m.cycle_root()
+                .map_or(false, |x| x.eval_exception().is_some())
         {
             debug_assert_eq!(
                 m.status(),
                 JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
             );
-            debug_assert!(!m.0.eval_has_exception.get());
             debug_assert!(m.0.async_evaluation.get());
             debug_assert!(m.0.pending_async_dependencies.get() > 0);
 
@@ -644,67 +576,4 @@ fn gather_module_ancestors(
     }
 
     Ok(())
-}
-
-#[deprecated(note = "use gather_module_ancestors() instead")]
-pub unsafe fn gather_available_ancestors(
-    ctx: &JSContext,
-    module: *mut ModuleDef,
-    exec_list: &mut ExecModuleList,
-) -> i32 {
-    unreachable!("use gather_module_ancestors() instead");
-
-    // if js_check_stack_overflow(ctx.rt(), 0) {
-    //     JS_ThrowStackOverflow(ctx);
-    //     return -1;
-    // }
-
-    // for i in 0..(*module).async_parent_modules_count {
-    //     let m = *(*module).async_parent_modules.offset(i as isize);
-    //     if unsafe { !(*m).in_execution_list(exec_list) } && !(*(*m).cycle_root).eval_has_exception {
-    //         debug_assert_eq!(
-    //             (*m).status,
-    //             JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
-    //         );
-    //         debug_assert!(!(*m).eval_has_exception);
-    //         debug_assert!((*m).async_evaluation);
-    //         debug_assert!((*m).pending_async_dependencies > 0);
-
-    //         (*m).pending_async_dependencies -= 1;
-    //         if (*m).pending_async_dependencies == 0 {
-    //             if js_resize_array(
-    //                 ctx,
-    //                 &mut exec_list.tab as *mut _ as *mut *mut _,
-    //                 std::mem::size_of::<*mut ModuleDef>() as _,
-    //                 &mut exec_list.size,
-    //                 exec_list.count + 1,
-    //             ) != 0
-    //             {
-    //                 return -1;
-    //             }
-    //             *exec_list.tab.offset((*exec_list).count as isize) = m;
-    //             exec_list.count += 1;
-
-    //             if !(*m).has_tla {
-    //                 if gather_available_ancestors(ctx, m, exec_list) < 0 {
-    //                     return -1;
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
-
-    // 0
-}
-
-#[deprecated(note = "use ModuleDef::in_execution_list() instead")]
-pub unsafe fn find_in_exec_module_list(exec_list: &mut ExecModuleList, m: *mut ModuleDef) -> bool {
-    (*m).in_execution_list(exec_list)
-
-    // for i in 0..(*exec_list).count {
-    //     if *(*exec_list).tab.offset(i as isize) == m {
-    //         return true;
-    //     }
-    // }
-    // false
 }

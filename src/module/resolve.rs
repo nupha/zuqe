@@ -5,10 +5,12 @@ use crate::{
     },
     branch_hints::unlikely,
     context::JSContext,
+    function::JSVarRef,
     module::{
         JSExportEntry, JSExportTypeEnum, JSModuleStatus, JSResolveEntry, ModuleDef, ModuleDefInner,
         js_create_module_var,
     },
+    object::JSObject,
     runtime::js_check_stack_overflow,
     value::JSValue,
 };
@@ -215,6 +217,7 @@ impl ModuleDef {
 
 impl ModuleDefInner {
     /// Prepare module `self` to be executed by resolving all the imported variables.
+    /// Resolving imports, exports.
     pub(super) fn inner_module_linking(
         &self,
         ctx: &JSContext,
@@ -330,98 +333,112 @@ impl ModuleDefInner {
         }
 
         let bc_val = unsafe { (*self.bytecode.as_ptr()).clone() };
+
         if let JSValue::Object(func_obj) = bc_val {
-            // js js module, and function has been created
+            // is js module, function has been created
             debug_assert!(self.func_created.get());
 
-            // enclose `isa` borrow in scoped block.
-            {
+            // to avoid borrow_mut payload, use closure
+            fn with_var_refs<R>(func_obj: &JSObject, f: impl FnOnce(&mut [JSVarRef]) -> R) -> R {
                 let mut isa = func_obj.0.payload.borrow_mut();
                 let var_refs = isa.func_mut().unwrap().var_refs.as_mut_slice();
+                f(var_refs)
+            }
 
-                for imp_entry in self.import_entries.borrow().iter() {
-                    let import_name = imp_entry.import_name;
-                    let import_var_idx = imp_entry.var_idx;
+            for imp in self.import_entries.borrow().iter() {
+                let import_name = imp.import_name;
+                let import_var_idx = imp.var_idx;
 
-                    let dep_m = self.dependencies.borrow()[imp_entry.req_module_idx as usize]
-                        .module
-                        .clone()
-                        .unwrap();
+                let dep_md = self.dependencies.borrow()[imp.req_module_idx as usize]
+                    .module
+                    .clone()
+                    .unwrap();
 
-                    if import_name == JS_ATOM__star_ {
-                        // name space import
-                        let val = dep_m.ns(ctx)?;
+                if import_name == JS_ATOM__star_ {
+                    // name space import
+                    let val = dep_md.ns(ctx)?;
+                    with_var_refs(&func_obj, |var_refs| {
                         var_refs[import_var_idx as usize].set_value(val.into());
-                    } else {
-                        match dep_m.resolve_export(ctx, import_name, None)? {
-                            ModuleResolveExport::Found { module, entry } => {
-                                match entry.export_type {
-                                    JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(req_module_idx) => {
-                                        if entry.local_name == JS_ATOM__star_ {
-                                            // name space import from
-                                            let m2 = module.0.dependencies.borrow()
-                                                [req_module_idx as usize]
-                                                .module
-                                                .clone()
-                                                .unwrap();
+                    });
+                } else {
+                    match dep_md.resolve_export(ctx, import_name, None)? {
+                        ModuleResolveExport::Found { module: dep, entry } => {
+                            match entry.export_type {
+                                JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(req_module_idx) => {
+                                    if entry.local_name == JS_ATOM__star_ {
+                                        // name space import from
+                                        let m2 = dep.0.dependencies.borrow()
+                                            [req_module_idx as usize]
+                                            .module
+                                            .clone()
+                                            .unwrap();
 
-                                            let val = m2.ns(ctx)?;
-                                            let vref = js_create_module_var(ctx, true)?;
-                                            vref.set_value(val.into());
+                                        let val = m2.ns(ctx)?;
+                                        let vref = js_create_module_var(ctx, true)?;
+                                        vref.set_value(val.into());
+
+                                        with_var_refs(&func_obj, |var_refs| {
                                             var_refs[import_var_idx as usize] = vref;
-                                        }
+                                        });
                                     }
-                                    JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } => {
-                                        debug_assert_ne!(entry.local_name, JS_ATOM__star_);
-                                        debug_assert_ne!(var_idx, u16::MAX);
+                                }
+                                JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } => {
+                                    debug_assert_ne!(entry.local_name, JS_ATOM__star_);
+                                    debug_assert_ne!(var_idx, u16::MAX);
 
-                                        var_refs[import_var_idx as usize] = if let Some(v) = var_ref
-                                        {
-                                            v
-                                        } else {
-                                            unsafe {
-                                                (*module.0.bytecode.as_ptr())
-                                                    .as_object_unchecked()
-                                                    .0
-                                                    .payload
-                                                    .borrow()
-                                                    .func()
-                                                    .unwrap()
-                                                    .var_refs
-                                                    [var_idx as usize]
-                                                    .clone()
-                                            }
-                                        };
-
-                                        #[cfg(DUMP_MODULE_RESOLVE)]
-                                        {
-                                            println!("local export (var_ref={:?})", var_ref);
+                                    let vr = if let Some(v) = var_ref {
+                                        v
+                                    } else {
+                                        unsafe {
+                                            (*dep.0.bytecode.as_ptr())
+                                                .as_object_unchecked()
+                                                .0
+                                                .payload
+                                                .borrow()
+                                                .func()
+                                                .unwrap()
+                                                .var_refs
+                                                [var_idx as usize]
+                                                .clone()
                                         }
+                                    };
+
+                                    with_var_refs(&func_obj, |var_refs| {
+                                        var_refs[import_var_idx as usize] = vr;
+                                    });
+
+                                    #[cfg(DUMP_MODULE_RESOLVE)]
+                                    {
+                                        println!("local export (var_ref={:?})", var_ref);
                                     }
                                 }
                             }
-                            ret => {
-                                ret.throw_error(ctx, &dep_m, import_name);
-                                return Err(-1);
-                            }
+                        }
+                        ret => {
+                            ret.throw_error(ctx, &dep_md, import_name);
+                            return Err(-1);
                         }
                     }
                 }
+            }
 
-                // keep the exported variables in the module export entries (they are used when the eval function is deleted and cannot be initialized before in case imports are exported)
-                {
-                    for me in self.export_entries.borrow_mut().iter_mut() {
-                        if let JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } =
-                            &mut me.export_type
-                        {
-                            debug_assert_ne!(*var_idx, u16::MAX);
-                            var_ref.replace(var_refs[*var_idx as usize].clone());
-                        }
+            // keep the exported variables in the module export entries (they are used when the eval function is deleted and cannot be initialized before in case imports are exported)
+            {
+                for me in self.export_entries.borrow_mut().iter_mut() {
+                    if let JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } =
+                        &mut me.export_type
+                    {
+                        debug_assert_ne!(*var_idx, u16::MAX);
+                        // var_ref.replace(var_refs[*var_idx as usize].clone());
+                        let vr = with_var_refs(&func_obj, |var_refs| {
+                            var_refs[*var_idx as usize].clone()
+                        });
+                        var_ref.replace(vr);
                     }
+                }
 
-                    debug_assert!(self.func_created.get());
-                    unsafe { (*self.bytecode.as_ptr()).clone() }
-                };
+                debug_assert!(self.func_created.get());
+                // unsafe { (*self.bytecode.as_ptr()).clone() }
             }
 
             // initialize the global variables
