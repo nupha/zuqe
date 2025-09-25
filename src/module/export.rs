@@ -34,9 +34,9 @@ struct GetExportNamesState {
     pub modules: Vec<ModuleDef>,
 
     // TODO: use Vec<ExportedNameEntry>,
-    pub exported_names: *mut ExportedNameEntry,
-    pub exported_names_size: i32,
-    pub exported_names_count: i32,
+    exported_names: *mut ExportedNameEntry,
+    exported_names_size: i32,
+    exported_names_count: i32,
 }
 
 impl Default for GetExportNamesState {
@@ -270,10 +270,10 @@ impl ModuleDef {
         }
 
         // sort the exported names
-        let names = unsafe {
+        let name_lst = unsafe {
             std::slice::from_raw_parts_mut(s.exported_names, s.exported_names_count as usize)
         };
-        names.sort_by(|a, b| {
+        name_lst.sort_by(|a, b| {
             // XXX: should avoid allocation memory in atom comparison
             let str1 = a.export_name.force_string(ctx);
             let str2 = b.export_name.force_string(ctx);

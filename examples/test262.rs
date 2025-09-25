@@ -391,6 +391,7 @@ fn run_test_file(
         cfg
     } else {
         // no config, exit
+        writeln!(outf, "no-test").unwrap();
         return;
     };
 
