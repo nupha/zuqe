@@ -6,7 +6,7 @@ use crate::{
     context::{JS_MODE_STRICT, JS_MODE_STRIP},
     eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
     function::{ARGUMENT_VAR_OFFSET, JSFunctionDef, JSFunctionKindEnum, JSVarDefEnum},
-    module::JSExportTypeEnum,
+    module::ExportType,
     value::JSValue,
 };
 
@@ -764,7 +764,7 @@ impl<'s> JSParseState<'s> {
                             } else {
                                 JS_ATOM_default
                             },
-                            JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
+                            ExportType::JS_EXPORT_TYPE_LOCAL {
                                 var_idx: u16::MAX,
                                 var_ref: None,
                             },

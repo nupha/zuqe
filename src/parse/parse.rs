@@ -6,7 +6,7 @@ use crate::{
     context::JS_MODE_STRICT,
     eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
     function::JSFunctionKindEnum,
-    module::JSExportTypeEnum,
+    module::ExportType,
     unicode::{UTF8_CHAR_LEN_MAX, unicode_from_utf8, unicode_to_utf8},
 };
 
@@ -244,7 +244,7 @@ impl JSParseState<'_> {
                         None,
                         *name,
                         *name,
-                        JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
+                        ExportType::JS_EXPORT_TYPE_LOCAL {
                             var_idx: u16::MAX,
                             var_ref: None,
                         },

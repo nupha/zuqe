@@ -3,7 +3,7 @@ use crate::{
     bytecode::OpCodeTemp,
     defer,
     function::{JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
-    module::{JSExportEntry, JSExportTypeEnum, JSImportEntry, ModuleDef, add_star_export_entry},
+    module::{ExportEntry, ExportType, JSImportEntry, ModuleDef},
 };
 
 use super::{
@@ -251,7 +251,7 @@ impl<'s> JSParseState<'s> {
                         Some(&md),
                         *local_name,
                         *export_name,
-                        JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
+                        ExportType::JS_EXPORT_TYPE_LOCAL {
                             var_idx: u16::MAX, // unknown for now
                             var_ref: None,
                         },
@@ -281,7 +281,7 @@ impl<'s> JSParseState<'s> {
                     let idx = idx?;
 
                     for me in &mut md.0.export_entries.borrow_mut()[first_export..] {
-                        me.export_type = JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(idx as _);
+                        me.export_type = ExportType::JS_EXPORT_TYPE_INDIRECT(idx as _);
                     }
                 }
             }
@@ -303,15 +303,13 @@ impl<'s> JSParseState<'s> {
                         Some(&md),
                         JS_ATOM__star_,
                         *export_name,
-                        JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(idx as _),
+                        ExportType::JS_EXPORT_TYPE_INDIRECT(idx as _),
                     )?;
                 } else {
                     let module_name = self.parse_from_clause()?;
                     let dep_idx = md.add_dependency(&self.ctx, module_name);
                     JS_FreeAtom(&self.ctx, module_name);
-
-                    let idx = dep_idx?;
-                    add_star_export_entry(&self.ctx, &md, idx)?;
+                    md.add_star_export_entry(&self.ctx, dep_idx?)?;
                 }
             }
 
@@ -351,7 +349,7 @@ impl<'s> JSParseState<'s> {
                     Some(&md),
                     loc,
                     JS_ATOM_default,
-                    JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
+                    ExportType::JS_EXPORT_TYPE_LOCAL {
                         var_idx: u16::MAX, // unknown for now
                         var_ref: None,
                     },
@@ -379,7 +377,7 @@ impl<'s> JSParseState<'s> {
         md: Option<&ModuleDef>,
         local_name: JSAtom,
         export_name: JSAtom,
-        export_type: JSExportTypeEnum,
+        export_type: ExportType,
     ) -> Result<(), i32> {
         let md = md.unwrap_or_else(|| {
             // current function def must be module.
@@ -404,13 +402,11 @@ impl<'s> JSParseState<'s> {
                 })?;
         }
 
-        md.0.export_entries
-            .borrow_mut()
-            .push(Box::new(JSExportEntry {
-                export_type,
-                local_name: local_name.dup(self.ctx.rt()),
-                export_name: export_name.dup(self.ctx.rt()),
-            }));
+        md.0.export_entries.borrow_mut().push(Box::new(ExportEntry {
+            export_type,
+            local_name: local_name.dup(self.ctx.rt()),
+            export_name: export_name.dup(self.ctx.rt()),
+        }));
 
         Ok(())
     }

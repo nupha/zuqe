@@ -7,7 +7,7 @@ use crate::{
     context::JSContext,
     function::JSVarRef,
     module::{
-        JSExportTypeEnum, JSModuleStatus, JSResolveEntry, ModuleDef, ModuleDefInner, ResolveExport,
+        ExportType, JSModuleStatus, JSResolveEntry, ModuleDef, ModuleDefInner, ResolveExport,
         js_create_module_var,
     },
     object::JSObject,
@@ -45,11 +45,11 @@ impl ModuleDef {
 
         if let Some(me) = self.find_export(export_name) {
             match me.export_type {
-                JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { .. } => Ok(ResolveExport::Found {
+                ExportType::JS_EXPORT_TYPE_LOCAL { .. } => Ok(ResolveExport::Found {
                     module: self.clone(),
                     entry: me.clone(),
                 }),
-                JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(req_module_idx) => {
+                ExportType::JS_EXPORT_TYPE_INDIRECT(req_module_idx) => {
                     if me.local_name == JS_ATOM__star_ {
                         // export ns from
                         Ok(ResolveExport::Found {
@@ -253,7 +253,7 @@ impl ModuleDefInner {
 
         // check the indirect exports
         for exp in self.export_entries.borrow().iter() {
-            if let JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(req_module_idx) = exp.export_type
+            if let ExportType::JS_EXPORT_TYPE_INDIRECT(req_module_idx) = exp.export_type
                 && exp.local_name != JS_ATOM__star_
             {
                 let m1 = self.dependencies.borrow()[req_module_idx as usize]
@@ -315,7 +315,7 @@ impl ModuleDefInner {
                     match dep_md.resolve_export(ctx, import_name, None)? {
                         ResolveExport::Found { module: dep, entry } => {
                             match entry.export_type {
-                                JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(req_module_idx) => {
+                                ExportType::JS_EXPORT_TYPE_INDIRECT(req_module_idx) => {
                                     if entry.local_name == JS_ATOM__star_ {
                                         // name space import from
                                         let m2 = dep.0.dependencies.borrow()
@@ -333,7 +333,7 @@ impl ModuleDefInner {
                                         });
                                     }
                                 }
-                                JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } => {
+                                ExportType::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } => {
                                     debug_assert_ne!(entry.local_name, JS_ATOM__star_);
                                     debug_assert_ne!(var_idx, u16::MAX);
 
@@ -376,7 +376,7 @@ impl ModuleDefInner {
             // keep the exported variables in the module export entries (they are used when the eval function is deleted and cannot be initialized before in case imports are exported)
             {
                 for exp in self.export_entries.borrow_mut().iter_mut() {
-                    if let JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } =
+                    if let ExportType::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } =
                         &mut exp.export_type
                     {
                         debug_assert_ne!(*var_idx, u16::MAX);

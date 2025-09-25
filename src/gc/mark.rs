@@ -2,7 +2,7 @@ use crate::{
     JS_CLASS_OBJECT,
     context::JSContext,
     function::{AsyncFuncState, Bytecode, JSVarRef, VarRefState},
-    module::{JSExportTypeEnum, ModuleDef},
+    module::{ExportType, ModuleDef},
     object::{JSObject, JSProperty, JSShape, LazyInit},
     stack_frame::StackFrame,
     string::JSString,
@@ -164,7 +164,7 @@ impl ModuleDef {
             }
 
             for me in self.0.export_entries.borrow().iter() {
-                if let JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
+                if let ExportType::JS_EXPORT_TYPE_LOCAL {
                     var_ref: Some(vr), ..
                 } = &me.export_type
                 {
@@ -185,7 +185,7 @@ impl ModuleDef {
             .set([JSValue::UNDEFINED, JSValue::UNDEFINED]);
 
         for me in self.0.export_entries.borrow().iter() {
-            if let JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
+            if let ExportType::JS_EXPORT_TYPE_LOCAL {
                 var_ref: Some(vr), ..
             } = &me.export_type
             {

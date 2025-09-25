@@ -632,7 +632,7 @@ impl JSValue {
         }
     }
 
-    #[deprecated]
+    #[inline]
     pub unsafe fn as_object_unchecked(&self) -> &JSObject {
         if let Self::Object(ob) = self {
             ob

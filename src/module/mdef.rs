@@ -11,7 +11,7 @@ use crate::{
     context::{JSContext, JSContextInner},
     error::JSResult,
     function::{BCFuncPayload, JSFunctionDef, JSVarKindEnum, JSVarRef},
-    module::{JSExportEntry, JSExportTypeEnum, JSImportEntry, JSModuleStatus, ModuleDependency},
+    module::{ExportEntry, ExportType, JSImportEntry, JSModuleStatus, ModuleDependency},
     object::{JS_PROP_C_W_E, JSObject, ObjectPayload},
     promise::Promise,
     runtime::JSRuntime,
@@ -42,7 +42,7 @@ pub(crate) struct ModuleDefInner {
 
     pub dependencies: RefCell<Vec<ModuleDependency>>,
     pub import_entries: RefCell<Vec<JSImportEntry>>,
-    pub export_entries: RefCell<Vec<Box<JSExportEntry>>>,
+    pub export_entries: RefCell<Vec<Box<ExportEntry>>>,
     /// list of index in dependencies
     pub star_export_entries: RefCell<Vec<u16>>,
 
@@ -247,8 +247,7 @@ impl ModuleDefInner {
             // is native module.
             // initialize the exported variables
             for me in self.export_entries.borrow_mut().iter_mut() {
-                if let JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { var_ref, .. } = &mut me.export_type
-                {
+                if let ExportType::JS_EXPORT_TYPE_LOCAL { var_ref, .. } = &mut me.export_type {
                     let vr = js_create_module_var(ctx, false)?;
                     var_ref.replace(vr);
                 }
@@ -441,7 +440,7 @@ pub unsafe fn add_module_variables(ctx: &JSContext, fd: &mut JSFunctionDef) -> i
 
     // resolve the variable names of the local exports
     for me in m.0.export_entries.borrow_mut().iter_mut() {
-        if let JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { var_idx, .. } = &mut me.export_type {
+        if let ExportType::JS_EXPORT_TYPE_LOCAL { var_idx, .. } = &mut me.export_type {
             if let Some(idx) = fd.find_closure_var(me.local_name) {
                 *var_idx = idx;
             } else {

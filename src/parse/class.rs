@@ -11,7 +11,7 @@ use crate::{
     context::{JS_MODE_STRICT, JS_MODE_STRIP, JSContext},
     defer,
     function::{JSFunctionDef, JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
-    module::JSExportTypeEnum,
+    module::ExportType,
     object::{
         PROP_TYPE_ASYNC, PROP_TYPE_ASYNC_STAR, PROP_TYPE_GET, PROP_TYPE_IDENT, PROP_TYPE_PRIVATE,
         PROP_TYPE_SET, PROP_TYPE_STAR,
@@ -784,7 +784,7 @@ impl<'s> JSParseState<'s> {
                 } else {
                     JS_ATOM_default
                 },
-                JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL {
+                ExportType::JS_EXPORT_TYPE_LOCAL {
                     var_idx: u16::MAX,
                     var_ref: None,
                 },

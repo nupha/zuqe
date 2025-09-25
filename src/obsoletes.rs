@@ -31,8 +31,8 @@ use crate::{
     iterator::{ForInIterObjPayload, JSIteratorKindEnum},
     mapset::{JSMapState, MapPair},
     module::{
-        ExecModuleList, JSExportEntry, JSExportTypeEnum, JSResolveEntry, JSResolveResultEnum,
-        ModuleDef, ModuleDefInner,
+        ExecModuleList, ExportEntry, ExportType, JSResolveEntry, JSResolveResultEnum, ModuleDef,
+        ModuleDefInner,
     },
     number::JSToNumberHintEnum,
     object::{
@@ -3248,7 +3248,7 @@ pub unsafe fn add_dep_module(ctx: &JSContext, m: &ModuleDef, module_name: JSAtom
 pub unsafe fn js_resolve_export1(
     ctx: &JSContext,
     pmodule: *mut *mut ModuleDefInner,
-    pme: *mut *mut JSExportEntry,
+    pme: *mut *mut ExportEntry,
     m: &ModuleDef,
     export_name: JSAtom,
     s: *mut std::ffi::c_void, // JSResolveState,
@@ -3263,7 +3263,7 @@ pub unsafe fn js_resolve_export1(
 pub unsafe fn js_resolve_export(
     ctx: &JSContext,
     pmodule: *mut *mut ModuleDefInner,
-    pme: *mut *mut JSExportEntry,
+    pme: *mut *mut ExportEntry,
     m: &mut ModuleDef,
     export_name: JSAtom,
 ) -> JSResolveResultEnum {
@@ -3299,7 +3299,7 @@ unsafe fn add_export_entry2(
     m: &ModuleDef,
     local_name: JSAtom,
     export_name: JSAtom,
-    export_type: JSExportTypeEnum,
+    export_type: ExportType,
 ) -> Result<(), i32> {
     unreachable!("unused");
 }
@@ -3311,7 +3311,7 @@ pub fn add_export_entry<'a>(
     m: &ModuleDef,
     local_name: JSAtom,
     export_name: JSAtom,
-    export_type: JSExportTypeEnum,
+    export_type: ExportType,
 ) -> Result<(), i32> {
     let ctx = s.ctx.clone();
     unsafe { add_export_entry2(&ctx, s, m, local_name, export_name, export_type) }
@@ -4566,4 +4566,29 @@ pub unsafe fn find_in_exec_module_list(exec_list: &mut ExecModuleList, m: *mut M
     //     }
     // }
     // false
+}
+
+#[deprecated(note = "use ModuleDef::find_export() instead")]
+pub unsafe fn find_export_entry(m: &ModuleDef, export_name: JSAtom) -> Option<ExportEntry> {
+    m.find_export(export_name)
+}
+
+#[deprecated(note = "use JSModuleDefInner::get_exportd_names() instead")]
+pub unsafe fn get_exported_names(
+    ctx: &JSContext,
+    s: *mut c_void, // GetExportNamesState,
+    m: *mut ModuleDefInner,
+    from_star: bool,
+) -> Result<(), i32> {
+    unreachable!("unused");
+    // (*m).get_exported_names(ctx, s.as_mut().unwrap(), from_star)
+}
+
+#[deprecated(note = "use ModuleDef::add_star_export_entry() instead")]
+pub(crate) fn add_star_export_entry(
+    ctx: &JSContext,
+    m: &ModuleDef,
+    req_module_idx: u16,
+) -> Result<(), i32> {
+    m.add_star_export_entry(ctx, req_module_idx)
 }
