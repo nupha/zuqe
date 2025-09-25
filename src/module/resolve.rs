@@ -7,62 +7,13 @@ use crate::{
     context::JSContext,
     function::JSVarRef,
     module::{
-        JSExportEntry, JSExportTypeEnum, JSModuleStatus, JSResolveEntry, ModuleDef, ModuleDefInner,
+        JSExportTypeEnum, JSModuleStatus, JSResolveEntry, ModuleDef, ModuleDefInner, ResolveExport,
         js_create_module_var,
     },
     object::JSObject,
     runtime::js_check_stack_overflow,
     value::JSValue,
 };
-
-pub enum ModuleResolveExport {
-    Found {
-        module: ModuleDef,
-        entry: JSExportEntry,
-    },
-    NotFound,
-    Ambiguous,
-    Circular,
-}
-
-impl ModuleResolveExport {
-    pub(super) fn throw_error_inner(
-        &self,
-        ctx: &JSContext,
-        m: &ModuleDefInner,
-        export_name: JSAtom,
-    ) {
-        match self {
-            Self::Found { .. } => {}
-            Self::NotFound => {
-                ctx.throw_syntax_error(&format!(
-                    "Could not find export '{}' in module '{}'",
-                    export_name.to_utf8(ctx.rt()),
-                    m.module_name.to_utf8(ctx.rt()),
-                ));
-            }
-            Self::Circular => {
-                ctx.throw_syntax_error(&format!(
-                    "circular reference when looking for export '{}' in module '{}'",
-                    export_name.to_utf8(ctx.rt()),
-                    m.module_name.to_utf8(ctx.rt()),
-                ));
-            }
-            Self::Ambiguous => {
-                ctx.throw_syntax_error(&format!(
-                    "export '{}' in module '{}' is ambiguous",
-                    export_name.to_utf8(ctx.rt()),
-                    m.module_name.to_utf8(ctx.rt()),
-                ));
-            }
-        }
-    }
-
-    /// put exception to current_exception according to status
-    pub fn throw_error(&self, ctx: &JSContext, m: &ModuleDef, export_name: JSAtom) {
-        self.throw_error_inner(ctx, &m.0, export_name);
-    }
-}
 
 impl ModuleDef {
     unsafe fn resolve_export_inner(
@@ -71,13 +22,13 @@ impl ModuleDef {
         export_name: JSAtom,
         expect: Option<(&ModuleDef, JSAtom)>, // (module, local_name)
         resolved: &mut Vec<JSResolveEntry>,
-    ) -> Result<ModuleResolveExport, i32> {
+    ) -> Result<ResolveExport, i32> {
         if resolved
             .iter()
             .find(|re| re.module.id() == self.id() && re.name == export_name)
             .is_some()
         {
-            return Ok(ModuleResolveExport::Circular);
+            return Ok(ResolveExport::Circular);
         }
 
         // add resolve
@@ -94,14 +45,14 @@ impl ModuleDef {
 
         if let Some(me) = self.find_export(export_name) {
             match me.export_type {
-                JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { .. } => Ok(ModuleResolveExport::Found {
+                JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { .. } => Ok(ResolveExport::Found {
                     module: self.clone(),
                     entry: me.clone(),
                 }),
                 JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(req_module_idx) => {
                     if me.local_name == JS_ATOM__star_ {
                         // export ns from
-                        Ok(ModuleResolveExport::Found {
+                        Ok(ResolveExport::Found {
                             module: self.clone(),
                             entry: me.clone(),
                         })
@@ -125,38 +76,38 @@ impl ModuleDef {
                         .unwrap();
 
                     match m1.resolve_export_inner(ctx, export_name, expect, resolved)? {
-                        ModuleResolveExport::Found { module, entry } => {
+                        ResolveExport::Found { module, entry } => {
                             return Ok(
                                 if let Some((test_module, test_local_name)) = expect
                                     && (test_local_name != entry.local_name
                                         || test_module.id() != module.id())
                                 {
-                                    ModuleResolveExport::Ambiguous
+                                    ResolveExport::Ambiguous
                                 } else {
-                                    ModuleResolveExport::Found { module, entry }
+                                    ResolveExport::Found { module, entry }
                                 },
                             );
                         }
-                        ModuleResolveExport::NotFound | ModuleResolveExport::Circular => {
-                            return Ok(ModuleResolveExport::NotFound);
+                        ResolveExport::NotFound | ResolveExport::Circular => {
+                            return Ok(ResolveExport::NotFound);
                         }
-                        ModuleResolveExport::Ambiguous => {
-                            return Ok(ModuleResolveExport::Ambiguous);
+                        ResolveExport::Ambiguous => {
+                            return Ok(ResolveExport::Ambiguous);
                         }
                     }
                 }
             }
 
-            Ok(ModuleResolveExport::NotFound)
+            Ok(ResolveExport::NotFound)
         }
     }
 
-    pub fn resolve_export(
+    pub(super) fn resolve_export(
         &self,
         ctx: &JSContext,
         export_name: JSAtom,
         expect: Option<(&ModuleDef, JSAtom)>, // expected (module, local_name)
-    ) -> Result<ModuleResolveExport, i32> {
+    ) -> Result<ResolveExport, i32> {
         let mut lst = Vec::<JSResolveEntry>::with_capacity(8);
         let ret = unsafe { self.resolve_export_inner(ctx, export_name, expect, &mut lst) };
         for ent in lst.drain(..) {
@@ -301,17 +252,17 @@ impl ModuleDefInner {
         }
 
         // check the indirect exports
-        for exp_entry in self.export_entries.borrow().iter() {
-            if let JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(req_module_idx) = exp_entry.export_type
-                && exp_entry.local_name != JS_ATOM__star_
+        for exp in self.export_entries.borrow().iter() {
+            if let JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(req_module_idx) = exp.export_type
+                && exp.local_name != JS_ATOM__star_
             {
                 let m1 = self.dependencies.borrow()[req_module_idx as usize]
                     .module
                     .clone()
                     .unwrap();
-                let ret = m1.resolve_export(ctx, exp_entry.local_name, None)?;
-                if !matches!(ret, ModuleResolveExport::Found { .. }) {
-                    ret.throw_error_inner(ctx, self, exp_entry.export_name);
+                let ret = m1.resolve_export(ctx, exp.local_name, None)?;
+                if !matches!(ret, ResolveExport::Found { .. }) {
+                    ret.throw_syntax_error_export(ctx, self, exp.export_name);
                     return Err(-1);
                 }
             }
@@ -362,7 +313,7 @@ impl ModuleDefInner {
                     });
                 } else {
                     match dep_md.resolve_export(ctx, import_name, None)? {
-                        ModuleResolveExport::Found { module: dep, entry } => {
+                        ResolveExport::Found { module: dep, entry } => {
                             match entry.export_type {
                                 JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(req_module_idx) => {
                                     if entry.local_name == JS_ATOM__star_ {
@@ -415,7 +366,7 @@ impl ModuleDefInner {
                             }
                         }
                         ret => {
-                            ret.throw_error(ctx, &dep_md, import_name);
+                            ret.throw_syntax_error_export(ctx, &dep_md.0, import_name);
                             return Err(-1);
                         }
                     }
@@ -424,9 +375,9 @@ impl ModuleDefInner {
 
             // keep the exported variables in the module export entries (they are used when the eval function is deleted and cannot be initialized before in case imports are exported)
             {
-                for me in self.export_entries.borrow_mut().iter_mut() {
+                for exp in self.export_entries.borrow_mut().iter_mut() {
                     if let JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } =
-                        &mut me.export_type
+                        &mut exp.export_type
                     {
                         debug_assert_ne!(*var_idx, u16::MAX);
                         // var_ref.replace(var_refs[*var_idx as usize].clone());

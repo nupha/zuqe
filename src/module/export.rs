@@ -8,7 +8,7 @@ use crate::{
     context::JSContext,
     function::JSVarRef,
     mem::{js_free, js_resize_array},
-    module::{ModuleDef, ModuleDefInner, ModuleResolveExport},
+    module::{ModuleDef, ModuleDefInner},
     object::{
         JS_PROP_ENUMERABLE, JS_PROP_VARREF, JS_PROP_WRITABLE, JSObject, JSProperty, LazyInit,
         ObjectPayload,
@@ -42,8 +42,54 @@ struct GetExportNamesState {
 impl Default for GetExportNamesState {
     fn default() -> Self {
         Self {
+            modules: Vec::new(),
             exported_names: std::ptr::null_mut(),
-            ..Default::default()
+            exported_names_size: 0,
+            exported_names_count: 0,
+        }
+    }
+}
+
+pub(super) enum ResolveExport {
+    Found {
+        module: ModuleDef,
+        entry: JSExportEntry,
+    },
+    NotFound,
+    Ambiguous,
+    Circular,
+}
+
+impl ResolveExport {
+    pub(super) fn throw_syntax_error_export(
+        &self,
+        ctx: &JSContext,
+        m: &ModuleDefInner,
+        export_name: JSAtom,
+    ) {
+        match self {
+            Self::Found { .. } => {}
+            Self::NotFound => {
+                ctx.throw_syntax_error(&format!(
+                    "Could not find export '{}' in module '{}'",
+                    export_name.to_utf8(ctx.rt()),
+                    m.module_name.to_utf8(ctx.rt()),
+                ));
+            }
+            Self::Circular => {
+                ctx.throw_syntax_error(&format!(
+                    "circular reference when looking for export '{}' in module '{}'",
+                    export_name.to_utf8(ctx.rt()),
+                    m.module_name.to_utf8(ctx.rt()),
+                ));
+            }
+            Self::Ambiguous => {
+                ctx.throw_syntax_error(&format!(
+                    "export '{}' in module '{}' is ambiguous",
+                    export_name.to_utf8(ctx.rt()),
+                    m.module_name.to_utf8(ctx.rt()),
+                ));
+            }
         }
     }
 }
@@ -158,7 +204,9 @@ impl ModuleDef {
 
     /// build module ns object
     unsafe fn make_ns(&self, ctx: &JSContext) -> Result<JSObject, i32> {
-        let obj = ctx.create_object(ObjectPayload::MODULE_NS).map_err(|_| -1)?;
+        let obj = ctx
+            .create_object(ObjectPayload::MODULE_NS)
+            .map_err(|_| -1)?;
 
         let mut s_s = GetExportNamesState::default();
         let s = &mut s_s;
@@ -175,7 +223,7 @@ impl ModuleDef {
             let en = s.exported_names.add(i as usize).as_mut().unwrap();
             let res = if let Some(me) = en.me.as_ref() {
                 // fast case: no resolution needed
-                ModuleResolveExport::Found {
+                ResolveExport::Found {
                     module: self.clone(),
                     entry: me.clone(),
                 }
@@ -184,7 +232,7 @@ impl ModuleDef {
             };
 
             match res {
-                ModuleResolveExport::Found { module, entry } => match entry.export_type {
+                ResolveExport::Found { module, entry } => match entry.export_type {
                     JSExportTypeEnum::JS_EXPORT_TYPE_INDIRECT(dep_idx) => {
                         if entry.local_name == JS_ATOM__star_ {
                             en.export_type = ExportedNameEntryEnum::EXPORTED_NAME_NS(
@@ -210,11 +258,11 @@ impl ModuleDef {
                         );
                     }
                 },
-                ModuleResolveExport::Ambiguous => {
+                ResolveExport::Ambiguous => {
                     en.export_type = ExportedNameEntryEnum::EXPORTED_NAME_AMBIGUOUS;
                 }
-                ModuleResolveExport::NotFound | ModuleResolveExport::Circular => {
-                    res.throw_error(ctx, self, en.export_name);
+                ResolveExport::NotFound | ResolveExport::Circular => {
+                    res.throw_syntax_error_export(ctx, &self.0, en.export_name);
                     js_free(ctx, s.exported_names.cast());
                     return Err(-1);
                 }
