@@ -1753,27 +1753,57 @@ impl Bytecode {
                     }
                     OpCode::GET_ARRAY_EL => {
                         // [array, prop, ^] -> [value, ^]
-                        let val = SP_REF!(-2)
-                            .get_property_value(ctx, &SP_TAKE!(-1))
-                            .unwrap_or(JSValue::EXCEPTION);
-                        let is_err = val.is_exception();
+                        let array = SP_REF!(-2);
+                        let prop = SP_TAKE!(-1);
 
-                        SP_PUT!(-2, val);
-                        SP_GO!(-1);
-                        if unlikely(is_err) {
+                        if unlikely(array.is_undefined_or_null()) {
+                            ctx.throw_type_error(&format!(
+                                "cannot read property of {}",
+                                if array.is_undefined() {
+                                    "undefined"
+                                } else {
+                                    "null"
+                                }
+                            ));
+                            SP_PUT!(-2, JSValue::EXCEPTION);
+                            SP_GO!(-1);
                             break State::Exception;
+                        } else {
+                            let val = array
+                                .get_property_value(ctx, &prop)
+                                .unwrap_or(JSValue::EXCEPTION);
+                            let is_err = val.is_exception();
+                            SP_PUT!(-2, val);
+                            SP_GO!(-1);
+                            if unlikely(is_err) {
+                                break State::Exception;
+                            }
                         }
                     }
                     OpCode::GET_ARRAY_EL2 => {
                         // [array, prop, ^] -> [array, value, ^]
-                        SP_PUT!(
-                            -1,
-                            SP_REF!(-2)
-                                .get_property_value(ctx, SP_REF!(-1))
-                                .unwrap_or(JSValue::EXCEPTION)
-                        );
-                        if unlikely(SP_REF!(-1).is_exception()) {
+                        let array = SP_REF!(-2);
+
+                        if unlikely(array.is_undefined_or_null()) {
+                            ctx.throw_type_error(&format!(
+                                "cannot read property of {}",
+                                if array.is_undefined() {
+                                    "undefined"
+                                } else {
+                                    "null"
+                                }
+                            ));
+                            SP_PUT!(-1, JSValue::EXCEPTION);
                             break State::Exception;
+                        } else {
+                            let val = array
+                                .get_property_value(ctx, SP_REF!(-1))
+                                .unwrap_or(JSValue::EXCEPTION);
+                            let is_err = val.is_exception();
+                            SP_PUT!(-1, val);
+                            if unlikely(is_err) {
+                                break State::Exception;
+                            }
                         }
                     }
                     OpCode::GET_REF_VALUE => {
@@ -1891,16 +1921,26 @@ impl Bytecode {
                     OpCode::DEFINE_ARRAY_EL => {
                         // [obj, prop, value, ^] -> [obj, prop, ^]
 
+                        let obj = SP_REF!(-3);
+                        let prop = SP_REF!(-2);
+                        let value = SP_TAKE!(-1);
+
                         // FIXME: test262 fail
                         // converting `prop` to atom may invoke toString/valueOf method, which may modify `value`.
                         // this bytecode has cloned value on stack, this may break the spec.
-                        let val = SP_TAKE!(-1);
+                        // a solution is to emit bytecode like this:
+                        // ...
+                        // object
+                        // get_var key
+                        // to_propkey <-- insert this
+                        // get_var value
+                        // define_array_el
 
-                        let ret = SP_REF!(-2).to_atom(ctx).and_then(|a| {
-                            let r = SP_REF!(-3).define_property_value(
+                        let ret = prop.to_atom(ctx).and_then(|a| {
+                            let r = obj.define_property_value(
                                 ctx,
                                 a,
-                                val,
+                                value,
                                 JS_PROP_C_W_E | JS_PROP_THROW,
                             );
                             JS_FreeAtom(ctx, a);
@@ -2174,8 +2214,8 @@ impl Bytecode {
                         match SP_REF!(-1) {
                             JSValue::Int(_) | JSValue::String(_) | JSValue::Symbol(_) => {}
                             _ => {
-                                if let Ok(prop_key) = SP_REF!(-1).to_string_or_symbol(ctx) {
-                                    SP_PUT!(-1, prop_key);
+                                if let Ok(pk) = SP_REF!(-1).to_propkey(ctx) {
+                                    SP_PUT!(-1, pk);
                                 } else {
                                     break State::Exception;
                                 }

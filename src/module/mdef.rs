@@ -53,6 +53,7 @@ pub(crate) struct ModuleDefInner {
     /// - true: bytecode field is a function object value
     /// - false: bytecode field is a bytecode value
     pub func_created: Cell<bool>,
+
     /// for JS modules only, this value could be:
     /// * bytecode, when func_created is false,
     /// * function object, when func_created is true.
@@ -263,7 +264,7 @@ impl ModuleDefInner {
 
         self.func_created.set(true);
 
-        // make module <eval> function for dependency modules
+        // make <eval> function for dependency modules
         for dep in self.dependencies.borrow().iter() {
             dep.module.as_ref().unwrap().create_module_function(ctx)?;
         }
@@ -360,7 +361,7 @@ impl ModuleDef {
     /// make module <eval> function from bytecode
     /// must be done before js_link_module() because of cyclic references
     #[inline(always)]
-    pub fn create_module_function(&self, ctx: &JSContext) -> Result<(), i32> {
+    pub(super) fn create_module_function(&self, ctx: &JSContext) -> Result<(), i32> {
         self.0.create_module_function(ctx)
     }
 }

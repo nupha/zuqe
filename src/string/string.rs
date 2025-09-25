@@ -606,9 +606,7 @@ impl JSValue {
         }
     }
 
-    /// Convert value `self` to string or symbol.
-    /// if `self` is not a symbol, string is preferred.
-    /// returns String or Symbol value.
+    /// Convert `self` to string or symbol value. (string is preferred)
     pub fn to_string_or_symbol(&self, ctx: &JSContext) -> Result<Self, i32> {
         match self {
             Self::String(_) | Self::Symbol(_) => {
@@ -649,6 +647,12 @@ impl JSValue {
                 Err(-1)
             }
         }
+    }
+
+    /// An alias for [`JSValue::to_string_or_symbol`](Self::to_string_or_symbol).
+    #[inline(always)]
+    pub fn to_propkey(&self, ctx: &JSContext) -> Result<JSValue, i32> {
+        self.to_string_or_symbol(ctx)
     }
 
     /// Coerce value `self` to string.

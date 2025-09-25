@@ -515,17 +515,18 @@ impl JSContext {
     /// eval `source` as module. `url` is used to identify the module.
     /// returns the new module def.
     pub fn eval_module(&self, source: &[u8], url: &str, strip: bool) -> Result<ModuleDef, i32> {
-        // compile module bytecode
+        //
+        // compile module
+        //
         let md = ModuleDef::compile(self, source, url, strip)?;
-        // set import.meta
         md.0.set_import_meta(self, url, true)?;
-        // build module function
-        md.create_module_function(self)?;
 
-        md.link(self)?;
-
-        // evel module function
-        let _ = md.eval(self)?;
+        //
+        // eval module function
+        //
+        md.create_module_function(self)?; // make module function
+        md.link(self)?; // resolving imports, exports
+        let _ = md.eval(self)?; // evaluate module function
 
         Ok(md)
     }

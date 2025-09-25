@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 
 use crate::{
+    branch_hints::unlikely,
     bytecode::OpCode,
     context::JSContext,
     error::JSResult,
@@ -90,13 +91,13 @@ impl TwoNumbers {
         match self {
             Self::Int(a, b) => {
                 let n = (a as i64) * (b as i64);
-                if n == 0 && (a | b) < 0 {
+                if unlikely(n == 0 && (a | b) < 0) {
                     JSValue::Float64(-0.0)
                 } else {
                     JSValue::from(n)
                 }
             }
-            Self::Float(a, b) => JSValue::Float64(a * b),
+            Self::Float(a, b) => JSValue::from(a * b),
         }
     }
 
@@ -473,6 +474,12 @@ impl JSValue {
         TwoNumbers::from_values(ctx, op1, op2, true).map(|bop| bop.pow())
     }
 
+    /// test arithmatical equality (no-strict-eq): self == other?
+    #[inline(always)]
+    pub fn arith_eq(&self, ctx: &JSContext, other: &Self) -> Result<bool, i32> {
+        js_eq(ctx, self, other)
+    }
+
     /// compare JSValues equality in given mode.
     /// Note: `self` and `other` are not consumed.
     pub(crate) fn strict_eq_with_mode(&self, other: &JSValue, eq_mode: StrictEqMode) -> bool {
@@ -483,14 +490,16 @@ impl JSValue {
                 _ => self.eq(other),
             }
         } else {
-            false
+            match (self, other) {
+                // int vs float
+                (JSValue::Int(i), JSValue::Float64(f)) | (JSValue::Float64(f), JSValue::Int(i))
+                    if f.is_finite() && f.trunc() == 0.0 =>
+                {
+                    cmp_f64(*i as f64, *f, eq_mode)
+                }
+                _ => false,
+            }
         }
-    }
-
-    /// test arithmatical equality (no-strict-eq): self == other?
-    #[inline(always)]
-    pub fn arith_eq(&self, ctx: &JSContext, other: &Self) -> Result<bool, i32> {
-        js_eq(ctx, self, other)
     }
 
     /// test strict equality (strict-eq): self === other?

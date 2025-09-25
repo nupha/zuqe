@@ -785,7 +785,8 @@ pub unsafe fn js_parse_from_clause(s: *mut JSParseState) -> JSAtom {
 /// Return a promise or an exception.
 #[deprecated(note = "use ModuleDef::eval() instead")]
 pub unsafe fn js_evaluate_module(ctx: &JSContext, m: *mut ModuleDef) -> JSValue {
-    (*m).eval(ctx).map_or(JSValue::EXCEPTION, |p| p.into())
+    unreachable!("");
+    // (*m).eval(ctx).map_or(JSValue::EXCEPTION, |p| p.into())
 }
 
 #[deprecated(note = "use Promise::result() instead")]
@@ -3144,7 +3145,8 @@ pub fn update_token_ident(s: &mut JSParseState) {
 /// Prepare a module to be executed by resolving all the imported variables.
 #[deprecated(note = "use JSModuleDef::link() instead")]
 pub fn js_link_module(ctx: &JSContext, m: &ModuleDef) -> i32 {
-    m.link(ctx).map_or(-1, |_| 0)
+    unreachable!("unused")
+    // m.link(ctx).map_or(-1, |_| 0)
 }
 
 // Prepare a module to be executed by resolving all the imported variables.
@@ -4466,38 +4468,5 @@ pub unsafe fn JS_NewModuleValue(m: ModuleDef) -> JSValue {
 // must be done before js_link_module() because of cyclic references
 #[deprecated(note = "use ModuleDef::create_module_function() instead")]
 pub unsafe fn js_create_module_function(ctx: &JSContext, m: &ModuleDef) -> i32 {
-    m.create_module_function(ctx).map_or(-1, |_| 0)
-
-    // if m.0.func_created.get() {
-    //     return 0;
-    // }
-
-    // let is_c_module = m.0.init_func.is_some();
-    // if is_c_module {
-    //     // initialize the exported variables
-    //     for me in m.0.export_entries.borrow_mut().iter_mut() {
-    //         if let JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { var_ref, .. } = &mut me.export_type {
-    //             if let Ok(vr) = js_create_module_var(ctx, false) {
-    //                 var_ref.replace(vr);
-    //             } else {
-    //                 return -1;
-    //             }
-    //         }
-    //     }
-    // } else {
-    //     if js_create_module_bytecode_function(ctx, m).is_err() {
-    //         return -1;
-    //     }
-    // }
-
-    // m.0.func_created.set(true);
-
-    // // create module <eval> function for dependencies
-    // for dep in m.0.dependencies.borrow().iter() {
-    //     if js_create_module_function(ctx, dep.module.as_ref().unwrap()) < 0 {
-    //         return -1;
-    //     }
-    // }
-
-    // 0
+    unreachable!("unused");
 }
