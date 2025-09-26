@@ -16,6 +16,7 @@ use crate::{
     JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_PROXY, JS_CLASS_REGEXP, JS_CLASS_STRING,
     JS_CLASS_SYMBOL, JS_CLASS_UINT8C_ARRAY,
     atom::{JSAtom, consts::*},
+    branch_hints::unlikely,
     class::JSClassID,
     context::JSContext,
     error::JSResult,
@@ -695,43 +696,43 @@ impl JSValue {
             .map_or(Ok(false), |o| o.prevent_extensions(ctx))
     }
 
-    /// Seal object if the value is an object.
+    /// Seal `self` if it is an object.
     pub fn seal(&self, ctx: &JSContext, freeze: bool) -> Result<(), i32> {
         if let JSValue::Object(p) = &self {
-            if !p.prevent_extensions(ctx)? {
+            if unlikely(!p.prevent_extensions(ctx)?) {
                 ctx.throw_type_error("proxy preventExtensions handler returned false");
                 return Err(-1);
-            }
+            } else {
+                p.own_property_names_foreach(
+                    ctx,
+                    JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK,
+                    |cx, name| {
+                        let prop = name.atom;
+                        let mut flags = JS_PROP_THROW | JS_PROP_HAS_CONFIGURABLE;
 
-            p.own_property_names_foreach(
-                ctx,
-                JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK,
-                |cx, name| {
-                    let prop = name.atom;
-                    let mut flags = JS_PROP_THROW | JS_PROP_HAS_CONFIGURABLE;
-
-                    if freeze {
-                        if let Some(desc) = p.get_own_property(ctx, prop)? {
-                            if desc.flags & JS_PROP_WRITABLE != 0 {
-                                flags |= JS_PROP_HAS_WRITABLE;
+                        if freeze {
+                            if let Some(desc) = p.get_own_property(ctx, prop)? {
+                                if desc.flags & JS_PROP_WRITABLE != 0 {
+                                    flags |= JS_PROP_HAS_WRITABLE;
+                                }
                             }
                         }
-                    }
 
-                    // equivelent to set {configurable: false},
-                    // or {configurable:false, writable: false} if freeze=true
-                    p.define_property(
-                        cx,
-                        prop,
-                        JSValue::UNDEFINED,
-                        JSValue::UNDEFINED,
-                        JSValue::UNDEFINED,
-                        flags,
-                    )?;
+                        // equivelent to set {configurable: false},
+                        // or {configurable:false, writable: false} if freeze=true
+                        p.define_property(
+                            cx,
+                            prop,
+                            JSValue::UNDEFINED,
+                            JSValue::UNDEFINED,
+                            JSValue::UNDEFINED,
+                            flags,
+                        )?;
 
-                    Ok(())
-                },
-            )?;
+                        Ok(())
+                    },
+                )?;
+            }
         }
 
         Ok(())

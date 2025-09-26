@@ -110,9 +110,13 @@ impl JSObject {
                     flags & mask
                 };
 
-                // Note: shape may have been changed, should reload current shape property
-                let (_, prs_flags2) = self.find_shape_property(prop).unwrap();
-                self.update_shape_property_flags(ctx, prop, (prs_flags2 & !mask) | new_flags)?;
+                if res.is_ok() || flags & JS_PROP_LENGTH != 0 {
+                    // do update shape property flags only when property was updated successfully
+                    // or is updating length property.
+                    // Note: shape may have been changed, should reload current shape property
+                    let (_, prs_flags2) = self.find_shape_property(prop).unwrap();
+                    self.update_shape_property_flags(ctx, prop, (prs_flags2 & !mask) | new_flags)?;
+                }
 
                 return res;
             }
