@@ -604,5 +604,6 @@ pub unsafe fn JS_SetModuleLoaderFunc(
 }
 
 pub fn js_dynamic_import(ctx: &JSContext, specifier: &JSValue) -> JSResult {
-    unimplemented!()
+    ctx.throw_internal_error("import() is not implemented");
+    Err(-1)
 }

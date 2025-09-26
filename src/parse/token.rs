@@ -68,6 +68,14 @@ impl Token {
             _ => None,
         }
     }
+
+    pub fn string(&self) -> Option<StringContent> {
+        if let TokenData::Str { str, .. } = &self.data {
+            Some(str.clone())
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -780,7 +788,7 @@ impl<'s> JSParseState<'s> {
     }
 
     #[inline(always)]
-    pub fn token_maybe_ident(tok: i32) -> bool {
+    pub fn token_is_ident(tok: i32) -> bool {
         // Accept keywords and reserved words as property names
         tok == TOK_IDENT || (TOK_FIRST_KEYWORD..=TOK_LAST_KEYWORD).contains(&tok)
     }

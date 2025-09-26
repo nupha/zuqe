@@ -39,7 +39,7 @@ impl Deref for JSAtomRc {
 
 impl Clone for JSAtomRc {
     /// Dup the inner JSAtom
-    #[inline(always)]
+    #[inline]
     fn clone(&self) -> Self {
         let v = self.atom.dup(unsafe { self.rt.as_ref() });
         Self {
