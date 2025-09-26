@@ -57,84 +57,71 @@ impl<'s> JSParseState<'s> {
 
     /// parse import statement
     pub fn parse_import(&mut self) -> Result<(), i32> {
-        let md = self.cur_func().module.clone().unwrap();
-
         self.next_token()?;
 
+        let md = self.cur_func().module.clone().unwrap();
         let first_import = md.0.import_entries.borrow().len();
-        let module_name: JSAtom;
+        let module_name: JSAtomRc;
 
         if self.token.val == TOK_STRING {
-            module_name = self
-                .ctx
-                .create_string_with_content(self.token.data.string().unwrap().clone())
-                .and_then(|s| s.to_atom(&self.ctx))?;
+            // import "module-name"
+            module_name = JSAtom::from_str(
+                self.ctx.rt_mut(),
+                self.token.string().unwrap().to_utf8().as_ref(),
+                AtomTypeHint::String,
+            )?
+            .into_rc(self.ctx.rt());
 
-            if self.next_token().is_err() {
-                JS_FreeAtom(&self.ctx, module_name);
-                return Err(-1);
-            }
+            self.next_token()?;
         } else {
-            'outer: loop {
-                if self.token.val == TOK_IDENT {
-                    if self.token.data.is_reserved() {
-                        self.throw_reserved_identifier_error();
-                        return Err(-1);
-                    }
-
-                    // "default" import
-                    let local_name = self
-                        .token
-                        .atom()
-                        .unwrap()
-                        .dup(self.ctx.rt())
-                        .into_rc(self.ctx.rt());
-
-                    self.next_token()?;
-                    self.add_module_import(&md, *local_name, JS_ATOM_default)?;
-
-                    if self.token.val != ',' as i32 {
-                        break 'outer;
-                    } else {
-                        self.next_token()?;
-                    }
+            let done = if self.token.val == TOK_IDENT {
+                // import <default>
+                if self.token.data.is_reserved() {
+                    self.throw_reserved_identifier_error();
+                    return Err(-1);
                 }
 
-                if self.token.val == '*' as i32 {
-                    // name space import
+                let local_name = self
+                    .token
+                    .atom()
+                    .unwrap()
+                    .dup(self.ctx.rt())
+                    .into_rc(self.ctx.rt());
+
+                self.next_token()?;
+                self.add_module_import(&md, *local_name, JS_ATOM_default)?;
+
+                if self.token.val == ',' as i32 {
+                    // default import mixed with namespace or named import.
                     self.next_token()?;
+                    false // <-- go on parsing namespace or named import.
+                } else {
+                    true
+                }
+            } else {
+                false
+            };
 
-                    if !self.token_is_pseudo_keyword(JS_ATOM_as) {
-                        self.throw_syntax_error("expecting 'as'");
-                        return Err(-1);
-                    }
+            if !done {
+                match self.token.val {
+                    //'*'
+                    0x2a => {
+                        // namespace
+                        self.next_token()?;
 
-                    self.next_token()?;
+                        if !self.token_is_pseudo_keyword(JS_ATOM_as) {
+                            self.throw_syntax_error("expecting 'as'");
+                            return Err(-1);
+                        }
 
-                    if !Self::token_is_ident(self.token.val) {
-                        self.throw_syntax_error("identifier expected");
-                        return Err(-1);
-                    }
+                        self.next_token()?;
 
-                    let local_name = self
-                        .token
-                        .atom()
-                        .unwrap()
-                        .dup(self.ctx.rt())
-                        .into_rc(self.ctx.rt());
-
-                    self.next_token()?;
-                    self.add_module_import(&md, *local_name, JS_ATOM__star_)?;
-                } else if self.token.val == '{' as i32 {
-                    self.next_token()?;
-
-                    while self.token.val != '}' as i32 {
                         if !Self::token_is_ident(self.token.val) {
                             self.throw_syntax_error("identifier expected");
                             return Err(-1);
                         }
 
-                        let import_name = self
+                        let local_name = self
                             .token
                             .atom()
                             .unwrap()
@@ -142,45 +129,72 @@ impl<'s> JSParseState<'s> {
                             .into_rc(self.ctx.rt());
 
                         self.next_token()?;
-
-                        let local_name = if self.token_is_pseudo_keyword(JS_ATOM_as) {
-                            self.next_token()?;
-
-                            if !Self::token_is_ident(self.token.val) {
-                                self.throw_syntax_error("identifier expected");
-                                return Err(-1);
-                            }
-
-                            let ln = self.token.atom().unwrap().dup(self.ctx.rt());
-                            self.next_token()?;
-                            ln
-                        } else {
-                            import_name.dup(&self.ctx.rt())
-                        }
-                        .into_rc(&self.ctx.rt());
-
-                        self.add_module_import(&md, *local_name, *import_name)?;
-
-                        if self.token.val != b',' as i32 {
-                            break;
-                        }
-
-                        self.next_token()?;
+                        self.add_module_import(&md, *local_name, JS_ATOM__star_)?;
                     }
+                    // '{'
+                    0x7b => {
+                        // name dict
+                        self.next_token()?;
 
-                    self.parse_expect(CHAR_CURLY_R)?;
+                        while self.token.val != '}' as i32 {
+                            let import_name = match self.token.val {
+                                TOK_IDENT | TOK_FIRST_KEYWORD..=TOK_LAST_KEYWORD => {
+                                    // Accept ident, keywords and reserved words as property names
+                                    self.token
+                                        .atom()
+                                        .unwrap()
+                                        .dup(self.ctx.rt())
+                                        .into_rc(self.ctx.rt())
+                                }
+                                TOK_STRING => JSAtom::from_str(
+                                    self.ctx.rt_mut(),
+                                    &self.token.string().unwrap().to_utf8(),
+                                    AtomTypeHint::String,
+                                )?
+                                .into_rc(self.ctx.rt()),
+                                _ => {
+                                    self.throw_syntax_error("identifier or string expected");
+                                    return Err(-1);
+                                }
+                            };
+
+                            self.next_token()?;
+
+                            let local_name = if self.token_is_pseudo_keyword(JS_ATOM_as) {
+                                self.next_token()?;
+
+                                if !Self::token_is_ident(self.token.val) {
+                                    self.throw_syntax_error("identifier expected");
+                                    return Err(-1);
+                                }
+
+                                let ln = self.token.atom().unwrap().dup(self.ctx.rt());
+                                self.next_token()?;
+                                ln
+                            } else {
+                                import_name.dup(&self.ctx.rt())
+                            }
+                            .into_rc(&self.ctx.rt());
+
+                            self.add_module_import(&md, *local_name, *import_name)?;
+
+                            if self.token.val == b',' as i32 {
+                                self.next_token()?;
+                            } else {
+                                break;
+                            }
+                        }
+
+                        self.parse_expect(CHAR_CURLY_R)?;
+                    }
+                    _ => {}
                 }
+            }
 
-                break 'outer;
-            } // 'outer loop
-
-            module_name = self.parse_from_clause()?;
+            module_name = self.parse_from_clause()?.into_rc(self.ctx.rt());
         }
 
-        let idx = md.add_dependency(&self.ctx, module_name);
-        JS_FreeAtom(&self.ctx, module_name);
-        let idx = idx?;
-
+        let idx = md.add_dependency(&self.ctx, *module_name)?;
         for imp in &mut md.0.import_entries.borrow_mut()[first_import..] {
             imp.req_module_idx = idx as _;
         }
@@ -222,18 +236,24 @@ impl<'s> JSParseState<'s> {
                 let first_export = md.0.export_entries.borrow().len();
 
                 while self.token.val != b'}' as i32 {
-                    let local_name = if matches!(
-                        self.token.val,
-                        TOK_IDENT | TOK_FIRST_KEYWORD..=TOK_LAST_KEYWORD
-                    ) {
-                        self.token
-                            .atom()
-                            .unwrap()
-                            .dup(self.ctx.rt())
-                            .into_rc(self.ctx.rt())
-                    } else {
-                        self.throw_syntax_error("identifier expected");
-                        return Err(-1);
+                    let local_name = match self.token.val {
+                        TOK_IDENT | TOK_FIRST_KEYWORD..=TOK_LAST_KEYWORD => {
+                            // Accept ident, keywords and reserved words as property names
+                            self.token
+                                .atom()
+                                .unwrap()
+                                .dup(self.ctx.rt())
+                                .into_rc(self.ctx.rt())
+                        }
+                        TOK_STRING => {
+                            let s = self.token.string().unwrap();
+                            JSAtom::from_str(self.ctx.rt_mut(), &s.to_utf8(), AtomTypeHint::String)?
+                                .into_rc(self.ctx.rt())
+                        }
+                        _ => {
+                            self.throw_syntax_error("identifier or string expected");
+                            return Err(-1);
+                        }
                     };
 
                     self.next_token()?;
