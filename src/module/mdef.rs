@@ -40,7 +40,7 @@ pub(crate) struct ModuleDefInner {
 
     pub module_name: JSAtom,
 
-    pub dependencies: RefCell<Vec<ModuleDependency>>,
+    pub(super) dependencies: RefCell<Vec<ModuleDependency>>,
     pub import_entries: RefCell<Vec<JSImportEntry>>,
     pub export_entries: RefCell<Vec<Box<ExportEntry>>>,
     /// list of index in dependencies
@@ -246,10 +246,9 @@ impl ModuleDefInner {
         if self.init_func.is_some() {
             // is native module.
             // initialize the exported variables
-            for me in self.export_entries.borrow_mut().iter_mut() {
-                if let ExportType::JS_EXPORT_TYPE_LOCAL { var_ref, .. } = &mut me.export_type {
-                    let vr = js_create_module_var(ctx, false)?;
-                    var_ref.replace(vr);
+            for exp in self.export_entries.borrow_mut().iter_mut() {
+                if let ExportType::JS_EXPORT_TYPE_LOCAL { var_ref, .. } = &mut exp.export_type {
+                    var_ref.replace(js_create_module_var(ctx, false)?);
                 }
             }
         } else {
@@ -272,8 +271,8 @@ impl ModuleDefInner {
 
         JS_FreeAtomRT(rt, self.module_name);
 
-        for rme in self.dependencies.borrow_mut().drain(..) {
-            JS_FreeAtomRT(rt, rme.module_name);
+        for dep in self.dependencies.borrow_mut().drain(..) {
+            JS_FreeAtomRT(rt, dep.module_name);
         }
 
         for me in self.export_entries.borrow_mut().drain(..) {

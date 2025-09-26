@@ -1,9 +1,11 @@
 use crate::{
     atom::{JS_FreeAtom, JSAtom},
+    branch_hints::unlikely,
     context::JSContext,
     module::{ModuleDef, js_default_module_normalize_name},
 };
 
+#[derive(Debug)]
 pub struct ModuleDependency {
     pub module_name: JSAtom,
     /// None if module is not resolved.
@@ -19,31 +21,27 @@ impl ModuleDef {
     /// add module dependency, returns the dependency index.
     /// `module_name` is not consumed.
     pub fn add_dependency(&self, ctx: &JSContext, module_name: JSAtom) -> Result<u16, i32> {
-        if let Some(i) = self
-            .0
-            .dependencies
-            .borrow()
-            .iter()
-            .position(|req| req.module_name == module_name)
-        {
+        let mut lst = self.0.dependencies.borrow_mut();
+
+        if let Some(i) = lst.iter().position(|req| req.module_name == module_name) {
             // dep is already present, returns dep index directly
             return Ok(i as u16);
         }
 
-        if self.0.dependencies.borrow().len() == self.0.dependencies.borrow().capacity() {
-            if self.0.dependencies.borrow_mut().try_reserve(4).is_err() {
+        if unlikely(lst.len() == lst.capacity()) {
+            if unlikely(lst.try_reserve(1).is_err()) {
                 ctx.throw_out_of_memory();
                 return Err(-1);
             }
         }
 
-        self.0.dependencies.borrow_mut().push(ModuleDependency {
+        lst.push(ModuleDependency {
             module_name: module_name.dup(&ctx.rt()),
             module: None,
         });
 
         // return the new dep index
-        Ok(self.0.dependencies.borrow().len() as u16 - 1)
+        Ok(lst.len() as u16 - 1)
     }
 }
 
@@ -71,30 +69,14 @@ impl JSContext {
             return Ok(());
         }
 
-        #[cfg(DUMP_MODULE_RESOLVE)]
-        {
-            let buf1: [u8; ATOM_GET_STR_BUF_SIZE] = [0; ATOM_GET_STR_BUF_SIZE];
-            println!(
-                "resolving module '{}':\n",
-                JS_AtomGetStr(
-                    ctx,
-                    buf1.as_mut_ptr(),
-                    std::mem::size_of::<[u8; ATOM_GET_STR_BUF_SIZE]>(),
-                    (*m).module_name
-                )
-            );
-        }
-
         m.0.resolved.set(true);
 
-        // resolve dep modules
-        let module_name = m.0.module_name;
-        for dep in m.0.dependencies.borrow_mut().iter_mut() {
-            let m1 = js_host_resolve_imported_module_atom(self, module_name, dep.module_name)?;
-            dep.module = Some(m1.clone());
+        let base_module_name = m.0.module_name;
 
-            // already done in js_host_resolve_imported_module() except if
-            // the module was loaded with JS_EvalBinary()
+        // resolve dependency modules
+        for dep in m.0.dependencies.borrow_mut().iter_mut() {
+            let m1 = js_host_resolve_imported_module_atom(self, base_module_name, dep.module_name)?;
+            dep.module = Some(m1.clone());
             self.resolve_module(&m1)?;
         }
 

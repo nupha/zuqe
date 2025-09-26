@@ -233,18 +233,18 @@ fn main() {
     println!("*** run use time: {} ms", tm.elapsed().as_millis());
 }
 
-pub fn js_module_loader(
+fn js_module_loader(
     ctx: &JSContext,
     module_name: &str,
     _: *mut std::ffi::c_void,
 ) -> Result<ModuleDef, i32> {
     match std::fs::read(module_name) {
         Ok(buf) => {
-            let md = ctx.eval_module(&buf, module_name, false)?;
+            let md = ModuleDef::compile(ctx, &buf, module_name, false)?;
             Ok(md)
         }
         Err(_) => {
-            ctx.throw_reference_error(&format!("could not run module '{module_name}'"));
+            ctx.throw_reference_error(&format!("could not load module '{module_name}'"));
             Err(-1)
         }
     }
