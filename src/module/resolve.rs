@@ -16,18 +16,18 @@ use crate::{
 };
 
 impl ModuleDef {
-    unsafe fn resolve_export_inner(
+    fn resolve_export_inner(
         &self,
         ctx: &JSContext,
         export_name: JSAtom,
-        expect: Option<(&ModuleDef, JSAtom)>, // (module, local_name)
+        mut expect: Option<(usize, JSAtom)>, // (module_id, local_name_atom)
         resolved: &mut Vec<JSResolveEntry>,
     ) -> Result<ResolveExport, i32> {
-        if resolved
-            .iter()
-            .find(|re| re.module.id() == self.id() && re.name == export_name)
-            .is_some()
-        {
+        if unlikely(
+            resolved
+                .iter()
+                .any(|x| x.module.eq(self) && x.name == export_name),
+        ) {
             return Ok(ResolveExport::Circular);
         }
 
@@ -57,48 +57,48 @@ impl ModuleDef {
                             entry: me.clone(),
                         })
                     } else {
-                        let m1 = self.0.dependencies.borrow()[req_module_idx as usize]
+                        let dep = self.0.dependencies.borrow()[req_module_idx as usize]
                             .module
                             .clone()
                             .unwrap();
-
-                        m1.resolve_export_inner(ctx, me.local_name, expect, resolved)
+                        dep.resolve_export_inner(ctx, me.local_name, expect, resolved)
                     }
                 }
             }
         } else {
+            let mut ret = ResolveExport::NotFound;
+
             if export_name != JS_ATOM_default {
                 // not found in direct or indirect exports: try star exports
                 for idx in self.0.star_export_entries.borrow().iter() {
-                    let m1 = self.0.dependencies.borrow()[*idx as usize]
+                    let dep = self.0.dependencies.borrow()[*idx as usize]
                         .module
                         .clone()
                         .unwrap();
 
-                    match m1.resolve_export_inner(ctx, export_name, expect, resolved)? {
+                    match dep.resolve_export_inner(ctx, export_name, expect, resolved)? {
                         ResolveExport::Found { module, entry } => {
-                            return Ok(
-                                if let Some((test_module, test_local_name)) = expect
-                                    && (test_local_name != entry.local_name
-                                        || test_module.id() != module.id())
-                                {
-                                    ResolveExport::Ambiguous
-                                } else {
-                                    ResolveExport::Found { module, entry }
-                                },
-                            );
+                            if let Some((test_module_id, test_local_name)) = expect
+                                && (test_local_name != entry.local_name
+                                    || test_module_id != module.id())
+                            {
+                                return Ok(ResolveExport::Ambiguous);
+                            } else {
+                                expect.replace((module.id(), entry.local_name));
+                                ret = ResolveExport::Found { module, entry };
+                            }
                         }
-                        ResolveExport::NotFound | ResolveExport::Circular => {
-                            return Ok(ResolveExport::NotFound);
+                        r @ (ResolveExport::Ambiguous | ResolveExport::Circular) => {
+                            return Ok(r);
                         }
-                        ResolveExport::Ambiguous => {
-                            return Ok(ResolveExport::Ambiguous);
+                        ResolveExport::NotFound => {
+                            continue;
                         }
                     }
                 }
             }
 
-            Ok(ResolveExport::NotFound)
+            Ok(ret)
         }
     }
 
@@ -106,10 +106,10 @@ impl ModuleDef {
         &self,
         ctx: &JSContext,
         export_name: JSAtom,
-        expect: Option<(&ModuleDef, JSAtom)>, // expected (module, local_name)
+        expect: Option<(usize, JSAtom)>, // (module_id, local_name_atom)
     ) -> Result<ResolveExport, i32> {
         let mut lst = Vec::<JSResolveEntry>::with_capacity(8);
-        let ret = unsafe { self.resolve_export_inner(ctx, export_name, expect, &mut lst) };
+        let ret = self.resolve_export_inner(ctx, export_name, expect, &mut lst);
         for ent in lst.drain(..) {
             JS_FreeAtom(ctx, ent.name);
         }

@@ -57,9 +57,10 @@ impl<'s> JSParseState<'s> {
 
     /// parse import statement
     pub fn parse_import(&mut self) -> Result<(), i32> {
+        let md = self.cur_func().module.clone().unwrap();
+
         self.next_token()?;
 
-        let md = self.cur_func().module.clone().unwrap();
         let first_import = md.0.import_entries.borrow().len();
         let module_name: JSAtomRc;
 

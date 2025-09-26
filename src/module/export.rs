@@ -15,21 +15,23 @@ use crate::{
     },
 };
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 enum ExportedNameKind {
     EXPORTED_NAME_AMBIGUOUS,
     EXPORTED_NAME_NORMAL(JSVarRef),
     EXPORTED_NAME_NS(ModuleDef),
 }
 
+#[derive(Debug)]
 struct ExportedNameEntry {
     export_name: JSAtom,
     export_type: ExportedNameKind,
 
     /// using when the list is built
-    me: Option<ExportEntry>,
+    cached: Option<ExportEntry>,
 }
 
+#[derive(Debug)]
 struct GetExportNamesState {
     modules: Vec<ModuleDef>,
     exported_names: Vec<ExportedNameEntry>,
@@ -69,6 +71,7 @@ struct StarExportEntry {
     req_module_idx: i32,
 }
 
+#[derive(Debug)]
 pub(super) enum ResolveExport {
     Found {
         module: ModuleDef,
@@ -114,14 +117,14 @@ impl ResolveExport {
 }
 
 impl ModuleDef {
-    /// find export by name
+    /// find export entry of `self`
     pub fn find_export(&self, export_name: JSAtom) -> Option<ExportEntry> {
         self.0
             .export_entries
             .borrow()
             .iter()
             .find(|x| x.export_name == export_name)
-            .map(|v| *v.clone())
+            .map(|x| *x.clone())
     }
 
     pub(crate) fn add_star_export_entry(
@@ -149,10 +152,8 @@ impl ModuleDef {
         from_star: bool,
     ) -> Result<(), i32> {
         // check circular reference
-        for m in s.modules.iter() {
-            if m.id() == self.id() {
-                return Ok(());
-            }
+        if s.modules.iter().any(|m| m == self) {
+            return Ok(());
         }
 
         s.modules.try_reserve(1).map_err(|_| {
@@ -169,11 +170,11 @@ impl ModuleDef {
             if let Some(entry) = s
                 .exported_names
                 .iter_mut()
-                .find(|m| m.export_name == exp.export_name)
+                .find(|x| x.export_name == exp.export_name)
             {
-                entry.me.take();
+                entry.cached.take();
             } else {
-                if unlikely(s.exported_names.len() == s.exported_names.capacity()) {
+                if s.exported_names.len() == s.exported_names.capacity() {
                     s.exported_names.try_reserve(1).map_err(|_| {
                         ctx.throw_out_of_memory();
                         -1
@@ -182,7 +183,7 @@ impl ModuleDef {
                 s.exported_names.push(ExportedNameEntry {
                     export_name: exp.export_name,
                     export_type: ExportedNameKind::EXPORTED_NAME_AMBIGUOUS,
-                    me: if from_star
+                    cached: if from_star
                         || !matches!(exp.export_type, ExportType::JS_EXPORT_TYPE_LOCAL { .. })
                     {
                         None
@@ -194,8 +195,7 @@ impl ModuleDef {
         }
 
         for idx in self.0.star_export_entries.borrow().iter() {
-            let req_module_idx = *idx;
-            self.0.dependencies.borrow()[req_module_idx as usize]
+            self.0.dependencies.borrow()[*idx as usize]
                 .module
                 .as_ref()
                 .unwrap()
@@ -206,7 +206,7 @@ impl ModuleDef {
     }
 
     /// build module ns object
-    fn make_ns(&self, ctx: &JSContext) -> Result<JSObject, i32> {
+    fn build_module_ns(&self, ctx: &JSContext) -> Result<JSObject, i32> {
         let obj = ctx
             .create_object(ObjectPayload::MODULE_NS)
             .map_err(|_| -1)?;
@@ -216,8 +216,8 @@ impl ModuleDef {
 
         // Resolve the exported names. The ambiguous exports are removed
         for en in state.exported_names.iter_mut() {
-            let res = if let Some(me) = en.me.as_ref() {
-                // fast case: no resolution needed
+            let resolv = if let Some(me) = en.cached.as_ref() {
+                // fast case: use cached, no resolution needed
                 ResolveExport::Found {
                     module: self.clone(),
                     entry: me.clone(),
@@ -226,7 +226,7 @@ impl ModuleDef {
                 self.resolve_export(ctx, en.export_name, None)?
             };
 
-            match res {
+            match resolv {
                 ResolveExport::Found { module, entry } => match entry.export_type {
                     ExportType::JS_EXPORT_TYPE_INDIRECT(dep_idx) => {
                         if entry.local_name == JS_ATOM__star_ {
@@ -257,7 +257,7 @@ impl ModuleDef {
                     en.export_type = ExportedNameKind::EXPORTED_NAME_AMBIGUOUS;
                 }
                 ResolveExport::NotFound | ResolveExport::Circular => {
-                    res.throw_syntax_error_export(ctx, &self.0, en.export_name);
+                    resolv.throw_syntax_error_export(ctx, &self.0, en.export_name);
                     return Err(-1);
                 }
             }
@@ -322,7 +322,7 @@ impl ModuleDef {
         if let Some(ns) = unsafe { (*self.0.module_ns.as_ptr()).clone() } {
             Ok(ns)
         } else {
-            let ns = self.make_ns(ctx)?;
+            let ns = self.build_module_ns(ctx)?;
             self.0.module_ns.replace(Some(ns.clone()));
             Ok(ns)
         }
