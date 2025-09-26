@@ -257,7 +257,7 @@ pub fn js_module_set_import_meta(
     is_main: bool,
 ) -> i32 {
     // make module name to absolute url
-    let module_name_atom = md.module_name_atom().dup(&ctx.rt());
+    let module_name_atom = md.module_name().dup(&ctx.rt());
     let module_name = module_name_atom.to_utf8(ctx.rt());
     JS_FreeAtom(ctx, module_name_atom);
 

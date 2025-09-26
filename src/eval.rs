@@ -49,6 +49,7 @@ pub(crate) enum Compiled {
 
 impl JSContext {
     /// compile script source according to requested mode.
+    /// `source` is script source, `filename` is used to identify the module.
     /// compile only, won't run. internal use.
     pub(crate) fn compile(
         &self,

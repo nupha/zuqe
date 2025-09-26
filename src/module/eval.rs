@@ -2,12 +2,13 @@ use std::ops::DerefMut;
 
 use crate::{
     JS_CLASS_BYTECODE_FUNCTION,
+    branch_hints::unlikely,
     context::JSContext,
     error::JSResult,
     eval::{Compiled, JS_EVAL_FLAG_STRIP, JS_EVAL_TYPE_MODULE},
     function::CallContext,
     module::{JSModuleStatus, ModuleDefInner},
-    promise::Promise,
+    promise::{JSPromiseStateEnum, Promise},
     runtime::js_check_stack_overflow,
     value::JSValue,
 };
@@ -60,7 +61,7 @@ impl ModuleDef {
         self.0.cycle_root.borrow_mut().deref_mut().replace(root);
     }
 
-    /// compile source as module, don't run.
+    /// compile source as module, don't run. `filename` is used to identify the module.
     pub fn compile(
         ctx: &JSContext,
         source: &[u8],
@@ -116,12 +117,16 @@ impl ModuleDef {
                     JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
                         | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
                 ));
-                debug_assert!(m.eval_exception().is_none(), "{:?}", m.eval_exception());
+                debug_assert!(m.eval_exception().is_none());
 
                 if !m.0.async_evaluation.get() {
                     debug_assert_eq!(m.status(), JSModuleStatus::JS_MODULE_STATUS_EVALUATED);
                     let func_obj = unsafe { (*m.0.resolving_funcs.as_ptr())[0].clone() }; // resolve func
-                    let _ = func_obj.call(ctx, &JSValue::UNDEFINED, &[JSValue::UNDEFINED]);
+                    let _ = func_obj.call(
+                        ctx,
+                        &JSValue::UNDEFINED,
+                        std::slice::from_ref(&JSValue::UNDEFINED),
+                    );
                 }
                 debug_assert!(stack_top.is_none());
             }
@@ -459,29 +464,39 @@ impl ModuleDef {
         Ok(JSValue::UNDEFINED)
     }
 
-    /// execute module in sync manner.
-    /// returns Err(exception) on failure.
     fn execute_sync(&self, ctx: &JSContext) -> Result<(), JSValue> {
         if let Some(f) = self.0.init_func {
             // is native module: no asynchronous execution
-            if f(ctx, self) < 0 {
-                return Err(ctx.take_exception());
+            if unlikely(f(ctx, self) < 0) {
+                Err(ctx.take_exception())
+            } else {
+                Ok(())
             }
         } else {
             // is bytecode function
-            let md_func = unsafe { (*self.0.bytecode.as_ptr()).clone() };
+            let func_obj = unsafe { (*self.0.bytecode.as_ptr()).clone() };
             debug_assert_eq!(
-                md_func.as_object().unwrap().class_id(),
+                func_obj.as_object().unwrap().class_id(),
                 JS_CLASS_BYTECODE_FUNCTION
             );
 
             // eval bytecode function
-            md_func
-                .call(ctx, &JSValue::UNDEFINED, &[])
+            let promise = func_obj
+                .call_async(ctx, &JSValue::UNDEFINED, &[], 0)
                 .map_err(|_| ctx.take_exception())?;
-        }
 
-        Ok(())
+            match promise.state() {
+                JSPromiseStateEnum::JS_PROMISE_FULFILLED => Ok(()),
+                JSPromiseStateEnum::JS_PROMISE_REJECTED => {
+                    let exc = promise.result();
+                    Err(exc)
+                }
+                JSPromiseStateEnum::JS_PROMISE_PENDING => {
+                    ctx.throw_type_error("promise is pending");
+                    Err(ctx.take_exception())
+                }
+            }
+        }
     }
 
     /// test if module `self` is in execution list `exec_list
@@ -497,14 +512,18 @@ impl ModuleDef {
 }
 
 impl JSContext {
-    /// eval `source` as module. `url` is used to identify the module.
-    /// returns the new module def.
-    pub fn eval_module(&self, source: &[u8], url: &str, strip: bool) -> Result<ModuleDef, i32> {
+    /// eval `source` as module. returns the new module def.
+    pub fn eval_module(
+        &self,
+        source: &[u8],
+        filename: &str,
+        strip: bool,
+    ) -> Result<ModuleDef, i32> {
         //
         // compile module
         //
-        let md = ModuleDef::compile(self, source, url, strip)?;
-        md.0.set_import_meta(self, url, true)?;
+        let md = ModuleDef::compile(self, source, filename, strip)?;
+        md.0.set_import_meta(self, filename, true)?;
 
         //
         // eval module function

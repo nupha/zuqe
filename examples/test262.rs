@@ -188,7 +188,7 @@ pub unsafe fn js_module_set_import_meta(
 ) -> i32 {
     if let JSValue::Module(m) = func_val {
         // make module name to absolute url
-        let module_name_atom = m.module_name_atom().dup(ctx.rt());
+        let module_name_atom = m.module_name().dup(ctx.rt());
         let module_name = module_name_atom.to_utf8(ctx.rt());
         JS_FreeAtom(ctx, module_name_atom);
 
@@ -688,7 +688,7 @@ fn main() {
         };
 
         for item in tests {
-            let pat = base_path.join(format!("./test/{item}"));
+            let pat = base_path.join(format!("test/{item}"));
             for fname in glob::glob(pat.to_str().unwrap()).unwrap() {
                 let fname = fname.unwrap();
                 if !exclude_tests.contains(&fname) {

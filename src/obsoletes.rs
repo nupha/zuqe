@@ -3240,7 +3240,7 @@ pub unsafe fn add_resolve_entry(
 
 /// add dependent module
 #[deprecated(note = "use JSModuleDef::add_dependency() instead")]
-pub unsafe fn add_dep_module(ctx: &JSContext, m: &ModuleDef, module_name: JSAtom) -> i32 {
+pub unsafe fn add_req_module_entry(ctx: &JSContext, m: &ModuleDef, module_name: JSAtom) -> i32 {
     m.add_dependency(ctx, module_name).map_or(-1, |i| i as _)
 }
 

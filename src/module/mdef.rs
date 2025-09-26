@@ -326,7 +326,8 @@ impl ModuleDef {
     }
 
     /// get module name atom. returned atom is not duplicated.
-    pub fn module_name_atom(&self) -> JSAtom {
+    #[inline(always)]
+    pub fn module_name(&self) -> JSAtom {
         self.0.module_name
     }
 
