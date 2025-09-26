@@ -77,7 +77,7 @@ impl JSContext {
         for dep in m.0.dependencies.borrow_mut().iter_mut() {
             let m1 = js_host_resolve_imported_module_atom(self, base_module_name, dep.module_name)?;
             dep.module = Some(m1.clone());
-            self.resolve_module(&m1)?;
+            self.resolve_module(&m1)?; // <- ensure not mut borrow .dependencies in calling graph
         }
 
         Ok(())

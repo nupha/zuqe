@@ -170,11 +170,7 @@ pub fn js_module_loader(
             }
             let aurl = format!("{}", normalized.display());
 
-            let md = ctx.eval_module(buf.as_slice(), &aurl, false)?;
-            // // XXX: could propagate the exception
-            // unsafe {
-            //     js_module_set_import_meta(ctx, &func_val, true as i32, false);
-            // }
+            let md = ModuleDef::compile(ctx, buf.as_slice(), &aurl, false)?;
             Ok(md)
         }
         Err(_) => {
