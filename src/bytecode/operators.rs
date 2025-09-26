@@ -1,5 +1,6 @@
 use std::ops::DerefMut;
 
+use crate::branch_hints::unlikely;
 use crate::iterator::{ForInIterObjPayload, ObjectIter};
 use crate::object::JSObject;
 use crate::string::JSString;
@@ -64,23 +65,16 @@ pub fn js_operator_instanceof(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i
     Ok(())
 }
 
-pub fn js_operator_in(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
-    let prop = unsafe { std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED) };
-    let obj = unsafe { std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED) };
-
-    if !obj.is_object() {
+pub fn js_operator_in(ctx: &JSContext, obj: &JSValue, prop: &JSValue) -> Result<bool, i32> {
+    if unlikely(!obj.is_object()) {
         ctx.throw_type_error("invalid 'in' operand");
-        return Err(-1);
+        Err(-1)
+    } else {
+        let atom = prop.to_atom(ctx)?;
+        let ret = obj.has_property(ctx, atom);
+        JS_FreeAtom(ctx, atom);
+        ret
     }
-
-    let atom = prop.to_atom(ctx)?;
-    let ret = obj.has_property(ctx, atom);
-    JS_FreeAtom(ctx, atom);
-    let b = ret?;
-    unsafe {
-        std::ptr::replace(sp.offset(-2), JSValue::Bool(b));
-    }
-    Ok(())
 }
 
 pub fn js_operator_private_in(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {

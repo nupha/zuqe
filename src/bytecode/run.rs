@@ -2142,10 +2142,13 @@ impl Bytecode {
                     }
 
                     OpCode::IN => {
-                        if unlikely(js_operator_in(ctx, sp).is_err()) {
-                            break State::Exception;
-                        } else {
+                        // [prop, obj, ^] -> [bool, ^]
+                        if let Ok(b) = js_operator_in(ctx, SP_REF!(-1), SP_REF!(-2)) {
+                            SP_PUT!(-2, JSValue::Bool(b));
+                            SP_TAKE!(-1);
                             SP_GO!(-1);
+                        } else {
+                            break State::Exception;
                         }
                     }
                     OpCode::PRIVATE_IN => {
