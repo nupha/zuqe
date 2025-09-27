@@ -500,7 +500,7 @@ impl JSFunctionDef {
                 op1 -= 1; // set_x drop -> put_x
                 *pos_next = cc1.pos;
 
-                if let Some(cc2) = self.code_match(cc1.pos, &[op1 - 1, cc1.idx as i32]) {
+                if let Some(cc2) = self.code_match(cc1.pos, &[op1 - 1, cc.idx as i32]) {
                     line2 = cc2.line_num; // delay line number update
                     op1 += 1; // put_x(n) get_x(n) -> set_x(n)
                     *pos_next = cc2.pos;
@@ -567,7 +567,7 @@ pub fn optimize_scope_make_ref(
     debug_assert_eq!(unsafe { *bc_buf.add(pos) }, opcodes::op_label);
 
     /* label points to an instruction pair:
-      - insert3 / put_ref_value
+      - insert3 + put_ref_value => dup + put_var_ref
       - perm4 / put_ref_value
       - rot3l / put_ref_value
       - nop / put_ref_value
