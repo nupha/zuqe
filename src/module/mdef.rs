@@ -68,8 +68,8 @@ pub(crate) struct ModuleDefInner {
     pub status: Cell<JSModuleStatus>,
 
     /* temp use during js_module_link() & js_module_evaluate() */
-    pub dfs_index: Cell<i32>,
-    pub dfs_ancestor_index: Cell<i32>,
+    pub(super) dfs_index: Cell<i32>,
+    pub(super) dfs_ancestor_index: Cell<i32>,
 
     pub(super) stack_prev: RefCell<Option<ModuleDef>>,
     pub(super) cycle_root: RefCell<Option<ModuleDef>>,
@@ -158,6 +158,22 @@ impl ModuleDefInner {
 
     pub fn rt_mut(&self) -> &mut JSRuntime {
         unsafe { self.rt.as_ptr().as_mut().unwrap() }
+    }
+
+    #[inline(always)]
+    pub(super) fn dfs_index(&self) -> i32 {
+        self.dfs_index.get()
+    }
+    #[inline(always)]
+    pub(super) fn dfs_ancestor_index(&self) -> i32 {
+        self.dfs_ancestor_index.get()
+    }
+    pub(super) fn set_dfs_index(&self, i: i32) {
+        self.dfs_index.set(i);
+    }
+    #[inline(always)]
+    pub(super) fn set_dfs_ancestor_index(&self, i: i32) {
+        self.dfs_ancestor_index.set(i);
     }
 
     /// get module import.meta object.
@@ -339,10 +355,25 @@ impl ModuleDef {
     pub fn has_tla(&self) -> bool {
         self.0.has_tla.get()
     }
-
     #[inline(always)]
     pub fn set_tla(&self, b: bool) {
         self.0.has_tla.set(b);
+    }
+
+    #[inline(always)]
+    pub(super) fn dfs_index(&self) -> i32 {
+        self.0.dfs_index()
+    }
+    #[inline(always)]
+    pub(super) fn dfs_ancestor_index(&self) -> i32 {
+        self.0.dfs_ancestor_index()
+    }
+    pub(super) fn set_dfs_index(&self, i: i32) {
+        self.0.set_dfs_index(i);
+    }
+    #[inline(always)]
+    pub(super) fn set_dfs_ancestor_index(&self, i: i32) {
+        self.0.set_dfs_ancestor_index(i);
     }
 
     /// get module loading promise

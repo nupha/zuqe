@@ -206,8 +206,8 @@ impl ModuleDefInner {
         debug_assert!(self.status.get() == JSModuleStatus::JS_MODULE_STATUS_UNLINKED);
 
         self.status.set(JSModuleStatus::JS_MODULE_STATUS_LINKING);
-        self.dfs_index.set(index);
-        self.dfs_ancestor_index.set(index);
+        self.set_dfs_index(index);
+        self.set_dfs_ancestor_index(index);
 
         // push `self` on stack
         self.stack_prev.replace(stack_top.take());
@@ -216,39 +216,23 @@ impl ModuleDefInner {
         let mut index = index + 1;
 
         for dep in self.dependencies.borrow().iter() {
-            let dep_m = dep.module.clone().unwrap();
-            index = dep_m.inner_module_linking(ctx, stack_top, index)?;
-            debug_assert!(index > 0);
-            // if index < 0 {
-            //     return Err(-1);
-            // }
+            let m1 = dep.module.clone().unwrap();
+            index = m1.inner_module_linking(ctx, stack_top, index)?;
 
             debug_assert!(matches!(
-                dep_m.status(),
+                m1.status(),
                 JSModuleStatus::JS_MODULE_STATUS_LINKING
                     | JSModuleStatus::JS_MODULE_STATUS_LINKED
                     | JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
                     | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
             ));
 
-            if dep_m.status() == JSModuleStatus::JS_MODULE_STATUS_LINKING {
-                self.dfs_ancestor_index.set(std::cmp::min(
-                    self.dfs_ancestor_index.get(),
-                    dep_m.0.dfs_ancestor_index.get(),
+            if m1.status() == JSModuleStatus::JS_MODULE_STATUS_LINKING {
+                self.set_dfs_ancestor_index(std::cmp::min(
+                    self.dfs_ancestor_index(),
+                    m1.dfs_ancestor_index(),
                 ));
             }
-        }
-
-        #[cfg(DUMP_MODULE_RESOLVE)]
-        {
-            let buf1: [u8; ATOM_GET_STR_BUF_SIZE] = [0; ATOM_GET_STR_BUF_SIZE];
-            println!(
-                "instantiating module '{}':\n",
-                std::str::from_utf8_unchecked(std::slice::from_raw_parts(
-                    JS_AtomGetStr(ctx, buf1.as_mut_ptr(), buf1.len(), (*m).module_name),
-                    buf1.len()
-                ))
-            );
         }
 
         // check the indirect exports
@@ -265,21 +249,6 @@ impl ModuleDefInner {
                     ret.throw_syntax_error_export(ctx, self, exp.export_name);
                     return Err(-1);
                 }
-            }
-        }
-
-        #[cfg(DUMP_MODULE_RESOLVE)]
-        {
-            println!("exported bindings:\n");
-            i = 0;
-            while i < (*m).export_entries_count {
-                let me: *mut JSExportEntry = (*m).export_entries.offset(i as isize);
-                print!(" name=");
-                print_atom(ctx, (*me).export_name);
-                print!(" local=");
-                print_atom(ctx, (*me).local_name);
-                println!(" type={} idx={}", (*me).export_type, (*me).u.local.var_idx);
-                i += 1;
             }
         }
 
@@ -398,24 +367,16 @@ impl ModuleDefInner {
             func_obj.call(ctx, &JSValue::Bool(true), &[])?;
         }
 
-        let (dfs_ancestor_index, dfs_index, self_id) = {
-            (
-                self.dfs_ancestor_index.get(),
-                self.dfs_index.get(),
-                self.id(),
-            )
-        };
-        debug_assert!(dfs_ancestor_index <= dfs_index);
+        debug_assert!(self.dfs_ancestor_index() <= self.dfs_index());
 
-        if dfs_index == dfs_ancestor_index {
+        if self.dfs_index() == self.dfs_ancestor_index() {
             loop {
                 // pop from top module from stack
                 let m1 = stack_top.take().unwrap();
-
                 *stack_top = m1.0.stack_prev.take();
 
-                m1.0.status.set(JSModuleStatus::JS_MODULE_STATUS_LINKED);
-                if m1.id() == self_id {
+                m1.set_status(JSModuleStatus::JS_MODULE_STATUS_LINKED);
+                if m1.id() == self.id() {
                     break;
                 }
             }

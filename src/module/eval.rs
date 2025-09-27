@@ -47,7 +47,7 @@ impl ModuleDef {
     }
 
     #[inline(always)]
-    fn set_status(&self, status: JSModuleStatus) {
+    pub(super) fn set_status(&self, status: JSModuleStatus) {
         self.0.set_status(status);
     }
 
@@ -194,8 +194,8 @@ impl ModuleDef {
         }
 
         self.set_status(JSModuleStatus::JS_MODULE_STATUS_EVALUATING);
-        self.0.dfs_index.set(index);
-        self.0.dfs_ancestor_index.set(index);
+        self.set_dfs_index(index);
+        self.set_dfs_ancestor_index(index);
         self.0.pending_async_dependencies.set(0);
 
         // push 'self' on stack
@@ -262,16 +262,14 @@ impl ModuleDef {
                 .async_evaluation_timestamp
                 .set(ctx.rt().module_async_evaluation_next_timestamp);
             ctx.rt_mut().module_async_evaluation_next_timestamp += 1;
-            self.execute_async(ctx)?;
+            self.execute_async_module(ctx)?;
         } else {
-            self.execute_sync(ctx)?;
+            self.execute_sync_module(ctx)?;
         }
 
-        let (dfs_ancestor_index, dfs_index) =
-            { (self.0.dfs_ancestor_index.get(), self.0.dfs_index.get()) };
+        debug_assert!(self.dfs_ancestor_index() <= self.dfs_index());
 
-        debug_assert!(dfs_ancestor_index <= dfs_index);
-        if dfs_index == dfs_ancestor_index {
+        if self.dfs_index() == self.dfs_ancestor_index() {
             loop {
                 // pop m1 from stack
                 let m1 = stack_top.take().unwrap();
@@ -296,7 +294,7 @@ impl ModuleDef {
     }
 
     /// execute module function in async manner
-    fn execute_async(&self, ctx: &JSContext) -> Result<(), i32> {
+    fn execute_async_module(&self, ctx: &JSContext) -> Result<(), i32> {
         // Hint: bytecode is now a Function object
         let md_func = unsafe { (*self.0.bytecode.as_ptr()).clone() };
         debug_assert_eq!(
@@ -310,27 +308,17 @@ impl ModuleDef {
         let data = [JSValue::Module(self.clone())];
         promise.then(
             ctx,
-            ctx.create_native_function_with_data(
-                ModuleDef::execute_async_fulfill_callback,
-                0,
-                0,
-                &data,
-            )?
-            .into(),
-            ctx.create_native_function_with_data(
-                ModuleDef::execute_async_reject_callback,
-                0,
-                0,
-                &data,
-            )?
-            .into(),
+            ctx.create_native_function_with_data(ModuleDef::execute_async_fulfilled, 0, 0, &data)?
+                .into(),
+            ctx.create_native_function_with_data(ModuleDef::execute_async_rejected, 0, 0, &data)?
+                .into(),
         )?;
 
         Ok(())
     }
 
     /// async module execution callback
-    fn execute_async_fulfill_callback(ctx: &JSContext, cc: CallContext) -> JSResult {
+    fn execute_async_fulfilled(ctx: &JSContext, cc: CallContext) -> JSResult {
         let JSValue::Module(md) = cc.data(0) else {
             unreachable!()
         };
@@ -391,16 +379,16 @@ impl ModuleDef {
             if m.status() == JSModuleStatus::JS_MODULE_STATUS_EVALUATED {
                 debug_assert!(m.eval_exception().is_some());
             } else if m.has_tla() {
-                m.execute_async(ctx)?;
+                m.execute_async_module(ctx)?;
             } else {
-                match m.execute_sync(ctx) {
+                match m.execute_sync_module(ctx) {
                     Ok(_) => {
                         m.0.set_evaluated(ctx);
                     }
                     Err(e) => {
                         let arglist = [e];
                         let mut data = [JSValue::Module(m.clone())];
-                        Self::execute_async_reject_callback(
+                        Self::execute_async_rejected(
                             ctx,
                             CallContext::new(ctx, JSValue::UNDEFINED, &arglist, 0, Some(&mut data)),
                         )?;
@@ -413,7 +401,7 @@ impl ModuleDef {
     }
 
     /// async module execution reject callback
-    fn execute_async_reject_callback(ctx: &JSContext, cc: CallContext) -> JSResult {
+    fn execute_async_rejected(ctx: &JSContext, cc: CallContext) -> JSResult {
         if js_check_stack_overflow(ctx.rt(), 0) {
             ctx.throw_stack_overflow();
             return Err(-1);
@@ -451,7 +439,7 @@ impl ModuleDef {
                 0,
                 Some(&mut data),
             );
-            Self::execute_async_reject_callback(ctx, cc).unwrap();
+            Self::execute_async_rejected(ctx, cc).unwrap();
         }
 
         if md.promise().is_some() {
@@ -464,7 +452,7 @@ impl ModuleDef {
         Ok(JSValue::UNDEFINED)
     }
 
-    fn execute_sync(&self, ctx: &JSContext) -> Result<(), JSValue> {
+    fn execute_sync_module(&self, ctx: &JSContext) -> Result<(), JSValue> {
         if let Some(f) = self.0.init_func {
             // is native module: no asynchronous execution
             if unlikely(f(ctx, self) < 0) {
@@ -535,7 +523,7 @@ pub struct ExecModuleList {
 fn gather_module_ancestors(
     ctx: &JSContext,
     module: &ModuleDef,
-    result: &mut Vec<ModuleDef>,
+    exec_list: &mut Vec<ModuleDef>,
 ) -> Result<(), i32> {
     if js_check_stack_overflow(&ctx.rt(), 0) {
         ctx.throw_stack_overflow();
@@ -543,32 +531,33 @@ fn gather_module_ancestors(
     }
 
     for m in module.0.async_parent_modules.borrow().iter() {
-        if !result.iter().any(|x| x.id() == m.id())
+        if !exec_list.iter().any(|x| x.id() == m.id())
             && m.cycle_root()
-                .map_or(false, |x| x.eval_exception().is_some())
+                .map_or(false, |x| x.eval_exception().is_none())
         {
             debug_assert_eq!(
                 m.status(),
                 JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
             );
             debug_assert!(m.async_evaluation());
+            debug_assert!(m.eval_exception().is_none());
             debug_assert!(m.0.pending_async_dependencies.get() > 0);
 
             let adep = m.0.pending_async_dependencies.get();
             m.0.pending_async_dependencies.set(adep - 1);
             if adep == 1 {
                 // pending_async_dependencies == 0
-                if result.len() == result.capacity() {
-                    if result.try_reserve(8).is_err() {
+                if exec_list.len() == exec_list.capacity() {
+                    if exec_list.try_reserve(8).is_err() {
                         ctx.throw_out_of_memory();
                         return Err(-1);
                     }
                 }
 
-                result.push(m.clone());
+                exec_list.push(m.clone());
 
                 if !m.has_tla() {
-                    gather_module_ancestors(ctx, m, result)?;
+                    gather_module_ancestors(ctx, m, exec_list)?;
                 }
             }
         }
