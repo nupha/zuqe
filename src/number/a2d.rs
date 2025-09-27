@@ -183,9 +183,10 @@ pub unsafe fn js_atof(
                 }
                 if *p.offset(i) == b'8' || *p.offset(i) == b'9' {
                     no_prefix = true;
+                } else {
+                    p = p.offset(1);
+                    radix = 8;
                 }
-                p = p.offset(1);
-                radix = 8;
             }
             _ => {
                 no_prefix = true;

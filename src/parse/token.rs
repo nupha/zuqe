@@ -683,7 +683,7 @@ impl<'s> JSParseState<'s> {
                         continue 'redo;
                     },
                     Todo::ParseNumber => {
-                        p = self.next_token_parse_number(p).inspect_err(|_| {
+                        p = self.parse_number(p).inspect_err(|_| {
                             self.token.val = TOK_ERROR;
                             self.token.data = TokenData::None;
                         })?;
@@ -706,7 +706,7 @@ impl<'s> JSParseState<'s> {
 
     /// returns updated str pointer
     #[inline(always)]
-    fn next_token_parse_number(&mut self, ptr: *const u8) -> Result<*const u8, i32> {
+    fn parse_number(&mut self, ptr: *const u8) -> Result<*const u8, i32> {
         let mut p = ptr;
 
         let ret = unsafe {
