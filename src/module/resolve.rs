@@ -357,11 +357,6 @@ impl ModuleDefInner {
                                     with_var_refs(&func_obj, |var_refs| {
                                         var_refs[import_var_idx as usize] = vr;
                                     });
-
-                                    #[cfg(DUMP_MODULE_RESOLVE)]
-                                    {
-                                        println!("local export (var_ref={:?})", var_ref);
-                                    }
                                 }
                             }
                         }
@@ -393,7 +388,14 @@ impl ModuleDefInner {
             }
 
             // initialize the global variables
-            JSValue::Object(func_obj).call(ctx, &JSValue::Bool(true), &[])?;
+            // Note: following function call with this_obj=TRUE actually executes bytecode like this:
+            //     push_this ;; true
+            //     if_false 7
+            //     return_undef ;; exit immediately here
+            //     ...
+            // it seems this call has no actual effect according to the bytecode.
+            // should this call be removed? and the emitted bytecode (see above) be optimized?
+            func_obj.call(ctx, &JSValue::Bool(true), &[])?;
         }
 
         let (dfs_ancestor_index, dfs_index, self_id) = {
@@ -417,11 +419,6 @@ impl ModuleDefInner {
                     break;
                 }
             }
-        }
-
-        #[cfg(DUMP_MODULE_RESOLVE)]
-        {
-            println!("js_inner_module_linking done");
         }
 
         Ok(index)
