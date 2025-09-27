@@ -7,7 +7,7 @@ use crate::{
         js_atof,
     },
     runtime::js_check_stack_overflow,
-    string::{JSString, StringContent},
+    string::StringContent,
     unicode::{UTF8_CHAR_LEN_MAX, unicode_from_utf8},
     value::JSValue,
 };
@@ -176,7 +176,7 @@ impl<'s> JSParseState<'s> {
     // inline this method will be very slow due to check stack overflow,
     // and will consume large stack space for each function that call this method,
     // which will soon use up stack space, and cause stack overflow.
-    pub(super) fn next_token(&mut self) -> Result<(), i32> {
+    pub(super) fn next_token(&mut self) -> Result<i32, i32> {
         if js_check_stack_overflow(self.ctx.rt(), 0) {
             self.throw_syntax_error("stack overflow");
             return Err(-1);
@@ -700,7 +700,8 @@ impl<'s> JSParseState<'s> {
         } // loop
 
         self.buf_ptr = p;
-        Ok(())
+
+        Ok(self.token.val)
     }
 
     /// returns updated str pointer
@@ -778,7 +779,7 @@ impl<'s> JSParseState<'s> {
     }
 
     /// start to seek token from `pos`
-    pub(super) fn seek_token(&mut self, pos: &JSParsePos) -> Result<(), i32> {
+    pub(super) fn seek_token(&mut self, pos: &JSParsePos) -> Result<i32, i32> {
         self.token.line_num = pos.last_line_num;
         self.line_num = pos.line_num;
         self.buf_ptr = pos.ptr;
@@ -796,7 +797,7 @@ impl<'s> JSParseState<'s> {
     #[inline(always)]
     pub fn token_is_pseudo_keyword(&self, atom: JSAtom) -> bool {
         self.token.val == TOK_IDENT
-            && self.token.data.ident_atom().unwrap() == atom
+            && self.token.data.ident_atom().map_or(false, |a| a == atom)
             && !self.token.data.ident_has_escape()
     }
 

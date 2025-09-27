@@ -63,7 +63,7 @@ pub(crate) struct ModuleDefInner {
     pub init_func: Option<JSModuleInitFunc>,
 
     /// true if func_obj contains await
-    pub has_tla: Cell<bool>,
+    has_tla: Cell<bool>,
     pub resolved: Cell<bool>,
     pub status: Cell<JSModuleStatus>,
 
@@ -77,11 +77,10 @@ pub(crate) struct ModuleDefInner {
     //
     // temp use during js_module_evaluate()
     //
-    pub async_parent_modules: RefCell<Vec<ModuleDef>>,
-
-    pub pending_async_dependencies: Cell<i32>,
-    pub async_evaluation: Cell<bool>,
-    pub async_evaluation_timestamp: Cell<i64>,
+    pub(super) async_parent_modules: RefCell<Vec<ModuleDef>>,
+    pub(super) async_evaluation: Cell<bool>,
+    pub(super) async_evaluation_timestamp: Cell<i64>,
+    pub(super) pending_async_dependencies: Cell<i32>,
 
     pub promise: Cell<Option<Promise>>, /* corresponds to spec field: capability */
     pub resolving_funcs: Cell<[JSValue; 2]>, /* corresponds to spec field: capability */
@@ -336,9 +335,19 @@ impl ModuleDef {
         self.0.id()
     }
 
+    #[inline(always)]
+    pub fn has_tla(&self) -> bool {
+        self.0.has_tla.get()
+    }
+
+    #[inline(always)]
+    pub fn set_tla(&self, b: bool) {
+        self.0.has_tla.set(b);
+    }
+
     /// get module loading promise
     #[inline(always)]
-    pub fn promise(&self) -> Option<Promise> {
+    pub(crate) fn promise(&self) -> Option<Promise> {
         unsafe { (*self.0.promise.as_ptr()).as_ref().cloned() }
     }
 

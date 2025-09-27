@@ -1,8 +1,6 @@
 use crate::{
-    atom::{AtomTypeHint, JS_ATOM_NULL, JS_FreeAtom, JS_FreeAtomRT, JSAtom, JSAtomRc, consts::*},
-    branch_hints::unlikely,
+    atom::{AtomTypeHint, JS_ATOM_NULL, JS_FreeAtom, JSAtom, JSAtomRc, consts::*},
     bytecode::OpCodeTemp,
-    defer,
     function::{JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
     module::{ExportEntry, ExportType, JSImportEntry, ModuleDef},
     parse::token::{TOK_FIRST_KEYWORD, TOK_LAST_KEYWORD},
@@ -200,40 +198,60 @@ impl<'s> JSParseState<'s> {
             imp.req_module_idx = idx as _;
         }
 
-        self.parse_expect_semi()
+        self.parse_expect_semi()?;
+        Ok(())
     }
 
     pub fn parse_export(&mut self) -> Result<(), i32> {
         let md = self.cur_func().module.as_ref().cloned().unwrap();
 
-        self.next_token()?;
-        let tok = self.token.val;
-
-        if tok == TOK_CLASS {
-            return self.parse_class(false, JSParseExportEnum::JS_PARSE_EXPORT_NAMED);
-        } else if tok == TOK_FUNCTION
-            || (self.token_is_pseudo_keyword(JS_ATOM_async)
-                && self.peek_token(true) == TOK_FUNCTION)
-        {
-            return {
-                self.parse_function_decl2(
-                    JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
-                    JSFunctionKindEnum::JS_FUNC_NORMAL,
-                    JS_ATOM_NULL,
-                    self.token.ptr,
-                    self.token.line_num,
-                    JSParseExportEnum::JS_PARSE_EXPORT_NAMED,
-                    std::ptr::null_mut(),
-                )
-            };
-        }
-
-        self.next_token()?;
-
+        let tok = self.next_token()?;
         match tok {
+            TOK_CLASS => {
+                // export class ...
+                return self.parse_class(false, JSParseExportEnum::JS_PARSE_EXPORT_NAMED);
+            }
+            TOK_FUNCTION => {
+                // export function ...
+                return {
+                    self.parse_function_decl2(
+                        JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
+                        JSFunctionKindEnum::JS_FUNC_NORMAL,
+                        JS_ATOM_NULL,
+                        self.token.ptr,
+                        self.token.line_num,
+                        JSParseExportEnum::JS_PARSE_EXPORT_NAMED,
+                        std::ptr::null_mut(),
+                    )
+                };
+            }
+            TOK_IDENT
+                if (self.token_is_pseudo_keyword(JS_ATOM_async)
+                    && self.peek_token(true) == TOK_FUNCTION) =>
+            {
+                // export async function ...
+                return {
+                    self.parse_function_decl2(
+                        JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
+                        JSFunctionKindEnum::JS_FUNC_NORMAL,
+                        JS_ATOM_NULL,
+                        self.token.ptr,
+                        self.token.line_num,
+                        JSParseExportEnum::JS_PARSE_EXPORT_NAMED,
+                        std::ptr::null_mut(),
+                    )
+                };
+            }
+            TOK_VAR | TOK_LET | TOK_CONST => {
+                // export var, export let, export const
+                self.next_token()?;
+                return self.parse_var(1, tok, true);
+            }
             // '{'
             0x7b => {
                 // export {...}
+                self.next_token()?;
+
                 let first_export = md.0.export_entries.borrow().len();
 
                 while self.token.val != b'}' as i32 {
@@ -328,6 +346,8 @@ impl<'s> JSParseState<'s> {
 
             // *
             0x2a => {
+                self.next_token()?;
+
                 if self.token_is_pseudo_keyword(JS_ATOM_as) {
                     // export ns from
                     self.next_token()?;
@@ -374,6 +394,8 @@ impl<'s> JSParseState<'s> {
             }
 
             TOK_DEFAULT => {
+                self.next_token()?;
+
                 if self.token.val == TOK_CLASS {
                     return self.parse_class(false, JSParseExportEnum::JS_PARSE_EXPORT_DEFAULT);
                 } else if self.token.val == TOK_FUNCTION
@@ -414,18 +436,14 @@ impl<'s> JSParseState<'s> {
                 )?;
             }
 
-            TOK_VAR | TOK_LET | TOK_CONST => {
-                // export var, export let, export const
-                return self.parse_var(1, tok, true);
-            }
-
             _ => {
                 self.throw_syntax_error("invalid export syntax");
                 return Err(-1);
             }
         }
 
-        self.parse_expect_semi()
+        self.parse_expect_semi()?;
+        Ok(())
     }
 
     /// add export name for specified module or current parsing module.

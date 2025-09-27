@@ -21,7 +21,7 @@ use zhuque::{
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
     module::{JS_SetModuleLoaderFunc, ModuleDef},
     object::JS_PROP_C_W_E,
-    promise::JSPromiseStateEnum,
+    promise::{JSPromiseStateEnum, Promise},
     runtime::JSRuntime,
     value::JSValue,
 };
@@ -288,7 +288,7 @@ fn run_test_script(
             filename.as_os_str().to_str().unwrap(),
             false,
         )
-        .map(JSValue::Module)?
+        .map(|p| p.into())?
     } else {
         ctx.eval(
             script.as_bytes(),
@@ -299,16 +299,14 @@ fn run_test_script(
         )?
     };
 
-    let promise = if let JSValue::Module(md) = &res {
-        md.promise()
-    } else if is_async {
-        res.as_object_Promise().cloned()
+    let promise = if is_async || is_module {
+        Promise::try_from(res).ok()
     } else {
         None
     };
 
     while ctx.rt_mut().tick()? {
-        std::thread::sleep(std::time::Duration::from_millis(3));
+        std::thread::sleep(std::time::Duration::from_millis(1));
     }
 
     if is_async {

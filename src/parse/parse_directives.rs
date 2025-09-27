@@ -80,7 +80,8 @@ impl JSParseState<'_> {
         }
 
         // restart from saved position
-        self.seek_token(&pos)
+        self.seek_token(&pos)?;
+        Ok(())
     }
 
     fn handle_directive(&mut self, directive: &str) {

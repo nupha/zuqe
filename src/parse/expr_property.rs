@@ -46,7 +46,8 @@ impl<'s> JSParseState<'s> {
             }
         }
 
-        self.next_token()
+        self.next_token()?;
+        Ok(())
     }
 
     pub(super) fn parse_array_access(

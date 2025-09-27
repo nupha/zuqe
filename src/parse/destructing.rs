@@ -390,7 +390,8 @@ impl<'s> JSParseState<'s> {
             self.emit_op(OpCode::DROP); // pop excludeList
         }
 
-        self.next_token()
+        self.next_token()?;
+        Ok(())
     }
 
     /// parse [ body ]
@@ -562,9 +563,12 @@ impl<'s> JSParseState<'s> {
 
         self.cur_func_mut().pop_break_entry();
 
-        self.next_token()
+        self.next_token()?;
+        Ok(())
     }
 
+    /// TODO: add argument export:bool to allow add variables to module export entry,
+    /// like that in parse_var() does.
     pub fn parse_destructuring_element(
         &mut self,
         tok: i32,
@@ -572,6 +576,7 @@ impl<'s> JSParseState<'s> {
         hasval: bool,
         mut has_ellipsis: i32,
         allow_initializer: bool,
+        // export:bool, // <-- TODO add this
     ) -> Result<bool, i32> {
         let mut skip_bits: i32 = 0;
         if has_ellipsis < 0 {
@@ -1224,7 +1229,7 @@ impl<'s> JSParseState<'s> {
     //     Ok(has_initializer)
     // }
 
-    pub fn parse_destructuring_var(&mut self, tok: i32, is_arg: bool) -> Result<JSAtom, i32> {
+    fn parse_destructuring_var(&mut self, tok: i32, is_arg: bool) -> Result<JSAtom, i32> {
         if (self.token.val != TOK_IDENT || self.token.data.is_reserved())
             || (self.cur_func().js_mode & JS_MODE_STRICT as u8 != 0
                 && matches!(self.token.atom().unwrap(), JS_ATOM_eval | JS_ATOM_arguments))

@@ -11,6 +11,7 @@ use zhuque::{
     module::{JS_SetModuleLoaderFunc, ModuleDef},
     object::JS_PROP_C_W_E,
     parse::JSParseState,
+    promise::Promise,
     runtime::JSRuntime,
     value::JSValue,
 };
@@ -164,7 +165,7 @@ fn main() {
 
     let res = if filename.ends_with(".mjs") || JSParseState::detect_module(script.as_bytes()) {
         ctx.eval_module(script.as_bytes(), &filename, false)
-            .map(JSValue::Module)
+            .map(|p| p.into())
     } else {
         ctx.eval(
             script.as_bytes(),
@@ -183,11 +184,7 @@ fn main() {
                 o.dump(ctx.rt());
             }
 
-            let promise = if let JSValue::Module(md) = &v {
-                md.promise()
-            } else {
-                v.as_object_Promise().cloned()
-            };
+            let promise = Promise::try_from(v).ok();
 
             loop {
                 match rt.tick() {

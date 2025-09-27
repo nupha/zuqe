@@ -2982,8 +2982,9 @@ pub unsafe fn js_parse_destructuring_element(
 
 #[deprecated(note = "use JSParseState::parse_destructuring_var() instead")]
 pub unsafe fn js_parse_destructuring_var(s: *mut JSParseState, tok: i32, is_arg: bool) -> JSAtom {
-    (*s).parse_destructuring_var(tok, is_arg)
-        .unwrap_or(JS_ATOM_NULL)
+    unreachable!("unused")
+    // (*s).parse_destructuring_var(tok, is_arg)
+    //     .unwrap_or(JS_ATOM_NULL)
 }
 
 #[deprecated(note = "use JSValue::install_native_field_entry() instead")]
@@ -4591,4 +4592,16 @@ pub(crate) fn add_star_export_entry(
     req_module_idx: u16,
 ) -> Result<(), i32> {
     m.add_star_export_entry(ctx, req_module_idx)
+}
+
+#[deprecated(note = "use ModuleDef::execute_async_fulfill_callback() instead")]
+pub fn js_async_module_execution_fulfilled(ctx: &JSContext, args: CallContext) -> JSResult {
+    unreachable!("unused");
+    // ModuleDef::execute_async_fulfill_callback(ctx, args)
+}
+
+#[deprecated(note = "use ModuleDef::set_evaluated() instead")]
+pub unsafe fn js_set_module_evaluated(ctx: &JSContext, m: &ModuleDef) {
+    unreachable!("unused");
+    // m.0.set_evaluated(ctx);
 }

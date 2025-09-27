@@ -92,7 +92,7 @@ impl<'s> JSParseState<'s> {
         Ok(())
     }
 
-    pub fn parse_template(&mut self, call: bool, argc: *mut i32) -> Result<(), i32> {
+    pub fn parse_template(&mut self, call: bool, argc: *mut i32) -> Result<i32, i32> {
         let mut raw_array = JSValue::UNDEFINED;
         let mut template_object = JSValue::UNDEFINED;
 

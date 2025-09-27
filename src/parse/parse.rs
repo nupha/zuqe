@@ -220,7 +220,7 @@ impl JSParseState<'_> {
     }
 
     // allowed parse_flags: PF_IN_ACCEPTED
-    pub fn parse_var(&mut self, parse_flags: i32, tok: i32, export_flag: bool) -> Result<(), i32> {
+    pub fn parse_var(&mut self, parse_flags: i32, tok: i32, export: bool) -> Result<(), i32> {
         loop {
             if self.token.val == TOK_IDENT {
                 if self.token.data.is_reserved() {
@@ -239,7 +239,7 @@ impl JSParseState<'_> {
                 self.next_token()?;
                 self.define_var(*name, tok)?;
 
-                if export_flag {
+                if export {
                     self.add_module_export(
                         None,
                         *name,
@@ -325,6 +325,7 @@ impl JSParseState<'_> {
                 if matches!(self.token.val, CHAR_SQUARE_L | CHAR_CURLY_L) // '[' '{'
                     && self.parse_skip_parens_token(&mut skip_bits, false)? == '=' as i32
                 {
+                    // destructing
                     self.emit_op(OpCode::UNDEFINED);
                     self.parse_destructuring_element(
                         tok,
@@ -348,7 +349,8 @@ impl JSParseState<'_> {
         Ok(())
     }
 
-    pub fn parse_expect(&mut self, tok: i32) -> Result<(), i32> {
+    /// expect current token to be `tok`. if yes, advance to next token.
+    pub fn parse_expect(&mut self, tok: i32) -> Result<i32, i32> {
         if self.token.val != tok {
             if tok > 0 {
                 // is char
@@ -370,11 +372,11 @@ impl JSParseState<'_> {
         }
     }
 
-    pub fn parse_expect_semi(&mut self) -> Result<(), i32> {
+    pub fn parse_expect_semi(&mut self) -> Result<i32, i32> {
         if self.token.val != CHAR_SEMI {
             if matches!(self.token.val, TOK_EOF | CHAR_CURLY_R) || self.got_lf {
                 // automatic insertion of ';'
-                Ok(())
+                Ok(self.token.val)
             } else {
                 self.throw_syntax_error("expecting ';'");
                 Err(-1)

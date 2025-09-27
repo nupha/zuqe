@@ -179,7 +179,7 @@ impl JSContext {
         if let Some(md) = module {
             // resolve module
             md.0.bytecode.set(JSValue::Bytecode(bc_compiled.clone()));
-            md.0.has_tla.set(has_await);
+            md.set_tla(has_await);
             self.resolve_module(&md)?;
             Ok(Compiled::Module(md))
         } else {

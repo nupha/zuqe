@@ -37,7 +37,7 @@ enum TodoState {
 }
 
 impl<'s> JSParseState<'s> {
-    pub fn parse_block(&mut self) -> Result<(), i32> {
+    pub fn parse_block(&mut self) -> Result<i32, i32> {
         self.parse_expect(CHAR_CURLY_L)?;
 
         if self.token.val != CHAR_CURLY_R {
@@ -968,7 +968,8 @@ fn hasexpr(s: &mut JSParseState) -> Result<(), i32> {
         s.emit_op(OpCode::DROP);
     }
 
-    s.parse_expect_semi()
+    s.parse_expect_semi()?;
+    Ok(())
 }
 
 // XXX: handle IteratorClose when exiting the loop before the

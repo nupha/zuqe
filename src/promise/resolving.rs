@@ -254,6 +254,7 @@ impl Promise {
         }
     }
 
+    /// Reject promise with `value`.
     /// A shortcut to `fulfill_or_reject()` with is_reject=true.
     #[inline(always)]
     pub fn reject(&self, ctx: &JSContext, value: JSValue) {

@@ -73,7 +73,7 @@ impl BCFunction {
                 args,
             )?,
         );
-        Ok(promise.into())
+        Ok(promise)
     }
 }
 
