@@ -130,7 +130,7 @@ impl<'s> JSParseState<'s> {
                                 ) {
                                     Ok(uc) => {
                                         p = p_next;
-                                        if matches!(uc, '\u{2088}' | '\u{2089}') {
+                                        if matches!(uc, '\u{2028}' | '\u{2029}') {
                                             continue; // skip line/paragraph separators
                                         } else {
                                             char_code = uc as u32;
