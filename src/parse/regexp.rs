@@ -73,13 +73,13 @@ impl<'s> JSParseState<'s> {
         // flags
         for (i, c) in chars {
             if !JSParseState::is_ident_next(c) {
-                cursor = i + c.encode_utf8(&mut [0u8; 4]).len();
                 break;
             }
             flags_str.push_char(c).map_err(|_| {
                 self.ctx.throw_out_of_memory();
                 -1
             })?;
+            cursor = i + c.encode_utf8(&mut [0u8; 4]).len();
         }
 
         // if RegExp is not supported, raise error here
