@@ -230,14 +230,15 @@ impl TryFrom<JSValue> for JSString {
 
 impl std::fmt::Display for JSString {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = self.content().to_utf8();
+        let s = self.content().to_utf8(false);
         write!(f, "{s}")
     }
 }
 
 impl std::fmt::Debug for JSString {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self.0)
+        let s = self.content().to_utf8(true);
+        write!(f, "{s}")
     }
 }
 
@@ -400,7 +401,7 @@ impl JSString {
 
     /// coerce string to number. if can't convert string to number, returns NAN.
     pub fn to_number(&self, ctx: &JSContext) -> JSValue {
-        let str = self.content().to_utf8();
+        let str = self.content().to_utf8(false);
         let str = str.as_ref().trim();
 
         if str.is_empty() {

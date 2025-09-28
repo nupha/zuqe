@@ -66,7 +66,7 @@ impl<'s> JSParseState<'s> {
             // import "module-name"
             module_name = JSAtom::from_str(
                 self.ctx.rt_mut(),
-                self.token.string().unwrap().to_utf8().as_ref(),
+                self.token.string().unwrap().to_utf8(false).as_ref(),
                 AtomTypeHint::String,
             )?
             .into_rc(self.ctx.rt());
@@ -147,7 +147,7 @@ impl<'s> JSParseState<'s> {
                                 }
                                 TOK_STRING => JSAtom::from_str(
                                     self.ctx.rt_mut(),
-                                    &self.token.string().unwrap().to_utf8(),
+                                    &self.token.string().unwrap().to_utf8(false),
                                     AtomTypeHint::String,
                                 )?
                                 .into_rc(self.ctx.rt()),
@@ -266,8 +266,12 @@ impl<'s> JSParseState<'s> {
                         }
                         TOK_STRING => {
                             let s = self.token.string().unwrap();
-                            JSAtom::from_str(self.ctx.rt_mut(), &s.to_utf8(), AtomTypeHint::String)?
-                                .into_rc(self.ctx.rt())
+                            JSAtom::from_str(
+                                self.ctx.rt_mut(),
+                                &s.to_utf8(false),
+                                AtomTypeHint::String,
+                            )?
+                            .into_rc(self.ctx.rt())
                         }
                         _ => {
                             self.throw_syntax_error("identifier or string expected");
@@ -294,7 +298,7 @@ impl<'s> JSParseState<'s> {
                                 let s = self.token.string().unwrap();
                                 JSAtom::from_str(
                                     self.ctx.rt_mut(),
-                                    &s.to_utf8(),
+                                    &s.to_utf8(false),
                                     AtomTypeHint::String,
                                 )?
                                 .into_rc(self.ctx.rt())
@@ -363,8 +367,12 @@ impl<'s> JSParseState<'s> {
                         }
                         TOK_STRING => {
                             let s = self.token.string().unwrap();
-                            JSAtom::from_str(self.ctx.rt_mut(), &s.to_utf8(), AtomTypeHint::String)?
-                                .into_rc(self.ctx.rt())
+                            JSAtom::from_str(
+                                self.ctx.rt_mut(),
+                                &s.to_utf8(false),
+                                AtomTypeHint::String,
+                            )?
+                            .into_rc(self.ctx.rt())
                         }
                         _ => {
                             self.throw_syntax_error("identifier or string expected");

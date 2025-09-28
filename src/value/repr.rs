@@ -3,9 +3,9 @@ use crate::{context::JSContext, number::f64_stringify};
 use super::JSValue;
 
 impl JSValue {
-    /// Get representation string of `self` value.
-    /// repr string if used for interactive prompting only.
-    pub fn repr(&self, ctx: &JSContext) -> Result<String, i32> {
+    /// Get inspect representation string of `self` value.
+    /// inspect string if used for interactive prompting.
+    pub fn inspect(&self, ctx: &JSContext) -> Result<String, i32> {
         match self {
             // simple value types
             Self::Int(i) => Ok(format!("{}", *i).into()),
@@ -23,7 +23,7 @@ impl JSValue {
             Self::Module(_) => Ok("[module]".into()),
 
             // complex value types
-            Self::String(s) => Ok(s.content().to_utf8().into_owned()),
+            Self::String(s) => Ok(s.content().to_utf8(true).into_owned()),
             Self::Symbol(p) => {
                 let s = p.atom_info().unwrap().atom().to_utf8(ctx.rt());
                 Ok(format!("Symbol({s})").into())
@@ -31,11 +31,11 @@ impl JSValue {
             Self::Object(o) => {
                 if let Some(v) = { o.0.payload.borrow().value() } {
                     // primitive object
-                    Ok(format!("[object {}]", v.repr(ctx)?))
+                    Ok(format!("[object {}]", v.inspect(ctx)?))
                 } else {
                     Ok(format!(
                         "[object {}]",
-                        o.class_name().force_string(ctx)?.content().to_utf8()
+                        o.class_name().force_string(ctx)?.content().to_utf8(false)
                     ))
                 }
             }

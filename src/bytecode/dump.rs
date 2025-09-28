@@ -8,7 +8,7 @@ use crate::{
         Bytecode, JSClosureVar, JSFunctionKindEnum, JSVarDef, JSVarKindEnum, Label, PC2LINE_BASE,
         PC2LINE_OP_FIRST, PC2LINE_RANGE,
     },
-    unicode::unicode_from_utf8,
+    string::unicode_from_utf8,
     utils::read_from_ptr,
     value::JSValue,
 };
@@ -301,7 +301,7 @@ pub(crate) fn dump_opcodes(
 
             OpcodeFormat::CONST => {
                 let idx = unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos)) as usize };
-                print!(" {idx}:{}", cpools[idx].repr(ctx).unwrap());
+                print!(" {idx}:{}", cpools[idx].inspect(ctx).unwrap());
             }
             OpcodeFormat::ATOM => {
                 let a = unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos)) };
@@ -759,7 +759,7 @@ pub(super) fn dump_run_instruction(
             let idx = unsafe { read_from_ptr::<u32>(tab.as_ptr().add(pos)) };
             print!(
                 " {idx}:{}",
-                b.load_const(idx as usize).unwrap().repr(ctx).unwrap()
+                b.load_const(idx as usize).unwrap().inspect(ctx).unwrap()
             );
         }
         OpcodeFormat::ATOM => {
@@ -906,7 +906,7 @@ pub(super) fn dump_run_stack(
             },
             if i >= mark_start { mark } else { ' ' },
             {
-                let mut s = format!("{:?}", v.repr(ctx).unwrap());
+                let mut s = format!("{:?}", v.inspect(ctx).unwrap());
                 if !v.is_string() {
                     s = s[1..s.len() - 1].to_string();
                 }

@@ -181,7 +181,41 @@ impl<'a> Iterator for Utf8ToUnicode16Iter<'a> {
 
 // 将Unicode代码点编码为UTF-8字节序列
 // 最多编码31位。最多输出UTF8_CHAR_LEN_MAX字节。
-pub unsafe fn unicode_to_utf8(buf: *mut u8, c: u32) -> i32 {
+pub(crate) fn unicode_to_utf8(buf: &mut Vec<u8>, c: u32) {
+    if c < 0x80 {
+        buf.push(c as u8);
+    } else {
+        if c < 0x800 {
+            buf.push(((c >> 6) as u8) | 0xc0);
+        } else {
+            if c < 0x10000 {
+                buf.push(((c >> 12) as u8) | 0xe0);
+            } else {
+                if c < 0x00200000 {
+                    buf.push(((c >> 18) as u8) | 0xf0);
+                } else {
+                    if c < 0x04000000 {
+                        buf.push(((c >> 24) as u8) | 0xf8);
+                    } else if c < 0x80000000 {
+                        buf.push(((c >> 30) as u8) | 0xfc);
+                        buf.push(((c >> 24) as u8 & 0x3f) | 0x80);
+                    } else {
+                        return;
+                    }
+                    buf.push(((c >> 18) as u8 & 0x3f) | 0x80);
+                }
+                buf.push(((c >> 12) as u8 & 0x3f) | 0x80);
+            }
+            buf.push(((c >> 6) as u8 & 0x3f) | 0x80);
+        }
+        buf.push((c as u8 & 0x3f) | 0x80);
+    }
+}
+
+// 将Unicode代码点编码为UTF-8字节序列
+// 最多编码31位。最多输出UTF8_CHAR_LEN_MAX字节。
+#[deprecated]
+pub unsafe fn unicode_to_utf8_v0(buf: *mut u8, c: u32) -> i32 {
     let mut q = buf;
 
     if c < 0x80 {

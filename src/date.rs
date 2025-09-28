@@ -833,7 +833,7 @@ pub fn js_date_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
                 ts
             } else {
                 match cc.arg(0).to_primitive(ctx, HINT_NONE)? {
-                    JSValue::String(s) => Datetime::parse(s.content().to_utf8().as_bytes())
+                    JSValue::String(s) => Datetime::parse(&s.content().encode_utf8_bytes())
                         .unwrap_or(Datetime::INVALID),
                     v => v.to_f64(ctx)?.into(),
                 }
@@ -1122,7 +1122,7 @@ fn js_Date_now(_: &JSContext, _: CallContext) -> JSResult {
 
 fn js_Date_parse(ctx: &JSContext, cc: CallContext) -> JSResult {
     let s = cc.arg(0).to_string(ctx)?;
-    let tm = Datetime::parse(s.content().to_utf8().as_bytes()).unwrap_or(Datetime::INVALID);
+    let tm = Datetime::parse(&s.content().encode_utf8_bytes()).unwrap_or(Datetime::INVALID);
     Ok(tm.into())
 }
 

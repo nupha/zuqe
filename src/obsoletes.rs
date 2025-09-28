@@ -16,7 +16,7 @@ use crate::{
         AtomDescKind, AtomHintAndId, AtomTypeHint, JS_ATOM_NULL, JS_ATOM_TAG_INT, JS_FreeAtom,
         JSAtom, JSAtomStruct, consts::JS_ATOM_name,
     },
-    bytecode::{OpCode, OpCodeTemp, arithmatic::StrictEqMode, js_get_function_name},
+    bytecode::{OpCode, OpCodeTemp, arithmatic::StrictEqMode},
     class::{ClassFieldsDef, JSClassDef, JSClassID, JSClassShortDef},
     context::JSContext,
     error::{ErrorKind, JS_ThrowSyntaxError, JSResult},
@@ -44,8 +44,7 @@ use crate::{
     proxy::ProxyObjPayload,
     runtime::JSRuntime,
     stack_frame::StackFrame,
-    string::{JSString, JSStringInner},
-    unicode::{UTF8_CHAR_LEN_MAX, unicode_from_utf8},
+    string::{JSString, JSStringInner, UTF8_CHAR_LEN_MAX, unicode_from_utf8},
     value::{JSValue, JSValueConst},
 };
 

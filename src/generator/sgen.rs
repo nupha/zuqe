@@ -13,7 +13,7 @@ use crate::{
     iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW},
     object::{JS_PROP_CONFIGURABLE, ObjectPayload},
     runtime::JSRuntime,
-    string::StringBuf,
+    string::{StringBuf, StringData},
     value::{JSValue, JSValueConst},
 };
 
@@ -85,12 +85,10 @@ pub fn js_function_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
                 })?;
             }
             let s = a.to_string(ctx)?;
-            source
-                .push_str(s.content().to_utf8().as_ref())
-                .map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
+            source.push_content(s.content()).map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?;
         }
         source.push_str(") {\n").map_err(|_| {
             ctx.throw_out_of_memory();
@@ -99,12 +97,10 @@ pub fn js_function_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
 
         // body
         let s = body.to_string(ctx)?;
-        source
-            .push_str(s.content().to_utf8().as_ref())
-            .map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
+        source.push_content(s.content()).map_err(|_| {
+            ctx.throw_out_of_memory();
+            -1
+        })?;
 
         source.push_str("\n})").map_err(|_| {
             ctx.throw_out_of_memory();
@@ -120,7 +116,7 @@ pub fn js_function_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     // eval to make function
     let func_obj = ctx.eval_internal(
         &JSValue::Object(ctx.global_obj()),
-        source.to_utf8().as_bytes(),
+        &StringData::from(source).encode_utf8_bytes(),
         "<input>",
         JS_EVAL_TYPE_INDIRECT,
         -1,

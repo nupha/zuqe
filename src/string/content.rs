@@ -11,14 +11,15 @@ use fallible_collections::TryCollect;
 use widestring::U16Str;
 
 use crate::{
-    context::JSContext,
-    number::{ATOD_ACCEPT_BIN_OCT, IntOrFloat, js_atof, parse_i64, parse_u32},
+    number::{parse_i64, parse_u32},
     string::{
-        StringBuf, StringChar, StringCharIter, StringCodepointIter, is_char_visible, s16_into_s8,
+        StringBuf, StringChar, StringCharIter, StringCodepointIter, U16CharIter, is_char_visible,
+        s16_into_s8,
     },
     utils::hash_u32_from_base,
-    value::JSValue,
 };
+
+use super::unicode_to_utf8;
 
 /// read-only, ref-counted bytes that represents a string.
 #[derive(Clone)]
@@ -301,8 +302,63 @@ impl StringData {
         self.to_buf_range(0..self.len())
     }
 
-    /// encode content to utf8
-    pub fn to_utf8_range(&self, range: Range<usize>) -> Cow<'_, str> {
+    /// encode content to utf8 bytes.
+    ///
+    /// Note: if has invalid utf16 code points, encode to invalid utf8 bytes too.
+    pub fn encode_utf8_bytes_range(&self, range: Range<usize>) -> Cow<'_, [u8]> {
+        if range.is_empty() || range.start >= self.len() {
+            Cow::Borrowed(&[])
+        } else {
+            let range = range.start..std::cmp::min(range.end, self.len());
+            match self {
+                Self::Empty | Self::Ident => Cow::Borrowed(&[]),
+                Self::Ascii(s) => Cow::Borrowed(s.deref()),
+                Self::Utf16(s) => {
+                    let slice = &s[range];
+                    let len = slice
+                        .iter()
+                        .map(|x| if *x >= 0x80 { 4 } else { 1 })
+                        .sum::<usize>();
+                    let mut out = Vec::<u8>::with_capacity(len);
+
+                    let mut it = slice.iter().peekable();
+                    while let Some(c) = it.next() {
+                        if *c < 0x80 {
+                            out.push(*c as u8);
+                        } else {
+                            let mut c = *c as u32;
+                            if (0xd800..0xdc00).contains(&c) {
+                                if let Some(c1) = it.peek() {
+                                    let c1 = (**c1) as u32;
+                                    if (0xdc00..0xe000).contains(&c1) {
+                                        // surrogate pair
+                                        c = (((c & 0x3ff) << 10) | (c1 & 0x3ff)) + 0x10000;
+                                        it.next();
+                                    }
+                                }
+                            }
+                            unicode_to_utf8(&mut out, c)
+                        }
+                    }
+
+                    Cow::Owned(out.into())
+                }
+            }
+        }
+    }
+
+    /// Encode string content to utf8 bytes.
+    ///
+    /// Note: If content has invalid utf16 code points, encode it as invalid utf8 bytes too.
+    #[inline(always)]
+    pub fn encode_utf8_bytes(&self) -> Cow<'_, [u8]> {
+        self.encode_utf8_bytes_range(0..self.len())
+    }
+
+    /// encode content to utf8 str.
+    /// if `escape` is true, invalid code points will be escaped as '\uXXXX',
+    /// otherwise invalid codes will be replaced with 'U+FFFD'.
+    pub fn to_utf8_range(&self, range: Range<usize>, escape: bool) -> Cow<'_, str> {
         if range.is_empty() || range.start >= self.len() {
             Cow::Borrowed("")
         } else {
@@ -312,15 +368,36 @@ impl StringData {
                 Self::Ascii(s) => {
                     Cow::Borrowed(unsafe { std::str::from_utf8_unchecked(&s[range]) })
                 }
-                Self::Utf16(s) => Cow::Owned(String::from_utf16_lossy(&s[range])),
+                Self::Utf16(s) => {
+                    let slice = &s[range];
+                    let out = if !escape {
+                        String::from_utf16_lossy(slice)
+                    } else {
+                        let mut str = String::with_capacity(slice.len() * 4);
+                        for (_, c) in U16CharIter::new(slice, 0) {
+                            match c {
+                                StringChar::Char(c) => {
+                                    str.push(c);
+                                }
+                                StringChar::Code(c) => {
+                                    str.push_str(&format!("\\u{c:04x}"));
+                                }
+                            }
+                        }
+                        str
+                    };
+                    Cow::Owned(out)
+                }
             }
         }
     }
 
-    /// encode content to utf8
+    /// encode content to utf8 str.
+    /// if `escape` is true, invalid char codes will be escaped as '\uXXXX',
+    /// otherwise invalid char codes will be replaced with 'U+FFFD'.
     #[inline(always)]
-    pub fn to_utf8(&self) -> Cow<'_, str> {
-        self.to_utf8_range(0..self.len())
+    pub fn to_utf8(&self, escape: bool) -> Cow<'_, str> {
+        self.to_utf8_range(0..self.len(), escape)
     }
 
     /// get codepoint at index.
@@ -409,11 +486,9 @@ impl StringData {
         })
     }
 
+    /// get iterator over string chars, invalid code points will be replaced with char 'U+FFFD'.
     pub fn chars_lossy(&self) -> impl Iterator<Item = char> {
-        self.iter().map(|(_, c)| match c {
-            StringChar::Char(c) => c,
-            StringChar::Code(_) => '\u{FFFD}',
-        })
+        self.chars_range_lossy(0..self.len())
     }
 
     /// count string chars, include broken invalid code.

@@ -1,12 +1,9 @@
-use std::rc::Rc;
-
 use crate::{
     atom::consts::{JS_ATOM_concat, JS_ATOM_raw},
     bytecode::OpCode,
     object::{JS_PROP_ENUMERABLE, JS_PROP_THROW, seal_template_obj},
     parse::token::TokenData,
-    string::StringBuf,
-    unicode::{UTF8_CHAR_LEN_MAX, unicode_from_utf8},
+    string::{StringBuf, UTF8_CHAR_LEN_MAX, unicode_from_utf8},
     value::JSValue,
 };
 

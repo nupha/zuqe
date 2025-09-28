@@ -68,7 +68,7 @@ fn internalize_json_property(
 
 fn js_json_parse(ctx: &JSContext, cc: CallContext) -> JSResult {
     let s = cc.arg(0).to_string(ctx)?;
-    let mut obj = JS_ParseJSON(ctx, s.content().to_utf8().as_bytes(), "<input>")?;
+    let mut obj = JS_ParseJSON(ctx, &s.content().encode_utf8_bytes(), "<input>")?;
 
     if cc.length() > 1 && cc.arg(1).is_function() {
         let reviver = cc.arg(1);

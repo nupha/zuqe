@@ -18,6 +18,7 @@ use zhuque::{
 
 fn js_print(ctx: &JSContext, cc: CallContext) -> JSResult {
     let level = cc.magic();
+    let inspect = level == 100;
 
     let color = || {
         match level {
@@ -37,10 +38,10 @@ fn js_print(ctx: &JSContext, cc: CallContext) -> JSResult {
         let arg = cc.arg(i);
 
         colorize_print(
-            if level == 1 && arg.is_object() {
-                format!("{arg:?}")
+            if inspect {
+                format!("{}", arg.inspect(ctx)?)
             } else {
-                format!("{:?}", arg.repr(ctx))
+                format!("{}", arg.to_string(ctx)?)
             },
             color(),
         );
@@ -153,6 +154,15 @@ fn main() {
                 JS_PROP_C_W_E,
             )
             .unwrap();
+        console
+            .define_property_value_str(
+                &ctx,
+                "inspect",
+                ctx.create_native_function(printf, "inspect", 0, 100)
+                    .unwrap(),
+                JS_PROP_C_W_E,
+            )
+            .unwrap();
         global
             .define_property_value_str(&ctx, "console", console.into(), JS_PROP_C_W_E)
             .unwrap();
@@ -177,7 +187,7 @@ fn main() {
         Ok(v) => {
             println!(
                 ">>> RESULT: {v:?}, {}",
-                v.repr(&ctx).unwrap_or("<can't repr>".to_string())
+                v.inspect(&ctx).unwrap_or("<can't repr>".to_string())
             );
             if let JSValue::Object(o) = &v {
                 println!("    OBJECT DUMP");
@@ -196,7 +206,7 @@ fn main() {
                         if let Some(pr) = promise {
                             let r = pr.result();
                             println!("promise state:  {:?}", pr.state());
-                            println!("promise result: {r:?}, {:?}", r.repr(&ctx));
+                            println!("promise result: {r:?}, {:?}", r.inspect(&ctx));
                             println!("{:?}", r.to_string(&ctx));
                         }
                         break;

@@ -252,7 +252,7 @@ impl JSAtom {
             f(rt.get_atom_desc(self)
                 .expect("INVALID ATOM")
                 .content()
-                .to_utf8())
+                .to_utf8(false))
         }
     }
 
@@ -510,7 +510,7 @@ pub unsafe fn js_atom_concat_str(ctx: &JSContext, name: JSAtom, str1: *const u8)
     } else {
         return JS_ATOM_NULL;
     };
-    let astr = str_val.content().to_utf8();
+    let astr = str_val.content().to_utf8(false);
     let len = astr.len();
     let len1 = CStr::from_ptr(str1.cast()).count_bytes();
     let ttl_len = len + len1 + 1;

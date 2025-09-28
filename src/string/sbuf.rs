@@ -549,28 +549,20 @@ impl StringBuf {
                 if let Err(e) = s1.try_reserve(s2.len()) {
                     *self = Self::Utf16(s1);
                     return Err(e);
+                } else {
+                    s1.extend(s2[range.clone()].iter().map(|x| *x as u16));
+                    Self::Utf16(s1)
                 }
-                for c in unsafe { std::str::from_utf8_unchecked(&s2[range.clone()]) }.encode_utf16()
-                {
-                    s1.push(c);
-                }
-                Self::Utf16(s1)
             }
             (Self::Ascii(s1), StringData::Utf16(s2)) => {
                 let mut buf = Vec::<u16>::new();
                 if let Err(e) = buf.try_reserve_exact(s1.len() + s2.len()) {
                     *self = Self::Ascii(s1); // restore original
                     return Err(e);
-                }
-
-                let a = unsafe { std::str::from_utf8_unchecked(s1.as_slice()) }.encode_utf16();
-                let b = s2[range.clone()].iter().copied();
-                buf.extend(a.chain(b));
-
-                if !buf.iter().any(|c| *c >= 0x80) {
-                    // is ascii
-                    Self::Ascii(unsafe { s16_into_s8(buf) })
                 } else {
+                    let a = s1.iter().map(|x| *x as u16);
+                    let b = s2[range.clone()].iter().copied();
+                    buf.extend(a.chain(b));
                     Self::Utf16(buf)
                 }
             }
@@ -583,15 +575,6 @@ impl StringBuf {
     #[inline(always)]
     pub fn push_content(&mut self, content: &StringContent) -> Result<(), TryReserveError> {
         self.push_content_range(content, 0..content.len())
-    }
-
-    /// encode content to utf8 str
-    pub fn to_utf8(&self) -> Cow<'_, str> {
-        match self {
-            Self::Empty => Cow::Borrowed(""),
-            Self::Ascii(s) => Cow::Borrowed(unsafe { std::str::from_utf8_unchecked(s) }),
-            Self::Utf16(s) => Cow::Owned(String::from_utf16_lossy(s)),
-        }
     }
 
     /// buffer capacity

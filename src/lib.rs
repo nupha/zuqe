@@ -36,7 +36,6 @@ pub mod stack_frame;
 pub mod string;
 pub mod symbol;
 pub mod typed_array;
-pub mod unicode;
 pub mod utils;
 pub mod value;
 

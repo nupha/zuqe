@@ -1,5 +1,3 @@
-use smallvec::SmallVec;
-
 use crate::{
     atom::{JS_ATOM_NULL, JS_FreeAtom, JSAtom, JSAtomRc, consts::*},
     bytecode::{OpCode, OpCodeTemp},
@@ -7,7 +5,7 @@ use crate::{
     eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
     function::JSFunctionKindEnum,
     module::ExportType,
-    unicode::{UTF8_CHAR_LEN_MAX, unicode_from_utf8, unicode_to_utf8},
+    string::{UTF8_CHAR_LEN_MAX, unicode_from_utf8, unicode_to_utf8},
 };
 
 use super::{
@@ -111,7 +109,7 @@ impl JSParseState<'_> {
         first_char: char,
         is_private: bool,
     ) -> Result<(JSAtom, bool), i32> {
-        let mut buf = SmallVec::<[u8; 128]>::new();
+        let mut buf = Vec::<u8>::with_capacity(64);
 
         if is_private {
             buf.push(b'#');
@@ -128,11 +126,7 @@ impl JSParseState<'_> {
             if c.is_ascii() {
                 buf.push(c as u8);
             } else {
-                let n =
-                    unsafe { unicode_to_utf8(buf.as_mut_ptr().add(buf.len()), c as u32) } as usize;
-                unsafe {
-                    buf.set_len(buf.len() + n);
-                }
+                unicode_to_utf8(&mut buf, c as u32);
             }
 
             unsafe {

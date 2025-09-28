@@ -180,7 +180,7 @@ impl RegExpData {
         pattern: StringContent,
         flags: StringContent,
     ) -> Result<Self, i32> {
-        let (re, ff) = Self::compile_re(ctx, &pattern.to_utf8(), flags.chars_lossy())?;
+        let (re, ff) = Self::compile_re(ctx, &pattern.to_utf8(false), flags.chars_lossy())?;
         Ok(Self {
             pattern,
             flags_str: flags,
@@ -194,7 +194,7 @@ impl RegExpData {
             return Box::new([]);
         }
 
-        let utf8_str = content.to_utf8_range(from..content.len());
+        let utf8_str = content.to_utf8_range(from..content.len(), false);
 
         let is_global = self.flags & LRE_FLAG_GLOBAL as u8 != 0;
         let is_unicode = self.flags & LRE_FLAG_UTF16 as u8 != 0;
@@ -244,7 +244,7 @@ impl RegExpData {
             return None;
         }
 
-        let utf8_str = content.to_utf8_range(from..content.len());
+        let utf8_str = content.to_utf8_range(from..content.len(), false);
 
         if let Some(caps) = self.regex.captures(utf8_str.as_bytes()) {
             if self.flags & LRE_FLAG_STICKY as u8 != 0 && caps.get(0).unwrap().start() != 0 {

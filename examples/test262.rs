@@ -35,7 +35,7 @@ fn js_print(ctx: &JSContext, args: CallContext) -> JSResult {
             print!(" ");
         }
         let arg = args.arg(i);
-        let repr = arg.repr(ctx)?;
+        let repr = arg.inspect(ctx)?;
         print!("{}", repr);
 
         if repr.eq("Test262:AsyncTestComplete") {
@@ -56,7 +56,7 @@ fn js_detachArrayBuffer(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 fn js_evalScript(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let script = cc.arg(0).repr(ctx)?;
+    let script = cc.arg(0).inspect(ctx)?;
     ctx.eval(script.as_bytes(), "<eval>", JS_EVAL_TYPE_GLOBAL)
 }
 
@@ -358,7 +358,7 @@ fn dump_error(
         Ok(JSValue::NULL) | Ok(JSValue::UNDEFINED) => {}
         Err(_) => {}
         Ok(s) => {
-            let ss = s.repr(ctx).unwrap();
+            let ss = s.inspect(ctx).unwrap();
             writeln!(outf, "[STACK] {}", ss).unwrap();
         }
     }
@@ -434,7 +434,7 @@ fn run_test_file(
             dump_error(
                 &ctx,
                 &exc,
-                msg.content().to_utf8().as_ref(),
+                msg.content().to_utf8(true).as_ref(),
                 false,
                 false,
                 false,
@@ -447,7 +447,7 @@ fn run_test_file(
             dump_error(
                 &ctx,
                 &exc,
-                msg.content().to_utf8().as_ref(),
+                msg.content().to_utf8(true).as_ref(),
                 false,
                 false,
                 false,
@@ -505,7 +505,7 @@ fn run_test_file(
                 let msg = if let JSValue::Object(o) = &exc {
                     o.dump(ctx.rt());
                     let msg = o.get_property(&ctx, JS_ATOM_message).unwrap();
-                    msg.repr(&ctx).unwrap().to_string()
+                    msg.inspect(&ctx).unwrap().to_string()
                 } else {
                     "<no msg>".into()
                 };

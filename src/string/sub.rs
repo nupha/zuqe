@@ -1,9 +1,8 @@
 use std::collections::TryReserveError;
 
-use crate::{
-    string::{StringBuf, StringChar, StringCharIter, StringContent},
-    unicode::UTF8_CHAR_LEN_MAX,
-};
+use crate::string::{StringBuf, StringChar, StringCharIter, StringContent};
+
+use super::UTF8_CHAR_LEN_MAX;
 
 impl StringContent {
     pub fn substitution_buf<'a>(

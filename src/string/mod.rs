@@ -3,6 +3,7 @@ mod iter;
 mod sbuf;
 mod string;
 mod sub;
+mod unicode;
 mod utf_8_16;
 
 pub use {
@@ -12,4 +13,4 @@ pub use {
     string::*,
 };
 
-pub(crate) use utf_8_16::*;
+pub(crate) use {unicode::*, utf_8_16::*};

@@ -236,7 +236,7 @@ pub fn get_func_name(func: &JSValue) -> Option<String> {
                 if let Some(JSProperty::Normal(JSValue::String(s))) =
                     obj.0.prop_values.borrow().get(idx)
                 {
-                    return Some(s.content().to_utf8().into_owned());
+                    return Some(s.content().to_utf8(false).into_owned());
                 } else {
                     unreachable!()
                 }
@@ -474,12 +474,12 @@ impl BytecodeFunction {
                 if i != 0 {
                     buf.push(b',');
                 }
-                buf.extend_from_slice(a.repr(ctx)?.as_bytes());
+                buf.extend_from_slice(a.inspect(ctx)?.as_bytes());
             }
             buf.extend_from_slice(b"){");
 
             // function body
-            buf.extend_from_slice(body.repr(ctx)?.as_bytes());
+            buf.extend_from_slice(body.inspect(ctx)?.as_bytes());
         } else {
             // no arguments
             buf.extend_from_slice(b"){");
@@ -496,7 +496,7 @@ impl BytecodeFunction {
             let global = JSValue::Object(ctx.global_obj());
             ctx.eval_internal(
                 &global,
-                src.content().to_utf8().as_bytes(),
+                &src.content().encode_utf8_bytes(),
                 "<input>",
                 JS_EVAL_TYPE_INDIRECT,
                 -1,

@@ -865,7 +865,7 @@ fn js_string_normalize(ctx: &JSContext, cc: CallContext) -> JSResult {
                 ctx.throw_range_error("bad normalization form");
                 return Err(-1);
             }
-            form => match form.to_string(ctx)?.content().to_utf8().as_ref() {
+            form => match form.to_string(ctx)?.content().to_utf8(false).as_ref() {
                 "NFC" => UnicodeNormalizationEnum::NFC,
                 "NFD" => UnicodeNormalizationEnum::NFD,
                 "NFKC" => UnicodeNormalizationEnum::NFKC,

@@ -17,7 +17,7 @@ use crate::{
         },
     },
     runtime::js_check_stack_overflow,
-    unicode::{CP_LS, CP_PS, UTF8_CHAR_LEN_MAX, unicode_from_utf8},
+    string::{CP_LS, CP_PS, UTF8_CHAR_LEN_MAX, unicode_from_utf8},
     value::JSValue,
 };
 
@@ -75,7 +75,10 @@ unsafe fn json_parse_value(s: &mut JSParseState) -> JSResult {
             if s.token.val != b'}' as i32 {
                 loop {
                     let prop_name: JSAtomRc = if s.token.val == TOK_STRING {
-                        JSAtom::new(s.ctx.rt_mut(), &s.token.data.string().unwrap().to_utf8())?
+                        JSAtom::new(
+                            s.ctx.rt_mut(),
+                            &s.token.data.string().unwrap().to_utf8(true),
+                        )?
                     } else if s.ext_json && s.token.val == TOK_IDENT {
                         s.token.data.ident_atom().unwrap().dup(s.ctx.rt())
                     } else {

@@ -7,8 +7,7 @@ use crate::{
         js_atof,
     },
     runtime::js_check_stack_overflow,
-    string::StringContent,
-    unicode::{UTF8_CHAR_LEN_MAX, unicode_from_utf8},
+    string::{StringContent, UTF8_CHAR_LEN_MAX, unicode_from_utf8},
     value::JSValue,
 };
 

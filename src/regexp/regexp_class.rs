@@ -114,7 +114,8 @@ pub fn js_regexp_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let re = if let Some(re) = re {
         re
     } else {
-        let (re, flags) = RegExpData::compile_re(ctx, &pattern.to_utf8(), flags_str.chars_lossy())?;
+        let (re, flags) =
+            RegExpData::compile_re(ctx, &pattern.to_utf8(false), flags_str.chars_lossy())?;
         RegExpData {
             regex: Rc::new(re),
             pattern,
