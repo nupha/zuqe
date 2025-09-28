@@ -22,6 +22,7 @@ dump_gc_free = []
 
 default = [
     "string_intern",
+    "all_unicode",
     "atomics",
     "dump_leaks",
     "dump_objects",

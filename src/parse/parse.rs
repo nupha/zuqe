@@ -186,7 +186,7 @@ impl JSParseState<'_> {
 
     /// test if `c` is allowed in non-first char of an ident
     #[inline]
-    pub const fn is_ident_next(c: char) -> bool {
+    pub fn is_ident_next(c: char) -> bool {
         if c.is_ascii() {
             matches!(c, '0'..='9' | 'A'..='Z' | 'a'..='z' | '_' | '$')
         } else {
@@ -204,13 +204,13 @@ impl JSParseState<'_> {
 
     /// test if `c` could be used as first char of an ident
     #[inline]
-    pub(super) const fn is_ident_first(c: char) -> bool {
+    pub(super) fn is_ident_first(c: char) -> bool {
         if c.is_ascii() {
             matches!(c,  '$' | 'A'..='Z' | 'a'..='z' | '_')
         } else {
             #[cfg(feature = "all_unicode")]
             {
-                lre_is_id_start(c)
+                unicode_xid::UnicodeXID::is_xid_start(c)
             }
             #[cfg(not(feature = "all_unicode"))]
             {

@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use crate::{
     parse::token::{TOK_REGEXP, TokenData},
     regexp::RegExpData,
@@ -28,8 +26,6 @@ impl<'s> JSParseState<'s> {
         let mut flags_str = StringBuf::Empty;
 
         while let Some((i, mut c)) = chars.next() {
-            cursor = i;
-
             match c {
                 '\n' | '\r' => {
                     self.throw_syntax_error("unexpected end of regexp");
@@ -37,6 +33,7 @@ impl<'s> JSParseState<'s> {
                 }
                 '/' => {
                     if !in_class {
+                        cursor = i + 1;
                         break;
                     }
                 }
@@ -76,13 +73,13 @@ impl<'s> JSParseState<'s> {
         // flags
         for (i, c) in chars {
             if !JSParseState::is_ident_next(c) {
+                cursor = i + c.encode_utf8(&mut [0u8; 4]).len();
                 break;
             }
             flags_str.push_char(c).map_err(|_| {
                 self.ctx.throw_out_of_memory();
                 -1
             })?;
-            cursor = i;
         }
 
         // if RegExp is not supported, raise error here
@@ -104,7 +101,7 @@ impl<'s> JSParseState<'s> {
         self.token.val = TOK_REGEXP;
         self.token.data = TokenData::Regexp(id);
 
-        self.buf_ptr = unsafe { self.buf_ptr.add(cursor + 1) };
+        self.buf_ptr = unsafe { self.buf_ptr.add(cursor) };
         Ok(())
     }
 }
