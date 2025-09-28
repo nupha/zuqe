@@ -178,47 +178,57 @@ impl PartialOrd for StringData {
 impl std::fmt::Debug for StringData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Empty => write!(f, "\"\""),
-            Self::Ident => write!(f, "<ident>"),
-            _ => {
-                let sep = '\"';
-                write!(f, "{sep}")?;
-
-                for (_, c) in self.iter() {
-                    match c {
-                        StringChar::Char(c) if c == sep => {
-                            write!(f, "\\{c}")?;
-                        }
-                        StringChar::Char('\n') => {
-                            write!(f, "\\n")?;
-                        }
-                        StringChar::Char('\r') => {
-                            write!(f, "\\r")?;
-                        }
-                        StringChar::Char('\t') => {
-                            write!(f, "\\t")?;
-                        }
-                        StringChar::Char('\\') => {
-                            write!(f, "\\\\")?;
-                        }
-                        StringChar::Char(c) => {
-                            if !is_char_visible(c) {
-                                write!(f, "\\u{:04X}", c as u32)?;
-                            } else {
-                                write!(f, "{c}")?;
-                            }
-                        }
-                        StringChar::Code(c) => {
-                            write!(f, "\\u{c:04X}")?;
-                        }
-                    }
-                }
-
-                write!(f, "{sep}")
-            }
+            Self::Empty => write!(f, "Empty"),
+            Self::Ascii(arg0) => f.debug_tuple("Ascii").field(arg0).finish(),
+            Self::Utf16(arg0) => f.debug_tuple("Utf16").field(arg0).finish(),
+            Self::Ident => write!(f, "Ident"),
         }
     }
 }
+// impl std::fmt::Debug for StringData {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         match self {
+//             Self::Empty => write!(f, "\"\""),
+//             Self::Ident => write!(f, "<ident>"),
+//             _ => {
+//                 let sep = '\"';
+//                 write!(f, "{sep}")?;
+
+//                 for (_, c) in self.iter() {
+//                     match c {
+//                         StringChar::Char(c) if c == sep => {
+//                             write!(f, "\\{c}")?;
+//                         }
+//                         StringChar::Char('\n') => {
+//                             write!(f, "\\n")?;
+//                         }
+//                         StringChar::Char('\r') => {
+//                             write!(f, "\\r")?;
+//                         }
+//                         StringChar::Char('\t') => {
+//                             write!(f, "\\t")?;
+//                         }
+//                         StringChar::Char('\\') => {
+//                             write!(f, "\\\\")?;
+//                         }
+//                         StringChar::Char(c) => {
+//                             if !is_char_visible(c) {
+//                                 write!(f, "\\u{:04X}", c as u32)?;
+//                             } else {
+//                                 write!(f, "{c}")?;
+//                             }
+//                         }
+//                         StringChar::Code(c) => {
+//                             write!(f, "\\u{c:04X}")?;
+//                         }
+//                     }
+//                 }
+
+//                 write!(f, "{sep}")
+//             }
+//         }
+//     }
+// }
 
 impl StringData {
     #[inline(always)]
@@ -663,8 +673,10 @@ impl StringData {
                             return false;
                         }
                     }
+                    true
+                } else {
+                    false
                 }
-                true
             }
             (Self::Ascii(s), StringBuf::Utf16(b)) => {
                 if s.len() == b.len() {
@@ -673,8 +685,10 @@ impl StringData {
                             return false;
                         }
                     }
+                    true
+                } else {
+                    false
                 }
-                true
             }
 
             _ => false,
@@ -842,7 +856,7 @@ impl StringData {
 }
 
 #[cfg(feature = "string_intern")]
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 #[repr(u8)]
 enum StringDataWeakref {
     Empty,

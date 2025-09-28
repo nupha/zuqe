@@ -15,6 +15,7 @@ use super::{
 
 /// string content buffer
 #[repr(u8)]
+#[derive(Debug)]
 pub enum StringBuf {
     Empty,
     Ascii(Vec<u8>), // TODO: upgrade to ISO8859 variant to hold 0..=255 chars
@@ -815,49 +816,49 @@ impl StringBuf {
     }
 }
 
-impl std::fmt::Debug for StringBuf {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Empty => write!(f, "\"\""),
-            _ => {
-                let sep = '\"';
-                write!(f, "{sep}")?;
+// impl std::fmt::Debug for StringBuf {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         match self {
+//             Self::Empty => write!(f, "\"\""),
+//             _ => {
+//                 let sep = '\"';
+//                 write!(f, "{sep}")?;
 
-                for (_, c) in self.iter() {
-                    match c {
-                        StringChar::Char(c) if c == sep => {
-                            write!(f, "\\{c}")?;
-                        }
-                        StringChar::Char('\n') => {
-                            write!(f, "\\n")?;
-                        }
-                        StringChar::Char('\r') => {
-                            write!(f, "\\r")?;
-                        }
-                        StringChar::Char('\t') => {
-                            write!(f, "\\t")?;
-                        }
-                        StringChar::Char('\\') => {
-                            write!(f, "\\\\")?;
-                        }
-                        StringChar::Char(c) => {
-                            if !is_char_visible(c) {
-                                write!(f, "\\u{:04X}", c as u32)?;
-                            } else {
-                                write!(f, "{c}")?;
-                            }
-                        }
-                        StringChar::Code(c) => {
-                            write!(f, "\\u{c:04X}")?;
-                        }
-                    }
-                }
+//                 for (_, c) in self.iter() {
+//                     match c {
+//                         StringChar::Char(c) if c == sep => {
+//                             write!(f, "\\{c}")?;
+//                         }
+//                         StringChar::Char('\n') => {
+//                             write!(f, "\\n")?;
+//                         }
+//                         StringChar::Char('\r') => {
+//                             write!(f, "\\r")?;
+//                         }
+//                         StringChar::Char('\t') => {
+//                             write!(f, "\\t")?;
+//                         }
+//                         StringChar::Char('\\') => {
+//                             write!(f, "\\\\")?;
+//                         }
+//                         StringChar::Char(c) => {
+//                             if !is_char_visible(c) {
+//                                 write!(f, "\\u{:04X}", c as u32)?;
+//                             } else {
+//                                 write!(f, "{c}")?;
+//                             }
+//                         }
+//                         StringChar::Code(c) => {
+//                             write!(f, "\\u{c:04X}")?;
+//                         }
+//                     }
+//                 }
 
-                write!(f, "{sep}")
-            }
-        }
-    }
-}
+//                 write!(f, "{sep}")
+//             }
+//         }
+//     }
+// }
 
 #[derive(Clone)]
 pub struct StringBufSlice<'a> {

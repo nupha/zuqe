@@ -997,17 +997,17 @@ pub static js_string_iterator_proto_funcs: [FieldDef; 2] = [
 ];
 
 pub fn js_string_fromCharCode(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let mut res_string = StringBuf::Empty;
+    let mut buf = StringBuf::Empty;
 
     for a in cc.arguments() {
         let c = a.to_i32(ctx)?;
-        res_string.push_u16(c as u16).map_err(|_| {
+        buf.push_u16(c as u16).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
         })?;
     }
 
-    ctx.create_string_with_buf(res_string).map(JSValue::String)
+    ctx.create_string_with_buf(buf).map(JSValue::String)
 }
 
 pub fn js_string_fromCodePoint(ctx: &JSContext, cc: CallContext) -> JSResult {
