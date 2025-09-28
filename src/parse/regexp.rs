@@ -21,9 +21,9 @@ impl<'s> JSParseState<'s> {
 
         let mut i = 1; // skip leading '/'
 
+        // pattern
         while i < buf.len() {
             let c = buf[i];
-
             match c {
                 b'\n' | b'\r' => {
                     self.throw_syntax_error("unexpected line terminator in regexp");
@@ -31,7 +31,8 @@ impl<'s> JSParseState<'s> {
                 }
                 b'/' => {
                     if !in_class {
-                        cursor = i + 1;
+                        i += 1;
+                        cursor = i;
                         break;
                     }
                 }
@@ -119,70 +120,37 @@ impl<'s> JSParseState<'s> {
             i += 1;
         }
 
-        let mut chars = std::str::from_utf8(buf)
-            .map(|x| x.char_indices())
-            .map_err(|_| {
-                self.throw_syntax_error("invalid UTF-8 sequence");
-                -1
-            })?;
-
-        let _ = chars.next(); // skip starting '/'
-
-        while let Some((i, mut c)) = chars.next() {
-            match c {
-                '\n' | '\r' => {
-                    self.throw_syntax_error("unexpected end of regexp");
-                    return Err(-1);
-                }
-                '/' => {
-                    if !in_class {
-                        cursor = i + 1;
-                        break;
-                    }
-                }
-                ']' => {
-                    // XXX: incorrect as the first character in a class
-                    in_class = false;
-                }
-                '\\' => {
-                    pattern_str.push_char(c).map_err(|_| {
-                        self.ctx.throw_out_of_memory();
-                        -1
-                    })?;
-
-                    if let Some((i, c1)) = chars.next() {
-                        cursor = i;
-
-                        if matches!(c1, '\n' | '\r') {
-                            self.throw_syntax_error("unexpected end of regexp");
-                            return Err(-1);
-                        } else {
-                            c = c1;
-                        }
-                    } else {
-                        self.throw_syntax_error("unexpected end of regexp");
-                        return Err(-1);
-                    }
-                }
-                _ => {}
-            }
-
-            pattern_str.push_char(c).map_err(|_| {
-                self.ctx.throw_out_of_memory();
-                -1
-            })?;
-        }
-
         // flags
-        for (i, c) in chars {
+        while i < buf.len() {
+            let c = buf[i];
+            let c: char = if unlikely(c >= 0x80) {
+                let (ch, cnt) = unicode_from_utf8(&buf[i..])
+                    .and_then(|(x, n)| {
+                        if x as u32 > 0x10ffff {
+                            Err(-1)
+                        } else {
+                            Ok((x, n))
+                        }
+                    })
+                    .inspect_err(|_| {
+                        self.throw_syntax_error("invalid utf-8 sequence");
+                    })?;
+                i += cnt;
+                ch
+            } else {
+                i += 1;
+                c as _
+            };
+
             if !JSParseState::is_ident_next(c) {
                 break;
+            } else {
+                flags_str.push_char(c).map_err(|_| {
+                    self.ctx.throw_out_of_memory();
+                    -1
+                })?;
+                cursor = i;
             }
-            flags_str.push_char(c).map_err(|_| {
-                self.ctx.throw_out_of_memory();
-                -1
-            })?;
-            cursor = i + c.encode_utf8(&mut [0u8; 4]).len();
         }
 
         // if RegExp is not supported, raise error here

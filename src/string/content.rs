@@ -322,11 +322,11 @@ impl StringData {
                     let mut out = Vec::<u8>::with_capacity(len);
 
                     let mut it = slice.iter().peekable();
-                    while let Some(c) = it.next() {
-                        if *c < 0x80 {
-                            out.push(*c as u8);
+                    while let Some(&c) = it.next() {
+                        if c < 0x80 {
+                            out.push(c as u8);
                         } else {
-                            let mut c = *c as u32;
+                            let mut c = c as u32;
                             if (0xd800..0xdc00).contains(&c) {
                                 if let Some(c1) = it.peek() {
                                     let c1 = (**c1) as u32;
@@ -366,26 +366,52 @@ impl StringData {
             match self {
                 Self::Empty | Self::Ident => Cow::Borrowed(""),
                 Self::Ascii(s) => {
-                    Cow::Borrowed(unsafe { std::str::from_utf8_unchecked(&s[range]) })
+                    if !escape {
+                        Cow::Borrowed(unsafe { std::str::from_utf8_unchecked(&s[range]) })
+                    } else {
+                        let cnt_bs = s[range.clone()].iter().filter(|x| **x == b'\\').count();
+                        if cnt_bs == 0 {
+                            Cow::Borrowed(unsafe { std::str::from_utf8_unchecked(&s[range]) })
+                        } else {
+                            let mut b = String::with_capacity(s.len() + cnt_bs);
+                            for c in &s[range] {
+                                if *c == b'\\' {
+                                    b.push('\\');
+                                    b.push('\\');
+                                } else {
+                                    b.push(*c as char);
+                                }
+                            }
+                            Cow::Owned(b)
+                        }
+                    }
                 }
                 Self::Utf16(s) => {
-                    let slice = &s[range];
+                    let slice = &s[range.clone()];
+
                     let out = if !escape {
                         String::from_utf16_lossy(slice)
                     } else {
-                        let mut str = String::with_capacity(slice.len() * 4);
+                        let mut out = String::with_capacity(slice.len() * 4);
                         for (_, c) in U16CharIter::new(slice, 0) {
                             match c {
                                 StringChar::Char(c) => {
-                                    str.push(c);
+                                    if c == '\\' {
+                                        out.push('\\');
+                                        out.push('\\');
+                                    } else {
+                                        out.push(c)
+                                    }
                                 }
                                 StringChar::Code(c) => {
-                                    str.push_str(&format!("\\u{c:04x}"));
+                                    out.push_str(&format!("\\u{c:04x}"));
                                 }
                             }
                         }
-                        str
+                        out.shrink_to_fit();
+                        out
                     };
+
                     Cow::Owned(out)
                 }
             }
