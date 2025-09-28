@@ -78,8 +78,11 @@ impl<'s> JSParseState<'s> {
                             -1
                         })?;
                         i += cnt;
-                        continue;
+                    } else {
+                        i += 1;
                     }
+
+                    continue;
                 }
 
                 _ if c >= 0x80 => {
