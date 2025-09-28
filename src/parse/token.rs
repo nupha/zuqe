@@ -7,7 +7,7 @@ use crate::{
         js_atof,
     },
     runtime::js_check_stack_overflow,
-    string::{StringContent, UTF8_CHAR_LEN_MAX, unicode_from_utf8},
+    string::{CP_LS, CP_PS, StringContent, UTF8_CHAR_LEN_MAX, unicode_from_utf8_v0},
     value::JSValue,
 };
 
@@ -269,9 +269,9 @@ impl<'s> JSParseState<'s> {
                                 } else if *p >= 0x80 {
                                     // 处理Unicode字符
                                     if let Ok(uc) =
-                                        unicode_from_utf8(p, UTF8_CHAR_LEN_MAX as i32, &mut p)
+                                        unicode_from_utf8_v0(p, UTF8_CHAR_LEN_MAX as i32, &mut p)
                                     {
-                                        if matches!(uc, '\u{2028}' | '\u{2029}') {
+                                        if matches!(uc as u32, CP_LS | CP_PS) {
                                             self.got_lf = true; /* considered as LF for ASI */
                                         }
                                     } else {
@@ -345,7 +345,7 @@ impl<'s> JSParseState<'s> {
                         let cp = self.parse_string_escape(&mut p1, 1)?;
                         char::from_u32(cp).unwrap()
                     } else if !c.is_ascii() {
-                        unicode_from_utf8(p, UTF8_CHAR_LEN_MAX as _, &mut p1)?
+                        unicode_from_utf8_v0(p, UTF8_CHAR_LEN_MAX as _, &mut p1)?
                     } else {
                         c
                     };
@@ -619,7 +619,7 @@ impl<'s> JSParseState<'s> {
                 },
 
                 c if !c.is_ascii() => {
-                    match unicode_from_utf8(p, UTF8_CHAR_LEN_MAX as i32, &mut p)? {
+                    match unicode_from_utf8_v0(p, UTF8_CHAR_LEN_MAX as i32, &mut p)? {
                         '\u{2028}' | '\u{2029}' => {
                             // XXX: should avoid incrementing line_number, but needed to handle HTML comments
                             self.got_lf = true;
@@ -762,7 +762,7 @@ impl<'s> JSParseState<'s> {
 
             if *p >= 0x80 {
                 // 处理Unicode行终止符
-                if let Ok(uc) = unicode_from_utf8(p, UTF8_CHAR_LEN_MAX as i32, &mut p) {
+                if let Ok(uc) = unicode_from_utf8_v0(p, UTF8_CHAR_LEN_MAX as i32, &mut p) {
                     if matches!(uc, '\u{2028}' | '\u{2029}') {
                         break;
                     }

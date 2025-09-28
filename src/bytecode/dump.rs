@@ -8,7 +8,7 @@ use crate::{
         Bytecode, JSClosureVar, JSFunctionKindEnum, JSVarDef, JSVarKindEnum, Label, PC2LINE_BASE,
         PC2LINE_OP_FIRST, PC2LINE_RANGE,
     },
-    string::unicode_from_utf8,
+    string::unicode_from_utf8_v0,
     utils::read_from_ptr,
     value::JSValue,
 };
@@ -571,7 +571,9 @@ pub unsafe fn dump_pc2line(ctx: &JSContext, buf: *const u8, len: i32, mut line_n
         p = p.offset(1);
 
         if op == 0 {
-            if let Ok(n) = unicode_from_utf8(p, (p_end as usize - p as usize) as i32, &mut p_next) {
+            if let Ok(n) =
+                unicode_from_utf8_v0(p, (p_end as usize - p as usize) as i32, &mut p_next)
+            {
                 pc += n as i32;
                 p = p_next;
             } else {
@@ -583,7 +585,7 @@ pub unsafe fn dump_pc2line(ctx: &JSContext, buf: *const u8, len: i32, mut line_n
             }
 
             let mut v = if let Ok(n) =
-                unicode_from_utf8(p, (p_end as usize - p as usize) as i32, &mut p_next)
+                unicode_from_utf8_v0(p, (p_end as usize - p as usize) as i32, &mut p_next)
             {
                 n as i32
             } else {

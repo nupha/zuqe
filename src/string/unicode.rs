@@ -1,3 +1,5 @@
+use crate::branch_hints::unlikely;
+
 // UTF-8字符最大长度
 pub const UTF8_CHAR_LEN_MAX: usize = 6;
 
@@ -11,9 +13,60 @@ pub const utf8_min_code: [u32; 5] = [0x80, 0x800, 0x10000, 0x00200000, 0x0400000
 pub const utf8_first_code_mask: [u8; 5] = [0x1f, 0x0f, 0x07, 0x03, 0x01];
 
 // 从UTF-8字节序列解码Unicode代码点
+// UTF-8字节序列的最大长度为6字节 (max_len=6)。
+pub(crate) fn unicode_from_utf8(buf: &[u8]) -> Result<(char, usize), i32> {
+    debug_assert!(!buf.is_empty());
+
+    let c = buf[0];
+
+    // 根据首字节确定UTF-8序列长度
+    let n = match c as u8 {
+        0x00..=0x7f => {
+            // ascii
+            return Ok((char::from(c), 1));
+        }
+        0xc0..=0xdf => 1,
+        0xe0..=0xef => 2,
+        0xf0..=0xf7 => 3,
+        0xf8..=0xfb => 4,
+        0xfc..=0xfd => 5,
+        _ => return Err(-1), // 无效的UTF-8首字节
+    };
+
+    if n > buf.len() - 1 {
+        return Err(-1);
+    }
+
+    // 应用首字节掩码
+    let mut c = c as u32;
+    c &= utf8_first_code_mask[n as usize - 1] as u32;
+
+    // 解码后续字节
+    for i in 0..n {
+        let b = buf[i + 1];
+        if !(0x80..0xc0).contains(&b) {
+            return Err(-1); // 无效的UTF-8后续字节
+        }
+        c = (c << 6) | ((b & 0x3f) as u32);
+    }
+
+    // 检查解码后的代码点是否有效
+    if unlikely(c < utf8_min_code[n as usize - 1]) {
+        Err(-1)
+    } else {
+        char::from_u32(c).ok_or(-1).map(|c| (c, n + 1))
+    }
+}
+
+// 从UTF-8字节序列解码Unicode代码点
 // 返回-1表示错误。*pp在错误情况下不会被更新。max_len必须>=1。
 // UTF-8字节序列的最大长度为6字节 (max_len=6)。
-pub fn unicode_from_utf8(mut p: *const u8, max_len: i32, pp: *mut *const u8) -> Result<char, i32> {
+#[deprecated(note = "use unicode_from_utf8() instead")]
+pub(crate) fn unicode_from_utf8_v0(
+    mut p: *const u8,
+    max_len: i32,
+    pp: *mut *const u8,
+) -> Result<char, i32> {
     let c = unsafe {
         let c = *p as char;
         p = p.offset(1);

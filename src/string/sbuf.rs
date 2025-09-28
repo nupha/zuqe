@@ -275,7 +275,7 @@ impl StringBuf {
             }
             Self::Utf16(w) => {
                 w.try_reserve(s8.len())?;
-                w.extend(unsafe { std::str::from_utf8_unchecked(s8) }.encode_utf16());
+                w.extend(s8.iter().map(|x| *x as u16));
             }
         }
         Ok(())

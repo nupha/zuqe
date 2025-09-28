@@ -5,7 +5,7 @@ use crate::{
     eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
     function::JSFunctionKindEnum,
     module::ExportType,
-    string::{UTF8_CHAR_LEN_MAX, unicode_from_utf8, unicode_to_utf8},
+    string::{UTF8_CHAR_LEN_MAX, unicode_from_utf8_v0, unicode_to_utf8},
 };
 
 use super::{
@@ -149,7 +149,7 @@ impl JSParseState<'_> {
                 has_escape = true;
             } else if !c.is_ascii() {
                 let mut p_temp = p;
-                c = unicode_from_utf8(p, UTF8_CHAR_LEN_MAX as i32, &mut p_temp)?;
+                c = unicode_from_utf8_v0(p, UTF8_CHAR_LEN_MAX as i32, &mut p_temp)?;
                 p1 = p_temp;
             }
 
@@ -533,7 +533,7 @@ pub(super) fn skip_shebang(start_ptr: *const u8, end_ptr: *const u8) -> *const u
                     break;
                 }
                 b if b >= 0x80 => {
-                    if let Ok(c) = unicode_from_utf8(p, UTF8_CHAR_LEN_MAX as i32, &mut p) {
+                    if let Ok(c) = unicode_from_utf8_v0(p, UTF8_CHAR_LEN_MAX as i32, &mut p) {
                         if matches!(c, '\u{2028}' | '\u{2029}') {
                             break;
                         }

@@ -1,7 +1,7 @@
 use crate::{
     context::JS_MODE_STRICT,
     parse::token::TokenData,
-    string::{StringBuf, UTF8_CHAR_LEN_MAX, unicode_from_utf8},
+    string::{StringBuf, UTF8_CHAR_LEN_MAX, unicode_from_utf8_v0},
 };
 
 use super::{
@@ -122,7 +122,7 @@ impl<'s> JSParseState<'s> {
                         c1 => {
                             if !c1.is_ascii() {
                                 let mut p_next = std::ptr::null::<u8>();
-                                match unicode_from_utf8(
+                                match unicode_from_utf8_v0(
                                     p,
                                     UTF8_CHAR_LEN_MAX as i32,
                                     std::ptr::addr_of_mut!(p_next),
@@ -174,7 +174,7 @@ impl<'s> JSParseState<'s> {
                     if !c.is_ascii() {
                         // handle UTF-8 characters
                         let mut p_next = std::ptr::null::<u8>();
-                        match unicode_from_utf8(
+                        match unicode_from_utf8_v0(
                             p,
                             UTF8_CHAR_LEN_MAX as i32,
                             std::ptr::addr_of_mut!(p_next),

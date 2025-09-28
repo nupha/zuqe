@@ -3,7 +3,7 @@ use crate::{
     bytecode::OpCode,
     object::{JS_PROP_ENUMERABLE, JS_PROP_THROW, seal_template_obj},
     parse::token::TokenData,
-    string::{StringBuf, UTF8_CHAR_LEN_MAX, unicode_from_utf8},
+    string::{StringBuf, UTF8_CHAR_LEN_MAX, unicode_from_utf8_v0},
     value::JSValue,
 };
 
@@ -63,12 +63,15 @@ impl<'s> JSParseState<'s> {
             } else if !ch.is_ascii() {
                 let mut p_next = std::ptr::null::<u8>();
                 // TODO: use str::from_utf8() instead
-                ch =
-                    unicode_from_utf8(unsafe { p.offset(-1) }, UTF8_CHAR_LEN_MAX as _, &mut p_next)
-                        .map_err(|_| {
-                            self.throw_syntax_error("invalid UTF-8 sequence");
-                            -1
-                        })?;
+                ch = unicode_from_utf8_v0(
+                    unsafe { p.offset(-1) },
+                    UTF8_CHAR_LEN_MAX as _,
+                    &mut p_next,
+                )
+                .map_err(|_| {
+                    self.throw_syntax_error("invalid UTF-8 sequence");
+                    -1
+                })?;
                 p = p_next;
             }
 

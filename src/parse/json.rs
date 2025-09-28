@@ -17,7 +17,7 @@ use crate::{
         },
     },
     runtime::js_check_stack_overflow,
-    string::{CP_LS, CP_PS, UTF8_CHAR_LEN_MAX, unicode_from_utf8},
+    string::{CP_LS, CP_PS, UTF8_CHAR_LEN_MAX, unicode_from_utf8_v0},
     value::JSValue,
 };
 
@@ -291,7 +291,7 @@ unsafe fn json_next_token(s: &mut JSParseState) -> Result<(), i32> {
                         } else if *p == b'\r' {
                             p = p.add(1);
                         } else if *p >= 0x80 {
-                            if unicode_from_utf8(p, UTF8_CHAR_LEN_MAX as _, &mut p).is_err() {
+                            if unicode_from_utf8_v0(p, UTF8_CHAR_LEN_MAX as _, &mut p).is_err() {
                                 p = p.add(1); // skip invalid UTF-8
                             }
                         } else {
@@ -310,7 +310,7 @@ unsafe fn json_next_token(s: &mut JSParseState) -> Result<(), i32> {
                             break;
                         }
                         if *p >= 0x80 {
-                            if let Ok(c) = unicode_from_utf8(p, UTF8_CHAR_LEN_MAX as _, &mut p) {
+                            if let Ok(c) = unicode_from_utf8_v0(p, UTF8_CHAR_LEN_MAX as _, &mut p) {
                                 // LS or PS are considered as line terminator
                                 if matches!(c as u32, CP_LS | CP_PS) {
                                     break;

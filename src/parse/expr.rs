@@ -1,5 +1,5 @@
 use crate::{
-    atom::{JS_ATOM_NULL, JS_FreeAtom, JSAtom, consts::*},
+    atom::{JS_ATOM_NULL, JS_FreeAtom, consts::*},
     bytecode::{OpCode, OpCodeTemp, SpecialObject, opcodes},
     function::{FuncCallType, JSFunctionKindEnum},
     value::JSValue,
