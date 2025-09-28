@@ -17,7 +17,7 @@ use super::{
 #[repr(u8)]
 pub enum StringBuf {
     Empty,
-    Ascii(Vec<u8>),
+    Ascii(Vec<u8>), // TODO: upgrade to ISO8859 variant to hold 0..=255 chars
     Utf16(Vec<u16>),
 }
 

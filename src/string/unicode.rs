@@ -12,9 +12,9 @@ pub const utf8_min_code: [u32; 5] = [0x80, 0x800, 0x10000, 0x00200000, 0x0400000
 // UTF-8编码的首字节掩码
 pub const utf8_first_code_mask: [u8; 5] = [0x1f, 0x0f, 0x07, 0x03, 0x01];
 
-// 从UTF-8字节序列解码Unicode代码点
-// UTF-8字节序列的最大长度为6字节 (max_len=6)。
-pub(crate) fn unicode_from_utf8(buf: &[u8]) -> Result<(char, usize), i32> {
+/// dececode utf8 from buf, returns decoded unicode point.
+/// Note: may return invalid unicode point.
+pub(crate) fn unicode_from_utf8(buf: &[u8]) -> Result<(u32, usize), i32> {
     debug_assert!(!buf.is_empty());
 
     let c = buf[0];
@@ -23,7 +23,7 @@ pub(crate) fn unicode_from_utf8(buf: &[u8]) -> Result<(char, usize), i32> {
     let n = match c as u8 {
         0x00..=0x7f => {
             // ascii
-            return Ok((char::from(c), 1));
+            return Ok((c as u32, 1));
         }
         0xc0..=0xdf => 1,
         0xe0..=0xef => 2,
@@ -54,7 +54,7 @@ pub(crate) fn unicode_from_utf8(buf: &[u8]) -> Result<(char, usize), i32> {
     if unlikely(c < utf8_min_code[n as usize - 1]) {
         Err(-1)
     } else {
-        char::from_u32(c).ok_or(-1).map(|c| (c, n + 1))
+        Ok((c, n + 1))
     }
 }
 

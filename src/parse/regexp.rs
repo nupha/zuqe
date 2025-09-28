@@ -23,7 +23,8 @@ impl<'s> JSParseState<'s> {
 
         // pattern
         while i < buf.len() {
-            let c = buf[i];
+            let mut c = buf[i];
+
             match c {
                 b'\n' | b'\r' => {
                     self.throw_syntax_error("unexpected line terminator in regexp");
@@ -46,8 +47,10 @@ impl<'s> JSParseState<'s> {
                         -1
                     })?;
 
-                    let c1 = buf
-                        .get(i + 1)
+                    // get next byte
+                    i += 1;
+                    c = buf
+                        .get(i)
                         .ok_or(-1)
                         .and_then(|&x| {
                             if matches!(x, b'\n' | b'\r') {
@@ -60,49 +63,34 @@ impl<'s> JSParseState<'s> {
                             self.throw_syntax_error("unexpected line terminator in regexp");
                         })?;
 
-                    if c1 >= 0x80 {
+                    if c >= 0x80 {
                         let (ch, cnt) = unicode_from_utf8(&buf[i..])
-                            .and_then(|(x, n)| {
-                                if x as u32 > 0x10ffff {
-                                    Err(-1)
-                                } else {
-                                    Ok((x, n))
-                                }
-                            })
+                            .and_then(|(x, n)| if x > 0x10ffff { Err(-1) } else { Ok((x, n)) })
                             .inspect_err(|_| {
                                 self.throw_syntax_error("invalid utf-8 sequence");
                             })?;
 
-                        pattern_str.push_char(ch).map_err(|_| {
+                        pattern_str.push_u32(ch).map_err(|_| {
                             self.ctx.throw_out_of_memory();
                             -1
                         })?;
                         i += cnt;
-                    } else {
-                        i += 1;
+                        continue;
                     }
-
-                    continue;
                 }
 
                 _ if c >= 0x80 => {
                     let (ch, cnt) = unicode_from_utf8(&buf[i..])
-                        .and_then(|(x, n)| {
-                            if x as u32 > 0x10ffff {
-                                Err(-1)
-                            } else {
-                                Ok((x, n))
-                            }
-                        })
+                        .and_then(|(x, n)| if x > 0x10ffff { Err(-1) } else { Ok((x, n)) })
                         .inspect_err(|_| {
                             self.throw_syntax_error("invalid utf-8 sequence");
                         })?;
 
-                    if unlikely(matches!(ch as u32, CP_LS | CP_PS)) {
+                    if unlikely(matches!(ch, CP_LS | CP_PS)) {
                         self.throw_syntax_error("unexpected line terminator in regexp");
                         return Err(-1);
                     } else {
-                        pattern_str.push_char(ch).map_err(|_| {
+                        pattern_str.push_u32(ch).map_err(|_| {
                             self.ctx.throw_out_of_memory();
                             -1
                         })?;
@@ -126,7 +114,7 @@ impl<'s> JSParseState<'s> {
         // flags
         while i < buf.len() {
             let c = buf[i];
-            let c: char = if unlikely(c >= 0x80) {
+            let c = if unlikely(c >= 0x80) {
                 let (ch, cnt) = unicode_from_utf8(&buf[i..])
                     .and_then(|(x, n)| {
                         if x as u32 > 0x10ffff {
@@ -145,10 +133,10 @@ impl<'s> JSParseState<'s> {
                 c as _
             };
 
-            if !JSParseState::is_ident_next(c) {
+            if char::from_u32(c).map_or(true, |c| !JSParseState::is_ident_next(c)) {
                 break;
             } else {
-                flags_str.push_char(c).map_err(|_| {
+                flags_str.push_u32(c).map_err(|_| {
                     self.ctx.throw_out_of_memory();
                     -1
                 })?;

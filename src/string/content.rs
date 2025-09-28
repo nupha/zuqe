@@ -26,7 +26,7 @@ use super::unicode_to_utf8;
 #[repr(u8)]
 pub enum StringData {
     Empty,
-    Ascii(Rc<[u8]>),
+    Ascii(Rc<[u8]>), // TODO: upgrade to ISO8859 variant to hold 0..=255 chars
     Utf16(Rc<[u16]>),
     /// identical content. used for anonymous Symbol atom.
     Ident,
