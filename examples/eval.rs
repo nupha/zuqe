@@ -2,6 +2,7 @@ use std::{path::PathBuf, time::Instant};
 
 use colorized::*;
 use zhuque::{
+    array_buffer::JS_DetachArrayBuffer,
     atom::JS_FreeAtom,
     context::JSContext,
     error::JSResult,
@@ -165,6 +166,26 @@ fn main() {
             .unwrap();
         global
             .define_property_value_str(&ctx, "console", console.into(), JS_PROP_C_W_E)
+            .unwrap();
+
+        // detachArrayBuffer
+        global
+            .set_property_str(
+                &ctx,
+                "detachArrayBuffer",
+                ctx.create_native_function(
+                    NativeFunctionType::Func(|ctx: &JSContext, cc: CallContext| -> JSResult {
+                        unsafe {
+                            JS_DetachArrayBuffer(ctx, cc.arg(0));
+                        }
+                        Ok(JSValue::UNDEFINED)
+                    }),
+                    "detachArrayBuffer",
+                    1,
+                    0,
+                )
+                .unwrap(),
+            )
             .unwrap();
     }
 

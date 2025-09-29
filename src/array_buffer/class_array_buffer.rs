@@ -90,57 +90,43 @@ fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
         JS_CallConstructor(ctx, &ctor, &[JSValue::from(new_len)]).err()
     }?;
 
-    if new_obj.is_same(cc.this()) {
+    let mut new_abuf = new_obj
+        .as_object()
+        .filter(|o| o.class_id() == class_id) // check new obj class_id
+        .and_then(|o| o.0.payload.borrow().array_buffer().cloned())
+        .ok_or_else(|| {
+            ctx.throw_type_error_invalid_class(class_id);
+            -1
+        })?;
+
+    if unlikely(new_obj.is_same(cc.this())) {
         ctx.throw_type_error("cannot use identical ArrayBuffer");
-        return Err(-1);
-    }
-
-    if unlikely(
-        unsafe { new_obj.as_object_unchecked() }
-            .0
-            .payload
-            .borrow()
-            .class_id()
-            != cc.magic() as JSClassID,
-    ) {
-        return Err(-1);
-    }
-
-    let mut new_abuf = unsafe { new_obj.as_object_unchecked() }
-        .0
-        .payload
-        .borrow()
-        .array_buffer()
-        .cloned()
-        .ok_or(-1)?;
-
-    if new_abuf.is_detached() {
+        Err(-1)
+    } else if unlikely(new_abuf.is_detached()) {
         JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-        return Err(-1);
-    }
-
-    if new_abuf.byte_length() < new_len as usize {
+        Err(-1)
+    } else if unlikely(new_abuf.byte_length() < new_len as usize) {
         ctx.throw_type_error("new ArrayBuffer is too small");
-        return Err(-1);
+        Err(-1)
+    } else {
+        // must test again because of side effects
+        if abuf.is_detached() {
+            JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+            return Err(-1);
+        }
+
+        abuf.with_bytes(|src| {
+            new_abuf.with_bytes_mut(|dst| unsafe {
+                std::ptr::copy_nonoverlapping(
+                    src.as_ptr().offset(start as isize),
+                    dst.as_mut_ptr(),
+                    new_len as usize,
+                );
+            })
+        });
+
+        Ok(new_obj.into())
     }
-
-    // must test again because of side effects
-    if abuf.is_detached() {
-        JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-        return Err(-1);
-    }
-
-    abuf.with_bytes(|src| {
-        new_abuf.with_bytes_mut(|dst| unsafe {
-            std::ptr::copy_nonoverlapping(
-                src.as_ptr().offset(start as isize),
-                dst.as_mut_ptr(),
-                new_len as usize,
-            );
-        })
-    });
-
-    Ok(new_obj.into())
 }
 
 pub static js_array_buffer_proto_funcs: [FieldDef; 4] = [
