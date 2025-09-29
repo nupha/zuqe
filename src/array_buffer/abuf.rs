@@ -13,7 +13,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::CallContext,
-    object::{JSObjectWeakref, ObjectPayload},
+    object::{JSObject, JSObjectWeakref, ObjectPayload},
     runtime::JSRuntime,
     value::{JSValue, JSValueConst},
 };
@@ -239,7 +239,7 @@ impl JSContext {
         class_id: JSClassID,
         byte_length: usize,
         opaque: *mut c_void,
-    ) -> JSResult {
+    ) -> Result<JSObject, i32> {
         debug_assert!(matches!(
             class_id,
             JS_CLASS_ARRAY_BUFFER | JS_CLASS_SHARED_ARRAY_BUFFER
@@ -303,11 +303,11 @@ impl JSContext {
             debug_assert!(matches!(_d, ABufData::Empty))
         }
 
-        Ok(obj.into())
+        Ok(obj)
     }
 
     #[inline(always)]
-    pub fn create_array_buffer(&self, byte_length: usize) -> JSResult {
+    pub fn create_array_buffer(&self, byte_length: usize) -> Result<JSObject, i32> {
         self.create_array_buffer_ex(
             &JSValue::UNDEFINED,
             JS_CLASS_ARRAY_BUFFER,
@@ -351,6 +351,7 @@ impl JSContext {
 pub fn js_array_buffer_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let size = cc.arg(0).to_array_index(ctx)? as usize;
     ctx.create_array_buffer_ex(cc.this(), JS_CLASS_ARRAY_BUFFER, size, std::ptr::null_mut())
+        .map(JSValue::Object)
 }
 
 pub fn js_shared_array_buffer_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -361,6 +362,7 @@ pub fn js_shared_array_buffer_constructor(ctx: &JSContext, cc: CallContext) -> J
         len,
         std::ptr::null_mut(),
     )
+    .map(JSValue::Object)
 }
 
 pub unsafe fn JS_DetachArrayBuffer(ctx: &JSContext, obj: &JSValue) {

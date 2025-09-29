@@ -1,6 +1,7 @@
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_ARRAY_BUFFER, JS_CLASS_DATAVIEW,
     JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY, JS_PROP_STRING_DEF,
+    branch_hints::unlikely,
     class::JSClassID,
     context::JSContext,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
@@ -55,16 +56,17 @@ pub fn js_array_buffer_get_byteLength(ctx: &JSContext, cc: CallContext) -> JSRes
 }
 
 pub fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let abuf = unsafe {
-        cc.this()
-            .as_object_unchecked()
-            .0
-            .payload
-            .borrow()
-            .array_buffer()
-            .cloned()
-            .ok_or(-1)?
-    };
+    let class_id = cc.magic() as JSClassID;
+
+    let abuf = cc
+        .this()
+        .as_object()
+        .filter(|o| o.class_id() == class_id)
+        .and_then(|o| o.0.payload.borrow().array_buffer().cloned())
+        .ok_or_else(|| {
+            ctx.throw_type_error_invalid_class(class_id);
+            -1
+        })?;
 
     if abuf.is_detached() {
         JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
@@ -89,6 +91,7 @@ pub fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
             new_len as usize,
             std::ptr::null_mut(),
         )
+        .map(JSValue::Object)
     } else {
         JS_CallConstructor(ctx, &ctor, &[JSValue::from(new_len)]).err()
     }?;
@@ -98,13 +101,14 @@ pub fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    if unsafe { new_obj.as_object_unchecked() }
-        .0
-        .payload
-        .borrow()
-        .class_id()
-        != cc.magic() as JSClassID
-    {
+    if unlikely(
+        unsafe { new_obj.as_object_unchecked() }
+            .0
+            .payload
+            .borrow()
+            .class_id()
+            != cc.magic() as JSClassID,
+    ) {
         return Err(-1);
     }
 

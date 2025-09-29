@@ -3366,7 +3366,7 @@ pub unsafe fn js_array_buffer_constructor2(
     class_id: JSClassID,
 ) -> JSValue {
     ctx.create_array_buffer_ex(new_target, class_id, byte_length, std::ptr::null_mut())
-        .unwrap_or(JSValue::EXCEPTION)
+        .map_or(JSValue::EXCEPTION, JSValue::Object)
 }
 
 #[deprecated(note = "not used")]
@@ -3381,7 +3381,7 @@ pub unsafe fn js_array_buffer_constructor1(
         byte_length,
         std::ptr::null_mut(),
     )
-    .unwrap_or(JSValue::EXCEPTION)
+    .map_or(JSValue::EXCEPTION, JSValue::Object)
 }
 
 // if the property is an expression, name = JS_ATOM_NULL

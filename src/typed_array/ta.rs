@@ -270,7 +270,9 @@ impl TypedArray {
         let count = self.length();
         let size_log2 = typed_array_size_log2(class_id as _);
 
-        let new_buf = ctx.create_array_buffer(count << size_log2)?;
+        let new_buf = ctx
+            .create_array_buffer(count << size_log2)
+            .map(JSValue::Object)?;
 
         // Note: necessary to check detacth again, because it could have been detached
         if self.is_detached() {
@@ -437,7 +439,6 @@ impl JSValue {
 impl JSContext {
     /// create an TypedArray with array buffer, offset and count.
     /// `count`: number of elements.
-    /// `buffer` is consumed.
     fn do_create_typed_array(
         &self,
         new_target: &JSValue,
@@ -507,7 +508,7 @@ impl JSContext {
             let size_log2 = typed_array_size_log2(class_id);
             self.create_array_buffer(count << size_log2)?
         };
-        self.do_create_typed_array(new_target, buffer, 0, count, class_id)
+        self.do_create_typed_array(new_target, buffer.into(), 0, count, class_id)
     }
 
     /// create a TypedArray from an existing `source`. The source value could be:
@@ -552,8 +553,13 @@ impl JSContext {
                         };
 
                         let buffer = self.create_array_buffer(count << size_log2)?;
-                        let new_ta =
-                            self.do_create_typed_array(new_target, buffer, 0, count, class_id)?;
+                        let new_ta = self.do_create_typed_array(
+                            new_target,
+                            buffer.into(),
+                            0,
+                            count,
+                            class_id,
+                        )?;
 
                         // put elements to buffer
                         for i in 0..count {
