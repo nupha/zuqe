@@ -111,60 +111,60 @@ impl RegExpData {
             ff |= LRE_FLAG_UTF16 as u8;
         }
 
-        let cnt_slash = pat.chars().filter(|x| *x == '\\').count();
-        if cnt_slash > 0 {
-            // has escape
-            let mut pat2 = String::with_capacity(pat.len() + cnt_slash);
-            let mut has_unicode = ff & LRE_FLAG_UTF16 as u8 != 0;
-            let mut expect_hex: Option<i32> = None;
-            let mut it = pattern.chars().peekable();
+        // let cnt_slash = pat.chars().filter(|x| *x == '\\').count();
+        // if cnt_slash > 0 {
+        //     // has escape
+        //     let mut pat2 = String::with_capacity(pat.len() + cnt_slash);
+        //     let mut has_unicode = ff & LRE_FLAG_UTF16 as u8 != 0;
+        //     let mut expect_hex: Option<i32> = None;
+        //     let mut it = pattern.chars().peekable();
 
-            while let Some(c) = it.next() {
-                pat2.push(c);
-                if c == '\\' {
-                    pat2.push('\\');
-                }
+        //     while let Some(c) = it.next() {
+        //         pat2.push(c);
+        //         if c == '\\' {
+        //             //pat2.push('\\');
+        //         }
 
-                // match c {
-                //     '\\' => {
-                //         if let Some(c1) = it.peek() {
-                //             match *c1 {
-                //                 'x' if !has_unicode => {
-                //                     // \xFF
-                //                     expect_hex = Some(2);
-                //                     it.next();
-                //                     pat2.push('x');
-                //                 }
-                //                 'u' if !has_unicode => {
-                //                     // \uFFFF
-                //                     expect_hex = Some(4);
-                //                     it.next();
-                //                     pat2.push('u');
-                //                 }
-                //                 '>' | '<' => {
-                //                     // replace `\>` with `>`, `\\<` with `<`
-                //                     pat2.pop(); // chop `\`
-                //                 }
-                //                 _ => {}
-                //             }
-                //         }
-                //     }
-                //     '0'..='9' | 'A'..='F' | 'a'..='f' if !has_unicode => {
-                //         if let Some(cnt) = &mut expect_hex {
-                //             *cnt -= 1;
-                //             if *cnt == 0 {
-                //                 ff |= LRE_FLAG_UTF16 as u8;
-                //                 has_unicode = true;
-                //                 expect_hex = None;
-                //             }
-                //         }
-                //     }
-                //     _ => {}
-                // }
-            }
+        //         // match c {
+        //         //     '\\' => {
+        //         //         if let Some(c1) = it.peek() {
+        //         //             match *c1 {
+        //         //                 'x' if !has_unicode => {
+        //         //                     // \xFF
+        //         //                     expect_hex = Some(2);
+        //         //                     it.next();
+        //         //                     pat2.push('x');
+        //         //                 }
+        //         //                 'u' if !has_unicode => {
+        //         //                     // \uFFFF
+        //         //                     expect_hex = Some(4);
+        //         //                     it.next();
+        //         //                     pat2.push('u');
+        //         //                 }
+        //         //                 '>' | '<' => {
+        //         //                     // replace `\>` with `>`, `\\<` with `<`
+        //         //                     pat2.pop(); // chop `\`
+        //         //                 }
+        //         //                 _ => {}
+        //         //             }
+        //         //         }
+        //         //     }
+        //         //     '0'..='9' | 'A'..='F' | 'a'..='f' if !has_unicode => {
+        //         //         if let Some(cnt) = &mut expect_hex {
+        //         //             *cnt -= 1;
+        //         //             if *cnt == 0 {
+        //         //                 ff |= LRE_FLAG_UTF16 as u8;
+        //         //                 has_unicode = true;
+        //         //                 expect_hex = None;
+        //         //             }
+        //         //         }
+        //         //     }
+        //         //     _ => {}
+        //         // }
+        //     }
 
-            pat = Cow::Owned(pat2);
-        }
+        //     pat = Cow::Owned(pat2);
+        // }
 
         let re = RegexBuilder::new(pat.as_ref())
             .unicode(ff & LRE_FLAG_UTF16 as u8 != 0)

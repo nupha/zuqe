@@ -70,12 +70,17 @@ impl<'s> JSParseState<'s> {
                                 self.throw_syntax_error("invalid utf-8 sequence");
                             })?;
 
-                        pattern_str.push_u32(ch).map_err(|_| {
-                            self.ctx.throw_out_of_memory();
-                            -1
-                        })?;
-                        i += cnt;
-                        continue;
+                        if unlikely(matches!(ch, CP_LS | CP_PS)) {
+                            self.throw_syntax_error("unexpected line terminator in regexp");
+                            return Err(-1);
+                        } else {
+                            pattern_str.push_u32(ch).map_err(|_| {
+                                self.ctx.throw_out_of_memory();
+                                -1
+                            })?;
+                            i += cnt;
+                            continue;
+                        }
                     }
                 }
 
