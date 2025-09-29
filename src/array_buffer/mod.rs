@@ -1,4 +1,4 @@
 mod abuf;
-mod classdef;
+mod class_array_buffer;
 
-pub use {abuf::*, classdef::*};
+pub use {abuf::*, class_array_buffer::*};

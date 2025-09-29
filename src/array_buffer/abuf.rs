@@ -9,6 +9,7 @@ use std::{
 
 use crate::{
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_DATAVIEW, JS_CLASS_SHARED_ARRAY_BUFFER,
+    branch_hints::unlikely,
     class::JSClassID,
     context::JSContext,
     error::JSResult,
@@ -112,9 +113,13 @@ struct ABufInner {
 
 impl ABufInner {
     /// get capacity of buffer, count in bytes
-    #[inline(always)]
+    #[inline]
     pub fn byte_length(&self) -> usize {
-        self.content.len()
+        if unlikely(self.detached) {
+            0
+        } else {
+            self.content.len()
+        }
     }
 
     #[inline(always)]

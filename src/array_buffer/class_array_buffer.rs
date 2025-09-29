@@ -11,33 +11,11 @@ use crate::{
     value::JSValue,
 };
 
-pub fn js_array_buffer_isView(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let mut res = false;
-    if let JSValue::Object(p) = cc.arg(0) {
-        if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_DATAVIEW).contains(&p.class_id()) {
-            res = true;
-        }
-    }
-    Ok(JSValue::Bool(res))
-}
-
-pub static js_array_buffer_funcs: [FieldDef; 2] = [
-    JS_CFUNC_NATIVE_DEF!("isView", 1, js_array_buffer_isView, 0),
-    JS_CGETSET_NATIVE_DEF!("[Symbol.species]", js_get_this, NONE, 0),
-];
-
-pub static js_shared_array_buffer_funcs: [FieldDef; 1] = [JS_CGETSET_NATIVE_DEF!(
-    "[Symbol.species]",
-    js_get_this,
-    NONE,
-    0
-)];
-
 //
 // Prototype
 //
 
-pub fn js_array_buffer_get_byteLength(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_array_buffer_get_byteLength(ctx: &JSContext, cc: CallContext) -> JSResult {
     let class_id = cc.magic() as JSClassID;
 
     cc.this()
@@ -55,7 +33,23 @@ pub fn js_array_buffer_get_byteLength(ctx: &JSContext, cc: CallContext) -> JSRes
         })
 }
 
-pub fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_array_buffer_detached(ctx: &JSContext, cc: CallContext) -> JSResult {
+    cc.this()
+        .as_object()
+        .filter(|o| o.class_id() == JS_CLASS_ARRAY_BUFFER)
+        .and_then(|o| {
+            o.0.payload
+                .borrow()
+                .array_buffer()
+                .map(|p| JSValue::Bool(p.is_detached()))
+        })
+        .ok_or_else(|| {
+            ctx.throw_type_error_invalid_class(JS_CLASS_ARRAY_BUFFER);
+            -1
+        })
+}
+
+fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
     let class_id = cc.magic() as JSClassID;
 
     let abuf = cc
@@ -149,13 +143,14 @@ pub fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(new_obj.into())
 }
 
-pub static js_array_buffer_proto_funcs: [FieldDef; 3] = [
+pub static js_array_buffer_proto_funcs: [FieldDef; 4] = [
     JS_CGETSET_NATIVE_DEF!(
         "byteLength",
         js_array_buffer_get_byteLength,
         NONE,
         JS_CLASS_ARRAY_BUFFER as i16
     ),
+    JS_CGETSET_NATIVE_DEF!("detached", js_array_buffer_detached, NONE, 0),
     JS_CFUNC_NATIVE_DEF!(
         "slice",
         2,
@@ -184,3 +179,29 @@ pub static js_shared_array_buffer_proto_funcs: [FieldDef; 3] = [
         JS_PROP_CONFIGURABLE as i16
     ),
 ];
+
+//
+// static methods
+//
+
+pub fn js_array_buffer_isView(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let mut res = false;
+    if let JSValue::Object(p) = cc.arg(0) {
+        if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_DATAVIEW).contains(&p.class_id()) {
+            res = true;
+        }
+    }
+    Ok(JSValue::Bool(res))
+}
+
+pub static js_array_buffer_funcs: [FieldDef; 2] = [
+    JS_CFUNC_NATIVE_DEF!("isView", 1, js_array_buffer_isView, 0),
+    JS_CGETSET_NATIVE_DEF!("[Symbol.species]", js_get_this, NONE, 0),
+];
+
+pub static js_shared_array_buffer_funcs: [FieldDef; 1] = [JS_CGETSET_NATIVE_DEF!(
+    "[Symbol.species]",
+    js_get_this,
+    NONE,
+    0
+)];
