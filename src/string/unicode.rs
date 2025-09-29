@@ -312,3 +312,16 @@ pub unsafe fn unicode_to_utf8_v0(buf: *mut u8, c: u32) -> i32 {
     }
     q.offset_from(buf) as i32
 }
+
+#[inline(always)]
+pub(crate) fn char_is_space(ch: char) -> bool {
+    ch.is_whitespace()
+        || matches!(
+            ch,
+            '\u{feff}' |  // Zero Width No-Break Space (BOM)
+            '\u{200b}' |  // Zero Width Space
+            '\u{200c}' |  // Zero Width Non-Joiner
+            '\u{200d}' |  // Zero Width Joiner
+            '\u{2060}' // Word Joiner
+        )
+}

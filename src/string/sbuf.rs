@@ -6,7 +6,7 @@ use std::{
 
 use fallible_collections::{FallibleVec, TryClone, TryCollect};
 
-use crate::string::StringChar;
+use crate::string::{StringChar, char_is_space};
 
 use super::{
     content::{StringContent, StringData},
@@ -634,7 +634,7 @@ impl StringBuf {
             let mut pos = 0;
             for (i, c) in self.iter() {
                 if let StringChar::Char(ch) = c {
-                    if !ch.is_whitespace() && ch != '\u{feff}' {
+                    if !char_is_space(ch) {
                         if start.is_none() {
                             start.replace(pos);
                         }

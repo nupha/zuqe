@@ -7,7 +7,7 @@ use crate::{
         js_atof,
     },
     runtime::js_check_stack_overflow,
-    string::{CP_LS, CP_PS, StringContent, UTF8_CHAR_LEN_MAX, unicode_from_utf8_v0},
+    string::{CP_LS, CP_PS, StringContent, UTF8_CHAR_LEN_MAX, char_is_space, unicode_from_utf8_v0},
     value::JSValue,
 };
 
@@ -626,11 +626,10 @@ impl<'s> JSParseState<'s> {
                             self.line_num += 1;
                             continue 'redo;
                         }
+                        ch if char_is_space(ch) => {
+                            continue 'redo;
+                        }
                         ch => {
-                            if ch.is_whitespace() {
-                                continue 'redo;
-                            }
-
                             todo = if JSParseState::is_ident_first(ch) {
                                 Some(Todo::HasIdent(ch, false))
                             } else {

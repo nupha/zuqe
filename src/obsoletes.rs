@@ -44,7 +44,7 @@ use crate::{
     proxy::ProxyObjPayload,
     runtime::JSRuntime,
     stack_frame::StackFrame,
-    string::{JSString, JSStringInner, UTF8_CHAR_LEN_MAX, unicode_from_utf8_v0},
+    string::{JSString, JSStringInner, UTF8_CHAR_LEN_MAX, char_is_space, unicode_from_utf8_v0},
     value::{JSValue, JSValueConst},
 };
 
@@ -3845,7 +3845,7 @@ pub unsafe fn skip_spaces(pc: *const u8) -> usize {
             }
             p = p.offset(1);
         } else if let Ok(uc) = unicode_from_utf8_v0(p, UTF8_CHAR_LEN_MAX as _, &mut p_next) {
-            if !uc.is_whitespace() {
+            if !char_is_space(uc) {
                 break;
             } else {
                 p = p_next;
