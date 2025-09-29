@@ -111,7 +111,7 @@ impl TwoNumbers {
     pub fn mod_(self) -> JSValue {
         match self {
             Self::Int(a, b) => {
-                if b == 0 {
+                if unlikely(b == 0) {
                     JSValue::Float64(f64::NAN)
                 } else if a < 0 {
                     JSValue::from((a as f64) % (b as f64))
@@ -120,7 +120,7 @@ impl TwoNumbers {
                 }
             }
             Self::Float(a, b) => {
-                if b == 0.0 {
+                if unlikely(b == 0.0) {
                     JSValue::Float64(f64::NAN)
                 } else {
                     JSValue::from(a % b)
@@ -133,13 +133,14 @@ impl TwoNumbers {
         match self {
             Self::Int(a, b) => {
                 if b >= 0 {
-                    JSValue::from(a.pow(b as u32))
+                    JSValue::from((a as i64).pow(b as u32))
+                    // JSValue::from(a.pow(b as u32)) // <-- this may overflow
                 } else {
                     JSValue::from((a as f64).powf(b as f64))
                 }
             }
             Self::Float(a, b) => {
-                if !b.is_finite() && a.abs() == 1.0 {
+                if unlikely(!b.is_finite() && a.abs() == 1.0) {
                     // not compatible with IEEE 754
                     JSValue::Float64(f64::NAN)
                 } else {
@@ -245,7 +246,7 @@ impl UnaryOp {
     pub fn neg(self) -> JSValue {
         match self {
             UnaryOp::Int(a) => {
-                if a == 0 {
+                if unlikely(a == 0) {
                     // -0 cannot be expressed as integer
                     JSValue::Float64(-0.0)
                 } else if a == i32::MIN {
@@ -255,7 +256,7 @@ impl UnaryOp {
                 }
             }
             UnaryOp::Float(a) => {
-                if a == 0.0 {
+                if unlikely(a == 0.0) {
                     if a.is_sign_negative() {
                         JSValue::Int(0)
                     } else {
@@ -278,7 +279,7 @@ impl UnaryOp {
     pub fn inc(self) -> JSValue {
         match self {
             UnaryOp::Int(a) => {
-                if a == i32::MAX {
+                if unlikely(a == i32::MAX) {
                     JSValue::from(a as u32 + 1)
                 } else {
                     JSValue::Int(a + 1)
@@ -291,7 +292,7 @@ impl UnaryOp {
     pub fn dec(self) -> JSValue {
         match self {
             UnaryOp::Int(a) => {
-                if a == i32::MIN {
+                if unlikely(a == i32::MIN) {
                     JSValue::from(a as i64 - 1)
                 } else {
                     JSValue::Int(a - 1)

@@ -56,56 +56,52 @@ pub fn js_function_bind(ctx: &JSContext, args: CallContext) -> JSResult {
         )
         .map_err(|_| -1)?;
 
-    unsafe {
-        (*func_obj.0.obj_flags.as_ptr()).set_constructor(this_val.is_constructor());
-    }
+    func_obj.set_flag_constructor(this_val.is_constructor());
 
-    unsafe {
-        /* XXX: the spec could be simpler by only using GetOwnProperty */
-        let len_val = if args
-            .this_raw()
-            .get_own_property(ctx, JS_ATOM_length)?
-            .is_none()
-        {
-            JSValue::Int(0)
-        } else {
-            let len = this_val.get_property(ctx, JS_ATOM_length)?;
-            match len {
-                JSValue::Int(n) => JSValue::Int(std::cmp::max(0, n - arg_count as i32)),
-                JSValue::Float64(mut d) => {
-                    if d.is_nan() {
+    /* XXX: the spec could be simpler by only using GetOwnProperty */
+    let len_val = if args
+        .this_raw()
+        .get_own_property(ctx, JS_ATOM_length)?
+        .is_none()
+    {
+        JSValue::Int(0)
+    } else {
+        let len = this_val.get_property(ctx, JS_ATOM_length)?;
+        match len {
+            JSValue::Int(n) => JSValue::Int(std::cmp::max(0, n - arg_count as i32)),
+            JSValue::Float64(mut d) => {
+                if d.is_nan() {
+                    d = 0.0;
+                } else {
+                    d = d.trunc();
+                    if d <= arg_count as f64 {
                         d = 0.0;
                     } else {
-                        d = d.trunc();
-                        if d <= arg_count as f64 {
-                            d = 0.0;
-                        } else {
-                            d -= arg_count as f64; /* also converts -0 to +0 */
-                        }
+                        d -= arg_count as f64; /* also converts -0 to +0 */
                     }
-                    JSValue::Float64(d)
                 }
-                _ => JSValue::Int(0),
+                JSValue::Float64(d)
             }
-        };
+            _ => JSValue::Int(0),
+        }
+    };
 
-        func_obj
-            .define_property_value(ctx, JS_ATOM_length, len_val, JS_PROP_CONFIGURABLE)
-            .unwrap();
+    func_obj
+        .define_property_value(ctx, JS_ATOM_length, len_val, JS_PROP_CONFIGURABLE)
+        .unwrap();
 
-        let name = args.this_raw().get_property(ctx, JS_ATOM_name)?;
-        let name = if let JSValue::String(s) = name {
-            s
-        } else {
-            JS_ATOM_empty_string.force_string(ctx)?
-        };
+    let name = args.this_raw().get_property(ctx, JS_ATOM_name)?;
+    let name = if let JSValue::String(s) = name {
+        s
+    } else {
+        JS_ATOM_empty_string.force_string(ctx)?
+    };
 
-        // make bound function name.
-        let bf_name = JS_ConcatString3(ctx, c"bound ", name.into(), c"")?;
-        func_obj.define_property_value(ctx, JS_ATOM_name, bf_name.into(), JS_PROP_CONFIGURABLE)?;
+    // make bound function name.
+    let bf_name = JS_ConcatString3(ctx, c"bound ", name.into(), c"")?;
+    func_obj.define_property_value(ctx, JS_ATOM_name, bf_name.into(), JS_PROP_CONFIGURABLE)?;
 
-        Ok(func_obj.into())
-    }
+    Ok(func_obj.into())
 }
 
 pub fn js_function_toString(ctx: &JSContext, args: CallContext) -> JSResult {

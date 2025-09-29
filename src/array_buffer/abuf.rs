@@ -101,11 +101,8 @@ impl ABufData {
 struct ABufInner {
     pub content: ABufData,
 
+    /// if is shared, the array buffer cannot be detached
     pub detached: bool,
-
-    /// if shared, the array buffer cannot be detached
-    #[deprecated(note = "use content is_shared() instead")]
-    pub shared: bool,
 
     /// typed arrays that based on this array buffer.
     pub array_list: Vec<JSObjectWeakref>,
@@ -178,9 +175,16 @@ impl ArrayBufPayload {
         self.0.borrow_mut().with_bytes_mut(f)
     }
 
+    /// get buffer content
     #[inline(always)]
     pub fn content(&self) -> Ref<'_, ABufData> {
         Ref::map(self.0.borrow(), |b| &b.content)
+    }
+
+    fn set_content(&self, content: ABufData) -> ABufData {
+        let mut b = self.0.borrow_mut();
+        b.detached = false;
+        std::mem::replace(&mut b.content, content)
     }
 
     #[inline(always)]
@@ -209,7 +213,6 @@ impl JSContext {
             let inner = ABufInner {
                 content,
                 detached: false,
-                shared: class_id == JS_CLASS_SHARED_ARRAY_BUFFER,
                 array_list: Vec::new(),
                 opaque,
             };
@@ -237,6 +240,35 @@ impl JSContext {
         byte_length: usize,
         opaque: *mut c_void,
     ) -> JSResult {
+        debug_assert!(matches!(
+            class_id,
+            JS_CLASS_ARRAY_BUFFER | JS_CLASS_SHARED_ARRAY_BUFFER
+        ));
+
+        // Note: according to spec -
+        // 'The new ArrayBuffer instance is created prior to allocating the Data Block.'
+        // we create empty array buffer instance first,
+        // then allocate buffer, and finally set buffer to array buffer instance created earlier.
+
+        // 1. create ArrayBuffer instance
+        let isa = ArrayBufPayload(Rc::new(RefCell::new(ABufInner {
+            content: ABufData::Empty,
+            detached: false,
+            array_list: Vec::new(),
+            opaque,
+        })));
+        let obj = self
+            .create_object_apply_ctor(
+                new_target,
+                if class_id == JS_CLASS_ARRAY_BUFFER {
+                    ObjectPayload::ARRAY_BUFFER(isa)
+                } else {
+                    ObjectPayload::SHARED_ARRAY_BUFFER(isa)
+                },
+            )
+            .map_err(|_| -1)?;
+
+        // 2. allocate buffer and set buffer to instance
         let content = if byte_length == 0 {
             ABufData::Empty
         } else {
@@ -266,7 +298,12 @@ impl JSContext {
             }
         };
 
-        self.do_create_array_buffer(new_target, class_id, content, opaque)
+        if let Some(ab) = obj.0.payload.borrow().array_buffer() {
+            let _d = ab.set_content(content);
+            debug_assert!(matches!(_d, ABufData::Empty))
+        }
+
+        Ok(obj.into())
     }
 
     #[inline(always)]

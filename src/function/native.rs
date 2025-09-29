@@ -403,17 +403,15 @@ impl JSContext {
             )
             .map_err(|_| -1)?;
 
-        unsafe {
-            (*func_obj.0.obj_flags.as_ptr()).set_constructor(matches!(
-                call,
-                NativeFunctionType::Constructor(_)
-                    | NativeFunctionType::ConstructorOrFunc(_)
-                    | NativeFunctionType::CConstructor(_)
-                    | NativeFunctionType::CConstructorMagic(_)
-                    | NativeFunctionType::CConstructorOrFunc(_)
-                    | NativeFunctionType::CConstructorOrFuncMagic(_)
-            ));
-        }
+        func_obj.set_flag_constructor(matches!(
+            call,
+            NativeFunctionType::Constructor(_)
+                | NativeFunctionType::ConstructorOrFunc(_)
+                | NativeFunctionType::CConstructor(_)
+                | NativeFunctionType::CConstructorMagic(_)
+                | NativeFunctionType::CConstructorOrFunc(_)
+                | NativeFunctionType::CConstructorOrFuncMagic(_)
+        ));
 
         // define properties length and name on function.
         let name_atom = JSAtom::new(self.rt_mut(), name)?;

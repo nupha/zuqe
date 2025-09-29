@@ -63,7 +63,7 @@ impl ObjectFlags {
     pub const fn extensible(&self) -> bool {
         self.bitfield & Self::MASK_EXTENSIBLE != 0
     }
-    pub const fn set_extensible(&mut self, b: bool) {
+    const fn set_extensible(&mut self, b: bool) {
         if b {
             self.bitfield |= Self::MASK_EXTENSIBLE;
         } else {
@@ -96,7 +96,7 @@ impl ObjectFlags {
     pub const fn is_fast_array(&self) -> bool {
         self.bitfield & Self::MASK_FAST_ARRAY != 0
     }
-    pub const fn set_fast_array(&mut self, b: bool) {
+    const fn set_fast_array(&mut self, b: bool) {
         if b {
             self.bitfield |= Self::MASK_FAST_ARRAY
         } else {
@@ -107,7 +107,7 @@ impl ObjectFlags {
     pub const fn is_constructor(&self) -> bool {
         self.bitfield & Self::MASK_IS_CONSTRUCTOR != 0
     }
-    pub const fn set_constructor(&mut self, b: bool) {
+    const fn set_constructor(&mut self, b: bool) {
         if b {
             self.bitfield |= Self::MASK_IS_CONSTRUCTOR;
         } else {
@@ -118,7 +118,7 @@ impl ObjectFlags {
     pub const fn is_uncatchable_error(&self) -> bool {
         self.bitfield & Self::MASK_IS_UNCATCHABLE_ERROR != 0
     }
-    pub const fn set_uncatchable_error(&mut self, b: bool) {
+    const fn set_uncatchable_error(&mut self, b: bool) {
         if b {
             self.bitfield |= Self::MASK_IS_UNCATCHABLE_ERROR;
         } else {
@@ -153,22 +153,24 @@ pub(crate) struct ObjectInner {
     rt: NonNull<JSRuntime>,
 
     /// object flags
-    pub obj_flags: Cell<ObjectFlags>,
+    obj_flags: Cell<ObjectFlags>,
 
     /// Shape of object, to denote prototype and property names + flag
     /// could be NULL while freeing an object
-    pub shape: RefCell<Option<JSShape>>,
+    pub(crate) shape: RefCell<Option<JSShape>>,
 
     /// property value slots
-    pub prop_values: RefCell<Vec<JSProperty>>,
+    pub(crate) prop_values: RefCell<Vec<JSProperty>>,
 
     /// this object is weak referenced in state.
-    pub weak_refs: RefCell<Vec<JSObjectWeakref>>,
+    pub(crate) weak_refs: RefCell<Vec<JSObjectWeakref>>,
 
-    /// object payload
-    pub payload: RefCell<ObjectPayload>,
+    /// object payload.
+    /// TODO: no need to use RefCell<>, use ObjectPayload instead.
+    /// move mutability to payload inner.
+    pub(crate) payload: RefCell<ObjectPayload>,
 
-    pub gc_mark: Cell<bool>,
+    pub(crate) gc_mark: Cell<bool>,
 
     #[cfg(debug_assertions)]
     pub(crate) _debug_hint: UnsafeCell<Option<std::borrow::Cow<'static, str>>>,
@@ -492,20 +494,52 @@ impl JSObject {
     }
 
     /// Get object class id
-    #[inline]
+    #[inline(always)]
     pub fn class_id(&self) -> JSClassID {
         self.0.payload.borrow().class_id()
     }
-
     /// Get object class name.
     /// Note: returned atom is not duplicated, caller should clone to keep reference.
+    #[inline]
     pub fn class_name(&self) -> JSAtom {
         self.rt().class_defs[self.class_id() as usize].class_name
     }
 
+    /// Get object flags
     #[inline]
     pub fn flags(&self) -> ObjectFlags {
         self.0.obj_flags.get()
+    }
+    #[inline]
+    pub fn set_flag_fast_array(&self, b: bool) {
+        unsafe {
+            (&mut *self.0.obj_flags.as_ptr()).set_fast_array(b);
+        }
+        // equivelent but slower solution:
+        // let mut f = self.flags();
+        // f.set_fast_array(b);
+        // self.0.obj_flags.set(f);
+    }
+    #[inline]
+    pub fn set_flag_constructor(&self, b: bool) {
+        unsafe {
+            (&mut *self.0.obj_flags.as_ptr()).set_constructor(b);
+        }
+        // for equivelent but slower solution: see above
+    }
+    #[inline]
+    pub fn set_flag_extensible(&self, b: bool) {
+        unsafe {
+            (&mut *self.0.obj_flags.as_ptr()).set_extensible(b);
+        }
+        // for equivelent but slower solution: see above
+    }
+    #[inline]
+    pub fn set_flag_uncatchable_error(&self, b: bool) {
+        unsafe {
+            (&mut *self.0.obj_flags.as_ptr()).set_uncatchable_error(b);
+        }
+        // for equivelent but slower solution: see above
     }
 
     pub fn shape(&self) -> Option<JSShape> {
@@ -531,9 +565,7 @@ impl JSObject {
     pub fn prevent_extensions(&self, ctx: &JSContext) -> Result<bool, i32> {
         self.as_Proxy().map_or_else(
             || {
-                let mut f = self.0.obj_flags.get();
-                f.set_extensible(false);
-                self.0.obj_flags.set(f);
+                self.set_flag_extensible(false);
                 Ok(true)
             },
             |p| p.prevent_extensions(ctx),
@@ -759,9 +791,7 @@ pub const JS_PROP_INITIAL_HASH_SIZE: usize = 4;
 /// `func_obj` is not consumed.
 pub fn JS_SetConstructorBit(ctx: &JSContext, func_obj: &JSValue, val: bool) -> bool {
     if let JSValue::Object(p) = func_obj {
-        unsafe {
-            (*p.0.obj_flags.as_ptr()).set_constructor(val);
-        }
+        p.set_flag_constructor(val);
         true
     } else {
         false
@@ -807,10 +837,7 @@ pub fn seal_template_obj(ctx: &JSContext, obj: JSValue) -> i32 {
         return -1;
     }
 
-    unsafe {
-        (*p.0.obj_flags.as_ptr()).set_extensible(false);
-    }
-
+    p.set_flag_extensible(false);
     0
 }
 
@@ -820,9 +847,7 @@ pub fn JS_PreventExtensions(ctx: &JSContext, obj: &JSValue) -> Result<bool, i32>
         if p.class_id() == JS_CLASS_PROXY {
             obj.prevent_extensions(ctx)
         } else {
-            unsafe {
-                (*p.0.obj_flags.as_ptr()).set_extensible(false);
-            }
+            p.set_flag_extensible(false);
             Ok(true)
         }
     } else {

@@ -413,12 +413,10 @@ pub unsafe fn JS_IsUncatchableError(val: &JSValue) -> bool {
     }
 }
 
-pub fn JS_SetUncatchableError(val: &JSValue, flag: bool) {
+pub fn JS_SetUncatchableError(val: &JSValue, b: bool) {
     if let JSValue::Object(p) = val {
         if p.class_id() == JS_CLASS_ERROR {
-            unsafe {
-                (*p.0.obj_flags.as_ptr()).set_uncatchable_error(flag);
-            }
+            p.set_flag_uncatchable_error(b);
         }
     }
 }

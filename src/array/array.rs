@@ -191,11 +191,8 @@ impl Array {
 
         // use fast array list
         self.0.0.payload.borrow_mut().array_mut().unwrap().values = values;
-
         // set fast array flag
-        unsafe {
-            (&mut *self.0.0.obj_flags.as_ptr()).set_fast_array(true);
-        }
+        self.set_flag_fast_array(true);
 
         // set array length, can't fail
         debug_assert!(
@@ -509,9 +506,7 @@ impl JSObject {
                 }
             }
 
-            unsafe {
-                (*self.0.obj_flags.as_ptr()).set_fast_array(false);
-            }
+            self.set_flag_fast_array(false);
         }
 
         Ok(())

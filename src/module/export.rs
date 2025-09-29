@@ -308,11 +308,7 @@ impl ModuleDef {
             JS_ATOM_Module.force_string(ctx)?.into(),
             0,
         )?;
-
-        unsafe {
-            (*obj.0.obj_flags.as_ptr()).set_extensible(false);
-        }
-
+        obj.set_flag_extensible(false);
         Ok(obj.into())
     }
 

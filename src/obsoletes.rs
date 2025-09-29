@@ -2415,7 +2415,7 @@ pub unsafe fn JS_NewCFunction3(
         }),
     ) {
         Ok(func_obj) => {
-            (*func_obj.0.obj_flags.as_ptr()).set_constructor(matches!(
+            func_obj.set_flag_constructor(matches!(
                 cproto,
                 JSCFunctionEnum::Constructor
                     | JSCFunctionEnum::ConstructorMagic
