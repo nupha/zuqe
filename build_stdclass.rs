@@ -129,14 +129,14 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "ArrayBuffer",
             "ARRAY_BUFFER",
-            Some("crate::array_buffer::ArrayBufObjPayload"),
+            Some("crate::array_buffer::ArrayBufPayload"),
             Some("crate::array_buffer::js_array_buffer_finalizer"),
             None
         ),
         class_def!(
             "SharedArrayBuffer",
             "SHARED_ARRAY_BUFFER",
-            Some("crate::array_buffer::ArrayBufObjPayload"),
+            Some("crate::array_buffer::ArrayBufPayload"),
             Some("crate::array_buffer::js_array_buffer_finalizer"),
             None
         ),

@@ -3,7 +3,7 @@ use crate::{
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
     JS_CLASS_INT32_ARRAY, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8_ARRAY,
     JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
-    array_buffer::ArrayBufObjPayload,
+    array_buffer::ArrayBufPayload,
     atom::consts::JS_ATOM_Symbol_iterator,
     class::JSClassID,
     context::JSContext,
@@ -65,7 +65,7 @@ impl TypedArrayObjPayload {
         if let JSValue::Object(abo) = buffer {
             let abuf = abo.0.payload.borrow().array_buffer().cloned().unwrap();
 
-            if abuf.0.borrow().detached {
+            if abuf.is_detached() {
                 JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
                 return Err(-1);
             }
@@ -111,13 +111,11 @@ impl TypedArrayObjPayload {
             .borrow()
             .array_buffer()
             .unwrap()
-            .0
-            .borrow()
-            .detached
+            .is_detached()
     }
 
     /// get underlaying array buffer.
-    pub fn array_buffer(&self) -> ArrayBufObjPayload {
+    pub fn array_buffer(&self) -> ArrayBufPayload {
         self.buffer
             .0
             .payload
@@ -488,10 +486,7 @@ impl JSContext {
                 .typed_array()
                 .map(|x| x.array_buffer())
                 .unwrap()
-                .0
-                .borrow_mut()
-                .array_list
-                .push(w.clone());
+                .add_typed_array_weakref(w.clone());
 
             ta.0.payload.borrow_mut().typed_array_mut().unwrap().obj = w;
         }
@@ -689,21 +684,7 @@ pub fn js_typed_array_finalizer(rt: &mut JSRuntime, isa: ObjectPayload, id: usiz
     if let Some(ta) = isa.typed_array() {
         // during the GC the finalizers are called in an arbitrary
         // order so the ArrayBuffer finalizer may have been called
-        ta.array_buffer()
-            .0
-            .borrow_mut()
-            .array_list
-            .retain(|a| match a.0.strong_count() {
-                1 => {
-                    if let Some(o) = a.upgrade() {
-                        o.id() != id
-                    } else {
-                        false
-                    }
-                }
-                0 => false,
-                _ => true,
-            });
+        ta.array_buffer().remove_typed_array_weakref(id);
     }
 }
 

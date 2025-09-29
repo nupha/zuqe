@@ -36,16 +36,22 @@ pub static js_shared_array_buffer_funcs: [FieldDef; 1] = [JS_CGETSET_NATIVE_DEF!
 // Prototype
 //
 
-pub fn js_array_buffer_get_byteLength(_: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_array_buffer_get_byteLength(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let class_id = cc.magic() as JSClassID;
+
     cc.this()
         .as_object()
-        .unwrap()
-        .0
-        .payload
-        .borrow()
-        .array_buffer()
-        .map(|p| JSValue::Int(p.byte_length() as i32))
-        .ok_or(-1)
+        .filter(|o| o.class_id() == class_id)
+        .and_then(|o| {
+            o.0.payload
+                .borrow()
+                .array_buffer()
+                .map(|p| JSValue::Int(p.byte_length() as i32))
+        })
+        .ok_or_else(|| {
+            ctx.throw_type_error_invalid_class(class_id);
+            -1
+        })
 }
 
 pub fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {

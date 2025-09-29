@@ -134,7 +134,7 @@ pub fn js_dataview_getValue(ctx: &JSContext, args: CallContext) -> JSResult {
             .cloned()
             .unwrap();
 
-        if abuf.0.borrow().detached {
+        if abuf.is_detached() {
             JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
             return Err(-1);
         }

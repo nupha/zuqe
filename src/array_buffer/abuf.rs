@@ -29,14 +29,14 @@ pub struct JSSharedArrayBufferFunctions {
 }
 
 #[derive(Debug)]
-pub enum ArrayBufferContent {
+pub enum ABufData {
     Empty,
     Owned(Box<[u8]>),
     Shared(Arc<RwLock<Box<[u8]>>>),
     Raw(NonNull<u8>, usize, Option<JSFreeArrayBufferDataFunc>),
 }
 
-impl ArrayBufferContent {
+impl ABufData {
     /// for SharedArrayBuffer
     pub fn is_shared(&self) -> bool {
         if let Self::Shared(_) = self {
@@ -98,8 +98,8 @@ impl ArrayBufferContent {
 }
 
 #[derive(Debug)]
-pub(crate) struct JSArrayBufferInner {
-    pub content: ArrayBufferContent,
+struct ABufInner {
+    pub content: ABufData,
 
     pub detached: bool,
 
@@ -113,7 +113,7 @@ pub(crate) struct JSArrayBufferInner {
     pub opaque: *mut c_void,
 }
 
-impl JSArrayBufferInner {
+impl ABufInner {
     /// get capacity of buffer, count in bytes
     #[inline(always)]
     pub fn byte_length(&self) -> usize {
@@ -132,9 +132,9 @@ impl JSArrayBufferInner {
 }
 
 #[derive(Debug, Clone)]
-pub struct ArrayBufObjPayload(pub(crate) Rc<RefCell<JSArrayBufferInner>>);
+pub struct ArrayBufPayload(Rc<RefCell<ABufInner>>);
 
-impl ArrayBufObjPayload {
+impl ArrayBufPayload {
     #[inline(always)]
     pub fn is_detached(&self) -> bool {
         self.0.borrow().detached
@@ -144,6 +144,28 @@ impl ArrayBufObjPayload {
     #[inline(always)]
     pub fn byte_length(&self) -> usize {
         self.0.borrow().byte_length()
+    }
+
+    pub fn add_typed_array_weakref(&mut self, t: JSObjectWeakref) {
+        self.0.borrow_mut().array_list.push(t);
+    }
+
+    /// `obj_id` is the id of typed array object
+    pub fn remove_typed_array_weakref(&mut self, obj_id: usize) {
+        self.0
+            .borrow_mut()
+            .array_list
+            .retain(|a| match a.0.strong_count() {
+                1 => {
+                    if let Some(o) = a.upgrade() {
+                        o.id() != obj_id
+                    } else {
+                        false
+                    }
+                }
+                0 => false,
+                _ => true,
+            });
     }
 
     #[inline(always)]
@@ -157,7 +179,7 @@ impl ArrayBufObjPayload {
     }
 
     #[inline(always)]
-    pub fn content(&self) -> Ref<'_, ArrayBufferContent> {
+    pub fn content(&self) -> Ref<'_, ABufData> {
         Ref::map(self.0.borrow(), |b| &b.content)
     }
 
@@ -174,7 +196,7 @@ impl JSContext {
         &self,
         new_target: &JSValueConst,
         class_id: JSClassID,
-        content: ArrayBufferContent,
+        content: ABufData,
         opaque: *mut c_void,
     ) -> JSResult {
         debug_assert!(matches!(
@@ -184,14 +206,14 @@ impl JSContext {
 
         // make ArrayBuffer payload
         let ab = {
-            let inner = JSArrayBufferInner {
+            let inner = ABufInner {
                 content,
                 detached: false,
                 shared: class_id == JS_CLASS_SHARED_ARRAY_BUFFER,
                 array_list: Vec::new(),
                 opaque,
             };
-            ArrayBufObjPayload(Rc::new(RefCell::new(inner)))
+            ArrayBufPayload(Rc::new(RefCell::new(inner)))
         };
 
         // create array buffer or shared array buffer instance
@@ -216,15 +238,21 @@ impl JSContext {
         opaque: *mut c_void,
     ) -> JSResult {
         let content = if byte_length == 0 {
-            ArrayBufferContent::Empty
+            ABufData::Empty
         } else {
+            // we are currently limited to 2 GB
+            if byte_length > i32::MAX as usize {
+                self.throw_range_error("invalid array buffer length");
+                return Err(-1);
+            }
+
             match (class_id, &self.rt().sab_funcs) {
                 (JS_CLASS_SHARED_ARRAY_BUFFER, Some(fns)) => {
                     let mut data = (fns.sab_alloc)(fns.sab_opaque, byte_length)?;
                     unsafe {
                         std::ptr::write_bytes(data.as_mut_ptr(), 0, byte_length);
                     }
-                    ArrayBufferContent::Shared(Arc::new(RwLock::new(data)))
+                    ABufData::Shared(Arc::new(RwLock::new(data)))
                 }
                 _ => {
                     let mut chunk = Vec::<u8>::new();
@@ -233,7 +261,7 @@ impl JSContext {
                         return Err(-1);
                     }
                     chunk.resize(byte_length, 0);
-                    ArrayBufferContent::Owned(chunk.into_boxed_slice())
+                    ABufData::Owned(chunk.into_boxed_slice())
                 }
             }
         };
@@ -259,12 +287,7 @@ impl JSContext {
         data: Box<[u8]>,
         opaque: *mut c_void,
     ) -> JSResult {
-        self.do_create_array_buffer(
-            new_target,
-            class_id,
-            ArrayBufferContent::Owned(data),
-            opaque,
-        )
+        self.do_create_array_buffer(new_target, class_id, ABufData::Owned(data), opaque)
     }
 
     #[inline(always)]
@@ -282,7 +305,7 @@ impl JSContext {
         self.do_create_array_buffer(
             new_target,
             class_id,
-            ArrayBufferContent::Raw(data, data_len, free_func),
+            ABufData::Raw(data, data_len, free_func),
             opaque,
         )
     }
@@ -317,7 +340,7 @@ pub unsafe fn JS_DetachArrayBuffer(ctx: &JSContext, obj: &JSValue) {
     {
         if !abuf.0.borrow().detached {
             match abuf.content().deref() {
-                ArrayBufferContent::Raw(ptr, len, fin) => {
+                ABufData::Raw(ptr, len, fin) => {
                     if let Some(f) = fin {
                         f(ctx.rt_mut(), abuf.opaque(), ptr.as_ptr(), *len);
                     }
@@ -350,10 +373,10 @@ pub fn js_array_buffer_finalizer(rt: &mut JSRuntime, isa: ObjectPayload, id: usi
 
     // free content
     match abuf.content().deref() {
-        ArrayBufferContent::Raw(p, len, Some(free_func)) => {
+        ABufData::Raw(p, len, Some(free_func)) => {
             free_func(rt, abuf.opaque(), p.as_ptr(), *len);
         }
-        ArrayBufferContent::Shared(a) => {
+        ABufData::Shared(a) => {
             if Arc::strong_count(&a) == 1 {
                 if let Some(fns) = &rt.sab_funcs {
                     (fns.sab_free)(fns.sab_opaque, a.read().unwrap().len());

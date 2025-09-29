@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     array::ArrayObjPayload,
-    array_buffer::ArrayBufObjPayload,
+    array_buffer::ArrayBufPayload,
     context::JSContext,
     function::{AsyncFuncState, BCFuncPayload},
     mapset::{JSMapIteratorData, JSMapState},
@@ -37,13 +37,13 @@ impl ObjectPayload {
         self.array_mut().map(f)
     }
 
-    pub const fn array_buffer(&self) -> Option<&ArrayBufObjPayload> {
+    pub const fn array_buffer(&self) -> Option<&ArrayBufPayload> {
         match self {
             Self::ARRAY_BUFFER(a) | Self::SHARED_ARRAY_BUFFER(a) => Some(a),
             _ => None,
         }
     }
-    pub const fn array_buffer_mut(&mut self) -> Option<&mut ArrayBufObjPayload> {
+    pub const fn array_buffer_mut(&mut self) -> Option<&mut ArrayBufPayload> {
         match self {
             Self::ARRAY_BUFFER(a) | Self::SHARED_ARRAY_BUFFER(a) => Some(a),
             _ => None,

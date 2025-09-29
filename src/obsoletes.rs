@@ -3327,7 +3327,7 @@ pub unsafe fn add_import(
     unreachable!("unused");
 }
 
-#[deprecated(note = "use JSContext::create_array_buffer_inner0() instead")]
+#[deprecated(note = "use JSContext::create_array_buffer_ex() instead")]
 pub unsafe fn js_array_buffer_constructor3(
     ctx: &JSContext,
     new_target: JSValueConst,
