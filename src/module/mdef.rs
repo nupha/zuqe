@@ -233,11 +233,11 @@ impl ModuleDefInner {
                     }
                 }
 
-                let isa = ObjectPayload::BYTECODE_FUNCTION(BCFuncPayload {
+                let isa = ObjectPayload::BYTECODE_FUNCTION(RefCell::new(Box::new(BCFuncPayload {
                     bytecode: Some(bc.clone()),
                     var_refs,
                     home_object: None,
-                });
+                })));
                 let proto = ctx.0.borrow().function_proto.clone();
                 let func_obj = ctx.create_object_from_proto(proto, isa).map_err(|_| -1)?;
                 self.bytecode.replace(func_obj.into());
@@ -583,7 +583,7 @@ pub fn JS_GetScriptOrModuleName(ctx: &JSContext, n_stack_levels: i32) -> JSAtom 
                 p.0.payload
                     .borrow()
                     .func()
-                    .map(|f| f.bytecode.as_ref().unwrap())
+                    .and_then(|f| f.bytecode().cloned())
             {
                 let b = b.0.borrow();
                 if !b.is_direct_or_indirect_eval {

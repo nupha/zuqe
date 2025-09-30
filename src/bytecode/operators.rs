@@ -1,4 +1,5 @@
-use std::ops::DerefMut;
+use std::cell::RefCell;
+use std::ops::Deref;
 
 use crate::branch_hints::unlikely;
 use crate::iterator::{ForInIterObjPayload, ObjectIter};
@@ -159,7 +160,7 @@ pub fn js_op_define_class(
     let func = ctx
         .create_object_from_proto(
             parent_class,
-            ObjectPayload::BYTECODE_FUNCTION(BCFuncPayload::default()),
+            ObjectPayload::BYTECODE_FUNCTION(RefCell::new(Box::new(BCFuncPayload::default()))),
         )
         .map_err(|_| -1)?;
 
@@ -236,7 +237,7 @@ pub(crate) fn js_get_function_name(ctx: &JSContext, name: JSAtom) -> Result<JSSt
 
 pub fn js_method_set_home_object(func_obj: &JSValue, home_obj: Option<&JSObject>) {
     if let JSValue::Object(o) = func_obj {
-        if let Some(fo) = o.0.payload.borrow_mut().func_mut() {
+        if let Some(mut fo) = o.0.payload.borrow().func_mut() {
             let need_home_object = fo
                 .bytecode
                 .as_ref()
@@ -368,10 +369,12 @@ pub fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
 
     let ob = unsafe { enum_obj.as_object_unchecked() };
 
-    if let ObjectPayload::FOR_IN_ITERATOR(it) = ob.0.payload.borrow_mut().deref_mut() {
+    if let ObjectPayload::FOR_IN_ITERATOR(it) = ob.0.payload.borrow().deref() {
         let mut prop: JSAtom;
 
         loop {
+            let mut it = it.borrow_mut();
+
             if it.idx >= it.prop_count {
                 if it.obj.is_undefined_or_null() {
                     // object has no parent prototype

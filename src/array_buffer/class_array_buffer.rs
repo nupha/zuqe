@@ -19,18 +19,22 @@ fn js_array_buffer_get_byteLength(ctx: &JSContext, cc: CallContext) -> JSResult 
     let class_id = cc.magic() as JSClassID;
 
     cc.this()
-        .as_object()
-        .filter(|o| o.class_id() == class_id)
-        .and_then(|o| {
-            o.0.payload
-                .borrow()
-                .array_buffer()
-                .map(|p| JSValue::Int(p.byte_length() as i32))
-        })
-        .ok_or_else(|| {
-            ctx.throw_type_error_invalid_class(class_id);
-            -1
-        })
+        .retrive_object_payload(ctx, Some(class_id))
+        .map(|isa| JSValue::from(isa.array_buffer().unwrap().byte_length() as i64))
+
+    // cc.this()
+    //     .as_object()
+    //     .filter(|o| o.class_id() == class_id)
+    //     .and_then(|o| {
+    //         o.0.payload
+    //             .borrow()
+    //             .array_buffer()
+    //             .map(|p| JSValue::Int(p.byte_length() as i32))
+    //     })
+    //     .ok_or_else(|| {
+    //         ctx.throw_type_error_invalid_class(class_id);
+    //         -1
+    //     })
 }
 
 fn js_array_buffer_detached(ctx: &JSContext, cc: CallContext) -> JSResult {

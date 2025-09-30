@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+
 use crate::{
     JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_MAP, JS_PROP_STRING_DEF,
     atom::consts::{JS_ATOM_add, JS_ATOM_set},
@@ -21,15 +23,15 @@ pub fn js_map_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let is_weak = matches!(magic, 2 | 3);
     let new_target = cc.this();
 
-    let s = Box::new(JSMapState::new(is_weak, 16));
+    let isa = RefCell::new(Box::new(JSMapState::new(is_weak, 16)));
     let obj = ctx
         .create_object_apply_ctor(
             new_target,
             match magic {
-                0 => ObjectPayload::MAP(s),
-                1 => ObjectPayload::SET(s),
-                2 => ObjectPayload::WEAKMAP(s),
-                3 => ObjectPayload::WEAKSET(s),
+                0 => ObjectPayload::MAP(isa),
+                1 => ObjectPayload::SET(isa),
+                2 => ObjectPayload::WEAKMAP(isa),
+                3 => ObjectPayload::WEAKSET(isa),
                 _ => unreachable!(),
             },
         )
@@ -86,10 +88,9 @@ pub fn js_map_set(ctx: &JSContext, cc: CallContext) -> JSResult {
     let this = cc.this();
     let key = cc.arg(0);
 
-    let mut r =
-        this.retrive_object_payload_mut(ctx, Some(JS_CLASS_MAP + cc.magic() as JSClassID))?;
+    let isa = this.retrive_object_payload(ctx, Some(JS_CLASS_MAP + cc.magic() as JSClassID))?;
+    let mut s = isa.map_state_mut().unwrap();
 
-    let s = r.map_state_mut().unwrap();
     if s.is_weak() && !key.is_object() {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
@@ -123,9 +124,9 @@ pub fn js_map_delete(ctx: &JSContext, cc: CallContext) -> JSResult {
     let this = cc.this();
     let key = cc.arg(0);
 
-    this.retrive_object_payload_mut(ctx, Some(JS_CLASS_MAP + cc.magic() as JSClassID))
-        .map(|mut r| {
-            let s = r.map_state_mut().unwrap();
+    this.retrive_object_payload(ctx, Some(JS_CLASS_MAP + cc.magic() as JSClassID))
+        .map(|isa| {
+            let mut s = isa.map_state_mut().unwrap();
             if s.find(key).is_some() {
                 s.remove(key);
 
@@ -154,9 +155,9 @@ pub fn js_map_has(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_map_clear(ctx: &JSContext, cc: CallContext) -> JSResult {
     cc.this()
-        .retrive_object_payload_mut(ctx, Some(JS_CLASS_MAP + cc.magic() as JSClassID))
-        .map(|mut r| {
-            r.map_state_mut().unwrap().clear();
+        .retrive_object_payload(ctx, Some(JS_CLASS_MAP + cc.magic() as JSClassID))
+        .map(|isa| {
+            isa.map_state_mut().unwrap().clear();
             JSValue::UNDEFINED
         })
 }
@@ -176,7 +177,7 @@ pub fn js_map_forEach(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     // lock map, and ensure `this` is an object of expected class_id.
     cc.this()
-        .retrive_object_payload_mut(ctx, Some(JS_CLASS_MAP + cc.magic() as JSClassID))?
+        .retrive_object_payload(ctx, Some(JS_CLASS_MAP + cc.magic() as JSClassID))?
         .map_state_mut()
         .unwrap()
         .lock();
@@ -253,14 +254,14 @@ fn js_create_map_iterator(ctx: &JSContext, cc: CallContext) -> JSResult {
     let _ = this.retrive_object_payload(ctx, Some(JS_CLASS_MAP + (cc.magic() & 3) as JSClassID))?;
 
     // create iterator object
-    let it = Box::new(JSMapIteratorData {
+    let isa = RefCell::new(Box::new(JSMapIteratorData {
         obj: this.as_object().cloned(),
         kind,
         index: 0,
-    });
+    }));
     ctx.create_object(match cc.magic() & 1 {
-        0 => ObjectPayload::MAP_ITERATOR(it),
-        1 => ObjectPayload::SET_ITERATOR(it),
+        0 => ObjectPayload::MAP_ITERATOR(isa),
+        1 => ObjectPayload::SET_ITERATOR(isa),
         _ => unreachable!(),
     })
     .map_err(|_| -1)

@@ -1,4 +1,4 @@
-use std::{ops::Deref, rc::Rc};
+use std::{cell::RefCell, ops::Deref, rc::Rc};
 
 use smallvec::SmallVec;
 
@@ -125,7 +125,7 @@ pub fn js_regexp_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     };
 
     let obj = ctx
-        .create_object_apply_ctor(cc.this(), ObjectPayload::REGEXP(Box::new(re)))
+        .create_object_apply_ctor(cc.this(), ObjectPayload::REGEXP(RefCell::new(Box::new(re))))
         .map_err(|_| -1)?;
     obj.define_property_value(ctx, JS_ATOM_lastIndex, JSValue::Int(0), JS_PROP_WRITABLE)?;
     Ok(obj.into())
@@ -133,7 +133,7 @@ pub fn js_regexp_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_get_regexp(ctx: &JSContext, obj: &JSObject, throw_error: bool) -> Option<RegExpData> {
     if let ObjectPayload::REGEXP(re) = obj.0.payload.borrow().deref() {
-        Some(*re.clone())
+        Some(*re.borrow().clone())
     } else {
         if throw_error {
             ctx.throw_type_error_invalid_class(JS_CLASS_REGEXP);
@@ -155,9 +155,9 @@ pub fn js_is_regexp(ctx: &JSContext, obj: &JSValue) -> Result<bool, i32> {
     }
 }
 
-pub fn js_regexp_finalizer(rt: &mut JSRuntime, isa: ObjectPayload, id: usize) {}
+pub fn js_regexp_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
 
-pub fn js_regexp_iterator_finalizer(rt: &mut JSRuntime, isa: ObjectPayload, id: usize) {}
+pub fn js_regexp_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
 
 pub fn js_regexp_iterator_mark(val: JSValue) {
     // unsafe {
@@ -375,7 +375,9 @@ fn js_regexp_compile(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     let re = Box::new(RegExpData::create(ctx, pattern, flags_str)?);
-    *cc.this().as_object().unwrap().0.payload.borrow_mut() = ObjectPayload::REGEXP(re);
+    if let ObjectPayload::REGEXP(re0) = cc.this().as_object().unwrap().0.payload.borrow().deref() {
+        *re0.borrow_mut() = re;
+    }
 
     cc.this()
         .set_property(ctx, JS_ATOM_lastIndex, JSValue::Int(0))?;
@@ -558,7 +560,9 @@ pub fn js_regexp_Symbol_matchAll(ctx: &JSContext, cc: CallContext) -> JSResult {
         done: false,
     };
     let iter = ctx
-        .create_object(ObjectPayload::REGEXP_STRING_ITERATOR(Box::new(isa)))
+        .create_object(ObjectPayload::REGEXP_STRING_ITERATOR(RefCell::new(
+            Box::new(isa),
+        )))
         .map_err(|_| -1)?;
 
     Ok(iter.into())

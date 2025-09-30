@@ -399,8 +399,8 @@ pub unsafe fn JS_DetachArrayBuffer(ctx: &JSContext, obj: &JSValue) {
                     // typed array or dataview
                     // Note: the typed array length and offset fields are not modified
                     if o.class_id() != JS_CLASS_DATAVIEW {
-                        if let Some(ta) = o.0.payload.borrow_mut().typed_array_mut() {
-                            ta.count = 0;
+                        if let Some(ta) = o.0.payload.borrow().typed_array() {
+                            ta.borrow_mut().count = 0;
                         } else {
                             unreachable!()
                         }
@@ -412,7 +412,7 @@ pub unsafe fn JS_DetachArrayBuffer(ctx: &JSContext, obj: &JSValue) {
 }
 
 // also used for SharedArrayBuffer
-pub fn js_array_buffer_finalizer(rt: &mut JSRuntime, isa: ObjectPayload, id: usize) {
+pub fn js_array_buffer_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {
     let abuf = isa.array_buffer().unwrap();
 
     // free content

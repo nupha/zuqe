@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use std::{cell::RefCell, ops::Deref};
 
 use crate::{
     JS_CFUNC_NATIVE_DEF,
@@ -85,8 +85,11 @@ impl ForInIterObjPayload {
             }
         }
 
-        ctx.create_object_from_proto(JSValue::NULL, ObjectPayload::FOR_IN_ITERATOR(it))
-            .map_err(|_| -1)
+        ctx.create_object_from_proto(
+            JSValue::NULL,
+            ObjectPayload::FOR_IN_ITERATOR(RefCell::new(it)),
+        )
+        .map_err(|_| -1)
     }
 
     /// build property-enumeration-list for current prototype.
@@ -440,10 +443,12 @@ pub fn js_create_iterator_result(ctx: &JSContext, value: JSValue, done: bool) ->
     Ok(obj.into())
 }
 
-pub fn js_for_in_iterator_finalizer(rt: &mut JSRuntime, isa: ObjectPayload, _id: usize) {
+pub fn js_for_in_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, _id: usize) {
     if let ObjectPayload::FOR_IN_ITERATOR(it) = isa {
-        if !it.is_array {
-            for x in it.prop_enums.iter() {
+        let b = it.borrow();
+
+        if !b.is_array {
+            for x in b.prop_enums.iter() {
                 JS_FreeAtomRT(rt, x.atom);
             }
         }
@@ -453,7 +458,7 @@ pub fn js_for_in_iterator_finalizer(rt: &mut JSRuntime, isa: ObjectPayload, _id:
 pub fn js_for_in_iterator_mark(val: JSValue) {
     let p = unsafe { val.as_object_unchecked() };
     if let ObjectPayload::FOR_IN_ITERATOR(it) = p.0.payload.borrow().deref() {
-        it.obj.gc_mark();
+        it.borrow().obj.gc_mark();
     }
 }
 

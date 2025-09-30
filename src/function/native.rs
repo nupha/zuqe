@@ -336,7 +336,7 @@ impl ObjNativeFunc {
         Ok(ret_val)
     }
 
-    pub fn class_finalizer(rt: &mut JSRuntime, isa: ObjectPayload, id: usize) {
+    pub fn class_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {
         debug_assert!(matches!(isa, ObjectPayload::C_FUNCTION(_)));
     }
 

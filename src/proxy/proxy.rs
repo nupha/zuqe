@@ -199,7 +199,7 @@ impl Proxy {
         )
     }
 
-    pub fn class_finalizer(rt: &mut JSRuntime, _: ObjectPayload, _: usize) {
+    pub fn class_finalizer(rt: &mut JSRuntime, _: &ObjectPayload, _: usize) {
         // this is done via rust drop()
         // if let ObjectPayload::Proxy(p) = payload {
         //     // free p.target and p.handler

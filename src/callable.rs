@@ -1,70 +1,44 @@
-use std::ops::{Deref, DerefMut};
+use std::{
+    cell::RefCell,
+    ops::{Deref, DerefMut},
+    rc::Rc,
+};
 
 use crate::{
-    JS_CLASS_C_FUNCTION_DATA,
     atom::consts::JS_ATOM_empty_string,
     context::JSContext,
     error::JSResult,
     function::{CallContext, NativeCallback, js_function_set_properties},
-    mem::js_malloc_typed,
     object::{JSObject, ObjectPayload},
     runtime::JSRuntime,
     value::JSValue,
 };
 
 #[derive(Debug)]
-pub struct JSCFunctionDataRecord {
+pub struct NativeFuncData {
     pub func: NativeCallback,
     pub length: u8,
     pub magic: u16,
-    pub data: Vec<JSValue>,
+    pub data: Rc<RefCell<Box<[JSValue]>>>,
 }
 
-impl JSCFunctionDataRecord {
+impl NativeFuncData {
     /// `data` values are not consumed.
-    pub fn new(
-        ctx: &JSContext,
-        callback: NativeCallback,
-        length: u8,
-        magic: i32,
-        data: &[JSValue],
-    ) -> Result<Box<Self>, i32> {
-        if let Some(s) = unsafe { js_malloc_typed::<JSCFunctionDataRecord>(ctx, 1, false) } {
-            unsafe {
-                s.write(JSCFunctionDataRecord {
-                    func: callback,
-                    length,
-                    magic: magic as _,
-                    data: {
-                        let mut lst = Vec::new();
-                        lst.try_reserve_exact(data.len()).map_err(|_| {
-                            ctx.throw_out_of_memory();
-                            -1
-                        })?;
-                        for d in data {
-                            lst.push(d.clone());
-                        }
-                        lst
-                    },
-                });
-            }
-            Ok(unsafe { Box::from_raw(s.as_ptr()) })
-        } else {
-            ctx.throw_out_of_memory();
-            Err(-1)
-        }
+    fn new(callback: NativeCallback, length: u8, magic: i32, data: Box<[JSValue]>) -> Box<Self> {
+        Box::new(NativeFuncData {
+            func: callback,
+            length,
+            magic: magic as _,
+            data: Rc::new(RefCell::new(data)),
+        })
     }
 
-    /// get data as slice
-    #[inline(always)]
-    pub fn data(&self) -> &[JSValue] {
-        self.data.as_slice()
+    pub fn len(&self) -> usize {
+        self.data.borrow().len()
     }
 
-    /// get data as slice mut
-    #[inline(always)]
-    pub fn data_mut(&mut self) -> &mut [JSValue] {
-        self.data.as_mut_slice()
+    pub fn get(&self, nth: usize) -> Option<JSValue> {
+        self.data.borrow().get(nth).cloned()
     }
 }
 
@@ -72,19 +46,7 @@ impl JSCFunctionDataRecord {
 /// When called, will invoke native callback with attached data payload.
 #[repr(transparent)]
 #[derive(Debug, Clone)]
-pub struct CallableValue(JSValue);
-
-impl JSValue {
-    /// as C_FUNCTION_DATA class object
-    pub unsafe fn as_callbable_unchecked(self) -> CallableValue {
-        debug_assert!(self.is_object());
-        debug_assert_eq!(
-            self.as_object_unchecked().class_id(),
-            JS_CLASS_C_FUNCTION_DATA
-        );
-        std::mem::transmute(self)
-    }
-}
+pub struct NativeFunctionWithData(JSObject);
 
 impl JSContext {
     /// Create a C_FUNCTION_DATA class object, which behaves like a native function, with attached data.
@@ -94,14 +56,12 @@ impl JSContext {
         callback: NativeCallback,
         length: u8,
         magic: i32,
-        data: &[JSValue],
+        data: Box<[JSValue]>,
     ) -> Result<JSObject, i32> {
         let func_obj = self
             .create_object_from_proto(
                 self.0.borrow().function_proto.clone(),
-                ObjectPayload::C_FUNCTION_DATA(JSCFunctionDataRecord::new(
-                    self, callback, length, magic, data,
-                )?),
+                ObjectPayload::C_FUNCTION_DATA(NativeFuncData::new(callback, length, magic, data)),
             )
             .map_err(|_| -1)?;
 
@@ -113,7 +73,7 @@ impl JSContext {
 //
 // Hooks
 //
-impl CallableValue {
+impl NativeFunctionWithData {
     pub fn class_call(
         ctx: &JSContext,
         func_obj: &JSValue,
@@ -121,15 +81,16 @@ impl CallableValue {
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
-        let mut isa = unsafe { func_obj.as_object_unchecked().0.payload.borrow_mut() };
-        if let ObjectPayload::C_FUNCTION_DATA(s) = isa.deref_mut() {
+        let isa = unsafe { func_obj.as_object_unchecked().0.payload.borrow() };
+
+        if let ObjectPayload::C_FUNCTION_DATA(s) = isa.deref() {
             let f = s.func.clone();
             let cc = CallContext::new(
                 ctx,
                 this_val.clone(),
                 args,
                 s.magic as _,
-                Some(s.data_mut()),
+                Some(s.data.clone()),
             );
             f(ctx, cc)
         } else {
@@ -137,15 +98,18 @@ impl CallableValue {
         }
     }
 
-    pub fn class_finalizer(rt: &mut JSRuntime, isa: ObjectPayload, id: usize) {}
+    pub fn class_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
 
     pub fn class_mark(val: JSValue) {
         unsafe {
             if let ObjectPayload::C_FUNCTION_DATA(p) =
                 val.as_object_unchecked().0.payload.borrow().deref()
             {
-                for d in p.as_ref().data() {
-                    d.gc_mark();
+                let n = p.len();
+                for i in 0..n {
+                    if let Some(v) = p.get(i) {
+                        v.gc_mark()
+                    }
                 }
             }
         }

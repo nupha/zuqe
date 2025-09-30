@@ -1,6 +1,6 @@
 use std::{
-    cell::{Ref, RefMut},
-    ops::{Deref, DerefMut},
+    cell::{Ref, RefCell, RefMut},
+    ops::Deref,
 };
 
 use crate::{
@@ -24,17 +24,8 @@ impl ObjectPayload {
             _ => None,
         }
     }
-    pub const fn array_mut(&mut self) -> Option<&mut ArrayObjPayload> {
-        match self {
-            Self::ARRAY(a) | Self::ARGUMENTS(a) => Some(a),
-            _ => None,
-        }
-    }
     pub fn with_array<R>(&self, f: impl FnOnce(&ArrayObjPayload) -> R) -> Option<R> {
         self.array().map(f)
-    }
-    pub fn with_array_mut<R>(&mut self, f: impl FnOnce(&mut ArrayObjPayload) -> R) -> Option<R> {
-        self.array_mut().map(f)
     }
 
     pub const fn array_buffer(&self) -> Option<&ArrayBufPayload> {
@@ -50,7 +41,7 @@ impl ObjectPayload {
         }
     }
 
-    pub fn typed_array(&self) -> Option<&TypedArrayObjPayload> {
+    pub fn typed_array(&self) -> Option<&RefCell<Box<TypedArrayObjPayload>>> {
         match self {
             Self::UINT8C_ARRAY(a)
             | Self::INT8_ARRAY(a)
@@ -63,35 +54,12 @@ impl ObjectPayload {
             | Self::BIG_UINT64_ARRAY(a)
             | Self::FLOAT32_ARRAY(a)
             | Self::FLOAT64_ARRAY(a)
-            | Self::DATAVIEW(a) => Some(a.as_ref()),
-            _ => None,
-        }
-    }
-    pub fn typed_array_mut(&mut self) -> Option<&mut TypedArrayObjPayload> {
-        match self {
-            Self::UINT8C_ARRAY(a)
-            | Self::INT8_ARRAY(a)
-            | Self::UINT8_ARRAY(a)
-            | Self::INT16_ARRAY(a)
-            | Self::UINT16_ARRAY(a)
-            | Self::INT32_ARRAY(a)
-            | Self::UINT32_ARRAY(a)
-            | Self::BIG_INT64_ARRAY(a)
-            | Self::BIG_UINT64_ARRAY(a)
-            | Self::FLOAT32_ARRAY(a)
-            | Self::FLOAT64_ARRAY(a)
-            | Self::DATAVIEW(a) => Some(a.deref_mut()),
+            | Self::DATAVIEW(a) => Some(a),
             _ => None,
         }
     }
     pub fn with_typed_array<R>(&self, f: impl FnOnce(&TypedArrayObjPayload) -> R) -> Option<R> {
-        self.typed_array().map(f)
-    }
-    pub fn with_typed_array_mut<R>(
-        &mut self,
-        f: impl FnOnce(&mut TypedArrayObjPayload) -> R,
-    ) -> Option<R> {
-        self.typed_array_mut().map(f)
+        self.typed_array().map(|x| f(x.borrow().deref()))
     }
 
     /// get detail for promise resolving function
@@ -102,49 +70,49 @@ impl ObjectPayload {
         }
     }
 
-    pub fn map_state(&self) -> Option<&JSMapState> {
+    pub fn map_state(&self) -> Option<Ref<'_, Box<JSMapState>>> {
         match self {
-            Self::MAP(a) | Self::SET(a) | Self::WEAKMAP(a) | Self::WEAKSET(a) => Some(a.as_ref()),
+            Self::MAP(a) | Self::SET(a) | Self::WEAKMAP(a) | Self::WEAKSET(a) => Some(a.borrow()),
             _ => None,
         }
     }
-    pub fn map_state_mut(&mut self) -> Option<&mut JSMapState> {
+    pub fn map_state_mut(&self) -> Option<RefMut<'_, Box<JSMapState>>> {
         match self {
             Self::MAP(a) | Self::SET(a) | Self::WEAKMAP(a) | Self::WEAKSET(a) => {
-                Some(a.deref_mut())
+                Some(a.borrow_mut())
             }
             _ => None,
         }
     }
 
-    pub fn map_iterator_state(&self) -> Option<&JSMapIteratorData> {
+    pub fn map_iterator_state(&self) -> Option<Ref<'_, Box<JSMapIteratorData>>> {
         match self {
-            Self::MAP_ITERATOR(a) | Self::SET_ITERATOR(a) => Some(a.deref()),
+            Self::MAP_ITERATOR(a) | Self::SET_ITERATOR(a) => Some(a.borrow()),
             _ => None,
         }
     }
-    pub fn map_iterator_state_mut(&mut self) -> Option<&mut JSMapIteratorData> {
+    pub fn map_iterator_state_mut(&self) -> Option<RefMut<'_, Box<JSMapIteratorData>>> {
         match self {
-            Self::MAP_ITERATOR(a) | Self::SET_ITERATOR(a) => Some(a.deref_mut()),
+            Self::MAP_ITERATOR(a) | Self::SET_ITERATOR(a) => Some(a.borrow_mut()),
             _ => None,
         }
     }
 
-    pub const fn func(&self) -> Option<&BCFuncPayload> {
+    pub fn func(&self) -> Option<Ref<'_, Box<BCFuncPayload>>> {
         match self {
             Self::BYTECODE_FUNCTION(f)
             | Self::GENERATOR_FUNCTION(f)
             | Self::ASYNC_FUNCTION(f)
-            | Self::ASYNC_GENERATOR_FUNCTION(f) => Some(f),
+            | Self::ASYNC_GENERATOR_FUNCTION(f) => Some(f.borrow()),
             _ => None,
         }
     }
-    pub const fn func_mut(&mut self) -> Option<&mut BCFuncPayload> {
+    pub fn func_mut(&self) -> Option<RefMut<'_, Box<BCFuncPayload>>> {
         match self {
             Self::BYTECODE_FUNCTION(f)
             | Self::GENERATOR_FUNCTION(f)
             | Self::ASYNC_FUNCTION(f)
-            | Self::ASYNC_GENERATOR_FUNCTION(f) => Some(f),
+            | Self::ASYNC_GENERATOR_FUNCTION(f) => Some(f.borrow_mut()),
             _ => None,
         }
     }
@@ -196,22 +164,6 @@ impl JSObject {
             Err(-1)
         }
     }
-
-    /// get object's payload borrow ref.
-    /// if the object is not the required class_id (optional),
-    /// throws type error.
-    pub(crate) fn retrive_payload_mut(
-        &self,
-        ctx: &JSContext,
-        class_id: Option<JSClassID>,
-    ) -> Result<RefMut<'_, ObjectPayload>, i32> {
-        if class_id.map_or(true, |id| self.class_id() == id) {
-            Ok(self.0.payload.borrow_mut())
-        } else {
-            ctx.throw_type_error_invalid_class(class_id.unwrap());
-            Err(-1)
-        }
-    }
 }
 
 impl JSValue {
@@ -225,26 +177,6 @@ impl JSValue {
     ) -> Result<Ref<'_, ObjectPayload>, i32> {
         if let Some(o) = self.as_object() {
             o.retrive_payload(ctx, class_id)
-        } else {
-            if let Some(id) = class_id {
-                ctx.throw_type_error_invalid_class(id);
-            } else {
-                ctx.throw_type_error_not_an_object();
-            }
-            Err(-1)
-        }
-    }
-
-    /// get object value's payload borrow ref.
-    /// if the value is not an object, or optionally is not the required class_id,
-    /// throws type error.
-    pub(crate) fn retrive_object_payload_mut(
-        &self,
-        ctx: &JSContext,
-        class_id: Option<JSClassID>,
-    ) -> Result<RefMut<'_, ObjectPayload>, i32> {
-        if let Some(o) = self.as_object() {
-            o.retrive_payload_mut(ctx, class_id)
         } else {
             if let Some(id) = class_id {
                 ctx.throw_type_error_invalid_class(id);

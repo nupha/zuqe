@@ -1,8 +1,7 @@
-use std::ops::{Deref, DerefMut};
+use std::{cell::RefCell, ops::Deref};
 
 use crate::{
-    JS_CFUNC_NATIVE_DEF, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
-    JS_PROP_STRING_DEF,
+    JS_CFUNC_NATIVE_DEF, JS_PROP_STRING_DEF,
     context::JSContext,
     error::JSResult,
     function::{AsyncFuncState, CallContext, FieldDef},
@@ -57,21 +56,6 @@ pub struct JSAsyncGeneratorRequest {
 #[derive(Debug, Clone)]
 pub struct AsyncGeneratorValue(JSValue);
 
-impl JSValue {
-    /// interpret value as AsyncGeneratorValue object.
-    /// you must ensure that `value` is an AsyncGeneratorValue object.
-    #[inline(always)]
-    pub unsafe fn as_async_generator_unchecked(self) -> AsyncGeneratorValue {
-        debug_assert!(matches!(self, Self::Object(_)));
-        debug_assert!(matches!(
-            self.as_object_unchecked().class_id(),
-            JS_CLASS_ASYNC_GENERATOR | JS_CLASS_ASYNC_GENERATOR_FUNCTION
-        ));
-
-        std::mem::transmute(self)
-    }
-}
-
 impl AsyncGeneratorValue {
     pub fn class_call(
         ctx: &JSContext,
@@ -97,12 +81,12 @@ impl AsyncGeneratorValue {
 
         // create AsyncGenerator object
         let agen = ctx
-            .create_object_apply_ctor(func_obj, ObjectPayload::ASYNC_GENERATOR(Some(s)))
+            .create_object_apply_ctor(func_obj, ObjectPayload::ASYNC_GENERATOR(RefCell::new(s)))
             .map_err(|_| -1)?;
 
         // fix generator field.
-        if let ObjectPayload::ASYNC_GENERATOR(Some(s)) = agen.0.payload.borrow_mut().deref_mut() {
-            s.generator = agen.downgrade();
+        if let ObjectPayload::ASYNC_GENERATOR(s) = agen.0.payload.borrow().deref() {
+            s.borrow_mut().generator = agen.downgrade();
         } else {
             unreachable!()
         }
@@ -110,17 +94,19 @@ impl AsyncGeneratorValue {
         Ok(agen.into())
     }
 
-    pub fn class_finalizer(rt: &mut JSRuntime, isa: ObjectPayload, id: usize) {}
+    pub fn class_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
 
     pub fn class_mark(val: JSValue) {
         let p = unsafe { val.as_object_unchecked() };
 
-        if let ObjectPayload::ASYNC_GENERATOR(Some(gd)) = p.0.payload.borrow().deref() {
-            if let Some(st) = &gd.func_state {
+        if let ObjectPayload::ASYNC_GENERATOR(s) = p.0.payload.borrow().deref() {
+            let b = s.borrow();
+
+            if let Some(st) = &b.func_state {
                 st.gc_mark();
             }
 
-            for req in gd.queue.iter() {
+            for req in b.queue.iter() {
                 req.result.gc_mark();
                 req.promise.gc_mark();
                 req.resolving_funcs[0].gc_mark();
@@ -161,10 +147,9 @@ impl AsyncGeneratorState {
                     } else if next.completion_type == GEN_MAGIC_RETURN {
                         self.state =
                             JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_AWAITING_RETURN;
-                        unsafe {
-                            js_async_generator_completed_return(ctx, self, next.result.clone())
-                                .unwrap();
-                        }
+
+                        js_async_generator_completed_return(ctx, self, next.result.clone())
+                            .unwrap();
                     } else {
                         self.reject(ctx, next.result.clone());
                     }
@@ -395,7 +380,7 @@ fn js_async_generator_resolve_function_create(
             js_async_generator_resolve_function,
             1,
             if is_resume_next { 2 } else { 0 },
-            std::slice::from_ref(&generator),
+            [generator.clone()].into(),
         )?
         .into(),
         // handle reject
@@ -403,7 +388,7 @@ fn js_async_generator_resolve_function_create(
             js_async_generator_resolve_function,
             1,
             if is_resume_next { 3 } else { 1 },
-            std::slice::from_ref(&generator),
+            [generator].into(),
         )?
         .into(),
     ];
@@ -415,15 +400,11 @@ fn js_async_generator_resolve_function(ctx: &JSContext, cc: CallContext) -> JSRe
     let is_reject = cc.magic() & 1 != 0;
     let arg = cc.arg(0);
 
-    if let ObjectPayload::ASYNC_GENERATOR(Some(s)) = cc
-        .data(0)
-        .as_object()
-        .unwrap()
-        .0
-        .payload
-        .borrow_mut()
-        .deref_mut()
+    if let ObjectPayload::ASYNC_GENERATOR(isa) =
+        cc.data(0).as_object().unwrap().0.payload.borrow().deref()
     {
+        let mut s = isa.borrow_mut();
+
         if cc.magic() >= 2 {
             // resume next case in AWAITING_RETURN state
             debug_assert!(matches!(
@@ -484,21 +465,19 @@ pub fn js_async_generator_next(ctx: &JSContext, cc: CallContext) -> JSResult {
     if let Some(ObjectPayload::ASYNC_GENERATOR(ag)) = cc
         .this()
         .as_object()
-        .map(|o| o.0.payload.borrow_mut())
-        .as_deref_mut()
+        .map(|o| o.0.payload.borrow())
+        .as_deref()
     {
-        let s = ag.as_mut().unwrap();
-
         let req = Box::new(JSAsyncGeneratorRequest {
             completion_type: cc.magic(),
             result: cc.arg(0).clone(),
             promise: promise.clone().into(),
             resolving_funcs,
         });
-        s.queue.push(req);
+        ag.borrow_mut().queue.push(req);
 
-        if s.state != JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_EXECUTING {
-            s.resume_next(ctx);
+        if ag.borrow().state != JSAsyncGeneratorStateEnum::JS_ASYNC_GENERATOR_STATE_EXECUTING {
+            ag.borrow_mut().resume_next(ctx);
         }
     } else {
         ctx.throw_type_error("not an AsyncGenerator object");

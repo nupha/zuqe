@@ -57,7 +57,7 @@ fn js_proxy_revocable(ctx: &JSContext, cc: CallContext) -> JSResult {
         },
         0,
         0,
-        std::slice::from_ref(&proxy_obj),
+        [proxy_obj.clone()].into(),
     )?;
 
     let obj = ctx.create_base_object()?;

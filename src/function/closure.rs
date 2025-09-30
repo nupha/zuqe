@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+
 use crate::{
     JS_CLASS_ASYNC_GENERATOR, JS_CLASS_GENERATOR,
     atom::{JS_ATOM_NULL, JSAtom, consts::*},
@@ -226,9 +228,8 @@ impl Bytecode {
 
         // borrow func_obj in code block only
         {
-            let mut isa = target.0.payload.borrow_mut();
-
-            let func = isa.func_mut().unwrap();
+            let isa = target.0.payload.borrow();
+            let mut func = isa.func_mut().unwrap();
             debug_assert!(func.var_refs.is_empty());
 
             func.bytecode.replace(self.clone());
@@ -282,20 +283,15 @@ impl Bytecode {
             )
         };
 
+        let isa = RefCell::new(Box::new(BCFuncPayload::default()));
         let closure = self.make_closure_to(
             ctx,
             ctx.create_object(match func_kind {
-                JSFunctionKindEnum::JS_FUNC_NORMAL => {
-                    ObjectPayload::BYTECODE_FUNCTION(BCFuncPayload::default())
-                }
-                JSFunctionKindEnum::JS_FUNC_GENERATOR => {
-                    ObjectPayload::GENERATOR_FUNCTION(BCFuncPayload::default())
-                }
-                JSFunctionKindEnum::JS_FUNC_ASYNC => {
-                    ObjectPayload::ASYNC_FUNCTION(BCFuncPayload::default())
-                }
+                JSFunctionKindEnum::JS_FUNC_NORMAL => ObjectPayload::BYTECODE_FUNCTION(isa),
+                JSFunctionKindEnum::JS_FUNC_GENERATOR => ObjectPayload::GENERATOR_FUNCTION(isa),
+                JSFunctionKindEnum::JS_FUNC_ASYNC => ObjectPayload::ASYNC_FUNCTION(isa),
                 JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR => {
-                    ObjectPayload::ASYNC_GENERATOR_FUNCTION(BCFuncPayload::default())
+                    ObjectPayload::ASYNC_GENERATOR_FUNCTION(isa)
                 }
             })
             .map_err(|_| -1)?,

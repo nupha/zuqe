@@ -1,4 +1,4 @@
-use std::ops::DerefMut;
+use std::{cell::RefCell, ops::DerefMut, rc::Rc};
 
 use crate::{
     JS_CLASS_BYTECODE_FUNCTION,
@@ -20,7 +20,7 @@ pub struct CallContext<'a> {
     magic: i32,
 
     /// additional binding values
-    data: Option<&'a mut [JSValue]>,
+    data: Option<Rc<RefCell<Box<[JSValue]>>>>,
 }
 
 impl<'a> CallContext<'a> {
@@ -29,7 +29,7 @@ impl<'a> CallContext<'a> {
         this_value: JSValue,
         args: &'a [JSValue],
         magic: i32,
-        data: Option<&'a mut [JSValue]>,
+        data: Option<Rc<RefCell<Box<[JSValue]>>>>,
     ) -> Self {
         Self {
             ctx,
@@ -89,30 +89,30 @@ impl<'a> CallContext<'a> {
 
     /// get nth extra data value.
     /// returned value is cloned, caller should free it after use.
-    #[inline(always)]
+    #[inline]
     pub fn data(&self, nth: usize) -> JSValue {
         self.data
-            .as_deref()
-            .and_then(|d| d.get(nth))
-            .cloned()
+            .as_ref()
+            .and_then(|d| d.borrow().get(nth).cloned())
             .unwrap_or(JSValue::UNDEFINED)
     }
 
-    #[inline(always)]
-    pub fn data_slice(&self) -> Option<&[JSValue]> {
-        self.data.as_deref()
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.data.as_ref().map(|d| d.borrow().len()).unwrap_or(0)
     }
 
-    /// set nth data value. returns old value, or Err if nth is out of range.
+    /// set nth data value. returns old value, or None if nth is out of range.
     /// Note: `val` is consumed.
-    pub fn replace_data(&mut self, nth: usize, val: JSValue) -> JSResult {
-        if let Some(lst) = self.data.as_deref_mut() {
+    pub fn replace_data(&mut self, nth: usize, val: JSValue) -> Option<JSValue> {
+        if let Some(data) = self.data.as_ref() {
+            let mut lst = data.borrow_mut();
             if nth < lst.len() {
-                return Ok(std::mem::replace(lst.get_mut(nth).unwrap(), val));
+                return Some(std::mem::replace(&mut lst[nth], val));
             }
         }
 
-        Err(-1)
+        None
     }
 }
 
@@ -368,8 +368,7 @@ pub fn JS_CallConstructorInternal(
             p.0.payload
                 .borrow()
                 .func()
-                .and_then(BCFuncPayload::bytecode)
-                .cloned()
+                .and_then(|x| x.bytecode().cloned())
                 .unwrap();
 
         if bc.0.borrow().is_derived_class_constructor {

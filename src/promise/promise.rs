@@ -1,5 +1,5 @@
 use std::{
-    cell::Cell,
+    cell::{Cell, RefCell},
     ops::{Deref, DerefMut},
     rc::Rc,
 };
@@ -71,35 +71,29 @@ impl Promise {
     /// create new Promise object with given executor function.
     /// `new_target` - the 'new' operator target.
     /// `executor` must be a callable object.
-    pub(super) fn new_with_executor(
+    pub(super) fn from_executor(
         ctx: &JSContext,
         executor: JSObject,
         new_target: &JSValue,
     ) -> Result<Self, i32> {
         executor.ensure_function(ctx)?;
 
-        // make promise payload
-        let s = Box::new(PromisePayload {
+        // create js object of promise class
+        let isa = RefCell::new(Box::new(PromisePayload {
             promise_state: JSPromiseStateEnum::JS_PROMISE_PENDING,
             promise_reactions: [Vec::new(), Vec::new()],
             promise_result: JSValue::UNDEFINED,
             is_handled: false,
-        });
-
-        // create js object of promise class
+        }));
         let promise = Self(
-            ctx.create_object_apply_ctor(new_target, ObjectPayload::PROMISE(s))
+            ctx.create_object_apply_ctor(new_target, ObjectPayload::PROMISE(isa))
                 .map_err(|_| -1)?,
         );
 
-        let args = promise.create_resolving_functions(ctx)?;
-
-        if JSValue::from(executor)
-            .call(ctx, &JSValue::UNDEFINED, &args)
-            .is_err()
-        {
+        let rr = promise.create_resolving_functions(ctx)?;
+        if executor.call(ctx, &JSValue::UNDEFINED, &rr).is_err() {
             let exc = ctx.take_exception();
-            args[1].call(ctx, &JSValue::UNDEFINED, &[exc])?;
+            rr[1].call(ctx, &JSValue::UNDEFINED, &[exc])?;
         }
 
         Ok(promise)
@@ -115,26 +109,25 @@ impl Promise {
             Promise::class_executor,
             2,
             0,
-            &[JSValue::UNDEFINED, JSValue::UNDEFINED], // resolving functions, initially undefined
+            [JSValue::UNDEFINED, JSValue::UNDEFINED].into(), // resolving functions, initially undefined
         )?;
 
         let promise: Self = if ctor.is_undefined() {
-            Self::new_with_executor(ctx, executor.clone(), &JSValue::UNDEFINED)?
+            Self::from_executor(ctx, executor.clone(), &JSValue::UNDEFINED)?
         } else {
             JS_CallConstructor(ctx, ctor, std::slice::from_ref(&executor.clone().into()))
                 .err()?
                 .try_into()?
         };
 
+        let mut resolving_funcs = [JSValue::UNDEFINED, JSValue::UNDEFINED];
         if let ObjectPayload::C_FUNCTION_DATA(s) = executor.0.payload.borrow().deref() {
-            let data = s.data();
-            debug_assert!(!data.is_empty());
-
-            for item in data.iter().take(2) {
+            for i in 0..2 {
+                let item = s.get(i).unwrap();
                 item.ensure_function(ctx)?;
+                resolving_funcs[i] = item;
             }
 
-            let resolving_funcs = [data[0].clone(), data[1].clone()];
             Ok((promise.into(), resolving_funcs))
         } else {
             unreachable!()
@@ -174,7 +167,7 @@ impl Promise {
     /// run closure with Promise payload.
     pub(super) fn with<R>(&self, f: impl FnOnce(&PromisePayload) -> R) -> R {
         if let ObjectPayload::PROMISE(p) = self.0.0.payload.borrow().deref() {
-            f(p)
+            f(p.borrow().deref())
         } else {
             #[cfg(debug_assertions)]
             unreachable!();
@@ -187,8 +180,8 @@ impl Promise {
 
     /// run closure with Promise payload.
     pub(super) fn with_mut<R>(&self, f: impl FnOnce(&mut PromisePayload) -> R) -> R {
-        if let ObjectPayload::PROMISE(p) = self.0.0.payload.borrow_mut().deref_mut() {
-            f(p)
+        if let ObjectPayload::PROMISE(p) = self.0.0.payload.borrow().deref() {
+            f(p.borrow_mut().deref_mut())
         } else {
             #[cfg(debug_assertions)]
             unreachable!();
@@ -229,7 +222,7 @@ impl JSContext {
 impl Promise {
     /// the native callback for Promise constructor function
     pub fn class_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
-        Promise::new_with_executor(
+        Promise::from_executor(
             ctx,
             cc.arg(0).ensure_function(ctx)?.as_object().unwrap().clone(),
             cc.this(),
@@ -252,7 +245,7 @@ impl Promise {
         Ok(JSValue::UNDEFINED)
     }
 
-    pub fn class_finalizer(_: &mut JSRuntime, isa: ObjectPayload, _: usize) {
+    pub fn class_finalizer(_: &mut JSRuntime, isa: &ObjectPayload, _: usize) {
         // if let ObjectPayload::PROMISE(mut s) = isa {
         //     s.promise_reactions[0].clear();
         //     s.promise_reactions[1].clear();

@@ -1,4 +1,4 @@
-use std::ops::DerefMut;
+use std::{cell::RefCell, ops::DerefMut, rc::Rc};
 
 use crate::{
     JS_CLASS_BYTECODE_FUNCTION,
@@ -305,13 +305,22 @@ impl ModuleDef {
         // execute bytecode function in async manner.
         let promise = md_func.call_async(ctx, &JSValue::UNDEFINED, &[], 0)?;
 
-        let data = [JSValue::Module(self.clone())];
         promise.then(
             ctx,
-            ctx.create_native_function_with_data(ModuleDef::execute_async_fulfilled, 0, 0, &data)?
-                .into(),
-            ctx.create_native_function_with_data(ModuleDef::execute_async_rejected, 0, 0, &data)?
-                .into(),
+            ctx.create_native_function_with_data(
+                ModuleDef::execute_async_fulfilled,
+                0,
+                0,
+                [JSValue::Module(self.clone())].into(),
+            )?
+            .into(),
+            ctx.create_native_function_with_data(
+                ModuleDef::execute_async_rejected,
+                0,
+                0,
+                [JSValue::Module(self.clone())].into(),
+            )?
+            .into(),
         )?;
 
         Ok(())
@@ -386,11 +395,15 @@ impl ModuleDef {
                         m.0.set_evaluated(ctx);
                     }
                     Err(e) => {
-                        let arglist = [e];
-                        let mut data = [JSValue::Module(m.clone())];
                         Self::execute_async_rejected(
                             ctx,
-                            CallContext::new(ctx, JSValue::UNDEFINED, &arglist, 0, Some(&mut data)),
+                            CallContext::new(
+                                ctx,
+                                JSValue::UNDEFINED,
+                                std::slice::from_ref(&e),
+                                0,
+                                Some(Rc::new(RefCell::new([JSValue::Module(m.clone())].into()))),
+                            ),
                         )?;
                     }
                 }
@@ -431,13 +444,12 @@ impl ModuleDef {
         md.set_status(JSModuleStatus::JS_MODULE_STATUS_EVALUATED);
 
         for m in md.0.async_parent_modules.borrow().iter() {
-            let mut data = [JSValue::Module(m.clone())];
             let cc = CallContext::new(
                 ctx,
                 JSValue::UNDEFINED,
                 std::slice::from_ref(&err_val),
                 0,
-                Some(&mut data),
+                Some(Rc::new(RefCell::new([JSValue::Module(m.clone())].into()))),
             );
             Self::execute_async_rejected(ctx, cc).unwrap();
         }

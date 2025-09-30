@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{cell::RefCell, collections::HashMap};
 
 use crate::{
     JS_CLASS_MAP, JS_CLASS_SET, JS_CLASS_WEAKMAP, JS_CLASS_WEAKSET,
@@ -290,7 +290,7 @@ impl JSMapState {
         self.remove_count = 0;
     }
 
-    pub fn class_finalizer(_: &mut JSRuntime, _: ObjectPayload, _: usize) {}
+    pub fn class_finalizer(_: &mut JSRuntime, _: &ObjectPayload, _: usize) {}
 
     pub fn class_mark(val: JSValue) {
         let p = unsafe { val.as_object_unchecked() };
@@ -323,7 +323,7 @@ object_cast!(
 
 impl JSContext {
     pub fn create_map_with_entries(&self, entries: JSMapState) -> Result<JSObject, i32> {
-        self.create_object(ObjectPayload::MAP(Box::new(entries)))
+        self.create_object(ObjectPayload::MAP(RefCell::new(Box::new(entries))))
             .map_err(|_| -1)
     }
 }

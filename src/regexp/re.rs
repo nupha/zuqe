@@ -1,4 +1,4 @@
-use std::{borrow::Cow, ops::Range, rc::Rc};
+use std::{borrow::Cow, cell::RefCell, ops::Range, rc::Rc};
 
 use regex::bytes::{Regex, RegexBuilder};
 
@@ -290,7 +290,7 @@ object_cast!(RegExp, JS_CLASS_REGEXP);
 impl RegExp {
     pub(crate) fn from(ctx: &JSContext, ctor: &JSValue, re: Box<RegExpData>) -> Result<Self, i32> {
         let o = Self(
-            ctx.create_object_apply_ctor(ctor, ObjectPayload::REGEXP(re))
+            ctx.create_object_apply_ctor(ctor, ObjectPayload::REGEXP(RefCell::new(re)))
                 .map_err(|_| -1)?,
         );
         o.define_property_value(ctx, JS_ATOM_lastIndex, JSValue::Int(0), JS_PROP_WRITABLE)?;

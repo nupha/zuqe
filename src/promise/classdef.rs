@@ -57,7 +57,7 @@ pub fn js_promise_then_finally_func(ctx: &JSContext, cc: CallContext) -> JSResul
             },
             1,
             cc.magic(),
-            std::slice::from_ref(cc.arg(0)), // data: argument#0
+            [cc.arg(0).clone()].into(), // data: argument#0
         )?
         .into();
 
@@ -71,7 +71,6 @@ pub fn js_promise_finally(ctx: &JSContext, cc: CallContext) -> JSResult {
         [on_finally.clone(), on_finally.clone()]
     } else {
         let ctor = JS_SpeciesConstructor(ctx, cc.this(), JSValue::UNDEFINED)?;
-        let func_data = [ctor, on_finally.clone()];
         let mut rr = [JSValue::UNDEFINED, JSValue::UNDEFINED];
         for i in 0..2 {
             rr[i] = ctx
@@ -79,7 +78,7 @@ pub fn js_promise_finally(ctx: &JSContext, cc: CallContext) -> JSResult {
                     js_promise_then_finally_func,
                     1,
                     i as _,
-                    &func_data,
+                    [ctor.clone(), on_finally.clone()].into(),
                 )?
                 .into();
         }
@@ -171,18 +170,18 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
                 return fail_reject();
             };
 
-            let resolve_element_data = [
-                JSValue::Bool(false),
-                JSValue::Int(index),
-                values.clone().into(),
-                resolving_funcs[is_promise_any as usize].clone(),
-                resolve_element_env.clone(),
-            ];
             let mut resolve_element: JSValue = if let Ok(v) = ctx.create_native_function_with_data(
                 js_promise_all_resolve_element,
                 1,
                 cc.magic(),
-                &resolve_element_data,
+                [
+                    JSValue::Bool(false),
+                    JSValue::Int(index),
+                    values.clone().into(),
+                    resolving_funcs[is_promise_any as usize].clone(),
+                    resolve_element_env.clone(),
+                ]
+                .into(),
             ) {
                 v.into()
             } else {
@@ -195,7 +194,14 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
                         js_promise_all_resolve_element,
                         1,
                         cc.magic() | 4,
-                        &resolve_element_data,
+                        [
+                            JSValue::Bool(false),
+                            JSValue::Int(index),
+                            values.clone().into(),
+                            resolving_funcs[is_promise_any as usize].clone(),
+                            resolve_element_env.clone(),
+                        ]
+                        .into(),
                     ) {
                         r.into()
                     } else {

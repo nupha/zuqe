@@ -1,7 +1,7 @@
 use std::{
     cell::{Cell, RefCell},
     fmt::Formatter,
-    ops::{Deref, DerefMut},
+    ops::Deref,
     ptr::NonNull,
     rc::{Rc, Weak},
 };
@@ -414,9 +414,7 @@ impl ObjectInner {
         let rt = unsafe { self.rt_ptr().as_mut() };
         if let Some(f) = rt.class_defs[self.class_id() as usize].finalizer {
             let id = self.id();
-            let isa =
-                std::mem::replace(self.payload.borrow_mut().deref_mut(), ObjectPayload::OBJECT);
-            f(rt, isa, id);
+            f(rt, self.payload.borrow().deref(), id);
         }
 
         // untrack from gc
@@ -492,6 +490,12 @@ impl JSObject {
     pub fn rt_mut(&self) -> &mut JSRuntime {
         self.0.rt_mut()
     }
+
+    // /// get object payload
+    // #[inline(always)]
+    // pub fn payload(&self) -> &ObjectPayload {
+    //     &self.0.payload
+    // }
 
     /// Get object class id
     #[inline(always)]
@@ -795,27 +799,6 @@ pub fn JS_SetConstructorBit(ctx: &JSContext, func_obj: &JSValue, val: bool) -> b
         true
     } else {
         false
-    }
-}
-
-/// Store primitive value in object wrapper
-/// Only works for primitive wrapper objects (Number, String, Boolean, etc.)
-/// Returns -1 on error (invalid object type)
-/// Note: `val` is consumed.
-pub fn JS_SetObjectData(ctx: &JSContext, obj: JSValue, val: JSValue) -> i32 {
-    if let Some(o) = obj.as_object() {
-        if let Ok(old) = o.0.payload.borrow_mut().replace_value(val) {
-            drop(old);
-            0
-        } else {
-            ctx.throw_type_error("invalid object type");
-            -1
-        }
-    } else {
-        if !obj.is_exception() {
-            ctx.throw_type_error("invalid object type");
-        }
-        -1
     }
 }
 

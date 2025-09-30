@@ -326,7 +326,7 @@ impl AsyncFuncState {
         println!("{:14p} [async_function]", self.id() as *const Self);
     }
 
-    pub fn class_finalizer(rt: &mut JSRuntime, isa: ObjectPayload, id: usize) {}
+    pub fn class_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
 
     pub fn class_mark(val: JSValue) {
         if let Some(s) = val

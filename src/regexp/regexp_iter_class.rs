@@ -1,4 +1,4 @@
-use std::ops::DerefMut;
+use std::ops::{Deref, DerefMut};
 
 use crate::{
     JS_ITERATOR_NEXT_DEF, JS_PROP_STRING_DEF,
@@ -19,14 +19,21 @@ fn js_regexp_string_iterator_next(
 ) -> JSResult {
     let this = cc.this().as_object().unwrap();
 
-    if let ObjectPayload::REGEXP_STRING_ITERATOR(it) = this.0.payload.borrow_mut().deref_mut() {
-        if it.done {
+    if let ObjectPayload::REGEXP_STRING_ITERATOR(it) = this.0.payload.borrow().deref() {
+        if it.borrow().done {
             *state = IteratorState::Done;
             return Ok(JSValue::UNDEFINED);
         }
 
-        let regexp = &it.iterating_regexp;
-        let str = &it.iterated_string;
+        let (regexp, iterated_string, global, unicode) = {
+            let b = it.borrow();
+            (
+                b.iterating_regexp.clone(),
+                b.iterated_string.clone(),
+                b.global,
+                b.unicode,
+            )
+        };
 
         // initialize state
         *state = IteratorState::NotDone;
@@ -34,16 +41,16 @@ fn js_regexp_string_iterator_next(
         let match_val = JS_RegExpExec(
             ctx,
             regexp.clone(),
-            ctx.create_string_with_content(str.clone())?,
+            ctx.create_string_with_content(iterated_string.clone())?,
         )?;
 
         if match_val.is_null() {
-            it.done = true;
+            it.borrow_mut().done = true;
             *state = IteratorState::Done;
             return Ok(JSValue::UNDEFINED);
         }
 
-        if it.global {
+        if global {
             if let JSValue::String(str) = match_val.get_property_u32(ctx, 0)?
                 && str.is_empty()
             {
@@ -56,9 +63,8 @@ fn js_regexp_string_iterator_next(
                     })? as usize;
 
                 // advance index to next char
-                let next_index = it
-                    .iterated_string
-                    .index_of_next(last_index, it.unicode)
+                let next_index = iterated_string
+                    .index_of_next(last_index, unicode)
                     .unwrap_or(last_index + 1);
 
                 regexp
@@ -68,7 +74,7 @@ fn js_regexp_string_iterator_next(
                     })?;
             }
         } else {
-            it.done = true;
+            it.borrow_mut().done = true;
         }
 
         Ok(match_val)

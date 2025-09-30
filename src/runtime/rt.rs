@@ -14,7 +14,7 @@ use crate::{
     JS_CLASS_PROMISE_RESOLVE_FUNCTION, JS_CLASS_PROXY, JS_CLASS_STRING, STD_CLASS_DEFS,
     array_buffer::JSSharedArrayBufferFunctions,
     atom::JS_FreeAtomRT,
-    callable::CallableValue,
+    callable::NativeFunctionWithData,
     class::{JSClass, js_arguments_exotic_methods},
     context::JSContext,
     function::{AsyncFunction, BoundFunction, ObjNativeFunc, js_async_function_resolve_call},
@@ -192,7 +192,7 @@ impl JSRuntime {
                 .replace(ObjNativeFunc::class_call);
             rt.class_defs[JS_CLASS_C_FUNCTION_DATA as usize]
                 .call
-                .replace(CallableValue::class_call);
+                .replace(NativeFunctionWithData::class_call);
             rt.class_defs[JS_CLASS_BOUND_FUNCTION as usize]
                 .call
                 .replace(BoundFunction::class_call);

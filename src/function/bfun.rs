@@ -148,8 +148,7 @@ impl BCFunction {
             .payload
             .borrow()
             .func()
-            .and_then(|f| f.bytecode())
-            .cloned();
+            .and_then(|f| f.bytecode().cloned());
 
         unsafe { bc.unwrap_unchecked() }
     }
@@ -199,6 +198,7 @@ pub fn JS_GetFunctionRealm(ctx: &JSContext, func_obj: &JSValue) -> Result<JSCont
         | ObjectPayload::ASYNC_FUNCTION(fo)
         | ObjectPayload::ASYNC_GENERATOR_FUNCTION(fo) => {
             realm = fo
+                .borrow()
                 .bytecode
                 .as_ref()
                 .unwrap()
@@ -270,7 +270,7 @@ pub fn js_function_proto(_: &JSContext, _: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
-pub fn js_bytecode_function_finalizer(_rt: &mut JSRuntime, _isa: ObjectPayload, _id: usize) {}
+pub fn js_bytecode_function_finalizer(_rt: &mut JSRuntime, _isa: &ObjectPayload, _id: usize) {}
 
 pub fn js_bytecode_function_mark(val: JSValue) {
     let p = unsafe { val.as_object_unchecked() };

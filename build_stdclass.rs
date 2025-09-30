@@ -72,7 +72,7 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "Date",
             "DATE",
-            Some("crate::date::Datetime"),
+            Some("std::cell::Cell<crate::date::Datetime>"),
             Some("crate::value::js_object_data_finalizer"),
             Some("crate::value::js_object_data_mark")
         ),
@@ -87,7 +87,7 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "Function",
             "BYTECODE_FUNCTION",
-            Some("crate::function::BCFuncPayload"),
+            Some("std::cell::RefCell<Box<crate::function::BCFuncPayload>>"),
             Some("crate::function::js_bytecode_function_finalizer"),
             Some("crate::function::js_bytecode_function_mark")
         ),
@@ -101,28 +101,28 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "Function",
             "C_FUNCTION_DATA",
-            Some("Box<crate::callable::JSCFunctionDataRecord>"),
-            Some("crate::callable::CallableValue::class_finalizer"),
-            Some("crate::callable::CallableValue::class_mark")
+            Some("Box<crate::callable::NativeFuncData>"),
+            Some("crate::callable::NativeFunctionWithData::class_finalizer"),
+            Some("crate::callable::NativeFunctionWithData::class_mark")
         ),
         class_def!(
             "GeneratorFunction",
             "GENERATOR_FUNCTION",
-            Some("crate::function::BCFuncPayload"),
+            Some("std::cell::RefCell<Box<crate::function::BCFuncPayload>>"),
             Some("crate::function::js_bytecode_function_finalizer"),
             Some("crate::function::js_bytecode_function_mark")
         ),
         class_def!(
             "ForInIterObjPayload",
             "FOR_IN_ITERATOR",
-            Some("Box<crate::iterator::ForInIterObjPayload>"),
+            Some("std::cell::RefCell<Box<crate::iterator::ForInIterObjPayload>>"),
             Some("crate::iterator::js_for_in_iterator_finalizer"),
             Some("crate::iterator::js_for_in_iterator_mark")
         ),
         class_def!(
             "RegExp",
             "REGEXP",
-            Some("Box<crate::regexp::RegExpData>"),
+            Some("std::cell::RefCell<Box<crate::regexp::RegExpData>>"),
             Some("crate::regexp::js_regexp_finalizer"),
             None
         ),
@@ -146,77 +146,77 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "Uint8ClampedArray",
             "UINT8C_ARRAY",
-            Some("Box<crate::typed_array::TypedArrayObjPayload>"),
+            Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayObjPayload>>"),
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
             "Int8Array",
             "INT8_ARRAY",
-            Some("Box<crate::typed_array::TypedArrayObjPayload>"),
+            Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayObjPayload>>"),
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
             "Uint8Array",
             "UINT8_ARRAY",
-            Some("Box<crate::typed_array::TypedArrayObjPayload>"),
+            Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayObjPayload>>"),
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
             "Int16Array",
             "INT16_ARRAY",
-            Some("Box<crate::typed_array::TypedArrayObjPayload>"),
+            Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayObjPayload>>"),
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
             "Uint16Array",
             "UINT16_ARRAY",
-            Some("Box<crate::typed_array::TypedArrayObjPayload>"),
+            Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayObjPayload>>"),
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
             "Int32Array",
             "INT32_ARRAY",
-            Some("Box<crate::typed_array::TypedArrayObjPayload>"),
+            Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayObjPayload>>"),
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
             "Uint32Array",
             "UINT32_ARRAY",
-            Some("Box<crate::typed_array::TypedArrayObjPayload>"),
+            Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayObjPayload>>"),
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
             "BigInt64Array",
             "BIG_INT64_ARRAY",
-            Some("Box<crate::typed_array::TypedArrayObjPayload>"),
+            Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayObjPayload>>"),
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
             "BigUint64Array",
             "BIG_UINT64_ARRAY",
-            Some("Box<crate::typed_array::TypedArrayObjPayload>"),
+            Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayObjPayload>>"),
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
             "Float32Array",
             "FLOAT32_ARRAY",
-            Some("Box<crate::typed_array::TypedArrayObjPayload>"),
+            Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayObjPayload>>"),
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
             "Float64Array",
             "FLOAT64_ARRAY",
-            Some("Box<crate::typed_array::TypedArrayObjPayload>"),
+            Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayObjPayload>>"),
             Some("crate::typed_array::js_typed_array_finalizer"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
@@ -224,7 +224,7 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "DataView",
             "DATAVIEW",
-            Some("Box<crate::typed_array::TypedArrayObjPayload>"),
+            Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayObjPayload>>"),
             None,
             None
         ),
@@ -241,42 +241,42 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "Map",
             "MAP",
-            Some("Box<crate::mapset::JSMapState>"),
+            Some("std::cell::RefCell<Box<crate::mapset::JSMapState>>"),
             Some("crate::mapset::JSMapState::class_finalizer"),
             Some("crate::mapset::JSMapState::class_mark")
         ),
         class_def!(
             "Set",
             "SET",
-            Some("Box<crate::mapset::JSMapState>"),
+            Some("std::cell::RefCell<Box<crate::mapset::JSMapState>>"),
             Some("crate::mapset::JSMapState::class_finalizer"),
             Some("crate::mapset::JSMapState::class_mark")
         ),
         class_def!(
             "WeakMap",
             "WEAKMAP",
-            Some("Box<crate::mapset::JSMapState>"),
+            Some("std::cell::RefCell<Box<crate::mapset::JSMapState>>"),
             Some("crate::mapset::JSMapState::class_finalizer"),
             Some("crate::mapset::JSMapState::class_mark")
         ),
         class_def!(
             "WeakSet",
             "WEAKSET",
-            Some("Box<crate::mapset::JSMapState>"),
+            Some("std::cell::RefCell<Box<crate::mapset::JSMapState>>"),
             Some("crate::mapset::JSMapState::class_finalizer"),
             Some("crate::mapset::JSMapState::class_mark")
         ),
         class_def!(
             "Map_Iterator",
             "MAP_ITERATOR",
-            Some("Box<crate::mapset::JSMapIteratorData>"),
+            Some("std::cell::RefCell<Box<crate::mapset::JSMapIteratorData>>"),
             Some("crate::mapset::js_map_iterator_finalizer"),
             Some("crate::mapset::js_map_iterator_mark")
         ),
         class_def!(
             "Set_Iterator",
             "SET_ITERATOR",
-            Some("Box<crate::mapset::JSMapIteratorData>"),
+            Some("std::cell::RefCell<Box<crate::mapset::JSMapIteratorData>>"),
             Some("crate::mapset::js_map_iterator_finalizer"),
             Some("crate::mapset::js_map_iterator_mark")
         ),
@@ -297,7 +297,7 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "RegExp_String_Iterator",
             "REGEXP_STRING_ITERATOR",
-            Some("Box<crate::regexp::RegExpStringIterPayload>"),
+            Some("std::cell::RefCell<Box<crate::regexp::RegExpStringIterPayload>>"),
             Some("crate::regexp::js_regexp_iterator_finalizer"),
             Some("crate::regexp::js_regexp_iterator_mark")
         ),
@@ -327,7 +327,7 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "Promise",
             "PROMISE",
-            Some("Box<crate::promise::PromisePayload>"),
+            Some("std::cell::RefCell<Box<crate::promise::PromisePayload>>"),
             Some("crate::promise::Promise::class_finalizer"),
             Some("crate::promise::Promise::class_mark")
         ),
@@ -348,7 +348,7 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "AsyncFunction",
             "ASYNC_FUNCTION",
-            Some("crate::function::BCFuncPayload"),
+            Some("std::cell::RefCell<Box<crate::function::BCFuncPayload>>"),
             Some("crate::function::js_bytecode_function_finalizer"),
             Some("crate::function::js_bytecode_function_mark")
         ),
@@ -376,14 +376,14 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "AsyncGeneratorFunction",
             "ASYNC_GENERATOR_FUNCTION",
-            Some("crate::function::BCFuncPayload"),
+            Some("std::cell::RefCell<Box<crate::function::BCFuncPayload>>"),
             Some("crate::function::js_bytecode_function_finalizer"),
             Some("crate::function::js_bytecode_function_mark")
         ),
         class_def!(
             "AsyncGeneratorValue",
             "ASYNC_GENERATOR",
-            Some("Option<Box<crate::generator::AsyncGeneratorState>>"),
+            Some("std::cell::RefCell<Box<crate::generator::AsyncGeneratorState>>"),
             Some("crate::generator::AsyncGeneratorValue::class_finalizer"),
             Some("crate::generator::AsyncGeneratorValue::class_mark")
         ),

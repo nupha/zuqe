@@ -223,10 +223,14 @@ impl JSContext {
                 };
                 // current function of stack frame
                 let frame_func = sframe.cur_func.as_object().cloned().unwrap();
-                let payload = frame_func.0.payload.borrow();
-                let var_refs = payload.func().unwrap().var_refs.as_slice();
+                let isa = frame_func.0.payload.borrow();
 
-                bc.eval(self, this_obj, var_refs, Some(sframe))
+                bc.eval(
+                    self,
+                    this_obj,
+                    isa.func().unwrap().var_refs.as_slice(),
+                    Some(sframe),
+                )
             }
             Compiled::Module(m) => m.eval(self).map(|p| p.into()),
         }

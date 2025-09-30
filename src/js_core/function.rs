@@ -147,14 +147,12 @@ pub fn js_function_hasInstance(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_function_proto_fileName(ctx: &JSContext, args: CallContext) -> JSResult {
     if let Some((has_debug, filename)) = args.this_raw().as_object().and_then(|o| {
-        o.0.payload
-            .borrow()
-            .func()
-            .and_then(BCFuncPayload::bytecode)
-            .map(|bc| {
+        o.0.payload.borrow().func().and_then(|x| {
+            x.bytecode().map(|bc| {
                 let b = bc.0.borrow();
                 (b.has_debug, b.debug.filename)
             })
+        })
     }) {
         if has_debug {
             filename.force_string(ctx).map(JSValue::String)
@@ -168,14 +166,12 @@ pub fn js_function_proto_fileName(ctx: &JSContext, args: CallContext) -> JSResul
 
 pub fn js_function_proto_lineNumber(_: &JSContext, args: CallContext) -> JSResult {
     if let Some((has_debug, line_num)) = args.this_raw().as_object().and_then(|o| {
-        o.0.payload
-            .borrow()
-            .func()
-            .and_then(BCFuncPayload::bytecode)
-            .map(|bc| {
+        o.0.payload.borrow().func().and_then(|x| {
+            x.bytecode().map(|bc| {
                 let b = bc.0.borrow();
                 (b.has_debug, b.debug.line_num)
             })
+        })
     }) {
         if has_debug {
             Ok(JSValue::Int(line_num))

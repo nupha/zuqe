@@ -30,7 +30,7 @@ pub struct MapIterator(pub(crate) JSObject);
 
 object_cast!(MapIterator, JS_CLASS_MAP_ITERATOR);
 
-pub fn js_map_iterator_finalizer(rt: &mut JSRuntime, isa: ObjectPayload, id: usize) {}
+pub fn js_map_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
 
 pub fn js_map_iterator_mark(val: JSValue) {
     if let Some(o) = val.as_object() {
@@ -46,18 +46,18 @@ fn js_map_iterator_next(ctx: &JSContext, cc: CallContext, state: &mut IteratorSt
     let is_set = cc.magic() & 1 != 0;
     *state = IteratorState::NotDone;
 
-    let mut r = cc
+    let isa = cc
         .this()
-        .retrive_object_payload_mut(ctx, Some(JS_CLASS_MAP_ITERATOR + cc.magic() as JSClassID))?;
+        .retrive_object_payload(ctx, Some(JS_CLASS_MAP_ITERATOR + cc.magic() as JSClassID))?;
 
-    let Some(it) = r.map_iterator_state_mut() else {
+    let Some(mut it) = isa.map_iterator_state_mut() else {
         return Err(-1);
     };
 
     let mut ret: Option<JSValue> = None;
     let mut end = false;
 
-    if let Some(obj) = &it.obj {
+    if let Some(obj) = it.obj.clone() {
         let r1 = obj.retrive_payload(ctx, Some(JS_CLASS_MAP + cc.magic() as JSClassID))?;
         let ms = r1.map_state().unwrap();
 

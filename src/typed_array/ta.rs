@@ -1,3 +1,5 @@
+use std::{cell::RefCell, ops::Deref};
+
 use crate::{
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY, JS_CLASS_DATAVIEW,
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
@@ -197,7 +199,7 @@ impl TypedArray {
             .payload
             .borrow()
             .typed_array()
-            .map(f)
+            .map(|x| f(x.borrow().deref()))
             .unwrap()
     }
 
@@ -447,9 +449,9 @@ impl JSContext {
         count: usize,
         class_id: JSClassID,
     ) -> JSResult {
-        let arr = Box::new(TypedArrayObjPayload::new(
+        let arr = RefCell::new(Box::new(TypedArrayObjPayload::new(
             self, buffer, class_id, offset, count,
-        )?);
+        )?));
         let isa = match class_id {
             JS_CLASS_UINT8C_ARRAY => ObjectPayload::UINT8C_ARRAY(arr),
             JS_CLASS_UINT8_ARRAY => ObjectPayload::UINT8_ARRAY(arr),
@@ -483,13 +485,18 @@ impl JSContext {
         {
             let w = ta.downgrade();
             ta.0.payload
-                .borrow_mut()
+                .borrow()
                 .typed_array()
-                .map(|x| x.array_buffer())
+                .map(|x| x.borrow().array_buffer())
                 .unwrap()
                 .add_typed_array_weakref(w.clone());
 
-            ta.0.payload.borrow_mut().typed_array_mut().unwrap().obj = w;
+            ta.0.payload
+                .borrow()
+                .typed_array()
+                .unwrap()
+                .borrow_mut()
+                .obj = w;
         }
 
         Ok(ta.into())
@@ -686,11 +693,11 @@ pub fn js_typed_array_set_internal(
     Ok(JSValue::UNDEFINED)
 }
 
-pub fn js_typed_array_finalizer(rt: &mut JSRuntime, isa: ObjectPayload, id: usize) {
+pub fn js_typed_array_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {
     if let Some(ta) = isa.typed_array() {
         // during the GC the finalizers are called in an arbitrary
         // order so the ArrayBuffer finalizer may have been called
-        ta.array_buffer().remove_typed_array_weakref(id);
+        ta.borrow().array_buffer().remove_typed_array_weakref(id);
     }
 }
 

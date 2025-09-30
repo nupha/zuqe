@@ -310,13 +310,14 @@ pub unsafe fn JS_NewCFunctionData(
     data_count: u8,
     data: *const JSValueConst,
 ) -> JSValue {
-    ctx.create_native_function_with_data(
-        func,
-        length,
-        magic,
-        std::slice::from_raw_parts(data, data_count as usize),
-    )
-    .map_or(JSValue::EXCEPTION, JSValue::Object)
+    unreachable!("unused");
+    // ctx.create_native_function_with_data(
+    //     func,
+    //     length,
+    //     magic,
+    //     std::slice::from_raw_parts(data, data_count as usize),
+    // )
+    // .map_or(JSValue::EXCEPTION, JSValue::Object)
 }
 
 /// op1, op2 ref_count unchanged

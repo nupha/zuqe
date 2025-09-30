@@ -1,3 +1,5 @@
+use std::{cell::RefCell, ops::DerefMut};
+
 use fallible_collections::{FallibleVec, TryCollect};
 use smallvec::SmallVec;
 
@@ -19,12 +21,14 @@ use crate::{
 
 #[derive(Debug, Default)]
 pub struct ArrayObjPayload {
-    values: Vec<JSValue>,
+    values: RefCell<Vec<JSValue>>,
 }
 
 impl ArrayObjPayload {
     pub fn new(data: Vec<JSValue>) -> Self {
-        Self { values: data }
+        Self {
+            values: RefCell::new(data),
+        }
     }
 }
 
@@ -189,8 +193,17 @@ impl Array {
 
         let len = values.len();
 
-        // use fast array list
-        self.0.0.payload.borrow_mut().array_mut().unwrap().values = values;
+        // use fast array values
+        *self
+            .0
+            .0
+            .payload
+            .borrow()
+            .array()
+            .unwrap()
+            .values
+            .borrow_mut() = values;
+
         // set fast array flag
         self.set_flag_fast_array(true);
 
@@ -402,7 +415,9 @@ impl JSContext {
         let fa = self
             .create_object_with_shape(
                 self.0.borrow().array_shape.clone().unwrap(),
-                ObjectPayload::ARRAY(ArrayObjPayload { values }),
+                ObjectPayload::ARRAY(ArrayObjPayload {
+                    values: RefCell::new(values),
+                }),
             )
             .map(Array)
             .map_err(|_| -1)?;
@@ -519,7 +534,7 @@ impl JSObject {
                 .payload
                 .borrow()
                 .array()
-                .map(|a| f(a.values.as_slice()))
+                .map(|a| f(a.values.borrow().as_slice()))
         } else {
             None
         }
@@ -533,9 +548,9 @@ impl JSObject {
         if self.flags().is_fast_array() {
             self.0
                 .payload
-                .borrow_mut()
-                .array_mut()
-                .map(|a| f(&mut a.values))
+                .borrow()
+                .array()
+                .map(|a| f(a.values.borrow_mut().deref_mut()))
         } else {
             None
         }
@@ -607,10 +622,10 @@ impl JSObject {
     pub(crate) fn fast_array_count(&self) -> u32 {
         if let Some(ap) = self.0.payload.borrow().array() {
             // ARRAY or ARGUMENT
-            ap.values.len() as u32
+            ap.values.borrow().len() as u32
         } else if let Some(ta) = self.0.payload.borrow().typed_array() {
             // typed array or dataview
-            ta.count
+            ta.borrow().count
         } else {
             unreachable!("expect argument, array, typed array or dataview")
         }
@@ -715,7 +730,7 @@ impl JSValue {
     }
 }
 
-pub fn js_array_finalizer(rt: &mut JSRuntime, isa: ObjectPayload, id: usize) {}
+pub fn js_array_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
 
 pub fn js_array_mark(val: JSValue) {
     unsafe {

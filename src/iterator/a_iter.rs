@@ -43,7 +43,7 @@ pub unsafe fn js_async_from_sync_iterator_unwrap_func_create(
         js_async_from_sync_iterator_unwrap,
         1,
         0,
-        &[JSValue::Bool(done)],
+        [JSValue::Bool(done)].into(),
     )
     .map_or(JSValue::EXCEPTION, JSValue::Object)
 }
@@ -164,7 +164,7 @@ pub fn js_async_from_sync_iterator_next(ctx: &JSContext, cc: CallContext) -> JSR
     }
 }
 
-pub fn js_async_from_sync_iterator_finalizer(rt: &mut JSRuntime, isa: ObjectPayload, id: usize) {
+pub fn js_async_from_sync_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {
     // if let ObjectPayload::ASYNC_FROM_SYNC_ITERATOR(p) = val.object_unchecked().isa() {
     //     drop(Box::from_raw(p));
     // }

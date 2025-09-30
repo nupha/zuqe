@@ -26,7 +26,7 @@ pub type JSClassID = u32;
 
 /// class instance finalize callback.
 /// `isa` is the object's payload.
-pub type JSClassFinalizer = fn(rt: &mut JSRuntime, isa: ObjectPayload, id: usize);
+pub type JSClassFinalizer = fn(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize);
 
 pub type JSClassGCMark = fn(val: JSValue);
 

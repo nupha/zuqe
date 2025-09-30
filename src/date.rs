@@ -1,5 +1,6 @@
 use std::{
-    ops::{Deref, DerefMut, RangeInclusive},
+    cell::Cell,
+    ops::{Deref, RangeInclusive},
     os::unix::raw::time_t,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -825,7 +826,7 @@ pub fn js_date_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         1 => {
             if let Some(ts) = cc.arg(0).as_object().and_then(|p| {
                 if let ObjectPayload::DATE(dt) = p.0.payload.borrow().deref() {
-                    Some(*dt)
+                    Some(dt.get())
                 } else {
                     None
                 }
@@ -867,7 +868,7 @@ pub fn js_date_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         // invoked as a function, returns toString()
         datetime_format(ctx, tm.into(), 0x13).map(JSValue::String)
     } else {
-        ctx.create_object_apply_ctor(new_target, ObjectPayload::DATE(tm))
+        ctx.create_object_apply_ctor(new_target, ObjectPayload::DATE(Cell::new(tm)))
             .map(JSValue::Object)
             .map_err(|_| -1)
     }
@@ -876,7 +877,7 @@ pub fn js_date_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
 fn JS_ThisTimeValue(ctx: &JSContext, this: &JSValue) -> Result<Datetime, i32> {
     if let Some(t) = this.as_object().and_then(|o| {
         if let ObjectPayload::DATE(dt) = o.0.payload.borrow().deref() {
-            Some(*dt)
+            Some(dt.get())
         } else {
             None
         }
@@ -903,8 +904,8 @@ fn js_date_setTime(ctx: &JSContext, cc: CallContext) -> JSResult {
         Datetime::INVALID
     };
 
-    if let ObjectPayload::DATE(dt) = this.as_object().unwrap().0.payload.borrow_mut().deref_mut() {
-        *dt = dt2;
+    if let ObjectPayload::DATE(dt) = this.as_object().unwrap().0.payload.borrow().deref() {
+        dt.set(dt2);
         Ok(dt2.into())
     } else {
         ctx.throw_type_error("not a Date object");
@@ -1015,12 +1016,12 @@ fn set_date_field_internal(
         Datetime::INVALID
     };
 
-    if let ObjectPayload::DATE(dt) = this.as_object().unwrap().0.payload.borrow_mut().deref_mut() {
+    if let ObjectPayload::DATE(dt) = this.as_object().unwrap().0.payload.borrow().deref() {
         // Note: to pass test262
         // only `this` timestamp is invalid, and not setting `year`, do update the timestamp.
         // `this` timestamp could have been updated in valueOf() method.
         if first_field == 0 || !this_is_bad {
-            *dt = dt2;
+            dt.set(dt2);
         }
 
         Ok(dt2.into())

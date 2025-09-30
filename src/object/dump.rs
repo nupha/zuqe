@@ -95,6 +95,7 @@ impl JSObject {
                         .borrow()
                         .typed_array()
                         .unwrap()
+                        .borrow()
                         .with_bytes(|lst| {
                             for (i, b) in lst.iter().enumerate() {
                                 if i != 0 && i % bytes_per_element == 0 {

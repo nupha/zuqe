@@ -22,7 +22,7 @@ pub struct JSArrayIteratorData {
 }
 
 impl JSArrayIteratorData {
-    pub fn class_finalizer(rt: &mut JSRuntime, isa: ObjectPayload, id: usize) {}
+    pub fn class_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
 
     pub fn class_mark(val: JSValue) {
         let p = unsafe { val.as_object_unchecked() };

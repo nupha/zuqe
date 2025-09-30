@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_BIG_INT64_ARRAY,
     JS_CLASS_BIG_UINT64_ARRAY, JS_CLASS_DATAVIEW, JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY,
@@ -75,11 +77,11 @@ impl JSContext {
 
         // create dataview instance
         let o = self
-            .create_object_apply_ctor(new_target, ObjectPayload::DATAVIEW(ta))
+            .create_object_apply_ctor(new_target, ObjectPayload::DATAVIEW(RefCell::new(ta)))
             .map_err(|_| -1)?;
 
         // set back ref to the new created DataView object
-        o.0.payload.borrow_mut().typed_array_mut().unwrap().obj = o.downgrade();
+        o.0.payload.borrow().typed_array().unwrap().borrow_mut().obj = o.downgrade();
 
         Ok(o.into())
     }
@@ -126,6 +128,7 @@ pub fn js_dataview_getValue(ctx: &JSContext, args: CallContext) -> JSResult {
 
     unsafe {
         let abuf = ta
+            .borrow()
             .buffer
             .0
             .payload
@@ -139,12 +142,12 @@ pub fn js_dataview_getValue(ctx: &JSContext, args: CallContext) -> JSResult {
             return Err(-1);
         }
 
-        if pos + size > ta.byte_length as usize {
+        if pos + size > ta.borrow().byte_length as usize {
             ctx.throw_range_error("out of bound");
             return Err(-1);
         }
 
-        ta.with_bytes(|buf| -> JSResult {
+        ta.borrow().with_bytes(|buf| -> JSResult {
             let ptr = buf.as_ptr().add(pos as usize);
 
             match class_id {
