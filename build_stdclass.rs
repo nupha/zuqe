@@ -113,9 +113,9 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
             Some("crate::function::js_bytecode_function_mark")
         ),
         class_def!(
-            "ForInIterObjPayload",
+            "ForInIterPayload",
             "FOR_IN_ITERATOR",
-            Some("std::cell::RefCell<Box<crate::iterator::ForInIterObjPayload>>"),
+            Some("std::cell::RefCell<Box<crate::iterator::ForInIterPayload>>"),
             Some("crate::iterator::js_for_in_iterator_finalizer"),
             Some("crate::iterator::js_for_in_iterator_mark")
         ),

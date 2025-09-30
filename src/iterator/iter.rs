@@ -1,4 +1,4 @@
-use std::{cell::RefCell, ops::Deref};
+use std::cell::RefCell;
 
 use crate::{
     JS_CFUNC_NATIVE_DEF,
@@ -24,7 +24,7 @@ pub enum JSIteratorKindEnum {
 }
 
 #[derive(Debug)]
-pub struct ForInIterObjPayload {
+pub struct ForInIterPayload {
     pub obj: JSValue,
     /// obj is an array?
     pub is_array: bool,
@@ -41,8 +41,8 @@ pub struct ForInIterObjPayload {
     pub prop_count: u32,
 }
 
-impl ForInIterObjPayload {
-    /// create new object with ForInIterObjPayload payload for given value.
+impl ForInIterPayload {
+    /// create new object with ForInIterPayload payload for given value.
     /// the new object is of CLASS_FOR_IN_ITERATOR class.
     pub fn new(ctx: &JSContext, val: JSValue) -> Result<JSObject, i32> {
         let obj: JSValue = match val {
@@ -50,7 +50,7 @@ impl ForInIterObjPayload {
             JSValue::NULL | JSValue::UNDEFINED => val,
             _ => val.objectify(ctx)?.into(),
         };
-        let mut it = Box::new(ForInIterObjPayload {
+        let mut it = Box::new(ForInIterPayload {
             obj: obj.clone(),
             idx: 0,
             prop_count: 0,

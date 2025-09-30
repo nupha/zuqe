@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::ops::Deref;
 
 use crate::branch_hints::unlikely;
-use crate::iterator::{ForInIterObjPayload, ObjectIter};
+use crate::iterator::{ForInIterPayload, ObjectIter};
 use crate::object::JSObject;
 use crate::string::JSString;
 use crate::{
@@ -349,7 +349,7 @@ pub unsafe fn js_append_enumerate(ctx: &JSContext, sp: *mut JSValue) -> Result<(
 pub fn js_for_in_start(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
     unsafe {
         let obj = std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED);
-        let it = ForInIterObjPayload::new(ctx, obj).map_or(JSValue::EXCEPTION, JSValue::Object);
+        let it = ForInIterPayload::new(ctx, obj).map_or(JSValue::EXCEPTION, JSValue::Object);
 
         std::ptr::replace(sp.offset(-1), it);
 

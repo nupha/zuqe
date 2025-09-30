@@ -28,7 +28,7 @@ use crate::{
     },
     gc::{GCObjectHeader, JSGCObjectTypeEnum},
     generator::{AsyncGeneratorPayload, GeneratorPayload},
-    iterator::{ForInIterObjPayload, JSIteratorKindEnum},
+    iterator::{ForInIterPayload, JSIteratorKindEnum},
     mapset::{JSMapState, MapPair},
     module::{
         ExecModuleList, ExportEntry, ExportType, JSResolveEntry, JSResolveResultEnum, ModuleDef,
@@ -3815,7 +3815,7 @@ pub fn JS_IteratorClose(
 
 #[deprecated(note = "use JSForInIterator::new() instead")]
 pub fn build_for_in_iterator(ctx: &JSContext, obj: JSValue) -> JSValue {
-    ForInIterObjPayload::new(ctx, obj).map_or(JSValue::EXCEPTION, JSValue::Object)
+    ForInIterPayload::new(ctx, obj).map_or(JSValue::EXCEPTION, JSValue::Object)
 }
 
 /// return TRUE if 'atom' is a symbol with a string description
