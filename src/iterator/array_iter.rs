@@ -15,13 +15,13 @@ use super::JSIteratorKindEnum;
 
 /// iterate state for Array, String or TypedArray
 #[derive(Debug)]
-pub struct JSArrayIteratorData {
+pub(crate) struct ArrayIterPayload {
     obj: UnsafeCell<JSValue>,
     idx: UnsafeCell<u32>,
     kind: JSIteratorKindEnum,
 }
 
-impl JSArrayIteratorData {
+impl ArrayIterPayload {
     /// get iterator current index
     #[inline(always)]
     pub(crate) fn index(&self) -> u32 {
@@ -84,7 +84,7 @@ pub fn js_create_array_iterator(ctx: &JSContext, cc: CallContext) -> JSResult {
         )
     };
 
-    let isa = Box::new(JSArrayIteratorData {
+    let isa = Box::new(ArrayIterPayload {
         obj: UnsafeCell::new(obj),
         idx: UnsafeCell::new(0),
         kind,

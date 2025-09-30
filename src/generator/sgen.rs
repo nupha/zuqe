@@ -19,7 +19,7 @@ use crate::{
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
-pub enum JSGeneratorStateEnum {
+enum GenState {
     JS_GENERATOR_STATE_SUSPENDED_START,
     JS_GENERATOR_STATE_SUSPENDED_YIELD,
     JS_GENERATOR_STATE_SUSPENDED_YIELD_STAR,
@@ -33,17 +33,17 @@ pub const FUNC_RET_YIELD_STAR: i32 = 2;
 pub const FUNC_RET_INITIAL_YIELD: i32 = 3;
 
 #[derive(Debug)]
-pub struct GeneratorState {
-    pub state: JSGeneratorStateEnum,
+pub struct GeneratorPayload {
+    state: GenState,
     func_state: Option<AsyncFuncState>,
 }
 
-impl GeneratorState {
+impl GeneratorPayload {
     /// release async function state
-    pub fn free_generator_stack_rt(&mut self, rt: &JSRuntime) {
-        if self.state != JSGeneratorStateEnum::JS_GENERATOR_STATE_COMPLETED {
+    pub fn free_generator_stack(&mut self, rt: &JSRuntime) {
+        if self.state != GenState::JS_GENERATOR_STATE_COMPLETED {
             self.func_state.take();
-            self.state = JSGeneratorStateEnum::JS_GENERATOR_STATE_COMPLETED;
+            self.state = GenState::JS_GENERATOR_STATE_COMPLETED;
         }
     }
 }
@@ -150,8 +150,8 @@ pub fn js_generator_function_call(
         this_obj.clone(),
         args,
     )?;
-    let g = Box::new(GeneratorState {
-        state: JSGeneratorStateEnum::JS_GENERATOR_STATE_SUSPENDED_START,
+    let g = Box::new(GeneratorPayload {
+        state: GenState::JS_GENERATOR_STATE_SUSPENDED_START,
         func_state: Some(func_state),
     });
 
@@ -191,7 +191,7 @@ pub fn js_generator_next(
         let mut g = g.borrow_mut();
 
         let todo: WhatToDo = match g.state {
-            JSGeneratorStateEnum::JS_GENERATOR_STATE_SUSPENDED_START => {
+            GenState::JS_GENERATOR_STATE_SUSPENDED_START => {
                 if magic == GEN_MAGIC_NEXT {
                     let func_state = g.func_state.clone().unwrap();
                     func_state.set_throw_flag(false);
@@ -200,14 +200,14 @@ pub fn js_generator_next(
                     WhatToDo::Done
                 }
             }
-            JSGeneratorStateEnum::JS_GENERATOR_STATE_SUSPENDED_YIELD_STAR
-            | JSGeneratorStateEnum::JS_GENERATOR_STATE_SUSPENDED_YIELD => {
+            GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD_STAR
+            | GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD => {
                 // SP[-1] was set to JS_UNDEFINED in the previous call
                 let func_state = g.func_state.clone().unwrap();
                 let val = cc.arg(0).clone();
 
                 if magic == GEN_MAGIC_THROW
-                    && g.state == JSGeneratorStateEnum::JS_GENERATOR_STATE_SUSPENDED_YIELD
+                    && g.state == GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD
                 {
                     ctx.throw(val);
                     func_state.set_throw_flag(true);
@@ -231,8 +231,8 @@ pub fn js_generator_next(
                 }
                 WhatToDo::ExecNoArg
             }
-            JSGeneratorStateEnum::JS_GENERATOR_STATE_COMPLETED => WhatToDo::Done,
-            JSGeneratorStateEnum::JS_GENERATOR_STATE_EXECUTING => {
+            GenState::JS_GENERATOR_STATE_COMPLETED => WhatToDo::Done,
+            GenState::JS_GENERATOR_STATE_EXECUTING => {
                 ctx.throw_type_error("cannot invoke a running generator");
                 return Err(-1);
             }
@@ -242,13 +242,13 @@ pub fn js_generator_next(
             WhatToDo::ExecNoArg => {
                 let func_state = g.func_state.clone().unwrap();
 
-                g.state = JSGeneratorStateEnum::JS_GENERATOR_STATE_EXECUTING;
+                g.state = GenState::JS_GENERATOR_STATE_EXECUTING;
                 let func_ret = func_state.resume(ctx).unwrap_or(JSValue::EXCEPTION);
-                g.state = JSGeneratorStateEnum::JS_GENERATOR_STATE_SUSPENDED_YIELD;
+                g.state = GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD;
 
                 if func_state.is_completed() {
                     /* finalize the execution in case of exception or normal return */
-                    g.free_generator_stack_rt(ctx.rt());
+                    g.free_generator_stack(ctx.rt());
                     return func_ret.err();
                 }
 
@@ -269,7 +269,7 @@ pub fn js_generator_next(
                 };
 
                 *iter_state = if let JSValue::Int(FUNC_RET_YIELD_STAR) = func_ret {
-                    g.state = JSGeneratorStateEnum::JS_GENERATOR_STATE_SUSPENDED_YIELD_STAR;
+                    g.state = GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD_STAR;
                     /* return (value, done) object */
                     IteratorState::NotParsed
                 } else {

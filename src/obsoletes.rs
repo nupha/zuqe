@@ -27,7 +27,7 @@ use crate::{
         js_function_set_properties,
     },
     gc::{GCObjectHeader, JSGCObjectTypeEnum},
-    generator::{AsyncGeneratorState, GeneratorState},
+    generator::{AsyncGeneratorPayload, GeneratorPayload},
     iterator::{ForInIterObjPayload, JSIteratorKindEnum},
     mapset::{JSMapState, MapPair},
     module::{
@@ -487,9 +487,9 @@ pub unsafe fn get_var_ref(
     unreachable!("use JSStackFrame::get_var_ref() instead")
 }
 
-#[deprecated(note = "use AsyncGeneratorState::dispose() instead")]
-pub unsafe fn js_async_generator_free(rt: *mut JSRuntime, s: *mut AsyncGeneratorState) {
-    unreachable!("use AsyncGeneratorState::dispose() instead");
+#[deprecated(note = "use AsyncGeneratorPayload::dispose() instead")]
+pub unsafe fn js_async_generator_free(rt: *mut JSRuntime, s: *mut AsyncGeneratorPayload) {
+    unreachable!("use AsyncGeneratorPayload::dispose() instead");
 }
 
 #[deprecated(note = "use AsyncGeneratorFunction::function_call() instead")]
@@ -3021,21 +3021,21 @@ pub unsafe fn add_property(
     unreachable!("unused")
 }
 
-#[deprecated(note = "use AsyncGeneratorState::resume_next() instead")]
-pub unsafe fn js_async_generator_resume_next(ctx: &JSContext, s: *mut AsyncGeneratorState) {
+#[deprecated(note = "use AsyncGeneratorPayload::resume_next() instead")]
+pub unsafe fn js_async_generator_resume_next(ctx: &JSContext, s: *mut AsyncGeneratorPayload) {
     (*s).resume_next(ctx);
 }
 
-#[deprecated(note = "use AsyncGeneratorState::complete() instead")]
-pub unsafe fn js_async_generator_complete(ctx: &JSContext, s: *mut AsyncGeneratorState) {
+#[deprecated(note = "use AsyncGeneratorPayload::complete() instead")]
+pub unsafe fn js_async_generator_complete(ctx: &JSContext, s: *mut AsyncGeneratorPayload) {
     (*s).complete();
 }
 
 /// `value` is not consumed.
-#[deprecated(note = "use AsyncGeneratorState::resolve() instead")]
+#[deprecated(note = "use AsyncGeneratorPayload::resolve() instead")]
 pub unsafe fn js_async_generator_resolve(
     ctx: &JSContext,
-    s: *mut AsyncGeneratorState,
+    s: *mut AsyncGeneratorPayload,
     value: JSValueConst,
     done: bool,
 ) {
@@ -3043,19 +3043,19 @@ pub unsafe fn js_async_generator_resolve(
 }
 
 #[inline(always)]
-#[deprecated(note = "use AsyncGeneratorState::reject() instead")]
+#[deprecated(note = "use AsyncGeneratorPayload::reject() instead")]
 pub unsafe fn js_async_generator_reject(
     ctx: &JSContext,
-    s: *mut AsyncGeneratorState,
+    s: *mut AsyncGeneratorPayload,
     exception: JSValueConst,
 ) {
     (*s).reject(ctx, exception);
 }
 
-#[deprecated(note = "use AsyncGeneratorState::resolve_or_reject() instead")]
+#[deprecated(note = "use AsyncGeneratorPayload::resolve_or_reject() instead")]
 pub unsafe fn js_async_generator_resolve_or_reject(
     ctx: &JSContext,
-    s: *mut AsyncGeneratorState,
+    s: *mut AsyncGeneratorPayload,
     result: JSValueConst,
     is_reject: bool,
 ) {
@@ -4096,9 +4096,9 @@ pub fn js_create_desc(
     unreachable!("unused")
 }
 
-#[deprecated(note = "use GeneratorState::free_generator_stack_rt() instead")]
-pub unsafe fn free_generator_stack_rt(rt: *mut JSRuntime, s: *mut GeneratorState) {
-    (*s).free_generator_stack_rt(rt.as_mut().unwrap());
+#[deprecated(note = "use GeneratorPayload::free_generator_stack_rt() instead")]
+pub unsafe fn free_generator_stack_rt(rt: *mut JSRuntime, s: *mut GeneratorPayload) {
+    (*s).free_generator_stack(rt.as_mut().unwrap());
 }
 
 #[deprecated(note = "use JSParseState::get_pos() instead")]
@@ -4614,3 +4614,13 @@ pub const func_kind_to_class_id: [JSClassID; 4] = [
     JS_CLASS_ASYNC_FUNCTION,           // 2 JS_FUNC_ASYNC
     JS_CLASS_ASYNC_GENERATOR_FUNCTION, // 3 JS_FUNC_ASYNC_GENERATOR
 ];
+
+#[deprecated(note = "use AsyncGeneratorPayload::complete_return() instead")]
+pub fn js_async_generator_completed_return(
+    ctx: &JSContext,
+    s: &mut AsyncGeneratorPayload,
+    value: JSValue,
+) -> Result<(), i32> {
+    unreachable!("unused")
+    // s.completed_return(ctx, value)
+}

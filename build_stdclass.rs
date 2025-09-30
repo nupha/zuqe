@@ -283,16 +283,16 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "Array_Iterator",
             "ARRAY_ITERATOR",
-            Some("Box<crate::iterator::JSArrayIteratorData>"),
-            Some("crate::iterator::JSArrayIteratorData::class_finalizer"),
-            Some("crate::iterator::JSArrayIteratorData::class_mark")
+            Some("Box<crate::iterator::ArrayIterPayload>"),
+            Some("crate::iterator::ArrayIterPayload::class_finalizer"),
+            Some("crate::iterator::ArrayIterPayload::class_mark")
         ),
         class_def!(
             "String_Iterator",
             "STRING_ITERATOR",
-            Some("Box<crate::iterator::JSArrayIteratorData>"),
-            Some("crate::iterator::JSArrayIteratorData::class_finalizer"),
-            Some("crate::iterator::JSArrayIteratorData::class_mark")
+            Some("Box<crate::iterator::ArrayIterPayload>"),
+            Some("crate::iterator::ArrayIterPayload::class_finalizer"),
+            Some("crate::iterator::ArrayIterPayload::class_mark")
         ),
         class_def!(
             "RegExp_String_Iterator",
@@ -307,7 +307,7 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "Generator",
             "GENERATOR",
-            Some("std::cell::RefCell<Box<crate::generator::GeneratorState>>"),
+            Some("std::cell::RefCell<Box<crate::generator::GeneratorPayload>>"),
             Some("crate::generator::js_generator_finalizer"),
             Some("crate::generator::js_generator_mark")
         ),
@@ -383,7 +383,7 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "AsyncGenerator",
             "ASYNC_GENERATOR",
-            Some("std::cell::RefCell<Box<crate::generator::AsyncGeneratorState>>"),
+            Some("std::cell::RefCell<Box<crate::generator::AsyncGeneratorPayload>>"),
             Some("crate::generator::AsyncGeneratorFunction::class_finalizer"),
             Some("crate::generator::AsyncGeneratorFunction::class_mark")
         ),

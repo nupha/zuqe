@@ -76,18 +76,6 @@ impl JSObject {
             format!("{}", tag_atom.force_string(ctx)?)
         };
 
-        #[cfg(debug_assertions)]
-        {
-            Ok(format!(
-                "[object {tag} @{}]",
-                self.class_name()
-                    .force_string(ctx)?
-                    .content()
-                    .to_utf8(false)
-            ))
-        }
-
-        #[cfg(not(debug_assertions))]
         Ok(format!("[object {tag}]"))
 
         // if let Some(v) = self.payload().value() {
