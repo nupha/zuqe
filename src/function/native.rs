@@ -130,11 +130,7 @@ impl ObjNativeFunc {
         let rt = ctx.rt_mut();
 
         let (callback, arg_length, magic, realm) = if let ObjectPayload::C_FUNCTION(c) =
-            unsafe { func_obj.as_object_unchecked() }
-                .0
-                .payload
-                .borrow()
-                .deref()
+            unsafe { func_obj.as_object_unchecked().payload() }
         {
             (c.handler, c.length, c.magic, c.realm.upgrade().unwrap())
         } else {
@@ -342,9 +338,7 @@ impl ObjNativeFunc {
 
     pub fn class_mark(val: JSValue) {
         unsafe {
-            if let ObjectPayload::C_FUNCTION(cfunc) =
-                val.as_object_unchecked().0.payload.borrow().deref()
-            {
+            if let ObjectPayload::C_FUNCTION(cfunc) = val.as_object_unchecked().payload() {
                 // println!("[O.o] TODO cfunction mark");
                 // mark_func(rt, &cfunc.realm);
             }
@@ -360,7 +354,7 @@ impl JSObject {
     /// Checks if Object is native function of specific type.
     /// Matches both the callback pointer and magic.
     pub fn match_native_callback(&self, callback: NativeFunctionType, magic: i32) -> bool {
-        if let ObjectPayload::C_FUNCTION(cfunc) = self.0.payload.borrow().deref() {
+        if let ObjectPayload::C_FUNCTION(cfunc) = self.payload() {
             cfunc.magic == magic as i16 && callback.eq(&cfunc.handler)
         } else {
             false

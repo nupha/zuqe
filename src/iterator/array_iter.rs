@@ -1,11 +1,11 @@
-use std::ops::{Deref, DerefMut};
+use std::cell::UnsafeCell;
 
 use crate::{
     JS_CLASS_ARRAY_ITERATOR, JS_CLASS_STRING_ITERATOR,
     context::JSContext,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, IteratorState},
-    object::{ObjectPayload, js_get_length32},
+    object::ObjectPayload,
     runtime::JSRuntime,
     typed_array::TypedArray,
     value::JSValue,
@@ -13,23 +13,57 @@ use crate::{
 
 use super::JSIteratorKindEnum;
 
-/// Array or String iterator
+/// iterate state for Array, String or TypedArray
 #[derive(Debug)]
 pub struct JSArrayIteratorData {
-    pub obj: JSValue,
-    pub kind: JSIteratorKindEnum,
-    pub idx: u32,
+    obj: UnsafeCell<JSValue>,
+    idx: UnsafeCell<u32>,
+    kind: JSIteratorKindEnum,
 }
 
 impl JSArrayIteratorData {
+    /// get iterator current index
+    #[inline(always)]
+    pub(crate) fn index(&self) -> u32 {
+        unsafe { *self.idx.get() }
+    }
+
+    /// set iterator index
+    #[inline(always)]
+    pub(crate) fn set_index(&self, i: u32) {
+        unsafe {
+            *self.idx.get() = i;
+        }
+    }
+
+    /// increase iterator index by 1
+    #[inline(always)]
+    pub(crate) fn inc_index(&self) {
+        unsafe {
+            *self.idx.get() += 1;
+        }
+    }
+
+    /// get iterator target object
+    #[inline(always)]
+    pub(crate) fn object(&self) -> &JSValue {
+        unsafe { self.obj.get().as_ref().unwrap_unchecked() }
+    }
+
+    /// set iterator target object
+    pub(crate) fn set_object(&self, obj: JSValue) {
+        unsafe {
+            *self.obj.get() = obj;
+        }
+    }
+
     pub fn class_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
 
     pub fn class_mark(val: JSValue) {
         let p = unsafe { val.as_object_unchecked() };
-        if let ObjectPayload::ARRAY_ITERATOR(it) | ObjectPayload::STRING_ITERATOR(it) =
-            p.0.payload.borrow().deref()
+        if let ObjectPayload::ARRAY_ITERATOR(it) | ObjectPayload::STRING_ITERATOR(it) = p.payload()
         {
-            it.obj.gc_mark();
+            it.object().gc_mark();
         }
     }
 }
@@ -41,20 +75,24 @@ pub fn js_create_array_iterator(ctx: &JSContext, cc: CallContext) -> JSResult {
     let (class_id, obj) = if cc.magic() & 4 != 0 {
         (
             JS_CLASS_STRING_ITERATOR,
-            cc.this().to_string_non_undefined_or_null(ctx)?.into(),
+            JSValue::from(cc.this().to_string_non_undefined_or_null(ctx)?),
         )
     } else {
         (
             JS_CLASS_ARRAY_ITERATOR,
-            cc.this().clone().objectify(ctx)?.into(),
+            JSValue::from(cc.this().clone().objectify(ctx)?),
         )
     };
 
-    let it = Box::new(JSArrayIteratorData { obj, kind, idx: 0 });
+    let isa = Box::new(JSArrayIteratorData {
+        obj: UnsafeCell::new(obj),
+        idx: UnsafeCell::new(0),
+        kind,
+    });
     ctx.create_object(if class_id == JS_CLASS_STRING_ITERATOR {
-        ObjectPayload::STRING_ITERATOR(it)
+        ObjectPayload::STRING_ITERATOR(isa)
     } else {
-        ObjectPayload::ARRAY_ITERATOR(it)
+        ObjectPayload::ARRAY_ITERATOR(isa)
     })
     .map(JSValue::Object)
     .map_err(|_| -1)
@@ -65,22 +103,14 @@ pub fn js_array_iterator_next(
     cc: CallContext,
     state: &mut IteratorState,
 ) -> JSResult {
-    if let ObjectPayload::ARRAY_ITERATOR(it) = cc
-        .this()
-        .as_object()
-        .unwrap()
-        .0
-        .payload
-        .borrow_mut()
-        .deref_mut()
-    {
-        if it.obj.is_undefined() {
+    if let ObjectPayload::ARRAY_ITERATOR(it) = cc.this().as_object().unwrap().payload() {
+        if it.object().is_undefined() {
             *state = IteratorState::Done;
             return Ok(JSValue::UNDEFINED);
         }
 
         // eval array length
-        let len = if let Ok(tao) = TypedArray::try_from(it.obj.clone()) {
+        let len = if let Ok(tao) = TypedArray::try_from(it.object().clone()) {
             // is typed array
             if tao.is_detached() {
                 JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
@@ -89,24 +119,24 @@ pub fn js_array_iterator_next(
             tao.length() as u32
         } else {
             // is Array or String
-            js_get_length32(ctx, &it.obj)?
+            it.object().get_length_prop(ctx)? as u32
         };
 
-        let idx = it.idx;
+        let idx = it.index();
         if idx >= len {
-            it.obj = JSValue::UNDEFINED;
+            it.set_object(JSValue::UNDEFINED);
             *state = IteratorState::Done;
             return Ok(JSValue::UNDEFINED);
         }
 
         *state = IteratorState::NotDone;
-        it.idx = idx + 1;
+        it.inc_index();
 
         match it.kind {
             JSIteratorKindEnum::JS_ITERATOR_KIND_KEY => Ok(JSValue::from(idx)),
-            JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE => it.obj.get_property_u32(ctx, idx),
+            JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE => it.object().get_property_u32(ctx, idx),
             JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE => {
-                let val = it.obj.get_property_u32(ctx, idx)?;
+                let val = it.object().get_property_u32(ctx, idx)?;
                 let num = JSValue::from(idx);
                 ctx.create_array_with_values(vec![num, val])
                     .map(|a| a.into())

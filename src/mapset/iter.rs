@@ -34,7 +34,7 @@ pub fn js_map_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: us
 
 pub fn js_map_iterator_mark(val: JSValue) {
     if let Some(o) = val.as_object() {
-        if let Some(it) = o.0.payload.borrow().map_iterator_state() {
+        if let Some(it) = o.payload().map_iterator_state() {
             if let Some(o) = &it.obj {
                 o.gc_mark()
             }

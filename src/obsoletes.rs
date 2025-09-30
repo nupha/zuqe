@@ -27,7 +27,7 @@ use crate::{
         js_function_set_properties,
     },
     gc::{GCObjectHeader, JSGCObjectTypeEnum},
-    generator::{AsyncGeneratorState, ObjGenerator},
+    generator::{AsyncGeneratorState, GeneratorState},
     iterator::{ForInIterObjPayload, JSIteratorKindEnum},
     mapset::{JSMapState, MapPair},
     module::{
@@ -4029,7 +4029,7 @@ pub unsafe fn get_proxy_method<'a>(
     obj: &'a JSValueConst,
     name: JSAtom,
 ) -> Result<(JSValue, &'a ProxyObjPayload), i32> {
-    if let ObjectPayload::PROXY(s) = obj.as_object_unchecked().0.payload.borrow().deref() {
+    if let ObjectPayload::PROXY(s) = obj.as_object_unchecked().payload() {
         unimplemented!()
     } else {
         unreachable!()
@@ -4096,8 +4096,8 @@ pub fn js_create_desc(
     unreachable!("unused")
 }
 
-#[deprecated(note = "use ObjGenerator::free_generator_stack_rt() instead")]
-pub unsafe fn free_generator_stack_rt(rt: *mut JSRuntime, s: *mut ObjGenerator) {
+#[deprecated(note = "use GeneratorState::free_generator_stack_rt() instead")]
+pub unsafe fn free_generator_stack_rt(rt: *mut JSRuntime, s: *mut GeneratorState) {
     (*s).free_generator_stack_rt(rt.as_mut().unwrap());
 }
 

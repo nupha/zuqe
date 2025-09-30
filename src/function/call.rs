@@ -292,12 +292,11 @@ pub fn JS_CallInternal(
             let frame = unsafe { &mut s.as_mut().get_unchecked_mut().frame };
 
             let p = unsafe { frame.cur_func.as_object_unchecked().clone() };
-            let (bc, home_obj) =
-                p.0.payload
-                    .borrow()
-                    .func()
-                    .map(|f| (f.bytecode().cloned().unwrap(), f.home_object.clone()))
-                    .unwrap();
+            let (bc, home_obj) = p
+                .payload()
+                .func()
+                .map(|f| (f.bytecode().cloned().unwrap(), f.home_object.clone()))
+                .unwrap();
 
             let pc_offset = frame.cur_pc_offset;
             let sp_offset = std::mem::replace(&mut frame.cur_sp_offset, -1);
@@ -315,7 +314,7 @@ pub fn JS_CallInternal(
                 new_target,
                 pc_offset,
                 sp_offset as usize,
-                p.0.payload.borrow().func().unwrap().var_refs.as_slice(),
+                p.payload().func().unwrap().var_refs.as_slice(),
                 args,
                 throw_flag,
             );
@@ -364,12 +363,11 @@ pub fn JS_CallConstructorInternal(
             };
         }
 
-        let bc =
-            p.0.payload
-                .borrow()
-                .func()
-                .and_then(|x| x.bytecode().cloned())
-                .unwrap();
+        let bc = p
+            .payload()
+            .func()
+            .and_then(|x| x.bytecode().cloned())
+            .unwrap();
 
         if bc.0.borrow().is_derived_class_constructor {
             JS_CallInternal(ctx, func_obj, &JSValue::UNDEFINED, new_target, args, flags)

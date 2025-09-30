@@ -17,7 +17,7 @@ pub fn js_thisNumberValue(ctx: &JSContext, this_val: JSValue) -> JSResult {
     } else {
         this_val
             .as_object()
-            .and_then(|p| p.0.payload.borrow().value())
+            .and_then(|p| p.payload().value())
             .and_then(|x| if x.is_number() { Some(x) } else { None })
             .ok_or_else(|| {
                 ctx.throw_type_error("not a number");

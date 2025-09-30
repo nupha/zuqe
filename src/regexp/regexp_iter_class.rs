@@ -19,7 +19,7 @@ fn js_regexp_string_iterator_next(
 ) -> JSResult {
     let this = cc.this().as_object().unwrap();
 
-    if let ObjectPayload::REGEXP_STRING_ITERATOR(it) = this.0.payload.borrow().deref() {
+    if let ObjectPayload::REGEXP_STRING_ITERATOR(it) = this.payload() {
         if it.borrow().done {
             *state = IteratorState::Done;
             return Ok(JSValue::UNDEFINED);

@@ -579,12 +579,7 @@ pub fn JS_GetScriptOrModuleName(ctx: &JSContext, n_stack_levels: i32) -> JSAtom 
 
     loop {
         if let JSValue::Object(p) = unsafe { &(&*sf).cur_func } {
-            if let Some(b) =
-                p.0.payload
-                    .borrow()
-                    .func()
-                    .and_then(|f| f.bytecode().cloned())
-            {
+            if let Some(b) = p.payload().func().and_then(|f| f.bytecode().cloned()) {
                 let b = b.0.borrow();
                 if !b.is_direct_or_indirect_eval {
                     if !b.has_debug {

@@ -260,7 +260,7 @@ impl Bytecode {
                             .cur_func
                             .as_object()
                             .and_then(|o| {
-                                o.0.payload.borrow().func().and_then(|f| {
+                                o.payload().func().and_then(|f| {
                                     f.bytecode().map(|bc| bc.with(|bc| bc.debug.debug_setting))
                                 })
                             })

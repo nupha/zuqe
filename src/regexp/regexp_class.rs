@@ -132,7 +132,7 @@ pub fn js_regexp_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_get_regexp(ctx: &JSContext, obj: &JSObject, throw_error: bool) -> Option<RegExpData> {
-    if let ObjectPayload::REGEXP(re) = obj.0.payload.borrow().deref() {
+    if let ObjectPayload::REGEXP(re) = obj.payload() {
         Some(*re.borrow().clone())
     } else {
         if throw_error {
@@ -375,7 +375,7 @@ fn js_regexp_compile(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     let re = Box::new(RegExpData::create(ctx, pattern, flags_str)?);
-    if let ObjectPayload::REGEXP(re0) = cc.this().as_object().unwrap().0.payload.borrow().deref() {
+    if let ObjectPayload::REGEXP(re0) = cc.this().as_object().unwrap().payload() {
         *re0.borrow_mut() = re;
     }
 

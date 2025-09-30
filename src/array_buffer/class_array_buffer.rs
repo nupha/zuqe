@@ -42,8 +42,7 @@ fn js_array_buffer_detached(ctx: &JSContext, cc: CallContext) -> JSResult {
         .as_object()
         .filter(|o| o.class_id() == JS_CLASS_ARRAY_BUFFER)
         .and_then(|o| {
-            o.0.payload
-                .borrow()
+            o.payload()
                 .array_buffer()
                 .map(|p| JSValue::Bool(p.is_detached()))
         })
@@ -58,13 +57,8 @@ fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let abuf = cc
         .this()
-        .as_object()
-        .filter(|o| o.class_id() == class_id)
-        .and_then(|o| o.0.payload.borrow().array_buffer().cloned())
-        .ok_or_else(|| {
-            ctx.throw_type_error_invalid_class(class_id);
-            -1
-        })?;
+        .retrive_object_payload(ctx, Some(class_id))
+        .map(|isa| isa.array_buffer().cloned().unwrap())?;
 
     if abuf.is_detached() {
         JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
@@ -94,14 +88,9 @@ fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
         JS_CallConstructor(ctx, &ctor, &[JSValue::from(new_len)]).err()
     }?;
 
-    let mut new_abuf = new_obj
-        .as_object()
-        .filter(|o| o.class_id() == class_id) // check new obj class_id
-        .and_then(|o| o.0.payload.borrow().array_buffer().cloned())
-        .ok_or_else(|| {
-            ctx.throw_type_error_invalid_class(class_id);
-            -1
-        })?;
+    let new_abuf = new_obj
+        .retrive_object_payload(ctx, Some(class_id))
+        .map(|isa| isa.array_buffer().cloned().unwrap())?;
 
     if unlikely(new_obj.is_same(cc.this())) {
         ctx.throw_type_error("cannot use identical ArrayBuffer");

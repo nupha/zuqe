@@ -83,9 +83,7 @@ impl JSContext {
             let bc = cur_frame_func
                 .as_ref()
                 .unwrap()
-                .0
-                .payload
-                .borrow()
+                .payload()
                 .func()
                 .and_then(|f| f.bytecode().cloned());
 
@@ -223,12 +221,11 @@ impl JSContext {
                 };
                 // current function of stack frame
                 let frame_func = sframe.cur_func.as_object().cloned().unwrap();
-                let isa = frame_func.0.payload.borrow();
 
                 bc.eval(
                     self,
                     this_obj,
-                    isa.func().unwrap().var_refs.as_slice(),
+                    frame_func.payload().func().unwrap().var_refs.as_slice(),
                     Some(sframe),
                 )
             }

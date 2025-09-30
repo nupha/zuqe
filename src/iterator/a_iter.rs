@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 use crate::{
     JS_CFUNC_NATIVE_DEF,
     atom::consts::*,
@@ -60,7 +58,7 @@ pub fn js_async_from_sync_iterator_next(ctx: &JSContext, cc: CallContext) -> JSR
     let this_val = cc.this();
     let p = unsafe { this_val.as_object_unchecked() };
 
-    if let ObjectPayload::ASYNC_FROM_SYNC_ITERATOR(p) = p.0.payload.borrow().deref() {
+    if let ObjectPayload::ASYNC_FROM_SYNC_ITERATOR(p) = p.payload() {
         let method = if cc.magic() == GEN_MAGIC_NEXT {
             p.next_method.clone()
         } else {
@@ -172,7 +170,7 @@ pub fn js_async_from_sync_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectPay
 
 pub fn js_async_from_sync_iterator_mark(val: JSValue) {
     let p = unsafe { val.as_object_unchecked() };
-    if let ObjectPayload::ASYNC_FROM_SYNC_ITERATOR(s) = p.0.payload.borrow().deref() {
+    if let ObjectPayload::ASYNC_FROM_SYNC_ITERATOR(s) = p.payload() {
         s.obj.gc_mark();
         s.next_method.gc_mark();
     }

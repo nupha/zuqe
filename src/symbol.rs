@@ -60,7 +60,7 @@ pub fn js_thisSymbolValue(ctx: &JSContext, this_val: &JSValue) -> JSResult {
 
     if let JSValue::Object(p) = this_val {
         if p.class_id() == JS_CLASS_SYMBOL {
-            let v = p.0.payload.borrow().value().unwrap();
+            let v = p.payload().value().unwrap();
             debug_assert!(v.is_symbol(), "{v:?}");
             if v.is_symbol() {
                 return Ok(v);

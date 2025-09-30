@@ -121,7 +121,7 @@ impl Promise {
         };
 
         let mut resolving_funcs = [JSValue::UNDEFINED, JSValue::UNDEFINED];
-        if let ObjectPayload::C_FUNCTION_DATA(s) = executor.0.payload.borrow().deref() {
+        if let ObjectPayload::C_FUNCTION_DATA(s) = executor.payload() {
             for i in 0..2 {
                 let item = s.get(i).unwrap();
                 item.ensure_function(ctx)?;
@@ -166,7 +166,7 @@ impl Promise {
 
     /// run closure with Promise payload.
     pub(super) fn with<R>(&self, f: impl FnOnce(&PromisePayload) -> R) -> R {
-        if let ObjectPayload::PROMISE(p) = self.0.0.payload.borrow().deref() {
+        if let ObjectPayload::PROMISE(p) = self.0.payload() {
             f(p.borrow().deref())
         } else {
             #[cfg(debug_assertions)]
@@ -180,7 +180,7 @@ impl Promise {
 
     /// run closure with Promise payload.
     pub(super) fn with_mut<R>(&self, f: impl FnOnce(&mut PromisePayload) -> R) -> R {
-        if let ObjectPayload::PROMISE(p) = self.0.0.payload.borrow().deref() {
+        if let ObjectPayload::PROMISE(p) = self.0.payload() {
             f(p.borrow_mut().deref_mut())
         } else {
             #[cfg(debug_assertions)]

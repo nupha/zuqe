@@ -32,7 +32,7 @@ impl JSContext {
     ) -> JSResult {
         let abuf = buffer
             .as_object()
-            .and_then(|o| o.0.payload.borrow().array_buffer().cloned())
+            .and_then(|o| o.payload().array_buffer().cloned())
             .ok_or_else(|| {
                 self.throw_type_error("expect an ArrayBuffer");
                 -1
@@ -81,7 +81,7 @@ impl JSContext {
             .map_err(|_| -1)?;
 
         // set back ref to the new created DataView object
-        o.0.payload.borrow().typed_array().unwrap().borrow_mut().obj = o.downgrade();
+        o.payload().typed_array().unwrap().borrow_mut().obj = o.downgrade();
 
         Ok(o.into())
     }
@@ -123,16 +123,14 @@ pub fn js_dataview_getValue(ctx: &JSContext, args: CallContext) -> JSResult {
         false // default to BE
     };
 
-    let isa = unsafe { this_obj.as_object_unchecked().0.payload.borrow() };
+    let isa = unsafe { this_obj.as_object_unchecked().payload() };
     let ta = isa.typed_array().unwrap();
 
     unsafe {
         let abuf = ta
             .borrow()
             .buffer
-            .0
-            .payload
-            .borrow()
+            .payload()
             .array_buffer()
             .cloned()
             .unwrap();

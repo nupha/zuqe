@@ -87,8 +87,7 @@ impl PromiseResolveFunc {
     pub fn class_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
 
     pub fn class_mark(val: JSValueConst) {
-        let isa = unsafe { val.as_object_unchecked().0.payload.borrow() };
-        if let Some(s) = isa.promise_func_data() {
+        if let Some(s) = unsafe { val.as_object_unchecked().payload().promise_func_data() } {
             s.promise.gc_mark();
         }
     }

@@ -3,10 +3,7 @@ use crate::{
     atom::consts::*,
     context::JSContext,
     error::JSResult,
-    function::{
-        BCFuncPayload, BoundFuncObjPayload, CallContext, FieldDef, JSFunctionKindEnum,
-        js_function_apply,
-    },
+    function::{BoundFuncObjPayload, CallContext, FieldDef, JSFunctionKindEnum, js_function_apply},
     object::{JS_PROP_CONFIGURABLE, ObjectPayload},
     string::JS_ConcatString3,
     value::JSValue,
@@ -109,7 +106,7 @@ pub fn js_function_toString(ctx: &JSContext, args: CallContext) -> JSResult {
     this_val.ensure_function(ctx)?;
     let p = unsafe { this_val.as_object_unchecked() };
 
-    let func_kind = if let Some(func) = p.0.payload.borrow().func() {
+    let func_kind = if let Some(func) = p.payload().func() {
         let bc = func.bytecode.as_ref().unwrap();
         let b = bc.0.borrow();
         if b.has_debug {
@@ -147,7 +144,7 @@ pub fn js_function_hasInstance(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_function_proto_fileName(ctx: &JSContext, args: CallContext) -> JSResult {
     if let Some((has_debug, filename)) = args.this_raw().as_object().and_then(|o| {
-        o.0.payload.borrow().func().and_then(|x| {
+        o.payload().func().and_then(|x| {
             x.bytecode().map(|bc| {
                 let b = bc.0.borrow();
                 (b.has_debug, b.debug.filename)
@@ -166,7 +163,7 @@ pub fn js_function_proto_fileName(ctx: &JSContext, args: CallContext) -> JSResul
 
 pub fn js_function_proto_lineNumber(_: &JSContext, args: CallContext) -> JSResult {
     if let Some((has_debug, line_num)) = args.this_raw().as_object().and_then(|o| {
-        o.0.payload.borrow().func().and_then(|x| {
+        o.payload().func().and_then(|x| {
             x.bytecode().map(|bc| {
                 let b = bc.0.borrow();
                 (b.has_debug, b.debug.line_num)

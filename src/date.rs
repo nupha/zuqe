@@ -825,7 +825,7 @@ pub fn js_date_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         0 => Datetime::now(),
         1 => {
             if let Some(ts) = cc.arg(0).as_object().and_then(|p| {
-                if let ObjectPayload::DATE(dt) = p.0.payload.borrow().deref() {
+                if let ObjectPayload::DATE(dt) = p.payload() {
                     Some(dt.get())
                 } else {
                     None
@@ -876,7 +876,7 @@ pub fn js_date_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 fn JS_ThisTimeValue(ctx: &JSContext, this: &JSValue) -> Result<Datetime, i32> {
     if let Some(t) = this.as_object().and_then(|o| {
-        if let ObjectPayload::DATE(dt) = o.0.payload.borrow().deref() {
+        if let ObjectPayload::DATE(dt) = o.payload() {
             Some(dt.get())
         } else {
             None
@@ -904,7 +904,7 @@ fn js_date_setTime(ctx: &JSContext, cc: CallContext) -> JSResult {
         Datetime::INVALID
     };
 
-    if let ObjectPayload::DATE(dt) = this.as_object().unwrap().0.payload.borrow().deref() {
+    if let ObjectPayload::DATE(dt) = this.as_object().unwrap().payload() {
         dt.set(dt2);
         Ok(dt2.into())
     } else {
@@ -1016,7 +1016,7 @@ fn set_date_field_internal(
         Datetime::INVALID
     };
 
-    if let ObjectPayload::DATE(dt) = this.as_object().unwrap().0.payload.borrow().deref() {
+    if let ObjectPayload::DATE(dt) = this.as_object().unwrap().payload() {
         // Note: to pass test262
         // only `this` timestamp is invalid, and not setting `year`, do update the timestamp.
         // `this` timestamp could have been updated in valueOf() method.

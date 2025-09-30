@@ -1,4 +1,4 @@
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 
 use unicode_normalization::UnicodeNormalization;
 use widestring::U16Str;
@@ -961,24 +961,16 @@ pub fn js_string_iterator_next(
     cc: CallContext,
     state: &mut IteratorState,
 ) -> JSResult {
-    if let ObjectPayload::STRING_ITERATOR(it) = cc
-        .this()
-        .as_object()
-        .unwrap()
-        .0
-        .payload
-        .borrow_mut()
-        .deref_mut()
-    {
-        let ss = unsafe { it.obj.string_unchecked() };
+    if let ObjectPayload::STRING_ITERATOR(it) = cc.this().as_object().unwrap().payload() {
+        let ss = unsafe { it.object().string_unchecked() };
 
         // iterate over string buf to get char or code at `idx`
-        if let Some((next_idx, c)) = ss.content().iter_since(it.idx as usize).next() {
-            it.idx = next_idx as u32;
+        if let Some((next_idx, c)) = ss.content().iter_since(it.index() as usize).next() {
+            it.set_index(next_idx as u32);
             *state = IteratorState::NotDone;
             ctx.create_string_from_char(c).map(JSValue::String)
         } else {
-            it.obj = JSValue::UNDEFINED;
+            it.set_object(JSValue::UNDEFINED);
             *state = IteratorState::Done;
             Ok(JSValue::UNDEFINED)
         }

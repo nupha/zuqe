@@ -248,8 +248,7 @@ impl ModuleDef {
                             } else {
                                 let p1 =
                                     unsafe { (*module.0.bytecode.as_ptr()).as_object_unchecked() };
-                                p1.0.payload.borrow().func().unwrap().var_refs[var_idx as usize]
-                                    .clone()
+                                p1.payload().func().unwrap().var_refs[var_idx as usize].clone()
                             });
                     }
                 },

@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 use crate::{
     JS_CLASS_PROXY,
     atom::{JSAtom, consts::*},
@@ -20,7 +18,7 @@ impl JSObject {
             return Ok(false);
         }
         if let JSValue::Object(ty) = ctor {
-            if let ObjectPayload::BOUND_FUNCTION(bfunc) = ty.0.payload.borrow().deref() {
+            if let ObjectPayload::BOUND_FUNCTION(bfunc) = ty.payload() {
                 return bfunc.func_obj.instance_of(ctx, ctor);
             }
         } else {

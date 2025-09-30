@@ -331,7 +331,7 @@ impl AsyncFuncState {
     pub fn class_mark(val: JSValue) {
         if let Some(s) = val
             .as_object()
-            .and_then(|p| p.0.payload.borrow().async_func_state().cloned())
+            .and_then(|p| p.payload().async_func_state().cloned())
         {
             s.gc_mark();
         }

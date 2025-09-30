@@ -307,7 +307,7 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "Generator",
             "GENERATOR",
-            Some("crate::generator::ObjGenerator"),
+            Some("std::cell::RefCell<Box<crate::generator::GeneratorState>>"),
             Some("crate::generator::js_generator_finalizer"),
             Some("crate::generator::js_generator_mark")
         ),

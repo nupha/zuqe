@@ -223,22 +223,21 @@ impl ObjectIter {
         args: &[JSValue],
     ) -> Result<(JSValue, IteratorState), i32> {
         if let JSValue::Object(p) = method
-            && let ObjectPayload::C_FUNCTION(nfunc) = p.0.payload.borrow().deref()
+            && let ObjectPayload::C_FUNCTION(nfun) = p.payload()
         {
             // fast path for the built-in iterators (avoid creating the
             // intermediate result object)
-            match nfunc.handler {
+            match nfun.handler {
                 NativeFunctionType::IteratorNext(f) => {
                     let mut state = IteratorState::NotDone;
-                    let cc =
-                        CallContext::new(ctx, obj.clone().into(), args, nfunc.magic as _, None);
+                    let cc = CallContext::new(ctx, obj.clone().into(), args, nfun.magic as _, None);
                     let ret = f(ctx, cc, &mut state)?;
                     return Ok((ret, state));
                 }
                 NativeFunctionType::CIteratorNext(f) => {
                     let mut pdone = 0;
                     let ret =
-                        f(ctx, obj.clone().into(), args, &mut pdone, nfunc.magic as _).err()?;
+                        f(ctx, obj.clone().into(), args, &mut pdone, nfun.magic as _).err()?;
 
                     return if let JSValue::Object(ret) = ret {
                         Ok((
@@ -457,7 +456,7 @@ pub fn js_for_in_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, _id
 
 pub fn js_for_in_iterator_mark(val: JSValue) {
     let p = unsafe { val.as_object_unchecked() };
-    if let ObjectPayload::FOR_IN_ITERATOR(it) = p.0.payload.borrow().deref() {
+    if let ObjectPayload::FOR_IN_ITERATOR(it) = p.payload() {
         it.borrow().obj.gc_mark();
     }
 }

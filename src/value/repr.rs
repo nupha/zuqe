@@ -29,7 +29,7 @@ impl JSValue {
                 Ok(format!("Symbol({s})").into())
             }
             Self::Object(o) => {
-                if let Some(v) = { o.0.payload.borrow().value() } {
+                if let Some(v) = o.payload().value() {
                     // primitive object
                     Ok(format!("[object {}]", v.inspect(ctx)?))
                 } else {

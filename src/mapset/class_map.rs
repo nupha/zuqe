@@ -189,15 +189,7 @@ pub fn js_map_forEach(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     loop {
         // get index `i`
-        let kv = map_obj
-            .0
-            .payload
-            .borrow()
-            .map_state()
-            .unwrap()
-            .slots
-            .get(i)
-            .cloned();
+        let kv = map_obj.payload().map_state().unwrap().slots.get(i).cloned();
 
         if let Some(kv) = kv {
             let pair = match kv {
@@ -230,13 +222,7 @@ pub fn js_map_forEach(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     // unlock map
-    map_obj
-        .0
-        .payload
-        .borrow_mut()
-        .map_state_mut()
-        .unwrap()
-        .unlock();
+    map_obj.payload().map_state_mut().unwrap().unlock();
 
     if has_err {
         Err(-1)

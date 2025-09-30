@@ -26,7 +26,7 @@ pub fn js_thisBooleanValue(ctx: &JSContext, this_val: JSValue) -> JSResult {
         Ok(this_val)
     } else if let Some(d) = this_val
         .as_object()
-        .and_then(|p| p.0.payload.borrow().value())
+        .and_then(|p| p.payload().value())
         .and_then(|x| if x.is_bool() { Some(x) } else { None })
     {
         Ok(d.clone())

@@ -237,7 +237,7 @@ pub(crate) fn js_get_function_name(ctx: &JSContext, name: JSAtom) -> Result<JSSt
 
 pub fn js_method_set_home_object(func_obj: &JSValue, home_obj: Option<&JSObject>) {
     if let JSValue::Object(o) = func_obj {
-        if let Some(mut fo) = o.0.payload.borrow().func_mut() {
+        if let Some(mut fo) = o.payload().func_mut() {
             let need_home_object = fo
                 .bytecode
                 .as_ref()
@@ -369,7 +369,7 @@ pub fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
 
     let ob = unsafe { enum_obj.as_object_unchecked() };
 
-    if let ObjectPayload::FOR_IN_ITERATOR(it) = ob.0.payload.borrow().deref() {
+    if let ObjectPayload::FOR_IN_ITERATOR(it) = ob.payload() {
         let mut prop: JSAtom;
 
         loop {

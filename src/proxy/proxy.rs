@@ -207,7 +207,7 @@ impl Proxy {
     }
 
     pub fn class_mark(val: JSValue) {
-        if let ObjectPayload::PROXY(p) = val.as_object().unwrap().0.payload.borrow().deref() {
+        if let ObjectPayload::PROXY(p) = val.as_object().unwrap().payload() {
             p.target.gc_mark();
             p.handler.gc_mark();
         }
@@ -216,7 +216,7 @@ impl Proxy {
     /// get proxy payload reference
     #[inline(always)]
     pub(super) fn payload(&self) -> &ProxyObjPayload {
-        if let ObjectPayload::PROXY(s) = self.0.0.payload.borrow().deref() {
+        if let ObjectPayload::PROXY(s) = self.0.payload() {
             unsafe {
                 let ptr = s.as_ref() as *const ProxyObjPayload;
                 &*ptr

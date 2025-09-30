@@ -228,8 +228,7 @@ impl Bytecode {
 
         // borrow func_obj in code block only
         {
-            let isa = target.0.payload.borrow();
-            let mut func = isa.func_mut().unwrap();
+            let mut func = target.payload().func_mut().unwrap();
             debug_assert!(func.var_refs.is_empty());
 
             func.bytecode.replace(self.clone());
@@ -342,7 +341,7 @@ impl Bytecode {
             )?;
         }
 
-        debug_assert!(closure.0.payload.borrow().func().is_some());
+        debug_assert!(closure.payload().func().is_some());
         Ok(closure)
     }
 }

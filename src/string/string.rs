@@ -205,7 +205,7 @@ impl TryFrom<JSObject> for JSString {
     fn try_from(obj: JSObject) -> Result<Self, Self::Error> {
         if obj.class_id() == JS_CLASS_STRING {
             // JS_CLASS_STRING object contains string
-            if let Some(JSValue::String(s)) = obj.0.payload.borrow().value() {
+            if let Some(JSValue::String(s)) = obj.payload().value() {
                 Ok(s)
             } else {
                 unreachable!()
@@ -753,7 +753,7 @@ fn string_define_own_property(
 
     if let Some(idx) = prop.to_small_int() {
         let ob = unsafe { this_obj.as_object_unchecked() };
-        if let JSValue::String(p1) = ob.0.payload.borrow().value().unwrap() {
+        if let JSValue::String(p1) = ob.payload().value().unwrap() {
             let len = p1.len();
             let nth_char = p1.content().iter_since(idx as usize).next().map(|(_, c)| c);
 
@@ -798,8 +798,7 @@ pub static js_string_exotic_methods: JSClassExoticMethods = JSClassExoticMethods
          -> Result<Option<JSPropertyDescriptor>, i32> {
             // This is a class exotic method for JS_CLASS_STRING object
             if let Some(idx) = prop.to_small_int()
-                && let Some(JSValue::String(s)) =
-                    obj.as_object().and_then(|o| o.0.payload.borrow().value())
+                && let Some(JSValue::String(s)) = obj.as_object().and_then(|o| o.payload().value())
                 && idx < s.len() as u32
             {
                 let code = s.content().get(idx as usize).unwrap();

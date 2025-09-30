@@ -142,14 +142,7 @@ impl BCFunction {
 
     /// get bytecode
     pub fn bytecode(&self) -> Bytecode {
-        let bc = self
-            .0
-            .0
-            .payload
-            .borrow()
-            .func()
-            .and_then(|f| f.bytecode().cloned());
-
+        let bc = self.0.payload().func().and_then(|f| f.bytecode().cloned());
         unsafe { bc.unwrap_unchecked() }
     }
 }
@@ -189,7 +182,7 @@ pub fn JS_GetFunctionRealm(ctx: &JSContext, func_obj: &JSValue) -> Result<JSCont
     let realm: JSContext;
     let p = unsafe { func_obj.as_object_unchecked() };
 
-    match p.0.payload.borrow().deref() {
+    match p.payload() {
         ObjectPayload::C_FUNCTION(cfunc) => {
             realm = cfunc.realm.upgrade().unwrap_or(ctx.clone());
         }
@@ -275,17 +268,16 @@ pub fn js_bytecode_function_finalizer(_rt: &mut JSRuntime, _isa: &ObjectPayload,
 pub fn js_bytecode_function_mark(val: JSValue) {
     let p = unsafe { val.as_object_unchecked() };
 
-    let (bc, home_obj) =
-        p.0.payload
-            .borrow()
-            .func()
-            .map(|f| {
-                for vr in f.var_refs.iter() {
-                    vr.gc_mark();
-                }
-                (f.bytecode().cloned(), f.home_object.clone())
-            })
-            .unwrap();
+    let (bc, home_obj) = p
+        .payload()
+        .func()
+        .map(|f| {
+            for vr in f.var_refs.iter() {
+                vr.gc_mark();
+            }
+            (f.bytecode().cloned(), f.home_object.clone())
+        })
+        .unwrap();
 
     if let Some(ho) = home_obj {
         ho.gc_mark();
@@ -313,9 +305,7 @@ impl BytecodeFunction {
     ) -> JSValue {
         let (bc, home_obj) = self
             .0
-            .0
-            .payload
-            .borrow()
+            .payload()
             .func()
             .map(|f| (f.bytecode().cloned().unwrap(), f.home_object.clone()))
             .unwrap();
@@ -413,7 +403,7 @@ impl BytecodeFunction {
             new_target,
             0,
             0,
-            &self.0.0.payload.borrow().func().unwrap().var_refs,
+            &self.0.payload().func().unwrap().var_refs,
             args,
             false,
         );

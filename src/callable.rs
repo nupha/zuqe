@@ -81,7 +81,7 @@ impl NativeFunctionWithData {
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
-        let isa = unsafe { func_obj.as_object_unchecked().0.payload.borrow() };
+        let isa = unsafe { func_obj.as_object_unchecked().payload() };
 
         if let ObjectPayload::C_FUNCTION_DATA(s) = isa.deref() {
             let f = s.func.clone();
@@ -102,9 +102,7 @@ impl NativeFunctionWithData {
 
     pub fn class_mark(val: JSValue) {
         unsafe {
-            if let ObjectPayload::C_FUNCTION_DATA(p) =
-                val.as_object_unchecked().0.payload.borrow().deref()
-            {
+            if let ObjectPayload::C_FUNCTION_DATA(p) = val.as_object_unchecked().payload() {
                 let n = p.len();
                 for i in 0..n {
                     if let Some(v) = p.get(i) {

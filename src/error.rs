@@ -122,7 +122,7 @@ impl JSContext {
                     (&*sf)
                         .cur_func
                         .as_object()
-                        .and_then(|o| o.0.payload.borrow().func().map(|f| f.bytecode.is_none()))
+                        .and_then(|o| o.payload().func().map(|f| f.bytecode.is_none()))
                         .unwrap_or(false)
                 });
 
@@ -291,9 +291,7 @@ impl JSContext {
                 (&*sf)
                     .cur_func
                     .as_object_unchecked()
-                    .0
-                    .payload
-                    .borrow()
+                    .payload()
                     .func()
                     .and_then(|f| f.bytecode.clone())
             } {

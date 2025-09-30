@@ -205,7 +205,7 @@ pub(crate) fn js_async_function_resolve_call(
     flags: i32,
 ) -> JSResult {
     let p = unsafe { func_obj.as_object_unchecked() };
-    let s = p.0.payload.borrow().async_func_state().cloned().unwrap();
+    let s = p.payload().async_func_state().cloned().unwrap();
     let is_reject = p.class_id() == JS_CLASS_ASYNC_FUNCTION_REJECT;
 
     let arg = if args.len() > 0 {

@@ -260,8 +260,12 @@ impl ModuleDefInner {
 
             // to avoid borrow_mut payload, use closure
             fn with_var_refs<R>(func_obj: &JSObject, f: impl FnOnce(&mut [JSVarRef]) -> R) -> R {
-                let isa = func_obj.0.payload.borrow();
-                f(isa.func_mut().unwrap().var_refs.as_mut_slice())
+                f(func_obj
+                    .payload()
+                    .func_mut()
+                    .unwrap()
+                    .var_refs
+                    .as_mut_slice())
             }
 
             for imp in self.import_entries.borrow().iter() {
@@ -311,9 +315,7 @@ impl ModuleDefInner {
                                         unsafe {
                                             (*dep.0.bytecode.as_ptr())
                                                 .as_object_unchecked()
-                                                .0
-                                                .payload
-                                                .borrow()
+                                                .payload()
                                                 .func()
                                                 .unwrap()
                                                 .var_refs

@@ -1,4 +1,4 @@
-use std::ops::DerefMut;
+use std::cell::RefCell;
 
 use crate::{
     JS_ITERATOR_NEXT_DEF, JS_PROP_STRING_DEF,
@@ -33,12 +33,12 @@ pub const FUNC_RET_YIELD_STAR: i32 = 2;
 pub const FUNC_RET_INITIAL_YIELD: i32 = 3;
 
 #[derive(Debug)]
-pub struct ObjGenerator {
+pub struct GeneratorState {
     pub state: JSGeneratorStateEnum,
-    pub func_state: Option<AsyncFuncState>,
+    func_state: Option<AsyncFuncState>,
 }
 
-impl ObjGenerator {
+impl GeneratorState {
     /// release async function state
     pub fn free_generator_stack_rt(&mut self, rt: &JSRuntime) {
         if self.state != JSGeneratorStateEnum::JS_GENERATOR_STATE_COMPLETED {
@@ -150,16 +150,16 @@ pub fn js_generator_function_call(
         this_obj.clone(),
         args,
     )?;
-    let g = ObjGenerator {
+    let g = Box::new(GeneratorState {
         state: JSGeneratorStateEnum::JS_GENERATOR_STATE_SUSPENDED_START,
         func_state: Some(func_state),
-    };
+    });
 
     // execute the function up to 'OP_initial_yield'
     g.func_state.as_ref().unwrap().resume(ctx)?;
 
     // create js object of generator class
-    ctx.create_object_apply_ctor(func_obj, ObjectPayload::GENERATOR(g))
+    ctx.create_object_apply_ctor(func_obj, ObjectPayload::GENERATOR(RefCell::new(g)))
         .map(JSValue::Object)
         .map_err(|_| -1)
 }
@@ -179,24 +179,16 @@ pub fn js_generator_next(
     cc: CallContext,
     iter_state: &mut IteratorState,
 ) -> JSResult {
+    let magic = cc.magic();
     *iter_state = IteratorState::Done;
 
-    if let ObjectPayload::GENERATOR(g) = cc
-        .this()
-        .as_object()
-        .unwrap()
-        .0
-        .as_ref()
-        .payload
-        .borrow_mut()
-        .deref_mut()
-    {
-        let magic = cc.magic();
-
+    if let ObjectPayload::GENERATOR(g) = cc.this().as_object().unwrap().payload() {
         enum WhatToDo {
             ExecNoArg,
             Done,
         }
+
+        let mut g = g.borrow_mut();
 
         let todo: WhatToDo = match g.state {
             JSGeneratorStateEnum::JS_GENERATOR_STATE_SUSPENDED_START => {

@@ -6,7 +6,7 @@ use crate::{
     error::JSResult,
     function::{AsyncFuncState, CallContext, FieldDef},
     iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW, js_create_iterator_result},
-    object::{JS_PROP_CONFIGURABLE, JSObjectWeakref, ObjectPayload},
+    object::{JS_PROP_CONFIGURABLE, JSObject, JSObjectWeakref, ObjectPayload},
     promise::{Promise, js_promise_resolve},
     runtime::JSRuntime,
     value::JSValue,
@@ -85,7 +85,7 @@ impl AsyncGeneratorValue {
             .map_err(|_| -1)?;
 
         // fix generator field.
-        if let ObjectPayload::ASYNC_GENERATOR(s) = agen.0.payload.borrow().deref() {
+        if let ObjectPayload::ASYNC_GENERATOR(s) = agen.payload() {
             s.borrow_mut().generator = agen.downgrade();
         } else {
             unreachable!()
@@ -97,11 +97,8 @@ impl AsyncGeneratorValue {
     pub fn class_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
 
     pub fn class_mark(val: JSValue) {
-        let p = unsafe { val.as_object_unchecked() };
-
-        if let ObjectPayload::ASYNC_GENERATOR(s) = p.0.payload.borrow().deref() {
+        if let ObjectPayload::ASYNC_GENERATOR(s) = unsafe { val.as_object_unchecked().payload() } {
             let b = s.borrow();
-
             if let Some(st) = &b.func_state {
                 st.gc_mark();
             }
@@ -400,10 +397,8 @@ fn js_async_generator_resolve_function(ctx: &JSContext, cc: CallContext) -> JSRe
     let is_reject = cc.magic() & 1 != 0;
     let arg = cc.arg(0);
 
-    if let ObjectPayload::ASYNC_GENERATOR(isa) =
-        cc.data(0).as_object().unwrap().0.payload.borrow().deref()
-    {
-        let mut s = isa.borrow_mut();
+    if let ObjectPayload::ASYNC_GENERATOR(ag) = cc.data(0).as_object().unwrap().payload() {
+        let mut s = ag.borrow_mut();
 
         if cc.magic() >= 2 {
             // resume next case in AWAITING_RETURN state
@@ -462,11 +457,8 @@ fn js_async_generator_resolve_function(ctx: &JSContext, cc: CallContext) -> JSRe
 pub fn js_async_generator_next(ctx: &JSContext, cc: CallContext) -> JSResult {
     let (promise, resolving_funcs) = ctx.create_promise(&JSValue::UNDEFINED)?;
 
-    if let Some(ObjectPayload::ASYNC_GENERATOR(ag)) = cc
-        .this()
-        .as_object()
-        .map(|o| o.0.payload.borrow())
-        .as_deref()
+    if let Some(ObjectPayload::ASYNC_GENERATOR(ag)) =
+        cc.this().as_object().map(JSObject::payload).as_deref()
     {
         let req = Box::new(JSAsyncGeneratorRequest {
             completion_type: cc.magic(),

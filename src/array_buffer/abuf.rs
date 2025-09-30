@@ -176,7 +176,7 @@ impl ArrayBufPayload {
     }
 
     #[inline(always)]
-    pub fn with_bytes_mut<R>(&mut self, f: impl FnOnce(&mut [u8]) -> R) -> R {
+    pub fn with_bytes_mut<R>(&self, f: impl FnOnce(&mut [u8]) -> R) -> R {
         self.0.borrow_mut().with_bytes_mut(f)
     }
 
@@ -303,7 +303,7 @@ impl JSContext {
             }
         };
 
-        if let Some(ab) = obj.0.payload.borrow().array_buffer() {
+        if let Some(ab) = obj.payload().array_buffer() {
             let _d = ab.set_content(content);
             debug_assert!(matches!(_d, ABufData::Empty))
         }
@@ -371,43 +371,37 @@ pub fn js_shared_array_buffer_constructor(ctx: &JSContext, cc: CallContext) -> J
 }
 
 pub unsafe fn JS_DetachArrayBuffer(ctx: &JSContext, obj: &JSValue) {
-    if obj.as_object_unchecked().class_id() != JS_CLASS_ARRAY_BUFFER {
-        return;
-    }
-
-    if let Some(abuf) = obj
-        .as_object_unchecked()
-        .0
-        .payload
-        .borrow_mut()
-        .array_buffer_mut()
-    {
-        if !abuf.0.borrow().detached {
-            match abuf.content().deref() {
-                ABufData::Raw(ptr, len, fin) => {
-                    if let Some(f) = fin {
-                        f(ctx.rt_mut(), abuf.opaque(), ptr.as_ptr(), *len);
+    if let Ok(isa) = obj.retrive_object_payload(ctx, Some(JS_CLASS_ARRAY_BUFFER)) {
+        if let Some(abuf) = isa.array_buffer() {
+            if !abuf.0.borrow().detached {
+                match abuf.content().deref() {
+                    ABufData::Raw(ptr, len, fin) => {
+                        if let Some(f) = fin {
+                            f(ctx.rt_mut(), abuf.opaque(), ptr.as_ptr(), *len);
+                        }
                     }
+                    _ => {}
                 }
-                _ => {}
-            }
 
-            abuf.0.borrow_mut().detached = true;
+                abuf.0.borrow_mut().detached = true;
 
-            for w in abuf.0.borrow_mut().array_list.iter_mut() {
-                if let Some(o) = w.upgrade() {
-                    // typed array or dataview
-                    // Note: the typed array length and offset fields are not modified
-                    if o.class_id() != JS_CLASS_DATAVIEW {
-                        if let Some(ta) = o.0.payload.borrow().typed_array() {
-                            ta.borrow_mut().count = 0;
-                        } else {
-                            unreachable!()
+                for w in abuf.0.borrow_mut().array_list.iter_mut() {
+                    if let Some(o) = w.upgrade() {
+                        // typed array or dataview
+                        // Note: the typed array length and offset fields are not modified
+                        if o.class_id() != JS_CLASS_DATAVIEW {
+                            if let Some(ta) = o.payload().typed_array() {
+                                ta.borrow_mut().count = 0;
+                            } else {
+                                unreachable!()
+                            }
                         }
                     }
                 }
             }
         }
+    } else {
+        ctx.take_exception(); // clear exception
     }
 }
 

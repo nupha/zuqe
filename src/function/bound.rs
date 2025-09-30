@@ -30,9 +30,7 @@ impl BoundFunction {
 
     pub fn class_mark(val: JSValue) {
         unsafe {
-            if let ObjectPayload::BOUND_FUNCTION(bf) =
-                val.as_object_unchecked().0.payload.borrow().deref()
-            {
+            if let ObjectPayload::BOUND_FUNCTION(bf) = val.as_object_unchecked().payload() {
                 val.gc_mark();
                 bf.func_obj.gc_mark();
                 bf.this_val.gc_mark();
@@ -51,9 +49,9 @@ impl BoundFunction {
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
-        let isa = unsafe { func_obj.as_object_unchecked().0.payload.borrow() };
-
-        if let ObjectPayload::BOUND_FUNCTION(bf) = isa.deref() {
+        if let ObjectPayload::BOUND_FUNCTION(bf) =
+            unsafe { func_obj.as_object_unchecked().payload() }
+        {
             let arg_count = bf.bind_args.len() + args.len() as usize;
 
             // if js_check_stack_overflow(&ctx.rt(), std::mem::size_of::<JSValue>() * arg_count) {

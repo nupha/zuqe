@@ -166,9 +166,7 @@ pub(crate) struct ObjectInner {
     pub(crate) weak_refs: RefCell<Vec<JSObjectWeakref>>,
 
     /// object payload.
-    /// TODO: no need to use RefCell<>, use ObjectPayload instead.
-    /// move mutability to payload inner.
-    pub(crate) payload: RefCell<ObjectPayload>,
+    payload: ObjectPayload,
 
     pub(crate) gc_mark: Cell<bool>,
 
@@ -326,8 +324,8 @@ impl ObjectInner {
             obj_flags: Cell::new(flags),
             shape: RefCell::new(shape),
             prop_values: RefCell::new(prop_values),
+            payload,
             weak_refs: RefCell::new(Vec::new()),
-            payload: RefCell::new(payload),
             gc_mark: Cell::new(false),
 
             #[cfg(debug_assertions)]
@@ -368,9 +366,9 @@ impl ObjectInner {
         unsafe { self.rt.as_ptr().as_mut().unwrap() }
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn class_id(&self) -> JSClassID {
-        self.payload.borrow().class_id()
+        self.payload.class_id()
     }
 
     /// Test if object `self` can be called like a function, that means value is a:
@@ -380,7 +378,7 @@ impl ObjectInner {
     /// - Proxy objects that wrapping a function
     /// - Objects of native class which has `call` handler
     pub fn is_function(&self) -> bool {
-        match self.payload.borrow().deref() {
+        match &self.payload {
             ObjectPayload::BYTECODE_FUNCTION(_) => true,
             ObjectPayload::PROXY(x) => x.is_func,
             isa => {
@@ -401,11 +399,7 @@ impl ObjectInner {
 
         while let Some(w) = self.weak_refs.borrow_mut().pop() {
             if let Some(o) = w.upgrade() {
-                o.0.payload
-                    .borrow_mut()
-                    .map_state_mut()
-                    .unwrap()
-                    .remove_weak_obj(self)
+                o.0.payload.map_state_mut().unwrap().remove_weak_obj(self)
             }
         }
 
@@ -414,7 +408,7 @@ impl ObjectInner {
         let rt = unsafe { self.rt_ptr().as_mut() };
         if let Some(f) = rt.class_defs[self.class_id() as usize].finalizer {
             let id = self.id();
-            f(rt, self.payload.borrow().deref(), id);
+            f(rt, &self.payload, id);
         }
 
         // untrack from gc
@@ -472,11 +466,6 @@ impl std::fmt::Debug for JSObject {
 
 impl JSObject {
     #[inline(always)]
-    pub(crate) fn inner(&self) -> &Rc<ObjectInner> {
-        &self.0
-    }
-
-    #[inline(always)]
     pub fn id(&self) -> usize {
         self.0.id()
     }
@@ -491,16 +480,16 @@ impl JSObject {
         self.0.rt_mut()
     }
 
-    // /// get object payload
-    // #[inline(always)]
-    // pub fn payload(&self) -> &ObjectPayload {
-    //     &self.0.payload
-    // }
+    /// get object payload
+    #[inline(always)]
+    pub fn payload(&self) -> &ObjectPayload {
+        &self.0.payload
+    }
 
     /// Get object class id
     #[inline(always)]
     pub fn class_id(&self) -> JSClassID {
-        self.0.payload.borrow().class_id()
+        self.payload().class_id()
     }
     /// Get object class name.
     /// Note: returned atom is not duplicated, caller should clone to keep reference.

@@ -989,7 +989,7 @@ fn js_function_proto_caller(ctx: &JSContext, cc: CallContext) -> JSResult {
         .this()
         .as_object()
         .and_then(|o| {
-            o.0.payload.borrow().func().and_then(|f| {
+            o.payload().func().and_then(|f| {
                 f.bytecode.as_ref().map(|bc| {
                     let b = bc.0.borrow();
                     b.js_mode & JS_MODE_STRICT as u8 != 0 || !b.has_prototype

@@ -34,12 +34,6 @@ impl ObjectPayload {
             _ => None,
         }
     }
-    pub const fn array_buffer_mut(&mut self) -> Option<&mut ArrayBufPayload> {
-        match self {
-            Self::ARRAY_BUFFER(a) | Self::SHARED_ARRAY_BUFFER(a) => Some(a),
-            _ => None,
-        }
-    }
 
     pub fn typed_array(&self) -> Option<&RefCell<Box<TypedArrayObjPayload>>> {
         match self {
@@ -156,9 +150,9 @@ impl JSObject {
         &self,
         ctx: &JSContext,
         class_id: Option<JSClassID>,
-    ) -> Result<Ref<'_, ObjectPayload>, i32> {
+    ) -> Result<&ObjectPayload, i32> {
         if class_id.map_or(true, |id| self.class_id() == id) {
-            Ok(self.0.payload.borrow())
+            Ok(self.payload())
         } else {
             ctx.throw_type_error_invalid_class(class_id.unwrap());
             Err(-1)
@@ -174,7 +168,7 @@ impl JSValue {
         &self,
         ctx: &JSContext,
         class_id: Option<JSClassID>,
-    ) -> Result<Ref<'_, ObjectPayload>, i32> {
+    ) -> Result<&ObjectPayload, i32> {
         if let Some(o) = self.as_object() {
             o.retrive_payload(ctx, class_id)
         } else {

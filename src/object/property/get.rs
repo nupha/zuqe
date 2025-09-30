@@ -163,9 +163,7 @@ impl JSObject {
             macro_rules! typed_array_elemnt {
                 ($ty:ident, $vtype:ident) => {
                     return Ok(
-                        self.0
-                            .payload
-                            .borrow()
+                        self.payload()
                             .with_typed_array(|ta| {
                                 if nth < ta.count as usize {
                                     let n = ta.with_bytes(|buf| unsafe {

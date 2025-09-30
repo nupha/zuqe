@@ -194,15 +194,7 @@ impl Array {
         let len = values.len();
 
         // use fast array values
-        *self
-            .0
-            .0
-            .payload
-            .borrow()
-            .array()
-            .unwrap()
-            .values
-            .borrow_mut() = values;
+        *self.payload().array().unwrap().values.borrow_mut() = values;
 
         // set fast array flag
         self.set_flag_fast_array(true);
@@ -530,9 +522,7 @@ impl JSObject {
     /// if object is Array or Argument class, and is fast array, returns values slice.
     pub fn with_fast_array_values<R>(&self, f: impl FnOnce(&[JSValue]) -> R) -> Option<R> {
         if self.flags().is_fast_array() {
-            self.0
-                .payload
-                .borrow()
+            self.payload()
                 .array()
                 .map(|a| f(a.values.borrow().as_slice()))
         } else {
@@ -546,9 +536,7 @@ impl JSObject {
         f: impl FnOnce(&mut Vec<JSValue>) -> R,
     ) -> Option<R> {
         if self.flags().is_fast_array() {
-            self.0
-                .payload
-                .borrow()
+            self.payload()
                 .array()
                 .map(|a| f(a.values.borrow_mut().deref_mut()))
         } else {
@@ -620,10 +608,10 @@ impl JSObject {
     /// - for TypedArray or DataView instance, return elements count;
     /// - __Panic__ when object is not an Array, Argument, TypedArray or DataView.
     pub(crate) fn fast_array_count(&self) -> u32 {
-        if let Some(ap) = self.0.payload.borrow().array() {
+        if let Some(ap) = self.payload().array() {
             // ARRAY or ARGUMENT
             ap.values.borrow().len() as u32
-        } else if let Some(ta) = self.0.payload.borrow().typed_array() {
+        } else if let Some(ta) = self.payload().typed_array() {
             // typed array or dataview
             ta.borrow().count
         } else {
