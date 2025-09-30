@@ -143,7 +143,7 @@ impl ObjNativeFunc {
             return Err(-1);
         }
 
-        // build new stack frame, alloc on stack.
+        // new stack frame, alloc on stack.
         let mut new_frame = StackFrame {
             prev_frame: rt.cur_stack_frame,
             cur_func: func_obj.clone(),

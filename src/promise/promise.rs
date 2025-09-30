@@ -86,7 +86,7 @@ impl Promise {
             is_handled: false,
         }));
         let promise = Self(
-            ctx.create_object_apply_ctor(new_target, ObjectPayload::PROMISE(isa))
+            ctx.create_object_from_ctor(new_target, ObjectPayload::PROMISE(isa))
                 .map_err(|_| -1)?,
         );
 

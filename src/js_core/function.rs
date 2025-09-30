@@ -101,8 +101,8 @@ pub fn js_function_bind(ctx: &JSContext, args: CallContext) -> JSResult {
     Ok(func_obj.into())
 }
 
-pub fn js_function_toString(ctx: &JSContext, args: CallContext) -> JSResult {
-    let this_val = args.this_raw();
+pub fn js_function_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let this_val = cc.this();
     this_val.ensure_function(ctx)?;
     let p = unsafe { this_val.as_object_unchecked() };
 

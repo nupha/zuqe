@@ -125,7 +125,7 @@ pub fn js_regexp_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     };
 
     let obj = ctx
-        .create_object_apply_ctor(cc.this(), ObjectPayload::REGEXP(RefCell::new(Box::new(re))))
+        .create_object_from_ctor(cc.this(), ObjectPayload::REGEXP(RefCell::new(Box::new(re))))
         .map_err(|_| -1)?;
     obj.define_property_value(ctx, JS_ATOM_lastIndex, JSValue::Int(0), JS_PROP_WRITABLE)?;
     Ok(obj.into())

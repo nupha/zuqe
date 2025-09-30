@@ -51,25 +51,34 @@ impl JSFunctionKindEnum {
         matches!(self, Self::JS_FUNC_ASYNC | Self::JS_FUNC_ASYNC_GENERATOR)
     }
 
+    #[inline(always)]
+    pub fn is_generator(self) -> bool {
+        matches!(
+            self,
+            Self::JS_FUNC_GENERATOR | Self::JS_FUNC_ASYNC_GENERATOR
+        )
+    }
+
     /// get associated class id for function kind
+    #[inline]
     pub fn class_id(&self) -> JSClassID {
         match self {
             Self::JS_FUNC_NORMAL => JS_CLASS_BYTECODE_FUNCTION,
-            Self::JS_FUNC_GENERATOR => JS_CLASS_GENERATOR,
+            Self::JS_FUNC_GENERATOR => JS_CLASS_GENERATOR_FUNCTION,
             Self::JS_FUNC_ASYNC => JS_CLASS_ASYNC_FUNCTION,
-            Self::JS_FUNC_ASYNC_GENERATOR => JS_CLASS_ASYNC_GENERATOR,
+            Self::JS_FUNC_ASYNC_GENERATOR => JS_CLASS_ASYNC_GENERATOR_FUNCTION,
+        }
+    }
+
+    #[inline]
+    pub fn generator_class_id(&self) -> Option<JSClassID> {
+        match self {
+            Self::JS_FUNC_GENERATOR => Some(JS_CLASS_GENERATOR),
+            Self::JS_FUNC_ASYNC_GENERATOR => Some(JS_CLASS_ASYNC_GENERATOR),
+            Self::JS_FUNC_NORMAL | Self::JS_FUNC_ASYNC => None,
         }
     }
 }
-
-/// Class id for function kind
-#[deprecated(note = "use JSFunctionKindEnum::class_id() instead")]
-pub const func_kind_to_class_id: [JSClassID; 4] = [
-    JS_CLASS_BYTECODE_FUNCTION, // 0 JS_FUNC_NORMAL
-    JS_CLASS_GENERATOR,         // 1 JS_FUNC_GENERATOR
-    JS_CLASS_ASYNC_FUNCTION,    // 2 JS_FUNC_ASYNC
-    JS_CLASS_ASYNC_GENERATOR,   // 3 JS_FUNC_ASYNC_GENERATOR
-];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -478,15 +487,15 @@ impl BytecodeFunction {
         buf.extend_from_slice(b"})");
 
         // create script string
-        let src = ctx.create_string_from_utf8(buf.into_vec())?;
+        // let src = ctx.create_string_from_utf8(buf.into_vec())?;
 
-        // eval string `src`
+        // eval script
         let func_val = {
             // Note: to avoid ctx.0 borrow conflict, fetch global object in advance
             let global = JSValue::Object(ctx.global_obj());
             ctx.eval_internal(
                 &global,
-                &src.content().encode_utf8_bytes(),
+                buf.as_slice(), //&src.content().encode_utf8_bytes(),
                 "<input>",
                 JS_EVAL_TYPE_INDIRECT,
                 -1,
@@ -500,7 +509,6 @@ impl BytecodeFunction {
                 let realm = JS_GetFunctionRealm(ctx, &new_target)?;
                 proto = realm.0.borrow().class_proto[func_kind.class_id() as usize].clone();
             }
-
             func_val.set_prototype_internal(ctx, proto, true)?;
         }
 

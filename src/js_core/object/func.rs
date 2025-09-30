@@ -20,7 +20,7 @@ use crate::{
 pub fn js_object_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let new_target = cc.this();
     if !new_target.is_undefined() && unsafe { !JS_GetActiveFunction(ctx).eq(new_target) } {
-        ctx.create_object_apply_ctor(new_target, ObjectPayload::OBJECT)
+        ctx.create_object_from_ctor(new_target, ObjectPayload::OBJECT)
             .map_err(|_| -1)
     } else {
         match cc.arg(0) {
@@ -50,7 +50,7 @@ pub fn js_object_getPrototypeOf(ctx: &JSContext, cc: CallContext) -> JSResult {
     let val = cc.arg(0);
     if !val.is_object() {
         // ES6 feature non-compatible with ES5.1: primitive types are accepted
-        if cc.magic() != 0 || matches!(val, JSValue::NULL | JSValue::UNDEFINED) {
+        if cc.magic() != 0 || val.is_undefined_or_null() {
             ctx.throw_type_error_not_an_object();
             return Err(-1);
         }

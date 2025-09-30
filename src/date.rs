@@ -868,7 +868,7 @@ pub fn js_date_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         // invoked as a function, returns toString()
         datetime_format(ctx, tm.into(), 0x13).map(JSValue::String)
     } else {
-        ctx.create_object_apply_ctor(new_target, ObjectPayload::DATE(Cell::new(tm)))
+        ctx.create_object_from_ctor(new_target, ObjectPayload::DATE(Cell::new(tm)))
             .map(JSValue::Object)
             .map_err(|_| -1)
     }

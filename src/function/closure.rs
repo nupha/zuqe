@@ -1,7 +1,8 @@
 use std::cell::RefCell;
 
 use crate::{
-    JS_CLASS_ASYNC_GENERATOR, JS_CLASS_GENERATOR,
+    JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_GENERATOR,
+    JS_CLASS_GENERATOR_FUNCTION,
     atom::{JS_ATOM_NULL, JSAtom, consts::*},
     context::JSContext,
     function::{BCFuncPayload, Bytecode, JSFunctionKindEnum, JSVarRef, js_function_set_properties},
@@ -309,20 +310,16 @@ impl Bytecode {
             defined_arg_count as _,
         );
 
-        if matches!(
-            func_kind,
-            JSFunctionKindEnum::JS_FUNC_GENERATOR | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
-        ) {
-            // generators have a prototype field which is used as
+        if let Some(gen_class_id) = func_kind.generator_class_id() {
+            // generator functions have a prototype field which is used as
             // prototype for the generator object
-            let proto_class_id = func_kind.class_id();
             debug_assert!(matches!(
-                proto_class_id,
+                gen_class_id,
                 JS_CLASS_GENERATOR | JS_CLASS_ASYNC_GENERATOR
             ));
 
             let proto = ctx.create_base_object_from_proto(
-                ctx.0.borrow().class_proto[proto_class_id as usize].clone(),
+                ctx.0.borrow().class_proto[gen_class_id as usize].clone(),
             )?;
             closure
                 .define_property_value(ctx, JS_ATOM_prototype, proto.into(), JS_PROP_WRITABLE)

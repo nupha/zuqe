@@ -381,11 +381,11 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
             Some("crate::function::js_bytecode_function_mark")
         ),
         class_def!(
-            "AsyncGeneratorValue",
+            "AsyncGenerator",
             "ASYNC_GENERATOR",
             Some("std::cell::RefCell<Box<crate::generator::AsyncGeneratorState>>"),
-            Some("crate::generator::AsyncGeneratorValue::class_finalizer"),
-            Some("crate::generator::AsyncGeneratorValue::class_mark")
+            Some("crate::generator::AsyncGeneratorFunction::class_finalizer"),
+            Some("crate::generator::AsyncGeneratorFunction::class_mark")
         ),
     ]
 });

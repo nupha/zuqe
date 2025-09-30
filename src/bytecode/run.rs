@@ -667,7 +667,7 @@ impl Bytecode {
                         // SP![-1] = tmp2;
                     }
                     OpCode::FCLOSURE => {
-                        // [^] -> [closure_func, ^]
+                        // [^] -> [func_obj, ^]
                         let id = PC_FETCH!(u32);
                         if let JSValue::Bytecode(bc) = CPOOL![id] {
                             SP_PUT!(
@@ -690,6 +690,7 @@ impl Bytecode {
                     }
 
                     OpCode::CALL | OpCode::TAIL_CALL => {
+                        // [func_obj, arg1, ..., argN, ^] -> [ret_val, ^]
                         let call_argc = PC_FETCH!(u16);
                         let call_argv = unsafe { sp.offset(-(call_argc as isize)) };
 
@@ -706,13 +707,14 @@ impl Bytecode {
                         );
                         if unlikely(ret_val.is_exception()) {
                             break State::Exception;
-                        } else if opcode == OpCode::TAIL_CALL {
+                        } else if unlikely(opcode == OpCode::TAIL_CALL) {
                             break State::Done(ret_val, false);
                         } else {
                             for i in -1..call_argc as isize {
                                 unsafe {
-                                    std::ptr::replace(call_argv.offset(i), JSValue::UNDEFINED)
-                                };
+                                    let _ =
+                                        std::ptr::replace(call_argv.offset(i), JSValue::UNDEFINED);
+                                }
                             }
                             SP_GO!(-(call_argc as i32 + 1));
 

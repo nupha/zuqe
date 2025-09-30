@@ -23,13 +23,13 @@ use crate::{
     date::{js_date_constructor, js_date_funcs, js_date_proto_funcs},
     error::{ErrorKind, JSResult, STD_ERROR_NAMES},
     function::{
-        AsyncFunction, BytecodeFunction, CallContext, FieldDef, JSFunctionKindEnum,
-        NativeFunctionType, js_async_function_proto_funcs, js_async_function_resolve_call,
+        BytecodeFunction, CallContext, FieldDef, JSFunctionKindEnum, NativeFunctionType,
+        js_async_function_proto_funcs,
     },
     generator::{
-        AsyncGeneratorValue, js_async_generator_function_proto_funcs,
-        js_async_generator_proto_funcs, js_async_iterator_proto_funcs, js_function_constructor,
-        js_generator_function_proto_funcs, js_generator_proto_funcs,
+        js_async_generator_function_proto_funcs, js_async_generator_proto_funcs,
+        js_async_iterator_proto_funcs, js_function_constructor, js_generator_function_proto_funcs,
+        js_generator_proto_funcs,
     },
     iterator::{js_async_from_sync_iterator_proto_funcs, js_iterator_proto_funcs},
     js_core::{
@@ -925,44 +925,48 @@ impl JSContext {
         // AsyncGenerator
         {
             // AsyncGeneratorPrototype
-            let a_gen_obj = self
-                .create_base_object_from_proto(self.0.borrow().async_iterator_proto.clone())
-                .unwrap();
-            a_gen_obj
-                .install_field_defs(self, &js_async_generator_proto_funcs)
-                .unwrap();
-            let agen_proto: JSValue = a_gen_obj.into();
+            let proto: JSValue = {
+                let o = self
+                    .create_base_object_from_proto(self.0.borrow().async_iterator_proto.clone())
+                    .unwrap();
+                o.install_field_defs(self, &js_async_generator_proto_funcs)
+                    .unwrap();
+                o.into()
+            };
+
+            let func_proto = self.0.borrow().function_proto.clone();
 
             // AsyncGeneratorFunction
-            let agf_obj = self
-                .create_base_object_from_proto(self.0.borrow().function_proto.clone())
-                .unwrap();
-            agf_obj
-                .install_field_defs(self, &js_async_generator_function_proto_funcs)
-                .unwrap();
-            let agf_proto: JSValue = agf_obj.into();
+            let agen_func: JSValue = {
+                let o = self
+                    .create_base_object_from_proto(func_proto.clone())
+                    .unwrap();
+                o.install_field_defs(self, &js_async_generator_function_proto_funcs)
+                    .unwrap();
+                o.into()
+            };
+            JS_SetConstructor2(
+                self,
+                &agen_func,
+                &proto,
+                JS_PROP_CONFIGURABLE,
+                JS_PROP_CONFIGURABLE,
+            );
 
-            let agf_ctor = self
+            let ctor = self
                 .create_native_function_from_proto(
                     NativeFunctionType::ConstructorOrFunc(BytecodeFunction::class_constructor),
                     "AsyncGeneratorFunction",
                     1,
                     JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR as i16,
-                    self.0.borrow().function_ctor.clone(),
+                    func_proto,
                 )
                 .unwrap();
-            JS_SetConstructor2(
-                self,
-                &agf_proto,
-                &agen_proto,
-                JS_PROP_CONFIGURABLE,
-                JS_PROP_CONFIGURABLE,
-            );
-            JS_SetConstructor2(self, &agf_ctor, &agf_proto, 0, JS_PROP_CONFIGURABLE);
+            JS_SetConstructor2(self, &ctor, &agen_func, 0, JS_PROP_CONFIGURABLE);
 
             self.with_mut(|cx| {
-                cx.class_proto[JS_CLASS_ASYNC_GENERATOR as usize] = agen_proto;
-                cx.class_proto[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize] = agf_proto;
+                cx.class_proto[JS_CLASS_ASYNC_GENERATOR as usize] = proto;
+                cx.class_proto[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize] = agen_func;
             });
         }
     }

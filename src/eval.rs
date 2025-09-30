@@ -203,6 +203,7 @@ impl JSContext {
         flags: u32,
         scope_idx: i32,
     ) -> JSResult {
+        #[cfg(debug_assertions)]
         if flags & JS_EVAL_FLAG_COMPILE_ONLY != 0 {
             panic!(
                 "don't use JS_EVAL_FLAG_COMPILE_ONLY flag in eval().\nif you want compile only, use ::compile() method."

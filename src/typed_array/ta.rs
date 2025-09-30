@@ -465,7 +465,7 @@ impl JSContext {
             }
         };
         let ta = self
-            .create_object_apply_ctor(new_target, isa)
+            .create_object_from_ctor(new_target, isa)
             .map_err(|_| -1)?;
 
         // establish mutual references

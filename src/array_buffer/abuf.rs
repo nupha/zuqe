@@ -225,7 +225,7 @@ impl JSContext {
         };
 
         // create array buffer or shared array buffer instance
-        self.create_object_apply_ctor(
+        self.create_object_from_ctor(
             new_target,
             if class_id == JS_CLASS_ARRAY_BUFFER {
                 ObjectPayload::ARRAY_BUFFER(ab)
@@ -263,7 +263,7 @@ impl JSContext {
             opaque,
         })));
         let obj = self
-            .create_object_apply_ctor(
+            .create_object_from_ctor(
                 new_target,
                 if class_id == JS_CLASS_ARRAY_BUFFER {
                     ObjectPayload::ARRAY_BUFFER(isa)

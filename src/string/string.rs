@@ -372,7 +372,7 @@ impl JSString {
     pub fn to_object(&self, ctx: &JSContext, ctor: &JSValue) -> Result<JSObject, i32> {
         let len = self.len();
         let o = ctx
-            .create_object_apply_ctor(ctor, ObjectPayload::STRING(self.clone()))
+            .create_object_from_ctor(ctor, ObjectPayload::STRING(self.clone()))
             .map_err(|_| -1)?;
 
         o.define_property_value(ctx, JS_ATOM_length, JSValue::from(len as u32), 0)?;

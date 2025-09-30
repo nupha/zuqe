@@ -125,12 +125,6 @@ impl AsyncStateInner {
         self.frame.arg_real_count as usize
     }
 
-    pub fn arg_slice(&self) -> &[JSValue] {
-        unsafe {
-            std::slice::from_raw_parts(self.frame.arg_base_ptr, self.frame.arg_real_count as usize)
-        }
-    }
-
     /// free values ranges from argument start through stack top.
     fn free_stack_values(&mut self, rt: &mut JSRuntime) {
         // free values on async stack frame

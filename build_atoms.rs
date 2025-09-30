@@ -209,7 +209,7 @@ static ATOM_DESCR_DEFS: &[&str] = &[
     "AsyncFunctionResolve",
     "AsyncFunctionReject",
     "AsyncGeneratorFunction",
-    "AsyncGeneratorValue",
+    "AsyncGenerator",
     "EvalError",
     "RangeError",
     "ReferenceError",

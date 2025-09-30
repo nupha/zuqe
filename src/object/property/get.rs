@@ -25,51 +25,57 @@ impl JSObject {
         throw_ref_error: bool,
     ) -> JSResult {
         for cur_obj in self.shape_proto_iter(true) {
-            // 1. search own property (in shape)
-            if let Some((idx, prs_flags)) = cur_obj.find_shape_property(prop) {
-                return match prs_flags & JS_PROP_TMASK {
-                    JS_PROP_NORMAL => {
-                        if let JSProperty::Normal(val) = &cur_obj.0.prop_values.borrow()[idx] {
-                            debug_assert!(!val.is_exception());
-                            Ok(val.clone())
-                        } else {
-                            #[cfg(debug_assertions)]
-                            unreachable!();
-                            #[cfg(not(debug_assertions))]
-                            unsafe {
-                                std::hint::unreachable_unchecked();
-                            }
+            'redo: loop {
+                // 1. search own property (in shape)
+                if let Some((idx, prs_flags)) = cur_obj.find_shape_property(prop) {
+                    match prs_flags & JS_PROP_TMASK {
+                        JS_PROP_NORMAL => {
+                            return if let JSProperty::Normal(val) =
+                                &cur_obj.0.prop_values.borrow()[idx]
+                            {
+                                debug_assert!(!val.is_exception());
+                                Ok(val.clone())
+                            } else {
+                                #[cfg(debug_assertions)]
+                                unreachable!();
+                                #[cfg(not(debug_assertions))]
+                                unsafe {
+                                    std::hint::unreachable_unchecked();
+                                }
+                            };
                         }
-                    }
-                    JS_PROP_GETSET => {
-                        let pr = cur_obj.0.prop_values.borrow()[idx].clone(); // borrow in short
-                        if let JSProperty::GetSet {
-                            getter: Some(fun), ..
-                        } = pr
-                        {
-                            fun.call(ctx, this_obj, &[])
-                        } else {
-                            Ok(JSValue::UNDEFINED)
+                        JS_PROP_GETSET => {
+                            let pr = cur_obj.0.prop_values.borrow()[idx].clone(); // borrow in short
+                            return if let JSProperty::GetSet {
+                                getter: Some(fun), ..
+                            } = pr
+                            {
+                                fun.call(ctx, this_obj, &[])
+                            } else {
+                                Ok(JSValue::UNDEFINED)
+                            };
                         }
-                    }
-                    JS_PROP_VARREF => {
-                        let pr = cur_obj.0.prop_values.borrow()[idx].clone(); // borrow in short
-                        let val = pr.value(ctx, this_obj)?;
-                        if unlikely(val.is_uninitialized()) {
-                            JS_ThrowReferenceErrorUninitialized(ctx, prop);
-                            Err(-1)
-                        } else {
-                            Ok(val)
+                        JS_PROP_VARREF => {
+                            let pr = cur_obj.0.prop_values.borrow()[idx].clone(); // borrow in short
+                            let val = pr.value(ctx, this_obj)?;
+                            return if unlikely(val.is_uninitialized()) {
+                                JS_ThrowReferenceErrorUninitialized(ctx, prop);
+                                Err(-1)
+                            } else {
+                                Ok(val)
+                            };
                         }
+                        JS_PROP_LAZYINIT => {
+                            // instantiate lazy object, and redo
+                            cur_obj.0.prop_values.borrow_mut()[idx]
+                                .instantiate(&cur_obj, idx, self)?;
+                            continue 'redo;
+                        }
+                        _ => unreachable!(),
                     }
-                    JS_PROP_LAZYINIT => {
-                        // instantiate lazy object.
-                        let val = cur_obj.0.prop_values.borrow_mut()[idx]
-                            .instantiate(&cur_obj, idx, self)?;
-                        Ok(val)
-                    }
-                    _ => unreachable!(),
-                };
+                }
+
+                break;
             }
 
             // 2. try fast array or exotic handler

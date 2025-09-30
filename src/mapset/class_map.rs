@@ -25,7 +25,7 @@ pub fn js_map_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let isa = RefCell::new(Box::new(JSMapState::new(is_weak, 16)));
     let obj = ctx
-        .create_object_apply_ctor(
+        .create_object_from_ctor(
             new_target,
             match magic {
                 0 => ObjectPayload::MAP(isa),

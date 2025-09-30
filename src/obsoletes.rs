@@ -492,7 +492,7 @@ pub unsafe fn js_async_generator_free(rt: *mut JSRuntime, s: *mut AsyncGenerator
     unreachable!("use AsyncGeneratorState::dispose() instead");
 }
 
-#[deprecated(note = "use AsyncGeneratorValue::function_call() instead")]
+#[deprecated(note = "use AsyncGeneratorFunction::function_call() instead")]
 pub unsafe fn js_async_generator_function_call(
     ctx: &JSContext,
     func_obj: JSValueConst,
@@ -501,7 +501,7 @@ pub unsafe fn js_async_generator_function_call(
     argv: *const JSValueConst,
     flags: i32,
 ) -> JSValue {
-    unreachable!("use AsyncGeneratorValue::function_call() instead");
+    unreachable!("use AsyncGeneratorFunction::function_call() instead");
 }
 
 #[deprecated(note = "unused")]
@@ -4605,3 +4605,12 @@ pub unsafe fn js_set_module_evaluated(ctx: &JSContext, m: &ModuleDef) {
     unreachable!("unused");
     // m.0.set_evaluated(ctx);
 }
+
+/// Class id for function kind
+#[deprecated(note = "use JSFunctionKindEnum::class_id() instead")]
+pub const func_kind_to_class_id: [JSClassID; 4] = [
+    JS_CLASS_BYTECODE_FUNCTION,        // 0 JS_FUNC_NORMAL
+    JS_CLASS_GENERATOR_FUNCTION,       // 1 JS_FUNC_GENERATOR
+    JS_CLASS_ASYNC_FUNCTION,           // 2 JS_FUNC_ASYNC
+    JS_CLASS_ASYNC_GENERATOR_FUNCTION, // 3 JS_FUNC_ASYNC_GENERATOR
+];

@@ -1,4 +1,11 @@
-use crate::{context::JSContext, number::f64_stringify};
+use crate::{
+    JS_CLASS_ARGUMENTS, JS_CLASS_BOOLEAN, JS_CLASS_DATE, JS_CLASS_ERROR, JS_CLASS_MAPPED_ARGUMENTS,
+    JS_CLASS_NUMBER, JS_CLASS_REGEXP, JS_CLASS_STRING,
+    atom::consts::{JS_ATOM_Array, JS_ATOM_Function, JS_ATOM_Symbol_toStringTag},
+    context::JSContext,
+    number::f64_stringify,
+    object::JSObject,
+};
 
 use super::JSValue;
 
@@ -7,8 +14,7 @@ impl JSValue {
     /// inspect string if used for interactive prompting.
     pub fn inspect(&self, ctx: &JSContext) -> Result<String, i32> {
         match self {
-            // simple value types
-            Self::Int(i) => Ok(format!("{}", *i).into()),
+            Self::Int(i) => Ok(format!("{}", *i)),
             Self::Bool(b) => Ok(if *b { "true" } else { "false" }.into()),
             Self::Float64(n) => {
                 Ok(if *n == 0.0 {
@@ -18,37 +24,84 @@ impl JSValue {
                     f64_stringify(*n, 10, None, 0).into()
                 })
             }
+
+            Self::String(s) => Ok(s.content().to_utf8(true).into()),
+            Self::Symbol(p) => {
+                let s = p.atom_info().unwrap().atom().to_utf8(ctx.rt());
+                Ok(format!("Symbol({s})"))
+            }
+            Self::Object(o) => o.inspect(ctx),
+            Self::Bytecode(b) => Ok(format!(
+                "[bytecode {}]",
+                b.0.borrow().func_name.to_utf8(ctx.rt())
+            )),
+
             Self::NULL => Ok("null".into()),
             Self::UNDEFINED => Ok("undefined".into()),
             Self::Module(_) => Ok("[module]".into()),
 
-            // complex value types
-            Self::String(s) => Ok(s.content().to_utf8(true).into_owned()),
-            Self::Symbol(p) => {
-                let s = p.atom_info().unwrap().atom().to_utf8(ctx.rt());
-                Ok(format!("Symbol({s})").into())
-            }
-            Self::Object(o) => {
-                if let Some(v) = o.payload().value() {
-                    // primitive object
-                    Ok(format!("[object {}]", v.inspect(ctx)?))
-                } else {
-                    Ok(format!(
-                        "[object {}]",
-                        o.class_name().force_string(ctx)?.content().to_utf8(false)
-                    ))
-                }
-            }
-            Self::Bytecode(b) => {
-                Ok(format!("[bytecode {}]", b.0.borrow().func_name.to_utf8(b.rt())).into())
-            }
-
             // internal value types
             Self::EXCEPTION => Ok("<exception>".into()),
             Self::UNINITIALIZED => Ok("<uninitialized>".into()),
-            Self::CatchOffset(n) => Ok(format!("<catchoffset {}>", *n).into()),
+            Self::CatchOffset(n) => Ok(format!("<catchoffset {}>", *n)),
             Self::AsyncStateResume(_) => Ok("<asyncfuncresume>".into()),
         }
+    }
+}
+
+impl JSObject {
+    pub fn inspect(&self, ctx: &JSContext) -> Result<String, i32> {
+        // get [Symbol.toStringTag] property, if got no string, use tag atom above.
+        let tag = if let JSValue::String(s) = self.get_property(ctx, JS_ATOM_Symbol_toStringTag)? {
+            format!("{s}")
+        } else {
+            let tag_atom = if self.is_array(ctx)? {
+                JS_ATOM_Array
+            } else if self.is_function() {
+                JS_ATOM_Function
+            } else {
+                match self.class_id() {
+                    cid @ (JS_CLASS_STRING
+                    | JS_CLASS_ARGUMENTS
+                    | JS_CLASS_MAPPED_ARGUMENTS
+                    | JS_CLASS_ERROR
+                    | JS_CLASS_BOOLEAN
+                    | JS_CLASS_NUMBER
+                    | JS_CLASS_DATE
+                    | JS_CLASS_REGEXP) => ctx.rt().class_defs[cid as usize].class_name,
+
+                    _ => crate::atom::consts::JS_ATOM_Object,
+                }
+            };
+            format!("{}", tag_atom.force_string(ctx)?)
+        };
+
+        #[cfg(debug_assertions)]
+        {
+            Ok(format!(
+                "[object {tag} @{}]",
+                self.class_name()
+                    .force_string(ctx)?
+                    .content()
+                    .to_utf8(false)
+            ))
+        }
+
+        #[cfg(not(debug_assertions))]
+        Ok(format!("[object {tag}]"))
+
+        // if let Some(v) = self.payload().value() {
+        //     // primitive object
+        //     Ok(format!("[object {}]", v.inspect(ctx)?))
+        // } else {
+        //     Ok(format!(
+        //         "[object {}]",
+        //         self.class_name()
+        //             .force_string(ctx)?
+        //             .content()
+        //             .to_utf8(false)
+        //     ))
+        // }
     }
 }
 

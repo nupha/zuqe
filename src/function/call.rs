@@ -354,7 +354,7 @@ pub fn JS_CallConstructorInternal(
         flags |= JS_CALL_FLAG_CONSTRUCTOR;
         let class_id = p.class_id();
 
-        if class_id != JS_CLASS_BYTECODE_FUNCTION {
+        if unlikely(class_id != JS_CLASS_BYTECODE_FUNCTION) {
             return if let Some(cb) = ctx.rt().class_defs[class_id as usize].call {
                 cb(ctx, func_obj, &new_target, args, flags).unwrap_or(JSValue::EXCEPTION)
             } else {
@@ -374,7 +374,7 @@ pub fn JS_CallConstructorInternal(
         } else {
             // legacy constructor behavior
             let this: JSValue =
-                if let Ok(o) = ctx.create_object_apply_ctor(&new_target, ObjectPayload::OBJECT) {
+                if let Ok(o) = ctx.create_object_from_ctor(&new_target, ObjectPayload::OBJECT) {
                     o.into()
                 } else {
                     return JSValue::EXCEPTION;
@@ -395,8 +395,8 @@ pub fn JS_CallConstructorInternal(
 
 pub fn JS_CallConstructor2(
     ctx: &JSContext,
-    func_obj: &JSValueConst,
-    new_target: JSValueConst,
+    func_obj: &JSValue,
+    new_target: JSValue,
     args: &[JSValue],
 ) -> JSValue {
     JS_CallConstructorInternal(ctx, func_obj, new_target, args, JS_CALL_FLAG_COPY_ARGV)

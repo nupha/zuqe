@@ -1,3 +1,4 @@
+use crate::branch_hints::unlikely;
 use crate::error::JSResult;
 use crate::object::JSObject;
 use crate::{
@@ -150,37 +151,37 @@ pub fn js_build_rest(ctx: &JSContext, first: usize, args: &[JSValue]) -> JSValue
 
 // XXX: should use ValueArray
 pub fn build_arg_list(ctx: &JSContext, array_arg: &JSValue) -> Result<Box<[JSValue]>, i32> {
-    if !array_arg.is_object() {
+    if unlikely(!array_arg.is_object()) {
         ctx.throw_type_error_not_an_object();
-        return Err(-1);
-    }
-
-    let len = js_get_length32(ctx, array_arg)?;
-    if len > JS_MAX_LOCAL_VARS as u32 {
-        ctx.throw_internal_error("too many arguments");
-        return Err(-1);
-    }
-
-    let mut tab = Vec::<JSValue>::new();
-    tab.try_reserve_exact(len as usize).map_err(|_| {
-        ctx.throw_out_of_memory();
-        -1
-    })?;
-
-    if unsafe { array_arg.as_object_unchecked() }
-        .with_fast_array_values(|a| {
-            if a.len() == len as usize {
-                // fast array: clone values
-                tab.extend(a.iter().cloned());
-            }
-        })
-        .is_none()
-    {
-        // slow array
-        for i in 0..len {
-            tab.push(array_arg.get_property_u32(ctx, i)?);
+        Err(-1)
+    } else {
+        let len = js_get_length32(ctx, array_arg)?;
+        if len > JS_MAX_LOCAL_VARS as u32 {
+            ctx.throw_internal_error("too many arguments");
+            return Err(-1);
         }
-    }
 
-    Ok(tab.into_boxed_slice())
+        let mut tab = Vec::<JSValue>::new();
+        tab.try_reserve_exact(len as usize).map_err(|_| {
+            ctx.throw_out_of_memory();
+            -1
+        })?;
+
+        if unsafe { array_arg.as_object_unchecked() }
+            .with_fast_array_values(|a| {
+                if a.len() == len as usize {
+                    // fast array: clone values
+                    tab.extend(a.iter().cloned());
+                }
+            })
+            .is_none()
+        {
+            // slow array
+            for i in 0..len {
+                tab.push(array_arg.get_property_u32(ctx, i)?);
+            }
+        }
+
+        Ok(tab.into_boxed_slice())
+    }
 }

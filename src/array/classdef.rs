@@ -53,7 +53,7 @@ pub(crate) fn js_array_constructor(ctx: &JSContext, cc: CallContext) -> JSResult
         // new Array(capacity) case
         let cap = cc.arg(0).to_array_length(ctx, true)?;
         let arr = Array::try_from(
-            ctx.create_object_apply_ctor(
+            ctx.create_object_from_ctor(
                 new_target,
                 ObjectPayload::ARRAY(ArrayObjPayload::new(Vec::new())),
             )
@@ -76,7 +76,7 @@ pub(crate) fn js_array_constructor(ctx: &JSContext, cc: CallContext) -> JSResult
         let len = list.len() as u32;
 
         let arr = Array::try_from(
-            ctx.create_object_apply_ctor(
+            ctx.create_object_from_ctor(
                 new_target,
                 ObjectPayload::ARRAY(ArrayObjPayload::new(list)),
             )

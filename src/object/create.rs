@@ -55,13 +55,13 @@ impl JSContext {
         self.create_object_with_shape(shape, payload)
     }
 
-    /// create object applying class constructor `ctor` call, with `payload` data.
+    /// create object applying class constructor `ctor`, with `payload` data.
     /// new object's class is determined by `payload` kind.
     ///
     /// if `ctor` is:
     /// - undefined, use the `payload` kind associated class prototype,
     /// - otherwise, retrieve property `ctor.prototype` as prototype.
-    pub fn create_object_apply_ctor(
+    pub fn create_object_from_ctor(
         &self,
         ctor: &JSValue,
         payload: ObjectPayload,

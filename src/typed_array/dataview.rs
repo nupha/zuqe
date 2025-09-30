@@ -77,7 +77,7 @@ impl JSContext {
 
         // create dataview instance
         let o = self
-            .create_object_apply_ctor(new_target, ObjectPayload::DATAVIEW(RefCell::new(ta)))
+            .create_object_from_ctor(new_target, ObjectPayload::DATAVIEW(RefCell::new(ta)))
             .map_err(|_| -1)?;
 
         // set back ref to the new created DataView object

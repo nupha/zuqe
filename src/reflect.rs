@@ -1,6 +1,6 @@
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_OBJECT_DEF, JS_PROP_STRING_DEF,
-    atom::JS_FreeAtom,
+    atom::{JS_FreeAtom, consts::JS_ATOM_prototype},
     context::JSContext,
     error::JSResult,
     function::{CallContext, FieldDef, JS_CallConstructor2, build_arg_list, js_function_apply},

@@ -17,43 +17,46 @@ use crate::{
 };
 
 pub fn js_object_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let tag: Cow<str> = match cc.this() {
-        JSValue::NULL => "Null".into(),
-        JSValue::UNDEFINED => "Undefined".into(),
-        v => {
-            let obj = v.clone().objectify(ctx)?;
+    // let tag: Cow<str> = match cc.this() {
+    //     JSValue::NULL => "Null".into(),
+    //     JSValue::UNDEFINED => "Undefined".into(),
+    //     v => {
+    //         let obj = v.clone().objectify(ctx)?;
 
-            // eval tag atom
-            let atom = if obj.is_array(ctx)? {
-                JS_ATOM_Array
-            } else if obj.is_function() {
-                JS_ATOM_Function
-            } else {
-                match obj.class_id() {
-                    cid @ (JS_CLASS_STRING
-                    | JS_CLASS_ARGUMENTS
-                    | JS_CLASS_MAPPED_ARGUMENTS
-                    | JS_CLASS_ERROR
-                    | JS_CLASS_BOOLEAN
-                    | JS_CLASS_NUMBER
-                    | JS_CLASS_DATE
-                    | JS_CLASS_REGEXP) => ctx.rt().class_defs[cid as usize].class_name,
+    //         // eval tag atom
+    //         let tag_atom = if obj.is_array(ctx)? {
+    //             JS_ATOM_Array
+    //         } else if obj.is_function() {
+    //             JS_ATOM_Function
+    //         } else {
+    //             match obj.class_id() {
+    //                 cid @ (JS_CLASS_STRING
+    //                 | JS_CLASS_ARGUMENTS
+    //                 | JS_CLASS_MAPPED_ARGUMENTS
+    //                 | JS_CLASS_ERROR
+    //                 | JS_CLASS_BOOLEAN
+    //                 | JS_CLASS_NUMBER
+    //                 | JS_CLASS_DATE
+    //                 | JS_CLASS_REGEXP) => ctx.rt().class_defs[cid as usize].class_name,
 
-                    _ => JS_ATOM_Object,
-                }
-            };
+    //                 _ => JS_ATOM_Object,
+    //             }
+    //         };
 
-            // get [Symbol.toStringTag] property, if got no string, use tag atom above.
-            if let JSValue::String(s) = obj.get_property(ctx, JS_ATOM_Symbol_toStringTag)? {
-                format!("{s}")
-            } else {
-                format!("{}", atom.force_string(ctx)?)
-            }
-            .into()
-        }
-    };
+    //         // get [Symbol.toStringTag] property, if got no string, use tag atom above.
+    //         if let JSValue::String(s) = obj.get_property(ctx, JS_ATOM_Symbol_toStringTag)? {
+    //             format!("{s}")
+    //         } else {
+    //             format!("{}", tag_atom.force_string(ctx)?)
+    //         }
+    //         .into()
+    //     }
+    // };
+    // let txt = format!("[object {tag}]");
 
-    ctx.create_string_from_utf8(format!("[object {tag}]").into_bytes())
+    let txt = cc.this().inspect(ctx)?;
+
+    ctx.create_string_from_utf8(txt.into_bytes())
         .map(JSValue::String)
 }
 
@@ -284,18 +287,6 @@ pub static js_object_proto_funcs: [FieldDef; 7] = [
         js_object_getset___proto__,
         0
     ),
-    // JS_CFUNC_DEF!(c"toString", 0, js_object_toString),
-    // JS_CFUNC_DEF!(c"toLocaleString", 0, js_object_toLocaleString),
-    // JS_CFUNC_DEF!(c"valueOf", 0, js_object_valueOf),
-    // JS_CFUNC_DEF!(c"hasOwnProperty", 1, js_object_hasOwnProperty),
-    // JS_CFUNC_DEF!(c"isPrototypeOf", 1, js_object_isPrototypeOf),
-    // JS_CFUNC_DEF!(c"propertyIsEnumerable", 1, js_object_propertyIsEnumerable),
-    // JS_CGETSET_DEF!(
-    //     c"__proto__",
-    //     js_object_get___proto__,
-    //     js_object_set___proto__
-    // ),
-
     // JS_CFUNC_MAGIC_DEF!(c"__defineGetter__", 2, js_object___defineGetter__, 0),
     // JS_CFUNC_MAGIC_DEF!(c"__defineSetter__", 2, js_object___defineGetter__, 1),
     // JS_CFUNC_MAGIC_DEF!(c"__lookupGetter__", 1, js_object___lookupGetter__, 0),

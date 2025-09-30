@@ -19,7 +19,7 @@ use crate::{
     context::JSContext,
     function::{AsyncFunction, BoundFunction, ObjNativeFunc, js_async_function_resolve_call},
     gc::JSGCPhaseEnum,
-    generator::{AsyncGeneratorValue, js_generator_function_call},
+    generator::{AsyncGeneratorFunction, js_generator_function_call},
     mem::{JS_DEFAULT_STACK_SIZE, JSMallocFunctions, JSMallocState},
     module::{JSModuleLoaderFunc, JSModuleNormalizeFunc, js_module_ns_exotic_methods},
     object::{GCObjectWeakref, JSShapeWeakref},
@@ -221,7 +221,7 @@ impl JSRuntime {
                 Some(js_async_function_resolve_call);
 
             rt.class_defs[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize].call =
-                Some(AsyncGeneratorValue::class_call);
+                Some(AsyncGeneratorFunction::class_call);
         }
 
         JS_UpdateStackTop(rt.as_mut());

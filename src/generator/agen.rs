@@ -2,6 +2,7 @@ use std::{cell::RefCell, ops::Deref};
 
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_PROP_STRING_DEF,
+    atom::consts::JS_ATOM_prototype,
     context::JSContext,
     error::JSResult,
     function::{AsyncFuncState, CallContext, FieldDef},
@@ -51,12 +52,12 @@ pub struct JSAsyncGeneratorRequest {
     pub resolving_funcs: [JSValue; 2],
 }
 
-/// An AsyncGeneratorValue value
+/// An AsyncGeneratorFunction object
 #[repr(transparent)]
 #[derive(Debug, Clone)]
-pub struct AsyncGeneratorValue(JSValue);
+pub struct AsyncGeneratorFunction(JSValue);
 
-impl AsyncGeneratorValue {
+impl AsyncGeneratorFunction {
     pub fn class_call(
         ctx: &JSContext,
         func_obj: &JSValue,
@@ -80,18 +81,18 @@ impl AsyncGeneratorValue {
         s.func_state.as_ref().unwrap().resume(ctx)?;
 
         // create AsyncGenerator object
-        let agen = ctx
-            .create_object_apply_ctor(func_obj, ObjectPayload::ASYNC_GENERATOR(RefCell::new(s)))
+        let obj = ctx
+            .create_object_from_ctor(func_obj, ObjectPayload::ASYNC_GENERATOR(RefCell::new(s)))
             .map_err(|_| -1)?;
 
-        // fix generator field.
-        if let ObjectPayload::ASYNC_GENERATOR(s) = agen.payload() {
-            s.borrow_mut().generator = agen.downgrade();
+        // set generator to obj weakref
+        if let ObjectPayload::ASYNC_GENERATOR(s) = obj.payload() {
+            s.borrow_mut().generator = obj.downgrade();
         } else {
             unreachable!()
         }
 
-        Ok(agen.into())
+        Ok(obj.into())
     }
 
     pub fn class_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
@@ -497,7 +498,7 @@ pub static js_async_generator_proto_funcs: [FieldDef; 4] = [
     JS_CFUNC_NATIVE_DEF!("throw", 1, js_async_generator_next, GEN_MAGIC_THROW as _),
     JS_PROP_STRING_DEF!(
         "[Symbol.toStringTag]",
-        "AsyncGeneratorValue",
+        "AsyncGenerator",
         JS_PROP_CONFIGURABLE
     ),
 ];

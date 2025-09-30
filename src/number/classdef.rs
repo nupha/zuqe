@@ -290,7 +290,7 @@ pub fn js_number_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let new_target = cc.this();
     if !new_target.is_undefined() {
-        ctx.create_object_apply_ctor(new_target, ObjectPayload::NUMBER(val))
+        ctx.create_object_from_ctor(new_target, ObjectPayload::NUMBER(val))
             .map(JSValue::Object)
             .map_err(|_| -1)
     } else {
