@@ -12,7 +12,7 @@ use crate::{
         JS_PROP_THROW, JSObject, ObjectPayload, PropertyKey,
     },
     runtime::JSRuntime,
-    value::{JSValue, JSValueConst},
+    value::JSValue,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -413,11 +413,7 @@ impl JSValue {
     }
 }
 
-pub unsafe fn JS_IteratorGetCompleteValue(
-    ctx: &JSContext,
-    obj: &JSValueConst,
-    pdone: *mut bool,
-) -> JSValue {
+pub fn JS_IteratorGetCompleteValue(ctx: &JSContext, obj: &JSValue, pdone: &mut bool) -> JSValue {
     if let Ok(done_val) = obj.get_property(ctx, JS_ATOM_done) {
         let done = done_val.to_bool().unwrap();
 
