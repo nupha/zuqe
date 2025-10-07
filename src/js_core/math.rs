@@ -4,7 +4,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     function::{CallContext, FieldDef},
-    number::JSFloat64Union,
+    number::{IntOrFloat, JSFloat64Union},
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
     value::JSValue,
 };
@@ -20,27 +20,47 @@ pub fn js_math_min_max(ctx: &JSContext, cc: CallContext) -> JSResult {
         }));
     }
 
-    let mut res_int: Option<i32> = None;
-    let mut res_float: Option<f64> = None;
-
-    if let JSValue::Int(r1) = cc.arg(0).to_number(ctx)? {
-        res_int = Some(r1);
+    let mut res = if let JSValue::Int(r1) = cc.arg(0).to_number(ctx)? {
+        IntOrFloat::Int64(r1 as _)
     } else {
-        res_float = Some(cc.arg(0).to_f64(ctx)?);
-    }
+        IntOrFloat::Float64(cc.arg(0).to_f64(ctx)?)
+    };
 
     if cc.length() > 1 {
         for a in &cc.arguments()[1..] {
-            match (a.to_number(ctx)?, res_int.as_mut(), res_float.as_mut()) {
-                (JSValue::Int(n), Some(mx), None) => {
-                    let n = n;
+            match (a.to_number(ctx)?, &mut res) {
+                // int vs int
+                (JSValue::Int(n), IntOrFloat::Int64(mx)) => {
                     *mx = if is_max {
-                        std::cmp::max(n, *mx)
+                        std::cmp::max(n as i64, *mx)
                     } else {
-                        std::cmp::min(n, *mx)
+                        std::cmp::min(n as i64, *mx)
                     }
                 }
-                (JSValue::Int(n), None, Some(mx)) => {
+
+                // nan and infinity.
+                // don't change order
+                (JSValue::Float64(d), _) if d.is_nan() => {
+                    return Ok(JSValue::Float64(f64::NAN));
+                }
+                (_, IntOrFloat::Float64(d)) if d.is_nan() => {
+                    return Ok(JSValue::Float64(f64::NAN));
+                }
+
+                (JSValue::Float64(f64::INFINITY), _) | (_, IntOrFloat::Float64(f64::INFINITY))
+                    if is_max =>
+                {
+                    res = IntOrFloat::Float64(f64::INFINITY);
+                }
+                (JSValue::Float64(f64::NEG_INFINITY), _)
+                | (_, IntOrFloat::Float64(f64::NEG_INFINITY))
+                    if !is_max =>
+                {
+                    res = IntOrFloat::Float64(f64::NEG_INFINITY);
+                }
+
+                // int vs float
+                (JSValue::Int(n), IntOrFloat::Float64(mx)) => {
                     let n = n as f64;
                     match n.total_cmp(mx) {
                         std::cmp::Ordering::Greater => {
@@ -56,15 +76,7 @@ pub fn js_math_min_max(ctx: &JSContext, cc: CallContext) -> JSResult {
                         _ => {}
                     }
                 }
-
-                // shortcuts for nan and infinity
-                (v @ JSValue::Float64(f64::INFINITY), _, _) if is_max => return Ok(v),
-                (v @ JSValue::Float64(f64::NEG_INFINITY), _, _) if !is_max => return Ok(v),
-                (v @ JSValue::Float64(d), _, _) if d.is_nan() => {
-                    return Ok(v);
-                }
-
-                (JSValue::Float64(d), Some(mx), None) => {
+                (JSValue::Float64(d), IntOrFloat::Int64(mx)) => {
                     let mut m = *mx as f64;
                     match d.total_cmp(&m) {
                         std::cmp::Ordering::Greater => {
@@ -79,10 +91,10 @@ pub fn js_math_min_max(ctx: &JSContext, cc: CallContext) -> JSResult {
                         }
                         _ => {}
                     }
-                    res_float = Some(m);
-                    res_int = None;
+                    res = IntOrFloat::Float64(m);
                 }
-                (JSValue::Float64(d), None, Some(mx)) => match d.total_cmp(mx) {
+
+                (JSValue::Float64(d), IntOrFloat::Float64(mx)) => match d.total_cmp(mx) {
                     std::cmp::Ordering::Greater => {
                         if is_max {
                             *mx = d;
@@ -103,11 +115,7 @@ pub fn js_math_min_max(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     }
 
-    if let Some(i) = res_int {
-        Ok(JSValue::Int(i))
-    } else {
-        Ok(JSValue::from(res_float.unwrap()))
-    }
+    Ok(res.into())
 }
 
 pub fn js_math_round(a: f64) -> f64 {
