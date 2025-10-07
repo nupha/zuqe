@@ -354,7 +354,6 @@ impl JSRuntime {
             for (_, mut sh_lst) in self.shape_registry.drain() {
                 sh_lst.retain(|w| {
                     if let Some(s) = w.upgrade() {
-                        println!("[O.o] shape is alive: {s:?}");
                         s.dump(unsafe { rt_ptr.as_ref().unwrap() });
                         true
                     } else {

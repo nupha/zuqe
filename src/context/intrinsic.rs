@@ -1,14 +1,12 @@
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ARRAY_BUFFER, JS_CLASS_ARRAY_ITERATOR,
-    JS_CLASS_ASYNC_FROM_SYNC_ITERATOR, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT,
-    JS_CLASS_ASYNC_FUNCTION_RESOLVE, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
-    JS_CLASS_BOOLEAN, JS_CLASS_DATAVIEW, JS_CLASS_DATE, JS_CLASS_ERROR, JS_CLASS_GENERATOR,
-    JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, JS_CLASS_NUMBER,
-    JS_CLASS_OBJECT, JS_CLASS_PROMISE, JS_CLASS_PROMISE_REJECT_FUNCTION,
-    JS_CLASS_PROMISE_RESOLVE_FUNCTION, JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR,
-    JS_CLASS_SET, JS_CLASS_SET_ITERATOR, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_STRING,
-    JS_CLASS_STRING_ITERATOR, JS_CLASS_SYMBOL, JS_CLASS_UINT8C_ARRAY, JS_CLASS_WEAKMAP,
-    JS_CLASS_WEAKSET, STD_CLASS_DEFS,
+    JS_CLASS_ASYNC_FROM_SYNC_ITERATOR, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR,
+    JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_BOOLEAN, JS_CLASS_DATAVIEW, JS_CLASS_DATE,
+    JS_CLASS_ERROR, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_MAP,
+    JS_CLASS_MAP_ITERATOR, JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_PROMISE, JS_CLASS_REGEXP,
+    JS_CLASS_REGEXP_STRING_ITERATOR, JS_CLASS_SET, JS_CLASS_SET_ITERATOR,
+    JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_STRING, JS_CLASS_STRING_ITERATOR, JS_CLASS_SYMBOL,
+    JS_CLASS_UINT8C_ARRAY, JS_CLASS_WEAKMAP, JS_CLASS_WEAKSET,
     array::{
         js_array_constructor, js_array_funcs, js_array_iterator_proto_funcs, js_array_proto_funcs,
     },
@@ -55,7 +53,7 @@ use crate::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET,
         JS_PROP_HAS_SET, JS_PROP_WRITABLE, JS_SetConstructorBit, ObjectPayload,
     },
-    promise::{Promise, PromiseResolveFunc, js_promise_funcs, js_promise_proto_funcs},
+    promise::{Promise, js_promise_funcs, js_promise_proto_funcs},
     proxy::{js_proxy_constructor, js_proxy_funcs},
     reflect::js_reflect_obj,
     regexp::{
@@ -64,9 +62,9 @@ use crate::{
     },
     symbol::{js_symbol_constructor, js_symbol_funcs, js_symbol_proto_funcs},
     typed_array::{
-        JS_TYPED_ARRAY_COUNT, js_dataview_constructor, js_dataview_proto_funcs,
+        JS_TYPED_ARRAY_COUNT, TypedArray, js_dataview_constructor, js_dataview_proto_funcs,
         js_typed_array_base_constructor, js_typed_array_base_funcs,
-        js_typed_array_base_proto_funcs, js_typed_array_constructor, typed_array_size_log2,
+        js_typed_array_base_proto_funcs, js_typed_array_constructor,
     },
     value::JSValue,
 };
@@ -734,16 +732,13 @@ impl JSContext {
             for cid in
                 JS_CLASS_UINT8C_ARRAY..(JS_CLASS_UINT8C_ARRAY + JS_TYPED_ARRAY_COUNT as JSClassID)
             {
+                let nby = 1 << TypedArray::SIZE_LOG2(cid);
+
                 let ta_obj = self
                     .create_base_object_from_proto(typed_array_base_proto.clone())
                     .unwrap();
                 ta_obj
-                    .define_property_value_str(
-                        self,
-                        "BYTES_PER_ELEMENT",
-                        JSValue::Int(1 << typed_array_size_log2(cid)),
-                        0,
-                    )
+                    .define_property_value_str(self, "BYTES_PER_ELEMENT", JSValue::Int(nby), 0)
                     .unwrap();
                 let proto: JSValue = ta_obj.into();
 
@@ -762,12 +757,7 @@ impl JSContext {
                     .unwrap();
                 self.add_global_constructor(name.as_ref(), &func_obj, &proto);
                 func_obj
-                    .define_property_value_str(
-                        self,
-                        "BYTES_PER_ELEMENT",
-                        (1 << typed_array_size_log2(cid)).into(),
-                        0,
-                    )
+                    .define_property_value_str(self, "BYTES_PER_ELEMENT", JSValue::Int(nby), 0)
                     .unwrap();
 
                 self.0.borrow_mut().class_proto[cid as usize] = proto;

@@ -2,7 +2,6 @@
 
 use std::{
     ffi::{CStr, c_char, c_void},
-    ops::Deref,
     ptr::NonNull,
 };
 
@@ -45,6 +44,7 @@ use crate::{
     runtime::JSRuntime,
     stack_frame::StackFrame,
     string::{JSString, JSStringInner, UTF8_CHAR_LEN_MAX, char_is_space, unicode_from_utf8_v0},
+    typed_array::TypedArray,
     value::{JSValue, JSValueConst},
 };
 
@@ -4096,9 +4096,9 @@ pub fn js_create_desc(
     unreachable!("unused")
 }
 
-#[deprecated(note = "use GeneratorPayload::free_generator_stack_rt() instead")]
+#[deprecated(note = "use GeneratorPayload::complete() instead")]
 pub unsafe fn free_generator_stack_rt(rt: *mut JSRuntime, s: *mut GeneratorPayload) {
-    (*s).free_generator_stack(rt.as_mut().unwrap());
+    (*s).complete();
 }
 
 #[deprecated(note = "use JSParseState::get_pos() instead")]
@@ -4628,4 +4628,34 @@ pub fn js_async_generator_completed_return(
 #[deprecated(note = "use AGenPayload::_await() instead")]
 fn js_async_generator_await(s: &AGenPayload, ctx: &JSContext, value: JSValue) -> Result<(), i32> {
     unreachable!("unused")
+}
+
+/// JS_CLASS_DATAVIEW is not allowed.
+#[deprecated(note = "use TypedArrayPayload::SIZE_LOG2() instead.")]
+#[inline(always)]
+pub(crate) fn typed_array_size_log2(classid: JSClassID) -> u8 {
+    TypedArray::SIZE_LOG2(classid)
+}
+
+#[deprecated(note = "use TypedArray::create_from() instead")]
+pub fn js_typed_array_constructor_obj(
+    ctx: &JSContext,
+    new_target: &JSValue,
+    obj: &JSValue,
+    classid: i32,
+) -> JSValue {
+    TypedArray::create_from(ctx, new_target, obj, 0, 0, classid as _)
+        .map_or(JSValue::EXCEPTION, |x| x.into())
+}
+
+#[deprecated]
+pub fn js_typed_array_constructor_ta(
+    ctx: &JSContext,
+    new_target: &JSValue,
+    src_obj: JSValue,
+    classid: i32,
+) -> JSResult {
+    unreachable!("unused");
+    // TypedArray::try_from(src_obj)
+    //     .and_then(|ta| ta.create_to_new(ctx, new_target, classid as JSClassID))
 }

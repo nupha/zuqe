@@ -5,13 +5,13 @@ use std::{
 
 use crate::{
     array::ArrayObjPayload,
-    array_buffer::ArrayBufPayload,
+    array_buffer::ArrayBufferPayload,
     context::JSContext,
     function::{AsyncFuncState, BCFuncPayload},
     mapset::{JSMapIteratorData, JSMapState},
     object::JSObject,
     promise::PromiseResolvingPayload,
-    typed_array::TypedArrayObjPayload,
+    typed_array::TypedArrayPayload,
     value::JSValue,
 };
 
@@ -28,14 +28,14 @@ impl ObjectPayload {
         self.array().map(f)
     }
 
-    pub const fn array_buffer(&self) -> Option<&ArrayBufPayload> {
+    pub const fn array_buffer(&self) -> Option<&ArrayBufferPayload> {
         match self {
             Self::ARRAY_BUFFER(a) | Self::SHARED_ARRAY_BUFFER(a) => Some(a),
             _ => None,
         }
     }
 
-    pub fn typed_array(&self) -> Option<&RefCell<Box<TypedArrayObjPayload>>> {
+    pub fn typed_array(&self) -> Option<&RefCell<Box<TypedArrayPayload>>> {
         match self {
             Self::UINT8C_ARRAY(a)
             | Self::INT8_ARRAY(a)
@@ -52,7 +52,7 @@ impl ObjectPayload {
             _ => None,
         }
     }
-    pub fn with_typed_array<R>(&self, f: impl FnOnce(&TypedArrayObjPayload) -> R) -> Option<R> {
+    pub fn with_typed_array<R>(&self, f: impl FnOnce(&TypedArrayPayload) -> R) -> Option<R> {
         self.typed_array().map(|x| f(x.borrow().deref()))
     }
 

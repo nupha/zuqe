@@ -2,7 +2,7 @@ use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
     object::{GCObject, JSProperty, JSShapeInner},
     runtime::JSRuntime,
-    typed_array::typed_array_size_log2,
+    typed_array::TypedArray,
 };
 
 use super::{JSObject, JSShape};
@@ -88,7 +88,7 @@ impl JSObject {
                 }
                 class_id @ (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY) => {
                     // 1, 2, 4, 8
-                    let bytes_per_element = 1 << typed_array_size_log2(class_id);
+                    let bytes_per_element = 1 << TypedArray::SIZE_LOG2(class_id);
 
                     self.payload()
                         .typed_array()

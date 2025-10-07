@@ -1,7 +1,7 @@
-use std::cell::RefCell;
+use std::cell::{Cell, UnsafeCell};
 
 use crate::{
-    JS_ITERATOR_NEXT_DEF, JS_PROP_STRING_DEF,
+    JS_CLASS_GENERATOR, JS_ITERATOR_NEXT_DEF, JS_PROP_STRING_DEF,
     atom::consts::JS_ATOM_prototype,
     context::JSContext,
     error::JSResult,
@@ -13,6 +13,7 @@ use crate::{
     iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW},
     object::{JS_PROP_CONFIGURABLE, ObjectPayload},
     runtime::JSRuntime,
+    stack_frame::StackFrame,
     string::{StringBuf, StringData},
     value::{JSValue, JSValueConst},
 };
@@ -34,16 +35,52 @@ pub const FUNC_RET_INITIAL_YIELD: i32 = 3;
 
 #[derive(Debug)]
 pub struct GeneratorPayload {
-    state: GenState,
-    func_state: Option<AsyncFuncState>,
+    state: Cell<GenState>,
+    func_state: UnsafeCell<AsyncFuncState>,
 }
 
 impl GeneratorPayload {
-    /// release async function state
-    pub fn free_generator_stack(&mut self, rt: &JSRuntime) {
-        if self.state != GenState::JS_GENERATOR_STATE_COMPLETED {
-            self.func_state.take();
-            self.state = GenState::JS_GENERATOR_STATE_COMPLETED;
+    #[inline(always)]
+    fn state(&self) -> GenState {
+        self.state.get()
+    }
+
+    #[inline(always)]
+    fn set_state(&self, state: GenState) {
+        self.state.set(state);
+    }
+
+    fn set_throw_flag(&self, b: bool) {
+        unsafe {
+            (&*self.func_state.get()).set_throw_flag(b);
+        }
+    }
+
+    #[inline(always)]
+    pub fn is_completed(&self) -> bool {
+        unsafe { (&*self.func_state.get()).is_completed() }
+    }
+
+    /// run with stack frame
+    #[inline(always)]
+    fn with_stack_frame_mut<R>(&self, f: impl FnOnce(&mut StackFrame) -> R) -> R {
+        unsafe {
+            let mut t = (&*self.func_state.get()).0.borrow_mut();
+            f(&mut t.as_mut().get_mut().frame)
+        }
+    }
+
+    /// execute the function up to 'OP_initial_yield' opcode
+    #[inline(always)]
+    pub fn resume(&self, ctx: &JSContext) -> JSResult {
+        unsafe { (&*self.func_state.get()).resume(ctx) }
+    }
+
+    /// mark generator is completed
+    pub fn complete(&self) {
+        if self.state() != GenState::JS_GENERATOR_STATE_COMPLETED {
+            self.set_state(GenState::JS_GENERATOR_STATE_COMPLETED);
+            //  self.func_state.take();
         }
     }
 }
@@ -151,15 +188,15 @@ pub fn js_generator_function_call(
         args,
     )?;
     let g = Box::new(GeneratorPayload {
-        state: GenState::JS_GENERATOR_STATE_SUSPENDED_START,
-        func_state: Some(func_state),
+        state: Cell::new(GenState::JS_GENERATOR_STATE_SUSPENDED_START),
+        func_state: UnsafeCell::new(func_state),
     });
 
     // execute the function up to 'OP_initial_yield'
-    g.func_state.as_ref().unwrap().resume(ctx)?;
+    g.resume(ctx)?;
 
     // create js object of generator class
-    ctx.create_object_from_ctor(func_obj, ObjectPayload::GENERATOR(RefCell::new(g)))
+    ctx.create_object_from_ctor(func_obj, ObjectPayload::GENERATOR(g))
         .map(JSValue::Object)
         .map_err(|_| -1)
 }
@@ -182,19 +219,19 @@ pub fn js_generator_next(
     let magic = cc.magic();
     *iter_state = IteratorState::Done;
 
-    if let ObjectPayload::GENERATOR(g) = cc.this().as_object().unwrap().payload() {
+    if let ObjectPayload::GENERATOR(g) = cc
+        .this()
+        .retrive_object_payload(ctx, Some(JS_CLASS_GENERATOR))?
+    {
         enum WhatToDo {
             ExecNoArg,
             Done,
         }
 
-        let mut g = g.borrow_mut();
-
-        let todo: WhatToDo = match g.state {
+        let action: WhatToDo = match g.state() {
             GenState::JS_GENERATOR_STATE_SUSPENDED_START => {
                 if magic == GEN_MAGIC_NEXT {
-                    let func_state = g.func_state.clone().unwrap();
-                    func_state.set_throw_flag(false);
+                    g.set_throw_flag(false);
                     WhatToDo::ExecNoArg
                 } else {
                     WhatToDo::Done
@@ -203,20 +240,16 @@ pub fn js_generator_next(
             GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD_STAR
             | GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD => {
                 // SP[-1] was set to JS_UNDEFINED in the previous call
-                let func_state = g.func_state.clone().unwrap();
                 let val = cc.arg(0).clone();
 
                 if magic == GEN_MAGIC_THROW
-                    && g.state == GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD
+                    && g.state() == GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD
                 {
                     ctx.throw(val);
-                    func_state.set_throw_flag(true);
+                    g.set_throw_flag(true);
                 } else {
-                    unsafe {
-                        let mut t = func_state.0.borrow_mut();
-                        let sf = t.as_mut().get_mut().frame.as_mut();
+                    g.with_stack_frame_mut(|sf| unsafe {
                         let sp_ptr = sf.stack_cur_ptr();
-
                         debug_assert_eq!(
                             *sp_ptr.offset(-1).as_ptr(),
                             JSValue::UNDEFINED,
@@ -226,8 +259,9 @@ pub fn js_generator_next(
                         std::ptr::replace(sp_ptr.offset(-1).as_ptr(), val);
                         std::ptr::replace(sp_ptr.as_ptr(), JSValue::Int(magic));
                         sf.cur_sp_offset += 1; // move sp pointer
-                    }
-                    func_state.set_throw_flag(false);
+                    });
+
+                    g.set_throw_flag(false);
                 }
                 WhatToDo::ExecNoArg
             }
@@ -238,38 +272,27 @@ pub fn js_generator_next(
             }
         };
 
-        match todo {
+        match action {
             WhatToDo::ExecNoArg => {
-                let func_state = g.func_state.clone().unwrap();
+                g.set_state(GenState::JS_GENERATOR_STATE_EXECUTING);
+                let res = g.resume(ctx);
+                g.set_state(GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD);
 
-                g.state = GenState::JS_GENERATOR_STATE_EXECUTING;
-                let func_ret = func_state.resume(ctx).unwrap_or(JSValue::EXCEPTION);
-                g.state = GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD;
-
-                if func_state.is_completed() {
+                if g.is_completed() {
                     /* finalize the execution in case of exception or normal return */
-                    g.free_generator_stack(ctx.rt());
-                    return func_ret.err();
+                    g.complete();
+                    return res;
                 }
 
-                debug_assert!(func_ret.is_int());
+                debug_assert!(res.as_ref().unwrap().is_int());
 
                 // get the returned yield value at the top of the stack
-                let ret_val = unsafe {
-                    std::ptr::replace(
-                        func_state
-                            .0
-                            .borrow()
-                            .frame
-                            .stack_cur_ptr()
-                            .offset(-1)
-                            .as_ptr(),
-                        JSValue::UNDEFINED,
-                    )
-                };
+                let ret_val = g.with_stack_frame_mut(|sf| unsafe {
+                    std::ptr::replace(sf.stack_cur_ptr().offset(-1).as_ptr(), JSValue::UNDEFINED)
+                });
 
-                *iter_state = if let JSValue::Int(FUNC_RET_YIELD_STAR) = func_ret {
-                    g.state = GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD_STAR;
+                *iter_state = if let Ok(JSValue::Int(FUNC_RET_YIELD_STAR)) = res {
+                    g.set_state(GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD_STAR);
                     /* return (value, done) object */
                     IteratorState::NotParsed
                 } else {
@@ -294,8 +317,7 @@ pub fn js_generator_next(
             }
         }
     } else {
-        ctx.throw_type_error("not a generator");
-        Err(-1)
+        unreachable!()
     }
 }
 

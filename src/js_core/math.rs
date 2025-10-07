@@ -160,8 +160,7 @@ pub fn js_math_hypot(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_math_imul(ctx: &JSContext, cc: CallContext) -> JSResult {
     let a = cc.arg(0).to_i32(ctx)?;
     let b = cc.arg(1).to_i32(ctx)?;
-    // purposely ignoring overflow
-    Ok(JSValue::Int(a * b))
+    Ok(JSValue::Int(a.wrapping_mul(b)))
 }
 
 pub fn js_math_clz32(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -179,7 +178,7 @@ fn xorshift64star(pstate: &mut u64) -> u64 {
     x ^= x >> 27;
     *pstate = x;
 
-    x * 0x2545F4914F6CDD1D
+    x.wrapping_mul(0x2545F4914F6CDD1D)
 }
 pub fn js_math_random(ctx: &JSContext, _: CallContext) -> JSResult {
     let v = xorshift64star(&mut ctx.0.borrow_mut().random_state);

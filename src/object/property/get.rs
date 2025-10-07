@@ -143,15 +143,94 @@ impl JSObject {
         self.get_property_internal(ctx, prop, &JSValue::Object(self.clone()), false)
     }
 
+    /// get property by index key.
+    ///
+    /// Returns:
+    /// - Some: property value
+    /// - None: try slow path instead
+    fn get_property_index(&self, idx: usize) -> Option<JSResult> {
+        macro_rules! typed_array_el {
+            ($ty:ident, $vtype:ident) => {
+                let ta = self.as_TypedArray().unwrap();
+                return if idx < ta.length() {
+                    Some(Ok(JSValue::from(
+                        ta.with_elements_as::<$ty, _>(|lst| lst[idx] as $vtype),
+                    )))
+                } else {
+                    None
+                };
+            };
+        }
+
+        match self.class_id() {
+            JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
+                if let Some(el) = self
+                    .with_fast_array_values(|lst| {
+                        if idx < lst.len() {
+                            Some(lst[idx as usize].clone()) // return element value
+                        } else {
+                            None // try slow path later
+                        }
+                    })
+                    .flatten()
+                {
+                    return Some(Ok(el));
+                }
+            }
+
+            //
+            // typed array
+            //
+            JS_CLASS_INT8_ARRAY => {
+                typed_array_el!(i8, i32);
+            }
+            JS_CLASS_UINT8C_ARRAY | JS_CLASS_UINT8_ARRAY => {
+                typed_array_el!(u8, i32);
+            }
+            JS_CLASS_INT16_ARRAY => {
+                typed_array_el!(i16, i32);
+            }
+            JS_CLASS_UINT16_ARRAY => {
+                typed_array_el!(u16, i32);
+            }
+            JS_CLASS_INT32_ARRAY => {
+                typed_array_el!(i32, i32);
+            }
+            JS_CLASS_UINT32_ARRAY => {
+                typed_array_el!(u32, u32);
+            }
+            JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
+                unimplemented!()
+            }
+            JS_CLASS_FLOAT32_ARRAY => {
+                typed_array_el!(f32, f64);
+            }
+            JS_CLASS_FLOAT64_ARRAY => {
+                typed_array_el!(f64, f64);
+            }
+
+            _ => {}
+        }
+
+        None
+    }
+
+    fn get_property_slow(&self, ctx: &JSContext, prop: &JSValue) -> JSResult {
+        let atom = prop.to_atom(ctx)?;
+        let ret = self.get_property_internal(ctx, atom, &JSValue::Object(self.clone()), false);
+        JS_FreeAtom(ctx, atom);
+        ret
+    }
+
     pub fn get_property_value(&self, ctx: &JSContext, prop: &JSValue) -> JSResult {
-        // check if prop is a positive integer
-        let int_key = match prop {
-            JSValue::Int(i) if *i >= 0 => Some(*i as u32),
+        // check if prop is an index
+        let index_key = match prop {
+            JSValue::Int(i) if *i >= 0 => Some(*i as usize),
             JSValue::Float64(f) if *f >= 0.0 => {
                 if f.fract() == 0.0 {
                     let n = f.trunc() as i64;
                     if n <= u32::MAX as i64 {
-                        Some(n as u32)
+                        Some(n as usize)
                     } else {
                         None
                     }
@@ -162,94 +241,109 @@ impl JSObject {
             _ => None,
         };
 
-        if let Some(i) = int_key {
-            // fast path: property is positive int, try fast array
-            let nth = i as usize;
-
-            macro_rules! typed_array_elemnt {
-                ($ty:ident, $vtype:ident) => {
-                    return Ok(
-                        self.payload()
-                            .with_typed_array(|ta| {
-                                if nth < ta.count as usize {
-                                    let n = ta.with_bytes(|buf| unsafe {
-                                        *buf.as_ptr().cast::<$ty>().add(nth)
-                                    });
-                                    JSValue::from(n as $vtype)
-                                } else {
-                                    JSValue::UNDEFINED
-                                }
-                            })
-                            .unwrap(), // must be typed array object
-                    );
-                };
+        if let Some(idx) = index_key {
+            if let Some(r) = self.get_property_index(idx) {
+                return r;
             }
 
-            match self.class_id() {
-                JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
-                    if let Some(el) = self
-                        .with_fast_array_values(|lst| {
-                            if nth < lst.len() {
-                                Some(lst[nth as usize].clone()) // return element value
-                            } else {
-                                None // try slow path later
-                            }
-                        })
-                        .flatten()
-                    {
-                        return Ok(el);
-                    }
-                }
+            // // fast path: property is positive int, try fast array
+            // let nth = idx;
 
-                //
-                // typed array
-                //
-                JS_CLASS_INT8_ARRAY => {
-                    typed_array_elemnt!(i8, i32);
-                }
-                JS_CLASS_UINT8C_ARRAY | JS_CLASS_UINT8_ARRAY => {
-                    typed_array_elemnt!(u8, i32);
-                }
-                JS_CLASS_INT16_ARRAY => {
-                    typed_array_elemnt!(i16, i32);
-                }
-                JS_CLASS_UINT16_ARRAY => {
-                    typed_array_elemnt!(u16, i32);
-                }
-                JS_CLASS_INT32_ARRAY => {
-                    typed_array_elemnt!(i32, i32);
-                }
-                JS_CLASS_UINT32_ARRAY => {
-                    typed_array_elemnt!(u32, u32);
-                }
-                JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
-                    unimplemented!()
-                }
-                JS_CLASS_FLOAT32_ARRAY => {
-                    typed_array_elemnt!(f32, f64);
-                }
-                JS_CLASS_FLOAT64_ARRAY => {
-                    typed_array_elemnt!(f64, f64);
-                }
-                _ => {}
-            }
+            // macro_rules! typed_array_elemnt {
+            //     ($ty:ident, $vtype:ident) => {
+            //         return Ok(
+            //             self.payload()
+            //                 .with_typed_array(|ta| {
+            //                     if nth < ta.count as usize {
+            //                         let n = ta.with_bytes(|buf| unsafe {
+            //                             *buf.as_ptr().cast::<$ty>().add(nth)
+            //                         });
+            //                         JSValue::from(n as $vtype)
+            //                     } else {
+            //                         JSValue::UNDEFINED
+            //                     }
+            //                 })
+            //                 .unwrap(), // must be typed array object
+            //         );
+            //     };
+            // }
+
+            // macro_rules! typed_array_el {
+            //     ($ty:ident, $vtype:ident) => {
+            //         let ta = self.as_TypedArray().unwrap();
+            //         if nth < ta.length() {
+            //             Some(JSValue::from(
+            //                 ta.with_elements_as::<$ty, $ty>(|lst| lst[nth]) as $vtype,
+            //             ))
+            //         } else {
+            //             None
+            //         }
+            //     };
+            // }
+
+            // match self.class_id() {
+            //     JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
+            //         if let Some(el) = self
+            //             .with_fast_array_values(|lst| {
+            //                 if nth < lst.len() {
+            //                     Some(lst[nth as usize].clone()) // return element value
+            //                 } else {
+            //                     None // try slow path later
+            //                 }
+            //             })
+            //             .flatten()
+            //         {
+            //             return Ok(el);
+            //         }
+            //     }
+
+            //     //
+            //     // typed array
+            //     //
+            //     JS_CLASS_INT8_ARRAY => {
+            //         typed_array_el!(i8, i32);
+            //     }
+            //     JS_CLASS_UINT8C_ARRAY | JS_CLASS_UINT8_ARRAY => {
+            //         typed_array_el!(u8, i32);
+            //     }
+            //     JS_CLASS_INT16_ARRAY => {
+            //         typed_array_el!(i16, i32);
+            //     }
+            //     JS_CLASS_UINT16_ARRAY => {
+            //         println!("[O.o] get property u16: {prop:?}");
+            //         typed_array_el!(u16, i32);
+            //     }
+            //     JS_CLASS_INT32_ARRAY => {
+            //         typed_array_el!(i32, i32);
+            //     }
+            //     JS_CLASS_UINT32_ARRAY => {
+            //         typed_array_el!(u32, u32);
+            //     }
+            //     JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
+            //         unimplemented!()
+            //     }
+            //     JS_CLASS_FLOAT32_ARRAY => {
+            //         typed_array_el!(f32, f64);
+            //     }
+            //     JS_CLASS_FLOAT64_ARRAY => {
+            //         typed_array_el!(f64, f64);
+            //     }
+            //     _ => {}
+            // }
         }
 
         // slow path
-        let atom = prop.to_atom(ctx)?;
-        let ret = self.get_property(ctx, atom);
-        JS_FreeAtom(ctx, atom);
-        ret
+        self.get_property_slow(ctx, prop)
     }
 
-    #[inline(always)]
     pub fn get_property_u32(&self, ctx: &JSContext, idx: u32) -> JSResult {
-        self.get_property_value(ctx, &JSValue::from(idx))
+        self.get_property_index(idx as usize)
+            .unwrap_or_else(|| self.get_property_slow(ctx, &JSValue::from(idx)))
     }
 
     pub fn get_property_i64(&self, ctx: &JSContext, idx: i64) -> JSResult {
-        if (idx as u64) <= i32::MAX as u64 {
-            self.get_property_value(ctx, &JSValue::Int(idx as i32))
+        if (0..u32::MAX as i64).contains(&idx) {
+            self.get_property_u32(ctx, idx as u32)
         } else {
             let prop = JSAtom::from_i64(ctx.rt_mut(), idx)?;
             let r = self.get_property(ctx, prop);
@@ -379,9 +473,8 @@ impl JSValue {
     }
 
     pub fn get_property_i64(&self, ctx: &JSContext, idx: i64) -> JSResult {
-        if idx <= i32::MAX as i64 {
-            // fast path
-            self.get_property_value(ctx, &JSValue::Int(idx as i32))
+        if (0..=u32::MAX as i64).contains(&idx) {
+            self.get_property_u32(ctx, idx as u32)
         } else {
             let atom = JSAtom::from_i64(ctx.rt_mut(), idx)?;
             let r = self.get_property(ctx, atom);

@@ -1,27 +1,23 @@
 use std::cell::RefCell;
-use std::ops::Deref;
 
-use crate::branch_hints::unlikely;
-use crate::iterator::{ForInIterPayload, ObjectIter};
-use crate::object::JSObject;
-use crate::string::JSString;
 use crate::{
     JS_CLASS_OBJECT,
     atom::{JS_ATOM_NULL, JS_FreeAtom, JSAtom, consts::*},
+    branch_hints::unlikely,
     class::JS_DEFINE_CLASS_HAS_HERITAGE,
     context::JSContext,
     function::{BCFuncPayload, JSFunctionKindEnum, JSVarRef, NativeFunctionType},
     iterator::{
-        JS_IteratorGetCompleteValue, JSIteratorKindEnum, js_array_iterator_next,
-        js_create_array_iterator,
+        ForInIterPayload, JS_IteratorGetCompleteValue, JSIteratorKindEnum, ObjectIter,
+        js_array_iterator_next, js_create_array_iterator,
     },
     object::{
         JS_GPN_INDEX_MASK, JS_GPN_SET_ENUM, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE,
         JS_PROP_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW, JS_PROP_THROW_STRICT,
-        JS_PROP_WRITABLE, JS_SetConstructorBit, ObjectPayload, js_get_length32,
+        JS_PROP_WRITABLE, JS_SetConstructorBit, JSObject, ObjectPayload, js_get_length32,
     },
     stack_frame::StackFrame,
-    string::JS_ConcatString3,
+    string::{JS_ConcatString3, JSString},
     value::JSValue,
 };
 

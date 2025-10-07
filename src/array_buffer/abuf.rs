@@ -134,9 +134,9 @@ impl ABufInner {
 }
 
 #[derive(Debug, Clone)]
-pub struct ArrayBufPayload(Rc<RefCell<ABufInner>>);
+pub struct ArrayBufferPayload(Rc<RefCell<ABufInner>>);
 
-impl ArrayBufPayload {
+impl ArrayBufferPayload {
     #[inline(always)]
     pub fn is_detached(&self) -> bool {
         self.0.borrow().detached
@@ -221,7 +221,7 @@ impl JSContext {
                 array_list: Vec::new(),
                 opaque,
             };
-            ArrayBufPayload(Rc::new(RefCell::new(inner)))
+            ArrayBufferPayload(Rc::new(RefCell::new(inner)))
         };
 
         // create array buffer or shared array buffer instance
@@ -256,7 +256,7 @@ impl JSContext {
         // then allocate buffer, and finally set buffer to array buffer instance created earlier.
 
         // 1. create ArrayBuffer instance
-        let isa = ArrayBufPayload(Rc::new(RefCell::new(ABufInner {
+        let isa = ArrayBufferPayload(Rc::new(RefCell::new(ABufInner {
             content: ABufData::Empty,
             detached: false,
             array_list: Vec::new(),

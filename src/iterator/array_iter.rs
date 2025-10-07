@@ -103,14 +103,19 @@ pub fn js_array_iterator_next(
     cc: CallContext,
     state: &mut IteratorState,
 ) -> JSResult {
-    if let ObjectPayload::ARRAY_ITERATOR(it) = cc.this().as_object().unwrap().payload() {
-        if it.object().is_undefined() {
+    if let ObjectPayload::ARRAY_ITERATOR(it) = cc
+        .this()
+        .retrive_object_payload(ctx, Some(JS_CLASS_ARRAY_ITERATOR))?
+    {
+        let obj = it.object();
+
+        if obj.is_undefined() {
             *state = IteratorState::Done;
             return Ok(JSValue::UNDEFINED);
         }
 
         // eval array length
-        let len = if let Ok(tao) = TypedArray::try_from(it.object().clone()) {
+        let len = if let Ok(tao) = TypedArray::try_from(obj.clone()) {
             // is typed array
             if tao.is_detached() {
                 JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
@@ -143,6 +148,6 @@ pub fn js_array_iterator_next(
             }
         }
     } else {
-        Err(-1)
+        unreachable!("")
     }
 }

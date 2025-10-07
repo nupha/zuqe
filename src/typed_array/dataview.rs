@@ -17,8 +17,8 @@ use crate::{
 };
 
 use super::{
-    TypedArrayObjPayload, js_typed_array_get_buffer, js_typed_array_get_byteLength,
-    js_typed_array_get_byteOffset, typed_array_size_log2,
+    TypedArrayPayload, js_typed_array_get_buffer, js_typed_array_get_byteLength,
+    js_typed_array_get_byteOffset,
 };
 
 impl JSContext {
@@ -61,8 +61,8 @@ impl JSContext {
         }
 
         let ta = unsafe {
-            if let Some(ptr) = js_malloc_typed::<TypedArrayObjPayload>(self, 1, false) {
-                ptr.write(TypedArrayObjPayload {
+            if let Some(ptr) = js_malloc_typed::<TypedArrayPayload>(self, 1, false) {
+                ptr.write(TypedArrayPayload {
                     obj: JSObjectWeakref::default(),
                     buffer: buffer.as_object_unchecked().clone(), // underlaying array buffer
                     offset: offset as u32,
@@ -103,28 +103,23 @@ pub fn js_dataview_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     ctx.create_dataview(cc.this(), buffer.clone(), offset as _, length)
 }
 
-pub fn js_dataview_getValue(ctx: &JSContext, args: CallContext) -> JSResult {
-    let this_obj = args.this_raw();
-    let class_id = args.magic() as JSClassID;
+pub fn js_dataview_getValue(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let ta = cc
+        .this()
+        .retrive_object_payload(ctx, Some(JS_CLASS_DATAVIEW))?
+        .typed_array()
+        .unwrap();
 
-    debug_assert_eq!(
-        unsafe { this_obj.as_object_unchecked().class_id() },
-        JS_CLASS_DATAVIEW
-    );
-
-    let size = 1 << typed_array_size_log2(class_id);
-
-    let pos = args.arg(0).to_array_index(ctx)? as usize;
+    let class_id = cc.magic() as JSClassID;
+    let size = 1 << TypedArray::SIZE_LOG2(class_id);
+    let pos = cc.arg(0).to_array_index(ctx)? as usize;
 
     // is little endian? default to BE
-    let le = if args.length() > 1 {
-        args.arg(1).to_bool()?
+    let le = if cc.length() > 1 {
+        cc.arg(1).to_bool()?
     } else {
         false // default to BE
     };
-
-    let isa = unsafe { this_obj.as_object_unchecked().payload() };
-    let ta = isa.typed_array().unwrap();
 
     unsafe {
         let abuf = ta
@@ -222,17 +217,16 @@ pub fn js_dataview_getValue(ctx: &JSContext, args: CallContext) -> JSResult {
 }
 
 pub fn js_dataview_setValue(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let this_obj = cc.this_raw();
+    let ta = cc
+        .this()
+        .retrive_object_payload(ctx, Some(JS_CLASS_DATAVIEW))?
+        .typed_array()
+        .unwrap();
+
     let class_id = cc.magic() as JSClassID;
+    let this_obj = cc.this_raw();
 
-    debug_assert_eq!(
-        unsafe { this_obj.as_object_unchecked().class_id() },
-        JS_CLASS_DATAVIEW
-    );
-
-    let ta = TypedArray::try_from(this_obj).unwrap();
-
-    let size = 1 << typed_array_size_log2(class_id);
+    let size = 1 << TypedArray::SIZE_LOG2(class_id);
     let pos = cc.arg(0).to_array_index(ctx)? as usize;
 
     let val = cc.arg(1);
@@ -265,7 +259,11 @@ pub fn js_dataview_setValue(ctx: &JSContext, cc: CallContext) -> JSResult {
         false
     };
 
-    let (is_detached, byte_length) = ta.with(|ta| (ta.is_detached(), ta.byte_length));
+    let (is_detached, byte_length) = {
+        let b = ta.borrow();
+        (b.is_detached(), b.byte_length())
+    };
+
     if is_detached {
         JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
         return Err(-1);
@@ -275,7 +273,7 @@ pub fn js_dataview_setValue(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    ta.with_bytes_mut(|buf| -> Result<(), i32> {
+    ta.borrow_mut().with_bytes_mut(|buf| -> Result<(), i32> {
         unsafe {
             let ptr = buf.as_mut_ptr().add(pos as usize);
 

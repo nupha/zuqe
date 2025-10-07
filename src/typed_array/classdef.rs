@@ -14,7 +14,6 @@ use crate::{
     },
     atom::consts::JS_ATOM_Symbol_iterator,
     branch_hints::unlikely,
-    class::JSClassID,
     context::JSContext,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, FieldDef, JS_CallConstructor},
@@ -22,8 +21,7 @@ use crate::{
     js_core::js_get_this,
     object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_SpeciesConstructor, js_get_length64},
     string::StringBuf,
-    typed_array::{Float32Array, Float64Array, typed_array_size_log2},
-    value::{HINT_NUMBER, JSValue, JSValueConst},
+    value::{HINT_NUMBER, JSValue},
 };
 
 use super::{TypedArray, js_typed_array_get_length_internal, js_typed_array_set_internal};
@@ -35,14 +33,17 @@ pub fn js_typed_array_base_constructor(ctx: &JSContext, cc: CallContext) -> JSRe
 
 pub fn js_typed_array___speciesCreate(
     ctx: &JSContext,
-    this_val: &JSValueConst,
-    args: &[JSValue],
+    this_val: &JSValue,
+    cc: &[JSValue],
 ) -> JSResult {
-    let obj = &args[0];
-    let p = obj.clone().typed_array_must(ctx, false)?;
+    let obj = &cc[0];
+    let p = TypedArray::try_from(obj.clone()).map_err(|_| {
+        ctx.throw_type_error("not a TypedArray");
+        -1
+    })?;
 
     let ctor = JS_SpeciesConstructor(ctx, &obj, JSValue::UNDEFINED)?;
-    let args_list = if args.len() > 1 { &args[1..] } else { &[] };
+    let args_list = if cc.len() > 1 { &cc[1..] } else { &[] };
     if ctor.is_undefined() {
         js_typed_array_constructor(
             ctx,
@@ -57,7 +58,7 @@ pub fn js_typed_array_constructor(ctx: &JSContext, cc: CallContext) -> JSResult 
     let new_target = cc.this();
     let class_id = cc.magic();
 
-    if let JSValue::Object(p) = cc.arg(0) {
+    let ta = if let JSValue::Object(p) = cc.arg(0) {
         if matches!(
             p.class_id(),
             JS_CLASS_ARRAY_BUFFER | JS_CLASS_SHARED_ARRAY_BUFFER
@@ -71,113 +72,23 @@ pub fn js_typed_array_constructor(ctx: &JSContext, cc: CallContext) -> JSResult 
                 0
             };
 
-            ctx.create_typed_array_from(new_target, cc.arg(0), offset, len, class_id as _)
+            TypedArray::create_from(ctx, new_target, cc.arg(0), offset, len, class_id as _)
         } else {
-            ctx.create_typed_array_from(new_target, cc.arg(0), 0, 0, class_id as _)
+            TypedArray::create_from(ctx, new_target, cc.arg(0), 0, 0, class_id as _)
         }
     } else {
         let len = cc.arg(0).to_array_index(ctx)? as usize;
-        ctx.create_typed_array_from(new_target, &JSValue::UNDEFINED, 0, len, class_id as _)
-    }
-}
+        TypedArray::create_from(ctx, new_target, &JSValue::UNDEFINED, 0, len, class_id as _)
+    };
 
-pub unsafe fn js_typed_array_constructor_obj(
-    ctx: &JSContext,
-    new_target: &JSValueConst,
-    obj: &JSValueConst,
-    classid: i32,
-) -> JSValue {
-    ctx.create_typed_array_from(new_target, obj, 0, 0, classid as _)
-        .unwrap_or(JSValue::EXCEPTION)
-
-    // let size_log2 = typed_array_size_log2(classid as _);
-
-    // let ret = js_create_from_ctor(ctx, new_target, classid as _);
-    // if ret.is_exception() {
-    //     return JSValue::EXCEPTION;
-    // }
-
-    // let iter = obj.get_property(ctx, JS_ATOM_Symbol_iterator);
-    // if iter.is_exception() {
-    //     JS_FreeValue(ctx, ret);
-    //     return JSValue::EXCEPTION;
-    // }
-
-    // let arr: JSValue;
-    // let len: i64;
-
-    // if !iter.is_undefined_or_null() {
-    //     let mut len1: u32 = 0;
-    //     arr = js_array_from_iterator(ctx, &mut len1 as *mut u32, obj, iter);
-    //     JS_FreeValue(ctx, iter);
-    //     if arr.is_exception() {
-    //         JS_FreeValue(ctx, ret);
-    //         return JSValue::EXCEPTION;
-    //     }
-    //     len = len1 as i64;
-    // } else {
-    //     len = if let Ok(l) = js_get_length64(ctx, obj) {
-    //         l
-    //     } else {
-    //         JS_FreeValue(ctx, ret);
-    //         return JSValue::EXCEPTION;
-    //     };
-    //     arr = obj.dup();
-    // }
-
-    // let buffer = js_array_buffer_constructor1(ctx, JSValue::UNDEFINED, (len as u64) << size_log2);
-    // if buffer.is_exception() {
-    //     JS_FreeValue(ctx, arr);
-    //     JS_FreeValue(ctx, ret);
-    //     return JSValue::EXCEPTION;
-    // }
-
-    // if typed_array_init(ctx, ret, buffer, 0, len as _) != 0 {
-    //     JS_FreeValue(ctx, arr);
-    //     JS_FreeValue(ctx, ret);
-    //     JS_FreeValue(ctx, buffer);
-    //     return JSValue::EXCEPTION;
-    // }
-
-    // for i in 0..len {
-    //     let val = arr.get_property_u32(ctx, i as u32);
-    //     if val.is_exception() {
-    //         JS_FreeValue(ctx, arr);
-    //         JS_FreeValue(ctx, ret);
-    //         JS_FreeValue(ctx, buffer);
-    //         return JSValue::EXCEPTION;
-    //     }
-
-    //     if ret
-    //         .set_property_u32(ctx, i as u32, val)
-    //         .is_err()
-    //     {
-    //         JS_FreeValue(ctx, arr);
-    //         JS_FreeValue(ctx, ret);
-    //         JS_FreeValue(ctx, buffer);
-    //         return JSValue::EXCEPTION;
-    //     }
-    // }
-
-    // JS_FreeValue(ctx, arr);
-    // return ret;
-}
-
-pub fn js_typed_array_constructor_ta(
-    ctx: &JSContext,
-    new_target: &JSValue,
-    src_obj: JSValue,
-    classid: i32,
-) -> JSResult {
-    TryInto::<TypedArray>::try_into(src_obj)
-        .and_then(|ta| ta.create_to_new(ctx, new_target, classid as JSClassID))
+    ta.map(|x| x.into())
 }
 
 pub fn js_typed_array_create(ctx: &JSContext, ctor: &JSValue, args: &[JSValue]) -> JSResult {
     let ret = JS_CallConstructor(ctx, ctor, args).err()?;
 
     // validate the typed array
-    let new_len = unsafe { js_typed_array_get_length_internal(ctx, &ret)? };
+    let new_len = js_typed_array_get_length_internal(ctx, &ret)?;
 
     if args.len() == 1 {
         // ensure that it is large enough
@@ -261,24 +172,40 @@ pub static js_typed_array_base_funcs: [FieldDef; 3] = [
 //
 
 pub fn js_typed_array_get_length(ctx: &JSContext, cc: CallContext) -> JSResult {
-    cc.this()
-        .clone()
-        .typed_array_must(ctx, false)
+    TypedArray::try_from(cc.this().clone())
         .map(|p| JSValue::Int(p.length() as i32))
+        .map_err(|_| {
+            ctx.throw_type_error("not a TypedArray");
+            -1
+        })
 }
 
 pub fn js_typed_array_get_buffer(ctx: &JSContext, cc: CallContext) -> JSResult {
     let is_dataview = cc.magic() != 0;
-    cc.this()
-        .clone()
-        .typed_array_must(ctx, is_dataview)
-        .map(|p| JSValue::Object(p.with(|ta| ta.buffer.clone())))
+    TypedArray::try_from(cc.this().clone())
+        .map(|x| JSValue::Object(x.array_buffer()))
+        .map_err(|_| {
+            ctx.throw_type_error(if is_dataview {
+                "not a DataView"
+            } else {
+                "not a TypedArray"
+            });
+            -1
+        })
 }
 
 pub fn js_typed_array_get_byteLength(ctx: &JSContext, cc: CallContext) -> JSResult {
     let is_dataview = cc.magic() != 0;
 
-    let p = cc.this().clone().typed_array_must(ctx, is_dataview)?;
+    let p = TypedArray::try_from(cc.this().clone()).map_err(|_| {
+        ctx.throw_type_error(if is_dataview {
+            "not a DataView"
+        } else {
+            "not a TypedArray"
+        });
+        -1
+    })?;
+
     if p.is_detached() {
         if is_dataview {
             JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
@@ -293,13 +220,23 @@ pub fn js_typed_array_get_byteLength(ctx: &JSContext, cc: CallContext) -> JSResu
 
 pub fn js_typed_array_get_byteOffset(ctx: &JSContext, cc: CallContext) -> JSResult {
     let is_dataview = cc.magic() != 0;
-    let p = cc.this().clone().typed_array_must(ctx, is_dataview)?;
+    let p = TypedArray::try_from(cc.this().clone()).map_err(|_| {
+        ctx.throw_type_error(if is_dataview {
+            "not a DataView"
+        } else {
+            "not a TypedArray"
+        });
+        -1
+    })?;
     p.array_buffer_byte_offset(ctx, is_dataview)
         .map(|n| JSValue::Int(n as i32))
 }
 
 pub fn js_typed_array_at(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let p = cc.this().clone().typed_array_must(ctx, false)?;
+    let p = TypedArray::try_from(cc.this().clone()).map_err(|_| {
+        ctx.throw_type_error("not a TypedArray");
+        -1
+    })?;
     if p.is_detached() {
         JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
         return Err(-1);
@@ -320,7 +257,10 @@ pub fn js_typed_array_at(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_typed_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
     let this_val = cc.this().clone();
-    let p = this_val.clone().typed_array_must(ctx, false)?;
+    let p = TypedArray::try_from(this_val).map_err(|_| {
+        ctx.throw_type_error("not a TypedArray");
+        -1
+    })?;
 
     let mut idx: i64 = cc.arg(0).to_i64_saturating(ctx)?;
     let len = p.length() as i64;
@@ -333,9 +273,10 @@ pub fn js_typed_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     let val = cc.arg(1).to_primitive(ctx, HINT_NUMBER)?;
-    let arr = js_typed_array_constructor_ta(ctx, &JSValue::UNDEFINED, this_val, p.class_id() as _)?;
-    arr.set_property_i64(ctx, idx, val)?;
-    Ok(arr)
+
+    let ta2 = p.create_to_new(ctx, &JSValue::UNDEFINED, p.class_id())?;
+    ta2.set_property_i64(ctx, idx, val)?;
+    Ok(ta2.into())
 }
 
 fn js_typed_array_set(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -348,12 +289,16 @@ fn js_typed_array_set(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 fn js_create_typed_array_iterator(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let tao = cc.this().clone().typed_array_must(ctx, false)?;
-    if tao.is_detached() {
-        JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-        Err(-1)
+    if let Some(ta) = cc.this().as_object_TypedArray() {
+        if ta.is_detached() {
+            JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+            Err(-1)
+        } else {
+            js_create_array_iterator(ctx, cc)
+        }
     } else {
-        js_create_array_iterator(ctx, cc)
+        ctx.throw_type_error("not a TypedArray");
+        Err(-1)
     }
 }
 
@@ -385,7 +330,7 @@ fn js_typed_array_copyWithin(ctx: &JSContext, cc: CallContext) -> JSResult {
             return Err(-1);
         }
 
-        let shift = typed_array_size_log2(tao.class_id());
+        let shift = TypedArray::SIZE_LOG2(tao.class_id());
 
         tao.with_bytes_mut(|buf| {
             let base = buf.as_mut_ptr();
@@ -403,7 +348,10 @@ fn js_typed_array_copyWithin(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_typed_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let ta = TypedArray::try_from(cc.this().clone())?;
+    let ta = TypedArray::try_from(cc.this().clone()).map_err(|_| {
+        ctx.throw_type_error("not a TypedArray");
+        -1
+    })?;
 
     if unlikely(ta.is_detached()) {
         JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
@@ -422,7 +370,7 @@ pub fn js_typed_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
         len as _
     };
 
-    let shift = typed_array_size_log2(ta.class_id());
+    let shift = TypedArray::SIZE_LOG2(ta.class_id());
     let mut data = [0u8; 8];
 
     match ta.class_id() {
@@ -581,10 +529,12 @@ pub fn js_typed_array_find(ctx: &JSContext, args: CallContext) -> JSResult {
     }
 }
 
-pub fn js_typed_array_reverse(ctx: &JSContext, args: CallContext) -> JSResult {
-    let this_val = args.this();
-    // let len = unsafe { js_typed_array_get_length_internal(ctx, this_val)? as i32 };
-    let tao: TypedArray = this_val.clone().try_into().unwrap();
+pub fn js_typed_array_reverse(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let this_val = cc.this();
+    let tao = TypedArray::try_from(this_val.clone()).map_err(|_| {
+        ctx.throw_type_error("not a TypedArray");
+        -1
+    })?;
 
     unsafe {
         macro_rules! swap_slice {
@@ -604,7 +554,7 @@ pub fn js_typed_array_reverse(ctx: &JSContext, args: CallContext) -> JSResult {
             };
         }
 
-        match typed_array_size_log2(tao.class_id()) {
+        match TypedArray::SIZE_LOG2(tao.class_id()) {
             0 => {
                 swap_slice!(u8, 0);
             }
@@ -626,19 +576,25 @@ pub fn js_typed_array_reverse(ctx: &JSContext, args: CallContext) -> JSResult {
 
 pub fn js_typed_array_toReversed(ctx: &JSContext, mut args: CallContext) -> JSResult {
     let this_val = args.this_raw();
-    let tao = this_val.typed_array_must(ctx, false)?;
+    let tao = TypedArray::try_from(args.this().clone()).map_err(|_| {
+        ctx.throw_type_error("not a TypedArray");
+        -1
+    })?;
     let arr = tao.create_to_new(ctx, &JSValue::UNDEFINED, tao.class_id())?;
 
-    args.set_this(arr);
+    args.set_this(arr.into());
     js_typed_array_reverse(ctx, args)
 }
 
 pub fn js_typed_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let this_val = cc.this_raw();
+    let this_val = cc.this();
 
     let (src_len, shift) = {
-        let p = this_val.clone().typed_array_must(ctx, false)?;
-        (p.length() as i32, typed_array_size_log2(p.class_id()))
+        let p = TypedArray::try_from(this_val.clone()).map_err(|_| {
+            ctx.throw_type_error("not a TypedArray");
+            -1
+        })?;
+        (p.length() as i32, TypedArray::SIZE_LOG2(p.class_id()))
     };
 
     let start: i32 = cc.arg(0).to_i32_clamp(ctx, 0, src_len, src_len)?;
@@ -659,13 +615,19 @@ pub fn js_typed_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     if count > 0 {
         // copy values from src to result array
-        let src = this_val.clone().typed_array_must(ctx, false)?;
+        let src = TypedArray::try_from(cc.this().clone()).map_err(|_| {
+            ctx.throw_type_error("not a TypedArray");
+            -1
+        })?;
         if src.is_detached() {
             JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
             return Err(-1);
         }
 
-        if let Ok(dst) = arr.clone().typed_array_must(ctx, false) {
+        if let Ok(dst) = TypedArray::try_from(arr.clone()).map_err(|_| {
+            ctx.throw_type_error("not a TypedArray");
+            -1
+        }) {
             if src.class_id() == dst.class_id()
                 && dst.capacity() as i32 >= count
                 && src.capacity() as i32 >= start + count
@@ -696,9 +658,11 @@ pub fn js_typed_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_typed_array_subarray(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let this_val = cc.this().clone();
-
-    let ta = this_val.clone().typed_array_must(ctx, false)?;
+    let this_val = cc.this();
+    let ta = TypedArray::try_from(this_val.clone()).map_err(|_| {
+        ctx.throw_type_error("not a TypedArray");
+        -1
+    })?;
     let len = ta.length() as i32;
 
     let start: i32 = cc.arg(0).to_i32_clamp(ctx, 0, len, len)?;
@@ -711,14 +675,14 @@ pub fn js_typed_array_subarray(ctx: &JSContext, cc: CallContext) -> JSResult {
     let count = std::cmp::max(final_ - start, 0);
 
     let byte_offset = ta.array_buffer_byte_offset(ctx, false)?;
-    let log2_shift = typed_array_size_log2(ta.class_id());
+    let log2_shift = TypedArray::SIZE_LOG2(ta.class_id());
     let offset = byte_offset + ((start as usize) << log2_shift);
 
     js_typed_array___speciesCreate(
         ctx,
         &JSValue::UNDEFINED,
         &[
-            this_val,
+            this_val.clone(),
             JSValue::Object(ta.with(|ta| ta.buffer.clone())), // array buffer
             JSValue::Int(offset as i32),
             JSValue::Int(count as i32),
@@ -736,7 +700,10 @@ pub fn js_typed_array_sort(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let len = unsafe { js_typed_array_get_length_internal(ctx, this_val)? };
     if len > 1 {
-        let p: TypedArray = this_val.clone().try_into()?;
+        let p = TypedArray::try_from(this_val.clone()).map_err(|_| {
+            ctx.throw_type_error("not a TypedArray");
+            -1
+        })?;
 
         macro_rules! sort {
             ($ty:ident, $shift:expr, $cvt:expr) => {
@@ -817,10 +784,13 @@ pub fn js_typed_array_sort(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_typed_array_toSorted(ctx: &JSContext, cc: CallContext) -> JSResult {
     let this_val = cc.this();
-    let p = this_val.clone().typed_array_must(ctx, false)?;
-    let arr = p.create_to_new(ctx, &JSValue::UNDEFINED, p.class_id())?;
+    let p = TypedArray::try_from(cc.this().clone()).map_err(|_| {
+        ctx.throw_type_error("not a TypedArray");
+        -1
+    })?;
+    let ta = p.create_to_new(ctx, &JSValue::UNDEFINED, p.class_id())?;
 
-    let cc = CallContext::new(ctx, arr, &[], 0, None);
+    let cc = CallContext::new_simple(ctx, ta.into(), &[]);
     js_typed_array_sort(ctx, cc)
 }
 
@@ -927,7 +897,7 @@ pub fn js_typed_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
         inc = 1;
     }
 
-    let p: TypedArray = this_val.clone().try_into()?;
+    let p = TypedArray::try_from(cc.this().clone()).unwrap();
     let mut res = -1;
 
     if p.is_detached() {
@@ -1035,7 +1005,7 @@ pub fn js_typed_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
             if d.is_nan() {
                 if special == special_includes {
                     // includes finds NaN
-                    let found = Float32Array::try_from(p)?.with_elements(|lst| {
+                    let found = p.with_elements_as::<f32, Option<usize>>(|lst| {
                         if inc > 0 {
                             lst.iter().skip(k as usize).position(|x| x.is_nan())
                         } else {
@@ -1065,7 +1035,18 @@ pub fn js_typed_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
             if d.is_nan() {
                 if special == special_includes {
                     // includes finds NaN
-                    let found = Float64Array::try_from(p)?.with_elements(|lst| {
+                    // let found = Float64Array::try_from(p)?.with_elements(|lst| {
+                    //     if inc > 0 {
+                    //         lst.iter().skip(k as usize).position(|x| x.is_nan())
+                    //     } else {
+                    //         lst.iter()
+                    //             .enumerate()
+                    //             .take(k as usize + 1)
+                    //             .rev()
+                    //             .find_map(|(i, x)| if x.is_nan() { Some(i) } else { None })
+                    //     }
+                    // });
+                    let found = p.with_elements_as::<f64, Option<usize>>(|lst| {
                         if inc > 0 {
                             lst.iter().skip(k as usize).position(|x| x.is_nan())
                         } else {
@@ -1076,7 +1057,6 @@ pub fn js_typed_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
                                 .find_map(|(i, x)| if x.is_nan() { Some(i) } else { None })
                         }
                     });
-
                     if let Some(i) = found {
                         res = i as i32;
                     }
