@@ -105,7 +105,7 @@ pub static js_symbol_proto_funcs: [FieldDef; 5] = [
 
 fn js_symbol_for(ctx: &JSContext, cc: CallContext) -> JSResult {
     let s = cc.arg(0).to_string(ctx)?;
-    Ok(JSValue::Symbol(s))
+    ctx.create_symbol(Some(s), AtomTypeHint::GlobalSymbol)
 }
 
 fn js_symbol_keyFor(ctx: &JSContext, cc: CallContext) -> JSResult {

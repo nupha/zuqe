@@ -1,6 +1,6 @@
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_OBJECT_DEF, JS_PROP_STRING_DEF,
-    atom::{JS_FreeAtom, consts::JS_ATOM_prototype},
+    atom::JS_FreeAtom,
     context::JSContext,
     error::JSResult,
     function::{CallContext, FieldDef, JS_CallConstructor2, build_arg_list, js_function_apply},
@@ -105,8 +105,11 @@ pub fn js_reflect_set(ctx: &JSContext, cc: CallContext) -> JSResult {
                 JSValue::NULL | JSValue::UNDEFINED => None,
                 JSValue::Object(o) => Some(o),
                 _ => {
-                    ctx.throw_type_error("receiver must be an object");
-                    return Err(-1);
+                    // ctx.throw_type_error("receiver must be an object");
+                    // return Err(-1);
+
+                    // returns false instead of throwing an error
+                    return Ok(JSValue::Bool(false));
                 }
             },
             0,

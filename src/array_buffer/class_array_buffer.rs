@@ -1,6 +1,7 @@
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_ARRAY_BUFFER, JS_CLASS_DATAVIEW,
     JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY, JS_PROP_STRING_DEF,
+    array_buffer::ArrayBuffer,
     branch_hints::unlikely,
     class::JSClassID,
     context::JSContext,
@@ -21,20 +22,6 @@ fn js_array_buffer_get_byteLength(ctx: &JSContext, cc: CallContext) -> JSResult 
     cc.this()
         .retrive_object_payload(ctx, Some(class_id))
         .map(|isa| JSValue::from(isa.array_buffer().unwrap().byte_length() as i64))
-
-    // cc.this()
-    //     .as_object()
-    //     .filter(|o| o.class_id() == class_id)
-    //     .and_then(|o| {
-    //         o.0.payload
-    //             .borrow()
-    //             .array_buffer()
-    //             .map(|p| JSValue::Int(p.byte_length() as i32))
-    //     })
-    //     .ok_or_else(|| {
-    //         ctx.throw_type_error_invalid_class(class_id);
-    //         -1
-    //     })
 }
 
 fn js_array_buffer_detached(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -77,13 +64,14 @@ fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
     let ctor = JS_SpeciesConstructor(ctx, cc.this(), JSValue::UNDEFINED)?;
 
     let new_obj = if ctor.is_undefined() {
-        ctx.create_array_buffer_ex(
+        ArrayBuffer::with_capacity_ex(
+            ctx,
             &JSValue::UNDEFINED,
-            cc.magic() as JSClassID,
+            cc.magic() as JSClassID == JS_CLASS_SHARED_ARRAY_BUFFER,
             new_len as usize,
             std::ptr::null_mut(),
         )
-        .map(JSValue::Object)
+        .map(|x| x.into())
     } else {
         JS_CallConstructor(ctx, &ctor, &[JSValue::from(new_len)]).err()
     }?;

@@ -3359,15 +3359,14 @@ pub unsafe fn js_array_buffer_free(
     drop(Box::from_raw(s));
 }
 
-#[deprecated(note = "use JSContext::create_array_buffer() instead")]
+#[deprecated(note = "use ArrayBuffer::create() instead")]
 pub unsafe fn js_array_buffer_constructor2(
     ctx: &JSContext,
     new_target: &JSValueConst,
     byte_length: usize,
     class_id: JSClassID,
 ) -> JSValue {
-    ctx.create_array_buffer_ex(new_target, class_id, byte_length, std::ptr::null_mut())
-        .map_or(JSValue::EXCEPTION, JSValue::Object)
+    unreachable!("unused")
 }
 
 #[deprecated(note = "not used")]
@@ -3376,13 +3375,7 @@ pub unsafe fn js_array_buffer_constructor1(
     new_target: &JSValueConst,
     byte_length: usize,
 ) -> JSValue {
-    ctx.create_array_buffer_ex(
-        new_target,
-        JS_CLASS_ARRAY_BUFFER,
-        byte_length,
-        std::ptr::null_mut(),
-    )
-    .map_or(JSValue::EXCEPTION, JSValue::Object)
+    unreachable!("unused")
 }
 
 // if the property is an expression, name = JS_ATOM_NULL

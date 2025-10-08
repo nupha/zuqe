@@ -16,7 +16,9 @@ use super::JSIteratorKindEnum;
 /// iterate state for Array, String or TypedArray
 #[derive(Debug)]
 pub(crate) struct ArrayIterPayload {
-    obj: UnsafeCell<JSValue>,
+    /// target value
+    val: UnsafeCell<JSValue>,
+    /// current index
     idx: UnsafeCell<u32>,
     kind: JSIteratorKindEnum,
 }
@@ -44,16 +46,16 @@ impl ArrayIterPayload {
         }
     }
 
-    /// get iterator target object
+    /// get iterator target value
     #[inline(always)]
-    pub(crate) fn object(&self) -> &JSValue {
-        unsafe { self.obj.get().as_ref().unwrap_unchecked() }
+    pub(crate) fn value(&self) -> &JSValue {
+        unsafe { self.val.get().as_ref().unwrap_unchecked() }
     }
 
-    /// set iterator target object
-    pub(crate) fn set_object(&self, obj: JSValue) {
+    /// set iterator target value
+    pub(crate) fn set_value(&self, obj: JSValue) {
         unsafe {
-            *self.obj.get() = obj;
+            *self.val.get() = obj;
         }
     }
 
@@ -63,7 +65,7 @@ impl ArrayIterPayload {
         let p = unsafe { val.as_object_unchecked() };
         if let ObjectPayload::ARRAY_ITERATOR(it) | ObjectPayload::STRING_ITERATOR(it) = p.payload()
         {
-            it.object().gc_mark();
+            it.value().gc_mark();
         }
     }
 }
@@ -85,7 +87,7 @@ pub fn js_create_array_iterator(ctx: &JSContext, cc: CallContext) -> JSResult {
     };
 
     let isa = Box::new(ArrayIterPayload {
-        obj: UnsafeCell::new(obj),
+        val: UnsafeCell::new(obj),
         idx: UnsafeCell::new(0),
         kind,
     });
@@ -107,7 +109,7 @@ pub fn js_array_iterator_next(
         .this()
         .retrive_object_payload(ctx, Some(JS_CLASS_ARRAY_ITERATOR))?
     {
-        let obj = it.object();
+        let obj = it.value();
 
         if obj.is_undefined() {
             *state = IteratorState::Done;
@@ -124,12 +126,12 @@ pub fn js_array_iterator_next(
             tao.length() as u32
         } else {
             // is Array or String
-            it.object().get_length_prop(ctx)? as u32
+            it.value().get_length_prop(ctx)? as u32
         };
 
         let idx = it.index();
         if idx >= len {
-            it.set_object(JSValue::UNDEFINED);
+            it.set_value(JSValue::UNDEFINED);
             *state = IteratorState::Done;
             return Ok(JSValue::UNDEFINED);
         }
@@ -139,9 +141,9 @@ pub fn js_array_iterator_next(
 
         match it.kind {
             JSIteratorKindEnum::JS_ITERATOR_KIND_KEY => Ok(JSValue::from(idx)),
-            JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE => it.object().get_property_u32(ctx, idx),
+            JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE => it.value().get_property_u32(ctx, idx),
             JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE => {
-                let val = it.object().get_property_u32(ctx, idx)?;
+                let val = it.value().get_property_u32(ctx, idx)?;
                 let num = JSValue::from(idx);
                 ctx.create_array_with_values(vec![num, val])
                     .map(|a| a.into())

@@ -646,9 +646,9 @@ impl JSValue {
     /// `prop` is not consumed.
     pub(crate) fn set_property_internal(
         ctx: &JSContext,
-        obj: &JSValue,
+        obj: &Self,
         prop: JSAtom,
-        val: JSValue,
+        val: Self,
         receiver: Option<&JSObject>,
         flags: u32,
     ) -> Result<bool, i32> {

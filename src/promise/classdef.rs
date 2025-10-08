@@ -1,5 +1,5 @@
 use crate::{
-    JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_PROP_STRING_DEF,
+    JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_PROMISE, JS_PROP_STRING_DEF,
     atom::consts::*,
     branch_hints::unlikely,
     context::JSContext,
@@ -20,6 +20,11 @@ use super::{
 //
 
 pub fn js_promise_then(ctx: &JSContext, cc: CallContext) -> JSResult {
+    // ensure Promise object
+    let _ = cc
+        .this()
+        .retrive_object_payload(ctx, Some(JS_CLASS_PROMISE))?;
+
     cc.this()
         .as_object_Promise()
         .unwrap()
@@ -98,8 +103,11 @@ pub fn js_promise_resolve(ctx: &JSContext, cc: CallContext) -> JSResult {
     let is_reject = cc.magic() != 0;
     let arg0 = cc.arg(0).clone();
 
-    if !is_reject && Promise::try_from(arg0.clone()).is_ok() {
-        // resolve and argument #0 is a Promise
+    if !is_reject && {
+        let _ = arg0.retrive_object_payload(ctx, Some(JS_CLASS_PROMISE))?;
+        true
+    } {
+        // resolve and argument #0 is Promise
         let ctor = arg0.get_property(ctx, JS_ATOM_constructor)?;
         if ctor.is_same(cc.this()) {
             return Ok(arg0);
@@ -288,28 +296,28 @@ pub fn js_promise_race(ctx: &JSContext, cc: CallContext) -> JSResult {
         .unwrap_or(JSValue::EXCEPTION);
 
     if unlikely(promise_resolve.is_exception() || promise_resolve.ensure_function(ctx).is_err()) {
-        return fail_reject();
-    }
-
-    let Ok(it) = cc.arg(0).iter(ctx) else {
-        return fail_reject();
-    };
-    let this = cc.this();
-
-    for item in it {
-        if item
-            .and_then(|val| {
-                promise_resolve
-                    .call(ctx, this, std::slice::from_ref(&val))
-                    .and_then(|pr| pr.invoke(ctx, JS_ATOM_then, &resolving_funcs))
-            })
-            .is_err()
-        {
+        fail_reject()
+    } else {
+        let Ok(it) = cc.arg(0).iter(ctx) else {
             return fail_reject();
-        }
-    }
+        };
+        let this = cc.this();
 
-    Ok(result_promise.into())
+        for item in it {
+            if item
+                .and_then(|val| {
+                    promise_resolve
+                        .call(ctx, this, std::slice::from_ref(&val))
+                        .and_then(|pr| pr.invoke(ctx, JS_ATOM_then, &resolving_funcs))
+                })
+                .is_err()
+            {
+                return fail_reject();
+            }
+        }
+
+        Ok(result_promise.into())
+    }
 }
 
 pub fn js_promise_withResolvers(ctx: &JSContext, cc: CallContext) -> JSResult {

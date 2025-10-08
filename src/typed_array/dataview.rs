@@ -1,10 +1,11 @@
 use std::cell::RefCell;
 
 use crate::{
-    JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_BIG_INT64_ARRAY,
+    JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_ARRAY_BUFFER, JS_CLASS_BIG_INT64_ARRAY,
     JS_CLASS_BIG_UINT64_ARRAY, JS_CLASS_DATAVIEW, JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY,
     JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY, JS_CLASS_UINT8_ARRAY,
     JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY, JS_PROP_STRING_DEF,
+    array_buffer::ArrayBuffer,
     class::JSClassID,
     context::JSContext,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
@@ -26,17 +27,11 @@ impl JSContext {
     pub fn create_dataview(
         &self,
         new_target: &JSValue,
-        buffer: JSValue,
+        buffer: ArrayBuffer,
         offset: usize,
         length: Option<usize>,
     ) -> JSResult {
-        let abuf = buffer
-            .as_object()
-            .and_then(|o| o.payload().array_buffer().cloned())
-            .ok_or_else(|| {
-                self.throw_type_error("expect an ArrayBuffer");
-                -1
-            })?;
+        let abuf = buffer.payload();
 
         if abuf.is_detached() {
             JS_ThrowTypeErrorDetachedArrayBuffer(self);
@@ -64,7 +59,7 @@ impl JSContext {
             if let Some(ptr) = js_malloc_typed::<TypedArrayPayload>(self, 1, false) {
                 ptr.write(TypedArrayPayload {
                     obj: JSObjectWeakref::default(),
-                    buffer: buffer.as_object_unchecked().clone(), // underlaying array buffer
+                    buffer: buffer.into(),
                     offset: offset as u32,
                     byte_length: len as _,
                     count: 0,
@@ -88,7 +83,11 @@ impl JSContext {
 }
 
 pub fn js_dataview_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let buffer = cc.arg(0);
+    let Some(buffer) = cc.arg(0).as_object_ArrayBuffer() else {
+        ctx.throw_type_error_invalid_class(JS_CLASS_ARRAY_BUFFER);
+        return Err(-1);
+    };
+
     let offset = if cc.length() > 1 {
         cc.arg(1).to_array_index(ctx)?
     } else {
@@ -122,13 +121,7 @@ pub fn js_dataview_getValue(ctx: &JSContext, cc: CallContext) -> JSResult {
     };
 
     unsafe {
-        let abuf = ta
-            .borrow()
-            .buffer
-            .payload()
-            .array_buffer()
-            .cloned()
-            .unwrap();
+        let abuf = ta.borrow().buffer.payload();
 
         if abuf.is_detached() {
             JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
@@ -197,7 +190,7 @@ pub fn js_dataview_getValue(ctx: &JSContext, cc: CallContext) -> JSResult {
                     } else {
                         f32::from_be_bytes(bb)
                     };
-                    Ok(JSValue::Float64(n as f64))
+                    Ok(JSValue::from(n as f64))
                 }
                 JS_CLASS_FLOAT64_ARRAY => {
                     let bb: [u8; 8] = std::slice::from_raw_parts(ptr, 8).try_into().unwrap();
@@ -206,7 +199,7 @@ pub fn js_dataview_getValue(ctx: &JSContext, cc: CallContext) -> JSResult {
                     } else {
                         f64::from_be_bytes(bb)
                     };
-                    Ok(JSValue::Float64(n))
+                    Ok(JSValue::from(n))
                 }
                 _ => {
                     unreachable!();

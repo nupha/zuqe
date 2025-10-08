@@ -28,7 +28,7 @@ impl JSAtom {
         // match for existing atoms, don't register twice for same content.
         let atom_desc = match atom_type {
             AtomTypeHint::String | AtomTypeHint::GlobalSymbol => {
-                let ss = str.take().unwrap();
+                let mut ss = str.take().unwrap();
                 debug_assert!(!ss.content().is_ident());
 
                 if let Some(at) = ss.atom_info() {
@@ -39,6 +39,9 @@ impl JSAtom {
                         }
                         return Ok(a);
                     }
+
+                    // make new string with same content and without atom info
+                    ss = JSString::new(rt, ss.content().clone());
                 }
 
                 let hash = Self::calc_atom_hash_content(ss.content(), atom_type);

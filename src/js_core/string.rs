@@ -4,8 +4,8 @@ use unicode_normalization::UnicodeNormalization;
 use widestring::U16Str;
 
 use crate::{
-    JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_NATIVE_ITERATOR_NEXT_DEF, JS_PROP_INT32_DEF,
-    JS_PROP_STRING_DEF,
+    JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_CLASS_STRING_ITERATOR, JS_NATIVE_ITERATOR_NEXT_DEF,
+    JS_PROP_INT32_DEF, JS_PROP_STRING_DEF,
     atom::{JSAtom, consts::*},
     context::JSContext,
     error::JSResult,
@@ -961,8 +961,11 @@ pub fn js_string_iterator_next(
     cc: CallContext,
     state: &mut IteratorState,
 ) -> JSResult {
-    if let ObjectPayload::STRING_ITERATOR(it) = cc.this().as_object().unwrap().payload() {
-        let ss = unsafe { it.object().string_unchecked() };
+    if let ObjectPayload::STRING_ITERATOR(it) = cc
+        .this()
+        .retrive_object_payload(ctx, Some(JS_CLASS_STRING_ITERATOR))?
+    {
+        let ss = unsafe { it.value().string_unchecked() };
 
         // iterate over string buf to get char or code at `idx`
         if let Some((next_idx, c)) = ss.content().iter_since(it.index() as usize).next() {
@@ -970,12 +973,12 @@ pub fn js_string_iterator_next(
             *state = IteratorState::NotDone;
             ctx.create_string_from_char(c).map(JSValue::String)
         } else {
-            it.set_object(JSValue::UNDEFINED);
+            it.set_value(JSValue::UNDEFINED);
             *state = IteratorState::Done;
             Ok(JSValue::UNDEFINED)
         }
     } else {
-        Err(-1)
+        unreachable!()
     }
 }
 

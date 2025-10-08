@@ -183,7 +183,7 @@ pub fn js_typed_array_get_length(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_typed_array_get_buffer(ctx: &JSContext, cc: CallContext) -> JSResult {
     let is_dataview = cc.magic() != 0;
     TypedArray::try_from(cc.this().clone())
-        .map(|x| JSValue::Object(x.array_buffer()))
+        .map(|x| x.array_buffer().into())
         .map_err(|_| {
             ctx.throw_type_error(if is_dataview {
                 "not a DataView"
@@ -683,7 +683,7 @@ pub fn js_typed_array_subarray(ctx: &JSContext, cc: CallContext) -> JSResult {
         &JSValue::UNDEFINED,
         &[
             this_val.clone(),
-            JSValue::Object(ta.with(|ta| ta.buffer.clone())), // array buffer
+            ta.with(|ta| ta.array_buffer().clone()).into(), // array buffer
             JSValue::Int(offset as i32),
             JSValue::Int(count as i32),
         ],

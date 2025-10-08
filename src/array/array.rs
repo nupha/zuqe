@@ -180,7 +180,7 @@ impl Array {
             // if `self` is sparse array, delete all index properties
             let mut del = SmallVec::<[u32; 64]>::new();
             self.own_property_names_foreach(ctx, JS_GPN_INDEX_MASK | JS_GPN_ENUM_ONLY, |_, p| {
-                if let PropertyKeyKind::ArrayIndex(i) = p.isa {
+                if let PropertyKeyKind::ArrayIndex(i) = p.kind {
                     del.push(i);
                 }
                 Ok(())

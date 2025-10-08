@@ -10,7 +10,7 @@ use crate::{
     function::{AsyncFuncState, BCFuncPayload},
     mapset::{JSMapIteratorData, JSMapState},
     object::JSObject,
-    promise::PromiseResolvingPayload,
+    promise::{PromisePayload, PromiseResolvingPayload},
     typed_array::TypedArrayPayload,
     value::JSValue,
 };

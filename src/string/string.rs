@@ -177,7 +177,7 @@ impl JSStringInner {
     /// Sets the atom type
     /// Used when converting a string to an atom or symbol.
     pub fn set_atom_type(&self, t: AtomHintAndId) {
-        debug_assert!(self.atom_type.get().is_none());
+        debug_assert!(self.atom_type.get().is_none(), "{:?}", self.atom_type.get());
         self.atom_type.set(Some(t));
     }
 }
@@ -596,14 +596,17 @@ pub fn JS_ConcatString(ctx: &JSContext, op1: JSValue, op2: JSValue) -> Result<JS
 }
 
 impl JSValue {
-    /// get a reference to value's string description. won't effect value's ref_count.
+    /// get a reference to value's string description. won't change value's ref_count.
     /// will panic if value is not string type.
     #[inline(always)]
     pub unsafe fn string_unchecked(&self) -> &JSString {
-        if let Self::String(s) | Self::Symbol(s) = self {
+        if let Self::String(s) = self {
             s
         } else {
-            unreachable!()
+            #[cfg(debug_assertions)]
+            unreachable!();
+            #[cfg(not(debug_assertions))]
+            std::hint::unreachable_unchecked();
         }
     }
 

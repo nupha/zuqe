@@ -5,7 +5,7 @@ use crate::{
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
     JS_CLASS_INT32_ARRAY, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8_ARRAY,
     JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
-    array_buffer::ArrayBufferPayload,
+    array_buffer::{ArrayBuffer, ArrayBufferPayload},
     atom::consts::JS_ATOM_Symbol_iterator,
     class::JSClassID,
     context::JSContext,
@@ -25,8 +25,8 @@ pub struct TypedArrayPayload {
     /// back reference to the TypedArray/DataView object.
     pub obj: JSObjectWeakref,
 
-    /// underlaying array buffer object
-    pub buffer: JSObject,
+    /// underlaying array buffer object.
+    pub buffer: ArrayBuffer,
 
     /// start offset in array buffer  
     pub offset: u32,
@@ -42,7 +42,7 @@ impl TypedArrayPayload {
     /// Note: `buffer` is consumed.
     pub fn new(
         ctx: &JSContext,
-        buffer: JSValue,
+        buffer: ArrayBuffer,
         class_id: JSClassID,
         offset: usize,
         mut count: usize,
@@ -53,49 +53,44 @@ impl TypedArrayPayload {
         ));
 
         let size_log2 = TypedArray::SIZE_LOG2(class_id);
+        let abuf = buffer.payload();
 
-        if let JSValue::Object(abo) = buffer {
-            let abuf = abo.payload().array_buffer().cloned().unwrap();
+        if abuf.is_detached() {
+            JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+            return Err(-1);
+        }
 
-            if abuf.is_detached() {
-                JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-                return Err(-1);
-            }
+        let byte_length = abuf.byte_length();
+        if (offset & ((1 << size_log2) - 1) != 0) || offset > byte_length {
+            ctx.throw_range_error("invalid offset");
+            return Err(-1);
+        }
 
-            let byte_length = abuf.byte_length();
-            if (offset & ((1 << size_log2) - 1) != 0) || offset > byte_length {
-                ctx.throw_range_error("invalid offset");
-                return Err(-1);
-            }
-
-            if count == 0 {
-                if byte_length & ((1 << size_log2) - 1) != 0 {
-                    ctx.throw_range_error("invalid length");
-                    return Err(-1);
-                }
-                count = (byte_length - offset) >> size_log2;
-            } else if (offset + (count << size_log2)) > byte_length {
+        if count == 0 {
+            if byte_length & ((1 << size_log2) - 1) != 0 {
                 ctx.throw_range_error("invalid length");
                 return Err(-1);
             }
-
-            let ta = Self {
-                obj: JSObjectWeakref::default(), // empty weakref
-                buffer: abo,
-                offset: offset as u32,
-                byte_length: (count as u32) << size_log2,
-                count: count as u32,
-            };
-            Ok(ta)
-        } else {
-            unreachable!()
+            count = (byte_length - offset) >> size_log2;
+        } else if (offset + (count << size_log2)) > byte_length {
+            ctx.throw_range_error("invalid length");
+            return Err(-1);
         }
+
+        let ta = Self {
+            obj: JSObjectWeakref::default(), // empty weakref
+            buffer,
+            offset: offset as u32,
+            byte_length: (count as u32) << size_log2,
+            count: count as u32,
+        };
+        Ok(ta)
     }
 
     /// check if `self` TypedArray is detached.
     #[inline]
     pub fn is_detached(&self) -> bool {
-        self.buffer.payload().array_buffer().unwrap().is_detached()
+        self.buffer.payload().is_detached()
     }
 
     #[inline(always)]
@@ -103,10 +98,16 @@ impl TypedArrayPayload {
         self.byte_length as _
     }
 
-    /// get underlaying array buffer.
-    #[inline]
-    pub fn array_buffer(&self) -> ArrayBufferPayload {
-        self.buffer.payload().array_buffer().cloned().unwrap()
+    /// get underlaying array buffer object.
+    #[inline(always)]
+    pub fn array_buffer(&self) -> &ArrayBuffer {
+        &self.buffer
+    }
+
+    /// get underlaying array buffer payload.
+    #[deprecated(note = "use TypedArrayPayload::array_buffer().payload()")]
+    pub fn array_buffer_payload(&self) -> ArrayBufferPayload {
+        self.buffer.payload()
     }
 
     /// run closure with underlaying bytes of typed array.
@@ -114,6 +115,7 @@ impl TypedArrayPayload {
         let base = self.offset as usize;
         let len = self.byte_length as usize;
         self.array_buffer()
+            .payload()
             .with_bytes(|buf| f(&buf[base..base + len]))
     }
 
@@ -122,6 +124,7 @@ impl TypedArrayPayload {
         let base = self.offset as usize;
         let len = self.byte_length as usize;
         self.array_buffer()
+            .payload()
             .with_bytes_mut(|buf| f(&mut buf[base..base + len]))
     }
 }
@@ -199,9 +202,9 @@ impl TypedArray {
         self.with(|ta| (ta.byte_length >> size_log2) as usize)
     }
 
-    /// get underlying array buffer.
-    pub fn array_buffer(&self) -> JSObject {
-        self.with(|ta| ta.buffer.clone())
+    /// get underlying array buffer object.
+    pub fn array_buffer(&self) -> ArrayBuffer {
+        self.with(|ta| ta.array_buffer().clone())
     }
 
     /// Get underlying array buffer byte offset.
@@ -310,7 +313,7 @@ impl TypedArray {
         let count = self.length();
         let size_log2 = Self::SIZE_LOG2(class_id as _);
 
-        let new_buf = ctx.create_array_buffer(count << size_log2)?;
+        let new_buf = ArrayBuffer::create(ctx, false, count << size_log2)?;
 
         // Note: necessary to check detacth again, because it could have been detached
         if self.is_detached() {
@@ -351,7 +354,7 @@ impl TypedArray {
     fn create(
         ctx: &JSContext,
         new_target: &JSValue,
-        buffer: JSValue,
+        buffer: ArrayBuffer,
         offset: usize,
         count: usize,
         class_id: JSClassID,
@@ -395,7 +398,11 @@ impl TypedArray {
             let p = ta.payload().typed_array().unwrap();
             let w = ta.downgrade();
 
-            p.borrow().array_buffer().add_typed_array_weakref(w.clone());
+            p.borrow()
+                .array_buffer()
+                .payload()
+                .add_typed_array_weakref(w.clone());
+
             p.borrow_mut().obj = w;
         }
 
@@ -410,12 +417,14 @@ impl TypedArray {
         count: usize,
         class_id: JSClassID,
     ) -> Result<Self, i32> {
-        // create underlaying array buffer
-        let buffer = {
-            let size_log2 = TypedArray::SIZE_LOG2(class_id);
-            ctx.create_array_buffer(count << size_log2)?
-        };
-        TypedArray::create(ctx, new_target, buffer.into(), 0, count, class_id)
+        TypedArray::create(
+            ctx,
+            new_target,
+            ArrayBuffer::create(ctx, false, count << TypedArray::SIZE_LOG2(class_id))?,
+            0,
+            count,
+            class_id,
+        )
     }
 
     /// create a TypedArray from an existing `source`. The source value could be:
@@ -438,9 +447,14 @@ impl TypedArray {
             JSValue::UNDEFINED => Self::with_capacity(ctx, new_target, length, class_id),
             JSValue::Object(p) => {
                 match p.class_id() {
-                    JS_CLASS_ARRAY_BUFFER | JS_CLASS_SHARED_ARRAY_BUFFER => {
-                        Self::create(ctx, new_target, source.clone(), offset, length, class_id)
-                    }
+                    JS_CLASS_ARRAY_BUFFER | JS_CLASS_SHARED_ARRAY_BUFFER => Self::create(
+                        ctx,
+                        new_target,
+                        ArrayBuffer::try_from(source.clone()).unwrap(),
+                        offset,
+                        length,
+                        class_id,
+                    ),
                     JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
                         TypedArray(p.clone()).create_to_new(ctx, new_target, class_id)
                     }
@@ -454,9 +468,14 @@ impl TypedArray {
                             (source.clone(), source.get_length_prop(ctx)? as usize)
                         };
 
-                        let buffer = ctx.create_array_buffer(count << size_log2)?;
-                        let new_ta =
-                            Self::create(ctx, new_target, buffer.into(), 0, count, class_id)?;
+                        let new_ta = Self::create(
+                            ctx,
+                            new_target,
+                            ArrayBuffer::create(ctx, false, count << size_log2)?,
+                            0,
+                            count,
+                            class_id,
+                        )?;
 
                         for i in 0..count {
                             let v = enum_obj.get_property_u32(ctx, i as u32)?;
@@ -471,109 +490,6 @@ impl TypedArray {
         }
     }
 }
-
-// macro_rules! typed_array_obj_of {
-//     ($name:ident, $ty:ident, $class_id:pat) => {
-//         #[repr(transparent)]
-//         #[derive(Clone)]
-//         pub struct $name(pub(crate) TypedArray);
-
-//         impl $name {
-//             #[inline(always)]
-//             pub fn length(&self) -> usize {
-//                 self.0.length()
-//             }
-
-//             /// run closure with elements slice.
-//             pub fn with_elements<R>(&self, f: impl FnOnce(&[$ty]) -> R) -> R {
-//                 let len = self.length();
-//                 self.0.with_bytes(|b| {
-//                     f(unsafe { std::slice::from_raw_parts(b.as_ptr().cast::<$ty>(), len) })
-//                 })
-//             }
-
-//             /// run closure with elements slice.
-//             pub fn with_elements_mut<R>(&self, f: impl FnOnce(&mut [$ty]) -> R) -> R {
-//                 let len = self.length();
-//                 self.0.with_bytes_mut(|b| {
-//                     f(
-//                         unsafe {
-//                             std::slice::from_raw_parts_mut(b.as_mut_ptr().cast::<$ty>(), len)
-//                         },
-//                     )
-//                 })
-//             }
-
-//             /// get `nth` element value.
-//             /// if `nth` is out of bound, returns Err
-//             pub fn element(&self, nth: usize) -> Result<$ty, i32> {
-//                 if nth < self.length() {
-//                     Ok(self.with_elements(|p| p[nth]))
-//                 } else {
-//                     Err(-1)
-//                 }
-//             }
-
-//             /// set `nth` element value.
-//             /// if `nth` is out of bound, returns Err
-//             pub fn set_element(&mut self, nth: usize, val: $ty) -> Result<(), i32> {
-//                 if nth < self.length() {
-//                     self.with_elements_mut(|p| {
-//                         p[nth] = val;
-//                         Ok(())
-//                     })
-//                 } else {
-//                     Err(-1)
-//                 }
-//             }
-//         }
-
-//         impl TryFrom<JSObject> for $name {
-//             type Error = i32;
-
-//             fn try_from(obj: JSObject) -> Result<Self, Self::Error> {
-//                 if matches!(obj.class_id(), $class_id) {
-//                     Ok(Self(TypedArray(obj)))
-//                 } else {
-//                     Err(-1)
-//                 }
-//             }
-//         }
-
-//         impl TryFrom<TypedArray> for $name {
-//             type Error = i32;
-
-//             fn try_from(value: TypedArray) -> Result<Self, Self::Error> {
-//                 if matches!(value.0.class_id(), $class_id) {
-//                     Ok(Self(value))
-//                 } else {
-//                     Err(-1)
-//                 }
-//             }
-//         }
-
-//         impl TryFrom<JSValue> for $name {
-//             type Error = i32;
-
-//             fn try_from(value: JSValue) -> Result<Self, Self::Error> {
-//                 if let JSValue::Object(ob) = value {
-//                     ob.try_into()
-//                 } else {
-//                     Err(-1)
-//                 }
-//             }
-//         }
-//     };
-// }
-
-// typed_array_obj_of!(Int8Array, i8, JS_CLASS_INT8_ARRAY);
-// typed_array_obj_of!(Uint8Array, u8, JS_CLASS_UINT8_ARRAY | JS_CLASS_UINT8C_ARRAY);
-// typed_array_obj_of!(Int16Array, i16, JS_CLASS_INT16_ARRAY);
-// typed_array_obj_of!(Uint16Array, u16, JS_CLASS_UINT16_ARRAY);
-// typed_array_obj_of!(Int32Array, i32, JS_CLASS_INT32_ARRAY);
-// typed_array_obj_of!(Uint32Array, u32, JS_CLASS_UINT32_ARRAY);
-// typed_array_obj_of!(Float32Array, f32, JS_CLASS_FLOAT32_ARRAY);
-// typed_array_obj_of!(Float64Array, f64, JS_CLASS_FLOAT64_ARRAY);
 
 /// Get the length of the TypedArray, equivalent to TypedArrayObj::length() but
 /// will return an error if the TypedArray is detached.
@@ -622,7 +538,7 @@ pub fn js_typed_array_set_internal(
 
             let (src_abuf, shift, cnt) = src.with(|ta| {
                 (
-                    ta.array_buffer(),
+                    ta.array_buffer().payload(),
                     TypedArray::SIZE_LOG2(p.class_id()),
                     ta.count,
                 )
@@ -654,7 +570,7 @@ pub fn js_typed_array_set_internal(
                 return Ok(JSValue::UNDEFINED);
             }
 
-            let dest_abuf = p.with(|ta| ta.array_buffer());
+            let dest_abuf = p.with(|ta| ta.array_buffer().payload());
 
             if dest_abuf.content().id() == src_abuf.content().id() {
                 // copying between the same buffer using different types of mappings
@@ -689,7 +605,10 @@ pub fn js_typed_array_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usi
     if let Some(ta) = isa.typed_array() {
         // during the GC the finalizers are called in an arbitrary
         // order so the ArrayBuffer finalizer may have been called
-        ta.borrow().array_buffer().remove_typed_array_weakref(id);
+        ta.borrow()
+            .array_buffer()
+            .payload()
+            .remove_typed_array_weakref(id);
     }
 }
 

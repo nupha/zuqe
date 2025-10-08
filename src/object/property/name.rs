@@ -23,27 +23,24 @@ pub enum PropertyKeyKind {
 #[derive(Debug)]
 pub struct PropertyKey {
     pub atom: JSAtom,
-    pub isa: PropertyKeyKind,
+    pub kind: PropertyKeyKind,
     pub is_enumerable: bool,
     pub is_exotic: bool,
 }
 
 impl PropertyKey {
-    /// Note: `atom` is used **AS-IS**: it's ownership is transparent, it's neither cloned nor consumed inside.
-    pub fn new(ctx: &JSContext, atom: JSAtom, is_enumerable: bool, is_exotic: bool) -> Self {
-        let kind = atom.kind(ctx.rt());
-
-        let isa = if let Some(idx) = atom.to_array_index(ctx.rt()) {
-            PropertyKeyKind::ArrayIndex(idx as u32)
-        } else if kind == AtomDescKind::JS_ATOM_KIND_STRING {
-            PropertyKeyKind::String
-        } else {
-            PropertyKeyKind::Symbol
-        };
-
+    /// Note: `atom` is used **AS-IS**: it's ownership is transparent,
+    /// it's neither cloned nor consumed inside.
+    pub(crate) fn new(ctx: &JSContext, atom: JSAtom, is_enumerable: bool, is_exotic: bool) -> Self {
         Self {
             atom,
-            isa,
+            kind: if let Some(idx) = atom.to_array_index(ctx.rt()) {
+                PropertyKeyKind::ArrayIndex(idx as u32)
+            } else if atom.kind(ctx.rt()) == AtomDescKind::JS_ATOM_KIND_STRING {
+                PropertyKeyKind::String
+            } else {
+                PropertyKeyKind::Symbol
+            },
             is_enumerable,
             is_exotic,
         }
@@ -127,7 +124,7 @@ impl JSObject {
                             PropertyKey {
                                 atom: JSAtom::new_small_int(i as u32),
                                 is_enumerable: true,
-                                isa: PropertyKeyKind::ArrayIndex(i as u32),
+                                kind: PropertyKeyKind::ArrayIndex(i as u32),
                                 is_exotic: false,
                             },
                         )?;
@@ -143,7 +140,7 @@ impl JSObject {
                             PropertyKey {
                                 atom: JSAtom::new_small_int(i as u32),
                                 is_enumerable: true,
-                                isa: PropertyKeyKind::ArrayIndex(i as u32),
+                                kind: PropertyKeyKind::ArrayIndex(i as u32),
                                 is_exotic: false,
                             },
                         )?;
@@ -180,7 +177,7 @@ impl JSObject {
                                     ctx,
                                     PropertyKey {
                                         atom: pk.atom,
-                                        isa,
+                                        kind: isa,
                                         is_enumerable: pk.is_enumerable,
                                         is_exotic: true,
                                     },
@@ -218,7 +215,7 @@ impl JSObject {
 
         let r = self.own_property_names_foreach(ctx, flags, |cx, pp| {
             if unlikely(lst.len() == lst.capacity()) {
-                lst.try_reserve_exact(8).map_err(|_| {
+                lst.try_reserve(1).map_err(|_| {
                     cx.throw_out_of_memory();
                     -1
                 })?;
@@ -242,9 +239,14 @@ impl JSObject {
             return Err(-1);
         }
 
+        // O.o
+        for (i, p) in lst.iter().enumerate() {
+            println!("[O.o] {i}: {p:?}");
+        }
+
         // Note: sort in index, string, symbol segments
         if sort_cnt > 0 {
-            lst[0..sort_cnt].sort_by(|p1, p2| match (p1.isa, p2.isa) {
+            lst[0..sort_cnt].sort_by(|p1, p2| match (p1.kind, p2.kind) {
                 // index vs index: order by integer
                 (PropertyKeyKind::ArrayIndex(i1), PropertyKeyKind::ArrayIndex(i2)) => i1.cmp(&i2),
 
@@ -254,10 +256,7 @@ impl JSObject {
 
                 // string vs string, symbol vs symbol: in defined order.
                 (PropertyKeyKind::String, PropertyKeyKind::String)
-                | (PropertyKeyKind::Symbol, PropertyKeyKind::Symbol) => {
-                    // // string vs symbol: keep insert sequence
-                    std::cmp::Ordering::Equal
-                }
+                | (PropertyKeyKind::Symbol, PropertyKeyKind::Symbol) => std::cmp::Ordering::Equal,
 
                 // string is always prior to symbol
                 (PropertyKeyKind::String, PropertyKeyKind::Symbol) => std::cmp::Ordering::Less,
@@ -268,8 +267,8 @@ impl JSObject {
         Ok(lst.into_boxed_slice())
     }
 
-    /// Gets object's own properties [key, value] pairs.
-    /// Returns list of property [key,value] pairs, sorted according to js specification.
+    /// Gets object's own properties \[key, value\] pairs.
+    /// Returns list of property \[key, value\] pairs, sorted according to js specification.
     ///
     /// Arguments
     /// * `ctx` - JavaScript context
@@ -367,17 +366,17 @@ impl JSObject {
 }
 
 impl JSValue {
-    /// Gets object's own properties [key, value] pairs.
-    /// Returns list of property [key,value] pairs, sorted according to js specification.
+    /// Gets object's own properties \[key, value\] pairs.
     ///
-    /// Arguments
+    /// Returns list of \[key, value\] pairs, sorted according to js specification.
+    ///
+    /// ##Arguments##
     /// * `ctx` - JavaScript context
     /// * `flags` - Property filter flags
     /// * `kind` - Iteration mode (keys, values, or entries)
     ///
     ///
     /// Similar to JavaScript's Object.keys(), Object.values(), Object.entries()
-    #[inline]
     pub fn get_own_property_kvs(
         &self,
         ctx: &JSContext,

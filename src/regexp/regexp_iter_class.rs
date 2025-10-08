@@ -1,7 +1,5 @@
-use std::ops::{Deref, DerefMut};
-
 use crate::{
-    JS_ITERATOR_NEXT_DEF, JS_PROP_STRING_DEF,
+    JS_CLASS_REGEXP_STRING_ITERATOR, JS_ITERATOR_NEXT_DEF, JS_PROP_STRING_DEF,
     atom::consts::JS_ATOM_lastIndex,
     context::JSContext,
     error::JSResult,
@@ -17,9 +15,10 @@ fn js_regexp_string_iterator_next(
     cc: CallContext,
     state: &mut IteratorState,
 ) -> JSResult {
-    let this = cc.this().as_object().unwrap();
-
-    if let ObjectPayload::REGEXP_STRING_ITERATOR(it) = this.payload() {
+    if let ObjectPayload::REGEXP_STRING_ITERATOR(it) = cc
+        .this()
+        .retrive_object_payload(ctx, Some(JS_CLASS_REGEXP_STRING_ITERATOR))?
+    {
         if it.borrow().done {
             *state = IteratorState::Done;
             return Ok(JSValue::UNDEFINED);
@@ -79,7 +78,7 @@ fn js_regexp_string_iterator_next(
 
         Ok(match_val)
     } else {
-        Err(-1)
+        unreachable!()
     }
 }
 
