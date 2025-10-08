@@ -1,6 +1,6 @@
 use crate::{
     JS_ALIAS_BASE_DEF, JS_CFUNC_NATIVE_DEF, JS_PROP_DOUBLE_DEF,
-    branch_hints::{likely, unlikely},
+    branch_hints::unlikely,
     context::JSContext,
     error::JSResult,
     function::{CallContext, FieldDef},
@@ -41,13 +41,19 @@ pub fn js_parseInt(ctx: &JSContext, cc: CallContext) -> JSResult {
             Ok(JSValue::Float64(f64::NAN))
         } else {
             unsafe {
-                js_atof(
+                let v = js_atof(
                     ctx,
                     str.as_ptr(),
                     std::ptr::null_mut(),
                     radix,
                     ATOD_INT_ONLY | ATOD_ACCEPT_PREFIX_AFTER_SIGN,
                 )
+                .unwrap_or_else(|_| {
+                    // fail to parse number, returns NaN
+                    ctx.take_exception();
+                    JSValue::Float64(f64::NAN)
+                });
+                Ok(v)
             }
         }
     }
@@ -57,15 +63,23 @@ pub fn js_parseFloat(ctx: &JSContext, args: CallContext) -> JSResult {
     let str = args.arg(0).to_string(ctx)?;
     let s = str.content().to_utf8(false);
     let str = s.trim();
-    if likely(!str.is_empty()) {
-        unsafe { js_atof(ctx, str.as_ptr(), std::ptr::null_mut(), 10, 0) }
-    } else {
+
+    if unlikely(str.is_empty()) {
         Ok(JSValue::Float64(f64::NAN))
+    } else {
+        unsafe {
+            let v = js_atof(ctx, str.as_ptr(), std::ptr::null_mut(), 10, 0).unwrap_or_else(|_| {
+                // fail to parse number, returns NaN
+                ctx.take_exception();
+                JSValue::Float64(f64::NAN)
+            });
+            Ok(v)
+        }
     }
 }
 
-pub fn js_number_valueOf(ctx: &JSContext, args: CallContext) -> JSResult {
-    js_thisNumberValue(ctx, args.this_raw())
+pub fn js_number_valueOf(ctx: &JSContext, cc: CallContext) -> JSResult {
+    js_thisNumberValue(ctx, cc.this().clone())
 }
 
 pub fn js_get_radix(ctx: &JSContext, val: &JSValue) -> Result<i32, i32> {

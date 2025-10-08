@@ -1,7 +1,10 @@
+use std::str::FromStr;
+
 use smallvec::SmallVec;
 
 use crate::{
-    context::JSContext, error::JSResult, number::IntOrFloat, string::strstart, value::JSValue,
+    branch_hints::unlikely, context::JSContext, error::JSResult, number::IntOrFloat,
+    string::strstart, value::JSValue,
 };
 
 pub const ATOD_INT_ONLY: i32 = 1 << 0;
@@ -242,12 +245,12 @@ pub unsafe fn js_atof(
     if flags & ATOD_INT_ONLY == 0 {
         if *p == b'.' && (p > p_start || to_digit(*p.offset(1)) < radix) {
             is_float = true;
-            p = p.offset(1);
-            if *p == sep as u8 {
+            p = p.add(1);
+            if *p as i32 == sep {
                 fail!();
             }
             while to_digit(*p) < radix || (*p == sep as u8 && to_digit(*p.offset(1)) < radix) {
-                p = p.offset(1);
+                p = p.add(1);
             }
         }
         if p > p_start
@@ -319,21 +322,28 @@ pub unsafe fn js_atof(
         ATOD_TYPE_FLOAT64 => {
             let txt = std::str::from_utf8(buf.as_slice()).unwrap();
 
-            if !is_float {
+            if !is_float && radix != 10 {
+                // non-10 radix integer
                 if let Ok(i) = i64::from_str_radix(txt, radix as _) {
-                    return Ok(if i == 0 && is_neg {
+                    Ok(if unlikely(i == 0 && is_neg) {
                         JSValue::Float64(-0.0) // -0
                     } else {
                         JSValue::from(i)
-                    });
+                    })
+                } else if !is_neg && let Ok(u) = u64::from_str_radix(txt, radix as _) {
+                    Ok(JSValue::from(u as f64))
+                } else if let Ok(i) = i128::from_str_radix(txt, radix as _) {
+                    Ok(JSValue::from(i as f64))
+                } else {
+                    fail!();
                 }
-            }
-
-            // try float64
-            if let Ok(f) = txt.parse::<f64>() {
-                Ok(JSValue::from(f))
             } else {
-                fail!();
+                // parse float64
+                if let Ok(f) = txt.parse::<f64>() {
+                    Ok(JSValue::from(f))
+                } else {
+                    fail!();
+                }
             }
         }
         ATOD_TYPE_BIG_INT => {
