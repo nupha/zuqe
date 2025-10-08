@@ -645,16 +645,16 @@ impl JSValue {
     ///
     /// `prop` is not consumed.
     pub(crate) fn set_property_internal(
+        &self,
         ctx: &JSContext,
-        obj: &Self,
         prop: JSAtom,
         val: Self,
         receiver: Option<&JSObject>,
         flags: u32,
     ) -> Result<bool, i32> {
-        if let Self::Object(o) = obj {
+        if let Self::Object(o) = self {
             o.set_property_internal(ctx, prop, val, receiver, flags)
-        } else if let JSValue::Object(p) = JS_GetPrototypePrimitive(ctx, obj) {
+        } else if let JSValue::Object(p) = JS_GetPrototypePrimitive(ctx, self) {
             p.set_property_internal(ctx, prop, val, receiver, flags)
         } else {
             return if unlikely(ctx.can_throw(flags)) {
@@ -669,22 +669,22 @@ impl JSValue {
     /// `prop` is not consumed.
     #[inline(always)]
     pub fn set_property(&self, ctx: &JSContext, prop: JSAtom, val: JSValue) -> Result<bool, i32> {
-        Self::set_property_internal(ctx, self, prop, val, None, JS_PROP_THROW)
+        self.set_property_internal(ctx, prop, val, None, JS_PROP_THROW)
     }
 
     #[inline]
     pub fn set_property_value(
         &self,
         ctx: &JSContext,
-        prop: &JSValue,
-        val: JSValue,
+        prop: &Self,
+        val: Self,
         flags: u32,
     ) -> Result<bool, i32> {
-        if let Self::Object(ob) = self {
-            ob.set_property_value(ctx, prop, val, flags)
+        if let Self::Object(o) = self {
+            o.set_property_value(ctx, prop, val, flags)
         } else {
             let atom = prop.to_atom(ctx)?;
-            let ret = Self::set_property_internal(ctx, self, atom, val, None, flags);
+            let ret = self.set_property_internal(ctx, atom, val, None, flags);
             JS_FreeAtom(ctx, atom);
             ret
         }

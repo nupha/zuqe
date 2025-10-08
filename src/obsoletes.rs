@@ -665,7 +665,7 @@ pub unsafe fn JS_ToCStringLen(
     unreachable!("unused");
 }
 
-#[deprecated(note = "use JSValue::to_utf8() instead")]
+#[deprecated(note = "use JSValue::to_string().content().to_utf8() instead")]
 pub unsafe fn JS_ToCString(ctx: &JSContext, val1: JSValueConst) -> *const c_char {
     unreachable!("unused");
 }

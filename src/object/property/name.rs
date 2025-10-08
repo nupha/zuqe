@@ -236,35 +236,36 @@ impl JSObject {
             lst.iter().for_each(|p| {
                 JS_FreeAtom(ctx, p.atom);
             });
-            return Err(-1);
+            Err(-1)
+        } else {
+            // Note: sort in index, string, symbol segments
+            if sort_cnt > 0 {
+                lst[0..sort_cnt].sort_by(|p1, p2| match (p1.kind, p2.kind) {
+                    // index vs index: order by integer
+                    (PropertyKeyKind::ArrayIndex(i1), PropertyKeyKind::ArrayIndex(i2)) => {
+                        i1.cmp(&i2)
+                    }
+
+                    // index is always prior to string or symbol
+                    (PropertyKeyKind::ArrayIndex(_), _) => std::cmp::Ordering::Less,
+                    (_, PropertyKeyKind::ArrayIndex(_)) => std::cmp::Ordering::Greater,
+
+                    // string vs string, symbol vs symbol: in defined order.
+                    (PropertyKeyKind::String, PropertyKeyKind::String)
+                    | (PropertyKeyKind::Symbol, PropertyKeyKind::Symbol) => {
+                        std::cmp::Ordering::Equal
+                    }
+
+                    // string is always prior to symbol
+                    (PropertyKeyKind::String, PropertyKeyKind::Symbol) => std::cmp::Ordering::Less,
+                    (PropertyKeyKind::Symbol, PropertyKeyKind::String) => {
+                        std::cmp::Ordering::Greater
+                    }
+                });
+            }
+
+            Ok(lst.into_boxed_slice())
         }
-
-        // O.o
-        for (i, p) in lst.iter().enumerate() {
-            println!("[O.o] {i}: {p:?}");
-        }
-
-        // Note: sort in index, string, symbol segments
-        if sort_cnt > 0 {
-            lst[0..sort_cnt].sort_by(|p1, p2| match (p1.kind, p2.kind) {
-                // index vs index: order by integer
-                (PropertyKeyKind::ArrayIndex(i1), PropertyKeyKind::ArrayIndex(i2)) => i1.cmp(&i2),
-
-                // index is always prior to string or symbol
-                (PropertyKeyKind::ArrayIndex(_), _) => std::cmp::Ordering::Less,
-                (_, PropertyKeyKind::ArrayIndex(_)) => std::cmp::Ordering::Greater,
-
-                // string vs string, symbol vs symbol: in defined order.
-                (PropertyKeyKind::String, PropertyKeyKind::String)
-                | (PropertyKeyKind::Symbol, PropertyKeyKind::Symbol) => std::cmp::Ordering::Equal,
-
-                // string is always prior to symbol
-                (PropertyKeyKind::String, PropertyKeyKind::Symbol) => std::cmp::Ordering::Less,
-                (PropertyKeyKind::Symbol, PropertyKeyKind::String) => std::cmp::Ordering::Greater,
-            });
-        }
-
-        Ok(lst.into_boxed_slice())
     }
 
     /// Gets object's own properties \[key, value\] pairs.

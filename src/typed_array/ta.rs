@@ -168,7 +168,10 @@ impl TypedArray {
     /// JS_CLASS_DATAVIEW is not allowed.
     #[inline(always)]
     pub(crate) fn SIZE_LOG2(class_id: JSClassID) -> u8 {
-        debug_assert!((JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).contains(&class_id));
+        debug_assert!(
+            (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).contains(&class_id),
+            "class_id={class_id}"
+        );
         Self::TYPED_ARRAY_SIZE_LOG2[(class_id - JS_CLASS_UINT8C_ARRAY) as usize]
     }
 

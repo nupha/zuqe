@@ -753,9 +753,8 @@ fn js_proxy_set(
 
     let method = s.get_method(ctx, JS_ATOM_set)?;
     if method.is_undefined() {
-        return JSValue::set_property_internal(
+        return s.target.set_property_internal(
             ctx,
-            &s.target.clone().into(),
             atom,
             value,
             match receiver {

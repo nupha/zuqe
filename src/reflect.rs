@@ -90,15 +90,14 @@ pub fn js_reflect_has(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_reflect_set(ctx: &JSContext, cc: CallContext) -> JSResult {
     let target = cc.arg(0);
 
-    if target.is_object() {
+    if let Some(o) = target.as_object() {
         let prop = cc.arg(1);
         let val = cc.arg(2);
         let receiver = if cc.length() > 3 { cc.arg(3) } else { target };
         let atom = prop.to_atom(ctx)?;
 
-        let ret = JSValue::set_property_internal(
+        let ret = o.set_property_internal(
             ctx,
-            target,
             atom,
             val.clone(),
             match receiver {
@@ -117,8 +116,6 @@ pub fn js_reflect_set(ctx: &JSContext, cc: CallContext) -> JSResult {
         JS_FreeAtom(ctx, atom);
         ret.map(JSValue::Bool)
     } else {
-        // TODO: fix to allow `target` be non-object.
-        // XXX
         ctx.throw_type_error_not_an_object();
         Err(-1)
     }

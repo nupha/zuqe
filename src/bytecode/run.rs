@@ -1557,14 +1557,8 @@ impl Bytecode {
                         let value = SP_TAKE!(-1);
                         SP_GO!(-2);
 
-                        let r = JSValue::set_property_internal(
-                            ctx,
-                            &obj,
-                            atom,
-                            value,
-                            None,
-                            JS_PROP_THROW_STRICT,
-                        );
+                        let r =
+                            obj.set_property_internal(ctx, atom, value, None, JS_PROP_THROW_STRICT);
                         if unlikely(r.is_err()) {
                             break State::Exception;
                         }
@@ -1900,9 +1894,8 @@ impl Bytecode {
                         }
 
                         if let Ok(atom) = prop.to_atom(ctx) {
-                            let ret = JSValue::set_property_internal(
+                            let ret = obj.set_property_internal(
                                 ctx,
-                                &obj,
                                 atom,
                                 val,
                                 if let JSValue::Object(o) = &this_obj {
@@ -2267,9 +2260,8 @@ impl Bytecode {
                                     }
                                     OpCode::WITH_PUT_VAR => {
                                         // XXX: check if strict mode
-                                        let ret = JSValue::set_property_internal(
+                                        let ret = env_obj.set_property_internal(
                                             ctx,
-                                            env_obj,
                                             atom,
                                             SP_TAKE!(-2),
                                             None,

@@ -1,5 +1,6 @@
 use crate::{
     JS_ALIAS_BASE_DEF, JS_CFUNC_NATIVE_DEF, JS_PROP_DOUBLE_DEF,
+    branch_hints::{likely, unlikely},
     context::JSContext,
     error::JSResult,
     function::{CallContext, FieldDef},
@@ -29,29 +30,38 @@ pub fn js_thisNumberValue(ctx: &JSContext, this_val: JSValue) -> JSResult {
 pub fn js_parseInt(ctx: &JSContext, cc: CallContext) -> JSResult {
     let radix: i32 = cc.arg(1).to_i32(ctx)?;
 
-    let ret = if radix != 0 && !(2..=36).contains(&radix) {
-        JSValue::Float64(f64::NAN)
+    if radix != 0 && !(2..=36).contains(&radix) {
+        Ok(JSValue::Float64(f64::NAN))
     } else {
-        let str = cc.arg(0).inspect(ctx)?;
-        let str = str.trim();
-        unsafe {
-            js_atof(
-                ctx,
-                str.as_ptr(),
-                std::ptr::null_mut(),
-                radix,
-                ATOD_INT_ONLY | ATOD_ACCEPT_PREFIX_AFTER_SIGN,
-            )?
-        }
-    };
+        let str = cc.arg(0).to_string(ctx)?;
+        let s = str.content().to_utf8(false);
+        let str = s.trim();
 
-    Ok(ret)
+        if unlikely(str.is_empty()) {
+            Ok(JSValue::Float64(f64::NAN))
+        } else {
+            unsafe {
+                js_atof(
+                    ctx,
+                    str.as_ptr(),
+                    std::ptr::null_mut(),
+                    radix,
+                    ATOD_INT_ONLY | ATOD_ACCEPT_PREFIX_AFTER_SIGN,
+                )
+            }
+        }
+    }
 }
 
 pub fn js_parseFloat(ctx: &JSContext, args: CallContext) -> JSResult {
-    let str = args.arg(0).inspect(ctx)?;
-    let str = str.trim();
-    unsafe { js_atof(ctx, str.as_ptr(), std::ptr::null_mut(), 10, 0) }
+    let str = args.arg(0).to_string(ctx)?;
+    let s = str.content().to_utf8(false);
+    let str = s.trim();
+    if likely(!str.is_empty()) {
+        unsafe { js_atof(ctx, str.as_ptr(), std::ptr::null_mut(), 10, 0) }
+    } else {
+        Ok(JSValue::Float64(f64::NAN))
+    }
 }
 
 pub fn js_number_valueOf(ctx: &JSContext, args: CallContext) -> JSResult {

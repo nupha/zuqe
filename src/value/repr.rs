@@ -11,7 +11,8 @@ use super::JSValue;
 
 impl JSValue {
     /// Get inspect representation string of `self` value.
-    /// inspect string if used for interactive prompting.
+    /// `inspect()` string is only used for interactive prompting,
+    /// use `to_string()` for other cases.
     pub fn inspect(&self, ctx: &JSContext) -> Result<String, i32> {
         match self {
             Self::Int(i) => Ok(format!("{}", *i)),
