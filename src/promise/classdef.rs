@@ -143,7 +143,7 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
         return fail_reject();
     };
 
-    let Ok(it) = cc.arg(0).iter(ctx) else {
+    let Ok(mut it) = cc.arg(0).iter(ctx) else {
         return fail_reject();
     };
     let mut values: JSValue = if let Ok(a) = ctx.create_array() {
@@ -165,8 +165,9 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     let mut index = 0;
-    for item in it {
-        if let Ok(item) = item {
+
+    while let Some(a) = it.next() {
+        if let Ok(item) = a {
             let Ok(next_promise) =
                 promise_resolve.call(ctx, cc.this(), std::slice::from_ref(&item))
             else {
@@ -236,6 +237,10 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
 
             index += 1;
         } else {
+            // has error when accessing 'value' property.
+            // conformance: should close the iterator if error on 'done' access, but not on 'value' access.
+            // so we set field .done to true by hand to avoid closing the iterator in ObjectIter::drop();
+            it.done = true;
             return fail_reject();
         }
     }
@@ -293,20 +298,25 @@ pub fn js_promise_race(ctx: &JSContext, cc: CallContext) -> JSResult {
     if unlikely(promise_resolve.is_exception() || promise_resolve.ensure_function(ctx).is_err()) {
         fail_reject()
     } else {
-        let Ok(it) = cc.arg(0).iter(ctx) else {
+        let Ok(mut it) = cc.arg(0).iter(ctx) else {
             return fail_reject();
         };
         let this = cc.this();
 
-        for item in it {
-            if item
-                .and_then(|val| {
-                    promise_resolve
-                        .call(ctx, this, std::slice::from_ref(&val))
-                        .and_then(|pr| pr.invoke(ctx, JS_ATOM_then, &resolving_funcs))
-                })
-                .is_err()
-            {
+        while let Some(item) = it.next() {
+            if let Ok(val) = item {
+                if promise_resolve
+                    .call(ctx, this, std::slice::from_ref(&val))
+                    .and_then(|pr| pr.invoke(ctx, JS_ATOM_then, &resolving_funcs))
+                    .is_err()
+                {
+                    return fail_reject();
+                }
+            } else {
+                // has error when accessing 'value' property.
+                // conformance: should close the iterator if error on 'done' access, but not on 'value' access.
+                // so we set field .done to true by hand to avoid closing the iterator in ObjectIter::drop();
+                it.done = true;
                 return fail_reject();
             }
         }
