@@ -11,7 +11,7 @@ use crate::{
     value::{JSValue, JSValueConst},
 };
 
-use super::{JSPromiseStateEnum, Promise, js_promise_resolve_thenable_job, promise_reaction_job};
+use super::{Promise, PromiseState, js_promise_resolve_thenable_job, promise_reaction_job};
 
 /// State of promise resolving function.
 #[derive(Debug, Clone)]
@@ -41,16 +41,16 @@ impl PromiseResolveFunc {
         flags: i32,
     ) -> JSResult {
         let resolv = func_obj.as_object_PromiseResolveFunc().unwrap();
-        let payload = resolv.0.retrive_payload(ctx, None)?;
+        let isa = resolv.0.payload();
 
-        if let Some(s) = payload.promise_func_data() {
+        if let Some(s) = isa.promise_func_data() {
             if s.resolved.get() {
                 return Ok(JSValue::UNDEFINED);
             }
 
             s.resolved.set(true);
 
-            let is_reject = payload.class_id() == JS_CLASS_PROMISE_REJECT_FUNCTION;
+            let is_reject = isa.class_id() == JS_CLASS_PROMISE_REJECT_FUNCTION;
             let resolution = if args.len() > 0 {
                 args[0].clone()
             } else {
@@ -155,14 +155,14 @@ impl Promise {
 
         self.with_mut(|s| {
             match s.state() {
-                JSPromiseStateEnum::JS_PROMISE_PENDING => {
+                PromiseState::JS_PROMISE_PENDING => {
                     // add to promise's waiting reactions list
                     s.promise_reactions[0].push(success);
                     s.promise_reactions[1].push(fail);
                 }
                 state => {
                     // queue as job
-                    if state == JSPromiseStateEnum::JS_PROMISE_REJECTED && !s.is_handled {
+                    if state == PromiseState::JS_PROMISE_REJECTED && !s.is_handled {
                         if let Some(cb) = ctx.rt().host_promise_rejection_tracker {
                             cb(
                                 ctx,
@@ -174,12 +174,12 @@ impl Promise {
                         }
                     }
 
-                    let act = if state == JSPromiseStateEnum::JS_PROMISE_FULFILLED {
+                    let act = if state == PromiseState::JS_PROMISE_FULFILLED {
                         success
                     } else {
                         fail
                     };
-                    let is_reject = state == JSPromiseStateEnum::JS_PROMISE_REJECTED;
+                    let is_reject = state == PromiseState::JS_PROMISE_REJECTED;
                     let result = s.promise_result.clone();
                     let cx = ctx.clone();
                     ctx.queue_job(move || {
@@ -203,9 +203,9 @@ impl Promise {
     /// create new promise for `then()`, register reaction handlers to `self` promise.
     /// `resolve` and `reject` are callback functions.
     /// `resolve` and `reject` are not consumed.
-    pub fn then(&self, ctx: &JSContext, success: JSValue, fail: JSValue) -> Result<Self, i32> {
+    pub fn then(&self, ctx: &JSContext, success: JSValue, fail: JSValue) -> Result<JSObject, i32> {
         let ctor = JS_SpeciesConstructor(ctx, &self.clone().into(), JSValue::UNDEFINED)?;
-        let (promise2, resolving_hooks) = ctx.create_promise(&ctor)?;
+        let (promise2, resolving_hooks) = Self::create_from_ctor(ctx, &ctor)?;
         self.reaction(ctx, &[success, fail], &resolving_hooks)?;
         Ok(promise2)
     }
@@ -215,12 +215,12 @@ impl Promise {
     /// Note: `value` is not consumed (duplicated inside).
     pub(super) fn fulfill_or_reject(&self, ctx: &JSContext, value: JSValue, is_reject: bool) {
         let (promise_state, is_handled) = self.with_mut(|p| {
-            debug_assert_eq!(p.state(), JSPromiseStateEnum::JS_PROMISE_PENDING);
+            debug_assert_eq!(p.state(), PromiseState::JS_PROMISE_PENDING);
 
             let state = if is_reject {
-                JSPromiseStateEnum::JS_PROMISE_REJECTED
+                PromiseState::JS_PROMISE_REJECTED
             } else {
-                JSPromiseStateEnum::JS_PROMISE_FULFILLED
+                PromiseState::JS_PROMISE_FULFILLED
             };
             p.set_state(state);
             p.promise_result = value.clone();
@@ -228,7 +228,7 @@ impl Promise {
             (state, p.is_handled)
         });
 
-        if promise_state == JSPromiseStateEnum::JS_PROMISE_REJECTED && !is_handled {
+        if promise_state == PromiseState::JS_PROMISE_REJECTED && !is_handled {
             if let Some(cb) = ctx.rt().host_promise_rejection_tracker {
                 cb(
                     ctx,

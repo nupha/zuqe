@@ -21,7 +21,7 @@ use zhuque::{
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
     module::{JS_SetModuleLoaderFunc, ModuleDef},
     object::JS_PROP_C_W_E,
-    promise::{JSPromiseStateEnum, Promise},
+    promise::{PromiseState, Promise},
     runtime::JSRuntime,
     value::JSValue,
 };
@@ -323,12 +323,12 @@ fn run_test_script(
 
         // check if the returned promise is fulfilled
         match promise.state() {
-            JSPromiseStateEnum::JS_PROMISE_FULFILLED => {}
-            JSPromiseStateEnum::JS_PROMISE_REJECTED => {
+            PromiseState::JS_PROMISE_FULFILLED => {}
+            PromiseState::JS_PROMISE_REJECTED => {
                 ctx.throw(promise.result());
                 return Err(-1);
             }
-            JSPromiseStateEnum::JS_PROMISE_PENDING => {
+            PromiseState::JS_PROMISE_PENDING => {
                 ctx.throw_type_error("promise is pending");
                 return Err(-1);
             }

@@ -105,7 +105,7 @@ pub fn js_dataview_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_dataview_getValue(ctx: &JSContext, cc: CallContext) -> JSResult {
     let ta = cc
         .this()
-        .retrive_object_payload(ctx, Some(JS_CLASS_DATAVIEW))?
+        .retrive_object_payload(ctx, JS_CLASS_DATAVIEW)?
         .typed_array()
         .unwrap();
 
@@ -212,13 +212,11 @@ pub fn js_dataview_getValue(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_dataview_setValue(ctx: &JSContext, cc: CallContext) -> JSResult {
     let ta = cc
         .this()
-        .retrive_object_payload(ctx, Some(JS_CLASS_DATAVIEW))?
+        .retrive_object_payload(ctx, JS_CLASS_DATAVIEW)?
         .typed_array()
         .unwrap();
 
     let class_id = cc.magic() as JSClassID;
-    let this_obj = cc.this_raw();
-
     let size = 1 << TypedArray::SIZE_LOG2(class_id);
     let pos = cc.arg(0).to_array_index(ctx)? as usize;
 

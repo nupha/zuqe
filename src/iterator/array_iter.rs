@@ -107,7 +107,7 @@ pub fn js_array_iterator_next(
 ) -> JSResult {
     if let ObjectPayload::ARRAY_ITERATOR(it) = cc
         .this()
-        .retrive_object_payload(ctx, Some(JS_CLASS_ARRAY_ITERATOR))?
+        .retrive_object_payload(ctx, JS_CLASS_ARRAY_ITERATOR)?
     {
         let obj = it.value();
 

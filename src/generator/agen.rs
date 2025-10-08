@@ -458,11 +458,11 @@ fn js_async_generator_resolve_function(ctx: &JSContext, cc: CallContext) -> JSRe
 }
 
 fn js_async_generator_next(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let (promise, resolving_funcs) = ctx.create_promise(&JSValue::UNDEFINED)?;
+    let (promise, resolving_funcs) = Promise::create(ctx)?;
 
     if let Ok(isa) = cc
         .this()
-        .retrive_object_payload(ctx, Some(JS_CLASS_ASYNC_GENERATOR))
+        .retrive_object_payload(ctx, JS_CLASS_ASYNC_GENERATOR)
     {
         let ObjectPayload::ASYNC_GENERATOR(s) = isa else {
             unreachable!()

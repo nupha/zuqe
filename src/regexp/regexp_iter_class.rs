@@ -17,7 +17,7 @@ fn js_regexp_string_iterator_next(
 ) -> JSResult {
     if let ObjectPayload::REGEXP_STRING_ITERATOR(it) = cc
         .this()
-        .retrive_object_payload(ctx, Some(JS_CLASS_REGEXP_STRING_ITERATOR))?
+        .retrive_object_payload(ctx, JS_CLASS_REGEXP_STRING_ITERATOR)?
     {
         if it.borrow().done {
             *state = IteratorState::Done;

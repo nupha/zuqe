@@ -352,7 +352,7 @@ pub fn js_shared_array_buffer_constructor(ctx: &JSContext, cc: CallContext) -> J
 }
 
 pub unsafe fn JS_DetachArrayBuffer(ctx: &JSContext, obj: &JSValue) {
-    if let Ok(isa) = obj.retrive_object_payload(ctx, Some(JS_CLASS_ARRAY_BUFFER)) {
+    if let Ok(isa) = obj.retrive_object_payload(ctx, JS_CLASS_ARRAY_BUFFER) {
         if let Some(abuf) = isa.array_buffer() {
             if !abuf.0.borrow().detached {
                 match abuf.content().deref() {

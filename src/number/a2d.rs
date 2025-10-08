@@ -1,10 +1,7 @@
-use std::str::FromStr;
-
 use smallvec::SmallVec;
 
 use crate::{
-    branch_hints::unlikely, context::JSContext, error::JSResult, number::IntOrFloat,
-    string::strstart, value::JSValue,
+    branch_hints::unlikely, context::JSContext, error::JSResult, string::strstart, value::JSValue,
 };
 
 pub const ATOD_INT_ONLY: i32 = 1 << 0;

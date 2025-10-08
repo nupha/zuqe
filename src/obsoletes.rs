@@ -39,7 +39,7 @@ use crate::{
         PropertyKey,
     },
     parse::{JSParseExportEnum, JSParseFunctionEnum, JSParseState},
-    promise::{JSPromiseReactionData, JSPromiseStateEnum, Promise},
+    promise::{JSPromiseReactionData, Promise, PromiseState},
     proxy::ProxyObjPayload,
     runtime::JSRuntime,
     stack_frame::StackFrame,
@@ -718,10 +718,7 @@ pub unsafe fn JS_NewPromiseCapability(ctx: &JSContext, resolving_funcs: *mut JSV
 }
 
 #[deprecated(note = "use Promise::state() instead")]
-pub unsafe fn JS_PromiseState(
-    ctx: &JSContext,
-    promise: JSValue,
-) -> Result<JSPromiseStateEnum, i32> {
+pub unsafe fn JS_PromiseState(ctx: &JSContext, promise: JSValue) -> Result<PromiseState, i32> {
     unreachable!("unused");
 }
 

@@ -8,7 +8,7 @@ use crate::{
     eval::{Compiled, JS_EVAL_FLAG_STRIP, JS_EVAL_TYPE_MODULE},
     function::CallContext,
     module::{JSModuleStatus, ModuleDefInner},
-    promise::{JSPromiseStateEnum, Promise},
+    promise::{PromiseState, Promise},
     runtime::js_check_stack_overflow,
     value::JSValue,
 };
@@ -114,7 +114,7 @@ impl ModuleDef {
             return Ok(p);
         }
 
-        let (promise, rr) = ctx.create_promise(&JSValue::UNDEFINED)?;
+        let (promise, rr) = Promise::create(ctx)?;
         self.0.promise.replace(Some(promise.clone()));
         self.0.resolving_funcs.replace(rr);
 
@@ -486,9 +486,9 @@ impl ModuleDef {
                 .map_err(|_| ctx.take_exception())?;
 
             match promise.state() {
-                JSPromiseStateEnum::JS_PROMISE_FULFILLED => Ok(()),
-                JSPromiseStateEnum::JS_PROMISE_REJECTED => Err(promise.result()),
-                JSPromiseStateEnum::JS_PROMISE_PENDING => {
+                PromiseState::JS_PROMISE_FULFILLED => Ok(()),
+                PromiseState::JS_PROMISE_REJECTED => Err(promise.result()),
+                PromiseState::JS_PROMISE_PENDING => {
                     ctx.throw_type_error("promise is pending");
                     Err(ctx.take_exception())
                 }

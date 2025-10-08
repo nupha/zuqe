@@ -219,9 +219,8 @@ pub fn js_generator_next(
     let magic = cc.magic();
     *iter_state = IteratorState::Done;
 
-    if let ObjectPayload::GENERATOR(g) = cc
-        .this()
-        .retrive_object_payload(ctx, Some(JS_CLASS_GENERATOR))?
+    if let ObjectPayload::GENERATOR(g) =
+        cc.this().retrive_object_payload(ctx, JS_CLASS_GENERATOR)?
     {
         enum WhatToDo {
             ExecNoArg,

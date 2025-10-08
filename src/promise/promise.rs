@@ -15,7 +15,7 @@ use crate::{
     object_cast,
     promise::JSPromiseReactionData,
     runtime::JSRuntime,
-    value::{JSValue, JSValueConst},
+    value::JSValue,
 };
 
 use super::PromiseResolvingPayload;
@@ -30,7 +30,7 @@ pub type JSHostPromiseRejectionTracker = fn(
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
-pub enum JSPromiseStateEnum {
+pub enum PromiseState {
     JS_PROMISE_PENDING,
     JS_PROMISE_FULFILLED,
     JS_PROMISE_REJECTED,
@@ -38,7 +38,7 @@ pub enum JSPromiseStateEnum {
 
 #[derive(Debug)]
 pub struct PromisePayload {
-    promise_state: JSPromiseStateEnum,
+    promise_state: PromiseState,
 
     /// list of pending reactions: #0 for fulfill, #1 for reject.
     pub promise_reactions: [Vec<Box<JSPromiseReactionData>>; 2],
@@ -51,12 +51,12 @@ pub struct PromisePayload {
 
 impl PromisePayload {
     #[inline(always)]
-    pub fn state(&self) -> JSPromiseStateEnum {
+    pub fn state(&self) -> PromiseState {
         self.promise_state
     }
 
     #[inline(always)]
-    pub fn set_state(&mut self, s: JSPromiseStateEnum) {
+    pub fn set_state(&mut self, s: PromiseState) {
         self.promise_state = s;
     }
 }
@@ -71,7 +71,7 @@ impl Promise {
     /// create new Promise object with given executor function.
     /// `new_target` - the 'new' operator target.
     /// `executor` must be a callable object.
-    pub(super) fn from_executor(
+    fn from_executor(
         ctx: &JSContext,
         executor: JSObject,
         new_target: &JSValue,
@@ -80,7 +80,7 @@ impl Promise {
 
         // create js object of promise class
         let isa = RefCell::new(Box::new(PromisePayload {
-            promise_state: JSPromiseStateEnum::JS_PROMISE_PENDING,
+            promise_state: PromiseState::JS_PROMISE_PENDING,
             promise_reactions: [Vec::new(), Vec::new()],
             promise_result: JSValue::UNDEFINED,
             is_handled: false,
@@ -99,12 +99,15 @@ impl Promise {
         Ok(promise)
     }
 
-    /// create new Promise object and its resolving function pairs.
-    /// returns Promise object and [resolve, reject] functions.
+    /// create new Promise and associated resolving function pairs.
+    /// returns Object (could be Promise or derived class instance) and [resolve, reject] functions.
     /// `ctor` is a customized constructor function value to instantiate Promise object:
     ///  - when provided, will call this function to create customized Promise object,
     ///  - when it is `undefined`, creates default Promise object.
-    pub fn new(ctx: &JSContext, ctor: &JSValue) -> Result<(Promise, [JSValue; 2]), i32> {
+    pub(super) fn create_from_ctor(
+        ctx: &JSContext,
+        ctor: &JSValue,
+    ) -> Result<(JSObject, [JSValue; 2]), i32> {
         let executor = ctx.create_native_function_with_data(
             Promise::class_executor,
             2,
@@ -112,8 +115,8 @@ impl Promise {
             [JSValue::UNDEFINED, JSValue::UNDEFINED].into(), // resolving functions, initially undefined
         )?;
 
-        let promise: Self = if ctor.is_undefined() {
-            Self::from_executor(ctx, executor.clone(), &JSValue::UNDEFINED)?
+        let promise: JSObject = if ctor.is_undefined() {
+            Self::from_executor(ctx, executor.clone(), &JSValue::UNDEFINED)?.into()
         } else {
             JS_CallConstructor(ctx, ctor, std::slice::from_ref(&executor.clone().into()))
                 .err()?
@@ -134,8 +137,17 @@ impl Promise {
         }
     }
 
-    /// create [resolve, reject] function pairs for `self` promise object.
-    /// Note: `self` is not consumed.
+    /// create default Promise and associated resolving functions.
+    /// returns a Promise object and \[resolve, reject\] functions pair.
+    #[inline]
+    pub fn create(ctx: &JSContext) -> Result<(Self, [JSValue; 2]), i32> {
+        Self::create_from_ctor(ctx, &JSValue::UNDEFINED).map(|(p, rr)| {
+            debug_assert_eq!(p.class_id(), JS_CLASS_PROMISE);
+            (Self(p), rr)
+        })
+    }
+
+    /// create \[resolve, reject\] function pairs for `self` promise object.
     pub(super) fn create_resolving_functions(&self, ctx: &JSContext) -> Result<[JSValue; 2], i32> {
         // [resolve, reject]
         let mut resolving_funcs = [JSValue::UNDEFINED, JSValue::UNDEFINED];
@@ -194,7 +206,7 @@ impl Promise {
 
     /// get Promise state.
     #[inline]
-    pub fn state(&self) -> JSPromiseStateEnum {
+    pub fn state(&self) -> PromiseState {
         self.with(|s| s.promise_state)
     }
 
@@ -203,16 +215,6 @@ impl Promise {
     #[inline]
     pub fn result(&self) -> JSValue {
         self.with(|s| s.promise_result.clone())
-    }
-}
-
-impl JSContext {
-    /// create Promise and associated resolving functions.
-    /// returns Promise and [resolve, reject] functions pair.
-    /// this is a shortcut for `Promise::new(ctx, ctor)`.
-    #[inline(always)]
-    pub fn create_promise(&self, ctor: &JSValueConst) -> Result<(Promise, [JSValue; 2]), i32> {
-        Promise::new(self, ctor)
     }
 }
 
@@ -273,7 +275,7 @@ impl Promise {
         value: &JSValue,
         is_reject: bool,
     ) -> Result<Self, i32> {
-        let (promise, resolving_funcs) = ctx.create_promise(&JSValue::UNDEFINED)?;
+        let (promise, resolving_funcs) = Self::create(ctx)?;
         resolving_funcs[is_reject as usize].call(
             ctx,
             &JSValue::UNDEFINED,

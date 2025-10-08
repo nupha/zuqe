@@ -48,7 +48,7 @@ fn js_map_iterator_next(ctx: &JSContext, cc: CallContext, state: &mut IteratorSt
 
     let isa = cc
         .this()
-        .retrive_object_payload(ctx, Some(JS_CLASS_MAP_ITERATOR + cc.magic() as JSClassID))?;
+        .retrive_object_payload(ctx, JS_CLASS_MAP_ITERATOR + cc.magic() as JSClassID)?;
 
     let Some(mut it) = isa.map_iterator_state_mut() else {
         return Err(-1);
@@ -58,7 +58,7 @@ fn js_map_iterator_next(ctx: &JSContext, cc: CallContext, state: &mut IteratorSt
     let mut end = false;
 
     if let Some(obj) = it.obj.clone() {
-        let r1 = obj.retrive_payload(ctx, Some(JS_CLASS_MAP + cc.magic() as JSClassID))?;
+        let r1 = obj.retrive_payload(ctx, JS_CLASS_MAP + cc.magic() as JSClassID)?;
         let ms = r1.map_state().unwrap();
 
         if it.index < ms.slots.len() {

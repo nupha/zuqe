@@ -53,7 +53,7 @@ pub fn js_async_from_sync_iterator_next(ctx: &JSContext, cc: CallContext) -> JSR
             promise.into()
         };
 
-    let (promise, resolving_funcs) = ctx.create_promise(&JSValue::UNDEFINED)?;
+    let (promise, resolving_funcs) = Promise::create(ctx)?;
 
     let this_val = cc.this();
     let p = unsafe { this_val.as_object_unchecked() };

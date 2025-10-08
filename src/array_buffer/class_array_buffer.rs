@@ -20,7 +20,7 @@ fn js_array_buffer_get_byteLength(ctx: &JSContext, cc: CallContext) -> JSResult 
     let class_id = cc.magic() as JSClassID;
 
     cc.this()
-        .retrive_object_payload(ctx, Some(class_id))
+        .retrive_object_payload(ctx, class_id)
         .map(|isa| JSValue::from(isa.array_buffer().unwrap().byte_length() as i64))
 }
 
@@ -44,7 +44,7 @@ fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let abuf = cc
         .this()
-        .retrive_object_payload(ctx, Some(class_id))
+        .retrive_object_payload(ctx, class_id)
         .map(|isa| isa.array_buffer().cloned().unwrap())?;
 
     if abuf.is_detached() {
@@ -77,7 +77,7 @@ fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
     }?;
 
     let new_abuf = new_obj
-        .retrive_object_payload(ctx, Some(class_id))
+        .retrive_object_payload(ctx, class_id)
         .map(|isa| isa.array_buffer().cloned().unwrap())?;
 
     if unlikely(new_obj.is_same(cc.this())) {

@@ -7,12 +7,13 @@ use crate::{
     function::{CallContext, FieldDef},
     js_core::{error::js_aggregate_error_constructor, js_get_this},
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_SpeciesConstructor},
+    promise::Promise,
     value::JSValue,
 };
 
 use super::{
-    PROMISE_MAGIC_all, PROMISE_MAGIC_allSettled, PROMISE_MAGIC_any, Promise,
-    js_promise_all_resolve_element, remainingElementsCount_add,
+    PROMISE_MAGIC_all, PROMISE_MAGIC_allSettled, PROMISE_MAGIC_any, js_promise_all_resolve_element,
+    remainingElementsCount_add,
 };
 
 //
@@ -20,16 +21,13 @@ use super::{
 //
 
 pub fn js_promise_then(ctx: &JSContext, cc: CallContext) -> JSResult {
-    // ensure Promise object
-    let _ = cc
-        .this()
-        .retrive_object_payload(ctx, Some(JS_CLASS_PROMISE))?;
-
-    cc.this()
-        .as_object_Promise()
-        .unwrap()
-        .then(ctx, cc.arg(0).clone(), cc.arg(1).clone())
-        .map(|p| p.into())
+    if let Some(p) = cc.this().as_object_Promise() {
+        p.then(ctx, cc.arg(0).clone(), cc.arg(1).clone())
+            .map(|p| p.into())
+    } else {
+        ctx.throw_type_error_invalid_class(JS_CLASS_PROMISE);
+        Err(-1)
+    }
 }
 
 pub fn js_promise_catch(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -103,10 +101,7 @@ pub fn js_promise_resolve(ctx: &JSContext, cc: CallContext) -> JSResult {
     let is_reject = cc.magic() != 0;
     let arg0 = cc.arg(0).clone();
 
-    if !is_reject && {
-        let _ = arg0.retrive_object_payload(ctx, Some(JS_CLASS_PROMISE))?;
-        true
-    } {
+    if !is_reject && arg0.retrive_object_payload0(JS_CLASS_PROMISE).is_some() {
         // resolve and argument #0 is Promise
         let ctor = arg0.get_property(ctx, JS_ATOM_constructor)?;
         if ctor.is_same(cc.this()) {
@@ -114,7 +109,7 @@ pub fn js_promise_resolve(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     }
 
-    let (result_promise, resolving_funcs) = ctx.create_promise(cc.this())?;
+    let (result_promise, resolving_funcs) = Promise::create_from_ctor(ctx, cc.this())?;
     resolving_funcs[is_reject as usize].call(
         ctx,
         &JSValue::UNDEFINED,
@@ -130,7 +125,7 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     let is_promise_any = cc.magic() == PROMISE_MAGIC_any;
-    let (result_promise, resolving_funcs) = ctx.create_promise(cc.this())?;
+    let (result_promise, resolving_funcs) = Promise::create_from_ctor(ctx, cc.this())?;
 
     let fail_reject = || -> JSResult {
         let error = ctx.take_exception();
@@ -282,7 +277,7 @@ pub fn js_promise_race(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    let (result_promise, resolving_funcs) = ctx.create_promise(cc.this())?;
+    let (result_promise, resolving_funcs) = Promise::create_from_ctor(ctx, cc.this())?;
 
     let fail_reject = || -> JSResult {
         let error = ctx.take_exception();
@@ -326,7 +321,7 @@ pub fn js_promise_withResolvers(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    let (result_promise, resolving_funcs) = ctx.create_promise(cc.this())?;
+    let (result_promise, resolving_funcs) = Promise::create_from_ctor(ctx, cc.this())?;
     let obj = ctx.create_base_object()?;
 
     obj.define_property_value(ctx, JS_ATOM_promise, result_promise.into(), JS_PROP_C_W_E)?;

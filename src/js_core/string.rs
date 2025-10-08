@@ -963,7 +963,7 @@ fn js_string_iterator_next(
 ) -> JSResult {
     if let ObjectPayload::STRING_ITERATOR(it) = cc
         .this()
-        .retrive_object_payload(ctx, Some(JS_CLASS_STRING_ITERATOR))?
+        .retrive_object_payload(ctx, JS_CLASS_STRING_ITERATOR)?
     {
         match it.value() {
             JSValue::UNDEFINED => {
