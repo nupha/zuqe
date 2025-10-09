@@ -11,17 +11,13 @@ use crate::{
     context::JSContext,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, FieldDef},
-    mem::js_malloc_typed,
     number::JSFloat64Union,
     object::{JS_PROP_CONFIGURABLE, JSObjectWeakref, ObjectPayload},
-    typed_array::TypedArray,
+    typed_array::{TA_GET_BUFFER, TA_GET_BYTE_LENGTH, TA_GET_BYTE_OFFSET, TypedArray},
     value::JSValue,
 };
 
-use super::{
-    TypedArrayPayload, js_typed_array_get_buffer, js_typed_array_get_byteLength,
-    js_typed_array_get_byteOffset,
-};
+use super::{TypedArrayPayload, js_typed_array_getter};
 
 impl JSContext {
     /// create a DataView with given array buffer.
@@ -310,9 +306,19 @@ pub fn js_dataview_setValue(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub static js_dataview_proto_funcs: [FieldDef; 20] = [
-    JS_CGETSET_NATIVE_DEF!("buffer", js_typed_array_get_buffer, NONE, 1),
-    JS_CGETSET_NATIVE_DEF!("byteLength", js_typed_array_get_byteLength, NONE, 1),
-    JS_CGETSET_NATIVE_DEF!("byteOffset", js_typed_array_get_byteOffset, NONE, 1),
+    JS_CGETSET_NATIVE_DEF!("buffer", js_typed_array_getter, NONE, TA_GET_BUFFER as _),
+    JS_CGETSET_NATIVE_DEF!(
+        "byteLength",
+        js_typed_array_getter,
+        NONE,
+        TA_GET_BYTE_LENGTH as _
+    ),
+    JS_CGETSET_NATIVE_DEF!(
+        "byteOffset",
+        js_typed_array_getter,
+        NONE,
+        TA_GET_BYTE_OFFSET as _
+    ),
     JS_CFUNC_NATIVE_DEF!(
         "getInt8",
         1,

@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 
 use crate::{
     JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_ARRAY_BUFFER,
-    JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY, JS_CLASS_FLOAT32_ARRAY,
+    JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY, JS_CLASS_DATAVIEW, JS_CLASS_FLOAT32_ARRAY,
     JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY,
     JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY,
     JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
@@ -180,57 +180,103 @@ pub fn js_typed_array_get_length(ctx: &JSContext, cc: CallContext) -> JSResult {
         })
 }
 
-pub fn js_typed_array_get_buffer(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let is_dataview = cc.magic() != 0;
-    TypedArray::try_from(cc.this().clone())
-        .map(|x| x.array_buffer().into())
-        .map_err(|_| {
-            ctx.throw_type_error(if is_dataview {
-                "not a DataView"
-            } else {
-                "not a TypedArray"
-            });
-            -1
-        })
-}
+pub(super) const TA_GET_BUFFER: i32 = 1;
+pub(super) const TA_GET_BYTE_LENGTH: i32 = 2;
+pub(super) const TA_GET_BYTE_OFFSET: i32 = 3;
 
-pub fn js_typed_array_get_byteLength(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_typed_array_getter(ctx: &JSContext, cc: CallContext) -> JSResult {
     let is_dataview = cc.magic() != 0;
 
-    let p = TypedArray::try_from(cc.this().clone()).map_err(|_| {
+    if let Some(t) = cc.this().as_object_TypedArray() {
+        if unlikely(is_dataview && t.class_id() != JS_CLASS_DATAVIEW) {
+            ctx.throw_type_error("not a DataView");
+            Err(-1)
+        } else {
+            match cc.magic() {
+                TA_GET_BUFFER => Ok(t.array_buffer().into()),
+                TA_GET_BYTE_LENGTH => {
+                    if !t.is_detached() {
+                        Ok(JSValue::Int(t.with(|ta| ta.byte_length()) as i32))
+                    } else if is_dataview {
+                        JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+                        Err(-1)
+                    } else {
+                        Ok(JSValue::Int(0))
+                    }
+                }
+                TA_GET_BYTE_OFFSET => t
+                    .array_buffer_byte_offset(ctx, is_dataview)
+                    .map(|n| JSValue::Int(n as i32)),
+                _ => unreachable!(),
+            }
+        }
+    } else {
         ctx.throw_type_error(if is_dataview {
             "not a DataView"
         } else {
             "not a TypedArray"
         });
-        -1
-    })?;
-
-    if p.is_detached() {
-        if is_dataview {
-            JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-            Err(-1)
-        } else {
-            Ok(JSValue::Int(0))
-        }
-    } else {
-        Ok(JSValue::Int(p.with(|ta| ta.byte_length) as i32))
+        Err(-1)
     }
 }
 
-pub fn js_typed_array_get_byteOffset(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let is_dataview = cc.magic() != 0;
-    let p = TypedArray::try_from(cc.this().clone()).map_err(|_| {
-        ctx.throw_type_error(if is_dataview {
-            "not a DataView"
-        } else {
-            "not a TypedArray"
-        });
-        -1
-    })?;
-    p.array_buffer_byte_offset(ctx, is_dataview)
-        .map(|n| JSValue::Int(n as i32))
-}
+// pub fn js_typed_array_get_buffer(ctx: &JSContext, cc: CallContext) -> JSResult {
+//     let is_dataview = cc.magic() != 0;
+
+//     if let Some(t) = cc.this().as_object_TypedArray() {
+//         if unlikely(is_dataview && t.class_id() != JS_CLASS_DATAVIEW) {
+//             ctx.throw_type_error("not a DataView");
+//             Err(-1)
+//         } else {
+//             Ok(t.array_buffer().into())
+//         }
+//     } else {
+//         ctx.throw_type_error(if is_dataview {
+//             "not a DataView"
+//         } else {
+//             "not a TypedArray"
+//         });
+//         Err(-1)
+//     }
+// }
+
+// pub fn js_typed_array_get_byteLength(ctx: &JSContext, cc: CallContext) -> JSResult {
+//     let is_dataview = cc.magic() != 0;
+
+//     let p = TypedArray::try_from(cc.this().clone()).map_err(|_| {
+//         ctx.throw_type_error(if is_dataview {
+//             "not a DataView"
+//         } else {
+//             "not a TypedArray"
+//         });
+//         -1
+//     })?;
+
+//     if p.is_detached() {
+//         if is_dataview {
+//             JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+//             Err(-1)
+//         } else {
+//             Ok(JSValue::Int(0))
+//         }
+//     } else {
+//         Ok(JSValue::Int(p.with(|ta| ta.byte_length) as i32))
+//     }
+// }
+
+// pub fn js_typed_array_get_byteOffset(ctx: &JSContext, cc: CallContext) -> JSResult {
+//     let is_dataview = cc.magic() != 0;
+//     let p = TypedArray::try_from(cc.this().clone()).map_err(|_| {
+//         ctx.throw_type_error(if is_dataview {
+//             "not a DataView"
+//         } else {
+//             "not a TypedArray"
+//         });
+//         -1
+//     })?;
+//     p.array_buffer_byte_offset(ctx, is_dataview)
+//         .map(|n| JSValue::Int(n as i32))
+// }
 
 pub fn js_typed_array_at(ctx: &JSContext, cc: CallContext) -> JSResult {
     let p = TypedArray::try_from(cc.this().clone()).map_err(|_| {
@@ -798,7 +844,7 @@ pub fn js_typed_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
     let to_locale = cc.magic() != 0;
     let this_val = cc.this();
 
-    let n = unsafe { js_typed_array_get_length_internal(ctx, this_val)? };
+    let n = js_typed_array_get_length_internal(ctx, this_val)?;
     let sep: std::borrow::Cow<'_, str> =
         if !to_locale && cc.length() > 0 && !cc.arg(0).is_undefined() {
             cc.arg(0).inspect(ctx)?.into()
@@ -1087,9 +1133,19 @@ pub static js_typed_array_base_proto_funcs: [FieldDef; 36] = [
     JS_CGETSET_NATIVE_DEF!("length", js_typed_array_get_length, NONE, 0),
     JS_CFUNC_NATIVE_DEF!("at", 1, js_typed_array_at, 0),
     JS_CFUNC_NATIVE_DEF!("with", 2, js_typed_array_with, 0),
-    JS_CGETSET_NATIVE_DEF!("buffer", js_typed_array_get_buffer, NONE, 0),
-    JS_CGETSET_NATIVE_DEF!("byteLength", js_typed_array_get_byteLength, NONE, 0),
-    JS_CGETSET_NATIVE_DEF!("byteOffset", js_typed_array_get_byteOffset, NONE, 0),
+    JS_CGETSET_NATIVE_DEF!("buffer", js_typed_array_getter, NONE, TA_GET_BUFFER as _),
+    JS_CGETSET_NATIVE_DEF!(
+        "byteLength",
+        js_typed_array_getter,
+        NONE,
+        TA_GET_BYTE_LENGTH as _
+    ),
+    JS_CGETSET_NATIVE_DEF!(
+        "byteOffset",
+        js_typed_array_getter,
+        NONE,
+        TA_GET_BYTE_OFFSET as _
+    ),
     JS_CFUNC_NATIVE_DEF!("set", 1, js_typed_array_set, 0),
     JS_CFUNC_NATIVE_DEF!(
         "values",
