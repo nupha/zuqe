@@ -832,30 +832,28 @@ pub fn JS_SpeciesConstructor(
     obj: &JSValue,
     default_constructor: JSValue,
 ) -> JSResult {
-    if !obj.is_object() {
+    if let Some(o) = obj.as_object() {
+        let ctor = o.get_property(ctx, JS_ATOM_constructor)?;
+
+        if unlikely(ctor.is_undefined()) {
+            Ok(default_constructor)
+        } else if let Some(o1) = ctor.as_object() {
+            let species = o1.get_property(ctx, JS_ATOM_Symbol_species)?;
+
+            if species.is_undefined_or_null() {
+                Ok(default_constructor)
+            } else if unlikely(!species.is_constructor()) {
+                ctx.throw_type_error("not a constructor");
+                Err(-1)
+            } else {
+                Ok(species)
+            }
+        } else {
+            ctx.throw_type_error_not_an_object();
+            Err(-1)
+        }
+    } else {
         ctx.throw_type_error_not_an_object();
-        return Err(-1);
+        Err(-1)
     }
-
-    let ctor = obj.get_property(ctx, JS_ATOM_constructor)?;
-    if ctor.is_undefined() {
-        return Ok(default_constructor);
-    }
-
-    if !ctor.is_object() {
-        ctx.throw_type_error_not_an_object();
-        return Err(-1);
-    }
-
-    let species = ctor.get_property(ctx, JS_ATOM_Symbol_species)?;
-    if species.is_undefined_or_null() {
-        return Ok(default_constructor);
-    }
-
-    if !species.is_constructor() {
-        ctx.throw_type_error("not a constructor");
-        return Err(-1);
-    }
-
-    Ok(species)
 }

@@ -4,6 +4,7 @@ use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
     JS_PROP_STRING_DEF,
     branch_hints::unlikely,
+    callable::NativeFunctionWithData,
     context::JSContext,
     error::JSResult,
     function::{AsyncFuncState, CallContext, FieldDef},
@@ -383,7 +384,8 @@ fn js_async_generator_resolve_function_create(
 ) -> Result<[JSValue; 2], i32> {
     let resolving_funcs: [JSValue; 2] = [
         // handle fullfil
-        ctx.create_native_function_with_data(
+        NativeFunctionWithData::create(
+            ctx,
             js_async_generator_resolve_function,
             1,
             if is_resume_next { 2 } else { 0 },
@@ -391,7 +393,8 @@ fn js_async_generator_resolve_function_create(
         )?
         .into(),
         // handle reject
-        ctx.create_native_function_with_data(
+        NativeFunctionWithData::create(
+            ctx,
             js_async_generator_resolve_function,
             1,
             if is_resume_next { 3 } else { 1 },

@@ -35,7 +35,8 @@ pub const JS_EVAL_FLAG_STRICT: u32 = 1 << 3;
 pub const JS_EVAL_FLAG_STRIP: u32 = 1 << 4;
 pub const JS_EVAL_FLAG_COMPILE_ONLY: u32 = 1 << 5;
 pub const JS_EVAL_FLAG_BACKTRACE_BARRIER: u32 = 1 << 6;
-/// allow top-level-await in eval
+/// compile script as root async function,
+/// so that top-level-await is allowed.
 pub const JS_EVAL_FLAG_ASYNC: u32 = 1 << 7;
 
 pub(crate) enum Compiled {

@@ -3,6 +3,7 @@ use std::{cell::Cell, rc::Rc};
 use crate::{
     JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
     atom::consts::*,
+    branch_hints::unlikely,
     context::JSContext,
     error::JSResult,
     object::{JS_SpeciesConstructor, JSObject, ObjectPayload},
@@ -14,12 +15,13 @@ use crate::{
 use super::{Promise, PromiseState, js_promise_resolve_thenable_job, promise_reaction_job};
 
 /// State of promise resolving function.
-#[derive(Debug, Clone)]
-pub struct PromiseResolvingPayload {
+#[derive(Debug)]
+pub struct PromiseResolvePayload {
     /// the target Promise
-    pub promise: Promise,
-    /// is resolved?
-    pub resolved: Rc<Cell<bool>>,
+    pub(super) promise: Promise,
+    /// is resolved? this flag is shared between resolve and reject functions.
+    /// so Rc is used
+    pub(super) resolved: Rc<Cell<bool>>,
 }
 
 /// Represent Promise resolve, reject function object
@@ -41,7 +43,7 @@ impl PromiseResolveFunc {
         flags: i32,
     ) -> JSResult {
         let resolv = func_obj.as_object_PromiseResolveFunc().unwrap();
-        let isa = resolv.0.payload();
+        let isa = resolv.payload();
 
         if let Some(s) = isa.promise_func_data() {
             if s.resolved.get() {
@@ -51,29 +53,27 @@ impl PromiseResolveFunc {
             s.resolved.set(true);
 
             let is_reject = isa.class_id() == JS_CLASS_PROMISE_REJECT_FUNCTION;
-            let resolution = if args.len() > 0 {
+            let arg0 = if args.len() > 0 {
                 args[0].clone()
             } else {
                 JSValue::UNDEFINED
             };
 
-            if is_reject || !resolution.is_object() {
-                s.promise.fulfill_or_reject(ctx, resolution, is_reject);
+            if is_reject || !arg0.is_object() {
+                s.promise.fulfill_or_reject(ctx, arg0, is_reject);
                 return Ok(JSValue::UNDEFINED);
-            } else if resolution.is_same(&s.promise.clone().into()) {
+            } else if unlikely(arg0.is_same(&s.promise.clone().into())) {
                 ctx.throw_type_error("promise self resolution");
                 s.promise.reject(ctx, ctx.take_exception());
                 return Ok(JSValue::UNDEFINED);
-            }
-
-            if let Ok(then) = resolution.get_property(ctx, JS_ATOM_then) {
+            } else if let Ok(then) = arg0.get_property(ctx, JS_ATOM_then) {
                 if !then.is_function() {
-                    s.promise.fulfill_or_reject(ctx, resolution, is_reject);
+                    s.promise.fulfill_or_reject(ctx, arg0, is_reject);
                 } else {
                     let promise = s.promise.clone();
                     let cx = ctx.clone();
                     ctx.queue_job(move || {
-                        js_promise_resolve_thenable_job(&cx, promise, resolution, then)
+                        js_promise_resolve_thenable_job(&cx, promise, arg0, then)
                     });
                 }
             } else {
@@ -153,50 +153,41 @@ impl Promise {
             },
         });
 
-        self.with_mut(|s| {
-            match s.state() {
-                PromiseState::JS_PROMISE_PENDING => {
-                    // add to promise's waiting reactions list
-                    s.promise_reactions[0].push(success);
-                    s.promise_reactions[1].push(fail);
-                }
-                state => {
-                    // queue as job
-                    if state == PromiseState::JS_PROMISE_REJECTED && !s.is_handled {
-                        if let Some(cb) = ctx.rt().host_promise_rejection_tracker {
-                            cb(
-                                ctx,
-                                self.clone(),
-                                s.promise_result.clone(),
-                                true as i32,
-                                ctx.rt().host_promise_rejection_tracker_opaque,
-                            );
-                        }
-                    }
+        let s = self.payload();
 
-                    let act = if state == PromiseState::JS_PROMISE_FULFILLED {
-                        success
-                    } else {
-                        fail
-                    };
-                    let is_reject = state == PromiseState::JS_PROMISE_REJECTED;
-                    let result = s.promise_result.clone();
-                    let cx = ctx.clone();
-                    ctx.queue_job(move || {
-                        promise_reaction_job(
-                            &cx,
-                            act.resolving_funcs,
-                            act.handler,
-                            is_reject,
-                            result,
-                        )
-                    });
-                }
+        match s.state() {
+            PromiseState::JS_PROMISE_PENDING => {
+                s.add_reaction(success, fail);
             }
+            state => {
+                // queue as job
+                if state == PromiseState::JS_PROMISE_REJECTED && !s.is_handled() {
+                    if let Some(cb) = ctx.rt().host_promise_rejection_tracker {
+                        cb(
+                            ctx,
+                            self.clone(),
+                            s.result(),
+                            true as i32,
+                            ctx.rt().host_promise_rejection_tracker_opaque,
+                        );
+                    }
+                }
 
-            s.is_handled = true;
-        });
+                let act = if state == PromiseState::JS_PROMISE_FULFILLED {
+                    success
+                } else {
+                    fail
+                };
+                let is_reject = state == PromiseState::JS_PROMISE_REJECTED;
+                let result = s.result();
+                let cx = ctx.clone();
+                ctx.queue_job(move || {
+                    promise_reaction_job(&cx, act.resolving_funcs, act.handler, is_reject, result)
+                });
+            }
+        }
 
+        s.set_handled(true);
         Ok(())
     }
 
@@ -205,8 +196,9 @@ impl Promise {
     /// `resolve` and `reject` are not consumed.
     pub fn then(&self, ctx: &JSContext, success: JSValue, fail: JSValue) -> Result<JSObject, i32> {
         let ctor = JS_SpeciesConstructor(ctx, &self.clone().into(), JSValue::UNDEFINED)?;
-        let (promise2, resolving_hooks) = Self::create_from_ctor(ctx, &ctor)?;
-        self.reaction(ctx, &[success, fail], &resolving_hooks)?;
+        let (promise2, rr) = Self::create_from_ctor(ctx, &ctor)?;
+
+        self.reaction(ctx, &[success, fail], &rr)?;
         Ok(promise2)
     }
 
@@ -214,21 +206,19 @@ impl Promise {
     /// call chained reactions which was registered by `then()`, `catch()` or `finally()`.
     /// Note: `value` is not consumed (duplicated inside).
     pub(super) fn fulfill_or_reject(&self, ctx: &JSContext, value: JSValue, is_reject: bool) {
-        let (promise_state, is_handled) = self.with_mut(|p| {
-            debug_assert_eq!(p.state(), PromiseState::JS_PROMISE_PENDING);
+        let p = self.payload();
 
-            let state = if is_reject {
-                PromiseState::JS_PROMISE_REJECTED
-            } else {
-                PromiseState::JS_PROMISE_FULFILLED
-            };
-            p.set_state(state);
-            p.promise_result = value.clone();
+        debug_assert_eq!(p.state(), PromiseState::JS_PROMISE_PENDING);
 
-            (state, p.is_handled)
-        });
+        let promise_state = if is_reject {
+            PromiseState::JS_PROMISE_REJECTED
+        } else {
+            PromiseState::JS_PROMISE_FULFILLED
+        };
+        p.set_state(promise_state);
+        p.set_result(value.clone());
 
-        if promise_state == PromiseState::JS_PROMISE_REJECTED && !is_handled {
+        if promise_state == PromiseState::JS_PROMISE_REJECTED && !p.is_handled() {
             if let Some(cb) = ctx.rt().host_promise_rejection_tracker {
                 cb(
                     ctx,
@@ -241,9 +231,7 @@ impl Promise {
         }
 
         // call chained reactions registered by `then()`, `catch()` or `finally()`
-        let mut reactions = self
-            .with_mut(|s| std::mem::replace(&mut s.promise_reactions, [Vec::new(), Vec::new()]));
-
+        let mut reactions = p.take_reactions();
         for act in reactions[is_reject as usize].drain(..) {
             let cx = ctx.clone();
             let val = value.clone();

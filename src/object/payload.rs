@@ -10,7 +10,7 @@ use crate::{
     function::{AsyncFuncState, BCFuncPayload},
     mapset::{JSMapIteratorData, JSMapState},
     object::JSObject,
-    promise::{PromisePayload, PromiseResolvingPayload},
+    promise::PromiseResolvePayload,
     typed_array::TypedArrayPayload,
     value::JSValue,
 };
@@ -57,7 +57,7 @@ impl ObjectPayload {
     }
 
     /// get detail for promise resolving function
-    pub const fn promise_func_data(&self) -> Option<&PromiseResolvingPayload> {
+    pub const fn promise_func_data(&self) -> Option<&PromiseResolvePayload> {
         match self {
             Self::PROMISE_RESOLVE_FUNCTION(a) | Self::PROMISE_REJECT_FUNCTION(a) => Some(a),
             _ => None,

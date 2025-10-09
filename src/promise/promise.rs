@@ -1,12 +1,13 @@
 use std::{
     cell::{Cell, RefCell},
-    ops::{Deref, DerefMut},
+    ops::DerefMut,
     rc::Rc,
 };
 
 use crate::{
     JS_CLASS_PROMISE,
     atom::consts::*,
+    callable::NativeFunctionWithData,
     context::JSContext,
     error::JSResult,
     function::{CallContext, JS_CallConstructor, js_function_set_properties},
@@ -18,7 +19,7 @@ use crate::{
     value::JSValue,
 };
 
-use super::PromiseResolvingPayload;
+use super::PromiseResolvePayload;
 
 pub type JSHostPromiseRejectionTracker = fn(
     ctx: &JSContext,
@@ -38,26 +39,60 @@ pub enum PromiseState {
 
 #[derive(Debug)]
 pub struct PromisePayload {
-    promise_state: PromiseState,
+    promise_state: Cell<PromiseState>,
 
-    /// list of pending reactions: #0 for fulfill, #1 for reject.
-    pub promise_reactions: [Vec<Box<JSPromiseReactionData>>; 2],
+    /// list of pending reactions:
+    /// #0 for fulfill, #1 for reject.
+    pub promise_reactions: RefCell<[Vec<Box<JSPromiseReactionData>>; 2]>,
 
-    pub promise_result: JSValue,
+    pub promise_result: RefCell<JSValue>,
 
     /// Note: only useful to debug
-    pub is_handled: bool,
+    pub is_handled: Cell<bool>,
 }
 
 impl PromisePayload {
     #[inline(always)]
     pub fn state(&self) -> PromiseState {
-        self.promise_state
+        self.promise_state.get()
     }
 
     #[inline(always)]
-    pub fn set_state(&mut self, s: PromiseState) {
-        self.promise_state = s;
+    pub fn set_state(&self, s: PromiseState) {
+        self.promise_state.set(s);
+    }
+
+    #[inline(always)]
+    pub fn result(&self) -> JSValue {
+        self.promise_result.borrow().clone()
+    }
+
+    pub fn set_result(&self, val: JSValue) {
+        *self.promise_result.borrow_mut() = val;
+    }
+
+    /// add pending reaction callback functions
+    pub fn add_reaction(
+        &self,
+        success: Box<JSPromiseReactionData>,
+        fail: Box<JSPromiseReactionData>,
+    ) {
+        let mut b = self.promise_reactions.borrow_mut();
+        b[0].push(success);
+        b[1].push(fail);
+    }
+
+    /// take pending reactions out, reset reactions list to empty.
+    pub fn take_reactions(&self) -> [Vec<Box<JSPromiseReactionData>>; 2] {
+        let mut b = self.promise_reactions.borrow_mut();
+        std::mem::replace(b.deref_mut(), [Vec::new(), Vec::new()])
+    }
+
+    pub fn is_handled(&self) -> bool {
+        self.is_handled.get()
+    }
+    pub fn set_handled(&self, v: bool) {
+        self.is_handled.set(v);
     }
 }
 
@@ -71,22 +106,18 @@ impl Promise {
     /// create new Promise object with given executor function.
     /// `new_target` - the 'new' operator target.
     /// `executor` must be a callable object.
-    fn from_executor(
-        ctx: &JSContext,
-        executor: JSObject,
-        new_target: &JSValue,
-    ) -> Result<Self, i32> {
+    fn from_executor(ctx: &JSContext, executor: JSObject, ctor: &JSValue) -> Result<Self, i32> {
         executor.ensure_function(ctx)?;
 
         // create js object of promise class
-        let isa = RefCell::new(Box::new(PromisePayload {
-            promise_state: PromiseState::JS_PROMISE_PENDING,
-            promise_reactions: [Vec::new(), Vec::new()],
-            promise_result: JSValue::UNDEFINED,
-            is_handled: false,
-        }));
+        let isa = Box::new(PromisePayload {
+            promise_state: Cell::new(PromiseState::JS_PROMISE_PENDING),
+            promise_reactions: RefCell::new([Vec::new(), Vec::new()]),
+            promise_result: RefCell::new(JSValue::UNDEFINED),
+            is_handled: Cell::new(false),
+        });
         let promise = Self(
-            ctx.create_object_from_ctor(new_target, ObjectPayload::PROMISE(isa))
+            ctx.create_object_from_ctor(ctor, ObjectPayload::PROMISE(isa))
                 .map_err(|_| -1)?,
         );
 
@@ -100,33 +131,38 @@ impl Promise {
     }
 
     /// create new Promise and associated resolving function pairs.
-    /// returns Object (could be Promise or derived class instance) and [resolve, reject] functions.
-    /// `ctor` is a customized constructor function value to instantiate Promise object:
+    /// returns Object (could be Promise or derived class instance) and \[resolve, reject\] functions.
+    /// `ctor` is the constructor function value to instantiate Promise object:
     ///  - when provided, will call this function to create customized Promise object,
     ///  - when it is `undefined`, creates default Promise object.
     pub(super) fn create_from_ctor(
         ctx: &JSContext,
         ctor: &JSValue,
     ) -> Result<(JSObject, [JSValue; 2]), i32> {
-        let executor = ctx.create_native_function_with_data(
-            Promise::class_executor,
+        let executor = NativeFunctionWithData::create(
+            ctx,
+            Promise::executor_handler,
             2,
             0,
-            [JSValue::UNDEFINED, JSValue::UNDEFINED].into(), // resolving functions, initially undefined
+            // resolving functions, initially undefined.
+            // these two fields will be replace by real Function object
+            // in callback handler, which takes two arguments: resolve, reject.
+            [JSValue::UNDEFINED, JSValue::UNDEFINED].into(),
         )?;
 
         let promise: JSObject = if ctor.is_undefined() {
-            Self::from_executor(ctx, executor.clone(), &JSValue::UNDEFINED)?.into()
+            Self::from_executor(ctx, executor.clone().into(), &JSValue::UNDEFINED)?.into()
         } else {
             JS_CallConstructor(ctx, ctor, std::slice::from_ref(&executor.clone().into()))
                 .err()?
                 .try_into()?
         };
 
+        // collect resolving functions
         let mut resolving_funcs = [JSValue::UNDEFINED, JSValue::UNDEFINED];
         if let ObjectPayload::C_FUNCTION_DATA(s) = executor.payload() {
             for i in 0..2 {
-                let item = s.get(i).unwrap();
+                let item = s.data(i).unwrap();
                 item.ensure_function(ctx)?;
                 resolving_funcs[i] = item;
             }
@@ -155,7 +191,7 @@ impl Promise {
 
         for i in 0..2 {
             let function_proto = ctx.0.borrow().function_proto.clone();
-            let s = Box::new(PromiseResolvingPayload {
+            let s = Box::new(PromiseResolvePayload {
                 promise: self.clone(),
                 resolved: resolved.clone(), // shared between two functions
             });
@@ -176,24 +212,11 @@ impl Promise {
         Ok(resolving_funcs)
     }
 
-    /// run closure with Promise payload.
-    pub(super) fn with<R>(&self, f: impl FnOnce(&PromisePayload) -> R) -> R {
+    /// get Promise payload
+    #[inline(always)]
+    pub fn payload(&self) -> &PromisePayload {
         if let ObjectPayload::PROMISE(p) = self.0.payload() {
-            f(p.borrow().deref())
-        } else {
-            #[cfg(debug_assertions)]
-            unreachable!();
-            #[cfg(not(debug_assertions))]
-            unsafe {
-                std::hint::unreachable_unchecked();
-            }
-        }
-    }
-
-    /// run closure with Promise payload.
-    pub(super) fn with_mut<R>(&self, f: impl FnOnce(&mut PromisePayload) -> R) -> R {
-        if let ObjectPayload::PROMISE(p) = self.0.payload() {
-            f(p.borrow_mut().deref_mut())
+            p
         } else {
             #[cfg(debug_assertions)]
             unreachable!();
@@ -205,16 +228,16 @@ impl Promise {
     }
 
     /// get Promise state.
-    #[inline]
+    #[inline(always)]
     pub fn state(&self) -> PromiseState {
-        self.with(|s| s.promise_state)
+        self.payload().state()
     }
 
     /// get Promise result.
     /// returned value is duplicated, caller must free it.
-    #[inline]
+    #[inline(always)]
     pub fn result(&self) -> JSValue {
-        self.with(|s| s.promise_result.clone())
+        self.payload().result()
     }
 }
 
@@ -222,20 +245,10 @@ impl Promise {
 // Hooks for Promise
 //
 impl Promise {
-    /// the native callback for Promise constructor function
-    pub fn class_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
-        Promise::from_executor(
-            ctx,
-            cc.arg(0).ensure_function(ctx)?.as_object().unwrap().clone(),
-            cc.this(),
-        )
-        .map(|p| p.into())
-    }
-
     /// callback to execute a promise:
     /// setting resolve and reject functions as attaching data of 'executor'.
     /// arg#0: resolve function, arg#1: reject function
-    fn class_executor(ctx: &JSContext, mut cc: CallContext) -> JSResult {
+    fn executor_handler(ctx: &JSContext, mut cc: CallContext) -> JSResult {
         for i in 0..2 {
             if !cc.data(i).is_undefined() {
                 ctx.throw_type_error("resolving function already set");
@@ -247,6 +260,16 @@ impl Promise {
         Ok(JSValue::UNDEFINED)
     }
 
+    /// the native callback for Promise constructor function
+    pub fn class_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
+        Promise::from_executor(
+            ctx,
+            cc.arg(0).ensure_function(ctx)?.as_object().unwrap().clone(),
+            cc.this(),
+        )
+        .map(|p| p.into())
+    }
+
     pub fn class_finalizer(_: &mut JSRuntime, isa: &ObjectPayload, _: usize) {
         // if let ObjectPayload::PROMISE(mut s) = isa {
         //     s.promise_reactions[0].clear();
@@ -256,16 +279,18 @@ impl Promise {
 
     pub fn class_mark(val: JSValue) {
         if let Some(promise) = val.as_object_Promise() {
-            promise.with(|s| {
-                for i in 0..2 {
-                    for rd in s.promise_reactions[i].iter() {
-                        rd.resolving_funcs[0].gc_mark();
-                        rd.resolving_funcs[1].gc_mark();
-                        rd.handler.gc_mark();
-                    }
+            let s = promise.payload();
+
+            let re = s.promise_reactions.borrow();
+            for i in 0..2 {
+                for rd in re[i].iter() {
+                    rd.resolving_funcs[0].gc_mark();
+                    rd.resolving_funcs[1].gc_mark();
+                    rd.handler.gc_mark();
                 }
-                s.promise_result.gc_mark();
-            });
+            }
+
+            s.result().gc_mark();
         }
     }
 

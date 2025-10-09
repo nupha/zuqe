@@ -198,11 +198,7 @@ fn main() {
         ctx.eval_module(script.as_bytes(), &filename, false)
             .map(|p| p.into())
     } else {
-        ctx.eval(
-            script.as_bytes(),
-            &filename,
-            JS_EVAL_TYPE_GLOBAL, // | JS_EVAL_FLAG_ASYNC,
-        )
+        ctx.eval(script.as_bytes(), &filename, JS_EVAL_TYPE_GLOBAL)
     };
     match res {
         Ok(v) => {

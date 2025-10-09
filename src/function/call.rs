@@ -102,8 +102,8 @@ impl<'a> CallContext<'a> {
         self.data.as_ref().map(|d| d.borrow().len()).unwrap_or(0)
     }
 
-    /// set nth data value. returns old value, or None if nth is out of range.
-    /// Note: `val` is consumed.
+    /// Replace nth data with new `val`, and returns old value.
+    /// returns `None` if `nth` is out of range.
     pub fn replace_data(&mut self, nth: usize, val: JSValue) -> Option<JSValue> {
         if let Some(data) = self.data.as_ref() {
             let mut lst = data.borrow_mut();
@@ -192,7 +192,7 @@ impl JSObject {
 }
 
 impl JSValue {
-    /// call `self` value. if value is not callable, returns not function error.
+    /// call `self` value. if value is not callable, returns 'not function error'.
     #[inline(always)]
     pub fn call(&self, ctx: &JSContext, this_obj: &Self, args: &[JSValue]) -> JSResult {
         JS_CallInternal(

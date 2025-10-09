@@ -1,15 +1,13 @@
-use std::{
-    cell::RefCell,
-    ops::{Deref, DerefMut},
-    rc::Rc,
-};
+use std::{cell::RefCell, ops::Deref, rc::Rc};
 
 use crate::{
+    JS_CLASS_C_FUNCTION_DATA,
     atom::consts::JS_ATOM_empty_string,
     context::JSContext,
     error::JSResult,
     function::{CallContext, NativeCallback, js_function_set_properties},
     object::{JSObject, ObjectPayload},
+    object_cast,
     runtime::JSRuntime,
     value::JSValue,
 };
@@ -23,7 +21,6 @@ pub struct NativeFuncData {
 }
 
 impl NativeFuncData {
-    /// `data` values are not consumed.
     fn new(callback: NativeCallback, length: u8, magic: i32, data: Box<[JSValue]>) -> Box<Self> {
         Box::new(NativeFuncData {
             func: callback,
@@ -33,11 +30,13 @@ impl NativeFuncData {
         })
     }
 
+    /// get data count
     pub fn len(&self) -> usize {
         self.data.borrow().len()
     }
 
-    pub fn get(&self, nth: usize) -> Option<JSValue> {
+    /// get nth data
+    pub fn data(&self, nth: usize) -> Option<JSValue> {
         self.data.borrow().get(nth).cloned()
     }
 }
@@ -48,25 +47,26 @@ impl NativeFuncData {
 #[derive(Debug, Clone)]
 pub struct NativeFunctionWithData(JSObject);
 
-impl JSContext {
+object_cast!(NativeFunctionWithData, JS_CLASS_C_FUNCTION_DATA);
+
+impl NativeFunctionWithData {
     /// Create a C_FUNCTION_DATA class object, which behaves like a native function, with attached data.
-    /// Note: `data` values are not consumed.
-    pub fn create_native_function_with_data(
-        &self,
+    pub(crate) fn create(
+        ctx: &JSContext,
         callback: NativeCallback,
         length: u8,
         magic: i32,
         data: Box<[JSValue]>,
-    ) -> Result<JSObject, i32> {
-        let func_obj = self
+    ) -> Result<Self, i32> {
+        let func_obj = ctx
             .create_object_from_proto(
-                self.0.borrow().function_proto.clone(),
+                ctx.0.borrow().function_proto.clone(),
                 ObjectPayload::C_FUNCTION_DATA(NativeFuncData::new(callback, length, magic, data)),
             )
             .map_err(|_| -1)?;
 
-        js_function_set_properties(self, &func_obj, JS_ATOM_empty_string, length as _);
-        Ok(func_obj)
+        js_function_set_properties(ctx, &func_obj, JS_ATOM_empty_string, length as _);
+        Ok(Self(func_obj))
     }
 }
 
@@ -81,21 +81,18 @@ impl NativeFunctionWithData {
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
-        let isa = unsafe { func_obj.as_object_unchecked().payload() };
-
-        if let ObjectPayload::C_FUNCTION_DATA(s) = isa.deref() {
-            let f = s.func.clone();
-            let cc = CallContext::new(
-                ctx,
-                this_val.clone(),
-                args,
-                s.magic as _,
-                Some(s.data.clone()),
-            );
-            f(ctx, cc)
+        let (f, data, magic) = if let ObjectPayload::C_FUNCTION_DATA(s) =
+            unsafe { func_obj.as_object_unchecked().payload() }
+        {
+            (s.func.clone(), s.data.clone(), s.magic)
         } else {
             unreachable!()
-        }
+        };
+
+        f(
+            ctx,
+            CallContext::new(ctx, this_val.clone(), args, magic as _, Some(data)),
+        )
     }
 
     pub fn class_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
@@ -105,7 +102,7 @@ impl NativeFunctionWithData {
             if let ObjectPayload::C_FUNCTION_DATA(p) = val.as_object_unchecked().payload() {
                 let n = p.len();
                 for i in 0..n {
-                    if let Some(v) = p.get(i) {
+                    if let Some(v) = p.data(i) {
                         v.gc_mark()
                     }
                 }

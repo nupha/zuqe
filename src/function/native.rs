@@ -1,4 +1,4 @@
-use std::{ops::Deref, ptr::NonNull};
+use std::ptr::NonNull;
 
 use crate::{
     atom::{JS_FreeAtom, JSAtom},

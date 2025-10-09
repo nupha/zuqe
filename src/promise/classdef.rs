@@ -2,6 +2,7 @@ use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_PROMISE, JS_PROP_STRING_DEF,
     atom::consts::*,
     branch_hints::unlikely,
+    callable::NativeFunctionWithData,
     context::JSContext,
     error::JSResult,
     function::{CallContext, FieldDef},
@@ -35,57 +36,64 @@ pub fn js_promise_catch(ctx: &JSContext, cc: CallContext) -> JSResult {
         .invoke(ctx, JS_ATOM_then, &[JSValue::UNDEFINED, cc.arg(0).clone()])
 }
 
-pub fn js_promise_then_finally_func(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_promise_then_finally_func(ctx: &JSContext, cc: CallContext) -> JSResult {
     let ctor = cc.data(0);
     let on_finally = cc.data(1);
 
     let res = on_finally.call(ctx, &JSValue::UNDEFINED, &[])?;
 
-    let promise = {
-        let tmp = [res];
-        let cc = CallContext::new(ctx, ctor, &tmp, 0, None);
-        js_promise_resolve(ctx, cc)?
-    };
+    let promise = js_promise_resolve(
+        ctx,
+        CallContext::new_simple(ctx, ctor, std::slice::from_ref(&res)),
+    )?;
 
-    let then_func: JSValue = ctx
-        .create_native_function_with_data(
-            |cx: &JSContext, cc: CallContext| -> JSResult {
-                let val = cc.data(0);
-                if cc.magic() == 0 {
-                    val.err() // resolve
-                } else {
-                    cx.throw(val); // reject
-                    Err(-1)
-                }
-            },
-            1,
-            cc.magic(),
-            [cc.arg(0).clone()].into(), // data: argument#0
-        )?
-        .into();
+    let then_func: JSValue = NativeFunctionWithData::create(
+        ctx,
+        |cx: &JSContext, cc: CallContext| -> JSResult {
+            let val = cc.data(0);
+            if cc.magic() == 0 {
+                val.err() // resolve
+            } else {
+                cx.throw(val); // reject
+                Err(-1)
+            }
+        },
+        1,
+        cc.magic(),
+        [cc.arg(0).clone()].into(), // data: argument#0
+    )?
+    .into();
 
-    // call promise.then(resolve)
     promise.invoke(ctx, JS_ATOM_then, std::slice::from_ref(&then_func))
 }
 
 pub fn js_promise_finally(ctx: &JSContext, cc: CallContext) -> JSResult {
     let on_finally = cc.arg(0);
-    let then_funcs = if !on_finally.is_function() {
+
+    let then_funcs: [JSValue; 2] = if !on_finally.is_function() {
         [on_finally.clone(), on_finally.clone()]
     } else {
         let ctor = JS_SpeciesConstructor(ctx, cc.this(), JSValue::UNDEFINED)?;
-        let mut rr = [JSValue::UNDEFINED, JSValue::UNDEFINED];
-        for i in 0..2 {
-            rr[i] = ctx
-                .create_native_function_with_data(
-                    js_promise_then_finally_func,
-                    1,
-                    i as _,
-                    [ctor.clone(), on_finally.clone()].into(),
-                )?
-                .into();
-        }
-        rr
+        [
+            NativeFunctionWithData::create(
+                ctx,
+                js_promise_then_finally_func,
+                1,
+                0,
+                // see callback for data usage
+                [ctor.clone(), on_finally.clone()].into(),
+            )?
+            .into(),
+            NativeFunctionWithData::create(
+                ctx,
+                js_promise_then_finally_func,
+                1,
+                1,
+                // see callback for data usage
+                [ctor.clone(), on_finally.clone()].into(),
+            )?
+            .into(),
+        ]
     };
 
     cc.this().invoke(ctx, JS_ATOM_then, &then_funcs)
@@ -113,7 +121,7 @@ pub fn js_promise_resolve(ctx: &JSContext, cc: CallContext) -> JSResult {
     resolving_funcs[is_reject as usize].call(
         ctx,
         &JSValue::UNDEFINED,
-        std::slice::from_ref(cc.arg(0)),
+        std::slice::from_ref(&arg0),
     )?;
     Ok(result_promise.into())
 }
@@ -174,7 +182,8 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
                 return fail_reject();
             };
 
-            let mut resolve_element: JSValue = if let Ok(v) = ctx.create_native_function_with_data(
+            let mut resolve_element: JSValue = if let Ok(v) = NativeFunctionWithData::create(
+                ctx,
                 js_promise_all_resolve_element,
                 1,
                 cc.magic(),
@@ -194,7 +203,8 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
 
             let reject_element: JSValue = match cc.magic() {
                 PROMISE_MAGIC_allSettled => {
-                    if let Ok(r) = ctx.create_native_function_with_data(
+                    if let Ok(r) = NativeFunctionWithData::create(
+                        ctx,
                         js_promise_all_resolve_element,
                         1,
                         cc.magic() | 4,

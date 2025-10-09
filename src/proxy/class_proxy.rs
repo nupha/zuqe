@@ -3,6 +3,7 @@ use std::cell::Cell;
 use crate::{
     JS_CFUNC_NATIVE_DEF,
     atom::consts::{JS_ATOM_proxy, JS_ATOM_revoke},
+    callable::NativeFunctionWithData,
     context::JSContext,
     error::JSResult,
     function::{CallContext, FieldDef},
@@ -46,7 +47,8 @@ fn js_proxy_revocable(ctx: &JSContext, cc: CallContext) -> JSResult {
     )?;
 
     // create revoke function
-    let revoke_obj = ctx.create_native_function_with_data(
+    let revoke_obj = NativeFunctionWithData::create(
+        ctx,
         |_, mut cc| -> JSResult {
             if let Ok(p) = Proxy::try_from(cc.data(0)) {
                 p.payload().is_revoked.set(true);

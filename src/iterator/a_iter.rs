@@ -1,6 +1,7 @@
 use crate::{
     JS_CFUNC_NATIVE_DEF,
     atom::consts::*,
+    callable::NativeFunctionWithData,
     context::JSContext,
     error::JSResult,
     function::{CallContext, FieldDef, IteratorState},
@@ -37,13 +38,14 @@ pub unsafe fn js_async_from_sync_iterator_unwrap_func_create(
     ctx: &JSContext,
     done: bool,
 ) -> JSValue {
-    ctx.create_native_function_with_data(
+    NativeFunctionWithData::create(
+        ctx,
         js_async_from_sync_iterator_unwrap,
         1,
         0,
         [JSValue::Bool(done)].into(),
     )
-    .map_or(JSValue::EXCEPTION, JSValue::Object)
+    .map_or(JSValue::EXCEPTION, |x| x.into())
 }
 
 pub fn js_async_from_sync_iterator_next(ctx: &JSContext, cc: CallContext) -> JSResult {

@@ -21,7 +21,7 @@ use zhuque::{
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
     module::{JS_SetModuleLoaderFunc, ModuleDef},
     object::JS_PROP_C_W_E,
-    promise::{PromiseState, Promise},
+    promise::{Promise, PromiseState},
     runtime::JSRuntime,
     value::JSValue,
 };
@@ -293,9 +293,7 @@ fn run_test_script(
         ctx.eval(
             script.as_bytes(),
             filename.as_os_str().to_str().unwrap(),
-            JS_EVAL_TYPE_GLOBAL
-                | if is_strict { JS_EVAL_FLAG_STRICT } else { 0 }
-                | if is_async { JS_EVAL_FLAG_ASYNC } else { 0 },
+            JS_EVAL_TYPE_GLOBAL | if is_strict { JS_EVAL_FLAG_STRICT } else { 0 },
         )?
     };
 
@@ -318,9 +316,7 @@ fn run_test_script(
         }
     }
 
-    if is_async || is_module {
-        let promise = promise.unwrap();
-
+    if let Some(promise) = promise {
         // check if the returned promise is fulfilled
         match promise.state() {
             PromiseState::JS_PROMISE_FULFILLED => {}
@@ -501,7 +497,7 @@ fn run_test_file(
             {
                 let exc = ctx.exception();
 
-                println!("EXCEPTION: {:?}", exc);
+                println!("TEST262 EXCEPTION: {:?}", exc);
                 let msg = if let JSValue::Object(o) = &exc {
                     o.dump(ctx.rt());
                     let msg = o.get_property(&ctx, JS_ATOM_message).unwrap();
