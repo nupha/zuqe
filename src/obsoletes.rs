@@ -4649,3 +4649,10 @@ pub fn js_typed_array_constructor_ta(
     // TypedArray::try_from(src_obj)
     //     .and_then(|ta| ta.create_to_new(ctx, new_target, classid as JSClassID))
 }
+
+#[deprecated(note = "use ArrayBuffer::detach() instead")]
+pub fn JS_DetachArrayBuffer(ctx: &JSContext, obj: &JSValue) {
+    if let Some(ab) = obj.as_object_ArrayBuffer() {
+        ab.detatch(ctx);
+    }
+}

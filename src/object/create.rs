@@ -22,7 +22,7 @@ impl JSContext {
         Ok(obj)
     }
 
-    /// create an object with `payload` data.
+    /// create object with `payload` data and specified `proto` as prototype.
     /// when failed, detail data is returned back in Err, caller should free it.
     /// `proto` is Prototype object (can be JSValue::NULL).
     ///
@@ -55,7 +55,7 @@ impl JSContext {
         self.create_object_with_shape(shape, payload)
     }
 
-    /// create object applying class constructor `ctor`, with `payload` data.
+    /// create object applying constructor `ctor`, with `payload` data.
     /// new object's class is determined by `payload` kind.
     ///
     /// if `ctor` is:
@@ -89,7 +89,43 @@ impl JSContext {
         self.create_object_from_proto(proto, payload)
     }
 
-    /// create new object with `payload` data.
+    /// create object applying constructor `ctor`, with payload data returned by factory function.
+    /// new object's class is determined by `payload` kind.
+    ///
+    /// if `ctor` is:
+    /// - undefined, use the `payload` kind associated class prototype,
+    /// - otherwise, retrieve property `ctor.prototype` as prototype.
+    pub fn create_object_from_ctor_with(
+        &self,
+        ctor: &JSValue,
+        payload_fn: impl FnOnce() -> Result<ObjectPayload, i32>,
+    ) -> Result<JSObject, i32> {
+        let (proto, isa) = if ctor.is_undefined() {
+            let payload = payload_fn()?;
+            (
+                self.0.borrow().class_proto[payload.class_id() as usize].clone(),
+                payload,
+            )
+        } else {
+            // don't change following2 lines order
+            let p = ctor.get_property(self, JS_ATOM_prototype)?; // <- may exec user script here
+            let payload = payload_fn()?;
+
+            if !p.is_object() {
+                let realm = JS_GetFunctionRealm(self, &ctor)?;
+                (
+                    realm.0.borrow().class_proto[payload.class_id() as usize].clone(),
+                    payload,
+                )
+            } else {
+                (p, payload)
+            }
+        };
+
+        self.create_object_from_proto(proto, isa).map_err(|_| -1)
+    }
+
+    /// create object with `payload` data.
     /// New object's prototype and shape are determined by `payload` automatically.
     #[inline]
     pub fn create_object(&self, payload: ObjectPayload) -> Result<JSObject, ObjectPayload> {
@@ -99,7 +135,7 @@ impl JSContext {
         )
     }
 
-    /// create new basic object with specified prototype `proto`.
+    /// create basic object with specified prototype `proto`.
     #[inline(always)]
     pub fn create_base_object_from_proto(&self, proto: JSValue) -> Result<JSObject, i32> {
         self.create_object_from_proto(proto, ObjectPayload::OBJECT)

@@ -9,14 +9,13 @@ use std::{
 
 use serde::Deserialize;
 use zhuque::{
-    array_buffer::JS_DetachArrayBuffer,
     atom::{
         JS_FreeAtom,
         consts::{JS_ATOM_message, JS_ATOM_stack},
     },
     context::JSContext,
     error::JSResult,
-    eval::{JS_EVAL_FLAG_ASYNC, JS_EVAL_FLAG_STRICT, JS_EVAL_TYPE_GLOBAL},
+    eval::{JS_EVAL_FLAG_STRICT, JS_EVAL_TYPE_GLOBAL},
     function::{CallContext, NativeFunctionType},
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
     module::{JS_SetModuleLoaderFunc, ModuleDef},
@@ -49,8 +48,8 @@ fn js_print(ctx: &JSContext, args: CallContext) -> JSResult {
 }
 
 fn js_detachArrayBuffer(ctx: &JSContext, cc: CallContext) -> JSResult {
-    unsafe {
-        JS_DetachArrayBuffer(ctx, cc.arg(0));
+    if let Some(ab) = cc.arg(0).as_object_ArrayBuffer() {
+        ab.detatch(ctx);
     }
     Ok(JSValue::UNDEFINED)
 }

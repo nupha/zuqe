@@ -333,9 +333,53 @@ impl ArrayBuffer {
         )
     }
 
+    /// get array buffer payload
     #[inline(always)]
     pub(crate) fn payload(&self) -> ArrayBufferPayload {
         self.0.payload().array_buffer().cloned().unwrap()
+    }
+
+    /// detatch array buffer
+    pub fn detatch(&self, ctx: &JSContext) {
+        let abuf = self.payload();
+
+        if !abuf.is_detached() {
+            let data0 = abuf.set_content(ABufData::Empty);
+            match data0 {
+                ABufData::Raw(ptr, len, fin) => {
+                    if let Some(f) = fin {
+                        f(ctx.rt_mut(), abuf.opaque(), ptr.as_ptr(), len);
+                    }
+                }
+                _ => {}
+            }
+
+            for w in abuf.0.borrow_mut().array_list.drain(..) {
+                if let Some(o) = w.upgrade() {
+                    // typed array or dataview
+                    // Note: the typed array length and offset fields are not modified. set count to 0
+                    if let Some(ta) = o.as_TypedArray() {
+                        let ta = ta.payload().typed_array().unwrap();
+                        ta.borrow_mut().count = 0;
+                    }
+                }
+            }
+
+            // for w in abuf.0.borrow_mut().array_list.iter_mut() {
+            //     if let Some(o) = w.upgrade() {
+            //         // typed array or dataview
+            //         // Note: the typed array length and offset fields are not modified
+            //         if let Some(ta) = o.as_TypedArray()
+            //             && o.class_id() != JS_CLASS_DATAVIEW
+            //         {
+            //             let ta = ta.payload().typed_array().unwrap();
+            //             ta.borrow_mut().count = 0;
+            //         }
+            //     }
+            // }
+
+            abuf.0.borrow_mut().detached = true;
+        }
     }
 }
 
@@ -349,41 +393,6 @@ pub fn js_shared_array_buffer_constructor(ctx: &JSContext, cc: CallContext) -> J
     let size = cc.arg(0).to_array_index(ctx)? as usize;
     ArrayBuffer::with_capacity_ex(ctx, cc.this(), true, size, std::ptr::null_mut())
         .map(|x| x.into())
-}
-
-pub unsafe fn JS_DetachArrayBuffer(ctx: &JSContext, obj: &JSValue) {
-    if let Ok(isa) = obj.retrive_object_payload(ctx, JS_CLASS_ARRAY_BUFFER) {
-        if let Some(abuf) = isa.array_buffer() {
-            if !abuf.0.borrow().detached {
-                match abuf.content().deref() {
-                    ABufData::Raw(ptr, len, fin) => {
-                        if let Some(f) = fin {
-                            f(ctx.rt_mut(), abuf.opaque(), ptr.as_ptr(), *len);
-                        }
-                    }
-                    _ => {}
-                }
-
-                abuf.0.borrow_mut().detached = true;
-
-                for w in abuf.0.borrow_mut().array_list.iter_mut() {
-                    if let Some(o) = w.upgrade() {
-                        // typed array or dataview
-                        // Note: the typed array length and offset fields are not modified
-                        if o.class_id() != JS_CLASS_DATAVIEW {
-                            if let Some(ta) = o.payload().typed_array() {
-                                ta.borrow_mut().count = 0;
-                            } else {
-                                unreachable!()
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    } else {
-        ctx.take_exception(); // clear exception
-    }
 }
 
 // also used for SharedArrayBuffer

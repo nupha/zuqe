@@ -2,11 +2,10 @@ use std::{path::PathBuf, time::Instant};
 
 use colorized::*;
 use zhuque::{
-    array_buffer::JS_DetachArrayBuffer,
     atom::JS_FreeAtom,
     context::JSContext,
     error::JSResult,
-    eval::{JS_EVAL_FLAG_ASYNC, JS_EVAL_TYPE_GLOBAL},
+    eval::JS_EVAL_TYPE_GLOBAL,
     function::{CallContext, NativeFunctionType},
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
     module::{JS_SetModuleLoaderFunc, ModuleDef},
@@ -175,8 +174,8 @@ fn main() {
                 "detachArrayBuffer",
                 ctx.create_native_function(
                     NativeFunctionType::Func(|ctx: &JSContext, cc: CallContext| -> JSResult {
-                        unsafe {
-                            JS_DetachArrayBuffer(ctx, cc.arg(0));
+                        if let Some(ab) = cc.arg(0).as_object_ArrayBuffer() {
+                            ab.detatch(ctx);
                         }
                         Ok(JSValue::UNDEFINED)
                     }),

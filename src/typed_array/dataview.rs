@@ -6,6 +6,7 @@ use crate::{
     JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY, JS_CLASS_UINT8_ARRAY,
     JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY, JS_PROP_STRING_DEF,
     array_buffer::ArrayBuffer,
+    branch_hints::unlikely,
     class::JSClassID,
     context::JSContext,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
@@ -26,20 +27,18 @@ impl JSContext {
     /// create a DataView with given array buffer.
     pub fn create_dataview(
         &self,
-        new_target: &JSValue,
+        ctor: &JSValue,
         buffer: ArrayBuffer,
         offset: usize,
         length: Option<usize>,
     ) -> JSResult {
         let abuf = buffer.payload();
-
         if abuf.is_detached() {
             JS_ThrowTypeErrorDetachedArrayBuffer(self);
             return Err(-1);
         }
 
         let byte_length = abuf.byte_length();
-
         if offset > byte_length {
             self.throw_range_error("invalid byteOffset");
             return Err(-1);
@@ -55,24 +54,24 @@ impl JSContext {
             }
         }
 
-        let ta = unsafe {
-            if let Some(ptr) = js_malloc_typed::<TypedArrayPayload>(self, 1, false) {
-                ptr.write(TypedArrayPayload {
-                    obj: JSObjectWeakref::default(),
-                    buffer: buffer.into(),
-                    offset: offset as u32,
-                    byte_length: len as _,
-                    count: 0,
-                });
-                Box::from_raw(ptr.as_ptr())
-            } else {
-                return Err(-1);
-            }
-        };
-
-        // create dataview instance
         let o = self
-            .create_object_from_ctor(new_target, ObjectPayload::DATAVIEW(RefCell::new(ta)))
+            .create_object_from_ctor_with(ctor, || {
+                // Note: test array buffer detach again,
+                // because get prototype may potentially detach the buffer.
+                if unlikely(buffer.payload().is_detached()) {
+                    JS_ThrowTypeErrorDetachedArrayBuffer(self);
+                    Err(-1)
+                } else {
+                    let isa = Box::new(TypedArrayPayload {
+                        obj: JSObjectWeakref::default(),
+                        buffer: buffer.into(),
+                        offset: offset as u32,
+                        byte_length: len as _,
+                        count: 0,
+                    });
+                    Ok(ObjectPayload::DATAVIEW(RefCell::new(isa)))
+                }
+            })
             .map_err(|_| -1)?;
 
         // set back ref to the new created DataView object
