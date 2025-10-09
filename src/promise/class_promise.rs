@@ -47,6 +47,7 @@ fn js_promise_then_finally_func(ctx: &JSContext, cc: CallContext) -> JSResult {
         CallContext::new_simple(ctx, ctor, std::slice::from_ref(&res)),
     )?;
 
+    // create inner resolving function for finally()
     let then_func: JSValue = NativeFunctionWithData::create(
         ctx,
         |cx: &JSContext, cc: CallContext| -> JSResult {
@@ -58,7 +59,7 @@ fn js_promise_then_finally_func(ctx: &JSContext, cc: CallContext) -> JSResult {
                 Err(-1)
             }
         },
-        1,
+        0, // resolve function has length=0
         cc.magic(),
         [cc.arg(0).clone()].into(), // data: argument#0
     )?
