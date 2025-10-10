@@ -71,19 +71,8 @@ pub fn js_build_arguments(ctx: &JSContext, args: &[JSValue]) -> JSValue {
     )
     .unwrap();
 
-    // add callee property to throw a TypeError in strict mode
-    let throw_type_error = ctx
-        .create_native_function(
-            NativeFunctionType::Func(|ctx, _| {
-                ctx.throw_type_error("invalid property access");
-                Err(-1)
-            }),
-            "",
-            0,
-            0,
-        )
-        .unwrap();
-
+    // LEGACY: add 'callee' property
+    let throw_type_error = ctx.0.borrow().throw_type_error.clone();
     obj.define_property(
         ctx,
         JS_ATOM_callee,

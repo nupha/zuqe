@@ -77,7 +77,7 @@ pub fn js_function_bind(ctx: &JSContext, cc: CallContext) -> JSResult {
                         d -= arg_count as f64; /* also converts -0 to +0 */
                     }
                 }
-                JSValue::Float64(d)
+                JSValue::from(d)
             }
             _ => JSValue::Int(0),
         }

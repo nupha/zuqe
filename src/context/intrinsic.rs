@@ -92,12 +92,15 @@ impl JSContext {
     }
 
     fn intrinsic_base_function(&self) {
-        let proto = self.0.borrow().function_proto.clone();
-
-        // access legacy properties: `caller` and `arguments` will throw TypeError in strict mode
-        let legacy = self
+        // FOR LEGACY: make throw type error function
+        let throw_type_error = self
             .create_native_function(
                 NativeFunctionType::Func(|ctx, cc| {
+                    // throw directly
+                    // ctx.throw_type_error("invalid property access");
+                    // Err(-1)
+
+                    // throw only in strict mode
                     let throw = cc
                         .this()
                         .as_object()
@@ -110,7 +113,6 @@ impl JSContext {
                             })
                         })
                         .unwrap_or(true);
-
                     if throw {
                         ctx.throw_type_error("invalid property access");
                         Err(-1)
@@ -128,13 +130,19 @@ impl JSContext {
             )
             .unwrap();
 
+        throw_type_error.seal(self, true).unwrap();
+        self.0.borrow_mut().throw_type_error = throw_type_error.clone();
+
+        // FOR LEGACY: add 'caller' and 'arguments' properties
+        let proto = self.0.borrow().function_proto.clone();
+
         proto
             .define_property(
                 self,
                 JS_ATOM_caller,
                 JSValue::UNDEFINED,
-                legacy.clone(),
-                legacy.clone(),
+                throw_type_error.clone(),
+                throw_type_error.clone(),
                 JS_PROP_HAS_GET | JS_PROP_HAS_SET | JS_PROP_HAS_CONFIGURABLE | JS_PROP_CONFIGURABLE,
             )
             .unwrap();
@@ -144,8 +152,8 @@ impl JSContext {
                 self,
                 JS_ATOM_arguments,
                 JSValue::UNDEFINED,
-                legacy.clone(),
-                legacy.clone(),
+                throw_type_error.clone(),
+                throw_type_error.clone(),
                 JS_PROP_HAS_GET | JS_PROP_HAS_SET | JS_PROP_HAS_CONFIGURABLE | JS_PROP_CONFIGURABLE,
             )
             .unwrap();
@@ -163,7 +171,7 @@ impl JSContext {
             )
             .unwrap();
 
-        self.add_global_constructor("Function", &ctor, &self.0.borrow().function_proto);
+        self.add_global_constructor("Function", &ctor, &proto);
         self.0.borrow_mut().function_ctor = ctor;
     }
 

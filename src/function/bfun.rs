@@ -475,16 +475,16 @@ impl BytecodeFunction {
                 }
                 buf.extend_from_slice(a.to_string(ctx)?.content().to_utf8(false).as_bytes());
             }
-            buf.extend_from_slice(b"){");
+            buf.extend_from_slice(b"\n) {\n");
 
             // function body
             buf.extend_from_slice(body.to_string(ctx)?.content().to_utf8(false).as_bytes());
         } else {
             // no arguments
-            buf.extend_from_slice(b"){");
+            buf.extend_from_slice(b") {\n");
         }
 
-        buf.extend_from_slice(b"})");
+        buf.extend_from_slice(b"\n})");
 
         // eval script
         let func_val = {

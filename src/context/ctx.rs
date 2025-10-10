@@ -51,6 +51,7 @@ pub struct JSContextInner {
     pub iterator_proto: JSValue,
     pub async_iterator_proto: JSValue,
     pub array_proto_values: JSValue,
+    pub throw_type_error: JSValue,
 
     /// the function of eval().
     pub eval_func: JSValue,
@@ -131,6 +132,7 @@ impl JSContextInner {
             iterator_proto: JSValue::UNDEFINED,
             async_iterator_proto: JSValue::UNDEFINED,
             array_proto_values: JSValue::UNDEFINED,
+            throw_type_error: JSValue::UNDEFINED,
             eval_func: JSValue::UNDEFINED,
 
             global_obj: JSValue::UNDEFINED,
@@ -207,6 +209,7 @@ impl JSContextInner {
         self.iterator_proto = JSValue::UNDEFINED;
         self.async_iterator_proto = JSValue::UNDEFINED;
         self.array_proto_values = JSValue::UNDEFINED;
+        self.throw_type_error = JSValue::UNDEFINED;
         self.global_obj = JSValue::UNDEFINED;
         self.global_var_obj = JSValue::UNDEFINED;
         self.eval_func = JSValue::UNDEFINED;
