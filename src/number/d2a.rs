@@ -48,94 +48,105 @@ pub fn f64_stringify<'a>(
     flags: i32,
 ) -> Cow<'a, str> {
     if !num.is_finite() {
-        if num.is_nan() {
+        return if num.is_nan() {
             "NaN"
         } else if num.is_sign_negative() {
             "-Infinity"
         } else {
             "Infinity"
         }
-        .into()
-    } else if num == 0.0 {
-        "0".into() // +0.0, -0.0 -> 0
-    } else {
-        let mut num = num;
-        let mut use_scientific = flags & JS_DTOA_FORCE_EXP != 0
-            || (num != 0.0 && {
-                let ab = num.abs();
-                ab >= 1e21 || ab < 1e-6
-            });
+        .into();
+    }
 
-        // number of digits after decimal point
-        let round: Option<i32> = if let Some(p) = fixed_digits {
-            debug_assert!(p >= 1);
-
-            let scientific = format!("{:.1$e}", num, p as usize - 1);
-            let i = scientific.find('e').unwrap();
-            let exponent = scientific[i + 1..].parse::<i32>().unwrap();
-
-            if !use_scientific {
-                use_scientific = (exponent < 0 && exponent.abs() > 6) || (exponent >= p as i32);
-            }
-            let n = p as i32 - 1 - exponent;
-            Some(if n >= 0 { n } else { p as i32 - 1 })
+    let mut num = if num == 0.0 {
+        if fixed_digits.is_none() {
+            return "0".into(); // +0.0, -0.0 -> 0
         } else {
-            None
-        };
+            0.0 // +0.0, -0.0 -> 0
+        }
+    } else {
+        num
+    };
 
-        if let Some(p) = round {
-            // round num up for .5 case
-            debug_assert!(p >= 0);
-            if num.abs() >= 1.0 {
-                let t0 = format!("{:.1$e}", num, p as usize + 1);
-                let i = t0.find('e').unwrap();
-                let mentissa = &t0[..i];
-                let exp = t0[i + 1..].parse::<i32>().unwrap();
-                if mentissa.ends_with(".5") {
-                    num += 5.0
-                        * 10_f64.powi(exp - 1)
-                        * if num.is_sign_positive() { 1.0 } else { -1.0 };
-                }
-            }
+    let mut use_scientific = flags & JS_DTOA_FORCE_EXP != 0
+        || (num != 0.0 && {
+            let ab = num.abs();
+            ab >= 1e21 || ab < 1e-6
+        });
+
+    // number of digits after decimal point
+    let round: Option<i32> = if let Some(p) = fixed_digits {
+        debug_assert!(p >= 1);
+
+        let scientific = format!("{:.1$e}", num, p as usize - 1);
+        let i = scientific.find('e').unwrap();
+        debug_assert!(i > 0);
+        let exponent = scientific[i + 1..].parse::<i32>().unwrap();
+
+        if !use_scientific {
+            use_scientific = (exponent < 0 && exponent.abs() > 6) || (exponent >= p as i32);
         }
 
-        if use_scientific {
-            let t = if let Some(p) = round {
-                debug_assert!(p >= 0);
-                format!("{:.1$e}", num, p as usize)
-            } else {
-                format!("{:.e}", num)
-            };
+        let n = if let Some(j) = scientific[..i].find('.') {
+            i - j - 1
+        } else {
+            i - 1
+        };
+        Some(n as i32)
+    } else {
+        None
+    };
 
-            // add '+' for positive exp
-            let i = t.find('e').unwrap();
-            let exp = t[i + 1..].parse::<i32>().unwrap();
-            if exp >= 0 {
-                format!("{}e+{}", &t[..i], exp)
+    if let Some(p) = round {
+        // round num up for .5 case
+        debug_assert!(p >= 0);
+        if num.abs() >= 1.0 {
+            let t0 = format!("{:.1$e}", num, p as usize + 1);
+            let i = t0.find('e').unwrap();
+            let mentissa = &t0[..i];
+            let exp = t0[i + 1..].parse::<i32>().unwrap();
+            if mentissa.ends_with(".5") {
+                num += 5.0 * 10_f64.powi(exp - 1) * if num.is_sign_positive() { 1.0 } else { -1.0 };
+            }
+        }
+    }
+
+    if use_scientific {
+        let t = if let Some(p) = round {
+            debug_assert!(p >= 0);
+            format!("{:.1$e}", num, p as usize)
+        } else {
+            format!("{:.e}", num)
+        };
+
+        // add '+' for positive exp
+        let i = t.find('e').unwrap();
+        let exp = t[i + 1..].parse::<i32>().unwrap();
+        if exp >= 0 {
+            format!("{}e+{}", &t[..i], exp)
+        } else {
+            t
+        }
+        .into()
+    } else {
+        let int64 = num as i64;
+
+        if num != int64 as f64 || !(-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&int64) {
+            // is a float or is an integer beyond safe range
+            if let Some(p) = round {
+                format!("{:.1$}", num, p as usize)
             } else {
-                t
+                format!("{num}")
             }
             .into()
         } else {
-            let int64 = num as i64;
-
-            if num != int64 as f64 || !(-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&int64) {
-                // is a float or is an integer beyond safe range
-                if let Some(p) = round {
-                    format!("{:.1$}", num, p as usize)
-                } else {
-                    format!("{num}")
-                }
-                .into()
-            } else {
-                // is an integer
-                let mut buf = [0u8; 33];
-                unsafe {
-                    CStr::from_ptr(i64toa(buf.as_mut_ptr(), int64, radix).cast())
-                        .to_string_lossy()
-                        .into_owned()
-                        .into()
-                }
+            // is an integer
+            let mut buf = [0u8; 33];
+            unsafe {
+                CStr::from_ptr(i64toa(buf.as_mut_ptr(), int64, radix).cast())
+                    .to_string_lossy()
+                    .into_owned()
+                    .into()
             }
         }
     }

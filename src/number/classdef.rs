@@ -225,7 +225,7 @@ pub fn js_number_fmt(ctx: &JSContext, cc: CallContext) -> JSResult {
             .into_owned(),
 
             FMT_TO_EXPONENTIAL => if let Some(f) = a {
-                if !(0..=20).contains(&f) {
+                if !(0..=100).contains(&f) {
                     ctx.throw_range_error("invalid number of digits");
                     return Err(-1);
                 }
