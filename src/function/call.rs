@@ -97,8 +97,9 @@ impl<'a> CallContext<'a> {
             .unwrap_or(JSValue::UNDEFINED)
     }
 
+    /// data length
     #[inline]
-    pub fn len(&self) -> usize {
+    pub fn data_len(&self) -> usize {
         self.data.as_ref().map(|d| d.borrow().len()).unwrap_or(0)
     }
 

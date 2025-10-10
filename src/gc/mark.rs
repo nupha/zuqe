@@ -283,7 +283,6 @@ impl JSContext {
             cx.regexp_ctor.gc_mark();
             cx.promise_ctor.gc_mark();
 
-            cx.throw_type_error.gc_mark();
             cx.eval_func.gc_mark();
             cx.global_obj.gc_mark();
             cx.global_var_obj.gc_mark();
@@ -320,7 +319,6 @@ impl JSContext {
         cx.iterator_proto = JSValue::UNDEFINED;
         cx.async_iterator_proto = JSValue::UNDEFINED;
         cx.array_proto_values = JSValue::UNDEFINED;
-        cx.throw_type_error = JSValue::UNDEFINED;
         cx.eval_func = JSValue::UNDEFINED;
         cx.global_obj = JSValue::UNDEFINED;
         cx.global_var_obj = JSValue::UNDEFINED;

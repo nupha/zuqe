@@ -26,8 +26,7 @@ use crate::{
     },
     generator::{
         js_async_generator_function_proto_funcs, js_async_generator_proto_funcs,
-        js_async_iterator_proto_funcs, js_function_constructor, js_generator_function_proto_funcs,
-        js_generator_proto_funcs,
+        js_async_iterator_proto_funcs, js_generator_function_proto_funcs, js_generator_proto_funcs,
     },
     iterator::{js_async_from_sync_iterator_proto_funcs, js_iterator_proto_funcs},
     js_core::{
@@ -70,47 +69,7 @@ use crate::{
 };
 
 impl JSContext {
-    fn intrinsic_throw_error(&self) {
-        // throw TypeError()
-        let throw_type_error = self
-            .create_native_function(NativeFunctionType::Func(js_throw_type_error), "", 0, 0)
-            .unwrap();
-        self.0.borrow_mut().throw_type_error = throw_type_error.clone();
-
-        // add `caller` and `arguments` properties to throw a TypeError
-        let obj1 = self
-            .create_native_function(NativeFunctionType::Func(js_function_proto_caller), "", 0, 0)
-            .unwrap();
-        self.0
-            .borrow()
-            .function_proto
-            .define_property(
-                self,
-                JS_ATOM_caller,
-                JSValue::UNDEFINED,
-                obj1.clone(),
-                self.0.borrow().throw_type_error.clone(),
-                JS_PROP_HAS_GET | JS_PROP_HAS_SET | JS_PROP_HAS_CONFIGURABLE | JS_PROP_CONFIGURABLE,
-            )
-            .unwrap();
-
-        self.0
-            .borrow()
-            .function_proto
-            .define_property(
-                self,
-                JS_ATOM_arguments,
-                JSValue::UNDEFINED,
-                obj1.clone(),
-                self.0.borrow().throw_type_error.clone(),
-                JS_PROP_HAS_GET | JS_PROP_HAS_SET | JS_PROP_HAS_CONFIGURABLE | JS_PROP_CONFIGURABLE,
-            )
-            .unwrap();
-
-        throw_type_error.seal(self, true).unwrap();
-    }
-
-    fn intrinsic_object(&self) {
+    fn intrinsic_base_object(&self) {
         let obj_ctor = self
             .create_global_constructor_or_func(
                 "Object",
@@ -132,14 +91,70 @@ impl JSContext {
             .unwrap();
     }
 
-    fn intrinsic_function(&self) {
-        self.0
-            .borrow()
-            .function_proto
+    fn intrinsic_base_function(&self) {
+        let proto = self.0.borrow().function_proto.clone();
+
+        // access legacy properties: `caller` and `arguments` will throw TypeError in strict mode
+        let legacy = self
+            .create_native_function(
+                NativeFunctionType::Func(|ctx, cc| {
+                    let throw = cc
+                        .this()
+                        .as_object()
+                        .and_then(|o| {
+                            o.payload().func().and_then(|f| {
+                                f.bytecode.as_ref().map(|bc| {
+                                    let b = bc.0.borrow();
+                                    b.js_mode & JS_MODE_STRICT as u8 != 0 || !b.has_prototype
+                                })
+                            })
+                        })
+                        .unwrap_or(true);
+
+                    if throw {
+                        ctx.throw_type_error("invalid property access");
+                        Err(-1)
+                    } else {
+                        Ok(if cc.length() == 0 {
+                            JSValue::NULL // getter
+                        } else {
+                            JSValue::UNDEFINED // setter
+                        })
+                    }
+                }),
+                "",
+                0,
+                0,
+            )
+            .unwrap();
+
+        proto
+            .define_property(
+                self,
+                JS_ATOM_caller,
+                JSValue::UNDEFINED,
+                legacy.clone(),
+                legacy.clone(),
+                JS_PROP_HAS_GET | JS_PROP_HAS_SET | JS_PROP_HAS_CONFIGURABLE | JS_PROP_CONFIGURABLE,
+            )
+            .unwrap();
+
+        proto
+            .define_property(
+                self,
+                JS_ATOM_arguments,
+                JSValue::UNDEFINED,
+                legacy.clone(),
+                legacy.clone(),
+                JS_PROP_HAS_GET | JS_PROP_HAS_SET | JS_PROP_HAS_CONFIGURABLE | JS_PROP_CONFIGURABLE,
+            )
+            .unwrap();
+
+        proto
             .install_field_defs(self, &js_function_proto_funcs)
             .unwrap();
 
-        let function_ctor = self
+        let ctor = self
             .create_native_function(
                 NativeFunctionType::ConstructorOrFunc(BytecodeFunction::class_constructor),
                 "Function",
@@ -148,11 +163,11 @@ impl JSContext {
             )
             .unwrap();
 
-        self.add_global_constructor("Function", &function_ctor, &self.0.borrow().function_proto);
-        self.0.borrow_mut().function_ctor = function_ctor;
+        self.add_global_constructor("Function", &ctor, &self.0.borrow().function_proto);
+        self.0.borrow_mut().function_ctor = ctor;
     }
 
-    fn intrinsic_errors(&self) {
+    fn intrinsic_base_errors(&self) {
         // Error() constructor
         let error_ctor = self
             .create_native_function(
@@ -193,7 +208,7 @@ impl JSContext {
         }
     }
 
-    fn intrinsic_array(&self) {
+    fn intrinsic_base_array(&self) {
         self.0.borrow().class_proto[JS_CLASS_ARRAY as usize]
             .install_field_defs(self, &js_array_proto_funcs)
             .unwrap();
@@ -265,7 +280,7 @@ impl JSContext {
         }
     }
 
-    fn intrinsic_number(&self) {
+    fn intrinsic_base_number(&self) {
         let number_obj = self
             .create_object_from_proto(
                 self.0.borrow().class_proto[JS_CLASS_OBJECT as usize].clone(),
@@ -287,7 +302,7 @@ impl JSContext {
         self.0.borrow_mut().class_proto[JS_CLASS_NUMBER as usize] = number_proto;
     }
 
-    fn intrinsic_boolean(&self) {
+    fn intrinsic_base_boolean(&self) {
         let bool_obj = self
             .create_object_from_proto(
                 self.0.borrow().class_proto[JS_CLASS_OBJECT as usize].clone(),
@@ -311,7 +326,7 @@ impl JSContext {
         self.0.borrow_mut().class_proto[JS_CLASS_BOOLEAN as usize] = bool_obj.into();
     }
 
-    fn intrinsic_string(&self) {
+    fn intrinsic_base_string(&self) {
         let empty_str = JS_ATOM_empty_string.force_string(self).unwrap();
 
         let string_obj: JSValue = {
@@ -355,7 +370,7 @@ impl JSContext {
         self.0.borrow_mut().class_proto[JS_CLASS_STRING_ITERATOR as usize] = string_iter.into();
     }
 
-    fn intrinsic_symbol(&self) {
+    fn intrinsic_base_symbol(&self) {
         let symbol_obj = self.create_base_object().unwrap();
         symbol_obj
             .install_field_defs(self, &js_symbol_proto_funcs)
@@ -393,7 +408,7 @@ impl JSContext {
         self.0.borrow_mut().class_proto[JS_CLASS_SYMBOL as usize] = symbol_obj.into();
     }
 
-    fn intrinsic_iterator(&self) {
+    fn intrinsic_base_iterator(&self) {
         let iter_obj = self.create_base_object().unwrap();
         iter_obj
             .install_field_defs(self, &js_iterator_proto_funcs)
@@ -401,7 +416,7 @@ impl JSContext {
         self.0.borrow_mut().iterator_proto = iter_obj.into();
     }
 
-    fn intrinsic_generator(&self) {
+    fn intrinsic_base_generator(&self) {
         // generator prototype
         let generator = self
             .create_base_object_from_proto(self.0.borrow().iterator_proto.clone())
@@ -623,25 +638,18 @@ impl JSContext {
                 .unwrap();
         }
 
-        // builtin objects
-        {
-            self.intrinsic_throw_error(); // throw TypeError()
+        self.intrinsic_base_object(); // Object
+        self.intrinsic_base_function(); // Function
+        self.intrinsic_base_errors(); // Error
+        self.intrinsic_base_iterator(); // Iterator prototype
+        self.intrinsic_base_array(); // Array
+        self.intrinsic_base_number(); // Number
+        self.intrinsic_base_boolean(); // Boolean
+        self.intrinsic_base_string(); // String
+        self.intrinsic_base_symbol(); // Symbol
+        self.intrinsic_base_generator(); // Generator
 
-            self.intrinsic_object(); // Object
-            self.intrinsic_function(); // Function
-            self.intrinsic_errors(); // Error
-            self.intrinsic_iterator(); // Iterator prototype
-            self.intrinsic_array(); // Array
-
-            self.intrinsic_number(); // Number
-            self.intrinsic_boolean(); // Boolean
-            self.intrinsic_string(); // String
-
-            self.intrinsic_symbol(); // Symbol
-            self.intrinsic_generator(); // Generator
-
-            self.intrinsic_eval(); // `eval()` function
-        }
+        self.intrinsic_eval(); // `eval()` function
     }
 
     pub fn intrinsic_typed_arrays(&self) {
@@ -967,34 +975,5 @@ impl JSContext {
             .global_obj
             .install_field_defs(self, &js_json_obj)
             .unwrap();
-    }
-}
-
-fn js_throw_type_error(ctx: &JSContext, cc: CallContext) -> JSResult {
-    ctx.throw_type_error("invalid property access");
-    Err(-1)
-}
-
-// XXX: not 100% compatible, but mozilla seems to use a similar
-// implementation to ensure that caller in non strict mode does not
-// throw (ES5 compatibility)
-fn js_function_proto_caller(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let throw_type_error = cc
-        .this()
-        .as_object()
-        .and_then(|o| {
-            o.payload().func().and_then(|f| {
-                f.bytecode.as_ref().map(|bc| {
-                    let b = bc.0.borrow();
-                    b.js_mode & JS_MODE_STRICT as u8 != 0 || !b.has_prototype
-                })
-            })
-        })
-        .unwrap_or(true);
-
-    if throw_type_error {
-        js_throw_type_error(ctx, cc)
-    } else {
-        Ok(JSValue::UNDEFINED)
     }
 }

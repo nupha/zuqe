@@ -1,5 +1,6 @@
 use crate::branch_hints::unlikely;
 use crate::error::JSResult;
+use crate::function::NativeFunctionType;
 use crate::object::JSObject;
 use crate::{
     JS_CLASS_OBJECT,
@@ -27,7 +28,7 @@ impl JSContext {
     }
 }
 
-pub unsafe fn js_build_arguments(ctx: &JSContext, args: &[JSValue]) -> JSValue {
+pub fn js_build_arguments(ctx: &JSContext, args: &[JSValue]) -> JSValue {
     let obj: JSObject = if let Ok(o) = ctx.create_object_from_proto(
         ctx.0.borrow().class_proto[JS_CLASS_OBJECT as usize].clone(),
         ObjectPayload::ARGUMENTS(ArrayObjPayload::default()),
@@ -71,7 +72,18 @@ pub unsafe fn js_build_arguments(ctx: &JSContext, args: &[JSValue]) -> JSValue {
     .unwrap();
 
     // add callee property to throw a TypeError in strict mode
-    let throw_type_error = ctx.0.borrow().throw_type_error.clone();
+    let throw_type_error = ctx
+        .create_native_function(
+            NativeFunctionType::Func(|ctx, _| {
+                ctx.throw_type_error("invalid property access");
+                Err(-1)
+            }),
+            "",
+            0,
+            0,
+        )
+        .unwrap();
+
     obj.define_property(
         ctx,
         JS_ATOM_callee,

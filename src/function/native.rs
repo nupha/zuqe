@@ -417,7 +417,7 @@ impl JSContext {
 
     /// Create new function object with native callback. using function proto as proto object.
     /// at least `length` arguments will be readable in arguments.
-    #[inline]
+    #[inline(always)]
     pub fn create_native_function(
         &self,
         handler: NativeFunctionType,
