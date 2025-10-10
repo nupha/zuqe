@@ -25,17 +25,10 @@ impl Iterator for ObjectShapeProtoIter {
 }
 
 impl JSObject {
-    /// Get prototype object of `self`, both shape and proxy are considered.
-    ///
-    /// Returns:
-    /// - Some(object) if it has prototype, None for no prototype.
-    /// - Err in case Proxy object calling getPrototypeOf() failed.
-    pub fn prototype(&self, ctx: &JSContext) -> Result<Option<JSObject>, i32> {
-        if let Some(p) = self.as_Proxy() {
-            Ok(JSObject::try_from(p.get_prototype_of(ctx)?).ok())
-        } else {
-            Ok(self.shape().and_then(|s| s.0.borrow().proto.clone()))
-        }
+    /// get shape proto of object `self`
+    #[inline(always)]
+    pub fn shape_proto(&self) -> Option<JSObject> {
+        self.shape().and_then(|s| s.0.borrow().proto.clone())
     }
 
     /// Get shape proto chain iterator, to iterate over the proto chain of an object.
@@ -46,8 +39,21 @@ impl JSObject {
             obj: if include_self {
                 Some(self.clone())
             } else {
-                self.shape().and_then(|s| s.0.borrow().proto.clone())
+                self.shape_proto()
             },
+        }
+    }
+
+    /// Get prototype object of `self`, both shape and proxy are considered.
+    ///
+    /// Returns:
+    /// - Some(object) if it has prototype, None for no prototype.
+    /// - Err in case Proxy object calling getPrototypeOf() failed.
+    pub fn prototype(&self, ctx: &JSContext) -> Result<Option<JSObject>, i32> {
+        if let Some(p) = self.as_Proxy() {
+            Ok(JSObject::try_from(p.get_prototype_of(ctx)?).ok())
+        } else {
+            Ok(self.shape_proto())
         }
     }
 

@@ -32,15 +32,16 @@ pub fn js_reflect_apply(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_reflect_construct(ctx: &JSContext, cc: CallContext) -> JSResult {
     let func = cc.arg(0);
     let array_arg = cc.arg(1);
-    let mut new_target = func;
-
-    if cc.length() > 2 {
-        new_target = cc.arg(2);
-        if !new_target.is_constructor() {
+    let new_target = if cc.length() > 2 {
+        let target = cc.arg(2);
+        if !target.is_constructor() {
             ctx.throw_type_error("not a constructor");
             return Err(-1);
         }
-    }
+        target
+    } else {
+        func
+    };
 
     let args = build_arg_list(ctx, array_arg)?;
     JS_CallConstructor2(ctx, func, new_target.clone(), &args).err()

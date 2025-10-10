@@ -11,21 +11,20 @@ use crate::{
 
 pub fn js_error_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let mut new_target = cc.this().clone();
-
     if new_target.is_undefined() {
         new_target = unsafe { JS_GetActiveFunction(ctx).clone() };
     }
 
+    // use proper proto, ensure proto is an object
     let mut proto = new_target.get_property(ctx, JS_ATOM_prototype)?;
-
     if !proto.is_object() {
         let realm = JS_GetFunctionRealm(ctx, &new_target)?;
-        proto = realm.0.borrow().class_proto[if cc.magic() < 0 {
-            JS_CLASS_ERROR as usize
+        let magic = cc.magic();
+        proto = if magic < 0 {
+            realm.0.borrow().class_proto[JS_CLASS_ERROR as usize].clone()
         } else {
-            cc.magic() as usize
-        }]
-        .clone();
+            realm.0.borrow().native_error_proto[magic as usize].clone()
+        };
     }
 
     let obj = ctx

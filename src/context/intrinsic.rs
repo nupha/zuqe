@@ -177,7 +177,7 @@ impl JSContext {
 
     fn intrinsic_base_errors(&self) {
         // Error() constructor
-        let error_ctor = self
+        let ctor = self
             .create_native_function(
                 NativeFunctionType::ConstructorOrFunc(js_error_constructor),
                 "Error",
@@ -188,7 +188,7 @@ impl JSContext {
 
         self.add_global_constructor(
             "Error",
-            &error_ctor,
+            &ctor,
             &self.0.borrow().class_proto[JS_CLASS_ERROR as usize],
         );
 
@@ -204,7 +204,7 @@ impl JSContext {
                         1
                     },
                     i as _, // magic
-                    error_ctor.clone(),
+                    ctor.clone(),
                 )
                 .unwrap();
 
