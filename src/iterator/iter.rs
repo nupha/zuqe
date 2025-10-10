@@ -372,12 +372,12 @@ impl JSValue {
                     })?;
                     let next_method = it.get_property(ctx, JS_ATOM_next)?;
 
-                    ctx.create_object(ObjectPayload::ASYNC_FROM_SYNC_ITERATOR(
+                    ctx.create_object(ObjectPayload::ASYNC_FROM_SYNC_ITERATOR(Box::new(
                         JSAsyncFromSyncIteratorData {
                             obj: it,
                             next_method,
                         },
-                    ))
+                    )))
                     .map(Some)
                     .map_err(|_| -1)
                 } else {

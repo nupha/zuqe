@@ -497,6 +497,7 @@ pub fn js_for_of_start(ctx: &JSContext, sp: *mut JSValue, is_async: bool) -> Res
     Ok(())
 }
 
+#[deprecated]
 pub unsafe fn js_for_of_next(ctx: &JSContext, sp: *mut JSValue, base: i32) -> Result<(), i32> {
     let mut value: JSValue = JSValue::UNDEFINED;
     let mut done = true;

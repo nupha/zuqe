@@ -86,6 +86,7 @@ impl GeneratorPayload {
 }
 
 // XXX: add a specific eval mode so that Function("}), ({") is rejected
+#[deprecated(note = "should use BytecodeFunction::class_constructor ???")]
 pub fn js_function_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let func_kind = unsafe { std::mem::transmute::<_, JSFunctionKindEnum>(cc.magic() as u8) };
 
@@ -111,7 +112,6 @@ pub fn js_function_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
     source.push_str(" anonymous(").unwrap();
 
-    // args and body
     if let Some((body, args)) = cc.arguments().split_last() {
         // args list
         for (i, a) in args.iter().enumerate() {

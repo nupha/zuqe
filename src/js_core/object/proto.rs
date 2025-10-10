@@ -1,9 +1,5 @@
-use std::borrow::Cow;
-
 use crate::{
-    JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_ARGUMENTS, JS_CLASS_BOOLEAN,
-    JS_CLASS_DATE, JS_CLASS_ERROR, JS_CLASS_MAPPED_ARGUMENTS, JS_CLASS_NUMBER, JS_CLASS_REGEXP,
-    JS_CLASS_STRING,
+    JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF,
     atom::{JS_ATOM_NULL, JS_FreeAtom, consts::*},
     branch_hints::unlikely,
     context::JSContext,
@@ -17,45 +13,10 @@ use crate::{
 };
 
 pub fn js_object_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
-    // let tag: Cow<str> = match cc.this() {
-    //     JSValue::NULL => "Null".into(),
-    //     JSValue::UNDEFINED => "Undefined".into(),
-    //     v => {
-    //         let obj = v.clone().objectify(ctx)?;
+    // cc.this().to_string(ctx).map(JSValue::String)
 
-    //         // eval tag atom
-    //         let tag_atom = if obj.is_array(ctx)? {
-    //             JS_ATOM_Array
-    //         } else if obj.is_function() {
-    //             JS_ATOM_Function
-    //         } else {
-    //             match obj.class_id() {
-    //                 cid @ (JS_CLASS_STRING
-    //                 | JS_CLASS_ARGUMENTS
-    //                 | JS_CLASS_MAPPED_ARGUMENTS
-    //                 | JS_CLASS_ERROR
-    //                 | JS_CLASS_BOOLEAN
-    //                 | JS_CLASS_NUMBER
-    //                 | JS_CLASS_DATE
-    //                 | JS_CLASS_REGEXP) => ctx.rt().class_defs[cid as usize].class_name,
-
-    //                 _ => JS_ATOM_Object,
-    //             }
-    //         };
-
-    //         // get [Symbol.toStringTag] property, if got no string, use tag atom above.
-    //         if let JSValue::String(s) = obj.get_property(ctx, JS_ATOM_Symbol_toStringTag)? {
-    //             format!("{s}")
-    //         } else {
-    //             format!("{}", tag_atom.force_string(ctx)?)
-    //         }
-    //         .into()
-    //     }
-    // };
-    // let txt = format!("[object {tag}]");
-
+    // to prompt object
     let txt = cc.this().inspect(ctx)?;
-
     ctx.create_string_from_utf8(txt.into_bytes())
         .map(JSValue::String)
 }

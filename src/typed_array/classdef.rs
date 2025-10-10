@@ -844,13 +844,19 @@ pub fn js_typed_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
     let to_locale = cc.magic() != 0;
     let this_val = cc.this();
 
-    let n = js_typed_array_get_length_internal(ctx, this_val)?;
-    let sep: std::borrow::Cow<'_, str> =
-        if !to_locale && cc.length() > 0 && !cc.arg(0).is_undefined() {
-            cc.arg(0).inspect(ctx)?.into()
-        } else {
-            ",".into() // default separator
-        };
+    let n = if let Some(p) = cc.this().as_object_TypedArray() {
+        p.length()
+    } else {
+        ctx.throw_type_error("not a TypedArray");
+        return Err(-1);
+    };
+
+    let sep: String = if !to_locale && cc.length() > 0 && !cc.arg(0).is_undefined() {
+        let s = this_val.to_string(ctx)?;
+        s.content().to_utf8(false).to_string()
+    } else {
+        ",".into() // default separator
+    };
 
     let mut txt = StringBuf::with_capacity(n as usize, false).map_err(|_| {
         ctx.throw_out_of_memory();
@@ -861,13 +867,13 @@ pub fn js_typed_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
     for i in 0..n {
         if i > 0 {
             // add separator
-            if txt.push_str(sep.as_ref()).is_err() {
+            if txt.push_str(&sep).is_err() {
                 ctx.throw_out_of_memory();
                 return Err(-1);
             };
         }
 
-        let el = this_val.get_property_u32(ctx, i)?;
+        let el = this_val.get_property_u32(ctx, i as u32)?;
         if !el.is_undefined_or_null() {
             let s = if to_locale {
                 el.to_locale_string(ctx)?.to_string(ctx)?
@@ -893,7 +899,13 @@ pub fn js_typed_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
     let this_val = cc.this();
     let special = cc.magic();
 
-    let len = unsafe { js_typed_array_get_length_internal(ctx, this_val)? as i32 };
+    let len = if let Some(p) = cc.this().as_object_TypedArray() {
+        p.length() as i32
+    } else {
+        ctx.throw_type_error("not a TypedArray");
+        return Err(-1);
+    };
+
     if len == 0 {
         return Ok(if special == special_includes {
             JSValue::Bool(false)

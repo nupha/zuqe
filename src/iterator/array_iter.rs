@@ -15,7 +15,7 @@ use super::JSIteratorKindEnum;
 
 /// iterate state for Array, String or TypedArray
 #[derive(Debug)]
-pub(crate) struct ArrayIterPayload {
+pub struct ArrayIterPayload {
     /// target value
     val: UnsafeCell<JSValue>,
     /// current index

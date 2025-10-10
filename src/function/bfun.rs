@@ -473,12 +473,12 @@ impl BytecodeFunction {
                 if i != 0 {
                     buf.push(b',');
                 }
-                buf.extend_from_slice(a.inspect(ctx)?.as_bytes());
+                buf.extend_from_slice(a.to_string(ctx)?.content().to_utf8(false).as_bytes());
             }
             buf.extend_from_slice(b"){");
 
             // function body
-            buf.extend_from_slice(body.inspect(ctx)?.as_bytes());
+            buf.extend_from_slice(body.to_string(ctx)?.content().to_utf8(false).as_bytes());
         } else {
             // no arguments
             buf.extend_from_slice(b"){");
@@ -486,16 +486,13 @@ impl BytecodeFunction {
 
         buf.extend_from_slice(b"})");
 
-        // create script string
-        // let src = ctx.create_string_from_utf8(buf.into_vec())?;
-
         // eval script
         let func_val = {
             // Note: to avoid ctx.0 borrow conflict, fetch global object in advance
             let global = JSValue::Object(ctx.global_obj());
             ctx.eval_internal(
                 &global,
-                buf.as_slice(), //&src.content().encode_utf8_bytes(),
+                buf.as_slice(),
                 "<input>",
                 JS_EVAL_TYPE_INDIRECT,
                 -1,

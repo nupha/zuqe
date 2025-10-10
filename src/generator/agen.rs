@@ -42,7 +42,7 @@ pub struct JSAsyncGeneratorRequest {
 }
 
 #[derive(Debug)]
-pub(crate) struct AGenPayload {
+pub struct AGenPayload {
     /// reference back to the generator object (const)
     generator: RefCell<JSObjectWeakref>,
 

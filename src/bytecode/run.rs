@@ -1,14 +1,14 @@
 use crate::{
     atom::{
         AtomTypeHint, JS_ATOM_NULL, JS_FreeAtom, JSAtom,
-        consts::{JS_ATOM_return, JS_ATOM_throw},
+        consts::{JS_ATOM_next, JS_ATOM_return, JS_ATOM_throw},
     },
     branch_hints::unlikely,
     bytecode::{
         OpCode, SpecialObject,
         arithmatic::{UnaryOp, op_binary_logic},
         operators::{
-            js_append_enumerate, js_for_in_next, js_for_in_start, js_for_of_next, js_for_of_start,
+            js_append_enumerate, js_for_in_next, js_for_in_start, js_for_of_next,
             js_has_unscopable, js_iterator_get_value_done, js_method_set_home_object,
             js_method_set_properties, js_op_define_class, js_operator_delete, js_operator_in,
             js_operator_instanceof, js_operator_private_in,
@@ -619,7 +619,7 @@ impl Bytecode {
                         // SP![-3] = tmp;
                     }
                     OpCode::PERM4 => {
-                        // Stack operation: [obj, prop, a, fixed, ^] -> [a, obj, prop, fixed, ^] where ^ is stack top
+                        // [obj, prop, a, fixed, ^] -> [a, obj, prop, fixed, ^]
                         // Performs a right rotation on three values before the fixed value
                         // The rightmost value moves left, others shift right, fixed value stays in place
                         let lst = unsafe { std::slice::from_raw_parts_mut(sp.offset(-4), 3) };
@@ -1403,14 +1403,29 @@ impl Bytecode {
                     OpCode::FOR_OF_START | OpCode::FOR_AWAIT_OF_START => {
                         // [obj, ^] -> [obj[Symbol.iterator], next_method, catchoffset(0), ^]
                         // [obj, ^] -> [obj[Symbol.asyncIterator], next_method, catchoffset(0), ^]
-                        let r = js_for_of_start(ctx, sp, opcode == OpCode::FOR_AWAIT_OF_START);
-                        if unlikely(r.is_err()) {
-                            break State::Exception;
-                        } else {
+                        let is_async = opcode == OpCode::FOR_AWAIT_OF_START;
+
+                        if let Ok((iter_obj, next_method)) = SP_REF!(-1)
+                            .get_iterator_must(ctx, is_async)
+                            .and_then(|o| o.get_property(ctx, JS_ATOM_next).map(|m| (o, m)))
+                        {
+                            SP_PUT!(-1, iter_obj.into());
+                            SP_PUT!(0, next_method);
                             SP_GO!(1);
                             SP_PUT!(0, JSValue::CatchOffset(0)); // mark for_of_start
                             SP_GO!(1);
+                        } else {
+                            break State::Exception;
                         }
+
+                        // let r = js_for_of_start(ctx, sp, is_async);
+                        // if unlikely(r.is_err()) {
+                        //     break State::Exception;
+                        // } else {
+                        //     SP_GO!(1);
+                        //     SP_PUT!(0, JSValue::CatchOffset(0)); // mark for_of_start
+                        //     SP_GO!(1);
+                        // }
                     }
                     OpCode::FOR_OF_NEXT => {
                         let offset = -3 - PC_FETCH!(u8) as i32;

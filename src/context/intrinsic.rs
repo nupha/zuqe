@@ -424,9 +424,9 @@ impl JSContext {
             generator_function_proto.clone();
 
         // generator constructor
-        let generator_ctor = self
+        let ctor = self
             .create_native_function(
-                NativeFunctionType::ConstructorOrFunc(js_function_constructor),
+                NativeFunctionType::ConstructorOrFunc(BytecodeFunction::class_constructor),
                 "GeneratorFunction",
                 1,
                 JSFunctionKindEnum::JS_FUNC_GENERATOR as i16,
@@ -441,7 +441,7 @@ impl JSContext {
         );
         JS_SetConstructor2(
             self,
-            &generator_ctor,
+            &ctor,
             &generator_function_proto,
             0,
             JS_PROP_CONFIGURABLE,

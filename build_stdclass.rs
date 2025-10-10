@@ -369,7 +369,7 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "empty_string", // JS_ATOM_empty_string
             "ASYNC_FROM_SYNC_ITERATOR",
-            Some("crate::iterator::JSAsyncFromSyncIteratorData"),
+            Some("Box<crate::iterator::JSAsyncFromSyncIteratorData>"),
             Some("crate::iterator::js_async_from_sync_iterator_finalizer"),
             Some("crate::iterator::js_async_from_sync_iterator_mark")
         ),
