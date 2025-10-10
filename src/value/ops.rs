@@ -17,12 +17,13 @@ impl JSObject {
         if !ctor.is_function() {
             return Ok(false);
         }
-        if let JSValue::Object(ty) = ctor {
-            if let ObjectPayload::BOUND_FUNCTION(bfunc) = ty.payload() {
-                return bfunc.func_obj.instance_of(ctx, ctor);
-            }
-        } else {
-            unreachable!();
+
+        // ctor is sure to be object now.
+        let ctor = unsafe { ctor.as_object_unchecked() };
+
+        if let ObjectPayload::BOUND_FUNCTION(b) = ctor.payload() {
+            // bound function case
+            return self.instance_of(ctx, &b.func_obj);
         }
 
         match ctor.get_property(ctx, JS_ATOM_prototype)? {
@@ -63,6 +64,28 @@ impl JSObject {
             }
         }
     }
+
+    /// Test if value `self` is instance of `ctor`.
+    /// Equivalent to `self instanceof ctor`
+    pub fn instance_of(&self, ctx: &JSContext, ctor: &JSValue) -> Result<bool, i32> {
+        if let Some(o) = ctor.as_object() {
+            if let Some(r) =
+                o.invoke_defined(ctx, JS_ATOM_Symbol_hasInstance, &[self.clone().into()])?
+            {
+                return r.and_then(|v| v.to_bool());
+            } else {
+                // no Symbol.hasInstance method: check legacy way
+                return if o.is_function() {
+                    self.ordinary_instance_of(ctx, ctor)
+                } else {
+                    Ok(false)
+                };
+            }
+        }
+
+        ctx.throw_type_error("invalid 'instanceof' right operand");
+        Err(-1)
+    }
 }
 
 impl JSValue {
@@ -94,25 +117,45 @@ impl JSValue {
     /// Test if value `self` is instance of `ctor`.
     /// Equivalent to `self instanceof ctor`
     pub fn instance_of(&self, ctx: &JSContext, ctor: &JSValue) -> Result<bool, i32> {
-        if ctor.is_object() {
-            let method = ctor.get_property(ctx, JS_ATOM_Symbol_hasInstance)?;
-            if !method.is_undefined_or_null() {
-                return method
-                    .call(ctx, &ctor, std::slice::from_ref(self))
-                    .and_then(|v| v.to_bool());
+        // if ctor.is_object() {
+        //     let method = ctor.get_property(ctx, JS_ATOM_Symbol_hasInstance)?;
+        //     if !method.is_undefined_or_null() {
+        //         return method
+        //             .call(ctx, &ctor, std::slice::from_ref(self))
+        //             .and_then(|v| v.to_bool());
+        //     }
+        // }
+
+        // if ctor.is_function() {
+        //     // legacy case
+        //     if let Some(o) = self.as_object() {
+        //         o.ordinary_instance_of(ctx, ctor)
+        //     } else {
+        //         Ok(false)
+        //     }
+        // } else {
+        //     ctx.throw_type_error("invalid 'instanceof' right operand");
+        //     Err(-1)
+        // }
+
+        if let Some(o) = ctor.as_object() {
+            if let Some(r) =
+                o.invoke_defined(ctx, JS_ATOM_Symbol_hasInstance, &[self.clone().into()])?
+            {
+                return r.and_then(|v| v.to_bool());
+            } else {
+                // no Symbol.hasInstance method: check legacy way
+                if o.is_function() {
+                    return if let Some(o) = self.as_object() {
+                        o.ordinary_instance_of(ctx, ctor)
+                    } else {
+                        Ok(false)
+                    };
+                }
             }
         }
 
-        if ctor.is_function() {
-            // legacy case
-            if let Some(o) = self.as_object() {
-                o.ordinary_instance_of(ctx, ctor)
-            } else {
-                Ok(false)
-            }
-        } else {
-            ctx.throw_type_error("invalid 'instanceof' right operand");
-            Err(-1)
-        }
+        ctx.throw_type_error("invalid 'instanceof' right operand");
+        Err(-1)
     }
 }

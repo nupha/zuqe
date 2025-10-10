@@ -1764,58 +1764,77 @@ impl Bytecode {
                     }
                     OpCode::GET_ARRAY_EL => {
                         // [array, prop, ^] -> [value, ^]
-                        let array = SP_REF!(-2);
-                        let prop = SP_TAKE!(-1);
+                        let val = SP_REF!(-2)
+                            .get_property_value(ctx, &SP_TAKE!(-1))
+                            .unwrap_or(JSValue::EXCEPTION);
+                        let is_err = val.is_exception();
+                        SP_PUT!(-2, val);
+                        SP_GO!(-1);
 
-                        if unlikely(array.is_undefined_or_null()) {
-                            ctx.throw_type_error(&format!(
-                                "cannot read property of {}",
-                                if array.is_undefined() {
-                                    "undefined"
-                                } else {
-                                    "null"
-                                }
-                            ));
-                            SP_PUT!(-2, JSValue::EXCEPTION);
-                            SP_GO!(-1);
+                        if unlikely(is_err) {
                             break State::Exception;
-                        } else {
-                            let val = array
-                                .get_property_value(ctx, &prop)
-                                .unwrap_or(JSValue::EXCEPTION);
-                            let is_err = val.is_exception();
-                            SP_PUT!(-2, val);
-                            SP_GO!(-1);
-                            if unlikely(is_err) {
-                                break State::Exception;
-                            }
                         }
+
+                        // let array = SP_REF!(-2);
+                        // let prop = SP_TAKE!(-1);
+                        // if unlikely(array.is_undefined_or_null()) {
+                        //     ctx.throw_type_error(&format!(
+                        //         "cannot read property of {}",
+                        //         if array.is_undefined() {
+                        //             "undefined"
+                        //         } else {
+                        //             "null"
+                        //         }
+                        //     ));
+                        //     SP_PUT!(-2, JSValue::EXCEPTION);
+                        //     SP_GO!(-1);
+                        //     break State::Exception;
+                        // } else {
+                        //     let val = array
+                        //         .get_property_value(ctx, &prop)
+                        //         .unwrap_or(JSValue::EXCEPTION);
+                        //     let is_err = val.is_exception();
+                        //     SP_PUT!(-2, val);
+                        //     SP_GO!(-1);
+                        //     if unlikely(is_err) {
+                        //         break State::Exception;
+                        //     }
+                        // }
                     }
                     OpCode::GET_ARRAY_EL2 => {
                         // [array, prop, ^] -> [array, value, ^]
-                        let array = SP_REF!(-2);
+                        let val = SP_REF!(-2)
+                            .get_property_value(ctx, SP_REF!(-1))
+                            .unwrap_or(JSValue::EXCEPTION);
+                        let is_err = val.is_exception();
+                        SP_PUT!(-1, val);
 
-                        if unlikely(array.is_undefined_or_null()) {
-                            ctx.throw_type_error(&format!(
-                                "cannot read property of {}",
-                                if array.is_undefined() {
-                                    "undefined"
-                                } else {
-                                    "null"
-                                }
-                            ));
-                            SP_PUT!(-1, JSValue::EXCEPTION);
+                        if unlikely(is_err) {
                             break State::Exception;
-                        } else {
-                            let val = array
-                                .get_property_value(ctx, SP_REF!(-1))
-                                .unwrap_or(JSValue::EXCEPTION);
-                            let is_err = val.is_exception();
-                            SP_PUT!(-1, val);
-                            if unlikely(is_err) {
-                                break State::Exception;
-                            }
                         }
+
+                        // let array = SP_REF!(-2);
+                        // if unlikely(array.is_undefined_or_null()) {
+                        //     ctx.throw_type_error(&format!(
+                        //         "cannot read property of {}",
+                        //         if array.is_undefined() {
+                        //             "undefined"
+                        //         } else {
+                        //             "null"
+                        //         }
+                        //     ));
+                        //     SP_PUT!(-1, JSValue::EXCEPTION);
+                        //     break State::Exception;
+                        // } else {
+                        //     let val = array
+                        //         .get_property_value(ctx, SP_REF!(-1))
+                        //         .unwrap_or(JSValue::EXCEPTION);
+                        //     let is_err = val.is_exception();
+                        //     SP_PUT!(-1, val);
+                        //     if unlikely(is_err) {
+                        //         break State::Exception;
+                        //     }
+                        // }
                     }
                     OpCode::GET_REF_VALUE => {
                         // [obj, prop, ^] -> [obj, value, ^]
