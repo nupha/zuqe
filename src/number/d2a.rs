@@ -28,16 +28,24 @@ impl RoundingMode {
     pub fn round(&self, v: f64) -> f64 {
         match self {
             Self::FE_TONEAREST => {
-                if v.fract() >= 0.5 {
+                let f = v.fract();
+                if f > 0.5 {
                     v.ceil()
-                } else {
+                } else if f < 0.5 {
                     v.floor()
+                } else {
+                    v
                 }
             }
             Self::FE_DOWNWARD => v.floor(),
             Self::FE_UPWARD => v.ceil(),
             Self::FE_TOWARDZERO => v.trunc(),
         }
+    }
+
+    pub fn roundn(&self, v: f64, decimals: u32) -> f64 {
+        let scale = 10_f64.powi(decimals as i32);
+        self.round(v * scale) / scale
     }
 }
 
@@ -126,7 +134,7 @@ pub(crate) fn f64_stringify<'a>(
 // 'round': limit count of digits after decimal point
 fn f64_scientific<'a>(num: f64, round: Option<u32>, exp_plus_sign: bool) -> Cow<'a, str> {
     let mut t = if let Some(p) = round {
-        let t0 = format!("{:e}", num);
+        let t0 = format!("{:.1$e}", num, 21);
         let i = t0.find('e').unwrap();
         let exp = t0[i + 1..].parse::<i32>().unwrap();
         let mentissa = &t0[..i];
@@ -135,37 +143,55 @@ fn f64_scientific<'a>(num: f64, round: Option<u32>, exp_plus_sign: bool) -> Cow<
             // round for half.
             let n = mentissa.parse::<f64>().unwrap();
 
-            // check if there are non-zero digits after 5
-            let has_non_zero = if p as usize + 2 < mentissa.len() {
-                mentissa.as_bytes()[p as usize + 3..]
-                    .iter()
-                    .any(|x| *x != b'0')
+            let d1 = RoundingMode::FE_DOWNWARD.roundn(n, p + 1);
+            let d2 = RoundingMode::FE_UPWARD.roundn(n, p + 1);
+            let s1 = format!("{d1}");
+            let s2 = format!("{d2}");
+
+            let rnd = if s1 == s2 {
+                if num.is_sign_negative() {
+                    RoundingMode::FE_DOWNWARD
+                } else {
+                    RoundingMode::FE_UPWARD
+                }
             } else {
-                false
+                RoundingMode::FE_TONEAREST
             };
 
-            let delta = if has_non_zero {
-                // if has non-zero digit after 5, always do round up
-                5.0 / 10_f64.powi(p as i32 + 1) * if num.is_sign_positive() { 1.0 } else { -1.0 }
-            } else {
-                // adopt bankers rounding. if digit before 5 is odd, then round up
-                // let i = p as usize + 1;
-                // let mut b = mentissa.as_bytes()[i];
-                // println!("[O.o] {b}");
-                // if b == b'.' {
-                //     b = mentissa.as_bytes()[i - 1];
-                // }
+            let m = rnd.roundn(n, p);
+            return format!("{:.1$}e{exp:+}", m, p as usize).into();
 
-                // if (b - b'0') % 2 == 1 {
-                //     5.0 / 10_f64.powi(p as i32 + 1)
-                //         * if num.is_sign_positive() { 1.0 } else { -1.0 }
-                // } else {
-                //     0.0
-                // }
-                0.0
-            };
+            // // check if there are non-zero digits after 5
+            // let has_non_zero = if p as usize + 2 < mentissa.len() {
+            //     mentissa.as_bytes()[p as usize + 3..]
+            //         .iter()
+            //         .any(|x| *x != b'0')
+            // } else {
+            //     false
+            // };
 
-            return format!("{:.1$}e{exp:+}", n + delta, p as usize).into();
+            // let delta = if has_non_zero {
+            //     // if has non-zero digit after 5, always do round up
+            //     5.0 / 10_f64.powi(p as i32 + 1) * if num.is_sign_positive() { 1.0 } else { -1.0 }
+            // } else {
+            //     // adopt bankers rounding. if digit before 5 is odd, then round up
+            //     // let i = p as usize + 1;
+            //     // let mut b = mentissa.as_bytes()[i];
+            //     // println!("[O.o] {b}");
+            //     // if b == b'.' {
+            //     //     b = mentissa.as_bytes()[i - 1];
+            //     // }
+
+            //     // if (b - b'0') % 2 == 1 {
+            //     //     5.0 / 10_f64.powi(p as i32 + 1)
+            //     //         * if num.is_sign_positive() { 1.0 } else { -1.0 }
+            //     // } else {
+            //     //     0.0
+            //     // }
+            //     0.0
+            // };
+
+            // return format!("{:.1$}e{exp:+}", n + delta, p as usize).into();
         } else {
             format!("{:.1$e}", num, p as usize)
         }
@@ -183,6 +209,11 @@ fn f64_scientific<'a>(num: f64, round: Option<u32>, exp_plus_sign: bool) -> Cow<
     }
 
     t.into()
+}
+
+#[inline(always)]
+fn ecvt(num: f64, round: u32) -> String {
+    format!("{:.1$e}", num, round as usize)
 }
 
 /* 2 <= base <= 36 */
