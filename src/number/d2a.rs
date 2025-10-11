@@ -7,16 +7,16 @@ use super::MAX_SAFE_INTEGER;
 /* radix != 10 is only supported with flags = JS_DTOA_VAR_FORMAT */
 /* use as many digits as necessary */
 pub const JS_DTOA_VAR_FORMAT: i32 = 0;
-/* use n_digits significant digits (1 <= n_digits <= 101) */
+/// use n_digits significant digits (1 <= n_digits <= 101)
 pub const JS_DTOA_FIXED_FORMAT: i32 = 1;
-/* force fractional format: [-]dd.dd with n_digits fractional digits */
+/// force fractional format: [-]dd.dd with n_digits fractional digits
 pub const JS_DTOA_FRAC_FORMAT: i32 = 2;
-/* force exponential notation either in fixed or variable format */
+/// force exponential notation either in fixed or variable format
 pub const JS_DTOA_FORCE_EXP: i32 = 4;
 
 const JS_DTOA_BUF_SIZE: usize = 128;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RoundingMode {
     FE_TONEAREST,
     FE_DOWNWARD,
@@ -41,12 +41,14 @@ impl RoundingMode {
     }
 }
 
-pub fn f64_stringify<'a>(
+/// format a f64
+pub(crate) fn f64_stringify<'a>(
     num: f64,
     radix: u32,
-    fixed_digits: Option<u32>,
+    fixed_digits: Option<u32>, // limit count of digits after decimal point
     flags: i32,
 ) -> Cow<'a, str> {
+    // fast path
     if !num.is_finite() {
         return if num.is_nan() {
             "NaN"
@@ -56,104 +58,135 @@ pub fn f64_stringify<'a>(
             "Infinity"
         }
         .into();
+    } else if flags == JS_DTOA_VAR_FORMAT {
+        if num.fract() == 0.0 && (-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&(num as i64)) {
+            // safe integer
+            let mut buf = [0u8; 33];
+            unsafe {
+                let p = i64toa(buf.as_mut_ptr(), num as i64, radix);
+                return CStr::from_ptr(p.cast())
+                    .to_string_lossy()
+                    .into_owned()
+                    .into();
+            }
+        }
     }
 
-    let mut num = if num == 0.0 {
-        if fixed_digits.is_none() {
-            return "0".into(); // +0.0, -0.0 -> 0
-        } else {
-            0.0 // +0.0, -0.0 -> 0
-        }
+    let num = if num == 0.0 {
+        0.0 // -0 to 0
     } else {
         num
     };
 
-    let mut use_scientific = flags & JS_DTOA_FORCE_EXP != 0
-        || (num != 0.0 && {
-            let ab = num.abs();
-            ab >= 1e21 || ab < 1e-6
-        });
-
-    // number of digits after decimal point
-    let round: Option<i32> = if let Some(p) = fixed_digits {
-        debug_assert!(p >= 1);
-
-        let scientific = format!("{:.1$e}", num, p as usize - 1);
-        let i = scientific.find('e').unwrap();
-        debug_assert!(i > 0);
-        let exponent = scientific[i + 1..].parse::<i32>().unwrap();
-
-        if !use_scientific {
-            use_scientific = (exponent < 0 && exponent.abs() > 6) || (exponent >= p as i32);
-        }
-
-        let n = if let Some(j) = scientific[..i].find('.') {
-            i - j - 1
+    if flags == JS_DTOA_FRAC_FORMAT {
+        if let Some(p) = fixed_digits {
+            format!("{:.1$}", num, p as usize)
         } else {
-            i - 1
-        };
-        Some(n as i32)
-    } else {
-        None
-    };
-
-    if let Some(p) = round {
-        // round num up for .5 case
-        debug_assert!(p >= 0);
-        if num.abs() >= 1.0 {
-            let t0 = format!("{:.1$e}", num, p as usize + 1);
-            let i = t0.find('e').unwrap();
-            let mentissa = &t0[..i];
-            let exp = t0[i + 1..].parse::<i32>().unwrap();
-            if mentissa.ends_with(".5") {
-                num += 5.0 * 10_f64.powi(exp - 1) * if num.is_sign_positive() { 1.0 } else { -1.0 };
-            }
-        }
-    }
-
-    if use_scientific {
-        let t = if let Some(p) = round {
-            debug_assert!(p >= 0);
-            format!("{:.1$e}", num, p as usize)
-        } else {
-            format!("{:.e}", num)
-        };
-
-        // add '+' for positive exp
-        let i = t.find('e').unwrap();
-        let exp = t[i + 1..].parse::<i32>().unwrap();
-        if exp >= 0 {
-            format!("{}e+{}", &t[..i], exp)
-        } else {
-            t
+            format!("{num}")
         }
         .into()
     } else {
-        let int64 = num as i64;
+        let force_exp = flags & JS_DTOA_FORCE_EXP != 0;
+        let is_fixed = flags & JS_DTOA_FIXED_FORMAT == JS_DTOA_FIXED_FORMAT;
 
-        if num != int64 as f64 || !(-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&int64) {
-            // is a float or is an integer beyond safe range
-            if let Some(p) = round {
-                format!("{:.1$}", num, p as usize)
+        if force_exp {
+            // force scientific notation
+            f64_scientific(num, fixed_digits, true)
+        } else if is_fixed {
+            // fixed number of digits
+            let n_max = fixed_digits.unwrap_or(21);
+            debug_assert!(n_max > 0);
+
+            let t0 = format!("{}", num.abs().round());
+            let t = if t0.len() as u32 > n_max {
+                // use scientific notation with round=n_max-1
+                f64_scientific(num, Some(n_max - 1), true)
             } else {
-                format!("{num}")
-            }
-            .into()
+                format!("{:.1$}", num, n_max as usize - t0.len()).into()
+            };
+
+            t.into()
         } else {
-            // is an integer
-            let mut buf = [0u8; 33];
-            unsafe {
-                CStr::from_ptr(i64toa(buf.as_mut_ptr(), int64, radix).cast())
-                    .to_string_lossy()
-                    .into_owned()
-                    .into()
+            // variable format
+            if num == 0.0 || (1e-6..1e21).contains(&num.abs()) {
+                if let Some(p) = fixed_digits {
+                    format!("{:.1$}", num, p as usize)
+                } else {
+                    format!("{num}")
+                }
+                .into()
+            } else {
+                // use scientific notation
+                f64_scientific(num, fixed_digits, false)
             }
         }
     }
 }
 
+// 'round': limit count of digits after decimal point
+fn f64_scientific<'a>(num: f64, round: Option<u32>, exp_plus_sign: bool) -> Cow<'a, str> {
+    let mut t = if let Some(p) = round {
+        let t0 = format!("{:e}", num);
+        let i = t0.find('e').unwrap();
+        let exp = t0[i + 1..].parse::<i32>().unwrap();
+        let mentissa = &t0[..i];
+
+        if let Some(b'5') = mentissa.as_bytes().get(p as usize + 2) {
+            // round for half.
+            let n = mentissa.parse::<f64>().unwrap();
+
+            // check if there are non-zero digits after 5
+            let has_non_zero = if p as usize + 2 < mentissa.len() {
+                mentissa.as_bytes()[p as usize + 3..]
+                    .iter()
+                    .any(|x| *x != b'0')
+            } else {
+                false
+            };
+
+            let delta = if has_non_zero {
+                // if has non-zero digit after 5, always do round up
+                5.0 / 10_f64.powi(p as i32 + 1) * if num.is_sign_positive() { 1.0 } else { -1.0 }
+            } else {
+                // adopt bankers rounding. if digit before 5 is odd, then round up
+                // let i = p as usize + 1;
+                // let mut b = mentissa.as_bytes()[i];
+                // println!("[O.o] {b}");
+                // if b == b'.' {
+                //     b = mentissa.as_bytes()[i - 1];
+                // }
+
+                // if (b - b'0') % 2 == 1 {
+                //     5.0 / 10_f64.powi(p as i32 + 1)
+                //         * if num.is_sign_positive() { 1.0 } else { -1.0 }
+                // } else {
+                //     0.0
+                // }
+                0.0
+            };
+
+            return format!("{:.1$}e{exp:+}", n + delta, p as usize).into();
+        } else {
+            format!("{:.1$e}", num, p as usize)
+        }
+    } else {
+        format!("{num:e}")
+    };
+
+    if exp_plus_sign {
+        // add '+' for positive exp
+        let i = t.find('e').unwrap();
+        let exp = t[i + 1..].parse::<i32>().unwrap();
+        if exp >= 0 {
+            t = format!("{}e+{}", &t[..i], exp)
+        }
+    }
+
+    t.into()
+}
+
 /* 2 <= base <= 36 */
-unsafe fn i64toa(buf_end: *mut u8, n: i64, base: u32) -> *mut u8 {
+unsafe fn i64toa(buf: *mut u8, n: i64, base: u32) -> *mut u8 {
     let mut is_neg = 0;
     let mut n = n;
 
@@ -162,7 +195,7 @@ unsafe fn i64toa(buf_end: *mut u8, n: i64, base: u32) -> *mut u8 {
         n = -n;
     }
 
-    let mut q = buf_end;
+    let mut q = buf;
 
     // C2RS: Use offset to move pointer backwards and write null terminator
     *q.offset(-1) = b'\0';

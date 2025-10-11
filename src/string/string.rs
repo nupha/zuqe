@@ -12,7 +12,7 @@ use crate::{
     class::JSClassExoticMethods,
     context::JSContext,
     gc::GCObjectHeader,
-    number::{ATOD_ACCEPT_BIN_OCT, f64_stringify, js_atof},
+    number::{ATOD_ACCEPT_BIN_OCT, JS_DTOA_VAR_FORMAT, f64_stringify, js_atof},
     object::{
         GCObjectWeakref, JS_PROP_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC, JSObject,
         JSPropertyDescriptor, ObjectPayload, check_define_prop_flags,
@@ -624,7 +624,7 @@ impl JSValue {
                 .force_string(ctx)
                 .map(Self::String),
             Self::Float64(n) => {
-                let s = f64_stringify(*n, 10, None, 0);
+                let s = f64_stringify(*n, 10, None, JS_DTOA_VAR_FORMAT);
                 ctx.create_string_from_str(s.as_ref()).map(Self::String)
             }
             Self::NULL => JS_ATOM_null.force_string(ctx).map(Self::String),

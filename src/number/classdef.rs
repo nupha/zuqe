@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crate::{
     JS_ALIAS_BASE_DEF, JS_CFUNC_NATIVE_DEF, JS_PROP_DOUBLE_DEF,
     branch_hints::unlikely,
@@ -5,7 +7,10 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     js_core::global::{MAGIC_NUM_IS_FINITE, MAGIC_NUM_IS_NAN, js_global_isNaN_isFinite},
-    number::{JS_DTOA_FORCE_EXP, is_safe_integer},
+    number::{
+        JS_DTOA_FIXED_FORMAT, JS_DTOA_FORCE_EXP, JS_DTOA_FRAC_FORMAT, JS_DTOA_VAR_FORMAT,
+        is_safe_integer,
+    },
     object::ObjectPayload,
     value::JSValue,
 };
@@ -82,89 +87,75 @@ pub fn js_number_valueOf(ctx: &JSContext, cc: CallContext) -> JSResult {
     js_thisNumberValue(ctx, cc.this().clone())
 }
 
-pub fn js_get_radix(ctx: &JSContext, val: &JSValue) -> Result<i32, i32> {
-    let radix: i32 = val.to_i32_saturating(ctx)?;
-    if !(2..=36).contains(&radix) {
-        ctx.throw_range_error("radix must be between 2 and 36");
-        return Err(-1);
-    }
-    Ok(radix)
-}
+pub fn js_number_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let to_locale_string = cc.magic() != 0;
+    let val = js_thisNumberValue(ctx, cc.this().clone())?;
+    let d: f64 = val.to_f64(ctx)?;
 
-const FMT_TO_FIXED: i32 = 1;
-const FMT_TO_PRECISION: i32 = 2;
-const FMT_TO_EXPONENTIAL: i32 = 3;
-const FMT_TO_STRING: i32 = 4;
-const FMT_TO_LOCALE_STRING: i32 = 5;
-
-// pub fn js_number_toString(ctx: &JSContext, args: CallContext) -> JSResult {
-//     let val = js_thisNumberValue(ctx, args.this_raw())?.into_rc(ctx.rt());
-
-//     let base = if args.magic != 0 || args.get_raw(0).is_undefined() {
-//         10
-//     } else {
-//         let b = unsafe { js_get_radix(ctx, args.get_raw(0)) };
-//         if b < 0 {
-//             return Err(-1);
-//         }
-//         b
-//     };
-
-//     let mut d: f64 = 0.0;
-//     if unsafe { JS_ToFloat64(ctx, &mut d, *val) } != 0 {
-//         Err(-1)
-//     } else {
-//         ctx.create_string_from_utf8(
-//             f64_stringify(d, base as _, None, 0)
-//                 .into_owned()
-//                 .into_bytes(),
-//         )
-//         .check_exception()
-//     }
-// }
-
-// pub fn js_number_toExponential(ctx: &JSContext, args: CallContext) -> JSResult {
-//     let val = js_thisNumberValue(ctx, args.this_raw())?.into_rc(ctx.rt());
-
-//     let mut d: f64 = 0.0;
-//     if unsafe { JS_ToFloat64(ctx, &mut d, *val) } != 0 {
-//         return Err(-1);
-//     }
-
-//     let s = if args.get_raw(0).is_undefined() {
-//         f64_stringify(d, 10, None, JS_DTOA_FORCE_EXP)
-//     } else {
-//         let mut f: i32 = 0;
-//         if unsafe { JS_ToInt32Sat(ctx, &mut f, args.get_raw(0)) } != 0 {
-//             return Err(-1);
-//         }
-//         if !(0..=20).contains(&f) {
-//             unsafe {
-//                 JS_ThrowRangeError(ctx, c"invalid number of digits");
-//             }
-//             return Err(-1);
-//         }
-//         f += 1;
-//         f64_stringify(d, 10, Some(f as _), JS_DTOA_FORCE_EXP)
-//     };
-
-//     ctx.create_string_from_utf8(s.into_owned().into_bytes())
-//         .check_exception()
-// }
-
-pub fn js_number_fmt(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let val = js_thisNumberValue(ctx, cc.this_raw())?;
-    let mut d: f64 = val.to_f64(ctx)?;
-
-    let a0 = cc.arg(0);
-    let a = if a0.is_undefined() {
-        None
+    let radix = if to_locale_string || cc.arg(0).is_undefined() {
+        10
     } else {
-        let f: i32 = a0.to_i32_saturating(ctx)?;
-        Some(f)
+        let r = cc.arg(0).to_i32_saturating(ctx)?;
+        if !(2..=36).contains(&r) {
+            ctx.throw_range_error("radix must be between 2 and 36");
+            return Err(-1);
+        }
+        r
     };
 
-    let s: String = if !d.is_finite() {
+    let s = f64_stringify(d, radix as _, None, JS_DTOA_VAR_FORMAT);
+    ctx.create_string_from_utf8(s.into_owned().into_bytes())
+        .map(JSValue::String)
+}
+
+pub fn js_number_toPrecision(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let d = js_thisNumberValue(ctx, cc.this().clone())?.to_f64(ctx)?;
+
+    let a0 = cc.arg(0);
+    let s: Cow<str> = if a0.is_undefined() {
+        if unlikely(!d.is_finite()) {
+            if d.is_nan() {
+                "NaN"
+            } else if d.is_sign_positive() {
+                "Infinity"
+            } else {
+                "-Infinity"
+            }
+            .into()
+        } else {
+            format!("{d}").into()
+        }
+    } else {
+        let f = a0.to_i32_saturating(ctx)?;
+
+        if unlikely(!d.is_finite()) {
+            if d.is_nan() {
+                "NaN"
+            } else if d.is_sign_positive() {
+                "Infinity"
+            } else {
+                "-Infinity"
+            }
+            .into()
+        } else if unlikely(!(1..=100).contains(&f)) {
+            ctx.throw_range_error("invalid number of digits");
+            return Err(-1);
+        } else {
+            f64_stringify(d, 10, Some(f as u32), JS_DTOA_FIXED_FORMAT)
+        }
+    };
+
+    ctx.create_string_from_str(&s).map(JSValue::String)
+}
+
+pub fn js_number_toExponential(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let val = js_thisNumberValue(ctx, cc.this_raw())?;
+    let d: f64 = val.to_f64(ctx)?;
+
+    let a0 = cc.arg(0);
+    let f = a0.to_i32_saturating(ctx)?;
+
+    let s = if unlikely(!d.is_finite()) {
         if d.is_nan() {
             "NaN"
         } else if d.is_sign_positive() {
@@ -172,73 +163,35 @@ pub fn js_number_fmt(ctx: &JSContext, cc: CallContext) -> JSResult {
         } else {
             "-Infinity"
         }
-        .to_string()
+        .into()
+    } else if unlikely(a0.is_undefined()) {
+        f64_stringify(d, 10, None, JS_DTOA_FORCE_EXP)
+    } else if unlikely(!(0..=100).contains(&f)) {
+        ctx.throw_range_error("invalid number of digits");
+        return Err(-1);
     } else {
-        match cc.magic() {
-            m @ (FMT_TO_STRING | FMT_TO_LOCALE_STRING) => {
-                let base = if m == FMT_TO_LOCALE_STRING {
-                    10
-                } else {
-                    a.unwrap_or(10)
-                };
-                if !(2..=36).contains(&base) {
-                    ctx.throw_range_error("radix must be between 2 and 36");
+        f64_stringify(
+            d,
+            10,
+            Some(f as u32),
+            JS_DTOA_FIXED_FORMAT | JS_DTOA_FORCE_EXP,
+        )
+    };
 
-                    return Err(-1);
-                }
+    ctx.create_string_from_str(&s).map(JSValue::String)
+}
 
-                let d: f64 = val.to_f64(ctx)?;
-                f64_stringify(d, base as _, None, 0).into_owned()
-            }
+pub fn js_number_toFixed(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let d = js_thisNumberValue(ctx, cc.this().clone())?.to_f64(ctx)?;
+    let f = cc.arg(0).to_i32_saturating(ctx)?;
 
-            FMT_TO_FIXED => {
-                let f = a.unwrap_or(0);
-                if !(0..=20).contains(&f) {
-                    ctx.throw_range_error("invalid number of digits");
-                    return Err(-1);
-                }
-                let scale = 10_f64.powf(f as f64);
-                let n = d * scale;
-                d = n.round() / scale;
-
-                if d.abs() >= 1e21 {
-                    f64_stringify(d, 10, Some(f as u32 + 1), JS_DTOA_FORCE_EXP).into_owned()
-                } else {
-                    format!("{:.1$}", d, f as usize)
-                }
-            }
-
-            FMT_TO_PRECISION => f64_stringify(
-                d,
-                10,
-                if let Some(p) = a {
-                    if !(1..=100).contains(&p) {
-                        ctx.throw_range_error("invalid number of digits");
-                        return Err(-1);
-                    }
-                    Some(p as u32)
-                } else {
-                    None
-                },
-                0,
-            )
-            .into_owned(),
-
-            FMT_TO_EXPONENTIAL => if let Some(f) = a {
-                if !(0..=100).contains(&f) {
-                    ctx.throw_range_error("invalid number of digits");
-                    return Err(-1);
-                }
-                f64_stringify(d, 10, Some(f as u32 + 1), JS_DTOA_FORCE_EXP)
-            } else {
-                f64_stringify(d, 10, None, JS_DTOA_FORCE_EXP)
-            }
-            .into_owned(),
-
-            _ => {
-                unreachable!();
-            }
-        }
+    let s = if unlikely(!(0..=100).contains(&f)) {
+        ctx.throw_range_error("invalid number of digits");
+        return Err(-1);
+    } else if unlikely(d.abs() >= 1e21) {
+        format!("{d:e}")
+    } else {
+        f64_stringify(d, 10, Some(f as u32), JS_DTOA_FRAC_FORMAT).into_owned()
     };
 
     ctx.create_string_from_utf8(s.into_bytes())
@@ -246,16 +199,11 @@ pub fn js_number_fmt(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub static js_number_proto_funcs: [FieldDef; 6] = [
-    JS_CFUNC_NATIVE_DEF!("toFixed", 1, js_number_fmt, FMT_TO_FIXED as i16),
-    JS_CFUNC_NATIVE_DEF!("toPrecision", 1, js_number_fmt, FMT_TO_PRECISION as i16),
-    JS_CFUNC_NATIVE_DEF!("toExponential", 1, js_number_fmt, FMT_TO_EXPONENTIAL as i16),
-    JS_CFUNC_NATIVE_DEF!("toString", 1, js_number_fmt, FMT_TO_STRING as i16),
-    JS_CFUNC_NATIVE_DEF!(
-        "toLocaleString",
-        0,
-        js_number_fmt,
-        FMT_TO_LOCALE_STRING as i16
-    ),
+    JS_CFUNC_NATIVE_DEF!("toFixed", 1, js_number_toFixed, 0),
+    JS_CFUNC_NATIVE_DEF!("toPrecision", 1, js_number_toPrecision, 0),
+    JS_CFUNC_NATIVE_DEF!("toExponential", 1, js_number_toExponential, 0),
+    JS_CFUNC_NATIVE_DEF!("toString", 1, js_number_toString, 0),
+    JS_CFUNC_NATIVE_DEF!("toLocaleString", 0, js_number_toString, 1),
     JS_CFUNC_NATIVE_DEF!("valueOf", 0, js_number_valueOf, 0),
 ];
 

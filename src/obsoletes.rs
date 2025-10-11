@@ -4656,3 +4656,13 @@ pub fn JS_DetachArrayBuffer(ctx: &JSContext, obj: &JSValue) {
         ab.detatch(ctx);
     }
 }
+
+#[deprecated]
+pub fn js_get_radix(ctx: &JSContext, val: &JSValue) -> Result<i32, i32> {
+    let radix: i32 = val.to_i32_saturating(ctx)?;
+    if !(2..=36).contains(&radix) {
+        ctx.throw_range_error("radix must be between 2 and 36");
+        return Err(-1);
+    }
+    Ok(radix)
+}
