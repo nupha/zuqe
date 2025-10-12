@@ -22,7 +22,6 @@ pub enum RoundingMode {
     FE_DOWNWARD,
     FE_UPWARD,
     FE_TOWARDZERO,
-    BANKERS,
 }
 
 impl RoundingMode {
@@ -41,7 +40,6 @@ impl RoundingMode {
             Self::FE_DOWNWARD => v.floor(),
             Self::FE_UPWARD => v.ceil(),
             Self::FE_TOWARDZERO => v.trunc(),
-            Self::BANKERS => v,
         }
     }
 
@@ -51,7 +49,7 @@ impl RoundingMode {
     }
 }
 
-/// format a f64
+/// format an f64
 pub(crate) fn f64_stringify<'a>(
     num: f64,
     radix: u32,
@@ -160,7 +158,7 @@ fn f64_scientific<'a>(num: f64, round: Option<u32>, exp_plus_sign: bool) -> Cow<
                     && (scaled.abs() - scaled.abs().floor() - 0.5).abs() < 1e-10
             } else {
                 // slow path: 大数字使用精确的比较
-                round_is_tie(num, p as _)
+                f64_round_is_tie(num, p as _)
             };
 
             // Note:
@@ -195,7 +193,7 @@ fn f64_scientific<'a>(num: f64, round: Option<u32>, exp_plus_sign: bool) -> Cow<
 }
 
 /// 检测四舍五入是否为中间值
-fn round_is_tie(num: f64, precision: usize) -> bool {
+fn f64_round_is_tie(num: f64, precision: usize) -> bool {
     // 1. 使用字符串表示来精确解析数字
     let num_str = format!("{:.16e}", num);
     let mut parts = num_str.splitn(2, 'e');
@@ -280,6 +278,7 @@ unsafe fn i64toa(buf: *mut u8, n: i64, base: u32) -> *mut u8 {
 /* XXX: slow and maybe not fully correct. Use libbf when it is fast enough.
    XXX: radix != 10 is only supported for small integers
 */
+#[deprecated]
 unsafe fn js_dtoa1(buf: *mut u8, d: f64, radix: i32, n_digits: i32, flags: i32) {
     let mut q: *mut u8;
 
@@ -513,7 +512,7 @@ unsafe fn js_dtoa1(buf: *mut u8, d: f64, radix: i32, n_digits: i32, flags: i32) 
 }
 
 #[deprecated(note = "use f64_stringify() instead")]
-pub unsafe fn js_dtoa(ctx: &JSContext, d: f64, radix: i32, n_digits: i32, flags: i32) -> JSValue {
+unsafe fn js_dtoa(ctx: &JSContext, d: f64, radix: i32, n_digits: i32, flags: i32) -> JSValue {
     let mut buf: [u8; JS_DTOA_BUF_SIZE] = [0; JS_DTOA_BUF_SIZE];
     js_dtoa1(buf.as_mut_ptr(), d, radix, n_digits, flags);
     ctx.create_string_from_str(CStr::from_ptr(buf.as_ptr().cast()).to_str().unwrap())
@@ -521,6 +520,7 @@ pub unsafe fn js_dtoa(ctx: &JSContext, d: f64, radix: i32, n_digits: i32, flags:
 }
 
 /* buf1 contains the printf result */
+#[deprecated(note = "use f64_stringify() instead")]
 unsafe fn js_ecvt1(
     d: f64,
     n_digits: i32,
@@ -571,6 +571,7 @@ unsafe fn js_ecvt1(
 
 // needed because ecvt usually limits the number of digits to
 // 17. Return the number of digits.
+#[deprecated(note = "use f64_stringify() instead")]
 unsafe fn js_ecvt(
     d: f64,
     mut n_digits: i32,
@@ -684,6 +685,7 @@ unsafe fn js_ecvt(
     n_digits
 }
 
+#[deprecated(note = "use f64_stringify() instead")]
 unsafe fn js_fcvt(buf: *mut u8, buf_size: usize, d: f64, n_digits: i32) {
     let mut rounding_mode = RoundingMode::FE_TONEAREST;
 
