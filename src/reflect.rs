@@ -105,9 +105,6 @@ pub fn js_reflect_set(ctx: &JSContext, cc: CallContext) -> JSResult {
                 JSValue::NULL | JSValue::UNDEFINED => None,
                 JSValue::Object(o) => Some(o),
                 _ => {
-                    // ctx.throw_type_error("receiver must be an object");
-                    // return Err(-1);
-
                     // returns false instead of throwing an error
                     return Ok(JSValue::Bool(false));
                 }

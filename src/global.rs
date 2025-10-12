@@ -229,7 +229,7 @@ impl JSContext {
             }
 
             let gobj = self.global_obj();
-            gobj.set_property_internal(self, prop, val, None, flags1)
+            gobj.set_property_internal(self, prop, val, Some(&gobj), flags1)
         }
     }
 }

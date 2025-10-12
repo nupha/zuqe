@@ -24,8 +24,9 @@ impl JSObject {
     /// 'flags' is a bitmask of JS_PROP_NO_ADD, JS_PROP_THROW or JS_PROP_THROW_STRICT.
     /// If JS_PROP_NO_ADD is set,  the new property is not added and an error is raised.
     ///
-    /// In case of `Reflect.set(obj, val, [receiver])`, `receiver` could be null, undefined or Some(object).
-    /// For other cases,  `receiver` should be None, suggesting it's same to `self`.
+    /// `receiver` is the target object that new property will be added to, when:
+    /// - Some(object): the object will be used to check existing property, and to add new property to;
+    /// - None: `self` is used to check existing property, but add new property is not allowed.
     ///
     /// `prop` is not consumed.
     pub(crate) fn set_property_internal(
@@ -58,6 +59,7 @@ impl JSObject {
             };
         }
 
+        // to check property existing
         let this = receiver.unwrap_or(self);
 
         for cur_obj in self.shape_proto_iter(true) {
@@ -210,72 +212,85 @@ impl JSObject {
             }
         }
 
+        //
+        // add the property
+        //
+
         if unlikely(flags & JS_PROP_NO_ADD != 0) {
             JS_ThrowReferenceErrorNotDefined(ctx, prop);
             return Err(-1);
-        } else if unlikely(!this.flags().extensible()) {
-            fail!("object is not extensible")
         }
 
-        if this == self {
-            if this.flags().is_exotic() {
-                if let Some(idx) = prop.to_small_int()
-                    && let Some(arr) = this.as_Array()
-                    && arr.is_fast_array()
-                // && arr.class_id() == JS_CLASS_ARRAY // should exclude JS_CLASS_ARGUMENTS?
-                {
-                    if idx == arr.fast_array_count() {
-                        return arr.add_fast_array_element(ctx, val, flags);
+        // receiver must be provided in order to add new property on it.
+        if let Some(target) = receiver {
+            if unlikely(!target.flags().extensible()) {
+                fail!("object is not extensible")
+            }
+
+            if target == self {
+                if target.flags().is_exotic() {
+                    if let Some(idx) = prop.to_small_int()
+                        && let Some(arr) = target.as_Array()
+                        && arr.is_fast_array()
+                    // && arr.class_id() == JS_CLASS_ARRAY // should exclude JS_CLASS_ARGUMENTS?
+                    {
+                        if idx == arr.fast_array_count() {
+                            return arr.add_fast_array_element(ctx, val, flags);
+                        }
                     }
+                } else {
+                    target.add_own_property(ctx, prop, JS_PROP_C_W_E, JSProperty::Normal(val))?;
+                    return Ok(true);
                 }
             } else {
-                this.add_own_property(ctx, prop, JS_PROP_C_W_E, JSProperty::Normal(val))?;
-                return Ok(true);
-            }
-        } else {
-            // generic case: modify the property in `this` if it already exists
-            if let Some(desc) = this.get_own_property(ctx, prop)? {
-                if unlikely(desc.flags & JS_PROP_GETSET != 0) {
-                    fail!("setter is forbidden")
-                } else {
-                    if unlikely(
-                        desc.flags & JS_PROP_WRITABLE == 0 || this.class_id() == JS_CLASS_MODULE_NS,
-                    ) {
-                        fail_read_only!(prop);
+                // generic case: modify the property in `this` if it already exists
+                if let Some(desc) = target.get_own_property(ctx, prop)? {
+                    if unlikely(desc.flags & JS_PROP_GETSET != 0) {
+                        fail!("setter is forbidden")
                     } else {
-                        return this.define_property(
-                            ctx,
-                            prop,
-                            val,
-                            JSValue::UNDEFINED,
-                            JSValue::UNDEFINED,
-                            JS_PROP_HAS_VALUE,
-                        );
+                        if unlikely(
+                            desc.flags & JS_PROP_WRITABLE == 0
+                                || target.class_id() == JS_CLASS_MODULE_NS,
+                        ) {
+                            fail_read_only!(prop);
+                        } else {
+                            return target.define_property(
+                                ctx,
+                                prop,
+                                val,
+                                JSValue::UNDEFINED,
+                                JSValue::UNDEFINED,
+                                JS_PROP_HAS_VALUE,
+                            );
+                        }
                     }
                 }
             }
-        }
 
-        // create property on `this`, returns Result<bool, i32>
-        this.create_property(
-            ctx,
-            prop,
-            val,
-            JSValue::UNDEFINED,
-            JSValue::UNDEFINED,
-            flags
-                | JS_PROP_HAS_VALUE
-                | JS_PROP_HAS_ENUMERABLE
-                | JS_PROP_HAS_WRITABLE
-                | JS_PROP_HAS_CONFIGURABLE
-                | JS_PROP_C_W_E,
-        )
+            // create property on `this`, returns Result<bool, i32>
+            target.create_property(
+                ctx,
+                prop,
+                val,
+                JSValue::UNDEFINED,
+                JSValue::UNDEFINED,
+                flags
+                    | JS_PROP_HAS_VALUE
+                    | JS_PROP_HAS_ENUMERABLE
+                    | JS_PROP_HAS_WRITABLE
+                    | JS_PROP_HAS_CONFIGURABLE
+                    | JS_PROP_C_W_E,
+            )
+        } else {
+            // receiver is not provided, add property is not allowed
+            fail!("not an object");
+        }
     }
 
     /// `prop` is not consumed.
     #[inline(always)]
     pub fn set_property(&self, ctx: &JSContext, prop: JSAtom, val: JSValue) -> Result<bool, i32> {
-        self.set_property_internal(ctx, prop, val, None, JS_PROP_THROW)
+        self.set_property_internal(ctx, prop, val, Some(self), JS_PROP_THROW)
     }
 
     /// set property value with integral index key, usually used for fast arrays.
@@ -443,164 +458,11 @@ impl JSObject {
                 // early exit for fast path
                 return r;
             }
-
-            // let mut oob = false;
-
-            // // fast path: fast array
-            // match self.class_id() {
-            //     JS_CLASS_ARRAY => {
-            //         let ob_flags = self.flags();
-            //         if ob_flags.is_fast_array() && ob_flags.extensible() {
-            //             let idx = idx as usize;
-
-            //             enum State {
-            //                 Append,
-            //                 SlowPath,
-            //                 Done,
-            //             }
-            //             let s = self
-            //                 .with_fast_array_values_mut(|lst| -> Result<State, i32> {
-            //                     match idx.cmp(&(lst.len())) {
-            //                         std::cmp::Ordering::Less => {
-            //                             // update existing list element
-            //                             unsafe {
-            //                                 *lst.get_unchecked_mut(idx) = val.clone();
-            //                             }
-            //                             Ok(State::Done)
-            //                         }
-            //                         std::cmp::Ordering::Equal => {
-            //                             // add one element to list
-            //                             let mut use_slow_path = false;
-
-            //                             // find int prop through prototype chain.
-            //                             // Note: can't use ::prototype_iter() here, because of payload borrow conflict.
-            //                             let mut up = self.shape().unwrap().0.borrow().proto.clone();
-            //                             while let Some(p) = up {
-            //                                 let sh1 = p.shape().unwrap();
-            //                                 match p.class_id() {
-            //                                     JS_CLASS_ARRAY => {
-            //                                         if !p.flags().is_fast_array() {
-            //                                             use_slow_path = true;
-            //                                             break;
-            //                                         }
-            //                                     }
-            //                                     JS_CLASS_OBJECT => {
-            //                                         if sh1.0.borrow().has_small_array_index {
-            //                                             use_slow_path = true;
-            //                                             break;
-            //                                         }
-            //                                     }
-            //                                     _ => {
-            //                                         use_slow_path = true;
-            //                                         break;
-            //                                     }
-            //                                 }
-            //                                 up = sh1.0.borrow().proto.clone();
-            //                             }
-
-            //                             Ok(if !use_slow_path {
-            //                                 State::Append
-            //                             } else {
-            //                                 State::SlowPath
-            //                             })
-            //                         }
-            //                         std::cmp::Ordering::Greater => {
-            //                             // make a hold in list,
-            //                             // go slow path, destruct to sparse array
-            //                             Ok(State::SlowPath)
-            //                         }
-            //                     }
-            //                 })
-            //                 .unwrap()?;
-
-            //             match s {
-            //                 State::Append => {
-            //                     return self.add_fast_array_element(ctx, val, flags);
-            //                 }
-            //                 State::Done => {
-            //                     return Ok(true);
-            //                 }
-            //                 State::SlowPath => {}
-            //             }
-            //         }
-            //     }
-            //     JS_CLASS_ARGUMENTS => {
-            //         let idx = idx as usize;
-            //         if self
-            //             .with_fast_array_values_mut(|lst| -> bool {
-            //                 if idx < lst.len() {
-            //                     unsafe {
-            //                         *lst.get_unchecked_mut(idx) = val.clone();
-            //                     }
-            //                     true
-            //                 } else {
-            //                     false
-            //                 }
-            //             })
-            //             .unwrap()
-            //         {
-            //             // early exit for fast array
-            //             return Ok(true);
-            //         }
-            //     }
-
-            //     //
-            //     // typed array
-            //     //
-            //     JS_CLASS_UINT8C_ARRAY => {
-            //         let v = val.coerce_to_u8_clamp(ctx)?;
-
-            //         if unlikely(
-            //             TypedArray(self.clone())
-            //                 .set_element_int(idx as _, v as _)
-            //                 .is_err(),
-            //         ) {
-            //             oob = true;
-            //         } else {
-            //             return Ok(true);
-            //         }
-            //     }
-            //     JS_CLASS_INT8_ARRAY
-            //     | JS_CLASS_UINT8_ARRAY
-            //     | JS_CLASS_INT16_ARRAY
-            //     | JS_CLASS_UINT16_ARRAY
-            //     | JS_CLASS_INT32_ARRAY
-            //     | JS_CLASS_UINT32_ARRAY => {
-            //         let v = if let Ok(n) = val.to_i32(ctx) {
-            //             n
-            //         } else {
-            //             return Err(-1);
-            //         };
-
-            //         let r = TypedArray(self.clone()).set_element_int(idx as _, v);
-            //         if unlikely(r.is_err()) {
-            //             oob = true;
-            //         } else {
-            //             return Ok(true);
-            //         }
-            //     }
-            //     JS_CLASS_FLOAT32_ARRAY | JS_CLASS_FLOAT64_ARRAY => {
-            //         let r = TypedArray(self.clone()).set_element_float(idx as _, val.to_f64(ctx)?);
-            //         if unlikely(r.is_err()) {
-            //             oob = true;
-            //         } else {
-            //             return Ok(true);
-            //         }
-            //     }
-            //     JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
-            //         unimplemented!()
-            //     }
-            //     _ => {}
-            // }
-
-            // if oob {
-            //     return Ok(true);
-            // }
         }
 
         // slow path
         let atom = prop.to_atom(ctx)?;
-        let ret = self.set_property_internal(ctx, atom, val, None, flags);
+        let ret = self.set_property_internal(ctx, atom, val, Some(self), flags);
         JS_FreeAtom(ctx, atom);
         ret
     }
@@ -610,7 +472,7 @@ impl JSObject {
             .unwrap_or_else(|| {
                 // slow path
                 let atom = JSAtom::from_u32(ctx.rt_mut(), idx)?;
-                let ret = self.set_property_internal(ctx, atom, val, None, JS_PROP_THROW);
+                let ret = self.set_property_internal(ctx, atom, val, Some(self), JS_PROP_THROW);
                 JS_FreeAtom(ctx, atom);
                 ret
             })
@@ -653,7 +515,7 @@ impl JSValue {
         flags: u32,
     ) -> Result<bool, i32> {
         if let Self::Object(o) = self {
-            o.set_property_internal(ctx, prop, val, receiver, flags)
+            o.set_property_internal(ctx, prop, val, receiver.or_else(|| Some(o)), flags)
         } else if let JSValue::Object(p) = JS_GetPrototypePrimitive(ctx, self) {
             p.set_property_internal(ctx, prop, val, receiver, flags)
         } else {
