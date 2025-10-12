@@ -22,6 +22,7 @@ pub enum RoundingMode {
     FE_DOWNWARD,
     FE_UPWARD,
     FE_TOWARDZERO,
+    BANKERS,
 }
 
 impl RoundingMode {
@@ -40,6 +41,7 @@ impl RoundingMode {
             Self::FE_DOWNWARD => v.floor(),
             Self::FE_UPWARD => v.ceil(),
             Self::FE_TOWARDZERO => v.trunc(),
+            Self::BANKERS => v,
         }
     }
 
@@ -134,67 +136,41 @@ pub(crate) fn f64_stringify<'a>(
 // 'round': limit count of digits after decimal point
 fn f64_scientific<'a>(num: f64, round: Option<u32>, exp_plus_sign: bool) -> Cow<'a, str> {
     let mut t = if let Some(p) = round {
-        let t0 = format!("{:.1$e}", num, 21);
+        let t0 = format!("{:.1$e}", num, p as usize + 1);
         let i = t0.find('e').unwrap();
         let exp = t0[i + 1..].parse::<i32>().unwrap();
-        let mentissa = &t0[..i];
+        let mentissa = &t0[0..i];
 
         if let Some(b'5') = mentissa.as_bytes().get(p as usize + 2) {
-            // round for half.
-            let n = mentissa.parse::<f64>().unwrap();
+            // 检测是否为中间值(x.5)
+            let m: f64 = num / 10_f64.powi(exp);
 
-            let d1 = RoundingMode::FE_DOWNWARD.roundn(n, p + 1);
-            let d2 = RoundingMode::FE_UPWARD.roundn(n, p + 1);
-            let s1 = format!("{d1}");
-            let s2 = format!("{d2}");
+            let is_tie = if (1e-15..=1e15).contains(&num.abs()) {
+                // fast path: 小数字使用容差比较来避免浮点数精度问题
+                let factor = 10_f64.powi(p as i32);
+                let scaled = m * factor;
+                (scaled.fract() - 0.5).abs() < 1e-10
+                    && (scaled.abs() - scaled.abs().floor() - 0.5).abs() < 1e-10
+            } else {
+                // slow path: 大数字使用精确的比较
+                round_is_tie(num, p as _)
+            };
 
-            let rnd = if s1 == s2 {
-                if num.is_sign_negative() {
+            // Note:
+            // ECMAScript规定，如果四舍五入是中间值，则用round away from zero模式。
+            // 否则用round to nearest
+            if is_tie {
+                let rnd = if num.is_sign_negative() {
                     RoundingMode::FE_DOWNWARD
                 } else {
                     RoundingMode::FE_UPWARD
-                }
-            } else {
-                RoundingMode::FE_TONEAREST
-            };
-
-            let m = rnd.roundn(n, p);
-            return format!("{:.1$}e{exp:+}", m, p as usize).into();
-
-            // // check if there are non-zero digits after 5
-            // let has_non_zero = if p as usize + 2 < mentissa.len() {
-            //     mentissa.as_bytes()[p as usize + 3..]
-            //         .iter()
-            //         .any(|x| *x != b'0')
-            // } else {
-            //     false
-            // };
-
-            // let delta = if has_non_zero {
-            //     // if has non-zero digit after 5, always do round up
-            //     5.0 / 10_f64.powi(p as i32 + 1) * if num.is_sign_positive() { 1.0 } else { -1.0 }
-            // } else {
-            //     // adopt bankers rounding. if digit before 5 is odd, then round up
-            //     // let i = p as usize + 1;
-            //     // let mut b = mentissa.as_bytes()[i];
-            //     // println!("[O.o] {b}");
-            //     // if b == b'.' {
-            //     //     b = mentissa.as_bytes()[i - 1];
-            //     // }
-
-            //     // if (b - b'0') % 2 == 1 {
-            //     //     5.0 / 10_f64.powi(p as i32 + 1)
-            //     //         * if num.is_sign_positive() { 1.0 } else { -1.0 }
-            //     // } else {
-            //     //     0.0
-            //     // }
-            //     0.0
-            // };
-
-            // return format!("{:.1$}e{exp:+}", n + delta, p as usize).into();
-        } else {
-            format!("{:.1$e}", num, p as usize)
+                };
+                return format!("{:.1$}e{exp:+}", rnd.roundn(m, p), p as usize).into();
+            }
         }
+
+        // round to nearest
+        format!("{:.1$e}", num, p as usize)
     } else {
         format!("{num:e}")
     };
@@ -211,9 +187,47 @@ fn f64_scientific<'a>(num: f64, round: Option<u32>, exp_plus_sign: bool) -> Cow<
     t.into()
 }
 
-#[inline(always)]
-fn ecvt(num: f64, round: u32) -> String {
-    format!("{:.1$e}", num, round as usize)
+/// 检测四舍五入是否为中间值
+fn round_is_tie(num: f64, precision: usize) -> bool {
+    // 1. 使用字符串表示来精确解析数字
+    let num_str = format!("{:.16e}", num);
+    let mut parts = num_str.splitn(2, 'e');
+    let base_part = parts.next().unwrap();
+    let exponent_part = parts.next().unwrap_or("0");
+
+    // 2. 解析尾数和指数
+    let exponent = exponent_part.parse::<i32>().unwrap_or(0);
+    let mut base_parts = base_part.splitn(2, '.');
+    let int_part = base_parts.next().unwrap();
+    let dec_part = base_parts.next().unwrap_or("0");
+
+    // 3. 重建精确的尾数
+    let full_mantissa = format!("{}{}", int_part, dec_part);
+    let mantissa = full_mantissa.parse::<f64>().unwrap_or(0.0) / 10_f64.powi(dec_part.len() as i32);
+    let mantissa = if num < 0.0 { -mantissa } else { mantissa };
+
+    // 4. 计算缩放后的值
+    let factor = 10_f64.powi(precision as i32);
+    let scaled = mantissa * factor;
+
+    // 5. 更精确的中间值检测
+    let is_tie = {
+        // 获取需要判断的位
+        let digits = format!("{:.20}", scaled.abs());
+        let mut digit_parts = digits.split('.');
+        let int_part = digit_parts.next().unwrap_or("0");
+        let dec_part = digit_parts.next().unwrap_or("0");
+
+        // 检查是否正好是x.50000...
+        let is_half = dec_part.starts_with("5") && dec_part.chars().skip(1).all(|c| c == '0');
+
+        // 检查整数部分是否是整数
+        let is_whole = scaled.fract().abs() < 1e-10;
+
+        is_half && is_whole
+    };
+
+    is_tie
 }
 
 /* 2 <= base <= 36 */
