@@ -107,12 +107,19 @@ pub(crate) fn f64_stringify<'a>(
             let n_max = fixed_digits.unwrap_or(21);
             debug_assert!(n_max > 0);
 
-            let t0 = format!("{}", num.abs().round());
-            let t = if t0.len() as u32 > n_max {
+            let t0 = format!("{:.1$e}", num.abs(), 0);
+            let mut parts = t0.splitn(2, 'e');
+            let mentissa = parts.next().unwrap();
+            let exp = parts.next().unwrap().parse::<i32>().unwrap();
+
+            let n = mentissa.len() as u32 - if mentissa.contains('.') { 1 } else { 0 };
+            let cnt = n as i32 + exp;
+
+            let t = if cnt > -6 && cnt <= n_max as i32 {
+                format!("{:.1$}", num, (n_max as i32 - cnt) as usize).into()
+            } else {
                 // use scientific notation with round=n_max-1
                 f64_scientific(num, Some(n_max - 1), true)
-            } else {
-                format!("{:.1$}", num, n_max as usize - t0.len()).into()
             };
 
             t.into()
@@ -193,10 +200,10 @@ fn round_is_tie(num: f64, precision: usize) -> bool {
     let num_str = format!("{:.16e}", num);
     let mut parts = num_str.splitn(2, 'e');
     let base_part = parts.next().unwrap();
-    let exponent_part = parts.next().unwrap_or("0");
+    // let exponent_part = parts.next().unwrap_or("0");
 
     // 2. 解析尾数和指数
-    let exponent = exponent_part.parse::<i32>().unwrap_or(0);
+    // let exponent = exponent_part.parse::<i32>().unwrap_or(0);
     let mut base_parts = base_part.splitn(2, '.');
     let int_part = base_parts.next().unwrap();
     let dec_part = base_parts.next().unwrap_or("0");
@@ -215,7 +222,7 @@ fn round_is_tie(num: f64, precision: usize) -> bool {
         // 获取需要判断的位
         let digits = format!("{:.20}", scaled.abs());
         let mut digit_parts = digits.split('.');
-        let int_part = digit_parts.next().unwrap_or("0");
+        let _int_part = digit_parts.next().unwrap_or("0");
         let dec_part = digit_parts.next().unwrap_or("0");
 
         // 检查是否正好是x.50000...
