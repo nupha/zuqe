@@ -60,19 +60,19 @@ impl JSObject {
         }
 
         // to check property existing
-        let this = receiver.unwrap_or(self);
+        //let this = receiver.unwrap_or(self);
 
         for cur_obj in self.shape_proto_iter(true) {
             // 1. find shape property
             'shape: while let Some((idx, prs_flags)) = cur_obj.find_shape_property(prop) {
                 match prs_flags & JS_PROP_TMASK {
-                    JS_PROP_NORMAL if cur_obj.eq(this) => {
-                        // possible to update property value, when proto == this
+                    JS_PROP_NORMAL if receiver.map_or(false, |o| cur_obj.eq(o)) => {
+                        // possible to update property value, when cur_obj == receiver
                         if unlikely(prs_flags & JS_PROP_LENGTH != 0) {
                             // set array length
-                            debug_assert_eq!(this.class_id(), JS_CLASS_ARRAY);
+                            debug_assert_eq!(cur_obj.class_id(), JS_CLASS_ARRAY);
                             debug_assert_eq!(prop, JS_ATOM_length);
-                            return this.as_Array().unwrap().set_length(
+                            return cur_obj.as_Array().unwrap().set_length(
                                 ctx,
                                 val.to_array_length(ctx, false)?,
                                 ctx.can_throw(flags),
@@ -80,20 +80,18 @@ impl JSObject {
                         }
 
                         if unlikely(prs_flags & JS_PROP_WRITABLE != 0) {
-                            this.0.prop_values.borrow_mut()[idx] = JSProperty::Normal(val);
+                            cur_obj.0.prop_values.borrow_mut()[idx] = JSProperty::Normal(val);
                             return Ok(true);
                         } else {
                             fail_read_only!(prop)
                         }
                     }
 
-                    JS_PROP_VARREF if cur_obj.eq(this) => {
-                        if unlikely(this.class_id() == JS_CLASS_MODULE_NS) {
+                    JS_PROP_VARREF if receiver.map_or(false, |o| cur_obj.eq(o)) => {
+                        if unlikely(cur_obj.class_id() == JS_CLASS_MODULE_NS) {
                             fail_read_only!(prop)
-                        }
-
-                        if let Some(JSProperty::VarRef(vref)) =
-                            this.0.prop_values.borrow_mut().get_mut(idx)
+                        } else if let Some(JSProperty::VarRef(vref)) =
+                            cur_obj.0.prop_values.borrow_mut().get_mut(idx)
                         {
                             vref.set_value(val);
                             return Ok(true);
@@ -105,12 +103,20 @@ impl JSObject {
                     JS_PROP_GETSET => {
                         let gs =
                             unsafe { cur_obj.0.prop_values.borrow().get_unchecked(idx).clone() };
+
                         return if let JSProperty::GetSet { setter, .. } = gs {
-                            call_setter(ctx, setter.as_ref(), &this.clone().into(), val, flags)
+                            call_setter(
+                                ctx,
+                                setter.as_ref(),
+                                &receiver.unwrap_or(self).clone().into(),
+                                val,
+                                flags,
+                            )
                         } else {
                             unreachable!()
                         };
                     }
+
                     JS_PROP_LAZYINIT => {
                         unsafe {
                             cur_obj
@@ -142,8 +148,8 @@ impl JSObject {
                 if obj_flags.is_fast_array() {
                     if let Some(idx) = prop.to_small_int() {
                         if idx < cur_obj.fast_array_count() as u32 {
-                            return if cur_obj.eq(this) {
-                                this.set_property_value(ctx, &JSValue::Int(idx as _), val, flags)
+                            return if receiver.map_or(false, |o| cur_obj.eq(o)) {
+                                cur_obj.set_property_value(ctx, &JSValue::Int(idx as _), val, flags)
                             } else {
                                 break; // proto iter loop
                             };
@@ -175,7 +181,7 @@ impl JSObject {
                             JSValue::Object(cur_obj.clone()),
                             prop,
                             val,
-                            this.clone().into(),
+                            receiver.unwrap_or(self).clone().into(),
                             flags as _,
                         );
                     }
@@ -186,7 +192,7 @@ impl JSObject {
                                 return call_setter(
                                     ctx,
                                     desc.setter.as_object(),
-                                    &this.clone().into(),
+                                    &receiver.unwrap_or(self).clone().into(),
                                     val,
                                     flags,
                                 );
@@ -196,8 +202,8 @@ impl JSObject {
                                 fail_read_only!(prop)
                             }
 
-                            if cur_obj.eq(this) {
-                                return this.define_property(
+                            if receiver.map_or(false, |o| cur_obj.eq(o)) {
+                                return cur_obj.define_property(
                                     ctx,
                                     prop,
                                     val,
