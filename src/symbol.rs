@@ -53,23 +53,21 @@ pub fn js_symbol_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
 // prototype funcs
 //
 
-pub fn js_thisSymbolValue(ctx: &JSContext, this_val: &JSValue) -> JSResult {
-    if this_val.is_symbol() {
-        return Ok(this_val.clone());
-    }
-
-    if let JSValue::Object(p) = this_val {
-        if p.class_id() == JS_CLASS_SYMBOL {
-            let v = p.payload().value().unwrap();
-            debug_assert!(v.is_symbol(), "{v:?}");
-            if v.is_symbol() {
+pub fn js_thisSymbolValue(ctx: &JSContext, val: &JSValue) -> JSResult {
+    if val.is_symbol() {
+        Ok(val.clone())
+    } else {
+        // symbol object
+        if let JSValue::Object(o) = val {
+            if o.class_id() == JS_CLASS_SYMBOL {
+                let v = o.payload().value().unwrap();
+                debug_assert!(v.is_symbol(), "{v:?}");
                 return Ok(v);
             }
         }
+        ctx.throw_type_error("not a symbol");
+        Err(-1)
     }
-
-    ctx.throw_type_error("not a symbol");
-    Err(-1)
 }
 
 pub fn js_symbol_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -85,7 +83,7 @@ pub fn js_symbol_valueOf(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_symbol_get_description(ctx: &JSContext, cc: CallContext) -> JSResult {
     if let JSValue::Symbol(p) = js_thisSymbolValue(ctx, cc.this())? {
-        if p.is_empty() && !p.is_wide() {
+        if p.is_ident() {
             Ok(JSValue::UNDEFINED)
         } else {
             Ok(JSValue::String(p))
