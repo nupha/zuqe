@@ -4666,3 +4666,6 @@ pub fn js_get_radix(ctx: &JSContext, val: &JSValue) -> Result<i32, i32> {
     }
     Ok(radix)
 }
+
+#[deprecated(note = "use RegExp::class_finalizer() instead")]
+pub fn js_regexp_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}

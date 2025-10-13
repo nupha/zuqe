@@ -13,6 +13,7 @@ use crate::{
     context::JSContext,
     object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, JSObject, ObjectPayload},
     object_cast,
+    runtime::JSRuntime,
     string::{JSString, StringContent, map_utf8_to_utf16_range},
     value::JSValue,
 };
@@ -90,7 +91,7 @@ pub enum RegExpExecMode {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct RegExpData {
+pub struct RegExpData {
     pub(crate) pattern: StringContent,
     pub(crate) flags_str: StringContent,
     pub(crate) flags: u8,
@@ -336,9 +337,10 @@ pub struct RegExp(JSObject);
 object_cast!(RegExp, JS_CLASS_REGEXP);
 
 impl RegExp {
+    /// create RegExp object with given RegExpData, and constructor.
     pub(crate) fn from(ctx: &JSContext, ctor: &JSValue, re: Box<RegExpData>) -> Result<Self, i32> {
         let o = Self(
-            ctx.create_object_from_ctor(ctor, ObjectPayload::REGEXP(RefCell::new(re)))
+            ctx.create_object_from_ctor(ctor, ObjectPayload::REGEXP(re))
                 .map_err(|_| -1)?,
         );
         o.define_property_value(ctx, JS_ATOM_lastIndex, JSValue::Int(0), JS_PROP_WRITABLE)?;
@@ -354,6 +356,8 @@ impl RegExp {
     ) -> Result<Self, i32> {
         RegExpData::create(ctx, pattern, flags).and_then(|re| Self::from(ctx, ctor, Box::new(re)))
     }
+
+    pub fn class_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
 }
 
 /// build Array object to hold regexp matches.
