@@ -56,7 +56,7 @@ impl AsyncStateInner {
         args: &[JSValue],
     ) -> Result<Self, i32> {
         let (arg_count, var_count, stack_size, js_mode) = {
-            let bc = bc_func.bytecode();
+            let bc = bc_func.payload().bytecode();
             let b = bc.0.borrow();
             (b.arg_count, b.var_count, b.stack_size, b.js_mode)
         };

@@ -89,7 +89,11 @@ pub enum FuncCallType {
     FUNC_CALL_TEMPLATE,
 }
 
-/// object payload for bytecode function, async function, generator function, async generator function
+/// Object payload for:
+/// * bytecode function,
+/// * async function,
+/// * generator function,
+/// * async generator function
 #[derive(Debug)]
 pub struct BCFuncPayload {
     bytecode: Bytecode,
@@ -164,15 +168,10 @@ impl BCFunction {
         )
     }
 
+    /// get bcfunction payload
     #[inline]
     pub fn payload(&self) -> &BCFuncPayload {
         self.0.payload().func().unwrap()
-    }
-
-    /// get bytecode
-    #[inline]
-    pub fn bytecode(&self) -> &Bytecode {
-        self.payload().bytecode()
     }
 }
 
