@@ -1,14 +1,19 @@
 use std::cell::RefCell;
 
+use fallible_collections::FallibleVec;
+
 use crate::{
-    JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_GENERATOR,
-    JS_CLASS_GENERATOR_FUNCTION,
+    JS_CLASS_ASYNC_GENERATOR, JS_CLASS_GENERATOR,
     atom::{JS_ATOM_NULL, JSAtom, consts::*},
     context::JSContext,
-    function::{BCFuncPayload, Bytecode, JSFunctionKindEnum, JSVarRef, js_function_set_properties},
-    object::{JS_PROP_WRITABLE, JS_SetConstructorBit, JSObject, LazyInit, ObjectPayload},
+    function::{
+        BCFuncPayload, BCFunction, Bytecode, JSFunctionKindEnum, JSVarRef,
+        js_function_set_properties,
+    },
+    object::{JS_PROP_WRITABLE, JS_SetConstructorBit, LazyInit, ObjectPayload},
     runtime::JS_MAX_LOCAL_VARS,
     stack_frame::StackFrame,
+    value::JSValue,
 };
 
 use super::{ARG_SCOPE_END, JSFunctionDef, JSVarDef, JSVarKindEnum, is_var_in_arg_scope};
@@ -213,95 +218,83 @@ impl JSFunctionDef {
 }
 
 impl Bytecode {
-    /// make object `target` to become a closure function with this bytecode and captured variables.
-    /// `target` must be an object which converns bytecode.
-    pub(crate) fn make_closure_to(
-        &self,
-        ctx: &JSContext,
-        target: JSObject,
-        cur_var_refs: &[JSVarRef],
-        parent_frame: Option<&mut StackFrame>,
-    ) -> Result<JSObject, i32> {
-        debug_assert!(
-            target.as_BCFunction().is_some(),
-            "object does not contain bytecode",
-        );
-
-        // borrow func_obj in code block only
-        {
-            let mut func = target.payload().func_mut().unwrap();
-            debug_assert!(func.var_refs.is_empty());
-
-            func.bytecode.replace(self.clone());
-            func.home_object.take();
-
-            let closure_var_count = self.0.borrow().closure_var_count;
-            if closure_var_count != 0 {
-                if func
-                    .var_refs
-                    .try_reserve_exact(closure_var_count as usize)
-                    .is_err()
-                {
-                    ctx.throw_out_of_memory();
-                    return Err(-1);
-                };
-
-                // parent stack frame must be present if there is any closure variable.
-                let sf = parent_frame.unwrap();
-
-                // initialize function object var_refs with closure variables
-                for cv in self.closure_vars_slice().iter() {
-                    let var_ref = if cv.is_local() {
-                        // reuse the existing variable reference if it already exists
-                        sf.get_var_ref(ctx, cv.var_idx, cv.is_arg())?
-                    } else {
-                        cur_var_refs[cv.var_idx as usize].clone()
-                    };
-                    func.var_refs.push(var_ref);
-                }
-            }
-        }
-
-        Ok(target)
-    }
-
-    /// Make new closure function with bytecode and captured variables.
-    /// Returns closure function object.
+    /// Create function (a.k.a. closure) with `self` Bytecode and captured variables.
     pub fn make_closure(
         &self,
         ctx: &JSContext,
         cur_var_refs: &[JSVarRef],
         parent_frame: Option<&mut StackFrame>,
-    ) -> Result<JSObject, i32> {
-        let (func_kind, name, has_prototype, defined_arg_count) = {
+        proto: Option<JSValue>,
+    ) -> Result<BCFunction, i32> {
+        let (func_kind, name, has_prototype, defined_arg_count, closure_var_count) = {
             let b = self.0.borrow();
             (
                 b.func_kind,
                 b.func_name,
                 b.has_prototype,
                 b.defined_arg_count,
+                b.closure_var_count,
             )
         };
 
-        let isa = RefCell::new(Box::new(BCFuncPayload::default()));
-        let closure = self.make_closure_to(
-            ctx,
-            ctx.create_object(match func_kind {
+        let var_refs: Vec<JSVarRef> = if closure_var_count != 0 {
+            debug_assert!(
+                parent_frame.is_some(),
+                "parent stack frame must be present if there is any closure variable"
+            );
+            let sf = parent_frame.unwrap();
+
+            // initialize var_refs with closure variables
+            let mut lst = Vec::new();
+            lst.try_reserve_exact(closure_var_count as usize)
+                .map_err(|_| {
+                    ctx.throw_out_of_memory();
+                    -1
+                })?;
+            for cv in self.closure_vars_slice().iter() {
+                let var_ref = if cv.is_local() {
+                    // reuse the existing variable reference if it already exists
+                    sf.get_var_ref(ctx, cv.var_idx, cv.is_arg())?
+                } else {
+                    cur_var_refs[cv.var_idx as usize].clone()
+                };
+                lst.push(var_ref);
+            }
+
+            lst
+        } else {
+            Vec::new()
+        };
+
+        let payload = {
+            let isa = RefCell::new(Box::new(BCFuncPayload {
+                bytecode: Some(self.clone()),
+                var_refs,
+                home_object: None,
+            }));
+
+            match func_kind {
                 JSFunctionKindEnum::JS_FUNC_NORMAL => ObjectPayload::BYTECODE_FUNCTION(isa),
                 JSFunctionKindEnum::JS_FUNC_GENERATOR => ObjectPayload::GENERATOR_FUNCTION(isa),
                 JSFunctionKindEnum::JS_FUNC_ASYNC => ObjectPayload::ASYNC_FUNCTION(isa),
                 JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR => {
                     ObjectPayload::ASYNC_GENERATOR_FUNCTION(isa)
                 }
-            })
+            }
+        };
+        let func = BCFunction(
+            ctx.create_object_from_proto(
+                proto.unwrap_or_else(|| {
+                    ctx.0.borrow().class_proto[payload.class_id() as usize].clone()
+                }),
+                payload,
+            )
             .map_err(|_| -1)?,
-            cur_var_refs,
-            parent_frame,
-        )?;
+        );
 
         js_function_set_properties(
             ctx,
-            &closure,
+            &func,
             if name == JS_ATOM_NULL {
                 JS_ATOM_empty_string
             } else {
@@ -321,16 +314,15 @@ impl Bytecode {
             let proto = ctx.create_base_object_from_proto(
                 ctx.0.borrow().class_proto[gen_class_id as usize].clone(),
             )?;
-            closure
-                .define_property_value(ctx, JS_ATOM_prototype, proto.into(), JS_PROP_WRITABLE)
+            func.define_property_value(ctx, JS_ATOM_prototype, proto.into(), JS_PROP_WRITABLE)
                 .unwrap();
         } else if has_prototype {
             // add the 'prototype' property: delay instantiation to avoid
             // creating cycles for every javascript function. The prototype
             // object is created on the fly when first accessed
-            JS_SetConstructorBit(ctx, &closure.clone().into(), true);
+            JS_SetConstructorBit(ctx, &func.clone().into(), true);
 
-            closure.define_lazy_property(
+            func.define_lazy_property(
                 ctx,
                 JS_ATOM_prototype,
                 LazyInit::Prototype,
@@ -338,9 +330,138 @@ impl Bytecode {
             )?;
         }
 
-        debug_assert!(closure.payload().func().is_some());
-        Ok(closure)
+        Ok(func)
     }
+
+    // /// make object `target` to become a closure function with this bytecode and captured variables.
+    // /// `target` must be an object which converns bytecode.
+    // pub(crate) fn make_closure_to(
+    //     &self,
+    //     ctx: &JSContext,
+    //     target: JSObject,
+    //     cur_var_refs: &[JSVarRef],
+    //     parent_frame: Option<&mut StackFrame>,
+    // ) -> Result<JSObject, i32> {
+    //     debug_assert!(
+    //         target.as_BCFunction().is_some(),
+    //         "object does not contain bytecode",
+    //     );
+
+    //     // borrow func_obj in code block only
+    //     {
+    //         let mut func = target.payload().func_mut().unwrap();
+    //         debug_assert!(func.var_refs.is_empty());
+
+    //         func.bytecode.replace(self.clone());
+    //         func.home_object.take();
+
+    //         let closure_var_count = self.0.borrow().closure_var_count;
+    //         if closure_var_count != 0 {
+    //             if func
+    //                 .var_refs
+    //                 .try_reserve_exact(closure_var_count as usize)
+    //                 .is_err()
+    //             {
+    //                 ctx.throw_out_of_memory();
+    //                 return Err(-1);
+    //             };
+
+    //             // parent stack frame must be present if there is any closure variable.
+    //             let sf = parent_frame.unwrap();
+
+    //             // initialize function object var_refs with closure variables
+    //             for cv in self.closure_vars_slice().iter() {
+    //                 let var_ref = if cv.is_local() {
+    //                     // reuse the existing variable reference if it already exists
+    //                     sf.get_var_ref(ctx, cv.var_idx, cv.is_arg())?
+    //                 } else {
+    //                     cur_var_refs[cv.var_idx as usize].clone()
+    //                 };
+    //                 func.var_refs.push(var_ref);
+    //             }
+    //         }
+    //     }
+
+    //     Ok(target)
+    // }
+
+    // /// Make new closure function with bytecode and captured variables.
+    // /// Returns closure function object.
+    // #[deprecated]
+    // pub fn make_closure_v0(
+    //     &self,
+    //     ctx: &JSContext,
+    //     cur_var_refs: &[JSVarRef],
+    //     parent_frame: Option<&mut StackFrame>,
+    // ) -> Result<JSObject, i32> {
+    //     let (func_kind, name, has_prototype, defined_arg_count) = {
+    //         let b = self.0.borrow();
+    //         (
+    //             b.func_kind,
+    //             b.func_name,
+    //             b.has_prototype,
+    //             b.defined_arg_count,
+    //         )
+    //     };
+
+    //     let isa = RefCell::new(Box::new(BCFuncPayload::default()));
+    //     let closure = self.make_closure_to(
+    //         ctx,
+    //         ctx.create_object(match func_kind {
+    //             JSFunctionKindEnum::JS_FUNC_NORMAL => ObjectPayload::BYTECODE_FUNCTION(isa),
+    //             JSFunctionKindEnum::JS_FUNC_GENERATOR => ObjectPayload::GENERATOR_FUNCTION(isa),
+    //             JSFunctionKindEnum::JS_FUNC_ASYNC => ObjectPayload::ASYNC_FUNCTION(isa),
+    //             JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR => {
+    //                 ObjectPayload::ASYNC_GENERATOR_FUNCTION(isa)
+    //             }
+    //         })
+    //         .map_err(|_| -1)?,
+    //         cur_var_refs,
+    //         parent_frame,
+    //     )?;
+
+    //     js_function_set_properties(
+    //         ctx,
+    //         &closure,
+    //         if name == JS_ATOM_NULL {
+    //             JS_ATOM_empty_string
+    //         } else {
+    //             name
+    //         },
+    //         defined_arg_count as _,
+    //     );
+
+    //     if let Some(gen_class_id) = func_kind.generator_class_id() {
+    //         // generator functions have a prototype field which is used as
+    //         // prototype for the generator object
+    //         debug_assert!(matches!(
+    //             gen_class_id,
+    //             JS_CLASS_GENERATOR | JS_CLASS_ASYNC_GENERATOR
+    //         ));
+
+    //         let proto = ctx.create_base_object_from_proto(
+    //             ctx.0.borrow().class_proto[gen_class_id as usize].clone(),
+    //         )?;
+    //         closure
+    //             .define_property_value(ctx, JS_ATOM_prototype, proto.into(), JS_PROP_WRITABLE)
+    //             .unwrap();
+    //     } else if has_prototype {
+    //         // add the 'prototype' property: delay instantiation to avoid
+    //         // creating cycles for every javascript function. The prototype
+    //         // object is created on the fly when first accessed
+    //         JS_SetConstructorBit(ctx, &closure.clone().into(), true);
+
+    //         closure.define_lazy_property(
+    //             ctx,
+    //             JS_ATOM_prototype,
+    //             LazyInit::Prototype,
+    //             JS_PROP_WRITABLE,
+    //         )?;
+    //     }
+
+    //     debug_assert!(closure.payload().func().is_some());
+    //     Ok(closure)
+    // }
 }
 
 /// for direct eval compilation: add references to the variables of the calling function.

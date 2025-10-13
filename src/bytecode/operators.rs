@@ -153,14 +153,17 @@ pub fn js_op_define_class(
     let proto = ctx.create_base_object_from_proto(parent_proto)?;
 
     // make constructor function
-    let func = ctx
-        .create_object_from_proto(
-            parent_class,
-            ObjectPayload::BYTECODE_FUNCTION(RefCell::new(Box::new(BCFuncPayload::default()))),
-        )
-        .map_err(|_| -1)?;
+    let ctor =
+        JSValue::from(bc.make_closure(ctx, cur_var_refs, Some(sframe), Some(parent_class))?);
 
-    let ctor = JSValue::Object(bc.make_closure_to(ctx, func, cur_var_refs, Some(sframe))?);
+    // let func = ctx
+    //     .create_object_from_proto(
+    //         parent_class,
+    //         ObjectPayload::BYTECODE_FUNCTION(RefCell::new(Box::new(BCFuncPayload::default()))),
+    //     )
+    //     .map_err(|_| -1)?;
+
+    // let ctor = JSValue::Object(bc.make_closure_to(ctx, func, cur_var_refs, Some(sframe))?);
 
     js_method_set_home_object(&ctor, Some(&proto));
     JS_SetConstructorBit(ctx, &ctor, true);

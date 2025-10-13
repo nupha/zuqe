@@ -11,22 +11,26 @@ use crate::{
 use super::state::JSParseState;
 
 impl JSFunctionDef {
+    #[inline(always)]
     pub fn emit_u8(&mut self, val: u8) {
         push_vec_u8(&mut self.byte_code, val);
     }
 
+    #[inline(always)]
     pub fn emit_u16(&mut self, val: u16) {
         push_vec_u16(&mut self.byte_code, val);
     }
 
+    #[inline(always)]
     pub fn emit_u32(&mut self, val: u32) {
         push_vec_u32(&mut self.byte_code, val);
     }
 
-    /// emit an atom, increase ref_count
+    /// emit an atom.
+    /// Note: `atom` will be dup'ed inside
+    #[inline(always)]
     pub fn emit_atom_dup(&mut self, name: JSAtom) {
-        let name = name.dup(&self.ctx.rt());
-        self.emit_u32(name.0);
+        self.emit_u32(name.dup(&self.ctx.rt()).0);
     }
 
     fn emit_op_u8(&mut self, op: u8, last_line_num: i32) {
@@ -376,10 +380,11 @@ impl<'s> JSParseState<'s> {
         self.cur_func_mut().emit_u32(val);
     }
 
-    /// emit an atom, increase ref_count
+    /// emit an atom.
+    /// Note: `atom` will be dup'ed inside
     #[inline(always)]
-    pub fn emit_atom_dup(&mut self, name: JSAtom) {
-        self.cur_func_mut().emit_atom_dup(name);
+    pub fn emit_atom_dup(&mut self, atom: JSAtom) {
+        self.cur_func_mut().emit_atom_dup(atom);
     }
 
     /// emit on current function def

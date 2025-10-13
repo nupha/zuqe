@@ -672,8 +672,8 @@ impl Bytecode {
                         if let JSValue::Bytecode(bc) = CPOOL![id] {
                             SP_PUT!(
                                 0,
-                                bc.make_closure(ctx, closure_var_refs, Some(stack_frame))
-                                    .map_or(JSValue::EXCEPTION, JSValue::Object)
+                                bc.make_closure(ctx, closure_var_refs, Some(stack_frame), None)
+                                    .map_or(JSValue::EXCEPTION, |f| f.into())
                             );
                             SP_GO!(1);
                             if SP_REF!(-1).is_exception() {

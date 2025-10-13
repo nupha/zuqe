@@ -616,7 +616,9 @@ impl Bytecode {
         self.0.borrow().find_line_num(pc_value)
     }
 
-    /// Evaluate bytecode: make a closure function with the bytecode, then eval the function.
+    /// Evaluate `self` Bytecode.
+    ///
+    /// Internally, it will create a function with the bytecode, then eval the function.
     pub fn eval(
         &self,
         ctx: &JSContext,
@@ -624,7 +626,8 @@ impl Bytecode {
         var_refs: &[JSVarRef],
         parent_frame: Option<&mut StackFrame>,
     ) -> JSResult {
-        JSValue::from(self.make_closure(ctx, var_refs, parent_frame)?).call(ctx, &this_obj, &[])
+        self.make_closure(ctx, var_refs, parent_frame, None)?
+            .call(ctx, &this_obj, &[])
     }
 
     pub fn gc_has_mark(&self) -> bool {

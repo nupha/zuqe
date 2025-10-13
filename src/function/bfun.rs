@@ -122,7 +122,7 @@ impl BCFuncPayload {
 /// which have bytecode.
 #[derive(Debug, Clone)]
 #[repr(transparent)]
-pub struct BCFunction(JSObject);
+pub struct BCFunction(pub(super) JSObject);
 
 object_cast!(
     BCFunction,

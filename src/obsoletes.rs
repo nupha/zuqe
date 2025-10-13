@@ -2827,14 +2827,14 @@ pub unsafe fn free_function_bytecode(
 /// Make function closure with bytecode and captured variables.
 /// Returns closure function object.
 #[deprecated(note = "use Bytecode::make_closure() instead")]
-pub unsafe fn js_closure(
+pub fn js_closure(
     ctx: &JSContext,
     bc: &Bytecode,
     cur_var_refs: &[JSVarRef],
     parent_frame: Option<&mut StackFrame>,
 ) -> JSValue {
-    bc.make_closure(ctx, cur_var_refs, parent_frame)
-        .map_or(JSValue::EXCEPTION, JSValue::Object)
+    bc.make_closure(ctx, cur_var_refs, parent_frame, None)
+        .map_or(JSValue::EXCEPTION, |x| x.into())
 }
 
 #[deprecated(note = "use Bytecode::make_closure_to() instead")]
@@ -2845,13 +2845,14 @@ pub(crate) unsafe fn js_closure2(
     cur_var_refs: &[JSVarRef],
     parent_frame: Option<&mut StackFrame>,
 ) -> JSValue {
-    bc.make_closure_to(
-        ctx,
-        func_obj.as_object_unchecked().clone(),
-        cur_var_refs,
-        parent_frame,
-    )
-    .map_or(JSValue::EXCEPTION, JSValue::Object)
+    unreachable!("unused")
+    // bc.make_closure_to(
+    //     ctx,
+    //     func_obj.as_object_unchecked().clone(),
+    //     cur_var_refs,
+    //     parent_frame,
+    // )
+    // .map_or(JSValue::EXCEPTION, JSValue::Object)
 }
 
 #[deprecated(note = "use JSFunctionDef::add_closure_var() instead")]
@@ -3384,16 +3385,17 @@ pub unsafe fn js_parse_property_name(
     allow_var: bool,
     allow_private: bool,
 ) -> i32 {
-    match (*s).parse_property_name(allow_method, allow_var, allow_private) {
-        Ok((name, prop)) => {
-            *pname = name;
-            prop
-        }
-        Err(_) => {
-            *pname = JS_ATOM_NULL;
-            -1
-        }
-    }
+    unreachable!("unused")
+    // match (*s).parse_property_name(allow_method, allow_var, allow_private) {
+    //     Ok((name, prop)) => {
+    //         *pname = name;
+    //         prop
+    //     }
+    //     Err(_) => {
+    //         *pname = JS_ATOM_NULL;
+    //         -1
+    //     }
+    // }
 }
 
 // XXX: improve speed with early bailout

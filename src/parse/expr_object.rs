@@ -14,8 +14,8 @@ use crate::{
         JSParseFunctionEnum,
         obj::set_object_name_computed,
         token::{
-            CHAR_BRACKET_L, CHAR_COLON, CHAR_COMMA, CHAR_CURLY_R, CHAR_SQUARE_L, TOK_ELLIPSIS,
-            TOK_IDENT, TOK_NUMBER, TOK_PRIVATE_NAME, TOK_STRING,
+            CHAR_BRACKET_L, CHAR_COLON, CHAR_COMMA, CHAR_CURLY_R, CHAR_SEMI, CHAR_SQUARE_L,
+            TOK_ELLIPSIS, TOK_IDENT, TOK_NUMBER, TOK_PRIVATE_NAME, TOK_STRING,
         },
     },
 };
@@ -158,9 +158,9 @@ impl<'s> JSParseState<'s> {
         self.parse_expect(CHAR_CURLY_R)
     }
 
-    /// if the property is an expression, name = JS_ATOM_NULL.
-    /// return atom and property type.
-    pub fn parse_property_name(
+    /// parse property name, returns name atom and property type.
+    /// if the property is an expression, returned name will be JS_ATOM_NULL.
+    pub(super) fn parse_property_name(
         &mut self,
         allow_method: bool,
         allow_var: bool,
@@ -175,26 +175,27 @@ impl<'s> JSParseState<'s> {
             if self.token_is_pseudo_keyword(JS_ATOM_get)
                 || self.token_is_pseudo_keyword(JS_ATOM_set)
             {
-                // get x(), set x()
+                // case `get...` or `set...`
                 name.replace(JSAtomRc::clone_from(
                     self.ctx.rt(),
                     self.token.atom().unwrap(),
                 ));
 
-                self.next_token()?;
-
-                if matches!(
-                    self.token.val,
-                    CHAR_COLON | CHAR_COMMA | CHAR_CURLY_R | CHAR_BRACKET_L
-                ) {
-                    // :,}(
-                    is_non_reserved_ident = true;
-                } else {
-                    prop_type = if *name.take().unwrap() == JS_ATOM_get {
-                        PROP_TYPE_GET
-                    } else {
-                        PROP_TYPE_SET
-                    };
+                match self.next_token()? {
+                    CHAR_COLON | CHAR_COMMA | CHAR_CURLY_R | CHAR_BRACKET_L | CHAR_SEMI => {
+                        // ident found: a var named `get` or `set`
+                        // case ':' - w/ init value
+                        // case ';' - w/o init value
+                        // ,}(
+                        is_non_reserved_ident = true;
+                    }
+                    _ => {
+                        prop_type = if *name.take().unwrap() == JS_ATOM_get {
+                            PROP_TYPE_GET
+                        } else {
+                            PROP_TYPE_SET
+                        };
+                    }
                 }
             } else if self.token.val == '*' as i32 {
                 self.next_token()?;

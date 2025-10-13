@@ -503,7 +503,8 @@ pub unsafe fn JS_AtomIsNumericIndex(ctx: &JSContext, atom: JSAtom) -> i32 {
     return 1;
 }
 
-// return a string atom containing name concatenated with str1
+/// return a string atom containing name concatenated with str1.
+/// Note: returned atom should be freed by caller.
 pub unsafe fn js_atom_concat_str(ctx: &JSContext, name: JSAtom, str1: *const u8) -> JSAtom {
     let str_val = if let Ok(s) = name.force_string(ctx) {
         s
@@ -529,6 +530,7 @@ pub unsafe fn js_atom_concat_str(ctx: &JSContext, name: JSAtom, str1: *const u8)
     res
 }
 
+/// Note: returned atom should be freed by caller.
 pub unsafe fn js_atom_concat_num(ctx: &JSContext, name: JSAtom, n: u32) -> JSAtom {
     js_atom_concat_str(ctx, name, format!("{n}\0").as_ptr())
 }
