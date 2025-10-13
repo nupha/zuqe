@@ -37,22 +37,22 @@ fn js_regexp_string_iterator_next(
         // initialize state
         *state = IteratorState::NotDone;
 
-        let match_val = JS_RegExpExec(
+        let res = JS_RegExpExec(
             ctx,
             regexp.clone(),
             ctx.create_string_with_content(iterated_string.clone())?,
         )?;
 
-        if match_val.is_null() {
+        if res.is_null() {
             it.borrow_mut().done = true;
             *state = IteratorState::Done;
             return Ok(JSValue::UNDEFINED);
-        }
+        } else if global {
+            let str = res
+                .get_property_i64(ctx, 0)
+                .and_then(|x| x.to_string(ctx))?;
 
-        if global {
-            if let JSValue::String(str) = match_val.get_property_u32(ctx, 0)?
-                && str.is_empty()
-            {
+            if str.is_empty() {
                 // matched is empty
                 let last_index = regexp
                     .get_property(ctx, JS_ATOM_lastIndex)
@@ -76,7 +76,7 @@ fn js_regexp_string_iterator_next(
             it.borrow_mut().done = true;
         }
 
-        Ok(match_val)
+        Ok(res)
     } else {
         unreachable!()
     }

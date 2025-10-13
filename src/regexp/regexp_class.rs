@@ -952,12 +952,15 @@ pub static js_regexp_funcs: [FieldDef; 1] = [
     //JS_CFUNC_DEF("__RegExpDelete", 2, js_regexp___RegExpDelete ),
 ];
 
-pub(super) fn JS_RegExpExec(ctx: &JSContext, this: JSObject, str: JSString) -> JSResult {
-    let method = this.get_property(ctx, JS_ATOM_exec)?;
+/// invoke regexp.exec() method with a string, if `exec()` method is not callable,
+/// call js_regexp_exec() instead.
+/// result must be object or null.
+pub(super) fn JS_RegExpExec(ctx: &JSContext, re: JSObject, str: JSString) -> JSResult {
+    let method = re.get_property(ctx, JS_ATOM_exec)?;
     let args: [JSValue; 1] = [str.into()];
 
     if method.is_function() {
-        let ret = method.call(ctx, &this.into(), &args)?;
+        let ret = method.call(ctx, &re.into(), &args)?;
         if !ret.is_object() && !ret.is_null() {
             ctx.throw_type_error("RegExp exec method must return an object or null");
             Err(-1)
@@ -965,6 +968,6 @@ pub(super) fn JS_RegExpExec(ctx: &JSContext, this: JSObject, str: JSString) -> J
             Ok(ret)
         }
     } else {
-        js_regexp_exec(ctx, CallContext::new(ctx, this.into(), &args, 0, None))
+        js_regexp_exec(ctx, CallContext::new(ctx, re.into(), &args, 0, None))
     }
 }
