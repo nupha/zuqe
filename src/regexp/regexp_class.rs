@@ -1,4 +1,4 @@
-use std::{cell::RefCell, ops::Deref, rc::Rc};
+use std::{cell::RefCell, rc::Rc};
 
 use smallvec::SmallVec;
 
@@ -540,7 +540,7 @@ pub fn js_regexp_Symbol_matchAll(ctx: &JSContext, cc: CallContext) -> JSResult {
     //
     let regexp_ctor = ctx.0.borrow().regexp_ctor.clone();
     let ctor = JS_SpeciesConstructor(ctx, cc.this(), regexp_ctor)?;
-    let matcher = JS_CallConstructor(
+    let regexp = JS_CallConstructor(
         ctx,
         &ctor,
         &[
@@ -549,23 +549,19 @@ pub fn js_regexp_Symbol_matchAll(ctx: &JSContext, cc: CallContext) -> JSResult {
         ],
     )
     .err()?;
-    matcher.set_property(ctx, JS_ATOM_lastIndex, last_index)?;
+    regexp.set_property(ctx, JS_ATOM_lastIndex, last_index)?;
 
     // make regexp string iterator object
-    let isa = RegExpStringIterPayload {
-        iterating_regexp: matcher.try_into().unwrap(),
-        iterated_string: str.content().clone(),
-        global: re.flags & LRE_FLAG_GLOBAL as u8 != 0,
-        unicode: re.flags & LRE_FLAG_UTF16 as u8 != 0,
-        done: false,
-    };
-    let iter = ctx
-        .create_object(ObjectPayload::REGEXP_STRING_ITERATOR(RefCell::new(
-            Box::new(isa),
-        )))
-        .map_err(|_| -1)?;
-
-    Ok(iter.into())
+    ctx.create_object(ObjectPayload::REGEXP_STRING_ITERATOR(
+        RegExpStringIterPayload::new(
+            regexp.try_into().unwrap(),
+            str.content().clone(),
+            re.flags & LRE_FLAG_GLOBAL as u8 != 0,
+            re.flags & LRE_FLAG_UTF16 as u8 != 0,
+        ),
+    ))
+    .map(JSValue::Object)
+    .map_err(|_| -1)
 }
 
 fn js_is_standard_regexp(ctx: &JSContext, rx: &JSObject) -> Result<bool, i32> {

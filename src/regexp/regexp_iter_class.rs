@@ -19,42 +19,33 @@ fn js_regexp_string_iterator_next(
         .this()
         .retrive_object_payload(ctx, JS_CLASS_REGEXP_STRING_ITERATOR)?
     {
-        if it.borrow().done {
+        if it.done() {
             *state = IteratorState::Done;
             return Ok(JSValue::UNDEFINED);
         }
-
-        let (regexp, iterated_string, global, unicode) = {
-            let b = it.borrow();
-            (
-                b.iterating_regexp.clone(),
-                b.iterated_string.clone(),
-                b.global,
-                b.unicode,
-            )
-        };
 
         // initialize state
         *state = IteratorState::NotDone;
 
         let res = JS_RegExpExec(
             ctx,
-            regexp.clone(),
-            ctx.create_string_with_content(iterated_string.clone())?,
+            it.regexp().clone(),
+            ctx.create_string_with_content(it.string().clone())?,
         )?;
 
         if res.is_null() {
-            it.borrow_mut().done = true;
+            it.set_done(true);
             *state = IteratorState::Done;
             return Ok(JSValue::UNDEFINED);
-        } else if global {
+        } else if it.is_global() {
             let str = res
                 .get_property_i64(ctx, 0)
                 .and_then(|x| x.to_string(ctx))?;
 
             if str.is_empty() {
                 // matched is empty
-                let last_index = regexp
+                let last_index = it
+                    .regexp()
                     .get_property(ctx, JS_ATOM_lastIndex)
                     .and_then(|v| v.to_u32(ctx))
                     .inspect_err(|_| {
@@ -62,18 +53,19 @@ fn js_regexp_string_iterator_next(
                     })? as usize;
 
                 // advance index to next char
-                let next_index = iterated_string
-                    .index_of_next(last_index, unicode)
+                let next_index = it
+                    .string()
+                    .index_of_next(last_index, it.is_unicode())
                     .unwrap_or(last_index + 1);
 
-                regexp
+                it.regexp()
                     .set_property(ctx, JS_ATOM_lastIndex, JSValue::from(next_index as u32))
                     .inspect_err(|_| {
                         *state = IteratorState::NotDone;
                     })?;
             }
         } else {
-            it.borrow_mut().done = true;
+            it.set_done(true);
         }
 
         Ok(res)

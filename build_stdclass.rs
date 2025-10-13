@@ -297,7 +297,7 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "RegExp_String_Iterator",
             "REGEXP_STRING_ITERATOR",
-            Some("std::cell::RefCell<Box<crate::regexp::RegExpStringIterPayload>>"),
+            Some("Box<crate::regexp::RegExpStringIterPayload>"),
             Some("crate::regexp::js_regexp_iterator_finalizer"),
             Some("crate::regexp::js_regexp_iterator_mark")
         ),

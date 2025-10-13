@@ -1,4 +1,9 @@
-use std::{borrow::Cow, cell::RefCell, ops::Range, rc::Rc};
+use std::{
+    borrow::Cow,
+    cell::{Cell, RefCell},
+    ops::Range,
+    rc::Rc,
+};
 
 use regex::bytes::{Regex, RegexBuilder};
 
@@ -28,11 +33,53 @@ pub const LRE_FLAG_NAMED_GROUPS: i32 = 1 << 7; // named groups are present in th
 
 #[derive(Debug)]
 pub struct RegExpStringIterPayload {
-    pub iterating_regexp: JSObject,
-    pub iterated_string: StringContent,
+    iterating_regexp: JSObject,
+    iterated_string: StringContent,
     pub global: bool,
     pub unicode: bool,
-    pub done: bool,
+    done: Cell<bool>,
+}
+
+impl RegExpStringIterPayload {
+    pub fn new(regexp: JSObject, str: StringContent, global: bool, unicode: bool) -> Box<Self> {
+        Box::new(Self {
+            iterating_regexp: regexp,
+            iterated_string: str,
+            global,
+            unicode,
+            done: Cell::new(false),
+        })
+    }
+
+    #[inline(always)]
+    pub fn regexp(&self) -> &JSObject {
+        &self.iterating_regexp
+    }
+
+    #[inline(always)]
+    pub fn string(&self) -> &StringContent {
+        &self.iterated_string
+    }
+
+    #[inline(always)]
+    pub fn is_global(&self) -> bool {
+        self.global
+    }
+
+    #[inline(always)]
+    pub fn is_unicode(&self) -> bool {
+        self.unicode
+    }
+
+    #[inline(always)]
+    pub fn done(&self) -> bool {
+        self.done.get()
+    }
+
+    #[inline(always)]
+    pub fn set_done(&self, v: bool) {
+        self.done.set(v)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -43,7 +90,7 @@ pub enum RegExpExecMode {
 }
 
 #[derive(Clone, Debug)]
-pub struct RegExpData {
+pub(crate) struct RegExpData {
     pub(crate) pattern: StringContent,
     pub(crate) flags_str: StringContent,
     pub(crate) flags: u8,
@@ -89,7 +136,7 @@ impl RegExpData {
 
         // Note: pattern `[]`， `[^]` is valid for js, but is invalid for Regex.
         // should replace with equivalent pattern for Regex.
-        let mut pat: Cow<str> = match pattern {
+        let pat: Cow<str> = match pattern {
             "[]" => {
                 // pattern `[]` is not allowed in regex.
                 // use `$^` to mimic equivelent effect.
@@ -281,6 +328,7 @@ impl RegExpData {
     }
 }
 
+/// the regexp object
 #[derive(Debug, Clone)]
 #[repr(transparent)]
 pub struct RegExp(JSObject);
