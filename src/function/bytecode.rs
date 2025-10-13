@@ -485,6 +485,11 @@ impl Bytecode {
         BytecodeWeakref(Rc::downgrade(&self.0))
     }
 
+    #[inline]
+    pub fn need_home_object(&self) -> bool {
+        self.with(|bc| bc.need_home_object)
+    }
+
     /// get const pool values slice
     pub fn cpools_slice(&self) -> &[JSValue] {
         let r = self.0.borrow();

@@ -87,7 +87,7 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "Function",
             "BYTECODE_FUNCTION",
-            Some("std::cell::RefCell<Box<crate::function::BCFuncPayload>>"),
+            Some("Box<crate::function::BCFuncPayload>"),
             Some("crate::function::js_bytecode_function_finalizer"),
             Some("crate::function::js_bytecode_function_mark")
         ),
@@ -108,7 +108,7 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "GeneratorFunction",
             "GENERATOR_FUNCTION",
-            Some("std::cell::RefCell<Box<crate::function::BCFuncPayload>>"),
+            Some("Box<crate::function::BCFuncPayload>"),
             Some("crate::function::js_bytecode_function_finalizer"),
             Some("crate::function::js_bytecode_function_mark")
         ),
@@ -348,7 +348,7 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "AsyncFunction",
             "ASYNC_FUNCTION",
-            Some("std::cell::RefCell<Box<crate::function::BCFuncPayload>>"),
+            Some("Box<crate::function::BCFuncPayload>"),
             Some("crate::function::js_bytecode_function_finalizer"),
             Some("crate::function::js_bytecode_function_mark")
         ),
@@ -376,7 +376,7 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
         class_def!(
             "AsyncGeneratorFunction",
             "ASYNC_GENERATOR_FUNCTION",
-            Some("std::cell::RefCell<Box<crate::function::BCFuncPayload>>"),
+            Some("Box<crate::function::BCFuncPayload>"),
             Some("crate::function::js_bytecode_function_finalizer"),
             Some("crate::function::js_bytecode_function_mark")
         ),

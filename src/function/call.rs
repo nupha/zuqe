@@ -291,13 +291,17 @@ pub fn JS_CallInternal(
 
             // state has a dedicated stack frame for async function
             let frame = unsafe { &mut s.as_mut().get_unchecked_mut().frame };
+            let bcf = frame.cur_func.as_object_BCFunction().unwrap().clone();
+            let isa = bcf.payload();
 
-            let p = unsafe { frame.cur_func.as_object_unchecked().clone() };
-            let (bc, home_obj) = p
-                .payload()
-                .func()
-                .map(|f| (f.bytecode().cloned().unwrap(), f.home_object.clone()))
-                .unwrap();
+            // let p = unsafe { frame.cur_func.as_object_unchecked().clone() };
+            // let isa = p.payload().func().unwrap();
+
+            // let (bc, home_obj) = p
+            //     .payload()
+            //     .func()
+            //     .map(|f| (f.bytecode(), f.home_object.as_ref()))
+            //     .unwrap();
 
             let pc_offset = frame.cur_pc_offset;
             let sp_offset = std::mem::replace(&mut frame.cur_sp_offset, -1);
@@ -307,15 +311,15 @@ pub fn JS_CallInternal(
             frame.prev_frame = rt.cur_stack_frame;
             rt.cur_stack_frame = (frame.deref_mut() as *mut StackFrame).cast();
 
-            let ret_val = bc.run(
+            let ret_val = isa.bytecode().run(
                 caller_ctx,
-                home_obj.as_ref(),
+                isa.home_object().as_ref(),
                 frame,
                 this_obj,
                 new_target,
                 pc_offset,
                 sp_offset as usize,
-                p.payload().func().unwrap().var_refs.as_slice(),
+                isa.var_refs.borrow().as_slice(),
                 args,
                 throw_flag,
             );
@@ -346,46 +350,43 @@ pub fn JS_CallConstructorInternal(
         return JSValue::EXCEPTION;
     }
 
-    if let JSValue::Object(p) = func_obj {
-        if !p.flags().is_constructor() {
+    if let JSValue::Object(o) = func_obj {
+        if !o.flags().is_constructor() {
             ctx.throw_type_error("not a constructor");
             return JSValue::EXCEPTION;
         }
 
         flags |= JS_CALL_FLAG_CONSTRUCTOR;
-        let class_id = p.class_id();
+        let class_id = o.class_id();
 
         if unlikely(class_id != JS_CLASS_BYTECODE_FUNCTION) {
-            return if let Some(cb) = ctx.rt().class_defs[class_id as usize].call {
+            if let Some(cb) = ctx.rt().class_defs[class_id as usize].call {
                 cb(ctx, func_obj, &new_target, args, flags).unwrap_or(JSValue::EXCEPTION)
             } else {
                 ctx.throw_type_error("not a function");
                 JSValue::EXCEPTION
-            };
-        }
-
-        let bc = p
-            .payload()
-            .func()
-            .and_then(|x| x.bytecode().cloned())
-            .unwrap();
-
-        if bc.0.borrow().is_derived_class_constructor {
-            JS_CallInternal(ctx, func_obj, &JSValue::UNDEFINED, new_target, args, flags)
+            }
         } else {
-            // legacy constructor behavior
-            let this: JSValue =
-                if let Ok(o) = ctx.create_object_from_ctor(&new_target, ObjectPayload::OBJECT) {
+            // BYTECODE_FUNCTION
+            let bc = o.payload().func().unwrap().bytecode();
+            if bc.0.borrow().is_derived_class_constructor {
+                JS_CallInternal(ctx, func_obj, &JSValue::UNDEFINED, new_target, args, flags)
+            } else {
+                // legacy constructor behavior
+                let this: JSValue = if let Ok(o) =
+                    ctx.create_object_from_ctor(&new_target, ObjectPayload::OBJECT)
+                {
                     o.into()
                 } else {
                     return JSValue::EXCEPTION;
                 };
 
-            let ret = JS_CallInternal(ctx, func_obj, &this, new_target, args, flags);
-            if ret.is_object() || ret.is_exception() {
-                ret
-            } else {
-                this
+                let ret = JS_CallInternal(ctx, func_obj, &this, new_target, args, flags);
+                if ret.is_object() || ret.is_exception() {
+                    ret
+                } else {
+                    this
+                }
             }
         }
     } else {

@@ -86,7 +86,7 @@ impl JSContext {
                 .unwrap()
                 .payload()
                 .func()
-                .and_then(|f| f.bytecode().cloned());
+                .map(|f| f.bytecode());
 
             let mode = bc.as_ref().unwrap().0.borrow().js_mode as u32;
             (bc, None, mode)
@@ -221,13 +221,13 @@ impl JSContext {
                     debug_assert!((*sf_ptr).cur_func.is_object());
                     sf_ptr.as_mut().unwrap()
                 };
-                // current function of stack frame
-                let frame_func = sframe.cur_func.as_object().cloned().unwrap();
+                // current function of stack frame, must be a BCFunction
+                let frame_func = sframe.cur_func.as_object_BCFunction().cloned().unwrap();
 
                 bc.eval(
                     self,
                     this_obj,
-                    frame_func.payload().func().unwrap().var_refs.as_slice(),
+                    frame_func.payload().var_refs.borrow().as_slice(),
                     Some(sframe),
                 )
             }

@@ -55,9 +55,9 @@ pub(crate) struct ModuleDefInner {
     pub func_created: Cell<bool>,
 
     /// for JS modules only, this value could be:
-    /// * bytecode, when func_created is false,
-    /// * function object, when func_created is true.
-    /// * undefined for initially unknown.
+    /// * Bytecode, when func_created is false,
+    /// * BCFunction object, when func_created is true.
+    /// * `undefined` for uninitialized.
     pub bytecode: Cell<JSValue>,
     /// for C modules only
     pub init_func: Option<JSModuleInitFunc>,
@@ -233,14 +233,14 @@ impl ModuleDefInner {
                     }
                 }
 
-                let isa = ObjectPayload::BYTECODE_FUNCTION(RefCell::new(Box::new(BCFuncPayload {
-                    bytecode: Some(bc.clone()),
-                    var_refs,
-                    home_object: None,
-                })));
+                let payload =
+                    ObjectPayload::BYTECODE_FUNCTION(BCFuncPayload::new(bc.clone(), var_refs));
                 let proto = ctx.0.borrow().function_proto.clone();
-                let func_obj = ctx.create_object_from_proto(proto, isa).map_err(|_| -1)?;
-                self.bytecode.replace(func_obj.into());
+
+                let func = ctx
+                    .create_object_from_proto(proto, payload)
+                    .map_err(|_| -1)?;
+                self.bytecode.replace(func.into());
             }
 
             _ => {
@@ -578,26 +578,46 @@ pub fn JS_GetScriptOrModuleName(ctx: &JSContext, n_stack_levels: i32) -> JSAtom 
     }
 
     loop {
-        if let JSValue::Object(p) = unsafe { &(&*sf).cur_func } {
-            if let Some(b) = p.payload().func().and_then(|f| f.bytecode().cloned()) {
-                let b = b.0.borrow();
-                if !b.is_direct_or_indirect_eval {
-                    if !b.has_debug {
-                        return JS_ATOM_NULL;
-                    }
-                    return b.debug.filename.dup(ctx.rt());
-                } else {
-                    sf = unsafe { (&*sf).prev_frame.cast::<StackFrame>() }; // walk up
-                    if sf.is_null() {
-                        return JS_ATOM_NULL;
-                    }
+        if let Some(bcf) = unsafe { (&*sf).cur_func.as_object_BCFunction() } {
+            let bc = bcf.payload().bytecode();
+            let b = bc.0.borrow();
+
+            if !b.is_direct_or_indirect_eval {
+                if !b.has_debug {
+                    return JS_ATOM_NULL;
                 }
+                return b.debug.filename.dup(ctx.rt());
             } else {
-                return JS_ATOM_NULL;
+                // walk up parent stack frame
+                sf = unsafe { (&*sf).prev_frame.cast::<StackFrame>() };
+                if sf.is_null() {
+                    return JS_ATOM_NULL;
+                }
             }
         } else {
             return JS_ATOM_NULL;
         }
+
+        // if let JSValue::Object(p) = unsafe { &(&*sf).cur_func } {
+        //     if let Some(b) = p.payload().func().map(|f| f.bytecode()) {
+        //         let b = b.0.borrow();
+        //         if !b.is_direct_or_indirect_eval {
+        //             if !b.has_debug {
+        //                 return JS_ATOM_NULL;
+        //             }
+        //             return b.debug.filename.dup(ctx.rt());
+        //         } else {
+        //             sf = unsafe { (&*sf).prev_frame.cast::<StackFrame>() }; // walk up
+        //             if sf.is_null() {
+        //                 return JS_ATOM_NULL;
+        //             }
+        //         }
+        //     } else {
+        //         return JS_ATOM_NULL;
+        //     }
+        // } else {
+        //     return JS_ATOM_NULL;
+        // }
     }
 }
 

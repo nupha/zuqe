@@ -236,14 +236,9 @@ pub(crate) fn js_get_function_name(ctx: &JSContext, name: JSAtom) -> Result<JSSt
 
 pub fn js_method_set_home_object(func_obj: &JSValue, home_obj: Option<&JSObject>) {
     if let JSValue::Object(o) = func_obj {
-        if let Some(mut fo) = o.payload().func_mut() {
-            let need_home_object = fo
-                .bytecode
-                .as_ref()
-                .map_or(false, |b| b.0.borrow().need_home_object);
-
-            if need_home_object {
-                fo.home_object = home_obj.cloned();
+        if let Some(fo) = o.payload().func() {
+            if fo.bytecode().need_home_object() {
+                fo.set_home_object(home_obj.cloned());
             }
         }
     }

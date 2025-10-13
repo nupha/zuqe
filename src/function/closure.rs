@@ -267,12 +267,7 @@ impl Bytecode {
         };
 
         let payload = {
-            let isa = RefCell::new(Box::new(BCFuncPayload {
-                bytecode: Some(self.clone()),
-                var_refs,
-                home_object: None,
-            }));
-
+            let isa = BCFuncPayload::new(self.clone(), var_refs);
             match func_kind {
                 JSFunctionKindEnum::JS_FUNC_NORMAL => ObjectPayload::BYTECODE_FUNCTION(isa),
                 JSFunctionKindEnum::JS_FUNC_GENERATOR => ObjectPayload::GENERATOR_FUNCTION(isa),

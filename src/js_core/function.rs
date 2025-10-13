@@ -104,10 +104,11 @@ pub fn js_function_bind(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_function_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
     let this_val = cc.this();
     this_val.ensure_function(ctx)?;
+
     let p = unsafe { this_val.as_object_unchecked() };
 
     let func_kind = if let Some(func) = p.payload().func() {
-        let bc = func.bytecode.as_ref().unwrap();
+        let bc = func.bytecode();
         let b = bc.0.borrow();
         if b.has_debug {
             if let Some(s) = b.debug.source.as_deref() {
@@ -143,12 +144,10 @@ pub fn js_function_hasInstance(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_function_proto_fileName(ctx: &JSContext, cc: CallContext) -> JSResult {
-    if let Some((has_debug, filename)) = cc.this_raw().as_object().and_then(|o| {
-        o.payload().func().and_then(|x| {
-            x.bytecode().map(|bc| {
-                let b = bc.0.borrow();
-                (b.has_debug, b.debug.filename)
-            })
+    if let Some((has_debug, filename)) = cc.this().as_object().and_then(|o| {
+        o.payload().func().map(|x| {
+            let b = x.bytecode().0.borrow();
+            (b.has_debug, b.debug.filename)
         })
     }) {
         if has_debug {
@@ -163,11 +162,9 @@ pub fn js_function_proto_fileName(ctx: &JSContext, cc: CallContext) -> JSResult 
 
 pub fn js_function_proto_lineNumber(_: &JSContext, cc: CallContext) -> JSResult {
     if let Some((has_debug, line_num)) = cc.this().as_object().and_then(|o| {
-        o.payload().func().and_then(|x| {
-            x.bytecode().map(|bc| {
-                let b = bc.0.borrow();
-                (b.has_debug, b.debug.line_num)
-            })
+        o.payload().func().map(|x| {
+            let b = x.bytecode().0.borrow();
+            (b.has_debug, b.debug.line_num)
         })
     }) {
         if has_debug {

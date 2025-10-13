@@ -246,9 +246,12 @@ impl ModuleDef {
                             ExportedNameKind::EXPORTED_NAME_NORMAL(if let Some(vr) = var_ref {
                                 vr
                             } else {
-                                let p1 =
-                                    unsafe { (*module.0.bytecode.as_ptr()).as_object_unchecked() };
-                                p1.payload().func().unwrap().var_refs[var_idx as usize].clone()
+                                let p1 = unsafe {
+                                    (*module.0.bytecode.as_ptr())
+                                        .as_object_BCFunction()
+                                        .expect("BCFunction expected")
+                                };
+                                p1.payload().var_refs.borrow()[var_idx as usize].clone()
                             });
                     }
                 },

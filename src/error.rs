@@ -117,14 +117,7 @@ impl JSContext {
         let sf = rt.cur_stack_frame.cast::<StackFrame>();
 
         let add_backtrace = !rt.in_out_of_memory
-            && (sf.is_null()
-                || unsafe {
-                    (&*sf)
-                        .cur_func
-                        .as_object()
-                        .and_then(|o| o.payload().func().map(|f| f.bytecode.is_none()))
-                        .unwrap_or(false)
-                });
+            && (sf.is_null() || unsafe { (&*sf).cur_func.as_object_BCFunction().is_some() });
 
         self.throw_error_ex(kind, message, add_backtrace);
     }
@@ -287,22 +280,20 @@ impl JSContext {
 
             let mut backtrace_barrier = false;
 
-            if let Some(b) = unsafe {
+            if let Some(bc) = unsafe {
                 (&*sf)
                     .cur_func
-                    .as_object_unchecked()
-                    .payload()
-                    .func()
-                    .and_then(|f| f.bytecode.clone())
+                    .as_object_BCFunction()
+                    .map(|f| f.payload().bytecode())
             } {
-                backtrace_barrier = b.0.borrow().backtrace_barrier;
+                backtrace_barrier = bc.0.borrow().backtrace_barrier;
 
-                if b.0.borrow().has_debug {
-                    let line_num1 = b.find_line_num(
+                if bc.0.borrow().has_debug {
+                    let line_num1 = bc.find_line_num(
                         unsafe { ((*sf).cur_pc_offset as u32).wrapping_sub(1) }, // be u32::MAX when (*sf).cur_pc_offset==0
                     );
 
-                    let atom_str = b.0.borrow().debug.filename.to_utf8(self.rt());
+                    let atom_str = bc.0.borrow().debug.filename.to_utf8(self.rt());
 
                     dbuf.write_fmt(format_args!(" ({}", atom_str))
                         .map_err(|_| -1)?;

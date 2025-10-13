@@ -92,21 +92,12 @@ impl ObjectPayload {
         }
     }
 
-    pub fn func(&self) -> Option<Ref<'_, Box<BCFuncPayload>>> {
+    pub fn func(&self) -> Option<&BCFuncPayload> {
         match self {
             Self::BYTECODE_FUNCTION(f)
             | Self::GENERATOR_FUNCTION(f)
             | Self::ASYNC_FUNCTION(f)
-            | Self::ASYNC_GENERATOR_FUNCTION(f) => Some(f.borrow()),
-            _ => None,
-        }
-    }
-    pub fn func_mut(&self) -> Option<RefMut<'_, Box<BCFuncPayload>>> {
-        match self {
-            Self::BYTECODE_FUNCTION(f)
-            | Self::GENERATOR_FUNCTION(f)
-            | Self::ASYNC_FUNCTION(f)
-            | Self::ASYNC_GENERATOR_FUNCTION(f) => Some(f.borrow_mut()),
+            | Self::ASYNC_GENERATOR_FUNCTION(f) => Some(f.deref()),
             _ => None,
         }
     }

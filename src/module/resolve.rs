@@ -258,13 +258,14 @@ impl ModuleDefInner {
             // is js module, function has been created
             debug_assert!(self.func_created.get());
 
-            // to avoid borrow_mut payload, use closure
+            // to avoid borrow conflict, use closure
             fn with_var_refs<R>(func_obj: &JSObject, f: impl FnOnce(&mut [JSVarRef]) -> R) -> R {
                 f(func_obj
-                    .payload()
-                    .func_mut()
+                    .as_BCFunction()
                     .unwrap()
+                    .payload()
                     .var_refs
+                    .borrow_mut()
                     .as_mut_slice())
             }
 
@@ -314,11 +315,11 @@ impl ModuleDefInner {
                                     } else {
                                         unsafe {
                                             (*dep.0.bytecode.as_ptr())
-                                                .as_object_unchecked()
+                                                .as_object_BCFunction()
+                                                .expect("must be BCFunction")
                                                 .payload()
-                                                .func()
-                                                .unwrap()
                                                 .var_refs
+                                                .borrow()
                                                 [var_idx as usize]
                                                 .clone()
                                         }

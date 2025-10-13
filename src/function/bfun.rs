@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use std::cell::RefCell;
 
 use smallvec::SmallVec;
 
@@ -90,31 +90,46 @@ pub enum FuncCallType {
 }
 
 /// object payload for bytecode function, async function, generator function, async generator function
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct BCFuncPayload {
-    pub bytecode: Option<Bytecode>,
+    bytecode: Bytecode,
 
     /// closure variable refrences
-    pub var_refs: Vec<JSVarRef>,
+    pub(crate) var_refs: RefCell<Vec<JSVarRef>>,
 
     /// 函数对象关联的宿主对象，主要用于以下场景：
     /// - 私有字段的访问控制：当类方法需要访问私有字段时，需要通过home object定位到对应的私有品牌（private brand）进行权限验证。
     /// - for 'super' access
-    pub home_object: Option<JSObject>,
+    home_object: RefCell<Option<JSObject>>,
 }
 
 impl BCFuncPayload {
+    pub fn new(bytecode: Bytecode, var_refs: Vec<JSVarRef>) -> Box<Self> {
+        Box::new(BCFuncPayload {
+            bytecode,
+            var_refs: RefCell::new(var_refs),
+            home_object: RefCell::new(None),
+        })
+    }
+
     /// get function bytecode
     #[inline(always)]
-    pub fn bytecode(&self) -> Option<&Bytecode> {
-        self.bytecode.as_ref()
+    pub fn bytecode(&self) -> &Bytecode {
+        &self.bytecode
     }
 
     /// get function bytecode realm
     pub fn realm(&self) -> Option<JSContext> {
-        self.bytecode
-            .as_ref()
-            .and_then(|b| b.0.borrow().realm.upgrade())
+        self.bytecode.0.borrow().realm.upgrade()
+    }
+
+    #[inline(always)]
+    pub fn home_object(&self) -> Option<JSObject> {
+        self.home_object.borrow().clone()
+    }
+
+    pub fn set_home_object(&self, obj: Option<JSObject>) {
+        *self.home_object.borrow_mut() = obj;
     }
 }
 
@@ -149,10 +164,15 @@ impl BCFunction {
         )
     }
 
+    #[inline]
+    pub fn payload(&self) -> &BCFuncPayload {
+        self.0.payload().func().unwrap()
+    }
+
     /// get bytecode
-    pub fn bytecode(&self) -> Bytecode {
-        let bc = self.0.payload().func().and_then(|f| f.bytecode().cloned());
-        unsafe { bc.unwrap_unchecked() }
+    #[inline]
+    pub fn bytecode(&self) -> &Bytecode {
+        self.payload().bytecode()
     }
 }
 
@@ -200,10 +220,7 @@ pub fn JS_GetFunctionRealm(ctx: &JSContext, func_obj: &JSValue) -> Result<JSCont
         | ObjectPayload::ASYNC_FUNCTION(fo)
         | ObjectPayload::ASYNC_GENERATOR_FUNCTION(fo) => {
             realm = fo
-                .borrow()
-                .bytecode
-                .as_ref()
-                .unwrap()
+                .bytecode()
                 .0
                 .borrow()
                 .realm
@@ -275,24 +292,14 @@ pub fn js_function_proto(_: &JSContext, _: CallContext) -> JSResult {
 pub fn js_bytecode_function_finalizer(_rt: &mut JSRuntime, _isa: &ObjectPayload, _id: usize) {}
 
 pub fn js_bytecode_function_mark(val: JSValue) {
-    let p = unsafe { val.as_object_unchecked() };
+    let isa = val.as_object_BCFunction().unwrap().payload();
 
-    let (bc, home_obj) = p
-        .payload()
-        .func()
-        .map(|f| {
-            for vr in f.var_refs.iter() {
-                vr.gc_mark();
-            }
-            (f.bytecode().cloned(), f.home_object.clone())
-        })
-        .unwrap();
-
-    if let Some(ho) = home_obj {
-        ho.gc_mark();
+    isa.bytecode().gc_mark();
+    for vr in isa.var_refs.borrow().iter() {
+        vr.gc_mark();
     }
-    if let Some(b) = bc {
-        b.gc_mark();
+    if let Some(ho) = isa.home_object.borrow().as_ref() {
+        ho.gc_mark();
     }
 }
 
@@ -303,6 +310,11 @@ pub struct BytecodeFunction(JSObject);
 object_cast!(BytecodeFunction, JS_CLASS_BYTECODE_FUNCTION);
 
 impl BytecodeFunction {
+    #[inline]
+    pub fn payload(&self) -> &BCFuncPayload {
+        self.0.payload().func().unwrap()
+    }
+
     /// call bytecode function
     pub fn call(
         &self,
@@ -312,12 +324,8 @@ impl BytecodeFunction {
         args: &[JSValue],
         flags: i32,
     ) -> JSValue {
-        let (bc, home_obj) = self
-            .0
-            .payload()
-            .func()
-            .map(|f| (f.bytecode().cloned().unwrap(), f.home_object.clone()))
-            .unwrap();
+        let isa = self.payload();
+        let bc = isa.bytecode();
 
         // how many args that should be copied to local buf?
         // `args.len()` is actual argument count
@@ -404,6 +412,9 @@ impl BytecodeFunction {
         sf.prev_frame = caller_ctx.rt().cur_stack_frame;
         caller_ctx.rt_mut().cur_stack_frame = (sf as *mut StackFrame).cast();
 
+        // to borrow short, clone home object
+        let home_obj = isa.home_object.borrow().clone();
+
         let retval = bc.run(
             caller_ctx,
             home_obj.as_ref(),
@@ -412,7 +423,7 @@ impl BytecodeFunction {
             new_target,
             0,
             0,
-            &self.0.payload().func().unwrap().var_refs,
+            &isa.var_refs.borrow(),
             args,
             false,
         );

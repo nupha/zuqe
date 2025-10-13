@@ -161,15 +161,15 @@ impl JSObject {
             print!(" }}");
         }
 
-        if let Some(func) = self.payload().func() {
-            func.bytecode.as_ref().unwrap().with_mut(|b| {
+        if let Some(bcf) = self.payload().func() {
+            bcf.bytecode().with_mut(|b| {
                 if b.closure_var_count != 0 {
                     print!(" Closure:");
-                    for vr in func.var_refs.iter() {
+                    for vr in bcf.var_refs.borrow().iter() {
                         print!(" {:?}", vr.value());
                     }
 
-                    if let Some(o) = &func.home_object {
+                    if let Some(o) = bcf.home_object() {
                         print!(" HomeObject: {o}");
                     }
                 }
