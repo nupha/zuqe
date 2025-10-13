@@ -115,7 +115,7 @@ pub fn js_function_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
                 return ctx.create_string_from_str(s).map(JSValue::String);
             }
         }
-        b.func_kind
+        b.func_kind()
     } else {
         JSFunctionKindEnum::JS_FUNC_NORMAL
     };

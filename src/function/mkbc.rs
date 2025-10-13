@@ -3,12 +3,10 @@ use std::{cell::RefCell, rc::Rc};
 use crate::{
     atom::{JS_ATOM_NULL, consts::*},
     context::{JS_MODE_STRICT, JS_MODE_STRIP, JSContext},
-    eval::{JS_EVAL_TYPE_DIRECT, JS_EVAL_TYPE_INDIRECT},
     function::{
-        ARG_SCOPE_END, ARG_SCOPE_INDEX, Bytecode, BytecodeDebugInfo, BytecodeInner, JSClosureVar,
-        JSVarDef, JSVarKindEnum, is_var_in_arg_scope,
+        ARG_SCOPE_END, ARG_SCOPE_INDEX, Bytecode, BytecodeInner, JSClosureVar, JSVarDef,
+        JSVarKindEnum, is_var_in_arg_scope,
     },
-    gc::GCObjectHeader,
     module::add_module_variables,
     object::GCObjectWeakref,
     value::JSValue,
@@ -117,61 +115,24 @@ impl JSFunctionDef {
 
         let stack_size = self.compute_stack_size(ctx)?;
 
-        let mut inner = BytecodeInner {
-            header: GCObjectHeader::new(ctx.rt_mut(), 1),
-            func_name: self.func_name,
-            realm: ctx.downgrade(),
-
-            js_mode: self.js_mode,
-            has_prototype: self.has_prototype,
-            has_simple_parameter_list: self.has_simple_parameter_list,
-            is_derived_class_constructor: self.is_derived_class_constructor,
-            func_kind: self.func_kind,
-            new_target_allowed: self.new_target_allowed,
-            super_call_allowed: self.super_call_allowed,
-            super_allowed: self.super_allowed,
-            arguments_allowed: self.arguments_allowed,
-            backtrace_barrier: self.backtrace_barrier,
-            defined_arg_count: self.defined_arg_count,
-            need_home_object: self.home_object_var_idx.is_some() || self.need_home_object,
-            is_direct_or_indirect_eval: matches!(
-                self.eval_type,
-                JS_EVAL_TYPE_DIRECT | JS_EVAL_TYPE_INDIRECT
-            ),
-
-            read_only_bytecode: false,
-            stack_size,
-
-            has_debug: false,
-            debug: BytecodeDebugInfo {
-                #[cfg(debug_assertions)]
-                debug_setting: self.debug,
-                ..Default::default()
-            },
-
-            cpool_count: self.cpool.len() as _,
-            arg_count: self.args.len() as _,
-            var_count: self.vars.len() as _,
-            closure_var_count: self.closure_vars.as_ref().map_or(0, |x| x.len()) as _,
-
-            binary: Vec::new().into_boxed_slice(), // empty
-            cpool_start: -1,
-            vardefs_start: -1,
-            closure_var_start: -1,
-            opcodes_start: 0,
-        };
+        //
+        // make binary
+        //
 
         // cpool start
-        let mut bin_size = if inner.cpool_count != 0 {
-            inner.cpool_start = 0;
-            inner.cpool_count as usize * std::mem::size_of::<JSValue>()
+        let cpool_count = self.cpool.len();
+        let (mut bin_size, cpool_start) = if cpool_count != 0 {
+            (cpool_count * std::mem::size_of::<JSValue>(), 0)
         } else {
-            0
+            (0, -1)
         };
 
         // vardefs (arg+var) start
+        let mut vardefs_start = -1;
+        let args_count = self.args.len();
+        let vars_count = self.vars.len();
         if self.js_mode & JS_MODE_STRIP as u8 == 0 || self.has_eval_call {
-            let n: usize = self.args.len() + self.vars.len();
+            let n: usize = args_count + vars_count;
             if n != 0 {
                 const ly: std::alloc::Layout = std::alloc::Layout::new::<JSVarDef>();
                 let mut i = bin_size;
@@ -181,13 +142,15 @@ impl JSFunctionDef {
                     i += gap;
                     bin_size += gap;
                 }
-                inner.vardefs_start = i as i32;
+                vardefs_start = i as i32;
                 bin_size += n * ly.size();
             }
         }
 
-        // closure vars start
-        if inner.closure_var_count != 0 {
+        // closure vars
+        let mut closure_var_start = -1;
+        let closure_var_count = self.closure_vars.as_ref().map_or(0, |x| x.len());
+        if closure_var_count != 0 {
             const ly: std::alloc::Layout = std::alloc::Layout::new::<JSClosureVar>();
             let mut i = bin_size;
             let m = i % ly.align();
@@ -196,12 +159,12 @@ impl JSFunctionDef {
                 i += gap;
                 bin_size += gap;
             }
-            bin_size += inner.closure_var_count as usize * ly.size();
-            inner.closure_var_start = i as i32;
+            bin_size += closure_var_count as usize * ly.size();
+            closure_var_start = i as i32;
         }
 
         // opcodes section
-        inner.opcodes_start = bin_size as u32;
+        let opcodes_start = bin_size as u32;
         bin_size += self.byte_code.len();
 
         debug_assert!(bin_size > 0);
@@ -213,21 +176,17 @@ impl JSFunctionDef {
             -1
         })?;
 
-        // initialize buf with zero: don't change order.
         unsafe {
+            // initialize buf with zero: don't change order.
             bin.set_len(bin_size);
             bin.fill(0);
         }
 
         // 1. cpool section
-        if inner.cpool_start >= 0 {
+        if cpool_start >= 0 {
             // migrate cpool values to function bytecode binary.
             unsafe {
-                let mut dst = bin
-                    .as_mut_ptr()
-                    .add(inner.cpool_start as usize)
-                    .cast::<JSValue>();
-
+                let mut dst = bin.as_mut_ptr().add(cpool_start as usize).cast::<JSValue>();
                 for v in self.cpool.drain(..) {
                     *dst = v;
                     dst = dst.add(1);
@@ -236,36 +195,37 @@ impl JSFunctionDef {
         }
 
         // 2. vardef section
-        if inner.vardefs_start >= 0 {
-            if inner.arg_count != 0 {
+        if vardefs_start >= 0 {
+            if args_count != 0 {
                 unsafe {
                     std::ptr::copy_nonoverlapping(
                         self.args.as_ptr(),
                         bin.as_mut_ptr()
-                            .add(inner.vardefs_start as usize)
+                            .add(vardefs_start as usize)
                             .cast::<JSVarDef>(),
-                        inner.arg_count as usize,
+                        args_count,
                     );
                 }
             }
-            if inner.var_count != 0 {
+            if vars_count != 0 {
                 unsafe {
                     std::ptr::copy_nonoverlapping(
                         self.vars.as_ptr(),
                         bin.as_mut_ptr()
                             .add(
-                                inner.vardefs_start as usize
-                                    + inner.arg_count as usize * std::mem::size_of::<JSVarDef>(),
+                                vardefs_start as usize
+                                    + args_count * std::mem::size_of::<JSVarDef>(),
                             )
                             .cast::<JSVarDef>(),
-                        inner.var_count as usize,
+                        vars_count,
                     );
                 }
             }
 
-            // SAFEGUARD: we have copy arg and var definations to function bytecode above.
-            // we do vardefs and *_count clean-ups here in advance,
-            // so that when calling js_free_function_def() later, it will not free vardefs.
+            // IMPORTANT:
+            // vardefs have been copied to bin, we must clean args, vars list here,
+            // so that when calling JSFunctionDef::finalize() in ::drop(),
+            // JSVarDef::name atom won't free twice.
             #[cfg(not(debug_assertions))]
             {
                 self.args.clear();
@@ -283,15 +243,14 @@ impl JSFunctionDef {
         }
 
         // 3. closure vars section
-        if inner.closure_var_start >= 0 {
-            let cvars = self.closure_vars.take().unwrap();
-            inner.closure_var_count = cvars.len() as _;
-            debug_assert!(inner.closure_var_count < u16::MAX as _);
+        if closure_var_start >= 0 {
+            debug_assert!(closure_var_count < u16::MAX as _);
 
+            let cvars = self.closure_vars.take().unwrap();
             unsafe {
                 let mut ptr = bin
                     .as_mut_ptr()
-                    .add(inner.closure_var_start as usize)
+                    .add(closure_var_start as usize)
                     .cast::<JSClosureVar>();
 
                 for cv in cvars {
@@ -302,25 +261,37 @@ impl JSFunctionDef {
         }
 
         // 4. opcodes section
-        debug_assert_eq!(
-            inner.opcodes_start as usize + self.byte_code.len(),
-            bin.len()
-        );
+        debug_assert_eq!(opcodes_start as usize + self.byte_code.len(), bin.len());
         unsafe {
             std::ptr::copy_nonoverlapping(
                 self.byte_code.as_ptr(),
-                bin.as_mut_ptr().add(inner.opcodes_start as usize),
+                bin.as_mut_ptr().add(opcodes_start as usize),
                 self.byte_code.len(),
             );
         }
 
-        // SAFEGUARD: clear bytecode, so that js_free_function_def() will not free atoms in it.
+        // SAFEGUARD: clear bytecode, so that JSFunctionDef::finalize() will not free atoms in it.
         self.byte_code.clear();
+        debug_assert_eq!(bin.len(), bin_size);
 
-        inner.binary = bin.into_boxed_slice();
-        debug_assert_eq!(inner.binary.len(), bin_size);
+        // create bytecode
+        let mut inner = BytecodeInner::new(
+            ctx,
+            &self,
+            bin.into(),
+            cpool_start,
+            cpool_count as _,
+            vardefs_start,
+            args_count as _,
+            vars_count as _,
+            closure_var_start,
+            closure_var_count as _,
+            opcodes_start,
+            stack_size,
+        );
 
-        // SAFEGUARD: to prevent free atom in js_free_function_def()
+        // SAFEGUARD: atom self.func_name was transferred to BytecodeInner::func_name field,
+        // reset self.func_name to prevent free this atom in JSFunctionDef::finalize()
         self.func_name = JS_ATOM_NULL;
 
         if self.js_mode & JS_MODE_STRIP as u8 == 0 {
@@ -353,7 +324,7 @@ impl JSFunctionDef {
     }
 }
 
-pub unsafe fn add_eval_variables(ctx: &JSContext, s: &mut JSFunctionDef) {
+pub fn add_eval_variables(ctx: &JSContext, s: &mut JSFunctionDef) {
     // in non strict mode, variables are created in the caller's environment object
     if !s.is_eval && s.js_mode & JS_MODE_STRICT as u8 == 0 {
         s.var_object_idx = Some(s.add_var(ctx, JS_ATOM__var_).unwrap());
@@ -405,66 +376,50 @@ pub unsafe fn add_eval_variables(ctx: &JSContext, s: &mut JSFunctionDef) {
     // XXX: inefficient, but eval performance is less critical
     // TODO: use parent_iter() iterator
     let mut cur_fd = s as *mut JSFunctionDef;
-    loop {
-        let scope_level = (&*cur_fd).parent_scope_level;
+    let mut scope_level = unsafe { (&*cur_fd).parent_scope_level };
 
-        if let Some(p) = (&*cur_fd).parent.as_mut() {
-            cur_fd = p;
-        } else {
-            break;
-        }
-
+    while let Some(fd) = unsafe { (&*cur_fd).parent.as_mut() } {
         // add 'this' if it was not previously added
-        if !has_this_binding && (&*cur_fd).has_this_binding {
-            if (&*cur_fd).this_var_idx.is_none() {
-                (&mut *cur_fd)
-                    .this_var_idx
-                    .replace((&mut *cur_fd).add_var_this(ctx).unwrap());
+        if !has_this_binding && fd.has_this_binding {
+            if fd.this_var_idx.is_none() {
+                let i = fd.add_var_this(ctx).unwrap();
+                fd.this_var_idx.replace(i);
             }
-            if (&*cur_fd).new_target_var_idx.is_none() {
-                (&mut *cur_fd).new_target_var_idx.replace(
-                    (&mut *cur_fd)
-                        .add_var(ctx, JS_ATOM_new_target)
-                        .expect("TODO"),
-                );
+
+            if fd.new_target_var_idx.is_none() {
+                let i = fd.add_var(ctx, JS_ATOM_new_target).expect("TODO");
+                fd.new_target_var_idx.replace(i);
             }
-            if (&*cur_fd).is_derived_class_constructor
-                && (&*cur_fd).this_active_func_var_idx.is_none()
-            {
-                (&mut *cur_fd).this_active_func_var_idx.replace(
-                    (&mut *cur_fd)
-                        .add_var(ctx, JS_ATOM_this_active_func)
-                        .expect("TODO"),
-                );
+
+            if fd.is_derived_class_constructor && fd.this_active_func_var_idx.is_none() {
+                let i = fd.add_var(ctx, JS_ATOM_this_active_func).expect("TODO");
+                fd.this_active_func_var_idx.replace(i);
             }
-            if (&*cur_fd).has_home_object && (&*cur_fd).home_object_var_idx.is_none() {
-                (&mut *cur_fd).home_object_var_idx.replace(
-                    (&mut *cur_fd)
-                        .add_var(ctx, JS_ATOM__home_object_)
-                        .expect("TODO"),
-                );
+
+            if fd.has_home_object && fd.home_object_var_idx.is_none() {
+                let i = fd.add_var(ctx, JS_ATOM__home_object_).expect("TODO");
+                fd.home_object_var_idx.replace(i);
             }
+
             has_this_binding = true;
         }
 
         // add 'arguments' if it was not previously added
-        if !has_arguments_binding && (&*cur_fd).has_arguments_binding {
-            (&mut *cur_fd).add_arguments(ctx, false).unwrap();
+        if !has_arguments_binding && fd.has_arguments_binding {
+            fd.add_arguments(ctx, false).unwrap();
             has_arguments_binding = true;
         }
 
         // add function name
-        if (&*cur_fd).is_func_expr && (&*cur_fd).func_name != JS_ATOM_NULL {
-            (&mut *cur_fd)
-                .add_func_var(ctx, (*cur_fd).func_name)
-                .unwrap();
+        if fd.is_func_expr && fd.func_name != JS_ATOM_NULL {
+            fd.add_func_var(ctx, fd.func_name).unwrap();
         }
 
         // add lexical variables
-        debug_assert!((0..(&*cur_fd).scopes.len() as i32).contains(&scope_level));
-        let mut scope_idx = (&*cur_fd).scopes[scope_level as usize].first;
+        debug_assert!((0..fd.scopes.len() as i32).contains(&scope_level));
+        let mut scope_idx = fd.scopes[scope_level as usize].first;
         while scope_idx >= 0 {
-            let vd = (&mut *cur_fd).vars.get_mut(scope_idx as usize).unwrap();
+            let vd = fd.vars.get_mut(scope_idx as usize).unwrap();
             vd.set_is_captured(true);
             s.get_closure_var2(
                 ctx,
@@ -485,7 +440,7 @@ pub unsafe fn add_eval_variables(ctx: &JSContext, s: &mut JSFunctionDef) {
         if !is_arg_scope {
             // add unscoped variables
             // XXX: propagate is_const and var_kind too ?
-            for (i, vd) in (&*cur_fd).args.iter().enumerate() {
+            for (i, vd) in fd.args.iter().enumerate() {
                 if vd.var_name != JS_ATOM_NULL {
                     s.get_closure_var2(
                         ctx,
@@ -502,7 +457,7 @@ pub unsafe fn add_eval_variables(ctx: &JSContext, s: &mut JSFunctionDef) {
                 }
             }
 
-            for (i, vd) in (*cur_fd).vars.iter().enumerate() {
+            for (i, vd) in fd.vars.iter().enumerate() {
                 // do not close top level last result
                 if vd.scope_level == 0 && !matches!(vd.var_name, JS_ATOM__ret_ | JS_ATOM_NULL) {
                     s.get_closure_var2(
@@ -520,7 +475,7 @@ pub unsafe fn add_eval_variables(ctx: &JSContext, s: &mut JSFunctionDef) {
                 }
             }
         } else {
-            for (i, vd) in (&*cur_fd).vars.iter().enumerate() {
+            for (i, vd) in fd.vars.iter().enumerate() {
                 // do not close top level last result
                 if vd.scope_level == 0 && is_var_in_arg_scope(vd) {
                     s.get_closure_var2(
@@ -539,9 +494,9 @@ pub unsafe fn add_eval_variables(ctx: &JSContext, s: &mut JSFunctionDef) {
             }
         }
 
-        if (&*cur_fd).is_eval {
+        if fd.is_eval {
             // add direct eval variables (we are necessarily at the top level)
-            if let Some(cvars) = (&*cur_fd).closure_vars.as_ref() {
+            if let Some(cvars) = fd.closure_vars.as_ref() {
                 for (i, cv) in cvars.iter().enumerate() {
                     s.get_closure_var2(
                         ctx,
@@ -558,5 +513,8 @@ pub unsafe fn add_eval_variables(ctx: &JSContext, s: &mut JSFunctionDef) {
                 }
             }
         }
+
+        scope_level = fd.parent_scope_level;
+        cur_fd = fd as *mut JSFunctionDef;
     }
 }

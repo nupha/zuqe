@@ -65,7 +65,7 @@ impl Bytecode {
         let mode = stack_frame.js_mode;
 
         // use bytecode's context
-        let realm = self.0.borrow().realm.upgrade().unwrap();
+        let realm = self.realm().unwrap();
         let ctx = &realm;
 
         let bytecodes = self.opcodes();
@@ -104,7 +104,7 @@ impl Bytecode {
                     ctx,
                     cur_pc,
                     0,
-                    self.0.borrow().func_kind != JSFunctionKindEnum::JS_FUNC_NORMAL,
+                    self.func_kind() != JSFunctionKindEnum::JS_FUNC_NORMAL,
                 );
                 return JSValue::EXCEPTION;
             }
@@ -2482,7 +2482,7 @@ impl Bytecode {
             unsafe { Some((pc_base.offset(new_pc as _), sp_base.offset(new_sp as _))) }
         } else {
             // abort with sp=0, pc unchanged
-            let is_generator = self.0.borrow().func_kind != JSFunctionKindEnum::JS_FUNC_NORMAL;
+            let is_generator = self.func_kind() != JSFunctionKindEnum::JS_FUNC_NORMAL;
             stack_frame.handle_exit(ctx, pc_offset, 0, is_generator);
             None
         }

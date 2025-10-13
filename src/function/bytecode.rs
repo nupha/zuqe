@@ -11,9 +11,10 @@ use crate::function::BytecodeDebugSetting;
 use crate::{
     atom::{JS_ATOM_NULL, JS_FreeAtomRT, JSAtom},
     bytecode::{OpcodeFormat, opcode_info_final, opcode_info_intermediate},
-    context::{JSContext, JSContextWeakref},
+    context::{JS_MODE_STRIP, JSContext, JSContextWeakref},
     error::JSResult,
-    function::JSVarRef,
+    eval::{JS_EVAL_TYPE_DIRECT, JS_EVAL_TYPE_INDIRECT},
+    function::{JSFunctionDef, JSVarRef},
     gc::GCObjectHeader,
     object::GCObject,
     runtime::JSRuntime,
@@ -61,14 +62,14 @@ pub(crate) struct BytecodeInner {
 
     pub func_name: JSAtom,
     /// function realm
-    pub realm: JSContextWeakref,
+    realm: JSContextWeakref,
 
-    pub js_mode: u8,
-    pub has_prototype: bool, // true if a prototype field is necessary
+    js_mode: u8,
+    has_prototype: bool, // true if a prototype field is necessary
     pub has_simple_parameter_list: bool,
     pub is_derived_class_constructor: bool,
     pub need_home_object: bool, // true if home_object needs to be initialized
-    pub func_kind: JSFunctionKindEnum, // 2 bits
+    func_kind: JSFunctionKindEnum, // 2 bits
     pub new_target_allowed: bool,
     pub super_call_allowed: bool,
     pub super_allowed: bool,
@@ -109,9 +110,84 @@ impl Drop for BytecodeInner {
 }
 
 impl BytecodeInner {
+    pub fn new(
+        ctx: &JSContext,
+        fd: &JSFunctionDef,
+        binary: Box<[u8]>,
+        cpool_start: i32,
+        cpool_count: u16,
+        vardefs_start: i32,
+        arg_count: u16,
+        var_count: u16,
+        closure_var_start: i32,
+        closure_var_count: u16,
+        opcodes_start: u32,
+        stack_size: u16,
+    ) -> Self {
+        let inner = Self {
+            header: GCObjectHeader::new(ctx.rt_mut(), 1),
+            func_name: fd.func_name,
+            realm: ctx.downgrade(),
+
+            js_mode: fd.js_mode,
+            has_prototype: fd.has_prototype,
+            has_simple_parameter_list: fd.has_simple_parameter_list,
+            is_derived_class_constructor: fd.is_derived_class_constructor,
+            func_kind: fd.func_kind,
+            new_target_allowed: fd.new_target_allowed,
+            super_call_allowed: fd.super_call_allowed,
+            super_allowed: fd.super_allowed,
+            arguments_allowed: fd.arguments_allowed,
+            backtrace_barrier: fd.backtrace_barrier,
+            defined_arg_count: fd.defined_arg_count,
+            need_home_object: fd.home_object_var_idx.is_some() || fd.need_home_object,
+            is_direct_or_indirect_eval: matches!(
+                fd.eval_type,
+                JS_EVAL_TYPE_DIRECT | JS_EVAL_TYPE_INDIRECT
+            ),
+
+            read_only_bytecode: false,
+            stack_size,
+
+            has_debug: false,
+            debug: BytecodeDebugInfo {
+                #[cfg(debug_assertions)]
+                debug_setting: fd.debug,
+                ..Default::default()
+            },
+
+            binary,
+            cpool_start,
+            cpool_count,
+            vardefs_start,
+            arg_count,
+            var_count,
+            closure_var_start,
+            closure_var_count,
+            opcodes_start,
+        };
+
+        inner
+    }
+
     #[inline(always)]
     pub fn id(&self) -> usize {
         self as *const Self as usize
+    }
+
+    #[inline(always)]
+    pub fn func_kind(&self) -> JSFunctionKindEnum {
+        self.func_kind
+    }
+
+    #[inline(always)]
+    pub fn mode(&self) -> u8 {
+        self.js_mode
+    }
+
+    #[inline(always)]
+    pub fn has_prototype(&self) -> bool {
+        self.has_prototype
     }
 
     /// get nth arg or var vardef. for example:
@@ -465,12 +541,34 @@ impl From<Bytecode> for GCObject {
 }
 
 impl Bytecode {
+    #[inline(always)]
     pub fn id(&self) -> usize {
         self.0.borrow().id()
     }
 
+    #[inline(always)]
     pub fn rt(&self) -> &JSRuntime {
         unsafe { self.0.borrow().header.rt_ptr().as_ref() }
+    }
+
+    #[inline(always)]
+    pub fn func_kind(&self) -> JSFunctionKindEnum {
+        self.0.borrow().func_kind()
+    }
+
+    #[inline(always)]
+    pub fn mode(&self) -> u8 {
+        self.0.borrow().mode()
+    }
+
+    #[inline(always)]
+    pub fn has_prototype(&self) -> bool {
+        self.0.borrow().has_prototype
+    }
+
+    /// get bytecode realm
+    pub fn realm(&self) -> Option<JSContext> {
+        self.0.borrow().realm.upgrade()
     }
 
     pub(crate) fn with<R>(&self, f: impl FnOnce(&BytecodeInner) -> R) -> R {

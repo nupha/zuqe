@@ -106,8 +106,8 @@ impl JSContext {
                         .as_object()
                         .and_then(|o| {
                             o.payload().func().map(|bc| {
-                                let b = bc.bytecode().0.borrow();
-                                b.js_mode & JS_MODE_STRICT as u8 != 0 || !b.has_prototype
+                                let b = bc.bytecode();
+                                b.mode() & JS_MODE_STRICT as u8 != 0 || !b.has_prototype()
                             })
                         })
                         .unwrap_or(true);

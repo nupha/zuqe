@@ -123,8 +123,9 @@ impl BCFuncPayload {
     }
 
     /// get function bytecode realm
+    #[inline(always)]
     pub fn realm(&self) -> Option<JSContext> {
-        self.bytecode.0.borrow().realm.upgrade()
+        self.bytecode.realm()
     }
 
     #[inline(always)]
@@ -218,13 +219,7 @@ pub fn JS_GetFunctionRealm(ctx: &JSContext, func_obj: &JSValue) -> Result<JSCont
         | ObjectPayload::GENERATOR_FUNCTION(fo)
         | ObjectPayload::ASYNC_FUNCTION(fo)
         | ObjectPayload::ASYNC_GENERATOR_FUNCTION(fo) => {
-            realm = fo
-                .bytecode()
-                .0
-                .borrow()
-                .realm
-                .upgrade()
-                .unwrap_or(ctx.clone());
+            realm = fo.bytecode().realm().unwrap_or(ctx.clone());
         }
         ObjectPayload::PROXY(px) => {
             if px.is_revoked.get() {
@@ -342,7 +337,7 @@ impl BytecodeFunction {
             let b = bc.0.borrow();
             (
                 arg_copy_num as usize + b.var_count as usize + b.stack_size as usize,
-                b.js_mode as i32,
+                b.mode() as i32,
             )
         };
 

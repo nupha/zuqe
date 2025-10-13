@@ -149,7 +149,7 @@ impl Drop for JSVarDef {
     fn drop(&mut self) {
         debug_assert_eq!(
             self.var_name, JS_ATOM_NULL,
-            "[O.o] forgot to free var name atom"
+            "[O.o] forgot to free JSVarDef::var_name atom"
         );
     }
 }
@@ -361,7 +361,7 @@ impl JSFunctionDef {
 
     /// get or create const variable used as function/expr name.
     /// returns the variable id.
-    pub unsafe fn add_func_var(&mut self, ctx: &JSContext, name: JSAtom) -> Result<u16, i32> {
+    pub fn add_func_var(&mut self, ctx: &JSContext, name: JSAtom) -> Result<u16, i32> {
         if let Some(i) = self.func_var_idx {
             Ok(i)
         } else {

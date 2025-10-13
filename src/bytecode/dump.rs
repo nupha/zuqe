@@ -433,7 +433,7 @@ impl Bytecode {
 
         println!(
             "function: {}{}",
-            if b.func_kind == JSFunctionKindEnum::JS_FUNC_GENERATOR {
+            if b.func_kind() == JSFunctionKindEnum::JS_FUNC_GENERATOR {
                 "*"
             } else {
                 ""
@@ -441,12 +441,12 @@ impl Bytecode {
             b.func_name.to_utf8(ctx.rt()),
         );
 
-        if b.js_mode != 0 {
+        if b.mode() != 0 {
             print!("  mode:");
-            if b.js_mode & JS_MODE_STRICT as u8 != 0 {
+            if b.mode() & JS_MODE_STRICT as u8 != 0 {
                 print!(" strict");
             }
-            if b.js_mode & JS_MODE_ASYNC as u8 != 0 {
+            if b.mode() & JS_MODE_ASYNC as u8 != 0 {
                 print!(" async");
             }
             println!();

@@ -71,25 +71,15 @@ impl JSContext {
             debug_assert!(unsafe { (*sf_ptr).cur_func.is_object() });
 
             sframe = unsafe { sf_ptr.as_mut() };
-            cur_frame_func = Some(
-                sframe
-                    .as_ref()
-                    .unwrap()
-                    .cur_func
-                    .as_object()
-                    .cloned()
-                    .unwrap(),
-            );
 
-            let bc = cur_frame_func
-                .as_ref()
-                .unwrap()
-                .payload()
-                .func()
-                .map(|f| f.bytecode());
+            // current function must be BCFunction object
+            let cur_func = sframe.unwrap().cur_func.as_object_BCFunction().unwrap();
 
-            let mode = bc.as_ref().unwrap().0.borrow().js_mode as u32;
-            (bc, None, mode)
+            let bc = cur_func.payload().bytecode().clone();
+            let mode = bc.mode() as u32;
+            cur_frame_func = Some(cur_func.clone().into());
+
+            (Some(bc), None, mode)
         } else {
             let mut js_mode = 0;
             if flags & JS_EVAL_FLAG_STRICT != 0 {

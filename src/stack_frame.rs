@@ -18,13 +18,11 @@ pub struct StackFrame {
     /// Currently executing function.
     ///
     /// The value could be:
-    /// - bytecode
-    /// - bytecode function/generator object
-    /// - async function/generator  object
+    /// - BCFunction object
     /// - native function object
     /// - undefined, which means stack frame is detached (cleared)
     ///
-    /// TODO: use BCFunction type?
+    /// TODO: use Option<JSObject> type?
     pub cur_func: JSValue,
 
     /// Buffer storing arguments, local variables, and stack space

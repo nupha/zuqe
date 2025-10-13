@@ -409,6 +409,9 @@ impl JSFunctionDef {
 
         self.cpool.clear();
 
+        //
+        // if vardefs are not consumed, free atoms in it.
+        //
         for mut vd in self.args.drain(..) {
             JS_FreeAtomRT(rt, vd.var_name);
             #[cfg(debug_assertions)]
@@ -416,7 +419,6 @@ impl JSFunctionDef {
                 vd.var_name = JS_ATOM_NULL;
             }
         }
-
         for mut vd in self.vars.drain(..) {
             JS_FreeAtomRT(rt, vd.var_name);
             #[cfg(debug_assertions)]

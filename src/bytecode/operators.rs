@@ -122,7 +122,7 @@ pub fn js_op_define_class(
         }
         _ => unreachable!(),
     };
-    debug_assert_eq!(bc.0.borrow().func_kind, JSFunctionKindEnum::JS_FUNC_NORMAL);
+    debug_assert_eq!(bc.func_kind(), JSFunctionKindEnum::JS_FUNC_NORMAL);
 
     // SP[-2]: parent class
     let mut parent_class = unsafe { std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED) };

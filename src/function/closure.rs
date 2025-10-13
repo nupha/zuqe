@@ -1,7 +1,3 @@
-use std::cell::RefCell;
-
-use fallible_collections::FallibleVec;
-
 use crate::{
     JS_CLASS_ASYNC_GENERATOR, JS_CLASS_GENERATOR,
     atom::{JS_ATOM_NULL, JSAtom, consts::*},
@@ -229,9 +225,9 @@ impl Bytecode {
         let (func_kind, name, has_prototype, defined_arg_count, closure_var_count) = {
             let b = self.0.borrow();
             (
-                b.func_kind,
+                b.func_kind(),
                 b.func_name,
-                b.has_prototype,
+                b.has_prototype(),
                 b.defined_arg_count,
                 b.closure_var_count,
             )
