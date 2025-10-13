@@ -380,7 +380,7 @@ impl<'s> JSParseState<'s> {
                 },
                 '0' => {
                     todo = if unsafe { (*p.add(1)).is_ascii_digit() }
-                        && self.cur_func().js_mode & JS_MODE_STRICT as u8 != 0
+                        && self.cur_func().attrs.js_mode & JS_MODE_STRICT as u8 != 0
                     {
                         // in strict mode, octal literals are not accepted
                         self.throw_syntax_error("octal literals are deprecated in strict mode");
@@ -812,10 +812,10 @@ impl<'s> JSParseState<'s> {
             let fd = self.cur_func();
             (
                 fd.func_type,
-                fd.func_kind,
+                fd.attrs.func_kind,
                 fd.in_function_body,
                 fd.parent,
-                fd.js_mode,
+                fd.attrs.js_mode,
             )
         };
 
@@ -835,7 +835,7 @@ impl<'s> JSParseState<'s> {
                         && !in_function_body
                         && !parent.is_null()
                         && matches!(
-                            unsafe { (*parent).func_kind },
+                            unsafe { (&*parent).attrs.func_kind },
                             JSFunctionKindEnum::JS_FUNC_GENERATOR
                                 | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
                         ))
@@ -847,9 +847,9 @@ impl<'s> JSParseState<'s> {
                         || (func_type == JSParseFunctionEnum::JS_PARSE_FUNC_ARROW
                             && !in_function_body
                             && !parent.is_null()
-                            && unsafe {
-                                let parent = &*parent;
-                                parent.func_kind.is_async()
+                            && {
+                                let parent = unsafe { &*parent };
+                                parent.attrs.func_kind.is_async()
                                     || parent.func_type
                                         == JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT
                             })

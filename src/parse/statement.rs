@@ -85,7 +85,7 @@ impl<'s> JSParseState<'s> {
                 self.cur_func_mut().push_break_entry(&mut break_entry);
 
                 self.parse_statement_or_decl(
-                    if self.cur_func().js_mode & JS_MODE_STRICT as u8 == 0
+                    if self.cur_func().attrs.js_mode & JS_MODE_STRICT as u8 == 0
                         && (decl_mask & DECL_MASK_FUNC_WITH_LABEL) != 0
                     {
                         DECL_MASK_FUNC | DECL_MASK_FUNC_WITH_LABEL
@@ -421,7 +421,7 @@ fn stmt_for(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32> {
         s.parse_skip_parens_token(&mut bits, false)?;
     } else if s.token.val == TOK_AWAIT {
         if !matches!(
-            s.cur_func().func_kind,
+            s.cur_func().attrs.func_kind,
             JSFunctionKindEnum::JS_FUNC_ASYNC | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
         ) {
             s.throw_syntax_error("for await is only valid in asynchronous functions");
@@ -603,7 +603,7 @@ fn stmt_if(s: &mut JSParseState) -> Result<(), i32> {
     s.parse_expr_parens()?;
 
     let mut label1 = s.emit_goto(OpCode::IF_FALSE, -1);
-    let mask = if s.cur_func().js_mode & JS_MODE_STRICT as u8 != 0 {
+    let mask = if s.cur_func().attrs.js_mode & JS_MODE_STRICT as u8 != 0 {
         0
     } else {
         DECL_MASK_FUNC // Annex B.3.4
@@ -909,7 +909,7 @@ fn stmt_switch(s: &mut JSParseState, label_name: JSAtom) -> Result<(), i32> {
 
 #[inline(always)]
 fn stmt_with(s: &mut JSParseState) -> Result<(), i32> {
-    if s.cur_func().js_mode & JS_MODE_STRICT as u8 != 0 {
+    if s.cur_func().attrs.js_mode & JS_MODE_STRICT as u8 != 0 {
         s.throw_syntax_error("invalid keyword: with");
         Err(-1)
     } else {
@@ -1140,7 +1140,7 @@ pub fn js_parse_for_in_of(
         }
         if has_initializer
             && (tok != TOK_VAR
-                || s.cur_func().js_mode & JS_MODE_STRICT as u8 != 0
+                || s.cur_func().attrs.js_mode & JS_MODE_STRICT as u8 != 0
                 || has_destructuring)
         {
             s.throw_syntax_error(&format!(

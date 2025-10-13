@@ -112,7 +112,7 @@ impl JSFunctionDef {
         let vidx = if fd != self.parent {
             // search var_idx along ancestor path
             let i = unsafe {
-                (*self.parent).get_closure_var2(
+                (&mut *self.parent).get_closure_var2(
                     ctx, fd, is_local, is_arg, var_idx, var_name, is_const, is_lexical, var_kind,
                 )?
             };
@@ -228,7 +228,7 @@ impl Bytecode {
                 b.func_kind(),
                 b.func_name,
                 b.has_prototype(),
-                b.defined_arg_count,
+                b.attrs.defined_arg_count,
                 b.closure_var_count,
             )
         };

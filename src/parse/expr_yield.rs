@@ -19,7 +19,7 @@ impl<'s> JSParseState<'s> {
         debug_assert_eq!(self.token.val, TOK_YIELD);
 
         if !matches!(
-            self.cur_func().func_kind,
+            self.cur_func().attrs.func_kind,
             JSFunctionKindEnum::JS_FUNC_GENERATOR | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
         ) {
             self.throw_syntax_error("unexpected 'yield' keyword");
@@ -31,7 +31,8 @@ impl<'s> JSParseState<'s> {
 
         self.next_token()?;
 
-        let is_async = self.cur_func().func_kind == JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR;
+        let is_async =
+            self.cur_func().attrs.func_kind == JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR;
         let mut is_star = false;
 
         // XXX: is there a better method to detect 'yield' without parameters?

@@ -169,7 +169,7 @@ impl JSFunctionDef {
     }
 
     pub fn compute_pc2line_info(&mut self) {
-        if self.js_mode & JS_MODE_STRIP as u8 == 0 && !self.line_number_slots.is_empty() {
+        if self.attrs.js_mode & JS_MODE_STRIP as u8 == 0 && !self.line_number_slots.is_empty() {
             let mut last_line_num = self.line_num;
             let mut last_pc: u32 = 0;
 

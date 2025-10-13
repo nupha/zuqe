@@ -61,12 +61,12 @@ impl JSFunctionDef {
 
     pub fn emit_return(&mut self, mut hasval: bool, last_line_num: i32) {
         // execute the finally blocks before return
-        if self.func_kind != JSFunctionKindEnum::JS_FUNC_NORMAL {
+        if self.attrs.func_kind != JSFunctionKindEnum::JS_FUNC_NORMAL {
             if !hasval {
                 // no value: direct return in case of async generator
                 self.emit_op(OpCode::UNDEFINED, last_line_num);
                 hasval = true;
-            } else if self.func_kind == JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR {
+            } else if self.attrs.func_kind == JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR {
                 // the await must be done before handling the "finally" in
                 // case it raises an exception
                 self.emit_op(OpCode::AWAIT, last_line_num);
@@ -87,8 +87,8 @@ impl JSFunctionDef {
                 self.emit_op(OpCode::NIP_CATCH, last_line_num);
 
                 // stack: iter_obj next ret_val
-                if unsafe { (*top).has_iterator } {
-                    if self.func_kind == JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR {
+                if unsafe { (&*top).has_iterator } {
+                    if self.attrs.func_kind == JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR {
                         self.emit_op(OpCode::NIP, last_line_num); // next
                         self.emit_op(OpCode::SWAP, last_line_num);
                         self.emit_op(OpCode::GET_FIELD2, last_line_num);
@@ -118,7 +118,7 @@ impl JSFunctionDef {
                     // execute the "finally" block
                     self.emit_goto(
                         OpCode::GOSUB,
-                        unsafe { (*top).label_finally },
+                        unsafe { (&*top).label_finally },
                         last_line_num,
                     );
                 }
@@ -127,7 +127,7 @@ impl JSFunctionDef {
             top = unsafe { (*top).prev };
         }
 
-        if self.is_derived_class_constructor {
+        if self.attrs.is_derived_class_constructor {
             // 'this' can be uninitialized, so it may be accessed only if
             // the derived class constructor does not return an object
             let label_return = if hasval {
@@ -147,7 +147,7 @@ impl JSFunctionDef {
 
             self.emit_label(label_return, last_line_num);
             self.emit_op(OpCode::RETURN, last_line_num);
-        } else if self.func_kind != JSFunctionKindEnum::JS_FUNC_NORMAL {
+        } else if self.attrs.func_kind != JSFunctionKindEnum::JS_FUNC_NORMAL {
             self.emit_op(OpCode::RETURN_ASYNC, last_line_num);
         } else {
             self.emit_op(

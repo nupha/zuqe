@@ -379,7 +379,7 @@ impl<'s> JSParseState<'s> {
                     }
                 } else {
                     if self.token.atom().unwrap() == JS_ATOM_arguments
-                        && !self.cur_func().arguments_allowed
+                        && !self.cur_func().attrs.arguments_allowed
                     {
                         self.throw_syntax_error(
                             "'arguments' identifier is not allowed in class field initializer",
@@ -427,7 +427,7 @@ impl<'s> JSParseState<'s> {
                         self.throw_syntax_error("expecting target");
                         return Err(-1);
                     }
-                    if !self.cur_func().new_target_allowed {
+                    if !self.cur_func().attrs.new_target_allowed {
                         self.throw_syntax_error("new.target only allowed within functions");
                         return Err(-1);
                     }
@@ -454,7 +454,7 @@ impl<'s> JSParseState<'s> {
             TOK_SUPER => {
                 self.next_token()?;
                 if self.token.val == b'(' as i32 {
-                    if !self.cur_func().super_call_allowed {
+                    if !self.cur_func().attrs.super_call_allowed {
                         self.throw_syntax_error(
                             "super() is only valid in a derived class constructor",
                         );
@@ -462,7 +462,7 @@ impl<'s> JSParseState<'s> {
                     }
                     call_type = FuncCallType::FUNC_CALL_SUPER_CTOR;
                 } else if self.token.val == b'.' as i32 || self.token.val == b'[' as i32 {
-                    if !self.cur_func().super_allowed {
+                    if !self.cur_func().attrs.super_allowed {
                         self.throw_syntax_error("'super' is only valid in a method");
                         return Err(-1);
                     }

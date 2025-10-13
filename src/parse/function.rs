@@ -64,7 +64,7 @@ impl<'s> JSParseState<'s> {
         )?;
 
         sub_fd.func_name = func_name; // <-- atom is consumed here.
-        sub_fd.has_prototype = matches!(
+        sub_fd.attrs.has_prototype = matches!(
             func_type,
             JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT
                 | JSParseFunctionEnum::JS_PARSE_FUNC_VAR
@@ -84,34 +84,38 @@ impl<'s> JSParseState<'s> {
                 | JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT
         );
         sub_fd.has_this_binding = sub_fd.has_arguments_binding;
-        sub_fd.is_derived_class_constructor =
-            func_type == JSParseFunctionEnum::JS_PARSE_FUNC_DERIVED_CLASS_CONSTRUCTOR;
 
-        match func_type {
-            JSParseFunctionEnum::JS_PARSE_FUNC_ARROW => unsafe {
-                sub_fd.new_target_allowed = (*sub_fd.parent).new_target_allowed;
-                sub_fd.super_call_allowed = (*sub_fd.parent).super_call_allowed;
-                sub_fd.super_allowed = (*sub_fd.parent).super_allowed;
-                sub_fd.arguments_allowed = (*sub_fd.parent).arguments_allowed;
-            },
-            JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT => {
-                sub_fd.new_target_allowed = true; // although new.target === undefined
-                sub_fd.super_call_allowed = false;
-                sub_fd.super_allowed = true;
-                sub_fd.arguments_allowed = false;
-            }
-            _ => {
-                sub_fd.new_target_allowed = true;
-                sub_fd.super_call_allowed = sub_fd.is_derived_class_constructor;
-                sub_fd.super_allowed = sub_fd.has_home_object;
-                sub_fd.arguments_allowed = true;
-            }
-        }
+        sub_fd.attrs.is_derived_class_constructor =
+            func_type == JSParseFunctionEnum::JS_PARSE_FUNC_DERIVED_CLASS_CONSTRUCTOR;
 
         /* fd->in_function_body == FALSE prevents yield/await during the parsing
         of the arguments in generator/async functions. They are parsed as
         regular identifiers for other function kinds. */
-        sub_fd.func_kind = func_kind;
+        sub_fd.attrs.func_kind = func_kind;
+
+        match func_type {
+            JSParseFunctionEnum::JS_PARSE_FUNC_ARROW => {
+                let parent_attrs = unsafe { &(&*sub_fd.parent).attrs };
+
+                sub_fd.attrs.new_target_allowed = parent_attrs.new_target_allowed;
+                sub_fd.attrs.super_call_allowed = parent_attrs.super_call_allowed;
+                sub_fd.attrs.super_allowed = parent_attrs.super_allowed;
+                sub_fd.attrs.arguments_allowed = parent_attrs.arguments_allowed;
+            }
+            JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT => {
+                sub_fd.attrs.new_target_allowed = true; // although new.target === undefined
+                sub_fd.attrs.super_call_allowed = false;
+                sub_fd.attrs.super_allowed = true;
+                sub_fd.attrs.arguments_allowed = false;
+            }
+            _ => {
+                sub_fd.attrs.new_target_allowed = true;
+                sub_fd.attrs.super_call_allowed = sub_fd.attrs.is_derived_class_constructor;
+                sub_fd.attrs.super_allowed = sub_fd.has_home_object;
+                sub_fd.attrs.arguments_allowed = true;
+            }
+        }
+
         sub_fd.func_type = func_type;
 
         // set sub_fd to be the cur_func
@@ -140,7 +144,7 @@ impl<'s> JSParseState<'s> {
         }
 
         // parse arguments
-        fd1.has_simple_parameter_list = true;
+        fd1.attrs.has_simple_parameter_list = true;
         fd1.has_parameter_expressions = false;
         let mut has_opt_arg = false;
 
@@ -151,7 +155,7 @@ impl<'s> JSParseState<'s> {
             }
 
             fd1.add_arg(&self.ctx, self.token.atom().unwrap())?;
-            fd1.defined_arg_count = 1;
+            fd1.attrs.defined_arg_count = 1;
         } else if func_type != JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT {
             if self.token.val == '(' as i32 {
                 let mut skip_bits: i32 = 0;
@@ -173,7 +177,7 @@ impl<'s> JSParseState<'s> {
 
             while self.token.val != ')' as i32 {
                 let rest = if self.token.val == TOK_ELLIPSIS {
-                    fd1.has_simple_parameter_list = false;
+                    fd1.attrs.has_simple_parameter_list = false;
                     self.next_token()?;
                     true
                 } else {
@@ -181,7 +185,7 @@ impl<'s> JSParseState<'s> {
                 };
 
                 if matches!(self.token.val as u8, b'[' | b'{') {
-                    fd1.has_simple_parameter_list = false;
+                    fd1.attrs.has_simple_parameter_list = false;
                     if rest {
                         fd1.emit_op(OpCode::REST, self.last_line_num);
                         fd1.emit_u16(fd1.args.len() as _);
@@ -207,7 +211,7 @@ impl<'s> JSParseState<'s> {
                         has_opt_arg = true;
                     }
                     if !has_opt_arg {
-                        fd1.defined_arg_count += 1;
+                        fd1.attrs.defined_arg_count += 1;
                     }
                 } else if self.token.val == TOK_IDENT {
                     if self.token.data.is_reserved() {
@@ -218,7 +222,7 @@ impl<'s> JSParseState<'s> {
                     let name = self.token.atom().unwrap();
 
                     if name == JS_ATOM_yield
-                        && fd1.func_kind == JSFunctionKindEnum::JS_FUNC_GENERATOR
+                        && fd1.attrs.func_kind == JSFunctionKindEnum::JS_FUNC_GENERATOR
                     {
                         self.throw_reserved_identifier_error();
                         return Err(-1);
@@ -245,10 +249,10 @@ impl<'s> JSParseState<'s> {
                         fd1.emit_op(OpCode::PUT_ARG, self.last_line_num);
                         fd1.emit_u16(idx as _);
 
-                        fd1.has_simple_parameter_list = false;
+                        fd1.attrs.has_simple_parameter_list = false;
                         has_opt_arg = true;
                     } else if self.token.val == CHAR_EQUAL {
-                        fd1.has_simple_parameter_list = false;
+                        fd1.attrs.has_simple_parameter_list = false;
                         has_opt_arg = true;
 
                         self.next_token()?;
@@ -277,7 +281,7 @@ impl<'s> JSParseState<'s> {
                         fd1.emit_u16(fd1.scope_level as _);
                     } else {
                         if !has_opt_arg {
-                            fd1.defined_arg_count += 1;
+                            fd1.attrs.defined_arg_count += 1;
                         }
                         if fd1.has_parameter_expressions {
                             // copy the argument to the argument scope
@@ -388,7 +392,7 @@ impl<'s> JSParseState<'s> {
                     self.last_line_num,
                 );
 
-                if fd1.js_mode & JS_MODE_STRIP as u8 == 0 {
+                if fd1.attrs.js_mode & JS_MODE_STRIP as u8 == 0 {
                     // save the function source code
                     // the end of the function source code is after the last
                     // token of the function source stored into s->last_ptr
@@ -429,7 +433,7 @@ impl<'s> JSParseState<'s> {
             self.parse_source_element()?;
         }
 
-        if fd1.js_mode & JS_MODE_STRIP as u8 == 0 {
+        if fd1.attrs.js_mode & JS_MODE_STRIP as u8 == 0 {
             // save the function source code
             debug_assert!(self.buf_ptr >= ptr);
             debug_assert!(fd1.source.is_none());
@@ -532,7 +536,8 @@ impl<'s> JSParseState<'s> {
                 }
 
                 if self.token.val == TOK_IDENT
-                    || ((self.token.val == TOK_YIELD && cur_fd.js_mode & JS_MODE_STRICT as u8 == 0
+                    || ((self.token.val == TOK_YIELD
+                        && cur_fd.attrs.js_mode & JS_MODE_STRICT as u8 == 0
                         || (self.token.val == TOK_AWAIT && !self.is_module))
                         && func_type == JSParseFunctionEnum::JS_PARSE_FUNC_EXPR)
                 {
@@ -574,7 +579,7 @@ impl<'s> JSParseState<'s> {
 
         if func_type == JSParseFunctionEnum::JS_PARSE_FUNC_VAR {
             let func_idx = cur_fd.find_var(func_name).map_or(-1, |x| x as i32);
-            if cur_fd.js_mode & JS_MODE_STRICT as u8 == 0
+            if cur_fd.attrs.js_mode & JS_MODE_STRICT as u8 == 0
                 && func_kind == JSFunctionKindEnum::JS_FUNC_NORMAL
                 && cur_fd
                     .find_lexical_decl(func_name, cur_fd.scope_first, false)
@@ -680,7 +685,7 @@ impl<'s> JSParseState<'s> {
                 if create_func_var {
                     if self.cur_func().is_global_var {
                         // the global variable must be defined at the start of the function
-                        let js_mode = self.cur_func().js_mode;
+                        let js_mode = self.cur_func().attrs.js_mode;
 
                         let hf = {
                             let ctx = self.ctx.clone();
@@ -827,8 +832,8 @@ pub unsafe fn js_parse_function_check_names(
     fd: *mut JSFunctionDef,
     func_name: JSAtom,
 ) -> i32 {
-    if (*fd).js_mode & JS_MODE_STRICT as u8 != 0 {
-        if !(*fd).has_simple_parameter_list && (*fd).has_use_strict {
+    if (*fd).attrs.js_mode & JS_MODE_STRICT as u8 != 0 {
+        if !(*fd).attrs.has_simple_parameter_list && (*fd).has_use_strict {
             (*s).throw_syntax_error(
                 "'use strict' not allowed in function with default or destructuring parameter",
             );
@@ -850,10 +855,10 @@ pub unsafe fn js_parse_function_check_names(
     }
 
     // check async_generator case
-    if (*fd).js_mode & JS_MODE_STRICT as u8 != 0
-        || !(*fd).has_simple_parameter_list
+    if (*fd).attrs.js_mode & JS_MODE_STRICT as u8 != 0
+        || !(*fd).attrs.has_simple_parameter_list
         || ((*fd).func_type == JSParseFunctionEnum::JS_PARSE_FUNC_METHOD
-            && (*fd).func_kind == JSFunctionKindEnum::JS_FUNC_ASYNC)
+            && (*fd).attrs.func_kind == JSFunctionKindEnum::JS_FUNC_ASYNC)
         || matches!(
             (*fd).func_type,
             JSParseFunctionEnum::JS_PARSE_FUNC_ARROW | JSParseFunctionEnum::JS_PARSE_FUNC_METHOD

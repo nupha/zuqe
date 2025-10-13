@@ -20,7 +20,7 @@ impl JSFunctionDef {
     /// Returns a bytecode value.
     ///
     /// Note: receiver must be `Box<Self>`, and is consumed.
-    pub unsafe fn compile(mut self: Box<Self>, ctx: &JSContext) -> Result<Bytecode, i32> {
+    pub fn compile(mut self: Box<Self>, ctx: &JSContext) -> Result<Bytecode, i32> {
         //
         // recompute scope linkage
         //
@@ -62,9 +62,7 @@ impl JSFunctionDef {
         // so it is necessary to create the closure variables before any
         // other variable lookup is done.
         if self.has_eval_call {
-            unsafe {
-                add_eval_variables(ctx, &mut self);
-            }
+            add_eval_variables(ctx, &mut self);
         }
 
         // add the module global variables in the closure
@@ -85,7 +83,7 @@ impl JSFunctionDef {
                 let cpool_idx: i32 = sub_fd.parent_cpool_idx;
                 debug_assert!((0..self.cpool.len() as i32).contains(&cpool_idx));
 
-                if let Ok(sub_bc) = unsafe { sub_fd.compile(ctx) } {
+                if let Ok(sub_bc) = sub_fd.compile(ctx) {
                     // strore child function to parent's constant pool slot
                     self.cpool[cpool_idx as usize] = JSValue::Bytecode(sub_bc);
                 } else {
@@ -131,7 +129,7 @@ impl JSFunctionDef {
         let mut vardefs_start = -1;
         let args_count = self.args.len();
         let vars_count = self.vars.len();
-        if self.js_mode & JS_MODE_STRIP as u8 == 0 || self.has_eval_call {
+        if self.attrs.js_mode & JS_MODE_STRIP as u8 == 0 || self.has_eval_call {
             let n: usize = args_count + vars_count;
             if n != 0 {
                 const ly: std::alloc::Layout = std::alloc::Layout::new::<JSVarDef>();
@@ -294,13 +292,10 @@ impl JSFunctionDef {
         // reset self.func_name to prevent free this atom in JSFunctionDef::finalize()
         self.func_name = JS_ATOM_NULL;
 
-        if self.js_mode & JS_MODE_STRIP as u8 == 0 {
+        if self.attrs.js_mode & JS_MODE_STRIP as u8 == 0 {
             inner.has_debug = true;
             inner.debug.line_num = self.line_num;
             inner.debug.filename = self.filename;
-
-            // SAFEGUARD: to prevent free in js_free_function_def()
-            self.filename = JS_ATOM_NULL;
 
             // move source and pc2line to func object.
             inner.debug.source = self.source.take();
@@ -308,12 +303,15 @@ impl JSFunctionDef {
                 lst.shrink_to_fit();
                 inner.debug.pc2line_buf.replace(lst);
             }
+
+            // SAFEGUARD: reset to prevent free atom in JSFunctionDef::finalize()
+            self.filename = JS_ATOM_NULL;
         }
 
         let bc = Bytecode(Rc::new(RefCell::new(inner)));
 
         #[cfg(feature = "dump_bytecode")]
-        if self.js_mode & JS_MODE_STRIP as u8 == 0 {
+        if self.attrs.js_mode & JS_MODE_STRIP as u8 == 0 {
             bc.dump(ctx);
         }
 
@@ -326,7 +324,7 @@ impl JSFunctionDef {
 
 pub fn add_eval_variables(ctx: &JSContext, s: &mut JSFunctionDef) {
     // in non strict mode, variables are created in the caller's environment object
-    if !s.is_eval && s.js_mode & JS_MODE_STRICT as u8 == 0 {
+    if !s.is_eval && s.attrs.js_mode & JS_MODE_STRICT as u8 == 0 {
         s.var_object_idx = Some(s.add_var(ctx, JS_ATOM__var_).unwrap());
         if s.has_parameter_expressions {
             // an additional variable object is needed for the argument scope
@@ -343,7 +341,7 @@ pub fn add_eval_variables(ctx: &JSContext, s: &mut JSFunctionDef) {
         if s.new_target_var_idx.is_none() {
             s.new_target_var_idx = Some(s.add_var(ctx, JS_ATOM_new_target).expect("TODO"));
         }
-        if s.is_derived_class_constructor && s.this_active_func_var_idx.is_none() {
+        if s.attrs.is_derived_class_constructor && s.this_active_func_var_idx.is_none() {
             s.this_active_func_var_idx =
                 Some(s.add_var(ctx, JS_ATOM_this_active_func).expect("TODO"));
         }
@@ -358,7 +356,7 @@ pub fn add_eval_variables(ctx: &JSContext, s: &mut JSFunctionDef) {
 
         // also add `arguments` binding in the argument scope.
         // to raise an error if a direct eval in the argument scope tries to redefine it.
-        if (*s).has_parameter_expressions && s.js_mode & JS_MODE_STRICT as u8 == 0 {
+        if s.has_parameter_expressions && s.attrs.js_mode & JS_MODE_STRICT as u8 == 0 {
             s.add_arguments(ctx, true).unwrap();
         }
     }
@@ -391,7 +389,7 @@ pub fn add_eval_variables(ctx: &JSContext, s: &mut JSFunctionDef) {
                 fd.new_target_var_idx.replace(i);
             }
 
-            if fd.is_derived_class_constructor && fd.this_active_func_var_idx.is_none() {
+            if fd.attrs.is_derived_class_constructor && fd.this_active_func_var_idx.is_none() {
                 let i = fd.add_var(ctx, JS_ATOM_this_active_func).expect("TODO");
                 fd.this_active_func_var_idx.replace(i);
             }
@@ -419,11 +417,13 @@ pub fn add_eval_variables(ctx: &JSContext, s: &mut JSFunctionDef) {
         debug_assert!((0..fd.scopes.len() as i32).contains(&scope_level));
         let mut scope_idx = fd.scopes[scope_level as usize].first;
         while scope_idx >= 0 {
+            let fd_ptr = fd as *const JSFunctionDef;
+
             let vd = fd.vars.get_mut(scope_idx as usize).unwrap();
             vd.set_is_captured(true);
             s.get_closure_var2(
                 ctx,
-                cur_fd,
+                fd_ptr,
                 true,
                 false,
                 scope_idx as u16,
@@ -433,7 +433,8 @@ pub fn add_eval_variables(ctx: &JSContext, s: &mut JSFunctionDef) {
                 vd.var_kind(),
             )
             .expect("TODO");
-            scope_idx = (*vd).scope_next;
+
+            scope_idx = vd.scope_next;
         }
 
         let is_arg_scope = scope_idx == ARG_SCOPE_END;
@@ -444,7 +445,7 @@ pub fn add_eval_variables(ctx: &JSContext, s: &mut JSFunctionDef) {
                 if vd.var_name != JS_ATOM_NULL {
                     s.get_closure_var2(
                         ctx,
-                        cur_fd,
+                        fd as *const JSFunctionDef,
                         true,
                         true,
                         i as _,
@@ -462,7 +463,7 @@ pub fn add_eval_variables(ctx: &JSContext, s: &mut JSFunctionDef) {
                 if vd.scope_level == 0 && !matches!(vd.var_name, JS_ATOM__ret_ | JS_ATOM_NULL) {
                     s.get_closure_var2(
                         ctx,
-                        cur_fd,
+                        fd as *const JSFunctionDef,
                         true,
                         false,
                         i as _,
@@ -480,13 +481,13 @@ pub fn add_eval_variables(ctx: &JSContext, s: &mut JSFunctionDef) {
                 if vd.scope_level == 0 && is_var_in_arg_scope(vd) {
                     s.get_closure_var2(
                         ctx,
-                        cur_fd,
+                        fd as *const JSFunctionDef,
                         true,
                         false,
                         i as _,
-                        (*vd).var_name,
+                        vd.var_name,
                         false,
-                        (*vd).is_lexical(),
+                        vd.is_lexical(),
                         JSVarKindEnum::JS_VAR_NORMAL,
                     )
                     .expect("TODO");
@@ -500,14 +501,14 @@ pub fn add_eval_variables(ctx: &JSContext, s: &mut JSFunctionDef) {
                 for (i, cv) in cvars.iter().enumerate() {
                     s.get_closure_var2(
                         ctx,
-                        cur_fd,
+                        fd as *const JSFunctionDef,
                         false,
-                        (*cv).is_arg(),
+                        cv.is_arg(),
                         i as _,
-                        (*cv).var_name,
-                        (*cv).is_const(),
-                        (*cv).is_lexical(),
-                        (*cv).var_kind(),
+                        cv.var_name,
+                        cv.is_const(),
+                        cv.is_lexical(),
+                        cv.var_kind(),
                     )
                     .expect("TODO");
                 }

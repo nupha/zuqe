@@ -55,7 +55,7 @@ impl JSFunctionDef {
         }
 
         // XXX: Should skip this phase if not generating SHORT_OPCODES
-        if self.line_number_slots_cap != 0 && self.js_mode & JS_MODE_STRIP as u8 == 0 {
+        if self.line_number_slots_cap != 0 && self.attrs.js_mode & JS_MODE_STRIP as u8 == 0 {
             self.line_number_slots
                 .try_reserve(self.line_number_slots_cap)
                 .map_err(|_| {
@@ -91,7 +91,7 @@ impl JSFunctionDef {
         // initialize the 'this' variable if needed. In a derived class
         // constructor, this is initially uninitialized.
         if let Some(vidx) = self.this_var_idx {
-            if self.is_derived_class_constructor {
+            if self.attrs.is_derived_class_constructor {
                 push_vec_u8(&mut bc_out, OpCode::SET_LOC_UNINITIALIZED as u8);
                 push_vec_u16(&mut bc_out, vidx);
             } else {
@@ -102,7 +102,9 @@ impl JSFunctionDef {
 
         // initialize the 'arguments' variable if needed
         if let Some(vidx) = self.arguments_var_idx {
-            if self.js_mode & JS_MODE_STRICT as u8 != 0 || !self.has_simple_parameter_list {
+            if self.attrs.js_mode & JS_MODE_STRICT as u8 != 0
+                || !self.attrs.has_simple_parameter_list
+            {
                 push_vec_u8(&mut bc_out, OpCode::SPECIAL_OBJECT as u8);
                 push_vec_u8(&mut bc_out, SpecialObject::Arguments as _);
             } else {

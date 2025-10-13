@@ -176,8 +176,11 @@ impl<'s> JSParseState<'s> {
             &mut method_fd,
         )?;
 
+        debug_assert!(!method_fd.is_null());
+
         if is_private {
-            (*method_fd).need_home_object = true; // needed for brand check
+            (&mut *method_fd).attrs.need_home_object = true; // needed for brand check
+
             self.emit_op(OpCode::SET_HOME_OBJECT);
             // XXX: missing function name
             self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
@@ -480,13 +483,17 @@ impl<'s> JSParseState<'s> {
                         &mut method_fd,
                     )?;
 
-                    if func_type == JSParseFunctionEnum::JS_PARSE_FUNC_DERIVED_CLASS_CONSTRUCTOR
-                        || func_type == JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_CONSTRUCTOR
-                    {
+                    debug_assert!(!method_fd.is_null());
+
+                    if matches!(
+                        func_type,
+                        JSParseFunctionEnum::JS_PARSE_FUNC_DERIVED_CLASS_CONSTRUCTOR
+                            | JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_CONSTRUCTOR
+                    ) {
                         ctor_fd = method_fd;
                     } else if is_private {
                         unsafe {
-                            (*method_fd).need_home_object = true; // needed for brand check
+                            (*method_fd).attrs.need_home_object = true; // needed for brand check
                         }
                         let fd = self.cur_func_def;
                         if unsafe {
@@ -559,7 +566,7 @@ impl<'s> JSParseState<'s> {
         }
 
         // store the class source code in the constructor.
-        if self.cur_func().js_mode & JS_MODE_STRIP as u8 == 0 {
+        if self.cur_func().attrs.js_mode & JS_MODE_STRIP as u8 == 0 {
             debug_assert!(self.buf_ptr >= class_source);
 
             let src_len = unsafe { self.buf_ptr.offset_from(class_source) as usize };
@@ -594,14 +601,14 @@ impl<'s> JSParseState<'s> {
         // class is always parsed and executed in strict mode
         let orig_mode = {
             let fd = self.cur_func_mut();
-            let m = fd.js_mode;
-            fd.js_mode |= JS_MODE_STRICT as u8;
+            let m = fd.attrs.js_mode;
+            fd.attrs.js_mode |= JS_MODE_STRICT as u8;
             m
         };
         // Note: restore original mode on exit
         let _cur_func_ptr = self.cur_func_def;
         defer!(unsafe {
-            _cur_func_ptr.as_mut().unwrap().js_mode = orig_mode;
+            _cur_func_ptr.as_mut().unwrap().attrs.js_mode = orig_mode;
         });
 
         let class_source = self.token.ptr;
@@ -849,28 +856,23 @@ pub unsafe fn js_parse_function_class_fields_init(
     s: *mut JSParseState,
 ) -> Result<Box<JSFunctionDef>, i32> {
     let mut fd = JSFunctionDef::new(
-        &(*s).ctx,
-        (*s).cur_func_mut(),
+        &(&*s).ctx,
+        (&*s).cur_func_mut(),
         false,
         false,
-        (*s).filename,
+        (&*s).filename,
         0,
     )?;
 
     fd.func_name = JS_ATOM_NULL;
-    fd.has_prototype = false;
-    fd.has_home_object = true;
-
+    fd.func_type = JSParseFunctionEnum::JS_PARSE_FUNC_METHOD;
+    fd.has_home_object = true; // <-- this line must be prior to `fd.attrs.super_allowed = XXX`
     fd.has_arguments_binding = false;
     fd.has_this_binding = true;
-    fd.is_derived_class_constructor = false;
-    fd.new_target_allowed = true;
-    fd.super_call_allowed = false;
-    fd.super_allowed = fd.has_home_object;
-    fd.arguments_allowed = false;
 
-    fd.func_kind = JSFunctionKindEnum::JS_FUNC_NORMAL;
-    fd.func_type = JSParseFunctionEnum::JS_PARSE_FUNC_METHOD;
+    fd.attrs.func_kind = JSFunctionKindEnum::JS_FUNC_NORMAL;
+    fd.attrs.super_allowed = fd.has_home_object;
+    fd.attrs.new_target_allowed = true;
 
     Ok(fd)
 }

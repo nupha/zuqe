@@ -35,7 +35,7 @@ impl JSParseState<'_> {
         {
             let fd = self.cur_func_mut();
             fd.is_global_var = matches!(fd.eval_type, JS_EVAL_TYPE_GLOBAL | JS_EVAL_TYPE_MODULE)
-                || fd.js_mode & JS_MODE_STRICT as u8 == 0;
+                || fd.attrs.js_mode & JS_MODE_STRICT as u8 == 0;
         }
 
         if !self.is_module {

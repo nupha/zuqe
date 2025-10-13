@@ -39,7 +39,7 @@ impl<'s> JSParseState<'s> {
                         let vd = fd.vars.get(var_id as usize).unwrap();
                         if vd.scope_level == fd.scope_level {
                             // same scope: in non strict mode, functions can be redefined (annex B.3.3.4).
-                            if !(fd.js_mode & JS_MODE_STRICT as u8 == 0
+                            if !(fd.attrs.js_mode & JS_MODE_STRICT as u8 == 0
                                 && var_def_type == JSVarDefEnum::JS_VAR_DEF_FUNCTION_DECL
                                 && vd.var_kind() == JSVarKindEnum::JS_VAR_FUNCTION_DECL)
                             {
@@ -158,11 +158,11 @@ impl<'s> JSParseState<'s> {
         let func = self.cur_func();
 
         match name {
-            JS_ATOM_yield if func.func_kind == JSFunctionKindEnum::JS_FUNC_GENERATOR => {
+            JS_ATOM_yield if func.attrs.func_kind == JSFunctionKindEnum::JS_FUNC_GENERATOR => {
                 self.throw_syntax_error("yield is a reserved identifier");
                 return Err(-1);
             }
-            JS_ATOM_arguments | JS_ATOM_eval if func.js_mode & JS_MODE_STRICT as u8 != 0 => {
+            JS_ATOM_arguments | JS_ATOM_eval if func.attrs.js_mode & JS_MODE_STRICT as u8 != 0 => {
                 self.throw_syntax_error("invalid variable name in strict mode");
                 return Err(-1);
             }

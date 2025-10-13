@@ -10,11 +10,12 @@ impl JSParseState<'_> {
     /// old exception will be freed.
     #[cold]
     pub fn throw(&self, exc: JSValue) {
-        let backtrace_flags = if !self.cur_func_def.is_null() && self.cur_func().backtrace_barrier {
-            JS_BACKTRACE_FLAG_SINGLE_LEVEL
-        } else {
-            0
-        };
+        let backtrace_flags =
+            if !self.cur_func_def.is_null() && self.cur_func().attrs.backtrace_barrier {
+                JS_BACKTRACE_FLAG_SINGLE_LEVEL
+            } else {
+                0
+            };
 
         self.ctx.build_backtrace_to(
             &self.ctx.rt().cur_exception,
@@ -29,11 +30,12 @@ impl JSParseState<'_> {
     pub fn throw_syntax_error(&self, message: &str) {
         self.ctx.throw_error_ex(ErrorKind::Syntax, message, false);
 
-        let backtrace_flags = if !self.cur_func_def.is_null() && self.cur_func().backtrace_barrier {
-            JS_BACKTRACE_FLAG_SINGLE_LEVEL
-        } else {
-            0
-        };
+        let backtrace_flags =
+            if !self.cur_func_def.is_null() && self.cur_func().attrs.backtrace_barrier {
+                JS_BACKTRACE_FLAG_SINGLE_LEVEL
+            } else {
+                0
+            };
         self.ctx.build_backtrace_to(
             &self.ctx.rt().cur_exception,
             Some((self.filename, self.line_num)),

@@ -80,7 +80,7 @@ impl<'s> JSParseState<'s> {
 
                 match name {
                     JS_ATOM_arguments | JS_ATOM_eval
-                        if self.cur_func().js_mode & JS_MODE_STRICT as u8 != 0 =>
+                        if self.cur_func().attrs.js_mode & JS_MODE_STRICT as u8 != 0 =>
                     {
                         self.throw_syntax_error("invalid lvalue in strict mode");
                         return Err(-1);

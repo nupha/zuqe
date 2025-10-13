@@ -171,7 +171,7 @@ pub fn js_op_define_class(
     ctor.define_property_value(
         ctx,
         JS_ATOM_length,
-        JSValue::Int(bc.0.borrow().defined_arg_count as i32),
+        JSValue::Int(bc.0.borrow().attrs.defined_arg_count as i32),
         JS_PROP_CONFIGURABLE,
     )?;
 

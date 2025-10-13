@@ -312,7 +312,7 @@ impl JSFunctionDef {
     /// define pseudo variable named `this`
     pub fn add_var_this(&mut self, ctx: &JSContext) -> Result<u16, i32> {
         let idx = self.add_var(ctx, JS_ATOM_this)?;
-        if self.is_derived_class_constructor {
+        if self.attrs.is_derived_class_constructor {
             // used to trigger 'uninitialized' checks
             // in a derived class constructor
             // XXX: should have is_this flag or var type
@@ -370,7 +370,7 @@ impl JSFunctionDef {
 
             let vd = self.vars.get_mut(vi as usize).unwrap();
             vd.set_var_kind(JSVarKindEnum::JS_VAR_FUNCTION_NAME as _);
-            if self.js_mode & JS_MODE_STRICT as u8 != 0 {
+            if self.attrs.js_mode & JS_MODE_STRICT as u8 != 0 {
                 vd.set_is_const(true);
             }
 

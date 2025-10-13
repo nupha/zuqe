@@ -11,7 +11,7 @@ use crate::function::BytecodeDebugSetting;
 use crate::{
     atom::{JS_ATOM_NULL, JS_FreeAtomRT, JSAtom},
     bytecode::{OpcodeFormat, opcode_info_final, opcode_info_intermediate},
-    context::{JS_MODE_STRIP, JSContext, JSContextWeakref},
+    context::{JSContext, JSContextWeakref},
     error::JSResult,
     eval::{JS_EVAL_TYPE_DIRECT, JS_EVAL_TYPE_INDIRECT},
     function::{JSFunctionDef, JSVarRef},
@@ -56,6 +56,52 @@ pub const PC2LINE_RANGE: i32 = 5;
 pub const PC2LINE_OP_FIRST: i32 = 1;
 pub const PC2LINE_DIFF_PC_MAX: i32 = (255 - PC2LINE_OP_FIRST) / PC2LINE_RANGE;
 
+#[derive(Debug, Clone)]
+pub(crate) struct BytecodeAttrs {
+    pub func_kind: JSFunctionKindEnum,
+    /// true if a prototype field is necessary
+    pub has_prototype: bool,
+    /// 是否有简单参数列表
+    pub has_simple_parameter_list: bool,
+    /// 是否是派生类构造函数
+    pub is_derived_class_constructor: bool,
+    /// 是否允许new.target
+    pub new_target_allowed: bool,
+    /// 是否允许super()
+    pub super_call_allowed: bool,
+    /// 是否允许super.或super[]
+    pub super_allowed: bool,
+    /// 是否允许arguments标识符
+    pub arguments_allowed: bool,
+    /// stop backtrace on this function
+    pub backtrace_barrier: bool,
+    /// for length function property
+    pub defined_arg_count: u16,
+    //// true if home_object needs to be initialized
+    pub need_home_object: bool,
+    /// execution mode
+    pub js_mode: u8,
+}
+
+impl Default for BytecodeAttrs {
+    fn default() -> Self {
+        Self {
+            func_kind: JSFunctionKindEnum::JS_FUNC_NORMAL,
+            has_prototype: false,
+            has_simple_parameter_list: false,
+            is_derived_class_constructor: false,
+            new_target_allowed: false,
+            super_call_allowed: false,
+            super_allowed: false,
+            arguments_allowed: false,
+            backtrace_barrier: false,
+            defined_arg_count: 0,
+            need_home_object: false,
+            js_mode: 0,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct BytecodeInner {
     pub header: GCObjectHeader,
@@ -64,34 +110,20 @@ pub(crate) struct BytecodeInner {
     /// function realm
     realm: JSContextWeakref,
 
-    js_mode: u8,
-    has_prototype: bool, // true if a prototype field is necessary
-    pub has_simple_parameter_list: bool,
-    pub is_derived_class_constructor: bool,
-    pub need_home_object: bool, // true if home_object needs to be initialized
-    func_kind: JSFunctionKindEnum, // 2 bits
-    pub new_target_allowed: bool,
-    pub super_call_allowed: bool,
-    pub super_allowed: bool,
-    pub arguments_allowed: bool,
-    pub backtrace_barrier: bool, // stop backtrace on this function
+    pub(crate) attrs: BytecodeAttrs,
+
     pub read_only_bytecode: bool,
-    pub is_direct_or_indirect_eval: bool, // used by JS_GetScriptOrModuleName()
+    /// used by JS_GetScriptOrModuleName()
+    pub is_direct_or_indirect_eval: bool,
 
     pub stack_size: u16,
 
     pub cpool_count: u16,
     pub arg_count: u16,
     pub var_count: u16,
-    /// for length function property
-    pub defined_arg_count: u16,
     pub closure_var_count: u16,
 
-    // TODO: use Option<JSFunctionBytecodeDebug>>
-    pub debug: BytecodeDebugInfo,
-    pub has_debug: bool,
-
-    /// binary content
+    /// binary image
     pub binary: Box<[u8]>,
     /// start index of cpool in binary >=0 for valid index
     pub cpool_start: i32,
@@ -101,6 +133,10 @@ pub(crate) struct BytecodeInner {
     pub closure_var_start: i32,
     /// index where opcodes starts
     pub opcodes_start: u32,
+
+    // TODO: use Option<JSFunctionBytecodeDebug>>
+    pub debug: BytecodeDebugInfo,
+    pub has_debug: bool,
 }
 
 impl Drop for BytecodeInner {
@@ -110,7 +146,7 @@ impl Drop for BytecodeInner {
 }
 
 impl BytecodeInner {
-    pub fn new(
+    pub(super) fn new(
         ctx: &JSContext,
         fd: &JSFunctionDef,
         binary: Box<[u8]>,
@@ -129,18 +165,21 @@ impl BytecodeInner {
             func_name: fd.func_name,
             realm: ctx.downgrade(),
 
-            js_mode: fd.js_mode,
-            has_prototype: fd.has_prototype,
-            has_simple_parameter_list: fd.has_simple_parameter_list,
-            is_derived_class_constructor: fd.is_derived_class_constructor,
-            func_kind: fd.func_kind,
-            new_target_allowed: fd.new_target_allowed,
-            super_call_allowed: fd.super_call_allowed,
-            super_allowed: fd.super_allowed,
-            arguments_allowed: fd.arguments_allowed,
-            backtrace_barrier: fd.backtrace_barrier,
-            defined_arg_count: fd.defined_arg_count,
-            need_home_object: fd.home_object_var_idx.is_some() || fd.need_home_object,
+            attrs: BytecodeAttrs {
+                need_home_object: fd.attrs.need_home_object || fd.home_object_var_idx.is_some(),
+                ..fd.attrs
+            },
+            // js_mode: fd.js_mode,
+            // has_prototype: fd.has_prototype,
+            // has_simple_parameter_list: fd.has_simple_parameter_list,
+            // is_derived_class_constructor: fd.is_derived_class_constructor,
+            // func_kind: fd.func_kind,
+            // new_target_allowed: fd.new_target_allowed,
+            // super_call_allowed: fd.super_call_allowed,
+            // super_allowed: fd.super_allowed,
+            // arguments_allowed: fd.arguments_allowed,
+            // backtrace_barrier: fd.backtrace_barrier,
+            // defined_arg_count: fd.defined_arg_count,
             is_direct_or_indirect_eval: matches!(
                 fd.eval_type,
                 JS_EVAL_TYPE_DIRECT | JS_EVAL_TYPE_INDIRECT
@@ -176,18 +215,23 @@ impl BytecodeInner {
     }
 
     #[inline(always)]
+    pub fn attrs(&self) -> &BytecodeAttrs {
+        &self.attrs
+    }
+
+    #[inline(always)]
     pub fn func_kind(&self) -> JSFunctionKindEnum {
-        self.func_kind
+        self.attrs.func_kind
     }
 
     #[inline(always)]
     pub fn mode(&self) -> u8 {
-        self.js_mode
+        self.attrs.js_mode
     }
 
     #[inline(always)]
     pub fn has_prototype(&self) -> bool {
-        self.has_prototype
+        self.attrs.has_prototype
     }
 
     /// get nth arg or var vardef. for example:
@@ -563,7 +607,7 @@ impl Bytecode {
 
     #[inline(always)]
     pub fn has_prototype(&self) -> bool {
-        self.0.borrow().has_prototype
+        self.0.borrow().attrs.has_prototype
     }
 
     /// get bytecode realm
@@ -583,9 +627,9 @@ impl Bytecode {
         BytecodeWeakref(Rc::downgrade(&self.0))
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn need_home_object(&self) -> bool {
-        self.with(|bc| bc.need_home_object)
+        self.0.borrow().attrs.need_home_object
     }
 
     /// get const pool values slice

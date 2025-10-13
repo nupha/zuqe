@@ -329,7 +329,7 @@ impl<'s> JSParseState<'s> {
                     prop_error!();
                 }
 
-                if self.cur_func().js_mode & JS_MODE_STRICT as u8 != 0
+                if self.cur_func().attrs.js_mode & JS_MODE_STRICT as u8 != 0
                     && (prop_name == JS_ATOM_eval || prop_name == JS_ATOM_arguments)
                 {
                     self.throw_syntax_error("invalid destructuring target");
@@ -1231,7 +1231,7 @@ impl<'s> JSParseState<'s> {
 
     fn parse_destructuring_var(&mut self, tok: i32, is_arg: bool) -> Result<JSAtom, i32> {
         if (self.token.val != TOK_IDENT || self.token.data.is_reserved())
-            || (self.cur_func().js_mode & JS_MODE_STRICT as u8 != 0
+            || (self.cur_func().attrs.js_mode & JS_MODE_STRICT as u8 != 0
                 && matches!(self.token.atom().unwrap(), JS_ATOM_eval | JS_ATOM_arguments))
         {
             self.throw_syntax_error("invalid destructuring target");

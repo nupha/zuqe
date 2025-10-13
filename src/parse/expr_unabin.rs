@@ -223,7 +223,7 @@ impl<'s> JSParseState<'s> {
                 parse_flags = 0;
             }
             TOK_AWAIT => {
-                if !self.cur_func().func_kind.is_async() {
+                if !self.cur_func().attrs.func_kind.is_async() {
                     self.throw_syntax_error("unexpected 'await' keyword");
                     return Err(-1);
                 }
@@ -401,7 +401,7 @@ impl<'s> JSParseState<'s> {
                     self.emit_op(OpCode::PUSH_TRUE);
                     return Ok(());
                 }
-                if fd.js_mode & JS_MODE_STRICT as u8 != 0 {
+                if fd.attrs.js_mode & JS_MODE_STRICT as u8 != 0 {
                     self.throw_syntax_error("cannot delete a direct reference in strict mode");
                     return Err(-1);
                 } else {

@@ -6,7 +6,7 @@ use crate::{
     context::{JS_MODE_STRIP, JSContext},
     eval::JS_EVAL_TYPE_GLOBAL,
     function::{
-        DEFINE_GLOBAL_LEX_VAR, JSClosureVar, JSFunctionKindEnum, JSGlobalVar, JSVarDef, JSVarScope,
+        BytecodeAttrs, DEFINE_GLOBAL_LEX_VAR, JSClosureVar, JSGlobalVar, JSVarDef, JSVarScope,
         free_bytecode_atoms,
     },
     mem::js_malloc_typed,
@@ -54,10 +54,10 @@ pub struct JSFunctionDef {
     pub is_func_expr: bool,
     /// 是否拥有home object
     pub has_home_object: bool,
-    /// 是否需要prototype字段
-    pub has_prototype: bool,
-    /// 是否有简单参数列表
-    pub has_simple_parameter_list: bool,
+
+    pub(crate) attrs: BytecodeAttrs,
+
+    //
     /// 是否需要创建参数作用域
     pub has_parameter_expressions: bool,
     /// 严格模式指令
@@ -68,27 +68,11 @@ pub struct JSFunctionDef {
     pub has_arguments_binding: bool,
     /// can access `this` binding?
     pub has_this_binding: bool,
-    /// 是否允许new.target
-    pub new_target_allowed: bool,
-    /// 是否允许super()
-    pub super_call_allowed: bool,
-    /// 是否允许super.或super[]
-    pub super_allowed: bool,
-    /// 是否允许arguments标识符
-    pub arguments_allowed: bool,
-    /// 是否是派生类构造函数
-    pub is_derived_class_constructor: bool,
     /// 是否在函数体内
     pub in_function_body: bool,
-    /// 回溯屏障
-    pub backtrace_barrier: bool,
 
-    /// 函数类型枚举
-    pub func_kind: JSFunctionKindEnum,
     pub func_type: JSParseFunctionEnum,
     pub func_name: JSAtom,
-
-    pub js_mode: u8,
 
     /// constants pool (string, function, number）.
     pub cpool: Vec<JSValue>,
@@ -99,8 +83,6 @@ pub struct JSFunctionDef {
     /// global vars defination list.
     pub global_vars: Vec<JSGlobalVar>,
 
-    /// for length function property
-    pub defined_arg_count: u16,
     // 当前函数的变量索引
     pub func_var_idx: Option<u16>,
 
@@ -128,8 +110,6 @@ pub struct JSFunctionDef {
     pub arg_var_object_idx: Option<u16>,
     /// `<var>`
     pub var_object_idx: Option<u16>,
-
-    pub need_home_object: bool,
 
     /// scopes stack
     pub scopes: Vec<JSVarScope>,
@@ -212,36 +192,39 @@ impl JSFunctionDef {
             parent_cpool_idx: -1,
             parent_scope_level: 0,
             child_list: Vec::with_capacity(16),
+
             is_eval,
             eval_type: 0,
             is_global_var: false,
             is_func_expr,
             has_home_object: false,
-            has_prototype: false,
-            has_simple_parameter_list: false,
+
             has_parameter_expressions: false,
             has_use_strict: false,
             has_eval_call: false,
             has_arguments_binding: false,
             has_this_binding: false,
-            new_target_allowed: false,
-            super_call_allowed: false,
-            super_allowed: false,
-            arguments_allowed: false,
-            is_derived_class_constructor: false,
             in_function_body: false,
-            backtrace_barrier: false,
-            func_kind: JSFunctionKindEnum::JS_FUNC_NORMAL,
             func_type: JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
             func_name: JS_ATOM_NULL,
-            js_mode: 0,
 
+            attrs: BytecodeAttrs::default(),
+            // has_prototype: false,
+            // has_simple_parameter_list: false,
+            // new_target_allowed: false,
+            // super_call_allowed: false,
+            // super_allowed: false,
+            // arguments_allowed: false,
+            // is_derived_class_constructor: false,
+            // backtrace_barrier: false,
+            // func_kind: JSFunctionKindEnum::JS_FUNC_NORMAL,
+            // js_mode: 0,
+            // defined_arg_count: 0,
             cpool: Vec::new(),
             vars: Vec::new(),
             args: Vec::new(),
             global_vars: Vec::new(),
 
-            defined_arg_count: 0,
             func_var_idx: None,
             this_var_idx: None,
             new_target_var_idx: None,
@@ -252,7 +235,6 @@ impl JSFunctionDef {
             eval_ret_idx: None,
             arg_var_object_idx: None,
             var_object_idx: None,
-            need_home_object: false,
             scope_level: 0,
             scope_first: -1,
             scopes: {
@@ -325,7 +307,7 @@ impl JSFunctionDef {
             unsafe {
                 fd.parent = parent;
                 fd.parent_scope_level = (*parent).scope_level;
-                fd.js_mode = (*parent).js_mode;
+                fd.attrs.js_mode = (*parent).attrs.js_mode;
 
                 if (*parent).child_list.len() == (*parent).child_list.capacity() {
                     (*parent).child_list.try_reserve(8).map_err(|_| {
@@ -369,7 +351,7 @@ impl JSFunctionDef {
 
     #[cfg(feature = "dump_bytecode")]
     pub fn dump_bytecode(&self, ctx: &JSContext, pass: i32) {
-        if self.js_mode & JS_MODE_STRIP as u8 == 0 {
+        if self.attrs.js_mode & JS_MODE_STRIP as u8 == 0 {
             println!("pass {pass}");
 
             crate::bytecode::dump_opcodes(

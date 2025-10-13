@@ -102,20 +102,21 @@ impl JSContext {
         let mut fd = JSFunctionDef::new(self, std::ptr::null_mut(), true, false, filename, 1)?;
 
         fd.eval_type = eval_type;
-        fd.has_this_binding = eval_type != JS_EVAL_TYPE_DIRECT;
-        fd.backtrace_barrier = flags & JS_EVAL_FLAG_BACKTRACE_BARRIER != 0;
         fd.func_name = JS_ATOM__eval_.dup(self.rt());
-        fd.js_mode = js_mode as u8;
+        fd.has_this_binding = eval_type != JS_EVAL_TYPE_DIRECT;
+        fd.attrs.backtrace_barrier = flags & JS_EVAL_FLAG_BACKTRACE_BARRIER != 0;
+        fd.attrs.js_mode = js_mode as u8;
 
         if let Some(bc) = &bytecode {
             debug_assert_eq!(eval_type, JS_EVAL_TYPE_DIRECT, "must be direct eval type");
             debug_assert!(module.is_none(), "must not be module");
+
             {
                 let b = bc.0.borrow();
-                fd.new_target_allowed = b.new_target_allowed;
-                fd.super_call_allowed = b.super_call_allowed;
-                fd.super_allowed = b.super_allowed;
-                fd.arguments_allowed = b.arguments_allowed;
+                fd.attrs.new_target_allowed = b.attrs.new_target_allowed;
+                fd.attrs.super_call_allowed = b.attrs.super_call_allowed;
+                fd.attrs.super_allowed = b.attrs.super_allowed;
+                fd.attrs.arguments_allowed = b.attrs.arguments_allowed;
             }
 
             unsafe {
@@ -123,16 +124,13 @@ impl JSContext {
             }
         } else {
             debug_assert_ne!(eval_type, JS_EVAL_TYPE_DIRECT, "can't be direct eval type");
-            fd.new_target_allowed = false;
-            fd.super_call_allowed = false;
-            fd.super_allowed = false;
-            fd.arguments_allowed = true;
+            fd.attrs.arguments_allowed = true;
         }
 
         fd.module = module.clone();
         if fd.module.is_some() || flags & JS_EVAL_FLAG_ASYNC != 0 {
             fd.in_function_body = true;
-            fd.func_kind = JSFunctionKindEnum::JS_FUNC_ASYNC;
+            fd.attrs.func_kind = JSFunctionKindEnum::JS_FUNC_ASYNC;
         }
 
         // add fd body scope.

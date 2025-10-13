@@ -286,7 +286,7 @@ impl JSContext {
                     .as_object_BCFunction()
                     .map(|f| f.payload().bytecode())
             } {
-                backtrace_barrier = bc.0.borrow().backtrace_barrier;
+                backtrace_barrier = bc.0.borrow().attrs.backtrace_barrier;
 
                 if bc.0.borrow().has_debug {
                     let line_num1 = bc.find_line_num(
