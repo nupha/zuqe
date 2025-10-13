@@ -306,18 +306,23 @@ pub fn js_dataview_setValue(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub static js_dataview_proto_funcs: [FieldDef; 20] = [
-    JS_CGETSET_NATIVE_DEF!("buffer", js_typed_array_getter, NONE, TA_GET_BUFFER as _),
+    JS_CGETSET_NATIVE_DEF!(
+        "buffer",
+        js_typed_array_getter,
+        NONE,
+        (TA_GET_BUFFER | 1) as _
+    ),
     JS_CGETSET_NATIVE_DEF!(
         "byteLength",
         js_typed_array_getter,
         NONE,
-        TA_GET_BYTE_LENGTH as _
+        (TA_GET_BYTE_LENGTH | 1) as _
     ),
     JS_CGETSET_NATIVE_DEF!(
         "byteOffset",
         js_typed_array_getter,
         NONE,
-        TA_GET_BYTE_OFFSET as _
+        (TA_GET_BYTE_OFFSET | 1) as _
     ),
     JS_CFUNC_NATIVE_DEF!(
         "getInt8",

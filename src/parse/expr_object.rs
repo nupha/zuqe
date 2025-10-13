@@ -175,7 +175,7 @@ impl<'s> JSParseState<'s> {
             if self.token_is_pseudo_keyword(JS_ATOM_get)
                 || self.token_is_pseudo_keyword(JS_ATOM_set)
             {
-                // case `get...` or `set...`
+                // found `get...` or `set...`
                 name.replace(JSAtomRc::clone_from(
                     self.ctx.rt(),
                     self.token.atom().unwrap(),

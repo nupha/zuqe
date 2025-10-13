@@ -180,19 +180,20 @@ pub fn js_typed_array_get_length(ctx: &JSContext, cc: CallContext) -> JSResult {
         })
 }
 
-pub(super) const TA_GET_BUFFER: i32 = 1;
-pub(super) const TA_GET_BYTE_LENGTH: i32 = 2;
-pub(super) const TA_GET_BYTE_OFFSET: i32 = 3;
+pub(super) const TA_GET_BUFFER: i32 = 1 << 1;
+pub(super) const TA_GET_BYTE_LENGTH: i32 = 2 << 1;
+pub(super) const TA_GET_BYTE_OFFSET: i32 = 3 << 1;
 
 pub fn js_typed_array_getter(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let is_dataview = cc.magic() != 0;
+    let is_dataview = cc.magic() & 1 != 0; // is DataView or TypedArray?
+    let what = cc.magic() & !1; // what to get?
 
     if let Some(t) = cc.this().as_object_TypedArray() {
         if unlikely(is_dataview && t.class_id() != JS_CLASS_DATAVIEW) {
             ctx.throw_type_error("not a DataView");
             Err(-1)
         } else {
-            match cc.magic() {
+            match what {
                 TA_GET_BUFFER => Ok(t.array_buffer().into()),
                 TA_GET_BYTE_LENGTH => {
                     if !t.is_detached() {
