@@ -91,7 +91,7 @@ impl JSFunctionDef {
 
     /// define a variable in the current scope.
     /// `name` is not consumed.
-    pub unsafe fn add_scope_var(
+    pub fn add_scope_var(
         &mut self,
         ctx: &JSContext,
         name: JSAtom,

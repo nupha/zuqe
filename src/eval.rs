@@ -1,4 +1,7 @@
-use std::{ops::DerefMut, ptr::NonNull};
+use std::{
+    ops::{Deref, DerefMut},
+    ptr::NonNull,
+};
 
 use crate::{
     atom::{JSAtom, consts::JS_ATOM__eval_},
@@ -146,10 +149,8 @@ impl JSContext {
             source,
             filename,
         );
-        debug_assert_eq!(
-            parser.cur_func_mut() as *mut JSFunctionDef,
-            fd.deref_mut() as *mut JSFunctionDef
-        );
+        debug_assert!(std::ptr::eq(parser.cur_func(), fd.deref()));
+
         parser.is_module = module.is_some();
         parser.allow_html_comments = module.is_none();
 
@@ -160,7 +161,7 @@ impl JSContext {
         let has_await = fd.has_await;
 
         // compile function def to bytecode.
-        let bc_compiled = unsafe { fd.compile(self)? };
+        let bc_compiled = fd.compile(self)?;
 
         // XXX: Could add a flag to avoid resolution if necessary
         if let Some(md) = module {

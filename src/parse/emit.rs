@@ -546,8 +546,7 @@ impl<'s> JSParseState<'s> {
     pub(super) fn emit_class_init_start(&mut self, clsdef: &mut ClassFieldsDef) -> Result<(), i32> {
         debug_assert!(clsdef.fields_init_fd.is_null());
 
-        clsdef.fields_init_fd =
-            Box::into_raw(unsafe { js_parse_function_class_fields_init(self)? });
+        clsdef.fields_init_fd = Box::into_raw(js_parse_function_class_fields_init(self)?);
         self.cur_func_def = clsdef.fields_init_fd;
 
         if !clsdef.is_static {

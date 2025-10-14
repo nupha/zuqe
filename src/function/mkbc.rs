@@ -322,7 +322,7 @@ impl JSFunctionDef {
     }
 }
 
-pub fn add_eval_variables(ctx: &JSContext, s: &mut JSFunctionDef) {
+fn add_eval_variables(ctx: &JSContext, s: &mut JSFunctionDef) {
     // in non strict mode, variables are created in the caller's environment object
     if !s.is_eval && s.attrs.js_mode & JS_MODE_STRICT as u8 == 0 {
         s.var_object_idx = Some(s.add_var(ctx, JS_ATOM__var_).unwrap());

@@ -144,18 +144,20 @@ impl<'s> JSParseState<'s> {
         self.token.data = TokenData::None;
     }
 
-    /// Get current function def being parsed.
+    /// Get function def which is currently being parsed.
     /// Will panic if cur_func is null.
     #[inline(always)]
-    pub(crate) const fn cur_func(&self) -> &JSFunctionDef {
-        unsafe { self.cur_func_def.as_ref().unwrap() }
+    pub(crate) fn cur_func(&self) -> &JSFunctionDef {
+        debug_assert!(!self.cur_func_def.is_null());
+        unsafe { &*self.cur_func_def }
     }
 
-    /// Get current function def being parsed.
+    /// Get function def which is currently being parsed.
     /// Will panic if cur_func is null.
     #[inline(always)]
-    pub(crate) const fn cur_func_mut(&self) -> &mut JSFunctionDef {
-        unsafe { self.cur_func_def.as_mut().unwrap() }
+    pub(crate) fn cur_func_mut(&self) -> &mut JSFunctionDef {
+        debug_assert!(!self.cur_func_def.is_null());
+        unsafe { &mut *self.cur_func_def }
     }
 
     /// Run closure with cur_func mut ref.

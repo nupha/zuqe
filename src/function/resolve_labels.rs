@@ -261,9 +261,6 @@ impl JSFunctionDef {
                     let is_with = unsafe { *bc_ptr.add(pos + 9) };
                     if OPTIMIZE {
                         (label, op1, _) = self.find_jump_target(label);
-                        // label = unsafe {
-                        //     find_jump_target(self, label, &mut op1, std::ptr::null_mut())
-                        // };
                     }
                     debug_assert!(label < self.label_slots.len() as u32);
 

@@ -9,7 +9,6 @@ use crate::{
         BytecodeAttrs, DEFINE_GLOBAL_LEX_VAR, JSClosureVar, JSGlobalVar, JSVarDef, JSVarScope,
         free_bytecode_atoms,
     },
-    mem::js_malloc_typed,
     module::ModuleDef,
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
     parse::JSParseFunctionEnum,
@@ -186,12 +185,13 @@ impl JSFunctionDef {
         filename: &str,
         line_num: i32,
     ) -> Result<Box<Self>, i32> {
-        let o = JSFunctionDef {
+        let o = Self {
             ctx: ctx.clone(),
             parent: std::ptr::null_mut(),
             parent_cpool_idx: -1,
             parent_scope_level: 0,
             child_list: Vec::with_capacity(16),
+            attrs: BytecodeAttrs::default(),
 
             is_eval,
             eval_type: 0,
@@ -208,18 +208,6 @@ impl JSFunctionDef {
             func_type: JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
             func_name: JS_ATOM_NULL,
 
-            attrs: BytecodeAttrs::default(),
-            // has_prototype: false,
-            // has_simple_parameter_list: false,
-            // new_target_allowed: false,
-            // super_call_allowed: false,
-            // super_allowed: false,
-            // arguments_allowed: false,
-            // is_derived_class_constructor: false,
-            // backtrace_barrier: false,
-            // func_kind: JSFunctionKindEnum::JS_FUNC_NORMAL,
-            // js_mode: 0,
-            // defined_arg_count: 0,
             cpool: Vec::new(),
             vars: Vec::new(),
             args: Vec::new(),
@@ -281,13 +269,7 @@ impl JSFunctionDef {
             debug: BytecodeDebugSetting::default(),
         };
 
-        let fd = unsafe {
-            let p = js_malloc_typed::<JSFunctionDef>(ctx, 1, true).ok_or(-1)?;
-            p.write(o);
-            Box::from_raw(p.as_ptr())
-        };
-
-        Ok(fd)
+        Ok(Box::new(o))
     }
 
     /// create function def and attach to parent-child chain

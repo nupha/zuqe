@@ -143,7 +143,7 @@ impl<'s> JSParseState<'s> {
             } else {
                 if add_private_class_field(
                     self,
-                    fd,
+                    unsafe { &mut *fd },
                     name,
                     if is_set {
                         JSVarKindEnum::JS_VAR_PRIVATE_SETTER
@@ -191,15 +191,13 @@ impl<'s> JSParseState<'s> {
                 }
                 self.emit_atom_dup(setter_name);
 
-                let ret = unsafe {
-                    add_private_class_field(
-                        self,
-                        self.cur_func_mut(),
-                        setter_name,
-                        JSVarKindEnum::JS_VAR_PRIVATE_SETTER,
-                        is_static,
-                    )
-                };
+                let ret = add_private_class_field(
+                    self,
+                    self.cur_func_mut(),
+                    setter_name,
+                    JSVarKindEnum::JS_VAR_PRIVATE_SETTER,
+                    is_static,
+                );
                 JS_FreeAtom(&self.ctx, setter_name);
                 if ret < 0 {
                     return Err(-1);
@@ -347,21 +345,23 @@ impl<'s> JSParseState<'s> {
                     }
 
                     if is_private {
-                        let fd = self.cur_func_def;
                         if unsafe {
-                            find_private_class_field(&self.ctx, fd, *name, (*fd).scope_level) >= 0
+                            find_private_class_field(
+                                &self.ctx,
+                                self.cur_func_def,
+                                *name,
+                                self.cur_func().scope_level,
+                            ) >= 0
                         } {
                             private_field_already_defined!();
                         }
-                        if unsafe {
-                            add_private_class_field(
-                                self,
-                                fd,
-                                *name,
-                                JSVarKindEnum::JS_VAR_PRIVATE_FIELD,
-                                is_static,
-                            )
-                        } < 0
+                        if add_private_class_field(
+                            self,
+                            self.cur_func_mut(),
+                            *name,
+                            JSVarKindEnum::JS_VAR_PRIVATE_FIELD,
+                            is_static,
+                        ) < 0
                         {
                             return Err(-1);
                         }
@@ -495,9 +495,14 @@ impl<'s> JSParseState<'s> {
                         unsafe {
                             (*method_fd).attrs.need_home_object = true; // needed for brand check
                         }
-                        let fd = self.cur_func_def;
+
                         if unsafe {
-                            find_private_class_field(&self.ctx, fd, *name, (*fd).scope_level)
+                            find_private_class_field(
+                                &self.ctx,
+                                self.cur_func_def,
+                                *name,
+                                self.cur_func().scope_level,
+                            )
                         } >= 0
                         {
                             private_field_already_defined!();
@@ -506,7 +511,7 @@ impl<'s> JSParseState<'s> {
                         if unsafe {
                             add_private_class_field(
                                 self,
-                                fd,
+                                self.cur_func_mut(),
                                 *name,
                                 JSVarKindEnum::JS_VAR_PRIVATE_METHOD,
                                 is_static,
@@ -852,17 +857,10 @@ impl<'s> JSParseState<'s> {
 }
 
 // create a function to initialize class fields
-pub unsafe fn js_parse_function_class_fields_init(
-    s: *mut JSParseState,
+pub(super) fn js_parse_function_class_fields_init(
+    s: &mut JSParseState,
 ) -> Result<Box<JSFunctionDef>, i32> {
-    let mut fd = JSFunctionDef::new(
-        &(&*s).ctx,
-        (&*s).cur_func_mut(),
-        false,
-        false,
-        (&*s).filename,
-        0,
-    )?;
+    let mut fd = JSFunctionDef::new(&s.ctx, s.cur_func_mut(), false, false, s.filename, 0)?;
 
     fd.func_name = JS_ATOM_NULL;
     fd.func_type = JSParseFunctionEnum::JS_PARSE_FUNC_METHOD;
@@ -877,21 +875,21 @@ pub unsafe fn js_parse_function_class_fields_init(
     Ok(fd)
 }
 
-// add a private field variable in the current scope
-pub unsafe fn add_private_class_field(
-    s: *mut JSParseState,
-    fd: *mut JSFunctionDef,
+/// add a private field variable in the current scope
+fn add_private_class_field(
+    s: &JSParseState,
+    fd: &mut JSFunctionDef,
     name: JSAtom,
     var_kind: JSVarKindEnum,
     is_static: bool,
 ) -> i32 {
-    let idx = if let Ok(i) = (*fd).add_scope_var(&(*s).ctx, name, var_kind) {
+    let idx = if let Ok(i) = fd.add_scope_var(&s.ctx, name, var_kind) {
         i
     } else {
         return -1;
     };
 
-    let vd = (&mut (*fd).vars).get_mut(idx as usize).unwrap();
+    let vd = fd.vars.get_mut(idx as usize).unwrap();
     vd.set_is_lexical(true);
     vd.set_is_const(true);
     vd.set_is_static_private(is_static);
