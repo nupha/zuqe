@@ -573,7 +573,7 @@ impl BytecodeInner {
 
 #[repr(transparent)]
 #[derive(Clone)]
-pub struct Bytecode(pub(crate) Rc<BytecodeInner>);
+pub struct Bytecode(Rc<BytecodeInner>);
 
 impl From<Rc<BytecodeInner>> for Bytecode {
     fn from(value: Rc<BytecodeInner>) -> Self {
@@ -610,6 +610,12 @@ impl std::fmt::Debug for Bytecode {
 impl Bytecode {
     pub fn downgrade(&self) -> BytecodeWeakref {
         BytecodeWeakref(Rc::downgrade(&self.0))
+    }
+
+    /// get bytecode strong ref count
+    #[inline(always)]
+    pub fn strong_count(&self) -> usize {
+        Rc::strong_count(&self.0)
     }
 
     /// Evaluate Bytecode.

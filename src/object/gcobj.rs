@@ -56,7 +56,7 @@ impl GCObject {
 
         match self {
             Self::Object(o) => o.ref_count(),
-            Self::Bytecode(b) => Rc::strong_count(&b.0),
+            Self::Bytecode(b) => b.strong_count(),
             Self::String(s) => Rc::strong_count(&s.0),
             Self::Shape(s) => s.strong_count(),
             Self::VarRef(v) => Rc::strong_count(&v.0),
