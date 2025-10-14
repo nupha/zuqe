@@ -52,7 +52,6 @@ pub const PC2LINE_RANGE: i32 = 5;
 pub const PC2LINE_OP_FIRST: i32 = 1;
 pub const PC2LINE_DIFF_PC_MAX: i32 = (255 - PC2LINE_OP_FIRST) / PC2LINE_RANGE;
 
-#[repr(packed)]
 #[derive(Debug, Clone)]
 pub struct BytecodeAttrs {
     pub func_kind: JSFunctionKindEnum,
@@ -102,9 +101,6 @@ impl Default for BytecodeAttrs {
 pub struct BytecodeInner {
     rt: NonNull<JSRuntime>,
     gc_mark: Cell<bool>,
-
-    #[deprecated]
-    ref_count: i32,
 
     pub func_name: JSAtom,
     realm: JSContextWeakref,
@@ -161,8 +157,6 @@ impl BytecodeInner {
         let inner = Self {
             rt: unsafe { NonNull::new_unchecked(ctx.rt_mut()) },
             gc_mark: Cell::new(false),
-
-            ref_count: 1,
 
             func_name: fd.func_name,
             realm: ctx.downgrade(),
