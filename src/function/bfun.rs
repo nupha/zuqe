@@ -325,15 +325,15 @@ impl BytecodeFunction {
         // `args.len()` is actual argument count
         // `b.arg_count` is the length when defining the function
         let arg_copy_num =
-            if flags & JS_CALL_FLAG_COPY_ARGV != 0 || args.len() < bc.0.arg_count as usize {
-                std::cmp::max(args.len(), bc.0.arg_count as usize)
+            if flags & JS_CALL_FLAG_COPY_ARGV != 0 || args.len() < bc.arg_count as usize {
+                std::cmp::max(args.len(), bc.arg_count as usize)
             } else {
                 0
             };
 
         // how many bytes to allocate for local buf (args+vars+stack)?
         let (buf_values_count, js_mode) = (
-            arg_copy_num as usize + bc.0.var_count as usize + bc.0.stack_size as usize,
+            arg_copy_num as usize + bc.var_count as usize + bc.stack_size as usize,
             bc.mode() as i32,
         );
 
@@ -388,12 +388,12 @@ impl BytecodeFunction {
         // initialize (vars + stack) section
         sf.local_buf.extend(std::iter::repeat_n(
             JSValue::UNDEFINED,
-            (bc.0.var_count + bc.0.stack_size) as usize,
+            (bc.var_count + bc.stack_size) as usize,
         ));
         debug_assert_eq!(sf.local_buf.len(), buf_values_count);
 
         sf.var_base_ptr = unsafe { sf.local_buf.as_mut_ptr().add(arg_copy_num as usize) };
-        sf.var_count = bc.0.var_count;
+        sf.var_count = bc.var_count;
 
         sf.prev_frame = caller_ctx.rt().cur_stack_frame;
         caller_ctx.rt_mut().cur_stack_frame = (sf as *mut StackFrame).cast();

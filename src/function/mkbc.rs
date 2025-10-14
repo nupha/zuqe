@@ -1,4 +1,4 @@
-use std::{cell::RefCell, rc::Rc};
+use std::rc::Rc;
 
 use crate::{
     atom::{JS_ATOM_NULL, consts::*},
@@ -306,7 +306,7 @@ impl JSFunctionDef {
             self.filename = JS_ATOM_NULL;
         }
 
-        let bc = Bytecode(Rc::new(inner));
+        let bc: Bytecode = Rc::new(inner).into();
 
         #[cfg(feature = "dump_bytecode")]
         if self.attrs.js_mode & JS_MODE_STRIP as u8 == 0 {

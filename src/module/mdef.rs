@@ -210,7 +210,7 @@ impl ModuleDefInner {
             JSValue::Bytecode(bc) => {
                 // create bytecode function with bytecode
                 let mut var_refs = Vec::<JSVarRef>::new();
-                let cvar_count = bc.0.closure_var_count;
+                let cvar_count = bc.closure_var_count;
                 if cvar_count != 0 {
                     var_refs
                         .try_reserve_exact(cvar_count as usize)
@@ -581,11 +581,12 @@ pub fn JS_GetScriptOrModuleName(ctx: &JSContext, n_stack_levels: i32) -> JSAtom 
         if let Some(bcf) = unsafe { (&*sf).cur_func.as_object_BCFunction() } {
             let bc = bcf.payload().bytecode();
 
-            if !bc.0.is_direct_or_indirect_eval {
-                if !bc.0.has_debug {
-                    return JS_ATOM_NULL;
-                }
-                return bc.0.debug.filename.dup(ctx.rt());
+            if !bc.is_direct_or_indirect_eval {
+                return if !bc.has_debug {
+                    JS_ATOM_NULL
+                } else {
+                    bc.debug.filename.dup(ctx.rt())
+                };
             } else {
                 // walk up parent stack frame
                 sf = unsafe { (&*sf).prev_frame.cast::<StackFrame>() };

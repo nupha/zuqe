@@ -357,19 +357,10 @@ pub fn JS_CallConstructorInternal(
         }
 
         flags |= JS_CALL_FLAG_CONSTRUCTOR;
-        let class_id = o.class_id();
 
-        if unlikely(class_id != JS_CLASS_BYTECODE_FUNCTION) {
-            if let Some(cb) = ctx.rt().class_defs[class_id as usize].call {
-                cb(ctx, func_obj, &new_target, args, flags).unwrap_or(JSValue::EXCEPTION)
-            } else {
-                ctx.throw_type_error("not a function");
-                JSValue::EXCEPTION
-            }
-        } else {
+        if let Some(bcf) = o.as_BytecodeFunction() {
             // BYTECODE_FUNCTION
-            let bc = o.payload().func().unwrap().bytecode();
-            if bc.0.attrs.is_derived_class_constructor {
+            if bcf.payload().bytecode().attrs.is_derived_class_constructor {
                 JS_CallInternal(ctx, func_obj, &JSValue::UNDEFINED, new_target, args, flags)
             } else {
                 // legacy constructor behavior
@@ -388,7 +379,52 @@ pub fn JS_CallConstructorInternal(
                     this
                 }
             }
+        } else {
+            // call class exotic handler
+            if let Some(cb) = ctx.rt().class_defs[o.class_id() as usize].call {
+                cb(ctx, func_obj, &new_target, args, flags).unwrap_or(JSValue::EXCEPTION)
+            } else {
+                ctx.throw_type_error("not a function");
+                JSValue::EXCEPTION
+            }
         }
+
+        // original code
+        // if unlikely(class_id != JS_CLASS_BYTECODE_FUNCTION) {
+        //     if let Some(cb) = ctx.rt().class_defs[class_id as usize].call {
+        //         cb(ctx, func_obj, &new_target, args, flags).unwrap_or(JSValue::EXCEPTION)
+        //     } else {
+        //         ctx.throw_type_error("not a function");
+        //         JSValue::EXCEPTION
+        //     }
+        // } else {
+        //     // BYTECODE_FUNCTION
+        //     if o.as_BytecodeFunction()
+        //         .unwrap()
+        //         .payload()
+        //         .bytecode()
+        //         .attrs
+        //         .is_derived_class_constructor
+        //     {
+        //         JS_CallInternal(ctx, func_obj, &JSValue::UNDEFINED, new_target, args, flags)
+        //     } else {
+        //         // legacy constructor behavior
+        //         let this: JSValue = if let Ok(o) =
+        //             ctx.create_object_from_ctor(&new_target, ObjectPayload::OBJECT)
+        //         {
+        //             o.into()
+        //         } else {
+        //             return JSValue::EXCEPTION;
+        //         };
+
+        //         let ret = JS_CallInternal(ctx, func_obj, &this, new_target, args, flags);
+        //         if ret.is_object() || ret.is_exception() {
+        //             ret
+        //         } else {
+        //             this
+        //         }
+        //     }
+        // }
     } else {
         ctx.throw_type_error("not a function");
         JSValue::EXCEPTION

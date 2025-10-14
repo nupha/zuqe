@@ -260,9 +260,7 @@ impl Bytecode {
                             .cur_func
                             .as_object()
                             .and_then(|o| {
-                                o.payload()
-                                    .func()
-                                    .map(|f| f.bytecode().0.debug.debug_setting)
+                                o.payload().func().map(|f| f.bytecode().debug.debug_setting)
                             })
                             .unwrap_or(crate::function::BytecodeDebugSetting::default());
                         debug_setting.replace(b);
@@ -406,7 +404,7 @@ impl Bytecode {
                                     ctx,
                                     args,
                                     stack_frame,
-                                    std::cmp::min(args.len() as i32, self.0.arg_count as i32),
+                                    std::cmp::min(args.len() as i32, self.arg_count as i32),
                                 )
                                 .map_or(JSValue::EXCEPTION, JSValue::Object);
                                 SP_PUT!(0, ma);

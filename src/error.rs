@@ -286,14 +286,14 @@ impl JSContext {
                     .as_object_BCFunction()
                     .map(|f| f.payload().bytecode())
             } {
-                backtrace_barrier = bc.0.attrs.backtrace_barrier;
+                backtrace_barrier = bc.attrs.backtrace_barrier;
 
-                if bc.0.has_debug {
+                if bc.has_debug {
                     let line_num1 = bc.find_line_num(
                         unsafe { ((*sf).cur_pc_offset as u32).wrapping_sub(1) }, // be u32::MAX when (*sf).cur_pc_offset==0
                     );
 
-                    let atom_str = bc.0.debug.filename.to_utf8(self.rt());
+                    let atom_str = bc.debug.filename.to_utf8(self.rt());
 
                     dbuf.write_fmt(format_args!(" ({}", atom_str))
                         .map_err(|_| -1)?;
@@ -358,10 +358,10 @@ pub fn JS_ThrowReferenceErrorNotDefined(ctx: &JSContext, name: JSAtom) {
 
 pub fn JS_ThrowReferenceErrorUninitialized2(ctx: &JSContext, b: &Bytecode, idx: u16, is_ref: bool) {
     let atom = if is_ref {
-        b.with_closure_var(idx, |c| c.var_name)
+        b.get_closure_var(idx).map(|c| c.var_name)
     } else {
         // not present if the function is stripped and contains no eval()
-        b.with_vardef(idx, false, |vd| vd.var_name)
+        b.get_var(idx).map(|vd| vd.var_name)
     }
     .unwrap_or(JS_ATOM_NULL);
 

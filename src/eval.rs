@@ -114,13 +114,10 @@ impl JSContext {
             debug_assert_eq!(eval_type, JS_EVAL_TYPE_DIRECT, "must be direct eval type");
             debug_assert!(module.is_none(), "must not be module");
 
-            {
-                let b = &bc.0;
-                fd.attrs.new_target_allowed = b.attrs.new_target_allowed;
-                fd.attrs.super_call_allowed = b.attrs.super_call_allowed;
-                fd.attrs.super_allowed = b.attrs.super_allowed;
-                fd.attrs.arguments_allowed = b.attrs.arguments_allowed;
-            }
+            fd.attrs.new_target_allowed = bc.attrs.new_target_allowed;
+            fd.attrs.super_call_allowed = bc.attrs.super_call_allowed;
+            fd.attrs.super_allowed = bc.attrs.super_allowed;
+            fd.attrs.arguments_allowed = bc.attrs.arguments_allowed;
 
             unsafe {
                 add_closure_variables(self, &mut fd, &bc, scope_idx)?;

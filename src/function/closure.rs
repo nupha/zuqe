@@ -223,13 +223,12 @@ impl Bytecode {
         proto: Option<JSValue>,
     ) -> Result<BCFunction, i32> {
         let (func_kind, name, has_prototype, defined_arg_count, closure_var_count) = {
-            let b = &self.0;
             (
-                b.func_kind(),
-                b.func_name,
-                b.has_prototype(),
-                b.attrs.defined_arg_count,
-                b.closure_var_count,
+                self.func_kind(),
+                self.func_name,
+                self.has_prototype(),
+                self.attrs.defined_arg_count,
+                self.closure_var_count,
             )
         };
 
@@ -335,7 +334,7 @@ pub unsafe fn add_closure_variables(
 ) -> Result<(), i32> {
     debug_assert!(s.closure_vars.is_none());
 
-    let count = bc.0.arg_count + bc.0.var_count + bc.0.closure_var_count;
+    let count = bc.arg_count + bc.var_count + bc.closure_var_count;
     if count == 0 {
         return Ok(());
     }
@@ -371,7 +370,7 @@ pub unsafe fn add_closure_variables(
     let is_arg_scope = i == ARG_SCOPE_END;
     if !is_arg_scope {
         // Add argument variables
-        for (i, vd) in bc.0.args_slice().iter().enumerate() {
+        for (i, vd) in bc.args_slice().iter().enumerate() {
             let mut cv = JSClosureVar {
                 bitfield: 0,
                 var_idx: i as _,
@@ -387,7 +386,7 @@ pub unsafe fn add_closure_variables(
         }
 
         // Add local non lexical variables
-        for (i, vd) in bc.0.vars_slice().iter().enumerate() {
+        for (i, vd) in bc.vars_slice().iter().enumerate() {
             if vd.scope_level == 0 && vd.var_name != JS_ATOM__ret_ {
                 let mut cv = JSClosureVar {
                     bitfield: 0,
@@ -405,7 +404,7 @@ pub unsafe fn add_closure_variables(
         }
     } else {
         // only add pseudo variables
-        for (i, vd) in bc.0.vars_slice().iter().enumerate() {
+        for (i, vd) in bc.vars_slice().iter().enumerate() {
             if vd.scope_level == 0 && is_var_in_arg_scope(vd) {
                 let mut cv = JSClosureVar {
                     bitfield: 0,
@@ -423,7 +422,7 @@ pub unsafe fn add_closure_variables(
         }
     }
 
-    for (i, cv0) in bc.0.closure_vars().iter().enumerate() {
+    for (i, cv0) in bc.closure_vars().iter().enumerate() {
         let mut cv = JSClosureVar {
             bitfield: 0,
             var_idx: i as _,

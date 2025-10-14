@@ -54,7 +54,7 @@ pub const PC2LINE_DIFF_PC_MAX: i32 = (255 - PC2LINE_OP_FIRST) / PC2LINE_RANGE;
 
 #[repr(packed)]
 #[derive(Debug, Clone)]
-pub(crate) struct BytecodeAttrs {
+pub struct BytecodeAttrs {
     pub func_kind: JSFunctionKindEnum,
     /// true if a prototype field is necessary
     pub has_prototype: bool,
@@ -99,10 +99,12 @@ impl Default for BytecodeAttrs {
     }
 }
 
-pub(crate) struct BytecodeInner {
-    ref_count: i32,
+pub struct BytecodeInner {
     rt: NonNull<JSRuntime>,
     gc_mark: Cell<bool>,
+
+    #[deprecated]
+    ref_count: i32,
 
     pub func_name: JSAtom,
     realm: JSContextWeakref,
@@ -157,9 +159,10 @@ impl BytecodeInner {
         stack_size: u16,
     ) -> Self {
         let inner = Self {
-            ref_count: 1,
             rt: unsafe { NonNull::new_unchecked(ctx.rt_mut()) },
             gc_mark: Cell::new(false),
+
+            ref_count: 1,
 
             func_name: fd.func_name,
             realm: ctx.downgrade(),
@@ -201,6 +204,16 @@ impl BytecodeInner {
     }
 
     #[inline(always)]
+    pub fn rt(&self) -> &JSRuntime {
+        unsafe { self.rt.as_ref() }
+    }
+
+    /// get bytecode realm
+    pub fn realm(&self) -> Option<JSContext> {
+        self.realm.upgrade()
+    }
+
+    #[inline(always)]
     pub fn attrs(&self) -> &BytecodeAttrs {
         &self.attrs
     }
@@ -218,6 +231,11 @@ impl BytecodeInner {
     #[inline(always)]
     pub fn has_prototype(&self) -> bool {
         self.attrs.has_prototype
+    }
+
+    #[inline(always)]
+    pub fn need_home_object(&self) -> bool {
+        self.attrs.need_home_object
     }
 
     /// get nth arg or var vardef. for example:
@@ -462,6 +480,12 @@ impl BytecodeInner {
         }
     }
 
+    /// get a const value by index
+    #[inline(always)]
+    pub fn load_const(&self, idx: usize) -> Option<JSValue> {
+        self.consts().get(idx).cloned()
+    }
+
     pub fn find_line_num(&self, pc_value: u32) -> Option<i32> {
         if !self.has_debug || self.debug.pc2line_buf.is_none() {
             // function was stripped
@@ -551,6 +575,12 @@ impl BytecodeInner {
 #[derive(Clone)]
 pub struct Bytecode(pub(crate) Rc<BytecodeInner>);
 
+impl From<Rc<BytecodeInner>> for Bytecode {
+    fn from(value: Rc<BytecodeInner>) -> Self {
+        Self(value)
+    }
+}
+
 impl From<Bytecode> for GCObject {
     fn from(value: Bytecode) -> Self {
         Self::Bytecode(value)
@@ -563,6 +593,14 @@ impl From<Bytecode> for JSValue {
     }
 }
 
+impl std::ops::Deref for Bytecode {
+    type Target = BytecodeInner;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 impl std::fmt::Debug for Bytecode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "<Bytecode {:p}>", self.id() as *const c_void)
@@ -570,174 +608,8 @@ impl std::fmt::Debug for Bytecode {
 }
 
 impl Bytecode {
-    #[inline(always)]
-    pub fn id(&self) -> usize {
-        self.0.id()
-    }
-
-    #[inline(always)]
-    pub fn rt(&self) -> &JSRuntime {
-        unsafe { self.0.rt.as_ref() }
-    }
-
-    #[inline(always)]
-    pub fn func_kind(&self) -> JSFunctionKindEnum {
-        self.0.func_kind()
-    }
-
-    #[inline(always)]
-    pub fn mode(&self) -> u8 {
-        self.0.mode()
-    }
-
-    #[inline(always)]
-    pub fn has_prototype(&self) -> bool {
-        self.0.attrs.has_prototype
-    }
-
-    /// get bytecode realm
-    pub fn realm(&self) -> Option<JSContext> {
-        self.0.realm.upgrade()
-    }
-
     pub fn downgrade(&self) -> BytecodeWeakref {
         BytecodeWeakref(Rc::downgrade(&self.0))
-    }
-
-    #[inline(always)]
-    pub fn need_home_object(&self) -> bool {
-        self.0.attrs.need_home_object
-    }
-
-    /// get const values slice
-    pub fn consts(&self) -> &[JSValue] {
-        if self.0.cpool_count > 0 {
-            unsafe {
-                std::slice::from_raw_parts(
-                    self.0
-                        .binary
-                        .as_ptr()
-                        .add(self.0.cpool_start as usize)
-                        .cast::<JSValue>(),
-                    self.0.cpool_count as usize,
-                )
-            }
-        } else {
-            &[]
-        }
-    }
-
-    /// get a const value by index
-    #[inline(always)]
-    pub fn load_const(&self, idx: usize) -> Option<JSValue> {
-        self.consts().get(idx).cloned()
-    }
-
-    /// get args slice
-    #[inline(always)]
-    pub fn args_slice(&self) -> &[JSVarDef] {
-        self.0.args_slice()
-    }
-
-    // /// get args slice mut
-    // #[inline]
-    // pub fn args_slice_mut(&self) -> Option<RefMut<'_, [JSVarDef]>> {
-    //     let mut b = self.0.borrow_mut();
-    //     if b.args_slice_mut().is_some() {
-    //         Some(RefMut::map(b, |b| b.args_slice_mut().unwrap()))
-    //     } else {
-    //         None
-    //     }
-    // }
-
-    /// get vars slice
-    #[inline(always)]
-    pub fn vars_slice(&self) -> &[JSVarDef] {
-        self.0.vars_slice()
-    }
-
-    // /// get vars slice
-    // #[inline]
-    // pub fn vars_slice_mut(&self) -> Option<RefMut<'_, [JSVarDef]>> {
-    //     let mut b = self.0.borrow_mut();
-    //     if b.vars_slice_mut().is_some() {
-    //         Some(RefMut::map(b, |b| b.vars_slice_mut().unwrap()))
-    //     } else {
-    //         None
-    //     }
-    // }
-
-    // /// get args+vars slice. combination of args and vars slice.
-    // #[inline]
-    // pub fn vardefs_mut(&self) -> Option<RefMut<'_, [JSVarDef]>> {
-    //     let mut b = self.0.borrow_mut();
-    //     if b.vardefs_mut().is_some() {
-    //         Some(RefMut::map(b, |b| b.vardefs_mut().unwrap()))
-    //     } else {
-    //         None
-    //     }
-    // }
-
-    #[inline(always)]
-    pub fn closure_vars(&self) -> &[JSClosureVar] {
-        self.0.closure_vars()
-    }
-
-    // /// get closure-vars slice
-    // #[inline]
-    // pub fn closure_vars_mut(&mut self) -> Option<RefMut<'_, [JSClosureVar]>> {
-    //     let mut b = self.0.borrow_mut();
-    //     if b.closure_vars_mut().is_some() {
-    //         Some(RefMut::map(b, |b| b.closure_vars_mut().unwrap()))
-    //     } else {
-    //         None
-    //     }
-    // }
-
-    /// get opcodes slice
-    #[inline(always)]
-    pub fn opcodes(&self) -> &[u8] {
-        self.0.opcodes()
-    }
-
-    /// get nth arg or var vardef. for example:
-    /// get 2nd var def: (2, false)
-    /// get 3rd arg def: (3, true)
-    pub fn with_vardef<R>(
-        &self,
-        nth: u16,
-        is_arg: bool,
-        f: impl FnOnce(&JSVarDef) -> R,
-    ) -> Option<R> {
-        self.0.get_vardef(nth, is_arg).map(f)
-    }
-
-    #[inline(always)]
-    pub fn with_arg<R>(&self, nth: u16, f: impl FnOnce(&JSVarDef) -> R) -> Option<R> {
-        self.0.get_arg(nth).map(f)
-    }
-
-    #[inline(always)]
-    pub fn with_var<R>(&self, nth: u16, f: impl FnOnce(&JSVarDef) -> R) -> Option<R> {
-        self.0.get_vardef(nth, false).map(f)
-    }
-
-    /// get nth closure var def
-    pub fn with_closure_var<R>(&self, nth: u16, f: impl FnOnce(&JSClosureVar) -> R) -> Option<R> {
-        self.0.get_closure_var(nth).map(f)
-    }
-
-    // /// get nth closure var def
-    // pub fn with_closure_var_mut<R>(
-    //     &mut self,
-    //     nth: u16,
-    //     f: impl FnOnce(&mut JSClosureVar) -> R,
-    // ) -> Option<R> {
-    //     self.0.get_closure_var_mut(nth).map(f)
-    // }
-
-    pub fn find_line_num(&self, pc_value: u32) -> Option<i32> {
-        self.0.find_line_num(pc_value)
     }
 
     /// Evaluate Bytecode.

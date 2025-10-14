@@ -421,11 +421,11 @@ impl Bytecode {
     pub fn dump(&self, ctx: &JSContext) {
         print!("{:?}: ", self);
 
-        if self.0.has_debug && self.0.debug.filename != JS_ATOM_NULL {
+        if self.has_debug && self.debug.filename != JS_ATOM_NULL {
             print!(
                 "{}:{}: ",
-                self.0.debug.filename.to_utf8(ctx.rt()),
-                self.0.debug.line_num
+                self.debug.filename.to_utf8(ctx.rt()),
+                self.debug.line_num
             );
         }
 
@@ -436,7 +436,7 @@ impl Bytecode {
             } else {
                 ""
             },
-            self.0.func_name.to_utf8(ctx.rt()),
+            self.func_name.to_utf8(ctx.rt()),
         );
 
         if self.mode() != 0 {
@@ -511,7 +511,7 @@ impl Bytecode {
             }
         }
 
-        println!("  stack_size: {}", self.0.stack_size);
+        println!("  stack_size: {}", self.stack_size);
         println!("  opcodes:");
 
         dump_opcodes(
@@ -522,13 +522,13 @@ impl Bytecode {
             self.vars_slice(),
             self.closure_vars(),
             self.consts(),
-            if self.0.has_debug {
-                self.0.debug.source.as_deref()
+            if self.has_debug {
+                self.debug.source.as_deref()
             } else {
                 None
             },
-            if self.0.has_debug {
-                self.0.debug.line_num as _
+            if self.has_debug {
+                self.debug.line_num as _
             } else {
                 -1
             },
@@ -820,8 +820,8 @@ pub(super) fn dump_run_instruction(
                 unsafe { read_from_ptr::<u16>(tab.as_ptr().add(pos)) as usize }
             };
 
-            if let Some(a) = b.with_var(idx as _, |v| v.var_name) {
-                a.with_utf8(ctx.rt(), |s| {
+            if let Some(v) = b.get_var(idx as _) {
+                v.var_name.with_utf8(ctx.rt(), |s| {
                     print!(" {idx}:{s}");
                 });
             } else {
@@ -840,8 +840,8 @@ pub(super) fn dump_run_instruction(
 
         OpcodeFormat::ARG => {
             let idx = unsafe { read_from_ptr::<u16>(tab.as_ptr().add(pos)) as usize };
-            if let Some(a) = b.with_arg(idx as _, |vi| vi.var_name) {
-                a.with_utf8(ctx.rt(), |s| {
+            if let Some(vi) = b.get_arg(idx as _) {
+                vi.var_name.with_utf8(ctx.rt(), |s| {
                     print!(" {idx}:{s}");
                 });
             } else {
@@ -860,11 +860,10 @@ pub(super) fn dump_run_instruction(
 
         OpcodeFormat::VAR_REF => {
             let idx = unsafe { read_from_ptr::<u16>(tab.as_ptr().add(pos)) as usize };
-            b.with_closure_var(idx as _, |v| v.var_name)
-                .unwrap()
-                .with_utf8(ctx.rt(), |s| {
-                    print!(" {idx}:{s}");
-                });
+            let v = b.get_closure_var(idx as _).unwrap();
+            v.var_name.with_utf8(ctx.rt(), |s| {
+                print!(" {idx}:{s}");
+            });
         }
 
         _ => {}
