@@ -64,8 +64,8 @@ impl GCObjectHeader {
         self.bitfields = (self.bitfields & 0b1111_1110) | (m as u8)
     }
 
-    #[inline(always)]
-    pub const fn gc_status(&self) -> GCObjectStatus {
-        unsafe { std::mem::transmute::<u8, _>((self.bitfields & 0b0000_0110) >> 1) }
-    }
+    // #[inline(always)]
+    // pub const fn gc_status(&self) -> GCObjectStatus {
+    //     unsafe { std::mem::transmute::<u8, _>((self.bitfields & 0b0000_0110) >> 1) }
+    // }
 }

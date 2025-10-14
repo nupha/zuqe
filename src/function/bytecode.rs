@@ -1,5 +1,5 @@
 use std::{
-    cell::{Ref, RefCell},
+    cell::Cell,
     os::raw::c_void,
     ptr::NonNull,
     rc::{Rc, Weak},
@@ -12,7 +12,6 @@ use crate::{
     error::JSResult,
     eval::{JS_EVAL_TYPE_DIRECT, JS_EVAL_TYPE_INDIRECT},
     function::{JSFunctionDef, JSVarRef},
-    gc::GCObjectHeader,
     object::GCObject,
     runtime::JSRuntime,
     stack_frame::StackFrame,
@@ -100,12 +99,12 @@ impl Default for BytecodeAttrs {
     }
 }
 
-#[derive(Debug)]
 pub(crate) struct BytecodeInner {
-    header: GCObjectHeader,
+    ref_count: i32,
+    rt: NonNull<JSRuntime>,
+    gc_mark: Cell<bool>,
 
     pub func_name: JSAtom,
-    /// function realm
     realm: JSContextWeakref,
 
     pub(crate) attrs: BytecodeAttrs,
@@ -158,7 +157,10 @@ impl BytecodeInner {
         stack_size: u16,
     ) -> Self {
         let inner = Self {
-            header: GCObjectHeader::new(ctx.rt_mut(), 1),
+            ref_count: 1,
+            rt: unsafe { NonNull::new_unchecked(ctx.rt_mut()) },
+            gc_mark: Cell::new(false),
+
             func_name: fd.func_name,
             realm: ctx.downgrade(),
 
@@ -518,30 +520,28 @@ impl BytecodeInner {
     }
 
     fn finalize(&mut self) {
-        let rt = self.header.rt_ptr();
-
         free_bytecode_atoms(
-            rt.as_ptr(),
+            self.rt.as_ptr(),
             &self.binary[self.opcodes_start as usize..],
             true,
         );
 
         // free vardef var_name atom
         for vd in self.vardefs() {
-            JS_FreeAtomRT(rt.as_ptr(), vd.var_name);
+            JS_FreeAtomRT(self.rt.as_ptr(), vd.var_name);
         }
 
         // free closure vars atom
         for cv in self.closure_vars() {
-            JS_FreeAtomRT(rt.as_ptr(), cv.var_name);
+            JS_FreeAtomRT(self.rt.as_ptr(), cv.var_name);
         }
 
         // free func name atom
-        JS_FreeAtomRT(rt.as_ptr(), self.func_name);
+        JS_FreeAtomRT(self.rt.as_ptr(), self.func_name);
         self.func_name = JS_ATOM_NULL;
 
         if self.has_debug {
-            JS_FreeAtomRT(rt.as_ptr(), self.debug.filename);
+            JS_FreeAtomRT(self.rt.as_ptr(), self.debug.filename);
             self.debug.filename = JS_ATOM_NULL;
         }
     }
@@ -549,7 +549,7 @@ impl BytecodeInner {
 
 #[repr(transparent)]
 #[derive(Clone)]
-pub struct Bytecode(pub(crate) Rc<RefCell<BytecodeInner>>);
+pub struct Bytecode(pub(crate) Rc<BytecodeInner>);
 
 impl From<Bytecode> for GCObject {
     fn from(value: Bytecode) -> Self {
@@ -572,32 +572,32 @@ impl std::fmt::Debug for Bytecode {
 impl Bytecode {
     #[inline(always)]
     pub fn id(&self) -> usize {
-        self.0.borrow().id()
+        self.0.id()
     }
 
     #[inline(always)]
     pub fn rt(&self) -> &JSRuntime {
-        unsafe { self.0.borrow().header.rt_ptr().as_ref() }
+        unsafe { self.0.rt.as_ref() }
     }
 
     #[inline(always)]
     pub fn func_kind(&self) -> JSFunctionKindEnum {
-        self.0.borrow().func_kind()
+        self.0.func_kind()
     }
 
     #[inline(always)]
     pub fn mode(&self) -> u8 {
-        self.0.borrow().mode()
+        self.0.mode()
     }
 
     #[inline(always)]
     pub fn has_prototype(&self) -> bool {
-        self.0.borrow().attrs.has_prototype
+        self.0.attrs.has_prototype
     }
 
     /// get bytecode realm
     pub fn realm(&self) -> Option<JSContext> {
-        self.0.borrow().realm.upgrade()
+        self.0.realm.upgrade()
     }
 
     pub fn downgrade(&self) -> BytecodeWeakref {
@@ -606,20 +606,20 @@ impl Bytecode {
 
     #[inline(always)]
     pub fn need_home_object(&self) -> bool {
-        self.0.borrow().attrs.need_home_object
+        self.0.attrs.need_home_object
     }
 
     /// get const values slice
     pub fn consts(&self) -> &[JSValue] {
-        let r = self.0.borrow();
-        if r.cpool_count > 0 {
+        if self.0.cpool_count > 0 {
             unsafe {
                 std::slice::from_raw_parts(
-                    r.binary
+                    self.0
+                        .binary
                         .as_ptr()
-                        .add(r.cpool_start as usize)
+                        .add(self.0.cpool_start as usize)
                         .cast::<JSValue>(),
-                    r.cpool_count as usize,
+                    self.0.cpool_count as usize,
                 )
             }
         } else {
@@ -630,14 +630,14 @@ impl Bytecode {
     /// get a const value by index
     #[inline(always)]
     pub fn load_const(&self, idx: usize) -> Option<JSValue> {
-        self.0.borrow().consts().get(idx).cloned()
+        self.consts().get(idx).cloned()
     }
 
-    // /// get args slice
-    // #[inline(always)]
-    // pub fn args_slice(&self) -> Ref<'_, [JSVarDef]> {
-    //     Ref::map(self.0.borrow(), |b| b.args_slice())
-    // }
+    /// get args slice
+    #[inline(always)]
+    pub fn args_slice(&self) -> &[JSVarDef] {
+        self.0.args_slice()
+    }
 
     // /// get args slice mut
     // #[inline]
@@ -652,8 +652,8 @@ impl Bytecode {
 
     /// get vars slice
     #[inline(always)]
-    pub fn vars_slice(&self) -> Ref<'_, [JSVarDef]> {
-        Ref::map(self.0.borrow(), |b| b.vars_slice())
+    pub fn vars_slice(&self) -> &[JSVarDef] {
+        self.0.vars_slice()
     }
 
     // /// get vars slice
@@ -679,8 +679,8 @@ impl Bytecode {
     // }
 
     #[inline(always)]
-    pub fn closure_vars(&self) -> Ref<'_, [JSClosureVar]> {
-        Ref::map(self.0.borrow(), |b| b.closure_vars())
+    pub fn closure_vars(&self) -> &[JSClosureVar] {
+        self.0.closure_vars()
     }
 
     // /// get closure-vars slice
@@ -696,8 +696,8 @@ impl Bytecode {
 
     /// get opcodes slice
     #[inline(always)]
-    pub fn opcodes(&self) -> Ref<'_, [u8]> {
-        Ref::map(self.0.borrow(), |b| b.opcodes())
+    pub fn opcodes(&self) -> &[u8] {
+        self.0.opcodes()
     }
 
     /// get nth arg or var vardef. for example:
@@ -709,35 +709,35 @@ impl Bytecode {
         is_arg: bool,
         f: impl FnOnce(&JSVarDef) -> R,
     ) -> Option<R> {
-        self.0.borrow().get_vardef(nth, is_arg).map(f)
+        self.0.get_vardef(nth, is_arg).map(f)
     }
 
     #[inline(always)]
     pub fn with_arg<R>(&self, nth: u16, f: impl FnOnce(&JSVarDef) -> R) -> Option<R> {
-        self.0.borrow().get_arg(nth).map(f)
+        self.0.get_arg(nth).map(f)
     }
 
     #[inline(always)]
     pub fn with_var<R>(&self, nth: u16, f: impl FnOnce(&JSVarDef) -> R) -> Option<R> {
-        self.0.borrow().get_vardef(nth, false).map(f)
+        self.0.get_vardef(nth, false).map(f)
     }
 
     /// get nth closure var def
     pub fn with_closure_var<R>(&self, nth: u16, f: impl FnOnce(&JSClosureVar) -> R) -> Option<R> {
-        self.0.borrow().get_closure_var(nth).map(f)
+        self.0.get_closure_var(nth).map(f)
     }
 
-    /// get nth closure var def
-    pub fn with_closure_var_mut<R>(
-        &mut self,
-        nth: u16,
-        f: impl FnOnce(&mut JSClosureVar) -> R,
-    ) -> Option<R> {
-        self.0.borrow_mut().get_closure_var_mut(nth).map(f)
-    }
+    // /// get nth closure var def
+    // pub fn with_closure_var_mut<R>(
+    //     &mut self,
+    //     nth: u16,
+    //     f: impl FnOnce(&mut JSClosureVar) -> R,
+    // ) -> Option<R> {
+    //     self.0.get_closure_var_mut(nth).map(f)
+    // }
 
     pub fn find_line_num(&self, pc_value: u32) -> Option<i32> {
-        self.0.borrow().find_line_num(pc_value)
+        self.0.find_line_num(pc_value)
     }
 
     /// Evaluate Bytecode.
@@ -754,22 +754,20 @@ impl Bytecode {
             .and_then(|f| f.call(ctx, &this_obj, &[]))
     }
 
+    #[inline]
     pub fn gc_has_mark(&self) -> bool {
-        self.0.borrow().header.gc_has_mark()
+        self.0.gc_mark.get()
     }
 
+    #[inline]
     pub fn gc_set_mark(&self, b: bool) {
-        self.0.borrow_mut().header.gc_set_mark(b)
-    }
-
-    fn gc_dump(&self, rt: &JSRuntime) {
-        println!("{:14x} [function bytecode]", self.id());
+        self.0.gc_mark.set(b);
     }
 }
 
 #[repr(transparent)]
 #[derive(Debug, Clone)]
-pub struct BytecodeWeakref(Weak<RefCell<BytecodeInner>>);
+pub struct BytecodeWeakref(Weak<BytecodeInner>);
 
 impl BytecodeWeakref {
     pub fn upgrade(&self) -> Option<Bytecode> {

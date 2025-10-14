@@ -32,10 +32,7 @@ impl JSValue {
                 Ok(format!("Symbol({s})"))
             }
             Self::Object(o) => o.inspect(ctx),
-            Self::Bytecode(b) => Ok(format!(
-                "[bytecode {}]",
-                b.0.borrow().func_name.to_utf8(ctx.rt())
-            )),
+            Self::Bytecode(b) => Ok(format!("[bytecode {}]", b.0.func_name.to_utf8(ctx.rt()))),
 
             Self::NULL => Ok("null".into()),
             Self::UNDEFINED => Ok("undefined".into()),

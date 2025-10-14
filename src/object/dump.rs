@@ -162,7 +162,7 @@ impl JSObject {
         }
 
         if let Some(bcf) = self.payload().func() {
-            let closure_var_count = bcf.bytecode().0.borrow().closure_var_count;
+            let closure_var_count = bcf.bytecode().0.closure_var_count;
 
             if closure_var_count != 0 {
                 print!(" Closure:");

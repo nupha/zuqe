@@ -421,39 +421,37 @@ impl Bytecode {
     pub fn dump(&self, ctx: &JSContext) {
         print!("{:?}: ", self);
 
-        let b = self.0.borrow();
-
-        if b.has_debug && b.debug.filename != JS_ATOM_NULL {
+        if self.0.has_debug && self.0.debug.filename != JS_ATOM_NULL {
             print!(
                 "{}:{}: ",
-                b.debug.filename.to_utf8(ctx.rt()),
-                b.debug.line_num
+                self.0.debug.filename.to_utf8(ctx.rt()),
+                self.0.debug.line_num
             );
         }
 
         println!(
             "function: {}{}",
-            if b.func_kind() == JSFunctionKindEnum::JS_FUNC_GENERATOR {
+            if self.func_kind() == JSFunctionKindEnum::JS_FUNC_GENERATOR {
                 "*"
             } else {
                 ""
             },
-            b.func_name.to_utf8(ctx.rt()),
+            self.0.func_name.to_utf8(ctx.rt()),
         );
 
-        if b.mode() != 0 {
+        if self.mode() != 0 {
             print!("  mode:");
-            if b.mode() & JS_MODE_STRICT as u8 != 0 {
+            if self.mode() & JS_MODE_STRICT as u8 != 0 {
                 print!(" strict");
             }
-            if b.mode() & JS_MODE_ASYNC as u8 != 0 {
+            if self.mode() & JS_MODE_ASYNC as u8 != 0 {
                 print!(" async");
             }
             println!();
         }
 
         {
-            let args = b.args_slice();
+            let args = self.args_slice();
             if !args.is_empty() {
                 print!("  args:");
                 for arg in args {
@@ -463,7 +461,7 @@ impl Bytecode {
             }
         }
 
-        let vars = b.vars_slice();
+        let vars = self.vars_slice();
         if !vars.is_empty() {
             println!("  locals:");
             for (i, vd) in vars.iter().enumerate() {
@@ -491,7 +489,7 @@ impl Bytecode {
             }
         }
 
-        let cvars = b.closure_vars();
+        let cvars = self.closure_vars();
         if !cvars.is_empty() {
             println!("  closure vars:");
             for (i, cv) in cvars.iter().enumerate() {
@@ -513,24 +511,24 @@ impl Bytecode {
             }
         }
 
-        println!("  stack_size: {}", (*b).stack_size);
+        println!("  stack_size: {}", self.0.stack_size);
         println!("  opcodes:");
 
         dump_opcodes(
             ctx,
             3,
-            b.opcodes(),
-            b.args_slice(),
-            b.vars_slice(),
-            b.closure_vars(),
-            b.consts(),
-            if b.has_debug {
-                b.debug.source.as_deref()
+            self.opcodes(),
+            self.args_slice(),
+            self.vars_slice(),
+            self.closure_vars(),
+            self.consts(),
+            if self.0.has_debug {
+                self.0.debug.source.as_deref()
             } else {
                 None
             },
-            if b.has_debug {
-                b.debug.line_num as _
+            if self.0.has_debug {
+                self.0.debug.line_num as _
             } else {
                 -1
             },

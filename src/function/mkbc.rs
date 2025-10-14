@@ -306,7 +306,7 @@ impl JSFunctionDef {
             self.filename = JS_ATOM_NULL;
         }
 
-        let bc = Bytecode(Rc::new(RefCell::new(inner)));
+        let bc = Bytecode(Rc::new(inner));
 
         #[cfg(feature = "dump_bytecode")]
         if self.attrs.js_mode & JS_MODE_STRIP as u8 == 0 {

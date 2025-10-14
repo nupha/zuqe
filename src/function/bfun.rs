@@ -324,22 +324,18 @@ impl BytecodeFunction {
         // how many args that should be copied to local buf?
         // `args.len()` is actual argument count
         // `b.arg_count` is the length when defining the function
-        let arg_copy_num = if flags & JS_CALL_FLAG_COPY_ARGV != 0
-            || args.len() < bc.0.borrow().arg_count as usize
-        {
-            std::cmp::max(args.len(), bc.0.borrow().arg_count as usize)
-        } else {
-            0
-        };
+        let arg_copy_num =
+            if flags & JS_CALL_FLAG_COPY_ARGV != 0 || args.len() < bc.0.arg_count as usize {
+                std::cmp::max(args.len(), bc.0.arg_count as usize)
+            } else {
+                0
+            };
 
         // how many bytes to allocate for local buf (args+vars+stack)?
-        let (buf_values_count, js_mode) = {
-            let b = bc.0.borrow();
-            (
-                arg_copy_num as usize + b.var_count as usize + b.stack_size as usize,
-                b.mode() as i32,
-            )
-        };
+        let (buf_values_count, js_mode) = (
+            arg_copy_num as usize + bc.0.var_count as usize + bc.0.stack_size as usize,
+            bc.mode() as i32,
+        );
 
         let mut sframe = StackFrame {
             cur_func: JSValue::Object(self.0.clone()),
@@ -390,18 +386,14 @@ impl BytecodeFunction {
         }
 
         // initialize (vars + stack) section
-        {
-            let b = bc.0.borrow();
+        sf.local_buf.extend(std::iter::repeat_n(
+            JSValue::UNDEFINED,
+            (bc.0.var_count + bc.0.stack_size) as usize,
+        ));
+        debug_assert_eq!(sf.local_buf.len(), buf_values_count);
 
-            sf.local_buf.extend(std::iter::repeat_n(
-                JSValue::UNDEFINED,
-                (b.var_count + b.stack_size) as usize,
-            ));
-            debug_assert_eq!(sf.local_buf.len(), buf_values_count);
-
-            sf.var_base_ptr = unsafe { sf.local_buf.as_mut_ptr().add(arg_copy_num as usize) };
-            sf.var_count = b.var_count;
-        }
+        sf.var_base_ptr = unsafe { sf.local_buf.as_mut_ptr().add(arg_copy_num as usize) };
+        sf.var_count = bc.0.var_count;
 
         sf.prev_frame = caller_ctx.rt().cur_stack_frame;
         caller_ctx.rt_mut().cur_stack_frame = (sf as *mut StackFrame).cast();

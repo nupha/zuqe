@@ -369,7 +369,7 @@ pub fn JS_CallConstructorInternal(
         } else {
             // BYTECODE_FUNCTION
             let bc = o.payload().func().unwrap().bytecode();
-            if bc.0.borrow().attrs.is_derived_class_constructor {
+            if bc.0.attrs.is_derived_class_constructor {
                 JS_CallInternal(ctx, func_obj, &JSValue::UNDEFINED, new_target, args, flags)
             } else {
                 // legacy constructor behavior

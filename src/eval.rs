@@ -115,7 +115,7 @@ impl JSContext {
             debug_assert!(module.is_none(), "must not be module");
 
             {
-                let b = bc.0.borrow();
+                let b = &bc.0;
                 fd.attrs.new_target_allowed = b.attrs.new_target_allowed;
                 fd.attrs.super_call_allowed = b.attrs.super_call_allowed;
                 fd.attrs.super_allowed = b.attrs.super_allowed;

@@ -286,14 +286,14 @@ impl JSContext {
                     .as_object_BCFunction()
                     .map(|f| f.payload().bytecode())
             } {
-                backtrace_barrier = bc.0.borrow().attrs.backtrace_barrier;
+                backtrace_barrier = bc.0.attrs.backtrace_barrier;
 
-                if bc.0.borrow().has_debug {
+                if bc.0.has_debug {
                     let line_num1 = bc.find_line_num(
                         unsafe { ((*sf).cur_pc_offset as u32).wrapping_sub(1) }, // be u32::MAX when (*sf).cur_pc_offset==0
                     );
 
-                    let atom_str = bc.0.borrow().debug.filename.to_utf8(self.rt());
+                    let atom_str = bc.0.debug.filename.to_utf8(self.rt());
 
                     dbuf.write_fmt(format_args!(" ({}", atom_str))
                         .map_err(|_| -1)?;

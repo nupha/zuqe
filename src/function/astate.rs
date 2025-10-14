@@ -57,8 +57,7 @@ impl AsyncStateInner {
     ) -> Result<Self, i32> {
         let (arg_count, var_count, stack_size, js_mode) = {
             let bc = bc_func.payload().bytecode();
-            let b = bc.0.borrow();
-            (b.arg_count, b.var_count, b.stack_size, b.mode())
+            (bc.0.arg_count, bc.0.var_count, bc.0.stack_size, bc.mode())
         };
 
         // alloc local buf, set up arguments, variables and stack pointer
