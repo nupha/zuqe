@@ -53,6 +53,7 @@ pub const PC2LINE_RANGE: i32 = 5;
 pub const PC2LINE_OP_FIRST: i32 = 1;
 pub const PC2LINE_DIFF_PC_MAX: i32 = (255 - PC2LINE_OP_FIRST) / PC2LINE_RANGE;
 
+#[repr(packed)]
 #[derive(Debug, Clone)]
 pub(crate) struct BytecodeAttrs {
     pub func_kind: JSFunctionKindEnum,
@@ -109,7 +110,6 @@ pub(crate) struct BytecodeInner {
 
     pub(crate) attrs: BytecodeAttrs,
 
-    read_only_bytecode: bool,
     /// used by JS_GetScriptOrModuleName()
     pub is_direct_or_indirect_eval: bool,
 
@@ -170,7 +170,6 @@ impl BytecodeInner {
                 fd.eval_type,
                 JS_EVAL_TYPE_DIRECT | JS_EVAL_TYPE_INDIRECT
             ),
-            read_only_bytecode: false,
             stack_size,
 
             binary,

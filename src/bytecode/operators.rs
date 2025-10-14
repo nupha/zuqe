@@ -1,12 +1,10 @@
-use std::cell::RefCell;
-
 use crate::{
     JS_CLASS_OBJECT,
     atom::{JS_ATOM_NULL, JS_FreeAtom, JSAtom, consts::*},
     branch_hints::unlikely,
     class::JS_DEFINE_CLASS_HAS_HERITAGE,
     context::JSContext,
-    function::{BCFuncPayload, JSFunctionKindEnum, JSVarRef, NativeFunctionType},
+    function::{JSFunctionKindEnum, JSVarRef, NativeFunctionType},
     iterator::{
         ForInIterPayload, JS_IteratorGetCompleteValue, JSIteratorKindEnum, ObjectIter,
         js_array_iterator_next, js_create_array_iterator,
@@ -155,15 +153,6 @@ pub fn js_op_define_class(
     // make constructor function
     let ctor =
         JSValue::from(bc.make_closure(ctx, cur_var_refs, Some(sframe), Some(parent_class))?);
-
-    // let func = ctx
-    //     .create_object_from_proto(
-    //         parent_class,
-    //         ObjectPayload::BYTECODE_FUNCTION(RefCell::new(Box::new(BCFuncPayload::default()))),
-    //     )
-    //     .map_err(|_| -1)?;
-
-    // let ctor = JSValue::Object(bc.make_closure_to(ctx, func, cur_var_refs, Some(sframe))?);
 
     js_method_set_home_object(&ctor, Some(&proto));
     JS_SetConstructorBit(ctx, &ctor, true);
