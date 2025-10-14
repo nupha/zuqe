@@ -201,14 +201,14 @@ impl Bytecode {
             self.gc_set_mark(true);
 
             // The template objects can be part of a cycle
-            self.cpools_slice().iter().for_each(|v| {
+            self.consts().iter().for_each(|v| {
                 v.gc_mark();
             });
         }
     }
 
     pub fn gc_sweep(&self) {
-        self.cpools_slice().iter().for_each(|v| {
+        self.consts().iter().for_each(|v| {
             v.gc_sweep();
         });
     }

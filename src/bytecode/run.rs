@@ -76,7 +76,7 @@ impl Bytecode {
             bytecodes.len()
         );
 
-        let cpools = self.cpools_slice();
+        let cpools = self.consts();
 
         let sp_base = stack_frame.stack_base_ptr().as_ptr();
         let pc_base = bytecodes.as_ptr();
@@ -262,7 +262,7 @@ impl Bytecode {
                             .and_then(|o| {
                                 o.payload()
                                     .func()
-                                    .map(|f| f.bytecode().with(|bc| bc.debug.debug_setting))
+                                    .map(|f| f.bytecode().0.borrow().debug.debug_setting)
                             })
                             .unwrap_or(crate::function::BytecodeDebugSetting::default());
                         debug_setting.replace(b);

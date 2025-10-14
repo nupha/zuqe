@@ -221,7 +221,7 @@ impl ModuleDefInner {
 
                     // create the global variables.
                     // The other variables are imported from other modules
-                    for cv in bc.closure_vars_slice().iter() {
+                    for cv in bc.closure_vars().iter() {
                         if cv.is_local() {
                             let vr = js_create_module_var(ctx, cv.is_lexical())?;
                             var_refs.push(vr);

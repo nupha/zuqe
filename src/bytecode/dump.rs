@@ -25,7 +25,7 @@ pub(crate) fn dump_opcodes(
     args: &[JSVarDef],
     vars: &[JSVarDef],
     closure_vars: &[JSClosureVar],
-    cpools: &[JSValue],
+    consts: &[JSValue],
     source: Option<&str>,
     line_num: i32,
     labels: &[Label], // for pass 1, 2 only
@@ -301,7 +301,7 @@ pub(crate) fn dump_opcodes(
 
             OpcodeFormat::CONST => {
                 let idx = unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos)) as usize };
-                print!(" {idx}:{}", cpools[idx].inspect(ctx).unwrap());
+                print!(" {idx}:{}", consts[idx].inspect(ctx).unwrap());
             }
             OpcodeFormat::ATOM => {
                 let a = unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos)) };
@@ -491,7 +491,7 @@ impl Bytecode {
             }
         }
 
-        let cvars = b.closure_vars_slice();
+        let cvars = b.closure_vars();
         if !cvars.is_empty() {
             println!("  closure vars:");
             for (i, cv) in cvars.iter().enumerate() {
@@ -522,8 +522,8 @@ impl Bytecode {
             b.opcodes(),
             b.args_slice(),
             b.vars_slice(),
-            b.closure_vars_slice(),
-            b.cpools_slice(),
+            b.closure_vars(),
+            b.consts(),
             if b.has_debug {
                 b.debug.source.as_deref()
             } else {

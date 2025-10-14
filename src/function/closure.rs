@@ -247,7 +247,7 @@ impl Bytecode {
                     ctx.throw_out_of_memory();
                     -1
                 })?;
-            for cv in self.closure_vars_slice().iter() {
+            for cv in self.closure_vars().iter() {
                 let var_ref = if cv.is_local() {
                     // reuse the existing variable reference if it already exists
                     sf.get_var_ref(ctx, cv.var_idx, cv.is_arg())?
@@ -554,7 +554,7 @@ pub unsafe fn add_closure_variables(
         }
     }
 
-    for (i, cv0) in b.closure_vars_slice().iter().enumerate() {
+    for (i, cv0) in b.closure_vars().iter().enumerate() {
         let mut cv = JSClosureVar {
             bitfield: 0,
             var_idx: i as _,

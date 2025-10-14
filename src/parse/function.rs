@@ -41,7 +41,7 @@ impl<'s> JSParseState<'s> {
     /// For JS_PARSE_FUNC_STATEMENT, JS_PARSE_FUNC_EXPR, JS_PARSE_FUNC_ARROW and JS_PARSE_FUNC_VAR,
     /// func_name must be JS_ATOM_NULL.
     ///
-    /// Note: `func_name` is **CONSUMED** inside.
+    /// Note: `func_name` is consumed inside.
     fn parse_function_sub(
         &mut self,
         func_type: JSParseFunctionEnum,
@@ -121,7 +121,8 @@ impl<'s> JSParseState<'s> {
         // set sub_fd to be the cur_func
         let fd1 = sub_fd.deref_mut();
         self.cur_func_def = fd1;
-        // IMPORTANT: to restore original cur_func on exit.
+
+        // IMPORTANT: must restore original cur_func on exit.
         let mut self_ptr = unsafe { std::ptr::NonNull::new_unchecked(self) };
         crate::defer!(unsafe {
             self_ptr.as_mut().cur_func_def = parent_fd;
@@ -378,9 +379,7 @@ impl<'s> JSParseState<'s> {
         if self.token.val == TOK_ARROW {
             self.next_token()?;
             if self.token.val != CHAR_CURLY_L {
-                if js_parse_function_check_names(self, fd1, func_name) != 0 {
-                    return Err(-1);
-                }
+                self.parse_function_check_names(fd1, func_name)?;
                 self.parse_assign_expr()?;
 
                 fd1.emit_op(
@@ -424,10 +423,8 @@ impl<'s> JSParseState<'s> {
 
         self.parse_directives()?;
 
-        /* in strict_mode, check function and argument names */
-        if js_parse_function_check_names(self, fd1, func_name) != 0 {
-            return Err(-1);
-        }
+        // in strict_mode, check function and argument names
+        self.parse_function_check_names(fd1, func_name)?;
 
         while self.token.val != CHAR_CURLY_R {
             self.parse_source_element()?;
@@ -459,9 +456,7 @@ impl<'s> JSParseState<'s> {
             fd1.emit_return(false, self.last_line_num);
         }
 
-        // restore cur_func to previoud fd:
-        // this is done in defer!()
-        // self.cur_func_def = fd0;
+        // restore cur_func: this is done in defer!()
 
         Ok(sub_fd)
     }
@@ -810,80 +805,63 @@ impl<'s> JSParseState<'s> {
             std::ptr::null_mut(),
         )
     }
-}
 
-pub(super) fn js_parse_check_duplicate_parameter(s: &JSParseState, name: JSAtom) -> i32 {
-    // Check for duplicate parameter names
-    if s.cur_func().args.iter().any(|vd| vd.var_name == name) {
-        s.throw_syntax_error("duplicate parameter names not allowed in this context");
-        return -1;
-    }
-
-    if s.cur_func().vars.iter().any(|vd| vd.var_name == name) {
-        s.throw_syntax_error("duplicate parameter names not allowed in this context");
-        return -1;
-    }
-
-    0
-}
-
-fn js_parse_function_check_names(s: &JSParseState, fd: &JSFunctionDef, func_name: JSAtom) -> i32 {
-    if fd.attrs.js_mode & JS_MODE_STRICT as u8 != 0 {
-        if !fd.attrs.has_simple_parameter_list && fd.has_use_strict {
-            s.throw_syntax_error(
-                "'use strict' not allowed in function with default or destructuring parameter",
-            );
-            return -1;
-        }
-        if func_name == JS_ATOM_eval || func_name == JS_ATOM_arguments {
-            s.throw_syntax_error("invalid function name in strict code");
-            return -1;
-        }
-
-        if fd
-            .args
-            .iter()
-            .any(|vd| matches!(vd.var_name, JS_ATOM_eval | JS_ATOM_arguments))
-        {
-            s.throw_syntax_error("invalid argument name in strict code");
-            return -1;
-        }
-    }
-
-    // check async_generator case
-    if fd.attrs.js_mode & JS_MODE_STRICT as u8 != 0
-        || !fd.attrs.has_simple_parameter_list
-        || (fd.func_type == JSParseFunctionEnum::JS_PARSE_FUNC_METHOD
-            && fd.attrs.func_kind == JSFunctionKindEnum::JS_FUNC_ASYNC)
-        || matches!(
-            fd.func_type,
-            JSParseFunctionEnum::JS_PARSE_FUNC_ARROW | JSParseFunctionEnum::JS_PARSE_FUNC_METHOD
-        )
-    {
-        for (idx, name) in fd.args.iter().enumerate().filter_map(|(i, vd)| {
-            if vd.var_name != JS_ATOM_NULL {
-                Some((i, vd.var_name))
-            } else {
-                None
-            }
-        }) {
-            if fd.args.iter().take(idx).any(|d| d.var_name == name) {
-                s.throw_syntax_error("duplicate argument names not allowed in this context");
-                return -1;
-            }
-
-            // Check if argument name duplicates a destructuring parameter
-            // XXX: should have a flag for such variables
-            if fd
-                .vars
+    fn parse_function_check_names(&self, fd: &JSFunctionDef, func_name: JSAtom) -> Result<(), i32> {
+        if fd.attrs.js_mode & JS_MODE_STRICT as u8 != 0 {
+            if !fd.attrs.has_simple_parameter_list && fd.has_use_strict {
+                self.throw_syntax_error(
+                    "'use strict' not allowed in function with default or destructuring parameter",
+                );
+                return Err(-1);
+            } else if matches!(func_name, JS_ATOM_eval | JS_ATOM_arguments) {
+                self.throw_syntax_error("invalid function name in strict code");
+                return Err(-1);
+            } else if fd
+                .args
                 .iter()
-                .any(|d| d.var_name == name && d.scope_level == 0)
+                .any(|vd| matches!(vd.var_name, JS_ATOM_eval | JS_ATOM_arguments))
             {
-                s.throw_syntax_error("duplicate argument names not allowed in this context");
-                return -1;
+                self.throw_syntax_error("invalid argument name in strict code");
+                return Err(-1);
             }
         }
-    }
 
-    0
+        // check async_generator case
+        if fd.attrs.js_mode & JS_MODE_STRICT as u8 != 0
+            || !fd.attrs.has_simple_parameter_list
+            || (fd.func_type == JSParseFunctionEnum::JS_PARSE_FUNC_METHOD
+                && fd.attrs.func_kind == JSFunctionKindEnum::JS_FUNC_ASYNC)
+            || matches!(
+                fd.func_type,
+                JSParseFunctionEnum::JS_PARSE_FUNC_ARROW
+                    | JSParseFunctionEnum::JS_PARSE_FUNC_METHOD
+            )
+        {
+            for (idx, name) in fd.args.iter().enumerate().filter_map(|(i, vd)| {
+                if vd.var_name != JS_ATOM_NULL {
+                    Some((i, vd.var_name))
+                } else {
+                    None
+                }
+            }) {
+                if fd.args.iter().take(idx).any(|d| d.var_name == name) {
+                    self.throw_syntax_error("duplicate argument names not allowed in this context");
+                    return Err(-1);
+                }
+
+                // Check if argument name duplicates a destructuring parameter
+                // XXX: should have a flag for such variables
+                if fd
+                    .vars
+                    .iter()
+                    .any(|d| d.var_name == name && d.scope_level == 0)
+                {
+                    self.throw_syntax_error("duplicate argument names not allowed in this context");
+                    return Err(-1);
+                }
+            }
+        }
+
+        Ok(())
+    }
 }

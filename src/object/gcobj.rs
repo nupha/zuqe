@@ -13,7 +13,7 @@ use super::{JSObject, JSShape};
 #[derive(Debug, Clone)]
 pub enum GCObject {
     Object(JSObject),
-    FunctionBytecode(Bytecode),
+    Bytecode(Bytecode),
     String(JSString),
     Shape(JSShape),
     VarRef(JSVarRef),
@@ -26,7 +26,7 @@ impl PartialEq for GCObject {
         match (self, other) {
             (Self::Object(l0), Self::Object(r0)) => l0.id() == r0.id(),
             (Self::String(l0), Self::String(r0)) => l0.content() == r0.content(),
-            (Self::FunctionBytecode(l0), Self::FunctionBytecode(r0)) => l0.id() == r0.id(),
+            (Self::Bytecode(l0), Self::Bytecode(r0)) => l0.id() == r0.id(),
             (Self::Shape(l0), Self::Shape(r0)) => l0.id() == r0.id(),
             (Self::VarRef(l0), Self::VarRef(r0)) => l0.id() == r0.id(),
             (Self::AsyncFunction(l0), Self::AsyncFunction(r0)) => l0.id() == r0.id(),
@@ -41,7 +41,7 @@ impl GCObject {
     pub fn id(&self) -> usize {
         match self {
             Self::Object(o) => o.id(),
-            Self::FunctionBytecode(o) => o.id(),
+            Self::Bytecode(o) => o.id(),
             Self::String(o) => o.id(),
             Self::Shape(o) => o.id(),
             Self::VarRef(o) => o.id(),
@@ -56,7 +56,7 @@ impl GCObject {
 
         match self {
             Self::Object(o) => o.ref_count(),
-            Self::FunctionBytecode(b) => Rc::strong_count(&b.0),
+            Self::Bytecode(b) => Rc::strong_count(&b.0),
             Self::String(s) => Rc::strong_count(&s.0),
             Self::Shape(s) => s.strong_count(),
             Self::VarRef(v) => Rc::strong_count(&v.0),
@@ -68,7 +68,7 @@ impl GCObject {
     pub fn gc_has_mark(&self) -> bool {
         match self {
             Self::Object(o) => o.gc_has_mark(),
-            Self::FunctionBytecode(o) => o.gc_has_mark(),
+            Self::Bytecode(o) => o.gc_has_mark(),
             Self::String(o) => o.gc_has_mark(),
             Self::Shape(o) => o.gc_has_mark(),
             Self::VarRef(o) => o.gc_has_mark(),
@@ -80,7 +80,7 @@ impl GCObject {
     pub fn gc_set_mark(&self, b: bool) {
         match self {
             Self::Object(o) => o.gc_set_mark(b),
-            Self::FunctionBytecode(o) => o.gc_set_mark(b),
+            Self::Bytecode(o) => o.gc_set_mark(b),
             Self::String(o) => o.gc_set_mark(b),
             Self::Shape(o) => o.gc_set_mark(b),
             Self::VarRef(o) => o.gc_set_mark(b),
@@ -92,7 +92,7 @@ impl GCObject {
     pub fn gc_sweep(&self) {
         match self {
             Self::Object(o) => o.gc_sweep(),
-            Self::FunctionBytecode(o) => o.gc_sweep(),
+            Self::Bytecode(o) => o.gc_sweep(),
             Self::String(o) => o.gc_sweep(),
             Self::Shape(o) => o.gc_sweep(),
             Self::VarRef(o) => o.gc_sweep(),
@@ -118,7 +118,7 @@ impl GCObjectWeakref {
     pub fn upgrade(&self) -> Option<GCObject> {
         match self {
             Self::Object(o) => o.upgrade().map(GCObject::Object),
-            Self::Bytecode(o) => o.upgrade().map(GCObject::FunctionBytecode),
+            Self::Bytecode(o) => o.upgrade().map(GCObject::Bytecode),
             Self::String(o) => o.upgrade().map(GCObject::String),
             Self::Shape(o) => o.upgrade().map(GCObject::Shape),
             Self::VarRef(o) => o.upgrade().map(GCObject::VarRef),

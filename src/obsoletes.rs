@@ -4671,3 +4671,18 @@ pub fn js_get_radix(ctx: &JSContext, val: &JSValue) -> Result<i32, i32> {
 
 #[deprecated(note = "use RegExp::class_finalizer() instead")]
 pub fn js_regexp_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
+
+#[deprecated(note = "use JSParseState::parse_function_check_names() instead")]
+fn js_parse_function_check_names(s: &JSParseState, fd: &JSFunctionDef, func_name: JSAtom) -> i32 {
+    unreachable!("unused")
+}
+
+#[deprecated(note = "use JSFunctionDef::parse_check_duplicate_parameter() instead")]
+pub(super) fn js_parse_check_duplicate_parameter(s: &JSParseState, name: JSAtom) -> i32 {
+    unreachable!("unused")
+}
+
+#[deprecated(note = "use JSFunctionDef::add_eval_variables() instead")]
+fn add_eval_variables(ctx: &JSContext, s: &mut JSFunctionDef) {
+    unreachable!("unused")
+}

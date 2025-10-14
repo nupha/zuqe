@@ -15,11 +15,9 @@ use crate::{
 use super::JSFunctionDef;
 
 impl JSFunctionDef {
-    /// Compile function def to bytecode.
-    /// All the child functions are also created. It must be done this way to resolve all the variables.
-    /// Returns a bytecode value.
+    /// Compile function def to bytecode, returns the Bytecode.
     ///
-    /// Note: receiver must be `Box<Self>`, and is consumed.
+    /// All the child functions are also created. It must be done this way to resolve all the variables.
     pub fn compile(mut self: Box<Self>, ctx: &JSContext) -> Result<Bytecode, i32> {
         //
         // recompute scope linkage
@@ -62,7 +60,7 @@ impl JSFunctionDef {
         // so it is necessary to create the closure variables before any
         // other variable lookup is done.
         if self.has_eval_call {
-            add_eval_variables(ctx, &mut self);
+            self.add_eval_variables(ctx);
         }
 
         // add the module global variables in the closure
@@ -320,202 +318,204 @@ impl JSFunctionDef {
 
         Ok(bc)
     }
-}
 
-fn add_eval_variables(ctx: &JSContext, s: &mut JSFunctionDef) {
-    // in non strict mode, variables are created in the caller's environment object
-    if !s.is_eval && s.attrs.js_mode & JS_MODE_STRICT as u8 == 0 {
-        s.var_object_idx = Some(s.add_var(ctx, JS_ATOM__var_).unwrap());
-        if s.has_parameter_expressions {
-            // an additional variable object is needed for the argument scope
-            s.arg_var_object_idx = Some(s.add_var(ctx, JS_ATOM__arg_var_).unwrap());
+    fn add_eval_variables(&mut self, ctx: &JSContext) {
+        // in non strict mode, variables are created in the caller's environment object
+        if !self.is_eval && self.attrs.js_mode & JS_MODE_STRICT as u8 == 0 {
+            self.var_object_idx = Some(self.add_var(ctx, JS_ATOM__var_).unwrap());
+            if self.has_parameter_expressions {
+                // an additional variable object is needed for the argument scope
+                self.arg_var_object_idx = Some(self.add_var(ctx, JS_ATOM__arg_var_).unwrap());
+            }
         }
-    }
 
-    // eval can potentially use 'arguments' so we must define it
-    let mut has_this_binding = s.has_this_binding;
-    if has_this_binding {
-        if s.this_var_idx.is_none() {
-            s.this_var_idx = Some(s.add_var_this(ctx).unwrap());
+        // eval can potentially use 'arguments' so we must define it
+        let mut has_this_binding = self.has_this_binding;
+        if has_this_binding {
+            if self.this_var_idx.is_none() {
+                self.this_var_idx = Some(self.add_var_this(ctx).unwrap());
+            }
+            if self.new_target_var_idx.is_none() {
+                self.new_target_var_idx =
+                    Some(self.add_var(ctx, JS_ATOM_new_target).expect("TODO"));
+            }
+            if self.attrs.is_derived_class_constructor && self.this_active_func_var_idx.is_none() {
+                self.this_active_func_var_idx =
+                    Some(self.add_var(ctx, JS_ATOM_this_active_func).expect("TODO"));
+            }
+            if self.has_home_object && (*self).home_object_var_idx.is_none() {
+                self.home_object_var_idx =
+                    Some(self.add_var(ctx, JS_ATOM__home_object_).expect("TODO"));
+            }
         }
-        if s.new_target_var_idx.is_none() {
-            s.new_target_var_idx = Some(s.add_var(ctx, JS_ATOM_new_target).expect("TODO"));
+
+        let mut has_arguments_binding = self.has_arguments_binding;
+        if has_arguments_binding {
+            self.add_arguments(ctx, false).unwrap();
+
+            // also add `arguments` binding in the argument scope.
+            // to raise an error if a direct eval in the argument scope tries to redefine it.
+            if self.has_parameter_expressions && self.attrs.js_mode & JS_MODE_STRICT as u8 == 0 {
+                self.add_arguments(ctx, true).unwrap();
+            }
         }
-        if s.attrs.is_derived_class_constructor && s.this_active_func_var_idx.is_none() {
-            s.this_active_func_var_idx =
-                Some(s.add_var(ctx, JS_ATOM_this_active_func).expect("TODO"));
+
+        if self.is_func_expr && self.func_name != JS_ATOM_NULL {
+            self.add_func_var(ctx, self.func_name).unwrap();
         }
-        if s.has_home_object && (*s).home_object_var_idx.is_none() {
-            s.home_object_var_idx = Some(s.add_var(ctx, JS_ATOM__home_object_).expect("TODO"));
-        }
-    }
 
-    let mut has_arguments_binding = s.has_arguments_binding;
-    if has_arguments_binding {
-        s.add_arguments(ctx, false).unwrap();
+        // eval can use all the variables of the enclosing functions, so
+        // they must be all put in the closure. The closure variables are
+        // ordered by scope. It works only because no closure are created
+        // before.
+        debug_assert!(self.is_eval || self.closure_vars.as_ref().map_or(0, |x| x.len()) == 0);
 
-        // also add `arguments` binding in the argument scope.
-        // to raise an error if a direct eval in the argument scope tries to redefine it.
-        if s.has_parameter_expressions && s.attrs.js_mode & JS_MODE_STRICT as u8 == 0 {
-            s.add_arguments(ctx, true).unwrap();
-        }
-    }
+        // XXX: inefficient, but eval performance is less critical
+        // TODO: use parent_iter() iterator
+        let mut cur_fd = self as *mut JSFunctionDef;
+        let mut scope_level = unsafe { (&*cur_fd).parent_scope_level };
 
-    if s.is_func_expr && s.func_name != JS_ATOM_NULL {
-        s.add_func_var(ctx, s.func_name).unwrap();
-    }
+        while let Some(fd) = unsafe { (&*cur_fd).parent.as_mut() } {
+            // add 'this' if it was not previously added
+            if !has_this_binding && fd.has_this_binding {
+                if fd.this_var_idx.is_none() {
+                    let i = fd.add_var_this(ctx).unwrap();
+                    fd.this_var_idx.replace(i);
+                }
 
-    // eval can use all the variables of the enclosing functions, so
-    // they must be all put in the closure. The closure variables are
-    // ordered by scope. It works only because no closure are created
-    // before.
-    debug_assert!(s.is_eval || s.closure_vars.as_ref().map_or(0, |x| x.len()) == 0);
+                if fd.new_target_var_idx.is_none() {
+                    let i = fd.add_var(ctx, JS_ATOM_new_target).expect("TODO");
+                    fd.new_target_var_idx.replace(i);
+                }
 
-    // XXX: inefficient, but eval performance is less critical
-    // TODO: use parent_iter() iterator
-    let mut cur_fd = s as *mut JSFunctionDef;
-    let mut scope_level = unsafe { (&*cur_fd).parent_scope_level };
+                if fd.attrs.is_derived_class_constructor && fd.this_active_func_var_idx.is_none() {
+                    let i = fd.add_var(ctx, JS_ATOM_this_active_func).expect("TODO");
+                    fd.this_active_func_var_idx.replace(i);
+                }
 
-    while let Some(fd) = unsafe { (&*cur_fd).parent.as_mut() } {
-        // add 'this' if it was not previously added
-        if !has_this_binding && fd.has_this_binding {
-            if fd.this_var_idx.is_none() {
-                let i = fd.add_var_this(ctx).unwrap();
-                fd.this_var_idx.replace(i);
+                if fd.has_home_object && fd.home_object_var_idx.is_none() {
+                    let i = fd.add_var(ctx, JS_ATOM__home_object_).expect("TODO");
+                    fd.home_object_var_idx.replace(i);
+                }
+
+                has_this_binding = true;
             }
 
-            if fd.new_target_var_idx.is_none() {
-                let i = fd.add_var(ctx, JS_ATOM_new_target).expect("TODO");
-                fd.new_target_var_idx.replace(i);
+            // add 'arguments' if it was not previously added
+            if !has_arguments_binding && fd.has_arguments_binding {
+                fd.add_arguments(ctx, false).unwrap();
+                has_arguments_binding = true;
             }
 
-            if fd.attrs.is_derived_class_constructor && fd.this_active_func_var_idx.is_none() {
-                let i = fd.add_var(ctx, JS_ATOM_this_active_func).expect("TODO");
-                fd.this_active_func_var_idx.replace(i);
+            // add function name
+            if fd.is_func_expr && fd.func_name != JS_ATOM_NULL {
+                fd.add_func_var(ctx, fd.func_name).unwrap();
             }
 
-            if fd.has_home_object && fd.home_object_var_idx.is_none() {
-                let i = fd.add_var(ctx, JS_ATOM__home_object_).expect("TODO");
-                fd.home_object_var_idx.replace(i);
+            // add lexical variables
+            debug_assert!((0..fd.scopes.len() as i32).contains(&scope_level));
+            let mut scope_idx = fd.scopes[scope_level as usize].first;
+            while scope_idx >= 0 {
+                let fd_ptr = fd as *const JSFunctionDef;
+
+                let vd = fd.vars.get_mut(scope_idx as usize).unwrap();
+                vd.set_is_captured(true);
+                self.get_closure_var2(
+                    ctx,
+                    fd_ptr,
+                    true,
+                    false,
+                    scope_idx as u16,
+                    vd.var_name,
+                    vd.is_const(),
+                    vd.is_lexical(),
+                    vd.var_kind(),
+                )
+                .expect("TODO");
+
+                scope_idx = vd.scope_next;
             }
 
-            has_this_binding = true;
-        }
+            let is_arg_scope = scope_idx == ARG_SCOPE_END;
+            if !is_arg_scope {
+                // add unscoped variables
+                // XXX: propagate is_const and var_kind too ?
+                for (i, vd) in fd.args.iter().enumerate() {
+                    if vd.var_name != JS_ATOM_NULL {
+                        self.get_closure_var2(
+                            ctx,
+                            fd as *const JSFunctionDef,
+                            true,
+                            true,
+                            i as _,
+                            vd.var_name,
+                            false,
+                            vd.is_lexical(),
+                            JSVarKindEnum::JS_VAR_NORMAL,
+                        )
+                        .unwrap();
+                    }
+                }
 
-        // add 'arguments' if it was not previously added
-        if !has_arguments_binding && fd.has_arguments_binding {
-            fd.add_arguments(ctx, false).unwrap();
-            has_arguments_binding = true;
-        }
-
-        // add function name
-        if fd.is_func_expr && fd.func_name != JS_ATOM_NULL {
-            fd.add_func_var(ctx, fd.func_name).unwrap();
-        }
-
-        // add lexical variables
-        debug_assert!((0..fd.scopes.len() as i32).contains(&scope_level));
-        let mut scope_idx = fd.scopes[scope_level as usize].first;
-        while scope_idx >= 0 {
-            let fd_ptr = fd as *const JSFunctionDef;
-
-            let vd = fd.vars.get_mut(scope_idx as usize).unwrap();
-            vd.set_is_captured(true);
-            s.get_closure_var2(
-                ctx,
-                fd_ptr,
-                true,
-                false,
-                scope_idx as u16,
-                vd.var_name,
-                vd.is_const(),
-                vd.is_lexical(),
-                vd.var_kind(),
-            )
-            .expect("TODO");
-
-            scope_idx = vd.scope_next;
-        }
-
-        let is_arg_scope = scope_idx == ARG_SCOPE_END;
-        if !is_arg_scope {
-            // add unscoped variables
-            // XXX: propagate is_const and var_kind too ?
-            for (i, vd) in fd.args.iter().enumerate() {
-                if vd.var_name != JS_ATOM_NULL {
-                    s.get_closure_var2(
-                        ctx,
-                        fd as *const JSFunctionDef,
-                        true,
-                        true,
-                        i as _,
-                        vd.var_name,
-                        false,
-                        vd.is_lexical(),
-                        JSVarKindEnum::JS_VAR_NORMAL,
-                    )
-                    .unwrap();
+                for (i, vd) in fd.vars.iter().enumerate() {
+                    // do not close top level last result
+                    if vd.scope_level == 0 && !matches!(vd.var_name, JS_ATOM__ret_ | JS_ATOM_NULL) {
+                        self.get_closure_var2(
+                            ctx,
+                            fd as *const JSFunctionDef,
+                            true,
+                            false,
+                            i as _,
+                            vd.var_name,
+                            false,
+                            vd.is_lexical(),
+                            JSVarKindEnum::JS_VAR_NORMAL,
+                        )
+                        .expect("TODO");
+                    }
+                }
+            } else {
+                for (i, vd) in fd.vars.iter().enumerate() {
+                    // do not close top level last result
+                    if vd.scope_level == 0 && is_var_in_arg_scope(vd) {
+                        self.get_closure_var2(
+                            ctx,
+                            fd as *const JSFunctionDef,
+                            true,
+                            false,
+                            i as _,
+                            vd.var_name,
+                            false,
+                            vd.is_lexical(),
+                            JSVarKindEnum::JS_VAR_NORMAL,
+                        )
+                        .expect("TODO");
+                    }
                 }
             }
 
-            for (i, vd) in fd.vars.iter().enumerate() {
-                // do not close top level last result
-                if vd.scope_level == 0 && !matches!(vd.var_name, JS_ATOM__ret_ | JS_ATOM_NULL) {
-                    s.get_closure_var2(
-                        ctx,
-                        fd as *const JSFunctionDef,
-                        true,
-                        false,
-                        i as _,
-                        vd.var_name,
-                        false,
-                        vd.is_lexical(),
-                        JSVarKindEnum::JS_VAR_NORMAL,
-                    )
-                    .expect("TODO");
+            if fd.is_eval {
+                // add direct eval variables (we are necessarily at the top level)
+                if let Some(cvars) = fd.closure_vars.as_ref() {
+                    for (i, cv) in cvars.iter().enumerate() {
+                        self.get_closure_var2(
+                            ctx,
+                            fd as *const JSFunctionDef,
+                            false,
+                            cv.is_arg(),
+                            i as _,
+                            cv.var_name,
+                            cv.is_const(),
+                            cv.is_lexical(),
+                            cv.var_kind(),
+                        )
+                        .expect("TODO");
+                    }
                 }
             }
-        } else {
-            for (i, vd) in fd.vars.iter().enumerate() {
-                // do not close top level last result
-                if vd.scope_level == 0 && is_var_in_arg_scope(vd) {
-                    s.get_closure_var2(
-                        ctx,
-                        fd as *const JSFunctionDef,
-                        true,
-                        false,
-                        i as _,
-                        vd.var_name,
-                        false,
-                        vd.is_lexical(),
-                        JSVarKindEnum::JS_VAR_NORMAL,
-                    )
-                    .expect("TODO");
-                }
-            }
-        }
 
-        if fd.is_eval {
-            // add direct eval variables (we are necessarily at the top level)
-            if let Some(cvars) = fd.closure_vars.as_ref() {
-                for (i, cv) in cvars.iter().enumerate() {
-                    s.get_closure_var2(
-                        ctx,
-                        fd as *const JSFunctionDef,
-                        false,
-                        cv.is_arg(),
-                        i as _,
-                        cv.var_name,
-                        cv.is_const(),
-                        cv.is_lexical(),
-                        cv.var_kind(),
-                    )
-                    .expect("TODO");
-                }
-            }
+            scope_level = fd.parent_scope_level;
+            cur_fd = fd as *mut JSFunctionDef;
         }
-
-        scope_level = fd.parent_scope_level;
-        cur_fd = fd as *mut JSFunctionDef;
     }
 }

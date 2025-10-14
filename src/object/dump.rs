@@ -162,18 +162,18 @@ impl JSObject {
         }
 
         if let Some(bcf) = self.payload().func() {
-            bcf.bytecode().with_mut(|b| {
-                if b.closure_var_count != 0 {
-                    print!(" Closure:");
-                    for vr in bcf.var_refs.borrow().iter() {
-                        print!(" {:?}", vr.value());
-                    }
+            let closure_var_count = bcf.bytecode().0.borrow().closure_var_count;
 
-                    if let Some(o) = bcf.home_object() {
-                        print!(" HomeObject: {o}");
-                    }
+            if closure_var_count != 0 {
+                print!(" Closure:");
+                for vr in bcf.var_refs.borrow().iter() {
+                    print!(" {:?}", vr.value());
                 }
-            });
+
+                if let Some(o) = bcf.home_object() {
+                    print!(" HomeObject: {o}");
+                }
+            }
         }
 
         println!();

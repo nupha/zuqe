@@ -14,7 +14,6 @@ use crate::{
 
 use super::{
     expr_lvalue::PutLValueEnum,
-    function::js_parse_check_duplicate_parameter,
     state::{JSParseState, SKIP_HAS_ELLIPSIS},
     token::{TOK_CONST, TOK_ELLIPSIS, TOK_IDENT, TOK_LET, TOK_VAR},
 };
@@ -325,7 +324,7 @@ impl<'s> JSParseState<'s> {
                 }
             } else {
                 // prop_type = PROP_TYPE_VAR, cannot be a computed property
-                if is_arg && js_parse_check_duplicate_parameter(self, prop_name) != 0 {
+                if is_arg && self.parse_check_duplicate_parameter(prop_name).is_err() {
                     prop_error!();
                 }
 
@@ -662,7 +661,7 @@ impl<'s> JSParseState<'s> {
 
         let name = self.token.atom().unwrap().dup(self.ctx.rt());
 
-        if is_arg && js_parse_check_duplicate_parameter(self, name) != 0 {
+        if is_arg && self.parse_check_duplicate_parameter(name).is_err() {
             JS_FreeAtom(&self.ctx, name);
             return Err(-1);
         }
@@ -672,5 +671,20 @@ impl<'s> JSParseState<'s> {
         })?;
 
         Ok(name)
+    }
+
+    fn parse_check_duplicate_parameter(&self, name: JSAtom) -> Result<(), i32> {
+        // Check for duplicate parameter names
+        if self.cur_func().args.iter().any(|vd| vd.var_name == name) {
+            self.throw_syntax_error("duplicate parameter names not allowed in this context");
+            return Err(-1);
+        }
+
+        if self.cur_func().vars.iter().any(|vd| vd.var_name == name) {
+            self.throw_syntax_error("duplicate parameter names not allowed in this context");
+            return Err(-1);
+        }
+
+        Ok(())
     }
 }
