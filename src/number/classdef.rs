@@ -21,10 +21,12 @@ pub fn js_thisNumberValue(ctx: &JSContext, this_val: JSValue) -> JSResult {
     if this_val.is_number() {
         Ok(this_val)
     } else {
+        // check number object
         this_val
             .as_object()
             .and_then(|p| p.payload().value())
-            .and_then(|x| if x.is_number() { Some(x) } else { None })
+            .filter(|v| v.is_number())
+            .cloned()
             .ok_or_else(|| {
                 ctx.throw_type_error("not a number");
                 -1

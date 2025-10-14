@@ -399,7 +399,11 @@ impl ObjectInner {
 
         while let Some(w) = self.weak_refs.borrow_mut().pop() {
             if let Some(o) = w.upgrade() {
-                o.0.payload.map_state_mut().unwrap().remove_weak_obj(self)
+                o.0.payload
+                    .mapset()
+                    .unwrap()
+                    .borrow_mut()
+                    .remove_weak_obj(self)
             }
         }
 
@@ -691,8 +695,10 @@ impl JSValue {
             Self::Bool(_) => ctx
                 .create_object(ObjectPayload::BOOLEAN(self))
                 .map_err(|_| -1),
-            Self::String(s) => s.to_object(ctx, &JSValue::UNDEFINED),
-            Self::Symbol(s) => ctx.create_object(ObjectPayload::SYMBOL(s)).map_err(|_| -1),
+            Self::String(s) => s.objectify(ctx, &JSValue::UNDEFINED),
+            Self::Symbol(s) => ctx
+                .create_object(ObjectPayload::SYMBOL(s.into()))
+                .map_err(|_| -1),
 
             Self::EXCEPTION => {
                 #[cfg(debug_assertions)]

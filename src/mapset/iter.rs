@@ -34,8 +34,8 @@ pub fn js_map_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: us
 
 pub fn js_map_iterator_mark(val: JSValue) {
     if let Some(o) = val.as_object() {
-        if let Some(it) = o.payload().map_iterator_state() {
-            if let Some(o) = &it.obj {
+        if let Some(it) = o.payload().mapset_iterator() {
+            if let Some(o) = &it.borrow().obj {
                 o.gc_mark()
             }
         }
@@ -50,16 +50,17 @@ fn js_map_iterator_next(ctx: &JSContext, cc: CallContext, state: &mut IteratorSt
         .this()
         .retrive_object_payload(ctx, JS_CLASS_MAP_ITERATOR + cc.magic() as JSClassID)?;
 
-    let Some(mut it) = isa.map_iterator_state_mut() else {
+    let Some(it) = isa.mapset_iterator() else {
         return Err(-1);
     };
 
+    let mut it = it.borrow_mut();
     let mut ret: Option<JSValue> = None;
     let mut end = false;
 
     if let Some(obj) = it.obj.clone() {
         let r1 = obj.retrive_payload(ctx, JS_CLASS_MAP + cc.magic() as JSClassID)?;
-        let ms = r1.map_state().unwrap();
+        let ms = r1.mapset().unwrap().borrow();
 
         if it.index < ms.slots.len() {
             let slice = &ms.slots[it.index..];

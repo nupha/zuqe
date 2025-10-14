@@ -77,8 +77,9 @@ pub fn js_map_get(ctx: &JSContext, cc: CallContext) -> JSResult {
     cc.this()
         .retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as JSClassID)
         .map(|r| {
-            r.map_state()
+            r.mapset()
                 .unwrap()
+                .borrow()
                 .find(key)
                 .unwrap_or(JSValue::UNDEFINED)
         })
@@ -89,7 +90,7 @@ pub fn js_map_set(ctx: &JSContext, cc: CallContext) -> JSResult {
     let key = cc.arg(0);
 
     let isa = this.retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as JSClassID)?;
-    let mut s = isa.map_state_mut().unwrap();
+    let mut s = isa.mapset().unwrap().borrow_mut();
 
     if s.is_weak() && !key.is_object() {
         ctx.throw_type_error_not_an_object();
@@ -126,7 +127,8 @@ pub fn js_map_delete(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     this.retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as JSClassID)
         .map(|isa| {
-            let mut s = isa.map_state_mut().unwrap();
+            let mut s = isa.mapset().unwrap().borrow_mut();
+
             if s.find(key).is_some() {
                 s.remove(key);
 
@@ -150,14 +152,21 @@ pub fn js_map_delete(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_map_has(ctx: &JSContext, cc: CallContext) -> JSResult {
     cc.this()
         .retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as JSClassID)
-        .map(|r| r.map_state().unwrap().find(cc.arg(0)).is_some().into())
+        .map(|r| {
+            r.mapset()
+                .unwrap()
+                .borrow()
+                .find(cc.arg(0))
+                .is_some()
+                .into()
+        })
 }
 
 pub fn js_map_clear(ctx: &JSContext, cc: CallContext) -> JSResult {
     cc.this()
         .retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as JSClassID)
         .map(|isa| {
-            isa.map_state_mut().unwrap().clear();
+            isa.mapset().unwrap().borrow_mut().clear();
             JSValue::UNDEFINED
         })
 }
@@ -165,7 +174,7 @@ pub fn js_map_clear(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_map_get_size(ctx: &JSContext, cc: CallContext) -> JSResult {
     cc.this()
         .retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as JSClassID)
-        .map(|r| JSValue::Int(r.map_state().unwrap().len() as i32))
+        .map(|r| JSValue::Int(r.mapset().unwrap().borrow().len() as i32))
 }
 
 pub fn js_map_forEach(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -178,8 +187,9 @@ pub fn js_map_forEach(ctx: &JSContext, cc: CallContext) -> JSResult {
     // lock map, and ensure `this` is an object of expected class_id.
     cc.this()
         .retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as JSClassID)?
-        .map_state_mut()
+        .mapset()
         .unwrap()
+        .borrow_mut()
         .lock();
 
     let this = cc.this();
@@ -189,7 +199,14 @@ pub fn js_map_forEach(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     loop {
         // get index `i`
-        let kv = map_obj.payload().map_state().unwrap().slots.get(i).cloned();
+        let kv = map_obj
+            .payload()
+            .mapset()
+            .unwrap()
+            .borrow()
+            .slots
+            .get(i)
+            .cloned();
 
         if let Some(kv) = kv {
             let pair = match kv {
@@ -222,7 +239,7 @@ pub fn js_map_forEach(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     // unlock map
-    map_obj.payload().map_state_mut().unwrap().unlock();
+    map_obj.payload().mapset().unwrap().borrow_mut().unlock();
 
     if has_err {
         Err(-1)

@@ -96,21 +96,18 @@ impl JSContext {
         let throw_type_error = self
             .create_native_function(
                 NativeFunctionType::Func(|ctx, cc| {
-                    // throw directly
-                    // ctx.throw_type_error("invalid property access");
-                    // Err(-1)
-
                     // throw only in strict mode
                     let throw = cc
                         .this()
                         .as_object()
                         .and_then(|o| {
-                            o.payload().func().map(|bc| {
+                            o.payload().bc_function().map(|bc| {
                                 let b = bc.bytecode();
                                 b.mode() & JS_MODE_STRICT as u8 != 0 || !b.has_prototype()
                             })
                         })
                         .unwrap_or(true);
+
                     if throw {
                         ctx.throw_type_error("invalid property access");
                         Err(-1)

@@ -260,7 +260,9 @@ impl Bytecode {
                             .cur_func
                             .as_object()
                             .and_then(|o| {
-                                o.payload().func().map(|f| f.bytecode().debug.debug_setting)
+                                o.payload()
+                                    .bc_function()
+                                    .map(|f| f.bytecode().debug.debug_setting)
                             })
                             .unwrap_or(crate::function::BytecodeDebugSetting::default());
                         debug_setting.replace(b);

@@ -172,7 +172,7 @@ impl BCFunction {
     /// get bcfunction payload
     #[inline]
     pub fn payload(&self) -> &BCFuncPayload {
-        self.0.payload().func().unwrap()
+        self.0.payload().bc_function().unwrap()
     }
 }
 
@@ -306,7 +306,7 @@ object_cast!(BytecodeFunction, JS_CLASS_BYTECODE_FUNCTION);
 impl BytecodeFunction {
     #[inline]
     pub fn payload(&self) -> &BCFuncPayload {
-        self.0.payload().func().unwrap()
+        self.0.payload().bc_function().unwrap()
     }
 
     /// call bytecode function

@@ -47,7 +47,7 @@ pub fn js_string_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     if !new_target.is_undefined() {
         // make String object using `new_target` as prototype.
-        str_val.to_object(ctx, new_target).map(JSValue::Object)
+        str_val.objectify(ctx, new_target).map(JSValue::Object)
     } else {
         Ok(str_val.into())
     }

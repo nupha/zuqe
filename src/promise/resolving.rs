@@ -45,7 +45,7 @@ impl PromiseResolveFunc {
         let resolv = func_obj.as_object_PromiseResolveFunc().unwrap();
         let isa = resolv.payload();
 
-        if let Some(s) = isa.promise_func_data() {
+        if let Some(s) = isa.promise_resolving_function() {
             if s.resolved.get() {
                 return Ok(JSValue::UNDEFINED);
             }
@@ -86,8 +86,12 @@ impl PromiseResolveFunc {
 
     pub fn class_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
 
-    pub fn class_mark(val: JSValueConst) {
-        if let Some(s) = unsafe { val.as_object_unchecked().payload().promise_func_data() } {
+    pub fn class_mark(val: JSValue) {
+        if let Some(s) = unsafe {
+            val.as_object_unchecked()
+                .payload()
+                .promise_resolving_function()
+        } {
             s.promise.gc_mark();
         }
     }

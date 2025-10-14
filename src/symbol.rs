@@ -57,16 +57,15 @@ pub fn js_thisSymbolValue(ctx: &JSContext, val: &JSValue) -> JSResult {
     if val.is_symbol() {
         Ok(val.clone())
     } else {
-        // symbol object
-        if let JSValue::Object(o) = val {
-            if o.class_id() == JS_CLASS_SYMBOL {
-                let v = o.payload().value().unwrap();
-                debug_assert!(v.is_symbol(), "{v:?}");
-                return Ok(v);
-            }
-        }
-        ctx.throw_type_error("not a symbol");
-        Err(-1)
+        // check symbol object
+        val.as_object()
+            .and_then(|o| o.payload().value())
+            .filter(|v| v.is_symbol())
+            .cloned()
+            .ok_or_else(|| {
+                ctx.throw_type_error("not a symbol");
+                -1
+            })
     }
 }
 

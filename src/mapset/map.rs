@@ -294,8 +294,8 @@ impl JSMapState {
 
     pub fn class_mark(val: JSValue) {
         let p = unsafe { val.as_object_unchecked() };
-        if let Some(s) = p.payload().map_state() {
-            for kv in s.slots.iter() {
+        if let Some(s) = p.payload().mapset() {
+            for kv in s.borrow().slots.iter() {
                 match kv {
                     MapPair::Strong { key, value } => {
                         key.gc_mark();

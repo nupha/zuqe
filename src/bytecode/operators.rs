@@ -225,7 +225,7 @@ pub(crate) fn js_get_function_name(ctx: &JSContext, name: JSAtom) -> Result<JSSt
 
 pub fn js_method_set_home_object(func_obj: &JSValue, home_obj: Option<&JSObject>) {
     if let JSValue::Object(o) = func_obj {
-        if let Some(fo) = o.payload().func() {
+        if let Some(fo) = o.payload().bc_function() {
             if fo.bytecode().need_home_object() {
                 fo.set_home_object(home_obj.cloned());
             }

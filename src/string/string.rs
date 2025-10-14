@@ -204,9 +204,8 @@ impl TryFrom<JSObject> for JSString {
 
     fn try_from(obj: JSObject) -> Result<Self, Self::Error> {
         if obj.class_id() == JS_CLASS_STRING {
-            // JS_CLASS_STRING object contains string
             if let Some(JSValue::String(s)) = obj.payload().value() {
-                Ok(s)
+                Ok(s.clone())
             } else {
                 unreachable!()
             }
@@ -369,10 +368,10 @@ impl JSString {
     }
 
     /// make String class object with content from string `self`.
-    pub fn to_object(&self, ctx: &JSContext, ctor: &JSValue) -> Result<JSObject, i32> {
+    pub fn objectify(&self, ctx: &JSContext, ctor: &JSValue) -> Result<JSObject, i32> {
         let len = self.len();
         let o = ctx
-            .create_object_from_ctor(ctor, ObjectPayload::STRING(self.clone()))
+            .create_object_from_ctor(ctor, ObjectPayload::STRING(self.clone().into()))
             .map_err(|_| -1)?;
 
         o.define_property_value(ctx, JS_ATOM_length, JSValue::from(len as u32), 0)?;

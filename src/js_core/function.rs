@@ -107,7 +107,7 @@ pub fn js_function_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let p = unsafe { this_val.as_object_unchecked() };
 
-    let func_kind = if let Some(func) = p.payload().func() {
+    let func_kind = if let Some(func) = p.payload().bc_function() {
         let bc = func.bytecode();
         if bc.has_debug {
             if let Some(s) = bc.debug.source.as_deref() {
@@ -144,7 +144,7 @@ pub fn js_function_hasInstance(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_function_proto_fileName(ctx: &JSContext, cc: CallContext) -> JSResult {
     if let Some((has_debug, filename)) = cc.this().as_object().and_then(|o| {
-        o.payload().func().map(|x| {
+        o.payload().bc_function().map(|x| {
             let b = x.bytecode();
             (b.has_debug, b.debug.filename)
         })
@@ -161,7 +161,7 @@ pub fn js_function_proto_fileName(ctx: &JSContext, cc: CallContext) -> JSResult 
 
 pub fn js_function_proto_lineNumber(_: &JSContext, cc: CallContext) -> JSResult {
     if let Some((has_debug, line_num)) = cc.this().as_object().and_then(|o| {
-        o.payload().func().map(|x| {
+        o.payload().bc_function().map(|x| {
             let b = &x.bytecode();
             (b.has_debug, b.debug.line_num)
         })

@@ -161,7 +161,7 @@ impl JSObject {
             print!(" }}");
         }
 
-        if let Some(bcf) = self.payload().func() {
+        if let Some(bcf) = self.payload().bc_function() {
             if bcf.bytecode().closure_var_count != 0 {
                 print!(" Closure:");
                 for vr in bcf.var_refs.borrow().iter() {
