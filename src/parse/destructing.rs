@@ -1,6 +1,6 @@
 use crate::{
     atom::{
-        JS_ATOM_NULL, JS_FreeAtom, JSAtom, JSAtomRc,
+        JS_ATOM_NULL, JSAtom, JSAtomRc,
         consts::{JS_ATOM_arguments, JS_ATOM_eval},
     },
     branch_hints::unlikely,
@@ -158,9 +158,7 @@ impl<'s> JSParseState<'s> {
 
                 let mut depth_lvalue = 0_i32;
                 if tok != 0 {
-                    var_name = self
-                        .parse_destructuring_var(tok, is_arg)?
-                        .into_rc(self.ctx.rt());
+                    var_name = self.parse_destructuring_var(is_arg)?;
                     opcode = opcodes::op_scope_get_var as _;
                     scope = self.cur_func().scope_level;
                     label_lvalue = -1;
@@ -279,9 +277,7 @@ impl<'s> JSParseState<'s> {
                 }
 
                 if tok != 0 {
-                    var_name = self
-                        .parse_destructuring_var(tok, is_arg)?
-                        .into_rc(self.ctx.rt());
+                    var_name = self.parse_destructuring_var(is_arg)?;
                 } else {
                     self.parse_left_hand_side_expr()?;
                     lvalue!();
@@ -454,13 +450,11 @@ impl<'s> JSParseState<'s> {
             };
 
             if parse_expr {
-                let mut var_name = JSAtomRc::NULL;
+                let var_name: JSAtomRc;
                 let mut enum_depth = 0;
 
                 if tok != 0 {
-                    var_name = self
-                        .parse_destructuring_var(tok, is_arg)?
-                        .into_rc(self.ctx.rt());
+                    var_name = self.parse_destructuring_var(is_arg)?;
                     self.define_var(*var_name, tok, export)?;
                     opcode = opcodes::op_scope_get_var as i32;
                     scope = self.cur_func().scope_level;
@@ -624,28 +618,22 @@ impl<'s> JSParseState<'s> {
         Ok(has_initializer)
     }
 
-    /// returned atom is duplicated. caller should free it.
-    fn parse_destructuring_var(&mut self, tok: i32, is_arg: bool) -> Result<JSAtom, i32> {
-        if (self.token.val != TOK_IDENT || self.token.data.is_reserved())
-            || (self.cur_func().attrs.js_mode & JS_MODE_STRICT as u8 != 0
-                && matches!(self.token.atom().unwrap(), JS_ATOM_eval | JS_ATOM_arguments))
-        {
+    fn parse_destructuring_var(&mut self, is_arg: bool) -> Result<JSAtomRc, i32> {
+        if unlikely(
+            (self.token.val != TOK_IDENT || self.token.data.is_reserved())
+                || (self.cur_func().attrs.js_mode & JS_MODE_STRICT as u8 != 0
+                    && matches!(self.token.atom().unwrap(), JS_ATOM_eval | JS_ATOM_arguments)),
+        ) {
             self.throw_syntax_error("invalid destructuring target");
             return Err(-1);
+        } else {
+            let name = JSAtomRc::clone_from(self.ctx.rt(), self.token.atom().unwrap());
+            if is_arg {
+                self.parse_check_duplicate_parameter(*name)?;
+            }
+            self.next_token()?;
+            Ok(name)
         }
-
-        let name = self.token.atom().unwrap().dup(self.ctx.rt());
-
-        if is_arg && self.parse_check_duplicate_parameter(name).is_err() {
-            JS_FreeAtom(&self.ctx, name);
-            return Err(-1);
-        }
-
-        self.next_token().inspect_err(|_| {
-            JS_FreeAtom(&self.ctx, name);
-        })?;
-
-        Ok(name)
     }
 
     fn parse_check_duplicate_parameter(&self, name: JSAtom) -> Result<(), i32> {
