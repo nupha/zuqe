@@ -293,10 +293,8 @@ impl JSContext {
                 sf.gc_mark();
             }
 
-            for mw in self.0.borrow().loaded_modules.iter() {
-                if let Some(m) = mw.upgrade() {
-                    m.gc_mark();
-                }
+            for m in self.0.borrow().loaded_modules.iter() {
+                m.gc_mark();
             }
         }
     }

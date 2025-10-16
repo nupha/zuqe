@@ -2,17 +2,19 @@ use std::cmp::Ordering;
 
 use crate::{
     atom::{
-        JSAtom,
+        JS_ATOM_NULL, JS_FreeAtom, JSAtom,
         consts::{JS_ATOM__star_, JS_ATOM_Module, JS_ATOM_Symbol_toStringTag, JS_ATOM_default},
     },
     branch_hints::unlikely,
     context::JSContext,
-    function::JSVarRef,
+    error::ErrorKind,
+    function::{FieldDef, JSVarRef, NativeFieldDetail},
     module::{ModuleDef, ModuleDefInner},
     object::{
         JS_PROP_ENUMERABLE, JS_PROP_VARREF, JS_PROP_WRITABLE, JSObject, JSProperty, LazyInit,
         ObjectPayload,
     },
+    value::JSValue,
 };
 
 #[derive(Debug, Clone)]
@@ -50,6 +52,7 @@ impl Default for GetExportNamesState {
 pub(crate) enum ExportType {
     JS_EXPORT_TYPE_LOCAL {
         var_idx: u16,
+        /// None means var ref is not linked yet.
         var_ref: Option<JSVarRef>,
     },
 
@@ -59,7 +62,7 @@ pub(crate) enum ExportType {
 
 #[derive(Debug, Clone)]
 pub struct ExportEntry {
-    pub export_type: ExportType,
+    pub(crate) export_type: ExportType,
     /// '*' if export ns from. not used for local export after compilation
     pub local_name: JSAtom,
     /// exported variable name
@@ -116,15 +119,167 @@ impl ResolveExport {
     }
 }
 
-impl ModuleDef {
-    /// find export entry of `self`
+impl ModuleDefInner {
+    /// find export entry by name
     pub fn find_export(&self, export_name: JSAtom) -> Option<ExportEntry> {
-        self.0
-            .export_entries
+        self.export_entries
             .borrow()
             .iter()
             .find(|x| x.export_name == export_name)
             .map(|x| *x.clone())
+    }
+
+    /// add an export entry on `self`.
+    ///
+    /// Note: `local_name`, `export_name` are not consumed.
+    pub(crate) fn add_export_internal(
+        &self,
+        ctx: &JSContext,
+        local_name: JSAtom,
+        export_name: JSAtom,
+        export_type: ExportType,
+    ) -> Result<(), i32> {
+        if unlikely(self.find_export(export_name).is_some()) {
+            ctx.throw_syntax_error(&format!(
+                "duplicate exported name '{}'",
+                export_name.to_utf8(ctx.rt()),
+            ));
+            Err(ErrorKind::Syntax as i32)
+        } else {
+            let mut lst = self.export_entries.borrow_mut();
+
+            if lst.len() == lst.capacity() {
+                lst.try_reserve(4).map_err(|_| {
+                    ctx.throw_out_of_memory();
+                    ErrorKind::Internal as i32
+                })?;
+            }
+
+            lst.push(Box::new(ExportEntry {
+                export_type,
+                local_name: local_name.dup(ctx.rt()),
+                export_name: export_name.dup(ctx.rt()),
+            }));
+
+            Ok(())
+        }
+    }
+
+    /// declare a module export entry
+    pub fn add_export(&self, ctx: &JSContext, export_name: &str) -> Result<(), i32> {
+        let atom = JSAtom::new(ctx.rt_mut(), export_name)?;
+        let r = self.add_export_internal(
+            ctx,
+            JS_ATOM_NULL,
+            atom,
+            ExportType::JS_EXPORT_TYPE_LOCAL {
+                var_idx: u16::MAX, // unknown
+                var_ref: None,
+            },
+        );
+        JS_FreeAtom(ctx, atom);
+        r
+    }
+
+    /// update export value
+    pub fn set_export_values(&self, ctx: &JSContext, entries: &[FieldDef]) -> Result<(), i32> {
+        for entry in entries {
+            let val: JSValue = match &entry.detail {
+                NativeFieldDetail::Func { handler, length } => {
+                    ctx.create_native_function(*handler, entry.name, *length, 0)?
+                }
+                NativeFieldDetail::Object(fields) => {
+                    let o = ctx.create_base_object()?;
+                    o.install_field_defs(ctx, fields.as_ref())?;
+                    o.into()
+                }
+                NativeFieldDetail::Str(s) => ctx.create_string_from_str(*s)?.into(),
+                NativeFieldDetail::Int32(i) => JSValue::Int(*i),
+                NativeFieldDetail::Float64(d) => JSValue::from(*d),
+                _ => {
+                    unreachable!();
+                }
+            };
+
+            self.set_export_value(ctx, entry.name, val)?;
+        }
+
+        Ok(())
+    }
+
+    /// update or add a module export entry named `export_name`, with given value
+    pub fn set_export_value(
+        &self,
+        ctx: &JSContext,
+        export_name: &str,
+        value: JSValue,
+    ) -> Result<(), i32> {
+        let atom = JSAtom::new(ctx.rt_mut(), export_name)?;
+        let me = self.find_export(atom);
+        JS_FreeAtom(ctx, atom);
+
+        if let Some(me) = me {
+            if let ExportType::JS_EXPORT_TYPE_LOCAL { var_ref, .. } = &me.export_type {
+                debug_assert!(
+                    var_ref.is_some(),
+                    "exported local entry must have been linked"
+                );
+                var_ref.as_ref().unwrap().set_value(value);
+                Ok(())
+            } else {
+                // not a local export entry
+                unreachable!()
+            }
+        } else {
+            // export_name is not declared
+            Err(-1)
+        }
+    }
+}
+
+impl ModuleDef {
+    /// find export entry of `self`
+    #[inline(always)]
+    pub fn find_export(&self, export_name: JSAtom) -> Option<ExportEntry> {
+        self.0.find_export(export_name)
+    }
+
+    /// add an export entry on `self` module.
+    ///
+    /// Note: `local_name`, `export_name` are not consumed.
+    #[inline(always)]
+    pub(crate) fn add_export_internal(
+        &self,
+        ctx: &JSContext,
+        local_name: JSAtom,
+        export_name: JSAtom,
+        export_type: ExportType,
+    ) -> Result<(), i32> {
+        self.0
+            .add_export_internal(ctx, local_name, export_name, export_type)
+    }
+
+    /// declare an export entry.
+    #[inline(always)]
+    pub fn add_export(&self, ctx: &JSContext, export_name: &str) -> Result<(), i32> {
+        self.0.add_export(ctx, export_name)
+    }
+
+    /// set module export entry named `export_name` to given value
+    #[inline(always)]
+    pub fn set_export_value(
+        &self,
+        ctx: &JSContext,
+        export_name: &str,
+        value: JSValue,
+    ) -> Result<(), i32> {
+        self.0.set_export_value(ctx, export_name, value)
+    }
+
+    /// set values of export entries
+    #[inline(always)]
+    pub fn set_export_values(&self, ctx: &JSContext, entries: &[FieldDef]) -> Result<(), i32> {
+        self.0.set_export_values(ctx, entries)
     }
 
     pub(crate) fn add_star_export_entry(

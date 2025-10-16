@@ -789,7 +789,7 @@ impl<'s> JSParseState<'s> {
                     JS_ATOM_default
                 },
                 ExportType::JS_EXPORT_TYPE_LOCAL {
-                    var_idx: u16::MAX,
+                    var_idx: u16::MAX, // unknown
                     var_ref: None,
                 },
             )?;

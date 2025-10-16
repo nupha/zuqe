@@ -514,15 +514,11 @@ impl ModuleDef {
 impl JSContext {
     /// eval `source` as module.
     pub fn eval_module(&self, source: &[u8], filename: &str, strip: bool) -> Result<Promise, i32> {
-        //
         // compile module
-        //
         let md = ModuleDef::compile(self, source, filename, strip)?;
         md.0.set_import_meta(self, filename, true)?;
 
-        //
         // eval module function
-        //
         md.create_module_function(self)?; // make module function
         md.link(self)?; // resolving imports, exports
         md.eval(self) // evaluate module function

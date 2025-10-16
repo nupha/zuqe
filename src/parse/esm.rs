@@ -1,8 +1,9 @@
 use crate::{
     atom::{AtomTypeHint, JS_ATOM_NULL, JS_FreeAtom, JSAtom, JSAtomRc, consts::*},
     bytecode::OpCodeTemp,
+    error::{ErrorKind, JS_BACKTRACE_FLAG_SINGLE_LEVEL},
     function::{JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
-    module::{ExportEntry, ExportType, JSImportEntry, ModuleDef},
+    module::{ExportType, JSImportEntry, ModuleDef},
     parse::token::{TOK_FIRST_KEYWORD, TOK_LAST_KEYWORD},
 };
 
@@ -468,31 +469,26 @@ impl<'s> JSParseState<'s> {
             self.cur_func().module.as_ref().unwrap()
         });
 
-        if md.find_export(export_name).is_some() {
-            self.throw_syntax_error(&format!(
-                "duplicate exported name '{}'",
-                export_name.to_utf8(self.ctx.rt()),
-            ));
-            return Err(-1);
+        match md.add_export_internal(&self.ctx, local_name, export_name, export_type) {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                if e == ErrorKind::Syntax as i32 {
+                    let backtrace_flags = if !self.cur_func_def.is_null()
+                        && self.cur_func().attrs.backtrace_barrier
+                    {
+                        JS_BACKTRACE_FLAG_SINGLE_LEVEL
+                    } else {
+                        0
+                    };
+                    self.ctx.build_backtrace_to(
+                        &self.ctx.rt().cur_exception,
+                        Some((self.filename, self.line_num)),
+                        backtrace_flags,
+                    );
+                }
+                Err(e)
+            }
         }
-
-        if md.0.export_entries.borrow().len() == md.0.export_entries.borrow().capacity() {
-            md.0.export_entries
-                .borrow_mut()
-                .try_reserve(4)
-                .map_err(|_| {
-                    self.ctx.throw_out_of_memory();
-                    -1
-                })?;
-        }
-
-        md.0.export_entries.borrow_mut().push(Box::new(ExportEntry {
-            export_type,
-            local_name: local_name.dup(self.ctx.rt()),
-            export_name: export_name.dup(self.ctx.rt()),
-        }));
-
-        Ok(())
     }
 
     /// add import for current parsing module.

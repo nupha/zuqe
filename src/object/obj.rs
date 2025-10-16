@@ -151,6 +151,7 @@ impl ObjectFlags {
 
 pub(crate) struct ObjectInner {
     rt: NonNull<JSRuntime>,
+    pub(crate) gc_mark: Cell<bool>,
 
     /// object flags
     obj_flags: Cell<ObjectFlags>,
@@ -167,8 +168,6 @@ pub(crate) struct ObjectInner {
 
     /// object payload.
     payload: ObjectPayload,
-
-    pub(crate) gc_mark: Cell<bool>,
 
     #[cfg(debug_assertions)]
     pub(crate) _debug_hint: UnsafeCell<Option<std::borrow::Cow<'static, str>>>,

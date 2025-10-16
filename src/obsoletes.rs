@@ -3291,7 +3291,7 @@ pub unsafe fn find_resolve_entry(
     unreachable!("unused");
 }
 
-#[deprecated(note = "use JSParseState::add_module_export() instead")]
+#[deprecated(note = "use ModuleDef::add_export_internal() or JSParseState::add_module_export()")]
 unsafe fn add_export_entry2(
     ctx: &JSContext,
     s: *mut JSParseState,

@@ -2,11 +2,12 @@ use std::{path::PathBuf, time::Instant};
 
 use colorized::*;
 use zhuque::{
+    JS_CFUNC_NATIVE_DEF, JS_PROP_INT32_DEF,
     atom::JS_FreeAtom,
     context::JSContext,
     error::JSResult,
     eval::JS_EVAL_TYPE_GLOBAL,
-    function::{CallContext, NativeFunctionType},
+    function::{CallContext, FieldDef, NativeFunctionType},
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
     module::{JS_SetModuleLoaderFunc, ModuleDef},
     object::JS_PROP_C_W_E,
@@ -91,6 +92,10 @@ fn main() {
     //     })
     //     .unwrap();
 
+    // init native modules
+    mod_demo_create(&ctx);
+
+    // setup globals
     {
         let global = JSValue::Object(ctx.global_obj());
 
@@ -319,6 +324,32 @@ pub fn js_module_set_import_meta(
     meta_obj
         .define_property_value_str(ctx, "main", is_main.into(), JS_PROP_C_W_E)
         .unwrap();
+
+    0
+}
+
+fn js_std_exit(ctx: &JSContext, cc: CallContext) -> JSResult {
+    println!("*** exit called");
+    Ok(JSValue::UNDEFINED)
+}
+
+static MOD_DEMO_FUNCS: [FieldDef; 2] = [
+    JS_CFUNC_NATIVE_DEF!("exit", 1, js_std_exit, 0),
+    JS_PROP_INT32_DEF!("out", 0, JS_PROP_C_W_E),
+];
+
+fn mod_demo_create(ctx: &JSContext) -> i32 {
+    // create native module
+    let md = ModuleDef::create_native(&ctx, "std", |ctx, m| {
+        m.set_export_value(ctx, "out", JSValue::Int(10)).unwrap();
+        0
+    })
+    .unwrap();
+
+    // declare export names
+    for me in MOD_DEMO_FUNCS.iter() {
+        md.add_export(ctx, me.name).unwrap();
+    }
 
     0
 }

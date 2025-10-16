@@ -6,11 +6,13 @@ use std::{
 };
 
 use crate::{
-    atom::{JS_ATOM_NULL, JS_FreeAtom, JS_FreeAtomRT, JSAtom},
+    atom::{JS_ATOM_NULL, JS_FreeAtom, JS_FreeAtomRT, JSAtom, JSAtomRc},
     class::JSClassExoticMethods,
     context::{JSContext, JSContextInner},
     error::JSResult,
-    function::{BCFuncPayload, JSFunctionDef, JSVarKindEnum, JSVarRef},
+    function::{
+        BCFuncPayload, FieldDef, JSFunctionDef, JSVarKindEnum, JSVarRef, NativeFieldDetail,
+    },
     module::{ExportEntry, ExportType, JSImportEntry, JSModuleStatus, ModuleDependency},
     object::{JS_PROP_C_W_E, JSObject, ObjectPayload},
     promise::Promise,
@@ -34,15 +36,16 @@ pub type JSModuleLoaderFunc = fn(
 
 pub type JSModuleInitFunc = fn(ctx: &JSContext, m: &ModuleDef) -> i32;
 
-pub(crate) struct ModuleDefInner {
+pub struct ModuleDefInner {
     rt: NonNull<JSRuntime>,
     gc_mark: Cell<bool>,
 
     pub module_name: JSAtom,
 
     pub(super) dependencies: RefCell<Vec<ModuleDependency>>,
-    pub import_entries: RefCell<Vec<JSImportEntry>>,
-    pub export_entries: RefCell<Vec<Box<ExportEntry>>>,
+    pub(crate) import_entries: RefCell<Vec<JSImportEntry>>,
+    pub(crate) export_entries: RefCell<Vec<Box<ExportEntry>>>,
+
     /// list of index in dependencies
     pub star_export_entries: RefCell<Vec<u16>>,
 
@@ -145,6 +148,18 @@ impl ModuleDefInner {
         };
 
         md
+    }
+
+    /// create a native module with init handler.
+    fn create_native(
+        ctx: &JSContext,
+        name: &str,
+        init_func: JSModuleInitFunc,
+    ) -> Result<Self, i32> {
+        let name = JSAtom::new(ctx.rt_mut(), name)?;
+        let mut inner = ModuleDefInner::new(ctx, name);
+        inner.init_func.replace(init_func);
+        Ok(inner)
     }
 
     #[inline(always)]
@@ -259,10 +274,9 @@ impl ModuleDefInner {
         }
 
         if self.init_func.is_some() {
-            // is native module.
-            // initialize the exported variables
-            for exp in self.export_entries.borrow_mut().iter_mut() {
-                if let ExportType::JS_EXPORT_TYPE_LOCAL { var_ref, .. } = &mut exp.export_type {
+            // is native module: initialize exported variables
+            for me in self.export_entries.borrow_mut().iter_mut() {
+                if let ExportType::JS_EXPORT_TYPE_LOCAL { var_ref, .. } = &mut me.export_type {
                     var_ref.replace(js_create_module_var(ctx, false)?);
                 }
             }
@@ -327,12 +341,26 @@ impl From<ModuleDef> for JSValue {
 }
 
 impl ModuleDef {
-    /// create bytecode module def.
+    /// alloc an uninitialized (usually bytecode) module.
+    ///
     /// 'name' is consumed
     pub(crate) fn new(ctx: &JSContext, name: JSAtom) -> Self {
-        let m = Self(Rc::new(ModuleDefInner::new(ctx, name)));
-        ctx.0.borrow_mut().loaded_modules.push(m.downgrade());
+        let inner = ModuleDefInner::new(ctx, name);
+        let m = Self(Rc::new(inner));
+        ctx.0.borrow_mut().loaded_modules.push(m.clone());
         m
+    }
+
+    /// create a native module def.
+    pub fn create_native(
+        ctx: &JSContext,
+        name: &str,
+        init_func: JSModuleInitFunc,
+    ) -> Result<Self, i32> {
+        let inner = ModuleDefInner::create_native(ctx, name, init_func)?;
+        let m = Self(Rc::new(inner));
+        ctx.0.borrow_mut().loaded_modules.push(m.clone());
+        Ok(m)
     }
 
     /// get module `import.meta` object.
@@ -440,16 +468,9 @@ pub enum JSFreeModuleEnum {
 pub fn js_free_modules(ctx: &mut JSContextInner, flag: JSFreeModuleEnum) {
     // To free modules that meet condition:
     // flag == JSFreeModuleEnum::JS_FREE_MODULE_ALL || (flag == JSFreeModuleEnum::JS_FREE_MODULE_NOT_RESOLVED && m.resolved)
-
-    // retain modules of negative condition shown above.
-    // dropped module will be finalized by Drop trait
-    ctx.loaded_modules.retain(|w| {
-        if let Some(m) = w.upgrade() {
-            !(flag == JSFreeModuleEnum::JS_FREE_MODULE_ALL
-                || (flag == JSFreeModuleEnum::JS_FREE_MODULE_NOT_RESOLVED && m.0.resolved.get()))
-        } else {
-            false
-        }
+    ctx.loaded_modules.retain(|m| {
+        !(flag == JSFreeModuleEnum::JS_FREE_MODULE_ALL
+            || (flag == JSFreeModuleEnum::JS_FREE_MODULE_NOT_RESOLVED && m.0.resolved.get()))
     });
 }
 
@@ -496,34 +517,101 @@ pub unsafe fn add_module_variables(ctx: &JSContext, fd: &mut JSFunctionDef) -> i
     0
 }
 
-// default module filename normalizer
-pub fn js_default_module_normalize_name(
+/// default module filename normalizer
+pub(crate) fn js_default_module_normalize_name(
     ctx: &JSContext,
     base_name: &str,
     name: &str,
 ) -> Result<String, i32> {
     debug_assert!(!name.is_empty());
 
-    let path = if let Some(base) = PathBuf::from(base_name).parent() {
-        base.join(name)
+    // 如果不是相对路径，直接返回原名
+    if !name.starts_with('.') {
+        return Ok(name.to_string());
+    }
+
+    // 获取基础路径的目录部分
+    let base_dir = if let Some(pos) = base_name.rfind('/') {
+        &base_name[..pos]
     } else {
-        PathBuf::from(name)
+        ""
     };
 
-    let mut normalized = PathBuf::new();
-    for component in path.components() {
-        match component {
-            std::path::Component::ParentDir => {
-                normalized.pop();
+    // 构建初始文件路径
+    let mut filename = if !base_dir.is_empty() {
+        format!("{}/", base_dir)
+    } else {
+        String::new()
+    };
+
+    // 标准化路径处理
+    let mut r = name;
+    loop {
+        if r.starts_with("./") {
+            r = &r[2..];
+        } else if r.starts_with("../") {
+            // 移除filename的最后一级路径元素，但不能是"."或".."
+            if !filename.is_empty() {
+                // 查找最后一个'/'的位置
+                let mut parts: Vec<&str> = filename.split('/').collect();
+                if !parts.is_empty() {
+                    let last_part = parts.last().unwrap_or(&"");
+                    // 如果最后一部分是"."或".."则停止处理
+                    if *last_part != "." && *last_part != ".." {
+                        // 移除最后一部分
+                        if parts.len() > 1 {
+                            parts.pop(); // 移除最后一部分
+                            filename = parts.join("/");
+                            if !filename.is_empty() {
+                                filename.push('/');
+                            }
+                        } else {
+                            filename.clear();
+                        }
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            } else {
+                break;
             }
-            std::path::Component::CurDir => {}
-            _ => {
-                normalized.push(component.as_os_str());
-            }
+            r = &r[3..];
+        } else {
+            break;
         }
     }
 
-    Ok(normalized.to_string_lossy().to_string())
+    // 添加剩余的路径部分
+    if !filename.is_empty() && !r.is_empty() {
+        filename.push_str(r);
+    } else if !r.is_empty() {
+        filename.push_str(r);
+    }
+
+    Ok(filename)
+
+    // let path = if let Some(base) = PathBuf::from(base_name).parent() {
+    //     base.join(name)
+    // } else {
+    //     PathBuf::from(name)
+    // };
+
+    // let mut normalized = PathBuf::new();
+    // for component in path.components() {
+    //     match component {
+    //         std::path::Component::ParentDir => {
+    //             normalized.pop();
+    //         }
+    //         std::path::Component::CurDir => {}
+    //         _ => {
+    //             normalized.push(component.as_os_str());
+    //         }
+    //     }
+    // }
+
+    // Ok(normalized.to_string_lossy().to_string())
 }
 
 /* Unfortunately, the spec gives a different behavior from GetOwnProperty ! */
@@ -556,8 +644,8 @@ pub fn js_create_module_var(ctx: &JSContext, is_lexical: bool) -> Result<JSVarRe
     Ok(var_ref)
 }
 
-// return JS_ATOM_NULL if the name cannot be found. Only works with
-// not striped bytecode functions.
+/// return JS_ATOM_NULL if the name cannot be found. Only works with
+/// not striped bytecode functions.
 pub fn JS_GetScriptOrModuleName(ctx: &JSContext, n_stack_levels: i32) -> JSAtom {
     // XXX: currently we just use the filename of the englobing
     // function from the debug info. May need to add a ScriptOrModule
@@ -597,27 +685,6 @@ pub fn JS_GetScriptOrModuleName(ctx: &JSContext, n_stack_levels: i32) -> JSAtom 
         } else {
             return JS_ATOM_NULL;
         }
-
-        // if let JSValue::Object(p) = unsafe { &(&*sf).cur_func } {
-        //     if let Some(b) = p.payload().func().map(|f| f.bytecode()) {
-        //         let b = b.0.borrow();
-        //         if !b.is_direct_or_indirect_eval {
-        //             if !b.has_debug {
-        //                 return JS_ATOM_NULL;
-        //             }
-        //             return b.debug.filename.dup(ctx.rt());
-        //         } else {
-        //             sf = unsafe { (&*sf).prev_frame.cast::<StackFrame>() }; // walk up
-        //             if sf.is_null() {
-        //                 return JS_ATOM_NULL;
-        //             }
-        //         }
-        //     } else {
-        //         return JS_ATOM_NULL;
-        //     }
-        // } else {
-        //     return JS_ATOM_NULL;
-        // }
     }
 }
 

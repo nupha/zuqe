@@ -11,7 +11,7 @@ use std::{
 use crate::{
     error::STD_ERROR_COUNT,
     eval::EvalFn,
-    module::{JSFreeModuleEnum, JSModuleDefWeakref, js_free_modules},
+    module::{JSFreeModuleEnum, ModuleDef, js_free_modules},
     object::{JSObject, JSShape},
     regexp::RegExpData,
     runtime::JSRuntime,
@@ -71,7 +71,7 @@ pub struct JSContextInner {
     pub interrupt_counter: i32,
 
     /// List of loaded modules
-    pub loaded_modules: Vec<JSModuleDefWeakref>,
+    pub loaded_modules: Vec<ModuleDef>,
 
     /// Regexp compilation callback
     #[deprecated(note = "unused")]
@@ -191,7 +191,7 @@ impl JSContextInner {
     }
 
     pub(crate) fn finalize(&mut self) {
-        // free modules
+        // free loaded modules
         js_free_modules(self, JSFreeModuleEnum::JS_FREE_MODULE_ALL);
         #[cfg(debug_assertions)]
         {

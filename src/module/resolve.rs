@@ -5,12 +5,11 @@ use crate::{
     },
     branch_hints::unlikely,
     context::JSContext,
-    function::JSVarRef,
+    function::BCFunction,
     module::{
         ExportType, JSModuleStatus, JSResolveEntry, ModuleDef, ModuleDefInner, ResolveExport,
         js_create_module_var,
     },
-    object::JSObject,
     runtime::js_check_stack_overflow,
     value::JSValue,
 };
@@ -215,8 +214,8 @@ impl ModuleDefInner {
 
         let mut index = index + 1;
 
-        for dep in self.dependencies.borrow().iter() {
-            let m1 = dep.module.clone().unwrap();
+        for req in self.dependencies.borrow().iter() {
+            let m1 = req.module.clone().unwrap();
             index = m1.inner_module_linking(ctx, stack_top, index)?;
 
             debug_assert!(matches!(
@@ -252,40 +251,28 @@ impl ModuleDefInner {
             }
         }
 
-        let bc_val = unsafe { (*self.bytecode.as_ptr()).clone() };
-
-        if let JSValue::Object(func_obj) = bc_val {
-            // is js module, function has been created
-            debug_assert!(self.func_created.get());
-
-            // to avoid borrow conflict, use closure
-            fn with_var_refs<R>(func_obj: &JSObject, f: impl FnOnce(&mut [JSVarRef]) -> R) -> R {
-                f(func_obj
-                    .as_BCFunction()
-                    .unwrap()
-                    .payload()
-                    .var_refs
-                    .borrow_mut()
-                    .as_mut_slice())
-            }
+        if self.init_func.is_none() {
+            // is bytecode module
+            debug_assert!(self.func_created.get(), "module function should be created");
+            let md_func =
+                BCFunction::try_from(unsafe { (*self.bytecode.as_ptr()).clone() }).unwrap();
 
             for imp in self.import_entries.borrow().iter() {
                 let import_name = imp.import_name;
                 let import_var_idx = imp.var_idx;
 
-                let dep_md = self.dependencies.borrow()[imp.req_module_idx as usize]
+                let req = self.dependencies.borrow()[imp.req_module_idx as usize]
                     .module
                     .clone()
                     .unwrap();
 
                 if import_name == JS_ATOM__star_ {
                     // name space import
-                    let val = dep_md.ns(ctx)?;
-                    with_var_refs(&func_obj, |var_refs| {
-                        var_refs[import_var_idx as usize].set_value(val.into());
-                    });
+                    let val = req.ns(ctx)?;
+                    md_func.payload().var_refs.borrow_mut()[import_var_idx as usize]
+                        .set_value(val.into());
                 } else {
-                    match dep_md.resolve_export(ctx, import_name, None)? {
+                    match req.resolve_export(ctx, import_name, None)? {
                         ResolveExport::Found { module: dep, entry } => {
                             match entry.export_type {
                                 ExportType::JS_EXPORT_TYPE_INDIRECT(req_module_idx) => {
@@ -300,39 +287,36 @@ impl ModuleDefInner {
                                         let val = m2.ns(ctx)?;
                                         let vref = js_create_module_var(ctx, true)?;
                                         vref.set_value(val.into());
-
-                                        with_var_refs(&func_obj, |var_refs| {
-                                            var_refs[import_var_idx as usize] = vref;
-                                        });
+                                        md_func.payload().var_refs.borrow_mut()
+                                            [import_var_idx as usize] = vref;
                                     }
                                 }
                                 ExportType::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } => {
                                     debug_assert_ne!(entry.local_name, JS_ATOM__star_);
-                                    debug_assert_ne!(var_idx, u16::MAX);
 
-                                    let vr = if let Some(v) = var_ref {
-                                        v
-                                    } else {
+                                    let vr = var_ref.unwrap_or_else(|| {
+                                        debug_assert!(
+                                            dep.0.func_created.get(),
+                                            "module function must have been created"
+                                        );
                                         unsafe {
                                             (*dep.0.bytecode.as_ptr())
                                                 .as_object_BCFunction()
-                                                .expect("must be BCFunction")
+                                                .unwrap()
                                                 .payload()
                                                 .var_refs
                                                 .borrow()
                                                 [var_idx as usize]
                                                 .clone()
                                         }
-                                    };
-
-                                    with_var_refs(&func_obj, |var_refs| {
-                                        var_refs[import_var_idx as usize] = vr;
                                     });
+                                    md_func.payload().var_refs.borrow_mut()
+                                        [import_var_idx as usize] = vr;
                                 }
                             }
                         }
                         ret => {
-                            ret.throw_syntax_error_export(ctx, &dep_md.0, import_name);
+                            ret.throw_syntax_error_export(ctx, &req.0, import_name);
                             return Err(-1);
                         }
                     }
@@ -346,16 +330,12 @@ impl ModuleDefInner {
                         &mut exp.export_type
                     {
                         debug_assert_ne!(*var_idx, u16::MAX);
-                        // var_ref.replace(var_refs[*var_idx as usize].clone());
-                        let vr = with_var_refs(&func_obj, |var_refs| {
-                            var_refs[*var_idx as usize].clone()
-                        });
+                        let vr = md_func.payload().var_refs.borrow()[*var_idx as usize].clone();
                         var_ref.replace(vr);
                     }
                 }
 
                 debug_assert!(self.func_created.get());
-                // unsafe { (*self.bytecode.as_ptr()).clone() }
             }
 
             // initialize the global variables
@@ -366,7 +346,7 @@ impl ModuleDefInner {
             //     ...
             // it seems this call has no actual effect according to the bytecode.
             // should this call be removed? and the emitted bytecode (see above) be optimized?
-            func_obj.call(ctx, &JSValue::Bool(true), &[])?;
+            md_func.call(ctx, &JSValue::Bool(true), &[])?;
         }
 
         debug_assert!(self.dfs_ancestor_index() <= self.dfs_index());

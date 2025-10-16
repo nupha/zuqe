@@ -49,13 +49,9 @@ impl JSContext {
     /// find the loaded module by module name.
     /// Note: `name` is not consumed.
     pub fn find_loaded_module(&self, name: JSAtom) -> Option<ModuleDef> {
-        self.0.borrow_mut().loaded_modules.iter().find_map(|w| {
-            if let Some(m) = w.upgrade() {
-                if m.0.module_name == name {
-                    Some(m)
-                } else {
-                    None
-                }
+        self.0.borrow_mut().loaded_modules.iter().find_map(|m| {
+            if m.0.module_name == name {
+                Some(m.clone())
             } else {
                 None
             }
@@ -116,10 +112,10 @@ pub fn js_host_resolve_imported_module(
     }?;
     let module_name = JSAtom::new(ctx.rt_mut(), &name)?;
 
-    // look at the loaded modules
+    // search in loaded_modules
     if let Some(m) = ctx.find_loaded_module(module_name) {
         JS_FreeAtom(ctx, module_name);
-        return Ok(m); // already loaded
+        return Ok(m);
     }
 
     JS_FreeAtom(ctx, module_name);
@@ -129,7 +125,7 @@ pub fn js_host_resolve_imported_module(
         cb(ctx, &name, ctx.rt().module_loader_opaque)
     } else {
         #[cfg(debug_assertions)]
-        println!("module loader function is not set, can't import module.");
+        println!("WARN: module loader function is not set, can't import module.");
 
         ctx.throw_reference_error(&format!("could not load module '{}'", name));
         Err(-1)
