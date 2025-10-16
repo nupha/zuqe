@@ -13,14 +13,14 @@ use super::value::JSValue;
 impl JSContext {
     pub fn create_symbol(&self, str: Option<JSString>, atom_type: AtomTypeHint) -> JSResult {
         let a = JSAtom::new_internal(self.rt_mut(), str, atom_type)?;
-        let ss = self.rt().get_atom_desc(a).unwrap();
+        let ss = a.description(self.rt()).unwrap();
         Ok(JSValue::Symbol(ss))
     }
 
     /// `atom` must be a non-numeric string atom
     pub fn create_symbol_from_atom(&self, atom: JSAtom, atom_type: AtomTypeHint) -> JSResult {
         debug_assert!(!atom.is_small_int());
-        let s = self.rt().get_atom_desc(atom).unwrap().clone();
+        let s = atom.description(self.rt()).unwrap().clone();
         self.create_symbol(Some(s), atom_type)
     }
 }

@@ -9,6 +9,7 @@ use std::{
 use crate::{
     JS_CLASS_STRING,
     atom::{AtomHintAndId, JSAtom, consts::*},
+    branch_hints::unlikely,
     class::JSClassExoticMethods,
     context::JSContext,
     gc::GCObjectHeader,
@@ -488,9 +489,9 @@ impl JSContext {
 
     /// create string from str
     pub fn create_string_from_str(&self, str: &str) -> Result<JSString, i32> {
-        if str.is_empty() {
-            Ok(self.rt().get_atom_desc(JS_ATOM_empty_string).unwrap())
-        } else if str.len() > JS_STRING_LEN_MAX {
+        if unlikely(str.is_empty()) {
+            Ok(JS_ATOM_empty_string.description(self.rt()).unwrap())
+        } else if unlikely(str.len() > JS_STRING_LEN_MAX) {
             self.throw_internal_error("string too long");
             Err(-1)
         } else {

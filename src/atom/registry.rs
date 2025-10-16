@@ -293,27 +293,13 @@ impl JSRuntime {
         if let Some(at) = jsstr.atom_info() {
             Some(at.atom())
         } else {
-            // normally, this won't happen
             unreachable!();
-
-            // // find in registry
-            // if let Some(ids) = self.atom_hash_lut.get(&jsstr.hash()) {
-            //     for &aid in ids {
-            //         let idx = u16::from(aid) as usize - 1;
-            //         if self.atom_slots[idx].unwrap().as_ptr() as *const JSString
-            //             == jsstr as *const JSString
-            //         {
-            //             return Some(JSAtom(u16::from(aid) as u32));
-            //         }
-            //     }
-            // }
-            // None
         }
     }
 
     /// get atom description for atom.
     /// returns None if atom does not exist.
-    /// TODO: move this to JSAtom impl
+    #[deprecated(note = "use JSAtom::description() instead")]
     pub fn get_atom_desc(&self, atom: JSAtom) -> Option<JSString> {
         debug_assert!(atom.0 != 0);
 

@@ -3835,30 +3835,7 @@ pub fn __JS_AtomToUInt32(atom: JSAtom) -> u32 {
 /// test if the `atom` can be used as an array index (in 0..u32::MAX range).
 #[deprecated(note = "use JSAtom::to_array_index() instead")]
 pub fn JS_AtomIsArrayIndex(ctx: &JSContext, pval: *mut u32, atom: JSAtom) -> bool {
-    if atom.is_small_int() {
-        unsafe {
-            *pval = __JS_AtomToUInt32(atom);
-        }
-        true
-    } else {
-        if let Some(p) = ctx.rt().get_atom_desc(atom) {
-            if let Some(AtomHintAndId::String(_)) = p.atom_info() {
-                if let Some(n) = p.content().parse_u32() {
-                    if n != u32::MAX {
-                        unsafe {
-                            *pval = n;
-                        }
-                        return true;
-                    }
-                }
-            }
-        }
-
-        unsafe {
-            *pval = 0;
-        }
-        false
-    }
+    unreachable!("unused");
 }
 
 #[deprecated(note = "use JSRuntime::init_default_atoms() instead")]

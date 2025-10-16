@@ -71,9 +71,14 @@ impl AtomHintAndId {
 pub struct JSAtom(pub(crate) u32);
 
 impl JSAtom {
+    #[inline(always)]
+    pub fn description(&self, rt: &JSRuntime) -> Option<JSString> {
+        get_atom_description(rt, self.0)
+    }
+
     /// check if is const atom?
     #[inline(always)]
-    pub fn is_const(self) -> bool {
+    pub fn is_const(&self) -> bool {
         // Hint: for u32 atoms, `self.0 as i32` should be minus.
         #[cfg(feature = "dump_leaks")]
         {
@@ -86,12 +91,12 @@ impl JSAtom {
     }
 
     /// get atom descriptor kind
-    pub fn kind(self, rt: &JSRuntime) -> AtomDescKind {
+    pub fn kind(&self, rt: &JSRuntime) -> AtomDescKind {
         if self.is_small_int() {
             return AtomDescKind::JS_ATOM_KIND_STRING;
         }
 
-        let p = rt.get_atom_desc(self).expect("INVALID ATOM");
+        let p = self.description(rt).expect("INVALID ATOM");
         match p.atom_info().unwrap() {
             AtomHintAndId::String(_) => AtomDescKind::JS_ATOM_KIND_STRING,
             AtomHintAndId::Symbol(_) | AtomHintAndId::GlobalSymbol(_) => {
@@ -102,13 +107,12 @@ impl JSAtom {
     }
 
     /// test if atom has string description
-    pub fn has_description(self, ctx: &JSContext) -> bool {
+    pub fn has_description(&self, ctx: &JSContext) -> bool {
         if self.is_small_int() {
             return false;
         }
 
-        ctx.rt()
-            .get_atom_desc(self)
+        self.description(ctx.rt())
             .map(|p| {
                 !p.is_ident() && {
                     let a = p.atom_info().unwrap();
@@ -121,7 +125,7 @@ impl JSAtom {
 
     /// test if the atom is small int type
     #[inline(always)]
-    pub fn is_small_int(self) -> bool {
+    pub fn is_small_int(&self) -> bool {
         (self.0 & JS_ATOM_TAG_INT) != 0
     }
 
@@ -138,24 +142,24 @@ impl JSAtom {
 
     /// increase atom description ref count.
     #[inline]
-    pub fn dup(self, rt: &JSRuntime) -> JSAtom {
+    pub fn dup(&self, rt: &JSRuntime) -> JSAtom {
         if !self.is_const() {
-            let p = rt
-                .get_atom_desc(self)
+            let p = self
+                .description(rt)
                 .expect(&format!("INVALID ATOM {}", self.0));
 
             // leak JSStringInner: duplicated.
             let _ = Rc::into_raw(p.0);
         }
 
-        self
+        *self
     }
 
     /// get atom description ref count, for const atom, returns None
     #[cfg(debug_assertions)]
-    pub fn ref_count(self, rt: &JSRuntime) -> Option<usize> {
+    pub fn ref_count(&self, rt: &JSRuntime) -> Option<usize> {
         if !self.is_const() {
-            Some(Rc::strong_count(&rt.get_atom_desc(self).unwrap().0))
+            Some(Rc::strong_count(&self.description(rt).unwrap().0))
         } else {
             None
         }
@@ -167,7 +171,7 @@ impl JSAtom {
             ctx.create_string_from_utf8(format!("{n}",).into_bytes())
                 .map(JSValue::String)
         } else {
-            let desc = ctx.rt().get_atom_desc(*self).unwrap();
+            let desc = self.description(ctx.rt()).unwrap();
             match desc.atom_info().unwrap() {
                 AtomHintAndId::String(_) | AtomHintAndId::Private(_) => Ok(JSValue::String(desc)),
                 AtomHintAndId::Symbol(_) | AtomHintAndId::GlobalSymbol(_) => {
@@ -205,13 +209,13 @@ impl JSAtom {
     }
 
     /// if atom can be used as array index, which is an int in range \[0, 2^32-1), returns the int.
-    pub fn to_array_index(self, rt: &JSRuntime) -> Option<u32> {
-        if self == JS_ATOM_NULL {
+    pub fn to_array_index(&self, rt: &JSRuntime) -> Option<u32> {
+        if *self == JS_ATOM_NULL {
             None
         } else if let Some(n) = self.to_small_int() {
             Some(n)
         } else {
-            if let Some(p) = rt.get_atom_desc(self) {
+            if let Some(p) = self.description(rt) {
                 if let Some(AtomHintAndId::String(_)) = p.atom_info() {
                     // Per js specification, array length could be 2^32-1 in max,
                     // thus array index must be less than u32::MAX.
@@ -227,13 +231,13 @@ impl JSAtom {
     }
 
     /// if atom can be represented/parsed as an i64, returns the i64.
-    pub fn to_i64(self, rt: &JSRuntime) -> Option<i64> {
-        if self == JS_ATOM_NULL {
+    pub fn to_i64(&self, rt: &JSRuntime) -> Option<i64> {
+        if *self == JS_ATOM_NULL {
             None
         } else if let Some(n) = self.to_small_int() {
             Some(n as i64)
         } else {
-            if let Some(p) = rt.get_atom_desc(self) {
+            if let Some(p) = self.description(rt) {
                 if let Some(AtomHintAndId::String(_)) = p.atom_info() {
                     return p.content().parse_i64();
                 }
@@ -249,7 +253,8 @@ impl JSAtom {
         } else if let Some(n) = self.to_small_int() {
             f(Cow::Owned(format!("{n}")))
         } else {
-            f(rt.get_atom_desc(self)
+            f(self
+                .description(rt)
                 .expect("INVALID ATOM")
                 .content()
                 .to_utf8(false))
@@ -258,7 +263,7 @@ impl JSAtom {
 
     /// convert atom to utf8 encoded String
     #[inline(always)]
-    pub fn to_utf8(self, rt: &JSRuntime) -> String {
+    pub fn to_utf8(&self, rt: &JSRuntime) -> String {
         self.with_utf8(rt, |s| s.into_owned())
     }
 }
@@ -354,7 +359,7 @@ impl JSValue {
 }
 
 unsafe fn __JS_FreeAtom(rt: *mut JSRuntime, i: JSAtom) {
-    if let Some(p) = (*rt).get_atom_desc(i) {
+    if let Some(p) = get_atom_description(&*rt, i.0) {
         if Rc::strong_count(&p.0) > 2 {
             drop(p);
         } else {
@@ -419,7 +424,7 @@ pub fn JS_AtomIsNumericIndex1(ctx: &JSContext, atom: JSAtom) -> JSValue {
         return JSValue::Int(n as _);
     }
 
-    let p = ctx.rt().get_atom_desc(atom).unwrap();
+    let p = atom.description(ctx.rt()).unwrap();
     if p.is_empty() || p.is_ident() {
         return JSValue::UNDEFINED;
     }
@@ -580,4 +585,23 @@ pub unsafe fn JS_DumpAtoms(rt: &JSRuntime) {
     }
 
     println!("}}");
+}
+
+/// get atom description. returns None if atom does not exist.
+fn get_atom_description(rt: &JSRuntime, atom_id: u32) -> Option<JSString> {
+    debug_assert!(atom_id != 0);
+
+    if let Some(s) = rt
+        .atom_slots
+        .get(atom_id as usize)
+        .and_then(|p| unsafe { p.as_ref() })
+    {
+        // increament strong ref count and leak.
+        let d = unsafe { Rc::from_raw(s) };
+        let s = JSString(d.clone());
+        let _ = Rc::into_raw(d);
+        Some(s)
+    } else {
+        None
+    }
 }
