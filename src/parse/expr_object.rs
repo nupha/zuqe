@@ -160,6 +160,7 @@ impl<'s> JSParseState<'s> {
 
     /// parse property name, returns name atom and property type.
     /// if the property is an expression, returned name will be JS_ATOM_NULL.
+    /// returned atom is duplicated, caller must free it.
     pub(super) fn parse_property_name(
         &mut self,
         allow_method: bool,

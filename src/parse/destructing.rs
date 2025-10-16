@@ -1,12 +1,12 @@
 use crate::{
     atom::{
-        JS_ATOM_NULL, JS_FreeAtom, JSAtom,
+        JS_ATOM_NULL, JS_FreeAtom, JSAtom, JSAtomRc,
         consts::{JS_ATOM_arguments, JS_ATOM_eval},
     },
+    branch_hints::unlikely,
     bytecode::{OpCode, OpCodeTemp, opcodes},
     context::JS_MODE_STRICT,
     function::BlockEnv,
-    module::ExportType,
     object::PROP_TYPE_IDENT,
     parse::token::{
         CHAR_COMMA, CHAR_CURLY_L, CHAR_CURLY_R, CHAR_EQUAL, CHAR_SQUARE_L, CHAR_SQUARE_R,
@@ -32,22 +32,8 @@ impl<'s> JSParseState<'s> {
 
         self.next_token()?;
 
-        let mut prop_name = JS_ATOM_NULL;
-        let mut var_name = JS_ATOM_NULL;
-
-        macro_rules! prop_error {
-            () => {
-                JS_FreeAtom(&self.ctx, prop_name);
-                JS_FreeAtom(&self.ctx, var_name);
-                return Err(-1);
-            };
-        }
-        macro_rules! var_error {
-            () => {
-                JS_FreeAtom(&self.ctx, var_name);
-                return Err(-1);
-            };
-        }
+        let mut prop_name = JSAtomRc::NULL;
+        let mut var_name = JSAtomRc::NULL;
 
         // throw an exception if the value cannot be converted to an object
         self.emit_op(OpCode::TO_OBJECT);
@@ -64,9 +50,7 @@ impl<'s> JSParseState<'s> {
         macro_rules! set_val {
             () => {
                 if tok != 0 {
-                    if self.define_var(var_name, tok, export).is_err() {
-                        var_error!();
-                    }
+                    self.define_var(*var_name, tok, export)?;
                     scope = self.cur_func().scope_level as _;
                 }
 
@@ -78,20 +62,14 @@ impl<'s> JSParseState<'s> {
 
                     let label_hasval = self.emit_goto(OpCode::IF_FALSE, -1);
 
-                    if self.next_token().is_err() {
-                        prop_error!();
-                    }
-
+                    self.next_token()?;
                     self.emit_op(OpCode::DROP);
-
-                    if self.parse_assign_expr().is_err() {
-                        prop_error!();
-                    }
+                    self.parse_assign_expr()?;
 
                     if opcode == opcodes::op_scope_get_var as i32
                         || opcode == opcodes::OP_get_ref_value as i32
                     {
-                        self.set_object_name(var_name);
+                        self.set_object_name(*var_name);
                     }
                     self.emit_label(label_hasval);
                 }
@@ -100,7 +78,7 @@ impl<'s> JSParseState<'s> {
                 self.put_lvalue(
                     opcode,
                     scope,
-                    var_name,
+                    *var_name,
                     label_lvalue,
                     PutLValueEnum::PUT_LVALUE_NOKEEP_DEPTH,
                     matches!(tok, TOK_CONST | TOK_LET),
@@ -117,23 +95,21 @@ impl<'s> JSParseState<'s> {
         macro_rules! lvalue {
             ( ) => {
                 let mut depth_lvalue1 = 0_i32;
-                if self
-                    .get_lvalue(
-                        &mut opcode,
-                        &mut scope,
-                        &mut var_name,
-                        &mut label_lvalue,
-                        &mut depth_lvalue1,
-                        false,
-                        '{' as i32,
-                    )
-                    .is_err()
-                {
-                    prop_error!();
-                }
+                let mut a = JS_ATOM_NULL;
+
+                self.get_lvalue(
+                    &mut opcode,
+                    &mut scope,
+                    &mut a,
+                    &mut label_lvalue,
+                    &mut depth_lvalue1,
+                    false,
+                    '{' as i32,
+                )?;
+                var_name = a.into_rc(self.ctx.rt());
 
                 /* swap ref and lvalue object if any */
-                if prop_name == JS_ATOM_NULL {
+                if *prop_name == JS_ATOM_NULL {
                     match depth_lvalue1 {
                         1 => {
                             /* source prop x -> x source prop */
@@ -182,27 +158,32 @@ impl<'s> JSParseState<'s> {
 
                 let mut depth_lvalue = 0_i32;
                 if tok != 0 {
-                    var_name = self.parse_destructuring_var(tok, is_arg)?;
+                    var_name = self
+                        .parse_destructuring_var(tok, is_arg)?
+                        .into_rc(self.ctx.rt());
                     opcode = opcodes::op_scope_get_var as _;
                     scope = self.cur_func().scope_level;
                     label_lvalue = -1;
                     depth_lvalue = 0;
                 } else {
                     self.parse_left_hand_side_expr()?;
+
+                    let mut a = JS_ATOM_NULL;
                     self.get_lvalue(
                         &mut opcode,
                         &mut scope,
-                        &mut var_name,
+                        &mut a,
                         &mut label_lvalue,
                         &mut depth_lvalue,
                         false,
                         '{' as i32,
                     )?;
+                    var_name = a.into_rc(self.ctx.rt());
                 }
 
                 if self.token.val != '}' as i32 {
                     self.throw_syntax_error("assignment rest property must be last");
-                    var_error!();
+                    return Err(-1);
                 }
 
                 self.emit_op(OpCode::OBJECT); // target
@@ -214,18 +195,16 @@ impl<'s> JSParseState<'s> {
             }
 
             let r = self.parse_property_name(false, true, false)?;
-            prop_name = r.0;
+            prop_name = r.0.into_rc(self.ctx.rt());
             let prop_type = r.1;
 
-            var_name = JS_ATOM_NULL;
+            var_name = JSAtomRc::NULL;
             opcode = opcodes::op_scope_get_var as _;
             scope = self.cur_func().scope_level;
             label_lvalue = -1;
 
             if prop_type == PROP_TYPE_IDENT {
-                if self.next_token().is_err() {
-                    prop_error!();
-                }
+                self.next_token()?;
 
                 // token: [{ && after-parens-token: ,=}
                 if matches!(self.token.val, CHAR_SQUARE_L | CHAR_CURLY_L)
@@ -237,7 +216,7 @@ impl<'s> JSParseState<'s> {
                         CHAR_COMMA | CHAR_EQUAL | CHAR_CURLY_R // , | = | }
                     )
                 {
-                    if prop_name == JS_ATOM_NULL {
+                    if *prop_name == JS_ATOM_NULL {
                         /* computed property name on stack */
                         if has_ellipsis {
                             /* define the property in excludeList */
@@ -256,7 +235,7 @@ impl<'s> JSParseState<'s> {
                             self.emit_op(OpCode::SWAP); /* TOS: src excludeList */
                             self.emit_op(OpCode::NULL); /* TOS: src excludeList null */
                             self.emit_op(OpCode::DEFINE_FIELD); /* TOS: src excludeList */
-                            self.emit_atom_dup(prop_name);
+                            self.emit_atom_dup(*prop_name);
                             self.emit_op(OpCode::SWAP); /* TOS: excludeList src */
                         }
                         /* get the named property from the source object */
@@ -275,7 +254,7 @@ impl<'s> JSParseState<'s> {
                     }
                 }
 
-                if prop_name == JS_ATOM_NULL {
+                if *prop_name == JS_ATOM_NULL {
                     self.emit_op(OpCode::TO_PROPKEY2);
                     if has_ellipsis {
                         /* define the property in excludeList */
@@ -292,7 +271,7 @@ impl<'s> JSParseState<'s> {
                         self.emit_op(OpCode::SWAP);
                         self.emit_op(OpCode::NULL);
                         self.emit_op(OpCode::DEFINE_FIELD);
-                        self.emit_atom_dup(prop_name);
+                        self.emit_atom_dup(*prop_name);
                         self.emit_op(OpCode::SWAP);
                     }
                     /* source -- source source */
@@ -300,19 +279,15 @@ impl<'s> JSParseState<'s> {
                 }
 
                 if tok != 0 {
-                    var_name = if let Ok(a) = self.parse_destructuring_var(tok, is_arg) {
-                        a
-                    } else {
-                        prop_error!();
-                    };
+                    var_name = self
+                        .parse_destructuring_var(tok, is_arg)?
+                        .into_rc(self.ctx.rt());
                 } else {
-                    if self.parse_left_hand_side_expr().is_err() {
-                        prop_error!();
-                    }
+                    self.parse_left_hand_side_expr()?;
                     lvalue!();
                 }
 
-                if prop_name == JS_ATOM_NULL {
+                if *prop_name == JS_ATOM_NULL {
                     /* computed property name on stack */
                     /* XXX: should have OP_get_array_el2x with depth */
                     /* source prop -- val */
@@ -326,15 +301,16 @@ impl<'s> JSParseState<'s> {
                 }
             } else {
                 // prop_type = PROP_TYPE_VAR, cannot be a computed property
-                if is_arg && self.parse_check_duplicate_parameter(prop_name).is_err() {
-                    prop_error!();
+                if is_arg {
+                    self.parse_check_duplicate_parameter(*prop_name)?;
                 }
 
-                if self.cur_func().attrs.js_mode & JS_MODE_STRICT as u8 != 0
-                    && (prop_name == JS_ATOM_eval || prop_name == JS_ATOM_arguments)
-                {
+                if unlikely(
+                    self.cur_func().attrs.js_mode & JS_MODE_STRICT as u8 != 0
+                        && matches!(*prop_name, JS_ATOM_eval | JS_ATOM_arguments),
+                ) {
                     self.throw_syntax_error("invalid destructuring target");
-                    prop_error!();
+                    return Err(-1);
                 }
 
                 if has_ellipsis {
@@ -342,7 +318,7 @@ impl<'s> JSParseState<'s> {
                     self.emit_op(OpCode::SWAP);
                     self.emit_op(OpCode::NULL);
                     self.emit_op(OpCode::DEFINE_FIELD);
-                    self.emit_atom_dup(prop_name);
+                    self.emit_atom_dup(*prop_name);
                     self.emit_op(OpCode::SWAP);
                 }
 
@@ -353,14 +329,14 @@ impl<'s> JSParseState<'s> {
                     /* source -- source source */
                     self.emit_op(OpCode::DUP);
                     self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                    self.emit_atom_dup(prop_name);
+                    self.emit_atom_dup(*prop_name);
                     self.emit_u16(self.cur_func().scope_level as _);
 
                     goto_lvalue = true;
                     lvalue!();
 
                     // code after label lvalue
-                    if prop_name == JS_ATOM_NULL {
+                    if *prop_name == JS_ATOM_NULL {
                         /* computed property name on stack */
                         /* XXX: should have OP_get_array_el2x with depth */
                         /* source prop -- val */
@@ -375,7 +351,7 @@ impl<'s> JSParseState<'s> {
                 }
 
                 if !goto_lvalue {
-                    var_name = prop_name.dup(self.ctx.rt());
+                    var_name = prop_name.clone();
                     /* source -- source val */
                     self.emit_op(OpCode::GET_FIELD2);
                     self.emit_u32(prop_name.0);
@@ -478,34 +454,30 @@ impl<'s> JSParseState<'s> {
             };
 
             if parse_expr {
-                let mut var_name = JS_ATOM_NULL;
+                let mut var_name = JSAtomRc::NULL;
                 let mut enum_depth = 0;
 
-                macro_rules! var_error {
-                    () => {
-                        JS_FreeAtom(&self.ctx, var_name);
-                        return Err(-1);
-                    };
-                }
-
                 if tok != 0 {
-                    var_name = self.parse_destructuring_var(tok, is_arg)?;
-                    if self.define_var(var_name, tok, export).is_err() {
-                        var_error!();
-                    }
+                    var_name = self
+                        .parse_destructuring_var(tok, is_arg)?
+                        .into_rc(self.ctx.rt());
+                    self.define_var(*var_name, tok, export)?;
                     opcode = opcodes::op_scope_get_var as i32;
                     scope = self.cur_func().scope_level;
                 } else {
                     self.parse_left_hand_side_expr()?;
+
+                    let mut a = JS_ATOM_NULL;
                     self.get_lvalue(
                         &mut opcode,
                         &mut scope,
-                        &mut var_name,
+                        &mut a,
                         &mut label_lvalue,
                         &mut enum_depth,
                         false,
                         '[' as i32,
                     )?;
+                    var_name = a.into_rc(self.ctx.rt());
                 }
 
                 if has_spread {
@@ -522,17 +494,14 @@ impl<'s> JSParseState<'s> {
                     self.emit_op(OpCode::UNDEFINED);
                     self.emit_op(OpCode::STRICT_EQ);
                     let label_hasval = self.emit_goto(OpCode::IF_FALSE, -1);
-                    if self.next_token().is_err() {
-                        var_error!();
-                    }
+                    self.next_token()?;
                     self.emit_op(OpCode::DROP);
-                    if self.parse_assign_expr().is_err() {
-                        var_error!();
-                    }
+                    self.parse_assign_expr()?;
+
                     if opcode == opcodes::op_scope_get_var as i32
                         || opcode == opcodes::OP_get_ref_value as i32
                     {
-                        self.set_object_name(var_name);
+                        self.set_object_name(*var_name);
                     }
                     self.emit_label(label_hasval);
                 }
@@ -541,7 +510,7 @@ impl<'s> JSParseState<'s> {
                 self.put_lvalue(
                     opcode,
                     scope,
-                    var_name,
+                    var_name.into(),
                     label_lvalue,
                     PutLValueEnum::PUT_LVALUE_NOKEEP_DEPTH,
                     tok == TOK_CONST || tok == TOK_LET,
@@ -655,6 +624,7 @@ impl<'s> JSParseState<'s> {
         Ok(has_initializer)
     }
 
+    /// returned atom is duplicated. caller should free it.
     fn parse_destructuring_var(&mut self, tok: i32, is_arg: bool) -> Result<JSAtom, i32> {
         if (self.token.val != TOK_IDENT || self.token.data.is_reserved())
             || (self.cur_func().attrs.js_mode & JS_MODE_STRICT as u8 != 0

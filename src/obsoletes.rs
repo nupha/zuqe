@@ -2000,8 +2000,9 @@ pub unsafe fn get_lvalue(
     keep: bool,
     tok: i32,
 ) -> i32 {
-    (*s).get_lvalue(popcode, pscope, pname, plabel, pdepth, keep, tok)
-        .map_or(-1, |_| 0)
+    unreachable!("unused")
+    // (*s).get_lvalue(popcode, pscope, pname, plabel, pdepth, keep, tok)
+    //     .map_or(-1, |_| 0)
 }
 
 // name has a live reference. 'is_let' is only used with opcode =

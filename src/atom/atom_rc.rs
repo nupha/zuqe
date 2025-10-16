@@ -7,18 +7,16 @@ use super::{JS_ATOM_NULL, JS_FreeAtomRT, JSAtom};
 /// A reference-counted wrapper for JSAtom that provides automatic memory management
 /// and safe access to the underlying JSAtom.
 pub struct JSAtomRc {
-    rt: NonNull<JSRuntime>,
     atom: JSAtom,
+    rt: NonNull<JSRuntime>,
 }
 
 impl JSAtomRc {
-    /// return NULL atom rc
-    pub fn null(rt: &JSRuntime) -> Self {
-        Self {
-            rt: NonNull::from(rt),
-            atom: JS_ATOM_NULL,
-        }
-    }
+    /// the invalid atom
+    pub const NULL: Self = Self {
+        atom: JS_ATOM_NULL,
+        rt: NonNull::dangling(),
+    };
 
     /// wrap a atom to atom rc by cloning it
     #[inline]
@@ -41,10 +39,13 @@ impl Clone for JSAtomRc {
     /// Dup the inner JSAtom
     #[inline]
     fn clone(&self) -> Self {
-        let v = self.atom.dup(unsafe { self.rt.as_ref() });
         Self {
+            atom: if self.atom != JS_ATOM_NULL {
+                self.atom.dup(unsafe { self.rt.as_ref() })
+            } else {
+                JS_ATOM_NULL
+            },
             rt: self.rt,
-            atom: v,
         }
     }
 }
@@ -60,8 +61,10 @@ impl From<JSAtomRc> for JSAtom {
 impl Drop for JSAtomRc {
     /// Automatically free inner atom when JSAtomRc is destroyed
     fn drop(&mut self) {
-        unsafe {
-            JS_FreeAtomRT(self.rt.as_mut(), self.atom);
+        if self.atom != JS_ATOM_NULL {
+            unsafe {
+                JS_FreeAtomRT(self.rt.as_mut(), self.atom);
+            }
         }
     }
 }
@@ -71,8 +74,8 @@ impl JSAtom {
     #[inline(always)]
     pub fn into_rc(self, rt: &JSRuntime) -> JSAtomRc {
         JSAtomRc {
-            rt: NonNull::from(rt),
             atom: self,
+            rt: NonNull::from(rt),
         }
     }
 }
