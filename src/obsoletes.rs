@@ -30,8 +30,7 @@ use crate::{
     iterator::{ForInIterPayload, JSIteratorKindEnum},
     mapset::{JSMapState, MapPair},
     module::{
-        ExecModuleList, ExportEntry, ExportType, JSResolveEntry, JSResolveResultEnum, ModuleDef,
-        ModuleDefInner,
+        ExportEntry, ExportType, JSResolveEntry, JSResolveResultEnum, ModuleDef, ModuleDefInner,
     },
     number::JSToNumberHintEnum,
     object::{
@@ -4498,6 +4497,13 @@ pub fn js_async_module_execution_rejected(ctx: &JSContext, args: CallContext) ->
     // ModuleDef::execute_async_reject_callback(ctx, args)
 }
 
+#[deprecated]
+pub struct ExecModuleList {
+    pub tab: *mut *mut ModuleDef,
+    pub count: i32,
+    pub size: i32,
+}
+
 #[deprecated(note = "use gather_module_ancestors() instead")]
 pub unsafe fn gather_available_ancestors(
     ctx: &JSContext,
@@ -4551,8 +4557,7 @@ pub unsafe fn gather_available_ancestors(
 
 #[deprecated(note = "use ModuleDef::in_execution_list() instead")]
 pub unsafe fn find_in_exec_module_list(exec_list: &mut ExecModuleList, m: *mut ModuleDef) -> bool {
-    (*m).in_execution_list(exec_list)
-
+    unreachable!("unused")
     // for i in 0..(*exec_list).count {
     //     if *(*exec_list).tab.offset(i as isize) == m {
     //         return true;

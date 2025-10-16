@@ -17,6 +17,16 @@ use crate::{
 use super::ModuleDef;
 
 impl ModuleDefInner {
+    #[inline(always)]
+    pub fn status(&self) -> JSModuleStatus {
+        self.status.get()
+    }
+
+    #[inline(always)]
+    pub(super) fn set_status(&self, status: JSModuleStatus) {
+        self.status.set(status);
+    }
+
     /// set module status to `evaluated`
     fn set_evaluated(&self, ctx: &JSContext) {
         debug_assert_ne!(
@@ -34,51 +44,35 @@ impl ModuleDefInner {
             let _ = func.call(ctx, &JSValue::UNDEFINED, &[JSValue::UNDEFINED]);
         }
     }
-
-    #[inline(always)]
-    fn set_status(&self, status: JSModuleStatus) {
-        self.status.set(status);
-    }
-}
-
-impl ModuleDef {
-    #[inline(always)]
-    pub fn status(&self) -> JSModuleStatus {
-        self.0.status.get()
-    }
-
-    #[inline(always)]
-    pub(super) fn set_status(&self, status: JSModuleStatus) {
-        self.0.set_status(status);
-    }
-
     #[inline(always)]
     fn cycle_root(&self) -> Option<ModuleDef> {
-        self.0.cycle_root.borrow().as_ref().cloned()
+        self.cycle_root.borrow().as_ref().cloned()
     }
 
     fn set_cycle_root(&self, root: ModuleDef) {
-        debug_assert!(self.0.cycle_root.borrow().as_ref().is_none());
-        self.0.cycle_root.borrow_mut().deref_mut().replace(root);
+        debug_assert!(self.cycle_root.borrow().as_ref().is_none());
+        self.cycle_root.borrow_mut().deref_mut().replace(root);
     }
 
     #[inline(always)]
     fn async_evaluation(&self) -> bool {
-        self.0.async_evaluation.get()
+        self.async_evaluation.get()
     }
 
     #[inline(always)]
     fn set_async_evaluation(&self, b: bool) {
-        self.0.async_evaluation.set(b)
+        self.async_evaluation.set(b)
     }
+}
 
+impl ModuleDef {
     /// compile source as module, don't run. `filename` is used to identify the module.
     pub fn compile(
         ctx: &JSContext,
         source: &[u8],
         filename: &str,
         strip: bool,
-    ) -> Result<ModuleDef, i32> {
+    ) -> Result<Self, i32> {
         if let Compiled::Module(md) = ctx.compile(
             source,
             filename,
@@ -353,33 +347,6 @@ impl ModuleDef {
         let mut exec_list = Vec::<ModuleDef>::with_capacity(8);
         gather_module_ancestors(ctx, &md, &mut exec_list)?;
 
-        //
-        // let mut exec_list = match module.with_mut(|md| -> Result<(), JSValue> {
-        //     if module.status() == JSModuleStatus::JS_MODULE_STATUS_EVALUATED {
-        //         debug_assert!(md.eval_has_exception);
-        //         return Err(JSValue::UNDEFINED);
-        //     }
-        //
-        //     debug_assert_eq!(md.status, JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC);
-        //     debug_assert!(!md.eval_has_exception);
-        //     debug_assert!(md.async_evaluation);
-        //
-        //     md.async_evaluation = false;
-        //     md.set_evaluated(ctx);
-        //     Ok(())
-        // }) {
-        //     Ok(_) => {
-        //         let mut lst = Vec::<ModuleDef>::with_capacity(8);
-        //         unsafe {
-        //             gather_module_ancestors(ctx, &module, &mut lst)?;
-        //         }
-        //         lst
-        //     }
-        //     Err(v) => {
-        //         return Ok(v);
-        //     }
-        // };
-
         // sort by async_evaluation timestamp
         exec_list.sort_by(|m1, m2| {
             let t1 = m1.0.async_evaluation_timestamp.get();
@@ -499,36 +466,32 @@ impl ModuleDef {
         }
     }
 
-    /// test if module `self` is in execution list `exec_list
-    pub fn in_execution_list(&mut self, exec_list: &mut ExecModuleList) -> bool {
-        for i in 0..exec_list.count {
-            if unsafe { *exec_list.tab.offset(i as isize) } == self {
-                return true;
-            }
-        }
+    // /// test if module `self` is in execution list `exec_list`
+    // pub fn in_execution_list(&mut self, exec_list: &mut ExecModuleList) -> bool {
+    //     for i in 0..exec_list.count {
+    //         if unsafe { *exec_list.tab.offset(i as isize) } == self {
+    //             return true;
+    //         }
+    //     }
 
-        false
-    }
+    //     false
+    // }
 }
 
 impl JSContext {
     /// eval `source` as module.
     pub fn eval_module(&self, source: &[u8], filename: &str, strip: bool) -> Result<Promise, i32> {
-        // compile module
+        // compile
         let md = ModuleDef::compile(self, source, filename, strip)?;
         md.0.set_import_meta(self, filename, true)?;
 
-        // eval module function
-        md.create_module_function(self)?; // make module function
-        md.link(self)?; // resolving imports, exports
-        md.eval(self) // evaluate module function
+        // make module function
+        md.create_module_function(self)?;
+        // resolving imports, exports
+        md.link(self)?;
+        // evaluate module function
+        md.eval(self)
     }
-}
-
-pub struct ExecModuleList {
-    pub tab: *mut *mut ModuleDef,
-    pub count: i32,
-    pub size: i32,
 }
 
 fn gather_module_ancestors(

@@ -7,8 +7,7 @@ use crate::{
     context::JSContext,
     function::BCFunction,
     module::{
-        ExportType, JSModuleStatus, JSResolveEntry, ModuleDef, ModuleDefInner, ResolveExport,
-        js_create_module_var,
+        ExportType, JSModuleStatus, JSResolveEntry, ModuleDef, ResolveExport, js_create_module_var,
     },
     runtime::js_check_stack_overflow,
     value::JSValue,
@@ -115,72 +114,18 @@ impl ModuleDef {
         ret
     }
 
-    /// Prepare a module to be executed by resolving all the imported variables.
-    #[inline(always)]
-    fn inner_module_linking(
-        &self,
-        ctx: &JSContext,
-        stack_top: &mut Option<ModuleDef>,
-        index: i32,
-    ) -> Result<i32, i32> {
-        self.0
-            .inner_module_linking(ctx, self.clone(), stack_top, index)
-    }
-
-    /// Prepare a module to be executed by resolving all the imported variables.
-    /// 准备模块执行前的链接工作，即解析和绑定所有导入的变量。
-    /// - 模块依赖链接：解析模块之间的依赖关系，将导入和导出绑定起来
-    /// - 变量引用解析：建立导入变量与导出变量之间的引用关系
-    /// - 循环依赖处理：使用深度优先搜索(DFS)算法处理模块间的循环依赖
-    /// - 状态管理：管理模块的链接状态转换
-    pub(super) fn link(&self, ctx: &JSContext) -> Result<(), i32> {
-        debug_assert!(matches!(
-            self.status(),
-            JSModuleStatus::JS_MODULE_STATUS_UNLINKED
-                | JSModuleStatus::JS_MODULE_STATUS_LINKED
-                | JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
-                | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
-        ));
-
-        let mut stack_top: Option<ModuleDef> = None;
-        let r = self.inner_module_linking(ctx, &mut stack_top, 0);
-
-        if unlikely(r.is_err()) {
-            while let Some(m1) = stack_top.take() {
-                debug_assert_eq!(m1.status(), JSModuleStatus::JS_MODULE_STATUS_LINKING);
-                m1.0.status.set(JSModuleStatus::JS_MODULE_STATUS_UNLINKED);
-                stack_top = m1.0.stack_prev.take();
-            }
-            Err(-1)
-        } else {
-            debug_assert!(stack_top.is_none());
-            debug_assert!(matches!(
-                self.status(),
-                JSModuleStatus::JS_MODULE_STATUS_LINKED
-                    | JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
-                    | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
-            ));
-            Ok(())
-        }
-    }
-}
-
-impl ModuleDefInner {
     /// Prepare module `self` to be executed by resolving all the imported variables.
     /// Resolving imports, exports.
     fn inner_module_linking(
         &self,
         ctx: &JSContext,
-        md: ModuleDef,
         stack_top: &mut Option<ModuleDef>,
         index: i32,
     ) -> Result<i32, i32> {
-        if js_check_stack_overflow(ctx.rt(), 0) {
+        if unlikely(js_check_stack_overflow(ctx.rt(), 0)) {
             ctx.throw_stack_overflow();
             return Err(-1);
-        }
-
-        if matches!(
+        } else if matches!(
             self.status.get(),
             JSModuleStatus::JS_MODULE_STATUS_LINKING
                 | JSModuleStatus::JS_MODULE_STATUS_LINKED
@@ -198,7 +143,7 @@ impl ModuleDefInner {
 
         // push `self` on stack
         self.stack_prev.replace(stack_top.take());
-        stack_top.replace(md);
+        stack_top.replace(self.clone());
 
         let mut index = index + 1;
 
@@ -353,5 +298,42 @@ impl ModuleDefInner {
         }
 
         Ok(index)
+    }
+
+    /// Prepare a module to be executed by resolving all the imported variables.
+    /// 准备模块执行前的链接工作，即解析和绑定所有导入的变量。
+    /// - 模块依赖链接：解析模块之间的依赖关系，将导入和导出绑定起来
+    /// - 变量引用解析：建立导入变量与导出变量之间的引用关系
+    /// - 循环依赖处理：使用深度优先搜索(DFS)算法处理模块间的循环依赖
+    /// - 状态管理：管理模块的链接状态转换
+    pub(super) fn link(&self, ctx: &JSContext) -> Result<(), i32> {
+        debug_assert!(matches!(
+            self.status(),
+            JSModuleStatus::JS_MODULE_STATUS_UNLINKED
+                | JSModuleStatus::JS_MODULE_STATUS_LINKED
+                | JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
+                | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
+        ));
+
+        let mut stack_top: Option<ModuleDef> = None;
+        let r = self.inner_module_linking(ctx, &mut stack_top, 0);
+
+        if unlikely(r.is_err()) {
+            while let Some(m1) = stack_top.take() {
+                debug_assert_eq!(m1.status(), JSModuleStatus::JS_MODULE_STATUS_LINKING);
+                m1.0.status.set(JSModuleStatus::JS_MODULE_STATUS_UNLINKED);
+                stack_top = m1.0.stack_prev.take();
+            }
+            Err(-1)
+        } else {
+            debug_assert!(stack_top.is_none());
+            debug_assert!(matches!(
+                self.status(),
+                JSModuleStatus::JS_MODULE_STATUS_LINKED
+                    | JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
+                    | JSModuleStatus::JS_MODULE_STATUS_EVALUATED
+            ));
+            Ok(())
+        }
     }
 }
