@@ -31,14 +31,14 @@ pub type JSModuleLoaderFunc = fn(
     opaque: *mut ::core::ffi::c_void,
 ) -> Result<ModuleDef, i32>;
 
-pub trait JSModuleInitFunc: Fn(&JSContext, &ModuleDef) -> Result<(), i32> {}
-
-impl<F> JSModuleInitFunc for F where F: Fn(&JSContext, &ModuleDef) -> Result<(), i32> {}
+pub trait ModuleInitFunc: Fn(&JSContext, &ModuleDef) -> Result<(), i32> {}
+impl<F> ModuleInitFunc for F where F: Fn(&JSContext, &ModuleDef) -> Result<(), i32> {}
 
 pub struct ModuleDefInner {
     rt: NonNull<JSRuntime>,
     gc_mark: Cell<bool>,
 
+    /// hold a refcount of the atom
     pub module_name: JSAtom,
 
     pub(super) dependencies: RefCell<Vec<ModuleDependency>>,
@@ -62,7 +62,7 @@ pub struct ModuleDefInner {
     /// * `undefined` for uninitialized.
     pub bytecode: Cell<JSValue>,
     /// for C modules only
-    pub init_func: Option<Box<dyn JSModuleInitFunc>>,
+    pub init_func: Option<Box<dyn ModuleInitFunc>>,
 
     /// true if func_obj contains await
     has_tla: Cell<bool>,
@@ -153,7 +153,7 @@ impl ModuleDefInner {
     fn create_native(
         ctx: &JSContext,
         name: &str,
-        init_func: impl JSModuleInitFunc + 'static,
+        init_func: impl ModuleInitFunc + 'static,
     ) -> Result<Self, i32> {
         let name = JSAtom::new(ctx.rt_mut(), name)?;
         let mut inner = ModuleDefInner::new(ctx, name);
@@ -166,25 +166,71 @@ impl ModuleDefInner {
         self as *const Self as usize
     }
 
+    #[inline(always)]
     pub fn rt(&self) -> &JSRuntime {
         unsafe { self.rt.as_ref() }
     }
 
+    #[inline(always)]
     pub fn rt_mut(&self) -> &mut JSRuntime {
         unsafe { self.rt.as_ptr().as_mut().unwrap() }
+    }
+
+    /// get module name atom.
+    /// returned atom is not duplicated, caller should clone it before keep it referenced.
+    #[inline(always)]
+    pub fn module_name(&self) -> JSAtom {
+        self.module_name
+    }
+
+    #[inline(always)]
+    pub fn has_tla(&self) -> bool {
+        self.has_tla.get()
+    }
+
+    #[inline(always)]
+    pub(crate) fn set_tla(&self, b: bool) {
+        self.has_tla.set(b);
+    }
+
+    /// get module loading promise
+    #[inline(always)]
+    pub(crate) fn promise(&self) -> Option<Promise> {
+        unsafe { (*self.promise.as_ptr()).as_ref().cloned() }
+    }
+
+    /// get eval exception. None means no exception.
+    #[inline(always)]
+    pub(crate) fn eval_exception(&self) -> Option<JSValue> {
+        unsafe {
+            let p = &*self.eval_exception.get();
+            p.clone()
+        }
+    }
+
+    /// set eval exception
+    pub(crate) fn set_eval_exception(&self, exc: Option<JSValue>) {
+        debug_assert!(exc.as_ref().map_or(true, |v| !v.is_undefined_or_null()));
+        unsafe {
+            let p = &mut *self.eval_exception.get();
+            *p = exc;
+        }
     }
 
     #[inline(always)]
     pub(super) fn dfs_index(&self) -> i32 {
         self.dfs_index.get()
     }
+
     #[inline(always)]
     pub(super) fn dfs_ancestor_index(&self) -> i32 {
         self.dfs_ancestor_index.get()
     }
+
     pub(super) fn set_dfs_index(&self, i: i32) {
         self.dfs_index.set(i);
     }
+
     #[inline(always)]
     pub(super) fn set_dfs_ancestor_index(&self, i: i32) {
         self.dfs_ancestor_index.set(i);
@@ -267,7 +313,7 @@ impl ModuleDefInner {
 
     /// make module <eval> function from bytecode
     /// must be done before js_link_module() because of cyclic references
-    fn create_module_function(&self, ctx: &JSContext) -> Result<(), i32> {
+    pub(super) fn create_module_function(&self, ctx: &JSContext) -> Result<(), i32> {
         if self.func_created.get() {
             return Ok(());
         }
@@ -317,11 +363,35 @@ impl ModuleDefInner {
             JS_FreeAtomRT(rt, mi.import_name);
         }
     }
+
+    #[inline(always)]
+    pub fn gc_has_mark(&self) -> bool {
+        self.gc_mark.get()
+    }
+
+    #[inline(always)]
+    pub fn gc_set_mark(&self, mark: bool) {
+        self.gc_mark.set(mark);
+    }
 }
 
 #[repr(transparent)]
 #[derive(Clone, PartialEq)]
 pub struct ModuleDef(pub(crate) Rc<ModuleDefInner>);
+
+impl From<ModuleDef> for JSValue {
+    fn from(value: ModuleDef) -> Self {
+        Self::Module(value)
+    }
+}
+
+impl std::ops::Deref for ModuleDef {
+    type Target = ModuleDefInner;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 impl std::fmt::Debug for ModuleDef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -330,12 +400,6 @@ impl std::fmt::Debug for ModuleDef {
             "<ModuleDef id={:p}>",
             self.id() as *const std::ffi::c_void
         )
-    }
-}
-
-impl From<ModuleDef> for JSValue {
-    fn from(value: ModuleDef) -> Self {
-        Self::Module(value)
     }
 }
 
@@ -354,7 +418,7 @@ impl ModuleDef {
     pub fn create_native(
         ctx: &JSContext,
         name: &str,
-        init_func: impl JSModuleInitFunc + 'static,
+        init_func: impl ModuleInitFunc + 'static,
     ) -> Result<Self, i32> {
         let inner = ModuleDefInner::create_native(ctx, name, init_func)?;
         let m = Self(Rc::new(inner));
@@ -362,89 +426,8 @@ impl ModuleDef {
         Ok(m)
     }
 
-    /// get module `import.meta` object.
-    pub fn import_meta(&self, ctx: &JSContext) -> Result<JSObject, i32> {
-        self.0.import_meta(ctx)
-    }
-
-    /// get module name atom. returned atom is not duplicated.
-    #[inline(always)]
-    pub fn module_name(&self) -> JSAtom {
-        self.0.module_name
-    }
-
-    #[inline(always)]
-    pub fn id(&self) -> usize {
-        self.0.id()
-    }
-
-    #[inline(always)]
-    pub fn has_tla(&self) -> bool {
-        self.0.has_tla.get()
-    }
-    #[inline(always)]
-    pub fn set_tla(&self, b: bool) {
-        self.0.has_tla.set(b);
-    }
-
-    #[inline(always)]
-    pub(super) fn dfs_index(&self) -> i32 {
-        self.0.dfs_index()
-    }
-    #[inline(always)]
-    pub(super) fn dfs_ancestor_index(&self) -> i32 {
-        self.0.dfs_ancestor_index()
-    }
-    pub(super) fn set_dfs_index(&self, i: i32) {
-        self.0.set_dfs_index(i);
-    }
-    #[inline(always)]
-    pub(super) fn set_dfs_ancestor_index(&self, i: i32) {
-        self.0.set_dfs_ancestor_index(i);
-    }
-
-    /// get module loading promise
-    #[inline(always)]
-    pub(crate) fn promise(&self) -> Option<Promise> {
-        unsafe { (*self.0.promise.as_ptr()).as_ref().cloned() }
-    }
-
-    /// get eval exception. None means no exception.
-    #[inline(always)]
-    pub fn eval_exception(&self) -> Option<JSValue> {
-        unsafe {
-            let p = &*self.0.eval_exception.get();
-            p.clone()
-        }
-    }
-
-    /// set eval exception
-    pub fn set_eval_exception(&self, exc: Option<JSValue>) {
-        debug_assert!(exc.as_ref().map_or(true, |v| !v.is_undefined_or_null()));
-
-        unsafe {
-            let p = &mut *self.0.eval_exception.get();
-            *p = exc;
-        }
-    }
-
     pub fn downgrade(&self) -> JSModuleDefWeakref {
         JSModuleDefWeakref(Rc::downgrade(&self.0))
-    }
-
-    pub fn gc_has_mark(&self) -> bool {
-        self.0.gc_mark.get()
-    }
-
-    pub fn gc_set_mark(&self, mark: bool) {
-        self.0.gc_mark.set(mark);
-    }
-
-    /// make module <eval> function from bytecode
-    /// must be done before js_link_module() because of cyclic references
-    #[inline(always)]
-    pub(super) fn create_module_function(&self, ctx: &JSContext) -> Result<(), i32> {
-        self.0.create_module_function(ctx)
     }
 }
 
@@ -541,103 +524,6 @@ pub unsafe fn add_module_variables(ctx: &JSContext, fd: &mut JSFunctionDef) -> i
     0
 }
 
-/// default module filename normalizer
-pub(crate) fn js_default_module_normalize_name(
-    ctx: &JSContext,
-    base_name: &str,
-    name: &str,
-) -> Result<String, i32> {
-    debug_assert!(!name.is_empty());
-
-    // 如果不是相对路径，直接返回原名
-    if !name.starts_with('.') {
-        return Ok(name.to_string());
-    }
-
-    // 获取基础路径的目录部分
-    let base_dir = if let Some(pos) = base_name.rfind('/') {
-        &base_name[..pos]
-    } else {
-        ""
-    };
-
-    // 构建初始文件路径
-    let mut filename = if !base_dir.is_empty() {
-        format!("{}/", base_dir)
-    } else {
-        String::new()
-    };
-
-    // 标准化路径处理
-    let mut r = name;
-    loop {
-        if r.starts_with("./") {
-            r = &r[2..];
-        } else if r.starts_with("../") {
-            // 移除filename的最后一级路径元素，但不能是"."或".."
-            if !filename.is_empty() {
-                // 查找最后一个'/'的位置
-                let mut parts: Vec<&str> = filename.split('/').collect();
-                if !parts.is_empty() {
-                    let last_part = parts.last().unwrap_or(&"");
-                    // 如果最后一部分是"."或".."则停止处理
-                    if *last_part != "." && *last_part != ".." {
-                        // 移除最后一部分
-                        if parts.len() > 1 {
-                            parts.pop(); // 移除最后一部分
-                            filename = parts.join("/");
-                            if !filename.is_empty() {
-                                filename.push('/');
-                            }
-                        } else {
-                            filename.clear();
-                        }
-                    } else {
-                        break;
-                    }
-                } else {
-                    break;
-                }
-            } else {
-                break;
-            }
-            r = &r[3..];
-        } else {
-            break;
-        }
-    }
-
-    // 添加剩余的路径部分
-    if !filename.is_empty() && !r.is_empty() {
-        filename.push_str(r);
-    } else if !r.is_empty() {
-        filename.push_str(r);
-    }
-
-    Ok(filename)
-
-    // let path = if let Some(base) = PathBuf::from(base_name).parent() {
-    //     base.join(name)
-    // } else {
-    //     PathBuf::from(name)
-    // };
-
-    // let mut normalized = PathBuf::new();
-    // for component in path.components() {
-    //     match component {
-    //         std::path::Component::ParentDir => {
-    //             normalized.pop();
-    //         }
-    //         std::path::Component::CurDir => {}
-    //         _ => {
-    //             normalized.push(component.as_os_str());
-    //         }
-    //     }
-    // }
-
-    // Ok(normalized.to_string_lossy().to_string())
-}
-
 /* Unfortunately, the spec gives a different behavior from GetOwnProperty ! */
 fn js_module_ns_has(ctx: &JSContext, obj: &JSObject, prop: JSAtom) -> Result<bool, i32> {
     Ok(obj.has_shape_property(prop))
@@ -710,11 +596,6 @@ pub fn JS_GetScriptOrModuleName(ctx: &JSContext, n_stack_levels: i32) -> JSAtom 
             return JS_ATOM_NULL;
         }
     }
-}
-
-#[deprecated(note = "use JSModuleDefInner::import_meta() instead")]
-pub unsafe fn JS_GetImportMeta(ctx: &JSContext, m: *mut ModuleDefInner) -> JSValue {
-    unreachable!("unused");
 }
 
 /// get module import.meta object of context current execution.

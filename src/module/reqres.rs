@@ -2,7 +2,7 @@ use crate::{
     atom::{JS_FreeAtom, JSAtom},
     branch_hints::unlikely,
     context::JSContext,
-    module::{ModuleDef, js_default_module_normalize_name},
+    module::ModuleDef,
 };
 
 #[derive(Debug)]
@@ -140,4 +140,101 @@ pub fn js_host_resolve_imported_module_atom(
     let base_cname = base_module_name.to_utf8(ctx.rt());
     let cname = module_name1.to_utf8(ctx.rt());
     js_host_resolve_imported_module(ctx, base_cname.as_ref(), &cname)
+}
+
+/// default module filename normalizer
+fn js_default_module_normalize_name(
+    _: &JSContext,
+    base_name: &str,
+    name: &str,
+) -> Result<String, i32> {
+    debug_assert!(!name.is_empty());
+
+    // 如果不是相对路径，直接返回原名
+    if !name.starts_with('.') {
+        return Ok(name.to_string());
+    }
+
+    // 获取基础路径的目录部分
+    let base_dir = if let Some(pos) = base_name.rfind('/') {
+        &base_name[..pos]
+    } else {
+        ""
+    };
+
+    // 构建初始文件路径
+    let mut filename = if !base_dir.is_empty() {
+        format!("{}/", base_dir)
+    } else {
+        String::new()
+    };
+
+    // 标准化路径处理
+    let mut r = name;
+    loop {
+        if r.starts_with("./") {
+            r = &r[2..];
+        } else if r.starts_with("../") {
+            // 移除filename的最后一级路径元素，但不能是"."或".."
+            if !filename.is_empty() {
+                // 查找最后一个'/'的位置
+                let mut parts: Vec<&str> = filename.split('/').collect();
+                if !parts.is_empty() {
+                    let last_part = parts.last().unwrap_or(&"");
+                    // 如果最后一部分是"."或".."则停止处理
+                    if *last_part != "." && *last_part != ".." {
+                        // 移除最后一部分
+                        if parts.len() > 1 {
+                            parts.pop(); // 移除最后一部分
+                            filename = parts.join("/");
+                            if !filename.is_empty() {
+                                filename.push('/');
+                            }
+                        } else {
+                            filename.clear();
+                        }
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+            r = &r[3..];
+        } else {
+            break;
+        }
+    }
+
+    // 添加剩余的路径部分
+    if !filename.is_empty() && !r.is_empty() {
+        filename.push_str(r);
+    } else if !r.is_empty() {
+        filename.push_str(r);
+    }
+
+    Ok(filename)
+
+    // let path = if let Some(base) = PathBuf::from(base_name).parent() {
+    //     base.join(name)
+    // } else {
+    //     PathBuf::from(name)
+    // };
+
+    // let mut normalized = PathBuf::new();
+    // for component in path.components() {
+    //     match component {
+    //         std::path::Component::ParentDir => {
+    //             normalized.pop();
+    //         }
+    //         std::path::Component::CurDir => {}
+    //         _ => {
+    //             normalized.push(component.as_os_str());
+    //         }
+    //     }
+    // }
+
+    // Ok(normalized.to_string_lossy().to_string())
 }

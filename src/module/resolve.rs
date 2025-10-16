@@ -168,7 +168,7 @@ impl ModuleDef {
 impl ModuleDefInner {
     /// Prepare module `self` to be executed by resolving all the imported variables.
     /// Resolving imports, exports.
-    pub(super) fn inner_module_linking(
+    fn inner_module_linking(
         &self,
         ctx: &JSContext,
         md: ModuleDef,
@@ -178,18 +178,6 @@ impl ModuleDefInner {
         if js_check_stack_overflow(ctx.rt(), 0) {
             ctx.throw_stack_overflow();
             return Err(-1);
-        }
-
-        #[cfg(DUMP_MODULE_RESOLVE)]
-        {
-            let buf1: [u8; ATOM_GET_STR_BUF_SIZE] = [0; ATOM_GET_STR_BUF_SIZE];
-            println!(
-                "js_inner_module_linking '{}':\n",
-                std::str::from_utf8_unchecked(std::slice::from_raw_parts(
-                    JS_AtomGetStr(ctx, buf1.as_mut_ptr(), buf1.len(), (*m).module_name),
-                    buf1.len()
-                ))
-            );
         }
 
         if matches!(

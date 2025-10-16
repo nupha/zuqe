@@ -4686,3 +4686,8 @@ pub(super) fn js_parse_check_duplicate_parameter(s: &JSParseState, name: JSAtom)
 fn add_eval_variables(ctx: &JSContext, s: &mut JSFunctionDef) {
     unreachable!("unused")
 }
+
+#[deprecated(note = "use JSModuleDefInner::import_meta() instead")]
+pub unsafe fn JS_GetImportMeta(ctx: &JSContext, m: *mut ModuleDefInner) -> JSValue {
+    unreachable!("unused");
+}
