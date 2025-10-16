@@ -468,9 +468,9 @@ impl ModuleDef {
     }
 
     fn execute_sync_module(&self, ctx: &JSContext) -> Result<(), JSValue> {
-        if let Some(f) = self.0.init_func {
+        if let Some(f) = self.0.init_func.as_ref() {
             // is native module: no asynchronous execution
-            if unlikely(f(ctx, self) < 0) {
+            if unlikely(f(ctx, self).is_err()) {
                 Err(ctx.take_exception())
             } else {
                 Ok(())

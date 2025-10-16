@@ -92,8 +92,8 @@ fn main() {
     //     })
     //     .unwrap();
 
-    // init native modules
-    mod_demo_create(&ctx);
+    // register native modules
+    ctx.register_native_module("std", &MOD_DEMO_FUNCS).unwrap();
 
     // setup globals
     {
@@ -335,21 +335,5 @@ fn js_std_exit(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 static MOD_DEMO_FUNCS: [FieldDef; 2] = [
     JS_CFUNC_NATIVE_DEF!("exit", 1, js_std_exit, 0),
-    JS_PROP_INT32_DEF!("out", 0, JS_PROP_C_W_E),
+    JS_PROP_INT32_DEF!("out", 9, JS_PROP_C_W_E),
 ];
-
-fn mod_demo_create(ctx: &JSContext) -> i32 {
-    // create native module
-    let md = ModuleDef::create_native(&ctx, "std", |ctx, m| {
-        m.set_export_value(ctx, "out", JSValue::Int(10)).unwrap();
-        0
-    })
-    .unwrap();
-
-    // declare export names
-    for me in MOD_DEMO_FUNCS.iter() {
-        md.add_export(ctx, me.name).unwrap();
-    }
-
-    0
-}

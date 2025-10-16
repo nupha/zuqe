@@ -1,18 +1,15 @@
 use std::{
     cell::{Cell, RefCell, UnsafeCell},
-    path::PathBuf,
     ptr::NonNull,
     rc::{Rc, Weak},
 };
 
 use crate::{
-    atom::{JS_ATOM_NULL, JS_FreeAtom, JS_FreeAtomRT, JSAtom, JSAtomRc},
+    atom::{JS_ATOM_NULL, JS_FreeAtom, JS_FreeAtomRT, JSAtom},
     class::JSClassExoticMethods,
     context::{JSContext, JSContextInner},
     error::JSResult,
-    function::{
-        BCFuncPayload, FieldDef, JSFunctionDef, JSVarKindEnum, JSVarRef, NativeFieldDetail,
-    },
+    function::{BCFuncPayload, FieldDef, JSFunctionDef, JSVarKindEnum, JSVarRef},
     module::{ExportEntry, ExportType, JSImportEntry, JSModuleStatus, ModuleDependency},
     object::{JS_PROP_C_W_E, JSObject, ObjectPayload},
     promise::Promise,
@@ -34,7 +31,9 @@ pub type JSModuleLoaderFunc = fn(
     opaque: *mut ::core::ffi::c_void,
 ) -> Result<ModuleDef, i32>;
 
-pub type JSModuleInitFunc = fn(ctx: &JSContext, m: &ModuleDef) -> i32;
+pub trait JSModuleInitFunc: Fn(&JSContext, &ModuleDef) -> Result<(), i32> {}
+
+impl<F> JSModuleInitFunc for F where F: Fn(&JSContext, &ModuleDef) -> Result<(), i32> {}
 
 pub struct ModuleDefInner {
     rt: NonNull<JSRuntime>,
@@ -63,7 +62,7 @@ pub struct ModuleDefInner {
     /// * `undefined` for uninitialized.
     pub bytecode: Cell<JSValue>,
     /// for C modules only
-    pub init_func: Option<JSModuleInitFunc>,
+    pub init_func: Option<Box<dyn JSModuleInitFunc>>,
 
     /// true if func_obj contains await
     has_tla: Cell<bool>,
@@ -154,11 +153,11 @@ impl ModuleDefInner {
     fn create_native(
         ctx: &JSContext,
         name: &str,
-        init_func: JSModuleInitFunc,
+        init_func: impl JSModuleInitFunc + 'static,
     ) -> Result<Self, i32> {
         let name = JSAtom::new(ctx.rt_mut(), name)?;
         let mut inner = ModuleDefInner::new(ctx, name);
-        inner.init_func.replace(init_func);
+        inner.init_func.replace(Box::new(init_func));
         Ok(inner)
     }
 
@@ -355,7 +354,7 @@ impl ModuleDef {
     pub fn create_native(
         ctx: &JSContext,
         name: &str,
-        init_func: JSModuleInitFunc,
+        init_func: impl JSModuleInitFunc + 'static,
     ) -> Result<Self, i32> {
         let inner = ModuleDefInner::create_native(ctx, name, init_func)?;
         let m = Self(Rc::new(inner));
@@ -455,6 +454,31 @@ pub struct JSModuleDefWeakref(Weak<ModuleDefInner>);
 impl JSModuleDefWeakref {
     pub fn upgrade(&self) -> Option<ModuleDef> {
         self.0.upgrade().map(ModuleDef)
+    }
+}
+
+impl JSContext {
+    /// register a native module defination
+    pub fn register_native_module(
+        &self,
+        name: &str,
+        exported_entries: &'static [FieldDef],
+    ) -> Result<(), i32> {
+        // create native module
+        let md = ModuleDef::create_native(
+            &self,
+            name,
+            |cx: &JSContext, m: &ModuleDef| -> Result<(), i32> {
+                m.set_export_values(cx, exported_entries)
+            },
+        )?;
+
+        // declare export names
+        for me in exported_entries {
+            md.add_export(self, me.name)?;
+        }
+
+        Ok(())
     }
 }
 

@@ -5,4 +5,4 @@ mod mdef;
 mod reqres;
 mod resolve;
 
-pub use {eval::*, export::*, import::*, mdef::*, reqres::*, resolve::*};
+pub use {eval::*, export::*, import::*, mdef::*, reqres::*};
