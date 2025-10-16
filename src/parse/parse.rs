@@ -231,19 +231,7 @@ impl JSParseState<'_> {
                 let name = JSAtomRc::clone_from(self.ctx.rt(), atom);
 
                 self.next_token()?;
-                self.define_var(*name, tok)?;
-
-                if export {
-                    self.add_module_export(
-                        None,
-                        *name,
-                        *name,
-                        ExportType::JS_EXPORT_TYPE_LOCAL {
-                            var_idx: u16::MAX,
-                            var_ref: None,
-                        },
-                    )?;
-                }
+                self.define_var(*name, tok, export)?;
 
                 if self.token.val == '=' as i32 {
                     self.next_token()?;
@@ -327,6 +315,7 @@ impl JSParseState<'_> {
                         true,
                         skip_bits & SKIP_HAS_ELLIPSIS,
                         true,
+                        export,
                     )?;
                 } else {
                     self.throw_syntax_error("variable name expected");

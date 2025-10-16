@@ -6,6 +6,7 @@ use crate::{
     bytecode::{OpCode, OpCodeTemp, opcodes},
     context::JS_MODE_STRICT,
     function::BlockEnv,
+    module::ExportType,
     object::PROP_TYPE_IDENT,
     parse::token::{
         CHAR_COMMA, CHAR_CURLY_L, CHAR_CURLY_R, CHAR_EQUAL, CHAR_SQUARE_L, CHAR_SQUARE_R,
@@ -19,12 +20,13 @@ use super::{
 };
 
 impl<'s> JSParseState<'s> {
-    /// parse { body }
-    fn parse_destructuring_curly_body(
+    /// parse { ... }
+    fn parse_destructuring_curly(
         &mut self,
         tok: i32,
         is_arg: bool,
         has_ellipsis: bool,
+        export: bool,
     ) -> Result<(), i32> {
         debug_assert_eq!(self.token.val, '{' as i32, "body starts with '{{'");
 
@@ -62,7 +64,7 @@ impl<'s> JSParseState<'s> {
         macro_rules! set_val {
             () => {
                 if tok != 0 {
-                    if self.define_var(var_name, tok).is_err() {
+                    if self.define_var(var_name, tok, export).is_err() {
                         var_error!();
                     }
                     scope = self.cur_func().scope_level as _;
@@ -262,7 +264,7 @@ impl<'s> JSParseState<'s> {
                         self.emit_u32(prop_name.0);
                     }
 
-                    self.parse_destructuring_element(tok, is_arg, true, -1, true)?;
+                    self.parse_destructuring_element(tok, is_arg, true, -1, true, export)?;
 
                     if self.token.val == '}' as i32 {
                         break;
@@ -393,12 +395,13 @@ impl<'s> JSParseState<'s> {
         Ok(())
     }
 
-    /// parse [ body ]
-    fn parse_destructuring_square_body(
+    /// parse [ ... ]
+    fn parse_destructuring_square(
         &mut self,
         tok: i32,
         is_arg: bool,
         mut skip_bits: i32,
+        export: bool,
     ) -> Result<(), i32> {
         debug_assert_eq!(self.token.val, '[' as i32, "body starts with '['");
 
@@ -463,6 +466,7 @@ impl<'s> JSParseState<'s> {
                                 true,
                                 skip_bits & SKIP_HAS_ELLIPSIS,
                                 true,
+                                export,
                             )?;
 
                             false
@@ -486,7 +490,7 @@ impl<'s> JSParseState<'s> {
 
                 if tok != 0 {
                     var_name = self.parse_destructuring_var(tok, is_arg)?;
-                    if self.define_var(var_name, tok).is_err() {
+                    if self.define_var(var_name, tok, export).is_err() {
                         var_error!();
                     }
                     opcode = opcodes::op_scope_get_var as i32;
@@ -575,9 +579,10 @@ impl<'s> JSParseState<'s> {
         hasval: bool,
         mut has_ellipsis: i32,
         allow_initializer: bool,
-        // export:bool, // <-- TODO add this
+        export: bool,
     ) -> Result<bool, i32> {
         let mut skip_bits: i32 = 0;
+
         if has_ellipsis < 0 {
             // Pre-parse destructuration target for spread detection
             self.parse_skip_parens_token(&mut skip_bits, false)?;
@@ -607,11 +612,11 @@ impl<'s> JSParseState<'s> {
         match self.token.val {
             CHAR_CURLY_L => {
                 // {: parse { body }
-                self.parse_destructuring_curly_body(tok, is_arg, has_ellipsis != 0)?;
+                self.parse_destructuring_curly(tok, is_arg, has_ellipsis != 0, export)?;
             }
             CHAR_SQUARE_L => {
                 // [: parse [ body ]
-                self.parse_destructuring_square_body(tok, is_arg, skip_bits)?;
+                self.parse_destructuring_square(tok, is_arg, skip_bits, export)?;
             }
             _ => {
                 self.throw_syntax_error("invalid assignment syntax");

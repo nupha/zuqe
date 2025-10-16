@@ -6,6 +6,7 @@ use crate::{
     context::JS_MODE_STRICT,
     eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
     function::{GLOBAL_VAR_OFFSET, JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
+    module::ExportType,
     parse::token::{TOK_CATCH, TOK_CONST, TOK_LET, TOK_VAR},
 };
 
@@ -154,23 +155,28 @@ impl<'s> JSParseState<'s> {
     }
 
     /// `name` is not consumed.
-    pub fn define_var(&mut self, name: JSAtom, tok: i32) -> Result<(), i32> {
-        let func = self.cur_func();
+    /// in case current function def contains module, `export` suggests if this var is exported.
+    pub fn define_var(&mut self, name: JSAtom, tok: i32, export: bool) -> Result<(), i32> {
+        {
+            let func = self.cur_func();
 
-        match name {
-            JS_ATOM_yield if func.attrs.func_kind == JSFunctionKindEnum::JS_FUNC_GENERATOR => {
-                self.throw_syntax_error("yield is a reserved identifier");
-                return Err(-1);
+            match name {
+                JS_ATOM_yield if func.attrs.func_kind == JSFunctionKindEnum::JS_FUNC_GENERATOR => {
+                    self.throw_syntax_error("yield is a reserved identifier");
+                    return Err(-1);
+                }
+                JS_ATOM_arguments | JS_ATOM_eval
+                    if func.attrs.js_mode & JS_MODE_STRICT as u8 != 0 =>
+                {
+                    self.throw_syntax_error("invalid variable name in strict mode");
+                    return Err(-1);
+                }
+                JS_ATOM_let | JS_ATOM_undefined if matches!(tok, TOK_LET | TOK_CONST) => {
+                    self.throw_syntax_error("invalid lexical variable name");
+                    return Err(-1);
+                }
+                _ => {}
             }
-            JS_ATOM_arguments | JS_ATOM_eval if func.attrs.js_mode & JS_MODE_STRICT as u8 != 0 => {
-                self.throw_syntax_error("invalid variable name in strict mode");
-                return Err(-1);
-            }
-            JS_ATOM_let | JS_ATOM_undefined if matches!(tok, TOK_LET | TOK_CONST) => {
-                self.throw_syntax_error("invalid lexical variable name");
-                return Err(-1);
-            }
-            _ => {}
         }
 
         self.define_var_cur_func(
@@ -183,6 +189,24 @@ impl<'s> JSParseState<'s> {
                 _ => unreachable!(),
             },
         )?;
+
+        if export {
+            debug_assert!(
+                self.cur_func().module.is_some(),
+                "function def must contain module"
+            );
+
+            self.add_module_export(
+                None,
+                name,
+                name,
+                ExportType::JS_EXPORT_TYPE_LOCAL {
+                    var_idx: u16::MAX,
+                    var_ref: None,
+                },
+            )?;
+        }
+
         Ok(())
     }
 }

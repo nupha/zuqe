@@ -465,7 +465,7 @@ impl<'s> JSParseState<'s> {
         export_type: ExportType,
     ) -> Result<(), i32> {
         let md = md.unwrap_or_else(|| {
-            // current function def must be module.
+            // current function def must have module.
             self.cur_func().module.as_ref().unwrap()
         });
 

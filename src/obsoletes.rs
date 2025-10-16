@@ -18,7 +18,7 @@ use crate::{
     bytecode::{OpCode, OpCodeTemp, arithmatic::StrictEqMode},
     class::{ClassFieldsDef, JSClassDef, JSClassID, JSClassShortDef},
     context::JSContext,
-    error::{ErrorKind, JS_ThrowSyntaxError, JSResult},
+    error::{ErrorKind, JSResult},
     function::{
         AsyncFuncState, BlockEnv, Bytecode, CallContext, FieldDef, JSCFunction, JSCFunctionMagic,
         JSFunctionDef, JSFunctionKindEnum, JSGlobalVar, JSVarDefEnum, JSVarKindEnum, JSVarRef,
@@ -29,9 +29,7 @@ use crate::{
     generator::{AGenPayload, GeneratorPayload},
     iterator::{ForInIterPayload, JSIteratorKindEnum},
     mapset::{JSMapState, MapPair},
-    module::{
-        ExportEntry, ExportType, JSResolveEntry, JSResolveResultEnum, ModuleDef, ModuleDefInner,
-    },
+    module::{ExportEntry, ExportType, JSResolveResultEnum, ModuleDef, ModuleDefInner},
     number::JSToNumberHintEnum,
     object::{
         JSObject, JSProperty, JSPropertyDescriptor, JSShape, JSShapeProperty, ObjectPayload,
@@ -1957,7 +1955,7 @@ pub unsafe fn define_var(
 
 #[deprecated(note = "use JSParseState::define_var() instead")]
 pub unsafe fn js_define_var(s: *mut JSParseState, name: JSAtom, tok: i32) -> i32 {
-    if (*s).define_var(name, tok).is_err() {
+    if (*s).define_var(name, tok, false).is_err() {
         -1
     } else {
         0
@@ -2973,7 +2971,7 @@ pub unsafe fn js_parse_destructuring_element(
     has_ellipsis: i32,
     allow_initializer: bool,
 ) -> i32 {
-    (*s).parse_destructuring_element(tok, is_arg, hasval, has_ellipsis, allow_initializer)
+    (*s).parse_destructuring_element(tok, is_arg, hasval, has_ellipsis, allow_initializer, false)
         .map_or(-1, |b| b as i32)
 }
 
@@ -3181,34 +3179,25 @@ pub unsafe fn js_resolve_export_throw_error(
     match res {
         JSResolveResultEnum::JS_RESOLVE_RES_EXCEPTION => {}
         JSResolveResultEnum::JS_RESOLVE_RES_NOT_FOUND => {
-            JS_ThrowSyntaxError(
-                ctx,
-                &format!(
-                    "Could not find export '{}' in module '{}'",
-                    export_name.to_utf8(ctx.rt()),
-                    m.0.module_name.to_utf8(ctx.rt()),
-                ),
-            );
+            ctx.throw_syntax_error(&format!(
+                "Could not find export '{}' in module '{}'",
+                export_name.to_utf8(ctx.rt()),
+                m.0.module_name.to_utf8(ctx.rt()),
+            ));
         }
         JSResolveResultEnum::JS_RESOLVE_RES_CIRCULAR => {
-            JS_ThrowSyntaxError(
-                ctx,
-                &format!(
-                    "circular reference when looking for export '{}' in module '{}'",
-                    export_name.to_utf8(ctx.rt()),
-                    m.0.module_name.to_utf8(ctx.rt()),
-                ),
-            );
+            ctx.throw_syntax_error(&format!(
+                "circular reference when looking for export '{}' in module '{}'",
+                export_name.to_utf8(ctx.rt()),
+                m.0.module_name.to_utf8(ctx.rt()),
+            ));
         }
         JSResolveResultEnum::JS_RESOLVE_RES_AMBIGUOUS => {
-            JS_ThrowSyntaxError(
-                ctx,
-                &format!(
-                    "export '{}' in module '{}' is ambiguous",
-                    export_name.to_utf8(ctx.rt()),
-                    m.0.module_name.to_utf8(ctx.rt()),
-                ),
-            );
+            ctx.throw_syntax_error(&format!(
+                "export '{}' in module '{}' is ambiguous",
+                export_name.to_utf8(ctx.rt()),
+                m.0.module_name.to_utf8(ctx.rt()),
+            ));
         }
         _ => {}
     }
@@ -3217,23 +3206,11 @@ pub unsafe fn js_resolve_export_throw_error(
 #[deprecated(note = "not used")]
 pub unsafe fn add_resolve_entry(
     ctx: &JSContext,
-    lst: &mut Vec<JSResolveEntry>,
+    lst: &mut Vec<*mut c_void>, // JSResolveEntry
     m: &ModuleDef,
     name: JSAtom,
 ) -> Result<(), i32> {
-    if lst.len() == lst.capacity() {
-        lst.try_reserve(4).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
-    }
-
-    lst.push(JSResolveEntry {
-        module: m.clone(),
-        name: name.dup(&ctx.rt()),
-    });
-
-    Ok(())
+    unreachable!("unused")
 }
 
 /// add dependent module
@@ -3276,7 +3253,7 @@ pub unsafe fn js_parse_export(s: *mut JSParseState) -> i32 {
 #[repr(C)]
 #[deprecated(note = "use Vec<JSResultEntry> instead")]
 pub struct JSResolveState {
-    pub array: *mut JSResolveEntry,
+    pub array: *mut c_void, // JSResolveEntry
     pub size: i32,
     pub count: i32,
 }

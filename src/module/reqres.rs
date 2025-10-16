@@ -12,11 +12,6 @@ pub struct ModuleDependency {
     pub module: Option<ModuleDef>,
 }
 
-pub struct JSResolveEntry {
-    pub module: ModuleDef,
-    pub name: JSAtom,
-}
-
 impl ModuleDef {
     /// add module dependency, returns the dependency index.
     /// `module_name` is not consumed.

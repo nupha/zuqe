@@ -1,45 +1,40 @@
 use crate::{
     atom::{
-        JS_FreeAtom, JSAtom,
+        JSAtom,
         consts::{JS_ATOM__star_, JS_ATOM_default},
     },
     branch_hints::unlikely,
     context::JSContext,
     function::BCFunction,
-    module::{
-        ExportType, JSModuleStatus, JSResolveEntry, ModuleDef, ResolveExport, js_create_module_var,
-    },
+    module::{ExportType, JSModuleStatus, ModuleDef, ResolveExport, js_create_module_var},
     runtime::js_check_stack_overflow,
     value::JSValue,
 };
 
 impl ModuleDef {
-    fn resolve_export_inner(
+    fn resolve_export_internal(
         &self,
         ctx: &JSContext,
         export_name: JSAtom,
         mut expect: Option<(usize, JSAtom)>, // (module_id, local_name_atom)
-        resolved: &mut Vec<JSResolveEntry>,
+        resolving: &mut Vec<(usize, u32)>,   // (module_id, export_atom_id), to detect circular
     ) -> Result<ResolveExport, i32> {
         if unlikely(
-            resolved
+            resolving
                 .iter()
-                .any(|x| x.module.eq(self) && x.name == export_name),
+                .any(|x| x.0 == self.id() && x.1 == export_name.0),
         ) {
             return Ok(ResolveExport::Circular);
         }
 
-        // add resolve
-        if resolved.len() == resolved.capacity() {
-            resolved.try_reserve(4).map_err(|_| {
+        // add resolving
+        if resolving.len() == resolving.capacity() {
+            resolving.try_reserve(4).map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1
             })?;
         }
-        resolved.push(JSResolveEntry {
-            module: self.clone(),
-            name: export_name.dup(&ctx.rt()),
-        });
+        resolving.push((self.id(), export_name.0));
 
         if let Some(me) = self.find_export(export_name) {
             match me.export_type {
@@ -59,7 +54,7 @@ impl ModuleDef {
                             .module
                             .clone()
                             .unwrap();
-                        dep.resolve_export_inner(ctx, me.local_name, expect, resolved)
+                        dep.resolve_export_internal(ctx, me.local_name, expect, resolving)
                     }
                 }
             }
@@ -74,12 +69,11 @@ impl ModuleDef {
                         .clone()
                         .unwrap();
 
-                    match dep.resolve_export_inner(ctx, export_name, expect, resolved)? {
+                    match dep.resolve_export_internal(ctx, export_name, expect, resolving)? {
                         ResolveExport::Found { module, entry } => {
-                            if let Some((test_module_id, test_local_name)) = expect
-                                && (test_local_name != entry.local_name
-                                    || test_module_id != module.id())
-                            {
+                            if expect.map_or(false, |(test_module_id, test_local_name)| {
+                                test_module_id != module.id() || test_local_name != entry.local_name
+                            }) {
                                 return Ok(ResolveExport::Ambiguous);
                             } else {
                                 expect.replace((module.id(), entry.local_name));
@@ -100,18 +94,16 @@ impl ModuleDef {
         }
     }
 
+    /// resolve `export_name` in module `self`,
+    /// optionally restricted by (expect_module_id, expect_local_name)==(module_id, local_name)
     pub(super) fn resolve_export(
         &self,
         ctx: &JSContext,
         export_name: JSAtom,
         expect: Option<(usize, JSAtom)>, // (module_id, local_name_atom)
     ) -> Result<ResolveExport, i32> {
-        let mut lst = Vec::<JSResolveEntry>::with_capacity(8);
-        let ret = self.resolve_export_inner(ctx, export_name, expect, &mut lst);
-        for ent in lst.drain(..) {
-            JS_FreeAtom(ctx, ent.name);
-        }
-        ret
+        let mut lst = Vec::<(usize, u32)>::with_capacity(8);
+        self.resolve_export_internal(ctx, export_name, expect, &mut lst)
     }
 
     /// Prepare module `self` to be executed by resolving all the imported variables.
@@ -194,18 +186,18 @@ impl ModuleDef {
                 let import_name = imp.import_name;
                 let import_var_idx = imp.var_idx;
 
-                let req = self.dependencies.borrow()[imp.req_module_idx as usize]
+                let reqm = self.dependencies.borrow()[imp.req_module_idx as usize]
                     .module
                     .clone()
                     .unwrap();
 
                 if import_name == JS_ATOM__star_ {
                     // name space import
-                    let val = req.ns(ctx)?;
+                    let val = reqm.ns(ctx)?;
                     md_func.payload().var_refs.borrow_mut()[import_var_idx as usize]
                         .set_value(val.into());
                 } else {
-                    match req.resolve_export(ctx, import_name, None)? {
+                    match reqm.resolve_export(ctx, import_name, None)? {
                         ResolveExport::Found { module: dep, entry } => {
                             match entry.export_type {
                                 ExportType::JS_EXPORT_TYPE_INDIRECT(req_module_idx) => {
@@ -248,8 +240,8 @@ impl ModuleDef {
                                 }
                             }
                         }
-                        ret => {
-                            ret.throw_syntax_error_export(ctx, &req.0, import_name);
+                        r => {
+                            r.throw_syntax_error_export(ctx, &reqm.0, import_name);
                             return Err(-1);
                         }
                     }
@@ -279,6 +271,7 @@ impl ModuleDef {
             //     ...
             // it seems this call has no actual effect according to the bytecode.
             // should this call be removed? and the emitted bytecode (see above) be optimized?
+
             md_func.call(ctx, &JSValue::Bool(true), &[])?;
         }
 

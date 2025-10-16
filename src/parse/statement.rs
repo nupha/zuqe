@@ -1,5 +1,6 @@
 use crate::{
     atom::{JS_ATOM_NULL, JS_FreeAtom, JSAtom, JSAtomRc, consts::*},
+    branch_hints::unlikely,
     bytecode::{OpCode, OpCodeTemp},
     context::JS_MODE_STRICT,
     function::{BlockEnv, JSFunctionKindEnum, JSVarDefEnum, OPTIMIZE},
@@ -678,21 +679,24 @@ fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
             if s.token.val != TOK_IDENT || s.token.data.is_reserved() {
                 if matches!(s.token.val, CHAR_SQUARE_L | CHAR_CURLY_L) {
                     // XXX: TOK_LET is not completely correct
-                    s.parse_destructuring_element(TOK_LET, false, true, -1, true)?;
+                    s.parse_destructuring_element(TOK_LET, false, true, -1, true, false)?;
                 } else {
                     s.throw_syntax_error("identifier expected");
                     return Err(-1);
                 }
             } else {
                 let name = s.token.atom().unwrap().dup(s.ctx.rt());
-                if s.next_token().is_err() || s.define_var(name, TOK_CATCH).is_err() {
+                if unlikely(
+                    s.next_token().is_err() || s.define_var(name, TOK_CATCH, false).is_err(),
+                ) {
                     JS_FreeAtom(&s.ctx, name);
                     return Err(-1);
+                } else {
+                    // store the exception value in the catch variable
+                    s.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR);
+                    s.emit_u32(name.0);
+                    s.emit_u16(s.cur_func().scope_level as _);
                 }
-                // store the exception value in the catch variable
-                s.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR);
-                s.emit_u32(name.0);
-                s.emit_u16(s.cur_func().scope_level as _);
             }
 
             s.parse_expect(CHAR_BRACKET_R)?;
@@ -1028,7 +1032,7 @@ pub fn js_parse_for_in_of(
 
         if s.token.val != TOK_IDENT || s.token.data.is_reserved() {
             if s.token.val == '[' as i32 || s.token.val == '{' as i32 {
-                s.parse_destructuring_element(tok, false, true, -1, false)?;
+                s.parse_destructuring_element(tok, false, true, -1, false, false)?;
                 has_destructuring = true;
             } else {
                 s.throw_syntax_error("variable name expected");
@@ -1041,7 +1045,7 @@ pub fn js_parse_for_in_of(
                 JS_FreeAtom(&s.ctx, var_name);
                 return Err(-1);
             }
-            if s.define_var(var_name, tok).is_err() {
+            if s.define_var(var_name, tok, false).is_err() {
                 JS_FreeAtom(&s.ctx, var_name);
                 return Err(-1);
             }
@@ -1065,7 +1069,14 @@ pub fn js_parse_for_in_of(
                 TOK_IN | TOK_OF
             )
         {
-            s.parse_destructuring_element(0, false, true, skip_bits & SKIP_HAS_ELLIPSIS, true)?;
+            s.parse_destructuring_element(
+                0,
+                false,
+                true,
+                skip_bits & SKIP_HAS_ELLIPSIS,
+                true,
+                false,
+            )?;
         } else {
             s.parse_left_hand_side_expr()?;
 

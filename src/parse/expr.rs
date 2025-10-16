@@ -406,6 +406,7 @@ impl<'s> JSParseState<'s> {
                         false,
                         (skip_bits & SKIP_HAS_ELLIPSIS != 0) as i32,
                         true,
+                        false,
                     )?;
                 } else {
                     if self.token.val == b'{' as i32 {

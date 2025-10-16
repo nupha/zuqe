@@ -69,11 +69,6 @@ pub struct ExportEntry {
     pub export_name: JSAtom,
 }
 
-struct StarExportEntry {
-    /// index in dependencies
-    req_module_idx: i32,
-}
-
 #[derive(Debug)]
 pub(super) enum ResolveExport {
     Found {
@@ -149,7 +144,7 @@ impl ModuleDefInner {
             let mut lst = self.export_entries.borrow_mut();
 
             if lst.len() == lst.capacity() {
-                lst.try_reserve(4).map_err(|_| {
+                lst.try_reserve(1).map_err(|_| {
                     ctx.throw_out_of_memory();
                     ErrorKind::Internal as i32
                 })?;
@@ -165,7 +160,7 @@ impl ModuleDefInner {
         }
     }
 
-    /// declare a module export entry
+    /// declare a module export name
     pub fn add_export(&self, ctx: &JSContext, export_name: &str) -> Result<(), i32> {
         let atom = JSAtom::new(ctx.rt_mut(), export_name)?;
         let r = self.add_export_internal(
@@ -238,50 +233,6 @@ impl ModuleDefInner {
 }
 
 impl ModuleDef {
-    /// find export entry of `self`
-    #[inline(always)]
-    pub fn find_export(&self, export_name: JSAtom) -> Option<ExportEntry> {
-        self.0.find_export(export_name)
-    }
-
-    /// add an export entry on `self` module.
-    ///
-    /// Note: `local_name`, `export_name` are not consumed.
-    #[inline(always)]
-    pub(crate) fn add_export_internal(
-        &self,
-        ctx: &JSContext,
-        local_name: JSAtom,
-        export_name: JSAtom,
-        export_type: ExportType,
-    ) -> Result<(), i32> {
-        self.0
-            .add_export_internal(ctx, local_name, export_name, export_type)
-    }
-
-    /// declare an export entry.
-    #[inline(always)]
-    pub fn add_export(&self, ctx: &JSContext, export_name: &str) -> Result<(), i32> {
-        self.0.add_export(ctx, export_name)
-    }
-
-    /// set module export entry named `export_name` to given value
-    #[inline(always)]
-    pub fn set_export_value(
-        &self,
-        ctx: &JSContext,
-        export_name: &str,
-        value: JSValue,
-    ) -> Result<(), i32> {
-        self.0.set_export_value(ctx, export_name, value)
-    }
-
-    /// set values of export entries
-    #[inline(always)]
-    pub fn set_export_values(&self, ctx: &JSContext, entries: &[FieldDef]) -> Result<(), i32> {
-        self.0.set_export_values(ctx, entries)
-    }
-
     pub(crate) fn add_star_export_entry(
         &self,
         ctx: &JSContext,

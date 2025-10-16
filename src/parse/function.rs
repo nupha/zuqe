@@ -207,6 +207,7 @@ impl<'s> JSParseState<'s> {
                         true,
                         -1,
                         true,
+                        false,
                     )?;
                     if has_initializer {
                         has_opt_arg = true;
