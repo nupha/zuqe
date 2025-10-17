@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    atom::{JS_ATOM_NULL, JS_FreeAtom, JS_FreeAtomRT, JSAtom},
+    atom::{Atom, JSAtom},
     class::JSClassExoticMethods,
     context::{JSContext, JSContextInner},
     error::JSResult,
@@ -39,7 +39,7 @@ pub struct ModuleDefInner {
     gc_mark: Cell<bool>,
 
     /// hold a refcount of the atom
-    pub module_name: JSAtom,
+    pub module_name: Atom,
 
     pub(super) dependencies: RefCell<Vec<ModuleDependency>>,
     pub(crate) import_entries: RefCell<Vec<JSImportEntry>>,
@@ -107,7 +107,7 @@ impl Drop for ModuleDefInner {
 
 impl ModuleDefInner {
     /// 'name' is consumed
-    fn new(ctx: &JSContext, name: JSAtom) -> Self {
+    fn new(ctx: &JSContext, name: Atom) -> Self {
         let md = Self {
             rt: ctx.rt_ptr(),
             gc_mark: Cell::new(false),
@@ -155,7 +155,7 @@ impl ModuleDefInner {
         name: &str,
         init_func: impl ModuleInitFunc + 'static,
     ) -> Result<Self, i32> {
-        let name = JSAtom::new(ctx.rt_mut(), name)?;
+        let name = Atom::new(ctx.rt_mut(), name)?;
         let mut inner = ModuleDefInner::new(ctx, name);
         inner.init_func.replace(Box::new(init_func));
         Ok(inner)
@@ -180,7 +180,7 @@ impl ModuleDefInner {
     /// returned atom is not duplicated, caller should clone it before keep it referenced.
     #[inline(always)]
     pub fn module_name(&self) -> JSAtom {
-        self.module_name
+        self.module_name.as_ref()
     }
 
     #[inline(always)]
@@ -341,12 +341,13 @@ impl ModuleDefInner {
     }
 
     fn finalize(&mut self) {
+        let name = std::mem::replace(&mut self.module_name, Atom::NULL);
         let rt = self.rt_mut();
 
-        JS_FreeAtomRT(rt, self.module_name);
+        name.free(rt);
 
         for dep in self.dependencies.borrow_mut().drain(..) {
-            JS_FreeAtomRT(rt, dep.module_name);
+            dep.module_name.free(rt);
         }
 
         for me in self.export_entries.borrow_mut().drain(..) {
@@ -354,13 +355,12 @@ impl ModuleDefInner {
             //     debug_assert!(var_ref.is_some());
             //     drop(var_ref);
             // }
-
-            JS_FreeAtomRT(rt, me.export_name);
-            JS_FreeAtomRT(rt, me.local_name);
+            me.export_name.free(rt);
+            me.local_name.free(rt);
         }
 
         for mi in self.import_entries.borrow_mut().drain(..) {
-            JS_FreeAtomRT(rt, mi.import_name);
+            mi.import_name.free(rt);
         }
     }
 
@@ -407,7 +407,7 @@ impl ModuleDef {
     /// alloc an uninitialized (usually bytecode) module.
     ///
     /// 'name' is consumed
-    pub(crate) fn new(ctx: &JSContext, name: JSAtom) -> Self {
+    pub(crate) fn new(ctx: &JSContext, name: Atom) -> Self {
         let inner = ModuleDefInner::new(ctx, name);
         let m = Self(Rc::new(inner));
         ctx.0.borrow_mut().loaded_modules.push(m.clone());
@@ -493,7 +493,7 @@ pub unsafe fn add_module_variables(ctx: &JSContext, fd: &mut JSFunctionDef) -> i
                 true,
                 false,
                 i as _,
-                hf.var_name,
+                hf.var_name.as_ref(),
                 hf.is_const(),
                 hf.is_lexical(),
                 JSVarKindEnum::JS_VAR_NORMAL,
@@ -509,7 +509,7 @@ pub unsafe fn add_module_variables(ctx: &JSContext, fd: &mut JSFunctionDef) -> i
     // resolve the variable names of the local exports
     for me in m.0.export_entries.borrow_mut().iter_mut() {
         if let ExportType::JS_EXPORT_TYPE_LOCAL { var_idx, .. } = &mut me.export_type {
-            if let Some(idx) = fd.find_closure_var(me.local_name) {
+            if let Some(idx) = fd.find_closure_var(me.local_name.as_ref()) {
                 *var_idx = idx;
             } else {
                 ctx.throw_syntax_error(&format!(
@@ -556,21 +556,20 @@ pub fn js_create_module_var(ctx: &JSContext, is_lexical: bool) -> Result<JSVarRe
 
 /// return JS_ATOM_NULL if the name cannot be found. Only works with
 /// not striped bytecode functions.
-pub fn JS_GetScriptOrModuleName(ctx: &JSContext, n_stack_levels: i32) -> JSAtom {
+pub fn JS_GetScriptOrModuleName(ctx: &JSContext, n_stack_levels: i32) -> Atom {
     // XXX: currently we just use the filename of the englobing
     // function from the debug info. May need to add a ScriptOrModule
     // info in Bytecode.
     let mut sf = ctx.rt().cur_stack_frame.cast::<StackFrame>();
     if sf.is_null() {
-        return JS_ATOM_NULL;
+        return Atom::NULL;
     }
 
     let mut levels = n_stack_levels;
-
     while levels > 0 {
         sf = unsafe { (&*sf).prev_frame.cast::<StackFrame>() };
         if sf.is_null() {
-            return JS_ATOM_NULL;
+            return Atom::NULL;
         }
         levels -= 1;
     }
@@ -581,7 +580,7 @@ pub fn JS_GetScriptOrModuleName(ctx: &JSContext, n_stack_levels: i32) -> JSAtom 
 
             if !bc.is_direct_or_indirect_eval {
                 return if !bc.has_debug {
-                    JS_ATOM_NULL
+                    Atom::NULL
                 } else {
                     bc.debug.filename.dup(ctx.rt())
                 };
@@ -589,11 +588,11 @@ pub fn JS_GetScriptOrModuleName(ctx: &JSContext, n_stack_levels: i32) -> JSAtom 
                 // walk up parent stack frame
                 sf = unsafe { (&*sf).prev_frame.cast::<StackFrame>() };
                 if sf.is_null() {
-                    return JS_ATOM_NULL;
+                    return Atom::NULL;
                 }
             }
         } else {
-            return JS_ATOM_NULL;
+            return Atom::NULL;
         }
     }
 }
@@ -601,15 +600,14 @@ pub fn JS_GetScriptOrModuleName(ctx: &JSContext, n_stack_levels: i32) -> JSAtom 
 /// get module import.meta object of context current execution.
 pub fn js_import_meta(ctx: &JSContext) -> Result<JSObject, i32> {
     let filename = JS_GetScriptOrModuleName(ctx, 0);
-    if filename == JS_ATOM_NULL {
+    if filename.is_null() {
         ctx.throw_type_error("import.meta not supported in this context");
         return Err(-1);
     }
 
-    // XXX: inefficient, need to add a module or script pointer in
-    // Bytecode
-    let m = ctx.find_loaded_module(filename);
-    JS_FreeAtom(ctx, filename);
+    // XXX: inefficient, need to add a module or script pointer in Bytecode
+    let m = ctx.find_loaded_module(filename.as_ref());
+    filename.free(ctx.rt_mut());
 
     if let Some(m) = m {
         m.import_meta(ctx)

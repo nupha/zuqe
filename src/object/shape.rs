@@ -8,7 +8,7 @@ use std::{
 use indexmap::IndexMap;
 
 use crate::{
-    atom::{JS_FreeAtomRT, JSAtom},
+    atom::{Atom, JSAtom},
     context::JSContext,
     gc::GCObjectHeader,
     object::{GCObject, GCObjectWeakref, JS_PROP_WRITABLE},
@@ -17,14 +17,14 @@ use crate::{
 
 use super::{
     ObjectInner,
-    obj::{JS_PROP_INITIAL_HASH_SIZE, JS_PROP_INITIAL_SIZE, JSObject},
+    obj::{JS_PROP_INITIAL_HASH_SIZE, JSObject},
     property::JS_PROP_LENGTH,
 };
 
 /// Property defination in shape
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct JSShapeProperty {
-    pub atom: JSAtom,
+    pub atom: Atom,
     flags: u32,
 }
 
@@ -87,7 +87,7 @@ impl JSShapeInner {
         //calc shape hash
         let mut hash = shape_initial_hash(proto.as_ref().map_or(0, |p| p.id()));
         for (_, prs) in props.iter() {
-            hash = shape_hasher_u32(shape_hasher_u32(hash, prs.atom.0), prs.flags());
+            hash = shape_hasher_u32(shape_hasher_u32(hash, prs.atom.id()), prs.flags());
         }
 
         Ok(Self {
@@ -113,8 +113,8 @@ impl JSShapeInner {
         let rt = unsafe { self.rt_ptr().as_mut() };
 
         // free prop key atoms
-        for (_, prs) in self.prop_defs.drain(..) {
-            JS_FreeAtomRT(rt, prs.atom);
+        for (_, mut prs) in self.prop_defs.drain(..) {
+            std::mem::replace(&mut prs.atom, Atom::NULL).free(rt);
         }
 
         if self.is_hashed {
@@ -440,7 +440,7 @@ impl JSRuntime {
                     .borrow()
                     .prop_defs
                     .last()
-                    .map(|(_, pr)| pr.atom == prop && pr.flags() == prop_flags)
+                    .map(|(_, pr)| pr.atom.as_ref() == prop && pr.flags() == prop_flags)
                     .unwrap_or(false)
                 {
                     // last prop (atom, prop_flags) is match too

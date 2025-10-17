@@ -1,6 +1,6 @@
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
-    atom::{JS_ATOM_MAX_INT, JS_FreeAtom, JSAtom},
+    atom::{Atom, JS_ATOM_MAX_INT, JSAtom},
     branch_hints::unlikely,
     context::JSContext,
     object::JSObject,
@@ -45,7 +45,8 @@ impl JSObject {
                         .shift_remove(&prop.0)
                         .unwrap();
 
-                    JS_FreeAtom(ctx, prs.atom);
+                    prs.atom.free(ctx.rt_mut());
+
                     // remove property value
                     drop(self.0.prop_values.borrow_mut().remove(idx));
 
@@ -136,9 +137,9 @@ impl JSObject {
             // fast path for fast array
             self.delete_property(ctx, JSAtom::new_small_int(idx as u32), flags)
         } else {
-            let atom = JSAtom::from_i64(ctx.rt_mut(), idx)?;
-            let res = self.delete_property(ctx, atom, flags);
-            JS_FreeAtom(ctx, atom);
+            let atom = Atom::from_i64(ctx.rt_mut(), idx)?;
+            let res = self.delete_property(ctx, atom.as_ref(), flags);
+            atom.free(ctx.rt_mut());
             res
         }
     }

@@ -1,7 +1,7 @@
 #![cfg(feature = "dump_bytecode")]
 
 use crate::{
-    atom::{JS_ATOM_NULL, JSAtom},
+    atom::JSAtom,
     bytecode::OpcodeFormat,
     context::{JS_MODE_ASYNC, JS_MODE_STRICT, JSContext},
     function::{
@@ -421,7 +421,7 @@ impl Bytecode {
     pub fn dump(&self, ctx: &JSContext) {
         print!("{:?}: ", self);
 
-        if self.has_debug && self.debug.filename != JS_ATOM_NULL {
+        if self.has_debug && !self.debug.filename.is_null() {
             print!(
                 "{}:{}: ",
                 self.debug.filename.to_utf8(ctx.rt()),

@@ -366,17 +366,10 @@ impl JSRuntime {
             debug_assert!(self.gc_obj_list.is_empty(), "{:?}", self.gc_obj_list);
         }
 
-        // free classe name atoms
-        for i in 0..self.class_defs.len() {
-            let (class_id, class_name) = {
-                let c = &self.class_defs[i];
-                (c.class_id, c.class_name)
-            };
-
-            // 0: base object class
-            if class_id != 0 {
-                JS_FreeAtomRT(self, class_name);
-            }
+        // free classe defs and associated name atoms
+        let rt = self as *mut Self;
+        for c in self.class_defs.drain(..) {
+            JS_FreeAtomRT(rt, c.class_name);
         }
 
         // guard: all non-const atom should be freed by logic.

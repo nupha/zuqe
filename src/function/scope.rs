@@ -118,7 +118,7 @@ impl JSFunctionDef {
             let vd = self.vars.get(vidx as usize).unwrap();
             if vd.scope_level != scope as i32 {
                 break;
-            } else if vd.var_name == name {
+            } else if vd.var_name.as_ref() == name {
                 return Some(vidx as u16);
             }
 
@@ -133,7 +133,7 @@ impl JSFunctionDef {
         self.vars
             .iter()
             .position(|vd| {
-                vd.var_name == name
+                vd.var_name.as_ref() == name
                     && vd.scope_level == 0
                     && self.is_child_scope(vd.scope_next, scope)
             })
@@ -159,18 +159,18 @@ impl JSFunctionDef {
 
         // check if scope chain contains a with statement
         while !s.is_null() {
-            let mut scope_idx = unsafe { (&(*s).scopes)[scope_level as usize].first };
+            let mut scope_idx = unsafe { (&*s).scopes[scope_level as usize].first };
             while scope_idx >= 0 {
-                let vd = unsafe { (&(*s).vars).get(scope_idx as usize).unwrap() };
-                if vd.var_name == JS_ATOM__with_ {
+                let vd = unsafe { ((&*s).vars).get(scope_idx as usize).unwrap() };
+                if vd.var_name.as_ref() == JS_ATOM__with_ {
                     return true;
                 }
                 scope_idx = vd.scope_next;
             }
 
             // check parent scopes
-            scope_level = unsafe { (*s).parent_scope_level };
-            s = unsafe { (*s).parent };
+            scope_level = unsafe { (&*s).parent_scope_level };
+            s = unsafe { (&*s).parent };
         }
 
         false

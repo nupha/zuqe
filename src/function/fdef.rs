@@ -1,7 +1,7 @@
 use std::{marker::PhantomData, ops::DerefMut, ptr::NonNull};
 
 use crate::{
-    atom::{JS_ATOM_NULL, JS_FreeAtom, JS_FreeAtomRT, JSAtom, consts::*},
+    atom::{Atom, JS_ATOM_NULL, JSAtom, consts::*},
     bytecode::{OpCode, OpCodeTemp, OpcodeFormat, opcode_info_intermediate, opcodes},
     context::{JS_MODE_STRIP, JSContext},
     eval::JS_EVAL_TYPE_GLOBAL,
@@ -12,7 +12,7 @@ use crate::{
     module::ModuleDef,
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
     parse::JSParseFunctionEnum,
-    utils::{push_vec_u8, push_vec_u16, push_vec_u32, read_from_ptr},
+    utils::{push_vec_atom, push_vec_u8, push_vec_u16, push_vec_u32, read_from_ptr},
     value::JSValue,
 };
 
@@ -71,7 +71,7 @@ pub struct JSFunctionDef {
     pub in_function_body: bool,
 
     pub func_type: JSParseFunctionEnum,
-    pub func_name: JSAtom,
+    pub func_name: Atom,
 
     /// constants pool (string, function, number）.
     pub cpool: Vec<JSValue>,
@@ -152,7 +152,7 @@ pub struct JSFunctionDef {
     pub line_number_last_pc: u32,
 
     /// file name
-    pub filename: JSAtom,
+    pub filename: Atom,
     /// source code (utf-8 encoded)
     pub source: Option<String>,
     /// current line number
@@ -206,7 +206,7 @@ impl JSFunctionDef {
             has_this_binding: false,
             in_function_body: false,
             func_type: JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
-            func_name: JS_ATOM_NULL,
+            func_name: Atom::NULL,
 
             cpool: Vec::new(),
             vars: Vec::new(),
@@ -257,7 +257,7 @@ impl JSFunctionDef {
             line_number_last: 0,
             line_number_last_pc: 0,
 
-            filename: JSAtom::new(ctx.rt_mut(), filename)?,
+            filename: Atom::new(ctx.rt_mut(), filename)?,
             line_num,
             pc2line: None,
             source: None,
@@ -355,7 +355,7 @@ impl JSFunctionDef {
     }
 
     fn finalize(&mut self) {
-        // free child function defs
+        // drop child function defs
         for sub in self.child_list.drain(..) {
             drop(unsafe { Box::from_raw(sub.as_ptr()) });
         }
@@ -376,33 +376,24 @@ impl JSFunctionDef {
         //
         // if vardefs are not consumed, free atoms in it.
         //
-        for mut vd in self.args.drain(..) {
-            JS_FreeAtomRT(rt, vd.var_name);
-            #[cfg(debug_assertions)]
-            {
-                vd.var_name = JS_ATOM_NULL;
-            }
+        for vd in self.args.drain(..) {
+            vd.var_name.free(rt);
         }
-        for mut vd in self.vars.drain(..) {
-            JS_FreeAtomRT(rt, vd.var_name);
-            #[cfg(debug_assertions)]
-            {
-                vd.var_name = JS_ATOM_NULL;
-            }
+        for vd in self.vars.drain(..) {
+            vd.var_name.free(rt);
         }
-
         for gv in self.global_vars.drain(..) {
-            JS_FreeAtomRT(rt, gv.var_name);
+            gv.var_name.free(rt);
         }
 
         if let Some(mut lst) = self.closure_vars.take() {
             for cv in lst.drain(..) {
-                JS_FreeAtomRT(rt, cv.var_name);
+                cv.var_name.free(rt);
             }
         }
 
-        JS_FreeAtomRT(rt, self.func_name);
-        JS_FreeAtomRT(rt, self.filename);
+        std::mem::replace(&mut self.func_name, Atom::NULL).free(rt);
+        std::mem::replace(&mut self.filename, Atom::NULL).free(rt);
 
         // ensure `self` function def does not exist in parent's child_list
         if let Some(up) = unsafe { self.parent.as_mut() } {
@@ -544,6 +535,7 @@ pub fn skip_dead_code(
             // }
         } else {
             // XXX: output a warning for unreachable code?
+
             match oi.fmt {
                 OpcodeFormat::LABEL | OpcodeFormat::LABEL_U16 => unsafe {
                     let label = read_from_ptr::<u32>(bc_buf.add(current_pos + 1));
@@ -562,8 +554,10 @@ pub fn skip_dead_code(
                         s.update_label_ref_count(label, -1);
                     }
 
-                    let atom = JSAtom(read_from_ptr::<u32>(bc_buf.add(current_pos + 1)));
-                    JS_FreeAtom(&s.ctx, atom);
+                    // Note: instruction with atom holds an atom refcount.
+                    // must free atom before emilinate these instructions.
+                    let atom = Atom::from(read_from_ptr::<u32>(bc_buf.add(current_pos + 1)));
+                    atom.free(s.ctx.rt_mut());
                 },
                 _ => {}
             }
@@ -588,11 +582,7 @@ pub fn get_loc_or_ref(bc: &mut Vec<u8>, is_ref: bool, idx: u16) {
     push_vec_u16(bc, idx);
 }
 
-pub unsafe fn instantiate_hoisted_definitions(
-    ctx: &JSContext,
-    s: &mut JSFunctionDef,
-    bc: &mut Vec<u8>,
-) {
+pub fn instantiate_hoisted_definitions(ctx: &JSContext, s: &mut JSFunctionDef, bc: &mut Vec<u8>) {
     // add the hoisted functions in arguments and local variables
     for (i, vd) in s.args.iter().enumerate() {
         if vd.func_pool_idx >= 0 {
@@ -639,7 +629,7 @@ pub unsafe fn instantiate_hoisted_definitions(
     }
 
     // add the global variables (only happens if JSFunctionDef::is_global_var is true)
-    for hf in s.global_vars.iter() {
+    for mut hf in s.global_vars.drain(..) {
         let mut has_closure: i32 = 0;
         let mut force_init = hf.force_init();
         let mut idx = 0;
@@ -649,8 +639,8 @@ pub unsafe fn instantiate_hoisted_definitions(
         if let Some(cvars) = s.closure_vars.as_ref() {
             for (j, cv) in cvars.iter().enumerate() {
                 idx = j;
-                match cv.var_name {
-                    n if n == hf.var_name => {
+                match cv.var_name.as_ref() {
+                    n if n == hf.var_name.as_ref() => {
                         has_closure = 2;
                         force_init = false;
                         break;
@@ -679,7 +669,7 @@ pub unsafe fn instantiate_hoisted_definitions(
                 push_vec_u32(bc, hf.cpool_idx as u32);
 
                 push_vec_u8(bc, OpCode::DEFINE_FUNC as u8);
-                push_vec_u32(bc, hf.var_name.0);
+                push_vec_atom(bc, std::mem::replace(&mut hf.var_name, Atom::NULL));
                 push_vec_u8(bc, flags as u8);
 
                 continue; // next global var
@@ -691,7 +681,7 @@ pub unsafe fn instantiate_hoisted_definitions(
                     }
                 }
                 push_vec_u8(bc, OpCode::DEFINE_VAR as u8);
-                push_vec_u32(bc, hf.var_name.dup(ctx.rt()).0); // dup to compensate later free
+                push_vec_atom(bc, hf.var_name.dup(ctx.rt()));
                 push_vec_u8(bc, flags as u8);
             }
         }
@@ -699,11 +689,11 @@ pub unsafe fn instantiate_hoisted_definitions(
         if hf.cpool_idx >= 0 || force_init {
             if hf.cpool_idx >= 0 {
                 push_vec_u8(bc, OpCode::FCLOSURE as u8);
-                push_vec_u32(bc, (*hf).cpool_idx as u32);
-                if hf.var_name == JS_ATOM__default_ {
+                push_vec_u32(bc, hf.cpool_idx as u32);
+                if hf.var_name.as_ref() == JS_ATOM__default_ {
                     // set default export function name
                     push_vec_u8(bc, OpCode::SET_NAME as u8);
-                    push_vec_u32(bc, JS_ATOM_default.dup(ctx.rt()).0);
+                    push_vec_atom(bc, Atom::new_const(JS_ATOM_default));
                 }
             } else {
                 push_vec_u8(bc, OpCode::UNDEFINED as u8);
@@ -714,17 +704,16 @@ pub unsafe fn instantiate_hoisted_definitions(
                 push_vec_u16(bc, idx as u16);
             } else if has_closure == 1 {
                 push_vec_u8(bc, OpCode::DEFINE_FIELD as u8);
-                push_vec_u32(bc, hf.var_name.dup(ctx.rt()).0);
+                push_vec_atom(bc, hf.var_name.dup(ctx.rt()));
                 push_vec_u8(bc, OpCode::DROP as u8);
             } else {
                 // XXX: Check if variable is writable and enumerable
                 push_vec_u8(bc, OpCode::PUT_VAR as u8);
-                push_vec_u32(bc, hf.var_name.dup(ctx.rt()).0);
+                push_vec_atom(bc, hf.var_name.dup(ctx.rt()));
             }
         }
 
-        // done_global_var:
-        JS_FreeAtom(ctx, hf.var_name);
+        std::mem::replace(&mut hf.var_name, Atom::NULL).free(ctx.rt_mut());
     }
 
     if s.module.is_some() {
@@ -735,7 +724,7 @@ pub unsafe fn instantiate_hoisted_definitions(
         s.label_slots[l as usize].pos2 = bc.len() as i32;
     }
 
-    s.global_vars.clear();
+    debug_assert!(s.global_vars.is_empty());
 }
 
 pub struct FunctionDefParentIter<'a> {

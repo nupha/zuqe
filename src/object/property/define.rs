@@ -1,6 +1,6 @@
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
-    atom::{JS_ATOM_NULL, JS_AtomIsNumericIndex1, JS_FreeAtom, JSAtom, consts::*},
+    atom::{Atom, JS_ATOM_NULL, JS_AtomIsNumericIndex1, JSAtom, consts::*},
     branch_hints::unlikely,
     bytecode::js_get_function_name,
     context::JSContext,
@@ -273,9 +273,9 @@ impl JSObject {
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        let atom = JSAtom::new(ctx.rt_mut(), prop)?;
-        let ret = self.define_property_value(ctx, atom, val, flags);
-        JS_FreeAtom(ctx, atom);
+        let atom = Atom::new(ctx.rt_mut(), prop)?;
+        let ret = self.define_property_value(ctx, atom.as_ref(), val, flags);
+        atom.free(ctx.rt_mut());
         ret
     }
 
@@ -298,9 +298,9 @@ impl JSObject {
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        let atom = JSAtom::from_i64(ctx.rt_mut(), idx)?;
-        let ret = self.define_property_value(ctx, atom, val, flags);
-        JS_FreeAtom(ctx, atom);
+        let atom = Atom::from_i64(ctx.rt_mut(), idx)?;
+        let ret = self.define_property_value(ctx, atom.as_ref(), val, flags);
+        atom.free(ctx.rt_mut());
         ret
     }
 
@@ -357,8 +357,8 @@ impl JSObject {
             ctx,
             JS_GPN_ENUM_ONLY | JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK,
             |_, key: PropertyKey| -> Result<(), i32> {
-                let desc = props.get_property(ctx, key.atom)?;
-                self.define_property_desc(ctx, key.atom, &desc, JS_PROP_THROW)?;
+                let desc = props.get_property(ctx, key.atom.as_ref())?;
+                self.define_property_desc(ctx, key.atom.as_ref(), &desc, JS_PROP_THROW)?;
                 Ok(())
             },
         )
@@ -387,8 +387,8 @@ impl JSObject {
     ) -> Result<bool, i32> {
         if !self.has_name() {
             let atom = str_val.to_atom(ctx)?;
-            let name_str = js_get_function_name(ctx, atom);
-            JS_FreeAtom(ctx, atom);
+            let name_str = js_get_function_name(ctx, atom.as_ref());
+            atom.free(ctx.rt_mut());
             self.define_property_value(ctx, JS_ATOM_name, name_str?.into(), flags)
         } else {
             Ok(false)
@@ -482,9 +482,9 @@ impl JSValue {
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        let atom = JSAtom::new(ctx.rt_mut(), prop)?;
-        let ret = self.define_property_value(ctx, atom, val, flags);
-        JS_FreeAtom(ctx, atom);
+        let atom = Atom::new(ctx.rt_mut(), prop)?;
+        let ret = self.define_property_value(ctx, atom.as_ref(), val, flags);
+        atom.free(ctx.rt_mut());
         ret
     }
 
@@ -507,9 +507,9 @@ impl JSValue {
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        let atom = JSAtom::from_i64(ctx.rt_mut(), idx)?;
-        let ret = self.define_property_value(ctx, atom, val, flags);
-        JS_FreeAtom(ctx, atom);
+        let atom = Atom::from_i64(ctx.rt_mut(), idx)?;
+        let ret = self.define_property_value(ctx, atom.as_ref(), val, flags);
+        atom.free(ctx.rt_mut());
         ret
     }
 

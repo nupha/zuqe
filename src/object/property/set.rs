@@ -3,7 +3,7 @@ use crate::{
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
     JS_CLASS_INT32_ARRAY, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT, JS_CLASS_UINT8_ARRAY,
     JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
-    atom::{JS_AtomIsNumericIndex, JS_FreeAtom, JSAtom, consts::JS_ATOM_length},
+    atom::{Atom, JS_AtomIsNumericIndex, JSAtom, consts::JS_ATOM_length},
     branch_hints::unlikely,
     context::JSContext,
     error::JS_ThrowReferenceErrorNotDefined,
@@ -468,8 +468,8 @@ impl JSObject {
 
         // slow path
         let atom = prop.to_atom(ctx)?;
-        let ret = self.set_property_internal(ctx, atom, val, Some(self), flags);
-        JS_FreeAtom(ctx, atom);
+        let ret = self.set_property_internal(ctx, atom.as_ref(), val, Some(self), flags);
+        atom.free(ctx.rt_mut());
         ret
     }
 
@@ -477,9 +477,10 @@ impl JSObject {
         self.set_property_index(ctx, idx as usize, val.clone(), JS_PROP_THROW)
             .unwrap_or_else(|| {
                 // slow path
-                let atom = JSAtom::from_u32(ctx.rt_mut(), idx)?;
-                let ret = self.set_property_internal(ctx, atom, val, Some(self), JS_PROP_THROW);
-                JS_FreeAtom(ctx, atom);
+                let atom = Atom::from_u32(ctx.rt_mut(), idx)?;
+                let ret =
+                    self.set_property_internal(ctx, atom.as_ref(), val, Some(self), JS_PROP_THROW);
+                atom.free(ctx.rt_mut());
                 ret
             })
     }
@@ -489,17 +490,17 @@ impl JSObject {
         if (0..=u32::MAX as i64).contains(&idx) {
             self.set_property_u32(ctx, idx as u32, val)
         } else {
-            let atom = JSAtom::from_i64(ctx.rt_mut(), idx)?;
-            let r = self.set_property(ctx, atom, val);
-            JS_FreeAtom(ctx, atom);
+            let atom = Atom::from_i64(ctx.rt_mut(), idx)?;
+            let r = self.set_property(ctx, atom.as_ref(), val);
+            atom.free(ctx.rt_mut());
             r
         }
     }
 
     pub fn set_property_str(&self, ctx: &JSContext, prop: &str, val: JSValue) -> Result<bool, i32> {
-        let atom = JSAtom::new(ctx.rt_mut(), prop)?;
-        let ret = self.set_property(ctx, atom, val);
-        JS_FreeAtom(ctx, atom);
+        let atom = Atom::new(ctx.rt_mut(), prop)?;
+        let ret = self.set_property(ctx, atom.as_ref(), val);
+        atom.free(ctx.rt_mut());
         ret
     }
 }
@@ -552,8 +553,8 @@ impl JSValue {
             o.set_property_value(ctx, prop, val, flags)
         } else {
             let atom = prop.to_atom(ctx)?;
-            let ret = self.set_property_internal(ctx, atom, val, None, flags);
-            JS_FreeAtom(ctx, atom);
+            let ret = self.set_property_internal(ctx, atom.as_ref(), val, None, flags);
+            atom.free(ctx.rt_mut());
             ret
         }
     }
@@ -577,9 +578,9 @@ impl JSValue {
     }
 
     pub fn set_property_str(&self, ctx: &JSContext, prop: &str, val: JSValue) -> Result<bool, i32> {
-        let atom = JSAtom::new(ctx.rt_mut(), prop)?;
-        let ret = self.set_property(ctx, atom, val);
-        JS_FreeAtom(ctx, atom);
+        let atom = Atom::new(ctx.rt_mut(), prop)?;
+        let ret = self.set_property(ctx, atom.as_ref(), val);
+        atom.free(ctx.rt_mut());
         ret
     }
 }

@@ -1,6 +1,6 @@
 use crate::{
     atom::{
-        AtomTypeHint, JS_ATOM_NULL, JS_FreeAtom, JSAtom,
+        Atom, AtomTypeHint, JSAtom,
         consts::{JS_ATOM_next, JS_ATOM_return, JS_ATOM_throw},
     },
     branch_hints::unlikely,
@@ -1670,23 +1670,25 @@ impl Bytecode {
                     OpCode::DEFINE_METHOD | OpCode::DEFINE_METHOD_COMPUTED => {
                         // DEFINE_METHOD: [this_obj, value, ^] -> [this_obj, ^]
                         // DEFINE_METHOD_COMPUTED: [this_obj, name, value, ^] -> [this_obj, ^]
-                        let (is_computed, mut name, op_flags) =
-                            if opcode == OpCode::DEFINE_METHOD_COMPUTED {
-                                // format u8
-                                (true, JS_ATOM_NULL, PC_FETCH!(u8))
-                            } else {
-                                // format atom_u8
-                                (false, JSAtom(PC_FETCH!(u32)), PC_FETCH!(u8))
-                            };
+                        let (is_computed, a, op_flags) = if opcode == OpCode::DEFINE_METHOD_COMPUTED
+                        {
+                            // u8
+                            (true, JSAtom::NULL, PC_FETCH!(u8))
+                        } else {
+                            // atom_u8
+                            (false, JSAtom(PC_FETCH!(u32)), PC_FETCH!(u8))
+                        };
 
-                        if name == JS_ATOM_NULL {
+                        let name = if a.is_null() {
                             // compute name from value SP[-2]
-                            name = if let Ok(a) = SP_REF!(-2).to_atom(ctx) {
-                                a
+                            if let Ok(atom) = SP_REF!(-2).to_atom(ctx) {
+                                atom
                             } else {
                                 break State::Exception;
-                            };
-                        }
+                            }
+                        } else {
+                            a.dup(ctx.rt())
+                        };
 
                         let mut flags = JS_PROP_HAS_CONFIGURABLE
                             | JS_PROP_CONFIGURABLE
@@ -1724,15 +1726,16 @@ impl Bytecode {
                             _ => unreachable!(),
                         }
                         let mut ret =
-                            js_method_set_properties(ctx, func_obj, name, flags, this_obj);
+                            js_method_set_properties(ctx, func_obj, name.as_ref(), flags, this_obj);
                         if ret.is_ok() {
                             ret = this_obj
-                                .define_property(ctx, name, value, getter, setter, flags)
+                                .define_property(ctx, name.as_ref(), value, getter, setter, flags)
                                 .map(|_| ());
                         }
 
+                        name.free(ctx.rt_mut());
+
                         if is_computed {
-                            JS_FreeAtom(ctx, name);
                             SP_TAKE!(-2);
                             SP_GO!(-2);
                         } else {
@@ -1837,8 +1840,8 @@ impl Bytecode {
                         // [obj, prop, ^] -> [obj, value, ^]
                         if unlikely(SP_REF!(-2).is_undefined()) {
                             if let Ok(atom) = SP_REF!(-1).to_atom(ctx) {
-                                JS_ThrowReferenceErrorNotDefined(ctx, atom);
-                                JS_FreeAtom(ctx, atom);
+                                JS_ThrowReferenceErrorNotDefined(ctx, atom.as_ref());
+                                atom.free(ctx.rt_mut());
                             }
                             break State::Exception;
                         } else {
@@ -1852,9 +1855,13 @@ impl Bytecode {
                     }
                     OpCode::GET_SUPER_VALUE => {
                         if let Ok(atom) = SP_REF!(-1).to_atom(ctx) {
-                            let val =
-                                SP_REF!(-2).get_property_internal(ctx, atom, SP_REF!(-3), false);
-                            JS_FreeAtom(ctx, atom);
+                            let val = SP_REF!(-2).get_property_internal(
+                                ctx,
+                                atom.as_ref(),
+                                SP_REF!(-3),
+                                false,
+                            );
+                            atom.free(ctx.rt_mut());
 
                             if let Ok(val) = val {
                                 SP_TAKE!(-1);
@@ -1894,8 +1901,8 @@ impl Bytecode {
                         if unlikely(obj.is_undefined()) {
                             if is_strict_mode(ctx) {
                                 if let Ok(atom) = prop.to_atom(ctx) {
-                                    JS_ThrowReferenceErrorNotDefined(ctx, atom);
-                                    JS_FreeAtom(ctx, atom);
+                                    JS_ThrowReferenceErrorNotDefined(ctx, atom.as_ref());
+                                    atom.free(ctx.rt_mut());
                                 }
                                 break State::Exception;
                             }
@@ -1927,7 +1934,7 @@ impl Bytecode {
                         if let Ok(atom) = prop.to_atom(ctx) {
                             let ret = obj.set_property_internal(
                                 ctx,
-                                atom,
+                                atom.as_ref(),
                                 val,
                                 if let JSValue::Object(o) = &this_obj {
                                     Some(o)
@@ -1936,7 +1943,8 @@ impl Bytecode {
                                 },
                                 JS_PROP_THROW_STRICT,
                             );
-                            JS_FreeAtom(ctx, atom);
+                            atom.free(ctx.rt_mut());
+
                             if unlikely(ret.is_err()) {
                                 break State::Exception;
                             }
@@ -1965,11 +1973,11 @@ impl Bytecode {
                         let ret = prop.to_atom(ctx).and_then(|a| {
                             let r = obj.define_property_value(
                                 ctx,
-                                a,
+                                a.as_ref(),
                                 value,
                                 JS_PROP_C_W_E | JS_PROP_THROW,
                             );
-                            JS_FreeAtom(ctx, a);
+                            a.free(ctx.rt_mut());
                             r
                         });
 

@@ -26,8 +26,7 @@ impl<'s> JSParseState<'s> {
 
         match var_def_type {
             JSVarDefEnum::JS_VAR_DEF_WITH => {
-                var_id =
-                    unsafe { fd.add_scope_var(&ctx, name, JSVarKindEnum::JS_VAR_NORMAL)? as u32 };
+                var_id = fd.add_scope_var(&ctx, name, JSVarKindEnum::JS_VAR_NORMAL)? as u32;
             }
             JSVarDefEnum::JS_VAR_DEF_LET
             | JSVarDefEnum::JS_VAR_DEF_CONST
@@ -103,15 +102,14 @@ impl<'s> JSParseState<'s> {
                     } else {
                         JSVarKindEnum::JS_VAR_NORMAL
                     };
-                    var_id = unsafe { fd.add_scope_var(&ctx, name, var_kind)? as u32 };
+                    var_id = fd.add_scope_var(&ctx, name, var_kind)? as u32;
                     let vd = fd.vars.get_mut(var_id as usize).unwrap();
                     vd.set_is_lexical(true);
                     vd.set_is_const(var_def_type == JSVarDefEnum::JS_VAR_DEF_CONST);
                 }
             }
             JSVarDefEnum::JS_VAR_DEF_CATCH => {
-                var_id =
-                    unsafe { fd.add_scope_var(&ctx, name, JSVarKindEnum::JS_VAR_CATCH)? as u32 };
+                var_id = fd.add_scope_var(&ctx, name, JSVarKindEnum::JS_VAR_CATCH)? as u32;
             }
             JSVarDefEnum::JS_VAR_DEF_VAR => {
                 if fd.find_lexical_decl(name, fd.scope_first, false).is_some() {

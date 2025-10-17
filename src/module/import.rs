@@ -1,8 +1,8 @@
-use crate::atom::JSAtom;
+use crate::atom::Atom;
 
 #[derive(Debug)]
 pub struct JSImportEntry {
     pub var_idx: u16, // closure variable index
-    pub import_name: JSAtom,
+    pub import_name: Atom,
     pub req_module_idx: i32, // in dependencies
 }

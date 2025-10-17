@@ -26,7 +26,7 @@ impl<'s> JSParseState<'s> {
                 self.optional_chain_test(optional_chaining_label, 1);
             }
             self.emit_op_temp(OpCodeTemp::SCOPE_GET_PRIVATE_FIELD);
-            self.emit_atom_dup(self.token.atom().unwrap());
+            self.emit_atom_ref(self.token.atom().unwrap());
             self.emit_u16(self.cur_func().scope_level as _);
         } else {
             if !Self::token_is_ident(self.token.val) {
@@ -42,7 +42,7 @@ impl<'s> JSParseState<'s> {
                     self.optional_chain_test(optional_chaining_label, 1);
                 }
                 self.emit_op(OpCode::GET_FIELD);
-                self.emit_atom_dup(self.token.atom().unwrap());
+                self.emit_atom_ref(self.token.atom().unwrap());
             }
         }
 

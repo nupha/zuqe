@@ -1,10 +1,9 @@
 use crate::{
-    atom::{JS_ATOM_NULL, JS_FreeAtom, JSAtom, JSAtomRc, consts::*},
+    atom::{Atom, JS_ATOM_NULL, JSAtom, JSAtomRc, consts::*},
     bytecode::{OpCode, OpCodeTemp},
     context::JS_MODE_STRICT,
     eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
     function::JSFunctionKindEnum,
-    module::ExportType,
     string::{UTF8_CHAR_LEN_MAX, unicode_from_utf8_v0, unicode_to_utf8},
 };
 
@@ -71,7 +70,7 @@ impl JSParseState<'_> {
                 self.parse_function_decl(
                     JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
                     JSFunctionKindEnum::JS_FUNC_NORMAL,
-                    JS_ATOM_NULL,
+                    JSAtom::NULL,
                     self.token.ptr,
                     self.token.line_num,
                 )
@@ -108,7 +107,7 @@ impl JSParseState<'_> {
         input: *mut *const u8,
         first_char: char,
         is_private: bool,
-    ) -> Result<(JSAtom, bool), i32> {
+    ) -> Result<(Atom, bool), i32> {
         let mut buf = Vec::<u8>::with_capacity(64);
 
         if is_private {
@@ -167,7 +166,7 @@ impl JSParseState<'_> {
             }
         }
 
-        let atom = JSAtom::new(self.ctx.rt_mut(), unsafe {
+        let atom = Atom::new(self.ctx.rt_mut(), unsafe {
             std::str::from_utf8_unchecked(&buf)
         })?;
 
@@ -228,48 +227,36 @@ impl JSParseState<'_> {
                     return Err(-1);
                 }
 
-                let name = JSAtomRc::clone_from(self.ctx.rt(), atom);
+                let name = JSAtomRc::from_ref(self.ctx.rt(), atom);
 
                 self.next_token()?;
-                self.define_var(*name, tok, export)?;
+                self.define_var(name.as_ref(), tok, export)?;
 
                 if self.token.val == '=' as i32 {
                     self.next_token()?;
 
                     if tok == TOK_VAR {
                         // Must make a reference for proper `with` semantics
+                        self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
+                        self.emit_atom_ref(name.as_ref());
+                        self.emit_u16(self.cur_func().scope_level as u16);
+
                         let mut opcode: i32 = 0;
                         let mut scope: i32 = 0;
                         let mut label: i32 = 0;
-                        let mut name1: JSAtom = JS_ATOM_NULL;
+                        let mut name1 = JSAtom::NULL;
+                        self.get_lvalue(
+                            &mut opcode,
+                            &mut scope,
+                            &mut name1,
+                            &mut label,
+                            std::ptr::null_mut(),
+                            false,
+                            CHAR_EQUAL,
+                        )?;
 
-                        self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                        self.emit_atom_dup(*name);
-                        self.emit_u16(self.cur_func().scope_level as u16);
-
-                        if self
-                            .get_lvalue(
-                                &mut opcode,
-                                &mut scope,
-                                &mut name1,
-                                &mut label,
-                                std::ptr::null_mut(),
-                                false,
-                                CHAR_EQUAL,
-                            )
-                            .is_err()
-                        {
-                            JS_FreeAtom(&self.ctx, name1);
-                            return Err(-1);
-                        }
-
-                        if self.parse_assign_expr2(parse_flags).is_err() {
-                            JS_FreeAtom(&self.ctx, name1);
-                            return Err(-1);
-                        }
-
-                        self.set_object_name(*name);
-
+                        self.parse_assign_expr2(parse_flags)?;
+                        self.set_object_name(name.as_ref());
                         self.put_lvalue(
                             opcode,
                             scope,
@@ -280,13 +267,13 @@ impl JSParseState<'_> {
                         );
                     } else {
                         self.parse_assign_expr2(parse_flags)?;
-                        self.set_object_name(*name);
+                        self.set_object_name(name.as_ref());
                         self.emit_op_temp(if tok == TOK_CONST || tok == TOK_LET {
                             OpCodeTemp::SCOPE_PUT_VAR_INIT
                         } else {
                             OpCodeTemp::SCOPE_PUT_VAR
                         });
-                        self.emit_atom_dup(*name);
+                        self.emit_atom_ref(name.as_ref());
                         self.emit_u16(self.cur_func().scope_level as u16);
                     }
                 } else {
@@ -297,7 +284,7 @@ impl JSParseState<'_> {
                         // initialize lexical variable upon entering its scope
                         self.emit_op(OpCode::UNDEFINED);
                         self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
-                        self.emit_atom_dup(*name);
+                        self.emit_atom_ref(name.as_ref());
                         self.emit_u16(self.cur_func().scope_level as u16);
                     }
                 }

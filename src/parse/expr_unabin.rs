@@ -1,6 +1,6 @@
 use crate::{
     atom::{
-        JS_ATOM_NULL, JS_FreeAtom, JSAtom,
+        JS_ATOM_NULL, JSAtom, JSAtomRc,
         consts::{JS_ATOM_new_target, JS_ATOM_this},
     },
     bytecode::{OpCode, OpCodeTemp, opcodes},
@@ -35,36 +35,19 @@ impl<'s> JSParseState<'s> {
             && level == 4
             && self.peek_token(false) == TOK_IN
         {
-            let atom = if let TokenData::Ident { atom, .. } = self.token.data {
-                atom.dup(&self.ctx.rt());
-                atom
-            } else {
-                unreachable!()
-            };
+            let atom = JSAtomRc::from_ref(self.ctx.rt(), self.token.atom().unwrap());
 
-            if self.next_token().is_err() {
-                JS_FreeAtom(&self.ctx, atom);
-                return Err(-1);
-            }
+            self.next_token()?;
             if self.token.val != TOK_IN {
-                JS_FreeAtom(&self.ctx, atom);
                 return Err(-1);
             }
-            self.next_token().inspect_err(|_| {
-                JS_FreeAtom(&self.ctx, atom);
-            })?;
-            if self
-                .parse_expr_binary(level - 1, parse_flags & !PF_ARROW_FUNC)
-                .is_err()
-            {
-                JS_FreeAtom(&self.ctx, atom);
-                return Err(-1);
-            }
+
+            self.next_token()?;
+            self.parse_expr_binary(level - 1, parse_flags & !PF_ARROW_FUNC)?;
 
             self.emit_op_temp(OpCodeTemp::SCOPE_IN_PRIVATE_FIELD);
-            self.emit_atom_dup(atom);
+            self.emit_atom_ref(atom.as_ref());
             self.emit_u16(self.cur_func().scope_level as _);
-            JS_FreeAtom(&self.ctx, atom);
 
             return Ok(());
         } else {
@@ -340,10 +323,7 @@ impl<'s> JSParseState<'s> {
                 debug_assert!(fd.last_opcode_pos > 0);
                 fd.byte_code.truncate(fd.last_opcode_pos as _);
 
-                self.emit_push_const(name.force_string(&self.ctx)?.into(), true)
-                    .inspect_err(|_| {
-                        JS_FreeAtom(&self.ctx, name);
-                    })?;
+                self.emit_push_const(name.force_string(&self.ctx)?.into(), true)?;
                 self.emit_op(OpCode::DELETE);
 
                 if opt_chain_label >= 0 {
@@ -416,7 +396,7 @@ impl<'s> JSParseState<'s> {
                 fd.byte_code.truncate(fd.last_opcode_pos as _);
                 fd.last_opcode_pos = -1;
                 self.emit_op(OpCode::THROW_ERROR);
-                self.emit_atom_dup(JS_ATOM_NULL);
+                self.emit_atom_ref(JS_ATOM_NULL);
                 self.emit_u8(JS_THROW_ERROR_DELETE_SUPER);
             }
             _ => {

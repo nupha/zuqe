@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::{
-    atom::{JS_ATOM_NULL, JS_FreeAtomRT, JSAtom},
+    atom::Atom,
     bytecode::{OpcodeFormat, opcode_info_final, opcode_info_intermediate},
     context::{JSContext, JSContextWeakref},
     error::JSResult,
@@ -23,7 +23,7 @@ use super::{JSFunctionKindEnum, closure::JSClosureVar, var::JSVarDef};
 
 #[derive(Debug)]
 pub struct BytecodeDebugInfo {
-    pub filename: JSAtom,
+    pub filename: Atom,
     pub line_num: i32,
     pub source: Option<String>,
     pub pc2line_buf: Option<Vec<u8>>,
@@ -35,7 +35,7 @@ pub struct BytecodeDebugInfo {
 impl Default for BytecodeDebugInfo {
     fn default() -> Self {
         Self {
-            filename: JS_ATOM_NULL,
+            filename: Atom::NULL,
             line_num: 0,
             source: None,
             pc2line_buf: None,
@@ -102,7 +102,7 @@ pub struct BytecodeInner {
     rt: NonNull<JSRuntime>,
     gc_mark: Cell<bool>,
 
-    pub func_name: JSAtom,
+    pub func_name: Atom,
     realm: JSContextWeakref,
 
     pub(crate) attrs: BytecodeAttrs,
@@ -158,7 +158,7 @@ impl BytecodeInner {
             rt: unsafe { NonNull::new_unchecked(ctx.rt_mut()) },
             gc_mark: Cell::new(false),
 
-            func_name: fd.func_name,
+            func_name: fd.func_name.dup(ctx.rt()),
             realm: ctx.downgrade(),
 
             attrs: BytecodeAttrs {
@@ -539,28 +539,34 @@ impl BytecodeInner {
 
     fn finalize(&mut self) {
         free_bytecode_atoms(
-            self.rt.as_ptr(),
+            unsafe { self.rt.as_mut() },
             &self.binary[self.opcodes_start as usize..],
             true,
         );
 
+        let rt = self.rt.as_ptr();
+
         // free vardef var_name atom
-        for vd in self.vardefs() {
-            JS_FreeAtomRT(self.rt.as_ptr(), vd.var_name);
+        if let Some(lst) = self.vardefs_mut() {
+            for vd in lst {
+                let old = std::mem::replace(&mut vd.var_name, Atom::NULL);
+                old.free(rt);
+            }
         }
 
         // free closure vars atom
-        for cv in self.closure_vars() {
-            JS_FreeAtomRT(self.rt.as_ptr(), cv.var_name);
+        if let Some(lst) = self.closure_vars_mut() {
+            for cv in lst {
+                let old = std::mem::replace(&mut cv.var_name, Atom::NULL);
+                old.free(rt);
+            }
         }
 
         // free func name atom
-        JS_FreeAtomRT(self.rt.as_ptr(), self.func_name);
-        self.func_name = JS_ATOM_NULL;
+        std::mem::replace(&mut self.func_name, Atom::NULL).free(rt);
 
         if self.has_debug {
-            JS_FreeAtomRT(self.rt.as_ptr(), self.debug.filename);
-            self.debug.filename = JS_ATOM_NULL;
+            std::mem::replace(&mut self.debug.filename, Atom::NULL).free(rt);
         }
     }
 }
@@ -647,8 +653,9 @@ impl BytecodeWeakref {
     }
 }
 
-/// free atom in bytecode
-pub(super) fn free_bytecode_atoms(rt: *mut JSRuntime, bc: &[u8], is_short_opcodes: bool) {
+/// free atom in bytecode.
+/// Note: each atom id in instruction holds an atom refcount.
+pub(super) fn free_bytecode_atoms(rt: &mut JSRuntime, bc: &[u8], is_short_opcodes: bool) {
     let bc_len = bc.len();
     let mut pos = 0;
     while pos < bc_len {
@@ -667,10 +674,9 @@ pub(super) fn free_bytecode_atoms(rt: *mut JSRuntime, bc: &[u8], is_short_opcode
                 | OpcodeFormat::ATOM_LABEL_U8
                 | OpcodeFormat::ATOM_LABEL_U16
         ) {
-            unsafe {
-                let atom = JSAtom(read_from_ptr::<u32>(bc.as_ptr().add(pos as usize + 1)));
-                JS_FreeAtomRT(rt, atom);
-            }
+            let atom =
+                Atom::from(unsafe { read_from_ptr::<u32>(bc.as_ptr().add(pos as usize + 1)) });
+            atom.free(rt);
         }
 
         pos += oi.size as usize;

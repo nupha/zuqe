@@ -1,6 +1,6 @@
 use crate::{
-    JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_SYMBOL, JS_PROP_STRING_DEF,
-    atom::{AtomTypeHint, JSAtom},
+    JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_PROP_STRING_DEF,
+    atom::{Atom, AtomTypeHint, JSAtom},
     context::JSContext,
     error::JSResult,
     function::{CallContext, FieldDef},
@@ -12,8 +12,9 @@ use super::value::JSValue;
 
 impl JSContext {
     pub fn create_symbol(&self, str: Option<JSString>, atom_type: AtomTypeHint) -> JSResult {
-        let a = JSAtom::new_internal(self.rt_mut(), str, atom_type)?;
+        let a = Atom::new_internal(self.rt_mut(), str, atom_type)?;
         let ss = a.description(self.rt()).unwrap();
+        a.free(self.rt_mut());
         Ok(JSValue::Symbol(ss))
     }
 
@@ -28,7 +29,7 @@ impl JSContext {
 /// returned atom is not cloned. caller should clone to keep its reference.
 pub(crate) fn symbol_to_atom(val: &JSValue) -> JSAtom {
     if let JSValue::Symbol(s) = val {
-        s.atom_info().unwrap().atom()
+        s.atom_info().unwrap().atom_ref()
     } else {
         unreachable!()
     }

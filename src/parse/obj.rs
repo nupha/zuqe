@@ -1,5 +1,5 @@
 use crate::{
-    atom::{JS_FreeAtom, JSAtom},
+    atom::{JSAtom, consts::JS_ATOM_empty_string},
     bytecode::{OpCode, opcodes},
     utils::{read_from_ptr, write_to_ptr},
 };
@@ -18,7 +18,7 @@ impl<'s> JSParseState<'s> {
                 fd.byte_code.truncate(fd.last_opcode_pos as usize); //   (*fd).byte_code.size = (*fd).last_opcode_pos;
                 fd.last_opcode_pos = -1;
                 self.emit_op(OpCode::SET_NAME);
-                self.emit_atom_dup(name);
+                self.emit_atom_ref(name);
             }
             opcodes::op_set_class_name => {
                 let define_class_pos = fd.last_opcode_pos + 1
@@ -35,22 +35,27 @@ impl<'s> JSParseState<'s> {
                     opcodes::OP_define_class
                 );
 
-                // for consistency we free the previous atom which is JS_ATOM_empty_string
-                JS_FreeAtom(
-                    &ctx,
-                    JSAtom(unsafe {
+                // for consistency we free the previous atom, which is JS_ATOM_empty_string
+                #[cfg(debug_assertions)]
+                {
+                    let old_atom = JSAtom(unsafe {
                         read_from_ptr::<u32>(
                             fd.byte_code.as_ptr().offset(define_class_pos as isize + 1),
                         )
-                    }),
-                );
+                    });
+                    debug_assert_eq!(old_atom, JS_ATOM_empty_string);
+
+                    // Note: const atom don't need to be freed
+                    // let a = Atom(old_atom.0);
+                    // a.free(ctx.rt_mut());
+                }
 
                 unsafe {
                     write_to_ptr::<u32>(
                         fd.byte_code
                             .as_mut_ptr()
                             .offset(define_class_pos as isize + 1),
-                        name.dup(ctx.rt()).0,
+                        name.dup(ctx.rt()).leak(),
                     );
                 }
                 fd.last_opcode_pos = -1;

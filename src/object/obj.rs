@@ -1,7 +1,6 @@
 use std::{
     cell::{Cell, RefCell},
     fmt::Formatter,
-    ops::Deref,
     ptr::NonNull,
     rc::{Rc, Weak},
 };
@@ -183,8 +182,7 @@ impl std::fmt::Display for ObjectInner {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let rt = self.rt();
         let class_id = self.class_id();
-        let atom = rt.class_defs[class_id as usize].class_name;
-        let name = atom.to_utf8(rt);
+        let name = rt.class_defs[class_id as usize].class_name.to_utf8(rt);
 
         #[cfg(debug_assertions)]
         {
@@ -494,11 +492,13 @@ impl JSObject {
     pub fn class_id(&self) -> JSClassID {
         self.payload().class_id()
     }
-    /// Get object class name.
-    /// Note: returned atom is not duplicated, caller should clone to keep reference.
+
+    /// Get object class name atom.
     #[inline]
     pub fn class_name(&self) -> JSAtom {
-        self.rt().class_defs[self.class_id() as usize].class_name
+        self.rt().class_defs[self.class_id() as usize]
+            .class_name
+            .as_ref()
     }
 
     /// Get object flags
@@ -572,11 +572,9 @@ impl JSObject {
     pub fn is_sealed(&self, ctx: &JSContext, is_frozen: bool) -> Result<bool, i32> {
         const NOT_SEALED_ERR: i32 = i32::MAX;
 
-        if let Err(e) = self.own_property_names_foreach(
-            ctx,
-            JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK,
-            |_, name| {
-                if let Some(desc) = self.get_own_property(ctx, name.atom)? {
+        if let Err(e) =
+            self.own_property_names_foreach(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK, |_, pk| {
+                if let Some(desc) = self.get_own_property(ctx, pk.atom.as_ref())? {
                     if desc.flags & JS_PROP_CONFIGURABLE != 0
                         || (is_frozen && (desc.flags & JS_PROP_WRITABLE != 0))
                     {
@@ -586,8 +584,8 @@ impl JSObject {
                     }
                 }
                 Ok(())
-            },
-        ) {
+            })
+        {
             return if e == NOT_SEALED_ERR {
                 Ok(false) // not sealed
             } else {
@@ -736,12 +734,11 @@ impl JSValue {
                 p.own_property_names_foreach(
                     ctx,
                     JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK,
-                    |cx, name| {
-                        let prop = name.atom;
+                    |_, pkey| {
                         let mut flags = JS_PROP_THROW | JS_PROP_HAS_CONFIGURABLE;
 
                         if freeze {
-                            if let Some(desc) = p.get_own_property(ctx, prop)? {
+                            if let Some(desc) = p.get_own_property(ctx, pkey.atom.as_ref())? {
                                 if desc.flags & JS_PROP_WRITABLE != 0 {
                                     flags |= JS_PROP_HAS_WRITABLE;
                                 }
@@ -751,8 +748,8 @@ impl JSValue {
                         // equivelent to set {configurable: false},
                         // or {configurable:false, writable: false} if freeze=true
                         p.define_property(
-                            cx,
-                            prop,
+                            ctx,
+                            pkey.atom.as_ref(),
                             JSValue::UNDEFINED,
                             JSValue::UNDEFINED,
                             JSValue::UNDEFINED,

@@ -2,7 +2,7 @@ use std::ffi::c_void;
 
 use crate::{
     JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
-    atom::{JS_AtomIsNumericIndex, JS_FreeAtom, JSAtom, consts::*},
+    atom::{JS_AtomIsNumericIndex, JSAtom, consts::*},
     branch_hints::unlikely,
     context::{JSContext, JSContextWeakref},
     error::JSResult,
@@ -352,22 +352,19 @@ impl JSObject {
             gpn_flags &= !JS_GPN_ENUM_ONLY;
         }
 
-        let keys = source.get_own_property_names(ctx, gpn_flags)?;
-        let mut has_err = false;
-
-        for k in keys.iter() {
+        for k in source.get_own_property_names(ctx, gpn_flags)? {
             if let Some(excl) = excluded {
-                let Ok(skip) = excl.get_own_property(ctx, k.atom).map(|x| x.is_some()) else {
-                    has_err = true;
-                    break;
-                };
+                let skip = excl
+                    .get_own_property(ctx, k.atom.as_ref())
+                    .map(|x| x.is_some())?;
+
                 if skip {
                     continue; // excluded prop, skip
                 }
             }
 
             if gpn_flags & JS_GPN_ENUM_ONLY == 0 {
-                if let Some(desc) = source.get_own_property(ctx, k.atom)? {
+                if let Some(desc) = source.get_own_property(ctx, k.atom.as_ref())? {
                     if desc.flags & JS_PROP_ENUMERABLE == 0 {
                         continue; // skip if non enumerable
                     }
@@ -376,32 +373,15 @@ impl JSObject {
                 }
             }
 
-            match source.get_property(ctx, k.atom) {
-                Ok(val) => {
-                    if if setprop {
-                        self.set_property(ctx, k.atom, val)
-                    } else {
-                        self.define_property_value(ctx, k.atom, val, JS_PROP_C_W_E)
-                    }
-                    .is_err()
-                    {
-                        has_err = true;
-                        break;
-                    }
-                }
-                Err(_) => {
-                    has_err = true;
-                    break;
-                }
+            let val = source.get_property(ctx, k.atom.as_ref())?;
+            if setprop {
+                self.set_property(ctx, k.atom.as_ref(), val)?;
+            } else {
+                self.define_property_value(ctx, k.atom.as_ref(), val, JS_PROP_C_W_E)?;
             }
         }
 
-        // free atoms
-        for key in keys {
-            JS_FreeAtom(ctx, key.atom);
-        }
-
-        if unlikely(has_err) { Err(-1) } else { Ok(()) }
+        Ok(())
     }
 
     /// Read _length_ property defined on `self`.

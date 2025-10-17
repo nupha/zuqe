@@ -351,7 +351,9 @@ fn js_create_typed_array_iterator(ctx: &JSContext, cc: CallContext) -> JSResult 
 
 fn js_typed_array_get_toStringTag(ctx: &JSContext, cc: CallContext) -> JSResult {
     if let Ok(tao) = TypedArray::try_from(cc.this().clone()) {
-        let class_name = ctx.rt().class_defs[tao.class_id() as usize].class_name;
+        let class_name = ctx.rt().class_defs[tao.class_id() as usize]
+            .class_name
+            .as_ref();
         class_name.force_string(ctx).map(JSValue::String)
     } else {
         Ok(JSValue::UNDEFINED)
@@ -359,7 +361,7 @@ fn js_typed_array_get_toStringTag(ctx: &JSContext, cc: CallContext) -> JSResult 
 }
 
 fn js_typed_array_copyWithin(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let len = unsafe { js_typed_array_get_length_internal(ctx, cc.this())? as i32 };
+    let len = js_typed_array_get_length_internal(ctx, cc.this())? as i32;
 
     let to: i32 = cc.arg(0).to_i32_clamp(ctx, 0, len, len)?;
     let from: i32 = cc.arg(1).to_i32_clamp(ctx, 0, len, len)?;

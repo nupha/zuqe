@@ -17,12 +17,12 @@ impl ModuleDef {
         ctx: &JSContext,
         export_name: JSAtom,
         mut expect: Option<(usize, JSAtom)>, // (module_id, local_name_atom)
-        resolving: &mut Vec<(usize, u32)>,   // (module_id, export_atom_id), to detect circular
+        resolving: &mut Vec<(usize, JSAtom)>, // (module_id, export_atom), to detect circular
     ) -> Result<ResolveExport, i32> {
         if unlikely(
             resolving
                 .iter()
-                .any(|x| x.0 == self.id() && x.1 == export_name.0),
+                .any(|x| x.0 == self.id() && x.1 == export_name),
         ) {
             return Ok(ResolveExport::Circular);
         }
@@ -34,27 +34,31 @@ impl ModuleDef {
                 -1
             })?;
         }
-        resolving.push((self.id(), export_name.0));
+        resolving.push((self.id(), export_name));
 
         if let Some(me) = self.find_export(export_name) {
             match me.export_type {
                 ExportType::JS_EXPORT_TYPE_LOCAL { .. } => Ok(ResolveExport::Found {
                     module: self.clone(),
-                    entry: me.clone(),
+                    export_type: me.export_type,
+                    export_name: me.export_name.into_rc(ctx.rt()),
+                    local_name: me.local_name.into_rc(ctx.rt()),
                 }),
                 ExportType::JS_EXPORT_TYPE_INDIRECT(req_module_idx) => {
-                    if me.local_name == JS_ATOM__star_ {
+                    if me.local_name.as_ref() == JS_ATOM__star_ {
                         // export ns from
                         Ok(ResolveExport::Found {
                             module: self.clone(),
-                            entry: me.clone(),
+                            export_type: me.export_type,
+                            export_name: me.export_name.into_rc(ctx.rt()),
+                            local_name: me.local_name.into_rc(ctx.rt()),
                         })
                     } else {
                         let dep = self.0.dependencies.borrow()[req_module_idx as usize]
                             .module
                             .clone()
                             .unwrap();
-                        dep.resolve_export_internal(ctx, me.local_name, expect, resolving)
+                        dep.resolve_export_internal(ctx, me.local_name.as_ref(), expect, resolving)
                     }
                 }
             }
@@ -70,14 +74,25 @@ impl ModuleDef {
                         .unwrap();
 
                     match dep.resolve_export_internal(ctx, export_name, expect, resolving)? {
-                        ResolveExport::Found { module, entry } => {
+                        ResolveExport::Found {
+                            module,
+                            local_name,
+                            export_name,
+                            export_type,
+                        } => {
                             if expect.map_or(false, |(test_module_id, test_local_name)| {
-                                test_module_id != module.id() || test_local_name != entry.local_name
+                                test_module_id != module.id()
+                                    || test_local_name != local_name.as_ref()
                             }) {
                                 return Ok(ResolveExport::Ambiguous);
                             } else {
-                                expect.replace((module.id(), entry.local_name));
-                                ret = ResolveExport::Found { module, entry };
+                                expect.replace((module.id(), local_name.as_ref()));
+                                ret = ResolveExport::Found {
+                                    module,
+                                    local_name,
+                                    export_name,
+                                    export_type,
+                                };
                             }
                         }
                         r @ (ResolveExport::Ambiguous | ResolveExport::Circular) => {
@@ -102,7 +117,7 @@ impl ModuleDef {
         export_name: JSAtom,
         expect: Option<(usize, JSAtom)>, // (module_id, local_name_atom)
     ) -> Result<ResolveExport, i32> {
-        let mut lst = Vec::<(usize, u32)>::with_capacity(8);
+        let mut lst = Vec::<(usize, JSAtom)>::with_capacity(8);
         self.resolve_export_internal(ctx, export_name, expect, &mut lst)
     }
 
@@ -162,15 +177,16 @@ impl ModuleDef {
         // check the indirect exports
         for exp in self.export_entries.borrow().iter() {
             if let ExportType::JS_EXPORT_TYPE_INDIRECT(req_module_idx) = exp.export_type
-                && exp.local_name != JS_ATOM__star_
+                && exp.local_name.as_ref() != JS_ATOM__star_
             {
                 let m1 = self.dependencies.borrow()[req_module_idx as usize]
                     .module
                     .clone()
                     .unwrap();
-                let ret = m1.resolve_export(ctx, exp.local_name, None)?;
+
+                let ret = m1.resolve_export(ctx, exp.local_name.as_ref(), None)?;
                 if !matches!(ret, ResolveExport::Found { .. }) {
-                    ret.throw_syntax_error_export(ctx, self, exp.export_name);
+                    ret.throw_syntax_error_export(ctx, self, exp.export_name.as_ref());
                     return Err(-1);
                 }
             }
@@ -183,7 +199,7 @@ impl ModuleDef {
                 BCFunction::try_from(unsafe { (*self.bytecode.as_ptr()).clone() }).unwrap();
 
             for imp in self.import_entries.borrow().iter() {
-                let import_name = imp.import_name;
+                let import_name = imp.import_name.as_ref();
                 let import_var_idx = imp.var_idx;
 
                 let reqm = self.dependencies.borrow()[imp.req_module_idx as usize]
@@ -198,10 +214,15 @@ impl ModuleDef {
                         .set_value(val.into());
                 } else {
                     match reqm.resolve_export(ctx, import_name, None)? {
-                        ResolveExport::Found { module: dep, entry } => {
-                            match entry.export_type {
+                        ResolveExport::Found {
+                            module: dep,
+                            export_type,
+                            local_name,
+                            export_name,
+                        } => {
+                            match export_type {
                                 ExportType::JS_EXPORT_TYPE_INDIRECT(req_module_idx) => {
-                                    if entry.local_name == JS_ATOM__star_ {
+                                    if local_name.as_ref() == JS_ATOM__star_ {
                                         // name space import from
                                         let m2 = dep.0.dependencies.borrow()
                                             [req_module_idx as usize]
@@ -217,7 +238,7 @@ impl ModuleDef {
                                     }
                                 }
                                 ExportType::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } => {
-                                    debug_assert_ne!(entry.local_name, JS_ATOM__star_);
+                                    debug_assert_ne!(local_name.as_ref(), JS_ATOM__star_);
 
                                     let vr = var_ref.unwrap_or_else(|| {
                                         debug_assert!(

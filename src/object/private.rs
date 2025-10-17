@@ -1,5 +1,5 @@
 use crate::{
-    atom::{AtomTypeHint, JS_FreeAtom, consts::*},
+    atom::{AtomTypeHint, consts::*},
     context::JSContext,
     error::{JS_ThrowTypeErrorPrivateNotFound, JSResult},
     object::{JSObject, JSProperty},
@@ -18,7 +18,7 @@ impl JSObject {
             if let Some((idx, _)) = home_obj.find_shape_property(JS_ATOM_Private_brand) {
                 match home_obj.0.prop_values.borrow().get(idx).cloned().unwrap() {
                     JSProperty::Normal(JSValue::Symbol(s)) => {
-                        Ok(self.has_shape_property(s.atom_info().unwrap().atom()))
+                        Ok(self.has_shape_property(s.atom_info().unwrap().atom_ref()))
                     }
                     _ => {
                         ctx.throw_type_error_not_an_object();
@@ -38,7 +38,7 @@ impl JSObject {
 
     fn set_private_field(&self, ctx: &JSContext, name: &JSValue, val: JSValue) -> Result<(), i32> {
         if let JSValue::Symbol(s) = name {
-            let prop = s.atom_info().unwrap().atom();
+            let prop = s.atom_info().unwrap().atom_ref();
 
             if let Some((idx, _)) = self.find_shape_property(prop) {
                 self.0.prop_values.borrow_mut()[idx] = JSProperty::Normal(val);
@@ -71,7 +71,7 @@ impl JSObject {
 
     fn get_private_field(&self, ctx: &JSContext, name: &JSValue) -> JSResult {
         if let JSValue::Symbol(s) = name {
-            let prop = s.atom_info().unwrap().atom();
+            let prop = s.atom_info().unwrap().atom_ref();
 
             if let Some((idx, _)) = self.find_shape_property(prop) {
                 if let JSProperty::Normal(val) = self.0.prop_values.borrow().get(idx).unwrap() {
@@ -118,7 +118,7 @@ impl JSObject {
         val: JSValue,
     ) -> Result<(), i32> {
         if let JSValue::Symbol(s) = name {
-            let prop = s.atom_info().unwrap().atom();
+            let prop = s.atom_info().unwrap().atom_ref();
             if self.has_shape_property(prop) {
                 ctx.throw_type_error(&format!(
                     "private class field '{}' already exists",
@@ -170,20 +170,18 @@ impl JSValue {
                 };
 
             if let Some(ob) = self.as_object() {
-                let brand_atom = brand_sym.to_atom(ctx).unwrap();
+                let brand_atom = brand_sym.to_atom(ctx).unwrap().into_rc(ctx.rt());
 
-                if ob.has_shape_property(brand_atom) {
-                    JS_FreeAtom(ctx, brand_atom);
+                if ob.has_shape_property(brand_atom.as_ref()) {
                     ctx.throw_type_error("private method is already present");
                     Err(-1)
                 } else {
                     let r = ob.add_own_property(
                         ctx,
-                        brand_atom,
+                        brand_atom.as_ref(),
                         JS_PROP_C_W_E,
                         JSProperty::Normal(JSValue::UNDEFINED),
                     );
-                    JS_FreeAtom(ctx, brand_atom);
                     r
                 }
             } else {

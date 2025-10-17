@@ -58,36 +58,56 @@ impl AtomHintAndId {
         }
     }
 
-    /// Get atom.
+    /// Get atom ref.
     /// Returned atom is not duplicated, caller should clone to keep it referenced.
     #[inline(always)]
-    pub fn atom(self) -> JSAtom {
+    pub fn atom_ref(self) -> JSAtom {
         JSAtom(self.id())
     }
 }
 
+/// A must-manually-consume atom instance that hold one refcount.
 #[repr(transparent)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Hash)]
-pub struct JSAtom(pub(crate) u32);
+#[derive(Debug, PartialEq, Eq, PartialOrd, Hash)]
+pub struct Atom(u32);
 
-impl JSAtom {
+#[cfg(debug_assertions)]
+impl Drop for Atom {
+    fn drop(&mut self) {
+        if !self.is_const() {
+            unreachable!("Atom must be free'd manually: {}", self.0)
+        }
+    }
+}
+
+impl Atom {
+    pub const NULL: Self = Self(0);
+
     #[inline(always)]
-    pub fn description(&self, rt: &JSRuntime) -> Option<JSString> {
+    pub(crate) const fn from(id: u32) -> Self {
+        Self(id)
+    }
+
+    #[inline(always)]
+    pub fn id(&self) -> u32 {
+        self.0
+    }
+
+    /// get atom description. returns None if atom does not exist.
+    #[inline(always)]
+    pub(crate) fn description(&self, rt: &JSRuntime) -> Option<JSString> {
         get_atom_description(rt, self.0)
     }
 
-    /// check if is const atom?
+    #[inline(always)]
+    pub fn is_null(&self) -> bool {
+        self.0 == 0
+    }
+
+    /// check if atom is const atom?
     #[inline(always)]
     pub fn is_const(&self) -> bool {
-        // Hint: for u32 atoms, `self.0 as i32` should be minus.
-        #[cfg(feature = "dump_leaks")]
-        {
-            self.0 as i32 <= 0
-        }
-        #[cfg(not(feature = "dump_leaks"))]
-        {
-            (self.0 as i32) < JS_ATOM_INIT_COUNT as i32
-        }
+        is_const_atom(self.0)
     }
 
     /// get atom descriptor kind
@@ -142,7 +162,7 @@ impl JSAtom {
 
     /// increase atom description ref count.
     #[inline]
-    pub fn dup(&self, rt: &JSRuntime) -> JSAtom {
+    pub fn dup(&self, rt: &JSRuntime) -> Self {
         if !self.is_const() {
             let p = self
                 .description(rt)
@@ -152,7 +172,7 @@ impl JSAtom {
             let _ = Rc::into_raw(p.0);
         }
 
-        *self
+        Self(self.0)
     }
 
     /// get atom description ref count, for const atom, returns None
@@ -210,7 +230,7 @@ impl JSAtom {
 
     /// if atom can be used as array index, which is an int in range \[0, 2^32-1), returns the int.
     pub fn to_array_index(&self, rt: &JSRuntime) -> Option<u32> {
-        if *self == JS_ATOM_NULL {
+        if self.0 == 0 {
             None
         } else if let Some(n) = self.to_small_int() {
             Some(n)
@@ -232,7 +252,7 @@ impl JSAtom {
 
     /// if atom can be represented/parsed as an i64, returns the i64.
     pub fn to_i64(&self, rt: &JSRuntime) -> Option<i64> {
-        if *self == JS_ATOM_NULL {
+        if self.0 == 0 {
             None
         } else if let Some(n) = self.to_small_int() {
             Some(n as i64)
@@ -247,8 +267,8 @@ impl JSAtom {
     }
 
     /// run closure with utf8 bytes converted from atom
-    pub fn with_utf8<R>(self, rt: &JSRuntime, f: impl FnOnce(Cow<'_, str>) -> R) -> R {
-        if self.eq(&JS_ATOM_NULL) {
+    pub fn with_utf8<R>(&self, rt: &JSRuntime, f: impl FnOnce(Cow<'_, str>) -> R) -> R {
+        if self.is_null() {
             f(Cow::Borrowed("<null>"))
         } else if let Some(n) = self.to_small_int() {
             f(Cow::Owned(format!("{n}")))
@@ -266,6 +286,52 @@ impl JSAtom {
     pub fn to_utf8(&self, rt: &JSRuntime) -> String {
         self.with_utf8(rt, |s| s.into_owned())
     }
+
+    #[inline(always)]
+    pub fn as_ref(&self) -> JSAtom {
+        JSAtom(self.0)
+    }
+
+    /// consume the atom, decrease refcount.
+    pub fn free(mut self, rt: *mut JSRuntime) {
+        if !self.is_const() {
+            let id = std::mem::replace(&mut self.0, 0);
+            unsafe {
+                __JS_FreeAtom(rt, id);
+            }
+        }
+    }
+
+    /// consume the atom, return the atom id, DO NOT decrease refcount.
+    #[inline(always)]
+    pub(crate) unsafe fn leak(mut self) -> u32 {
+        std::mem::replace(&mut self.0, 0)
+    }
+}
+
+/// the atom reference. not change refcount.
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Hash)]
+pub struct JSAtom(pub(crate) u32);
+
+impl<'a> From<&'a Atom> for JSAtom {
+    #[inline(always)]
+    fn from(atom: &'a Atom) -> Self {
+        Self(atom.0)
+    }
+}
+
+impl std::ops::Deref for JSAtom {
+    type Target = Atom;
+
+    #[inline(always)]
+    fn deref(&self) -> &Self::Target {
+        unsafe { std::mem::transmute::<&JSAtom, &Atom>(self) }
+    }
+}
+
+impl JSAtom {
+    pub const NULL: Self = Self(0);
 }
 
 pub const JS_ATOM_NULL: JSAtom = JSAtom(0);
@@ -282,22 +348,22 @@ pub const ATOM_GET_STR_BUF_SIZE: usize = 64;
 
 impl JSString {
     /// convert string to atom. if string is not registered as atom yet, do registration.
-    pub fn to_atom(&self, ctx: &JSContext) -> Result<JSAtom, i32> {
+    pub fn to_atom(&self, ctx: &JSContext) -> Result<Atom, i32> {
         if let Some(a) = self.atom_info() {
             // str already registered as atom
-            Ok(a.atom())
+            Ok(a.atom_ref().dup(ctx.rt()))
         } else {
             // register as string atom
-            JSAtom::from_string(ctx.rt_mut(), self.clone(), AtomTypeHint::String)
+            Atom::from_string(ctx.rt_mut(), self.clone(), AtomTypeHint::String)
         }
     }
 }
 
 impl JSContext {
     pub fn create_atom_string(&self, str: &str) -> Result<JSString, i32> {
-        let atom = JSAtom::new(self.rt_mut(), str)?; //self.create_atom(str)?;
+        let atom = Atom::new(self.rt_mut(), str)?;
         let val = atom.force_string(self);
-        JS_FreeAtom(self, atom);
+        atom.free(self.rt_mut());
         val
     }
 }
@@ -306,26 +372,26 @@ impl JSValue {
     /// convert value to atom. if value is not string or symbol, corece value to string then convert to atom.
     ///
     /// Note: returned atom is cloned, caller should free it after use.
-    pub fn to_atom(&self, ctx: &JSContext) -> Result<JSAtom, i32> {
+    pub fn to_atom(&self, ctx: &JSContext) -> Result<Atom, i32> {
         let mut val = self.clone();
 
         loop {
             match val {
                 JSValue::UNDEFINED => {
-                    return Ok(JS_ATOM_undefined);
+                    return Ok(Atom::new_const(JS_ATOM_undefined));
                 }
                 JSValue::NULL => {
-                    return Ok(JS_ATOM_null);
+                    return Ok(Atom::new_const(JS_ATOM_null));
                 }
                 JSValue::Bool(b) => {
-                    return Ok(if b { JS_ATOM_true } else { JS_ATOM_false });
+                    return Ok(Atom::new_const(if b {
+                        JS_ATOM_true
+                    } else {
+                        JS_ATOM_false
+                    }));
                 }
                 JSValue::Int(i) => {
-                    return if i as u32 <= JS_ATOM_MAX_INT {
-                        Ok(JSAtom::new_small_int(i as u32))
-                    } else {
-                        JSAtom::from_i64(ctx.rt_mut(), i as i64)
-                    };
+                    return Atom::from_i64(ctx.rt_mut(), i as i64);
                 }
 
                 // atom has description
@@ -358,8 +424,8 @@ impl JSValue {
     }
 }
 
-unsafe fn __JS_FreeAtom(rt: *mut JSRuntime, i: JSAtom) {
-    if let Some(p) = get_atom_description(&*rt, i.0) {
+unsafe fn __JS_FreeAtom(rt: *mut JSRuntime, i: u32) {
+    if let Some(p) = get_atom_description(&*rt, i) {
         if Rc::strong_count(&p.0) > 2 {
             drop(p);
         } else {
@@ -371,24 +437,23 @@ unsafe fn __JS_FreeAtom(rt: *mut JSRuntime, i: JSAtom) {
     }
 }
 
-pub fn JS_FreeAtom(ctx: &JSContext, v: JSAtom) {
-    if !v.is_const() {
+pub(crate) fn JS_FreeAtom(ctx: &JSContext, a: Atom) {
+    if !a.is_const() {
         unsafe {
-            __JS_FreeAtom(ctx.rt_mut(), v);
+            __JS_FreeAtom(ctx.rt_mut(), a.0);
         }
     }
 }
 
-pub fn JS_FreeAtomRT(rt: *mut JSRuntime, v: JSAtom) {
-    if !v.is_const() {
+pub(crate) fn JS_FreeAtomRT(rt: *mut JSRuntime, a: Atom) {
+    if !a.is_const() {
         unsafe {
-            __JS_FreeAtom(rt, v);
+            __JS_FreeAtom(rt, a.0);
         }
     }
 }
 
-pub unsafe fn JS_FreeAtomStruct(rt: *mut JSRuntime, atom: JSAtom) {
-    let aid = atom.0;
+fn JS_FreeAtomStruct(rt: *mut JSRuntime, aid: u32) {
     debug_assert_ne!(aid, 0);
 
     let aptr = unsafe {
@@ -397,11 +462,11 @@ pub unsafe fn JS_FreeAtomStruct(rt: *mut JSRuntime, atom: JSAtom) {
             std::ptr::null::<JSStringInner>(),
         )
     };
-    let adesc = Rc::from_raw(aptr);
+    let adesc = unsafe { Rc::from_raw(aptr) };
     debug_assert_eq!(Rc::strong_count(&adesc), 1);
 
     let hash = adesc.hash();
-    let mut ids = (&mut *rt).atom_hash_lut.remove(&hash).unwrap();
+    let mut ids = unsafe { (&mut *rt).atom_hash_lut.remove(&hash).unwrap() };
     debug_assert!(!ids.is_empty());
 
     if ids.len() == 1 {
@@ -412,7 +477,9 @@ pub unsafe fn JS_FreeAtomStruct(rt: *mut JSRuntime, atom: JSAtom) {
             .position(|&x| u16::from(x) == aid as u16)
             .unwrap();
         ids.swap_remove(i);
-        (&mut *rt).atom_hash_lut.insert(hash, ids);
+        unsafe {
+            (&mut *rt).atom_hash_lut.insert(hash, ids);
+        }
     }
 }
 
@@ -510,11 +577,11 @@ pub unsafe fn JS_AtomIsNumericIndex(ctx: &JSContext, atom: JSAtom) -> i32 {
 
 /// return a string atom containing name concatenated with str1.
 /// Note: returned atom should be freed by caller.
-pub unsafe fn js_atom_concat_str(ctx: &JSContext, name: JSAtom, str1: *const u8) -> JSAtom {
+pub unsafe fn js_atom_concat_str(ctx: &JSContext, name: JSAtom, str1: *const u8) -> Atom {
     let str_val = if let Ok(s) = name.force_string(ctx) {
         s
     } else {
-        return JS_ATOM_NULL;
+        return Atom::NULL;
     };
     let astr = str_val.content().to_utf8(false);
     let len = astr.len();
@@ -527,16 +594,16 @@ pub unsafe fn js_atom_concat_str(ctx: &JSContext, name: JSAtom, str1: *const u8)
         std::ptr::copy_nonoverlapping(astr.as_ptr().cast(), new_str.as_mut_ptr(), len);
         std::ptr::copy_nonoverlapping(str1, new_str.as_mut_ptr().offset(len as isize), len1);
 
-        JSAtom::new(ctx.rt_mut(), std::str::from_utf8_unchecked(&new_str)).unwrap_or(JS_ATOM_NULL)
+        Atom::new(ctx.rt_mut(), std::str::from_utf8_unchecked(&new_str)).unwrap_or(Atom::NULL)
     } else {
-        JS_ATOM_NULL
+        Atom::NULL
     };
 
     res
 }
 
 /// Note: returned atom should be freed by caller.
-pub unsafe fn js_atom_concat_num(ctx: &JSContext, name: JSAtom, n: u32) -> JSAtom {
+pub unsafe fn js_atom_concat_num(ctx: &JSContext, name: JSAtom, n: u32) -> Atom {
     js_atom_concat_str(ctx, name, format!("{n}\0").as_ptr())
 }
 
@@ -575,7 +642,7 @@ pub unsafe fn JS_DumpAtoms(rt: &JSRuntime) {
                 "  {}: {{ {} {:08x} {:?}",
                 i + JS_ATOM_INIT_COUNT as usize,
                 p.atom_info().unwrap().type_hint() as u8,
-                JSAtom::calc_atom_hash_content(p.content(), AtomTypeHint::String),
+                Atom::calc_atom_hash(p.content(), AtomTypeHint::String),
                 p.content()
             );
 
@@ -585,6 +652,21 @@ pub unsafe fn JS_DumpAtoms(rt: &JSRuntime) {
     }
 
     println!("}}");
+}
+
+#[inline(always)]
+pub(super) fn is_const_atom(id: u32) -> bool {
+    // Hint: for u32 atoms, `self.0 as i32` should be minus.
+    (id as i32) < JS_ATOM_INIT_COUNT as i32
+
+    // #[cfg(feature = "dump_leaks")]
+    // {
+    //     self.0 as i32 <= 0
+    // }
+    // #[cfg(not(feature = "dump_leaks"))]
+    // {
+    //     (self.0 as i32) < JS_ATOM_INIT_COUNT as i32
+    // }
 }
 
 /// get atom description. returns None if atom does not exist.

@@ -1,5 +1,6 @@
 use crate::{
-    atom::{AtomTypeHint, JS_ATOM_NULL, JS_FreeAtom, JSAtom, JSAtomRc, consts::*},
+    atom::{Atom, AtomTypeHint, JS_ATOM_NULL, JSAtom, JSAtomRc, consts::*},
+    branch_hints::unlikely,
     bytecode::OpCodeTemp,
     error::{ErrorKind, JS_BACKTRACE_FLAG_SINGLE_LEVEL},
     function::{JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
@@ -28,7 +29,7 @@ pub enum JSParseExportEnum {
 impl<'s> JSParseState<'s> {
     /// return atom of module name.
     /// returned atom is duplicated, caller should free it after use.
-    fn parse_from_clause(&mut self) -> Result<JSAtom, i32> {
+    fn parse_from_clause(&mut self) -> Result<Atom, i32> {
         if !self.token_is_pseudo_keyword(JS_ATOM_from) {
             self.throw_syntax_error("from clause expected");
             return Err(-1);
@@ -46,12 +47,12 @@ impl<'s> JSParseState<'s> {
             .create_string_with_content(self.token.data.string().unwrap().clone())
             .and_then(|s| s.to_atom(&self.ctx))?;
 
-        if self.next_token().is_err() {
-            JS_FreeAtom(&self.ctx, module_name);
-            return Err(-1);
+        if unlikely(self.next_token().is_err()) {
+            module_name.free(self.ctx.rt_mut());
+            Err(-1)
+        } else {
+            Ok(module_name)
         }
-
-        Ok(module_name)
     }
 
     /// parse import statement
@@ -65,7 +66,7 @@ impl<'s> JSParseState<'s> {
 
         if self.token.val == TOK_STRING {
             // import "module-name"
-            module_name = JSAtom::from_str(
+            module_name = Atom::from_str(
                 self.ctx.rt_mut(),
                 self.token.string().unwrap().to_utf8(false).as_ref(),
                 AtomTypeHint::String,
@@ -81,15 +82,9 @@ impl<'s> JSParseState<'s> {
                     return Err(-1);
                 }
 
-                let local_name = self
-                    .token
-                    .atom()
-                    .unwrap()
-                    .dup(self.ctx.rt())
-                    .into_rc(self.ctx.rt());
-
+                let local_name = JSAtomRc::from_ref(self.ctx.rt(), self.token.atom().unwrap());
                 self.next_token()?;
-                self.add_module_import(&md, *local_name, JS_ATOM_default)?;
+                self.add_module_import(&md, local_name.as_ref(), JS_ATOM_default)?;
 
                 if self.token.val == ',' as i32 {
                     // default import mixed with namespace or named import.
@@ -121,15 +116,10 @@ impl<'s> JSParseState<'s> {
                             return Err(-1);
                         }
 
-                        let local_name = self
-                            .token
-                            .atom()
-                            .unwrap()
-                            .dup(self.ctx.rt())
-                            .into_rc(self.ctx.rt());
-
+                        let local_name =
+                            JSAtomRc::from_ref(self.ctx.rt(), self.token.atom().unwrap());
                         self.next_token()?;
-                        self.add_module_import(&md, *local_name, JS_ATOM__star_)?;
+                        self.add_module_import(&md, local_name.as_ref(), JS_ATOM__star_)?;
                     }
                     // '{'
                     0x7b => {
@@ -146,7 +136,7 @@ impl<'s> JSParseState<'s> {
                                         .dup(self.ctx.rt())
                                         .into_rc(self.ctx.rt())
                                 }
-                                TOK_STRING => JSAtom::from_str(
+                                TOK_STRING => Atom::from_str(
                                     self.ctx.rt_mut(),
                                     &self.token.string().unwrap().to_utf8(false),
                                     AtomTypeHint::String,
@@ -168,15 +158,15 @@ impl<'s> JSParseState<'s> {
                                     return Err(-1);
                                 }
 
-                                let ln = self.token.atom().unwrap().dup(self.ctx.rt());
+                                let ln =
+                                    JSAtomRc::from_ref(self.ctx.rt(), self.token.atom().unwrap());
                                 self.next_token()?;
                                 ln
                             } else {
-                                import_name.dup(&self.ctx.rt())
-                            }
-                            .into_rc(&self.ctx.rt());
+                                import_name.clone()
+                            };
 
-                            self.add_module_import(&md, *local_name, *import_name)?;
+                            self.add_module_import(&md, local_name.as_ref(), import_name.as_ref())?;
 
                             if self.token.val == b',' as i32 {
                                 self.next_token()?;
@@ -194,7 +184,7 @@ impl<'s> JSParseState<'s> {
             module_name = self.parse_from_clause()?.into_rc(self.ctx.rt());
         }
 
-        let idx = md.add_dependency(&self.ctx, *module_name)?;
+        let idx = md.add_dependency(&self.ctx, module_name.as_ref())?;
         for imp in &mut md.0.import_entries.borrow_mut()[first_import..] {
             imp.req_module_idx = idx as _;
         }
@@ -267,7 +257,7 @@ impl<'s> JSParseState<'s> {
                         }
                         TOK_STRING => {
                             let s = self.token.string().unwrap();
-                            JSAtom::from_str(
+                            Atom::from_str(
                                 self.ctx.rt_mut(),
                                 &s.to_utf8(false),
                                 AtomTypeHint::String,
@@ -289,15 +279,11 @@ impl<'s> JSParseState<'s> {
                         let n = match self.token.val {
                             TOK_IDENT | TOK_FIRST_KEYWORD..=TOK_LAST_KEYWORD => {
                                 // Accept ident, keywords and reserved words as property names
-                                self.token
-                                    .atom()
-                                    .unwrap()
-                                    .dup(self.ctx.rt())
-                                    .into_rc(self.ctx.rt())
+                                JSAtomRc::from_ref(self.ctx.rt(), self.token.atom().unwrap())
                             }
                             TOK_STRING => {
                                 let s = self.token.string().unwrap();
-                                JSAtom::from_str(
+                                Atom::from_str(
                                     self.ctx.rt_mut(),
                                     &s.to_utf8(false),
                                     AtomTypeHint::String,
@@ -318,8 +304,8 @@ impl<'s> JSParseState<'s> {
 
                     self.add_module_export(
                         Some(&md),
-                        *local_name,
-                        *export_name,
+                        local_name.as_ref(),
+                        export_name.as_ref(),
                         ExportType::JS_EXPORT_TYPE_LOCAL {
                             var_idx: u16::MAX, // unknown for now
                             var_ref: None,
@@ -338,11 +324,10 @@ impl<'s> JSParseState<'s> {
                 // Handle re-exports
                 if self.token_is_pseudo_keyword(JS_ATOM_from) {
                     let module_name = self.parse_from_clause()?;
-                    let idx = md.add_dependency(&self.ctx, module_name);
-                    JS_FreeAtom(&self.ctx, module_name);
+                    let r = md.add_dependency(&self.ctx, module_name.as_ref());
+                    module_name.free(self.ctx.rt_mut());
 
-                    let idx = idx?;
-
+                    let idx = r?;
                     for me in &mut md.0.export_entries.borrow_mut()[first_export..] {
                         me.export_type = ExportType::JS_EXPORT_TYPE_INDIRECT(idx as _);
                     }
@@ -368,7 +353,7 @@ impl<'s> JSParseState<'s> {
                         }
                         TOK_STRING => {
                             let s = self.token.string().unwrap();
-                            JSAtom::from_str(
+                            Atom::from_str(
                                 self.ctx.rt_mut(),
                                 &s.to_utf8(false),
                                 AtomTypeHint::String,
@@ -384,20 +369,21 @@ impl<'s> JSParseState<'s> {
                     self.next_token()?;
 
                     let module_name = self.parse_from_clause()?;
-                    let idx = md.add_dependency(&self.ctx, module_name);
-                    JS_FreeAtom(&self.ctx, module_name);
+                    let r = md.add_dependency(&self.ctx, module_name.as_ref());
+                    module_name.free(self.ctx.rt_mut());
 
-                    let idx = idx?;
+                    let idx = r?;
                     self.add_module_export(
                         Some(&md),
                         JS_ATOM__star_,
-                        *export_name,
+                        export_name.as_ref(),
                         ExportType::JS_EXPORT_TYPE_INDIRECT(idx as _),
                     )?;
                 } else {
                     let module_name = self.parse_from_clause()?;
-                    let dep_idx = md.add_dependency(&self.ctx, module_name);
-                    JS_FreeAtom(&self.ctx, module_name);
+                    let dep_idx = md.add_dependency(&self.ctx, module_name.as_ref());
+                    module_name.free(self.ctx.rt_mut());
+
                     md.add_star_export_entry(&self.ctx, dep_idx?)?;
                 }
             }
@@ -431,7 +417,7 @@ impl<'s> JSParseState<'s> {
                 let loc = JS_ATOM__default_;
                 self.define_var_cur_func(loc, JSVarDefEnum::JS_VAR_DEF_LET)?;
                 self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
-                self.emit_atom_dup(loc);
+                self.emit_atom_ref(loc);
                 self.emit_u16(0);
 
                 self.add_module_export(
@@ -509,7 +495,7 @@ impl<'s> JSParseState<'s> {
                 .cur_func()
                 .closure_vars
                 .as_ref()
-                .is_some_and(|lst| lst.iter().any(|cv| cv.var_name == local_name))
+                .is_some_and(|lst| lst.iter().any(|cv| cv.var_name.as_ref() == local_name))
             {
                 self.throw_syntax_error("duplicate import binding");
                 return Err(-1);
@@ -540,7 +526,7 @@ impl<'s> JSParseState<'s> {
         }
         md.0.import_entries.borrow_mut().push(JSImportEntry {
             var_idx,
-            import_name: import_name.dup(&self.ctx.rt()),
+            import_name: import_name.dup(self.ctx.rt()),
             req_module_idx: 0,
         });
 

@@ -1,9 +1,10 @@
 use crate::{
-    atom::{JS_ATOM_NULL, JS_FreeAtom, JSAtom, js_atom_concat_str},
+    atom::{Atom, JSAtom, js_atom_concat_str},
     bytecode::opcodes,
     context::JSContext,
     error::JS_THROW_VAR_RO,
     function::{JSFunctionDef, JSVarKindEnum, get_loc_or_ref},
+    utils::{push_vec_atom, push_vec_u8, push_vec_u16},
 };
 
 impl JSFunctionDef {
@@ -48,7 +49,7 @@ impl JSFunctionDef {
             // find in closure of the eval function (the root fd)
             if let Some((i, cv)) = root_fd.closure_vars.as_ref().and_then(|cvars| {
                 cvars.iter().enumerate().find_map(|(i, cv)| {
-                    if cv.var_name == var_name {
+                    if cv.var_name.as_ref() == var_name {
                         Some((i, cv))
                     } else {
                         None
@@ -63,7 +64,7 @@ impl JSFunctionDef {
                         false,
                         cv.is_arg(),
                         i as _,
-                        cv.var_name,
+                        cv.var_name.as_ref(),
                         cv.is_const(),
                         cv.is_lexical(),
                         cv.var_kind(),
@@ -90,7 +91,7 @@ impl JSFunctionDef {
 
         let mut idx = self.scopes[scope_level as usize].first;
         while idx >= 0 {
-            if self.vars[idx as usize].var_name == var_name {
+            if self.vars[idx as usize].var_name.as_ref() == var_name {
                 return Some(idx as _);
             }
             idx = self.vars.get(idx as usize).unwrap().scope_next;
@@ -117,34 +118,34 @@ impl JSFunctionDef {
                 match var_kind {
                     JSVarKindEnum::JS_VAR_PRIVATE_FIELD => {
                         if op == opcodes::op_scope_get_private_field2 {
-                            bc.push(opcodes::OP_dup);
+                            push_vec_u8(bc, opcodes::OP_dup);
                         }
                         get_loc_or_ref(bc, is_ref, idx);
-                        bc.push(opcodes::OP_get_private_field);
+                        push_vec_u8(bc, opcodes::OP_get_private_field);
                     }
                     JSVarKindEnum::JS_VAR_PRIVATE_METHOD => {
                         get_loc_or_ref(bc, is_ref, idx);
-                        bc.push(opcodes::OP_check_brand);
+                        push_vec_u8(bc, opcodes::OP_check_brand);
                         if op != opcodes::op_scope_get_private_field2 {
-                            bc.push(opcodes::OP_nip);
+                            push_vec_u8(bc, opcodes::OP_nip);
                         }
                     }
                     JSVarKindEnum::JS_VAR_PRIVATE_GETTER
                     | JSVarKindEnum::JS_VAR_PRIVATE_GETTER_SETTER => {
                         if op == opcodes::op_scope_get_private_field2 {
-                            bc.push(opcodes::OP_dup);
+                            push_vec_u8(bc, opcodes::OP_dup);
                         }
                         get_loc_or_ref(bc, is_ref, idx);
 
-                        bc.push(opcodes::OP_check_brand);
-                        bc.push(opcodes::OP_call_method);
-                        bc.extend_from_slice(&[0, 0]); // 0_u16
+                        push_vec_u8(bc, opcodes::OP_check_brand);
+                        push_vec_u8(bc, opcodes::OP_call_method);
+                        push_vec_u16(bc, 0);
                     }
                     JSVarKindEnum::JS_VAR_PRIVATE_SETTER => {
                         // XXX: add clearer error message
-                        bc.push(opcodes::OP_throw_error);
-                        bc.extend_from_slice(var_name.dup(ctx.rt()).0.to_ne_bytes().as_slice());
-                        bc.push(JS_THROW_VAR_RO);
+                        push_vec_u8(bc, opcodes::OP_throw_error);
+                        push_vec_atom(bc, var_name.dup(ctx.rt()));
+                        push_vec_u8(bc, JS_THROW_VAR_RO);
                     }
                     _ => {
                         unreachable!();
@@ -155,38 +156,43 @@ impl JSFunctionDef {
                 match var_kind {
                     JSVarKindEnum::JS_VAR_PRIVATE_FIELD => {
                         get_loc_or_ref(bc, is_ref, idx);
-                        bc.push(opcodes::OP_put_private_field);
+                        push_vec_u8(bc, opcodes::OP_put_private_field);
                     }
                     JSVarKindEnum::JS_VAR_PRIVATE_METHOD | JSVarKindEnum::JS_VAR_PRIVATE_GETTER => {
                         // XXX: add clearer error message
-                        bc.push(opcodes::OP_throw_error);
-                        bc.extend_from_slice(var_name.dup(ctx.rt()).0.to_ne_bytes().as_slice());
-                        bc.push(JS_THROW_VAR_RO);
+                        push_vec_u8(bc, opcodes::OP_throw_error);
+                        push_vec_atom(bc, var_name.dup(ctx.rt()));
+                        push_vec_u8(bc, JS_THROW_VAR_RO);
                     }
                     JSVarKindEnum::JS_VAR_PRIVATE_SETTER
                     | JSVarKindEnum::JS_VAR_PRIVATE_GETTER_SETTER => {
                         let setter_name = get_private_setter_name(ctx, var_name);
-                        if setter_name == JS_ATOM_NULL {
+                        if setter_name.is_null() {
                             return Err(-1);
                         }
 
-                        let r = self.resolve_scope_private_field1(ctx, setter_name, scope_level);
-                        JS_FreeAtom(ctx, setter_name);
+                        let r = self.resolve_scope_private_field1(
+                            ctx,
+                            setter_name.as_ref(),
+                            scope_level,
+                        );
+                        setter_name.free(ctx.rt_mut());
+
                         (idx, var_kind, is_ref) = r?;
                         debug_assert_eq!(var_kind, JSVarKindEnum::JS_VAR_PRIVATE_SETTER);
 
                         get_loc_or_ref(bc, is_ref, idx);
 
-                        bc.push(opcodes::OP_swap);
+                        push_vec_u8(bc, opcodes::OP_swap);
                         // obj func value
-                        bc.push(opcodes::OP_rot3r);
+                        push_vec_u8(bc, opcodes::OP_rot3r);
                         // value obj func
-                        bc.push(opcodes::OP_check_brand);
-                        bc.push(opcodes::OP_rot3l);
+                        push_vec_u8(bc, opcodes::OP_check_brand);
+                        push_vec_u8(bc, opcodes::OP_rot3l);
                         // obj func value
-                        bc.push(opcodes::OP_call_method);
-                        bc.extend_from_slice(1_u16.to_ne_bytes().as_slice());
-                        bc.push(opcodes::OP_drop);
+                        push_vec_u8(bc, opcodes::OP_call_method);
+                        push_vec_u16(bc, 1);
+                        push_vec_u8(bc, opcodes::OP_drop);
                     }
                     _ => {
                         unreachable!(); // C2RS: Replaced abort() with unreachable!()
@@ -195,7 +201,7 @@ impl JSFunctionDef {
             }
             opcodes::op_scope_in_private_field => {
                 get_loc_or_ref(bc, is_ref, idx);
-                bc.push(opcodes::OP_private_in);
+                push_vec_u8(bc, opcodes::OP_private_in);
             }
 
             _ => {
@@ -208,6 +214,6 @@ impl JSFunctionDef {
 }
 
 /// build a private setter function name from the private getter name
-fn get_private_setter_name(ctx: &JSContext, name: JSAtom) -> JSAtom {
+fn get_private_setter_name(ctx: &JSContext, name: JSAtom) -> Atom {
     unsafe { js_atom_concat_str(ctx, name, c"<set>".as_ptr().cast()) }
 }

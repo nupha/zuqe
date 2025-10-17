@@ -1,8 +1,8 @@
-use std::{cell::Cell, ops::Deref};
+use std::cell::Cell;
 
 use crate::{
     JS_CLASS_PROXY,
-    atom::{JS_FreeAtom, JSAtom, consts::*},
+    atom::{JSAtom, consts::*},
     class::JSClassExoticMethods,
     context::JSContext,
     error::JSResult,
@@ -592,10 +592,7 @@ fn js_proxy_get_own_property_names(
         let atom = val.to_atom(ctx)?;
 
         if !tab.is_empty() {
-            if tab.iter().any(|k| k.atom == atom) {
-                for x in tab.drain(..) {
-                    JS_FreeAtom(ctx, x.atom);
-                }
+            if tab.iter().any(|k| k.atom.as_ref() == atom.as_ref()) {
                 ctx.throw_type_error("proxy: duplicate property");
                 return Err(-1);
             }
@@ -605,41 +602,25 @@ fn js_proxy_get_own_property_names(
 
     // check if there are non configurable properties
     let is_extensible = px.target.is_extensible(ctx)?;
-    let mut has_err = false;
 
     for k2 in px
         .target
         .get_own_property_names(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK)?
     {
-        if !has_err {
-            match px.target.get_own_property(ctx, k2.atom) {
-                Ok(Some(desc)) => {
-                    // safety, property should be found
-                    if desc.flags & JS_PROP_CONFIGURABLE == 0 || !is_extensible {
-                        if let Some(p) = tab.iter_mut().find(|p| p.atom == k2.atom) {
-                            // mark the property as found
-                            if !is_extensible {
-                                p.is_enumerable = true;
-                            }
-                        } else {
-                            ctx.throw_type_error(
-                                "proxy: target property must be present in proxy ownKeys",
-                            );
-                            has_err = true;
-                        }
+        if let Some(desc) = px.target.get_own_property(ctx, k2.atom.as_ref())? {
+            // safety, property should be found
+            if desc.flags & JS_PROP_CONFIGURABLE == 0 || !is_extensible {
+                if let Some(p) = tab.iter_mut().find(|p| p.atom.eq(&k2.atom)) {
+                    // mark the property as found
+                    if !is_extensible {
+                        p.is_enumerable = true;
                     }
-                }
-                Ok(None) => {}
-                Err(_) => {
-                    has_err = true;
+                } else {
+                    ctx.throw_type_error("proxy: target property must be present in proxy ownKeys");
+                    return Err(-1);
                 }
             }
         }
-
-        JS_FreeAtom(ctx, k2.atom);
-    }
-    if has_err {
-        return Err(-1);
     }
 
     if !is_extensible {

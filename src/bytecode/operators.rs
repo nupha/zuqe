@@ -1,6 +1,6 @@
 use crate::{
     JS_CLASS_OBJECT,
-    atom::{JS_ATOM_NULL, JS_FreeAtom, JSAtom, consts::*},
+    atom::{Atom, JSAtom, consts::*},
     branch_hints::unlikely,
     class::JS_DEFINE_CLASS_HAS_HERITAGE,
     context::JSContext,
@@ -27,13 +27,14 @@ pub fn js_operator_delete(ctx: &JSContext, sp: *mut JSValue) -> i32 {
         )
     };
 
-    let atom = op2.to_atom(ctx).unwrap_or(JS_ATOM_NULL);
-    if atom == JS_ATOM_NULL {
+    let atom = op2.to_atom(ctx).unwrap_or(Atom::NULL);
+    if atom.is_null() {
         return -1;
     }
 
-    let ret = op1.delete_property(ctx, atom, JS_PROP_THROW_STRICT);
-    JS_FreeAtom(ctx, atom);
+    let ret = op1.delete_property(ctx, atom.as_ref(), JS_PROP_THROW_STRICT);
+    atom.free(ctx.rt_mut());
+
     if let Ok(b) = ret {
         unsafe {
             std::ptr::replace(sp.offset(-2), JSValue::Bool(b));
@@ -66,8 +67,8 @@ pub fn js_operator_in(ctx: &JSContext, obj: &JSValue, prop: &JSValue) -> Result<
         Err(-1)
     } else {
         let atom = prop.to_atom(ctx)?;
-        let ret = obj.has_property(ctx, atom);
-        JS_FreeAtom(ctx, atom);
+        let ret = obj.has_property(ctx, atom.as_ref());
+        atom.free(ctx.rt_mut());
         ret
     }
 }
@@ -83,8 +84,8 @@ pub fn js_operator_private_in(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i
         } else {
             // field
             let atom = item.to_atom(ctx)?;
-            let b = o.has_shape_property(atom);
-            JS_FreeAtom(ctx, atom);
+            let b = o.has_shape_property(atom.as_ref());
+            atom.free(ctx.rt_mut());
             b
         };
         unsafe {
@@ -243,7 +244,7 @@ pub fn js_method_set_properties(
     flags: u32,
     home_obj: &JSValue,
 ) -> Result<(), i32> {
-    let mut name_str: JSString = js_get_function_name(ctx, name)?;
+    let mut name_str = js_get_function_name(ctx, name)?;
 
     if flags & JS_PROP_HAS_GET != 0 {
         name_str = JS_ConcatString3(ctx, c"get ", name_str.into(), c"")?;
@@ -373,7 +374,7 @@ pub fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
                     for name in it.prop_enums.iter() {
                         enum_obj.define_property_value(
                             ctx,
-                            name.atom,
+                            name.atom.as_ref(),
                             JSValue::NULL,
                             JS_PROP_ENUMERABLE,
                         )?;
@@ -418,7 +419,7 @@ pub fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
                     prop = JSAtom::new_small_int(it.idx);
                     it.idx += 1;
                 } else {
-                    prop = it.prop_enums[it.idx as usize].atom;
+                    prop = it.prop_enums[it.idx as usize].atom.as_ref();
                     let is_enumerable = it.prop_enums[it.idx as usize].is_enumerable;
 
                     it.idx += 1;

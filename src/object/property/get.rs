@@ -3,7 +3,7 @@ use crate::{
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
     JS_CLASS_INT32_ARRAY, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY,
     JS_CLASS_UINT32_ARRAY,
-    atom::{JS_ATOM_MAX_INT, JS_AtomIsNumericIndex, JS_FreeAtom, JSAtom, consts::*},
+    atom::{Atom, JS_ATOM_MAX_INT, JS_AtomIsNumericIndex, JSAtom, consts::*},
     branch_hints::unlikely,
     context::JSContext,
     error::{JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized, JSResult},
@@ -217,8 +217,9 @@ impl JSObject {
 
     fn get_property_slow(&self, ctx: &JSContext, prop: &JSValue) -> JSResult {
         let atom = prop.to_atom(ctx)?;
-        let ret = self.get_property_internal(ctx, atom, &JSValue::Object(self.clone()), false);
-        JS_FreeAtom(ctx, atom);
+        let ret =
+            self.get_property_internal(ctx, atom.as_ref(), &JSValue::Object(self.clone()), false);
+        atom.free(ctx.rt_mut());
         ret
     }
 
@@ -260,17 +261,17 @@ impl JSObject {
         if (0..u32::MAX as i64).contains(&idx) {
             self.get_property_u32(ctx, idx as u32)
         } else {
-            let prop = JSAtom::from_i64(ctx.rt_mut(), idx)?;
-            let r = self.get_property(ctx, prop);
-            JS_FreeAtom(ctx, prop);
+            let prop = Atom::from_i64(ctx.rt_mut(), idx)?;
+            let r = self.get_property(ctx, prop.as_ref());
+            prop.free(ctx.rt_mut());
             r
         }
     }
 
     pub fn get_property_str(&self, ctx: &JSContext, prop: &str) -> JSResult {
-        let atom = JSAtom::new(ctx.rt_mut(), prop)?;
-        let ret = self.get_property(ctx, atom);
-        JS_FreeAtom(ctx, atom);
+        let atom = Atom::new(ctx.rt_mut(), prop)?;
+        let ret = self.get_property(ctx, atom.as_ref());
+        atom.free(ctx.rt_mut());
         ret
     }
 
@@ -288,15 +289,15 @@ impl JSObject {
                 Ok(None)
             }
         } else {
-            let atom = JSAtom::from_i64(ctx.rt_mut(), idx)?;
-            let ret = self.has_property(ctx, atom).and_then(|found| {
+            let atom = Atom::from_i64(ctx.rt_mut(), idx)?;
+            let ret = self.has_property(ctx, atom.as_ref()).and_then(|found| {
                 if found {
-                    Ok(Some(self.get_property(ctx, atom)?))
+                    Ok(Some(self.get_property(ctx, atom.as_ref())?))
                 } else {
                     Ok(None)
                 }
             });
-            JS_FreeAtom(ctx, atom);
+            atom.free(ctx.rt_mut());
             ret
         }
     }
@@ -368,17 +369,17 @@ impl JSValue {
             o.get_property_value(ctx, prop)
         } else {
             let atom = prop.to_atom(ctx)?;
-            let ret = self.get_property(ctx, atom);
-            JS_FreeAtom(ctx, atom);
+            let ret = self.get_property(ctx, atom.as_ref());
+            atom.free(ctx.rt_mut());
             ret
         }
     }
 
     /// returns Exception when fail.
     pub fn get_property_str(self, ctx: &JSContext, prop: &str) -> JSResult {
-        let atom = JSAtom::new(ctx.rt_mut(), prop)?;
-        let ret = self.get_property(ctx, atom);
-        JS_FreeAtom(ctx, atom);
+        let atom = Atom::new(ctx.rt_mut(), prop)?;
+        let ret = self.get_property(ctx, atom.as_ref());
+        atom.free(ctx.rt_mut());
         ret
     }
 
@@ -391,9 +392,9 @@ impl JSValue {
         if (0..=u32::MAX as i64).contains(&idx) {
             self.get_property_u32(ctx, idx as u32)
         } else {
-            let atom = JSAtom::from_i64(ctx.rt_mut(), idx)?;
-            let r = self.get_property(ctx, atom);
-            JS_FreeAtom(ctx, atom);
+            let atom = Atom::from_i64(ctx.rt_mut(), idx)?;
+            let r = self.get_property(ctx, atom.as_ref());
+            atom.free(ctx.rt_mut());
             r
         }
     }
@@ -412,15 +413,15 @@ impl JSValue {
                 Ok(None)
             }
         } else {
-            let atom = JSAtom::from_i64(ctx.rt_mut(), idx)?;
-            let ret = self.has_property(ctx, atom).and_then(|found| {
+            let atom = Atom::from_i64(ctx.rt_mut(), idx)?;
+            let ret = self.has_property(ctx, atom.as_ref()).and_then(|found| {
                 if found {
-                    Ok(Some(self.get_property(ctx, atom)?))
+                    Ok(Some(self.get_property(ctx, atom.as_ref())?))
                 } else {
                     Ok(None)
                 }
             });
-            JS_FreeAtom(ctx, atom);
+            atom.free(ctx.rt_mut());
             ret
         }
     }

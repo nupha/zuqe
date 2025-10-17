@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 
 use crate::{
     atom::{
-        JS_ATOM_NULL, JS_FreeAtom, JSAtom,
+        Atom, JS_ATOM_NULL, JSAtom, JSAtomRc,
         consts::{JS_ATOM__star_, JS_ATOM_Module, JS_ATOM_Symbol_toStringTag, JS_ATOM_default},
     },
     branch_hints::unlikely,
@@ -14,6 +14,7 @@ use crate::{
         JS_PROP_ENUMERABLE, JS_PROP_VARREF, JS_PROP_WRITABLE, JSObject, JSProperty, LazyInit,
         ObjectPayload,
     },
+    runtime::JSRuntime,
     value::JSValue,
 };
 
@@ -26,12 +27,22 @@ enum ExportedNameKind {
 
 #[derive(Debug)]
 struct ExportedNameEntry {
-    export_name: JSAtom,
+    export_name: Atom,
     export_type: ExportedNameKind,
 
     /// using when the list is built
     cached: Option<ExportEntry>,
 }
+
+// impl ExportedNameEntry {
+//     pub fn dup(&self, rt: &JSRuntime) -> Self {
+//         Self {
+//             export_name: self.export_name.dup(rt),
+//             export_type: self.export_type.clone(),
+//             cached: self.cached.as_ref().map(|x| x.dup(rt)),
+//         }
+//     }
+// }
 
 #[derive(Debug)]
 struct GetExportNamesState {
@@ -60,20 +71,33 @@ pub(crate) enum ExportType {
     JS_EXPORT_TYPE_INDIRECT(i32),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ExportEntry {
     pub(crate) export_type: ExportType,
     /// '*' if export ns from. not used for local export after compilation
-    pub local_name: JSAtom,
+    pub local_name: Atom,
     /// exported variable name
-    pub export_name: JSAtom,
+    pub export_name: Atom,
 }
 
+impl ExportEntry {
+    pub(super) fn dup(&self, rt: &JSRuntime) -> Self {
+        ExportEntry {
+            export_type: self.export_type.clone(),
+            local_name: self.local_name.dup(rt),
+            export_name: self.export_name.dup(rt),
+        }
+    }
+}
+
+/// resolving module export result
 #[derive(Debug)]
 pub(super) enum ResolveExport {
     Found {
         module: ModuleDef,
-        entry: ExportEntry,
+        export_type: ExportType,
+        export_name: JSAtomRc,
+        local_name: JSAtomRc,
     },
     NotFound,
     Ambiguous,
@@ -120,8 +144,8 @@ impl ModuleDefInner {
         self.export_entries
             .borrow()
             .iter()
-            .find(|x| x.export_name == export_name)
-            .map(|x| *x.clone())
+            .find(|x| x.export_name.as_ref() == export_name)
+            .map(|x| x.dup(self.rt()))
     }
 
     /// add an export entry on `self`.
@@ -162,17 +186,18 @@ impl ModuleDefInner {
 
     /// declare a module export name
     pub fn add_export(&self, ctx: &JSContext, export_name: &str) -> Result<(), i32> {
-        let atom = JSAtom::new(ctx.rt_mut(), export_name)?;
+        let atom = Atom::new(ctx.rt_mut(), export_name)?;
         let r = self.add_export_internal(
             ctx,
             JS_ATOM_NULL,
-            atom,
+            atom.as_ref(),
             ExportType::JS_EXPORT_TYPE_LOCAL {
                 var_idx: u16::MAX, // unknown
                 var_ref: None,
             },
         );
-        JS_FreeAtom(ctx, atom);
+        atom.free(ctx.rt_mut());
+
         r
     }
 
@@ -209,9 +234,9 @@ impl ModuleDefInner {
         export_name: &str,
         value: JSValue,
     ) -> Result<(), i32> {
-        let atom = JSAtom::new(ctx.rt_mut(), export_name)?;
-        let me = self.find_export(atom);
-        JS_FreeAtom(ctx, atom);
+        let atom = Atom::new(ctx.rt_mut(), export_name)?;
+        let me = self.find_export(atom.as_ref());
+        atom.free(ctx.rt_mut());
 
         if let Some(me) = me {
             if let ExportType::JS_EXPORT_TYPE_LOCAL { var_ref, .. } = &me.export_type {
@@ -269,16 +294,19 @@ impl ModuleDef {
         s.modules.push(self.clone());
 
         for exp in self.0.export_entries.borrow().iter() {
-            if from_star && exp.export_name == JS_ATOM_default {
+            if from_star && exp.export_name.as_ref() == JS_ATOM_default {
                 continue;
             }
 
             if let Some(entry) = s
                 .exported_names
                 .iter_mut()
-                .find(|x| x.export_name == exp.export_name)
+                .find(|x| x.export_name.as_ref() == exp.export_name.as_ref())
             {
-                entry.cached.take();
+                if let Some(en) = entry.cached.take() {
+                    en.export_name.free(ctx.rt_mut());
+                    en.local_name.free(ctx.rt_mut());
+                }
             } else {
                 if s.exported_names.len() == s.exported_names.capacity() {
                     s.exported_names.try_reserve(1).map_err(|_| {
@@ -287,14 +315,14 @@ impl ModuleDef {
                     })?;
                 }
                 s.exported_names.push(ExportedNameEntry {
-                    export_name: exp.export_name,
+                    export_name: exp.export_name.dup(self.rt()),
                     export_type: ExportedNameKind::EXPORTED_NAME_AMBIGUOUS,
                     cached: if from_star
                         || !matches!(exp.export_type, ExportType::JS_EXPORT_TYPE_LOCAL { .. })
                     {
                         None
                     } else {
-                        Some(*exp.clone())
+                        Some(exp.dup(self.rt()))
                     },
                 });
             }
@@ -321,22 +349,29 @@ impl ModuleDef {
         self.collect_exported_names(ctx, &mut state, false)?;
 
         // Resolve the exported names. The ambiguous exports are removed
-        for en in state.exported_names.iter_mut() {
-            let resolv = if let Some(me) = en.cached.as_ref() {
+        for export in state.exported_names.iter_mut() {
+            let resolv = if let Some(me) = export.cached.as_ref() {
                 // fast case: use cached, no resolution needed
                 ResolveExport::Found {
                     module: self.clone(),
-                    entry: me.clone(),
+                    export_type: me.export_type.clone(),
+                    export_name: JSAtomRc::from_ref(ctx.rt(), me.export_name.as_ref()),
+                    local_name: JSAtomRc::from_ref(ctx.rt(), me.local_name.as_ref()),
                 }
             } else {
-                self.resolve_export(ctx, en.export_name, None)?
+                self.resolve_export(ctx, export.export_name.as_ref(), None)?
             };
 
             match resolv {
-                ResolveExport::Found { module, entry } => match entry.export_type {
+                ResolveExport::Found {
+                    module,
+                    export_type,
+                    local_name,
+                    ..
+                } => match export_type {
                     ExportType::JS_EXPORT_TYPE_INDIRECT(dep_idx) => {
-                        if entry.local_name == JS_ATOM__star_ {
-                            en.export_type = ExportedNameKind::EXPORTED_NAME_NS(
+                        if local_name.as_ref() == JS_ATOM__star_ {
+                            export.export_type = ExportedNameKind::EXPORTED_NAME_NS(
                                 module.0.dependencies.borrow()[dep_idx as usize]
                                     .module
                                     .clone()
@@ -345,10 +380,10 @@ impl ModuleDef {
                         }
                     }
                     ExportType::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } => {
-                        debug_assert_ne!(entry.local_name, JS_ATOM__star_);
+                        debug_assert_ne!(local_name.as_ref(), JS_ATOM__star_);
                         debug_assert_ne!(var_idx, u16::MAX);
 
-                        en.export_type =
+                        export.export_type =
                             ExportedNameKind::EXPORTED_NAME_NORMAL(if let Some(vr) = var_ref {
                                 vr
                             } else {
@@ -362,10 +397,10 @@ impl ModuleDef {
                     }
                 },
                 ResolveExport::Ambiguous => {
-                    en.export_type = ExportedNameKind::EXPORTED_NAME_AMBIGUOUS;
+                    export.export_type = ExportedNameKind::EXPORTED_NAME_AMBIGUOUS;
                 }
                 ResolveExport::NotFound | ResolveExport::Circular => {
-                    resolv.throw_syntax_error_export(ctx, &self.0, en.export_name);
+                    resolv.throw_syntax_error_export(ctx, &self.0, export.export_name.as_ref());
                     return Err(-1);
                 }
             }
@@ -392,7 +427,7 @@ impl ModuleDef {
                 ExportedNameKind::EXPORTED_NAME_NORMAL(vref) => {
                     obj.add_own_property(
                         ctx,
-                        en.export_name,
+                        en.export_name.as_ref(),
                         JS_PROP_ENUMERABLE | JS_PROP_WRITABLE | JS_PROP_VARREF,
                         JSProperty::VarRef(vref.clone()),
                     )?;
@@ -401,7 +436,7 @@ impl ModuleDef {
                     // the exported namespace must be created on demand
                     obj.define_lazy_property(
                         ctx,
-                        en.export_name,
+                        en.export_name.as_ref(),
                         LazyInit::ModuleNS(module.clone()),
                         JS_PROP_ENUMERABLE | JS_PROP_WRITABLE,
                     )?;

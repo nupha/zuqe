@@ -1,9 +1,8 @@
 use crate::{
     JS_CFUNC_NATIVE_DEF,
     array::js_array_push,
-    atom::{JS_ATOM_NULL, JS_FreeAtom, JS_FreeAtomRT, JSAtom, consts::*},
+    atom::{JSAtomRc, consts::*},
     context::{JS_GetActiveFunction, JSContext},
-    defer,
     error::JSResult,
     function::{CallContext, FieldDef},
     iterator::JSIteratorKindEnum,
@@ -76,8 +75,8 @@ pub fn js_object_defineProperty(ctx: &JSContext, cc: CallContext) -> JSResult {
         if cc.magic() == 0 {
             flags |= JS_PROP_THROW;
         }
-        let ret = obj.define_property_desc(ctx, atom, desc, flags);
-        JS_FreeAtom(ctx, atom);
+        let ret = obj.define_property_desc(ctx, atom.as_ref(), desc, flags);
+        atom.free(ctx.rt_mut());
 
         let b = ret?;
         Ok(if cc.magic() != 0 {
@@ -164,22 +163,20 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
         let key = func.call(ctx, &global, &[val.clone(), JSValue::from(idx)])?;
 
         // get prop value array and key atom
-        let (props_arr, key_atom): (JSResult, JSAtom) = if is_map {
+        let (mut props_arr, key_atom): (JSValue, JSAtomRc) = if is_map {
             (
                 js_map_get(
                     ctx,
                     CallContext::new_simple(ctx, groups.clone(), std::slice::from_ref(&key)),
-                ),
-                JS_ATOM_NULL,
+                )?,
+                JSAtomRc::NULL,
             )
         } else {
-            let atom = key.to_atom(ctx)?;
-            (groups.get_property(ctx, atom), atom)
+            let atom = key.to_atom(ctx)?.into_rc(ctx.rt());
+            (groups.get_property(ctx, atom.as_ref())?, atom)
         };
 
         // don't change order
-        let key_atom = key_atom.into_rc(ctx.rt());
-        let mut props_arr = props_arr?;
 
         if props_arr.is_undefined() {
             // entry is missing, create the entry
@@ -198,7 +195,12 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
                     ),
                 )?;
             } else {
-                groups.define_property_value(ctx, *key_atom, props_arr.clone(), JS_PROP_C_W_E)?;
+                groups.define_property_value(
+                    ctx,
+                    key_atom.as_ref(),
+                    props_arr.clone(),
+                    JS_PROP_C_W_E,
+                )?;
             }
         }
 
@@ -278,7 +280,7 @@ pub fn js_object_getOwnPropertyDescriptor(ctx: &JSContext, cc: CallContext) -> J
     let prop = cc.arg(1);
     let atom = prop.to_atom(ctx)?.into_rc(ctx.rt());
 
-    if let Some(desc) = obj.get_own_property(ctx, *atom)? {
+    if let Some(desc) = obj.get_own_property(ctx, atom.as_ref())? {
         let ret = ctx.create_base_object()?;
         let prop_flags = JS_PROP_C_W_E | JS_PROP_THROW;
 
@@ -318,8 +320,9 @@ pub fn js_object_getOwnPropertyDescriptors(ctx: &JSContext, cc: CallContext) -> 
     let obj = cc.arg(0).clone().objectify(ctx)?;
     let res_obj = ctx.create_base_object()?;
 
-    obj.own_property_names_foreach(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK, |cx, name| {
-        let atom_value = name.atom.string_or_symbol(ctx)?;
+    obj.own_property_names_foreach(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK, |cx, pkey| {
+        let atom_value = pkey.atom.string_or_symbol(ctx)?;
+
         let desc = js_object_getOwnPropertyDescriptor(
             ctx,
             CallContext::new(
@@ -332,7 +335,12 @@ pub fn js_object_getOwnPropertyDescriptors(ctx: &JSContext, cc: CallContext) -> 
         )?;
 
         if !desc.is_undefined() {
-            res_obj.define_property_value(cx, name.atom, desc, JS_PROP_C_W_E | JS_PROP_THROW)?;
+            res_obj.define_property_value(
+                cx,
+                pkey.atom.as_ref(),
+                desc,
+                JS_PROP_C_W_E | JS_PROP_THROW,
+            )?;
         }
 
         Ok(())
@@ -384,8 +392,9 @@ pub fn js_object_fromEntries(ctx: &JSContext, cc: CallContext) -> JSResult {
             let value = o.get_property_u32(ctx, 1)?;
 
             let atom = key.to_atom(ctx)?;
-            let r = obj.define_property_value(ctx, atom, value, JS_PROP_C_W_E | JS_PROP_THROW);
-            JS_FreeAtom(ctx, atom);
+            let r =
+                obj.define_property_value(ctx, atom.as_ref(), value, JS_PROP_C_W_E | JS_PROP_THROW);
+            atom.free(ctx.rt_mut());
             r?;
         } else {
             ctx.throw_type_error_not_an_object();
@@ -398,16 +407,10 @@ pub fn js_object_fromEntries(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_object_hasOwn(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj = cc.arg(0).clone().objectify(ctx)?;
-    let atom = cc.arg(1).to_atom(ctx)?;
-
-    // free atom when exit
-    let rt = ctx.rt_ptr();
-    let _atom = JSAtom(atom.0);
-    defer!({
-        JS_FreeAtomRT(rt.as_ptr(), _atom);
-    });
-
-    Ok(JSValue::Bool(obj.get_own_property(ctx, atom)?.is_some()))
+    let atom = cc.arg(1).to_atom(ctx)?.into_rc(ctx.rt());
+    Ok(JSValue::Bool(
+        obj.get_own_property(ctx, atom.as_ref())?.is_some(),
+    ))
 }
 
 pub static js_object_funcs: [FieldDef; 23] = [

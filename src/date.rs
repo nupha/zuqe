@@ -1,6 +1,6 @@
 use std::{
     cell::Cell,
-    ops::{Deref, RangeInclusive},
+    ops::RangeInclusive,
     os::unix::raw::time_t,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -8,7 +8,7 @@ use std::{
 use crate::{
     JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF,
     atom::{
-        JS_FreeAtom,
+        Atom,
         consts::{JS_ATOM_default, JS_ATOM_empty_string, JS_ATOM_number, JS_ATOM_string},
     },
     context::JSContext,
@@ -928,19 +928,19 @@ fn js_date_Symbol_toPrimitive(ctx: &JSContext, cc: CallContext) -> JSResult {
     let hint = if let JSValue::String(s) = cc.arg(0) {
         s.to_atom(ctx)?
     } else {
-        JS_ATOM_empty_string
+        Atom::new_const(JS_ATOM_empty_string)
     };
 
-    let hint_num = match hint {
+    let hint_num = match hint.as_ref() {
         JS_ATOM_number => HINT_NUMBER,
         JS_ATOM_string | JS_ATOM_default => HINT_STRING,
         _ => {
-            JS_FreeAtom(ctx, hint);
+            hint.free(ctx.rt_mut());
             ctx.throw_type_error("invalid hint ");
             return Err(-1);
         }
     };
-    JS_FreeAtom(ctx, hint);
+    hint.free(ctx.rt_mut());
 
     obj.to_primitive(ctx, hint_num | HINT_FORCE_ORDINARY)
 }

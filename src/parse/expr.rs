@@ -1,5 +1,6 @@
 use crate::{
-    atom::{JS_ATOM_NULL, JS_FreeAtom, consts::*},
+    atom::{JS_ATOM_NULL, JSAtom, JSAtomRc, consts::*},
+    branch_hints::unlikely,
     bytecode::{OpCode, OpCodeTemp, SpecialObject, opcodes},
     function::{FuncCallType, JSFunctionKindEnum},
     value::JSValue,
@@ -58,9 +59,7 @@ impl<'s> JSParseState<'s> {
                     op,
                 )?;
 
-                self.parse_assign_expr2(parse_flags).inspect_err(|_| {
-                    JS_FreeAtom(&self.ctx, name);
-                })?;
+                self.parse_assign_expr2(parse_flags)?;
 
                 if op == CHAR_EQUAL {
                     if opcode == OpCode::GET_REF_VALUE as _ && name == name0 {
@@ -98,7 +97,7 @@ impl<'s> JSParseState<'s> {
 
                 let mut label: i32 = 0;
                 let mut depth_lvalue: i32 = 0;
-                let mut name = JS_ATOM_NULL;
+                let mut name = JSAtom::NULL;
 
                 self.get_lvalue(
                     &mut opcode,
@@ -124,9 +123,7 @@ impl<'s> JSParseState<'s> {
                 );
                 self.emit_op(OpCode::DROP);
 
-                self.parse_assign_expr2(parse_flags).inspect_err(|_| {
-                    JS_FreeAtom(&self.ctx, name);
-                })?;
+                self.parse_assign_expr2(parse_flags)?;
 
                 if opcode == OpCode::GET_REF_VALUE as i32 && name == name0 {
                     self.set_object_name(name);
@@ -316,7 +313,7 @@ impl<'s> JSParseState<'s> {
             TOK_THIS => {
                 self.next_token()?;
                 self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                self.emit_atom_dup(JS_ATOM_this);
+                self.emit_atom_ref(JS_ATOM_this);
                 self.emit_u16(0);
             }
             TOK_FALSE => {
@@ -374,26 +371,28 @@ impl<'s> JSParseState<'s> {
                         )?;
                     } else {
                         self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                        self.emit_u32(JS_ATOM_async.dup(self.ctx.rt()).0);
+                        self.emit_u32(JS_ATOM_async.0);
                         self.emit_u16(self.cur_func().scope_level as _);
                     }
                 } else {
-                    if self.token.atom().unwrap() == JS_ATOM_arguments
-                        && !self.cur_func().attrs.arguments_allowed
-                    {
+                    // get atom rc, because later next_token() call will free the atom.
+                    let name = JSAtomRc::from_ref(self.ctx.rt(), self.token.atom().unwrap());
+
+                    if unlikely(
+                        name.as_ref() == JS_ATOM_arguments
+                            && !self.cur_func().attrs.arguments_allowed,
+                    ) {
                         self.throw_syntax_error(
                             "'arguments' identifier is not allowed in class field initializer",
                         );
                         return Err(-1);
-                    }
+                    } else {
+                        self.next_token()?;
 
-                    let name = self.token.atom().unwrap().dup(self.ctx.rt());
-                    self.next_token().inspect_err(|_| {
-                        JS_FreeAtom(&self.ctx, name);
-                    })?;
-                    self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                    self.emit_u32(name.0);
-                    self.emit_u16(self.cur_func().scope_level as _);
+                        self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
+                        self.emit_atom(name.into());
+                        self.emit_u16(self.cur_func().scope_level as _);
+                    }
                 }
             }
             // '{' | '['
@@ -436,7 +435,7 @@ impl<'s> JSParseState<'s> {
                     self.next_token()?;
 
                     self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                    self.emit_atom_dup(JS_ATOM_new_target);
+                    self.emit_atom_ref(JS_ATOM_new_target);
                     self.emit_u16(0);
                 } else {
                     self.parse_postfix_expr(0)?;
@@ -469,10 +468,10 @@ impl<'s> JSParseState<'s> {
                     }
 
                     self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                    self.emit_atom_dup(JS_ATOM_this);
+                    self.emit_atom_ref(JS_ATOM_this);
                     self.emit_u16(0);
                     self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                    self.emit_atom_dup(JS_ATOM__home_object_);
+                    self.emit_atom_ref(JS_ATOM__home_object_);
                     self.emit_u16(0);
                     self.emit_op(OpCode::GET_SUPER);
                 } else {

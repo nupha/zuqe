@@ -1,6 +1,6 @@
 use crate::{
     JS_CLASS_ASYNC_GENERATOR, JS_CLASS_GENERATOR,
-    atom::{JS_ATOM_NULL, JSAtom, consts::*},
+    atom::{Atom, JSAtom, consts::*},
     context::JSContext,
     function::{
         BCFuncPayload, BCFunction, Bytecode, JSFunctionKindEnum, JSVarRef,
@@ -30,7 +30,7 @@ pub struct JSClosureVar {
     // 0-based index
     pub var_idx: u16,
 
-    pub var_name: JSAtom,
+    pub var_name: Atom,
 }
 
 impl JSClosureVar {
@@ -208,7 +208,7 @@ impl JSFunctionDef {
     pub fn find_closure_var(&self, var_name: JSAtom) -> Option<u16> {
         self.closure_vars
             .as_ref()
-            .and_then(|lst| lst.iter().position(|cv| cv.var_name == var_name))
+            .and_then(|lst| lst.iter().position(|cv| cv.var_name.as_ref() == var_name))
             .map(|idx| idx as u16)
     }
 }
@@ -222,17 +222,7 @@ impl Bytecode {
         parent_frame: Option<&mut StackFrame>,
         proto: Option<JSValue>,
     ) -> Result<BCFunction, i32> {
-        let (func_kind, name, has_prototype, defined_arg_count, closure_var_count) = {
-            (
-                self.func_kind(),
-                self.func_name,
-                self.has_prototype(),
-                self.attrs.defined_arg_count,
-                self.closure_var_count,
-            )
-        };
-
-        let var_refs: Vec<JSVarRef> = if closure_var_count != 0 {
+        let var_refs: Vec<JSVarRef> = if self.closure_var_count != 0 {
             debug_assert!(
                 parent_frame.is_some(),
                 "parent stack frame must be present if there is any closure variable"
@@ -241,7 +231,7 @@ impl Bytecode {
 
             // initialize var_refs with closure variables
             let mut lst = Vec::new();
-            lst.try_reserve_exact(closure_var_count as usize)
+            lst.try_reserve_exact(self.closure_var_count as usize)
                 .map_err(|_| {
                     ctx.throw_out_of_memory();
                     -1
@@ -263,7 +253,7 @@ impl Bytecode {
 
         let payload = {
             let isa = BCFuncPayload::new(self.clone(), var_refs);
-            match func_kind {
+            match self.func_kind() {
                 JSFunctionKindEnum::JS_FUNC_NORMAL => ObjectPayload::BYTECODE_FUNCTION(isa),
                 JSFunctionKindEnum::JS_FUNC_GENERATOR => ObjectPayload::GENERATOR_FUNCTION(isa),
                 JSFunctionKindEnum::JS_FUNC_ASYNC => ObjectPayload::ASYNC_FUNCTION(isa),
@@ -285,15 +275,15 @@ impl Bytecode {
         js_function_set_properties(
             ctx,
             &func,
-            if name == JS_ATOM_NULL {
+            if self.func_name.is_null() {
                 JS_ATOM_empty_string
             } else {
-                name
+                self.func_name.as_ref()
             },
-            defined_arg_count as _,
+            self.attrs.defined_arg_count as _,
         );
 
-        if let Some(gen_class_id) = func_kind.generator_class_id() {
+        if let Some(gen_class_id) = self.func_kind().generator_class_id() {
             // generator functions have a prototype field which is used as
             // prototype for the generator object
             debug_assert!(matches!(
@@ -306,7 +296,7 @@ impl Bytecode {
             )?;
             func.define_property_value(ctx, JS_ATOM_prototype, proto.into(), JS_PROP_WRITABLE)
                 .unwrap();
-        } else if has_prototype {
+        } else if self.has_prototype() {
             // add the 'prototype' property: delay instantiation to avoid
             // creating cycles for every javascript function. The prototype
             // object is created on the fly when first accessed
@@ -387,7 +377,7 @@ pub unsafe fn add_closure_variables(
 
         // Add local non lexical variables
         for (i, vd) in bc.vars_slice().iter().enumerate() {
-            if vd.scope_level == 0 && vd.var_name != JS_ATOM__ret_ {
+            if vd.scope_level == 0 && vd.var_name.as_ref() != JS_ATOM__ret_ {
                 let mut cv = JSClosureVar {
                     bitfield: 0,
                     var_idx: i as _,

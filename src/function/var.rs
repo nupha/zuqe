@@ -1,5 +1,5 @@
 use crate::{
-    atom::{JS_ATOM_NULL, JSAtom, consts::*},
+    atom::{Atom, JS_ATOM_NULL, JSAtom, consts::*},
     context::{JS_MODE_STRICT, JSContext},
     eval::JS_EVAL_TYPE_GLOBAL,
     function::JSFunctionDef,
@@ -60,9 +60,9 @@ pub struct JSVarBinding {
     pub is_var: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct JSVarDef {
-    pub var_name: JSAtom,
+    pub var_name: Atom,
 
     /// the scope in which this var exists.
     pub scope_level: i32,
@@ -144,21 +144,11 @@ impl JSVarDef {
     }
 }
 
-#[cfg(debug_assertions)]
-impl Drop for JSVarDef {
-    fn drop(&mut self) {
-        debug_assert_eq!(
-            self.var_name, JS_ATOM_NULL,
-            "[O.o] forgot to free JSVarDef::var_name atom"
-        );
-    }
-}
-
 /* XXX: should handle the argument scope generically */
 #[inline(always)]
 pub fn is_var_in_arg_scope(vd: &JSVarDef) -> bool {
     matches!(
-        vd.var_name,
+        vd.var_name.as_ref(),
         JS_ATOM__home_object_
             | JS_ATOM_this_active_func
             | JS_ATOM_new_target
@@ -179,7 +169,7 @@ pub struct JSGlobalVar {
     bitfields: u8,
 
     pub scope_level: i32, // scope of definition
-    pub var_name: JSAtom, // variable name
+    pub var_name: Atom,   // variable name
 }
 
 impl JSGlobalVar {
@@ -234,12 +224,16 @@ impl JSFunctionDef {
     #[inline]
     /// `name` is not consumed.
     pub fn find_global_var(&self, name: JSAtom) -> Option<&JSGlobalVar> {
-        self.global_vars.iter().find(|x| x.var_name == name)
+        self.global_vars
+            .iter()
+            .find(|x| x.var_name.as_ref() == name)
     }
 
     #[inline]
     pub fn find_global_var_mut(&mut self, name: JSAtom) -> Option<&mut JSGlobalVar> {
-        self.global_vars.iter_mut().find(|x| x.var_name == name)
+        self.global_vars
+            .iter_mut()
+            .find(|x| x.var_name.as_ref() == name)
     }
 
     #[inline]
@@ -390,7 +384,7 @@ impl JSFunctionDef {
             .enumerate()
             .rev() // search in reveresed order
             .find_map(|(i, vd)| {
-                if vd.var_name == name {
+                if vd.var_name.as_ref() == name {
                     Some(i as u32 | (ARGUMENT_VAR_OFFSET as u32))
                 } else {
                     None
@@ -407,7 +401,7 @@ impl JSFunctionDef {
             .enumerate()
             .rev() // search in reveresed order
             .find_map(|(i, vd)| {
-                if vd.var_name == name && vd.scope_level == 0 {
+                if vd.var_name.as_ref() == name && vd.scope_level == 0 {
                     Some(i as u32)
                 } else {
                     None
@@ -427,7 +421,7 @@ impl JSFunctionDef {
         let mut scope_idx = scope;
         while scope_idx >= 0 {
             let vd = self.vars.get(scope_idx as usize).unwrap();
-            if vd.var_name == name
+            if vd.var_name.as_ref() == name
                 && (vd.is_lexical()
                     || (vd.var_kind() == JSVarKindEnum::JS_VAR_CATCH && check_catch_var))
             {

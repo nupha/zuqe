@@ -77,14 +77,14 @@ impl<'s> JSParseState<'s> {
             }
             self.emit_op(OpCode::ITERATOR_CHECK_OBJECT);
             self.emit_op(OpCode::GET_FIELD2);
-            self.emit_atom_dup(JS_ATOM_done);
+            self.emit_atom_ref(JS_ATOM_done);
             let label_next = self.emit_goto(OpCode::IF_TRUE, -1); // end of loop
             self.emit_label(label_yield as _);
 
             if is_async {
                 // OP_async_yield_star takes the value as parameter
                 self.emit_op(OpCode::GET_FIELD);
-                self.emit_atom_dup(JS_ATOM_value);
+                self.emit_atom_ref(JS_ATOM_value);
                 self.emit_op(OpCode::ASYNC_YIELD_STAR);
             } else {
                 // OP_yield_star takes (value, done) as parameter
@@ -114,11 +114,11 @@ impl<'s> JSParseState<'s> {
             }
             self.emit_op(OpCode::ITERATOR_CHECK_OBJECT);
             self.emit_op(OpCode::GET_FIELD2);
-            self.emit_atom_dup(JS_ATOM_done);
+            self.emit_atom_ref(JS_ATOM_done);
             self.emit_goto(OpCode::IF_FALSE, label_yield as _);
 
             self.emit_op(OpCode::GET_FIELD);
-            self.emit_atom_dup(JS_ATOM_value);
+            self.emit_atom_ref(JS_ATOM_value);
 
             self.emit_label(label_return1);
             self.emit_op(OpCode::NIP);
@@ -136,7 +136,7 @@ impl<'s> JSParseState<'s> {
             }
             self.emit_op(OpCode::ITERATOR_CHECK_OBJECT);
             self.emit_op(OpCode::GET_FIELD2);
-            self.emit_atom_dup(JS_ATOM_done);
+            self.emit_atom_ref(JS_ATOM_done);
             self.emit_goto(OpCode::IF_FALSE, label_yield as _);
             self.emit_goto(OpCode::GOTO, label_next);
             // close the iterator and throw a type error exception
@@ -150,12 +150,12 @@ impl<'s> JSParseState<'s> {
             self.emit_label(label_throw2);
 
             self.emit_op(OpCode::THROW_ERROR);
-            self.emit_atom_dup(JS_ATOM_NULL);
+            self.emit_atom_ref(JS_ATOM_NULL);
             self.emit_u8(JS_THROW_ERROR_ITERATOR_THROW);
 
             self.emit_label(label_next);
             self.emit_op(OpCode::GET_FIELD);
-            self.emit_atom_dup(JS_ATOM_value);
+            self.emit_atom_ref(JS_ATOM_value);
             self.emit_op(OpCode::NIP); // keep the value associated with done = true
             self.emit_op(OpCode::NIP);
             self.emit_op(OpCode::NIP);

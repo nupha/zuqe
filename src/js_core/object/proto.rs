@@ -1,6 +1,6 @@
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF,
-    atom::{JS_ATOM_NULL, JS_FreeAtom, consts::*},
+    atom::{Atom, consts::*},
     branch_hints::unlikely,
     context::JSContext,
     error::JSResult,
@@ -31,14 +31,9 @@ pub fn js_object_valueOf(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_object_hasOwnProperty(ctx: &JSContext, cc: CallContext) -> JSResult {
     // must be done first
-    let atom = cc.arg(0).to_atom(ctx)?;
-    let obj = cc.this().clone().objectify(ctx).inspect_err(|_| {
-        JS_FreeAtom(ctx, atom);
-    })?;
-
-    let ret = obj.get_own_property(ctx, atom);
-    JS_FreeAtom(ctx, atom);
-    Ok(JSValue::Bool(ret?.is_some()))
+    let atom = cc.arg(0).to_atom(ctx)?.into_rc(ctx.rt());
+    let obj = cc.this().clone().objectify(ctx)?;
+    Ok(obj.get_own_property(ctx, atom.as_ref())?.is_some().into())
 }
 
 pub fn js_object_isPrototypeOf(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -69,10 +64,10 @@ pub fn js_object_isPrototypeOf(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_object_propertyIsEnumerable(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj = cc.this().clone().objectify(ctx)?;
-    let prop = cc.arg(0).to_atom(ctx)?;
+    let atom = cc.arg(0).to_atom(ctx)?;
 
-    let ret = obj.get_own_property(ctx, prop);
-    JS_FreeAtom(ctx, prop);
+    let ret = obj.get_own_property(ctx, atom.as_ref());
+    atom.free(ctx.rt_mut());
 
     Ok(if let Some(desc) = ret? {
         JSValue::Bool(desc.flags & JS_PROP_ENUMERABLE != 0)
@@ -132,8 +127,8 @@ pub unsafe fn js_object___defineGetter__(
         return JSValue::EXCEPTION;
     }
 
-    let atom = prop.to_atom(ctx).unwrap_or(JS_ATOM_NULL);
-    if atom == JS_ATOM_NULL {
+    let atom = prop.to_atom(ctx).unwrap_or(Atom::NULL);
+    if atom.is_null() {
         return JSValue::EXCEPTION;
     }
 
@@ -151,8 +146,8 @@ pub unsafe fn js_object___defineGetter__(
         (value.clone(), JSValue::UNDEFINED)
     };
 
-    let ret = obj.define_property(ctx, atom, JSValue::UNDEFINED, get, set, flags);
-    JS_FreeAtom(ctx, atom);
+    let ret = obj.define_property(ctx, atom.as_ref(), JSValue::UNDEFINED, get, set, flags);
+    atom.free(ctx.rt_mut());
 
     if ret.is_err() {
         JSValue::EXCEPTION
@@ -175,15 +170,13 @@ pub unsafe fn js_object___lookupGetter__(
         return JSValue::EXCEPTION;
     }
 
-    let prop = (*argv.offset(0)).to_atom(ctx).unwrap_or(JS_ATOM_NULL);
-
-    if prop == JS_ATOM_NULL {
-        JS_FreeAtom(ctx, prop);
+    let prop = (*argv.offset(0)).to_atom(ctx).unwrap_or(Atom::NULL);
+    if prop.is_null() {
         return JSValue::EXCEPTION;
     }
 
     let res = loop {
-        match obj.get_own_property(ctx, prop) {
+        match obj.get_own_property(ctx, prop.as_ref()) {
             Ok(Some(desc)) => {
                 break if desc.flags & JS_PROP_GETSET != 0 {
                     if setter != 0 {
@@ -231,7 +224,7 @@ pub unsafe fn js_object___lookupGetter__(
         // }
     };
 
-    JS_FreeAtom(ctx, prop);
+    prop.free(ctx.rt_mut());
     res
 }
 

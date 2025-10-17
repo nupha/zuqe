@@ -1,6 +1,6 @@
 use crate::{
     atom::{
-        JS_ATOM_NULL, JS_FreeAtom, JSAtom, JSAtomRc,
+        Atom, JS_ATOM_NULL, JSAtomRc,
         consts::{JS_ATOM___proto__, JS_ATOM_async, JS_ATOM_get, JS_ATOM_set},
     },
     bytecode::{OpCode, OpCodeTemp},
@@ -47,14 +47,15 @@ impl<'s> JSParseState<'s> {
                 self.emit_op(OpCode::DROP); // pop src object
             } else {
                 let (name, prop_type) = self.parse_property_name(true, true, false)?;
+                let name = name.into_rc(self.ctx.rt());
 
                 if prop_type == PROP_TYPE_VAR {
                     // shortcut for x: x
                     self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                    self.emit_atom_dup(name);
+                    self.emit_atom_ref(name.as_ref());
                     self.emit_u16(self.cur_func().scope_level as _);
                     self.emit_op(OpCode::DEFINE_FIELD);
-                    self.emit_atom_dup(name);
+                    self.emit_atom_ref(name.as_ref());
                 } else if self.token.val == CHAR_BRACKET_L {
                     let is_getset = matches!(prop_type, PROP_TYPE_GET | PROP_TYPE_SET);
                     let (func_type, func_kind, op_flags): (
@@ -93,59 +94,44 @@ impl<'s> JSParseState<'s> {
                         )
                     };
 
-                    if self
-                        .parse_function_decl(
-                            func_type,
-                            func_kind,
-                            JS_ATOM_NULL,
-                            start_ptr,
-                            start_line,
-                        )
-                        .is_err()
-                    {
-                        JS_FreeAtom(&self.ctx, name);
-                        return Err(-1);
-                    }
+                    self.parse_function_decl(
+                        func_type,
+                        func_kind,
+                        JS_ATOM_NULL,
+                        start_ptr,
+                        start_line,
+                    )?;
 
-                    if name == JS_ATOM_NULL {
+                    if name.as_ref() == JS_ATOM_NULL {
                         self.emit_op(OpCode::DEFINE_METHOD_COMPUTED);
                     } else {
                         self.emit_op(OpCode::DEFINE_METHOD);
-                        self.emit_atom_dup(name);
+                        self.emit_atom_ref(name.as_ref());
                     }
                     self.emit_u8(op_flags as u8 | OP_DEFINE_METHOD_ENUMERABLE);
                 } else {
-                    if self.parse_expect(CHAR_COLON).is_err() {
-                        JS_FreeAtom(&self.ctx, name);
-                        return Err(-1);
-                    }
-                    if self.parse_assign_expr().is_err() {
-                        JS_FreeAtom(&self.ctx, name);
-                        return Err(-1);
-                    }
+                    self.parse_expect(CHAR_COLON)?;
+                    self.parse_assign_expr()?;
 
-                    if name == JS_ATOM_NULL {
+                    if name.as_ref() == JS_ATOM_NULL {
                         unsafe {
                             set_object_name_computed(self);
                         }
                         self.emit_op(OpCode::DEFINE_ARRAY_EL);
                         self.emit_op(OpCode::DROP);
-                    } else if name == JS_ATOM___proto__ {
+                    } else if name.as_ref() == JS_ATOM___proto__ {
                         if has_proto {
                             self.throw_syntax_error("duplicate __proto__ property name");
-                            JS_FreeAtom(&self.ctx, name);
                             return Err(-1);
                         }
                         self.emit_op(OpCode::SET_PROTO);
                         has_proto = true;
                     } else {
-                        self.set_object_name(name);
+                        self.set_object_name(name.as_ref());
                         self.emit_op(OpCode::DEFINE_FIELD);
-                        self.emit_atom_dup(name);
+                        self.emit_atom_ref(name.as_ref());
                     }
                 }
-
-                JS_FreeAtom(&self.ctx, name);
             }
 
             // next
@@ -166,7 +152,7 @@ impl<'s> JSParseState<'s> {
         allow_method: bool,
         allow_var: bool,
         allow_private: bool,
-    ) -> Result<(JSAtom, i32), i32> {
+    ) -> Result<(Atom, i32), i32> {
         let mut prop_type = PROP_TYPE_IDENT;
         let mut private = 0_i32;
         let mut is_non_reserved_ident = false;
@@ -177,7 +163,7 @@ impl<'s> JSParseState<'s> {
                 || self.token_is_pseudo_keyword(JS_ATOM_set)
             {
                 // found `get...` or `set...`
-                name.replace(JSAtomRc::clone_from(
+                name.replace(JSAtomRc::from_ref(
                     self.ctx.rt(),
                     self.token.atom().unwrap(),
                 ));
@@ -191,7 +177,7 @@ impl<'s> JSParseState<'s> {
                         is_non_reserved_ident = true;
                     }
                     _ => {
-                        prop_type = if *name.take().unwrap() == JS_ATOM_get {
+                        prop_type = if name.take().unwrap().as_ref() == JS_ATOM_get {
                             PROP_TYPE_GET
                         } else {
                             PROP_TYPE_SET
@@ -204,7 +190,7 @@ impl<'s> JSParseState<'s> {
             } else if self.token_is_pseudo_keyword(JS_ATOM_async)
                 && self.peek_token(true) != '\n' as i32
             {
-                name.replace(JSAtomRc::clone_from(
+                name.replace(JSAtomRc::from_ref(
                     self.ctx.rt(),
                     self.token.atom().unwrap(),
                 ));
@@ -258,7 +244,7 @@ impl<'s> JSParseState<'s> {
                     self.parse_expect(']' as i32)?;
                 }
                 TOK_PRIVATE_NAME if allow_private => {
-                    name.replace(JSAtomRc::clone_from(
+                    name.replace(JSAtomRc::from_ref(
                         self.ctx.rt(),
                         self.token.atom().unwrap(),
                     ));
@@ -271,7 +257,7 @@ impl<'s> JSParseState<'s> {
                         self.token.val == TOK_IDENT && !self.token.data.is_reserved();
 
                     /* keywords and reserved words have a valid atom */
-                    name.replace(JSAtomRc::clone_from(
+                    name.replace(JSAtomRc::from_ref(
                         self.ctx.rt(),
                         self.token.atom().unwrap(),
                     ));
@@ -296,6 +282,6 @@ impl<'s> JSParseState<'s> {
             return Err(-1);
         }
 
-        Ok((name.map_or(JS_ATOM_NULL, |a| a.into()), prop_type | private))
+        Ok((name.map_or(Atom::NULL, |a| a.into()), prop_type | private))
     }
 }

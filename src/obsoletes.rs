@@ -12,8 +12,8 @@ use crate::{
     array::Array,
     array_buffer::JSFreeArrayBufferDataFunc,
     atom::{
-        AtomDescKind, AtomHintAndId, AtomTypeHint, JS_ATOM_NULL, JS_ATOM_TAG_INT, JS_FreeAtom,
-        JSAtom, JSAtomStruct, consts::JS_ATOM_name,
+        AtomDescKind, AtomHintAndId, AtomTypeHint, JS_ATOM_NULL, JS_ATOM_TAG_INT, JSAtom,
+        JSAtomStruct, consts::JS_ATOM_name,
     },
     bytecode::{OpCode, OpCodeTemp, arithmatic::StrictEqMode},
     class::{ClassFieldsDef, JSClassDef, JSClassID, JSClassShortDef},
@@ -22,8 +22,7 @@ use crate::{
     function::{
         AsyncFuncState, BlockEnv, Bytecode, CallContext, FieldDef, JSCFunction, JSCFunctionMagic,
         JSFunctionDef, JSFunctionKindEnum, JSGlobalVar, JSVarDefEnum, JSVarKindEnum, JSVarRef,
-        Label, NativeCallback, NativeFunctionType, ObjNativeFunc, RelocEntry,
-        js_function_set_properties,
+        Label, NativeCallback, RelocEntry,
     },
     gc::{GCObjectHeader, JSGCObjectTypeEnum},
     generator::{AGenPayload, GeneratorPayload},
@@ -1226,11 +1225,7 @@ pub unsafe fn parse_ident(
     c: char,
     is_private: bool,
 ) -> JSAtom {
-    let (a, esc) = (*s)
-        .parse_ident(pp, c, is_private)
-        .unwrap_or((JS_ATOM_NULL, false));
-    *pident_has_escape = esc;
-    a
+    unreachable!("unused");
 }
 
 /// find a variable declaration in a given scope
@@ -2401,34 +2396,36 @@ pub unsafe fn JS_NewCFunction3(
     magic: i16,
     proto_val: JSValue,
 ) -> JSValue {
-    match ctx.create_object_from_proto(
-        proto_val,
-        ObjectPayload::C_FUNCTION(ObjNativeFunc {
-            realm: ctx.downgrade(),
-            handler: NativeFunctionType::CFunc(func),
-            length,
-            magic,
-        }),
-    ) {
-        Ok(func_obj) => {
-            func_obj.set_flag_constructor(matches!(
-                cproto,
-                JSCFunctionEnum::Constructor
-                    | JSCFunctionEnum::ConstructorMagic
-                    | JSCFunctionEnum::ConstructorOrFunc
-                    | JSCFunctionEnum::ConstructorOrFuncMagic
-            ));
+    unreachable!("unused");
 
-            // define properties on func_obj: length and name.
-            let name_atom = JSAtom::new(ctx.rt_mut(), name).unwrap();
+    // match ctx.create_object_from_proto(
+    //     proto_val,
+    //     ObjectPayload::C_FUNCTION(ObjNativeFunc {
+    //         realm: ctx.downgrade(),
+    //         handler: NativeFunctionType::CFunc(func),
+    //         length,
+    //         magic,
+    //     }),
+    // ) {
+    //     Ok(func_obj) => {
+    //         func_obj.set_flag_constructor(matches!(
+    //             cproto,
+    //             JSCFunctionEnum::Constructor
+    //                 | JSCFunctionEnum::ConstructorMagic
+    //                 | JSCFunctionEnum::ConstructorOrFunc
+    //                 | JSCFunctionEnum::ConstructorOrFuncMagic
+    //         ));
 
-            js_function_set_properties(ctx, &func_obj, name_atom, length as i32);
-            JS_FreeAtom(ctx, name_atom);
+    //         // define properties on func_obj: length and name.
+    //         let name_atom = Atom::new(ctx.rt_mut(), name).unwrap();
 
-            func_obj.into()
-        }
-        Err(_) => JSValue::EXCEPTION,
-    }
+    //         js_function_set_properties(ctx, &func_obj, name_atom, length as i32);
+    //         JS_FreeAtom(ctx, name_atom);
+
+    //         func_obj.into()
+    //     }
+    //     Err(_) => JSValue::EXCEPTION,
+    // }
 }
 
 /* Note: at least 'length' arguments will be readable in 'argv' */
@@ -3100,9 +3097,9 @@ pub fn JS_NewSymbol(ctx: &JSContext, p: JSString, atom_type: AtomTypeHint) -> JS
     unreachable!("unused");
 }
 
-#[deprecated(note = "use JSValue::coerce_to_atom() instead")]
+#[deprecated(note = "use JSValue::to_atom() instead")]
 pub fn JS_ValueToAtom(ctx: &JSContext, val: &JSValue) -> JSAtom {
-    val.to_atom(ctx).unwrap_or(JS_ATOM_NULL)
+    unreachable!("unused");
 }
 
 /* return < 0, 0 or > 0 */
@@ -3523,13 +3520,13 @@ pub fn __JS_AtomFromUInt32(n: u32) -> JSAtom {
 
 #[deprecated(note = "use JSAtom::dup() instead")]
 pub unsafe fn JS_DupAtomRT(rt: *mut JSRuntime, v: JSAtom) -> JSAtom {
-    v.dup(rt.as_ref().unwrap())
+    unreachable!("unused");
 }
 
 #[deprecated(note = "use JSAtom::dup() instead")]
 #[inline(always)]
 pub unsafe fn JS_DupAtom(ctx: &JSContext, v: JSAtom) -> JSAtom {
-    v.dup(ctx.rt())
+    unreachable!("unused");
 }
 
 #[deprecated(note = "use JSAtom::kind() instead")]
@@ -3846,7 +3843,7 @@ pub unsafe fn JS_InitAtoms(rt: &mut JSRuntime) -> Result<(), i32> {
 /// find atom by str
 #[deprecated(note = "use JSAtom::find() instead")]
 pub fn __JS_FindAtom(rt: &JSRuntime, str: &str, atom_type: AtomTypeHint) -> Option<JSAtom> {
-    JSAtom::find(rt, str, atom_type)
+    unreachable!("unused")
 }
 
 #[deprecated(note = "use JSValue::to_string_non_undefined_or_null() instead")]
@@ -4649,5 +4646,15 @@ fn add_eval_variables(ctx: &JSContext, s: &mut JSFunctionDef) {
 
 #[deprecated(note = "use JSModuleDefInner::import_meta() instead")]
 pub unsafe fn JS_GetImportMeta(ctx: &JSContext, m: *mut ModuleDefInner) -> JSValue {
+    unreachable!("unused");
+}
+
+// XXX: could generate specific bytecode
+#[deprecated(note = "use JSParseState::parse_class_default_ctor() instead")]
+pub unsafe fn js_parse_class_default_ctor(
+    s: &mut JSParseState,
+    has_super: bool,
+    pfd: *mut *mut JSFunctionDef,
+) -> i32 {
     unreachable!("unused");
 }

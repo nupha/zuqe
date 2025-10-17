@@ -175,7 +175,7 @@ impl JSContext {
 
     #[cold]
     pub fn throw_type_error_invalid_class(&self, class_id: JSClassID) {
-        let name = self.rt().class_defs[class_id as usize].class_name;
+        let name = self.rt().class_defs[class_id as usize].class_name.as_ref();
         self.throw_type_error(&format!("{} object expected", name.to_utf8(self.rt())))
     }
 
@@ -358,12 +358,12 @@ pub fn JS_ThrowReferenceErrorNotDefined(ctx: &JSContext, name: JSAtom) {
 
 pub fn JS_ThrowReferenceErrorUninitialized2(ctx: &JSContext, b: &Bytecode, idx: u16, is_ref: bool) {
     let atom = if is_ref {
-        b.get_closure_var(idx).map(|c| c.var_name)
+        b.get_closure_var(idx).map(|c| c.var_name.as_ref())
     } else {
         // not present if the function is stripped and contains no eval()
-        b.get_var(idx).map(|vd| vd.var_name)
+        b.get_var(idx).map(|vd| vd.var_name.as_ref())
     }
-    .unwrap_or(JS_ATOM_NULL);
+    .unwrap_or(JSAtom::NULL);
 
     JS_ThrowReferenceErrorUninitialized(ctx, atom);
 }

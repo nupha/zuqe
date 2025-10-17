@@ -5,7 +5,7 @@ use smallvec::SmallVec;
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_PROXY,
-    atom::{JS_FreeAtom, JSAtom},
+    atom::{Atom, JSAtom},
     branch_hints::unlikely,
     context::JSContext,
     number::MAX_SAFE_INTEGER,
@@ -105,9 +105,10 @@ impl Array {
                 if d <= propdef_len {
                     // faster to iterate
                     while cur_len > length {
-                        let atom = JSAtom::from_u32(ctx.rt_mut(), cur_len as u32 - 1)?;
-                        let ret = self.delete_property_internal(ctx, atom);
-                        JS_FreeAtom(ctx, atom);
+                        let atom = Atom::from_u32(ctx.rt_mut(), cur_len as u32 - 1)?;
+                        let ret = self.delete_property_internal(ctx, atom.as_ref());
+                        atom.free(ctx.rt_mut());
+
                         if let Ok(false) = ret {
                             break; // property is not configurable
                         }
@@ -133,7 +134,7 @@ impl Array {
                             sh.0.borrow()
                                 .prop_defs
                                 .get_index(i as usize)
-                                .map(|(_, prs)| prs.atom)
+                                .map(|(_, prs)| prs.atom.as_ref())
                                 .unwrap();
 
                         if let Some(idx) = prop.to_array_index(ctx.rt()) {

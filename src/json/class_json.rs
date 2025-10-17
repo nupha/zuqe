@@ -1,6 +1,6 @@
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_OBJECT_DEF, JS_PROP_STRING_DEF,
-    atom::{JSAtom, JSAtomRc, consts::JS_ATOM_empty_string},
+    atom::{Atom, JSAtom, JSAtomRc, consts::JS_ATOM_empty_string},
     context::JSContext,
     error::JSResult,
     function::{CallContext, FieldDef},
@@ -48,17 +48,17 @@ fn internalize_json_property(
 
         for i in 0..len {
             let prop: JSAtomRc = if is_array {
-                JSAtom::from_u32(ctx.rt_mut(), i)?
+                Atom::from_u32(ctx.rt_mut(), i)?
             } else {
                 unsafe { pks.get_unchecked(i as usize).atom.dup(ctx.rt()) }
             }
             .into_rc(ctx.rt());
 
-            let new_el = internalize_json_property(ctx, &val, *prop, reviver)?;
+            let new_el = internalize_json_property(ctx, &val, prop.as_ref(), reviver)?;
             if new_el.is_undefined() {
-                val.delete_property(ctx, *prop, 0)
+                val.delete_property(ctx, prop.as_ref(), 0)
             } else {
-                val.define_property_value(ctx, *prop, new_el, JS_PROP_C_W_E)
+                val.define_property_value(ctx, prop.as_ref(), new_el, JS_PROP_C_W_E)
             }?;
         }
     }

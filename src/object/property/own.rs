@@ -1,6 +1,6 @@
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
-    atom::{JS_AtomIsNumericIndex, JS_FreeAtom, JSAtom, consts::JS_ATOM_length},
+    atom::{Atom, JS_AtomIsNumericIndex, JSAtom, consts::JS_ATOM_length},
     branch_hints::unlikely,
     context::JSContext,
     error::JS_ThrowReferenceErrorUninitialized,
@@ -163,9 +163,9 @@ impl JSObject {
     }
 
     pub fn has_own_property_str(&self, ctx: &JSContext, prop: &str) -> Result<bool, i32> {
-        let atom = JSAtom::new(ctx.rt_mut(), prop)?;
-        let b = self.has_own_property(ctx, atom);
-        JS_FreeAtom(ctx, atom);
+        let atom = Atom::new(ctx.rt_mut(), prop)?;
+        let b = self.has_own_property(ctx, atom.as_ref());
+        atom.free(ctx.rt_mut());
         b
     }
 

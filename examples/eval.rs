@@ -3,7 +3,6 @@ use std::{path::PathBuf, time::Instant};
 use colorized::*;
 use zhuque::{
     JS_CFUNC_NATIVE_DEF, JS_PROP_INT32_DEF,
-    atom::JS_FreeAtom,
     context::JSContext,
     error::JSResult,
     eval::JS_EVAL_TYPE_GLOBAL,
@@ -287,7 +286,7 @@ pub fn js_module_set_import_meta(
     // make module name to absolute url
     let module_name_atom = md.module_name().dup(&ctx.rt());
     let module_name = module_name_atom.to_utf8(ctx.rt());
-    JS_FreeAtom(ctx, module_name_atom);
+    module_name_atom.free(ctx.rt_mut());
 
     let p = PathBuf::from(module_name);
     let mut normalized = PathBuf::new();

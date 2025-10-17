@@ -1,6 +1,5 @@
 use crate::branch_hints::unlikely;
 use crate::error::JSResult;
-use crate::function::NativeFunctionType;
 use crate::object::JSObject;
 use crate::{
     JS_CLASS_OBJECT,

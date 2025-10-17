@@ -1,7 +1,7 @@
 use std::{collections::hash_map::Entry, ffi::CStr, num::NonZeroU16, rc::Rc};
 
 use crate::{
-    atom::{JS_ATOM_HASH_PRIVATE, JS_ATOM_HASH_SYMBOL, JS_ATOM_TAG_INT},
+    atom::{Atom, JS_ATOM_HASH_PRIVATE, JS_ATOM_HASH_SYMBOL, JS_ATOM_TAG_INT},
     number::parse_u32,
     runtime::JSRuntime,
     string::{JSString, StringContent},
@@ -16,7 +16,7 @@ use super::{
     },
 };
 
-impl JSAtom {
+impl Atom {
     /// register an atom from `str`. `str` could be None when atom has no description.
     /// returns atom with ownership, caller should free it after use.
     /// Same `str` will return the matched existing atom.
@@ -33,18 +33,18 @@ impl JSAtom {
 
                 if let Some(at) = ss.atom_info() {
                     if at.type_hint() == atom_type {
-                        let a = at.atom();
+                        let a = at.atom_ref();
                         if !a.is_const() {
                             let _ = Rc::into_raw(ss.0); // leak string strong count
                         }
-                        return Ok(a);
+                        return Ok(Self::from(a.id()));
                     }
 
                     // make new string with same content and without atom info
                     ss = JSString::new(rt, ss.content().clone());
                 }
 
-                let hash = Self::calc_atom_hash_content(ss.content(), atom_type);
+                let hash = Self::calc_atom_hash(ss.content(), atom_type);
 
                 // match registered atoms for hash, type and content
                 match rt.atom_hash_lut.entry(hash) {
@@ -60,7 +60,7 @@ impl JSAtom {
                                     && unsafe { (&*aptr).content() } == ss.content()
                                 {
                                     // found existing atom, clone and reuse it.
-                                    let a = at.atom();
+                                    let a = at.atom_ref();
                                     if !a.is_const() {
                                         unsafe {
                                             let d = Rc::from_raw(aptr);
@@ -70,7 +70,7 @@ impl JSAtom {
                                             // now strong ref count increased by 1.
                                         }
                                     }
-                                    return Ok(a);
+                                    return Ok(Self::from(a.id()));
                                 }
                             }
                         }
@@ -155,7 +155,7 @@ impl JSAtom {
             debug_assert_eq!(rt.atom_slots.len() - 1, u16::from(aid) as usize);
         }
 
-        Ok(JSAtom(aid.get() as u32))
+        Ok(Self::from(aid.get() as u32))
     }
 
     /// make atom from given JSString.
@@ -164,11 +164,11 @@ impl JSAtom {
         rt: &mut JSRuntime,
         str: JSString,
         type_hint: AtomTypeHint,
-    ) -> Result<JSAtom, i32> {
+    ) -> Result<Self, i32> {
         if let Some(i) = str.content().parse_u32()
             && i <= JS_ATOM_MAX_INT
         {
-            Ok(JSAtom::new_small_int(i))
+            Ok(Self::new_small_int(i))
         } else {
             Self::new_internal(rt, Some(str), type_hint)
         }
@@ -179,7 +179,7 @@ impl JSAtom {
         if let Some(i) = parse_u32(str)
             && i <= JS_ATOM_MAX_INT
         {
-            Ok(JSAtom::new_small_int(i))
+            Ok(Self::new_small_int(i))
         } else {
             let s = JSString::from_str(rt, str)?;
             Self::from_string(rt, s, type_hint)
@@ -195,13 +195,16 @@ impl JSAtom {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn from_u32(rt: &mut JSRuntime, n: u32) -> Result<Self, i32> {
-        if n <= JS_ATOM_MAX_INT {
-            Ok(Self::new_small_int(n))
-        } else {
-            Self::from_i64(rt, n as i64)
-        }
+        Self::from_i64(rt, n as i64)
+    }
+
+    /// Make builtin const atom
+    #[inline(always)]
+    pub(crate) fn new_const(n: JSAtom) -> Self {
+        debug_assert!(n.is_const());
+        Self::from(n.id())
     }
 
     /// Make an small integral atom.
@@ -209,7 +212,7 @@ impl JSAtom {
     #[inline(always)]
     pub(crate) fn new_small_int(n: u32) -> Self {
         debug_assert!(n <= JS_ATOM_MAX_INT);
-        Self(n | JS_ATOM_TAG_INT)
+        Self::from(n | JS_ATOM_TAG_INT)
     }
 
     /// create new or reuse existing atom for `str`.
@@ -227,45 +230,47 @@ impl JSAtom {
 
     /// find atom by str
     pub fn find(rt: &JSRuntime, str: &str, atom_type: AtomTypeHint) -> Option<Self> {
-        let hash = Self::calc_atom_hash_str(str, atom_type);
+        // JSAtom::find(rt, str, atom_type).map(|a| a.dup(rt))
 
-        if let Some(ids) = rt.atom_hash_lut.get(&hash) {
-            for &aid in ids {
-                let id = u16::from(aid) as u32;
-                let p = rt.atom_slots[id as usize];
-                debug_assert!(!p.is_null());
+        rt.atom_hash_lut
+            .get(&calc_atom_hash_str(str, atom_type))
+            .and_then(|ids| {
+                ids.iter().find_map(|id| {
+                    let id = u16::from(*id) as u32;
+                    let p = rt.atom_slots[id as usize];
+                    debug_assert!(!p.is_null());
 
-                if unsafe {
-                    (*p).atom_info().unwrap().type_hint() == atom_type && (*p).content().eq_str(str)
-                } {
-                    let a = JSAtom(id);
+                    if unsafe {
+                        (&*p).atom_info().unwrap().type_hint() == atom_type
+                            && (&*p).content().eq_str(str)
+                    } {
+                        let a = Self::from(id);
+                        if !a.is_const() {
+                            #[cfg(debug_assertions)]
+                            let _refcnt = a.ref_count(rt);
 
-                    if !a.is_const() {
-                        #[cfg(debug_assertions)]
-                        let _refcnt = a.ref_count(rt);
+                            // dup atom description refcount, then leak.
+                            unsafe {
+                                let d = Rc::from_raw(p);
+                                let d2 = d.clone();
+                                let _ = Rc::into_raw(d);
+                                let _ = Rc::into_raw(d2);
+                            }
 
-                        // atom will be pass out, dup atom description then leak to keep reference.
-                        unsafe {
-                            let d = Rc::from_raw(p);
-                            let d2 = d.clone();
-                            let _ = Rc::into_raw(d);
-                            let _ = Rc::into_raw(d2);
+                            #[cfg(debug_assertions)]
+                            debug_assert_eq!(a.ref_count(rt).unwrap(), _refcnt.unwrap() + 1);
                         }
 
-                        #[cfg(debug_assertions)]
-                        debug_assert_eq!(a.ref_count(rt).unwrap(), _refcnt.unwrap() + 1);
+                        Some(a)
+                    } else {
+                        None
                     }
-
-                    return Some(a);
-                }
-            }
-        }
-
-        None
+                })
+            })
     }
 
-    /// calc hash for content when using as an atom descriptor
-    pub(crate) fn calc_atom_hash_content(desc: &StringContent, atom_type: AtomTypeHint) -> u32 {
+    /// calc atom hash for descriptor and type
+    pub(crate) fn calc_atom_hash(desc: &StringContent, atom_type: AtomTypeHint) -> u32 {
         let mut h = atom_type as u32;
         if !desc.is_empty() && !desc.is_ident() {
             for (_, c) in desc.iter() {
@@ -274,16 +279,53 @@ impl JSAtom {
         }
         h
     }
+}
 
-    /// calc hash for str when using as an atom descriptor
-    #[inline]
-    pub(crate) fn calc_atom_hash_str(str: &str, atom_type: AtomTypeHint) -> u32 {
-        let mut h = atom_type as u32;
-        for c in str.encode_utf16() {
-            h = hash_u32_from_base(h, c as u32);
-        }
-        h
+impl JSAtom {
+    /// Make an small integral atom.
+    /// Small integral atom is primitive, and do not need to register.
+    #[inline(always)]
+    pub(crate) fn new_small_int(n: u32) -> Self {
+        debug_assert!(n <= JS_ATOM_MAX_INT);
+        Self::from(n | JS_ATOM_TAG_INT)
     }
+
+    #[inline(always)]
+    pub(crate) fn from(n: u32) -> Self {
+        Self(n)
+    }
+
+    /// find atom by str
+    pub fn find(rt: &JSRuntime, str: &str, atom_type: AtomTypeHint) -> Option<Self> {
+        let hash = calc_atom_hash_str(str, atom_type);
+
+        rt.atom_hash_lut.get(&hash).and_then(|ids| {
+            ids.iter().find_map(|aid| {
+                let id = u16::from(*aid) as u32;
+                let p = rt.atom_slots[id as usize];
+                debug_assert!(!p.is_null());
+
+                if unsafe {
+                    (&*p).atom_info().unwrap().type_hint() == atom_type
+                        && (&*p).content().eq_str(str)
+                } {
+                    Some(Self::from(id))
+                } else {
+                    None
+                }
+            })
+        })
+    }
+}
+
+/// calc hash for str when using as an atom descriptor
+#[inline]
+fn calc_atom_hash_str(str: &str, atom_type: AtomTypeHint) -> u32 {
+    let mut h = atom_type as u32;
+    for c in str.encode_utf16() {
+        h = hash_u32_from_base(h, c as u32);
+    }
+    h
 }
 
 impl JSRuntime {
@@ -291,7 +333,7 @@ impl JSRuntime {
     /// TODO: move this to JSAtom impl
     pub fn find_atom_for(&self, jsstr: &JSString) -> Option<JSAtom> {
         if let Some(at) = jsstr.atom_info() {
-            Some(at.atom())
+            Some(at.atom_ref())
         } else {
             unreachable!();
         }
@@ -331,7 +373,7 @@ impl JSRuntime {
             };
 
             let cstr = unsafe { CStr::from_ptr(p.cast()) };
-            JSAtom::from_str(self, cstr.to_str().unwrap(), atom_type)?;
+            Atom::from_str(self, cstr.to_str().unwrap(), atom_type)?;
 
             p = unsafe { p.add(cstr.count_bytes() + 1) };
         }

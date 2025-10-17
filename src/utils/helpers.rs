@@ -1,6 +1,6 @@
 use std::ffi::c_void;
 
-use crate::bytecode::opcodes;
+use crate::{atom::Atom, bytecode::opcodes};
 
 fn get_frame_address(level: usize) -> Option<*const c_void> {
     // NOTE: 除了libc, 还可以用backtrace实现
@@ -70,6 +70,11 @@ pub fn push_vec_u16(buf: &mut Vec<u8>, val: u16) {
 #[inline(always)]
 pub fn push_vec_u32(buf: &mut Vec<u8>, val: u32) {
     buf.extend_from_slice(&val.to_ne_bytes());
+}
+
+#[inline(always)]
+pub fn push_vec_atom(buf: &mut Vec<u8>, a: Atom) {
+    push_vec_u32(buf, unsafe { a.leak() });
 }
 
 pub fn push_vec_short_code(buf: &mut Vec<u8>, op: u8, idx: u16) {

@@ -1,6 +1,6 @@
 use crate::{
-    atom::{JSAtom, consts::*},
-    context::JS_MODE_STRICT,
+    atom::{JSAtom, JSAtomRc, consts::*},
+    context::{JS_MODE_STRICT, JSContext},
     function::JSFunctionKindEnum,
     number::{
         ATOD_ACCEPT_BIN_OCT, ATOD_ACCEPT_LEGACY_OCTAL, ATOD_ACCEPT_SUFFIX, ATOD_ACCEPT_UNDERSCORES,
@@ -58,7 +58,7 @@ impl Token {
     /// Note: returned atom is not duplicated, caller should clone to reference it.
     pub fn atom(&self) -> Option<JSAtom> {
         match self.val {
-            TOK_IDENT | TOK_PRIVATE_NAME => self.data.ident_atom(),
+            TOK_IDENT | TOK_PRIVATE_NAME => self.data.ident_atom_ref(),
             t @ (TOK_FIRST_KEYWORD..=TOK_LAST_KEYWORD) => {
                 // convert keyword token to atom
                 let a = t - TOK_FIRST_KEYWORD + 1;
@@ -87,7 +87,7 @@ pub enum TokenData {
     },
     Num(JSValue),
     Ident {
-        atom: JSAtom,
+        atom: JSAtomRc,
         has_escape: bool,
         is_reserved: bool,
     },
@@ -101,11 +101,10 @@ impl Default for TokenData {
 }
 
 impl TokenData {
-    /// if data is ident, returns then atom.
-    /// Returned atom is not duplicated. Caller must dup if need to reference it.
-    pub fn ident_atom(&self) -> Option<JSAtom> {
+    /// if data is ident, returns the atom ref.
+    pub fn ident_atom_ref(&self) -> Option<JSAtom> {
         if let Self::Ident { atom, .. } = self {
-            Some(*atom) // not duplicated here!
+            Some(atom.as_ref())
         } else {
             None
         }
@@ -175,6 +174,7 @@ impl<'s> JSParseState<'s> {
     // inline this method will be very slow due to check stack overflow,
     // and will consume large stack space for each function that call this method,
     // which will soon use up stack space, and cause stack overflow.
+    #[inline(never)]
     pub(super) fn next_token(&mut self) -> Result<i32, i32> {
         if js_check_stack_overflow(self.ctx.rt(), 0) {
             self.throw_syntax_error("stack overflow");
@@ -358,7 +358,7 @@ impl<'s> JSParseState<'s> {
                         if let Ok((a, has_escape)) = self.parse_ident(&mut p, c1, true) {
                             self.token.val = TOK_PRIVATE_NAME;
                             self.token.data = TokenData::Ident {
-                                atom: a,
+                                atom: a.into_rc(self.ctx.rt()),
                                 has_escape,
                                 is_reserved: false,
                             };
@@ -657,7 +657,7 @@ impl<'s> JSParseState<'s> {
                         {
                             self.token.val = TOK_IDENT;
                             self.token.data = TokenData::Ident {
-                                atom,
+                                atom: atom.into_rc(self.ctx.rt()),
                                 has_escape: has_escape || escaped,
                                 is_reserved: false,
                             };
@@ -795,7 +795,11 @@ impl<'s> JSParseState<'s> {
     #[inline(always)]
     pub fn token_is_pseudo_keyword(&self, atom: JSAtom) -> bool {
         self.token.val == TOK_IDENT
-            && self.token.data.ident_atom().map_or(false, |a| a == atom)
+            && self
+                .token
+                .data
+                .ident_atom_ref()
+                .map_or(false, |a| a == atom)
             && !self.token.data.ident_has_escape()
     }
 
@@ -825,7 +829,7 @@ impl<'s> JSParseState<'s> {
             has_escape,
         } = &mut self.token.data
         {
-            *is_reserved = match *atom {
+            *is_reserved = match atom.as_ref() {
                 JS_ATOM_yield => {
                     matches!(
                         func_kind,
@@ -866,7 +870,7 @@ impl<'s> JSParseState<'s> {
 
             if *is_reserved && !*has_escape {
                 // convert ident token to keyword token.
-                self.token.val = atom.0 as i32 - 1 + TOK_FIRST_KEYWORD;
+                self.token.val = atom.id() as i32 - 1 + TOK_FIRST_KEYWORD;
                 self.token.data = TokenData::None;
             }
         }

@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use crate::{
-    atom::{JS_ATOM_NULL, consts::*},
+    atom::{Atom, JS_ATOM_NULL, consts::*},
     context::{JS_MODE_STRICT, JS_MODE_STRIP, JSContext},
     function::{
         ARG_SCOPE_END, ARG_SCOPE_INDEX, Bytecode, BytecodeInner, JSClosureVar, JSVarDef,
@@ -222,18 +222,14 @@ impl JSFunctionDef {
             // vardefs have been copied to bin, we must clean args, vars list here,
             // so that when calling JSFunctionDef::finalize() in ::drop(),
             // JSVarDef::name atom won't free twice.
-            #[cfg(not(debug_assertions))]
-            {
-                self.args.clear();
-                self.vars.clear();
-            }
-            #[cfg(debug_assertions)]
-            {
-                for mut vd in self.args.drain(..) {
-                    vd.var_name = JS_ATOM_NULL;
+            for vd in self.args.drain(..) {
+                unsafe {
+                    vd.var_name.leak(); // atom has been mem copied to bin
                 }
-                for mut vd in self.vars.drain(..) {
-                    vd.var_name = JS_ATOM_NULL;
+            }
+            for vd in self.vars.drain(..) {
+                unsafe {
+                    vd.var_name.leak(); // atom has been mem copied to bin
                 }
             }
         }
@@ -286,14 +282,10 @@ impl JSFunctionDef {
             stack_size,
         );
 
-        // SAFEGUARD: atom self.func_name was transferred to BytecodeInner::func_name field,
-        // reset self.func_name to prevent free this atom in JSFunctionDef::finalize()
-        self.func_name = JS_ATOM_NULL;
-
         if self.attrs.js_mode & JS_MODE_STRIP as u8 == 0 {
             inner.has_debug = true;
             inner.debug.line_num = self.line_num;
-            inner.debug.filename = self.filename;
+            inner.debug.filename = std::mem::replace(&mut self.filename, Atom::NULL);
 
             // move source and pc2line to func object.
             inner.debug.source = self.source.take();
@@ -301,9 +293,6 @@ impl JSFunctionDef {
                 lst.shrink_to_fit();
                 inner.debug.pc2line_buf.replace(lst);
             }
-
-            // SAFEGUARD: reset to prevent free atom in JSFunctionDef::finalize()
-            self.filename = JS_ATOM_NULL;
         }
 
         let bc: Bytecode = Rc::new(inner).into();
@@ -360,8 +349,8 @@ impl JSFunctionDef {
             }
         }
 
-        if self.is_func_expr && self.func_name != JS_ATOM_NULL {
-            self.add_func_var(ctx, self.func_name).unwrap();
+        if self.is_func_expr && !self.func_name.is_null() {
+            self.add_func_var(ctx, self.func_name.as_ref()).unwrap();
         }
 
         // eval can use all the variables of the enclosing functions, so
@@ -408,8 +397,8 @@ impl JSFunctionDef {
             }
 
             // add function name
-            if fd.is_func_expr && fd.func_name != JS_ATOM_NULL {
-                fd.add_func_var(ctx, fd.func_name).unwrap();
+            if fd.is_func_expr && !fd.func_name.is_null() {
+                fd.add_func_var(ctx, fd.func_name.as_ref()).unwrap();
             }
 
             // add lexical variables
@@ -426,7 +415,7 @@ impl JSFunctionDef {
                     true,
                     false,
                     scope_idx as u16,
-                    vd.var_name,
+                    vd.var_name.as_ref(),
                     vd.is_const(),
                     vd.is_lexical(),
                     vd.var_kind(),
@@ -441,14 +430,14 @@ impl JSFunctionDef {
                 // add unscoped variables
                 // XXX: propagate is_const and var_kind too ?
                 for (i, vd) in fd.args.iter().enumerate() {
-                    if vd.var_name != JS_ATOM_NULL {
+                    if !vd.var_name.is_null() {
                         self.get_closure_var2(
                             ctx,
                             fd as *const JSFunctionDef,
                             true,
                             true,
                             i as _,
-                            vd.var_name,
+                            vd.var_name.as_ref(),
                             false,
                             vd.is_lexical(),
                             JSVarKindEnum::JS_VAR_NORMAL,
@@ -459,14 +448,16 @@ impl JSFunctionDef {
 
                 for (i, vd) in fd.vars.iter().enumerate() {
                     // do not close top level last result
-                    if vd.scope_level == 0 && !matches!(vd.var_name, JS_ATOM__ret_ | JS_ATOM_NULL) {
+                    if vd.scope_level == 0
+                        && !matches!(vd.var_name.as_ref(), JS_ATOM__ret_ | JS_ATOM_NULL)
+                    {
                         self.get_closure_var2(
                             ctx,
                             fd as *const JSFunctionDef,
                             true,
                             false,
                             i as _,
-                            vd.var_name,
+                            vd.var_name.as_ref(),
                             false,
                             vd.is_lexical(),
                             JSVarKindEnum::JS_VAR_NORMAL,
@@ -484,7 +475,7 @@ impl JSFunctionDef {
                             true,
                             false,
                             i as _,
-                            vd.var_name,
+                            vd.var_name.as_ref(),
                             false,
                             vd.is_lexical(),
                             JSVarKindEnum::JS_VAR_NORMAL,
@@ -504,7 +495,7 @@ impl JSFunctionDef {
                             false,
                             cv.is_arg(),
                             i as _,
-                            cv.var_name,
+                            cv.var_name.as_ref(),
                             cv.is_const(),
                             cv.is_lexical(),
                             cv.var_kind(),

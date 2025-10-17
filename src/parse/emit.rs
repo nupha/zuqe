@@ -1,5 +1,5 @@
 use crate::{
-    atom::{AtomTypeHint, JS_ATOM_NULL, JSAtom, consts::*},
+    atom::{Atom, AtomTypeHint, JS_ATOM_NULL, JSAtom, consts::*},
     bytecode::{OpCode, OpCodeTemp, opcodes},
     class::ClassFieldsDef,
     function::{JSFunctionDef, JSFunctionKindEnum},
@@ -26,11 +26,26 @@ impl JSFunctionDef {
         push_vec_u32(&mut self.byte_code, val);
     }
 
+    /// emit an atom by given atom ref. the atom ref will be dup'ed inside.
+    #[inline]
+    pub fn emit_atom_ref<A: Into<JSAtom>>(&mut self, atom: A) {
+        let a: JSAtom = atom.into();
+        self.emit_u32(if a.is_const() {
+            a.0
+        } else {
+            unsafe { a.dup(self.ctx.rt()).leak() }
+        });
+    }
+
     /// emit an atom.
-    /// Note: `atom` will be dup'ed inside
-    #[inline(always)]
-    pub fn emit_atom_dup(&mut self, name: JSAtom) {
-        self.emit_u32(name.dup(&self.ctx.rt()).0);
+    /// Note: `atom` will be duplicated inside
+    #[inline]
+    pub fn emit_atom(&mut self, name: Atom) {
+        self.emit_u32(if name.is_const() {
+            name.id()
+        } else {
+            unsafe { name.leak() }
+        });
     }
 
     fn emit_op_u8(&mut self, op: u8, last_line_num: i32) {
@@ -92,7 +107,7 @@ impl JSFunctionDef {
                         self.emit_op(OpCode::NIP, last_line_num); // next
                         self.emit_op(OpCode::SWAP, last_line_num);
                         self.emit_op(OpCode::GET_FIELD2, last_line_num);
-                        self.emit_atom_dup(JS_ATOM_return);
+                        self.emit_atom_ref(JS_ATOM_return);
 
                         // stack: iter_obj return_func
                         self.emit_op(OpCode::DUP, last_line_num);
@@ -142,7 +157,7 @@ impl JSFunctionDef {
             // The error should be raised in the caller context, so we use
             // a specific opcode
             self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR_CHECKTHIS, last_line_num);
-            self.emit_atom_dup(JS_ATOM_this);
+            self.emit_atom_ref(JS_ATOM_this);
             self.emit_u16(0);
 
             self.emit_label(label_return, last_line_num);
@@ -206,12 +221,11 @@ impl JSFunctionDef {
         if let JSValue::String(ss) = &val
             && as_atom
         {
-            if let Ok(atom) =
-                JSAtom::from_string(self.ctx.rt_mut(), ss.clone(), AtomTypeHint::String)
+            if let Ok(atom) = Atom::from_string(self.ctx.rt_mut(), ss.clone(), AtomTypeHint::String)
                 && !atom.is_small_int()
             {
                 self.emit_op(OpCode::PUSH_ATOM_VALUE, last_line_num);
-                self.emit_u32(atom.0);
+                self.emit_atom(atom);
                 return Ok(());
             }
         }
@@ -227,7 +241,7 @@ impl JSFunctionDef {
     <class_fields_init> can be variable references */
     pub fn emit_class_field_init(&mut self, last_line_num: i32) {
         self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR, last_line_num);
-        self.emit_atom_dup(JS_ATOM__class_fields_init_);
+        self.emit_atom_ref(JS_ATOM__class_fields_init_);
         self.emit_u16(self.scope_level as _);
 
         /* no need to call the class field initializer if not defined */
@@ -235,7 +249,7 @@ impl JSFunctionDef {
         let label_next = self.emit_goto(OpCode::IF_FALSE, -1, last_line_num);
 
         self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR, last_line_num);
-        self.emit_atom_dup(JS_ATOM_this);
+        self.emit_atom_ref(JS_ATOM_this);
         self.emit_u16(0);
 
         self.emit_op(OpCode::SWAP, last_line_num);
@@ -380,11 +394,16 @@ impl<'s> JSParseState<'s> {
         self.cur_func_mut().emit_u32(val);
     }
 
-    /// emit an atom.
-    /// Note: `atom` will be dup'ed inside
+    /// emit atom by given atom ref. the atom ref will be dup'ed inside.
     #[inline(always)]
-    pub fn emit_atom_dup(&mut self, atom: JSAtom) {
-        self.cur_func_mut().emit_atom_dup(atom);
+    pub fn emit_atom_ref<A: Into<JSAtom>>(&mut self, atom: A) {
+        self.cur_func_mut().emit_atom_ref(atom);
+    }
+
+    /// emit an atom.
+    #[inline(always)]
+    pub fn emit_atom(&mut self, atom: Atom) {
+        self.cur_func_mut().emit_atom(atom);
     }
 
     /// emit on current function def
@@ -559,11 +578,11 @@ impl<'s> JSParseState<'s> {
             let label_add_brand = self.emit_goto(OpCode::IF_FALSE, -1);
 
             self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-            self.emit_atom_dup(JS_ATOM_this);
+            self.emit_atom_ref(JS_ATOM_this);
             self.emit_u16(0);
 
             self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-            self.emit_atom_dup(JS_ATOM__home_object_);
+            self.emit_atom_ref(JS_ATOM__home_object_);
             self.emit_u16(0);
 
             self.emit_op(OpCode::ADD_BRAND);

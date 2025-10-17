@@ -37,7 +37,7 @@ pub fn js_string_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
             JS_ConcatString3(
                 ctx,
                 c"Symbol(",
-                p.atom_info().unwrap().atom().force_string(ctx)?.into(),
+                p.atom_info().unwrap().atom_ref().force_string(ctx)?.into(),
                 c")",
             )?
         } else {

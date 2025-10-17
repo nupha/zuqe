@@ -1,6 +1,6 @@
 use crate::{
     JS_CLASS_STRING,
-    atom::{AtomDescKind, JS_ATOM_NULL, JS_FreeAtom, JSAtom},
+    atom::{Atom, AtomDescKind, JSAtomRc},
     branch_hints::unlikely,
     context::JSContext,
     error::{JS_ThrowReferenceErrorUninitialized, JSResult},
@@ -20,27 +20,27 @@ pub enum PropertyKeyKind {
     ArrayIndex(u32),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PropertyKey {
-    pub atom: JSAtom,
+    pub atom: JSAtomRc,
     pub kind: PropertyKeyKind,
     pub is_enumerable: bool,
     pub is_exotic: bool,
 }
 
 impl PropertyKey {
-    /// Note: `atom` is used **AS-IS**: it's ownership is transparent,
-    /// it's neither cloned nor consumed inside.
-    pub(crate) fn new(ctx: &JSContext, atom: JSAtom, is_enumerable: bool, is_exotic: bool) -> Self {
+    pub(crate) fn new(ctx: &JSContext, atom: Atom, is_enumerable: bool, is_exotic: bool) -> Self {
+        let kind = if let Some(idx) = atom.to_array_index(ctx.rt()) {
+            PropertyKeyKind::ArrayIndex(idx as u32)
+        } else if atom.kind(ctx.rt()) == AtomDescKind::JS_ATOM_KIND_STRING {
+            PropertyKeyKind::String
+        } else {
+            PropertyKeyKind::Symbol
+        };
+
         Self {
-            atom,
-            kind: if let Some(idx) = atom.to_array_index(ctx.rt()) {
-                PropertyKeyKind::ArrayIndex(idx as u32)
-            } else if atom.kind(ctx.rt()) == AtomDescKind::JS_ATOM_KIND_STRING {
-                PropertyKeyKind::String
-            } else {
-                PropertyKeyKind::Symbol
-            },
+            atom: atom.into_rc(ctx.rt()),
+            kind,
             is_enumerable,
             is_exotic,
         }
@@ -87,7 +87,7 @@ impl JSObject {
             .iter()
             .enumerate()
         {
-            if prs.atom != JS_ATOM_NULL {
+            if !prs.atom.is_null() {
                 let is_enumerable = prs.flags() & JS_PROP_ENUMERABLE != 0;
                 let kind = prs.atom.kind(ctx.rt());
 
@@ -102,13 +102,16 @@ impl JSObject {
                             self.0.prop_values.borrow().get(i).unwrap()
                         {
                             if unlikely(vref.value().is_uninitialized()) {
-                                JS_ThrowReferenceErrorUninitialized(ctx, prs.atom);
+                                JS_ThrowReferenceErrorUninitialized(ctx, prs.atom.as_ref());
                                 return Err(-1);
                             }
                         }
                     }
 
-                    callback(ctx, PropertyKey::new(ctx, prs.atom, is_enumerable, false))?;
+                    callback(
+                        ctx,
+                        PropertyKey::new(ctx, prs.atom.dup(ctx.rt()), is_enumerable, false),
+                    )?;
                 }
             }
         }
@@ -122,7 +125,7 @@ impl JSObject {
                         callback(
                             ctx,
                             PropertyKey {
-                                atom: JSAtom::new_small_int(i as u32),
+                                atom: Atom::new_small_int(i as u32).into_rc(ctx.rt()),
                                 is_enumerable: true,
                                 kind: PropertyKeyKind::ArrayIndex(i as u32),
                                 is_exotic: false,
@@ -138,7 +141,7 @@ impl JSObject {
                         callback(
                             ctx,
                             PropertyKey {
-                                atom: JSAtom::new_small_int(i as u32),
+                                atom: Atom::new_small_int(i as u32).into_rc(ctx.rt()),
                                 is_enumerable: true,
                                 kind: PropertyKeyKind::ArrayIndex(i as u32),
                                 is_exotic: false,
@@ -154,13 +157,14 @@ impl JSObject {
             } {
                 // Note: exotic keys comes after the object own properties.
                 let mut has_err = false;
+
                 for pk in f(ctx, self)? {
                     if !has_err {
                         let atom_kind = pk.atom.kind(ctx.rt());
                         if (flags >> (atom_kind as u8)) & 1 != 0 {
                             let mut is_enumerable = false;
                             if flags & (JS_GPN_SET_ENUM | JS_GPN_ENUM_ONLY) != 0 {
-                                if let Some(d) = self.get_own_property(ctx, pk.atom)? {
+                                if let Some(d) = self.get_own_property(ctx, pk.atom.as_ref())? {
                                     is_enumerable = d.flags & JS_PROP_ENUMERABLE != 0;
                                 }
                             }
@@ -186,8 +190,6 @@ impl JSObject {
                             }
                         }
                     }
-
-                    JS_FreeAtom(ctx, pk.atom);
                 }
 
                 if unlikely(has_err) {
@@ -213,7 +215,7 @@ impl JSObject {
         let mut lst = Vec::<PropertyKey>::with_capacity(16);
         let mut sort_cnt = 0;
 
-        let r = self.own_property_names_foreach(ctx, flags, |cx, pp| {
+        self.own_property_names_foreach(ctx, flags, |cx, pp| {
             if unlikely(lst.len() == lst.capacity()) {
                 lst.try_reserve(1).map_err(|_| {
                     cx.throw_out_of_memory();
@@ -225,47 +227,32 @@ impl JSObject {
                 sort_cnt += 1;
             }
 
-            pp.atom.dup(cx.rt()); // dup atom
             lst.push(pp);
 
             Ok(())
-        });
+        })?;
 
-        if unlikely(r.is_err()) {
-            // free atoms
-            lst.iter().for_each(|p| {
-                JS_FreeAtom(ctx, p.atom);
+        // Note: sort in index, string, symbol segments
+        if sort_cnt > 0 {
+            lst[0..sort_cnt].sort_by(|p1, p2| match (p1.kind, p2.kind) {
+                // index vs index: order by integer
+                (PropertyKeyKind::ArrayIndex(i1), PropertyKeyKind::ArrayIndex(i2)) => i1.cmp(&i2),
+
+                // index is always prior to string or symbol
+                (PropertyKeyKind::ArrayIndex(_), _) => std::cmp::Ordering::Less,
+                (_, PropertyKeyKind::ArrayIndex(_)) => std::cmp::Ordering::Greater,
+
+                // string vs string, symbol vs symbol: in defined order.
+                (PropertyKeyKind::String, PropertyKeyKind::String)
+                | (PropertyKeyKind::Symbol, PropertyKeyKind::Symbol) => std::cmp::Ordering::Equal,
+
+                // string is always prior to symbol
+                (PropertyKeyKind::String, PropertyKeyKind::Symbol) => std::cmp::Ordering::Less,
+                (PropertyKeyKind::Symbol, PropertyKeyKind::String) => std::cmp::Ordering::Greater,
             });
-            Err(-1)
-        } else {
-            // Note: sort in index, string, symbol segments
-            if sort_cnt > 0 {
-                lst[0..sort_cnt].sort_by(|p1, p2| match (p1.kind, p2.kind) {
-                    // index vs index: order by integer
-                    (PropertyKeyKind::ArrayIndex(i1), PropertyKeyKind::ArrayIndex(i2)) => {
-                        i1.cmp(&i2)
-                    }
-
-                    // index is always prior to string or symbol
-                    (PropertyKeyKind::ArrayIndex(_), _) => std::cmp::Ordering::Less,
-                    (_, PropertyKeyKind::ArrayIndex(_)) => std::cmp::Ordering::Greater,
-
-                    // string vs string, symbol vs symbol: in defined order.
-                    (PropertyKeyKind::String, PropertyKeyKind::String)
-                    | (PropertyKeyKind::Symbol, PropertyKeyKind::Symbol) => {
-                        std::cmp::Ordering::Equal
-                    }
-
-                    // string is always prior to symbol
-                    (PropertyKeyKind::String, PropertyKeyKind::Symbol) => std::cmp::Ordering::Less,
-                    (PropertyKeyKind::Symbol, PropertyKeyKind::String) => {
-                        std::cmp::Ordering::Greater
-                    }
-                });
-            }
-
-            Ok(lst.into_boxed_slice())
         }
+
+        Ok(lst.into_boxed_slice())
     }
 
     /// Gets object's own properties \[key, value\] pairs.
@@ -284,85 +271,46 @@ impl JSObject {
         flags: i32,
         kind: JSIteratorKindEnum,
     ) -> Result<Box<[(JSValue, JSValue)]>, i32> {
-        let lst = self.get_own_property_names(ctx, flags & !JS_GPN_ENUM_ONLY)?;
+        let pkeys = self.get_own_property_names(ctx, flags & !JS_GPN_ENUM_ONLY)?;
 
         let mut ret = Vec::<(JSValue, JSValue)>::new();
-        ret.try_reserve_exact(lst.len()).map_err(|_| {
+        ret.try_reserve_exact(pkeys.len()).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
         })?;
 
-        let mut has_err = false;
-
-        for name in lst.iter() {
+        for pk in pkeys.iter() {
             if flags & JS_GPN_ENUM_ONLY != 0 {
-                match self.get_own_property(ctx, name.atom) {
-                    Ok(Some(desc)) => {
+                match self.get_own_property(ctx, pk.atom.as_ref())? {
+                    Some(desc) => {
                         if desc.flags & JS_PROP_ENUMERABLE == 0 {
                             continue; // skip non enumerable
                         }
                     }
-                    Ok(None) => {
+                    None => {
                         continue;
                     }
-                    Err(_) => {
-                        has_err = true;
-                        break;
-                    }
                 }
             }
 
-            if !has_err {
-                let mut key = JSValue::UNDEFINED;
-                let mut val = JSValue::UNDEFINED;
-
-                match kind {
-                    JSIteratorKindEnum::JS_ITERATOR_KIND_KEY => {
-                        if let Ok(v) = name.atom.string_or_symbol(ctx) {
-                            key = v;
-                        } else {
-                            has_err = true;
-                            break;
-                        }
-                    }
-                    JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE => {
-                        if let Ok(v) = self.get_property(ctx, name.atom) {
-                            val = v;
-                        } else {
-                            has_err = true;
-                            break;
-                        }
-                    }
-                    JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE => {
-                        if let Ok(v) = name.atom.string_or_symbol(ctx) {
-                            key = v;
-                        } else {
-                            has_err = true;
-                            break;
-                        };
-                        if let Ok(v) = self.get_property(ctx, name.atom) {
-                            val = v;
-                        } else {
-                            has_err = true;
-                            break;
-                        }
-                    }
+            let mut key = JSValue::UNDEFINED;
+            let mut val = JSValue::UNDEFINED;
+            match kind {
+                JSIteratorKindEnum::JS_ITERATOR_KIND_KEY => {
+                    key = pk.atom.string_or_symbol(ctx)?;
                 }
-
-                ret.push((key, val));
+                JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE => {
+                    val = self.get_property(ctx, pk.atom.as_ref())?;
+                }
+                JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE => {
+                    key = pk.atom.string_or_symbol(ctx)?;
+                    val = self.get_property(ctx, pk.atom.as_ref())?;
+                }
             }
+            ret.push((key, val));
         }
 
-        // free atoms
-        for name in lst.iter() {
-            JS_FreeAtom(ctx, name.atom);
-        }
-
-        if unlikely(has_err) {
-            Err(-1)
-        } else {
-            Ok(ret.into_boxed_slice())
-        }
+        Ok(ret.into_boxed_slice())
     }
 }
 

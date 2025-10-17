@@ -1,6 +1,6 @@
 use crate::{
     atom::{
-        AtomTypeHint, JS_ATOM_NULL, JSAtom,
+        Atom, JSAtom,
         consts::{JS_ATOM_constructor, JS_ATOM_prototype},
     },
     context::JSContext,
@@ -111,10 +111,10 @@ impl Default for JSClassDef {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct JSClass {
     pub class_id: JSClassID,
-    pub class_name: JSAtom,
+    pub class_name: Atom,
     /// native callback when called
     pub call: Option<ClassCallFn>,
     /// pointers for exotic behavior, can be NULL if none are present
@@ -128,7 +128,7 @@ impl Default for JSClass {
     fn default() -> Self {
         Self {
             class_id: 0,
-            class_name: JS_ATOM_NULL,
+            class_name: Atom::NULL,
             call: None,
             exotic: std::ptr::null(),
             gc_mark: None,
@@ -169,8 +169,9 @@ impl JSRuntime {
 
                 // grow class array, fill slots with empty class
                 self.class_defs.try_reserve(grow).map_err(|_| -1)?;
-                self.class_defs
-                    .extend(std::iter::repeat_n(JSClass::default(), grow));
+                for _ in 0..grow {
+                    self.class_defs.push(JSClass::default());
+                }
             }
         }
 

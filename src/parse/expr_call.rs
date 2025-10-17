@@ -46,13 +46,13 @@ impl<'s> JSParseState<'s> {
         match call_type {
             FuncCallType::FUNC_CALL_SUPER_CTOR => {
                 self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                self.emit_atom_dup(JS_ATOM_this_active_func);
+                self.emit_atom_ref(JS_ATOM_this_active_func);
                 self.emit_u16(0);
 
                 self.emit_op(OpCode::GET_SUPER);
 
                 self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                self.emit_atom_dup(JS_ATOM_new_target);
+                self.emit_atom_ref(JS_ATOM_new_target);
                 self.emit_u16(0);
             }
             FuncCallType::FUNC_CALL_NEW => {
@@ -151,7 +151,7 @@ impl<'s> JSParseState<'s> {
                         /* set the 'this' value */
                         self.emit_op(OpCode::DUP);
                         self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
-                        self.emit_atom_dup(JS_ATOM_this);
+                        self.emit_atom_ref(JS_ATOM_this);
                         self.emit_u16(0);
 
                         self.emit_class_field_init();
@@ -331,7 +331,7 @@ impl<'s> JSParseState<'s> {
                     /* set the 'this' value */
                     self.emit_op(OpCode::DUP);
                     self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
-                    self.emit_atom_dup(JS_ATOM_this);
+                    self.emit_atom_ref(JS_ATOM_this);
                     self.emit_u16(0);
 
                     self.emit_class_field_init();

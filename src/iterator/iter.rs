@@ -2,7 +2,7 @@ use std::cell::RefCell;
 
 use crate::{
     JS_CFUNC_NATIVE_DEF,
-    atom::{JS_ATOM_NULL, JS_FreeAtomRT, JSAtom, consts::*},
+    atom::{Atom, JS_ATOM_NULL, JSAtom, consts::*},
     context::JSContext,
     error::JSResult,
     function::{CallContext, FieldDef, IteratorState, NativeFunctionType},
@@ -440,13 +440,12 @@ pub fn js_create_iterator_result(ctx: &JSContext, value: JSValue, done: bool) ->
 
 pub fn js_for_in_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, _id: usize) {
     if let ObjectPayload::FOR_IN_ITERATOR(it) = isa {
-        let b = it.borrow();
-
-        if !b.is_array {
-            for x in b.prop_enums.iter() {
-                JS_FreeAtomRT(rt, x.atom);
-            }
-        }
+        // let mut b = it.borrow_mut();
+        // if !b.is_array {
+        //     for x in b.prop_enums.iter_mut() {
+        //         std::mem::replace(&mut x.atom, Atom::NULL).free(rt);
+        //     }
+        // }
     }
 }
 

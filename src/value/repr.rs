@@ -28,7 +28,7 @@ impl JSValue {
 
             Self::String(s) => Ok(s.content().to_utf8(true).into()),
             Self::Symbol(p) => {
-                let s = p.atom_info().unwrap().atom().to_utf8(ctx.rt());
+                let s = p.atom_info().unwrap().atom_ref().to_utf8(ctx.rt());
                 Ok(format!("Symbol({s})"))
             }
             Self::Object(o) => o.inspect(ctx),
@@ -66,7 +66,7 @@ impl JSObject {
                     | JS_CLASS_BOOLEAN
                     | JS_CLASS_NUMBER
                     | JS_CLASS_DATE
-                    | JS_CLASS_REGEXP) => ctx.rt().class_defs[cid as usize].class_name,
+                    | JS_CLASS_REGEXP) => ctx.rt().class_defs[cid as usize].class_name.as_ref(),
 
                     _ => crate::atom::consts::JS_ATOM_Object,
                 }

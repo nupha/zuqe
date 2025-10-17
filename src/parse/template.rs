@@ -175,7 +175,7 @@ impl<'s> JSParseState<'s> {
                             return self.next_token();
                         }
                         self.emit_op(OpCode::GET_FIELD2);
-                        self.emit_atom_dup(JS_ATOM_concat);
+                        self.emit_atom_ref(JS_ATOM_concat);
                     }
                     depth += 1;
                 } else {

@@ -1,6 +1,5 @@
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_OBJECT_DEF, JS_PROP_STRING_DEF,
-    atom::JS_FreeAtom,
     context::JSContext,
     error::JSResult,
     function::{CallContext, FieldDef, JS_CallConstructor2, build_arg_list, js_function_apply},
@@ -50,8 +49,8 @@ pub fn js_reflect_construct(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_reflect_deleteProperty(ctx: &JSContext, cc: CallContext) -> JSResult {
     if let JSValue::Object(obj) = cc.arg(0) {
         let atom = cc.arg(1).to_atom(ctx)?;
-        let ret = obj.delete_property(ctx, atom, 0);
-        JS_FreeAtom(ctx, atom);
+        let ret = obj.delete_property(ctx, atom.as_ref(), 0);
+        atom.free(ctx.rt_mut());
         ret.map(JSValue::Bool)
     } else {
         ctx.throw_type_error_not_an_object();
@@ -65,9 +64,8 @@ pub fn js_reflect_get(ctx: &JSContext, cc: CallContext) -> JSResult {
         let prop = cc.arg(1);
         let receiver = if cc.length() > 2 { cc.arg(2) } else { obj };
         let atom = prop.to_atom(ctx)?;
-        let ret = obj.get_property_internal(ctx, atom, receiver, false)?;
-
-        JS_FreeAtom(ctx, atom);
+        let ret = obj.get_property_internal(ctx, atom.as_ref(), receiver, false)?;
+        atom.free(ctx.rt_mut());
         Ok(ret)
     } else {
         ctx.throw_type_error_not_an_object();
@@ -79,8 +77,8 @@ pub fn js_reflect_has(ctx: &JSContext, cc: CallContext) -> JSResult {
     if let JSValue::Object(obj) = cc.arg(0) {
         let prop = cc.arg(1);
         let atom = prop.to_atom(ctx)?;
-        let ret = obj.has_property(ctx, atom);
-        JS_FreeAtom(ctx, atom);
+        let ret = obj.has_property(ctx, atom.as_ref());
+        atom.free(ctx.rt_mut());
         ret.map(JSValue::Bool)
     } else {
         ctx.throw_type_error_not_an_object();
@@ -99,7 +97,7 @@ pub fn js_reflect_set(ctx: &JSContext, cc: CallContext) -> JSResult {
 
         let ret = o.set_property_internal(
             ctx,
-            atom,
+            atom.as_ref(),
             val.clone(),
             match receiver {
                 JSValue::NULL | JSValue::UNDEFINED => None,
@@ -111,7 +109,7 @@ pub fn js_reflect_set(ctx: &JSContext, cc: CallContext) -> JSResult {
             },
             0,
         );
-        JS_FreeAtom(ctx, atom);
+        atom.free(ctx.rt_mut());
         ret.map(JSValue::Bool)
     } else {
         ctx.throw_type_error_not_an_object();
