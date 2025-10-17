@@ -2,7 +2,7 @@ use std::ffi::c_void;
 
 use crate::{
     JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
-    atom::{JS_AtomIsNumericIndex, JSAtom, consts::*},
+    atom::{JS_AtomIsNumericIndex, AtomRef, consts::*},
     branch_hints::unlikely,
     context::{JSContext, JSContextWeakref},
     error::JSResult,
@@ -286,7 +286,7 @@ impl JSObject {
     }
 
     /// test if property `prop` exists, check along proto chain.
-    pub fn has_property(&self, ctx: &JSContext, prop: JSAtom) -> Result<bool, i32> {
+    pub fn has_property(&self, ctx: &JSContext, prop: AtomRef) -> Result<bool, i32> {
         let mut p = self.clone();
 
         loop {
@@ -403,7 +403,7 @@ impl JSValue {
         }
     }
 
-    pub fn has_property(&self, ctx: &JSContext, prop: JSAtom) -> Result<bool, i32> {
+    pub fn has_property(&self, ctx: &JSContext, prop: AtomRef) -> Result<bool, i32> {
         if let Self::Object(p) = self {
             p.has_property(ctx, prop)
         } else {

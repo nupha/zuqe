@@ -1,6 +1,6 @@
 use crate::{
     JS_CLASS_OBJECT,
-    atom::{Atom, JSAtom, consts::*},
+    atom::{Atom, AtomRef, consts::*},
     branch_hints::unlikely,
     class::JS_DEFINE_CLASS_HAS_HERITAGE,
     context::JSContext,
@@ -101,7 +101,7 @@ pub fn js_operator_private_in(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i
 pub fn js_op_define_class(
     ctx: &JSContext,
     sp: *mut JSValue,
-    class_name: JSAtom,
+    class_name: AtomRef,
     class_flags: i32,
     cur_var_refs: &[JSVarRef],
     sframe: &mut StackFrame,
@@ -204,7 +204,7 @@ pub fn js_op_define_class(
 /// test if `atom` property is true in value's \[Symbol.unscopables\] scope.
 ///
 /// `atom` is not consumed.
-pub(super) fn js_has_unscopable(ctx: &JSContext, obj: &JSValue, atom: JSAtom) -> Result<bool, i32> {
+pub(super) fn js_has_unscopable(ctx: &JSContext, obj: &JSValue, atom: AtomRef) -> Result<bool, i32> {
     if let Some(o) = obj
         .get_property(ctx, JS_ATOM_Symbol_unscopables)?
         .as_object()
@@ -215,7 +215,7 @@ pub(super) fn js_has_unscopable(ctx: &JSContext, obj: &JSValue, atom: JSAtom) ->
     }
 }
 
-pub(crate) fn js_get_function_name(ctx: &JSContext, name: JSAtom) -> Result<JSString, i32> {
+pub(crate) fn js_get_function_name(ctx: &JSContext, name: AtomRef) -> Result<JSString, i32> {
     let name_str = name.force_string(ctx)?;
     if name.has_description(ctx) {
         JS_ConcatString3(ctx, c"[", name_str.into(), c"]")
@@ -240,7 +240,7 @@ pub fn js_method_set_home_object(func_obj: &JSValue, home_obj: Option<&JSObject>
 pub fn js_method_set_properties(
     ctx: &JSContext,
     func_obj: &JSValue,
-    name: JSAtom,
+    name: AtomRef,
     flags: u32,
     home_obj: &JSValue,
 ) -> Result<(), i32> {
@@ -354,7 +354,7 @@ pub fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
     let ob = unsafe { enum_obj.as_object_unchecked() };
 
     if let ObjectPayload::FOR_IN_ITERATOR(it) = ob.payload() {
-        let mut prop: JSAtom;
+        let mut prop: AtomRef;
 
         loop {
             let mut it = it.borrow_mut();
@@ -416,7 +416,7 @@ pub fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
             } else {
                 // enumerate on props_enum of current it.obj.
                 if it.is_array {
-                    prop = JSAtom::new_small_int(it.idx);
+                    prop = AtomRef::new_small_int(it.idx);
                     it.idx += 1;
                 } else {
                     prop = it.prop_enums[it.idx as usize].atom.as_ref();

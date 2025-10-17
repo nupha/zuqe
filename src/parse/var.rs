@@ -1,6 +1,6 @@
 use crate::{
     atom::{
-        JSAtom,
+        AtomRef,
         consts::{JS_ATOM_arguments, JS_ATOM_eval, JS_ATOM_let, JS_ATOM_undefined, JS_ATOM_yield},
     },
     context::JS_MODE_STRICT,
@@ -17,7 +17,7 @@ impl<'s> JSParseState<'s> {
     /// `name` is not consumed.
     pub fn define_var_cur_func(
         &mut self,
-        name: JSAtom,
+        name: AtomRef,
         var_def_type: JSVarDefEnum,
     ) -> Result<u32, i32> {
         let ctx = self.ctx.clone();
@@ -154,7 +154,7 @@ impl<'s> JSParseState<'s> {
 
     /// `name` is not consumed.
     /// in case current function def contains module, `export` suggests if this var is exported.
-    pub fn define_var(&mut self, name: JSAtom, tok: i32, export: bool) -> Result<(), i32> {
+    pub fn define_var(&mut self, name: AtomRef, tok: i32, export: bool) -> Result<(), i32> {
         {
             let func = self.cur_func();
 

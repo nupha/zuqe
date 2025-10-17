@@ -3,7 +3,7 @@ use crate::{
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
     JS_CLASS_INT32_ARRAY, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT, JS_CLASS_UINT8_ARRAY,
     JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
-    atom::{Atom, JS_AtomIsNumericIndex, JSAtom, consts::JS_ATOM_length},
+    atom::{Atom, JS_AtomIsNumericIndex, AtomRef, consts::JS_ATOM_length},
     branch_hints::unlikely,
     context::JSContext,
     error::JS_ThrowReferenceErrorNotDefined,
@@ -32,7 +32,7 @@ impl JSObject {
     pub(crate) fn set_property_internal(
         &self,
         ctx: &JSContext,
-        prop: JSAtom,
+        prop: AtomRef,
         val: JSValue,
         receiver: Option<&JSObject>,
         flags: u32,
@@ -295,7 +295,7 @@ impl JSObject {
 
     /// `prop` is not consumed.
     #[inline(always)]
-    pub fn set_property(&self, ctx: &JSContext, prop: JSAtom, val: JSValue) -> Result<bool, i32> {
+    pub fn set_property(&self, ctx: &JSContext, prop: AtomRef, val: JSValue) -> Result<bool, i32> {
         self.set_property_internal(ctx, prop, val, Some(self), JS_PROP_THROW)
     }
 
@@ -516,7 +516,7 @@ impl JSValue {
     pub(crate) fn set_property_internal(
         &self,
         ctx: &JSContext,
-        prop: JSAtom,
+        prop: AtomRef,
         val: Self,
         receiver: Option<&JSObject>,
         flags: u32,
@@ -537,7 +537,7 @@ impl JSValue {
 
     /// `prop` is not consumed.
     #[inline(always)]
-    pub fn set_property(&self, ctx: &JSContext, prop: JSAtom, val: JSValue) -> Result<bool, i32> {
+    pub fn set_property(&self, ctx: &JSContext, prop: AtomRef, val: JSValue) -> Result<bool, i32> {
         self.set_property_internal(ctx, prop, val, None, JS_PROP_THROW)
     }
 

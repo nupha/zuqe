@@ -1,6 +1,6 @@
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
-    atom::{Atom, JS_ATOM_NULL, JS_AtomIsNumericIndex1, JSAtom, consts::*},
+    atom::{Atom, JS_ATOM_NULL, JS_AtomIsNumericIndex1, AtomRef, consts::*},
     branch_hints::unlikely,
     bytecode::js_get_function_name,
     context::JSContext,
@@ -32,7 +32,7 @@ impl JSObject {
     pub(crate) fn define_property(
         &self,
         ctx: &JSContext,
-        prop: JSAtom,
+        prop: AtomRef,
         value: JSValue,
         getter: JSValue,
         setter: JSValue,
@@ -248,7 +248,7 @@ impl JSObject {
     pub fn define_property_value(
         &self,
         ctx: &JSContext,
-        prop: JSAtom,
+        prop: AtomRef,
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
@@ -287,7 +287,7 @@ impl JSObject {
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        self.define_property_value(ctx, JSAtom::new_small_int(idx), val, flags)
+        self.define_property_value(ctx, AtomRef::new_small_int(idx), val, flags)
     }
 
     #[inline]
@@ -309,7 +309,7 @@ impl JSObject {
     pub fn define_property_getset(
         &self,
         ctx: &JSContext,
-        prop: JSAtom,
+        prop: AtomRef,
         getter: JSValue,
         setter: JSValue,
         flags: u32,
@@ -334,7 +334,7 @@ impl JSObject {
     pub fn define_property_desc(
         &self,
         ctx: &JSContext,
-        prop: JSAtom,
+        prop: AtomRef,
         desc: &JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
@@ -368,7 +368,7 @@ impl JSObject {
     /// if name property already exists, don't define again.
     ///
     /// Note: `name` is not consumed.
-    pub fn define_name(&self, ctx: &JSContext, name: JSAtom, flags: u32) -> Result<bool, i32> {
+    pub fn define_name(&self, ctx: &JSContext, name: AtomRef, flags: u32) -> Result<bool, i32> {
         if name == JS_ATOM_NULL {
             ctx.throw_type_error("invalid name");
             Err(-1)
@@ -437,7 +437,7 @@ impl JSValue {
     pub(crate) fn define_property(
         &self,
         ctx: &JSContext,
-        prop: JSAtom,
+        prop: AtomRef,
         val: JSValue,    // TODO: use Option<JSValue> to eliminate JS_PROP_HAS_XXX
         getter: JSValue, // TODO: use Option<JSValue> to eliminate JS_PROP_HAS_XXX
         setter: JSValue, // TODO: use Option<JSValue> to eliminate JS_PROP_HAS_XXX
@@ -457,7 +457,7 @@ impl JSValue {
     pub fn define_property_value(
         &self,
         ctx: &JSContext,
-        prop: JSAtom,
+        prop: AtomRef,
         value: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
@@ -496,7 +496,7 @@ impl JSValue {
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        self.define_property_value(ctx, JSAtom::new_small_int(idx), val, flags)
+        self.define_property_value(ctx, AtomRef::new_small_int(idx), val, flags)
     }
 
     #[inline(always)]
@@ -517,7 +517,7 @@ impl JSValue {
     pub fn define_property_getset(
         &self,
         ctx: &JSContext,
-        prop: JSAtom,
+        prop: AtomRef,
         getter: JSValue,
         setter: JSValue,
         flags: u32,

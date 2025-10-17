@@ -2,7 +2,7 @@ use smallvec::SmallVec;
 
 use crate::{
     atom::{
-        Atom, JSAtomRc,
+        Atom, AtomRc,
         consts::{JS_ATOM_false, JS_ATOM_null, JS_ATOM_true},
     },
     context::JSContext,
@@ -74,7 +74,7 @@ unsafe fn json_parse_value(s: &mut JSParseState) -> JSResult {
             val = s.ctx.create_base_object()?.into();
             if s.token.val != b'}' as i32 {
                 loop {
-                    let prop_name: JSAtomRc = if s.token.val == TOK_STRING {
+                    let prop_name: AtomRc = if s.token.val == TOK_STRING {
                         Atom::new(
                             s.ctx.rt_mut(),
                             &s.token.data.string().unwrap().to_utf8(true),

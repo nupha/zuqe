@@ -1,6 +1,6 @@
 use crate::{
     atom::{
-        JSAtom,
+        AtomRef,
         consts::{JS_ATOM__star_, JS_ATOM_default},
     },
     branch_hints::unlikely,
@@ -15,9 +15,9 @@ impl ModuleDef {
     fn resolve_export_internal(
         &self,
         ctx: &JSContext,
-        export_name: JSAtom,
-        mut expect: Option<(usize, JSAtom)>, // (module_id, local_name_atom)
-        resolving: &mut Vec<(usize, JSAtom)>, // (module_id, export_atom), to detect circular
+        export_name: AtomRef,
+        mut expect: Option<(usize, AtomRef)>, // (module_id, local_name_atom)
+        resolving: &mut Vec<(usize, AtomRef)>, // (module_id, export_atom), to detect circular
     ) -> Result<ResolveExport, i32> {
         if unlikely(
             resolving
@@ -114,10 +114,10 @@ impl ModuleDef {
     pub(super) fn resolve_export(
         &self,
         ctx: &JSContext,
-        export_name: JSAtom,
-        expect: Option<(usize, JSAtom)>, // (module_id, local_name_atom)
+        export_name: AtomRef,
+        expect: Option<(usize, AtomRef)>, // (module_id, local_name_atom)
     ) -> Result<ResolveExport, i32> {
-        let mut lst = Vec::<(usize, JSAtom)>::with_capacity(8);
+        let mut lst = Vec::<(usize, AtomRef)>::with_capacity(8);
         self.resolve_export_internal(ctx, export_name, expect, &mut lst)
     }
 

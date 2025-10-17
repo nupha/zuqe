@@ -1,6 +1,6 @@
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_PROP_STRING_DEF,
-    atom::{Atom, AtomTypeHint, JSAtom},
+    atom::{Atom, AtomTypeHint, AtomRef},
     context::JSContext,
     error::JSResult,
     function::{CallContext, FieldDef},
@@ -19,7 +19,7 @@ impl JSContext {
     }
 
     /// `atom` must be a non-numeric string atom
-    pub fn create_symbol_from_atom(&self, atom: JSAtom, atom_type: AtomTypeHint) -> JSResult {
+    pub fn create_symbol_from_atom(&self, atom: AtomRef, atom_type: AtomTypeHint) -> JSResult {
         debug_assert!(!atom.is_small_int());
         let s = atom.description(self.rt()).unwrap().clone();
         self.create_symbol(Some(s), atom_type)
@@ -27,7 +27,7 @@ impl JSContext {
 }
 
 /// returned atom is not cloned. caller should clone to keep its reference.
-pub(crate) fn symbol_to_atom(val: &JSValue) -> JSAtom {
+pub(crate) fn symbol_to_atom(val: &JSValue) -> AtomRef {
     if let JSValue::Symbol(s) = val {
         s.atom_info().unwrap().atom_ref()
     } else {

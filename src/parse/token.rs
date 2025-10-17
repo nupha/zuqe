@@ -1,6 +1,6 @@
 use crate::{
-    atom::{JSAtom, JSAtomRc, consts::*},
-    context::{JS_MODE_STRICT, JSContext},
+    atom::{AtomRc, AtomRef, consts::*},
+    context::JS_MODE_STRICT,
     function::JSFunctionKindEnum,
     number::{
         ATOD_ACCEPT_BIN_OCT, ATOD_ACCEPT_LEGACY_OCTAL, ATOD_ACCEPT_SUFFIX, ATOD_ACCEPT_UNDERSCORES,
@@ -56,13 +56,13 @@ impl Token {
     /// if data is ident type or is reserved keyword TOK_, returns atom.
     ///
     /// Note: returned atom is not duplicated, caller should clone to reference it.
-    pub fn atom(&self) -> Option<JSAtom> {
+    pub fn atom(&self) -> Option<AtomRef> {
         match self.val {
             TOK_IDENT | TOK_PRIVATE_NAME => self.data.ident_atom_ref(),
             t @ (TOK_FIRST_KEYWORD..=TOK_LAST_KEYWORD) => {
                 // convert keyword token to atom
                 let a = t - TOK_FIRST_KEYWORD + 1;
-                Some(JSAtom(a as u32))
+                Some(AtomRef(a as u32))
             }
             _ => None,
         }
@@ -87,7 +87,7 @@ pub enum TokenData {
     },
     Num(JSValue),
     Ident {
-        atom: JSAtomRc,
+        atom: AtomRc,
         has_escape: bool,
         is_reserved: bool,
     },
@@ -102,7 +102,7 @@ impl Default for TokenData {
 
 impl TokenData {
     /// if data is ident, returns the atom ref.
-    pub fn ident_atom_ref(&self) -> Option<JSAtom> {
+    pub fn ident_atom_ref(&self) -> Option<AtomRef> {
         if let Self::Ident { atom, .. } = self {
             Some(atom.as_ref())
         } else {
@@ -793,7 +793,7 @@ impl<'s> JSParseState<'s> {
     }
 
     #[inline(always)]
-    pub fn token_is_pseudo_keyword(&self, atom: JSAtom) -> bool {
+    pub fn token_is_pseudo_keyword(&self, atom: AtomRef) -> bool {
         self.token.val == TOK_IDENT
             && self
                 .token

@@ -5,7 +5,7 @@ use smallvec::SmallVec;
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_PROXY,
-    atom::{Atom, JSAtom},
+    atom::{Atom, AtomRef},
     branch_hints::unlikely,
     context::JSContext,
     number::MAX_SAFE_INTEGER,
@@ -507,7 +507,7 @@ impl JSObject {
                 if !v.is_uninitialized() {
                     self.add_own_property(
                         ctx,
-                        JSAtom::new_small_int(i as _),
+                        AtomRef::new_small_int(i as _),
                         JS_PROP_C_W_E,
                         JSProperty::Normal(v),
                     )?;

@@ -1,6 +1,6 @@
 use crate::{
     atom::{
-        Atom, JS_ATOM_NULL, JSAtom, JSAtomRc, consts::*, js_atom_concat_num, js_atom_concat_str,
+        Atom, JS_ATOM_NULL, AtomRef, AtomRc, consts::*, js_atom_concat_num, js_atom_concat_str,
     },
     bytecode::{OpCode, OpCodeTemp},
     class::{
@@ -27,7 +27,7 @@ use super::{
 };
 
 impl<'s> JSParseState<'s> {
-    /// TODO: return Result<Option<JSAtom>,i32>
+    /// TODO: return Result<Option<AtomRef>,i32>
     fn parse_class_name(
         &mut self,
         is_class_expr: bool,
@@ -40,7 +40,7 @@ impl<'s> JSParseState<'s> {
             }
 
             // Note: calling `next_token()` will free the current atom, so we must dup atom in advance.
-            let name = JSAtomRc::from_ref(self.ctx.rt(), self.token.atom().unwrap());
+            let name = AtomRc::from_ref(self.ctx.rt(), self.token.atom().unwrap());
             self.next_token()?;
             Ok(name.into())
         } else if !is_class_expr && export_flag != JSParseExportEnum::JS_PARSE_EXPORT_DEFAULT {
@@ -98,7 +98,7 @@ impl<'s> JSParseState<'s> {
         is_set: bool,
         is_private: bool,
         is_static: bool,
-        name: JSAtom,
+        name: AtomRef,
         cf: &mut ClassFieldsDef,
         start_ptr: *const u8,
     ) -> Result<(), i32> {
@@ -224,8 +224,8 @@ impl<'s> JSParseState<'s> {
     fn parse_class_body(
         &mut self,
         class_source: *const u8,
-        class_name: JSAtom,
-        class_var_name: JSAtom,
+        class_name: AtomRef,
+        class_var_name: AtomRef,
         class_flags: i32,
         class_fields: &mut [ClassFieldsDef; 2],
     ) -> Result<i32, i32> {
@@ -245,7 +245,7 @@ impl<'s> JSParseState<'s> {
         // current method function def
         let mut method_fd = std::ptr::null_mut::<JSFunctionDef>();
         // prop name atom
-        let mut name = JSAtomRc::NULL;
+        let mut name = AtomRc::NULL;
 
         // this scope contains the private fields
         self.push_scope().unwrap();
@@ -333,7 +333,7 @@ impl<'s> JSParseState<'s> {
                 },
                 PROP_TYPE_IDENT if self.token.val != '(' as i32 => {
                     let cf = &mut class_fields[is_static as usize];
-                    let mut field_var_name = JSAtomRc::NULL;
+                    let mut field_var_name = AtomRc::NULL;
 
                     // class field
 
@@ -544,7 +544,7 @@ impl<'s> JSParseState<'s> {
                 self.emit_op(OpCode::SWAP);
             }
 
-            name = JSAtomRc::NULL;
+            name = AtomRc::NULL;
         }
 
         if self.token.val != '}' as i32 {
@@ -634,7 +634,7 @@ impl<'s> JSParseState<'s> {
                 class_name.clone()
             }
         } else {
-            JSAtomRc::NULL
+            AtomRc::NULL
         };
 
         self.push_scope().unwrap();
@@ -867,7 +867,7 @@ pub(super) fn js_parse_function_class_fields_init(
 fn add_private_class_field(
     s: &JSParseState,
     fd: &mut JSFunctionDef,
-    name: JSAtom,
+    name: AtomRef,
     var_kind: JSVarKindEnum,
     is_static: bool,
 ) -> i32 {
@@ -889,7 +889,7 @@ fn add_private_class_field(
 pub fn find_private_class_field(
     ctx: &JSContext,
     fd: *mut JSFunctionDef,
-    name: JSAtom,
+    name: AtomRef,
     scope_level: i32,
 ) -> i32 {
     let mut idx = unsafe { (&*fd).scopes[scope_level as usize].first };
@@ -908,6 +908,6 @@ pub fn find_private_class_field(
 }
 
 /* build a private setter function name from the private getter name */
-pub fn get_private_setter_name(ctx: &JSContext, name: JSAtom) -> Atom {
+pub fn get_private_setter_name(ctx: &JSContext, name: AtomRef) -> Atom {
     unsafe { js_atom_concat_str(ctx, name, c"<set>".as_ptr().cast()) }
 }

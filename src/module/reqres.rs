@@ -1,5 +1,5 @@
 use crate::{
-    atom::{Atom, JSAtom},
+    atom::{Atom, AtomRef},
     branch_hints::unlikely,
     context::JSContext,
     module::ModuleDef,
@@ -15,7 +15,7 @@ pub struct ModuleDependency {
 impl ModuleDef {
     /// add module dependency, returns the dependency index.
     /// `module_name` is not consumed.
-    pub fn add_dependency(&self, ctx: &JSContext, module_name: JSAtom) -> Result<u16, i32> {
+    pub fn add_dependency(&self, ctx: &JSContext, module_name: AtomRef) -> Result<u16, i32> {
         let mut lst = self.0.dependencies.borrow_mut();
 
         if let Some(i) = lst
@@ -46,7 +46,7 @@ impl ModuleDef {
 impl JSContext {
     /// find the loaded module by module name.
     /// Note: `name` is not consumed.
-    pub fn find_loaded_module(&self, name: JSAtom) -> Option<ModuleDef> {
+    pub fn find_loaded_module(&self, name: AtomRef) -> Option<ModuleDef> {
         self.0.borrow_mut().loaded_modules.iter().find_map(|m| {
             if m.0.module_name.as_ref() == name {
                 Some(m.clone())
@@ -133,8 +133,8 @@ pub fn js_host_resolve_imported_module(
 
 pub fn js_host_resolve_imported_module_atom(
     ctx: &JSContext,
-    base_module_name: JSAtom,
-    module_name1: JSAtom,
+    base_module_name: AtomRef,
+    module_name1: AtomRef,
 ) -> Result<ModuleDef, i32> {
     let base_cname = base_module_name.to_utf8(ctx.rt());
     let cname = module_name1.to_utf8(ctx.rt());

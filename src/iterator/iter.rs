@@ -2,7 +2,7 @@ use std::cell::RefCell;
 
 use crate::{
     JS_CFUNC_NATIVE_DEF,
-    atom::{Atom, JS_ATOM_NULL, JSAtom, consts::*},
+    atom::{Atom, JS_ATOM_NULL, AtomRef, consts::*},
     context::JSContext,
     error::JSResult,
     function::{CallContext, FieldDef, IteratorState, NativeFunctionType},
@@ -200,7 +200,7 @@ impl From<ObjectIter> for JSValue {
 impl ObjectIter {
     /// `next` is the name of method used to fetch the __next__ value when iterating.
     /// this atom is not consumed.
-    pub fn new(ctx: &JSContext, target: JSObject, next: JSAtom) -> Result<Self, i32> {
+    pub fn new(ctx: &JSContext, target: JSObject, next: AtomRef) -> Result<Self, i32> {
         let next_method = if next != JS_ATOM_NULL {
             target.get_property(ctx, next)?
         } else {

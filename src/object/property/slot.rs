@@ -1,6 +1,6 @@
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_MODULE_NS,
-    atom::{JSAtom, consts::JS_ATOM_length},
+    atom::{AtomRef, consts::JS_ATOM_length},
     branch_hints::unlikely,
     context::JSContext,
     object::{JS_PROP_LAZYINIT, JSObject},
@@ -18,7 +18,7 @@ impl JSObject {
     pub(super) fn update_prop_slot_normal(
         &self,
         ctx: &JSContext,
-        prop: JSAtom,
+        prop: AtomRef,
         prs_flags: u32,
         idx: usize,
         val: JSValue,
@@ -139,7 +139,7 @@ impl JSObject {
     pub(super) fn update_prop_slot_getset(
         &self,
         ctx: &JSContext,
-        prop: JSAtom,
+        prop: AtomRef,
         prs_flags: u32,
         idx: usize,
         getter: JSValue,
@@ -214,7 +214,7 @@ impl JSObject {
         &self,
         ctx: &JSContext,
         prs_flags: u32,
-        prop: JSAtom,
+        prop: AtomRef,
         index: usize,
         value: JSValue,
         this_obj: &JSObject, // only used for getter, setter calling

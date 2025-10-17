@@ -1,5 +1,5 @@
 use crate::{
-    atom::{JSAtom, consts::*},
+    atom::{AtomRef, consts::*},
     bytecode::{OpCode, OpCodeTemp, opcodes},
     function::{FuncCallType, JSFunctionDef},
     utils::read_from_ptr,
@@ -248,7 +248,7 @@ impl<'s> JSParseState<'s> {
             }
             opcodes::op_scope_get_var => {
                 let fd = self.cur_func_mut();
-                let name = JSAtom(read_from_ptr::<u32>(
+                let name = AtomRef(read_from_ptr::<u32>(
                     fd.byte_code
                         .as_ptr()
                         .offset(fd.last_opcode_pos as isize + 1),

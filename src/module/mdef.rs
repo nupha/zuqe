@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    atom::{Atom, JSAtom},
+    atom::{Atom, AtomRef},
     class::JSClassExoticMethods,
     context::{JSContext, JSContextInner},
     error::JSResult,
@@ -179,7 +179,7 @@ impl ModuleDefInner {
     /// get module name atom.
     /// returned atom is not duplicated, caller should clone it before keep it referenced.
     #[inline(always)]
-    pub fn module_name(&self) -> JSAtom {
+    pub fn module_name(&self) -> AtomRef {
         self.module_name.as_ref()
     }
 
@@ -525,7 +525,7 @@ pub unsafe fn add_module_variables(ctx: &JSContext, fd: &mut JSFunctionDef) -> i
 }
 
 /* Unfortunately, the spec gives a different behavior from GetOwnProperty ! */
-fn js_module_ns_has(ctx: &JSContext, obj: &JSObject, prop: JSAtom) -> Result<bool, i32> {
+fn js_module_ns_has(ctx: &JSContext, obj: &JSObject, prop: AtomRef) -> Result<bool, i32> {
     Ok(obj.has_shape_property(prop))
 }
 

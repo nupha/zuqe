@@ -377,7 +377,7 @@ impl JSRuntime {
         // {
         //     for (_, ids) in self.atom_hash_lut.iter() {
         //         for id in ids {
-        //             let a = crate::atom::JSAtom(id.get() as u32);
+        //             let a = crate::atom::AtomRef(id.get() as u32);
         //             if !a.is_const() {
         //                 println!("[atom leak] {id}: {}", a.to_str(self));
         //             }

@@ -1,6 +1,6 @@
 use crate::{
     JS_CLASS_ASYNC_GENERATOR, JS_CLASS_GENERATOR,
-    atom::{Atom, JSAtom, consts::*},
+    atom::{Atom, AtomRef, consts::*},
     context::JSContext,
     function::{
         BCFuncPayload, BCFunction, Bytecode, JSFunctionKindEnum, JSVarRef,
@@ -102,7 +102,7 @@ impl JSFunctionDef {
         mut is_local: bool,
         is_arg: bool,
         var_idx: u16,
-        var_name: JSAtom,
+        var_name: AtomRef,
         is_const: bool,
         is_lexical: bool,
         var_kind: JSVarKindEnum,
@@ -145,7 +145,7 @@ impl JSFunctionDef {
         fd: *const JSFunctionDef,
         is_arg: bool,
         var_idx: u16,
-        var_name: JSAtom,
+        var_name: AtomRef,
         is_const: bool,
         is_lexical: bool,
         var_kind: JSVarKindEnum,
@@ -162,7 +162,7 @@ impl JSFunctionDef {
         is_local: bool,
         is_arg: bool,
         var_idx: u16,
-        var_name: JSAtom,
+        var_name: AtomRef,
         is_const: bool,
         is_lexical: bool,
         var_kind: JSVarKindEnum,
@@ -205,7 +205,7 @@ impl JSFunctionDef {
     }
 
     /// find closure var by name, returning index of the closure var
-    pub fn find_closure_var(&self, var_name: JSAtom) -> Option<u16> {
+    pub fn find_closure_var(&self, var_name: AtomRef) -> Option<u16> {
         self.closure_vars
             .as_ref()
             .and_then(|lst| lst.iter().position(|cv| cv.var_name.as_ref() == var_name))

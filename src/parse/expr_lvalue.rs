@@ -1,5 +1,5 @@
 use crate::{
-    atom::{JS_ATOM_NULL, JSAtom, consts::*},
+    atom::{JS_ATOM_NULL, AtomRef, consts::*},
     bytecode::{OpCode, OpCodeTemp, opcodes},
     context::JS_MODE_STRICT,
     utils::read_from_ptr,
@@ -30,7 +30,7 @@ impl<'s> JSParseState<'s> {
         &mut self,
         popcode: &mut i32,
         pscope: &mut i32,
-        pname: &mut JSAtom,
+        pname: &mut AtomRef,
         plabel: &mut i32,
         pdepth: *mut i32,
         keep: bool,
@@ -59,7 +59,7 @@ impl<'s> JSParseState<'s> {
 
         match opcode {
             opcodes::op_scope_get_var => {
-                name = JSAtom(unsafe {
+                name = AtomRef(unsafe {
                     read_from_ptr::<u32>(
                         self.cur_func()
                             .byte_code
@@ -96,7 +96,7 @@ impl<'s> JSParseState<'s> {
             }
             opcodes::OP_get_field => {
                 let last_opcode_pos = self.cur_func().last_opcode_pos;
-                name = JSAtom(unsafe {
+                name = AtomRef(unsafe {
                     read_from_ptr::<u32>(
                         self.cur_func()
                             .byte_code
@@ -108,7 +108,7 @@ impl<'s> JSParseState<'s> {
             }
             opcodes::op_scope_get_private_field => {
                 let last_opcode_pos = self.cur_func().last_opcode_pos;
-                name = JSAtom(unsafe {
+                name = AtomRef(unsafe {
                     read_from_ptr::<u32>(
                         self.cur_func()
                             .byte_code
@@ -235,7 +235,7 @@ impl<'s> JSParseState<'s> {
         &mut self,
         opcode: i32,
         scope: i32,
-        name: JSAtom,
+        name: AtomRef,
         label: i32,
         special: PutLValueEnum,
         is_let: bool,

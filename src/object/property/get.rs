@@ -3,7 +3,7 @@ use crate::{
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
     JS_CLASS_INT32_ARRAY, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY,
     JS_CLASS_UINT32_ARRAY,
-    atom::{Atom, JS_ATOM_MAX_INT, JS_AtomIsNumericIndex, JSAtom, consts::*},
+    atom::{Atom, JS_ATOM_MAX_INT, JS_AtomIsNumericIndex, AtomRef, consts::*},
     branch_hints::unlikely,
     context::JSContext,
     error::{JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized, JSResult},
@@ -20,7 +20,7 @@ impl JSObject {
     pub(crate) fn get_property_internal(
         &self,
         ctx: &JSContext,
-        prop: JSAtom,
+        prop: AtomRef,
         this_obj: &JSValue,
         throw_ref_error: bool,
     ) -> JSResult {
@@ -139,7 +139,7 @@ impl JSObject {
     /// get property by atom name.
     /// `prop` is not consumed.
     #[inline(always)]
-    pub fn get_property(&self, ctx: &JSContext, prop: JSAtom) -> JSResult {
+    pub fn get_property(&self, ctx: &JSContext, prop: AtomRef) -> JSResult {
         self.get_property_internal(ctx, prop, &JSValue::Object(self.clone()), false)
     }
 
@@ -281,7 +281,7 @@ impl JSObject {
     pub fn try_get_property_i64(&self, ctx: &JSContext, idx: i64) -> Result<Option<JSValue>, i32> {
         if (0..=JS_ATOM_MAX_INT as i64).contains(&idx) {
             // fast path
-            if self.has_property(ctx, JSAtom::new_small_int(idx as u32))? {
+            if self.has_property(ctx, AtomRef::new_small_int(idx as u32))? {
                 Ok(Some(
                     self.get_property_value(ctx, &JSValue::from(idx as u32))?,
                 ))
@@ -308,7 +308,7 @@ impl JSValue {
     pub(crate) fn get_property_internal(
         &self,
         ctx: &JSContext,
-        prop: JSAtom,
+        prop: AtomRef,
         this_obj: &JSValue,
         throw_ref_error: bool,
     ) -> JSResult {
@@ -360,7 +360,7 @@ impl JSValue {
 
     /// returns Exception when failed.
     #[inline(always)]
-    pub fn get_property(&self, ctx: &JSContext, prop: JSAtom) -> JSResult {
+    pub fn get_property(&self, ctx: &JSContext, prop: AtomRef) -> JSResult {
         self.get_property_internal(ctx, prop, self, false)
     }
 
@@ -405,7 +405,7 @@ impl JSValue {
     pub fn try_get_property_i64(&self, ctx: &JSContext, idx: i64) -> Result<Option<JSValue>, i32> {
         if (0..=JS_ATOM_MAX_INT as i64).contains(&idx) {
             // fast path
-            if self.has_property(ctx, JSAtom::new_small_int(idx as u32))? {
+            if self.has_property(ctx, AtomRef::new_small_int(idx as u32))? {
                 Ok(Some(
                     self.get_property_value(ctx, &JSValue::from(idx as u32))?,
                 ))

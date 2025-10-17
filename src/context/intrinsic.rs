@@ -15,13 +15,13 @@ use crate::{
         js_shared_array_buffer_constructor, js_shared_array_buffer_funcs,
         js_shared_array_buffer_proto_funcs,
     },
-    atom::{JSAtom, consts::*},
+    atom::{AtomRef, consts::*},
     class::{JS_SetConstructor, JS_SetConstructor2, JSClassID},
     context::{JS_MODE_STRICT, JSContext},
     date::{js_date_constructor, js_date_funcs, js_date_proto_funcs},
     error::{ErrorKind, JSResult, STD_ERROR_NAMES},
     function::{
-        BytecodeFunction, CallContext, FieldDef, JSFunctionKindEnum, NativeFunctionType,
+        BytecodeFunction, FieldDef, JSFunctionKindEnum, NativeFunctionType,
         js_async_function_proto_funcs,
     },
     generator::{
@@ -394,7 +394,7 @@ impl JSContext {
 
         // pre-define builtin Symbol_XXX
         for i in JS_ATOM_FIRST_SYMBOL.0..=JS_ATOM_LAST_SYMBOL.0 {
-            let a = JSAtom(i);
+            let a = AtomRef(i);
             a.with_utf8(self.rt(), |s| {
                 let str = s.as_ref().split_once('.').unwrap().1; // skip "Symbol."
                 symbol_ctor
@@ -754,7 +754,7 @@ impl JSContext {
                 let proto: JSValue = ta_obj.into();
 
                 let name =
-                    JSAtom(JS_ATOM_Uint8ClampedArray.0 + (cid - JS_CLASS_UINT8C_ARRAY) as u32)
+                    AtomRef(JS_ATOM_Uint8ClampedArray.0 + (cid - JS_CLASS_UINT8C_ARRAY) as u32)
                         .to_utf8(self.rt());
 
                 let func_obj = self

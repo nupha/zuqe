@@ -1,7 +1,7 @@
 use std::ptr::NonNull;
 
 use crate::{
-    atom::JSAtomRc, context::JSContext, function::JSFunctionDef, parse::token::TokenData,
+    atom::AtomRc, context::JSContext, function::JSFunctionDef, parse::token::TokenData,
     value::JSValue,
 };
 
@@ -132,7 +132,7 @@ impl<'s> JSParseState<'s> {
     pub(super) fn clear_atom_in_token(&mut self) {
         match &mut self.token.data {
             TokenData::Ident { atom, .. } => {
-                *atom = JSAtomRc::NULL;
+                *atom = AtomRc::NULL;
             }
             _ => {}
         }

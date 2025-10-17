@@ -2,7 +2,7 @@ use std::{borrow::Cow, ptr::NonNull};
 
 use crate::{
     JS_CLASS_ARRAY,
-    atom::{Atom, AtomTypeHint, JSAtom, consts::*},
+    atom::{Atom, AtomTypeHint, AtomRef, consts::*},
     context::JSContext,
     function::NativeFunctionType,
     object::{JS_PROP_CONFIGURABLE, JSObject, LazyInit},
@@ -62,7 +62,7 @@ impl JSObject {
         Ok(())
     }
 
-    fn install_field_entry(&self, ctx: &JSContext, atom: JSAtom, e: &FieldDef) -> Result<(), i32> {
+    fn install_field_entry(&self, ctx: &JSContext, atom: AtomRef, e: &FieldDef) -> Result<(), i32> {
         let val: JSValue;
         let mut prop_flags = e.prop_flags;
 
@@ -181,7 +181,7 @@ impl JSContext {
                     .and_then(|p| unsafe { p.as_ref() })
                 {
                     if astr.content().eq_str(name2) {
-                        return Ok(JSAtom(i).dup(rt));
+                        return Ok(AtomRef(i).dup(rt));
                     }
                 }
             }
@@ -202,7 +202,7 @@ impl JSContext {
 }
 
 // #[deprecated(note = "use JSContext::make_lazy_prop_atom () instead")]
-// pub unsafe fn find_atom(ctx: &JSContext, name: &str) -> JSAtom {
+// pub unsafe fn find_atom(ctx: &JSContext, name: &str) -> AtomRef {
 //     unreachable!("unused");
 //     // ctx.make_lazy_prop_atom(name).unwrap_or(JS_ATOM_NULL)
 // }

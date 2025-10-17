@@ -1,6 +1,6 @@
 use crate::{
     JS_CLASS_STRING,
-    atom::{Atom, AtomDescKind, JSAtomRc},
+    atom::{Atom, AtomDescKind, AtomRc},
     branch_hints::unlikely,
     context::JSContext,
     error::{JS_ThrowReferenceErrorUninitialized, JSResult},
@@ -22,7 +22,7 @@ pub enum PropertyKeyKind {
 
 #[derive(Debug, Clone)]
 pub struct PropertyKey {
-    pub atom: JSAtomRc,
+    pub atom: AtomRc,
     pub kind: PropertyKeyKind,
     pub is_enumerable: bool,
     pub is_exotic: bool,

@@ -1,6 +1,6 @@
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
-    atom::{Atom, JS_ATOM_MAX_INT, JSAtom},
+    atom::{Atom, JS_ATOM_MAX_INT, AtomRef},
     branch_hints::unlikely,
     context::JSContext,
     object::JSObject,
@@ -23,7 +23,7 @@ impl JSObject {
     pub(crate) fn delete_property_internal(
         &self,
         ctx: &JSContext,
-        prop: JSAtom,
+        prop: AtomRef,
     ) -> Result<bool, i32> {
         let obj_flags = self.flags();
 
@@ -118,7 +118,7 @@ impl JSObject {
         Ok(true)
     }
 
-    pub fn delete_property(&self, ctx: &JSContext, prop: JSAtom, flags: u32) -> Result<bool, i32> {
+    pub fn delete_property(&self, ctx: &JSContext, prop: AtomRef, flags: u32) -> Result<bool, i32> {
         if self.delete_property_internal(ctx, prop)? {
             Ok(true)
         } else {
@@ -135,7 +135,7 @@ impl JSObject {
     pub fn delete_property_i64(&self, ctx: &JSContext, idx: i64, flags: u32) -> Result<bool, i32> {
         if (0..JS_ATOM_MAX_INT as i64).contains(&idx) {
             // fast path for fast array
-            self.delete_property(ctx, JSAtom::new_small_int(idx as u32), flags)
+            self.delete_property(ctx, AtomRef::new_small_int(idx as u32), flags)
         } else {
             let atom = Atom::from_i64(ctx.rt_mut(), idx)?;
             let res = self.delete_property(ctx, atom.as_ref(), flags);
@@ -149,7 +149,7 @@ impl JSValue {
     /// 如果属性不可配置或无效对象则返回 false, 出现异常时返回 Err.
     /// flags 可以是 0、JS_PROP_THROW 或 JS_PROP_THROW_STRICT
     #[inline]
-    pub fn delete_property(&self, ctx: &JSContext, prop: JSAtom, flags: u32) -> Result<bool, i32> {
+    pub fn delete_property(&self, ctx: &JSContext, prop: AtomRef, flags: u32) -> Result<bool, i32> {
         self.clone()
             .objectify(ctx)
             .and_then(|o| o.delete_property(ctx, prop, flags))

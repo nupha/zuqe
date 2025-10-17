@@ -1,6 +1,6 @@
 use crate::{
     atom::{
-        JS_ATOM_NULL, JSAtom, JSAtomRc,
+        JS_ATOM_NULL, AtomRef, AtomRc,
         consts::{JS_ATOM_new_target, JS_ATOM_this},
     },
     bytecode::{OpCode, OpCodeTemp, opcodes},
@@ -35,7 +35,7 @@ impl<'s> JSParseState<'s> {
             && level == 4
             && self.peek_token(false) == TOK_IN
         {
-            let atom = JSAtomRc::from_ref(self.ctx.rt(), self.token.atom().unwrap());
+            let atom = AtomRc::from_ref(self.ctx.rt(), self.token.atom().unwrap());
 
             self.next_token()?;
             if self.token.val != TOK_IN {
@@ -295,7 +295,7 @@ impl<'s> JSParseState<'s> {
             "cur_func_ptr must not change"
         );
 
-        let name: JSAtom;
+        let name: AtomRef;
         let fd = unsafe { fd0.as_mut().unwrap() };
 
         match get_prev_opcode(fd) {
@@ -312,7 +312,7 @@ impl<'s> JSParseState<'s> {
                     -1
                 };
 
-                name = JSAtom(unsafe {
+                name = AtomRef(unsafe {
                     read_from_ptr::<u32>(
                         fd.byte_code
                             .as_ptr()
@@ -369,7 +369,7 @@ impl<'s> JSParseState<'s> {
             }
             opcodes::op_scope_get_var => {
                 // 'delete this': this is not a reference
-                name = JSAtom(unsafe {
+                name = AtomRef(unsafe {
                     read_from_ptr::<u32>(
                         fd.byte_code
                             .as_ptr()

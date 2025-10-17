@@ -1,6 +1,6 @@
 use crate::{
     JS_CLASS_ERROR,
-    atom::{Atom, AtomTypeHint, JSAtom, JSAtomStruct},
+    atom::{Atom, AtomTypeHint, JSAtomStruct},
     branch_hints::unlikely,
     function::{AsyncFuncState, Bytecode},
     module::ModuleDef,

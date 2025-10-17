@@ -1,7 +1,7 @@
 use std::{marker::PhantomData, ops::DerefMut, ptr::NonNull};
 
 use crate::{
-    atom::{Atom, JS_ATOM_NULL, JSAtom, consts::*},
+    atom::{Atom, JS_ATOM_NULL, AtomRef, consts::*},
     bytecode::{OpCode, OpCodeTemp, OpcodeFormat, opcode_info_intermediate, opcodes},
     context::{JS_MODE_STRIP, JSContext},
     eval::JS_EVAL_TYPE_GLOBAL,
@@ -423,7 +423,7 @@ pub struct BlockEnv {
     /// JS_ATOM_NULL for none.
     /// this field don't require ownership of atom,
     /// do not clone the atom for this field.
-    pub label_name: JSAtom,
+    pub label_name: AtomRef,
 
     /// -1 if none
     pub label_break: i32,

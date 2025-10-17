@@ -8,7 +8,7 @@ pub use {atom::*, atom_rc::*};
 pub type JSAtomStruct = crate::string::JSString;
 
 pub mod consts {
-    use super::JSAtom;
+    use super::AtomRef;
 
     include!(concat!(env!("OUT_DIR"), "/atoms.rs"));
 }

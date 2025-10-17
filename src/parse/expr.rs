@@ -1,5 +1,5 @@
 use crate::{
-    atom::{JS_ATOM_NULL, JSAtom, JSAtomRc, consts::*},
+    atom::{JS_ATOM_NULL, AtomRef, AtomRc, consts::*},
     branch_hints::unlikely,
     bytecode::{OpCode, OpCodeTemp, SpecialObject, opcodes},
     function::{FuncCallType, JSFunctionKindEnum},
@@ -97,7 +97,7 @@ impl<'s> JSParseState<'s> {
 
                 let mut label: i32 = 0;
                 let mut depth_lvalue: i32 = 0;
-                let mut name = JSAtom::NULL;
+                let mut name = AtomRef::NULL;
 
                 self.get_lvalue(
                     &mut opcode,
@@ -376,7 +376,7 @@ impl<'s> JSParseState<'s> {
                     }
                 } else {
                     // get atom rc, because later next_token() call will free the atom.
-                    let name = JSAtomRc::from_ref(self.ctx.rt(), self.token.atom().unwrap());
+                    let name = AtomRc::from_ref(self.ctx.rt(), self.token.atom().unwrap());
 
                     if unlikely(
                         name.as_ref() == JS_ATOM_arguments

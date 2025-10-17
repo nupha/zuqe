@@ -268,7 +268,7 @@ pub fn gen_atoms(outfile: &Path) {
             txt.to_string()
         };
         output.push(format!(
-            "pub const JS_ATOM_{label}: JSAtom = JSAtom({});",
+            "pub const JS_ATOM_{label}: AtomRef = AtomRef({});",
             i + 1
         ))
     }
@@ -283,25 +283,25 @@ pub fn gen_atoms(outfile: &Path) {
     ));
 
     output.push(format!(
-        "/// the first builtin const atom\npub const JS_ATOM_FIRST: JSAtom = JS_ATOM_{};",
+        "/// the first builtin const atom\npub const JS_ATOM_FIRST: AtomRef = JS_ATOM_{};",
         ATOM_DESCR_DEFS.first().unwrap()
     ));
     output.push(format!(
-        "/// the last builtin const atom\npub const JS_ATOM_LAST: JSAtom = JS_ATOM_{};",
+        "/// the last builtin const atom\npub const JS_ATOM_LAST: AtomRef = JS_ATOM_{};",
         ATOM_DESCR_DEFS.last().unwrap()
     ));
 
-    output.push("pub const JS_ATOM_LAST_KEYWORD: JSAtom = JS_ATOM_super;".into());
-    output.push("pub const JS_ATOM_FIRST_STRICT_KEYWORD: JSAtom = JS_ATOM_implements;".into());
-    output.push("pub const JS_ATOM_LAST_STRICT_KEYWORD: JSAtom = JS_ATOM_yield;".into());
+    output.push("pub const JS_ATOM_LAST_KEYWORD: AtomRef = JS_ATOM_super;".into());
+    output.push("pub const JS_ATOM_FIRST_STRICT_KEYWORD: AtomRef = JS_ATOM_implements;".into());
+    output.push("pub const JS_ATOM_LAST_STRICT_KEYWORD: AtomRef = JS_ATOM_yield;".into());
 
     // Symbol_XXX
     output.push(format!(
-        "/// the first builtin const Symbol_XXX atom\npub const JS_ATOM_FIRST_SYMBOL: JSAtom = JS_ATOM_{};",
+        "/// the first builtin const Symbol_XXX atom\npub const JS_ATOM_FIRST_SYMBOL: AtomRef = JS_ATOM_{};",
         ATOM_DESCR_DEFS.iter().find(|x|x.starts_with("Symbol_")).unwrap()
     ));
     output.push(format!(
-        "/// the last builtin const Symbol_XXX atom\npub const JS_ATOM_LAST_SYMBOL: JSAtom = JS_ATOM_{};",
+        "/// the last builtin const Symbol_XXX atom\npub const JS_ATOM_LAST_SYMBOL: AtomRef = JS_ATOM_{};",
         ATOM_DESCR_DEFS.iter().rev().find(|x|x.starts_with("Symbol_")).unwrap()
     ));
 

@@ -1,7 +1,7 @@
 use crate::{
     JS_CFUNC_NATIVE_DEF,
     array::js_array_push,
-    atom::{JSAtomRc, consts::*},
+    atom::{AtomRc, consts::*},
     context::{JS_GetActiveFunction, JSContext},
     error::JSResult,
     function::{CallContext, FieldDef},
@@ -163,13 +163,13 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
         let key = func.call(ctx, &global, &[val.clone(), JSValue::from(idx)])?;
 
         // get prop value array and key atom
-        let (mut props_arr, key_atom): (JSValue, JSAtomRc) = if is_map {
+        let (mut props_arr, key_atom): (JSValue, AtomRc) = if is_map {
             (
                 js_map_get(
                     ctx,
                     CallContext::new_simple(ctx, groups.clone(), std::slice::from_ref(&key)),
                 )?,
-                JSAtomRc::NULL,
+                AtomRc::NULL,
             )
         } else {
             let atom = key.to_atom(ctx)?.into_rc(ctx.rt());

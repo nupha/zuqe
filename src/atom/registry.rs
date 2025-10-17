@@ -9,7 +9,7 @@ use crate::{
 };
 
 use super::{
-    AtomHintAndId, AtomTypeHint, JS_ATOM_MAX_INT, JSAtom,
+    AtomHintAndId, AtomTypeHint, JS_ATOM_MAX_INT, AtomRef,
     consts::{
         JS_ATOM_INIT_COUNT, JS_ATOM_Private_brand, JS_ATOM_Symbol_toPrimitive,
         JS_DEFAULT_ATOMS_TEXT,
@@ -202,7 +202,7 @@ impl Atom {
 
     /// Make builtin const atom
     #[inline(always)]
-    pub(crate) fn new_const(n: JSAtom) -> Self {
+    pub(crate) fn new_const(n: AtomRef) -> Self {
         debug_assert!(n.is_const());
         Self::from(n.id())
     }
@@ -230,7 +230,7 @@ impl Atom {
 
     /// find atom by str
     pub fn find(rt: &JSRuntime, str: &str, atom_type: AtomTypeHint) -> Option<Self> {
-        // JSAtom::find(rt, str, atom_type).map(|a| a.dup(rt))
+        // AtomRef::find(rt, str, atom_type).map(|a| a.dup(rt))
 
         rt.atom_hash_lut
             .get(&calc_atom_hash_str(str, atom_type))
@@ -281,7 +281,7 @@ impl Atom {
     }
 }
 
-impl JSAtom {
+impl AtomRef {
     /// Make an small integral atom.
     /// Small integral atom is primitive, and do not need to register.
     #[inline(always)]
@@ -330,8 +330,8 @@ fn calc_atom_hash_str(str: &str, atom_type: AtomTypeHint) -> u32 {
 
 impl JSRuntime {
     /// find atom by jsstring.
-    /// TODO: move this to JSAtom impl
-    pub fn find_atom_for(&self, jsstr: &JSString) -> Option<JSAtom> {
+    /// TODO: move this to AtomRef impl
+    pub fn find_atom_for(&self, jsstr: &JSString) -> Option<AtomRef> {
         if let Some(at) = jsstr.atom_info() {
             Some(at.atom_ref())
         } else {
@@ -341,8 +341,8 @@ impl JSRuntime {
 
     /// get atom description for atom.
     /// returns None if atom does not exist.
-    #[deprecated(note = "use JSAtom::description() instead")]
-    pub fn get_atom_desc(&self, atom: JSAtom) -> Option<JSString> {
+    #[deprecated(note = "use AtomRef::description() instead")]
+    pub fn get_atom_desc(&self, atom: AtomRef) -> Option<JSString> {
         debug_assert!(atom.0 != 0);
 
         if let Some(s) = self

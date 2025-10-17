@@ -1,6 +1,6 @@
 use crate::{
     atom::{
-        Atom, JS_ATOM_NULL, JSAtomRc,
+        Atom, JS_ATOM_NULL, AtomRc,
         consts::{JS_ATOM___proto__, JS_ATOM_async, JS_ATOM_get, JS_ATOM_set},
     },
     bytecode::{OpCode, OpCodeTemp},
@@ -156,14 +156,14 @@ impl<'s> JSParseState<'s> {
         let mut prop_type = PROP_TYPE_IDENT;
         let mut private = 0_i32;
         let mut is_non_reserved_ident = false;
-        let mut name: Option<JSAtomRc> = None;
+        let mut name: Option<AtomRc> = None;
 
         if allow_method {
             if self.token_is_pseudo_keyword(JS_ATOM_get)
                 || self.token_is_pseudo_keyword(JS_ATOM_set)
             {
                 // found `get...` or `set...`
-                name.replace(JSAtomRc::from_ref(
+                name.replace(AtomRc::from_ref(
                     self.ctx.rt(),
                     self.token.atom().unwrap(),
                 ));
@@ -190,7 +190,7 @@ impl<'s> JSParseState<'s> {
             } else if self.token_is_pseudo_keyword(JS_ATOM_async)
                 && self.peek_token(true) != '\n' as i32
             {
-                name.replace(JSAtomRc::from_ref(
+                name.replace(AtomRc::from_ref(
                     self.ctx.rt(),
                     self.token.atom().unwrap(),
                 ));
@@ -244,7 +244,7 @@ impl<'s> JSParseState<'s> {
                     self.parse_expect(']' as i32)?;
                 }
                 TOK_PRIVATE_NAME if allow_private => {
-                    name.replace(JSAtomRc::from_ref(
+                    name.replace(AtomRc::from_ref(
                         self.ctx.rt(),
                         self.token.atom().unwrap(),
                     ));
@@ -257,7 +257,7 @@ impl<'s> JSParseState<'s> {
                         self.token.val == TOK_IDENT && !self.token.data.is_reserved();
 
                     /* keywords and reserved words have a valid atom */
-                    name.replace(JSAtomRc::from_ref(
+                    name.replace(AtomRc::from_ref(
                         self.ctx.rt(),
                         self.token.atom().unwrap(),
                     ));

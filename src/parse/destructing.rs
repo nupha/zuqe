@@ -1,6 +1,6 @@
 use crate::{
     atom::{
-        Atom, JSAtom, JSAtomRc,
+        Atom, AtomRef, AtomRc,
         consts::{JS_ATOM_arguments, JS_ATOM_eval},
     },
     branch_hints::unlikely,
@@ -32,8 +32,8 @@ impl<'s> JSParseState<'s> {
 
         self.next_token()?;
 
-        let mut prop_name: JSAtomRc;
-        let mut var_name: JSAtomRc;
+        let mut prop_name: AtomRc;
+        let mut var_name: AtomRc;
 
         // throw an exception if the value cannot be converted to an object
         self.emit_op(OpCode::TO_OBJECT);
@@ -95,7 +95,7 @@ impl<'s> JSParseState<'s> {
         macro_rules! lvalue {
             ( ) => {
                 let mut depth_lvalue1 = 0_i32;
-                let mut a = JSAtom::NULL;
+                let mut a = AtomRef::NULL;
 
                 self.get_lvalue(
                     &mut opcode,
@@ -106,7 +106,7 @@ impl<'s> JSParseState<'s> {
                     false,
                     '{' as i32,
                 )?;
-                var_name = JSAtomRc::from_ref(self.ctx.rt(), a);
+                var_name = AtomRc::from_ref(self.ctx.rt(), a);
 
                 /* swap ref and lvalue object if any */
                 if prop_name.is_null() {
@@ -166,7 +166,7 @@ impl<'s> JSParseState<'s> {
                 } else {
                     self.parse_left_hand_side_expr()?;
 
-                    let mut a = JSAtom::NULL;
+                    let mut a = AtomRef::NULL;
                     self.get_lvalue(
                         &mut opcode,
                         &mut scope,
@@ -176,7 +176,7 @@ impl<'s> JSParseState<'s> {
                         false,
                         '{' as i32,
                     )?;
-                    var_name = JSAtomRc::from_ref(self.ctx.rt(), a);
+                    var_name = AtomRc::from_ref(self.ctx.rt(), a);
                 }
 
                 if self.token.val != '}' as i32 {
@@ -196,7 +196,7 @@ impl<'s> JSParseState<'s> {
             prop_name = r.0.into_rc(self.ctx.rt());
             let prop_type = r.1;
 
-            var_name = JSAtomRc::NULL;
+            var_name = AtomRc::NULL;
             opcode = opcodes::op_scope_get_var as _;
             scope = self.cur_func().scope_level;
             label_lvalue = -1;
@@ -450,7 +450,7 @@ impl<'s> JSParseState<'s> {
             };
 
             if parse_expr {
-                let var_name: JSAtomRc;
+                let var_name: AtomRc;
                 let mut enum_depth = 0;
 
                 if tok != 0 {
@@ -461,7 +461,7 @@ impl<'s> JSParseState<'s> {
                 } else {
                     self.parse_left_hand_side_expr()?;
 
-                    let mut a = JSAtom::NULL;
+                    let mut a = AtomRef::NULL;
                     self.get_lvalue(
                         &mut opcode,
                         &mut scope,
@@ -471,7 +471,7 @@ impl<'s> JSParseState<'s> {
                         false,
                         '[' as i32,
                     )?;
-                    var_name = JSAtomRc::from_ref(self.ctx.rt(), a);
+                    var_name = AtomRc::from_ref(self.ctx.rt(), a);
                 }
 
                 if has_spread {
@@ -629,7 +629,7 @@ impl<'s> JSParseState<'s> {
             self.throw_syntax_error("invalid destructuring target");
             return Err(-1);
         } else {
-            let name = JSAtomRc::from_ref(self.ctx.rt(), self.token.atom().unwrap());
+            let name = AtomRc::from_ref(self.ctx.rt(), self.token.atom().unwrap());
             if is_arg {
                 self.parse_check_duplicate_parameter(name.as_ref())?;
             }
@@ -638,7 +638,7 @@ impl<'s> JSParseState<'s> {
         }
     }
 
-    fn parse_check_duplicate_parameter(&self, name: JSAtom) -> Result<(), i32> {
+    fn parse_check_duplicate_parameter(&self, name: AtomRef) -> Result<(), i32> {
         // Check for duplicate parameter names
         if self
             .cur_func()

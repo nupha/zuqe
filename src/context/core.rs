@@ -12,7 +12,7 @@ use crate::{
 
 impl JSContext {
     /// Initialize minimum amount of objects to be able to compile code and display error messages.
-    /// No JSAtom should be allocated by this function.
+    /// No AtomRef should be allocated by this function.
     pub fn init_core_objects_ex(&self, with_function: bool, with_array: bool, with_errors: bool) {
         // Object
         let object = self
@@ -119,7 +119,7 @@ impl JSContext {
     }
 
     /// Initialize minimum amount of objects to be able to compile code and display error messages.
-    /// No JSAtom should be allocated by this function.
+    /// No AtomRef should be allocated by this function.
     #[inline(always)]
     pub fn init_core_objects(&self) {
         self.init_core_objects_ex(true, true, true);

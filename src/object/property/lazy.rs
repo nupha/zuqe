@@ -1,7 +1,7 @@
 use std::ptr::NonNull;
 
 use crate::{
-    atom::{JSAtom, consts::JS_ATOM_constructor},
+    atom::{AtomRef, consts::JS_ATOM_constructor},
     context::JSContext,
     error::JSResult,
     function::{FieldDef, NativeFieldDetail},
@@ -122,7 +122,7 @@ impl JSObject {
     pub fn define_lazy_property(
         &self,
         ctx: &JSContext,
-        prop: JSAtom,
+        prop: AtomRef,
         lazy_init: LazyInit,
         flags: u32,
     ) -> Result<(), i32> {

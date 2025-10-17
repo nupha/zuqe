@@ -1,6 +1,6 @@
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
-    atom::{Atom, JS_AtomIsNumericIndex, JSAtom, consts::JS_ATOM_length},
+    atom::{Atom, JS_AtomIsNumericIndex, AtomRef, consts::JS_ATOM_length},
     branch_hints::unlikely,
     context::JSContext,
     error::JS_ThrowReferenceErrorUninitialized,
@@ -41,7 +41,7 @@ impl ObjectInner {
     pub(crate) fn add_own_property(
         &self,
         ctx: &JSContext,
-        prop: JSAtom,
+        prop: AtomRef,
         prop_flags: u32,
         prop_value: JSProperty,
     ) -> Result<(), i32> {
@@ -111,7 +111,7 @@ impl ObjectInner {
 impl JSObject {
     /// Check if shape property `atom` exists.
     /// `prop` is not consumed.
-    pub(crate) fn has_shape_property(&self, prop: JSAtom) -> bool {
+    pub(crate) fn has_shape_property(&self, prop: AtomRef) -> bool {
         self.shape()
             .is_some_and(|sh| sh.0.borrow().prop_defs.get(&prop.0).is_some())
     }
@@ -121,7 +121,7 @@ impl JSObject {
     ///
     /// `prop` is not consumed.
     #[inline]
-    pub(crate) fn find_shape_property(&self, prop: JSAtom) -> Option<(usize, u32)> {
+    pub(crate) fn find_shape_property(&self, prop: AtomRef) -> Option<(usize, u32)> {
         self.shape().and_then(|sh| {
             sh.0.borrow()
                 .prop_defs
@@ -133,7 +133,7 @@ impl JSObject {
     /// test if own property `prop` exists:
     /// 1. find in shape,
     /// 1. if not shape property, and if is exotic or fast array, test by exotic or array length.
-    pub fn has_own_property(&self, ctx: &JSContext, prop: JSAtom) -> Result<bool, i32> {
+    pub fn has_own_property(&self, ctx: &JSContext, prop: AtomRef) -> Result<bool, i32> {
         // is shape prop?
         if self.has_shape_property(prop) {
             return Ok(true);
@@ -174,7 +174,7 @@ impl JSObject {
     pub fn get_own_property(
         &self,
         ctx: &JSContext,
-        prop: JSAtom,
+        prop: AtomRef,
     ) -> Result<Option<JSPropertyDescriptor>, i32> {
         loop {
             if let Some((idx, prs_flags)) = self.find_shape_property(prop) {
@@ -265,7 +265,7 @@ impl JSObject {
     pub fn add_own_property(
         &self,
         ctx: &JSContext,
-        prop: JSAtom,
+        prop: AtomRef,
         prop_flags: u32,
         prop_value: JSProperty,
     ) -> Result<(), i32> {
@@ -283,7 +283,7 @@ impl JSObject {
     pub(super) fn create_property(
         &self,
         ctx: &JSContext,
-        prop: JSAtom,
+        prop: AtomRef,
         val: JSValue,
         getter: JSValue,
         setter: JSValue,
@@ -513,7 +513,7 @@ impl JSObject {
 
 impl JSValue {
     /// test if own property prop exists.
-    pub fn has_own_property(&self, ctx: &JSContext, prop: JSAtom) -> Result<bool, i32> {
+    pub fn has_own_property(&self, ctx: &JSContext, prop: AtomRef) -> Result<bool, i32> {
         if let JSValue::Object(p) = self {
             p.has_own_property(ctx, prop)
         } else {
@@ -535,7 +535,7 @@ impl JSValue {
     pub fn get_own_property(
         &self,
         ctx: &JSContext,
-        prop: JSAtom,
+        prop: AtomRef,
     ) -> Result<Option<JSPropertyDescriptor>, i32> {
         if let JSValue::Object(p) = self {
             p.get_own_property(ctx, prop)

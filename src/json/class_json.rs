@@ -1,6 +1,6 @@
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_OBJECT_DEF, JS_PROP_STRING_DEF,
-    atom::{Atom, JSAtom, JSAtomRc, consts::JS_ATOM_empty_string},
+    atom::{Atom, AtomRc, AtomRef, consts::JS_ATOM_empty_string},
     context::JSContext,
     error::JSResult,
     function::{CallContext, FieldDef},
@@ -23,7 +23,7 @@ fn js_json_stringify(ctx: &JSContext, cc: CallContext) -> JSResult {
 fn internalize_json_property(
     ctx: &JSContext,
     holder: &JSValue,
-    name: JSAtom,
+    name: AtomRef,
     reviver: &JSValue,
 ) -> JSResult {
     if js_check_stack_overflow(ctx.rt(), 0) {
@@ -47,7 +47,7 @@ fn internalize_json_property(
         }
 
         for i in 0..len {
-            let prop: JSAtomRc = if is_array {
+            let prop: AtomRc = if is_array {
                 Atom::from_u32(ctx.rt_mut(), i)?
             } else {
                 unsafe { pks.get_unchecked(i as usize).atom.dup(ctx.rt()) }

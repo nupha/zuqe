@@ -2,7 +2,7 @@ use std::cell::Cell;
 
 use crate::{
     JS_CLASS_PROXY,
-    atom::{JSAtom, consts::*},
+    atom::{AtomRef, consts::*},
     class::JSClassExoticMethods,
     context::JSContext,
     error::JSResult,
@@ -28,7 +28,7 @@ pub struct ProxyObjPayload {
 
 impl ProxyObjPayload {
     /// get proxied method. returns function object or undefined
-    pub fn get_method(&self, ctx: &JSContext, name: JSAtom) -> Result<JSValue, i32> {
+    pub fn get_method(&self, ctx: &JSContext, name: AtomRef) -> Result<JSValue, i32> {
         // safer to test recursion in all proxy methods
         if js_check_stack_overflow(ctx.rt(), 0) {
             ctx.throw_stack_overflow();
@@ -233,7 +233,7 @@ impl Proxy {
 
     /// get proxied method
     #[inline(always)]
-    pub fn get_method(&self, ctx: &JSContext, name: JSAtom) -> Result<JSValue, i32> {
+    pub fn get_method(&self, ctx: &JSContext, name: AtomRef) -> Result<JSValue, i32> {
         self.payload().get_method(ctx, name)
     }
 
@@ -317,7 +317,7 @@ fn js_proxy_call_constructor(
 fn js_proxy_get_own_property(
     ctx: &JSContext,
     obj: JSValue,
-    prop: JSAtom,
+    prop: AtomRef,
 ) -> Result<Option<JSPropertyDescriptor>, i32> {
     let Some(px) = obj
         .as_object()
@@ -407,7 +407,7 @@ fn js_proxy_get_own_property(
 fn js_proxy_define_own_property(
     ctx: &JSContext,
     obj: &JSValue,
-    prop: JSAtom,
+    prop: AtomRef,
     val: JSValue,
     getter: JSValue,
     setter: JSValue,
@@ -513,7 +513,7 @@ fn js_proxy_define_own_property(
     Ok(true)
 }
 
-fn js_proxy_delete_property(ctx: &JSContext, obj: JSValue, atom: JSAtom) -> Result<bool, i32> {
+fn js_proxy_delete_property(ctx: &JSContext, obj: JSValue, atom: AtomRef) -> Result<bool, i32> {
     let Some(px) = obj
         .as_object()
         .and_then(|x| x.as_Proxy())
@@ -637,7 +637,7 @@ fn js_proxy_get_own_property_names(
     Ok(tab.into_boxed_slice())
 }
 
-fn js_proxy_has(ctx: &JSContext, obj: &JSObject, atom: JSAtom) -> Result<bool, i32> {
+fn js_proxy_has(ctx: &JSContext, obj: &JSObject, atom: AtomRef) -> Result<bool, i32> {
     let Some(px) = obj.as_Proxy().map(|x| x.payload()) else {
         return Err(-1);
     };
@@ -674,7 +674,7 @@ fn js_proxy_has(ctx: &JSContext, obj: &JSObject, atom: JSAtom) -> Result<bool, i
     Ok(ret)
 }
 
-fn js_proxy_get(ctx: &JSContext, obj: JSValue, atom: JSAtom, receiver: JSValue) -> JSResult {
+fn js_proxy_get(ctx: &JSContext, obj: JSValue, atom: AtomRef, receiver: JSValue) -> JSResult {
     let Some(px) = obj
         .as_object()
         .and_then(|p| p.as_Proxy())
@@ -719,7 +719,7 @@ fn js_proxy_get(ctx: &JSContext, obj: JSValue, atom: JSAtom, receiver: JSValue) 
 fn js_proxy_set(
     ctx: &JSContext,
     obj: JSValue,
-    atom: JSAtom,
+    atom: AtomRef,
     value: JSValue,
     receiver: JSValue,
     flags: i32,

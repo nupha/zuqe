@@ -61,8 +61,8 @@ impl AtomHintAndId {
     /// Get atom ref.
     /// Returned atom is not duplicated, caller should clone to keep it referenced.
     #[inline(always)]
-    pub fn atom_ref(self) -> JSAtom {
-        JSAtom(self.id())
+    pub fn atom_ref(self) -> AtomRef {
+        AtomRef(self.id())
     }
 }
 
@@ -288,8 +288,8 @@ impl Atom {
     }
 
     #[inline(always)]
-    pub fn as_ref(&self) -> JSAtom {
-        JSAtom(self.0)
+    pub fn as_ref(&self) -> AtomRef {
+        AtomRef(self.0)
     }
 
     /// consume the atom, decrease refcount.
@@ -312,29 +312,29 @@ impl Atom {
 /// the atom reference. not change refcount.
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Hash)]
-pub struct JSAtom(pub(crate) u32);
+pub struct AtomRef(pub(crate) u32);
 
-impl<'a> From<&'a Atom> for JSAtom {
+impl<'a> From<&'a Atom> for AtomRef {
     #[inline(always)]
     fn from(atom: &'a Atom) -> Self {
         Self(atom.0)
     }
 }
 
-impl std::ops::Deref for JSAtom {
+impl std::ops::Deref for AtomRef {
     type Target = Atom;
 
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
-        unsafe { std::mem::transmute::<&JSAtom, &Atom>(self) }
+        unsafe { std::mem::transmute::<&AtomRef, &Atom>(self) }
     }
 }
 
-impl JSAtom {
+impl AtomRef {
     pub const NULL: Self = Self(0);
 }
 
-pub const JS_ATOM_NULL: JSAtom = JSAtom(0);
+pub const JS_ATOM_NULL: AtomRef = AtomRef(0);
 
 pub const JS_ATOM_HASH_SYMBOL: u32 = 0;
 pub const JS_ATOM_HASH_PRIVATE: u32 = 1;
@@ -486,7 +486,7 @@ fn JS_FreeAtomStruct(rt: *mut JSRuntime, aid: u32) {
 // This test must be fast if atom is not a numeric index (e.g. a
 // method name). Return JS_UNDEFINED if not a numeric
 // index. JS_EXCEPTION can also be returned.
-pub fn JS_AtomIsNumericIndex1(ctx: &JSContext, atom: JSAtom) -> JSValue {
+pub fn JS_AtomIsNumericIndex1(ctx: &JSContext, atom: AtomRef) -> JSValue {
     if let Some(n) = atom.to_small_int() {
         return JSValue::Int(n as _);
     }
@@ -564,7 +564,7 @@ pub fn JS_AtomIsNumericIndex1(ctx: &JSContext, atom: JSAtom) -> JSValue {
 }
 
 // return -1 if exception or TRUE/FALSE
-pub unsafe fn JS_AtomIsNumericIndex(ctx: &JSContext, atom: JSAtom) -> i32 {
+pub unsafe fn JS_AtomIsNumericIndex(ctx: &JSContext, atom: AtomRef) -> i32 {
     let num = JS_AtomIsNumericIndex1(ctx, atom);
     if num.is_undefined() {
         return 0;
@@ -577,7 +577,7 @@ pub unsafe fn JS_AtomIsNumericIndex(ctx: &JSContext, atom: JSAtom) -> i32 {
 
 /// return a string atom containing name concatenated with str1.
 /// Note: returned atom should be freed by caller.
-pub unsafe fn js_atom_concat_str(ctx: &JSContext, name: JSAtom, str1: *const u8) -> Atom {
+pub unsafe fn js_atom_concat_str(ctx: &JSContext, name: AtomRef, str1: *const u8) -> Atom {
     let str_val = if let Ok(s) = name.force_string(ctx) {
         s
     } else {
@@ -603,20 +603,20 @@ pub unsafe fn js_atom_concat_str(ctx: &JSContext, name: JSAtom, str1: *const u8)
 }
 
 /// Note: returned atom should be freed by caller.
-pub unsafe fn js_atom_concat_num(ctx: &JSContext, name: JSAtom, n: u32) -> Atom {
+pub unsafe fn js_atom_concat_num(ctx: &JSContext, name: AtomRef, n: u32) -> Atom {
     js_atom_concat_str(ctx, name, format!("{n}\0").as_ptr())
 }
 
 pub unsafe fn JS_DumpAtoms(rt: &JSRuntime) {
     // This only dumps hashed atoms, not JS_ATOM_TYPE_SYMBOL atoms
     // println!(
-    //     "JSAtom count={} size={} hash_size={}:",
+    //     "AtomRef count={} size={} hash_size={}:",
     //     (*rt).atom_count,
     //     (*rt).atom_size,
     //     (*rt).atom_hash_size
     // );
 
-    // println!("JSAtom hash table: {{");
+    // println!("AtomRef hash table: {{");
     // for i in 0..(*rt).atom_hash_size {
     //     let mut h = *(*rt).atom_hash.offset(i as isize);
     //     if h != 0 {
@@ -632,7 +632,7 @@ pub unsafe fn JS_DumpAtoms(rt: &JSRuntime) {
     // }
     // println!("}}");
 
-    println!("JSAtom table (non-const): {{");
+    println!("AtomRef table (non-const): {{");
     for (i, astr) in (*rt).atom_slots[JS_ATOM_INIT_COUNT as usize..]
         .iter()
         .enumerate()

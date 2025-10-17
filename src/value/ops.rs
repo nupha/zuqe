@@ -1,6 +1,6 @@
 use crate::{
     JS_CLASS_PROXY,
-    atom::{JSAtom, consts::*},
+    atom::{AtomRef, consts::*},
     context::JSContext,
     object::{JSObject, ObjectPayload},
     value::JSValue,
@@ -93,7 +93,7 @@ impl JSValue {
     ///
     /// Note:
     /// returned atom is not cloned, if caller want keep reference, should clone it.
-    pub fn type_of(&self) -> JSAtom {
+    pub fn type_of(&self) -> AtomRef {
         match self {
             Self::Int(_) | Self::Float64(_) => JS_ATOM_number,
             Self::Bool(_) => JS_ATOM_boolean,

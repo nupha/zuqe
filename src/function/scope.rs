@@ -1,7 +1,7 @@
 use std::{marker::PhantomData, ptr::NonNull};
 
 use crate::{
-    atom::{JSAtom, consts::JS_ATOM__with_},
+    atom::{AtomRef, consts::JS_ATOM__with_},
     bytecode::OpCodeTemp,
     context::JSContext,
     function::{JSFunctionDef, JSVarKindEnum},
@@ -94,7 +94,7 @@ impl JSFunctionDef {
     pub fn add_scope_var(
         &mut self,
         ctx: &JSContext,
-        name: JSAtom,
+        name: AtomRef,
         var_kind: JSVarKindEnum,
     ) -> Result<u16, i32> {
         let idx = self.add_var(ctx, name)?;
@@ -111,7 +111,7 @@ impl JSFunctionDef {
     }
 
     /// find a variable declaration in specified scope
-    pub fn find_var_in_scope(&mut self, name: JSAtom, scope: u16) -> Option<u16> {
+    pub fn find_var_in_scope(&mut self, name: AtomRef, scope: u16) -> Option<u16> {
         let mut vidx = self.scopes[scope as usize].first;
 
         while vidx >= 0 {
@@ -129,7 +129,7 @@ impl JSFunctionDef {
     }
 
     /// find a variable declaration in same or descendant scope of `scope`
-    pub fn find_var_in_child_scope(&self, name: JSAtom, scope: i32) -> Option<u16> {
+    pub fn find_var_in_child_scope(&self, name: AtomRef, scope: i32) -> Option<u16> {
         self.vars
             .iter()
             .position(|vd| {

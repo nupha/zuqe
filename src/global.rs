@@ -1,5 +1,5 @@
 use crate::{
-    atom::JSAtom,
+    atom::AtomRef,
     context::{JSContext, is_strict_mode},
     error::{JS_ThrowReferenceErrorUninitialized, JS_ThrowSyntaxErrorVarRedeclaration, JSResult},
     function::{DEFINE_GLOBAL_FUNC_VAR, DEFINE_GLOBAL_LEX_VAR},
@@ -15,7 +15,7 @@ impl JSContext {
     /// construct a reference to specified global variable
     pub(crate) fn build_global_varref(
         &self,
-        prop: JSAtom,
+        prop: AtomRef,
     ) -> Result<Option<(JSValue, JSValue)>, i32> {
         // no exotic behavior is possible in global_var_obj
         let gvobj = self.global_var_obj();
@@ -56,7 +56,7 @@ impl JSContext {
     /// XXX: could support exotic global object.
     pub fn define_global_function(
         &self,
-        prop: JSAtom,
+        prop: AtomRef,
         func: JSValue,
         def_flags: u32,
     ) -> Result<bool, i32> {
@@ -89,7 +89,7 @@ impl JSContext {
     /// def_flags is (0, DEFINE_GLOBAL_LEX_VAR) |
     ///   JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE
     // XXX: could support exotic global object.
-    pub fn define_global_var(&self, prop: JSAtom, def_flags: u32) -> Result<(), i32> {
+    pub fn define_global_var(&self, prop: AtomRef, def_flags: u32) -> Result<(), i32> {
         let (ob, flags, val) = if def_flags & DEFINE_GLOBAL_LEX_VAR as u32 != 0 {
             (
                 self.global_var_obj(),
@@ -113,7 +113,7 @@ impl JSContext {
 
     /// flags is 0, DEFINE_GLOBAL_LEX_VAR or DEFINE_GLOBAL_FUNC_VAR
     /// XXX: could support exotic global object.
-    pub fn define_global_var_checked(&self, prop: JSAtom, flags: u32) -> Result<(), i32> {
+    pub fn define_global_var_checked(&self, prop: AtomRef, flags: u32) -> Result<(), i32> {
         let gobj = self.global_obj();
         let prs = gobj.find_shape_property(prop).map(|(_, flags)| flags);
 
@@ -158,7 +158,7 @@ impl JSContext {
         Ok(())
     }
 
-    pub fn get_global_var(&self, prop: JSAtom, throw_ref_error: bool) -> JSResult {
+    pub fn get_global_var(&self, prop: AtomRef, throw_ref_error: bool) -> JSResult {
         // no exotic behavior is possible in global_var_obj
         let gvobj = self.global_var_obj();
         if let Some((idx, _)) = gvobj.find_shape_property(prop) {
@@ -182,7 +182,7 @@ impl JSContext {
     }
 
     /// used for strict variable access: test if the variable exists
-    pub fn check_global_var(&self, prop: JSAtom) -> Result<bool, i32> {
+    pub fn check_global_var(&self, prop: AtomRef) -> Result<bool, i32> {
         // no exotic behavior is possible in global_var_obj
         let p = self.global_var_obj();
         if p.has_shape_property(prop) {
@@ -196,7 +196,7 @@ impl JSContext {
     /// * 0: normal variable write
     /// * 1: initialize lexical variable
     /// * 2: normal variable write, strict check was done before
-    pub fn set_global_var(&self, prop: JSAtom, val: JSValue, flag: u32) -> Result<bool, i32> {
+    pub fn set_global_var(&self, prop: AtomRef, val: JSValue, flag: u32) -> Result<bool, i32> {
         // no exotic behavior is possible in global_var_obj
         let gvobj = self.global_var_obj();
 

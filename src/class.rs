@@ -1,6 +1,6 @@
 use crate::{
     atom::{
-        Atom, JSAtom,
+        Atom, AtomRef,
         consts::{JS_ATOM_constructor, JS_ATOM_prototype},
     },
     context::JSContext,
@@ -41,36 +41,40 @@ pub type ClassCallFn = fn(
 pub type DefineOwnPropertyFn = fn(
     ctx: &JSContext,
     target: &JSValue,
-    prop: JSAtom,
+    prop: AtomRef,
     val: JSValue,
     getter: JSValue,
     setter: JSValue,
     flags: i32,
 ) -> Result<bool, i32>;
 
-pub type HasPropertyFn = fn(ctx: &JSContext, target: &JSObject, prop: JSAtom) -> Result<bool, i32>;
+pub type HasPropertyFn = fn(ctx: &JSContext, target: &JSObject, prop: AtomRef) -> Result<bool, i32>;
 
 /// TODO: change target type to &JSObject
-pub type GetOwnPropertyFn =
-    fn(ctx: &JSContext, target: JSValue, prop: JSAtom) -> Result<Option<JSPropertyDescriptor>, i32>;
+pub type GetOwnPropertyFn = fn(
+    ctx: &JSContext,
+    target: JSValue,
+    prop: AtomRef,
+) -> Result<Option<JSPropertyDescriptor>, i32>;
 
 pub type GetOwnPropertyNamesFn =
     fn(ctx: &JSContext, target: &JSObject) -> Result<Box<[PropertyKey]>, i32>;
 
 pub type GetPropertyFn =
-    fn(ctx: &JSContext, target: JSValue, prop: JSAtom, this_obj: JSValue) -> JSResult;
+    fn(ctx: &JSContext, target: JSValue, prop: AtomRef, this_obj: JSValue) -> JSResult;
 
 pub type SetPropertyFn = fn(
     ctx: &JSContext,
     target: JSValue,
-    prop: JSAtom,
+    prop: AtomRef,
     val: JSValue,
     this_obj: JSValue,
     flags: i32,
 ) -> Result<bool, i32>;
 
 /// TODO: change target type to &JSObject
-pub type DeletePropertyFn = fn(ctx: &JSContext, target: JSValue, prop: JSAtom) -> Result<bool, i32>;
+pub type DeletePropertyFn =
+    fn(ctx: &JSContext, target: JSValue, prop: AtomRef) -> Result<bool, i32>;
 
 #[derive(Copy, Clone, Default)]
 pub struct JSClassExoticMethods {
@@ -84,7 +88,7 @@ pub struct JSClassExoticMethods {
 }
 
 pub struct JSClassShortDef {
-    pub class_name: JSAtom,
+    pub class_name: AtomRef,
     pub finalizer: Option<JSClassFinalizer>,
     pub gc_mark: Option<JSClassGCMark>,
 }
@@ -144,7 +148,7 @@ impl JSRuntime {
         &mut self,
         class_id: JSClassID,
         class_def: &JSClassDef,
-        name: JSAtom,
+        name: AtomRef,
     ) -> Result<(), i32> {
         if class_id >= (1 << 16) {
             return Err(-1);
@@ -384,7 +388,7 @@ pub unsafe fn js_create_from_ctor(ctx: &JSContext, ctor: JSValue, class_id: JSCl
 fn js_arguments_define_own_property(
     ctx: &JSContext,
     this_obj: &JSValue,
-    prop: JSAtom,
+    prop: AtomRef,
     val: JSValue,
     getter: JSValue,
     setter: JSValue,

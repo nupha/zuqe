@@ -6,7 +6,7 @@ use widestring::U16Str;
 use crate::{
     JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_CLASS_STRING_ITERATOR, JS_NATIVE_ITERATOR_NEXT_DEF,
     JS_PROP_INT32_DEF, JS_PROP_STRING_DEF,
-    atom::{JSAtom, consts::*},
+    atom::{AtomRef, consts::*},
     context::JSContext,
     error::JSResult,
     function::{CallContext, FieldDef, IteratorState, JS_CallConstructor},
@@ -709,7 +709,7 @@ pub fn check_regexp_g_flag(ctx: &JSContext, regexp: &JSValue) -> i32 {
 }
 
 pub fn js_string_match(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let magic_method = JSAtom(cc.magic() as u32); // match, matchAll, search
+    let magic_method = AtomRef(cc.magic() as u32); // match, matchAll, search
     let this = cc.this();
 
     if this.is_undefined_or_null() {

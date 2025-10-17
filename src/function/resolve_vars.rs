@@ -1,5 +1,5 @@
 use crate::{
-    atom::{Atom, JS_ATOM_NULL, JSAtom, consts::*},
+    atom::{Atom, JS_ATOM_NULL, AtomRef, consts::*},
     bytecode::{OpCode, OpCodeTemp, opcode_info_intermediate, opcodes},
     context::JSContext,
     error::JS_THROW_VAR_REDECL,
@@ -142,7 +142,7 @@ impl JSFunctionDef {
                 | opcodes::op_scope_put_var_init => {
                     let (var_name, scope) = unsafe {
                         (
-                            JSAtom(read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1))),
+                            AtomRef(read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1))),
                             read_from_ptr::<u16>(bc_buf_ptr.add(pos + 5)),
                         )
                     };
@@ -172,7 +172,7 @@ impl JSFunctionDef {
                     self.label_slots[label_id as usize].ref_count -= 1;
 
                     let var_name =
-                        JSAtom::from(unsafe { read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1)) });
+                        AtomRef::from(unsafe { read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1)) });
 
                     // debug: get atom refcount before resolve_scope_var()
                     #[cfg(debug_assertions)]
@@ -206,7 +206,7 @@ impl JSFunctionDef {
                 | opcodes::op_scope_in_private_field => {
                     let (var_name, scope) = unsafe {
                         (
-                            JSAtom(read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1))),
+                            AtomRef(read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1))),
                             read_from_ptr::<u16>(bc_buf_ptr.add(pos + 5)),
                         )
                     };
@@ -408,7 +408,7 @@ impl JSFunctionDef {
                 }
                 opcodes::OP_set_name => {
                     /* remove dummy set_name opcodes */
-                    let name = JSAtom(unsafe { read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1)) });
+                    let name = AtomRef(unsafe { read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1)) });
                     if name != JS_ATOM_NULL {
                         no_change!(pos, op_len);
                     }

@@ -6,7 +6,7 @@ use crate::{
     JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
     JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION,
     atom::{
-        JSAtom,
+        AtomRef,
         consts::{JS_ATOM_length, JS_ATOM_name, JS_ATOM_prototype},
     },
     class::JSClassID,
@@ -263,7 +263,7 @@ pub fn get_func_name(func: &JSValue) -> Option<String> {
 }
 
 /// define `length` and `name` properties on function object `func_obj`
-pub fn js_function_set_properties(ctx: &JSContext, func_obj: &JSObject, name: JSAtom, len: i32) {
+pub fn js_function_set_properties(ctx: &JSContext, func_obj: &JSObject, name: AtomRef, len: i32) {
     let _ = func_obj.define_property_value(
         ctx,
         JS_ATOM_length,

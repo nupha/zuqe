@@ -14,7 +14,7 @@ use crate::{
     JS_CLASS_DATAVIEW, JS_CLASS_DATE, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_GENERATOR_FUNCTION,
     JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_PROXY, JS_CLASS_REGEXP, JS_CLASS_STRING,
     JS_CLASS_SYMBOL, JS_CLASS_UINT8C_ARRAY,
-    atom::{JSAtom, consts::*},
+    atom::{AtomRef, consts::*},
     branch_hints::unlikely,
     class::JSClassID,
     context::JSContext,
@@ -495,7 +495,7 @@ impl JSObject {
 
     /// Get object class name atom.
     #[inline]
-    pub fn class_name(&self) -> JSAtom {
+    pub fn class_name(&self) -> AtomRef {
         self.rt().class_defs[self.class_id() as usize]
             .class_name
             .as_ref()

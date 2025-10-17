@@ -2,17 +2,17 @@ use std::{ops::Deref, ptr::NonNull};
 
 use crate::{atom::Atom, runtime::JSRuntime};
 
-use super::JSAtom;
+use super::AtomRef;
 
-/// A reference-counted wrapper for JSAtom that provides automatic memory management
-/// and safe access to the underlying JSAtom.
+/// A reference-counted wrapper for AtomRef that provides automatic memory management
+/// and safe access to the underlying AtomRef.
 #[derive(Debug)]
-pub struct JSAtomRc {
+pub struct AtomRc {
     atom: Atom,
     rt: NonNull<JSRuntime>,
 }
 
-impl JSAtomRc {
+impl AtomRc {
     /// the invalid atom
     pub const NULL: Self = Self {
         atom: Atom::from(0),
@@ -21,14 +21,14 @@ impl JSAtomRc {
 
     /// wrap a atom to atom rc by cloning it
     #[inline]
-    pub fn from_ref<A: Into<JSAtom>>(rt: &JSRuntime, atom: A) -> Self {
-        let a: JSAtom = atom.into();
+    pub fn from_ref<A: Into<AtomRef>>(rt: &JSRuntime, atom: A) -> Self {
+        let a: AtomRef = atom.into();
         a.dup(rt).into_rc(rt)
     }
 
     #[inline(always)]
-    pub fn as_ref(&self) -> JSAtom {
-        JSAtom(self.id())
+    pub fn as_ref(&self) -> AtomRef {
+        AtomRef(self.id())
     }
 
     /// consume the atom rc and return the atom id. DO NOT decrease refcount.
@@ -38,18 +38,18 @@ impl JSAtomRc {
     }
 }
 
-impl Deref for JSAtomRc {
+impl Deref for AtomRc {
     type Target = Atom;
 
-    /// Automatically dereferences to access the inner JSAtom
+    /// Automatically dereferences to access the inner AtomRef
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.atom
     }
 }
 
-impl Clone for JSAtomRc {
-    /// Dup the inner JSAtom
+impl Clone for AtomRc {
+    /// Dup the inner AtomRef
     #[inline]
     fn clone(&self) -> Self {
         Self {
@@ -63,25 +63,25 @@ impl Clone for JSAtomRc {
     }
 }
 
-impl Drop for JSAtomRc {
-    /// Automatically free inner atom when JSAtomRc is destroyed
+impl Drop for AtomRc {
+    /// Automatically free inner atom when AtomRc is destroyed
     fn drop(&mut self) {
         let a = std::mem::replace(&mut self.atom, Atom::NULL);
         a.free(unsafe { self.rt.as_mut() });
     }
 }
 
-impl From<JSAtomRc> for Atom {
-    /// consume JSAtomRc into Atom
+impl From<AtomRc> for Atom {
+    /// consume AtomRc into Atom
     #[inline(always)]
-    fn from(mut v: JSAtomRc) -> Self {
+    fn from(mut v: AtomRc) -> Self {
         std::mem::replace(&mut v.atom, Atom::NULL)
     }
 }
 
 impl Atom {
-    pub fn into_rc(self, rt: &JSRuntime) -> JSAtomRc {
-        JSAtomRc {
+    pub fn into_rc(self, rt: &JSRuntime) -> AtomRc {
+        AtomRc {
             atom: self,
             rt: NonNull::from(rt),
         }

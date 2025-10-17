@@ -1,5 +1,5 @@
 use crate::{
-    atom::{Atom, JS_ATOM_NULL, JSAtom, JSAtomRc, consts::*},
+    atom::{Atom, JS_ATOM_NULL, AtomRef, AtomRc, consts::*},
     bytecode::{OpCode, OpCodeTemp},
     context::JS_MODE_STRICT,
     eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
@@ -70,7 +70,7 @@ impl JSParseState<'_> {
                 self.parse_function_decl(
                     JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
                     JSFunctionKindEnum::JS_FUNC_NORMAL,
-                    JSAtom::NULL,
+                    AtomRef::NULL,
                     self.token.ptr,
                     self.token.line_num,
                 )
@@ -227,7 +227,7 @@ impl JSParseState<'_> {
                     return Err(-1);
                 }
 
-                let name = JSAtomRc::from_ref(self.ctx.rt(), atom);
+                let name = AtomRc::from_ref(self.ctx.rt(), atom);
 
                 self.next_token()?;
                 self.define_var(name.as_ref(), tok, export)?;
@@ -244,7 +244,7 @@ impl JSParseState<'_> {
                         let mut opcode: i32 = 0;
                         let mut scope: i32 = 0;
                         let mut label: i32 = 0;
-                        let mut name1 = JSAtom::NULL;
+                        let mut name1 = AtomRef::NULL;
                         self.get_lvalue(
                             &mut opcode,
                             &mut scope,

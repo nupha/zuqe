@@ -1,5 +1,5 @@
 use crate::{
-    atom::{JS_ATOM_NULL, JSAtom},
+    atom::{JS_ATOM_NULL, AtomRef},
     bytecode::{OpCode, OpcodeFormat, opcode_info_intermediate, opcodes},
     context::{JS_MODE_STRICT, JSContext},
     function::{JSFunctionDef, Label},
@@ -22,7 +22,7 @@ pub(super) struct CodeMatchState {
     pub idx: i32,
     pub label: i32,
     pub val: i32,
-    pub atom: JSAtom,
+    pub atom: AtomRef,
 }
 
 impl Default for CodeMatchState {
@@ -129,18 +129,18 @@ impl JSFunctionDef {
                         state.val = read_from_ptr::<u16>(bc_ptr.add(pos + 4)) as _;
                     }
                     OpcodeFormat::ATOM => {
-                        state.atom = JSAtom(read_from_ptr::<u32>(bc_ptr.add(pos)));
+                        state.atom = AtomRef(read_from_ptr::<u32>(bc_ptr.add(pos)));
                     }
                     OpcodeFormat::ATOM_U8 => {
-                        state.atom = JSAtom(read_from_ptr::<u32>(bc_ptr.add(pos)));
+                        state.atom = AtomRef(read_from_ptr::<u32>(bc_ptr.add(pos)));
                         state.val = *bc_ptr.add(pos + 4) as _;
                     }
                     OpcodeFormat::ATOM_U16 => {
-                        state.atom = JSAtom(read_from_ptr::<u32>(bc_ptr.add(pos)));
+                        state.atom = AtomRef(read_from_ptr::<u32>(bc_ptr.add(pos)));
                         state.val = read_from_ptr::<u16>(bc_ptr.add(pos + 4)) as _;
                     }
                     OpcodeFormat::ATOM_LABEL_U8 => {
-                        state.atom = JSAtom(read_from_ptr::<u32>(bc_ptr.add(pos)));
+                        state.atom = AtomRef(read_from_ptr::<u32>(bc_ptr.add(pos)));
                         state.label = read_from_ptr::<u32>(bc_ptr.add(pos + 4)) as _;
                         state.val = read_from_ptr::<u8>(bc_ptr.add(pos + 8)) as _;
                     }
@@ -603,7 +603,7 @@ pub fn optimize_scope_make_global_ref(
     bc_buf: *mut u8,
     label: &Label,
     mut pos_next: u32,
-    var_name: JSAtom,
+    var_name: AtomRef,
 ) -> u32 {
     let is_strict = js_mode & JS_MODE_STRICT as u8 != 0;
     if is_strict {

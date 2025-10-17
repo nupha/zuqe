@@ -1,7 +1,7 @@
 use std::ops::DerefMut;
 
 use crate::{
-    atom::{Atom, JS_ATOM_NULL, JSAtom, JSAtomRc, consts::*},
+    atom::{Atom, JS_ATOM_NULL, AtomRef, AtomRc, consts::*},
     bytecode::{OpCode, OpCodeTemp},
     context::{JS_MODE_STRICT, JS_MODE_STRIP},
     eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
@@ -471,7 +471,7 @@ impl<'s> JSParseState<'s> {
         &mut self,
         func_type: JSParseFunctionEnum,
         mut func_kind: JSFunctionKindEnum,
-        func_name: JSAtom,
+        func_name: AtomRef,
         ptr: *const u8,
         function_line_num: i32,
         export_flag: JSParseExportEnum,
@@ -487,7 +487,7 @@ impl<'s> JSParseState<'s> {
 
         let mut lexical_func_idx: i32 = -1;
         let mut create_func_var = false;
-        let mut name = JSAtomRc::from_ref(self.ctx.rt(), func_name);
+        let mut name = AtomRc::from_ref(self.ctx.rt(), func_name);
 
         match func_type {
             JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT
@@ -537,7 +537,7 @@ impl<'s> JSParseState<'s> {
                         && func_type == JSParseFunctionEnum::JS_PARSE_FUNC_EXPR)
                 {
                     // must dup atom, because next_token() will free it
-                    name = JSAtomRc::from_ref(self.ctx.rt(), self.token.atom().unwrap());
+                    name = AtomRc::from_ref(self.ctx.rt(), self.token.atom().unwrap());
                     self.next_token()?;
                 } else if func_type != JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
                     && export_flag != JSParseExportEnum::JS_PARSE_EXPORT_DEFAULT
@@ -781,7 +781,7 @@ impl<'s> JSParseState<'s> {
         &mut self,
         func_type: JSParseFunctionEnum,
         func_kind: JSFunctionKindEnum,
-        func_name: JSAtom,
+        func_name: AtomRef,
         ptr: *const u8,
         function_line_num: i32,
     ) -> Result<(), i32> {
@@ -796,7 +796,7 @@ impl<'s> JSParseState<'s> {
         )
     }
 
-    fn parse_function_check_names(&self, fd: &JSFunctionDef, func_name: JSAtom) -> Result<(), i32> {
+    fn parse_function_check_names(&self, fd: &JSFunctionDef, func_name: AtomRef) -> Result<(), i32> {
         if fd.attrs.js_mode & JS_MODE_STRICT as u8 != 0 {
             if !fd.attrs.has_simple_parameter_list && fd.has_use_strict {
                 self.throw_syntax_error(

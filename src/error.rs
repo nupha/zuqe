@@ -2,7 +2,7 @@ use std::{borrow::Cow, io::Write};
 
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CLASS_ERROR, JS_PROP_STRING_DEF,
-    atom::{JS_ATOM_NULL, JSAtom, consts::*},
+    atom::{JS_ATOM_NULL, AtomRef, consts::*},
     class::JSClassID,
     context::{JSContext, is_strict_mode},
     function::{Bytecode, CallContext, FieldDef, get_func_name},
@@ -180,7 +180,7 @@ impl JSContext {
     }
 
     /// atom is not consumed
-    pub fn throw_type_error_read_only(&self, atom: JSAtom) {
+    pub fn throw_type_error_read_only(&self, atom: AtomRef) {
         self.throw_type_error(&format!("'{}' is read-only", atom.to_utf8(self.rt())))
     }
 
@@ -344,7 +344,7 @@ impl JSContext {
     }
 }
 
-pub fn JS_ThrowReferenceErrorUninitialized(ctx: &JSContext, name: JSAtom) {
+pub fn JS_ThrowReferenceErrorUninitialized(ctx: &JSContext, name: AtomRef) {
     if name == JS_ATOM_NULL {
         ctx.throw_reference_error("lexical variable is not initialized");
     } else {
@@ -352,7 +352,7 @@ pub fn JS_ThrowReferenceErrorUninitialized(ctx: &JSContext, name: JSAtom) {
     }
 }
 
-pub fn JS_ThrowReferenceErrorNotDefined(ctx: &JSContext, name: JSAtom) {
+pub fn JS_ThrowReferenceErrorNotDefined(ctx: &JSContext, name: AtomRef) {
     ctx.throw_reference_error(&format!("'{}' is not defined", name.to_utf8(ctx.rt())))
 }
 
@@ -363,7 +363,7 @@ pub fn JS_ThrowReferenceErrorUninitialized2(ctx: &JSContext, b: &Bytecode, idx: 
         // not present if the function is stripped and contains no eval()
         b.get_var(idx).map(|vd| vd.var_name.as_ref())
     }
-    .unwrap_or(JSAtom::NULL);
+    .unwrap_or(AtomRef::NULL);
 
     JS_ThrowReferenceErrorUninitialized(ctx, atom);
 }
@@ -377,7 +377,7 @@ pub fn JS_ThrowTypeErrorDetachedArrayBuffer(ctx: &JSContext) {
     ctx.throw_type_error("ArrayBuffer is detached");
 }
 
-pub fn JS_ThrowTypeErrorPrivateNotFound(ctx: &JSContext, atom: JSAtom) {
+pub fn JS_ThrowTypeErrorPrivateNotFound(ctx: &JSContext, atom: AtomRef) {
     ctx.throw_type_error(&format!(
         "private class field '{}' does not exist",
         atom.to_utf8(ctx.rt())
@@ -389,7 +389,7 @@ pub fn JS_ThrowSyntaxError(ctx: &JSContext, message: &str) {
     ctx.throw_error(ErrorKind::Syntax, message);
 }
 
-pub fn JS_ThrowSyntaxErrorVarRedeclaration(ctx: &JSContext, prop: JSAtom) {
+pub fn JS_ThrowSyntaxErrorVarRedeclaration(ctx: &JSContext, prop: AtomRef) {
     ctx.throw_syntax_error(&format!("redeclaration of '{}'", prop.to_utf8(ctx.rt())));
 }
 

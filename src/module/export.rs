@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 
 use crate::{
     atom::{
-        Atom, JS_ATOM_NULL, JSAtom, JSAtomRc,
+        Atom, AtomRc, JS_ATOM_NULL, AtomRef,
         consts::{JS_ATOM__star_, JS_ATOM_Module, JS_ATOM_Symbol_toStringTag, JS_ATOM_default},
     },
     branch_hints::unlikely,
@@ -96,8 +96,8 @@ pub(super) enum ResolveExport {
     Found {
         module: ModuleDef,
         export_type: ExportType,
-        export_name: JSAtomRc,
-        local_name: JSAtomRc,
+        export_name: AtomRc,
+        local_name: AtomRc,
     },
     NotFound,
     Ambiguous,
@@ -109,7 +109,7 @@ impl ResolveExport {
         &self,
         ctx: &JSContext,
         m: &ModuleDefInner,
-        export_name: JSAtom,
+        export_name: AtomRef,
     ) {
         match self {
             Self::Found { .. } => {}
@@ -140,7 +140,7 @@ impl ResolveExport {
 
 impl ModuleDefInner {
     /// find export entry by name
-    pub fn find_export(&self, export_name: JSAtom) -> Option<ExportEntry> {
+    pub fn find_export(&self, export_name: AtomRef) -> Option<ExportEntry> {
         self.export_entries
             .borrow()
             .iter()
@@ -154,8 +154,8 @@ impl ModuleDefInner {
     pub(crate) fn add_export_internal(
         &self,
         ctx: &JSContext,
-        local_name: JSAtom,
-        export_name: JSAtom,
+        local_name: AtomRef,
+        export_name: AtomRef,
         export_type: ExportType,
     ) -> Result<(), i32> {
         if unlikely(self.find_export(export_name).is_some()) {
@@ -355,8 +355,8 @@ impl ModuleDef {
                 ResolveExport::Found {
                     module: self.clone(),
                     export_type: me.export_type.clone(),
-                    export_name: JSAtomRc::from_ref(ctx.rt(), me.export_name.as_ref()),
-                    local_name: JSAtomRc::from_ref(ctx.rt(), me.local_name.as_ref()),
+                    export_name: AtomRc::from_ref(ctx.rt(), me.export_name.as_ref()),
+                    local_name: AtomRc::from_ref(ctx.rt(), me.local_name.as_ref()),
                 }
             } else {
                 self.resolve_export(ctx, export.export_name.as_ref(), None)?

@@ -1,7 +1,7 @@
 #![cfg(feature = "dump_bytecode")]
 
 use crate::{
-    atom::JSAtom,
+    atom::AtomRef,
     bytecode::OpcodeFormat,
     context::{JS_MODE_ASYNC, JS_MODE_STRICT, JSContext},
     function::{
@@ -305,12 +305,12 @@ pub(crate) fn dump_opcodes(
             }
             OpcodeFormat::ATOM => {
                 let a = unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos)) };
-                JSAtom(a).with_utf8(ctx.rt(), |s| {
+                AtomRef(a).with_utf8(ctx.rt(), |s| {
                     print!(" {a}:{s}");
                 });
             }
             f @ (OpcodeFormat::ATOM_U8 | OpcodeFormat::ATOM_U16) => {
-                let atom = JSAtom(unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos)) });
+                let atom = AtomRef(unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos)) });
                 atom.with_utf8(ctx.rt(), |s| {
                     print!(
                         " {s}, {}",
@@ -323,7 +323,7 @@ pub(crate) fn dump_opcodes(
                 });
             }
             f @ (OpcodeFormat::ATOM_LABEL_U8 | OpcodeFormat::ATOM_LABEL_U16) => {
-                let atom = JSAtom(unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos as _)) });
+                let atom = AtomRef(unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos as _)) });
                 atom.with_utf8(ctx.rt(), |s| {
                     print!(" {s}");
                 });
@@ -764,12 +764,12 @@ pub(super) fn dump_run_instruction(
         }
         OpcodeFormat::ATOM => {
             let a = unsafe { read_from_ptr::<u32>(tab.as_ptr().add(pos)) };
-            JSAtom(a).with_utf8(ctx.rt(), |s| {
+            AtomRef(a).with_utf8(ctx.rt(), |s| {
                 print!(" {a}'{s}");
             });
         }
         f @ (OpcodeFormat::ATOM_U8 | OpcodeFormat::ATOM_U16) => {
-            let atom = JSAtom(unsafe { read_from_ptr::<u32>(tab.as_ptr().add(pos)) });
+            let atom = AtomRef(unsafe { read_from_ptr::<u32>(tab.as_ptr().add(pos)) });
             atom.with_utf8(ctx.rt(), |s| {
                 print!(
                     " {}'{s}, {}",
@@ -783,7 +783,7 @@ pub(super) fn dump_run_instruction(
             });
         }
         f @ (OpcodeFormat::ATOM_LABEL_U8 | OpcodeFormat::ATOM_LABEL_U16) => {
-            let atom = JSAtom(unsafe { read_from_ptr::<u32>(tab.as_ptr().add(pos)) });
+            let atom = AtomRef(unsafe { read_from_ptr::<u32>(tab.as_ptr().add(pos)) });
             atom.with_utf8(ctx.rt(), |s| {
                 print!(" {}'{s}", atom.0);
             });

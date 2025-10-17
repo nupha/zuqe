@@ -1,5 +1,5 @@
 use crate::{
-    atom::{Atom, AtomTypeHint, JS_ATOM_NULL, JSAtom, consts::*},
+    atom::{Atom, AtomTypeHint, JS_ATOM_NULL, AtomRef, consts::*},
     bytecode::{OpCode, OpCodeTemp, opcodes},
     class::ClassFieldsDef,
     function::{JSFunctionDef, JSFunctionKindEnum},
@@ -28,8 +28,8 @@ impl JSFunctionDef {
 
     /// emit an atom by given atom ref. the atom ref will be dup'ed inside.
     #[inline]
-    pub fn emit_atom_ref<A: Into<JSAtom>>(&mut self, atom: A) {
-        let a: JSAtom = atom.into();
+    pub fn emit_atom_ref<A: Into<AtomRef>>(&mut self, atom: A) {
+        let a: AtomRef = atom.into();
         self.emit_u32(if a.is_const() {
             a.0
         } else {
@@ -289,7 +289,7 @@ impl JSFunctionDef {
 
     // pub unsafe fn emit_break(
     //     &mut self,
-    //     name: JSAtom,
+    //     name: AtomRef,
     //     is_continue: bool,
     //     last_line_num: u32,
     // ) -> i32 {
@@ -396,7 +396,7 @@ impl<'s> JSParseState<'s> {
 
     /// emit atom by given atom ref. the atom ref will be dup'ed inside.
     #[inline(always)]
-    pub fn emit_atom_ref<A: Into<JSAtom>>(&mut self, atom: A) {
+    pub fn emit_atom_ref<A: Into<AtomRef>>(&mut self, atom: A) {
         self.cur_func_mut().emit_atom_ref(atom);
     }
 
@@ -476,7 +476,7 @@ impl<'s> JSParseState<'s> {
 
     /// emit on current function def. `name` is the label name, JS_ATOM_NULL for none.
     /// Note: `name` is not consumed.
-    pub fn emit_break(&mut self, name: JSAtom, is_continue: bool) -> i32 {
+    pub fn emit_break(&mut self, name: AtomRef, is_continue: bool) -> i32 {
         let (mut scope_level, mut top_break) = {
             let f = self.cur_func();
             (f.scope_level, f.top_break)

@@ -8,7 +8,7 @@ use std::{
 
 use crate::{
     JS_CLASS_STRING,
-    atom::{AtomHintAndId, JSAtom, consts::*},
+    atom::{AtomHintAndId, AtomRef, consts::*},
     branch_hints::unlikely,
     class::JSClassExoticMethods,
     context::JSContext,
@@ -724,7 +724,7 @@ pub unsafe fn strstart(str: *const u8, val: *const u8, ptr: *mut *const u8) -> b
 fn string_define_own_property(
     ctx: &JSContext,
     this_obj: &JSValue,
-    prop: JSAtom,
+    prop: AtomRef,
     val: JSValue,
     getter: JSValue,
     setter: JSValue,
@@ -797,7 +797,7 @@ pub static js_string_exotic_methods: JSClassExoticMethods = JSClassExoticMethods
     get_own_property: Some(
         |ctx: &JSContext,
          obj: JSValue,
-         prop: JSAtom|
+         prop: AtomRef|
          -> Result<Option<JSPropertyDescriptor>, i32> {
             // This is a class exotic method for JS_CLASS_STRING object
             if let Some(idx) = prop.to_small_int()
@@ -820,7 +820,7 @@ pub static js_string_exotic_methods: JSClassExoticMethods = JSClassExoticMethods
     define_own_property: Some(string_define_own_property),
 
     delete_property: Some(
-        |_: &JSContext, obj: JSValue, prop: JSAtom| -> Result<bool, i32> {
+        |_: &JSContext, obj: JSValue, prop: AtomRef| -> Result<bool, i32> {
             if let Some(idx) = prop.to_small_int() {
                 let buflen = TryInto::<JSString>::try_into(obj).unwrap().len();
                 if (idx as usize) < buflen {

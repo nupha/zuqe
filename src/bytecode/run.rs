@@ -1,6 +1,6 @@
 use crate::{
     atom::{
-        Atom, AtomTypeHint, JSAtom,
+        Atom, AtomTypeHint, AtomRef,
         consts::{JS_ATOM_next, JS_ATOM_return, JS_ATOM_throw},
     },
     branch_hints::unlikely,
@@ -329,7 +329,7 @@ impl Bytecode {
                         let a = PC_FETCH!(u32);
                         SP_PUT!(
                             0,
-                            JSAtom(a)
+                            AtomRef(a)
                                 .string_or_symbol(ctx)
                                 .unwrap_or(JSValue::EXCEPTION)
                         );
@@ -885,7 +885,7 @@ impl Bytecode {
                         break State::Exception;
                     }
                     OpCode::THROW_ERROR => {
-                        let atom = JSAtom(PC_FETCH!(u32));
+                        let atom = AtomRef(PC_FETCH!(u32));
                         let type_ = PC_FETCH!(u8);
 
                         match type_ {
@@ -1031,7 +1031,7 @@ impl Bytecode {
                         }
                     }
                     OpCode::CHECK_VAR => {
-                        let atom = JSAtom(PC_FETCH!(u32));
+                        let atom = AtomRef(PC_FETCH!(u32));
                         if let Ok(b) = ctx.check_global_var(atom) {
                             SP_PUT!(0, JSValue::Bool(b));
                             SP_GO!(1);
@@ -1041,7 +1041,7 @@ impl Bytecode {
                     }
                     OpCode::GET_VAR_UNDEF | OpCode::GET_VAR => {
                         // [^] -> [value, ^]
-                        let atom = JSAtom(PC_FETCH!(u32));
+                        let atom = AtomRef(PC_FETCH!(u32));
                         if let Ok(val) = ctx.get_global_var(atom, opcode == OpCode::GET_VAR) {
                             SP_PUT!(0, val);
                             SP_GO!(1);
@@ -1051,7 +1051,7 @@ impl Bytecode {
                     }
                     OpCode::PUT_VAR | OpCode::PUT_VAR_INIT => {
                         // [val, ^] -> [^]
-                        let atom = JSAtom(PC_FETCH!(u32));
+                        let atom = AtomRef(PC_FETCH!(u32));
                         let res = ctx.set_global_var(
                             atom,
                             SP_TAKE!(-1),
@@ -1063,7 +1063,7 @@ impl Bytecode {
                         }
                     }
                     OpCode::PUT_VAR_STRICT => {
-                        let atom = JSAtom(PC_FETCH!(u32));
+                        let atom = AtomRef(PC_FETCH!(u32));
                         // SP[-2] is TRUE or FALSE
                         if let JSValue::Bool(false) = SP_TAKE!(-2) {
                             JS_ThrowReferenceErrorNotDefined(ctx, atom);
@@ -1077,7 +1077,7 @@ impl Bytecode {
                         }
                     }
                     OpCode::CHECK_DEFINE_VAR => {
-                        let atom = JSAtom(PC_FETCH!(u32));
+                        let atom = AtomRef(PC_FETCH!(u32));
                         let flags = PC_FETCH!(u8);
                         let r = ctx.define_global_var_checked(atom, flags as _);
                         if unlikely(r.is_err()) {
@@ -1085,7 +1085,7 @@ impl Bytecode {
                         }
                     }
                     OpCode::DEFINE_VAR => {
-                        let atom = JSAtom(PC_FETCH!(u32));
+                        let atom = AtomRef(PC_FETCH!(u32));
                         let flags = PC_FETCH!(u8);
                         let r = ctx.define_global_var(atom, flags as _);
                         if unlikely(r.is_err()) {
@@ -1093,7 +1093,7 @@ impl Bytecode {
                         }
                     }
                     OpCode::DEFINE_FUNC => {
-                        let atom = JSAtom(PC_FETCH!(u32));
+                        let atom = AtomRef(PC_FETCH!(u32));
                         let flags = PC_FETCH!(u8);
 
                         let func = SP_TAKE!(-1);
@@ -1238,7 +1238,7 @@ impl Bytecode {
                         stack_frame.close_lexical_var(ctx, idx, false);
                     }
                     OpCode::MAKE_LOC_REF | OpCode::MAKE_ARG_REF | OpCode::MAKE_VAR_REF_REF => {
-                        let atom = JSAtom(PC_FETCH!(u32));
+                        let atom = AtomRef(PC_FETCH!(u32));
                         let idx = PC_FETCH!(u16);
                         SP_PUT!(
                             0,
@@ -1282,7 +1282,7 @@ impl Bytecode {
                         }
                     }
                     OpCode::MAKE_VAR_REF => {
-                        let atom = JSAtom(PC_FETCH!(u32));
+                        let atom = AtomRef(PC_FETCH!(u32));
                         if let Ok(vs) = ctx.build_global_varref(atom) {
                             if let Some((v0, v1)) = vs {
                                 SP_PUT!(0, v0);
@@ -1549,7 +1549,7 @@ impl Bytecode {
                     OpCode::GET_FIELD | OpCode::GET_FIELD2 => {
                         // get_field: [obj, ^] -> [value, ^]
                         // get_field2: [obj, ^] -> [obj, value, ^]
-                        let atom = JSAtom(PC_FETCH!(u32));
+                        let atom = AtomRef(PC_FETCH!(u32));
 
                         if let Ok(val) = SP_REF!(-1).get_property(ctx, atom) {
                             if opcode == OpCode::GET_FIELD {
@@ -1564,7 +1564,7 @@ impl Bytecode {
                     }
                     OpCode::PUT_FIELD => {
                         // [obj, value, ^] -> [^]
-                        let atom = JSAtom(PC_FETCH!(u32));
+                        let atom = AtomRef(PC_FETCH!(u32));
                         let obj = SP_TAKE!(-2);
                         let value = SP_TAKE!(-1);
                         SP_GO!(-2);
@@ -1576,7 +1576,7 @@ impl Bytecode {
                         }
                     }
                     OpCode::PRIVATE_SYMBOL => {
-                        let atom = JSAtom(PC_FETCH!(u32));
+                        let atom = AtomRef(PC_FETCH!(u32));
                         if let Ok(val) = ctx.create_symbol_from_atom(atom, AtomTypeHint::Private) {
                             SP_PUT!(0, val);
                             SP_GO!(1);
@@ -1617,7 +1617,7 @@ impl Bytecode {
                     }
                     OpCode::DEFINE_FIELD => {
                         // [this_obj, value, ^] -> [this_obj, ^]
-                        let atom = JSAtom(PC_FETCH!(u32));
+                        let atom = AtomRef(PC_FETCH!(u32));
                         let ret = SP_REF!(-2).define_property_value(
                             ctx,
                             atom,
@@ -1631,7 +1631,7 @@ impl Bytecode {
                     }
                     OpCode::SET_NAME => {
                         // [obj, ^] -> [obj, ^]
-                        let atom = JSAtom(PC_FETCH!(u32));
+                        let atom = AtomRef(PC_FETCH!(u32));
                         let r = SP_REF!(-1)
                             .as_object()
                             .ok_or(-1)
@@ -1673,10 +1673,10 @@ impl Bytecode {
                         let (is_computed, a, op_flags) = if opcode == OpCode::DEFINE_METHOD_COMPUTED
                         {
                             // u8
-                            (true, JSAtom::NULL, PC_FETCH!(u8))
+                            (true, AtomRef::NULL, PC_FETCH!(u8))
                         } else {
                             // atom_u8
-                            (false, JSAtom(PC_FETCH!(u32)), PC_FETCH!(u8))
+                            (false, AtomRef(PC_FETCH!(u32)), PC_FETCH!(u8))
                         };
 
                         let name = if a.is_null() {
@@ -1747,7 +1747,7 @@ impl Bytecode {
                         }
                     }
                     OpCode::DEFINE_CLASS | OpCode::DEFINE_CLASS_COMPUTED => {
-                        let atom = JSAtom(PC_FETCH!(u32));
+                        let atom = AtomRef(PC_FETCH!(u32));
                         let class_flags = PC_FETCH!(u8) as u32;
                         let r = js_op_define_class(
                             ctx,
@@ -2216,7 +2216,7 @@ impl Bytecode {
                         }
                     }
                     OpCode::DELETE_VAR => {
-                        let atom = JSAtom(PC_FETCH!(u32));
+                        let atom = AtomRef(PC_FETCH!(u32));
                         match ctx.global_obj().delete_property(ctx, atom, 0) {
                             Ok(ret) => {
                                 SP_PUT!(0, JSValue::Bool(ret));
@@ -2266,7 +2266,7 @@ impl Bytecode {
                     | OpCode::WITH_GET_REF
                     | OpCode::WITH_GET_REF_UNDEF => {
                         // [env_obj, ^] -> [^]
-                        let atom = JSAtom(PC_FETCH!(u32));
+                        let atom = AtomRef(PC_FETCH!(u32));
                         let diff = PC_FETCH!(i32);
                         let is_with = PC_FETCH!(u8) != 0;
 

@@ -4,7 +4,7 @@ use crate::object::JSObject;
 use crate::{
     JS_CLASS_OBJECT,
     array::ArrayObjPayload,
-    atom::{JSAtom, consts::*},
+    atom::{AtomRef, consts::*},
     context::JSContext,
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_VARREF,
@@ -111,7 +111,7 @@ pub fn js_build_mapped_arguments(
         let vref = sf.get_var_ref(ctx, i as _, true)?;
         obj.add_own_property(
             ctx,
-            JSAtom::new_small_int(i as u32),
+            AtomRef::new_small_int(i as u32),
             JS_PROP_C_W_E | JS_PROP_VARREF,
             JSProperty::VarRef(vref),
         )?;

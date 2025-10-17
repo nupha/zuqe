@@ -1,5 +1,5 @@
 use crate::{
-    atom::{Atom, AtomTypeHint, JS_ATOM_NULL, JSAtom, JSAtomRc, consts::*},
+    atom::{Atom, AtomTypeHint, JS_ATOM_NULL, AtomRef, AtomRc, consts::*},
     branch_hints::unlikely,
     bytecode::OpCodeTemp,
     error::{ErrorKind, JS_BACKTRACE_FLAG_SINGLE_LEVEL},
@@ -62,7 +62,7 @@ impl<'s> JSParseState<'s> {
         self.next_token()?;
 
         let first_import = md.0.import_entries.borrow().len();
-        let module_name: JSAtomRc;
+        let module_name: AtomRc;
 
         if self.token.val == TOK_STRING {
             // import "module-name"
@@ -82,7 +82,7 @@ impl<'s> JSParseState<'s> {
                     return Err(-1);
                 }
 
-                let local_name = JSAtomRc::from_ref(self.ctx.rt(), self.token.atom().unwrap());
+                let local_name = AtomRc::from_ref(self.ctx.rt(), self.token.atom().unwrap());
                 self.next_token()?;
                 self.add_module_import(&md, local_name.as_ref(), JS_ATOM_default)?;
 
@@ -117,7 +117,7 @@ impl<'s> JSParseState<'s> {
                         }
 
                         let local_name =
-                            JSAtomRc::from_ref(self.ctx.rt(), self.token.atom().unwrap());
+                            AtomRc::from_ref(self.ctx.rt(), self.token.atom().unwrap());
                         self.next_token()?;
                         self.add_module_import(&md, local_name.as_ref(), JS_ATOM__star_)?;
                     }
@@ -159,7 +159,7 @@ impl<'s> JSParseState<'s> {
                                 }
 
                                 let ln =
-                                    JSAtomRc::from_ref(self.ctx.rt(), self.token.atom().unwrap());
+                                    AtomRc::from_ref(self.ctx.rt(), self.token.atom().unwrap());
                                 self.next_token()?;
                                 ln
                             } else {
@@ -272,14 +272,14 @@ impl<'s> JSParseState<'s> {
 
                     self.next_token()?;
 
-                    let export_name: JSAtomRc = if self.token_is_pseudo_keyword(JS_ATOM_as) {
+                    let export_name: AtomRc = if self.token_is_pseudo_keyword(JS_ATOM_as) {
                         // <local_name> as <export_name>
                         self.next_token()?;
 
                         let n = match self.token.val {
                             TOK_IDENT | TOK_FIRST_KEYWORD..=TOK_LAST_KEYWORD => {
                                 // Accept ident, keywords and reserved words as property names
-                                JSAtomRc::from_ref(self.ctx.rt(), self.token.atom().unwrap())
+                                AtomRc::from_ref(self.ctx.rt(), self.token.atom().unwrap())
                             }
                             TOK_STRING => {
                                 let s = self.token.string().unwrap();
@@ -446,8 +446,8 @@ impl<'s> JSParseState<'s> {
     pub(super) fn add_module_export(
         &self,
         md: Option<&ModuleDef>,
-        local_name: JSAtom,
-        export_name: JSAtom,
+        local_name: AtomRef,
+        export_name: AtomRef,
         export_type: ExportType,
     ) -> Result<(), i32> {
         let md = md.unwrap_or_else(|| {
@@ -482,8 +482,8 @@ impl<'s> JSParseState<'s> {
     pub(super) fn add_module_import(
         &self,
         md: &ModuleDef,
-        local_name: JSAtom,
-        import_name: JSAtom,
+        local_name: AtomRef,
+        import_name: AtomRef,
     ) -> Result<(), i32> {
         if local_name == JS_ATOM_arguments || local_name == JS_ATOM_eval {
             self.throw_syntax_error("invalid import binding");

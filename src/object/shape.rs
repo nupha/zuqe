@@ -8,7 +8,7 @@ use std::{
 use indexmap::IndexMap;
 
 use crate::{
-    atom::{Atom, JSAtom},
+    atom::{Atom, AtomRef},
     context::JSContext,
     gc::GCObjectHeader,
     object::{GCObject, GCObjectWeakref, JS_PROP_WRITABLE},
@@ -257,7 +257,7 @@ impl JSShape {
     pub(crate) fn add_shape_property(
         &self,
         ctx: &JSContext,
-        prop: JSAtom,
+        prop: AtomRef,
         prop_flags: u32,
         obj: Option<&ObjectInner>,
     ) -> Result<usize, i32> {
@@ -402,7 +402,7 @@ impl JSRuntime {
     pub fn find_shape_with_extend_prop(
         &self,
         base_shape: &JSShape,
-        prop: JSAtom,
+        prop: AtomRef,
         prop_flags: u32,
     ) -> Option<JSShape> {
         let base_shape = base_shape.0.borrow();
@@ -503,7 +503,7 @@ impl ObjectInner {
     pub fn update_shape_property_flags(
         &self,
         ctx: &JSContext,
-        prop: JSAtom,
+        prop: AtomRef,
         flags: u32,
     ) -> Result<bool, i32> {
         let cur_flags = self
@@ -554,7 +554,7 @@ impl JSObject {
     pub fn update_shape_property_flags(
         &self,
         ctx: &JSContext,
-        prop: JSAtom,
+        prop: AtomRef,
         flags: u32,
     ) -> Result<bool, i32> {
         self.0.update_shape_property_flags(ctx, prop, flags)

@@ -1,5 +1,5 @@
 use crate::{
-    atom::{Atom, JSAtom, js_atom_concat_str},
+    atom::{Atom, AtomRef, js_atom_concat_str},
     bytecode::opcodes,
     context::JSContext,
     error::JS_THROW_VAR_RO,
@@ -12,7 +12,7 @@ impl JSFunctionDef {
     fn resolve_scope_private_field1(
         &mut self,
         ctx: &JSContext,
-        var_name: JSAtom,
+        var_name: AtomRef,
         mut scope_level: i32,
     ) -> Result<(u16, JSVarKindEnum, bool), i32> {
         let mut root_fd: Option<&JSFunctionDef> = None;
@@ -86,7 +86,7 @@ impl JSFunctionDef {
 
     /// search `var_name` in all scopes since `scope_level`.
     /// `var_name` is not consumed.
-    fn find_private_class_field_all(&self, var_name: JSAtom, scope_level: i32) -> Option<u16> {
+    fn find_private_class_field_all(&self, var_name: AtomRef, scope_level: i32) -> Option<u16> {
         debug_assert!(scope_level >= 0);
 
         let mut idx = self.scopes[scope_level as usize].first;
@@ -104,7 +104,7 @@ impl JSFunctionDef {
     pub(super) fn resolve_scope_private_field(
         &mut self,
         ctx: &JSContext,
-        var_name: JSAtom,
+        var_name: AtomRef,
         scope_level: i32,
         op: u8,
         bc: &mut Vec<u8>,
@@ -214,6 +214,6 @@ impl JSFunctionDef {
 }
 
 /// build a private setter function name from the private getter name
-fn get_private_setter_name(ctx: &JSContext, name: JSAtom) -> Atom {
+fn get_private_setter_name(ctx: &JSContext, name: AtomRef) -> Atom {
     unsafe { js_atom_concat_str(ctx, name, c"<set>".as_ptr().cast()) }
 }
