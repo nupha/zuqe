@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 
 use crate::{
     atom::{
-        Atom, AtomRc, JS_ATOM_NULL, AtomRef,
+        Atom, AtomRc, AtomRef, JS_ATOM_NULL,
         consts::{JS_ATOM__star_, JS_ATOM_Module, JS_ATOM_Symbol_toStringTag, JS_ATOM_default},
     },
     branch_hints::unlikely,
@@ -27,11 +27,12 @@ enum ExportedNameKind {
 
 #[derive(Debug)]
 struct ExportedNameEntry {
-    export_name: Atom,
+    export_name: AtomRc,
     export_type: ExportedNameKind,
 
-    /// using when the list is built
-    cached: Option<ExportEntry>,
+    /// (export_type, local_name, export_name)
+    /// using when the list is built.
+    cached: Option<(ExportType, AtomRc, AtomRc)>,
 }
 
 // impl ExportedNameEntry {
@@ -239,12 +240,16 @@ impl ModuleDefInner {
         atom.free(ctx.rt_mut());
 
         if let Some(me) = me {
-            if let ExportType::JS_EXPORT_TYPE_LOCAL { var_ref, .. } = &me.export_type {
+            if let ExportType::JS_EXPORT_TYPE_LOCAL { var_ref, .. } = me.export_type {
                 debug_assert!(
                     var_ref.is_some(),
                     "exported local entry must have been linked"
                 );
                 var_ref.as_ref().unwrap().set_value(value);
+
+                me.local_name.free(ctx.rt_mut());
+                me.export_name.free(ctx.rt_mut());
+
                 Ok(())
             } else {
                 // not a local export entry
@@ -303,10 +308,11 @@ impl ModuleDef {
                 .iter_mut()
                 .find(|x| x.export_name.as_ref() == exp.export_name.as_ref())
             {
-                if let Some(en) = entry.cached.take() {
-                    en.export_name.free(ctx.rt_mut());
-                    en.local_name.free(ctx.rt_mut());
-                }
+                entry.cached.take();
+                // if let Some(en) = entry.cached.take() {
+                //     en.export_name.free(ctx.rt_mut());
+                //     en.local_name.free(ctx.rt_mut());
+                // }
             } else {
                 if s.exported_names.len() == s.exported_names.capacity() {
                     s.exported_names.try_reserve(1).map_err(|_| {
@@ -315,14 +321,18 @@ impl ModuleDef {
                     })?;
                 }
                 s.exported_names.push(ExportedNameEntry {
-                    export_name: exp.export_name.dup(self.rt()),
+                    export_name: AtomRc::from_ref(self.rt(), &exp.export_name),
                     export_type: ExportedNameKind::EXPORTED_NAME_AMBIGUOUS,
                     cached: if from_star
                         || !matches!(exp.export_type, ExportType::JS_EXPORT_TYPE_LOCAL { .. })
                     {
                         None
                     } else {
-                        Some(exp.dup(self.rt()))
+                        Some((
+                            exp.export_type.clone(),
+                            AtomRc::from_ref(self.rt(), &exp.local_name),
+                            AtomRc::from_ref(self.rt(), &exp.export_name),
+                        ))
                     },
                 });
             }
@@ -350,17 +360,18 @@ impl ModuleDef {
 
         // Resolve the exported names. The ambiguous exports are removed
         for export in state.exported_names.iter_mut() {
-            let resolv = if let Some(me) = export.cached.as_ref() {
-                // fast case: use cached, no resolution needed
-                ResolveExport::Found {
-                    module: self.clone(),
-                    export_type: me.export_type.clone(),
-                    export_name: AtomRc::from_ref(ctx.rt(), me.export_name.as_ref()),
-                    local_name: AtomRc::from_ref(ctx.rt(), me.local_name.as_ref()),
-                }
-            } else {
-                self.resolve_export(ctx, export.export_name.as_ref(), None)?
-            };
+            let resolv =
+                if let Some((export_type, local_name, export_name)) = export.cached.as_ref() {
+                    // fast case: use cached, no resolution needed
+                    ResolveExport::Found {
+                        module: self.clone(),
+                        export_type: export_type.clone(),
+                        local_name: local_name.clone(),
+                        export_name: export_name.clone(),
+                    }
+                } else {
+                    self.resolve_export(ctx, export.export_name.as_ref(), None)?
+                };
 
             match resolv {
                 ResolveExport::Found {
@@ -381,12 +392,12 @@ impl ModuleDef {
                     }
                     ExportType::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } => {
                         debug_assert_ne!(local_name.as_ref(), JS_ATOM__star_);
-                        debug_assert_ne!(var_idx, u16::MAX);
 
                         export.export_type =
                             ExportedNameKind::EXPORTED_NAME_NORMAL(if let Some(vr) = var_ref {
                                 vr
                             } else {
+                                debug_assert_ne!(var_idx, u16::MAX);
                                 let p1 = unsafe {
                                     (*module.0.bytecode.as_ptr())
                                         .as_object_BCFunction()
