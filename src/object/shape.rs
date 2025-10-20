@@ -8,7 +8,7 @@ use std::{
 use indexmap::IndexMap;
 
 use crate::{
-    atom::{Atom, AtomRef},
+    atom::Atom,
     context::JSContext,
     gc::GCObjectHeader,
     object::{GCObject, GCObjectWeakref, JS_PROP_WRITABLE},
@@ -113,9 +113,7 @@ impl JSShapeInner {
         let rt = unsafe { self.rt_ptr().as_mut() };
 
         // free prop key atoms
-        for (_, mut prs) in self.prop_defs.drain(..) {
-            std::mem::replace(&mut prs.atom, Atom::NULL).free(rt);
-        }
+        self.prop_defs.clear();
 
         if self.is_hashed {
             rt.unregister_shape(self.id(), self.hash);
@@ -257,7 +255,7 @@ impl JSShape {
     pub(crate) fn add_shape_property(
         &self,
         ctx: &JSContext,
-        prop: AtomRef,
+        prop: Atom,
         prop_flags: u32,
         obj: Option<&ObjectInner>,
     ) -> Result<usize, i32> {
@@ -275,7 +273,7 @@ impl JSShape {
 
         let new_hash = if is_hashed {
             ctx.rt_mut().unregister_shape(shape_id, old_hash);
-            shape_hasher_u32(shape_hasher_u32(old_hash, prop.0), prop_flags)
+            shape_hasher_u32(shape_hasher_u32(old_hash, prop.id()), prop_flags)
         } else {
             0
         };
@@ -294,15 +292,18 @@ impl JSShape {
             })?;
         }
 
+        let atom_id = prop.id();
+        let is_small_int = prop.is_small_int();
+
         let mut prs = JSShapeProperty {
-            atom: prop.dup(ctx.rt()),
+            atom: prop,
             flags: 0,
         };
         prs.set_flags(prop_flags);
 
         let mut s = self.0.borrow_mut();
-        s.prop_defs.insert(prop.0, prs);
-        s.has_small_array_index |= prop.is_small_int();
+        s.prop_defs.insert(atom_id, prs);
+        s.has_small_array_index |= is_small_int;
 
         Ok(new_len)
     }
@@ -402,14 +403,14 @@ impl JSRuntime {
     pub fn find_shape_with_extend_prop(
         &self,
         base_shape: &JSShape,
-        prop: AtomRef,
+        prop: &Atom,
         prop_flags: u32,
     ) -> Option<JSShape> {
         let base_shape = base_shape.0.borrow();
 
         // calc hash for base_shape + (atom, prop_flags)
         let mut h = base_shape.hash;
-        h = shape_hasher_u32(h, prop.0);
+        h = shape_hasher_u32(h, prop.id());
         h = shape_hasher_u32(h, prop_flags);
 
         let expect_len = base_shape.prop_defs.len() + 1;
@@ -440,7 +441,7 @@ impl JSRuntime {
                     .borrow()
                     .prop_defs
                     .last()
-                    .map(|(_, pr)| pr.atom.as_ref() == prop && pr.flags() == prop_flags)
+                    .map(|(_, pr)| pr.atom.eq(prop) && pr.flags() == prop_flags)
                     .unwrap_or(false)
                 {
                     // last prop (atom, prop_flags) is match too
@@ -503,7 +504,7 @@ impl ObjectInner {
     pub fn update_shape_property_flags(
         &self,
         ctx: &JSContext,
-        prop: AtomRef,
+        prop: &Atom,
         flags: u32,
     ) -> Result<bool, i32> {
         let cur_flags = self
@@ -514,7 +515,7 @@ impl ObjectInner {
             .0
             .borrow()
             .prop_defs
-            .get(&prop.0)
+            .get(&prop.id())
             .map(|p| p.flags())
             .unwrap();
 
@@ -528,7 +529,7 @@ impl ObjectInner {
                 .0
                 .borrow_mut()
                 .prop_defs
-                .get_mut(&prop.0)
+                .get_mut(&prop.id())
                 .unwrap()
                 .set_flags(flags);
 
@@ -554,7 +555,7 @@ impl JSObject {
     pub fn update_shape_property_flags(
         &self,
         ctx: &JSContext,
-        prop: AtomRef,
+        prop: &Atom,
         flags: u32,
     ) -> Result<bool, i32> {
         self.0.update_shape_property_flags(ctx, prop, flags)

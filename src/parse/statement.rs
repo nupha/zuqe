@@ -1,5 +1,7 @@
+use std::ops::Deref;
+
 use crate::{
-    atom::{JS_ATOM_NULL, AtomRef, AtomRc, consts::*},
+    atom::{Atom, AtomRef, consts::*},
     branch_hints::unlikely,
     bytecode::{OpCode, OpCodeTemp},
     context::JS_MODE_STRICT,
@@ -56,16 +58,16 @@ impl<'s> JSParseState<'s> {
     }
 
     pub(super) fn parse_statement_or_decl(&mut self, decl_mask: i32) -> Result<(), i32> {
-        let mut label_name = AtomRc::NULL;
+        let mut label_name = Atom::NULL;
 
         // specific label handling
         // XXX: support multiple labels on loop statements
         if is_label(self) {
-            label_name = AtomRc::from_ref(self.ctx.rt(), self.token.atom().unwrap());
+            label_name = self.token.atom().unwrap();
 
             let mut be = self.cur_func().top_break;
             while !be.is_null() {
-                if unsafe { (*be).label_name } == label_name.as_ref() {
+                if unsafe { (*be).label_name.eq(&label_name) } {
                     self.throw_syntax_error("duplicate label name");
                     return Err(-1);
                 }
@@ -79,7 +81,7 @@ impl<'s> JSParseState<'s> {
                 // labelled regular statement
                 let label_break = self.cur_func_mut().add_label().map_or(-1, |l| l as i32);
                 let mut break_entry = BlockEnv {
-                    label_name: label_name.as_ref(),
+                    label_name: label_name,
                     label_break,
                     ..Default::default()
                 };
@@ -147,13 +149,13 @@ impl<'s> JSParseState<'s> {
                 stmt_if(self)?;
             }
             TOK_WHILE => {
-                stmt_while(self, label_name.as_ref())?;
+                stmt_while(self, label_name)?;
             }
             TOK_DO => {
-                stmt_do(self, label_name.as_ref())?;
+                stmt_do(self, label_name)?;
             }
             TOK_FOR => {
-                stmt_for(self, label_name.as_ref())?;
+                stmt_for(self, label_name)?;
             }
             t @ (TOK_BREAK | TOK_CONTINUE) => {
                 self.next_token()?;
@@ -163,12 +165,12 @@ impl<'s> JSParseState<'s> {
                     && self.token.val == TOK_IDENT
                     && !self.token.data.is_reserved()
                 {
-                    AtomRc::from_ref(self.ctx.rt(), self.token.atom().unwrap())
+                    self.token.atom().unwrap()
                 } else {
-                    AtomRc::NULL
+                    Atom::NULL
                 };
 
-                if self.emit_break(label.as_ref(), t == TOK_CONTINUE) != 0 {
+                if self.emit_break(&label, t == TOK_CONTINUE) != 0 {
                     return Err(-1);
                 }
                 if !label.is_null() {
@@ -177,7 +179,7 @@ impl<'s> JSParseState<'s> {
                 self.parse_expect_semi()?;
             }
             TOK_SWITCH => {
-                stmt_switch(self, label_name.as_ref())?;
+                stmt_switch(self, label_name)?;
             }
             TOK_TRY => {
                 stmt_try(self)?;
@@ -224,7 +226,7 @@ impl<'s> JSParseState<'s> {
                 // convert keyword token to atom
                 let a = t - TOK_FIRST_KEYWORD + 1;
                 debug_assert!(a > 0);
-                js_unsupported_keyword(self, AtomRef(a as u32));
+                js_unsupported_keyword(self, &AtomRef(a as u32));
                 return Err(-1);
             }
             t => {
@@ -244,7 +246,7 @@ impl<'s> JSParseState<'s> {
                     self.parse_function_decl(
                         JSParseFunctionEnum::JS_PARSE_FUNC_VAR,
                         JSFunctionKindEnum::JS_FUNC_NORMAL,
-                        JS_ATOM_NULL,
+                        &Atom::NULL,
                         self.token.ptr,
                         self.token.line_num,
                     )?;
@@ -275,7 +277,7 @@ impl<'s> JSParseState<'s> {
     }
 }
 
-pub fn js_unsupported_keyword(s: &mut JSParseState, atom: AtomRef) -> i32 {
+pub fn js_unsupported_keyword(s: &mut JSParseState, atom: &Atom) -> i32 {
     s.throw_syntax_error(&format!(
         "unsupported keyword: {}",
         atom.to_utf8(s.ctx.rt())
@@ -371,7 +373,7 @@ fn is_let(s: &mut JSParseState, decl_mask: i32) -> Result<bool, i32> {
 // }
 
 #[inline(always)]
-fn stmt_do(s: &mut JSParseState, label_name: AtomRef) -> Result<(), i32> {
+fn stmt_do(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
     let (label_cont, label_break, label1) = {
         let fd = s.cur_func_mut();
         (
@@ -411,7 +413,7 @@ fn stmt_do(s: &mut JSParseState, label_name: AtomRef) -> Result<(), i32> {
 }
 
 #[inline(always)]
-fn stmt_for(s: &mut JSParseState, label_name: AtomRef) -> Result<(), i32> {
+fn stmt_for(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
     s.next_token()?;
     s.set_eval_ret_undefined();
 
@@ -437,7 +439,7 @@ fn stmt_for(s: &mut JSParseState, label_name: AtomRef) -> Result<(), i32> {
 
     if (bits & SKIP_HAS_SEMI) == 0 {
         // parse for/in or for/of
-        return js_parse_for_in_of(s, label_name, is_async);
+        return js_parse_for_in_of(s, &label_name, is_async);
     }
 
     let block_scope_level = s.cur_func().scope_level;
@@ -567,7 +569,7 @@ fn stmt_for(s: &mut JSParseState, label_name: AtomRef) -> Result<(), i32> {
 }
 
 #[inline(always)]
-fn stmt_while(s: &mut JSParseState, label_name: AtomRef) -> Result<(), i32> {
+fn stmt_while(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
     let (label_cont, label_break) = {
         let fd = s.cur_func_mut();
         (fd.add_label()? as i32, fd.add_label()? as i32)
@@ -686,14 +688,14 @@ fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
                 }
             } else {
                 // must dup the atom because later next_token() will free it
-                let name = AtomRc::from_ref(s.ctx.rt(), s.token.atom().unwrap());
+                let name = s.token.atom().unwrap();
                 s.next_token()?;
 
-                s.define_var(name.as_ref(), TOK_CATCH, false)?;
+                s.define_var(&name, TOK_CATCH, false)?;
 
                 // store the exception value in the catch variable
                 s.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR);
-                s.emit_atom(name.into());
+                s.emit_atom(name);
                 s.emit_u16(s.cur_func().scope_level as _);
             }
 
@@ -764,7 +766,7 @@ fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
         if let Some(vidx) = s.cur_func().eval_ret_idx {
             // 'finally' updates eval_ret only if not a normal termination
             let ctx = s.ctx.clone();
-            saved_eval_ret_idx = s.cur_func_mut().add_var(&ctx, JS_ATOM__ret_)?;
+            saved_eval_ret_idx = s.cur_func_mut().add_var(&ctx, JS_ATOM__ret_.deref())?;
 
             s.emit_op(OpCode::GET_LOC);
             s.emit_u16(vidx);
@@ -808,7 +810,7 @@ fn stmt_let_const_var(s: &mut JSParseState, tok: i32, decl_mask: i32) -> Result<
 }
 
 #[inline(always)]
-fn stmt_switch(s: &mut JSParseState, label_name: AtomRef) -> Result<(), i32> {
+fn stmt_switch(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
     s.next_token()?;
     s.set_eval_ret_undefined();
     s.parse_expr_parens()?;
@@ -920,7 +922,8 @@ fn stmt_with(s: &mut JSParseState) -> Result<(), i32> {
 
         s.push_scope()?;
 
-        let with_idx = s.define_var_cur_func(JS_ATOM__with_, JSVarDefEnum::JS_VAR_DEF_WITH)?;
+        let with_idx =
+            s.define_var_cur_func(JS_ATOM__with_.deref(), JSVarDefEnum::JS_VAR_DEF_WITH)?;
 
         s.emit_op(OpCode::TO_OBJECT);
         s.emit_op(OpCode::PUT_LOC);
@@ -978,7 +981,7 @@ fn hasexpr(s: &mut JSParseState) -> Result<(), i32> {
 // enumeration is done
 pub fn js_parse_for_in_of(
     s: &mut JSParseState,
-    label_name: AtomRef,
+    label_name: &Atom,
     is_async: bool,
 ) -> Result<(), i32> {
     // save current scope label
@@ -1003,7 +1006,7 @@ pub fn js_parse_for_in_of(
     // local for_in scope starts here so individual elements
     // can be closed in statement.
     let mut break_entry = BlockEnv {
-        label_name,
+        label_name: label_name.deref().clone(),
         label_break,
         label_cont,
         drop_count: 1,
@@ -1022,7 +1025,7 @@ pub fn js_parse_for_in_of(
         s.token.val
     };
 
-    let var_name: AtomRc;
+    let var_name: Atom;
     let mut has_destructuring = false;
 
     if matches!(tok, TOK_VAR | TOK_LET | TOK_CONST) {
@@ -1036,18 +1039,18 @@ pub fn js_parse_for_in_of(
                 s.throw_syntax_error("variable name expected");
                 return Err(-1);
             }
-            var_name = AtomRc::NULL;
+            var_name = Atom::NULL;
         } else {
-            var_name = AtomRc::from_ref(s.ctx.rt(), s.token.atom().unwrap());
+            var_name = s.token.atom().unwrap();
             s.next_token()?;
 
-            s.define_var(var_name.as_ref(), tok, false)?;
+            s.define_var(&var_name, tok, false)?;
             s.emit_op_temp(if tok == TOK_CONST || tok == TOK_LET {
                 OpCodeTemp::SCOPE_PUT_VAR_INIT
             } else {
                 OpCodeTemp::SCOPE_PUT_VAR
             });
-            s.emit_atom_ref(var_name.as_ref());
+            s.emit_atom(var_name.clone());
             s.emit_u16(s.cur_func().scope_level as _);
         }
     } else if unlikely(
@@ -1091,14 +1094,14 @@ pub fn js_parse_for_in_of(
             s.put_lvalue(
                 opcode,
                 scope,
-                name,
+                name.deref().clone(),
                 lvalue_label,
                 PutLValueEnum::PUT_LVALUE_NOKEEP_BOTTOM,
                 false,
             );
         }
 
-        var_name = AtomRc::NULL;
+        var_name = Atom::NULL;
     }
 
     s.emit_goto(OpCode::GOTO, label_body);

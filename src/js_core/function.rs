@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF,
     atom::consts::*,
@@ -58,12 +60,12 @@ pub fn js_function_bind(ctx: &JSContext, cc: CallContext) -> JSResult {
     /* XXX: the spec could be simpler by only using GetOwnProperty */
     let len_val = if cc
         .this_raw()
-        .get_own_property(ctx, JS_ATOM_length)?
+        .get_own_property(ctx, JS_ATOM_length.deref())?
         .is_none()
     {
         JSValue::Int(0)
     } else {
-        let len = this_val.get_property(ctx, JS_ATOM_length)?;
+        let len = this_val.get_property(ctx, JS_ATOM_length.deref())?;
         match len {
             JSValue::Int(n) => JSValue::Int(std::cmp::max(0, n - arg_count as i32)),
             JSValue::Float64(mut d) => {
@@ -84,10 +86,10 @@ pub fn js_function_bind(ctx: &JSContext, cc: CallContext) -> JSResult {
     };
 
     func_obj
-        .define_property_value(ctx, JS_ATOM_length, len_val, JS_PROP_CONFIGURABLE)
+        .define_property_value(ctx, JS_ATOM_length.deref(), len_val, JS_PROP_CONFIGURABLE)
         .unwrap();
 
-    let name = cc.this_raw().get_property(ctx, JS_ATOM_name)?;
+    let name = cc.this_raw().get_property(ctx, JS_ATOM_name.deref())?;
     let name = if let JSValue::String(s) = name {
         s
     } else {
@@ -96,7 +98,12 @@ pub fn js_function_bind(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     // make bound function name.
     let bf_name = JS_ConcatString3(ctx, c"bound ", name.into(), c"")?;
-    func_obj.define_property_value(ctx, JS_ATOM_name, bf_name.into(), JS_PROP_CONFIGURABLE)?;
+    func_obj.define_property_value(
+        ctx,
+        JS_ATOM_name.deref(),
+        bf_name.into(),
+        JS_PROP_CONFIGURABLE,
+    )?;
 
     Ok(func_obj.into())
 }
@@ -126,7 +133,7 @@ pub fn js_function_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
         _ => c"function ",
     };
     let suff = c"() { [native code] }";
-    let mut name = this_val.get_property(ctx, JS_ATOM_name)?;
+    let mut name = this_val.get_property(ctx, JS_ATOM_name.deref())?;
     if name.is_undefined() {
         name = JS_ATOM_empty_string.force_string(ctx)?.into();
     }

@@ -1,7 +1,7 @@
-use std::ops::DerefMut;
+use std::ops::{Deref, DerefMut};
 
 use crate::{
-    atom::{Atom, JS_ATOM_NULL, AtomRef, AtomRc, consts::*},
+    atom::{Atom, JS_ATOM_NULL, consts::*},
     bytecode::{OpCode, OpCodeTemp},
     context::{JS_MODE_STRICT, JS_MODE_STRIP},
     eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
@@ -63,9 +63,7 @@ impl<'s> JSParseState<'s> {
             function_line_num,
         )?;
 
-        let func_name_ref = func_name.as_ref();
-
-        sub_fd.func_name = func_name;
+        sub_fd.func_name = func_name.clone();
         sub_fd.attrs.has_prototype = matches!(
             func_type,
             JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT
@@ -157,7 +155,7 @@ impl<'s> JSParseState<'s> {
                 return Err(-1);
             }
 
-            fd1.add_arg(&self.ctx, self.token.atom().unwrap())?;
+            fd1.add_arg(&self.ctx, &self.token.atom().unwrap())?;
             fd1.attrs.defined_arg_count = 1;
         } else if func_type != JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT {
             if self.token.val == '(' as i32 {
@@ -194,7 +192,7 @@ impl<'s> JSParseState<'s> {
                         fd1.emit_u16(fd1.args.len() as _);
                     } else {
                         // unnamed arg for destructuring
-                        let idx = fd1.add_arg(&self.ctx, JS_ATOM_NULL)? as i32;
+                        let idx = fd1.add_arg(&self.ctx, &Atom::NULL)? as i32;
                         fd1.emit_op(OpCode::GET_ARG, self.last_line_num);
                         fd1.emit_u16(idx as _);
                     }
@@ -225,7 +223,7 @@ impl<'s> JSParseState<'s> {
 
                     let name = self.token.atom().unwrap();
 
-                    if name == JS_ATOM_yield
+                    if name.as_ref() == JS_ATOM_yield
                         && fd1.attrs.func_kind == JSFunctionKindEnum::JS_FUNC_GENERATOR
                     {
                         self.throw_reserved_identifier_error();
@@ -233,11 +231,11 @@ impl<'s> JSParseState<'s> {
                     }
                     if fd1.has_parameter_expressions {
                         // fd1 is the cur_func
-                        self.define_var_cur_func(name, JSVarDefEnum::JS_VAR_DEF_LET)?;
+                        self.define_var_cur_func(&name, JSVarDefEnum::JS_VAR_DEF_LET)?;
                     }
 
                     /* XXX: could avoid allocating an argument if rest is true */
-                    let idx = fd1.add_arg(&self.ctx, name)? as i32;
+                    let idx = fd1.add_arg(&self.ctx, &name)? as i32;
                     self.next_token()?;
 
                     if rest {
@@ -247,7 +245,7 @@ impl<'s> JSParseState<'s> {
                         if fd1.has_parameter_expressions {
                             fd1.emit_op(OpCode::DUP, self.last_line_num);
                             fd1.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT, self.last_line_num);
-                            fd1.emit_atom_ref(name);
+                            fd1.emit_atom(name.clone());
                             fd1.emit_u16(fd1.scope_level as _);
                         }
                         fd1.emit_op(OpCode::PUT_ARG, self.last_line_num);
@@ -273,7 +271,7 @@ impl<'s> JSParseState<'s> {
 
                         self.parse_assign_expr()?;
 
-                        self.set_object_name(name);
+                        self.set_object_name(name.clone());
 
                         fd1.emit_op(OpCode::DUP, self.last_line_num);
                         fd1.emit_op(OpCode::PUT_ARG, self.last_line_num);
@@ -281,7 +279,7 @@ impl<'s> JSParseState<'s> {
 
                         fd1.emit_label(label, self.last_line_num);
                         fd1.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT, self.last_line_num);
-                        fd1.emit_atom_ref(name);
+                        fd1.emit_atom(name.clone());
                         fd1.emit_u16(fd1.scope_level as _);
                     } else {
                         if !has_opt_arg {
@@ -292,7 +290,7 @@ impl<'s> JSParseState<'s> {
                             fd1.emit_op(OpCode::GET_ARG, self.last_line_num);
                             fd1.emit_u16(idx as _);
                             fd1.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT, self.last_line_num);
-                            fd1.emit_atom_ref(name);
+                            fd1.emit_atom(name.clone());
                             fd1.emit_u16(fd1.scope_level as _);
                         }
                     }
@@ -336,16 +334,17 @@ impl<'s> JSParseState<'s> {
                     break;
                 }
 
-                if fd1.find_var(var_name).is_none() {
-                    fd1.add_var(&self.ctx, var_name)?;
+                if fd1.find_var(var_name.deref()).is_none() {
+                    fd1.add_var(&self.ctx, var_name.deref())?;
 
-                    let vname = fd1.vars.get(idx as usize).unwrap().var_name.as_ref();
+                    let vname = fd1.vars.get(idx as usize).unwrap().var_name.clone();
+
                     fd1.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR, self.last_line_num);
-                    fd1.emit_atom_ref(vname);
+                    fd1.emit_atom(vname.clone());
                     fd1.emit_u16(fd1.scope_level as _);
 
                     fd1.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR, self.last_line_num);
-                    fd1.emit_atom_ref(vname);
+                    fd1.emit_atom(vname.clone());
                     fd1.emit_u16(0);
                 }
 
@@ -379,7 +378,7 @@ impl<'s> JSParseState<'s> {
         if self.token.val == TOK_ARROW {
             self.next_token()?;
             if self.token.val != CHAR_CURLY_L {
-                self.parse_function_check_names(fd1, func_name_ref)?;
+                self.parse_function_check_names(fd1, &func_name)?;
                 self.parse_assign_expr()?;
 
                 fd1.emit_op(
@@ -424,7 +423,7 @@ impl<'s> JSParseState<'s> {
         self.parse_directives()?;
 
         // in strict_mode, check function and argument names
-        self.parse_function_check_names(fd1, func_name_ref)?;
+        self.parse_function_check_names(fd1, &func_name)?;
 
         while self.token.val != CHAR_CURLY_R {
             self.parse_source_element()?;
@@ -471,7 +470,7 @@ impl<'s> JSParseState<'s> {
         &mut self,
         func_type: JSParseFunctionEnum,
         mut func_kind: JSFunctionKindEnum,
-        func_name: AtomRef,
+        func_name: &Atom,
         ptr: *const u8,
         function_line_num: i32,
         export_flag: JSParseExportEnum,
@@ -487,7 +486,7 @@ impl<'s> JSParseState<'s> {
 
         let mut lexical_func_idx: i32 = -1;
         let mut create_func_var = false;
-        let mut name = AtomRc::from_ref(self.ctx.rt(), func_name);
+        let mut name = func_name.clone();
 
         match func_type {
             JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT
@@ -515,10 +514,10 @@ impl<'s> JSParseState<'s> {
                 if self.token.val == TOK_IDENT {
                     let atom = self.token.atom().unwrap();
                     if self.token.data.is_reserved()
-                        || (atom == JS_ATOM_yield
+                        || (atom.as_ref() == JS_ATOM_yield
                             && func_type == JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
                             && func_kind as u8 & JSFunctionKindEnum::JS_FUNC_GENERATOR as u8 != 0)
-                        || (atom == JS_ATOM_await
+                        || (atom.as_ref() == JS_ATOM_await
                             && ((func_type == JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
                                 && (func_kind as u8 & JSFunctionKindEnum::JS_FUNC_ASYNC as u8)
                                     != 0)
@@ -537,7 +536,7 @@ impl<'s> JSParseState<'s> {
                         && func_type == JSParseFunctionEnum::JS_PARSE_FUNC_EXPR)
                 {
                     // must dup atom, because next_token() will free it
-                    name = AtomRc::from_ref(self.ctx.rt(), self.token.atom().unwrap());
+                    name = self.token.atom().unwrap();
                     self.next_token()?;
                 } else if func_type != JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
                     && export_flag != JSParseExportEnum::JS_PARSE_EXPORT_DEFAULT
@@ -576,7 +575,7 @@ impl<'s> JSParseState<'s> {
                     .find_lexical_decl(func_name, cur_fd.scope_first, false)
                     .is_none()
                 && !(func_idx >= 0 && func_idx & ARGUMENT_VAR_OFFSET != 0)
-                && !(func_name == JS_ATOM_arguments && cur_fd.has_arguments_binding)
+                && !(func_name.as_ref() == JS_ATOM_arguments && cur_fd.has_arguments_binding)
             {
                 create_func_var = true;
             }
@@ -639,7 +638,7 @@ impl<'s> JSParseState<'s> {
         // create function object from fd1
         {
             // reload the real sub func name
-            let sub_func_name = sub_fd.func_name.as_ref();
+            let sub_func_name = &sub_fd.func_name;
 
             // the real object will be set at the end of the compilation
             let cp_idx = self
@@ -688,7 +687,7 @@ impl<'s> JSParseState<'s> {
                         /* store directly into global var, bypass lexical scope */
                         self.emit_op(OpCode::DUP);
                         self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR);
-                        self.emit_atom_ref(sub_func_name);
+                        self.emit_atom(sub_func_name.clone());
                         self.emit_u16(0);
                     } else {
                         // do not call define_var to bypass lexical scope check
@@ -700,7 +699,7 @@ impl<'s> JSParseState<'s> {
                         /* store directly into local var, bypass lexical catch scope */
                         self.emit_op(OpCode::DUP);
                         self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR);
-                        self.emit_atom_ref(sub_func_name);
+                        self.emit_atom(sub_func_name.clone());
                         self.emit_u16(0);
                     }
                 }
@@ -717,7 +716,7 @@ impl<'s> JSParseState<'s> {
                     /* store function object into its lexical name */
                     /* XXX: could use OP_put_loc directly */
                     self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
-                    self.emit_atom_ref(sub_func_name);
+                    self.emit_atom(sub_func_name.clone());
                     self.emit_u16(self.cur_func().scope_level as _);
                 }
             } else {
@@ -735,7 +734,7 @@ impl<'s> JSParseState<'s> {
                     }
                 } else {
                     let func_var_name = if sub_func_name.is_null() {
-                        JS_ATOM__default_ // export default
+                        JS_ATOM__default_.deref() // export default
                     } else {
                         sub_func_name
                     };
@@ -752,7 +751,7 @@ impl<'s> JSParseState<'s> {
                             if export_flag == JSParseExportEnum::JS_PARSE_EXPORT_NAMED {
                                 func_var_name
                             } else {
-                                JS_ATOM_default
+                                JS_ATOM_default.deref()
                             },
                             ExportType::JS_EXPORT_TYPE_LOCAL {
                                 var_idx: u16::MAX,
@@ -781,7 +780,7 @@ impl<'s> JSParseState<'s> {
         &mut self,
         func_type: JSParseFunctionEnum,
         func_kind: JSFunctionKindEnum,
-        func_name: AtomRef,
+        func_name: &Atom,
         ptr: *const u8,
         function_line_num: i32,
     ) -> Result<(), i32> {
@@ -796,14 +795,14 @@ impl<'s> JSParseState<'s> {
         )
     }
 
-    fn parse_function_check_names(&self, fd: &JSFunctionDef, func_name: AtomRef) -> Result<(), i32> {
+    fn parse_function_check_names(&self, fd: &JSFunctionDef, func_name: &Atom) -> Result<(), i32> {
         if fd.attrs.js_mode & JS_MODE_STRICT as u8 != 0 {
             if !fd.attrs.has_simple_parameter_list && fd.has_use_strict {
                 self.throw_syntax_error(
                     "'use strict' not allowed in function with default or destructuring parameter",
                 );
                 return Err(-1);
-            } else if matches!(func_name, JS_ATOM_eval | JS_ATOM_arguments) {
+            } else if matches!(func_name.as_ref(), JS_ATOM_eval | JS_ATOM_arguments) {
                 self.throw_syntax_error("invalid function name in strict code");
                 return Err(-1);
             } else if fd

@@ -96,11 +96,6 @@ impl JSVarRefInner {
         self.header.rt()
     }
 
-    #[inline(always)]
-    pub fn rt_mut(&mut self) -> &mut JSRuntime {
-        self.header.rt_mut()
-    }
-
     /// get raw pointer to value
     fn value_ptr(&self) -> NonNull<JSValue> {
         match &self.state {
@@ -175,8 +170,7 @@ impl JSVarRefInner {
     }
 
     fn finalize(&mut self) {
-        let rt = self.rt_mut();
-
+        // let rt = unsafe { self.header.rt_ptr().as_mut() };
         match &mut self.state {
             VarRefState::Detached { value } => {
                 // JS_FreeValueRT(rt, &value);

@@ -225,7 +225,7 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
             }
         }
 
-        let replacer = search.get_property(ctx, JS_ATOM_Symbol_replace)?;
+        let replacer = search.get_property(ctx, JS_ATOM_Symbol_replace.deref())?;
         if !replacer.is_undefined_or_null() {
             return replacer.call(ctx, search, &[this, replacement.clone()]);
         }
@@ -351,9 +351,11 @@ pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
     let limit = cc.arg(1);
 
     if !separator.is_undefined_or_null() {
-        if let Some(r) =
-            separator.invoke_defined(ctx, JS_ATOM_Symbol_split, &[this.clone(), limit.clone()])?
-        {
+        if let Some(r) = separator.invoke_defined(
+            ctx,
+            JS_ATOM_Symbol_split.deref(),
+            &[this.clone(), limit.clone()],
+        )? {
             return r;
         }
     }
@@ -682,7 +684,7 @@ pub fn check_regexp_g_flag(ctx: &JSContext, regexp: &JSValue) -> i32 {
     };
 
     if ret {
-        let flags = if let Ok(x) = regexp.get_property(ctx, JS_ATOM_flags) {
+        let flags = if let Ok(x) = regexp.get_property(ctx, JS_ATOM_flags.deref()) {
             x
         } else {
             return -1;
@@ -720,7 +722,7 @@ pub fn js_string_match(ctx: &JSContext, cc: CallContext) -> JSResult {
     let regexp = cc.arg(0);
 
     if !regexp.is_undefined_or_null() {
-        let matcher = regexp.get_property(ctx, magic_method)?;
+        let matcher = regexp.get_property(ctx, &magic_method)?;
         if magic_method == JS_ATOM_Symbol_matchAll {
             if check_regexp_g_flag(ctx, regexp) < 0 {
                 return Err(-1);
@@ -745,7 +747,8 @@ pub fn js_string_match(ctx: &JSContext, cc: CallContext) -> JSResult {
         let ctor = ctx.0.borrow().regexp_ctor.clone(); // avoid borrow for long
         JS_CallConstructor(ctx, &ctor, &args[0..args_len]).err()?
     };
-    re_obj.invoke(ctx, magic_method, &[str.into()])
+
+    re_obj.invoke(ctx, &magic_method.deref(), &[str.into()])
 }
 
 pub fn js_string_trim(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -1062,7 +1065,9 @@ pub fn js_string_fromCodePoint(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_string_raw(ctx: &JSContext, cc: CallContext) -> JSResult {
     // raw(temp,...a)
     let cooked = cc.arg(0).clone().objectify(ctx)?;
-    let raw = cooked.get_property(ctx, JS_ATOM_raw)?.objectify(ctx)?;
+    let raw = cooked
+        .get_property(ctx, JS_ATOM_raw.deref())?
+        .objectify(ctx)?;
 
     let n = raw.get_length_prop(ctx)?;
     let mut sbuf = StringBuf::Empty;

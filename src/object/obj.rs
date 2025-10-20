@@ -1,6 +1,7 @@
 use std::{
     cell::{Cell, RefCell},
     fmt::Formatter,
+    ops::Deref,
     ptr::NonNull,
     rc::{Rc, Weak},
 };
@@ -14,7 +15,7 @@ use crate::{
     JS_CLASS_DATAVIEW, JS_CLASS_DATE, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_GENERATOR_FUNCTION,
     JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_PROXY, JS_CLASS_REGEXP, JS_CLASS_STRING,
     JS_CLASS_SYMBOL, JS_CLASS_UINT8C_ARRAY,
-    atom::{AtomRef, consts::*},
+    atom::{Atom, consts::*},
     branch_hints::unlikely,
     class::JSClassID,
     context::JSContext,
@@ -333,7 +334,7 @@ impl ObjectInner {
             // only used for the Array prototype object
             obj.add_own_property(
                 ctx,
-                JS_ATOM_length,
+                JS_ATOM_length.deref().clone(),
                 JS_PROP_WRITABLE | JS_PROP_LENGTH,
                 JSProperty::Normal(JSValue::Int(0)),
             )
@@ -495,10 +496,8 @@ impl JSObject {
 
     /// Get object class name atom.
     #[inline]
-    pub fn class_name(&self) -> AtomRef {
-        self.rt().class_defs[self.class_id() as usize]
-            .class_name
-            .as_ref()
+    pub fn class_name(&self) -> &Atom {
+        &self.rt().class_defs[self.class_id() as usize].class_name
     }
 
     /// Get object flags
@@ -574,7 +573,7 @@ impl JSObject {
 
         if let Err(e) =
             self.own_property_names_foreach(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK, |_, pk| {
-                if let Some(desc) = self.get_own_property(ctx, pk.atom.as_ref())? {
+                if let Some(desc) = self.get_own_property(ctx, &pk.atom)? {
                     if desc.flags & JS_PROP_CONFIGURABLE != 0
                         || (is_frozen && (desc.flags & JS_PROP_WRITABLE != 0))
                     {
@@ -693,8 +692,8 @@ impl JSValue {
                 .create_object(ObjectPayload::BOOLEAN(self))
                 .map_err(|_| -1),
             Self::String(s) => s.objectify(ctx, &JSValue::UNDEFINED),
-            Self::Symbol(s) => ctx
-                .create_object(ObjectPayload::SYMBOL(s.into()))
+            Self::Symbol(d) => ctx
+                .create_object(ObjectPayload::SYMBOL(d.into()))
                 .map_err(|_| -1),
 
             Self::EXCEPTION => {
@@ -738,7 +737,7 @@ impl JSValue {
                         let mut flags = JS_PROP_THROW | JS_PROP_HAS_CONFIGURABLE;
 
                         if freeze {
-                            if let Some(desc) = p.get_own_property(ctx, pkey.atom.as_ref())? {
+                            if let Some(desc) = p.get_own_property(ctx, &pkey.atom)? {
                                 if desc.flags & JS_PROP_WRITABLE != 0 {
                                     flags |= JS_PROP_HAS_WRITABLE;
                                 }
@@ -749,7 +748,7 @@ impl JSValue {
                         // or {configurable:false, writable: false} if freeze=true
                         p.define_property(
                             ctx,
-                            pkey.atom.as_ref(),
+                            &pkey.atom,
                             JSValue::UNDEFINED,
                             JSValue::UNDEFINED,
                             JSValue::UNDEFINED,
@@ -798,12 +797,12 @@ pub fn seal_template_obj(ctx: &JSContext, obj: JSValue) -> i32 {
     let p = unsafe { obj.as_object_unchecked() };
 
     let (_, cur_flags) = p
-        .find_shape_property(JS_ATOM_length)
+        .find_shape_property(JS_ATOM_length.deref())
         .expect("length property must exist");
 
     if p.update_shape_property_flags(
         ctx,
-        JS_ATOM_length,
+        JS_ATOM_length.deref(),
         cur_flags & !(JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE),
     )
     .is_err()
@@ -835,12 +834,12 @@ pub fn JS_SpeciesConstructor(
     default_constructor: JSValue,
 ) -> JSResult {
     if let Some(o) = obj.as_object() {
-        let ctor = o.get_property(ctx, JS_ATOM_constructor)?;
+        let ctor = o.get_property(ctx, JS_ATOM_constructor.deref())?;
 
         if unlikely(ctor.is_undefined()) {
             Ok(default_constructor)
         } else if let Some(o1) = ctor.as_object() {
-            let species = o1.get_property(ctx, JS_ATOM_Symbol_species)?;
+            let species = o1.get_property(ctx, JS_ATOM_Symbol_species.deref())?;
 
             if species.is_undefined_or_null() {
                 Ok(default_constructor)

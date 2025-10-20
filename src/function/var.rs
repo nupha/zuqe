@@ -1,5 +1,7 @@
+use std::ops::Deref;
+
 use crate::{
-    atom::{Atom, AtomRef, consts::*},
+    atom::{Atom, consts::*},
     context::{JS_MODE_STRICT, JSContext},
     eval::JS_EVAL_TYPE_GLOBAL,
     function::JSFunctionDef,
@@ -183,7 +185,7 @@ impl JSFunctionDef {
     pub fn add_global_var(
         &mut self,
         ctx: &JSContext,
-        name: AtomRef,
+        name: &Atom,
     ) -> Result<&mut JSGlobalVar, i32> {
         if self.global_vars.len() == self.global_vars.capacity() {
             if self.global_vars.try_reserve_exact(2).is_err() {
@@ -196,7 +198,7 @@ impl JSFunctionDef {
             cpool_idx: -1,
             bitfields: 0,
             scope_level: self.scope_level,
-            var_name: name.dup(ctx.rt()),
+            var_name: name.clone(),
         };
         hf.set_force_init(false);
         hf.set_is_lexical(false);
@@ -208,36 +210,32 @@ impl JSFunctionDef {
 
     #[inline]
     /// `name` is not consumed.
-    pub fn find_global_var(&self, name: AtomRef) -> Option<&JSGlobalVar> {
-        self.global_vars
-            .iter()
-            .find(|x| x.var_name.as_ref() == name)
+    pub fn find_global_var(&self, name: &Atom) -> Option<&JSGlobalVar> {
+        self.global_vars.iter().find(|x| x.var_name.eq(name))
     }
 
     #[inline]
-    pub fn find_global_var_mut(&mut self, name: AtomRef) -> Option<&mut JSGlobalVar> {
-        self.global_vars
-            .iter_mut()
-            .find(|x| x.var_name.as_ref() == name)
+    pub fn find_global_var_mut(&mut self, name: &Atom) -> Option<&mut JSGlobalVar> {
+        self.global_vars.iter_mut().find(|x| x.var_name.eq(name))
     }
 
     #[inline]
     /// `name` is not consumed.
-    pub fn find_lexical_global_var(&self, name: AtomRef) -> Option<&JSGlobalVar> {
+    pub fn find_lexical_global_var(&self, name: &Atom) -> Option<&JSGlobalVar> {
         self.find_global_var(name)
             .and_then(|v| if v.is_lexical() { Some(v) } else { None })
     }
 
     #[inline]
     /// `name` is not consumed.
-    pub fn find_lexical_global_var_mut(&mut self, name: AtomRef) -> Option<&mut JSGlobalVar> {
+    pub fn find_lexical_global_var_mut(&mut self, name: &Atom) -> Option<&mut JSGlobalVar> {
         self.find_global_var_mut(name)
             .and_then(|v| if v.is_lexical() { Some(v) } else { None })
     }
 
     /// add new argument to the function, returns arg index or error.
     /// `name` is not consumed.
-    pub fn add_arg(&mut self, ctx: &JSContext, name: AtomRef) -> Result<u16, i32> {
+    pub fn add_arg(&mut self, ctx: &JSContext, name: &Atom) -> Result<u16, i32> {
         // the local variable indexes are currently stored on 16 bits
         if self.args.len() >= JS_MAX_LOCAL_VARS as usize {
             ctx.throw_internal_error("too many arguments");
@@ -252,7 +250,7 @@ impl JSFunctionDef {
         }
 
         self.args.push(JSVarDef {
-            var_name: name.dup(ctx.rt()),
+            var_name: name.clone(),
             func_pool_idx: -1,
             scope_level: 0,
             scope_next: 0,
@@ -264,7 +262,7 @@ impl JSFunctionDef {
 
     /// add variable defination. return the new variable index or error.
     /// `name` is not consumed
-    pub fn add_var(&mut self, ctx: &JSContext, name: AtomRef) -> Result<u16, i32> {
+    pub fn add_var(&mut self, ctx: &JSContext, name: &Atom) -> Result<u16, i32> {
         if self.vars.len() >= JS_MAX_LOCAL_VARS as usize {
             ctx.throw_internal_error("too many local variables");
             return Err(-1);
@@ -278,7 +276,7 @@ impl JSFunctionDef {
         }
 
         self.vars.push(JSVarDef {
-            var_name: name.dup(ctx.rt()),
+            var_name: name.clone(),
             func_pool_idx: -1,
             scope_level: 0,
             scope_next: 0,
@@ -290,7 +288,7 @@ impl JSFunctionDef {
 
     /// define pseudo variable named `this`
     pub fn add_var_this(&mut self, ctx: &JSContext) -> Result<u16, i32> {
-        let idx = self.add_var(ctx, JS_ATOM_this)?;
+        let idx = self.add_var(ctx, JS_ATOM_this.deref())?;
         if self.attrs.is_derived_class_constructor {
             // used to trigger 'uninitialized' checks
             // in a derived class constructor
@@ -309,12 +307,12 @@ impl JSFunctionDef {
         if in_arg_scope {
             if self.arguments_arg_idx.is_none() {
                 if self
-                    .find_var_in_scope(JS_ATOM_arguments, ARG_SCOPE_INDEX as _)
+                    .find_var_in_scope(&JS_ATOM_arguments, ARG_SCOPE_INDEX as _)
                     .is_none()
                 {
                     // XXX: the scope links are not fully updated. May be an
                     // issue if there are child scopes of the argument scope
-                    let idx = self.add_var(ctx, JS_ATOM_arguments)?;
+                    let idx = self.add_var(ctx, &JS_ATOM_arguments)?;
 
                     let vd = self.vars.get_mut(idx as usize).unwrap();
                     vd.scope_next = self.scopes[ARG_SCOPE_INDEX as usize].first;
@@ -331,7 +329,7 @@ impl JSFunctionDef {
             if let Some(idx) = self.arguments_var_idx {
                 Ok(idx)
             } else {
-                let idx = self.add_var(ctx, JS_ATOM_arguments)?;
+                let idx = self.add_var(ctx, JS_ATOM_arguments.deref())?;
                 self.arguments_var_idx.replace(idx);
                 Ok(idx)
             }
@@ -340,7 +338,7 @@ impl JSFunctionDef {
 
     /// get or create const variable used as function/expr name.
     /// returns the variable id.
-    pub fn add_func_var(&mut self, ctx: &JSContext, name: AtomRef) -> Result<u16, i32> {
+    pub fn add_func_var(&mut self, ctx: &JSContext, name: &Atom) -> Result<u16, i32> {
         if let Some(i) = self.func_var_idx {
             Ok(i)
         } else {
@@ -363,13 +361,13 @@ impl JSFunctionDef {
     /// returns
     /// * the variable index or'ed with ARGUMENT_VAR_OFFSET as var id
     /// * None if not found.
-    pub fn find_arg(&self, name: AtomRef) -> Option<u32> {
+    pub fn find_arg(&self, name: &Atom) -> Option<u32> {
         self.args
             .iter()
             .enumerate()
             .rev() // search in reveresed order
             .find_map(|(i, vd)| {
-                if vd.var_name.as_ref() == name {
+                if vd.var_name.eq(name) {
                     Some(i as u32 | (ARGUMENT_VAR_OFFSET as u32))
                 } else {
                     None
@@ -380,13 +378,13 @@ impl JSFunctionDef {
     /// find variable by `name`. if `name` is not found in vars, find it in arguments.
     /// for argument var, returned id is or'ed with ARGUMENT_VAR_OFFSET.
     /// `name` is not consumed.
-    pub fn find_var(&self, name: AtomRef) -> Option<u32> {
+    pub fn find_var(&self, name: &Atom) -> Option<u32> {
         self.vars
             .iter()
             .enumerate()
             .rev() // search in reveresed order
             .find_map(|(i, vd)| {
-                if vd.var_name.as_ref() == name && vd.scope_level == 0 {
+                if vd.var_name.eq(name) && vd.scope_level == 0 {
                     Some(i as u32)
                 } else {
                     None
@@ -399,14 +397,14 @@ impl JSFunctionDef {
     /// `name` is not consumed.
     pub fn find_lexical_decl(
         &mut self,
-        name: AtomRef,
+        name: &Atom,
         scope: i32,
         check_catch_var: bool,
     ) -> Option<u32> {
         let mut scope_idx = scope;
         while scope_idx >= 0 {
             let vd = self.vars.get(scope_idx as usize).unwrap();
-            if vd.var_name.as_ref() == name
+            if vd.var_name.eq(name)
                 && (vd.is_lexical()
                     || (vd.var_kind() == JSVarKindEnum::JS_VAR_CATCH && check_catch_var))
             {

@@ -1,8 +1,8 @@
-use std::ffi::c_void;
+use std::{ffi::c_void, ops::Deref};
 
 use crate::{
     JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
-    atom::{JS_AtomIsNumericIndex, AtomRef, consts::*},
+    atom::{Atom, JS_AtomIsNumericIndex, consts::*},
     branch_hints::unlikely,
     context::{JSContext, JSContextWeakref},
     error::JSResult,
@@ -116,47 +116,47 @@ impl JSPropertyDescriptor {
         let mut getter: JSValue = JSValue::UNDEFINED;
         let mut setter: JSValue = JSValue::UNDEFINED;
 
-        if desc.has_property(ctx, JS_ATOM_configurable)? {
-            let conf = desc.get_property(ctx, JS_ATOM_configurable)?;
+        if desc.has_property(ctx, JS_ATOM_configurable.deref())? {
+            let conf = desc.get_property(ctx, JS_ATOM_configurable.deref())?;
             flags |= JS_PROP_HAS_CONFIGURABLE;
             if conf.to_bool()? {
                 flags |= JS_PROP_CONFIGURABLE;
             }
         }
 
-        if desc.has_property(ctx, JS_ATOM_writable)? {
-            let conf = desc.get_property(ctx, JS_ATOM_writable)?;
+        if desc.has_property(ctx, JS_ATOM_writable.deref())? {
+            let conf = desc.get_property(ctx, JS_ATOM_writable.deref())?;
             flags |= JS_PROP_HAS_WRITABLE;
             if conf.to_bool()? {
                 flags |= JS_PROP_WRITABLE;
             }
         }
 
-        if desc.has_property(ctx, JS_ATOM_enumerable)? {
-            let conf = desc.get_property(ctx, JS_ATOM_enumerable)?;
+        if desc.has_property(ctx, JS_ATOM_enumerable.deref())? {
+            let conf = desc.get_property(ctx, JS_ATOM_enumerable.deref())?;
             flags |= JS_PROP_HAS_ENUMERABLE;
             if conf.to_bool()? {
                 flags |= JS_PROP_ENUMERABLE;
             }
         }
 
-        if desc.has_property(ctx, JS_ATOM_value)? {
+        if desc.has_property(ctx, JS_ATOM_value.deref())? {
             flags |= JS_PROP_HAS_VALUE;
-            value = desc.get_property(ctx, JS_ATOM_value)?;
+            value = desc.get_property(ctx, JS_ATOM_value.deref())?;
         }
 
-        if desc.has_property(ctx, JS_ATOM_get)? {
+        if desc.has_property(ctx, JS_ATOM_get.deref())? {
             flags |= JS_PROP_HAS_GET;
-            getter = desc.get_property(ctx, JS_ATOM_get)?;
+            getter = desc.get_property(ctx, JS_ATOM_get.deref())?;
             if unlikely(!(getter.is_undefined() || getter.is_function())) {
                 ctx.throw_type_error("invalid getter");
                 return Err(-1);
             }
         }
 
-        if desc.has_property(ctx, JS_ATOM_set)? {
+        if desc.has_property(ctx, JS_ATOM_set.deref())? {
             flags |= JS_PROP_HAS_SET;
-            setter = desc.get_property(ctx, JS_ATOM_set)?;
+            setter = desc.get_property(ctx, JS_ATOM_set.deref())?;
             if unlikely(!(setter.is_undefined() || setter.is_function())) {
                 ctx.throw_type_error("invalid setter");
                 return Err(-1);
@@ -195,18 +195,33 @@ impl JSPropertyDescriptor {
         let ret = ctx.create_base_object()?;
 
         if self.flags & JS_PROP_HAS_GET != 0 {
-            ret.define_property_value(ctx, JS_ATOM_get, self.getter.clone(), JS_PROP_C_W_E)?;
+            ret.define_property_value(
+                ctx,
+                JS_ATOM_get.deref(),
+                self.getter.clone(),
+                JS_PROP_C_W_E,
+            )?;
         }
         if self.flags & JS_PROP_HAS_SET != 0 {
-            ret.define_property_value(ctx, JS_ATOM_set, self.setter.clone(), JS_PROP_C_W_E)?;
+            ret.define_property_value(
+                ctx,
+                JS_ATOM_set.deref(),
+                self.setter.clone(),
+                JS_PROP_C_W_E,
+            )?;
         }
         if self.flags & JS_PROP_HAS_VALUE != 0 {
-            ret.define_property_value(ctx, JS_ATOM_value, self.value.clone(), JS_PROP_C_W_E)?;
+            ret.define_property_value(
+                ctx,
+                JS_ATOM_value.deref(),
+                self.value.clone(),
+                JS_PROP_C_W_E,
+            )?;
         }
         if self.flags & JS_PROP_HAS_WRITABLE != 0 {
             ret.define_property_value(
                 ctx,
-                JS_ATOM_writable,
+                JS_ATOM_writable.deref(),
                 (self.flags & JS_PROP_WRITABLE != 0).into(),
                 JS_PROP_C_W_E,
             )?;
@@ -214,7 +229,7 @@ impl JSPropertyDescriptor {
         if self.flags & JS_PROP_HAS_ENUMERABLE != 0 {
             ret.define_property_value(
                 ctx,
-                JS_ATOM_enumerable,
+                JS_ATOM_enumerable.deref(),
                 (self.flags & JS_PROP_ENUMERABLE != 0).into(),
                 JS_PROP_C_W_E,
             )?;
@@ -222,7 +237,7 @@ impl JSPropertyDescriptor {
         if self.flags & JS_PROP_HAS_CONFIGURABLE != 0 {
             ret.define_property_value(
                 ctx,
-                JS_ATOM_configurable,
+                JS_ATOM_configurable.deref(),
                 (self.flags & JS_PROP_CONFIGURABLE != 0).into(),
                 JS_PROP_C_W_E,
             )?;
@@ -286,7 +301,7 @@ impl JSObject {
     }
 
     /// test if property `prop` exists, check along proto chain.
-    pub fn has_property(&self, ctx: &JSContext, prop: AtomRef) -> Result<bool, i32> {
+    pub fn has_property(&self, ctx: &JSContext, prop: &Atom) -> Result<bool, i32> {
         let mut p = self.clone();
 
         loop {
@@ -354,9 +369,7 @@ impl JSObject {
 
         for k in source.get_own_property_names(ctx, gpn_flags)? {
             if let Some(excl) = excluded {
-                let skip = excl
-                    .get_own_property(ctx, k.atom.as_ref())
-                    .map(|x| x.is_some())?;
+                let skip = excl.get_own_property(ctx, &k.atom).map(|x| x.is_some())?;
 
                 if skip {
                     continue; // excluded prop, skip
@@ -364,7 +377,7 @@ impl JSObject {
             }
 
             if gpn_flags & JS_GPN_ENUM_ONLY == 0 {
-                if let Some(desc) = source.get_own_property(ctx, k.atom.as_ref())? {
+                if let Some(desc) = source.get_own_property(ctx, &k.atom)? {
                     if desc.flags & JS_PROP_ENUMERABLE == 0 {
                         continue; // skip if non enumerable
                     }
@@ -373,11 +386,11 @@ impl JSObject {
                 }
             }
 
-            let val = source.get_property(ctx, k.atom.as_ref())?;
+            let val = source.get_property(ctx, &k.atom)?;
             if setprop {
-                self.set_property(ctx, k.atom.as_ref(), val)?;
+                self.set_property(ctx, &k.atom, val)?;
             } else {
-                self.define_property_value(ctx, k.atom.as_ref(), val, JS_PROP_C_W_E)?;
+                self.define_property_value(ctx, &k.atom, val, JS_PROP_C_W_E)?;
             }
         }
 
@@ -389,7 +402,8 @@ impl JSObject {
     ///
     /// Returned length is in range \[0, MAX_SAFE_INTEGER\]
     pub fn get_length_prop(&self, ctx: &JSContext) -> Result<i64, i32> {
-        self.get_property(ctx, JS_ATOM_length)?.to_length(ctx)
+        self.get_property(ctx, JS_ATOM_length.deref())?
+            .to_length(ctx)
     }
 }
 
@@ -403,7 +417,7 @@ impl JSValue {
         }
     }
 
-    pub fn has_property(&self, ctx: &JSContext, prop: AtomRef) -> Result<bool, i32> {
+    pub fn has_property(&self, ctx: &JSContext, prop: &Atom) -> Result<bool, i32> {
         if let Self::Object(p) = self {
             p.has_property(ctx, prop)
         } else {
@@ -441,7 +455,8 @@ impl JSValue {
     ///
     /// Returned length is in range \[0, MAX_SAFE_INTEGER\]
     pub fn get_length_prop(&self, ctx: &JSContext) -> Result<i64, i32> {
-        self.get_property(ctx, JS_ATOM_length)?.to_length(ctx)
+        self.get_property(ctx, JS_ATOM_length.deref())?
+            .to_length(ctx)
     }
 }
 
@@ -494,7 +509,7 @@ pub const fn check_define_prop_flags(prop_flags: u32, flags: u32) -> bool {
 /// Get object `length` property as u32
 #[deprecated(note = "use JSValue::get_length_prop() instead")]
 pub fn js_get_length32(ctx: &JSContext, obj: &JSValue) -> Result<u32, i32> {
-    obj.get_property(ctx, JS_ATOM_length)
+    obj.get_property(ctx, JS_ATOM_length.deref())
         .and_then(|v| v.to_u32(ctx))
 }
 

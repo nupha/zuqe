@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use crate::{
     JS_CLASS_ERROR,
     atom::consts::{JS_ATOM_cause, JS_ATOM_errors, JS_ATOM_message, JS_ATOM_prototype},
@@ -16,7 +18,7 @@ pub fn js_error_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     // use proper proto, ensure proto is an object
-    let mut proto = new_target.get_property(ctx, JS_ATOM_prototype)?;
+    let mut proto = new_target.get_property(ctx, JS_ATOM_prototype.deref())?;
     if !proto.is_object() {
         let realm = JS_GetFunctionRealm(ctx, &new_target)?;
         let magic = cc.magic();
@@ -43,7 +45,7 @@ pub fn js_error_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         let msg = message.to_string(ctx)?;
         obj.define_property_value(
             ctx,
-            JS_ATOM_message,
+            JS_ATOM_message.deref(),
             msg.into(),
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
         )?;
@@ -52,11 +54,11 @@ pub fn js_error_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     if arg_index < cc.length() {
         let options = cc.arg(arg_index as usize);
         if options.is_object() {
-            if options.has_property(ctx, JS_ATOM_cause)? {
-                let cause = options.get_property(ctx, JS_ATOM_cause)?;
+            if options.has_property(ctx, JS_ATOM_cause.deref())? {
+                let cause = options.get_property(ctx, JS_ATOM_cause.deref())?;
                 obj.define_property_value(
                     ctx,
-                    JS_ATOM_cause,
+                    JS_ATOM_cause.deref(),
                     cause,
                     JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
                 )?;
@@ -68,7 +70,7 @@ pub fn js_error_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         let error_list = unsafe { iterator_to_array(ctx, cc.arg(0))? };
         obj.define_property_value(
             ctx,
-            JS_ATOM_errors,
+            JS_ATOM_errors.deref(),
             error_list,
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
         )?;
@@ -92,7 +94,7 @@ pub fn js_aggregate_error_constructor(ctx: &JSContext, errors: JSValue) -> JSVal
     ) {
         obj.define_property_value(
             ctx,
-            JS_ATOM_errors,
+            JS_ATOM_errors.deref(),
             errors,
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
         )

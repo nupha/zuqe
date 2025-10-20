@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_ERROR, JS_CLASS_OBJECT,
     array::ArrayObjPayload,
@@ -66,7 +68,7 @@ impl JSContext {
                 let name = self.create_atom_string(name).unwrap();
                 err.define_property_value(
                     self,
-                    JS_ATOM_name,
+                    JS_ATOM_name.deref(),
                     JSValue::String(name),
                     JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
                 )
@@ -74,7 +76,7 @@ impl JSContext {
 
                 err.define_property_value(
                     self,
-                    JS_ATOM_message,
+                    JS_ATOM_message.deref(),
                     JSValue::String(msg.clone()),
                     JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
                 )
@@ -102,7 +104,7 @@ impl JSContext {
             array_shape
                 .add_shape_property(
                     self,
-                    JS_ATOM_length,
+                    JS_ATOM_length.deref().clone(),
                     JS_PROP_WRITABLE | JS_PROP_LENGTH,
                     None,
                 )

@@ -9,7 +9,7 @@ use crate::{
     object::{JS_SpeciesConstructor, JSObject, ObjectPayload},
     object_cast,
     runtime::JSRuntime,
-    value::{JSValue, JSValueConst},
+    value::JSValue,
 };
 
 use super::{Promise, PromiseState, js_promise_resolve_thenable_job, promise_reaction_job};
@@ -66,7 +66,7 @@ impl PromiseResolveFunc {
                 ctx.throw_type_error("promise self resolution");
                 s.promise.reject(ctx, ctx.take_exception());
                 return Ok(JSValue::UNDEFINED);
-            } else if let Ok(then) = arg0.get_property(ctx, JS_ATOM_then) {
+            } else if let Ok(then) = arg0.get_property(ctx, &JS_ATOM_then) {
                 if !then.is_function() {
                     s.promise.fulfill_or_reject(ctx, arg0, is_reject);
                 } else {

@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::{cell::RefCell, ops::Deref};
 
 use smallvec::SmallVec;
 
@@ -6,7 +6,7 @@ use crate::{
     JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
     JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION,
     atom::{
-        AtomRef,
+        Atom,
         consts::{JS_ATOM_length, JS_ATOM_name, JS_ATOM_prototype},
     },
     class::JSClassID,
@@ -244,7 +244,7 @@ pub fn get_func_name(func: &JSValue) -> Option<String> {
     // in order to avoid executing arbitrary code during the stack trace generation,
     // we only look at simple 'name' properties containing a string.
     if let Some(obj) = func.as_object() {
-        if let Some((idx, prs_flags)) = obj.find_shape_property(JS_ATOM_name) {
+        if let Some((idx, prs_flags)) = obj.find_shape_property(JS_ATOM_name.deref()) {
             if prs_flags & JS_PROP_TMASK == JS_PROP_NORMAL {
                 if let Some(JSProperty::Normal(JSValue::String(s))) =
                     obj.0.prop_values.borrow().get(idx)
@@ -263,16 +263,16 @@ pub fn get_func_name(func: &JSValue) -> Option<String> {
 }
 
 /// define `length` and `name` properties on function object `func_obj`
-pub fn js_function_set_properties(ctx: &JSContext, func_obj: &JSObject, name: AtomRef, len: i32) {
+pub fn js_function_set_properties(ctx: &JSContext, func_obj: &JSObject, name: Atom, len: i32) {
     let _ = func_obj.define_property_value(
         ctx,
-        JS_ATOM_length,
+        &JS_ATOM_length,
         JSValue::Int(len),
         JS_PROP_CONFIGURABLE, // ES6 feature non-compatible with ES5.1: length is configurable
     );
     let _ = func_obj.define_property_value(
         ctx,
-        JS_ATOM_name,
+        &JS_ATOM_name,
         name.force_string(ctx)
             .map_or(JSValue::EXCEPTION, JSValue::String),
         JS_PROP_CONFIGURABLE,
@@ -498,7 +498,7 @@ impl BytecodeFunction {
 
         if !new_target.is_undefined() {
             // set the prototype
-            let mut proto = new_target.get_property(ctx, JS_ATOM_prototype)?;
+            let mut proto = new_target.get_property(ctx, JS_ATOM_prototype.deref())?;
             if !proto.is_object() {
                 let realm = JS_GetFunctionRealm(ctx, &new_target)?;
                 proto = realm.0.borrow().class_proto[func_kind.class_id() as usize].clone();

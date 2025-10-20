@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::{cell::RefCell, ops::Deref};
 
 use crate::{
     JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_MAP, JS_PROP_STRING_DEF,
@@ -45,7 +45,9 @@ pub fn js_map_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     };
 
     if !arr.is_undefined_or_null() {
-        let adder = obj.get_property(ctx, if is_set { JS_ATOM_add } else { JS_ATOM_set })?;
+        let adder =
+            obj.get_property(ctx, if is_set { JS_ATOM_add } else { JS_ATOM_set }.deref())?;
+
         if !adder.is_function() {
             ctx.throw_type_error("set/add is not a function");
             return Err(-1);

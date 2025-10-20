@@ -1,6 +1,8 @@
+use std::ops::Deref;
+
 use crate::{
     JS_CLASS_OBJECT,
-    atom::{Atom, AtomRef, consts::*},
+    atom::{Atom, consts::*},
     branch_hints::unlikely,
     class::JS_DEFINE_CLASS_HAS_HERITAGE,
     context::JSContext,
@@ -32,9 +34,7 @@ pub fn js_operator_delete(ctx: &JSContext, sp: *mut JSValue) -> i32 {
         return -1;
     }
 
-    let ret = op1.delete_property(ctx, atom.as_ref(), JS_PROP_THROW_STRICT);
-    atom.free(ctx.rt_mut());
-
+    let ret = op1.delete_property(ctx, &atom, JS_PROP_THROW_STRICT);
     if let Ok(b) = ret {
         unsafe {
             std::ptr::replace(sp.offset(-2), JSValue::Bool(b));
@@ -67,9 +67,7 @@ pub fn js_operator_in(ctx: &JSContext, obj: &JSValue, prop: &JSValue) -> Result<
         Err(-1)
     } else {
         let atom = prop.to_atom(ctx)?;
-        let ret = obj.has_property(ctx, atom.as_ref());
-        atom.free(ctx.rt_mut());
-        ret
+        obj.has_property(ctx, &atom)
     }
 }
 
@@ -84,9 +82,7 @@ pub fn js_operator_private_in(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i
         } else {
             // field
             let atom = item.to_atom(ctx)?;
-            let b = o.has_shape_property(atom.as_ref());
-            atom.free(ctx.rt_mut());
-            b
+            o.has_shape_property(&atom)
         };
         unsafe {
             std::ptr::replace(sp.offset(-2), JSValue::Bool(ret));
@@ -101,7 +97,7 @@ pub fn js_operator_private_in(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i
 pub fn js_op_define_class(
     ctx: &JSContext,
     sp: *mut JSValue,
-    class_name: AtomRef,
+    class_name: &Atom,
     class_flags: i32,
     cur_var_refs: &[JSVarRef],
     sframe: &mut StackFrame,
@@ -135,7 +131,7 @@ pub fn js_op_define_class(
                 return Err(-1);
             }
 
-            let p = parent_class.get_property(ctx, JS_ATOM_prototype)?;
+            let p = parent_class.get_property(ctx, JS_ATOM_prototype.deref())?;
 
             if !matches!(p, JSValue::NULL | JSValue::Object(_)) {
                 ctx.throw_type_error("parent prototype must be an object or null");
@@ -160,7 +156,7 @@ pub fn js_op_define_class(
 
     ctor.define_property_value(
         ctx,
-        JS_ATOM_length,
+        JS_ATOM_length.deref(),
         JSValue::Int(bc.attrs.defined_arg_count as i32),
         JS_PROP_CONFIGURABLE,
     )?;
@@ -181,13 +177,18 @@ pub fn js_op_define_class(
     // computed property names
     proto.define_property_value(
         ctx,
-        JS_ATOM_constructor,
+        JS_ATOM_constructor.deref(),
         ctor.clone(),
         JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE | JS_PROP_THROW,
     )?;
 
     // set the prototype property
-    ctor.define_property_value(ctx, JS_ATOM_prototype, proto.clone().into(), JS_PROP_THROW)?;
+    ctor.define_property_value(
+        ctx,
+        JS_ATOM_prototype.deref(),
+        proto.clone().into(),
+        JS_PROP_THROW,
+    )?;
 
     // TODO: mark cyclic reference
     // set_cycle_flag(ctx, &ctor);
@@ -204,9 +205,9 @@ pub fn js_op_define_class(
 /// test if `atom` property is true in value's \[Symbol.unscopables\] scope.
 ///
 /// `atom` is not consumed.
-pub(super) fn js_has_unscopable(ctx: &JSContext, obj: &JSValue, atom: AtomRef) -> Result<bool, i32> {
+pub(super) fn js_has_unscopable(ctx: &JSContext, obj: &JSValue, atom: &Atom) -> Result<bool, i32> {
     if let Some(o) = obj
-        .get_property(ctx, JS_ATOM_Symbol_unscopables)?
+        .get_property(ctx, JS_ATOM_Symbol_unscopables.deref())?
         .as_object()
     {
         o.get_property(ctx, atom)?.to_bool()
@@ -215,9 +216,9 @@ pub(super) fn js_has_unscopable(ctx: &JSContext, obj: &JSValue, atom: AtomRef) -
     }
 }
 
-pub(crate) fn js_get_function_name(ctx: &JSContext, name: AtomRef) -> Result<JSString, i32> {
+pub(crate) fn js_get_function_name(ctx: &JSContext, name: &Atom) -> Result<JSString, i32> {
     let name_str = name.force_string(ctx)?;
-    if name.has_description(ctx) {
+    if name.has_string_description(ctx) {
         JS_ConcatString3(ctx, c"[", name_str.into(), c"]")
     } else {
         Ok(name_str)
@@ -240,7 +241,7 @@ pub fn js_method_set_home_object(func_obj: &JSValue, home_obj: Option<&JSObject>
 pub fn js_method_set_properties(
     ctx: &JSContext,
     func_obj: &JSValue,
-    name: AtomRef,
+    name: &Atom,
     flags: u32,
     home_obj: &JSValue,
 ) -> Result<(), i32> {
@@ -252,7 +253,7 @@ pub fn js_method_set_properties(
         name_str = JS_ConcatString3(ctx, c"set ", name_str.into(), c"")?;
     }
 
-    func_obj.define_property_value(ctx, JS_ATOM_name, name_str.into(), JS_PROP_CONFIGURABLE)?;
+    func_obj.define_property_value(ctx, &JS_ATOM_name, name_str.into(), JS_PROP_CONFIGURABLE)?;
     js_method_set_home_object(func_obj, home_obj.as_object());
     Ok(())
 }
@@ -282,7 +283,7 @@ pub unsafe fn js_append_enumerate(ctx: &JSContext, sp: *mut JSValue) -> Result<(
     //         avoid constructing actual iterator object?
     //       - build this into js_for_of_start and use in all `for (x of o)` loops
     let is_array_iterator = src
-        .get_property(ctx, JS_ATOM_Symbol_iterator)?
+        .get_property(ctx, JS_ATOM_Symbol_iterator.deref())?
         .match_native_callback(
             NativeFunctionType::Func(js_create_array_iterator),
             JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as _,
@@ -354,7 +355,7 @@ pub fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
     let ob = unsafe { enum_obj.as_object_unchecked() };
 
     if let ObjectPayload::FOR_IN_ITERATOR(it) = ob.payload() {
-        let mut prop: AtomRef;
+        let mut prop: Atom;
 
         loop {
             let mut it = it.borrow_mut();
@@ -374,7 +375,7 @@ pub fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
                     for name in it.prop_enums.iter() {
                         enum_obj.define_property_value(
                             ctx,
-                            name.atom.as_ref(),
+                            &name.atom,
                             JSValue::NULL,
                             JS_PROP_ENUMERABLE,
                         )?;
@@ -416,17 +417,20 @@ pub fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
             } else {
                 // enumerate on props_enum of current it.obj.
                 if it.is_array {
-                    prop = AtomRef::new_small_int(it.idx);
+                    prop = Atom::new_small_int(it.idx);
                     it.idx += 1;
                 } else {
-                    prop = it.prop_enums[it.idx as usize].atom.as_ref();
+                    prop = it.prop_enums[it.idx as usize].atom.clone();
                     let is_enumerable = it.prop_enums[it.idx as usize].is_enumerable;
 
                     it.idx += 1;
                     if it.in_prototype_chain {
                         // slow case: we are in the prototype chain
-                        match unsafe { enum_obj.as_object_unchecked().get_own_property(ctx, prop)? }
-                        {
+                        match unsafe {
+                            enum_obj
+                                .as_object_unchecked()
+                                .get_own_property(ctx, &prop)?
+                        } {
                             Some(_) => {
                                 continue; // already visited
                             }
@@ -434,7 +438,7 @@ pub fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
                                 // add to the visited property list
                                 enum_obj.define_property_value(
                                     ctx,
-                                    prop,
+                                    &prop,
                                     JSValue::NULL,
                                     JS_PROP_ENUMERABLE,
                                 )?;
@@ -446,7 +450,7 @@ pub fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
                     }
                 }
 
-                if it.obj.get_own_property(ctx, prop)?.is_some() {
+                if it.obj.get_own_property(ctx, &prop)?.is_some() {
                     break;
                 }
             }
@@ -477,7 +481,7 @@ pub fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
 )]
 pub fn js_for_of_start(ctx: &JSContext, sp: *mut JSValue, is_async: bool) -> Result<(), i32> {
     let iter_obj = unsafe { &*sp.offset(-1) }.get_iterator_must(ctx, is_async)?;
-    let next = iter_obj.get_property(ctx, JS_ATOM_next)?;
+    let next = iter_obj.get_property(ctx, JS_ATOM_next.deref())?;
     unsafe {
         std::ptr::replace(sp.offset(-1), iter_obj.into());
         std::ptr::replace(sp.offset(0), next);

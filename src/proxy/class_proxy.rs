@@ -63,8 +63,8 @@ fn js_proxy_revocable(ctx: &JSContext, cc: CallContext) -> JSResult {
     )?;
 
     let obj = ctx.create_base_object()?;
-    obj.define_property_value(ctx, JS_ATOM_proxy, proxy_obj.into(), JS_PROP_C_W_E)?;
-    obj.define_property_value(ctx, JS_ATOM_revoke, revoke_obj.into(), JS_PROP_C_W_E)?;
+    obj.define_property_value(ctx, &JS_ATOM_proxy, proxy_obj.into(), JS_PROP_C_W_E)?;
+    obj.define_property_value(ctx, &JS_ATOM_revoke, revoke_obj.into(), JS_PROP_C_W_E)?;
 
     Ok(obj.into())
 }

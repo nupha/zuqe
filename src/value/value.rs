@@ -1,6 +1,6 @@
 use crate::{
     JS_CLASS_ERROR,
-    atom::{Atom, AtomTypeHint, JSAtomStruct},
+    atom::{Atom, AtomDesc, AtomTypeHint},
     branch_hints::unlikely,
     function::{AsyncFuncState, Bytecode},
     module::ModuleDef,
@@ -106,7 +106,7 @@ pub enum JSValue {
     EXCEPTION,
     Float64(f64),
     String(JSString),
-    Symbol(JSAtomStruct),
+    Symbol(JSString),
     Module(ModuleDef),
     Object(JSObject),
     Bytecode(Bytecode),
@@ -342,8 +342,7 @@ impl JSValue {
             }
             Self::String(s) => Atom::calc_atom_hash(s.content(), AtomTypeHint::String),
             Self::Symbol(s) => {
-                let a = s.atom_info().unwrap();
-                Atom::calc_atom_hash(s.content(), a.type_hint())
+                Atom::calc_atom_hash(s.content(), s.atom_info().unwrap().type_hint())
             }
             Self::Float64(d) => {
                 let mut d = *d;

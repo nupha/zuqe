@@ -1,8 +1,8 @@
-use std::cmp::Ordering;
+use std::{cmp::Ordering, ops::Deref};
 
 use crate::{
     atom::{
-        Atom, AtomRc, AtomRef, JS_ATOM_NULL,
+        Atom,
         consts::{JS_ATOM__star_, JS_ATOM_Module, JS_ATOM_Symbol_toStringTag, JS_ATOM_default},
     },
     branch_hints::unlikely,
@@ -14,7 +14,6 @@ use crate::{
         JS_PROP_ENUMERABLE, JS_PROP_VARREF, JS_PROP_WRITABLE, JSObject, JSProperty, LazyInit,
         ObjectPayload,
     },
-    runtime::JSRuntime,
     value::JSValue,
 };
 
@@ -27,12 +26,12 @@ enum ExportedNameKind {
 
 #[derive(Debug)]
 struct ExportedNameEntry {
-    export_name: AtomRc,
+    export_name: Atom,
     export_type: ExportedNameKind,
 
     /// (export_type, local_name, export_name)
     /// using when the list is built.
-    cached: Option<(ExportType, AtomRc, AtomRc)>,
+    cached: Option<(ExportType, Atom, Atom)>,
 }
 
 // impl ExportedNameEntry {
@@ -72,7 +71,7 @@ pub(crate) enum ExportType {
     JS_EXPORT_TYPE_INDIRECT(i32),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ExportEntry {
     pub(crate) export_type: ExportType,
     /// '*' if export ns from. not used for local export after compilation
@@ -81,24 +80,14 @@ pub struct ExportEntry {
     pub export_name: Atom,
 }
 
-impl ExportEntry {
-    pub(super) fn dup(&self, rt: &JSRuntime) -> Self {
-        ExportEntry {
-            export_type: self.export_type.clone(),
-            local_name: self.local_name.dup(rt),
-            export_name: self.export_name.dup(rt),
-        }
-    }
-}
-
 /// resolving module export result
 #[derive(Debug)]
 pub(super) enum ResolveExport {
     Found {
         module: ModuleDef,
         export_type: ExportType,
-        export_name: AtomRc,
-        local_name: AtomRc,
+        export_name: Atom,
+        local_name: Atom,
     },
     NotFound,
     Ambiguous,
@@ -110,7 +99,7 @@ impl ResolveExport {
         &self,
         ctx: &JSContext,
         m: &ModuleDefInner,
-        export_name: AtomRef,
+        export_name: &Atom,
     ) {
         match self {
             Self::Found { .. } => {}
@@ -141,12 +130,12 @@ impl ResolveExport {
 
 impl ModuleDefInner {
     /// find export entry by name
-    pub fn find_export(&self, export_name: AtomRef) -> Option<ExportEntry> {
+    pub fn find_export(&self, export_name: &Atom) -> Option<ExportEntry> {
         self.export_entries
             .borrow()
             .iter()
-            .find(|x| x.export_name.as_ref() == export_name)
-            .map(|x| x.dup(self.rt()))
+            .find(|x| x.export_name.eq(export_name))
+            .cloned()
     }
 
     /// add an export entry on `self`.
@@ -155,8 +144,8 @@ impl ModuleDefInner {
     pub(crate) fn add_export_internal(
         &self,
         ctx: &JSContext,
-        local_name: AtomRef,
-        export_name: AtomRef,
+        local_name: &Atom,
+        export_name: &Atom,
         export_type: ExportType,
     ) -> Result<(), i32> {
         if unlikely(self.find_export(export_name).is_some()) {
@@ -175,11 +164,11 @@ impl ModuleDefInner {
                 })?;
             }
 
-            lst.push(Box::new(ExportEntry {
+            lst.push(ExportEntry {
                 export_type,
-                local_name: local_name.dup(ctx.rt()),
-                export_name: export_name.dup(ctx.rt()),
-            }));
+                local_name: local_name.clone(),
+                export_name: export_name.clone(),
+            });
 
             Ok(())
         }
@@ -188,18 +177,15 @@ impl ModuleDefInner {
     /// declare a module export name
     pub fn add_export(&self, ctx: &JSContext, export_name: &str) -> Result<(), i32> {
         let atom = Atom::new(ctx.rt_mut(), export_name)?;
-        let r = self.add_export_internal(
+        self.add_export_internal(
             ctx,
-            JS_ATOM_NULL,
-            atom.as_ref(),
+            &Atom::NULL,
+            &atom,
             ExportType::JS_EXPORT_TYPE_LOCAL {
                 var_idx: u16::MAX, // unknown
                 var_ref: None,
             },
-        );
-        atom.free(ctx.rt_mut());
-
-        r
+        )
     }
 
     /// update export value
@@ -236,20 +222,13 @@ impl ModuleDefInner {
         value: JSValue,
     ) -> Result<(), i32> {
         let atom = Atom::new(ctx.rt_mut(), export_name)?;
-        let me = self.find_export(atom.as_ref());
-        atom.free(ctx.rt_mut());
-
-        if let Some(me) = me {
+        if let Some(me) = self.find_export(&atom) {
             if let ExportType::JS_EXPORT_TYPE_LOCAL { var_ref, .. } = me.export_type {
                 debug_assert!(
                     var_ref.is_some(),
                     "exported local entry must have been linked"
                 );
                 var_ref.as_ref().unwrap().set_value(value);
-
-                me.local_name.free(ctx.rt_mut());
-                me.export_name.free(ctx.rt_mut());
-
                 Ok(())
             } else {
                 // not a local export entry
@@ -321,7 +300,7 @@ impl ModuleDef {
                     })?;
                 }
                 s.exported_names.push(ExportedNameEntry {
-                    export_name: AtomRc::from_ref(self.rt(), &exp.export_name),
+                    export_name: exp.export_name.clone(),
                     export_type: ExportedNameKind::EXPORTED_NAME_AMBIGUOUS,
                     cached: if from_star
                         || !matches!(exp.export_type, ExportType::JS_EXPORT_TYPE_LOCAL { .. })
@@ -330,8 +309,8 @@ impl ModuleDef {
                     } else {
                         Some((
                             exp.export_type.clone(),
-                            AtomRc::from_ref(self.rt(), &exp.local_name),
-                            AtomRc::from_ref(self.rt(), &exp.export_name),
+                            exp.local_name.clone(),
+                            exp.export_name.clone(),
                         ))
                     },
                 });
@@ -370,7 +349,7 @@ impl ModuleDef {
                         export_name: export_name.clone(),
                     }
                 } else {
-                    self.resolve_export(ctx, export.export_name.as_ref(), None)?
+                    self.resolve_export(ctx, &export.export_name, None)?
                 };
 
             match resolv {
@@ -411,7 +390,7 @@ impl ModuleDef {
                     export.export_type = ExportedNameKind::EXPORTED_NAME_AMBIGUOUS;
                 }
                 ResolveExport::NotFound | ResolveExport::Circular => {
-                    resolv.throw_syntax_error_export(ctx, &self.0, export.export_name.as_ref());
+                    resolv.throw_syntax_error_export(ctx, &self.0, &export.export_name);
                     return Err(-1);
                 }
             }
@@ -438,7 +417,7 @@ impl ModuleDef {
                 ExportedNameKind::EXPORTED_NAME_NORMAL(vref) => {
                     obj.add_own_property(
                         ctx,
-                        en.export_name.as_ref(),
+                        en.export_name.clone(),
                         JS_PROP_ENUMERABLE | JS_PROP_WRITABLE | JS_PROP_VARREF,
                         JSProperty::VarRef(vref.clone()),
                     )?;
@@ -447,7 +426,7 @@ impl ModuleDef {
                     // the exported namespace must be created on demand
                     obj.define_lazy_property(
                         ctx,
-                        en.export_name.as_ref(),
+                        &en.export_name,
                         LazyInit::ModuleNS(module.clone()),
                         JS_PROP_ENUMERABLE | JS_PROP_WRITABLE,
                     )?;
@@ -458,7 +437,7 @@ impl ModuleDef {
 
         obj.define_property_value(
             ctx,
-            JS_ATOM_Symbol_toStringTag,
+            JS_ATOM_Symbol_toStringTag.deref(),
             JS_ATOM_Module.force_string(ctx)?.into(),
             0,
         )?;

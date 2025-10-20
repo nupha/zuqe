@@ -3,7 +3,7 @@ use crate::{
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
     JS_CLASS_INT32_ARRAY, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY,
     JS_CLASS_UINT32_ARRAY,
-    atom::{Atom, JS_ATOM_MAX_INT, JS_AtomIsNumericIndex, AtomRef, consts::*},
+    atom::{Atom, JS_ATOM_MAX_INT, JS_AtomIsNumericIndex, consts::*},
     branch_hints::unlikely,
     context::JSContext,
     error::{JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized, JSResult},
@@ -20,7 +20,7 @@ impl JSObject {
     pub(crate) fn get_property_internal(
         &self,
         ctx: &JSContext,
-        prop: AtomRef,
+        prop: &Atom,
         this_obj: &JSValue,
         throw_ref_error: bool,
     ) -> JSResult {
@@ -59,7 +59,7 @@ impl JSObject {
                             let pr = cur_obj.0.prop_values.borrow()[idx].clone(); // borrow in short
                             let val = pr.value(ctx, this_obj)?;
                             return if unlikely(val.is_uninitialized()) {
-                                JS_ThrowReferenceErrorUninitialized(ctx, prop);
+                                JS_ThrowReferenceErrorUninitialized(ctx, prop.as_ref());
                                 Err(-1)
                             } else {
                                 Ok(val)
@@ -129,7 +129,7 @@ impl JSObject {
         }
 
         if unlikely(throw_ref_error) {
-            JS_ThrowReferenceErrorNotDefined(ctx, prop);
+            JS_ThrowReferenceErrorNotDefined(ctx, prop.as_ref());
             Err(-1)
         } else {
             Ok(JSValue::UNDEFINED)
@@ -139,7 +139,7 @@ impl JSObject {
     /// get property by atom name.
     /// `prop` is not consumed.
     #[inline(always)]
-    pub fn get_property(&self, ctx: &JSContext, prop: AtomRef) -> JSResult {
+    pub fn get_property(&self, ctx: &JSContext, prop: &Atom) -> JSResult {
         self.get_property_internal(ctx, prop, &JSValue::Object(self.clone()), false)
     }
 
@@ -217,10 +217,7 @@ impl JSObject {
 
     fn get_property_slow(&self, ctx: &JSContext, prop: &JSValue) -> JSResult {
         let atom = prop.to_atom(ctx)?;
-        let ret =
-            self.get_property_internal(ctx, atom.as_ref(), &JSValue::Object(self.clone()), false);
-        atom.free(ctx.rt_mut());
-        ret
+        self.get_property_internal(ctx, &atom, &JSValue::Object(self.clone()), false)
     }
 
     pub fn get_property_value(&self, ctx: &JSContext, prop: &JSValue) -> JSResult {
@@ -262,17 +259,13 @@ impl JSObject {
             self.get_property_u32(ctx, idx as u32)
         } else {
             let prop = Atom::from_i64(ctx.rt_mut(), idx)?;
-            let r = self.get_property(ctx, prop.as_ref());
-            prop.free(ctx.rt_mut());
-            r
+            self.get_property(ctx, &prop)
         }
     }
 
     pub fn get_property_str(&self, ctx: &JSContext, prop: &str) -> JSResult {
         let atom = Atom::new(ctx.rt_mut(), prop)?;
-        let ret = self.get_property(ctx, atom.as_ref());
-        atom.free(ctx.rt_mut());
-        ret
+        self.get_property(ctx, &atom)
     }
 
     /// Check if `self` has a generalized numeric property `idx`.
@@ -281,7 +274,7 @@ impl JSObject {
     pub fn try_get_property_i64(&self, ctx: &JSContext, idx: i64) -> Result<Option<JSValue>, i32> {
         if (0..=JS_ATOM_MAX_INT as i64).contains(&idx) {
             // fast path
-            if self.has_property(ctx, AtomRef::new_small_int(idx as u32))? {
+            if self.has_property(ctx, &Atom::new_small_int(idx as u32))? {
                 Ok(Some(
                     self.get_property_value(ctx, &JSValue::from(idx as u32))?,
                 ))
@@ -290,15 +283,13 @@ impl JSObject {
             }
         } else {
             let atom = Atom::from_i64(ctx.rt_mut(), idx)?;
-            let ret = self.has_property(ctx, atom.as_ref()).and_then(|found| {
+            self.has_property(ctx, &atom).and_then(|found| {
                 if found {
-                    Ok(Some(self.get_property(ctx, atom.as_ref())?))
+                    Ok(Some(self.get_property(ctx, &atom)?))
                 } else {
                     Ok(None)
                 }
-            });
-            atom.free(ctx.rt_mut());
-            ret
+            })
         }
     }
 }
@@ -308,14 +299,14 @@ impl JSValue {
     pub(crate) fn get_property_internal(
         &self,
         ctx: &JSContext,
-        prop: AtomRef,
+        prop: &Atom,
         this_obj: &JSValue,
         throw_ref_error: bool,
     ) -> JSResult {
         match self {
             Self::Object(o) => o.get_property_internal(ctx, prop, this_obj, throw_ref_error),
             Self::String(s) => {
-                if unlikely(prop == JS_ATOM_length) {
+                if unlikely(prop.as_ref() == JS_ATOM_length) {
                     // string length
                     Ok(JSValue::from(s.len() as u32))
                 } else if let Some(idx) = prop.to_small_int() {
@@ -360,7 +351,7 @@ impl JSValue {
 
     /// returns Exception when failed.
     #[inline(always)]
-    pub fn get_property(&self, ctx: &JSContext, prop: AtomRef) -> JSResult {
+    pub fn get_property(&self, ctx: &JSContext, prop: &Atom) -> JSResult {
         self.get_property_internal(ctx, prop, self, false)
     }
 
@@ -369,18 +360,14 @@ impl JSValue {
             o.get_property_value(ctx, prop)
         } else {
             let atom = prop.to_atom(ctx)?;
-            let ret = self.get_property(ctx, atom.as_ref());
-            atom.free(ctx.rt_mut());
-            ret
+            self.get_property(ctx, &atom)
         }
     }
 
     /// returns Exception when fail.
     pub fn get_property_str(self, ctx: &JSContext, prop: &str) -> JSResult {
         let atom = Atom::new(ctx.rt_mut(), prop)?;
-        let ret = self.get_property(ctx, atom.as_ref());
-        atom.free(ctx.rt_mut());
-        ret
+        self.get_property(ctx, &atom)
     }
 
     #[inline(always)]
@@ -393,9 +380,7 @@ impl JSValue {
             self.get_property_u32(ctx, idx as u32)
         } else {
             let atom = Atom::from_i64(ctx.rt_mut(), idx)?;
-            let r = self.get_property(ctx, atom.as_ref());
-            atom.free(ctx.rt_mut());
-            r
+            self.get_property(ctx, &atom)
         }
     }
 
@@ -405,7 +390,7 @@ impl JSValue {
     pub fn try_get_property_i64(&self, ctx: &JSContext, idx: i64) -> Result<Option<JSValue>, i32> {
         if (0..=JS_ATOM_MAX_INT as i64).contains(&idx) {
             // fast path
-            if self.has_property(ctx, AtomRef::new_small_int(idx as u32))? {
+            if self.has_property(ctx, &Atom::new_small_int(idx as u32))? {
                 Ok(Some(
                     self.get_property_value(ctx, &JSValue::from(idx as u32))?,
                 ))
@@ -414,15 +399,13 @@ impl JSValue {
             }
         } else {
             let atom = Atom::from_i64(ctx.rt_mut(), idx)?;
-            let ret = self.has_property(ctx, atom.as_ref()).and_then(|found| {
+            self.has_property(ctx, &atom).and_then(|found| {
                 if found {
-                    Ok(Some(self.get_property(ctx, atom.as_ref())?))
+                    Ok(Some(self.get_property(ctx, &atom)?))
                 } else {
                     Ok(None)
                 }
-            });
-            atom.free(ctx.rt_mut());
-            ret
+            })
         }
     }
 }

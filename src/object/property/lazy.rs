@@ -1,7 +1,7 @@
-use std::ptr::NonNull;
+use std::{ops::Deref, ptr::NonNull};
 
 use crate::{
-    atom::{AtomRef, consts::JS_ATOM_constructor},
+    atom::{Atom, consts::JS_ATOM_constructor},
     context::JSContext,
     error::JSResult,
     function::{FieldDef, NativeFieldDetail},
@@ -37,7 +37,7 @@ impl LazyInit {
                 // set_cycle_flag(ctx, this_val);
                 obj.define_property_value(
                     ctx,
-                    JS_ATOM_constructor,
+                    JS_ATOM_constructor.deref(),
                     JSValue::Object(this_obj.clone()),
                     JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
                 )?;
@@ -122,20 +122,20 @@ impl JSObject {
     pub fn define_lazy_property(
         &self,
         ctx: &JSContext,
-        prop: AtomRef,
+        prop: &Atom,
         lazy_init: LazyInit,
         flags: u32,
     ) -> Result<(), i32> {
         debug_assert!(
             !self.has_shape_property(prop),
             "auto init property already exists: {} {:?}",
-            prop.0,
+            prop.id(),
             prop.to_utf8(ctx.rt())
         );
 
         self.add_own_property(
             ctx,
-            prop,
+            prop.clone(),
             (flags & JS_PROP_C_W_E) | JS_PROP_LAZYINIT,
             JSProperty::LazyInit {
                 init_type: lazy_init,

@@ -2,7 +2,7 @@ use std::cell::Cell;
 
 use crate::{
     JS_CLASS_PROXY,
-    atom::{AtomRef, consts::*},
+    atom::{Atom, consts::*},
     class::JSClassExoticMethods,
     context::JSContext,
     error::JSResult,
@@ -28,7 +28,7 @@ pub struct ProxyObjPayload {
 
 impl ProxyObjPayload {
     /// get proxied method. returns function object or undefined
-    pub fn get_method(&self, ctx: &JSContext, name: AtomRef) -> Result<JSValue, i32> {
+    pub fn get_method(&self, ctx: &JSContext, name: &Atom) -> Result<JSValue, i32> {
         // safer to test recursion in all proxy methods
         if js_check_stack_overflow(ctx.rt(), 0) {
             ctx.throw_stack_overflow();
@@ -48,7 +48,7 @@ impl ProxyObjPayload {
     }
 
     pub fn is_extensible(&self, ctx: &JSContext) -> Result<bool, i32> {
-        let method = self.get_method(ctx, JS_ATOM_isExtensible)?;
+        let method = self.get_method(ctx, &JS_ATOM_isExtensible)?;
         if method.is_undefined() {
             self.target.is_extensible(ctx)
         } else {
@@ -66,7 +66,7 @@ impl ProxyObjPayload {
     }
 
     pub fn prevent_extensions(&self, ctx: &JSContext) -> Result<bool, i32> {
-        let method = self.get_method(ctx, JS_ATOM_preventExtensions)?;
+        let method = self.get_method(ctx, &JS_ATOM_preventExtensions)?;
         if method.is_undefined() {
             return self.target.prevent_extensions(ctx);
         } else {
@@ -84,7 +84,7 @@ impl ProxyObjPayload {
     }
 
     pub fn get_prototype_of(&self, ctx: &JSContext) -> Result<JSValue, i32> {
-        let method = self.get_method(ctx, JS_ATOM_getPrototypeOf)?;
+        let method = self.get_method(ctx, &JS_ATOM_getPrototypeOf)?;
         if method.is_undefined() {
             return self
                 .target
@@ -122,7 +122,7 @@ impl ProxyObjPayload {
         proto_val: JSValue,
         throw: bool,
     ) -> Result<bool, i32> {
-        let method = self.get_method(ctx, JS_ATOM_setPrototypeOf)?;
+        let method = self.get_method(ctx, &JS_ATOM_setPrototypeOf)?;
         if method.is_undefined() {
             return self.target.set_prototype_internal(ctx, proto_val, throw);
         }
@@ -186,7 +186,7 @@ impl Proxy {
             return Err(-1);
         }
 
-        let method = px.get_method(ctx, JS_ATOM_apply)?;
+        let method = px.get_method(ctx, &JS_ATOM_apply)?;
         if method.is_undefined() {
             return JSValue::from(px.target.clone()).call(ctx, this_obj, args);
         }
@@ -233,7 +233,7 @@ impl Proxy {
 
     /// get proxied method
     #[inline(always)]
-    pub fn get_method(&self, ctx: &JSContext, name: AtomRef) -> Result<JSValue, i32> {
+    pub fn get_method(&self, ctx: &JSContext, name: &Atom) -> Result<JSValue, i32> {
         self.payload().get_method(ctx, name)
     }
 
@@ -291,7 +291,7 @@ fn js_proxy_call_constructor(
         return Err(-1);
     }
 
-    let method = s.get_method(ctx, JS_ATOM_construct)?;
+    let method = s.get_method(ctx, &JS_ATOM_construct)?;
     if method.is_undefined() {
         return JS_CallConstructor2(ctx, &s.target.clone().into(), new_target.clone(), args).err();
     }
@@ -317,7 +317,7 @@ fn js_proxy_call_constructor(
 fn js_proxy_get_own_property(
     ctx: &JSContext,
     obj: JSValue,
-    prop: AtomRef,
+    prop: &Atom,
 ) -> Result<Option<JSPropertyDescriptor>, i32> {
     let Some(px) = obj
         .as_object()
@@ -327,7 +327,7 @@ fn js_proxy_get_own_property(
         return Err(-1);
     };
 
-    let method = px.get_method(ctx, JS_ATOM_getOwnPropertyDescriptor)?;
+    let method = px.get_method(ctx, &JS_ATOM_getOwnPropertyDescriptor)?;
     if method.is_undefined() {
         return px.target.get_own_property(ctx, prop);
     }
@@ -407,7 +407,7 @@ fn js_proxy_get_own_property(
 fn js_proxy_define_own_property(
     ctx: &JSContext,
     obj: &JSValue,
-    prop: AtomRef,
+    prop: &Atom,
     val: JSValue,
     getter: JSValue,
     setter: JSValue,
@@ -423,7 +423,7 @@ fn js_proxy_define_own_property(
         return Err(-1);
     };
 
-    let method = px.get_method(ctx, JS_ATOM_defineProperty)?;
+    let method = px.get_method(ctx, &JS_ATOM_defineProperty)?;
     if method.is_undefined() {
         return px
             .target
@@ -513,7 +513,7 @@ fn js_proxy_define_own_property(
     Ok(true)
 }
 
-fn js_proxy_delete_property(ctx: &JSContext, obj: JSValue, atom: AtomRef) -> Result<bool, i32> {
+fn js_proxy_delete_property(ctx: &JSContext, obj: JSValue, atom: &Atom) -> Result<bool, i32> {
     let Some(px) = obj
         .as_object()
         .and_then(|x| x.as_Proxy())
@@ -522,7 +522,7 @@ fn js_proxy_delete_property(ctx: &JSContext, obj: JSValue, atom: AtomRef) -> Res
         return Err(-1);
     };
 
-    let method = px.get_method(ctx, JS_ATOM_deleteProperty)?;
+    let method = px.get_method(ctx, &JS_ATOM_deleteProperty)?;
     if method.is_undefined() {
         return px.target.delete_property(ctx, atom, 0);
     }
@@ -564,7 +564,7 @@ fn js_proxy_get_own_property_names(
         return Err(-1);
     }
 
-    let method = px.get_method(ctx, JS_ATOM_ownKeys)?;
+    let method = px.get_method(ctx, &JS_ATOM_ownKeys)?;
     if method.is_undefined() {
         return px
             .target
@@ -607,7 +607,7 @@ fn js_proxy_get_own_property_names(
         .target
         .get_own_property_names(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK)?
     {
-        if let Some(desc) = px.target.get_own_property(ctx, k2.atom.as_ref())? {
+        if let Some(desc) = px.target.get_own_property(ctx, &k2.atom)? {
             // safety, property should be found
             if desc.flags & JS_PROP_CONFIGURABLE == 0 || !is_extensible {
                 if let Some(p) = tab.iter_mut().find(|p| p.atom.eq(&k2.atom)) {
@@ -637,12 +637,12 @@ fn js_proxy_get_own_property_names(
     Ok(tab.into_boxed_slice())
 }
 
-fn js_proxy_has(ctx: &JSContext, obj: &JSObject, atom: AtomRef) -> Result<bool, i32> {
+fn js_proxy_has(ctx: &JSContext, obj: &JSObject, atom: &Atom) -> Result<bool, i32> {
     let Some(px) = obj.as_Proxy().map(|x| x.payload()) else {
         return Err(-1);
     };
 
-    let method = px.get_method(ctx, JS_ATOM_has)?;
+    let method = px.get_method(ctx, &JS_ATOM_has)?;
     if method.is_undefined() {
         return px.target.has_property(ctx, atom);
     }
@@ -674,7 +674,7 @@ fn js_proxy_has(ctx: &JSContext, obj: &JSObject, atom: AtomRef) -> Result<bool, 
     Ok(ret)
 }
 
-fn js_proxy_get(ctx: &JSContext, obj: JSValue, atom: AtomRef, receiver: JSValue) -> JSResult {
+fn js_proxy_get(ctx: &JSContext, obj: JSValue, atom: &Atom, receiver: JSValue) -> JSResult {
     let Some(px) = obj
         .as_object()
         .and_then(|p| p.as_Proxy())
@@ -683,7 +683,7 @@ fn js_proxy_get(ctx: &JSContext, obj: JSValue, atom: AtomRef, receiver: JSValue)
         return Err(-1);
     };
 
-    let method = px.get_method(ctx, JS_ATOM_get)?;
+    let method = px.get_method(ctx, &JS_ATOM_get)?;
     // Note: recursion is possible thru the prototype of s.target
     if method.is_undefined() {
         return px.target.get_property_internal(ctx, atom, &receiver, false);
@@ -719,7 +719,7 @@ fn js_proxy_get(ctx: &JSContext, obj: JSValue, atom: AtomRef, receiver: JSValue)
 fn js_proxy_set(
     ctx: &JSContext,
     obj: JSValue,
-    atom: AtomRef,
+    atom: &Atom,
     value: JSValue,
     receiver: JSValue,
     flags: i32,
@@ -732,7 +732,7 @@ fn js_proxy_set(
         return Err(-1);
     };
 
-    let method = s.get_method(ctx, JS_ATOM_set)?;
+    let method = s.get_method(ctx, &JS_ATOM_set)?;
     if method.is_undefined() {
         return s.target.set_property_internal(
             ctx,

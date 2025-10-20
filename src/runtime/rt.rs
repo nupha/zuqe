@@ -1,8 +1,9 @@
 use std::{
+    cell::UnsafeCell,
     collections::{HashMap, VecDeque},
     ffi::{c_char, c_void},
-    num::NonZeroU16,
     pin::Pin,
+    ptr::NonNull,
     rc::Rc,
 };
 
@@ -13,7 +14,7 @@ use crate::{
     JS_CLASS_INIT_COUNT, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT, JS_CLASS_PROMISE_REJECT_FUNCTION,
     JS_CLASS_PROMISE_RESOLVE_FUNCTION, JS_CLASS_PROXY, JS_CLASS_STRING, STD_CLASS_DEFS,
     array_buffer::JSSharedArrayBufferFunctions,
-    atom::JS_FreeAtomRT,
+    atom::AtomRegistry,
     callable::NativeFunctionWithData,
     class::{JSClass, js_arguments_exotic_methods},
     context::JSContext,
@@ -27,7 +28,7 @@ use crate::{
     proxy::{Proxy, js_proxy_exotic_methods},
     regexp::RegExpData,
     stack_frame::StackFrame,
-    string::{JSStringInner, js_string_exotic_methods},
+    string::js_string_exotic_methods,
     utils::js_get_stack_pointer,
     value::JSValue,
 };
@@ -37,22 +38,11 @@ pub const JS_STACK_SIZE_MAX: u16 = 65534;
 
 pub type JSInterruptHandler = fn(rt: &mut JSRuntime, opaque: *mut c_void) -> i32;
 
-#[repr(C)]
 pub struct JSRuntime {
     pub mf: JSMallocFunctions,
     pub malloc_state: JSMallocState,
 
     pub rt_info: *const c_char,
-
-    /// atom description slots list.
-    /// each element is a raw pointer of Rc<JSStringInner>,
-    /// null indicates the slot is unused.
-    /// when an atom is duplicated, the JSAtomStruct is cloned.
-    /// index 0 is reserved not for use; index 1 is for atom 1; index 2 is for atom 2, ...
-    pub(crate) atom_slots: Vec<*const JSStringInner>,
-    /// JSString hash to atom vec dict.
-    /// Value is list of atom indecies because JSString hash may have collison.
-    pub(crate) atom_hash_lut: HashMap<u32, Vec<NonZeroU16>>,
 
     /// registered classes
     pub class_defs: Vec<JSClass>,
@@ -115,6 +105,35 @@ pub struct JSRuntime {
     pub user_opaque: *mut c_void,
 }
 
+thread_local! {
+    /// List of living runtime raw pointers
+    static RUNTIME_LIST: UnsafeCell<Vec<NonNull<JSRuntime>>> = UnsafeCell::new(Vec::with_capacity(1));
+}
+
+impl Drop for JSRuntime {
+    fn drop(&mut self) {
+        self.finalize();
+
+        // unregister from list
+        let live_rt = RUNTIME_LIST.with(|list| {
+            let list = unsafe { &mut *list.get() };
+            let ptr = self as *const Self;
+
+            if let Some(i) = list.iter().position(|p| std::ptr::eq(p.as_ptr(), ptr)) {
+                list.swap_remove(i);
+                list.len()
+            } else {
+                unreachable!()
+            }
+        });
+
+        if live_rt == 0 {
+            // no runtime alive, clear all atoms (incl const)
+            AtomRegistry::clear();
+        }
+    }
+}
+
 impl JSRuntime {
     pub fn new(mf: JSMallocFunctions, opaque: *mut c_void) -> Result<Box<Self>, i32> {
         let ms = JSMallocState {
@@ -127,13 +146,6 @@ impl JSRuntime {
             mf,
             malloc_state: ms,
             rt_info: std::ptr::null(),
-
-            atom_hash_lut: HashMap::with_capacity(256),
-            atom_slots: {
-                let mut lst = Vec::with_capacity(256);
-                lst.push(std::ptr::null()); // element #0 is reserved not for use.
-                lst
-            },
 
             class_defs: Vec::with_capacity(JS_CLASS_INIT_COUNT),
 
@@ -175,7 +187,9 @@ impl JSRuntime {
             interrupt_opaque: std::ptr::null_mut(),
         });
 
-        rt.init_default_atoms()?;
+        //rt.init_default_atoms()?;
+        AtomRegistry::init_const_atoms(&mut rt);
+
         rt.shape_registry.try_reserve(16).map_err(|_| -1)?;
 
         // register builtin classes
@@ -226,9 +240,26 @@ impl JSRuntime {
 
         JS_UpdateStackTop(rt.as_mut());
 
+        // register runtime raw pointer
+        RUNTIME_LIST.with(|list| unsafe {
+            (&mut *list.get()).push(NonNull::from(rt.as_ref()));
+        });
+
         Ok(rt)
     }
 
+    /// run closure with any runtime
+    pub(crate) fn with_any<R>(f: impl FnOnce(&Self) -> R) -> Option<R> {
+        RUNTIME_LIST.with(|list| unsafe { (&*list.get()).first().map(|p| p.as_ref()).map(f) })
+    }
+
+    /// run closure with any runtime
+    pub(crate) fn with_any_mut<R>(f: impl FnOnce(&mut Self) -> R) -> Option<R> {
+        RUNTIME_LIST.with(|list| unsafe { (&mut *list.get()).first_mut().map(|r| f(r.as_mut())) })
+    }
+}
+
+impl JSRuntime {
     fn finalize(&mut self) {
         self.job_list.clear();
         self.cur_exception = JSValue::UNDEFINED;
@@ -367,10 +398,11 @@ impl JSRuntime {
         }
 
         // free classe defs and associated name atoms
-        let rt = self as *mut Self;
-        for c in self.class_defs.drain(..) {
-            JS_FreeAtomRT(rt, c.class_name);
-        }
+        // let rt = self as *mut Self;
+        // for c in self.class_defs.drain(..) {
+        //     JS_FreeAtomRT(rt, c.class_name);
+        // }
+        self.class_defs.clear();
 
         // guard: all non-const atom should be freed by logic.
         // #[cfg(debug_assertions)]
@@ -386,12 +418,13 @@ impl JSRuntime {
         // }
 
         // free atoms
-        self.atom_hash_lut.clear();
-        for a in self.atom_slots.drain(..) {
-            if !a.is_null() {
-                drop(unsafe { Rc::from_raw(a) });
-            }
-        }
+        // self.atom_hash_lut.clear();
+        // for a in self.atom_slots.drain(..) {
+        //     if !a.is_null() {
+        //         drop(unsafe { Rc::from_raw(a) });
+        //     }
+        // }
+        AtomRegistry::purge(self);
 
         #[cfg(debug_assertions)]
         {
@@ -414,12 +447,6 @@ impl JSRuntime {
             //     );
             // }
         }
-    }
-}
-
-impl Drop for JSRuntime {
-    fn drop(&mut self) {
-        self.finalize();
     }
 }
 

@@ -1,5 +1,5 @@
 use crate::{
-    atom::{JS_ATOM_NULL, AtomRef},
+    atom::{Atom, AtomRef, JS_ATOM_NULL},
     bytecode::{OpCode, OpcodeFormat, opcode_info_intermediate, opcodes},
     context::{JS_MODE_STRICT, JSContext},
     function::{JSFunctionDef, Label},
@@ -11,7 +11,7 @@ use crate::{
 
 pub const OPTIMIZE: bool = true;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(super) struct CodeMatchState {
     /// position past the matched code pattern
     pub pos: usize,
@@ -34,7 +34,7 @@ impl Default for CodeMatchState {
             idx: 0,
             label: 0,
             val: 0,
-            atom: JS_ATOM_NULL,
+            atom: AtomRef::NULL,
         }
     }
 }
@@ -603,7 +603,7 @@ pub fn optimize_scope_make_global_ref(
     bc_buf: *mut u8,
     label: &Label,
     mut pos_next: u32,
-    var_name: AtomRef,
+    var_name: &Atom,
 ) -> u32 {
     let is_strict = js_mode & JS_MODE_STRICT as u8 != 0;
     if is_strict {

@@ -1,5 +1,5 @@
 use crate::{
-    atom::AtomRef,
+    atom::Atom,
     context::{JSContext, is_strict_mode},
     error::{JS_ThrowReferenceErrorUninitialized, JS_ThrowSyntaxErrorVarRedeclaration, JSResult},
     function::{DEFINE_GLOBAL_FUNC_VAR, DEFINE_GLOBAL_LEX_VAR},
@@ -15,7 +15,7 @@ impl JSContext {
     /// construct a reference to specified global variable
     pub(crate) fn build_global_varref(
         &self,
-        prop: AtomRef,
+        prop: &Atom,
     ) -> Result<Option<(JSValue, JSValue)>, i32> {
         // no exotic behavior is possible in global_var_obj
         let gvobj = self.global_var_obj();
@@ -23,7 +23,7 @@ impl JSContext {
         let v0: JSValue = if let Some((idx, prs_flags)) = gvobj.find_shape_property(prop) {
             // check writable flag
             if prs_flags & JS_PROP_WRITABLE == 0 {
-                self.throw_type_error_read_only(prop);
+                self.throw_type_error_read_only(prop.as_ref());
                 return Err(-1);
             }
 
@@ -32,7 +32,7 @@ impl JSContext {
             if let JSProperty::Normal(JSValue::UNINITIALIZED) =
                 gvobj.0.prop_values.borrow().get(idx).unwrap()
             {
-                JS_ThrowReferenceErrorUninitialized(self, prop);
+                JS_ThrowReferenceErrorUninitialized(self, prop.as_ref());
                 return Err(-1);
             }
 
@@ -56,7 +56,7 @@ impl JSContext {
     /// XXX: could support exotic global object.
     pub fn define_global_function(
         &self,
-        prop: AtomRef,
+        prop: &Atom,
         func: JSValue,
         def_flags: u32,
     ) -> Result<bool, i32> {
@@ -89,7 +89,7 @@ impl JSContext {
     /// def_flags is (0, DEFINE_GLOBAL_LEX_VAR) |
     ///   JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE
     // XXX: could support exotic global object.
-    pub fn define_global_var(&self, prop: AtomRef, def_flags: u32) -> Result<(), i32> {
+    pub fn define_global_var(&self, prop: &Atom, def_flags: u32) -> Result<(), i32> {
         let (ob, flags, val) = if def_flags & DEFINE_GLOBAL_LEX_VAR as u32 != 0 {
             (
                 self.global_var_obj(),
@@ -107,20 +107,20 @@ impl JSContext {
         if !ob.flags().extensible() || ob.has_shape_property(prop) {
             Ok(())
         } else {
-            ob.add_own_property(self, prop, flags, JSProperty::Normal(val))
+            ob.add_own_property(self, prop.clone(), flags, JSProperty::Normal(val))
         }
     }
 
     /// flags is 0, DEFINE_GLOBAL_LEX_VAR or DEFINE_GLOBAL_FUNC_VAR
     /// XXX: could support exotic global object.
-    pub fn define_global_var_checked(&self, prop: AtomRef, flags: u32) -> Result<(), i32> {
+    pub fn define_global_var_checked(&self, prop: &Atom, flags: u32) -> Result<(), i32> {
         let gobj = self.global_obj();
         let prs = gobj.find_shape_property(prop).map(|(_, flags)| flags);
 
         // XXX: should handle JS_PROP_LAZYINIT
         if flags & DEFINE_GLOBAL_LEX_VAR as u32 != 0 {
             if prs.map_or(false, |f| f & JS_PROP_CONFIGURABLE == 0) {
-                JS_ThrowSyntaxErrorVarRedeclaration(self, prop);
+                JS_ThrowSyntaxErrorVarRedeclaration(self, prop.as_ref());
                 return Err(-1);
             }
         } else {
@@ -151,14 +151,14 @@ impl JSContext {
 
         // check if there already is a lexical declaration
         if self.global_var_obj().has_shape_property(prop) {
-            JS_ThrowSyntaxErrorVarRedeclaration(self, prop);
+            JS_ThrowSyntaxErrorVarRedeclaration(self, prop.as_ref());
             return Err(-1);
         }
 
         Ok(())
     }
 
-    pub fn get_global_var(&self, prop: AtomRef, throw_ref_error: bool) -> JSResult {
+    pub fn get_global_var(&self, prop: &Atom, throw_ref_error: bool) -> JSResult {
         // no exotic behavior is possible in global_var_obj
         let gvobj = self.global_var_obj();
         if let Some((idx, _)) = gvobj.find_shape_property(prop) {
@@ -166,7 +166,7 @@ impl JSContext {
             // XXX: should handle JS_PROP_TMASK properties
             match gvobj.0.prop_values.borrow().get(idx).unwrap() {
                 JSProperty::Normal(JSValue::UNINITIALIZED) => {
-                    JS_ThrowReferenceErrorUninitialized(self, prop);
+                    JS_ThrowReferenceErrorUninitialized(self, prop.as_ref());
                     Err(-1)
                 }
                 JSProperty::Normal(v) => Ok(v.clone()),
@@ -182,7 +182,7 @@ impl JSContext {
     }
 
     /// used for strict variable access: test if the variable exists
-    pub fn check_global_var(&self, prop: AtomRef) -> Result<bool, i32> {
+    pub fn check_global_var(&self, prop: &Atom) -> Result<bool, i32> {
         // no exotic behavior is possible in global_var_obj
         let p = self.global_var_obj();
         if p.has_shape_property(prop) {
@@ -196,7 +196,7 @@ impl JSContext {
     /// * 0: normal variable write
     /// * 1: initialize lexical variable
     /// * 2: normal variable write, strict check was done before
-    pub fn set_global_var(&self, prop: AtomRef, val: JSValue, flag: u32) -> Result<bool, i32> {
+    pub fn set_global_var(&self, prop: &Atom, val: JSValue, flag: u32) -> Result<bool, i32> {
         // no exotic behavior is possible in global_var_obj
         let gvobj = self.global_var_obj();
 
@@ -207,12 +207,12 @@ impl JSContext {
             if flag != 1 {
                 match pr {
                     JSProperty::Normal(JSValue::UNINITIALIZED) => {
-                        JS_ThrowReferenceErrorUninitialized(self, prop);
+                        JS_ThrowReferenceErrorUninitialized(self, prop.as_ref());
                         return Err(-1);
                     }
                     _ => {
                         if prs_flags & JS_PROP_WRITABLE == 0 {
-                            self.throw_type_error_read_only(prop);
+                            self.throw_type_error_read_only(prop.as_ref());
                             return Err(-1);
                         }
                     }

@@ -1,8 +1,8 @@
-use std::{borrow::Cow, io::Write};
+use std::{borrow::Cow, io::Write, ops::Deref};
 
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CLASS_ERROR, JS_PROP_STRING_DEF,
-    atom::{JS_ATOM_NULL, AtomRef, consts::*},
+    atom::{AtomRef, JS_ATOM_NULL, consts::*},
     class::JSClassID,
     context::{JSContext, is_strict_mode},
     function::{Bytecode, CallContext, FieldDef, get_func_name},
@@ -89,7 +89,7 @@ impl JSContext {
             let s = self.create_string_from_str(message);
             let _ = o.define_property_value(
                 self,
-                JS_ATOM_message,
+                JS_ATOM_message.deref(),
                 s.map_or(JSValue::EXCEPTION, JSValue::String),
                 JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
             );
@@ -215,7 +215,7 @@ pub fn is_backtrace_needed(obj: &JSValueConst) -> bool {
         if p.class_id() != JS_CLASS_ERROR {
             false
         } else {
-            !p.has_shape_property(JS_ATOM_stack)
+            !p.has_shape_property(JS_ATOM_stack.deref())
         }
     } else {
         false
@@ -241,13 +241,13 @@ impl JSContext {
             let str = self.create_string_from_str(filename);
             error_obj.define_property_value(
                 self,
-                JS_ATOM_fileName,
+                JS_ATOM_fileName.deref(),
                 str.map_or(JSValue::EXCEPTION, JSValue::String),
                 JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
             )?;
             error_obj.define_property_value(
                 self,
-                JS_ATOM_lineNumber,
+                JS_ATOM_lineNumber.deref(),
                 JSValue::from(line_num as i32),
                 JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
             )?;
@@ -337,7 +337,7 @@ impl JSContext {
 
         let _ = error_obj.define_property_value(
             self,
-            JS_ATOM_stack,
+            JS_ATOM_stack.deref(),
             tb_val,
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
         );
@@ -416,14 +416,14 @@ pub fn js_error_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    let name = cc.this().get_property(ctx, JS_ATOM_name)?;
+    let name = cc.this().get_property(ctx, JS_ATOM_name.deref())?;
     let mut name = if name.is_undefined() {
         JS_ATOM_Error.force_string(ctx)?
     } else {
         name.to_string(ctx)?
     };
 
-    let msg = cc.this().get_property(ctx, JS_ATOM_message)?;
+    let msg = cc.this().get_property(ctx, JS_ATOM_message.deref())?;
     let msg = if msg.is_undefined() {
         JS_ATOM_empty_string.force_string(ctx)?
     } else {

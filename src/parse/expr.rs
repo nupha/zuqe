@@ -1,5 +1,7 @@
+use std::ops::Deref;
+
 use crate::{
-    atom::{JS_ATOM_NULL, AtomRef, AtomRc, consts::*},
+    atom::{Atom, AtomRef, consts::*},
     branch_hints::unlikely,
     bytecode::{OpCode, OpCodeTemp, SpecialObject, opcodes},
     function::{FuncCallType, JSFunctionKindEnum},
@@ -34,7 +36,7 @@ impl<'s> JSParseState<'s> {
         let name0 = if self.token.val == TOK_IDENT {
             self.token.atom().unwrap()
         } else {
-            JS_ATOM_NULL
+            Atom::NULL
         };
 
         self.parse_cond_expr(parse_flags | PF_ARROW_FUNC)?;
@@ -47,7 +49,7 @@ impl<'s> JSParseState<'s> {
                 self.next_token()?;
 
                 let mut label: i32 = 0;
-                let mut name = JS_ATOM_NULL;
+                let mut name = AtomRef::NULL;
 
                 self.get_lvalue(
                     &mut opcode,
@@ -62,8 +64,8 @@ impl<'s> JSParseState<'s> {
                 self.parse_assign_expr2(parse_flags)?;
 
                 if op == CHAR_EQUAL {
-                    if opcode == OpCode::GET_REF_VALUE as _ && name == name0 {
-                        self.set_object_name(name);
+                    if opcode == OpCode::GET_REF_VALUE as _ && name == name0.as_ref() {
+                        self.set_object_name(name.deref().clone());
                     }
                 } else {
                     const assign_opcodes: [OpCode; 12] = [
@@ -86,7 +88,7 @@ impl<'s> JSParseState<'s> {
                 self.put_lvalue(
                     opcode,
                     scope,
-                    name,
+                    name.deref().clone(),
                     label,
                     PutLValueEnum::PUT_LVALUE_KEEP_TOP,
                     false,
@@ -125,8 +127,8 @@ impl<'s> JSParseState<'s> {
 
                 self.parse_assign_expr2(parse_flags)?;
 
-                if opcode == OpCode::GET_REF_VALUE as i32 && name == name0 {
-                    self.set_object_name(name);
+                if opcode == OpCode::GET_REF_VALUE as i32 && name == name0.as_ref() {
+                    self.set_object_name(name.deref().clone());
                 }
 
                 match depth_lvalue {
@@ -141,7 +143,7 @@ impl<'s> JSParseState<'s> {
                 self.put_lvalue(
                     opcode,
                     scope,
-                    name,
+                    name.deref().clone(),
                     label,
                     PutLValueEnum::PUT_LVALUE_NOKEEP_DEPTH,
                     false,
@@ -281,7 +283,7 @@ impl<'s> JSParseState<'s> {
                     self.parse_function_decl(
                         JSParseFunctionEnum::JS_PARSE_FUNC_ARROW,
                         JSFunctionKindEnum::JS_FUNC_NORMAL,
-                        JS_ATOM_NULL,
+                        &Atom::NULL,
                         self.token.ptr,
                         self.token.line_num,
                     )?;
@@ -293,7 +295,7 @@ impl<'s> JSParseState<'s> {
                 self.parse_function_decl(
                     JSParseFunctionEnum::JS_PARSE_FUNC_EXPR,
                     JSFunctionKindEnum::JS_FUNC_NORMAL,
-                    JS_ATOM_NULL,
+                    &Atom::NULL,
                     self.token.ptr,
                     self.token.line_num,
                 )?;
@@ -313,7 +315,7 @@ impl<'s> JSParseState<'s> {
             TOK_THIS => {
                 self.next_token()?;
                 self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                self.emit_atom_ref(JS_ATOM_this);
+                self.emit_atom(Atom::new_const(JS_ATOM_this));
                 self.emit_u16(0);
             }
             TOK_FALSE => {
@@ -333,7 +335,7 @@ impl<'s> JSParseState<'s> {
                     self.parse_function_decl(
                         JSParseFunctionEnum::JS_PARSE_FUNC_ARROW,
                         JSFunctionKindEnum::JS_FUNC_NORMAL,
-                        JS_ATOM_NULL,
+                        &Atom::NULL,
                         self.token.ptr,
                         self.token.line_num,
                     )?;
@@ -349,7 +351,7 @@ impl<'s> JSParseState<'s> {
                         self.parse_function_decl(
                             JSParseFunctionEnum::JS_PARSE_FUNC_EXPR,
                             JSFunctionKindEnum::JS_FUNC_ASYNC,
-                            JS_ATOM_NULL,
+                            &Atom::NULL,
                             source_ptr,
                             source_line_num,
                         )?;
@@ -365,7 +367,7 @@ impl<'s> JSParseState<'s> {
                         self.parse_function_decl(
                             JSParseFunctionEnum::JS_PARSE_FUNC_ARROW,
                             JSFunctionKindEnum::JS_FUNC_ASYNC,
-                            JS_ATOM_NULL,
+                            &Atom::NULL,
                             source_ptr,
                             source_line_num,
                         )?;
@@ -376,7 +378,7 @@ impl<'s> JSParseState<'s> {
                     }
                 } else {
                     // get atom rc, because later next_token() call will free the atom.
-                    let name = AtomRc::from_ref(self.ctx.rt(), self.token.atom().unwrap());
+                    let name = self.token.atom().unwrap();
 
                     if unlikely(
                         name.as_ref() == JS_ATOM_arguments
@@ -435,7 +437,7 @@ impl<'s> JSParseState<'s> {
                     self.next_token()?;
 
                     self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                    self.emit_atom_ref(JS_ATOM_new_target);
+                    self.emit_atom(Atom::new_const(JS_ATOM_new_target));
                     self.emit_u16(0);
                 } else {
                     self.parse_postfix_expr(0)?;
@@ -468,10 +470,10 @@ impl<'s> JSParseState<'s> {
                     }
 
                     self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                    self.emit_atom_ref(JS_ATOM_this);
+                    self.emit_atom(Atom::new_const(JS_ATOM_this));
                     self.emit_u16(0);
                     self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                    self.emit_atom_ref(JS_ATOM__home_object_);
+                    self.emit_atom(Atom::new_const(JS_ATOM__home_object_));
                     self.emit_u16(0);
                     self.emit_op(OpCode::GET_SUPER);
                 } else {

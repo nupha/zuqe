@@ -184,9 +184,8 @@ pub unsafe fn js_module_set_import_meta(
 ) -> i32 {
     if let JSValue::Module(m) = func_val {
         // make module name to absolute url
-        let module_name_atom = m.module_name().dup(ctx.rt());
+        let module_name_atom = m.module_name();
         let module_name = module_name_atom.to_utf8(ctx.rt());
-        module_name_atom.free(ctx.rt_mut());
 
         let p = PathBuf::from(module_name);
         let mut normalized = PathBuf::new();
@@ -346,7 +345,7 @@ fn dump_error(
     .unwrap();
     writeln!(outf, "[MESSAGE] {msg}").unwrap();
 
-    match err_val.get_property(ctx, JS_ATOM_stack) {
+    match err_val.get_property(ctx, &JS_ATOM_stack) {
         Ok(JSValue::NULL) | Ok(JSValue::UNDEFINED) => {}
         Err(_) => {}
         Ok(s) => {
@@ -496,7 +495,7 @@ fn run_test_file(
                 println!("TEST262 EXCEPTION: {:?}", exc);
                 let msg = if let JSValue::Object(o) = &exc {
                     o.dump(ctx.rt());
-                    let msg = o.get_property(&ctx, JS_ATOM_message).unwrap();
+                    let msg = o.get_property(&ctx, &JS_ATOM_message).unwrap();
                     msg.inspect(&ctx).unwrap().to_string()
                 } else {
                     "<no msg>".into()

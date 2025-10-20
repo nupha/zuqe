@@ -1,15 +1,14 @@
 use std::{cell::RefCell, ops::DerefMut, rc::Rc};
 
 use crate::{
-    JS_CLASS_BYTECODE_FUNCTION,
-    atom::AtomRef,
+    atom::Atom,
     branch_hints::unlikely,
     context::JSContext,
     error::JSResult,
-    function::{BCFuncPayload, build_arg_list},
+    function::build_arg_list,
     object::{JSObject, ObjectPayload},
     stack_frame::StackFrame,
-    value::{JSValue, JSValueConst},
+    value::JSValue,
 };
 
 pub struct CallContext<'a> {
@@ -151,7 +150,7 @@ impl JSObject {
     ///
     /// `method` is not consumed
     #[inline]
-    pub fn invoke(&self, ctx: &JSContext, method: AtomRef, args: &[JSValue]) -> JSResult {
+    pub fn invoke(&self, ctx: &JSContext, method: &Atom, args: &[JSValue]) -> JSResult {
         self.get_property(ctx, method)?
             .call(ctx, &self.clone().into(), args)
     }
@@ -163,7 +162,7 @@ impl JSObject {
     pub fn invoke_defined(
         &self,
         ctx: &JSContext,
-        method: AtomRef,
+        method: &Atom,
         args: &[JSValue],
     ) -> Result<Option<JSResult>, i32> {
         let m = self.get_property(ctx, method)?;
@@ -180,7 +179,7 @@ impl JSObject {
     pub fn invoke_callable(
         &self,
         ctx: &JSContext,
-        method: AtomRef,
+        method: &Atom,
         args: &[JSValue],
     ) -> Result<Option<JSResult>, i32> {
         let m = self.get_property(ctx, method)?;
@@ -211,7 +210,7 @@ impl JSValue {
     ///
     /// `method` is not consumed
     #[inline]
-    pub fn invoke(&self, ctx: &JSContext, method: AtomRef, args: &[JSValue]) -> JSResult {
+    pub fn invoke(&self, ctx: &JSContext, method: &Atom, args: &[JSValue]) -> JSResult {
         self.get_property(ctx, method)?.call(ctx, self, args)
     }
 
@@ -222,7 +221,7 @@ impl JSValue {
     pub fn invoke_defined(
         &self,
         ctx: &JSContext,
-        method: AtomRef,
+        method: &Atom,
         args: &[JSValue],
     ) -> Result<Option<JSResult>, i32> {
         let m = self.get_property(ctx, method)?;
@@ -239,7 +238,7 @@ impl JSValue {
     pub fn invoke_callable(
         &self,
         ctx: &JSContext,
-        method: AtomRef,
+        method: &Atom,
         args: &[JSValue],
     ) -> Result<Option<JSResult>, i32> {
         let m = self.get_property(ctx, method)?;

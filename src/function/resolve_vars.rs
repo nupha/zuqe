@@ -1,5 +1,7 @@
+use std::ops::Deref;
+
 use crate::{
-    atom::{Atom, JS_ATOM_NULL, AtomRef, consts::*},
+    atom::{Atom, AtomRef, JS_ATOM_NULL, consts::*},
     bytecode::{OpCode, OpCodeTemp, opcode_info_intermediate, opcodes},
     context::JSContext,
     error::JS_THROW_VAR_REDECL,
@@ -148,7 +150,7 @@ impl JSFunctionDef {
                     };
                     pos_next = self.resolve_scope_var(
                         ctx,
-                        var_name,
+                        &var_name,
                         scope as _,
                         op,
                         &mut bc_out,
@@ -156,9 +158,6 @@ impl JSFunctionDef {
                         None,
                         pos_next,
                     );
-
-                    // hacy!
-                    Atom::from(var_name.id()).free(ctx.rt_mut());
                 }
                 opcodes::op_scope_make_ref => {
                     let (label_id, scope) = unsafe {
@@ -172,15 +171,11 @@ impl JSFunctionDef {
                     self.label_slots[label_id as usize].ref_count -= 1;
 
                     let var_name =
-                        AtomRef::from(unsafe { read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1)) });
-
-                    // debug: get atom refcount before resolve_scope_var()
-                    #[cfg(debug_assertions)]
-                    let _name_refcnt = var_name.ref_count(ctx.rt());
+                        AtomRef(unsafe { read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1)) });
 
                     pos_next = self.resolve_scope_var(
                         ctx,
-                        var_name,
+                        &var_name,
                         scope as _,
                         op,
                         &mut bc_out,
@@ -188,17 +183,6 @@ impl JSFunctionDef {
                         Some(label_id),
                         pos_next,
                     );
-
-                    // check atom refcount after resolve_scope_var()
-                    #[cfg(debug_assertions)]
-                    debug_assert!(
-                        var_name.ref_count(ctx.rt()) >= _name_refcnt,
-                        "[O.o] {var_name:?}, {}",
-                        var_name.to_utf8(ctx.rt())
-                    );
-
-                    // hacky!
-                    Atom::from(var_name.id()).free(ctx.rt_mut());
                 }
                 opcodes::op_scope_get_private_field
                 | opcodes::op_scope_get_private_field2
@@ -212,7 +196,7 @@ impl JSFunctionDef {
                     };
 
                     if self
-                        .resolve_scope_private_field(ctx, var_name, scope as _, op, &mut bc_out)
+                        .resolve_scope_private_field(ctx, &var_name, scope as _, op, &mut bc_out)
                         .is_err()
                     {
                         // fail: continue the copy to keep the atom refcounts consistent
@@ -238,10 +222,10 @@ impl JSFunctionDef {
                         bc_out.shrink_to_fit();
                         self.byte_code = bc_out;
                         return Err(-1);
-                    } else {
-                        // hacky!
-                        Atom::from(var_name.id()).free(ctx.rt_mut());
                     }
+
+                    // free atom
+                    Atom::free(var_name.id());
                 }
                 opcodes::OP_gosub => {
                     #[cfg(feature = "short_opcode")]
@@ -409,7 +393,7 @@ impl JSFunctionDef {
                 opcodes::OP_set_name => {
                     /* remove dummy set_name opcodes */
                     let name = AtomRef(unsafe { read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1)) });
-                    if name != JS_ATOM_NULL {
+                    if !name.is_null() {
                         no_change!(pos, op_len);
                     }
                 }

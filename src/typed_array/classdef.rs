@@ -123,7 +123,7 @@ pub fn js_typed_array_from(ctx: &JSContext, args: CallContext) -> JSResult {
     }
 
     let arr: JSValue = if !items
-        .get_property(ctx, JS_ATOM_Symbol_iterator)?
+        .get_property(ctx, &JS_ATOM_Symbol_iterator)?
         .is_undefined()
     {
         // target is enumerable

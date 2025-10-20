@@ -935,13 +935,10 @@ fn js_date_Symbol_toPrimitive(ctx: &JSContext, cc: CallContext) -> JSResult {
         JS_ATOM_number => HINT_NUMBER,
         JS_ATOM_string | JS_ATOM_default => HINT_STRING,
         _ => {
-            hint.free(ctx.rt_mut());
             ctx.throw_type_error("invalid hint ");
             return Err(-1);
         }
     };
-    hint.free(ctx.rt_mut());
-
     obj.to_primitive(ctx, hint_num | HINT_FORCE_ORDINARY)
 }
 

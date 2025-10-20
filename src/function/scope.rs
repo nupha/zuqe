@@ -1,7 +1,7 @@
 use std::{marker::PhantomData, ptr::NonNull};
 
 use crate::{
-    atom::{AtomRef, consts::JS_ATOM__with_},
+    atom::{Atom, consts::JS_ATOM__with_},
     bytecode::OpCodeTemp,
     context::JSContext,
     function::{JSFunctionDef, JSVarKindEnum},
@@ -94,7 +94,7 @@ impl JSFunctionDef {
     pub fn add_scope_var(
         &mut self,
         ctx: &JSContext,
-        name: AtomRef,
+        name: &Atom,
         var_kind: JSVarKindEnum,
     ) -> Result<u16, i32> {
         let idx = self.add_var(ctx, name)?;
@@ -111,14 +111,14 @@ impl JSFunctionDef {
     }
 
     /// find a variable declaration in specified scope
-    pub fn find_var_in_scope(&mut self, name: AtomRef, scope: u16) -> Option<u16> {
+    pub fn find_var_in_scope(&mut self, name: &Atom, scope: u16) -> Option<u16> {
         let mut vidx = self.scopes[scope as usize].first;
 
         while vidx >= 0 {
             let vd = self.vars.get(vidx as usize).unwrap();
             if vd.scope_level != scope as i32 {
                 break;
-            } else if vd.var_name.as_ref() == name {
+            } else if vd.var_name.eq(name) {
                 return Some(vidx as u16);
             }
 
@@ -129,11 +129,11 @@ impl JSFunctionDef {
     }
 
     /// find a variable declaration in same or descendant scope of `scope`
-    pub fn find_var_in_child_scope(&self, name: AtomRef, scope: i32) -> Option<u16> {
+    pub fn find_var_in_child_scope(&self, name: &Atom, scope: i32) -> Option<u16> {
         self.vars
             .iter()
             .position(|vd| {
-                vd.var_name.as_ref() == name
+                vd.var_name.eq(name)
                     && vd.scope_level == 0
                     && self.is_child_scope(vd.scope_next, scope)
             })

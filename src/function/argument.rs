@@ -1,11 +1,13 @@
-use crate::branch_hints::unlikely;
-use crate::error::JSResult;
-use crate::object::JSObject;
+use std::ops::Deref;
+
 use crate::{
     JS_CLASS_OBJECT,
     array::ArrayObjPayload,
-    atom::{AtomRef, consts::*},
+    atom::{Atom, consts::*},
+    branch_hints::unlikely,
     context::JSContext,
+    error::JSResult,
+    object::JSObject,
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_VARREF,
         JS_PROP_WRITABLE, JSProperty, ObjectPayload, js_get_length32,
@@ -40,7 +42,7 @@ pub fn js_build_arguments(ctx: &JSContext, args: &[JSValue]) -> JSValue {
     // add the length property (cannot fail)
     obj.add_own_property(
         ctx,
-        JS_ATOM_length,
+        JS_ATOM_length.deref().clone(),
         JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
         JSProperty::Normal(JSValue::Int(args.len() as i32)),
     )
@@ -64,7 +66,7 @@ pub fn js_build_arguments(ctx: &JSContext, args: &[JSValue]) -> JSValue {
 
     obj.define_property_value(
         ctx,
-        JS_ATOM_Symbol_iterator,
+        JS_ATOM_Symbol_iterator.deref(),
         ctx.0.borrow().array_proto_values.clone(),
         JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
     )
@@ -74,7 +76,7 @@ pub fn js_build_arguments(ctx: &JSContext, args: &[JSValue]) -> JSValue {
     let throw_type_error = ctx.0.borrow().throw_type_error.clone();
     obj.define_property(
         ctx,
-        JS_ATOM_callee,
+        JS_ATOM_callee.deref(),
         JSValue::UNDEFINED,
         throw_type_error.clone(),
         throw_type_error,
@@ -102,7 +104,7 @@ pub fn js_build_mapped_arguments(
     // add the `length` property
     obj.add_own_property(
         ctx,
-        JS_ATOM_length,
+        JS_ATOM_length.deref().clone(),
         JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
         JSProperty::Normal(JSValue::Int(args.len() as i32)),
     )?;
@@ -111,7 +113,7 @@ pub fn js_build_mapped_arguments(
         let vref = sf.get_var_ref(ctx, i as _, true)?;
         obj.add_own_property(
             ctx,
-            AtomRef::new_small_int(i as u32),
+            Atom::new_small_int(i as u32),
             JS_PROP_C_W_E | JS_PROP_VARREF,
             JSProperty::VarRef(vref),
         )?;
@@ -124,7 +126,7 @@ pub fn js_build_mapped_arguments(
 
     obj.define_property_value(
         ctx,
-        JS_ATOM_Symbol_iterator,
+        JS_ATOM_Symbol_iterator.deref(),
         ctx.0.borrow().array_proto_values.clone(),
         JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
     )?;
@@ -132,7 +134,7 @@ pub fn js_build_mapped_arguments(
     // callee returns this function in non strict mode
     obj.define_property_value(
         ctx,
-        JS_ATOM_callee,
+        JS_ATOM_callee.deref(),
         unsafe {
             (*ctx.rt().cur_stack_frame.cast::<StackFrame>())
                 .cur_func

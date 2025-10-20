@@ -33,7 +33,7 @@ pub fn js_promise_then(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_promise_catch(ctx: &JSContext, cc: CallContext) -> JSResult {
     cc.this()
-        .invoke(ctx, JS_ATOM_then, &[JSValue::UNDEFINED, cc.arg(0).clone()])
+        .invoke(ctx, &JS_ATOM_then, &[JSValue::UNDEFINED, cc.arg(0).clone()])
 }
 
 fn js_promise_then_finally_func(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -65,7 +65,7 @@ fn js_promise_then_finally_func(ctx: &JSContext, cc: CallContext) -> JSResult {
     )?
     .into();
 
-    promise.invoke(ctx, JS_ATOM_then, std::slice::from_ref(&then_func))
+    promise.invoke(ctx, &JS_ATOM_then, std::slice::from_ref(&then_func))
 }
 
 pub fn js_promise_finally(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -97,7 +97,7 @@ pub fn js_promise_finally(ctx: &JSContext, cc: CallContext) -> JSResult {
         ]
     };
 
-    cc.this().invoke(ctx, JS_ATOM_then, &then_funcs)
+    cc.this().invoke(ctx, &JS_ATOM_then, &then_funcs)
 }
 
 /// returned value is Promise object or Exception.
@@ -112,7 +112,7 @@ pub fn js_promise_resolve(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     if !is_reject && arg0.retrive_object_payload0(JS_CLASS_PROMISE).is_some() {
         // resolve and argument #0 is Promise
-        let ctor = arg0.get_property(ctx, JS_ATOM_constructor)?;
+        let ctor = arg0.get_property(ctx, &JS_ATOM_constructor)?;
         if ctor.is_same(cc.this()) {
             return Ok(arg0);
         }
@@ -142,7 +142,7 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
         Ok(JSValue::Object(result_promise.clone().into()))
     };
 
-    let promise_resolve = if let Ok(x) = cc.this().get_property(ctx, JS_ATOM_resolve) {
+    let promise_resolve = if let Ok(x) = cc.this().get_property(ctx, &JS_ATOM_resolve) {
         if unlikely(x.ensure_function(ctx).is_err()) {
             return fail_reject();
         } else {
@@ -240,7 +240,7 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
             }
 
             if next_promise
-                .invoke(ctx, JS_ATOM_then, &[resolve_element, reject_element])
+                .invoke(ctx, &JS_ATOM_then, &[resolve_element, reject_element])
                 .is_err()
             {
                 return fail_reject();
@@ -303,7 +303,7 @@ pub fn js_promise_race(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let promise_resolve = cc
         .this()
-        .get_property(ctx, JS_ATOM_resolve)
+        .get_property(ctx, &JS_ATOM_resolve)
         .unwrap_or(JSValue::EXCEPTION);
 
     if unlikely(promise_resolve.is_exception() || promise_resolve.ensure_function(ctx).is_err()) {
@@ -318,7 +318,7 @@ pub fn js_promise_race(ctx: &JSContext, cc: CallContext) -> JSResult {
             if let Ok(val) = item {
                 if promise_resolve
                     .call(ctx, this, std::slice::from_ref(&val))
-                    .and_then(|pr| pr.invoke(ctx, JS_ATOM_then, &resolving_funcs))
+                    .and_then(|pr| pr.invoke(ctx, &JS_ATOM_then, &resolving_funcs))
                     .is_err()
                 {
                     return fail_reject();
@@ -345,16 +345,16 @@ pub fn js_promise_withResolvers(ctx: &JSContext, cc: CallContext) -> JSResult {
     let (result_promise, resolving_funcs) = Promise::create_from_ctor(ctx, cc.this())?;
     let obj = ctx.create_base_object()?;
 
-    obj.define_property_value(ctx, JS_ATOM_promise, result_promise.into(), JS_PROP_C_W_E)?;
+    obj.define_property_value(ctx, &JS_ATOM_promise, result_promise.into(), JS_PROP_C_W_E)?;
     obj.define_property_value(
         ctx,
-        JS_ATOM_resolve,
+        &JS_ATOM_resolve,
         resolving_funcs[0].clone(),
         JS_PROP_C_W_E,
     )?;
     obj.define_property_value(
         ctx,
-        JS_ATOM_reject,
+        &JS_ATOM_reject,
         resolving_funcs[1].clone(),
         JS_PROP_C_W_E,
     )?;

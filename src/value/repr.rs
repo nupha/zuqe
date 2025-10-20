@@ -27,10 +27,7 @@ impl JSValue {
             }
 
             Self::String(s) => Ok(s.content().to_utf8(true).into()),
-            Self::Symbol(p) => {
-                let s = p.atom_info().unwrap().atom_ref().to_utf8(ctx.rt());
-                Ok(format!("Symbol({s})"))
-            }
+            Self::Symbol(d) => Ok(format!("Symbol({})", d.content().to_utf8(false))),
             Self::Object(o) => o.inspect(ctx),
             Self::Bytecode(b) => Ok(format!("[bytecode {}]", b.func_name.to_utf8(ctx.rt()))),
 
@@ -50,7 +47,7 @@ impl JSValue {
 impl JSObject {
     pub fn inspect(&self, ctx: &JSContext) -> Result<String, i32> {
         // get [Symbol.toStringTag] property, if got no string, use tag atom above.
-        let tag = if let JSValue::String(s) = self.get_property(ctx, JS_ATOM_Symbol_toStringTag)? {
+        let tag = if let JSValue::String(s) = self.get_property(ctx, &JS_ATOM_Symbol_toStringTag)? {
             format!("{s}")
         } else {
             let tag_atom = if self.is_array(ctx)? {

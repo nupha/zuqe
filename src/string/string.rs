@@ -8,11 +8,10 @@ use std::{
 
 use crate::{
     JS_CLASS_STRING,
-    atom::{AtomHintAndId, AtomRef, consts::*},
+    atom::{Atom, AtomHintAndId, consts::*},
     branch_hints::unlikely,
     class::JSClassExoticMethods,
     context::JSContext,
-    gc::GCObjectHeader,
     number::{ATOD_ACCEPT_BIN_OCT, JS_DTOA_VAR_FORMAT, f64_stringify, js_atof},
     object::{
         GCObjectWeakref, JS_PROP_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC, JSObject,
@@ -40,8 +39,9 @@ pub const JS_STRING_LEN_MAX: usize = (1 << 30) - 1;
 /// - A regular string with dynamic content
 /// - An atom string (interned for efficiency)
 /// - A symbol string (unique identifier)
-pub(crate) struct JSStringInner {
-    header: GCObjectHeader,
+pub struct JSStringInner {
+    /// for const atom description, rt could be null.
+    rt: *mut JSRuntime,
 
     /// when registered as atom, this is hash value for atom.
     /// 0 if string is not registered as atom.
@@ -110,9 +110,10 @@ impl JSStringInner {
         self as *const Self as usize
     }
 
+    /// null means this is a const atom description
     #[inline(always)]
-    pub fn rt(&self) -> &JSRuntime {
-        self.header.rt()
+    pub(crate) fn rt_ptr(&self) -> *mut JSRuntime {
+        self.rt
     }
 
     /// Returns a reference to the underlying string content
@@ -181,10 +182,35 @@ impl JSStringInner {
         debug_assert!(self.atom_type.get().is_none(), "{:?}", self.atom_type.get());
         self.atom_type.set(Some(t));
     }
+
+    /// get raw code at index `nth`
+    pub fn get(&self, nth: usize) -> Option<u16> {
+        self.content().get(nth)
+    }
+
+    pub(crate) fn copy_to_new(&self) -> JSString {
+        debug_assert!(
+            !self.rt_ptr().is_null(),
+            "can't copy const atom description"
+        );
+        JSString::new(
+            unsafe { self.rt_ptr().as_mut().unwrap() },
+            self.content().clone(),
+        )
+    }
 }
 
 #[derive(Clone)]
 pub struct JSString(pub(crate) Rc<JSStringInner>);
+
+impl std::ops::Deref for JSString {
+    type Target = JSStringInner;
+
+    #[inline(always)]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 impl PartialEq for JSString {
     #[inline(always)]
@@ -246,7 +272,7 @@ impl JSString {
     /// create JSString with string content
     pub(crate) fn new(rt: &mut JSRuntime, content: StringContent) -> Self {
         let inner = JSStringInner {
-            header: GCObjectHeader::new(rt, 1),
+            rt,
             hash_and_type: Cell::new(0),
             atom_type: Cell::new(None),
             content,
@@ -295,77 +321,8 @@ impl JSString {
     }
 
     #[inline(always)]
-    pub fn id(&self) -> usize {
-        self.0.id()
-    }
-
-    #[inline(always)]
-    pub fn rt(&self) -> &JSRuntime {
-        self.0.rt()
-    }
-
-    #[inline(always)]
-    pub fn content(&self) -> &StringContent {
-        self.0.content()
-    }
-
-    /// get raw code at index `i`
-    #[inline]
-    pub fn get(&self, i: usize) -> Option<u16> {
-        self.content().get(i)
-    }
-
-    /// count string chars (include broken surrogate code).
-    #[inline(always)]
-    pub fn chars_count(&self) -> usize {
-        self.0.chars_count()
-    }
-
-    /// codepoint length.
-    #[inline(always)]
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    #[inline(always)]
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    #[inline(always)]
-    pub fn is_ident(&self) -> bool {
-        self.0.is_ident()
-    }
-
-    #[inline(always)]
-    pub fn is_wide(&self) -> bool {
-        self.0.is_wide()
-    }
-
-    /// Get hash value of the string.
-    #[inline(always)]
-    pub(crate) fn hash(&self) -> u32 {
-        self.0.hash()
-    }
-
-    /// Save hash value
-    pub(crate) fn set_hash(&self, h: u32) {
-        self.0.set_hash(h);
-    }
-
-    pub fn set_atom_type(&self, t: AtomHintAndId) {
-        self.0.set_atom_type(t);
-    }
-
-    /// Returns the atom type and atom id of the string.
-    ///
-    /// The atom type indicates whether this string is:
-    /// - A regular string (None)
-    /// - An interned string atom (String)
-    /// - A unique symbol (Symbol)
-    #[inline(always)]
-    pub fn atom_info(&self) -> Option<AtomHintAndId> {
-        self.0.atom_info()
+    pub fn ref_count(&self) -> usize {
+        Rc::strong_count(&self.0)
     }
 
     /// make String class object with content from string `self`.
@@ -375,7 +332,7 @@ impl JSString {
             .create_object_from_ctor(ctor, ObjectPayload::STRING(self.clone().into()))
             .map_err(|_| -1)?;
 
-        o.define_property_value(ctx, JS_ATOM_length, JSValue::from(len as u32), 0)?;
+        o.define_property_value(ctx, &JS_ATOM_length, JSValue::from(len as u32), 0)?;
         Ok(o.into())
     }
 
@@ -490,7 +447,7 @@ impl JSContext {
     /// create string from str
     pub fn create_string_from_str(&self, str: &str) -> Result<JSString, i32> {
         if unlikely(str.is_empty()) {
-            Ok(JS_ATOM_empty_string.description(self.rt()).unwrap())
+            JS_ATOM_empty_string.force_string(self)
         } else if unlikely(str.len() > JS_STRING_LEN_MAX) {
             self.throw_internal_error("string too long");
             Err(-1)
@@ -694,7 +651,7 @@ impl JSValue {
         if self.is_undefined_or_null() {
             self.to_string(ctx).map(JSValue::String)
         } else {
-            self.invoke(ctx, JS_ATOM_toLocaleString, &[])
+            self.invoke(ctx, &JS_ATOM_toLocaleString, &[])
         }
     }
 }
@@ -724,7 +681,7 @@ pub unsafe fn strstart(str: *const u8, val: *const u8, ptr: *mut *const u8) -> b
 fn string_define_own_property(
     ctx: &JSContext,
     this_obj: &JSValue,
-    prop: AtomRef,
+    prop: &Atom,
     val: JSValue,
     getter: JSValue,
     setter: JSValue,
@@ -795,10 +752,7 @@ fn string_define_own_property(
 
 pub static js_string_exotic_methods: JSClassExoticMethods = JSClassExoticMethods {
     get_own_property: Some(
-        |ctx: &JSContext,
-         obj: JSValue,
-         prop: AtomRef|
-         -> Result<Option<JSPropertyDescriptor>, i32> {
+        |ctx: &JSContext, obj: JSValue, prop: &Atom| -> Result<Option<JSPropertyDescriptor>, i32> {
             // This is a class exotic method for JS_CLASS_STRING object
             if let Some(idx) = prop.to_small_int()
                 && let Some(JSValue::String(s)) = obj.as_object().and_then(|o| o.payload().value())
@@ -820,7 +774,7 @@ pub static js_string_exotic_methods: JSClassExoticMethods = JSClassExoticMethods
     define_own_property: Some(string_define_own_property),
 
     delete_property: Some(
-        |_: &JSContext, obj: JSValue, prop: AtomRef| -> Result<bool, i32> {
+        |_: &JSContext, obj: JSValue, prop: &Atom| -> Result<bool, i32> {
             if let Some(idx) = prop.to_small_int() {
                 let buflen = TryInto::<JSString>::try_into(obj).unwrap().len();
                 if (idx as usize) < buflen {

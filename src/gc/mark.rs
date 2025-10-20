@@ -347,8 +347,11 @@ impl JSValue {
             Self::Bytecode(b) => {
                 b.gc_sweep();
             }
-            Self::String(s) | Self::Symbol(s) => {
+            Self::String(s) => {
                 s.gc_sweep();
+            }
+            Self::Symbol(d) => {
+                d.gc_sweep();
             }
             _ => {}
         }

@@ -1,5 +1,7 @@
+use std::ops::Deref;
+
 use crate::{
-    atom::{JS_ATOM_NULL, AtomRef, consts::*},
+    atom::{Atom, AtomRef, consts::*},
     bytecode::{OpCode, OpCodeTemp, opcodes},
     context::JS_MODE_STRICT,
     utils::read_from_ptr,
@@ -50,7 +52,7 @@ impl<'s> JSParseState<'s> {
 
         //let fd = self.cur_func;
         let mut scope = 0;
-        let mut name = JS_ATOM_NULL;
+        let mut name = AtomRef::NULL;
         let mut label = -1;
         let depth: i32;
 
@@ -154,7 +156,7 @@ impl<'s> JSParseState<'s> {
                         .expect("add_label() can't fail") as i32;
 
                     self.emit_op_temp(OpCodeTemp::SCOPE_MAKE_REF);
-                    self.emit_atom_ref(name);
+                    self.emit_atom(name.deref().clone());
                     self.emit_u32(label as _);
                     self.emit_u16(scope);
                     self.cur_func_mut().update_label_ref_count(label as _, 1);
@@ -164,11 +166,11 @@ impl<'s> JSParseState<'s> {
                 }
                 opcodes::OP_get_field => {
                     self.emit_op(OpCode::GET_FIELD2);
-                    self.emit_atom_ref(name);
+                    self.emit_atom(name.deref().clone());
                 }
                 opcodes::op_scope_get_private_field => {
                     self.emit_op_temp(OpCodeTemp::SCOPE_GET_PRIVATE_FIELD2);
-                    self.emit_atom_ref(name);
+                    self.emit_atom(name.deref().clone());
                     self.emit_u16(scope);
                 }
                 opcodes::OP_get_array_el => {
@@ -195,7 +197,7 @@ impl<'s> JSParseState<'s> {
                         .expect("add_label() can't fail") as i32;
 
                     self.emit_op_temp(OpCodeTemp::SCOPE_MAKE_REF);
-                    self.emit_atom_ref(name);
+                    self.emit_atom(name.deref().clone());
                     self.emit_u32(label as _);
                     self.emit_u16(scope);
                     self.cur_func_mut().update_label_ref_count(label as _, 1);
@@ -235,7 +237,7 @@ impl<'s> JSParseState<'s> {
         &mut self,
         opcode: i32,
         scope: i32,
-        name: AtomRef,
+        name: Atom,
         label: i32,
         special: PutLValueEnum,
         is_let: bool,
@@ -307,16 +309,16 @@ impl<'s> JSParseState<'s> {
                 } else {
                     OpCodeTemp::SCOPE_PUT_VAR
                 });
-                self.emit_atom_ref(name);
+                self.emit_atom(name);
                 self.emit_u16(scope as _);
             }
             opcodes::OP_get_field => {
                 self.emit_op(OpCode::PUT_FIELD);
-                self.emit_atom_ref(name);
+                self.emit_atom(name);
             }
             opcodes::op_scope_get_private_field => {
                 self.emit_op_temp(OpCodeTemp::SCOPE_PUT_PRIVATE_FIELD);
-                self.emit_atom_ref(name);
+                self.emit_atom(name);
                 self.emit_u16(scope as _);
             }
             opcodes::OP_get_array_el => {

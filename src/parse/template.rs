@@ -1,5 +1,10 @@
+use std::ops::Deref;
+
 use crate::{
-    atom::consts::{JS_ATOM_concat, JS_ATOM_raw},
+    atom::{
+        Atom,
+        consts::{JS_ATOM_concat, JS_ATOM_raw},
+    },
     bytecode::OpCode,
     object::{JS_PROP_ENUMERABLE, JS_PROP_THROW, seal_template_obj},
     parse::token::TokenData,
@@ -105,7 +110,7 @@ impl<'s> JSParseState<'s> {
             raw_array = self.ctx.create_array()?.into();
             template_object.define_property_value(
                 &self.ctx,
-                JS_ATOM_raw,
+                JS_ATOM_raw.deref(),
                 raw_array.clone(),
                 JS_PROP_THROW,
             )?;
@@ -175,7 +180,7 @@ impl<'s> JSParseState<'s> {
                             return self.next_token();
                         }
                         self.emit_op(OpCode::GET_FIELD2);
-                        self.emit_atom_ref(JS_ATOM_concat);
+                        self.emit_atom(Atom::new_const(JS_ATOM_concat));
                     }
                     depth += 1;
                 } else {

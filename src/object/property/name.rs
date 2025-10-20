@@ -1,6 +1,6 @@
 use crate::{
     JS_CLASS_STRING,
-    atom::{Atom, AtomDescKind, AtomRc},
+    atom::{Atom, AtomDescKind},
     branch_hints::unlikely,
     context::JSContext,
     error::{JS_ThrowReferenceErrorUninitialized, JSResult},
@@ -22,7 +22,7 @@ pub enum PropertyKeyKind {
 
 #[derive(Debug, Clone)]
 pub struct PropertyKey {
-    pub atom: AtomRc,
+    pub atom: Atom, // TODO: use AtomRef or &'a Atom
     pub kind: PropertyKeyKind,
     pub is_enumerable: bool,
     pub is_exotic: bool,
@@ -39,7 +39,7 @@ impl PropertyKey {
         };
 
         Self {
-            atom: atom.into_rc(ctx.rt()),
+            atom,
             kind,
             is_enumerable,
             is_exotic,
@@ -110,7 +110,7 @@ impl JSObject {
 
                     callback(
                         ctx,
-                        PropertyKey::new(ctx, prs.atom.dup(ctx.rt()), is_enumerable, false),
+                        PropertyKey::new(ctx, prs.atom.clone(), is_enumerable, false),
                     )?;
                 }
             }
@@ -125,7 +125,7 @@ impl JSObject {
                         callback(
                             ctx,
                             PropertyKey {
-                                atom: Atom::new_small_int(i as u32).into_rc(ctx.rt()),
+                                atom: Atom::new_small_int(i as u32),
                                 is_enumerable: true,
                                 kind: PropertyKeyKind::ArrayIndex(i as u32),
                                 is_exotic: false,
@@ -141,7 +141,7 @@ impl JSObject {
                         callback(
                             ctx,
                             PropertyKey {
-                                atom: Atom::new_small_int(i as u32).into_rc(ctx.rt()),
+                                atom: Atom::new_small_int(i as u32),
                                 is_enumerable: true,
                                 kind: PropertyKeyKind::ArrayIndex(i as u32),
                                 is_exotic: false,
@@ -164,7 +164,7 @@ impl JSObject {
                         if (flags >> (atom_kind as u8)) & 1 != 0 {
                             let mut is_enumerable = false;
                             if flags & (JS_GPN_SET_ENUM | JS_GPN_ENUM_ONLY) != 0 {
-                                if let Some(d) = self.get_own_property(ctx, pk.atom.as_ref())? {
+                                if let Some(d) = self.get_own_property(ctx, &pk.atom)? {
                                     is_enumerable = d.flags & JS_PROP_ENUMERABLE != 0;
                                 }
                             }
@@ -281,7 +281,7 @@ impl JSObject {
 
         for pk in pkeys.iter() {
             if flags & JS_GPN_ENUM_ONLY != 0 {
-                match self.get_own_property(ctx, pk.atom.as_ref())? {
+                match self.get_own_property(ctx, &pk.atom)? {
                     Some(desc) => {
                         if desc.flags & JS_PROP_ENUMERABLE == 0 {
                             continue; // skip non enumerable
@@ -300,11 +300,11 @@ impl JSObject {
                     key = pk.atom.string_or_symbol(ctx)?;
                 }
                 JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE => {
-                    val = self.get_property(ctx, pk.atom.as_ref())?;
+                    val = self.get_property(ctx, &pk.atom)?;
                 }
                 JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE => {
                     key = pk.atom.string_or_symbol(ctx)?;
-                    val = self.get_property(ctx, pk.atom.as_ref())?;
+                    val = self.get_property(ctx, &pk.atom)?;
                 }
             }
             ret.push((key, val));

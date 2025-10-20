@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::{ops::Deref, rc::Rc};
 
 use crate::{
     atom::{Atom, JS_ATOM_NULL, consts::*},
@@ -311,10 +311,11 @@ impl JSFunctionDef {
     fn add_eval_variables(&mut self, ctx: &JSContext) {
         // in non strict mode, variables are created in the caller's environment object
         if !self.is_eval && self.attrs.js_mode & JS_MODE_STRICT as u8 == 0 {
-            self.var_object_idx = Some(self.add_var(ctx, JS_ATOM__var_).unwrap());
+            self.var_object_idx = Some(self.add_var(ctx, JS_ATOM__var_.deref()).unwrap());
             if self.has_parameter_expressions {
                 // an additional variable object is needed for the argument scope
-                self.arg_var_object_idx = Some(self.add_var(ctx, JS_ATOM__arg_var_).unwrap());
+                self.arg_var_object_idx =
+                    Some(self.add_var(ctx, JS_ATOM__arg_var_.deref()).unwrap());
             }
         }
 
@@ -326,15 +327,19 @@ impl JSFunctionDef {
             }
             if self.new_target_var_idx.is_none() {
                 self.new_target_var_idx =
-                    Some(self.add_var(ctx, JS_ATOM_new_target).expect("TODO"));
+                    Some(self.add_var(ctx, JS_ATOM_new_target.deref()).expect("TODO"));
             }
             if self.attrs.is_derived_class_constructor && self.this_active_func_var_idx.is_none() {
-                self.this_active_func_var_idx =
-                    Some(self.add_var(ctx, JS_ATOM_this_active_func).expect("TODO"));
+                self.this_active_func_var_idx = Some(
+                    self.add_var(ctx, JS_ATOM_this_active_func.deref())
+                        .expect("TODO"),
+                );
             }
             if self.has_home_object && (*self).home_object_var_idx.is_none() {
-                self.home_object_var_idx =
-                    Some(self.add_var(ctx, JS_ATOM__home_object_).expect("TODO"));
+                self.home_object_var_idx = Some(
+                    self.add_var(ctx, JS_ATOM__home_object_.deref())
+                        .expect("TODO"),
+                );
             }
         }
 
@@ -350,7 +355,8 @@ impl JSFunctionDef {
         }
 
         if self.is_func_expr && !self.func_name.is_null() {
-            self.add_func_var(ctx, self.func_name.as_ref()).unwrap();
+            self.add_func_var(ctx, self.func_name.as_ref().deref())
+                .unwrap();
         }
 
         // eval can use all the variables of the enclosing functions, so
@@ -373,17 +379,21 @@ impl JSFunctionDef {
                 }
 
                 if fd.new_target_var_idx.is_none() {
-                    let i = fd.add_var(ctx, JS_ATOM_new_target).expect("TODO");
+                    let i = fd.add_var(ctx, JS_ATOM_new_target.deref()).expect("TODO");
                     fd.new_target_var_idx.replace(i);
                 }
 
                 if fd.attrs.is_derived_class_constructor && fd.this_active_func_var_idx.is_none() {
-                    let i = fd.add_var(ctx, JS_ATOM_this_active_func).expect("TODO");
+                    let i = fd
+                        .add_var(ctx, JS_ATOM_this_active_func.deref())
+                        .expect("TODO");
                     fd.this_active_func_var_idx.replace(i);
                 }
 
                 if fd.has_home_object && fd.home_object_var_idx.is_none() {
-                    let i = fd.add_var(ctx, JS_ATOM__home_object_).expect("TODO");
+                    let i = fd
+                        .add_var(ctx, JS_ATOM__home_object_.deref())
+                        .expect("TODO");
                     fd.home_object_var_idx.replace(i);
                 }
 
@@ -398,7 +408,7 @@ impl JSFunctionDef {
 
             // add function name
             if fd.is_func_expr && !fd.func_name.is_null() {
-                fd.add_func_var(ctx, fd.func_name.as_ref()).unwrap();
+                fd.add_func_var(ctx, fd.func_name.as_ref().deref()).unwrap();
             }
 
             // add lexical variables
@@ -415,7 +425,7 @@ impl JSFunctionDef {
                     true,
                     false,
                     scope_idx as u16,
-                    vd.var_name.as_ref(),
+                    &vd.var_name,
                     vd.is_const(),
                     vd.is_lexical(),
                     vd.var_kind(),
@@ -437,7 +447,7 @@ impl JSFunctionDef {
                             true,
                             true,
                             i as _,
-                            vd.var_name.as_ref(),
+                            &vd.var_name,
                             false,
                             vd.is_lexical(),
                             JSVarKindEnum::JS_VAR_NORMAL,
@@ -457,7 +467,7 @@ impl JSFunctionDef {
                             true,
                             false,
                             i as _,
-                            vd.var_name.as_ref(),
+                            &vd.var_name,
                             false,
                             vd.is_lexical(),
                             JSVarKindEnum::JS_VAR_NORMAL,
@@ -475,7 +485,7 @@ impl JSFunctionDef {
                             true,
                             false,
                             i as _,
-                            vd.var_name.as_ref(),
+                            &vd.var_name,
                             false,
                             vd.is_lexical(),
                             JSVarKindEnum::JS_VAR_NORMAL,
@@ -495,7 +505,7 @@ impl JSFunctionDef {
                             false,
                             cv.is_arg(),
                             i as _,
-                            cv.var_name.as_ref(),
+                            &cv.var_name,
                             cv.is_const(),
                             cv.is_lexical(),
                             cv.var_kind(),

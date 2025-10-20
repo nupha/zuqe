@@ -2,7 +2,7 @@ use std::{cell::RefCell, ops::Deref, rc::Rc};
 
 use crate::{
     JS_CLASS_C_FUNCTION_DATA,
-    atom::consts::JS_ATOM_empty_string,
+    atom::{Atom, consts::JS_ATOM_empty_string},
     context::JSContext,
     error::JSResult,
     function::{CallContext, NativeCallback, js_function_set_properties},
@@ -65,7 +65,12 @@ impl NativeFunctionWithData {
             )
             .map_err(|_| -1)?;
 
-        js_function_set_properties(ctx, &func_obj, JS_ATOM_empty_string, length as _);
+        js_function_set_properties(
+            ctx,
+            &func_obj,
+            Atom::new_const(JS_ATOM_empty_string),
+            length as _,
+        );
         Ok(Self(func_obj))
     }
 }

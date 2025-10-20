@@ -1,5 +1,7 @@
+use std::ops::Deref;
+
 use crate::{
-    atom::{Atom, JS_ATOM_NULL, AtomRef, AtomRc, consts::*},
+    atom::{Atom, AtomRef, consts::*},
     bytecode::{OpCode, OpCodeTemp},
     context::JS_MODE_STRICT,
     eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
@@ -41,7 +43,7 @@ impl JSParseState<'_> {
             // hidden variable <ret> for the return value
             let ctx = self.ctx.clone();
             let fd = self.cur_func_mut();
-            let idx = fd.add_var(&ctx, JS_ATOM__ret_)?;
+            let idx = fd.add_var(&ctx, JS_ATOM__ret_.deref())?;
             fd.eval_ret_idx.replace(idx);
         }
 
@@ -70,7 +72,7 @@ impl JSParseState<'_> {
                 self.parse_function_decl(
                     JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
                     JSFunctionKindEnum::JS_FUNC_NORMAL,
-                    AtomRef::NULL,
+                    &Atom::NULL,
                     self.token.ptr,
                     self.token.line_num,
                 )
@@ -90,7 +92,7 @@ impl JSParseState<'_> {
                     self.parse_function_decl(
                         JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
                         JSFunctionKindEnum::JS_FUNC_NORMAL,
-                        JS_ATOM_NULL,
+                        &Atom::NULL,
                         self.token.ptr,
                         self.token.line_num,
                     )
@@ -221,16 +223,14 @@ impl JSParseState<'_> {
                     return Err(-1);
                 }
 
-                let atom = self.token.atom().unwrap();
-                if atom == JS_ATOM_let && matches!(tok, TOK_LET | TOK_CONST) {
+                let name = self.token.atom().unwrap();
+                if name.as_ref() == JS_ATOM_let && matches!(tok, TOK_LET | TOK_CONST) {
                     self.throw_syntax_error("'let' is not a valid lexical identifier");
                     return Err(-1);
                 }
 
-                let name = AtomRc::from_ref(self.ctx.rt(), atom);
-
                 self.next_token()?;
-                self.define_var(name.as_ref(), tok, export)?;
+                self.define_var(&name, tok, export)?;
 
                 if self.token.val == '=' as i32 {
                     self.next_token()?;
@@ -238,7 +238,7 @@ impl JSParseState<'_> {
                     if tok == TOK_VAR {
                         // Must make a reference for proper `with` semantics
                         self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                        self.emit_atom_ref(name.as_ref());
+                        self.emit_atom(name.clone());
                         self.emit_u16(self.cur_func().scope_level as u16);
 
                         let mut opcode: i32 = 0;
@@ -256,24 +256,24 @@ impl JSParseState<'_> {
                         )?;
 
                         self.parse_assign_expr2(parse_flags)?;
-                        self.set_object_name(name.as_ref());
+                        self.set_object_name(name.clone());
                         self.put_lvalue(
                             opcode,
                             scope,
-                            name1,
+                            name1.deref().clone(),
                             label,
                             PutLValueEnum::PUT_LVALUE_NOKEEP,
                             false,
                         );
                     } else {
                         self.parse_assign_expr2(parse_flags)?;
-                        self.set_object_name(name.as_ref());
+                        self.set_object_name(name.clone());
                         self.emit_op_temp(if tok == TOK_CONST || tok == TOK_LET {
                             OpCodeTemp::SCOPE_PUT_VAR_INIT
                         } else {
                             OpCodeTemp::SCOPE_PUT_VAR
                         });
-                        self.emit_atom_ref(name.as_ref());
+                        self.emit_atom(name.clone());
                         self.emit_u16(self.cur_func().scope_level as u16);
                     }
                 } else {
@@ -284,7 +284,7 @@ impl JSParseState<'_> {
                         // initialize lexical variable upon entering its scope
                         self.emit_op(OpCode::UNDEFINED);
                         self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
-                        self.emit_atom_ref(name.as_ref());
+                        self.emit_atom(name.clone());
                         self.emit_u16(self.cur_func().scope_level as u16);
                     }
                 }

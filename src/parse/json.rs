@@ -2,7 +2,7 @@ use smallvec::SmallVec;
 
 use crate::{
     atom::{
-        Atom, AtomRc,
+        Atom,
         consts::{JS_ATOM_false, JS_ATOM_null, JS_ATOM_true},
     },
     context::JSContext,
@@ -74,24 +74,23 @@ unsafe fn json_parse_value(s: &mut JSParseState) -> JSResult {
             val = s.ctx.create_base_object()?.into();
             if s.token.val != b'}' as i32 {
                 loop {
-                    let prop_name: AtomRc = if s.token.val == TOK_STRING {
+                    let prop_name = if s.token.val == TOK_STRING {
                         Atom::new(
                             s.ctx.rt_mut(),
                             &s.token.data.string().unwrap().to_utf8(true),
                         )?
                     } else if s.ext_json && s.token.val == TOK_IDENT {
-                        s.token.data.ident_atom_ref().unwrap().dup(s.ctx.rt())
+                        s.token.data.ident_atom().unwrap()
                     } else {
                         s.throw_syntax_error("expecting property name");
                         return Err(-1);
-                    }
-                    .into_rc(s.ctx.rt());
+                    };
 
                     json_next_token(s)?;
                     json_parse_expect(s, ':' as i32)?;
 
                     let prop_val = json_parse_value(s)?;
-                    val.define_property_value(&s.ctx, prop_name.as_ref(), prop_val, JS_PROP_C_W_E)?;
+                    val.define_property_value(&s.ctx, &prop_name, prop_val, JS_PROP_C_W_E)?;
 
                     if s.token.val != ',' as i32 {
                         break;
@@ -151,7 +150,7 @@ unsafe fn json_parse_value(s: &mut JSParseState) -> JSResult {
             json_next_token(s)?;
         }
         TOK_IDENT => {
-            val = match s.token.data.ident_atom_ref().unwrap() {
+            val = match s.token.data.ident_atom().unwrap().as_ref() {
                 JS_ATOM_true => JSValue::Bool(true),
                 JS_ATOM_false => JSValue::Bool(false),
                 JS_ATOM_null => JSValue::NULL,
@@ -332,7 +331,7 @@ fn json_next_token(s: &mut JSParseState) -> Result<(), i32> {
                 p = p.add(1);
                 if let Ok(atom) = json_parse_ident(s, &mut p, c) {
                     s.token.data = TokenData::Ident {
-                        atom: atom.into_rc(s.ctx.rt()),
+                        atom,
                         has_escape: false,
                         is_reserved: false,
                     };

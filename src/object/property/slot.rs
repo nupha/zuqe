@@ -1,6 +1,6 @@
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_MODULE_NS,
-    atom::{AtomRef, consts::JS_ATOM_length},
+    atom::{Atom, consts::JS_ATOM_length},
     branch_hints::unlikely,
     context::JSContext,
     object::{JS_PROP_LAZYINIT, JSObject},
@@ -18,7 +18,7 @@ impl JSObject {
     pub(super) fn update_prop_slot_normal(
         &self,
         ctx: &JSContext,
-        prop: AtomRef,
+        prop: &Atom,
         prs_flags: u32,
         idx: usize,
         val: JSValue,
@@ -50,7 +50,7 @@ impl JSObject {
                 self.0.prop_values.borrow_mut()[idx] = JSProperty::default();
                 self.shape().unwrap().with_mut(|s| {
                     // Note: s must be an exclusive shape, so we can modify it.
-                    let prs = s.prop_defs.get_mut(&prop.0).unwrap();
+                    let prs = s.prop_defs.get_mut(&prop.id()).unwrap();
                     prs.set_flags(prs.flags() & !(JS_PROP_TMASK | JS_PROP_WRITABLE));
                     debug_assert_eq!(prs.flags() & JS_PROP_TMASK, JS_PROP_NORMAL);
                 });
@@ -103,7 +103,7 @@ impl JSObject {
                         self.shape_prepare_update(ctx)?;
                         self.shape().unwrap().with_mut(|s| {
                             // Note: s must be an exclusive shape, so we can modify it.
-                            let prs = s.prop_defs.get_mut(&prop.0).unwrap();
+                            let prs = s.prop_defs.get_mut(&prop.id()).unwrap();
                             prs.set_flags(prs.flags() & !(JS_PROP_TMASK | JS_PROP_WRITABLE));
                             debug_assert_eq!(prs.flags() & JS_PROP_TMASK, JS_PROP_NORMAL);
                         });
@@ -139,7 +139,7 @@ impl JSObject {
     pub(super) fn update_prop_slot_getset(
         &self,
         ctx: &JSContext,
-        prop: AtomRef,
+        prop: &Atom,
         prs_flags: u32,
         idx: usize,
         getter: JSValue,
@@ -166,7 +166,7 @@ impl JSObject {
             self.shape_prepare_update(ctx)?;
 
             self.shape().unwrap().with_mut(|s| {
-                let prs = s.prop_defs.get_mut(&prop.0).unwrap();
+                let prs = s.prop_defs.get_mut(&prop.id()).unwrap();
                 prs.set_flags(
                     (prs.flags() & (JS_PROP_CONFIGURABLE | JS_PROP_ENUMERABLE)) | JS_PROP_GETSET,
                 );
@@ -214,7 +214,7 @@ impl JSObject {
         &self,
         ctx: &JSContext,
         prs_flags: u32,
-        prop: AtomRef,
+        prop: &Atom,
         index: usize,
         value: JSValue,
         this_obj: &JSObject, // only used for getter, setter calling
@@ -230,7 +230,7 @@ impl JSObject {
             0 => {
                 // non-length, normal, not-writable
                 return if ctx.can_throw(flags) {
-                    ctx.throw_type_error_read_only(prop);
+                    ctx.throw_type_error_read_only(prop.as_ref());
                     Err(-1)
                 } else {
                     Ok(false)
@@ -245,7 +245,7 @@ impl JSObject {
         if prs_flags & JS_PROP_LENGTH != 0 {
             // special prop length: to set .length property of an array-like object
             debug_assert_eq!(self.class_id(), JS_CLASS_ARRAY);
-            debug_assert_eq!(prop, JS_ATOM_length);
+            debug_assert_eq!(prop.as_ref(), JS_ATOM_length);
             debug_assert_eq!(index, 0);
 
             unsafe {
@@ -275,7 +275,7 @@ impl JSObject {
                     // but they are write protected in module name spaces.
                     if self.class_id() == JS_CLASS_MODULE_NS {
                         if ctx.can_throw(flags) {
-                            ctx.throw_type_error_read_only(prop);
+                            ctx.throw_type_error_read_only(prop.as_ref());
                             Err(-1)
                         } else {
                             Ok(false)

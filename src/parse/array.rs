@@ -73,7 +73,7 @@ pub fn js_parse_array_literal(s: &mut JSParseState) -> i32 {
             s.emit_op(OpCode::PUSH_I32);
             s.emit_u32(idx);
             s.emit_op(OpCode::PUT_FIELD);
-            s.emit_atom_ref(JS_ATOM_length);
+            s.emit_atom(Atom::new_const(JS_ATOM_length));
         }
         done!();
     }
@@ -146,7 +146,7 @@ pub fn js_parse_array_literal(s: &mut JSParseState) -> i32 {
         // length is not configurable
         s.emit_op(OpCode::DUP1); // array length - array array length
         s.emit_op(OpCode::PUT_FIELD);
-        s.emit_atom_ref(JS_ATOM_length);
+        s.emit_atom(Atom::new_const(JS_ATOM_length));
     } else {
         s.emit_op(OpCode::DROP); // array length - array
     }

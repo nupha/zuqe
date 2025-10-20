@@ -26,7 +26,7 @@ impl JSObject {
             return self.instance_of(ctx, &b.func_obj);
         }
 
-        match ctor.get_property(ctx, JS_ATOM_prototype)? {
+        match ctor.get_property(ctx, &JS_ATOM_prototype)? {
             JSValue::Object(proto) => {
                 let mut p = self.clone();
                 loop {
@@ -70,7 +70,7 @@ impl JSObject {
     pub fn instance_of(&self, ctx: &JSContext, ctor: &JSValue) -> Result<bool, i32> {
         if let Some(o) = ctor.as_object() {
             if let Some(r) =
-                o.invoke_defined(ctx, JS_ATOM_Symbol_hasInstance, &[self.clone().into()])?
+                o.invoke_defined(ctx, &JS_ATOM_Symbol_hasInstance, &[self.clone().into()])?
             {
                 return r.and_then(|v| v.to_bool());
             } else {
@@ -140,7 +140,7 @@ impl JSValue {
 
         if let Some(o) = ctor.as_object() {
             if let Some(r) =
-                o.invoke_defined(ctx, JS_ATOM_Symbol_hasInstance, &[self.clone().into()])?
+                o.invoke_defined(ctx, &JS_ATOM_Symbol_hasInstance, &[self.clone().into()])?
             {
                 return r.and_then(|v| v.to_bool());
             } else {

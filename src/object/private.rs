@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use crate::{
     atom::{AtomTypeHint, consts::*},
     context::JSContext,
@@ -15,10 +17,10 @@ impl JSObject {
             .as_object_BCFunction()
             .and_then(|o| o.payload().home_object())
         {
-            if let Some((idx, _)) = home_obj.find_shape_property(JS_ATOM_Private_brand) {
+            if let Some((idx, _)) = home_obj.find_shape_property(JS_ATOM_Private_brand.deref()) {
                 match home_obj.0.prop_values.borrow().get(idx).cloned().unwrap() {
                     JSProperty::Normal(JSValue::Symbol(s)) => {
-                        Ok(self.has_shape_property(s.atom_info().unwrap().atom_ref()))
+                        Ok(self.has_shape_property(&s.atom_info().unwrap().atom_ref()))
                     }
                     _ => {
                         ctx.throw_type_error_not_an_object();
@@ -40,7 +42,7 @@ impl JSObject {
         if let JSValue::Symbol(s) = name {
             let prop = s.atom_info().unwrap().atom_ref();
 
-            if let Some((idx, _)) = self.find_shape_property(prop) {
+            if let Some((idx, _)) = self.find_shape_property(&prop) {
                 self.0.prop_values.borrow_mut()[idx] = JSProperty::Normal(val);
                 Ok(())
             } else {
@@ -73,7 +75,7 @@ impl JSObject {
         if let JSValue::Symbol(s) = name {
             let prop = s.atom_info().unwrap().atom_ref();
 
-            if let Some((idx, _)) = self.find_shape_property(prop) {
+            if let Some((idx, _)) = self.find_shape_property(&prop) {
                 if let JSProperty::Normal(val) = self.0.prop_values.borrow().get(idx).unwrap() {
                     Ok(val.clone())
                 } else {
@@ -119,14 +121,19 @@ impl JSObject {
     ) -> Result<(), i32> {
         if let JSValue::Symbol(s) = name {
             let prop = s.atom_info().unwrap().atom_ref();
-            if self.has_shape_property(prop) {
+            if self.has_shape_property(&prop) {
                 ctx.throw_type_error(&format!(
                     "private class field '{}' already exists",
                     prop.to_utf8(ctx.rt())
                 ));
                 Err(-1)
             } else {
-                self.add_own_property(ctx, prop, JS_PROP_C_W_E, JSProperty::Normal(val))
+                self.add_own_property(
+                    ctx,
+                    prop.deref().clone(),
+                    JS_PROP_C_W_E,
+                    JSProperty::Normal(val),
+                )
             }
         } else {
             ctx.throw_type_error_not_a_symbol();
@@ -150,35 +157,35 @@ impl JSValue {
     /// if self is an object, then defined a property with the home_obj's symbol as key.
     pub fn add_brand(&self, ctx: &JSContext, home_obj: &JSValue) -> Result<(), i32> {
         if let JSValue::Object(home) = home_obj {
-            let brand_sym: JSValue =
-                if let Some((idx, _)) = home.find_shape_property(JS_ATOM_Private_brand) {
-                    if let JSProperty::Normal(val) = home.0.prop_values.borrow().get(idx).unwrap() {
-                        val.clone()
-                    } else {
-                        unreachable!()
-                    }
+            let brand_sym: JSValue = if let Some((idx, _)) =
+                home.find_shape_property(JS_ATOM_Private_brand.deref())
+            {
+                if let JSProperty::Normal(val) = home.0.prop_values.borrow().get(idx).unwrap() {
+                    val.clone()
                 } else {
-                    // the private <brand> prop is not present, add it
-                    let br = ctx.create_symbol_from_atom(JS_ATOM__brand_, AtomTypeHint::Private)?;
-                    home.add_own_property(
-                        ctx,
-                        JS_ATOM_Private_brand,
-                        JS_PROP_C_W_E,
-                        JSProperty::Normal(br.clone()),
-                    )?;
-                    br
-                };
+                    unreachable!()
+                }
+            } else {
+                // the private <brand> prop is not present, add it
+                let br = ctx.create_symbol_from_atom(&JS_ATOM__brand_, AtomTypeHint::Private)?;
+                home.add_own_property(
+                    ctx,
+                    JS_ATOM_Private_brand.deref().clone(),
+                    JS_PROP_C_W_E,
+                    JSProperty::Normal(br.clone()),
+                )?;
+                br
+            };
 
             if let Some(ob) = self.as_object() {
-                let brand_atom = brand_sym.to_atom(ctx).unwrap().into_rc(ctx.rt());
-
-                if ob.has_shape_property(brand_atom.as_ref()) {
+                let brand_atom = brand_sym.to_atom(ctx).unwrap();
+                if ob.has_shape_property(&brand_atom) {
                     ctx.throw_type_error("private method is already present");
                     Err(-1)
                 } else {
                     let r = ob.add_own_property(
                         ctx,
-                        brand_atom.as_ref(),
+                        brand_atom,
                         JS_PROP_C_W_E,
                         JSProperty::Normal(JSValue::UNDEFINED),
                     );

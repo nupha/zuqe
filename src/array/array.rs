@@ -1,11 +1,14 @@
-use std::{cell::RefCell, ops::DerefMut};
+use std::{
+    cell::RefCell,
+    ops::{Deref, DerefMut},
+};
 
 use fallible_collections::{FallibleVec, TryCollect};
 use smallvec::SmallVec;
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_PROXY,
-    atom::{Atom, AtomRef},
+    atom::Atom,
     branch_hints::unlikely,
     context::JSContext,
     number::MAX_SAFE_INTEGER,
@@ -106,9 +109,7 @@ impl Array {
                     // faster to iterate
                     while cur_len > length {
                         let atom = Atom::from_u32(ctx.rt_mut(), cur_len as u32 - 1)?;
-                        let ret = self.delete_property_internal(ctx, atom.as_ref());
-                        atom.free(ctx.rt_mut());
-
+                        let ret = self.delete_property_internal(ctx, &atom);
                         if let Ok(false) = ret {
                             break; // property is not configurable
                         }
@@ -139,7 +140,7 @@ impl Array {
 
                         if let Some(idx) = prop.to_array_index(ctx.rt()) {
                             if idx >= cur_len {
-                                let _r = self.delete_property_internal(ctx, prop);
+                                let _r = self.delete_property_internal(ctx, prop.deref());
                                 debug_assert!(_r.is_ok());
 
                                 // WARNING: the shape may have been modified
@@ -507,7 +508,7 @@ impl JSObject {
                 if !v.is_uninitialized() {
                     self.add_own_property(
                         ctx,
-                        AtomRef::new_small_int(i as _),
+                        Atom::new_small_int(i as _),
                         JS_PROP_C_W_E,
                         JSProperty::Normal(v),
                     )?;

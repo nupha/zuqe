@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     JS_CLASS_PROMISE,
-    atom::consts::*,
+    atom::{Atom, consts::*},
     callable::NativeFunctionWithData,
     context::JSContext,
     error::JSResult,
@@ -205,7 +205,7 @@ impl Promise {
                     },
                 )
                 .map_err(|_| -1)?;
-            js_function_set_properties(ctx, &func, JS_ATOM_empty_string, 1);
+            js_function_set_properties(ctx, &func, Atom::new_const(JS_ATOM_empty_string), 1);
             resolving_funcs[i as usize] = func.into();
         }
 
@@ -362,7 +362,7 @@ pub fn js_promise_all_resolve_element(ctx: &JSContext, mut cc: CallContext) -> J
 
         ob.define_property_value(
             ctx,
-            JS_ATOM_status,
+            &JS_ATOM_status,
             ctx.create_string_from_str(if is_reject { "rejected" } else { "fulfilled" })?
                 .into(),
             JS_PROP_C_W_E,
@@ -370,9 +370,9 @@ pub fn js_promise_all_resolve_element(ctx: &JSContext, mut cc: CallContext) -> J
         ob.define_property_value(
             ctx,
             if is_reject {
-                JS_ATOM_reason
+                &JS_ATOM_reason
             } else {
-                JS_ATOM_value
+                &JS_ATOM_value
             },
             cc.arg(0).clone(),
             JS_PROP_C_W_E,

@@ -1,6 +1,8 @@
+use std::ops::Deref;
+
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_OBJECT_DEF, JS_PROP_STRING_DEF,
-    atom::{Atom, AtomRc, AtomRef, consts::JS_ATOM_empty_string},
+    atom::{Atom, consts::JS_ATOM_empty_string},
     context::JSContext,
     error::JSResult,
     function::{CallContext, FieldDef},
@@ -23,7 +25,7 @@ fn js_json_stringify(ctx: &JSContext, cc: CallContext) -> JSResult {
 fn internalize_json_property(
     ctx: &JSContext,
     holder: &JSValue,
-    name: AtomRef,
+    name: &Atom,
     reviver: &JSValue,
 ) -> JSResult {
     if js_check_stack_overflow(ctx.rt(), 0) {
@@ -47,18 +49,17 @@ fn internalize_json_property(
         }
 
         for i in 0..len {
-            let prop: AtomRc = if is_array {
+            let prop = if is_array {
                 Atom::from_u32(ctx.rt_mut(), i)?
             } else {
-                unsafe { pks.get_unchecked(i as usize).atom.dup(ctx.rt()) }
-            }
-            .into_rc(ctx.rt());
+                unsafe { pks.get_unchecked(i as usize).atom.clone() }
+            };
 
-            let new_el = internalize_json_property(ctx, &val, prop.as_ref(), reviver)?;
+            let new_el = internalize_json_property(ctx, &val, &prop, reviver)?;
             if new_el.is_undefined() {
-                val.delete_property(ctx, prop.as_ref(), 0)
+                val.delete_property(ctx, &prop, 0)
             } else {
-                val.define_property_value(ctx, prop.as_ref(), new_el, JS_PROP_C_W_E)
+                val.define_property_value(ctx, &prop, new_el, JS_PROP_C_W_E)
             }?;
         }
     }
@@ -73,8 +74,13 @@ fn js_json_parse(ctx: &JSContext, cc: CallContext) -> JSResult {
     if cc.length() > 1 && cc.arg(1).is_function() {
         let reviver = cc.arg(1);
         let root: JSValue = ctx.create_base_object()?.into();
-        root.define_property_value(ctx, JS_ATOM_empty_string, obj.clone(), JS_PROP_C_W_E)?;
-        obj = internalize_json_property(ctx, &root, JS_ATOM_empty_string, reviver)?;
+        root.define_property_value(
+            ctx,
+            JS_ATOM_empty_string.deref(),
+            obj.clone(),
+            JS_PROP_C_W_E,
+        )?;
+        obj = internalize_json_property(ctx, &root, JS_ATOM_empty_string.deref(), reviver)?;
     }
 
     Ok(obj)

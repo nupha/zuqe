@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use crate::{
     atom::{
         Atom, AtomRef,
@@ -41,40 +43,36 @@ pub type ClassCallFn = fn(
 pub type DefineOwnPropertyFn = fn(
     ctx: &JSContext,
     target: &JSValue,
-    prop: AtomRef,
+    prop: &Atom,
     val: JSValue,
     getter: JSValue,
     setter: JSValue,
     flags: i32,
 ) -> Result<bool, i32>;
 
-pub type HasPropertyFn = fn(ctx: &JSContext, target: &JSObject, prop: AtomRef) -> Result<bool, i32>;
+pub type HasPropertyFn = fn(ctx: &JSContext, target: &JSObject, prop: &Atom) -> Result<bool, i32>;
 
 /// TODO: change target type to &JSObject
-pub type GetOwnPropertyFn = fn(
-    ctx: &JSContext,
-    target: JSValue,
-    prop: AtomRef,
-) -> Result<Option<JSPropertyDescriptor>, i32>;
+pub type GetOwnPropertyFn =
+    fn(ctx: &JSContext, target: JSValue, prop: &Atom) -> Result<Option<JSPropertyDescriptor>, i32>;
 
 pub type GetOwnPropertyNamesFn =
     fn(ctx: &JSContext, target: &JSObject) -> Result<Box<[PropertyKey]>, i32>;
 
 pub type GetPropertyFn =
-    fn(ctx: &JSContext, target: JSValue, prop: AtomRef, this_obj: JSValue) -> JSResult;
+    fn(ctx: &JSContext, target: JSValue, prop: &Atom, this_obj: JSValue) -> JSResult;
 
 pub type SetPropertyFn = fn(
     ctx: &JSContext,
     target: JSValue,
-    prop: AtomRef,
+    prop: &Atom,
     val: JSValue,
     this_obj: JSValue,
     flags: i32,
 ) -> Result<bool, i32>;
 
 /// TODO: change target type to &JSObject
-pub type DeletePropertyFn =
-    fn(ctx: &JSContext, target: JSValue, prop: AtomRef) -> Result<bool, i32>;
+pub type DeletePropertyFn = fn(ctx: &JSContext, target: JSValue, prop: &Atom) -> Result<bool, i32>;
 
 #[derive(Copy, Clone, Default)]
 pub struct JSClassExoticMethods {
@@ -143,12 +141,11 @@ impl Default for JSClass {
 
 impl JSRuntime {
     /// create a new object internal class. The finalizer can be NULL if none is needed.
-    /// Note `name` is not consumed.
     fn add_class_internal(
         &mut self,
         class_id: JSClassID,
         class_def: &JSClassDef,
-        name: AtomRef,
+        name: Atom,
     ) -> Result<(), i32> {
         if class_id >= (1 << 16) {
             return Err(-1);
@@ -181,7 +178,7 @@ impl JSRuntime {
 
         self.class_defs[class_id as usize] = JSClass {
             class_id,
-            class_name: name.dup(self),
+            class_name: name,
             call: class_def.call,
             exotic: class_def.exotic,
             gc_mark: class_def.gc_mark,
@@ -207,7 +204,7 @@ impl JSRuntime {
                 gc_mark: item.gc_mark,
                 call: None,
             };
-            self.add_class_internal(class_id, &cd, item.class_name)?;
+            self.add_class_internal(class_id, &cd, item.class_name.deref().clone())?;
             class_id += 1;
         }
 
@@ -329,11 +326,16 @@ pub fn JS_SetConstructor2(
     ctor_flags: u32,
 ) {
     func_obj
-        .define_property_value(ctx, JS_ATOM_prototype, proto.clone(), proto_flags)
+        .define_property_value(ctx, JS_ATOM_prototype.deref(), proto.clone(), proto_flags)
         .unwrap();
 
     proto
-        .define_property_value(ctx, JS_ATOM_constructor, func_obj.clone(), ctor_flags)
+        .define_property_value(
+            ctx,
+            JS_ATOM_constructor.deref(),
+            func_obj.clone(),
+            ctor_flags,
+        )
         .unwrap();
 
     set_cycle_flag(ctx, func_obj);
@@ -388,7 +390,7 @@ pub unsafe fn js_create_from_ctor(ctx: &JSContext, ctor: JSValue, class_id: JSCl
 fn js_arguments_define_own_property(
     ctx: &JSContext,
     this_obj: &JSValue,
-    prop: AtomRef,
+    prop: &Atom,
     val: JSValue,
     getter: JSValue,
     setter: JSValue,

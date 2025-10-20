@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ARRAY_BUFFER, JS_CLASS_ARRAY_ITERATOR,
     JS_CLASS_ASYNC_FROM_SYNC_ITERATOR, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR,
@@ -134,7 +136,7 @@ impl JSContext {
         proto
             .define_property(
                 self,
-                JS_ATOM_caller,
+                JS_ATOM_caller.deref(),
                 JSValue::UNDEFINED,
                 throw_type_error.clone(),
                 throw_type_error.clone(),
@@ -145,7 +147,7 @@ impl JSContext {
         proto
             .define_property(
                 self,
-                JS_ATOM_arguments,
+                JS_ATOM_arguments.deref(),
                 JSValue::UNDEFINED,
                 throw_type_error.clone(),
                 throw_type_error.clone(),
@@ -258,7 +260,7 @@ impl JSContext {
             self.0.borrow().class_proto[JS_CLASS_ARRAY as usize]
                 .define_property_value(
                     self,
-                    JS_ATOM_Symbol_unscopables,
+                    JS_ATOM_Symbol_unscopables.deref(),
                     obj1.into(),
                     JS_PROP_CONFIGURABLE,
                 )
@@ -273,7 +275,7 @@ impl JSContext {
             .unwrap();
 
         let array_values = self.0.borrow().class_proto[JS_CLASS_ARRAY as usize]
-            .get_property(self, JS_ATOM_values)
+            .get_property(self, JS_ATOM_values.deref())
             .unwrap();
 
         {
@@ -577,7 +579,7 @@ impl JSContext {
         self.global_obj()
             .define_property_value(
                 self,
-                JS_ATOM_eval,
+                JS_ATOM_eval.deref(),
                 eval_func,
                 JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
             )
@@ -606,7 +608,7 @@ impl JSContext {
         global
             .define_property_value(
                 self,
-                JS_ATOM_globalThis,
+                JS_ATOM_globalThis.deref(),
                 global.clone(),
                 JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
             )
@@ -614,7 +616,7 @@ impl JSContext {
         global
             .define_property_value(
                 self,
-                JS_ATOM_global,
+                JS_ATOM_global.deref(),
                 global.clone(),
                 JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
             )
@@ -714,14 +716,14 @@ impl JSContext {
 
             // TypedArray.prototype.toString must be the same object as Array.prototype.toString
             let to_string = self.0.borrow().class_proto[JS_CLASS_ARRAY as usize]
-                .get_property(self, JS_ATOM_toString)
+                .get_property(self, JS_ATOM_toString.deref())
                 .unwrap();
 
             // XXX: should use alias method in JSCFunctionListEntry
             typed_array_base_proto
                 .define_property_value(
                     self,
-                    JS_ATOM_toString,
+                    JS_ATOM_toString.deref(),
                     to_string,
                     JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
                 )

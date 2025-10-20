@@ -1,11 +1,12 @@
 use std::{
     cell::{Cell, RefCell, UnsafeCell},
+    ops::Deref,
     ptr::NonNull,
     rc::{Rc, Weak},
 };
 
 use crate::{
-    atom::{Atom, AtomRef},
+    atom::Atom,
     class::JSClassExoticMethods,
     context::{JSContext, JSContextInner},
     error::JSResult,
@@ -43,7 +44,7 @@ pub struct ModuleDefInner {
 
     pub(super) dependencies: RefCell<Vec<ModuleDependency>>,
     pub(crate) import_entries: RefCell<Vec<JSImportEntry>>,
-    pub(crate) export_entries: RefCell<Vec<Box<ExportEntry>>>,
+    pub(crate) export_entries: RefCell<Vec<ExportEntry>>,
 
     /// list of index in dependencies
     pub star_export_entries: RefCell<Vec<u16>>,
@@ -179,8 +180,8 @@ impl ModuleDefInner {
     /// get module name atom.
     /// returned atom is not duplicated, caller should clone it before keep it referenced.
     #[inline(always)]
-    pub fn module_name(&self) -> AtomRef {
-        self.module_name.as_ref()
+    pub fn module_name(&self) -> &Atom {
+        &self.module_name
     }
 
     #[inline(always)]
@@ -341,27 +342,27 @@ impl ModuleDefInner {
     }
 
     fn finalize(&mut self) {
-        let name = std::mem::replace(&mut self.module_name, Atom::NULL);
-        let rt = self.rt_mut();
+        // let rt = self.rt_mut();
 
-        name.free(rt);
+        // let name = std::mem::replace(&mut self.module_name, Atom::NULL);
+        // name.free(rt);
 
-        for dep in self.dependencies.borrow_mut().drain(..) {
-            dep.module_name.free(rt);
-        }
+        // for dep in self.dependencies.borrow_mut().drain(..) {
+        //     dep.module_name.free(rt);
+        // }
 
-        for me in self.export_entries.borrow_mut().drain(..) {
-            // if let JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { var_ref, .. } = me.export_type {
-            //     debug_assert!(var_ref.is_some());
-            //     drop(var_ref);
-            // }
-            me.export_name.free(rt);
-            me.local_name.free(rt);
-        }
+        // for me in self.export_entries.borrow_mut().drain(..) {
+        //     // if let JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { var_ref, .. } = me.export_type {
+        //     //     debug_assert!(var_ref.is_some());
+        //     //     drop(var_ref);
+        //     // }
+        //     me.export_name.free(rt);
+        //     me.local_name.free(rt);
+        // }
 
-        for mi in self.import_entries.borrow_mut().drain(..) {
-            mi.import_name.free(rt);
-        }
+        // for mi in self.import_entries.borrow_mut().drain(..) {
+        //     mi.import_name.free(rt);
+        // }
     }
 
     #[inline(always)]
@@ -493,7 +494,7 @@ pub unsafe fn add_module_variables(ctx: &JSContext, fd: &mut JSFunctionDef) -> i
                 true,
                 false,
                 i as _,
-                hf.var_name.as_ref(),
+                hf.var_name.as_ref().deref(),
                 hf.is_const(),
                 hf.is_lexical(),
                 JSVarKindEnum::JS_VAR_NORMAL,
@@ -509,7 +510,7 @@ pub unsafe fn add_module_variables(ctx: &JSContext, fd: &mut JSFunctionDef) -> i
     // resolve the variable names of the local exports
     for me in m.0.export_entries.borrow_mut().iter_mut() {
         if let ExportType::JS_EXPORT_TYPE_LOCAL { var_idx, .. } = &mut me.export_type {
-            if let Some(idx) = fd.find_closure_var(me.local_name.as_ref()) {
+            if let Some(idx) = fd.find_closure_var(&me.local_name) {
                 *var_idx = idx;
             } else {
                 ctx.throw_syntax_error(&format!(
@@ -525,7 +526,7 @@ pub unsafe fn add_module_variables(ctx: &JSContext, fd: &mut JSFunctionDef) -> i
 }
 
 /* Unfortunately, the spec gives a different behavior from GetOwnProperty ! */
-fn js_module_ns_has(ctx: &JSContext, obj: &JSObject, prop: AtomRef) -> Result<bool, i32> {
+fn js_module_ns_has(ctx: &JSContext, obj: &JSObject, prop: &Atom) -> Result<bool, i32> {
     Ok(obj.has_shape_property(prop))
 }
 
@@ -606,9 +607,7 @@ pub fn js_import_meta(ctx: &JSContext) -> Result<JSObject, i32> {
     }
 
     // XXX: inefficient, need to add a module or script pointer in Bytecode
-    let m = ctx.find_loaded_module(filename.as_ref());
-    filename.free(ctx.rt_mut());
-
+    let m = ctx.find_loaded_module(&filename);
     if let Some(m) = m {
         m.import_meta(ctx)
     } else {

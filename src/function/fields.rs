@@ -2,7 +2,7 @@ use std::{borrow::Cow, ptr::NonNull};
 
 use crate::{
     JS_CLASS_ARRAY,
-    atom::{Atom, AtomTypeHint, AtomRef, consts::*},
+    atom::{Atom, AtomRef, AtomTypeHint, consts::*},
     context::JSContext,
     function::NativeFunctionType,
     object::{JS_PROP_CONFIGURABLE, JSObject, LazyInit},
@@ -56,29 +56,28 @@ impl JSObject {
     pub fn install_field_defs(&self, ctx: &JSContext, entries: &[FieldDef]) -> Result<(), i32> {
         for entry in entries {
             let atom = ctx.make_lazy_prop_atom(entry.name)?;
-            self.install_field_entry(ctx, atom.as_ref(), entry)?;
-            atom.free(ctx.rt_mut());
+            self.install_field_entry(ctx, &atom, entry)?;
         }
         Ok(())
     }
 
-    fn install_field_entry(&self, ctx: &JSContext, atom: AtomRef, e: &FieldDef) -> Result<(), i32> {
+    fn install_field_entry(&self, ctx: &JSContext, atom: &Atom, e: &FieldDef) -> Result<(), i32> {
         let val: JSValue;
         let mut prop_flags = e.prop_flags;
 
         match e.detail {
             NativeFieldDetail::Func { .. } => {
-                if atom == JS_ATOM_Symbol_toPrimitive {
+                if atom.as_ref() == JS_ATOM_Symbol_toPrimitive {
                     // Symbol.toPrimitive functions are not writable
                     prop_flags = JS_PROP_CONFIGURABLE as u8;
-                } else if atom == JS_ATOM_Symbol_hasInstance {
+                } else if atom.as_ref() == JS_ATOM_Symbol_hasInstance {
                     // Function.prototype[Symbol.hasInstance] is not writable nor configurable
                     prop_flags = 0;
                 }
 
                 self.define_lazy_property(
                     ctx,
-                    atom,
+                    &atom,
                     LazyInit::Prop(NonNull::from(e)),
                     prop_flags as _,
                 )?;
@@ -128,21 +127,21 @@ impl JSObject {
 
             NativeFieldDetail::Alias { name, base } => {
                 // using autoinit for aliases is not safe
-                let name_atom = ctx.make_lazy_prop_atom(name)?.into_rc(ctx.rt());
+                let name_atom = ctx.make_lazy_prop_atom(name)?;
                 val = match base {
-                    -1 => self.get_property(ctx, name_atom.as_ref())?,
-                    0 => ctx.global_obj().get_property(ctx, name_atom.as_ref())?,
+                    -1 => self.get_property(ctx, &name_atom)?,
+                    0 => ctx.global_obj().get_property(ctx, &name_atom)?,
                     1 => ctx.0.borrow().class_proto[JS_CLASS_ARRAY as usize]
-                        .get_property(ctx, name_atom.as_ref())?,
+                        .get_property(ctx, &name_atom)?,
                     _ => {
                         unreachable!();
                     }
                 };
 
-                if atom == JS_ATOM_Symbol_toPrimitive {
+                if atom.as_ref() == JS_ATOM_Symbol_toPrimitive {
                     // Symbol.toPrimitive functions are not writable
                     prop_flags = JS_PROP_CONFIGURABLE as u8;
-                } else if atom == JS_ATOM_Symbol_hasInstance {
+                } else if atom.as_ref() == JS_ATOM_Symbol_hasInstance {
                     // Function.prototype[Symbol.hasInstance] is not writable nor configurable
                     prop_flags = 0;
                 }
@@ -171,30 +170,17 @@ impl JSContext {
         // format [xxxx]
         if str.starts_with('[') && str.ends_with(']') {
             let name2 = &str[1..str.len() - 1]; // chop heading '[', tailing ']'
-            let rt = self.rt_mut();
 
             // We assume 8 bit non null strings, which is the case for these symbols
             for i in JS_ATOM_Symbol_toPrimitive.0..JS_ATOM_INIT_COUNT {
-                if let Some(astr) = rt
-                    .atom_slots
-                    .get(i as usize)
-                    .and_then(|p| unsafe { p.as_ref() })
-                {
-                    if astr.content().eq_str(name2) {
-                        return Ok(AtomRef(i).dup(rt));
-                    }
+                let a = AtomRef(i);
+                if a.description().content().eq_str(name2) {
+                    return Ok(Atom::new_const(a));
                 }
             }
 
             self.throw_internal_error(&format!("unknown atom '{str}'"));
             return Err(-1);
-        }
-
-        if str.is_empty() || !str.chars().next().unwrap().is_ascii_digit() {
-            // find in registry
-            if let Some(atom) = Atom::find(self.rt(), str, AtomTypeHint::String) {
-                return Ok(atom);
-            }
         }
 
         Atom::new(self.rt_mut(), str)

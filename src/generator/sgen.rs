@@ -1,4 +1,7 @@
-use std::cell::{Cell, UnsafeCell};
+use std::{
+    cell::{Cell, UnsafeCell},
+    ops::Deref,
+};
 
 use crate::{
     JS_CLASS_GENERATOR, JS_ITERATOR_NEXT_DEF, JS_PROP_STRING_DEF,
@@ -162,7 +165,7 @@ pub fn js_function_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     // set prototype, if provided by `this`
     let new_target = cc.this();
     if !new_target.is_undefined() {
-        let mut proto = new_target.get_property(ctx, JS_ATOM_prototype)?;
+        let mut proto = new_target.get_property(ctx, JS_ATOM_prototype.deref())?;
         if !proto.is_object() {
             let realm = JS_GetFunctionRealm(ctx, new_target)?;
             proto = realm.0.borrow().class_proto[func_kind.class_id() as usize].clone();

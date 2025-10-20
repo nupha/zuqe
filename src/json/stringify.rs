@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, ops::Deref};
 
 use smallvec::SmallVec;
 
@@ -110,7 +110,12 @@ pub fn JS_JSONStringify(
     }
 
     let wrapper: JSValue = ctx.create_base_object()?.into();
-    wrapper.define_property_value(ctx, JS_ATOM_empty_string, obj.clone(), JS_PROP_C_W_E)?;
+    wrapper.define_property_value(
+        ctx,
+        JS_ATOM_empty_string.deref(),
+        obj.clone(),
+        JS_PROP_C_W_E,
+    )?;
 
     let empty = jsc.empty.clone();
     let val = js_json_check(ctx, &mut jsc, &wrapper, obj, empty)?;
@@ -134,7 +139,7 @@ fn js_json_check(
     let key = JSValue::String(key);
 
     if val.is_object() {
-        let f = val.get_property(ctx, JS_ATOM_toJSON)?;
+        let f = val.get_property(ctx, JS_ATOM_toJSON.deref())?;
         if f.is_function() {
             val = f.call(ctx, &val, std::slice::from_ref(&key))?;
         }

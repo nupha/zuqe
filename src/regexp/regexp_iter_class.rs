@@ -46,7 +46,7 @@ fn js_regexp_string_iterator_next(
                 // matched is empty
                 let last_index = it
                     .regexp()
-                    .get_property(ctx, JS_ATOM_lastIndex)
+                    .get_property(ctx, &JS_ATOM_lastIndex)
                     .and_then(|v| v.to_u32(ctx))
                     .inspect_err(|_| {
                         *state = IteratorState::NotDone;
@@ -59,7 +59,7 @@ fn js_regexp_string_iterator_next(
                     .unwrap_or(last_index + 1);
 
                 it.regexp()
-                    .set_property(ctx, JS_ATOM_lastIndex, JSValue::from(next_index as u32))
+                    .set_property(ctx, &JS_ATOM_lastIndex, JSValue::from(next_index as u32))
                     .inspect_err(|_| {
                         *state = IteratorState::NotDone;
                     })?;

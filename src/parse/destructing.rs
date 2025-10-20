@@ -1,6 +1,8 @@
+use std::ops::Deref;
+
 use crate::{
     atom::{
-        Atom, AtomRef, AtomRc,
+        Atom, AtomRef,
         consts::{JS_ATOM_arguments, JS_ATOM_eval},
     },
     branch_hints::unlikely,
@@ -32,8 +34,8 @@ impl<'s> JSParseState<'s> {
 
         self.next_token()?;
 
-        let mut prop_name: AtomRc;
-        let mut var_name: AtomRc;
+        let mut prop_name: Atom;
+        let mut var_name: Atom;
 
         // throw an exception if the value cannot be converted to an object
         self.emit_op(OpCode::TO_OBJECT);
@@ -50,7 +52,7 @@ impl<'s> JSParseState<'s> {
         macro_rules! set_val {
             () => {
                 if tok != 0 {
-                    self.define_var(var_name.as_ref(), tok, export)?;
+                    self.define_var(&var_name, tok, export)?;
                     scope = self.cur_func().scope_level as _;
                 }
 
@@ -69,7 +71,7 @@ impl<'s> JSParseState<'s> {
                     if opcode == opcodes::op_scope_get_var as i32
                         || opcode == opcodes::OP_get_ref_value as i32
                     {
-                        self.set_object_name(var_name.as_ref());
+                        self.set_object_name(var_name.clone());
                     }
                     self.emit_label(label_hasval);
                 }
@@ -78,7 +80,7 @@ impl<'s> JSParseState<'s> {
                 self.put_lvalue(
                     opcode,
                     scope,
-                    var_name.as_ref(),
+                    var_name,
                     label_lvalue,
                     PutLValueEnum::PUT_LVALUE_NOKEEP_DEPTH,
                     matches!(tok, TOK_CONST | TOK_LET),
@@ -96,7 +98,6 @@ impl<'s> JSParseState<'s> {
             ( ) => {
                 let mut depth_lvalue1 = 0_i32;
                 let mut a = AtomRef::NULL;
-
                 self.get_lvalue(
                     &mut opcode,
                     &mut scope,
@@ -106,7 +107,7 @@ impl<'s> JSParseState<'s> {
                     false,
                     '{' as i32,
                 )?;
-                var_name = AtomRc::from_ref(self.ctx.rt(), a);
+                var_name = a.deref().clone();
 
                 /* swap ref and lvalue object if any */
                 if prop_name.is_null() {
@@ -158,7 +159,7 @@ impl<'s> JSParseState<'s> {
 
                 let mut depth_lvalue = 0_i32;
                 if tok != 0 {
-                    var_name = self.parse_destructuring_var(is_arg)?.into_rc(self.ctx.rt());
+                    var_name = self.parse_destructuring_var(is_arg)?;
                     opcode = opcodes::op_scope_get_var as _;
                     scope = self.cur_func().scope_level;
                     label_lvalue = -1;
@@ -176,7 +177,7 @@ impl<'s> JSParseState<'s> {
                         false,
                         '{' as i32,
                     )?;
-                    var_name = AtomRc::from_ref(self.ctx.rt(), a);
+                    var_name = a.deref().clone();
                 }
 
                 if self.token.val != '}' as i32 {
@@ -193,10 +194,10 @@ impl<'s> JSParseState<'s> {
             }
 
             let r = self.parse_property_name(false, true, false)?;
-            prop_name = r.0.into_rc(self.ctx.rt());
+            prop_name = r.0;
             let prop_type = r.1;
 
-            var_name = AtomRc::NULL;
+            var_name = Atom::NULL;
             opcode = opcodes::op_scope_get_var as _;
             scope = self.cur_func().scope_level;
             label_lvalue = -1;
@@ -269,7 +270,7 @@ impl<'s> JSParseState<'s> {
                         self.emit_op(OpCode::SWAP);
                         self.emit_op(OpCode::NULL);
                         self.emit_op(OpCode::DEFINE_FIELD);
-                        self.emit_atom_ref(prop_name.as_ref());
+                        self.emit_atom(prop_name.clone());
                         self.emit_op(OpCode::SWAP);
                     }
                     /* source -- source source */
@@ -277,7 +278,7 @@ impl<'s> JSParseState<'s> {
                 }
 
                 if tok != 0 {
-                    var_name = self.parse_destructuring_var(is_arg)?.into_rc(self.ctx.rt());
+                    var_name = self.parse_destructuring_var(is_arg)?;
                 } else {
                     self.parse_left_hand_side_expr()?;
                     lvalue!();
@@ -293,12 +294,12 @@ impl<'s> JSParseState<'s> {
                     /* XXX: should have OP_get_field2x with depth */
                     /* source -- val */
                     self.emit_op(OpCode::GET_FIELD);
-                    self.emit_atom_ref(prop_name.as_ref());
+                    self.emit_atom(prop_name.clone());
                 }
             } else {
                 // prop_type = PROP_TYPE_VAR, cannot be a computed property
                 if is_arg {
-                    self.parse_check_duplicate_parameter(prop_name.as_ref())?;
+                    self.parse_check_duplicate_parameter(&prop_name)?;
                 }
 
                 if unlikely(
@@ -314,18 +315,18 @@ impl<'s> JSParseState<'s> {
                     self.emit_op(OpCode::SWAP);
                     self.emit_op(OpCode::NULL);
                     self.emit_op(OpCode::DEFINE_FIELD);
-                    self.emit_atom_ref(prop_name.as_ref());
+                    self.emit_atom(prop_name.clone());
                     self.emit_op(OpCode::SWAP);
                 }
 
                 let mut goto_lvalue = false;
 
-                if tok == 0 || tok == TOK_VAR {
+                if matches!(tok, 0 | TOK_VAR) {
                     /* generate reference */
                     /* source -- source source */
                     self.emit_op(OpCode::DUP);
                     self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                    self.emit_atom_ref(prop_name.as_ref());
+                    self.emit_atom(prop_name.clone());
                     self.emit_u16(self.cur_func().scope_level as _);
 
                     goto_lvalue = true;
@@ -450,12 +451,12 @@ impl<'s> JSParseState<'s> {
             };
 
             if parse_expr {
-                let var_name: AtomRc;
+                let var_name: Atom;
                 let mut enum_depth = 0;
 
                 if tok != 0 {
-                    var_name = self.parse_destructuring_var(is_arg)?.into_rc(self.ctx.rt());
-                    self.define_var(var_name.as_ref(), tok, export)?;
+                    var_name = self.parse_destructuring_var(is_arg)?;
+                    self.define_var(&var_name, tok, export)?;
                     opcode = opcodes::op_scope_get_var as i32;
                     scope = self.cur_func().scope_level;
                 } else {
@@ -471,7 +472,7 @@ impl<'s> JSParseState<'s> {
                         false,
                         '[' as i32,
                     )?;
-                    var_name = AtomRc::from_ref(self.ctx.rt(), a);
+                    var_name = a.deref().clone();
                 }
 
                 if has_spread {
@@ -497,7 +498,7 @@ impl<'s> JSParseState<'s> {
                     if opcode == opcodes::op_scope_get_var as i32
                         || opcode == opcodes::OP_get_ref_value as i32
                     {
-                        self.set_object_name(var_name.as_ref());
+                        self.set_object_name(var_name.clone());
                     }
                     self.emit_label(label_hasval);
                 }
@@ -506,7 +507,7 @@ impl<'s> JSParseState<'s> {
                 self.put_lvalue(
                     opcode,
                     scope,
-                    var_name.as_ref(),
+                    var_name,
                     label_lvalue,
                     PutLValueEnum::PUT_LVALUE_NOKEEP_DEPTH,
                     tok == TOK_CONST || tok == TOK_LET,
@@ -624,38 +625,31 @@ impl<'s> JSParseState<'s> {
         if unlikely(
             (self.token.val != TOK_IDENT || self.token.data.is_reserved())
                 || (self.cur_func().attrs.js_mode & JS_MODE_STRICT as u8 != 0
-                    && matches!(self.token.atom().unwrap(), JS_ATOM_eval | JS_ATOM_arguments)),
+                    && matches!(
+                        self.token.atom().unwrap().as_ref(),
+                        JS_ATOM_eval | JS_ATOM_arguments
+                    )),
         ) {
             self.throw_syntax_error("invalid destructuring target");
             return Err(-1);
         } else {
-            let name = AtomRc::from_ref(self.ctx.rt(), self.token.atom().unwrap());
+            let name = self.token.atom().unwrap();
             if is_arg {
-                self.parse_check_duplicate_parameter(name.as_ref())?;
+                self.parse_check_duplicate_parameter(&name)?;
             }
             self.next_token()?;
-            Ok(name.into())
+            Ok(name)
         }
     }
 
-    fn parse_check_duplicate_parameter(&self, name: AtomRef) -> Result<(), i32> {
+    fn parse_check_duplicate_parameter(&self, name: &Atom) -> Result<(), i32> {
         // Check for duplicate parameter names
-        if self
-            .cur_func()
-            .args
-            .iter()
-            .any(|vd| vd.var_name.as_ref() == name)
-        {
+        if self.cur_func().args.iter().any(|vd| vd.var_name.eq(name)) {
             self.throw_syntax_error("duplicate parameter names not allowed in this context");
             return Err(-1);
         }
 
-        if self
-            .cur_func()
-            .vars
-            .iter()
-            .any(|vd| vd.var_name.as_ref() == name)
-        {
+        if self.cur_func().vars.iter().any(|vd| vd.var_name.eq(name)) {
             self.throw_syntax_error("duplicate parameter names not allowed in this context");
             return Err(-1);
         }

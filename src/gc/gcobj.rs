@@ -50,11 +50,6 @@ impl GCObjectHeader {
     }
 
     #[inline(always)]
-    pub fn rt_mut(&mut self) -> &mut JSRuntime {
-        unsafe { self.rt.as_mut() }
-    }
-
-    #[inline(always)]
     pub const fn gc_has_mark(&self) -> bool {
         (self.bitfields & 0x01) != 0
     }

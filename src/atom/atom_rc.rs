@@ -63,13 +63,13 @@ impl Clone for AtomRc {
     }
 }
 
-impl Drop for AtomRc {
-    /// Automatically free inner atom when AtomRc is destroyed
-    fn drop(&mut self) {
-        let a = std::mem::replace(&mut self.atom, Atom::NULL);
-        a.free(unsafe { self.rt.as_mut() });
-    }
-}
+// impl Drop for AtomRc {
+//     /// Automatically free inner atom when AtomRc is destroyed
+//     fn drop(&mut self) {
+//         let a = std::mem::replace(&mut self.atom, Atom::NULL);
+//         a.free(unsafe { self.rt.as_mut() });
+//     }
+// }
 
 impl From<AtomRc> for Atom {
     /// consume AtomRc into Atom

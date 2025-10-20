@@ -1,6 +1,8 @@
+use std::ops::Deref;
+
 use crate::{
     atom::{
-        JS_ATOM_NULL, AtomRef, AtomRc,
+        Atom, AtomRef, JS_ATOM_NULL,
         consts::{JS_ATOM_new_target, JS_ATOM_this},
     },
     bytecode::{OpCode, OpCodeTemp, opcodes},
@@ -9,7 +11,7 @@ use crate::{
     function::JSFunctionDef,
     parse::{
         state::{PF_ARROW_FUNC, PF_IN_ACCEPTED, PF_POW_ALLOWED},
-        token::{TOK_IN, TokenData},
+        token::TOK_IN,
     },
     utils::read_from_ptr,
 };
@@ -35,7 +37,7 @@ impl<'s> JSParseState<'s> {
             && level == 4
             && self.peek_token(false) == TOK_IN
         {
-            let atom = AtomRc::from_ref(self.ctx.rt(), self.token.atom().unwrap());
+            let atom = self.token.atom().unwrap();
 
             self.next_token()?;
             if self.token.val != TOK_IN {
@@ -46,7 +48,7 @@ impl<'s> JSParseState<'s> {
             self.parse_expr_binary(level - 1, parse_flags & !PF_ARROW_FUNC)?;
 
             self.emit_op_temp(OpCodeTemp::SCOPE_IN_PRIVATE_FIELD);
-            self.emit_atom_ref(atom.as_ref());
+            self.emit_atom(atom);
             self.emit_u16(self.cur_func().scope_level as _);
 
             return Ok(());
@@ -161,7 +163,7 @@ impl<'s> JSParseState<'s> {
                 let mut opcode: i32 = 0;
                 let mut scope: i32 = 0;
                 let mut label: i32 = 0;
-                let mut name = JS_ATOM_NULL;
+                let mut name = AtomRef::NULL;
 
                 self.get_lvalue(
                     &mut opcode,
@@ -182,7 +184,7 @@ impl<'s> JSParseState<'s> {
                 self.put_lvalue(
                     opcode,
                     scope,
-                    name,
+                    name.deref().clone(),
                     label,
                     PutLValueEnum::PUT_LVALUE_KEEP_TOP,
                     false,
@@ -250,7 +252,7 @@ impl<'s> JSParseState<'s> {
                     self.put_lvalue(
                         opcode,
                         scope,
-                        name,
+                        name.deref().clone(),
                         label,
                         PutLValueEnum::PUT_LVALUE_KEEP_SECOND,
                         false,
@@ -396,7 +398,7 @@ impl<'s> JSParseState<'s> {
                 fd.byte_code.truncate(fd.last_opcode_pos as _);
                 fd.last_opcode_pos = -1;
                 self.emit_op(OpCode::THROW_ERROR);
-                self.emit_atom_ref(JS_ATOM_NULL);
+                self.emit_atom(Atom::NULL);
                 self.emit_u8(JS_THROW_ERROR_DELETE_SUPER);
             }
             _ => {

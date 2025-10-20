@@ -12,8 +12,8 @@ use crate::{
     array::Array,
     array_buffer::JSFreeArrayBufferDataFunc,
     atom::{
-        AtomDescKind, AtomHintAndId, AtomRef, AtomTypeHint, JS_ATOM_NULL, JS_ATOM_TAG_INT,
-        JSAtomStruct, consts::JS_ATOM_name,
+        Atom, AtomDesc, AtomDescKind, AtomHintAndId, AtomRef, AtomTypeHint, JS_ATOM_NULL,
+        JS_ATOM_TAG_INT, consts::JS_ATOM_name,
     },
     bytecode::{OpCode, OpCodeTemp, arithmatic::StrictEqMode},
     class::{ClassFieldsDef, JSClassDef, JSClassID, JSClassShortDef},
@@ -261,7 +261,7 @@ pub unsafe fn __JS_NewAtomInit(
 }
 
 #[deprecated(note = "use JSString::atom_type() instead")]
-pub unsafe fn js_get_atom_index(rt: &JSRuntime, p: *const JSAtomStruct) -> AtomRef {
+pub unsafe fn js_get_atom_index(rt: &JSRuntime, p: *const AtomDesc) -> AtomRef {
     unreachable!("use JSString::atom_type() instead");
 
     // let mut i: u32 = (*p).hash_next; /* atom_index */
@@ -809,9 +809,10 @@ pub unsafe fn JS_DefineProperty(
     setter: JSValueConst,
     flags: u32,
 ) -> i32 {
-    this_obj
-        .define_property(ctx, prop, val, getter, setter, flags)
-        .map_or(-1, |b| b as i32)
+    unreachable!("ununsed");
+    // this_obj
+    //     .define_property(ctx, prop, val, getter, setter, flags)
+    //     .map_or(-1, |b| b as i32)
 }
 
 /// shortcut to add or redefine a new property value.
@@ -824,9 +825,10 @@ pub unsafe fn JS_DefinePropertyValue(
     val: JSValue,
     flags: u32,
 ) -> i32 {
-    this_obj
-        .define_property_value(ctx, prop, val, flags)
-        .map_or(-1, |b| b as i32)
+    unreachable!("ununsed");
+    // this_obj
+    //     .define_property_value(ctx, prop, val, flags)
+    //     .map_or(-1, |b| b as i32)
 }
 
 #[deprecated(note = "use JSValue::defined_property_value_str() instead")]
@@ -913,9 +915,10 @@ pub unsafe fn JS_DefinePropertyGetSet(
     setter: JSValue,
     flags: u32,
 ) -> i32 {
-    this_obj
-        .define_property_getset(ctx, prop, getter, setter, flags)
-        .map_or(-1, |b| b as i32)
+    unreachable!("ununsed");
+    // this_obj
+    //     .define_property_getset(ctx, prop, getter, setter, flags)
+    //     .map_or(-1, |b| b as i32)
 }
 
 #[deprecated(note = "use JSObject::define_auto_init_property() instead")]
@@ -1119,7 +1122,7 @@ pub unsafe fn js_parse_error(s: *mut JSParseState, message: &CStr) -> i32 {
 }
 
 #[deprecated(note = "use JSFunctionDef::find_global_var() instead")]
-pub unsafe fn find_global_var(fd: *mut JSFunctionDef, name: AtomRef) -> *mut JSGlobalVar {
+pub unsafe fn find_global_var(fd: *mut JSFunctionDef, name: &Atom) -> *mut JSGlobalVar {
     (*fd)
         .find_global_var(name)
         .map_or(std::ptr::null_mut(), |v| v as *const JSGlobalVar as *mut _)
@@ -1130,7 +1133,7 @@ pub unsafe fn find_global_var(fd: *mut JSFunctionDef, name: AtomRef) -> *mut JSG
 pub unsafe fn add_global_var(
     ctx: &JSContext,
     s: *mut JSFunctionDef,
-    name: AtomRef,
+    name: &Atom,
 ) -> *mut JSGlobalVar {
     (*s).add_global_var(ctx, name)
         .map_or(std::ptr::null_mut(), |p| p as *mut JSGlobalVar)
@@ -1138,25 +1141,29 @@ pub unsafe fn add_global_var(
 
 #[deprecated(note = "use JSFunctionDef::add_arg() instead")]
 pub unsafe fn add_arg(ctx: &JSContext, fd: *mut JSFunctionDef, name: AtomRef) -> i32 {
-    (*fd).add_arg(ctx, name).map_or(-1, |x| x as i32)
+    unreachable!("unused");
+    // (*fd).add_arg(ctx, name).map_or(-1, |x| x as i32)
 }
 
 #[deprecated(note = "use JSFunctionDef::find_arg() instead")]
 /* return the variable index or -1 if not found,
 add ARGUMENT_VAR_OFFSET for argument variables */
 pub unsafe fn find_arg(ctx: &JSContext, fd: *const JSFunctionDef, name: AtomRef) -> i32 {
-    (*fd).find_arg(name).map_or(-1, |x| x as i32)
+    unreachable!("unused");
+    // (*fd).find_arg(name).map_or(-1, |x| x as i32)
 }
 
 #[deprecated(note = "use JSFunctionDef::find_var_or_arg() instead")]
 pub unsafe fn find_var(ctx: &JSContext, fd: *const JSFunctionDef, name: AtomRef) -> i32 {
-    (*fd).find_var(name).map_or(-1, |x| x as i32)
+    unreachable!("unused");
+    // (*fd).find_var(name).map_or(-1, |x| x as i32)
 }
 
 #[deprecated(note = "use JSFunctionDef::add_var() instead")]
 /* return the variable index or -1 if error */
 pub unsafe fn add_var(ctx: &JSContext, fd: *mut JSFunctionDef, name: AtomRef) -> i32 {
-    (*fd).add_var(ctx, name).map_or(-1, |x| x as i32)
+    unreachable!("unused");
+    // (*fd).add_var(ctx, name).map_or(-1, |x| x as i32)
 }
 
 // return the constant pool index. 'val' is not duplicated.
@@ -1236,15 +1243,16 @@ pub fn find_var_in_scope(
     name: AtomRef,
     scope_level: i32,
 ) -> Option<u16> {
-    debug_assert!(scope_level >= 0);
-    fd.find_var_in_scope(name, scope_level as _)
+    unreachable!("unused");
 }
 
 #[deprecated(note = "use JSFunctionDef::find_lexical_global_var_mut() instead")]
 pub unsafe fn find_lexical_global_var(fd: *mut JSFunctionDef, name: AtomRef) -> *mut JSGlobalVar {
-    (*fd)
-        .find_lexical_global_var_mut(name)
-        .map_or(std::ptr::null_mut(), |v| v as *mut _)
+    unreachable!("unused");
+
+    // (*fd)
+    //     .find_lexical_global_var_mut(name)
+    //     .map_or(std::ptr::null_mut(), |v| v as *mut _)
 }
 
 #[deprecated(note = "use JSFSunctionDef::find_lexical_decl() instead")]
@@ -1255,10 +1263,11 @@ pub unsafe fn find_lexical_decl(
     scope_idx: i32,
     check_catch_var: bool,
 ) -> i32 {
-    debug_assert!(scope_idx >= 0);
-    (*fd)
-        .find_lexical_decl(name, scope_idx as _, check_catch_var)
-        .map_or(-1, |x| x as i32)
+    unreachable!("unused");
+    // debug_assert!(scope_idx >= 0);
+    // (*fd)
+    //     .find_lexical_decl(name, scope_idx as _, check_catch_var)
+    //     .map_or(-1, |x| x as i32)
 }
 
 #[deprecated(note = "use JSFunctionDef::get_first_lexical_var() instead")]
@@ -1704,9 +1713,10 @@ pub unsafe fn JS_SetProperty(
     prop: AtomRef,
     val: JSValue,
 ) -> i32 {
-    this_obj
-        .set_property(ctx, prop, val)
-        .map_or(-1, |b| b as i32)
+    unreachable!("ununsed");
+    // this_obj
+    //     .set_property(ctx, prop, val)
+    //     .map_or(-1, |b| b as i32)
 }
 
 #[deprecated(note = "use JSValue::set_property_u32() instead")]
@@ -1950,11 +1960,12 @@ pub unsafe fn define_var(
 
 #[deprecated(note = "use JSParseState::define_var() instead")]
 pub unsafe fn js_define_var(s: *mut JSParseState, name: AtomRef, tok: i32) -> i32 {
-    if (*s).define_var(name, tok, false).is_err() {
-        -1
-    } else {
-        0
-    }
+    unreachable!("unused");
+    // if (*s).define_var(name, tok, false).is_err() {
+    //     -1
+    // } else {
+    //     0
+    // }
 }
 
 #[deprecated(note = "use JSParseState::peek_token() instead")]
@@ -2104,7 +2115,7 @@ pub unsafe fn js_parse_object_literal(s: *mut JSParseState) -> i32 {
 }
 
 #[deprecated(note = "use JSParseState::set_object_name() instead")]
-pub unsafe fn set_object_name(s: *mut JSParseState, name: AtomRef) {
+pub unsafe fn set_object_name(s: *mut JSParseState, name: Atom) {
     (*s).set_object_name(name);
 }
 
@@ -2128,10 +2139,8 @@ pub unsafe fn next_token(s: *mut JSParseState) -> i32 {
 
 #[deprecated(note = "use JSParseState::token_is_pseudo_keyword() instead")]
 pub unsafe fn token_is_pseudo_keyword(s: *mut JSParseState, atom: AtomRef) -> bool {
-    (*s).token_is_pseudo_keyword(atom)
-    // (*s).token.val == TOK_IDENT
-    //     && (*s).token.data.ident_atom().unwrap() == atom
-    //     && !(*s).token.data.ident_has_escape()
+    unreachable!("unused")
+    // (*s).token_is_pseudo_keyword(atom)
 }
 
 #[deprecated(note = "use AtomRef::to_string_or_symbol() instead")]
@@ -2192,16 +2201,7 @@ pub unsafe fn JS_GetOwnPropertyInternal(
     p: &JSValue,
     prop: AtomRef,
 ) -> i32 {
-    match p.get_own_property(ctx, prop) {
-        Ok(Some(d)) => {
-            if !desc.is_null() {
-                *desc = d;
-            }
-            1
-        }
-        Ok(None) => 0,
-        Err(_) => -1,
-    }
+    unreachable!("unused");
 }
 
 #[deprecated(note = "JSValue::get_own_property() instead")]
@@ -2211,16 +2211,7 @@ pub unsafe fn JS_GetOwnProperty(
     obj: JSValue,
     prop: AtomRef,
 ) -> i32 {
-    match obj.get_own_property(ctx, prop) {
-        Ok(Some(d)) => {
-            if !desc.is_null() {
-                *desc = d;
-            }
-            1
-        }
-        Ok(None) => 0,
-        Err(_) => -1,
-    }
+    unreachable!("unused");
 }
 
 #[deprecated(note = "use JSValue::copy_data_properties_from() instead")]
@@ -2333,7 +2324,8 @@ pub unsafe fn JS_CreateProperty(
 
 #[deprecated(note = "use JSValue::has_property() instead")]
 pub unsafe fn JS_HasProperty(ctx: &JSContext, obj: JSValue, prop: AtomRef) -> Result<bool, i32> {
-    obj.has_property(ctx, prop)
+    unreachable!("ununsed");
+    // obj.has_property(ctx, prop)
 }
 
 #[deprecated(note = "use JSProperty::free() instead")]
@@ -2494,7 +2486,7 @@ pub unsafe fn JS_IsCFunction(val: &JSValue, func: JSCFunction, magic: i32) -> bo
 /// XXX: could support exotic global object.
 #[deprecated(note = "use JSContext::define_global_var_checked() instead")]
 pub fn JS_CheckDefineGlobalVar(ctx: &JSContext, prop: AtomRef, flags: u32) -> i32 {
-    ctx.define_global_var_checked(prop, flags).map_or(-1, |_| 0)
+    unreachable!("unused");
 }
 
 // def_flags is (0, DEFINE_GLOBAL_LEX_VAR) |
@@ -2502,7 +2494,7 @@ pub fn JS_CheckDefineGlobalVar(ctx: &JSContext, prop: AtomRef, flags: u32) -> i3
 // XXX: could support exotic global object.
 #[deprecated(note = "use JSontext::define_global_var() instead")]
 pub fn JS_DefineGlobalVar(ctx: &JSContext, prop: AtomRef, def_flags: u32) -> i32 {
-    ctx.define_global_var(prop, def_flags).map_or(-1, |_| 0)
+    unreachable!("unused");
 }
 
 /// 'def_flags' is 0 or JS_PROP_CONFIGURABLE.
@@ -2515,44 +2507,24 @@ pub fn JS_DefineGlobalFunction(
     func: &JSValueConst,
     def_flags: u32,
 ) -> i32 {
-    ctx.define_global_function(prop, func.clone(), def_flags)
-        .map_or(-1, |_| 0)
+    unreachable!("unused");
 }
 
 #[deprecated(note = "use JSContext::get_global_var() instead")]
 pub fn JS_GetGlobalVar(ctx: &JSContext, prop: AtomRef, throw_ref_error: bool) -> JSValue {
-    ctx.get_global_var(prop, throw_ref_error)
-        .unwrap_or(JSValue::EXCEPTION)
+    unreachable!("unused");
 }
 
 // construct a reference to a global variable
 #[deprecated(note = "use JSContextInner::build_global_varref() instead")]
 pub unsafe fn JS_GetGlobalVarRef(ctx: &JSContext, prop: AtomRef, sp: *mut JSValue) -> i32 {
-    if let Ok(vs) = ctx.build_global_varref(prop) {
-        if let Some((v0, v1)) = vs {
-            std::ptr::replace(sp, v0);
-            std::ptr::replace(sp.add(1), v1);
-        }
-        0
-    } else {
-        -1
-    }
+    unreachable!("unused");
 }
 
 /// used for strict variable access: test if the variable exists
 #[deprecated(note = "JSContext::check_global_var() instead")]
 pub fn JS_CheckGlobalVar(ctx: &JSContext, prop: AtomRef) -> i32 {
-    // no exotic behavior is possible in global_var_obj
-    let p = ctx.global_var_obj();
-    if p.has_shape_property(prop) {
-        1
-    } else {
-        if let Ok(ret) = ctx.global_obj().has_property(ctx, prop) {
-            ret as i32
-        } else {
-            -1
-        }
-    }
+    unreachable!("unused");
 }
 
 // flag = 0: normal variable write
@@ -2560,7 +2532,7 @@ pub fn JS_CheckGlobalVar(ctx: &JSContext, prop: AtomRef) -> i32 {
 // flag = 2: normal variable write, strict check was done before
 #[deprecated(note = "use JSContext::set_global_var() instead")]
 pub fn JS_SetGlobalVar(ctx: &JSContext, prop: AtomRef, val: JSValue, flag: u32) -> i32 {
-    ctx.set_global_var(prop, val, flag).map_or(-1, |_| 0)
+    unreachable!("unused");
 }
 
 #[deprecated(note = "use AsyncFuncState::resume() instead")]
@@ -2863,9 +2835,10 @@ pub unsafe fn add_closure_var(
     is_lexical: bool,
     var_kind: JSVarKindEnum,
 ) -> Result<u16, i32> {
-    s.add_closure_var(
-        ctx, is_local, is_arg, var_idx, var_name, is_const, is_lexical, var_kind,
-    )
+    unreachable!("unused");
+    // s.add_closure_var(
+    //     ctx, is_local, is_arg, var_idx, var_name, is_const, is_lexical, var_kind,
+    // )
 }
 
 /// `fun_obj` is consumed, `this_obj` is not consumed.
@@ -2890,7 +2863,8 @@ pub unsafe fn JS_EvalFunction(ctx: &JSContext, fun_obj: &JSValue) -> JSValue {
 
 #[deprecated(note = "use JSFunctionDef::add_func_var() instead")]
 pub unsafe fn add_func_var(ctx: &JSContext, fd: *mut JSFunctionDef, name: AtomRef) -> i32 {
-    (*fd).add_func_var(ctx, name).map_or(-1, |x| x as i32)
+    unreachable!("unused");
+    // (*fd).add_func_var(ctx, name).map_or(-1, |x| x as i32)
 }
 
 #[deprecated(note = "use JSFunctionDef::add_var_this() instead")]
@@ -2917,7 +2891,7 @@ pub unsafe fn find_closure_var(
     s: &mut JSFunctionDef,
     var_name: AtomRef,
 ) -> Option<u16> {
-    (*s).find_closure_var(var_name)
+    unreachable!("unused");
 }
 
 // 'fd' must be a parent of 's'. Create in 's' a closure referencing a
@@ -3088,8 +3062,7 @@ pub unsafe fn JS_NewSymbolFromAtom(
     atom: AtomRef,
     atom_type: AtomTypeHint,
 ) -> JSValue {
-    ctx.create_symbol_from_atom(atom, atom_type)
-        .unwrap_or(JSValue::EXCEPTION)
+    unreachable!("unused");
 }
 
 #[deprecated(note = "use JSContext::create_symbol() instead")]
@@ -3158,7 +3131,7 @@ pub unsafe fn js_inner_module_linking(
 /// find the loaded module by module name
 #[deprecated(note = "use JSContext::find_loaded_module() instead")]
 pub fn js_find_loaded_module(ctx: &JSContext, name: AtomRef) -> Option<ModuleDef> {
-    ctx.find_loaded_module(name)
+    unreachable!("unused");
 }
 
 // Load all the required modules for module 'm'
@@ -3214,7 +3187,7 @@ pub unsafe fn add_resolve_entry(
 /// add dependent module
 #[deprecated(note = "use JSModuleDef::add_dependency() instead")]
 pub unsafe fn add_req_module_entry(ctx: &JSContext, m: &ModuleDef, module_name: AtomRef) -> i32 {
-    m.add_dependency(ctx, module_name).map_or(-1, |i| i as _)
+    unreachable!("unused")
 }
 
 #[deprecated(note = "use ModuleDef::resolve_export_inner() instead")]
@@ -3476,7 +3449,7 @@ pub unsafe fn emit_return(s: *mut JSParseState, hasval: bool) {
 
 #[deprecated(note = "use JSParseState::emit_break() instead")]
 pub unsafe fn emit_break(s: *mut JSParseState, name: AtomRef, is_continue: bool) -> i32 {
-    (*s).emit_break(name, is_continue)
+    unreachable!("unused");
 }
 
 #[deprecated(note = "use JSParseState::emit_spread_code() instead")]
@@ -3631,15 +3604,7 @@ pub unsafe fn push_break_entry(
     label_cont: i32,
     drop_count: i32,
 ) {
-    (*be).prev = (*fd).top_break;
-    (*fd).top_break = be;
-    (*be).label_name = label_name;
-    (*be).label_break = label_break;
-    (*be).label_cont = label_cont;
-    (*be).drop_count = drop_count;
-    (*be).label_finally = -1;
-    (*be).scope_level = (*fd).scope_level;
-    (*be).has_iterator = false;
+    unreachable!("unused");
 }
 
 #[deprecated(note = "use JSFunctionDef::pop_break_entry() instead")]
@@ -3787,7 +3752,7 @@ pub fn build_for_in_iterator(ctx: &JSContext, obj: JSValue) -> JSValue {
 /// return TRUE if 'atom' is a symbol with a string description
 #[deprecated(note = "use AtomRef::has_description() instead")]
 pub fn JS_AtomSymbolHasDescription(ctx: &JSContext, atom: AtomRef) -> bool {
-    atom.has_description(ctx)
+    atom.has_string_description(ctx)
 }
 
 /// if `obj` is a string object, returns its length. otherwise, returns 0.
@@ -3835,9 +3800,9 @@ pub fn JS_AtomIsArrayIndex(ctx: &JSContext, pval: *mut u32, atom: AtomRef) -> bo
     unreachable!("unused");
 }
 
-#[deprecated(note = "use JSRuntime::init_default_atoms() instead")]
+#[deprecated(note = "use AtomRegistry::init_const_atoms() instead")]
 pub unsafe fn JS_InitAtoms(rt: &mut JSRuntime) -> Result<(), i32> {
-    (*rt).init_default_atoms()
+    unreachable!("unused");
 }
 
 /// find atom by str
@@ -3891,11 +3856,12 @@ pub fn JS_CallFree(
 /// `this_val` is not consumed
 #[deprecated(note = "use JSValue::invoke() instead")]
 pub fn JS_Invoke(ctx: &JSContext, this_val: &JSValue, atom: AtomRef, args: &[JSValue]) -> JSValue {
-    let func_obj = this_val.get_property(ctx, atom);
-    if func_obj.is_err() {
-        return JSValue::EXCEPTION;
-    }
-    JS_Call(ctx, &func_obj.unwrap(), this_val, args)
+    unreachable!("ununsed");
+    // let func_obj = this_val.get_property(ctx, atom);
+    // if func_obj.is_err() {
+    //     return JSValue::EXCEPTION;
+    // }
+    // JS_Call(ctx, &func_obj.unwrap(), this_val, args)
 }
 
 /// `this_val` is consumed
@@ -3906,7 +3872,8 @@ pub fn JS_InvokeFree(
     atom: AtomRef,
     args: &[JSValue],
 ) -> JSValue {
-    JS_Invoke(ctx, &this_val, atom, args)
+    unreachable!("ununsed");
+    // JS_Invoke(ctx, &this_val, atom, args)
 }
 
 #[deprecated(note = "use JSContext::take_exception() instead")]
@@ -4205,23 +4172,7 @@ pub fn js_object_has_name(obj: &JSValue) -> bool {
 
 #[deprecated(note = "use JSObject::define_name() instead")]
 pub fn JS_DefineObjectName(ctx: &JSContext, obj: &JSValue, name: AtomRef, flags: u32) -> i32 {
-    if name != JS_ATOM_NULL
-        && obj.is_object()
-        && !js_object_has_name(obj)
-        && obj
-            .define_property_value(
-                ctx,
-                JS_ATOM_name,
-                name.force_string(ctx)
-                    .map_or(JSValue::EXCEPTION, JSValue::String),
-                flags,
-            )
-            .is_err()
-    {
-        -1
-    } else {
-        0
-    }
+    unreachable!("ununsed");
 }
 
 /// Note: `obj` and `str_val` are not consumed.
@@ -4520,7 +4471,8 @@ pub unsafe fn find_in_exec_module_list(exec_list: &mut ExecModuleList, m: *mut M
 
 #[deprecated(note = "use ModuleDef::find_export() instead")]
 pub unsafe fn find_export_entry(m: &ModuleDef, export_name: AtomRef) -> Option<ExportEntry> {
-    m.find_export(export_name)
+    unreachable!("unused");
+    // m.find_export(export_name)
 }
 
 #[deprecated(note = "use JSModuleDefInner::get_exportd_names() instead")]

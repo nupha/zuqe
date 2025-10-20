@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use crate::{
     JS_CFUNC_NATIVE_DEF,
     atom::consts::*,
@@ -70,7 +72,8 @@ pub fn js_async_from_sync_iterator_next(ctx: &JSContext, cc: CallContext) -> JSR
                     JS_ATOM_return
                 } else {
                     JS_ATOM_throw
-                },
+                }
+                .deref(),
             ) {
                 Ok(fval) => {
                     if fval.is_undefined_or_null() {

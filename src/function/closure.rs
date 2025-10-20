@@ -1,6 +1,8 @@
+use std::ops::Deref;
+
 use crate::{
     JS_CLASS_ASYNC_GENERATOR, JS_CLASS_GENERATOR,
-    atom::{Atom, AtomRef, consts::*},
+    atom::{Atom, consts::*},
     context::JSContext,
     function::{
         BCFuncPayload, BCFunction, Bytecode, JSFunctionKindEnum, JSVarRef,
@@ -102,7 +104,7 @@ impl JSFunctionDef {
         mut is_local: bool,
         is_arg: bool,
         var_idx: u16,
-        var_name: AtomRef,
+        var_name: &Atom,
         is_const: bool,
         is_lexical: bool,
         var_kind: JSVarKindEnum,
@@ -145,7 +147,7 @@ impl JSFunctionDef {
         fd: *const JSFunctionDef,
         is_arg: bool,
         var_idx: u16,
-        var_name: AtomRef,
+        var_name: &Atom,
         is_const: bool,
         is_lexical: bool,
         var_kind: JSVarKindEnum,
@@ -162,7 +164,7 @@ impl JSFunctionDef {
         is_local: bool,
         is_arg: bool,
         var_idx: u16,
-        var_name: AtomRef,
+        var_name: &Atom,
         is_const: bool,
         is_lexical: bool,
         var_kind: JSVarKindEnum,
@@ -170,7 +172,7 @@ impl JSFunctionDef {
         let mut cv = JSClosureVar {
             bitfield: 0,
             var_idx,
-            var_name: var_name.dup(ctx.rt()),
+            var_name: var_name.clone(),
         };
         cv.set_is_local(is_local);
         cv.set_is_arg(is_arg);
@@ -205,10 +207,10 @@ impl JSFunctionDef {
     }
 
     /// find closure var by name, returning index of the closure var
-    pub fn find_closure_var(&self, var_name: AtomRef) -> Option<u16> {
+    pub fn find_closure_var(&self, var_name: &Atom) -> Option<u16> {
         self.closure_vars
             .as_ref()
-            .and_then(|lst| lst.iter().position(|cv| cv.var_name.as_ref() == var_name))
+            .and_then(|lst| lst.iter().position(|cv| cv.var_name.eq(var_name)))
             .map(|idx| idx as u16)
     }
 }
@@ -276,9 +278,9 @@ impl Bytecode {
             ctx,
             &func,
             if self.func_name.is_null() {
-                JS_ATOM_empty_string
+                Atom::new_const(JS_ATOM_empty_string)
             } else {
-                self.func_name.as_ref()
+                self.func_name.clone()
             },
             self.attrs.defined_arg_count as _,
         );
@@ -294,8 +296,13 @@ impl Bytecode {
             let proto = ctx.create_base_object_from_proto(
                 ctx.0.borrow().class_proto[gen_class_id as usize].clone(),
             )?;
-            func.define_property_value(ctx, JS_ATOM_prototype, proto.into(), JS_PROP_WRITABLE)
-                .unwrap();
+            func.define_property_value(
+                ctx,
+                JS_ATOM_prototype.deref(),
+                proto.into(),
+                JS_PROP_WRITABLE,
+            )
+            .unwrap();
         } else if self.has_prototype() {
             // add the 'prototype' property: delay instantiation to avoid
             // creating cycles for every javascript function. The prototype
@@ -304,7 +311,7 @@ impl Bytecode {
 
             func.define_lazy_property(
                 ctx,
-                JS_ATOM_prototype,
+                JS_ATOM_prototype.deref(),
                 LazyInit::Prototype,
                 JS_PROP_WRITABLE,
             )?;

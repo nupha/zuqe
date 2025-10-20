@@ -1,7 +1,7 @@
 use std::{marker::PhantomData, ops::DerefMut, ptr::NonNull};
 
 use crate::{
-    atom::{Atom, JS_ATOM_NULL, AtomRef, consts::*},
+    atom::{Atom, consts::*},
     bytecode::{OpCode, OpCodeTemp, OpcodeFormat, opcode_info_intermediate, opcodes},
     context::{JS_MODE_STRIP, JSContext},
     eval::JS_EVAL_TYPE_GLOBAL,
@@ -373,27 +373,31 @@ impl JSFunctionDef {
 
         self.cpool.clear();
 
+        self.args.clear();
+        self.vars.clear();
+        self.global_vars.clear();
+        self.closure_vars.take();
+
         //
         // if vardefs are not consumed, free atoms in it.
         //
-        for vd in self.args.drain(..) {
-            vd.var_name.free(rt);
-        }
-        for vd in self.vars.drain(..) {
-            vd.var_name.free(rt);
-        }
-        for gv in self.global_vars.drain(..) {
-            gv.var_name.free(rt);
-        }
+        // for vd in self.args.drain(..) {
+        //     vd.var_name.free(rt);
+        // }
+        // for vd in self.vars.drain(..) {
+        //     vd.var_name.free(rt);
+        // }
+        // for gv in self.global_vars.drain(..) {
+        //     gv.var_name.free(rt);
+        // }
+        // if let Some(mut lst) = self.closure_vars.take() {
+        //     for cv in lst.drain(..) {
+        //         cv.var_name.free(rt);
+        //     }
+        // }
 
-        if let Some(mut lst) = self.closure_vars.take() {
-            for cv in lst.drain(..) {
-                cv.var_name.free(rt);
-            }
-        }
-
-        std::mem::replace(&mut self.func_name, Atom::NULL).free(rt);
-        std::mem::replace(&mut self.filename, Atom::NULL).free(rt);
+        // std::mem::replace(&mut self.func_name, Atom::NULL).free(rt);
+        // std::mem::replace(&mut self.filename, Atom::NULL).free(rt);
 
         // ensure `self` function def does not exist in parent's child_list
         if let Some(up) = unsafe { self.parent.as_mut() } {
@@ -423,7 +427,7 @@ pub struct BlockEnv {
     /// JS_ATOM_NULL for none.
     /// this field don't require ownership of atom,
     /// do not clone the atom for this field.
-    pub label_name: AtomRef,
+    pub label_name: Atom,
 
     /// -1 if none
     pub label_break: i32,
@@ -442,7 +446,7 @@ impl Default for BlockEnv {
     fn default() -> Self {
         Self {
             prev: std::ptr::null_mut(),
-            label_name: JS_ATOM_NULL,
+            label_name: Atom::NULL,
 
             label_break: -1,
             label_cont: -1,
@@ -556,8 +560,7 @@ pub fn skip_dead_code(
 
                     // Note: instruction with atom holds an atom refcount.
                     // must free atom before emilinate these instructions.
-                    let atom = Atom::from(read_from_ptr::<u32>(bc_buf.add(current_pos + 1)));
-                    atom.free(s.ctx.rt_mut());
+                    Atom::free(read_from_ptr::<u32>(bc_buf.add(current_pos + 1)));
                 },
                 _ => {}
             }
@@ -704,16 +707,16 @@ pub fn instantiate_hoisted_definitions(ctx: &JSContext, s: &mut JSFunctionDef, b
                 push_vec_u16(bc, idx as u16);
             } else if has_closure == 1 {
                 push_vec_u8(bc, OpCode::DEFINE_FIELD as u8);
-                push_vec_atom(bc, hf.var_name.dup(ctx.rt()));
+                push_vec_atom(bc, hf.var_name.clone());
                 push_vec_u8(bc, OpCode::DROP as u8);
             } else {
                 // XXX: Check if variable is writable and enumerable
                 push_vec_u8(bc, OpCode::PUT_VAR as u8);
-                push_vec_atom(bc, hf.var_name.dup(ctx.rt()));
+                push_vec_atom(bc, hf.var_name.clone());
             }
         }
 
-        std::mem::replace(&mut hf.var_name, Atom::NULL).free(ctx.rt_mut());
+        // std::mem::replace(&mut hf.var_name, Atom::NULL).free(ctx.rt_mut());
     }
 
     if s.module.is_some() {

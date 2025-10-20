@@ -1,5 +1,5 @@
 use crate::{
-    atom::{AtomRc, AtomRef, consts::*},
+    atom::{Atom, AtomRef, consts::*},
     context::JS_MODE_STRICT,
     function::JSFunctionKindEnum,
     number::{
@@ -54,21 +54,19 @@ pub struct Token {
 
 impl Token {
     /// if data is ident type or is reserved keyword TOK_, returns atom.
-    ///
-    /// Note: returned atom is not duplicated, caller should clone to reference it.
-    pub fn atom(&self) -> Option<AtomRef> {
+    pub(crate) fn atom(&self) -> Option<Atom> {
         match self.val {
-            TOK_IDENT | TOK_PRIVATE_NAME => self.data.ident_atom_ref(),
+            TOK_IDENT | TOK_PRIVATE_NAME => self.data.ident_atom(),
             t @ (TOK_FIRST_KEYWORD..=TOK_LAST_KEYWORD) => {
                 // convert keyword token to atom
                 let a = t - TOK_FIRST_KEYWORD + 1;
-                Some(AtomRef(a as u32))
+                Some(Atom::new_const(AtomRef(a as u32)))
             }
             _ => None,
         }
     }
 
-    pub fn string(&self) -> Option<StringContent> {
+    pub(crate) fn string(&self) -> Option<StringContent> {
         if let TokenData::Str { str, .. } = &self.data {
             Some(str.clone())
         } else {
@@ -87,7 +85,7 @@ pub enum TokenData {
     },
     Num(JSValue),
     Ident {
-        atom: AtomRc,
+        atom: Atom,
         has_escape: bool,
         is_reserved: bool,
     },
@@ -101,10 +99,10 @@ impl Default for TokenData {
 }
 
 impl TokenData {
-    /// if data is ident, returns the atom ref.
-    pub fn ident_atom_ref(&self) -> Option<AtomRef> {
+    /// if data is ident, returns the atom.
+    pub fn ident_atom(&self) -> Option<Atom> {
         if let Self::Ident { atom, .. } = self {
-            Some(atom.as_ref())
+            Some(atom.clone())
         } else {
             None
         }
@@ -358,7 +356,7 @@ impl<'s> JSParseState<'s> {
                         if let Ok((a, has_escape)) = self.parse_ident(&mut p, c1, true) {
                             self.token.val = TOK_PRIVATE_NAME;
                             self.token.data = TokenData::Ident {
-                                atom: a.into_rc(self.ctx.rt()),
+                                atom: a,
                                 has_escape,
                                 is_reserved: false,
                             };
@@ -657,7 +655,7 @@ impl<'s> JSParseState<'s> {
                         {
                             self.token.val = TOK_IDENT;
                             self.token.data = TokenData::Ident {
-                                atom: atom.into_rc(self.ctx.rt()),
+                                atom,
                                 has_escape: has_escape || escaped,
                                 is_reserved: false,
                             };
@@ -795,11 +793,7 @@ impl<'s> JSParseState<'s> {
     #[inline(always)]
     pub fn token_is_pseudo_keyword(&self, atom: AtomRef) -> bool {
         self.token.val == TOK_IDENT
-            && self
-                .token
-                .data
-                .ident_atom_ref()
-                .map_or(false, |a| a == atom)
+            && self.token.data.ident_atom().map_or(false, |a| a.eq(&atom))
             && !self.token.data.ident_has_escape()
     }
 

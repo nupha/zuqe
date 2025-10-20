@@ -1,9 +1,4 @@
-use crate::{
-    atom::{Atom, AtomRef},
-    branch_hints::unlikely,
-    context::JSContext,
-    module::ModuleDef,
-};
+use crate::{atom::Atom, branch_hints::unlikely, context::JSContext, module::ModuleDef};
 
 #[derive(Debug)]
 pub struct ModuleDependency {
@@ -15,13 +10,10 @@ pub struct ModuleDependency {
 impl ModuleDef {
     /// add module dependency, returns the dependency index.
     /// `module_name` is not consumed.
-    pub fn add_dependency(&self, ctx: &JSContext, module_name: AtomRef) -> Result<u16, i32> {
+    pub fn add_dependency(&self, ctx: &JSContext, module_name: Atom) -> Result<u16, i32> {
         let mut lst = self.0.dependencies.borrow_mut();
 
-        if let Some(i) = lst
-            .iter()
-            .position(|req| req.module_name.as_ref() == module_name)
-        {
+        if let Some(i) = lst.iter().position(|req| req.module_name.eq(&module_name)) {
             // dep is already present, returns dep index directly
             return Ok(i as u16);
         }
@@ -34,7 +26,7 @@ impl ModuleDef {
         }
 
         lst.push(ModuleDependency {
-            module_name: module_name.dup(&ctx.rt()),
+            module_name,
             module: None,
         });
 
@@ -46,9 +38,9 @@ impl ModuleDef {
 impl JSContext {
     /// find the loaded module by module name.
     /// Note: `name` is not consumed.
-    pub fn find_loaded_module(&self, name: AtomRef) -> Option<ModuleDef> {
+    pub fn find_loaded_module(&self, name: &Atom) -> Option<ModuleDef> {
         self.0.borrow_mut().loaded_modules.iter().find_map(|m| {
-            if m.0.module_name.as_ref() == name {
+            if m.0.module_name.eq(name) {
                 Some(m.clone())
             } else {
                 None
@@ -64,15 +56,12 @@ impl JSContext {
         }
 
         m.0.resolved.set(true);
-        let base_module_name = m.0.module_name.as_ref();
+        let base_module_name = &m.0.module_name;
 
         // resolve dependency modules
         for dep in m.0.dependencies.borrow_mut().iter_mut() {
-            let m1 = js_host_resolve_imported_module_atom(
-                self,
-                base_module_name,
-                dep.module_name.as_ref(),
-            )?;
+            let m1 =
+                js_host_resolve_imported_module_atom(self, base_module_name, &dep.module_name)?;
             dep.module = Some(m1.clone());
             self.resolve_module(&m1)?; // <- ensure not mut borrow .dependencies in calling graph
         }
@@ -112,10 +101,10 @@ pub fn js_host_resolve_imported_module(
         js_default_module_normalize_name(ctx, base_cname, cname1)
     }?;
 
-    let module_name = Atom::new(ctx.rt_mut(), &name)?.into_rc(ctx.rt());
+    let module_name = Atom::new(ctx.rt_mut(), &name)?;
 
     // search in loaded_modules
-    if let Some(m) = ctx.find_loaded_module(module_name.as_ref()) {
+    if let Some(m) = ctx.find_loaded_module(&module_name) {
         return Ok(m);
     }
 
@@ -133,8 +122,8 @@ pub fn js_host_resolve_imported_module(
 
 pub fn js_host_resolve_imported_module_atom(
     ctx: &JSContext,
-    base_module_name: AtomRef,
-    module_name1: AtomRef,
+    base_module_name: &Atom,
+    module_name1: &Atom,
 ) -> Result<ModuleDef, i32> {
     let base_cname = base_module_name.to_utf8(ctx.rt());
     let cname = module_name1.to_utf8(ctx.rt());

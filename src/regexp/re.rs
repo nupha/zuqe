@@ -1,9 +1,4 @@
-use std::{
-    borrow::Cow,
-    cell::{Cell, RefCell},
-    ops::Range,
-    rc::Rc,
-};
+use std::{borrow::Cow, cell::Cell, ops::Range, rc::Rc};
 
 use regex::bytes::{Regex, RegexBuilder};
 
@@ -343,7 +338,7 @@ impl RegExp {
             ctx.create_object_from_ctor(ctor, ObjectPayload::REGEXP(re))
                 .map_err(|_| -1)?,
         );
-        o.define_property_value(ctx, JS_ATOM_lastIndex, JSValue::Int(0), JS_PROP_WRITABLE)?;
+        o.define_property_value(ctx, &JS_ATOM_lastIndex, JSValue::Int(0), JS_PROP_WRITABLE)?;
         Ok(o)
     }
 
@@ -434,17 +429,17 @@ pub(super) fn make_regexp_capture_array(
     let arr = ctx.create_array_with_values(lst)?;
     arr.define_property_value(
         ctx,
-        JS_ATOM_index,
+        &JS_ATOM_index,
         JSValue::Int(start_index as i32),
         prop_flags,
     )?;
-    arr.define_property_value(ctx, JS_ATOM_groups, group, prop_flags)?;
-    arr.define_property_value(ctx, JS_ATOM_input, text.into(), prop_flags)?;
+    arr.define_property_value(ctx, &JS_ATOM_groups, group, prop_flags)?;
+    arr.define_property_value(ctx, &JS_ATOM_input, text.into(), prop_flags)?;
 
     if let Some((idxlst, idxgrp)) = indices {
         let idxarr = ctx.create_array_with_values(idxlst)?;
-        idxarr.define_property_value(ctx, JS_ATOM_groups, idxgrp, prop_flags)?;
-        arr.define_property_value(ctx, JS_ATOM_indices, idxarr.into(), prop_flags)?;
+        idxarr.define_property_value(ctx, &JS_ATOM_groups, idxgrp, prop_flags)?;
+        arr.define_property_value(ctx, &JS_ATOM_indices, idxarr.into(), prop_flags)?;
     }
 
     Ok((arr.into(), last_index))

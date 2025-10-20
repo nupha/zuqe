@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF,
     atom::{Atom, consts::*},
@@ -22,7 +24,7 @@ pub fn js_object_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_object_toLocaleString(ctx: &JSContext, cc: CallContext) -> JSResult {
-    cc.this().invoke(ctx, JS_ATOM_toString, &[])
+    cc.this().invoke(ctx, JS_ATOM_toString.deref(), &[])
 }
 
 pub fn js_object_valueOf(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -31,9 +33,9 @@ pub fn js_object_valueOf(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_object_hasOwnProperty(ctx: &JSContext, cc: CallContext) -> JSResult {
     // must be done first
-    let atom = cc.arg(0).to_atom(ctx)?.into_rc(ctx.rt());
+    let atom = cc.arg(0).to_atom(ctx)?;
     let obj = cc.this().clone().objectify(ctx)?;
-    Ok(obj.get_own_property(ctx, atom.as_ref())?.is_some().into())
+    Ok(obj.get_own_property(ctx, &atom)?.is_some().into())
 }
 
 pub fn js_object_isPrototypeOf(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -66,10 +68,7 @@ pub fn js_object_propertyIsEnumerable(ctx: &JSContext, cc: CallContext) -> JSRes
     let obj = cc.this().clone().objectify(ctx)?;
     let atom = cc.arg(0).to_atom(ctx)?;
 
-    let ret = obj.get_own_property(ctx, atom.as_ref());
-    atom.free(ctx.rt_mut());
-
-    Ok(if let Some(desc) = ret? {
+    Ok(if let Some(desc) = obj.get_own_property(ctx, &atom)? {
         JSValue::Bool(desc.flags & JS_PROP_ENUMERABLE != 0)
     } else {
         JSValue::Bool(false)
@@ -146,9 +145,7 @@ pub unsafe fn js_object___defineGetter__(
         (value.clone(), JSValue::UNDEFINED)
     };
 
-    let ret = obj.define_property(ctx, atom.as_ref(), JSValue::UNDEFINED, get, set, flags);
-    atom.free(ctx.rt_mut());
-
+    let ret = obj.define_property(ctx, &atom, JSValue::UNDEFINED, get, set, flags);
     if ret.is_err() {
         JSValue::EXCEPTION
     } else {
@@ -176,7 +173,7 @@ pub unsafe fn js_object___lookupGetter__(
     }
 
     let res = loop {
-        match obj.get_own_property(ctx, prop.as_ref()) {
+        match obj.get_own_property(ctx, &prop) {
             Ok(Some(desc)) => {
                 break if desc.flags & JS_PROP_GETSET != 0 {
                     if setter != 0 {
@@ -224,7 +221,6 @@ pub unsafe fn js_object___lookupGetter__(
         // }
     };
 
-    prop.free(ctx.rt_mut());
     res
 }
 

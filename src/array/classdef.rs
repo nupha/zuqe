@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use fallible_collections::TryCollect;
 
 use crate::{
@@ -104,7 +106,7 @@ fn JS_ArraySpeciesCreate(ctx: &JSContext, obj: &JSValue, len_val: &JSValue) -> J
         );
     }
 
-    let mut ctor = obj.get_property(ctx, JS_ATOM_constructor)?;
+    let mut ctor = obj.get_property(ctx, JS_ATOM_constructor.deref())?;
 
     if ctor.is_constructor() {
         // legacy web compatibility
@@ -115,7 +117,7 @@ fn JS_ArraySpeciesCreate(ctx: &JSContext, obj: &JSValue, len_val: &JSValue) -> J
     }
 
     if ctor.is_object() {
-        let species = ctor.get_property(ctx, JS_ATOM_Symbol_species)?;
+        let species = ctor.get_property(ctx, JS_ATOM_Symbol_species.deref())?;
         ctor = species;
         if ctor.is_null() {
             ctor = JSValue::UNDEFINED;
@@ -141,7 +143,7 @@ fn JS_ArraySpeciesCreate(ctx: &JSContext, obj: &JSValue, len_val: &JSValue) -> J
 /// check `obj[Symbol.isConcatSpreabable]` property
 pub fn JS_isConcatSpreadable(ctx: &JSContext, obj: &JSValue) -> Result<bool, i32> {
     if obj.is_object() {
-        let s = obj.get_property(ctx, JS_ATOM_Symbol_isConcatSpreadable)?;
+        let s = obj.get_property(ctx, JS_ATOM_Symbol_isConcatSpreadable.deref())?;
         if !s.is_undefined() {
             s.to_bool()
         } else {
@@ -304,7 +306,7 @@ pub fn js_array_concat(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     }
 
-    arr.set_property(ctx, JS_ATOM_length, JSValue::from(n))?;
+    arr.set_property(ctx, JS_ATOM_length.deref(), JSValue::from(n))?;
     Ok(arr)
 }
 
@@ -420,7 +422,7 @@ pub fn js_array_every(ctx: &JSContext, cc: CallContext) -> JSResult {
             &JSValue::UNDEFINED,
             &[obj, JSValue::Int(n as i32)],
         )?;
-        arr.invoke(ctx, JS_ATOM_set, std::slice::from_ref(&ret))?;
+        arr.invoke(ctx, JS_ATOM_set.deref(), std::slice::from_ref(&ret))?;
         ret = arr;
     }
 
@@ -775,7 +777,7 @@ pub fn js_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_array_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj = cc.this().clone().objectify(ctx)?;
-    obj.invoke_callable(ctx, JS_ATOM_join, &[])?
+    obj.invoke_callable(ctx, JS_ATOM_join.deref(), &[])?
         .unwrap_or_else(|| {
             // use intrinsic `Object.prototype.toString`
             js_object_toString(ctx, CallContext::new(ctx, obj.into(), &[], 0, None))
@@ -821,7 +823,7 @@ pub fn js_array_pop(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     }
 
-    obj.set_property(ctx, JS_ATOM_length, JSValue::from(new_len))?;
+    obj.set_property(ctx, JS_ATOM_length.deref(), JSValue::from(new_len))?;
     Ok(res)
 }
 
@@ -847,7 +849,7 @@ pub fn js_array_push(ctx: &JSContext, cc: CallContext) -> JSResult {
         obj.set_property_i64(ctx, from + i as i64, cc.arg(i).clone())?;
     }
 
-    obj.set_property(ctx, JS_ATOM_length, JSValue::from(new_len))?;
+    obj.set_property(ctx, JS_ATOM_length.deref(), JSValue::from(new_len))?;
 
     Ok(JSValue::from(new_len))
 }
@@ -1132,7 +1134,7 @@ pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
         n += 1;
     }
 
-    arr.set_property(ctx, JS_ATOM_length, JSValue::from(n))?;
+    arr.set_property(ctx, JS_ATOM_length.deref(), JSValue::from(n))?;
 
     if is_splice {
         let new_len = len + item_count as i64 - del_count;
@@ -1159,7 +1161,7 @@ pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
             obj.set_property_i64(ctx, start + i as i64, cc.arg(i as usize + 2).clone())?;
         }
 
-        obj.set_property(ctx, JS_ATOM_length, JSValue::from(new_len))?;
+        obj.set_property(ctx, JS_ATOM_length.deref(), JSValue::from(new_len))?;
     }
 
     Ok(arr)
@@ -1258,7 +1260,7 @@ pub fn js_array_toSpliced(ctx: &JSContext, cc: CallContext) -> JSResult {
         })
         .unwrap()?;
 
-    res_arr.set_property(ctx, JS_ATOM_length, JSValue::from(new_len))?;
+    res_arr.set_property(ctx, JS_ATOM_length.deref(), JSValue::from(new_len))?;
     Ok(res_arr.into())
 }
 
@@ -1506,7 +1508,7 @@ fn js_array_from(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let mut k: i64 = 0;
 
-    let it = items.get_property(ctx, JS_ATOM_Symbol_iterator)?;
+    let it = items.get_property(ctx, JS_ATOM_Symbol_iterator.deref())?;
     let res: JSValue = if !it.is_undefined() {
         // `items` has [Symbo.iterator] method
         let arr = if cc.this().is_constructor() {
@@ -1516,7 +1518,7 @@ fn js_array_from(ctx: &JSContext, cc: CallContext) -> JSResult {
         };
 
         let iter = items.get_iterator_must(ctx, false)?;
-        let it = ObjectIter::new(ctx, iter, JS_ATOM_next)?;
+        let it = ObjectIter::new(ctx, iter, JS_ATOM_next.deref())?;
 
         for el in it {
             let mut val = el?;
@@ -1551,7 +1553,7 @@ fn js_array_from(ctx: &JSContext, cc: CallContext) -> JSResult {
         arr
     };
 
-    res.set_property(ctx, JS_ATOM_length, JSValue::from(k as u32))?;
+    res.set_property(ctx, JS_ATOM_length.deref(), JSValue::from(k as u32))?;
     Ok(res)
 }
 
@@ -1566,7 +1568,11 @@ pub fn js_array_of(ctx: &JSContext, cc: CallContext) -> JSResult {
         obj.create_data_property_u32(ctx, i as _, cc.arg(i).clone(), JS_PROP_THROW)?;
     }
 
-    obj.set_property(ctx, JS_ATOM_length, JSValue::from(cc.length() as u32))?;
+    obj.set_property(
+        ctx,
+        JS_ATOM_length.deref(),
+        JSValue::from(cc.length() as u32),
+    )?;
 
     Ok(obj)
 }

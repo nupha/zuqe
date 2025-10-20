@@ -25,7 +25,7 @@ impl JSObject {
 
         if !ignore_toPrimitive_method {
             // try .toPrimitive() method
-            let method = self.get_property(ctx, JS_ATOM_Symbol_toPrimitive)?;
+            let method = self.get_property(ctx, &JS_ATOM_Symbol_toPrimitive)?;
 
             /* ECMA says *If exoticToPrim is not undefined* but tests in
             test262 use null as a non-callable converter */
@@ -55,7 +55,7 @@ impl JSObject {
         } else {
             [JS_ATOM_valueOf, JS_ATOM_toString]
         } {
-            let method = self.get_property(ctx, prop)?;
+            let method = self.get_property(ctx, &prop)?;
             if method.is_function() {
                 let ret = method.call(ctx, &this, &[])?;
                 if !ret.is_object() {

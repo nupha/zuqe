@@ -1,6 +1,8 @@
+use std::ops::Deref;
+
 use crate::{
     atom::{
-        Atom, JS_ATOM_NULL, AtomRc,
+        Atom,
         consts::{JS_ATOM___proto__, JS_ATOM_async, JS_ATOM_get, JS_ATOM_set},
     },
     bytecode::{OpCode, OpCodeTemp},
@@ -47,15 +49,14 @@ impl<'s> JSParseState<'s> {
                 self.emit_op(OpCode::DROP); // pop src object
             } else {
                 let (name, prop_type) = self.parse_property_name(true, true, false)?;
-                let name = name.into_rc(self.ctx.rt());
 
                 if prop_type == PROP_TYPE_VAR {
                     // shortcut for x: x
                     self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                    self.emit_atom_ref(name.as_ref());
+                    self.emit_atom(name.clone());
                     self.emit_u16(self.cur_func().scope_level as _);
                     self.emit_op(OpCode::DEFINE_FIELD);
-                    self.emit_atom_ref(name.as_ref());
+                    self.emit_atom(name);
                 } else if self.token.val == CHAR_BRACKET_L {
                     let is_getset = matches!(prop_type, PROP_TYPE_GET | PROP_TYPE_SET);
                     let (func_type, func_kind, op_flags): (
@@ -97,23 +98,23 @@ impl<'s> JSParseState<'s> {
                     self.parse_function_decl(
                         func_type,
                         func_kind,
-                        JS_ATOM_NULL,
+                        &Atom::NULL,
                         start_ptr,
                         start_line,
                     )?;
 
-                    if name.as_ref() == JS_ATOM_NULL {
+                    if name.is_null() {
                         self.emit_op(OpCode::DEFINE_METHOD_COMPUTED);
                     } else {
                         self.emit_op(OpCode::DEFINE_METHOD);
-                        self.emit_atom_ref(name.as_ref());
+                        self.emit_atom(name);
                     }
                     self.emit_u8(op_flags as u8 | OP_DEFINE_METHOD_ENUMERABLE);
                 } else {
                     self.parse_expect(CHAR_COLON)?;
                     self.parse_assign_expr()?;
 
-                    if name.as_ref() == JS_ATOM_NULL {
+                    if name.is_null() {
                         unsafe {
                             set_object_name_computed(self);
                         }
@@ -127,9 +128,9 @@ impl<'s> JSParseState<'s> {
                         self.emit_op(OpCode::SET_PROTO);
                         has_proto = true;
                     } else {
-                        self.set_object_name(name.as_ref());
+                        self.set_object_name(name.clone());
                         self.emit_op(OpCode::DEFINE_FIELD);
-                        self.emit_atom_ref(name.as_ref());
+                        self.emit_atom(name);
                     }
                 }
             }
@@ -156,17 +157,14 @@ impl<'s> JSParseState<'s> {
         let mut prop_type = PROP_TYPE_IDENT;
         let mut private = 0_i32;
         let mut is_non_reserved_ident = false;
-        let mut name: Option<AtomRc> = None;
+        let mut name: Option<Atom> = None;
 
         if allow_method {
             if self.token_is_pseudo_keyword(JS_ATOM_get)
                 || self.token_is_pseudo_keyword(JS_ATOM_set)
             {
                 // found `get...` or `set...`
-                name.replace(AtomRc::from_ref(
-                    self.ctx.rt(),
-                    self.token.atom().unwrap(),
-                ));
+                name.replace(self.token.atom().unwrap());
 
                 match self.next_token()? {
                     CHAR_COLON | CHAR_COMMA | CHAR_CURLY_R | CHAR_BRACKET_L | CHAR_SEMI => {
@@ -190,10 +188,7 @@ impl<'s> JSParseState<'s> {
             } else if self.token_is_pseudo_keyword(JS_ATOM_async)
                 && self.peek_token(true) != '\n' as i32
             {
-                name.replace(AtomRc::from_ref(
-                    self.ctx.rt(),
-                    self.token.atom().unwrap(),
-                ));
+                name.replace(self.token.atom().unwrap());
 
                 self.next_token()?;
 
@@ -221,20 +216,12 @@ impl<'s> JSParseState<'s> {
                     name.replace(
                         self.ctx
                             .create_string_with_content(self.token.data.string().unwrap().clone())
-                            .and_then(|s| s.to_atom(&self.ctx))?
-                            .into_rc(self.ctx.rt()),
+                            .and_then(|s| s.to_atom(&self.ctx))?,
                     );
                     self.next_token()?;
                 }
                 TOK_NUMBER => {
-                    name.replace(
-                        self.token
-                            .data
-                            .number()
-                            .unwrap()
-                            .to_atom(&self.ctx)?
-                            .into_rc(self.ctx.rt()),
-                    );
+                    name.replace(self.token.data.number().unwrap().to_atom(&self.ctx)?);
                     self.next_token()?;
                 }
                 // '['
@@ -244,10 +231,7 @@ impl<'s> JSParseState<'s> {
                     self.parse_expect(']' as i32)?;
                 }
                 TOK_PRIVATE_NAME if allow_private => {
-                    name.replace(AtomRc::from_ref(
-                        self.ctx.rt(),
-                        self.token.atom().unwrap(),
-                    ));
+                    name.replace(self.token.atom().unwrap());
                     self.next_token()?;
                     private = PROP_TYPE_PRIVATE;
                 }
@@ -257,10 +241,7 @@ impl<'s> JSParseState<'s> {
                         self.token.val == TOK_IDENT && !self.token.data.is_reserved();
 
                     /* keywords and reserved words have a valid atom */
-                    name.replace(AtomRc::from_ref(
-                        self.ctx.rt(),
-                        self.token.atom().unwrap(),
-                    ));
+                    name.replace(self.token.atom().unwrap());
 
                     self.next_token()?;
                 }

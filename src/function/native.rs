@@ -409,8 +409,7 @@ impl JSContext {
 
         // define properties length and name on function.
         let name_atom = Atom::new(self.rt_mut(), name)?;
-        js_function_set_properties(self, &func_obj, name_atom.as_ref(), length as i32);
-        name_atom.free(self.rt_mut());
+        js_function_set_properties(self, &func_obj, name_atom, length as i32);
 
         Ok(func_obj.into())
     }

@@ -1,8 +1,8 @@
-use std::cell::RefCell;
+use std::{cell::RefCell, ops::Deref};
 
 use crate::{
     JS_CFUNC_NATIVE_DEF,
-    atom::{Atom, JS_ATOM_NULL, AtomRef, consts::*},
+    atom::{Atom, consts::*},
     context::JSContext,
     error::JSResult,
     function::{CallContext, FieldDef, IteratorState, NativeFunctionType},
@@ -200,8 +200,8 @@ impl From<ObjectIter> for JSValue {
 impl ObjectIter {
     /// `next` is the name of method used to fetch the __next__ value when iterating.
     /// this atom is not consumed.
-    pub fn new(ctx: &JSContext, target: JSObject, next: AtomRef) -> Result<Self, i32> {
-        let next_method = if next != JS_ATOM_NULL {
+    pub fn new(ctx: &JSContext, target: JSObject, next: &Atom) -> Result<Self, i32> {
+        let next_method = if !next.is_null() {
             target.get_property(ctx, next)?
         } else {
             JSValue::UNDEFINED
@@ -280,13 +280,13 @@ impl ObjectIter {
             }
             (ret, IteratorState::NotParsed) => {
                 let done = ret
-                    .get_property(ctx, JS_ATOM_done)?
+                    .get_property(ctx, JS_ATOM_done.deref())?
                     .to_bool()
                     .unwrap_or(false);
 
                 Ok((
                     if !done {
-                        ret.get_property(ctx, JS_ATOM_value)?
+                        ret.get_property(ctx, JS_ATOM_value.deref())?
                     } else {
                         JSValue::UNDEFINED
                     },
@@ -308,7 +308,7 @@ impl ObjectIter {
             JSValue::UNDEFINED
         };
 
-        if let Ok(return_method) = obj.get_property(ctx, JS_ATOM_return) {
+        if let Ok(return_method) = obj.get_property(ctx, JS_ATOM_return.deref()) {
             if !return_method.is_undefined_or_null() {
                 let ret = return_method.call(ctx, &obj.clone().into(), &[]);
                 if pending_exc.is_undefined_or_null() {
@@ -357,7 +357,7 @@ impl JSValue {
     ///   returns None indicating that `self` is not iterable.
     pub fn get_iterator(&self, ctx: &JSContext, is_async: bool) -> Result<Option<JSObject>, i32> {
         if is_async {
-            if let Some(it) = self.invoke_defined(ctx, JS_ATOM_Symbol_asyncIterator, &[])? {
+            if let Some(it) = self.invoke_defined(ctx, JS_ATOM_Symbol_asyncIterator.deref(), &[])? {
                 JSObject::try_from(it?)
                     .inspect_err(|_| {
                         ctx.throw_type_error_not_an_object();
@@ -366,11 +366,11 @@ impl JSValue {
             } else {
                 // method [Symbol.asyncIterator] is not defined:
                 // get [Symbol.iterator], then wrap it into AsyncFromSyncIterator object.
-                if let Some(r) = self.invoke_callable(ctx, JS_ATOM_Symbol_iterator, &[])? {
+                if let Some(r) = self.invoke_callable(ctx, JS_ATOM_Symbol_iterator.deref(), &[])? {
                     let it = JSObject::try_from(r?).inspect_err(|_| {
                         ctx.throw_type_error_not_an_object();
                     })?;
-                    let next_method = it.get_property(ctx, JS_ATOM_next)?;
+                    let next_method = it.get_property(ctx, JS_ATOM_next.deref())?;
 
                     ctx.create_object(ObjectPayload::ASYNC_FROM_SYNC_ITERATOR(Box::new(
                         JSAsyncFromSyncIteratorData {
@@ -385,7 +385,7 @@ impl JSValue {
                 }
             }
         } else {
-            if let Some(r) = self.invoke_callable(ctx, JS_ATOM_Symbol_iterator, &[])? {
+            if let Some(r) = self.invoke_callable(ctx, JS_ATOM_Symbol_iterator.deref(), &[])? {
                 JSObject::try_from(r?)
                     .inspect_err(|_| {
                         ctx.throw_type_error_not_an_object();
@@ -409,15 +409,19 @@ impl JSValue {
     /// The iterator uses `next()` method to retrive next value.
     #[inline]
     pub fn iter(&self, ctx: &JSContext) -> Result<ObjectIter, i32> {
-        ObjectIter::new(ctx, self.get_iterator_must(ctx, false)?, JS_ATOM_next)
+        ObjectIter::new(
+            ctx,
+            self.get_iterator_must(ctx, false)?,
+            JS_ATOM_next.deref(),
+        )
     }
 }
 
 pub fn JS_IteratorGetCompleteValue(ctx: &JSContext, obj: &JSValue, pdone: &mut bool) -> JSValue {
-    if let Ok(done_val) = obj.get_property(ctx, JS_ATOM_done) {
+    if let Ok(done_val) = obj.get_property(ctx, JS_ATOM_done.deref()) {
         let done = done_val.to_bool().unwrap();
 
-        if let Ok(value) = obj.get_property(ctx, JS_ATOM_value) {
+        if let Ok(value) = obj.get_property(ctx, JS_ATOM_value.deref()) {
             *pdone = done;
             value
         } else {
@@ -433,8 +437,13 @@ pub fn JS_IteratorGetCompleteValue(ctx: &JSContext, obj: &JSValue, pdone: &mut b
 /// create an Object with two properties: `value` and `done`.
 pub fn js_create_iterator_result(ctx: &JSContext, value: JSValue, done: bool) -> JSResult {
     let obj = ctx.create_base_object()?;
-    obj.define_property_value(ctx, JS_ATOM_value, value, JS_PROP_C_W_E)?;
-    obj.define_property_value(ctx, JS_ATOM_done, JSValue::Bool(done), JS_PROP_C_W_E)?;
+    obj.define_property_value(ctx, JS_ATOM_value.deref(), value, JS_PROP_C_W_E)?;
+    obj.define_property_value(
+        ctx,
+        JS_ATOM_done.deref(),
+        JSValue::Bool(done),
+        JS_PROP_C_W_E,
+    )?;
     Ok(obj.into())
 }
 
@@ -471,7 +480,7 @@ pub fn js_array_from_iterator(
     method: &JSValue,
 ) -> Result<(JSValue, usize), i32> {
     if let JSValue::Object(obj) = method.call(ctx, obj, &[])? {
-        let it = ObjectIter::new(ctx, obj, JS_ATOM_next)?;
+        let it = ObjectIter::new(ctx, obj, JS_ATOM_next.deref())?;
         let arr = ctx.create_array()?;
 
         let mut k = 0_i64;

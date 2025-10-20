@@ -464,7 +464,7 @@ impl TypedArray {
                     _ => {
                         // source is an enumetable object.
                         // get property from source object and set to new array.
-                        let iter_method = source.get_property(ctx, JS_ATOM_Symbol_iterator)?;
+                        let iter_method = source.get_property(ctx, &JS_ATOM_Symbol_iterator)?;
                         let (enum_obj, count) = if !iter_method.is_undefined_or_null() {
                             js_array_from_iterator(ctx, &source, &iter_method)?
                         } else {

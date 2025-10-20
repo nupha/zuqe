@@ -217,6 +217,7 @@ static ATOM_DESCR_DEFS: &[&str] = &[
     "TypeError",
     "URIError",
     "InternalError",
+    "AggregateError",
     //
     // privates
     //

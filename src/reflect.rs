@@ -49,8 +49,7 @@ pub fn js_reflect_construct(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_reflect_deleteProperty(ctx: &JSContext, cc: CallContext) -> JSResult {
     if let JSValue::Object(obj) = cc.arg(0) {
         let atom = cc.arg(1).to_atom(ctx)?;
-        let ret = obj.delete_property(ctx, atom.as_ref(), 0);
-        atom.free(ctx.rt_mut());
+        let ret = obj.delete_property(ctx, &atom, 0);
         ret.map(JSValue::Bool)
     } else {
         ctx.throw_type_error_not_an_object();
@@ -64,9 +63,7 @@ pub fn js_reflect_get(ctx: &JSContext, cc: CallContext) -> JSResult {
         let prop = cc.arg(1);
         let receiver = if cc.length() > 2 { cc.arg(2) } else { obj };
         let atom = prop.to_atom(ctx)?;
-        let ret = obj.get_property_internal(ctx, atom.as_ref(), receiver, false)?;
-        atom.free(ctx.rt_mut());
-        Ok(ret)
+        obj.get_property_internal(ctx, &atom, receiver, false)
     } else {
         ctx.throw_type_error_not_an_object();
         Err(-1)
@@ -77,9 +74,7 @@ pub fn js_reflect_has(ctx: &JSContext, cc: CallContext) -> JSResult {
     if let JSValue::Object(obj) = cc.arg(0) {
         let prop = cc.arg(1);
         let atom = prop.to_atom(ctx)?;
-        let ret = obj.has_property(ctx, atom.as_ref());
-        atom.free(ctx.rt_mut());
-        ret.map(JSValue::Bool)
+        obj.has_property(ctx, &atom).map(JSValue::Bool)
     } else {
         ctx.throw_type_error_not_an_object();
         Err(-1)
@@ -95,9 +90,9 @@ pub fn js_reflect_set(ctx: &JSContext, cc: CallContext) -> JSResult {
         let receiver = if cc.length() > 3 { cc.arg(3) } else { target };
         let atom = prop.to_atom(ctx)?;
 
-        let ret = o.set_property_internal(
+        o.set_property_internal(
             ctx,
-            atom.as_ref(),
+            &atom,
             val.clone(),
             match receiver {
                 JSValue::NULL | JSValue::UNDEFINED => None,
@@ -108,9 +103,8 @@ pub fn js_reflect_set(ctx: &JSContext, cc: CallContext) -> JSResult {
                 }
             },
             0,
-        );
-        atom.free(ctx.rt_mut());
-        ret.map(JSValue::Bool)
+        )
+        .map(JSValue::Bool)
     } else {
         ctx.throw_type_error_not_an_object();
         Err(-1)

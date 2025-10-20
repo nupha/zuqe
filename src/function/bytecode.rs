@@ -550,7 +550,6 @@ impl BytecodeInner {
         if let Some(lst) = self.vardefs_mut() {
             for vd in lst {
                 let old = std::mem::replace(&mut vd.var_name, Atom::NULL);
-                old.free(rt);
             }
         }
 
@@ -558,15 +557,14 @@ impl BytecodeInner {
         if let Some(lst) = self.closure_vars_mut() {
             for cv in lst {
                 let old = std::mem::replace(&mut cv.var_name, Atom::NULL);
-                old.free(rt);
             }
         }
 
         // free func name atom
-        std::mem::replace(&mut self.func_name, Atom::NULL).free(rt);
+        std::mem::replace(&mut self.func_name, Atom::NULL);
 
         if self.has_debug {
-            std::mem::replace(&mut self.debug.filename, Atom::NULL).free(rt);
+            std::mem::replace(&mut self.debug.filename, Atom::NULL);
         }
     }
 }
@@ -674,9 +672,7 @@ pub(super) fn free_bytecode_atoms(rt: &mut JSRuntime, bc: &[u8], is_short_opcode
                 | OpcodeFormat::ATOM_LABEL_U8
                 | OpcodeFormat::ATOM_LABEL_U16
         ) {
-            let atom =
-                Atom::from(unsafe { read_from_ptr::<u32>(bc.as_ptr().add(pos as usize + 1)) });
-            atom.free(rt);
+            Atom::free(unsafe { read_from_ptr::<u32>(bc.as_ptr().add(pos as usize + 1)) });
         }
 
         pos += oi.size as usize;

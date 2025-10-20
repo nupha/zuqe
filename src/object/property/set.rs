@@ -3,7 +3,7 @@ use crate::{
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
     JS_CLASS_INT32_ARRAY, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT, JS_CLASS_UINT8_ARRAY,
     JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
-    atom::{Atom, JS_AtomIsNumericIndex, AtomRef, consts::JS_ATOM_length},
+    atom::{Atom, JS_AtomIsNumericIndex, consts::JS_ATOM_length},
     branch_hints::unlikely,
     context::JSContext,
     error::JS_ThrowReferenceErrorNotDefined,
@@ -32,7 +32,7 @@ impl JSObject {
     pub(crate) fn set_property_internal(
         &self,
         ctx: &JSContext,
-        prop: AtomRef,
+        prop: &Atom,
         val: JSValue,
         receiver: Option<&JSObject>,
         flags: u32,
@@ -51,7 +51,7 @@ impl JSObject {
         macro_rules! fail_read_only {
             ($prop:expr) => {
                 return if ctx.can_throw(flags) {
-                    ctx.throw_type_error_read_only($prop);
+                    ctx.throw_type_error_read_only($prop.as_ref());
                     Err(-1)
                 } else {
                     Ok(false)
@@ -71,7 +71,7 @@ impl JSObject {
                         if unlikely(prs_flags & JS_PROP_LENGTH != 0) {
                             // set array length
                             debug_assert_eq!(cur_obj.class_id(), JS_CLASS_ARRAY);
-                            debug_assert_eq!(prop, JS_ATOM_length);
+                            debug_assert_eq!(prop.as_ref(), JS_ATOM_length);
                             return cur_obj.as_Array().unwrap().set_length(
                                 ctx,
                                 val.to_array_length(ctx, false)?,
@@ -223,7 +223,7 @@ impl JSObject {
         //
 
         if unlikely(flags & JS_PROP_NO_ADD != 0) {
-            JS_ThrowReferenceErrorNotDefined(ctx, prop);
+            JS_ThrowReferenceErrorNotDefined(ctx, prop.as_ref());
             return Err(-1);
         }
 
@@ -245,7 +245,12 @@ impl JSObject {
                         }
                     }
                 } else {
-                    target.add_own_property(ctx, prop, JS_PROP_C_W_E, JSProperty::Normal(val))?;
+                    target.add_own_property(
+                        ctx,
+                        prop.clone(),
+                        JS_PROP_C_W_E,
+                        JSProperty::Normal(val),
+                    )?;
                     return Ok(true);
                 }
             } else {
@@ -276,7 +281,7 @@ impl JSObject {
             // create property on `this`, returns Result<bool, i32>
             target.create_property(
                 ctx,
-                prop,
+                prop.clone(),
                 val,
                 JSValue::UNDEFINED,
                 JSValue::UNDEFINED,
@@ -295,7 +300,7 @@ impl JSObject {
 
     /// `prop` is not consumed.
     #[inline(always)]
-    pub fn set_property(&self, ctx: &JSContext, prop: AtomRef, val: JSValue) -> Result<bool, i32> {
+    pub fn set_property(&self, ctx: &JSContext, prop: &Atom, val: JSValue) -> Result<bool, i32> {
         self.set_property_internal(ctx, prop, val, Some(self), JS_PROP_THROW)
     }
 
@@ -468,9 +473,7 @@ impl JSObject {
 
         // slow path
         let atom = prop.to_atom(ctx)?;
-        let ret = self.set_property_internal(ctx, atom.as_ref(), val, Some(self), flags);
-        atom.free(ctx.rt_mut());
-        ret
+        self.set_property_internal(ctx, &atom, val, Some(self), flags)
     }
 
     pub fn set_property_u32(&self, ctx: &JSContext, idx: u32, val: JSValue) -> Result<bool, i32> {
@@ -478,10 +481,7 @@ impl JSObject {
             .unwrap_or_else(|| {
                 // slow path
                 let atom = Atom::from_u32(ctx.rt_mut(), idx)?;
-                let ret =
-                    self.set_property_internal(ctx, atom.as_ref(), val, Some(self), JS_PROP_THROW);
-                atom.free(ctx.rt_mut());
-                ret
+                self.set_property_internal(ctx, &atom, val, Some(self), JS_PROP_THROW)
             })
     }
 
@@ -491,17 +491,13 @@ impl JSObject {
             self.set_property_u32(ctx, idx as u32, val)
         } else {
             let atom = Atom::from_i64(ctx.rt_mut(), idx)?;
-            let r = self.set_property(ctx, atom.as_ref(), val);
-            atom.free(ctx.rt_mut());
-            r
+            self.set_property(ctx, &atom, val)
         }
     }
 
     pub fn set_property_str(&self, ctx: &JSContext, prop: &str, val: JSValue) -> Result<bool, i32> {
         let atom = Atom::new(ctx.rt_mut(), prop)?;
-        let ret = self.set_property(ctx, atom.as_ref(), val);
-        atom.free(ctx.rt_mut());
-        ret
+        self.set_property(ctx, &atom, val)
     }
 }
 
@@ -516,7 +512,7 @@ impl JSValue {
     pub(crate) fn set_property_internal(
         &self,
         ctx: &JSContext,
-        prop: AtomRef,
+        prop: &Atom,
         val: Self,
         receiver: Option<&JSObject>,
         flags: u32,
@@ -537,7 +533,7 @@ impl JSValue {
 
     /// `prop` is not consumed.
     #[inline(always)]
-    pub fn set_property(&self, ctx: &JSContext, prop: AtomRef, val: JSValue) -> Result<bool, i32> {
+    pub fn set_property(&self, ctx: &JSContext, prop: &Atom, val: JSValue) -> Result<bool, i32> {
         self.set_property_internal(ctx, prop, val, None, JS_PROP_THROW)
     }
 
@@ -553,9 +549,7 @@ impl JSValue {
             o.set_property_value(ctx, prop, val, flags)
         } else {
             let atom = prop.to_atom(ctx)?;
-            let ret = self.set_property_internal(ctx, atom.as_ref(), val, None, flags);
-            atom.free(ctx.rt_mut());
-            ret
+            self.set_property_internal(ctx, &atom, val, None, flags)
         }
     }
 
@@ -579,9 +573,7 @@ impl JSValue {
 
     pub fn set_property_str(&self, ctx: &JSContext, prop: &str, val: JSValue) -> Result<bool, i32> {
         let atom = Atom::new(ctx.rt_mut(), prop)?;
-        let ret = self.set_property(ctx, atom.as_ref(), val);
-        atom.free(ctx.rt_mut());
-        ret
+        self.set_property(ctx, &atom, val)
     }
 }
 

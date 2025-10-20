@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::{ops::Deref, rc::Rc};
 
 use crate::{
     atom::consts::JS_ATOM_prototype,
@@ -71,7 +71,7 @@ impl JSContext {
         let proto = if ctor.is_undefined() {
             self.0.borrow().class_proto[class_id as usize].clone()
         } else {
-            if let Ok(p) = ctor.get_property(self, JS_ATOM_prototype) {
+            if let Ok(p) = ctor.get_property(self, JS_ATOM_prototype.deref()) {
                 if !p.is_object() {
                     if let Ok(realm) = JS_GetFunctionRealm(self, &ctor) {
                         realm.0.borrow().class_proto[class_id as usize].clone()
@@ -108,7 +108,7 @@ impl JSContext {
             )
         } else {
             // don't change following2 lines order
-            let p = ctor.get_property(self, JS_ATOM_prototype)?; // <- may exec user script here
+            let p = ctor.get_property(self, JS_ATOM_prototype.deref())?; // <- may exec user script here
             let payload = payload_fn()?;
 
             if !p.is_object() {

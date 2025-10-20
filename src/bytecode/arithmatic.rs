@@ -534,9 +534,11 @@ impl JSValue {
                 (JSValue::Bool(a), JSValue::Bool(b)) => {
                     return Ok(a.cmp(b));
                 }
-                (JSValue::String(a), JSValue::String(b))
-                | (JSValue::Symbol(a), JSValue::Symbol(b)) => {
+                (JSValue::String(a), JSValue::String(b)) => {
                     return Ok(a.0.partial_cmp(&b.0).unwrap());
+                }
+                (JSValue::Symbol(a), JSValue::Symbol(b)) => {
+                    return Ok(a.content().partial_cmp(b.content()).unwrap());
                 }
 
                 (JSValue::Float64(a), JSValue::Float64(b)) => {
