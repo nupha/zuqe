@@ -183,7 +183,7 @@ impl std::fmt::Display for ObjectInner {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let rt = self.rt();
         let class_id = self.class_id();
-        let name = rt.class_defs[class_id as usize].class_name.to_utf8(rt);
+        let name = rt.class_defs[class_id as usize].class_name.to_utf8();
 
         #[cfg(debug_assertions)]
         {

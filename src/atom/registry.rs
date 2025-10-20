@@ -217,27 +217,6 @@ impl AtomRegistry {
         REGISTRY.with(|reg| Self::register_internal(reg.borrow_mut().deref_mut(), str, atom_type))
     }
 
-    // #[cfg(debug_assertions)]
-    // pub(crate) fn ref_count(atom_id: u32) -> Option<usize> {
-    //     debug_assert!(atom_id != 0);
-
-    //     REGISTRY.with(|reg| {
-    //         reg.borrow()
-    //             .atom_slots
-    //             .get(atom_id as usize)
-    //             .and_then(|x| unsafe {
-    //                 if let Some(p) = x.as_ref() {
-    //                     let d = Rc::from_raw(p);
-    //                     let n = Rc::strong_count(&d);
-    //                     let _ = Rc::into_raw(d);
-    //                     Some(n)
-    //                 } else {
-    //                     None
-    //                 }
-    //             })
-    //     })
-    // }
-
     /// get atom description by atom id.
     /// returned atom description is cloned.
     /// returns None if atom id was not registerd.
@@ -374,19 +353,21 @@ impl AtomRegistry {
     }
 
     /// to drop non-const atoms under given runtime
-    pub(crate) fn purge(rt: &JSRuntime) {
+    pub(crate) fn purge_for_rt(rt: &JSRuntime) {
         REGISTRY.with(|reg| {
             let mut reg = reg.borrow_mut();
             let mut removed = Vec::<(u32, u32)>::new();
 
-            for i in 1..reg.atom_slots.len() {
-                if let Some(d) = unsafe { reg.atom_slots.get_unchecked(i).as_ref() } {
-                    if !is_const_atom(i as u32) && std::ptr::eq(d.rt_ptr(), rt) {
-                        let hash = d.hash();
-                        removed.push((i as u32, hash));
+            for i in JS_ATOM_INIT_COUNT as usize..reg.atom_slots.len() {
+                if let Some(d) = unsafe { reg.atom_slots.get_unchecked(i).as_ref() }
+                    && std::ptr::eq(d.rt_ptr(), rt)
+                {
+                    let d = unsafe { Rc::from_raw(d) };
+                    reg.atom_slots[i] = std::ptr::null_mut();
 
-                        reg.atom_slots[i] = std::ptr::null_mut();
-                    }
+                    // remove the desc
+                    let hash = d.hash();
+                    removed.push((i as u32, hash));
                 }
             }
 
@@ -418,7 +399,7 @@ impl AtomRegistry {
                         unreachable!("const atom already dropped: {id}")
                     }
                 } else {
-                    debug_assert!(d.is_null());
+                    debug_assert!(d.is_null(), "{id}");
                 }
             }
 

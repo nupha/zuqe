@@ -224,7 +224,7 @@ impl JSParseState<'_> {
                 }
 
                 let name = self.token.atom().unwrap();
-                if name.as_ref() == JS_ATOM_let && matches!(tok, TOK_LET | TOK_CONST) {
+                if name.to_ref() == JS_ATOM_let && matches!(tok, TOK_LET | TOK_CONST) {
                     self.throw_syntax_error("'let' is not a valid lexical identifier");
                     return Err(-1);
                 }

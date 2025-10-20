@@ -46,7 +46,7 @@ impl<'s> JSParseState<'s> {
         let module_name = self
             .ctx
             .create_string_with_content(self.token.data.string().unwrap().clone())
-            .and_then(|s| s.to_atom(&self.ctx))?;
+            .and_then(|s| s.to_atom())?;
 
         self.next_token()?;
         Ok(module_name)
@@ -458,12 +458,12 @@ impl<'s> JSParseState<'s> {
         local_name: &Atom,
         import_name: &Atom,
     ) -> Result<(), i32> {
-        if matches!(local_name.as_ref(), JS_ATOM_arguments | JS_ATOM_eval) {
+        if matches!(local_name.to_ref(), JS_ATOM_arguments | JS_ATOM_eval) {
             self.throw_syntax_error("invalid import binding");
             return Err(-1);
         }
 
-        if local_name.as_ref() != JS_ATOM_default {
+        if local_name.to_ref() != JS_ATOM_default {
             if self
                 .cur_func()
                 .closure_vars
@@ -475,7 +475,7 @@ impl<'s> JSParseState<'s> {
             }
         }
 
-        let is_local = import_name.as_ref() == JS_ATOM__star_;
+        let is_local = import_name.to_ref() == JS_ATOM__star_;
         let var_idx = self.cur_func_mut().add_closure_var(
             &self.ctx,
             is_local,

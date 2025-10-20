@@ -203,7 +203,7 @@ impl<'s> JSParseState<'s> {
             }
             self.emit_u16(self.cur_func().scope_level as _);
         } else {
-            if name.as_ref() == JS_ATOM_NULL {
+            if name.to_ref() == JS_ATOM_NULL {
                 self.emit_op(OpCode::DEFINE_METHOD_COMPUTED);
             } else {
                 self.emit_op(OpCode::DEFINE_METHOD);
@@ -310,9 +310,9 @@ impl<'s> JSParseState<'s> {
             is_private = prop_type & PROP_TYPE_PRIVATE != 0;
             prop_type &= !PROP_TYPE_PRIVATE;
 
-            if (name.as_ref() == JS_ATOM_constructor && !is_static && prop_type != PROP_TYPE_IDENT)
-                || (name.as_ref() == JS_ATOM_prototype && is_static)
-                || name.as_ref() == JS_ATOM_hash_constructor
+            if (name.to_ref() == JS_ATOM_constructor && !is_static && prop_type != PROP_TYPE_IDENT)
+                || (name.to_ref() == JS_ATOM_prototype && is_static)
+                || name.to_ref() == JS_ATOM_hash_constructor
             {
                 self.throw_syntax_error("invalid method name");
                 return Err(-1);
@@ -336,7 +336,7 @@ impl<'s> JSParseState<'s> {
                     // class field
 
                     // XXX: spec: not consistent with method name checks
-                    if matches!(name.as_ref(), JS_ATOM_constructor | JS_ATOM_prototype) {
+                    if matches!(name.to_ref(), JS_ATOM_constructor | JS_ATOM_prototype) {
                         self.throw_syntax_error("invalid field name");
                         return Err(-1);
                     }
@@ -448,7 +448,7 @@ impl<'s> JSParseState<'s> {
                         PROP_TYPE_ASYNC => JSFunctionKindEnum::JS_FUNC_ASYNC,
                         PROP_TYPE_ASYNC_STAR => JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR,
                         _ => {
-                            if name.as_ref() == JS_ATOM_constructor && !is_static {
+                            if name.to_ref() == JS_ATOM_constructor && !is_static {
                                 if !ctor_fd.is_null() {
                                     self.throw_syntax_error(
                                         "property constructor appears more than once",

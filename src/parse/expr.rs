@@ -64,7 +64,7 @@ impl<'s> JSParseState<'s> {
                 self.parse_assign_expr2(parse_flags)?;
 
                 if op == CHAR_EQUAL {
-                    if opcode == OpCode::GET_REF_VALUE as _ && name == name0.as_ref() {
+                    if opcode == OpCode::GET_REF_VALUE as _ && name == name0.to_ref() {
                         self.set_object_name(name.deref().clone());
                     }
                 } else {
@@ -127,7 +127,7 @@ impl<'s> JSParseState<'s> {
 
                 self.parse_assign_expr2(parse_flags)?;
 
-                if opcode == OpCode::GET_REF_VALUE as i32 && name == name0.as_ref() {
+                if opcode == OpCode::GET_REF_VALUE as i32 && name == name0.to_ref() {
                     self.set_object_name(name.deref().clone());
                 }
 
@@ -381,7 +381,7 @@ impl<'s> JSParseState<'s> {
                     let name = self.token.atom().unwrap();
 
                     if unlikely(
-                        name.as_ref() == JS_ATOM_arguments
+                        name.to_ref() == JS_ATOM_arguments
                             && !self.cur_func().attrs.arguments_allowed,
                     ) {
                         self.throw_syntax_error(

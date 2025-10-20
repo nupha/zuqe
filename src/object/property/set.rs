@@ -51,7 +51,7 @@ impl JSObject {
         macro_rules! fail_read_only {
             ($prop:expr) => {
                 return if ctx.can_throw(flags) {
-                    ctx.throw_type_error_read_only($prop.as_ref());
+                    ctx.throw_type_error_read_only($prop.to_ref());
                     Err(-1)
                 } else {
                     Ok(false)
@@ -71,7 +71,7 @@ impl JSObject {
                         if unlikely(prs_flags & JS_PROP_LENGTH != 0) {
                             // set array length
                             debug_assert_eq!(cur_obj.class_id(), JS_CLASS_ARRAY);
-                            debug_assert_eq!(prop.as_ref(), JS_ATOM_length);
+                            debug_assert_eq!(prop.to_ref(), JS_ATOM_length);
                             return cur_obj.as_Array().unwrap().set_length(
                                 ctx,
                                 val.to_array_length(ctx, false)?,
@@ -223,7 +223,7 @@ impl JSObject {
         //
 
         if unlikely(flags & JS_PROP_NO_ADD != 0) {
-            JS_ThrowReferenceErrorNotDefined(ctx, prop.as_ref());
+            JS_ThrowReferenceErrorNotDefined(ctx, prop.to_ref());
             return Err(-1);
         }
 

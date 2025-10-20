@@ -305,13 +305,13 @@ pub(crate) fn dump_opcodes(
             }
             OpcodeFormat::ATOM => {
                 let a = unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos)) };
-                AtomRef(a).with_utf8(ctx.rt(), |s| {
+                AtomRef(a).with_utf8(|s| {
                     print!(" {a}:{s}");
                 });
             }
             f @ (OpcodeFormat::ATOM_U8 | OpcodeFormat::ATOM_U16) => {
                 let atom = AtomRef(unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos)) });
-                atom.with_utf8(ctx.rt(), |s| {
+                atom.with_utf8(|s| {
                     print!(
                         " {s}, {}",
                         if f == OpcodeFormat::ATOM_U8 {
@@ -324,7 +324,7 @@ pub(crate) fn dump_opcodes(
             }
             f @ (OpcodeFormat::ATOM_LABEL_U8 | OpcodeFormat::ATOM_LABEL_U16) => {
                 let atom = AtomRef(unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos as _)) });
-                atom.with_utf8(ctx.rt(), |s| {
+                atom.with_utf8(|s| {
                     print!(" {s}");
                 });
 
@@ -361,10 +361,7 @@ pub(crate) fn dump_opcodes(
                 } else {
                     unsafe { read_from_ptr::<u16>(bin.as_ptr().add(pos)) as usize }
                 };
-                print!(
-                    " {idx}:{}",
-                    vars.get(idx).unwrap().var_name.to_utf8(ctx.rt())
-                );
+                print!(" {idx}:{}", vars.get(idx).unwrap().var_name.to_utf8());
             }
 
             #[cfg(feature = "short_opcode")]
@@ -378,10 +375,7 @@ pub(crate) fn dump_opcodes(
 
             OpcodeFormat::ARG => {
                 let idx = unsafe { read_from_ptr::<u16>(bin.as_ptr().add(pos)) as usize };
-                print!(
-                    " {idx}:{}",
-                    args.get(idx).unwrap().var_name.to_utf8(ctx.rt())
-                );
+                print!(" {idx}:{}", args.get(idx).unwrap().var_name.to_utf8());
             }
 
             #[cfg(feature = "short_opcode")]
@@ -397,7 +391,7 @@ pub(crate) fn dump_opcodes(
                 let idx = unsafe { read_from_ptr::<u16>(bin.as_ptr().add(pos)) as usize };
                 print!(
                     " {idx}:{}",
-                    closure_vars.get(idx).unwrap().var_name.to_utf8(ctx.rt())
+                    closure_vars.get(idx).unwrap().var_name.to_utf8()
                 );
             }
 
@@ -424,7 +418,7 @@ impl Bytecode {
         if self.has_debug && !self.debug.filename.is_null() {
             print!(
                 "{}:{}: ",
-                self.debug.filename.to_utf8(ctx.rt()),
+                self.debug.filename.to_utf8(),
                 self.debug.line_num
             );
         }
@@ -436,7 +430,7 @@ impl Bytecode {
             } else {
                 ""
             },
-            self.func_name.to_utf8(ctx.rt()),
+            self.func_name.to_utf8(),
         );
 
         if self.mode() != 0 {
@@ -455,7 +449,7 @@ impl Bytecode {
             if !args.is_empty() {
                 print!("  args:");
                 for arg in args {
-                    print!(" {}", arg.var_name.to_utf8(ctx.rt()));
+                    print!(" {}", arg.var_name.to_utf8());
                 }
                 println!();
             }
@@ -480,7 +474,7 @@ impl Bytecode {
                     }
                 };
 
-                print!("{i:5}: {kind_str} {}", vd.var_name.to_utf8(ctx.rt()),);
+                print!("{i:5}: {kind_str} {}", vd.var_name.to_utf8());
 
                 if vd.scope_level != 0 {
                     print!(" [level:{} next:{}]", vd.scope_level, vd.scope_next);
@@ -505,7 +499,7 @@ impl Bytecode {
 
                 println!(
                     "{i:5}: {} {var_type}:{loc_type}{} {const_str}",
-                    cv.var_name.to_utf8(ctx.rt()),
+                    cv.var_name.to_utf8(),
                     cv.var_idx
                 );
             }
@@ -764,13 +758,13 @@ pub(super) fn dump_run_instruction(
         }
         OpcodeFormat::ATOM => {
             let a = unsafe { read_from_ptr::<u32>(tab.as_ptr().add(pos)) };
-            AtomRef(a).with_utf8(ctx.rt(), |s| {
+            AtomRef(a).with_utf8(|s| {
                 print!(" {a}'{s}");
             });
         }
         f @ (OpcodeFormat::ATOM_U8 | OpcodeFormat::ATOM_U16) => {
             let atom = AtomRef(unsafe { read_from_ptr::<u32>(tab.as_ptr().add(pos)) });
-            atom.with_utf8(ctx.rt(), |s| {
+            atom.with_utf8(|s| {
                 print!(
                     " {}'{s}, {}",
                     atom.0,
@@ -784,7 +778,7 @@ pub(super) fn dump_run_instruction(
         }
         f @ (OpcodeFormat::ATOM_LABEL_U8 | OpcodeFormat::ATOM_LABEL_U16) => {
             let atom = AtomRef(unsafe { read_from_ptr::<u32>(tab.as_ptr().add(pos)) });
-            atom.with_utf8(ctx.rt(), |s| {
+            atom.with_utf8(|s| {
                 print!(" {}'{s}", atom.0);
             });
 
@@ -821,7 +815,7 @@ pub(super) fn dump_run_instruction(
             };
 
             if let Some(v) = b.get_var(idx as _) {
-                v.var_name.with_utf8(ctx.rt(), |s| {
+                v.var_name.with_utf8(|s| {
                     print!(" {idx}:{s}");
                 });
             } else {
@@ -841,7 +835,7 @@ pub(super) fn dump_run_instruction(
         OpcodeFormat::ARG => {
             let idx = unsafe { read_from_ptr::<u16>(tab.as_ptr().add(pos)) as usize };
             if let Some(vi) = b.get_arg(idx as _) {
-                vi.var_name.with_utf8(ctx.rt(), |s| {
+                vi.var_name.with_utf8(|s| {
                     print!(" {idx}:{s}");
                 });
             } else {
@@ -861,7 +855,7 @@ pub(super) fn dump_run_instruction(
         OpcodeFormat::VAR_REF => {
             let idx = unsafe { read_from_ptr::<u16>(tab.as_ptr().add(pos)) as usize };
             let v = b.get_closure_var(idx as _).unwrap();
-            v.var_name.with_utf8(ctx.rt(), |s| {
+            v.var_name.with_utf8(|s| {
                 print!(" {idx}:{s}");
             });
         }

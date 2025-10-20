@@ -130,7 +130,7 @@ impl JSObject {
             !self.has_shape_property(prop),
             "auto init property already exists: {} {:?}",
             prop.id(),
-            prop.to_utf8(ctx.rt())
+            prop.to_utf8()
         );
 
         self.add_own_property(

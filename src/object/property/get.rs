@@ -59,7 +59,7 @@ impl JSObject {
                             let pr = cur_obj.0.prop_values.borrow()[idx].clone(); // borrow in short
                             let val = pr.value(ctx, this_obj)?;
                             return if unlikely(val.is_uninitialized()) {
-                                JS_ThrowReferenceErrorUninitialized(ctx, prop.as_ref());
+                                JS_ThrowReferenceErrorUninitialized(ctx, prop.to_ref());
                                 Err(-1)
                             } else {
                                 Ok(val)
@@ -129,7 +129,7 @@ impl JSObject {
         }
 
         if unlikely(throw_ref_error) {
-            JS_ThrowReferenceErrorNotDefined(ctx, prop.as_ref());
+            JS_ThrowReferenceErrorNotDefined(ctx, prop.to_ref());
             Err(-1)
         } else {
             Ok(JSValue::UNDEFINED)
@@ -306,7 +306,7 @@ impl JSValue {
         match self {
             Self::Object(o) => o.get_property_internal(ctx, prop, this_obj, throw_ref_error),
             Self::String(s) => {
-                if unlikely(prop.as_ref() == JS_ATOM_length) {
+                if unlikely(prop.to_ref() == JS_ATOM_length) {
                     // string length
                     Ok(JSValue::from(s.len() as u32))
                 } else if let Some(idx) = prop.to_small_int() {
@@ -327,7 +327,7 @@ impl JSValue {
             v @ (Self::NULL | Self::UNDEFINED) => {
                 ctx.throw_type_error(&format!(
                     "cannot read property '{}' of {}",
-                    prop.to_utf8(ctx.rt()),
+                    prop.to_utf8(),
                     if v.is_undefined() {
                         "undefined"
                     } else {

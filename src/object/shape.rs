@@ -196,7 +196,7 @@ impl JSShape {
                     *id,
                     JSShapeProperty {
                         flags: sp.flags,
-                        atom: sp.atom.dup(ctx.rt()),
+                        atom: sp.atom.clone(),
                     },
                 );
             }

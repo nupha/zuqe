@@ -201,7 +201,7 @@ impl JSObject {
                         desc.value =
                             self.0.prop_values.borrow()[idx].value(ctx, &JSValue::UNDEFINED)?;
                         if unlikely(desc.value.is_uninitialized()) {
-                            JS_ThrowReferenceErrorUninitialized(ctx, prop.as_ref());
+                            JS_ThrowReferenceErrorUninitialized(ctx, prop.to_ref());
                             return Err(-1);
                         }
                     }
@@ -393,7 +393,7 @@ impl JSObject {
                                     return ret;
                                 }
                             }
-                        } else if let Some(idx) = prop.to_array_index(ctx.rt()) {
+                        } else if let Some(idx) = prop.to_array_index() {
                             // convert fast array to sparse array
                             if self.destruct_fast_array(ctx).is_err() {
                                 return if ctx.can_throw(flags) {
@@ -405,7 +405,7 @@ impl JSObject {
                                 return ret;
                             }
                         }
-                    } else if let Some(idx) = prop.to_array_index(ctx.rt()) {
+                    } else if let Some(idx) = prop.to_array_index() {
                         if let Some(ret) = update_array_length_fn(self, idx, arr_len) {
                             return ret;
                         }

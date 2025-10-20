@@ -175,13 +175,13 @@ impl JSContext {
 
     #[cold]
     pub fn throw_type_error_invalid_class(&self, class_id: JSClassID) {
-        let name = self.rt().class_defs[class_id as usize].class_name.as_ref();
-        self.throw_type_error(&format!("{} object expected", name.to_utf8(self.rt())))
+        let name = self.rt().class_defs[class_id as usize].class_name.to_ref();
+        self.throw_type_error(&format!("{} object expected", name.to_utf8()))
     }
 
     /// atom is not consumed
     pub fn throw_type_error_read_only(&self, atom: AtomRef) {
-        self.throw_type_error(&format!("'{}' is read-only", atom.to_utf8(self.rt())))
+        self.throw_type_error(&format!("'{}' is read-only", atom.to_utf8()))
     }
 
     #[inline(always)]
@@ -293,7 +293,7 @@ impl JSContext {
                         unsafe { ((*sf).cur_pc_offset as u32).wrapping_sub(1) }, // be u32::MAX when (*sf).cur_pc_offset==0
                     );
 
-                    let atom_str = bc.debug.filename.to_utf8(self.rt());
+                    let atom_str = bc.debug.filename.to_utf8();
 
                     dbuf.write_fmt(format_args!(" ({}", atom_str))
                         .map_err(|_| -1)?;
@@ -348,20 +348,20 @@ pub fn JS_ThrowReferenceErrorUninitialized(ctx: &JSContext, name: AtomRef) {
     if name == JS_ATOM_NULL {
         ctx.throw_reference_error("lexical variable is not initialized");
     } else {
-        ctx.throw_reference_error(&format!("{} is not initialized", name.to_utf8(&ctx.rt())));
+        ctx.throw_reference_error(&format!("{} is not initialized", name.to_utf8()));
     }
 }
 
 pub fn JS_ThrowReferenceErrorNotDefined(ctx: &JSContext, name: AtomRef) {
-    ctx.throw_reference_error(&format!("'{}' is not defined", name.to_utf8(ctx.rt())))
+    ctx.throw_reference_error(&format!("'{}' is not defined", name.to_utf8()))
 }
 
 pub fn JS_ThrowReferenceErrorUninitialized2(ctx: &JSContext, b: &Bytecode, idx: u16, is_ref: bool) {
     let atom = if is_ref {
-        b.get_closure_var(idx).map(|c| c.var_name.as_ref())
+        b.get_closure_var(idx).map(|c| c.var_name.to_ref())
     } else {
         // not present if the function is stripped and contains no eval()
-        b.get_var(idx).map(|vd| vd.var_name.as_ref())
+        b.get_var(idx).map(|vd| vd.var_name.to_ref())
     }
     .unwrap_or(AtomRef::NULL);
 
@@ -380,7 +380,7 @@ pub fn JS_ThrowTypeErrorDetachedArrayBuffer(ctx: &JSContext) {
 pub fn JS_ThrowTypeErrorPrivateNotFound(ctx: &JSContext, atom: AtomRef) {
     ctx.throw_type_error(&format!(
         "private class field '{}' does not exist",
-        atom.to_utf8(ctx.rt())
+        atom.to_utf8()
     ));
 }
 
@@ -390,7 +390,7 @@ pub fn JS_ThrowSyntaxError(ctx: &JSContext, message: &str) {
 }
 
 pub fn JS_ThrowSyntaxErrorVarRedeclaration(ctx: &JSContext, prop: AtomRef) {
-    ctx.throw_syntax_error(&format!("redeclaration of '{}'", prop.to_utf8(ctx.rt())));
+    ctx.throw_syntax_error(&format!("redeclaration of '{}'", prop.to_utf8()));
 }
 
 /// used to avoid catching interrupt exceptions

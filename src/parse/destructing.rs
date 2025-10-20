@@ -304,7 +304,7 @@ impl<'s> JSParseState<'s> {
 
                 if unlikely(
                     self.cur_func().attrs.js_mode & JS_MODE_STRICT as u8 != 0
-                        && matches!(prop_name.as_ref(), JS_ATOM_eval | JS_ATOM_arguments),
+                        && matches!(prop_name.to_ref(), JS_ATOM_eval | JS_ATOM_arguments),
                 ) {
                     self.throw_syntax_error("invalid destructuring target");
                     return Err(-1);
@@ -626,7 +626,7 @@ impl<'s> JSParseState<'s> {
             (self.token.val != TOK_IDENT || self.token.data.is_reserved())
                 || (self.cur_func().attrs.js_mode & JS_MODE_STRICT as u8 != 0
                     && matches!(
-                        self.token.atom().unwrap().as_ref(),
+                        self.token.atom().unwrap().to_ref(),
                         JS_ATOM_eval | JS_ATOM_arguments
                     )),
         ) {

@@ -120,7 +120,7 @@ impl<'s> JSParseState<'s> {
                         }
                         self.emit_op(OpCode::DEFINE_ARRAY_EL);
                         self.emit_op(OpCode::DROP);
-                    } else if name.as_ref() == JS_ATOM___proto__ {
+                    } else if name.to_ref() == JS_ATOM___proto__ {
                         if has_proto {
                             self.throw_syntax_error("duplicate __proto__ property name");
                             return Err(-1);
@@ -175,7 +175,7 @@ impl<'s> JSParseState<'s> {
                         is_non_reserved_ident = true;
                     }
                     _ => {
-                        prop_type = if name.take().unwrap().as_ref() == JS_ATOM_get {
+                        prop_type = if name.take().unwrap().to_ref() == JS_ATOM_get {
                             PROP_TYPE_GET
                         } else {
                             PROP_TYPE_SET
@@ -216,7 +216,7 @@ impl<'s> JSParseState<'s> {
                     name.replace(
                         self.ctx
                             .create_string_with_content(self.token.data.string().unwrap().clone())
-                            .and_then(|s| s.to_atom(&self.ctx))?,
+                            .and_then(|s| s.to_atom())?,
                     );
                     self.next_token()?;
                 }

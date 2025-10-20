@@ -29,7 +29,7 @@ impl JSValue {
             Self::String(s) => Ok(s.content().to_utf8(true).into()),
             Self::Symbol(d) => Ok(format!("Symbol({})", d.content().to_utf8(false))),
             Self::Object(o) => o.inspect(ctx),
-            Self::Bytecode(b) => Ok(format!("[bytecode {}]", b.func_name.to_utf8(ctx.rt()))),
+            Self::Bytecode(b) => Ok(format!("[bytecode {}]", b.func_name.to_utf8())),
 
             Self::NULL => Ok("null".into()),
             Self::UNDEFINED => Ok("undefined".into()),
@@ -63,7 +63,7 @@ impl JSObject {
                     | JS_CLASS_BOOLEAN
                     | JS_CLASS_NUMBER
                     | JS_CLASS_DATE
-                    | JS_CLASS_REGEXP) => ctx.rt().class_defs[cid as usize].class_name.as_ref(),
+                    | JS_CLASS_REGEXP) => ctx.rt().class_defs[cid as usize].class_name.to_ref(),
 
                     _ => crate::atom::consts::JS_ATOM_Object,
                 }

@@ -1846,7 +1846,7 @@ impl Bytecode {
                         // [obj, prop, ^] -> [obj, value, ^]
                         if unlikely(SP_REF!(-2).is_undefined()) {
                             if let Ok(atom) = SP_REF!(-1).to_atom(ctx) {
-                                JS_ThrowReferenceErrorNotDefined(ctx, atom.as_ref());
+                                JS_ThrowReferenceErrorNotDefined(ctx, atom.to_ref());
                             }
                             break State::Exception;
                         } else {
@@ -1901,7 +1901,7 @@ impl Bytecode {
                         if unlikely(obj.is_undefined()) {
                             if is_strict_mode(ctx) {
                                 if let Ok(atom) = prop.to_atom(ctx) {
-                                    JS_ThrowReferenceErrorNotDefined(ctx, atom.as_ref());
+                                    JS_ThrowReferenceErrorNotDefined(ctx, atom.to_ref());
                                 }
                                 break State::Exception;
                             }

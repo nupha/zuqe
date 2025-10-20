@@ -355,7 +355,7 @@ impl JSFunctionDef {
         }
 
         if self.is_func_expr && !self.func_name.is_null() {
-            self.add_func_var(ctx, self.func_name.as_ref().deref())
+            self.add_func_var(ctx, self.func_name.to_ref().deref())
                 .unwrap();
         }
 
@@ -408,7 +408,7 @@ impl JSFunctionDef {
 
             // add function name
             if fd.is_func_expr && !fd.func_name.is_null() {
-                fd.add_func_var(ctx, fd.func_name.as_ref().deref()).unwrap();
+                fd.add_func_var(ctx, fd.func_name.to_ref().deref()).unwrap();
             }
 
             // add lexical variables
@@ -459,7 +459,7 @@ impl JSFunctionDef {
                 for (i, vd) in fd.vars.iter().enumerate() {
                     // do not close top level last result
                     if vd.scope_level == 0
-                        && !matches!(vd.var_name.as_ref(), JS_ATOM__ret_ | JS_ATOM_NULL)
+                        && !matches!(vd.var_name.to_ref(), JS_ATOM__ret_ | JS_ATOM_NULL)
                     {
                         self.get_closure_var2(
                             ctx,

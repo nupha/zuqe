@@ -397,7 +397,7 @@ impl JSContext {
         // pre-define builtin Symbol_XXX
         for i in JS_ATOM_FIRST_SYMBOL.0..=JS_ATOM_LAST_SYMBOL.0 {
             let a = AtomRef(i);
-            a.with_utf8(self.rt(), |s| {
+            a.with_utf8(|s| {
                 let str = s.as_ref().split_once('.').unwrap().1; // skip "Symbol."
                 symbol_ctor
                     .define_property_value_str(
@@ -757,7 +757,7 @@ impl JSContext {
 
                 let name =
                     AtomRef(JS_ATOM_Uint8ClampedArray.0 + (cid - JS_CLASS_UINT8C_ARRAY) as u32)
-                        .to_utf8(self.rt());
+                        .to_utf8();
 
                 let func_obj = self
                     .create_native_function_from_proto(

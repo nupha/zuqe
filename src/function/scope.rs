@@ -162,7 +162,7 @@ impl JSFunctionDef {
             let mut scope_idx = unsafe { (&*s).scopes[scope_level as usize].first };
             while scope_idx >= 0 {
                 let vd = unsafe { ((&*s).vars).get(scope_idx as usize).unwrap() };
-                if vd.var_name.as_ref() == JS_ATOM__with_ {
+                if vd.var_name.to_ref() == JS_ATOM__with_ {
                     return true;
                 }
                 scope_idx = vd.scope_next;

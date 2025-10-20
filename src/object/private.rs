@@ -124,7 +124,7 @@ impl JSObject {
             if self.has_shape_property(&prop) {
                 ctx.throw_type_error(&format!(
                     "private class field '{}' already exists",
-                    prop.to_utf8(ctx.rt())
+                    prop.to_utf8()
                 ));
                 Err(-1)
             } else {

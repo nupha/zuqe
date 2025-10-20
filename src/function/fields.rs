@@ -67,10 +67,10 @@ impl JSObject {
 
         match e.detail {
             NativeFieldDetail::Func { .. } => {
-                if atom.as_ref() == JS_ATOM_Symbol_toPrimitive {
+                if atom.to_ref() == JS_ATOM_Symbol_toPrimitive {
                     // Symbol.toPrimitive functions are not writable
                     prop_flags = JS_PROP_CONFIGURABLE as u8;
-                } else if atom.as_ref() == JS_ATOM_Symbol_hasInstance {
+                } else if atom.to_ref() == JS_ATOM_Symbol_hasInstance {
                     // Function.prototype[Symbol.hasInstance] is not writable nor configurable
                     prop_flags = 0;
                 }
@@ -138,10 +138,10 @@ impl JSObject {
                     }
                 };
 
-                if atom.as_ref() == JS_ATOM_Symbol_toPrimitive {
+                if atom.to_ref() == JS_ATOM_Symbol_toPrimitive {
                     // Symbol.toPrimitive functions are not writable
                     prop_flags = JS_PROP_CONFIGURABLE as u8;
-                } else if atom.as_ref() == JS_ATOM_Symbol_hasInstance {
+                } else if atom.to_ref() == JS_ATOM_Symbol_hasInstance {
                     // Function.prototype[Symbol.hasInstance] is not writable nor configurable
                     prop_flags = 0;
                 }

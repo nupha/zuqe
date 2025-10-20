@@ -30,7 +30,7 @@ pub struct PropertyKey {
 
 impl PropertyKey {
     pub(crate) fn new(ctx: &JSContext, atom: Atom, is_enumerable: bool, is_exotic: bool) -> Self {
-        let kind = if let Some(idx) = atom.to_array_index(ctx.rt()) {
+        let kind = if let Some(idx) = atom.to_array_index() {
             PropertyKeyKind::ArrayIndex(idx as u32)
         } else if atom.kind(ctx.rt()) == AtomDescKind::JS_ATOM_KIND_STRING {
             PropertyKeyKind::String
@@ -102,7 +102,7 @@ impl JSObject {
                             self.0.prop_values.borrow().get(i).unwrap()
                         {
                             if unlikely(vref.value().is_uninitialized()) {
-                                JS_ThrowReferenceErrorUninitialized(ctx, prs.atom.as_ref());
+                                JS_ThrowReferenceErrorUninitialized(ctx, prs.atom.to_ref());
                                 return Err(-1);
                             }
                         }
@@ -170,7 +170,7 @@ impl JSObject {
                             }
 
                             if is_enumerable || flags & JS_GPN_ENUM_ONLY == 0 {
-                                let isa = if let Some(i) = pk.atom.to_array_index(ctx.rt()) {
+                                let isa = if let Some(i) = pk.atom.to_array_index() {
                                     PropertyKeyKind::ArrayIndex(i as u32)
                                 } else if atom_kind == AtomDescKind::JS_ATOM_KIND_STRING {
                                     PropertyKeyKind::String

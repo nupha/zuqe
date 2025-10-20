@@ -26,11 +26,11 @@ impl JSFunctionDef {
             // check if global variable (XXX: simplify)
             if let Some(cvars) = self.closure_vars.as_ref() {
                 for cv in cvars {
-                    match cv.var_name.as_ref() {
+                    match cv.var_name.to_ref() {
                         JS_ATOM__var_ | JS_ATOM__arg_var_ => {
                             continue 'g_var;
                         }
-                        name if name == hf.var_name.as_ref() => {
+                        name if name == hf.var_name.to_ref() => {
                             if self.eval_type == JS_EVAL_TYPE_DIRECT && cv.is_lexical() {
                                 // Check if a lexical variable is
                                 // redefined as 'var'. XXX: Could abort
@@ -38,7 +38,7 @@ impl JSFunctionDef {
                                 // with the other checks, we delay the
                                 // error generation.
                                 push_vec_u8(bc_buf, OpCode::THROW_ERROR as u8);
-                                push_vec_atom(bc_buf, hf.var_name.dup(ctx.rt()));
+                                push_vec_atom(bc_buf, hf.var_name.clone());
                                 push_vec_u8(bc_buf, JS_THROW_VAR_REDECL);
                             }
                             continue 'g_var;
@@ -49,7 +49,7 @@ impl JSFunctionDef {
             }
 
             push_vec_u8(bc_buf, OpCode::CHECK_DEFINE_VAR as u8);
-            push_vec_atom(bc_buf, hf.var_name.dup(ctx.rt()));
+            push_vec_atom(bc_buf, hf.var_name.clone());
             push_vec_u8(bc_buf, {
                 let mut flags = 0;
                 if hf.is_lexical() {

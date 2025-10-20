@@ -102,7 +102,7 @@ impl JSContext {
         let mut fd = JSFunctionDef::new(self, std::ptr::null_mut(), true, false, filename, 1)?;
 
         fd.eval_type = eval_type;
-        fd.func_name = JS_ATOM__eval_.dup(self.rt());
+        fd.func_name = Atom::new_const(JS_ATOM__eval_);
         fd.has_this_binding = eval_type != JS_EVAL_TYPE_DIRECT;
         fd.attrs.backtrace_barrier = flags & JS_EVAL_FLAG_BACKTRACE_BARRIER != 0;
         fd.attrs.js_mode = js_mode as u8;

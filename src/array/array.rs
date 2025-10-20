@@ -121,7 +121,7 @@ impl Array {
                     cur_len = length;
                     sh.with_mut(|sh| {
                         for pr in sh.prop_defs.values() {
-                            if let Some(i) = pr.atom.to_array_index(ctx.rt()) {
+                            if let Some(i) = pr.atom.to_array_index() {
                                 if i >= cur_len && (pr.flags() & JS_PROP_CONFIGURABLE == 0) {
                                     cur_len = i + 1;
                                 }
@@ -135,10 +135,10 @@ impl Array {
                             sh.0.borrow()
                                 .prop_defs
                                 .get_index(i as usize)
-                                .map(|(_, prs)| prs.atom.as_ref())
+                                .map(|(_, prs)| prs.atom.to_ref())
                                 .unwrap();
 
-                        if let Some(idx) = prop.to_array_index(ctx.rt()) {
+                        if let Some(idx) = prop.to_array_index() {
                             if idx >= cur_len {
                                 let _r = self.delete_property_internal(ctx, prop.deref());
                                 debug_assert!(_r.is_ok());

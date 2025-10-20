@@ -22,7 +22,7 @@ impl ModuleDef {
         if unlikely(
             resolving
                 .iter()
-                .any(|x| x.0 == self.id() && x.1 == export_name.as_ref()),
+                .any(|x| x.0 == self.id() && x.1 == export_name.to_ref()),
         ) {
             return Ok(ResolveExport::Circular);
         }
@@ -34,7 +34,7 @@ impl ModuleDef {
                 -1
             })?;
         }
-        resolving.push((self.id(), export_name.as_ref()));
+        resolving.push((self.id(), export_name.to_ref()));
 
         if let Some(me) = self.find_export(export_name) {
             match me.export_type {
@@ -45,7 +45,7 @@ impl ModuleDef {
                     local_name: me.local_name,
                 }),
                 ExportType::JS_EXPORT_TYPE_INDIRECT(req_module_idx) => {
-                    if me.local_name.as_ref() == JS_ATOM__star_ {
+                    if me.local_name.to_ref() == JS_ATOM__star_ {
                         // export ns from
                         Ok(ResolveExport::Found {
                             module: self.clone(),
@@ -65,7 +65,7 @@ impl ModuleDef {
         } else {
             let mut ret = ResolveExport::NotFound;
 
-            if export_name.as_ref() != JS_ATOM_default {
+            if export_name.to_ref() != JS_ATOM_default {
                 // not found in direct or indirect exports: try star exports
                 for idx in self.0.star_export_entries.borrow().iter() {
                     let dep = self.0.dependencies.borrow()[*idx as usize]
@@ -82,11 +82,11 @@ impl ModuleDef {
                         } => {
                             if expect.map_or(false, |(test_module_id, test_local_name)| {
                                 test_module_id != module.id()
-                                    || test_local_name != local_name.as_ref()
+                                    || test_local_name != local_name.to_ref()
                             }) {
                                 return Ok(ResolveExport::Ambiguous);
                             } else {
-                                expect.replace((module.id(), local_name.as_ref()));
+                                expect.replace((module.id(), local_name.to_ref()));
                                 ret = ResolveExport::Found {
                                     module,
                                     local_name,
@@ -177,7 +177,7 @@ impl ModuleDef {
         // check the indirect exports
         for exp in self.export_entries.borrow().iter() {
             if let ExportType::JS_EXPORT_TYPE_INDIRECT(req_module_idx) = exp.export_type
-                && exp.local_name.as_ref() != JS_ATOM__star_
+                && exp.local_name.to_ref() != JS_ATOM__star_
             {
                 let m1 = self.dependencies.borrow()[req_module_idx as usize]
                     .module
@@ -206,7 +206,7 @@ impl ModuleDef {
                     .clone()
                     .unwrap();
 
-                if imp.import_name.as_ref() == JS_ATOM__star_ {
+                if imp.import_name.to_ref() == JS_ATOM__star_ {
                     // name space import
                     let val = reqm.ns(ctx)?;
                     md_func.payload().var_refs.borrow_mut()[import_var_idx as usize]
@@ -221,7 +221,7 @@ impl ModuleDef {
                         } => {
                             match export_type {
                                 ExportType::JS_EXPORT_TYPE_INDIRECT(req_module_idx) => {
-                                    if local_name.as_ref() == JS_ATOM__star_ {
+                                    if local_name.to_ref() == JS_ATOM__star_ {
                                         // name space import from
                                         let m2 = dep.0.dependencies.borrow()
                                             [req_module_idx as usize]
@@ -237,7 +237,7 @@ impl ModuleDef {
                                     }
                                 }
                                 ExportType::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } => {
-                                    debug_assert_ne!(local_name.as_ref(), JS_ATOM__star_);
+                                    debug_assert_ne!(local_name.to_ref(), JS_ATOM__star_);
 
                                     let vr = var_ref.unwrap_or_else(|| {
                                         debug_assert!(

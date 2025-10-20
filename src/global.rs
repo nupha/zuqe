@@ -23,7 +23,7 @@ impl JSContext {
         let v0: JSValue = if let Some((idx, prs_flags)) = gvobj.find_shape_property(prop) {
             // check writable flag
             if prs_flags & JS_PROP_WRITABLE == 0 {
-                self.throw_type_error_read_only(prop.as_ref());
+                self.throw_type_error_read_only(prop.to_ref());
                 return Err(-1);
             }
 
@@ -32,7 +32,7 @@ impl JSContext {
             if let JSProperty::Normal(JSValue::UNINITIALIZED) =
                 gvobj.0.prop_values.borrow().get(idx).unwrap()
             {
-                JS_ThrowReferenceErrorUninitialized(self, prop.as_ref());
+                JS_ThrowReferenceErrorUninitialized(self, prop.to_ref());
                 return Err(-1);
             }
 
@@ -120,15 +120,12 @@ impl JSContext {
         // XXX: should handle JS_PROP_LAZYINIT
         if flags & DEFINE_GLOBAL_LEX_VAR as u32 != 0 {
             if prs.map_or(false, |f| f & JS_PROP_CONFIGURABLE == 0) {
-                JS_ThrowSyntaxErrorVarRedeclaration(self, prop.as_ref());
+                JS_ThrowSyntaxErrorVarRedeclaration(self, prop.to_ref());
                 return Err(-1);
             }
         } else {
             if prs.is_none() && !gobj.flags().extensible() {
-                self.throw_type_error(&format!(
-                    "cannot define variable '{}' ",
-                    prop.to_utf8(self.rt())
-                ));
+                self.throw_type_error(&format!("cannot define variable '{}' ", prop.to_utf8()));
                 return Err(-1);
             }
 
@@ -141,7 +138,7 @@ impl JSContext {
                     {
                         self.throw_type_error(&format!(
                             "cannot define variable '{}'",
-                            prop.to_utf8(self.rt())
+                            prop.to_utf8()
                         ));
                         return Err(-1);
                     }
@@ -151,7 +148,7 @@ impl JSContext {
 
         // check if there already is a lexical declaration
         if self.global_var_obj().has_shape_property(prop) {
-            JS_ThrowSyntaxErrorVarRedeclaration(self, prop.as_ref());
+            JS_ThrowSyntaxErrorVarRedeclaration(self, prop.to_ref());
             return Err(-1);
         }
 
@@ -166,7 +163,7 @@ impl JSContext {
             // XXX: should handle JS_PROP_TMASK properties
             match gvobj.0.prop_values.borrow().get(idx).unwrap() {
                 JSProperty::Normal(JSValue::UNINITIALIZED) => {
-                    JS_ThrowReferenceErrorUninitialized(self, prop.as_ref());
+                    JS_ThrowReferenceErrorUninitialized(self, prop.to_ref());
                     Err(-1)
                 }
                 JSProperty::Normal(v) => Ok(v.clone()),
@@ -207,12 +204,12 @@ impl JSContext {
             if flag != 1 {
                 match pr {
                     JSProperty::Normal(JSValue::UNINITIALIZED) => {
-                        JS_ThrowReferenceErrorUninitialized(self, prop.as_ref());
+                        JS_ThrowReferenceErrorUninitialized(self, prop.to_ref());
                         return Err(-1);
                     }
                     _ => {
                         if prs_flags & JS_PROP_WRITABLE == 0 {
-                            self.throw_type_error_read_only(prop.as_ref());
+                            self.throw_type_error_read_only(prop.to_ref());
                             return Err(-1);
                         }
                     }

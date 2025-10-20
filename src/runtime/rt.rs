@@ -424,7 +424,7 @@ impl JSRuntime {
         //         drop(unsafe { Rc::from_raw(a) });
         //     }
         // }
-        AtomRegistry::purge(self);
+        AtomRegistry::purge_for_rt(self);
 
         #[cfg(debug_assertions)]
         {

@@ -135,7 +135,7 @@ impl JSVarDef {
 #[inline(always)]
 pub fn is_var_in_arg_scope(vd: &JSVarDef) -> bool {
     matches!(
-        vd.var_name.as_ref(),
+        vd.var_name.to_ref(),
         JS_ATOM__home_object_
             | JS_ATOM_this_active_func
             | JS_ATOM_new_target

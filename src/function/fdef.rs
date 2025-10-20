@@ -642,8 +642,8 @@ pub fn instantiate_hoisted_definitions(ctx: &JSContext, s: &mut JSFunctionDef, b
         if let Some(cvars) = s.closure_vars.as_ref() {
             for (j, cv) in cvars.iter().enumerate() {
                 idx = j;
-                match cv.var_name.as_ref() {
-                    n if n == hf.var_name.as_ref() => {
+                match cv.var_name.to_ref() {
+                    n if n == hf.var_name.to_ref() => {
                         has_closure = 2;
                         force_init = false;
                         break;
@@ -684,7 +684,7 @@ pub fn instantiate_hoisted_definitions(ctx: &JSContext, s: &mut JSFunctionDef, b
                     }
                 }
                 push_vec_u8(bc, OpCode::DEFINE_VAR as u8);
-                push_vec_atom(bc, hf.var_name.dup(ctx.rt()));
+                push_vec_atom(bc, hf.var_name.clone());
                 push_vec_u8(bc, flags as u8);
             }
         }
@@ -693,7 +693,7 @@ pub fn instantiate_hoisted_definitions(ctx: &JSContext, s: &mut JSFunctionDef, b
             if hf.cpool_idx >= 0 {
                 push_vec_u8(bc, OpCode::FCLOSURE as u8);
                 push_vec_u32(bc, hf.cpool_idx as u32);
-                if hf.var_name.as_ref() == JS_ATOM__default_ {
+                if hf.var_name.to_ref() == JS_ATOM__default_ {
                     // set default export function name
                     push_vec_u8(bc, OpCode::SET_NAME as u8);
                     push_vec_atom(bc, Atom::new_const(JS_ATOM_default));

@@ -926,12 +926,12 @@ fn js_date_Symbol_toPrimitive(ctx: &JSContext, cc: CallContext) -> JSResult {
     };
 
     let hint = if let JSValue::String(s) = cc.arg(0) {
-        s.to_atom(ctx)?
+        s.to_atom()?
     } else {
         Atom::new_const(JS_ATOM_empty_string)
     };
 
-    let hint_num = match hint.as_ref() {
+    let hint_num = match hint.to_ref() {
         JS_ATOM_number => HINT_NUMBER,
         JS_ATOM_string | JS_ATOM_default => HINT_STRING,
         _ => {

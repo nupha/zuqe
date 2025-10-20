@@ -67,9 +67,7 @@ impl JSObject {
         // print class name
         print!(
             "{:10} ",
-            rt.class_defs[self.class_id() as usize]
-                .class_name
-                .to_utf8(rt),
+            rt.class_defs[self.class_id() as usize].class_name.to_utf8(),
         );
 
         if self.flags().is_exotic() && self.flags().is_fast_array() {
@@ -121,7 +119,7 @@ impl JSObject {
                 };
 
                 // key
-                print!("{}:", prs.atom.to_utf8(rt));
+                print!("{}:", prs.atom.to_utf8());
 
                 // value
                 if let Some(pr) = prop_values.get(idx) {
@@ -190,7 +188,7 @@ impl JSShapeInner {
         );
 
         for (_, prs) in self.prop_defs.iter() {
-            print!(" {}:{}", prs.atom.to_utf8(rt), prs.flags());
+            print!(" {}:{}", prs.atom.to_utf8(), prs.flags());
         }
         println!(" ]");
     }

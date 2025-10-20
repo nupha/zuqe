@@ -494,7 +494,7 @@ pub unsafe fn add_module_variables(ctx: &JSContext, fd: &mut JSFunctionDef) -> i
                 true,
                 false,
                 i as _,
-                hf.var_name.as_ref().deref(),
+                hf.var_name.to_ref().deref(),
                 hf.is_const(),
                 hf.is_lexical(),
                 JSVarKindEnum::JS_VAR_NORMAL,
@@ -515,7 +515,7 @@ pub unsafe fn add_module_variables(ctx: &JSContext, fd: &mut JSFunctionDef) -> i
             } else {
                 ctx.throw_syntax_error(&format!(
                     "exported variable '{}' does not exist",
-                    me.local_name.to_utf8(ctx.rt())
+                    me.local_name.to_utf8()
                 ));
                 return -1;
             }
@@ -583,7 +583,7 @@ pub fn JS_GetScriptOrModuleName(ctx: &JSContext, n_stack_levels: i32) -> Atom {
                 return if !bc.has_debug {
                     Atom::NULL
                 } else {
-                    bc.debug.filename.dup(ctx.rt())
+                    bc.debug.filename.clone()
                 };
             } else {
                 // walk up parent stack frame

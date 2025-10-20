@@ -223,7 +223,7 @@ impl<'s> JSParseState<'s> {
 
                     let name = self.token.atom().unwrap();
 
-                    if name.as_ref() == JS_ATOM_yield
+                    if name.to_ref() == JS_ATOM_yield
                         && fd1.attrs.func_kind == JSFunctionKindEnum::JS_FUNC_GENERATOR
                     {
                         self.throw_reserved_identifier_error();
@@ -327,7 +327,7 @@ impl<'s> JSParseState<'s> {
             while idx >= 0 {
                 let (scope_level, var_name, scope_next) = {
                     let vd = fd1.vars.get(idx as usize).unwrap();
-                    (vd.scope_level, vd.var_name.as_ref(), vd.scope_next)
+                    (vd.scope_level, vd.var_name.to_ref(), vd.scope_next)
                 };
 
                 if scope_level != fd1.scope_level {
@@ -514,10 +514,10 @@ impl<'s> JSParseState<'s> {
                 if self.token.val == TOK_IDENT {
                     let atom = self.token.atom().unwrap();
                     if self.token.data.is_reserved()
-                        || (atom.as_ref() == JS_ATOM_yield
+                        || (atom.to_ref() == JS_ATOM_yield
                             && func_type == JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
                             && func_kind as u8 & JSFunctionKindEnum::JS_FUNC_GENERATOR as u8 != 0)
-                        || (atom.as_ref() == JS_ATOM_await
+                        || (atom.to_ref() == JS_ATOM_await
                             && ((func_type == JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
                                 && (func_kind as u8 & JSFunctionKindEnum::JS_FUNC_ASYNC as u8)
                                     != 0)
@@ -575,7 +575,7 @@ impl<'s> JSParseState<'s> {
                     .find_lexical_decl(func_name, cur_fd.scope_first, false)
                     .is_none()
                 && !(func_idx >= 0 && func_idx & ARGUMENT_VAR_OFFSET != 0)
-                && !(func_name.as_ref() == JS_ATOM_arguments && cur_fd.has_arguments_binding)
+                && !(func_name.to_ref() == JS_ATOM_arguments && cur_fd.has_arguments_binding)
             {
                 create_func_var = true;
             }
@@ -802,13 +802,13 @@ impl<'s> JSParseState<'s> {
                     "'use strict' not allowed in function with default or destructuring parameter",
                 );
                 return Err(-1);
-            } else if matches!(func_name.as_ref(), JS_ATOM_eval | JS_ATOM_arguments) {
+            } else if matches!(func_name.to_ref(), JS_ATOM_eval | JS_ATOM_arguments) {
                 self.throw_syntax_error("invalid function name in strict code");
                 return Err(-1);
             } else if fd
                 .args
                 .iter()
-                .any(|vd| matches!(vd.var_name.as_ref(), JS_ATOM_eval | JS_ATOM_arguments))
+                .any(|vd| matches!(vd.var_name.to_ref(), JS_ATOM_eval | JS_ATOM_arguments))
             {
                 self.throw_syntax_error("invalid argument name in strict code");
                 return Err(-1);
@@ -828,7 +828,7 @@ impl<'s> JSParseState<'s> {
         {
             for (idx, name) in fd.args.iter().enumerate().filter_map(|(i, vd)| {
                 if !vd.var_name.is_null() {
-                    Some((i, vd.var_name.as_ref()))
+                    Some((i, vd.var_name.to_ref()))
                 } else {
                     None
                 }
@@ -837,7 +837,7 @@ impl<'s> JSParseState<'s> {
                     .args
                     .iter()
                     .take(idx)
-                    .any(|d| d.var_name.as_ref() == name)
+                    .any(|d| d.var_name.to_ref() == name)
                 {
                     self.throw_syntax_error("duplicate argument names not allowed in this context");
                     return Err(-1);
@@ -848,7 +848,7 @@ impl<'s> JSParseState<'s> {
                 if fd
                     .vars
                     .iter()
-                    .any(|d| d.var_name.as_ref() == name && d.scope_level == 0)
+                    .any(|d| d.var_name.to_ref() == name && d.scope_level == 0)
                 {
                     self.throw_syntax_error("duplicate argument names not allowed in this context");
                     return Err(-1);

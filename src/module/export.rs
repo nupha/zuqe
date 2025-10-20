@@ -106,22 +106,22 @@ impl ResolveExport {
             Self::NotFound => {
                 ctx.throw_syntax_error(&format!(
                     "Could not find export '{}' in module '{}'",
-                    export_name.to_utf8(ctx.rt()),
-                    m.module_name.to_utf8(ctx.rt()),
+                    export_name.to_utf8(),
+                    m.module_name.to_utf8(),
                 ));
             }
             Self::Circular => {
                 ctx.throw_syntax_error(&format!(
                     "circular reference when looking for export '{}' in module '{}'",
-                    export_name.to_utf8(ctx.rt()),
-                    m.module_name.to_utf8(ctx.rt()),
+                    export_name.to_utf8(),
+                    m.module_name.to_utf8(),
                 ));
             }
             Self::Ambiguous => {
                 ctx.throw_syntax_error(&format!(
                     "export '{}' in module '{}' is ambiguous",
-                    export_name.to_utf8(ctx.rt()),
-                    m.module_name.to_utf8(ctx.rt()),
+                    export_name.to_utf8(),
+                    m.module_name.to_utf8(),
                 ));
             }
         }
@@ -151,7 +151,7 @@ impl ModuleDefInner {
         if unlikely(self.find_export(export_name).is_some()) {
             ctx.throw_syntax_error(&format!(
                 "duplicate exported name '{}'",
-                export_name.to_utf8(ctx.rt()),
+                export_name.to_utf8(),
             ));
             Err(ErrorKind::Syntax as i32)
         } else {
@@ -278,14 +278,14 @@ impl ModuleDef {
         s.modules.push(self.clone());
 
         for exp in self.0.export_entries.borrow().iter() {
-            if from_star && exp.export_name.as_ref() == JS_ATOM_default {
+            if from_star && exp.export_name.to_ref() == JS_ATOM_default {
                 continue;
             }
 
             if let Some(entry) = s
                 .exported_names
                 .iter_mut()
-                .find(|x| x.export_name.as_ref() == exp.export_name.as_ref())
+                .find(|x| x.export_name.to_ref() == exp.export_name.to_ref())
             {
                 entry.cached.take();
                 // if let Some(en) = entry.cached.take() {
@@ -360,7 +360,7 @@ impl ModuleDef {
                     ..
                 } => match export_type {
                     ExportType::JS_EXPORT_TYPE_INDIRECT(dep_idx) => {
-                        if local_name.as_ref() == JS_ATOM__star_ {
+                        if local_name.to_ref() == JS_ATOM__star_ {
                             export.export_type = ExportedNameKind::EXPORTED_NAME_NS(
                                 module.0.dependencies.borrow()[dep_idx as usize]
                                     .module
@@ -370,7 +370,7 @@ impl ModuleDef {
                         }
                     }
                     ExportType::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } => {
-                        debug_assert_ne!(local_name.as_ref(), JS_ATOM__star_);
+                        debug_assert_ne!(local_name.to_ref(), JS_ATOM__star_);
 
                         export.export_type =
                             ExportedNameKind::EXPORTED_NAME_NORMAL(if let Some(vr) = var_ref {

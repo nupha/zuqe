@@ -135,7 +135,7 @@ impl<'s> JSParseState<'s> {
                         id
                     } else {
                         let id = fd.add_var(&self.ctx, name)?;
-                        if name.as_ref() == JS_ATOM_arguments && fd.has_arguments_binding {
+                        if name.to_ref() == JS_ATOM_arguments && fd.has_arguments_binding {
                             fd.arguments_var_idx.replace(id);
                         }
                         fd.vars[id as usize].scope_next = fd.scope_level;
@@ -154,7 +154,7 @@ impl<'s> JSParseState<'s> {
         {
             let func = self.cur_func();
 
-            match name.as_ref() {
+            match name.to_ref() {
                 JS_ATOM_yield if func.attrs.func_kind == JSFunctionKindEnum::JS_FUNC_GENERATOR => {
                     self.throw_syntax_error("yield is a reserved identifier");
                     return Err(-1);

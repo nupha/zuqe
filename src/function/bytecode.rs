@@ -158,7 +158,7 @@ impl BytecodeInner {
             rt: unsafe { NonNull::new_unchecked(ctx.rt_mut()) },
             gc_mark: Cell::new(false),
 
-            func_name: fd.func_name.dup(ctx.rt()),
+            func_name: fd.func_name.clone(),
             realm: ctx.downgrade(),
 
             attrs: BytecodeAttrs {

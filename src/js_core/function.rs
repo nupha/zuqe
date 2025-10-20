@@ -153,7 +153,7 @@ pub fn js_function_proto_fileName(ctx: &JSContext, cc: CallContext) -> JSResult 
     if let Some((has_debug, filename)) = cc.this().as_object().and_then(|o| {
         o.payload().bc_function().map(|x| {
             let b = x.bytecode();
-            (b.has_debug, b.debug.filename.as_ref())
+            (b.has_debug, b.debug.filename.to_ref())
         })
     }) {
         if has_debug {

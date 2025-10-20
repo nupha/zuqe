@@ -55,7 +55,7 @@ impl JSObject {
             // for array index or exotic.
             if obj_flags.is_exotic() {
                 if obj_flags.is_fast_array() {
-                    if let Some(idx) = prop.to_array_index(ctx.rt()) {
+                    if let Some(idx) = prop.to_array_index() {
                         match self.class_id() {
                             JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
                                 let cnt = self.fast_array_count();

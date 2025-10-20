@@ -150,7 +150,7 @@ unsafe fn json_parse_value(s: &mut JSParseState) -> JSResult {
             json_next_token(s)?;
         }
         TOK_IDENT => {
-            val = match s.token.data.ident_atom().unwrap().as_ref() {
+            val = match s.token.data.ident_atom().unwrap().to_ref() {
                 JS_ATOM_true => JSValue::Bool(true),
                 JS_ATOM_false => JSValue::Bool(false),
                 JS_ATOM_null => JSValue::NULL,

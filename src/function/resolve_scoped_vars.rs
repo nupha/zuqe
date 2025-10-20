@@ -43,7 +43,7 @@ impl JSFunctionDef {
         // XXX: could be simpler to use a specific function to
         // resolve the pseudo variables
         let is_pseudo_var = matches!(
-            var_name.as_ref(),
+            var_name.to_ref(),
             JS_ATOM__home_object_ | JS_ATOM_this_active_func | JS_ATOM_new_target | JS_ATOM_this
         );
 
@@ -68,7 +68,7 @@ impl JSFunctionDef {
                 }
                 var_idx = idx;
                 break;
-            } else if vd.var_name.as_ref() == JS_ATOM__with_ && !is_pseudo_var {
+            } else if vd.var_name.to_ref() == JS_ATOM__with_ && !is_pseudo_var {
                 push_vec_u8(bc, OpCode::GET_LOC as _);
                 push_vec_u16(bc, idx as _);
                 label_done.replace(self.var_object_test(ctx, var_name, op, bc, label_done, true));
@@ -85,11 +85,11 @@ impl JSFunctionDef {
                     .resolve_pseudo_var(ctx, var_name)
                     .map_or(-1, |x| x as i32);
             }
-            if var_idx < 0 && var_name.as_ref() == JS_ATOM_arguments && self.has_arguments_binding {
+            if var_idx < 0 && var_name.to_ref() == JS_ATOM_arguments && self.has_arguments_binding {
                 // 'arguments' pseudo variable
                 var_idx = self.add_arguments(ctx, false).map_or(-1, |x| x as i32);
             }
-            if var_idx < 0 && self.is_func_expr && var_name.as_ref() == self.func_name.as_ref() {
+            if var_idx < 0 && self.is_func_expr && var_name.to_ref() == self.func_name.to_ref() {
                 // add a new variable with the function name
                 var_idx = unsafe { self.add_func_var(ctx, var_name).map_or(-1, |x| x as i32) }
             }
@@ -154,7 +154,7 @@ impl JSFunctionDef {
                     break 'walk_parent;
                 }
 
-                if svar.vd.var_name.as_ref() == JS_ATOM__with_ && !is_pseudo_var {
+                if svar.vd.var_name.to_ref() == JS_ATOM__with_ && !is_pseudo_var {
                     svar.vd.set_is_captured(true);
                     match self.get_closure_var2(
                         ctx,
@@ -195,7 +195,7 @@ impl JSFunctionDef {
                     break;
                 }
             }
-            if var_name.as_ref() == JS_ATOM_arguments && unsafe { (&*cur_fd).has_arguments_binding }
+            if var_name.to_ref() == JS_ATOM_arguments && unsafe { (&*cur_fd).has_arguments_binding }
             {
                 if let Ok(i) = unsafe { (&mut *cur_fd).add_arguments(ctx, false) } {
                     var_idx = i as i32;
@@ -309,7 +309,7 @@ impl JSFunctionDef {
                         break;
                     } else if !is_pseudo_var
                         && matches!(
-                            cv.var_name.as_ref(),
+                            cv.var_name.to_ref(),
                             JS_ATOM__var_ | JS_ATOM__arg_var_ | JS_ATOM__with_
                         )
                     {
@@ -338,7 +338,7 @@ impl JSFunctionDef {
                             op,
                             bc,
                             label_done,
-                            cv.var_name.as_ref() == JS_ATOM__with_,
+                            cv.var_name.to_ref() == JS_ATOM__with_,
                         ));
                     }
                 }
@@ -420,7 +420,7 @@ impl JSFunctionDef {
             // in case assigning a function expression name in strict mode.
             // this is not allowed.
             push_vec_u8(bc, OpCode::THROW_ERROR as _);
-            push_vec_atom(bc, var_name.dup(ctx.rt()));
+            push_vec_atom(bc, var_name.clone());
             push_vec_u8(bc, JS_THROW_VAR_RO);
         } else {
             // op_scope_put_var_init is only used to initialize a
@@ -441,9 +441,9 @@ impl JSFunctionDef {
                         push_vec_u8(bc, OpCode::GET_LOC as _);
                         push_vec_u16(bc, var_id as u16);
                         push_vec_u8(bc, OpCode::DEFINE_FIELD as _);
-                        push_vec_atom(bc, var_name.dup(ctx.rt()));
+                        push_vec_atom(bc, var_name.clone());
                         push_vec_u8(bc, OpCode::PUSH_ATOM_VALUE as _);
-                        push_vec_atom(bc, var_name.dup(ctx.rt()));
+                        push_vec_atom(bc, var_name.clone());
                     } else if label_done.is_none() && can_optimize_put_ref_value(bc_buf, label.pos)
                     {
                         let get_op = if var_id & ARGUMENT_VAR_OFFSET != 0 {
@@ -463,11 +463,11 @@ impl JSFunctionDef {
                         // a reference to the local variable
                         if var_id & ARGUMENT_VAR_OFFSET != 0 {
                             push_vec_u8(bc, OpCode::MAKE_VAR_REF as _);
-                            push_vec_atom(bc, var_name.dup(ctx.rt()));
+                            push_vec_atom(bc, var_name.clone());
                             push_vec_u16(bc, (var_id - ARGUMENT_VAR_OFFSET) as _);
                         } else {
                             push_vec_u8(bc, OpCode::MAKE_LOC_REF as _);
-                            push_vec_atom(bc, var_name.dup(ctx.rt()));
+                            push_vec_atom(bc, var_name.clone());
                             push_vec_u16(bc, var_id as u16);
                         }
                     }
@@ -506,7 +506,7 @@ impl JSFunctionDef {
                                 if op == opcodes::op_scope_put_var_init {
                                     push_vec_u8(
                                         bc,
-                                        if var_name.as_ref() == JS_ATOM_this {
+                                        if var_name.to_ref() == JS_ATOM_this {
                                             // 'this' can only be initialized once
                                             OpCode::PUT_LOC_CHECK_INIT
                                         } else {
@@ -582,7 +582,7 @@ impl JSFunctionDef {
             )
         {
             push_vec_u8(bc, OpCode::THROW_ERROR as _);
-            push_vec_atom(bc, var_name.dup(ctx.rt()));
+            push_vec_atom(bc, var_name.clone());
             push_vec_u8(bc, JS_THROW_VAR_RO);
         } else {
             match op as u8 {
@@ -597,9 +597,9 @@ impl JSFunctionDef {
                         push_vec_u8(bc, OpCode::GET_VAR_REF as _);
                         push_vec_u16(bc, idx as _);
                         push_vec_u8(bc, OpCode::DEFINE_FIELD as _);
-                        push_vec_atom(bc, var_name.dup(ctx.rt()));
+                        push_vec_atom(bc, var_name.clone());
                         push_vec_u8(bc, OpCode::PUSH_ATOM_VALUE as _);
-                        push_vec_atom(bc, var_name.dup(ctx.rt()));
+                        push_vec_atom(bc, var_name.clone());
                     } else if label_done.is_none() && can_optimize_put_ref_value(bc_buf, label.pos)
                     {
                         pos_next = optimize_scope_make_ref(
@@ -618,7 +618,7 @@ impl JSFunctionDef {
                         // Create a dummy object with a named slot that is
                         // a reference to the closure variable
                         push_vec_u8(bc, OpCode::MAKE_VAR_REF_REF as _);
-                        push_vec_atom(bc, var_name.dup(ctx.rt()));
+                        push_vec_atom(bc, var_name.clone());
                         push_vec_u16(bc, idx as _);
                     }
                 }
@@ -642,7 +642,7 @@ impl JSFunctionDef {
                         if cv.is_lexical() {
                             if op == opcodes::op_scope_put_var_init {
                                 // 'this' can only be initialized once
-                                if var_name.as_ref() == JS_ATOM_this {
+                                if var_name.to_ref() == JS_ATOM_this {
                                     push_vec_u8(bc, OpCode::PUT_VAR_REF_CHECK_INIT as _);
                                 } else {
                                     push_vec_u8(bc, OpCode::PUT_VAR_REF as _);
@@ -713,7 +713,7 @@ impl JSFunctionDef {
                     ) as _;
                 } else {
                     push_vec_u8(bc, OpCode::MAKE_VAR_REF as _);
-                    push_vec_atom(bc, var_name.dup(ctx.rt()));
+                    push_vec_atom(bc, var_name.clone());
                 }
             }
             opcodes::op_scope_get_ref => {
@@ -721,7 +721,7 @@ impl JSFunctionDef {
                 // a reference to the global variable
                 push_vec_u8(bc, OpCode::UNDEFINED as _);
                 push_vec_u8(bc, OpCode::GET_VAR as _);
-                push_vec_atom(bc, var_name.dup(ctx.rt()));
+                push_vec_atom(bc, var_name.clone());
             }
             opcodes::op_scope_get_var_undef
             | opcodes::op_scope_get_var
@@ -730,15 +730,15 @@ impl JSFunctionDef {
                     bc,
                     OpCode::GET_VAR_UNDEF as u8 + (op as u8 - opcodes::op_scope_get_var_undef),
                 );
-                push_vec_atom(bc, var_name.dup(ctx.rt()));
+                push_vec_atom(bc, var_name.clone());
             }
             opcodes::op_scope_put_var_init => {
                 push_vec_u8(bc, OpCode::PUT_VAR_INIT as _);
-                push_vec_atom(bc, var_name.dup(ctx.rt()));
+                push_vec_atom(bc, var_name.clone());
             }
             opcodes::op_scope_delete_var => {
                 push_vec_u8(bc, OpCode::DELETE_VAR as _);
-                push_vec_atom(bc, var_name.dup(ctx.rt()));
+                push_vec_atom(bc, var_name.clone());
             }
             _ => {}
         }
@@ -759,7 +759,7 @@ impl JSFunctionDef {
             return None;
         }
 
-        match var_name.as_ref() {
+        match var_name.to_ref() {
             JS_ATOM__home_object_ => {
                 // 'home_object' pseudo variable
                 if self.home_object_var_idx.is_none() {
@@ -821,7 +821,7 @@ impl JSFunctionDef {
                     op as u8 - opcodes::op_scope_get_var
                 },
         );
-        push_vec_atom(bc, var_name.dup(ctx.rt()));
+        push_vec_atom(bc, var_name.clone());
         push_vec_u32(bc, label);
         push_vec_u8(bc, is_with as u8);
 

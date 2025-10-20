@@ -353,7 +353,7 @@ fn js_typed_array_get_toStringTag(ctx: &JSContext, cc: CallContext) -> JSResult 
     if let Ok(tao) = TypedArray::try_from(cc.this().clone()) {
         let class_name = ctx.rt().class_defs[tao.class_id() as usize]
             .class_name
-            .as_ref();
+            .to_ref();
         class_name.force_string(ctx).map(JSValue::String)
     } else {
         Ok(JSValue::UNDEFINED)

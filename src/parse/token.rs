@@ -823,7 +823,7 @@ impl<'s> JSParseState<'s> {
             has_escape,
         } = &mut self.token.data
         {
-            *is_reserved = match atom.as_ref() {
+            *is_reserved = match atom.to_ref() {
                 JS_ATOM_yield => {
                     matches!(
                         func_kind,

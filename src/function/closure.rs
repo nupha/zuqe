@@ -351,7 +351,7 @@ pub unsafe fn add_closure_variables(
             let mut cv = JSClosureVar {
                 bitfield: 0,
                 var_idx: i as _,
-                var_name: vd.var_name.dup(ctx.rt()),
+                var_name: vd.var_name.clone(),
             };
             cv.set_is_local(true);
             cv.set_is_arg(false);
@@ -371,7 +371,7 @@ pub unsafe fn add_closure_variables(
             let mut cv = JSClosureVar {
                 bitfield: 0,
                 var_idx: i as _,
-                var_name: vd.var_name.dup(ctx.rt()),
+                var_name: vd.var_name.clone(),
             };
             cv.set_is_local(true);
             cv.set_is_arg(true);
@@ -384,11 +384,11 @@ pub unsafe fn add_closure_variables(
 
         // Add local non lexical variables
         for (i, vd) in bc.vars_slice().iter().enumerate() {
-            if vd.scope_level == 0 && vd.var_name.as_ref() != JS_ATOM__ret_ {
+            if vd.scope_level == 0 && vd.var_name.to_ref() != JS_ATOM__ret_ {
                 let mut cv = JSClosureVar {
                     bitfield: 0,
                     var_idx: i as _,
-                    var_name: vd.var_name.dup(ctx.rt()),
+                    var_name: vd.var_name.clone(),
                 };
                 cv.set_is_local(true);
                 cv.set_is_arg(false);
@@ -406,7 +406,7 @@ pub unsafe fn add_closure_variables(
                 let mut cv = JSClosureVar {
                     bitfield: 0,
                     var_idx: i as _,
-                    var_name: vd.var_name.dup(ctx.rt()),
+                    var_name: vd.var_name.clone(),
                 };
                 cv.set_is_local(true);
                 cv.set_is_arg(false);
@@ -423,7 +423,7 @@ pub unsafe fn add_closure_variables(
         let mut cv = JSClosureVar {
             bitfield: 0,
             var_idx: i as _,
-            var_name: cv0.var_name.dup(ctx.rt()),
+            var_name: cv0.var_name.clone(),
         };
         cv.set_is_local(false);
         cv.set_is_arg(cv0.is_arg());
@@ -450,5 +450,5 @@ pub unsafe fn set_closure_from_var(
     (*cv).set_is_lexical((*vd).is_lexical());
     (*cv).set_var_kind((*vd).var_kind());
     (*cv).var_idx = var_idx;
-    (*cv).var_name = (*vd).var_name.dup(ctx.rt());
+    (*cv).var_name = (*vd).var_name.clone();
 }

@@ -1,4 +1,4 @@
-use std::{borrow::Cow, ffi::CStr, hash::Hash, num::NonZeroU16, rc::Rc};
+use std::{borrow::Cow, ffi::CStr, hash::Hash, num::NonZeroU16, ops::Deref, rc::Rc};
 
 use crate::{
     atom::AtomDesc,
@@ -20,7 +20,7 @@ pub enum AtomDescKind {
     JS_ATOM_KIND_PRIVATE,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(u8)]
 pub enum AtomTypeHint {
     String = 1,
@@ -30,7 +30,7 @@ pub enum AtomTypeHint {
 }
 
 /// atom id and type
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(u8)]
 pub enum AtomHintAndId {
     String(NonZeroU16),
@@ -41,7 +41,7 @@ pub enum AtomHintAndId {
 
 impl AtomHintAndId {
     /// Get atom type hint
-    pub fn type_hint(self) -> AtomTypeHint {
+    pub fn type_hint(&self) -> AtomTypeHint {
         match self {
             Self::String(_) => AtomTypeHint::String,
             Self::Symbol(_) => AtomTypeHint::Symbol,
@@ -51,10 +51,10 @@ impl AtomHintAndId {
     }
 
     /// Get atom id.
-    pub fn id(self) -> u32 {
+    pub fn id(&self) -> u32 {
         match self {
             Self::String(a) | Self::Symbol(a) | Self::GlobalSymbol(a) | Self::Private(a) => {
-                u16::from(a) as u32
+                a.get() as u32
             }
         }
     }
@@ -62,7 +62,7 @@ impl AtomHintAndId {
     /// Get atom ref.
     /// Returned atom is not duplicated, caller should clone to keep it referenced.
     #[inline(always)]
-    pub fn atom_ref(self) -> AtomRef {
+    pub fn atom_ref(&self) -> AtomRef {
         AtomRef(self.id())
     }
 }
@@ -152,12 +152,6 @@ impl Atom {
         }
     }
 
-    /// increase atom description ref count.
-    #[deprecated]
-    pub fn dup(&self, rt: &JSRuntime) -> Self {
-        self.clone()
-    }
-
     /// Convert atom to String or Symbol value.
     pub fn string_or_symbol(&self, ctx: &JSContext) -> Result<JSValue, i32> {
         if let Some(n) = self.to_small_int() {
@@ -200,7 +194,7 @@ impl Atom {
     }
 
     /// if atom can be used as array index, which is an int in range \[0, 2^32-1), returns the int.
-    pub fn to_array_index(&self, rt: &JSRuntime) -> Option<u32> {
+    pub fn to_array_index(&self) -> Option<u32> {
         if self.0 == 0 {
             None
         } else if let Some(n) = self.to_small_int() {
@@ -222,7 +216,7 @@ impl Atom {
     }
 
     /// if atom can be represented/parsed as an i64, returns the i64.
-    pub fn to_i64(&self, rt: &JSRuntime) -> Option<i64> {
+    pub fn to_i64(&self) -> Option<i64> {
         if self.0 == 0 {
             None
         } else if let Some(n) = self.to_small_int() {
@@ -237,7 +231,7 @@ impl Atom {
     }
 
     /// run closure with utf8 bytes converted from atom
-    pub fn with_utf8<R>(&self, rt: &JSRuntime, f: impl FnOnce(Cow<'_, str>) -> R) -> R {
+    pub fn with_utf8<R>(&self, f: impl FnOnce(Cow<'_, str>) -> R) -> R {
         if self.is_null() {
             f(Cow::Borrowed("<null>"))
         } else if let Some(n) = self.to_small_int() {
@@ -249,12 +243,12 @@ impl Atom {
 
     /// convert atom to utf8 encoded String
     #[inline(always)]
-    pub fn to_utf8(&self, rt: &JSRuntime) -> String {
-        self.with_utf8(rt, |s| s.into_owned())
+    pub fn to_utf8(&self) -> String {
+        self.with_utf8(|s| s.into_owned())
     }
 
     #[inline(always)]
-    pub fn as_ref(&self) -> AtomRef {
+    pub fn to_ref(&self) -> AtomRef {
         AtomRef(self.0)
     }
 
@@ -269,7 +263,7 @@ impl Clone for Atom {
     fn clone(&self) -> Self {
         if !self.is_const() {
             let p = AtomRegistry::get_desc(self.0).unwrap();
-            let _ = Rc::into_raw(p.0); // leak ref count
+            let _ = Rc::into_raw(p.0); // leak refcount for atom
         }
 
         Self(self.0)
@@ -278,15 +272,8 @@ impl Clone for Atom {
 
 /// the atom reference. not change refcount.
 #[repr(transparent)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AtomRef(pub(crate) u32);
-
-impl<'a> From<&'a Atom> for AtomRef {
-    #[inline(always)]
-    fn from(atom: &'a Atom) -> Self {
-        Self(atom.0)
-    }
-}
 
 impl std::ops::Deref for AtomRef {
     type Target = Atom;
@@ -315,10 +302,10 @@ pub const ATOM_GET_STR_BUF_SIZE: usize = 64;
 
 impl JSString {
     /// convert string to atom. if string is not registered as atom yet, do registration.
-    pub fn to_atom(&self, ctx: &JSContext) -> Result<Atom, i32> {
+    pub fn to_atom(&self) -> Result<Atom, i32> {
         if let Some(a) = self.atom_info() {
             // str already registered as atom
-            Ok(a.atom_ref().dup(ctx.rt()))
+            Ok(a.atom_ref().deref().clone())
         } else {
             // register as string atom
             Atom::from_string(self.clone(), AtomTypeHint::String)
@@ -360,10 +347,10 @@ impl JSValue {
                     return Atom::from_i64(ctx.rt_mut(), i as i64);
                 }
                 JSValue::String(s) => {
-                    return s.to_atom(ctx);
+                    return s.to_atom();
                 }
                 JSValue::Symbol(d) => {
-                    return d.to_atom(ctx);
+                    return d.to_atom();
                 }
 
                 JSValue::Object(_) | JSValue::Float64(_) => {

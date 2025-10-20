@@ -230,7 +230,7 @@ impl JSObject {
             0 => {
                 // non-length, normal, not-writable
                 return if ctx.can_throw(flags) {
-                    ctx.throw_type_error_read_only(prop.as_ref());
+                    ctx.throw_type_error_read_only(prop.to_ref());
                     Err(-1)
                 } else {
                     Ok(false)
@@ -245,7 +245,7 @@ impl JSObject {
         if prs_flags & JS_PROP_LENGTH != 0 {
             // special prop length: to set .length property of an array-like object
             debug_assert_eq!(self.class_id(), JS_CLASS_ARRAY);
-            debug_assert_eq!(prop.as_ref(), JS_ATOM_length);
+            debug_assert_eq!(prop.to_ref(), JS_ATOM_length);
             debug_assert_eq!(index, 0);
 
             unsafe {
@@ -275,7 +275,7 @@ impl JSObject {
                     // but they are write protected in module name spaces.
                     if self.class_id() == JS_CLASS_MODULE_NS {
                         if ctx.can_throw(flags) {
-                            ctx.throw_type_error_read_only(prop.as_ref());
+                            ctx.throw_type_error_read_only(prop.to_ref());
                             Err(-1)
                         } else {
                             Ok(false)

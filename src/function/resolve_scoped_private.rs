@@ -77,10 +77,7 @@ impl JSFunctionDef {
         }
 
         // XXX: no line number info
-        ctx.throw_syntax_error(&format!(
-            "undefined private field '{}'",
-            var_name.to_utf8(ctx.rt())
-        ));
+        ctx.throw_syntax_error(&format!("undefined private field '{}'", var_name.to_utf8()));
         return Err(-1);
     }
 
@@ -144,7 +141,7 @@ impl JSFunctionDef {
                     JSVarKindEnum::JS_VAR_PRIVATE_SETTER => {
                         // XXX: add clearer error message
                         push_vec_u8(bc, opcodes::OP_throw_error);
-                        push_vec_atom(bc, var_name.dup(ctx.rt()));
+                        push_vec_atom(bc, var_name.clone());
                         push_vec_u8(bc, JS_THROW_VAR_RO);
                     }
                     _ => {
