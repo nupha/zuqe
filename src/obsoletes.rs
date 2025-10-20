@@ -3478,9 +3478,9 @@ pub unsafe fn JS_DupAtom(ctx: &JSContext, v: AtomRef) -> AtomRef {
     unreachable!("unused");
 }
 
-#[deprecated(note = "use AtomRef::kind() instead")]
+#[deprecated(note = "use Atom::kind() instead")]
 pub unsafe fn JS_AtomGetKind(ctx: &JSContext, v: AtomRef) -> AtomDescKind {
-    v.kind(ctx.rt())
+    v.kind()
 }
 
 /// debug helper: print atom, don't use in production code
@@ -3728,7 +3728,7 @@ pub fn build_for_in_iterator(ctx: &JSContext, obj: JSValue) -> JSValue {
 /// return TRUE if 'atom' is a symbol with a string description
 #[deprecated(note = "use AtomRef::has_description() instead")]
 pub fn JS_AtomSymbolHasDescription(ctx: &JSContext, atom: AtomRef) -> bool {
-    atom.has_string_description(ctx)
+    atom.has_string_desc()
 }
 
 /// if `obj` is a string object, returns its length. otherwise, returns 0.

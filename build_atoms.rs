@@ -245,6 +245,7 @@ pub fn gen_atoms(outfile: &Path) {
         .iter()
         .map(|t| match *t {
             "empty_string" => "".to_string(),
+            "Private_brand" => "<brand>".to_string(),
             s if s.starts_with("Symbol_") => {
                 format!("Symbol.{}", &s[7..])
             }

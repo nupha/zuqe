@@ -32,7 +32,7 @@ impl PropertyKey {
     pub(crate) fn new(ctx: &JSContext, atom: Atom, is_enumerable: bool, is_exotic: bool) -> Self {
         let kind = if let Some(idx) = atom.to_array_index() {
             PropertyKeyKind::ArrayIndex(idx as u32)
-        } else if atom.kind(ctx.rt()) == AtomDescKind::JS_ATOM_KIND_STRING {
+        } else if atom.kind() == AtomDescKind::JS_ATOM_KIND_STRING {
             PropertyKeyKind::String
         } else {
             PropertyKeyKind::Symbol
@@ -89,7 +89,7 @@ impl JSObject {
         {
             if !prs.atom.is_null() {
                 let is_enumerable = prs.flags() & JS_PROP_ENUMERABLE != 0;
-                let kind = prs.atom.kind(ctx.rt());
+                let kind = prs.atom.kind();
 
                 if (!enum_only || is_enumerable) && ((flags >> (kind as u8)) & 1 != 0) {
                     // need to raise an exception in case of the module
@@ -160,7 +160,7 @@ impl JSObject {
 
                 for pk in f(ctx, self)? {
                     if !has_err {
-                        let atom_kind = pk.atom.kind(ctx.rt());
+                        let atom_kind = pk.atom.kind();
                         if (flags >> (atom_kind as u8)) & 1 != 0 {
                             let mut is_enumerable = false;
                             if flags & (JS_GPN_SET_ENUM | JS_GPN_ENUM_ONLY) != 0 {

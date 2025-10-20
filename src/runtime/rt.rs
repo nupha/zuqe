@@ -128,7 +128,7 @@ impl Drop for JSRuntime {
         });
 
         if live_rt == 0 {
-            // no runtime alive, clear all atoms (incl const)
+            // no runtime alive, clear all atoms
             AtomRegistry::clear();
         }
     }
@@ -187,8 +187,7 @@ impl JSRuntime {
             interrupt_opaque: std::ptr::null_mut(),
         });
 
-        //rt.init_default_atoms()?;
-        AtomRegistry::init_const_atoms(&mut rt);
+        // AtomRegistry::init_const_atoms(&mut rt);
 
         rt.shape_registry.try_reserve(16).map_err(|_| -1)?;
 
@@ -417,13 +416,7 @@ impl JSRuntime {
         //     }
         // }
 
-        // free atoms
-        // self.atom_hash_lut.clear();
-        // for a in self.atom_slots.drain(..) {
-        //     if !a.is_null() {
-        //         drop(unsafe { Rc::from_raw(a) });
-        //     }
-        // }
+        // free atoms under rt
         AtomRegistry::purge_for_rt(self);
 
         #[cfg(debug_assertions)]

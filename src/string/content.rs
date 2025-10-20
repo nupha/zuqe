@@ -13,8 +13,7 @@ use widestring::U16Str;
 use crate::{
     number::{parse_i64, parse_u32},
     string::{
-        StringBuf, StringChar, StringCharIter, StringCodepointIter, U16CharIter, is_char_visible,
-        s16_into_s8,
+        StringBuf, StringChar, StringCharIter, StringCodepointIter, U16CharIter, s16_into_s8,
     },
     utils::hash_u32_from_base,
 };
@@ -28,6 +27,7 @@ pub enum StringData {
     Empty,
     Ascii(Rc<[u8]>), // TODO: upgrade to ISO8859 variant to hold 0..=255 chars
     Utf16(Rc<[u16]>),
+    AsciiStr(&'static str),
     /// identical content. used for anonymous Symbol atom.
     Ident,
 }
@@ -44,6 +44,7 @@ impl PartialEq for StringData {
             // same kind
             (Self::Ascii(s1), Self::Ascii(s2)) => s1.as_ref() == s2.as_ref(),
             (Self::Utf16(s1), Self::Utf16(s2)) => s1.as_ref() == s2.as_ref(),
+            (Self::AsciiStr(s1), Self::AsciiStr(s2)) => s1.eq(s2),
             (Self::Empty, Self::Empty) => true,
             (Self::Ident, Self::Ident) => false, // idents are never equal
 
@@ -70,6 +71,30 @@ impl PartialEq for StringData {
             (Self::Utf16(s1), Self::Ascii(s2)) => {
                 let mut it1 = U16Str::from_slice(s1).chars_lossy();
                 let mut it2 = unsafe { std::str::from_utf8_unchecked(s2) }.chars();
+                loop {
+                    match (it1.next(), it2.next()) {
+                        (Some(a), Some(b)) => {
+                            if a != b {
+                                return false;
+                            }
+                        }
+                        (None, None) => {
+                            return true;
+                        }
+                        _ => {
+                            return false;
+                        }
+                    }
+                }
+            }
+
+            // static str vs ascii, utf16
+            (Self::Ascii(sa), Self::AsciiStr(ss)) | (Self::AsciiStr(ss), Self::Ascii(sa)) => {
+                ss.as_bytes().eq(sa.as_ref())
+            }
+            (Self::AsciiStr(ss), Self::Utf16(us)) | (Self::Utf16(us), Self::AsciiStr(ss)) => {
+                let mut it1 = U16Str::from_slice(us).chars_lossy();
+                let mut it2 = ss.chars();
                 loop {
                     match (it1.next(), it2.next()) {
                         (Some(a), Some(b)) => {
@@ -158,6 +183,59 @@ impl Ord for StringData {
                 }
             }
 
+            // str vs ascii, str
+            (StringData::AsciiStr(t1), StringData::AsciiStr(t2)) => t1.cmp(t2),
+            (StringData::Ascii(a), StringData::AsciiStr(s)) => a.as_ref().cmp(s.as_bytes()),
+            (StringData::AsciiStr(s), StringData::Ascii(a)) => s.as_bytes().cmp(a.as_ref()),
+
+            // str vs utf16
+            (StringData::AsciiStr(s), StringData::Utf16(w)) => {
+                let mut it1 = s.as_bytes().iter();
+                let mut it2 = w.iter();
+                loop {
+                    match (it1.next(), it2.next()) {
+                        (Some(a), Some(b)) => {
+                            let a = *a as u16;
+                            if a != *b {
+                                return a.cmp(b);
+                            }
+                        }
+                        (None, None) => {
+                            return Ordering::Equal;
+                        }
+                        (Some(_), None) => {
+                            return Ordering::Greater;
+                        }
+                        (None, Some(_)) => {
+                            return Ordering::Less;
+                        }
+                    }
+                }
+            }
+            (StringData::Utf16(w), StringData::AsciiStr(s)) => {
+                let mut it1 = w.iter();
+                let mut it2 = s.as_bytes().iter();
+                loop {
+                    match (it1.next(), it2.next()) {
+                        (Some(a), Some(b)) => {
+                            let b = *b as u16;
+                            if *a != b {
+                                return a.cmp(&b);
+                            }
+                        }
+                        (None, None) => {
+                            return Ordering::Equal;
+                        }
+                        (Some(_), None) => {
+                            return Ordering::Greater;
+                        }
+                        (None, Some(_)) => {
+                            return Ordering::Less;
+                        }
+                    }
+                }
+            }
+
             // ident is the greatest.
             (StringData::Ident, _) => Ordering::Greater,
             (_, StringData::Ident) => Ordering::Less,
@@ -181,54 +259,11 @@ impl std::fmt::Debug for StringData {
             Self::Empty => write!(f, "Empty"),
             Self::Ascii(arg0) => f.debug_tuple("Ascii").field(arg0).finish(),
             Self::Utf16(arg0) => f.debug_tuple("Utf16").field(arg0).finish(),
+            Self::AsciiStr(s) => write!(f, "AsciiStatic({:?})", s),
             Self::Ident => write!(f, "Ident"),
         }
     }
 }
-// impl std::fmt::Debug for StringData {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         match self {
-//             Self::Empty => write!(f, "\"\""),
-//             Self::Ident => write!(f, "<ident>"),
-//             _ => {
-//                 let sep = '\"';
-//                 write!(f, "{sep}")?;
-
-//                 for (_, c) in self.iter() {
-//                     match c {
-//                         StringChar::Char(c) if c == sep => {
-//                             write!(f, "\\{c}")?;
-//                         }
-//                         StringChar::Char('\n') => {
-//                             write!(f, "\\n")?;
-//                         }
-//                         StringChar::Char('\r') => {
-//                             write!(f, "\\r")?;
-//                         }
-//                         StringChar::Char('\t') => {
-//                             write!(f, "\\t")?;
-//                         }
-//                         StringChar::Char('\\') => {
-//                             write!(f, "\\\\")?;
-//                         }
-//                         StringChar::Char(c) => {
-//                             if !is_char_visible(c) {
-//                                 write!(f, "\\u{:04X}", c as u32)?;
-//                             } else {
-//                                 write!(f, "{c}")?;
-//                             }
-//                         }
-//                         StringChar::Code(c) => {
-//                             write!(f, "\\u{c:04X}")?;
-//                         }
-//                     }
-//                 }
-
-//                 write!(f, "{sep}")
-//             }
-//         }
-//     }
-// }
 
 impl StringData {
     #[inline(always)]
@@ -271,6 +306,7 @@ impl StringData {
             Self::Empty | Self::Ident => 0,
             Self::Ascii(s) => s.len(),
             Self::Utf16(s) => s.len(),
+            Self::AsciiStr(s) => s.len(),
         }
     }
 
@@ -302,6 +338,16 @@ impl StringData {
                         let lst = it.map(|c| *c as u8).try_collect::<Vec<_>>()?;
                         Ok(StringBuf::Ascii(lst))
                     }
+                }
+                Self::AsciiStr(s) => {
+                    let lst = s
+                        .as_bytes()
+                        .iter()
+                        .skip(range.start)
+                        .take(range.len())
+                        .copied()
+                        .try_collect::<Vec<_>>()?;
+                    Ok(StringBuf::Ascii(lst))
                 }
             }
         }
@@ -353,6 +399,7 @@ impl StringData {
 
                     Cow::Owned(out.into())
                 }
+                Self::AsciiStr(s) => Cow::Borrowed(s.as_bytes()),
             }
         }
     }
@@ -424,6 +471,29 @@ impl StringData {
 
                     Cow::Owned(out)
                 }
+                Self::AsciiStr(s) => {
+                    let bb = s.as_bytes();
+
+                    if !escape {
+                        Cow::Borrowed(unsafe { std::str::from_utf8_unchecked(&bb[range]) })
+                    } else {
+                        let cnt_bs = bb[range.clone()].iter().filter(|x| **x == b'\\').count();
+                        if cnt_bs == 0 {
+                            Cow::Borrowed(unsafe { std::str::from_utf8_unchecked(&bb[range]) })
+                        } else {
+                            let mut b = String::with_capacity(bb.len() + cnt_bs);
+                            for c in &bb[range] {
+                                if *c == b'\\' {
+                                    b.push('\\');
+                                    b.push('\\');
+                                } else {
+                                    b.push(*c as char);
+                                }
+                            }
+                            Cow::Owned(b)
+                        }
+                    }
+                }
             }
         }
     }
@@ -443,6 +513,7 @@ impl StringData {
             Self::Empty | Self::Ident => None,
             Self::Ascii(lst) => lst.get(index).map(|n| *n as u16),
             Self::Utf16(lst) => lst.get(index).map(|n| *n),
+            Self::AsciiStr(s) => s.as_bytes().get(index).map(|n| *n as u16),
         }
     }
 
@@ -463,6 +534,13 @@ impl StringData {
                     StringCodepointIter::U16(slice.iter().peekable())
                 } else {
                     StringCodepointIter::U16([].iter().peekable())
+                }
+            }
+            Self::AsciiStr(s) => {
+                if let Some(slice) = s.as_bytes().get(range) {
+                    StringCodepointIter::U8(slice.iter().peekable())
+                } else {
+                    StringCodepointIter::U8([].iter().peekable())
                 }
             }
         }
@@ -495,6 +573,10 @@ impl StringData {
                 ),
                 Self::Utf16(s) => StringCharIter::from_u16(
                     &s[range.start..std::cmp::min(range.end, s.len())],
+                    range.start,
+                ),
+                Self::AsciiStr(s) => StringCharIter::from_u8(
+                    &s.as_bytes()[range.start..std::cmp::min(range.end, s.len())],
                     range.start,
                 ),
             }
@@ -533,6 +615,7 @@ impl StringData {
             Self::Empty | Self::Ident => 0,
             Self::Ascii(s) => s.len(),
             Self::Utf16(_) => self.iter().count(),
+            Self::AsciiStr(s) => s.len(),
         }
     }
 
@@ -559,6 +642,17 @@ impl StringData {
                 .iter()
                 .position(|&c| c == code)
                 .map(|n| n + from_index),
+            Self::AsciiStr(s) => {
+                if code > 0x7F {
+                    None
+                } else {
+                    let c1 = code as u8;
+                    s.as_bytes()[from_index..]
+                        .iter()
+                        .position(|&c| c == c1)
+                        .map(|n| n + from_index)
+                }
+            }
         }
     }
 
@@ -655,6 +749,8 @@ impl StringData {
                     }
                 }
             }
+            Self::AsciiStr(s) => s.len() == other.len() && s.as_bytes() == other.as_bytes(),
+
             Self::Ident => false,
         }
     }
@@ -773,12 +869,12 @@ impl Drop for StringData {
         match self {
             Self::Ascii(s) => {
                 if Rc::strong_count(s) == 1 {
-                    Self::unintern(self);
+                    Self::try_unintern(self);
                 }
             }
             Self::Utf16(s) => {
                 if Rc::strong_count(s) == 1 {
-                    Self::unintern(self);
+                    Self::try_unintern(self);
                 }
             }
             _ => {}
@@ -826,10 +922,12 @@ impl StringData {
     /// this is called when last reference of string content is dropped.
     ///
     /// See `StringData::drop()`
-    fn unintern(cc: &StringData) {
+    fn try_unintern(cc: &StringData) {
         let hash = hash_codepoints(cc.iter().map(|(_, c)| c));
 
-        Self::STRING_CONTENT_INTERN_DICT.with_borrow_mut(|lut| {
+        let r = Self::STRING_CONTENT_INTERN_DICT.try_with(|lut| {
+            let mut lut = lut.borrow_mut();
+
             if let Some(lst) = lut.get_mut(&hash) {
                 lst.retain(|w| {
                     if let Some(w) = w.upgrade() {
@@ -842,7 +940,12 @@ impl StringData {
                     lut.remove(&hash);
                 }
             }
-        })
+        });
+
+        #[cfg(debug_assertions)]
+        if r.is_err() {
+            println!("ACCESS STRING INTERN AFTER THREAD EXIT: {:?}", cc);
+        }
     }
 
     fn downgrade(&self) -> StringDataWeakref {
@@ -850,6 +953,7 @@ impl StringData {
             StringData::Ascii(s) => StringDataWeakref::Ascii(Rc::downgrade(s)),
             StringData::Utf16(s) => StringDataWeakref::Utf16(Rc::downgrade(s)),
             StringData::Empty => StringDataWeakref::Empty,
+            StringData::AsciiStr(s) => StringDataWeakref::AsciiStr(s),
             StringData::Ident => StringDataWeakref::Ident,
         }
     }
@@ -862,6 +966,7 @@ enum StringDataWeakref {
     Empty,
     Ascii(Weak<[u8]>),
     Utf16(Weak<[u16]>),
+    AsciiStr(&'static str),
     Ident,
 }
 
@@ -872,6 +977,7 @@ impl StringDataWeakref {
             StringDataWeakref::Ascii(s) => s.upgrade().map(StringData::Ascii),
             StringDataWeakref::Utf16(s) => s.upgrade().map(StringData::Utf16),
             StringDataWeakref::Empty => Some(StringData::Empty),
+            StringDataWeakref::AsciiStr(s) => Some(StringData::AsciiStr(*s)),
             StringDataWeakref::Ident => Some(StringData::Ident),
         }
     }
@@ -897,6 +1003,13 @@ impl From<StringBuf> for StringContent {
     }
 }
 
+impl From<StringData> for StringContent {
+    #[inline(always)]
+    fn from(data: StringData) -> Self {
+        Self(data)
+    }
+}
+
 impl std::fmt::Debug for StringContent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
@@ -904,6 +1017,11 @@ impl std::fmt::Debug for StringContent {
 }
 
 impl StringContent {
+    #[inline(always)]
+    pub fn data(&self) -> &StringData {
+        &self.0
+    }
+
     #[inline(always)]
     pub fn empty() -> Self {
         StringContent(StringData::Empty)

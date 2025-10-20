@@ -158,7 +158,7 @@ impl JSValue {
     pub fn add_brand(&self, ctx: &JSContext, home_obj: &JSValue) -> Result<(), i32> {
         if let JSValue::Object(home) = home_obj {
             let brand_sym: JSValue = if let Some((idx, _)) =
-                home.find_shape_property(JS_ATOM_Private_brand.deref())
+                home.find_shape_property(&JS_ATOM_Private_brand)
             {
                 if let JSProperty::Normal(val) = home.0.prop_values.borrow().get(idx).unwrap() {
                     val.clone()

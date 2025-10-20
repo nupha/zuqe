@@ -18,7 +18,7 @@ use crate::{
         JSPropertyDescriptor, ObjectPayload, check_define_prop_flags,
     },
     runtime::JSRuntime,
-    string::{StringChar, StringContent},
+    string::{StringChar, StringContent, StringData},
     value::{HINT_STRING, JSValue},
 };
 
@@ -189,14 +189,22 @@ impl JSStringInner {
     }
 
     pub(crate) fn copy_to_new(&self) -> JSString {
-        debug_assert!(
-            !self.rt_ptr().is_null(),
-            "can't copy const atom description"
-        );
-        JSString::new(
-            unsafe { self.rt_ptr().as_mut().unwrap() },
-            self.content().clone(),
-        )
+        match self.content().data() {
+            StringData::AsciiStr(s) => JSString::from_static(*s),
+            StringData::Empty => {
+                JSString::new_internal(std::ptr::null_mut(), StringData::Empty.into())
+            }
+            StringData::Ident => {
+                JSString::new_internal(std::ptr::null_mut(), StringData::Ident.into())
+            }
+            _ => {
+                debug_assert!(
+                    !self.rt_ptr().is_null(),
+                    "can't copy const atom description"
+                );
+                JSString::new(unsafe { &mut *self.rt_ptr() }, self.content().clone())
+            }
+        }
     }
 }
 
@@ -269,8 +277,8 @@ impl std::fmt::Debug for JSString {
 }
 
 impl JSString {
-    /// create JSString with string content
-    pub(crate) fn new(rt: &mut JSRuntime, content: StringContent) -> Self {
+    /// create JSString with string content.
+    fn new_internal(rt: *mut JSRuntime, content: StringContent) -> Self {
         let inner = JSStringInner {
             rt,
             hash_and_type: Cell::new(0),
@@ -282,6 +290,12 @@ impl JSString {
         let s = Self(Rc::new(inner));
         //rt.gc_add_object(s.downgrade().into());
         s
+    }
+
+    /// create JSString with string content
+    #[inline(always)]
+    pub(crate) fn new(rt: &mut JSRuntime, content: StringContent) -> Self {
+        Self::new_internal(rt, content)
     }
 
     /// Creates a JSStringInner from a Rust string slice
@@ -297,7 +311,13 @@ impl JSString {
     /// * `Ok(Box<JSStringInner>)` - Newly created string
     /// * `Err(-1)` - Memory allocation or UTF-8 validation failed
     pub(crate) fn from_str(rt: &mut JSRuntime, s: &str) -> Result<Self, i32> {
-        Ok(Self::new(rt, StringBuf::from_str(s)?.into()))
+        Ok(Self::new_internal(rt, StringBuf::from_str(s)?.into()))
+    }
+
+    /// static str `s` must be ascii str.
+    pub(crate) fn from_static(s: &'static str) -> Self {
+        debug_assert!(s.is_ascii());
+        Self::new_internal(std::ptr::null_mut(), StringData::AsciiStr(s).into())
     }
 
     /// Creates a JSString from UTF-8 encoded bytes

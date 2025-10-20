@@ -218,7 +218,7 @@ pub(super) fn js_has_unscopable(ctx: &JSContext, obj: &JSValue, atom: &Atom) -> 
 
 pub(crate) fn js_get_function_name(ctx: &JSContext, name: &Atom) -> Result<JSString, i32> {
     let name_str = name.force_string(ctx)?;
-    if name.has_string_description(ctx) {
+    if name.has_string_desc() {
         JS_ConcatString3(ctx, c"[", name_str.into(), c"]")
     } else {
         Ok(name_str)

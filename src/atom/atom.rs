@@ -26,6 +26,7 @@ pub enum AtomTypeHint {
     String = 1,
     GlobalSymbol,
     Symbol,
+    /// private symbol
     Private,
 }
 
@@ -36,6 +37,7 @@ pub enum AtomHintAndId {
     String(NonZeroU16),
     GlobalSymbol(NonZeroU16),
     Symbol(NonZeroU16),
+    /// private symbol
     Private(NonZeroU16),
 }
 
@@ -106,32 +108,32 @@ impl Atom {
     }
 
     /// get atom descriptor kind
-    pub fn kind(&self, rt: &JSRuntime) -> AtomDescKind {
+    pub fn kind(&self) -> AtomDescKind {
         if self.is_small_int() {
-            return AtomDescKind::JS_ATOM_KIND_STRING;
-        }
-
-        let p = self.description();
-        match p.atom_info().unwrap() {
-            AtomHintAndId::String(_) => AtomDescKind::JS_ATOM_KIND_STRING,
-            AtomHintAndId::Symbol(_) | AtomHintAndId::GlobalSymbol(_) => {
-                AtomDescKind::JS_ATOM_KIND_SYMBOL
+            AtomDescKind::JS_ATOM_KIND_STRING
+        } else {
+            let p = self.description();
+            match p.atom_info().unwrap() {
+                AtomHintAndId::String(_) => AtomDescKind::JS_ATOM_KIND_STRING,
+                AtomHintAndId::Symbol(_) | AtomHintAndId::GlobalSymbol(_) => {
+                    AtomDescKind::JS_ATOM_KIND_SYMBOL
+                }
+                AtomHintAndId::Private(_) => AtomDescKind::JS_ATOM_KIND_PRIVATE,
             }
-            AtomHintAndId::Private(_) => AtomDescKind::JS_ATOM_KIND_PRIVATE,
         }
     }
 
-    /// test if atom has string description
-    pub fn has_string_description(&self, ctx: &JSContext) -> bool {
+    /// test if atom has normal string description
+    pub fn has_string_desc(&self) -> bool {
         if self.is_small_int() {
-            return false;
-        }
-
-        let p = self.description();
-        !p.content().is_ident() && {
-            let a = p.atom_info().unwrap();
-            (matches!(a, AtomHintAndId::Symbol(_)) && p.hash() == JS_ATOM_HASH_SYMBOL)
-                || matches!(a, AtomHintAndId::GlobalSymbol(_))
+            false
+        } else {
+            let p = self.description();
+            !p.content().is_ident() && {
+                let a = p.atom_info().unwrap();
+                (matches!(a, AtomHintAndId::Symbol(_)) && p.hash() == JS_ATOM_HASH_SYMBOL)
+                    || matches!(a, AtomHintAndId::GlobalSymbol(_))
+            }
         }
     }
 

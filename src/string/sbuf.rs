@@ -567,6 +567,26 @@ impl StringBuf {
                     Self::Utf16(buf)
                 }
             }
+
+            // static str
+            (Self::Utf16(mut s1), StringData::AsciiStr(s2)) => {
+                if let Err(e) = s1.try_reserve(s2.len()) {
+                    *self = Self::Utf16(s1);
+                    return Err(e);
+                } else {
+                    s1.extend(s2.as_bytes()[range.clone()].iter().map(|x| *x as u16));
+                    Self::Utf16(s1)
+                }
+            }
+            (Self::Ascii(mut s1), StringData::AsciiStr(s2)) => {
+                if let Err(e) = s1.try_reserve_exact(s2.len()) {
+                    *self = Self::Ascii(s1);
+                    return Err(e);
+                } else {
+                    s1.extend_from_slice(&s2.as_bytes()[range.clone()]);
+                    Self::Ascii(s1)
+                }
+            }
         };
 
         *self = new_data;
