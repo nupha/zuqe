@@ -51,6 +51,7 @@ impl Bytecode {
     /// run bytecodes.
     /// before running, runtime current stack frame will be set to `sframe`.
     /// when exited, runtime current stack frame will be restored back to the previous frame.
+    #[allow(clippy::too_many_arguments)]
     pub fn run(
         &self,
         caller_ctx: &JSContext, // Context of the calling environment
@@ -97,8 +98,8 @@ impl Bytecode {
             if let Some((new_pc, new_sp)) = stack_frame.handle_exception(ctx, cur_pc, cur_sp) {
                 // continue execution: update pc and sp.
                 unsafe {
-                    pc = pc_base.offset(new_pc as _);
-                    sp = sp_base.offset(new_sp as _);
+                    pc = pc_base.add(new_pc);
+                    sp = sp_base.add(new_sp);
                 }
             } else {
                 // abort execution: sp=0, pc unchanged
@@ -266,7 +267,7 @@ impl Bytecode {
                                     .bc_function()
                                     .map(|f| f.bytecode().debug.debug_setting)
                             })
-                            .unwrap_or(crate::function::BytecodeDebugSetting::default());
+                            .unwrap_or_default();
                         debug_setting.replace(b);
                     }
 
@@ -1237,7 +1238,7 @@ impl Bytecode {
                     }
                     OpCode::CLOSE_LOC => {
                         let idx = PC_FETCH!(u16);
-                        stack_frame.close_lexical_var(ctx, idx, false);
+                        stack_frame.close_lexical_var(idx, false);
                     }
                     OpCode::MAKE_LOC_REF | OpCode::MAKE_ARG_REF | OpCode::MAKE_VAR_REF_REF => {
                         let atom = AtomRef(PC_FETCH!(u32));
@@ -1849,13 +1850,11 @@ impl Bytecode {
                                 JS_ThrowReferenceErrorNotDefined(ctx, atom.to_ref());
                             }
                             break State::Exception;
+                        } else if let Ok(val) = SP_REF!(-2).get_property_value(ctx, SP_REF!(-1)) {
+                            SP_PUT!(0, val);
+                            SP_GO!(1);
                         } else {
-                            if let Ok(val) = SP_REF!(-2).get_property_value(ctx, SP_REF!(-1)) {
-                                SP_PUT!(0, val);
-                                SP_GO!(1);
-                            } else {
-                                break State::Exception;
-                            }
+                            break State::Exception;
                         }
                     }
                     OpCode::GET_SUPER_VALUE => {
@@ -2398,7 +2397,7 @@ impl Bytecode {
                         todo!()
                     }
 
-                    OpCode::INVALID | _ => {
+                    _ => {
                         ctx.throw_internal_error(&format!(
                             "invalid opcode: 0x{:02x}, pc={}",
                             opcode as u8,

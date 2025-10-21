@@ -8,13 +8,12 @@ use crate::{
 use super::JSFunctionDef;
 
 /* compute the maximum stack size needed by the function */
-#[repr(C)]
 struct StackSizeState {
-    pub bc_len: usize,
-    pub stack_level_tab: Vec<u16>,
-    pub catch_pos_tab: Vec<i32>, // -1 for unknown
-    pub stack_len_max: u16,
-    pub pc_stack: Vec<usize>,
+    bc_len: usize,
+    stack_level_tab: Vec<u16>,
+    catch_pos_tab: Vec<i32>, // -1 for unknown
+    stack_len_max: u16,
+    pc_stack: Vec<usize>,
 }
 
 // 'op' is only used for error indication
@@ -33,7 +32,7 @@ fn ss_check(
 
     if stack_len > s.stack_len_max {
         s.stack_len_max = stack_len;
-        if s.stack_len_max > JS_STACK_SIZE_MAX as u16 {
+        if s.stack_len_max > JS_STACK_SIZE_MAX {
             ctx.throw_internal_error(&format!("stack overflow (op={op}, pc={pos})\0"));
             return Err(-1);
         }
@@ -63,10 +62,9 @@ fn ss_check(
     s.catch_pos_tab[pos] = catch_pos;
 
     // queue the new PC to explore
-    if s.pc_stack.len() == s.pc_stack.capacity() {
-        if s.pc_stack.try_reserve(4).is_err() {
-            return Err(-1); // fail to grow
-        }
+    if s.pc_stack.len() == s.pc_stack.capacity() && s.pc_stack.try_reserve(4).is_err() {
+        ctx.throw_out_of_memory();
+        return Err(-1);
     }
 
     s.pc_stack.push(pos);
@@ -113,7 +111,7 @@ impl JSFunctionDef {
             println!("{:5}: {:25} {:5} {:5}", pos, oi.name, stack_len, catch_pos);
 
             let mut pos_next = pos + oi.size as usize;
-            if pos_next > (*s).bc_len {
+            if pos_next > s.bc_len {
                 ctx.throw_internal_error(&format!(
                     "bytecode buffer overflow 2 (op={op}, pc={pos})"
                 ));
@@ -139,7 +137,8 @@ impl JSFunctionDef {
                 return Err(-1);
             }
 
-            stack_len = stack_len + (*oi).n_push as u16 - n_pop;
+            stack_len = stack_len + oi.n_push as u16 - n_pop;
+
             if stack_len > s.stack_len_max {
                 s.stack_len_max = stack_len;
                 if s.stack_len_max > JS_STACK_SIZE_MAX {

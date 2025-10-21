@@ -98,7 +98,7 @@ impl<'s> JSParseState<'s> {
                     self.parse_function_decl(
                         func_type,
                         func_kind,
-                        &Atom::NULL,
+                        Atom::NULL,
                         start_ptr,
                         start_line,
                     )?;

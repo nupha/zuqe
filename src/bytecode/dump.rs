@@ -18,6 +18,7 @@ use super::{
 };
 
 /// dump opcodes binary in pass 1,2,3
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn dump_opcodes(
     ctx: &JSContext,
     pass: i32,
@@ -189,7 +190,7 @@ pub(crate) fn dump_opcodes(
             opcode_info_intermediate(op)
         };
 
-        let op_len = (*oi).size as usize;
+        let op_len = oi.size as usize;
         if pos + op_len > len {
             println!("truncated opcode (0x{:02x})", op);
             break;
@@ -206,7 +207,7 @@ pub(crate) fn dump_opcodes(
                     print!("\n      ");
                     x = 0;
                 }
-                print!(" {:02X}", bin[(pos + i) as usize]);
+                print!(" {:02X}", bin[pos + i]);
                 x += 3;
             }
             print!("{:width$}", " ", width = x0 + 20 - x);
@@ -315,7 +316,7 @@ pub(crate) fn dump_opcodes(
                     print!(
                         " {s}, {}",
                         if f == OpcodeFormat::ATOM_U8 {
-                            bin[pos as usize + 4] as usize
+                            bin[pos + 4] as usize
                         } else {
                             unsafe { read_from_ptr::<u16>(bin.as_ptr().add(pos + 4)) as usize }
                         }
@@ -328,7 +329,7 @@ pub(crate) fn dump_opcodes(
                     print!(" {s}");
                 });
 
-                let addr = unsafe { read_from_ptr::<u32>(bin.as_ptr().offset(pos as isize + 4)) };
+                let addr = unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos + 4)) };
                 if pass == 1 {
                     print!(", {}:{}", addr, labels[addr as usize].pos);
                 } else if pass == 2 {
@@ -554,13 +555,13 @@ pub unsafe fn dump_pc2line(ctx: &JSContext, buf: *const u8, len: i32, mut line_n
     println!("{:>5} {:>5}", "PC", "LINE");
 
     let mut p = buf;
-    let p_end = buf.offset(len as isize);
+    let p_end = unsafe { buf.offset(len as isize) };
     let mut p_next: *const u8 = std::ptr::null_mut();
     let mut pc = 0;
 
     while p < p_end {
         let mut op = *p as i32;
-        p = p.offset(1);
+        p = p.add(1);
 
         if op == 0 {
             if let Ok(n) =

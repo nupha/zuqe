@@ -194,10 +194,10 @@ impl<'s> JSParseState<'s> {
             TOK_FUNCTION => {
                 // export function ...
                 return {
-                    self.parse_function_decl2(
+                    self.parse_function_decl_ex(
                         JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
                         JSFunctionKindEnum::JS_FUNC_NORMAL,
-                        &Atom::NULL,
+                        Atom::NULL,
                         self.token.ptr,
                         self.token.line_num,
                         JSParseExportEnum::JS_PARSE_EXPORT_NAMED,
@@ -211,10 +211,10 @@ impl<'s> JSParseState<'s> {
             {
                 // export async function ...
                 return {
-                    self.parse_function_decl2(
+                    self.parse_function_decl_ex(
                         JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
                         JSFunctionKindEnum::JS_FUNC_NORMAL,
-                        &Atom::NULL,
+                        Atom::NULL,
                         self.token.ptr,
                         self.token.line_num,
                         JSParseExportEnum::JS_PARSE_EXPORT_NAMED,
@@ -370,10 +370,10 @@ impl<'s> JSParseState<'s> {
                     || (self.token_is_pseudo_keyword(JS_ATOM_async)
                         && self.peek_token(true) == TOK_FUNCTION)
                 {
-                    return self.parse_function_decl2(
+                    return self.parse_function_decl_ex(
                         JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
                         JSFunctionKindEnum::JS_FUNC_NORMAL,
-                        &Atom::NULL,
+                        Atom::NULL,
                         self.token.ptr,
                         self.token.line_num,
                         JSParseExportEnum::JS_PARSE_EXPORT_DEFAULT,

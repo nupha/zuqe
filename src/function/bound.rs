@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 use crate::{
     JS_CLASS_BOUND_FUNCTION,
     context::JSContext,
@@ -26,7 +24,7 @@ pub struct BoundFunction(JSObject);
 object_cast!(BoundFunction, JS_CLASS_BOUND_FUNCTION);
 
 impl BoundFunction {
-    pub fn class_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
+    pub const fn class_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
 
     pub fn class_mark(val: JSValue) {
         unsafe {

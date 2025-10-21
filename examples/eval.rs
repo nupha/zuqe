@@ -39,7 +39,7 @@ fn js_print(ctx: &JSContext, cc: CallContext) -> JSResult {
 
         colorize_print(
             if inspect {
-                format!("{}", arg.inspect(ctx)?)
+                arg.inspect(ctx)?.to_string()
             } else {
                 format!("{}", arg.to_string(ctx)?)
             },
@@ -69,9 +69,7 @@ fn main() {
     let tm0 = Instant::now();
     let mut rt = JSRuntime::new(JS_DEFAULT_MALLOC_FUNCTIONS, std::ptr::null_mut()).unwrap();
 
-    unsafe {
-        JS_SetModuleLoaderFunc(rt.as_mut(), None, js_module_loader, std::ptr::null_mut());
-    }
+    JS_SetModuleLoaderFunc(rt.as_mut(), None, js_module_loader, std::ptr::null_mut());
 
     // the default context
     let ctx = rt.create_context().unwrap();

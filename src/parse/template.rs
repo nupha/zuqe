@@ -97,7 +97,8 @@ impl<'s> JSParseState<'s> {
         Ok(())
     }
 
-    pub fn parse_template(&mut self, call: bool, argc: *mut i32) -> Result<i32, i32> {
+    // TODO: argc seems no use.
+    pub(super) fn parse_template(&mut self, call: bool, argc: &mut i32) -> Result<i32, i32> {
         let mut raw_array = JSValue::UNDEFINED;
         let mut template_object = JSValue::UNDEFINED;
 
@@ -193,9 +194,7 @@ impl<'s> JSParseState<'s> {
                 if call {
                     seal_template_obj(&self.ctx, raw_array);
                     seal_template_obj(&self.ctx, template_object);
-                    unsafe {
-                        *argc = depth + 1;
-                    }
+                    *argc = depth + 1;
                 } else {
                     self.emit_op(OpCode::CALL_METHOD);
                     self.emit_u16(depth as u16 - 1);
@@ -214,7 +213,7 @@ impl<'s> JSParseState<'s> {
             }
 
             // XXX: should convert to string at this stage?
-            self.clear_atom_in_token();
+            self.clear_token_data();
             // Resume TOK_TEMPLATE parsing (s->token.line_num and  s->token.ptr are OK)
             self.got_lf = false;
             self.last_line_num = self.token.line_num;

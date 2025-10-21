@@ -17,13 +17,13 @@ impl JSContext {
         if intr {
             let rt = self.rt();
 
-            if let Some(cb) = rt.interrupt_handler {
-                if cb(rt, rt.interrupt_opaque) != 0 {
-                    // XXX: should set a specific flag to avoid catching
-                    self.throw_internal_error("interrupted");
-                    JS_SetUncatchableError(&rt.cur_exception, true);
-                    return Err(-1);
-                }
+            if let Some(cb) = rt.interrupt_handler
+                && cb(rt, rt.interrupt_opaque) != 0
+            {
+                // XXX: should set a specific flag to avoid catching
+                self.throw_internal_error("interrupted");
+                JS_SetUncatchableError(&rt.cur_exception, true);
+                return Err(-1);
             }
         }
 

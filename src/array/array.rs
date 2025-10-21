@@ -28,7 +28,7 @@ pub struct ArrayObjPayload {
 }
 
 impl ArrayObjPayload {
-    pub fn new(data: Vec<JSValue>) -> Self {
+    pub const fn new(data: Vec<JSValue>) -> Self {
         Self {
             values: RefCell::new(data),
         }
@@ -121,10 +121,11 @@ impl Array {
                     cur_len = length;
                     sh.with_mut(|sh| {
                         for pr in sh.prop_defs.values() {
-                            if let Some(i) = pr.atom.to_array_index() {
-                                if i >= cur_len && (pr.flags() & JS_PROP_CONFIGURABLE == 0) {
-                                    cur_len = i + 1;
-                                }
+                            if let Some(i) = pr.atom.to_array_index()
+                                && i >= cur_len
+                                && (pr.flags() & JS_PROP_CONFIGURABLE == 0)
+                            {
+                                cur_len = i + 1;
                             }
                         }
                     });
@@ -138,14 +139,14 @@ impl Array {
                                 .map(|(_, prs)| prs.atom.to_ref())
                                 .unwrap();
 
-                        if let Some(idx) = prop.to_array_index() {
-                            if idx >= cur_len {
-                                let _r = self.delete_property_internal(ctx, prop.deref());
-                                debug_assert!(_r.is_ok());
+                        if let Some(idx) = prop.to_array_index()
+                            && idx >= cur_len
+                        {
+                            let _r = self.delete_property_internal(ctx, prop.deref());
+                            debug_assert!(_r.is_ok());
 
-                                // WARNING: the shape may have been modified
-                                sh = self.shape().unwrap();
-                            }
+                            // WARNING: the shape may have been modified
+                            sh = self.shape().unwrap();
                         }
                     }
                 }
@@ -155,7 +156,7 @@ impl Array {
 
             unsafe {
                 *self.0.0.prop_values.borrow_mut().get_unchecked_mut(0) =
-                    JSProperty::Normal(JSValue::from(cur_len as u32));
+                    JSProperty::Normal(JSValue::from(cur_len));
             }
 
             if cur_len > length {
@@ -240,9 +241,10 @@ impl Array {
                 for (i, v) in slots.into_iter().enumerate() {
                     lst[i] = v;
                 }
-                for i in slots_len..lst.len() {
-                    lst[i] = JSValue::UNDEFINED;
-                }
+
+                lst.iter_mut()
+                    .skip(slots_len)
+                    .for_each(|x| *x = JSValue::UNDEFINED);
             } else {
                 let mut slots = Vec::<(JSValue, StringContent)>::new();
                 slots.try_reserve_exact(lst.len()).map_err(|_| {
@@ -262,9 +264,10 @@ impl Array {
                 for (i, (v, _)) in slots.into_iter().enumerate() {
                     lst[i] = v;
                 }
-                for i in slots_len..lst.len() {
-                    lst[i] = JSValue::UNDEFINED;
-                }
+
+                lst.iter_mut()
+                    .skip(slots_len)
+                    .for_each(|x| *x = JSValue::UNDEFINED);
             }
 
             Ok(())
@@ -307,7 +310,7 @@ impl Array {
                     obj.set_property_u32(ctx, i as u32, JSValue::UNDEFINED)?;
                 }
             }
-            for i in (slots_len + undefined_count) as i64..arr_len {
+            for i in (slots_len + undefined_count)..arr_len {
                 obj.delete_property_i64(ctx, i, JS_PROP_THROW)?;
             }
         } else {
@@ -496,9 +499,7 @@ impl JSObject {
             self.shape_prepare_update(ctx)?;
 
             // take array list out
-            let items = self
-                .with_fast_array_values_mut(|lst| std::mem::replace(lst, Vec::new()))
-                .unwrap();
+            let items = self.with_fast_array_values_mut(std::mem::take).unwrap();
 
             for (i, v) in items.into_iter().enumerate() {
                 // add_property cannot fail here
@@ -572,26 +573,26 @@ impl JSObject {
             #[cfg(not(debug_assertions))]
             None
         };
-        if let Some(arr_len) = len {
-            if new_len > arr_len as usize {
-                let r = self
-                    .shape()
-                    .and_then(|sh| sh.0.borrow().prop_defs.get_index(0).map(|(_, p)| p.flags()))
-                    .unwrap();
 
-                if unlikely(r & JS_PROP_WRITABLE == 0) {
-                    return if ctx.can_throw(flags) {
-                        ctx.throw_type_error("'length' is read-only");
-                        Err(-1)
-                    } else {
-                        Ok(false)
-                    };
-                }
+        if let Some(arr_len) = len
+            && new_len > arr_len as usize
+        {
+            let r = self
+                .shape()
+                .and_then(|sh| sh.0.borrow().prop_defs.get_index(0).map(|(_, p)| p.flags()))
+                .unwrap();
 
-                // update `length`
-                self.0.prop_values.borrow_mut()[0] =
-                    JSProperty::Normal(JSValue::Int(new_len as i32));
+            if unlikely(r & JS_PROP_WRITABLE == 0) {
+                return if ctx.can_throw(flags) {
+                    ctx.throw_type_error("'length' is read-only");
+                    Err(-1)
+                } else {
+                    Ok(false)
+                };
             }
+
+            // update `length`
+            self.0.prop_values.borrow_mut()[0] = JSProperty::Normal(JSValue::Int(new_len as i32));
         }
 
         // add new element to list
@@ -720,7 +721,7 @@ impl JSValue {
     }
 }
 
-pub fn js_array_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
+pub const fn js_array_finalizer(_rt: &mut JSRuntime, _isa: &ObjectPayload, _id: usize) {}
 
 pub fn js_array_mark(val: JSValue) {
     unsafe {

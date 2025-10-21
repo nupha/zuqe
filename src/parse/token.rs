@@ -109,7 +109,7 @@ impl TokenData {
     }
 
     /// token data is ident type, and is reserved key word.
-    pub fn is_reserved(&self) -> bool {
+    pub const fn is_reserved(&self) -> bool {
         if let Self::Ident { is_reserved, .. } = self {
             *is_reserved
         } else {
@@ -118,7 +118,7 @@ impl TokenData {
     }
 
     /// token data is ident type, and has escape.
-    pub fn ident_has_escape(&self) -> bool {
+    pub const fn ident_has_escape(&self) -> bool {
         if let Self::Ident { has_escape, .. } = self {
             *has_escape
         } else {
@@ -127,7 +127,7 @@ impl TokenData {
     }
 
     /// if data is string type, returns string value.
-    pub fn string(&self) -> Option<&StringContent> {
+    pub const fn string(&self) -> Option<&StringContent> {
         if let Self::Str { str, .. } = self {
             Some(str)
         } else {
@@ -135,7 +135,7 @@ impl TokenData {
         }
     }
 
-    pub fn string_sep(&self) -> Option<i32> {
+    pub const fn string_sep(&self) -> Option<i32> {
         if let Self::Str { sep, .. } = self {
             Some(*sep)
         } else {
@@ -144,7 +144,7 @@ impl TokenData {
     }
 
     /// if data is number type, returns number value.
-    pub fn number(&self) -> Option<&JSValue> {
+    pub const fn number(&self) -> Option<&JSValue> {
         if let Self::Num(n) = self {
             Some(n)
         } else {
@@ -153,7 +153,7 @@ impl TokenData {
     }
 
     /// pre-compiled regexp data id
-    pub fn regexp(&self) -> Option<usize> {
+    pub const fn regexp(&self) -> Option<usize> {
         if let Self::Regexp(id) = self {
             Some(*id)
         } else {
@@ -179,7 +179,7 @@ impl<'s> JSParseState<'s> {
             return Err(-1);
         }
 
-        self.clear_atom_in_token();
+        self.clear_token_data();
 
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         enum Todo {
@@ -734,11 +734,10 @@ impl<'s> JSParseState<'s> {
             })?
             .chars()
             .next()
+            && Self::is_ident_next(c)
         {
-            if Self::is_ident_next(c) {
-                self.throw_syntax_error("invalid number literal");
-                return Err(-1);
-            }
+            self.throw_syntax_error("invalid number literal");
+            return Err(-1);
         }
 
         self.token.val = TOK_NUMBER;
@@ -757,17 +756,17 @@ impl<'s> JSParseState<'s> {
                 break;
             }
 
-            if *p >= 0x80 {
+            if unsafe { *p } >= 0x80 {
                 // 处理Unicode行终止符
                 if let Ok(uc) = unicode_from_utf8_v0(p, UTF8_CHAR_LEN_MAX as i32, &mut p) {
                     if matches!(uc, '\u{2028}' | '\u{2029}') {
                         break;
                     }
                 } else {
-                    p = p.add(1); // skip invalid utf8
+                    p = unsafe { p.add(1) }; // skip invalid utf8
                 }
             } else {
-                p = p.add(1);
+                p = unsafe { p.add(1) };
             }
         }
 
@@ -793,7 +792,7 @@ impl<'s> JSParseState<'s> {
     #[inline(always)]
     pub fn token_is_pseudo_keyword(&self, atom: AtomRef) -> bool {
         self.token.val == TOK_IDENT
-            && self.token.data.ident_atom().map_or(false, |a| a.eq(&atom))
+            && self.token.data.ident_atom().is_some_and(|a| a.eq(&atom))
             && !self.token.data.ident_has_escape()
     }
 

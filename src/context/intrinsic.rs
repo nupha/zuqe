@@ -208,7 +208,7 @@ impl JSContext {
             self.add_global_constructor(
                 name,
                 &func_obj,
-                &self.0.borrow().native_error_proto[i as usize], // <-- this was initialized in core
+                &self.0.borrow().native_error_proto[i], // <-- this was initialized in core
             );
         }
     }
@@ -376,61 +376,50 @@ impl JSContext {
     }
 
     fn intrinsic_base_symbol(&self) {
-        let symbol_obj = self.create_base_object().unwrap();
-        symbol_obj
-            .install_field_defs(self, &js_symbol_proto_funcs)
+        let obj = self.create_base_object().unwrap();
+        obj.install_field_defs(self, &js_symbol_proto_funcs)
             .unwrap();
 
-        let symbol_ctor = self
+        let ctor = self
             .create_global_constructor_or_func(
                 "Symbol",
                 js_symbol_constructor,
                 0,
-                &symbol_obj.clone().into(),
+                &obj.clone().into(),
                 0,
             )
             .unwrap();
-        symbol_ctor
-            .install_field_defs(self, &js_symbol_funcs)
-            .unwrap();
+        ctor.install_field_defs(self, &js_symbol_funcs).unwrap();
 
         // pre-define builtin Symbol_XXX
         for i in JS_ATOM_FIRST_SYMBOL.0..=JS_ATOM_LAST_SYMBOL.0 {
             let a = AtomRef(i);
             a.with_utf8(|s| {
                 let str = s.as_ref().split_once('.').unwrap().1; // skip "Symbol."
-                symbol_ctor
-                    .define_property_value_str(
-                        self,
-                        str,
-                        a.string_or_symbol(self).unwrap().into(),
-                        0,
-                    )
+                ctor.define_property_value_str(self, str, a.string_or_symbol(self).unwrap(), 0)
                     .unwrap();
             });
         }
 
-        self.0.borrow_mut().class_proto[JS_CLASS_SYMBOL as usize] = symbol_obj.into();
+        self.0.borrow_mut().class_proto[JS_CLASS_SYMBOL as usize] = obj.into();
     }
 
     fn intrinsic_base_iterator(&self) {
-        let iter_obj = self.create_base_object().unwrap();
-        iter_obj
-            .install_field_defs(self, &js_iterator_proto_funcs)
+        let obj = self.create_base_object().unwrap();
+        obj.install_field_defs(self, &js_iterator_proto_funcs)
             .unwrap();
-        self.0.borrow_mut().iterator_proto = iter_obj.into();
+        self.0.borrow_mut().iterator_proto = obj.into();
     }
 
     fn intrinsic_base_generator(&self) {
         // generator prototype
-        let generator = self
+        let obj = self
             .create_base_object_from_proto(self.0.borrow().iterator_proto.clone())
             .unwrap();
-        generator
-            .install_field_defs(self, &js_generator_proto_funcs)
+        obj.install_field_defs(self, &js_generator_proto_funcs)
             .unwrap();
-        let generator_proto: JSValue = generator.into();
-        self.0.borrow_mut().class_proto[JS_CLASS_GENERATOR as usize] = generator_proto.clone();
+        let proto: JSValue = obj.into();
+        self.0.borrow_mut().class_proto[JS_CLASS_GENERATOR as usize] = proto.clone();
 
         // generator function prototype
         let generator_function = self
@@ -455,7 +444,7 @@ impl JSContext {
         JS_SetConstructor2(
             self,
             &generator_function_proto,
-            &generator_proto,
+            &proto,
             JS_PROP_CONFIGURABLE,
             JS_PROP_CONFIGURABLE,
         );
@@ -756,8 +745,7 @@ impl JSContext {
                 let proto: JSValue = ta_obj.into();
 
                 let name =
-                    AtomRef(JS_ATOM_Uint8ClampedArray.0 + (cid - JS_CLASS_UINT8C_ARRAY) as u32)
-                        .to_utf8();
+                    AtomRef(JS_ATOM_Uint8ClampedArray.0 + (cid - JS_CLASS_UINT8C_ARRAY)).to_utf8();
 
                 let func_obj = self
                     .create_native_function_from_proto(

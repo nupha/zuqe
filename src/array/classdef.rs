@@ -186,7 +186,7 @@ pub fn js_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let mut idx: i64 = cc.arg(0).to_i64_saturating(ctx)?;
     if idx < 0 {
-        idx = len + idx;
+        idx += len;
     }
     if idx < 0 || idx >= len {
         ctx.throw_range_error("out of bound");
@@ -316,9 +316,9 @@ pub fn js_array_every(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj: JSValue;
     let len: i64;
 
-    if special & special_TA as i32 != 0 {
+    if special & special_TA != 0 {
         obj = cc.this().clone();
-        len = unsafe { js_typed_array_get_length_internal(ctx, &obj)? } as i64;
+        len = js_typed_array_get_length_internal(ctx, &obj)? as i64;
     } else {
         obj = cc.this().clone().objectify(ctx)?.into();
         len = js_get_length64(ctx, &obj)?;
@@ -434,9 +434,9 @@ pub fn js_array_reduce(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let obj: JSValue;
     let len: i64;
-    if special & special_TA as i32 != 0 {
+    if special & special_TA != 0 {
         obj = cc.this().clone();
-        len = unsafe { js_typed_array_get_length_internal(ctx, &obj)? as i64 };
+        len = js_typed_array_get_length_internal(ctx, &obj)? as i64;
     } else {
         obj = cc.this().clone().objectify(ctx)?.into();
         len = js_get_length64(ctx, &obj)?;
@@ -464,17 +464,12 @@ pub fn js_array_reduce(ctx: &JSContext, cc: CallContext) -> JSResult {
             };
             k += 1;
 
-            if special & special_TA as i32 != 0 {
+            if special & special_TA != 0 {
                 acc = obj.get_property_i64(ctx, k1)?;
                 break;
-            } else {
-                match obj.try_get_property_i64(ctx, k1)? {
-                    Some(r) => {
-                        acc = r;
-                        break;
-                    }
-                    None => {}
-                }
+            } else if let Some(r) = obj.try_get_property_i64(ctx, k1)? {
+                acc = r;
+                break;
             }
         }
     }
@@ -488,7 +483,7 @@ pub fn js_array_reduce(ctx: &JSContext, cc: CallContext) -> JSResult {
         };
         k += 1;
 
-        let present = if special & special_TA as i32 != 0 {
+        let present = if special & special_TA != 0 {
             val = obj.get_property_i64(ctx, k1)?;
             true
         } else {
@@ -549,7 +544,7 @@ pub fn js_array_find(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let this_val = cc.this();
     let this_arg = if cc.length() > 1 {
-        &cc.arg(1)
+        cc.arg(1)
     } else {
         &JSValue::UNDEFINED
     };
@@ -711,7 +706,7 @@ pub fn js_array_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
 
         // sparse array
         while n < length {
-            let val: JSValue = obj.get_property_i64(ctx, n)?.into();
+            let val = obj.get_property_i64(ctx, n)?;
             let b = target.strict_eq_with_mode(&val, StrictEqMode::JS_EQ_SAME_VALUE_ZERO);
             if b {
                 res = true;
@@ -909,12 +904,10 @@ pub fn js_array_reverse(ctx: &JSContext, cc: CallContext) -> JSResult {
             } else {
                 obj.delete_property_i64(ctx, h, JS_PROP_THROW)?;
             }
-        } else {
-            if l_present {
-                obj.delete_property_i64(ctx, l, JS_PROP_THROW)?;
-                obj.set_property_i64(ctx, h, lval)?;
-                lval = JSValue::UNDEFINED;
-            }
+        } else if l_present {
+            obj.delete_property_i64(ctx, l, JS_PROP_THROW)?;
+            obj.set_property_i64(ctx, h, lval)?;
+            lval = JSValue::UNDEFINED;
         }
 
         l += 1;
@@ -1311,10 +1304,8 @@ pub fn js_array_flatten(ctx: &JSContext, cc: CallContext) -> JSResult {
             this_arg = cc.arg(1);
         }
         mapper_func.ensure_function(ctx)?;
-    } else {
-        if cc.length() > 0 && !cc.arg(0).is_undefined() {
-            depth = cc.arg(0).to_i32_saturating(ctx)?;
-        }
+    } else if cc.length() > 0 && !cc.arg(0).is_undefined() {
+        depth = cc.arg(0).to_i32_saturating(ctx)?;
     }
 
     let res_arr = JS_ArraySpeciesCreate(ctx, &source, &JSValue::Int(0))?;
@@ -1333,6 +1324,7 @@ pub fn js_array_flatten(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(res_arr)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn JS_FlattenIntoArray(
     ctx: &JSContext,
     target: &JSValue,
@@ -1361,24 +1353,22 @@ fn JS_FlattenIntoArray(
                     )?;
                 }
 
-                if depth > 0 {
-                    if el.is_array(ctx)? {
-                        let el_len = js_get_length64(ctx, &el)?;
-                        let new_targetIndex = JS_FlattenIntoArray(
-                            ctx,
-                            target,
-                            &el,
-                            el_len,
-                            target_index,
-                            depth - 1,
-                            &JSValue::UNDEFINED,
-                            &JSValue::UNDEFINED,
-                        )?;
+                if depth > 0 && el.is_array(ctx)? {
+                    let el_len = js_get_length64(ctx, &el)?;
+                    let new_targetIndex = JS_FlattenIntoArray(
+                        ctx,
+                        target,
+                        &el,
+                        el_len,
+                        target_index,
+                        depth - 1,
+                        &JSValue::UNDEFINED,
+                        &JSValue::UNDEFINED,
+                    )?;
 
-                        target_index = new_targetIndex;
-                        sourceIndex += 1;
-                        continue;
-                    }
+                    target_index = new_targetIndex;
+                    sourceIndex += 1;
+                    continue;
                 }
 
                 if target_index >= MAX_SAFE_INTEGER {
@@ -1565,15 +1555,10 @@ pub fn js_array_of(ctx: &JSContext, cc: CallContext) -> JSResult {
     };
 
     for i in 0..cc.length() {
-        obj.create_data_property_u32(ctx, i as _, cc.arg(i).clone(), JS_PROP_THROW)?;
+        obj.define_property_value_u32(ctx, i as _, cc.arg(i).clone(), JS_PROP_THROW)?;
     }
 
-    obj.set_property(
-        ctx,
-        JS_ATOM_length.deref(),
-        JSValue::from(cc.length() as u32),
-    )?;
-
+    obj.set_property(ctx, &JS_ATOM_length, JSValue::from(cc.length() as u32))?;
     Ok(obj)
 }
 
@@ -1652,77 +1637,6 @@ fn copy_sub_array(
             obj.set_property_i64(ctx, to as _, v)?;
         } else {
             obj.delete_property_i64(ctx, to as _, JS_PROP_THROW)?;
-        }
-    }
-
-    Ok(())
-}
-
-/// 将数组 obj 中从 start_pos 开始的 count 个元素复制到 to_pos 开始的位置。
-/// - 正向复制（dir > 0）：从 start_pos 到 start_pos + count - 1 的元素依次复制到 to_pos 到 to_pos + count - 1。
-/// - 反向复制（dir < 0）：从 start_pos + count - 1 到 start_pos 的元素依次复制到 to_pos + count - 1 到 to_pos。
-#[deprecated(note = "use copy_sub_array() instead")]
-fn JS_CopySubArray(
-    ctx: &JSContext,
-    obj: &JSValue,
-    to_pos: usize,
-    start_pos: usize,
-    count: usize,
-    dir: i32,
-) -> Result<(), i32> {
-    let fast_array = if let JSValue::Object(o) = obj {
-        if o.flags().is_fast_array() && o.class_id() == JS_CLASS_ARRAY {
-            Some(o)
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
-    if let Some(fa) = fast_array {
-        fa.with_fast_array_values_mut(|lst| {
-            let len = lst.len();
-
-            // calc actual copy count
-            let cnt1 = if start_pos + count > len {
-                if len > start_pos { len - start_pos } else { 0 }
-            } else {
-                count
-            };
-            let cnt2 = if to_pos + count > len {
-                if len > to_pos { len - to_pos } else { 0 }
-            } else {
-                count
-            };
-            let cnt = std::cmp::min(cnt1, cnt2);
-
-            if cnt > 0 {
-                if dir > 0 {
-                    for i in 0..cnt {
-                        let v1 = lst[start_pos + i].clone();
-                        lst[to_pos + i] = v1;
-                    }
-                } else {
-                    for i in (0..cnt).rev() {
-                        let v1 = lst[start_pos + i].clone();
-                        lst[to_pos + i] = v1;
-                    }
-                }
-            }
-        })
-        .unwrap();
-    } else {
-        // sparse array
-        for i in 0..count {
-            match obj.try_get_property_i64(ctx, (start_pos + i) as i64)? {
-                Some(val) => {
-                    obj.set_property_i64(ctx, (to_pos + i) as _, val)?;
-                }
-                None => {
-                    obj.delete_property_i64(ctx, (to_pos + 1) as _, JS_PROP_THROW)?;
-                }
-            }
         }
     }
 

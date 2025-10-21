@@ -48,7 +48,7 @@ impl Drop for JSVarRefInner {
 
 impl JSVarRefInner {
     /// create a detached var ref
-    pub fn new(rt: &mut JSRuntime, value: JSValue) -> Self {
+    pub const fn new(rt: &mut JSRuntime, value: JSValue) -> Self {
         Self {
             header: GCObjectHeader::new(rt, 1),
             bitfield: 0,
@@ -57,7 +57,7 @@ impl JSVarRefInner {
     }
 
     /// create a bind var ref
-    pub fn new_bind(
+    pub const fn new_bind(
         rt: &mut JSRuntime,
         var_idx: u16,
         is_arg: bool,
@@ -83,17 +83,13 @@ impl JSVarRefInner {
         self as *const Self as usize
     }
 
-    pub fn is_arg(&self) -> bool {
+    #[inline(always)]
+    pub const fn is_arg(&self) -> bool {
         self.bitfield & 0b0100_0000 != 0
     }
 
-    pub fn set_arg(&mut self, v: bool) {
+    pub const fn set_arg(&mut self, v: bool) {
         self.bitfield = (self.bitfield & !0b0100_0000) | ((v as u8) << 6)
-    }
-
-    #[inline(always)]
-    pub fn rt(&self) -> &JSRuntime {
-        self.header.rt()
     }
 
     /// get raw pointer to value
@@ -127,19 +123,16 @@ impl JSVarRefInner {
         }
     }
 
-    pub fn is_detached(&self) -> bool {
-        if let VarRefState::Bind { .. } = &self.state {
-            true
-        } else {
-            false
-        }
+    #[inline(always)]
+    pub const fn is_detached(&self) -> bool {
+        matches!(&self.state, VarRefState::Bind { .. })
     }
 
     /// detach bind var ref as detached var ref, duplicate var value as detached value.
     /// this makes var ref no longer refer to a local variable.
     /// if has async funtion, free it too.
     /// if `self` is already detached, do nothing.
-    pub fn detach(&mut self, rt: &mut JSRuntime) {
+    pub fn detach(&mut self) {
         if let VarRefState::Bind { pvalue, .. } = &mut self.state {
             let value = unsafe { pvalue.as_mut().clone() };
             // change state
@@ -148,7 +141,7 @@ impl JSVarRefInner {
     }
 
     /// returns id of target bind var, if state is bind.
-    pub fn var_idx(&self) -> Option<u16> {
+    pub const fn var_idx(&self) -> Option<u16> {
         if let VarRefState::Bind { var_idx, .. } = &self.state {
             Some(*var_idx)
         } else {
@@ -165,22 +158,21 @@ impl JSVarRefInner {
         }
     }
 
-    fn gc_dump(&self, rt: &JSRuntime) {
+    fn gc_dump(&self, _rt: &JSRuntime) {
         println!("{:14p} [var_ref]", self);
     }
 
-    fn finalize(&mut self) {
-        // let rt = unsafe { self.header.rt_ptr().as_mut() };
-        match &mut self.state {
-            VarRefState::Detached { value } => {
-                // JS_FreeValueRT(rt, &value);
-            }
-            VarRefState::Bind { async_func, .. } => {
-                // if !async_func.is_null() {
-                //     AsyncFuncState::free(rt, async_func);
-                // }
-            }
-        }
+    const fn finalize(&mut self) {
+        // match &mut self.state {
+        //     VarRefState::Detached { value } => {
+        //         // JS_FreeValueRT(rt, &value);
+        //     }
+        //     VarRefState::Bind { async_func, .. } => {
+        //         // if !async_func.is_null() {
+        //         //     AsyncFuncState::free(rt, async_func);
+        //         // }
+        //     }
+        // }
     }
 }
 
@@ -245,8 +237,8 @@ impl JSVarRef {
     /// if has async funtion, free it too.
     /// if `self` is already detached, do nothing.
     #[inline(always)]
-    pub fn detach(&self, rt: &mut JSRuntime) {
-        self.0.borrow_mut().detach(rt);
+    pub fn detach(&self) {
+        self.0.borrow_mut().detach();
     }
 
     /// returns id of target bind var, if state is bind.
@@ -291,35 +283,9 @@ impl JSVarRefWeakref {
     }
 }
 
-#[deprecated(note = "use JSVarRef::dispose() instead")]
-pub unsafe fn free_var_ref(rt: *mut JSRuntime, var_ref: *mut JSVarRef) {
-    unreachable!("unused");
-}
-
-#[deprecated(note = "use JSStackFrame::close_lexical_var() instead")]
-pub unsafe fn close_lexical_var(ctx: &JSContext, sf: *mut StackFrame, var_idx: u16, is_arg: bool) {
-    (*sf).close_lexical_var(ctx, var_idx, is_arg);
-}
-
-#[deprecated(note = "use JSStackFrame::close_var_refs() instead")]
-pub unsafe fn close_var_refs(ctx: &JSContext, sf: *mut StackFrame) {
-    (*sf).close_var_refs(ctx);
-}
-
 impl StackFrame {
-    // fn make_var_ref(
-    //     &mut self,
-    //     ctx: &JSContext,
-    //     var_idx: u16,
-    //     is_arg: bool,
-    //     pvalue: *mut JSValue,
-    // ) -> Result<Pin<Box<JSVarRef>>, i32> {
-    //     let vr = JSVarRef::new_bind(var_idx, is_arg, pvalue, std::ptr::null_mut());
-    //     Ok(vr)
-    // }
-
     /// find VarRef by id and is_arg. if not found, create new.
-    pub fn get_var_ref(
+    pub(crate) fn get_var_ref(
         &mut self,
         ctx: &JSContext,
         var_idx: u16,
@@ -373,21 +339,20 @@ impl StackFrame {
         Ok(vref)
     }
 
-    pub fn close_var_refs(&self, ctx: &JSContext) {
-        let rt = ctx.rt_mut();
+    pub(crate) fn close_var_refs(&self) {
         for var_ref in self.var_ref_list.iter() {
-            var_ref.detach(rt);
+            var_ref.detach();
         }
     }
 
-    pub fn close_lexical_var(&mut self, ctx: &JSContext, var_idx: u16, is_arg: bool) {
+    pub(crate) fn close_lexical_var(&mut self, var_idx: u16, is_arg: bool) {
         if let Some(i) = self
             .var_ref_list
             .iter()
             .position(|v| v.var_idx() == Some(var_idx) && v.is_arg() == is_arg)
         {
             // remove the VarRef and make it detached
-            self.var_ref_list.swap_remove(i).detach(ctx.rt_mut());
+            self.var_ref_list.swap_remove(i).detach();
         }
     }
 }

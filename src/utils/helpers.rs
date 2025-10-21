@@ -38,46 +38,46 @@ pub const fn M2(op1: i32, op2: i32) -> i32 {
 }
 
 #[inline(always)]
-pub const fn M3(op1: i32, op2: i32, op3: i32) -> i32 {
+pub(crate) const fn M3(op1: i32, op2: i32, op3: i32) -> i32 {
     op1 | (op2 << 8) | (op3 << 16)
 }
 
 #[inline(always)]
-pub const fn M4(op1: i32, op2: i32, op3: i32, op4: i32) -> i32 {
+pub(crate) const fn M4(op1: i32, op2: i32, op3: i32, op4: i32) -> i32 {
     op1 | (op2 << 8) | (op3 << 16) | (op4 << 24)
 }
 
 #[inline(always)]
-pub const unsafe fn read_from_ptr<T>(ptr: *const u8) -> T {
+pub(crate) const unsafe fn read_from_ptr<T>(ptr: *const u8) -> T {
     ptr.cast::<T>().read_unaligned()
 }
 
 #[inline(always)]
-pub const unsafe fn write_to_ptr<T>(ptr: *mut u8, val: T) {
+pub(crate) const unsafe fn write_to_ptr<T>(ptr: *mut u8, val: T) {
     ptr.cast::<T>().write_unaligned(val)
 }
 
 #[inline(always)]
-pub fn push_vec_u8(buf: &mut Vec<u8>, val: u8) {
+pub(crate) fn push_vec_u8(buf: &mut Vec<u8>, val: u8) {
     buf.push(val);
 }
 
 #[inline(always)]
-pub fn push_vec_u16(buf: &mut Vec<u8>, val: u16) {
+pub(crate) fn push_vec_u16(buf: &mut Vec<u8>, val: u16) {
     buf.extend_from_slice(&val.to_ne_bytes());
 }
 
 #[inline(always)]
-pub fn push_vec_u32(buf: &mut Vec<u8>, val: u32) {
+pub(crate) fn push_vec_u32(buf: &mut Vec<u8>, val: u32) {
     buf.extend_from_slice(&val.to_ne_bytes());
 }
 
 #[inline(always)]
-pub fn push_vec_atom(buf: &mut Vec<u8>, a: Atom) {
+pub(crate) fn push_vec_atom(buf: &mut Vec<u8>, a: Atom) {
     push_vec_u32(buf, unsafe { a.leak() });
 }
 
-pub fn push_vec_short_code(buf: &mut Vec<u8>, op: u8, idx: u16) {
+pub(crate) fn push_vec_short_code(buf: &mut Vec<u8>, op: u8, idx: u16) {
     #[cfg(feature = "short_opcode")]
     {
         if idx < 4 {
@@ -152,7 +152,7 @@ pub fn push_vec_short_code(buf: &mut Vec<u8>, op: u8, idx: u16) {
     push_vec_u16(buf, idx);
 }
 
-pub fn push_vec_short_int(buf: &mut Vec<u8>, val: i32) {
+pub(crate) fn push_vec_short_int(buf: &mut Vec<u8>, val: i32) {
     #[cfg(feature = "short_opcode")]
     {
         if val >= -1 && val <= 7 {
@@ -175,7 +175,7 @@ pub fn push_vec_short_int(buf: &mut Vec<u8>, val: i32) {
     push_vec_u32(buf, val as _);
 }
 
-pub fn push_vec_slice(buf: &mut Vec<u8>, data: *const u8, len: usize) -> Result<(), i32> {
+pub(crate) fn push_vec_slice(buf: &mut Vec<u8>, data: *const u8, len: usize) -> Result<(), i32> {
     if buf.len() + len < buf.capacity() {
         buf.try_reserve(len).map_err(|_| -1)?;
     }
@@ -183,7 +183,7 @@ pub fn push_vec_slice(buf: &mut Vec<u8>, data: *const u8, len: usize) -> Result<
     Ok(())
 }
 
-pub fn push_vec_leb128(s: &mut Vec<u8>, val: u32) {
+pub(crate) fn push_vec_leb128(s: &mut Vec<u8>, val: u32) {
     let mut v = val;
     loop {
         let a = (v & 0x7f) as u8;
@@ -198,13 +198,13 @@ pub fn push_vec_leb128(s: &mut Vec<u8>, val: u32) {
     }
 }
 
-pub fn push_vec_sleb128(s: &mut Vec<u8>, val: i32) {
+pub(crate) fn push_vec_sleb128(s: &mut Vec<u8>, val: i32) {
     let v = if val < 0 { 2 * val + 1 } else { 2 * val } as u32;
     push_vec_leb128(s, v);
 }
 
 // 成功时返回读取的字节数（usize）
-pub fn get_leb128(pval: &mut u32, buf: &[u8]) -> Result<usize, i32> {
+pub(crate) fn get_leb128(pval: &mut u32, buf: &[u8]) -> Result<usize, i32> {
     let mut ptr = buf.iter();
     let mut v: u32 = 0;
 
@@ -227,7 +227,7 @@ pub fn get_leb128(pval: &mut u32, buf: &[u8]) -> Result<usize, i32> {
     Err(-1) //  Invalid LEB128 encoding
 }
 
-pub fn get_sleb128(pval: &mut i32, buf: &[u8]) -> Result<usize, i32> {
+pub(crate) fn get_sleb128(pval: &mut i32, buf: &[u8]) -> Result<usize, i32> {
     let mut val = 0u32;
     let ret = get_leb128(&mut val, buf)?;
     *pval = (val as i32 >> 1) ^ -(val as i32 & 1);

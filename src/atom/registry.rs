@@ -146,8 +146,6 @@ impl AtomRegistry {
                 debug_assert!(!str.content().is_ident());
 
                 let ss = if let Some(at) = str.atom_info() {
-                    println!("[O.o] atom info: {at:?}");
-
                     if at.type_hint() == atom_type {
                         if !is_const_atom(at.id()) {
                             let _ = Rc::into_raw(str.0); // leak string strong count
@@ -297,11 +295,6 @@ impl AtomRegistry {
     pub(super) fn get_desc(atom_id: u32) -> Option<JSString> {
         debug_assert!(atom_id != 0);
 
-        //O.o
-        if REGISTRY.try_with(|_| {}).is_err() {
-            panic!("[O.o] ACCESS ERROR");
-        }
-
         REGISTRY.with(|reg| {
             let reg = reg.borrow();
 
@@ -328,7 +321,7 @@ impl AtomRegistry {
     /// find atom desc by str and type
     fn find_desc_internal<'a>(
         reg: &'a Self,
-        rt: &JSRuntime,
+        _rt: &JSRuntime,
         str: &str,
         atom_type: AtomTypeHint,
     ) -> Option<&'a JSStringInner> {
@@ -383,11 +376,6 @@ impl AtomRegistry {
     pub(super) fn free(aid: u32) {
         debug_assert!(aid >= JS_ATOM_INIT_COUNT);
 
-        //O.o
-        if REGISTRY.try_with(|_| {}).is_err() {
-            panic!("[O.o] ACCESS ERROR");
-        }
-
         REGISTRY.with(|reg| {
             let mut reg = reg.borrow_mut();
             let idx = aid as usize - JS_ATOM_INIT_COUNT as usize;
@@ -437,7 +425,7 @@ impl AtomRegistry {
 
                     // remove the desc
                     let hash = d.hash();
-                    removed.push((i as u32 + JS_ATOM_INIT_COUNT as u32, hash));
+                    removed.push((i as u32 + JS_ATOM_INIT_COUNT, hash));
                 }
             }
 
@@ -463,8 +451,9 @@ impl AtomRegistry {
                 unsafe {
                     if let Some(s) = p.as_ref() {
                         let d = Rc::from_raw(s);
+
                         let id = i as u32 + JS_ATOM_INIT_COUNT;
-                        println!("[O.o] drop atom {id}: {d:?}");
+                        println!("[atom registry clear] Atom({id}): {d:?}");
                     }
                 }
             }
@@ -472,7 +461,7 @@ impl AtomRegistry {
             for p in reg.atom_slots.drain(..) {
                 unsafe {
                     if let Some(s) = p.as_ref() {
-                        drop(Rc::from_raw(s));
+                        let _ = Rc::from_raw(s);
                     }
                 }
             }
@@ -601,7 +590,7 @@ impl AtomRef {
 }
 
 /// calc hash for str when using as an atom descriptor
-#[inline]
+#[inline(always)]
 fn calc_atom_hash_str(str: &str, atom_type: AtomTypeHint) -> u32 {
     let mut h = atom_type as u32;
     for c in str.encode_utf16() {

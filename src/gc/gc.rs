@@ -64,7 +64,7 @@ impl JSRuntime {
         }
     }
 
-    pub fn gc_dump_objects(&mut self, which: u8) {
+    pub(crate) const fn gc_dump_objects(&mut self, which: u8) {
         // let list = match which {
         //     0 => {
         //         println!("Zeroed GCObjects: {{");

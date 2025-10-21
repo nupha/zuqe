@@ -345,13 +345,10 @@ impl ArrayBuffer {
 
         if !abuf.is_detached() {
             let data0 = abuf.set_content(ABufData::Empty);
-            match data0 {
-                ABufData::Raw(ptr, len, fin) => {
-                    if let Some(f) = fin {
-                        f(ctx.rt(), abuf.opaque(), ptr.as_ptr(), len);
-                    }
-                }
-                _ => {}
+            if let ABufData::Raw(ptr, len, fin) = data0
+                && let Some(f) = fin
+            {
+                f(ctx.rt(), abuf.opaque(), ptr.as_ptr(), len);
             }
 
             for w in abuf.0.borrow_mut().array_list.drain(..) {
@@ -364,19 +361,6 @@ impl ArrayBuffer {
                     }
                 }
             }
-
-            // for w in abuf.0.borrow_mut().array_list.iter_mut() {
-            //     if let Some(o) = w.upgrade() {
-            //         // typed array or dataview
-            //         // Note: the typed array length and offset fields are not modified
-            //         if let Some(ta) = o.as_TypedArray()
-            //             && o.class_id() != JS_CLASS_DATAVIEW
-            //         {
-            //             let ta = ta.payload().typed_array().unwrap();
-            //             ta.borrow_mut().count = 0;
-            //         }
-            //     }
-            // }
 
             abuf.0.borrow_mut().detached = true;
         }
@@ -405,10 +389,10 @@ pub fn js_array_buffer_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: us
             free_func(rt, abuf.opaque(), p.as_ptr(), *len);
         }
         ABufData::Shared(a) => {
-            if Arc::strong_count(&a) == 1 {
-                if let Some(fns) = &rt.sab_funcs {
-                    (fns.sab_free)(fns.sab_opaque, a.read().unwrap().len());
-                }
+            if Arc::strong_count(a) == 1
+                && let Some(fns) = &rt.sab_funcs
+            {
+                (fns.sab_free)(fns.sab_opaque, a.read().unwrap().len());
             }
         }
         _ => {}

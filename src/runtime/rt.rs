@@ -443,7 +443,7 @@ impl JSRuntime {
     }
 }
 
-pub fn js_check_stack_overflow(rt: &JSRuntime, alloca_size: usize) -> bool {
+pub(crate) fn js_check_stack_overflow(rt: &JSRuntime, alloca_size: usize) -> bool {
     let sp = js_get_stack_pointer() as usize - alloca_size;
     if rt.stack_limit > 0 {
         sp < rt.stack_limit
@@ -452,22 +452,20 @@ pub fn js_check_stack_overflow(rt: &JSRuntime, alloca_size: usize) -> bool {
     }
 }
 
-pub unsafe fn update_stack_limit(rt: *mut JSRuntime) {
-    if (*rt).stack_size == 0 {
-        (*rt).stack_limit = 0; // no limit
+const fn update_stack_limit(rt: &mut JSRuntime) {
+    if rt.stack_size == 0 {
+        rt.stack_limit = 0; // no limit
     } else {
-        (*rt).stack_limit = (*rt).stack_top - (*rt).stack_size;
+        rt.stack_limit = rt.stack_top - rt.stack_size;
     }
 }
 
-pub unsafe fn JS_SetMaxStackSize(rt: *mut JSRuntime, stack_size: usize) {
-    (*rt).stack_size = stack_size;
+pub(crate) fn JS_SetMaxStackSize(rt: &mut JSRuntime, stack_size: usize) {
+    rt.stack_size = stack_size;
     update_stack_limit(rt);
 }
 
-pub fn JS_UpdateStackTop(rt: *mut JSRuntime) {
-    unsafe {
-        (*rt).stack_top = js_get_stack_pointer() as usize;
-        update_stack_limit(rt);
-    }
+fn JS_UpdateStackTop(rt: &mut JSRuntime) {
+    rt.stack_top = js_get_stack_pointer() as usize;
+    update_stack_limit(rt);
 }

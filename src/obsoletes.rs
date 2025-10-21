@@ -2198,7 +2198,8 @@ pub unsafe fn js_parse_expr2(s: *mut JSParseState, parse_flags: i32) -> i32 {
 
 #[deprecated(note = "use JSParseState::parse_template() instead")]
 pub unsafe fn js_parse_template(s: *mut JSParseState, call: bool, argc: *mut i32) -> i32 {
-    (*s).parse_template(call, argc).map_or(-1, |_| 0)
+    unreachable!("unused");
+    // (*s).parse_template(call, argc).map_or(-1, |_| 0)
 }
 
 #[deprecated(note = "use JSParseState::parse_left_hand_side_expr() instead")]
@@ -4687,4 +4688,192 @@ pub unsafe fn js_parse_class_default_ctor(
     pfd: *mut *mut JSFunctionDef,
 ) -> i32 {
     unreachable!("unused");
+}
+
+/// 将数组 obj 中从 start_pos 开始的 count 个元素复制到 to_pos 开始的位置。
+/// - 正向复制（dir > 0）：从 start_pos 到 start_pos + count - 1 的元素依次复制到 to_pos 到 to_pos + count - 1。
+/// - 反向复制（dir < 0）：从 start_pos + count - 1 到 start_pos 的元素依次复制到 to_pos + count - 1 到 to_pos。
+#[deprecated(note = "use copy_sub_array() instead")]
+fn JS_CopySubArray(
+    ctx: &JSContext,
+    obj: &JSValue,
+    to_pos: usize,
+    start_pos: usize,
+    count: usize,
+    dir: i32,
+) -> Result<(), i32> {
+    todo!()
+    // let fast_array = if let JSValue::Object(o) = obj {
+    //     if o.flags().is_fast_array() && o.class_id() == JS_CLASS_ARRAY {
+    //         Some(o)
+    //     } else {
+    //         None
+    //     }
+    // } else {
+    //     None
+    // };
+
+    // if let Some(fa) = fast_array {
+    //     fa.with_fast_array_values_mut(|lst| {
+    //         let len = lst.len();
+
+    //         // calc actual copy count
+    //         let cnt1 = if start_pos + count > len {
+    //             if len > start_pos { len - start_pos } else { 0 }
+    //         } else {
+    //             count
+    //         };
+    //         let cnt2 = if to_pos + count > len {
+    //             if len > to_pos { len - to_pos } else { 0 }
+    //         } else {
+    //             count
+    //         };
+    //         let cnt = std::cmp::min(cnt1, cnt2);
+
+    //         if cnt > 0 {
+    //             if dir > 0 {
+    //                 for i in 0..cnt {
+    //                     let v1 = lst[start_pos + i].clone();
+    //                     lst[to_pos + i] = v1;
+    //                 }
+    //             } else {
+    //                 for i in (0..cnt).rev() {
+    //                     let v1 = lst[start_pos + i].clone();
+    //                     lst[to_pos + i] = v1;
+    //                 }
+    //             }
+    //         }
+    //     })
+    //     .unwrap();
+    // } else {
+    //     // sparse array
+    //     for i in 0..count {
+    //         match obj.try_get_property_i64(ctx, (start_pos + i) as i64)? {
+    //             Some(val) => {
+    //                 obj.set_property_i64(ctx, (to_pos + i) as _, val)?;
+    //             }
+    //             None => {
+    //                 obj.delete_property_i64(ctx, (to_pos + 1) as _, JS_PROP_THROW)?;
+    //             }
+    //         }
+    //     }
+    // }
+
+    // Ok(())
+}
+
+#[deprecated]
+pub unsafe fn JS_DumpAtoms(rt: &JSRuntime) {
+    // This only dumps hashed atoms, not JS_ATOM_TYPE_SYMBOL atoms
+    // println!(
+    //     "AtomRef count={} size={} hash_size={}:",
+    //     (*rt).atom_count,
+    //     (*rt).atom_size,
+    //     (*rt).atom_hash_size
+    // );
+
+    // println!("AtomRef hash table: {{");
+    // for i in 0..(*rt).atom_hash_size {
+    //     let mut h = *(*rt).atom_hash.offset(i as isize);
+    //     if h != 0 {
+    //         print!("  {i}:");
+    //         while h != 0 {
+    //             let p = *(*rt).atom_array.offset(h as isize);
+    //             print!(" ");
+    //             JS_DumpString(rt, p);
+    //             h = (*p).hash_next;
+    //         }
+    //         println!();
+    //     }
+    // }
+    // println!("}}");
+
+    // println!("AtomRef table (non-const): {{");
+    // for (i, astr) in (*rt).atom_slots[JS_ATOM_INIT_COUNT as usize..]
+    //     .iter()
+    //     .enumerate()
+    // {
+    //     if let Some(p) = astr.as_ref() {
+    //         print!(
+    //             "  {}: {{ {} {:08x} {:?}",
+    //             i + JS_ATOM_INIT_COUNT as usize,
+    //             p.atom_info().unwrap().type_hint() as u8,
+    //             Atom::calc_atom_hash(p.content(), AtomTypeHint::String),
+    //             p.content()
+    //         );
+
+    //         // JS_DumpString(rt, p);
+    //         println!(" }}");
+    //     }
+    // }
+
+    // println!("}}");
+}
+
+#[deprecated(note = "use JSContext::clone() instead")]
+pub fn JS_DupContext(ctx: &JSContext) -> JSContext {
+    ctx.clone()
+}
+
+#[deprecated(note = "unused")]
+pub unsafe fn JS_FreeContext(ctx: &JSContext) {
+    unreachable!("unused");
+    // if ctx.dec_ref() == 0 {
+    //     let rt = ctx.rt_mut();
+
+    //     if rt.gc_phase != JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES {
+    //         let node = ctx.gc_node_ptr();
+    //         Node::unlink(node);
+    //         rt.gc_zero_ref_count_list.push_raw(node);
+
+    //         if rt.gc_phase == JSGCPhaseEnum::JS_GC_PHASE_NONE {
+    //             rt.gc_free_zeroed();
+    //         }
+    //     }
+    // }
+}
+
+// test if 'var_name' is in the variable object on the stack. If is it
+// the case, handle it and jump to 'label_done'.
+// If argument `label_done` is None, new label will be created.
+#[deprecated(note = "use JSFunctionDef::var_object_test() instead")]
+pub unsafe fn var_object_test(
+    ctx: &JSContext,
+    s: *mut JSFunctionDef,
+    var_name: &Atom,
+    op: u8,
+    bc: &mut Vec<u8>,
+    label_done: &mut Option<u32>,
+    is_with: bool,
+) {
+    todo!()
+    // label_done.replace(s.var_object_test(var_name, op, bc, *label_done, is_with));
+}
+
+/// Resolves special pseudo variables (this, new.target, etc.)
+/// Returns the variable definition index if found
+/// Returns None if the variable is not a pseudo variable
+#[deprecated(note = "use JSFunctionDef::resolve_pseudo_var() instead")]
+pub unsafe fn resolve_pseudo_var(
+    ctx: &JSContext,
+    s: *mut JSFunctionDef,
+    var_name: &Atom,
+) -> Option<u16> {
+    todo!()
+    // (*s).resolve_pseudo_var(ctx, var_name)
+}
+
+#[deprecated(note = "use JSVarRef::dispose() instead")]
+pub unsafe fn free_var_ref(rt: *mut JSRuntime, var_ref: *mut JSVarRef) {
+    unreachable!("unused");
+}
+
+#[deprecated(note = "use JSStackFrame::close_lexical_var() instead")]
+pub unsafe fn close_lexical_var(ctx: &JSContext, sf: *mut StackFrame, var_idx: u16, is_arg: bool) {
+    (*sf).close_lexical_var(var_idx, is_arg);
+}
+
+#[deprecated(note = "use JSStackFrame::close_var_refs() instead")]
+pub unsafe fn close_var_refs(ctx: &JSContext, sf: *mut StackFrame) {
+    (*sf).close_var_refs();
 }

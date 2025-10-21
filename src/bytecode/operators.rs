@@ -107,7 +107,8 @@ pub(super) fn js_op_define_class(
     let bc_val = unsafe { std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED) };
     let bc = match bc_val {
         JSValue::Bytecode(b) => b,
-        JSValue::Object(o) => {
+        #[cfg(debug_assertions)]
+        JSValue::Object(_) => {
             todo!("[O.o] could this be an function object?");
             // o.0.detail
             //     .borrow()
@@ -264,15 +265,19 @@ pub fn js_method_set_properties(
 /// 操作完成后, `SP[-3]`数组中加入了来自`SP[-1]`的全部元素，`SP[-1]`没有变化，`SP[-2]`更新为结束位置index。
 pub(super) unsafe fn js_append_enumerate(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
     // the index where append starts
-    let mut pos = if let JSValue::Int(i) = &*sp.offset(-2) {
+    let mut pos = if let JSValue::Int(i) = unsafe { &*sp.offset(-2) } {
         *i
     } else {
         ctx.throw_internal_error("invalid index for append");
         return Err(-1);
     };
 
-    let src = &*sp.offset(-1); // the source iterator or array
-    let dest = &*sp.offset(-3); // the dest array
+    let (src, dest) = unsafe {
+        (
+            &*sp.offset(-1), // the source iterator or array
+            &*sp.offset(-3), // the dest array
+        )
+    };
 
     // .length property of the array
     let len = js_get_length32(ctx, &src)? as usize;

@@ -79,22 +79,21 @@ impl<'a> Iterator for U16CharIter<'a> {
 
     /// returns (next_pos, char)
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(n) = self.data.next() {
+        if let Some(n) = self.data.next() {
             let high = *n as u32;
             self.cursor += 1;
 
             let r = if (0xD800..=0xDBFF).contains(&high) {
-                if let Some(low) = self.data.peek() {
-                    if (0xDC00..=0xDFFF).contains(*low) {
-                        // 合法代理对 → 组合成有效的 Unicode 字符
-                        let code_point =
-                            ((high - 0xD800) << 10) + (**low as u32 - 0xDC00) + 0x10000;
+                if let Some(low) = self.data.peek()
+                    && (0xDC00..=0xDFFF).contains(*low)
+                {
+                    // 合法代理对 → 组合成有效的 Unicode 字符
+                    let code_point = ((high - 0xD800) << 10) + (**low as u32 - 0xDC00) + 0x10000;
 
-                        if let Some(ch) = char::from_u32(code_point) {
-                            self.data.next(); // 消耗低代理项
-                            self.cursor += 1;
-                            return Some((self.cursor, StringChar::Char(ch)));
-                        }
+                    if let Some(ch) = char::from_u32(code_point) {
+                        self.data.next(); // 消耗低代理项
+                        self.cursor += 1;
+                        return Some((self.cursor, StringChar::Char(ch)));
                     }
                 }
 
@@ -112,10 +111,10 @@ impl<'a> Iterator for U16CharIter<'a> {
                 }
             };
 
-            return Some((self.cursor, r));
+            Some((self.cursor, r))
+        } else {
+            None
         }
-
-        None
     }
 }
 
@@ -131,7 +130,7 @@ impl<'a> U16CharIter<'a> {
 
     /// peek next code (not char).
     pub fn peek(&mut self) -> Option<u16> {
-        self.data.peek().copied().map(|c| *c)
+        self.data.peek().copied().copied()
     }
 }
 

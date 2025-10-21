@@ -60,7 +60,7 @@ impl BCFunction {
         ctx: &JSContext,
         this_obj: &JSValue,
         args: &[JSValue],
-        flags: i32,
+        _flags: i32,
     ) -> Result<Promise, i32> {
         let (promise, resolving_funcs) = Promise::create(ctx)?;
         async_function_resume(

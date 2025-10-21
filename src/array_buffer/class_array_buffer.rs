@@ -106,7 +106,7 @@ fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
             })
         });
 
-        Ok(new_obj.into())
+        Ok(new_obj)
     }
 }
 
@@ -151,7 +151,7 @@ pub static js_shared_array_buffer_proto_funcs: [FieldDef; 3] = [
 // static methods
 //
 
-pub fn js_array_buffer_isView(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_array_buffer_isView(_: &JSContext, cc: CallContext) -> JSResult {
     let mut res = false;
     if let JSValue::Object(p) = cc.arg(0) {
         if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_DATAVIEW).contains(&p.class_id()) {

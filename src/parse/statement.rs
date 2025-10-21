@@ -246,7 +246,7 @@ impl<'s> JSParseState<'s> {
                     self.parse_function_decl(
                         JSParseFunctionEnum::JS_PARSE_FUNC_VAR,
                         JSFunctionKindEnum::JS_FUNC_NORMAL,
-                        &Atom::NULL,
+                        Atom::NULL,
                         self.token.ptr,
                         self.token.line_num,
                     )?;

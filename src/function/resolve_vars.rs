@@ -1,7 +1,5 @@
-use std::ops::Deref;
-
 use crate::{
-    atom::{Atom, AtomRef, JS_ATOM_NULL, consts::*},
+    atom::{Atom, AtomRef, consts::*},
     bytecode::{OpCode, OpCodeTemp, opcode_info_intermediate, opcodes},
     context::JSContext,
     error::JS_THROW_VAR_REDECL,
@@ -21,7 +19,7 @@ impl JSFunctionDef {
     /// Performs initial runtime checks for global variables
     /// This must be executed before creating any variables
     /// Checks for potential conflicts between global and closure variables
-    fn resolve_variables_check_global_vars(&self, ctx: &JSContext, bc_buf: &mut Vec<u8>) {
+    fn resolve_variables_check_global_vars(&self, bc_buf: &mut Vec<u8>) {
         'g_var: for hf in self.global_vars.iter() {
             // check if global variable (XXX: simplify)
             if let Some(cvars) = self.closure_vars.as_ref() {
@@ -81,7 +79,7 @@ impl JSFunctionDef {
         };
 
         // first pass for runtime checks (must be done before the variables are created)
-        self.resolve_variables_check_global_vars(ctx, &mut bc_out);
+        self.resolve_variables_check_global_vars(&mut bc_out);
 
         macro_rules! no_change {
             ($pos:expr, $len:expr) => {
@@ -129,9 +127,9 @@ impl JSFunctionDef {
                 opcodes::OP_apply_eval => {
                     // convert scope index to adjusted variable index
                     let scope = unsafe { read_from_ptr::<u16>(bc_buf_ptr.add(pos + 1)) };
-                    unsafe {
-                        mark_eval_captured_variables(self, scope as _);
-                    }
+
+                    mark_eval_captured_variables(self, scope as _);
+
                     push_vec_u8(&mut bc_out, op);
                     push_vec_u16(&mut bc_out, (self.scopes[scope as usize].first + 1) as _);
                 }
@@ -206,12 +204,8 @@ impl JSFunctionDef {
                                 opcode_info_intermediate(self.byte_code[pos]).size as usize;
                             pos_next = pos + op_len1;
 
-                            if push_vec_slice(
-                                &mut bc_out,
-                                unsafe { bc_buf_ptr.add(pos as usize) },
-                                op_len1,
-                            )
-                            .is_err()
+                            if push_vec_slice(&mut bc_out, unsafe { bc_buf_ptr.add(pos) }, op_len1)
+                                .is_err()
                             {
                                 ctx.throw_out_of_memory();
                                 break;
@@ -384,7 +378,7 @@ impl JSFunctionDef {
                                 push_vec_u8(&mut bc_out, OpCode::CLOSE_LOC as u8);
                                 push_vec_u16(&mut bc_out, scope_idx as u16);
                             }
-                            scope_idx = (*vd).scope_next;
+                            scope_idx = vd.scope_next;
                         } else {
                             break;
                         }
@@ -480,12 +474,10 @@ impl JSFunctionDef {
             }
 
             // check buffer capacity, if no more space left, grow the buffer
-            if bc_out.capacity() - bc_out.len() < 16 {
-                if bc_out.try_reserve(64).is_err() {
-                    // can't alloc memory, fail
-                    ctx.throw_out_of_memory();
-                    return Err(-1);
-                }
+            if bc_out.capacity() - bc_out.len() < 16 && bc_out.try_reserve(64).is_err() {
+                // can't alloc memory, fail
+                ctx.throw_out_of_memory();
+                return Err(-1);
             }
 
             pos = pos_next;
@@ -499,7 +491,7 @@ impl JSFunctionDef {
     }
 }
 
-pub fn mark_eval_captured_variables(s: &mut JSFunctionDef, scope_level: i32) {
+fn mark_eval_captured_variables(s: &mut JSFunctionDef, scope_level: i32) {
     let mut idx = s.scopes[scope_level as usize].first;
     while idx >= 0 {
         let vd = s.vars.get_mut(idx as usize).unwrap();

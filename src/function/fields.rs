@@ -2,7 +2,7 @@ use std::{borrow::Cow, ptr::NonNull};
 
 use crate::{
     JS_CLASS_ARRAY,
-    atom::{Atom, AtomRef, AtomTypeHint, consts::*},
+    atom::{Atom, AtomRef, consts::*},
     context::JSContext,
     function::NativeFunctionType,
     object::{JS_PROP_CONFIGURABLE, JSObject, LazyInit},
@@ -67,17 +67,17 @@ impl JSObject {
 
         match e.detail {
             NativeFieldDetail::Func { .. } => {
-                if atom.to_ref() == JS_ATOM_Symbol_toPrimitive {
+                if atom.eq_ref(JS_ATOM_Symbol_toPrimitive) {
                     // Symbol.toPrimitive functions are not writable
                     prop_flags = JS_PROP_CONFIGURABLE as u8;
-                } else if atom.to_ref() == JS_ATOM_Symbol_hasInstance {
+                } else if atom.eq_ref(JS_ATOM_Symbol_hasInstance) {
                     // Function.prototype[Symbol.hasInstance] is not writable nor configurable
                     prop_flags = 0;
                 }
 
                 self.define_lazy_property(
                     ctx,
-                    &atom,
+                    atom,
                     LazyInit::Prop(NonNull::from(e)),
                     prop_flags as _,
                 )?;
@@ -138,10 +138,10 @@ impl JSObject {
                     }
                 };
 
-                if atom.to_ref() == JS_ATOM_Symbol_toPrimitive {
+                if atom.eq_ref(JS_ATOM_Symbol_toPrimitive) {
                     // Symbol.toPrimitive functions are not writable
                     prop_flags = JS_PROP_CONFIGURABLE as u8;
-                } else if atom.to_ref() == JS_ATOM_Symbol_hasInstance {
+                } else if atom.eq_ref(JS_ATOM_Symbol_hasInstance) {
                     // Function.prototype[Symbol.hasInstance] is not writable nor configurable
                     prop_flags = 0;
                 }

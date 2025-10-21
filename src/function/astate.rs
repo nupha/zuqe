@@ -125,7 +125,7 @@ impl AsyncStateInner {
     }
 
     /// free values ranges from argument start through stack top.
-    fn free_stack_values(&mut self, rt: &mut JSRuntime) {
+    fn free_stack_values(&mut self) {
         // free values on async stack frame
         if !self.frame.arg_base_ptr.is_null() {
             debug_assert!(
@@ -153,7 +153,7 @@ impl AsyncStateInner {
         if !self.is_completed {
             // cannot close the closure variables here because it would
             // potentially modify the object graph
-            self.free_stack_values(unsafe { self.header.rt_ptr().as_mut() });
+            self.free_stack_values();
         }
     }
 }
@@ -299,7 +299,7 @@ impl AsyncFuncState {
 
             state.is_completed = true;
             // close the closure variables.
-            state.frame.close_var_refs(ctx);
+            state.frame.close_var_refs();
         }
 
         ret

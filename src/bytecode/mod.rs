@@ -18,7 +18,7 @@ pub fn opcode_info_common(op: u8) -> &'static Opcode {
 
 /// get opcode descr in intermediate phase (common + temp)
 pub fn opcode_info_intermediate(op: u8) -> &'static Opcode {
-    if op < OP_COUNT_COMMON as u8 {
+    if op < OP_COUNT_COMMON {
         JS_COMMON_OPCODES_INFO.get(op as usize).unwrap()
     } else {
         JS_TEMP_OPCODES_INFO

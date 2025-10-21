@@ -73,11 +73,12 @@ pub struct JSVarDef {
 }
 
 impl JSVarDef {
-    pub fn is_const(&self) -> bool {
+    #[inline(always)]
+    pub const fn is_const(&self) -> bool {
         self.bitfields & 0x01 != 0
     }
 
-    pub fn set_is_const(&mut self, value: bool) {
+    pub const fn set_is_const(&mut self, value: bool) {
         if value {
             self.bitfields |= 0x01;
         } else {
@@ -85,11 +86,12 @@ impl JSVarDef {
         }
     }
 
-    pub fn is_lexical(&self) -> bool {
+    #[inline(always)]
+    pub const fn is_lexical(&self) -> bool {
         (self.bitfields >> 1) & 0x01 != 0
     }
 
-    pub fn set_is_lexical(&mut self, value: bool) {
+    pub const fn set_is_lexical(&mut self, value: bool) {
         if value {
             self.bitfields |= 0x02;
         } else {
@@ -97,11 +99,12 @@ impl JSVarDef {
         }
     }
 
-    pub fn is_captured(&self) -> bool {
+    #[inline(always)]
+    pub const fn is_captured(&self) -> bool {
         (self.bitfields >> 2) & 0x01 != 0
     }
 
-    pub fn set_is_captured(&mut self, value: bool) {
+    pub const fn set_is_captured(&mut self, value: bool) {
         if value {
             self.bitfields |= 0x04;
         } else {
@@ -109,11 +112,12 @@ impl JSVarDef {
         }
     }
 
-    pub fn is_static_private(&self) -> bool {
+    #[inline(always)]
+    pub const fn is_static_private(&self) -> bool {
         (self.bitfields >> 3) & 0x01 != 0
     }
 
-    pub fn set_is_static_private(&mut self, value: bool) {
+    pub const fn set_is_static_private(&mut self, value: bool) {
         if value {
             self.bitfields |= 0x08;
         } else {
@@ -121,19 +125,20 @@ impl JSVarDef {
         }
     }
 
+    #[inline(always)]
     pub fn var_kind(&self) -> JSVarKindEnum {
         unsafe { std::mem::transmute((self.bitfields >> 4) & 0x0F) }
     }
 
-    pub fn set_var_kind(&mut self, kind: JSVarKindEnum) {
+    pub const fn set_var_kind(&mut self, kind: JSVarKindEnum) {
         let value = kind as u8;
         self.bitfields = (self.bitfields & 0x0F) | (value << 4);
     }
 }
 
 /* XXX: should handle the argument scope generically */
-#[inline(always)]
-pub fn is_var_in_arg_scope(vd: &JSVarDef) -> bool {
+#[inline]
+pub(super) const fn is_var_in_arg_scope(vd: &JSVarDef) -> bool {
     matches!(
         vd.var_name.to_ref(),
         JS_ATOM__home_object_
@@ -160,22 +165,33 @@ pub struct JSGlobalVar {
 }
 
 impl JSGlobalVar {
-    pub fn force_init(&self) -> bool {
+    #[inline(always)]
+    pub const fn force_init(&self) -> bool {
         self.bitfields & 1 != 0
     }
-    pub fn is_lexical(&self) -> bool {
+
+    #[inline(always)]
+    pub const fn is_lexical(&self) -> bool {
         self.bitfields & 2 != 0
     }
-    pub fn is_const(&self) -> bool {
+
+    #[inline(always)]
+    pub const fn is_const(&self) -> bool {
         self.bitfields & 4 != 0
     }
-    pub fn set_force_init(&mut self, v: bool) {
-        self.bitfields = (self.bitfields & !1) | ((v as u8) << 0)
+
+    #[inline(always)]
+    pub const fn set_force_init(&mut self, v: bool) {
+        self.bitfields = (self.bitfields & !1) | (v as u8)
     }
-    pub fn set_is_lexical(&mut self, v: bool) {
+
+    #[inline(always)]
+    pub const fn set_is_lexical(&mut self, v: bool) {
         self.bitfields = (self.bitfields & !2) | ((v as u8) << 1)
     }
-    pub fn set_is_const(&mut self, v: bool) {
+
+    #[inline(always)]
+    pub const fn set_is_const(&mut self, v: bool) {
         self.bitfields = (self.bitfields & !4) | ((v as u8) << 2)
     }
 }
@@ -187,11 +203,11 @@ impl JSFunctionDef {
         ctx: &JSContext,
         name: &Atom,
     ) -> Result<&mut JSGlobalVar, i32> {
-        if self.global_vars.len() == self.global_vars.capacity() {
-            if self.global_vars.try_reserve_exact(2).is_err() {
-                ctx.throw_out_of_memory();
-                return Err(-1);
-            }
+        if self.global_vars.len() == self.global_vars.capacity()
+            && self.global_vars.try_reserve_exact(2).is_err()
+        {
+            ctx.throw_out_of_memory();
+            return Err(-1);
         }
 
         let mut hf = JSGlobalVar {
@@ -268,11 +284,9 @@ impl JSFunctionDef {
             return Err(-1);
         }
 
-        if self.vars.len() == self.vars.capacity() {
-            if self.vars.try_reserve_exact(4).is_err() {
-                ctx.throw_out_of_memory();
-                return Err(-1);
-            }
+        if self.vars.len() == self.vars.capacity() && self.vars.try_reserve_exact(4).is_err() {
+            ctx.throw_out_of_memory();
+            return Err(-1);
         }
 
         self.vars.push(JSVarDef {
@@ -305,34 +319,31 @@ impl JSFunctionDef {
     /// - true: will define in the argument scope. this is only needed when "eval()" may be called in the argument scope. Return 0 if OK.
     pub fn add_arguments(&mut self, ctx: &JSContext, in_arg_scope: bool) -> Result<u16, i32> {
         if in_arg_scope {
-            if self.arguments_arg_idx.is_none() {
-                if self
+            if self.arguments_arg_idx.is_none()
+                && self
                     .find_var_in_scope(&JS_ATOM_arguments, ARG_SCOPE_INDEX as _)
                     .is_none()
-                {
-                    // XXX: the scope links are not fully updated. May be an
-                    // issue if there are child scopes of the argument scope
-                    let idx = self.add_var(ctx, &JS_ATOM_arguments)?;
+            {
+                // XXX: the scope links are not fully updated. May be an
+                // issue if there are child scopes of the argument scope
+                let idx = self.add_var(ctx, &JS_ATOM_arguments)?;
 
-                    let vd = self.vars.get_mut(idx as usize).unwrap();
-                    vd.scope_next = self.scopes[ARG_SCOPE_INDEX as usize].first;
-                    vd.scope_level = ARG_SCOPE_INDEX;
-                    vd.set_is_lexical(true);
+                let vd = self.vars.get_mut(idx as usize).unwrap();
+                vd.scope_next = self.scopes[ARG_SCOPE_INDEX as usize].first;
+                vd.scope_level = ARG_SCOPE_INDEX;
+                vd.set_is_lexical(true);
 
-                    self.scopes.get_mut(ARG_SCOPE_INDEX as usize).unwrap().first = idx as i32;
-                    self.arguments_arg_idx.replace(idx);
-                }
+                self.scopes.get_mut(ARG_SCOPE_INDEX as usize).unwrap().first = idx as i32;
+                self.arguments_arg_idx.replace(idx);
             }
 
             Ok(0)
+        } else if let Some(idx) = self.arguments_var_idx {
+            Ok(idx)
         } else {
-            if let Some(idx) = self.arguments_var_idx {
-                Ok(idx)
-            } else {
-                let idx = self.add_var(ctx, JS_ATOM_arguments.deref())?;
-                self.arguments_var_idx.replace(idx);
-                Ok(idx)
-            }
+            let idx = self.add_var(ctx, JS_ATOM_arguments.deref())?;
+            self.arguments_var_idx.replace(idx);
+            Ok(idx)
         }
     }
 
@@ -414,10 +425,11 @@ impl JSFunctionDef {
             scope_idx = vd.scope_next;
         }
 
-        if self.is_eval && self.eval_type == JS_EVAL_TYPE_GLOBAL {
-            if self.find_lexical_global_var(name).is_some() {
-                return Some(GLOBAL_VAR_OFFSET as u32);
-            }
+        if self.is_eval
+            && self.eval_type == JS_EVAL_TYPE_GLOBAL
+            && self.find_lexical_global_var(name).is_some()
+        {
+            return Some(GLOBAL_VAR_OFFSET as u32);
         }
 
         None

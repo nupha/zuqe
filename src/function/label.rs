@@ -30,11 +30,11 @@ pub struct Label {
 
 impl Label {
     pub fn add_reloc(&mut self, ctx: &JSContext, addr: usize, size: i32) -> Result<(), i32> {
-        if self.pending_relocs.len() == self.pending_relocs.capacity() {
-            if self.pending_relocs.try_reserve_exact(4).is_err() {
-                ctx.throw_out_of_memory();
-                return Err(-1);
-            }
+        if self.pending_relocs.len() == self.pending_relocs.capacity()
+            && self.pending_relocs.try_reserve_exact(4).is_err()
+        {
+            ctx.throw_out_of_memory();
+            return Err(-1);
         }
 
         self.pending_relocs.push(RelocEntry { addr, size });
@@ -45,11 +45,11 @@ impl Label {
 impl JSFunctionDef {
     /// Create a new label in function def. returns new label id.
     pub fn add_label(&mut self) -> Result<u32, i32> {
-        if self.label_slots.len() == self.label_slots.capacity() {
-            if self.label_slots.try_reserve_exact(4).is_err() {
-                self.ctx.throw_out_of_memory();
-                return Err(-1);
-            }
+        if self.label_slots.len() == self.label_slots.capacity()
+            && self.label_slots.try_reserve_exact(4).is_err()
+        {
+            self.ctx.throw_out_of_memory();
+            return Err(-1);
         }
 
         self.label_slots.push(Label {
@@ -64,7 +64,7 @@ impl JSFunctionDef {
     }
 
     /// check if a specified `label` exists in bytecode, since `pos`.
-    pub(super) fn code_has_label(&self, mut pos: usize, label: u32) -> bool {
+    pub(super) const fn code_has_label(&self, mut pos: usize, label: u32) -> bool {
         let bc_buf = self.byte_code.as_ptr();
         let bc_len = self.byte_code.len();
 
@@ -109,7 +109,7 @@ impl JSFunctionDef {
 
     pub fn pop_break_entry(&mut self) {
         let top = self.top_break;
-        self.top_break = unsafe { (*top).prev };
+        self.top_break = unsafe { (&*top).prev };
     }
 
     /// return the target label, following the OP_goto jumps.

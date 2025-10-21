@@ -67,7 +67,7 @@ pub struct JSParseState<'s> {
 
 impl Drop for JSParseState<'_> {
     fn drop(&mut self) {
-        self.clear_atom_in_token();
+        self.clear_token_data();
     }
 }
 
@@ -129,14 +129,11 @@ impl<'s> JSParseState<'s> {
     }
 
     /// free atom if any.
-    pub(super) fn clear_atom_in_token(&mut self) {
-        match &mut self.token.data {
-            TokenData::Ident { atom, .. } => {
-                *atom = Atom::NULL;
-            }
-            _ => {}
-        }
-
+    #[inline(always)]
+    pub(super) fn clear_token_data(&mut self) {
+        // if let TokenData::Ident { atom, .. } = &mut self.token.data {
+        //     *atom = Atom::NULL;
+        // }
         self.token.data = TokenData::None;
     }
 

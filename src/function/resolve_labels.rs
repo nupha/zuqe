@@ -140,7 +140,7 @@ impl JSFunctionDef {
         let mut line_num = self.line_num;
         let mut pos = 0_usize;
         let mut pos_next: usize;
-        let mut op1: u8 = 0;
+        let mut op1: u8;
 
         while pos < bc_len {
             let op = unsafe { *bc_ptr.add(pos) };
@@ -197,8 +197,7 @@ impl JSFunctionDef {
                         }
                         self.add_pc2line_info(bc_out.len() as _, line_num);
                         push_vec_short_code(&mut bc_out, op + 1, argc);
-                        pos_next =
-                            skip_dead_code(self, bc_ptr, bc_len, m.pos, &mut (line_num as i32));
+                        pos_next = skip_dead_code(self, bc_ptr, bc_len, m.pos, &mut line_num);
                     } else {
                         self.add_pc2line_info(bc_out.len() as _, line_num);
                         push_vec_short_code(&mut bc_out, op, argc);
@@ -210,8 +209,7 @@ impl JSFunctionDef {
                 | opcodes::OP_return_async
                 | opcodes::OP_throw
                 | opcodes::OP_throw_error => {
-                    pos_next =
-                        skip_dead_code(self, bc_ptr, bc_len, pos_next, &mut (line_num as i32));
+                    pos_next = skip_dead_code(self, bc_ptr, bc_len, pos_next, &mut line_num);
                     Some(ResolveLabelsState::NoChange)
                 }
                 opcodes::OP_goto => Some(ResolveLabelsState::HasGoto {
@@ -260,7 +258,7 @@ impl JSFunctionDef {
                     label = unsafe { read_from_ptr::<u32>(bc_ptr.add(pos + 5)) };
                     let is_with = unsafe { *bc_ptr.add(pos + 9) };
                     if OPTIMIZE {
-                        (label, op1, _) = self.find_jump_target(label);
+                        (label, _, _) = self.find_jump_target(label);
                     }
                     debug_assert!(label < self.label_slots.len() as u32);
 
@@ -278,7 +276,7 @@ impl JSFunctionDef {
                     push_vec_u32(&mut bc_out, atom);
 
                     let lb = self.label_slots.get_mut(label as usize).unwrap();
-                    let delta = (*lb).addr as i32 - bc_out.len() as i32;
+                    let delta = lb.addr - bc_out.len() as i32;
                     push_vec_u32(&mut bc_out, delta as u32);
 
                     let mut goto = None;
@@ -346,17 +344,18 @@ impl JSFunctionDef {
                         }
                     }
 
-                    if OPTIMIZE {
-                        if let Some(cc) = self.code_match(
+                    if OPTIMIZE
+                        && let Some(cc) = self.code_match(
                             pos_next,
                             &[M2(opcodes::OP_if_false as i32, opcodes::OP_if_true as i32)],
-                        ) {
-                            goto = Some(ResolveLabelsState::HasConstantTest {
-                                code_context: cc,
-                                val: op == opcodes::OP_push_true,
-                            });
-                        }
+                        )
+                    {
+                        goto = Some(ResolveLabelsState::HasConstantTest {
+                            code_context: cc,
+                            val: op == opcodes::OP_push_true,
+                        });
                     }
+
                     goto
                 }
                 opcodes::OP_push_i32 => {
@@ -669,10 +668,9 @@ impl JSFunctionDef {
                     } => {
                         if OPTIMIZE {
                             // Use custom matcher because multiple labels can follow
-                            let line1;
-                            (label, op1, line1) = self.find_jump_target(label);
+                            (label, op1, _) = self.find_jump_target(label);
 
-                            if self.code_has_label(pos_next as usize, label) {
+                            if self.code_has_label(pos_next, label) {
                                 /* jump to next instruction: remove jump */
                                 self.update_label_ref_count(label, -1);
                             } else if matches!(
@@ -686,13 +684,8 @@ impl JSFunctionDef {
                                 self.update_label_ref_count(label, -1);
                                 self.add_pc2line_info(bc_out.len() as _, line_num);
                                 push_vec_u8(&mut bc_out, op1);
-                                pos_next = skip_dead_code(
-                                    self,
-                                    bc_ptr,
-                                    bc_len,
-                                    pos_next,
-                                    &mut (line_num as i32),
-                                );
+                                pos_next =
+                                    skip_dead_code(self, bc_ptr, bc_len, pos_next, &mut line_num);
                             } else {
                                 /* XXX: should duplicate single instructions followed by goto or return */
                                 /* For example, can match one of these followed by return:
@@ -714,13 +707,8 @@ impl JSFunctionDef {
 
                         self.add_pc2line_info(bc_out.len() as _, line_num);
                         if label_op == opcodes::OP_goto {
-                            pos_next = skip_dead_code(
-                                self,
-                                bc_ptr,
-                                bc_len,
-                                pos_next,
-                                &mut (line_num as i32),
-                            );
+                            pos_next =
+                                skip_dead_code(self, bc_ptr, bc_len, pos_next, &mut line_num);
                         }
                         let ls = self.label_slots.get_mut(label as usize).unwrap();
 
@@ -793,7 +781,7 @@ impl JSFunctionDef {
                         }
 
                         push_vec_u8(&mut bc_out, label_op);
-                        let delta = ls.addr as i32 - bc_out.len() as i32; // could be minus
+                        let delta = ls.addr - bc_out.len() as i32; // could be minus
                         push_vec_u32(&mut bc_out, delta as u32);
 
                         if ls.addr == -1 {

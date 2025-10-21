@@ -361,8 +361,8 @@ impl JSContextWeakref {
 }
 
 /* only valid inside C functions */
-pub unsafe fn JS_GetActiveFunction(ctx: &JSContext) -> &JSValue {
-    &(*ctx.rt().cur_stack_frame.cast::<StackFrame>()).cur_func
+pub(crate) fn JS_GetActiveFunction(ctx: &JSContext) -> &JSValue {
+    unsafe { &(*ctx.rt().cur_stack_frame.cast::<StackFrame>()).cur_func }
 }
 
 pub const JS_MODE_STRICT: i32 = 1 << 0;
@@ -389,29 +389,6 @@ pub enum AtomicOp {
     Store,
     Sub,
     Xor,
-}
-
-#[deprecated(note = "use JSContext::clone() instead")]
-pub fn JS_DupContext(ctx: &JSContext) -> JSContext {
-    ctx.clone()
-}
-
-#[deprecated(note = "unused")]
-pub unsafe fn JS_FreeContext(ctx: &JSContext) {
-    unreachable!("unused");
-    // if ctx.dec_ref() == 0 {
-    //     let rt = ctx.rt_mut();
-
-    //     if rt.gc_phase != JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES {
-    //         let node = ctx.gc_node_ptr();
-    //         Node::unlink(node);
-    //         rt.gc_zero_ref_count_list.push_raw(node);
-
-    //         if rt.gc_phase == JSGCPhaseEnum::JS_GC_PHASE_NONE {
-    //             rt.gc_free_zeroed();
-    //         }
-    //     }
-    // }
 }
 
 impl JSRuntime {

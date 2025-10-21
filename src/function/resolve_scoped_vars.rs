@@ -18,7 +18,8 @@ impl JSFunctionDef {
     /// Rewrites bytecode to handle variable access appropriately
     /// Returns the position of the next opcode to process
     /// Handles local, closure, and global variable resolution
-    pub fn resolve_scope_var(
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn resolve_scope_var(
         &mut self,
         ctx: &JSContext,
         var_name: &Atom,
@@ -58,20 +59,20 @@ impl JSFunctionDef {
             is_arg_scope = idx == ARG_SCOPE_END;
 
             if vd.var_name.eq(var_name) {
-                if matches!(op, opcodes::op_scope_put_var | opcodes::op_scope_make_ref) {
-                    if vd.is_const() {
-                        push_vec_u8(bc, OpCode::THROW_ERROR as _);
-                        push_vec_atom(bc, var_name.clone());
-                        push_vec_u8(bc, JS_THROW_VAR_RO);
-                        done!(label_done);
-                    }
+                if matches!(op, opcodes::op_scope_put_var | opcodes::op_scope_make_ref)
+                    && vd.is_const()
+                {
+                    push_vec_u8(bc, OpCode::THROW_ERROR as _);
+                    push_vec_atom(bc, var_name.clone());
+                    push_vec_u8(bc, JS_THROW_VAR_RO);
+                    done!(label_done);
                 }
                 var_idx = idx;
                 break;
             } else if vd.var_name.to_ref() == JS_ATOM__with_ && !is_pseudo_var {
                 push_vec_u8(bc, OpCode::GET_LOC as _);
                 push_vec_u16(bc, idx as _);
-                label_done.replace(self.var_object_test(ctx, var_name, op, bc, label_done, true));
+                label_done.replace(self.var_object_test(var_name, op, bc, label_done, true));
             }
         }
 
@@ -91,14 +92,14 @@ impl JSFunctionDef {
             }
             if var_idx < 0 && self.is_func_expr && var_name.to_ref() == self.func_name.to_ref() {
                 // add a new variable with the function name
-                var_idx = unsafe { self.add_func_var(ctx, var_name).map_or(-1, |x| x as i32) }
+                var_idx = self.add_func_var(ctx, var_name).map_or(-1, |x| x as i32)
             }
         }
 
         if var_idx >= 0 {
             // var or arg found
             return self.resolve_scope_var_vardef(
-                ctx, var_name, op, bc, bc_buf, label, label_done, pos_next, var_idx,
+                var_name, op, bc, bc_buf, label, label_done, pos_next, var_idx,
             );
         }
 
@@ -108,7 +109,7 @@ impl JSFunctionDef {
                 // test `var_name` defined on `<val>` object
                 push_vec_u8(bc, OpCode::GET_LOC as _);
                 push_vec_u16(bc, self.var_object_idx.unwrap());
-                label_done.replace(self.var_object_test(ctx, var_name, op, bc, label_done, false));
+                label_done.replace(self.var_object_test(var_name, op, bc, label_done, false));
             }
 
             if let Some(av) = self.arg_var_object_idx {
@@ -116,7 +117,7 @@ impl JSFunctionDef {
                 // test `var_name` defined on `<arg_val>` object
                 push_vec_u8(bc, OpCode::GET_LOC as _);
                 push_vec_u16(bc, av);
-                label_done.replace(self.var_object_test(ctx, var_name, op, bc, label_done, false));
+                label_done.replace(self.var_object_test(var_name, op, bc, label_done, false));
             }
         }
 
@@ -138,16 +139,13 @@ impl JSFunctionDef {
                 is_arg_scope = svar.arg_scope_end;
 
                 if svar.vd.var_name.eq(var_name) {
-                    if matches!(
-                        op as u8,
-                        opcodes::op_scope_put_var | opcodes::op_scope_make_ref
-                    ) {
-                        if svar.vd.is_const() {
-                            push_vec_u8(bc, OpCode::THROW_ERROR as _);
-                            push_vec_atom(bc, var_name.clone());
-                            push_vec_u8(bc, JS_THROW_VAR_RO);
-                            done!(label_done);
-                        }
+                    if matches!(op, opcodes::op_scope_put_var | opcodes::op_scope_make_ref)
+                        && svar.vd.is_const()
+                    {
+                        push_vec_u8(bc, OpCode::THROW_ERROR as _);
+                        push_vec_atom(bc, var_name.clone());
+                        push_vec_u8(bc, JS_THROW_VAR_RO);
+                        done!(label_done);
                     }
 
                     var_idx = svar.idx;
@@ -170,9 +168,8 @@ impl JSFunctionDef {
                         Ok(vi) => {
                             push_vec_u8(bc, OpCode::GET_VAR_REF as _);
                             push_vec_u16(bc, vi);
-                            label_done.replace(
-                                self.var_object_test(ctx, var_name, op, bc, label_done, true),
-                            );
+                            label_done
+                                .replace(self.var_object_test(var_name, op, bc, label_done, true));
                         }
                         Err(_) => {
                             todo!()
@@ -238,8 +235,7 @@ impl JSFunctionDef {
 
                     push_vec_u8(bc, OpCode::GET_VAR_REF as _);
                     push_vec_u16(bc, cv_id);
-                    label_done
-                        .replace(self.var_object_test(ctx, var_name, op, bc, label_done, false));
+                    label_done.replace(self.var_object_test(var_name, op, bc, label_done, false));
                 }
             }
 
@@ -267,8 +263,7 @@ impl JSFunctionDef {
 
                     push_vec_u8(bc, OpCode::GET_VAR_REF as _);
                     push_vec_u16(bc, cv_id);
-                    label_done
-                        .replace(self.var_object_test(ctx, var_name, op, bc, label_done, false));
+                    label_done.replace(self.var_object_test(var_name, op, bc, label_done, false));
                 }
             }
 
@@ -333,12 +328,11 @@ impl JSFunctionDef {
                         push_vec_u8(bc, OpCode::GET_VAR_REF as _);
                         push_vec_u16(bc, cv_id);
                         label_done.replace(self.var_object_test(
-                            ctx,
                             var_name,
                             op,
                             bc,
                             label_done,
-                            cv.var_name.to_ref() == JS_ATOM__with_,
+                            cv.var_name.eq_ref(JS_ATOM__with_),
                         ));
                     }
                 }
@@ -386,7 +380,7 @@ impl JSFunctionDef {
         if let Some(cv) = found_closure {
             // access closure
             self.resolve_scope_var_closure(
-                ctx, var_name, op, bc, bc_buf, label, label_done, pos_next, cv,
+                var_name, op, bc, bc_buf, label, label_done, pos_next, cv,
             )
         } else {
             // access global
@@ -398,9 +392,9 @@ impl JSFunctionDef {
 
     /// acccess found vardef: for a var or arg.
     /// `var_name` is not consumed.
+    #[allow(clippy::too_many_arguments)]
     fn resolve_scope_var_vardef(
         &mut self,
-        ctx: &JSContext,
         var_name: &Atom,
         op: u8,
         bc: &mut Vec<u8>,
@@ -557,9 +551,9 @@ impl JSFunctionDef {
     /// Processes variable access operations for closure variables
     /// Handles special cases for function names and lexical variables
     /// Generates appropriate bytecode for closure variable access
+    #[allow(clippy::too_many_arguments)]
     fn resolve_scope_var_closure(
         &mut self,
-        ctx: &JSContext,
         var_name: &Atom,
         op: u8,
         bc: &mut Vec<u8>,
@@ -684,6 +678,7 @@ impl JSFunctionDef {
     /// Processes variable access operations for global variables
     /// Generates appropriate bytecode for global variable access
     /// Handles special cases for variable initialization and deletion
+    #[allow(clippy::too_many_arguments)]
     fn resolve_scope_var_global(
         &mut self,
         ctx: &JSContext,
@@ -695,7 +690,7 @@ impl JSFunctionDef {
         label_done: Option<u32>,
         mut pos_next: usize,
     ) -> usize {
-        match op as u8 {
+        match op {
             opcodes::op_scope_make_ref => {
                 let label = label
                     .and_then(|l| self.label_slots.get_mut(l as usize))
@@ -728,7 +723,7 @@ impl JSFunctionDef {
             | opcodes::op_scope_put_var => {
                 push_vec_u8(
                     bc,
-                    OpCode::GET_VAR_UNDEF as u8 + (op as u8 - opcodes::op_scope_get_var_undef),
+                    OpCode::GET_VAR_UNDEF as u8 + (op - opcodes::op_scope_get_var_undef),
                 );
                 push_vec_atom(bc, var_name.clone());
             }
@@ -771,7 +766,7 @@ impl JSFunctionDef {
                 // 'this.active_func' pseudo variable
                 if self.this_active_func_var_idx.is_none() {
                     self.this_active_func_var_idx =
-                        Some(self.add_var(ctx, &var_name).expect("TODO"));
+                        Some(self.add_var(ctx, var_name).expect("TODO"));
                 }
                 self.this_active_func_var_idx
             }
@@ -803,7 +798,6 @@ impl JSFunctionDef {
     /// `var_name` is not consumed.
     fn var_object_test(
         &mut self,
-        ctx: &JSContext,
         var_name: &Atom,
         op: u8,
         bc: &mut Vec<u8>,
@@ -834,40 +828,4 @@ impl JSFunctionDef {
 
         label
     }
-}
-
-/// Resolves special pseudo variables (this, new.target, etc.)
-/// Returns the variable definition index if found
-/// Returns None if the variable is not a pseudo variable
-#[deprecated(note = "use JSFunctionDef::resolve_pseudo_var() instead")]
-pub unsafe fn resolve_pseudo_var(
-    ctx: &JSContext,
-    s: *mut JSFunctionDef,
-    var_name: &Atom,
-) -> Option<u16> {
-    (*s).resolve_pseudo_var(ctx, var_name)
-}
-
-// pub fn get_with_scope_opcode(op: u8) -> u8 {
-//     if op == opcodes::op_scope_get_var_undef {
-//         opcodes::OP_with_get_var as u8
-//     } else {
-//         opcodes::OP_with_get_var + (op as u8 - opcodes::op_scope_get_var)
-//     }
-// }
-
-// test if 'var_name' is in the variable object on the stack. If is it
-// the case, handle it and jump to 'label_done'.
-// If argument `label_done` is None, new label will be created.
-#[deprecated(note = "use JSFunctionDef::var_object_test() instead")]
-pub unsafe fn var_object_test(
-    ctx: &JSContext,
-    s: *mut JSFunctionDef,
-    var_name: &Atom,
-    op: u8,
-    bc: &mut Vec<u8>,
-    label_done: &mut Option<u32>,
-    is_with: bool,
-) {
-    label_done.replace((*s).var_object_test(ctx, var_name, op, bc, *label_done, is_with));
 }

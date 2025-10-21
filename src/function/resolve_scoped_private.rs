@@ -27,7 +27,7 @@ impl JSFunctionDef {
                         cur_fd,
                         true,
                         false,
-                        idx as u16,
+                        idx,
                         var_name,
                         true,
                         true,
@@ -78,7 +78,7 @@ impl JSFunctionDef {
 
         // XXX: no line number info
         ctx.throw_syntax_error(&format!("undefined private field '{}'", var_name.to_utf8()));
-        return Err(-1);
+        Err(-1)
     }
 
     /// search `var_name` in all scopes since `scope_level`.
@@ -106,11 +106,11 @@ impl JSFunctionDef {
         op: u8,
         bc: &mut Vec<u8>,
     ) -> Result<(), i32> {
-        let (mut idx, mut var_kind, mut is_ref) =
+        let (idx, var_kind, is_ref) =
             self.resolve_scope_private_field1(ctx, var_name, scope_level)?;
         debug_assert_ne!(var_kind, JSVarKindEnum::JS_VAR_NORMAL);
 
-        match op as u8 {
+        match op {
             opcodes::op_scope_get_private_field | opcodes::op_scope_get_private_field2 => {
                 match var_kind {
                     JSVarKindEnum::JS_VAR_PRIVATE_FIELD => {

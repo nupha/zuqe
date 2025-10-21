@@ -72,7 +72,7 @@ impl JSParseState<'_> {
                 self.parse_function_decl(
                     JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
                     JSFunctionKindEnum::JS_FUNC_NORMAL,
-                    &Atom::NULL,
+                    Atom::NULL,
                     self.token.ptr,
                     self.token.line_num,
                 )
@@ -92,7 +92,7 @@ impl JSParseState<'_> {
                     self.parse_function_decl(
                         JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
                         JSFunctionKindEnum::JS_FUNC_NORMAL,
-                        &Atom::NULL,
+                        Atom::NULL,
                         self.token.ptr,
                         self.token.line_num,
                     )
@@ -404,7 +404,7 @@ impl JSParseState<'_> {
                     let c = state[level] as i32;
                     if c == '`' as i32 {
                         // continue the parsing of the template
-                        self.clear_atom_in_token();
+                        self.clear_token_data();
                         // Resume TOK_TEMPLATE parsing (s->token.line_num and s->token.ptr are OK)
                         self.got_lf = false;
                         self.last_line_num = self.token.line_num;

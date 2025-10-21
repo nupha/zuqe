@@ -176,7 +176,7 @@ pub fn js_module_loader(
     }
 }
 
-pub unsafe fn js_module_set_import_meta(
+unsafe fn js_module_set_import_meta(
     ctx: &JSContext,
     func_val: &JSValue,
     use_realpath: i32,
@@ -249,7 +249,7 @@ struct Negative {
 
 fn run_harness(ctx: &JSContext, harness_files: &[PathBuf]) -> Result<(), i32> {
     for file in harness_files {
-        let src = std::fs::read_to_string(&file)
+        let src = std::fs::read_to_string(file)
             .inspect_err(|_| {
                 println!("Failed to read file: {}", file.display());
             })
@@ -372,32 +372,29 @@ fn run_test_file(
     let end = content.find("---*/").unwrap_or(0);
     let config = if start < end {
         let front_matter = content[start + 5..end].trim();
-        let cfg = serde_yaml::from_str::<TestConfig>(front_matter).unwrap();
-        cfg
+        serde_yaml::from_str::<TestConfig>(front_matter).unwrap()
     } else {
         // no config, exit
         writeln!(outf, "no-test").unwrap();
         return;
     };
 
-    match (config.features.as_deref(), excludes) {
-        (Some(features), Some(excl)) => {
-            if features.iter().any(|x| excl.contains(x)) {
-                writeln!(outf, "skip").unwrap();
-                return;
-            }
-        }
-        _ => {}
+    if let (Some(features), Some(excl)) = (config.features.as_deref(), excludes)
+        && features.iter().any(|x| excl.contains(x))
+    {
+        writeln!(outf, "skip").unwrap();
+        return;
     }
 
     // collect included harness files
     let mut harness_files = Vec::<PathBuf>::with_capacity(16);
     harness_files.extend_from_slice(&[harness_path.join("assert.js"), harness_path.join("sta.js")]);
-    if let Some(ff) = &config.flags {
-        if ff.iter().any(|s| s == "async") {
-            harness_files.push(harness_path.join("doneprintHandle.js"));
-        }
+    if let Some(ff) = &config.flags
+        && ff.iter().any(|s| s == "async")
+    {
+        harness_files.push(harness_path.join("doneprintHandle.js"));
     }
+
     if let Some(includes) = config.includes {
         for include in includes {
             harness_files.push(harness_path.join(include));
@@ -406,9 +403,8 @@ fn run_test_file(
 
     // make runtime & context
     let mut rt = JSRuntime::new(JS_DEFAULT_MALLOC_FUNCTIONS, std::ptr::null_mut()).unwrap();
-    unsafe {
-        JS_SetModuleLoaderFunc(rt.as_mut(), None, js_module_loader, std::ptr::null_mut());
-    }
+    JS_SetModuleLoaderFunc(rt.as_mut(), None, js_module_loader, std::ptr::null_mut());
+
     let ctx = rt.create_context().unwrap();
     setup_ctx_test262_helpers(&ctx).unwrap();
 
@@ -424,7 +420,7 @@ fn run_test_file(
             writeln!(outf, "FAIL: can't eval harness").unwrap();
             dump_error(
                 &ctx,
-                &exc,
+                exc,
                 msg.content().to_utf8(true).as_ref(),
                 false,
                 false,
@@ -437,7 +433,7 @@ fn run_test_file(
             writeln!(outf, "FAIL: can't eval harness").unwrap();
             dump_error(
                 &ctx,
-                &exc,
+                exc,
                 msg.content().to_utf8(true).as_ref(),
                 false,
                 false,
@@ -456,18 +452,18 @@ fn run_test_file(
         let mut is_async = false;
         let mut is_module = false;
         if let Some(flags) = config.flags {
-            if flags.iter().find(|s| s.as_str() == "module").is_some() {
+            if flags.iter().any(|s| s.as_str() == "module") {
                 is_module = true;
             }
-            if flags.iter().find(|s| s.as_str() == "onlyStrict").is_some() {
+            if flags.iter().any(|s| s.as_str() == "onlyStrict") {
                 use_strict = true;
                 use_nostrict = false;
             }
-            if flags.iter().find(|s| s.as_str() == "noStrict").is_some() {
+            if flags.iter().any(|s| s.as_str() == "noStrict") {
                 use_strict = false;
                 use_nostrict = true;
             }
-            is_async = flags.iter().find(|s| s.as_str() == "async").is_some();
+            is_async = flags.iter().any(|s| s.as_str() == "async");
         }
 
         let negative = config.negative;
@@ -478,12 +474,12 @@ fn run_test_file(
             if use_strict { Some(true) } else { None },
         ]
         .into_iter()
-        .filter_map(|s| s)
+        .flatten()
         {
             if run_test_script(
                 &ctx,
                 content.as_str(),
-                &filename,
+                filename,
                 is_module,
                 is_async,
                 strict,
@@ -513,7 +509,7 @@ fn run_test_file(
                                 ty, err_class
                             )
                             .unwrap();
-                            dump_error(&ctx, &exc, msg.as_ref(), strict, is_module, is_async, outf);
+                            dump_error(&ctx, exc, msg.as_ref(), strict, is_module, is_async, outf);
 
                             // write to err file
                             writeln!(errf, "{}", filename.display()).unwrap();
@@ -523,37 +519,35 @@ fn run_test_file(
                                 ty, err_class
                             )
                             .unwrap();
-                            dump_error(&ctx, &exc, msg.as_ref(), strict, is_module, is_async, errf);
+                            dump_error(&ctx, exc, msg.as_ref(), strict, is_module, is_async, errf);
                         }
                     } else {
                         writeln!(outf, "pass").unwrap();
                     }
                 } else {
                     writeln!(outf, "fail").unwrap();
-                    dump_error(&ctx, &exc, msg.as_ref(), strict, is_module, is_async, outf);
+                    dump_error(&ctx, exc, msg.as_ref(), strict, is_module, is_async, outf);
 
                     writeln!(errf, "{}", filename.display()).unwrap();
-                    dump_error(&ctx, &exc, msg.as_ref(), strict, is_module, is_async, errf);
+                    dump_error(&ctx, exc, msg.as_ref(), strict, is_module, is_async, errf);
                 }
+            } else if let Some(neg) = &negative {
+                writeln!(
+                    outf,
+                    "fail: [NEGATIVE] expects error {}",
+                    neg.type_.as_ref().map_or("", |s| s.as_str())
+                )
+                .unwrap();
+
+                writeln!(errf, "{}", filename.display()).unwrap();
+                writeln!(
+                    errf,
+                    "fail: [NEGATIVE] expects error {}",
+                    neg.type_.as_ref().map_or("", |s| s.as_str())
+                )
+                .unwrap();
             } else {
-                if let Some(neg) = &negative {
-                    writeln!(
-                        outf,
-                        "fail: [NEGATIVE] expects error {}",
-                        neg.type_.as_ref().map_or("", |s| s.as_str())
-                    )
-                    .unwrap();
-
-                    writeln!(errf, "{}", filename.display()).unwrap();
-                    writeln!(
-                        errf,
-                        "fail: [NEGATIVE] expects error {}",
-                        neg.type_.as_ref().map_or("", |s| s.as_str())
-                    )
-                    .unwrap();
-                } else {
-                    writeln!(outf, "pass").unwrap();
-                }
+                writeln!(outf, "pass").unwrap();
             }
         }
     }
@@ -670,11 +664,10 @@ fn main() {
     }
 
     if let Some(tests) = app_cfg.tests.take() {
-        let excludes = if let Some(lst) = app_cfg.exclude_features.take() {
-            if lst.is_empty() { None } else { Some(lst) }
-        } else {
-            None
-        };
+        let excludes = app_cfg
+            .exclude_features
+            .take()
+            .filter(|lst| !lst.is_empty());
 
         for item in tests {
             let pat = base_path.join(format!("test/{item}"));

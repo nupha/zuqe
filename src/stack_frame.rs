@@ -189,7 +189,7 @@ impl StackFrame {
             // is normal function
             if !self.var_ref_list.is_empty() {
                 // variable references reference the stack: must close them
-                self.close_var_refs(ctx);
+                self.close_var_refs();
             }
 
             // free local buf up to stack top (sp)

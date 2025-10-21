@@ -239,7 +239,8 @@ impl<'s> JSParseState<'s> {
                 self.next_token()?;
             }
             TOK_TEMPLATE => {
-                self.parse_template(false, core::ptr::null_mut())?;
+                let mut _x = 0;
+                self.parse_template(false, &mut _x)?;
             }
             TOK_STRING => {
                 self.emit_push_const(
@@ -283,7 +284,7 @@ impl<'s> JSParseState<'s> {
                     self.parse_function_decl(
                         JSParseFunctionEnum::JS_PARSE_FUNC_ARROW,
                         JSFunctionKindEnum::JS_FUNC_NORMAL,
-                        &Atom::NULL,
+                        Atom::NULL,
                         self.token.ptr,
                         self.token.line_num,
                     )?;
@@ -295,7 +296,7 @@ impl<'s> JSParseState<'s> {
                 self.parse_function_decl(
                     JSParseFunctionEnum::JS_PARSE_FUNC_EXPR,
                     JSFunctionKindEnum::JS_FUNC_NORMAL,
-                    &Atom::NULL,
+                    Atom::NULL,
                     self.token.ptr,
                     self.token.line_num,
                 )?;
@@ -335,7 +336,7 @@ impl<'s> JSParseState<'s> {
                     self.parse_function_decl(
                         JSParseFunctionEnum::JS_PARSE_FUNC_ARROW,
                         JSFunctionKindEnum::JS_FUNC_NORMAL,
-                        &Atom::NULL,
+                        Atom::NULL,
                         self.token.ptr,
                         self.token.line_num,
                     )?;
@@ -351,7 +352,7 @@ impl<'s> JSParseState<'s> {
                         self.parse_function_decl(
                             JSParseFunctionEnum::JS_PARSE_FUNC_EXPR,
                             JSFunctionKindEnum::JS_FUNC_ASYNC,
-                            &Atom::NULL,
+                            Atom::NULL,
                             source_ptr,
                             source_line_num,
                         )?;
@@ -367,7 +368,7 @@ impl<'s> JSParseState<'s> {
                         self.parse_function_decl(
                             JSParseFunctionEnum::JS_PARSE_FUNC_ARROW,
                             JSFunctionKindEnum::JS_FUNC_ASYNC,
-                            &Atom::NULL,
+                            Atom::NULL,
                             source_ptr,
                             source_line_num,
                         )?;

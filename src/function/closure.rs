@@ -14,7 +14,7 @@ use crate::{
     value::JSValue,
 };
 
-use super::{ARG_SCOPE_END, JSFunctionDef, JSVarDef, JSVarKindEnum, is_var_in_arg_scope};
+use super::{ARG_SCOPE_END, JSFunctionDef, JSVarKindEnum, is_var_in_arg_scope};
 
 #[derive(Debug)]
 pub struct JSClosureVar {
@@ -36,11 +36,12 @@ pub struct JSClosureVar {
 }
 
 impl JSClosureVar {
-    pub fn is_local(&self) -> bool {
+    #[inline(always)]
+    pub const fn is_local(&self) -> bool {
         self.bitfield & 0x01 != 0
     }
 
-    pub fn set_is_local(&mut self, value: bool) {
+    pub const fn set_is_local(&mut self, value: bool) {
         if value {
             self.bitfield |= 0x01;
         } else {
@@ -48,11 +49,12 @@ impl JSClosureVar {
         }
     }
 
-    pub fn is_arg(&self) -> bool {
+    #[inline(always)]
+    pub const fn is_arg(&self) -> bool {
         (self.bitfield >> 1) & 0x01 != 0
     }
 
-    pub fn set_is_arg(&mut self, value: bool) {
+    pub const fn set_is_arg(&mut self, value: bool) {
         if value {
             self.bitfield |= 0x02;
         } else {
@@ -60,11 +62,12 @@ impl JSClosureVar {
         }
     }
 
-    pub fn is_const(&self) -> bool {
+    #[inline(always)]
+    pub const fn is_const(&self) -> bool {
         (self.bitfield >> 2) & 0x01 != 0
     }
 
-    pub fn set_is_const(&mut self, value: bool) {
+    pub const fn set_is_const(&mut self, value: bool) {
         if value {
             self.bitfield |= 0x04;
         } else {
@@ -72,11 +75,12 @@ impl JSClosureVar {
         }
     }
 
-    pub fn is_lexical(&self) -> bool {
+    #[inline(always)]
+    pub const fn is_lexical(&self) -> bool {
         (self.bitfield >> 3) & 0x01 != 0
     }
 
-    pub fn set_is_lexical(&mut self, value: bool) {
+    pub const fn set_is_lexical(&mut self, value: bool) {
         if value {
             self.bitfield |= 0x08;
         } else {
@@ -84,11 +88,12 @@ impl JSClosureVar {
         }
     }
 
+    #[inline(always)]
     pub fn var_kind(&self) -> JSVarKindEnum {
         unsafe { std::mem::transmute((self.bitfield >> 4) & 0x0F) }
     }
 
-    pub fn set_var_kind(&mut self, value: JSVarKindEnum) {
+    pub const fn set_var_kind(&mut self, value: JSVarKindEnum) {
         self.bitfield = (self.bitfield & 0x0F) | ((value as u8) << 4);
     }
 }
@@ -97,6 +102,7 @@ impl JSFunctionDef {
     /// `fd` must be an ancestor of `self`.
     /// Create in 'self' a closure referencing a local variable (is_local = TRUE)
     /// or a closure (is_local = FALSE) in `fd`
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn get_closure_var2(
         &mut self,
         ctx: &JSContext,
@@ -125,12 +131,12 @@ impl JSFunctionDef {
         };
 
         // find idx in self
-        if let Some(cvars) = self.closure_vars.as_ref() {
-            if let Some(nth) = cvars.iter().position(|cv| {
+        if let Some(cvars) = self.closure_vars.as_ref()
+            && let Some(nth) = cvars.iter().position(|cv| {
                 cv.var_idx == vidx && cv.is_arg() == is_arg && cv.is_local() == is_local
-            }) {
-                return Ok(nth as u16);
-            }
+            })
+        {
+            return Ok(nth as u16);
         }
 
         // not found, create it.
@@ -140,6 +146,7 @@ impl JSFunctionDef {
     }
 
     /// `fd` must be an ancestor of `self`.
+    #[allow(clippy::too_many_arguments)]
     #[inline(always)]
     pub(super) fn get_closure_var(
         &mut self,
@@ -158,6 +165,7 @@ impl JSFunctionDef {
     }
 
     /// returns added closure var index, or Err for error.
+    #[allow(clippy::too_many_arguments)]
     pub fn add_closure_var(
         &mut self,
         ctx: &JSContext,
@@ -438,17 +446,17 @@ pub unsafe fn add_closure_variables(
     Ok(())
 }
 
-pub unsafe fn set_closure_from_var(
-    ctx: &JSContext,
-    cv: *mut JSClosureVar,
-    vd: *mut JSVarDef,
-    var_idx: u16,
-) {
-    (*cv).set_is_local(true);
-    (*cv).set_is_arg(false);
-    (*cv).set_is_const((*vd).is_const());
-    (*cv).set_is_lexical((*vd).is_lexical());
-    (*cv).set_var_kind((*vd).var_kind());
-    (*cv).var_idx = var_idx;
-    (*cv).var_name = (*vd).var_name.clone();
-}
+// pub unsafe fn set_closure_from_var(
+//     ctx: &JSContext,
+//     cv: *mut JSClosureVar,
+//     vd: *mut JSVarDef,
+//     var_idx: u16,
+// ) {
+//     (*cv).set_is_local(true);
+//     (*cv).set_is_arg(false);
+//     (*cv).set_is_const((*vd).is_const());
+//     (*cv).set_is_lexical((*vd).is_lexical());
+//     (*cv).set_var_kind((*vd).var_kind());
+//     (*cv).var_idx = var_idx;
+//     (*cv).var_name = (*vd).var_name.clone();
+// }

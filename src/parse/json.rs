@@ -196,7 +196,7 @@ fn json_next_token(s: &mut JSParseState) -> Result<(), i32> {
         return Err(-1);
     }
 
-    s.clear_atom_in_token();
+    s.clear_token_data();
 
     enum Todo {
         DefaultToken(i32),

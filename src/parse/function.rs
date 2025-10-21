@@ -2,6 +2,7 @@ use std::ops::{Deref, DerefMut};
 
 use crate::{
     atom::{Atom, JS_ATOM_NULL, consts::*},
+    branch_hints::unlikely,
     bytecode::{OpCode, OpCodeTemp},
     context::{JS_MODE_STRICT, JS_MODE_STRIP},
     eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
@@ -465,17 +466,19 @@ impl<'s> JSParseState<'s> {
     ///
     /// `func_name` must be JS_ATOM_NULL for JS_PARSE_FUNC_STATEMENT and
     /// JS_PARSE_FUNC_EXPR, JS_PARSE_FUNC_ARROW and JS_PARSE_FUNC_VAR.
-    /// `func_name` is not consumed.
-    pub(super) fn parse_function_decl2(
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn parse_function_decl_ex(
         &mut self,
         func_type: JSParseFunctionEnum,
         mut func_kind: JSFunctionKindEnum,
-        func_name: &Atom,
+        mut func_name: Atom,
         ptr: *const u8,
         function_line_num: i32,
         export_flag: JSParseExportEnum,
         pfd: *mut *mut JSFunctionDef,
     ) -> Result<(), i32> {
+        debug_assert!(func_name.is_null());
+
         let is_expr = !matches!(
             func_type,
             JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT | JSParseFunctionEnum::JS_PARSE_FUNC_VAR
@@ -486,7 +489,6 @@ impl<'s> JSParseState<'s> {
 
         let mut lexical_func_idx: i32 = -1;
         let mut create_func_var = false;
-        let mut name = func_name.clone();
 
         match func_type {
             JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT
@@ -514,10 +516,10 @@ impl<'s> JSParseState<'s> {
                 if self.token.val == TOK_IDENT {
                     let atom = self.token.atom().unwrap();
                     if self.token.data.is_reserved()
-                        || (atom.to_ref() == JS_ATOM_yield
+                        || (atom.eq(&JS_ATOM_yield)
                             && func_type == JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
                             && func_kind as u8 & JSFunctionKindEnum::JS_FUNC_GENERATOR as u8 != 0)
-                        || (atom.to_ref() == JS_ATOM_await
+                        || (atom.eq(&JS_ATOM_await)
                             && ((func_type == JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
                                 && (func_kind as u8 & JSFunctionKindEnum::JS_FUNC_ASYNC as u8)
                                     != 0)
@@ -535,12 +537,12 @@ impl<'s> JSParseState<'s> {
                         || (self.token.val == TOK_AWAIT && !self.is_module))
                         && func_type == JSParseFunctionEnum::JS_PARSE_FUNC_EXPR)
                 {
-                    // must dup atom, because next_token() will free it
-                    name = self.token.atom().unwrap();
+                    func_name = self.token.atom().unwrap();
                     self.next_token()?;
-                } else if func_type != JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
-                    && export_flag != JSParseExportEnum::JS_PARSE_EXPORT_DEFAULT
-                {
+                } else if unlikely(
+                    func_type != JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
+                        && export_flag != JSParseExportEnum::JS_PARSE_EXPORT_DEFAULT,
+                ) {
                     self.throw_syntax_error("function name expected");
                     return Err(-1);
                 }
@@ -556,26 +558,23 @@ impl<'s> JSParseState<'s> {
                 JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT
                     | JSParseFunctionEnum::JS_PARSE_FUNC_VAR
             )
+            && let Some(v) = cur_fd.find_global_var(&func_name)
+            && v.scope_level == cur_fd.scope_level
         {
-            if let Some(v) = cur_fd.find_global_var(func_name) {
-                if v.scope_level == cur_fd.scope_level {
-                    self.throw_syntax_error(
-                        "invalid redefinition of global identifier in module code",
-                    );
-                    return Err(-1);
-                }
-            }
+            self.throw_syntax_error("invalid redefinition of global identifier in module code");
+            return Err(-1);
         }
 
         if func_type == JSParseFunctionEnum::JS_PARSE_FUNC_VAR {
-            let func_idx = cur_fd.find_var(func_name).map_or(-1, |x| x as i32);
+            let func_idx = cur_fd.find_var(&func_name).map_or(-1, |x| x as i32);
+
             if cur_fd.attrs.js_mode & JS_MODE_STRICT as u8 == 0
                 && func_kind == JSFunctionKindEnum::JS_FUNC_NORMAL
                 && cur_fd
-                    .find_lexical_decl(func_name, cur_fd.scope_first, false)
+                    .find_lexical_decl(&func_name, cur_fd.scope_first, false)
                     .is_none()
                 && !(func_idx >= 0 && func_idx & ARGUMENT_VAR_OFFSET != 0)
-                && !(func_name.to_ref() == JS_ATOM_arguments && cur_fd.has_arguments_binding)
+                && !(func_name.eq(&JS_ATOM_arguments) && cur_fd.has_arguments_binding)
             {
                 create_func_var = true;
             }
@@ -586,7 +585,7 @@ impl<'s> JSParseState<'s> {
                 && cur_fd.scope_level == cur_fd.body_scope
             {
                 // avoid creating a lexical variable in the global scope. XXX: check annex B
-                if let Some(hf) = cur_fd.find_global_var(func_name) {
+                if let Some(hf) = cur_fd.find_global_var(&func_name) {
                     /* XXX: should check scope chain */
                     if hf.scope_level == cur_fd.scope_level {
                         self.throw_syntax_error("invalid redefinition of global identifier");
@@ -599,7 +598,7 @@ impl<'s> JSParseState<'s> {
                 // now fd0 is still the cur_func
                 debug_assert_eq!(cur_fd as *mut JSFunctionDef, self.cur_func_def);
                 lexical_func_idx = self.define_var_cur_func(
-                    func_name,
+                    &func_name,
                     if func_kind != JSFunctionKindEnum::JS_FUNC_NORMAL {
                         JSVarDefEnum::JS_VAR_DEF_NEW_FUNCTION_DECL
                     } else {
@@ -613,7 +612,7 @@ impl<'s> JSParseState<'s> {
         let mut sub_fd = self.parse_function_sub(
             func_type,
             func_kind,
-            name.into(),
+            func_name,
             ptr,
             function_line_num,
             is_expr,
@@ -780,11 +779,11 @@ impl<'s> JSParseState<'s> {
         &mut self,
         func_type: JSParseFunctionEnum,
         func_kind: JSFunctionKindEnum,
-        func_name: &Atom,
+        func_name: Atom,
         ptr: *const u8,
         function_line_num: i32,
     ) -> Result<(), i32> {
-        self.parse_function_decl2(
+        self.parse_function_decl_ex(
             func_type,
             func_kind,
             func_name,

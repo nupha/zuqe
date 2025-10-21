@@ -42,7 +42,7 @@ impl<'s> JSParseState<'s> {
             // Note: calling `next_token()` will free the current atom, so we must dup atom in advance.
             let name = self.token.atom().unwrap();
             self.next_token()?;
-            Ok(name.into())
+            Ok(name)
         } else if !is_class_expr && export_flag != JSParseExportEnum::JS_PARSE_EXPORT_DEFAULT {
             self.throw_syntax_error("class statement requires a name");
             Err(-1)
@@ -64,10 +64,10 @@ impl<'s> JSParseState<'s> {
         // XXX: could try to avoid creating a new function and
         // reuse 'fields_init_fd' with a specific 'var' scope
         // stack is now: <empty>
-        self.parse_function_decl2(
+        self.parse_function_decl_ex(
             JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT,
             JSFunctionKindEnum::JS_FUNC_NORMAL,
-            &Atom::NULL,
+            Atom::NULL,
             self.token.ptr,
             self.token.line_num,
             JSParseExportEnum::JS_PARSE_EXPORT_NONE,
@@ -157,14 +157,14 @@ impl<'s> JSParseState<'s> {
 
         // parse getter or setter function
         let mut method_fd = std::ptr::null_mut::<JSFunctionDef>();
-        self.parse_function_decl2(
+        self.parse_function_decl_ex(
             if is_set {
                 JSParseFunctionEnum::JS_PARSE_FUNC_SETTER
             } else {
                 JSParseFunctionEnum::JS_PARSE_FUNC_GETTER
             },
             JSFunctionKindEnum::JS_FUNC_NORMAL,
-            &Atom::NULL,
+            Atom::NULL,
             start_ptr,
             self.token.line_num,
             JSParseExportEnum::JS_PARSE_EXPORT_NONE,
@@ -469,10 +469,10 @@ impl<'s> JSParseState<'s> {
                         class_fields[is_static as usize].need_brand = true;
                     }
 
-                    self.parse_function_decl2(
+                    self.parse_function_decl_ex(
                         func_type,
                         func_kind,
-                        &Atom::NULL,
+                        Atom::NULL,
                         start_ptr,
                         self.token.line_num,
                         JSParseExportEnum::JS_PARSE_EXPORT_NONE,
@@ -815,10 +815,10 @@ impl<'s> JSParseState<'s> {
 
         // Note: calling graph: next_token -> parse_function_decl2 -> seek_token
         let ret = self.next_token().and_then(|_| {
-            self.parse_function_decl2(
+            self.parse_function_decl_ex(
                 func_type,
                 JSFunctionKindEnum::JS_FUNC_NORMAL,
-                &Atom::NULL,
+                Atom::NULL,
                 src.as_ptr(),
                 orig_token.line_num,
                 JSParseExportEnum::JS_PARSE_EXPORT_NONE,

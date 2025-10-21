@@ -120,13 +120,13 @@ pub fn js_build_mapped_arguments(
     }
 
     // the arguments not mapped to the arguments of the function can be normal properties
-    for i in arg_count as usize..args.len() {
-        obj.define_property_value_u32(ctx, i as _, args[i].clone(), JS_PROP_C_W_E)?;
+    for (i, a) in args.iter().enumerate().skip(arg_count as usize) {
+        obj.define_property_value_u32(ctx, i as _, a.clone(), JS_PROP_C_W_E)?;
     }
 
     obj.define_property_value(
         ctx,
-        JS_ATOM_Symbol_iterator.deref(),
+        &JS_ATOM_Symbol_iterator,
         ctx.0.borrow().array_proto_values.clone(),
         JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
     )?;
@@ -134,7 +134,7 @@ pub fn js_build_mapped_arguments(
     // callee returns this function in non strict mode
     obj.define_property_value(
         ctx,
-        JS_ATOM_callee.deref(),
+        &JS_ATOM_callee,
         unsafe {
             (*ctx.rt().cur_stack_frame.cast::<StackFrame>())
                 .cur_func

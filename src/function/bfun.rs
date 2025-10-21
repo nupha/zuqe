@@ -47,12 +47,12 @@ pub enum JSFunctionKindEnum {
 
 impl JSFunctionKindEnum {
     #[inline(always)]
-    pub fn is_async(self) -> bool {
+    pub const fn is_async(self) -> bool {
         matches!(self, Self::JS_FUNC_ASYNC | Self::JS_FUNC_ASYNC_GENERATOR)
     }
 
     #[inline(always)]
-    pub fn is_generator(self) -> bool {
+    pub const fn is_generator(self) -> bool {
         matches!(
             self,
             Self::JS_FUNC_GENERATOR | Self::JS_FUNC_ASYNC_GENERATOR
@@ -61,7 +61,7 @@ impl JSFunctionKindEnum {
 
     /// get associated class id for function kind
     #[inline]
-    pub fn class_id(&self) -> JSClassID {
+    pub const fn class_id(&self) -> JSClassID {
         match self {
             Self::JS_FUNC_NORMAL => JS_CLASS_BYTECODE_FUNCTION,
             Self::JS_FUNC_GENERATOR => JS_CLASS_GENERATOR_FUNCTION,
@@ -71,7 +71,7 @@ impl JSFunctionKindEnum {
     }
 
     #[inline]
-    pub fn generator_class_id(&self) -> Option<JSClassID> {
+    pub const fn generator_class_id(&self) -> Option<JSClassID> {
         match self {
             Self::JS_FUNC_GENERATOR => Some(JS_CLASS_GENERATOR),
             Self::JS_FUNC_ASYNC_GENERATOR => Some(JS_CLASS_ASYNC_GENERATOR),
@@ -118,7 +118,7 @@ impl BCFuncPayload {
 
     /// get function bytecode
     #[inline(always)]
-    pub fn bytecode(&self) -> &Bytecode {
+    pub const fn bytecode(&self) -> &Bytecode {
         &self.bytecode
     }
 
@@ -244,14 +244,19 @@ pub fn get_func_name(func: &JSValue) -> Option<String> {
     // in order to avoid executing arbitrary code during the stack trace generation,
     // we only look at simple 'name' properties containing a string.
     if let Some(obj) = func.as_object() {
-        if let Some((idx, prs_flags)) = obj.find_shape_property(JS_ATOM_name.deref()) {
-            if prs_flags & JS_PROP_TMASK == JS_PROP_NORMAL {
-                if let Some(JSProperty::Normal(JSValue::String(s))) =
-                    obj.0.prop_values.borrow().get(idx)
-                {
-                    return Some(s.content().to_utf8(false).into_owned());
-                } else {
-                    unreachable!()
+        if let Some((idx, prs_flags)) = obj.find_shape_property(&JS_ATOM_name)
+            && prs_flags & JS_PROP_TMASK == JS_PROP_NORMAL
+        {
+            if let Some(JSProperty::Normal(JSValue::String(s))) =
+                obj.0.prop_values.borrow().get(idx)
+            {
+                return Some(s.content().to_utf8(false).into_owned());
+            } else {
+                #[cfg(debug_assertions)]
+                unreachable!();
+                #[cfg(not(debug_assertions))]
+                unsafe {
+                    std::hint::unreachable_unchecked();
                 }
             }
         }
@@ -283,9 +288,14 @@ pub fn js_function_proto(_: &JSContext, _: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
-pub fn js_bytecode_function_finalizer(_rt: &mut JSRuntime, _isa: &ObjectPayload, _id: usize) {}
+pub(crate) const fn js_bytecode_function_finalizer(
+    _rt: &mut JSRuntime,
+    _isa: &ObjectPayload,
+    _id: usize,
+) {
+}
 
-pub fn js_bytecode_function_mark(val: JSValue) {
+pub(crate) fn js_bytecode_function_mark(val: JSValue) {
     let isa = val.as_object_BCFunction().unwrap().payload();
 
     isa.bytecode().gc_mark();
@@ -369,7 +379,7 @@ impl BytecodeFunction {
             debug_assert!(arg_copy_num >= args.len());
 
             // copy actual arg values
-            sf.local_buf.extend(args.iter().map(|x| x.clone()));
+            sf.local_buf.extend(args.iter().cloned());
             // padding with undefined
             sf.local_buf.extend(std::iter::repeat_n(
                 JSValue::UNDEFINED,

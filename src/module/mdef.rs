@@ -111,7 +111,7 @@ impl Drop for ModuleDefInner {
 impl ModuleDefInner {
     /// 'name' is consumed
     fn new(ctx: &JSContext, name: Atom) -> Self {
-        let md = Self {
+        Self {
             rt: ctx.rt_ptr(),
             gc_mark: Cell::new(false),
 
@@ -147,9 +147,7 @@ impl ModuleDefInner {
             eval_exception: UnsafeCell::new(None),
 
             meta_obj: Cell::new(None),
-        };
-
-        md
+        }
     }
 
     /// create a native module with init handler.
@@ -172,12 +170,12 @@ impl ModuleDefInner {
     /// get module name atom.
     /// returned atom is not duplicated, caller should clone it before keep it referenced.
     #[inline(always)]
-    pub fn module_name(&self) -> &Atom {
+    pub const fn module_name(&self) -> &Atom {
         &self.module_name
     }
 
     #[inline(always)]
-    pub fn has_tla(&self) -> bool {
+    pub const fn has_tla(&self) -> bool {
         self.has_tla.get()
     }
 
@@ -203,7 +201,7 @@ impl ModuleDefInner {
 
     /// set eval exception
     pub(crate) fn set_eval_exception(&self, exc: Option<JSValue>) {
-        debug_assert!(exc.as_ref().map_or(true, |v| !v.is_undefined_or_null()));
+        debug_assert!(exc.as_ref().is_none_or(|v| !v.is_undefined_or_null()));
         unsafe {
             let p = &mut *self.eval_exception.get();
             *p = exc;
@@ -211,12 +209,12 @@ impl ModuleDefInner {
     }
 
     #[inline(always)]
-    pub(super) fn dfs_index(&self) -> i32 {
+    pub(super) const fn dfs_index(&self) -> i32 {
         self.dfs_index.get()
     }
 
     #[inline(always)]
-    pub(super) fn dfs_ancestor_index(&self) -> i32 {
+    pub(super) const fn dfs_ancestor_index(&self) -> i32 {
         self.dfs_ancestor_index.get()
     }
 
@@ -333,7 +331,7 @@ impl ModuleDefInner {
         Ok(())
     }
 
-    fn finalize(&mut self) {
+    const fn finalize(&mut self) {
         // let rt = self.rt_mut();
 
         // let name = std::mem::replace(&mut self.module_name, Atom::NULL);
@@ -358,7 +356,7 @@ impl ModuleDefInner {
     }
 
     #[inline(always)]
-    pub fn gc_has_mark(&self) -> bool {
+    pub const fn gc_has_mark(&self) -> bool {
         self.gc_mark.get()
     }
 
@@ -608,15 +606,15 @@ pub fn js_import_meta(ctx: &JSContext) -> Result<JSObject, i32> {
     }
 }
 
-pub unsafe fn JS_SetModuleLoaderFunc(
-    rt: *mut JSRuntime,
+pub fn JS_SetModuleLoaderFunc(
+    rt: &mut JSRuntime,
     module_normalize: Option<JSModuleNormalizeFunc>,
     module_loader: JSModuleLoaderFunc,
     opaque: *mut std::ffi::c_void,
 ) {
-    (*rt).module_normalize_func = module_normalize;
-    (*rt).module_loader_func = Some(module_loader);
-    (*rt).module_loader_opaque = opaque;
+    rt.module_normalize_func = module_normalize;
+    rt.module_loader_func = Some(module_loader);
+    rt.module_loader_opaque = opaque;
 }
 
 pub fn js_dynamic_import(ctx: &JSContext, specifier: &JSValue) -> JSResult {
