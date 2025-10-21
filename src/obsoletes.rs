@@ -13,7 +13,7 @@ use crate::{
     array_buffer::JSFreeArrayBufferDataFunc,
     atom::{
         Atom, AtomDesc, AtomDescKind, AtomHintAndId, AtomRef, AtomTypeHint, JS_ATOM_NULL,
-        JS_ATOM_TAG_INT, consts::JS_ATOM_name,
+        JS_ATOM_TAG_INT, consts::*,
     },
     bytecode::{OpCode, OpCodeTemp, arithmatic::StrictEqMode},
     class::{ClassFieldsDef, JSClassDef, JSClassID, JSClassShortDef},
@@ -26,7 +26,7 @@ use crate::{
     },
     gc::{GCObjectHeader, JSGCObjectTypeEnum},
     generator::{AGenPayload, GeneratorPayload},
-    iterator::{ForInIterPayload, JSIteratorKindEnum},
+    iterator::{ForInIterPayload, JSIteratorKindEnum, ObjectIter},
     mapset::{JSMapState, MapPair},
     module::{ExportEntry, ExportType, JSResolveResultEnum, ModuleDef, ModuleDefInner},
     number::JSToNumberHintEnum,
@@ -3825,7 +3825,7 @@ pub fn JS_IteratorClose(
 
 #[deprecated(note = "use JSForInIterator::new() instead")]
 pub fn build_for_in_iterator(ctx: &JSContext, obj: JSValue) -> JSValue {
-    ForInIterPayload::new(ctx, obj).map_or(JSValue::EXCEPTION, JSValue::Object)
+    ForInIterPayload::create(ctx, obj).map_or(JSValue::EXCEPTION, JSValue::Object)
 }
 
 /// return TRUE if 'atom' is a symbol with a string description
@@ -4876,4 +4876,52 @@ pub unsafe fn close_lexical_var(ctx: &JSContext, sf: *mut StackFrame, var_idx: u
 #[deprecated(note = "use JSStackFrame::close_var_refs() instead")]
 pub unsafe fn close_var_refs(ctx: &JSContext, sf: *mut StackFrame) {
     (*sf).close_var_refs();
+}
+
+#[deprecated(note = "unused")]
+pub unsafe fn JS_CreateAsyncFromSyncIterator(ctx: &JSContext, sync_iter: JSValueConst) -> JSValue {
+    unreachable!("unused")
+}
+
+/// Get enumerate object and next method of sp[-1] object.
+/// Note: new values are updated to sp[-1], sp[0], old value in sp[-1] is consumed.
+/// if fail, sp[-1] is not consumed.
+#[deprecated(
+    note = "use JSValue::get_iterator_must() and JSValue::get_property(JS_ATOM_next) combination"
+)]
+pub(super) fn js_for_of_start(
+    ctx: &JSContext,
+    sp: *mut JSValue,
+    is_async: bool,
+) -> Result<(), i32> {
+    let iter_obj = unsafe { &*sp.offset(-1) }.get_iterator_must(ctx, is_async)?;
+    let next = iter_obj.get_property(ctx, &JS_ATOM_next)?;
+    unsafe {
+        std::ptr::replace(sp.offset(-1), iter_obj.into());
+        std::ptr::replace(sp.offset(0), next);
+    }
+    Ok(())
+}
+
+#[deprecated(note = "use JSContext::create_instance_with_ctor() instead")]
+pub unsafe fn js_create_from_ctor(
+    _ctx: &JSContext,
+    _ctor: JSValue,
+    _class_id: JSClassID,
+) -> JSValue {
+    unreachable!("unused");
+}
+
+#[deprecated(note = "use JSObject::prevent_extensions() or JSValue::prevent_extensions() instead")]
+pub fn JS_PreventExtensions(ctx: &JSContext, obj: &JSValue) -> Result<bool, i32> {
+    if let JSValue::Object(p) = obj {
+        if p.class_id() == JS_CLASS_PROXY {
+            obj.prevent_extensions(ctx)
+        } else {
+            p.set_flag_extensible(false);
+            Ok(true)
+        }
+    } else {
+        Ok(false)
+    }
 }

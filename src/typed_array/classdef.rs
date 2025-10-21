@@ -828,7 +828,6 @@ pub fn js_typed_array_sort(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_typed_array_toSorted(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let this_val = cc.this();
     let p = TypedArray::try_from(cc.this().clone()).map_err(|_| {
         ctx.throw_type_error("not a TypedArray");
         -1

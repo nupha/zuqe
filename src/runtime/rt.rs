@@ -380,11 +380,10 @@ impl JSRuntime {
                 }
             });
 
-            let rt_ptr = self as *mut Self;
             for (_, mut sh_lst) in self.shape_registry.drain() {
                 sh_lst.retain(|w| {
                     if let Some(s) = w.upgrade() {
-                        s.dump(unsafe { rt_ptr.as_ref().unwrap() });
+                        s.dump();
                         true
                     } else {
                         false

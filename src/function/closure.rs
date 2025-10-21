@@ -442,7 +442,7 @@ pub unsafe fn add_closure_variables(
         cvars.push(cv);
     }
 
-    (*s).closure_vars.replace(cvars);
+    s.closure_vars.replace(cvars);
     Ok(())
 }
 

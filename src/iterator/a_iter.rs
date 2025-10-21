@@ -11,7 +11,7 @@ use crate::{
     object::{JSObject, ObjectPayload},
     promise::{Promise, js_promise_resolve},
     runtime::JSRuntime,
-    value::{JSValue, JSValueConst},
+    value::JSValue,
 };
 
 use super::{JS_IteratorGetCompleteValue, js_create_iterator_result};
@@ -25,11 +25,6 @@ pub struct JSAsyncFromSyncIteratorData {
 pub const GEN_MAGIC_NEXT: i32 = 0;
 pub const GEN_MAGIC_RETURN: i32 = 1;
 pub const GEN_MAGIC_THROW: i32 = 2;
-
-#[deprecated(note = "unused")]
-pub unsafe fn JS_CreateAsyncFromSyncIterator(ctx: &JSContext, sync_iter: JSValueConst) -> JSValue {
-    unreachable!("unused")
-}
 
 pub fn js_async_from_sync_iterator_unwrap(ctx: &JSContext, args: CallContext) -> JSResult {
     let done = args.data(0).to_bool()?;
@@ -113,7 +108,7 @@ pub fn js_async_from_sync_iterator_next(ctx: &JSContext, cc: CallContext) -> JSR
                 IteratorState::Done => true,
                 IteratorState::NotParsed => {
                     let mut _done = false;
-                    value = unsafe { JS_IteratorGetCompleteValue(ctx, &value, &mut _done) };
+                    value = JS_IteratorGetCompleteValue(ctx, &value, &mut _done);
                     if value.is_exception() {
                         let err = ctx.take_exception();
                         return Ok(done_resolve(resolving_funcs, err, 1, promise));
@@ -167,7 +162,11 @@ pub fn js_async_from_sync_iterator_next(ctx: &JSContext, cc: CallContext) -> JSR
     }
 }
 
-pub fn js_async_from_sync_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {
+pub const fn js_async_from_sync_iterator_finalizer(
+    _rt: &mut JSRuntime,
+    _isa: &ObjectPayload,
+    _id: usize,
+) {
     // if let ObjectPayload::ASYNC_FROM_SYNC_ITERATOR(p) = val.object_unchecked().isa() {
     //     drop(Box::from_raw(p));
     // }

@@ -315,11 +315,11 @@ impl AsyncFuncState {
         self.0.borrow_mut().header.gc_set_mark(mark);
     }
 
-    fn gc_dump(&self, rt: &JSRuntime) {
+    fn gc_dump(&self, _rt: &JSRuntime) {
         println!("{:14p} [async_function]", self.id() as *const Self);
     }
 
-    pub fn class_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
+    pub const fn class_finalizer(_rt: &mut JSRuntime, _isa: &ObjectPayload, _id: usize) {}
 
     pub fn class_mark(val: JSValue) {
         if let Some(s) = val

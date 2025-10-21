@@ -70,20 +70,18 @@ impl JSContext {
 
         let proto = if ctor.is_undefined() {
             self.0.borrow().class_proto[class_id as usize].clone()
-        } else {
-            if let Ok(p) = ctor.get_property(self, JS_ATOM_prototype.deref()) {
-                if !p.is_object() {
-                    if let Ok(realm) = JS_GetFunctionRealm(self, &ctor) {
-                        realm.0.borrow().class_proto[class_id as usize].clone()
-                    } else {
-                        return Err(payload);
-                    }
+        } else if let Ok(p) = ctor.get_property(self, &JS_ATOM_prototype) {
+            if !p.is_object() {
+                if let Ok(realm) = JS_GetFunctionRealm(self, ctor) {
+                    realm.0.borrow().class_proto[class_id as usize].clone()
                 } else {
-                    p
+                    return Err(payload);
                 }
             } else {
-                return Err(payload);
+                p
             }
+        } else {
+            return Err(payload);
         };
 
         self.create_object_from_proto(proto, payload)
@@ -112,7 +110,7 @@ impl JSContext {
             let payload = payload_fn()?;
 
             if !p.is_object() {
-                let realm = JS_GetFunctionRealm(self, &ctor)?;
+                let realm = JS_GetFunctionRealm(self, ctor)?;
                 (
                     realm.0.borrow().class_proto[payload.class_id() as usize].clone(),
                     payload,

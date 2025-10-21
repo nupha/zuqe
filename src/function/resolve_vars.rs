@@ -338,7 +338,7 @@ impl JSFunctionDef {
                 opcodes::op_enter_scope => {
                     let scope = unsafe { read_from_ptr::<u16>(bc_buf_ptr.add(pos + 1)) } as i32;
                     if scope == self.body_scope {
-                        instantiate_hoisted_definitions(ctx, self, &mut bc_out);
+                        instantiate_hoisted_definitions(self, &mut bc_out);
                     }
 
                     let mut scope_idx = self.scopes[scope as usize].first;

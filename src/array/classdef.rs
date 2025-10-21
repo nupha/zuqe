@@ -367,7 +367,7 @@ pub fn js_array_every(ctx: &JSContext, cc: CallContext) -> JSResult {
     for k in 0..len {
         let mut val = JSValue::UNDEFINED;
 
-        if special & special_TA as i32 != 0 {
+        if special & special_TA != 0 {
             val = obj.get_property_i64(ctx, k)?;
             present = true;
         } else {
@@ -384,7 +384,7 @@ pub fn js_array_every(ctx: &JSContext, cc: CallContext) -> JSResult {
 
         if present {
             let index_val = JSValue::from(k);
-            let res = func.call(ctx, &this_arg, &[val.clone(), index_val, obj.clone()])?;
+            let res = func.call(ctx, this_arg, &[val.clone(), index_val, obj.clone()])?;
 
             match special {
                 s if s == special_every || s == special_every | special_TA => {
@@ -416,7 +416,7 @@ pub fn js_array_every(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     }
 
-    if special == (special_filter | special_TA) as i32 {
+    if special == special_filter | special_TA {
         let arr = js_typed_array___speciesCreate(
             ctx,
             &JSValue::UNDEFINED,

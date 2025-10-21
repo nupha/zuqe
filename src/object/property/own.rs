@@ -143,11 +143,11 @@ impl JSObject {
         let flags = self.flags();
         if flags.is_exotic() {
             if flags.is_fast_array() {
-                if let Some(idx) = prop.to_small_int() {
-                    if idx < self.fast_array_count() as u32 {
-                        // array index is own property
-                        return Ok(true);
-                    }
+                if let Some(idx) = prop.to_small_int()
+                    && idx < self.fast_array_count()
+                {
+                    // array index is own property
+                    return Ok(true);
                 }
             } else if let Some(cb) = unsafe {
                 ctx.rt().class_defs[self.class_id() as usize]
@@ -155,7 +155,7 @@ impl JSObject {
                     .as_ref()
                     .and_then(|x| x.get_own_property)
             } {
-                return cb(ctx, JSValue::Object(self.clone()), prop).map(|d| d.is_some());
+                return cb(ctx, self.clone().into(), prop).map(|d| d.is_some());
             }
         }
 
@@ -174,57 +174,53 @@ impl JSObject {
         ctx: &JSContext,
         prop: &Atom,
     ) -> Result<Option<JSPropertyDescriptor>, i32> {
-        loop {
-            if let Some((idx, prs_flags)) = self.find_shape_property(prop) {
-                let mut desc = JSPropertyDescriptor {
-                    flags: prs_flags & JS_PROP_C_W_E,
-                    ..Default::default()
-                };
+        while let Some((idx, prs_flags)) = self.find_shape_property(prop) {
+            let mut desc = JSPropertyDescriptor {
+                flags: prs_flags & JS_PROP_C_W_E,
+                ..Default::default()
+            };
 
-                match prs_flags & JS_PROP_TMASK {
-                    JS_PROP_NORMAL => {
-                        desc.value =
-                            self.0.prop_values.borrow()[idx].value(ctx, &JSValue::UNDEFINED)?;
-                    }
-                    JS_PROP_GETSET => {
-                        desc.flags |= JS_PROP_GETSET;
-                        if let JSProperty::GetSet { getter, setter } =
-                            self.0.prop_values.borrow()[idx].clone()
-                        {
-                            desc.getter = getter.map_or(JSValue::UNDEFINED, JSValue::Object);
-                            desc.setter = setter.map_or(JSValue::UNDEFINED, JSValue::Object);
-                        } else {
-                            unreachable!()
-                        }
-                    }
-                    JS_PROP_VARREF => {
-                        desc.value =
-                            self.0.prop_values.borrow()[idx].value(ctx, &JSValue::UNDEFINED)?;
-                        if unlikely(desc.value.is_uninitialized()) {
-                            JS_ThrowReferenceErrorUninitialized(ctx, prop.to_ref());
-                            return Err(-1);
-                        }
-                    }
-                    JS_PROP_LAZYINIT => {
-                        // Instantiate lazy object
-                        desc.value = unsafe {
-                            self.0
-                                .prop_values
-                                .borrow_mut()
-                                .get_unchecked_mut(idx)
-                                .instantiate(self, idx, self)?
-                        };
-                        continue;
-                    }
-                    _ => {
-                        unreachable!();
+            match prs_flags & JS_PROP_TMASK {
+                JS_PROP_NORMAL => {
+                    desc.value =
+                        self.0.prop_values.borrow()[idx].value(ctx, &JSValue::UNDEFINED)?;
+                }
+                JS_PROP_GETSET => {
+                    desc.flags |= JS_PROP_GETSET;
+                    if let JSProperty::GetSet { getter, setter } =
+                        self.0.prop_values.borrow()[idx].clone()
+                    {
+                        desc.getter = getter.map_or(JSValue::UNDEFINED, JSValue::Object);
+                        desc.setter = setter.map_or(JSValue::UNDEFINED, JSValue::Object);
+                    } else {
+                        unreachable!()
                     }
                 }
-
-                return Ok(Some(desc));
-            } else {
-                break;
+                JS_PROP_VARREF => {
+                    desc.value =
+                        self.0.prop_values.borrow()[idx].value(ctx, &JSValue::UNDEFINED)?;
+                    if unlikely(desc.value.is_uninitialized()) {
+                        JS_ThrowReferenceErrorUninitialized(ctx, prop.to_ref());
+                        return Err(-1);
+                    }
+                }
+                JS_PROP_LAZYINIT => {
+                    // Instantiate lazy object
+                    desc.value = unsafe {
+                        self.0
+                            .prop_values
+                            .borrow_mut()
+                            .get_unchecked_mut(idx)
+                            .instantiate(self, idx, self)?
+                    };
+                    continue;
+                }
+                _ => {
+                    unreachable!();
+                }
             }
+
+            return Ok(Some(desc));
         }
 
         let flags = self.flags();
@@ -232,7 +228,7 @@ impl JSObject {
             if flags.is_fast_array() {
                 // specific case for fast arrays
                 if let Some(idx) = prop.to_small_int()
-                    && idx < self.fast_array_count() as u32
+                    && idx < self.fast_array_count()
                 {
                     return Ok(Some(JSPropertyDescriptor {
                         flags: JS_PROP_C_W_E,
@@ -405,10 +401,10 @@ impl JSObject {
                                 return ret;
                             }
                         }
-                    } else if let Some(idx) = prop.to_array_index() {
-                        if let Some(ret) = update_array_length_fn(self, idx, arr_len) {
-                            return ret;
-                        }
+                    } else if let Some(idx) = prop.to_array_index()
+                        && let Some(ret) = update_array_length_fn(self, idx, arr_len)
+                    {
+                        return ret;
                     }
                 } // Array, Arguments
 
@@ -417,42 +413,39 @@ impl JSObject {
                     if ret != 0 {
                         return if unlikely(ret < 0) {
                             Err(-1)
+                        } else if ctx.can_throw(flags) {
+                            ctx.throw_type_error("cannot create numeric index in typed array");
+                            Err(-1)
                         } else {
-                            if ctx.can_throw(flags) {
-                                ctx.throw_type_error("cannot create numeric index in typed array");
-                                Err(-1)
-                            } else {
-                                Ok(false)
-                            }
+                            Ok(false)
                         };
                     }
                 }
 
                 cid => {
-                    if flags & JS_PROP_NO_EXOTIC == 0 {
-                        if let Some(em) =
+                    if flags & JS_PROP_NO_EXOTIC == 0
+                        && let Some(em) =
                             unsafe { ctx.rt().class_defs[cid as usize].exotic.as_ref() }
-                        {
-                            if let Some(f) = em.define_own_property {
-                                return f(
-                                    ctx,
-                                    &JSValue::Object(self.clone()),
-                                    &prop,
-                                    val,
-                                    getter,
-                                    setter,
-                                    flags as _,
-                                );
-                            }
+                    {
+                        if let Some(f) = em.define_own_property {
+                            return f(
+                                ctx,
+                                &JSValue::Object(self.clone()),
+                                &prop,
+                                val,
+                                getter,
+                                setter,
+                                flags as _,
+                            );
+                        }
 
-                            if unlikely(!self.is_extensible(ctx)?) {
-                                return if ctx.can_throw(flags) {
-                                    ctx.throw_type_error("object is not extensible");
-                                    Err(-1)
-                                } else {
-                                    Ok(false)
-                                };
-                            }
+                        if unlikely(!self.is_extensible(ctx)?) {
+                            return if ctx.can_throw(flags) {
+                                ctx.throw_type_error("object is not extensible");
+                                Err(-1)
+                            } else {
+                                Ok(false)
+                            };
                         }
                     }
                 }
@@ -463,12 +456,12 @@ impl JSObject {
         // add shape property and put the value in value slot.
 
         if unlikely(!obj_flags.extensible()) {
-            return if ctx.can_throw(flags) {
+            if ctx.can_throw(flags) {
                 ctx.throw_type_error("object is not extensible");
                 Err(-1)
             } else {
                 Ok(false)
-            };
+            }
         } else {
             let prop_flags = if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0 {
                 (flags & (JS_PROP_CONFIGURABLE | JS_PROP_ENUMERABLE)) | JS_PROP_GETSET

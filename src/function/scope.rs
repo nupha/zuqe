@@ -32,18 +32,16 @@ impl JSFunctionDef {
         let scope_id = self.scopes.len(); // new scope id
 
         if self.scopes.len() == self.scopes.capacity() {
-            if self
-                .scopes
+            self.scopes
                 .try_reserve_exact(self.scopes.capacity() >> 2)
-                .is_err()
-            {
-                self.ctx.throw_out_of_memory();
-                return Err(-1);
-            }
+                .map_err(|_| {
+                    self.ctx.throw_out_of_memory();
+                    -1
+                })?;
         }
 
         self.scopes.push(JSVarScope {
-            parent: self.scope_level as i32,
+            parent: self.scope_level,
             first: self.scope_first,
         });
         self.scope_level = scope_id as i32;
@@ -220,7 +218,7 @@ impl<'s> Iterator for ScopedVarsIter<'s> {
 
 impl<'s> ScopedVarsIter<'s> {
     #[inline(always)]
-    pub fn is_arg_scope(&self) -> bool {
+    pub const fn is_arg_scope(&self) -> bool {
         self.cur_idx == ARG_SCOPE_END
     }
 }
@@ -261,7 +259,7 @@ impl<'s> Iterator for ScopedVarsIterMut<'s> {
 
 impl<'s> ScopedVarsIterMut<'s> {
     #[inline(always)]
-    pub fn is_arg_scope(&self) -> bool {
+    pub const fn is_arg_scope(&self) -> bool {
         self.cur_idx == ARG_SCOPE_END
     }
 }

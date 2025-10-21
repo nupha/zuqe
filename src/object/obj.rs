@@ -13,8 +13,8 @@ use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
     JS_CLASS_BIG_INT, JS_CLASS_BOOLEAN, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION,
     JS_CLASS_DATAVIEW, JS_CLASS_DATE, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_GENERATOR_FUNCTION,
-    JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_PROXY, JS_CLASS_REGEXP, JS_CLASS_STRING,
-    JS_CLASS_SYMBOL, JS_CLASS_UINT8C_ARRAY,
+    JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_REGEXP, JS_CLASS_STRING, JS_CLASS_SYMBOL,
+    JS_CLASS_UINT8C_ARRAY,
     atom::{Atom, consts::*},
     branch_hints::unlikely,
     class::JSClassID,
@@ -563,14 +563,13 @@ impl JSObject {
 
         if let Err(e) =
             self.own_property_names_foreach(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK, |_, pk| {
-                if let Some(desc) = self.get_own_property(ctx, &pk.atom)? {
-                    if desc.flags & JS_PROP_CONFIGURABLE != 0
-                        || (is_frozen && (desc.flags & JS_PROP_WRITABLE != 0))
-                    {
-                        // found writable prop: that means object is not sealed
-                        // return Err to stop iterate name
-                        return Err(NOT_SEALED_ERR);
-                    }
+                if let Some(desc) = self.get_own_property(ctx, &pk.atom)?
+                    && (desc.flags & JS_PROP_CONFIGURABLE != 0
+                        || (is_frozen && (desc.flags & JS_PROP_WRITABLE != 0)))
+                {
+                    // found writable prop: that means object is not sealed
+                    // return Err to stop iterate name
+                    return Err(NOT_SEALED_ERR);
                 }
                 Ok(())
             })
@@ -727,12 +726,11 @@ impl JSValue {
                     |_, pkey| {
                         let mut flags = JS_PROP_THROW | JS_PROP_HAS_CONFIGURABLE;
 
-                        if freeze {
-                            if let Some(desc) = p.get_own_property(ctx, &pkey.atom)? {
-                                if desc.flags & JS_PROP_WRITABLE != 0 {
-                                    flags |= JS_PROP_HAS_WRITABLE;
-                                }
-                            }
+                        if freeze
+                            && let Some(desc) = p.get_own_property(ctx, &pkey.atom)?
+                            && desc.flags & JS_PROP_WRITABLE != 0
+                        {
+                            flags |= JS_PROP_HAS_WRITABLE;
                         }
 
                         // equivelent to set {configurable: false},
@@ -803,20 +801,6 @@ pub fn seal_template_obj(ctx: &JSContext, obj: JSValue) -> i32 {
 
     p.set_flag_extensible(false);
     0
-}
-
-#[deprecated(note = "use JSObject::prevent_extensions() or JSValue::prevent_extensions() instead")]
-pub fn JS_PreventExtensions(ctx: &JSContext, obj: &JSValue) -> Result<bool, i32> {
-    if let JSValue::Object(p) = obj {
-        if p.class_id() == JS_CLASS_PROXY {
-            obj.prevent_extensions(ctx)
-        } else {
-            p.set_flag_extensible(false);
-            Ok(true)
-        }
-    } else {
-        Ok(false)
-    }
 }
 
 pub fn JS_SpeciesConstructor(

@@ -18,6 +18,7 @@ pub fn js_object_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
     let txt = match cc.this() {
         JSValue::NULL => "[object Null]".to_string(),
         JSValue::UNDEFINED => "[object Undefined]".to_string(),
+        JSValue::Object(o) => o.inspect(ctx)?,
         v => v.clone().objectify(ctx)?.inspect(ctx)?,
     };
 

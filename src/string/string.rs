@@ -111,7 +111,7 @@ impl JSStringInner {
 
     /// null means this is a const atom description
     #[inline(always)]
-    pub(crate) fn rt_ptr(&self) -> *mut JSRuntime {
+    pub(crate) const fn rt_ptr(&self) -> *mut JSRuntime {
         self.rt
     }
 
@@ -189,7 +189,7 @@ impl JSStringInner {
 
     pub(crate) fn copy_to_new(&self) -> JSString {
         match self.content().data() {
-            StringData::AsciiStatic(s) => JSString::from_static(*s),
+            StringData::AsciiStatic(s) => JSString::from_static(s),
             StringData::Empty => {
                 JSString::new_internal(std::ptr::null_mut(), StringData::Empty.into())
             }
@@ -286,9 +286,7 @@ impl JSString {
             gc_mark: Cell::new(false),
         };
 
-        let s = Self(Rc::new(inner));
-        //rt.gc_add_object(s.downgrade().into());
-        s
+        Self(Rc::new(inner))
     }
 
     /// create JSString with string content
@@ -679,7 +677,7 @@ impl JSValue {
 }
 
 /// starts_with() equivalent
-pub unsafe fn strstart(str: *const u8, val: *const u8, ptr: *mut *const u8) -> bool {
+pub(crate) unsafe fn strstart(str: *const u8, val: *const u8, ptr: *mut *const u8) -> bool {
     let mut p = str;
     let mut q = val;
     while *q != 0 {

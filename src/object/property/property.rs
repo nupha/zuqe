@@ -305,15 +305,15 @@ impl JSObject {
         let mut p = self.clone();
 
         loop {
-            if p.flags().is_exotic() {
-                if let Some(cb) = unsafe {
+            if p.flags().is_exotic()
+                && let Some(cb) = unsafe {
                     ctx.rt().class_defs[p.class_id() as usize]
                         .exotic
                         .as_ref()
                         .and_then(|x| x.has_property)
-                } {
-                    return cb(ctx, &p, prop);
                 }
+            {
+                return cb(ctx, &p, prop);
             }
 
             if p.get_own_property(ctx, prop)?.is_some() {
@@ -437,13 +437,11 @@ impl JSValue {
         if let Self::Object(src_obj) = source {
             if let Self::Object(o) = self {
                 o.copy_data_properties_from(ctx, src_obj, excluded.as_object(), setprop)
+            } else if let JSValue::Object(p) = JS_GetPrototypePrimitive(ctx, self) {
+                p.copy_data_properties_from(ctx, src_obj, excluded.as_object(), setprop)
             } else {
-                if let JSValue::Object(p) = JS_GetPrototypePrimitive(ctx, self) {
-                    p.copy_data_properties_from(ctx, src_obj, excluded.as_object(), setprop)
-                } else {
-                    ctx.throw_type_error_not_an_object();
-                    Err(-1)
-                }
+                ctx.throw_type_error_not_an_object();
+                Err(-1)
             }
         } else {
             Ok(())

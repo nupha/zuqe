@@ -5,7 +5,7 @@ use std::ops::Range;
 use crate::string::U16CharIter;
 
 #[inline]
-pub(crate) fn utf8_test_first_byte(b: u8) -> u8 {
+pub(crate) const fn utf8_test_first_byte(b: u8) -> u8 {
     if (b & 0x80) == 0 {
         1
     } else if (b & 0xE0) == 0xC0 {
@@ -58,7 +58,7 @@ fn map_utf8_to_utf16_pos_floor(s8: &[u8], s16: &[u16], pos: usize) -> usize {
     debug_assert!(unsafe { str::from_utf8_unchecked(s8).is_char_boundary(0) });
 
     let mut it = U16CharIter::new(s16, 0);
-    let utf8_text = unsafe { str::from_utf8_unchecked(s8) };
+    // let utf8_text = unsafe { str::from_utf8_unchecked(s8) };
 
     let start_index = if pos == 0 {
         pos
@@ -274,7 +274,7 @@ pub(crate) fn map_utf8_to_utf16_range_v1(
 
         if end_char_floor == start_char_floor {
             // broken surrogate
-            debug_assert!(matches!(range.len(), 1 | 2 | 3));
+            debug_assert!(matches!(range.len(), 1..=3));
             start_index + 1
         } else {
             let match_nc = utf8_text[start_char_floor..end_char_ceil].chars().count();

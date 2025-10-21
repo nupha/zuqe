@@ -186,7 +186,7 @@ impl JSContextInner {
         self.random_state = if seed != 0 { seed } else { 1 };
     }
 
-    fn gc_dump(&self, rt: &JSRuntime) {
+    fn gc_dump(&self, _rt: &JSRuntime) {
         println!("{:14p} [context]", self);
     }
 

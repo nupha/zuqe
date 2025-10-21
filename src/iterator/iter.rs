@@ -44,7 +44,7 @@ pub struct ForInIterPayload {
 impl ForInIterPayload {
     /// create new object with ForInIterPayload payload for given value.
     /// the new object is of CLASS_FOR_IN_ITERATOR class.
-    pub fn new(ctx: &JSContext, val: JSValue) -> Result<JSObject, i32> {
+    pub fn create(ctx: &JSContext, val: JSValue) -> Result<JSObject, i32> {
         let obj: JSValue = match val {
             JSValue::Object(_) => val,
             JSValue::NULL | JSValue::UNDEFINED => val,
@@ -73,7 +73,7 @@ impl ForInIterPayload {
                     // no enumerable property, is fast array.
                     // we only store the number of elements
                     it.is_array = true;
-                    it.prop_count = ob.fast_array_count() as u32;
+                    it.prop_count = ob.fast_array_count();
                 }
             }
 
@@ -276,7 +276,7 @@ impl ObjectIter {
     ) -> Result<(JSValue, bool), i32> {
         match Self::do_apply_next_method(ctx, obj, method, args)? {
             (ret, state @ (IteratorState::NotDone | IteratorState::Done)) => {
-                Ok((ret.into(), state == IteratorState::Done))
+                Ok((ret, state == IteratorState::Done))
             }
             (ret, IteratorState::NotParsed) => {
                 let done = ret
@@ -308,14 +308,12 @@ impl ObjectIter {
             JSValue::UNDEFINED
         };
 
-        if let Ok(return_method) = obj.get_property(ctx, JS_ATOM_return.deref()) {
+        if let Ok(return_method) = obj.get_property(ctx, &JS_ATOM_return) {
             if !return_method.is_undefined_or_null() {
-                let ret = return_method.call(ctx, &obj.clone().into(), &[]);
-                if pending_exc.is_undefined_or_null() {
-                    if !ret?.is_object() {
-                        ctx.throw_type_error_not_an_object();
-                        return Err(-1);
-                    }
+                let ret = return_method.call(ctx, &obj.clone().into(), &[])?;
+                if pending_exc.is_undefined_or_null() && !ret.is_object() {
+                    ctx.throw_type_error_not_an_object();
+                    return Err(-1);
                 }
             }
 
@@ -384,16 +382,14 @@ impl JSValue {
                     Ok(None)
                 }
             }
+        } else if let Some(r) = self.invoke_callable(ctx, &JS_ATOM_Symbol_iterator, &[])? {
+            JSObject::try_from(r?)
+                .inspect_err(|_| {
+                    ctx.throw_type_error_not_an_object();
+                })
+                .map(Some)
         } else {
-            if let Some(r) = self.invoke_callable(ctx, JS_ATOM_Symbol_iterator.deref(), &[])? {
-                JSObject::try_from(r?)
-                    .inspect_err(|_| {
-                        ctx.throw_type_error_not_an_object();
-                    })
-                    .map(Some)
-            } else {
-                Ok(None)
-            }
+            Ok(None)
         }
     }
 

@@ -344,7 +344,7 @@ impl Array {
                     obj.set_property_u32(ctx, i as u32, JSValue::UNDEFINED)?;
                 }
             }
-            for i in (slots_len + undefined_count) as i64..arr_len {
+            for i in (slots_len + undefined_count)..arr_len {
                 obj.delete_property_i64(ctx, i, JS_PROP_THROW)?;
             }
         }

@@ -184,32 +184,32 @@ impl JSObject {
                         );
                     }
 
-                    if let Some(f) = xm.get_own_property {
-                        if let Some(desc) = f(ctx, JSValue::Object(cur_obj.clone()), prop)? {
-                            if desc.flags & JS_PROP_GETSET != 0 {
-                                return call_setter(
-                                    ctx,
-                                    desc.setter.as_object(),
-                                    &target.unwrap_or(self).clone().into(),
-                                    val,
-                                    flags,
-                                );
-                            }
+                    if let Some(f) = xm.get_own_property
+                        && let Some(desc) = f(ctx, JSValue::Object(cur_obj.clone()), prop)?
+                    {
+                        if desc.flags & JS_PROP_GETSET != 0 {
+                            return call_setter(
+                                ctx,
+                                desc.setter.as_object(),
+                                &target.unwrap_or(self).clone().into(),
+                                val,
+                                flags,
+                            );
+                        }
 
-                            if unlikely(desc.flags & JS_PROP_WRITABLE == 0) {
-                                fail_read_only!(prop)
-                            }
+                        if unlikely(desc.flags & JS_PROP_WRITABLE == 0) {
+                            fail_read_only!(prop)
+                        }
 
-                            if target.map_or(false, |o| cur_obj.eq(o)) {
-                                return cur_obj.define_property(
-                                    ctx,
-                                    prop,
-                                    val,
-                                    JSValue::UNDEFINED,
-                                    JSValue::UNDEFINED,
-                                    JS_PROP_HAS_VALUE,
-                                );
-                            }
+                        if target.is_some_and(|o| cur_obj.eq(o)) {
+                            return cur_obj.define_property(
+                                ctx,
+                                prop,
+                                val,
+                                JSValue::UNDEFINED,
+                                JSValue::UNDEFINED,
+                                JS_PROP_HAS_VALUE,
+                            );
                         }
                     }
                 }
@@ -236,11 +236,10 @@ impl JSObject {
                     if let Some(idx) = prop.to_small_int()
                         && let Some(arr) = target.as_Array()
                         && arr.is_fast_array()
-                    // && arr.class_id() == JS_CLASS_ARRAY // should exclude JS_CLASS_ARGUMENTS?
+                        // && arr.class_id() == JS_CLASS_ARRAY // should exclude JS_CLASS_ARGUMENTS?
+                        && idx == arr.fast_array_count()
                     {
-                        if idx == arr.fast_array_count() {
-                            return arr.add_fast_array_element(ctx, val, flags);
-                        }
+                        return arr.add_fast_array_element(ctx, val, flags);
                     }
                 } else {
                     target.add_own_property(
@@ -503,8 +502,6 @@ impl JSValue {
     ///
     /// In case of `Reflect.set(obj, val, [receiver])`, `receiver` could be null, undefined or Some(object).
     /// For other cases,  `receiver` should be None, suggesting it's same to `self`.
-    ///
-    /// `prop` is not consumed.
     pub(crate) fn set_property_internal(
         &self,
         ctx: &JSContext,
@@ -514,16 +511,14 @@ impl JSValue {
         flags: u32,
     ) -> Result<bool, i32> {
         if let Self::Object(o) = self {
-            o.set_property_internal(ctx, prop, val, receiver.or_else(|| Some(o)), flags)
+            o.set_property_internal(ctx, prop, val, receiver.or(Some(o)), flags)
         } else if let JSValue::Object(p) = JS_GetPrototypePrimitive(ctx, self) {
             p.set_property_internal(ctx, prop, val, receiver, flags)
+        } else if unlikely(ctx.can_throw(flags)) {
+            ctx.throw_type_error_not_an_object();
+            Err(-1)
         } else {
-            return if unlikely(ctx.can_throw(flags)) {
-                ctx.throw_type_error_not_an_object();
-                Err(-1)
-            } else {
-                Ok(false)
-            };
+            Ok(false)
         }
     }
 

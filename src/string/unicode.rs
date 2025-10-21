@@ -20,7 +20,7 @@ pub(crate) fn unicode_from_utf8(buf: &[u8]) -> Result<(u32, usize), i32> {
     let c = buf[0];
 
     // 根据首字节确定UTF-8序列长度
-    let n = match c as u8 {
+    let n = match c {
         0x00..=0x7f => {
             // ascii
             return Ok((c as u32, 1));

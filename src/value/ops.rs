@@ -140,7 +140,7 @@ impl JSValue {
 
         if let Some(o) = ctor.as_object() {
             if let Some(r) =
-                o.invoke_defined(ctx, &JS_ATOM_Symbol_hasInstance, &[self.clone().into()])?
+                o.invoke_defined(ctx, &JS_ATOM_Symbol_hasInstance, std::slice::from_ref(self))?
             {
                 return r.and_then(|v| v.to_bool());
             } else {

@@ -186,11 +186,11 @@ impl JSFunctionDef {
                     break;
                 }
             }
-            if is_pseudo_var {
-                if let Some(i) = unsafe { (&mut *cur_fd).resolve_pseudo_var(ctx, var_name) } {
-                    var_idx = i as i32;
-                    break;
-                }
+            if is_pseudo_var
+                && let Some(i) = unsafe { (&mut *cur_fd).resolve_pseudo_var(ctx, var_name) }
+            {
+                var_idx = i as i32;
+                break;
             }
             if var_name.to_ref() == JS_ATOM_arguments && unsafe { (&*cur_fd).has_arguments_binding }
             {
@@ -281,60 +281,61 @@ impl JSFunctionDef {
         // find closure variable
         let mut found_closure: Option<u16> = None;
 
-        if var_idx < 0 && unsafe { (*cur_fd).is_eval } {
-            if let Some(cvars) = unsafe { (&*cur_fd).closure_vars.as_ref() } {
-                for (i, cv) in cvars.iter().enumerate() {
-                    if cv.var_name.eq(var_name) {
-                        found_closure.replace(if cur_fd != self {
-                            self.get_closure_var2(
-                                ctx,
-                                cur_fd,
-                                false,
-                                cv.is_arg(),
-                                i as _,
-                                &cv.var_name,
-                                cv.is_const(),
-                                cv.is_lexical(),
-                                cv.var_kind(),
-                            )
-                            .unwrap() // can't fail
-                        } else {
-                            i as u16
-                        });
-                        break;
-                    } else if !is_pseudo_var
-                        && matches!(
-                            cv.var_name.to_ref(),
-                            JS_ATOM__var_ | JS_ATOM__arg_var_ | JS_ATOM__with_
+        if var_idx < 0
+            && unsafe { (*cur_fd).is_eval }
+            && let Some(cvars) = unsafe { (&*cur_fd).closure_vars.as_ref() }
+        {
+            for (i, cv) in cvars.iter().enumerate() {
+                if cv.var_name.eq(var_name) {
+                    found_closure.replace(if cur_fd != self {
+                        self.get_closure_var2(
+                            ctx,
+                            cur_fd,
+                            false,
+                            cv.is_arg(),
+                            i as _,
+                            &cv.var_name,
+                            cv.is_const(),
+                            cv.is_lexical(),
+                            cv.var_kind(),
                         )
-                    {
-                        let cv_id = if cur_fd != self {
-                            self.get_closure_var2(
-                                ctx,
-                                cur_fd,
-                                false,
-                                cv.is_arg(),
-                                i as _,
-                                &cv.var_name,
-                                false,
-                                false,
-                                JSVarKindEnum::JS_VAR_NORMAL,
-                            )
-                            .unwrap()
-                        } else {
-                            i as u16
-                        };
+                        .unwrap() // can't fail
+                    } else {
+                        i as u16
+                    });
+                    break;
+                } else if !is_pseudo_var
+                    && matches!(
+                        cv.var_name.to_ref(),
+                        JS_ATOM__var_ | JS_ATOM__arg_var_ | JS_ATOM__with_
+                    )
+                {
+                    let cv_id = if cur_fd != self {
+                        self.get_closure_var2(
+                            ctx,
+                            cur_fd,
+                            false,
+                            cv.is_arg(),
+                            i as _,
+                            &cv.var_name,
+                            false,
+                            false,
+                            JSVarKindEnum::JS_VAR_NORMAL,
+                        )
+                        .unwrap()
+                    } else {
+                        i as u16
+                    };
 
-                        push_vec_u8(bc, OpCode::GET_VAR_REF as _);
-                        push_vec_u16(bc, cv_id);
-                        label_done.replace(self.var_object_test(
-                            var_name,
-                            op,
-                            bc,
-                            label_done,
-                            cv.var_name.eq_ref(JS_ATOM__with_),
-                        ));
-                    }
+                    push_vec_u8(bc, OpCode::GET_VAR_REF as _);
+                    push_vec_u16(bc, cv_id);
+                    label_done.replace(self.var_object_test(
+                        var_name,
+                        op,
+                        bc,
+                        label_done,
+                        cv.var_name.eq_ref(JS_ATOM__with_),
+                    ));
                 }
             }
         }
@@ -384,9 +385,7 @@ impl JSFunctionDef {
             )
         } else {
             // access global
-            self.resolve_scope_var_global(
-                ctx, var_name, op, bc, bc_buf, label, label_done, pos_next,
-            )
+            self.resolve_scope_var_global(var_name, op, bc, bc_buf, label, label_done, pos_next)
         }
     }
 
@@ -405,10 +404,7 @@ impl JSFunctionDef {
         mut var_id: i32,
     ) -> usize {
         if var_id & ARGUMENT_VAR_OFFSET == 0
-            && matches!(
-                op as u8,
-                opcodes::op_scope_put_var | opcodes::op_scope_make_ref
-            )
+            && matches!(op, opcodes::op_scope_put_var | opcodes::op_scope_make_ref)
             && self.vars[var_id as usize].is_const()
         {
             // in case assigning a function expression name in strict mode.
@@ -420,7 +416,7 @@ impl JSFunctionDef {
             // op_scope_put_var_init is only used to initialize a
             // lexical variable, so it is never used in a with or var object. It
             // can be used with a closure (module global variable case).
-            match op as u8 {
+            match op {
                 opcodes::op_scope_make_ref => {
                     let label = label
                         .and_then(|l| self.label_slots.get(l as usize))
@@ -443,12 +439,10 @@ impl JSFunctionDef {
                         let get_op = if var_id & ARGUMENT_VAR_OFFSET != 0 {
                             var_id -= ARGUMENT_VAR_OFFSET;
                             OpCode::GET_ARG
+                        } else if self.vars.get(var_id as usize).unwrap().is_lexical() {
+                            OpCode::GET_LOC_CHECK
                         } else {
-                            if self.vars.get(var_id as usize).unwrap().is_lexical() {
-                                OpCode::GET_LOC_CHECK
-                            } else {
-                                OpCode::GET_LOC
-                            }
+                            OpCode::GET_LOC
                         };
                         pos_next =
                             optimize_scope_make_ref(bc, bc_buf, label, pos_next, get_op, var_id);
@@ -475,7 +469,7 @@ impl JSFunctionDef {
                     debug_assert!(label.is_none());
 
                     let is_put = matches!(
-                        op as u8,
+                        op,
                         opcodes::op_scope_put_var | opcodes::op_scope_put_var_init
                     );
 
@@ -569,17 +563,12 @@ impl JSFunctionDef {
             .and_then(|a| a.get(idx as usize))
             .unwrap();
 
-        if cv.is_const()
-            && matches!(
-                op as u8,
-                opcodes::op_scope_put_var | opcodes::op_scope_make_ref
-            )
-        {
+        if cv.is_const() && matches!(op, opcodes::op_scope_put_var | opcodes::op_scope_make_ref) {
             push_vec_u8(bc, OpCode::THROW_ERROR as _);
             push_vec_atom(bc, var_name.clone());
             push_vec_u8(bc, JS_THROW_VAR_RO);
         } else {
-            match op as u8 {
+            match op {
                 opcodes::op_scope_make_ref => {
                     let label = label
                         .and_then(|l| self.label_slots.get(l as usize))
@@ -622,7 +611,7 @@ impl JSFunctionDef {
                 | opcodes::op_scope_put_var
                 | opcodes::op_scope_put_var_init => {
                     let is_put = matches!(
-                        op as u8,
+                        op,
                         opcodes::op_scope_put_var | opcodes::op_scope_put_var_init
                     );
 
@@ -681,7 +670,6 @@ impl JSFunctionDef {
     #[allow(clippy::too_many_arguments)]
     fn resolve_scope_var_global(
         &mut self,
-        ctx: &JSContext,
         var_name: &Atom,
         op: u8,
         bc: &mut Vec<u8>,
@@ -698,7 +686,6 @@ impl JSFunctionDef {
 
                 if label_done.is_none() && can_optimize_put_global_ref_value(bc_buf, label.pos) {
                     pos_next = optimize_scope_make_global_ref(
-                        ctx,
                         self.attrs.js_mode,
                         bc,
                         bc_buf,
@@ -812,7 +799,7 @@ impl JSFunctionDef {
                 + if op == opcodes::op_scope_get_var_undef {
                     0
                 } else {
-                    op as u8 - opcodes::op_scope_get_var
+                    op - opcodes::op_scope_get_var
                 },
         );
         push_vec_atom(bc, var_name.clone());

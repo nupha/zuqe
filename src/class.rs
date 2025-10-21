@@ -155,24 +155,22 @@ impl JSRuntime {
             if self.class_defs[class_id as usize].class_id != 0 {
                 return Err(-1); // class_id slot is in use
             }
-        } else {
-            if class_id as usize >= self.class_defs.len() {
-                // number of extra slots to grow
-                let grow = class_id as usize - self.class_defs.len() + 1;
+        } else if class_id as usize >= self.class_defs.len() {
+            // number of extra slots to grow
+            let grow = class_id as usize - self.class_defs.len() + 1;
 
-                // grow context class prototype array
-                for ctx in self.context_list.iter() {
-                    let mut cx = ctx.0.borrow_mut();
-                    cx.class_proto.try_reserve(grow).map_err(|_| -1)?;
-                    cx.class_proto
-                        .extend(std::iter::repeat_n(JSValue::NULL, grow));
-                }
+            // grow context class prototype array
+            for ctx in self.context_list.iter() {
+                let mut cx = ctx.0.borrow_mut();
+                cx.class_proto.try_reserve(grow).map_err(|_| -1)?;
+                cx.class_proto
+                    .extend(std::iter::repeat_n(JSValue::NULL, grow));
+            }
 
-                // grow class array, fill slots with empty class
-                self.class_defs.try_reserve(grow).map_err(|_| -1)?;
-                for _ in 0..grow {
-                    self.class_defs.push(JSClass::default());
-                }
+            // grow class array, fill slots with empty class
+            self.class_defs.try_reserve(grow).map_err(|_| -1)?;
+            for _ in 0..grow {
+                self.class_defs.push(JSClass::default());
             }
         }
 
@@ -381,11 +379,6 @@ impl Default for ClassFieldsDef {
     }
 }
 
-#[deprecated(note = "use JSContext::create_instance_with_ctor() instead")]
-pub unsafe fn js_create_from_ctor(ctx: &JSContext, ctor: JSValue, class_id: JSClassID) -> JSValue {
-    unreachable!("unused");
-}
-
 /// prop is not consumed
 fn js_arguments_define_own_property(
     ctx: &JSContext,
@@ -402,7 +395,7 @@ fn js_arguments_define_own_property(
     if p.flags().is_fast_array()
         && prop
             .to_array_index()
-            .map_or(false, |i| i < p.fast_array_count())
+            .is_some_and(|i| i < p.fast_array_count())
     {
         p.destruct_fast_array(ctx)?;
     }

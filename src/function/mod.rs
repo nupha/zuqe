@@ -24,5 +24,5 @@ mod var_ref;
 
 pub use {
     afun::*, argument::*, astate::*, bfun::*, bound::*, bytecode::*, call::*, closure::*, fdef::*,
-    fields::*, label::*, native::*, optimize::*, resolve_vars::*, scope::*, var::*, var_ref::*,
+    fields::*, label::*, native::*, optimize::*, scope::*, var::*, var_ref::*,
 };

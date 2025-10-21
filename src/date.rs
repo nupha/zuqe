@@ -26,12 +26,12 @@ const WEEKDAY_NAMES: &str = "SunMonTueWedThuFriSat";
 const INVALID_TIMESTAMP: i64 = i64::MIN;
 const VALID_TIMESTAMP_RANGE: RangeInclusive<i64> = -8640000000000000..=8640000000000000;
 
-fn floor_div(a: i64, b: i64) -> i64 {
+const fn floor_div(a: i64, b: i64) -> i64 {
     let m = a % b;
     return (a - (m + if m < 0 { b } else { 0 })) / b;
 }
 
-fn math_mod(a: i64, b: i64) -> i64 {
+const fn math_mod(a: i64, b: i64) -> i64 {
     let m = a % b;
     m + if m < 0 { b } else { 0 }
 }
@@ -46,17 +46,17 @@ fn time_clip(t: f64) -> f64 {
 }
 
 #[inline(always)]
-fn days_from_year(y: i64) -> i64 {
+const fn days_from_year(y: i64) -> i64 {
     365 * (y - 1970) + floor_div(y - 1969, 4) - floor_div(y - 1901, 100) + floor_div(y - 1601, 400)
 }
 
 #[inline(always)]
-fn days_in_year(y: i64) -> i64 {
+const fn days_in_year(y: i64) -> i64 {
     365 + (y % 4 == 0) as i64 - (y % 100 == 0) as i64 + (y % 400 == 0) as i64
 }
 
 /// return the year, update days
-fn year_from_days(days: &mut i64) -> i64 {
+const fn year_from_days(days: &mut i64) -> i64 {
     let d: i64 = *days;
     let mut y = floor_div(d * 10000, 3652425) + 1970;
     let mut d1: i64;
@@ -149,23 +149,13 @@ fn timestamp_to_fields(tm_val: i64, is_local: bool) -> Option<[i64; 9]> {
         days -= md;
     }
 
-    Some([
-        y as i64,
-        mon as i64,
-        days as i64 + 1,
-        h as i64,
-        m as i64,
-        s as i64,
-        ms as i64,
-        wd as i64,
-        tz as i64,
-    ])
+    Some([y, mon as i64, days + 1, h, m, s, ms, wd, tz])
 }
 
 // OS dependent. d = argv[0] is in ms from 1970. Return the difference
 // between UTC time and local time 'd' in minutes
 fn get_timezone_offset(time: i64) -> i32 {
-    let mut time = time / 1000; // convert to seconds
+    let time = time / 1000; // convert to seconds
 
     #[cfg(target_pointer_width = "32")]
     {
@@ -213,7 +203,7 @@ fn get_timezone_offset(time: i64) -> i32 {
 fn string_get_digits(s: &[u8]) -> (i64, usize) {
     let mut v: i64 = 0;
     for (i, c) in s.iter().enumerate() {
-        if (b'0'..=b'9').contains(c) {
+        if c.is_ascii_digit() {
             v = v * 10 + (*c - b'0') as i64;
         } else {
             return (v, i);
@@ -235,7 +225,7 @@ fn string_get_signed_digits(buf: &[u8]) -> Option<(i64, usize)> {
 
     if start < buf.len() {
         let (num, adv) = string_get_digits(&buf[start..]);
-        return if adv > 0 {
+        if adv > 0 {
             if minus && num == 0 {
                 None // reject '-0'
             } else {
@@ -243,7 +233,7 @@ fn string_get_signed_digits(buf: &[u8]) -> Option<(i64, usize)> {
             }
         } else {
             None
-        };
+        }
     } else {
         None
     }
@@ -255,7 +245,7 @@ fn string_get_fixed_width_digits(sp: &[u8], n: usize) -> Option<(i64, usize)> {
     let mut v: i64 = 0;
     let mut cnt = n;
     for c in sp.iter().take(n) {
-        if (b'0'..=b'9').contains(c) {
+        if c.is_ascii_digit() {
             v = v * 10 + (*c - b'0') as i64;
             cnt -= 1;
         }
@@ -271,19 +261,17 @@ fn string_get_milliseconds(buf: &[u8]) -> Option<(i64, usize)> {
     let mut adv = 0_usize;
 
     for (i, c) in buf.iter().enumerate() {
-        if (b'0'..=b'9').contains(c) {
+        if c.is_ascii_digit() {
             if mul == 1 && *c >= b'5' {
                 ms += 1;
             }
             mul /= 10;
             ms += (*c - b'0') as i32 * mul;
+        } else if i == 0 {
+            return None; // invalid
         } else {
-            if i == 0 {
-                return None; // invalid
-            } else {
-                adv = i;
-                break;
-            }
+            adv = i;
+            break;
         }
     }
 
@@ -332,9 +320,7 @@ fn datetime_parse(buf: &[u8]) -> Option<i64> {
         b'0'..=b'9' | b'+' | b'-' => {
             // ISO format
             // year field can be negative
-            let Some((n, mut idx)) = string_get_signed_digits(buf) else {
-                return None;
-            };
+            let (n, mut idx) = string_get_signed_digits(buf)?;
             fields[0] = n as f64;
 
             for i in 1..7 {
@@ -361,9 +347,7 @@ fn datetime_parse(buf: &[u8]) -> Option<i64> {
                 }
 
                 if i == 6 {
-                    let Some((n, adv)) = string_get_milliseconds(&buf[idx..]) else {
-                        return None;
-                    };
+                    let (n, adv) = string_get_milliseconds(&buf[idx..])?;
                     fields[6] = n as f64;
                     idx += adv;
                 } else {
@@ -390,9 +374,7 @@ fn datetime_parse(buf: &[u8]) -> Option<i64> {
                             return None;
                         }
 
-                        let Some((hh, adv)) = string_get_fixed_width_digits(&buf[idx..], 2) else {
-                            return None;
-                        };
+                        let (hh, adv) = string_get_fixed_width_digits(&buf[idx..], 2)?;
                         idx += adv;
 
                         if l == 5 {
@@ -402,9 +384,7 @@ fn datetime_parse(buf: &[u8]) -> Option<i64> {
                             idx += 1;
                         }
 
-                        let Some((mm, adv)) = string_get_fixed_width_digits(buf, 2) else {
-                            return None;
-                        };
+                        let (mm, adv) = string_get_fixed_width_digits(buf, 2)?;
                         idx += adv;
 
                         tz = hh * 60 + mm;
@@ -438,7 +418,7 @@ fn datetime_parse(buf: &[u8]) -> Option<i64> {
                 return None;
             }
 
-            if (b'0'..=b'9').contains(&buf[p]) {
+            if buf[p].is_ascii_digit() {
                 // day of month first
                 let (n, adv) = string_get_digits(&buf[p..]);
                 if adv == 0 {
@@ -447,16 +427,12 @@ fn datetime_parse(buf: &[u8]) -> Option<i64> {
                 fields[2] = n as f64;
                 p += adv;
 
-                let Some((n, adv)) = string_get_month(&buf[p..]) else {
-                    return None;
-                };
+                let (n, adv) = string_get_month(&buf[p..])?;
                 fields[1] = n as f64;
                 p += adv;
             } else {
                 // month first
-                let Some((n, adv)) = string_get_month(&buf[p..]) else {
-                    return None;
-                };
+                let (n, adv) = string_get_month(&buf[p..])?;
                 fields[1] = n as f64;
                 p += adv;
 
@@ -511,25 +487,18 @@ fn datetime_parse(buf: &[u8]) -> Option<i64> {
             // parse the time zone offset if present: [+-]HHmm
             tz = 0;
             while p < buf.len() {
-                match buf[p] {
-                    sgn @ (b'+' | b'-') => {
-                        p += 1;
-                        let Some((hh, adv)) = string_get_fixed_width_digits(&buf[p..], 2) else {
-                            return None;
-                        };
-                        p += adv;
+                if let sgn @ (b'+' | b'-') = buf[p] {
+                    p += 1;
+                    let (hh, adv) = string_get_fixed_width_digits(&buf[p..], 2)?;
+                    p += adv;
 
-                        let Some((mm, adv)) = string_get_fixed_width_digits(&buf[p..], 2) else {
-                            return None;
-                        };
-                        p += adv;
+                    let (mm, adv) = string_get_fixed_width_digits(&buf[p..], 2)?;
+                    p += adv;
 
-                        tz = hh * 60 + mm;
-                        if sgn == b'-' {
-                            tz = -tz;
-                        }
+                    tz = hh * 60 + mm;
+                    if sgn == b'-' {
+                        tz = -tz;
                     }
-                    _ => {}
                 }
                 p += 1;
             }
@@ -745,7 +714,7 @@ impl Datetime {
     }
 
     #[inline(always)]
-    pub fn timestamp(&self) -> i64 {
+    pub const fn timestamp(&self) -> i64 {
         self.timestamp_ms
     }
 

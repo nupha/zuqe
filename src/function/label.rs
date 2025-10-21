@@ -99,7 +99,7 @@ impl JSFunctionDef {
     }
 
     /// push a break entry on break stack of the function def.
-    pub fn push_break_entry(&mut self, be: &mut BlockEnv) {
+    pub const fn push_break_entry(&mut self, be: &mut BlockEnv) {
         be.scope_level = self.scope_level;
 
         // chain up break entry stack
@@ -192,8 +192,7 @@ impl JSFunctionDef {
                     continue;
                 }
 
-                if diff_line >= PC2LINE_BASE
-                    && diff_line < PC2LINE_BASE + PC2LINE_RANGE
+                if (PC2LINE_BASE..PC2LINE_BASE + PC2LINE_RANGE).contains(&diff_line)
                     && diff_pc <= PC2LINE_DIFF_PC_MAX
                 {
                     push_vec_u8(

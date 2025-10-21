@@ -2,6 +2,7 @@ use std::ptr::NonNull;
 
 use crate::{
     atom::Atom,
+    branch_hints::unlikely,
     context::{JSContext, JSContextWeakref},
     defer,
     error::JSResult,
@@ -172,7 +173,7 @@ impl ObjNativeFunc {
                 })?;
 
             // copy pass in args, cloned
-            sf.local_buf.extend(args.iter().map(|v| v.clone()));
+            sf.local_buf.extend(args.iter().cloned());
             // padding with undefined
             sf.local_buf.extend(std::iter::repeat_n(
                 JSValue::UNDEFINED,
@@ -229,7 +230,7 @@ impl ObjNativeFunc {
                     CallContext::new(&realm, this_obj.clone(), sf.args_slice(), magic as _, None);
                 let mut iter_state = IteratorState::NotDone;
                 let mut r = f(&realm, cc, &mut iter_state);
-                if !r.is_err() && iter_state != IteratorState::NotParsed {
+                if r.is_ok() && iter_state != IteratorState::NotParsed {
                     r = js_create_iterator_result(
                         &realm,
                         r.unwrap(),
@@ -248,14 +249,13 @@ impl ObjNativeFunc {
                 if matches!(
                     callback,
                     NativeFunctionType::CConstructorOrFunc(_) | NativeFunctionType::CConstructor(_)
-                ) {
-                    if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
-                        if matches!(callback, NativeFunctionType::Constructor(_)) {
-                            realm.throw_type_error("must be called with new");
-                            return Err(-1);
-                        } else {
-                            this_obj = &JSValue::UNDEFINED;
-                        }
+                ) && flags & JS_CALL_FLAG_CONSTRUCTOR == 0
+                {
+                    if unlikely(matches!(callback, NativeFunctionType::Constructor(_))) {
+                        realm.throw_type_error("must be called with new");
+                        return Err(-1);
+                    } else {
+                        this_obj = &JSValue::UNDEFINED;
                     }
                 }
                 unsafe { f(&realm, this_obj.clone(), sf.args_slice()) }
@@ -267,14 +267,13 @@ impl ObjNativeFunc {
                     callback,
                     NativeFunctionType::CConstructorMagic(_)
                         | NativeFunctionType::CConstructorOrFuncMagic(_)
-                ) {
-                    if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
-                        if matches!(callback, NativeFunctionType::CConstructorMagic(_)) {
-                            realm.throw_type_error("must be called with new");
-                            return Err(-1);
-                        } else {
-                            this_obj = &JSValue::UNDEFINED;
-                        }
+                ) && flags & JS_CALL_FLAG_CONSTRUCTOR == 0
+                {
+                    if unlikely(matches!(callback, NativeFunctionType::CConstructorMagic(_))) {
+                        realm.throw_type_error("must be called with new");
+                        return Err(-1);
+                    } else {
+                        this_obj = &JSValue::UNDEFINED;
                     }
                 }
                 unsafe { f(&realm, this_obj.clone(), sf.args_slice(), magic as i32) }
@@ -332,13 +331,13 @@ impl ObjNativeFunc {
         Ok(ret_val)
     }
 
-    pub fn class_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {
+    pub fn class_finalizer(_rt: &mut JSRuntime, isa: &ObjectPayload, _id: usize) {
         debug_assert!(matches!(isa, ObjectPayload::C_FUNCTION(_)));
     }
 
     pub fn class_mark(val: JSValue) {
         unsafe {
-            if let ObjectPayload::C_FUNCTION(cfunc) = val.as_object_unchecked().payload() {
+            if let ObjectPayload::C_FUNCTION(_) = val.as_object_unchecked().payload() {
                 // println!("[O.o] TODO cfunction mark");
                 // mark_func(rt, &cfunc.realm);
             }

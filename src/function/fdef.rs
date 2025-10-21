@@ -320,7 +320,7 @@ impl JSFunctionDef {
 
     /// the pc2line table gives a line number for each PC value
     pub fn add_pc2line_info(&mut self, pc: u32, line_num: i32) {
-        if self.line_number_slots.len() < self.line_number_slots_cap as usize
+        if self.line_number_slots.len() < self.line_number_slots_cap
             && pc >= self.line_number_last_pc
             && line_num != self.line_number_last
         {
@@ -480,17 +480,17 @@ pub(super) fn skip_dead_code(
     let mut current_pos = pos;
 
     while current_pos < bc_len {
-        let op = unsafe { *bc_buf.add(current_pos as usize) };
+        let op = unsafe { *bc_buf.add(current_pos) };
         let oi = opcode_info_intermediate(op);
         let len = oi.size;
 
         if op == opcodes::op_line_num {
             unsafe {
-                *linep = read_from_ptr::<i32>(bc_buf.add(current_pos as usize + 1));
+                *linep = read_from_ptr::<i32>(bc_buf.add(current_pos + 1));
             }
         } else if op == opcodes::op_label {
             unsafe {
-                let label = read_from_ptr::<u32>(bc_buf.add(current_pos as usize + 1));
+                let label = read_from_ptr::<u32>(bc_buf.add(current_pos + 1));
                 if s.update_label_ref_count(label, 0) > 0 {
                     break;
                 }
@@ -561,7 +561,7 @@ pub fn get_loc_or_ref(bc: &mut Vec<u8>, is_ref: bool, idx: u16) {
     push_vec_u16(bc, idx);
 }
 
-pub fn instantiate_hoisted_definitions(ctx: &JSContext, s: &mut JSFunctionDef, bc: &mut Vec<u8>) {
+pub(super) fn instantiate_hoisted_definitions(s: &mut JSFunctionDef, bc: &mut Vec<u8>) {
     // add the hoisted functions in arguments and local variables
     for (i, vd) in s.args.iter().enumerate() {
         if vd.func_pool_idx >= 0 {

@@ -5,7 +5,7 @@ use crate::string::{StringBuf, StringChar, StringCharIter, StringContent};
 use super::UTF8_CHAR_LEN_MAX;
 
 impl StringContent {
-    pub fn substitution_buf<'a>(
+    pub fn substitution_buf(
         matched: &Self,     // 匹配到的子字符串（对应 $&）
         str: &Self,         // 原字串
         position: usize,    // 匹配发生的位置索引
@@ -37,7 +37,7 @@ impl StringContent {
 /// 实现 JavaScript 字符串替换中的特殊替换模式（如 $&, $1, `$`` 等）
 /// 对应规范：ECMAScript 的 GetSubstitution 抽象操作.
 /// 返回: 包含替换后的字符串值
-fn do_substitution<'a>(
+fn do_substitution(
     str: &StringContent,                                            // 原始字符串。
     position: usize,                                                // 匹配发生的位置索引
     matched: &StringContent,                                        // 匹配到的子字符串（对应 $&）
@@ -86,7 +86,7 @@ fn do_substitution<'a>(
 
                         if (1..captures_len as u32).contains(&id) {
                             if let Some(s) = captures(id as usize).map_err(|_| None)? {
-                                sbuf.push_content(&s).map_err(|e| Some(e))?;
+                                sbuf.push_content(&s).map_err(Some)?;
                             }
                         } else {
                             sbuf.push_char(c)?; // $ 
@@ -98,7 +98,7 @@ fn do_substitution<'a>(
                         let name_start = sbuf.len();
                         sbuf.push_str("$<")?;
 
-                        while let Some((_, c1)) = replace_chars.next() {
+                        for (_, c1) in replace_chars.by_ref() {
                             if c1 == StringChar::Char('>') {
                                 // extract name
                                 let name = sbuf

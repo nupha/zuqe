@@ -22,16 +22,16 @@ pub enum PropertyKeyKind {
 
 #[derive(Debug, Clone)]
 pub struct PropertyKey {
-    pub atom: Atom, // TODO: use AtomRef or &'a Atom
+    pub atom: Atom,
     pub kind: PropertyKeyKind,
     pub is_enumerable: bool,
     pub is_exotic: bool,
 }
 
 impl PropertyKey {
-    pub(crate) fn new(ctx: &JSContext, atom: Atom, is_enumerable: bool, is_exotic: bool) -> Self {
+    pub(crate) fn new(atom: Atom, is_enumerable: bool, is_exotic: bool) -> Self {
         let kind = if let Some(idx) = atom.to_array_index() {
-            PropertyKeyKind::ArrayIndex(idx as u32)
+            PropertyKeyKind::ArrayIndex(idx)
         } else if atom.kind() == AtomDescKind::JS_ATOM_KIND_STRING {
             PropertyKeyKind::String
         } else {
@@ -94,23 +94,19 @@ impl JSObject {
                 if (!enum_only || is_enumerable) && ((flags >> (kind as u8)) & 1 != 0) {
                     // need to raise an exception in case of the module
                     // name space (implicit GetOwnProperty)
-                    if unlikely(
-                        prs.flags() & JS_PROP_TMASK == JS_PROP_VARREF
-                            && flags & (JS_GPN_ENUM_ONLY | JS_GPN_SET_ENUM) != 0,
-                    ) {
-                        if let JSProperty::VarRef(vref) =
+                    if prs.flags() & JS_PROP_TMASK == JS_PROP_VARREF
+                        && flags & (JS_GPN_ENUM_ONLY | JS_GPN_SET_ENUM) != 0
+                        && let JSProperty::VarRef(vref) =
                             self.0.prop_values.borrow().get(i).unwrap()
-                        {
-                            if unlikely(vref.value().is_uninitialized()) {
-                                JS_ThrowReferenceErrorUninitialized(ctx, prs.atom.to_ref());
-                                return Err(-1);
-                            }
-                        }
+                        && unlikely(vref.value().is_uninitialized())
+                    {
+                        JS_ThrowReferenceErrorUninitialized(ctx, prs.atom.to_ref());
+                        return Err(-1);
                     }
 
                     callback(
                         ctx,
-                        PropertyKey::new(ctx, prs.atom.clone(), is_enumerable, false),
+                        PropertyKey::new(prs.atom.clone(), is_enumerable, false),
                     )?;
                 }
             }
@@ -125,9 +121,9 @@ impl JSObject {
                         callback(
                             ctx,
                             PropertyKey {
-                                atom: Atom::new_small_int(i as u32),
+                                atom: Atom::new_small_int(i),
                                 is_enumerable: true,
-                                kind: PropertyKeyKind::ArrayIndex(i as u32),
+                                kind: PropertyKeyKind::ArrayIndex(i),
                                 is_exotic: false,
                             },
                         )?;
@@ -163,15 +159,16 @@ impl JSObject {
                         let atom_kind = pk.atom.kind();
                         if (flags >> (atom_kind as u8)) & 1 != 0 {
                             let mut is_enumerable = false;
-                            if flags & (JS_GPN_SET_ENUM | JS_GPN_ENUM_ONLY) != 0 {
-                                if let Some(d) = self.get_own_property(ctx, &pk.atom)? {
-                                    is_enumerable = d.flags & JS_PROP_ENUMERABLE != 0;
-                                }
+
+                            if flags & (JS_GPN_SET_ENUM | JS_GPN_ENUM_ONLY) != 0
+                                && let Some(d) = self.get_own_property(ctx, &pk.atom)?
+                            {
+                                is_enumerable = d.flags & JS_PROP_ENUMERABLE != 0;
                             }
 
                             if is_enumerable || flags & JS_GPN_ENUM_ONLY == 0 {
                                 let isa = if let Some(i) = pk.atom.to_array_index() {
-                                    PropertyKeyKind::ArrayIndex(i as u32)
+                                    PropertyKeyKind::ArrayIndex(i)
                                 } else if atom_kind == AtomDescKind::JS_ATOM_KIND_STRING {
                                     PropertyKeyKind::String
                                 } else {

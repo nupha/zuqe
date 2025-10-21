@@ -139,7 +139,7 @@ impl JSObject {
                     JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
                         if let Some(idx) = prop.to_small_int() {
                             /* if the typed array is detached, p->u.array.count = 0 */
-                            if idx >= self.fast_array_count() as u32 {
+                            if idx >= self.fast_array_count() {
                                 return if ctx.throw_type_error_or_false(
                                     flags,
                                     "out-of-bound index in typed array",

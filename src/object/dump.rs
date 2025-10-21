@@ -15,10 +15,10 @@ pub unsafe fn JS_DumpShapes(rt: &mut JSRuntime) {
     );
 
     // dump hashed shapes
-    for (key, lst) in rt.shape_registry.iter() {
+    for (_, lst) in rt.shape_registry.iter() {
         for sh in lst {
             if let Some(sh) = sh.upgrade() {
-                sh.0.borrow().dump(rt);
+                sh.0.borrow().dump();
                 debug_assert!(sh.0.borrow().is_hashed);
             }
         }
@@ -29,7 +29,7 @@ pub unsafe fn JS_DumpShapes(rt: &mut JSRuntime) {
         if let Some(GCObject::Object(p)) = w.upgrade() {
             let sh = p.shape().unwrap();
             if !sh.is_hashed() {
-                sh.0.borrow().dump(rt);
+                sh.0.borrow().dump();
             }
         }
     }
@@ -159,16 +159,16 @@ impl JSObject {
             print!(" }}");
         }
 
-        if let Some(bcf) = self.payload().bc_function() {
-            if bcf.bytecode().closure_var_count != 0 {
-                print!(" Closure:");
-                for vr in bcf.var_refs.borrow().iter() {
-                    print!(" {:?}", vr.value());
-                }
+        if let Some(bcf) = self.payload().bc_function()
+            && bcf.bytecode().closure_var_count != 0
+        {
+            print!(" Closure:");
+            for vr in bcf.var_refs.borrow().iter() {
+                print!(" {:?}", vr.value());
+            }
 
-                if let Some(o) = bcf.home_object() {
-                    print!(" HomeObject: {o}");
-                }
+            if let Some(o) = bcf.home_object() {
+                print!(" HomeObject: {o}");
             }
         }
 
@@ -178,7 +178,7 @@ impl JSObject {
 
 impl JSShapeInner {
     /// print shape debug info to console
-    pub fn dump(&self, rt: &JSRuntime) {
+    pub fn dump(&self) {
         // XXX: should output readable class prototype
         print!(
             "{:14p} {:14p} {:5} [",
@@ -196,7 +196,7 @@ impl JSShapeInner {
 
 impl JSShape {
     /// print shape debug info to console
-    pub fn dump(&self, rt: &JSRuntime) {
-        self.0.borrow().dump(rt);
+    pub fn dump(&self) {
+        self.0.borrow().dump();
     }
 }

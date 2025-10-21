@@ -1,4 +1,4 @@
-#[warn(clippy::module_inception)]
+#[allow(clippy::module_inception)]
 mod array;
 mod classdef;
 

@@ -2,7 +2,7 @@
 pub fn unlikely(expr: bool) -> bool {
     if expr {
         #[cold]
-        fn cold_path() -> bool {
+        const fn cold_path() -> bool {
             true
         }
         cold_path()
@@ -18,7 +18,7 @@ pub fn likely(expr: bool) -> bool {
     } else {
         #[cold]
         #[inline(never)]
-        fn cold_path() -> bool {
+        const fn cold_path() -> bool {
             false
         }
         cold_path()

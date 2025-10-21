@@ -83,7 +83,7 @@ impl JSObject {
             if ob_flags.is_exotic() {
                 if ob_flags.is_fast_array() {
                     if let Some(idx) = prop.to_small_int() {
-                        if idx < cur_obj.fast_array_count() as u32 {
+                        if idx < cur_obj.fast_array_count() {
                             return cur_obj.get_property_value(ctx, &JSValue::from(idx));
                         }
 
@@ -114,15 +114,15 @@ impl JSObject {
                         return cb(ctx, cur_obj.clone().into(), prop, this_obj.clone());
                     }
 
-                    if let Some(cb) = m.get_own_property {
-                        if let Some(desc) = cb(ctx, JSValue::Object(cur_obj.clone()), prop)? {
-                            return if unlikely(desc.flags & JS_PROP_GETSET != 0) {
-                                desc.getter.call(ctx, this_obj, &[])
-                            } else {
-                                debug_assert!(!desc.value.is_exception());
-                                Ok(desc.value)
-                            };
-                        }
+                    if let Some(cb) = m.get_own_property
+                        && let Some(desc) = cb(ctx, JSValue::Object(cur_obj.clone()), prop)?
+                    {
+                        return if unlikely(desc.flags & JS_PROP_GETSET != 0) {
+                            desc.getter.call(ctx, this_obj, &[])
+                        } else {
+                            debug_assert!(!desc.value.is_exception());
+                            Ok(desc.value)
+                        };
                     }
                 }
             }
@@ -167,7 +167,7 @@ impl JSObject {
                 if let Some(el) = self
                     .with_fast_array_values(|lst| {
                         if idx < lst.len() {
-                            Some(lst[idx as usize].clone()) // return element value
+                            Some(lst[idx].clone()) // return element value
                         } else {
                             None // try slow path later
                         }
@@ -239,10 +239,10 @@ impl JSObject {
             _ => None,
         };
 
-        if let Some(idx) = index_key {
-            if let Some(r) = self.get_property_index(idx) {
-                return r;
-            }
+        if let Some(idx) = index_key
+            && let Some(r) = self.get_property_index(idx)
+        {
+            return r;
         }
 
         // slow path

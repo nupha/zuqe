@@ -227,12 +227,11 @@ pub(crate) fn js_get_function_name(ctx: &JSContext, name: &Atom) -> Result<JSStr
 }
 
 pub fn js_method_set_home_object(func_obj: &JSValue, home_obj: Option<&JSObject>) {
-    if let JSValue::Object(o) = func_obj {
-        if let Some(fo) = o.payload().bc_function() {
-            if fo.bytecode().need_home_object() {
-                fo.set_home_object(home_obj.cloned());
-            }
-        }
+    if let JSValue::Object(o) = func_obj
+        && let Some(fo) = o.payload().bc_function()
+        && fo.bytecode().need_home_object()
+    {
+        fo.set_home_object(home_obj.cloned());
     }
 }
 
@@ -280,7 +279,7 @@ pub(super) unsafe fn js_append_enumerate(ctx: &JSContext, sp: *mut JSValue) -> R
     };
 
     // .length property of the array
-    let len = js_get_length32(ctx, &src)? as usize;
+    let len = js_get_length32(ctx, src)? as usize;
 
     // XXX: further optimisations:
     //       - use ctx->array_proto_values?
@@ -339,7 +338,7 @@ pub(super) unsafe fn js_append_enumerate(ctx: &JSContext, sp: *mut JSValue) -> R
 pub(super) fn js_for_in_start(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
     unsafe {
         let obj = std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED);
-        let it = ForInIterPayload::new(ctx, obj).map_or(JSValue::EXCEPTION, JSValue::Object);
+        let it = ForInIterPayload::create(ctx, obj).map_or(JSValue::EXCEPTION, JSValue::Object);
 
         std::ptr::replace(sp.offset(-1), it);
 
@@ -478,27 +477,27 @@ pub(super) fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i3
     Ok(())
 }
 
-/// Get enumerate object and next method of sp[-1] object.
-/// Note: new values are updated to sp[-1], sp[0], old value in sp[-1] is consumed.
-/// if fail, sp[-1] is not consumed.
-#[deprecated(
-    note = "use JSValue::get_iterator_must() and JSValue::get_property(JS_ATOM_next) combination"
-)]
-pub(super) fn js_for_of_start(
-    ctx: &JSContext,
-    sp: *mut JSValue,
-    is_async: bool,
-) -> Result<(), i32> {
-    let iter_obj = unsafe { &*sp.offset(-1) }.get_iterator_must(ctx, is_async)?;
-    let next = iter_obj.get_property(ctx, JS_ATOM_next.deref())?;
-    unsafe {
-        std::ptr::replace(sp.offset(-1), iter_obj.into());
-        std::ptr::replace(sp.offset(0), next);
+pub(super) unsafe fn js_iterator_get_value_done(ctx: &JSContext, sp: *mut JSValue) -> i32 {
+    let obj = &*sp.offset(-1);
+    if !obj.is_object() {
+        ctx.throw_type_error("iterator must return an object");
+        return -1;
     }
-    Ok(())
+
+    let mut done = false;
+    let value = JS_IteratorGetCompleteValue(ctx, obj, &mut done);
+    if value.is_exception() {
+        return -1;
+    }
+
+    unsafe {
+        std::ptr::replace(sp.offset(-1), value);
+        std::ptr::replace(sp.offset(0), JSValue::Bool(done));
+    }
+
+    0
 }
 
-#[deprecated]
 pub(super) unsafe fn js_for_of_next(
     ctx: &JSContext,
     sp: *mut JSValue,
@@ -529,25 +528,4 @@ pub(super) unsafe fn js_for_of_next(
     std::ptr::replace(sp.add(0), value);
     std::ptr::replace(sp.add(1), JSValue::Bool(done));
     Ok(())
-}
-
-pub(super) unsafe fn js_iterator_get_value_done(ctx: &JSContext, sp: *mut JSValue) -> i32 {
-    let obj = &*sp.offset(-1);
-    if !obj.is_object() {
-        ctx.throw_type_error("iterator must return an object");
-        return -1;
-    }
-
-    let mut done = false;
-    let value = JS_IteratorGetCompleteValue(ctx, obj, &mut done);
-    if value.is_exception() {
-        return -1;
-    }
-
-    unsafe {
-        std::ptr::replace(sp.offset(-1), value);
-        std::ptr::replace(sp.offset(0), JSValue::Bool(done));
-    }
-
-    0
 }

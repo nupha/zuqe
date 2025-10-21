@@ -64,10 +64,8 @@ impl JSFunctionDef {
         }
 
         // add the module global variables in the closure
-        if self.module.is_some() {
-            if unsafe { add_module_variables(ctx, &mut self) } != 0 {
-                return Err(-1);
-            }
+        if self.module.is_some() && unsafe { add_module_variables(ctx, &mut self) } != 0 {
+            return Err(-1);
         }
 
         // compile child functions.
@@ -155,7 +153,7 @@ impl JSFunctionDef {
                 i += gap;
                 bin_size += gap;
             }
-            bin_size += closure_var_count as usize * ly.size();
+            bin_size += closure_var_count * ly.size();
             closure_var_start = i as i32;
         }
 
@@ -335,7 +333,7 @@ impl JSFunctionDef {
                         .expect("TODO"),
                 );
             }
-            if self.has_home_object && (*self).home_object_var_idx.is_none() {
+            if self.has_home_object && self.home_object_var_idx.is_none() {
                 self.home_object_var_idx = Some(
                     self.add_var(ctx, JS_ATOM__home_object_.deref())
                         .expect("TODO"),

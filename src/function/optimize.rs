@@ -1,7 +1,7 @@
 use crate::{
     atom::{Atom, AtomRef},
     bytecode::{OpCode, OpcodeFormat, opcode_info_intermediate, opcodes},
-    context::{JS_MODE_STRICT, JSContext},
+    context::JS_MODE_STRICT,
     function::{JSFunctionDef, Label},
     utils::{
         M2, M3, push_vec_atom, push_vec_short_code, push_vec_short_int, push_vec_u8, push_vec_u16,
@@ -65,7 +65,7 @@ impl JSFunctionDef {
                     return None;
                 }
 
-                let op = unsafe { *bc_ptr.add(pos as usize) };
+                let op = unsafe { *bc_ptr.add(pos) };
                 pos_next = pos + opcode_info_intermediate(op).size as usize;
                 if pos_next > bc_len {
                     return None;
@@ -500,7 +500,7 @@ impl JSFunctionDef {
                 op1 -= 1; // set_x drop -> put_x
                 *pos_next = cc1.pos;
 
-                if let Some(cc2) = self.code_match(cc1.pos, &[op1 - 1, cc.idx as i32]) {
+                if let Some(cc2) = self.code_match(cc1.pos, &[op1 - 1, cc.idx]) {
                     line2 = cc2.line_num; // delay line number update
                     op1 += 1; // put_x(n) get_x(n) -> set_x(n)
                     *pos_next = cc2.pos;
@@ -519,7 +519,7 @@ impl JSFunctionDef {
     }
 }
 
-pub(super) fn can_optimize_put_ref_value(bc_buf: *const u8, pos: i32) -> bool {
+pub(super) const fn can_optimize_put_ref_value(bc_buf: *const u8, pos: i32) -> bool {
     unsafe {
         *bc_buf.offset((pos + 1) as isize) == opcodes::OP_put_ref_value
             && matches!(
@@ -529,7 +529,7 @@ pub(super) fn can_optimize_put_ref_value(bc_buf: *const u8, pos: i32) -> bool {
     }
 }
 
-pub(super) fn can_optimize_put_global_ref_value(bc_buf: *const u8, pos: i32) -> bool {
+pub(super) const fn can_optimize_put_global_ref_value(bc_buf: *const u8, pos: i32) -> bool {
     unsafe {
         *bc_buf.offset((pos + 1) as isize) == opcodes::OP_put_ref_value
             && matches!(
@@ -597,7 +597,6 @@ pub(super) fn optimize_scope_make_ref(
 }
 
 pub(super) fn optimize_scope_make_global_ref(
-    ctx: &JSContext,
     js_mode: u8,
     bc: &mut Vec<u8>,
     bc_buf: *mut u8,
@@ -637,13 +636,11 @@ pub(super) fn optimize_scope_make_global_ref(
             }
             pos += 1;
         }
-    } else {
-        if op == opcodes::OP_insert3 {
-            unsafe {
-                *bc_buf.add(pos) = opcodes::OP_dup;
-            }
-            pos += 1;
+    } else if op == opcodes::OP_insert3 {
+        unsafe {
+            *bc_buf.add(pos) = opcodes::OP_dup;
         }
+        pos += 1;
     }
 
     unsafe {

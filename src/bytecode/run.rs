@@ -9,11 +9,12 @@ use crate::{
     bytecode::{
         OpCode, SpecialObject,
         arithmatic::{UnaryOp, op_binary_logic},
+        js_for_of_next,
         operators::{
-            js_append_enumerate, js_for_in_next, js_for_in_start, js_for_of_next,
-            js_has_unscopable, js_iterator_get_value_done, js_method_set_home_object,
-            js_method_set_properties, js_op_define_class, js_operator_delete, js_operator_in,
-            js_operator_instanceof, js_operator_private_in,
+            js_append_enumerate, js_for_in_next, js_for_in_start, js_has_unscopable,
+            js_iterator_get_value_done, js_method_set_home_object, js_method_set_properties,
+            js_op_define_class, js_operator_delete, js_operator_in, js_operator_instanceof,
+            js_operator_private_in,
         },
     },
     class::{

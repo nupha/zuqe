@@ -60,7 +60,7 @@ impl JSContext {
                 } else {
                     let isa = Box::new(TypedArrayPayload {
                         obj: JSObjectWeakref::default(),
-                        buffer: buffer.into(),
+                        buffer,
                         offset: offset as u32,
                         byte_length: len as _,
                         count: 0,
@@ -129,7 +129,7 @@ pub fn js_dataview_getValue(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
 
         ta.borrow().with_bytes(|buf| -> JSResult {
-            let ptr = buf.as_ptr().add(pos as usize);
+            let ptr = buf.as_ptr().add(pos);
 
             match class_id {
                 JS_CLASS_INT8_ARRAY => Ok(JSValue::Int(*ptr.cast::<i8>() as i32)),
@@ -254,14 +254,14 @@ pub fn js_dataview_setValue(ctx: &JSContext, cc: CallContext) -> JSResult {
         JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
         return Err(-1);
     }
-    if pos + size > byte_length as usize {
+    if pos + size > byte_length {
         ctx.throw_range_error("out of bound");
         return Err(-1);
     }
 
     ta.borrow_mut().with_bytes_mut(|buf| -> Result<(), i32> {
         unsafe {
-            let ptr = buf.as_mut_ptr().add(pos as usize);
+            let ptr = buf.as_mut_ptr().add(pos);
 
             match class_id {
                 JS_CLASS_INT8_ARRAY | JS_CLASS_UINT8_ARRAY => {

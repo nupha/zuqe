@@ -1,6 +1,6 @@
 use crate::{
     JS_CLASS_ERROR,
-    atom::{Atom, AtomDesc, AtomTypeHint},
+    atom::{Atom, AtomTypeHint},
     branch_hints::unlikely,
     function::{AsyncFuncState, Bytecode},
     module::ModuleDef,
@@ -95,8 +95,9 @@ mod nb_value {
 pub use nb_value::*;
 
 #[repr(u8)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum JSValue {
+    #[default]
     UNDEFINED,
     NULL,
     Bool(bool),
@@ -113,12 +114,6 @@ pub enum JSValue {
 
     /// Special for async state resume execution only
     AsyncStateResume(AsyncFuncState),
-}
-
-impl Default for JSValue {
-    fn default() -> Self {
-        JSValue::UNDEFINED
-    }
 }
 
 impl PartialEq for JSValue {
@@ -314,12 +309,12 @@ impl JSValue {
     /// - Objects of native class which has `call` handler
     #[inline]
     pub fn is_function(&self) -> bool {
-        self.as_object().map_or(false, JSObject::is_function)
+        self.as_object().is_some_and(JSObject::is_function)
     }
 
     pub fn is_error(&self) -> bool {
         self.as_object()
-            .map_or(false, |o| o.class_id() == JS_CLASS_ERROR)
+            .is_some_and(|o| o.class_id() == JS_CLASS_ERROR)
     }
 
     /// if `self` is an exception, returns Err if yes; Otherwise returns Ok(self)

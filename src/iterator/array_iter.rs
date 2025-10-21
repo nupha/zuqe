@@ -48,7 +48,7 @@ impl ArrayIterPayload {
 
     /// get iterator target value
     #[inline(always)]
-    pub(crate) fn value(&self) -> &JSValue {
+    pub(crate) const fn value(&self) -> &JSValue {
         unsafe { self.val.get().as_ref().unwrap_unchecked() }
     }
 
@@ -59,7 +59,7 @@ impl ArrayIterPayload {
         }
     }
 
-    pub fn class_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
+    pub const fn class_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
 
     pub fn class_mark(val: JSValue) {
         let p = unsafe { val.as_object_unchecked() };

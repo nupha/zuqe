@@ -621,13 +621,11 @@ fn js_proxy_get_own_property_names(
 
         let atom = val.to_atom(ctx)?;
 
-        if !tab.is_empty() {
-            if tab.iter().any(|k| k.atom.to_ref() == atom.to_ref()) {
-                ctx.throw_type_error("proxy: duplicate property");
-                return Err(-1);
-            }
+        if !tab.is_empty() && tab.iter().any(|k| k.atom.to_ref() == atom.to_ref()) {
+            ctx.throw_type_error("proxy: duplicate property");
+            return Err(-1);
         }
-        tab.push(PropertyKey::new(ctx, atom, false, false));
+        tab.push(PropertyKey::new(atom, false, false));
     }
 
     // check if there are non configurable properties

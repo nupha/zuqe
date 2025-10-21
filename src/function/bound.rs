@@ -24,7 +24,7 @@ pub struct BoundFunction(JSObject);
 object_cast!(BoundFunction, JS_CLASS_BOUND_FUNCTION);
 
 impl BoundFunction {
-    pub const fn class_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
+    pub const fn class_finalizer(_rt: &mut JSRuntime, _isa: &ObjectPayload, _id: usize) {}
 
     pub fn class_mark(val: JSValue) {
         unsafe {
@@ -50,7 +50,7 @@ impl BoundFunction {
         if let ObjectPayload::BOUND_FUNCTION(bf) =
             unsafe { func_obj.as_object_unchecked().payload() }
         {
-            let arg_count = bf.bind_args.len() + args.len() as usize;
+            let arg_count = bf.bind_args.len() + args.len();
 
             // if js_check_stack_overflow(&ctx.rt(), std::mem::size_of::<JSValue>() * arg_count) {
             //     return JS_ThrowStackOverflow(ctx);

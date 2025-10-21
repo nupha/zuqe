@@ -510,7 +510,7 @@ impl BytecodeFunction {
             // set the prototype
             let mut proto = new_target.get_property(ctx, JS_ATOM_prototype.deref())?;
             if !proto.is_object() {
-                let realm = JS_GetFunctionRealm(ctx, &new_target)?;
+                let realm = JS_GetFunctionRealm(ctx, new_target)?;
                 proto = realm.0.borrow().class_proto[func_kind.class_id() as usize].clone();
             }
             func_val.set_prototype_internal(ctx, proto, true)?;

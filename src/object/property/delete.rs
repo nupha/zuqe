@@ -36,14 +36,12 @@ impl JSObject {
                     self.shape_prepare_update(ctx)?;
                     // remove shape property defination.
                     // shape hash is unchanged, even a field is removed.
-                    let prs = self
-                        .shape()
+                    self.shape()
                         .unwrap()
                         .0
                         .borrow_mut()
                         .prop_defs
-                        .shift_remove(&prop.id())
-                        .unwrap();
+                        .shift_remove(&prop.id());
 
                     // remove property value
                     drop(self.0.prop_values.borrow_mut().remove(idx));
