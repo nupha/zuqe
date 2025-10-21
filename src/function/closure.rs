@@ -18,6 +18,14 @@ use super::{ARG_SCOPE_END, JSFunctionDef, JSVarDef, JSVarKindEnum, is_var_in_arg
 
 #[derive(Debug)]
 pub struct JSClosureVar {
+    pub(crate) var_name: Atom,
+
+    // 8 bits available
+    // is_local = TRUE: index to a normal variable of the parent function.
+    // otherwise: index to a closure variable of the parent function
+    // 0-based index
+    pub(crate) var_idx: u16,
+
     // Combines is_local, is_arg, is_const, is_lexical, and var_kind
     //  is_local : 1;
     //  is_arg : 1;
@@ -25,14 +33,6 @@ pub struct JSClosureVar {
     //  is_lexical : 1;
     //  var_kind : 4; /* see JSVarKindEnum */
     bitfield: u8,
-
-    // 8 bits available
-    // is_local = TRUE: index to a normal variable of the parent function.
-    // otherwise: index to a closure variable of the parent function
-    // 0-based index
-    pub var_idx: u16,
-
-    pub var_name: Atom,
 }
 
 impl JSClosureVar {

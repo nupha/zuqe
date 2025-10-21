@@ -544,27 +544,18 @@ impl BytecodeInner {
             true,
         );
 
-        let rt = self.rt.as_ptr();
-
         // free vardef var_name atom
         if let Some(lst) = self.vardefs_mut() {
             for vd in lst {
-                let old = std::mem::replace(&mut vd.var_name, Atom::NULL);
+                let _ = std::mem::replace(&mut vd.var_name, Atom::NULL);
             }
         }
 
         // free closure vars atom
         if let Some(lst) = self.closure_vars_mut() {
             for cv in lst {
-                let old = std::mem::replace(&mut cv.var_name, Atom::NULL);
+                let _ = std::mem::replace(&mut cv.var_name, Atom::NULL);
             }
-        }
-
-        // free func name atom
-        std::mem::replace(&mut self.func_name, Atom::NULL);
-
-        if self.has_debug {
-            std::mem::replace(&mut self.debug.filename, Atom::NULL);
         }
     }
 }

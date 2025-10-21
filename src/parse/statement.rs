@@ -1003,7 +1003,7 @@ pub fn js_parse_for_in_of(
     // local for_in scope starts here so individual elements
     // can be closed in statement.
     let mut break_entry = BlockEnv {
-        label_name: label_name.deref().clone(),
+        label_name: label_name.clone(),
         label_break,
         label_cont,
         drop_count: 1,

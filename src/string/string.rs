@@ -27,7 +27,7 @@ use super::StringBuf;
 /// Maximum length allowed for JavaScript strings (1GB - 1)
 pub const JS_STRING_LEN_MAX: usize = (1 << 30) - 1;
 
-/// Represents a JavaScript string with reference counting and atom support
+/// Bundle of string data, attributes and atom info
 ///
 /// Memory Layout:
 /// - 32-bit reference count header for GC
@@ -50,6 +50,7 @@ pub struct JSStringInner {
     atom_type: Cell<Option<AtomHintAndId>>,
 
     /// string content
+    /// TODO: use StringData directly
     content: StringContent,
 
     gc_mark: Cell<bool>,
@@ -60,8 +61,6 @@ impl PartialEq for JSStringInner {
         self.content() == other.content()
     }
 }
-
-impl Eq for JSStringInner {}
 
 impl PartialOrd for JSStringInner {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {

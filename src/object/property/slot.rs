@@ -257,7 +257,7 @@ impl JSObject {
             }
         } else if prs_flags & JS_PROP_LAZYINIT == JS_PROP_LAZYINIT {
             // lazy init replaced with normal value
-            std::mem::replace(
+            let _ = std::mem::replace(
                 &mut self.0.prop_values.borrow_mut()[index],
                 JSProperty::Normal(value),
             );

@@ -8,7 +8,7 @@ use fallible_collections::{FallibleVec, TryClone, TryCollect};
 
 use super::{StringChar, StringContent, StringData, char_is_space, string::JS_STRING_LEN_MAX};
 
-/// string content buffer
+/// string content buffer, used to build string
 #[repr(u8)]
 #[derive(Debug)]
 pub enum StringBuf {
@@ -830,50 +830,6 @@ impl StringBuf {
         }
     }
 }
-
-// impl std::fmt::Debug for StringBuf {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         match self {
-//             Self::Empty => write!(f, "\"\""),
-//             _ => {
-//                 let sep = '\"';
-//                 write!(f, "{sep}")?;
-
-//                 for (_, c) in self.iter() {
-//                     match c {
-//                         StringChar::Char(c) if c == sep => {
-//                             write!(f, "\\{c}")?;
-//                         }
-//                         StringChar::Char('\n') => {
-//                             write!(f, "\\n")?;
-//                         }
-//                         StringChar::Char('\r') => {
-//                             write!(f, "\\r")?;
-//                         }
-//                         StringChar::Char('\t') => {
-//                             write!(f, "\\t")?;
-//                         }
-//                         StringChar::Char('\\') => {
-//                             write!(f, "\\\\")?;
-//                         }
-//                         StringChar::Char(c) => {
-//                             if !is_char_visible(c) {
-//                                 write!(f, "\\u{:04X}", c as u32)?;
-//                             } else {
-//                                 write!(f, "{c}")?;
-//                             }
-//                         }
-//                         StringChar::Code(c) => {
-//                             write!(f, "\\u{c:04X}")?;
-//                         }
-//                     }
-//                 }
-
-//                 write!(f, "{sep}")
-//             }
-//         }
-//     }
-// }
 
 #[derive(Clone)]
 pub struct StringBufSlice<'a> {
