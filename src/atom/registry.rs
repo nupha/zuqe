@@ -511,7 +511,7 @@ impl Atom {
     }
 
     /// make atom from `str`
-    pub fn from_str(rt: &mut JSRuntime, str: &str, type_hint: AtomTypeHint) -> Result<Self, i32> {
+    pub fn from_str(rt: &JSRuntime, str: &str, type_hint: AtomTypeHint) -> Result<Self, i32> {
         if let Some(i) = parse_u32(str)
             && i <= JS_ATOM_MAX_INT
         {
@@ -521,7 +521,7 @@ impl Atom {
         }
     }
 
-    pub fn from_i64(rt: &mut JSRuntime, n: i64) -> Result<Self, i32> {
+    pub fn from_i64(rt: &JSRuntime, n: i64) -> Result<Self, i32> {
         if (0..JS_ATOM_MAX_INT as i64).contains(&n) {
             Ok(Self::new_small_int(n as u32))
         } else {
@@ -530,11 +530,6 @@ impl Atom {
                 AtomTypeHint::String,
             )
         }
-    }
-
-    #[inline(always)]
-    pub fn from_u32(rt: &mut JSRuntime, n: u32) -> Result<Self, i32> {
-        Self::from_i64(rt, n as i64)
     }
 
     /// Make builtin const atom
@@ -553,7 +548,7 @@ impl Atom {
     }
 
     /// create new or reuse existing atom for `str`.
-    pub fn new(rt: &mut JSRuntime, str: &str) -> Result<Self, i32> {
+    pub fn new(rt: &JSRuntime, str: &str) -> Result<Self, i32> {
         if str.is_empty() || !str.chars().next().unwrap().is_ascii_digit() {
             // find atom in registry
             if let Some(atom) = Self::find(rt, str, AtomTypeHint::String) {
@@ -600,7 +595,7 @@ impl AtomRef {
     }
 
     #[inline(always)]
-    pub(crate) fn from(n: u32) -> Self {
+    pub(crate) const fn from(n: u32) -> Self {
         Self(n)
     }
 }

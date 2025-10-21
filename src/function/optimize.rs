@@ -1,5 +1,5 @@
 use crate::{
-    atom::{Atom, AtomRef, JS_ATOM_NULL},
+    atom::{Atom, AtomRef},
     bytecode::{OpCode, OpcodeFormat, opcode_info_intermediate, opcodes},
     context::{JS_MODE_STRICT, JSContext},
     function::{JSFunctionDef, Label},
@@ -519,7 +519,7 @@ impl JSFunctionDef {
     }
 }
 
-pub fn can_optimize_put_ref_value(bc_buf: *const u8, pos: i32) -> bool {
+pub(super) fn can_optimize_put_ref_value(bc_buf: *const u8, pos: i32) -> bool {
     unsafe {
         *bc_buf.offset((pos + 1) as isize) == opcodes::OP_put_ref_value
             && matches!(
@@ -529,7 +529,7 @@ pub fn can_optimize_put_ref_value(bc_buf: *const u8, pos: i32) -> bool {
     }
 }
 
-pub fn can_optimize_put_global_ref_value(bc_buf: *const u8, pos: i32) -> bool {
+pub(super) fn can_optimize_put_global_ref_value(bc_buf: *const u8, pos: i32) -> bool {
     unsafe {
         *bc_buf.offset((pos + 1) as isize) == opcodes::OP_put_ref_value
             && matches!(
@@ -539,7 +539,7 @@ pub fn can_optimize_put_global_ref_value(bc_buf: *const u8, pos: i32) -> bool {
     }
 }
 
-pub fn optimize_scope_make_ref(
+pub(super) fn optimize_scope_make_ref(
     bc: &mut Vec<u8>,
     bc_buf: *mut u8,
     label: &Label,
@@ -596,7 +596,7 @@ pub fn optimize_scope_make_ref(
     pos_next
 }
 
-pub fn optimize_scope_make_global_ref(
+pub(super) fn optimize_scope_make_global_ref(
     ctx: &JSContext,
     js_mode: u8,
     bc: &mut Vec<u8>,

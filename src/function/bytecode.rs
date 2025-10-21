@@ -155,7 +155,7 @@ impl BytecodeInner {
         stack_size: u16,
     ) -> Self {
         let inner = Self {
-            rt: unsafe { NonNull::new_unchecked(ctx.rt_mut()) },
+            rt: ctx.rt_ptr(),
             gc_mark: Cell::new(false),
 
             func_name: fd.func_name.clone(),
@@ -538,11 +538,7 @@ impl BytecodeInner {
     }
 
     fn finalize(&mut self) {
-        free_bytecode_atoms(
-            unsafe { self.rt.as_mut() },
-            &self.binary[self.opcodes_start as usize..],
-            true,
-        );
+        free_bytecode_atoms(&self.binary[self.opcodes_start as usize..], true);
 
         // free vardef var_name atom
         if let Some(lst) = self.vardefs_mut() {
@@ -644,7 +640,7 @@ impl BytecodeWeakref {
 
 /// free atom in bytecode.
 /// Note: each atom id in instruction holds an atom refcount.
-pub(super) fn free_bytecode_atoms(rt: &mut JSRuntime, bc: &[u8], is_short_opcodes: bool) {
+pub(super) fn free_bytecode_atoms(bc: &[u8], is_short_opcodes: bool) {
     let bc_len = bc.len();
     let mut pos = 0;
     while pos < bc_len {

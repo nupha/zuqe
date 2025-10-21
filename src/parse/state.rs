@@ -150,8 +150,9 @@ impl<'s> JSParseState<'s> {
 
     /// Get function def which is currently being parsed.
     /// Will panic if cur_func is null.
+    #[allow(clippy::mut_from_ref)]
     #[inline(always)]
-    pub(crate) fn cur_func_mut(&self) -> &mut JSFunctionDef {
+    pub(super) fn cur_func_mut(&self) -> &mut JSFunctionDef {
         debug_assert!(!self.cur_func_def.is_null());
         unsafe { &mut *self.cur_func_def }
     }

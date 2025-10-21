@@ -480,7 +480,7 @@ impl JSObject {
         self.set_property_index(ctx, idx as usize, val.clone(), JS_PROP_THROW)
             .unwrap_or_else(|| {
                 // slow path
-                let atom = Atom::from_u32(ctx.rt_mut(), idx)?;
+                let atom = Atom::from_i64(ctx.rt(), idx as i64)?;
                 self.set_property_internal(ctx, &atom, val, Some(self), JS_PROP_THROW)
             })
     }
@@ -490,13 +490,13 @@ impl JSObject {
         if (0..=u32::MAX as i64).contains(&idx) {
             self.set_property_u32(ctx, idx as u32, val)
         } else {
-            let atom = Atom::from_i64(ctx.rt_mut(), idx)?;
+            let atom = Atom::from_i64(ctx.rt(), idx)?;
             self.set_property(ctx, &atom, val)
         }
     }
 
     pub fn set_property_str(&self, ctx: &JSContext, prop: &str, val: JSValue) -> Result<bool, i32> {
-        let atom = Atom::new(ctx.rt_mut(), prop)?;
+        let atom = Atom::new(ctx.rt(), prop)?;
         self.set_property(ctx, &atom, val)
     }
 }
@@ -572,7 +572,7 @@ impl JSValue {
     }
 
     pub fn set_property_str(&self, ctx: &JSContext, prop: &str, val: JSValue) -> Result<bool, i32> {
-        let atom = Atom::new(ctx.rt_mut(), prop)?;
+        let atom = Atom::new(ctx.rt(), prop)?;
         self.set_property(ctx, &atom, val)
     }
 }

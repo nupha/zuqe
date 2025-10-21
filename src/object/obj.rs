@@ -359,11 +359,6 @@ impl ObjectInner {
         unsafe { self.rt.as_ref() }
     }
 
-    #[inline]
-    pub const fn rt_mut(&self) -> &mut JSRuntime {
-        unsafe { self.rt.as_ptr().as_mut().unwrap() }
-    }
-
     #[inline(always)]
     pub fn class_id(&self) -> JSClassID {
         self.payload.class_id()
@@ -475,11 +470,6 @@ impl JSObject {
     #[inline(always)]
     pub fn rt(&self) -> &JSRuntime {
         self.0.rt()
-    }
-
-    #[inline(always)]
-    pub fn rt_mut(&self) -> &mut JSRuntime {
-        self.0.rt_mut()
     }
 
     /// get object payload

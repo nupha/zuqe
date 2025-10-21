@@ -58,7 +58,7 @@ unsafe fn json_parse_ident(
         p = p.add(1);
     }
 
-    let atom = Atom::new(s.ctx.rt_mut(), std::str::from_utf8(&buf).map_err(|_| -1)?)?;
+    let atom = Atom::new(s.ctx.rt(), std::str::from_utf8(&buf).map_err(|_| -1)?)?;
     *pp = p;
     Ok(atom)
 }
@@ -75,10 +75,7 @@ unsafe fn json_parse_value(s: &mut JSParseState) -> JSResult {
             if s.token.val != b'}' as i32 {
                 loop {
                     let prop_name = if s.token.val == TOK_STRING {
-                        Atom::new(
-                            s.ctx.rt_mut(),
-                            &s.token.data.string().unwrap().to_utf8(true),
-                        )?
+                        Atom::new(s.ctx.rt(), &s.token.data.string().unwrap().to_utf8(true))?
                     } else if s.ext_json && s.token.val == TOK_IDENT {
                         s.token.data.ident_atom().unwrap()
                     } else {

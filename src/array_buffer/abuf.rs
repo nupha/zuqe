@@ -8,7 +8,7 @@ use std::{
 };
 
 use crate::{
-    JS_CLASS_ARRAY_BUFFER, JS_CLASS_DATAVIEW, JS_CLASS_SHARED_ARRAY_BUFFER,
+    JS_CLASS_ARRAY_BUFFER, JS_CLASS_SHARED_ARRAY_BUFFER,
     branch_hints::unlikely,
     context::JSContext,
     error::JSResult,
@@ -20,7 +20,7 @@ use crate::{
 };
 
 pub type JSFreeArrayBufferDataFunc =
-    fn(rt: &mut JSRuntime, opaque: *mut c_void, data: *mut u8, data_length: usize);
+    fn(rt: &JSRuntime, opaque: *mut c_void, data: *mut u8, data_length: usize);
 
 pub struct JSSharedArrayBufferFunctions {
     pub sab_alloc: fn(*mut c_void, usize) -> Result<Box<[u8]>, i32>,
@@ -348,7 +348,7 @@ impl ArrayBuffer {
             match data0 {
                 ABufData::Raw(ptr, len, fin) => {
                     if let Some(f) = fin {
-                        f(ctx.rt_mut(), abuf.opaque(), ptr.as_ptr(), len);
+                        f(ctx.rt(), abuf.opaque(), ptr.as_ptr(), len);
                     }
                 }
                 _ => {}

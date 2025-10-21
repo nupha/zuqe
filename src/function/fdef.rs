@@ -178,7 +178,7 @@ impl Drop for JSFunctionDef {
 
 impl JSFunctionDef {
     /// alloc a function def, and initialize it.
-    pub(crate) fn new0(
+    fn new_internal(
         ctx: &JSContext,
         is_eval: bool,
         is_func_expr: bool,
@@ -257,7 +257,7 @@ impl JSFunctionDef {
             line_number_last: 0,
             line_number_last_pc: 0,
 
-            filename: Atom::new(ctx.rt_mut(), filename)?,
+            filename: Atom::new(ctx.rt(), filename)?,
             line_num,
             pc2line: None,
             source: None,
@@ -273,9 +273,9 @@ impl JSFunctionDef {
     }
 
     /// create function def and attach to parent-child chain
-    pub fn new(
+    pub(crate) fn new(
         ctx: &JSContext,
-        parent: *mut JSFunctionDef,
+        parent: Option<&mut JSFunctionDef>,
         is_eval: bool,
         is_func_expr: bool,
         filename: &str,
@@ -283,22 +283,21 @@ impl JSFunctionDef {
     ) -> Result<Box<Self>, i32> {
         debug_assert!(line_num >= 0);
 
-        let mut fd = Self::new0(ctx, is_eval, is_func_expr, filename, line_num)?;
+        let mut fd = Self::new_internal(ctx, is_eval, is_func_expr, filename, line_num)?;
 
-        if !parent.is_null() {
-            unsafe {
-                fd.parent = parent;
-                fd.parent_scope_level = (*parent).scope_level;
-                fd.attrs.js_mode = (*parent).attrs.js_mode;
+        if let Some(parent) = parent {
+            fd.parent = parent;
+            fd.parent_scope_level = parent.scope_level;
+            fd.attrs.js_mode = parent.attrs.js_mode;
 
-                if (*parent).child_list.len() == (*parent).child_list.capacity() {
-                    (*parent).child_list.try_reserve(8).map_err(|_| {
-                        ctx.throw_out_of_memory();
-                        -1
-                    })?;
-                }
-                (*parent).child_list.push(NonNull::from(fd.deref_mut()));
+            if parent.child_list.len() == parent.child_list.capacity() {
+                parent.child_list.try_reserve(8).map_err(|_| {
+                    ctx.throw_out_of_memory();
+                    -1
+                })?;
             }
+
+            parent.child_list.push(NonNull::from(fd.deref_mut()));
         }
 
         Ok(fd)
@@ -357,13 +356,11 @@ impl JSFunctionDef {
     fn finalize(&mut self) {
         // drop child function defs
         for sub in self.child_list.drain(..) {
-            drop(unsafe { Box::from_raw(sub.as_ptr()) });
+            let _ = unsafe { Box::from_raw(sub.as_ptr()) };
         }
 
-        let rt = self.ctx.rt_mut();
-
-        free_bytecode_atoms(rt, &self.byte_code, self.use_short_opcodes);
-        self.byte_code.clear();
+        free_bytecode_atoms(&self.byte_code, self.use_short_opcodes);
+        // self.byte_code.clear();
 
         // #[cfg(feature = "short_opcode")]
         // self.jump_slots.clear();
@@ -371,33 +368,12 @@ impl JSFunctionDef {
         // self.label_slots.clear();
         // self.line_number_slots.clear();
 
-        self.cpool.clear();
-
-        self.args.clear();
-        self.vars.clear();
-        self.global_vars.clear();
-        self.closure_vars.take();
-
-        //
-        // if vardefs are not consumed, free atoms in it.
-        //
-        // for vd in self.args.drain(..) {
-        //     vd.var_name.free(rt);
-        // }
-        // for vd in self.vars.drain(..) {
-        //     vd.var_name.free(rt);
-        // }
-        // for gv in self.global_vars.drain(..) {
-        //     gv.var_name.free(rt);
-        // }
-        // if let Some(mut lst) = self.closure_vars.take() {
-        //     for cv in lst.drain(..) {
-        //         cv.var_name.free(rt);
-        //     }
-        // }
-
-        // std::mem::replace(&mut self.func_name, Atom::NULL).free(rt);
-        // std::mem::replace(&mut self.filename, Atom::NULL).free(rt);
+        // these are not nesserary
+        // self.cpool.clear();
+        // self.args.clear();
+        // self.vars.clear();
+        // self.global_vars.clear();
+        // self.closure_vars.take();
 
         // ensure `self` function def does not exist in parent's child_list
         if let Some(up) = unsafe { self.parent.as_mut() } {
@@ -494,7 +470,7 @@ pub fn get_label_pos(s: &JSFunctionDef, mut label: i32) -> i32 {
     pos
 }
 
-pub fn skip_dead_code(
+pub(super) fn skip_dead_code(
     s: &mut JSFunctionDef,
     bc_buf: *const u8,
     bc_len: usize,

@@ -31,11 +31,11 @@ pub struct GCObjectHeader {
 }
 
 impl GCObjectHeader {
-    pub const fn new(rt: *mut JSRuntime, ref_count: i32) -> Self {
+    pub(crate) const fn new(rt: &JSRuntime, ref_count: i32) -> Self {
         Self {
             ref_count,
             bitfields: (GCObjectStatus::Tracking as u8) << 1,
-            rt: unsafe { NonNull::new_unchecked(rt) },
+            rt: NonNull::from_ref(rt),
         }
     }
 

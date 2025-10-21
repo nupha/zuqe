@@ -15,7 +15,7 @@ impl JSContext {
         });
 
         if intr {
-            let rt = self.rt_mut();
+            let rt = self.rt();
 
             if let Some(cb) = rt.interrupt_handler {
                 if cb(rt, rt.interrupt_opaque) != 0 {

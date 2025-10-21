@@ -161,17 +161,17 @@ impl JSContextInner {
     }
 
     #[inline(always)]
-    pub fn rt_ptr(&self) -> NonNull<JSRuntime> {
+    pub const fn rt_ptr(&self) -> NonNull<JSRuntime> {
         self.rt
     }
 
     #[inline(always)]
-    pub fn rt(&self) -> &JSRuntime {
+    pub const fn rt(&self) -> &JSRuntime {
         unsafe { self.rt.as_ref() }
     }
 
     #[inline(always)]
-    pub fn rt_mut(&mut self) -> &mut JSRuntime {
+    pub const fn rt_mut(&mut self) -> &mut JSRuntime {
         unsafe { self.rt.as_mut() }
     }
 
@@ -281,6 +281,7 @@ impl JSContext {
     }
 
     /// Returns the runtime mut reference
+    #[allow(clippy::mut_from_ref)]
     #[inline(always)]
     pub fn rt_mut(&self) -> &mut JSRuntime {
         unsafe { self.rt_ptr().as_mut() }

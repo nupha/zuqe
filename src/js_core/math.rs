@@ -260,14 +260,14 @@ pub static js_math_funcs: [FieldDef; 44] = [
     JS_CFUNC_NATIVE_DEF!("imul", 2, js_math_imul, 0),
     JS_CFUNC_NATIVE_DEF!("clz32", 1, js_math_clz32, 0),
     JS_PROP_STRING_DEF!("[Symbol.toStringTag]", "Math", JS_PROP_CONFIGURABLE),
-    JS_PROP_DOUBLE_DEF!("E", 2.718281828459045, 0),
-    JS_PROP_DOUBLE_DEF!("LN10", 2.302585092994046, 0),
-    JS_PROP_DOUBLE_DEF!("LN2", 0.6931471805599453, 0),
-    JS_PROP_DOUBLE_DEF!("LOG2E", 1.4426950408889634, 0),
-    JS_PROP_DOUBLE_DEF!("LOG10E", 0.4342944819032518, 0),
-    JS_PROP_DOUBLE_DEF!("PI", 3.141592653589793, 0),
-    JS_PROP_DOUBLE_DEF!("SQRT1_2", 0.7071067811865476, 0),
-    JS_PROP_DOUBLE_DEF!("SQRT2", 1.4142135623730951, 0),
+    JS_PROP_DOUBLE_DEF!("E", std::f64::consts::E, 0),
+    JS_PROP_DOUBLE_DEF!("LN10", std::f64::consts::LN_10, 0),
+    JS_PROP_DOUBLE_DEF!("LN2", std::f64::consts::LN_2, 0),
+    JS_PROP_DOUBLE_DEF!("LOG2E", std::f64::consts::LOG2_E, 0),
+    JS_PROP_DOUBLE_DEF!("LOG10E", std::f64::consts::LOG10_E, 0),
+    JS_PROP_DOUBLE_DEF!("PI", std::f64::consts::PI, 0),
+    JS_PROP_DOUBLE_DEF!("SQRT1_2", std::f64::consts::FRAC_1_SQRT_2, 0),
+    JS_PROP_DOUBLE_DEF!("SQRT2", std::f64::consts::SQRT_2, 0),
 ];
 
 pub static js_math_obj: [FieldDef; 1] = [JS_OBJECT_DEF!(

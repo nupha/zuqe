@@ -850,7 +850,7 @@ impl JSContext {
     }
 
     pub fn intrinsic_async(&self) {
-        let rt = self.rt_mut();
+        let rt = self.rt();
         debug_assert!(rt.is_class_registered(JS_CLASS_PROMISE));
 
         // Promise

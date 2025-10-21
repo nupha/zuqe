@@ -183,7 +183,7 @@ impl JSContext {
             return Err(-1);
         }
 
-        Atom::new(self.rt_mut(), str)
+        Atom::new(self.rt(), str)
     }
 }
 

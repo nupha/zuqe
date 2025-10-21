@@ -293,8 +293,8 @@ impl JSString {
 
     /// create JSString with string content
     #[inline(always)]
-    pub(crate) fn new(rt: &mut JSRuntime, content: StringContent) -> Self {
-        Self::new_internal(rt, content)
+    pub(crate) fn new(rt: &JSRuntime, content: StringContent) -> Self {
+        Self::new_internal(rt as *const _ as *mut _, content)
     }
 
     /// Creates a JSStringInner from a Rust string slice
@@ -309,8 +309,11 @@ impl JSString {
     /// # Returns
     /// * `Ok(Box<JSStringInner>)` - Newly created string
     /// * `Err(-1)` - Memory allocation or UTF-8 validation failed
-    pub(crate) fn from_str(rt: &mut JSRuntime, s: &str) -> Result<Self, i32> {
-        Ok(Self::new_internal(rt, StringBuf::from_str(s)?.into()))
+    pub(crate) fn from_str(rt: &JSRuntime, s: &str) -> Result<Self, i32> {
+        Ok(Self::new_internal(
+            rt as *const _ as *mut _,
+            StringBuf::from_str(s)?.into(),
+        ))
     }
 
     /// static str `s` must be ascii str.
@@ -332,7 +335,7 @@ impl JSString {
     /// # Returns
     /// * `Ok(Box<JSStringInner>)` - Newly created string
     /// * `Err(-1)` - Memory allocation or UTF-8 validation failed
-    pub(crate) fn from_utf8(rt: &mut JSRuntime, bytes: Vec<u8>) -> Result<Self, i32> {
+    pub(crate) fn from_utf8(rt: &JSRuntime, bytes: Vec<u8>) -> Result<Self, i32> {
         Ok(Self::new(
             rt,
             StringBuf::from_utf8(bytes).map_err(|_| -1)?.into(),

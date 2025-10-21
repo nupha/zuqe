@@ -50,7 +50,7 @@ fn internalize_json_property(
 
         for i in 0..len {
             let prop = if is_array {
-                Atom::from_u32(ctx.rt_mut(), i)?
+                Atom::from_i64(ctx.rt(), i as i64)?
             } else {
                 unsafe { pks.get_unchecked(i as usize).atom.clone() }
             };

@@ -81,7 +81,7 @@ impl<'s> JSParseState<'s> {
                 // labelled regular statement
                 let label_break = self.cur_func_mut().add_label().map_or(-1, |l| l as i32);
                 let mut break_entry = BlockEnv {
-                    label_name: label_name,
+                    label_name,
                     label_break,
                     ..Default::default()
                 };
@@ -229,7 +229,7 @@ impl<'s> JSParseState<'s> {
                 js_unsupported_keyword(self, &AtomRef(a as u32));
                 return Err(-1);
             }
-            t => {
+            _ => {
                 todo.replace(TodoState::HasExpr);
             }
         }
@@ -292,36 +292,28 @@ fn is_let(s: &mut JSParseState, decl_mask: i32) -> Result<bool, i32> {
     let mut res = Ok(false);
 
     if s.token_is_pseudo_keyword(JS_ATOM_let) {
+        let pos = s.get_pos();
+
+        s.next_token()?;
+        let tok = s.token.val;
+
+        if tok == b'[' as i32 {
+            // let [ is a syntax restriction:
+            // it never introduces an ExpressionStatement
+            res = Ok(true);
+        } else if tok == b'{' as i32
+            || (tok == TOK_IDENT && !s.token.data.is_reserved())
+            || matches!(tok, TOK_LET | TOK_YIELD | TOK_AWAIT)
         {
-            let pos = (*s).get_pos();
-
-            loop {
-                s.next_token()?;
-
-                if s.token.val == b'[' as i32 {
-                    // let [ is a syntax restriction:
-                    // it never introduces an ExpressionStatement
-                    res = Ok(true);
-                    break;
-                }
-                if s.token.val == b'{' as i32
-                    || ((*s).token.val == TOK_IDENT && !(*s).token.data.is_reserved())
-                    || matches!((*s).token.val, TOK_LET | TOK_YIELD | TOK_AWAIT)
-                {
-                    // Check for possible ASI if not scanning for Declaration
-                    // XXX: should also check that `{` introduces a BindingPattern,
-                    // but Firefox does not and rejects eval("let=1;let\n{if(1)2;}")
-                    if s.last_line_num == s.token.line_num || (decl_mask & DECL_MASK_OTHER) != 0 {
-                        res = Ok(true);
-                        break;
-                    }
-                    break;
-                }
-                break;
+            // Check for possible ASI if not scanning for Declaration
+            // XXX: should also check that `{` introduces a BindingPattern,
+            // but Firefox does not and rejects eval("let=1;let\n{if(1)2;}")
+            if s.last_line_num == s.token.line_num || (decl_mask & DECL_MASK_OTHER) != 0 {
+                res = Ok(true);
             }
-
-            s.seek_token(&pos)?;
         }
+
+        s.seek_token(&pos)?;
 
         // experimental?
         // {

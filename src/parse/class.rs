@@ -844,7 +844,7 @@ impl<'s> JSParseState<'s> {
 pub(super) fn js_parse_function_class_fields_init(
     s: &mut JSParseState,
 ) -> Result<Box<JSFunctionDef>, i32> {
-    let mut fd = JSFunctionDef::new(&s.ctx, s.cur_func_mut(), false, false, s.filename, 0)?;
+    let mut fd = JSFunctionDef::new(&s.ctx, Some(s.cur_func_mut()), false, false, s.filename, 0)?;
 
     fd.func_type = JSParseFunctionEnum::JS_PARSE_FUNC_METHOD;
     fd.has_home_object = true; // <-- this line must be prior to `fd.attrs.super_allowed = XXX`

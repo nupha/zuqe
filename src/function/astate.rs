@@ -86,7 +86,7 @@ impl AsyncStateInner {
         };
 
         let s = Self {
-            header: GCObjectHeader::new(ctx.rt_mut(), 1),
+            header: GCObjectHeader::new(ctx.rt(), 1),
 
             argc: args.len() as _,
             this_val: this_obj,

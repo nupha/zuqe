@@ -104,7 +104,7 @@ impl JSParseState<'_> {
     }
 
     /// returns (atom, has_escape)
-    pub fn parse_ident(
+    pub(super) fn parse_ident(
         &mut self,
         input: *mut *const u8,
         first_char: char,
@@ -168,7 +168,7 @@ impl JSParseState<'_> {
             }
         }
 
-        let atom = Atom::new(self.ctx.rt_mut(), unsafe {
+        let atom = Atom::new(self.ctx.rt(), unsafe {
             std::str::from_utf8_unchecked(&buf)
         })?;
 

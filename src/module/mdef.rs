@@ -36,7 +36,9 @@ pub trait ModuleInitFunc: Fn(&JSContext, &ModuleDef) -> Result<(), i32> {}
 impl<F> ModuleInitFunc for F where F: Fn(&JSContext, &ModuleDef) -> Result<(), i32> {}
 
 pub struct ModuleDefInner {
+    /// TODO: rt seems no use
     rt: NonNull<JSRuntime>,
+
     gc_mark: Cell<bool>,
 
     /// hold a refcount of the atom
@@ -156,7 +158,7 @@ impl ModuleDefInner {
         name: &str,
         init_func: impl ModuleInitFunc + 'static,
     ) -> Result<Self, i32> {
-        let name = Atom::new(ctx.rt_mut(), name)?;
+        let name = Atom::new(ctx.rt(), name)?;
         let mut inner = ModuleDefInner::new(ctx, name);
         inner.init_func.replace(Box::new(init_func));
         Ok(inner)
@@ -165,16 +167,6 @@ impl ModuleDefInner {
     #[inline(always)]
     pub fn id(&self) -> usize {
         self as *const Self as usize
-    }
-
-    #[inline(always)]
-    pub fn rt(&self) -> &JSRuntime {
-        unsafe { self.rt.as_ref() }
-    }
-
-    #[inline(always)]
-    pub fn rt_mut(&self) -> &mut JSRuntime {
-        unsafe { self.rt.as_ptr().as_mut().unwrap() }
     }
 
     /// get module name atom.

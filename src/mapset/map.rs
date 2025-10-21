@@ -13,7 +13,7 @@ use crate::{
 /// A key-value pair in a map, either strong or weak
 #[derive(Debug, Clone)]
 #[repr(u8)]
-pub(crate) enum MapPair {
+pub enum MapPair {
     Strong {
         key: JSValue,
         value: JSValue,

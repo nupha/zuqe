@@ -90,7 +90,7 @@ impl JSContext {
             }
 
             if eval_type == JS_EVAL_TYPE_MODULE {
-                let name = Atom::new(self.rt_mut(), filename)?;
+                let name = Atom::new(self.rt(), filename)?;
                 js_mode |= JS_MODE_STRICT as u32;
                 (None, Some(ModuleDef::new(self, name)), js_mode)
             } else {
@@ -99,7 +99,7 @@ impl JSContext {
         };
 
         // create root function def.
-        let mut fd = JSFunctionDef::new(self, std::ptr::null_mut(), true, false, filename, 1)?;
+        let mut fd = JSFunctionDef::new(self, None, true, false, filename, 1)?;
 
         fd.eval_type = eval_type;
         fd.func_name = Atom::new_const(JS_ATOM__eval_);

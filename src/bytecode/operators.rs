@@ -21,7 +21,7 @@ use crate::{
     value::JSValue,
 };
 
-pub fn js_operator_delete(ctx: &JSContext, sp: *mut JSValue) -> i32 {
+pub(super) fn js_operator_delete(ctx: &JSContext, sp: *mut JSValue) -> i32 {
     let (op1, op2) = unsafe {
         (
             std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED),
@@ -45,7 +45,7 @@ pub fn js_operator_delete(ctx: &JSContext, sp: *mut JSValue) -> i32 {
     }
 }
 
-pub fn js_operator_instanceof(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
+pub(super) fn js_operator_instanceof(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
     let (val, ctor) = unsafe {
         (
             std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED),
@@ -61,7 +61,7 @@ pub fn js_operator_instanceof(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i
     Ok(())
 }
 
-pub fn js_operator_in(ctx: &JSContext, obj: &JSValue, prop: &JSValue) -> Result<bool, i32> {
+pub(super) fn js_operator_in(ctx: &JSContext, obj: &JSValue, prop: &JSValue) -> Result<bool, i32> {
     if unlikely(!obj.is_object()) {
         ctx.throw_type_error("invalid 'in' operand");
         Err(-1)
@@ -71,7 +71,7 @@ pub fn js_operator_in(ctx: &JSContext, obj: &JSValue, prop: &JSValue) -> Result<
     }
 }
 
-pub fn js_operator_private_in(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
+pub(super) fn js_operator_private_in(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
     let obj = unsafe { std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED) }; // object
     let item = unsafe { std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED) }; // field name or method function
 
@@ -94,7 +94,7 @@ pub fn js_operator_private_in(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i
     }
 }
 
-pub fn js_op_define_class(
+pub(super) fn js_op_define_class(
     ctx: &JSContext,
     sp: *mut JSValue,
     class_name: &Atom,
@@ -262,7 +262,7 @@ pub fn js_method_set_properties(
 /// 类似于 JavaScript 中的 `[...iterable]` 或者 `array.push(...iterable)` 操作。
 ///
 /// 操作完成后, `SP[-3]`数组中加入了来自`SP[-1]`的全部元素，`SP[-1]`没有变化，`SP[-2]`更新为结束位置index。
-pub unsafe fn js_append_enumerate(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
+pub(super) unsafe fn js_append_enumerate(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
     // the index where append starts
     let mut pos = if let JSValue::Int(i) = &*sp.offset(-2) {
         *i
@@ -331,7 +331,7 @@ pub unsafe fn js_append_enumerate(ctx: &JSContext, sp: *mut JSValue) -> Result<(
 }
 
 /// obj -> enum_obj
-pub fn js_for_in_start(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
+pub(super) fn js_for_in_start(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
     unsafe {
         let obj = std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED);
         let it = ForInIterPayload::new(ctx, obj).map_or(JSValue::EXCEPTION, JSValue::Object);
@@ -348,7 +348,7 @@ pub fn js_for_in_start(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
 
 /// 实现 JavaScript 中 for...in 循环的迭代器逻辑，用于遍历对象的可枚举属性
 /// enum_obj -> enum_obj value done
-pub fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
+pub(super) fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
     let enum_obj = unsafe { &*sp.offset(-1) };
     debug_assert!(enum_obj.is_object());
 
@@ -479,7 +479,11 @@ pub fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
 #[deprecated(
     note = "use JSValue::get_iterator_must() and JSValue::get_property(JS_ATOM_next) combination"
 )]
-pub fn js_for_of_start(ctx: &JSContext, sp: *mut JSValue, is_async: bool) -> Result<(), i32> {
+pub(super) fn js_for_of_start(
+    ctx: &JSContext,
+    sp: *mut JSValue,
+    is_async: bool,
+) -> Result<(), i32> {
     let iter_obj = unsafe { &*sp.offset(-1) }.get_iterator_must(ctx, is_async)?;
     let next = iter_obj.get_property(ctx, JS_ATOM_next.deref())?;
     unsafe {
@@ -490,7 +494,11 @@ pub fn js_for_of_start(ctx: &JSContext, sp: *mut JSValue, is_async: bool) -> Res
 }
 
 #[deprecated]
-pub unsafe fn js_for_of_next(ctx: &JSContext, sp: *mut JSValue, base: i32) -> Result<(), i32> {
+pub(super) unsafe fn js_for_of_next(
+    ctx: &JSContext,
+    sp: *mut JSValue,
+    base: i32,
+) -> Result<(), i32> {
     let mut value: JSValue = JSValue::UNDEFINED;
     let mut done = true;
 
@@ -518,7 +526,7 @@ pub unsafe fn js_for_of_next(ctx: &JSContext, sp: *mut JSValue, base: i32) -> Re
     Ok(())
 }
 
-pub unsafe fn js_iterator_get_value_done(ctx: &JSContext, sp: *mut JSValue) -> i32 {
+pub(super) unsafe fn js_iterator_get_value_done(ctx: &JSContext, sp: *mut JSValue) -> i32 {
     let obj = &*sp.offset(-1);
     if !obj.is_object() {
         ctx.throw_type_error("iterator must return an object");

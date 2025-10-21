@@ -36,7 +36,7 @@ use crate::{
 pub const JS_MAX_LOCAL_VARS: u16 = 65535;
 pub const JS_STACK_SIZE_MAX: u16 = 65534;
 
-pub type JSInterruptHandler = fn(rt: &mut JSRuntime, opaque: *mut c_void) -> i32;
+pub type JSInterruptHandler = fn(rt: &JSRuntime, opaque: *mut c_void) -> i32;
 
 pub struct JSRuntime {
     pub mf: JSMallocFunctions,

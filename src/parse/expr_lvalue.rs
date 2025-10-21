@@ -28,7 +28,7 @@ pub enum PutLValueEnum {
 }
 
 impl<'s> JSParseState<'s> {
-    pub fn get_lvalue(
+    pub(super) fn get_lvalue(
         &mut self,
         popcode: &mut i32,
         pscope: &mut i32,

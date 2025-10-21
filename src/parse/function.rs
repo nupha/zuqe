@@ -56,7 +56,7 @@ impl<'s> JSParseState<'s> {
 
         let mut sub_fd = JSFunctionDef::new(
             &self.ctx,
-            parent_fd,
+            unsafe { parent_fd.as_mut() },
             false,
             is_expr,
             self.filename,
