@@ -6,12 +6,7 @@ use std::{
 
 use fallible_collections::{FallibleVec, TryClone, TryCollect};
 
-use crate::string::{StringChar, char_is_space};
-
-use super::{
-    content::{StringContent, StringData},
-    string::JS_STRING_LEN_MAX,
-};
+use super::{StringChar, StringContent, StringData, char_is_space, string::JS_STRING_LEN_MAX};
 
 /// string content buffer
 #[repr(u8)]
@@ -569,7 +564,7 @@ impl StringBuf {
             }
 
             // static str
-            (Self::Utf16(mut s1), StringData::AsciiStr(s2)) => {
+            (Self::Utf16(mut s1), StringData::AsciiStatic(s2)) => {
                 if let Err(e) = s1.try_reserve(s2.len()) {
                     *self = Self::Utf16(s1);
                     return Err(e);
@@ -578,7 +573,7 @@ impl StringBuf {
                     Self::Utf16(s1)
                 }
             }
-            (Self::Ascii(mut s1), StringData::AsciiStr(s2)) => {
+            (Self::Ascii(mut s1), StringData::AsciiStatic(s2)) => {
                 if let Err(e) = s1.try_reserve_exact(s2.len()) {
                     *self = Self::Ascii(s1);
                     return Err(e);

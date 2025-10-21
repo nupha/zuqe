@@ -190,7 +190,7 @@ impl JSStringInner {
 
     pub(crate) fn copy_to_new(&self) -> JSString {
         match self.content().data() {
-            StringData::AsciiStr(s) => JSString::from_static(*s),
+            StringData::AsciiStatic(s) => JSString::from_static(*s),
             StringData::Empty => {
                 JSString::new_internal(std::ptr::null_mut(), StringData::Empty.into())
             }
@@ -317,7 +317,7 @@ impl JSString {
     /// static str `s` must be ascii str.
     pub(crate) fn from_static(s: &'static str) -> Self {
         debug_assert!(s.is_ascii());
-        Self::new_internal(std::ptr::null_mut(), StringData::AsciiStr(s).into())
+        Self::new_internal(std::ptr::null_mut(), StringData::AsciiStatic(s).into())
     }
 
     /// Creates a JSString from UTF-8 encoded bytes
