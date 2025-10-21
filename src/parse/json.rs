@@ -63,7 +63,7 @@ unsafe fn json_parse_ident(
     Ok(atom)
 }
 
-unsafe fn json_parse_value(s: &mut JSParseState) -> JSResult {
+fn json_parse_value(s: &mut JSParseState) -> JSResult {
     let mut val: JSValue = JSValue::NULL;
 
     match s.token.val {
@@ -155,14 +155,13 @@ unsafe fn json_parse_value(s: &mut JSParseState) -> JSResult {
                     if s.token.val == TOK_EOF {
                         s.throw_syntax_error("unexpected end of input");
                     } else {
-                        let t = std::slice::from_raw_parts(
-                            s.token.ptr,
-                            s.buf_ptr.offset_from(s.token.ptr) as usize,
-                        );
-                        s.throw_syntax_error(&format!(
-                            "unexpected token: '{}'",
+                        s.throw_syntax_error(&format!("unexpected token: '{}'", unsafe {
+                            let t = std::slice::from_raw_parts(
+                                s.token.ptr,
+                                s.buf_ptr.offset_from(s.token.ptr) as usize,
+                            );
                             std::str::from_utf8_unchecked(t)
-                        ));
+                        }));
                     }
                     return Err(-1);
                 }
@@ -174,14 +173,13 @@ unsafe fn json_parse_value(s: &mut JSParseState) -> JSResult {
             if s.token.val == TOK_EOF {
                 s.throw_syntax_error("unexpected end of input");
             } else {
-                let t = std::slice::from_raw_parts(
-                    s.token.ptr,
-                    s.buf_ptr.offset_from(s.token.ptr) as usize,
-                );
-                s.throw_syntax_error(&format!(
-                    "unexpected token: '{}'",
+                s.throw_syntax_error(&format!("unexpected token: '{}'", unsafe {
+                    let t = std::slice::from_raw_parts(
+                        s.token.ptr,
+                        s.buf_ptr.offset_from(s.token.ptr) as usize,
+                    );
                     std::str::from_utf8_unchecked(t)
-                ));
+                }));
             }
             return Err(-1);
         }
@@ -398,13 +396,12 @@ fn json_next_token(s: &mut JSParseState) -> Result<(), i32> {
         Todo::DefaultToken(c) => {
             s.token.val = c;
             p = unsafe { p.add(1) };
-
             s.buf_ptr = p;
-            return Ok(());
+            Ok(())
         }
         Todo::Fail => {
             s.token.val = TOK_ERROR;
-            return Err(-1);
+            Err(-1)
         }
     }
 }
@@ -433,15 +430,13 @@ fn json_parse_value_number(s: &mut JSParseState, mut p: *const u8) -> Result<*co
     }
 }
 
-pub fn JS_ParseJSON2(ctx: &JSContext, source: &[u8], filename: &str, flags: i32) -> JSResult {
+fn JS_ParseJSON2(ctx: &JSContext, source: &[u8], filename: &str, flags: i32) -> JSResult {
     let mut s = JSParseState::new_for_json(ctx, source, filename);
     s.ext_json = flags & JS_PARSE_JSON_EXT != 0;
 
-    unsafe {
-        json_next_token(&mut s)?;
-    }
+    json_next_token(&mut s)?;
 
-    let val = unsafe { json_parse_value(&mut s)? };
+    let val = json_parse_value(&mut s)?;
     if s.token.val != TOK_EOF {
         s.throw_syntax_error("unexpected data at the end");
         Err(-1)

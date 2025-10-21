@@ -1,4 +1,6 @@
 use crate::{
+    JS_CLASS_OBJECT,
+    branch_hints::unlikely,
     context::JSContext,
     error::JSResult,
     object::JSObject,
@@ -66,6 +68,20 @@ impl JSObject {
         proto_val: JSValue,
         throw_flag: bool,
     ) -> Result<bool, i32> {
+        // Guard: can't set prototype of `Object.prototype`
+        if unlikely(
+            self == ctx.0.borrow().class_proto[JS_CLASS_OBJECT as usize]
+                .as_object()
+                .unwrap(),
+        ) {
+            return if throw_flag {
+                ctx.throw_type_error("can't set prototype of Object.prototype");
+                Err(-1)
+            } else {
+                Ok(false)
+            };
+        }
+
         let proto = if let JSValue::Object(o) = &proto_val {
             Some(o)
         } else if proto_val.is_null() {
@@ -78,6 +94,7 @@ impl JSObject {
         if let Some(px) = self.as_Proxy() {
             return px.set_prototype_of(ctx, proto_val, throw_flag);
         }
+
         if self.shape().unwrap().0.borrow().proto.as_ref() == proto {
             return Ok(true);
         }
@@ -143,20 +160,16 @@ impl JSValue {
         proto_val: JSValue,
         throw_flag: bool,
     ) -> Result<bool, i32> {
-        if throw_flag && self.is_undefined_or_null() {
+        if unlikely(throw_flag && self.is_undefined_or_null()) {
             ctx.throw_type_error_not_an_object();
-            return Err(-1);
-        }
-
-        if let JSValue::Object(p) = self {
-            p.set_prototype_internal(ctx, proto_val, throw_flag)
+            Err(-1)
+        } else if let JSValue::Object(o) = self {
+            o.set_prototype_internal(ctx, proto_val, throw_flag)
+        } else if throw_flag {
+            Ok(true)
         } else {
-            if throw_flag {
-                Ok(true)
-            } else {
-                ctx.throw_type_error_not_an_object();
-                Err(-1)
-            }
+            ctx.throw_type_error_not_an_object();
+            Err(-1)
         }
     }
 }

@@ -2,7 +2,7 @@ use std::ops::Deref;
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
-    atom::{Atom, JS_ATOM_NULL, JS_AtomIsNumericIndex1, consts::*},
+    atom::{Atom, JS_AtomIsNumericIndex1, consts::*},
     branch_hints::unlikely,
     bytecode::js_get_function_name,
     context::JSContext,
@@ -48,7 +48,7 @@ impl JSObject {
                     // is `length` property
                     // the range of the Array length property is always tested before
                     let array_length = val.to_array_length(ctx, false)?;
-                    val = JSValue::from(array_length as u32);
+                    val = JSValue::from(array_length);
                 }
 
                 if !check_define_prop_flags(prs_flags, flags) {
@@ -77,48 +77,32 @@ impl JSObject {
                     != 0
                 {
                     if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0 {
-                        // update to getter/setter property
+                        // update to getter/setter func
                         self.update_prop_slot_getset(
                             ctx, prop, prs_flags, idx, getter, setter, flags,
                         )
                     } else {
-                        // update to normal property
-                        self.update_prop_slot_normal(ctx, prop, prs_flags, idx, val, flags)
+                        // set property value, handle 'writable' flag
+                        let r = self.update_prop_slot_value(ctx, prop, prs_flags, idx, val, flags);
+                        if prs_flags & JS_PROP_LENGTH != 0 {
+                            return r;
+                        }
+                        r
                     }
                 } else {
                     Ok(true)
                 };
 
-                // update shape property flag
+                // update 'configurable', 'enumerable' flags
                 let mut mask = 0;
-                let new_flags = if flags & JS_PROP_LENGTH != 0 {
-                    if flags & (JS_PROP_HAS_WRITABLE | JS_PROP_WRITABLE) == JS_PROP_HAS_WRITABLE {
-                        // has {writable:false} setting for `length` property
-                        mask |= JS_PROP_WRITABLE;
-                    }
-                    0
-                } else {
-                    if flags & JS_PROP_HAS_WRITABLE != 0 {
-                        // has {writable:XXX} setting
-                        mask |= JS_PROP_WRITABLE;
-                    }
-                    if flags & JS_PROP_HAS_CONFIGURABLE != 0 {
-                        mask |= JS_PROP_CONFIGURABLE;
-                    }
-                    if flags & JS_PROP_HAS_ENUMERABLE != 0 {
-                        mask |= JS_PROP_ENUMERABLE;
-                    }
-
-                    flags & mask
-                };
-
-                if res.is_ok() || flags & JS_PROP_LENGTH != 0 {
-                    // do update shape property flags only when property was updated successfully
-                    // or is updating length property.
-                    // Note: shape may have been changed, should reload current shape property
-                    let (_, prs_flags2) = self.find_shape_property(&prop).unwrap();
-                    self.update_shape_property_flags(ctx, prop, (prs_flags2 & !mask) | new_flags)?;
+                if flags & JS_PROP_HAS_CONFIGURABLE != 0 {
+                    mask |= JS_PROP_CONFIGURABLE;
                 }
+                if flags & JS_PROP_HAS_ENUMERABLE != 0 {
+                    mask |= JS_PROP_ENUMERABLE;
+                }
+                let (_, prs_flags2) = self.find_shape_property(prop).unwrap();
+                self.update_shape_property_flags(ctx, prop, (prs_flags2 & !mask) | (flags & mask))?;
 
                 return res;
             }
@@ -350,11 +334,7 @@ impl JSObject {
     /// define multiple properties with descriptor defination object.
     ///
     /// equivelent to js `Object.defineProperties(properties)`
-    pub fn define_property_desc_multi(
-        &self,
-        ctx: &JSContext,
-        properties: &JSValue,
-    ) -> Result<(), i32> {
+    pub fn define_properties(&self, ctx: &JSContext, properties: &JSValue) -> Result<(), i32> {
         let props = properties.clone().objectify(ctx)?;
 
         // Note: each property of `props` is a descriptor object
@@ -371,8 +351,6 @@ impl JSObject {
 
     /// define name property with value `name` in object.
     /// if name property already exists, don't define again.
-    ///
-    /// Note: `name` is not consumed.
     pub fn define_name(&self, ctx: &JSContext, name: &Atom, flags: u32) -> Result<bool, i32> {
         if name.is_null() {
             ctx.throw_type_error("invalid name");

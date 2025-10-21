@@ -39,39 +39,38 @@ pub fn JS_JSONStringify(
 
     if replacer.is_function() {
         jsc.replacer_func = replacer;
-    } else {
-        if replacer.is_array(ctx)? {
-            let n = replacer.get_length_prop(ctx)?;
-            let mut keylst = Vec::<JSString>::new();
-            keylst.try_reserve_exact(n as usize).map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
+    } else if replacer.is_array(ctx)? {
+        let n = replacer.get_length_prop(ctx)?;
 
-            for i in 0..n {
-                let k: JSString = match replacer.get_property_i64(ctx, i)? {
-                    JSValue::Object(o) => {
-                        if matches!(o.class_id(), JS_CLASS_STRING | JS_CLASS_NUMBER) {
-                            JSValue::Object(o).to_string(ctx)?
-                        } else {
-                            continue; // symbols are ignored
-                        }
-                    }
-                    JSValue::String(s) => s,
-                    v if v.is_number() => v.to_string(ctx)?,
-                    _ => {
-                        continue; // ignored
-                    }
-                };
+        let mut keylst = Vec::<JSString>::new();
+        keylst.try_reserve_exact(n as usize).map_err(|_| {
+            ctx.throw_out_of_memory();
+            -1
+        })?;
 
-                // add non-duplicated property key
-                if !keylst.iter().any(|x| k.eq(x)) {
-                    keylst.push(k);
+        for i in 0..n {
+            let k: JSString = match replacer.get_property_i64(ctx, i)? {
+                JSValue::Object(o) => {
+                    if matches!(o.class_id(), JS_CLASS_STRING | JS_CLASS_NUMBER) {
+                        JSValue::Object(o).to_string(ctx)?
+                    } else {
+                        continue; // symbols are ignored
+                    }
                 }
-            }
+                JSValue::String(s) => s,
+                v if v.is_number() => v.to_string(ctx)?,
+                _ => {
+                    continue; // ignored
+                }
+            };
 
-            jsc.replacer_props.replace(keylst);
+            // add non-duplicated property key
+            if !keylst.iter().any(|x| k.eq(x)) {
+                keylst.push(k);
+            }
         }
+
+        jsc.replacer_props.replace(keylst);
     }
 
     let mut space: JSValue = space;
@@ -118,7 +117,7 @@ pub fn JS_JSONStringify(
     )?;
 
     let empty = jsc.empty.clone();
-    let val = js_json_check(ctx, &mut jsc, &wrapper, obj, empty)?;
+    let val = js_json_check(ctx, &jsc, &wrapper, obj, empty)?;
     if val.is_undefined() {
         return Ok(JSValue::UNDEFINED);
     }
@@ -368,7 +367,7 @@ fn js_json_to_str(
                         -1
                     })?;
                     jsc.buf.push_char('\n').unwrap();
-                    jsc.buf.push(&indent).unwrap();
+                    jsc.buf.push(indent).unwrap();
                 }
 
                 jsc.buf.push_char('}').map_err(|_| {

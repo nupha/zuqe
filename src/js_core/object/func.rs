@@ -20,7 +20,8 @@ use crate::{
 
 pub fn js_object_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let new_target = cc.this();
-    if !new_target.is_undefined() && unsafe { !JS_GetActiveFunction(ctx).eq(new_target) } {
+
+    if !new_target.is_undefined() && !JS_GetActiveFunction(ctx).eq(new_target) {
         ctx.create_object_from_ctor(new_target, ObjectPayload::OBJECT)
             .map_err(|_| -1)
     } else {
@@ -42,7 +43,7 @@ pub fn js_object_create(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj = ctx.create_base_object_from_proto(proto.clone())?;
     let props = cc.arg(1);
     if !props.is_undefined() {
-        obj.define_property_desc_multi(ctx, props)?;
+        obj.define_properties(ctx, props)?;
     }
     Ok(obj.into())
 }
@@ -95,7 +96,7 @@ pub fn js_object_defineProperty(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_object_defineProperties(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj = cc.arg(0);
     if let Some(o) = obj.as_object() {
-        o.define_property_desc_multi(ctx, cc.arg(1))?;
+        o.define_properties(ctx, cc.arg(1))?;
         Ok(obj.clone())
     } else {
         ctx.throw_type_error_not_an_object();
@@ -152,16 +153,15 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
     };
 
     let global = ctx.0.borrow().global_obj.clone(); // clone to avoid borrow too long
-    let mut idx: i64 = 0;
 
-    for val in cc.arg(0).iter(ctx)? {
-        if idx >= MAX_SAFE_INTEGER {
+    for (idx, val) in cc.arg(0).iter(ctx)?.enumerate() {
+        if idx >= MAX_SAFE_INTEGER as usize {
             ctx.throw_type_error("too many elements");
             return Err(-1);
         }
 
         let val = val?;
-        let key = func.call(ctx, &global, &[val.clone(), JSValue::from(idx)])?;
+        let key = func.call(ctx, &global, &[val.clone(), JSValue::from(idx as i64)])?;
 
         // get prop value array and key atom
         let (mut props_arr, key_atom): (JSValue, Atom) = if is_map {
@@ -204,8 +204,6 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
             ctx,
             CallContext::new(ctx, props_arr, std::slice::from_ref(&val), 0, None),
         )?;
-
-        idx += 1;
     }
 
     Ok(groups)
@@ -233,23 +231,20 @@ pub fn js_object_preventExtensions(ctx: &JSContext, cc: CallContext) -> JSResult
 
     if let Some(obj) = arg.as_object() {
         let ret = obj.prevent_extensions(ctx)?;
+
         if reflect {
             Ok(JSValue::Bool(ret))
-        } else {
-            if !ret {
-                ctx.throw_type_error("proxy preventExtensions handler returned false");
-                Err(-1)
-            } else {
-                Ok(obj.clone().into())
-            }
-        }
-    } else {
-        return if reflect {
-            ctx.throw_type_error_not_an_object();
+        } else if !ret {
+            ctx.throw_type_error("proxy preventExtensions handler returned false");
             Err(-1)
         } else {
-            Ok(arg.clone())
-        };
+            Ok(obj.clone().into())
+        }
+    } else if reflect {
+        ctx.throw_type_error_not_an_object();
+        Err(-1)
+    } else {
+        Ok(arg.clone())
     }
 }
 
@@ -264,13 +259,11 @@ pub fn js_object_getOwnPropertyDescriptor(ctx: &JSContext, cc: CallContext) -> J
             ctx.throw_type_error_not_an_object();
             return Err(-1);
         }
+    } else if let Ok(o) = cc.arg(0).clone().objectify(ctx) {
+        o
     } else {
-        if let Ok(o) = cc.arg(0).clone().objectify(ctx) {
-            o
-        } else {
-            ctx.throw_type_error_not_an_object();
-            return Err(-1);
-        }
+        ctx.throw_type_error_not_an_object();
+        return Err(-1);
     };
 
     let prop = cc.arg(1);
@@ -340,7 +333,7 @@ pub fn js_object_getOwnPropertyDescriptors(ctx: &JSContext, cc: CallContext) -> 
     Ok(res_obj.into())
 }
 
-pub fn js_object_is(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_object_is(_ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(JSValue::Bool(cc.arg(0).is_same(cc.arg(1))))
 }
 
@@ -352,7 +345,7 @@ pub fn js_object_assign(ctx: &JSContext, cc: CallContext) -> JSResult {
         for a in &cc.arguments()[1..] {
             if !a.is_undefined_or_null() {
                 let src = a.clone().objectify(ctx)?;
-                obj.copy_data_properties_from(ctx, &src.into(), None, true)?;
+                obj.copy_data_properties_from(ctx, &src, None, true)?;
             }
         }
     }

@@ -95,13 +95,7 @@ impl<'s> JSParseState<'s> {
                         )
                     };
 
-                    self.parse_function_decl(
-                        func_type,
-                        func_kind,
-                        Atom::NULL,
-                        start_ptr,
-                        start_line,
-                    )?;
+                    self.parse_function_decl(func_type, func_kind, start_ptr, start_line)?;
 
                     if name.is_null() {
                         self.emit_op(OpCode::DEFINE_METHOD_COMPUTED);

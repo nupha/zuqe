@@ -67,7 +67,6 @@ impl<'s> JSParseState<'s> {
         self.parse_function_decl_ex(
             JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT,
             JSFunctionKindEnum::JS_FUNC_NORMAL,
-            Atom::NULL,
             self.token.ptr,
             self.token.line_num,
             JSParseExportEnum::JS_PARSE_EXPORT_NONE,
@@ -135,21 +134,19 @@ impl<'s> JSParseState<'s> {
                 }
 
                 vd.set_var_kind(JSVarKindEnum::JS_VAR_PRIVATE_GETTER_SETTER);
-            } else {
-                if add_private_class_field(
-                    self,
-                    unsafe { &mut *fd },
-                    name,
-                    if is_set {
-                        JSVarKindEnum::JS_VAR_PRIVATE_SETTER
-                    } else {
-                        JSVarKindEnum::JS_VAR_PRIVATE_GETTER
-                    },
-                    is_static,
-                ) < 0
-                {
-                    return Err(-1);
-                }
+            } else if add_private_class_field(
+                self,
+                unsafe { &mut *fd },
+                name,
+                if is_set {
+                    JSVarKindEnum::JS_VAR_PRIVATE_SETTER
+                } else {
+                    JSVarKindEnum::JS_VAR_PRIVATE_GETTER
+                },
+                is_static,
+            ) < 0
+            {
+                return Err(-1);
             }
 
             cf.need_brand = true;
@@ -164,7 +161,6 @@ impl<'s> JSParseState<'s> {
                 JSParseFunctionEnum::JS_PARSE_FUNC_GETTER
             },
             JSFunctionKindEnum::JS_FUNC_NORMAL,
-            Atom::NULL,
             start_ptr,
             self.token.line_num,
             JSParseExportEnum::JS_PARSE_EXPORT_NONE,
@@ -472,7 +468,6 @@ impl<'s> JSParseState<'s> {
                     self.parse_function_decl_ex(
                         func_type,
                         func_kind,
-                        Atom::NULL,
                         start_ptr,
                         self.token.line_num,
                         JSParseExportEnum::JS_PARSE_EXPORT_NONE,
@@ -818,7 +813,6 @@ impl<'s> JSParseState<'s> {
             self.parse_function_decl_ex(
                 func_type,
                 JSFunctionKindEnum::JS_FUNC_NORMAL,
-                Atom::NULL,
                 src.as_ptr(),
                 orig_token.line_num,
                 JSParseExportEnum::JS_PARSE_EXPORT_NONE,

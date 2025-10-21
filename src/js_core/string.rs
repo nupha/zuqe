@@ -7,6 +7,7 @@ use crate::{
     JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_CLASS_STRING_ITERATOR, JS_NATIVE_ITERATOR_NEXT_DEF,
     JS_PROP_INT32_DEF, JS_PROP_STRING_DEF,
     atom::{AtomRef, consts::*},
+    branch_hints::unlikely,
     context::JSContext,
     error::JSResult,
     function::{CallContext, FieldDef, IteratorState, JS_CallConstructor},
@@ -28,21 +29,19 @@ pub fn js_string_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let new_target = cc.this();
 
     let str_val = if cc.length() == 0 {
-        JS_ATOM_empty_string.force_string(ctx)?.into()
+        JS_ATOM_empty_string.force_string(ctx)?
+    } else if let JSValue::Symbol(sy) = cc.arg(0)
+        && new_target.is_undefined()
+    {
+        // "Symbol(desc)"
+        JS_ConcatString3(
+            ctx,
+            c"Symbol(",
+            sy.atom_info().unwrap().atom_ref().force_string(ctx)?.into(),
+            c")",
+        )?
     } else {
-        if let JSValue::Symbol(p) = cc.arg(0)
-            && new_target.is_undefined()
-        {
-            // "Symbol(desc)"
-            JS_ConcatString3(
-                ctx,
-                c"Symbol(",
-                p.atom_info().unwrap().atom_ref().force_string(ctx)?.into(),
-                c")",
-            )?
-        } else {
-            cc.arg(0).to_string(ctx)?
-        }
+        cc.arg(0).to_string(ctx)?
     };
 
     if !new_target.is_undefined() {
@@ -219,10 +218,8 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
     let replacement = cc.arg(1);
 
     if !search.is_undefined_or_null() {
-        if is_replace_all {
-            if check_regexp_g_flag(ctx, &search) < 0 {
-                return Err(-1);
-            }
+        if is_replace_all && check_regexp_g_flag(ctx, search) < 0 {
+            return Err(-1);
         }
 
         let replacer = search.get_property(ctx, JS_ATOM_Symbol_replace.deref())?;
@@ -261,44 +258,40 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
 
         if let Some(pos) = found {
             // calculate replacement
-            let replacement = {
-                let res = if replace_func {
-                    replacement
-                        .call(
-                            ctx,
-                            &JSValue::UNDEFINED,
-                            &[
-                                search_for.clone().into(),
-                                JSValue::from(pos as u32),
-                                str.clone().into(),
-                            ],
-                        )
-                        .and_then(|v| v.to_string(ctx))
-                } else {
-                    let sb = StringContent::substitution_buf(
-                        search_for.content(),
-                        cc,
-                        pos as usize,
-                        replace_str.as_ref().unwrap().content(),
-                        |_| Ok(None),
-                        0,
-                        |_| Ok(None),
+            let replacement = if replace_func {
+                replacement
+                    .call(
+                        ctx,
+                        &JSValue::UNDEFINED,
+                        &[
+                            search_for.clone().into(),
+                            JSValue::from(pos as u32),
+                            str.clone().into(),
+                        ],
                     )
-                    .map_err(|e| {
-                        if e.is_some() {
-                            ctx.throw_out_of_memory();
-                        }
-                        -1
-                    })?;
+                    .and_then(|v| v.to_string(ctx))
+            } else {
+                let sb = StringContent::substitution_buf(
+                    search_for.content(),
+                    cc,
+                    pos,
+                    replace_str.as_ref().unwrap().content(),
+                    |_| Ok(None),
+                    0,
+                    |_| Ok(None),
+                )
+                .map_err(|e| {
+                    if e.is_some() {
+                        ctx.throw_out_of_memory();
+                    }
+                    -1
+                })?;
 
-                    ctx.create_string_with_buf(sb)
-                }?;
-
-                res
-            };
+                ctx.create_string_with_buf(sb)
+            }?;
 
             res_string
-                .push_content_range(cc, endOfLastMatch as usize..pos as usize)
+                .push_content_range(cc, endOfLastMatch..pos)
                 .map_err(|_| {
                     ctx.throw_out_of_memory();
                     -1
@@ -317,12 +310,10 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
             if !is_replace_all {
                 break;
             }
+        } else if is_first {
+            return Ok(str.into());
         } else {
-            if is_first {
-                return Ok(str.into());
-            } else {
-                break;
-            }
+            break;
         }
     }
 
@@ -350,14 +341,11 @@ pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
     let separator = cc.arg(0);
     let limit = cc.arg(1);
 
-    if !separator.is_undefined_or_null() {
-        if let Some(r) = separator.invoke_defined(
-            ctx,
-            JS_ATOM_Symbol_split.deref(),
-            &[this.clone(), limit.clone()],
-        )? {
-            return r;
-        }
+    if !separator.is_undefined_or_null()
+        && let Some(r) =
+            separator.invoke_defined(ctx, &JS_ATOM_Symbol_split, &[this.clone(), limit.clone()])?
+    {
+        return r;
     }
 
     // don't change following parse order of str, limit, sep
@@ -613,14 +601,16 @@ pub fn js_string_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
         match cc.magic() {
             MAGIC_INCLUDES => Ok(p
                 .content()
-                .index_of(&pat.content(), pos)
+                .index_of(pat.content(), pos)
                 .map_or(JSValue::Bool(false), |_| JSValue::Bool(true))),
 
             m @ (MAGIC_STARTS_WITH | MAGIC_ENDS_WITH) => {
                 let mut it1 = p.content().iter_range(if m == MAGIC_ENDS_WITH {
                     (str_len - pat_len)..str_len
+                } else if pos > 0 {
+                    pos..str_len
                 } else {
-                    if pos > 0 { pos..str_len } else { 0..str_len }
+                    0..str_len
                 });
                 let mut it2 = pat.content().iter();
 
@@ -677,7 +667,7 @@ fn js_string_localeCompare(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn check_regexp_g_flag(ctx: &JSContext, regexp: &JSValue) -> i32 {
-    let ret = if let Ok(b) = js_is_regexp(ctx, &regexp) {
+    let ret = if let Ok(b) = js_is_regexp(ctx, regexp) {
         b
     } else {
         return -1;
@@ -723,10 +713,9 @@ pub fn js_string_match(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     if !regexp.is_undefined_or_null() {
         let matcher = regexp.get_property(ctx, &magic_method)?;
-        if magic_method == JS_ATOM_Symbol_matchAll {
-            if check_regexp_g_flag(ctx, regexp) < 0 {
-                return Err(-1);
-            }
+        if unlikely(magic_method == JS_ATOM_Symbol_matchAll && check_regexp_g_flag(ctx, regexp) < 0)
+        {
+            return Err(-1);
         }
         if !matcher.is_undefined_or_null() {
             return matcher.call(ctx, regexp, std::slice::from_ref(this));
@@ -739,7 +728,7 @@ pub fn js_string_match(ctx: &JSContext, cc: CallContext) -> JSResult {
     let mut args_len = 1;
     let mut args = [regexp.clone(), JSValue::UNDEFINED];
     if magic_method == JS_ATOM_Symbol_matchAll {
-        args[args_len as usize] = ctx.create_string_from_char('g'.into())?.into();
+        args[args_len] = ctx.create_string_from_char('g'.into())?.into();
         args_len += 1;
     }
 
@@ -748,7 +737,7 @@ pub fn js_string_match(ctx: &JSContext, cc: CallContext) -> JSResult {
         JS_CallConstructor(ctx, &ctor, &args[0..args_len]).err()?
     };
 
-    re_obj.invoke(ctx, &magic_method.deref(), &[str.into()])
+    re_obj.invoke(ctx, &magic_method, &[str.into()])
 }
 
 pub fn js_string_trim(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -1037,7 +1026,7 @@ pub fn js_string_fromCodePoint(ctx: &JSContext, cc: CallContext) -> JSResult {
                 let d: f64 = a.to_f64(ctx)?;
                 if d.fract() == 0.0 {
                     let n = d.trunc() as i64;
-                    if n < 0 || n > 0x10ffff {
+                    if !(0..=0x10ffff).contains(&n) {
                         -1 // bad code
                     } else {
                         n as i32

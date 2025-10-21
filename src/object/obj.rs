@@ -373,7 +373,7 @@ impl ObjectInner {
     pub fn is_function(&self) -> bool {
         match &self.payload {
             ObjectPayload::BYTECODE_FUNCTION(_) => true,
-            ObjectPayload::PROXY(x) => x.is_func,
+            ObjectPayload::PROXY(x) => x.is_func(),
             isa => {
                 // check if class proto has exotic call handler
                 self.rt()
@@ -675,15 +675,16 @@ impl JSValue {
     pub fn objectify(self, ctx: &JSContext) -> Result<JSObject, i32> {
         match self {
             Self::Object(o) => Ok(o),
+            Self::String(s) => s.objectify(ctx, &JSValue::UNDEFINED),
+
             Self::Int(_) | Self::Float64(_) => ctx
                 .create_object(ObjectPayload::NUMBER(self))
                 .map_err(|_| -1),
             Self::Bool(_) => ctx
                 .create_object(ObjectPayload::BOOLEAN(self))
                 .map_err(|_| -1),
-            Self::String(s) => s.objectify(ctx, &JSValue::UNDEFINED),
-            Self::Symbol(d) => ctx
-                .create_object(ObjectPayload::SYMBOL(d.into()))
+            Self::Symbol(_) => ctx
+                .create_object(ObjectPayload::SYMBOL(self))
                 .map_err(|_| -1),
 
             Self::EXCEPTION => {

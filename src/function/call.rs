@@ -23,7 +23,7 @@ pub struct CallContext<'a> {
 }
 
 impl<'a> CallContext<'a> {
-    pub(crate) fn new(
+    pub(crate) const fn new(
         ctx: &'a JSContext,
         this_value: JSValue,
         args: &'a [JSValue],
@@ -40,32 +40,28 @@ impl<'a> CallContext<'a> {
     }
 
     #[inline(always)]
-    pub(crate) fn new_simple(ctx: &'a JSContext, this: JSValue, args: &'a [JSValue]) -> Self {
+    pub(crate) const fn new_simple(ctx: &'a JSContext, this: JSValue, args: &'a [JSValue]) -> Self {
         Self::new(ctx, this, args, 0, None)
     }
 
-    pub fn ctx(&self) -> &JSContext {
+    pub const fn ctx(&self) -> &JSContext {
         self.ctx
     }
 
-    pub fn magic(&self) -> i32 {
+    pub const fn magic(&self) -> i32 {
         self.magic
     }
 
     /// get arguments count
     #[inline(always)]
-    pub fn length(&self) -> usize {
+    pub const fn length(&self) -> usize {
         self.args.len()
     }
 
     /// get `this` value ref
-    pub fn this(&self) -> &JSValue {
+    #[inline(always)]
+    pub const fn this(&self) -> &JSValue {
         &self.this_value
-    }
-
-    /// get `this` value, cloned
-    pub fn this_raw(&self) -> JSValue {
-        self.this_value.clone()
     }
 
     /// set new `this` value, drop old `this`.
@@ -82,7 +78,7 @@ impl<'a> CallContext<'a> {
 
     /// get argument values slice
     #[inline(always)]
-    pub fn arguments(&self) -> &[JSValue] {
+    pub const fn arguments(&self) -> &[JSValue] {
         self.args
     }
 
@@ -243,7 +239,7 @@ impl JSValue {
     ) -> Result<Option<JSResult>, i32> {
         let m = self.get_property(ctx, method)?;
         if m.is_function() {
-            let r = m.call(ctx, &self.clone().into(), args);
+            let r = m.call(ctx, self, args);
             Ok(Some(r))
         } else {
             Ok(None)
@@ -459,13 +455,13 @@ pub fn js_function_apply(ctx: &JSContext, cc: CallContext) -> JSResult {
     let array_arg = cc.arg(1);
 
     if unlikely(array_arg.is_undefined_or_null() && cc.magic() != 2) {
-        return this_val.call(ctx, this_arg, &[]);
-    }
-
-    let arg_list = build_arg_list(ctx, &array_arg)?;
-    if cc.magic() & 1 != 0 {
-        JS_CallConstructor2(ctx, this_val, this_arg.clone(), arg_list.as_ref()).err()
+        this_val.call(ctx, this_arg, &[])
     } else {
-        this_val.call(ctx, &this_arg, arg_list.as_ref())
+        let arg_list = build_arg_list(ctx, array_arg)?;
+        if cc.magic() & 1 != 0 {
+            JS_CallConstructor2(ctx, this_val, this_arg.clone(), arg_list.as_ref()).err()
+        } else {
+            this_val.call(ctx, this_arg, arg_list.as_ref())
+        }
     }
 }

@@ -18,7 +18,7 @@ use super::ModuleDef;
 
 impl ModuleDefInner {
     #[inline(always)]
-    pub fn status(&self) -> JSModuleStatus {
+    pub const fn status(&self) -> JSModuleStatus {
         self.status.get()
     }
 
@@ -55,7 +55,7 @@ impl ModuleDefInner {
     }
 
     #[inline(always)]
-    fn async_evaluation(&self) -> bool {
+    const fn async_evaluation(&self) -> bool {
         self.async_evaluation.get()
     }
 
@@ -233,12 +233,11 @@ impl ModuleDef {
                     .set(self.0.pending_async_dependencies.get() + 1);
 
                 let lst = &mut m1.0.async_parent_modules.borrow_mut();
-                if lst.len() == lst.capacity() {
-                    if lst.try_reserve(1).is_err() {
-                        ctx.throw_out_of_memory();
-                        return Err(ctx.take_exception());
-                    }
+                if lst.len() == lst.capacity() && lst.try_reserve(1).is_err() {
+                    ctx.throw_out_of_memory();
+                    return Err(ctx.take_exception());
                 }
+
                 lst.push(self.clone());
             }
         }
@@ -417,7 +416,7 @@ impl ModuleDef {
             let cc = CallContext::new(
                 ctx,
                 JSValue::UNDEFINED,
-                std::slice::from_ref(&err_val),
+                std::slice::from_ref(err_val),
                 0,
                 Some(Rc::new(RefCell::new([JSValue::Module(m.clone())].into()))),
             );
@@ -428,7 +427,7 @@ impl ModuleDef {
             debug_assert_eq!(md.cycle_root().unwrap().id(), md.id());
 
             let func = unsafe { &(*md.0.resolving_funcs.as_ptr())[1] };
-            let _ = func.call(ctx, &JSValue::UNDEFINED, std::slice::from_ref(&err_val));
+            let _ = func.call(ctx, &JSValue::UNDEFINED, std::slice::from_ref(err_val));
         }
 
         Ok(JSValue::UNDEFINED)
@@ -465,17 +464,6 @@ impl ModuleDef {
             }
         }
     }
-
-    // /// test if module `self` is in execution list `exec_list`
-    // pub fn in_execution_list(&mut self, exec_list: &mut ExecModuleList) -> bool {
-    //     for i in 0..exec_list.count {
-    //         if unsafe { *exec_list.tab.offset(i as isize) } == self {
-    //             return true;
-    //         }
-    //     }
-
-    //     false
-    // }
 }
 
 impl JSContext {
@@ -499,15 +487,14 @@ fn gather_module_ancestors(
     module: &ModuleDef,
     exec_list: &mut Vec<ModuleDef>,
 ) -> Result<(), i32> {
-    if js_check_stack_overflow(&ctx.rt(), 0) {
+    if js_check_stack_overflow(ctx.rt(), 0) {
         ctx.throw_stack_overflow();
         return Err(-1);
     }
 
     for m in module.0.async_parent_modules.borrow().iter() {
         if !exec_list.iter().any(|x| x.id() == m.id())
-            && m.cycle_root()
-                .map_or(false, |x| x.eval_exception().is_none())
+            && m.cycle_root().is_some_and(|x| x.eval_exception().is_none())
         {
             debug_assert_eq!(
                 m.status(),
@@ -521,11 +508,9 @@ fn gather_module_ancestors(
             m.0.pending_async_dependencies.set(adep - 1);
             if adep == 1 {
                 // pending_async_dependencies == 0
-                if exec_list.len() == exec_list.capacity() {
-                    if exec_list.try_reserve(8).is_err() {
-                        ctx.throw_out_of_memory();
-                        return Err(-1);
-                    }
+                if exec_list.len() == exec_list.capacity() && exec_list.try_reserve(8).is_err() {
+                    ctx.throw_out_of_memory();
+                    return Err(-1);
                 }
 
                 exec_list.push(m.clone());

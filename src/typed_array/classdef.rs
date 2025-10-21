@@ -26,7 +26,7 @@ use crate::{
 
 use super::{TypedArray, js_typed_array_get_length_internal, js_typed_array_set_internal};
 
-pub fn js_typed_array_base_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_typed_array_base_constructor(ctx: &JSContext, _cc: CallContext) -> JSResult {
     ctx.throw_type_error("cannot be called");
     Err(-1)
 }
@@ -526,8 +526,7 @@ pub fn js_typed_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_typed_array_find(ctx: &JSContext, args: CallContext) -> JSResult {
     let this_val = args.this();
-
-    let len = unsafe { js_typed_array_get_length_internal(ctx, this_val)? as i32 };
+    let len = js_typed_array_get_length_internal(ctx, this_val)? as i32;
     let func = args.arg(0).ensure_function(ctx)?;
 
     let this_arg = if args.length() > 1 {
@@ -624,7 +623,6 @@ pub fn js_typed_array_reverse(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_typed_array_toReversed(ctx: &JSContext, mut args: CallContext) -> JSResult {
-    let this_val = args.this_raw();
     let tao = TypedArray::try_from(args.this().clone()).map_err(|_| {
         ctx.throw_type_error("not a TypedArray");
         -1
@@ -676,24 +674,22 @@ pub fn js_typed_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
         if let Ok(dst) = TypedArray::try_from(arr.clone()).map_err(|_| {
             ctx.throw_type_error("not a TypedArray");
             -1
-        }) {
-            if src.class_id() == dst.class_id()
-                && dst.capacity() as i32 >= count
-                && src.capacity() as i32 >= start + count
-            {
-                // fast path using memcpy
-                src.with_bytes(|src_buf| {
-                    dst.with_bytes_mut(|dst_buf| unsafe {
-                        std::ptr::copy_nonoverlapping(
-                            src_buf.as_ptr().offset((start << shift) as isize),
-                            dst_buf.as_mut_ptr(),
-                            (count << shift) as usize,
-                        );
-                    });
+        }) && src.class_id() == dst.class_id()
+            && dst.capacity() as i32 >= count
+            && src.capacity() as i32 >= start + count
+        {
+            // fast path using memcpy
+            src.with_bytes(|src_buf| {
+                dst.with_bytes_mut(|dst_buf| unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        src_buf.as_ptr().offset((start << shift) as isize),
+                        dst_buf.as_mut_ptr(),
+                        (count << shift) as usize,
+                    );
                 });
+            });
 
-                return Ok(arr);
-            }
+            return Ok(arr);
         }
 
         // slow path using property set
@@ -747,7 +743,7 @@ pub fn js_typed_array_sort(ctx: &JSContext, cc: CallContext) -> JSResult {
         cmp.ensure_function(ctx)?;
     }
 
-    let len = unsafe { js_typed_array_get_length_internal(ctx, this_val)? };
+    let len = js_typed_array_get_length_internal(ctx, this_val)?;
     if len > 1 {
         let p = TypedArray::try_from(this_val.clone()).map_err(|_| {
             ctx.throw_type_error("not a TypedArray");
@@ -861,7 +857,7 @@ pub fn js_typed_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
         ",".into() // default separator
     };
 
-    let mut txt = StringBuf::with_capacity(n as usize, false).map_err(|_| {
+    let mut txt = StringBuf::with_capacity(n, false).map_err(|_| {
         ctx.throw_out_of_memory();
         -1
     })?;
@@ -884,11 +880,9 @@ pub fn js_typed_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
                 el.to_string(ctx)?
             };
 
-            if txt.capacity() - txt.len() < s.len() {
-                if txt.try_reserve((n - i) as usize * 2).is_err() {
-                    ctx.throw_out_of_memory();
-                    return Err(-1);
-                }
+            if txt.capacity() - txt.len() < s.len() && txt.try_reserve((n - i) * 2).is_err() {
+                ctx.throw_out_of_memory();
+                return Err(-1);
             }
             txt.push_content(s.content()).unwrap();
         }
@@ -899,7 +893,6 @@ pub fn js_typed_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_typed_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let this_val = cc.this();
     let special = cc.magic();
 
     let len = if let Some(p) = cc.this().as_object_TypedArray() {

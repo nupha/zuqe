@@ -21,9 +21,9 @@ pub fn js_boolean_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_thisBooleanValue(ctx: &JSContext, this_val: JSValue) -> JSResult {
+pub fn js_thisBooleanValue(ctx: &JSContext, this_val: &JSValue) -> JSResult {
     if this_val.is_bool() {
-        Ok(this_val)
+        Ok(this_val.clone())
     } else if let Some(d) = this_val
         .as_object()
         .and_then(|p| p.payload().value())
@@ -37,7 +37,7 @@ pub fn js_thisBooleanValue(ctx: &JSContext, this_val: JSValue) -> JSResult {
 }
 
 pub fn js_boolean_toString(ctx: &JSContext, args: CallContext) -> JSResult {
-    match js_thisBooleanValue(ctx, args.this_raw())? {
+    match js_thisBooleanValue(ctx, args.this())? {
         JSValue::Bool(true) => JS_ATOM_true,
         JSValue::Bool(false) => JS_ATOM_false,
         _ => {
@@ -50,7 +50,7 @@ pub fn js_boolean_toString(ctx: &JSContext, args: CallContext) -> JSResult {
 }
 
 pub fn js_boolean_valueOf(ctx: &JSContext, args: CallContext) -> JSResult {
-    js_thisBooleanValue(ctx, args.this_raw())
+    js_thisBooleanValue(ctx, args.this())
 }
 
 pub static js_boolean_proto_funcs: [FieldDef; 2] = [

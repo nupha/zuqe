@@ -284,7 +284,6 @@ impl<'s> JSParseState<'s> {
                     self.parse_function_decl(
                         JSParseFunctionEnum::JS_PARSE_FUNC_ARROW,
                         JSFunctionKindEnum::JS_FUNC_NORMAL,
-                        Atom::NULL,
                         self.token.ptr,
                         self.token.line_num,
                     )?;
@@ -296,7 +295,6 @@ impl<'s> JSParseState<'s> {
                 self.parse_function_decl(
                     JSParseFunctionEnum::JS_PARSE_FUNC_EXPR,
                     JSFunctionKindEnum::JS_FUNC_NORMAL,
-                    Atom::NULL,
                     self.token.ptr,
                     self.token.line_num,
                 )?;
@@ -336,7 +334,6 @@ impl<'s> JSParseState<'s> {
                     self.parse_function_decl(
                         JSParseFunctionEnum::JS_PARSE_FUNC_ARROW,
                         JSFunctionKindEnum::JS_FUNC_NORMAL,
-                        Atom::NULL,
                         self.token.ptr,
                         self.token.line_num,
                     )?;
@@ -352,7 +349,6 @@ impl<'s> JSParseState<'s> {
                         self.parse_function_decl(
                             JSParseFunctionEnum::JS_PARSE_FUNC_EXPR,
                             JSFunctionKindEnum::JS_FUNC_ASYNC,
-                            Atom::NULL,
                             source_ptr,
                             source_line_num,
                         )?;
@@ -368,7 +364,6 @@ impl<'s> JSParseState<'s> {
                         self.parse_function_decl(
                             JSParseFunctionEnum::JS_PARSE_FUNC_ARROW,
                             JSFunctionKindEnum::JS_FUNC_ASYNC,
-                            Atom::NULL,
                             source_ptr,
                             source_line_num,
                         )?;

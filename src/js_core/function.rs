@@ -34,15 +34,15 @@ pub fn js_function_bind(ctx: &JSContext, cc: CallContext) -> JSResult {
     });
 
     let mut arg_count = cc.length();
-    if arg_count > 0 {
-        arg_count -= 1;
-    }
+    arg_count = arg_count.saturating_sub(1);
+
     if arg_count > 0 {
         // collect arguments starting from #1
-        if bf.bind_args.try_reserve_exact(arg_count).is_err() {
+        bf.bind_args.try_reserve_exact(arg_count).map_err(|_| {
             ctx.throw_out_of_memory();
-            return Err(-1);
-        }
+            -1
+        })?;
+
         for a in &cc.arguments()[1..] {
             bf.bind_args.push(a.clone());
         }
@@ -59,7 +59,7 @@ pub fn js_function_bind(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     /* XXX: the spec could be simpler by only using GetOwnProperty */
     let len_val = if cc
-        .this_raw()
+        .this()
         .get_own_property(ctx, JS_ATOM_length.deref())?
         .is_none()
     {
@@ -89,7 +89,7 @@ pub fn js_function_bind(ctx: &JSContext, cc: CallContext) -> JSResult {
         .define_property_value(ctx, JS_ATOM_length.deref(), len_val, JS_PROP_CONFIGURABLE)
         .unwrap();
 
-    let name = cc.this_raw().get_property(ctx, JS_ATOM_name.deref())?;
+    let name = cc.this().get_property(ctx, JS_ATOM_name.deref())?;
     let name = if let JSValue::String(s) = name {
         s
     } else {
@@ -116,10 +116,10 @@ pub fn js_function_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let func_kind = if let Some(func) = p.payload().bc_function() {
         let bc = func.bytecode();
-        if bc.has_debug {
-            if let Some(s) = bc.debug.source.as_deref() {
-                return ctx.create_string_from_str(s).map(JSValue::String);
-            }
+        if bc.has_debug
+            && let Some(s) = bc.debug.source.as_deref()
+        {
+            return ctx.create_string_from_str(s).map(JSValue::String);
         }
         bc.func_kind()
     } else {

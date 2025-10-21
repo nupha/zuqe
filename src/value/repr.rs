@@ -46,83 +46,35 @@ impl JSValue {
 
 impl JSObject {
     pub fn inspect(&self, ctx: &JSContext) -> Result<String, i32> {
-        // get [Symbol.toStringTag] property, if got no string, use tag atom above.
-        let tag = if let JSValue::String(s) = self.get_property(ctx, &JS_ATOM_Symbol_toStringTag)? {
-            format!("{s}")
+        let tag_atom = if self.is_array(ctx)? {
+            JS_ATOM_Array
+        } else if self.is_function() {
+            JS_ATOM_Function
         } else {
-            let tag_atom = if self.is_array(ctx)? {
-                JS_ATOM_Array
-            } else if self.is_function() {
-                JS_ATOM_Function
-            } else {
-                match self.class_id() {
-                    cid @ (JS_CLASS_STRING
-                    | JS_CLASS_ARGUMENTS
-                    | JS_CLASS_MAPPED_ARGUMENTS
-                    | JS_CLASS_ERROR
-                    | JS_CLASS_BOOLEAN
-                    | JS_CLASS_NUMBER
-                    | JS_CLASS_DATE
-                    | JS_CLASS_REGEXP) => ctx.rt().class_defs[cid as usize].class_name.to_ref(),
+            match self.class_id() {
+                cid @ (JS_CLASS_STRING
+                | JS_CLASS_ARGUMENTS
+                | JS_CLASS_MAPPED_ARGUMENTS
+                | JS_CLASS_ERROR
+                | JS_CLASS_BOOLEAN
+                | JS_CLASS_NUMBER
+                | JS_CLASS_DATE
+                | JS_CLASS_REGEXP) => ctx.rt().class_defs[cid as usize].class_name.to_ref(),
 
-                    _ => crate::atom::consts::JS_ATOM_Object,
-                }
-            };
-            format!("{}", tag_atom.force_string(ctx)?)
+                _ => crate::atom::consts::JS_ATOM_Object,
+            }
+        };
+
+        // get [Symbol.toStringTag] property
+        let tag = if let JSValue::String(s) = self.get_property(ctx, &JS_ATOM_Symbol_toStringTag)? {
+            s
+        } else {
+            tag_atom.force_string(ctx)?
         };
 
         Ok(format!("[object {tag}]"))
-
-        // if let Some(v) = self.payload().value() {
-        //     // primitive object
-        //     Ok(format!("[object {}]", v.inspect(ctx)?))
-        // } else {
-        //     Ok(format!(
-        //         "[object {}]",
-        //         self.class_name()
-        //             .force_string(ctx)?
-        //             .content()
-        //             .to_utf8(false)
-        //     ))
-        // }
     }
 }
-
-// impl std::fmt::Debug for JSValue {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         let str: Cow<str> = match self {
-//             Self::Int(i) => format!("{}", *i).into(),
-//             Self::Bool(b) => if *b { "true" } else { "false" }.into(),
-//             Self::UNDEFINED => "undefined".into(),
-//             Self::NULL => "null".into(),
-//             Self::String(s) => format!("{s}").into(),
-//             Self::Symbol(p) => {
-//                 format!("Symbol({})", p.atom_info().unwrap().atom().to_utf8(p.rt())).into()
-//             }
-//             Self::Object(p) => format!("{p}").into(),
-//             Self::Float64(n) => {
-//                 if *n == 0.0 {
-//                     if n.is_sign_negative() { "-0" } else { "0" }.into()
-//                 } else {
-//                     f64_stringify(*n, 10, None, 0)
-//                 }
-//             }
-//             Self::Bytecode(b) => {
-//                 format!("[bytecode {}]", b.0.borrow().func_name.to_utf8(b.rt())).into()
-//             }
-//             Self::Module(_) => "[module]".into(),
-
-//             Self::EXCEPTION => "[exception]".into(),
-
-//             // internal value types
-//             Self::UNINITIALIZED => "<uninitialized>".into(),
-//             Self::CatchOffset(n) => format!("<catchoffset {}>", *n).into(),
-//             Self::AsyncStateResume(_) => "<asyncfuncresume>".into(),
-//         };
-
-//         write!(f, "{str}")
-//     }
-// }
 
 // pub fn JS_DumpString(p: &JSString) {
 //     let ref_cnt = Rc::strong_count(&p.0);

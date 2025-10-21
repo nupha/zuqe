@@ -24,17 +24,17 @@ impl JSObject {
     /// 'flags' is a bitmask of JS_PROP_NO_ADD, JS_PROP_THROW or JS_PROP_THROW_STRICT.
     /// If JS_PROP_NO_ADD is set,  the new property is not added and an error is raised.
     ///
-    /// `receiver` is the target object that new property will be added to, when:
-    /// - Some(object): the object will be used to check existing property, and to add new property to;
-    /// - None: `self` is used to check existing property, but add new property is not allowed.
-    ///
-    /// `prop` is not consumed.
+    /// `self` and its prototype chain is used to find property existance.
+    /// in case property was not found, `target` is used to add the new property,
+    /// this argument could be:
+    /// - Some(obj): new property can be added on `obj`;
+    /// - None: add new property is not allowed.
     pub(crate) fn set_property_internal(
         &self,
         ctx: &JSContext,
         prop: &Atom,
         val: JSValue,
-        receiver: Option<&JSObject>,
+        target: Option<&JSObject>,
         flags: u32,
     ) -> Result<bool, i32> {
         macro_rules! fail {
@@ -60,13 +60,11 @@ impl JSObject {
         }
 
         // to check property existing
-        //let this = receiver.unwrap_or(self);
-
         for cur_obj in self.shape_proto_iter(true) {
             // 1. find shape property
             'shape: while let Some((idx, prs_flags)) = cur_obj.find_shape_property(prop) {
                 match prs_flags & JS_PROP_TMASK {
-                    JS_PROP_NORMAL if receiver.map_or(false, |o| cur_obj.eq(o)) => {
+                    JS_PROP_NORMAL if target.is_some_and(|o| cur_obj.eq(o)) => {
                         // possible to update property value, when cur_obj == receiver
                         if unlikely(prs_flags & JS_PROP_LENGTH != 0) {
                             // set array length
@@ -87,7 +85,7 @@ impl JSObject {
                         }
                     }
 
-                    JS_PROP_VARREF if receiver.map_or(false, |o| cur_obj.eq(o)) => {
+                    JS_PROP_VARREF if target.is_some_and(|o| cur_obj.eq(o)) => {
                         if unlikely(cur_obj.class_id() == JS_CLASS_MODULE_NS) {
                             fail_read_only!(prop)
                         } else if let Some(JSProperty::VarRef(vref)) =
@@ -108,7 +106,7 @@ impl JSObject {
                             call_setter(
                                 ctx,
                                 setter.as_ref(),
-                                &receiver.unwrap_or(self).clone().into(),
+                                &target.unwrap_or(self).clone().into(),
                                 val,
                                 flags,
                             )
@@ -147,8 +145,8 @@ impl JSObject {
             if obj_flags.is_exotic() {
                 if obj_flags.is_fast_array() {
                     if let Some(idx) = prop.to_small_int() {
-                        if idx < cur_obj.fast_array_count() as u32 {
-                            return if receiver.map_or(false, |o| cur_obj.eq(o)) {
+                        if idx < cur_obj.fast_array_count() {
+                            return if target.is_some_and(|o| cur_obj.eq(o)) {
                                 cur_obj.set_property_value(ctx, &JSValue::Int(idx as _), val, flags)
                             } else {
                                 break; // proto iter loop
@@ -181,7 +179,7 @@ impl JSObject {
                             JSValue::Object(cur_obj.clone()),
                             prop,
                             val,
-                            receiver.unwrap_or(self).clone().into(),
+                            target.unwrap_or(self).clone().into(),
                             flags as _,
                         );
                     }
@@ -192,7 +190,7 @@ impl JSObject {
                                 return call_setter(
                                     ctx,
                                     desc.setter.as_object(),
-                                    &receiver.unwrap_or(self).clone().into(),
+                                    &target.unwrap_or(self).clone().into(),
                                     val,
                                     flags,
                                 );
@@ -202,7 +200,7 @@ impl JSObject {
                                 fail_read_only!(prop)
                             }
 
-                            if receiver.map_or(false, |o| cur_obj.eq(o)) {
+                            if target.map_or(false, |o| cur_obj.eq(o)) {
                                 return cur_obj.define_property(
                                     ctx,
                                     prop,
@@ -227,8 +225,8 @@ impl JSObject {
             return Err(-1);
         }
 
-        // receiver must be provided in order to add new property on it.
-        if let Some(target) = receiver {
+        // target must be provided in order to add new property on it.
+        if let Some(target) = target {
             if unlikely(!target.flags().extensible()) {
                 fail!("object is not extensible")
             }
@@ -254,31 +252,29 @@ impl JSObject {
                     return Ok(true);
                 }
             } else {
-                // generic case: modify the property in `this` if it already exists
+                // generic case: modify the property on `target` if it already exists
                 if let Some(desc) = target.get_own_property(ctx, prop)? {
                     if unlikely(desc.flags & JS_PROP_GETSET != 0) {
                         fail!("setter is forbidden")
+                    } else if unlikely(
+                        desc.flags & JS_PROP_WRITABLE == 0
+                            || target.class_id() == JS_CLASS_MODULE_NS,
+                    ) {
+                        fail_read_only!(prop);
                     } else {
-                        if unlikely(
-                            desc.flags & JS_PROP_WRITABLE == 0
-                                || target.class_id() == JS_CLASS_MODULE_NS,
-                        ) {
-                            fail_read_only!(prop);
-                        } else {
-                            return target.define_property(
-                                ctx,
-                                prop,
-                                val,
-                                JSValue::UNDEFINED,
-                                JSValue::UNDEFINED,
-                                JS_PROP_HAS_VALUE,
-                            );
-                        }
+                        return target.define_property(
+                            ctx,
+                            prop,
+                            val,
+                            JSValue::UNDEFINED,
+                            JSValue::UNDEFINED,
+                            JS_PROP_HAS_VALUE,
+                        );
                     }
                 }
             }
 
-            // create property on `this`, returns Result<bool, i32>
+            // create property on `target`, returns Result<bool, i32>
             target.create_property(
                 ctx,
                 prop.clone(),
@@ -464,11 +460,11 @@ impl JSObject {
             _ => None,
         };
 
-        if let Some(idx) = index_key {
-            if let Some(r) = self.set_property_index(ctx, idx, val.clone(), flags) {
-                // early exit for fast path
-                return r;
-            }
+        if let Some(idx) = index_key
+            && let Some(r) = self.set_property_index(ctx, idx, val.clone(), flags)
+        {
+            // early exit for fast path
+            return r;
         }
 
         // slow path

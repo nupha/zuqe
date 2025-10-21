@@ -36,7 +36,7 @@ use crate::{
     },
     parse::{JSParseExportEnum, JSParseFunctionEnum, JSParseState},
     promise::{JSPromiseReactionData, Promise, PromiseState},
-    proxy::ProxyObjPayload,
+    proxy::ProxyPayload,
     runtime::JSRuntime,
     stack_frame::StackFrame,
     string::{JSString, JSStringInner, UTF8_CHAR_LEN_MAX, char_is_space, unicode_from_utf8_v0},
@@ -4017,7 +4017,7 @@ pub unsafe fn get_proxy_method<'a>(
     ctx: &'a JSContext,
     obj: &'a JSValueConst,
     name: AtomRef,
-) -> Result<(JSValue, &'a ProxyObjPayload), i32> {
+) -> Result<(JSValue, &'a ProxyPayload), i32> {
     if let ObjectPayload::PROXY(s) = obj.as_object_unchecked().payload() {
         unimplemented!()
     } else {

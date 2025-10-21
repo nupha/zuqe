@@ -72,7 +72,6 @@ impl JSParseState<'_> {
                 self.parse_function_decl(
                     JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
                     JSFunctionKindEnum::JS_FUNC_NORMAL,
-                    Atom::NULL,
                     self.token.ptr,
                     self.token.line_num,
                 )
@@ -92,7 +91,6 @@ impl JSParseState<'_> {
                     self.parse_function_decl(
                         JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
                         JSFunctionKindEnum::JS_FUNC_NORMAL,
-                        Atom::NULL,
                         self.token.ptr,
                         self.token.line_num,
                     )

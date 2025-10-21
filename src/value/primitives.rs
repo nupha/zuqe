@@ -113,7 +113,7 @@ pub fn JS_GetPrototypePrimitive(ctx: &JSContext, val: &JSValue) -> JSValue {
     })
 }
 
-pub fn js_object_data_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {
+pub const fn js_object_data_finalizer(rt: &mut JSRuntime, _isa: &ObjectPayload, _id: usize) {
     // free object data
     // JS_FreeValueRT(
     //     rt,

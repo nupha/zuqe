@@ -84,12 +84,12 @@ impl NativeFunctionWithData {
         func_obj: &JSValue,
         this_val: &JSValue,
         args: &[JSValue],
-        flags: i32,
+        _flags: i32,
     ) -> JSResult {
         let (f, data, magic) = if let ObjectPayload::C_FUNCTION_DATA(s) =
             unsafe { func_obj.as_object_unchecked().payload() }
         {
-            (s.func.clone(), s.data.clone(), s.magic)
+            (s.func, s.data.clone(), s.magic)
         } else {
             unreachable!()
         };

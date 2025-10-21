@@ -65,7 +65,7 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<&'static str, &'static str>> = Lazy::new
         "Box<crate::regexp::RegExpStringIterPayload>",
     );
     m.insert("generator", "Box<crate::generator::GeneratorPayload>");
-    m.insert("proxy", "Box<crate::proxy::ProxyObjPayload>");
+    m.insert("proxy", "Box<crate::proxy::ProxyPayload>");
     m.insert("promise", "Box<crate::promise::PromisePayload>");
     m.insert(
         "promise_resolving_function",
@@ -419,7 +419,7 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
             "Object", // Proxy class name is Object
             "PROXY",
             "proxy",
-            Some("Box<crate::proxy::ProxyObjPayload>"),
+            Some("Box<crate::proxy::ProxyPayload>"),
             Some("crate::proxy::Proxy::class_finalizer"),
             Some("crate::proxy::Proxy::class_mark")
         ),

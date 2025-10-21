@@ -72,25 +72,20 @@ use crate::{
 
 impl JSContext {
     fn intrinsic_base_object(&self) {
-        let obj_ctor = self
-            .create_global_constructor_or_func(
-                "Object",
-                js_object_constructor,
-                1,
-                &self.0.borrow().class_proto[JS_CLASS_OBJECT as usize],
-                0,
-            )
-            .unwrap();
-        obj_ctor.install_field_defs(self, &js_object_funcs).unwrap();
-
-        #[cfg(debug_assertions)]
-        obj_ctor.as_object().unwrap()._debug_set_hint(
-            format!("FunctionCtor@{:p}", self.id() as *const std::ffi::c_void).into(),
-        );
-
-        self.0.borrow().class_proto[JS_CLASS_OBJECT as usize]
+        let proto = self.0.borrow().class_proto[JS_CLASS_OBJECT as usize].clone();
+        proto
             .install_field_defs(self, &js_object_proto_funcs)
             .unwrap();
+
+        let ctor = self
+            .create_global_constructor_or_func("Object", js_object_constructor, 1, &proto, 0)
+            .unwrap();
+        ctor.install_field_defs(self, &js_object_funcs).unwrap();
+
+        #[cfg(debug_assertions)]
+        ctor.as_object().unwrap()._debug_set_hint(
+            format!("FunctionCtor@{:p}", self.id() as *const std::ffi::c_void).into(),
+        );
     }
 
     fn intrinsic_base_function(&self) {

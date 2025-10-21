@@ -17,9 +17,9 @@ use crate::{
 
 use super::{ATOD_ACCEPT_PREFIX_AFTER_SIGN, ATOD_INT_ONLY, f64_stringify, js_atof};
 
-pub fn js_thisNumberValue(ctx: &JSContext, this_val: JSValue) -> JSResult {
+pub fn js_thisNumberValue(ctx: &JSContext, this_val: &JSValue) -> JSResult {
     if this_val.is_number() {
-        Ok(this_val)
+        Ok(this_val.clone())
     } else {
         // check number object
         this_val
@@ -86,12 +86,12 @@ pub fn js_parseFloat(ctx: &JSContext, args: CallContext) -> JSResult {
 }
 
 pub fn js_number_valueOf(ctx: &JSContext, cc: CallContext) -> JSResult {
-    js_thisNumberValue(ctx, cc.this().clone())
+    js_thisNumberValue(ctx, cc.this())
 }
 
 pub fn js_number_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
     let to_locale_string = cc.magic() != 0;
-    let val = js_thisNumberValue(ctx, cc.this().clone())?;
+    let val = js_thisNumberValue(ctx, cc.this())?;
     let d: f64 = val.to_f64(ctx)?;
 
     let radix = if to_locale_string || cc.arg(0).is_undefined() {
@@ -111,7 +111,7 @@ pub fn js_number_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_number_toPrecision(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let d = js_thisNumberValue(ctx, cc.this().clone())?.to_f64(ctx)?;
+    let d = js_thisNumberValue(ctx, cc.this())?.to_f64(ctx)?;
 
     let a0 = cc.arg(0);
     let s: Cow<str> = if a0.is_undefined() {
@@ -151,7 +151,7 @@ pub fn js_number_toPrecision(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_number_toExponential(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let val = js_thisNumberValue(ctx, cc.this_raw())?;
+    let val = js_thisNumberValue(ctx, cc.this())?;
     let d: f64 = val.to_f64(ctx)?;
 
     let a0 = cc.arg(0);
@@ -184,7 +184,7 @@ pub fn js_number_toExponential(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_number_toFixed(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let d = js_thisNumberValue(ctx, cc.this().clone())?.to_f64(ctx)?;
+    let d = js_thisNumberValue(ctx, cc.this())?.to_f64(ctx)?;
     let f = cc.arg(0).to_i32_saturating(ctx)?;
 
     let s = if unlikely(!(0..=100).contains(&f)) {

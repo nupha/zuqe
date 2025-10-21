@@ -10,8 +10,8 @@ use super::{
 };
 
 impl JSObject {
-    /// update normal property value at slot `idx`
-    pub(super) fn update_prop_slot_normal(
+    /// update value to property slot `idx`, handle 'writable' flag setting.
+    pub(super) fn update_prop_slot_value(
         &self,
         ctx: &JSContext,
         prop: &Atom,
@@ -20,7 +20,9 @@ impl JSObject {
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
+        //
         // 1. check configurable
+        //
         match prs_flags & JS_PROP_TMASK {
             JS_PROP_NORMAL => {
                 if unlikely(
@@ -59,8 +61,11 @@ impl JSObject {
             }
         }
 
-        // 2. update value
+        //
+        // 2. update value, process 'writable' flag
+        //
         if prs_flags & JS_PROP_TMASK == JS_PROP_VARREF {
+            // varref property
             let slot = &mut self.0.prop_values.borrow_mut()[idx];
 
             if let JSProperty::VarRef(vref) = slot {
@@ -70,22 +75,21 @@ impl JSObject {
                         references, but they are write protected in module name
                         spaces. */
                         if !val.is_same(&vref.value()) {
-                            return if ctx
-                                .throw_type_error_or_false(flags, "property is not configurable")
-                            {
+                            return if ctx.can_throw(flags) {
+                                ctx.throw_type_error("property is not configurable");
                                 Err(-1)
                             } else {
                                 Ok(false)
                             };
                         }
                     } else {
-                        // update the referenced value
                         vref.set_value(val);
                     }
                 }
 
-                // if writable is set to false, no longer a reference (for mapped arguments)
                 if flags & (JS_PROP_HAS_WRITABLE | JS_PROP_WRITABLE) == JS_PROP_HAS_WRITABLE {
+                    // has {writable:false}
+                    // 'writable' is set to false, no longer a reference (for mapped arguments)
                     if unlikely(self.class_id() == JS_CLASS_MODULE_NS) {
                         return if ctx.throw_type_error_or_false(
                             flags,
@@ -111,8 +115,9 @@ impl JSObject {
             } else {
                 unreachable!();
             }
-        } else if unlikely(prs_flags & JS_PROP_LENGTH != 0) {
-            if flags & JS_PROP_HAS_VALUE != 0 {
+        } else if prs_flags & JS_PROP_LENGTH != 0 {
+            // the length property
+            let res = if flags & JS_PROP_HAS_VALUE != 0 {
                 unsafe {
                     self.as_Array_unchecked().set_length(
                         ctx,
@@ -122,16 +127,37 @@ impl JSObject {
                 }
             } else {
                 Ok(true)
+            };
+
+            if flags & (JS_PROP_HAS_WRITABLE | JS_PROP_WRITABLE) == JS_PROP_HAS_WRITABLE {
+                // has {writable:false}
+                let (_, prs_flags2) = self.find_shape_property(prop).unwrap();
+                self.update_shape_property_flags(ctx, prop, prs_flags2 & !JS_PROP_WRITABLE)?;
             }
+
+            res
         } else {
+            // normal property
             if flags & JS_PROP_HAS_VALUE != 0 {
                 self.0.prop_values.borrow_mut()[idx] = JSProperty::Normal(val);
             }
+
+            // update `writable` flag
+            if flags & JS_PROP_HAS_WRITABLE != 0 {
+                let (_, prs_flags2) = self.find_shape_property(prop).unwrap();
+                self.update_shape_property_flags(
+                    ctx,
+                    prop,
+                    prs_flags2 & !JS_PROP_WRITABLE | (flags & JS_PROP_WRITABLE),
+                )?;
+            }
+
             Ok(true)
         }
     }
 
     /// update property as getset type at specified slot `idx`
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn update_prop_slot_getset(
         &self,
         ctx: &JSContext,

@@ -197,7 +197,6 @@ impl<'s> JSParseState<'s> {
                     self.parse_function_decl_ex(
                         JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
                         JSFunctionKindEnum::JS_FUNC_NORMAL,
-                        Atom::NULL,
                         self.token.ptr,
                         self.token.line_num,
                         JSParseExportEnum::JS_PARSE_EXPORT_NAMED,
@@ -214,7 +213,6 @@ impl<'s> JSParseState<'s> {
                     self.parse_function_decl_ex(
                         JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
                         JSFunctionKindEnum::JS_FUNC_NORMAL,
-                        Atom::NULL,
                         self.token.ptr,
                         self.token.line_num,
                         JSParseExportEnum::JS_PARSE_EXPORT_NAMED,
@@ -373,7 +371,6 @@ impl<'s> JSParseState<'s> {
                     return self.parse_function_decl_ex(
                         JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
                         JSFunctionKindEnum::JS_FUNC_NORMAL,
-                        Atom::NULL,
                         self.token.ptr,
                         self.token.line_num,
                         JSParseExportEnum::JS_PARSE_EXPORT_DEFAULT,

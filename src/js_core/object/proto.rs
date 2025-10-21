@@ -15,10 +15,12 @@ use crate::{
 };
 
 pub fn js_object_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
-    // cc.this().to_string(ctx).map(JSValue::String)
+    let txt = match cc.this() {
+        JSValue::NULL => "[object Null]".to_string(),
+        JSValue::UNDEFINED => "[object Undefined]".to_string(),
+        v => v.clone().objectify(ctx)?.inspect(ctx)?,
+    };
 
-    // to prompt object
-    let txt = cc.this().inspect(ctx)?;
     ctx.create_string_from_utf8(txt.into_bytes())
         .map(JSValue::String)
 }
@@ -107,9 +109,9 @@ pub fn js_object_getset___proto__(ctx: &JSContext, cc: CallContext) -> JSResult 
 // magic = 1 if called as __defineSetter__
 pub unsafe fn js_object___defineGetter__(
     ctx: &JSContext,
-    this_val: JSValueConst,
+    this_val: JSValue,
     argc: i32,
-    argv: *mut JSValueConst,
+    argv: *mut JSValue,
     magic: i32,
 ) -> JSValue {
     let obj = this_val

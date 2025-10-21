@@ -28,10 +28,10 @@ pub enum MapPair {
 
 impl MapPair {
     pub fn normalize_key(key: JSValue) -> JSValue {
-        if let JSValue::Float64(d) = key {
-            if d == 0.0 {
-                return JSValue::Int(0); // -0.0 to 0
-            }
+        if let JSValue::Float64(d) = key
+            && d == 0.0
+        {
+            return JSValue::Int(0); // -0.0 to 0
         }
         key
     }
@@ -63,11 +63,11 @@ impl JSMapState {
     }
 
     #[inline(always)]
-    pub fn is_weak(&self) -> bool {
+    pub const fn is_weak(&self) -> bool {
         self.is_weak
     }
 
-    pub fn lock(&mut self) {
+    pub const fn lock(&mut self) {
         self.lock += 1;
     }
 
@@ -80,7 +80,7 @@ impl JSMapState {
     }
 
     /// compress removed slot items
-    fn compress_removed(&mut self) {
+    const fn compress_removed(&mut self) {
         // debug_assert_eq!(self.lock, 0);
         // if self.remove_count > 0 {
         //     self.slots.retain(|v| !matches!(v, MapPair::Removed));
@@ -250,7 +250,7 @@ impl JSMapState {
         let purge_lut = if let Some(lst) = self.lut.get_mut(&hash) {
             lst.retain(|i| match self.slots.get(*i) {
                 Some(MapPair::Weak { key, .. }) => {
-                    if key.upgrade().map_or(false, |k| k.id() != obj.id()) {
+                    if key.upgrade().is_some_and(|k| k.id() != obj.id()) {
                         self.slots[*i] = MapPair::Removed;
                         false
                     } else {
@@ -290,7 +290,7 @@ impl JSMapState {
         self.remove_count = 0;
     }
 
-    pub fn class_finalizer(_: &mut JSRuntime, _: &ObjectPayload, _: usize) {}
+    pub const fn class_finalizer(_: &mut JSRuntime, _: &ObjectPayload, _: usize) {}
 
     pub fn class_mark(val: JSValue) {
         let p = unsafe { val.as_object_unchecked() };

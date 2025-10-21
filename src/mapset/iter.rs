@@ -30,15 +30,14 @@ pub struct MapIterator(pub(crate) JSObject);
 
 object_cast!(MapIterator, JS_CLASS_MAP_ITERATOR);
 
-pub fn js_map_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
+pub const fn js_map_iterator_finalizer(_rt: &mut JSRuntime, _isa: &ObjectPayload, _id: usize) {}
 
 pub fn js_map_iterator_mark(val: JSValue) {
-    if let Some(o) = val.as_object() {
-        if let Some(it) = o.payload().mapset_iterator() {
-            if let Some(o) = &it.borrow().obj {
-                o.gc_mark()
-            }
-        }
+    if let Some(o) = val.as_object()
+        && let Some(it) = o.payload().mapset_iterator()
+        && let Some(o) = &it.borrow().obj
+    {
+        o.gc_mark()
     }
 }
 

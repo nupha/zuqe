@@ -1,7 +1,7 @@
 use std::ops::Deref;
 
 use crate::{
-    JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_PROP_STRING_DEF,
+    JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_SYMBOL, JS_PROP_STRING_DEF,
     atom::{Atom, AtomTypeHint},
     context::JSContext,
     error::JSResult,
@@ -77,11 +77,19 @@ pub fn js_thisSymbolValue(ctx: &JSContext, val: &JSValue) -> JSResult {
     } else {
         // check symbol object
         val.as_object()
-            .and_then(|o| o.payload().value())
-            .filter(|v| v.is_symbol())
+            .and_then(|o| {
+                if o.class_id() == JS_CLASS_SYMBOL {
+                    let s = o.payload().value();
+                    debug_assert!(s.is_some_and(|v| v.is_symbol()));
+                    s
+                } else {
+                    None
+                }
+            })
+            // .filter(|v| v.is_symbol())
             .cloned()
             .ok_or_else(|| {
-                ctx.throw_type_error("not a symbol");
+                ctx.throw_type_error_not_a_symbol();
                 -1
             })
     }
@@ -89,13 +97,13 @@ pub fn js_thisSymbolValue(ctx: &JSContext, val: &JSValue) -> JSResult {
 
 pub fn js_symbol_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
     let val = js_thisSymbolValue(ctx, cc.this())?;
-    // a string like 'Symbol(XXX)'
+    // formatted as 'Symbol(XXX)'
     ctx.create_string_from_utf8(val.inspect(ctx)?.into_bytes())
         .map(JSValue::String)
 }
 
 pub fn js_symbol_valueOf(ctx: &JSContext, cc: CallContext) -> JSResult {
-    return js_thisSymbolValue(ctx, cc.this());
+    js_thisSymbolValue(ctx, cc.this())
 }
 
 pub fn js_symbol_get_description(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -132,7 +140,7 @@ fn js_symbol_keyFor(ctx: &JSContext, cc: CallContext) -> JSResult {
             Ok(JSValue::String(p.clone()))
         }
     } else {
-        ctx.throw_type_error("not a symbol");
+        ctx.throw_type_error_not_a_symbol();
         Err(-1)
     }
 }

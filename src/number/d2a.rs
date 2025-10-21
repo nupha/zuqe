@@ -66,17 +66,18 @@ pub(crate) fn f64_stringify<'a>(
             "Infinity"
         }
         .into();
-    } else if flags == JS_DTOA_VAR_FORMAT {
-        if num.fract() == 0.0 && (-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&(num as i64)) {
-            // safe integer
-            let mut buf = [0u8; 33];
-            unsafe {
-                let p = i64toa(buf.as_mut_ptr(), num as i64, radix);
-                return CStr::from_ptr(p.cast())
-                    .to_string_lossy()
-                    .into_owned()
-                    .into();
-            }
+    } else if flags == JS_DTOA_VAR_FORMAT
+        && num.fract() == 0.0
+        && (-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&(num as i64))
+    {
+        // safe integer
+        let mut buf = [0u8; 33];
+        unsafe {
+            let p = i64toa(buf.as_mut_ptr(), num as i64, radix);
+            return CStr::from_ptr(p.cast())
+                .to_string_lossy()
+                .into_owned()
+                .into();
         }
     }
 
@@ -120,7 +121,7 @@ pub(crate) fn f64_stringify<'a>(
                 f64_scientific(num, Some(n_max - 1), true)
             };
 
-            t.into()
+            t
         } else {
             // variable format
             if num == 0.0 || (1e-6..1e21).contains(&num.abs()) {
@@ -132,7 +133,7 @@ pub(crate) fn f64_stringify<'a>(
                 .into()
             } else {
                 // use scientific notation
-                f64_scientific(num, fixed_digits, false)
+                f64_scientific(num, fixed_digits, true)
             }
         }
     }

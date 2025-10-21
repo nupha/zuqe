@@ -355,7 +355,7 @@ impl JSString {
             .map_err(|_| -1)?;
 
         o.define_property_value(ctx, &JS_ATOM_length, JSValue::from(len as u32), 0)?;
-        Ok(o.into())
+        Ok(o)
     }
 
     /// make sub string with content of given range.

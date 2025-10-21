@@ -463,22 +463,16 @@ impl<'s> JSParseState<'s> {
 
     /// Parse function declaration for function statements, expressions, arrow functions and var declarations.
     /// Returns new created FunctionDef raw pointer on success, or Err on failure. You don't need to free it manually.
-    ///
-    /// `func_name` must be JS_ATOM_NULL for JS_PARSE_FUNC_STATEMENT and
-    /// JS_PARSE_FUNC_EXPR, JS_PARSE_FUNC_ARROW and JS_PARSE_FUNC_VAR.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn parse_function_decl_ex(
         &mut self,
         func_type: JSParseFunctionEnum,
         mut func_kind: JSFunctionKindEnum,
-        mut func_name: Atom,
         ptr: *const u8,
         function_line_num: i32,
         export_flag: JSParseExportEnum,
         pfd: *mut *mut JSFunctionDef,
     ) -> Result<(), i32> {
-        debug_assert!(func_name.is_null());
-
         let is_expr = !matches!(
             func_type,
             JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT | JSParseFunctionEnum::JS_PARSE_FUNC_VAR
@@ -489,6 +483,7 @@ impl<'s> JSParseState<'s> {
 
         let mut lexical_func_idx: i32 = -1;
         let mut create_func_var = false;
+        let mut func_name = Atom::NULL;
 
         match func_type {
             JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT
@@ -718,46 +713,43 @@ impl<'s> JSParseState<'s> {
                     self.emit_atom(sub_func_name.clone());
                     self.emit_u16(self.cur_func().scope_level as _);
                 }
-            } else {
-                if !self.cur_func().is_global_var {
-                    let var_idx = self
-                        .define_var_cur_func(sub_func_name, JSVarDefEnum::JS_VAR_DEF_VAR)?
-                        as i32;
+            } else if !self.cur_func().is_global_var {
+                let var_idx =
+                    self.define_var_cur_func(sub_func_name, JSVarDefEnum::JS_VAR_DEF_VAR)? as i32;
 
-                    // the variable will be assigned at the top of the function
-                    if var_idx & ARGUMENT_VAR_OFFSET != 0 {
-                        self.cur_func_mut().args[(var_idx - ARGUMENT_VAR_OFFSET) as usize]
-                            .func_pool_idx = cp_idx;
-                    } else {
-                        self.cur_func_mut().vars[var_idx as usize].func_pool_idx = cp_idx;
-                    }
+                // the variable will be assigned at the top of the function
+                if var_idx & ARGUMENT_VAR_OFFSET != 0 {
+                    self.cur_func_mut().args[(var_idx - ARGUMENT_VAR_OFFSET) as usize]
+                        .func_pool_idx = cp_idx;
                 } else {
-                    let func_var_name = if sub_func_name.is_null() {
-                        JS_ATOM__default_.deref() // export default
-                    } else {
-                        sub_func_name
-                    };
+                    self.cur_func_mut().vars[var_idx as usize].func_pool_idx = cp_idx;
+                }
+            } else {
+                let func_var_name = if sub_func_name.is_null() {
+                    JS_ATOM__default_.deref() // export default
+                } else {
+                    sub_func_name
+                };
 
-                    // the variable will be assigned at the top of the function
-                    self.cur_func_mut()
-                        .add_global_var(&self.ctx, func_var_name)?
-                        .cpool_idx = cp_idx;
+                // the variable will be assigned at the top of the function
+                self.cur_func_mut()
+                    .add_global_var(&self.ctx, func_var_name)?
+                    .cpool_idx = cp_idx;
 
-                    if export_flag != JSParseExportEnum::JS_PARSE_EXPORT_NONE {
-                        self.add_module_export(
-                            None,
-                            func_var_name,
-                            if export_flag == JSParseExportEnum::JS_PARSE_EXPORT_NAMED {
-                                func_var_name
-                            } else {
-                                JS_ATOM_default.deref()
-                            },
-                            ExportType::JS_EXPORT_TYPE_LOCAL {
-                                var_idx: u16::MAX,
-                                var_ref: None,
-                            },
-                        )?;
-                    }
+                if export_flag != JSParseExportEnum::JS_PARSE_EXPORT_NONE {
+                    self.add_module_export(
+                        None,
+                        func_var_name,
+                        if export_flag == JSParseExportEnum::JS_PARSE_EXPORT_NAMED {
+                            func_var_name
+                        } else {
+                            JS_ATOM_default.deref()
+                        },
+                        ExportType::JS_EXPORT_TYPE_LOCAL {
+                            var_idx: u16::MAX,
+                            var_ref: None,
+                        },
+                    )?;
                 }
             }
         }
@@ -774,19 +766,18 @@ impl<'s> JSParseState<'s> {
         Ok(())
     }
 
+    /// start parse function defination from given source.
     #[inline(always)]
     pub(super) fn parse_function_decl(
         &mut self,
         func_type: JSParseFunctionEnum,
         func_kind: JSFunctionKindEnum,
-        func_name: Atom,
         ptr: *const u8,
         function_line_num: i32,
     ) -> Result<(), i32> {
         self.parse_function_decl_ex(
             func_type,
             func_kind,
-            func_name,
             ptr,
             function_line_num,
             JSParseExportEnum::JS_PARSE_EXPORT_NONE,

@@ -1,5 +1,6 @@
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_PROP_DOUBLE_DEF, JS_PROP_UNDEFINED_DEF,
+    branch_hints::unlikely,
     context::JSContext,
     error::JSResult,
     eval::JS_EVAL_TYPE_INDIRECT,
@@ -30,7 +31,7 @@ pub fn js_global_isNaN_isFinite(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 #[inline(always)]
-fn is_uri_reserved(c: u32) -> bool {
+const fn is_uri_reserved(c: u32) -> bool {
     matches!(
         c as u8,
         b';' | b'/' | b'?' | b':' | b'@' | b'&' | b'=' | b'+' | b'$' | b','
@@ -81,11 +82,11 @@ fn js_global_decodeURI(ctx: &JSContext, cc: CallContext) -> JSResult {
                 //
                 // decode utf8 sequence
                 //
-                let (reminder, c_min, mut uc) = if cp >= 0xc0 && cp <= 0xdf {
+                let (reminder, c_min, mut uc) = if (0xc0..=0xdf).contains(&cp) {
                     (1, 0x80, cp & 0x1f)
-                } else if cp >= 0xe0 && cp <= 0xef {
+                } else if (0xe0..=0xef).contains(&cp) {
                     (2, 0x800, cp & 0xf)
-                } else if cp >= 0xf0 && cp <= 0xf7 {
+                } else if (0xf0..=0xf7).contains(&cp) {
                     (3, 0x10000, cp & 0x7)
                 } else {
                     ctx.throw_type_error("malformed UTF-8");
@@ -94,7 +95,7 @@ fn js_global_decodeURI(ctx: &JSContext, cc: CallContext) -> JSResult {
 
                 for _ in 0..reminder {
                     // expect '%'
-                    if !code_it.next().map_or(false, |x| x == '%' as u16) {
+                    if code_it.next() != Some('%' as u16) {
                         ctx.throw_type_error("malformed UTF-8");
                         return Err(-1);
                     }
@@ -103,9 +104,9 @@ fn js_global_decodeURI(ctx: &JSContext, cc: CallContext) -> JSResult {
                     let mut d = 0u8;
                     for _ in 0..2 {
                         let n = match code_it.next().and_then(|x| char::from_u32(x as u32)) {
-                            Some(a @ '0'..='9') => a as u8 - '0' as u8,
-                            Some(a @ 'A'..='F') => a as u8 - 'A' as u8 + 10,
-                            Some(a @ 'a'..='f') => a as u8 - 'a' as u8 + 10,
+                            Some(a @ '0'..='9') => a as u8 - b'0',
+                            Some(a @ 'A'..='F') => a as u8 - b'A' + 10,
+                            Some(a @ 'a'..='f') => a as u8 - b'a' + 10,
                             _ => {
                                 ctx.throw_type_error("expecting hex digit");
                                 return Err(-1);
@@ -121,15 +122,16 @@ fn js_global_decodeURI(ctx: &JSContext, cc: CallContext) -> JSResult {
                     uc = (uc << 6) | (d as u32 & 0x3f);
                 }
 
-                if uc < c_min || uc > 0x10FFFF || (uc >= 0xd800 && uc < 0xe000) {
+                if unlikely(uc < c_min || uc > 0x10FFFF || (0xd800..0xe000).contains(&uc)) {
                     ctx.throw_type_error("malformed UTF-8");
                     return Err(-1);
+                } else {
+                    buf.push_char(unsafe { char::from_u32_unchecked(uc) })
+                        .map_err(|_| {
+                            ctx.throw_out_of_memory();
+                            -1
+                        })?;
                 }
-                buf.push_char(unsafe { char::from_u32_unchecked(uc) })
-                    .map_err(|_| {
-                        ctx.throw_out_of_memory();
-                        -1
-                    })?;
             }
         } else {
             buf.push_u16(cp16).map_err(|_| {

@@ -1,5 +1,3 @@
-use std::cell::Cell;
-
 use crate::{
     JS_CFUNC_NATIVE_DEF,
     atom::consts::{JS_ATOM_proxy, JS_ATOM_revoke},
@@ -8,7 +6,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     object::{JS_PROP_C_W_E, JS_SetConstructorBit, ObjectPayload},
-    proxy::{Proxy, ProxyObjPayload},
+    proxy::ProxyPayload,
     value::JSValue,
 };
 
@@ -26,12 +24,7 @@ pub fn js_proxy_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj: JSValue = ctx
         .create_object_from_proto(
             JSValue::NULL,
-            ObjectPayload::PROXY(Box::new(ProxyObjPayload {
-                target: target.clone(),
-                handler: handler.clone().into(),
-                is_func: target.is_function(),
-                is_revoked: Cell::new(false),
-            })),
+            ObjectPayload::PROXY(ProxyPayload::new(target.clone(), handler.clone().into())),
         )
         .map_err(|_| -1)?
         .into();
@@ -50,8 +43,8 @@ fn js_proxy_revocable(ctx: &JSContext, cc: CallContext) -> JSResult {
     let revoke_obj = NativeFunctionWithData::create(
         ctx,
         |_, mut cc| -> JSResult {
-            if let Ok(p) = Proxy::try_from(cc.data(0)) {
-                p.payload().is_revoked.set(true);
+            if let Some(p) = cc.data(0).as_object_Proxy() {
+                p.payload().set_revoked();
                 // clear attached data (Proxy value)
                 let _ = cc.replace_data(0, JSValue::NULL);
             }
@@ -63,7 +56,7 @@ fn js_proxy_revocable(ctx: &JSContext, cc: CallContext) -> JSResult {
     )?;
 
     let obj = ctx.create_base_object()?;
-    obj.define_property_value(ctx, &JS_ATOM_proxy, proxy_obj.into(), JS_PROP_C_W_E)?;
+    obj.define_property_value(ctx, &JS_ATOM_proxy, proxy_obj, JS_PROP_C_W_E)?;
     obj.define_property_value(ctx, &JS_ATOM_revoke, revoke_obj.into(), JS_PROP_C_W_E)?;
 
     Ok(obj.into())

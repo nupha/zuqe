@@ -140,6 +140,7 @@ impl Drop for BytecodeInner {
 }
 
 impl BytecodeInner {
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
         ctx: &JSContext,
         fd: &JSFunctionDef,
@@ -154,7 +155,7 @@ impl BytecodeInner {
         opcodes_start: u32,
         stack_size: u16,
     ) -> Self {
-        let inner = Self {
+        Self {
             rt: ctx.rt_ptr(),
             gc_mark: Cell::new(false),
 
@@ -187,9 +188,7 @@ impl BytecodeInner {
                 debug_setting: fd.debug,
                 ..Default::default()
             },
-        };
-
-        inner
+        }
     }
 
     #[inline(always)]
@@ -198,7 +197,7 @@ impl BytecodeInner {
     }
 
     #[inline(always)]
-    pub fn rt(&self) -> &JSRuntime {
+    pub const fn rt(&self) -> &JSRuntime {
         unsafe { self.rt.as_ref() }
     }
 
@@ -208,27 +207,27 @@ impl BytecodeInner {
     }
 
     #[inline(always)]
-    pub fn attrs(&self) -> &BytecodeAttrs {
+    pub const fn attrs(&self) -> &BytecodeAttrs {
         &self.attrs
     }
 
     #[inline(always)]
-    pub fn func_kind(&self) -> JSFunctionKindEnum {
+    pub const fn func_kind(&self) -> JSFunctionKindEnum {
         self.attrs.func_kind
     }
 
     #[inline(always)]
-    pub fn mode(&self) -> u8 {
+    pub const fn mode(&self) -> u8 {
         self.attrs.js_mode
     }
 
     #[inline(always)]
-    pub fn has_prototype(&self) -> bool {
+    pub const fn has_prototype(&self) -> bool {
         self.attrs.has_prototype
     }
 
     #[inline(always)]
-    pub fn need_home_object(&self) -> bool {
+    pub const fn need_home_object(&self) -> bool {
         self.attrs.need_home_object
     }
 
@@ -487,8 +486,7 @@ impl BytecodeInner {
         }
 
         let mut p = self.debug.pc2line_buf.as_ref().unwrap().as_ptr();
-        let p_end =
-            unsafe { p.offset(self.debug.pc2line_buf.as_ref().map(|x| x.len()).unwrap() as isize) };
+        let p_end = unsafe { p.add(self.debug.pc2line_buf.as_ref().map(|x| x.len()).unwrap()) };
 
         let mut pc = 0;
         let mut line_num = self.debug.line_num;
@@ -510,7 +508,7 @@ impl BytecodeInner {
                         return Some(self.debug.line_num);
                     };
                     pc += val as i32;
-                    p = p.offset(ret as isize);
+                    p = p.add(ret);
 
                     let mut v = 0_i32;
                     // FIXME: hard coded len 5
@@ -519,12 +517,12 @@ impl BytecodeInner {
                     } else {
                         return Some(self.debug.line_num);
                     };
-                    p = p.offset(ret as isize);
+                    p = p.add(ret);
                     new_line_num = line_num + v;
                 } else {
                     op -= PC2LINE_OP_FIRST;
                     pc += op / PC2LINE_RANGE;
-                    new_line_num = line_num + (op as i32 % PC2LINE_RANGE) + PC2LINE_BASE;
+                    new_line_num = line_num + (op % PC2LINE_RANGE) + PC2LINE_BASE;
                 }
 
                 if pc_value < pc as u32 {
@@ -614,7 +612,7 @@ impl Bytecode {
         parent_frame: Option<&mut StackFrame>,
     ) -> JSResult {
         self.make_closure(ctx, var_refs, parent_frame, None)
-            .and_then(|f| f.call(ctx, &this_obj, &[]))
+            .and_then(|f| f.call(ctx, this_obj, &[]))
     }
 
     #[inline]
@@ -646,9 +644,9 @@ pub(super) fn free_bytecode_atoms(bc: &[u8], is_short_opcodes: bool) {
     while pos < bc_len {
         let op = bc[pos];
         let oi = if is_short_opcodes {
-            opcode_info_final(op as u8)
+            opcode_info_final(op)
         } else {
-            opcode_info_intermediate(op as u8)
+            opcode_info_intermediate(op)
         };
 
         if matches!(
@@ -659,7 +657,7 @@ pub(super) fn free_bytecode_atoms(bc: &[u8], is_short_opcodes: bool) {
                 | OpcodeFormat::ATOM_LABEL_U8
                 | OpcodeFormat::ATOM_LABEL_U16
         ) {
-            Atom::free(unsafe { read_from_ptr::<u32>(bc.as_ptr().add(pos as usize + 1)) });
+            Atom::free(unsafe { read_from_ptr::<u32>(bc.as_ptr().add(pos + 1)) });
         }
 
         pos += oi.size as usize;

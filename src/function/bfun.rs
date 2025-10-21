@@ -222,11 +222,11 @@ pub fn JS_GetFunctionRealm(ctx: &JSContext, func_obj: &JSValue) -> Result<JSCont
             realm = fo.bytecode().realm().unwrap_or(ctx.clone());
         }
         ObjectPayload::PROXY(px) => {
-            if px.is_revoked.get() {
+            if px.is_revoked() {
                 ctx.throw_type_error_revoked_proxy();
                 return Err(-1);
             } else {
-                realm = JS_GetFunctionRealm(ctx, &px.target.clone().into())?;
+                realm = JS_GetFunctionRealm(ctx, &px.target().clone().into())?;
             }
         }
         ObjectPayload::BOUND_FUNCTION(bfunc) => {

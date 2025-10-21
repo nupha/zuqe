@@ -57,15 +57,13 @@ pub fn js_map_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
             let item = el?;
             if is_set {
                 adder.call(ctx, &obj, &[item])?;
+            } else if let Some(o) = item.as_object() {
+                let key = o.get_property_u32(ctx, 0)?;
+                let value = o.get_property_u32(ctx, 1)?;
+                adder.call(ctx, &obj, &[key, value])?;
             } else {
-                if let Some(o) = item.as_object() {
-                    let key = o.get_property_u32(ctx, 0)?;
-                    let value = o.get_property_u32(ctx, 1)?;
-                    adder.call(ctx, &obj, &[key, value])?;
-                } else {
-                    ctx.throw_type_error_not_an_object();
-                    return Err(-1);
-                }
+                ctx.throw_type_error_not_an_object();
+                return Err(-1);
             }
         }
     }
@@ -137,11 +135,10 @@ pub fn js_map_delete(ctx: &JSContext, cc: CallContext) -> JSResult {
                 if s.is_weak() {
                     let this_obj = this.as_object().unwrap();
                     let kobj = key.as_object().unwrap();
-
                     kobj.0
                         .weak_refs
                         .borrow_mut()
-                        .retain(|w| w.upgrade().map_or(false, |o| !o.eq(this_obj)));
+                        .retain(|w| w.upgrade().is_some_and(|o| !o.eq(this_obj)));
                 }
 
                 JSValue::Bool(true)
@@ -216,8 +213,8 @@ pub fn js_map_forEach(ctx: &JSContext, cc: CallContext) -> JSResult {
                 MapPair::Weak { key, value } => key.upgrade().map(|k| (JSValue::Object(k), value)),
                 MapPair::Removed => None,
             };
-            if let Some((key, val)) = pair {
-                if func
+            if let Some((key, val)) = pair
+                && func
                     .call(
                         ctx,
                         this_arg,
@@ -228,10 +225,9 @@ pub fn js_map_forEach(ctx: &JSContext, cc: CallContext) -> JSResult {
                         },
                     )
                     .is_err()
-                {
-                    has_err = true;
-                    break;
-                }
+            {
+                has_err = true;
+                break;
             }
             i += 1;
         } else {
@@ -251,7 +247,7 @@ pub fn js_map_forEach(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 fn js_create_map_iterator(ctx: &JSContext, cc: CallContext) -> JSResult {
-    debug_assert!(matches!(cc.magic() >> 2, 0 | 1 | 2));
+    debug_assert!(matches!(cc.magic() >> 2, 0..=2));
     let kind = unsafe { std::mem::transmute::<u8, JSIteratorKindEnum>(cc.magic() as u8 >> 2) };
 
     // ensure `this` is an object of expected class_id
@@ -285,19 +281,19 @@ pub static js_map_proto_funcs: [FieldDef; 12] = [
         "values",
         0,
         js_create_map_iterator,
-        ((JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16) << 2) | 0
+        (JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16) << 2
     ),
     JS_CFUNC_NATIVE_DEF!(
         "keys",
         0,
         js_create_map_iterator,
-        ((JSIteratorKindEnum::JS_ITERATOR_KIND_KEY as i16) << 2) | 0
+        (JSIteratorKindEnum::JS_ITERATOR_KIND_KEY as i16) << 2
     ),
     JS_CFUNC_NATIVE_DEF!(
         "entries",
         0,
         js_create_map_iterator,
-        ((JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE as i16) << 2) | 0
+        (JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE as i16) << 2
     ),
     JS_ALIAS_DEF!("[Symbol.iterator]", "entries"),
     JS_PROP_STRING_DEF!("[Symbol.toStringTag]", "Map", JS_PROP_CONFIGURABLE as i16),

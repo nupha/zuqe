@@ -220,8 +220,7 @@ impl JSVarRef {
         self.0.borrow().value()
     }
 
-    /// set value of var ref, free old value.
-    /// Note: `value` is consumed
+    /// set new value to the referenced var. frees its old value.
     #[inline(always)]
     pub fn set_value(&self, value: JSValue) {
         self.0.borrow_mut().set_value(value);

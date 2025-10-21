@@ -3,6 +3,7 @@ use std::cell::Cell;
 use crate::{
     JS_CLASS_PROXY,
     atom::{Atom, consts::*},
+    branch_hints::unlikely,
     class::JSClassExoticMethods,
     context::JSContext,
     error::JSResult,
@@ -19,32 +20,36 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct ProxyObjPayload {
-    pub target: JSObject,
-    pub handler: JSValue,
-    pub is_func: bool,
-    pub is_revoked: Cell<bool>,
+pub struct ProxyPayload {
+    target: JSObject,
+    handler: JSValue,
+    is_func: bool,
+    is_revoked: Cell<bool>,
 }
 
-impl ProxyObjPayload {
-    /// get proxied method. returns function object or undefined
-    pub fn get_method(&self, ctx: &JSContext, name: &Atom) -> Result<JSValue, i32> {
-        // safer to test recursion in all proxy methods
-        if js_check_stack_overflow(ctx.rt(), 0) {
-            ctx.throw_stack_overflow();
-            return Err(-1);
-        }
+impl ProxyPayload {
+    pub fn new(target: JSObject, handler: JSValue) -> Box<Self> {
+        Box::new(Self {
+            is_func: target.is_function(),
+            target,
+            handler,
+            is_revoked: Cell::new(false),
+        })
+    }
 
-        if self.is_revoked.get() {
-            ctx.throw_type_error_revoked_proxy();
-            return Err(-1);
-        }
+    #[inline(always)]
+    pub const fn is_func(&self) -> bool {
+        self.is_func
+    }
 
-        let mut method = self.handler.get_property(ctx, name)?;
-        if method.is_null() {
-            method = JSValue::UNDEFINED;
-        }
-        Ok(method)
+    #[inline(always)]
+    pub const fn is_revoked(&self) -> bool {
+        self.is_revoked.get()
+    }
+
+    #[inline(always)]
+    pub fn set_revoked(&self) {
+        self.is_revoked.set(true);
     }
 
     pub fn is_extensible(&self, ctx: &JSContext) -> Result<bool, i32> {
@@ -65,10 +70,35 @@ impl ProxyObjPayload {
         }
     }
 
+    #[inline(always)]
+    pub const fn target(&self) -> &JSObject {
+        &self.target
+    }
+
+    /// get proxied method. returns function object or undefined
+    pub fn get_method(&self, ctx: &JSContext, name: &Atom) -> Result<JSValue, i32> {
+        // safer to test recursion in all proxy methods
+        if js_check_stack_overflow(ctx.rt(), 0) {
+            ctx.throw_stack_overflow();
+            return Err(-1);
+        }
+
+        if self.is_revoked() {
+            ctx.throw_type_error_revoked_proxy();
+            return Err(-1);
+        }
+
+        let mut method = self.handler.get_property(ctx, name)?;
+        if method.is_null() {
+            method = JSValue::UNDEFINED;
+        }
+        Ok(method)
+    }
+
     pub fn prevent_extensions(&self, ctx: &JSContext) -> Result<bool, i32> {
         let method = self.get_method(ctx, &JS_ATOM_preventExtensions)?;
         if method.is_undefined() {
-            return self.target.prevent_extensions(ctx);
+            self.target.prevent_extensions(ctx)
         } else {
             let b = method
                 .call(ctx, &self.handler, &[self.target.clone().into()])?
@@ -215,10 +245,10 @@ impl Proxy {
 
     /// get proxy payload reference
     #[inline(always)]
-    pub(super) fn payload(&self) -> &ProxyObjPayload {
+    pub(super) fn payload(&self) -> &ProxyPayload {
         if let ObjectPayload::PROXY(s) = self.0.payload() {
             unsafe {
-                let ptr = s.as_ref() as *const ProxyObjPayload;
+                let ptr = s.as_ref() as *const ProxyPayload;
                 &*ptr
             }
         } else {
@@ -238,17 +268,17 @@ impl Proxy {
     }
 
     pub fn is_array(&self, ctx: &JSContext) -> Result<bool, i32> {
-        if js_check_stack_overflow(ctx.rt(), 0) {
+        if unlikely(js_check_stack_overflow(ctx.rt(), 0)) {
             ctx.throw_stack_overflow();
-            return Err(-1);
-        }
-
-        let p = self.payload();
-        if p.is_revoked.get() {
-            ctx.throw_type_error_revoked_proxy();
             Err(-1)
         } else {
-            p.target.is_array(ctx)
+            let p = self.payload();
+            if p.is_revoked() {
+                ctx.throw_type_error_revoked_proxy();
+                Err(-1)
+            } else {
+                p.target.is_array(ctx)
+            }
         }
     }
 
@@ -559,7 +589,7 @@ fn js_proxy_get_own_property_names(
         return Err(-1);
     };
 
-    if px.is_revoked.get() {
+    if px.is_revoked() {
         ctx.throw_type_error_revoked_proxy();
         return Err(-1);
     }
