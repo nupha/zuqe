@@ -85,9 +85,7 @@ impl JSProperty {
         this_obj: &JSObject,
     ) -> JSResult {
         if let JSProperty::LazyInit {
-            realm,
-            init_type,
-            opaque,
+            realm, init_type, ..
         } = self
         {
             let realm = realm.upgrade().unwrap();

@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 use crate::{
     atom::{
         Atom,
@@ -246,10 +244,12 @@ impl<'s> JSParseState<'s> {
             }
         }
 
-        if is_non_reserved_ident && prop_type == PROP_TYPE_IDENT && allow_var {
-            if !(self.token.val == ':' as i32 || (self.token.val == '(' as i32 && allow_method)) {
-                prop_type = PROP_TYPE_VAR;
-            }
+        if is_non_reserved_ident
+            && prop_type == PROP_TYPE_IDENT
+            && allow_var
+            && !(self.token.val == ':' as i32 || (self.token.val == '(' as i32 && allow_method))
+        {
+            prop_type = PROP_TYPE_VAR;
         }
 
         if !matches!(prop_type, PROP_TYPE_IDENT | PROP_TYPE_VAR) && self.token.val != '(' as i32 {
@@ -257,6 +257,6 @@ impl<'s> JSParseState<'s> {
             return Err(-1);
         }
 
-        Ok((name.map_or(Atom::NULL, |a| a.into()), prop_type | private))
+        Ok((name.unwrap_or(Atom::NULL), prop_type | private))
     }
 }

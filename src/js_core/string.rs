@@ -843,6 +843,7 @@ pub fn js_string_toLowerCase(ctx: &JSContext, cc: CallContext) -> JSResult {
 fn js_string_normalize(ctx: &JSContext, cc: CallContext) -> JSResult {
     let val = cc.this().to_string_non_undefined_or_null(ctx)?;
 
+    #[allow(clippy::upper_case_acronyms)]
     enum UnicodeNormalizationEnum {
         NFC,
         NFD,

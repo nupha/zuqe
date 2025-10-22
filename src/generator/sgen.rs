@@ -44,7 +44,7 @@ pub struct GeneratorPayload {
 
 impl GeneratorPayload {
     #[inline(always)]
-    fn state(&self) -> GenState {
+    const fn state(&self) -> GenState {
         self.state.get()
     }
 
@@ -91,7 +91,8 @@ impl GeneratorPayload {
 // XXX: add a specific eval mode so that Function("}), ({") is rejected
 #[deprecated(note = "should use BytecodeFunction::class_constructor ???")]
 pub fn js_function_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let func_kind = unsafe { std::mem::transmute::<_, JSFunctionKindEnum>(cc.magic() as u8) };
+    let func_kind =
+        unsafe { std::mem::transmute::<u8, crate::function::JSFunctionKindEnum>(cc.magic() as u8) };
 
     // build function source
     let mut source = StringBuf::with_capacity(64, false).map_err(|_| {
@@ -182,7 +183,7 @@ pub fn js_generator_function_call(
     func_obj: &JSValueConst,
     this_obj: &JSValueConst,
     args: &[JSValue],
-    flags: i32,
+    _flags: i32,
 ) -> JSResult {
     let func_state = AsyncFuncState::new(
         ctx,
@@ -204,10 +205,10 @@ pub fn js_generator_function_call(
         .map_err(|_| -1)
 }
 
-pub fn js_generator_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {
-    if let ObjectPayload::GENERATOR(_) = isa {
-        //s.free_generator_stack_rt(rt);
-    }
+pub const fn js_generator_finalizer(_rt: &mut JSRuntime, _isa: &ObjectPayload, _id: usize) {
+    // if let ObjectPayload::GENERATOR(_) = isa {
+    //     //s.free_generator_stack_rt(rt);
+    // }
 }
 
 pub fn js_generator_mark(_: JSValue) {
@@ -310,7 +311,7 @@ pub fn js_generator_next(
                     GEN_MAGIC_RETURN => Ok(cc.arg(0).clone()),
                     GEN_MAGIC_THROW => {
                         ctx.throw(cc.arg(0).clone());
-                        return Err(-1);
+                        Err(-1)
                     }
                     _ => {
                         unreachable!()

@@ -114,14 +114,12 @@ pub(crate) fn f64_stringify<'a>(
             let n = mentissa.len() as u32 - if mentissa.contains('.') { 1 } else { 0 };
             let cnt = n as i32 + exp;
 
-            let t = if cnt > -6 && cnt <= n_max as i32 {
+            if cnt > -6 && cnt <= n_max as i32 {
                 format!("{:.1$}", num, (n_max as i32 - cnt) as usize).into()
             } else {
                 // use scientific notation with round=n_max-1
                 f64_scientific(num, Some(n_max - 1), true)
-            };
-
-            t
+            }
         } else {
             // variable format
             if num == 0.0 || (1e-6..1e21).contains(&num.abs()) {

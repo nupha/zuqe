@@ -422,7 +422,7 @@ pub fn JS_IteratorGetCompleteValue(ctx: &JSContext, obj: &JSValue, pdone: &mut b
             value
         } else {
             *pdone = false;
-            return JSValue::EXCEPTION;
+            JSValue::EXCEPTION
         }
     } else {
         *pdone = false;
@@ -443,7 +443,7 @@ pub fn js_create_iterator_result(ctx: &JSContext, value: JSValue, done: bool) ->
     Ok(obj.into())
 }
 
-pub fn js_for_in_iterator_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, _id: usize) {
+pub const fn js_for_in_iterator_finalizer(_rt: &mut JSRuntime, isa: &ObjectPayload, _id: usize) {
     if let ObjectPayload::FOR_IN_ITERATOR(it) = isa {
         // let mut b = it.borrow_mut();
         // if !b.is_array {

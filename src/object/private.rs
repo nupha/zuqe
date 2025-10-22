@@ -51,7 +51,7 @@ impl JSObject {
             }
         } else {
             ctx.throw_type_error_not_a_symbol();
-            return Err(-1);
+            Err(-1)
         }
 
         // // name must be a Symbol
@@ -137,7 +137,7 @@ impl JSObject {
             }
         } else {
             ctx.throw_type_error_not_a_symbol();
-            return Err(-1);
+            Err(-1)
         }
     }
 }
@@ -183,13 +183,12 @@ impl JSValue {
                     ctx.throw_type_error("private method is already present");
                     Err(-1)
                 } else {
-                    let r = ob.add_own_property(
+                    ob.add_own_property(
                         ctx,
                         brand_atom,
                         JS_PROP_C_W_E,
                         JSProperty::Normal(JSValue::UNDEFINED),
-                    );
-                    r
+                    )
                 }
             } else {
                 Ok(())
@@ -237,61 +236,4 @@ impl JSValue {
             Err(-1)
         }
     }
-}
-
-// check if the brand of the home object of 'func' is present on 'obj'
-#[deprecated(note = "use JSValue::check_brand() instead")]
-pub unsafe fn JS_CheckBrand(ctx: &JSContext, obj: &JSValue, func: &JSValue) -> Result<bool, i32> {
-    obj.check_brand(ctx, func)
-}
-
-// add a private brand field to 'home_obj' if not already present and
-// if obj is != null add a private brand to it
-#[deprecated(note = "use JSValue::add_brand() instead")]
-pub fn JS_AddBrand(ctx: &JSContext, obj: &JSValue, home_obj: &JSValue) -> Result<(), i32> {
-    obj.add_brand(ctx, home_obj)
-
-    // if let JSValue::Object(home) = home_obj {
-    //     let brand = home
-    //         .with_own_property(JS_ATOM_Private_brand, |_, pr| -> Result<JSValue, i32> {
-    //             if let JSProperty::Value(val) = pr {
-    //                 Ok(val.clone())
-    //             } else {
-    //                 unreachable!()
-    //             }
-    //         })
-    //         .unwrap_or_else(|| {
-    //             // if the brand is not present, add it
-    //             let br = unsafe {
-    //                 JS_NewSymbolFromAtom(ctx, JS_ATOM_brand, AtomType::Private)
-    //                     .check_exception()?
-    //             };
-    //             home.add_property_then(ctx, JS_ATOM_Private_brand, JS_PROP_C_W_E, |pr| {
-    //                 *pr = JSProperty::Value(br.clone());
-    //             })?;
-    //             Ok(br)
-    //         })?;
-
-    //     let brand_atom = js_symbol_to_atom(ctx, &brand);
-
-    //     if let Some(p1) = obj.object() {
-    //         if p1.has_own_property(brand_atom) {
-    //             JS_FreeAtom(ctx, brand_atom);
-    //             ctx.JS_ThrowTypeError(c"private method is already present");
-    //             Err(-1)
-    //         } else {
-    //             let r = p1.add_property_then(ctx, brand_atom, JS_PROP_C_W_E, |pr| {
-    //                 *pr = JSProperty::Value(JSValue::UNDEFINED);
-    //             });
-    //             JS_FreeAtom(ctx, brand_atom);
-    //             r
-    //         }
-    //     } else {
-    //         JS_FreeAtom(ctx, brand_atom);
-    //         Ok(())
-    //     }
-    // } else {
-    //     ctx.JS_ThrowTypeErrorNotAnObject();
-    //     Err(-1)
-    // }
 }

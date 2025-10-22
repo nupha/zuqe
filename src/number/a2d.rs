@@ -55,9 +55,7 @@ pub(crate) fn parse_i64(str: &str) -> Option<i64> {
             }
 
             let n = ch as i64 - '0' as i64;
-            let Some(a) = num.checked_mul(10).and_then(|x| x.checked_add(n)) else {
-                return None;
-            };
+            let a = num.checked_mul(10).and_then(|x| x.checked_add(n))?;
             num = a;
         } else if i > 0 && ch == '_' {
             //skip '_'

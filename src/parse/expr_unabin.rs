@@ -263,24 +263,22 @@ impl<'s> JSParseState<'s> {
             }
         }
 
-        if parse_flags & (PF_POW_ALLOWED | PF_POW_FORBIDDEN) != 0 {
-            if self.token.val == TOK_POW {
-                /* Strict ES7 exponentiation syntax rules: To solve
-                conficting semantics between different implementations
-                regarding the precedence of prefix operators and the
-                postfix exponential, ES7 specifies that -2**2 is a
-                syntax error. */
-                if parse_flags & PF_POW_FORBIDDEN != 0 {
-                    self.ctx.throw_syntax_error(
-                        "unparenthesized unary expression can't appear on the left-hand side of '**'",
-                    );
-                    return Err(-1);
-                }
-
-                self.next_token()?;
-                self.parse_unary(PF_POW_ALLOWED)?;
-                self.emit_op(OpCode::POW);
+        if parse_flags & (PF_POW_ALLOWED | PF_POW_FORBIDDEN) != 0 && self.token.val == TOK_POW {
+            /* Strict ES7 exponentiation syntax rules: To solve
+            conficting semantics between different implementations
+            regarding the precedence of prefix operators and the
+            postfix exponential, ES7 specifies that -2**2 is a
+            syntax error. */
+            if parse_flags & PF_POW_FORBIDDEN != 0 {
+                self.ctx.throw_syntax_error(
+                    "unparenthesized unary expression can't appear on the left-hand side of '**'",
+                );
+                return Err(-1);
             }
+
+            self.next_token()?;
+            self.parse_unary(PF_POW_ALLOWED)?;
+            self.emit_op(OpCode::POW);
         }
 
         Ok(())

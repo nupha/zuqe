@@ -8,4 +8,4 @@ mod property;
 mod set;
 mod slot;
 
-pub use {define::*, lazy::*, name::*, property::*};
+pub use {lazy::*, name::*, property::*};

@@ -440,7 +440,7 @@ impl JSContext {
     ) -> Result<(), i32> {
         // create native module
         let md = ModuleDef::create_native(
-            &self,
+            self,
             name,
             |cx: &JSContext, m: &ModuleDef| -> Result<(), i32> {
                 m.set_export_values(cx, exported_entries)
@@ -516,7 +516,7 @@ pub unsafe fn add_module_variables(ctx: &JSContext, fd: &mut JSFunctionDef) -> i
 }
 
 /* Unfortunately, the spec gives a different behavior from GetOwnProperty ! */
-fn js_module_ns_has(ctx: &JSContext, obj: &JSObject, prop: &Atom) -> Result<bool, i32> {
+fn js_module_ns_has(_: &JSContext, obj: &JSObject, prop: &Atom) -> Result<bool, i32> {
     Ok(obj.has_shape_property(prop))
 }
 
@@ -617,7 +617,7 @@ pub fn JS_SetModuleLoaderFunc(
     rt.module_loader_opaque = opaque;
 }
 
-pub fn js_dynamic_import(ctx: &JSContext, specifier: &JSValue) -> JSResult {
+pub fn js_dynamic_import(ctx: &JSContext, _specifier: &JSValue) -> JSResult {
     ctx.throw_internal_error("import() is not implemented");
     Err(-1)
 }

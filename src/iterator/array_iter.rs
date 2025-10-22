@@ -59,7 +59,7 @@ impl ArrayIterPayload {
         }
     }
 
-    pub const fn class_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
+    pub const fn class_finalizer(_rt: &mut JSRuntime, _isa: &ObjectPayload, _id: usize) {}
 
     pub fn class_mark(val: JSValue) {
         let p = unsafe { val.as_object_unchecked() };

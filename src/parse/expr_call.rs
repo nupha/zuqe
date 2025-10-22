@@ -65,7 +65,7 @@ impl<'s> JSParseState<'s> {
                     "parse template call won't go here, it should been done in Self::parse_postfix_expr()"
                 );
             }
-            FuncCallType::FUNC_CALL_NORMAL | FuncCallType::FUNC_CALL_TEMPLATE => {}
+            _ => {}
         }
 
         // parse arguments
@@ -195,11 +195,13 @@ impl<'s> JSParseState<'s> {
             }
             opcodes::op_get_field_opt_chain => {
                 let fd = self.cur_func_mut();
-                let opt_chain_label = read_from_ptr::<u32>(
-                    fd.byte_code
-                        .as_ptr()
-                        .offset(fd.last_opcode_pos as isize + 1 + 4 + 1),
-                );
+                let opt_chain_label = unsafe {
+                    read_from_ptr::<u32>(
+                        fd.byte_code
+                            .as_ptr()
+                            .offset(fd.last_opcode_pos as isize + 1 + 4 + 1),
+                    )
+                };
                 /* keep the object on the stack */
                 fd.byte_code[fd.last_opcode_pos as usize] = opcodes::OP_get_field2;
                 fd.byte_code.truncate(fd.last_opcode_pos as usize + 1 + 4); // ...size = fd->last_opcode_pos + 1 + 4;
@@ -227,15 +229,18 @@ impl<'s> JSParseState<'s> {
             }
             opcodes::op_get_array_el_opt_chain => {
                 let fd = self.cur_func_mut();
-                let opt_chain_label = read_from_ptr::<u32>(
-                    fd.byte_code
-                        .as_ptr()
-                        .offset(fd.last_opcode_pos as isize + 1 + 1),
-                );
+                let opt_chain_label = unsafe {
+                    read_from_ptr::<u32>(
+                        fd.byte_code
+                            .as_ptr()
+                            .offset(fd.last_opcode_pos as isize + 1 + 1),
+                    )
+                };
                 /* keep the object on the stack */
                 let fd = self.cur_func_mut();
                 fd.byte_code[fd.last_opcode_pos as usize] = opcodes::OP_get_array_el2;
                 fd.byte_code.truncate(fd.last_opcode_pos as usize + 1);
+
                 let next_label = self.emit_goto(OpCode::GOTO, -1);
                 self.emit_label(opt_chain_label as _);
                 /* need an additional undefined value for the
@@ -248,16 +253,21 @@ impl<'s> JSParseState<'s> {
             }
             opcodes::op_scope_get_var => {
                 let fd = self.cur_func_mut();
-                let name = AtomRef(read_from_ptr::<u32>(
-                    fd.byte_code
-                        .as_ptr()
-                        .offset(fd.last_opcode_pos as isize + 1),
-                ));
-                let scope = read_from_ptr::<u16>(
-                    fd.byte_code
-                        .as_ptr()
-                        .offset(fd.last_opcode_pos as isize + 5),
-                );
+                let name = AtomRef(unsafe {
+                    read_from_ptr::<u32>(
+                        fd.byte_code
+                            .as_ptr()
+                            .offset(fd.last_opcode_pos as isize + 1),
+                    )
+                });
+                let scope = unsafe {
+                    read_from_ptr::<u16>(
+                        fd.byte_code
+                            .as_ptr()
+                            .offset(fd.last_opcode_pos as isize + 5),
+                    )
+                };
+
                 if name == JS_ATOM_eval
                     && call_type == FuncCallType::FUNC_CALL_NORMAL
                     && !has_optional_chain

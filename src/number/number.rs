@@ -71,7 +71,7 @@ impl IntOrFloat {
     pub fn to_f64(&self) -> Option<f64> {
         match self {
             IntOrFloat::Int64(val) => {
-                if (-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&val) {
+                if (-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(val) {
                     Some(*val as f64)
                 } else {
                     None
@@ -185,7 +185,7 @@ impl JSValue {
     /// returns JSValue::Int, JSValue::Float64 value, or Err.
     ///
     /// Because BigInt is not supported, JSToNumberHintEnum does not effect
-    fn to_num_internal(&self, ctx: &JSContext, flag: JSToNumberHintEnum) -> JSResult {
+    fn to_num_internal(&self, ctx: &JSContext, _flag: JSToNumberHintEnum) -> JSResult {
         let mut val = self.clone();
 
         loop {
@@ -385,14 +385,12 @@ impl JSValue {
                 JSValue::Float64(d) => {
                     break if d.is_nan() {
                         0
+                    } else if d < i64::MIN as f64 {
+                        i64::MIN
+                    } else if d > i64::MAX as f64 {
+                        i64::MAX
                     } else {
-                        if d < i64::MIN as f64 {
-                            i64::MIN
-                        } else if d > i64::MAX as f64 {
-                            i64::MAX
-                        } else {
-                            d as i64
-                        }
+                        d as i64
                     };
                 }
                 JSValue::EXCEPTION => {
@@ -478,7 +476,7 @@ pub const fn JS_NumberIsNegativeOrMinusZero(val: &JSValueConst) -> bool {
 }
 
 /// convert f64 to i32 according to the ECMAScript rules (not rust rules).
-pub(crate) fn js_f64_to_i32(d: f64) -> i32 {
+pub(crate) const fn js_f64_to_i32(d: f64) -> i32 {
     let u = JSFloat64Union { d };
 
     // we avoid doing fmod(x, 2^32)

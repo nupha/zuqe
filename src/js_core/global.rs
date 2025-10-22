@@ -57,7 +57,8 @@ fn js_global_decodeURI(ctx: &JSContext, cc: CallContext) -> JSResult {
             // %XX
             let mut d = 0u32;
             let mut xx = [0u8; 2];
-            for i in 0..2 {
+
+            for x in xx.iter_mut() {
                 let (a, n) = match code_it.next().and_then(|x| char::from_u32(x as u32)) {
                     Some(a @ '0'..='9') => (a, a as u32 - '0' as u32),
                     Some(a @ 'A'..='F') => (a, a as u32 - 'A' as u32 + 10),
@@ -68,7 +69,8 @@ fn js_global_decodeURI(ctx: &JSContext, cc: CallContext) -> JSResult {
                     }
                 };
                 d = d << 4 | n;
-                xx[i] = a as u8;
+
+                *x = a as u8;
             }
 
             if !is_component && is_uri_reserved(cp as _) {

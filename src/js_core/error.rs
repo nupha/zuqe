@@ -14,7 +14,7 @@ use crate::{
 pub fn js_error_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let mut new_target = cc.this().clone();
     if new_target.is_undefined() {
-        new_target = unsafe { JS_GetActiveFunction(ctx).clone() };
+        new_target = JS_GetActiveFunction(ctx).clone();
     }
 
     // use proper proto, ensure proto is an object
@@ -38,7 +38,7 @@ pub fn js_error_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     } else {
         0
     };
-    let message = cc.arg(arg_index as usize);
+    let message = cc.arg(arg_index);
     arg_index += 1;
 
     if !message.is_undefined() {
@@ -52,25 +52,24 @@ pub fn js_error_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     if arg_index < cc.length() {
-        let options = cc.arg(arg_index as usize);
-        if options.is_object() {
-            if options.has_property(ctx, JS_ATOM_cause.deref())? {
-                let cause = options.get_property(ctx, JS_ATOM_cause.deref())?;
-                obj.define_property_value(
-                    ctx,
-                    JS_ATOM_cause.deref(),
-                    cause,
-                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-                )?;
-            }
+        let options = cc.arg(arg_index);
+
+        if options.is_object() && options.has_property(ctx, &JS_ATOM_cause)? {
+            let cause = options.get_property(ctx, &JS_ATOM_cause)?;
+            obj.define_property_value(
+                ctx,
+                &JS_ATOM_cause,
+                cause,
+                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+            )?;
         }
     }
 
     if cc.magic() == ErrorKind::Aggregate as i32 {
-        let error_list = unsafe { iterator_to_array(ctx, cc.arg(0))? };
+        let error_list = iterator_to_array(ctx, cc.arg(0))?;
         obj.define_property_value(
             ctx,
-            JS_ATOM_errors.deref(),
+            &JS_ATOM_errors,
             error_list,
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
         )?;

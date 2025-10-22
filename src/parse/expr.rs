@@ -377,8 +377,7 @@ impl<'s> JSParseState<'s> {
                     let name = self.token.atom().unwrap();
 
                     if unlikely(
-                        name.to_ref() == JS_ATOM_arguments
-                            && !self.cur_func().attrs.arguments_allowed,
+                        name.eq(&JS_ATOM_arguments) && !self.cur_func().attrs.arguments_allowed,
                     ) {
                         self.throw_syntax_error(
                             "'arguments' identifier is not allowed in class field initializer",
@@ -388,13 +387,13 @@ impl<'s> JSParseState<'s> {
                         self.next_token()?;
 
                         self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                        self.emit_atom(name.into());
+                        self.emit_atom(name);
                         self.emit_u16(self.cur_func().scope_level as _);
                     }
                 }
             }
             // '{' | '['
-            CHAR_CURLY_L | CHAR_SQUARE_L => unsafe {
+            CHAR_CURLY_L | CHAR_SQUARE_L => {
                 let mut skip_bits: i32 = 0;
                 if self.parse_skip_parens_token(&mut skip_bits, false)? == '=' as i32 {
                     self.parse_destructuring_element(
@@ -405,16 +404,12 @@ impl<'s> JSParseState<'s> {
                         true,
                         false,
                     )?;
-                } else {
-                    if self.token.val == b'{' as i32 {
-                        self.parse_object_literal()?;
-                    } else {
-                        if js_parse_array_literal(self) != 0 {
-                            return Err(-1);
-                        }
-                    }
+                } else if self.token.val == b'{' as i32 {
+                    self.parse_object_literal()?;
+                } else if js_parse_array_literal(self) != 0 {
+                    return Err(-1);
                 }
-            },
+            }
             TOK_NEW => {
                 self.next_token()?;
 

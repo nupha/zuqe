@@ -44,19 +44,10 @@ struct ExportedNameEntry {
 //     }
 // }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct GetExportNamesState {
     modules: Vec<ModuleDef>,
     exported_names: Vec<ExportedNameEntry>,
-}
-
-impl Default for GetExportNamesState {
-    fn default() -> Self {
-        Self {
-            modules: Vec::new(),
-            exported_names: Vec::new(),
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -200,7 +191,7 @@ impl ModuleDefInner {
                     o.install_field_defs(ctx, fields.as_ref())?;
                     o.into()
                 }
-                NativeFieldDetail::Str(s) => ctx.create_string_from_str(*s)?.into(),
+                NativeFieldDetail::Str(s) => ctx.create_string_from_str(s)?.into(),
                 NativeFieldDetail::Int32(i) => JSValue::Int(*i),
                 NativeFieldDetail::Float64(d) => JSValue::from(*d),
                 _ => {
@@ -402,14 +393,13 @@ impl ModuleDef {
             let str1 = a.export_name.force_string(ctx);
             let str2 = b.export_name.force_string(ctx);
 
-            let res = if str1.is_err() || str2.is_err() {
-                // XXX: raise an error ?
-                Ordering::Equal
-            } else {
-                str1.unwrap().content().cmp(str2.unwrap().content())
-            };
-
-            res
+            match (str1, str2) {
+                (Ok(str1), Ok(str2)) => str1.content().cmp(str2.content()),
+                _ => {
+                    // XXX: raise an error ?
+                    Ordering::Equal
+                }
+            }
         });
 
         for en in state.exported_names {
@@ -442,7 +432,8 @@ impl ModuleDef {
             0,
         )?;
         obj.set_flag_extensible(false);
-        Ok(obj.into())
+
+        Ok(obj)
     }
 
     /// get module ns object.

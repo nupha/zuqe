@@ -2204,22 +2204,26 @@ pub unsafe fn js_parse_template(s: *mut JSParseState, call: bool, argc: *mut i32
 
 #[deprecated(note = "use JSParseState::parse_left_hand_side_expr() instead")]
 pub unsafe fn js_parse_left_hand_side_expr(s: *mut JSParseState) -> i32 {
-    (*s).parse_left_hand_side_expr().map_or(-1, |_| 0)
+    unreachable!("unused");
+    // (*s).parse_left_hand_side_expr().map_or(-1, |_| 0)
 }
 
 #[deprecated(note = "use JSParseState::parse_expr_parens() instead")]
 pub unsafe fn js_parse_expr_paren(s: *mut JSParseState) -> i32 {
-    (*s).parse_expr_parens().map_or(-1, |_| 0)
+    unreachable!("unused");
+    // (*s).parse_expr_parens().map_or(-1, |_| 0)
 }
 
 #[deprecated(note = "use JSParseState::parse_object_literal() instead")]
 pub unsafe fn js_parse_object_literal(s: *mut JSParseState) -> i32 {
-    (*s).parse_object_literal().map_or(-1, |_| 0)
+    unreachable!("unused");
+    // (*s).parse_object_literal().map_or(-1, |_| 0)
 }
 
 #[deprecated(note = "use JSParseState::set_object_name() instead")]
 pub unsafe fn set_object_name(s: *mut JSParseState, name: Atom) {
-    (*s).set_object_name(name);
+    unreachable!("unused");
+    // (*s).set_object_name(name);
 }
 
 #[deprecated(note = "use JSParseState::next_token() instead")]
@@ -4924,4 +4928,17 @@ pub fn JS_PreventExtensions(ctx: &JSContext, obj: &JSValue) -> Result<bool, i32>
     } else {
         Ok(false)
     }
+}
+
+// check if the brand of the home object of 'func' is present on 'obj'
+#[deprecated(note = "use JSValue::check_brand() instead")]
+pub unsafe fn JS_CheckBrand(ctx: &JSContext, obj: &JSValue, func: &JSValue) -> Result<bool, i32> {
+    obj.check_brand(ctx, func)
+}
+
+// add a private brand field to 'home_obj' if not already present and
+// if obj is != null add a private brand to it
+#[deprecated(note = "use JSValue::add_brand() instead")]
+pub fn JS_AddBrand(ctx: &JSContext, obj: &JSValue, home_obj: &JSValue) -> Result<(), i32> {
+    obj.add_brand(ctx, home_obj)
 }

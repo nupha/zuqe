@@ -118,7 +118,7 @@ pub fn js_math_min_max(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(res.into())
 }
 
-pub fn js_math_round(a: f64) -> f64 {
+pub const fn js_math_round(a: f64) -> f64 {
     let mut u = JSFloat64Union { d: a };
     let e = unsafe { (u.uint64 >> 52) as u32 } & 0x7ff;
 
@@ -141,7 +141,7 @@ pub fn js_math_round(a: f64) -> f64 {
         }
 
         /* otherwise: abs(a) >= 2^52, or NaN, +/-Infinity: no change */
-        return u.d;
+        u.d
     }
 }
 
@@ -162,7 +162,7 @@ pub fn js_math_hypot(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     }
 
-    return Ok(JSValue::from(r));
+    Ok(JSValue::from(r))
 }
 
 pub fn js_math_imul(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -179,7 +179,7 @@ pub fn js_math_clz32(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 /* xorshift* random number generator by Marsaglia */
 #[inline]
-fn xorshift64star(pstate: &mut u64) -> u64 {
+const fn xorshift64star(pstate: &mut u64) -> u64 {
     let mut x = *pstate;
     x ^= x >> 12;
     x ^= x << 25;
@@ -188,6 +188,7 @@ fn xorshift64star(pstate: &mut u64) -> u64 {
 
     x.wrapping_mul(0x2545F4914F6CDD1D)
 }
+
 pub fn js_math_random(ctx: &JSContext, _: CallContext) -> JSResult {
     let v = xorshift64star(&mut ctx.0.borrow_mut().random_state);
     /* 1.0 <= u.d < 2 */

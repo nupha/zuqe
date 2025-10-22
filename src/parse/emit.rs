@@ -1,5 +1,5 @@
 use crate::{
-    atom::{Atom, AtomTypeHint, JS_ATOM_NULL, consts::*},
+    atom::{Atom, AtomTypeHint, consts::*},
     bytecode::{OpCode, OpCodeTemp, opcodes},
     class::ClassFieldsDef,
     function::{JSFunctionDef, JSFunctionKindEnum},
@@ -209,14 +209,12 @@ impl JSFunctionDef {
     ) -> Result<(), i32> {
         if let JSValue::String(ss) = &val
             && as_atom
+            && let Ok(atom) = Atom::from_string(ss.clone(), AtomTypeHint::String)
+            && !atom.is_small_int()
         {
-            if let Ok(atom) = Atom::from_string(ss.clone(), AtomTypeHint::String)
-                && !atom.is_small_int()
-            {
-                self.emit_op(OpCode::PUSH_ATOM_VALUE, last_line_num);
-                self.emit_atom(atom);
-                return Ok(());
-            }
+            self.emit_op(OpCode::PUSH_ATOM_VALUE, last_line_num);
+            self.emit_atom(atom);
+            return Ok(());
         }
 
         let cidx = self.cpool_add(val)?;

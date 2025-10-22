@@ -217,16 +217,14 @@ impl AGenPayload {
     }
 
     fn completed_return(&self, ctx: &JSContext, value: JSValue) -> Result<(), i32> {
-        let promise: Promise = match {
-            let cc = CallContext::new(
-                ctx,
-                ctx.0.borrow().promise_ctor.clone(),
-                std::slice::from_ref(&value),
-                0, // is_reject=0
-                None,
-            );
-            js_promise_resolve(ctx, cc)
-        } {
+        let cc = CallContext::new(
+            ctx,
+            ctx.0.borrow().promise_ctor.clone(),
+            std::slice::from_ref(&value),
+            0, // is_reject=0
+            None,
+        );
+        let promise: Promise = match js_promise_resolve(ctx, cc) {
             Ok(r) => r,
             Err(_) => {
                 // Fail looking up JS_ATOM_constructor when is_reject==0.
@@ -328,7 +326,7 @@ impl AsyncGeneratorFunction {
         func_obj: &JSValue,
         this_obj: &JSValue,
         args: &[JSValue],
-        flags: i32,
+        _flags: i32,
     ) -> JSResult {
         let s = Box::new(AGenPayload {
             generator: RefCell::new(JSObjectWeakref::default()),
@@ -360,7 +358,7 @@ impl AsyncGeneratorFunction {
         Ok(obj.into())
     }
 
-    pub fn class_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
+    pub fn class_finalizer(_rt: &mut JSRuntime, _isa: &ObjectPayload, _id: usize) {}
 
     pub fn class_mark(val: JSValue) {
         if let ObjectPayload::ASYNC_GENERATOR(s) = unsafe { val.as_object_unchecked().payload() } {
@@ -490,7 +488,7 @@ fn js_async_generator_next(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(promise.into())
 }
 
-fn js_iterator_proto_iterator(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_iterator_proto_iterator(_ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(cc.this().clone())
 }
 

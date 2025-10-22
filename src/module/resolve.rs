@@ -80,7 +80,7 @@ impl ModuleDef {
                             export_name,
                             export_type,
                         } => {
-                            if expect.map_or(false, |(test_module_id, test_local_name)| {
+                            if expect.is_some_and(|(test_module_id, test_local_name)| {
                                 test_module_id != module.id()
                                     || test_local_name != local_name.to_ref()
                             }) {
@@ -217,7 +217,7 @@ impl ModuleDef {
                             module: dep,
                             export_type,
                             local_name,
-                            export_name,
+                            ..
                         } => {
                             match export_type {
                                 ExportType::JS_EXPORT_TYPE_INDIRECT(req_module_idx) => {

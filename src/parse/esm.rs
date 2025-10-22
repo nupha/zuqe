@@ -460,16 +460,15 @@ impl<'s> JSParseState<'s> {
             return Err(-1);
         }
 
-        if local_name.to_ref() != JS_ATOM_default {
-            if self
+        if !local_name.eq(&JS_ATOM_default)
+            && self
                 .cur_func()
                 .closure_vars
                 .as_ref()
                 .is_some_and(|lst| lst.iter().any(|cv| cv.var_name.eq(local_name)))
-            {
-                self.throw_syntax_error("duplicate import binding");
-                return Err(-1);
-            }
+        {
+            self.throw_syntax_error("duplicate import binding");
+            return Err(-1);
         }
 
         let is_local = import_name.to_ref() == JS_ATOM__star_;

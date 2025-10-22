@@ -351,7 +351,7 @@ impl JSContext {
 pub struct JSContextWeakref(Weak<RefCell<JSContextInner>>);
 
 impl JSContextWeakref {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self(Weak::new())
     }
 

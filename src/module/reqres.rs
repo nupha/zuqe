@@ -1,4 +1,4 @@
-use crate::{atom::Atom, branch_hints::unlikely, context::JSContext, module::ModuleDef};
+use crate::{atom::Atom, context::JSContext, module::ModuleDef};
 
 #[derive(Debug)]
 pub struct ModuleDependency {
@@ -18,11 +18,11 @@ impl ModuleDef {
             return Ok(i as u16);
         }
 
-        if unlikely(lst.len() == lst.capacity()) {
-            if unlikely(lst.try_reserve(1).is_err()) {
+        if lst.len() == lst.capacity() {
+            lst.try_reserve(1).map_err(|_| {
                 ctx.throw_out_of_memory();
-                return Err(-1);
-            }
+                -1
+            })?;
         }
 
         lst.push(ModuleDependency {

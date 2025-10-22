@@ -1906,10 +1906,8 @@ impl Bytecode {
                                 break State::Exception;
                             }
                             obj = JSValue::Object(ctx.global_obj().clone());
-                        } else {
-                            if is_strict_mode(ctx) {
-                                flags |= JS_PROP_NO_ADD;
-                            }
+                        } else if is_strict_mode(ctx) {
+                            flags |= JS_PROP_NO_ADD;
                         }
 
                         let ret = obj.set_property_value(ctx, &prop, val, flags);
@@ -2052,21 +2050,19 @@ impl Bytecode {
                         {
                             // + before an int or float: do nothing
                             SP_PUT!(-1, op1);
+                        } else if let Ok(res) =
+                            UnaryOp::new(ctx, op1, true).map(|unary| match opcode {
+                                OpCode::PLUS => unary.plus(),
+                                OpCode::NEG => unary.neg(),
+                                OpCode::INC => unary.inc(),
+                                OpCode::DEC => unary.dec(),
+                                _ => unreachable!(),
+                            })
+                        {
+                            SP_PUT!(-1, res);
                         } else {
-                            if let Ok(res) =
-                                UnaryOp::new(ctx, op1, true).map(|unary| match opcode {
-                                    OpCode::PLUS => unary.plus(),
-                                    OpCode::NEG => unary.neg(),
-                                    OpCode::INC => unary.inc(),
-                                    OpCode::DEC => unary.dec(),
-                                    _ => unreachable!(),
-                                })
-                            {
-                                SP_PUT!(-1, res);
-                            } else {
-                                SP_PUT!(-1, JSValue::UNDEFINED);
-                                break State::Exception;
-                            }
+                            SP_PUT!(-1, JSValue::UNDEFINED);
+                            break State::Exception;
                         }
                     }
                     OpCode::POST_INC | OpCode::POST_DEC => {
@@ -2133,14 +2129,12 @@ impl Bytecode {
                         let op2 = SP_TAKE!(-1);
 
                         if let Ok(rel) = op1.arith_cmp(ctx, &op2) {
-                            let b = match (rel, opcode) {
+                            let b = matches!(
+                                (rel, opcode),
                                 (Some(std::cmp::Ordering::Less), OpCode::LT | OpCode::LTE)
-                                | (Some(std::cmp::Ordering::Greater), OpCode::GT | OpCode::GTE)
-                                | (Some(std::cmp::Ordering::Equal), OpCode::LTE | OpCode::GTE) => {
-                                    true
-                                }
-                                _ => false,
-                            };
+                                    | (Some(std::cmp::Ordering::Greater), OpCode::GT | OpCode::GTE)
+                                    | (Some(std::cmp::Ordering::Equal), OpCode::LTE | OpCode::GTE)
+                            );
                             SP_PUT!(-2, JSValue::Bool(b));
                             SP_GO!(-1);
                         } else {
@@ -2476,7 +2470,7 @@ impl Bytecode {
 
         if let Some((new_pc, new_sp)) = stack_frame.handle_exception(ctx, pc_offset, sp_offset) {
             // continue running, update pc and sp pointer, and jump
-            unsafe { Some((pc_base.offset(new_pc as _), sp_base.offset(new_sp as _))) }
+            unsafe { Some((pc_base.add(new_pc), sp_base.add(new_sp))) }
         } else {
             // abort with sp=0, pc unchanged
             let is_generator = self.func_kind() != JSFunctionKindEnum::JS_FUNC_NORMAL;
