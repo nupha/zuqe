@@ -194,21 +194,21 @@ fn js_async_function_resolve_create(
         resolving_funcs[i] = func_obj.into();
     }
 
-    return Ok(resolving_funcs);
+    Ok(resolving_funcs)
 }
 
 pub(crate) fn js_async_function_resolve_call(
     ctx: &JSContext,
     func_obj: &JSValue,
-    this_obj: &JSValue,
+    _this_obj: &JSValue,
     args: &[JSValue],
-    flags: i32,
+    _flags: i32,
 ) -> JSResult {
     let p = unsafe { func_obj.as_object_unchecked() };
     let s = p.payload().async_function_resolving().cloned().unwrap();
     let is_reject = p.class_id() == JS_CLASS_ASYNC_FUNCTION_REJECT;
 
-    let arg = if args.len() > 0 {
+    let arg = if !args.is_empty() {
         args[0].clone()
     } else {
         JSValue::UNDEFINED

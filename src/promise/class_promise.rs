@@ -139,7 +139,7 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
     let fail_reject = || -> JSResult {
         let error = ctx.take_exception();
         resolving_funcs[1].call(ctx, &JSValue::UNDEFINED, std::slice::from_ref(&error))?;
-        Ok(JSValue::Object(result_promise.clone().into()))
+        Ok(JSValue::Object(result_promise.clone()))
     };
 
     let promise_resolve = if let Ok(x) = cc.this().get_property(ctx, &JS_ATOM_resolve) {
@@ -191,7 +191,7 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
                 [
                     JSValue::Bool(false),
                     JSValue::Int(index),
-                    values.clone().into(),
+                    values.clone(),
                     resolving_funcs[is_promise_any as usize].clone(),
                     resolve_element_env.clone(),
                 ]
@@ -212,7 +212,7 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
                         [
                             JSValue::Bool(false),
                             JSValue::Int(index),
-                            values.clone().into(),
+                            values.clone(),
                             resolving_funcs[is_promise_any as usize].clone(),
                             resolve_element_env.clone(),
                         ]

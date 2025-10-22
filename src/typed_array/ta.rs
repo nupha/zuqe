@@ -5,13 +5,13 @@ use crate::{
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
     JS_CLASS_INT32_ARRAY, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8_ARRAY,
     JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
-    array_buffer::{ArrayBuffer, ArrayBufferPayload},
+    array_buffer::ArrayBuffer,
     atom::consts::JS_ATOM_Symbol_iterator,
     class::ClassID,
     context::JSContext,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     iterator::js_array_from_iterator,
-    object::{JSObject, JSObjectWeakref, ObjectPayload, js_get_length64},
+    object::{JSObject, JSObjectWeakref, ObjectPayload},
     object_cast,
     runtime::JSRuntime,
     value::{JSValue, JSValueConst},
@@ -94,20 +94,14 @@ impl TypedArrayPayload {
     }
 
     #[inline(always)]
-    pub fn byte_length(&self) -> usize {
+    pub const fn byte_length(&self) -> usize {
         self.byte_length as _
     }
 
     /// get underlaying array buffer object.
     #[inline(always)]
-    pub fn array_buffer(&self) -> &ArrayBuffer {
+    pub const fn array_buffer(&self) -> &ArrayBuffer {
         &self.buffer
-    }
-
-    /// get underlaying array buffer payload.
-    #[deprecated(note = "use TypedArrayPayload::array_buffer().payload()")]
-    pub fn array_buffer_payload(&self) -> ArrayBufferPayload {
-        self.buffer.payload()
     }
 
     /// run closure with underlaying bytes of typed array.
@@ -588,7 +582,7 @@ pub fn js_typed_array_set_internal(
         }
 
         _ => {
-            count = js_get_length64(ctx, &src_p.clone().into())?;
+            count = src_p.get_length_prop(ctx)?;
             if offset > p.length() as i64 - count {
                 ctx.throw_range_error("invalid array length");
                 return Err(-1);
@@ -617,7 +611,7 @@ pub fn js_typed_array_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usi
 
 pub fn js_typed_array_mark(val: JSValue) {
     let p = unsafe { val.as_object_unchecked() };
-    if let Some(ta) = p.payload().typed_array() {
+    if let Some(_) = p.payload().typed_array() {
         // mark underlaying array buffer
         // println!("[O.o] TODO typed array mark");
         // (*rt).gc_mark_value(JSValue::Object(ta.array_buffer().clone()), mark_func);

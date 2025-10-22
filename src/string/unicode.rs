@@ -39,7 +39,7 @@ pub(crate) fn unicode_from_utf8(buf: &[u8]) -> Result<(u32, usize), i32> {
 
     // 应用首字节掩码
     let mut c = c as u32;
-    c &= utf8_first_code_mask[n as usize - 1] as u32;
+    c &= utf8_first_code_mask[n - 1] as u32;
 
     // 解码后续字节
     for i in 0..n {
@@ -51,7 +51,7 @@ pub(crate) fn unicode_from_utf8(buf: &[u8]) -> Result<(u32, usize), i32> {
     }
 
     // 检查解码后的代码点是否有效
-    if unlikely(c < utf8_min_code[n as usize - 1]) {
+    if unlikely(c < utf8_min_code[n - 1]) {
         Err(-1)
     } else {
         Ok((c, n + 1))
@@ -138,7 +138,7 @@ impl<'a> Iterator for Utf8ToUnicode16Iter<'a> {
         if let Some(uc) = self.next_unichar.take() {
             Some(uc)
         } else if self.index == self.size {
-            return None;
+            None
         } else {
             let b1 = self.bytes[self.index];
             self.index += 1;
@@ -314,7 +314,7 @@ pub unsafe fn unicode_to_utf8_v0(buf: *mut u8, c: u32) -> i32 {
 }
 
 #[inline(always)]
-pub(crate) fn char_is_space(ch: char) -> bool {
+pub(crate) const fn char_is_space(ch: char) -> bool {
     ch.is_whitespace()
         || matches!(
             ch,

@@ -158,9 +158,9 @@ impl JSVarRefInner {
         }
     }
 
-    fn gc_dump(&self, _rt: &JSRuntime) {
-        println!("{:14p} [var_ref]", self);
-    }
+    // fn gc_dump(&self, _rt: &JSRuntime) {
+    //     println!("{:14p} [var_ref]", self);
+    // }
 
     const fn finalize(&mut self) {
         // match &mut self.state {

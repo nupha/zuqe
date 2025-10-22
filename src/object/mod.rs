@@ -8,7 +8,7 @@ mod property;
 mod prototype;
 mod shape;
 
-pub use {dump::*, gcobj::*, obj::*, payload::*, private::*, property::*, shape::*};
+pub use {dump::*, gcobj::*, obj::*, payload::*, property::*, shape::*};
 
 #[macro_export]
 macro_rules! object_cast {

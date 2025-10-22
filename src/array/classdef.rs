@@ -17,10 +17,7 @@ use crate::{
     iterator::{JSIteratorKindEnum, ObjectIter, js_array_iterator_next, js_create_array_iterator},
     js_core::{js_get_this, object::js_object_toString},
     number::MAX_SAFE_INTEGER,
-    object::{
-        JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, JSObject, ObjectPayload,
-        js_get_length64,
-    },
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, JSObject, ObjectPayload},
     runtime::js_check_stack_overflow,
     string::{JSString, StringBuf},
     typed_array::{js_typed_array___speciesCreate, js_typed_array_get_length_internal},
@@ -156,7 +153,7 @@ pub fn JS_isConcatSpreadable(ctx: &JSContext, obj: &JSValue) -> Result<bool, i32
 
 pub fn js_array_at(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj: JSValue = cc.this().clone().objectify(ctx)?.into();
-    let len = js_get_length64(ctx, &obj)?;
+    let len = obj.get_length_prop(ctx)?;
 
     let mut idx: i64 = cc.arg(0).to_i64_saturating(ctx)?;
     if idx < 0 {
@@ -283,7 +280,7 @@ pub fn js_array_concat(ctx: &JSContext, cc: CallContext) -> JSResult {
         let spreadable = JS_isConcatSpreadable(ctx, v)?;
 
         if spreadable {
-            let len = js_get_length64(ctx, v)?;
+            let len = v.get_length_prop(ctx)?;
             if n + len > MAX_SAFE_INTEGER {
                 ctx.throw_type_error("Array loo long");
                 return Err(-1);
@@ -321,7 +318,7 @@ pub fn js_array_every(ctx: &JSContext, cc: CallContext) -> JSResult {
         len = js_typed_array_get_length_internal(ctx, &obj)? as i64;
     } else {
         obj = cc.this().clone().objectify(ctx)?.into();
-        len = js_get_length64(ctx, &obj)?;
+        len = obj.get_length_prop(ctx)?;
     }
 
     let func = cc.arg(0);
@@ -439,7 +436,7 @@ pub fn js_array_reduce(ctx: &JSContext, cc: CallContext) -> JSResult {
         len = js_typed_array_get_length_internal(ctx, &obj)? as i64;
     } else {
         obj = cc.this().clone().objectify(ctx)?.into();
-        len = js_get_length64(ctx, &obj)?;
+        len = obj.get_length_prop(ctx)?;
     }
 
     let func = cc.arg(0);
@@ -511,7 +508,7 @@ pub fn js_array_reduce(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj: JSValue = cc.this().clone().objectify(ctx)?.into();
-    let len = js_get_length64(ctx, &obj)?;
+    let len = obj.get_length_prop(ctx)?;
 
     let mut start = if cc.length() > 1 && !cc.arg(1).is_undefined() {
         cc.arg(1).to_i64_clamp(ctx, 0, len, len)?
@@ -537,7 +534,7 @@ pub fn js_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
 pub fn js_array_find(ctx: &JSContext, cc: CallContext) -> JSResult {
     let mode = cc.magic();
     let obj: JSValue = cc.this().clone().objectify(ctx)?.into();
-    let len = js_get_length64(ctx, &obj)?;
+    let len = obj.get_length_prop(ctx)?;
 
     let func = cc.arg(0);
     func.ensure_function(ctx)?;
@@ -596,7 +593,7 @@ pub fn js_array_find(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj: JSValue = cc.this().clone().objectify(ctx)?.into();
-    let len = js_get_length64(ctx, &obj)?;
+    let len = obj.get_length_prop(ctx)?;
 
     let mut res = -1;
     if len > 0 {
@@ -643,7 +640,7 @@ pub fn js_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_array_lastIndexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj: JSValue = cc.this().clone().objectify(ctx)?.into();
-    let len = js_get_length64(ctx, &obj)?;
+    let len = obj.get_length_prop(ctx)?;
     let target = cc.arg(0);
 
     let mut res: i64 = -1;
@@ -851,7 +848,7 @@ pub fn js_array_push(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_array_reverse(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj: JSValue = cc.this().clone().objectify(ctx)?.into();
-    let len = js_get_length64(ctx, &obj)?;
+    let len = obj.get_length_prop(ctx)?;
 
     if len <= 1 {
         return Ok(obj);
@@ -1292,7 +1289,7 @@ pub fn js_array_flatten(ctx: &JSContext, cc: CallContext) -> JSResult {
     let map = cc.magic();
 
     let source: JSValue = cc.this().clone().objectify(ctx)?.into();
-    let source_len = js_get_length64(ctx, &source)?;
+    let source_len = source.get_length_prop(ctx)?;
 
     let mut depth = 1;
     let mut mapper_func = &JSValue::UNDEFINED;
@@ -1354,7 +1351,7 @@ fn JS_FlattenIntoArray(
                 }
 
                 if depth > 0 && el.is_array(ctx)? {
-                    let el_len = js_get_length64(ctx, &el)?;
+                    let el_len = el.get_length_prop(ctx)?;
                     let new_targetIndex = JS_FlattenIntoArray(
                         ctx,
                         target,

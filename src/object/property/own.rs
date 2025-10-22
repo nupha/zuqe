@@ -149,12 +149,11 @@ impl JSObject {
                     // array index is own property
                     return Ok(true);
                 }
-            } else if let Some(cb) = unsafe {
-                ctx.rt().class_registry[self.class_id() as usize]
-                    .exotic
-                    .as_ref()
-                    .and_then(|x| x.get_own_property)
-            } {
+            } else if let Some(cb) = ctx.rt().class_registry[self.class_id() as usize]
+                .exotic
+                .as_ref()
+                .and_then(|x| x.get_own_property)
+            {
                 return cb(ctx, self.clone().into(), prop).map(|d| d.is_some());
             }
         }
@@ -237,12 +236,11 @@ impl JSObject {
                         setter: JSValue::UNDEFINED,
                     }));
                 }
-            } else if let Some(f) = unsafe {
-                ctx.rt().class_registry[self.class_id() as usize]
-                    .exotic
-                    .as_ref()
-                    .and_then(|xm| xm.get_own_property)
-            } {
+            } else if let Some(f) = ctx.rt().class_registry[self.class_id() as usize]
+                .exotic
+                .as_ref()
+                .and_then(|x| x.get_own_property)
+            {
                 return f(ctx, JSValue::Object(self.clone()), prop);
             }
         }

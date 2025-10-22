@@ -104,17 +104,16 @@ impl JSObject {
                             };
                         }
                     }
-                } else if let Some(m) = unsafe {
-                    ctx.rt().class_registry[cur_obj.class_id() as usize]
-                        .exotic
-                        .as_ref()
-                } {
-                    if let Some(cb) = m.get_property {
+                } else if let Some(pm) = ctx.rt().class_registry[cur_obj.class_id() as usize]
+                    .exotic
+                    .as_ref()
+                {
+                    if let Some(cb) = pm.get_property {
                         // XXX: should pass throw_ref_error
                         return cb(ctx, cur_obj.clone().into(), prop, this_obj.clone());
                     }
 
-                    if let Some(cb) = m.get_own_property
+                    if let Some(cb) = pm.get_own_property
                         && let Some(desc) = cb(ctx, JSValue::Object(cur_obj.clone()), prop)?
                     {
                         return if unlikely(desc.flags & JS_PROP_GETSET != 0) {

@@ -181,7 +181,7 @@ pub(crate) fn map_utf8_to_utf16_range(
         0..s16.len() // all content
     } else {
         let start = map_utf8_to_utf16_pos_floor(s8, s16, s8_range.start);
-        if s8_range.len() == 0 {
+        if s8_range.is_empty() {
             start..start
         } else {
             let end = map_utf8_to_utf16_pos_ceil(s8, s16, s8_range.end);

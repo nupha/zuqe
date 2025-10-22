@@ -31,8 +31,14 @@ impl NativeFuncData {
     }
 
     /// get data count
+    #[inline(always)]
     pub fn len(&self) -> usize {
         self.data.borrow().len()
+    }
+
+    #[inline(always)]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     /// get nth data
@@ -100,7 +106,7 @@ impl NativeFunctionWithData {
         )
     }
 
-    pub fn class_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
+    pub const fn class_finalizer(_rt: &mut JSRuntime, _isa: &ObjectPayload, _id: usize) {}
 
     pub fn class_mark(val: JSValue) {
         unsafe {

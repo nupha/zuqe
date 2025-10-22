@@ -117,46 +117,46 @@ impl JSPropertyDescriptor {
         let mut setter: JSValue = JSValue::UNDEFINED;
 
         if desc.has_property(ctx, JS_ATOM_configurable.deref())? {
-            let conf = desc.get_property(ctx, JS_ATOM_configurable.deref())?;
+            let conf = desc.get_property(ctx, &JS_ATOM_configurable)?;
             flags |= JS_PROP_HAS_CONFIGURABLE;
             if conf.to_bool()? {
                 flags |= JS_PROP_CONFIGURABLE;
             }
         }
 
-        if desc.has_property(ctx, JS_ATOM_writable.deref())? {
-            let conf = desc.get_property(ctx, JS_ATOM_writable.deref())?;
+        if desc.has_property(ctx, &JS_ATOM_writable)? {
+            let conf = desc.get_property(ctx, &JS_ATOM_writable)?;
             flags |= JS_PROP_HAS_WRITABLE;
             if conf.to_bool()? {
                 flags |= JS_PROP_WRITABLE;
             }
         }
 
-        if desc.has_property(ctx, JS_ATOM_enumerable.deref())? {
-            let conf = desc.get_property(ctx, JS_ATOM_enumerable.deref())?;
+        if desc.has_property(ctx, &JS_ATOM_enumerable)? {
+            let conf = desc.get_property(ctx, &JS_ATOM_enumerable)?;
             flags |= JS_PROP_HAS_ENUMERABLE;
             if conf.to_bool()? {
                 flags |= JS_PROP_ENUMERABLE;
             }
         }
 
-        if desc.has_property(ctx, JS_ATOM_value.deref())? {
+        if desc.has_property(ctx, &JS_ATOM_value)? {
             flags |= JS_PROP_HAS_VALUE;
-            value = desc.get_property(ctx, JS_ATOM_value.deref())?;
+            value = desc.get_property(ctx, &JS_ATOM_value)?;
         }
 
-        if desc.has_property(ctx, JS_ATOM_get.deref())? {
+        if desc.has_property(ctx, &JS_ATOM_get)? {
             flags |= JS_PROP_HAS_GET;
-            getter = desc.get_property(ctx, JS_ATOM_get.deref())?;
+            getter = desc.get_property(ctx, &JS_ATOM_get)?;
             if unlikely(!(getter.is_undefined() || getter.is_function())) {
                 ctx.throw_type_error("invalid getter");
                 return Err(-1);
             }
         }
 
-        if desc.has_property(ctx, JS_ATOM_set.deref())? {
+        if desc.has_property(ctx, &JS_ATOM_set)? {
             flags |= JS_PROP_HAS_SET;
-            setter = desc.get_property(ctx, JS_ATOM_set.deref())?;
+            setter = desc.get_property(ctx, &JS_ATOM_set)?;
             if unlikely(!(setter.is_undefined() || setter.is_function())) {
                 ctx.throw_type_error("invalid setter");
                 return Err(-1);
@@ -306,12 +306,10 @@ impl JSObject {
 
         loop {
             if p.flags().is_exotic()
-                && let Some(cb) = unsafe {
-                    ctx.rt().class_registry[p.class_id() as usize]
-                        .exotic
-                        .as_ref()
-                        .and_then(|x| x.has_property)
-                }
+                && let Some(cb) = ctx.rt().class_registry[p.class_id() as usize]
+                    .exotic
+                    .as_ref()
+                    .and_then(|x| x.has_property)
             {
                 return cb(ctx, &p, prop);
             }
@@ -354,13 +352,11 @@ impl JSObject {
     ) -> Result<(), i32> {
         let mut gpn_flags = JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK | JS_GPN_ENUM_ONLY;
         if source.flags().is_exotic()
-            && unsafe {
-                ctx.rt().class_registry[source.class_id() as usize]
-                    .exotic
-                    .as_ref()
-            }
-            .and_then(|x| x.get_own_property_names)
-            .is_some()
+            && ctx.rt().class_registry[source.class_id() as usize]
+                .exotic
+                .as_ref()
+                .and_then(|x| x.get_own_property_names)
+                .is_some()
         {
             // cannot use JS_GPN_ENUM_ONLY with e.g. proxies because it
             // introduces a visible change

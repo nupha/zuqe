@@ -60,19 +60,19 @@ const fn year_from_days(days: &mut i64) -> i64 {
     let d: i64 = *days;
     let mut y = floor_div(d * 10000, 3652425) + 1970;
     let mut d1: i64;
+
     // the initial approximation is very good, so only a few
     // iterations are necessary
     loop {
         d1 = d - days_from_year(y);
+
         if d1 < 0 {
             y -= 1;
-            d1 += days_in_year(y);
         } else {
             let nd = days_in_year(y);
             if d1 < nd {
                 break;
             }
-            d1 -= nd;
             y += 1;
         }
     }
@@ -116,10 +116,9 @@ fn timestamp_to_fields(tm_val: i64, is_local: bool) -> Option<[i64; 9]> {
         return None; // invalid
     }
 
-    let mut d: i64 = 0;
+    let mut d: i64 = tm_val;
     let mut tz: i64 = 0;
 
-    d = tm_val;
     if is_local {
         tz = -get_timezone_offset(d) as i64;
         d += tz * 60000;

@@ -10,7 +10,7 @@ use crate::{
     object::JSObject,
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_VARREF,
-        JS_PROP_WRITABLE, JSProperty, ObjectPayload, js_get_length32,
+        JS_PROP_WRITABLE, JSProperty, ObjectPayload,
     },
     runtime::JS_MAX_LOCAL_VARS,
     stack_frame::StackFrame,
@@ -157,7 +157,7 @@ pub fn build_arg_list(ctx: &JSContext, array_arg: &JSValue) -> Result<Box<[JSVal
         ctx.throw_type_error_not_an_object();
         Err(-1)
     } else {
-        let len = js_get_length32(ctx, array_arg)?;
+        let len = array_arg.get_length_prop(ctx)? as u32;
         if len > JS_MAX_LOCAL_VARS as u32 {
             ctx.throw_internal_error("too many arguments");
             return Err(-1);

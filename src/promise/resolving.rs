@@ -38,9 +38,9 @@ impl PromiseResolveFunc {
     pub fn class_call(
         ctx: &JSContext,
         func_obj: &JSValue,
-        this_val: &JSValue,
+        _this_val: &JSValue,
         args: &[JSValue],
-        flags: i32,
+        _flags: i32,
     ) -> JSResult {
         let resolv = func_obj.as_object_PromiseResolveFunc().unwrap();
         let isa = resolv.payload();
@@ -53,7 +53,7 @@ impl PromiseResolveFunc {
             s.resolved.set(true);
 
             let is_reject = isa.class_id() == JS_CLASS_PROMISE_REJECT_FUNCTION;
-            let arg0 = if args.len() > 0 {
+            let arg0 = if !args.is_empty() {
                 args[0].clone()
             } else {
                 JSValue::UNDEFINED

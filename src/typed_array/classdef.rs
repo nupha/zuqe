@@ -19,7 +19,7 @@ use crate::{
     function::{CallContext, FieldDef, JS_CallConstructor},
     iterator::{JSIteratorKindEnum, js_create_array_iterator},
     js_core::js_get_this,
-    object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_SpeciesConstructor, js_get_length64},
+    object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_SpeciesConstructor},
     string::StringBuf,
     value::{HINT_NUMBER, JSValue},
 };
@@ -33,7 +33,7 @@ pub fn js_typed_array_base_constructor(ctx: &JSContext, _cc: CallContext) -> JSR
 
 pub fn js_typed_array___speciesCreate(
     ctx: &JSContext,
-    this_val: &JSValue,
+    _this_val: &JSValue,
     cc: &[JSValue],
 ) -> JSResult {
     let obj = &cc[0];
@@ -136,7 +136,7 @@ pub fn js_typed_array_from(ctx: &JSContext, args: CallContext) -> JSResult {
         items.clone().objectify(ctx)?.into()
     };
 
-    let len = js_get_length64(ctx, &arr)?;
+    let len = arr.get_length_prop(ctx)?;
     let len_val = JSValue::from(len);
     let res_ta = js_typed_array_create(ctx, args.this(), &[len_val])?;
 
@@ -920,22 +920,20 @@ pub fn js_typed_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
             d = cc.arg(1).to_f64(ctx)?;
             if d.is_nan() {
                 k = 0;
-            } else {
-                if d >= 0.0 {
-                    if d < k as f64 {
-                        k = d as i32;
-                    }
-                } else {
-                    d += len as f64;
-                    if d < 0.0 {
-                        return Ok(if special == special_includes {
-                            JSValue::Bool(false)
-                        } else {
-                            JSValue::Int(-1)
-                        });
-                    }
+            } else if d >= 0.0 {
+                if d < k as f64 {
                     k = d as i32;
                 }
+            } else {
+                d += len as f64;
+                if d < 0.0 {
+                    return Ok(if special == special_includes {
+                        JSValue::Bool(false)
+                    } else {
+                        JSValue::Int(-1)
+                    });
+                }
+                k = d as i32;
             }
         }
         stop = -1;
@@ -966,7 +964,7 @@ pub fn js_typed_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
         });
     }
 
-    let is_bigint = false;
+    let _is_bigint = false;
     let mut is_int = false; // avoid warning
     let mut v64 = 0_i64; // avoid warning
 

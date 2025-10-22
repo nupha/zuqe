@@ -444,7 +444,7 @@ pub fn js_create_iterator_result(ctx: &JSContext, value: JSValue, done: bool) ->
 }
 
 pub const fn js_for_in_iterator_finalizer(_rt: &mut JSRuntime, isa: &ObjectPayload, _id: usize) {
-    if let ObjectPayload::FOR_IN_ITERATOR(it) = isa {
+    if let ObjectPayload::FOR_IN_ITERATOR(_it) = isa {
         // let mut b = it.borrow_mut();
         // if !b.is_array {
         //     for x in b.prop_enums.iter_mut() {

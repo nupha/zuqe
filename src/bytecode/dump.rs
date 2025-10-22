@@ -48,7 +48,7 @@ pub(crate) fn dump_opcodes(
 
     // scan for jump targets
     while pos < len {
-        let op = bin[pos as usize];
+        let op = bin[pos];
         let oi = if use_short_opcodes {
             opcode_info_final(op)
         } else {
@@ -149,7 +149,7 @@ pub(crate) fn dump_opcodes(
 
     pos = 0;
     while pos < len {
-        let op = bin[pos as usize];
+        let op = bin[pos];
 
         // print source code
         {
@@ -157,9 +157,8 @@ pub(crate) fn dump_opcodes(
                 if let Some(b) = bc {
                     line1 = b.find_line_num(pos as _).unwrap_or(-1) - line_num + 1;
                 } else if op == opcodes::op_line_num {
-                    line1 = unsafe {
-                        read_from_ptr::<i32>(bin.as_ptr().add(pos as usize + 1)) - line_num + 1
-                    };
+                    line1 =
+                        unsafe { read_from_ptr::<i32>(bin.as_ptr().add(pos + 1)) - line_num + 1 };
                 };
 
                 if line1 > line {
@@ -214,18 +213,18 @@ pub(crate) fn dump_opcodes(
         }
 
         // print address
-        if bits[pos as usize] != 0 {
+        if bits[pos] != 0 {
             print!("{pos:5}:  ");
         } else {
             print!("        ");
         }
 
         // print opcode name
-        print!("{}", (*oi).name);
+        print!("{}", oi.name);
         pos += 1;
 
         // print arguments
-        match (*oi).fmt {
+        match oi.fmt {
             #[cfg(feature = "short_opcode")]
             OpcodeFormat::NONE_INT => {
                 print!(" {}", op - opcodes::OP_push_0);
@@ -235,10 +234,10 @@ pub(crate) fn dump_opcodes(
                 print!(" {}", op - opcodes::OP_call0);
             }
             OpcodeFormat::U8 => {
-                print!(" {}", bin[pos as usize]);
+                print!(" {}", bin[pos]);
             }
             OpcodeFormat::I8 => {
-                print!(" {}", bin[pos as usize] as i8);
+                print!(" {}", bin[pos] as i8);
             }
             OpcodeFormat::U16 | OpcodeFormat::NPOP => {
                 print!(" {}", unsafe {
@@ -254,17 +253,17 @@ pub(crate) fn dump_opcodes(
             },
             OpcodeFormat::I16 => {
                 print!(" {}", unsafe {
-                    read_from_ptr::<i16>(bin.as_ptr().offset(pos as _))
+                    read_from_ptr::<i16>(bin.as_ptr().add(pos))
                 });
             }
             OpcodeFormat::I32 => {
                 print!(" {}", unsafe {
-                    read_from_ptr::<i32>(bin.as_ptr().offset(pos as _))
+                    read_from_ptr::<i32>(bin.as_ptr().add(pos))
                 });
             }
             OpcodeFormat::U32 => {
                 print!(" {}", unsafe {
-                    read_from_ptr::<u32>(bin.as_ptr().offset(pos as _))
+                    read_from_ptr::<u32>(bin.as_ptr().add(pos))
                 });
             }
 
@@ -280,7 +279,7 @@ pub(crate) fn dump_opcodes(
             }
 
             f @ (OpcodeFormat::LABEL | OpcodeFormat::LABEL_U16) => {
-                let addr = unsafe { read_from_ptr::<u32>(bin.as_ptr().offset(pos as _)) };
+                let addr = unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos)) };
                 has_addr1!(addr);
 
                 if f == OpcodeFormat::LABEL_U16 {
@@ -547,7 +546,7 @@ impl Bytecode {
     }
 }
 
-pub unsafe fn dump_pc2line(ctx: &JSContext, buf: *const u8, len: i32, mut line_num: i32) {
+pub(super) unsafe fn dump_pc2line(ctx: &JSContext, buf: *const u8, len: i32, mut line_num: i32) {
     if len <= 0 {
         return;
     }
@@ -694,29 +693,29 @@ pub(super) fn dump_run_instruction(
         }
         OpcodeFormat::U16 | OpcodeFormat::NPOP => {
             print!(" {}", unsafe {
-                read_from_ptr::<u16>(tab.as_ptr().offset(pos as isize))
+                read_from_ptr::<u16>(tab.as_ptr().add(pos))
             });
         }
         OpcodeFormat::NPOP_U16 => {
             print!(
                 " {},{}",
-                unsafe { read_from_ptr::<u16>(tab.as_ptr().offset(pos as _)) },
-                unsafe { read_from_ptr::<u16>(tab.as_ptr().offset(pos as isize + 2)) },
+                unsafe { read_from_ptr::<u16>(tab.as_ptr().add(pos)) },
+                unsafe { read_from_ptr::<u16>(tab.as_ptr().add(pos + 2)) },
             );
         }
         OpcodeFormat::I16 => {
             print!(" {}", unsafe {
-                read_from_ptr::<i16>(tab.as_ptr().offset(pos as _))
+                read_from_ptr::<i16>(tab.as_ptr().add(pos))
             });
         }
         OpcodeFormat::I32 => {
             print!(" {}", unsafe {
-                read_from_ptr::<i32>(tab.as_ptr().offset(pos as _))
+                read_from_ptr::<i32>(tab.as_ptr().add(pos))
             });
         }
         OpcodeFormat::U32 => {
             print!(" {}", unsafe {
-                read_from_ptr::<u32>(tab.as_ptr().offset(pos as _))
+                read_from_ptr::<u32>(tab.as_ptr().add(pos))
             });
         }
 
@@ -784,7 +783,7 @@ pub(super) fn dump_run_instruction(
             });
 
             // label
-            let diff = unsafe { read_from_ptr::<i32>(tab.as_ptr().add(pos as usize + 4)) };
+            let diff = unsafe { read_from_ptr::<i32>(tab.as_ptr().add(pos + 4)) };
             print!(", {diff}");
 
             if f == OpcodeFormat::ATOM_LABEL_U8 {

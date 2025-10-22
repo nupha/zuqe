@@ -1,5 +1,5 @@
 #[inline(always)]
-pub fn unlikely(expr: bool) -> bool {
+pub(crate) const fn unlikely(expr: bool) -> bool {
     if expr {
         #[cold]
         const fn cold_path() -> bool {
@@ -12,7 +12,7 @@ pub fn unlikely(expr: bool) -> bool {
 }
 
 #[inline(always)]
-pub fn likely(expr: bool) -> bool {
+pub(crate) const fn likely(expr: bool) -> bool {
     if expr {
         true
     } else {

@@ -315,9 +315,9 @@ impl AsyncFuncState {
         self.0.borrow_mut().header.gc_set_mark(mark);
     }
 
-    fn gc_dump(&self, _rt: &JSRuntime) {
-        println!("{:14p} [async_function]", self.id() as *const Self);
-    }
+    // fn gc_dump(&self, _rt: &JSRuntime) {
+    //     println!("{:14p} [async_function]", self.id() as *const Self);
+    // }
 
     pub const fn class_finalizer(_rt: &mut JSRuntime, _isa: &ObjectPayload, _id: usize) {}
 
@@ -340,11 +340,13 @@ impl From<AsyncStateWeakref> for GCObjectWeakref {
     }
 }
 
-impl AsyncStateWeakref {
-    pub fn new() -> Self {
+impl Default for AsyncStateWeakref {
+    fn default() -> Self {
         Self(Weak::new())
     }
+}
 
+impl AsyncStateWeakref {
     pub fn upgrade(&self) -> Option<AsyncFuncState> {
         self.0.upgrade().map(AsyncFuncState)
     }

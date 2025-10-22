@@ -35,7 +35,7 @@ impl JSContext {
                 .unwrap();
 
             let mut cx = self.0.borrow_mut();
-            cx.function_proto = func_obj.clone().into();
+            cx.function_proto = func_obj.clone();
             cx.class_proto[JS_CLASS_BYTECODE_FUNCTION as usize] = func_obj;
         }
 

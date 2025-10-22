@@ -167,11 +167,10 @@ impl JSObject {
                             return Ok(true); // typed array oob
                         }
                     }
-                } else if let Some(xm) = unsafe {
-                    ctx.rt().class_registry[cur_obj.class_id() as usize]
-                        .exotic
-                        .as_ref()
-                } {
+                } else if let Some(xm) = ctx.rt().class_registry[cur_obj.class_id() as usize]
+                    .exotic
+                    .as_ref()
+                {
                     // apply exotic methods
                     if let Some(sp) = xm.set_property {
                         return sp(

@@ -17,7 +17,7 @@ pub(super) enum TwoNumbers {
 }
 
 impl TwoNumbers {
-    pub fn from_values0(op1: &JSValue, op2: &JSValue) -> Option<Self> {
+    pub const fn from_values0(op1: &JSValue, op2: &JSValue) -> Option<Self> {
         match (op1, op2) {
             (JSValue::Int(a), JSValue::Int(b)) => Some(Self::Int(*a, *b)),
             (JSValue::Bool(a), JSValue::Bool(b)) => Some(Self::Int(*a as i32, *b as i32)),
@@ -150,7 +150,7 @@ impl TwoNumbers {
         }
     }
 
-    pub fn shl(self) -> JSValue {
+    pub const fn shl(self) -> JSValue {
         let (a, b) = match self {
             Self::Int(v1, v2) => (v1, v2),
             Self::Float(v1, v2) => {
@@ -162,7 +162,7 @@ impl TwoNumbers {
         JSValue::Int(a << (b & 0x1f))
     }
 
-    pub fn sar(self) -> JSValue {
+    pub const fn sar(self) -> JSValue {
         let (a, b) = match self {
             Self::Int(v1, v2) => (v1, v2),
             Self::Float(v1, v2) => {
@@ -269,7 +269,7 @@ impl UnaryOp {
         }
     }
 
-    pub fn plus(self) -> JSValue {
+    pub const fn plus(self) -> JSValue {
         match self {
             UnaryOp::Int(a) => JSValue::Int(a),
             UnaryOp::Float(a) => JSValue::Float64(a),
@@ -546,7 +546,7 @@ impl JSValue {
                         (true, true) => Ordering::Equal,
                         (true, false) => Ordering::Greater,
                         (false, true) => Ordering::Less,
-                        (false, false) => a.partial_cmp(&b).unwrap_or(Ordering::Equal),
+                        (false, false) => a.partial_cmp(b).unwrap_or(Ordering::Equal),
                     });
                 }
                 (JSValue::Int(a), JSValue::Float64(b)) => {
@@ -556,7 +556,7 @@ impl JSValue {
                         (true, true) => Ordering::Equal,
                         (true, false) => Ordering::Greater,
                         (false, true) => Ordering::Less,
-                        (false, false) => a.partial_cmp(&b).unwrap_or(Ordering::Equal),
+                        (false, false) => a.partial_cmp(b).unwrap_or(Ordering::Equal),
                     });
                 }
                 (JSValue::Float64(a), JSValue::Int(b)) => {
@@ -566,7 +566,7 @@ impl JSValue {
                         (true, true) => Ordering::Equal,
                         (true, false) => Ordering::Greater,
                         (false, true) => Ordering::Less,
-                        (false, false) => a.partial_cmp(&b).unwrap_or(Ordering::Equal),
+                        (false, false) => a.partial_cmp(b).unwrap_or(Ordering::Equal),
                     });
                 }
 
@@ -628,9 +628,7 @@ fn js_eq(ctx: &JSContext, val1: &JSValue, val2: &JSValue) -> Result<bool, i32> {
         return Ok(val1 == val2);
     } else if let Some(n2) = TwoNumbers::from_values0(val1, val2) {
         // fast path
-        return Ok(n2
-            .partial_cmp()
-            .map_or(false, |r| r == std::cmp::Ordering::Equal));
+        return Ok(n2.partial_cmp() == Some(std::cmp::Ordering::Equal));
     }
 
     // slow path
@@ -670,7 +668,7 @@ fn js_eq(ctx: &JSContext, val1: &JSValue, val2: &JSValue) -> Result<bool, i32> {
             (JSValue::Bool(b), JSValue::String(s)) | (JSValue::String(s), JSValue::Bool(b)) => {
                 break match s.to_number(ctx) {
                     JSValue::Int(v) => v == *b as i32,
-                    JSValue::Float64(v) => v == 0.0 && *b == false, // -0 == false
+                    JSValue::Float64(v) => v == 0.0 && !(*b), // -0 == false
                     _ => false,
                 };
             }
@@ -719,9 +717,7 @@ fn js_eq(ctx: &JSContext, val1: &JSValue, val2: &JSValue) -> Result<bool, i32> {
         if std::mem::discriminant(&op1) == std::mem::discriminant(&op2) {
             break op1 == op2;
         } else if let Some(n2) = TwoNumbers::from_values0(&op1, &op2) {
-            break n2
-                .partial_cmp()
-                .map_or(false, |r| r == std::cmp::Ordering::Equal);
+            break n2.partial_cmp() == Some(std::cmp::Ordering::Equal);
         }
     };
 

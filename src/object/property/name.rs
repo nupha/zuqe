@@ -145,12 +145,11 @@ impl JSObject {
                         )?;
                     }
                 }
-            } else if let Some(f) = unsafe {
-                ctx.rt().class_registry[self.class_id() as usize]
-                    .exotic
-                    .as_ref()
-                    .and_then(|m| m.get_own_property_names)
-            } {
+            } else if let Some(f) = ctx.rt().class_registry[self.class_id() as usize]
+                .exotic
+                .as_ref()
+                .and_then(|m| m.get_own_property_names)
+            {
                 // Note: exotic keys comes after the object own properties.
                 let mut has_err = false;
 

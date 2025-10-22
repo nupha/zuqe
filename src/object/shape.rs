@@ -41,12 +41,12 @@ impl JSShapeProperty {
 
     /// is special property `length`?
     #[inline(always)]
-    pub fn is_length(&self) -> bool {
+    pub const fn is_length(&self) -> bool {
         self.flags & JS_PROP_LENGTH != 0
     }
 
     #[inline(always)]
-    pub fn is_writable(&self) -> bool {
+    pub const fn is_writable(&self) -> bool {
         self.flags & JS_PROP_WRITABLE != 0
     }
 }
@@ -219,10 +219,7 @@ impl JSShape {
         Rc::strong_count(&self.0)
     }
 
-    pub fn with<R>(&self, f: impl FnOnce(&JSShapeInner) -> R) -> R {
-        f(&self.0.borrow())
-    }
-    pub fn with_mut<R>(&self, f: impl FnOnce(&mut JSShapeInner) -> R) -> R {
+    pub(crate) fn with_mut<R>(&self, f: impl FnOnce(&mut JSShapeInner) -> R) -> R {
         f(&mut self.0.borrow_mut())
     }
 
@@ -320,9 +317,9 @@ impl JSShape {
         self.0.borrow_mut().header.gc_set_mark(mark);
     }
 
-    fn gc_dump(&self, rt: &JSRuntime) {
-        println!("{:14p} [shape {:12x}]", self, self.hash());
-    }
+    // fn gc_dump(&self, _rt: &JSRuntime) {
+    //     println!("{:14p} [shape {:12x}]", self, self.hash());
+    // }
 }
 
 #[repr(transparent)]
@@ -428,25 +425,23 @@ impl JSRuntime {
                     None
                 }
             })
-        }) {
-            if base_shape
+        }) && base_shape
+            .prop_defs
+            .iter()
+            .zip(found.0.borrow().prop_defs.iter())
+            .all(|(a, b)| a.0 == b.0 && a.1.atom == b.1.atom && a.1.flags() == b.1.flags())
+        {
+            // all prop defs are match
+            if found
+                .0
+                .borrow()
                 .prop_defs
-                .iter()
-                .zip(found.0.borrow().prop_defs.iter())
-                .all(|(a, b)| a.0 == b.0 && a.1.atom == b.1.atom && a.1.flags() == b.1.flags())
+                .last()
+                .map(|(_, pr)| pr.atom.eq(prop) && pr.flags() == prop_flags)
+                .unwrap_or(false)
             {
-                // all prop defs are match
-                if found
-                    .0
-                    .borrow()
-                    .prop_defs
-                    .last()
-                    .map(|(_, pr)| pr.atom.eq(prop) && pr.flags() == prop_flags)
-                    .unwrap_or(false)
-                {
-                    // last prop (atom, prop_flags) is match too
-                    return Some(found);
-                }
+                // last prop (atom, prop_flags) is match too
+                return Some(found);
             }
         }
 

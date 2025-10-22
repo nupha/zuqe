@@ -284,6 +284,11 @@ impl JSMapState {
     }
 
     #[inline(always)]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    #[inline(always)]
     pub fn clear(&mut self) {
         self.lut.clear();
         self.slots.clear();

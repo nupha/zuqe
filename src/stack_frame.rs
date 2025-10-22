@@ -77,7 +77,7 @@ impl Default for StackFrame {
             cur_sp_offset: 0,
             var_ref_list: Vec::new(),
             js_mode: 0,
-            async_func: AsyncStateWeakref::new(),
+            async_func: AsyncStateWeakref::default(),
             _mark: PhantomPinned,
         }
     }

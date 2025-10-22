@@ -58,13 +58,13 @@ pub fn js_parse_array_literal(s: &mut JSParseState) -> i32 {
             need_length = false;
         }
         idx += 1;
+
         // accept trailing comma
-        if s.token.val == ',' as i32 {
-            if s.next_token().is_err() {
-                return -1;
-            }
+        if s.token.val == ',' as i32 && s.next_token().is_err() {
+            return -1;
         }
     }
+
     if s.token.val == ']' as i32 {
         if need_length {
             // Set the length: Cannot use OP_define_field because

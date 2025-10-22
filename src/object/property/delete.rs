@@ -96,12 +96,11 @@ impl JSObject {
                     }
                 } else {
                     // use exotic delete_property callback
-                    if let Some(cb) = unsafe {
-                        ctx.rt().class_registry[self.class_id() as usize]
-                            .exotic
-                            .as_ref()
-                            .and_then(|m| m.delete_property)
-                    } {
+                    if let Some(cb) = ctx.rt().class_registry[self.class_id() as usize]
+                        .exotic
+                        .as_ref()
+                        .and_then(|m| m.delete_property)
+                    {
                         return cb(ctx, JSValue::Object(self.clone()), prop);
                     }
                 }
