@@ -177,7 +177,7 @@ impl std::fmt::Display for ObjectInner {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let rt = self.rt();
         let class_id = self.class_id();
-        let name = rt.class_defs[class_id as usize].class_name.to_utf8();
+        let name = rt.class_registry[class_id as usize].class_name.to_utf8();
 
         #[cfg(debug_assertions)]
         {
@@ -277,7 +277,7 @@ impl ObjectInner {
 
             class_id @ (JS_CLASS_NUMBER | JS_CLASS_STRING | JS_CLASS_BOOLEAN | JS_CLASS_SYMBOL
             | JS_CLASS_DATE | JS_CLASS_BIG_INT) => {
-                if !ctx.rt().class_defs[class_id as usize].exotic.is_null() {
+                if ctx.rt().class_registry[class_id as usize].exotic.is_some() {
                     flags.set_exotic(true);
                 }
             }
@@ -300,7 +300,7 @@ impl ObjectInner {
             }
 
             class_id => {
-                if !ctx.rt().class_defs[class_id as usize].exotic.is_null() {
+                if ctx.rt().class_registry[class_id as usize].exotic.is_some() {
                     flags.set_exotic(true);
                 }
             }
@@ -363,7 +363,7 @@ impl ObjectInner {
             isa => {
                 // check if class proto has exotic call handler
                 self.rt()
-                    .class_defs
+                    .class_registry
                     .get(isa.class_id() as usize)
                     .and_then(|c| c.call)
                     .is_some()
@@ -389,7 +389,7 @@ impl ObjectInner {
         // call class finalizer.
         // object won't be accessed any more, so we can take payload out
         let rt = unsafe { self.rt_ptr().as_mut() };
-        if let Some(f) = rt.class_defs[self.class_id() as usize].finalizer {
+        if let Some(f) = rt.class_registry[self.class_id() as usize].finalize {
             let id = self.id();
             f(rt, &self.payload, id);
         }
@@ -473,7 +473,7 @@ impl JSObject {
     /// Get object class name atom.
     #[inline]
     pub fn class_name(&self) -> &Atom {
-        &self.rt().class_defs[self.class_id() as usize].class_name
+        &self.rt().class_registry[self.class_id() as usize].class_name
     }
 
     /// Get object flags

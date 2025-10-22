@@ -770,7 +770,7 @@ fn string_define_own_property(
     }
 }
 
-pub static js_string_exotic_methods: JSClassExoticMethods = JSClassExoticMethods {
+pub const js_string_exotic_methods: JSClassExoticMethods = JSClassExoticMethods {
     get_own_property: Some(
         |ctx: &JSContext, obj: JSValue, prop: &Atom| -> Result<Option<JSPropertyDescriptor>, i32> {
             // This is a class exotic method for JS_CLASS_STRING object

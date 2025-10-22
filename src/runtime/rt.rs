@@ -16,7 +16,7 @@ use crate::{
     array_buffer::JSSharedArrayBufferFunctions,
     atom::AtomRegistry,
     callable::NativeFunctionWithData,
-    class::{JSClass, js_arguments_exotic_methods},
+    class::{ClassMeta, js_arguments_exotic_methods},
     context::JSContext,
     function::{AsyncFunction, BoundFunction, ObjNativeFunc, js_async_function_resolve_call},
     gc::JSGCPhaseEnum,
@@ -45,7 +45,7 @@ pub struct JSRuntime {
     pub rt_info: *const c_char,
 
     /// registered classes
-    pub class_defs: Vec<JSClass>,
+    pub class_registry: Vec<ClassMeta>,
 
     /// context list
     pub context_list: Vec<JSContext>,
@@ -147,7 +147,7 @@ impl JSRuntime {
             malloc_state: ms,
             rt_info: std::ptr::null(),
 
-            class_defs: Vec::with_capacity(JS_CLASS_INIT_COUNT),
+            class_registry: Vec::with_capacity(JS_CLASS_INIT_COUNT),
 
             cur_stack_frame: std::ptr::null_mut(),
             host_promise_rejection_tracker_opaque: std::ptr::null_mut(),
@@ -194,44 +194,55 @@ impl JSRuntime {
 
         // setup common classes
         {
-            rt.class_defs[JS_CLASS_ARGUMENTS as usize].exotic = &js_arguments_exotic_methods;
-            rt.class_defs[JS_CLASS_STRING as usize].exotic = &js_string_exotic_methods;
-            rt.class_defs[JS_CLASS_MODULE_NS as usize].exotic = &js_module_ns_exotic_methods;
+            rt.class_registry[JS_CLASS_ARGUMENTS as usize]
+                .exotic
+                .replace(Box::new(js_arguments_exotic_methods));
 
-            rt.class_defs[JS_CLASS_C_FUNCTION as usize]
+            rt.class_registry[JS_CLASS_STRING as usize]
+                .exotic
+                .replace(Box::new(js_string_exotic_methods));
+
+            rt.class_registry[JS_CLASS_MODULE_NS as usize]
+                .exotic
+                .replace(Box::new(js_module_ns_exotic_methods));
+
+            rt.class_registry[JS_CLASS_C_FUNCTION as usize]
                 .call
                 .replace(ObjNativeFunc::class_call);
-            rt.class_defs[JS_CLASS_C_FUNCTION_DATA as usize]
+            rt.class_registry[JS_CLASS_C_FUNCTION_DATA as usize]
                 .call
                 .replace(NativeFunctionWithData::class_call);
-            rt.class_defs[JS_CLASS_BOUND_FUNCTION as usize]
+            rt.class_registry[JS_CLASS_BOUND_FUNCTION as usize]
                 .call
                 .replace(BoundFunction::class_call);
-            rt.class_defs[JS_CLASS_GENERATOR_FUNCTION as usize]
+            rt.class_registry[JS_CLASS_GENERATOR_FUNCTION as usize]
                 .call
                 .replace(js_generator_function_call);
 
             // setup Proxy
-            rt.class_defs[JS_CLASS_PROXY as usize].exotic = &js_proxy_exotic_methods;
-            rt.class_defs[JS_CLASS_PROXY as usize]
+            rt.class_registry[JS_CLASS_PROXY as usize]
+                .exotic
+                .replace(Box::new(js_proxy_exotic_methods));
+            rt.class_registry[JS_CLASS_PROXY as usize]
                 .call
                 .replace(Proxy::class_call);
         }
 
         // setup async related classes
         {
-            rt.class_defs[JS_CLASS_PROMISE_RESOLVE_FUNCTION as usize].call =
+            rt.class_registry[JS_CLASS_PROMISE_RESOLVE_FUNCTION as usize].call =
                 Some(PromiseResolveFunc::class_call);
-            rt.class_defs[JS_CLASS_PROMISE_REJECT_FUNCTION as usize].call =
+            rt.class_registry[JS_CLASS_PROMISE_REJECT_FUNCTION as usize].call =
                 Some(PromiseResolveFunc::class_call);
 
-            rt.class_defs[JS_CLASS_ASYNC_FUNCTION as usize].call = Some(AsyncFunction::class_call);
-            rt.class_defs[JS_CLASS_ASYNC_FUNCTION_RESOLVE as usize].call =
+            rt.class_registry[JS_CLASS_ASYNC_FUNCTION as usize].call =
+                Some(AsyncFunction::class_call);
+            rt.class_registry[JS_CLASS_ASYNC_FUNCTION_RESOLVE as usize].call =
                 Some(js_async_function_resolve_call);
-            rt.class_defs[JS_CLASS_ASYNC_FUNCTION_REJECT as usize].call =
+            rt.class_registry[JS_CLASS_ASYNC_FUNCTION_REJECT as usize].call =
                 Some(js_async_function_resolve_call);
 
-            rt.class_defs[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize].call =
+            rt.class_registry[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize].call =
                 Some(AsyncGeneratorFunction::class_call);
         }
 
@@ -398,7 +409,7 @@ impl JSRuntime {
         // for c in self.class_defs.drain(..) {
         //     JS_FreeAtomRT(rt, c.class_name);
         // }
-        self.class_defs.clear();
+        self.class_registry.clear();
 
         // guard: all non-const atom should be freed by logic.
         // #[cfg(debug_assertions)]

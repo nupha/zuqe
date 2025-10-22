@@ -59,7 +59,7 @@ impl JSObject {
                 | JS_CLASS_BOOLEAN
                 | JS_CLASS_NUMBER
                 | JS_CLASS_DATE
-                | JS_CLASS_REGEXP) => ctx.rt().class_defs[cid as usize].class_name.to_ref(),
+                | JS_CLASS_REGEXP) => ctx.rt().class_registry[cid as usize].class_name.to_ref(),
 
                 _ => crate::atom::consts::JS_ATOM_Object,
             }

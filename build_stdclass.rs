@@ -29,7 +29,6 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<&'static str, &'static str>> = Lazy::new
 
     m.insert("array", "crate::array::ArrayObjPayload");
     m.insert("value", "crate::value::JSValue");
-    // m.insert("string", "crate::string::JSString");
     m.insert("datetime", "std::cell::Cell<crate::date::Datetime>");
     m.insert("native_func", "crate::function::ObjNativeFunc");
     m.insert(
@@ -517,7 +516,6 @@ pub fn gen_std_class_defs(outfile: &Path) {
 
     for (i, cdef) in class_defs.iter().enumerate() {
         if let Some(k) = cdef.key {
-            println!("**** key={k}");
             debug_assert_eq!(
                 cdef.payload,
                 Some(CLASS_PAYLOAD_TYPE[k]),
@@ -617,8 +615,8 @@ pub fn gen_class_payload(outfile: &Path) {
         });
     }
 
-    items.push("USER(JSClassID, *mut std::ffi::c_void)".to_string());
-    getid_arms.push("Self::USER(id,_)=>*id".to_string());
+    items.push("OTHER(Box<crate::class::OtherPayload>)".to_string());
+    getid_arms.push("Self::OTHER(u)=>u.class_id".to_string());
 
     // get payload methods
     let mut get_payload_methods = Vec::<String>::with_capacity(class_defs.len() + 8);

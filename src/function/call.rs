@@ -268,7 +268,7 @@ pub fn JS_CallInternal(
             } else {
                 // non bytecode function: bound function, native function, async function etc.
                 // use callback defined on the class.
-                if let Some(call_func) = caller_ctx.rt().class_defs[o.class_id() as usize].call {
+                if let Some(call_func) = caller_ctx.rt().class_registry[o.class_id() as usize].call {
                     call_func(caller_ctx, func_obj, this_obj, args, flags)
                         .unwrap_or(JSValue::EXCEPTION)
                 } else {
@@ -376,7 +376,7 @@ pub fn JS_CallConstructorInternal(
             }
         } else {
             // call class exotic handler
-            if let Some(cb) = ctx.rt().class_defs[o.class_id() as usize].call {
+            if let Some(cb) = ctx.rt().class_registry[o.class_id() as usize].call {
                 cb(ctx, func_obj, &new_target, args, flags).unwrap_or(JSValue::EXCEPTION)
             } else {
                 ctx.throw_type_error("not a function");

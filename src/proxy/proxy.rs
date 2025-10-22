@@ -816,7 +816,7 @@ fn js_proxy_set(
     Ok(ret)
 }
 
-pub static js_proxy_exotic_methods: JSClassExoticMethods = JSClassExoticMethods {
+pub const js_proxy_exotic_methods: JSClassExoticMethods = JSClassExoticMethods {
     get_own_property: Some(js_proxy_get_own_property),
     define_own_property: Some(js_proxy_define_own_property),
     delete_property: Some(js_proxy_delete_property),

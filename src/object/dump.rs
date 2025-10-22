@@ -67,7 +67,7 @@ impl JSObject {
         // print class name
         print!(
             "{:10} ",
-            rt.class_defs[self.class_id() as usize].class_name.to_utf8(),
+            rt.class_registry[self.class_id() as usize].class_name.to_utf8(),
         );
 
         if self.flags().is_exotic() && self.flags().is_fast_array() {

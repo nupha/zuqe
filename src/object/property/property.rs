@@ -307,7 +307,7 @@ impl JSObject {
         loop {
             if p.flags().is_exotic()
                 && let Some(cb) = unsafe {
-                    ctx.rt().class_defs[p.class_id() as usize]
+                    ctx.rt().class_registry[p.class_id() as usize]
                         .exotic
                         .as_ref()
                         .and_then(|x| x.has_property)
@@ -355,7 +355,7 @@ impl JSObject {
         let mut gpn_flags = JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK | JS_GPN_ENUM_ONLY;
         if source.flags().is_exotic()
             && unsafe {
-                ctx.rt().class_defs[source.class_id() as usize]
+                ctx.rt().class_registry[source.class_id() as usize]
                     .exotic
                     .as_ref()
             }

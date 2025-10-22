@@ -1,12 +1,13 @@
+use std::ffi::c_void;
+
 use zhuque::{
     JS_CGETSET_NATIVE_DEF,
-    class::{ClassDef, JSClassID},
+    class::{ClassDefBuilder, JSClassID},
     context::JSContext,
     error::JSResult,
     function::{CallContext, FieldDef, NativeFunctionType},
-    object::{JS_PROP_C_W_E, JSObject, ObjectPayload},
+    object::{JS_PROP_C_W_E, JSObject},
     runtime::JSRuntime,
-    value::JSValue,
 };
 
 #[derive(Debug)]
@@ -20,26 +21,23 @@ fn point_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let x = cc.arg(0).to_i32(ctx)?;
     let y = cc.arg(1).to_i32(ctx)?;
-    let p = PointData { x, y };
+    let p = Box::new(PointData { x, y });
     println!("[O.o] Point: {p:?}, class_id={class_id}");
 
-    let obj = ctx
-        .create_object_from_ctor(
-            cc.this(),
-            ObjectPayload::USER(class_id, std::ptr::null_mut()),
-        )
-        .map_err(|_| -1)?;
-
+    let obj = ctx.new_instance(class_id, cc.this(), Box::into_raw(p).cast())?;
     Ok(obj.into())
 }
 
-fn point_finalize(rt: &mut JSRuntime, payload: &ObjectPayload, id: usize) {
-    println!("[O.o] Point finalize: {payload:?}, id={id}");
-}
-
 fn point_getset(ctx: &JSContext, cc: CallContext) -> JSResult {
-    println!("[O.o] Point getset {:?}", cc.magic());
-    Ok(JSValue::UNDEFINED)
+    if let Some(p) = cc.this().opaque_ref::<PointData>() {
+        match cc.magic() {
+            0 => Ok(p.x.into()),
+            1 => Ok(p.y.into()),
+            _ => unreachable!(),
+        }
+    } else {
+        unreachable!()
+    }
 }
 
 static class_point_proto: [FieldDef; 2] = [
@@ -49,35 +47,44 @@ static class_point_proto: [FieldDef; 2] = [
 
 pub fn register_class_point(rt: &mut JSRuntime) -> Result<JSClassID, i32> {
     // register class
-    let class_id = rt.register_class(&ClassDef {
-        class_name: "Point",
-        initialize: Some(
-            |ctx: &JSContext, class_id: JSClassID| -> Result<JSObject, i32> {
-                // create prototype
-                let proto = ctx.create_base_object().unwrap();
-                proto.install_field_defs(ctx, &class_point_proto)?;
+    let class_id = rt.register_class(
+        ClassDefBuilder::new("Point")
+            .init(
+                |ctx: &JSContext, class_id: JSClassID| -> Result<JSObject, i32> {
+                    // create prototype
+                    let proto = ctx.create_base_object().unwrap();
+                    proto.install_field_defs(ctx, &class_point_proto)?;
 
-                // create constructor
-                let ctor = ctx.create_native_function(
-                    NativeFunctionType::ConstructorOrFunc(point_constructor),
-                    "Point",
-                    2,
-                    class_id as i16,
-                )?;
-                ctor.install_field_defs(ctx, &class_point_proto)?;
+                    // create constructor
+                    let ctor = ctx.create_native_function(
+                        NativeFunctionType::ConstructorOrFunc(point_constructor),
+                        "Point",
+                        2,
+                        class_id as i16,
+                    )?;
+                    ctor.install_field_defs(ctx, &class_point_proto)?;
 
-                ctx.bind_ctor_proto(&ctor, &proto.clone().into())?;
+                    ctx.bind_ctor_proto(&ctor, &proto.clone().into())?;
 
-                // expose ctor to global
-                ctx.global_obj()
-                    .define_property_value_str(ctx, "Point", ctor, JS_PROP_C_W_E)?;
+                    // expose ctor to global
+                    ctx.global_obj().define_property_value_str(
+                        ctx,
+                        "Point",
+                        ctor,
+                        JS_PROP_C_W_E,
+                    )?;
 
-                Ok(proto)
-            },
-        ),
-        finalize: Some(point_finalize),
-        ..Default::default()
-    })?;
+                    Ok(proto)
+                },
+            )
+            .free(|rt: &mut JSRuntime, opaque: *mut c_void, id: usize| {
+                debug_assert!(!opaque.is_null());
+                unsafe {
+                    let p = Box::from_raw(opaque.cast::<PointData>());
+                    println!("--- Point instance free: {opaque:?}, obj_id: {id}, data: {p:?}");
+                }
+            }),
+    )?;
 
     Ok(class_id)
 }

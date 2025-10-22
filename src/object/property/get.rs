@@ -105,7 +105,7 @@ impl JSObject {
                         }
                     }
                 } else if let Some(m) = unsafe {
-                    ctx.rt().class_defs[cur_obj.class_id() as usize]
+                    ctx.rt().class_registry[cur_obj.class_id() as usize]
                         .exotic
                         .as_ref()
                 } {

@@ -97,7 +97,7 @@ impl JSObject {
                 } else {
                     // use exotic delete_property callback
                     if let Some(cb) = unsafe {
-                        ctx.rt().class_defs[self.class_id() as usize]
+                        ctx.rt().class_registry[self.class_id() as usize]
                             .exotic
                             .as_ref()
                             .and_then(|m| m.delete_property)

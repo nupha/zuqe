@@ -3,7 +3,7 @@ use crate::{
         Atom, AtomRef,
         consts::{JS_ATOM_constructor, JS_ATOM_prototype},
     },
-    class::ClassInitializeFn,
+    class::{ClassInitializeFn, FreeObjFn},
     context::JSContext,
     error::JSResult,
     function::{JSFunctionDef, NativeCallback, NativeFunctionType},
@@ -15,14 +15,13 @@ use crate::{
 
 use super::{
     ClassCallFn, ClassFinalizeFn, ClassGCMarkFn, DefineOwnPropertyFn, DeletePropertyFn,
-    GetOwnPropertyFn, GetOwnPropertyNamesFn, GetPropertyFn, HasPropertyFn, JSClassID,
-    SetPropertyFn,
+    GetOwnPropertyFn, GetOwnPropertyNamesFn, GetPropertyFn, HasPropertyFn, SetPropertyFn,
 };
 
 pub const JS_DEFINE_CLASS_HAS_HERITAGE: i32 = 1 << 0;
 
 #[derive(Copy, Clone, Default)]
-pub struct JSClassExoticMethods {
+pub(crate) struct JSClassExoticMethods {
     pub get_own_property: Option<GetOwnPropertyFn>,
     pub get_own_property_names: Option<GetOwnPropertyNamesFn>,
     pub delete_property: Option<DeletePropertyFn>,
@@ -39,13 +38,16 @@ pub(crate) struct JSClassShortDef {
 }
 
 /// class definition
+#[derive(Default)]
 pub struct ClassDef {
     pub class_name: &'static str,
 
     /// callback handler when called
     pub call: Option<ClassCallFn>,
-    /// exotic method handlers
-    pub exotic: *const JSClassExoticMethods,
+    /// exotic property method handlers
+    pub exotic: Option<Box<JSClassExoticMethods>>,
+    /// free user class instance handler
+    pub free_obj: Option<FreeObjFn>,
 
     /// initialize class proto, constructor to context
     pub initialize: Option<ClassInitializeFn>,
@@ -53,242 +55,6 @@ pub struct ClassDef {
     pub finalize: Option<ClassFinalizeFn>,
 
     pub gc_mark: Option<ClassGCMarkFn>,
-}
-
-impl Default for ClassDef {
-    fn default() -> Self {
-        Self {
-            class_name: "",
-            initialize: None,
-            call: None,
-            exotic: std::ptr::null(),
-            finalize: None,
-            gc_mark: None,
-        }
-    }
-}
-
-pub struct JSClass {
-    /// NULL atom indicates this class is not initialized
-    pub class_name: Atom,
-
-    /// callback handler when called
-    pub call: Option<ClassCallFn>,
-    /// pointers for exotic behavior, can be NULL if none are present
-    pub exotic: *const JSClassExoticMethods,
-
-    /// initialize class proto, constructor to context
-    pub initialize: Option<ClassInitializeFn>,
-    pub finalizer: Option<ClassFinalizeFn>,
-
-    pub gc_mark: Option<ClassGCMarkFn>,
-}
-
-impl Default for JSClass {
-    fn default() -> Self {
-        Self {
-            class_name: Atom::NULL,
-            initialize: None,
-            call: None,
-            exotic: std::ptr::null(),
-            gc_mark: None,
-            finalizer: None,
-        }
-    }
-}
-
-impl JSRuntime {
-    /// create a new object internal class. The finalizer can be NULL if none is needed.
-    pub(super) fn add_class_internal(
-        &mut self,
-        class_id: JSClassID,
-        class_def: &ClassDef,
-        class_name: Atom,
-    ) -> Result<(), i32> {
-        if (class_id as usize) < self.class_defs.len() {
-            if !self.class_defs[class_id as usize].class_name.is_null() {
-                return Err(-1); // class_id slot is in use
-            }
-        } else if class_id as usize >= self.class_defs.len() {
-            // grow slot
-            let extra = class_id as usize - self.class_defs.len() + 1;
-
-            // grow context class prototype array
-            for ctx in self.context_list.iter() {
-                let mut cx = ctx.0.borrow_mut();
-                cx.class_proto.try_reserve(extra).map_err(|_| -1)?;
-                cx.class_proto
-                    .extend(std::iter::repeat_n(JSValue::NULL, extra));
-            }
-
-            // grow class array, fill slots with empty class
-            self.class_defs.try_reserve(extra).map_err(|_| -1)?;
-            self.class_defs
-                .extend(std::iter::repeat_with(JSClass::default).take(extra));
-        }
-
-        self.class_defs[class_id as usize] = JSClass {
-            class_name,
-            initialize: class_def.initialize,
-            call: class_def.call,
-            exotic: class_def.exotic,
-            gc_mark: class_def.gc_mark,
-            finalizer: class_def.finalize,
-        };
-
-        Ok(())
-    }
-
-    /// initialize multiple class short defs. used for builtin class defs only
-    pub(crate) fn init_class_range(
-        &mut self,
-        tab: &[JSClassShortDef],
-        start_id: JSClassID,
-    ) -> Result<(), i32> {
-        debug_assert!(start_id > 0);
-
-        let mut class_id = start_id;
-        for item in tab {
-            let cd = ClassDef {
-                finalize: item.finalizer,
-                gc_mark: item.gc_mark,
-                ..Default::default()
-            };
-            self.add_class_internal(class_id, &cd, Atom::new_const(item.class_name))?;
-            class_id += 1;
-        }
-
-        Ok(())
-    }
-
-    pub(crate) fn is_class_registered(&self, class_id: JSClassID) -> bool {
-        class_id < self.class_defs.len() as JSClassID
-            && !self.class_defs[class_id as usize].class_name.is_null()
-    }
-}
-
-impl JSContext {
-    /// get class proto object by `class_id`.
-    /// if class proto object is not initialized in this context, returns JS_NULL.
-    /// returned proto value is duplicated. caller should free it.
-    pub fn get_class_proto(&self, class_id: JSClassID) -> JSValue {
-        debug_assert!((class_id as usize) < self.0.borrow().class_proto.len());
-        self.0.borrow().class_proto[class_id as usize].clone()
-    }
-
-    pub fn set_class_proto(&self, class_id: JSClassID, proto_obj: JSValue) {
-        debug_assert!(class_id < self.0.borrow().class_proto.len() as JSClassID);
-        debug_assert!(self.0.borrow().class_proto[class_id as usize].is_null());
-
-        self.0.borrow_mut().class_proto[class_id as usize] = proto_obj;
-    }
-
-    /// mark function `func_obj` to be a constructor, set `proto` as its prototype,
-    /// then add it to global namespace as `name`.
-    pub fn add_global_constructor(&self, name: &str, func_obj: &JSValue, proto: &JSValue) {
-        self.0
-            .borrow()
-            .global_obj
-            .define_property_value_str(
-                self,
-                name,
-                func_obj.clone(),
-                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-            )
-            .unwrap();
-
-        self.bind_ctor_proto(func_obj, proto).unwrap();
-    }
-
-    /// create a new native constructor, add it to global namespace.
-    /// returns new constructor function.
-    fn create_global_constructor_internal(
-        &self,
-        name: &str,
-        handler: NativeFunctionType,
-        length: i32,
-        proto: &JSValue,
-        magic: i16,
-    ) -> JSResult {
-        debug_assert!(matches!(
-            handler,
-            NativeFunctionType::Constructor(_) | NativeFunctionType::ConstructorOrFunc(_)
-        ));
-
-        let func_obj = self.create_native_function(handler, name, length as _, magic)?;
-        self.add_global_constructor(name, &func_obj, proto);
-
-        Ok(func_obj)
-    }
-
-    /// create a new native constructor, add it to global namespace.
-    /// returns new constructor function.
-    #[inline(always)]
-    pub fn create_global_constructor_or_func(
-        &self,
-        name: &str,
-        callback: NativeCallback,
-        length: i32,
-        proto: &JSValue,
-        magic: i16,
-    ) -> JSResult {
-        self.create_global_constructor_internal(
-            name,
-            NativeFunctionType::ConstructorOrFunc(callback),
-            length,
-            proto,
-            magic,
-        )
-    }
-
-    /// create a new native constructor, add it to global namespace.
-    /// returns new constructor function.
-    #[inline(always)]
-    pub fn create_global_constructor_only(
-        &self,
-        name: &str,
-        callback: NativeCallback,
-        length: i32,
-        proto: &JSValue,
-        magic: i16,
-    ) -> JSResult {
-        self.create_global_constructor_internal(
-            name,
-            NativeFunctionType::Constructor(callback),
-            length,
-            proto,
-            magic,
-        )
-    }
-
-    /// Mutually define properties on both `ctor` and `proto` side:
-    /// - Define property `ctor.prototype = proto`
-    /// - Define property `proto.constructor = ctor`.
-    ///
-    /// Note: The `ctor` may not necessarily be a constructor
-    pub(crate) fn bind_ctor_proto_ex(
-        &self,
-        ctor: &JSValue,
-        proto: &JSValue,
-        proto_flags: u32,
-        ctor_flags: u32,
-    ) -> Result<(), i32> {
-        ctor.define_property_value(self, &JS_ATOM_prototype, proto.clone(), proto_flags)?;
-        proto.define_property_value(self, &JS_ATOM_constructor, ctor.clone(), ctor_flags)?;
-        set_cycle_flag(self, ctor);
-        set_cycle_flag(self, proto);
-        Ok(())
-    }
-
-    /// Mutually define properties on both `ctor` and `proto` side:
-    /// - Define property `ctor.prototype = proto`
-    /// - Define property `proto.constructor = ctor`.
-    ///
-    /// Note: The `ctor` may not necessarily be a constructor
-    #[inline(always)]
-    pub fn bind_ctor_proto(&self, ctor: &JSValue, proto: &JSValue) -> Result<(), i32> {
-        self.bind_ctor_proto_ex(ctor, proto, 0, JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE)
-    }
 }
 
 #[derive(Debug)]
@@ -352,7 +118,7 @@ fn js_arguments_define_own_property(
     )
 }
 
-pub static js_arguments_exotic_methods: JSClassExoticMethods = JSClassExoticMethods {
+pub const js_arguments_exotic_methods: JSClassExoticMethods = JSClassExoticMethods {
     define_own_property: Some(js_arguments_define_own_property),
     delete_property: None,
     get_own_property: None,

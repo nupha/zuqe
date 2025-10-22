@@ -150,7 +150,7 @@ impl JSObject {
                     return Ok(true);
                 }
             } else if let Some(cb) = unsafe {
-                ctx.rt().class_defs[self.class_id() as usize]
+                ctx.rt().class_registry[self.class_id() as usize]
                     .exotic
                     .as_ref()
                     .and_then(|x| x.get_own_property)
@@ -238,7 +238,7 @@ impl JSObject {
                     }));
                 }
             } else if let Some(f) = unsafe {
-                ctx.rt().class_defs[self.class_id() as usize]
+                ctx.rt().class_registry[self.class_id() as usize]
                     .exotic
                     .as_ref()
                     .and_then(|xm| xm.get_own_property)
@@ -425,7 +425,7 @@ impl JSObject {
                 cid => {
                     if flags & JS_PROP_NO_EXOTIC == 0
                         && let Some(em) =
-                            unsafe { ctx.rt().class_defs[cid as usize].exotic.as_ref() }
+                            unsafe { ctx.rt().class_registry[cid as usize].exotic.as_ref() }
                     {
                         if let Some(f) = em.define_own_property {
                             return f(

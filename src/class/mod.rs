@@ -1,7 +1,10 @@
 mod class_def;
+mod meta;
 mod user;
 
-pub use class_def::*;
+pub use {class_def::*, meta::*, user::*};
+
+use std::ffi::c_void;
 
 use crate::{
     atom::Atom,
@@ -64,6 +67,9 @@ pub type SetPropertyFn = fn(
 
 /// TODO: change target type to &JSObject
 pub type DeletePropertyFn = fn(ctx: &JSContext, target: JSValue, prop: &Atom) -> Result<bool, i32>;
+
+/// free user class instance handler
+pub type FreeObjFn = fn(rt: &mut JSRuntime, opaque: *mut c_void, id: usize);
 
 pub(crate) const OP_DEFINE_METHOD_METHOD: u8 = 0;
 pub(crate) const OP_DEFINE_METHOD_GETTER: u8 = 1;

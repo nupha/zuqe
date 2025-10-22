@@ -82,6 +82,12 @@ impl Drop for Atom {
     }
 }
 
+impl Default for Atom {
+    fn default() -> Self {
+        Self::NULL
+    }
+}
+
 impl Atom {
     pub const NULL: Self = Self(0);
 

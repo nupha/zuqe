@@ -106,7 +106,7 @@ impl Drop for JSContextInner {
 impl JSContextInner {
     pub fn new(rt: &mut JSRuntime) -> Result<Self, i32> {
         let class_proto = {
-            let n = rt.class_defs.len();
+            let n = rt.class_registry.len();
             let mut lst = Vec::<JSValue>::new();
             lst.try_reserve(n).map_err(|_| -1)?;
             lst.extend(std::iter::repeat_n(JSValue::NULL, n));

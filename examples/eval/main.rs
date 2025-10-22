@@ -95,8 +95,8 @@ fn main() {
 
     // register native classes
     let class_id_point = register_class_point(&mut rt).unwrap();
-    // ctx.use_class_by_id(class_id_point).unwrap();
-    ctx.use_class("Point").unwrap();
+    ctx.use_class(class_id_point).unwrap();
+    // ctx.use_class_name("Point").unwrap(); // or use this
 
     // register native modules
     init_mod_std(&ctx).unwrap();
