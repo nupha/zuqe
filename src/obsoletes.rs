@@ -309,13 +309,13 @@ pub unsafe fn JS_IsRegisteredClass(rt: &JSRuntime, class_id: JSClassID) -> bool 
     (*rt).is_class_registered(class_id)
 }
 
-#[deprecated(note = "use JSRuntime::add_classes() instead")]
+#[deprecated(note = "use JSRuntime::init_class_range() instead")]
 pub unsafe fn init_class_range(
     rt: &mut JSRuntime,
     tab: &[JSClassShortDef],
     start: JSClassID,
 ) -> Result<(), i32> {
-    (*rt).add_classes(tab, start)
+    (*rt).init_class_range(tab, start)
 }
 
 #[deprecated(note = "not used")]

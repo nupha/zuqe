@@ -81,5 +81,10 @@ anyhow = { version = "1", default-features = false }
 [lib]
 lib = "src/lib.rs"
 
-# [examples]
-# eval = "examples/eval.rs"
+[[example]]
+name = "eval"
+path = "examples/eval/main.rs"
+
+[[example]]
+name = "test262"
+path = "examples/test262.rs"

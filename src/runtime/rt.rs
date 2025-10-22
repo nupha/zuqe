@@ -187,12 +187,10 @@ impl JSRuntime {
             interrupt_opaque: std::ptr::null_mut(),
         });
 
-        // AtomRegistry::init_const_atoms(&mut rt);
-
-        rt.shape_registry.try_reserve(16).map_err(|_| -1)?;
+        rt.shape_registry.try_reserve(32).map_err(|_| -1)?;
 
         // register builtin classes
-        rt.add_classes(&STD_CLASS_DEFS, JS_CLASS_OBJECT)?;
+        rt.init_class_range(&STD_CLASS_DEFS, JS_CLASS_OBJECT)?;
 
         // setup common classes
         {

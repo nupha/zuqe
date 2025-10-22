@@ -28,7 +28,7 @@ const VALID_TIMESTAMP_RANGE: RangeInclusive<i64> = -8640000000000000..=864000000
 
 const fn floor_div(a: i64, b: i64) -> i64 {
     let m = a % b;
-    return (a - (m + if m < 0 { b } else { 0 })) / b;
+    (a - (m + if m < 0 { b } else { 0 })) / b
 }
 
 const fn math_mod(a: i64, b: i64) -> i64 {

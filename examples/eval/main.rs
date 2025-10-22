@@ -1,12 +1,14 @@
+mod class_point;
+mod mod_std;
+
 use std::{path::PathBuf, time::Instant};
 
 use colorized::*;
 use zhuque::{
-    JS_CFUNC_NATIVE_DEF, JS_PROP_INT32_DEF,
     context::JSContext,
     error::JSResult,
     eval::JS_EVAL_TYPE_GLOBAL,
-    function::{CallContext, FieldDef, NativeFunctionType},
+    function::{CallContext, NativeFunctionType},
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
     module::{JS_SetModuleLoaderFunc, ModuleDef},
     object::JS_PROP_C_W_E,
@@ -15,6 +17,8 @@ use zhuque::{
     runtime::JSRuntime,
     value::JSValue,
 };
+
+use crate::{class_point::init_class_point, mod_std::init_mod_std};
 
 fn js_print(ctx: &JSContext, cc: CallContext) -> JSResult {
     let level = cc.magic();
@@ -89,8 +93,11 @@ fn main() {
     //     })
     //     .unwrap();
 
+    // register native classes
+    init_class_point(&ctx).unwrap();
+
     // register native modules
-    ctx.register_native_module("std", &MOD_DEMO_FUNCS).unwrap();
+    init_mod_std(&ctx).unwrap();
 
     // setup globals
     {
@@ -323,13 +330,3 @@ pub fn js_module_set_import_meta(
 
     0
 }
-
-fn js_std_exit(ctx: &JSContext, cc: CallContext) -> JSResult {
-    println!("*** exit called");
-    Ok(JSValue::UNDEFINED)
-}
-
-static MOD_DEMO_FUNCS: [FieldDef; 2] = [
-    JS_CFUNC_NATIVE_DEF!("exit", 1, js_std_exit, 0),
-    JS_PROP_INT32_DEF!("out", 9, JS_PROP_C_W_E),
-];

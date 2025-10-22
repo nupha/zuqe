@@ -1,8 +1,6 @@
-use std::ops::Deref;
-
 use crate::{
     atom::{
-        Atom, AtomRef,
+        Atom, AtomRef, AtomTypeHint,
         consts::{JS_ATOM_constructor, JS_ATOM_prototype},
     },
     context::JSContext,
@@ -93,29 +91,32 @@ pub struct JSClassShortDef {
 
 #[derive(Copy, Clone)]
 pub struct JSClassDef {
-    pub finalizer: Option<JSClassFinalizer>,
-    pub gc_mark: Option<JSClassGCMark>,
+    pub class_name: &'static str,
 
     /// callback handler when called
     pub call: Option<ClassCallFn>,
     /// exotic method handlers
     pub exotic: *const JSClassExoticMethods,
+
+    pub finalizer: Option<JSClassFinalizer>,
+    pub gc_mark: Option<JSClassGCMark>,
 }
 
 impl Default for JSClassDef {
     fn default() -> Self {
         Self {
-            finalizer: None,
-            gc_mark: None,
+            class_name: "",
             call: None,
             exotic: std::ptr::null(),
+            finalizer: None,
+            gc_mark: None,
         }
     }
 }
 
 #[derive(Debug)]
 pub struct JSClass {
-    pub class_id: JSClassID,
+    /// NULL atom indicates this class is not initialized
     pub class_name: Atom,
     /// native callback when called
     pub call: Option<ClassCallFn>,
@@ -129,7 +130,6 @@ pub struct JSClass {
 impl Default for JSClass {
     fn default() -> Self {
         Self {
-            class_id: 0,
             class_name: Atom::NULL,
             call: None,
             exotic: std::ptr::null(),
@@ -145,38 +145,36 @@ impl JSRuntime {
         &mut self,
         class_id: JSClassID,
         class_def: &JSClassDef,
-        name: Atom,
+        class_name: Atom,
     ) -> Result<(), i32> {
         if class_id >= (1 << 16) {
             return Err(-1);
         }
 
         if (class_id as usize) < self.class_defs.len() {
-            if self.class_defs[class_id as usize].class_id != 0 {
+            if !self.class_defs[class_id as usize].class_name.is_null() {
                 return Err(-1); // class_id slot is in use
             }
         } else if class_id as usize >= self.class_defs.len() {
-            // number of extra slots to grow
-            let grow = class_id as usize - self.class_defs.len() + 1;
+            // grow slot
+            let extra = class_id as usize - self.class_defs.len() + 1;
 
             // grow context class prototype array
             for ctx in self.context_list.iter() {
                 let mut cx = ctx.0.borrow_mut();
-                cx.class_proto.try_reserve(grow).map_err(|_| -1)?;
+                cx.class_proto.try_reserve(extra).map_err(|_| -1)?;
                 cx.class_proto
-                    .extend(std::iter::repeat_n(JSValue::NULL, grow));
+                    .extend(std::iter::repeat_n(JSValue::NULL, extra));
             }
 
             // grow class array, fill slots with empty class
-            self.class_defs.try_reserve(grow).map_err(|_| -1)?;
-            for _ in 0..grow {
-                self.class_defs.push(JSClass::default());
-            }
+            self.class_defs.try_reserve(extra).map_err(|_| -1)?;
+            self.class_defs
+                .extend(std::iter::repeat_with(JSClass::default).take(extra));
         }
 
         self.class_defs[class_id as usize] = JSClass {
-            class_id,
-            class_name: name,
+            class_name,
             call: class_def.call,
             exotic: class_def.exotic,
             gc_mark: class_def.gc_mark,
@@ -186,8 +184,9 @@ impl JSRuntime {
         Ok(())
     }
 
-    /// add multiple class defs.
-    pub(crate) fn add_classes(
+    /// initialize multiple class short defs.
+    /// for standard class defs only
+    pub(crate) fn init_class_range(
         &mut self,
         tab: &[JSClassShortDef],
         start_id: JSClassID,
@@ -197,21 +196,38 @@ impl JSRuntime {
         let mut class_id = start_id;
         for item in tab {
             let cd = JSClassDef {
-                exotic: std::ptr::null(),
                 finalizer: item.finalizer,
                 gc_mark: item.gc_mark,
-                call: None,
+                ..Default::default()
             };
-            self.add_class_internal(class_id, &cd, item.class_name.deref().clone())?;
+            self.add_class_internal(class_id, &cd, Atom::new_const(item.class_name))?;
             class_id += 1;
         }
 
         Ok(())
     }
 
-    pub fn is_class_registered(&self, class_id: JSClassID) -> bool {
+    pub(crate) fn is_class_registered(&self, class_id: JSClassID) -> bool {
         class_id < self.class_defs.len() as JSClassID
-            && self.class_defs[class_id as usize].class_id != 0
+            && !self.class_defs[class_id as usize].class_name.is_null()
+    }
+
+    /// register a user class def. returns the class_id
+    pub fn add_class(&mut self, class_def: &JSClassDef) -> Result<JSClassID, i32> {
+        if class_def.class_name.is_empty() {
+            return Err(-1);
+        }
+
+        // new class_id
+        let class_id = self.class_defs.len() as JSClassID;
+
+        self.add_class_internal(
+            class_id,
+            class_def,
+            Atom::from_str(self, class_def.class_name, AtomTypeHint::String)?,
+        )?;
+
+        Ok(class_id)
     }
 }
 
@@ -315,7 +331,7 @@ impl JSContext {
 /// - Define property `func_obj.prototype = proto`
 /// - Define property `proto.constructor = func_obj`.
 ///
-/// Note: The `func_obj` may not necessarily be  a constructor
+/// Note: The `func_obj` may not necessarily be a constructor
 pub fn JS_SetConstructor2(
     ctx: &JSContext,
     func_obj: &JSValue,
@@ -324,22 +340,22 @@ pub fn JS_SetConstructor2(
     ctor_flags: u32,
 ) {
     func_obj
-        .define_property_value(ctx, JS_ATOM_prototype.deref(), proto.clone(), proto_flags)
+        .define_property_value(ctx, &JS_ATOM_prototype, proto.clone(), proto_flags)
         .unwrap();
 
     proto
-        .define_property_value(
-            ctx,
-            JS_ATOM_constructor.deref(),
-            func_obj.clone(),
-            ctor_flags,
-        )
+        .define_property_value(ctx, &JS_ATOM_constructor, func_obj.clone(), ctor_flags)
         .unwrap();
 
     set_cycle_flag(ctx, func_obj);
     set_cycle_flag(ctx, proto);
 }
 
+/// Mutually define properties on both `func_obj` and `proto` side:
+/// - Define property `func_obj.prototype = proto`
+/// - Define property `proto.constructor = func_obj`.
+///
+/// Note: The `func_obj` may not necessarily be a constructor
 pub fn JS_SetConstructor(ctx: &JSContext, func_obj: &JSValue, proto: &JSValue) {
     JS_SetConstructor2(
         ctx,
