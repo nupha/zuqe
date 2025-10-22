@@ -81,11 +81,6 @@ impl JSContext {
             .create_global_constructor_or_func("Object", js_object_constructor, 1, &proto, 0)
             .unwrap();
         ctor.install_field_defs(self, &js_object_funcs).unwrap();
-
-        #[cfg(debug_assertions)]
-        ctor.as_object().unwrap()._debug_set_hint(
-            format!("FunctionCtor@{:p}", self.id() as *const std::ffi::c_void).into(),
-        );
     }
 
     fn intrinsic_base_function(&self) {
@@ -338,12 +333,6 @@ impl JSContext {
                 .unwrap();
 
             o.install_field_defs(self, &js_string_proto_funcs).unwrap();
-
-            #[cfg(debug_assertions)]
-            o._debug_set_hint(
-                format!("StringProto@{:p}", self.id() as *const std::ffi::c_void).into(),
-            );
-
             o.into()
         };
 
@@ -353,11 +342,6 @@ impl JSContext {
         string_ctor
             .install_field_defs(self, &js_string_funcs)
             .unwrap();
-
-        #[cfg(debug_assertions)]
-        string_ctor.as_object().unwrap()._debug_set_hint(
-            format!("StringCtor@{:p}", self.id() as *const std::ffi::c_void).into(),
-        );
 
         let string_iter = self
             .create_base_object_from_proto(self.0.borrow().iterator_proto.clone())
@@ -696,7 +680,7 @@ impl JSContext {
             ta_obj
                 .install_field_defs(self, &js_typed_array_base_proto_funcs)
                 .unwrap();
-            let typed_array_base_proto: JSValue = ta_obj.into();
+            let ta_proto: JSValue = ta_obj.into();
 
             // TypedArray.prototype.toString must be the same object as Array.prototype.toString
             let to_string = self.0.borrow().class_proto[JS_CLASS_ARRAY as usize]
@@ -704,7 +688,7 @@ impl JSContext {
                 .unwrap();
 
             // XXX: should use alias method in JSCFunctionListEntry
-            typed_array_base_proto
+            ta_proto
                 .define_property_value(
                     self,
                     JS_ATOM_toString.deref(),
@@ -724,7 +708,7 @@ impl JSContext {
             typed_array_base_func
                 .install_field_defs(self, &js_typed_array_base_funcs)
                 .unwrap();
-            JS_SetConstructor(self, &typed_array_base_func, &typed_array_base_proto);
+            JS_SetConstructor(self, &typed_array_base_func, &ta_proto);
 
             for cid in
                 JS_CLASS_UINT8C_ARRAY..(JS_CLASS_UINT8C_ARRAY + JS_TYPED_ARRAY_COUNT as JSClassID)
@@ -732,7 +716,7 @@ impl JSContext {
                 let nby = 1 << TypedArray::SIZE_LOG2(cid);
 
                 let ta_obj = self
-                    .create_base_object_from_proto(typed_array_base_proto.clone())
+                    .create_base_object_from_proto(ta_proto.clone())
                     .unwrap();
                 ta_obj
                     .define_property_value_str(self, "BYTES_PER_ELEMENT", JSValue::Int(nby), 0)
@@ -740,7 +724,8 @@ impl JSContext {
                 let proto: JSValue = ta_obj.into();
 
                 let name =
-                    AtomRef(JS_ATOM_Uint8ClampedArray.0 + (cid - JS_CLASS_UINT8C_ARRAY)).to_utf8();
+                    AtomRef(JS_ATOM_Uint8ClampedArray.id() + (cid - JS_CLASS_UINT8C_ARRAY) as u32)
+                        .to_utf8();
 
                 let func_obj = self
                     .create_native_function_from_proto(

@@ -38,8 +38,10 @@ pub struct JSContextInner {
     /// Initial shape for Array objects
     pub array_shape: Option<JSShape>,
 
-    /// Class protos
+    /// Class prototypes slot.
+    /// element could be object or null, default to null.
     pub class_proto: Vec<JSValue>,
+
     /// same as class_proto[JS_CLASS_BYTECODE_FUNCTION]
     pub function_proto: JSValue,
 
@@ -104,10 +106,10 @@ impl Drop for JSContextInner {
 impl JSContextInner {
     pub fn new(rt: &mut JSRuntime) -> Result<Self, i32> {
         let class_proto = {
+            let n = rt.class_defs.len();
             let mut lst = Vec::<JSValue>::new();
-            lst.try_reserve_exact(rt.class_defs.capacity())
-                .map_err(|_| -1)?;
-            lst.extend(std::iter::repeat_n(JSValue::NULL, rt.class_defs.len()));
+            lst.try_reserve(n).map_err(|_| -1)?;
+            lst.extend(std::iter::repeat_n(JSValue::NULL, n));
             lst
         };
 

@@ -6,9 +6,6 @@ use std::{
     rc::{Rc, Weak},
 };
 
-#[cfg(debug_assertions)]
-use std::cell::UnsafeCell;
-
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
     JS_CLASS_BIG_INT, JS_CLASS_BOOLEAN, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION,
@@ -168,9 +165,6 @@ pub(crate) struct ObjectInner {
 
     /// object payload.
     payload: ObjectPayload,
-
-    #[cfg(debug_assertions)]
-    pub(crate) _debug_hint: UnsafeCell<Option<std::borrow::Cow<'static, str>>>,
 }
 
 impl Drop for ObjectInner {
@@ -187,22 +181,17 @@ impl std::fmt::Display for ObjectInner {
 
         #[cfg(debug_assertions)]
         {
-            if let Some(hint) = unsafe { self._debug_hint.get().as_ref().unwrap() } {
-                write!(f, "<{hint}>")
-            } else {
-                let sh = self.shape.borrow();
-                write!(
-                    f,
-                    "[{name} {:p} shape={:p} proto={}]",
-                    self.id() as *const std::ffi::c_void,
-                    sh.as_ref().map_or(0, |s| s.id()) as *const std::ffi::c_void,
-                    sh.as_ref()
-                        .and_then(|s| s.0.borrow().proto.clone())
-                        .map_or("<null>".to_string(), |x| x.to_string())
-                )
-            }
+            let sh = self.shape.borrow();
+            write!(
+                f,
+                "[{name} {:p} shape={:p} proto={}]",
+                self.id() as *const std::ffi::c_void,
+                sh.as_ref().map_or(0, |s| s.id()) as *const std::ffi::c_void,
+                sh.as_ref()
+                    .and_then(|s| s.0.borrow().proto.clone())
+                    .map_or("<null>".to_string(), |x| x.to_string())
+            )
         }
-
         #[cfg(not(debug_assertions))]
         {
             write!(f, "[{name}]")
@@ -325,9 +314,6 @@ impl ObjectInner {
             payload,
             weak_refs: RefCell::new(Vec::new()),
             gc_mark: Cell::new(false),
-
-            #[cfg(debug_assertions)]
-            _debug_hint: UnsafeCell::new(None),
         };
 
         if add_length_prop {
@@ -604,15 +590,6 @@ impl JSObject {
 
     pub fn gc_dump(&self, rt: &crate::runtime::JSRuntime) {
         self.dump(rt);
-    }
-}
-
-#[cfg(debug_assertions)]
-impl JSObject {
-    pub(crate) fn _debug_set_hint(&self, msg: std::borrow::Cow<'static, str>) {
-        unsafe {
-            (*self.0._debug_hint.get()).replace(msg);
-        }
     }
 }
 

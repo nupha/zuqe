@@ -1,8 +1,9 @@
 use crate::{
     atom::{
-        Atom, AtomRef, AtomTypeHint,
+        Atom, AtomRef,
         consts::{JS_ATOM_constructor, JS_ATOM_prototype},
     },
+    class::ClassInitializeFn,
     context::JSContext,
     error::JSResult,
     function::{JSFunctionDef, NativeCallback, NativeFunctionType},
@@ -20,11 +21,6 @@ use super::{
 
 pub const JS_DEFINE_CLASS_HAS_HERITAGE: i32 = 1 << 0;
 
-pub const OP_DEFINE_METHOD_METHOD: u8 = 0;
-pub const OP_DEFINE_METHOD_GETTER: u8 = 1;
-pub const OP_DEFINE_METHOD_SETTER: u8 = 2;
-pub const OP_DEFINE_METHOD_ENUMERABLE: u8 = 4;
-
 #[derive(Copy, Clone, Default)]
 pub struct JSClassExoticMethods {
     pub get_own_property: Option<GetOwnPropertyFn>,
@@ -36,14 +32,14 @@ pub struct JSClassExoticMethods {
     pub set_property: Option<SetPropertyFn>,
 }
 
-pub struct JSClassShortDef {
+pub(crate) struct JSClassShortDef {
     pub class_name: AtomRef,
     pub finalizer: Option<ClassFinalizeFn>,
     pub gc_mark: Option<ClassGCMarkFn>,
 }
 
-#[derive(Copy, Clone)]
-pub struct JSClassDef {
+/// class definition
+pub struct ClassDef {
     pub class_name: &'static str,
 
     /// callback handler when called
@@ -51,14 +47,19 @@ pub struct JSClassDef {
     /// exotic method handlers
     pub exotic: *const JSClassExoticMethods,
 
+    /// initialize class proto, constructor to context
+    pub initializer: Option<ClassInitializeFn>,
+    /// class instance finalize callback
     pub finalizer: Option<ClassFinalizeFn>,
+
     pub gc_mark: Option<ClassGCMarkFn>,
 }
 
-impl Default for JSClassDef {
+impl Default for ClassDef {
     fn default() -> Self {
         Self {
             class_name: "",
+            initializer: None,
             call: None,
             exotic: std::ptr::null(),
             finalizer: None,
@@ -67,23 +68,27 @@ impl Default for JSClassDef {
     }
 }
 
-#[derive(Debug)]
 pub struct JSClass {
     /// NULL atom indicates this class is not initialized
     pub class_name: Atom,
-    /// native callback when called
+
+    /// callback handler when called
     pub call: Option<ClassCallFn>,
     /// pointers for exotic behavior, can be NULL if none are present
     pub exotic: *const JSClassExoticMethods,
 
-    pub gc_mark: Option<ClassGCMarkFn>,
+    /// initialize class proto, constructor to context
+    pub initialize: Option<ClassInitializeFn>,
     pub finalizer: Option<ClassFinalizeFn>,
+
+    pub gc_mark: Option<ClassGCMarkFn>,
 }
 
 impl Default for JSClass {
     fn default() -> Self {
         Self {
             class_name: Atom::NULL,
+            initialize: None,
             call: None,
             exotic: std::ptr::null(),
             gc_mark: None,
@@ -94,16 +99,12 @@ impl Default for JSClass {
 
 impl JSRuntime {
     /// create a new object internal class. The finalizer can be NULL if none is needed.
-    fn add_class_internal(
+    pub(super) fn add_class_internal(
         &mut self,
         class_id: JSClassID,
-        class_def: &JSClassDef,
+        class_def: &ClassDef,
         class_name: Atom,
     ) -> Result<(), i32> {
-        if class_id >= (1 << 16) {
-            return Err(-1);
-        }
-
         if (class_id as usize) < self.class_defs.len() {
             if !self.class_defs[class_id as usize].class_name.is_null() {
                 return Err(-1); // class_id slot is in use
@@ -128,6 +129,7 @@ impl JSRuntime {
 
         self.class_defs[class_id as usize] = JSClass {
             class_name,
+            initialize: class_def.initializer,
             call: class_def.call,
             exotic: class_def.exotic,
             gc_mark: class_def.gc_mark,
@@ -137,8 +139,7 @@ impl JSRuntime {
         Ok(())
     }
 
-    /// initialize multiple class short defs.
-    /// for standard class defs only
+    /// initialize multiple class short defs. used for builtin class defs only
     pub(crate) fn init_class_range(
         &mut self,
         tab: &[JSClassShortDef],
@@ -148,7 +149,7 @@ impl JSRuntime {
 
         let mut class_id = start_id;
         for item in tab {
-            let cd = JSClassDef {
+            let cd = ClassDef {
                 finalizer: item.finalizer,
                 gc_mark: item.gc_mark,
                 ..Default::default()
@@ -164,24 +165,6 @@ impl JSRuntime {
         class_id < self.class_defs.len() as JSClassID
             && !self.class_defs[class_id as usize].class_name.is_null()
     }
-
-    /// register a user class def. returns the class_id
-    pub fn add_class(&mut self, class_def: &JSClassDef) -> Result<JSClassID, i32> {
-        if class_def.class_name.is_empty() {
-            return Err(-1);
-        }
-
-        // new class_id
-        let class_id = self.class_defs.len() as JSClassID;
-
-        self.add_class_internal(
-            class_id,
-            class_def,
-            Atom::from_str(self, class_def.class_name, AtomTypeHint::String)?,
-        )?;
-
-        Ok(class_id)
-    }
 }
 
 impl JSContext {
@@ -193,7 +176,6 @@ impl JSContext {
         self.0.borrow().class_proto[class_id as usize].clone()
     }
 
-    /// Note: `proto_obj` is consumed, old proto object will be consumed.
     pub fn set_class_proto(&self, class_id: JSClassID, proto_obj: JSValue) {
         debug_assert!(class_id < self.0.borrow().class_proto.len() as JSClassID);
         debug_assert!(self.0.borrow().class_proto[class_id as usize].is_null());

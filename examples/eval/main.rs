@@ -18,7 +18,7 @@ use zhuque::{
     value::JSValue,
 };
 
-use crate::{class_point::init_class_point, mod_std::init_mod_std};
+use crate::{class_point::register_class_point, mod_std::init_mod_std};
 
 fn js_print(ctx: &JSContext, cc: CallContext) -> JSResult {
     let level = cc.magic();
@@ -94,7 +94,9 @@ fn main() {
     //     .unwrap();
 
     // register native classes
-    init_class_point(&ctx).unwrap();
+    let class_id_point = register_class_point(&mut rt).unwrap();
+    // ctx.use_class_by_id(class_id_point).unwrap();
+    ctx.use_class("Point").unwrap();
 
     // register native modules
     init_mod_std(&ctx).unwrap();

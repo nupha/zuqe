@@ -617,8 +617,8 @@ pub fn gen_class_payload(outfile: &Path) {
         });
     }
 
-    items.push("OTHER(JSClassID, *mut std::ffi::c_void)".to_string());
-    getid_arms.push("Self::OTHER(id,_)=>*id".to_string());
+    items.push("USER(JSClassID, *mut std::ffi::c_void)".to_string());
+    getid_arms.push("Self::USER(id,_)=>*id".to_string());
 
     // get payload methods
     let mut get_payload_methods = Vec::<String>::with_capacity(class_defs.len() + 8);

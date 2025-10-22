@@ -122,7 +122,8 @@ pub(super) fn js_op_define_class(
 
     // SP[-2]: parent class
     let mut parent_class = unsafe { std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED) };
-    let parent_proto = if class_flags & JS_DEFINE_CLASS_HAS_HERITAGE != 0 {
+
+    let proto = if class_flags & JS_DEFINE_CLASS_HAS_HERITAGE != 0 {
         if parent_class.is_null() {
             parent_class = ctx.0.borrow().function_proto.clone();
             JSValue::NULL
@@ -141,12 +142,12 @@ pub(super) fn js_op_define_class(
             p
         }
     } else {
-        // parent_class is undefined
+        // parent_class is undefined, use Function
         parent_class = ctx.0.borrow().function_proto.clone();
         ctx.0.borrow().class_proto[JS_CLASS_OBJECT as usize].clone()
     };
 
-    let proto = ctx.create_base_object_from_proto(parent_proto)?;
+    let proto = ctx.create_base_object_from_proto(proto)?;
 
     // make constructor function
     let ctor =

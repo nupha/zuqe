@@ -7,8 +7,7 @@ use crate::{
     context::JSContext,
     error::{STD_ERROR_NAMES, js_error_proto_funcs},
     function::{NativeFunctionType, js_function_proto},
-    object::ObjectPayload,
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_WRITABLE, JSShape},
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_WRITABLE, JSShape, ObjectPayload},
     value::JSValue,
 };
 
@@ -20,11 +19,6 @@ impl JSContext {
         let object = self
             .create_object_from_proto(JSValue::NULL, ObjectPayload::OBJECT)
             .unwrap();
-
-        #[cfg(debug_assertions)]
-        object._debug_set_hint(
-            format!("ObjectProto@{:p}", self.id() as *const std::ffi::c_void).into(),
-        );
 
         self.0.borrow_mut().class_proto[JS_CLASS_OBJECT as usize] = object.clone().into();
 
@@ -40,13 +34,8 @@ impl JSContext {
                 )
                 .unwrap();
 
-            #[cfg(debug_assertions)]
-            func_obj.as_object().unwrap()._debug_set_hint(
-                format!("FunctionProto@{:p}", self.id() as *const std::ffi::c_void).into(),
-            );
-
             let mut cx = self.0.borrow_mut();
-            cx.function_proto = func_obj.clone();
+            cx.function_proto = func_obj.clone().into();
             cx.class_proto[JS_CLASS_BYTECODE_FUNCTION as usize] = func_obj;
         }
 

@@ -2,11 +2,11 @@ use std::os::raw::c_void;
 
 use zhuque::{
     JS_CGETSET_NATIVE_DEF,
-    class::{JS_SetConstructor, JSClassDef, JSClassID},
+    class::{ClassDef, JS_SetConstructor, JSClassID},
     context::JSContext,
     error::JSResult,
     function::{CallContext, FieldDef, NativeFunctionType},
-    object::{JS_PROP_C_W_E, ObjectPayload},
+    object::{JS_PROP_C_W_E, JSObject, ObjectPayload},
     runtime::JSRuntime,
     value::JSValue,
 };
@@ -28,7 +28,7 @@ fn point_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj = ctx
         .create_object_from_ctor(
             cc.this(),
-            ObjectPayload::OTHER(class_id, std::ptr::null_mut()),
+            ObjectPayload::USER(class_id, std::ptr::null_mut()),
         )
         .map_err(|_| -1)?;
 
@@ -49,31 +49,65 @@ static class_point_proto: [FieldDef; 2] = [
     JS_CGETSET_NATIVE_DEF!("y", point_getset, NONE, 1),
 ];
 
-pub fn init_class_point(ctx: &JSContext) -> Result<(), i32> {
+pub fn register_class_point(rt: &mut JSRuntime) -> Result<JSClassID, i32> {
     // register class
-    let class_id = ctx.rt_mut().add_class(&JSClassDef {
+    let class_id = rt.register_class(&ClassDef {
         class_name: "Point",
+        initializer: Some(
+            |ctx: &JSContext, class_id: JSClassID| -> Result<JSObject, i32> {
+                // create prototype
+                let proto = ctx.create_base_object().unwrap();
+                proto.install_field_defs(ctx, &class_point_proto)?;
+
+                // create constructor
+                let ctor = ctx.create_native_function(
+                    NativeFunctionType::ConstructorOrFunc(point_constructor),
+                    "Point",
+                    2,
+                    class_id as i16,
+                )?;
+                JS_SetConstructor(ctx, &ctor, &proto.clone().into());
+                ctor.install_field_defs(ctx, &class_point_proto)?;
+
+                // expose ctor to global
+                ctx.global_obj()
+                    .define_property_value_str(ctx, "Point", ctor, JS_PROP_C_W_E)?;
+
+                Ok(proto)
+            },
+        ),
         finalizer: Some(point_finalize),
         ..Default::default()
     })?;
 
-    // create prototype
-    let proto: JSValue = ctx.create_base_object().unwrap().into();
-    proto.install_field_defs(ctx, &class_point_proto)?;
-
-    // create constructor
-    let ctor = ctx.create_native_function(
-        NativeFunctionType::ConstructorOrFunc(point_constructor),
-        "Point",
-        2,
-        class_id as i16,
-    )?;
-    JS_SetConstructor(ctx, &ctor, &proto);
-    ctor.install_field_defs(ctx, &class_point_proto)?;
-
-    // expose ctor to global
-    ctx.global_obj()
-        .define_property_value_str(ctx, "Point", ctor, JS_PROP_C_W_E)?;
-
-    Ok(())
+    Ok(class_id)
 }
+
+// pub fn init_class_point(ctx: &JSContext) -> Result<(), i32> {
+//     // register class
+//     let class_id = ctx.rt_mut().register_class(&ClassDef {
+//         class_name: "Point",
+//         finalizer: Some(point_finalize),
+//         ..Default::default()
+//     })?;
+
+//     // create prototype
+//     let proto: JSValue = ctx.create_base_object().unwrap().into();
+//     proto.install_field_defs(ctx, &class_point_proto)?;
+
+//     // create constructor
+//     let ctor = ctx.create_native_function(
+//         NativeFunctionType::ConstructorOrFunc(point_constructor),
+//         "Point",
+//         2,
+//         class_id as i16,
+//     )?;
+//     JS_SetConstructor(ctx, &ctor, &proto);
+//     ctor.install_field_defs(ctx, &class_point_proto)?;
+
+//     // expose ctor to global
+//     ctx.global_obj()
+//         .define_property_value_str(ctx, "Point", ctor, JS_PROP_C_W_E)?;
+
+//     Ok(())
+// }

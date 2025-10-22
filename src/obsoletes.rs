@@ -16,7 +16,7 @@ use crate::{
         JS_ATOM_TAG_INT, consts::*,
     },
     bytecode::{OpCode, OpCodeTemp, arithmatic::StrictEqMode},
-    class::{ClassFieldsDef, JSClassDef, JSClassID, JSClassShortDef},
+    class::{ClassDef, ClassFieldsDef, JSClassID, JSClassShortDef},
     context::JSContext,
     error::{ErrorKind, JSResult},
     function::{
@@ -502,7 +502,7 @@ pub unsafe fn JS_SetClassProto(ctx: &JSContext, class_id: JSClassID, obj: JSValu
 pub unsafe fn JS_NewClass(
     rt: *mut JSRuntime,
     class_id: JSClassID,
-    class_def: *const JSClassDef,
+    class_def: *const ClassDef,
 ) -> Result<(), i32> {
     unreachable!("unused")
 }
@@ -512,7 +512,7 @@ pub unsafe fn JS_NewClass(
 pub unsafe fn JS_NewClass1(
     rt: *mut JSRuntime,
     class_id: JSClassID,
-    class_def: *const JSClassDef,
+    class_def: *const ClassDef,
     name: AtomRef,
 ) -> Result<(), i32> {
     unreachable!("use JSRuntime::add_class_internal() instead");
