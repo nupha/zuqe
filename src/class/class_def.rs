@@ -48,9 +48,9 @@ pub struct ClassDef {
     pub exotic: *const JSClassExoticMethods,
 
     /// initialize class proto, constructor to context
-    pub initializer: Option<ClassInitializeFn>,
+    pub initialize: Option<ClassInitializeFn>,
     /// class instance finalize callback
-    pub finalizer: Option<ClassFinalizeFn>,
+    pub finalize: Option<ClassFinalizeFn>,
 
     pub gc_mark: Option<ClassGCMarkFn>,
 }
@@ -59,10 +59,10 @@ impl Default for ClassDef {
     fn default() -> Self {
         Self {
             class_name: "",
-            initializer: None,
+            initialize: None,
             call: None,
             exotic: std::ptr::null(),
-            finalizer: None,
+            finalize: None,
             gc_mark: None,
         }
     }
@@ -129,11 +129,11 @@ impl JSRuntime {
 
         self.class_defs[class_id as usize] = JSClass {
             class_name,
-            initialize: class_def.initializer,
+            initialize: class_def.initialize,
             call: class_def.call,
             exotic: class_def.exotic,
             gc_mark: class_def.gc_mark,
-            finalizer: class_def.finalizer,
+            finalizer: class_def.finalize,
         };
 
         Ok(())
@@ -150,7 +150,7 @@ impl JSRuntime {
         let mut class_id = start_id;
         for item in tab {
             let cd = ClassDef {
-                finalizer: item.finalizer,
+                finalize: item.finalizer,
                 gc_mark: item.gc_mark,
                 ..Default::default()
             };
@@ -197,7 +197,7 @@ impl JSContext {
             )
             .unwrap();
 
-        JS_SetConstructor(self, func_obj, proto);
+        self.bind_ctor_proto(func_obj, proto).unwrap();
     }
 
     /// create a new native constructor, add it to global namespace.
@@ -260,45 +260,35 @@ impl JSContext {
             magic,
         )
     }
-}
 
-/// Mutually define properties on both `func_obj` and `proto` side:
-/// - Define property `func_obj.prototype = proto`
-/// - Define property `proto.constructor = func_obj`.
-///
-/// Note: The `func_obj` may not necessarily be a constructor
-pub fn JS_SetConstructor2(
-    ctx: &JSContext,
-    func_obj: &JSValue,
-    proto: &JSValue,
-    proto_flags: u32,
-    ctor_flags: u32,
-) {
-    func_obj
-        .define_property_value(ctx, &JS_ATOM_prototype, proto.clone(), proto_flags)
-        .unwrap();
+    /// Mutually define properties on both `ctor` and `proto` side:
+    /// - Define property `ctor.prototype = proto`
+    /// - Define property `proto.constructor = ctor`.
+    ///
+    /// Note: The `ctor` may not necessarily be a constructor
+    pub(crate) fn bind_ctor_proto_ex(
+        &self,
+        ctor: &JSValue,
+        proto: &JSValue,
+        proto_flags: u32,
+        ctor_flags: u32,
+    ) -> Result<(), i32> {
+        ctor.define_property_value(self, &JS_ATOM_prototype, proto.clone(), proto_flags)?;
+        proto.define_property_value(self, &JS_ATOM_constructor, ctor.clone(), ctor_flags)?;
+        set_cycle_flag(self, ctor);
+        set_cycle_flag(self, proto);
+        Ok(())
+    }
 
-    proto
-        .define_property_value(ctx, &JS_ATOM_constructor, func_obj.clone(), ctor_flags)
-        .unwrap();
-
-    set_cycle_flag(ctx, func_obj);
-    set_cycle_flag(ctx, proto);
-}
-
-/// Mutually define properties on both `func_obj` and `proto` side:
-/// - Define property `func_obj.prototype = proto`
-/// - Define property `proto.constructor = func_obj`.
-///
-/// Note: The `func_obj` may not necessarily be a constructor
-pub fn JS_SetConstructor(ctx: &JSContext, func_obj: &JSValue, proto: &JSValue) {
-    JS_SetConstructor2(
-        ctx,
-        func_obj,
-        proto,
-        0,
-        JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-    );
+    /// Mutually define properties on both `ctor` and `proto` side:
+    /// - Define property `ctor.prototype = proto`
+    /// - Define property `proto.constructor = ctor`.
+    ///
+    /// Note: The `ctor` may not necessarily be a constructor
+    #[inline(always)]
+    pub fn bind_ctor_proto(&self, ctor: &JSValue, proto: &JSValue) -> Result<(), i32> {
+        self.bind_ctor_proto_ex(ctor, proto, 0, JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE)
+    }
 }
 
 #[derive(Debug)]

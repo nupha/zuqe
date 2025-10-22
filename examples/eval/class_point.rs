@@ -1,8 +1,6 @@
-use std::os::raw::c_void;
-
 use zhuque::{
     JS_CGETSET_NATIVE_DEF,
-    class::{ClassDef, JS_SetConstructor, JSClassID},
+    class::{ClassDef, JSClassID},
     context::JSContext,
     error::JSResult,
     function::{CallContext, FieldDef, NativeFunctionType},
@@ -53,7 +51,7 @@ pub fn register_class_point(rt: &mut JSRuntime) -> Result<JSClassID, i32> {
     // register class
     let class_id = rt.register_class(&ClassDef {
         class_name: "Point",
-        initializer: Some(
+        initialize: Some(
             |ctx: &JSContext, class_id: JSClassID| -> Result<JSObject, i32> {
                 // create prototype
                 let proto = ctx.create_base_object().unwrap();
@@ -66,8 +64,9 @@ pub fn register_class_point(rt: &mut JSRuntime) -> Result<JSClassID, i32> {
                     2,
                     class_id as i16,
                 )?;
-                JS_SetConstructor(ctx, &ctor, &proto.clone().into());
                 ctor.install_field_defs(ctx, &class_point_proto)?;
+
+                ctx.bind_ctor_proto(&ctor, &proto.clone().into())?;
 
                 // expose ctor to global
                 ctx.global_obj()
@@ -76,38 +75,9 @@ pub fn register_class_point(rt: &mut JSRuntime) -> Result<JSClassID, i32> {
                 Ok(proto)
             },
         ),
-        finalizer: Some(point_finalize),
+        finalize: Some(point_finalize),
         ..Default::default()
     })?;
 
     Ok(class_id)
 }
-
-// pub fn init_class_point(ctx: &JSContext) -> Result<(), i32> {
-//     // register class
-//     let class_id = ctx.rt_mut().register_class(&ClassDef {
-//         class_name: "Point",
-//         finalizer: Some(point_finalize),
-//         ..Default::default()
-//     })?;
-
-//     // create prototype
-//     let proto: JSValue = ctx.create_base_object().unwrap().into();
-//     proto.install_field_defs(ctx, &class_point_proto)?;
-
-//     // create constructor
-//     let ctor = ctx.create_native_function(
-//         NativeFunctionType::ConstructorOrFunc(point_constructor),
-//         "Point",
-//         2,
-//         class_id as i16,
-//     )?;
-//     JS_SetConstructor(ctx, &ctor, &proto);
-//     ctor.install_field_defs(ctx, &class_point_proto)?;
-
-//     // expose ctor to global
-//     ctx.global_obj()
-//         .define_property_value_str(ctx, "Point", ctor, JS_PROP_C_W_E)?;
-
-//     Ok(())
-// }

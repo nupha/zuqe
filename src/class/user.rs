@@ -26,7 +26,7 @@ impl JSRuntime {
 }
 
 impl JSContext {
-    pub fn use_class_by_id(&self, class_id: JSClassID) -> Result<(), i32> {
+    pub fn use_class_id(&self, class_id: JSClassID) -> Result<(), i32> {
         if let Some(cd) = self.rt().class_defs.get(class_id as usize) {
             if !self.0.borrow().class_proto[class_id as usize].is_object() {
                 // init class proto
@@ -56,7 +56,7 @@ impl JSContext {
             .iter()
             .position(|x| !x.class_name.is_null() && x.class_name == atom_name)
         {
-            self.use_class_by_id(id as JSClassID)
+            self.use_class_id(id as JSClassID)
         } else {
             self.throw_internal_error(&format!("unknown native class '{}'", name));
             Err(-1)

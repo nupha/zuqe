@@ -18,7 +18,7 @@ use crate::{
         js_shared_array_buffer_proto_funcs,
     },
     atom::{AtomRef, consts::*},
-    class::{JS_SetConstructor, JS_SetConstructor2, JSClassID},
+    class::JSClassID,
     context::{JS_MODE_STRICT, JSContext},
     date::{js_date_constructor, js_date_funcs, js_date_proto_funcs},
     error::{ErrorKind, JSResult, STD_ERROR_NAMES},
@@ -420,20 +420,17 @@ impl JSContext {
                 JSFunctionKindEnum::JS_FUNC_GENERATOR as i16,
             )
             .unwrap();
-        JS_SetConstructor2(
-            self,
+
+        self.bind_ctor_proto_ex(
             &generator_function_proto,
             &proto,
             JS_PROP_CONFIGURABLE,
             JS_PROP_CONFIGURABLE,
-        );
-        JS_SetConstructor2(
-            self,
-            &ctor,
-            &generator_function_proto,
-            0,
-            JS_PROP_CONFIGURABLE,
-        );
+        )
+        .unwrap();
+
+        self.bind_ctor_proto_ex(&ctor, &generator_function_proto, 0, JS_PROP_CONFIGURABLE)
+            .unwrap();
     }
 
     pub fn intrinsic_date(&self) {
@@ -708,7 +705,9 @@ impl JSContext {
             typed_array_base_func
                 .install_field_defs(self, &js_typed_array_base_funcs)
                 .unwrap();
-            JS_SetConstructor(self, &typed_array_base_func, &ta_proto);
+
+            self.bind_ctor_proto(&typed_array_base_func, &ta_proto)
+                .unwrap();
 
             for cid in
                 JS_CLASS_UINT8C_ARRAY..(JS_CLASS_UINT8C_ARRAY + JS_TYPED_ARRAY_COUNT as JSClassID)
@@ -867,7 +866,9 @@ impl JSContext {
                     self.0.borrow().function_ctor.clone(),
                 )
                 .unwrap();
-            JS_SetConstructor2(self, &af_ctor, &af_proto, 0, JS_PROP_CONFIGURABLE);
+
+            self.bind_ctor_proto_ex(&af_ctor, &af_proto, 0, JS_PROP_CONFIGURABLE)
+                .unwrap();
 
             self.0.borrow_mut().class_proto[JS_CLASS_ASYNC_FUNCTION as usize] = af_proto;
         }
@@ -916,13 +917,14 @@ impl JSContext {
                     .unwrap();
                 o.into()
             };
-            JS_SetConstructor2(
-                self,
+
+            self.bind_ctor_proto_ex(
                 &agen_func,
                 &proto,
                 JS_PROP_CONFIGURABLE,
                 JS_PROP_CONFIGURABLE,
-            );
+            )
+            .unwrap();
 
             let ctor = self
                 .create_native_function_from_proto(
@@ -933,12 +935,15 @@ impl JSContext {
                     func_proto,
                 )
                 .unwrap();
-            JS_SetConstructor2(self, &ctor, &agen_func, 0, JS_PROP_CONFIGURABLE);
 
-            self.with_mut(|cx| {
-                cx.class_proto[JS_CLASS_ASYNC_GENERATOR as usize] = proto;
-                cx.class_proto[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize] = agen_func;
-            });
+            self.bind_ctor_proto_ex(&ctor, &agen_func, 0, JS_PROP_CONFIGURABLE)
+                .unwrap();
+
+            {
+                let slot = &mut self.0.borrow_mut().class_proto;
+                slot[JS_CLASS_ASYNC_GENERATOR as usize] = proto;
+                slot[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize] = agen_func;
+            }
         }
     }
 

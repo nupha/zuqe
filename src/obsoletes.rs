@@ -4942,3 +4942,30 @@ pub unsafe fn JS_CheckBrand(ctx: &JSContext, obj: &JSValue, func: &JSValue) -> R
 pub fn JS_AddBrand(ctx: &JSContext, obj: &JSValue, home_obj: &JSValue) -> Result<(), i32> {
     obj.add_brand(ctx, home_obj)
 }
+
+/// Mutually define properties on both `func_obj` and `proto` side:
+/// - Define property `func_obj.prototype = proto`
+/// - Define property `proto.constructor = func_obj`.
+///
+/// Note: The `func_obj` may not necessarily be a constructor
+#[deprecated(note = "use JSContext::bind_ctor_proto_ex() instead")]
+pub fn JS_SetConstructor2(
+    ctx: &JSContext,
+    func_obj: &JSValue,
+    proto: &JSValue,
+    proto_flags: u32,
+    ctor_flags: u32,
+) {
+    ctx.bind_ctor_proto_ex(func_obj, proto, proto_flags, ctor_flags)
+        .unwrap();
+}
+
+/// Mutually define properties on both `func_obj` and `proto` side:
+/// - Define property `func_obj.prototype = proto`
+/// - Define property `proto.constructor = func_obj`.
+///
+/// Note: The `func_obj` may not necessarily be a constructor
+#[deprecated(note = "use JSContext::bind_ctor_proto() instead")]
+pub fn JS_SetConstructor(ctx: &JSContext, func_obj: &JSValue, proto: &JSValue) {
+    ctx.bind_ctor_proto(func_obj, proto).unwrap();
+}
