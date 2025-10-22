@@ -7,7 +7,6 @@ use zhuque::{
     error::JSResult,
     function::{CallContext, FieldDef, NativeFunctionType},
     object::{JS_PROP_C_W_E, ObjectPayload},
-    obsoletes::JS_NewClass,
     runtime::JSRuntime,
     value::JSValue,
 };

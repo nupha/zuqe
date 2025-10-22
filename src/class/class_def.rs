@@ -7,12 +7,15 @@ use crate::{
     error::JSResult,
     function::{JSFunctionDef, NativeCallback, NativeFunctionType},
     gc::set_cycle_flag,
-    object::{
-        JS_PROP_CONFIGURABLE, JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE, JSObject, JSPropertyDescriptor,
-        ObjectPayload, PropertyKey,
-    },
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE},
     runtime::JSRuntime,
     value::JSValue,
+};
+
+use super::{
+    ClassCallFn, ClassFinalizeFn, ClassGCMarkFn, DefineOwnPropertyFn, DeletePropertyFn,
+    GetOwnPropertyFn, GetOwnPropertyNamesFn, GetPropertyFn, HasPropertyFn, JSClassID,
+    SetPropertyFn,
 };
 
 pub const JS_DEFINE_CLASS_HAS_HERITAGE: i32 = 1 << 0;
@@ -21,56 +24,6 @@ pub const OP_DEFINE_METHOD_METHOD: u8 = 0;
 pub const OP_DEFINE_METHOD_GETTER: u8 = 1;
 pub const OP_DEFINE_METHOD_SETTER: u8 = 2;
 pub const OP_DEFINE_METHOD_ENUMERABLE: u8 = 4;
-
-pub type JSClassID = u32;
-
-/// class instance finalize callback.
-/// `isa` is the object's payload.
-pub type JSClassFinalizer = fn(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize);
-
-pub type JSClassGCMark = fn(val: JSValue);
-
-pub type ClassCallFn = fn(
-    ctx: &JSContext,
-    func_obj: &JSValue,
-    this_val: &JSValue,
-    args: &[JSValue],
-    flags: i32,
-) -> JSResult;
-
-pub type DefineOwnPropertyFn = fn(
-    ctx: &JSContext,
-    target: &JSValue,
-    prop: &Atom,
-    val: JSValue,
-    getter: JSValue,
-    setter: JSValue,
-    flags: i32,
-) -> Result<bool, i32>;
-
-pub type HasPropertyFn = fn(ctx: &JSContext, target: &JSObject, prop: &Atom) -> Result<bool, i32>;
-
-/// TODO: change target type to &JSObject
-pub type GetOwnPropertyFn =
-    fn(ctx: &JSContext, target: JSValue, prop: &Atom) -> Result<Option<JSPropertyDescriptor>, i32>;
-
-pub type GetOwnPropertyNamesFn =
-    fn(ctx: &JSContext, target: &JSObject) -> Result<Box<[PropertyKey]>, i32>;
-
-pub type GetPropertyFn =
-    fn(ctx: &JSContext, target: JSValue, prop: &Atom, this_obj: JSValue) -> JSResult;
-
-pub type SetPropertyFn = fn(
-    ctx: &JSContext,
-    target: JSValue,
-    prop: &Atom,
-    val: JSValue,
-    this_obj: JSValue,
-    flags: i32,
-) -> Result<bool, i32>;
-
-/// TODO: change target type to &JSObject
-pub type DeletePropertyFn = fn(ctx: &JSContext, target: JSValue, prop: &Atom) -> Result<bool, i32>;
 
 #[derive(Copy, Clone, Default)]
 pub struct JSClassExoticMethods {
@@ -85,8 +38,8 @@ pub struct JSClassExoticMethods {
 
 pub struct JSClassShortDef {
     pub class_name: AtomRef,
-    pub finalizer: Option<JSClassFinalizer>,
-    pub gc_mark: Option<JSClassGCMark>,
+    pub finalizer: Option<ClassFinalizeFn>,
+    pub gc_mark: Option<ClassGCMarkFn>,
 }
 
 #[derive(Copy, Clone)]
@@ -98,8 +51,8 @@ pub struct JSClassDef {
     /// exotic method handlers
     pub exotic: *const JSClassExoticMethods,
 
-    pub finalizer: Option<JSClassFinalizer>,
-    pub gc_mark: Option<JSClassGCMark>,
+    pub finalizer: Option<ClassFinalizeFn>,
+    pub gc_mark: Option<ClassGCMarkFn>,
 }
 
 impl Default for JSClassDef {
@@ -123,8 +76,8 @@ pub struct JSClass {
     /// pointers for exotic behavior, can be NULL if none are present
     pub exotic: *const JSClassExoticMethods,
 
-    pub gc_mark: Option<JSClassGCMark>,
-    pub finalizer: Option<JSClassFinalizer>,
+    pub gc_mark: Option<ClassGCMarkFn>,
+    pub finalizer: Option<ClassFinalizeFn>,
 }
 
 impl Default for JSClass {
