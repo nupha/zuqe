@@ -21,9 +21,10 @@ use super::{
 };
 
 /// read-only, ref-counted bytes that represents a string.
-#[derive(Clone)]
 #[repr(u8)]
+#[derive(Clone, Default)]
 pub enum StringData {
+    #[default]
     Empty,
 
     Ascii(Rc<[u8]>), // TODO: upgrade to ISO8859 variant to hold 0..=255 chars
@@ -34,12 +35,6 @@ pub enum StringData {
 
     /// identical content. used for anonymous Symbol atom.
     Ident,
-}
-
-impl Default for StringData {
-    fn default() -> Self {
-        StringData::Empty
-    }
 }
 
 impl PartialEq for StringData {
@@ -271,13 +266,13 @@ impl std::fmt::Debug for StringData {
 
 impl StringData {
     #[inline(always)]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         matches!(self, Self::Empty)
     }
 
     /// is identical content
     #[inline(always)]
-    pub fn is_ident(&self) -> bool {
+    pub const fn is_ident(&self) -> bool {
         matches!(self, Self::Ident)
     }
 
@@ -387,21 +382,21 @@ impl StringData {
                             out.push(c as u8);
                         } else {
                             let mut c = c as u32;
-                            if (0xd800..0xdc00).contains(&c) {
-                                if let Some(c1) = it.peek() {
-                                    let c1 = (**c1) as u32;
-                                    if (0xdc00..0xe000).contains(&c1) {
-                                        // surrogate pair
-                                        c = (((c & 0x3ff) << 10) | (c1 & 0x3ff)) + 0x10000;
-                                        it.next();
-                                    }
+                            if (0xd800..0xdc00).contains(&c)
+                                && let Some(c1) = it.peek()
+                            {
+                                let c1 = (**c1) as u32;
+                                if (0xdc00..0xe000).contains(&c1) {
+                                    // surrogate pair
+                                    c = (((c & 0x3ff) << 10) | (c1 & 0x3ff)) + 0x10000;
+                                    it.next();
                                 }
                             }
                             unicode_to_utf8(&mut out, c)
                         }
                     }
 
-                    Cow::Owned(out.into())
+                    Cow::Owned(out)
                 }
                 Self::AsciiStatic(s) => Cow::Borrowed(s.as_bytes()),
             }
@@ -516,7 +511,7 @@ impl StringData {
         match self {
             Self::Empty | Self::Ident => None,
             Self::Ascii(lst) => lst.get(index).map(|n| *n as u16),
-            Self::Utf16(lst) => lst.get(index).map(|n| *n),
+            Self::Utf16(lst) => lst.get(index).copied(),
             Self::AsciiStatic(s) => s.as_bytes().get(index).map(|n| *n as u16),
         }
     }
@@ -671,21 +666,20 @@ impl StringData {
         } else if needle.is_empty() {
             Some(from_index)
         } else {
-            let first = needle.get(0).unwrap().clone();
+            let first = needle.get(0).unwrap();
             let it2 = needle.iter();
             let mut cursor = from_index;
 
             while let Some(i) = self.index_of_code(first, cursor) {
                 debug_assert!(cursor + needle_len <= len, "{i} + {needle_len} <= {len}");
 
-                if i + needle_len <= len {
-                    if self
+                if i + needle_len <= len
+                    && self
                         .iter_range(i..(i + needle_len))
                         .zip(it2.clone())
                         .all(|((_, c1), (_, c2))| c1 == c2)
-                    {
-                        return Some(i); // found at cursor
-                    }
+                {
+                    return Some(i); // found at cursor
                 }
 
                 // forward for next occurrence
@@ -854,13 +848,11 @@ impl StringData {
             StringBuf::Utf16(s) => {
                 if s.is_empty() {
                     Self::Empty
+                } else if !s.iter().any(|c| *c >= 0x80) {
+                    // ascii
+                    Self::Ascii(unsafe { s16_into_s8(s).into() })
                 } else {
-                    if !s.iter().any(|c| *c >= 0x80) {
-                        // ascii
-                        Self::Ascii(unsafe { s16_into_s8(s).into() })
-                    } else {
-                        Self::Utf16(s.into())
-                    }
+                    Self::Utf16(s.into())
                 }
             }
         }
@@ -981,7 +973,7 @@ impl StringDataWeakref {
             StringDataWeakref::Ascii(s) => s.upgrade().map(StringData::Ascii),
             StringDataWeakref::Utf16(s) => s.upgrade().map(StringData::Utf16),
             StringDataWeakref::Empty => Some(StringData::Empty),
-            StringDataWeakref::AsciiStr(s) => Some(StringData::AsciiStatic(*s)),
+            StringDataWeakref::AsciiStr(s) => Some(StringData::AsciiStatic(s)),
             StringDataWeakref::Ident => Some(StringData::Ident),
         }
     }

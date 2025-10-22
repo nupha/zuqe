@@ -9,7 +9,6 @@ use super::{emit::get_prev_opcode, state::JSParseState};
 impl<'s> JSParseState<'s> {
     /// `name` is not consumed.
     pub fn set_object_name(&mut self, name: Atom) {
-        let ctx = self.ctx.clone();
         let fd = self.cur_func_mut();
 
         match get_prev_opcode(fd) {
@@ -67,8 +66,8 @@ impl<'s> JSParseState<'s> {
     }
 }
 
-pub unsafe fn set_object_name_computed(s: *mut JSParseState) {
-    let fd = (*s).cur_func_mut();
+pub fn set_object_name_computed(s: &mut JSParseState) {
+    let fd = s.cur_func_mut();
     let opcode = get_prev_opcode(fd);
 
     if opcode == opcodes::OP_set_name {
@@ -78,19 +77,23 @@ pub unsafe fn set_object_name_computed(s: *mut JSParseState) {
         (*s).emit_op(OpCode::SET_NAME_COMPUTED);
     } else if opcode == opcodes::op_set_class_name {
         let define_class_pos = fd.last_opcode_pos + 1
-            - read_from_ptr::<i32>(
-                fd.byte_code
-                    .as_ptr()
-                    .offset(fd.last_opcode_pos as isize + 1),
-            );
+            - unsafe {
+                read_from_ptr::<i32>(
+                    fd.byte_code
+                        .as_ptr()
+                        .offset(fd.last_opcode_pos as isize + 1),
+                )
+            };
 
-        assert_eq!(
-            *fd.byte_code.as_ptr().offset(define_class_pos as isize),
+        debug_assert_eq!(
+            unsafe { *fd.byte_code.as_ptr().offset(define_class_pos as isize) },
             opcodes::OP_define_class
         );
 
-        *fd.byte_code.as_mut_ptr().offset(define_class_pos as isize) =
-            opcodes::OP_define_class_computed;
+        unsafe {
+            *fd.byte_code.as_mut_ptr().offset(define_class_pos as isize) =
+                opcodes::OP_define_class_computed;
+        }
 
         fd.last_opcode_pos = -1;
     }

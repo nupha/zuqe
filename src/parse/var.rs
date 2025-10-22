@@ -53,11 +53,9 @@ impl<'s> JSParseState<'s> {
                             self.throw_syntax_error("invalid redefinition of lexical identifier");
                             return Err(-1);
                         }
-                    } else {
-                        if fd.scope_level == fd.body_scope {
-                            self.throw_syntax_error("invalid redefinition of lexical identifier");
-                            return Err(-1);
-                        }
+                    } else if fd.scope_level == fd.body_scope {
+                        self.throw_syntax_error("invalid redefinition of lexical identifier");
+                        return Err(-1);
                     }
                 }
 
@@ -76,13 +74,12 @@ impl<'s> JSParseState<'s> {
                     return Err(-1);
                 }
 
-                if fd.is_global_var {
-                    if let Some(hf) = fd.find_global_var(name) {
-                        if fd.is_child_scope(hf.scope_level, (*fd).scope_level) {
-                            self.throw_syntax_error("invalid redefinition of global identifier");
-                            return Err(-1);
-                        }
-                    }
+                if fd.is_global_var
+                    && let Some(hf) = fd.find_global_var(name)
+                    && fd.is_child_scope(hf.scope_level, fd.scope_level)
+                {
+                    self.throw_syntax_error("invalid redefinition of global identifier");
+                    return Err(-1);
                 }
 
                 if fd.is_eval
@@ -117,14 +114,13 @@ impl<'s> JSParseState<'s> {
                 }
 
                 if fd.is_global_var {
-                    if let Some(hf) = fd.find_global_var(name) {
-                        if hf.is_lexical()
-                            && hf.scope_level == fd.scope_level
-                            && fd.eval_type == JS_EVAL_TYPE_MODULE
-                        {
-                            self.throw_syntax_error("invalid redefinition of lexical identifier");
-                            return Err(-1);
-                        }
+                    if let Some(hf) = fd.find_global_var(name)
+                        && hf.is_lexical()
+                        && hf.scope_level == fd.scope_level
+                        && fd.eval_type == JS_EVAL_TYPE_MODULE
+                    {
+                        self.throw_syntax_error("invalid redefinition of lexical identifier");
+                        return Err(-1);
                     }
 
                     fd.add_global_var(&self.ctx, name)?;

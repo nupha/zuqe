@@ -748,8 +748,7 @@ pub const JS_PROP_INITIAL_HASH_SIZE: usize = 8;
 #[cfg(not(target_pointer_width = "64"))]
 pub const JS_PROP_INITIAL_HASH_SIZE: usize = 4;
 
-/// `func_obj` is not consumed.
-pub fn JS_SetConstructorBit(ctx: &JSContext, func_obj: &JSValue, val: bool) -> bool {
+pub(crate) fn JS_SetConstructorBit(func_obj: &JSValue, val: bool) -> bool {
     if let JSValue::Object(p) = func_obj {
         p.set_flag_constructor(val);
         true

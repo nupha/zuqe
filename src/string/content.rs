@@ -37,17 +37,17 @@ impl std::fmt::Debug for StringContent {
 
 impl StringContent {
     #[inline(always)]
-    pub fn data(&self) -> &StringData {
+    pub const fn data(&self) -> &StringData {
         &self.0
     }
 
     #[inline(always)]
-    pub fn empty() -> Self {
+    pub const fn empty() -> Self {
         StringContent(StringData::Empty)
     }
 
     #[inline(always)]
-    pub fn ident() -> Self {
+    pub const fn ident() -> Self {
         Self(StringData::Ident)
     }
 }

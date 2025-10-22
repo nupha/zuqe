@@ -274,17 +274,15 @@ impl JSParseState<'_> {
                         self.emit_atom(name.clone());
                         self.emit_u16(self.cur_func().scope_level as u16);
                     }
-                } else {
-                    if tok == TOK_CONST {
-                        self.throw_syntax_error("missing initializer for const variable");
-                        return Err(-1);
-                    } else if tok == TOK_LET {
-                        // initialize lexical variable upon entering its scope
-                        self.emit_op(OpCode::UNDEFINED);
-                        self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
-                        self.emit_atom(name.clone());
-                        self.emit_u16(self.cur_func().scope_level as u16);
-                    }
+                } else if tok == TOK_CONST {
+                    self.throw_syntax_error("missing initializer for const variable");
+                    return Err(-1);
+                } else if tok == TOK_LET {
+                    // initialize lexical variable upon entering its scope
+                    self.emit_op(OpCode::UNDEFINED);
+                    self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
+                    self.emit_atom(name.clone());
+                    self.emit_u16(self.cur_func().scope_level as u16);
                 }
             } else {
                 let mut skip_bits: i32 = 0;

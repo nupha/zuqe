@@ -802,7 +802,7 @@ impl JSContext {
                 0,
             )
             .unwrap();
-        JS_SetConstructorBit(self, &func_obj, true);
+        JS_SetConstructorBit(&func_obj, true);
 
         func_obj.install_field_defs(self, &js_proxy_funcs).unwrap();
 

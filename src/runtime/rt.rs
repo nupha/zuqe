@@ -39,70 +39,69 @@ pub const JS_STACK_SIZE_MAX: u16 = 65534;
 pub type JSInterruptHandler = fn(rt: &JSRuntime, opaque: *mut c_void) -> i32;
 
 pub struct JSRuntime {
-    pub mf: JSMallocFunctions,
-    pub malloc_state: JSMallocState,
-
-    pub rt_info: *const c_char,
-
     /// registered classes
-    pub class_registry: Vec<ClassMeta>,
+    pub(crate) class_registry: Vec<ClassMeta>,
 
-    /// context list
-    pub context_list: Vec<JSContext>,
+    /// list of living contexts
+    pub(crate) context_list: Vec<JSContext>,
 
-    /// requested to perform gc
-    pub gc_req: bool,
-    pub gc_phase: JSGCPhaseEnum,
-    /// List of tracked GC objects (used by garbage collector)
-    pub gc_obj_list: HashMap<usize, GCObjectWeakref>,
-    /// Used during JS_FreeValueRT()
-    pub gc_zero_ref_count_list: Vec<GCObjectWeakref>,
-    /// used during GC
-    pub tmp_obj_list: Vec<GCObjectWeakref>,
-
-    pub malloc_gc_threshold: usize,
+    /// shapes weakref registry.
+    /// use Vec<> to hold conflicted key values.
+    pub(crate) shape_registry: HashMap<u32, Vec<JSShapeWeakref>>,
 
     /* stack limitation */
-    pub stack_size: usize, /* in bytes, 0 if no limit */
-    pub stack_top: usize,
-    pub stack_limit: usize, /* lower stack limit */
+    pub(crate) stack_size: usize, /* in bytes, 0 if no limit */
+    pub(crate) stack_top: usize,
+    pub(crate) stack_limit: usize, /* lower stack limit */
 
     /// current exception value
-    pub cur_exception: JSValue,
+    pub(crate) cur_exception: JSValue,
     /* true if inside an out of memory error, to avoid recursing */
-    pub in_out_of_memory: bool,
+    pub(crate) in_out_of_memory: bool,
 
     // stack frame of currently executing function
-    pub cur_stack_frame: *mut Pin<StackFrame>,
+    pub(crate) cur_stack_frame: *mut Pin<StackFrame>,
 
     /// pre-compiled regexp in parsing state.
-    pub regexp_precompiled: Vec<RegExpData>,
+    pub(crate) regexp_precompiled: Vec<RegExpData>,
 
-    pub interrupt_handler: Option<JSInterruptHandler>,
-    pub interrupt_opaque: *mut c_void,
+    pub(crate) interrupt_handler: Option<JSInterruptHandler>,
+    pub(crate) interrupt_opaque: *mut c_void,
 
-    pub host_promise_rejection_tracker: Option<JSHostPromiseRejectionTracker>,
-    pub host_promise_rejection_tracker_opaque: *mut c_void,
+    pub(crate) host_promise_rejection_tracker: Option<JSHostPromiseRejectionTracker>,
+    pub(crate) host_promise_rejection_tracker_opaque: *mut c_void,
 
     /// queued jobs
     pub(crate) job_list: VecDeque<Job>,
 
-    pub module_normalize_func: Option<JSModuleNormalizeFunc>,
-    pub module_loader_func: Option<JSModuleLoaderFunc>,
-    pub module_loader_opaque: *mut c_void,
+    pub(crate) module_normalize_func: Option<JSModuleNormalizeFunc>,
+    pub(crate) module_loader_func: Option<JSModuleLoaderFunc>,
+    pub(crate) module_loader_opaque: *mut c_void,
     /* timestamp for internal use in module evaluation */
-    pub module_async_evaluation_next_timestamp: i64,
+    pub(crate) module_async_evaluation_next_timestamp: i64,
 
-    pub can_block: bool, /* TRUE if Atomics.wait can block */
+    pub(crate) can_block: bool, /* TRUE if Atomics.wait can block */
 
     /// callbacks to allocate, free and clone SharedArrayBuffers
-    pub sab_funcs: Option<JSSharedArrayBufferFunctions>,
+    pub(crate) sab_funcs: Option<JSSharedArrayBufferFunctions>,
 
-    /// shapes weakref registry.
-    /// use Vec<> to hold conflicted key values.
-    pub shape_registry: HashMap<u32, Vec<JSShapeWeakref>>,
+    /// requested to perform gc
+    pub(crate) gc_req: bool,
+    pub(crate) gc_phase: JSGCPhaseEnum,
+    /// List of tracked GC objects (used by garbage collector)
+    pub(crate) gc_obj_list: HashMap<usize, GCObjectWeakref>,
+    /// Used during JS_FreeValueRT()
+    pub(crate) gc_zero_ref_count_list: Vec<GCObjectWeakref>,
+    /// used during GC
+    pub(crate) tmp_obj_list: Vec<GCObjectWeakref>,
 
-    pub user_opaque: *mut c_void,
+    pub(crate) malloc_gc_threshold: usize,
+
+    pub(crate) user_opaque: *mut c_void,
+
+    pub(crate) mf: JSMallocFunctions,
+    pub(crate) malloc_state: JSMallocState,
+    pub(crate) rt_info: *const c_char,
 }
 
 thread_local! {
@@ -468,7 +467,7 @@ const fn update_stack_limit(rt: &mut JSRuntime) {
     }
 }
 
-pub(crate) fn JS_SetMaxStackSize(rt: &mut JSRuntime, stack_size: usize) {
+pub(crate) const fn JS_SetMaxStackSize(rt: &mut JSRuntime, stack_size: usize) {
     rt.stack_size = stack_size;
     update_stack_limit(rt);
 }

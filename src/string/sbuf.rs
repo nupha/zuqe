@@ -47,6 +47,7 @@ static EMPTY: StringBuf = StringBuf::Empty;
 
 impl StringBuf {
     /// Creates StringBuf from str
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(str: &str) -> Result<Self, i32> {
         debug_assert!(str.len() < JS_STRING_LEN_MAX);
 
@@ -337,20 +338,18 @@ impl StringBuf {
                             lst.try_reserve(32)?;
                         }
                         lst.push(c)
-                    } else {
-                        if c < 0x80 {
-                            if d8.capacity() == d8.len() {
-                                d8.try_reserve(32)?;
-                            }
-                            d8.push(c as u8);
-                        } else {
-                            // migrate to utf16
-                            let mut w = Vec::<u16>::new();
-                            w.try_reserve(d8.len() * 3 / 2)?;
-                            w.extend(unsafe { std::str::from_utf8_unchecked(d8) }.encode_utf16());
-                            w.push(c);
-                            s16.replace(w);
+                    } else if c < 0x80 {
+                        if d8.capacity() == d8.len() {
+                            d8.try_reserve(32)?;
                         }
+                        d8.push(c as u8);
+                    } else {
+                        // migrate to utf16
+                        let mut w = Vec::<u16>::new();
+                        w.try_reserve(d8.len() * 3 / 2)?;
+                        w.extend(unsafe { std::str::from_utf8_unchecked(d8) }.encode_utf16());
+                        w.push(c);
+                        s16.replace(w);
                     }
                 }
 
@@ -451,15 +450,13 @@ impl StringBuf {
                         StringChar::Char(c) => {
                             if let Some(d16) = s16.as_mut() {
                                 d16.try_extend_from_slice(c.encode_utf16(&mut [0u16; 2]))?;
+                            } else if c.is_ascii() {
+                                lst.try_push(c as u8)?;
                             } else {
-                                if c.is_ascii() {
-                                    lst.try_push(c as u8)?;
-                                } else {
-                                    let mut d16 = Vec::<u16>::with_capacity(lst.len() + 16);
-                                    d16.extend(lst.iter().map(|c| *c as u16));
-                                    d16.extend_from_slice(c.encode_utf16(&mut [0u16; 2]));
-                                    s16.replace(d16);
-                                }
+                                let mut d16 = Vec::<u16>::with_capacity(lst.len() + 16);
+                                d16.extend(lst.iter().map(|c| *c as u16));
+                                d16.extend_from_slice(c.encode_utf16(&mut [0u16; 2]));
+                                s16.replace(d16);
                             }
                         }
                         StringChar::Code(c) => {
@@ -603,7 +600,7 @@ impl StringBuf {
     }
 
     /// buffer length, count of codepoints.
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         match self {
             Self::Empty => 0,
             Self::Ascii(s) => s.len(),
@@ -626,12 +623,12 @@ impl StringBuf {
         match self {
             Self::Empty => None,
             Self::Ascii(lst) => lst.get(index).map(|n| *n as u16),
-            Self::Utf16(lst) => lst.get(index).map(|n| *n),
+            Self::Utf16(lst) => lst.get(index).copied(),
         }
     }
 
     #[inline(always)]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         matches!(self, Self::Empty)
     }
 
@@ -648,14 +645,14 @@ impl StringBuf {
 
             let mut pos = 0;
             for (i, c) in self.iter() {
-                if let StringChar::Char(ch) = c {
-                    if !char_is_space(ch) {
-                        if start.is_none() {
-                            start.replace(pos);
-                        }
-                        if i > end {
-                            end = i;
-                        }
+                if let StringChar::Char(ch) = c
+                    && !char_is_space(ch)
+                {
+                    if start.is_none() {
+                        start.replace(pos);
+                    }
+                    if i > end {
+                        end = i;
                     }
                 }
                 pos = i;
@@ -724,7 +721,7 @@ impl StringBuf {
         }
     }
 
-    pub(super) fn as_slice(&self) -> StringBufSlice<'_> {
+    pub(super) const fn as_slice(&self) -> StringBufSlice<'_> {
         StringBufSlice {
             src: self,
             buf_ranges: 0..self.len(),
@@ -768,7 +765,7 @@ impl std::fmt::Debug for StringBufSlice<'_> {
 
 impl StringBufSlice<'_> {
     #[inline(always)]
-    pub fn is_wide(&self) -> bool {
+    pub const fn is_wide(&self) -> bool {
         self.src.is_wide()
     }
 
@@ -850,7 +847,7 @@ pub(super) unsafe fn s16_into_s8(mut d16: Vec<u16>) -> Vec<u8> {
     // IMPORTANT: don't drop vec automatically
     std::mem::forget(d16);
     // re-interpret vec as Vec<u8>
-    Vec::from_raw_parts(ptr, len, cap * 2)
+    unsafe { Vec::from_raw_parts(ptr, len, cap * 2) }
 }
 
 pub(super) fn is_char_visible(ch: char) -> bool {

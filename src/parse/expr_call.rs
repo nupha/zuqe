@@ -40,8 +40,8 @@ impl<'s> JSParseState<'s> {
         fd: &mut JSFunctionDef, // TODO: remove this arg
         opcode: u8,
         call_type: FuncCallType,
-        has_optional_chain: bool,
-        optional_chaining_label: &mut i32,
+        _has_optional_chain: bool,
+        _optional_chaining_label: &mut i32,
     ) -> Result<(), i32> {
         match call_type {
             FuncCallType::FUNC_CALL_SUPER_CTOR => {

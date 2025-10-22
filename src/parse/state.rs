@@ -1,9 +1,6 @@
 use std::ptr::NonNull;
 
-use crate::{
-    atom::Atom, context::JSContext, function::JSFunctionDef, parse::token::TokenData,
-    value::JSValue,
-};
+use crate::{context::JSContext, function::JSFunctionDef, parse::token::TokenData, value::JSValue};
 
 use super::token::Token;
 

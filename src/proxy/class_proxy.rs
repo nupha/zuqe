@@ -29,7 +29,7 @@ pub fn js_proxy_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         .map_err(|_| -1)?
         .into();
 
-    JS_SetConstructorBit(ctx, &obj, target.is_constructor());
+    JS_SetConstructorBit(&obj, target.is_constructor());
     Ok(obj)
 }
 

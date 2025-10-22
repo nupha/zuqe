@@ -234,12 +234,12 @@ impl<'s> JSParseState<'s> {
                             self.emit_op(OpCode::SWAP); /* TOS: src excludeList */
                             self.emit_op(OpCode::NULL); /* TOS: src excludeList null */
                             self.emit_op(OpCode::DEFINE_FIELD); /* TOS: src excludeList */
-                            self.emit_atom(prop_name.clone().into());
+                            self.emit_atom(prop_name.clone());
                             self.emit_op(OpCode::SWAP); /* TOS: excludeList src */
                         }
                         /* get the named property from the source object */
                         self.emit_op(OpCode::GET_FIELD2);
-                        self.emit_atom(prop_name.clone().into());
+                        self.emit_atom(prop_name.clone());
                     }
 
                     self.parse_destructuring_element(tok, is_arg, true, -1, true, export)?;
@@ -343,7 +343,7 @@ impl<'s> JSParseState<'s> {
                         /* XXX: should have OP_get_field2x with depth */
                         /* source -- val */
                         self.emit_op(OpCode::GET_FIELD);
-                        self.emit_atom(prop_name.clone().into());
+                        self.emit_atom(prop_name.clone());
                     }
                 }
 
@@ -351,7 +351,7 @@ impl<'s> JSParseState<'s> {
                     var_name = prop_name.clone();
                     /* source -- source val */
                     self.emit_op(OpCode::GET_FIELD2);
-                    self.emit_atom(prop_name.into());
+                    self.emit_atom(prop_name);
                 }
             }
 
@@ -631,7 +631,7 @@ impl<'s> JSParseState<'s> {
                     )),
         ) {
             self.throw_syntax_error("invalid destructuring target");
-            return Err(-1);
+            Err(-1)
         } else {
             let name = self.token.atom().unwrap();
             if is_arg {

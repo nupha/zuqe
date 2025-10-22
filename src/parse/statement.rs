@@ -783,11 +783,9 @@ fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
 
 #[inline(always)]
 fn stmt_let_const_var(s: &mut JSParseState, tok: i32, decl_mask: i32) -> Result<(), i32> {
-    if matches!(tok, TOK_LET | TOK_CONST) {
-        if (decl_mask & DECL_MASK_OTHER) == 0 {
-            s.throw_syntax_error("lexical declarations can't appear in single-statement context");
-            return Err(-1);
-        }
+    if matches!(tok, TOK_LET | TOK_CONST) && (decl_mask & DECL_MASK_OTHER) == 0 {
+        s.throw_syntax_error("lexical declarations can't appear in single-statement context");
+        return Err(-1);
     }
 
     s.next_token()?;
@@ -1110,7 +1108,7 @@ pub fn js_parse_for_in_of(
 
         if !var_name.is_null() {
             s.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR);
-            s.emit_atom(var_name.into());
+            s.emit_atom(var_name);
             s.emit_u16(s.cur_func().scope_level as _);
         }
     }

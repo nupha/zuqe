@@ -22,7 +22,7 @@ impl From<u8> for StringChar {
 
 impl From<u16> for StringChar {
     fn from(value: u16) -> Self {
-        if matches!(value, 0xD800..=0xDBFF | 0xDC00..=0xDFFF) {
+        if matches!(value, 0xD800..=0xDFFF) {
             // invalid high or low surrogate.
             Self::Code(value)
         } else {
@@ -46,12 +46,12 @@ impl std::fmt::Display for StringChar {
 
 impl std::fmt::Debug for StringChar {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "'{}'", self.to_string())
+        write!(f, "'{self}'")
     }
 }
 
 impl StringChar {
-    pub fn to_u32(self) -> u32 {
+    pub const fn to_u32(self) -> u32 {
         match self {
             Self::Char(c) => c as u32,
             Self::Code(c) => c as u32,
@@ -59,7 +59,7 @@ impl StringChar {
     }
 
     /// if is broken code, returns None. otherwise returns the char
-    pub fn char(&self) -> Option<char> {
+    pub const fn char(&self) -> Option<char> {
         if let Self::Char(c) = self {
             Some(*c)
         } else {
@@ -171,7 +171,7 @@ impl<'a> StringCharIter<'a> {
     }
 
     /// get current cursor
-    pub fn cursor(&self) -> usize {
+    pub const fn cursor(&self) -> usize {
         match self {
             Self::U8 { cursor, .. } => *cursor,
             Self::U16(it) => it.cursor,

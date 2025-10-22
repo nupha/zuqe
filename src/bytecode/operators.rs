@@ -14,7 +14,7 @@ use crate::{
     object::{
         JS_GPN_INDEX_MASK, JS_GPN_SET_ENUM, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE,
         JS_PROP_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW, JS_PROP_THROW_STRICT,
-        JS_PROP_WRITABLE, JS_SetConstructorBit, JSObject, ObjectPayload, js_get_length32,
+        JS_PROP_WRITABLE, JS_SetConstructorBit, JSObject, ObjectPayload,
     },
     stack_frame::StackFrame,
     string::{JS_ConcatString3, JSString},
@@ -154,7 +154,7 @@ pub(super) fn js_op_define_class(
         JSValue::from(bc.make_closure(ctx, cur_var_refs, Some(sframe), Some(parent_class))?);
 
     js_method_set_home_object(&ctor, Some(&proto));
-    JS_SetConstructorBit(ctx, &ctor, true);
+    JS_SetConstructorBit(&ctor, true);
 
     ctor.define_property_value(
         ctx,
@@ -280,7 +280,7 @@ pub(super) unsafe fn js_append_enumerate(ctx: &JSContext, sp: *mut JSValue) -> R
     };
 
     // .length property of the array
-    let len = js_get_length32(ctx, src)? as usize;
+    let len = src.get_length_prop(ctx)? as usize;
 
     // XXX: further optimisations:
     //       - use ctx->array_proto_values?
@@ -479,7 +479,7 @@ pub(super) fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i3
 }
 
 pub(super) unsafe fn js_iterator_get_value_done(ctx: &JSContext, sp: *mut JSValue) -> i32 {
-    let obj = &*sp.offset(-1);
+    let obj = unsafe { &*sp.offset(-1) };
     if !obj.is_object() {
         ctx.throw_type_error("iterator must return an object");
         return -1;

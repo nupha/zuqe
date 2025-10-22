@@ -107,12 +107,10 @@ impl<'s> JSParseState<'s> {
                     self.parse_assign_expr()?;
 
                     if name.is_null() {
-                        unsafe {
-                            set_object_name_computed(self);
-                        }
+                        set_object_name_computed(self);
                         self.emit_op(OpCode::DEFINE_ARRAY_EL);
                         self.emit_op(OpCode::DROP);
-                    } else if name.to_ref() == JS_ATOM___proto__ {
+                    } else if name.eq(&JS_ATOM___proto__) {
                         if has_proto {
                             self.throw_syntax_error("duplicate __proto__ property name");
                             return Err(-1);

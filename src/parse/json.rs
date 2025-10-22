@@ -29,7 +29,7 @@ fn json_parse_expect(s: &mut JSParseState, tok: i32) -> Result<(), i32> {
         s.throw_syntax_error(&format!("expecting '{tok}'"));
         Err(-1)
     } else {
-        unsafe { json_next_token(s) }
+        json_next_token(s)
     }
 }
 

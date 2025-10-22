@@ -53,7 +53,7 @@ pub struct PromisePayload {
 
 impl PromisePayload {
     #[inline(always)]
-    pub fn state(&self) -> PromiseState {
+    pub const fn state(&self) -> PromiseState {
         self.promise_state.get()
     }
 
@@ -84,11 +84,10 @@ impl PromisePayload {
 
     /// take pending reactions out, reset reactions list to empty.
     pub fn take_reactions(&self) -> [Vec<Box<JSPromiseReactionData>>; 2] {
-        let mut b = self.promise_reactions.borrow_mut();
-        std::mem::replace(b.deref_mut(), [Vec::new(), Vec::new()])
+        std::mem::take(self.promise_reactions.borrow_mut().deref_mut())
     }
 
-    pub fn is_handled(&self) -> bool {
+    pub const fn is_handled(&self) -> bool {
         self.is_handled.get()
     }
     pub fn set_handled(&self, v: bool) {
@@ -167,7 +166,7 @@ impl Promise {
                 resolving_funcs[i] = item;
             }
 
-            Ok((promise.into(), resolving_funcs))
+            Ok((promise, resolving_funcs))
         } else {
             unreachable!()
         }
@@ -270,7 +269,7 @@ impl Promise {
         .map(|p| p.into())
     }
 
-    pub fn class_finalizer(_: &mut JSRuntime, isa: &ObjectPayload, _: usize) {
+    pub const fn class_finalizer(_: &mut JSRuntime, _isa: &ObjectPayload, _: usize) {
         // if let ObjectPayload::PROMISE(mut s) = isa {
         //     s.promise_reactions[0].clear();
         //     s.promise_reactions[1].clear();
@@ -391,8 +390,7 @@ pub fn js_promise_all_resolve_element(ctx: &JSContext, mut cc: CallContext) -> J
                 ctx,
                 &JSValue::UNDEFINED,
                 std::slice::from_ref(&if resolve_type == PROMISE_MAGIC_any {
-                    let error = js_aggregate_error_constructor(ctx, values).err()?;
-                    error
+                    js_aggregate_error_constructor(ctx, values).err()?
                 } else {
                     values
                 }),

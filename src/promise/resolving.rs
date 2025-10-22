@@ -84,7 +84,7 @@ impl PromiseResolveFunc {
         Ok(JSValue::UNDEFINED)
     }
 
-    pub fn class_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
+    pub const fn class_finalizer(_rt: &mut JSRuntime, _isa: &ObjectPayload, _id: usize) {}
 
     pub fn class_mark(val: JSValue) {
         if let Some(s) = unsafe {
@@ -118,7 +118,7 @@ impl Promise {
     /// Arguments:
     /// - `reaction_funcs` - [success, fail] reaction callback functions, user's logic.
     /// - `cap_resolving_funcs` - resolving functions of wrapper promise,
-    ///    which activates the `reaction_funcs` execution.
+    ///   which activates the `reaction_funcs` execution.
     pub(crate) fn reaction(
         &self,
         ctx: &JSContext,
@@ -165,16 +165,17 @@ impl Promise {
             }
             state => {
                 // queue as job
-                if state == PromiseState::JS_PROMISE_REJECTED && !s.is_handled() {
-                    if let Some(cb) = ctx.rt().host_promise_rejection_tracker {
-                        cb(
-                            ctx,
-                            self.clone(),
-                            s.result(),
-                            true as i32,
-                            ctx.rt().host_promise_rejection_tracker_opaque,
-                        );
-                    }
+                if state == PromiseState::JS_PROMISE_REJECTED
+                    && !s.is_handled()
+                    && let Some(cb) = ctx.rt().host_promise_rejection_tracker
+                {
+                    cb(
+                        ctx,
+                        self.clone(),
+                        s.result(),
+                        true as i32,
+                        ctx.rt().host_promise_rejection_tracker_opaque,
+                    );
                 }
 
                 let act = if state == PromiseState::JS_PROMISE_FULFILLED {
@@ -222,16 +223,17 @@ impl Promise {
         p.set_state(promise_state);
         p.set_result(value.clone());
 
-        if promise_state == PromiseState::JS_PROMISE_REJECTED && !p.is_handled() {
-            if let Some(cb) = ctx.rt().host_promise_rejection_tracker {
-                cb(
-                    ctx,
-                    self.clone(),
-                    value.clone(),
-                    0,
-                    ctx.rt().host_promise_rejection_tracker_opaque,
-                );
-            }
+        if promise_state == PromiseState::JS_PROMISE_REJECTED
+            && !p.is_handled()
+            && let Some(cb) = ctx.rt().host_promise_rejection_tracker
+        {
+            cb(
+                ctx,
+                self.clone(),
+                value.clone(),
+                0,
+                ctx.rt().host_promise_rejection_tracker_opaque,
+            );
         }
 
         // call chained reactions registered by `then()`, `catch()` or `finally()`

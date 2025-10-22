@@ -262,13 +262,13 @@ impl Bytecode {
         };
 
         let payload = {
-            let isa = BCFuncPayload::new(self.clone(), var_refs);
+            let p = BCFuncPayload::new(self.clone(), var_refs);
             match self.func_kind() {
-                JSFunctionKindEnum::JS_FUNC_NORMAL => ObjectPayload::BYTECODE_FUNCTION(isa),
-                JSFunctionKindEnum::JS_FUNC_GENERATOR => ObjectPayload::GENERATOR_FUNCTION(isa),
-                JSFunctionKindEnum::JS_FUNC_ASYNC => ObjectPayload::ASYNC_FUNCTION(isa),
+                JSFunctionKindEnum::JS_FUNC_NORMAL => ObjectPayload::BYTECODE_FUNCTION(p),
+                JSFunctionKindEnum::JS_FUNC_GENERATOR => ObjectPayload::GENERATOR_FUNCTION(p),
+                JSFunctionKindEnum::JS_FUNC_ASYNC => ObjectPayload::ASYNC_FUNCTION(p),
                 JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR => {
-                    ObjectPayload::ASYNC_GENERATOR_FUNCTION(isa)
+                    ObjectPayload::ASYNC_GENERATOR_FUNCTION(p)
                 }
             }
         };
@@ -315,7 +315,7 @@ impl Bytecode {
             // add the 'prototype' property: delay instantiation to avoid
             // creating cycles for every javascript function. The prototype
             // object is created on the fly when first accessed
-            JS_SetConstructorBit(ctx, &func.clone().into(), true);
+            JS_SetConstructorBit(&func.clone().into(), true);
 
             func.define_lazy_property(
                 ctx,
@@ -445,18 +445,3 @@ pub unsafe fn add_closure_variables(
     s.closure_vars.replace(cvars);
     Ok(())
 }
-
-// pub unsafe fn set_closure_from_var(
-//     ctx: &JSContext,
-//     cv: *mut JSClosureVar,
-//     vd: *mut JSVarDef,
-//     var_idx: u16,
-// ) {
-//     (*cv).set_is_local(true);
-//     (*cv).set_is_arg(false);
-//     (*cv).set_is_const((*vd).is_const());
-//     (*cv).set_is_lexical((*vd).is_lexical());
-//     (*cv).set_var_kind((*vd).var_kind());
-//     (*cv).var_idx = var_idx;
-//     (*cv).var_name = (*vd).var_name.clone();
-// }
