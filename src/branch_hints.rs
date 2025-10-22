@@ -11,19 +11,19 @@ pub(crate) const fn unlikely(expr: bool) -> bool {
     }
 }
 
-#[inline(always)]
-pub(crate) const fn likely(expr: bool) -> bool {
-    if expr {
-        true
-    } else {
-        #[cold]
-        #[inline(never)]
-        const fn cold_path() -> bool {
-            false
-        }
-        cold_path()
-    }
-}
+// #[inline(always)]
+// pub(crate) const fn likely(expr: bool) -> bool {
+//     if expr {
+//         true
+//     } else {
+//         #[cold]
+//         #[inline(never)]
+//         const fn cold_path() -> bool {
+//             false
+//         }
+//         cold_path()
+//     }
+// }
 
 /// Xtensa架构（ESP32系列）的分支预测
 ///

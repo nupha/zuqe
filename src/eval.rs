@@ -117,7 +117,7 @@ impl JSContext {
             fd.attrs.arguments_allowed = bc.attrs.arguments_allowed;
 
             unsafe {
-                add_closure_variables(self, &mut fd, &bc, scope_idx)?;
+                add_closure_variables(self, &mut fd, bc, scope_idx)?;
             }
         } else {
             debug_assert_ne!(eval_type, JS_EVAL_TYPE_DIRECT, "can't be direct eval type");
@@ -164,13 +164,11 @@ impl JSContext {
             md.set_tla(has_await);
             self.resolve_module(&md)?;
             Ok(Compiled::Module(md))
+        } else if cur_frame_func.is_some() {
+            debug_assert_eq!(eval_type, JS_EVAL_TYPE_DIRECT);
+            Ok(Compiled::Direct(bc_compiled))
         } else {
-            if cur_frame_func.is_some() {
-                debug_assert_eq!(eval_type, JS_EVAL_TYPE_DIRECT);
-                Ok(Compiled::Direct(bc_compiled))
-            } else {
-                Ok(Compiled::GlobalOrIndirect(bc_compiled))
-            }
+            Ok(Compiled::GlobalOrIndirect(bc_compiled))
         }
     }
 

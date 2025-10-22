@@ -39,12 +39,9 @@ pub enum ABufData {
 
 impl ABufData {
     /// for SharedArrayBuffer
-    pub fn is_shared(&self) -> bool {
-        if let Self::Shared(_) = self {
-            true
-        } else {
-            false
-        }
+    #[inline(always)]
+    pub const fn is_shared(&self) -> bool {
+        matches!(self, Self::Shared(_))
     }
 
     /// byte length
@@ -57,16 +54,9 @@ impl ABufData {
         }
     }
 
-    #[deprecated(
-        note = "it's unsafe for SharedArrayBuffer with Arc+Mutex, don't use this. will be removed"
-    )]
-    pub fn as_mut_ptr(&mut self) -> *mut u8 {
-        match self {
-            Self::Empty => std::ptr::null_mut(),
-            Self::Owned(b) => b.as_mut_ptr(),
-            Self::Shared(a) => a.write().unwrap().as_mut_ptr(),
-            Self::Raw(p, _, _) => p.as_ptr(),
-        }
+    #[inline(always)]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     fn with_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
@@ -380,7 +370,7 @@ pub fn js_shared_array_buffer_constructor(ctx: &JSContext, cc: CallContext) -> J
 }
 
 // also used for SharedArrayBuffer
-pub fn js_array_buffer_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {
+pub fn js_array_buffer_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, _id: usize) {
     let abuf = isa.array_buffer().unwrap();
 
     // free content

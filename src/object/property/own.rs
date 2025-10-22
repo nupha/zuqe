@@ -422,10 +422,9 @@ impl JSObject {
 
                 cid => {
                     if flags & JS_PROP_NO_EXOTIC == 0
-                        && let Some(em) =
-                            unsafe { ctx.rt().class_registry[cid as usize].exotic.as_ref() }
+                        && let Some(pm) = ctx.rt().class_registry[cid as usize].exotic.as_ref()
                     {
-                        if let Some(f) = em.define_own_property {
+                        if let Some(f) = pm.define_own_property {
                             return f(
                                 ctx,
                                 &JSValue::Object(self.clone()),

@@ -111,7 +111,7 @@ pub fn js_object_getset___proto__(ctx: &JSContext, cc: CallContext) -> JSResult 
 pub unsafe fn js_object___defineGetter__(
     ctx: &JSContext,
     this_val: JSValue,
-    argc: i32,
+    _argc: i32,
     argv: *mut JSValue,
     magic: i32,
 ) -> JSValue {

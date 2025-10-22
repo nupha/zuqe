@@ -22,7 +22,7 @@ fn get_frame_address(level: usize) -> Option<*const c_void> {
 
 /// get stack top level addr
 #[inline(always)]
-pub fn js_get_stack_pointer() -> *const c_void {
+pub const fn js_get_stack_pointer() -> *const c_void {
     // get_frame_address(0).unwrap()
     let _d = 0_usize;
     &_d as *const usize as _
@@ -49,12 +49,12 @@ pub(crate) const fn M4(op1: i32, op2: i32, op3: i32, op4: i32) -> i32 {
 
 #[inline(always)]
 pub(crate) const unsafe fn read_from_ptr<T>(ptr: *const u8) -> T {
-    ptr.cast::<T>().read_unaligned()
+    unsafe { ptr.cast::<T>().read_unaligned() }
 }
 
 #[inline(always)]
 pub(crate) const unsafe fn write_to_ptr<T>(ptr: *mut u8, val: T) {
-    ptr.cast::<T>().write_unaligned(val)
+    unsafe { ptr.cast::<T>().write_unaligned(val) }
 }
 
 #[inline(always)]

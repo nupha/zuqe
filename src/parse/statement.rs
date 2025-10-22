@@ -820,13 +820,13 @@ fn stmt_switch(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
 
     while s.token.val != CHAR_CURLY_R {
         if s.token.val == TOK_CASE {
-            label1 = -1;
-            if label_case >= 0 {
+            label1 = if label_case >= 0 {
                 // skip the case if needed
-                label1 = s.emit_goto(OpCode::GOTO, -1);
-            }
+                s.emit_goto(OpCode::GOTO, -1)
+            } else {
+                -1
+            };
             s.emit_label(label_case);
-            label_case = -1;
 
             loop {
                 // parse a sequence of case clauses

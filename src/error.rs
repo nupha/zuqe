@@ -250,7 +250,7 @@ impl JSContext {
             error_obj.define_property_value(
                 self,
                 JS_ATOM_lineNumber.deref(),
-                JSValue::from(line_num as i32),
+                JSValue::from(line_num),
                 JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
             )?;
 
@@ -270,7 +270,7 @@ impl JSContext {
             let str1 = get_func_name(unsafe { &(*sf).cur_func }).map_or(
                 Cow::Borrowed("<anonymous>"),
                 |x| {
-                    if x.len() == 0 {
+                    if x.is_empty() {
                         Cow::Borrowed("<anonymous>")
                     } else {
                         Cow::Owned(x)
@@ -405,10 +405,10 @@ pub unsafe fn JS_IsUncatchableError(val: &JSValue) -> bool {
 }
 
 pub fn JS_SetUncatchableError(val: &JSValue, b: bool) {
-    if let JSValue::Object(p) = val {
-        if p.class_id() == JS_CLASS_ERROR {
-            p.set_flag_uncatchable_error(b);
-        }
+    if let JSValue::Object(p) = val
+        && p.class_id() == JS_CLASS_ERROR
+    {
+        p.set_flag_uncatchable_error(b);
     }
 }
 

@@ -4961,3 +4961,9 @@ pub fn JS_SetConstructor2(
 pub fn JS_SetConstructor(ctx: &JSContext, func_obj: &JSValue, proto: &JSValue) {
     ctx.bind_ctor_proto(func_obj, proto).unwrap();
 }
+
+#[deprecated(note = "use JSShape::dump() instead")]
+pub unsafe fn JS_DumpShape(_rt: &JSRuntime, _i: i32, _sh: &JSShape) {
+    unreachable!("unused");
+    // sh.dump(rt, i);
+}

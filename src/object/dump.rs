@@ -37,12 +37,6 @@ pub unsafe fn JS_DumpShapes(rt: &mut JSRuntime) {
     println!("}}");
 }
 
-#[deprecated(note = "use JSShape::dump() instead")]
-pub unsafe fn JS_DumpShape(rt: &JSRuntime, i: i32, sh: &JSShape) {
-    unreachable!("unused");
-    // sh.dump(rt, i);
-}
-
 impl JSObject {
     /// print object debug info to console
     pub fn dump(&self, rt: &JSRuntime) {
@@ -67,7 +61,9 @@ impl JSObject {
         // print class name
         print!(
             "{:10} ",
-            rt.class_registry[self.class_id() as usize].class_name.to_utf8(),
+            rt.class_registry[self.class_id() as usize]
+                .class_name
+                .to_utf8(),
         );
 
         if self.flags().is_exotic() && self.flags().is_fast_array() {
@@ -137,11 +133,7 @@ impl JSObject {
                         JSProperty::VarRef(vref) => {
                             print!("[varref {:p}", vref.value_ptr())
                         }
-                        JSProperty::LazyInit {
-                            realm,
-                            init_type,
-                            opaque,
-                        } => {
+                        JSProperty::LazyInit { realm, opaque, .. } => {
                             print!(
                                 "[autoinit 0x{:x} {:p}]",
                                 realm.upgrade().unwrap().id(),

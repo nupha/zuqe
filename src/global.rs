@@ -119,7 +119,7 @@ impl JSContext {
 
         // XXX: should handle JS_PROP_LAZYINIT
         if flags & DEFINE_GLOBAL_LEX_VAR as u32 != 0 {
-            if prs.map_or(false, |f| f & JS_PROP_CONFIGURABLE == 0) {
+            if prs.is_some_and(|f| f & JS_PROP_CONFIGURABLE == 0) {
                 JS_ThrowSyntaxErrorVarRedeclaration(self, prop.to_ref());
                 return Err(-1);
             }
@@ -129,20 +129,15 @@ impl JSContext {
                 return Err(-1);
             }
 
-            if flags & DEFINE_GLOBAL_FUNC_VAR as u32 != 0 {
-                if let Some(prs_flags) = prs {
-                    if prs_flags & JS_PROP_CONFIGURABLE == 0
-                        && (prs_flags & JS_PROP_TMASK == JS_PROP_GETSET
-                            || prs_flags & (JS_PROP_WRITABLE | JS_PROP_ENUMERABLE)
-                                != JS_PROP_WRITABLE | JS_PROP_ENUMERABLE)
-                    {
-                        self.throw_type_error(&format!(
-                            "cannot define variable '{}'",
-                            prop.to_utf8()
-                        ));
-                        return Err(-1);
-                    }
-                }
+            if flags & DEFINE_GLOBAL_FUNC_VAR as u32 != 0
+                && let Some(prs_flags) = prs
+                && prs_flags & JS_PROP_CONFIGURABLE == 0
+                && (prs_flags & JS_PROP_TMASK == JS_PROP_GETSET
+                    || prs_flags & (JS_PROP_WRITABLE | JS_PROP_ENUMERABLE)
+                        != JS_PROP_WRITABLE | JS_PROP_ENUMERABLE)
+            {
+                self.throw_type_error(&format!("cannot define variable '{}'", prop.to_utf8()));
+                return Err(-1);
             }
         }
 
@@ -216,8 +211,8 @@ impl JSContext {
                 }
             }
 
-            *pr = JSProperty::Normal(val.clone());
-            return Ok(true);
+            *pr = JSProperty::Normal(val);
+            Ok(true)
         } else {
             // not exist
             let mut flags1 = JS_PROP_THROW_STRICT;

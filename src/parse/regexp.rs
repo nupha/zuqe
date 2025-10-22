@@ -121,13 +121,7 @@ impl<'s> JSParseState<'s> {
             let c = buf[i];
             let c = if unlikely(c >= 0x80) {
                 let (ch, cnt) = unicode_from_utf8(&buf[i..])
-                    .and_then(|(x, n)| {
-                        if x as u32 > 0x10ffff {
-                            Err(-1)
-                        } else {
-                            Ok((x, n))
-                        }
-                    })
+                    .and_then(|(x, n)| if x > 0x10ffff { Err(-1) } else { Ok((x, n)) })
                     .inspect_err(|_| {
                         self.throw_syntax_error("invalid utf-8 sequence");
                     })?;
@@ -138,7 +132,7 @@ impl<'s> JSParseState<'s> {
                 c as _
             };
 
-            if char::from_u32(c).map_or(true, |c| !JSParseState::is_ident_next(c)) {
+            if char::from_u32(c).is_none_or(|c| !JSParseState::is_ident_next(c)) {
                 break;
             } else {
                 flags_str.push_u32(c).map_err(|_| {
