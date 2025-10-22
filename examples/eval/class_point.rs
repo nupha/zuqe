@@ -2,7 +2,7 @@ use std::ffi::c_void;
 
 use zhuque::{
     JS_CGETSET_NATIVE_DEF,
-    class::{ClassDefBuilder, JSClassID},
+    class::{ClassDef, ClassID},
     context::JSContext,
     error::JSResult,
     function::{CallContext, FieldDef, NativeFunctionType},
@@ -17,18 +17,17 @@ pub struct PointData {
 }
 
 fn point_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let class_id = cc.magic() as JSClassID;
+    let class_id = cc.magic() as ClassID;
 
     let x = cc.arg(0).to_i32(ctx)?;
     let y = cc.arg(1).to_i32(ctx)?;
     let p = Box::new(PointData { x, y });
-    println!("[O.o] Point: {p:?}, class_id={class_id}");
 
     let obj = ctx.new_instance(class_id, cc.this(), Box::into_raw(p).cast())?;
     Ok(obj.into())
 }
 
-fn point_getset(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn point_getset(_: &JSContext, cc: CallContext) -> JSResult {
     if let Some(p) = cc.this().opaque_ref::<PointData>() {
         match cc.magic() {
             0 => Ok(p.x.into()),
@@ -45,12 +44,12 @@ static class_point_proto: [FieldDef; 2] = [
     JS_CGETSET_NATIVE_DEF!("y", point_getset, NONE, 1),
 ];
 
-pub fn register_class_point(rt: &mut JSRuntime) -> Result<JSClassID, i32> {
+pub fn register_class_point(rt: &mut JSRuntime) -> Result<ClassID, i32> {
     // register class
     let class_id = rt.register_class(
-        ClassDefBuilder::new("Point")
-            .init(
-                |ctx: &JSContext, class_id: JSClassID| -> Result<JSObject, i32> {
+        ClassDef::new("Point")
+            .initialize(
+                |ctx: &JSContext, class_id: ClassID| -> Result<JSObject, i32> {
                     // create prototype
                     let proto = ctx.create_base_object().unwrap();
                     proto.install_field_defs(ctx, &class_point_proto)?;
@@ -77,7 +76,7 @@ pub fn register_class_point(rt: &mut JSRuntime) -> Result<JSClassID, i32> {
                     Ok(proto)
                 },
             )
-            .free(|rt: &mut JSRuntime, opaque: *mut c_void, id: usize| {
+            .free(|_: &mut JSRuntime, opaque: *mut c_void, id: usize| {
                 debug_assert!(!opaque.is_null());
                 unsafe {
                     let p = Box::from_raw(opaque.cast::<PointData>());

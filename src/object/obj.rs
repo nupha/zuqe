@@ -14,7 +14,7 @@ use crate::{
     JS_CLASS_UINT8C_ARRAY,
     atom::{Atom, consts::*},
     branch_hints::unlikely,
-    class::JSClassID,
+    class::ClassID,
     context::JSContext,
     error::JSResult,
     object::GCObjectWeakref,
@@ -346,7 +346,7 @@ impl ObjectInner {
     }
 
     #[inline(always)]
-    pub fn class_id(&self) -> JSClassID {
+    pub fn class_id(&self) -> ClassID {
         self.payload.class_id()
     }
 
@@ -466,7 +466,7 @@ impl JSObject {
 
     /// Get object class id
     #[inline(always)]
-    pub fn class_id(&self) -> JSClassID {
+    pub fn class_id(&self) -> ClassID {
         self.payload().class_id()
     }
 

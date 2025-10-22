@@ -15,7 +15,7 @@ use crate::{
     value::JSValue,
 };
 
-pub type JSClassID = u16;
+pub type ClassID = u16;
 
 pub type ClassCallFn = fn(
     ctx: &JSContext,
@@ -27,7 +27,7 @@ pub type ClassCallFn = fn(
 
 /// initialize class proto, constructor to ctx.
 /// returns the class proto object created for specified ctx.
-pub type ClassInitializeFn = fn(&JSContext, JSClassID) -> Result<JSObject, i32>;
+pub type ClassInitializeFn = fn(&JSContext, ClassID) -> Result<JSObject, i32>;
 
 /// class instance finalize callback. `isa` is the object's payload.
 pub type ClassFinalizeFn = fn(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize);

@@ -18,7 +18,7 @@ use crate::{
         js_shared_array_buffer_proto_funcs,
     },
     atom::{AtomRef, consts::*},
-    class::JSClassID,
+    class::ClassID,
     context::{JS_MODE_STRICT, JSContext},
     date::{js_date_constructor, js_date_funcs, js_date_proto_funcs},
     error::{ErrorKind, JSResult, STD_ERROR_NAMES},
@@ -710,7 +710,7 @@ impl JSContext {
                 .unwrap();
 
             for cid in
-                JS_CLASS_UINT8C_ARRAY..(JS_CLASS_UINT8C_ARRAY + JS_TYPED_ARRAY_COUNT as JSClassID)
+                JS_CLASS_UINT8C_ARRAY..(JS_CLASS_UINT8C_ARRAY + JS_TYPED_ARRAY_COUNT as ClassID)
             {
                 let nby = 1 << TypedArray::SIZE_LOG2(cid);
 

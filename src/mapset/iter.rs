@@ -1,6 +1,6 @@
 use crate::{
     JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, JS_ITERATOR_NEXT_DEF, JS_PROP_STRING_DEF,
-    class::JSClassID,
+    class::ClassID,
     context::JSContext,
     error::JSResult,
     function::{CallContext, FieldDef, IteratorState},
@@ -47,7 +47,7 @@ fn js_map_iterator_next(ctx: &JSContext, cc: CallContext, state: &mut IteratorSt
 
     let isa = cc
         .this()
-        .retrive_object_payload(ctx, JS_CLASS_MAP_ITERATOR + cc.magic() as JSClassID)?;
+        .retrive_object_payload(ctx, JS_CLASS_MAP_ITERATOR + cc.magic() as ClassID)?;
 
     let Some(it) = isa.mapset_iterator() else {
         return Err(-1);
@@ -58,7 +58,7 @@ fn js_map_iterator_next(ctx: &JSContext, cc: CallContext, state: &mut IteratorSt
     let mut end = false;
 
     if let Some(obj) = it.obj.clone() {
-        let r1 = obj.retrive_payload(ctx, JS_CLASS_MAP + cc.magic() as JSClassID)?;
+        let r1 = obj.retrive_payload(ctx, JS_CLASS_MAP + cc.magic() as ClassID)?;
         let ms = r1.mapset().unwrap().borrow();
 
         if it.index < ms.slots.len() {

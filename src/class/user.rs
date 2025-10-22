@@ -2,7 +2,7 @@ use std::{ffi::c_void, ptr::NonNull};
 
 use crate::{
     atom::{Atom, AtomTypeHint},
-    class::{ClassDef, ClassInitializeFn, FreeObjFn, JSClassID},
+    class::{ClassDef, ClassID},
     context::JSContext,
     object::{JSObject, ObjectPayload},
     runtime::JSRuntime,
@@ -11,61 +11,31 @@ use crate::{
 
 #[derive(Debug)]
 pub(crate) struct OtherPayload {
-    pub(crate) class_id: JSClassID,
+    pub(crate) class_id: ClassID,
     pub(crate) opaque: *mut c_void,
 }
 
-pub struct ClassDefBuilder {
-    class_name: &'static str,
-
-    /// initialize class proto, constructor to context
-    init: Option<ClassInitializeFn>,
-    /// class instance finalize callback
-    free: Option<FreeObjFn>,
-}
-
-impl ClassDefBuilder {
-    pub fn new(class_name: &'static str) -> Self {
-        Self {
-            class_name,
-            init: None,
-            free: None,
-        }
-    }
-
-    pub fn init(mut self, f: ClassInitializeFn) -> Self {
-        self.init = Some(f);
-        self
-    }
-
-    pub fn free(mut self, f: FreeObjFn) -> Self {
-        self.free = Some(f);
-        self
-    }
-}
-
 impl JSRuntime {
-    /// register a class def. returns the class_id
-    pub fn register_class(&mut self, class_def: ClassDefBuilder) -> Result<JSClassID, i32> {
+    /// register a user class defination. returns the registry class_id for it.
+    pub fn register_class(&mut self, mut class_def: ClassDef) -> Result<ClassID, i32> {
         if class_def.class_name.is_empty() {
+            println!("invalid class name");
             return Err(-1);
         }
 
-        // new class_id
-        let class_id = self.class_registry.len() as JSClassID;
+        if class_def.free_obj.is_some() {
+            if class_def.finalize.is_some() {
+                println!("set either 'free' or 'finalize'");
+                return Err(-1);
+            } else {
+                class_def.finalize.replace(user_obj_finalize);
+            }
+        }
 
-        self.add_class_internal(
-            class_id,
-            &ClassDef {
-                class_name: class_def.class_name,
-                free_obj: class_def.free,
-                initialize: class_def.init,
-                finalize: Some(user_obj_finalize),
-                ..Default::default()
-            },
-            Atom::from_str(self, class_def.class_name, AtomTypeHint::String)?,
-        )?;
+        let class_atom = Atom::from_str(self, class_def.class_name, AtomTypeHint::String)?;
+        let class_id = self.class_registry.len() as ClassID; // new class_id
 
+        self.add_class_internal(class_id, &class_def, class_atom)?;
         Ok(class_id)
     }
 }
@@ -81,7 +51,7 @@ fn user_obj_finalize(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {
 }
 
 impl JSContext {
-    pub fn use_classes(&self, class_ids: &[JSClassID]) -> Result<(), i32> {
+    pub fn use_classes(&self, class_ids: &[ClassID]) -> Result<(), i32> {
         if let Some(mx) = class_ids.iter().max().copied() {
             if let Some(cdef) = self.rt().class_registry.get(mx as usize) {
                 let n = self.0.borrow().class_proto.len();
@@ -121,7 +91,7 @@ impl JSContext {
         }
     }
 
-    pub fn use_class(&self, class_id: JSClassID) -> Result<(), i32> {
+    pub fn use_class(&self, class_id: ClassID) -> Result<(), i32> {
         self.use_classes(&[class_id])
     }
 
@@ -134,7 +104,7 @@ impl JSContext {
             .iter()
             .position(|x| !x.class_name.is_null() && x.class_name == atom_name)
         {
-            self.use_class(id as JSClassID)
+            self.use_class(id as ClassID)
         } else {
             self.throw_internal_error(&format!("class '{}' was not registererd", name));
             Err(-1)
@@ -144,7 +114,7 @@ impl JSContext {
     /// create a new class instance
     pub fn new_instance(
         &self,
-        class_id: JSClassID,
+        class_id: ClassID,
         ctor: &JSValue,
         opaque: *mut c_void,
     ) -> Result<JSObject, i32> {

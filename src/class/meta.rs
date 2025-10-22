@@ -4,8 +4,8 @@ use crate::{
         consts::{JS_ATOM_constructor, JS_ATOM_prototype},
     },
     class::{
-        ClassCallFn, ClassDef, ClassFinalizeFn, ClassGCMarkFn, ClassInitializeFn, FreeObjFn,
-        JSClassExoticMethods, JSClassID, JSClassShortDef,
+        ClassCallFn, ClassDef, ClassFinalizeFn, ClassGCMarkFn, ClassID, ClassInitializeFn,
+        FreeObjFn, JSClassExoticMethods, JSClassShortDef,
     },
     context::JSContext,
     error::JSResult,
@@ -24,8 +24,10 @@ pub(crate) struct ClassMeta {
 
     /// callback handler when called
     pub call: Option<ClassCallFn>,
+
     /// exotic property method handlers
     pub exotic: Option<Box<JSClassExoticMethods>>,
+
     /// free user class instance handler
     pub free_obj: Option<FreeObjFn>,
 
@@ -40,10 +42,20 @@ impl JSRuntime {
     /// create a new object internal class. The finalizer can be NULL if none is needed.
     pub(super) fn add_class_internal(
         &mut self,
-        class_id: JSClassID,
+        class_id: ClassID,
         class_def: &ClassDef,
         class_name: Atom,
     ) -> Result<(), i32> {
+        // builtin class name allow duplication, don't check.
+        // if self
+        //     .class_registry
+        //     .iter()
+        //     .any(|c| c.class_name.eq(&class_name))
+        // {
+        //     println!("class name already exists: '{}'", class_name.to_utf8());
+        //     return Err(-1);
+        // }
+
         if (class_id as usize) < self.class_registry.len() {
             if !self.class_registry[class_id as usize].class_name.is_null() {
                 return Err(-1); // class_id slot is in use
@@ -85,7 +97,7 @@ impl JSRuntime {
     pub(crate) fn init_class_range(
         &mut self,
         tab: &[JSClassShortDef],
-        start_id: JSClassID,
+        start_id: ClassID,
     ) -> Result<(), i32> {
         debug_assert!(start_id > 0);
 
@@ -103,8 +115,8 @@ impl JSRuntime {
         Ok(())
     }
 
-    pub(crate) fn is_class_registered(&self, class_id: JSClassID) -> bool {
-        class_id < self.class_registry.len() as JSClassID
+    pub(crate) fn is_class_registered(&self, class_id: ClassID) -> bool {
+        class_id < self.class_registry.len() as ClassID
             && !self.class_registry[class_id as usize].class_name.is_null()
     }
 }
@@ -113,13 +125,13 @@ impl JSContext {
     /// get class proto object by `class_id`.
     /// if class proto object is not initialized in this context, returns JS_NULL.
     /// returned proto value is duplicated. caller should free it.
-    pub fn get_class_proto(&self, class_id: JSClassID) -> JSValue {
+    pub fn get_class_proto(&self, class_id: ClassID) -> JSValue {
         debug_assert!((class_id as usize) < self.0.borrow().class_proto.len());
         self.0.borrow().class_proto[class_id as usize].clone()
     }
 
-    pub fn set_class_proto(&self, class_id: JSClassID, proto_obj: JSValue) {
-        debug_assert!(class_id < self.0.borrow().class_proto.len() as JSClassID);
+    pub fn set_class_proto(&self, class_id: ClassID, proto_obj: JSValue) {
+        debug_assert!(class_id < self.0.borrow().class_proto.len() as ClassID);
         debug_assert!(self.0.borrow().class_proto[class_id as usize].is_null());
 
         self.0.borrow_mut().class_proto[class_id as usize] = proto_obj;

@@ -7,7 +7,7 @@ use crate::{
     JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY, JS_PROP_STRING_DEF,
     array_buffer::ArrayBuffer,
     branch_hints::unlikely,
-    class::JSClassID,
+    class::ClassID,
     context::JSContext,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, FieldDef},
@@ -104,7 +104,7 @@ pub fn js_dataview_getValue(ctx: &JSContext, cc: CallContext) -> JSResult {
         .typed_array()
         .unwrap();
 
-    let class_id = cc.magic() as JSClassID;
+    let class_id = cc.magic() as ClassID;
     let size = 1 << TypedArray::SIZE_LOG2(class_id);
     let pos = cc.arg(0).to_array_index(ctx)? as usize;
 
@@ -211,7 +211,7 @@ pub fn js_dataview_setValue(ctx: &JSContext, cc: CallContext) -> JSResult {
         .typed_array()
         .unwrap();
 
-    let class_id = cc.magic() as JSClassID;
+    let class_id = cc.magic() as ClassID;
     let size = 1 << TypedArray::SIZE_LOG2(class_id);
     let pos = cc.arg(0).to_array_index(ctx)? as usize;
 

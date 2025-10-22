@@ -9,7 +9,7 @@ use crate::{
         Atom,
         consts::{JS_ATOM_length, JS_ATOM_name, JS_ATOM_prototype},
     },
-    class::JSClassID,
+    class::ClassID,
     context::JSContext,
     error::JSResult,
     eval::JS_EVAL_TYPE_INDIRECT,
@@ -61,7 +61,7 @@ impl JSFunctionKindEnum {
 
     /// get associated class id for function kind
     #[inline]
-    pub const fn class_id(&self) -> JSClassID {
+    pub const fn class_id(&self) -> ClassID {
         match self {
             Self::JS_FUNC_NORMAL => JS_CLASS_BYTECODE_FUNCTION,
             Self::JS_FUNC_GENERATOR => JS_CLASS_GENERATOR_FUNCTION,
@@ -71,7 +71,7 @@ impl JSFunctionKindEnum {
     }
 
     #[inline]
-    pub const fn generator_class_id(&self) -> Option<JSClassID> {
+    pub const fn generator_class_id(&self) -> Option<ClassID> {
         match self {
             Self::JS_FUNC_GENERATOR => Some(JS_CLASS_GENERATOR),
             Self::JS_FUNC_ASYNC_GENERATOR => Some(JS_CLASS_ASYNC_GENERATOR),

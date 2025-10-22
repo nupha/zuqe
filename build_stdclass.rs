@@ -547,7 +547,7 @@ pub fn gen_std_class_defs(outfile: &Path) {
         ));
 
         consts.push(format!(
-            "pub const JS_CLASS_{}:JSClassID={};",
+            "pub const JS_CLASS_{}:ClassID={};",
             cdef.const_name,
             i + 1
         ));
@@ -560,7 +560,7 @@ pub fn gen_std_class_defs(outfile: &Path) {
     cdefs.push("];".to_string());
 
     let lines = [
-        "use crate::{atom::consts::*, class::{JSClassID, JSClassShortDef}};\n".to_string(),
+        "use crate::{atom::consts::*, class::{ClassID, JSClassShortDef}};\n".to_string(),
         consts.join("\n"),
         "".to_string(),
         cdefs.join("\n"),
@@ -642,7 +642,7 @@ pub fn gen_class_payload(outfile: &Path) {
     }
 
     let lines: Vec<String> = vec![
-        "use crate::{  class::{JSClassID }};\n".to_string(),
+        "use crate::{  class::{ClassID }};\n".to_string(),
         // ObjectPayload
         "#[derive(Debug)]\npub enum ObjectPayload {\n".to_string(),
         items.join(",\n"),
@@ -652,7 +652,7 @@ pub fn gen_class_payload(outfile: &Path) {
         "impl ObjectPayload {".to_string(),
         // class_id()
         format!(
-            "pub fn class_id(&self)->JSClassID {{ match self {{ {} }} }}",
+            "pub fn class_id(&self)->ClassID {{ match self {{ {} }} }}",
             getid_arms.join(",\n"),
         ),
         "\n".into(),

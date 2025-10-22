@@ -733,11 +733,12 @@ fn js_proxy_get(ctx: &JSContext, obj: JSValue, atom: &Atom, receiver: JSValue) -
                 ctx.throw_type_error("proxy: inconsistent get ");
                 return Err(-1);
             }
-        } else if desc.flags & (JS_PROP_GETSET | JS_PROP_CONFIGURABLE) == JS_PROP_GETSET {
-            if desc.getter.is_undefined() && !ret.is_undefined() {
-                ctx.throw_type_error("proxy: inconsistent get ");
-                return Err(-1);
-            }
+        } else if desc.flags & (JS_PROP_GETSET | JS_PROP_CONFIGURABLE) == JS_PROP_GETSET
+            && desc.getter.is_undefined()
+            && !ret.is_undefined()
+        {
+            ctx.throw_type_error("proxy: inconsistent get ");
+            return Err(-1);
         }
     }
 
@@ -806,17 +807,15 @@ fn js_proxy_set(
                 return Err(-1);
             }
         }
-    } else {
-        if ctx.can_throw(flags as u32) {
-            ctx.throw_type_error("proxy: cannot set property");
-            return Err(-1);
-        }
+    } else if ctx.can_throw(flags as u32) {
+        ctx.throw_type_error("proxy: cannot set property");
+        return Err(-1);
     }
 
     Ok(ret)
 }
 
-pub const js_proxy_exotic_methods: JSClassExoticMethods = JSClassExoticMethods {
+pub(crate) const js_proxy_exotic_methods: JSClassExoticMethods = JSClassExoticMethods {
     get_own_property: Some(js_proxy_get_own_property),
     define_own_property: Some(js_proxy_define_own_property),
     delete_property: Some(js_proxy_delete_property),

@@ -3,7 +3,7 @@ use crate::{
     JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY, JS_PROP_STRING_DEF,
     array_buffer::ArrayBuffer,
     branch_hints::unlikely,
-    class::JSClassID,
+    class::ClassID,
     context::JSContext,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, FieldDef, JS_CallConstructor},
@@ -17,7 +17,7 @@ use crate::{
 //
 
 fn js_array_buffer_get_byteLength(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let class_id = cc.magic() as JSClassID;
+    let class_id = cc.magic() as ClassID;
 
     cc.this()
         .retrive_object_payload(ctx, class_id)
@@ -40,7 +40,7 @@ fn js_array_buffer_detached(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let class_id = cc.magic() as JSClassID;
+    let class_id = cc.magic() as ClassID;
 
     let abuf = cc
         .this()
@@ -67,7 +67,7 @@ fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
         ArrayBuffer::with_capacity_ex(
             ctx,
             &JSValue::UNDEFINED,
-            cc.magic() as JSClassID == JS_CLASS_SHARED_ARRAY_BUFFER,
+            cc.magic() as ClassID == JS_CLASS_SHARED_ARRAY_BUFFER,
             new_len as usize,
             std::ptr::null_mut(),
         )

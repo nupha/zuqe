@@ -520,7 +520,7 @@ fn js_module_ns_has(_: &JSContext, obj: &JSObject, prop: &Atom) -> Result<bool, 
     Ok(obj.has_shape_property(prop))
 }
 
-pub const js_module_ns_exotic_methods: JSClassExoticMethods = JSClassExoticMethods {
+pub(crate) const js_module_ns_exotic_methods: JSClassExoticMethods = JSClassExoticMethods {
     has_property: Some(js_module_ns_has),
     get_own_property: None,
     get_own_property_names: None,

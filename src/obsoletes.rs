@@ -16,7 +16,7 @@ use crate::{
         JS_ATOM_TAG_INT, consts::*,
     },
     bytecode::{OpCode, OpCodeTemp, arithmatic::StrictEqMode},
-    class::{ClassDef, ClassFieldsDef, JSClassID, JSClassShortDef},
+    class::{ClassDef, ClassFieldsDef, ClassID, JSClassShortDef},
     context::JSContext,
     error::{ErrorKind, JSResult},
     function::{
@@ -182,7 +182,7 @@ unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {
 }
 
 #[deprecated(note = "use JSObject::opaque() instead")]
-pub unsafe fn JS_GetOpaque(obj: JSValueConst, class_id: JSClassID) -> *mut c_void {
+pub unsafe fn JS_GetOpaque(obj: JSValueConst, class_id: ClassID) -> *mut c_void {
     unreachable!("use JSObject::opaque() instead")
     // if JS_VALUE_GET_TAG(obj) != JS_TAG_OBJECT {
     //     return std::ptr::null_mut();
@@ -195,11 +195,7 @@ pub unsafe fn JS_GetOpaque(obj: JSValueConst, class_id: JSClassID) -> *mut c_voi
 }
 
 #[deprecated(note = "use JSObject::opaque_must() instead")]
-pub unsafe fn JS_GetOpaque2(
-    ctx: &JSContext,
-    obj: JSValueConst,
-    class_id: JSClassID,
-) -> *mut c_void {
+pub unsafe fn JS_GetOpaque2(ctx: &JSContext, obj: JSValueConst, class_id: ClassID) -> *mut c_void {
     let p = JS_GetOpaque(obj, class_id);
     if p.is_null() {
         ctx.throw_type_error_invalid_class(class_id);
@@ -305,7 +301,7 @@ pub unsafe fn JS_NewGlobalCConstructor(
 }
 
 #[deprecated(note = "use JSRuntime::is_class_registered() instead")]
-pub unsafe fn JS_IsRegisteredClass(rt: &JSRuntime, class_id: JSClassID) -> bool {
+pub unsafe fn JS_IsRegisteredClass(rt: &JSRuntime, class_id: ClassID) -> bool {
     (*rt).is_class_registered(class_id)
 }
 
@@ -313,7 +309,7 @@ pub unsafe fn JS_IsRegisteredClass(rt: &JSRuntime, class_id: JSClassID) -> bool 
 pub unsafe fn init_class_range(
     rt: &mut JSRuntime,
     tab: &[JSClassShortDef],
-    start: JSClassID,
+    start: ClassID,
 ) -> Result<(), i32> {
     (*rt).init_class_range(tab, start)
 }
@@ -489,19 +485,19 @@ pub unsafe fn JS_ResizeAtomHash(rt: *mut JSRuntime, new_hash_size: i32) -> i32 {
 }
 
 #[deprecated(note = "use JSContext::get_class_proto() instead")]
-pub unsafe fn JS_GetClassProto(ctx: &JSContext, class_id: JSClassID) -> JSValue {
+pub unsafe fn JS_GetClassProto(ctx: &JSContext, class_id: ClassID) -> JSValue {
     ctx.get_class_proto(class_id)
 }
 
 #[deprecated(note = "use JSContext::set_class_proto() instead")]
-pub unsafe fn JS_SetClassProto(ctx: &JSContext, class_id: JSClassID, obj: JSValue) {
+pub unsafe fn JS_SetClassProto(ctx: &JSContext, class_id: ClassID, obj: JSValue) {
     ctx.set_class_proto(class_id, obj);
 }
 
 #[deprecated(note = "use JSRuntime::add_class() instead")]
 pub unsafe fn JS_NewClass(
     rt: *mut JSRuntime,
-    class_id: JSClassID,
+    class_id: ClassID,
     class_def: *const ClassDef,
 ) -> Result<(), i32> {
     unreachable!("unused")
@@ -511,7 +507,7 @@ pub unsafe fn JS_NewClass(
 #[deprecated(note = "use JSRuntime::add_class_internal() instead")]
 pub unsafe fn JS_NewClass1(
     rt: *mut JSRuntime,
-    class_id: JSClassID,
+    class_id: ClassID,
     class_def: *const ClassDef,
     name: AtomRef,
 ) -> Result<(), i32> {
@@ -1493,7 +1489,7 @@ pub unsafe fn JS_NewArray(ctx: &JSContext) -> JSValue {
 pub unsafe fn JS_NewObjectFromShape(
     ctx: &JSContext,
     sh: *mut JSShape,
-    class_id: JSClassID,
+    class_id: ClassID,
 ) -> JSValue {
     unreachable!("unused");
 }
@@ -1947,7 +1943,7 @@ pub unsafe fn JS_GetOwnPropertyNamesInternal(
 pub unsafe fn JS_NewObjectProtoClass(
     ctx: &JSContext,
     proto_val: JSValueConst,
-    class_id: JSClassID,
+    class_id: ClassID,
 ) -> JSValue {
     unreachable!("unused")
 }
@@ -1960,7 +1956,7 @@ pub unsafe fn JS_NewObjectProtoClass(
 ///
 /// Returns New object or Exception
 #[deprecated(note = "use JSContext::create_object() instead")]
-pub unsafe fn JS_NewObjectClass(ctx: &JSContext, class_id: JSClassID) -> JSValue {
+pub unsafe fn JS_NewObjectClass(ctx: &JSContext, class_id: ClassID) -> JSValue {
     unreachable!("unused");
 
     // ctx
@@ -3361,7 +3357,7 @@ pub unsafe fn js_array_buffer_constructor3(
     ctx: &JSContext,
     new_target: JSValueConst,
     byte_length: usize,
-    class_id: JSClassID,
+    class_id: ClassID,
     buf: *mut u8,
     free_func: Option<JSFreeArrayBufferDataFunc>,
     opaque: *mut c_void,
@@ -3392,7 +3388,7 @@ pub unsafe fn js_array_buffer_constructor2(
     ctx: &JSContext,
     new_target: &JSValueConst,
     byte_length: usize,
-    class_id: JSClassID,
+    class_id: ClassID,
 ) -> JSValue {
     unreachable!("unused")
 }
@@ -4233,7 +4229,7 @@ pub unsafe fn map_hash_resize(ctx: &JSContext, s: *mut JSMapState) {
 }
 
 #[deprecated(note = "use JSObject::as_BCFunction().is_some() to check")]
-pub(crate) const fn js_class_has_bytecode(class_id: JSClassID) -> bool {
+pub(crate) const fn js_class_has_bytecode(class_id: ClassID) -> bool {
     matches!(
         class_id,
         JS_CLASS_BYTECODE_FUNCTION
@@ -4592,7 +4588,7 @@ pub unsafe fn js_set_module_evaluated(ctx: &JSContext, m: &ModuleDef) {
 
 /// Class id for function kind
 #[deprecated(note = "use JSFunctionKindEnum::class_id() instead")]
-pub const func_kind_to_class_id: [JSClassID; 4] = [
+pub const func_kind_to_class_id: [ClassID; 4] = [
     JS_CLASS_BYTECODE_FUNCTION,        // 0 JS_FUNC_NORMAL
     JS_CLASS_GENERATOR_FUNCTION,       // 1 JS_FUNC_GENERATOR
     JS_CLASS_ASYNC_FUNCTION,           // 2 JS_FUNC_ASYNC
@@ -4617,7 +4613,7 @@ fn js_async_generator_await(s: &AGenPayload, ctx: &JSContext, value: JSValue) ->
 /// JS_CLASS_DATAVIEW is not allowed.
 #[deprecated(note = "use TypedArrayPayload::SIZE_LOG2() instead.")]
 #[inline(always)]
-pub(crate) fn typed_array_size_log2(classid: JSClassID) -> u8 {
+pub(crate) fn typed_array_size_log2(classid: ClassID) -> u8 {
     TypedArray::SIZE_LOG2(classid)
 }
 
@@ -4641,7 +4637,7 @@ pub fn js_typed_array_constructor_ta(
 ) -> JSResult {
     unreachable!("unused");
     // TypedArray::try_from(src_obj)
-    //     .and_then(|ta| ta.create_to_new(ctx, new_target, classid as JSClassID))
+    //     .and_then(|ta| ta.create_to_new(ctx, new_target, classid as ClassID))
 }
 
 #[deprecated(note = "use ArrayBuffer::detach() instead")]
@@ -4908,11 +4904,7 @@ pub(super) fn js_for_of_start(
 }
 
 #[deprecated(note = "use JSContext::create_instance_with_ctor() instead")]
-pub unsafe fn js_create_from_ctor(
-    _ctx: &JSContext,
-    _ctor: JSValue,
-    _class_id: JSClassID,
-) -> JSValue {
+pub unsafe fn js_create_from_ctor(_ctx: &JSContext, _ctor: JSValue, _class_id: ClassID) -> JSValue {
     unreachable!("unused");
 }
 

@@ -1,15 +1,9 @@
 use crate::{
-    atom::{
-        Atom, AtomRef,
-        consts::{JS_ATOM_constructor, JS_ATOM_prototype},
-    },
+    atom::{Atom, AtomRef},
     class::{ClassInitializeFn, FreeObjFn},
     context::JSContext,
-    error::JSResult,
-    function::{JSFunctionDef, NativeCallback, NativeFunctionType},
-    gc::set_cycle_flag,
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_NO_EXOTIC, JS_PROP_WRITABLE},
-    runtime::JSRuntime,
+    function::JSFunctionDef,
+    object::JS_PROP_NO_EXOTIC,
     value::JSValue,
 };
 
@@ -18,7 +12,7 @@ use super::{
     GetOwnPropertyFn, GetOwnPropertyNamesFn, GetPropertyFn, HasPropertyFn, SetPropertyFn,
 };
 
-pub const JS_DEFINE_CLASS_HAS_HERITAGE: i32 = 1 << 0;
+pub(crate) const JS_DEFINE_CLASS_HAS_HERITAGE: i32 = 1 << 0;
 
 #[derive(Copy, Clone, Default)]
 pub(crate) struct JSClassExoticMethods {
@@ -40,21 +34,43 @@ pub(crate) struct JSClassShortDef {
 /// class definition
 #[derive(Default)]
 pub struct ClassDef {
-    pub class_name: &'static str,
+    /// class name
+    pub(crate) class_name: &'static str,
 
     /// callback handler when called
-    pub call: Option<ClassCallFn>,
+    pub(crate) call: Option<ClassCallFn>,
     /// exotic property method handlers
-    pub exotic: Option<Box<JSClassExoticMethods>>,
+    pub(crate) exotic: Option<Box<JSClassExoticMethods>>,
     /// free user class instance handler
-    pub free_obj: Option<FreeObjFn>,
+    pub(crate) free_obj: Option<FreeObjFn>,
 
     /// initialize class proto, constructor to context
-    pub initialize: Option<ClassInitializeFn>,
+    pub(crate) initialize: Option<ClassInitializeFn>,
     /// class instance finalize callback
-    pub finalize: Option<ClassFinalizeFn>,
+    pub(crate) finalize: Option<ClassFinalizeFn>,
 
-    pub gc_mark: Option<ClassGCMarkFn>,
+    pub(crate) gc_mark: Option<ClassGCMarkFn>,
+}
+
+impl ClassDef {
+    pub fn new(class_name: &'static str) -> Self {
+        Self {
+            class_name,
+            ..Default::default()
+        }
+    }
+
+    pub fn initialize(mut self, f: ClassInitializeFn) -> Self {
+        self.initialize.replace(f);
+        self
+    }
+
+    /// handle a class instance free.
+    /// for user defined class instance onyl.
+    pub fn free(mut self, f: FreeObjFn) -> Self {
+        self.free_obj.replace(f);
+        self
+    }
 }
 
 #[derive(Debug)]
@@ -118,7 +134,7 @@ fn js_arguments_define_own_property(
     )
 }
 
-pub const js_arguments_exotic_methods: JSClassExoticMethods = JSClassExoticMethods {
+pub(crate) const js_arguments_exotic_methods: JSClassExoticMethods = JSClassExoticMethods {
     define_own_property: Some(js_arguments_define_own_property),
     delete_property: None,
     get_own_property: None,

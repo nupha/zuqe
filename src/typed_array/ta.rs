@@ -7,7 +7,7 @@ use crate::{
     JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
     array_buffer::{ArrayBuffer, ArrayBufferPayload},
     atom::consts::JS_ATOM_Symbol_iterator,
-    class::JSClassID,
+    class::ClassID,
     context::JSContext,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     iterator::js_array_from_iterator,
@@ -43,7 +43,7 @@ impl TypedArrayPayload {
     pub fn new(
         ctx: &JSContext,
         buffer: ArrayBuffer,
-        class_id: JSClassID,
+        class_id: ClassID,
         offset: usize,
         mut count: usize,
     ) -> Result<Self, i32> {
@@ -167,7 +167,7 @@ impl TypedArray {
 
     /// JS_CLASS_DATAVIEW is not allowed.
     #[inline(always)]
-    pub(crate) fn SIZE_LOG2(class_id: JSClassID) -> u8 {
+    pub(crate) fn SIZE_LOG2(class_id: ClassID) -> u8 {
         debug_assert!(
             (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).contains(&class_id),
             "class_id={class_id}"
@@ -306,7 +306,7 @@ impl TypedArray {
         &self,
         ctx: &JSContext,
         new_target: &JSValueConst,
-        class_id: JSClassID,
+        class_id: ClassID,
     ) -> Result<Self, i32> {
         if self.is_detached() {
             JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
@@ -360,7 +360,7 @@ impl TypedArray {
         buffer: ArrayBuffer,
         offset: usize,
         count: usize,
-        class_id: JSClassID,
+        class_id: ClassID,
     ) -> Result<Self, i32> {
         let arr = RefCell::new(Box::new(TypedArrayPayload::new(
             ctx, buffer, class_id, offset, count,
@@ -418,7 +418,7 @@ impl TypedArray {
         ctx: &JSContext,
         new_target: &JSValue,
         count: usize,
-        class_id: JSClassID,
+        class_id: ClassID,
     ) -> Result<Self, i32> {
         TypedArray::create(
             ctx,
@@ -442,7 +442,7 @@ impl TypedArray {
         source: &JSValue,
         offset: usize,
         length: usize,
-        class_id: JSClassID,
+        class_id: ClassID,
     ) -> Result<Self, i32> {
         let size_log2 = TypedArray::SIZE_LOG2(class_id);
 

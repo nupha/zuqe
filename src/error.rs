@@ -3,7 +3,7 @@ use std::{borrow::Cow, io::Write, ops::Deref};
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CLASS_ERROR, JS_PROP_STRING_DEF,
     atom::{AtomRef, JS_ATOM_NULL, consts::*},
-    class::JSClassID,
+    class::ClassID,
     context::{JSContext, is_strict_mode},
     function::{Bytecode, CallContext, FieldDef, get_func_name},
     object::{
@@ -174,8 +174,10 @@ impl JSContext {
     }
 
     #[cold]
-    pub fn throw_type_error_invalid_class(&self, class_id: JSClassID) {
-        let name = self.rt().class_registry[class_id as usize].class_name.to_ref();
+    pub fn throw_type_error_invalid_class(&self, class_id: ClassID) {
+        let name = self.rt().class_registry[class_id as usize]
+            .class_name
+            .to_ref();
         self.throw_type_error(&format!("{} object expected", name.to_utf8()))
     }
 

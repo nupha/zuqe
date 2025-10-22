@@ -3,7 +3,7 @@ use std::{cell::RefCell, ops::Deref};
 use crate::{
     JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_MAP, JS_PROP_STRING_DEF,
     atom::consts::{JS_ATOM_add, JS_ATOM_set},
-    class::JSClassID,
+    class::ClassID,
     context::{JSContext, is_strict_mode},
     error::JSResult,
     function::{CallContext, FieldDef},
@@ -75,7 +75,7 @@ pub fn js_map_get(ctx: &JSContext, cc: CallContext) -> JSResult {
     let key = cc.arg(0);
 
     cc.this()
-        .retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as JSClassID)
+        .retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as ClassID)
         .map(|r| {
             r.mapset()
                 .unwrap()
@@ -89,7 +89,7 @@ pub fn js_map_set(ctx: &JSContext, cc: CallContext) -> JSResult {
     let this = cc.this();
     let key = cc.arg(0);
 
-    let isa = this.retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as JSClassID)?;
+    let isa = this.retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as ClassID)?;
     let mut s = isa.mapset().unwrap().borrow_mut();
 
     if s.is_weak() && !key.is_object() {
@@ -125,7 +125,7 @@ pub fn js_map_delete(ctx: &JSContext, cc: CallContext) -> JSResult {
     let this = cc.this();
     let key = cc.arg(0);
 
-    this.retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as JSClassID)
+    this.retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as ClassID)
         .map(|isa| {
             let mut s = isa.mapset().unwrap().borrow_mut();
 
@@ -150,7 +150,7 @@ pub fn js_map_delete(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_map_has(ctx: &JSContext, cc: CallContext) -> JSResult {
     cc.this()
-        .retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as JSClassID)
+        .retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as ClassID)
         .map(|r| {
             r.mapset()
                 .unwrap()
@@ -163,7 +163,7 @@ pub fn js_map_has(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_map_clear(ctx: &JSContext, cc: CallContext) -> JSResult {
     cc.this()
-        .retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as JSClassID)
+        .retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as ClassID)
         .map(|isa| {
             isa.mapset().unwrap().borrow_mut().clear();
             JSValue::UNDEFINED
@@ -172,7 +172,7 @@ pub fn js_map_clear(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_map_get_size(ctx: &JSContext, cc: CallContext) -> JSResult {
     cc.this()
-        .retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as JSClassID)
+        .retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as ClassID)
         .map(|r| JSValue::Int(r.mapset().unwrap().borrow().len() as i32))
 }
 
@@ -185,7 +185,7 @@ pub fn js_map_forEach(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     // lock map, and ensure `this` is an object of expected class_id.
     cc.this()
-        .retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as JSClassID)?
+        .retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as ClassID)?
         .mapset()
         .unwrap()
         .borrow_mut()
@@ -252,7 +252,7 @@ fn js_create_map_iterator(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     // ensure `this` is an object of expected class_id
     let this = cc.this();
-    let _ = this.retrive_object_payload(ctx, JS_CLASS_MAP + (cc.magic() & 3) as JSClassID)?;
+    let _ = this.retrive_object_payload(ctx, JS_CLASS_MAP + (cc.magic() & 3) as ClassID)?;
 
     // create iterator object
     let isa = RefCell::new(Box::new(JSMapIteratorData {
