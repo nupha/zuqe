@@ -16,7 +16,7 @@ use crate::{
         JS_ATOM_TAG_INT, consts::*,
     },
     bytecode::{OpCode, OpCodeTemp, arithmatic::StrictEqMode},
-    class::{ClassDef, ClassFieldsDef, ClassID, JSClassShortDef},
+    class::{ClassDef, ClassFieldsDef, ClassID, StdClassDef},
     context::JSContext,
     error::{ErrorKind, JSResult},
     function::{
@@ -308,7 +308,7 @@ pub unsafe fn JS_IsRegisteredClass(rt: &JSRuntime, class_id: ClassID) -> bool {
 #[deprecated(note = "use JSRuntime::init_class_range() instead")]
 pub unsafe fn init_class_range(
     rt: &mut JSRuntime,
-    tab: &[JSClassShortDef],
+    tab: &[StdClassDef],
     start: ClassID,
 ) -> Result<(), i32> {
     (*rt).init_class_range(tab, start)
@@ -503,7 +503,7 @@ pub unsafe fn JS_NewClass(
     unreachable!("unused")
 }
 
-/* create a new object internal class. Return -1 if error, 0 if OK. The finalizer can be NULL if none is needed. */
+/* create a new object internal class. Return -1 if error, 0 if OK. The finalize can be NULL if none is needed. */
 #[deprecated(note = "use JSRuntime::add_class_internal() instead")]
 pub unsafe fn JS_NewClass1(
     rt: *mut JSRuntime,

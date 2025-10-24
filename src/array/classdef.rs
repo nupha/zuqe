@@ -1196,7 +1196,7 @@ pub fn js_array_toSpliced(ctx: &JSContext, cc: CallContext) -> JSResult {
         .with_fast_array_values_mut(|new_lst| -> Result<(), i32> {
             macro_rules! error {
                 ($i:expr) => {
-                    // fill rest with undefined, because array finalizer will free elements too.
+                    // fill rest with undefined, because array finalize will free elements too.
                     for _ in $i..new_len {
                         new_lst.push(JSValue::UNDEFINED);
                     }

@@ -386,7 +386,7 @@ impl ObjectInner {
             }
         }
 
-        // call class finalizer.
+        // call class finalize.
         // object won't be accessed any more, so we can take payload out
         let rt = unsafe { self.rt_ptr().as_mut() };
         if let Some(f) = rt.class_registry[self.class_id() as usize].finalize {

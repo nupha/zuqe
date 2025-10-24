@@ -6,7 +6,7 @@ struct StdClassDef {
     class_name: &'static str,
     const_name: &'static str,
     key: Option<&'static str>,
-    finalizer: Option<&'static str>,
+    finalize: Option<&'static str>,
     gc_mark: Option<&'static str>,
     payload: Option<&'static str>,
 }
@@ -18,7 +18,7 @@ macro_rules! class_def {
             const_name: $const_name,
             key: if $key.is_empty() { None } else { Some($key) },
             payload: $payload,
-            finalizer: $fin,
+            finalize: $fin,
             gc_mark: $mark,
         }
     };
@@ -510,7 +510,7 @@ pub fn gen_std_class_defs(outfile: &Path) {
     let mut async_end: Option<usize> = None;
 
     cdefs.push(format!(
-        "pub const STD_CLASS_DEFS: [JSClassShortDef;{}] = [",
+        "pub const STD_CLASS_DEFS: [StdClassDef;{}] = [",
         class_defs.len()
     ));
 
@@ -538,9 +538,9 @@ pub fn gen_std_class_defs(outfile: &Path) {
         }
 
         cdefs.push(format!(
-            "// {i}: {}\nJSClassShortDef{{class_name:JS_ATOM_{name}, finalizer:{}, gc_mark:{} }},",
+            "// {i}: {}\nJSClassShortDef{{class_name:JS_ATOM_{name}, finalize:{}, gc_mark:{} }},",
             cdef.const_name,
-            cdef.finalizer
+            cdef.finalize
                 .map_or("None".to_string(), |s| format!("Some({s})")),
             cdef.gc_mark
                 .map_or("None".to_string(), |s| format!("Some({s})")),
@@ -560,7 +560,7 @@ pub fn gen_std_class_defs(outfile: &Path) {
     cdefs.push("];".to_string());
 
     let lines = [
-        "use crate::{atom::consts::*, class::{ClassID, JSClassShortDef}};\n".to_string(),
+        "use crate::{atom::consts::*, class::{ClassID, StdClassDef}};\n".to_string(),
         consts.join("\n"),
         "".to_string(),
         cdefs.join("\n"),

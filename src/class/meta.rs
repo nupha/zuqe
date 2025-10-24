@@ -5,7 +5,7 @@ use crate::{
     },
     class::{
         ClassCallFn, ClassDef, ClassFinalizeFn, ClassGCMarkFn, ClassID, ClassInitializeFn,
-        FreeObjFn, JSClassExoticMethods, JSClassShortDef,
+        FreeObjFn, JSClassExoticMethods, StdClassDef,
     },
     context::JSContext,
     error::JSResult,
@@ -39,7 +39,7 @@ pub(crate) struct ClassMeta {
 }
 
 impl JSRuntime {
-    /// create a new object internal class. The finalizer can be NULL if none is needed.
+    /// create a new object internal class. The finalize can be NULL if none is needed.
     pub(super) fn add_class_internal(
         &mut self,
         class_id: ClassID,
@@ -96,7 +96,7 @@ impl JSRuntime {
     /// initialize multiple class short defs. used for builtin class defs only
     pub(crate) fn init_class_range(
         &mut self,
-        tab: &[JSClassShortDef],
+        tab: &[StdClassDef],
         start_id: ClassID,
     ) -> Result<(), i32> {
         debug_assert!(start_id > 0);
@@ -104,7 +104,7 @@ impl JSRuntime {
         let mut class_id = start_id;
         for item in tab {
             let cd = ClassDef {
-                finalize: item.finalizer,
+                finalize: item.finalize,
                 gc_mark: item.gc_mark,
                 ..Default::default()
             };

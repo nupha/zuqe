@@ -25,9 +25,10 @@ pub(crate) struct JSClassExoticMethods {
     pub set_property: Option<SetPropertyFn>,
 }
 
-pub(crate) struct JSClassShortDef {
+/// builtin class definition
+pub struct StdClassDef {
     pub class_name: AtomRef,
-    pub finalizer: Option<ClassFinalizeFn>,
+    pub finalize: Option<ClassFinalizeFn>,
     pub gc_mark: Option<ClassGCMarkFn>,
 }
 
