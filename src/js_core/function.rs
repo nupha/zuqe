@@ -49,10 +49,7 @@ pub fn js_function_bind(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     let func_obj = ctx
-        .create_object_with_proto(
-            ctx.0.borrow().function_proto.clone(),
-            ObjectPayload::BOUND_FUNCTION(bf),
-        )
+        .create_object_with_proto(ctx.function_proto(), ObjectPayload::BOUND_FUNCTION(bf))
         .map_err(|_| -1)?;
 
     func_obj.set_flag_constructor(this_val.is_constructor());

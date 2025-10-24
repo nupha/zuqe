@@ -82,7 +82,7 @@ fn js_string_codePointRange(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 fn js_createRealm(ctx: &JSContext, _: CallContext) -> JSResult {
-    let ctx1 = ctx.rt_mut().create_context()?;
+    let ctx1 = ctx.rt_mut().create_context_ecma()?;
     setup_ctx_test262_helpers(&ctx1)
 }
 
@@ -407,7 +407,7 @@ fn run_test_file(
     let mut rt = JSRuntime::new(JS_DEFAULT_MALLOC_FUNCTIONS, std::ptr::null_mut()).unwrap();
     JS_SetModuleLoaderFunc(rt.as_mut(), None, js_module_loader, std::ptr::null_mut());
 
-    let ctx = rt.create_context().unwrap();
+    let ctx = rt.create_context_ecma().unwrap();
     setup_ctx_test262_helpers(&ctx).unwrap();
 
     let mut has_err = false;

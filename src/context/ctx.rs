@@ -9,12 +9,20 @@ use std::{
 };
 
 use crate::{
-    JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_OBJECT,
-    error::STD_ERROR_COUNT,
+    JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_ERROR, JS_CLASS_OBJECT,
+    array::ArrayObjPayload,
+    atom::{
+        Atom,
+        consts::{JS_ATOM_empty_string, JS_ATOM_length, JS_ATOM_message, JS_ATOM_name},
+    },
+    class::ClassID,
+    error::{STD_ERROR_COUNT, STD_ERROR_NAMES, js_error_proto_funcs},
     eval::EvalFn,
     function::{NativeFunctionType, js_function_proto},
     module::{JSFreeModuleEnum, ModuleDef, js_free_modules},
-    object::{JSObject, JSShape},
+    object::{
+        JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_WRITABLE, JSObject, JSShape, ObjectPayload,
+    },
     regexp::RegExpData,
     runtime::JSRuntime,
     stack_frame::StackFrame,
@@ -45,8 +53,6 @@ pub struct JSContextInner {
     /// TODO: use Vec<Option<JSObject>> instead
     pub class_proto: Vec<JSValue>,
 
-    /// same as class_proto[JS_CLASS_BYTECODE_FUNCTION]
-    pub function_proto: Option<JSObject>,
     pub iterator_proto: Option<JSObject>,
     pub async_iterator_proto: Option<JSObject>,
     pub native_error_proto: [JSValue; STD_ERROR_COUNT],
@@ -132,7 +138,6 @@ impl JSContextInner {
 
             class_proto,
 
-            function_proto: None,
             iterator_proto: None,
             async_iterator_proto: None,
             native_error_proto: [const { JSValue::UNDEFINED }; STD_ERROR_COUNT],
@@ -209,7 +214,6 @@ impl JSContextInner {
         self.array_ctor = JSValue::UNDEFINED;
         self.regexp_ctor = JSValue::UNDEFINED;
         self.promise_ctor = JSValue::UNDEFINED;
-        self.function_proto.take();
         self.native_error_proto = [const { JSValue::UNDEFINED }; STD_ERROR_COUNT];
         self.iterator_proto.take();
         self.async_iterator_proto.take();
@@ -349,17 +353,133 @@ impl JSContext {
         let mut b = self.0.borrow_mut();
         b.flags = (b.flags & 0b1111_1110) | (mark as u8)
     }
+
+    /// Initialize minimum amount of objects to be able to compile code and display error messages.
+    /// No Atom should be allocated by this function.
+    fn init_core_objects(&self) -> Result<(), i32> {
+        debug_assert!(
+            [
+                JS_CLASS_OBJECT,
+                JS_CLASS_BYTECODE_FUNCTION,
+                JS_CLASS_ARRAY,
+                JS_CLASS_ERROR,
+            ]
+            .iter()
+            .max()
+            .copied()
+            .unwrap()
+                < self.rt().class_registry.len() as ClassID
+        );
+
+        // Object
+        let object = self.create_base_object_with_proto(None)?;
+        self.0.borrow_mut().class_proto[JS_CLASS_OBJECT as usize] = object.clone().into();
+
+        // Function
+        {
+            let func_obj = self.create_native_function_with_proto(
+                NativeFunctionType::Func(js_function_proto),
+                "",
+                0,
+                0,
+                object.clone().into(),
+            )?;
+
+            self.0.borrow_mut().class_proto[JS_CLASS_BYTECODE_FUNCTION as usize] = func_obj.into();
+        }
+
+        // Error
+        {
+            let error = self.create_base_object()?;
+            error
+                .install_field_defs(self, &js_error_proto_funcs)
+                .unwrap();
+            self.0.borrow_mut().class_proto[JS_CLASS_ERROR as usize] = error.clone().into();
+
+            // standard error objects
+            let msg = JS_ATOM_empty_string.force_string(self).unwrap();
+            for (i, name) in STD_ERROR_NAMES.iter().enumerate() {
+                let err = self.create_base_object_with_proto(Some(error.clone()))?;
+
+                let name = self.create_atom_string(name).unwrap();
+                err.define_property_value(
+                    self,
+                    &JS_ATOM_name,
+                    JSValue::String(name),
+                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+                )
+                .unwrap();
+
+                err.define_property_value(
+                    self,
+                    &JS_ATOM_message,
+                    JSValue::String(msg.clone()),
+                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+                )
+                .unwrap();
+
+                self.0.borrow_mut().native_error_proto[i] = err.into();
+            }
+        }
+
+        // Array
+        {
+            // 1. make Array prototype object
+            let array_proto = self
+                .create_object_with_proto(
+                    object.clone().into(),
+                    ObjectPayload::ARRAY(ArrayObjPayload::default()),
+                )
+                .map_err(|_| -1)?;
+
+            self.0.borrow_mut().class_proto[JS_CLASS_ARRAY as usize] = array_proto.clone().into();
+
+            // 2. make default shape for Array
+            let array_shape = JSShape::new(self, Some(array_proto.clone()), 1).unwrap();
+
+            // define length property, index=0
+            array_shape
+                .add_shape_property(
+                    self,
+                    Atom::new_const(JS_ATOM_length),
+                    JS_PROP_WRITABLE | JS_PROP_LENGTH,
+                    None,
+                )
+                .unwrap();
+
+            self.0.borrow_mut().array_shape.replace(array_shape);
+        }
+
+        Ok(())
+    }
+
+    /// get Function prototype
+    #[inline]
+    pub fn function_proto(&self) -> Option<JSObject> {
+        debug_assert!(self.0.borrow().class_proto.len() > JS_CLASS_BYTECODE_FUNCTION as usize);
+
+        unsafe {
+            self.0
+                .borrow()
+                .class_proto
+                .get_unchecked(JS_CLASS_BYTECODE_FUNCTION as usize)
+                .as_object()
+                .cloned()
+        }
+    }
 }
 
 #[repr(transparent)]
 #[derive(Debug, Clone)]
 pub struct JSContextWeakref(Weak<RefCell<JSContextInner>>);
 
-impl JSContextWeakref {
-    pub const fn new() -> Self {
+impl Default for JSContextWeakref {
+    fn default() -> Self {
         Self(Weak::new())
     }
+}
 
+impl JSContextWeakref {
     pub fn upgrade(&self) -> Option<JSContext> {
         self.0.upgrade().map(JSContext)
     }
@@ -397,37 +517,15 @@ pub enum AtomicOp {
 }
 
 impl JSRuntime {
-    /// Creates a new JavaScript execution context base, and call customize.
-    pub fn create_context_customize(
+    /// Creates JavaScript context with customized setup.
+    fn create_context_raw(
         &mut self,
         setup: impl FnOnce(&JSContext) -> Result<(), i32>,
     ) -> Result<JSContext, i32> {
         let inner = JSContextInner::new(self)?;
         let ctx = JSContext(Rc::new(RefCell::new(inner)));
 
-        // Initialize minimum amount of objects to be able to compile code and display error messages.
-        {
-            // Object prototype
-            let object = ctx.create_base_object_with_proto(None)?;
-            ctx.0.borrow_mut().class_proto[JS_CLASS_OBJECT as usize] = object.clone().into();
-
-            // Function prototype
-            let func_obj = ctx
-                .create_native_function_with_proto(
-                    NativeFunctionType::Func(js_function_proto),
-                    "",
-                    0,
-                    0,
-                    object.clone().into(),
-                )
-                .unwrap();
-            {
-                let mut cx = ctx.0.borrow_mut();
-                cx.function_proto = func_obj.clone().into();
-                cx.class_proto[JS_CLASS_BYTECODE_FUNCTION as usize] = func_obj.into();
-            }
-        }
-
+        ctx.init_core_objects()?;
         setup(&ctx)?;
 
         // register context to list
@@ -436,31 +534,36 @@ impl JSRuntime {
         Ok(ctx)
     }
 
-    /// Creates a new JavaScript execution context core.
-    pub fn create_context_core(&mut self) -> Result<JSContext, i32> {
-        let ctx = self.create_context_customize(|c| {
-            c.init_core_objects();
-            Ok(())
-        })?;
-        Ok(ctx)
+    // /// Creates a core JavaScript context only.
+    // pub fn create_context_core(&mut self) -> Result<JSContext, i32> {
+    //     self.create_context_raw(|_| Ok(()))
+    // }
+
+    /// Creates a new JavaScript context with customized setup.
+    pub fn create_context(
+        &mut self,
+        setup: impl FnOnce(&JSContext) -> Result<(), i32>,
+    ) -> Result<JSContext, i32> {
+        self.create_context_raw(|cx| {
+            cx.intrinsic_base_objects();
+            setup(cx)
+        })
     }
 
-    /// Creates a new JavaScript execution context
-    pub fn create_context(&mut self) -> Result<JSContext, i32> {
-        let ctx = self.create_context_core()?;
+    /// Creates new context initialized with ECMA standard classes
+    pub fn create_context_ecma(&mut self) -> Result<JSContext, i32> {
+        self.create_context(|ctx| {
+            ctx.intrinsic_proxy();
+            ctx.intrinsic_async();
+            ctx.intrinsic_typed_arrays();
+            ctx.intrinsic_regexp();
+            ctx.intrinsic_mapset();
+            ctx.intrinsic_date();
 
-        ctx.intrinsic_base_objects();
+            ctx.intrinsic_math(); // Math: lazy init object
+            ctx.intrinsic_json(); // JSON: lazy init object
 
-        ctx.intrinsic_proxy();
-        ctx.intrinsic_async();
-        ctx.intrinsic_typed_arrays();
-        ctx.intrinsic_regexp();
-        ctx.intrinsic_mapset();
-        ctx.intrinsic_date();
-
-        ctx.intrinsic_math(); // Math: lazy init object
-        ctx.intrinsic_json(); // JSON: lazy init object
-
-        Ok(ctx)
+            Ok(())
+        })
     }
 }

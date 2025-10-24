@@ -140,12 +140,12 @@ pub(super) fn js_op_define_class(
                 }
             }
         } else {
-            parent_class = ctx.0.borrow().function_proto.as_ref().cloned();
+            parent_class = ctx.function_proto();
             None
         }
     } else {
         // parent_class is undefined, use Function
-        parent_class = ctx.0.borrow().function_proto.as_ref().cloned();
+        parent_class = ctx.function_proto();
         ctx.0.borrow().class_proto[JS_CLASS_OBJECT as usize]
             .as_object()
             .cloned()

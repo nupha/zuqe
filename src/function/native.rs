@@ -423,12 +423,6 @@ impl JSContext {
         length: u8,
         magic: i16,
     ) -> Result<JSObject, i32> {
-        self.create_native_function_with_proto(
-            handler,
-            name,
-            length,
-            magic,
-            self.0.borrow().function_proto.as_ref().cloned(),
-        )
+        self.create_native_function_with_proto(handler, name, length, magic, self.function_proto())
     }
 }

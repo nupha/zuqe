@@ -308,7 +308,6 @@ impl JSContext {
 
         cx.class_proto.clear();
 
-        cx.function_proto.take();
         cx.function_ctor = JSValue::UNDEFINED;
         cx.array_ctor = JSValue::UNDEFINED;
         cx.regexp_ctor = JSValue::UNDEFINED;

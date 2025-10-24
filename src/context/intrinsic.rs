@@ -120,7 +120,7 @@ impl JSContext {
         throw_type_error.seal(self, true).unwrap();
         self.0.borrow_mut().throw_type_error = throw_type_error.clone().into();
 
-        let proto = self.0.borrow().function_proto.clone().unwrap();
+        let proto = self.function_proto().unwrap();
 
         // FOR LEGACY: add 'caller' and 'arguments' properties
         {
@@ -435,7 +435,7 @@ impl JSContext {
 
         // generator function prototype
         let generator_function = self
-            .create_base_object_with_proto(self.0.borrow().function_proto.as_ref().cloned())
+            .create_base_object_with_proto(self.function_proto())
             .unwrap();
         generator_function
             .install_field_defs(self, &js_generator_function_proto_funcs)
@@ -904,7 +904,7 @@ impl JSContext {
         // AsyncFunction
         {
             let af_obj = self
-                .create_base_object_with_proto(self.0.borrow().function_proto.clone())
+                .create_base_object_with_proto(self.function_proto())
                 .unwrap();
             af_obj
                 .install_field_defs(self, &js_async_function_proto_funcs)
@@ -961,7 +961,7 @@ impl JSContext {
                 o.into()
             };
 
-            let func_proto = self.0.borrow().function_proto.clone();
+            let func_proto = self.function_proto();
 
             // AsyncGeneratorFunction
             let agen_func: JSValue = {

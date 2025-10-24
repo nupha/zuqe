@@ -11,6 +11,7 @@ use crate::{
         JS_ATOM_Symbol_unscopables, JS_ATOM_arguments, JS_ATOM_caller, JS_ATOM_empty_string,
         JS_ATOM_length, JS_ATOM_message, JS_ATOM_name, JS_ATOM_values,
     },
+    class::ClassID,
     context::{JS_MODE_STRICT, JSContext},
     error::{ErrorKind, STD_ERROR_NAMES, js_error_proto_funcs},
     function::{BytecodeFunction, JSFunctionKindEnum, NativeFunctionType, js_function_proto},
@@ -21,7 +22,21 @@ use crate::{
 impl JSContext {
     /// Initialize minimum amount of objects to be able to compile code and display error messages.
     /// No Atom should be allocated by this function.
-    pub fn init_core_objects_ex(&self, with_array: bool, with_errors: bool) {
+    pub fn init_core_objects(&self) {
+        debug_assert!(
+            [
+                JS_CLASS_OBJECT,
+                JS_CLASS_ERROR,
+                JS_CLASS_ARRAY,
+                JS_CLASS_BYTECODE_FUNCTION
+            ]
+            .iter()
+            .max()
+            .copied()
+            .unwrap()
+                < self.rt().class_registry.len() as ClassID
+        );
+
         // Object
         let object = self.create_base_object_with_proto(None).unwrap();
         self.0.borrow_mut().class_proto[JS_CLASS_OBJECT as usize] = object.clone().into();
@@ -39,12 +54,11 @@ impl JSContext {
                 .unwrap();
 
             let mut cx = self.0.borrow_mut();
-            cx.function_proto.replace(func_obj.clone());
             cx.class_proto[JS_CLASS_BYTECODE_FUNCTION as usize] = func_obj.into();
         }
 
         // Error
-        if with_errors {
+        {
             let error = self.create_base_object().unwrap();
             self.0.borrow_mut().class_proto[JS_CLASS_ERROR as usize] = error.clone().into();
             error
@@ -80,7 +94,7 @@ impl JSContext {
         }
 
         // Array
-        if with_array {
+        {
             // 1. make Array prototype object
             let array_proto = self
                 .create_object_with_proto(
@@ -112,12 +126,5 @@ impl JSContext {
         necessary to avoid useless renumbering of atoms after
         JS_EvalBinary() if it is done just after JS_AddIntrinsicBasicObjects(). */
         // assert_eq!((*ctx.rt).atom_count as u32, JS_ATOM_INIT_COUNT);
-    }
-
-    /// Initialize minimum amount of objects to be able to compile code and display error messages.
-    /// No AtomRef should be allocated by this function.
-    #[inline(always)]
-    pub fn init_core_objects(&self) {
-        self.init_core_objects_ex(true, true);
     }
 }

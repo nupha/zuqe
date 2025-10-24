@@ -284,7 +284,7 @@ impl ModuleDefInner {
 
                 let payload =
                     ObjectPayload::BYTECODE_FUNCTION(BCFuncPayload::new(bc.clone(), var_refs));
-                let proto = ctx.0.borrow().function_proto.clone();
+                let proto = ctx.function_proto();
 
                 let func = ctx
                     .create_object_with_proto(proto, payload)

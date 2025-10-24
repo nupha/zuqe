@@ -76,7 +76,7 @@ fn main() {
     JS_SetModuleLoaderFunc(rt.as_mut(), None, js_module_loader, std::ptr::null_mut());
 
     // the default context
-    let ctx = rt.create_context().unwrap();
+    let ctx = rt.create_context_ecma().unwrap();
 
     // the customized ctx
     // let ctx = js
@@ -155,7 +155,7 @@ fn main() {
         let f = ctx
             .create_native_function(
                 NativeFunctionType::Func(|cx, _: CallContext| {
-                    let ctx1 = cx.rt_mut().create_context()?;
+                    let ctx1 = cx.rt_mut().create_context_ecma()?;
                     let global = JSValue::Object(ctx1.global_obj());
                     Ok(global)
                 }),

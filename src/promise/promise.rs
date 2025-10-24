@@ -189,7 +189,7 @@ impl Promise {
         let resolved = Rc::new(Cell::new(false));
 
         for i in 0..2 {
-            let function_proto = ctx.0.borrow().function_proto.clone();
+            let function_proto = ctx.function_proto();
             let s = Box::new(PromiseResolvePayload {
                 promise: self.clone(),
                 resolved: resolved.clone(), // shared between two functions
