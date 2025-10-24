@@ -66,7 +66,7 @@ impl NativeFunctionWithData {
     ) -> Result<Self, i32> {
         let func_obj = ctx
             .create_object_with_proto(
-                ctx.function_proto(),
+                Some(ctx.function_proto()),
                 ObjectPayload::C_FUNCTION_DATA(NativeFuncData::new(callback, length, magic, data)),
             )
             .map_err(|_| -1)?;

@@ -72,7 +72,7 @@ impl JSContext {
                 for id in class_ids {
                     let class_id = *id;
 
-                    if !self.0.borrow().class_proto[class_id as usize].is_object() {
+                    if self.class_proto(class_id).is_none() {
                         // init class in ctx
                         if let Some(f) = cdef.initialize {
                             let proto = f(self, class_id)?;

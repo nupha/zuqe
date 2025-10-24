@@ -287,7 +287,7 @@ impl ModuleDefInner {
                 let proto = ctx.function_proto();
 
                 let func = ctx
-                    .create_object_with_proto(proto, payload)
+                    .create_object_with_proto(Some(proto), payload)
                     .map_err(|_| -1)?;
                 self.bytecode.replace(func.into());
             }

@@ -23,7 +23,7 @@ pub fn js_error_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         let realm = JS_GetFunctionRealm(ctx, &new_target)?;
         let magic = cc.magic();
         proto = if magic < 0 {
-            realm.0.borrow().class_proto[JS_CLASS_ERROR as usize].clone()
+            realm.class_proto(JS_CLASS_ERROR).unwrap().into()
         } else {
             realm.0.borrow().native_error_proto[magic as usize].clone()
         };

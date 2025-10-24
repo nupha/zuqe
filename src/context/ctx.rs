@@ -384,7 +384,6 @@ impl JSContext {
                 0,
                 object.clone().into(),
             )?;
-
             self.0.borrow_mut().class_proto[JS_CLASS_BYTECODE_FUNCTION as usize] = func_obj.into();
         }
 
@@ -451,21 +450,6 @@ impl JSContext {
         }
 
         Ok(())
-    }
-
-    /// get Function prototype
-    #[inline]
-    pub fn function_proto(&self) -> Option<JSObject> {
-        debug_assert!(self.0.borrow().class_proto.len() > JS_CLASS_BYTECODE_FUNCTION as usize);
-
-        unsafe {
-            self.0
-                .borrow()
-                .class_proto
-                .get_unchecked(JS_CLASS_BYTECODE_FUNCTION as usize)
-                .as_object()
-                .cloned()
-        }
     }
 }
 

@@ -69,11 +69,7 @@ impl JSObject {
         throw_flag: bool,
     ) -> Result<bool, i32> {
         // Guard: can't set prototype of `Object.prototype`
-        if unlikely(
-            self == ctx.0.borrow().class_proto[JS_CLASS_OBJECT as usize]
-                .as_object()
-                .unwrap(),
-        ) {
+        if unlikely(self.eq(&ctx.object_proto())) {
             return if throw_flag {
                 ctx.throw_type_error("can't set prototype of Object.prototype");
                 Err(-1)

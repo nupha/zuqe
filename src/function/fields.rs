@@ -133,8 +133,7 @@ impl JSObject {
                 val = match base {
                     -1 => self.get_property(ctx, &name_atom)?,
                     0 => ctx.global_obj().get_property(ctx, &name_atom)?,
-                    1 => ctx.0.borrow().class_proto[JS_CLASS_ARRAY as usize]
-                        .get_property(ctx, &name_atom)?,
+                    1 => ctx.array_proto().get_property(ctx, &name_atom)?,
                     _ => {
                         unreachable!();
                     }

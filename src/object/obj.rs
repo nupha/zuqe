@@ -543,13 +543,21 @@ impl JSObject {
         )
     }
 
+    pub fn method_set_home_object(&self, home_obj: Option<&JSObject>) {
+        if let Some(fo) = self.payload().bc_function()
+            && fo.bytecode().need_home_object()
+        {
+            fo.set_home_object(home_obj.cloned());
+        }
+    }
+
     /// Seal the object.
     pub fn seal(&self, ctx: &JSContext, freeze: bool) -> Result<(), i32> {
         if unlikely(!self.prevent_extensions(ctx)?) {
             ctx.throw_type_error("proxy preventExtensions handler returned false");
             Err(-1)
         } else {
-            self.own_property_names_foreach(
+            let _ = self.own_property_names_foreach(
                 ctx,
                 JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK,
                 |_, pkey| {
@@ -754,15 +762,6 @@ pub const JS_ARRAY_INITIAL_SIZE: u32 = 2;
 pub const JS_PROP_INITIAL_HASH_SIZE: usize = 8;
 #[cfg(not(target_pointer_width = "64"))]
 pub const JS_PROP_INITIAL_HASH_SIZE: usize = 4;
-
-pub(crate) fn JS_SetConstructorBit(func_obj: &JSValue, val: bool) -> bool {
-    if let JSValue::Object(p) = func_obj {
-        p.set_flag_constructor(val);
-        true
-    } else {
-        false
-    }
-}
 
 /// Note: all the fields are already sealed except length
 pub fn seal_template_obj(ctx: &JSContext, obj: JSValue) -> i32 {

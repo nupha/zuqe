@@ -52,7 +52,7 @@ use crate::{
     number::{js_number_constructor, js_number_funcs, js_number_proto_funcs},
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET,
-        JS_PROP_HAS_SET, JS_PROP_WRITABLE, JS_SetConstructorBit, ObjectPayload,
+        JS_PROP_HAS_SET, JS_PROP_WRITABLE, ObjectPayload,
     },
     promise::{Promise, js_promise_funcs, js_promise_proto_funcs},
     proxy::{js_proxy_constructor, js_proxy_funcs},
@@ -72,13 +72,13 @@ use crate::{
 
 impl JSContext {
     pub(crate) fn intrinsic_base_object(&self) {
-        let proto = self.0.borrow().class_proto[JS_CLASS_OBJECT as usize].clone();
+        let proto = self.class_proto(JS_CLASS_OBJECT).unwrap();
         proto
             .install_field_defs(self, &js_object_proto_funcs)
             .unwrap();
 
         let ctor = self
-            .create_global_constructor_or_func("Object", js_object_constructor, 1, &proto, 0)
+            .create_global_constructor_or_func("Object", js_object_constructor, 1, &proto.into(), 0)
             .unwrap();
         ctor.install_field_defs(self, &js_object_funcs).unwrap();
     }
@@ -120,7 +120,7 @@ impl JSContext {
         throw_type_error.seal(self, true).unwrap();
         self.0.borrow_mut().throw_type_error = throw_type_error.clone().into();
 
-        let proto = self.function_proto().unwrap();
+        let proto = self.function_proto();
 
         // FOR LEGACY: add 'caller' and 'arguments' properties
         {
@@ -185,7 +185,7 @@ impl JSContext {
         self.add_global_constructor(
             "Error",
             &ctor.clone().into(),
-            &self.0.borrow().class_proto[JS_CLASS_ERROR as usize],
+            &self.class_proto(JS_CLASS_ERROR).unwrap().into(),
         );
 
         // standard error constructors
@@ -219,7 +219,8 @@ impl JSContext {
             "iterator_proto is not initialized"
         );
 
-        self.0.borrow().class_proto[JS_CLASS_ARRAY as usize]
+        self.class_proto(JS_CLASS_ARRAY)
+            .unwrap()
             .install_field_defs(self, &js_array_proto_funcs)
             .unwrap();
 
@@ -228,7 +229,7 @@ impl JSContext {
                 "Array",
                 js_array_constructor,
                 1,
-                &self.0.borrow().class_proto[JS_CLASS_ARRAY as usize],
+                &self.class_proto(JS_CLASS_ARRAY).unwrap().into(),
                 0,
             )
             .unwrap();
@@ -262,10 +263,11 @@ impl JSContext {
                 obj1.define_property_value_str(self, s, JSValue::Bool(true), JS_PROP_C_W_E)
                     .unwrap();
             }
-            self.0.borrow().class_proto[JS_CLASS_ARRAY as usize]
+            self.class_proto(JS_CLASS_ARRAY)
+                .unwrap()
                 .define_property_value(
                     self,
-                    JS_ATOM_Symbol_unscopables.deref(),
+                    &JS_ATOM_Symbol_unscopables,
                     obj1.into(),
                     JS_PROP_CONFIGURABLE,
                 )
@@ -279,8 +281,10 @@ impl JSContext {
             .install_field_defs(self, &js_array_iterator_proto_funcs)
             .unwrap();
 
-        let array_values = self.0.borrow().class_proto[JS_CLASS_ARRAY as usize]
-            .get_property(self, JS_ATOM_values.deref())
+        let array_values = self
+            .class_proto(JS_CLASS_ARRAY)
+            .unwrap()
+            .get_property(self, &JS_ATOM_values)
             .unwrap();
 
         {
@@ -293,9 +297,7 @@ impl JSContext {
     pub(crate) fn intrinsic_base_number(&self) {
         let number_obj = self
             .create_object_with_proto(
-                self.0.borrow().class_proto[JS_CLASS_OBJECT as usize]
-                    .as_object()
-                    .cloned(),
+                self.class_proto(JS_CLASS_OBJECT),
                 ObjectPayload::NUMBER(JSValue::Int(0)),
             )
             .unwrap();
@@ -317,9 +319,7 @@ impl JSContext {
     pub(crate) fn intrinsic_base_boolean(&self) {
         let bool_obj = self
             .create_object_with_proto(
-                self.0.borrow().class_proto[JS_CLASS_OBJECT as usize]
-                    .as_object()
-                    .cloned(),
+                self.class_proto(JS_CLASS_OBJECT),
                 ObjectPayload::BOOLEAN(JSValue::Bool(false)),
             )
             .unwrap();
@@ -351,9 +351,7 @@ impl JSContext {
         let string_obj: JSValue = {
             let o = self
                 .create_object_with_proto(
-                    self.0.borrow().class_proto[JS_CLASS_OBJECT as usize]
-                        .as_object()
-                        .cloned(),
+                    self.class_proto(JS_CLASS_OBJECT),
                     ObjectPayload::STRING(empty_str.into()),
                 )
                 .unwrap();
@@ -435,7 +433,7 @@ impl JSContext {
 
         // generator function prototype
         let generator_function = self
-            .create_base_object_with_proto(self.function_proto())
+            .create_base_object_with_proto(Some(self.function_proto()))
             .unwrap();
         generator_function
             .install_field_defs(self, &js_generator_function_proto_funcs)
@@ -720,15 +718,17 @@ impl JSContext {
                 .unwrap();
 
             // TypedArray.prototype.toString must be the same object as Array.prototype.toString
-            let to_string = self.0.borrow().class_proto[JS_CLASS_ARRAY as usize]
-                .get_property(self, JS_ATOM_toString.deref())
+            let to_string = self
+                .class_proto(JS_CLASS_ARRAY)
+                .unwrap()
+                .get_property(self, &JS_ATOM_toString)
                 .unwrap();
 
             // XXX: should use alias method in JSCFunctionListEntry
             ta_proto
                 .define_property_value(
                     self,
-                    JS_ATOM_toString.deref(),
+                    &JS_ATOM_toString,
                     to_string,
                     JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
                 )
@@ -845,24 +845,23 @@ impl JSContext {
     }
 
     pub fn intrinsic_proxy(&self) {
-        let func_obj: JSValue = self
+        let func_obj = self
             .create_native_function(
                 NativeFunctionType::Constructor(js_proxy_constructor),
                 "Proxy",
                 2,
                 0,
             )
-            .unwrap()
-            .into();
+            .unwrap();
 
-        JS_SetConstructorBit(&func_obj, true);
+        func_obj.set_flag_constructor(true);
         func_obj.install_field_defs(self, &js_proxy_funcs).unwrap();
 
         self.global_obj()
             .define_property_value_str(
                 self,
                 "Proxy",
-                func_obj,
+                func_obj.into(),
                 JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
             )
             .unwrap();
@@ -904,7 +903,7 @@ impl JSContext {
         // AsyncFunction
         {
             let af_obj = self
-                .create_base_object_with_proto(self.function_proto())
+                .create_base_object_with_proto(Some(self.function_proto()))
                 .unwrap();
             af_obj
                 .install_field_defs(self, &js_async_function_proto_funcs)
@@ -966,7 +965,7 @@ impl JSContext {
             // AsyncGeneratorFunction
             let agen_func: JSValue = {
                 let o = self
-                    .create_base_object_with_proto(func_proto.clone())
+                    .create_base_object_with_proto(Some(func_proto.clone()))
                     .unwrap();
                 o.install_field_defs(self, &js_async_generator_function_proto_funcs)
                     .unwrap();
@@ -987,7 +986,7 @@ impl JSContext {
                     "AsyncGeneratorFunction",
                     1,
                     JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR as i16,
-                    func_proto,
+                    Some(func_proto),
                 )
                 .unwrap()
                 .into();

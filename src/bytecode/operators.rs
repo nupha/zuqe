@@ -14,7 +14,7 @@ use crate::{
     object::{
         JS_GPN_INDEX_MASK, JS_GPN_SET_ENUM, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE,
         JS_PROP_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW, JS_PROP_THROW_STRICT,
-        JS_PROP_WRITABLE, JS_SetConstructorBit, JSObject, ObjectPayload,
+        JS_PROP_WRITABLE, JSObject, ObjectPayload,
     },
     stack_frame::StackFrame,
     string::{JS_ConcatString3, JSString},
@@ -140,24 +140,22 @@ pub(super) fn js_op_define_class(
                 }
             }
         } else {
-            parent_class = ctx.function_proto();
+            parent_class = Some(ctx.function_proto());
             None
         }
     } else {
         // parent_class is undefined, use Function
-        parent_class = ctx.function_proto();
-        ctx.0.borrow().class_proto[JS_CLASS_OBJECT as usize]
-            .as_object()
-            .cloned()
+        parent_class = Some(ctx.function_proto());
+        ctx.class_proto(JS_CLASS_OBJECT)
     };
 
     let proto = ctx.create_base_object_with_proto(proto)?;
 
     // make constructor function
-    let ctor = JSValue::from(bc.make_closure(ctx, cur_var_refs, Some(sframe), parent_class)?);
+    let ctor = bc.make_closure(ctx, cur_var_refs, Some(sframe), parent_class)?;
 
-    js_method_set_home_object(&ctor, Some(&proto));
-    JS_SetConstructorBit(&ctor, true);
+    ctor.method_set_home_object(Some(&proto));
+    ctor.set_flag_constructor(true);
 
     ctor.define_property_value(
         ctx,
@@ -167,40 +165,29 @@ pub(super) fn js_op_define_class(
     )?;
 
     if is_computed_name {
-        ctor.as_object().unwrap().define_name_computed(
-            ctx,
-            unsafe { &*sp.offset(-3) },
-            JS_PROP_CONFIGURABLE,
-        )?;
+        ctor.define_name_computed(ctx, unsafe { &*sp.offset(-3) }, JS_PROP_CONFIGURABLE)?;
     } else {
-        ctor.as_object()
-            .unwrap()
-            .define_name(ctx, class_name, JS_PROP_CONFIGURABLE)?;
+        ctor.define_name(ctx, class_name, JS_PROP_CONFIGURABLE)?;
     }
 
     // the constructor property must be first. It can be overridden by
     // computed property names
     proto.define_property_value(
         ctx,
-        JS_ATOM_constructor.deref(),
-        ctor.clone(),
+        &JS_ATOM_constructor,
+        ctor.clone().into(),
         JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE | JS_PROP_THROW,
     )?;
 
     // set the prototype property
-    ctor.define_property_value(
-        ctx,
-        JS_ATOM_prototype.deref(),
-        proto.clone().into(),
-        JS_PROP_THROW,
-    )?;
+    ctor.define_property_value(ctx, &JS_ATOM_prototype, proto.clone().into(), JS_PROP_THROW)?;
 
     // TODO: mark cyclic reference
     // set_cycle_flag(ctx, &ctor);
     // set_cycle_flag(ctx, &proto);
 
     unsafe {
-        std::ptr::replace(sp.offset(-2), ctor);
+        std::ptr::replace(sp.offset(-2), ctor.into());
         std::ptr::replace(sp.offset(-1), proto.into());
     }
 
@@ -230,15 +217,6 @@ pub(crate) fn js_get_function_name(ctx: &JSContext, name: &Atom) -> Result<JSStr
     }
 }
 
-pub fn js_method_set_home_object(func_obj: &JSValue, home_obj: Option<&JSObject>) {
-    if let JSValue::Object(o) = func_obj
-        && let Some(fo) = o.payload().bc_function()
-        && fo.bytecode().need_home_object()
-    {
-        fo.set_home_object(home_obj.cloned());
-    }
-}
-
 /// Modify the name of a method according to the atom and
 /// 'flags'. 'flags' is a bitmask of JS_PROP_HAS_GET and
 /// JS_PROP_HAS_SET. Also set the home object of the method.
@@ -258,7 +236,11 @@ pub fn js_method_set_properties(
     }
 
     func_obj.define_property_value(ctx, &JS_ATOM_name, name_str.into(), JS_PROP_CONFIGURABLE)?;
-    js_method_set_home_object(func_obj, home_obj.as_object());
+
+    if let Some(fo) = func_obj.as_object_BCFunction() {
+        fo.method_set_home_object(home_obj.as_object());
+    }
+
     Ok(())
 }
 

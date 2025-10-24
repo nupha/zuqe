@@ -2,10 +2,11 @@ use crate::{
     JS_CFUNC_NATIVE_DEF,
     atom::consts::{JS_ATOM_proxy, JS_ATOM_revoke},
     callable::NativeFunctionWithData,
+    class::ClassID,
     context::JSContext,
     error::JSResult,
-    function::{CallContext, FieldDef},
-    object::{JS_PROP_C_W_E, JS_SetConstructorBit, ObjectPayload},
+    function::{CallContext, FieldDef, NativeFunctionType},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, JSObject, ObjectPayload},
     proxy::ProxyPayload,
     value::JSValue,
 };
@@ -21,16 +22,16 @@ pub fn js_proxy_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Err(-1);
     };
 
-    let obj: JSValue = ctx
+    let obj = ctx
         .create_object_with_proto(
             None,
             ObjectPayload::PROXY(ProxyPayload::new(target.clone(), handler.clone().into())),
         )
-        .map_err(|_| -1)?
-        .into();
+        .map_err(|_| -1)?;
 
-    JS_SetConstructorBit(&obj, target.is_constructor());
-    Ok(obj)
+    obj.set_flag_constructor(target.is_constructor());
+
+    Ok(obj.into())
 }
 
 fn js_proxy_revocable(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -64,3 +65,24 @@ fn js_proxy_revocable(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub static js_proxy_funcs: [FieldDef; 1] =
     [JS_CFUNC_NATIVE_DEF!("revocable", 2, js_proxy_revocable, 0)];
+
+pub fn class_proxy_init(ctx: &JSContext, _: ClassID) -> Result<JSObject, i32> {
+    let proto = ctx.create_native_function(
+        NativeFunctionType::Constructor(js_proxy_constructor),
+        "Proxy",
+        2,
+        0,
+    )?;
+
+    proto.set_flag_constructor(true);
+    proto.install_field_defs(ctx, &js_proxy_funcs).unwrap();
+
+    ctx.global_obj().define_property_value_str(
+        ctx,
+        "Proxy",
+        proto.clone().into(),
+        JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+    )?;
+
+    Ok(proto)
+}

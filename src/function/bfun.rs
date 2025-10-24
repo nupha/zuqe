@@ -174,6 +174,13 @@ impl BCFunction {
     pub fn payload(&self) -> &BCFuncPayload {
         self.0.payload().bc_function().unwrap()
     }
+
+    pub fn method_set_home_object(&self, home_obj: Option<&JSObject>) {
+        let fo = self.payload();
+        if fo.bytecode().need_home_object() {
+            fo.set_home_object(home_obj.cloned());
+        }
+    }
 }
 
 impl JSObject {
@@ -508,10 +515,12 @@ impl BytecodeFunction {
 
         if !new_target.is_undefined() {
             // set the prototype
-            let mut proto = new_target.get_property(ctx, JS_ATOM_prototype.deref())?;
+            let mut proto = new_target.get_property(ctx, &JS_ATOM_prototype)?;
             if !proto.is_object() {
                 let realm = JS_GetFunctionRealm(ctx, new_target)?;
-                proto = realm.0.borrow().class_proto[func_kind.class_id() as usize].clone();
+                proto = realm
+                    .class_proto(func_kind.class_id())
+                    .map_or(JSValue::NULL, JSValue::Object);
             }
             func_val.set_prototype_internal(ctx, proto, true)?;
         }

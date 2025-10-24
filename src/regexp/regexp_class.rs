@@ -175,10 +175,10 @@ pub fn js_regexp_get_source(ctx: &JSContext, cc: CallContext) -> JSResult {
     let this = cc.this();
 
     if this.is_object() {
-        if cc
-            .this()
-            .is_same(&ctx.0.borrow().class_proto[JS_CLASS_REGEXP as usize])
-        {
+        if cc.this().is_same(
+            &ctx.class_proto(JS_CLASS_REGEXP)
+                .map_or(JSValue::NULL, JSValue::Object),
+        ) {
             // empty_regex
             return ctx.create_string_from_str("(?:))").map(JSValue::String);
         }
@@ -256,13 +256,14 @@ pub fn js_regexp_get_flag(ctx: &JSContext, cc: CallContext) -> JSResult {
     if this.is_object() {
         if let Some(re) = js_get_regexp(ctx, this, false) {
             Ok(JSValue::Bool((re.flags as i32) & mask != 0))
+        } else if this.is_same(
+            &ctx.class_proto(JS_CLASS_REGEXP)
+                .map_or(JSValue::NULL, JSValue::Object),
+        ) {
+            Ok(JSValue::UNDEFINED)
         } else {
-            if this.is_same(&ctx.0.borrow().class_proto[JS_CLASS_REGEXP as usize]) {
-                Ok(JSValue::UNDEFINED)
-            } else {
-                ctx.throw_type_error_invalid_class(JS_CLASS_REGEXP);
-                Err(-1)
-            }
+            ctx.throw_type_error_invalid_class(JS_CLASS_REGEXP);
+            Err(-1)
         }
     } else {
         ctx.throw_type_error_not_an_object();

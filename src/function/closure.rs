@@ -8,7 +8,7 @@ use crate::{
         BCFuncPayload, BCFunction, Bytecode, JSFunctionKindEnum, JSVarRef,
         js_function_set_properties,
     },
-    object::{JS_PROP_WRITABLE, JS_SetConstructorBit, JSObject, LazyInit, ObjectPayload},
+    object::{JS_PROP_WRITABLE, JSObject, LazyInit, ObjectPayload},
     runtime::JS_MAX_LOCAL_VARS,
     stack_frame::StackFrame,
 };
@@ -273,11 +273,7 @@ impl Bytecode {
         };
         let func = BCFunction(
             ctx.create_object_with_proto(
-                proto.or_else(|| {
-                    ctx.0.borrow().class_proto[payload.class_id() as usize]
-                        .as_object()
-                        .cloned()
-                }),
+                proto.or_else(|| ctx.class_proto(payload.class_id())),
                 payload,
             )
             .map_err(|_| -1)?,
@@ -302,27 +298,17 @@ impl Bytecode {
                 JS_CLASS_GENERATOR | JS_CLASS_ASYNC_GENERATOR
             ));
 
-            let proto = ctx.create_base_object_with_proto(
-                ctx.0.borrow().class_proto[gen_class_id as usize]
-                    .as_object()
-                    .cloned(),
-            )?;
-            func.define_property_value(
-                ctx,
-                JS_ATOM_prototype.deref(),
-                proto.into(),
-                JS_PROP_WRITABLE,
-            )
-            .unwrap();
+            let proto = ctx.create_base_object_with_proto(ctx.class_proto(gen_class_id))?;
+            func.define_property_value(ctx, &JS_ATOM_prototype, proto.into(), JS_PROP_WRITABLE)?;
         } else if self.has_prototype() {
             // add the 'prototype' property: delay instantiation to avoid
             // creating cycles for every javascript function. The prototype
             // object is created on the fly when first accessed
-            JS_SetConstructorBit(&func.clone().into(), true);
+            func.set_flag_constructor(true);
 
             func.define_lazy_property(
                 ctx,
-                JS_ATOM_prototype.deref(),
+                &JS_ATOM_prototype,
                 LazyInit::Prototype,
                 JS_PROP_WRITABLE,
             )?;

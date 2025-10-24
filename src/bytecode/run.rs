@@ -12,9 +12,8 @@ use crate::{
         js_for_of_next,
         operators::{
             js_append_enumerate, js_for_in_next, js_for_in_start, js_has_unscopable,
-            js_iterator_get_value_done, js_method_set_home_object, js_method_set_properties,
-            js_op_define_class, js_operator_delete, js_operator_in, js_operator_instanceof,
-            js_operator_private_in,
+            js_iterator_get_value_done, js_method_set_properties, js_op_define_class,
+            js_operator_delete, js_operator_in, js_operator_instanceof, js_operator_private_in,
         },
     },
     class::{
@@ -1675,7 +1674,12 @@ impl Bytecode {
                     }
                     OpCode::SET_HOME_OBJECT => {
                         // [home_obj, func, ^] -> [home_obj, func, ^]
-                        js_method_set_home_object(SP_REF!(-1), SP_REF!(-2).as_object());
+                        if let Some(fo) = SP_REF!(-1).as_object_BCFunction() {
+                            fo.method_set_home_object(SP_REF!(-2).as_object());
+                        } else {
+                            #[cfg(debug_assertions)]
+                            unreachable!("SET_HOME_OBJECT expect BytecodeFunction object");
+                        }
                     }
                     OpCode::DEFINE_METHOD | OpCode::DEFINE_METHOD_COMPUTED => {
                         // DEFINE_METHOD: [this_obj, value, ^] -> [this_obj, ^]

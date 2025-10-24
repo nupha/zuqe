@@ -166,10 +166,12 @@ pub fn js_function_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     // set prototype, if provided by `this`
     let new_target = cc.this();
     if !new_target.is_undefined() {
-        let mut proto = new_target.get_property(ctx, JS_ATOM_prototype.deref())?;
+        let mut proto = new_target.get_property(ctx, &JS_ATOM_prototype)?;
         if !proto.is_object() {
             let realm = JS_GetFunctionRealm(ctx, new_target)?;
-            proto = realm.0.borrow().class_proto[func_kind.class_id() as usize].clone();
+            proto = realm
+                .class_proto(func_kind.class_id())
+                .map_or(JSValue::NULL, JSValue::Object);
         }
 
         func_obj.set_prototype_internal(ctx, proto, true)?;

@@ -61,20 +61,14 @@ impl JSContext {
         let class_id = payload.class_id();
 
         let proto: Option<JSObject> = if ctor.is_undefined() {
-            self.0.borrow().class_proto[class_id as usize]
-                .as_object()
-                .cloned()
+            self.class_proto(class_id)
         } else if let Ok(p) = ctor.get_property(self, &JS_ATOM_prototype) {
             if let Some(o) = p.as_object().cloned() {
                 Some(o)
+            } else if let Ok(realm) = JS_GetFunctionRealm(self, ctor) {
+                realm.class_proto(class_id)
             } else {
-                if let Ok(realm) = JS_GetFunctionRealm(self, ctor) {
-                    realm.0.borrow().class_proto[class_id as usize]
-                        .as_object()
-                        .cloned()
-                } else {
-                    return Err(payload);
-                }
+                return Err(payload);
             }
         } else {
             return Err(payload);
@@ -96,12 +90,7 @@ impl JSContext {
     ) -> Result<JSObject, i32> {
         let (proto, isa) = if ctor.is_undefined() {
             let payload = payload_fn()?;
-            (
-                self.0.borrow().class_proto[payload.class_id() as usize]
-                    .as_object()
-                    .cloned(),
-                payload,
-            )
+            (self.class_proto(payload.class_id()), payload)
         } else {
             // don't change following 2 lines order
             let p = ctor.get_property(self, &JS_ATOM_prototype)?; // <- may exec user script here
@@ -111,12 +100,7 @@ impl JSContext {
                 (Some(o), payload)
             } else {
                 let realm = JS_GetFunctionRealm(self, ctor)?;
-                (
-                    realm.0.borrow().class_proto[payload.class_id() as usize]
-                        .as_object()
-                        .cloned(),
-                    payload,
-                )
+                (realm.class_proto(payload.class_id()), payload)
             }
         };
 
@@ -127,12 +111,7 @@ impl JSContext {
     /// New object's prototype and shape are determined by `payload` automatically.
     #[inline]
     pub fn create_object(&self, payload: ObjectPayload) -> Result<JSObject, ObjectPayload> {
-        self.create_object_with_proto(
-            self.0.borrow().class_proto[payload.class_id() as usize]
-                .as_object()
-                .cloned(),
-            payload,
-        )
+        self.create_object_with_proto(self.class_proto(payload.class_id()), payload)
     }
 
     /// create basic object with given prototype `proto`.

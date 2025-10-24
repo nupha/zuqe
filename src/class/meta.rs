@@ -1,4 +1,5 @@
 use crate::{
+    JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_OBJECT,
     atom::{
         Atom,
         consts::{JS_ATOM_constructor, JS_ATOM_prototype},
@@ -11,7 +12,7 @@ use crate::{
     error::JSResult,
     function::{NativeCallback, NativeFunctionType},
     gc::set_cycle_flag,
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, JSObject},
     runtime::JSRuntime,
     value::JSValue,
 };
@@ -123,18 +124,62 @@ impl JSRuntime {
 
 impl JSContext {
     /// get class proto object by `class_id`.
-    /// if class proto object is not initialized in this context, returns JS_NULL.
-    /// returned proto value is duplicated. caller should free it.
-    pub fn get_class_proto(&self, class_id: ClassID) -> JSValue {
-        debug_assert!((class_id as usize) < self.0.borrow().class_proto.len());
-        self.0.borrow().class_proto[class_id as usize].clone()
+    /// if class proto object is not initialized in this context, returns None.
+    pub fn class_proto(&self, class_id: ClassID) -> Option<JSObject> {
+        self.0
+            .borrow()
+            .class_proto
+            .get(class_id as usize)
+            .and_then(|x| x.as_object())
+            .cloned()
     }
 
-    pub fn set_class_proto(&self, class_id: ClassID, proto_obj: JSValue) {
-        debug_assert!(class_id < self.0.borrow().class_proto.len() as ClassID);
-        debug_assert!(self.0.borrow().class_proto[class_id as usize].is_null());
+    /// get base Object prototype, must be  as core.
+    ///
+    /// equivelent to call `ctx.class_proto(JS_CLASS_OBJECT).unwrap()`
+    #[inline]
+    pub fn object_proto(&self) -> JSObject {
+        debug_assert!(self.0.borrow().class_proto.len() > JS_CLASS_OBJECT as usize);
+        unsafe {
+            self.0
+                .borrow()
+                .class_proto
+                .get_unchecked(JS_CLASS_OBJECT as usize)
+                .as_object_unchecked()
+                .clone()
+        }
+    }
 
-        self.0.borrow_mut().class_proto[class_id as usize] = proto_obj;
+    /// get Function prototype, must be  as core.
+    ///
+    /// equivelent to call `ctx.class_proto(JS_CLASS_BYTECODE_FUNCTION).unwrap()`
+    #[inline]
+    pub fn function_proto(&self) -> JSObject {
+        debug_assert!(self.0.borrow().class_proto.len() > JS_CLASS_BYTECODE_FUNCTION as usize);
+        unsafe {
+            self.0
+                .borrow()
+                .class_proto
+                .get_unchecked(JS_CLASS_BYTECODE_FUNCTION as usize)
+                .as_object_unchecked()
+                .clone()
+        }
+    }
+
+    /// get Array prototype, must be  as core.
+    ///
+    /// equivelent to call `ctx.class_proto(JS_ARRAY_FUNCTION).unwrap()`
+    #[inline]
+    pub fn array_proto(&self) -> JSObject {
+        debug_assert!(self.0.borrow().class_proto.len() > JS_CLASS_ARRAY as usize);
+        unsafe {
+            self.0
+                .borrow()
+                .class_proto
+                .get_unchecked(JS_CLASS_ARRAY as usize)
+                .as_object_unchecked()
+                .clone()
+        }
     }
 
     /// mark function `func_obj` to be a constructor, set `proto` as its prototype,

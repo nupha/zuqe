@@ -187,16 +187,16 @@ impl Promise {
         // [resolve, reject]
         let mut resolving_funcs = [JSValue::UNDEFINED, JSValue::UNDEFINED];
         let resolved = Rc::new(Cell::new(false));
+        let func_proto = ctx.function_proto();
 
         for i in 0..2 {
-            let function_proto = ctx.function_proto();
             let s = Box::new(PromiseResolvePayload {
                 promise: self.clone(),
                 resolved: resolved.clone(), // shared between two functions
             });
             let func = ctx
                 .create_object_with_proto(
-                    function_proto,
+                    Some(func_proto.clone()),
                     if i == 0 {
                         ObjectPayload::PROMISE_RESOLVE_FUNCTION(s)
                     } else {

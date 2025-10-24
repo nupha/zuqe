@@ -484,17 +484,19 @@ pub unsafe fn JS_ResizeAtomHash(rt: *mut JSRuntime, new_hash_size: i32) -> i32 {
     unreachable!("unused");
 }
 
-#[deprecated(note = "use JSContext::get_class_proto() instead")]
+#[deprecated(note = "use JSContext::class_proto() instead")]
 pub unsafe fn JS_GetClassProto(ctx: &JSContext, class_id: ClassID) -> JSValue {
-    ctx.get_class_proto(class_id)
+    todo!();
+    // ctx.get_class_proto(class_id)
 }
 
-#[deprecated(note = "use JSContext::set_class_proto() instead")]
+#[deprecated(note = "unused")]
 pub unsafe fn JS_SetClassProto(ctx: &JSContext, class_id: ClassID, obj: JSValue) {
-    ctx.set_class_proto(class_id, obj);
+    todo!()
+    // ctx.set_class_proto(class_id, obj);
 }
 
-#[deprecated(note = "use JSRuntime::add_class() instead")]
+#[deprecated(note = "use JSRuntime::register_class() instead")]
 pub unsafe fn JS_NewClass(
     rt: *mut JSRuntime,
     class_id: ClassID,
@@ -4935,4 +4937,21 @@ pub fn JS_SetConstructor(ctx: &JSContext, func_obj: &JSValue, proto: &JSValue) {
 pub unsafe fn JS_DumpShape(_rt: &JSRuntime, _i: i32, _sh: &JSShape) {
     unreachable!("unused");
     // sh.dump(rt, i);
+}
+
+#[deprecated(note = "use BCFunction::method_set_home_object() instead")]
+pub fn js_method_set_home_object(func_obj: &JSValue, home_obj: Option<&JSObject>) {
+    if let Some(o) = func_obj.as_object_BCFunction() {
+        o.method_set_home_object(home_obj);
+    }
+}
+
+#[deprecated(note = "use JSObject::set_flag_constructor() directly")]
+pub(crate) fn JS_SetConstructorBit(func_obj: &JSValue, val: bool) -> bool {
+    if let JSValue::Object(p) = func_obj {
+        p.set_flag_constructor(val);
+        true
+    } else {
+        false
+    }
 }
