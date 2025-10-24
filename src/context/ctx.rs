@@ -9,11 +9,13 @@ use std::{
 };
 
 use crate::{
-    JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_ERROR, JS_CLASS_OBJECT,
+    JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_ERROR, JS_CLASS_OBJECT, JS_CLASS_PROXY,
     array::ArrayObjPayload,
     atom::{
         Atom,
-        consts::{JS_ATOM_empty_string, JS_ATOM_length, JS_ATOM_message, JS_ATOM_name},
+        consts::{
+            JS_ATOM_Proxy, JS_ATOM_empty_string, JS_ATOM_length, JS_ATOM_message, JS_ATOM_name,
+        },
     },
     class::ClassID,
     error::{STD_ERROR_COUNT, STD_ERROR_NAMES, js_error_proto_funcs},
@@ -537,7 +539,9 @@ impl JSRuntime {
     /// Creates new context initialized with ECMA standard classes
     pub fn create_context_ecma(&mut self) -> Result<JSContext, i32> {
         self.create_context(|ctx| {
-            ctx.intrinsic_proxy();
+            ctx.use_class(JS_CLASS_PROXY)?;
+            //ctx.intrinsic_proxy();
+
             ctx.intrinsic_async();
             ctx.intrinsic_typed_arrays();
             ctx.intrinsic_regexp();

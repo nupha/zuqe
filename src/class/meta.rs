@@ -40,23 +40,13 @@ pub(crate) struct ClassMeta {
 }
 
 impl JSRuntime {
-    /// create a new object internal class. The finalize can be NULL if none is needed.
+    /// register a class def to runtime.
     pub(super) fn add_class_internal(
         &mut self,
         class_id: ClassID,
         class_def: &ClassDef,
         class_name: Atom,
     ) -> Result<(), i32> {
-        // builtin class name allow duplication, don't check.
-        // if self
-        //     .class_registry
-        //     .iter()
-        //     .any(|c| c.class_name.eq(&class_name))
-        // {
-        //     println!("class name already exists: '{}'", class_name.to_utf8());
-        //     return Err(-1);
-        // }
-
         if (class_id as usize) < self.class_registry.len() {
             if !self.class_registry[class_id as usize].class_name.is_null() {
                 return Err(-1); // class_id slot is in use
@@ -94,8 +84,8 @@ impl JSRuntime {
         Ok(())
     }
 
-    /// initialize multiple class short defs. used for builtin class defs only
-    pub(crate) fn init_class_range(
+    /// register standard class defs.
+    pub(crate) fn register_std_classes(
         &mut self,
         tab: &[StdClassDef],
         start_id: ClassID,
@@ -105,6 +95,7 @@ impl JSRuntime {
         let mut class_id = start_id;
         for item in tab {
             let cd = ClassDef {
+                initialize: item.initialize,
                 finalize: item.finalize,
                 gc_mark: item.gc_mark,
                 ..Default::default()

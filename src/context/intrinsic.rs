@@ -844,6 +844,7 @@ impl JSContext {
         cx.class_proto[JS_CLASS_REGEXP_STRING_ITERATOR as usize] = iter.into();
     }
 
+    #[deprecated(note = "migrate to Proxy::class_initialize() handler")]
     pub fn intrinsic_proxy(&self) {
         let func_obj = self
             .create_native_function(

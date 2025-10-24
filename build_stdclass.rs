@@ -462,7 +462,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "PROXY",
             "proxy",
             Some("Box<crate::proxy::ProxyPayload>"),
-            None,
+            Some("crate::proxy::Proxy::class_initialize"),
             Some("crate::proxy::Proxy::class_finalizer"),
             Some("crate::proxy::Proxy::class_mark")
         ),

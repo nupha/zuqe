@@ -189,7 +189,7 @@ impl JSRuntime {
         rt.shape_registry.try_reserve(32).map_err(|_| -1)?;
 
         // register builtin classes
-        rt.init_class_range(&STD_CLASS_DEFS, JS_CLASS_OBJECT)?;
+        rt.register_std_classes(&STD_CLASS_DEFS, JS_CLASS_OBJECT)?;
 
         // setup common classes
         {
