@@ -92,11 +92,13 @@ impl JSObject {
                         atom,
                         if let Some(f) = get {
                             ctx.create_native_function(f, &format!("get {}", e.name), 0, e.magic)?
+                                .into()
                         } else {
                             JSValue::UNDEFINED
                         },
                         if let Some(f) = set {
                             ctx.create_native_function(f, &format!("set {}", e.name), 1, e.magic)?
+                                .into()
                         } else {
                             JSValue::UNDEFINED
                         },

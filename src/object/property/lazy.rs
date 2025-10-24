@@ -48,10 +48,10 @@ impl LazyInit {
 
             Self::Prop(field) => {
                 let field = unsafe { field.as_ref() };
-                let val = match &field.detail {
-                    NativeFieldDetail::Func { handler, length } => {
-                        ctx.create_native_function(*handler, field.name, *length, field.magic)?
-                    }
+                let val: JSValue = match &field.detail {
+                    NativeFieldDetail::Func { handler, length } => ctx
+                        .create_native_function(*handler, field.name, *length, field.magic)?
+                        .into(),
                     NativeFieldDetail::Str(s) => ctx.create_atom_string(s)?.into(),
                     NativeFieldDetail::Object(list) => {
                         let obj = ctx.create_base_object()?;

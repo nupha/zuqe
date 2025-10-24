@@ -18,7 +18,7 @@ use crate::{
     callable::NativeFunctionWithData,
     class::{ClassMeta, js_arguments_exotic_methods},
     context::JSContext,
-    function::{AsyncFunction, BoundFunction, ObjNativeFunc, js_async_function_resolve_call},
+    function::{AsyncFunction, BoundFunction, NFuncPayload, js_async_function_resolve_call},
     gc::JSGCPhaseEnum,
     generator::{AsyncGeneratorFunction, js_generator_function_call},
     mem::{JS_DEFAULT_STACK_SIZE, JSMallocFunctions, JSMallocState},
@@ -146,7 +146,7 @@ impl JSRuntime {
             malloc_state: ms,
             rt_info: std::ptr::null(),
 
-            class_registry: Vec::with_capacity(STD_CLASS_DEFS.len()),
+            class_registry: Vec::with_capacity(USER_CLASS_ID_START as usize),
 
             cur_stack_frame: std::ptr::null_mut(),
             host_promise_rejection_tracker_opaque: std::ptr::null_mut(),
@@ -207,7 +207,7 @@ impl JSRuntime {
 
             rt.class_registry[JS_CLASS_C_FUNCTION as usize]
                 .call
-                .replace(ObjNativeFunc::class_call);
+                .replace(NFuncPayload::class_call);
             rt.class_registry[JS_CLASS_C_FUNCTION_DATA as usize]
                 .call
                 .replace(NativeFunctionWithData::class_call);

@@ -28,6 +28,7 @@ pub(crate) struct JSClassExoticMethods {
 /// builtin class definition
 pub struct StdClassDef {
     pub class_name: AtomRef,
+    pub initialize: Option<ClassInitializeFn>,
     pub finalize: Option<ClassFinalizeFn>,
     pub gc_mark: Option<ClassGCMarkFn>,
 }

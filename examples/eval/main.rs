@@ -110,35 +110,45 @@ fn main() {
             .set_property_str(
                 &ctx,
                 "print",
-                ctx.create_native_function(printf, "print", 0, 0).unwrap(),
+                ctx.create_native_function(printf, "print", 0, 0)
+                    .unwrap()
+                    .into(),
             )
             .unwrap();
         global
             .set_property_str(
                 &ctx,
                 "debug",
-                ctx.create_native_function(printf, "debug", 0, 1).unwrap(),
+                ctx.create_native_function(printf, "debug", 0, 1)
+                    .unwrap()
+                    .into(),
             )
             .unwrap();
         global
             .set_property_str(
                 &ctx,
                 "info",
-                ctx.create_native_function(printf, "info", 0, 2).unwrap(),
+                ctx.create_native_function(printf, "info", 0, 2)
+                    .unwrap()
+                    .into(),
             )
             .unwrap();
         global
             .set_property_str(
                 &ctx,
                 "warn",
-                ctx.create_native_function(printf, "warn", 0, 3).unwrap(),
+                ctx.create_native_function(printf, "warn", 0, 3)
+                    .unwrap()
+                    .into(),
             )
             .unwrap();
         global
             .set_property_str(
                 &ctx,
                 "error",
-                ctx.create_native_function(printf, "error", 0, 4).unwrap(),
+                ctx.create_native_function(printf, "error", 0, 4)
+                    .unwrap()
+                    .into(),
             )
             .unwrap();
 
@@ -154,14 +164,18 @@ fn main() {
                 0,
             )
             .unwrap();
-        global.set_property_str(&ctx, "createRealm", f).unwrap();
+        global
+            .set_property_str(&ctx, "createRealm", f.into())
+            .unwrap();
 
         let console = ctx.create_base_object().unwrap();
         console
             .define_property_value_str(
                 &ctx,
                 "log",
-                ctx.create_native_function(printf, "print", 0, 0).unwrap(),
+                ctx.create_native_function(printf, "print", 0, 0)
+                    .unwrap()
+                    .into(),
                 JS_PROP_C_W_E,
             )
             .unwrap();
@@ -170,7 +184,8 @@ fn main() {
                 &ctx,
                 "inspect",
                 ctx.create_native_function(printf, "inspect", 0, 100)
-                    .unwrap(),
+                    .unwrap()
+                    .into(),
                 JS_PROP_C_W_E,
             )
             .unwrap();
@@ -194,7 +209,8 @@ fn main() {
                     1,
                     0,
                 )
-                .unwrap(),
+                .unwrap()
+                .into(),
             )
             .unwrap();
     }

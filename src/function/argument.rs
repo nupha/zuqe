@@ -30,8 +30,10 @@ impl JSContext {
 }
 
 pub fn js_build_arguments(ctx: &JSContext, args: &[JSValue]) -> JSValue {
-    let obj: JSObject = if let Ok(o) = ctx.create_object_from_proto(
-        ctx.0.borrow().class_proto[JS_CLASS_OBJECT as usize].clone(),
+    let obj: JSObject = if let Ok(o) = ctx.create_object_with_proto(
+        ctx.0.borrow().class_proto[JS_CLASS_OBJECT as usize]
+            .as_object()
+            .cloned(),
         ObjectPayload::ARGUMENTS(ArrayObjPayload::default()),
     ) {
         o
@@ -95,8 +97,10 @@ pub fn js_build_mapped_arguments(
     arg_count: i32,
 ) -> Result<JSObject, i32> {
     let obj = ctx
-        .create_object_from_proto(
-            ctx.0.borrow().class_proto[JS_CLASS_OBJECT as usize].clone(),
+        .create_object_with_proto(
+            ctx.0.borrow().class_proto[JS_CLASS_OBJECT as usize]
+                .as_object()
+                .cloned(),
             ObjectPayload::MAPPED_ARGUMENTS,
         )
         .map_err(|_| -1)?;

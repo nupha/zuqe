@@ -40,7 +40,7 @@ pub fn js_object_create(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    let obj = ctx.create_base_object_from_proto(proto.clone())?;
+    let obj = ctx.create_base_object_with_proto(proto.as_object().cloned())?;
     let props = cc.arg(1);
     if !props.is_undefined() {
         obj.define_properties(ctx, props)?;
@@ -149,7 +149,7 @@ pub fn js_object_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
     let groups = if is_map {
         js_map_constructor(ctx, CallContext::new_simple(ctx, JSValue::UNDEFINED, &[]))?
     } else {
-        ctx.create_base_object_from_proto(JSValue::NULL)?.into()
+        ctx.create_base_object_with_proto(None)?.into()
     };
 
     let global = ctx.0.borrow().global_obj.clone(); // clone to avoid borrow too long

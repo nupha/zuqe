@@ -195,7 +195,7 @@ impl Promise {
                 resolved: resolved.clone(), // shared between two functions
             });
             let func = ctx
-                .create_object_from_proto(
+                .create_object_with_proto(
                     function_proto,
                     if i == 0 {
                         ObjectPayload::PROMISE_RESOLVE_FUNCTION(s)

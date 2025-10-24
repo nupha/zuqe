@@ -182,7 +182,7 @@ fn js_async_function_resolve_create(
 
     for i in 0..2 {
         let func_obj = ctx
-            .create_object_from_proto(ctx.0.borrow().function_proto.clone(), {
+            .create_object_with_proto(ctx.0.borrow().function_proto.clone(), {
                 if i == 0 {
                     ObjectPayload::ASYNC_FUNCTION_RESOLVE(s.clone())
                 } else {

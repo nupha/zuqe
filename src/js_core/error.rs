@@ -7,7 +7,7 @@ use crate::{
     error::{ErrorKind, JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL, JSResult},
     function::{CallContext, JS_GetFunctionRealm},
     iterator::iterator_to_array,
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, ObjectPayload},
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, JSObject, ObjectPayload},
     value::JSValue,
 };
 
@@ -18,7 +18,7 @@ pub fn js_error_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     // use proper proto, ensure proto is an object
-    let mut proto = new_target.get_property(ctx, JS_ATOM_prototype.deref())?;
+    let mut proto = new_target.get_property(ctx, &JS_ATOM_prototype)?;
     if !proto.is_object() {
         let realm = JS_GetFunctionRealm(ctx, &new_target)?;
         let magic = cc.magic();
@@ -29,8 +29,13 @@ pub fn js_error_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
         };
     }
 
+    debug_assert!(proto.is_object());
+
     let obj = ctx
-        .create_object_from_proto(proto, ObjectPayload::ERROR)
+        .create_object_with_proto(
+            Some(JSObject::try_from(proto).unwrap()),
+            ObjectPayload::ERROR,
+        )
         .map_err(|_| -1)?;
 
     let mut arg_index = if cc.magic() == ErrorKind::Aggregate as i32 {
@@ -87,8 +92,10 @@ pub fn js_error_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 /// `errors` value is not consumed.
 pub fn js_aggregate_error_constructor(ctx: &JSContext, errors: JSValue) -> JSValue {
-    if let Ok(obj) = ctx.create_object_from_proto(
-        ctx.0.borrow().native_error_proto[ErrorKind::Aggregate as usize].clone(),
+    if let Ok(obj) = ctx.create_object_with_proto(
+        ctx.0.borrow().native_error_proto[ErrorKind::Aggregate as usize]
+            .as_object()
+            .cloned(),
         ObjectPayload::ERROR,
     ) {
         obj.define_property_value(

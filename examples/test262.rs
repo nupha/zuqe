@@ -91,7 +91,7 @@ fn setup_ctx_test262_helpers(ctx: &JSContext) -> Result<JSValue, i32> {
 
     {
         let s = ctx.create_native_function(NativeFunctionType::Func(js_print), "print", 1, 0)?;
-        global.set_property_str(ctx, "print", s)?;
+        global.set_property_str(ctx, "print", s.into())?;
     }
 
     // $262
@@ -104,7 +104,7 @@ fn setup_ctx_test262_helpers(ctx: &JSContext) -> Result<JSValue, i32> {
             1,
             0,
         )?;
-        obj262.set_property_str(ctx, "detachArrayBuffer", f)?;
+        obj262.set_property_str(ctx, "detachArrayBuffer", f.into())?;
     }
 
     {
@@ -114,16 +114,18 @@ fn setup_ctx_test262_helpers(ctx: &JSContext) -> Result<JSValue, i32> {
             1,
             0,
         )?;
-        obj262.set_property_str(ctx, "evalScript", f)?;
+        obj262.set_property_str(ctx, "evalScript", f.into())?;
     }
 
     {
-        let f = ctx.create_native_function(
-            NativeFunctionType::Func(js_string_codePointRange),
-            "codePointRange",
-            1,
-            0,
-        )?;
+        let f: JSValue = ctx
+            .create_native_function(
+                NativeFunctionType::Func(js_string_codePointRange),
+                "codePointRange",
+                1,
+                0,
+            )?
+            .into();
         obj262.set_property_str(ctx, "codePointRange", f)?;
     }
 
@@ -134,7 +136,7 @@ fn setup_ctx_test262_helpers(ctx: &JSContext) -> Result<JSValue, i32> {
             1,
             0,
         )?;
-        obj262.set_property_str(ctx, "createRealm", f)?;
+        obj262.set_property_str(ctx, "createRealm", f.into())?;
     }
 
     obj262.set_property_str(ctx, "global", global.clone())?;

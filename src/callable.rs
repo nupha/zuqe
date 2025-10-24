@@ -65,7 +65,7 @@ impl NativeFunctionWithData {
         data: Box<[JSValue]>,
     ) -> Result<Self, i32> {
         let func_obj = ctx
-            .create_object_from_proto(
+            .create_object_with_proto(
                 ctx.0.borrow().function_proto.clone(),
                 ObjectPayload::C_FUNCTION_DATA(NativeFuncData::new(callback, length, magic, data)),
             )

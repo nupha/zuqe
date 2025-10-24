@@ -8,10 +8,9 @@ use crate::{
         BCFuncPayload, BCFunction, Bytecode, JSFunctionKindEnum, JSVarRef,
         js_function_set_properties,
     },
-    object::{JS_PROP_WRITABLE, JS_SetConstructorBit, LazyInit, ObjectPayload},
+    object::{JS_PROP_WRITABLE, JS_SetConstructorBit, JSObject, LazyInit, ObjectPayload},
     runtime::JS_MAX_LOCAL_VARS,
     stack_frame::StackFrame,
-    value::JSValue,
 };
 
 use super::{ARG_SCOPE_END, JSFunctionDef, JSVarKindEnum, is_var_in_arg_scope};
@@ -230,7 +229,7 @@ impl Bytecode {
         ctx: &JSContext,
         cur_var_refs: &[JSVarRef],
         parent_frame: Option<&mut StackFrame>,
-        proto: Option<JSValue>,
+        proto: Option<JSObject>,
     ) -> Result<BCFunction, i32> {
         let var_refs: Vec<JSVarRef> = if self.closure_var_count != 0 {
             debug_assert!(
@@ -273,9 +272,11 @@ impl Bytecode {
             }
         };
         let func = BCFunction(
-            ctx.create_object_from_proto(
-                proto.unwrap_or_else(|| {
-                    ctx.0.borrow().class_proto[payload.class_id() as usize].clone()
+            ctx.create_object_with_proto(
+                proto.or_else(|| {
+                    ctx.0.borrow().class_proto[payload.class_id() as usize]
+                        .as_object()
+                        .cloned()
                 }),
                 payload,
             )
@@ -301,8 +302,10 @@ impl Bytecode {
                 JS_CLASS_GENERATOR | JS_CLASS_ASYNC_GENERATOR
             ));
 
-            let proto = ctx.create_base_object_from_proto(
-                ctx.0.borrow().class_proto[gen_class_id as usize].clone(),
+            let proto = ctx.create_base_object_with_proto(
+                ctx.0.borrow().class_proto[gen_class_id as usize]
+                    .as_object()
+                    .cloned(),
             )?;
             func.define_property_value(
                 ctx,

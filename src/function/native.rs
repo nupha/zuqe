@@ -113,14 +113,14 @@ impl PartialEq for NativeFunctionType {
 }
 
 #[derive(Debug, Clone)]
-pub struct ObjNativeFunc {
+pub struct NFuncPayload {
     pub handler: NativeFunctionType,
     pub realm: JSContextWeakref,
     pub length: u8,
     pub magic: i16,
 }
 
-impl ObjNativeFunc {
+impl NFuncPayload {
     pub fn class_call(
         ctx: &JSContext,
         func_obj: &JSValue,
@@ -376,18 +376,18 @@ impl JSValue {
 impl JSContext {
     /// Create new function object with native callback and shape of specified prototype.
     /// at least `length` arguments will be readable in arguments.
-    pub fn create_native_function_from_proto(
+    pub fn create_native_function_with_proto(
         &self,
         call: NativeFunctionType,
         name: &str,
         length: u8,
         magic: i16,
-        proto: JSValue,
-    ) -> JSResult {
+        proto: Option<JSObject>,
+    ) -> Result<JSObject, i32> {
         let func_obj = self
-            .create_object_from_proto(
+            .create_object_with_proto(
                 proto,
-                ObjectPayload::C_FUNCTION(ObjNativeFunc {
+                ObjectPayload::C_FUNCTION(NFuncPayload {
                     handler: call,
                     length,
                     magic,
@@ -410,7 +410,7 @@ impl JSContext {
         let name_atom = Atom::new(self.rt(), name)?;
         js_function_set_properties(self, &func_obj, name_atom, length as i32);
 
-        Ok(func_obj.into())
+        Ok(func_obj)
     }
 
     /// Create new function object with native callback. using function proto as proto object.
@@ -422,13 +422,13 @@ impl JSContext {
         name: &str,
         length: u8,
         magic: i16,
-    ) -> JSResult {
-        self.create_native_function_from_proto(
+    ) -> Result<JSObject, i32> {
+        self.create_native_function_with_proto(
             handler,
             name,
             length,
             magic,
-            self.0.borrow().function_proto.clone(),
+            self.0.borrow().function_proto.as_ref().cloned(),
         )
     }
 }

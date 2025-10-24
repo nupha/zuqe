@@ -8,6 +8,7 @@ use zhuque::{
     function::{CallContext, FieldDef, NativeFunctionType},
     object::{JS_PROP_C_W_E, JSObject},
     runtime::JSRuntime,
+    value::JSValue,
 };
 
 #[derive(Debug)]
@@ -55,12 +56,14 @@ pub fn register_class_point(rt: &mut JSRuntime) -> Result<ClassID, i32> {
                     proto.install_field_defs(ctx, &class_point_proto)?;
 
                     // create constructor
-                    let ctor = ctx.create_native_function(
-                        NativeFunctionType::ConstructorOrFunc(point_constructor),
-                        "Point",
-                        2,
-                        class_id as i16,
-                    )?;
+                    let ctor: JSValue = ctx
+                        .create_native_function(
+                            NativeFunctionType::ConstructorOrFunc(point_constructor),
+                            "Point",
+                            2,
+                            class_id as i16,
+                        )?
+                        .into();
                     ctor.install_field_defs(ctx, &class_point_proto)?;
 
                     ctx.bind_ctor_proto(&ctor, &proto.clone().into())?;

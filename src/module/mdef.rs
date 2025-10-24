@@ -234,11 +234,9 @@ impl ModuleDefInner {
             Ok(o)
         } else {
             // create meta object
-            let o = ctx
-                .create_base_object_from_proto(JSValue::NULL)
-                .inspect_err(|_| {
-                    ctx.throw_type_error("import.meta not supported in this context");
-                })?;
+            let o = ctx.create_base_object_with_proto(None).inspect_err(|_| {
+                ctx.throw_type_error("import.meta not supported in this context");
+            })?;
             self.meta_obj.replace(Some(o.clone()));
             Ok(o)
         }
@@ -289,7 +287,7 @@ impl ModuleDefInner {
                 let proto = ctx.0.borrow().function_proto.clone();
 
                 let func = ctx
-                    .create_object_from_proto(proto, payload)
+                    .create_object_with_proto(proto, payload)
                     .map_err(|_| -1)?;
                 self.bytecode.replace(func.into());
             }

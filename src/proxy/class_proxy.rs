@@ -22,8 +22,8 @@ pub fn js_proxy_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     };
 
     let obj: JSValue = ctx
-        .create_object_from_proto(
-            JSValue::NULL,
+        .create_object_with_proto(
+            None,
             ObjectPayload::PROXY(ProxyPayload::new(target.clone(), handler.clone().into())),
         )
         .map_err(|_| -1)?

@@ -84,8 +84,10 @@ impl JSContext {
     /// old exception will be freed.
     #[cold]
     pub(crate) fn throw_error_ex(&self, kind: ErrorKind, message: &str, add_backtrace: bool) {
-        let proto = self.0.borrow().native_error_proto[kind as usize].clone();
-        let exc = if let Ok(o) = self.create_object_from_proto(proto, ObjectPayload::ERROR) {
+        let proto = self.0.borrow().native_error_proto[kind as usize]
+            .as_object()
+            .cloned();
+        let exc = if let Ok(o) = self.create_object_with_proto(proto, ObjectPayload::ERROR) {
             let s = self.create_string_from_str(message);
             let _ = o.define_property_value(
                 self,

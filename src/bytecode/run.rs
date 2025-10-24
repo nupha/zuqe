@@ -441,7 +441,7 @@ impl Bytecode {
                             SpecialObject::VarObject => {
                                 SP_PUT!(
                                     0,
-                                    ctx.create_base_object_from_proto(JSValue::NULL)
+                                    ctx.create_base_object_with_proto(None)
                                         .map_or(JSValue::EXCEPTION, JSValue::Object)
                                 );
                                 SP_GO!(1);
@@ -1246,7 +1246,7 @@ impl Bytecode {
                         let idx = PC_FETCH!(u16);
                         SP_PUT!(
                             0,
-                            ctx.create_base_object_from_proto(JSValue::NULL)
+                            ctx.create_base_object_with_proto(None)
                                 .map_or(JSValue::EXCEPTION, JSValue::Object)
                         );
                         SP_GO!(1);

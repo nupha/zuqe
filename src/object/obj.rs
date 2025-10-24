@@ -543,6 +543,44 @@ impl JSObject {
         )
     }
 
+    /// Seal the object.
+    pub fn seal(&self, ctx: &JSContext, freeze: bool) -> Result<(), i32> {
+        if unlikely(!self.prevent_extensions(ctx)?) {
+            ctx.throw_type_error("proxy preventExtensions handler returned false");
+            Err(-1)
+        } else {
+            self.own_property_names_foreach(
+                ctx,
+                JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK,
+                |_, pkey| {
+                    let mut flags = JS_PROP_THROW | JS_PROP_HAS_CONFIGURABLE;
+
+                    if freeze
+                        && let Some(desc) = self.get_own_property(ctx, &pkey.atom)?
+                        && desc.flags & JS_PROP_WRITABLE != 0
+                    {
+                        flags |= JS_PROP_HAS_WRITABLE;
+                    }
+
+                    // equivelent to set {configurable: false},
+                    // or {configurable:false, writable: false} if freeze=true
+                    self.define_property(
+                        ctx,
+                        &pkey.atom,
+                        JSValue::UNDEFINED,
+                        JSValue::UNDEFINED,
+                        JSValue::UNDEFINED,
+                        flags,
+                    )?;
+
+                    Ok(())
+                },
+            );
+
+            Ok(())
+        }
+    }
+
     /// check if object is sealed.
     pub fn is_sealed(&self, ctx: &JSContext, is_frozen: bool) -> Result<bool, i32> {
         const NOT_SEALED_ERR: i32 = i32::MAX;
@@ -693,41 +731,10 @@ impl JSValue {
     /// Seal `self` if it is an object.
     pub fn seal(&self, ctx: &JSContext, freeze: bool) -> Result<(), i32> {
         if let JSValue::Object(p) = &self {
-            if unlikely(!p.prevent_extensions(ctx)?) {
-                ctx.throw_type_error("proxy preventExtensions handler returned false");
-                return Err(-1);
-            } else {
-                p.own_property_names_foreach(
-                    ctx,
-                    JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK,
-                    |_, pkey| {
-                        let mut flags = JS_PROP_THROW | JS_PROP_HAS_CONFIGURABLE;
-
-                        if freeze
-                            && let Some(desc) = p.get_own_property(ctx, &pkey.atom)?
-                            && desc.flags & JS_PROP_WRITABLE != 0
-                        {
-                            flags |= JS_PROP_HAS_WRITABLE;
-                        }
-
-                        // equivelent to set {configurable: false},
-                        // or {configurable:false, writable: false} if freeze=true
-                        p.define_property(
-                            ctx,
-                            &pkey.atom,
-                            JSValue::UNDEFINED,
-                            JSValue::UNDEFINED,
-                            JSValue::UNDEFINED,
-                            flags,
-                        )?;
-
-                        Ok(())
-                    },
-                )?;
-            }
+            p.seal(ctx, freeze)
+        } else {
+            Ok(())
         }
-
-        Ok(())
     }
 
     /// check if value is sealed. Object value will check property, Non-object value is always treated as sealed.

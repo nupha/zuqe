@@ -1,31 +1,35 @@
 use std::ops::Deref;
 
 use crate::{
-    JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_ERROR, JS_CLASS_OBJECT,
-    array::ArrayObjPayload,
-    atom::consts::{JS_ATOM_empty_string, JS_ATOM_length, JS_ATOM_message, JS_ATOM_name},
-    context::JSContext,
-    error::{STD_ERROR_NAMES, js_error_proto_funcs},
-    function::{NativeFunctionType, js_function_proto},
+    JS_CLASS_ARRAY, JS_CLASS_ARRAY_ITERATOR, JS_CLASS_BOOLEAN, JS_CLASS_BYTECODE_FUNCTION,
+    JS_CLASS_ERROR, JS_CLASS_NUMBER, JS_CLASS_OBJECT,
+    array::{
+        ArrayObjPayload, js_array_constructor, js_array_funcs, js_array_iterator_proto_funcs,
+        js_array_proto_funcs,
+    },
+    atom::consts::{
+        JS_ATOM_Symbol_unscopables, JS_ATOM_arguments, JS_ATOM_caller, JS_ATOM_empty_string,
+        JS_ATOM_length, JS_ATOM_message, JS_ATOM_name, JS_ATOM_values,
+    },
+    context::{JS_MODE_STRICT, JSContext},
+    error::{ErrorKind, STD_ERROR_NAMES, js_error_proto_funcs},
+    function::{BytecodeFunction, JSFunctionKindEnum, NativeFunctionType, js_function_proto},
     object::{JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_WRITABLE, JSShape, ObjectPayload},
     value::JSValue,
 };
 
 impl JSContext {
     /// Initialize minimum amount of objects to be able to compile code and display error messages.
-    /// No AtomRef should be allocated by this function.
-    pub fn init_core_objects_ex(&self, with_function: bool, with_array: bool, with_errors: bool) {
+    /// No Atom should be allocated by this function.
+    pub fn init_core_objects_ex(&self, with_array: bool, with_errors: bool) {
         // Object
-        let object = self
-            .create_object_from_proto(JSValue::NULL, ObjectPayload::OBJECT)
-            .unwrap();
-
+        let object = self.create_base_object_with_proto(None).unwrap();
         self.0.borrow_mut().class_proto[JS_CLASS_OBJECT as usize] = object.clone().into();
 
         // Function
-        if with_function {
+        {
             let func_obj = self
-                .create_native_function_from_proto(
+                .create_native_function_with_proto(
                     NativeFunctionType::Func(js_function_proto),
                     "",
                     0,
@@ -35,8 +39,8 @@ impl JSContext {
                 .unwrap();
 
             let mut cx = self.0.borrow_mut();
-            cx.function_proto = func_obj.clone();
-            cx.class_proto[JS_CLASS_BYTECODE_FUNCTION as usize] = func_obj;
+            cx.function_proto.replace(func_obj.clone());
+            cx.class_proto[JS_CLASS_BYTECODE_FUNCTION as usize] = func_obj.into();
         }
 
         // Error
@@ -51,7 +55,7 @@ impl JSContext {
             let msg = JS_ATOM_empty_string.force_string(self).unwrap();
             for (i, name) in STD_ERROR_NAMES.iter().enumerate() {
                 let err = self
-                    .create_object_from_proto(error.clone().into(), ObjectPayload::OBJECT)
+                    .create_object_with_proto(error.clone().into(), ObjectPayload::OBJECT)
                     .unwrap();
 
                 let name = self.create_atom_string(name).unwrap();
@@ -79,7 +83,7 @@ impl JSContext {
         if with_array {
             // 1. make Array prototype object
             let array_proto = self
-                .create_object_from_proto(
+                .create_object_with_proto(
                     object.clone().into(),
                     ObjectPayload::ARRAY(ArrayObjPayload::default()),
                 )
@@ -114,6 +118,6 @@ impl JSContext {
     /// No AtomRef should be allocated by this function.
     #[inline(always)]
     pub fn init_core_objects(&self) {
-        self.init_core_objects_ex(true, true, true);
+        self.init_core_objects_ex(true, true);
     }
 }

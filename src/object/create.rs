@@ -1,4 +1,4 @@
-use std::{ops::Deref, rc::Rc};
+use std::rc::Rc;
 
 use crate::{
     atom::consts::JS_ATOM_prototype,
@@ -22,29 +22,21 @@ impl JSContext {
         Ok(obj)
     }
 
-    /// create object with `payload` data and specified `proto` as prototype.
-    /// when failed, detail data is returned back in Err, caller should free it.
-    /// `proto` is Prototype object (can be JSValue::NULL).
+    /// create an object with `payload` data and optional prototype `proto`:
     ///
-    /// Note:
-    /// - New object will use the shape determined by `proto`.
+    /// - New object will apply the shape determined by `proto`, if provided.
     /// - The `payload` determines what class the new object is.
-    pub fn create_object_from_proto(
+    pub fn create_object_with_proto(
         &self,
-        proto: JSValue,
+        proto: Option<JSObject>,
         payload: ObjectPayload,
     ) -> Result<JSObject, ObjectPayload> {
         // find shape by prototype
         let shape = {
-            let proto_ob = if let JSValue::Object(o) = proto {
-                Some(o)
-            } else {
-                None
-            };
-            match self.rt().find_shape_by_proto(proto_ob.as_ref()) {
+            match self.rt().find_shape_by_proto(proto.as_ref()) {
                 Some(sh) => sh,
                 None => {
-                    if let Ok(sh) = JSShape::new(self, proto_ob, 0) {
+                    if let Ok(sh) = JSShape::new(self, proto, 0) {
                         sh
                     } else {
                         return Err(payload);
@@ -58,9 +50,9 @@ impl JSContext {
     /// create object applying constructor `ctor`, with `payload` data.
     /// new object's class is determined by `payload` kind.
     ///
-    /// if `ctor` is:
-    /// - undefined, use the `payload` kind associated class prototype,
-    /// - otherwise, retrieve property `ctor.prototype` as prototype.
+    /// the `ctor` could be:
+    /// - undefined: use the `payload` kind associated class prototype,
+    /// - otherwise retrieve property `ctor.prototype` for prototype.
     pub fn create_object_from_ctor(
         &self,
         ctor: &JSValue,
@@ -68,23 +60,27 @@ impl JSContext {
     ) -> Result<JSObject, ObjectPayload> {
         let class_id = payload.class_id();
 
-        let proto = if ctor.is_undefined() {
-            self.0.borrow().class_proto[class_id as usize].clone()
+        let proto: Option<JSObject> = if ctor.is_undefined() {
+            self.0.borrow().class_proto[class_id as usize]
+                .as_object()
+                .cloned()
         } else if let Ok(p) = ctor.get_property(self, &JS_ATOM_prototype) {
-            if !p.is_object() {
+            if let Some(o) = p.as_object().cloned() {
+                Some(o)
+            } else {
                 if let Ok(realm) = JS_GetFunctionRealm(self, ctor) {
-                    realm.0.borrow().class_proto[class_id as usize].clone()
+                    realm.0.borrow().class_proto[class_id as usize]
+                        .as_object()
+                        .cloned()
                 } else {
                     return Err(payload);
                 }
-            } else {
-                p
             }
         } else {
             return Err(payload);
         };
 
-        self.create_object_from_proto(proto, payload)
+        self.create_object_with_proto(proto, payload)
     }
 
     /// create object applying constructor `ctor`, with payload data returned by factory function.
@@ -101,42 +97,48 @@ impl JSContext {
         let (proto, isa) = if ctor.is_undefined() {
             let payload = payload_fn()?;
             (
-                self.0.borrow().class_proto[payload.class_id() as usize].clone(),
+                self.0.borrow().class_proto[payload.class_id() as usize]
+                    .as_object()
+                    .cloned(),
                 payload,
             )
         } else {
-            // don't change following2 lines order
-            let p = ctor.get_property(self, JS_ATOM_prototype.deref())?; // <- may exec user script here
+            // don't change following 2 lines order
+            let p = ctor.get_property(self, &JS_ATOM_prototype)?; // <- may exec user script here
             let payload = payload_fn()?;
 
-            if !p.is_object() {
+            if let Some(o) = p.as_object().cloned() {
+                (Some(o), payload)
+            } else {
                 let realm = JS_GetFunctionRealm(self, ctor)?;
                 (
-                    realm.0.borrow().class_proto[payload.class_id() as usize].clone(),
+                    realm.0.borrow().class_proto[payload.class_id() as usize]
+                        .as_object()
+                        .cloned(),
                     payload,
                 )
-            } else {
-                (p, payload)
             }
         };
 
-        self.create_object_from_proto(proto, isa).map_err(|_| -1)
+        self.create_object_with_proto(proto, isa).map_err(|_| -1)
     }
 
     /// create object with `payload` data.
     /// New object's prototype and shape are determined by `payload` automatically.
     #[inline]
     pub fn create_object(&self, payload: ObjectPayload) -> Result<JSObject, ObjectPayload> {
-        self.create_object_from_proto(
-            self.0.borrow().class_proto[payload.class_id() as usize].clone(),
+        self.create_object_with_proto(
+            self.0.borrow().class_proto[payload.class_id() as usize]
+                .as_object()
+                .cloned(),
             payload,
         )
     }
 
-    /// create basic object with specified prototype `proto`.
+    /// create basic object with given prototype `proto`.
     #[inline(always)]
-    pub fn create_base_object_from_proto(&self, proto: JSValue) -> Result<JSObject, i32> {
-        self.create_object_from_proto(proto, ObjectPayload::OBJECT)
+    pub fn create_base_object_with_proto(&self, proto: Option<JSObject>) -> Result<JSObject, i32> {
+        self.create_object_with_proto(proto, ObjectPayload::OBJECT)
             .map_err(|_| -1)
     }
 

@@ -9,8 +9,10 @@ use std::{
 };
 
 use crate::{
+    JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_OBJECT,
     error::STD_ERROR_COUNT,
     eval::EvalFn,
+    function::{NativeFunctionType, js_function_proto},
     module::{JSFreeModuleEnum, ModuleDef, js_free_modules},
     object::{JSObject, JSShape},
     regexp::RegExpData,
@@ -40,20 +42,21 @@ pub struct JSContextInner {
 
     /// Class prototypes slot.
     /// element could be object or null, default to null.
+    /// TODO: use Vec<Option<JSObject>> instead
     pub class_proto: Vec<JSValue>,
 
     /// same as class_proto[JS_CLASS_BYTECODE_FUNCTION]
-    pub function_proto: JSValue,
+    pub function_proto: Option<JSObject>,
+    pub iterator_proto: Option<JSObject>,
+    pub async_iterator_proto: Option<JSObject>,
+    pub native_error_proto: [JSValue; STD_ERROR_COUNT],
 
     pub function_ctor: JSValue,
     pub array_ctor: JSValue,
     pub regexp_ctor: JSValue,
     pub promise_ctor: JSValue,
-    pub native_error_proto: [JSValue; STD_ERROR_COUNT],
-    pub iterator_proto: JSValue,
-    pub async_iterator_proto: JSValue,
-    pub array_proto_values: JSValue,
     pub throw_type_error: JSValue,
+    pub array_proto_values: JSValue,
 
     /// the function of eval().
     pub eval_func: JSValue,
@@ -129,10 +132,10 @@ impl JSContextInner {
 
             class_proto,
 
-            function_proto: JSValue::UNDEFINED,
+            function_proto: None,
+            iterator_proto: None,
+            async_iterator_proto: None,
             native_error_proto: [const { JSValue::UNDEFINED }; STD_ERROR_COUNT],
-            iterator_proto: JSValue::UNDEFINED,
-            async_iterator_proto: JSValue::UNDEFINED,
             array_proto_values: JSValue::UNDEFINED,
             throw_type_error: JSValue::UNDEFINED,
             eval_func: JSValue::UNDEFINED,
@@ -206,10 +209,10 @@ impl JSContextInner {
         self.array_ctor = JSValue::UNDEFINED;
         self.regexp_ctor = JSValue::UNDEFINED;
         self.promise_ctor = JSValue::UNDEFINED;
-        self.function_proto = JSValue::UNDEFINED;
+        self.function_proto.take();
         self.native_error_proto = [const { JSValue::UNDEFINED }; STD_ERROR_COUNT];
-        self.iterator_proto = JSValue::UNDEFINED;
-        self.async_iterator_proto = JSValue::UNDEFINED;
+        self.iterator_proto.take();
+        self.async_iterator_proto.take();
         self.array_proto_values = JSValue::UNDEFINED;
         self.throw_type_error = JSValue::UNDEFINED;
         self.global_obj = JSValue::UNDEFINED;
@@ -402,8 +405,34 @@ impl JSRuntime {
         let inner = JSContextInner::new(self)?;
         let ctx = JSContext(Rc::new(RefCell::new(inner)));
 
+        // Initialize minimum amount of objects to be able to compile code and display error messages.
+        {
+            // Object prototype
+            let object = ctx.create_base_object_with_proto(None)?;
+            ctx.0.borrow_mut().class_proto[JS_CLASS_OBJECT as usize] = object.clone().into();
+
+            // Function prototype
+            let func_obj = ctx
+                .create_native_function_with_proto(
+                    NativeFunctionType::Func(js_function_proto),
+                    "",
+                    0,
+                    0,
+                    object.clone().into(),
+                )
+                .unwrap();
+            {
+                let mut cx = ctx.0.borrow_mut();
+                cx.function_proto = func_obj.clone().into();
+                cx.class_proto[JS_CLASS_BYTECODE_FUNCTION as usize] = func_obj.into();
+            }
+        }
+
         setup(&ctx)?;
+
+        // register context to list
         self.context_list.push(ctx.clone());
+
         Ok(ctx)
     }
 
@@ -421,6 +450,7 @@ impl JSRuntime {
         let ctx = self.create_context_core()?;
 
         ctx.intrinsic_base_objects();
+
         ctx.intrinsic_proxy();
         ctx.intrinsic_async();
         ctx.intrinsic_typed_arrays();

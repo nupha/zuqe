@@ -121,44 +121,47 @@ pub(super) fn js_op_define_class(
     debug_assert_eq!(bc.func_kind(), JSFunctionKindEnum::JS_FUNC_NORMAL);
 
     // SP[-2]: parent class
-    let mut parent_class = unsafe { std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED) };
+    let mut parent_class =
+        JSObject::try_from(unsafe { std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED) }).ok();
 
-    let proto = if class_flags & JS_DEFINE_CLASS_HAS_HERITAGE != 0 {
-        if parent_class.is_null() {
-            parent_class = ctx.0.borrow().function_proto.clone();
-            JSValue::NULL
-        } else {
-            if !parent_class.is_constructor() {
+    let proto: Option<JSObject> = if class_flags & JS_DEFINE_CLASS_HAS_HERITAGE != 0 {
+        if let Some(p) = &parent_class {
+            if unlikely(!p.is_constructor()) {
                 ctx.throw_type_error("parent class must be constructor ");
                 return Err(-1);
+            } else {
+                match p.get_property(ctx, &JS_ATOM_prototype)? {
+                    JSValue::NULL => None,
+                    JSValue::Object(o) => Some(o),
+                    _ => {
+                        ctx.throw_type_error("parent prototype must be an object or null");
+                        return Err(-1);
+                    }
+                }
             }
-
-            let p = parent_class.get_property(ctx, JS_ATOM_prototype.deref())?;
-
-            if !matches!(p, JSValue::NULL | JSValue::Object(_)) {
-                ctx.throw_type_error("parent prototype must be an object or null");
-                return Err(-1);
-            }
-            p
+        } else {
+            parent_class = ctx.0.borrow().function_proto.as_ref().cloned();
+            None
         }
     } else {
         // parent_class is undefined, use Function
-        parent_class = ctx.0.borrow().function_proto.clone();
-        ctx.0.borrow().class_proto[JS_CLASS_OBJECT as usize].clone()
+        parent_class = ctx.0.borrow().function_proto.as_ref().cloned();
+        ctx.0.borrow().class_proto[JS_CLASS_OBJECT as usize]
+            .as_object()
+            .cloned()
     };
 
-    let proto = ctx.create_base_object_from_proto(proto)?;
+    let proto = ctx.create_base_object_with_proto(proto)?;
 
     // make constructor function
-    let ctor =
-        JSValue::from(bc.make_closure(ctx, cur_var_refs, Some(sframe), Some(parent_class))?);
+    let ctor = JSValue::from(bc.make_closure(ctx, cur_var_refs, Some(sframe), parent_class)?);
 
     js_method_set_home_object(&ctor, Some(&proto));
     JS_SetConstructorBit(&ctor, true);
 
     ctor.define_property_value(
         ctx,
-        JS_ATOM_length.deref(),
+        &JS_ATOM_length,
         JSValue::Int(bc.attrs.defined_arg_count as i32),
         JS_PROP_CONFIGURABLE,
     )?;

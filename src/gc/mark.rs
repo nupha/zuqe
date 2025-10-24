@@ -267,8 +267,8 @@ impl JSContext {
             }
 
             // cx.function_proto.gc_mark(); // done in JS_CLASS_BYTECODE_FUNCTION
-            cx.iterator_proto.gc_mark();
-            cx.async_iterator_proto.gc_mark();
+            cx.iterator_proto.as_ref().map(|x| x.gc_mark());
+            cx.async_iterator_proto.as_ref().map(|x| x.gc_mark());
             cx.array_proto_values.gc_mark();
             cx.throw_type_error.gc_mark();
             for ev in cx.native_error_proto.iter() {
@@ -308,7 +308,7 @@ impl JSContext {
 
         cx.class_proto.clear();
 
-        cx.function_proto = JSValue::UNDEFINED;
+        cx.function_proto.take();
         cx.function_ctor = JSValue::UNDEFINED;
         cx.array_ctor = JSValue::UNDEFINED;
         cx.regexp_ctor = JSValue::UNDEFINED;
@@ -316,8 +316,8 @@ impl JSContext {
         for v in cx.native_error_proto.iter_mut() {
             *v = JSValue::UNDEFINED;
         }
-        cx.iterator_proto = JSValue::UNDEFINED;
-        cx.async_iterator_proto = JSValue::UNDEFINED;
+        cx.iterator_proto.take();
+        cx.async_iterator_proto.take();
         cx.array_proto_values = JSValue::UNDEFINED;
         cx.throw_type_error = JSValue::UNDEFINED;
         cx.eval_func = JSValue::UNDEFINED;

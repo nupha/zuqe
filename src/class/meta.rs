@@ -169,7 +169,9 @@ impl JSContext {
             NativeFunctionType::Constructor(_) | NativeFunctionType::ConstructorOrFunc(_)
         ));
 
-        let func_obj = self.create_native_function(handler, name, length as _, magic)?;
+        let func_obj: JSValue = self
+            .create_native_function(handler, name, length as _, magic)?
+            .into();
         self.add_global_constructor(name, &func_obj, proto);
 
         Ok(func_obj)

@@ -183,9 +183,9 @@ impl ModuleDefInner {
     pub fn set_export_values(&self, ctx: &JSContext, entries: &[FieldDef]) -> Result<(), i32> {
         for entry in entries {
             let val: JSValue = match &entry.detail {
-                NativeFieldDetail::Func { handler, length } => {
-                    ctx.create_native_function(*handler, entry.name, *length, 0)?
-                }
+                NativeFieldDetail::Func { handler, length } => ctx
+                    .create_native_function(*handler, entry.name, *length, 0)?
+                    .into(),
                 NativeFieldDetail::Object(fields) => {
                     let o = ctx.create_base_object()?;
                     o.install_field_defs(ctx, fields.as_ref())?;

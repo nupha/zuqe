@@ -1931,7 +1931,7 @@ pub unsafe fn JS_GetOwnPropertyNamesInternal(
     unreachable!("unused");
 }
 
-#[deprecated(note = "use JSContext::create_object_from_proto() instead")]
+#[deprecated(note = "use JSContext::create_object_with_proto() instead")]
 pub unsafe fn JS_NewObjectProtoClass(
     ctx: &JSContext,
     proto_val: JSValue,
@@ -2477,9 +2477,9 @@ pub unsafe fn JS_NewCFunction3(
 ) -> JSValue {
     unreachable!("unused");
 
-    // match ctx.create_object_from_proto(
+    // match ctx.create_object_with_proto(
     //     proto_val,
-    //     ObjectPayload::C_FUNCTION(ObjNativeFunc {
+    //     ObjectPayload::C_FUNCTION(NFuncPayload {
     //         realm: ctx.downgrade(),
     //         handler: NativeFunctionType::CFunc(func),
     //         length,
@@ -2518,17 +2518,18 @@ pub fn JS_NewCFunction2(
     cproto: JSCFunctionEnum,
     magic: i16,
 ) -> JSValue {
-    unsafe {
-        JS_NewCFunction3(
-            ctx,
-            func,
-            name,
-            length,
-            cproto,
-            magic,
-            ctx.0.borrow().function_proto.clone(),
-        )
-    }
+    unreachable!("unused");
+    // unsafe {
+    //     JS_NewCFunction3(
+    //         ctx,
+    //         func,
+    //         name,
+    //         length,
+    //         cproto,
+    //         magic,
+    //         ctx.0.borrow().function_proto.clone(),
+    //     )
+    // }
 }
 
 #[inline(always)]
@@ -4388,7 +4389,7 @@ pub unsafe fn js_create_module_bytecode_function(
 
     //     // create function object
     //     let proto = ctx.0.borrow().class_proto[class_id as usize].clone();
-    //     let func_obj = ctx.create_object_from_proto(proto, isa).map_err(|_| -1)?;
+    //     let func_obj = ctx.create_object_with_proto(proto, isa).map_err(|_| -1)?;
     //     m.0.bytecode.replace(func_obj.into());
     // } else {
     //     debug_assert!(

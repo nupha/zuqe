@@ -85,11 +85,8 @@ impl ForInIterPayload {
             }
         }
 
-        ctx.create_object_from_proto(
-            JSValue::NULL,
-            ObjectPayload::FOR_IN_ITERATOR(RefCell::new(it)),
-        )
-        .map_err(|_| -1)
+        ctx.create_object_with_proto(None, ObjectPayload::FOR_IN_ITERATOR(RefCell::new(it)))
+            .map_err(|_| -1)
     }
 
     /// build property-enumeration-list for current prototype.
