@@ -4,10 +4,10 @@ use crate::{
     JS_CLASS_PROXY,
     atom::{Atom, consts::*},
     branch_hints::unlikely,
-    class::JSClassExoticMethods,
+    class::{ClassID, JSClassExoticMethods},
     context::JSContext,
     error::JSResult,
-    function::{JS_CALL_FLAG_CONSTRUCTOR, JS_CallConstructor2},
+    function::{JS_CALL_FLAG_CONSTRUCTOR, JS_CallConstructor2, NativeFunctionType},
     object::{
         JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_GETSET,
         JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
@@ -15,6 +15,7 @@ use crate::{
         JSPropertyDescriptor, ObjectPayload, PropertyKey, check_define_prop_flags,
     },
     object_cast,
+    proxy::{js_proxy_constructor, js_proxy_funcs},
     runtime::{JSRuntime, js_check_stack_overflow},
     value::JSValue,
 };
@@ -191,11 +192,32 @@ impl ProxyPayload {
 
 #[repr(transparent)]
 #[derive(Debug, Clone)]
-pub struct Proxy(pub(crate) JSObject);
+pub struct Proxy(pub(super) JSObject);
 
 object_cast!(Proxy, JS_CLASS_PROXY);
 
 impl Proxy {
+    pub fn class_initialize(ctx: &JSContext, _: ClassID) -> Result<JSObject, i32> {
+        let proto = ctx.create_native_function(
+            NativeFunctionType::Constructor(js_proxy_constructor),
+            "Proxy",
+            2,
+            0,
+        )?;
+
+        proto.set_flag_constructor(true);
+        proto.install_field_defs(ctx, &js_proxy_funcs).unwrap();
+
+        ctx.global_obj().define_property_value_str(
+            ctx,
+            "Proxy",
+            proto.clone().into(),
+            JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+        )?;
+
+        Ok(proto)
+    }
+
     pub fn class_call(
         ctx: &JSContext,
         func_obj: &JSValue,
