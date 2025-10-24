@@ -1,6 +1,7 @@
 use std::{ffi::c_void, ptr::NonNull};
 
 use crate::{
+    USER_CLASS_ID_START,
     atom::{Atom, AtomTypeHint},
     class::{ClassDef, ClassID},
     context::JSContext,
@@ -33,7 +34,9 @@ impl JSRuntime {
         }
 
         let class_atom = Atom::from_str(self, class_def.class_name, AtomTypeHint::String)?;
+
         let class_id = self.class_registry.len() as ClassID; // new class_id
+        debug_assert!(class_id >= USER_CLASS_ID_START);
 
         self.add_class_internal(class_id, &class_def, class_atom)?;
         Ok(class_id)

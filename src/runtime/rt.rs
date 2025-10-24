@@ -10,9 +10,9 @@ use std::{
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT,
     JS_CLASS_ASYNC_FUNCTION_RESOLVE, JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_BOUND_FUNCTION,
-    JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA, JS_CLASS_GENERATOR_FUNCTION,
-    JS_CLASS_INIT_COUNT, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT, JS_CLASS_PROMISE_REJECT_FUNCTION,
-    JS_CLASS_PROMISE_RESOLVE_FUNCTION, JS_CLASS_PROXY, JS_CLASS_STRING, STD_CLASS_DEFS,
+    JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_MODULE_NS,
+    JS_CLASS_OBJECT, JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
+    JS_CLASS_PROXY, JS_CLASS_STRING, STD_CLASS_DEFS, USER_CLASS_ID_START,
     array_buffer::JSSharedArrayBufferFunctions,
     atom::AtomRegistry,
     callable::NativeFunctionWithData,
@@ -146,7 +146,7 @@ impl JSRuntime {
             malloc_state: ms,
             rt_info: std::ptr::null(),
 
-            class_registry: Vec::with_capacity(JS_CLASS_INIT_COUNT),
+            class_registry: Vec::with_capacity(STD_CLASS_DEFS.len()),
 
             cur_stack_frame: std::ptr::null_mut(),
             host_promise_rejection_tracker_opaque: std::ptr::null_mut(),

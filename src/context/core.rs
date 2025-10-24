@@ -22,8 +22,8 @@ impl JSContext {
 
         self.0.borrow_mut().class_proto[JS_CLASS_OBJECT as usize] = object.clone().into();
 
+        // Function
         if with_function {
-            // Function
             let func_obj = self
                 .create_native_function_from_proto(
                     NativeFunctionType::Func(js_function_proto),
@@ -39,8 +39,8 @@ impl JSContext {
             cx.class_proto[JS_CLASS_BYTECODE_FUNCTION as usize] = func_obj;
         }
 
+        // Error
         if with_errors {
-            // Error objects
             let error = self.create_base_object().unwrap();
             self.0.borrow_mut().class_proto[JS_CLASS_ERROR as usize] = error.clone().into();
             error
@@ -57,7 +57,7 @@ impl JSContext {
                 let name = self.create_atom_string(name).unwrap();
                 err.define_property_value(
                     self,
-                    JS_ATOM_name.deref(),
+                    &JS_ATOM_name,
                     JSValue::String(name),
                     JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
                 )
@@ -65,7 +65,7 @@ impl JSContext {
 
                 err.define_property_value(
                     self,
-                    JS_ATOM_message.deref(),
+                    &JS_ATOM_message,
                     JSValue::String(msg.clone()),
                     JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
                 )
@@ -75,6 +75,7 @@ impl JSContext {
             }
         }
 
+        // Array
         if with_array {
             // 1. make Array prototype object
             let array_proto = self

@@ -85,6 +85,7 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<&'static str, &'static str>> = Lazy::new
 
 static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
     vec![
+        // CORE CLASSES START
         class_def!("Object", "OBJECT", "", None, None, None),
         class_def!(
             "Array",
@@ -144,6 +145,7 @@ static CLASS_DEF_LIST: Lazy<Vec<StdClassDef>> = Lazy::new(|| {
             Some("crate::value::js_object_data_finalizer"),
             Some("crate::value::js_object_data_mark")
         ),
+        // CORE CLASSES END
         class_def!("Object", "MODULE_NS", "", None, None, None),
         class_def!(
             "Function",
@@ -538,7 +540,7 @@ pub fn gen_std_class_defs(outfile: &Path) {
         }
 
         cdefs.push(format!(
-            "// {i}: {}\nJSClassShortDef{{class_name:JS_ATOM_{name}, finalize:{}, gc_mark:{} }},",
+            "// {i}: {}\nStdClassDef{{class_name:JS_ATOM_{name}, finalize:{}, gc_mark:{} }},",
             cdef.const_name,
             cdef.finalize
                 .map_or("None".to_string(), |s| format!("Some({s})")),
@@ -554,9 +556,10 @@ pub fn gen_std_class_defs(outfile: &Path) {
     }
 
     consts.push(format!(
-        "pub const JS_CLASS_INIT_COUNT: usize={};",
+        "pub const USER_CLASS_ID_START: ClassID={};",
         class_defs.len() + 1
     ));
+
     cdefs.push("];".to_string());
 
     let lines = [
