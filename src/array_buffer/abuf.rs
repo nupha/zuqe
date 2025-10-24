@@ -16,7 +16,7 @@ use crate::{
     object::{JSObject, JSObjectWeakref, ObjectPayload},
     object_cast,
     runtime::JSRuntime,
-    value::{JSValue, JSValueConst},
+    value::JSValue,
 };
 
 pub type JSFreeArrayBufferDataFunc =
@@ -201,7 +201,7 @@ impl ArrayBuffer {
     /// Create new instance of class ARRAY_BUFFER or ARRAY_BUFFER_SHARED.
     fn create_internal(
         ctx: &JSContext,
-        new_target: &JSValueConst,
+        new_target: &JSValue,
         shared: bool,
         content: ABufData,
         opaque: *mut c_void,

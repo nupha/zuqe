@@ -41,7 +41,7 @@ use crate::{
     stack_frame::StackFrame,
     string::{JSString, JSStringInner, UTF8_CHAR_LEN_MAX, char_is_space, unicode_from_utf8_v0},
     typed_array::TypedArray,
-    value::{JSValue, JSValueConst},
+    value::JSValue,
 };
 
 #[deprecated]
@@ -182,7 +182,7 @@ unsafe fn JS_FreeRuntime(rt: &mut JSRuntime) {
 }
 
 #[deprecated(note = "use JSObject::opaque() instead")]
-pub unsafe fn JS_GetOpaque(obj: JSValueConst, class_id: ClassID) -> *mut c_void {
+pub unsafe fn JS_GetOpaque(obj: JSValue, class_id: ClassID) -> *mut c_void {
     unreachable!("use JSObject::opaque() instead")
     // if JS_VALUE_GET_TAG(obj) != JS_TAG_OBJECT {
     //     return std::ptr::null_mut();
@@ -195,7 +195,7 @@ pub unsafe fn JS_GetOpaque(obj: JSValueConst, class_id: ClassID) -> *mut c_void 
 }
 
 #[deprecated(note = "use JSObject::opaque_must() instead")]
-pub unsafe fn JS_GetOpaque2(ctx: &JSContext, obj: JSValueConst, class_id: ClassID) -> *mut c_void {
+pub unsafe fn JS_GetOpaque2(ctx: &JSContext, obj: JSValue, class_id: ClassID) -> *mut c_void {
     let p = JS_GetOpaque(obj, class_id);
     if p.is_null() {
         ctx.throw_type_error_invalid_class(class_id);
@@ -233,7 +233,7 @@ pub fn JS_NewBool(val: bool) -> JSValue {
 #[deprecated(note = "use JSValue::corece_to_string_value() instead")]
 pub unsafe fn JS_ToStringInternal(
     ctx: &JSContext,
-    val: JSValueConst,
+    val: JSValue,
     is_ToPropertyKey: bool,
 ) -> JSValue {
     unreachable!("use JSValue::corece_to_string_value() instead");
@@ -241,18 +241,18 @@ pub unsafe fn JS_ToStringInternal(
 
 /// `val` keeps ref count unchanged after calling this function.
 #[deprecated(note = "use JSValue::coerce_to_string_value() instead")]
-pub unsafe fn JS_ToString(ctx: &JSContext, val: JSValueConst) -> JSValue {
+pub unsafe fn JS_ToString(ctx: &JSContext, val: JSValue) -> JSValue {
     unreachable!("use JSValue::coerce_to_string_value() instead");
 }
 
 #[deprecated(note = "use JSValue::coerce_to_propkey_value() instead")]
-pub unsafe fn JS_ToPropertyKey(ctx: &JSContext, val: JSValueConst) -> JSValue {
+pub unsafe fn JS_ToPropertyKey(ctx: &JSContext, val: JSValue) -> JSValue {
     unreachable!("use JSValue::coerce_to_propkey_value() instead");
 }
 
 /// `val` keeps ref count after calling this function.
 #[deprecated(note = "use JSValue::coerce_number() instead")]
-pub unsafe fn JS_ToNumber(ctx: &JSContext, val: JSValueConst) -> JSValue {
+pub unsafe fn JS_ToNumber(ctx: &JSContext, val: JSValue) -> JSValue {
     val.to_number(ctx).unwrap_or(JSValue::EXCEPTION)
 }
 
@@ -269,13 +269,13 @@ pub unsafe fn JS_ToPrimitive(ctx: &JSContext, val: JSValue, hint: i32) -> JSValu
 }
 
 #[deprecated(note = "use JSValue::is_function() instead")]
-pub unsafe fn JS_IsFunction(ctx: &JSContext, val: JSValueConst) -> bool {
+pub unsafe fn JS_IsFunction(ctx: &JSContext, val: JSValue) -> bool {
     val.is_function()
 }
 
 #[deprecated(note = "use JSValue::is_constructor() instead")]
 #[inline(always)]
-pub unsafe fn JS_IsConstructor(ctx: &JSContext, val: JSValueConst) -> bool {
+pub unsafe fn JS_IsConstructor(ctx: &JSContext, val: JSValue) -> bool {
     val.is_constructor()
 }
 
@@ -284,7 +284,7 @@ pub unsafe fn JS_NewGlobalCConstructor2(
     ctx: &JSContext,
     func_obj: JSValue,
     name: &CStr,
-    proto: JSValueConst,
+    proto: JSValue,
 ) {
     ctx.add_global_constructor(name.to_string_lossy().as_ref(), &func_obj, &proto);
 }
@@ -295,8 +295,8 @@ pub unsafe fn JS_NewGlobalCConstructor(
     name: &CStr,
     func: JSCFunction,
     length: i32,
-    proto: JSValueConst,
-) -> JSValueConst {
+    proto: JSValue,
+) -> JSValue {
     unreachable!("unused");
 }
 
@@ -402,7 +402,7 @@ pub unsafe fn JS_NewCFunctionData(
     length: u8,
     magic: i32,
     data_count: u8,
-    data: *const JSValueConst,
+    data: *const JSValue,
 ) -> JSValue {
     unreachable!("unused");
     // ctx.create_native_function_with_data(
@@ -416,7 +416,7 @@ pub unsafe fn JS_NewCFunctionData(
 
 /// op1, op2 ref_count unchanged
 #[deprecated(note = "use JSValue::is_same() instead")]
-pub unsafe fn js_same_value(ctx: &JSContext, op1: JSValueConst, op2: JSValueConst) -> bool {
+pub unsafe fn js_same_value(ctx: &JSContext, op1: JSValue, op2: JSValue) -> bool {
     unreachable!("use JSValue::is_same_to() instead");
     // js_strict_eq2(
     //     ctx,
@@ -589,10 +589,10 @@ pub unsafe fn js_async_generator_free(rt: *mut JSRuntime, s: *mut AGenPayload) {
 #[deprecated(note = "use AsyncGeneratorFunction::function_call() instead")]
 pub unsafe fn js_async_generator_function_call(
     ctx: &JSContext,
-    func_obj: JSValueConst,
-    this_obj: JSValueConst,
+    func_obj: JSValue,
+    this_obj: JSValue,
     argc: i32,
-    argv: *const JSValueConst,
+    argv: *const JSValue,
     flags: i32,
 ) -> JSValue {
     unreachable!("use AsyncGeneratorFunction::function_call() instead");
@@ -615,7 +615,7 @@ pub(super) unsafe fn promise_reaction_data_free(
 pub unsafe fn js_new_promise_capability(
     ctx: &JSContext,
     resolving_funcs: *mut JSValue,
-    ctor: JSValueConst,
+    ctor: JSValue,
 ) -> JSValue {
     unreachable!("use JSContext::create_promise() instead")
 }
@@ -625,7 +625,7 @@ pub unsafe fn js_new_promise_capability(
 #[deprecated(note = "use Promise::create_resolving_functions() instead")]
 pub unsafe fn js_create_resolving_functions(
     ctx: &JSContext,
-    promise: JSValueConst,
+    promise: JSValue,
 ) -> Result<[JSValue; 2], i32> {
     unreachable!("use Promise::create_resolving_functions() instead");
 }
@@ -744,23 +744,19 @@ pub unsafe fn js_new_string_char(ctx: &JSContext, c: u16) -> JSValue {
 pub unsafe fn JS_ToCStringLen2(
     ctx: &JSContext,
     plen: *mut usize,
-    val1: JSValueConst,
+    val1: JSValue,
     cesu8: bool,
 ) -> *const c_char {
     unreachable!("use JSValue::to_utf8() instead");
 }
 
 #[deprecated(note = "use JSValue::to_utf8() instead")]
-pub unsafe fn JS_ToCStringLen(
-    ctx: &JSContext,
-    plen: *mut usize,
-    val1: JSValueConst,
-) -> *const c_char {
+pub unsafe fn JS_ToCStringLen(ctx: &JSContext, plen: *mut usize, val1: JSValue) -> *const c_char {
     unreachable!("unused");
 }
 
 #[deprecated(note = "use JSValue::to_string().content().to_utf8() instead")]
-pub unsafe fn JS_ToCString(ctx: &JSContext, val1: JSValueConst) -> *const c_char {
+pub unsafe fn JS_ToCString(ctx: &JSContext, val1: JSValue) -> *const c_char {
     unreachable!("unused");
 }
 
@@ -775,7 +771,7 @@ pub unsafe fn JS_EnqueueJob(
     ctx: &JSContext,
     job_func: *mut c_void,
     argc: i32,
-    argv: *const JSValueConst,
+    argv: *const JSValue,
 ) -> i32 {
     unreachable!()
 }
@@ -841,14 +837,14 @@ pub unsafe fn find_line_num(ctx: &JSContext, b: *mut Bytecode, pc_value: u32) ->
 pub unsafe fn fulfill_or_reject_promise(
     ctx: &JSContext,
     promise: Promise,
-    value: JSValueConst,
+    value: JSValue,
     is_reject: bool,
 ) {
     unreachable!("use Promise::fulfill_or_reject() instead");
 }
 
 #[deprecated(note = "use Promise::reject() instead")]
-pub unsafe fn reject_promise(ctx: &JSContext, promise: Promise, value: JSValueConst) {
+pub unsafe fn reject_promise(ctx: &JSContext, promise: Promise, value: JSValue) {
     unreachable!("use Promise::reject() instead");
 }
 
@@ -900,11 +896,11 @@ pub unsafe fn JS_PromiseResult(ctx: &JSContext, promise: JSValue) -> JSValue {
 #[deprecated(note = "use JSValue::define_property() instead")]
 pub unsafe fn JS_DefineProperty(
     ctx: &JSContext,
-    this_obj: JSValueConst,
+    this_obj: JSValue,
     prop: AtomRef,
-    val: JSValueConst,
-    getter: JSValueConst,
-    setter: JSValueConst,
+    val: JSValue,
+    getter: JSValue,
+    setter: JSValue,
     flags: u32,
 ) -> i32 {
     unreachable!("ununsed");
@@ -918,7 +914,7 @@ pub unsafe fn JS_DefineProperty(
 #[deprecated(note = "use JSValue::defined_property_value() instead")]
 pub unsafe fn JS_DefinePropertyValue(
     ctx: &JSContext,
-    this_obj: JSValueConst,
+    this_obj: JSValue,
     prop: AtomRef,
     val: JSValue,
     flags: u32,
@@ -932,7 +928,7 @@ pub unsafe fn JS_DefinePropertyValue(
 #[deprecated(note = "use JSValue::defined_property_value_str() instead")]
 pub unsafe fn JS_DefinePropertyValueStr(
     ctx: &JSContext,
-    this_obj: JSValueConst,
+    this_obj: JSValue,
     prop: &CStr,
     val: JSValue,
     flags: u32,
@@ -945,7 +941,7 @@ pub unsafe fn JS_DefinePropertyValueStr(
 #[deprecated(note = "unused")]
 pub unsafe fn JS_DefinePropertyValueValue(
     ctx: &JSContext,
-    this_obj: JSValueConst,
+    this_obj: JSValue,
     prop: JSValue,
     val: JSValue,
     flags: u32,
@@ -956,7 +952,7 @@ pub unsafe fn JS_DefinePropertyValueValue(
 #[deprecated(note = "use JSValue::create_data_property_u32() instead")]
 pub unsafe fn JS_CreateDataPropertyUint32(
     ctx: &JSContext,
-    this_obj: JSValueConst,
+    this_obj: JSValue,
     idx: i64,
     val: JSValue,
     flags: u32,
@@ -969,7 +965,7 @@ pub unsafe fn JS_CreateDataPropertyUint32(
 #[deprecated(note = "use JSValue::defined_property_value_u32() instead")]
 pub unsafe fn JS_DefinePropertyValueUint32(
     ctx: &JSContext,
-    this_obj: JSValueConst,
+    this_obj: JSValue,
     idx: u32,
     val: JSValue,
     flags: u32,
@@ -982,7 +978,7 @@ pub unsafe fn JS_DefinePropertyValueUint32(
 #[deprecated(note = "use JSValue::defined_property_value_i64() instead")]
 pub unsafe fn JS_DefinePropertyValueInt64(
     ctx: &JSContext,
-    this_obj: JSValueConst,
+    this_obj: JSValue,
     idx: i64,
     val: JSValue,
     flags: u32,
@@ -995,9 +991,9 @@ pub unsafe fn JS_DefinePropertyValueInt64(
 #[deprecated(note = "use JSValue::defined_property_desc() instead")]
 pub unsafe fn JS_DefinePropertyDesc(
     ctx: &JSContext,
-    obj: JSValueConst,
+    obj: JSValue,
     prop: AtomRef,
-    desc: JSValueConst,
+    desc: JSValue,
     flags: u32,
 ) -> Result<bool, i32> {
     unreachable!("unused");
@@ -1007,7 +1003,7 @@ pub unsafe fn JS_DefinePropertyDesc(
 #[deprecated(note = "use JSValue::define_property_getset() instead")]
 pub unsafe fn JS_DefinePropertyGetSet(
     ctx: &JSContext,
-    this_obj: JSValueConst,
+    this_obj: JSValue,
     prop: AtomRef,
     getter: JSValue,
     setter: JSValue,
@@ -1022,7 +1018,7 @@ pub unsafe fn JS_DefinePropertyGetSet(
 #[deprecated(note = "use JSObject::define_auto_init_property() instead")]
 pub unsafe fn JS_DefineAutoInitProperty(
     ctx: &JSContext,
-    this_obj: JSValueConst,
+    this_obj: JSValue,
     prop: AtomRef,
     id: JSAutoInitIDEnum,
     opaque: *mut std::ffi::c_void,
@@ -1036,9 +1032,9 @@ pub unsafe fn JS_DefineAutoInitProperty(
 #[deprecated(note = "use JSValue::get_property_internal() instead")]
 pub unsafe fn JS_GetPropertyInternal(
     ctx: &JSContext,
-    obj: JSValueConst,
+    obj: JSValue,
     prop: AtomRef,
-    this_obj: JSValueConst,
+    this_obj: JSValue,
     throw_ref_error: bool,
 ) -> JSValue {
     unreachable!("unused");
@@ -1047,7 +1043,7 @@ pub unsafe fn JS_GetPropertyInternal(
 
 #[deprecated(note = "use JSValue::get_property() instead")]
 #[inline(always)]
-pub unsafe fn JS_GetProperty(ctx: &JSContext, this_obj: JSValueConst, prop: AtomRef) -> JSValue {
+pub unsafe fn JS_GetProperty(ctx: &JSContext, this_obj: JSValue, prop: AtomRef) -> JSValue {
     unreachable!("unused");
     // this_obj.get_property(ctx, prop)
 }
@@ -1055,7 +1051,7 @@ pub unsafe fn JS_GetProperty(ctx: &JSContext, this_obj: JSValueConst, prop: Atom
 #[deprecated(note = "use JSValue::get_property_str() instead")]
 pub unsafe fn JS_GetPropertyStr(
     ctx: &JSContext,
-    this_obj: JSValueConst,
+    this_obj: JSValue,
     prop: *const c_char,
 ) -> JSValue {
     unreachable!("unused");
@@ -1064,23 +1060,19 @@ pub unsafe fn JS_GetPropertyStr(
 
 /// NOTE: returned property value has increased ref_count by 1
 #[deprecated(note = "use JSValue::get_property_value() instead")]
-pub unsafe fn JS_GetPropertyValue(
-    ctx: &JSContext,
-    this_obj: JSValueConst,
-    prop: JSValue,
-) -> JSValue {
+pub unsafe fn JS_GetPropertyValue(ctx: &JSContext, this_obj: JSValue, prop: JSValue) -> JSValue {
     unreachable!("unused");
     // this_obj.get_property_value(ctx, &prop)
 }
 
 #[deprecated(note = "use JSValue::get_property_u32() instead")]
-pub unsafe fn JS_GetPropertyUint32(ctx: &JSContext, this_obj: JSValueConst, idx: u32) -> JSValue {
+pub unsafe fn JS_GetPropertyUint32(ctx: &JSContext, this_obj: JSValue, idx: u32) -> JSValue {
     unreachable!("unused");
     // this_obj.get_property_u32(ctx, idx)
 }
 
 #[deprecated(note = "use JSValue::get_property_i64() instead")]
-pub unsafe fn JS_GetPropertyInt64(ctx: &JSContext, obj: JSValueConst, idx: i64) -> JSValue {
+pub unsafe fn JS_GetPropertyInt64(ctx: &JSContext, obj: JSValue, idx: i64) -> JSValue {
     unreachable!("unused");
     // obj.get_property_i64(ctx, idx)
 }
@@ -1092,7 +1084,7 @@ pub unsafe fn JS_GetPropertyInt64(ctx: &JSContext, obj: JSValueConst, idx: i64) 
 #[deprecated(note = "use JSValue::try_get_property_i64() instead")]
 pub unsafe fn JS_TryGetPropertyInt64(
     ctx: &JSContext,
-    obj: JSValueConst,
+    obj: JSValue,
     idx: i64,
 ) -> Result<Option<JSValue>, i32> {
     obj.try_get_property_i64(ctx, idx)
@@ -1103,7 +1095,7 @@ flags 可以是 0、JS_PROP_THROW 或 JS_PROP_THROW_STRICT */
 #[deprecated(note = "use JSValue::delete_property() instead")]
 pub unsafe fn JS_DeleteProperty(
     ctx: &JSContext,
-    obj: JSValueConst,
+    obj: JSValue,
     prop: AtomRef,
     flags: u32,
 ) -> Result<bool, i32> {
@@ -1113,7 +1105,7 @@ pub unsafe fn JS_DeleteProperty(
 #[deprecated(note = "use JSValue::delete_property_i64() instead")]
 pub unsafe fn JS_DeletePropertyInt64(
     ctx: &JSContext,
-    obj: JSValueConst,
+    obj: JSValue,
     idx: i64,
     flags: u32,
 ) -> Result<bool, i32> {
@@ -1124,7 +1116,7 @@ pub unsafe fn JS_DeletePropertyInt64(
 #[deprecated(note = "use JSContext::eval_internal() instead")]
 pub unsafe fn JS_EvalInternal(
     ctx: &JSContext,
-    this_obj: JSValueConst,
+    this_obj: JSValue,
     input: &CStr,
     filename: &str,
     flags: u32,
@@ -1136,7 +1128,7 @@ pub unsafe fn JS_EvalInternal(
 #[deprecated(note = "use JSContext::eval_this() instead")]
 pub unsafe fn JS_EvalThis(
     ctx: &JSContext,
-    this_obj: JSValueConst,
+    this_obj: JSValue,
     input: &CStr,
     filename: &str,
     flags: u32,
@@ -1152,8 +1144,8 @@ pub unsafe fn JS_Eval(ctx: &JSContext, input: &CStr, filename: &str, eval_flags:
 /// both `this_obj` and `val` are not consumed.
 pub unsafe fn JS_EvalObject(
     ctx: &JSContext,
-    this_obj: JSValueConst,
-    val: JSValueConst,
+    this_obj: JSValue,
+    val: JSValue,
     flags: u32,
     scope_idx: i32,
 ) -> JSValue {
@@ -1176,7 +1168,7 @@ pub unsafe fn js_get_module_ns(ctx: &JSContext, m: *mut ModuleDef) -> JSValue {
 #[deprecated(note = "use JSContext::build_backtrace_to() instead")]
 pub unsafe fn build_backtrace(
     ctx: &JSContext,
-    error_obj: JSValueConst,
+    error_obj: JSValue,
     file_line: Option<(&str, i32)>, // filename and line number
     backtrace_flags: i32,
 ) {
@@ -1209,7 +1201,7 @@ pub unsafe fn js_strict_eq(ctx: &JSContext, op1: JSValue, op2: JSValue) -> bool 
 }
 
 #[deprecated(note = "use JSValue::is_same0() instead")]
-pub unsafe fn js_same_value_zero(ctx: &JSContext, op1: JSValueConst, op2: JSValueConst) -> bool {
+pub unsafe fn js_same_value_zero(ctx: &JSContext, op1: JSValue, op2: JSValue) -> bool {
     op1.is_same0(&op2)
 }
 
@@ -1593,7 +1585,7 @@ pub unsafe fn js_map_finalizer(rt: *mut JSRuntime, val: JSValue) {
 }
 
 #[deprecated(note = "use JSMapState::class_mark() instead")]
-pub unsafe fn js_map_mark(rt: *mut JSRuntime, val: JSValueConst, mark_func: JS_MarkFunc) {
+pub unsafe fn js_map_mark(rt: *mut JSRuntime, val: JSValue, mark_func: JS_MarkFunc) {
     unreachable!("unused");
     // JSMapState::class_mark(rt, val, mark_func);
 }
@@ -1732,10 +1724,10 @@ pub unsafe fn async_func_free(rt: *mut JSRuntime, s: *mut AsyncFuncState) {
 #[deprecated(note = "use AsyncFuncState::new() instead")]
 pub unsafe fn async_func_init(
     ctx: &JSContext,
-    func_obj: JSValueConst,
-    this_obj: JSValueConst,
+    func_obj: JSValue,
+    this_obj: JSValue,
     argc: i32,
-    argv: *const JSValueConst,
+    argv: *const JSValue,
 ) -> *mut AsyncFuncState {
     unreachable!("use AsyncFuncState::new() instead");
     // AsyncFuncState::new(
@@ -1755,7 +1747,7 @@ pub unsafe fn async_func_init(
 #[deprecated(note = "use JSContext::eval_internal() instead")]
 pub fn __JS_EvalInternal(
     ctx: &JSContext,
-    this_obj: JSValueConst,
+    this_obj: JSValue,
     input: &CStr,
     filename: &str,
     flags: u32,
@@ -1765,7 +1757,7 @@ pub fn __JS_EvalInternal(
 }
 
 #[deprecated(note = "use JSValue::is_error() instead")]
-pub fn JS_IsError(val: &JSValueConst) -> bool {
+pub fn JS_IsError(val: &JSValue) -> bool {
     if let JSValue::Object(o) = val {
         o.class_id() == JS_CLASS_ERROR
     } else {
@@ -1779,10 +1771,10 @@ pub fn JS_IsError(val: &JSValueConst) -> bool {
 )]
 pub unsafe fn JS_SetPropertyInternal(
     ctx: &JSContext,
-    obj: JSValueConst,
+    obj: JSValue,
     prop: AtomRef,
     val: JSValue,
-    this_obj: JSValueConst,
+    this_obj: JSValue,
     flags: u32,
 ) -> i32 {
     unreachable!("unused")
@@ -1807,7 +1799,7 @@ pub unsafe fn JS_SetPropertyValue(
 #[inline(always)]
 pub unsafe fn JS_SetProperty(
     ctx: &JSContext,
-    this_obj: JSValueConst,
+    this_obj: JSValue,
     prop: AtomRef,
     val: JSValue,
 ) -> i32 {
@@ -1820,7 +1812,7 @@ pub unsafe fn JS_SetProperty(
 #[deprecated(note = "use JSValue::set_property_u32() instead")]
 pub unsafe fn JS_SetPropertyUint32(
     ctx: &JSContext,
-    this_obj: JSValueConst,
+    this_obj: JSValue,
     idx: u32,
     val: JSValue,
 ) -> i32 {
@@ -1832,7 +1824,7 @@ pub unsafe fn JS_SetPropertyUint32(
 #[deprecated(note = "use JSValue::set_property_i64() instead")]
 pub unsafe fn JS_SetPropertyInt64(
     ctx: &JSContext,
-    this_obj: JSValueConst,
+    this_obj: JSValue,
     idx: i64,
     val: JSValue,
 ) -> i32 {
@@ -1844,7 +1836,7 @@ pub unsafe fn JS_SetPropertyInt64(
 #[deprecated(note = "use JSValue::set_property_str() instead")]
 pub unsafe fn JS_SetPropertyStr(
     ctx: &JSContext,
-    this_obj: JSValueConst,
+    this_obj: JSValue,
     prop: &CStr,
     val: JSValue,
 ) -> i32 {
@@ -1862,7 +1854,7 @@ pub unsafe fn JS_SetPropertyStr(
 #[deprecated(note = "use TypedArrayObj::init() instead")]
 pub unsafe fn typed_array_init(
     ctx: &JSContext,
-    obj: JSValueConst,
+    obj: JSValue,
     buffer: JSValue,
     offset: u64,
     count: u64,
@@ -1876,7 +1868,7 @@ pub unsafe fn typed_array_init(
 #[deprecated(note = "use JSValue::typed_array() instead")]
 pub unsafe fn get_typed_array(
     ctx: &JSContext,
-    this_val: JSValueConst,
+    this_val: JSValue,
     is_dataview: bool,
 ) -> *mut JSValue {
     unreachable!("unused");
@@ -1901,14 +1893,14 @@ pub unsafe fn JS_ToBoolFree(ctx: &JSContext, val: JSValue) -> Result<bool, i32> 
     val.to_bool()
 }
 #[deprecated(note = "use JSValue::to_bool() instead")]
-pub unsafe fn JS_ToBool(ctx: &JSContext, val: &JSValueConst) -> Result<bool, i32> {
+pub unsafe fn JS_ToBool(ctx: &JSContext, val: &JSValue) -> Result<bool, i32> {
     val.to_bool()
 }
 
 #[deprecated(note = "use JSValue::get_own_property_names2() instead")]
 pub unsafe fn JS_GetOwnPropertyNames2(
     ctx: &JSContext,
-    target: JSValueConst,
+    target: JSValue,
     flags: i32,
     kind: JSIteratorKindEnum,
 ) -> JSValue {
@@ -1942,7 +1934,7 @@ pub unsafe fn JS_GetOwnPropertyNamesInternal(
 #[deprecated(note = "use JSContext::create_object_from_proto() instead")]
 pub unsafe fn JS_NewObjectProtoClass(
     ctx: &JSContext,
-    proto_val: JSValueConst,
+    proto_val: JSValue,
     class_id: ClassID,
 ) -> JSValue {
     unreachable!("unused")
@@ -1969,7 +1961,7 @@ pub unsafe fn JS_NewObjectClass(ctx: &JSContext, class_id: ClassID) -> JSValue {
 /// - ctx: JavaScript context
 /// - proto: Prototype object (can be null)
 #[deprecated(note = "use JSContext::create_base_object_with_proto() instead")]
-pub unsafe fn JS_NewObjectProto(ctx: &JSContext, proto: JSValueConst) -> JSValue {
+pub unsafe fn JS_NewObjectProto(ctx: &JSContext, proto: JSValue) -> JSValue {
     JS_NewObjectProtoClass(ctx, proto, JS_CLASS_OBJECT)
 }
 
@@ -1999,7 +1991,7 @@ pub unsafe fn JS_ToObjectFree(ctx: &JSContext, val: JSValue) -> JSValue {
 /// Return an Object, JS_NULL or JS_EXCEPTION in case of Proxy object.
 /// `obj` keep ref count unchanged after calling.
 #[deprecated(note = "use JSValue::prototype() instead")]
-pub fn JS_GetPrototype(ctx: &JSContext, obj: &JSValueConst) -> JSValue {
+pub fn JS_GetPrototype(ctx: &JSContext, obj: &JSValue) -> JSValue {
     obj.prototype(ctx).unwrap_or(JSValue::EXCEPTION)
 }
 
@@ -2013,19 +2005,15 @@ pub fn JS_GetPrototypeFree(ctx: &JSContext, obj: JSValue) -> JSValue {
 #[deprecated(note = "use JSValue::define_private_field() instead")]
 pub unsafe fn JS_DefinePrivateField(
     ctx: &JSContext,
-    obj: &JSValueConst,
-    name: JSValueConst,
+    obj: &JSValue,
+    name: JSValue,
     val: JSValue,
 ) -> i32 {
     obj.define_private_field(ctx, &name, val).map_or(-1, |_| 0)
 }
 
 #[deprecated(note = "use JSValue::get_private_field() instead")]
-pub unsafe fn JS_GetPrivateField(
-    ctx: &JSContext,
-    obj: JSValueConst,
-    name: JSValueConst,
-) -> JSValue {
+pub unsafe fn JS_GetPrivateField(ctx: &JSContext, obj: JSValue, name: JSValue) -> JSValue {
     obj.get_private_field(ctx, &name)
         .unwrap_or(JSValue::EXCEPTION)
 }
@@ -2331,23 +2319,19 @@ pub unsafe fn JS_CopyDataProperties(
 #[deprecated(note = "use JSValue::ordinary_instance_of() instead")]
 pub unsafe fn JS_OrdinaryIsInstanceOf(
     ctx: &JSContext,
-    val: &JSValueConst,
-    obj: &JSValueConst,
+    val: &JSValue,
+    obj: &JSValue,
 ) -> Result<bool, i32> {
     unreachable!("unused");
 }
 
 #[deprecated(note = "use JSValue::instance_of() instead")]
-pub unsafe fn JS_IsInstanceOf(
-    ctx: &JSContext,
-    val: &JSValueConst,
-    obj: &JSValueConst,
-) -> Result<bool, i32> {
+pub unsafe fn JS_IsInstanceOf(ctx: &JSContext, val: &JSValue, obj: &JSValue) -> Result<bool, i32> {
     obj.instance_of(ctx, val)
 }
 
 #[deprecated(note = "use JSValue::type_of() instead")]
-pub fn js_operator_typeof(ctx: &JSContext, op1: &JSValueConst) -> AtomRef {
+pub fn js_operator_typeof(ctx: &JSContext, op1: &JSValue) -> AtomRef {
     op1.type_of()
 }
 
@@ -2355,7 +2339,7 @@ pub fn js_operator_typeof(ctx: &JSContext, op1: &JSValueConst) -> AtomRef {
 #[deprecated(note = "use JSValue::fast_array_values_mut() instead")]
 pub unsafe fn js_get_fast_array(
     ctx: &JSContext,
-    mut obj: JSValueConst,
+    mut obj: JSValue,
     arrpp: *mut *mut JSValue,
     countp: *mut u32,
 ) -> bool {
@@ -2370,7 +2354,7 @@ pub unsafe fn js_get_fast_array(
 }
 
 #[deprecated(note = "use JSValue::is_fast_array() instead")]
-pub unsafe fn js_is_fast_array(ctx: &JSContext, obj: JSValueConst) -> bool {
+pub unsafe fn js_is_fast_array(ctx: &JSContext, obj: JSValue) -> bool {
     obj.is_fast_array()
 }
 
@@ -2389,7 +2373,7 @@ pub unsafe fn add_fast_array_element(
 
 // return Err if exception (proxy case) or TRUE/FALSE
 #[deprecated(note = "use JSValue::is_array() instead")]
-pub unsafe fn JS_IsArray(ctx: &JSContext, val: &JSValueConst) -> Result<bool, i32> {
+pub unsafe fn JS_IsArray(ctx: &JSContext, val: &JSValue) -> Result<bool, i32> {
     if let JSValue::Object(p) = val {
         if p.class_id() == JS_CLASS_PROXY {
             js_proxy_isArray(ctx, val)
@@ -2568,12 +2552,12 @@ pub fn JS_NewCFunctionMagic(
 
 /* return NULL without exception if not a function or no bytecode */
 #[deprecated(note = "use ObjectPayload::func() to get Bytecode")]
-pub fn JS_GetFunctionBytecode(val: &JSValueConst) -> *mut Bytecode {
+pub fn JS_GetFunctionBytecode(val: &JSValue) -> *mut Bytecode {
     unreachable!("unused");
 }
 
 #[deprecated(note = "use JSValue::ensure_function() instead")]
-pub unsafe fn check_function(ctx: &JSContext, obj: JSValueConst) -> Result<(), i32> {
+pub unsafe fn check_function(ctx: &JSContext, obj: JSValue) -> Result<(), i32> {
     obj.ensure_function(ctx)?;
     Ok(())
 }
@@ -2607,7 +2591,7 @@ pub fn JS_DefineGlobalVar(ctx: &JSContext, prop: AtomRef, def_flags: u32) -> i32
 pub fn JS_DefineGlobalFunction(
     ctx: &JSContext,
     prop: AtomRef,
-    func: &JSValueConst,
+    func: &JSValue,
     def_flags: u32,
 ) -> i32 {
     unreachable!("unused");
@@ -2699,7 +2683,7 @@ pub unsafe fn JS_ToInt32SatFree(ctx: &JSContext, pres: *mut i32, mut val: JSValu
 
 /// val is not consumed
 #[deprecated(note = "use JSValue::to_i32_saturating() instead")]
-pub unsafe fn JS_ToInt32Sat(ctx: &JSContext, pres: *mut i32, val: &JSValueConst) -> i32 {
+pub unsafe fn JS_ToInt32Sat(ctx: &JSContext, pres: *mut i32, val: &JSValue) -> i32 {
     JS_ToInt32SatFree(ctx, pres, val.clone())
 }
 
@@ -2708,7 +2692,7 @@ pub unsafe fn JS_ToInt32Sat(ctx: &JSContext, pres: *mut i32, val: &JSValueConst)
 pub unsafe fn JS_ToInt32Clamp(
     ctx: &JSContext,
     pres: *mut i32,
-    val: &JSValueConst,
+    val: &JSValue,
     min: i32,
     max: i32,
     min_offset: i32,
@@ -2740,7 +2724,7 @@ pub unsafe fn JS_ToNumericFree(ctx: &JSContext, val: JSValue) -> JSValue {
 }
 
 #[deprecated(note = "use JSValue::to_numeric() instead")]
-pub unsafe fn JS_ToNumeric(ctx: &JSContext, val: JSValueConst) -> JSValue {
+pub unsafe fn JS_ToNumeric(ctx: &JSContext, val: JSValue) -> JSValue {
     val.to_numeric(ctx).unwrap_or(JSValue::EXCEPTION)
 }
 
@@ -2751,7 +2735,7 @@ pub unsafe fn JS_ToInt64SatFree(ctx: &JSContext, pres: *mut i64, mut val: JSValu
 
 /// val is not consumed
 #[deprecated(note = "use JSValue::to_i64_saturating() instead")]
-pub unsafe fn JS_ToInt64Sat(ctx: &JSContext, pres: *mut i64, val: &JSValueConst) -> i32 {
+pub unsafe fn JS_ToInt64Sat(ctx: &JSContext, pres: *mut i64, val: &JSValue) -> i32 {
     unreachable!("unused");
 }
 
@@ -2760,7 +2744,7 @@ pub unsafe fn JS_ToInt64Sat(ctx: &JSContext, pres: *mut i64, val: &JSValueConst)
 pub unsafe fn JS_ToInt64Clamp(
     ctx: &JSContext,
     pres: *mut i64,
-    val: &JSValueConst,
+    val: &JSValue,
     min: i64,
     max: i64,
     neg_offset: i64,
@@ -2826,7 +2810,7 @@ pub fn JS_NewFloat64(ctx: &JSContext, d: f64) -> JSValue {
 
 /* Note: can return an exception (-1) */
 #[deprecated(note = "use JSValue::is_integer() instead")]
-pub unsafe fn JS_NumberIsInteger(ctx: &JSContext, val: JSValueConst) -> i32 {
+pub unsafe fn JS_NumberIsInteger(ctx: &JSContext, val: JSValue) -> i32 {
     val.is_integral(ctx).map_or(-1, |b| b as i32)
 }
 
@@ -2840,7 +2824,7 @@ pub unsafe fn JS_ToInt32Free(ctx: &JSContext, pres: *mut i32, val: JSValue) -> i
 
 /// `val` is not consumed
 #[deprecated(note = "use JSValue::to_i32() instead")]
-pub unsafe fn JS_ToInt32(ctx: &JSContext, val: &JSValueConst) -> Result<i32, i32> {
+pub unsafe fn JS_ToInt32(ctx: &JSContext, val: &JSValue) -> Result<i32, i32> {
     let mut n = 0;
     if JS_ToInt32Free(ctx, &mut n, val.clone()) == -1 {
         Err(-1)
@@ -2876,7 +2860,7 @@ pub unsafe fn JS_ToFloat64Free(ctx: &JSContext, pres: *mut f64, val: JSValue) ->
 }
 
 #[deprecated(note = "use JSValue::to_f64() instead")]
-pub unsafe fn JS_ToFloat64(ctx: &JSContext, pres: *mut f64, val: &JSValueConst) -> i32 {
+pub unsafe fn JS_ToFloat64(ctx: &JSContext, pres: *mut f64, val: &JSValue) -> i32 {
     JS_ToFloat64Free(ctx, pres, val.clone())
 }
 
@@ -3060,7 +3044,7 @@ pub unsafe fn js_parse_destructuring_var(s: *mut JSParseState, tok: i32, is_arg:
 #[deprecated(note = "use JSValue::install_native_field_entry() instead")]
 pub unsafe fn JS_SetPropertyFunctionList(
     ctx: &JSContext,
-    obj: &JSValueConst,
+    obj: &JSValue,
     tab: *const FieldDef,
     len: usize,
 ) {
@@ -3072,7 +3056,7 @@ pub unsafe fn JS_SetPropertyFunctionList(
 #[deprecated(note = "use JSValue::install_field_defs() instead")]
 pub unsafe fn JS_InstantiateFunctionListItem(
     ctx: &JSContext,
-    obj: &JSValueConst,
+    obj: &JSValue,
     atom: AtomRef,
     e: *const FieldDef,
 ) -> i32 {
@@ -3106,7 +3090,7 @@ pub unsafe fn js_async_generator_complete(ctx: &JSContext, s: *mut AGenPayload) 
 pub unsafe fn js_async_generator_resolve(
     ctx: &JSContext,
     s: *mut AGenPayload,
-    value: JSValueConst,
+    value: JSValue,
     done: bool,
 ) {
     (*s).resolve(ctx, value, done);
@@ -3114,11 +3098,7 @@ pub unsafe fn js_async_generator_resolve(
 
 #[inline(always)]
 #[deprecated(note = "use AGenPayload::reject() instead")]
-pub unsafe fn js_async_generator_reject(
-    ctx: &JSContext,
-    s: *mut AGenPayload,
-    exception: JSValueConst,
-) {
+pub unsafe fn js_async_generator_reject(ctx: &JSContext, s: *mut AGenPayload, exception: JSValue) {
     (*s).reject(ctx, exception);
 }
 
@@ -3126,7 +3106,7 @@ pub unsafe fn js_async_generator_reject(
 pub unsafe fn js_async_generator_resolve_or_reject(
     ctx: &JSContext,
     s: *mut AGenPayload,
-    result: JSValueConst,
+    result: JSValue,
     is_reject: bool,
 ) {
     unreachable!("unnused")
@@ -3355,7 +3335,7 @@ pub unsafe fn add_import(
 #[deprecated(note = "use JSContext::create_array_buffer_ex() instead")]
 pub unsafe fn js_array_buffer_constructor3(
     ctx: &JSContext,
-    new_target: JSValueConst,
+    new_target: JSValue,
     byte_length: usize,
     class_id: ClassID,
     buf: *mut u8,
@@ -3386,7 +3366,7 @@ pub unsafe fn js_array_buffer_free(
 #[deprecated(note = "use ArrayBuffer::create() instead")]
 pub unsafe fn js_array_buffer_constructor2(
     ctx: &JSContext,
-    new_target: &JSValueConst,
+    new_target: &JSValue,
     byte_length: usize,
     class_id: ClassID,
 ) -> JSValue {
@@ -3396,7 +3376,7 @@ pub unsafe fn js_array_buffer_constructor2(
 #[deprecated(note = "not used")]
 pub unsafe fn js_array_buffer_constructor1(
     ctx: &JSContext,
-    new_target: &JSValueConst,
+    new_target: &JSValue,
     byte_length: usize,
 ) -> JSValue {
     unreachable!("unused")
@@ -3497,7 +3477,7 @@ pub unsafe fn emit_goto(s: *mut JSParseState, opcode: OpCode, label: i32) -> i32
 }
 
 #[deprecated(note = "use JSFunctionDef::emit_XXX() instead")]
-pub unsafe fn emit_push_const(s: *mut JSParseState, val: JSValueConst, as_atom: bool) -> i32 {
+pub unsafe fn emit_push_const(s: *mut JSParseState, val: JSValue, as_atom: bool) -> i32 {
     unreachable!("unused");
     // (*s).cur_func_mut()
     //     .emit_push_const(val, as_atom, (*s).last_line_num)
@@ -3722,7 +3702,7 @@ pub unsafe fn code_has_label(s: *mut std::ffi::c_void, pos: usize, label: u32) -
 }
 
 #[deprecated(note = "use ObjectIter iterator")]
-pub fn JS_GetIterator2(ctx: &JSContext, obj: &JSValueConst, method: &JSValueConst) -> JSValue {
+pub fn JS_GetIterator2(ctx: &JSContext, obj: &JSValue, method: &JSValue) -> JSValue {
     let enum_obj = JS_Call(ctx, method, obj, &[]);
     if enum_obj.is_exception() {
         return enum_obj;
@@ -3737,7 +3717,7 @@ pub fn JS_GetIterator2(ctx: &JSContext, obj: &JSValueConst, method: &JSValueCons
 }
 
 #[deprecated(note = "use JSObject::get_iterator_must() instead")]
-pub fn JS_GetIterator(ctx: &JSContext, obj: &JSValueConst, is_async: bool) -> JSValue {
+pub fn JS_GetIterator(ctx: &JSContext, obj: &JSValue, is_async: bool) -> JSValue {
     unreachable!("unused");
     // let iter = if is_async {
     //     let mut val = obj.get_property(ctx, JS_ATOM_Symbol_asyncIterator);
@@ -3923,8 +3903,8 @@ pub fn JS_Call(
 #[deprecated(note = "use JS_Call() instead")]
 pub fn JS_CallFree(
     ctx: &JSContext,
-    func_obj: JSValueConst,
-    this_obj: JSValueConst,
+    func_obj: JSValue,
+    this_obj: JSValue,
     args: &[JSValue],
 ) -> JSValue {
     func_obj
@@ -4015,7 +3995,7 @@ pub unsafe fn JS_ToArrayLengthFree(
 #[deprecated(note = "use Proxy::get_method() instead")]
 pub unsafe fn get_proxy_method<'a>(
     ctx: &'a JSContext,
-    obj: &'a JSValueConst,
+    obj: &'a JSValue,
     name: AtomRef,
 ) -> Result<(JSValue, &'a ProxyPayload), i32> {
     if let ObjectPayload::PROXY(s) = obj.as_object_unchecked().payload() {
@@ -4051,7 +4031,7 @@ pub fn js_proxy_preventExtensions(ctx: &JSContext, obj: &JSValue) -> Result<bool
 }
 
 #[deprecated(note = "use Proxy::get_prototype_of() instead")]
-pub unsafe fn js_proxy_getPrototypeOf(ctx: &JSContext, obj: &JSValueConst) -> JSValue {
+pub unsafe fn js_proxy_getPrototypeOf(ctx: &JSContext, obj: &JSValue) -> JSValue {
     unreachable!("unused")
 }
 
@@ -4066,11 +4046,7 @@ pub unsafe fn js_proxy_setPrototypeOf(
 }
 
 #[deprecated(note = "use JSPropertyDescriptor::parse() instead")]
-pub fn js_obj_to_desc(
-    ctx: *const JSContext,
-    d: *mut JSPropertyDescriptor,
-    desc: JSValueConst,
-) -> i32 {
+pub fn js_obj_to_desc(ctx: *const JSContext, d: *mut JSPropertyDescriptor, desc: JSValue) -> i32 {
     unreachable!("unused");
 }
 
@@ -4195,31 +4171,23 @@ pub fn JS_SetPrototypeInternal(
 
 // XXX: could normalize strings to speed up comparison
 #[deprecated(note = "use MapKV::normalize_key() instead")]
-pub unsafe fn map_normalize_key(ctx: &JSContext, key: JSValueConst) -> JSValueConst {
+pub unsafe fn map_normalize_key(ctx: &JSContext, key: JSValue) -> JSValue {
     MapPair::normalize_key(key)
 }
 
 // XXX: better hash ?
 #[deprecated(note = "use JSValue::hash() instead")]
-pub unsafe fn map_hash_key(ctx: &JSContext, key: JSValueConst) -> u32 {
+pub unsafe fn map_hash_key(ctx: &JSContext, key: JSValue) -> u32 {
     key.hash()
 }
 
 #[deprecated(note = "use JSMapState::find() instead")]
-pub unsafe fn map_find_record(
-    ctx: &JSContext,
-    s: *mut JSMapState,
-    key: JSValueConst,
-) -> *mut MapPair {
+pub unsafe fn map_find_record(ctx: &JSContext, s: *mut JSMapState, key: JSValue) -> *mut MapPair {
     unreachable!("unused");
 }
 
 #[deprecated(note = "use JSMapState::add_kv() instead")]
-pub unsafe fn map_add_record(
-    ctx: &JSContext,
-    s: *mut JSMapState,
-    key: JSValueConst,
-) -> *mut MapPair {
+pub unsafe fn map_add_record(ctx: &JSContext, s: *mut JSMapState, key: JSValue) -> *mut MapPair {
     unreachable!("unused");
 }
 
@@ -4879,7 +4847,7 @@ pub unsafe fn close_var_refs(ctx: &JSContext, sf: *mut StackFrame) {
 }
 
 #[deprecated(note = "unused")]
-pub unsafe fn JS_CreateAsyncFromSyncIterator(ctx: &JSContext, sync_iter: JSValueConst) -> JSValue {
+pub unsafe fn JS_CreateAsyncFromSyncIterator(ctx: &JSContext, sync_iter: JSValue) -> JSValue {
     unreachable!("unused")
 }
 

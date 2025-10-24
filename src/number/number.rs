@@ -1,10 +1,6 @@
 use std::ops::RangeInclusive;
 
-use crate::{
-    context::JSContext,
-    error::JSResult,
-    value::{JSValue, JSValueConst},
-};
+use crate::{context::JSContext, error::JSResult, value::JSValue};
 
 pub const MAX_SAFE_INTEGER: i64 = (1_i64 << 53) - 1;
 pub const SAFE_INTEGER_RANGE: RangeInclusive<i64> = -MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER;
@@ -464,7 +460,7 @@ pub enum JSToNumberHintEnum {
     TON_FLAG_NUMERIC,
 }
 
-pub const fn JS_NumberIsNegativeOrMinusZero(val: &JSValueConst) -> bool {
+pub const fn JS_NumberIsNegativeOrMinusZero(val: &JSValue) -> bool {
     match val {
         JSValue::Int(v) => *v < 0,
         JSValue::Float64(d) => {

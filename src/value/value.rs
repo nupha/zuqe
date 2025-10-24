@@ -226,8 +226,6 @@ impl PartialEq for JSValue {
 // #[cfg(not(feature = "nan_boxing"))]
 // pub use nnb_value::*;
 
-pub type JSValueConst = JSValue;
-
 impl JSValue {
     #[inline(always)]
     pub const fn is_exception(&self) -> bool {

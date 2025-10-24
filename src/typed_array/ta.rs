@@ -14,7 +14,7 @@ use crate::{
     object::{JSObject, JSObjectWeakref, ObjectPayload},
     object_cast,
     runtime::JSRuntime,
-    value::{JSValue, JSValueConst},
+    value::JSValue,
 };
 
 pub const JS_TYPED_ARRAY_COUNT: usize =
@@ -299,7 +299,7 @@ impl TypedArray {
     pub fn create_to_new(
         &self,
         ctx: &JSContext,
-        new_target: &JSValueConst,
+        new_target: &JSValue,
         class_id: ClassID,
     ) -> Result<Self, i32> {
         if self.is_detached() {

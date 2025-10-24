@@ -11,7 +11,7 @@ use crate::{
         JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE,
         JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW,
     },
-    value::{JSValue, JSValueConst},
+    value::JSValue,
 };
 
 pub fn js_object_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -158,9 +158,9 @@ pub unsafe fn js_object___defineGetter__(
 
 pub unsafe fn js_object___lookupGetter__(
     ctx: &JSContext,
-    this_val: JSValueConst,
+    this_val: JSValue,
     argc: i32,
-    argv: *mut JSValueConst,
+    argv: *mut JSValue,
     setter: i32,
 ) -> JSValue {
     let mut obj = this_val

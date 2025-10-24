@@ -18,7 +18,7 @@ use crate::{
     runtime::JSRuntime,
     stack_frame::StackFrame,
     string::{StringBuf, StringData},
-    value::{JSValue, JSValueConst},
+    value::JSValue,
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -180,8 +180,8 @@ pub fn js_function_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_generator_function_call(
     ctx: &JSContext,
-    func_obj: &JSValueConst,
-    this_obj: &JSValueConst,
+    func_obj: &JSValue,
+    this_obj: &JSValue,
     args: &[JSValue],
     _flags: i32,
 ) -> JSResult {

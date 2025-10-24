@@ -2,7 +2,7 @@ use crate::{
     context::JSContext,
     object::{GCObject, GCObjectWeakref},
     runtime::JSRuntime,
-    value::JSValueConst,
+    value::JSValue,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -115,6 +115,6 @@ pub fn js_trigger_gc(rt: &mut JSRuntime, size: usize) {
 }
 
 /// Marks an object as potentially part of a function prototype cycle
-pub fn set_cycle_flag(ctx: &JSContext, obj: &JSValueConst) {
+pub fn set_cycle_flag(ctx: &JSContext, obj: &JSValue) {
     // to nothing
 }

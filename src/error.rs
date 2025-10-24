@@ -11,7 +11,7 @@ use crate::{
     },
     stack_frame::StackFrame,
     string::{JS_ConcatString, JS_ConcatString3},
-    value::{JSValue, JSValueConst},
+    value::JSValue,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -212,7 +212,7 @@ pub const JS_BACKTRACE_FLAG_SINGLE_LEVEL: i32 = 1 << 1;
 
 /* Note: it is important that no exception is returned by this function */
 #[cold]
-pub fn is_backtrace_needed(obj: &JSValueConst) -> bool {
+pub fn is_backtrace_needed(obj: &JSValue) -> bool {
     if let JSValue::Object(p) = obj {
         if p.class_id() != JS_CLASS_ERROR {
             false
