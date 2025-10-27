@@ -661,6 +661,7 @@ impl JSContext {
         self.intrinsic_eval(); // `eval()` function
     }
 
+    #[deprecated]
     pub fn intrinsic_typed_arrays(&self) {
         // ArrayBuffer
         {

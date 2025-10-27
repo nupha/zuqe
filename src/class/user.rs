@@ -1,4 +1,8 @@
-use std::{ffi::c_void, ptr::NonNull};
+use std::{
+    ffi::c_void,
+    ops::{Range, RangeInclusive},
+    ptr::NonNull,
+};
 
 use crate::{
     USER_CLASS_ID_START,

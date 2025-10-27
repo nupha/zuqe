@@ -9,7 +9,12 @@ use std::{
 
 use crate::{
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_SHARED_ARRAY_BUFFER,
+    array_buffer::{
+        js_array_buffer_funcs, js_array_buffer_proto_funcs, js_shared_array_buffer_funcs,
+        js_shared_array_buffer_proto_funcs,
+    },
     branch_hints::unlikely,
+    class::ClassID,
     context::JSContext,
     error::JSResult,
     function::CallContext,
@@ -198,6 +203,48 @@ object_cast!(
 );
 
 impl ArrayBuffer {
+    pub fn class_initialize(ctx: &JSContext, class_id: ClassID) -> Result<JSObject, i32> {
+        match class_id {
+            JS_CLASS_ARRAY_BUFFER => {
+                // ArrayBuffer
+                let proto = ctx.create_base_object()?;
+                proto.install_field_defs(ctx, &js_array_buffer_proto_funcs)?;
+
+                let ab_func = ctx.create_global_constructor_only(
+                    "ArrayBuffer",
+                    js_array_buffer_constructor,
+                    1,
+                    &proto.clone().into(),
+                    0,
+                )?;
+                ab_func.install_field_defs(ctx, &js_array_buffer_funcs)?;
+
+                //    ctx.0.borrow_mut().class_proto[JS_CLASS_ARRAY_BUFFER as usize] = ab;
+                Ok(proto)
+            }
+            JS_CLASS_SHARED_ARRAY_BUFFER => {
+                // SharedArrayBuffer
+                let proto = ctx.create_base_object()?;
+                proto.install_field_defs(ctx, &js_shared_array_buffer_proto_funcs)?;
+
+                let sab_func = ctx.create_global_constructor_only(
+                    "SharedArrayBuffer",
+                    js_shared_array_buffer_constructor,
+                    1,
+                    &proto.clone().into(),
+                    0,
+                )?;
+                sab_func.install_field_defs(ctx, &js_shared_array_buffer_funcs)?;
+
+                //self.0.borrow_mut().class_proto[JS_CLASS_SHARED_ARRAY_BUFFER as usize] = sab;
+                Ok(proto)
+            }
+            _ => {
+                unreachable!()
+            }
+        }
+    }
+
     /// Create new instance of class ARRAY_BUFFER or ARRAY_BUFFER_SHARED.
     fn create_internal(
         ctx: &JSContext,

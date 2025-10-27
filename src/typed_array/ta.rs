@@ -1,19 +1,27 @@
 use std::{cell::RefCell, ops::Deref};
 
 use crate::{
-    JS_CLASS_ARRAY_BUFFER, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY, JS_CLASS_DATAVIEW,
-    JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
-    JS_CLASS_INT32_ARRAY, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8_ARRAY,
+    JS_CLASS_ARRAY, JS_CLASS_ARRAY_BUFFER, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
+    JS_CLASS_DATAVIEW, JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY,
+    JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8_ARRAY,
     JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
     array_buffer::ArrayBuffer,
-    atom::consts::JS_ATOM_Symbol_iterator,
+    atom::{
+        AtomRef,
+        consts::{JS_ATOM_Symbol_iterator, JS_ATOM_Uint8ClampedArray, JS_ATOM_toString},
+    },
     class::ClassID,
     context::JSContext,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
+    function::NativeFunctionType,
     iterator::js_array_from_iterator,
-    object::{JSObject, JSObjectWeakref, ObjectPayload},
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, JSObject, JSObjectWeakref, ObjectPayload},
     object_cast,
     runtime::JSRuntime,
+    typed_array::{
+        js_dataview_constructor, js_dataview_proto_funcs, js_typed_array_base_constructor,
+        js_typed_array_base_funcs, js_typed_array_base_proto_funcs, js_typed_array_constructor,
+    },
     value::JSValue,
 };
 
@@ -169,6 +177,123 @@ impl TypedArray {
         Self::TYPED_ARRAY_SIZE_LOG2[(class_id - JS_CLASS_UINT8C_ARRAY) as usize]
     }
 
+    pub fn class_initialize(ctx: &JSContext, class_id: ClassID) -> Result<JSObject, i32> {
+        match class_id {
+            JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
+                // Typed arrays
+                let ta_proto = ctx.create_base_object().unwrap();
+                ta_proto.install_field_defs(ctx, &js_typed_array_base_proto_funcs)?;
+
+                // TypedArray.prototype.toString must be the same object as Array.prototype.toString
+                let to_string = ctx
+                    .class_proto(JS_CLASS_ARRAY)
+                    .unwrap()
+                    .get_property(ctx, &JS_ATOM_toString)?;
+
+                // XXX: should use alias method in JSCFunctionListEntry
+                ta_proto.define_property_value(
+                    ctx,
+                    &JS_ATOM_toString,
+                    to_string,
+                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+                )?;
+
+                let typed_array_base_func = ctx.create_native_function(
+                    NativeFunctionType::Func(js_typed_array_base_constructor),
+                    "TypedArray",
+                    0,
+                    0,
+                )?;
+                typed_array_base_func
+                    .install_field_defs(ctx, &js_typed_array_base_funcs)
+                    .unwrap();
+
+                ctx.bind_ctor_proto(
+                    &typed_array_base_func.clone().into(),
+                    &ta_proto.clone().into(),
+                )
+                .unwrap();
+
+                // initilize variant typed arraies
+                let mut proto: Option<JSObject> = None;
+
+                for cid in JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY {
+                    let nby = 1 << TypedArray::SIZE_LOG2(cid);
+                    let name = AtomRef(
+                        JS_ATOM_Uint8ClampedArray.id() + (cid - JS_CLASS_UINT8C_ARRAY) as u32,
+                    )
+                    .to_utf8();
+
+                    let ta_obj = ctx.create_base_object_with_proto(Some(ta_proto.clone()))?;
+                    ta_obj.define_property_value_str(
+                        ctx,
+                        "BYTES_PER_ELEMENT",
+                        JSValue::Int(nby),
+                        0,
+                    )?;
+
+                    let func_obj: JSValue = ctx
+                        .create_native_function_with_proto(
+                            NativeFunctionType::Constructor(js_typed_array_constructor),
+                            &name,
+                            3,
+                            cid as i16, // magic
+                            Some(typed_array_base_func.clone()),
+                        )?
+                        .into();
+
+                    ctx.add_global_constructor(name.as_ref(), &func_obj, &ta_obj.clone().into());
+                    func_obj.define_property_value_str(
+                        ctx,
+                        "BYTES_PER_ELEMENT",
+                        JSValue::Int(nby),
+                        0,
+                    )?;
+
+                    if cid != class_id {
+                        ctx.0.borrow_mut().class_proto[cid as usize] = ta_obj.into();
+                    } else {
+                        proto.replace(ta_obj);
+                    }
+                }
+
+                Ok(proto.unwrap())
+            }
+            JS_CLASS_DATAVIEW => {
+                // DataView
+                let dv_obj = ctx.create_base_object()?;
+                dv_obj.install_field_defs(ctx, &js_dataview_proto_funcs)?;
+
+                let dv_ctor: JSValue = ctx
+                    .create_native_function(
+                        NativeFunctionType::Constructor(js_dataview_constructor),
+                        "DataView",
+                        1,
+                        0,
+                    )?
+                    .into();
+                ctx.add_global_constructor("DataView", &dv_ctor, &dv_obj.clone().into());
+
+                //self.0.borrow_mut().class_proto[JS_CLASS_DATAVIEW as usize] = dv_proto;
+                Ok(dv_obj)
+            }
+            _ => {
+                unreachable!()
+            }
+        }
+    }
+
+    pub fn class_finalize(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {
+        if let Some(ta) = isa.typed_array() {
+            // during the GC the finalizers are called in an arbitrary
+            // order so the ArrayBuffer finalize may have been called
+            ta.borrow()
+                .array_buffer()
+                .payload()
+                .remove_typed_array_weakref(id);
+        }
+    }
+
     /// run closure with typed array data.
     pub fn with<R>(&self, f: impl FnOnce(&TypedArrayPayload) -> R) -> R {
         self.0
@@ -255,7 +380,7 @@ impl TypedArray {
                     *buf.as_mut_ptr().cast::<u16>().add(nth) = val as u16;
                 },
                 JS_CLASS_INT32_ARRAY => unsafe {
-                    *buf.as_mut_ptr().cast::<i32>().add(nth) = val as i32;
+                    *buf.as_mut_ptr().cast::<i32>().add(nth) = val;
                 },
                 JS_CLASS_UINT32_ARRAY => unsafe {
                     *buf.as_mut_ptr().cast::<u32>().add(nth) = val as u32;
@@ -429,7 +554,6 @@ impl TypedArray {
     /// - TypedArray: create a TypedArray with content copied from source;
     /// - ArrayBuffer, SharedArrayBuffer: create a TypedArray with array buffer;
     /// - An enumerable object: create a TypedArray with content from enumerated index property vals.
-    /// Note: `source` is not consumed.
     pub fn create_from(
         ctx: &JSContext,
         new_target: &JSValue,
@@ -460,7 +584,7 @@ impl TypedArray {
                         // get property from source object and set to new array.
                         let iter_method = source.get_property(ctx, &JS_ATOM_Symbol_iterator)?;
                         let (enum_obj, count) = if !iter_method.is_undefined_or_null() {
-                            js_array_from_iterator(ctx, &source, &iter_method)?
+                            js_array_from_iterator(ctx, source, &iter_method)?
                         } else {
                             (source.clone(), source.get_length_prop(ctx)? as usize)
                         };
@@ -488,33 +612,17 @@ impl TypedArray {
     }
 }
 
-/// Get the length of the TypedArray, equivalent to TypedArrayObj::length() but
-/// will return an error if the TypedArray is detached.
-#[deprecated(note = "use TypedArray::length() instead")]
-pub fn js_typed_array_get_length_internal(ctx: &JSContext, obj: &JSValue) -> Result<u32, i32> {
-    let p = TypedArray::try_from(obj.clone()).map_err(|_| {
-        ctx.throw_type_error("not a TypedArray");
-        -1
-    })?;
-    if p.is_detached() {
-        JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-        Err(-1)
-    } else {
-        Ok(p.length() as u32)
-    }
-}
-
 pub fn js_typed_array_set_internal(
     ctx: &JSContext,
     dst: &JSValue,
     src: &JSValue,
     off: &JSValue,
 ) -> JSResult {
-    let p = TypedArray::try_from(dst.clone()).map_err(|_| {
+    let Some(dest) = dst.as_object_TypedArray() else {
         ctx.throw_type_error("not a TypedArray");
-        -1
-    })?;
-    if p.is_detached() {
+        return Err(-1);
+    };
+    if dest.is_detached() {
         JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
         return Err(-1);
     }
@@ -525,79 +633,145 @@ pub fn js_typed_array_set_internal(
         return Err(-1);
     }
 
-    let src_p = src.clone().objectify(ctx)?;
+    if let Some(src) = src.as_object_TypedArray()
+        && (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).contains(&src.class_id())
+    {
+        let (src_abuf, src_bpe, count) = src.with(|ta| {
+            (
+                ta.array_buffer().payload(),
+                TypedArray::SIZE_LOG2(dest.class_id()),
+                ta.count,
+            )
+        });
 
-    let count: i64;
+        if src_abuf.is_detached() {
+            JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+            return Err(-1);
+        }
+        if offset > dest.length() as i64 - count as i64 {
+            ctx.throw_range_error("invalid array length");
+            return Err(-1);
+        }
 
-    match src_p.class_id() {
-        JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
-            let src = TypedArray(src_p.clone());
+        // let dst_bpe = TypedArray::SIZE_LOG2(dest.class_id());
 
-            let (src_abuf, shift, cnt) = src.with(|ta| {
-                (
-                    ta.array_buffer().payload(),
-                    TypedArray::SIZE_LOG2(p.class_id()),
-                    ta.count,
-                )
+        if src.class_id() == dest.class_id() {
+            // fast path: same type, use mem copy
+            src.with_bytes(|src_buf| {
+                dest.with_bytes_mut(|dst_buf| unsafe {
+                    std::ptr::copy(
+                        src_buf.as_ptr(),
+                        dst_buf.as_mut_ptr(),
+                        (count << src_bpe) as usize, // count to byte_num
+                    );
+                })
             });
-            count = cnt as i64;
-
-            if src_abuf.is_detached() {
-                JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-                return Err(-1);
-            }
-            if offset > p.length() as i64 - count {
-                ctx.throw_range_error("invalid array length");
-                return Err(-1);
-            }
-
-            // copying between typed objects
-            if src.class_id() == p.class_id() {
-                // same type, use mem copy
-                src.with_bytes(|src| {
-                    p.with_bytes_mut(|dst| unsafe {
-                        std::ptr::copy(
-                            src.as_ptr(),
-                            dst.as_mut_ptr(),
-                            (count << shift) as usize, // count to byte_num
-                        );
-                    })
-                });
-
-                return Ok(JSValue::UNDEFINED);
-            }
-
-            let dest_abuf = p.with(|ta| ta.array_buffer().payload());
-
-            if dest_abuf.content().id() == src_abuf.content().id() {
-                // copying between the same buffer using different types of mappings
-                // would require a temporary buffer
-                todo!();
-            } else {
-                // copy
-                todo!()
-            }
-
-            // Ok(JSValue::UNDEFINED)
+            return Ok(JSValue::UNDEFINED);
         }
 
-        _ => {
-            count = src_p.get_length_prop(ctx)?;
-            if offset > p.length() as i64 - count {
-                ctx.throw_range_error("invalid array length");
-                return Err(-1);
-            }
-
-            for i in 0..count as u32 {
-                let val = src_p.get_property_u32(ctx, i)?;
-                dst.set_property_u32(ctx, offset as u32 + i, val)?;
-            }
+        let dest_abuf = dest.with(|ta| ta.array_buffer().payload());
+        if dest_abuf.content().id() == src_abuf.content().id() {
+            // copying between the same buffer using different types of mappings
+            // would require a temporary buffer.
+        } else {
+            // TODO
         }
+
+        // use slow path now.
+        // TODO: do transfer in efficient way
     }
+
+    // slow path
+    let src_p = src.clone().objectify(ctx)?;
+    let count = src_p.get_length_prop(ctx)?;
+    if offset > dest.length() as i64 - count {
+        ctx.throw_range_error("invalid array length");
+        return Err(-1);
+    }
+
+    for i in 0..count as u32 {
+        let val = src_p.get_property_u32(ctx, i)?;
+        dst.set_property_u32(ctx, offset as u32 + i, val)?;
+    }
+
+    // match src_p.class_id() {
+    //     JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
+    //         let src = TypedArray(src_p.clone());
+
+    //         let (src_abuf, shift, cnt) = src.with(|ta| {
+    //             (
+    //                 ta.array_buffer().payload(),
+    //                 TypedArray::SIZE_LOG2(dest.class_id()),
+    //                 ta.count,
+    //             )
+    //         });
+    //         count = cnt as i64;
+
+    //         if src_abuf.is_detached() {
+    //             JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+    //             return Err(-1);
+    //         }
+    //         if offset > dest.length() as i64 - count {
+    //             ctx.throw_range_error("invalid array length");
+    //             return Err(-1);
+    //         }
+
+    //         // copying between typed objects
+    //         if src.class_id() == dest.class_id() {
+    //             // same type, use mem copy
+    //             src.with_bytes(|src| {
+    //                 dest.with_bytes_mut(|dst| unsafe {
+    //                     std::ptr::copy(
+    //                         src.as_ptr(),
+    //                         dst.as_mut_ptr(),
+    //                         (count << shift) as usize, // count to byte_num
+    //                     );
+    //                 })
+    //             });
+
+    //             return Ok(JSValue::UNDEFINED);
+    //         }
+
+    //         let dest_abuf = dest.with(|ta| ta.array_buffer().payload());
+
+    //         if dest_abuf.content().id() == src_abuf.content().id() {
+    //             // copying between the same buffer using different types of mappings
+    //             // would require a temporary buffer
+    //             todo!();
+    //         } else {
+    //             // copy
+    //             dest.with_bytes_mut(|dst| unsafe {
+    //                 std::ptr::copy(
+    //                     src.as_ptr(),
+    //                     dst.as_mut_ptr(),
+    //                     (count << shift) as usize, // count to byte_num
+    //                 );
+    //             });
+
+    //             todo!()
+    //         }
+
+    //         // Ok(JSValue::UNDEFINED)
+    //     }
+
+    //     _ => {
+    //         count = src_p.get_length_prop(ctx)?;
+    //         if offset > dest.length() as i64 - count {
+    //             ctx.throw_range_error("invalid array length");
+    //             return Err(-1);
+    //         }
+
+    //         for i in 0..count as u32 {
+    //             let val = src_p.get_property_u32(ctx, i)?;
+    //             dst.set_property_u32(ctx, offset as u32 + i, val)?;
+    //         }
+    //     }
+    // }
 
     Ok(JSValue::UNDEFINED)
 }
 
+#[deprecated(note = "use TypedArray::class_finalize() instead")]
 pub fn js_typed_array_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {
     if let Some(ta) = isa.typed_array() {
         // during the GC the finalizers are called in an arbitrary
@@ -611,7 +785,7 @@ pub fn js_typed_array_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usi
 
 pub fn js_typed_array_mark(val: JSValue) {
     let p = unsafe { val.as_object_unchecked() };
-    if let Some(_) = p.payload().typed_array() {
+    if p.payload().typed_array().is_some() {
         // mark underlaying array buffer
         // println!("[O.o] TODO typed array mark");
         // (*rt).gc_mark_value(JSValue::Object(ta.array_buffer().clone()), mark_func);

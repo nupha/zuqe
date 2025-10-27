@@ -2,6 +2,7 @@ use std::{collections::HashMap, path::Path};
 
 use once_cell::sync::Lazy;
 
+#[derive(Debug, Default)]
 struct ClassInfo {
     class_name: &'static str,
     const_name: &'static str,
@@ -224,7 +225,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "ARRAY_BUFFER",
             "array_buffer",
             Some("crate::array_buffer::ArrayBufferPayload"),
-            None,
+            Some("crate::array_buffer::ArrayBuffer::class_initialize"),
             Some("crate::array_buffer::js_array_buffer_finalizer"),
             None
         ),
@@ -233,7 +234,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "SHARED_ARRAY_BUFFER",
             "array_buffer",
             Some("crate::array_buffer::ArrayBufferPayload"),
-            None,
+            Some("crate::array_buffer::ArrayBuffer::class_initialize"),
             Some("crate::array_buffer::js_array_buffer_finalizer"),
             None
         ),
@@ -245,8 +246,8 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "UINT8C_ARRAY",
             "typed_array",
             Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayPayload>>"),
-            None,
-            Some("crate::typed_array::js_typed_array_finalizer"),
+            Some("crate::typed_array::TypedArray::class_initialize"),
+            Some("crate::typed_array::TypedArray::class_finalize"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
@@ -254,8 +255,8 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "INT8_ARRAY",
             "typed_array",
             Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayPayload>>"),
-            None,
-            Some("crate::typed_array::js_typed_array_finalizer"),
+            Some("crate::typed_array::TypedArray::class_initialize"),
+            Some("crate::typed_array::TypedArray::class_finalize"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
@@ -263,8 +264,8 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "UINT8_ARRAY",
             "typed_array",
             Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayPayload>>"),
-            None,
-            Some("crate::typed_array::js_typed_array_finalizer"),
+            Some("crate::typed_array::TypedArray::class_initialize"),
+            Some("crate::typed_array::TypedArray::class_finalize"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
@@ -272,8 +273,8 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "INT16_ARRAY",
             "typed_array",
             Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayPayload>>"),
-            None,
-            Some("crate::typed_array::js_typed_array_finalizer"),
+            Some("crate::typed_array::TypedArray::class_initialize"),
+            Some("crate::typed_array::TypedArray::class_finalize"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
@@ -281,8 +282,8 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "UINT16_ARRAY",
             "typed_array",
             Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayPayload>>"),
-            None,
-            Some("crate::typed_array::js_typed_array_finalizer"),
+            Some("crate::typed_array::TypedArray::class_initialize"),
+            Some("crate::typed_array::TypedArray::class_finalize"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
@@ -290,8 +291,8 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "INT32_ARRAY",
             "typed_array",
             Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayPayload>>"),
-            None,
-            Some("crate::typed_array::js_typed_array_finalizer"),
+            Some("crate::typed_array::TypedArray::class_initialize"),
+            Some("crate::typed_array::TypedArray::class_finalize"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
@@ -299,8 +300,8 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "UINT32_ARRAY",
             "typed_array",
             Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayPayload>>"),
-            None,
-            Some("crate::typed_array::js_typed_array_finalizer"),
+            Some("crate::typed_array::TypedArray::class_initialize"),
+            Some("crate::typed_array::TypedArray::class_finalize"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
@@ -308,8 +309,8 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "BIG_INT64_ARRAY",
             "typed_array",
             Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayPayload>>"),
-            None,
-            Some("crate::typed_array::js_typed_array_finalizer"),
+            Some("crate::typed_array::TypedArray::class_initialize"),
+            Some("crate::typed_array::TypedArray::class_finalize"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
@@ -317,8 +318,8 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "BIG_UINT64_ARRAY",
             "typed_array",
             Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayPayload>>"),
-            None,
-            Some("crate::typed_array::js_typed_array_finalizer"),
+            Some("crate::typed_array::TypedArray::class_initialize"),
+            Some("crate::typed_array::TypedArray::class_finalize"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
@@ -326,8 +327,8 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "FLOAT32_ARRAY",
             "typed_array",
             Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayPayload>>"),
-            None,
-            Some("crate::typed_array::js_typed_array_finalizer"),
+            Some("crate::typed_array::TypedArray::class_initialize"),
+            Some("crate::typed_array::TypedArray::class_finalize"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         class_def!(
@@ -335,8 +336,8 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "FLOAT64_ARRAY",
             "typed_array",
             Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayPayload>>"),
-            None,
-            Some("crate::typed_array::js_typed_array_finalizer"),
+            Some("crate::typed_array::TypedArray::class_initialize"),
+            Some("crate::typed_array::TypedArray::class_finalize"),
             Some("crate::typed_array::js_typed_array_mark")
         ),
         // end of typed arrays
@@ -345,7 +346,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "DATAVIEW",
             "typed_array",
             Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayPayload>>"),
-            None,
+            Some("crate::typed_array::TypedArray::class_initialize"),
             None,
             None
         ),
