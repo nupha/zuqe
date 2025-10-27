@@ -82,20 +82,15 @@ impl JSObject {
                 }
                 class_id @ (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY) => {
                     // 1, 2, 4, 8
-                    let bytes_per_element = 1 << TypedArray::SIZE_LOG2(class_id);
-
-                    self.payload()
-                        .typed_array()
-                        .unwrap()
-                        .borrow()
-                        .with_bytes(|lst| {
-                            for (i, b) in lst.iter().enumerate() {
-                                if i != 0 && i % bytes_per_element == 0 {
-                                    print!(", ");
-                                }
-                                print!("{:02X}", *b);
+                    let bpe = 1 << TypedArray::SIZE_LOG2(class_id);
+                    self.payload().typed_array().unwrap().with_bytes(|lst| {
+                        for (i, b) in lst.iter().enumerate() {
+                            if i != 0 && i % bpe == 0 {
+                                print!(", ");
                             }
-                        });
+                            print!("{:02X}", *b);
+                        }
+                    });
                 }
                 class_id => unimplemented!("{}", class_id),
             }

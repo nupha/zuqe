@@ -616,7 +616,7 @@ impl JSObject {
             ap.values.borrow().len() as u32
         } else if let Some(ta) = self.payload().typed_array() {
             // typed array or dataview
-            ta.borrow().count
+            ta.count() as _
         } else {
             unreachable!("expect argument, array, typed array or dataview")
         }

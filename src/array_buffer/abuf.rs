@@ -1,7 +1,7 @@
 use std::{
-    cell::{Ref, RefCell},
+    cell::{Cell, Ref, RefCell},
     ffi::c_void,
-    ops::Deref,
+    ops::{Deref, DerefMut},
     ptr::NonNull,
     rc::Rc,
     sync::{Arc, RwLock},
@@ -64,7 +64,21 @@ impl ABufData {
         self.len() == 0
     }
 
-    fn with_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
+    /// get buffer content bytes raw pointer and size
+    #[inline(always)]
+    pub unsafe fn raw_bytes<R>(&self) -> (*mut u8, usize) {
+        match self {
+            Self::Empty => (std::ptr::null_mut(), 0),
+            Self::Owned(b) => (b.as_ref().as_ptr() as *mut u8, b.len()),
+            Self::Shared(a) => {
+                let b = a.read().unwrap();
+                (b.as_ref().as_ptr() as *mut u8, b.len())
+            }
+            Self::Raw(p, len, _) => (p.as_ptr(), *len),
+        }
+    }
+
+    pub(crate) fn with_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
         match self {
             Self::Empty => f(&[]),
             Self::Owned(b) => f(b.as_ref()),
@@ -73,7 +87,7 @@ impl ABufData {
         }
     }
 
-    fn with_bytes_mut<R>(&mut self, f: impl FnOnce(&mut [u8]) -> R) -> R {
+    pub(crate) fn with_bytes_mut<R>(&mut self, f: impl FnOnce(&mut [u8]) -> R) -> R {
         match self {
             Self::Empty => f(&mut []),
             Self::Owned(b) => f(b.as_mut()),
@@ -94,64 +108,42 @@ impl ABufData {
 }
 
 #[derive(Debug)]
-struct ABufInner {
-    pub content: ABufData,
+pub struct ABufInner {
+    content: RefCell<ABufData>,
 
     /// if is shared, the array buffer cannot be detached
-    pub detached: bool,
+    detached: Cell<bool>,
 
     /// typed arrays that based on this array buffer.
-    pub array_list: Vec<JSObjectWeakref>,
+    array_list: RefCell<Vec<JSObjectWeakref>>,
 
-    pub opaque: *mut c_void,
+    opaque: *mut c_void,
 }
 
 impl ABufInner {
+    #[inline(always)]
+    pub fn is_detached(&self) -> bool {
+        self.detached.get()
+    }
+
     /// get capacity of buffer, count in bytes
     #[inline]
     pub fn byte_length(&self) -> usize {
-        if unlikely(self.detached) {
+        if unlikely(self.is_detached()) {
             0
         } else {
-            self.content.len()
+            self.content.borrow().len()
         }
     }
 
-    #[inline(always)]
-    pub fn with_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
-        self.content.with_bytes(f)
-    }
-
-    #[inline(always)]
-    pub fn with_bytes_mut<R>(&mut self, f: impl FnOnce(&mut [u8]) -> R) -> R {
-        self.content.with_bytes_mut(f)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ArrayBufferPayload(Rc<RefCell<ABufInner>>);
-
-impl ArrayBufferPayload {
-    #[inline(always)]
-    pub fn is_detached(&self) -> bool {
-        self.0.borrow().detached
-    }
-
-    /// get capacity of buffer, count in bytes
-    #[inline(always)]
-    pub fn byte_length(&self) -> usize {
-        self.0.borrow().byte_length()
-    }
-
-    pub fn add_typed_array_weakref(&mut self, t: JSObjectWeakref) {
-        self.0.borrow_mut().array_list.push(t);
+    pub fn add_typed_array_weakref(&self, t: JSObjectWeakref) {
+        self.array_list.borrow_mut().push(t);
     }
 
     /// `obj_id` is the id of typed array object
-    pub fn remove_typed_array_weakref(&mut self, obj_id: usize) {
-        self.0
+    pub fn remove_typed_array_weakref(&self, obj_id: usize) {
+        self.array_list
             .borrow_mut()
-            .array_list
             .retain(|a| match a.0.strong_count() {
                 1 => {
                     if let Some(o) = a.upgrade() {
@@ -165,31 +157,43 @@ impl ArrayBufferPayload {
             });
     }
 
+    /// get buffer content
+    #[inline(always)]
+    pub fn content(&self) -> Ref<'_, ABufData> {
+        self.content.borrow()
+    }
+
+    /// set buffer content, returns old content
+    pub(crate) fn replace_content(&self, content: ABufData) -> ABufData {
+        self.detached.set(false);
+        std::mem::replace(self.content.borrow_mut().deref_mut(), content)
+    }
+
+    #[inline(always)]
+    pub const fn opaque(&self) -> *mut c_void {
+        self.opaque
+    }
+
     #[inline(always)]
     pub fn with_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
-        self.0.borrow().with_bytes(f)
+        self.content.borrow().with_bytes(f)
     }
 
     #[inline(always)]
     pub fn with_bytes_mut<R>(&self, f: impl FnOnce(&mut [u8]) -> R) -> R {
-        self.0.borrow_mut().with_bytes_mut(f)
+        self.content.borrow_mut().with_bytes_mut(f)
     }
+}
 
-    /// get buffer content
-    #[inline(always)]
-    pub fn content(&self) -> Ref<'_, ABufData> {
-        Ref::map(self.0.borrow(), |b| &b.content)
-    }
+#[derive(Debug, Clone)]
+pub struct ArrayBufferPayload(Rc<ABufInner>);
 
-    fn set_content(&self, content: ABufData) -> ABufData {
-        let mut b = self.0.borrow_mut();
-        b.detached = false;
-        std::mem::replace(&mut b.content, content)
-    }
+impl Deref for ArrayBufferPayload {
+    type Target = ABufInner;
 
     #[inline(always)]
-    pub fn opaque(&self) -> *mut c_void {
-        self.0.borrow().opaque
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
@@ -256,12 +260,12 @@ impl ArrayBuffer {
         // make ArrayBuffer payload
         let ab = {
             let inner = ABufInner {
-                content,
-                detached: false,
-                array_list: Vec::new(),
+                content: RefCell::new(content),
+                detached: Cell::new(false),
+                array_list: RefCell::new(Vec::new()),
                 opaque,
             };
-            ArrayBufferPayload(Rc::new(RefCell::new(inner)))
+            ArrayBufferPayload(Rc::new(inner))
         };
 
         // create array buffer or shared array buffer instance
@@ -292,12 +296,12 @@ impl ArrayBuffer {
         // then allocate buffer, and finally set buffer to array buffer instance created earlier.
 
         // 1. create ArrayBuffer instance
-        let isa = ArrayBufferPayload(Rc::new(RefCell::new(ABufInner {
-            content: ABufData::Empty,
-            detached: false,
-            array_list: Vec::new(),
+        let isa = ArrayBufferPayload(Rc::new(ABufInner {
+            content: RefCell::new(ABufData::Empty),
+            detached: Cell::new(false),
+            array_list: RefCell::new(Vec::new()),
             opaque,
-        })));
+        }));
         let obj = ctx
             .create_object_from_ctor(
                 new_target,
@@ -340,7 +344,7 @@ impl ArrayBuffer {
             }
         };
 
-        let _d = obj.payload().set_content(content);
+        let _d = obj.payload().replace_content(content);
         debug_assert!(matches!(_d, ABufData::Empty));
 
         Ok(obj)
@@ -372,8 +376,8 @@ impl ArrayBuffer {
 
     /// get array buffer payload
     #[inline(always)]
-    pub(crate) fn payload(&self) -> ArrayBufferPayload {
-        self.0.payload().array_buffer().cloned().unwrap()
+    pub(crate) fn payload(&self) -> &ArrayBufferPayload {
+        self.0.payload().array_buffer().unwrap()
     }
 
     /// detatch array buffer
@@ -381,25 +385,25 @@ impl ArrayBuffer {
         let abuf = self.payload();
 
         if !abuf.is_detached() {
-            let data0 = abuf.set_content(ABufData::Empty);
+            let data0 = abuf.replace_content(ABufData::Empty);
+
             if let ABufData::Raw(ptr, len, fin) = data0
                 && let Some(f) = fin
             {
                 f(ctx.rt(), abuf.opaque(), ptr.as_ptr(), len);
             }
 
-            for w in abuf.0.borrow_mut().array_list.drain(..) {
+            for w in abuf.array_list.borrow_mut().drain(..) {
                 if let Some(o) = w.upgrade() {
                     // typed array or dataview
                     // Note: the typed array length and offset fields are not modified. set count to 0
                     if let Some(ta) = o.as_TypedArray() {
-                        let ta = ta.payload().typed_array().unwrap();
-                        ta.borrow_mut().count = 0;
+                        ta.payload().set_count(0);
                     }
                 }
             }
 
-            abuf.0.borrow_mut().detached = true;
+            abuf.detached.set(true);
         }
     }
 }

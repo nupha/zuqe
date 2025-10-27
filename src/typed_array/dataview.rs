@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, UnsafeCell};
 
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_ARRAY_BUFFER, JS_CLASS_BIG_INT64_ARRAY,
@@ -20,15 +20,15 @@ use crate::{
 use super::{TypedArrayPayload, js_typed_array_getter};
 
 impl JSContext {
-    /// create a DataView with given array buffer.
+    /// create a DataView with underlaying AarrayBuffer.
     pub fn create_dataview(
         &self,
         ctor: &JSValue,
-        buffer: ArrayBuffer,
+        array_buffer: ArrayBuffer,
         offset: usize,
         length: Option<usize>,
     ) -> JSResult {
-        let abuf = buffer.payload();
+        let abuf = array_buffer.payload();
         if abuf.is_detached() {
             JS_ThrowTypeErrorDetachedArrayBuffer(self);
             return Err(-1);
@@ -54,24 +54,24 @@ impl JSContext {
             .create_object_from_ctor_with(ctor, || {
                 // Note: test array buffer detach again,
                 // because get prototype may potentially detach the buffer.
-                if unlikely(buffer.payload().is_detached()) {
+                if unlikely(array_buffer.payload().is_detached()) {
                     JS_ThrowTypeErrorDetachedArrayBuffer(self);
                     Err(-1)
                 } else {
                     let isa = Box::new(TypedArrayPayload {
-                        obj: JSObjectWeakref::default(),
-                        buffer,
+                        obj: UnsafeCell::new(JSObjectWeakref::default()),
+                        buffer: array_buffer,
                         offset: offset as u32,
                         byte_length: len as _,
-                        count: 0,
+                        count: Cell::new(0),
                     });
-                    Ok(ObjectPayload::DATAVIEW(RefCell::new(isa)))
+                    Ok(ObjectPayload::DATAVIEW(isa))
                 }
             })
             .map_err(|_| -1)?;
 
-        // set back ref to the new created DataView object
-        o.payload().typed_array().unwrap().borrow_mut().obj = o.downgrade();
+        // set back ref to DataView object self
+        o.as_TypedArray().unwrap().payload().set_obj(&o);
 
         Ok(o.into())
     }
@@ -116,19 +116,18 @@ pub fn js_dataview_getValue(ctx: &JSContext, cc: CallContext) -> JSResult {
     };
 
     unsafe {
-        let abuf = ta.borrow().buffer.payload();
-
+        let abuf = ta.array_buffer().payload();
         if abuf.is_detached() {
             JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
             return Err(-1);
         }
 
-        if pos + size > ta.borrow().byte_length as usize {
+        if pos + size > abuf.byte_length() {
             ctx.throw_range_error("out of bound");
             return Err(-1);
         }
 
-        ta.borrow().with_bytes(|buf| -> JSResult {
+        ta.with_bytes(|buf| -> JSResult {
             let ptr = buf.as_ptr().add(pos);
 
             match class_id {
@@ -245,21 +244,16 @@ pub fn js_dataview_setValue(ctx: &JSContext, cc: CallContext) -> JSResult {
         false
     };
 
-    let (is_detached, byte_length) = {
-        let b = ta.borrow();
-        (b.is_detached(), b.byte_length())
-    };
-
-    if is_detached {
+    if ta.is_detached() {
         JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
         return Err(-1);
     }
-    if pos + size > byte_length {
+    if pos + size > ta.byte_length() {
         ctx.throw_range_error("out of bound");
         return Err(-1);
     }
 
-    ta.borrow_mut().with_bytes_mut(|buf| -> Result<(), i32> {
+    ta.with_bytes_mut(|buf| -> Result<(), i32> {
         unsafe {
             let ptr = buf.as_mut_ptr().add(pos);
 

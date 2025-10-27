@@ -10,7 +10,6 @@ struct ClassInfo {
     initialize: Option<&'static str>,
     finalize: Option<&'static str>,
     gc_mark: Option<&'static str>,
-    payload: Option<&'static str>,
 }
 
 macro_rules! class_def {
@@ -19,7 +18,6 @@ macro_rules! class_def {
             class_name: $name,
             const_name: $const_name,
             key: if $key.is_empty() { None } else { Some($key) },
-            payload: $payload,
             initialize: $init,
             finalize: $fin,
             gc_mark: $mark,
@@ -49,10 +47,7 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<&'static str, &'static str>> = Lazy::new
         "std::cell::RefCell<Box<crate::iterator::ForInIterPayload>>",
     );
     m.insert("array_buffer", "crate::array_buffer::ArrayBufferPayload");
-    m.insert(
-        "typed_array",
-        "std::cell::RefCell<Box<crate::typed_array::TypedArrayPayload>>",
-    );
+    m.insert("typed_array", "Box<crate::typed_array::TypedArrayPayload>");
     m.insert(
         "mapset",
         "std::cell::RefCell<Box<crate::mapset::JSMapState>>",
@@ -245,7 +240,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "Uint8ClampedArray",
             "UINT8C_ARRAY",
             "typed_array",
-            Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayPayload>>"),
+            Some("Box<crate::typed_array::TypedArrayPayload>"),
             Some("crate::typed_array::TypedArray::class_initialize"),
             Some("crate::typed_array::TypedArray::class_finalize"),
             Some("crate::typed_array::js_typed_array_mark")
@@ -254,7 +249,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "Int8Array",
             "INT8_ARRAY",
             "typed_array",
-            Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayPayload>>"),
+            Some("Box<crate::typed_array::TypedArrayPayload>"),
             Some("crate::typed_array::TypedArray::class_initialize"),
             Some("crate::typed_array::TypedArray::class_finalize"),
             Some("crate::typed_array::js_typed_array_mark")
@@ -263,7 +258,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "Uint8Array",
             "UINT8_ARRAY",
             "typed_array",
-            Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayPayload>>"),
+            Some("Box<crate::typed_array::TypedArrayPayload>"),
             Some("crate::typed_array::TypedArray::class_initialize"),
             Some("crate::typed_array::TypedArray::class_finalize"),
             Some("crate::typed_array::js_typed_array_mark")
@@ -272,7 +267,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "Int16Array",
             "INT16_ARRAY",
             "typed_array",
-            Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayPayload>>"),
+            Some("Box<crate::typed_array::TypedArrayPayload>"),
             Some("crate::typed_array::TypedArray::class_initialize"),
             Some("crate::typed_array::TypedArray::class_finalize"),
             Some("crate::typed_array::js_typed_array_mark")
@@ -281,7 +276,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "Uint16Array",
             "UINT16_ARRAY",
             "typed_array",
-            Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayPayload>>"),
+            Some("Box<crate::typed_array::TypedArrayPayload>"),
             Some("crate::typed_array::TypedArray::class_initialize"),
             Some("crate::typed_array::TypedArray::class_finalize"),
             Some("crate::typed_array::js_typed_array_mark")
@@ -290,7 +285,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "Int32Array",
             "INT32_ARRAY",
             "typed_array",
-            Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayPayload>>"),
+            Some("Box<crate::typed_array::TypedArrayPayload>"),
             Some("crate::typed_array::TypedArray::class_initialize"),
             Some("crate::typed_array::TypedArray::class_finalize"),
             Some("crate::typed_array::js_typed_array_mark")
@@ -299,7 +294,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "Uint32Array",
             "UINT32_ARRAY",
             "typed_array",
-            Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayPayload>>"),
+            Some("Box<crate::typed_array::TypedArrayPayload>"),
             Some("crate::typed_array::TypedArray::class_initialize"),
             Some("crate::typed_array::TypedArray::class_finalize"),
             Some("crate::typed_array::js_typed_array_mark")
@@ -308,7 +303,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "BigInt64Array",
             "BIG_INT64_ARRAY",
             "typed_array",
-            Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayPayload>>"),
+            Some("Box<crate::typed_array::TypedArrayPayload>"),
             Some("crate::typed_array::TypedArray::class_initialize"),
             Some("crate::typed_array::TypedArray::class_finalize"),
             Some("crate::typed_array::js_typed_array_mark")
@@ -317,7 +312,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "BigUint64Array",
             "BIG_UINT64_ARRAY",
             "typed_array",
-            Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayPayload>>"),
+            Some("Box<crate::typed_array::TypedArrayPayload>"),
             Some("crate::typed_array::TypedArray::class_initialize"),
             Some("crate::typed_array::TypedArray::class_finalize"),
             Some("crate::typed_array::js_typed_array_mark")
@@ -326,7 +321,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "Float32Array",
             "FLOAT32_ARRAY",
             "typed_array",
-            Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayPayload>>"),
+            Some("Box<crate::typed_array::TypedArrayPayload>"),
             Some("crate::typed_array::TypedArray::class_initialize"),
             Some("crate::typed_array::TypedArray::class_finalize"),
             Some("crate::typed_array::js_typed_array_mark")
@@ -335,7 +330,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "Float64Array",
             "FLOAT64_ARRAY",
             "typed_array",
-            Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayPayload>>"),
+            Some("Box<crate::typed_array::TypedArrayPayload>"),
             Some("crate::typed_array::TypedArray::class_initialize"),
             Some("crate::typed_array::TypedArray::class_finalize"),
             Some("crate::typed_array::js_typed_array_mark")
@@ -345,7 +340,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "DataView",
             "DATAVIEW",
             "typed_array",
-            Some("std::cell::RefCell<Box<crate::typed_array::TypedArrayPayload>>"),
+            Some("Box<crate::typed_array::TypedArrayPayload>"),
             Some("crate::typed_array::TypedArray::class_initialize"),
             None,
             None
@@ -569,16 +564,6 @@ pub fn gen_std_class_defs(outfile: &Path) {
     ));
 
     for (i, cdef) in class_defs.iter().enumerate() {
-        if let Some(k) = cdef.key {
-            debug_assert_eq!(
-                cdef.payload,
-                Some(CLASS_PAYLOAD_TYPE[k]),
-                "{k}: {:?}, {}",
-                cdef.payload,
-                CLASS_PAYLOAD_TYPE[k]
-            );
-        }
-
         let name = cdef.class_name;
 
         match cdef.const_name {
@@ -653,13 +638,13 @@ pub fn gen_class_payload(outfile: &Path) {
     let mut getid_arms = Vec::<String>::with_capacity(class_defs.len() + 8);
 
     for cdef in class_defs {
-        items.push(if let Some(p) = cdef.payload {
-            format!("{}({})", cdef.const_name, p)
+        items.push(if let Some(k) = cdef.key {
+            format!("{}({})", cdef.const_name, CLASS_PAYLOAD_TYPE[k])
         } else {
             cdef.const_name.to_string()
         });
 
-        getid_arms.push(if cdef.payload.is_some() {
+        getid_arms.push(if cdef.key.is_some() {
             format!(
                 "Self::{}(_)=>crate::JS_CLASS_{}",
                 cdef.const_name, cdef.const_name

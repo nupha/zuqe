@@ -1,4 +1,7 @@
-use std::{cell::RefCell, ops::Deref};
+use std::{
+    cell::{Cell, UnsafeCell},
+    ops::Deref,
+};
 
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ARRAY_BUFFER, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
@@ -31,17 +34,17 @@ pub const JS_TYPED_ARRAY_COUNT: usize =
 #[derive(Debug)]
 pub struct TypedArrayPayload {
     /// back reference to the TypedArray/DataView object.
-    pub obj: JSObjectWeakref,
+    pub(super) obj: UnsafeCell<JSObjectWeakref>,
 
     /// underlaying array buffer object.
-    pub buffer: ArrayBuffer,
+    pub(super) buffer: ArrayBuffer,
 
     /// start offset in array buffer  
-    pub offset: u32,
+    pub(super) offset: u32,
     /// number of bytes from array buffer
-    pub byte_length: u32,
+    pub(super) byte_length: u32,
     /// number of elements in typed array
-    pub count: u32,
+    pub(super) count: Cell<u32>,
 }
 
 impl TypedArrayPayload {
@@ -86,19 +89,25 @@ impl TypedArrayPayload {
         }
 
         let ta = Self {
-            obj: JSObjectWeakref::default(), // empty weakref
+            obj: UnsafeCell::new(JSObjectWeakref::default()), // empty weakref
             buffer,
             offset: offset as u32,
             byte_length: (count as u32) << size_log2,
-            count: count as u32,
+            count: Cell::new(count as u32),
         };
         Ok(ta)
+    }
+
+    /// get underlaying array buffer object.
+    #[inline(always)]
+    pub const fn array_buffer(&self) -> &ArrayBuffer {
+        &self.buffer
     }
 
     /// check if `self` TypedArray is detached.
     #[inline]
     pub fn is_detached(&self) -> bool {
-        self.buffer.payload().is_detached()
+        self.array_buffer().payload().is_detached()
     }
 
     #[inline(always)]
@@ -106,10 +115,20 @@ impl TypedArrayPayload {
         self.byte_length as _
     }
 
-    /// get underlaying array buffer object.
     #[inline(always)]
-    pub const fn array_buffer(&self) -> &ArrayBuffer {
-        &self.buffer
+    pub const fn count(&self) -> usize {
+        self.count.get() as _
+    }
+
+    #[inline(always)]
+    pub fn set_count(&self, n: usize) {
+        self.count.set(n as _);
+    }
+
+    pub fn set_obj(&self, obj: &JSObject) {
+        unsafe {
+            *self.obj.get() = obj.downgrade();
+        }
     }
 
     /// run closure with underlaying bytes of typed array.
@@ -287,33 +306,51 @@ impl TypedArray {
         if let Some(ta) = isa.typed_array() {
             // during the GC the finalizers are called in an arbitrary
             // order so the ArrayBuffer finalize may have been called
-            ta.borrow()
-                .array_buffer()
-                .payload()
-                .remove_typed_array_weakref(id);
+            ta.array_buffer().payload().remove_typed_array_weakref(id);
         }
     }
 
+    pub fn payload(&self) -> &TypedArrayPayload {
+        self.0.payload().typed_array().unwrap()
+    }
+
     /// run closure with typed array data.
-    pub fn with<R>(&self, f: impl FnOnce(&TypedArrayPayload) -> R) -> R {
+    pub(super) fn with<R>(&self, f: impl FnOnce(&TypedArrayPayload) -> R) -> R {
         self.0
             .payload()
             .typed_array()
-            .map(|x| f(x.borrow().deref()))
+            .map(|x| f(x.deref()))
             .unwrap()
     }
 
     /// check if the TypedArray is detached.
     #[inline]
     pub fn is_detached(&self) -> bool {
-        self.with(|ta| ta.is_detached())
+        self.payload().is_detached()
     }
 
     /// Get elements count of typed array.
     /// If underlaying array buffer is detached, returns 0.
     #[inline]
     pub fn length(&self) -> usize {
-        self.with(|ta| ta.count as usize)
+        #[cfg(debug_assertions)]
+        if self.is_detached() {
+            debug_assert_eq!(self.payload().count(), 0);
+            0
+        } else {
+            self.payload().count()
+        }
+
+        #[cfg(not(debug_assertions))]
+        self.payload().count()
+    }
+
+    pub fn byte_length(&self) -> usize {
+        if self.is_detached() {
+            0
+        } else {
+            self.payload().byte_length()
+        }
     }
 
     /// Get elements count of typed array. (calculated by underlying array buffer space).
@@ -321,12 +358,12 @@ impl TypedArray {
     /// this will still return rated count, but .length() will return 0.
     pub fn capacity(&self) -> usize {
         let size_log2 = Self::SIZE_LOG2(self.class_id());
-        self.with(|ta| (ta.byte_length >> size_log2) as usize)
+        self.byte_length() >> size_log2
     }
 
     /// get underlying array buffer object.
-    pub fn array_buffer(&self) -> ArrayBuffer {
-        self.with(|ta| ta.array_buffer().clone())
+    pub fn array_buffer(&self) -> &ArrayBuffer {
+        self.payload().array_buffer()
     }
 
     /// Get underlying array buffer byte offset.
@@ -346,20 +383,20 @@ impl TypedArray {
                 Ok(0)
             }
         } else {
-            Ok(self.with(|ta| ta.offset as usize))
+            Ok(self.payload().offset as usize)
         }
     }
 
     /// run closure with underlaying bytes of typed array
     #[inline(always)]
     pub fn with_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
-        self.with(|p| p.with_bytes(f))
+        self.payload().with_bytes(f)
     }
 
     /// run closure with underlaying bytes of typed array
     #[inline(always)]
     pub fn with_bytes_mut<R>(&self, f: impl FnOnce(&mut [u8]) -> R) -> R {
-        self.with(|ta| ta.with_bytes_mut(f))
+        self.payload().with_bytes_mut(f)
     }
 
     /// if nth is out of range, return Err(-1)
@@ -481,21 +518,20 @@ impl TypedArray {
         count: usize,
         class_id: ClassID,
     ) -> Result<Self, i32> {
-        let arr = RefCell::new(Box::new(TypedArrayPayload::new(
+        let ta = Box::new(TypedArrayPayload::new(
             ctx, buffer, class_id, offset, count,
-        )?));
-
+        )?);
         let isa = match class_id {
-            JS_CLASS_UINT8C_ARRAY => ObjectPayload::UINT8C_ARRAY(arr),
-            JS_CLASS_UINT8_ARRAY => ObjectPayload::UINT8_ARRAY(arr),
-            JS_CLASS_INT8_ARRAY => ObjectPayload::INT8_ARRAY(arr),
-            JS_CLASS_UINT16_ARRAY => ObjectPayload::UINT16_ARRAY(arr),
-            JS_CLASS_INT16_ARRAY => ObjectPayload::INT16_ARRAY(arr),
-            JS_CLASS_UINT32_ARRAY => ObjectPayload::UINT32_ARRAY(arr),
-            JS_CLASS_INT32_ARRAY => ObjectPayload::UINT32_ARRAY(arr),
-            JS_CLASS_FLOAT32_ARRAY => ObjectPayload::FLOAT32_ARRAY(arr),
-            JS_CLASS_FLOAT64_ARRAY => ObjectPayload::FLOAT64_ARRAY(arr),
-            JS_CLASS_DATAVIEW => ObjectPayload::DATAVIEW(arr),
+            JS_CLASS_UINT8C_ARRAY => ObjectPayload::UINT8C_ARRAY(ta),
+            JS_CLASS_UINT8_ARRAY => ObjectPayload::UINT8_ARRAY(ta),
+            JS_CLASS_INT8_ARRAY => ObjectPayload::INT8_ARRAY(ta),
+            JS_CLASS_UINT16_ARRAY => ObjectPayload::UINT16_ARRAY(ta),
+            JS_CLASS_INT16_ARRAY => ObjectPayload::INT16_ARRAY(ta),
+            JS_CLASS_UINT32_ARRAY => ObjectPayload::UINT32_ARRAY(ta),
+            JS_CLASS_INT32_ARRAY => ObjectPayload::UINT32_ARRAY(ta),
+            JS_CLASS_FLOAT32_ARRAY => ObjectPayload::FLOAT32_ARRAY(ta),
+            JS_CLASS_FLOAT64_ARRAY => ObjectPayload::FLOAT64_ARRAY(ta),
+            JS_CLASS_DATAVIEW => ObjectPayload::DATAVIEW(ta),
             c @ (JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY) => {
                 ctx.throw_type_error(&format!(
                     "typed array for {} is unsupported",
@@ -520,12 +556,13 @@ impl TypedArray {
             let p = ta.payload().typed_array().unwrap();
             let w = ta.downgrade();
 
-            p.borrow()
-                .array_buffer()
+            p.array_buffer()
                 .payload()
                 .add_typed_array_weakref(w.clone());
 
-            p.borrow_mut().obj = w;
+            unsafe {
+                *p.obj.get() = w;
+            }
         }
 
         Ok(TypedArray(ta))
@@ -636,45 +673,61 @@ pub fn js_typed_array_set_internal(
     if let Some(src) = src.as_object_TypedArray()
         && (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).contains(&src.class_id())
     {
-        let (src_abuf, src_bpe, count) = src.with(|ta| {
-            (
-                ta.array_buffer().payload(),
-                TypedArray::SIZE_LOG2(dest.class_id()),
-                ta.count,
-            )
-        });
+        let src_abuf = src.array_buffer().payload();
+
+        // let (src_abuf, src_bpe, count) = src.with(|ta| {
+        //     (
+        //         ta.array_buffer().payload(),
+        //         TypedArray::SIZE_LOG2(dest.class_id()),
+        //         ta.count(),
+        //     )
+        // });
 
         if src_abuf.is_detached() {
             JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
             return Err(-1);
         }
+
+        let count = src.payload().count();
         if offset > dest.length() as i64 - count as i64 {
             ctx.throw_range_error("invalid array length");
             return Err(-1);
         }
 
         // let dst_bpe = TypedArray::SIZE_LOG2(dest.class_id());
+        let src_bpe = TypedArray::SIZE_LOG2(src.class_id());
+        let dest_abuf = dest.array_buffer().payload();
 
-        if src.class_id() == dest.class_id() {
+        if dest_abuf.content().id() == src_abuf.content().id() {
+            // use same underlying buffer
+            if src.class_id() == dest.class_id() {
+                // fast path: same type, use mem copy
+                let src_ptr = src.with_bytes(|buf| buf.as_ptr());
+                dest.with_bytes_mut(|buf| unsafe {
+                    std::ptr::copy(
+                        src_ptr,
+                        buf.as_mut_ptr(),
+                        count << src_bpe, // count to byte_num
+                    );
+                });
+                return Ok(JSValue::UNDEFINED);
+            }
+
+            // copying between the same buffer using different types of mappings
+            // would require a temporary buffer.
+            // TODO: XXX
+        } else if src.class_id() == dest.class_id() {
             // fast path: same type, use mem copy
             src.with_bytes(|src_buf| {
                 dest.with_bytes_mut(|dst_buf| unsafe {
                     std::ptr::copy(
                         src_buf.as_ptr(),
                         dst_buf.as_mut_ptr(),
-                        (count << src_bpe) as usize, // count to byte_num
+                        count << src_bpe, // count to byte_num
                     );
                 })
             });
             return Ok(JSValue::UNDEFINED);
-        }
-
-        let dest_abuf = dest.with(|ta| ta.array_buffer().payload());
-        if dest_abuf.content().id() == src_abuf.content().id() {
-            // copying between the same buffer using different types of mappings
-            // would require a temporary buffer.
-        } else {
-            // TODO
         }
 
         // use slow path now.
@@ -776,10 +829,7 @@ pub fn js_typed_array_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usi
     if let Some(ta) = isa.typed_array() {
         // during the GC the finalizers are called in an arbitrary
         // order so the ArrayBuffer finalize may have been called
-        ta.borrow()
-            .array_buffer()
-            .payload()
-            .remove_typed_array_weakref(id);
+        ta.array_buffer().payload().remove_typed_array_weakref(id);
     }
 }
 
