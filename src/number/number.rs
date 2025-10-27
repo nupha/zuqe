@@ -78,6 +78,7 @@ impl IntOrFloat {
     }
 }
 
+#[repr(C)]
 #[derive(Clone, Copy)]
 pub(crate) union JSFloat64Union {
     pub d: f64,

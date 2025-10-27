@@ -20,6 +20,7 @@ use crate::{
     function::{CallContext, FieldDef, JS_CallConstructor},
     iterator::{JSIteratorKindEnum, js_create_array_iterator},
     js_core::js_get_this,
+    number::JSFloat64Union,
     object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_SpeciesConstructor},
     string::StringBuf,
     value::{HINT_NUMBER, JSValue},
@@ -307,22 +308,22 @@ pub fn js_typed_array_at(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Err(-1);
     };
 
-    let mut idx: i64 = cc.arg(0).to_i64_saturating(ctx)?;
-    let len = ta.length() as i64;
-    if idx < 0 {
-        idx += len;
-    }
-    if idx < 0 || idx >= len {
-        ctx.throw_range_error("invalid array index");
-        return Err(-1);
-    }
-
     if ta.is_detached() {
         JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
         return Err(-1);
     }
 
-    cc.this().get_property_value(ctx, &JSValue::from(idx))
+    let mut idx: i64 = cc.arg(0).to_i64_saturating(ctx)?;
+    let len = ta.length() as i64;
+    if idx < 0 {
+        idx += len;
+    }
+
+    if unlikely(idx < 0 || idx >= len) {
+        Ok(JSValue::UNDEFINED)
+    } else {
+        cc.this().get_property_value(ctx, &JSValue::from(idx))
+    }
 }
 
 pub fn js_typed_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -420,61 +421,47 @@ fn js_typed_array_copyWithin(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_typed_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
     let len = js_typed_array_get_length_internal(ctx, cc.this())? as i32;
-    let start = if cc.length() > 1 {
-        cc.arg(1).to_i32_clamp(ctx, 0, len as _, len as _)?
-    } else {
-        0
-    };
-    let final_ = if cc.length() > 2 && !cc.arg(2).is_undefined() {
-        cc.arg(2).to_i32_clamp(ctx, 0, len as _, len as _)?
-    } else {
-        len as _
-    };
 
     // we are sure cc.this() is a TypedArray
     let ta = cc.this().as_object_TypedArray().unwrap();
 
     let shift = TypedArray::SIZE_LOG2(ta.class_id());
     let val = cc.arg(0);
-    let mut data = [0u8; 8];
+    let mut v64 = 0_u64;
 
     match ta.class_id() {
-        c @ (JS_CLASS_INT8_ARRAY | JS_CLASS_UINT8_ARRAY | JS_CLASS_UINT8C_ARRAY) => {
-            data[0] = if c == JS_CLASS_INT8_ARRAY {
-                val.to_i32(ctx)? as i8 as u8
-            } else {
-                val.coerce_to_u8_clamp(ctx)?
-            };
+        JS_CLASS_UINT8C_ARRAY => {
+            v64 = val.coerce_to_u8_clamp(ctx)? as _;
         }
-        c @ (JS_CLASS_INT16_ARRAY | JS_CLASS_UINT16_ARRAY) => {
-            let bb: [u8; 2] = if c == JS_CLASS_INT16_ARRAY {
-                (val.to_i32(ctx)? as i16).to_ne_bytes()
-            } else {
-                (val.to_i32(ctx)? as u16).to_ne_bytes()
-            };
-            data[..2].copy_from_slice(&bb);
+        JS_CLASS_INT8_ARRAY
+        | JS_CLASS_UINT8_ARRAY
+        | JS_CLASS_INT16_ARRAY
+        | JS_CLASS_UINT16_ARRAY
+        | JS_CLASS_INT32_ARRAY
+        | JS_CLASS_UINT32_ARRAY => {
+            v64 = val.to_u32(ctx)? as _;
         }
-        JS_CLASS_INT32_ARRAY | JS_CLASS_UINT32_ARRAY => {
-            data[..4].copy_from_slice(&cc.arg(0).to_i32(ctx)?.to_ne_bytes());
-        }
+
         JS_CLASS_FLOAT32_ARRAY => {
             let d: f64 = val.to_f64(ctx)?;
-            let bb = unsafe {
+            v64 = unsafe {
                 #[repr(C)]
                 union Float32Union {
                     f: f32,
                     uint32: u32,
                 }
                 let u = Float32Union { f: d as f32 };
-                u.uint32
-            }
-            .to_ne_bytes();
-            data[..4].copy_from_slice(&bb);
+                u.uint32 as _
+            };
         }
         JS_CLASS_FLOAT64_ARRAY => {
             let d: f64 = val.to_f64(ctx)?;
-            data.copy_from_slice(&d.to_ne_bytes());
+            v64 = unsafe {
+                let u = JSFloat64Union { d };
+                u.uint64
+            };
         }
+
         c @ (JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY) => {
             //JS_ToBigInt64(ctx, &mut v64 as *mut u64 as *mut i64, (*argv.offset(0)))
             ctx.throw_type_error(&format!(
@@ -492,6 +479,17 @@ pub fn js_typed_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
         }
     }
 
+    let start = if cc.length() > 1 {
+        cc.arg(1).to_i32_clamp(ctx, 0, len as _, len as _)?
+    } else {
+        0
+    };
+    let final_ = if cc.length() > 2 && !cc.arg(2).is_undefined() {
+        cc.arg(2).to_i32_clamp(ctx, 0, len as _, len as _)?
+    } else {
+        len as _
+    };
+
     // Note: check detached again here, because the typed array may detach the array buffer
     // by side effect
     if unlikely(ta.is_detached()) {
@@ -506,7 +504,7 @@ pub fn js_typed_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
                 ta.with_bytes_mut(|buf| unsafe {
                     std::ptr::write_bytes(
                         buf.as_mut_ptr().offset(start as isize),
-                        data[0],
+                        v64 as u8,
                         (final_ - start) as usize,
                     );
                 });
@@ -515,10 +513,9 @@ pub fn js_typed_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
         1 => {
             // 2 bytes per element
             ta.with_bytes_mut(|buf| unsafe {
-                let v = data.as_ptr().cast::<u16>().read();
                 let mut ptr = buf.as_mut_ptr().cast::<u16>();
                 for _ in start..final_ {
-                    ptr.write(v);
+                    ptr.write(v64 as u16);
                     ptr = ptr.add(1);
                 }
             });
@@ -526,10 +523,9 @@ pub fn js_typed_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
         2 => {
             // 4 bytes per element
             ta.with_bytes_mut(|buf| unsafe {
-                let v = data.as_ptr().cast::<u32>().read();
                 let mut ptr = buf.as_mut_ptr().cast::<u32>();
                 for _ in start..final_ {
-                    ptr.write(v);
+                    ptr.write(v64 as u32);
                     ptr = ptr.add(1);
                 }
             });
@@ -537,10 +533,9 @@ pub fn js_typed_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
         3 => {
             // 8 bytes per element
             ta.with_bytes_mut(|buf| unsafe {
-                let v = data.as_ptr().cast::<u64>().read();
                 let mut ptr = buf.as_mut_ptr().cast::<u64>();
                 for _ in start..final_ {
-                    ptr.write(v);
+                    ptr.write(v64);
                     ptr = ptr.add(1);
                 }
             });
