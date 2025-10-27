@@ -48,6 +48,7 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<&'static str, &'static str>> = Lazy::new
     );
     m.insert("array_buffer", "crate::array_buffer::ArrayBufferPayload");
     m.insert("typed_array", "Box<crate::typed_array::TypedArrayPayload>");
+    m.insert("data_view", "Box<crate::typed_array::DataViewPayload>");
     m.insert(
         "mapset",
         "std::cell::RefCell<Box<crate::mapset::JSMapState>>",
@@ -339,8 +340,8 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         class_def!(
             "DataView",
             "DATAVIEW",
-            "typed_array",
-            Some("Box<crate::typed_array::TypedArrayPayload>"),
+            "data_view",
+            Some("Box<crate::typed_array::DataViewPayload>"),
             Some("crate::typed_array::TypedArray::class_initialize"),
             None,
             None

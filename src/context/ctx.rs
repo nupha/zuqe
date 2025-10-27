@@ -9,9 +9,9 @@ use std::{
 };
 
 use crate::{
-    JS_CLASS_ARRAY, JS_CLASS_ARRAY_BUFFER, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_ERROR,
-    JS_CLASS_FLOAT64_ARRAY, JS_CLASS_OBJECT, JS_CLASS_PROXY, JS_CLASS_SHARED_ARRAY_BUFFER,
-    JS_CLASS_UINT8C_ARRAY,
+    JS_CLASS_ARRAY, JS_CLASS_ARRAY_BUFFER, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_DATAVIEW,
+    JS_CLASS_ERROR, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_OBJECT, JS_CLASS_PROXY,
+    JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY,
     array::ArrayObjPayload,
     atom::{
         Atom,
@@ -545,11 +545,12 @@ impl JSRuntime {
 
             ctx.use_classes(&[JS_CLASS_ARRAY_BUFFER, JS_CLASS_SHARED_ARRAY_BUFFER])?;
             ctx.use_classes(&(JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).collect::<Vec<_>>())?;
+            ctx.use_class(JS_CLASS_DATAVIEW)?;
 
             //ctx.intrinsic_proxy();
+            //ctx.intrinsic_typed_arrays();
 
             ctx.intrinsic_async();
-            //ctx.intrinsic_typed_arrays();
             ctx.intrinsic_regexp();
             ctx.intrinsic_mapset();
             ctx.intrinsic_date();

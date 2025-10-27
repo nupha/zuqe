@@ -167,7 +167,6 @@ object_cast!(
         | JS_CLASS_BIG_UINT64_ARRAY
         | JS_CLASS_FLOAT32_ARRAY
         | JS_CLASS_FLOAT64_ARRAY
-        | JS_CLASS_DATAVIEW
 );
 
 impl TypedArray {
