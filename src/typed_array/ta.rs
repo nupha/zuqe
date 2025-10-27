@@ -196,7 +196,7 @@ impl TypedArray {
         Self::TYPED_ARRAY_SIZE_LOG2[(class_id - JS_CLASS_UINT8C_ARRAY) as usize]
     }
 
-    pub fn class_initialize(ctx: &JSContext, class_id: ClassID) -> Result<JSObject, i32> {
+    pub fn class_initialize(ctx: &JSContext, class_id: ClassID) -> Result<Option<JSObject>, i32> {
         match class_id {
             JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
                 // Typed arrays
@@ -233,9 +233,7 @@ impl TypedArray {
                 )
                 .unwrap();
 
-                // initilize variant typed arraies
-                let mut proto: Option<JSObject> = None;
-
+                // make proto for variant typed array classes
                 for cid in JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY {
                     let nby = 1 << TypedArray::SIZE_LOG2(cid);
                     let name = AtomRef(
@@ -269,14 +267,10 @@ impl TypedArray {
                         0,
                     )?;
 
-                    if cid != class_id {
-                        ctx.0.borrow_mut().class_proto[cid as usize] = ta_obj.into();
-                    } else {
-                        proto.replace(ta_obj);
-                    }
+                    ctx.0.borrow_mut().class_proto[cid as usize] = ta_obj.into();
                 }
 
-                Ok(proto.unwrap())
+                Ok(None)
             }
             JS_CLASS_DATAVIEW => {
                 // DataView
@@ -294,7 +288,7 @@ impl TypedArray {
                 ctx.add_global_constructor("DataView", &dv_ctor, &dv_obj.clone().into());
 
                 //self.0.borrow_mut().class_proto[JS_CLASS_DATAVIEW as usize] = dv_proto;
-                Ok(dv_obj)
+                Ok(Some(dv_obj))
             }
             _ => {
                 unreachable!()
@@ -527,11 +521,13 @@ impl TypedArray {
             JS_CLASS_INT8_ARRAY => ObjectPayload::INT8_ARRAY(ta),
             JS_CLASS_UINT16_ARRAY => ObjectPayload::UINT16_ARRAY(ta),
             JS_CLASS_INT16_ARRAY => ObjectPayload::INT16_ARRAY(ta),
+            JS_CLASS_INT32_ARRAY => ObjectPayload::INT32_ARRAY(ta),
             JS_CLASS_UINT32_ARRAY => ObjectPayload::UINT32_ARRAY(ta),
-            JS_CLASS_INT32_ARRAY => ObjectPayload::UINT32_ARRAY(ta),
             JS_CLASS_FLOAT32_ARRAY => ObjectPayload::FLOAT32_ARRAY(ta),
             JS_CLASS_FLOAT64_ARRAY => ObjectPayload::FLOAT64_ARRAY(ta),
+
             JS_CLASS_DATAVIEW => ObjectPayload::DATAVIEW(ta),
+
             c @ (JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY) => {
                 ctx.throw_type_error(&format!(
                     "typed array for {} is unsupported",

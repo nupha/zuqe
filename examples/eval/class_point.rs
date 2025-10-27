@@ -50,7 +50,7 @@ pub fn register_class_point(rt: &mut JSRuntime) -> Result<ClassID, i32> {
     let class_id = rt.register_class(
         ClassDef::new("Point")
             .initialize(
-                |ctx: &JSContext, class_id: ClassID| -> Result<JSObject, i32> {
+                |ctx: &JSContext, class_id: ClassID| -> Result<Option<JSObject>, i32> {
                     // create prototype
                     let proto = ctx.create_base_object().unwrap();
                     proto.install_field_defs(ctx, &class_point_proto)?;
@@ -76,7 +76,7 @@ pub fn register_class_point(rt: &mut JSRuntime) -> Result<ClassID, i32> {
                         JS_PROP_C_W_E,
                     )?;
 
-                    Ok(proto)
+                    Ok(Some(proto))
                 },
             )
             .free(|_: &mut JSRuntime, opaque: *mut c_void, id: usize| {

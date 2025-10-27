@@ -1,7 +1,5 @@
 use std::cmp::Ordering;
 
-use libc::EILSEQ;
-
 use crate::{
     JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_ARRAY_BUFFER,
     JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY, JS_CLASS_DATAVIEW, JS_CLASS_FLOAT32_ARRAY,
@@ -304,17 +302,13 @@ pub fn js_typed_array_getter(ctx: &JSContext, cc: CallContext) -> JSResult {
 // }
 
 pub fn js_typed_array_at(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let p = TypedArray::try_from(cc.this().clone()).map_err(|_| {
+    let Some(ta) = cc.this().as_object_TypedArray() else {
         ctx.throw_type_error("not a TypedArray");
-        -1
-    })?;
-    if p.is_detached() {
-        JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
         return Err(-1);
-    }
+    };
 
     let mut idx: i64 = cc.arg(0).to_i64_saturating(ctx)?;
-    let len = p.length() as i64;
+    let len = ta.length() as i64;
     if idx < 0 {
         idx += len;
     }
@@ -323,18 +317,22 @@ pub fn js_typed_array_at(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
+    if ta.is_detached() {
+        JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+        return Err(-1);
+    }
+
     cc.this().get_property_value(ctx, &JSValue::from(idx))
 }
 
 pub fn js_typed_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let this_val = cc.this().clone();
-    let p = TypedArray::try_from(this_val).map_err(|_| {
+    let Some(ta) = cc.this().as_object_TypedArray() else {
         ctx.throw_type_error("not a TypedArray");
-        -1
-    })?;
+        return Err(-1);
+    };
 
     let mut idx: i64 = cc.arg(0).to_i64_saturating(ctx)?;
-    let len = p.length() as i64;
+    let len = ta.length() as i64;
     if idx < 0 {
         idx += len;
     }
@@ -345,7 +343,7 @@ pub fn js_typed_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let val = cc.arg(1).to_primitive(ctx, HINT_NUMBER)?;
 
-    let ta2 = p.create_to_new(ctx, &JSValue::UNDEFINED, p.class_id())?;
+    let ta2 = ta.create_to_new(ctx, &JSValue::UNDEFINED, ta.class_id())?;
     ta2.set_property_i64(ctx, idx, val)?;
     Ok(ta2.into())
 }
@@ -374,11 +372,11 @@ fn js_create_typed_array_iterator(ctx: &JSContext, cc: CallContext) -> JSResult 
 }
 
 fn js_typed_array_get_toStringTag(ctx: &JSContext, cc: CallContext) -> JSResult {
-    if let Ok(tao) = TypedArray::try_from(cc.this().clone()) {
-        let class_name = ctx.rt().class_registry[tao.class_id() as usize]
+    if let Some(ta) = cc.this().as_object_TypedArray() {
+        ctx.rt().class_registry[ta.class_id() as usize]
             .class_name
-            .to_ref();
-        class_name.force_string(ctx).map(JSValue::String)
+            .force_string(ctx)
+            .map(JSValue::String)
     } else {
         Ok(JSValue::UNDEFINED)
     }

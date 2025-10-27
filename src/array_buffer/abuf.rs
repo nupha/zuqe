@@ -64,20 +64,6 @@ impl ABufData {
         self.len() == 0
     }
 
-    /// get buffer content bytes raw pointer and size
-    #[inline(always)]
-    pub unsafe fn raw_bytes<R>(&self) -> (*mut u8, usize) {
-        match self {
-            Self::Empty => (std::ptr::null_mut(), 0),
-            Self::Owned(b) => (b.as_ref().as_ptr() as *mut u8, b.len()),
-            Self::Shared(a) => {
-                let b = a.read().unwrap();
-                (b.as_ref().as_ptr() as *mut u8, b.len())
-            }
-            Self::Raw(p, len, _) => (p.as_ptr(), *len),
-        }
-    }
-
     pub(crate) fn with_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
         match self {
             Self::Empty => f(&[]),
@@ -207,7 +193,7 @@ object_cast!(
 );
 
 impl ArrayBuffer {
-    pub fn class_initialize(ctx: &JSContext, class_id: ClassID) -> Result<JSObject, i32> {
+    pub fn class_initialize(ctx: &JSContext, class_id: ClassID) -> Result<Option<JSObject>, i32> {
         match class_id {
             JS_CLASS_ARRAY_BUFFER => {
                 // ArrayBuffer
@@ -223,8 +209,7 @@ impl ArrayBuffer {
                 )?;
                 ab_func.install_field_defs(ctx, &js_array_buffer_funcs)?;
 
-                //    ctx.0.borrow_mut().class_proto[JS_CLASS_ARRAY_BUFFER as usize] = ab;
-                Ok(proto)
+                Ok(Some(proto))
             }
             JS_CLASS_SHARED_ARRAY_BUFFER => {
                 // SharedArrayBuffer
@@ -240,8 +225,7 @@ impl ArrayBuffer {
                 )?;
                 sab_func.install_field_defs(ctx, &js_shared_array_buffer_funcs)?;
 
-                //self.0.borrow_mut().class_proto[JS_CLASS_SHARED_ARRAY_BUFFER as usize] = sab;
-                Ok(proto)
+                Ok(Some(proto))
             }
             _ => {
                 unreachable!()

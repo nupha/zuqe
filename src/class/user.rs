@@ -79,8 +79,16 @@ impl JSContext {
                     if self.class_proto(class_id).is_none() {
                         // init class in ctx
                         if let Some(f) = cdef.initialize {
-                            let proto = f(self, class_id)?;
-                            self.0.borrow_mut().class_proto[class_id as usize] = proto.into();
+                            if let Some(proto) = f(self, class_id)? {
+                                self.0.borrow_mut().class_proto[class_id as usize] = proto.into();
+                            } else {
+                                if !self.0.borrow().class_proto[class_id as usize].is_object() {
+                                    self.throw_internal_error(&format!(
+                                        "class ({}) initialization must setup proto object",
+                                        class_id
+                                    ));
+                                }
+                            }
                         } else {
                             self.throw_internal_error("can't initialize native class");
                             return Err(-1);

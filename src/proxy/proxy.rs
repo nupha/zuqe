@@ -197,7 +197,7 @@ pub struct Proxy(pub(super) JSObject);
 object_cast!(Proxy, JS_CLASS_PROXY);
 
 impl Proxy {
-    pub fn class_initialize(ctx: &JSContext, _: ClassID) -> Result<JSObject, i32> {
+    pub fn class_initialize(ctx: &JSContext, _: ClassID) -> Result<Option<JSObject>, i32> {
         let proto = ctx.create_native_function(
             NativeFunctionType::Constructor(js_proxy_constructor),
             "Proxy",
@@ -215,7 +215,7 @@ impl Proxy {
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
         )?;
 
-        Ok(proto)
+        Ok(Some(proto))
     }
 
     pub fn class_call(
