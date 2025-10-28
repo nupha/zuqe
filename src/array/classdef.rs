@@ -769,9 +769,9 @@ pub fn js_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_array_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
     let obj = cc.this().clone().objectify(ctx)?;
-    obj.invoke_callable(ctx, JS_ATOM_join.deref(), &[])?
+    obj.invoke_callable(ctx, &JS_ATOM_join, &[])?
         .unwrap_or_else(|| {
-            // use intrinsic `Object.prototype.toString`
+            // use builtin `Object.prototype.toString`
             js_object_toString(ctx, CallContext::new(ctx, obj.into(), &[], 0, None))
         })
 }

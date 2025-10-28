@@ -427,7 +427,7 @@ pub fn js_typed_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let shift = TypedArray::SIZE_LOG2(ta.class_id());
     let val = cc.arg(0);
-    let mut v64 = 0_u64;
+    let v64: u64;
 
     match ta.class_id() {
         JS_CLASS_UINT8C_ARRAY => {
@@ -480,12 +480,12 @@ pub fn js_typed_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 
     let start = if cc.length() > 1 {
-        cc.arg(1).to_i32_clamp(ctx, 0, len as _, len as _)?
+        cc.arg(1).to_i32_clamp(ctx, 0, len as _, len as _)? as usize
     } else {
         0
     };
     let final_ = if cc.length() > 2 && !cc.arg(2).is_undefined() {
-        cc.arg(2).to_i32_clamp(ctx, 0, len as _, len as _)?
+        cc.arg(2).to_i32_clamp(ctx, 0, len as _, len as _)? as usize
     } else {
         len as _
     };
@@ -503,7 +503,7 @@ pub fn js_typed_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
             if start < final_ {
                 ta.with_bytes_mut(|buf| unsafe {
                     std::ptr::write_bytes(
-                        buf.as_mut_ptr().offset(start as isize),
+                        buf.as_mut_ptr().add(start),
                         v64 as u8,
                         (final_ - start) as usize,
                     );
@@ -513,7 +513,7 @@ pub fn js_typed_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
         1 => {
             // 2 bytes per element
             ta.with_bytes_mut(|buf| unsafe {
-                let mut ptr = buf.as_mut_ptr().cast::<u16>();
+                let mut ptr = buf.as_mut_ptr().cast::<u16>().add(start);
                 for _ in start..final_ {
                     ptr.write(v64 as u16);
                     ptr = ptr.add(1);
@@ -523,7 +523,7 @@ pub fn js_typed_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
         2 => {
             // 4 bytes per element
             ta.with_bytes_mut(|buf| unsafe {
-                let mut ptr = buf.as_mut_ptr().cast::<u32>();
+                let mut ptr = buf.as_mut_ptr().cast::<u32>().add(start);
                 for _ in start..final_ {
                     ptr.write(v64 as u32);
                     ptr = ptr.add(1);
@@ -533,7 +533,7 @@ pub fn js_typed_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
         3 => {
             // 8 bytes per element
             ta.with_bytes_mut(|buf| unsafe {
-                let mut ptr = buf.as_mut_ptr().cast::<u64>();
+                let mut ptr = buf.as_mut_ptr().cast::<u64>().add(start);
                 for _ in start..final_ {
                     ptr.write(v64);
                     ptr = ptr.add(1);
@@ -546,13 +546,13 @@ pub fn js_typed_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(ta.clone().into())
 }
 
-pub fn js_typed_array_find(ctx: &JSContext, args: CallContext) -> JSResult {
-    let this_val = args.this();
+pub fn js_typed_array_find(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let this_val = cc.this();
     let len = js_typed_array_get_length_internal(ctx, this_val)? as i32;
-    let func = args.arg(0).ensure_function(ctx)?;
+    let func = cc.arg(0).ensure_function(ctx)?;
 
-    let this_arg = if args.length() > 1 {
-        args.arg(0)
+    let this_arg = if cc.length() > 1 {
+        cc.arg(1)
     } else {
         &JSValue::UNDEFINED
     };
@@ -561,7 +561,7 @@ pub fn js_typed_array_find(ctx: &JSContext, args: CallContext) -> JSResult {
     let end: i32;
     let dir: i32;
 
-    if matches!(args.magic(), special_findLast | special_findLastIndex) {
+    if matches!(cc.magic(), special_findLast | special_findLastIndex) {
         k = len - 1;
         dir = -1;
         end = -1;
@@ -582,7 +582,7 @@ pub fn js_typed_array_find(ctx: &JSContext, args: CallContext) -> JSResult {
         )?;
 
         if res.to_bool().unwrap_or(true) {
-            return if matches!(args.magic(), special_findIndex | special_findLastIndex) {
+            return if matches!(cc.magic(), special_findIndex | special_findLastIndex) {
                 Ok(index_val)
             } else {
                 Ok(val)
@@ -592,7 +592,7 @@ pub fn js_typed_array_find(ctx: &JSContext, args: CallContext) -> JSResult {
         k += dir;
     }
 
-    if matches!(args.magic(), special_findIndex | special_findLastIndex) {
+    if matches!(cc.magic(), special_findIndex | special_findLastIndex) {
         Ok(JSValue::Int(-1))
     } else {
         Ok(JSValue::UNDEFINED)
@@ -887,38 +887,33 @@ pub fn js_typed_array_toSorted(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_typed_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
     let to_locale = cc.magic() != 0;
-    let this_val = cc.this();
-
-    let n = if let Some(p) = cc.this().as_object_TypedArray() {
-        p.length()
-    } else {
-        ctx.throw_type_error("not a TypedArray");
-        return Err(-1);
-    };
+    let n = js_typed_array_get_length_internal(ctx, cc.this())?;
 
     let sep: String = if !to_locale && cc.length() > 0 && !cc.arg(0).is_undefined() {
-        let s = this_val.to_string(ctx)?;
+        let s = cc.arg(0).to_string(ctx)?;
         s.content().to_utf8(false).to_string()
     } else {
         ",".into() // default separator
     };
 
-    let mut txt = StringBuf::with_capacity(n, false).map_err(|_| {
+    let mut sbuf = StringBuf::with_capacity(n as _, false).map_err(|_| {
         ctx.throw_out_of_memory();
         -1
     })?;
 
+    let this = cc.this();
+
     // XXX: optimize with direct access
     for i in 0..n {
         if i > 0 {
-            // add separator
-            if txt.push_str(&sep).is_err() {
+            sbuf.push_str(&sep).map_err(|_| {
                 ctx.throw_out_of_memory();
-                return Err(-1);
-            };
+                -1
+            })?;
         }
 
-        let el = this_val.get_property_u32(ctx, i as u32)?;
+        let el = this.get_property_u32(ctx, i)?;
+        /* Can return undefined for example if the typed array is detached */
         if !el.is_undefined_or_null() {
             let s = if to_locale {
                 el.to_locale_string(ctx)?.to_string(ctx)?
@@ -926,28 +921,24 @@ pub fn js_typed_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
                 el.to_string(ctx)?
             };
 
-            if txt.capacity() - txt.len() < s.len() && txt.try_reserve((n - i) * 2).is_err() {
-                ctx.throw_out_of_memory();
-                return Err(-1);
+            if sbuf.capacity() - sbuf.len() < s.len() {
+                sbuf.try_reserve((n - i) as usize * 2).map_err(|_| {
+                    ctx.throw_out_of_memory();
+                    -1
+                })?
             }
-            txt.push_content(s.content()).unwrap();
+            sbuf.push_content(s.content()).unwrap();
         }
     }
 
-    txt.shrink_to_fit();
-    ctx.create_string_with_buf(txt).map(JSValue::String)
+    sbuf.shrink_to_fit();
+    ctx.create_string_with_buf(sbuf).map(JSValue::String)
 }
 
 pub fn js_typed_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
     let special = cc.magic();
 
-    let len = if let Some(p) = cc.this().as_object_TypedArray() {
-        p.length() as i32
-    } else {
-        ctx.throw_type_error("not a TypedArray");
-        return Err(-1);
-    };
-
+    let len = js_typed_array_get_length_internal(ctx, cc.this())? as i32;
     if len == 0 {
         return Ok(if special == special_includes {
             JSValue::Bool(false)
@@ -995,10 +986,10 @@ pub fn js_typed_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
         inc = 1;
     }
 
-    let p = TypedArray::try_from(cc.this().clone()).unwrap();
+    let ta = cc.this().as_object_TypedArray().unwrap();
     let mut res = -1;
 
-    if p.is_detached() {
+    if ta.is_detached() {
         // if the array was detached, no need to go further (but no exception is raised)
         // "includes" scans all the properties, so "undefined" can match
         if special == special_includes && cc.arg(0).is_undefined() && len > 0 {
@@ -1038,19 +1029,19 @@ pub fn js_typed_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     macro_rules! find {
         ($ty:ident, $shift:expr, $v:expr) => {
-            let found = p.with_bytes(|buf| {
+            let found = ta.with_bytes(|buf| {
                 let lst = unsafe {
                     std::slice::from_raw_parts(buf.as_ptr().cast::<$ty>(), buf.len() >> $shift)
                 };
+                let it = lst.iter().enumerate();
 
                 if inc > 0 {
                     debug_assert!(k >= 0);
-                    lst.iter().skip(k as usize).position(|x| *x == $v)
+                    it.skip(k as usize)
+                        .find_map(|(i, x)| if *x == $v { Some(i) } else { None })
                 } else {
-                    debug_assert!(k >= 0 && k < lst.len() as i32);
-                    lst.iter()
-                        .enumerate()
-                        .take(k as usize + 1)
+                    debug_assert!((0..lst.len() as i32).contains(&k));
+                    it.take(k as usize + 1)
                         .rev()
                         .find_map(|(i, x)| if *x == $v { Some(i) } else { None })
                 }
@@ -1062,7 +1053,7 @@ pub fn js_typed_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
         };
     }
 
-    match p.class_id() {
+    match ta.class_id() {
         JS_CLASS_INT8_ARRAY => {
             if is_int && (v64 as i8) as i64 == v64 {
                 let v: i8 = v64 as i8;
@@ -1103,7 +1094,7 @@ pub fn js_typed_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
             if d.is_nan() {
                 if special == special_includes {
                     // includes finds NaN
-                    let found = p.with_elements_as::<f32, Option<usize>>(|lst| {
+                    let found = ta.with_elements_as::<f32, Option<usize>>(|lst| {
                         if inc > 0 {
                             lst.iter().skip(k as usize).position(|x| x.is_nan())
                         } else {
@@ -1119,7 +1110,7 @@ pub fn js_typed_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
                         res = i as i32;
                     }
                 } else {
-                    // indexOf returns -1
+                    // indexOf() returns -1
                     return Ok(JSValue::Int(-1));
                 }
             } else {
@@ -1144,7 +1135,7 @@ pub fn js_typed_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
                     //             .find_map(|(i, x)| if x.is_nan() { Some(i) } else { None })
                     //     }
                     // });
-                    let found = p.with_elements_as::<f64, Option<usize>>(|lst| {
+                    let found = ta.with_elements_as::<f64, Option<usize>>(|lst| {
                         if inc > 0 {
                             lst.iter().skip(k as usize).position(|x| x.is_nan())
                         } else {
@@ -1159,7 +1150,7 @@ pub fn js_typed_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
                         res = i as i32;
                     }
                 } else {
-                    // indexOf returns -1
+                    // indexOf() returns -1
                     return Ok(JSValue::Int(-1));
                 }
             } else {
