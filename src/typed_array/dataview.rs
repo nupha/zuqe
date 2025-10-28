@@ -10,15 +10,16 @@ use crate::{
     class::ClassID,
     context::JSContext,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
-    function::{CallContext, FieldDef},
+    function::{CallContext, FieldDef, NativeFunctionType},
     number::JSFloat64Union,
     object::{JS_PROP_CONFIGURABLE, JSObject, JSObjectWeakref, ObjectPayload},
     object_cast,
+    runtime::JSRuntime,
     typed_array::{TA_GET_BUFFER, TA_GET_BYTE_LENGTH, TA_GET_BYTE_OFFSET, TypedArray},
     value::JSValue,
 };
 
-use super::{TypedArrayPayload, js_typed_array_getter};
+use super::TypedArrayPayload;
 
 pub type DataViewPayload = TypedArrayPayload;
 
@@ -29,51 +30,110 @@ pub struct DataView(pub(crate) JSObject);
 object_cast!(DataView, JS_CLASS_DATAVIEW);
 
 impl DataView {
-    pub fn payload(&self) -> &DataViewPayload {
-        self.0.payload().data_view().unwrap()
-    }
-}
+    pub fn class_initialize(ctx: &JSContext, class_id: ClassID) -> Result<Option<JSObject>, i32> {
+        debug_assert_eq!(class_id, JS_CLASS_DATAVIEW);
 
-impl JSContext {
+        let dv_obj = ctx.create_base_object()?;
+        dv_obj.install_field_defs(ctx, &js_dataview_proto_funcs)?;
+
+        let dv_ctor: JSValue = ctx
+            .create_native_function(
+                NativeFunctionType::Constructor(js_dataview_constructor),
+                "DataView",
+                1,
+                0,
+            )?
+            .into();
+        ctx.add_global_constructor("DataView", &dv_ctor, &dv_obj.clone().into());
+
+        Ok(Some(dv_obj))
+    }
+
+    pub fn class_finalize(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {
+        if let Some(dv) = isa.data_view() {
+            // during the GC the finalizers are called in an arbitrary
+            // order so the ArrayBuffer finalize may have been called
+            dv.array_buffer().payload().remove_typed_array_weakref(id);
+        }
+    }
+
+    // /// create DataView with array buffer, offset and count.
+    // /// `count`: number of elements.
+    // pub(crate) fn create(
+    //     ctx: &JSContext,
+    //     new_target: &JSValue,
+    //     buffer: ArrayBuffer,
+    //     offset: usize,
+    //     count: usize,
+    // ) -> Result<Self, i32> {
+    //     let isa = ObjectPayload::DATAVIEW(Box::new(DataViewPayload::new(
+    //         ctx,
+    //         buffer,
+    //         JS_CLASS_DATAVIEW,
+    //         offset,
+    //         count,
+    //     )?));
+
+    //     let obj = ctx
+    //         .create_object_from_ctor(new_target, isa)
+    //         .map_err(|_| -1)?;
+
+    //     // establish mutual references
+    //     {
+    //         let p = obj.payload().typed_array().unwrap();
+    //         let w = obj.downgrade();
+
+    //         p.array_buffer()
+    //             .payload()
+    //             .add_typed_array_weakref(w.clone());
+
+    //         unsafe {
+    //             *p.obj.get() = w;
+    //         }
+    //     }
+
+    //     Ok(Self(obj))
+    // }
+
     /// create a DataView with underlaying AarrayBuffer.
-    pub fn create_dataview(
-        &self,
+    pub fn create(
+        ctx: &JSContext,
         ctor: &JSValue,
         array_buffer: ArrayBuffer,
         offset: usize,
         length: Option<usize>,
-    ) -> Result<DataView, i32> {
+    ) -> Result<Self, i32> {
         let abuf = array_buffer.payload();
         if abuf.is_detached() {
-            JS_ThrowTypeErrorDetachedArrayBuffer(self);
+            JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
             return Err(-1);
         }
 
         let byte_length = abuf.byte_length();
         if offset > byte_length {
-            self.throw_range_error("invalid byteOffset");
+            ctx.throw_range_error("invalid byteOffset");
             return Err(-1);
         }
 
         let mut len = byte_length - offset;
         if let Some(l) = length {
             if l > len {
-                self.throw_range_error("invalid byteLength");
+                ctx.throw_range_error("invalid byteLength");
                 return Err(-1);
             } else {
                 len = l;
             }
         }
 
-        let o = self
+        let o = ctx
             .create_object_from_ctor_with(ctor, || {
                 // Note: test array buffer detach again,
                 // because get prototype may potentially detach the buffer.
                 if unlikely(array_buffer.payload().is_detached()) {
-                    JS_ThrowTypeErrorDetachedArrayBuffer(self);
+                    JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
                     Err(-1)
                 } else {
-                    let isa = Box::new(TypedArrayPayload {
+                    let isa = Box::new(DataViewPayload {
                         obj: UnsafeCell::new(JSObjectWeakref::default()),
                         buffer: array_buffer,
                         offset: offset as u32,
@@ -86,9 +146,73 @@ impl JSContext {
             .map_err(|_| -1)?;
 
         // set back ref to DataView object self
-        o.as_DataView().unwrap().payload().set_obj(&o);
+        let dv = Self(o);
+        dv.payload().set_obj(&dv.0);
 
-        Ok(DataView(o))
+        Ok(dv)
+    }
+
+    pub fn payload(&self) -> &DataViewPayload {
+        self.0.payload().data_view().unwrap()
+    }
+
+    /// check if the TypedArray is detached.
+    #[inline]
+    pub fn is_detached(&self) -> bool {
+        self.payload().is_detached()
+    }
+
+    pub fn array_buffer(&self) -> &ArrayBuffer {
+        self.payload().array_buffer()
+    }
+
+    /// Get elements count of typed array.
+    /// If underlaying array buffer is detached, returns 0.
+    #[inline]
+    pub fn length(&self) -> usize {
+        #[cfg(debug_assertions)]
+        if self.is_detached() {
+            debug_assert_eq!(self.payload().count(), 0);
+            0
+        } else {
+            self.payload().count()
+        }
+
+        #[cfg(not(debug_assertions))]
+        self.payload().count()
+    }
+
+    pub fn byte_length(&self) -> usize {
+        if self.is_detached() {
+            0
+        } else {
+            self.payload().byte_length()
+        }
+    }
+
+    /// Get underlying array buffer byte offset.
+    /// When underlaying array buffer is detached, returns Err.
+    pub fn array_buffer_byte_offset(&self, ctx: &JSContext) -> Result<usize, i32> {
+        if self.is_detached() {
+            JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+            Err(-1)
+        } else {
+            Ok(self.payload().offset as usize)
+        }
+    }
+}
+
+impl JSContext {
+    /// create a DataView with underlaying AarrayBuffer.
+    #[deprecated(note = "use DataView::create() instead")]
+    pub fn create_dataview(
+        &self,
+        ctor: &JSValue,
+        array_buffer: ArrayBuffer,
+        offset: usize,
+        length: Option<usize>,
+    ) -> Result<DataView, i32> {
+        DataView::create(self, ctor, array_buffer, offset, length)
     }
 }
 
@@ -109,15 +233,14 @@ pub fn js_dataview_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     } else {
         None
     };
-    ctx.create_dataview(cc.this(), buffer.clone(), offset as _, length)
-        .map(|o| o.into())
+    DataView::create(ctx, cc.this(), buffer.clone(), offset as _, length).map(|o| o.into())
 }
 
 pub fn js_dataview_getValue(ctx: &JSContext, cc: CallContext) -> JSResult {
     let dv = cc
         .this()
         .retrive_object_payload(ctx, JS_CLASS_DATAVIEW)?
-        .typed_array()
+        .data_view()
         .unwrap();
 
     let class_id = cc.magic() as ClassID;
@@ -223,7 +346,7 @@ pub fn js_dataview_setValue(ctx: &JSContext, cc: CallContext) -> JSResult {
     let dv = cc
         .this()
         .retrive_object_payload(ctx, JS_CLASS_DATAVIEW)?
-        .typed_array()
+        .data_view()
         .unwrap();
 
     let class_id = cc.magic() as ClassID;
@@ -315,24 +438,42 @@ pub fn js_dataview_setValue(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
+fn js_dataview_getter(ctx: &JSContext, cc: CallContext) -> JSResult {
+    if let Some(dv) = cc.this().as_object_DataView() {
+        match cc.magic() {
+            TA_GET_BUFFER => Ok(dv.array_buffer().clone().into()),
+            TA_GET_BYTE_LENGTH => {
+                if !dv.is_detached() {
+                    Ok(JSValue::Int(dv.byte_length() as i32))
+                } else {
+                    JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+                    Err(-1)
+                }
+            }
+            TA_GET_BYTE_OFFSET => dv
+                .array_buffer_byte_offset(ctx)
+                .map(|n| JSValue::Int(n as i32)),
+            _ => unreachable!(),
+        }
+    } else {
+        ctx.throw_type_error("not a DataView");
+        Err(-1)
+    }
+}
+
 pub static js_dataview_proto_funcs: [FieldDef; 20] = [
-    JS_CGETSET_NATIVE_DEF!(
-        "buffer",
-        js_typed_array_getter,
-        NONE,
-        (TA_GET_BUFFER | 1) as _
-    ),
+    JS_CGETSET_NATIVE_DEF!("buffer", js_dataview_getter, NONE, TA_GET_BUFFER as _),
     JS_CGETSET_NATIVE_DEF!(
         "byteLength",
-        js_typed_array_getter,
+        js_dataview_getter,
         NONE,
-        (TA_GET_BYTE_LENGTH | 1) as _
+        TA_GET_BYTE_LENGTH as _
     ),
     JS_CGETSET_NATIVE_DEF!(
         "byteOffset",
-        js_typed_array_getter,
+        js_dataview_getter,
         NONE,
-        (TA_GET_BYTE_OFFSET | 1) as _
+        TA_GET_BYTE_OFFSET as _
     ),
     JS_CFUNC_NATIVE_DEF!(
         "getInt8",

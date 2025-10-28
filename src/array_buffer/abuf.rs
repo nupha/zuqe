@@ -108,7 +108,7 @@ pub struct ABufInner {
 
 impl ABufInner {
     #[inline(always)]
-    pub fn is_detached(&self) -> bool {
+    pub const fn is_detached(&self) -> bool {
         self.detached.get()
     }
 
@@ -185,7 +185,7 @@ impl Deref for ArrayBufferPayload {
 
 #[derive(Debug, Clone)]
 #[repr(transparent)]
-pub struct ArrayBuffer(JSObject);
+pub struct ArrayBuffer(pub(crate) JSObject);
 
 object_cast!(
     ArrayBuffer,

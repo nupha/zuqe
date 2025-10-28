@@ -342,7 +342,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "DATAVIEW",
             "data_view",
             Some("Box<crate::typed_array::DataViewPayload>"),
-            Some("crate::typed_array::TypedArray::class_initialize"),
+            Some("crate::typed_array::DataView::class_initialize"),
             None,
             None
         ),

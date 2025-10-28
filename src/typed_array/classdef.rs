@@ -1,10 +1,9 @@
 use std::cmp::Ordering;
 
 use crate::{
-    JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_ARRAY_BUFFER,
-    JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY, JS_CLASS_DATAVIEW, JS_CLASS_FLOAT32_ARRAY,
-    JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY,
-    JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY,
+    JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_BIG_INT64_ARRAY,
+    JS_CLASS_BIG_UINT64_ARRAY, JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY,
+    JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY,
     JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
     array::{
         js_array_every, js_array_reduce, special_TA, special_every, special_filter, special_find,
@@ -26,7 +25,7 @@ use crate::{
     value::{HINT_NUMBER, JSValue},
 };
 
-use super::{TypedArray, js_typed_array_set_internal};
+use super::TypedArray;
 
 /// Get the length of the TypedArray, equivalent to TypedArrayObj::length() but
 /// will return an error if the TypedArray is detached.
@@ -82,26 +81,32 @@ pub fn js_typed_array_constructor(ctx: &JSContext, cc: CallContext) -> JSResult 
     let class_id = cc.magic();
 
     let ta = if let JSValue::Object(p) = cc.arg(0) {
-        if matches!(
-            p.class_id(),
-            JS_CLASS_ARRAY_BUFFER | JS_CLASS_SHARED_ARRAY_BUFFER
-        ) {
+        if let Some(ab) = p.as_ArrayBuffer() {
             let offset = cc.arg(1).to_array_index(ctx)? as usize;
-
-            let a2 = cc.arg(2);
-            let len = if !a2.is_undefined() {
-                a2.to_array_index(ctx)? as usize
-            } else {
-                0
+            let len = {
+                let a2 = cc.arg(2);
+                if a2.is_undefined() {
+                    let size_log2 = TypedArray::SIZE_LOG2(class_id as _);
+                    (ab.payload().byte_length() - offset) >> size_log2
+                } else {
+                    a2.to_array_index(ctx)? as usize
+                }
             };
 
-            TypedArray::create_from(ctx, new_target, cc.arg(0), offset, len, class_id as _)
+            TypedArray::create_from(
+                ctx,
+                new_target,
+                cc.arg(0).clone(),
+                offset,
+                len,
+                class_id as _,
+            )
         } else {
-            TypedArray::create_from(ctx, new_target, cc.arg(0), 0, 0, class_id as _)
+            TypedArray::create_from(ctx, new_target, cc.arg(0).clone(), 0, 0, class_id as _)
         }
     } else {
         let len = cc.arg(0).to_array_index(ctx)? as usize;
-        TypedArray::create_from(ctx, new_target, &JSValue::UNDEFINED, 0, len, class_id as _)
+        TypedArray::create_from(ctx, new_target, JSValue::UNDEFINED, 0, len, class_id as _)
     };
 
     ta.map(|x| x.into())
@@ -203,43 +208,26 @@ pub fn js_typed_array_get_length(ctx: &JSContext, cc: CallContext) -> JSResult {
         })
 }
 
-pub(super) const TA_GET_BUFFER: i32 = 1 << 1;
-pub(super) const TA_GET_BYTE_LENGTH: i32 = 2 << 1;
-pub(super) const TA_GET_BYTE_OFFSET: i32 = 3 << 1;
+pub(super) const TA_GET_BUFFER: i32 = 1;
+pub(super) const TA_GET_BYTE_LENGTH: i32 = 2;
+pub(super) const TA_GET_BYTE_OFFSET: i32 = 3;
 
-pub fn js_typed_array_getter(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let is_dataview = cc.magic() & 1 != 0; // is DataView or TypedArray?
-    let what = cc.magic() & !1; // what to get?
-
+fn js_typed_array_getter(ctx: &JSContext, cc: CallContext) -> JSResult {
     if let Some(ta) = cc.this().as_object_TypedArray() {
-        if unlikely(is_dataview && ta.class_id() != JS_CLASS_DATAVIEW) {
-            ctx.throw_type_error("not a DataView");
-            Err(-1)
-        } else {
-            match what {
-                TA_GET_BUFFER => Ok(ta.array_buffer().clone().into()),
-                TA_GET_BYTE_LENGTH => {
-                    if !ta.is_detached() {
-                        Ok(JSValue::Int(ta.byte_length() as i32))
-                    } else if is_dataview {
-                        JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-                        Err(-1)
-                    } else {
-                        Ok(JSValue::Int(0))
-                    }
+        match cc.magic() {
+            TA_GET_BUFFER => Ok(ta.array_buffer().clone().into()),
+            TA_GET_BYTE_LENGTH => {
+                if !ta.is_detached() {
+                    Ok(JSValue::Int(ta.byte_length() as i32))
+                } else {
+                    Ok(JSValue::Int(0))
                 }
-                TA_GET_BYTE_OFFSET => ta
-                    .array_buffer_byte_offset(ctx, is_dataview)
-                    .map(|n| JSValue::Int(n as i32)),
-                _ => unreachable!(),
             }
+            TA_GET_BYTE_OFFSET => Ok(JSValue::from(ta.array_buffer_byte_offset(ctx) as u32)),
+            _ => unreachable!(),
         }
     } else {
-        ctx.throw_type_error(if is_dataview {
-            "not a DataView"
-        } else {
-            "not a TypedArray"
-        });
+        ctx.throw_type_error("not a TypedArray");
         Err(-1)
     }
 }
@@ -347,6 +335,174 @@ pub fn js_typed_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
     let ta2 = ta.create_to_new(ctx, &JSValue::UNDEFINED, ta.class_id())?;
     ta2.set_property_i64(ctx, idx, val)?;
     Ok(ta2.into())
+}
+
+fn js_typed_array_set_internal(
+    ctx: &JSContext,
+    dst: &JSValue,
+    src: &JSValue,
+    offset: &JSValue,
+) -> JSResult {
+    // don't change order
+    let Some(dest) = dst.as_object_TypedArray() else {
+        ctx.throw_type_error("not a TypedArray");
+        return Err(-1);
+    };
+
+    let offset = offset.to_i64_saturating(ctx)?;
+    if offset < 0 {
+        ctx.throw_range_error("invalid array length");
+        return Err(-1);
+    }
+
+    if dest.is_detached() {
+        JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+        return Err(-1);
+    }
+
+    if let Some(src) = src.as_object_TypedArray()
+        && (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).contains(&src.class_id())
+    {
+        let src_abuf = src.array_buffer().payload();
+        if src_abuf.is_detached() {
+            JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+            return Err(-1);
+        }
+
+        let count = src.payload().count();
+        if offset > dest.length() as i64 - count as i64 {
+            ctx.throw_range_error("invalid array length");
+            return Err(-1);
+        }
+
+        let dst_bpe = TypedArray::SIZE_LOG2(dest.class_id());
+        let src_bpe = TypedArray::SIZE_LOG2(src.class_id());
+        let dest_abuf = dest.array_buffer().payload();
+
+        if dest_abuf.content().id() == src_abuf.content().id() {
+            // use same underlying buffer
+            if src.class_id() == dest.class_id() {
+                // fast path: same type, use mem copy
+                let src_ptr = src.with_bytes(|buf| buf.as_ptr());
+                dest.with_bytes_mut(|buf| unsafe {
+                    std::ptr::copy(
+                        src_ptr,
+                        buf.as_mut_ptr().add((offset << dst_bpe) as usize),
+                        count << src_bpe, // count to byte_num
+                    );
+                });
+                return Ok(JSValue::UNDEFINED);
+            }
+
+            // copying between the same buffer using different types of mappings
+            // would require a temporary buffer.
+            // TODO: XXX
+        } else if src.class_id() == dest.class_id() {
+            // fast path: same type, use mem copy
+            src.with_bytes(|src_buf| {
+                dest.with_bytes_mut(|dst_buf| unsafe {
+                    std::ptr::copy(
+                        src_buf.as_ptr(),
+                        dst_buf.as_mut_ptr().add((offset << dst_bpe) as usize),
+                        count << src_bpe, // count to byte_num
+                    );
+                })
+            });
+            return Ok(JSValue::UNDEFINED);
+        }
+
+        // use slow path now.
+        // TODO: do transfer in efficient way
+    }
+
+    // slow path
+    let src_p = src.clone().objectify(ctx)?;
+    let count = src_p.get_length_prop(ctx)?;
+    if offset > dest.length() as i64 - count {
+        ctx.throw_range_error("invalid array length");
+        return Err(-1);
+    }
+
+    for i in 0..count as u32 {
+        let val = src_p.get_property_u32(ctx, i)?;
+        dst.set_property_u32(ctx, offset as u32 + i, val)?;
+    }
+
+    // match src_p.class_id() {
+    //     JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
+    //         let src = TypedArray(src_p.clone());
+
+    //         let (src_abuf, shift, cnt) = src.with(|ta| {
+    //             (
+    //                 ta.array_buffer().payload(),
+    //                 TypedArray::SIZE_LOG2(dest.class_id()),
+    //                 ta.count,
+    //             )
+    //         });
+    //         count = cnt as i64;
+
+    //         if src_abuf.is_detached() {
+    //             JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+    //             return Err(-1);
+    //         }
+    //         if offset > dest.length() as i64 - count {
+    //             ctx.throw_range_error("invalid array length");
+    //             return Err(-1);
+    //         }
+
+    //         // copying between typed objects
+    //         if src.class_id() == dest.class_id() {
+    //             // same type, use mem copy
+    //             src.with_bytes(|src| {
+    //                 dest.with_bytes_mut(|dst| unsafe {
+    //                     std::ptr::copy(
+    //                         src.as_ptr(),
+    //                         dst.as_mut_ptr(),
+    //                         (count << shift) as usize, // count to byte_num
+    //                     );
+    //                 })
+    //             });
+
+    //             return Ok(JSValue::UNDEFINED);
+    //         }
+
+    //         let dest_abuf = dest.with(|ta| ta.array_buffer().payload());
+
+    //         if dest_abuf.content().id() == src_abuf.content().id() {
+    //             // copying between the same buffer using different types of mappings
+    //             // would require a temporary buffer
+    //             todo!();
+    //         } else {
+    //             // copy
+    //             dest.with_bytes_mut(|dst| unsafe {
+    //                 std::ptr::copy(
+    //                     src.as_ptr(),
+    //                     dst.as_mut_ptr(),
+    //                     (count << shift) as usize, // count to byte_num
+    //                 );
+    //             });
+
+    //             todo!()
+    //         }
+
+    //         // Ok(JSValue::UNDEFINED)
+    //     }
+
+    //     _ => {
+    //         count = src_p.get_length_prop(ctx)?;
+    //         if offset > dest.length() as i64 - count {
+    //             ctx.throw_range_error("invalid array length");
+    //             return Err(-1);
+    //         }
+
+    //         for i in 0..count as u32 {
+    //             let val = src_p.get_property_u32(ctx, i)?;
+    //             dst.set_property_u32(ctx, offset as u32 + i, val)?;
+    //         }
+    //     }
+    // }
+
+    Ok(JSValue::UNDEFINED)
 }
 
 fn js_typed_array_set(ctx: &JSContext, cc: CallContext) -> JSResult {
@@ -600,27 +756,21 @@ pub fn js_typed_array_find(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 pub fn js_typed_array_reverse(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let Some(ta) = cc.this().as_object_TypedArray() else {
-        ctx.throw_type_error("not a TypedArray");
-        return Err(-1);
-    };
-    if ta.is_detached() {
-        JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-        return Err(-1);
-    }
+    let len = js_typed_array_get_length_internal(ctx, cc.this())?;
 
-    unsafe {
+    if len > 0 {
+        let ta = cc.this().as_object_TypedArray().unwrap();
+
         macro_rules! swap_slice {
             ($ty:ident, $shift:expr) => {
                 ta.with_bytes_mut(|buf| {
                     if !buf.is_empty() {
-                        let lst = std::slice::from_raw_parts_mut(
-                            buf.as_mut_ptr().cast::<$ty>(),
-                            buf.len() >> $shift,
-                        );
-                        let n = lst.len() >> 1;
-                        for i in 0..(n >> 2) {
-                            lst.swap(i, n - i - 1);
+                        let len = buf.len() >> $shift;
+                        let lst = unsafe {
+                            std::slice::from_raw_parts_mut(buf.as_mut_ptr().cast::<$ty>(), len)
+                        };
+                        for i in 0..(len >> 1) {
+                            lst.swap(i, len - i - 1);
                         }
                     }
                 });
@@ -642,9 +792,11 @@ pub fn js_typed_array_reverse(ctx: &JSContext, cc: CallContext) -> JSResult {
             }
             _ => unreachable!(),
         }
-    }
 
-    Ok(ta.clone().into())
+        Ok(ta.clone().into())
+    } else {
+        Ok(cc.this().clone())
+    }
 }
 
 pub fn js_typed_array_toReversed(ctx: &JSContext, mut args: CallContext) -> JSResult {
@@ -659,34 +811,29 @@ pub fn js_typed_array_toReversed(ctx: &JSContext, mut args: CallContext) -> JSRe
 }
 
 pub fn js_typed_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let (src_len, shift) = {
-        let Some(p) = cc.this().as_object_TypedArray() else {
-            ctx.throw_type_error("not a TypedArray");
-            return Err(-1);
-        };
-        (p.length() as i32, TypedArray::SIZE_LOG2(p.class_id()))
-    };
+    let src_len = js_typed_array_get_length_internal(ctx, cc.this())?;
 
-    let start: i32 = cc.arg(0).to_i32_clamp(ctx, 0, src_len, src_len)?;
+    let start = cc.arg(0).to_i32_clamp(ctx, 0, src_len as _, src_len as _)? as usize;
     let final_ = if !cc.arg(1).is_undefined() {
-        cc.arg(1).to_i32_clamp(ctx, 0, src_len, src_len)?
+        cc.arg(1).to_i32_clamp(ctx, 0, src_len as _, src_len as _)? as usize
     } else {
-        src_len
+        src_len as usize
     };
 
-    let count = std::cmp::max(final_ - start, 0);
     let this_val = cc.this();
+    let count = final_.saturating_sub(start);
+    let shift = TypedArray::SIZE_LOG2(cc.this().as_object().unwrap().class_id());
 
     // create result typed array
     let arr = js_typed_array___speciesCreate(
         ctx,
         &JSValue::UNDEFINED,
-        &[this_val.clone(), JSValue::Int(count)],
+        &[this_val.clone(), JSValue::Int(count as _)],
     )?;
 
     if count > 0 {
         // copy values from src to result array
-        let Some(src) = arr.as_object_TypedArray() else {
+        let Some(src) = this_val.as_object_TypedArray() else {
             ctx.throw_type_error("not a TypedArray");
             return Err(-1);
         };
@@ -699,30 +846,34 @@ pub fn js_typed_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
             ctx.throw_type_error("not a TypedArray");
             return Err(-1);
         };
+        if dst.is_detached() {
+            JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+            return Err(-1);
+        }
 
         if src.class_id() == dst.class_id()
-            && dst.capacity() as i32 >= count
-            && src.capacity() as i32 >= start + count
+            && dst.capacity() >= count
+            && src.capacity() >= start + count
         {
             // fast path
             if src.array_buffer().payload().content().id()
                 == dst.array_buffer().payload().content().id()
             {
-                let src_ptr = src.with_bytes(|buf| buf.as_ptr());
                 dst.with_bytes_mut(|buf| unsafe {
+                    let src_ptr = buf.as_ptr();
                     std::ptr::copy(
-                        src_ptr.offset((start << shift) as isize),
+                        src_ptr.add(start << shift),
                         buf.as_mut_ptr(),
-                        (count << shift) as usize,
+                        count << shift,
                     );
                 });
             } else {
                 src.with_bytes(|src_buf| {
                     dst.with_bytes_mut(|dst_buf| unsafe {
                         std::ptr::copy(
-                            src_buf.as_ptr().offset((start << shift) as isize),
+                            src_buf.as_ptr().add(start << shift),
                             dst_buf.as_mut_ptr(),
-                            (count << shift) as usize,
+                            count << shift,
                         );
                     });
                 });
@@ -732,8 +883,9 @@ pub fn js_typed_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
 
         // slow path using property set
         for n in 0..count {
-            let val = this_val.get_property_value(ctx, &JSValue::Int(start + n))?;
-            arr.set_property_value(ctx, &JSValue::Int(n), val, JS_PROP_THROW)?;
+            let val = this_val.get_property_value(ctx, &JSValue::Int((start + n) as i32))?;
+            arr.set_property_u32(ctx, n as u32, val)?;
+            // arr.set_property_value(ctx, &JSValue::Int(n as i32), val, JS_PROP_THROW)?;
         }
     }
 
@@ -742,11 +894,7 @@ pub fn js_typed_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_typed_array_subarray(ctx: &JSContext, cc: CallContext) -> JSResult {
     let this_val = cc.this();
-    let ta = TypedArray::try_from(this_val.clone()).map_err(|_| {
-        ctx.throw_type_error("not a TypedArray");
-        -1
-    })?;
-    let len = ta.length() as i32;
+    let len = js_typed_array_get_length_internal(ctx, cc.this())? as i32;
 
     let start: i32 = cc.arg(0).to_i32_clamp(ctx, 0, len, len)?;
     let final_ = if !cc.arg(1).is_undefined() {
@@ -757,7 +905,8 @@ pub fn js_typed_array_subarray(ctx: &JSContext, cc: CallContext) -> JSResult {
 
     let count = std::cmp::max(final_ - start, 0);
 
-    let byte_offset = ta.array_buffer_byte_offset(ctx, false)?;
+    let ta = cc.this().as_object_TypedArray().unwrap();
+    let byte_offset = ta.array_buffer_byte_offset(ctx);
     let log2_shift = TypedArray::SIZE_LOG2(ta.class_id());
     let offset = byte_offset + ((start as usize) << log2_shift);
 

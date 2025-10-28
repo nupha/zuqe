@@ -4595,7 +4595,7 @@ pub fn js_typed_array_constructor_obj(
     obj: &JSValue,
     classid: i32,
 ) -> JSValue {
-    TypedArray::create_from(ctx, new_target, obj, 0, 0, classid as _)
+    TypedArray::create_from(ctx, new_target, obj.clone(), 0, 0, classid as _)
         .map_or(JSValue::EXCEPTION, |x| x.into())
 }
 
