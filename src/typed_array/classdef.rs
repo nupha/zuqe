@@ -20,7 +20,7 @@ use crate::{
     iterator::{JSIteratorKindEnum, js_create_array_iterator},
     js_core::js_get_this,
     number::JSFloat64Union,
-    object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_SpeciesConstructor},
+    object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_SpeciesConstructor, JSObject},
     string::StringBuf,
     value::{HINT_NUMBER, JSValue},
 };
@@ -56,20 +56,21 @@ pub fn js_typed_array_base_constructor(ctx: &JSContext, _cc: CallContext) -> JSR
 pub fn js_typed_array___speciesCreate(
     ctx: &JSContext,
     _this_val: &JSValue,
-    cc: &[JSValue],
+    args: &[JSValue],
 ) -> JSResult {
-    let obj = &cc[0];
-    let p = TypedArray::try_from(obj.clone()).map_err(|_| {
-        ctx.throw_type_error("not a TypedArray");
-        -1
-    })?;
+    let obj = &args[0];
 
-    let ctor = JS_SpeciesConstructor(ctx, &obj, JSValue::UNDEFINED)?;
-    let args_list = if cc.len() > 1 { &cc[1..] } else { &[] };
+    let Some(ta) = obj.as_object_TypedArray() else {
+        ctx.throw_type_error("not a TypedArray");
+        return Err(-1);
+    };
+
+    let ctor = JS_SpeciesConstructor(ctx, obj, JSValue::UNDEFINED)?;
+    let args_list = if args.len() > 1 { &args[1..] } else { &[] };
     if ctor.is_undefined() {
         js_typed_array_constructor(
             ctx,
-            CallContext::new(ctx, JSValue::UNDEFINED, args_list, p.class_id() as _, None),
+            CallContext::new(ctx, JSValue::UNDEFINED, args_list, ta.class_id() as _, None),
         )
     } else {
         js_typed_array_create(ctx, &ctor, args_list)
@@ -223,7 +224,7 @@ fn js_typed_array_getter(ctx: &JSContext, cc: CallContext) -> JSResult {
                     Ok(JSValue::Int(0))
                 }
             }
-            TA_GET_BYTE_OFFSET => Ok(JSValue::from(ta.array_buffer_byte_offset(ctx) as u32)),
+            TA_GET_BYTE_OFFSET => Ok(JSValue::from(ta.array_buffer_byte_offset() as u32)),
             _ => unreachable!(),
         }
     } else {
@@ -231,64 +232,6 @@ fn js_typed_array_getter(ctx: &JSContext, cc: CallContext) -> JSResult {
         Err(-1)
     }
 }
-
-// pub fn js_typed_array_get_buffer(ctx: &JSContext, cc: CallContext) -> JSResult {
-//     let is_dataview = cc.magic() != 0;
-
-//     if let Some(t) = cc.this().as_object_TypedArray() {
-//         if unlikely(is_dataview && t.class_id() != JS_CLASS_DATAVIEW) {
-//             ctx.throw_type_error("not a DataView");
-//             Err(-1)
-//         } else {
-//             Ok(t.array_buffer().into())
-//         }
-//     } else {
-//         ctx.throw_type_error(if is_dataview {
-//             "not a DataView"
-//         } else {
-//             "not a TypedArray"
-//         });
-//         Err(-1)
-//     }
-// }
-
-// pub fn js_typed_array_get_byteLength(ctx: &JSContext, cc: CallContext) -> JSResult {
-//     let is_dataview = cc.magic() != 0;
-
-//     let p = TypedArray::try_from(cc.this().clone()).map_err(|_| {
-//         ctx.throw_type_error(if is_dataview {
-//             "not a DataView"
-//         } else {
-//             "not a TypedArray"
-//         });
-//         -1
-//     })?;
-
-//     if p.is_detached() {
-//         if is_dataview {
-//             JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-//             Err(-1)
-//         } else {
-//             Ok(JSValue::Int(0))
-//         }
-//     } else {
-//         Ok(JSValue::Int(p.with(|ta| ta.byte_length) as i32))
-//     }
-// }
-
-// pub fn js_typed_array_get_byteOffset(ctx: &JSContext, cc: CallContext) -> JSResult {
-//     let is_dataview = cc.magic() != 0;
-//     let p = TypedArray::try_from(cc.this().clone()).map_err(|_| {
-//         ctx.throw_type_error(if is_dataview {
-//             "not a DataView"
-//         } else {
-//             "not a TypedArray"
-//         });
-//         -1
-//     })?;
-//     p.array_buffer_byte_offset(ctx, is_dataview)
-//         .map(|n| JSValue::Int(n as i32))
-// }
 
 pub fn js_typed_array_at(ctx: &JSContext, cc: CallContext) -> JSResult {
     let Some(ta) = cc.this().as_object_TypedArray() else {
@@ -320,7 +263,10 @@ pub fn js_typed_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
         return Err(-1);
     };
 
+    // don't change following 2 lines order
     let mut idx: i64 = cc.arg(0).to_i64_saturating(ctx)?;
+    let val = cc.arg(1).to_primitive(ctx, HINT_NUMBER)?;
+
     let len = ta.length() as i64;
     if idx < 0 {
         idx += len;
@@ -329,8 +275,6 @@ pub fn js_typed_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
         ctx.throw_range_error("out of bound");
         return Err(-1);
     }
-
-    let val = cc.arg(1).to_primitive(ctx, HINT_NUMBER)?;
 
     let ta2 = ta.create_to_new(ctx, &JSValue::UNDEFINED, ta.class_id())?;
     ta2.set_property_i64(ctx, idx, val)?;
@@ -427,80 +371,6 @@ fn js_typed_array_set_internal(
         let val = src_p.get_property_u32(ctx, i)?;
         dst.set_property_u32(ctx, offset as u32 + i, val)?;
     }
-
-    // match src_p.class_id() {
-    //     JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
-    //         let src = TypedArray(src_p.clone());
-
-    //         let (src_abuf, shift, cnt) = src.with(|ta| {
-    //             (
-    //                 ta.array_buffer().payload(),
-    //                 TypedArray::SIZE_LOG2(dest.class_id()),
-    //                 ta.count,
-    //             )
-    //         });
-    //         count = cnt as i64;
-
-    //         if src_abuf.is_detached() {
-    //             JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-    //             return Err(-1);
-    //         }
-    //         if offset > dest.length() as i64 - count {
-    //             ctx.throw_range_error("invalid array length");
-    //             return Err(-1);
-    //         }
-
-    //         // copying between typed objects
-    //         if src.class_id() == dest.class_id() {
-    //             // same type, use mem copy
-    //             src.with_bytes(|src| {
-    //                 dest.with_bytes_mut(|dst| unsafe {
-    //                     std::ptr::copy(
-    //                         src.as_ptr(),
-    //                         dst.as_mut_ptr(),
-    //                         (count << shift) as usize, // count to byte_num
-    //                     );
-    //                 })
-    //             });
-
-    //             return Ok(JSValue::UNDEFINED);
-    //         }
-
-    //         let dest_abuf = dest.with(|ta| ta.array_buffer().payload());
-
-    //         if dest_abuf.content().id() == src_abuf.content().id() {
-    //             // copying between the same buffer using different types of mappings
-    //             // would require a temporary buffer
-    //             todo!();
-    //         } else {
-    //             // copy
-    //             dest.with_bytes_mut(|dst| unsafe {
-    //                 std::ptr::copy(
-    //                     src.as_ptr(),
-    //                     dst.as_mut_ptr(),
-    //                     (count << shift) as usize, // count to byte_num
-    //                 );
-    //             });
-
-    //             todo!()
-    //         }
-
-    //         // Ok(JSValue::UNDEFINED)
-    //     }
-
-    //     _ => {
-    //         count = src_p.get_length_prop(ctx)?;
-    //         if offset > dest.length() as i64 - count {
-    //             ctx.throw_range_error("invalid array length");
-    //             return Err(-1);
-    //         }
-
-    //         for i in 0..count as u32 {
-    //             let val = src_p.get_property_u32(ctx, i)?;
-    //             dst.set_property_u32(ctx, offset as u32 + i, val)?;
-    //         }
-    //     }
-    // }
 
     Ok(JSValue::UNDEFINED)
 }
@@ -811,13 +681,13 @@ pub fn js_typed_array_toReversed(ctx: &JSContext, mut args: CallContext) -> JSRe
 }
 
 pub fn js_typed_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let src_len = js_typed_array_get_length_internal(ctx, cc.this())?;
+    let len = js_typed_array_get_length_internal(ctx, cc.this())?;
 
-    let start = cc.arg(0).to_i32_clamp(ctx, 0, src_len as _, src_len as _)? as usize;
+    let start = cc.arg(0).to_i32_clamp(ctx, 0, len as _, len as _)? as usize;
     let final_ = if !cc.arg(1).is_undefined() {
-        cc.arg(1).to_i32_clamp(ctx, 0, src_len as _, src_len as _)? as usize
+        cc.arg(1).to_i32_clamp(ctx, 0, len as _, len as _)? as usize
     } else {
-        src_len as usize
+        len as usize
     };
 
     let this_val = cc.this();
@@ -859,13 +729,28 @@ pub fn js_typed_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
             if src.array_buffer().payload().content().id()
                 == dst.array_buffer().payload().content().id()
             {
+                // src, dst are in same memory chunk
+                let src_ptr = src.with_bytes(|b| b.as_ptr());
+
                 dst.with_bytes_mut(|buf| unsafe {
-                    let src_ptr = buf.as_ptr();
-                    std::ptr::copy(
-                        src_ptr.add(start << shift),
-                        buf.as_mut_ptr(),
-                        count << shift,
-                    );
+                    // Hint: 当用src_ptr, dst_ptr复制 count<<shift 个字节，且两个内存区域发生重叠时，
+                    // std::ptr::copy() 能正确处理覆盖的情况。
+                    // 但是，ECMA规范偏偏选择了错误的方向，以类似C memcpy()那种方式，规定发生重叠覆盖为"正宗"。
+                    // 所以，本处不使用std::ptr::copy()，而用手工指针复制来模拟带bug的memcpy()模式。
+                    // std::ptr::copy(
+                    //     src_ptr.add(start << shift),
+                    //     buf.as_mut_ptr(),
+                    //     count << shift,
+                    // );
+
+                    // may have overwrite
+                    let mut src_ptr = src_ptr.add(start << shift);
+                    let mut dst_ptr = buf.as_mut_ptr();
+                    for _ in 0..count << shift {
+                        *dst_ptr = *src_ptr;
+                        src_ptr = src_ptr.add(1);
+                        dst_ptr = dst_ptr.add(1);
+                    }
                 });
             } else {
                 src.with_bytes(|src_buf| {
@@ -894,35 +779,167 @@ pub fn js_typed_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 pub fn js_typed_array_subarray(ctx: &JSContext, cc: CallContext) -> JSResult {
     let this_val = cc.this();
-    let len = js_typed_array_get_length_internal(ctx, cc.this())? as i32;
 
-    let start: i32 = cc.arg(0).to_i32_clamp(ctx, 0, len, len)?;
+    let Some(ta) = cc.this().as_object_TypedArray() else {
+        ctx.throw_type_error("not a TypedArray");
+        return Err(-1);
+    };
+
+    // in order to accept detached typed array
+    // do not use js_typed_array_get_length_internal() here.
+    let len = ta.length();
+
+    let start = cc.arg(0).to_i32_clamp(ctx, 0, len as _, len as _)? as usize;
+    // Note: calc byte offset before read `final` argument
+    let byte_offset =
+        ta.array_buffer_byte_offset() + (start << TypedArray::SIZE_LOG2(ta.class_id()));
+
     let final_ = if !cc.arg(1).is_undefined() {
-        cc.arg(1).to_i32_clamp(ctx, 0, len, len)?
+        cc.arg(1).to_i32_clamp(ctx, 0, len as _, len as _)? as usize
     } else {
         len
     };
-
-    let count = std::cmp::max(final_ - start, 0);
-
-    let ta = cc.this().as_object_TypedArray().unwrap();
-    let byte_offset = ta.array_buffer_byte_offset(ctx);
-    let log2_shift = TypedArray::SIZE_LOG2(ta.class_id());
-    let offset = byte_offset + ((start as usize) << log2_shift);
+    let count = final_.saturating_sub(start);
 
     js_typed_array___speciesCreate(
         ctx,
         &JSValue::UNDEFINED,
         &[
             this_val.clone(),
-            ta.with(|ta| ta.array_buffer().clone()).into(), // array buffer
-            JSValue::Int(offset as i32),
+            ta.array_buffer().clone().into(), // array buffer
+            JSValue::Int(byte_offset as i32),
             JSValue::Int(count as i32),
         ],
     )
 }
 
-pub fn js_typed_array_sort(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn sort_f64_slice(slice: &mut [f64]) {
+    slice.sort_by(|a, b| {
+        // NaN is at last
+        match (a.is_nan(), b.is_nan()) {
+            (true, true) => std::cmp::Ordering::Equal,
+            (true, false) => std::cmp::Ordering::Greater,
+            (false, true) => std::cmp::Ordering::Less,
+            (false, false) => {
+                // Infinity
+                match (a.is_infinite(), b.is_infinite()) {
+                    (true, true) => {
+                        // 都是无穷大：+inf > -inf
+                        if a.is_sign_positive() == b.is_sign_positive() {
+                            std::cmp::Ordering::Equal
+                        } else if a.is_sign_positive() {
+                            std::cmp::Ordering::Greater
+                        } else {
+                            std::cmp::Ordering::Less
+                        }
+                    }
+                    (true, false) => {
+                        // 只有 a 是无穷大
+                        if a.is_sign_positive() {
+                            std::cmp::Ordering::Greater
+                        } else {
+                            std::cmp::Ordering::Less
+                        }
+                    }
+                    (false, true) => {
+                        // 只有 b 是无穷大
+                        if b.is_sign_positive() {
+                            std::cmp::Ordering::Less
+                        } else {
+                            std::cmp::Ordering::Greater
+                        }
+                    }
+                    (false, false) => {
+                        // 都是有限值，处理 -0.0 和 0.0
+                        if *a == 0.0 && *b == 0.0 {
+                            // 都是零值，需要区分 +0 和 -0
+                            match (a.is_sign_negative(), b.is_sign_negative()) {
+                                (true, false) => std::cmp::Ordering::Less,    // -0 < +0
+                                (false, true) => std::cmp::Ordering::Greater, // +0 > -0
+                                _ => std::cmp::Ordering::Equal,               // 符号相同
+                            }
+                        } else {
+                            // 普通数值比较
+                            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+fn sort_f32_slice(slice: &mut [f32]) {
+    slice.sort_by(|a, b| {
+        // NaN is at last
+        match (a.is_nan(), b.is_nan()) {
+            (true, true) => std::cmp::Ordering::Equal,
+            (true, false) => std::cmp::Ordering::Greater,
+            (false, true) => std::cmp::Ordering::Less,
+            (false, false) => {
+                // Infinity
+                match (a.is_infinite(), b.is_infinite()) {
+                    (true, true) => {
+                        // 都是无穷大：+inf > -inf
+                        if a.is_sign_positive() == b.is_sign_positive() {
+                            std::cmp::Ordering::Equal
+                        } else if a.is_sign_positive() {
+                            std::cmp::Ordering::Greater
+                        } else {
+                            std::cmp::Ordering::Less
+                        }
+                    }
+                    (true, false) => {
+                        // 只有 a 是无穷大
+                        if a.is_sign_positive() {
+                            std::cmp::Ordering::Greater
+                        } else {
+                            std::cmp::Ordering::Less
+                        }
+                    }
+                    (false, true) => {
+                        // 只有 b 是无穷大
+                        if b.is_sign_positive() {
+                            std::cmp::Ordering::Less
+                        } else {
+                            std::cmp::Ordering::Greater
+                        }
+                    }
+                    (false, false) => {
+                        // 都是有限值，处理 -0.0 和 0.0
+                        if *a == 0.0 && *b == 0.0 {
+                            // 都是零值，需要区分 +0 和 -0
+                            match (a.is_sign_negative(), b.is_sign_negative()) {
+                                (true, false) => std::cmp::Ordering::Less,    // -0 < +0
+                                (false, true) => std::cmp::Ordering::Greater, // +0 > -0
+                                _ => std::cmp::Ordering::Equal,               // 符号相同
+                            }
+                        } else {
+                            // 普通数值比较
+                            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+fn call_cmp_fn(ctx: &JSContext, cmp: &JSObject, a: JSValue, b: JSValue) -> Result<Ordering, i32> {
+    let n = cmp
+        .call(ctx, &JSValue::UNDEFINED, &[a, b])
+        .and_then(|v| v.to_i32(ctx))?;
+
+    Ok(if n < 0 {
+        Ordering::Less
+    } else if n > 0 {
+        Ordering::Greater
+    } else {
+        Ordering::Equal
+    })
+}
+
+fn js_typed_array_sort(ctx: &JSContext, cc: CallContext) -> JSResult {
     let cmp = cc.arg(0);
     if unlikely(!cmp.is_undefined()) {
         cmp.ensure_function(ctx)?;
@@ -945,7 +962,7 @@ pub fn js_typed_array_sort(ctx: &JSContext, cc: CallContext) -> JSResult {
 
         macro_rules! sort {
             ($ty:ident, $shift:expr, $cvt:expr) => {
-                abuf_content.with_bytes_mut(|buf| {
+                abuf_content.with_bytes_mut(|buf| -> Result<(), i32> {
                     let slice = unsafe {
                         std::slice::from_raw_parts_mut(
                             buf.as_mut_ptr().cast::<$ty>(),
@@ -953,22 +970,12 @@ pub fn js_typed_array_sort(ctx: &JSContext, cc: CallContext) -> JSResult {
                         )
                     };
 
-                    if !cmp.is_undefined() {
+                    if let Some(cmp) = cmp.as_object() {
                         let mut has_error = false;
-
                         slice.sort_by(|a, b| {
                             if !has_error {
-                                if let Ok(n) = cmp
-                                    .call(ctx, &JSValue::UNDEFINED, &[$cvt(*a), $cvt(*b)])
-                                    .and_then(|v| v.to_i32(ctx))
-                                {
-                                    if n < 0 {
-                                        Ordering::Less
-                                    } else if n > 0 {
-                                        Ordering::Greater
-                                    } else {
-                                        Ordering::Equal
-                                    }
+                                if let Ok(r) = call_cmp_fn(ctx, cmp, $cvt(*a), $cvt(*b)) {
+                                    r
                                 } else {
                                     has_error = true;
                                     Ordering::Equal
@@ -977,64 +984,122 @@ pub fn js_typed_array_sort(ctx: &JSContext, cc: CallContext) -> JSResult {
                                 Ordering::Equal
                             }
                         });
+
+                        if has_error { Err(-1) } else { Ok(()) }
                     } else {
                         slice.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                        Ok(())
                     }
-                });
+                })
             };
         }
 
-        match ta.class_id() {
+        let r = match ta.class_id() {
             JS_CLASS_INT8_ARRAY => {
-                sort!(i8, 0, |v| JSValue::Int(v as i32));
+                sort!(i8, 0, |v| JSValue::Int(v as i32))
             }
             JS_CLASS_UINT8C_ARRAY | JS_CLASS_UINT8_ARRAY => {
-                sort!(u8, 0, |v| JSValue::Int(v as i32));
+                sort!(u8, 0, |v| JSValue::Int(v as i32))
             }
             JS_CLASS_INT16_ARRAY => {
-                sort!(i16, 1, |v| JSValue::Int(v as i32));
+                sort!(i16, 1, |v| JSValue::Int(v as i32))
             }
             JS_CLASS_UINT16_ARRAY => {
-                sort!(u16, 1, |v| JSValue::Int(v as i32));
+                sort!(u16, 1, |v| JSValue::Int(v as i32))
             }
             JS_CLASS_INT32_ARRAY => {
-                sort!(i32, 2, JSValue::Int);
+                sort!(i32, 2, JSValue::Int)
             }
             JS_CLASS_UINT32_ARRAY => {
-                sort!(u32, 2, JSValue::from);
+                sort!(u32, 2, JSValue::from)
             }
-            JS_CLASS_FLOAT32_ARRAY => {
-                sort!(f32, 2, |v| JSValue::from(v as f64));
-            }
-            JS_CLASS_FLOAT64_ARRAY => {
-                sort!(f64, 3, JSValue::from);
-            }
+            JS_CLASS_FLOAT32_ARRAY => abuf_content.with_bytes_mut(|buf| -> Result<(), i32> {
+                let slice = unsafe {
+                    std::slice::from_raw_parts_mut(buf.as_mut_ptr().cast::<f32>(), buf.len() >> 2)
+                };
+
+                if let Some(cmp) = cmp.as_object() {
+                    let mut has_error = false;
+                    slice.sort_by(|a, b| {
+                        if !has_error {
+                            if let Ok(r) = call_cmp_fn(
+                                ctx,
+                                cmp,
+                                JSValue::from(*a as f64),
+                                JSValue::from(*b as f64),
+                            ) {
+                                r
+                            } else {
+                                has_error = true;
+                                Ordering::Equal
+                            }
+                        } else {
+                            Ordering::Equal
+                        }
+                    });
+
+                    if has_error { Err(-1) } else { Ok(()) }
+                } else {
+                    sort_f32_slice(slice);
+                    Ok(())
+                }
+            }),
+            JS_CLASS_FLOAT64_ARRAY => abuf_content.with_bytes_mut(|buf| -> Result<(), i32> {
+                let slice = unsafe {
+                    std::slice::from_raw_parts_mut(buf.as_mut_ptr().cast::<f64>(), buf.len() >> 3)
+                };
+
+                if let Some(cmp) = cmp.as_object() {
+                    let mut has_error = false;
+                    slice.sort_by(|a, b| {
+                        if !has_error {
+                            if let Ok(r) =
+                                call_cmp_fn(ctx, cmp, JSValue::from(*a), JSValue::from(*b))
+                            {
+                                r
+                            } else {
+                                has_error = true;
+                                Ordering::Equal
+                            }
+                        } else {
+                            Ordering::Equal
+                        }
+                    });
+
+                    if has_error { Err(-1) } else { Ok(()) }
+                } else {
+                    sort_f64_slice(slice);
+                    Ok(())
+                }
+            }),
             JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
                 ctx.throw_type_error("BigInt64 is not supported");
-                return Err(-1);
+                Err(-1)
             }
             _ => unreachable!(),
-        }
+        };
 
         // restore buffer content
         ta.array_buffer().payload().replace_content(abuf_content);
+
+        r?
     }
 
     Ok(this_val.clone())
 }
 
-pub fn js_typed_array_toSorted(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let p = TypedArray::try_from(cc.this().clone()).map_err(|_| {
+fn js_typed_array_toSorted(ctx: &JSContext, cc: CallContext) -> JSResult {
+    let Some(p) = cc.this().as_object_TypedArray() else {
         ctx.throw_type_error("not a TypedArray");
-        -1
-    })?;
-    let ta = p.create_to_new(ctx, &JSValue::UNDEFINED, p.class_id())?;
+        return Err(-1);
+    };
+    let arr = p.create_to_new(ctx, &JSValue::UNDEFINED, p.class_id())?;
 
-    let cc = CallContext::new_simple(ctx, ta.into(), &[]);
+    let cc = CallContext::new_simple(ctx, arr.into(), cc.arguments());
     js_typed_array_sort(ctx, cc)
 }
 
-pub fn js_typed_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_typed_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
     let to_locale = cc.magic() != 0;
     let n = js_typed_array_get_length_internal(ctx, cc.this())?;
 

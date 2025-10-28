@@ -322,7 +322,7 @@ impl TypedArray {
 
     /// Get underlying array buffer byte offset.
     /// When underlaying array buffer is detached, returns 0.
-    pub fn array_buffer_byte_offset(&self, ctx: &JSContext) -> usize {
+    pub(super) fn array_buffer_byte_offset(&self) -> usize {
         if self.is_detached() {
             0
         } else {
