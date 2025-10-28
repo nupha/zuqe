@@ -84,11 +84,19 @@ pub fn js_typed_array_constructor(ctx: &JSContext, cc: CallContext) -> JSResult 
     let ta = if let JSValue::Object(p) = cc.arg(0) {
         if let Some(ab) = p.as_ArrayBuffer() {
             let offset = cc.arg(1).to_array_index(ctx)? as usize;
+
+            let size_log2 = TypedArray::SIZE_LOG2(class_id as _);
+            let byte_length = ab.payload().byte_length();
+
+            if (offset & ((1 << size_log2) - 1)) != 0 || offset > byte_length {
+                ctx.throw_range_error("invalid offset");
+                return Err(-1);
+            }
+
             let len = {
                 let a2 = cc.arg(2);
                 if a2.is_undefined() {
-                    let size_log2 = TypedArray::SIZE_LOG2(class_id as _);
-                    (ab.payload().byte_length() - offset) >> size_log2
+                    (byte_length - offset) >> size_log2
                 } else {
                     a2.to_array_index(ctx)? as usize
                 }
