@@ -21,11 +21,12 @@ use crate::{
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, JSObject, JSObjectWeakref, ObjectPayload},
     object_cast,
     runtime::JSRuntime,
-    typed_array::{
-        js_typed_array_base_constructor, js_typed_array_base_funcs,
-        js_typed_array_base_proto_funcs, js_typed_array_constructor,
-    },
     value::JSValue,
+};
+
+use super::{
+    js_typed_array_base_constructor, js_typed_array_base_funcs, js_typed_array_base_proto_funcs,
+    js_typed_array_constructor,
 };
 
 pub const JS_TYPED_ARRAY_COUNT: usize =
