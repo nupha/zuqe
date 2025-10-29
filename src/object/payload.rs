@@ -57,17 +57,3 @@ impl JSValue {
         }
     }
 }
-
-// impl ObjectPayload {
-//     pub(crate) fn replace_value(&mut self, val: JSValue) -> Result<JSValue, i32> {
-//         match (self, &val) {
-//             (Self::NUMBER(a), JSValue::Int(_) | JSValue::Float64(_)) => {
-//                 Ok(std::mem::replace(a, val))
-//             }
-//             (Self::BOOLEAN(a), JSValue::Bool(_)) => Ok(std::mem::replace(a, val)),
-//             (Self::STRING(a), JSValue::String(_)) => Ok(std::mem::replace(a, val).into()),
-//             (Self::SYMBOL(a), JSValue::Symbol(_)) => Ok(std::mem::replace(a, val).into()),
-//             _ => Err(-1),
-//         }
-//     }
-// }

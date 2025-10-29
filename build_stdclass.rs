@@ -2,7 +2,7 @@ use std::{collections::HashMap, path::Path};
 
 use once_cell::sync::Lazy;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(i32)]
 enum PayloadKey {
     None,
@@ -31,68 +31,129 @@ enum PayloadKey {
     AsyncGenerator,
 }
 
-static CLASS_PAYLOAD_TYPE: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
+impl PayloadKey {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            PayloadKey::None => "",
+            PayloadKey::Array => "array",
+            PayloadKey::Value => "value",
+            PayloadKey::Datetime => "datetime",
+            PayloadKey::NativeFunc => "native_func",
+            PayloadKey::NativeFuncWithData => "native_func_with_data",
+            PayloadKey::BcFunction => "bc_function",
+            PayloadKey::BoundFunction => "bound_function",
+            PayloadKey::RegExp => "regexp",
+            PayloadKey::ForInIterator => "for_in_iterator",
+            PayloadKey::ArrayBuffer => "array_buffer",
+            PayloadKey::TypedArray => "typed_array",
+            PayloadKey::DataView => "data_view",
+            PayloadKey::MapSet => "mapset",
+            PayloadKey::MapSetIterator => "mapset_iterator",
+            PayloadKey::ArrayIterator => "array_iterator",
+            PayloadKey::RegExpStringIterator => "regexp_string_iterator",
+            PayloadKey::Generator => "generator",
+            PayloadKey::Proxy => "proxy",
+            PayloadKey::Promise => "promise",
+            PayloadKey::PromiseResolvingFunction => "promise_resolving_function",
+            PayloadKey::AsyncFunctionResolving => "async_function_resolving",
+            PayloadKey::AsyncFromSyncIterator => "async_from_sync_iterator",
+            PayloadKey::AsyncGenerator => "async_generator",
+        }
+    }
+}
+
+impl std::fmt::Display for PayloadKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|| {
     let mut m = HashMap::with_capacity(128);
 
-    m.insert("array", "crate::array::ArrayObjPayload");
-    m.insert("value", "crate::value::JSValue");
-    m.insert("datetime", "std::cell::Cell<crate::date::Datetime>");
-    m.insert("native_func", "crate::function::NFuncPayload");
+    m.insert(PayloadKey::Array, "crate::array::ArrayObjPayload");
+    m.insert(PayloadKey::Value, "crate::value::JSValue");
     m.insert(
-        "native_func_with_data",
+        PayloadKey::Datetime,
+        "std::cell::Cell<crate::date::Datetime>",
+    );
+    m.insert(PayloadKey::NativeFunc, "crate::function::NFuncPayload");
+    m.insert(
+        PayloadKey::NativeFuncWithData,
         "Box<crate::callable::NativeFuncData>",
     );
-    m.insert("bc_function", "Box<crate::function::BCFuncPayload>");
     m.insert(
-        "bound_function",
+        PayloadKey::BcFunction,
+        "Box<crate::function::BCFuncPayload>",
+    );
+    m.insert(
+        PayloadKey::BoundFunction,
         "Box<crate::function::BoundFuncObjPayload>",
     );
-    m.insert("regexp", "Box<crate::regexp::RegExpData>");
+    m.insert(PayloadKey::RegExp, "Box<crate::regexp::RegExpData>");
     m.insert(
-        "for_in_iterator",
+        PayloadKey::ForInIterator,
         "std::cell::RefCell<Box<crate::iterator::ForInIterPayload>>",
     );
-    m.insert("array_buffer", "crate::array_buffer::ArrayBufferPayload");
-    m.insert("typed_array", "Box<crate::typed_array::TypedArrayPayload>");
-    m.insert("data_view", "Box<crate::typed_array::DataViewPayload>");
     m.insert(
-        "mapset",
+        PayloadKey::ArrayBuffer,
+        "crate::array_buffer::ArrayBufferPayload",
+    );
+    m.insert(
+        PayloadKey::TypedArray,
+        "Box<crate::typed_array::TypedArrayPayload>",
+    );
+    m.insert(
+        PayloadKey::DataView,
+        "Box<crate::typed_array::DataViewPayload>",
+    );
+    m.insert(
+        PayloadKey::MapSet,
         "std::cell::RefCell<Box<crate::mapset::JSMapState>>",
     );
     m.insert(
-        "mapset_iterator",
+        PayloadKey::MapSetIterator,
         "std::cell::RefCell<Box<crate::mapset::JSMapIteratorData>>",
     );
-    m.insert("array_iterator", "Box<crate::iterator::ArrayIterPayload>");
     m.insert(
-        "regexp_string_iterator",
+        PayloadKey::ArrayIterator,
+        "Box<crate::iterator::ArrayIterPayload>",
+    );
+    m.insert(
+        PayloadKey::RegExpStringIterator,
         "Box<crate::regexp::RegExpStringIterPayload>",
     );
-    m.insert("generator", "Box<crate::generator::GeneratorPayload>");
-    m.insert("proxy", "Box<crate::proxy::ProxyPayload>");
-    m.insert("promise", "Box<crate::promise::PromisePayload>");
     m.insert(
-        "promise_resolving_function",
+        PayloadKey::Generator,
+        "Box<crate::generator::GeneratorPayload>",
+    );
+    m.insert(PayloadKey::Proxy, "Box<crate::proxy::ProxyPayload>");
+    m.insert(PayloadKey::Promise, "Box<crate::promise::PromisePayload>");
+    m.insert(
+        PayloadKey::PromiseResolvingFunction,
         "Box<crate::promise::PromiseResolvePayload>",
     );
     m.insert(
-        "async_function_resolving",
+        PayloadKey::AsyncFunctionResolving,
         "crate::function::AsyncFuncState",
     );
     m.insert(
-        "async_from_sync_iterator",
+        PayloadKey::AsyncFromSyncIterator,
         "Box<crate::iterator::JSAsyncFromSyncIteratorData>",
     );
-    m.insert("async_generator", "Box<crate::generator::AGenPayload>");
+    m.insert(
+        PayloadKey::AsyncGenerator,
+        "Box<crate::generator::AGenPayload>",
+    );
 
     m
 });
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct ClassInfo {
     class_name: &'static str,
     const_name: &'static str,
-    key: Option<&'static str>,
+    key: PayloadKey,
     initialize: Option<&'static str>,
     finalize: Option<&'static str>,
     gc_mark: Option<&'static str>,
@@ -102,7 +163,7 @@ impl ClassInfo {
     const fn class_def(
         class_name: &'static str,
         const_name: &'static str,
-        key: &'static str,
+        key: PayloadKey,
         initialize: Option<&'static str>,
         finalize: Option<&'static str>,
         gc_mark: Option<&'static str>,
@@ -110,7 +171,7 @@ impl ClassInfo {
         ClassInfo {
             class_name,
             const_name,
-            key: if key.is_empty() { None } else { Some(key) },
+            key,
             initialize,
             finalize,
             gc_mark,
@@ -121,20 +182,20 @@ impl ClassInfo {
 static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
     vec![
         // CORE CLASSES START
-        ClassInfo::class_def("Object", "OBJECT", "", None, None, None),
+        ClassInfo::class_def("Object", "OBJECT", PayloadKey::None, None, None, None),
         ClassInfo::class_def(
             "Array",
             "ARRAY",
-            "array",
+            PayloadKey::Array,
             None,
             Some("crate::array::js_array_finalizer"),
             Some("crate::array::js_array_mark"),
         ),
-        ClassInfo::class_def("Error", "ERROR", "", None, None, None),
+        ClassInfo::class_def("Error", "ERROR", PayloadKey::None, None, None, None),
         ClassInfo::class_def(
             "Number",
             "NUMBER",
-            "value",
+            PayloadKey::Value,
             None,
             Some("crate::value::js_object_data_finalizer"),
             Some("crate::value::js_object_data_mark"),
@@ -142,7 +203,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "String",
             "STRING",
-            "value",
+            PayloadKey::Value,
             None,
             Some("crate::value::js_object_data_finalizer"),
             Some("crate::value::js_object_data_mark"),
@@ -150,7 +211,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "Boolean",
             "BOOLEAN",
-            "value",
+            PayloadKey::Value,
             None,
             Some("crate::value::js_object_data_finalizer"),
             Some("crate::value::js_object_data_mark"),
@@ -158,7 +219,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "Symbol",
             "SYMBOL",
-            "value",
+            PayloadKey::Value,
             None,
             Some("crate::value::js_object_data_finalizer"),
             Some("crate::value::js_object_data_mark"),
@@ -166,26 +227,33 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "Arguments",
             "ARGUMENTS",
-            "array",
+            PayloadKey::Array,
             None,
             Some("crate::array::js_array_finalizer"),
             Some("crate::array::js_array_mark"),
         ),
-        ClassInfo::class_def("Arguments", "MAPPED_ARGUMENTS", "", None, None, None),
+        ClassInfo::class_def(
+            "Arguments",
+            "MAPPED_ARGUMENTS",
+            PayloadKey::None,
+            None,
+            None,
+            None,
+        ),
         ClassInfo::class_def(
             "Date",
             "DATE",
-            "datetime",
+            PayloadKey::Datetime,
             None,
             Some("crate::value::js_object_data_finalizer"),
             Some("crate::value::js_object_data_mark"),
         ),
         // CORE CLASSES END
-        ClassInfo::class_def("Object", "MODULE_NS", "", None, None, None),
+        ClassInfo::class_def("Object", "MODULE_NS", PayloadKey::None, None, None, None),
         ClassInfo::class_def(
             "Function",
             "C_FUNCTION",
-            "native_func",
+            PayloadKey::NativeFunc,
             None,
             Some("crate::function::NFuncPayload::class_finalizer"),
             Some("crate::function::NFuncPayload::class_mark"),
@@ -193,7 +261,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "Function",
             "BYTECODE_FUNCTION",
-            "bc_function",
+            PayloadKey::BcFunction,
             None,
             Some("crate::function::js_bytecode_function_finalizer"),
             Some("crate::function::js_bytecode_function_mark"),
@@ -201,7 +269,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "Function",
             "BOUND_FUNCTION",
-            "bound_function",
+            PayloadKey::BoundFunction,
             None,
             Some("crate::function::BoundFunction::class_finalizer"),
             Some("crate::function::BoundFunction::class_mark"),
@@ -209,7 +277,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "Function",
             "C_FUNCTION_DATA",
-            "native_func_with_data",
+            PayloadKey::NativeFuncWithData,
             None,
             Some("crate::callable::NativeFunctionWithData::class_finalizer"),
             Some("crate::callable::NativeFunctionWithData::class_mark"),
@@ -217,7 +285,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "GeneratorFunction",
             "GENERATOR_FUNCTION",
-            "bc_function",
+            PayloadKey::BcFunction,
             None,
             Some("crate::function::js_bytecode_function_finalizer"),
             Some("crate::function::js_bytecode_function_mark"),
@@ -225,7 +293,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "ForInIterPayload",
             "FOR_IN_ITERATOR",
-            "for_in_iterator",
+            PayloadKey::ForInIterator,
             None,
             Some("crate::iterator::js_for_in_iterator_finalizer"),
             Some("crate::iterator::js_for_in_iterator_mark"),
@@ -233,7 +301,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "RegExp",
             "REGEXP",
-            "regexp",
+            PayloadKey::RegExp,
             None,
             Some("crate::regexp::RegExp::class_finalizer"),
             None,
@@ -241,7 +309,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "ArrayBuffer",
             "ARRAY_BUFFER",
-            "array_buffer",
+            PayloadKey::ArrayBuffer,
             Some("crate::array_buffer::ArrayBuffer::class_initialize"),
             Some("crate::array_buffer::js_array_buffer_finalizer"),
             None,
@@ -249,7 +317,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "SharedArrayBuffer",
             "SHARED_ARRAY_BUFFER",
-            "array_buffer",
+            PayloadKey::ArrayBuffer,
             Some("crate::array_buffer::ArrayBuffer::class_initialize"),
             Some("crate::array_buffer::js_array_buffer_finalizer"),
             None,
@@ -260,7 +328,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "Uint8ClampedArray",
             "UINT8C_ARRAY",
-            "typed_array",
+            PayloadKey::TypedArray,
             Some("crate::typed_array::TypedArray::class_initialize"),
             Some("crate::typed_array::TypedArray::class_finalize"),
             Some("crate::typed_array::js_typed_array_mark"),
@@ -268,7 +336,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "Int8Array",
             "INT8_ARRAY",
-            "typed_array",
+            PayloadKey::TypedArray,
             Some("crate::typed_array::TypedArray::class_initialize"),
             Some("crate::typed_array::TypedArray::class_finalize"),
             Some("crate::typed_array::js_typed_array_mark"),
@@ -276,7 +344,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "Uint8Array",
             "UINT8_ARRAY",
-            "typed_array",
+            PayloadKey::TypedArray,
             Some("crate::typed_array::TypedArray::class_initialize"),
             Some("crate::typed_array::TypedArray::class_finalize"),
             Some("crate::typed_array::js_typed_array_mark"),
@@ -284,7 +352,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "Int16Array",
             "INT16_ARRAY",
-            "typed_array",
+            PayloadKey::TypedArray,
             Some("crate::typed_array::TypedArray::class_initialize"),
             Some("crate::typed_array::TypedArray::class_finalize"),
             Some("crate::typed_array::js_typed_array_mark"),
@@ -292,7 +360,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "Uint16Array",
             "UINT16_ARRAY",
-            "typed_array",
+            PayloadKey::TypedArray,
             Some("crate::typed_array::TypedArray::class_initialize"),
             Some("crate::typed_array::TypedArray::class_finalize"),
             Some("crate::typed_array::js_typed_array_mark"),
@@ -300,7 +368,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "Int32Array",
             "INT32_ARRAY",
-            "typed_array",
+            PayloadKey::TypedArray,
             Some("crate::typed_array::TypedArray::class_initialize"),
             Some("crate::typed_array::TypedArray::class_finalize"),
             Some("crate::typed_array::js_typed_array_mark"),
@@ -308,7 +376,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "Uint32Array",
             "UINT32_ARRAY",
-            "typed_array",
+            PayloadKey::TypedArray,
             Some("crate::typed_array::TypedArray::class_initialize"),
             Some("crate::typed_array::TypedArray::class_finalize"),
             Some("crate::typed_array::js_typed_array_mark"),
@@ -316,7 +384,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "BigInt64Array",
             "BIG_INT64_ARRAY",
-            "typed_array",
+            PayloadKey::TypedArray,
             Some("crate::typed_array::TypedArray::class_initialize"),
             Some("crate::typed_array::TypedArray::class_finalize"),
             Some("crate::typed_array::js_typed_array_mark"),
@@ -324,7 +392,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "BigUint64Array",
             "BIG_UINT64_ARRAY",
-            "typed_array",
+            PayloadKey::TypedArray,
             Some("crate::typed_array::TypedArray::class_initialize"),
             Some("crate::typed_array::TypedArray::class_finalize"),
             Some("crate::typed_array::js_typed_array_mark"),
@@ -332,7 +400,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "Float32Array",
             "FLOAT32_ARRAY",
-            "typed_array",
+            PayloadKey::TypedArray,
             Some("crate::typed_array::TypedArray::class_initialize"),
             Some("crate::typed_array::TypedArray::class_finalize"),
             Some("crate::typed_array::js_typed_array_mark"),
@@ -340,7 +408,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "Float64Array",
             "FLOAT64_ARRAY",
-            "typed_array",
+            PayloadKey::TypedArray,
             Some("crate::typed_array::TypedArray::class_initialize"),
             Some("crate::typed_array::TypedArray::class_finalize"),
             Some("crate::typed_array::js_typed_array_mark"),
@@ -349,7 +417,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "DataView",
             "DATAVIEW",
-            "data_view",
+            PayloadKey::DataView,
             Some("crate::typed_array::DataView::class_initialize"),
             None,
             None,
@@ -357,7 +425,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "BigInt",
             "BIG_INT",
-            "",
+            PayloadKey::None,
             None,
             Some("crate::value::js_object_data_finalizer"),
             Some("crate::value::js_object_data_mark"),
@@ -368,7 +436,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "Map",
             "MAP",
-            "mapset",
+            PayloadKey::MapSet,
             None,
             Some("crate::mapset::JSMapState::class_finalizer"),
             Some("crate::mapset::JSMapState::class_mark"),
@@ -376,7 +444,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "Set",
             "SET",
-            "mapset",
+            PayloadKey::MapSet,
             None,
             Some("crate::mapset::JSMapState::class_finalizer"),
             Some("crate::mapset::JSMapState::class_mark"),
@@ -384,7 +452,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "WeakMap",
             "WEAKMAP",
-            "mapset",
+            PayloadKey::MapSet,
             None,
             Some("crate::mapset::JSMapState::class_finalizer"),
             Some("crate::mapset::JSMapState::class_mark"),
@@ -392,7 +460,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "WeakSet",
             "WEAKSET",
-            "mapset",
+            PayloadKey::MapSet,
             None,
             Some("crate::mapset::JSMapState::class_finalizer"),
             Some("crate::mapset::JSMapState::class_mark"),
@@ -400,7 +468,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "Map_Iterator",
             "MAP_ITERATOR",
-            "mapset_iterator",
+            PayloadKey::MapSetIterator,
             None,
             Some("crate::mapset::js_map_iterator_finalizer"),
             Some("crate::mapset::js_map_iterator_mark"),
@@ -408,7 +476,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "Set_Iterator",
             "SET_ITERATOR",
-            "mapset_iterator",
+            PayloadKey::MapSetIterator,
             None,
             Some("crate::mapset::js_map_iterator_finalizer"),
             Some("crate::mapset::js_map_iterator_mark"),
@@ -416,7 +484,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "Array_Iterator",
             "ARRAY_ITERATOR",
-            "array_iterator",
+            PayloadKey::ArrayIterator,
             None,
             Some("crate::iterator::ArrayIterPayload::class_finalizer"),
             Some("crate::iterator::ArrayIterPayload::class_mark"),
@@ -424,7 +492,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "String_Iterator",
             "STRING_ITERATOR",
-            "array_iterator",
+            PayloadKey::ArrayIterator,
             None,
             Some("crate::iterator::ArrayIterPayload::class_finalizer"),
             Some("crate::iterator::ArrayIterPayload::class_mark"),
@@ -432,7 +500,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "RegExp_String_Iterator",
             "REGEXP_STRING_ITERATOR",
-            "regexp_string_iterator",
+            PayloadKey::RegExpStringIterator,
             None,
             Some("crate::regexp::js_regexp_iterator_finalizer"),
             Some("crate::regexp::js_regexp_iterator_mark"),
@@ -443,7 +511,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "Generator",
             "GENERATOR",
-            "generator",
+            PayloadKey::Generator,
             None,
             Some("crate::generator::js_generator_finalizer"),
             Some("crate::generator::js_generator_mark"),
@@ -454,7 +522,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "Object", // Proxy class name is Object
             "PROXY",
-            "proxy",
+            PayloadKey::Proxy,
             Some("crate::proxy::Proxy::class_initialize"),
             Some("crate::proxy::Proxy::class_finalizer"),
             Some("crate::proxy::Proxy::class_mark"),
@@ -465,7 +533,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "Promise",
             "PROMISE",
-            "promise",
+            PayloadKey::Promise,
             None,
             Some("crate::promise::Promise::class_finalizer"),
             Some("crate::promise::Promise::class_mark"),
@@ -473,7 +541,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "PromiseResolveFunction",
             "PROMISE_RESOLVE_FUNCTION",
-            "promise_resolving_function",
+            PayloadKey::PromiseResolvingFunction,
             None,
             Some("crate::promise::PromiseResolveFunc::class_finalizer"),
             Some("crate::promise::PromiseResolveFunc::class_mark"),
@@ -481,7 +549,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "PromiseRejectFunction",
             "PROMISE_REJECT_FUNCTION",
-            "promise_resolving_function",
+            PayloadKey::PromiseResolvingFunction,
             None,
             Some("crate::promise::PromiseResolveFunc::class_finalizer"),
             Some("crate::promise::PromiseResolveFunc::class_mark"),
@@ -489,7 +557,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "AsyncFunction",
             "ASYNC_FUNCTION",
-            "bc_function",
+            PayloadKey::BcFunction,
             None,
             Some("crate::function::js_bytecode_function_finalizer"),
             Some("crate::function::js_bytecode_function_mark"),
@@ -497,7 +565,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "AsyncFunctionResolve",
             "ASYNC_FUNCTION_RESOLVE",
-            "async_function_resolving",
+            PayloadKey::AsyncFunctionResolving,
             None,
             Some("crate::function::AsyncFuncState::class_finalizer"),
             Some("crate::function::AsyncFuncState::class_mark"),
@@ -505,7 +573,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "AsyncFunctionReject",
             "ASYNC_FUNCTION_REJECT",
-            "async_function_resolving",
+            PayloadKey::AsyncFunctionResolving,
             None,
             Some("crate::function::AsyncFuncState::class_finalizer"),
             Some("crate::function::AsyncFuncState::class_mark"),
@@ -513,7 +581,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "empty_string", // JS_ATOM_empty_string
             "ASYNC_FROM_SYNC_ITERATOR",
-            "async_from_sync_iterator",
+            PayloadKey::AsyncFromSyncIterator,
             None,
             Some("crate::iterator::js_async_from_sync_iterator_finalizer"),
             Some("crate::iterator::js_async_from_sync_iterator_mark"),
@@ -521,7 +589,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "AsyncGeneratorFunction",
             "ASYNC_GENERATOR_FUNCTION",
-            "bc_function",
+            PayloadKey::BcFunction,
             None,
             Some("crate::function::js_bytecode_function_finalizer"),
             Some("crate::function::js_bytecode_function_mark"),
@@ -529,7 +597,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
         ClassInfo::class_def(
             "AsyncGenerator",
             "ASYNC_GENERATOR",
-            "async_generator",
+            PayloadKey::AsyncGenerator,
             None,
             Some("crate::generator::AsyncGeneratorFunction::class_finalizer"),
             Some("crate::generator::AsyncGeneratorFunction::class_mark"),
@@ -626,13 +694,13 @@ pub fn gen_class_payload(outfile: &Path) {
     let mut getid_arms = Vec::<String>::with_capacity(class_defs.len() + 8);
 
     for cdef in class_defs {
-        items.push(if let Some(k) = cdef.key {
-            format!("{}({})", cdef.const_name, CLASS_PAYLOAD_TYPE[k])
+        items.push(if cdef.key != PayloadKey::None {
+            format!("{}({})", cdef.const_name, CLASS_PAYLOAD_TYPE[&cdef.key])
         } else {
             cdef.const_name.to_string()
         });
 
-        getid_arms.push(if cdef.key.is_some() {
+        getid_arms.push(if cdef.key != PayloadKey::None {
             format!(
                 "Self::{}(_)=>crate::JS_CLASS_{}",
                 cdef.const_name, cdef.const_name
@@ -656,7 +724,7 @@ pub fn gen_class_payload(outfile: &Path) {
         let arms = CLASS_DEF_LIST
             .iter()
             .filter_map(|c| {
-                if c.key == Some(k) {
+                if c.key.eq(k) {
                     Some(format!("Self::{}(x)", c.const_name))
                 } else {
                     None
