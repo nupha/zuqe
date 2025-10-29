@@ -3,7 +3,7 @@ use crate::{
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
     JS_CLASS_INT32_ARRAY, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT, JS_CLASS_UINT8_ARRAY,
     JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
-    atom::{Atom, JS_AtomIsNumericIndex, consts::JS_ATOM_length},
+    atom::{Atom, consts::JS_ATOM_length},
     branch_hints::unlikely,
     context::JSContext,
     error::JS_ThrowReferenceErrorNotDefined,
@@ -11,7 +11,6 @@ use crate::{
         JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_WRITABLE, JS_PROP_LAZYINIT,
         JS_PROP_LENGTH, JS_PROP_NORMAL, JS_PROP_TMASK, JS_PROP_VARREF, JSObject, JSProperty,
     },
-    typed_array::TypedArray,
     value::{JS_GetPrototypePrimitive, JSValue},
 };
 
@@ -154,18 +153,17 @@ impl JSObject {
                         } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY)
                             .contains(&cur_obj.class_id())
                         {
-                            return Ok(true); // typed array oob
+                            // Note: per specification, must consume the value even if typed array oob
+                            let _ = val.to_number(ctx)?;
+                            return Ok(true);
                         }
                     } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY)
                         .contains(&cur_obj.class_id())
+                        && prop.is_numeric_index(ctx)?
                     {
-                        let ret = unsafe { JS_AtomIsNumericIndex(ctx, prop) };
-                        if unlikely(ret < 0) {
-                            return Err(-1);
-                        }
-                        if ret == 1 {
-                            return Ok(true); // typed array oob
-                        }
+                        // Note: per specification, must consume the value even if typed array oob
+                        let _ = val.to_number(ctx)?;
+                        return Ok(true);
                     }
                 } else if let Some(xm) = ctx.rt().class_registry[cur_obj.class_id() as usize]
                     .exotic
@@ -402,7 +400,10 @@ impl JSObject {
                 let Ok(v) = val.coerce_to_u8_clamp(ctx) else {
                     return Some(Err(-1));
                 };
-                let _ = TypedArray(self.clone()).set_element_int(idx as _, v as _);
+                let _ = self
+                    .as_TypedArray()
+                    .unwrap()
+                    .set_element_int(idx as _, v as _);
                 Some(Ok(true))
             }
             JS_CLASS_INT8_ARRAY
@@ -414,14 +415,14 @@ impl JSObject {
                 let Ok(v) = val.to_i32(ctx) else {
                     return Some(Err(-1));
                 };
-                let _ = TypedArray(self.clone()).set_element_int(idx as _, v);
+                let _ = self.as_TypedArray().unwrap().set_element_int(idx as _, v);
                 Some(Ok(true))
             }
             JS_CLASS_FLOAT32_ARRAY | JS_CLASS_FLOAT64_ARRAY => {
                 let Ok(v) = val.to_f64(ctx) else {
                     return Some(Err(-1));
                 };
-                let _ = TypedArray(self.clone()).set_element_float(idx as _, v);
+                let _ = self.as_TypedArray().unwrap().set_element_float(idx as _, v);
                 Some(Ok(true))
             }
             JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {

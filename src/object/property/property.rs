@@ -2,7 +2,7 @@ use std::{ffi::c_void, ops::Deref};
 
 use crate::{
     JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
-    atom::{Atom, JS_AtomIsNumericIndex, consts::*},
+    atom::{Atom, consts::*},
     branch_hints::unlikely,
     context::{JSContext, JSContextWeakref},
     error::JSResult,
@@ -318,16 +318,10 @@ impl JSObject {
                 return Ok(true);
             }
 
-            if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).contains(&p.class_id()) {
-                match unsafe { JS_AtomIsNumericIndex(ctx, prop) } {
-                    0 => {}
-                    -1 => {
-                        return Err(-1);
-                    }
-                    _ => {
-                        return Ok(false);
-                    }
-                }
+            if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).contains(&p.class_id())
+                && prop.is_numeric_index(ctx)?
+            {
+                return Ok(false);
             }
 
             // walk up proto chain

@@ -2,11 +2,11 @@ use std::ops::Deref;
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
-    atom::{Atom, JS_AtomIsNumericIndex1, consts::*},
+    atom::{Atom, JS_ATOM_TAG_INT, consts::*},
     branch_hints::unlikely,
     bytecode::js_get_function_name,
     context::JSContext,
-    number::JS_NumberIsNegativeOrMinusZero,
+    number::{IntOrFloat, JS_NumberIsNegativeOrMinusZero, SAFE_INTEGER_RANGE},
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_THROW, JSObject,
         JSProperty, PropertyKey,
@@ -175,36 +175,34 @@ impl JSObject {
                             };
                         } else {
                             /* slow path with to handle all numeric indexes */
-                            let num = JS_AtomIsNumericIndex1(ctx, prop).err()?;
-                            if num.is_undefined() {
-                                break; // goto typed_array_done
-                            }
+                            let Some(num) = prop.to_numeric_index(ctx)? else {
+                                break;
+                            };
 
-                            if unlikely(!num.is_integral(ctx)?) {
-                                return if ctx.throw_type_error_or_false(
-                                    flags,
-                                    "non integer index in typed array",
-                                ) {
-                                    Err(-1)
-                                } else {
-                                    Ok(false)
-                                };
-                            } else {
-                                if JS_NumberIsNegativeOrMinusZero(&num) {
-                                    return if ctx.throw_type_error_or_false(
-                                        flags as _,
-                                        "negative index in typed array",
-                                    ) {
-                                        Err(-1)
-                                    } else {
-                                        Ok(false)
-                                    };
+                            match num {
+                                IntOrFloat::Int64(i) => {
+                                    if i < 0 {
+                                        return if ctx.can_throw(flags) {
+                                            ctx.throw_type_error("negative index in typed array");
+                                            Err(-1)
+                                        } else {
+                                            Ok(false)
+                                        };
+                                    }
+                                    if i > JS_ATOM_TAG_INT as i64 {
+                                        return if ctx.can_throw(flags) {
+                                            ctx.throw_type_error(
+                                                "out-of-bound index in typed array",
+                                            );
+                                            Err(-1)
+                                        } else {
+                                            Ok(false)
+                                        };
+                                    }
                                 }
-                                if !prop.is_small_int() {
-                                    return if ctx.throw_type_error_or_false(
-                                        flags,
-                                        "out-of-bound index in typed array",
-                                    ) {
+                                IntOrFloat::Float64(_) => {
+                                    return if ctx.can_throw(flags) {
+                                        ctx.throw_type_error("non integer index in typed array");
                                         Err(-1)
                                     } else {
                                         Ok(false)

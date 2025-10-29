@@ -364,6 +364,10 @@ impl ArrayBuffer {
         self.0.payload().array_buffer().unwrap()
     }
 
+    pub fn is_detached(&self) -> bool {
+        self.payload().is_detached()
+    }
+
     /// detatch array buffer
     pub fn detatch(&self, ctx: &JSContext) {
         let abuf = self.payload();

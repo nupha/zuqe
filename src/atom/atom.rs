@@ -4,6 +4,7 @@ use crate::{
     atom::AtomDesc,
     context::JSContext,
     mem::js_malloc_typed,
+    number::IntOrFloat,
     string::{JSString, StringChar},
     value::JSValue,
 };
@@ -158,6 +159,91 @@ impl Atom {
         } else {
             None
         }
+    }
+
+    /// Check if atom can be used as a numeric index property,
+    /// if yes, returns the index.
+    pub fn to_numeric_index(&self, ctx: &JSContext) -> Result<Option<IntOrFloat>, i32> {
+        if let Some(n) = self.to_small_int() {
+            return Ok(Some(IntOrFloat::Int64(n as _)));
+        }
+
+        let d = self.description();
+        let content = d.content();
+
+        if content.is_empty() || content.is_ident() {
+            return Ok(None);
+        }
+
+        if let AtomHintAndId::String(_) = d.atom_info().unwrap() {
+            let buf_len = content.len();
+
+            // check for: -0, Infinity, -Infinity
+            let mut chars = content.iter();
+
+            if let Some((_, c)) = chars.next() {
+                if let Some(mut ch) = c.char() {
+                    if ch == '-' {
+                        if let Some((_, StringChar::Char(c2))) = chars.next() {
+                            // -0 case is specific
+                            if c2 == '0' && buf_len == 2 {
+                                return Ok(Some(IntOrFloat::Float64(-0.0)));
+                            } else {
+                                ch = c2;
+                            }
+                        } else {
+                            return Ok(None);
+                        }
+                    }
+
+                    if !ch.is_ascii_digit() {
+                        // XXX: should test NaN, but the tests do not check it
+                        if ch == 'I' {
+                            let mut nfinity = "nfinity".chars();
+                            loop {
+                                match (chars.next(), nfinity.next()) {
+                                    (Some((_, StringChar::Char(a))), Some(b)) if a == b => {}
+                                    (None, None) => {
+                                        break; // Infinity is allowed
+                                    }
+                                    _ => {
+                                        return Ok(None);
+                                    }
+                                }
+                            }
+                        } else {
+                            return Ok(None);
+                        }
+                    }
+                } else {
+                    // broken surrogate
+                    return Ok(None);
+                }
+            }
+
+            // XXX: bignum: would be better to only accept integer to avoid
+            // relying on current floating point precision
+            // this is ECMA CanonicalNumericIndexString primitive
+            let num = d.to_number(ctx);
+
+            // test num as string is same to original value
+            let str = num.to_string(ctx)?;
+            if d.content().eq(str.content()) {
+                match num {
+                    JSValue::Int(i) => Ok(Some(IntOrFloat::Int64(i as _))),
+                    JSValue::Float64(d) => Ok(Some(IntOrFloat::Float64(d))),
+                    _ => unreachable!(),
+                }
+            } else {
+                Ok(None)
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn is_numeric_index(&self, ctx: &JSContext) -> Result<bool, i32> {
+        self.to_numeric_index(ctx).map(|x| x.is_some())
     }
 
     /// Convert atom to String or Symbol value.
@@ -389,98 +475,6 @@ impl JSValue {
                 }
             }
         }
-    }
-}
-
-// This test must be fast if atom is not a numeric index (e.g. a
-// method name). Return JS_UNDEFINED if not a numeric
-// index. JS_EXCEPTION can also be returned.
-pub fn JS_AtomIsNumericIndex1(ctx: &JSContext, atom: &Atom) -> JSValue {
-    if let Some(n) = atom.to_small_int() {
-        return JSValue::Int(n as _);
-    }
-
-    let d = atom.description();
-    let content = d.content();
-
-    if content.is_empty() || content.is_ident() {
-        return JSValue::UNDEFINED;
-    }
-
-    if let AtomHintAndId::String(_) = d.atom_info().unwrap() {
-        let buf_len = content.len();
-
-        // check for: -0, Infinity, -Infinity
-        let mut chars = content.iter();
-
-        if let Some((_, c)) = chars.next() {
-            if let Some(mut ch) = c.char() {
-                if ch == '-' {
-                    if let Some((_, StringChar::Char(c2))) = chars.next() {
-                        // -0 case is specific
-                        if c2 == '0' && buf_len == 2 {
-                            return JSValue::Float64(-0.0);
-                        } else {
-                            ch = c2;
-                        }
-                    } else {
-                        return JSValue::UNDEFINED;
-                    }
-                }
-
-                if !ch.is_ascii_digit() {
-                    // XXX: should test NaN, but the tests do not check it
-                    if ch == 'I' {
-                        loop {
-                            match (chars.next(), "nfinity".chars().next()) {
-                                (Some((_, StringChar::Char(a))), Some(b)) if a == b => {}
-                                (None, None) => {
-                                    break; // is Infinity
-                                }
-                                _ => {
-                                    return JSValue::UNDEFINED;
-                                }
-                            }
-                        }
-                    } else {
-                        return JSValue::UNDEFINED;
-                    }
-                }
-            } else {
-                // broken surrogate
-                return JSValue::UNDEFINED;
-            }
-        }
-
-        // XXX: bignum: would be better to only accept integer to avoid
-        // relying on current floating point precision
-        // this is ECMA CanonicalNumericIndexString primitive
-        let num = d.to_number(ctx);
-
-        // test num as string is same to original value
-        if let Ok(str) = num.to_string(ctx) {
-            if d.content().eq(str.content()) {
-                num
-            } else {
-                JSValue::EXCEPTION
-            }
-        } else {
-            JSValue::EXCEPTION
-        }
-    } else {
-        JSValue::UNDEFINED
-    }
-}
-
-// return -1 if exception or TRUE/FALSE
-pub unsafe fn JS_AtomIsNumericIndex(ctx: &JSContext, atom: &Atom) -> i32 {
-    let num = JS_AtomIsNumericIndex1(ctx, atom);
-    if num.is_undefined() {
-        0
-    } else if num.is_exception() {
-        -1
-    } else {
-        1
     }
 }
 

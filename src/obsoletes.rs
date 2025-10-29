@@ -29,7 +29,7 @@ use crate::{
     iterator::{ForInIterPayload, JSIteratorKindEnum, ObjectIter},
     mapset::{JSMapState, MapPair},
     module::{ExportEntry, ExportType, JSResolveResultEnum, ModuleDef, ModuleDefInner},
-    number::JSToNumberHintEnum,
+    number::{IntOrFloat, JSToNumberHintEnum},
     object::{
         GCObject, JSObject, JSProperty, JSPropertyDescriptor, JSShape, JSShapeProperty,
         ObjectPayload, PropertyKey,
@@ -3543,12 +3543,12 @@ pub fn __JS_AtomIsConst(v: AtomRef) -> bool {
     v.is_const()
 }
 
-#[deprecated(note = "use AtomRef::is_int_type() instead")]
+#[deprecated(note = "use AtomRef::is_small_int() instead")]
 pub fn __JS_AtomIsTaggedInt(v: AtomRef) -> bool {
     v.is_small_int()
 }
 
-#[deprecated(note = "use AtomRef::from_u32() instead")]
+#[deprecated(note = "use AtomRef::new_small_int() instead")]
 pub fn __JS_AtomFromUInt32(n: u32) -> AtomRef {
     AtomRef::new_small_int(n)
 }
@@ -4954,4 +4954,38 @@ pub(crate) fn JS_SetConstructorBit(func_obj: &JSValue, val: bool) -> bool {
     } else {
         false
     }
+}
+
+// This test must be fast if atom is not a numeric index (e.g. a
+// method name). Return JS_UNDEFINED if not a numeric
+// index. JS_EXCEPTION can also be returned.
+#[deprecated(note = "use Atom::to_numeric_index() instead")]
+pub fn JS_AtomIsNumericIndex1(ctx: &JSContext, atom: &Atom) -> JSValue {
+    atom.to_numeric_index(ctx)
+        .map_or(JSValue::EXCEPTION, |n| match n {
+            Some(IntOrFloat::Int64(n)) => JSValue::from(n),
+            Some(IntOrFloat::Float64(n)) => JSValue::from(n),
+            None => JSValue::UNDEFINED,
+        })
+}
+
+// return -1 if exception or TRUE/FALSE
+#[deprecated(note = "use Atom::is_numeric_index() instead")]
+pub unsafe fn JS_AtomIsNumericIndex(ctx: &JSContext, atom: &Atom) -> i32 {
+    atom.is_numeric_index(ctx).map_or(-1, |x| x as i32)
+}
+
+#[deprecated(note = "use TypedArray::class_finalize() instead")]
+pub fn js_typed_array_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {
+    if let Some(ta) = isa.typed_array() {
+        // during the GC the finalizers are called in an arbitrary
+        // order so the ArrayBuffer finalize may have been called
+        ta.array_buffer().payload().remove_typed_array_weakref(id);
+    }
+}
+
+/* WARNING: 'p' must be a typed array */
+#[deprecated(note = "use TypedArray::is_detached() instead")]
+pub unsafe fn typed_array_is_detached(p: *mut JSValue) -> bool {
+    unreachable!("use TypedArray::is_detached() instead")
 }

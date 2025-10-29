@@ -14,6 +14,7 @@ use crate::{
     array_buffer::ABufData,
     atom::consts::JS_ATOM_Symbol_iterator,
     branch_hints::unlikely,
+    class::ClassID,
     context::JSContext,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, FieldDef, JS_CallConstructor},
@@ -79,33 +80,56 @@ pub fn js_typed_array___speciesCreate(
 
 pub fn js_typed_array_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     let new_target = cc.this();
-    let class_id = cc.magic();
+    let class_id = cc.magic() as ClassID;
 
     let ta = if let JSValue::Object(p) = cc.arg(0) {
         if let Some(ab) = p.as_ArrayBuffer() {
-            let offset = cc.arg(1).to_array_index(ctx)? as usize;
-
             let size_log2 = TypedArray::SIZE_LOG2(class_id as _);
             let byte_length = ab.payload().byte_length();
 
-            if (offset & ((1 << size_log2) - 1)) != 0 || offset > byte_length {
-                ctx.throw_range_error("invalid offset");
+            let offset = cc.arg(1).to_array_index(ctx)? as usize;
+            // guard side effect (detach) of retrieving arg #1.
+            if ab.is_detached() {
+                JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+                return Err(-1);
+            }
+
+            if (offset & ((1 << size_log2) - 1)) != 0 {
+                ctx.throw_range_error("offset should be a multiple of element size");
+                return Err(-1);
+            } else if offset > byte_length {
+                ctx.throw_range_error("offset must not greater than byte length");
                 return Err(-1);
             }
 
             let len = {
                 let a2 = cc.arg(2);
                 if a2.is_undefined() {
+                    if (byte_length & ((1 << size_log2) - 1)) != 0 {
+                        ctx.throw_range_error("byte length should be a multiple of element size");
+                        return Err(-1);
+                    }
                     (byte_length - offset) >> size_log2
                 } else {
-                    a2.to_array_index(ctx)? as usize
+                    let n = a2.to_array_index(ctx)? as usize;
+                    // guard side effect (detach) of retrieving arg #2.
+                    if ab.is_detached() {
+                        JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+                        return Err(-1);
+                    }
+
+                    if offset + (n << size_log2) > byte_length {
+                        ctx.throw_range_error("invalid length");
+                        return Err(-1);
+                    }
+                    n
                 }
             };
 
             TypedArray::create_from(
                 ctx,
                 new_target,
-                cc.arg(0).clone(),
+                p.clone().into(),
                 offset,
                 len,
                 class_id as _,
@@ -115,7 +139,7 @@ pub fn js_typed_array_constructor(ctx: &JSContext, cc: CallContext) -> JSResult 
         }
     } else {
         let len = cc.arg(0).to_array_index(ctx)? as usize;
-        TypedArray::create_from(ctx, new_target, JSValue::UNDEFINED, 0, len, class_id as _)
+        TypedArray::with_capacity(ctx, new_target, len, class_id)
     };
 
     ta.map(|x| x.into())

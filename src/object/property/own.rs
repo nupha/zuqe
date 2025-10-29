@@ -1,6 +1,6 @@
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
-    atom::{Atom, JS_AtomIsNumericIndex, consts::JS_ATOM_length},
+    atom::{Atom, consts::JS_ATOM_length},
     branch_hints::unlikely,
     context::JSContext,
     error::JS_ThrowReferenceErrorUninitialized,
@@ -407,11 +407,8 @@ impl JSObject {
                 } // Array, Arguments
 
                 JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
-                    let ret = unsafe { JS_AtomIsNumericIndex(ctx, &prop) };
-                    if ret != 0 {
-                        return if unlikely(ret < 0) {
-                            Err(-1)
-                        } else if ctx.can_throw(flags) {
+                    if prop.is_numeric_index(ctx)? {
+                        return if ctx.can_throw(flags) {
                             ctx.throw_type_error("cannot create numeric index in typed array");
                             Err(-1)
                         } else {

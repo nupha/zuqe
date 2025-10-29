@@ -50,8 +50,7 @@ pub struct TypedArrayPayload {
 impl TypedArrayPayload {
     /// create typed array payload with underlying array buffer `buffer`,
     /// offset in array buffer and type array element count.
-    pub(crate) fn new(
-        ctx: &JSContext,
+    fn new(
         buffer: ArrayBuffer,
         class_id: ClassID,
         offset: usize,
@@ -62,24 +61,20 @@ impl TypedArrayPayload {
             JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY
         ));
 
-        let size_log2 = TypedArray::SIZE_LOG2(class_id);
         let abuf = buffer.payload();
-
-        if abuf.is_detached() {
-            JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-            return Err(-1);
-        }
-
         let byte_length = abuf.byte_length();
+        let size_log2 = TypedArray::SIZE_LOG2(class_id);
 
-        if offset & ((1 << size_log2) - 1) != 0 || (offset > byte_length) {
-            ctx.throw_range_error("invalid offset");
-            return Err(-1);
-        }
-        if offset + (count << size_log2) > byte_length {
-            ctx.throw_range_error("invalid length");
-            return Err(-1);
-        }
+        debug_assert!(!abuf.is_detached());
+        debug_assert!(
+            byte_length & ((1 << size_log2) - 1) == 0,
+            "byte_length must be aligned to element size"
+        );
+        debug_assert!(
+            offset & ((1 << size_log2) - 1) == 0,
+            "offset must be aligned to element size"
+        );
+        debug_assert!(offset + (count << size_log2) <= byte_length);
 
         let ta = Self {
             obj: UnsafeCell::new(JSObjectWeakref::default()), // empty weakref
@@ -414,10 +409,9 @@ impl TypedArray {
 
         let count = self.length();
         let size_log2 = Self::SIZE_LOG2(class_id as _);
-
         let new_buf = ArrayBuffer::create(ctx, false, count << size_log2)?;
 
-        // Note: necessary to check detacth again, because it could have been detached
+        // Note: necessary to check detacth again, because it could have been detached by side effect.
         if self.is_detached() {
             JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
             return Err(-1);
@@ -456,14 +450,18 @@ impl TypedArray {
     fn create(
         ctx: &JSContext,
         new_target: &JSValue,
-        buffer: ArrayBuffer,
+        array_buffer: ArrayBuffer,
         offset: usize,
         count: usize,
         class_id: ClassID,
     ) -> Result<Self, i32> {
         let ta = Box::new(TypedArrayPayload::new(
-            ctx, buffer, class_id, offset, count,
+            array_buffer,
+            class_id,
+            offset,
+            count,
         )?);
+
         let isa = match class_id {
             JS_CLASS_UINT8C_ARRAY => ObjectPayload::UINT8C_ARRAY(ta),
             JS_CLASS_UINT8_ARRAY => ObjectPayload::UINT8_ARRAY(ta),
@@ -529,11 +527,10 @@ impl TypedArray {
     }
 
     /// create a TypedArray from an existing `source`. The source value could be:
-    /// - undefined: create an empty TypedArray;
     /// - TypedArray: create a TypedArray with content copied from source;
     /// - ArrayBuffer, SharedArrayBuffer: create a TypedArray with array buffer;
     /// - An enumerable object: create a TypedArray with content from enumerated index property vals.
-    pub fn create_from(
+    pub(crate) fn create_from(
         ctx: &JSContext,
         new_target: &JSValue,
         source: JSValue,
@@ -544,14 +541,13 @@ impl TypedArray {
         let size_log2 = TypedArray::SIZE_LOG2(class_id);
 
         match source {
-            JSValue::UNDEFINED => Self::with_capacity(ctx, new_target, length, class_id),
             JSValue::Object(o) => {
                 match o.class_id() {
                     JS_CLASS_ARRAY_BUFFER | JS_CLASS_SHARED_ARRAY_BUFFER => {
                         Self::create(ctx, new_target, ArrayBuffer(o), offset, length, class_id)
                     }
                     JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
-                        TypedArray(o).create_to_new(ctx, new_target, class_id)
+                        Self(o).create_to_new(ctx, new_target, class_id)
                     }
                     _ => {
                         // source is an enumetable object.
@@ -587,15 +583,6 @@ impl TypedArray {
     }
 }
 
-#[deprecated(note = "use TypedArray::class_finalize() instead")]
-pub fn js_typed_array_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {
-    if let Some(ta) = isa.typed_array() {
-        // during the GC the finalizers are called in an arbitrary
-        // order so the ArrayBuffer finalize may have been called
-        ta.array_buffer().payload().remove_typed_array_weakref(id);
-    }
-}
-
 pub fn js_typed_array_mark(val: JSValue) {
     let p = unsafe { val.as_object_unchecked() };
     if p.payload().typed_array().is_some() {
@@ -603,10 +590,4 @@ pub fn js_typed_array_mark(val: JSValue) {
         // println!("[O.o] TODO typed array mark");
         // (*rt).gc_mark_value(JSValue::Object(ta.array_buffer().clone()), mark_func);
     }
-}
-
-/* WARNING: 'p' must be a typed array */
-#[deprecated(note = "use TypedArray::is_detached() instead")]
-pub unsafe fn typed_array_is_detached(p: *mut JSValue) -> bool {
-    unreachable!("use TypedArray::is_detached() instead")
 }

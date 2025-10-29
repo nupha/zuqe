@@ -95,12 +95,9 @@ pub fn js_reflect_set(ctx: &JSContext, cc: CallContext) -> JSResult {
             &atom,
             val.clone(),
             match receiver {
-                JSValue::NULL | JSValue::UNDEFINED => None,
                 JSValue::Object(o) => Some(o),
-                _ => {
-                    // returns false instead of throwing an error
-                    return Ok(JSValue::Bool(false));
-                }
+                JSValue::NULL | JSValue::UNDEFINED => None,
+                _ => None,
             },
             0,
         )

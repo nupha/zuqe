@@ -73,7 +73,8 @@ pub fn js_object_defineProperty(ctx: &JSContext, cc: CallContext) -> JSResult {
     if let Some(obj) = cc.arg(0).as_object() {
         let atom = prop.to_atom(ctx)?;
 
-        // magic = 1 if called as Reflect.defineProperty
+        // magic = 1: Reflect.defineProperty, don't throw on failure
+        // magic = 0: Object.defineProperty, throw on failure
         let mut flags = 0;
         if cc.magic() == 0 {
             flags |= JS_PROP_THROW;

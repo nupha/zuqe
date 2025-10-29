@@ -3,7 +3,7 @@ use crate::{
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
     JS_CLASS_INT32_ARRAY, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY,
     JS_CLASS_UINT32_ARRAY,
-    atom::{Atom, JS_ATOM_MAX_INT, JS_AtomIsNumericIndex, consts::*},
+    atom::{Atom, JS_ATOM_MAX_INT, consts::*},
     branch_hints::unlikely,
     context::JSContext,
     error::{JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized, JSResult},
@@ -95,14 +95,17 @@ impl JSObject {
                     } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY)
                         .contains(&cur_obj.class_id())
                     {
-                        let ret = unsafe { JS_AtomIsNumericIndex(ctx, prop) };
-                        if ret != 0 {
-                            return if unlikely(ret < 0) {
-                                Err(-1)
-                            } else {
-                                Ok(JSValue::UNDEFINED)
-                            };
+                        if prop.is_numeric_index(ctx)? {
+                            return Ok(JSValue::UNDEFINED);
                         }
+                        // let ret = unsafe { JS_AtomIsNumericIndex(ctx, prop) };
+                        // if ret != 0 {
+                        //     return if unlikely(ret < 0) {
+                        //         Err(-1)
+                        //     } else {
+                        //         Ok(JSValue::UNDEFINED)
+                        //     };
+                        // }
                     }
                 } else if let Some(pm) = ctx.rt().class_registry[cur_obj.class_id() as usize]
                     .exotic
