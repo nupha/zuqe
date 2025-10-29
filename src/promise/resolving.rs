@@ -98,9 +98,9 @@ impl PromiseResolveFunc {
 }
 
 #[derive(Debug, Clone)]
-pub struct JSPromiseReactionData {
-    pub resolving_funcs: [JSValue; 2],
-    pub handler: JSValue,
+pub(super) struct JSPromiseReactionData {
+    pub(super) resolving_funcs: [JSValue; 2],
+    pub(super) handler: JSValue,
 }
 
 impl Default for JSPromiseReactionData {

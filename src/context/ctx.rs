@@ -15,9 +15,7 @@ use crate::{
     array::ArrayObjPayload,
     atom::{
         Atom,
-        consts::{
-            JS_ATOM_Proxy, JS_ATOM_empty_string, JS_ATOM_length, JS_ATOM_message, JS_ATOM_name,
-        },
+        consts::{JS_ATOM_empty_string, JS_ATOM_length, JS_ATOM_message, JS_ATOM_name},
     },
     class::ClassID,
     error::{STD_ERROR_COUNT, STD_ERROR_NAMES, js_error_proto_funcs},
@@ -521,11 +519,6 @@ impl JSRuntime {
 
         Ok(ctx)
     }
-
-    // /// Creates a core JavaScript context only.
-    // pub fn create_context_core(&mut self) -> Result<JSContext, i32> {
-    //     self.create_context_raw(|_| Ok(()))
-    // }
 
     /// Creates a new JavaScript context with customized setup.
     pub fn create_context(

@@ -43,12 +43,12 @@ pub struct PromisePayload {
 
     /// list of pending reactions:
     /// #0 for fulfill, #1 for reject.
-    pub promise_reactions: RefCell<[Vec<Box<JSPromiseReactionData>>; 2]>,
+    promise_reactions: RefCell<[Vec<Box<JSPromiseReactionData>>; 2]>,
 
-    pub promise_result: RefCell<JSValue>,
+    promise_result: RefCell<JSValue>,
 
     /// Note: only useful to debug
-    pub is_handled: Cell<bool>,
+    is_handled: Cell<bool>,
 }
 
 impl PromisePayload {
@@ -159,7 +159,7 @@ impl Promise {
 
         // collect resolving functions
         let mut resolving_funcs = [JSValue::UNDEFINED, JSValue::UNDEFINED];
-        if let ObjectPayload::C_FUNCTION_DATA(s) = executor.payload() {
+        if let Some(s) = executor.payload().native_func_with_data() {
             for i in 0..2 {
                 let item = s.data(i).unwrap();
                 item.ensure_function(ctx)?;

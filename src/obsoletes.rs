@@ -35,7 +35,7 @@ use crate::{
         ObjectPayload, PropertyKey,
     },
     parse::{JSParseExportEnum, JSParseFunctionEnum, JSParseState},
-    promise::{JSPromiseReactionData, Promise, PromiseState},
+    promise::{Promise, PromiseState},
     proxy::ProxyPayload,
     runtime::JSRuntime,
     stack_frame::StackFrame,
@@ -608,7 +608,7 @@ unsafe fn js_promise_executor_new(ctx: &JSContext) -> JSValue {
 #[deprecated(note = "use JSPromiseReactionData::dispose() instead")]
 pub(super) unsafe fn promise_reaction_data_free(
     rt: *mut JSRuntime,
-    rd: *mut JSPromiseReactionData,
+    rd: *mut c_void, // JSPromiseReactionData,
 ) {
     unreachable!("use JSPromiseReactionData::dispose() instead");
 }
