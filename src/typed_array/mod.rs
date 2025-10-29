@@ -1,5 +1,5 @@
-mod classdef;
-mod dataview;
+mod class_dataview;
+mod class_typedarray;
 mod ta;
 
-pub use {classdef::*, dataview::*, ta::*};
+pub use {class_dataview::*, class_typedarray::*, ta::*};

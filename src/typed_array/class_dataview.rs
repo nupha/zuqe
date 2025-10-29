@@ -56,45 +56,7 @@ impl DataView {
         }
     }
 
-    // /// create DataView with array buffer, offset and count.
-    // /// `count`: number of elements.
-    // pub(crate) fn create(
-    //     ctx: &JSContext,
-    //     new_target: &JSValue,
-    //     buffer: ArrayBuffer,
-    //     offset: usize,
-    //     count: usize,
-    // ) -> Result<Self, i32> {
-    //     let isa = ObjectPayload::DATAVIEW(Box::new(DataViewPayload::new(
-    //         ctx,
-    //         buffer,
-    //         JS_CLASS_DATAVIEW,
-    //         offset,
-    //         count,
-    //     )?));
-
-    //     let obj = ctx
-    //         .create_object_from_ctor(new_target, isa)
-    //         .map_err(|_| -1)?;
-
-    //     // establish mutual references
-    //     {
-    //         let p = obj.payload().typed_array().unwrap();
-    //         let w = obj.downgrade();
-
-    //         p.array_buffer()
-    //             .payload()
-    //             .add_typed_array_weakref(w.clone());
-
-    //         unsafe {
-    //             *p.obj.get() = w;
-    //         }
-    //     }
-
-    //     Ok(Self(obj))
-    // }
-
-    /// create a DataView with AarrayBuffer.
+    /// create a DataView with AarrayBuffer, offset and length.
     pub(crate) fn create(
         ctx: &JSContext,
         ctor: &JSValue,
