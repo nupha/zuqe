@@ -153,7 +153,7 @@ impl JSObject {
                         } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY)
                             .contains(&cur_obj.class_id())
                         {
-                            // Note: per specification, must consume the value even if typed array oob
+                            // Note: consume the value even if typed array oob
                             let _ = val.to_number(ctx)?;
                             return Ok(true);
                         }
@@ -161,7 +161,7 @@ impl JSObject {
                         .contains(&cur_obj.class_id())
                         && prop.is_numeric_index(ctx)?
                     {
-                        // Note: per specification, must consume the value even if typed array oob
+                        // Note: consume the value even if typed array oob
                         let _ = val.to_number(ctx)?;
                         return Ok(true);
                     }
@@ -290,7 +290,6 @@ impl JSObject {
         }
     }
 
-    /// `prop` is not consumed.
     #[inline(always)]
     pub fn set_property(&self, ctx: &JSContext, prop: &Atom, val: JSValue) -> Result<bool, i32> {
         self.set_property_internal(ctx, prop, val, Some(self), JS_PROP_THROW)
