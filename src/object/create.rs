@@ -83,7 +83,7 @@ impl JSContext {
     /// if `ctor` is:
     /// - undefined, use the `payload` kind associated class prototype,
     /// - otherwise, retrieve property `ctor.prototype` as prototype.
-    pub fn create_object_from_ctor_with(
+    pub(crate) fn create_object_from_ctor_with(
         &self,
         ctor: &JSValue,
         payload_fn: impl FnOnce() -> Result<ObjectPayload, i32>,

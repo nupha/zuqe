@@ -6,7 +6,6 @@ use crate::{
     JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY, JS_CLASS_UINT8_ARRAY,
     JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY, JS_PROP_STRING_DEF,
     array_buffer::ArrayBuffer,
-    branch_hints::unlikely,
     class::ClassID,
     context::JSContext,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
@@ -95,21 +94,17 @@ impl DataView {
     //     Ok(Self(obj))
     // }
 
-    /// create a DataView with underlaying AarrayBuffer.
-    pub fn create(
+    /// create a DataView with AarrayBuffer.
+    pub(crate) fn create(
         ctx: &JSContext,
         ctor: &JSValue,
         array_buffer: ArrayBuffer,
         offset: usize,
         length: Option<usize>,
     ) -> Result<Self, i32> {
-        let abuf = array_buffer.payload();
-        if abuf.is_detached() {
-            JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-            return Err(-1);
-        }
+        debug_assert!(!array_buffer.payload().is_detached());
 
-        let byte_length = abuf.byte_length();
+        let byte_length = array_buffer.payload().byte_length();
         if offset > byte_length {
             ctx.throw_range_error("invalid byteOffset");
             return Err(-1);
@@ -126,24 +121,43 @@ impl DataView {
         }
 
         let o = ctx
-            .create_object_from_ctor_with(ctor, || {
-                // Note: test array buffer detach again,
-                // because get prototype may potentially detach the buffer.
-                if unlikely(array_buffer.payload().is_detached()) {
-                    JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-                    Err(-1)
-                } else {
-                    let isa = Box::new(DataViewPayload {
-                        obj: UnsafeCell::new(JSObjectWeakref::default()),
-                        buffer: array_buffer,
-                        offset: offset as u32,
-                        byte_length: len as _,
-                        count: Cell::new(0),
-                    });
-                    Ok(ObjectPayload::DATAVIEW(isa))
-                }
-            })
+            .create_object_from_ctor(
+                ctor,
+                ObjectPayload::DATAVIEW(Box::new(DataViewPayload {
+                    obj: UnsafeCell::new(JSObjectWeakref::default()),
+                    buffer: array_buffer.clone(),
+                    offset: offset as u32,
+                    byte_length: len as _,
+                    count: Cell::new(0), // no use
+                })),
+            )
             .map_err(|_| -1)?;
+
+        // could have been detached in create_object_from_ctor(), reading prototype method.
+        if array_buffer.payload().is_detached() {
+            JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+            return Err(-1);
+        }
+
+        // let o = ctx
+        //     .create_object_from_ctor_with(ctor, || {
+        //         // Note: test array buffer detach again,
+        //         // because get prototype may potentially detach the buffer.
+        //         if unlikely(array_buffer.payload().is_detached()) {
+        //             JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+        //             Err(-1)
+        //         } else {
+        //             let isa = Box::new(DataViewPayload {
+        //                 obj: UnsafeCell::new(JSObjectWeakref::default()),
+        //                 buffer: array_buffer,
+        //                 offset: offset as u32,
+        //                 byte_length: len as _,
+        //                 count: Cell::new(0),
+        //             });
+        //             Ok(ObjectPayload::DATAVIEW(isa))
+        //         }
+        //     })
+        //     .map_err(|_| -1)?;
 
         // set back ref to DataView object self
         let dv = Self(o);
@@ -223,7 +237,13 @@ pub fn js_dataview_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     };
 
     let offset = if cc.length() > 1 {
-        cc.arg(1).to_array_index(ctx)?
+        let n = cc.arg(1).to_array_index(ctx)? as usize;
+        // guard array buffer after reading arg #1
+        if buffer.is_detached() {
+            JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+            return Err(-1);
+        }
+        n
     } else {
         0
     };
@@ -233,113 +253,112 @@ pub fn js_dataview_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     } else {
         None
     };
+
     DataView::create(ctx, cc.this(), buffer.clone(), offset as _, length).map(|o| o.into())
 }
 
 pub fn js_dataview_getValue(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let dv = cc
-        .this()
-        .retrive_object_payload(ctx, JS_CLASS_DATAVIEW)?
-        .data_view()
-        .unwrap();
+    let Some(dataview) = cc.this().as_object_DataView() else {
+        ctx.throw_type_error_invalid_class(JS_CLASS_DATAVIEW);
+        return Err(-1);
+    };
 
     let class_id = cc.magic() as ClassID;
     let size = 1 << TypedArray::SIZE_LOG2(class_id);
     let pos = cc.arg(0).to_array_index(ctx)? as usize;
 
-    // is little endian? default to BE
+    // is little endian?
     let le = if cc.length() > 1 {
         cc.arg(1).to_bool()?
     } else {
         false // default to BE
     };
 
-    unsafe {
-        let abuf = dv.array_buffer().payload();
-        if abuf.is_detached() {
-            JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
-            return Err(-1);
-        }
-
-        if pos + size > abuf.byte_length() {
-            ctx.throw_range_error("out of bound");
-            return Err(-1);
-        }
-
-        dv.with_bytes(|buf| -> JSResult {
-            let ptr = buf.as_ptr().add(pos);
-
-            match class_id {
-                JS_CLASS_INT8_ARRAY => Ok(JSValue::Int(*ptr.cast::<i8>() as i32)),
-                JS_CLASS_UINT8_ARRAY => Ok(JSValue::Int(*ptr as i32)),
-                JS_CLASS_INT16_ARRAY => {
-                    let bb: [u8; 2] = std::slice::from_raw_parts(ptr, 2).try_into().unwrap();
-                    let n = if le {
-                        i16::from_le_bytes(bb)
-                    } else {
-                        i16::from_be_bytes(bb)
-                    };
-                    Ok(JSValue::Int(n as i32))
-                }
-                JS_CLASS_UINT16_ARRAY => {
-                    let bb: [u8; 2] = std::slice::from_raw_parts(ptr, 2).try_into().unwrap();
-                    let n = if le {
-                        u16::from_le_bytes(bb)
-                    } else {
-                        u16::from_be_bytes(bb)
-                    };
-                    Ok(JSValue::Int(n as i32))
-                }
-                JS_CLASS_INT32_ARRAY => {
-                    let bb: [u8; 4] = std::slice::from_raw_parts(ptr, 4).try_into().unwrap();
-                    let n = if le {
-                        i32::from_le_bytes(bb)
-                    } else {
-                        i32::from_be_bytes(bb)
-                    };
-                    Ok(JSValue::Int(n))
-                }
-                JS_CLASS_UINT32_ARRAY => {
-                    let bb: [u8; 4] = std::slice::from_raw_parts(ptr, 4).try_into().unwrap();
-                    let n = if le {
-                        u32::from_le_bytes(bb)
-                    } else {
-                        u32::from_be_bytes(bb)
-                    };
-                    Ok(JSValue::from(n))
-                }
-                JS_CLASS_BIG_INT64_ARRAY => {
-                    ctx.throw_type_error("BigInt64Array is not supported");
-                    Err(-1)
-                }
-                JS_CLASS_BIG_UINT64_ARRAY => {
-                    ctx.throw_type_error("BigUint64Array is not supported");
-                    Err(-1)
-                }
-                JS_CLASS_FLOAT32_ARRAY => {
-                    let bb: [u8; 4] = std::slice::from_raw_parts(ptr, 4).try_into().unwrap();
-                    let n = if le {
-                        f32::from_le_bytes(bb)
-                    } else {
-                        f32::from_be_bytes(bb)
-                    };
-                    Ok(JSValue::from(n as f64))
-                }
-                JS_CLASS_FLOAT64_ARRAY => {
-                    let bb: [u8; 8] = std::slice::from_raw_parts(ptr, 8).try_into().unwrap();
-                    let n = if le {
-                        f64::from_le_bytes(bb)
-                    } else {
-                        f64::from_be_bytes(bb)
-                    };
-                    Ok(JSValue::from(n))
-                }
-                _ => {
-                    unreachable!();
-                }
-            }
-        })
+    let abuf = dataview.array_buffer().payload();
+    if abuf.is_detached() {
+        JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+        return Err(-1);
     }
+
+    let dv = dataview.payload();
+    if pos + size > dv.byte_length() {
+        ctx.throw_range_error("out of bound");
+        return Err(-1);
+    }
+
+    dv.with_bytes(|buf| unsafe {
+        let ptr = buf.as_ptr().add(pos);
+
+        match class_id {
+            JS_CLASS_INT8_ARRAY => Ok(JSValue::Int(*ptr.cast::<i8>() as i32)),
+            JS_CLASS_UINT8_ARRAY => Ok(JSValue::Int(*ptr as i32)),
+            JS_CLASS_INT16_ARRAY => {
+                let bb: [u8; 2] = std::slice::from_raw_parts(ptr, 2).try_into().unwrap();
+                let n = if le {
+                    i16::from_le_bytes(bb)
+                } else {
+                    i16::from_be_bytes(bb)
+                };
+                Ok(JSValue::Int(n as i32))
+            }
+            JS_CLASS_UINT16_ARRAY => {
+                let bb: [u8; 2] = std::slice::from_raw_parts(ptr, 2).try_into().unwrap();
+                let n = if le {
+                    u16::from_le_bytes(bb)
+                } else {
+                    u16::from_be_bytes(bb)
+                };
+                Ok(JSValue::Int(n as i32))
+            }
+            JS_CLASS_INT32_ARRAY => {
+                let bb: [u8; 4] = std::slice::from_raw_parts(ptr, 4).try_into().unwrap();
+                let n = if le {
+                    i32::from_le_bytes(bb)
+                } else {
+                    i32::from_be_bytes(bb)
+                };
+                Ok(JSValue::Int(n))
+            }
+            JS_CLASS_UINT32_ARRAY => {
+                let bb: [u8; 4] = std::slice::from_raw_parts(ptr, 4).try_into().unwrap();
+                let n = if le {
+                    u32::from_le_bytes(bb)
+                } else {
+                    u32::from_be_bytes(bb)
+                };
+                Ok(JSValue::from(n))
+            }
+            JS_CLASS_BIG_INT64_ARRAY => {
+                ctx.throw_type_error("BigInt64Array is not supported");
+                Err(-1)
+            }
+            JS_CLASS_BIG_UINT64_ARRAY => {
+                ctx.throw_type_error("BigUint64Array is not supported");
+                Err(-1)
+            }
+            JS_CLASS_FLOAT32_ARRAY => {
+                let bb: [u8; 4] = std::slice::from_raw_parts(ptr, 4).try_into().unwrap();
+                let n = if le {
+                    f32::from_le_bytes(bb)
+                } else {
+                    f32::from_be_bytes(bb)
+                };
+                Ok(JSValue::from(n as f64))
+            }
+            JS_CLASS_FLOAT64_ARRAY => {
+                let bb: [u8; 8] = std::slice::from_raw_parts(ptr, 8).try_into().unwrap();
+                let n = if le {
+                    f64::from_le_bytes(bb)
+                } else {
+                    f64::from_be_bytes(bb)
+                };
+                Ok(JSValue::from(n))
+            }
+            _ => {
+                unreachable!();
+            }
+        }
+    })
 }
 
 pub fn js_dataview_setValue(ctx: &JSContext, cc: CallContext) -> JSResult {
