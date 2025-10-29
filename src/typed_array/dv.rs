@@ -1,5 +1,3 @@
-use std::cell::{Cell, UnsafeCell};
-
 use crate::{
     JS_CLASS_DATAVIEW,
     array_buffer::ArrayBuffer,
@@ -7,18 +5,83 @@ use crate::{
     context::JSContext,
     error::JS_ThrowTypeErrorDetachedArrayBuffer,
     function::NativeFunctionType,
-    object::{JSObject, JSObjectWeakref, ObjectPayload},
+    object::{JSObject, ObjectPayload},
     object_cast,
     runtime::JSRuntime,
     value::JSValue,
 };
 
-use super::{
-    TypedArrayPayload,
-    class_dataview::{js_dataview_constructor, js_dataview_proto_funcs},
-};
+use super::class_dataview::{js_dataview_constructor, js_dataview_proto_funcs};
 
-pub type DataViewPayload = TypedArrayPayload;
+#[derive(Debug)]
+pub struct DataViewPayload {
+    /// underlaying array buffer object.
+    pub(super) buffer: ArrayBuffer,
+    /// start offset in array buffer  
+    pub(super) offset: u32,
+    /// number of bytes from array buffer
+    pub(super) byte_length: u32,
+}
+
+impl DataViewPayload {
+    /// create typed array payload with underlying array buffer `buffer`,
+    /// offset in array buffer and type array element count.
+    fn new(buffer: ArrayBuffer, offset: usize, len: usize) -> Box<Self> {
+        let abuf = buffer.payload();
+        let byte_length = abuf.byte_length();
+
+        debug_assert!(!abuf.is_detached());
+        debug_assert!(offset <= byte_length);
+        debug_assert!(offset + len <= byte_length);
+
+        Box::new(Self {
+            buffer,
+            offset: offset as u32,
+            byte_length: len as u32,
+        })
+    }
+
+    /// get underlaying array buffer object.
+    #[inline(always)]
+    pub const fn array_buffer(&self) -> &ArrayBuffer {
+        &self.buffer
+    }
+
+    /// check if `self` TypedArray is detached.
+    #[inline]
+    pub fn is_detached(&self) -> bool {
+        self.array_buffer().payload().is_detached()
+    }
+
+    #[inline(always)]
+    pub const fn byte_length(&self) -> usize {
+        self.byte_length as _
+    }
+
+    // pub fn set_obj(&self, obj: &JSObject) {
+    //     unsafe {
+    //         *self.obj.get() = obj.downgrade();
+    //     }
+    // }
+
+    /// run closure with underlaying bytes of typed array.
+    pub fn with_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
+        let base = self.offset as usize;
+        let len = self.byte_length as usize;
+        self.array_buffer()
+            .payload()
+            .with_bytes(|buf| f(&buf[base..base + len]))
+    }
+
+    /// run closure with underlaying bytes of typed array.
+    pub fn with_bytes_mut<R>(&self, f: impl FnOnce(&mut [u8]) -> R) -> R {
+        let base = self.offset as usize;
+        let len = self.byte_length as usize;
+        self.array_buffer()
+            .payload()
+            .with_bytes_mut(|buf| f(&mut buf[base..base + len]))
+    }
+}
 
 #[repr(transparent)]
 #[derive(Debug, Clone)]
@@ -83,13 +146,7 @@ impl DataView {
         let o = ctx
             .create_object_from_ctor(
                 ctor,
-                ObjectPayload::DATAVIEW(Box::new(DataViewPayload {
-                    obj: UnsafeCell::new(JSObjectWeakref::default()),
-                    buffer: array_buffer.clone(),
-                    offset: offset as u32,
-                    byte_length: len as _,
-                    count: Cell::new(0), // no use
-                })),
+                ObjectPayload::DATAVIEW(DataViewPayload::new(array_buffer.clone(), offset, len)),
             )
             .map_err(|_| -1)?;
 
@@ -119,13 +176,11 @@ impl DataView {
         //     })
         //     .map_err(|_| -1)?;
 
-        // set back ref to DataView object self
         let dv = Self(o);
-        dv.payload().set_obj(&dv.0);
-
         Ok(dv)
     }
 
+    #[inline]
     pub fn payload(&self) -> &DataViewPayload {
         self.0.payload().data_view().unwrap()
     }
@@ -136,24 +191,9 @@ impl DataView {
         self.payload().is_detached()
     }
 
+    #[inline]
     pub fn array_buffer(&self) -> &ArrayBuffer {
         self.payload().array_buffer()
-    }
-
-    /// Get elements count of typed array.
-    /// If underlaying array buffer is detached, returns 0.
-    #[inline]
-    pub fn length(&self) -> usize {
-        #[cfg(debug_assertions)]
-        if self.is_detached() {
-            debug_assert_eq!(self.payload().count(), 0);
-            0
-        } else {
-            self.payload().count()
-        }
-
-        #[cfg(not(debug_assertions))]
-        self.payload().count()
     }
 
     pub fn byte_length(&self) -> usize {
@@ -166,7 +206,7 @@ impl DataView {
 
     /// Get underlying array buffer byte offset.
     /// When underlaying array buffer is detached, returns Err.
-    pub fn array_buffer_byte_offset(&self, ctx: &JSContext) -> Result<usize, i32> {
+    pub(super) fn array_buffer_byte_offset(&self, ctx: &JSContext) -> Result<usize, i32> {
         if self.is_detached() {
             JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
             Err(-1)
@@ -176,16 +216,16 @@ impl DataView {
     }
 }
 
-impl JSContext {
-    /// create a DataView with underlaying AarrayBuffer.
-    #[deprecated(note = "use DataView::create() instead")]
-    pub fn create_dataview(
-        &self,
-        ctor: &JSValue,
-        array_buffer: ArrayBuffer,
-        offset: usize,
-        length: Option<usize>,
-    ) -> Result<DataView, i32> {
-        DataView::create(self, ctor, array_buffer, offset, length)
-    }
-}
+// impl JSContext {
+//     /// create a DataView with underlaying AarrayBuffer.
+//     #[deprecated(note = "use DataView::create() instead")]
+//     pub fn create_dataview(
+//         &self,
+//         ctor: &JSValue,
+//         array_buffer: ArrayBuffer,
+//         offset: usize,
+//         length: Option<usize>,
+//     ) -> Result<DataView, i32> {
+//         DataView::create(self, ctor, array_buffer, offset, length)
+//     }
+// }
