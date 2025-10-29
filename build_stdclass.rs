@@ -2,27 +2,33 @@ use std::{collections::HashMap, path::Path};
 
 use once_cell::sync::Lazy;
 
-#[derive(Debug, Default)]
-struct ClassInfo {
-    class_name: &'static str,
-    const_name: &'static str,
-    key: Option<&'static str>,
-    initialize: Option<&'static str>,
-    finalize: Option<&'static str>,
-    gc_mark: Option<&'static str>,
-}
-
-macro_rules! class_def {
-    ($name:expr, $const_name:expr, $key:expr, $payload:expr, $init:expr, $fin:expr, $mark:expr) => {
-        ClassInfo {
-            class_name: $name,
-            const_name: $const_name,
-            key: if $key.is_empty() { None } else { Some($key) },
-            initialize: $init,
-            finalize: $fin,
-            gc_mark: $mark,
-        }
-    };
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(i32)]
+enum PayloadKey {
+    None,
+    Array,
+    Value,
+    Datetime,
+    NativeFunc,
+    NativeFuncWithData,
+    BcFunction,
+    BoundFunction,
+    RegExp,
+    ForInIterator,
+    ArrayBuffer,
+    TypedArray,
+    DataView,
+    MapSet,
+    MapSetIterator,
+    ArrayIterator,
+    RegExpStringIterator,
+    Generator,
+    Proxy,
+    Promise,
+    PromiseResolvingFunction,
+    AsyncFunctionResolving,
+    AsyncFromSyncIterator,
+    AsyncGenerator,
 }
 
 static CLASS_PAYLOAD_TYPE: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
@@ -82,470 +88,451 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<&'static str, &'static str>> = Lazy::new
     m
 });
 
+#[derive(Debug, Default)]
+struct ClassInfo {
+    class_name: &'static str,
+    const_name: &'static str,
+    key: Option<&'static str>,
+    initialize: Option<&'static str>,
+    finalize: Option<&'static str>,
+    gc_mark: Option<&'static str>,
+}
+
+impl ClassInfo {
+    const fn class_def(
+        class_name: &'static str,
+        const_name: &'static str,
+        key: &'static str,
+        initialize: Option<&'static str>,
+        finalize: Option<&'static str>,
+        gc_mark: Option<&'static str>,
+    ) -> Self {
+        ClassInfo {
+            class_name,
+            const_name,
+            key: if key.is_empty() { None } else { Some(key) },
+            initialize,
+            finalize,
+            gc_mark,
+        }
+    }
+}
+
 static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
     vec![
         // CORE CLASSES START
-        class_def!("Object", "OBJECT", "", None, None, None, None),
-        class_def!(
+        ClassInfo::class_def("Object", "OBJECT", "", None, None, None),
+        ClassInfo::class_def(
             "Array",
             "ARRAY",
             "array",
-            Some("crate::array::ArrayObjPayload"),
             None,
             Some("crate::array::js_array_finalizer"),
-            Some("crate::array::js_array_mark")
+            Some("crate::array::js_array_mark"),
         ),
-        class_def!("Error", "ERROR", "", None, None, None, None),
-        class_def!(
+        ClassInfo::class_def("Error", "ERROR", "", None, None, None),
+        ClassInfo::class_def(
             "Number",
             "NUMBER",
             "value",
-            Some("crate::value::JSValue"),
             None,
             Some("crate::value::js_object_data_finalizer"),
-            Some("crate::value::js_object_data_mark")
+            Some("crate::value::js_object_data_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "String",
             "STRING",
             "value",
-            Some("crate::value::JSValue"),
             None,
             Some("crate::value::js_object_data_finalizer"),
-            Some("crate::value::js_object_data_mark")
+            Some("crate::value::js_object_data_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "Boolean",
             "BOOLEAN",
             "value",
-            Some("crate::value::JSValue"),
             None,
             Some("crate::value::js_object_data_finalizer"),
-            Some("crate::value::js_object_data_mark")
+            Some("crate::value::js_object_data_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "Symbol",
             "SYMBOL",
             "value",
-            Some("crate::value::JSValue"),
             None,
             Some("crate::value::js_object_data_finalizer"),
-            Some("crate::value::js_object_data_mark")
+            Some("crate::value::js_object_data_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "Arguments",
             "ARGUMENTS",
             "array",
-            Some("crate::array::ArrayObjPayload"),
             None,
             Some("crate::array::js_array_finalizer"),
-            Some("crate::array::js_array_mark")
+            Some("crate::array::js_array_mark"),
         ),
-        class_def!("Arguments", "MAPPED_ARGUMENTS", "", None, None, None, None),
-        class_def!(
+        ClassInfo::class_def("Arguments", "MAPPED_ARGUMENTS", "", None, None, None),
+        ClassInfo::class_def(
             "Date",
             "DATE",
             "datetime",
-            Some("std::cell::Cell<crate::date::Datetime>"),
             None,
             Some("crate::value::js_object_data_finalizer"),
-            Some("crate::value::js_object_data_mark")
+            Some("crate::value::js_object_data_mark"),
         ),
         // CORE CLASSES END
-        class_def!("Object", "MODULE_NS", "", None, None, None, None),
-        class_def!(
+        ClassInfo::class_def("Object", "MODULE_NS", "", None, None, None),
+        ClassInfo::class_def(
             "Function",
             "C_FUNCTION",
             "native_func",
-            Some("crate::function::NFuncPayload"),
             None,
             Some("crate::function::NFuncPayload::class_finalizer"),
-            Some("crate::function::NFuncPayload::class_mark")
+            Some("crate::function::NFuncPayload::class_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "Function",
             "BYTECODE_FUNCTION",
             "bc_function",
-            Some("Box<crate::function::BCFuncPayload>"),
             None,
             Some("crate::function::js_bytecode_function_finalizer"),
-            Some("crate::function::js_bytecode_function_mark")
+            Some("crate::function::js_bytecode_function_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "Function",
             "BOUND_FUNCTION",
             "bound_function",
-            Some("Box<crate::function::BoundFuncObjPayload>"),
             None,
             Some("crate::function::BoundFunction::class_finalizer"),
-            Some("crate::function::BoundFunction::class_mark")
+            Some("crate::function::BoundFunction::class_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "Function",
             "C_FUNCTION_DATA",
             "native_func_with_data",
-            Some("Box<crate::callable::NativeFuncData>"),
             None,
             Some("crate::callable::NativeFunctionWithData::class_finalizer"),
-            Some("crate::callable::NativeFunctionWithData::class_mark")
+            Some("crate::callable::NativeFunctionWithData::class_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "GeneratorFunction",
             "GENERATOR_FUNCTION",
             "bc_function",
-            Some("Box<crate::function::BCFuncPayload>"),
             None,
             Some("crate::function::js_bytecode_function_finalizer"),
-            Some("crate::function::js_bytecode_function_mark")
+            Some("crate::function::js_bytecode_function_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "ForInIterPayload",
             "FOR_IN_ITERATOR",
             "for_in_iterator",
-            Some("std::cell::RefCell<Box<crate::iterator::ForInIterPayload>>"),
             None,
             Some("crate::iterator::js_for_in_iterator_finalizer"),
-            Some("crate::iterator::js_for_in_iterator_mark")
+            Some("crate::iterator::js_for_in_iterator_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "RegExp",
             "REGEXP",
             "regexp",
-            Some("Box<crate::regexp::RegExpData>"),
             None,
             Some("crate::regexp::RegExp::class_finalizer"),
-            None
+            None,
         ),
-        class_def!(
+        ClassInfo::class_def(
             "ArrayBuffer",
             "ARRAY_BUFFER",
             "array_buffer",
-            Some("crate::array_buffer::ArrayBufferPayload"),
             Some("crate::array_buffer::ArrayBuffer::class_initialize"),
             Some("crate::array_buffer::js_array_buffer_finalizer"),
-            None
+            None,
         ),
-        class_def!(
+        ClassInfo::class_def(
             "SharedArrayBuffer",
             "SHARED_ARRAY_BUFFER",
             "array_buffer",
-            Some("crate::array_buffer::ArrayBufferPayload"),
             Some("crate::array_buffer::ArrayBuffer::class_initialize"),
             Some("crate::array_buffer::js_array_buffer_finalizer"),
-            None
+            None,
         ),
         //
         // start of typed arrays
         //
-        class_def!(
+        ClassInfo::class_def(
             "Uint8ClampedArray",
             "UINT8C_ARRAY",
             "typed_array",
-            Some("Box<crate::typed_array::TypedArrayPayload>"),
             Some("crate::typed_array::TypedArray::class_initialize"),
             Some("crate::typed_array::TypedArray::class_finalize"),
-            Some("crate::typed_array::js_typed_array_mark")
+            Some("crate::typed_array::js_typed_array_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "Int8Array",
             "INT8_ARRAY",
             "typed_array",
-            Some("Box<crate::typed_array::TypedArrayPayload>"),
             Some("crate::typed_array::TypedArray::class_initialize"),
             Some("crate::typed_array::TypedArray::class_finalize"),
-            Some("crate::typed_array::js_typed_array_mark")
+            Some("crate::typed_array::js_typed_array_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "Uint8Array",
             "UINT8_ARRAY",
             "typed_array",
-            Some("Box<crate::typed_array::TypedArrayPayload>"),
             Some("crate::typed_array::TypedArray::class_initialize"),
             Some("crate::typed_array::TypedArray::class_finalize"),
-            Some("crate::typed_array::js_typed_array_mark")
+            Some("crate::typed_array::js_typed_array_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "Int16Array",
             "INT16_ARRAY",
             "typed_array",
-            Some("Box<crate::typed_array::TypedArrayPayload>"),
             Some("crate::typed_array::TypedArray::class_initialize"),
             Some("crate::typed_array::TypedArray::class_finalize"),
-            Some("crate::typed_array::js_typed_array_mark")
+            Some("crate::typed_array::js_typed_array_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "Uint16Array",
             "UINT16_ARRAY",
             "typed_array",
-            Some("Box<crate::typed_array::TypedArrayPayload>"),
             Some("crate::typed_array::TypedArray::class_initialize"),
             Some("crate::typed_array::TypedArray::class_finalize"),
-            Some("crate::typed_array::js_typed_array_mark")
+            Some("crate::typed_array::js_typed_array_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "Int32Array",
             "INT32_ARRAY",
             "typed_array",
-            Some("Box<crate::typed_array::TypedArrayPayload>"),
             Some("crate::typed_array::TypedArray::class_initialize"),
             Some("crate::typed_array::TypedArray::class_finalize"),
-            Some("crate::typed_array::js_typed_array_mark")
+            Some("crate::typed_array::js_typed_array_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "Uint32Array",
             "UINT32_ARRAY",
             "typed_array",
-            Some("Box<crate::typed_array::TypedArrayPayload>"),
             Some("crate::typed_array::TypedArray::class_initialize"),
             Some("crate::typed_array::TypedArray::class_finalize"),
-            Some("crate::typed_array::js_typed_array_mark")
+            Some("crate::typed_array::js_typed_array_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "BigInt64Array",
             "BIG_INT64_ARRAY",
             "typed_array",
-            Some("Box<crate::typed_array::TypedArrayPayload>"),
             Some("crate::typed_array::TypedArray::class_initialize"),
             Some("crate::typed_array::TypedArray::class_finalize"),
-            Some("crate::typed_array::js_typed_array_mark")
+            Some("crate::typed_array::js_typed_array_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "BigUint64Array",
             "BIG_UINT64_ARRAY",
             "typed_array",
-            Some("Box<crate::typed_array::TypedArrayPayload>"),
             Some("crate::typed_array::TypedArray::class_initialize"),
             Some("crate::typed_array::TypedArray::class_finalize"),
-            Some("crate::typed_array::js_typed_array_mark")
+            Some("crate::typed_array::js_typed_array_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "Float32Array",
             "FLOAT32_ARRAY",
             "typed_array",
-            Some("Box<crate::typed_array::TypedArrayPayload>"),
             Some("crate::typed_array::TypedArray::class_initialize"),
             Some("crate::typed_array::TypedArray::class_finalize"),
-            Some("crate::typed_array::js_typed_array_mark")
+            Some("crate::typed_array::js_typed_array_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "Float64Array",
             "FLOAT64_ARRAY",
             "typed_array",
-            Some("Box<crate::typed_array::TypedArrayPayload>"),
             Some("crate::typed_array::TypedArray::class_initialize"),
             Some("crate::typed_array::TypedArray::class_finalize"),
-            Some("crate::typed_array::js_typed_array_mark")
+            Some("crate::typed_array::js_typed_array_mark"),
         ),
         // end of typed arrays
-        class_def!(
+        ClassInfo::class_def(
             "DataView",
             "DATAVIEW",
             "data_view",
-            Some("Box<crate::typed_array::DataViewPayload>"),
             Some("crate::typed_array::DataView::class_initialize"),
             None,
-            None
+            None,
         ),
-        class_def!(
+        ClassInfo::class_def(
             "BigInt",
             "BIG_INT",
             "",
             None,
-            None,
             Some("crate::value::js_object_data_finalizer"),
-            Some("crate::value::js_object_data_mark")
+            Some("crate::value::js_object_data_mark"),
         ),
         //
         // map set and iterators
         //
-        class_def!(
+        ClassInfo::class_def(
             "Map",
             "MAP",
             "mapset",
-            Some("std::cell::RefCell<Box<crate::mapset::JSMapState>>"),
             None,
             Some("crate::mapset::JSMapState::class_finalizer"),
-            Some("crate::mapset::JSMapState::class_mark")
+            Some("crate::mapset::JSMapState::class_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "Set",
             "SET",
             "mapset",
-            Some("std::cell::RefCell<Box<crate::mapset::JSMapState>>"),
             None,
             Some("crate::mapset::JSMapState::class_finalizer"),
-            Some("crate::mapset::JSMapState::class_mark")
+            Some("crate::mapset::JSMapState::class_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "WeakMap",
             "WEAKMAP",
             "mapset",
-            Some("std::cell::RefCell<Box<crate::mapset::JSMapState>>"),
             None,
             Some("crate::mapset::JSMapState::class_finalizer"),
-            Some("crate::mapset::JSMapState::class_mark")
+            Some("crate::mapset::JSMapState::class_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "WeakSet",
             "WEAKSET",
             "mapset",
-            Some("std::cell::RefCell<Box<crate::mapset::JSMapState>>"),
             None,
             Some("crate::mapset::JSMapState::class_finalizer"),
-            Some("crate::mapset::JSMapState::class_mark")
+            Some("crate::mapset::JSMapState::class_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "Map_Iterator",
             "MAP_ITERATOR",
             "mapset_iterator",
-            Some("std::cell::RefCell<Box<crate::mapset::JSMapIteratorData>>"),
             None,
             Some("crate::mapset::js_map_iterator_finalizer"),
-            Some("crate::mapset::js_map_iterator_mark")
+            Some("crate::mapset::js_map_iterator_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "Set_Iterator",
             "SET_ITERATOR",
             "mapset_iterator",
-            Some("std::cell::RefCell<Box<crate::mapset::JSMapIteratorData>>"),
             None,
             Some("crate::mapset::js_map_iterator_finalizer"),
-            Some("crate::mapset::js_map_iterator_mark")
+            Some("crate::mapset::js_map_iterator_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "Array_Iterator",
             "ARRAY_ITERATOR",
             "array_iterator",
-            Some("Box<crate::iterator::ArrayIterPayload>"),
             None,
             Some("crate::iterator::ArrayIterPayload::class_finalizer"),
-            Some("crate::iterator::ArrayIterPayload::class_mark")
+            Some("crate::iterator::ArrayIterPayload::class_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "String_Iterator",
             "STRING_ITERATOR",
             "array_iterator",
-            Some("Box<crate::iterator::ArrayIterPayload>"),
             None,
             Some("crate::iterator::ArrayIterPayload::class_finalizer"),
-            Some("crate::iterator::ArrayIterPayload::class_mark")
+            Some("crate::iterator::ArrayIterPayload::class_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "RegExp_String_Iterator",
             "REGEXP_STRING_ITERATOR",
             "regexp_string_iterator",
-            Some("Box<crate::regexp::RegExpStringIterPayload>"),
             None,
             Some("crate::regexp::js_regexp_iterator_finalizer"),
-            Some("crate::regexp::js_regexp_iterator_mark")
+            Some("crate::regexp::js_regexp_iterator_mark"),
         ),
         //
         //
         //
-        class_def!(
+        ClassInfo::class_def(
             "Generator",
             "GENERATOR",
             "generator",
-            Some("Box<crate::generator::GeneratorPayload>"),
             None,
             Some("crate::generator::js_generator_finalizer"),
-            Some("crate::generator::js_generator_mark")
+            Some("crate::generator::js_generator_mark"),
         ),
         //
         // Proxy
         //
-        class_def!(
+        ClassInfo::class_def(
             "Object", // Proxy class name is Object
             "PROXY",
             "proxy",
-            Some("Box<crate::proxy::ProxyPayload>"),
             Some("crate::proxy::Proxy::class_initialize"),
             Some("crate::proxy::Proxy::class_finalizer"),
-            Some("crate::proxy::Proxy::class_mark")
+            Some("crate::proxy::Proxy::class_mark"),
         ),
         //
         // Async stuff
         //
-        class_def!(
+        ClassInfo::class_def(
             "Promise",
             "PROMISE",
             "promise",
-            Some("Box<crate::promise::PromisePayload>"),
             None,
             Some("crate::promise::Promise::class_finalizer"),
-            Some("crate::promise::Promise::class_mark")
+            Some("crate::promise::Promise::class_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "PromiseResolveFunction",
             "PROMISE_RESOLVE_FUNCTION",
             "promise_resolving_function",
-            Some("Box<crate::promise::PromiseResolvePayload>"),
             None,
             Some("crate::promise::PromiseResolveFunc::class_finalizer"),
-            Some("crate::promise::PromiseResolveFunc::class_mark")
+            Some("crate::promise::PromiseResolveFunc::class_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "PromiseRejectFunction",
             "PROMISE_REJECT_FUNCTION",
             "promise_resolving_function",
-            Some("Box<crate::promise::PromiseResolvePayload>"),
             None,
             Some("crate::promise::PromiseResolveFunc::class_finalizer"),
-            Some("crate::promise::PromiseResolveFunc::class_mark")
+            Some("crate::promise::PromiseResolveFunc::class_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "AsyncFunction",
             "ASYNC_FUNCTION",
             "bc_function",
-            Some("Box<crate::function::BCFuncPayload>"),
             None,
             Some("crate::function::js_bytecode_function_finalizer"),
-            Some("crate::function::js_bytecode_function_mark")
+            Some("crate::function::js_bytecode_function_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "AsyncFunctionResolve",
             "ASYNC_FUNCTION_RESOLVE",
             "async_function_resolving",
-            Some("crate::function::AsyncFuncState"),
             None,
             Some("crate::function::AsyncFuncState::class_finalizer"),
-            Some("crate::function::AsyncFuncState::class_mark")
+            Some("crate::function::AsyncFuncState::class_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "AsyncFunctionReject",
             "ASYNC_FUNCTION_REJECT",
             "async_function_resolving",
-            Some("crate::function::AsyncFuncState"),
             None,
             Some("crate::function::AsyncFuncState::class_finalizer"),
-            Some("crate::function::AsyncFuncState::class_mark")
+            Some("crate::function::AsyncFuncState::class_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "empty_string", // JS_ATOM_empty_string
             "ASYNC_FROM_SYNC_ITERATOR",
             "async_from_sync_iterator",
-            Some("Box<crate::iterator::JSAsyncFromSyncIteratorData>"),
             None,
             Some("crate::iterator::js_async_from_sync_iterator_finalizer"),
-            Some("crate::iterator::js_async_from_sync_iterator_mark")
+            Some("crate::iterator::js_async_from_sync_iterator_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "AsyncGeneratorFunction",
             "ASYNC_GENERATOR_FUNCTION",
             "bc_function",
-            Some("Box<crate::function::BCFuncPayload>"),
             None,
             Some("crate::function::js_bytecode_function_finalizer"),
-            Some("crate::function::js_bytecode_function_mark")
+            Some("crate::function::js_bytecode_function_mark"),
         ),
-        class_def!(
+        ClassInfo::class_def(
             "AsyncGenerator",
             "ASYNC_GENERATOR",
             "async_generator",
-            Some("Box<crate::generator::AGenPayload>"),
             None,
             Some("crate::generator::AsyncGeneratorFunction::class_finalizer"),
-            Some("crate::generator::AsyncGeneratorFunction::class_mark")
+            Some("crate::generator::AsyncGeneratorFunction::class_mark"),
         ),
     ]
 });
