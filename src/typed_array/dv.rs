@@ -58,14 +58,8 @@ impl DataViewPayload {
         self.byte_length as _
     }
 
-    // pub fn set_obj(&self, obj: &JSObject) {
-    //     unsafe {
-    //         *self.obj.get() = obj.downgrade();
-    //     }
-    // }
-
     /// run closure with underlaying bytes of typed array.
-    pub fn with_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
+    pub(super) fn with_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
         let base = self.offset as usize;
         let len = self.byte_length as usize;
         self.array_buffer()
@@ -74,7 +68,7 @@ impl DataViewPayload {
     }
 
     /// run closure with underlaying bytes of typed array.
-    pub fn with_bytes_mut<R>(&self, f: impl FnOnce(&mut [u8]) -> R) -> R {
+    pub(super) fn with_bytes_mut<R>(&self, f: impl FnOnce(&mut [u8]) -> R) -> R {
         let base = self.offset as usize;
         let len = self.byte_length as usize;
         self.array_buffer()
@@ -85,7 +79,7 @@ impl DataViewPayload {
 
 #[repr(transparent)]
 #[derive(Debug, Clone)]
-pub struct DataView(pub(crate) JSObject);
+pub struct DataView(JSObject);
 
 object_cast!(DataView, JS_CLASS_DATAVIEW);
 

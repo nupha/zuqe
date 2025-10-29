@@ -34,9 +34,6 @@ pub const JS_TYPED_ARRAY_COUNT: usize =
 
 #[derive(Debug)]
 pub struct TypedArrayPayload {
-    /// back reference to the TypedArray/DataView object.
-    pub(super) obj: UnsafeCell<JSObjectWeakref>,
-
     /// underlaying array buffer object.
     pub(super) buffer: ArrayBuffer,
 
@@ -46,6 +43,10 @@ pub struct TypedArrayPayload {
     pub(super) byte_length: u32,
     /// number of elements in typed array
     pub(super) count: Cell<u32>,
+
+    /// back reference to the TypedArray/DataView object.
+    #[deprecated(note = "seems no use")]
+    obj: UnsafeCell<JSObjectWeakref>,
 }
 
 impl TypedArrayPayload {
@@ -114,14 +115,14 @@ impl TypedArrayPayload {
         self.count.set(n as _);
     }
 
-    pub fn set_obj(&self, obj: &JSObject) {
+    pub(super) fn set_obj(&self, obj: &JSObject) {
         unsafe {
             *self.obj.get() = obj.downgrade();
         }
     }
 
     /// run closure with underlaying bytes of typed array.
-    pub fn with_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
+    pub(crate) fn with_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
         let base = self.offset as usize;
         let len = self.byte_length as usize;
         self.array_buffer()
@@ -130,7 +131,7 @@ impl TypedArrayPayload {
     }
 
     /// run closure with underlaying bytes of typed array.
-    pub fn with_bytes_mut<R>(&self, f: impl FnOnce(&mut [u8]) -> R) -> R {
+    pub(super) fn with_bytes_mut<R>(&self, f: impl FnOnce(&mut [u8]) -> R) -> R {
         let base = self.offset as usize;
         let len = self.byte_length as usize;
         self.array_buffer()
@@ -141,7 +142,7 @@ impl TypedArrayPayload {
 
 #[repr(transparent)]
 #[derive(Debug, Clone)]
-pub struct TypedArray(pub(crate) JSObject);
+pub struct TypedArray(JSObject);
 
 object_cast!(
     TypedArray,

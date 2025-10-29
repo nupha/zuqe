@@ -1370,17 +1370,6 @@ pub fn js_typed_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
             if d.is_nan() {
                 if special == special_includes {
                     // includes finds NaN
-                    // let found = Float64Array::try_from(p)?.with_elements(|lst| {
-                    //     if inc > 0 {
-                    //         lst.iter().skip(k as usize).position(|x| x.is_nan())
-                    //     } else {
-                    //         lst.iter()
-                    //             .enumerate()
-                    //             .take(k as usize + 1)
-                    //             .rev()
-                    //             .find_map(|(i, x)| if x.is_nan() { Some(i) } else { None })
-                    //     }
-                    // });
                     let found = ta.with_elements_as::<f64, Option<usize>>(|lst| {
                         if inc > 0 {
                             lst.iter().skip(k as usize).position(|x| x.is_nan())
