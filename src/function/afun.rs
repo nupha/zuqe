@@ -14,7 +14,7 @@ use crate::{
 
 use super::{CallContext, FieldDef};
 
-/// An async function object
+/// Async Function object
 #[repr(transparent)]
 #[derive(Debug, Clone)]
 pub struct AsyncFunction(pub(crate) JSObject);
@@ -40,7 +40,7 @@ impl AsyncFunction {
         Ok(Some(proto))
     }
 
-    /// hook to call an run function in async manner
+    /// hook to run function in async manner, returns a Promise.
     pub fn class_call(
         ctx: &JSContext,
         func_obj: &JSValue,
@@ -53,24 +53,10 @@ impl AsyncFunction {
             JS_CLASS_ASYNC_FUNCTION
         );
 
+        // create promise and resolving handlers
         func_obj
             .call_async(ctx, this_obj, args, flags)
             .map(|p| p.into())
-
-        // // create promise and resolving handlers
-        // let (promise, resolving_funcs) = ctx.create_promise(&JSValue::UNDEFINED)?;
-
-        // // async state is on stack
-        // let s = AsyncFuncState::new_with_resolvings(
-        //     ctx,
-        //     resolving_funcs,
-        //     func_obj.as_object_BCFunction().unwrap().clone(),
-        //     this_obj.clone(),
-        //     args,
-        // )?;
-        // async_function_resume(ctx, &s);
-
-        // Ok(promise.into())
     }
 }
 

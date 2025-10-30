@@ -39,7 +39,7 @@ pub enum PromiseState {
 }
 
 #[derive(Debug)]
-pub struct PromisePayload {
+pub(crate) struct PromisePayload {
     promise_state: Cell<PromiseState>,
 
     /// list of pending reactions:
@@ -84,14 +84,14 @@ impl PromisePayload {
     }
 
     /// take pending reactions out, reset reactions list to empty.
-    pub fn take_reactions(&self) -> [Vec<Box<JSPromiseReactionData>>; 2] {
+    pub(super) fn take_reactions(&self) -> [Vec<Box<JSPromiseReactionData>>; 2] {
         std::mem::take(self.promise_reactions.borrow_mut().deref_mut())
     }
 
-    pub const fn is_handled(&self) -> bool {
+    pub(super) const fn is_handled(&self) -> bool {
         self.is_handled.get()
     }
-    pub fn set_handled(&self, v: bool) {
+    pub(super) fn set_handled(&self, v: bool) {
         self.is_handled.set(v);
     }
 }
