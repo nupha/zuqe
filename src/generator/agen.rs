@@ -5,9 +5,13 @@ use crate::{
     JS_PROP_STRING_DEF,
     branch_hints::unlikely,
     callable::NativeFunctionWithData,
+    class::ClassID,
     context::JSContext,
     error::JSResult,
-    function::{AsyncFuncState, CallContext, FieldDef},
+    function::{
+        AsyncFuncState, BytecodeFunction, CallContext, FieldDef, JSFunctionKindEnum,
+        NativeFunctionType,
+    },
     iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW, js_create_iterator_result},
     object::{JS_PROP_CONFIGURABLE, JSObject, JSObjectWeakref, ObjectPayload},
     object_cast,
@@ -356,6 +360,62 @@ impl AsyncGeneratorFunction {
         }
 
         Ok(obj.into())
+    }
+
+    pub fn class_initialize(ctx: &JSContext, class_id: ClassID) -> Result<Option<JSObject>, i32> {
+        debug_assert!(
+            matches!(
+                class_id,
+                JS_CLASS_ASYNC_GENERATOR | JS_CLASS_ASYNC_GENERATOR_FUNCTION
+            ),
+            "{class_id}"
+        );
+
+        if ctx.0.borrow().class_proto[class_id as usize].is_object() {
+            // already initialized
+            return Ok(None);
+        }
+
+        // AsyncGenerator
+        let agen_proto: JSValue = {
+            let o = ctx.create_base_object_with_proto(Some(ctx.async_iterator_proto()?))?;
+            o.install_field_defs(ctx, &js_async_generator_proto_funcs)?;
+            o.into()
+        };
+
+        let func_proto = ctx.function_proto();
+
+        // AsyncGeneratorFunction
+        let o = ctx.create_base_object_with_proto(Some(func_proto.clone()))?;
+        o.install_field_defs(ctx, &js_async_generator_function_proto_funcs)?;
+        let agen_func: JSValue = o.into();
+
+        ctx.bind_ctor_proto_ex(
+            &agen_func,
+            &agen_proto,
+            JS_PROP_CONFIGURABLE,
+            JS_PROP_CONFIGURABLE,
+        )?;
+
+        let ctor: JSValue = ctx
+            .create_native_function_with_proto(
+                NativeFunctionType::ConstructorOrFunc(BytecodeFunction::class_constructor),
+                "AsyncGeneratorFunction",
+                1,
+                JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR as i16,
+                Some(func_proto),
+            )
+            .unwrap()
+            .into();
+        ctx.bind_ctor_proto_ex(&ctor, &agen_func, 0, JS_PROP_CONFIGURABLE)?;
+
+        {
+            let slot = &mut ctx.0.borrow_mut().class_proto;
+            slot[JS_CLASS_ASYNC_GENERATOR as usize] = agen_proto;
+            slot[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize] = agen_func;
+        }
+
+        Ok(None)
     }
 
     pub const fn class_finalizer(_rt: &mut JSRuntime, _isa: &ObjectPayload, _id: usize) {}

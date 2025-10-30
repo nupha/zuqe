@@ -534,7 +534,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "Promise",
             "PROMISE",
             PayloadKey::Promise,
-            None,
+            Some("crate::promise::Promise::class_initialize"),
             Some("crate::promise::Promise::class_finalizer"),
             Some("crate::promise::Promise::class_mark"),
         ),
@@ -558,7 +558,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "AsyncFunction",
             "ASYNC_FUNCTION",
             PayloadKey::BcFunction,
-            None,
+            Some("crate::function::AsyncFunction::class_initialize"),
             Some("crate::function::js_bytecode_function_finalizer"),
             Some("crate::function::js_bytecode_function_mark"),
         ),
@@ -582,7 +582,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "empty_string", // JS_ATOM_empty_string
             "ASYNC_FROM_SYNC_ITERATOR",
             PayloadKey::AsyncFromSyncIterator,
-            None,
+            Some("crate::iterator::AsyncFromSyncIterator::class_initialize"),
             Some("crate::iterator::js_async_from_sync_iterator_finalizer"),
             Some("crate::iterator::js_async_from_sync_iterator_mark"),
         ),
@@ -590,7 +590,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "AsyncGeneratorFunction",
             "ASYNC_GENERATOR_FUNCTION",
             PayloadKey::BcFunction,
-            None,
+            Some("crate::generator::AsyncGeneratorFunction::class_initialize"),
             Some("crate::function::js_bytecode_function_finalizer"),
             Some("crate::function::js_bytecode_function_mark"),
         ),
@@ -598,7 +598,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "AsyncGenerator",
             "ASYNC_GENERATOR",
             PayloadKey::AsyncGenerator,
-            None,
+            Some("crate::generator::AsyncGeneratorFunction::class_initialize"),
             Some("crate::generator::AsyncGeneratorFunction::class_finalizer"),
             Some("crate::generator::AsyncGeneratorFunction::class_mark"),
         ),
@@ -733,7 +733,7 @@ pub fn gen_class_payload(outfile: &Path) {
             .collect::<Vec<_>>();
         if !arms.is_empty() {
             get_payload_methods.push(
-            format!("pub fn {k}(&self)->Option<&{v}> {{ if let {} = self {{ Some(x) }} else {{ None }} }}",
+            format!("pub const fn {k}(&self)->Option<&{v}> {{ if let {} = self {{ Some(x) }} else {{ None }} }}",
             arms.join("|")
         ));
         }

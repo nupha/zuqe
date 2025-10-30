@@ -1,8 +1,11 @@
 use crate::{
     JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT, JS_PROP_STRING_DEF,
+    class::ClassID,
     context::JSContext,
     error::JSResult,
-    function::{AsyncFuncState, BCFunction},
+    function::{
+        AsyncFuncState, BCFunction, BytecodeFunction, JSFunctionKindEnum, NativeFunctionType,
+    },
     object::{JS_PROP_CONFIGURABLE, JSObject, ObjectPayload},
     object_cast,
     promise::{Promise, js_promise_resolve},
@@ -19,6 +22,24 @@ pub struct AsyncFunction(pub(crate) JSObject);
 object_cast!(AsyncFunction, JS_CLASS_ASYNC_FUNCTION);
 
 impl AsyncFunction {
+    pub fn class_initialize(ctx: &JSContext, _: ClassID) -> Result<Option<JSObject>, i32> {
+        let proto = ctx.create_base_object_with_proto(Some(ctx.function_proto()))?;
+        proto.install_field_defs(ctx, &js_async_function_proto_funcs)?;
+
+        let ctor: JSValue = ctx
+            .create_native_function_with_proto(
+                NativeFunctionType::ConstructorOrFunc(BytecodeFunction::class_constructor),
+                "AsyncFunction",
+                1,
+                JSFunctionKindEnum::JS_FUNC_ASYNC as i16,
+                ctx.0.borrow().function_ctor.as_object().cloned(),
+            )?
+            .into();
+
+        ctx.bind_ctor_proto_ex(&ctor, &proto.clone().into(), 0, JS_PROP_CONFIGURABLE)?;
+        Ok(Some(proto))
+    }
+
     /// hook to call an run function in async manner
     pub fn class_call(
         ctx: &JSContext,

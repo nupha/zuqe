@@ -1,14 +1,17 @@
 use std::ops::Deref;
 
 use crate::{
-    JS_CFUNC_NATIVE_DEF,
+    JS_CFUNC_NATIVE_DEF, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
     atom::consts::*,
     callable::NativeFunctionWithData,
+    class::ClassID,
     context::JSContext,
     error::JSResult,
     function::{CallContext, FieldDef, IteratorState},
+    generator::js_async_iterator_proto_funcs,
     iterator::ObjectIter,
     object::{JSObject, ObjectPayload},
+    object_cast,
     promise::{Promise, js_promise_resolve},
     runtime::JSRuntime,
     value::JSValue,
@@ -20,6 +23,36 @@ use super::{JS_IteratorGetCompleteValue, js_create_iterator_result};
 pub struct JSAsyncFromSyncIteratorData {
     pub(crate) obj: JSObject,
     pub(crate) next_method: JSValue,
+}
+
+#[derive(Debug, Clone)]
+#[repr(transparent)]
+pub struct AsyncFromSyncIterator(JSObject);
+
+object_cast!(AsyncFromSyncIterator, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR);
+
+impl AsyncFromSyncIterator {
+    pub fn class_initialize(ctx: &JSContext, _: ClassID) -> Result<Option<JSObject>, i32> {
+        let proto = ctx.create_base_object_with_proto(Some(ctx.async_iterator_proto()?))?;
+        proto.install_field_defs(ctx, &js_async_from_sync_iterator_proto_funcs)?;
+        Ok(Some(proto))
+    }
+}
+
+impl JSContext {
+    /// get async iterator proto object which is used as proto of:
+    /// AsyncFromSyncIterator, AsyncGenerator.
+    /// if this proto is not initialized, will create it inside.
+    pub(crate) fn async_iterator_proto(&self) -> Result<JSObject, i32> {
+        if let Some(o) = self.0.borrow().async_iterator_proto.as_ref().cloned() {
+            Ok(o)
+        } else {
+            let o = self.create_base_object()?;
+            o.install_field_defs(self, &js_async_iterator_proto_funcs)?;
+            self.0.borrow_mut().async_iterator_proto.replace(o.clone());
+            Ok(o)
+        }
+    }
 }
 
 pub const GEN_MAGIC_NEXT: i32 = 0;

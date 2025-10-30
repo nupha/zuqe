@@ -8,13 +8,14 @@ use crate::{
     JS_CLASS_PROMISE,
     atom::{Atom, consts::*},
     callable::NativeFunctionWithData,
+    class::ClassID,
     context::JSContext,
     error::JSResult,
-    function::{CallContext, JS_CallConstructor, js_function_set_properties},
+    function::{CallContext, JS_CallConstructor, NativeFunctionType, js_function_set_properties},
     js_core::error::js_aggregate_error_constructor,
     object::{JS_PROP_C_W_E, JSObject, ObjectPayload},
     object_cast,
-    promise::JSPromiseReactionData,
+    promise::{JSPromiseReactionData, js_promise_funcs, js_promise_proto_funcs},
     runtime::JSRuntime,
     value::JSValue,
 };
@@ -72,7 +73,7 @@ impl PromisePayload {
     }
 
     /// add pending reaction callback functions
-    pub fn add_reaction(
+    pub(super) fn add_reaction(
         &self,
         success: Box<JSPromiseReactionData>,
         fail: Box<JSPromiseReactionData>,
@@ -267,6 +268,30 @@ impl Promise {
             cc.this(),
         )
         .map(|p| p.into())
+    }
+
+    pub fn class_initialize(ctx: &JSContext, _: ClassID) -> Result<Option<JSObject>, i32> {
+        let proto = ctx.create_base_object()?;
+        proto
+            .install_field_defs(ctx, &js_promise_proto_funcs)
+            .unwrap();
+
+        let ctor: JSValue = ctx
+            .create_native_function(
+                NativeFunctionType::ConstructorOrFunc(Promise::class_constructor),
+                "Promise",
+                1,
+                0,
+            )?
+            .into();
+        ctor.install_field_defs(ctx, &js_promise_funcs)?;
+        ctx.bind_ctor_proto(&ctor, &proto.clone().into())?;
+
+        ctx.global_obj()
+            .define_property_value_str(ctx, "Promise", ctor.clone(), JS_PROP_C_W_E)?;
+        ctx.0.borrow_mut().promise_ctor = ctor;
+
+        Ok(Some(proto))
     }
 
     pub const fn class_finalizer(_: &mut JSRuntime, _isa: &ObjectPayload, _: usize) {

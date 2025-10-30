@@ -9,9 +9,10 @@ use std::{
 };
 
 use crate::{
-    JS_CLASS_ARRAY, JS_CLASS_ARRAY_BUFFER, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_DATAVIEW,
-    JS_CLASS_ERROR, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_OBJECT, JS_CLASS_PROXY,
-    JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY,
+    JS_CLASS_ARRAY, JS_CLASS_ARRAY_BUFFER, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
+    JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_BYTECODE_FUNCTION,
+    JS_CLASS_DATAVIEW, JS_CLASS_ERROR, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_OBJECT, JS_CLASS_PROMISE,
+    JS_CLASS_PROXY, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY,
     array::ArrayObjPayload,
     atom::{
         Atom,
@@ -379,14 +380,14 @@ impl JSContext {
 
         // Function
         {
-            let func_obj = self.create_native_function_with_proto(
+            let func = self.create_native_function_with_proto(
                 NativeFunctionType::Func(js_function_proto),
                 "",
                 0,
                 0,
                 object.clone().into(),
             )?;
-            self.0.borrow_mut().class_proto[JS_CLASS_BYTECODE_FUNCTION as usize] = func_obj.into();
+            self.0.borrow_mut().class_proto[JS_CLASS_BYTECODE_FUNCTION as usize] = func.into();
         }
 
         // Error
@@ -536,14 +537,23 @@ impl JSRuntime {
         self.create_context(|ctx| {
             ctx.use_class(JS_CLASS_PROXY)?;
 
+            // ArrayBuffer, TypedArray, DataView
             ctx.use_classes(&[JS_CLASS_ARRAY_BUFFER, JS_CLASS_SHARED_ARRAY_BUFFER])?;
             ctx.use_classes(&(JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).collect::<Vec<_>>())?;
             ctx.use_class(JS_CLASS_DATAVIEW)?;
 
+            // async: Promise, AsyncGenerator, AsyncGeneratorFunction, AsyncFromSyncIterator
+            ctx.use_classes(&[
+                JS_CLASS_PROMISE,
+                JS_CLASS_ASYNC_GENERATOR,
+                JS_CLASS_ASYNC_GENERATOR_FUNCTION,
+                JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
+            ])?;
+
             //ctx.intrinsic_proxy();
             //ctx.intrinsic_typed_arrays();
+            //ctx.intrinsic_async();
 
-            ctx.intrinsic_async();
             ctx.intrinsic_regexp();
             ctx.intrinsic_mapset();
             ctx.intrinsic_date();

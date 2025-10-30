@@ -141,7 +141,7 @@ impl JSContext {
         }
     }
 
-    /// get Function prototype, must be  as core.
+    /// get Function prototype.
     ///
     /// equivelent to call `ctx.class_proto(JS_CLASS_BYTECODE_FUNCTION).unwrap()`
     #[inline]

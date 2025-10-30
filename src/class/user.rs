@@ -56,7 +56,7 @@ fn user_obj_finalize(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {
 impl JSContext {
     pub fn use_classes(&self, class_ids: &[ClassID]) -> Result<(), i32> {
         if let Some(mx) = class_ids.iter().max().copied() {
-            if let Some(cdef) = self.rt().class_registry.get(mx as usize) {
+            if self.rt().class_registry.get(mx as usize).is_some() {
                 let n = self.0.borrow().class_proto.len();
                 if mx as usize >= n {
                     // grow slot
@@ -74,6 +74,7 @@ impl JSContext {
 
                     if self.class_proto(class_id).is_none() {
                         // init class in ctx
+                        let cdef = &self.rt().class_registry[class_id as usize];
                         if let Some(f) = cdef.initialize {
                             if let Some(proto) = f(self, class_id)? {
                                 self.0.borrow_mut().class_proto[class_id as usize] = proto.into();

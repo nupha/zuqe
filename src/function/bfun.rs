@@ -1,4 +1,4 @@
-use std::{cell::RefCell, ops::Deref};
+use std::cell::RefCell;
 
 use smallvec::SmallVec;
 
