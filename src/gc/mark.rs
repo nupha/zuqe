@@ -267,8 +267,12 @@ impl JSContext {
             }
 
             // cx.function_proto.gc_mark(); // done in JS_CLASS_BYTECODE_FUNCTION
-            cx.iterator_proto.as_ref().map(|x| x.gc_mark());
-            cx.async_iterator_proto.as_ref().map(|x| x.gc_mark());
+            if let Some(x) = cx.iterator_proto.as_ref() {
+                x.gc_mark()
+            }
+            if let Some(x) = cx.async_iterator_proto.as_ref() {
+                x.gc_mark()
+            }
             cx.array_proto_values.gc_mark();
             cx.throw_type_error.gc_mark();
             for ev in cx.native_error_proto.iter() {

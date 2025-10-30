@@ -28,7 +28,7 @@ use crate::{
         js_async_generator_function_proto_funcs, js_async_generator_proto_funcs,
         js_async_iterator_proto_funcs, js_generator_function_proto_funcs, js_generator_proto_funcs,
     },
-    iterator::{js_async_from_sync_iterator_proto_funcs, js_iterator_proto_funcs},
+    iterator::js_async_from_sync_iterator_proto_funcs,
     js_core::{
         boolean::{js_boolean_constructor, js_boolean_proto_funcs},
         error::js_error_constructor,
@@ -212,11 +212,6 @@ impl JSContext {
 
     /// Note: make sure iterator_proto is initialized
     pub(crate) fn intrinsic_base_array(&self) {
-        debug_assert!(
-            self.0.borrow().iterator_proto.is_some(),
-            "iterator_proto is not initialized"
-        );
-
         self.class_proto(JS_CLASS_ARRAY)
             .unwrap()
             .install_field_defs(self, &js_array_proto_funcs)
@@ -273,7 +268,7 @@ impl JSContext {
         }
 
         let array_iter = self
-            .create_base_object_with_proto(self.0.borrow().iterator_proto.as_ref().cloned())
+            .create_base_object_with_proto(Some(self.iterator_proto().unwrap()))
             .unwrap();
         array_iter
             .install_field_defs(self, &js_array_iterator_proto_funcs)
@@ -339,11 +334,6 @@ impl JSContext {
     }
 
     pub(crate) fn intrinsic_base_string(&self) {
-        debug_assert!(
-            self.0.borrow().iterator_proto.is_some(),
-            "iterator_proto is not initialized"
-        );
-
         let empty_str = JS_ATOM_empty_string.force_string(self).unwrap();
 
         let string_obj: JSValue = {
@@ -366,7 +356,7 @@ impl JSContext {
             .unwrap();
 
         let string_iter = self
-            .create_base_object_with_proto(self.0.borrow().iterator_proto.as_ref().cloned())
+            .create_base_object_with_proto(Some(self.iterator_proto().unwrap()))
             .unwrap();
         string_iter
             .install_field_defs(self, &js_string_iterator_proto_funcs)
@@ -405,24 +395,10 @@ impl JSContext {
         self.0.borrow_mut().class_proto[JS_CLASS_SYMBOL as usize] = obj.into();
     }
 
-    fn intrinsic_base_iterator(&self) {
-        debug_assert!(self.0.borrow().iterator_proto.is_none());
-
-        let obj = self.create_base_object().unwrap();
-        obj.install_field_defs(self, &js_iterator_proto_funcs)
-            .unwrap();
-        self.0.borrow_mut().iterator_proto.replace(obj);
-    }
-
     fn intrinsic_base_generator(&self) {
-        debug_assert!(
-            self.0.borrow().iterator_proto.is_some(),
-            "iterator_proto is not initialized"
-        );
-
         // generator prototype
         let obj = self
-            .create_base_object_with_proto(self.0.borrow().iterator_proto.as_ref().cloned())
+            .create_base_object_with_proto(Some(self.iterator_proto().unwrap()))
             .unwrap();
         obj.install_field_defs(self, &js_generator_proto_funcs)
             .unwrap();
@@ -477,11 +453,6 @@ impl JSContext {
 
     #[deprecated]
     pub fn intrinsic_mapset(&self) {
-        debug_assert!(
-            self.0.borrow().iterator_proto.is_some(),
-            "iterator_proto is not initialized"
-        );
-
         // Map
         {
             let obj: JSValue = self.create_base_object().unwrap().into();
@@ -537,7 +508,7 @@ impl JSContext {
         // MapIterator
         {
             let proto: JSValue = self
-                .create_base_object_with_proto(self.0.borrow().iterator_proto.as_ref().cloned())
+                .create_base_object_with_proto(Some(self.iterator_proto().unwrap()))
                 .unwrap()
                 .into();
             proto
@@ -549,7 +520,7 @@ impl JSContext {
         // SetIterator
         {
             let proto: JSValue = self
-                .create_base_object_with_proto(self.0.borrow().iterator_proto.as_ref().cloned())
+                .create_base_object_with_proto(Some(self.iterator_proto().unwrap()))
                 .unwrap()
                 .into();
             proto
@@ -646,7 +617,6 @@ impl JSContext {
         }
 
         self.intrinsic_base_object(); // Object
-        self.intrinsic_base_iterator(); // Iterator prototype
         self.intrinsic_base_function(); // Function
         self.intrinsic_base_errors(); // Error
         self.intrinsic_base_array(); // Array
@@ -813,11 +783,6 @@ impl JSContext {
     }
 
     pub fn intrinsic_regexp(&self) {
-        debug_assert!(
-            self.0.borrow().iterator_proto.is_some(),
-            "iterator_proto is not initialized"
-        );
-
         let obj = self.create_base_object().unwrap();
         obj.install_field_defs(self, &js_regexp_proto_funcs)
             .unwrap();
@@ -833,8 +798,10 @@ impl JSContext {
             .unwrap();
         ctor.install_field_defs(self, &js_regexp_funcs).unwrap();
 
-        let iter_proto = self.0.borrow().iterator_proto.clone();
-        let iter = self.create_base_object_with_proto(iter_proto).unwrap();
+        let iter_proto = self.iterator_proto().unwrap();
+        let iter = self
+            .create_base_object_with_proto(Some(iter_proto))
+            .unwrap();
         iter.install_field_defs(self, &js_regexp_string_iterator_proto_funcs)
             .unwrap();
 

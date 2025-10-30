@@ -58,9 +58,9 @@ pub struct JSContextInner {
     /// TODO: use Vec<Option<JSObject>> instead
     pub class_proto: Vec<JSValue>,
 
-    pub iterator_proto: Option<JSObject>,
-    pub async_iterator_proto: Option<JSObject>,
-    pub native_error_proto: [JSValue; STD_ERROR_COUNT],
+    pub(crate) iterator_proto: Option<JSObject>,
+    pub(crate) async_iterator_proto: Option<JSObject>,
+    pub(crate) native_error_proto: [JSValue; STD_ERROR_COUNT],
 
     pub function_ctor: JSValue,
     pub array_ctor: JSValue,
