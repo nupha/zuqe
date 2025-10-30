@@ -562,9 +562,7 @@ impl JSContext {
     /// the `Math` name space.
     pub fn intrinsic_math(&self) {
         self.0.borrow_mut().init_random_seed();
-        self.0
-            .borrow()
-            .global_obj
+        self.global_obj()
             .install_field_defs(self, &js_math_obj)
             .unwrap();
     }
