@@ -1,8 +1,15 @@
 use std::{cell::RefCell, collections::HashMap};
 
 use crate::{
-    JS_CLASS_MAP, JS_CLASS_SET, JS_CLASS_WEAKMAP, JS_CLASS_WEAKSET,
+    JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, JS_CLASS_SET, JS_CLASS_SET_ITERATOR, JS_CLASS_WEAKMAP,
+    JS_CLASS_WEAKSET,
+    class::ClassID,
     context::JSContext,
+    mapset::{
+        js_map_constructor, js_map_funcs, js_map_iterator_proto_funcs, js_map_proto_funcs,
+        js_set_funcs, js_set_iterator_proto_funcs, js_set_proto_funcs, js_weakmap_proto_funcs,
+        js_weakset_proto_funcs,
+    },
     object::{JSObject, JSObjectWeakref, ObjectInner, ObjectPayload},
     object_cast,
     runtime::JSRuntime,
@@ -325,6 +332,88 @@ object_cast!(
     MapSet,
     JS_CLASS_MAP | JS_CLASS_SET | JS_CLASS_WEAKMAP | JS_CLASS_WEAKSET
 );
+
+impl MapSet {
+    pub fn class_initialize(ctx: &JSContext, class_id: ClassID) -> Result<Option<JSObject>, i32> {
+        match class_id {
+            JS_CLASS_MAP => {
+                let obj = ctx.create_base_object()?;
+                obj.install_field_defs(ctx, &js_map_proto_funcs)?;
+
+                let ctor = ctx
+                    .create_global_constructor_only(
+                        "Map",
+                        js_map_constructor,
+                        0,
+                        &obj.clone().into(),
+                        0,
+                    )
+                    .unwrap();
+                ctor.install_field_defs(ctx, &js_map_funcs).unwrap();
+
+                Ok(Some(obj))
+            }
+            JS_CLASS_SET => {
+                let obj = ctx.create_base_object()?;
+                obj.install_field_defs(ctx, &js_set_proto_funcs)?;
+
+                let ctor = ctx
+                    .create_global_constructor_only(
+                        "Set",
+                        js_map_constructor,
+                        0,
+                        &obj.clone().into(),
+                        1,
+                    )
+                    .unwrap();
+                ctor.install_field_defs(ctx, &js_set_funcs)?;
+
+                Ok(Some(obj))
+            }
+            JS_CLASS_WEAKMAP => {
+                let obj = ctx.create_base_object()?;
+                obj.install_field_defs(ctx, &js_weakmap_proto_funcs)?;
+
+                ctx.create_global_constructor_only(
+                    "WeakMap",
+                    js_map_constructor,
+                    0,
+                    &obj.clone().into(),
+                    2,
+                )?;
+
+                Ok(Some(obj))
+            }
+            JS_CLASS_WEAKSET => {
+                let obj = ctx.create_base_object()?;
+                obj.install_field_defs(ctx, &js_weakset_proto_funcs)?;
+
+                ctx.create_global_constructor_only(
+                    "WeakSet",
+                    js_map_constructor,
+                    0,
+                    &obj.clone().into(),
+                    3,
+                )?;
+
+                Ok(Some(obj))
+            }
+            JS_CLASS_MAP_ITERATOR => {
+                let proto = ctx.create_base_object_with_proto(Some(ctx.iterator_proto()?))?;
+                proto.install_field_defs(ctx, &js_map_iterator_proto_funcs)?;
+                Ok(Some(proto))
+            }
+            JS_CLASS_SET_ITERATOR => {
+                let proto = ctx.create_base_object_with_proto(Some(ctx.iterator_proto()?))?;
+                proto.install_field_defs(ctx, &js_set_iterator_proto_funcs)?;
+                Ok(Some(proto))
+            }
+            _ => {
+                unreachable!()
+            }
+        }
+    }
+}
 
 impl JSContext {
     pub fn create_map_with_entries(&self, entries: JSMapState) -> Result<JSObject, i32> {

@@ -475,6 +475,7 @@ impl JSContext {
         self.0.borrow_mut().class_proto[JS_CLASS_DATE as usize] = obj;
     }
 
+    #[deprecated]
     pub fn intrinsic_mapset(&self) {
         debug_assert!(
             self.0.borrow().iterator_proto.is_some(),

@@ -12,6 +12,7 @@ use crate::{
     error::JSResult,
     function::{NativeCallback, NativeFunctionType},
     gc::set_cycle_flag,
+    iterator::js_iterator_proto_funcs,
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, JSObject},
     runtime::JSRuntime,
     value::JSValue,
@@ -170,6 +171,18 @@ impl JSContext {
                 .get_unchecked(JS_CLASS_ARRAY as usize)
                 .as_object_unchecked()
                 .clone()
+        }
+    }
+
+    /// get iterator proto object
+    pub fn iterator_proto(&self) -> Result<JSObject, i32> {
+        if let Some(o) = self.0.borrow().iterator_proto.as_ref().cloned() {
+            Ok(o)
+        } else {
+            let obj = self.create_base_object()?;
+            obj.install_field_defs(self, &js_iterator_proto_funcs)?;
+            self.0.borrow_mut().iterator_proto.replace(obj.clone());
+            Ok(obj)
         }
     }
 
