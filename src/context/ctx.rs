@@ -10,9 +10,10 @@ use std::{
 
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ARRAY_BUFFER, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
-    JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_BYTECODE_FUNCTION,
-    JS_CLASS_DATAVIEW, JS_CLASS_ERROR, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_OBJECT, JS_CLASS_PROMISE,
-    JS_CLASS_PROXY, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY,
+    JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
+    JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_DATAVIEW, JS_CLASS_ERROR, JS_CLASS_FLOAT64_ARRAY,
+    JS_CLASS_OBJECT, JS_CLASS_PROMISE, JS_CLASS_PROXY, JS_CLASS_SHARED_ARRAY_BUFFER,
+    JS_CLASS_UINT8C_ARRAY,
     array::ArrayObjPayload,
     atom::{
         Atom,
@@ -537,14 +538,15 @@ impl JSRuntime {
         self.create_context(|ctx| {
             ctx.use_class(JS_CLASS_PROXY)?;
 
-            // ArrayBuffer, TypedArray, DataView
+            // typed array
             ctx.use_classes(&[JS_CLASS_ARRAY_BUFFER, JS_CLASS_SHARED_ARRAY_BUFFER])?;
             ctx.use_classes(&(JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).collect::<Vec<_>>())?;
             ctx.use_class(JS_CLASS_DATAVIEW)?;
 
-            // async: Promise, AsyncGenerator, AsyncGeneratorFunction, AsyncFromSyncIterator
+            // async
             ctx.use_classes(&[
                 JS_CLASS_PROMISE,
+                JS_CLASS_ASYNC_FUNCTION,
                 JS_CLASS_ASYNC_GENERATOR,
                 JS_CLASS_ASYNC_GENERATOR_FUNCTION,
                 JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
