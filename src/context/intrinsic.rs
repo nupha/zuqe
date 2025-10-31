@@ -69,7 +69,7 @@ use crate::{
 };
 
 impl JSContext {
-    pub(crate) fn intrinsic_base_object(&self) {
+    pub(super) fn intrinsic_base_object(&self) {
         let proto = self.class_proto(JS_CLASS_OBJECT).unwrap();
         proto
             .install_field_defs(self, &js_object_proto_funcs)
@@ -81,7 +81,7 @@ impl JSContext {
         ctor.install_field_defs(self, &js_object_funcs).unwrap();
     }
 
-    pub(crate) fn intrinsic_base_function(&self) {
+    pub(super) fn intrinsic_base_function(&self) {
         // FOR LEGACY: make throw type error function
         let throw_type_error = self
             .create_native_function(
@@ -169,7 +169,7 @@ impl JSContext {
         self.0.borrow_mut().function_ctor = ctor;
     }
 
-    pub(crate) fn intrinsic_base_errors(&self) {
+    pub(super) fn intrinsic_base_errors(&self) {
         // Error() constructor
         let ctor = self
             .create_native_function(
@@ -211,7 +211,7 @@ impl JSContext {
     }
 
     /// Note: make sure iterator_proto is initialized
-    pub(crate) fn intrinsic_base_array(&self) {
+    pub(super) fn intrinsic_base_array(&self) {
         self.class_proto(JS_CLASS_ARRAY)
             .unwrap()
             .install_field_defs(self, &js_array_proto_funcs)
@@ -287,7 +287,7 @@ impl JSContext {
         }
     }
 
-    pub(crate) fn intrinsic_base_number(&self) {
+    pub(super) fn intrinsic_base_number(&self) {
         let number_obj = self
             .create_object_with_proto(
                 self.class_proto(JS_CLASS_OBJECT),
@@ -309,7 +309,7 @@ impl JSContext {
         self.0.borrow_mut().class_proto[JS_CLASS_NUMBER as usize] = number_proto;
     }
 
-    pub(crate) fn intrinsic_base_boolean(&self) {
+    pub(super) fn intrinsic_base_boolean(&self) {
         let bool_obj = self
             .create_object_with_proto(
                 self.class_proto(JS_CLASS_OBJECT),
@@ -333,7 +333,7 @@ impl JSContext {
         self.0.borrow_mut().class_proto[JS_CLASS_BOOLEAN as usize] = bool_obj.into();
     }
 
-    pub(crate) fn intrinsic_base_string(&self) {
+    pub(super) fn intrinsic_base_string(&self) {
         let empty_str = JS_ATOM_empty_string.force_string(self).unwrap();
 
         let string_obj: JSValue = {
@@ -366,7 +366,7 @@ impl JSContext {
         self.0.borrow_mut().class_proto[JS_CLASS_STRING_ITERATOR as usize] = string_iter.into();
     }
 
-    pub(crate) fn intrinsic_base_symbol(&self) {
+    pub(super) fn intrinsic_base_symbol(&self) {
         let obj = self.create_base_object().unwrap();
         obj.install_field_defs(self, &js_symbol_proto_funcs)
             .unwrap();
@@ -570,6 +570,7 @@ impl JSContext {
     }
 
     /// create global namespace
+    #[deprecated]
     pub(crate) fn make_global(&self, fields: &[FieldDef]) -> Result<JSObject, i32> {
         let gobj = self.create_base_object().unwrap();
         gobj.install_field_defs(self, fields).unwrap();
@@ -817,7 +818,7 @@ impl JSContext {
         cx.class_proto[JS_CLASS_REGEXP_STRING_ITERATOR as usize] = iter.into();
     }
 
-    #[deprecated(note = "migrate to Proxy::class_initialize() handler")]
+    #[deprecated]
     pub fn intrinsic_proxy(&self) {
         let func_obj = self
             .create_native_function(
