@@ -75,28 +75,12 @@ fn main() {
 
     JS_SetModuleLoaderFunc(rt.as_mut(), None, js_module_loader, std::ptr::null_mut());
 
-    // the default context
-    let ctx = rt.create_context_ecma().unwrap();
-
-    // the customized ctx
-    // let ctx = js
-    //     .create_context_customize(|c| {
-    //         c.init_core_objects_ex(true, true, true);
-    //         //c.intrinsic_base_objects();
-
-    //         c.intrinsic_global_object(&[]);
-    //         c.intrinsic_async();
-    //         c.intrinsic_typed_arrays();
-    //         // c.intrinsic_math();
-
-    //         Ok(())
-    //     })
-    //     .unwrap();
-
-    // register native classes
+    // register user's native classes
     let class_id_point = register_class_point(&mut rt).unwrap();
+
+    // create context
+    let ctx = rt.create_context_ecma().unwrap();
     ctx.use_class(class_id_point).unwrap();
-    // ctx.use_class_name("Point").unwrap(); // or use this
 
     // register native modules
     init_mod_std(&ctx).unwrap();
