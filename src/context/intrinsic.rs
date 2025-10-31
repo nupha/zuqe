@@ -50,7 +50,7 @@ use crate::{
     number::{js_number_constructor, js_number_funcs, js_number_proto_funcs},
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET,
-        JS_PROP_HAS_SET, JS_PROP_WRITABLE, ObjectPayload,
+        JS_PROP_HAS_SET, JS_PROP_WRITABLE, JSObject, ObjectPayload,
     },
     promise::{Promise, js_promise_funcs, js_promise_proto_funcs},
     proxy::{js_proxy_constructor, js_proxy_funcs},
@@ -395,7 +395,7 @@ impl JSContext {
         self.0.borrow_mut().class_proto[JS_CLASS_SYMBOL as usize] = obj.into();
     }
 
-    fn intrinsic_base_generator(&self) {
+    pub(super) fn intrinsic_base_generator(&self) {
         // generator prototype
         let obj = self
             .create_base_object_with_proto(Some(self.iterator_proto().unwrap()))
@@ -439,6 +439,7 @@ impl JSContext {
             .unwrap();
     }
 
+    #[deprecated]
     pub fn intrinsic_date(&self) {
         let obj: JSValue = self.create_base_object().unwrap().into();
         obj.install_field_defs(self, &js_date_proto_funcs).unwrap();
@@ -530,7 +531,7 @@ impl JSContext {
         }
     }
 
-    fn intrinsic_eval(&self) {
+    pub(super) fn intrinsic_eval(&self) {
         self.0.borrow_mut().eval_handle.replace(
             |ctx: &JSContext,
              this_obj: &JSValue,
@@ -560,6 +561,7 @@ impl JSContext {
     }
 
     /// the `Math` name space.
+    #[deprecated]
     pub fn intrinsic_math(&self) {
         self.0.borrow_mut().init_random_seed();
         self.global_obj()
@@ -567,12 +569,12 @@ impl JSContext {
             .unwrap();
     }
 
-    /// create global object
-    pub fn intrinsic_global(&self, fields: &[FieldDef]) {
+    /// create global namespace
+    pub(crate) fn make_global(&self, fields: &[FieldDef]) -> Result<JSObject, i32> {
         let gobj = self.create_base_object().unwrap();
         gobj.install_field_defs(self, fields).unwrap();
 
-        let global: JSValue = gobj.into();
+        let global: JSValue = gobj.clone().into();
 
         // define name `globalThis` and `global`
         // Note: global object is self referenced here.
@@ -600,15 +602,18 @@ impl JSContext {
             cx.global_obj = global;
             cx.global_var_obj = gvobj.into();
         }
+
+        Ok(gobj)
     }
 
     /// create global space and initialize basic class in context:
     /// Object, String, Array, Error, Number, Boolean, Symbol.
+    #[deprecated]
     pub(crate) fn init_base_classes(&self) {
         // global object - this must come first.
         {
             // isNan, parseInt, undefined, NaN etc
-            self.intrinsic_global(&js_global_props);
+            self.make_global(&js_global_props);
 
             // Reflect: create as autoinit object in global
             self.global_obj()
@@ -972,6 +977,7 @@ impl JSContext {
         }
     }
 
+    #[deprecated]
     pub fn intrinsic_json(&self) {
         self.0
             .borrow()

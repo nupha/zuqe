@@ -508,7 +508,7 @@ pub enum AtomicOp {
 
 impl JSRuntime {
     /// Creates JavaScript context with customized setup.
-    fn create_context_raw(
+    pub(super) fn create_context_raw(
         &mut self,
         setup: impl FnOnce(&JSContext) -> Result<(), i32>,
     ) -> Result<JSContext, i32> {
@@ -525,7 +525,8 @@ impl JSRuntime {
     }
 
     /// Creates a new JavaScript context with customized setup.
-    pub fn create_context(
+    #[deprecated]
+    pub(super) fn create_context(
         &mut self,
         setup: impl FnOnce(&JSContext) -> Result<(), i32>,
     ) -> Result<JSContext, i32> {
@@ -536,7 +537,8 @@ impl JSRuntime {
     }
 
     /// Creates new context initialized with ECMA standard classes
-    pub fn create_context_ecma(&mut self) -> Result<JSContext, i32> {
+    #[deprecated]
+    pub(crate) fn create_context_ecma_v1(&mut self) -> Result<JSContext, i32> {
         self.create_context(|ctx| {
             ctx.use_class(JS_CLASS_PROXY)?;
 

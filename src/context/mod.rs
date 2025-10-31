@@ -1,5 +1,6 @@
+mod builder;
 mod ctx;
 mod interrupt;
 mod intrinsic;
 
-pub use ctx::*;
+pub use {builder::*, ctx::*};
