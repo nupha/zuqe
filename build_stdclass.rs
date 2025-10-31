@@ -244,9 +244,9 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "Date",
             "DATE",
             PayloadKey::Datetime,
+            Some("crate::date::Datetime::class_initialize"),
             None,
-            Some("crate::value::js_object_data_finalizer"),
-            Some("crate::value::js_object_data_mark"),
+            None,
         ),
         // CORE CLASSES END
         ClassInfo::class_def("Object", "MODULE_NS", PayloadKey::None, None, None, None),

@@ -11,10 +11,11 @@ use crate::{
         Atom,
         consts::{JS_ATOM_default, JS_ATOM_empty_string, JS_ATOM_number, JS_ATOM_string},
     },
+    class::ClassID,
     context::JSContext,
     error::JSResult,
     function::{CallContext, FieldDef},
-    object::ObjectPayload,
+    object::{JSObject, ObjectPayload},
     string::{JSString, StringBuf, StringChar},
     value::{HINT_FORCE_ORDINARY, HINT_NONE, HINT_NUMBER, HINT_STRING, JSValue},
 };
@@ -674,6 +675,23 @@ impl Datetime {
         timestamp_ms: INVALID_TIMESTAMP,
     };
 
+    pub fn class_initialize(ctx: &JSContext, _: ClassID) -> Result<Option<JSObject>, i32> {
+        let obj = ctx.create_base_object()?;
+        obj.install_field_defs(ctx, &js_date_proto_funcs).unwrap();
+
+        let ctor = ctx.create_global_constructor_or_func(
+            "Date",
+            js_date_constructor,
+            7,
+            &obj.clone().into(),
+            0,
+        )?;
+        ctor.install_field_defs(ctx, &js_date_funcs)?;
+
+        //self.0.borrow_mut().class_proto[JS_CLASS_DATE as usize] = obj;
+        Ok(Some(obj))
+    }
+
     #[inline(always)]
     pub fn from_timestamp_ms(ts: i64) -> Self {
         Self {
@@ -726,7 +744,7 @@ impl Datetime {
     }
 
     #[inline(always)]
-    pub fn invalid(&self) -> bool {
+    pub fn is_invalid(&self) -> bool {
         !VALID_TIMESTAMP_RANGE.contains(&self.timestamp_ms)
     }
 }
@@ -771,11 +789,11 @@ impl From<Datetime> for i64 {
 }
 
 impl From<Datetime> for JSValue {
-    fn from(ts: Datetime) -> Self {
-        if ts.invalid() {
+    fn from(tm: Datetime) -> Self {
+        if tm.is_invalid() {
             Self::from(f64::NAN)
         } else {
-            Self::from(ts.timestamp())
+            Self::from(tm.timestamp())
         }
     }
 }
@@ -912,7 +930,7 @@ fn js_date_Symbol_toPrimitive(ctx: &JSContext, cc: CallContext) -> JSResult {
 
 fn js_date_getTimezoneOffset(ctx: &JSContext, cc: CallContext) -> JSResult {
     let tm = JS_ThisTimeValue(ctx, cc.this())?;
-    if tm.invalid() {
+    if tm.is_invalid() {
         Ok(JSValue::Float64(f64::NAN))
     } else {
         Ok(JSValue::Int(get_timezone_offset(tm.into())))
