@@ -3,11 +3,16 @@ use std::{borrow::Cow, cell::Cell, ops::Range, rc::Rc};
 use regex::bytes::{Regex, RegexBuilder};
 
 use crate::{
-    JS_CLASS_REGEXP,
+    JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR,
     atom::consts::*,
+    class::ClassID,
     context::JSContext,
     object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, JSObject, ObjectPayload},
     object_cast,
+    regexp::{
+        js_regexp_constructor, js_regexp_funcs, js_regexp_proto_funcs,
+        js_regexp_string_iterator_proto_funcs,
+    },
     runtime::JSRuntime,
     string::{JSString, StringContent, map_utf8_to_utf16_range},
     value::JSValue,
@@ -48,27 +53,27 @@ impl RegExpStringIterPayload {
     }
 
     #[inline(always)]
-    pub fn regexp(&self) -> &JSObject {
+    pub const fn regexp(&self) -> &JSObject {
         &self.iterating_regexp
     }
 
     #[inline(always)]
-    pub fn string(&self) -> &StringContent {
+    pub const fn string(&self) -> &StringContent {
         &self.iterated_string
     }
 
     #[inline(always)]
-    pub fn is_global(&self) -> bool {
+    pub const fn is_global(&self) -> bool {
         self.global
     }
 
     #[inline(always)]
-    pub fn is_unicode(&self) -> bool {
+    pub const fn is_unicode(&self) -> bool {
         self.unicode
     }
 
     #[inline(always)]
-    pub fn done(&self) -> bool {
+    pub const fn done(&self) -> bool {
         self.done.get()
     }
 
@@ -352,7 +357,41 @@ impl RegExp {
         RegExpData::create(ctx, pattern, flags).and_then(|re| Self::from(ctx, ctor, Box::new(re)))
     }
 
-    pub fn class_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
+    pub fn class_initialize(ctx: &JSContext, class_id: ClassID) -> Result<Option<JSObject>, i32> {
+        match class_id {
+            JS_CLASS_REGEXP => {
+                let obj = ctx.create_base_object()?;
+                obj.install_field_defs(ctx, &js_regexp_proto_funcs).unwrap();
+
+                let ctor = ctx.create_global_constructor_or_func(
+                    "RegExp",
+                    js_regexp_constructor,
+                    2,
+                    &obj.clone().into(),
+                    0,
+                )?;
+                ctor.install_field_defs(ctx, &js_regexp_funcs).unwrap();
+
+                ctx.0.borrow_mut().regexp_ctor = ctor;
+                Ok(Some(obj))
+            }
+            JS_CLASS_REGEXP_STRING_ITERATOR => {
+                let iter = ctx.create_base_object_with_proto(Some(ctx.iterator_proto()?))?;
+                iter.install_field_defs(ctx, &js_regexp_string_iterator_proto_funcs)?;
+
+                // let mut cx = ctx.0.borrow_mut();
+                // cx.regexp_ctor = ctor;
+                // cx.class_proto[JS_CLASS_REGEXP as usize] = obj.into();
+                // cx.class_proto[JS_CLASS_REGEXP_STRING_ITERATOR as usize] = iter.into();
+                Ok(Some(iter))
+            }
+            _ => {
+                unreachable!()
+            }
+        }
+    }
+
+    pub const fn class_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {}
 }
 
 /// build Array object to hold regexp matches.

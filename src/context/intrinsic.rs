@@ -602,7 +602,9 @@ impl JSContext {
         }
     }
 
-    pub fn intrinsic_base_objects(&self) {
+    /// create global space and initialize basic class in context:
+    /// Object, String, Array, Error, Number, Boolean, Symbol.
+    pub(crate) fn init_base_classes(&self) {
         // global object - this must come first.
         {
             // isNan, parseInt, undefined, NaN etc
@@ -780,6 +782,7 @@ impl JSContext {
         }
     }
 
+    #[deprecated]
     pub fn intrinsic_regexp(&self) {
         let obj = self.create_base_object().unwrap();
         obj.install_field_defs(self, &js_regexp_proto_funcs)

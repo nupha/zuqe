@@ -13,8 +13,8 @@ use crate::{
     JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
     JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_DATAVIEW, JS_CLASS_ERROR, JS_CLASS_FLOAT64_ARRAY,
     JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, JS_CLASS_OBJECT, JS_CLASS_PROMISE, JS_CLASS_PROXY,
-    JS_CLASS_SET, JS_CLASS_SET_ITERATOR, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY,
-    JS_CLASS_WEAKMAP, JS_CLASS_WEAKSET,
+    JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR, JS_CLASS_SET, JS_CLASS_SET_ITERATOR,
+    JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY, JS_CLASS_WEAKMAP, JS_CLASS_WEAKSET,
     array::ArrayObjPayload,
     atom::{
         Atom,
@@ -529,7 +529,7 @@ impl JSRuntime {
         setup: impl FnOnce(&JSContext) -> Result<(), i32>,
     ) -> Result<JSContext, i32> {
         self.create_context_raw(|cx| {
-            cx.intrinsic_base_objects();
+            cx.init_base_classes();
             setup(cx)
         })
     }
@@ -563,12 +563,14 @@ impl JSRuntime {
                 JS_CLASS_SET_ITERATOR,
             ])?;
 
+            // regexp
+            ctx.use_classes(&[JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR])?;
+
             //ctx.intrinsic_proxy();
             //ctx.intrinsic_typed_arrays();
             //ctx.intrinsic_async();
             //ctx.intrinsic_mapset();
-
-            ctx.intrinsic_regexp();
+            // ctx.intrinsic_regexp();
             ctx.intrinsic_date();
 
             ctx.intrinsic_math(); // Math: lazy init object
