@@ -11,22 +11,22 @@ use crate::{
 use super::{JS_CALL_FLAG_CONSTRUCTOR, JS_CallConstructor2};
 
 #[derive(Debug)]
-pub struct BoundFuncObjPayload {
-    pub func_obj: JSValue,
-    pub this_val: JSValue,
-    pub bind_args: Vec<JSValue>,
+pub struct BoundFuncObjPayload<'a> {
+    pub func_obj: JSValue<'a>,
+    pub this_val: JSValue<'a>,
+    pub bind_args: Vec<JSValue<'a>>,
 }
 
 #[repr(transparent)]
 #[derive(Debug, Clone)]
-pub struct BoundFunction(JSObject);
+pub struct BoundFunction<'a>(JSObject<'a>);
 
 object_cast!(BoundFunction, JS_CLASS_BOUND_FUNCTION);
 
-impl BoundFunction {
+impl<'a> BoundFunction<'a> {
     pub const fn class_finalizer(_rt: &mut JSRuntime, _isa: &ObjectPayload, _id: usize) {}
 
-    pub fn class_mark(val: JSValue) {
+    pub fn class_mark(val: JSValue<'a>) {
         unsafe {
             if let ObjectPayload::BOUND_FUNCTION(bf) = val.as_object_unchecked().payload() {
                 val.gc_mark();
@@ -40,13 +40,13 @@ impl BoundFunction {
         }
     }
 
-    pub fn class_call(
-        ctx: &JSContext,
-        func_obj: &JSValue,
-        this_obj: &JSValue,
-        args: &[JSValue],
+    pub fn class_call<'b>(
+        ctx: &JSContext<'b>,
+        func_obj: &JSValue<'b>,
+        this_obj: &JSValue<'b>,
+        args: &[JSValue<'b>],
         flags: i32,
-    ) -> JSResult {
+    ) -> JSResult<'b> {
         if let ObjectPayload::BOUND_FUNCTION(bf) =
             unsafe { func_obj.as_object_unchecked().payload() }
         {

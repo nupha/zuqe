@@ -8,16 +8,16 @@ use crate::{
     value::{HINT_FORCE_ORDINARY, HINT_NUMBER, HINT_STRING, JSValue},
 };
 
-impl From<bool> for JSValue {
+impl<'a> From<bool> for JSValue<'a> {
     #[inline(always)]
     fn from(value: bool) -> Self {
         JSValue::Bool(value)
     }
 }
 
-impl JSObject {
+impl<'a> JSObject<'a> {
     /// Coerce object to primitive (non-object) value
-    pub fn to_primitive(&self, ctx: &JSContext, hint: i32) -> JSResult {
+    pub fn to_primitive(&self, ctx: &JSContext<'a>, hint: i32) -> JSResult<'a> {
         let ignore_toPrimitive_method = hint & HINT_FORCE_ORDINARY != 0;
         let hint = hint & !HINT_FORCE_ORDINARY;
 
@@ -70,15 +70,15 @@ impl JSObject {
 
     /// Coerce object to number (Int or Float64)
     #[inline(always)]
-    pub fn to_number(&self, ctx: &JSContext) -> JSResult {
+    pub fn to_number(&self, ctx: &JSContext<'a>) -> JSResult<'a> {
         self.to_primitive(ctx, HINT_NUMBER)
     }
 }
 
-impl JSValue {
+impl<'a> JSValue<'a> {
     /// Coerce value to primitive (non-object) value
     #[inline]
-    pub fn to_primitive(&self, ctx: &JSContext, hint: i32) -> Result<JSValue, i32> {
+    pub fn to_primitive(&self, ctx: &JSContext<'a>, hint: i32) -> Result<JSValue<'a>, i32> {
         if let Self::Object(o) = self {
             o.to_primitive(ctx, hint)
         } else {
@@ -103,7 +103,7 @@ impl JSValue {
 
 /// For primitive types (number, bool, string, symbol), return prototype of associated type.
 /// Only works for primitive types, otherwise returns Null.
-pub fn JS_GetPrototypePrimitive(ctx: &JSContext, val: &JSValue) -> JSValue {
+pub fn JS_GetPrototypePrimitive<'a>(ctx: &JSContext<'a>, val: &JSValue<'a>) -> JSValue<'a> {
     match val {
         JSValue::Int(_) | JSValue::Float64(_) => ctx.class_proto(JS_CLASS_NUMBER),
         JSValue::Bool(_) => ctx.class_proto(JS_CLASS_BOOLEAN),

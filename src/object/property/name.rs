@@ -47,7 +47,7 @@ impl PropertyKey {
     }
 }
 
-impl JSObject {
+impl<'a> JSObject<'a> {
     /// Iterates over all own properties of object `self` and executes `callback` for each property.
     ///
     /// This method handles three types of properties:
@@ -71,9 +71,9 @@ impl JSObject {
     /// 1. Then exotic properties (if has exotic `get_own_property_names`)
     pub fn own_property_names_foreach(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         flags: i32,
-        mut callback: impl FnMut(&JSContext, PropertyKey) -> Result<(), i32>,
+        mut callback: impl FnMut(&JSContext<'a>, PropertyKey) -> Result<(), i32>,
     ) -> Result<(), i32> {
         let enum_only = flags & JS_GPN_ENUM_ONLY != 0;
 
@@ -205,7 +205,7 @@ impl JSObject {
     /// - Can be filtered using flags
     pub fn get_own_property_names(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         flags: i32,
     ) -> Result<Box<[PropertyKey]>, i32> {
         let mut lst = Vec::<PropertyKey>::with_capacity(16);
@@ -263,10 +263,10 @@ impl JSObject {
     /// Similar to JavaScript's Object.keys(), Object.values(), Object.entries()
     pub fn get_own_property_kvs(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         flags: i32,
         kind: JSIteratorKindEnum,
-    ) -> Result<Box<[(JSValue, JSValue)]>, i32> {
+    ) -> Result<Box<[(JSValue<'a>, JSValue<'a>)]>, i32> {
         let pkeys = self.get_own_property_names(ctx, flags & !JS_GPN_ENUM_ONLY)?;
 
         let mut ret = Vec::<(JSValue, JSValue)>::new();
@@ -310,7 +310,7 @@ impl JSObject {
     }
 }
 
-impl JSValue {
+impl<'a> JSValue<'a> {
     /// Gets object's own properties \[key, value\] pairs.
     ///
     /// Returns list of \[key, value\] pairs, sorted according to js specification.
@@ -324,10 +324,10 @@ impl JSValue {
     /// Similar to JavaScript's Object.keys(), Object.values(), Object.entries()
     pub fn get_own_property_kvs(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         flags: i32,
         kind: JSIteratorKindEnum,
-    ) -> Result<Box<[(JSValue, JSValue)]>, i32> {
+    ) -> Result<Box<[(JSValue<'a>, JSValue<'a>)]>, i32> {
         self.clone()
             .objectify(ctx)
             .and_then(|o| o.get_own_property_kvs(ctx, flags, kind))
@@ -342,10 +342,10 @@ impl JSValue {
     /// - An array of [key, value] pairs (for kind = KEY_AND_VALUE)
     pub(crate) fn build_own_property_kvs_array(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         flags: i32,
         kind: JSIteratorKindEnum,
-    ) -> JSResult {
+    ) -> JSResult<'a> {
         let kvs = self.get_own_property_kvs(ctx, flags, kind)?;
 
         let mut lst = Vec::<JSValue>::new();

@@ -71,79 +71,82 @@ impl std::fmt::Display for PayloadKey {
 static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|| {
     let mut m = HashMap::with_capacity(128);
 
-    m.insert(PayloadKey::Array, "crate::array::ArrayObjPayload");
-    m.insert(PayloadKey::Value, "crate::value::JSValue");
+    m.insert(PayloadKey::Array, "crate::array::ArrayObjPayload<'a>");
+    m.insert(PayloadKey::Value, "crate::value::JSValue<'a>");
     m.insert(
         PayloadKey::Datetime,
         "std::cell::Cell<crate::date::Datetime>",
     );
-    m.insert(PayloadKey::NativeFunc, "crate::function::NFuncPayload");
+    m.insert(PayloadKey::NativeFunc, "crate::function::NFuncPayload<'a>");
     m.insert(
         PayloadKey::NativeFuncWithData,
-        "Box<crate::callable::NativeFuncData>",
+        "Box<crate::callable::NativeFuncData<'a>>",
     );
     m.insert(
         PayloadKey::BcFunction,
-        "Box<crate::function::BCFuncPayload>",
+        "Box<crate::function::BCFuncPayload<'a>>",
     );
     m.insert(
         PayloadKey::BoundFunction,
-        "Box<crate::function::BoundFuncObjPayload>",
+        "Box<crate::function::BoundFuncObjPayload<'a>>",
     );
-    m.insert(PayloadKey::RegExp, "Box<crate::regexp::RegExpData>");
+    m.insert(PayloadKey::RegExp, "Box<crate::regexp::RegExpData<'a>>");
     m.insert(
         PayloadKey::ForInIterator,
-        "std::cell::RefCell<Box<crate::iterator::ForInIterPayload>>",
+        "std::cell::RefCell<Box<crate::iterator::ForInIterPayload<'a>>>",
     );
     m.insert(
         PayloadKey::ArrayBuffer,
-        "crate::array_buffer::ArrayBufferPayload",
+        "crate::array_buffer::ArrayBufferPayload<'a>",
     );
     m.insert(
         PayloadKey::TypedArray,
-        "Box<crate::typed_array::TypedArrayPayload>",
+        "Box<crate::typed_array::TypedArrayPayload<'a>>",
     );
     m.insert(
         PayloadKey::DataView,
-        "Box<crate::typed_array::DataViewPayload>",
+        "Box<crate::typed_array::DataViewPayload<'a>>",
     );
     m.insert(
         PayloadKey::MapSet,
-        "std::cell::RefCell<Box<crate::mapset::JSMapState>>",
+        "std::cell::RefCell<Box<crate::mapset::JSMapState<'a>>>",
     );
     m.insert(
         PayloadKey::MapSetIterator,
-        "std::cell::RefCell<Box<crate::mapset::JSMapIteratorData>>",
+        "std::cell::RefCell<Box<crate::mapset::JSMapIteratorData<'a>>>",
     );
     m.insert(
         PayloadKey::ArrayIterator,
-        "Box<crate::iterator::ArrayIterPayload>",
+        "Box<crate::iterator::ArrayIterPayload<'a>>",
     );
     m.insert(
         PayloadKey::RegExpStringIterator,
-        "Box<crate::regexp::RegExpStringIterPayload>",
+        "Box<crate::regexp::RegExpStringIterPayload<'a>>",
     );
     m.insert(
         PayloadKey::Generator,
-        "Box<crate::generator::GeneratorPayload>",
+        "Box<crate::generator::GeneratorPayload<'a>>",
     );
-    m.insert(PayloadKey::Proxy, "Box<crate::proxy::ProxyPayload>");
-    m.insert(PayloadKey::Promise, "Box<crate::promise::PromisePayload>");
+    m.insert(PayloadKey::Proxy, "Box<crate::proxy::ProxyPayload<'a>>");
+    m.insert(
+        PayloadKey::Promise,
+        "Box<crate::promise::PromisePayload<'a>>",
+    );
     m.insert(
         PayloadKey::PromiseResolvingFunction,
-        "Box<crate::promise::PromiseResolvePayload>",
+        "Box<crate::promise::PromiseResolvePayload<'a>>",
     );
     m.insert(
         PayloadKey::AsyncFunctionResolving,
-        "crate::function::AsyncFuncState",
+        "crate::function::AsyncFuncState<'a>",
     );
     m.insert(
         PayloadKey::AsyncFromSyncIterator,
-        "Box<crate::iterator::JSAsyncFromSyncIteratorData>",
+        "Box<crate::iterator::JSAsyncFromSyncIteratorData<'a>>",
     );
     m.insert(
         PayloadKey::AsyncGenerator,
-        "Box<crate::generator::AGenPayload>",
+        "Box<crate::generator::AGenPayload<'a>>",
     );
 
     m
@@ -742,12 +745,12 @@ pub fn gen_class_payload(outfile: &Path) {
     let lines: Vec<String> = vec![
         "use crate::{  class::{ClassID }};\n".to_string(),
         // ObjectPayload
-        "#[derive(Debug)]\npub enum ObjectPayload {\n".to_string(),
+        "#[derive(Debug)]\npub enum ObjectPayload<'a> {\n".to_string(),
         items.join(",\n"),
         "}".to_string(),
         "".to_string(),
         // impl
-        "impl ObjectPayload {".to_string(),
+        "impl<'a> ObjectPayload<'a> {".to_string(),
         // class_id()
         format!(
             "pub fn class_id(&self)->ClassID {{ match self {{ {} }} }}",

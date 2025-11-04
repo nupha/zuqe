@@ -1,16 +1,16 @@
 use crate::{atom::Atom, context::JSContext, module::ModuleDef};
 
 #[derive(Debug)]
-pub struct ModuleDependency {
+pub struct ModuleDependency<'a> {
     pub module_name: Atom,
     /// None if module is not resolved.
-    pub module: Option<ModuleDef>,
+    pub module: Option<ModuleDef<'a>>,
 }
 
-impl ModuleDef {
+impl<'a> ModuleDef<'a> {
     /// add module dependency, returns the dependency index.
     /// `module_name` is not consumed.
-    pub fn add_dependency(&self, ctx: &JSContext, module_name: Atom) -> Result<u16, i32> {
+    pub fn add_dependency(&self, ctx: &JSContext<'a>, module_name: Atom) -> Result<u16, i32> {
         let mut lst = self.0.dependencies.borrow_mut();
 
         if let Some(i) = lst.iter().position(|req| req.module_name.eq(&module_name)) {
@@ -35,10 +35,10 @@ impl ModuleDef {
     }
 }
 
-impl JSContext {
+impl<'a> JSContext<'a> {
     /// find the loaded module by module name.
     /// Note: `name` is not consumed.
-    pub fn find_loaded_module(&self, name: &Atom) -> Option<ModuleDef> {
+    pub fn find_loaded_module(&self, name: &Atom) -> Option<ModuleDef<'a>> {
         self.0.borrow_mut().loaded_modules.iter().find_map(|m| {
             if m.0.module_name.eq(name) {
                 Some(m.clone())
@@ -50,7 +50,7 @@ impl JSContext {
 
     /// Load all the required modules (dependent modules) for module 'm'.
     /// TODO: migrate to ModuleDef::resolve()
-    pub fn resolve_module(&self, m: &ModuleDef) -> Result<(), i32> {
+    pub fn resolve_module(&self, m: &ModuleDef<'a>) -> Result<(), i32> {
         if m.0.resolved.get() {
             return Ok(());
         }
@@ -90,11 +90,11 @@ pub enum JSModuleStatus {
     JS_MODULE_STATUS_EVALUATED,
 }
 
-pub fn js_host_resolve_imported_module(
-    ctx: &JSContext,
+pub fn js_host_resolve_imported_module<'a>(
+    ctx: &JSContext<'a>,
     base_cname: &str,
     cname1: &str,
-) -> Result<ModuleDef, i32> {
+) -> Result<ModuleDef<'a>, i32> {
     let name = if let Some(cb) = ctx.rt().module_normalize_func {
         cb(ctx, base_cname, cname1, ctx.rt().module_loader_opaque)
     } else {
@@ -120,11 +120,11 @@ pub fn js_host_resolve_imported_module(
     }
 }
 
-pub fn js_host_resolve_imported_module_atom(
-    ctx: &JSContext,
+pub fn js_host_resolve_imported_module_atom<'a>(
+    ctx: &JSContext<'a>,
     base_module_name: &Atom,
     module_name1: &Atom,
-) -> Result<ModuleDef, i32> {
+) -> Result<ModuleDef<'a>, i32> {
     let base_cname = base_module_name.to_utf8();
     let cname = module_name1.to_utf8();
     js_host_resolve_imported_module(ctx, base_cname.as_ref(), &cname)

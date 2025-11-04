@@ -11,4 +11,4 @@ pub mod consts {
     include!(concat!(env!("OUT_DIR"), "/atoms.rs"));
 }
 
-pub type AtomDesc = crate::string::JSString;
+pub type AtomDesc<'a> = crate::string::JSString<'a>;

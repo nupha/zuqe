@@ -96,7 +96,7 @@ pub use nb_value::*;
 
 #[repr(u8)]
 #[derive(Debug, Clone, Default)]
-pub enum JSValue {
+pub enum JSValue<'v> {
     #[default]
     UNDEFINED,
     NULL,
@@ -106,17 +106,17 @@ pub enum JSValue {
     CatchOffset(i32),
     EXCEPTION,
     Float64(f64),
-    String(JSString),
-    Symbol(JSString),
-    Module(ModuleDef),
-    Object(JSObject),
-    Bytecode(Bytecode),
+    String(JSString<'v>),
+    Symbol(JSString<'v>),
+    Module(ModuleDef<'v>),
+    Object(JSObject<'v>),
+    Bytecode(Bytecode<'v>),
 
     /// Special for async state resume execution only
-    AsyncStateResume(AsyncFuncState),
+    AsyncStateResume(AsyncFuncState<'v>),
 }
 
-impl PartialEq for JSValue {
+impl PartialEq for JSValue<'_> {
     /// Compare two JSValue of same type
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -226,7 +226,7 @@ impl PartialEq for JSValue {
 // #[cfg(not(feature = "nan_boxing"))]
 // pub use nnb_value::*;
 
-impl JSValue {
+impl<'a> JSValue<'a> {
     #[inline(always)]
     pub const fn is_exception(&self) -> bool {
         matches!(self, Self::EXCEPTION)

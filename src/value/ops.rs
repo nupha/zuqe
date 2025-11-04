@@ -6,13 +6,13 @@ use crate::{
     value::JSValue,
 };
 
-impl JSObject {
+impl<'a> JSObject<'a> {
     /// test if object `self` is instance of `ctor`.
     /// Equivalent to: `self instanceof ctor`
     pub(crate) fn ordinary_instance_of(
         &self,
-        ctx: &JSContext,
-        ctor: &JSValue,
+        ctx: &JSContext<'a>,
+        ctor: &JSValue<'a>,
     ) -> Result<bool, i32> {
         if !ctor.is_function() {
             return Ok(false);
@@ -67,7 +67,7 @@ impl JSObject {
 
     /// Test if value `self` is instance of `ctor`.
     /// Equivalent to `self instanceof ctor`
-    pub fn instance_of(&self, ctx: &JSContext, ctor: &JSValue) -> Result<bool, i32> {
+    pub fn instance_of(&self, ctx: &JSContext<'a>, ctor: &JSValue<'a>) -> Result<bool, i32> {
         if let Some(o) = ctor.as_object() {
             if let Some(r) =
                 o.invoke_defined(ctx, &JS_ATOM_Symbol_hasInstance, &[self.clone().into()])?
@@ -88,7 +88,7 @@ impl JSObject {
     }
 }
 
-impl JSValue {
+impl<'a> JSValue<'a> {
     /// get typeof value, equivalent to js `typeof val`
     ///
     /// Note:
@@ -116,7 +116,7 @@ impl JSValue {
 
     /// Test if value `self` is instance of `ctor`.
     /// Equivalent to `self instanceof ctor`
-    pub fn instance_of(&self, ctx: &JSContext, ctor: &JSValue) -> Result<bool, i32> {
+    pub fn instance_of(&self, ctx: &JSContext<'a>, ctor: &JSValue<'a>) -> Result<bool, i32> {
         // if ctor.is_object() {
         //     let method = ctor.get_property(ctx, JS_ATOM_Symbol_hasInstance)?;
         //     if !method.is_undefined_or_null() {

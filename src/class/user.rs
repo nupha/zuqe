@@ -16,7 +16,7 @@ pub(crate) struct OtherPayload {
     pub(crate) opaque: *mut c_void,
 }
 
-impl JSRuntime {
+impl<'a> JSRuntime<'a> {
     /// register a user class defination. returns the registry class_id for it.
     pub fn register_class(&mut self, mut class_def: ClassDef) -> Result<ClassID, i32> {
         if class_def.class_name.is_empty() {
@@ -53,7 +53,7 @@ fn user_obj_finalize(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {
     }
 }
 
-impl JSContext {
+impl<'a> JSContext<'a> {
     pub fn use_classes(&self, class_ids: &[ClassID]) -> Result<(), i32> {
         if let Some(mx) = class_ids.iter().max().copied() {
             if self.rt().class_registry.get(mx as usize).is_some() {
@@ -125,9 +125,9 @@ impl JSContext {
     pub fn new_instance(
         &self,
         class_id: ClassID,
-        ctor: &JSValue,
+        ctor: &JSValue<'a>,
         opaque: *mut c_void,
-    ) -> Result<JSObject, i32> {
+    ) -> Result<JSObject<'a>, i32> {
         self.create_object_from_ctor(
             ctor,
             ObjectPayload::OTHER(Box::new(OtherPayload { class_id, opaque })),
@@ -136,7 +136,7 @@ impl JSContext {
     }
 }
 
-impl JSObject {
+impl<'a> JSObject<'a> {
     /// if the object is a user class instance, returns the opaque pointer if available
     pub fn opaque(&self) -> Option<NonNull<c_void>> {
         if let ObjectPayload::OTHER(u) = self.payload() {
@@ -156,7 +156,7 @@ impl JSObject {
     }
 }
 
-impl JSValue {
+impl<'a> JSValue<'a> {
     /// if the value is a user class instance, returns the opaque pointer if available
     pub fn opaque(&self) -> Option<NonNull<c_void>> {
         self.as_object()?.opaque()

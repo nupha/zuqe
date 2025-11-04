@@ -9,11 +9,11 @@ use crate::{
 
 use super::JSValue;
 
-impl JSValue {
+impl<'a> JSValue<'a> {
     /// Get inspect representation string of `self` value.
     /// `inspect()` string is only used for interactive prompting,
     /// use `to_string()` for other cases.
-    pub fn inspect(&self, ctx: &JSContext) -> Result<String, i32> {
+    pub fn inspect(&self, ctx: &JSContext<'a>) -> Result<String, i32> {
         match self {
             Self::Int(i) => Ok(format!("{}", *i)),
             Self::Bool(b) => Ok(if *b { "true" } else { "false" }.into()),
@@ -44,8 +44,8 @@ impl JSValue {
     }
 }
 
-impl JSObject {
-    pub fn inspect(&self, ctx: &JSContext) -> Result<String, i32> {
+impl<'a> JSObject<'a> {
+    pub fn inspect(&self, ctx: &JSContext<'a>) -> Result<String, i32> {
         let tag_atom = if self.is_array(ctx)? {
             JS_ATOM_Array
         } else if self.is_function() {

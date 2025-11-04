@@ -11,7 +11,7 @@ use crate::{
 /// Represents a call stack frame in JavaScript execution, tracking function state and local variables.
 /// StackFrame is usually allocated on stack, not heap.
 #[derive(Debug)]
-pub struct StackFrame {
+pub struct StackFrame<'a> {
     /// Pointer to previous stack frame (NULL for first frame)
     pub prev_frame: *mut Pin<Self>,
 
@@ -23,21 +23,21 @@ pub struct StackFrame {
     /// - undefined, which means stack frame is detached (cleared)
     ///
     /// TODO: use Option<JSObject> type?
-    pub cur_func: JSValue,
+    pub cur_func: JSValue<'a>,
 
     /// Buffer storing arguments, local variables, and stack space
     /// TODO: Replace with Box<[JSValue]> for better memory efficiency
-    pub local_buf: Vec<JSValue>,
+    pub local_buf: Vec<JSValue<'a>>,
 
     /// Arguments array base pointer and count
     /// Points into local_buf (self-referencing)
-    pub arg_base_ptr: *mut JSValue, // TODO: Consider using *const ?
+    pub arg_base_ptr: *mut JSValue<'a>, // TODO: Consider using *const ?
     pub arg_real_count: u16,
     pub arg_count: u16, // at least has `length`
 
     /// Local variables base pointer and count
     /// Points into local_buf (self-referencing)
-    pub var_base_ptr: *mut JSValue,
+    pub var_base_ptr: *mut JSValue<'a>,
     pub var_count: u16,
 
     /// Program counter offset for bytecode functions
@@ -51,18 +51,18 @@ pub struct StackFrame {
     pub cur_sp_offset: i32,
 
     /// List of variable references registered in this frame
-    pub var_ref_list: Vec<JSVarRef>,
+    pub var_ref_list: Vec<JSVarRef<'a>>,
 
     /// Execution mode flags (only JS_MODE_MATH is valid for C functions)
     pub js_mode: i32,
 
     /// Weak reference to async function state (for async frames only)
-    pub async_func: AsyncStateWeakref,
+    pub async_func: AsyncStateWeakref<'a>,
 
     pub _mark: PhantomPinned,
 }
 
-impl Default for StackFrame {
+impl<'a> Default for StackFrame<'a> {
     fn default() -> Self {
         Self {
             prev_frame: std::ptr::null_mut(),
@@ -83,9 +83,9 @@ impl Default for StackFrame {
     }
 }
 
-impl StackFrame {
+impl<'a> StackFrame<'a> {
     /// Returns slice of actual argument values for this frame
-    pub const fn args_slice(&self) -> &[JSValue] {
+    pub const fn args_slice(&self) -> &[JSValue<'a>] {
         if self.arg_real_count == 0 {
             &[]
         } else {
@@ -95,7 +95,7 @@ impl StackFrame {
 
     /// Returns the base pointer of the stack in this frame
     #[inline(always)]
-    pub const fn stack_base_ptr(&self) -> NonNull<JSValue> {
+    pub const fn stack_base_ptr(&self) -> NonNull<JSValue<'a>> {
         unsafe { NonNull::new(self.var_base_ptr.add(self.var_count as usize)).unwrap() }
     }
 
@@ -108,7 +108,7 @@ impl StackFrame {
     /// let stack_top_val = self.stack_cur_ptr().offset(-1).as_ref();
     /// ```
     #[inline(always)]
-    pub const fn stack_cur_ptr(&self) -> NonNull<JSValue> {
+    pub const fn stack_cur_ptr(&self) -> NonNull<JSValue<'a>> {
         debug_assert!(self.cur_sp_offset >= 0);
         unsafe { self.stack_base_ptr().add(self.cur_sp_offset as usize) }
     }
@@ -120,7 +120,7 @@ impl StackFrame {
     #[cold]
     pub(crate) fn handle_exception(
         &mut self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         pc: usize,
         mut sp: usize,
     ) -> Option<(usize, usize)> {
@@ -170,7 +170,7 @@ impl StackFrame {
     /// Prepare to exit bytecode running.
     pub(crate) fn handle_exit(
         &mut self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         pc: usize,
         sp: usize,
         is_generator: bool,

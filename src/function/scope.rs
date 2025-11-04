@@ -18,7 +18,7 @@ pub struct JSVarScope {
     pub first: i32,
 }
 
-impl JSFunctionDef {
+impl<'a> JSFunctionDef<'a> {
     /// Enters a new lexical scope for variable declarations.
     ///
     /// Create a new scope and push to scopes stack in the function def
@@ -184,9 +184,8 @@ pub struct ScopedVarsIterItem<'a> {
 }
 
 pub struct ScopedVarsIter<'s> {
-    cur_fd: *const JSFunctionDef,
+    cur_fd: *const JSFunctionDef<'s>,
     cur_idx: i32,
-    _mark: PhantomData<&'s ()>,
 }
 
 impl<'s> Iterator for ScopedVarsIter<'s> {
@@ -232,9 +231,8 @@ pub struct ScopedVarsIterMutItem<'a> {
 }
 
 pub struct ScopedVarsIterMut<'s> {
-    fd: NonNull<JSFunctionDef>,
+    fd: NonNull<JSFunctionDef<'s>>,
     cur_idx: i32,
-    _mark: PhantomData<&'s ()>,
 }
 
 impl<'s> Iterator for ScopedVarsIterMut<'s> {
@@ -264,22 +262,20 @@ impl<'s> ScopedVarsIterMut<'s> {
     }
 }
 
-impl JSFunctionDef {
-    pub fn scoped_vars_iter<'a>(&self, scope: u16) -> ScopedVarsIter<'a> {
+impl<'a> JSFunctionDef<'a> {
+    pub fn scoped_vars_iter(&self, scope: u16) -> ScopedVarsIter<'a> {
         let idx = self.scopes[scope as usize].first;
         ScopedVarsIter {
             cur_fd: self as *const Self,
             cur_idx: idx,
-            _mark: PhantomData,
         }
     }
 
-    pub fn scoped_vars_iter_mut<'a>(&mut self, scope: u16) -> ScopedVarsIterMut<'a> {
+    pub fn scoped_vars_iter_mut(&mut self, scope: u16) -> ScopedVarsIterMut<'a> {
         let idx = self.scopes[scope as usize].first;
         ScopedVarsIterMut {
             fd: NonNull::from(self),
             cur_idx: idx,
-            _mark: PhantomData,
         }
     }
 }

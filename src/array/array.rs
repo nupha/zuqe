@@ -23,12 +23,12 @@ use crate::{
 };
 
 #[derive(Debug, Default)]
-pub struct ArrayObjPayload {
-    values: RefCell<Vec<JSValue>>,
+pub struct ArrayObjPayload<'a> {
+    values: RefCell<Vec<JSValue<'a>>>,
 }
 
-impl ArrayObjPayload {
-    pub const fn new(data: Vec<JSValue>) -> Self {
+impl<'a> ArrayObjPayload<'a> {
+    pub const fn new(data: Vec<JSValue<'a>>) -> Self {
         Self {
             values: RefCell::new(data),
         }
@@ -38,18 +38,18 @@ impl ArrayObjPayload {
 /// Object representing an Array, Arguments instance.
 #[derive(Debug, Clone)]
 #[repr(transparent)]
-pub struct Array(JSObject);
+pub struct Array<'a>(JSObject<'a>);
 
 object_cast!(Array, JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS);
 
-impl Array {
+impl<'a> Array<'a> {
     #[inline(always)]
     pub fn is_fast_array(&self) -> bool {
         self.flags().is_fast_array()
     }
 
     /// get `length` property value
-    pub fn get_length_prop(&self, ctx: &JSContext) -> Result<i64, i32> {
+    pub fn get_length_prop(&self, ctx: &JSContext<'a>) -> Result<i64, i32> {
         if let JSProperty::Normal(v) = &self.0.0.prop_values.borrow()[0] {
             v.to_length(ctx)
         } else {
@@ -68,7 +68,7 @@ impl Array {
     /// - true if length is updated,
     /// - false if can't update length property and JS_THROW flag is not set,
     /// - Err if can't update length property ahd JS_THOW flag is set.
-    pub fn set_length(&self, ctx: &JSContext, length: u32, throw: bool) -> Result<bool, i32> {
+    pub fn set_length(&self, ctx: &JSContext<'a>, length: u32, throw: bool) -> Result<bool, i32> {
         #[cfg(debug_assertions)]
         debug_assert!(
             self.shape().unwrap().0.borrow().prop_defs[0].is_length(),
@@ -176,8 +176,8 @@ impl Array {
     /// Note: for Array and Arguments class objects only.
     pub(crate) fn reset_fast_array(
         &self,
-        ctx: &JSContext,
-        values: Vec<JSValue>,
+        ctx: &JSContext<'a>,
+        values: Vec<JSValue<'a>>,
     ) -> Result<(), i32> {
         if !self.is_fast_array() {
             // if `self` is sparse array, delete all index properties
@@ -213,7 +213,11 @@ impl Array {
     }
 
     /// sort array-like object `obj`.
-    pub fn sort(ctx: &JSContext, obj: &JSObject, cmp: Option<&JSValue>) -> Result<(), i32> {
+    pub fn sort(
+        ctx: &JSContext<'a>,
+        obj: &JSObject<'a>,
+        cmp: Option<&JSValue<'a>>,
+    ) -> Result<(), i32> {
         if let Some(f) = cmp {
             f.ensure_function(ctx)?;
         }
@@ -360,7 +364,11 @@ fn sort_values_default(values: &mut [(JSValue, StringContent)]) {
     });
 }
 
-fn sort_values_by(ctx: &JSContext, values: &mut [JSValue], cmpfn: &JSValue) -> Result<(), i32> {
+fn sort_values_by<'a>(
+    ctx: &JSContext<'a>,
+    values: &mut [JSValue<'a>],
+    cmpfn: &JSValue<'a>,
+) -> Result<(), i32> {
     let mut has_err = false;
 
     values.sort_by(|a, b| {
@@ -404,9 +412,9 @@ fn sort_values_by(ctx: &JSContext, values: &mut [JSValue], cmpfn: &JSValue) -> R
     if has_err { Err(-1) } else { Ok(()) }
 }
 
-impl JSContext {
+impl<'a> JSContext<'a> {
     /// create an Array with element values
-    pub fn create_array_with_values(&self, values: Vec<JSValue>) -> Result<Array, i32> {
+    pub fn create_array_with_values(&self, values: Vec<JSValue<'a>>) -> Result<Array<'a>, i32> {
         let len = values.len();
 
         let fa = self
@@ -431,7 +439,7 @@ impl JSContext {
     }
 
     #[inline]
-    pub fn create_array_from_slice(&self, values: &[JSValue]) -> Result<Array, i32> {
+    pub fn create_array_from_slice(&self, values: &[JSValue<'a>]) -> Result<Array<'a>, i32> {
         self.create_array_with_values(values.iter().cloned().try_collect::<Vec<_>>().map_err(
             |_| {
                 self.throw_out_of_memory();
@@ -442,7 +450,7 @@ impl JSContext {
 
     /// create an Array object with pre-allocated capacity.
     /// `cap` is allowed no greater than i32::MAX
-    pub(super) fn create_array_with_capacity(&self, cap: usize) -> Result<Array, i32> {
+    pub(super) fn create_array_with_capacity(&self, cap: usize) -> Result<Array<'a>, i32> {
         if cap <= i32::MAX as usize {
             let mut lst = Vec::<JSValue>::new();
             if cap > 0 {
@@ -464,14 +472,14 @@ impl JSContext {
 
     /// create an empty Array
     #[inline(always)]
-    pub fn create_array(&self) -> Result<Array, i32> {
+    pub fn create_array(&self) -> Result<Array<'a>, i32> {
         self.create_array_with_values(Vec::new())
     }
 }
 
-impl JSObject {
+impl<'a> JSObject<'a> {
     /// return Err if exception (proxy case) or TRUE/FALSE
-    pub fn is_array(&self, ctx: &JSContext) -> Result<bool, i32> {
+    pub fn is_array(&self, ctx: &JSContext<'a>) -> Result<bool, i32> {
         let class_id = self.class_id();
         if class_id == JS_CLASS_PROXY {
             unsafe { self.as_Proxy_unchecked().is_array(ctx) }
@@ -489,7 +497,7 @@ impl JSObject {
     /// valid elements (non UNINITIALIZED) will be added as property with integral name.
     ///
     /// Note: for Array or Arguments object only.
-    pub(crate) fn destruct_fast_array(&self, ctx: &JSContext) -> Result<(), i32> {
+    pub(crate) fn destruct_fast_array(&self, ctx: &JSContext<'a>) -> Result<(), i32> {
         debug_assert!(matches!(
             self.class_id(),
             JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS
@@ -523,7 +531,7 @@ impl JSObject {
     }
 
     /// if object is Array or Argument class, and is fast array, returns values slice.
-    pub fn with_fast_array_values<R>(&self, f: impl FnOnce(&[JSValue]) -> R) -> Option<R> {
+    pub fn with_fast_array_values<R>(&self, f: impl FnOnce(&[JSValue<'a>]) -> R) -> Option<R> {
         if self.flags().is_fast_array() {
             self.payload()
                 .array()
@@ -536,7 +544,7 @@ impl JSObject {
     /// if object is Array or Argument class, and is fast array, returns values slice.
     pub fn with_fast_array_values_mut<R>(
         &self,
-        f: impl FnOnce(&mut Vec<JSValue>) -> R,
+        f: impl FnOnce(&mut Vec<JSValue<'a>>) -> R,
     ) -> Option<R> {
         if self.flags().is_fast_array() {
             self.payload()
@@ -551,8 +559,8 @@ impl JSObject {
     /// returns Err if fail, true if append successfully, false if can't append due to read-only but flags indicates don't throw exception.
     pub fn add_fast_array_element(
         &self,
-        ctx: &JSContext,
-        val: JSValue,
+        ctx: &JSContext<'a>,
+        val: JSValue<'a>,
         flags: u32,
     ) -> Result<bool, i32> {
         debug_assert!(self.flags().is_fast_array(), "must be a fast array");
@@ -565,14 +573,15 @@ impl JSObject {
         // update the length if necessary. We assume that if the length is
         // not an integer, then if it >= 2^31.
         // Note: check array length to int in advance, to avoid prop_values borrow conflict.
-        let len = if let JSProperty::Normal(JSValue::Int(n)) = &self.0.prop_values.borrow()[0] {
-            Some(*n)
-        } else {
-            #[cfg(debug_assertions)]
-            unreachable!();
-            #[cfg(not(debug_assertions))]
-            None
-        };
+        let len: Option<i32> =
+            if let JSProperty::Normal(JSValue::Int(n)) = &self.0.prop_values.borrow()[0] {
+                Some(*n)
+            } else {
+                #[cfg(debug_assertions)]
+                unreachable!();
+                #[cfg(not(debug_assertions))]
+                None
+            };
 
         if let Some(arr_len) = len
             && new_len > arr_len as usize
@@ -623,10 +632,10 @@ impl JSObject {
     }
 }
 
-impl JSValue {
+impl<'a> JSValue<'a> {
     /// check if `self` is an Array object
     /// return Err if exception (proxy case) or TRUE/FALSE
-    pub fn is_array(&self, ctx: &JSContext) -> Result<bool, i32> {
+    pub fn is_array(&self, ctx: &JSContext<'a>) -> Result<bool, i32> {
         if let JSValue::Object(p) = self {
             p.is_array(ctx)
         } else {
@@ -645,7 +654,7 @@ impl JSValue {
 
     /// if value is Array or Argument class, and is fast array, returns values slice.
     #[inline(always)]
-    pub fn with_fast_array_values<R>(&self, f: impl FnOnce(&[JSValue]) -> R) -> Option<R> {
+    pub fn with_fast_array_values<R>(&self, f: impl FnOnce(&[JSValue<'a>]) -> R) -> Option<R> {
         self.as_object().and_then(|o| o.with_fast_array_values(f))
     }
 
@@ -655,14 +664,14 @@ impl JSValue {
     #[inline(always)]
     pub fn with_fast_array_values_mut<R>(
         &self,
-        f: impl FnOnce(&mut Vec<JSValue>) -> R,
+        f: impl FnOnce(&mut Vec<JSValue<'a>>) -> R,
     ) -> Option<R> {
         self.as_object()
             .and_then(|o| o.with_fast_array_values_mut(f))
     }
 
     /// coerce value to array length, which is in range \[0, 2^32-1\].
-    pub fn to_array_length(&self, ctx: &JSContext, is_array_ctor: bool) -> Result<u32, i32> {
+    pub fn to_array_length(&self, ctx: &JSContext<'a>, is_array_ctor: bool) -> Result<u32, i32> {
         let len: u32;
 
         match self {
@@ -710,7 +719,7 @@ impl JSValue {
     }
 
     /// coerce value to array index, which is in range \[0, MAX_SAFE_INTEGER\].
-    pub fn to_array_index(&self, ctx: &JSContext) -> Result<i64, i32> {
+    pub fn to_array_index(&self, ctx: &JSContext<'a>) -> Result<i64, i32> {
         let i: i64 = self.to_i64_saturating(ctx)?;
         if (0..=MAX_SAFE_INTEGER).contains(&i) {
             Ok(i)

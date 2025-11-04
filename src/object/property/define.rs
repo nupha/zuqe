@@ -6,7 +6,7 @@ use crate::{
     branch_hints::unlikely,
     bytecode::js_get_function_name,
     context::JSContext,
-    number::{IntOrFloat, JS_NumberIsNegativeOrMinusZero, SAFE_INTEGER_RANGE},
+    number::IntOrFloat,
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_THROW, JSObject,
         JSProperty, PropertyKey,
@@ -21,7 +21,7 @@ use super::{
     JSPropertyDescriptor, check_define_prop_flags, get_prop_flags,
 };
 
-impl JSObject {
+impl<'a> JSObject<'a> {
     /* allowed flags:
        JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, JS_PROP_ENUMERABLE
        JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE,
@@ -33,11 +33,11 @@ impl JSObject {
     /// Note: `prop` is not consumed.
     pub(crate) fn define_property(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         prop: &Atom,
-        value: JSValue,
-        getter: JSValue,
-        setter: JSValue,
+        value: JSValue<'a>,
+        getter: JSValue<'a>,
+        setter: JSValue<'a>,
         flags: u32,
     ) -> Result<bool, i32> {
         let mut val: JSValue = value;
@@ -238,9 +238,9 @@ impl JSObject {
     /// Note: `prop` is not consumed.
     pub fn define_property_value(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         prop: &Atom,
-        val: JSValue,
+        val: JSValue<'a>,
         flags: u32,
     ) -> Result<bool, i32> {
         self.define_property(
@@ -259,9 +259,9 @@ impl JSObject {
 
     pub fn define_property_value_str(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         prop: &str,
-        val: JSValue,
+        val: JSValue<'a>,
         flags: u32,
     ) -> Result<bool, i32> {
         let atom = Atom::new(ctx.rt(), prop)?;
@@ -271,9 +271,9 @@ impl JSObject {
     #[inline(always)]
     pub fn define_property_value_u32(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         idx: u32,
-        val: JSValue,
+        val: JSValue<'a>,
         flags: u32,
     ) -> Result<bool, i32> {
         self.define_property_value(ctx, &Atom::new_small_int(idx), val, flags)
@@ -282,9 +282,9 @@ impl JSObject {
     #[inline]
     pub fn define_property_value_i64(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         idx: i64,
-        val: JSValue,
+        val: JSValue<'a>,
         flags: u32,
     ) -> Result<bool, i32> {
         let atom = Atom::from_i64(ctx.rt(), idx)?;
@@ -295,10 +295,10 @@ impl JSObject {
     #[inline(always)]
     pub fn define_property_getset(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         prop: &Atom,
-        getter: JSValue,
-        setter: JSValue,
+        getter: JSValue<'a>,
+        setter: JSValue<'a>,
         flags: u32,
     ) -> Result<bool, i32> {
         self.define_property(
@@ -320,9 +320,9 @@ impl JSObject {
     #[inline]
     pub fn define_property_desc(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         prop: &Atom,
-        desc: &JSValue,
+        desc: &JSValue<'a>,
         flags: u32,
     ) -> Result<bool, i32> {
         let d = JSPropertyDescriptor::from_value(ctx, desc)?;
@@ -332,7 +332,11 @@ impl JSObject {
     /// define multiple properties with descriptor defination object.
     ///
     /// equivelent to js `Object.defineProperties(properties)`
-    pub fn define_properties(&self, ctx: &JSContext, properties: &JSValue) -> Result<(), i32> {
+    pub fn define_properties(
+        &self,
+        ctx: &JSContext<'a>,
+        properties: &JSValue<'a>,
+    ) -> Result<(), i32> {
         let props = properties.clone().objectify(ctx)?;
 
         // Note: each property of `props` is a descriptor object
@@ -349,17 +353,12 @@ impl JSObject {
 
     /// define name property with value `name` in object.
     /// if name property already exists, don't define again.
-    pub fn define_name(&self, ctx: &JSContext, name: &Atom, flags: u32) -> Result<bool, i32> {
+    pub fn define_name(&self, ctx: &JSContext<'a>, name: &Atom, flags: u32) -> Result<bool, i32> {
         if name.is_null() {
             ctx.throw_type_error("invalid name");
             Err(-1)
         } else if !self.has_name() {
-            self.define_property_value(
-                ctx,
-                JS_ATOM_name.deref(),
-                name.force_string(ctx)?.into(),
-                flags,
-            )
+            self.define_property_value(ctx, &JS_ATOM_name, name.force_string(ctx)?.into(), flags)
         } else {
             Ok(false)
         }
@@ -367,14 +366,14 @@ impl JSObject {
 
     pub fn define_name_computed(
         &self,
-        ctx: &JSContext,
-        str_val: &JSValue,
+        ctx: &JSContext<'a>,
+        str_val: &JSValue<'a>,
         flags: u32,
     ) -> Result<bool, i32> {
         if !self.has_name() {
             let atom = str_val.to_atom(ctx)?;
             let name_str = js_get_function_name(ctx, &atom)?;
-            self.define_property_value(ctx, JS_ATOM_name.deref(), name_str.into(), flags)
+            self.define_property_value(ctx, &JS_ATOM_name, name_str.into(), flags)
         } else {
             Ok(false)
         }
@@ -399,9 +398,9 @@ impl JSObject {
     #[deprecated]
     pub fn create_data_property_u32(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         idx: i64,
-        val: JSValue,
+        val: JSValue<'a>,
         flags: u32,
     ) -> Result<bool, i32> {
         self.define_property_value_i64(ctx, idx, val, flags | JS_PROP_C_W_E)
@@ -409,7 +408,7 @@ impl JSObject {
 }
 
 // TODO: these methods on JSValue are not needed.
-impl JSValue {
+impl<'a> JSValue<'a> {
     /* allowed flags:
        JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, JS_PROP_ENUMERABLE
        JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE,
@@ -421,11 +420,11 @@ impl JSValue {
     /// Note: `prop` is not consumed.
     pub(crate) fn define_property(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         prop: &Atom,
-        val: JSValue,    // TODO: use Option<JSValue> to eliminate JS_PROP_HAS_XXX
-        getter: JSValue, // TODO: use Option<JSValue> to eliminate JS_PROP_HAS_XXX
-        setter: JSValue, // TODO: use Option<JSValue> to eliminate JS_PROP_HAS_XXX
+        val: JSValue<'a>, // TODO: use Option<JSValue> to eliminate JS_PROP_HAS_XXX
+        getter: JSValue<'a>, // TODO: use Option<JSValue> to eliminate JS_PROP_HAS_XXX
+        setter: JSValue<'a>, // TODO: use Option<JSValue> to eliminate JS_PROP_HAS_XXX
         flags: u32,
     ) -> Result<bool, i32> {
         if let Self::Object(p) = self {
@@ -441,9 +440,9 @@ impl JSValue {
     #[inline(always)]
     pub fn define_property_value(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         prop: &Atom,
-        value: JSValue,
+        value: JSValue<'a>,
         flags: u32,
     ) -> Result<bool, i32> {
         self.define_property(
@@ -462,9 +461,9 @@ impl JSValue {
 
     pub fn define_property_value_str(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         prop: &str,
-        val: JSValue,
+        val: JSValue<'a>,
         flags: u32,
     ) -> Result<bool, i32> {
         let atom = Atom::new(ctx.rt(), prop)?;
@@ -474,9 +473,9 @@ impl JSValue {
     #[inline(always)]
     pub fn define_property_value_u32(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         idx: u32,
-        val: JSValue,
+        val: JSValue<'a>,
         flags: u32,
     ) -> Result<bool, i32> {
         self.define_property_value(ctx, &Atom::new_small_int(idx), val, flags)
@@ -485,9 +484,9 @@ impl JSValue {
     #[inline(always)]
     pub fn define_property_value_i64(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         idx: i64,
-        val: JSValue,
+        val: JSValue<'a>,
         flags: u32,
     ) -> Result<bool, i32> {
         let atom = Atom::from_i64(ctx.rt(), idx)?;
@@ -497,10 +496,10 @@ impl JSValue {
     #[inline(always)]
     pub fn define_property_getset(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         prop: &Atom,
-        getter: JSValue,
-        setter: JSValue,
+        getter: JSValue<'a>,
+        setter: JSValue<'a>,
         flags: u32,
     ) -> Result<bool, i32> {
         self.define_property(
@@ -523,9 +522,9 @@ impl JSValue {
     #[inline(always)]
     pub fn create_data_property_u32(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         idx: i64,
-        val: JSValue,
+        val: JSValue<'a>,
         flags: u32,
     ) -> Result<bool, i32> {
         self.define_property_value_i64(ctx, idx, val, flags | JS_PROP_C_W_E)

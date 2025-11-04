@@ -11,7 +11,7 @@ use crate::{
     value::JSValue,
 };
 
-pub fn js_error_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_error_constructor<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let mut new_target = cc.this().clone();
     if new_target.is_undefined() {
         new_target = JS_GetActiveFunction(ctx).clone();
@@ -91,7 +91,7 @@ pub fn js_error_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 /// `errors` value is not consumed.
-pub fn js_aggregate_error_constructor(ctx: &JSContext, errors: JSValue) -> JSValue {
+pub fn js_aggregate_error_constructor<'a>(ctx: &JSContext<'a>, errors: JSValue<'a>) -> JSValue<'a> {
     if let Ok(obj) = ctx.create_object_with_proto(
         ctx.0.borrow().native_error_proto[ErrorKind::Aggregate as usize]
             .as_object()

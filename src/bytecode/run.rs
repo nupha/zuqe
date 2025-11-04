@@ -47,24 +47,24 @@ use crate::{
     value::JSValue,
 };
 
-impl Bytecode {
+impl<'a> Bytecode<'a> {
     /// run bytecodes.
     /// before running, runtime current stack frame will be set to `sframe`.
     /// when exited, runtime current stack frame will be restored back to the previous frame.
     #[allow(clippy::too_many_arguments)]
     pub fn run(
         &self,
-        caller_ctx: &JSContext, // Context of the calling environment
-        func_home_obj: Option<&JSObject>,
-        stack_frame: &mut StackFrame, // The stack frame for execution
-        this_obj: &JSValue,           // The 'this' binding for the function execution
-        new_target: JSValue,          // The new.target value for constructor calls
-        pc_offset: usize,             // Current instruction pointer (program counter) offset
-        sp_offset: usize,             // Current stack pointer offset
-        closure_var_refs: &[JSVarRef],
-        args: &[JSValue], // actual calling arguments pass in by caller, not padded length
-        throwed: bool,    // Indicates if an exception has been thrown
-    ) -> JSValue {
+        caller_ctx: &JSContext<'a>, // Context of the calling environment
+        func_home_obj: Option<&JSObject<'a>>,
+        stack_frame: &mut StackFrame<'a>, // The stack frame for execution
+        this_obj: &JSValue<'a>,           // The 'this' binding for the function execution
+        new_target: JSValue<'a>,          // The new.target value for constructor calls
+        pc_offset: usize,                 // Current instruction pointer (program counter) offset
+        sp_offset: usize,                 // Current stack pointer offset
+        closure_var_refs: &[JSVarRef<'a>],
+        args: &[JSValue<'a>], // actual calling arguments pass in by caller, not padded length
+        throwed: bool,        // Indicates if an exception has been thrown
+    ) -> JSValue<'a> {
         let mode = stack_frame.js_mode;
 
         // use bytecode's context
@@ -245,10 +245,10 @@ impl Bytecode {
         };
     }
 
-        enum State {
+        enum State<'a> {
             Exception,
             /// exit with return value and is_generator flag
-            Done(JSValue, bool),
+            Done(JSValue<'a>, bool),
         }
 
         #[cfg(all(debug_assertions, feature = "dump_bytecode"))]
@@ -2457,13 +2457,13 @@ impl Bytecode {
     #[inline(never)]
     fn exception(
         &self,
-        ctx: &JSContext,
-        stack_frame: &mut StackFrame,
+        ctx: &JSContext<'a>,
+        stack_frame: &mut StackFrame<'a>,
         pc: *const u8,
         pc_base: *const u8,
-        sp: *mut JSValue,
-        sp_base: *mut JSValue,
-    ) -> Option<(*const u8, *mut JSValue)> {
+        sp: *mut JSValue<'a>,
+        sp_base: *mut JSValue<'a>,
+    ) -> Option<(*const u8, *mut JSValue<'a>)> {
         // calc offset index from pc and sp pointers
         let (pc_offset, sp_offset) = unsafe {
             (

@@ -146,8 +146,8 @@ impl ObjectFlags {
     }
 }
 
-pub(crate) struct ObjectInner {
-    rt: NonNull<JSRuntime>,
+pub(crate) struct ObjectInner<'a> {
+    rt: NonNull<JSRuntime<'a>>,
     pub(crate) gc_mark: Cell<bool>,
 
     /// object flags
@@ -155,25 +155,25 @@ pub(crate) struct ObjectInner {
 
     /// Shape of object, to denote prototype and property names + flag
     /// could be NULL while freeing an object
-    pub(crate) shape: RefCell<Option<JSShape>>,
+    pub(crate) shape: RefCell<Option<JSShape<'a>>>,
 
     /// property value slots
-    pub(crate) prop_values: RefCell<Vec<JSProperty>>,
+    pub(crate) prop_values: RefCell<Vec<JSProperty<'a>>>,
 
     /// this object is weak referenced in state.
-    pub(crate) weak_refs: RefCell<Vec<JSObjectWeakref>>,
+    pub(crate) weak_refs: RefCell<Vec<JSObjectWeakref<'a>>>,
 
     /// object payload.
-    payload: ObjectPayload,
+    payload: ObjectPayload<'a>,
 }
 
-impl Drop for ObjectInner {
+impl Drop for ObjectInner<'_> {
     fn drop(&mut self) {
         self.finalize();
     }
 }
 
-impl std::fmt::Display for ObjectInner {
+impl std::fmt::Display for ObjectInner<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let rt = self.rt();
         let class_id = self.class_id();
@@ -199,12 +199,12 @@ impl std::fmt::Display for ObjectInner {
     }
 }
 
-impl ObjectInner {
+impl<'a> ObjectInner<'a> {
     pub(crate) fn new(
-        ctx: &JSContext,
-        shape: Option<JSShape>,
-        payload: ObjectPayload,
-    ) -> Result<Self, ObjectPayload> {
+        ctx: &JSContext<'a>,
+        shape: Option<JSShape<'a>>,
+        payload: ObjectPayload<'a>,
+    ) -> Result<Self, ObjectPayload<'a>> {
         ctx.rt_mut().gc_req = true;
         //js_trigger_gc(ctx.rt_mut(), std::mem::size_of::<JSValue>());
 
@@ -336,12 +336,12 @@ impl ObjectInner {
     }
 
     #[inline(always)]
-    pub const fn rt_ptr(&self) -> NonNull<JSRuntime> {
+    pub const fn rt_ptr(&self) -> NonNull<JSRuntime<'a>> {
         self.rt
     }
 
     #[inline]
-    pub const fn rt(&self) -> &JSRuntime {
+    pub const fn rt(&self) -> &JSRuntime<'a> {
         unsafe { self.rt.as_ref() }
     }
 
@@ -400,27 +400,27 @@ impl ObjectInner {
 }
 
 #[derive(Clone)]
-pub struct JSObject(pub(crate) Rc<ObjectInner>);
+pub struct JSObject<'a>(pub(crate) Rc<ObjectInner<'a>>);
 
-impl PartialEq for JSObject {
+impl PartialEq for JSObject<'_> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.id() == other.id()
     }
 }
 
-impl From<JSObject> for JSValue {
+impl<'a> From<JSObject<'a>> for JSValue<'a> {
     #[inline(always)]
-    fn from(value: JSObject) -> Self {
+    fn from(value: JSObject<'a>) -> Self {
         Self::Object(value)
     }
 }
 
-impl TryFrom<JSValue> for JSObject {
+impl<'a> TryFrom<JSValue<'a>> for JSObject<'a> {
     type Error = i32;
 
     #[inline]
-    fn try_from(value: JSValue) -> Result<Self, Self::Error> {
+    fn try_from(value: JSValue<'a>) -> Result<Self, Self::Error> {
         if let JSValue::Object(o) = value {
             Ok(o)
         } else {
@@ -429,38 +429,38 @@ impl TryFrom<JSValue> for JSObject {
     }
 }
 
-impl From<JSObject> for GCObject {
+impl<'a> From<JSObject<'a>> for GCObject<'a> {
     #[inline(always)]
-    fn from(value: JSObject) -> Self {
+    fn from(value: JSObject<'a>) -> Self {
         Self::Object(value)
     }
 }
 
-impl std::fmt::Display for JSObject {
+impl std::fmt::Display for JSObject<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0.as_ref())
     }
 }
-impl std::fmt::Debug for JSObject {
+impl std::fmt::Debug for JSObject<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{self}")
     }
 }
 
-impl JSObject {
+impl<'a> JSObject<'a> {
     #[inline(always)]
     pub fn id(&self) -> usize {
         self.0.id()
     }
 
     #[inline(always)]
-    pub fn rt(&self) -> &JSRuntime {
+    pub fn rt(&self) -> &JSRuntime<'a> {
         self.0.rt()
     }
 
     /// get object payload
     #[inline(always)]
-    pub fn payload(&self) -> &ObjectPayload {
+    pub fn payload(&self) -> &ObjectPayload<'a> {
         &self.0.payload
     }
 
@@ -513,7 +513,7 @@ impl JSObject {
         // for equivelent but slower solution: see above
     }
 
-    pub fn shape(&self) -> Option<JSShape> {
+    pub fn shape(&self) -> Option<JSShape<'a>> {
         self.0.shape.borrow().clone()
     }
 
@@ -533,7 +533,7 @@ impl JSObject {
     }
 
     /// return Err(-1) for Proxy only
-    pub fn prevent_extensions(&self, ctx: &JSContext) -> Result<bool, i32> {
+    pub fn prevent_extensions(&self, ctx: &JSContext<'a>) -> Result<bool, i32> {
         self.as_Proxy().map_or_else(
             || {
                 self.set_flag_extensible(false);
@@ -543,7 +543,7 @@ impl JSObject {
         )
     }
 
-    pub fn method_set_home_object(&self, home_obj: Option<&JSObject>) {
+    pub fn method_set_home_object(&self, home_obj: Option<&JSObject<'a>>) {
         if let Some(fo) = self.payload().bc_function()
             && fo.bytecode().need_home_object()
         {
@@ -552,7 +552,7 @@ impl JSObject {
     }
 
     /// Seal the object.
-    pub fn seal(&self, ctx: &JSContext, freeze: bool) -> Result<(), i32> {
+    pub fn seal(&self, ctx: &JSContext<'a>, freeze: bool) -> Result<(), i32> {
         if unlikely(!self.prevent_extensions(ctx)?) {
             ctx.throw_type_error("proxy preventExtensions handler returned false");
             Err(-1)
@@ -590,7 +590,7 @@ impl JSObject {
     }
 
     /// check if object is sealed.
-    pub fn is_sealed(&self, ctx: &JSContext, is_frozen: bool) -> Result<bool, i32> {
+    pub fn is_sealed(&self, ctx: &JSContext<'a>, is_frozen: bool) -> Result<bool, i32> {
         const NOT_SEALED_ERR: i32 = i32::MAX;
 
         if let Err(e) =
@@ -617,7 +617,7 @@ impl JSObject {
     }
 
     #[inline]
-    pub fn downgrade(&self) -> JSObjectWeakref {
+    pub fn downgrade(&self) -> JSObjectWeakref<'a> {
         JSObjectWeakref(Rc::downgrade(&self.0))
     }
 
@@ -640,29 +640,29 @@ impl JSObject {
 }
 
 #[derive(Debug, Clone)]
-pub struct JSObjectWeakref(pub(crate) Weak<ObjectInner>);
+pub struct JSObjectWeakref<'a>(pub(crate) Weak<ObjectInner<'a>>);
 
-impl From<JSObjectWeakref> for GCObjectWeakref {
-    fn from(value: JSObjectWeakref) -> Self {
+impl<'a> From<JSObjectWeakref<'a>> for GCObjectWeakref<'a> {
+    fn from(value: JSObjectWeakref<'a>) -> Self {
         Self::Object(value)
     }
 }
 
-impl Default for JSObjectWeakref {
+impl Default for JSObjectWeakref<'_> {
     fn default() -> Self {
         Self(Weak::new())
     }
 }
 
-impl JSObjectWeakref {
+impl<'a> JSObjectWeakref<'a> {
     #[inline]
-    pub fn upgrade(&self) -> Option<JSObject> {
+    pub fn upgrade(&self) -> Option<JSObject<'a>> {
         self.0.upgrade().map(JSObject)
     }
 }
 
-impl JSValue {
-    pub const fn as_object(&self) -> Option<&JSObject> {
+impl<'a> JSValue<'a> {
+    pub const fn as_object(&self) -> Option<&JSObject<'a>> {
         if let Self::Object(ob) = self {
             Some(ob)
         } else {
@@ -671,7 +671,7 @@ impl JSValue {
     }
 
     #[inline]
-    pub unsafe fn as_object_unchecked(&self) -> &JSObject {
+    pub unsafe fn as_object_unchecked(&self) -> &JSObject<'a> {
         if let Self::Object(ob) = self {
             ob
         } else {
@@ -694,7 +694,7 @@ impl JSValue {
     /// - "abc" => \[object "abc"\]
     /// - Symbol() => \[object Symbol()\]
     /// - null, undefined => Error
-    pub fn objectify(self, ctx: &JSContext) -> Result<JSObject, i32> {
+    pub fn objectify(self, ctx: &JSContext<'a>) -> Result<JSObject<'a>, i32> {
         match self {
             Self::Object(o) => Ok(o),
             Self::String(s) => s.objectify(ctx, &JSValue::UNDEFINED),
@@ -731,13 +731,13 @@ impl JSValue {
     }
 
     #[inline]
-    pub fn prevent_extensions(&self, ctx: &JSContext) -> Result<bool, i32> {
+    pub fn prevent_extensions(&self, ctx: &JSContext<'a>) -> Result<bool, i32> {
         self.as_object()
             .map_or(Ok(false), |o| o.prevent_extensions(ctx))
     }
 
     /// Seal `self` if it is an object.
-    pub fn seal(&self, ctx: &JSContext, freeze: bool) -> Result<(), i32> {
+    pub fn seal(&self, ctx: &JSContext<'a>, freeze: bool) -> Result<(), i32> {
         if let JSValue::Object(p) = &self {
             p.seal(ctx, freeze)
         } else {
@@ -746,7 +746,7 @@ impl JSValue {
     }
 
     /// check if value is sealed. Object value will check property, Non-object value is always treated as sealed.
-    pub fn is_sealed(&self, ctx: &JSContext, is_frozen: bool) -> Result<bool, i32> {
+    pub fn is_sealed(&self, ctx: &JSContext<'a>, is_frozen: bool) -> Result<bool, i32> {
         if let Some(o) = self.as_object() {
             o.is_sealed(ctx, is_frozen)
         } else {
@@ -764,7 +764,7 @@ pub const JS_PROP_INITIAL_HASH_SIZE: usize = 8;
 pub const JS_PROP_INITIAL_HASH_SIZE: usize = 4;
 
 /// Note: all the fields are already sealed except length
-pub fn seal_template_obj(ctx: &JSContext, obj: JSValue) -> i32 {
+pub fn seal_template_obj<'a>(ctx: &JSContext<'a>, obj: JSValue<'a>) -> i32 {
     let p = unsafe { obj.as_object_unchecked() };
 
     let (_, cur_flags) = p
@@ -785,11 +785,11 @@ pub fn seal_template_obj(ctx: &JSContext, obj: JSValue) -> i32 {
     0
 }
 
-pub fn JS_SpeciesConstructor(
-    ctx: &JSContext,
-    obj: &JSValue,
-    default_constructor: JSValue,
-) -> JSResult {
+pub fn JS_SpeciesConstructor<'a>(
+    ctx: &JSContext<'a>,
+    obj: &JSValue<'a>,
+    default_constructor: JSValue<'a>,
+) -> JSResult<'a> {
     if let Some(o) = obj.as_object() {
         let ctor = o.get_property(ctx, JS_ATOM_constructor.deref())?;
 

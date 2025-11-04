@@ -13,7 +13,7 @@ use crate::{
     value::JSValue,
 };
 
-impl ObjectInner {
+impl<'a> ObjectInner<'a> {
     /// Grows property values slot to accommodate more properties.
     /// Takes a new length and extends the array with undefined values if needed.
     /// Returns error if memory allocation fails.
@@ -40,10 +40,10 @@ impl ObjectInner {
     /// `prop` is not consumed.
     pub(crate) fn add_own_property(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         prop: Atom,
         prop_flags: u32,
-        prop_value: JSProperty,
+        prop_value: JSProperty<'a>,
     ) -> Result<(), i32> {
         let mut shape = self.shape.borrow_mut().take().unwrap();
         let mut shape0: Option<JSShape> = None;
@@ -108,7 +108,7 @@ impl ObjectInner {
     }
 }
 
-impl JSObject {
+impl<'a> JSObject<'a> {
     /// Check if shape property `atom` exists.
     /// `prop` is not consumed.
     pub(crate) fn has_shape_property(&self, prop: &Atom) -> bool {
@@ -133,7 +133,7 @@ impl JSObject {
     /// test if own property `prop` exists:
     /// 1. find in shape,
     /// 1. if not shape property, and if is exotic or fast array, test by exotic or array length.
-    pub fn has_own_property(&self, ctx: &JSContext, prop: &Atom) -> Result<bool, i32> {
+    pub fn has_own_property(&self, ctx: &JSContext<'a>, prop: &Atom) -> Result<bool, i32> {
         // is shape prop?
         if self.has_shape_property(prop) {
             return Ok(true);
@@ -161,7 +161,7 @@ impl JSObject {
         Ok(false)
     }
 
-    pub fn has_own_property_str(&self, ctx: &JSContext, prop: &str) -> Result<bool, i32> {
+    pub fn has_own_property_str(&self, ctx: &JSContext<'a>, prop: &str) -> Result<bool, i32> {
         let atom = Atom::new(ctx.rt(), prop)?;
         self.has_own_property(ctx, &atom)
     }
@@ -170,9 +170,9 @@ impl JSObject {
     /// Returns None if own property does not exist.
     pub fn get_own_property(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         prop: &Atom,
-    ) -> Result<Option<JSPropertyDescriptor>, i32> {
+    ) -> Result<Option<JSPropertyDescriptor<'a>>, i32> {
         while let Some((idx, prs_flags)) = self.find_shape_property(prop) {
             let mut desc = JSPropertyDescriptor {
                 flags: prs_flags & JS_PROP_C_W_E,
@@ -255,10 +255,10 @@ impl JSObject {
     #[inline(always)]
     pub fn add_own_property(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         prop: Atom,
         prop_flags: u32,
-        prop_value: JSProperty,
+        prop_value: JSProperty<'a>,
     ) -> Result<(), i32> {
         self.0.add_own_property(ctx, prop, prop_flags, prop_value)
     }
@@ -271,11 +271,11 @@ impl JSObject {
     /// - otherwise, call `Self::add_own_property()` to add a shape property.
     pub(super) fn create_property(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         prop: Atom,
-        val: JSValue,
-        getter: JSValue,
-        setter: JSValue,
+        val: JSValue<'a>,
+        getter: JSValue<'a>,
+        setter: JSValue<'a>,
         flags: u32,
     ) -> Result<bool, i32> {
         let update_array_length_fn =
@@ -493,9 +493,9 @@ impl JSObject {
     }
 }
 
-impl JSValue {
+impl<'a> JSValue<'a> {
     /// test if own property prop exists.
-    pub fn has_own_property(&self, ctx: &JSContext, prop: &Atom) -> Result<bool, i32> {
+    pub fn has_own_property(&self, ctx: &JSContext<'a>, prop: &Atom) -> Result<bool, i32> {
         if let JSValue::Object(p) = self {
             p.has_own_property(ctx, prop)
         } else {
@@ -504,7 +504,7 @@ impl JSValue {
         }
     }
 
-    pub fn has_own_property_str(&self, ctx: &JSContext, prop: &str) -> Result<bool, i32> {
+    pub fn has_own_property_str(&self, ctx: &JSContext<'a>, prop: &str) -> Result<bool, i32> {
         if let JSValue::Object(p) = self {
             p.has_own_property_str(ctx, prop)
         } else {
@@ -516,9 +516,9 @@ impl JSValue {
     /// get description of own property.
     pub fn get_own_property(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         prop: &Atom,
-    ) -> Result<Option<JSPropertyDescriptor>, i32> {
+    ) -> Result<Option<JSPropertyDescriptor<'a>>, i32> {
         if let JSValue::Object(p) = self {
             p.get_own_property(ctx, prop)
         } else {

@@ -13,15 +13,20 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct NativeFuncData {
+pub struct NativeFuncData<'a> {
     pub func: NativeCallback,
     pub length: u8,
     pub magic: u16,
-    pub data: Rc<RefCell<Box<[JSValue]>>>,
+    pub data: Rc<RefCell<Box<[JSValue<'a>]>>>,
 }
 
-impl NativeFuncData {
-    fn new(callback: NativeCallback, length: u8, magic: i32, data: Box<[JSValue]>) -> Box<Self> {
+impl<'a> NativeFuncData<'a> {
+    fn new(
+        callback: NativeCallback,
+        length: u8,
+        magic: i32,
+        data: Box<[JSValue<'a>]>,
+    ) -> Box<Self> {
         Box::new(NativeFuncData {
             func: callback,
             length,
@@ -42,7 +47,7 @@ impl NativeFuncData {
     }
 
     /// get nth data
-    pub fn data(&self, nth: usize) -> Option<JSValue> {
+    pub fn data(&self, nth: usize) -> Option<JSValue<'a>> {
         self.data.borrow().get(nth).cloned()
     }
 }
@@ -51,18 +56,18 @@ impl NativeFuncData {
 /// When called, will invoke native callback with attached data payload.
 #[repr(transparent)]
 #[derive(Debug, Clone)]
-pub struct NativeFunctionWithData(JSObject);
+pub struct NativeFunctionWithData<'a>(JSObject<'a>);
 
 object_cast!(NativeFunctionWithData, JS_CLASS_C_FUNCTION_DATA);
 
-impl NativeFunctionWithData {
+impl<'a> NativeFunctionWithData<'a> {
     /// Create a C_FUNCTION_DATA class object, which behaves like a native function, with attached data.
     pub(crate) fn create(
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         callback: NativeCallback,
         length: u8,
         magic: i32,
-        data: Box<[JSValue]>,
+        data: Box<[JSValue<'a>]>,
     ) -> Result<Self, i32> {
         let func_obj = ctx
             .create_object_with_proto(
@@ -84,14 +89,14 @@ impl NativeFunctionWithData {
 //
 // Hooks
 //
-impl NativeFunctionWithData {
-    pub fn class_call(
-        ctx: &JSContext,
-        func_obj: &JSValue,
-        this_val: &JSValue,
-        args: &[JSValue],
+impl<'a> NativeFunctionWithData<'a> {
+    pub fn class_call<'b>(
+        ctx: &JSContext<'b>,
+        func_obj: &JSValue<'b>,
+        this_val: &JSValue<'b>,
+        args: &[JSValue<'b>],
         _flags: i32,
-    ) -> JSResult {
+    ) -> JSResult<'b> {
         let (f, data, magic) = if let ObjectPayload::C_FUNCTION_DATA(s) =
             unsafe { func_obj.as_object_unchecked().payload() }
         {

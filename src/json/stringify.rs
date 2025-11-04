@@ -13,21 +13,21 @@ use crate::{
     value::JSValue,
 };
 
-pub(super) struct JSONStringifyContext {
-    replacer_func: JSValue,
-    replacer_props: Option<Vec<JSString>>,
-    stack: SmallVec<[JSValue; 16]>,
+pub(super) struct JSONStringifyContext<'a> {
+    replacer_func: JSValue<'a>,
+    replacer_props: Option<Vec<JSString<'a>>>,
+    stack: SmallVec<[JSValue<'a>; 16]>,
     gap: StringContent,
-    empty: JSString,
+    empty: JSString<'a>,
     buf: StringBuf,
 }
 
-pub fn JS_JSONStringify(
-    ctx: &JSContext,
-    obj: JSValue,
-    replacer: JSValue,
-    space: JSValue,
-) -> JSResult {
+pub fn JS_JSONStringify<'a>(
+    ctx: &JSContext<'a>,
+    obj: JSValue<'a>,
+    replacer: JSValue<'a>,
+    space: JSValue<'a>,
+) -> JSResult<'a> {
     let mut jsc = JSONStringifyContext {
         replacer_func: JSValue::UNDEFINED,
         stack: SmallVec::new(),
@@ -127,13 +127,13 @@ pub fn JS_JSONStringify(
     ctx.create_string_with_buf(jsc.buf).map(JSValue::String)
 }
 
-fn js_json_check(
-    ctx: &JSContext,
-    jsc: &JSONStringifyContext,
-    holder: &JSValue,
-    val: JSValue,
-    key: JSString,
-) -> JSResult {
+fn js_json_check<'a>(
+    ctx: &JSContext<'a>,
+    jsc: &JSONStringifyContext<'a>,
+    holder: &JSValue<'a>,
+    val: JSValue<'a>,
+    key: JSString<'a>,
+) -> JSResult<'a> {
     let mut val = val;
     let key = JSValue::String(key);
 
@@ -172,10 +172,10 @@ fn js_json_check(
     }
 }
 
-fn js_json_to_str(
-    ctx: &JSContext,
-    jsc: &mut JSONStringifyContext,
-    val: JSValue,
+fn js_json_to_str<'a>(
+    ctx: &JSContext<'a>,
+    jsc: &mut JSONStringifyContext<'a>,
+    val: JSValue<'a>,
     indent: &StringBuf,
 ) -> Result<(), i32> {
     match &val {

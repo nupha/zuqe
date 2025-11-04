@@ -22,16 +22,16 @@ pub enum GCObjectStatus {
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-pub struct GCObjectHeader {
+pub struct GCObjectHeader<'a> {
     pub ref_count: i32,
     bitfields: u8,
 
     /// the runtime ptr
-    rt: NonNull<JSRuntime>,
+    rt: NonNull<JSRuntime<'a>>,
 }
 
-impl GCObjectHeader {
-    pub(crate) const fn new(rt: &JSRuntime, ref_count: i32) -> Self {
+impl<'a> GCObjectHeader<'a> {
+    pub(crate) const fn new(rt: &JSRuntime<'a>, ref_count: i32) -> Self {
         Self {
             ref_count,
             bitfields: (GCObjectStatus::Tracking as u8) << 1,
@@ -40,12 +40,12 @@ impl GCObjectHeader {
     }
 
     #[inline(always)]
-    pub fn rt_ptr(&self) -> NonNull<JSRuntime> {
+    pub fn rt_ptr(&self) -> NonNull<JSRuntime<'a>> {
         self.rt
     }
 
     #[inline(always)]
-    pub fn rt(&self) -> &JSRuntime {
+    pub fn rt(&self) -> &JSRuntime<'a> {
         unsafe { self.rt.as_ref() }
     }
 

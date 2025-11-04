@@ -99,7 +99,7 @@ impl Atom {
 
     /// get atom description. returns None if atom does not exist.
     #[inline(always)]
-    pub(crate) fn description(&self) -> AtomDesc {
+    pub(crate) fn description<'a>(&self) -> AtomDesc<'a> {
         AtomRegistry::get_desc(self.0).unwrap()
     }
 
@@ -247,7 +247,7 @@ impl Atom {
     }
 
     /// Convert atom to String or Symbol value.
-    pub fn string_or_symbol(&self, ctx: &JSContext) -> Result<JSValue, i32> {
+    pub fn string_or_symbol<'a>(&self, ctx: &JSContext<'a>) -> Result<JSValue<'a>, i32> {
         if let Some(n) = self.to_small_int() {
             ctx.create_string_from_utf8(format!("{n}",).into_bytes())
                 .map(JSValue::String)
@@ -262,7 +262,7 @@ impl Atom {
 
     /// Force convert atom to String.
     /// If atom is Symbol kind, returns its string descriptor.
-    pub fn force_string(&self, ctx: &JSContext) -> Result<JSString, i32> {
+    pub fn force_string<'a>(&self, ctx: &JSContext<'a>) -> Result<JSString<'a>, i32> {
         match self.string_or_symbol(ctx)? {
             JSValue::String(s) => {
                 debug_assert!(!s.content().is_ident());
@@ -401,7 +401,7 @@ pub const JS_ATOM_MAX: u32 = u16::MAX as u32 - 1;
 
 pub const ATOM_GET_STR_BUF_SIZE: usize = 64;
 
-impl JSString {
+impl<'a> JSString<'a> {
     /// convert string to atom. if string is not registered as atom yet, do registration.
     pub fn to_atom(&self) -> Result<Atom, i32> {
         if let Some(a) = self.atom_info() {
@@ -414,18 +414,18 @@ impl JSString {
     }
 }
 
-impl JSContext {
-    pub fn create_atom_string(&self, str: &str) -> Result<JSString, i32> {
+impl<'a> JSContext<'a> {
+    pub fn create_atom_string(&self, str: &str) -> Result<JSString<'a>, i32> {
         let atom = Atom::new(self.rt(), str)?;
         atom.force_string(self)
     }
 }
 
-impl JSValue {
+impl<'a> JSValue<'a> {
     /// convert value to atom. if value is not string or symbol, corece value to string then convert to atom.
     ///
     /// Note: returned atom is cloned, caller should free it after use.
-    pub fn to_atom(&self, ctx: &JSContext) -> Result<Atom, i32> {
+    pub fn to_atom(&self, ctx: &JSContext<'a>) -> Result<Atom, i32> {
         let mut val = self.clone();
 
         loop {

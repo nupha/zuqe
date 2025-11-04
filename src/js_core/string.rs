@@ -25,7 +25,7 @@ const MAGIC_INCLUDES: i32 = 1;
 const MAGIC_STARTS_WITH: i32 = 2;
 const MAGIC_ENDS_WITH: i32 = 3;
 
-pub fn js_string_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_string_constructor<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let new_target = cc.this();
 
     let str_val = if cc.length() == 0 {
@@ -53,7 +53,7 @@ pub fn js_string_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 /// impl for `charAt()`, `at()`, `chatCodeAt()`
-pub fn js_string_at(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_string_at<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let str = cc.this().to_string_non_undefined_or_null(ctx)?;
     let what = cc.magic(); // 0: charAt, 1: at, 2: charCodeAt
     let buf_len = str.len() as i32;
@@ -84,7 +84,7 @@ pub fn js_string_at(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_string_codePointAt(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_string_codePointAt<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let s = cc.this().to_string_non_undefined_or_null(ctx)?;
     let buf_idx: i32 = cc.arg(0).to_i32_saturating(ctx)?;
     if buf_idx < 0 || buf_idx >= s.len() as i32 {
@@ -95,7 +95,7 @@ pub fn js_string_codePointAt(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_string_concat(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_string_concat<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     // TODO: Use more efficient method
     // XXX: should use string_buffer?
     let mut s = cc.this().to_string_non_undefined_or_null(ctx)?;
@@ -118,13 +118,13 @@ pub(crate) unsafe fn js_string_find_invalid_codepoint(p: &JSString) -> i32 {
     }
 }
 
-pub fn js_string_isWellFormed(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_string_isWellFormed<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let p = cc.this().to_string_non_undefined_or_null(ctx)?;
     let ret = unsafe { js_string_find_invalid_codepoint(&p) } < 0;
     Ok(JSValue::Bool(ret))
 }
 
-pub fn js_string_toWellFormed(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_string_toWellFormed<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let p = cc.this().to_string_non_undefined_or_null(ctx)?;
 
     // avoid reallocating the string if it is well-formed
@@ -149,7 +149,7 @@ pub fn js_string_toWellFormed(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_string_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_string_indexOf<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let lastIndexOf = cc.magic();
 
     let p = cc.this().to_string_non_undefined_or_null(ctx)?;
@@ -205,7 +205,7 @@ pub fn js_string_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(JSValue::Int(ret))
 }
 
-pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_string_replace<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let is_replace_all = cc.magic() != 0;
 
     let this = cc.this().clone();
@@ -331,7 +331,7 @@ pub fn js_string_replace(ctx: &JSContext, cc: CallContext) -> JSResult {
     ctx.create_string_with_buf(res_string).map(JSValue::String)
 }
 
-pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_string_split<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let this = cc.this();
     if this.is_undefined_or_null() {
         ctx.throw_type_error("cannot convert to object");
@@ -417,7 +417,7 @@ pub fn js_string_split(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(ret_arr.into())
 }
 
-pub fn js_string_substring(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_string_substring<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let p = cc.this().to_string_non_undefined_or_null(ctx)?;
 
     let len = p.len() as i32;
@@ -433,7 +433,7 @@ pub fn js_string_substring(ctx: &JSContext, cc: CallContext) -> JSResult {
         .map(JSValue::String)
 }
 
-pub fn js_string_substr(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_string_substr<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let p = cc.this().to_string_non_undefined_or_null(ctx)?;
     let len = p.len() as i32;
 
@@ -448,7 +448,7 @@ pub fn js_string_substr(ctx: &JSContext, cc: CallContext) -> JSResult {
         .map(JSValue::String)
 }
 
-pub fn js_string_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_string_slice<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let p = cc.this().to_string_non_undefined_or_null(ctx)?;
     let len = p.len() as i32;
     let start = cc.arg(0).to_i32_clamp(ctx, 0, len, len)?;
@@ -462,7 +462,7 @@ pub fn js_string_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
         .map(JSValue::String)
 }
 
-pub fn js_string_pad(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_string_pad<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let is_pad_end = cc.magic() != 0;
 
     // don't change parse args order.
@@ -534,7 +534,7 @@ pub fn js_string_pad(ctx: &JSContext, cc: CallContext) -> JSResult {
     ctx.create_string_with_buf(sbuf).map(JSValue::String)
 }
 
-pub fn js_string_repeat(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_string_repeat<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let p = cc.this().to_string_non_undefined_or_null(ctx)?;
 
     let repeat: i64 = cc.arg(0).to_i64_saturating(ctx)?;
@@ -565,7 +565,7 @@ pub fn js_string_repeat(ctx: &JSContext, cc: CallContext) -> JSResult {
     ctx.create_string_with_buf(res_string).map(JSValue::String)
 }
 
-pub fn js_string_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_string_includes<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let p = cc.this().to_string_non_undefined_or_null(ctx)?;
 
     if js_is_regexp(ctx, cc.arg(0))? {
@@ -637,7 +637,7 @@ pub fn js_string_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 }
 
-fn js_string_localeCompare(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_string_localeCompare<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let a = cc.this().to_string_non_undefined_or_null(ctx)?;
     let b = cc.arg(0).to_string(ctx)?;
 
@@ -666,7 +666,7 @@ fn js_string_localeCompare(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn check_regexp_g_flag(ctx: &JSContext, regexp: &JSValue) -> i32 {
+pub fn check_regexp_g_flag<'a>(ctx: &JSContext<'a>, regexp: &JSValue<'a>) -> i32 {
     let ret = if let Ok(b) = js_is_regexp(ctx, regexp) {
         b
     } else {
@@ -674,7 +674,7 @@ pub fn check_regexp_g_flag(ctx: &JSContext, regexp: &JSValue) -> i32 {
     };
 
     if ret {
-        let flags = if let Ok(x) = regexp.get_property(ctx, JS_ATOM_flags.deref()) {
+        let flags = if let Ok(x) = regexp.get_property(ctx, &JS_ATOM_flags) {
             x
         } else {
             return -1;
@@ -700,7 +700,7 @@ pub fn check_regexp_g_flag(ctx: &JSContext, regexp: &JSValue) -> i32 {
     0
 }
 
-pub fn js_string_match(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_string_match<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let magic_method = AtomRef(cc.magic() as u32); // match, matchAll, search
     let this = cc.this();
 
@@ -740,7 +740,7 @@ pub fn js_string_match(ctx: &JSContext, cc: CallContext) -> JSResult {
     re_obj.invoke(ctx, &magic_method, &[str.into()])
 }
 
-pub fn js_string_trim(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_string_trim<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let str = cc.this().to_string_non_undefined_or_null(ctx)?;
     let mut s = str.content().to_buf().map_err(|_| {
         ctx.throw_out_of_memory();
@@ -781,18 +781,21 @@ pub fn string_cmp(p1: &JSString, p2: &JSString, x1: usize, x2: usize, len: usize
 }
 
 /// also used for String.prototype.valueOf
-pub fn js_string_toString(ctx: &JSContext, cc: CallContext) -> Result<JSValue, i32> {
+pub fn js_string_toString<'a>(
+    ctx: &JSContext<'a>,
+    cc: CallContext<'_, 'a>,
+) -> Result<JSValue<'a>, i32> {
     js_thisStringValue(ctx, cc.this().clone()).map(JSValue::String)
 }
 
 #[inline]
-fn js_thisStringValue(ctx: &JSContext, this_val: JSValue) -> Result<JSString, i32> {
+fn js_thisStringValue<'a>(ctx: &JSContext<'a>, this_val: JSValue<'a>) -> Result<JSString<'a>, i32> {
     TryInto::<JSString>::try_into(this_val.clone()).inspect_err(|_| {
         ctx.throw_type_error("not a string");
     })
 }
 
-pub fn js_string_toLowerCase(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_string_toLowerCase<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let to_lower = cc.magic() != 0;
 
     let p = cc.this().to_string_non_undefined_or_null(ctx)?;
@@ -840,7 +843,7 @@ pub fn js_string_toLowerCase(ctx: &JSContext, cc: CallContext) -> JSResult {
     ctx.create_string_with_buf(sc).map(JSValue::String)
 }
 
-fn js_string_normalize(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_string_normalize<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let val = cc.this().to_string_non_undefined_or_null(ctx)?;
 
     #[allow(clippy::upper_case_acronyms)]
@@ -949,11 +952,11 @@ pub static js_string_proto_funcs: [FieldDef; 39] = [
     // JS_CFUNC_MAGIC_DEF("sup", 0, js_string_CreateHTML, magic_string_sup),
 ];
 
-fn js_string_iterator_next(
-    ctx: &JSContext,
-    cc: CallContext,
+fn js_string_iterator_next<'a>(
+    ctx: &JSContext<'a>,
+    cc: CallContext<'_, 'a>,
     state: &mut IteratorState,
-) -> JSResult {
+) -> JSResult<'a> {
     if let ObjectPayload::STRING_ITERATOR(it) = cc
         .this()
         .retrive_object_payload(ctx, JS_CLASS_STRING_ITERATOR)?
@@ -993,7 +996,7 @@ pub static js_string_iterator_proto_funcs: [FieldDef; 2] = [
     ),
 ];
 
-pub fn js_string_fromCharCode(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_string_fromCharCode<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let mut buf = StringBuf::Empty;
 
     for a in cc.arguments() {
@@ -1007,7 +1010,7 @@ pub fn js_string_fromCharCode(ctx: &JSContext, cc: CallContext) -> JSResult {
     ctx.create_string_with_buf(buf).map(JSValue::String)
 }
 
-pub fn js_string_fromCodePoint(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_string_fromCodePoint<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let mut sbuf = StringBuf::Empty;
 
     if cc.length() > 0 {
@@ -1052,7 +1055,7 @@ pub fn js_string_fromCodePoint(ctx: &JSContext, cc: CallContext) -> JSResult {
     ctx.create_string_with_buf(sbuf).map(JSValue::String)
 }
 
-pub fn js_string_raw(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_string_raw<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     // raw(temp,...a)
     let cooked = cc.arg(0).clone().objectify(ctx)?;
     let raw = cooked

@@ -52,9 +52,9 @@ impl JSShapeProperty {
 }
 
 #[derive(Debug)]
-pub(crate) struct JSShapeInner {
+pub(crate) struct JSShapeInner<'a> {
     /// hash table of size hash_mask + 1 before the start of the structure (see prop_hash_end()).
-    pub header: GCObjectHeader,
+    pub header: GCObjectHeader<'a>,
 
     /// If true, the shape may have small array index properties 'n' with 0..=u32::MAX;
     /// If false, the shape is guaranteed not to have small array index properties
@@ -65,23 +65,23 @@ pub(crate) struct JSShapeInner {
     /// TODO: hash is calculated on the fly. is_hashed is always true, should be removed
     pub is_hashed: bool,
 
-    pub proto: Option<JSObject>,
+    pub proto: Option<JSObject<'a>>,
 
     /// shape property definitions
     pub prop_defs: IndexMap<u32, JSShapeProperty>,
 }
 
-impl Drop for JSShapeInner {
+impl Drop for JSShapeInner<'_> {
     fn drop(&mut self) {
         self.finalize();
     }
 }
 
-impl JSShapeInner {
+impl<'a> JSShapeInner<'a> {
     /// create a new empty shape with prototype 'proto' and given capacity.
     fn new(
-        ctx: &JSContext,
-        proto: Option<JSObject>,
+        ctx: &JSContext<'a>,
+        proto: Option<JSObject<'a>>,
         props: IndexMap<u32, JSShapeProperty>,
     ) -> Result<Self, i32> {
         //calc shape hash
@@ -105,7 +105,7 @@ impl JSShapeInner {
         self as *const Self as usize
     }
 
-    pub fn rt_ptr(&self) -> NonNull<JSRuntime> {
+    pub fn rt_ptr(&self) -> NonNull<JSRuntime<'a>> {
         self.header.rt_ptr()
     }
 
@@ -123,31 +123,35 @@ impl JSShapeInner {
 
 #[repr(transparent)]
 #[derive(Clone)]
-pub struct JSShape(pub(crate) Rc<RefCell<JSShapeInner>>);
+pub struct JSShape<'a>(pub(crate) Rc<RefCell<JSShapeInner<'a>>>);
 
-impl PartialEq for JSShape {
+impl PartialEq for JSShape<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.id() == other.id()
     }
 }
 
-impl From<JSShape> for GCObject {
-    fn from(value: JSShape) -> Self {
+impl<'a> From<JSShape<'a>> for GCObject<'a> {
+    fn from(value: JSShape<'a>) -> Self {
         Self::Shape(value)
     }
 }
 
-impl std::fmt::Debug for JSShape {
+impl std::fmt::Debug for JSShape<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "<Shape {:p}>", self.id() as *const c_void)
     }
 }
 
-impl JSShape {
+impl<'a> JSShape<'a> {
     /// create a shape with prototype 'proto' and property capacity.
     /// new shape is not registered,
     /// new shape is added to gc list.
-    pub fn new(ctx: &JSContext, proto: Option<JSObject>, prop_cap: i32) -> Result<Self, i32> {
+    pub fn new(
+        ctx: &JSContext<'a>,
+        proto: Option<JSObject<'a>>,
+        prop_cap: i32,
+    ) -> Result<Self, i32> {
         let mut prop_defs = IndexMap::<u32, JSShapeProperty>::new();
         prop_defs.try_reserve_exact(prop_cap as _).map_err(|_| {
             ctx.throw_out_of_memory();
@@ -178,7 +182,7 @@ impl JSShape {
 
     /// Clone to a new shape from this shape by coping property definitions.
     /// The new shape is not registered. The new shape is added to gc object list.
-    pub fn clone_to_new(&self, ctx: &JSContext) -> Result<Self, i32> {
+    pub fn clone_to_new(&self, ctx: &JSContext<'a>) -> Result<Self, i32> {
         let b = self.0.borrow();
 
         // clone properties
@@ -251,10 +255,10 @@ impl JSShape {
     /// - `prop` is not consumed.
     pub(crate) fn add_shape_property(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         prop: Atom,
         prop_flags: u32,
-        obj: Option<&ObjectInner>,
+        obj: Option<&ObjectInner<'a>>,
     ) -> Result<usize, i32> {
         debug_assert_eq!(self.strong_count(), 1, "shape must not be shared");
 
@@ -305,7 +309,7 @@ impl JSShape {
         Ok(new_len)
     }
 
-    pub fn downgrade(&self) -> JSShapeWeakref {
+    pub fn downgrade(&self) -> JSShapeWeakref<'a> {
         JSShapeWeakref(Rc::downgrade(&self.0))
     }
 
@@ -324,23 +328,23 @@ impl JSShape {
 
 #[repr(transparent)]
 #[derive(Debug, Clone)]
-pub struct JSShapeWeakref(Weak<RefCell<JSShapeInner>>);
+pub struct JSShapeWeakref<'a>(Weak<RefCell<JSShapeInner<'a>>>);
 
-impl JSShapeWeakref {
-    pub fn upgrade(&self) -> Option<JSShape> {
+impl<'a> JSShapeWeakref<'a> {
+    pub fn upgrade(&self) -> Option<JSShape<'a>> {
         self.0.upgrade().map(JSShape)
     }
 }
 
-impl From<JSShapeWeakref> for GCObjectWeakref {
-    fn from(value: JSShapeWeakref) -> Self {
+impl<'a> From<JSShapeWeakref<'a>> for GCObjectWeakref<'a> {
+    fn from(value: JSShapeWeakref<'a>) -> Self {
         Self::Shape(value)
     }
 }
 
-impl JSRuntime {
+impl<'a> JSRuntime<'a> {
     /// register a shape
-    pub fn register_shape(&mut self, shape: &JSShape) -> Result<(), i32> {
+    pub fn register_shape(&mut self, shape: &JSShape<'a>) -> Result<(), i32> {
         debug_assert!(shape.0.borrow().is_hashed);
 
         // resize the shape hash table
@@ -381,7 +385,7 @@ impl JSRuntime {
 
     /// find a registered empty shape matching given prototype.
     /// Return None if not found.
-    pub fn find_shape_by_proto(&self, proto: Option<&JSObject>) -> Option<JSShape> {
+    pub fn find_shape_by_proto(&self, proto: Option<&JSObject<'a>>) -> Option<JSShape<'a>> {
         let h = shape_initial_hash(proto.map_or(0, |o| o.id()));
 
         self.shape_registry.get(&h).and_then(|lst| {
@@ -399,10 +403,10 @@ impl JSRuntime {
     /// Return None if not found
     pub fn find_shape_with_extend_prop(
         &self,
-        base_shape: &JSShape,
+        base_shape: &JSShape<'a>,
         prop: &Atom,
         prop_flags: u32,
-    ) -> Option<JSShape> {
+    ) -> Option<JSShape<'a>> {
         let base_shape = base_shape.0.borrow();
 
         // calc hash for base_shape + (atom, prop_flags)
@@ -464,11 +468,11 @@ pub const fn shape_initial_hash(proto_id: usize) -> u32 {
     h
 }
 
-impl ObjectInner {
+impl<'a> ObjectInner<'a> {
     /// ensure that the shape can be safely modified.
     /// if shape of `self` is changed, returns true.
     /// after calling, object's shape is guaranteed to be exclusive, and not registered.
-    fn shape_prepare_update(&self, ctx: &JSContext) -> Result<bool, i32> {
+    fn shape_prepare_update(&self, ctx: &JSContext<'a>) -> Result<bool, i32> {
         // Note: short borrow in scope to avoid conflict with later ::borrow_mut()
         let (shape_id, is_hashed, hash, strong_count) = {
             let b = self.shape.borrow();
@@ -498,7 +502,7 @@ impl ObjectInner {
     /// if object's shape was changed, returns true
     pub fn update_shape_property_flags(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         prop: &Atom,
         flags: u32,
     ) -> Result<bool, i32> {
@@ -535,12 +539,12 @@ impl ObjectInner {
     }
 }
 
-impl JSObject {
+impl<'a> JSObject<'a> {
     /// ensure that the shape can be safely modified.
     /// if object's shape is changed, returns true.
     /// after calling, object's shape is guaranteed to be exclusive, and not registered.
     #[inline(always)]
-    pub fn shape_prepare_update(&self, ctx: &JSContext) -> Result<bool, i32> {
+    pub fn shape_prepare_update(&self, ctx: &JSContext<'a>) -> Result<bool, i32> {
         self.0.shape_prepare_update(ctx)
     }
 
@@ -549,7 +553,7 @@ impl JSObject {
     #[inline(always)]
     pub fn update_shape_property_flags(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         prop: &Atom,
         flags: u32,
     ) -> Result<bool, i32> {

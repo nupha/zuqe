@@ -37,7 +37,7 @@ pub unsafe fn JS_DumpShapes(rt: &mut JSRuntime) {
     println!("}}");
 }
 
-impl JSObject {
+impl<'a> JSObject<'a> {
     /// print object debug info to console
     pub fn dump(&self, rt: &JSRuntime) {
         // XXX: should encode atoms with special characters
@@ -163,7 +163,7 @@ impl JSObject {
     }
 }
 
-impl JSShapeInner {
+impl<'a> JSShapeInner<'a> {
     /// print shape debug info to console
     pub fn dump(&self) {
         // XXX: should output readable class prototype
@@ -181,7 +181,7 @@ impl JSShapeInner {
     }
 }
 
-impl JSShape {
+impl<'a> JSShape<'a> {
     /// print shape debug info to console
     pub fn dump(&self) {
         self.0.borrow().dump();

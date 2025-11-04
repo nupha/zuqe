@@ -10,7 +10,7 @@ use crate::{
 
 use super::state::JSParseState;
 
-impl JSFunctionDef {
+impl<'a> JSFunctionDef<'a> {
     #[inline(always)]
     pub fn emit_u8(&mut self, val: u8) {
         push_vec_u8(&mut self.byte_code, val);
@@ -203,7 +203,7 @@ impl JSFunctionDef {
 
     pub fn emit_push_const(
         &mut self,
-        val: JSValue,
+        val: JSValue<'a>,
         as_atom: bool,
         last_line_num: i32,
     ) -> Result<(), i32> {
@@ -426,7 +426,7 @@ impl<'s> JSParseState<'s> {
 
     /// emit on current function def
     #[inline(always)]
-    pub fn emit_push_const(&mut self, val: JSValue, as_atom: bool) -> Result<(), i32> {
+    pub fn emit_push_const(&mut self, val: JSValue<'s>, as_atom: bool) -> Result<(), i32> {
         let ln = self.last_line_num;
         self.cur_func_mut().emit_push_const(val, as_atom, ln)
     }
@@ -538,7 +538,10 @@ impl<'s> JSParseState<'s> {
         self.emit_op(OpCode::DROP);
     }
 
-    pub(super) fn emit_class_init_start(&mut self, clsdef: &mut ClassFieldsDef) -> Result<(), i32> {
+    pub(super) fn emit_class_init_start(
+        &mut self,
+        clsdef: &mut ClassFieldsDef<'s>,
+    ) -> Result<(), i32> {
         debug_assert!(clsdef.fields_init_fd.is_null());
 
         clsdef.fields_init_fd = Box::into_raw(js_parse_function_class_fields_init(self)?);
@@ -569,7 +572,7 @@ impl<'s> JSParseState<'s> {
         Ok(())
     }
 
-    pub(super) fn emit_class_init_end(&mut self, clsdef: &ClassFieldsDef) {
+    pub(super) fn emit_class_init_end(&mut self, clsdef: &ClassFieldsDef<'s>) {
         self.cur_func_def = clsdef.fields_init_fd;
         self.emit_op(OpCode::RETURN_UNDEF);
         self.cur_func_def = self.cur_func().parent;

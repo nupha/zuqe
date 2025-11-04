@@ -21,15 +21,15 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct ProxyPayload {
-    target: JSObject,
-    handler: JSValue,
+pub struct ProxyPayload<'a> {
+    target: JSObject<'a>,
+    handler: JSValue<'a>,
     is_func: bool,
     is_revoked: Cell<bool>,
 }
 
-impl ProxyPayload {
-    pub fn new(target: JSObject, handler: JSValue) -> Box<Self> {
+impl<'a> ProxyPayload<'a> {
+    pub fn new(target: JSObject<'a>, handler: JSValue<'a>) -> Box<Self> {
         Box::new(Self {
             is_func: target.is_function(),
             target,
@@ -53,7 +53,7 @@ impl ProxyPayload {
         self.is_revoked.set(true);
     }
 
-    pub fn is_extensible(&self, ctx: &JSContext) -> Result<bool, i32> {
+    pub fn is_extensible(&self, ctx: &JSContext<'a>) -> Result<bool, i32> {
         let method = self.get_method(ctx, &JS_ATOM_isExtensible)?;
         if method.is_undefined() {
             self.target.is_extensible(ctx)
@@ -72,12 +72,12 @@ impl ProxyPayload {
     }
 
     #[inline(always)]
-    pub const fn target(&self) -> &JSObject {
+    pub const fn target(&self) -> &JSObject<'a> {
         &self.target
     }
 
     /// get proxied method. returns function object or undefined
-    pub fn get_method(&self, ctx: &JSContext, name: &Atom) -> Result<JSValue, i32> {
+    pub fn get_method(&self, ctx: &JSContext<'a>, name: &Atom) -> Result<JSValue<'a>, i32> {
         // safer to test recursion in all proxy methods
         if js_check_stack_overflow(ctx.rt(), 0) {
             ctx.throw_stack_overflow();
@@ -96,7 +96,7 @@ impl ProxyPayload {
         Ok(method)
     }
 
-    pub fn prevent_extensions(&self, ctx: &JSContext) -> Result<bool, i32> {
+    pub fn prevent_extensions(&self, ctx: &JSContext<'a>) -> Result<bool, i32> {
         let method = self.get_method(ctx, &JS_ATOM_preventExtensions)?;
         if method.is_undefined() {
             self.target.prevent_extensions(ctx)
@@ -114,7 +114,7 @@ impl ProxyPayload {
         }
     }
 
-    pub fn get_prototype_of(&self, ctx: &JSContext) -> Result<JSValue, i32> {
+    pub fn get_prototype_of(&self, ctx: &JSContext<'a>) -> Result<JSValue<'a>, i32> {
         let method = self.get_method(ctx, &JS_ATOM_getPrototypeOf)?;
         if method.is_undefined() {
             return self
@@ -128,6 +128,10 @@ impl ProxyPayload {
             ctx.throw_type_error("proxy: inconsistent prototype");
             return Err(-1);
         }
+
+        // SAFETY: method.call() returns JSResult<'a>, so ret is already JSValue<'a>
+        // The compiler just can't infer this automatically due to variance issues
+        let ret = unsafe { std::mem::transmute::<JSValue<'_>, JSValue<'a>>(ret) };
 
         if self.target.is_extensible(ctx)? {
             Ok(ret)
@@ -149,8 +153,8 @@ impl ProxyPayload {
 
     pub fn set_prototype_of(
         &self,
-        ctx: &JSContext,
-        proto_val: JSValue,
+        ctx: &JSContext<'a>,
+        proto_val: JSValue<'a>,
         throw: bool,
     ) -> Result<bool, i32> {
         let method = self.get_method(ctx, &JS_ATOM_setPrototypeOf)?;
@@ -192,12 +196,15 @@ impl ProxyPayload {
 
 #[repr(transparent)]
 #[derive(Debug, Clone)]
-pub struct Proxy(pub(super) JSObject);
+pub struct Proxy<'a>(pub(super) JSObject<'a>);
 
 object_cast!(Proxy, JS_CLASS_PROXY);
 
-impl Proxy {
-    pub fn class_initialize(ctx: &JSContext, _: ClassID) -> Result<Option<JSObject>, i32> {
+impl<'a> Proxy<'a> {
+    pub fn class_initialize<'b>(
+        ctx: &JSContext<'b>,
+        _: ClassID,
+    ) -> Result<Option<JSObject<'b>>, i32> {
         let proto = ctx.create_native_function(
             NativeFunctionType::Constructor(js_proxy_constructor),
             "Proxy",
@@ -218,13 +225,13 @@ impl Proxy {
         Ok(Some(proto))
     }
 
-    pub fn class_call(
-        ctx: &JSContext,
-        func_obj: &JSValue,
-        this_obj: &JSValue,
-        args: &[JSValue],
+    pub fn class_call<'b>(
+        ctx: &JSContext<'b>,
+        func_obj: &JSValue<'b>,
+        this_obj: &JSValue<'b>,
+        args: &[JSValue<'b>],
         flags: i32,
-    ) -> JSResult {
+    ) -> JSResult<'b> {
         let proxy = Proxy::try_from(func_obj.clone()).unwrap();
 
         if flags & JS_CALL_FLAG_CONSTRUCTOR != 0 {
@@ -266,10 +273,10 @@ impl Proxy {
 
     /// get proxy payload reference
     #[inline(always)]
-    pub(super) fn payload(&self) -> &ProxyPayload {
+    pub(super) fn payload(&self) -> &ProxyPayload<'a> {
         if let ObjectPayload::PROXY(s) = self.0.payload() {
             unsafe {
-                let ptr = s.as_ref() as *const ProxyPayload;
+                let ptr = s.as_ref() as *const ProxyPayload<'a>;
                 &*ptr
             }
         } else {
@@ -284,11 +291,11 @@ impl Proxy {
 
     /// get proxied method
     #[inline(always)]
-    pub fn get_method(&self, ctx: &JSContext, name: &Atom) -> Result<JSValue, i32> {
+    pub fn get_method(&self, ctx: &JSContext<'a>, name: &Atom) -> Result<JSValue<'a>, i32> {
         self.payload().get_method(ctx, name)
     }
 
-    pub fn is_array(&self, ctx: &JSContext) -> Result<bool, i32> {
+    pub fn is_array(&self, ctx: &JSContext<'a>) -> Result<bool, i32> {
         if unlikely(js_check_stack_overflow(ctx.rt(), 0)) {
             ctx.throw_stack_overflow();
             Err(-1)
@@ -304,38 +311,38 @@ impl Proxy {
     }
 
     #[inline(always)]
-    pub fn is_extensible(&self, ctx: &JSContext) -> Result<bool, i32> {
+    pub fn is_extensible(&self, ctx: &JSContext<'a>) -> Result<bool, i32> {
         self.payload().is_extensible(ctx)
     }
 
     #[inline(always)]
-    pub fn prevent_extensions(&self, ctx: &JSContext) -> Result<bool, i32> {
+    pub fn prevent_extensions(&self, ctx: &JSContext<'a>) -> Result<bool, i32> {
         self.payload().prevent_extensions(ctx)
     }
 
     /// returns Object, NULL or Err.
     #[inline(always)]
-    pub fn get_prototype_of(&self, ctx: &JSContext) -> Result<JSValue, i32> {
+    pub fn get_prototype_of(&self, ctx: &JSContext<'a>) -> Result<JSValue<'a>, i32> {
         self.payload().get_prototype_of(ctx)
     }
 
     #[inline(always)]
     pub fn set_prototype_of(
         &self,
-        ctx: &JSContext,
-        proto_val: JSValue,
+        ctx: &JSContext<'a>,
+        proto_val: JSValue<'a>,
         throw: bool,
     ) -> Result<bool, i32> {
         self.payload().set_prototype_of(ctx, proto_val, throw)
     }
 }
 
-fn js_proxy_call_constructor(
-    ctx: &JSContext,
-    func_obj: &Proxy,
-    new_target: JSValue,
-    args: &[JSValue],
-) -> JSResult {
+fn js_proxy_call_constructor<'a>(
+    ctx: &JSContext<'a>,
+    func_obj: &Proxy<'a>,
+    new_target: JSValue<'a>,
+    args: &[JSValue<'a>],
+) -> JSResult<'a> {
     let s = func_obj.payload();
     if !s.target.is_constructor() {
         ctx.throw_type_error("not a constructor");
@@ -365,11 +372,11 @@ fn js_proxy_call_constructor(
 // Proxy class exotic methods
 //
 
-fn js_proxy_get_own_property(
-    ctx: &JSContext,
-    obj: JSValue,
+fn js_proxy_get_own_property<'a>(
+    ctx: &JSContext<'a>,
+    obj: JSValue<'a>,
     prop: &Atom,
-) -> Result<Option<JSPropertyDescriptor>, i32> {
+) -> Result<Option<JSPropertyDescriptor<'a>>, i32> {
     let Some(px) = obj
         .as_object()
         .and_then(|x| x.as_Proxy())
@@ -453,13 +460,13 @@ fn js_proxy_get_own_property(
     }
 }
 
-fn js_proxy_define_own_property(
-    ctx: &JSContext,
-    obj: &JSValue,
+fn js_proxy_define_own_property<'a>(
+    ctx: &JSContext<'a>,
+    obj: &JSValue<'a>,
     prop: &Atom,
-    val: JSValue,
-    getter: JSValue,
-    setter: JSValue,
+    val: JSValue<'a>,
+    getter: JSValue<'a>,
+    setter: JSValue<'a>,
     flags: i32,
 ) -> Result<bool, i32> {
     let flags = flags as u32;
@@ -559,7 +566,11 @@ fn js_proxy_define_own_property(
     Ok(true)
 }
 
-fn js_proxy_delete_property(ctx: &JSContext, obj: JSValue, atom: &Atom) -> Result<bool, i32> {
+fn js_proxy_delete_property<'a>(
+    ctx: &JSContext<'a>,
+    obj: JSValue<'a>,
+    atom: &Atom,
+) -> Result<bool, i32> {
     let Some(px) = obj
         .as_object()
         .and_then(|x| x.as_Proxy())
@@ -595,9 +606,9 @@ fn js_proxy_delete_property(ctx: &JSContext, obj: JSValue, atom: &Atom) -> Resul
     Ok(res)
 }
 
-fn js_proxy_get_own_property_names(
-    ctx: &JSContext,
-    obj: &JSObject,
+fn js_proxy_get_own_property_names<'a>(
+    ctx: &JSContext<'a>,
+    obj: &JSObject<'a>,
 ) -> Result<Box<[PropertyKey]>, i32> {
     let Some(px) = obj.as_Proxy().map(|x| x.payload()) else {
         return Err(-1);
@@ -679,7 +690,7 @@ fn js_proxy_get_own_property_names(
     Ok(tab.into_boxed_slice())
 }
 
-fn js_proxy_has(ctx: &JSContext, obj: &JSObject, atom: &Atom) -> Result<bool, i32> {
+fn js_proxy_has<'a>(ctx: &JSContext<'a>, obj: &JSObject<'a>, atom: &Atom) -> Result<bool, i32> {
     let Some(px) = obj.as_Proxy().map(|x| x.payload()) else {
         return Err(-1);
     };
@@ -716,7 +727,12 @@ fn js_proxy_has(ctx: &JSContext, obj: &JSObject, atom: &Atom) -> Result<bool, i3
     Ok(ret)
 }
 
-fn js_proxy_get(ctx: &JSContext, obj: JSValue, atom: &Atom, receiver: JSValue) -> JSResult {
+fn js_proxy_get<'a>(
+    ctx: &JSContext<'a>,
+    obj: JSValue<'a>,
+    atom: &Atom,
+    receiver: JSValue<'a>,
+) -> JSResult<'a> {
     let Some(px) = obj
         .as_object()
         .and_then(|p| p.as_Proxy())
@@ -759,12 +775,12 @@ fn js_proxy_get(ctx: &JSContext, obj: JSValue, atom: &Atom, receiver: JSValue) -
     Ok(ret)
 }
 
-fn js_proxy_set(
-    ctx: &JSContext,
-    obj: JSValue,
+fn js_proxy_set<'a>(
+    ctx: &JSContext<'a>,
+    obj: JSValue<'a>,
     atom: &Atom,
-    value: JSValue,
-    receiver: JSValue,
+    value: JSValue<'a>,
+    receiver: JSValue<'a>,
     flags: i32,
 ) -> Result<bool, i32> {
     let Some(s) = obj

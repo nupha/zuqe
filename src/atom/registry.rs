@@ -26,23 +26,23 @@ use super::{
 };
 
 /// The thread global atom registry
-pub(crate) struct AtomRegistry {
+pub(crate) struct AtomRegistry<'a> {
     /// const atom description slots list.
     /// index 0 is reserved for unused;
     /// staring from index 1 is for atom 1; index 2 is for atom 2, ...
-    const_atom_slots: Vec<JSString>,
+    const_atom_slots: Vec<JSString<'a>>,
 
     /// atom description slots list, null indicates the slot is unused.
     /// index 0 is reserved for unused;
     /// staring from index 1 is for atom 1; index 2 is for atom 2, ...
-    atom_slots: Vec<*mut JSStringInner>,
+    atom_slots: Vec<*mut JSStringInner<'a>>,
 
     /// JSString hash to atom vec dict.
     /// Value is list of atom indecies because JSString hash may have collison.
     atom_hash_lut: HashMap<u32, Vec<NonZeroU16>>,
 }
 
-impl Drop for AtomRegistry {
+impl<'a> Drop for AtomRegistry<'a> {
     fn drop(&mut self) {
         debug_assert!(self.atom_slots.is_empty());
 
@@ -53,7 +53,7 @@ impl Drop for AtomRegistry {
 
 thread_local! {
     /// Thread global atom registry.
-    static REGISTRY: Lazy<RefCell<AtomRegistry>> = Lazy::new(|| {
+    static REGISTRY: Lazy<RefCell<AtomRegistry<'static>>> = Lazy::new(|| {
         let (lst, lut) = load_const_atoms();
 
         let reg = AtomRegistry {
@@ -67,7 +67,7 @@ thread_local! {
 }
 
 /// build const atoms list and hash lut
-fn load_const_atoms() -> (Vec<JSString>, HashMap<u32, Vec<NonZeroU16>>) {
+fn load_const_atoms() -> (Vec<JSString<'static>>, HashMap<u32, Vec<NonZeroU16>>) {
     let mut lst = Vec::<JSString>::with_capacity(JS_ATOM_INIT_COUNT as usize + 1);
     let mut lut = HashMap::<u32, Vec<NonZeroU16>>::with_capacity(JS_ATOM_INIT_COUNT as usize);
 
@@ -130,7 +130,7 @@ fn load_const_atoms() -> (Vec<JSString>, HashMap<u32, Vec<NonZeroU16>>) {
     (lst, lut)
 }
 
-impl AtomRegistry {
+impl<'a> AtomRegistry<'a> {
     /// register an atom with atom desciption.
     /// (in case of creating an anonymous symbol, desc should be an ident-type-string)
     /// returns atom with ownership, caller should free it after use.
@@ -285,14 +285,14 @@ impl AtomRegistry {
     /// register an atom with description.
     ///
     /// Safety: will panic if no runtime is initialized
-    fn register(str: JSString, atom_type: AtomTypeHint) -> Result<Atom, i32> {
+    fn register(str: JSString<'a>, atom_type: AtomTypeHint) -> Result<Atom, i32> {
         REGISTRY.with(|reg| Self::register_internal(reg.borrow_mut().deref_mut(), str, atom_type))
     }
 
     /// get atom description by atom id.
     /// returned atom description is cloned.
     /// returns None if atom id was not registerd.
-    pub(super) fn get_desc(atom_id: u32) -> Option<JSString> {
+    pub(super) fn get_desc(atom_id: u32) -> Option<JSString<'a>> {
         debug_assert!(atom_id != 0);
 
         REGISTRY.with(|reg| {
@@ -319,12 +319,12 @@ impl AtomRegistry {
     }
 
     /// find atom desc by str and type
-    fn find_desc_internal<'a>(
+    fn find_desc_internal(
         reg: &'a Self,
-        _rt: &JSRuntime,
-        str: &str,
+        _rt: &'a JSRuntime<'a>,
+        str: &'a str,
         atom_type: AtomTypeHint,
-    ) -> Option<&'a JSStringInner> {
+    ) -> Option<&'a JSStringInner<'a>> {
         reg.atom_hash_lut
             .get(&calc_atom_hash_str(str, atom_type))
             .and_then(|ids| {

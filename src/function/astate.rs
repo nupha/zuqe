@@ -19,11 +19,11 @@ use crate::{
 use super::call::{JS_CALL_FLAG_GENERATOR, JS_CallInternal};
 
 #[derive(Debug)]
-pub(crate) struct AsyncStateInner {
-    pub header: GCObjectHeader,
+pub(crate) struct AsyncStateInner<'a> {
+    pub header: GCObjectHeader<'a>,
 
     /// 'this' argument
-    pub this_val: JSValue,
+    pub this_val: JSValue<'a>,
 
     /// number of function arguments
     pub argc: i32,
@@ -35,25 +35,25 @@ pub(crate) struct AsyncStateInner {
     pub is_completed: bool,
 
     /// for async function only
-    pub resolving_funcs: [JSValue; 2],
+    pub resolving_funcs: [JSValue<'a>; 2],
 
     /// a dedicated stack frame to run async function
-    pub frame: Box<StackFrame>,
+    pub frame: Box<StackFrame<'a>>,
 }
 
-impl Drop for AsyncStateInner {
+impl<'a> Drop for AsyncStateInner<'a> {
     fn drop(&mut self) {
         self.finalize();
     }
 }
 
-impl AsyncStateInner {
+impl<'a> AsyncStateInner<'a> {
     fn new(
-        ctx: &JSContext,
-        resolvings: [JSValue; 2],
-        bc_func: BCFunction,
-        this_obj: JSValue,
-        args: &[JSValue],
+        ctx: &JSContext<'a>,
+        resolvings: [JSValue<'a>; 2],
+        bc_func: BCFunction<'a>,
+        this_obj: JSValue<'a>,
+        args: &[JSValue<'a>],
     ) -> Result<Self, i32> {
         let (arg_count, var_count, stack_size, js_mode) = {
             let bc = bc_func.payload().bytecode();
@@ -115,7 +115,7 @@ impl AsyncStateInner {
     }
 
     #[inline(always)]
-    pub fn arg_ptr(&self) -> NonNull<JSValue> {
+    pub fn arg_ptr(&self) -> NonNull<JSValue<'a>> {
         unsafe { NonNull::new_unchecked(self.frame.arg_base_ptr) }
     }
 
@@ -161,17 +161,17 @@ impl AsyncStateInner {
 /// async execution state.
 /// used to save execution state of an async function or generator.
 #[derive(Debug, Clone)]
-pub struct AsyncFuncState(pub(crate) Rc<RefCell<Pin<Box<AsyncStateInner>>>>);
+pub struct AsyncFuncState<'a>(pub(crate) Rc<RefCell<Pin<Box<AsyncStateInner<'a>>>>>);
 
-impl AsyncFuncState {
+impl<'a> AsyncFuncState<'a> {
     /// create new AsyncFuncState, register to gc tracking list.
     pub fn new_with_resolvings(
-        ctx: &JSContext,
-        resolvings: [JSValue; 2],
-        bc_func: BCFunction,
-        this_obj: JSValue,
-        args: &[JSValue],
-    ) -> Result<AsyncFuncState, i32> {
+        ctx: &JSContext<'a>,
+        resolvings: [JSValue<'a>; 2],
+        bc_func: BCFunction<'a>,
+        this_obj: JSValue<'a>,
+        args: &[JSValue<'a>],
+    ) -> Result<Self, i32> {
         let inner = AsyncStateInner::new(ctx, resolvings, bc_func, this_obj, args)?;
 
         // fix var_base_ptr field: it's self referenced
@@ -208,10 +208,10 @@ impl AsyncFuncState {
     /// create new AsyncFuncState, register to gc tracking list.
     #[inline(always)]
     pub fn new(
-        ctx: &JSContext,
-        bc_func: BCFunction,
-        this_obj: JSValue,
-        args: &[JSValue],
+        ctx: &JSContext<'a>,
+        bc_func: BCFunction<'a>,
+        this_obj: JSValue<'a>,
+        args: &[JSValue<'a>],
     ) -> Result<Self, i32> {
         Self::new_with_resolvings(
             ctx,
@@ -228,7 +228,7 @@ impl AsyncFuncState {
     }
 
     #[inline(always)]
-    pub fn rt(&self) -> &JSRuntime {
+    pub fn rt(&self) -> &JSRuntime<'a> {
         unsafe { self.0.borrow().header.rt_ptr().as_ref() }
     }
 
@@ -237,7 +237,7 @@ impl AsyncFuncState {
         self.0.borrow().is_completed
     }
 
-    pub fn downgrade(&self) -> AsyncStateWeakref {
+    pub fn downgrade(&self) -> AsyncStateWeakref<'a> {
         AsyncStateWeakref(Rc::downgrade(&self.0))
     }
 
@@ -247,8 +247,21 @@ impl AsyncFuncState {
         }
     }
 
+    /// put given value to stack at position current stack pointer -1
+    pub fn set_return_value(&self, val: JSValue<'a>) {
+        let mut s = self.0.borrow_mut();
+        unsafe {
+            let state = s.as_mut().get_unchecked_mut();
+            *state
+                .frame
+                .stack_base_ptr()
+                .as_ptr()
+                .add(state.frame.cur_sp_offset as usize - 1) = val;
+        }
+    }
+
     /// Resume execution of the async function.
-    pub fn resume(&self, ctx: &JSContext) -> JSResult {
+    pub fn resume(&self, ctx: &JSContext<'a>) -> JSResult<'a> {
         debug_assert!(!self.0.borrow().is_completed);
 
         if js_check_stack_overflow(ctx.rt(), 0) {
@@ -332,22 +345,22 @@ impl AsyncFuncState {
 }
 
 #[derive(Debug, Clone)]
-pub struct AsyncStateWeakref(Weak<RefCell<Pin<Box<AsyncStateInner>>>>);
+pub struct AsyncStateWeakref<'a>(Weak<RefCell<Pin<Box<AsyncStateInner<'a>>>>>);
 
-impl From<AsyncStateWeakref> for GCObjectWeakref {
-    fn from(value: AsyncStateWeakref) -> Self {
+impl<'a> From<AsyncStateWeakref<'a>> for GCObjectWeakref<'a> {
+    fn from(value: AsyncStateWeakref<'a>) -> Self {
         Self::AsyncFunction(value)
     }
 }
 
-impl Default for AsyncStateWeakref {
+impl<'a> Default for AsyncStateWeakref<'a> {
     fn default() -> Self {
         Self(Weak::new())
     }
 }
 
-impl AsyncStateWeakref {
-    pub fn upgrade(&self) -> Option<AsyncFuncState> {
+impl<'a> AsyncStateWeakref<'a> {
+    pub fn upgrade(&self) -> Option<AsyncFuncState<'a>> {
         self.0.upgrade().map(AsyncFuncState)
     }
 }

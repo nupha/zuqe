@@ -14,7 +14,7 @@ use crate::{
 
 use super::{TA_GET_BUFFER, TA_GET_BYTE_LENGTH, TA_GET_BYTE_OFFSET, TypedArray, dv::DataView};
 
-pub fn js_dataview_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_dataview_constructor<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let Some(buffer) = cc.arg(0).as_object_ArrayBuffer() else {
         ctx.throw_type_error_invalid_class(JS_CLASS_ARRAY_BUFFER);
         return Err(-1);
@@ -41,7 +41,7 @@ pub fn js_dataview_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     DataView::create(ctx, cc.this(), buffer.clone(), offset as _, length).map(|o| o.into())
 }
 
-pub fn js_dataview_getValue(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_dataview_getValue<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let Some(dataview) = cc.this().as_object_DataView() else {
         ctx.throw_type_error_invalid_class(JS_CLASS_DATAVIEW);
         return Err(-1);
@@ -145,7 +145,7 @@ pub fn js_dataview_getValue(ctx: &JSContext, cc: CallContext) -> JSResult {
     })
 }
 
-pub fn js_dataview_setValue(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_dataview_setValue<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let dv = cc
         .this()
         .retrive_object_payload(ctx, JS_CLASS_DATAVIEW)?
@@ -241,7 +241,7 @@ pub fn js_dataview_setValue(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
-fn js_dataview_getter(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_dataview_getter<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     if let Some(dv) = cc.this().as_object_DataView() {
         match cc.magic() {
             TA_GET_BUFFER => Ok(dv.array_buffer().clone().into()),

@@ -15,7 +15,7 @@ use crate::{
 
 use super::{DEFINE_GLOBAL_FUNC_VAR, DEFINE_GLOBAL_LEX_VAR, optimize::OPTIMIZE};
 
-impl JSFunctionDef {
+impl<'a> JSFunctionDef<'a> {
     /// Performs initial runtime checks for global variables
     /// This must be executed before creating any variables
     /// Checks for potential conflicts between global and closure variables

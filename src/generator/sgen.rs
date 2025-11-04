@@ -1,7 +1,4 @@
-use std::{
-    cell::{Cell, UnsafeCell},
-    ops::Deref,
-};
+use std::cell::{Cell, UnsafeCell};
 
 use crate::{
     JS_CLASS_GENERATOR, JS_ITERATOR_NEXT_DEF, JS_PROP_STRING_DEF,
@@ -37,12 +34,12 @@ pub const FUNC_RET_YIELD_STAR: i32 = 2;
 pub const FUNC_RET_INITIAL_YIELD: i32 = 3;
 
 #[derive(Debug)]
-pub struct GeneratorPayload {
+pub struct GeneratorPayload<'a> {
     state: Cell<GenState>,
-    func_state: UnsafeCell<AsyncFuncState>,
+    func_state: UnsafeCell<AsyncFuncState<'a>>,
 }
 
-impl GeneratorPayload {
+impl<'a> GeneratorPayload<'a> {
     #[inline(always)]
     const fn state(&self) -> GenState {
         self.state.get()
@@ -66,7 +63,7 @@ impl GeneratorPayload {
 
     /// run with stack frame
     #[inline(always)]
-    fn with_stack_frame_mut<R>(&self, f: impl FnOnce(&mut StackFrame) -> R) -> R {
+    fn with_stack_frame_mut<R>(&self, f: impl FnOnce(&mut StackFrame<'a>) -> R) -> R {
         unsafe {
             let mut t = (&*self.func_state.get()).0.borrow_mut();
             f(&mut t.as_mut().get_mut().frame)
@@ -75,7 +72,7 @@ impl GeneratorPayload {
 
     /// execute the function up to 'OP_initial_yield' opcode
     #[inline(always)]
-    pub fn resume(&self, ctx: &JSContext) -> JSResult {
+    pub fn resume(&self, ctx: &JSContext<'a>) -> JSResult<'a> {
         unsafe { (&*self.func_state.get()).resume(ctx) }
     }
 
@@ -90,7 +87,7 @@ impl GeneratorPayload {
 
 // XXX: add a specific eval mode so that Function("}), ({") is rejected
 #[deprecated(note = "should use BytecodeFunction::class_constructor ???")]
-pub fn js_function_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_function_constructor<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let func_kind =
         unsafe { std::mem::transmute::<u8, crate::function::JSFunctionKindEnum>(cc.magic() as u8) };
 
@@ -180,13 +177,13 @@ pub fn js_function_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(func_obj)
 }
 
-pub fn js_generator_function_call(
-    ctx: &JSContext,
-    func_obj: &JSValue,
-    this_obj: &JSValue,
-    args: &[JSValue],
+pub fn js_generator_function_call<'b>(
+    ctx: &JSContext<'b>,
+    func_obj: &JSValue<'b>,
+    this_obj: &JSValue<'b>,
+    args: &[JSValue<'b>],
     _flags: i32,
-) -> JSResult {
+) -> JSResult<'b> {
     let func_state = AsyncFuncState::new(
         ctx,
         func_obj.as_object_BCFunction().unwrap().clone(),
@@ -217,11 +214,11 @@ pub fn js_generator_mark(_: JSValue) {
     unimplemented!();
 }
 
-pub fn js_generator_next(
-    ctx: &JSContext,
-    cc: CallContext,
+pub fn js_generator_next<'a>(
+    ctx: &JSContext<'a>,
+    cc: CallContext<'_, 'a>,
     iter_state: &mut IteratorState,
-) -> JSResult {
+) -> JSResult<'a> {
     let magic = cc.magic();
     *iter_state = IteratorState::Done;
 
@@ -293,7 +290,11 @@ pub fn js_generator_next(
 
                 // get the returned yield value at the top of the stack
                 let ret_val = g.with_stack_frame_mut(|sf| unsafe {
-                    std::ptr::replace(sf.stack_cur_ptr().offset(-1).as_ptr(), JSValue::UNDEFINED)
+                    let v = std::ptr::replace(
+                        sf.stack_cur_ptr().offset(-1).as_ptr(),
+                        JSValue::UNDEFINED,
+                    );
+                    v
                 });
 
                 *iter_state = if let Ok(JSValue::Int(FUNC_RET_YIELD_STAR)) = res {

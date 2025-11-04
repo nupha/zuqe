@@ -103,13 +103,13 @@ pub(crate) fn parse_u32(str: &str) -> Option<u32> {
     Some(num)
 }
 
-pub unsafe fn js_atof(
-    ctx: &JSContext,
+pub unsafe fn js_atof<'a>(
+    ctx: &JSContext<'a>,
     str: *const u8,
     pp: *mut *const u8,
     mut radix: i32,
     flags: i32,
-) -> JSResult {
+) -> JSResult<'a> {
     let mut p = str;
     let mut p_start = p;
 

@@ -17,8 +17,8 @@ use crate::{
     value::JSValue,
 };
 
-impl JSContext {
-    pub(crate) fn build_rest(&self, first: usize, args: &[JSValue]) -> JSResult {
+impl<'a> JSContext<'a> {
+    pub(crate) fn build_rest(&self, first: usize, args: &[JSValue<'a>]) -> JSResult<'a> {
         let arr = self.create_array()?;
         if !args.is_empty() {
             for (i, v) in args.iter().enumerate().skip(first) {
@@ -29,7 +29,7 @@ impl JSContext {
     }
 }
 
-pub fn js_build_arguments(ctx: &JSContext, args: &[JSValue]) -> JSValue {
+pub fn js_build_arguments<'a>(ctx: &JSContext<'a>, args: &[JSValue<'a>]) -> JSValue<'a> {
     let obj: JSObject = if let Ok(o) = ctx.create_object_with_proto(
         ctx.class_proto(JS_CLASS_OBJECT),
         ObjectPayload::ARGUMENTS(ArrayObjPayload::default()),
@@ -88,12 +88,12 @@ pub fn js_build_arguments(ctx: &JSContext, args: &[JSValue]) -> JSValue {
 }
 
 /// legacy arguments object: add references to the function arguments
-pub fn js_build_mapped_arguments(
-    ctx: &JSContext,
-    args: &[JSValue],
-    sf: &mut StackFrame,
+pub fn js_build_mapped_arguments<'a>(
+    ctx: &JSContext<'a>,
+    args: &[JSValue<'a>],
+    sf: &mut StackFrame<'a>,
     arg_count: i32,
-) -> Result<JSObject, i32> {
+) -> Result<JSObject<'a>, i32> {
     let obj = ctx
         .create_object_with_proto(
             ctx.class_proto(JS_CLASS_OBJECT),
@@ -147,12 +147,15 @@ pub fn js_build_mapped_arguments(
 }
 
 #[deprecated(note = "use JSContext::build_rest() instead")]
-pub fn js_build_rest(ctx: &JSContext, first: usize, args: &[JSValue]) -> JSValue {
+pub fn js_build_rest<'a>(ctx: &JSContext<'a>, first: usize, args: &[JSValue<'a>]) -> JSValue<'a> {
     ctx.build_rest(first, args).unwrap_or(JSValue::EXCEPTION)
 }
 
 // XXX: should use ValueArray
-pub fn build_arg_list(ctx: &JSContext, array_arg: &JSValue) -> Result<Box<[JSValue]>, i32> {
+pub fn build_arg_list<'a>(
+    ctx: &JSContext<'a>,
+    array_arg: &JSValue<'a>,
+) -> Result<Box<[JSValue<'a>]>, i32> {
     if unlikely(!array_arg.is_object()) {
         ctx.throw_type_error_not_an_object();
         Err(-1)

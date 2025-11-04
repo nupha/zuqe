@@ -11,24 +11,23 @@ use crate::{
     value::JSValue,
 };
 
-pub struct CallContext<'a> {
-    ctx: &'a JSContext,
-
-    this_value: JSValue,
-    args: &'a [JSValue],
+pub struct CallContext<'cc, 'o: 'cc> {
+    ctx: &'cc JSContext<'o>,
+    this_value: JSValue<'o>,
+    args: &'cc [JSValue<'o>],
     magic: i32,
 
     /// additional binding values
-    data: Option<Rc<RefCell<Box<[JSValue]>>>>,
+    data: Option<Rc<RefCell<Box<[JSValue<'o>]>>>>,
 }
 
-impl<'a> CallContext<'a> {
+impl<'cc, 'o: 'cc> CallContext<'cc, 'o> {
     pub(crate) const fn new(
-        ctx: &'a JSContext,
-        this_value: JSValue,
-        args: &'a [JSValue],
+        ctx: &'cc JSContext<'o>,
+        this_value: JSValue<'o>,
+        args: &'cc [JSValue<'o>],
         magic: i32,
-        data: Option<Rc<RefCell<Box<[JSValue]>>>>,
+        data: Option<Rc<RefCell<Box<[JSValue<'o>]>>>>,
     ) -> Self {
         Self {
             ctx,
@@ -40,11 +39,15 @@ impl<'a> CallContext<'a> {
     }
 
     #[inline(always)]
-    pub(crate) const fn new_simple(ctx: &'a JSContext, this: JSValue, args: &'a [JSValue]) -> Self {
+    pub(crate) const fn new_simple(
+        ctx: &'cc JSContext<'o>,
+        this: JSValue<'o>,
+        args: &'cc [JSValue<'o>],
+    ) -> Self {
         Self::new(ctx, this, args, 0, None)
     }
 
-    pub const fn ctx(&self) -> &JSContext {
+    pub const fn ctx(&self) -> &JSContext<'o> {
         self.ctx
     }
 
@@ -60,32 +63,32 @@ impl<'a> CallContext<'a> {
 
     /// get `this` value ref
     #[inline(always)]
-    pub const fn this(&self) -> &JSValue {
+    pub const fn this(&self) -> &JSValue<'o> {
         &self.this_value
     }
 
     /// set new `this` value, drop old `this`.
     /// Note: `this_val` is consumed.
-    pub fn set_this(&mut self, this_val: JSValue) {
+    pub fn set_this(&mut self, this_val: JSValue<'o>) {
         self.this_value = this_val;
     }
 
     /// get nth argument value ref
     #[inline(always)]
-    pub fn arg(&self, nth: usize) -> &JSValue {
+    pub fn arg(&self, nth: usize) -> &JSValue<'o> {
         self.args.get(nth).unwrap_or(&JSValue::UNDEFINED)
     }
 
     /// get argument values slice
     #[inline(always)]
-    pub const fn arguments(&self) -> &[JSValue] {
+    pub const fn arguments(&self) -> &[JSValue<'o>] {
         self.args
     }
 
     /// get nth extra data value.
     /// returned value is cloned, caller should free it after use.
     #[inline]
-    pub fn data(&self, nth: usize) -> JSValue {
+    pub fn data(&self, nth: usize) -> JSValue<'o> {
         self.data
             .as_ref()
             .and_then(|d| d.borrow().get(nth).cloned())
@@ -100,7 +103,7 @@ impl<'a> CallContext<'a> {
 
     /// Replace nth data with new `val`, and returns old value.
     /// returns `None` if `nth` is out of range.
-    pub fn replace_data(&mut self, nth: usize, val: JSValue) -> Option<JSValue> {
+    pub fn replace_data(&mut self, nth: usize, val: JSValue<'o>) -> Option<JSValue<'o>> {
         if let Some(data) = self.data.as_ref() {
             let mut lst = data.borrow_mut();
             if nth < lst.len() {
@@ -127,10 +130,15 @@ pub const JS_CALL_FLAG_CONSTRUCTOR: i32 = 1 << 0;
 pub const JS_CALL_FLAG_COPY_ARGV: i32 = 1 << 1;
 pub const JS_CALL_FLAG_GENERATOR: i32 = 1 << 2;
 
-impl JSObject {
+impl<'a> JSObject<'a> {
     /// call `self` object. if object is not callable, returns not function error.
     #[inline(always)]
-    pub fn call(&self, ctx: &JSContext, this_obj: &JSValue, args: &[JSValue]) -> JSResult {
+    pub fn call(
+        &self,
+        ctx: &JSContext<'a>,
+        this_obj: &JSValue<'a>,
+        args: &[JSValue<'a>],
+    ) -> JSResult<'a> {
         JS_CallInternal(
             ctx,
             &self.clone().into(),
@@ -146,21 +154,19 @@ impl JSObject {
     ///
     /// `method` is not consumed
     #[inline]
-    pub fn invoke(&self, ctx: &JSContext, method: &Atom, args: &[JSValue]) -> JSResult {
+    pub fn invoke(&self, ctx: &JSContext<'a>, method: &Atom, args: &[JSValue<'a>]) -> JSResult<'a> {
         self.get_property(ctx, method)?
             .call(ctx, &self.clone().into(), args)
     }
 
     /// call `self.method` function if property `method` is neither null nor undefined.
     /// otherwise, returns None
-    ///
-    /// `method` is not consumed
     pub fn invoke_defined(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         method: &Atom,
-        args: &[JSValue],
-    ) -> Result<Option<JSResult>, i32> {
+        args: &[JSValue<'a>],
+    ) -> Result<Option<JSResult<'a>>, i32> {
         let m = self.get_property(ctx, method)?;
         if !m.is_undefined_or_null() {
             return Ok(Some(m.call(ctx, &self.clone().into(), args)));
@@ -170,14 +176,12 @@ impl JSObject {
 
     /// call `self.method` if property `method` is callable.
     /// otherwise, returns None
-    ///
-    /// `method` is not consumed
     pub fn invoke_callable(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         method: &Atom,
-        args: &[JSValue],
-    ) -> Result<Option<JSResult>, i32> {
+        args: &[JSValue<'a>],
+    ) -> Result<Option<JSResult<'a>>, i32> {
         let m = self.get_property(ctx, method)?;
         if m.is_function() {
             Ok(Some(m.call(ctx, &self.clone().into(), args)))
@@ -187,10 +191,15 @@ impl JSObject {
     }
 }
 
-impl JSValue {
+impl<'a> JSValue<'a> {
     /// call `self` value. if value is not callable, returns 'not function error'.
     #[inline(always)]
-    pub fn call(&self, ctx: &JSContext, this_obj: &Self, args: &[JSValue]) -> JSResult {
+    pub fn call(
+        &self,
+        ctx: &JSContext<'a>,
+        this_obj: &JSValue<'a>,
+        args: &[JSValue<'a>],
+    ) -> JSResult<'a> {
         JS_CallInternal(
             ctx,
             self,
@@ -203,23 +212,19 @@ impl JSValue {
     }
 
     /// call function `self.method`
-    ///
-    /// `method` is not consumed
     #[inline]
-    pub fn invoke(&self, ctx: &JSContext, method: &Atom, args: &[JSValue]) -> JSResult {
+    pub fn invoke(&self, ctx: &JSContext<'a>, method: &Atom, args: &[JSValue<'a>]) -> JSResult<'a> {
         self.get_property(ctx, method)?.call(ctx, self, args)
     }
 
     /// call `self.method` function if property `method` is neither null nor undefined.
     /// otherwise, returns None.
-    ///
-    /// `method` is not consumed
     pub fn invoke_defined(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         method: &Atom,
-        args: &[JSValue],
-    ) -> Result<Option<JSResult>, i32> {
+        args: &[JSValue<'a>],
+    ) -> Result<Option<JSResult<'a>>, i32> {
         let m = self.get_property(ctx, method)?;
         if !m.is_undefined_or_null() {
             return Ok(Some(m.call(ctx, self, args)));
@@ -233,10 +238,10 @@ impl JSValue {
     /// `method` is not consumed
     pub fn invoke_callable(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         method: &Atom,
-        args: &[JSValue],
-    ) -> Result<Option<JSResult>, i32> {
+        args: &[JSValue<'a>],
+    ) -> Result<Option<JSResult<'a>>, i32> {
         let m = self.get_property(ctx, method)?;
         if m.is_function() {
             let r = m.call(ctx, self, args);
@@ -249,14 +254,14 @@ impl JSValue {
 
 /// argv[] is modified if (flags & JS_CALL_FLAG_COPY_ARGV) = 0.
 /// both `this_obj` and `argv` values are not consumed.
-pub fn JS_CallInternal(
-    caller_ctx: &JSContext,
-    func_obj: &JSValue,
-    this_obj: &JSValue,
-    new_target: JSValue,
-    args: &[JSValue],
+pub fn JS_CallInternal<'a>(
+    caller_ctx: &JSContext<'a>,
+    func_obj: &JSValue<'a>,
+    this_obj: &JSValue<'a>,
+    new_target: JSValue<'a>,
+    args: &[JSValue<'a>],
     flags: i32,
-) -> JSValue {
+) -> JSValue<'a> {
     if caller_ctx.poll_interrupts().is_err() {
         return JSValue::EXCEPTION;
     }
@@ -268,7 +273,8 @@ pub fn JS_CallInternal(
             } else {
                 // non bytecode function: bound function, native function, async function etc.
                 // use callback defined on the class.
-                if let Some(call_func) = caller_ctx.rt().class_registry[o.class_id() as usize].call {
+                if let Some(call_func) = caller_ctx.rt().class_registry[o.class_id() as usize].call
+                {
                     call_func(caller_ctx, func_obj, this_obj, args, flags)
                         .unwrap_or(JSValue::EXCEPTION)
                 } else {
@@ -299,8 +305,10 @@ pub fn JS_CallInternal(
             //     .unwrap();
 
             let pc_offset = frame.cur_pc_offset;
-            let sp_offset = std::mem::replace(&mut frame.cur_sp_offset, -1);
+            let sp_offset = frame.cur_sp_offset;
             debug_assert!(sp_offset >= 0);
+
+            frame.cur_sp_offset = -1;
 
             let rt = caller_ctx.rt_mut();
             frame.prev_frame = rt.cur_stack_frame;
@@ -334,13 +342,13 @@ pub fn JS_CallInternal(
     }
 }
 
-pub fn JS_CallConstructorInternal(
-    ctx: &JSContext,
-    func_obj: &JSValue,
-    new_target: JSValue,
-    args: &[JSValue],
+pub fn JS_CallConstructorInternal<'a>(
+    ctx: &JSContext<'a>,
+    func_obj: &JSValue<'a>,
+    new_target: JSValue<'a>,
+    args: &[JSValue<'a>],
     mut flags: i32,
-) -> JSValue {
+) -> JSValue<'a> {
     if ctx.poll_interrupts().is_err() {
         return JSValue::EXCEPTION;
     }
@@ -426,17 +434,21 @@ pub fn JS_CallConstructorInternal(
     }
 }
 
-pub fn JS_CallConstructor2(
-    ctx: &JSContext,
-    func_obj: &JSValue,
-    new_target: JSValue,
-    args: &[JSValue],
-) -> JSValue {
+pub fn JS_CallConstructor2<'a>(
+    ctx: &JSContext<'a>,
+    func_obj: &JSValue<'a>,
+    new_target: JSValue<'a>,
+    args: &[JSValue<'a>],
+) -> JSValue<'a> {
     JS_CallConstructorInternal(ctx, func_obj, new_target, args, JS_CALL_FLAG_COPY_ARGV)
 }
 
 #[inline(always)]
-pub fn JS_CallConstructor(ctx: &JSContext, func_obj: &JSValue, args: &[JSValue]) -> JSValue {
+pub fn JS_CallConstructor<'a>(
+    ctx: &JSContext<'a>,
+    func_obj: &JSValue<'a>,
+    args: &[JSValue<'a>],
+) -> JSValue<'a> {
     JS_CallConstructorInternal(
         ctx,
         func_obj,
@@ -447,7 +459,7 @@ pub fn JS_CallConstructor(ctx: &JSContext, func_obj: &JSValue, args: &[JSValue])
 }
 
 // magic value: 0 = normal apply, 1 = apply for constructor, 2 = Reflect.apply
-pub fn js_function_apply(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_function_apply<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let this_val = cc.this();
     this_val.ensure_function(ctx)?;
 
@@ -458,10 +470,16 @@ pub fn js_function_apply(ctx: &JSContext, cc: CallContext) -> JSResult {
         this_val.call(ctx, this_arg, &[])
     } else {
         let arg_list = build_arg_list(ctx, array_arg)?;
+
         if cc.magic() & 1 != 0 {
-            JS_CallConstructor2(ctx, this_val, this_arg.clone(), arg_list.as_ref()).err()
+            JS_CallConstructor2(ctx, this_val, this_arg.clone(), unsafe {
+                std::mem::transmute(arg_list.as_ref())
+            })
+            .err()
         } else {
-            this_val.call(ctx, this_arg, arg_list.as_ref())
+            this_val.call(ctx, this_arg, unsafe {
+                std::mem::transmute(arg_list.as_ref())
+            })
         }
     }
 }

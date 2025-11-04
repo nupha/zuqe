@@ -1,7 +1,6 @@
 use std::{borrow::Cow, ptr::NonNull};
 
 use crate::{
-    JS_CLASS_ARRAY,
     atom::{Atom, AtomRef, consts::*},
     context::JSContext,
     function::NativeFunctionType,
@@ -52,8 +51,8 @@ pub enum NativeFieldDetail {
     Undefined,
 }
 
-impl JSObject {
-    pub fn install_field_defs(&self, ctx: &JSContext, entries: &[FieldDef]) -> Result<(), i32> {
+impl<'a> JSObject<'a> {
+    pub fn install_field_defs(&self, ctx: &JSContext<'a>, entries: &[FieldDef]) -> Result<(), i32> {
         for entry in entries {
             let atom = ctx.make_lazy_prop_atom(entry.name)?;
             self.install_field_entry(ctx, &atom, entry)?;
@@ -61,7 +60,12 @@ impl JSObject {
         Ok(())
     }
 
-    fn install_field_entry(&self, ctx: &JSContext, atom: &Atom, e: &FieldDef) -> Result<(), i32> {
+    fn install_field_entry(
+        &self,
+        ctx: &JSContext<'a>,
+        atom: &Atom,
+        e: &FieldDef,
+    ) -> Result<(), i32> {
         let val: JSValue;
         let mut prop_flags = e.prop_flags;
 
@@ -154,8 +158,8 @@ impl JSObject {
     }
 }
 
-impl JSValue {
-    pub fn install_field_defs(&self, ctx: &JSContext, entries: &[FieldDef]) -> Result<(), i32> {
+impl<'a> JSValue<'a> {
+    pub fn install_field_defs(&self, ctx: &JSContext<'a>, entries: &[FieldDef]) -> Result<(), i32> {
         if let Self::Object(o) = self {
             o.install_field_defs(ctx, entries)
         } else {
@@ -165,7 +169,7 @@ impl JSValue {
     }
 }
 
-impl JSContext {
+impl<'a> JSContext<'a> {
     /// create new or reuse existing atom for lazy init property
     fn make_lazy_prop_atom(&self, str: &str) -> Result<Atom, i32> {
         // format [xxxx]

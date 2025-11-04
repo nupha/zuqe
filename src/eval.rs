@@ -14,14 +14,14 @@ use crate::{
 
 /// Native function to handle `eval`, returns eval result.
 /// `input` is script source.
-pub type EvalFn = fn(
-    ctx: &JSContext,
-    this_obj: &JSValue,
+pub type EvalFn = for<'a> fn(
+    ctx: &JSContext<'a>,
+    this_obj: &JSValue<'a>,
     input: &[u8],
     filename: &str,
     flags: u32,
     scope_idx: i32,
-) -> JSResult;
+) -> JSResult<'a>;
 
 // Eval types
 pub const JS_EVAL_TYPE_GLOBAL: u32 = 0;
@@ -39,16 +39,16 @@ pub const JS_EVAL_FLAG_BACKTRACE_BARRIER: u32 = 1 << 6;
 /// so that top-level-await is allowed.
 pub const JS_EVAL_FLAG_ASYNC: u32 = 1 << 7;
 
-pub(crate) enum Compiled {
+pub(crate) enum Compiled<'c> {
     /// compiled for global or indirect mode.
-    GlobalOrIndirect(Bytecode),
+    GlobalOrIndirect(Bytecode<'c>),
     /// compiled for direct mode.
-    Direct(Bytecode),
+    Direct(Bytecode<'c>),
     /// compiled as module.
-    Module(ModuleDef),
+    Module(ModuleDef<'c>),
 }
 
-impl JSContext {
+impl<'c> JSContext<'c> {
     /// compile script source according to requested mode.
     /// `source` is script source, `filename` is used to identify the module.
     /// compile only, won't run. internal use.
@@ -58,7 +58,7 @@ impl JSContext {
         filename: &str,
         flags: u32,
         scope_idx: i32,
-    ) -> Result<Compiled, i32> {
+    ) -> Result<Compiled<'c>, i32> {
         let eval_type = flags & JS_EVAL_TYPE_MASK;
 
         let sframe: Option<&mut StackFrame>;
@@ -136,20 +136,24 @@ impl JSContext {
         fd.body_scope = fd.push_scope(0)? as i32;
         debug_assert_eq!(fd.body_scope, 1);
 
-        // create parse state with root fd, then parse source.
-        let mut parser = JSParseState::new(
-            self,
-            unsafe { NonNull::new_unchecked(fd.as_mut()) },
-            source,
-            filename,
-        );
-        debug_assert!(std::ptr::eq(parser.cur_func(), fd.deref()));
+        {
+            // create parse state with root fd, then parse source.
+            let mut parser = JSParseState::new(
+                self,
+                unsafe { NonNull::new_unchecked(fd.as_mut()) },
+                unsafe { std::mem::transmute::<&[u8], &[u8]>(source) }, // cast lifetime
+                unsafe { std::mem::transmute::<&str, &str>(filename) }, // cast lifetime
+            );
+            debug_assert!(std::ptr::eq(parser.cur_func(), fd.deref()));
 
-        parser.is_module = module.is_some();
-        parser.allow_html_comments = module.is_none();
+            parser.is_module = module.is_some();
+            parser.allow_html_comments = module.is_none();
 
-        parser.skip_shebang();
-        parser.parse_program()?;
+            parser.skip_shebang();
+            parser.parse_program()?;
+
+            // parser dropped here, source and filename are still alive.
+        }
 
         // has top-level await?
         let has_await = fd.has_await;
@@ -179,12 +183,12 @@ impl JSContext {
     /// * INDIRECT
     pub(crate) fn eval_internal(
         &self,
-        this_obj: &JSValue,
+        this_obj: &JSValue<'c>,
         source: &[u8],
         filename: &str,
         flags: u32,
         scope_idx: i32,
-    ) -> JSResult {
+    ) -> JSResult<'c> {
         #[cfg(debug_assertions)]
         if flags & JS_EVAL_FLAG_COMPILE_ONLY != 0 {
             panic!(
@@ -220,23 +224,23 @@ impl JSContext {
     #[inline(always)]
     pub fn eval_this(
         &self,
-        this_obj: JSValue,
-        source: &[u8],
-        filename: &str,
+        this_obj: JSValue<'c>,
+        source: &'c [u8],
+        filename: &'c str,
         flags: u32,
-    ) -> JSResult {
+    ) -> JSResult<'c> {
         debug_assert!(matches!(flags & JS_EVAL_TYPE_MASK, JS_EVAL_TYPE_GLOBAL));
         self.eval_internal(&this_obj, source, filename, flags, -1)
     }
 
     /// eval script with global as `this` binding.
-    pub fn eval(&self, source: &[u8], filename: &str, eval_flags: u32) -> JSResult {
+    pub fn eval(&self, source: &'c [u8], filename: &'c str, eval_flags: u32) -> JSResult<'c> {
         let global = self.0.borrow().global_obj.clone();
         self.eval_this(global, source, filename, eval_flags)
     }
 }
 
-impl JSValue {
+impl<'v> JSValue<'v> {
     /// eval js value `self`.
     /// When `self` is a:
     /// - String: eval source script and return result,
@@ -245,11 +249,11 @@ impl JSValue {
     /// both `this_obj` and `self` are not consumed.
     pub fn eval_object(
         &self,
-        ctx: &JSContext,
-        this_obj: JSValue,
+        ctx: &JSContext<'v>,
+        this_obj: JSValue<'v>,
         flags: u32,
         scope_idx: i32,
-    ) -> JSResult {
+    ) -> JSResult<'v> {
         if let Self::String(s) = self {
             ctx.eval_internal(
                 &this_obj,

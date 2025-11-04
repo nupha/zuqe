@@ -19,7 +19,7 @@ use super::{
     JS_PROP_WRITABLE,
 };
 
-impl JSObject {
+impl<'a> JSObject<'a> {
     /// 'flags' is a bitmask of JS_PROP_NO_ADD, JS_PROP_THROW or JS_PROP_THROW_STRICT.
     /// If JS_PROP_NO_ADD is set,  the new property is not added and an error is raised.
     ///
@@ -30,10 +30,10 @@ impl JSObject {
     /// - None: add new property is not allowed.
     pub(crate) fn set_property_internal(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         prop: &Atom,
-        val: JSValue,
-        target: Option<&JSObject>,
+        val: JSValue<'a>,
+        target: Option<&JSObject<'a>>,
         flags: u32,
     ) -> Result<bool, i32> {
         macro_rules! fail {
@@ -291,7 +291,12 @@ impl JSObject {
     }
 
     #[inline(always)]
-    pub fn set_property(&self, ctx: &JSContext, prop: &Atom, val: JSValue) -> Result<bool, i32> {
+    pub fn set_property(
+        &self,
+        ctx: &JSContext<'a>,
+        prop: &Atom,
+        val: JSValue<'a>,
+    ) -> Result<bool, i32> {
         self.set_property_internal(ctx, prop, val, Some(self), JS_PROP_THROW)
     }
 
@@ -302,9 +307,9 @@ impl JSObject {
     /// - None: when the property was not set, perform slow path is needed.
     fn set_property_index(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         idx: usize,
-        val: JSValue,
+        val: JSValue<'a>,
         flags: u32,
     ) -> Option<Result<bool, i32>> {
         match self.class_id() {
@@ -435,9 +440,9 @@ impl JSObject {
     /// flags can be JS_PROP_THROW or JS_PROP_THROW_STRICT
     pub fn set_property_value(
         &self,
-        ctx: &JSContext,
-        prop: &JSValue,
-        val: JSValue,
+        ctx: &JSContext<'a>,
+        prop: &JSValue<'a>,
+        val: JSValue<'a>,
         flags: u32,
     ) -> Result<bool, i32> {
         // check if prop is a u32 (a.k.a. index key)
@@ -470,7 +475,12 @@ impl JSObject {
         self.set_property_internal(ctx, &atom, val, Some(self), flags)
     }
 
-    pub fn set_property_u32(&self, ctx: &JSContext, idx: u32, val: JSValue) -> Result<bool, i32> {
+    pub fn set_property_u32(
+        &self,
+        ctx: &JSContext<'a>,
+        idx: u32,
+        val: JSValue<'a>,
+    ) -> Result<bool, i32> {
         self.set_property_index(ctx, idx as usize, val.clone(), JS_PROP_THROW)
             .unwrap_or_else(|| {
                 // slow path
@@ -480,7 +490,12 @@ impl JSObject {
     }
 
     #[inline]
-    pub fn set_property_i64(&self, ctx: &JSContext, idx: i64, val: JSValue) -> Result<bool, i32> {
+    pub fn set_property_i64(
+        &self,
+        ctx: &JSContext<'a>,
+        idx: i64,
+        val: JSValue<'a>,
+    ) -> Result<bool, i32> {
         if (0..=u32::MAX as i64).contains(&idx) {
             self.set_property_u32(ctx, idx as u32, val)
         } else {
@@ -489,13 +504,18 @@ impl JSObject {
         }
     }
 
-    pub fn set_property_str(&self, ctx: &JSContext, prop: &str, val: JSValue) -> Result<bool, i32> {
+    pub fn set_property_str(
+        &self,
+        ctx: &JSContext<'a>,
+        prop: &str,
+        val: JSValue<'a>,
+    ) -> Result<bool, i32> {
         let atom = Atom::new(ctx.rt(), prop)?;
         self.set_property(ctx, &atom, val)
     }
 }
 
-impl JSValue {
+impl<'a> JSValue<'a> {
     /// 'flags' is a bitmask of JS_PROP_NO_ADD, JS_PROP_THROW or JS_PROP_THROW_STRICT.
     /// If JS_PROP_NO_ADD is set,  the new property is not added and an error is raised.
     ///
@@ -503,10 +523,10 @@ impl JSValue {
     /// For other cases,  `receiver` should be None, suggesting it's same to `self`.
     pub(crate) fn set_property_internal(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         prop: &Atom,
         val: Self,
-        receiver: Option<&JSObject>,
+        receiver: Option<&JSObject<'a>>,
         flags: u32,
     ) -> Result<bool, i32> {
         if let Self::Object(o) = self {
@@ -523,14 +543,14 @@ impl JSValue {
 
     /// `prop` is not consumed.
     #[inline(always)]
-    pub fn set_property(&self, ctx: &JSContext, prop: &Atom, val: JSValue) -> Result<bool, i32> {
+    pub fn set_property(&self, ctx: &JSContext<'a>, prop: &Atom, val: Self) -> Result<bool, i32> {
         self.set_property_internal(ctx, prop, val, None, JS_PROP_THROW)
     }
 
     #[inline]
     pub fn set_property_value(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         prop: &Self,
         val: Self,
         flags: u32,
@@ -544,7 +564,7 @@ impl JSValue {
     }
 
     #[inline]
-    pub fn set_property_u32(&self, ctx: &JSContext, idx: u32, val: JSValue) -> Result<bool, i32> {
+    pub fn set_property_u32(&self, ctx: &JSContext<'a>, idx: u32, val: Self) -> Result<bool, i32> {
         if let Self::Object(ob) = self {
             ob.set_property_u32(ctx, idx, val)
         } else {
@@ -553,7 +573,7 @@ impl JSValue {
     }
 
     #[inline]
-    pub fn set_property_i64(&self, ctx: &JSContext, idx: i64, val: JSValue) -> Result<bool, i32> {
+    pub fn set_property_i64(&self, ctx: &JSContext<'a>, idx: i64, val: Self) -> Result<bool, i32> {
         if let Some(ob) = self.as_object() {
             ob.set_property_i64(ctx, idx, val)
         } else {
@@ -561,17 +581,22 @@ impl JSValue {
         }
     }
 
-    pub fn set_property_str(&self, ctx: &JSContext, prop: &str, val: JSValue) -> Result<bool, i32> {
+    pub fn set_property_str(
+        &self,
+        ctx: &JSContext<'a>,
+        prop: &str,
+        val: Self,
+    ) -> Result<bool, i32> {
         let atom = Atom::new(ctx.rt(), prop)?;
         self.set_property(ctx, &atom, val)
     }
 }
 
-fn call_setter(
-    ctx: &JSContext,
-    setter: Option<&JSObject>,
-    this_obj: &JSValue,
-    val: JSValue,
+fn call_setter<'a>(
+    ctx: &JSContext<'a>,
+    setter: Option<&JSObject<'a>>,
+    this_obj: &JSValue<'a>,
+    val: JSValue<'a>,
     flags: u32,
 ) -> Result<bool, i32> {
     if let Some(func) = setter {

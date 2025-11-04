@@ -39,7 +39,7 @@ impl Default for CodeMatchState {
     }
 }
 
-impl JSFunctionDef {
+impl<'a> JSFunctionDef<'a> {
     /// match in bytecodes for specified `pattern`, starting since `pos`.
     pub(super) fn code_match(&self, mut pos: usize, pattern: &[i32]) -> Option<CodeMatchState> {
         let bc_ptr = self.byte_code.as_ptr();
@@ -155,7 +155,7 @@ impl JSFunctionDef {
     }
 
     pub(super) fn optimize_get_loc(
-        self: &mut JSFunctionDef,
+        &mut self,
         pos: usize,
         pos_next: &mut usize,
         line_num: &mut i32,

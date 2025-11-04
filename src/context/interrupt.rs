@@ -4,7 +4,7 @@ use crate::{context::JSContext, error::JS_SetUncatchableError};
 enough to call the interrupt callback often. */
 pub const JS_INTERRUPT_COUNTER_INIT: i32 = 10000;
 
-impl JSContext {
+impl<'a> JSContext<'a> {
     #[inline(never)]
     pub fn poll_interrupts(&self) -> Result<(), i32> {
         let intr = self.with_mut(|ctx| {

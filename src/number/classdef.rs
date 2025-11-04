@@ -17,7 +17,7 @@ use crate::{
 
 use super::{ATOD_ACCEPT_PREFIX_AFTER_SIGN, ATOD_INT_ONLY, f64_stringify, js_atof};
 
-pub fn js_thisNumberValue(ctx: &JSContext, this_val: &JSValue) -> JSResult {
+pub fn js_thisNumberValue<'a>(ctx: &JSContext<'a>, this_val: &JSValue<'a>) -> JSResult<'a> {
     if this_val.is_number() {
         Ok(this_val.clone())
     } else {
@@ -34,7 +34,7 @@ pub fn js_thisNumberValue(ctx: &JSContext, this_val: &JSValue) -> JSResult {
     }
 }
 
-pub fn js_parseInt(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_parseInt<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let radix: i32 = cc.arg(1).to_i32(ctx)?;
 
     if radix != 0 && !(2..=36).contains(&radix) {
@@ -66,7 +66,7 @@ pub fn js_parseInt(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_parseFloat(ctx: &JSContext, args: CallContext) -> JSResult {
+pub fn js_parseFloat<'a>(ctx: &JSContext<'a>, args: CallContext<'_, 'a>) -> JSResult<'a> {
     let str = args.arg(0).to_string(ctx)?;
     let s = str.content().to_utf8(false);
     let str = s.trim();
@@ -85,11 +85,11 @@ pub fn js_parseFloat(ctx: &JSContext, args: CallContext) -> JSResult {
     }
 }
 
-pub fn js_number_valueOf(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_number_valueOf<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     js_thisNumberValue(ctx, cc.this())
 }
 
-pub fn js_number_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_number_toString<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let to_locale_string = cc.magic() != 0;
     let val = js_thisNumberValue(ctx, cc.this())?;
     let d: f64 = val.to_f64(ctx)?;
@@ -110,7 +110,7 @@ pub fn js_number_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
         .map(JSValue::String)
 }
 
-pub fn js_number_toPrecision(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_number_toPrecision<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let d = js_thisNumberValue(ctx, cc.this())?.to_f64(ctx)?;
 
     let a0 = cc.arg(0);
@@ -150,7 +150,7 @@ pub fn js_number_toPrecision(ctx: &JSContext, cc: CallContext) -> JSResult {
     ctx.create_string_from_str(&s).map(JSValue::String)
 }
 
-pub fn js_number_toExponential(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_number_toExponential<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let val = js_thisNumberValue(ctx, cc.this())?;
     let d: f64 = val.to_f64(ctx)?;
 
@@ -183,7 +183,7 @@ pub fn js_number_toExponential(ctx: &JSContext, cc: CallContext) -> JSResult {
     ctx.create_string_from_str(&s).map(JSValue::String)
 }
 
-pub fn js_number_toFixed(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_number_toFixed<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let d = js_thisNumberValue(ctx, cc.this())?.to_f64(ctx)?;
     let f = cc.arg(0).to_i32_saturating(ctx)?;
 
@@ -209,7 +209,10 @@ pub static js_number_proto_funcs: [FieldDef; 6] = [
     JS_CFUNC_NATIVE_DEF!("valueOf", 0, js_number_valueOf, 0),
 ];
 
-pub fn js_number_isNaN_isFinite(ctx: &JSContext, args: CallContext) -> JSResult {
+pub fn js_number_isNaN_isFinite<'a>(
+    ctx: &JSContext<'a>,
+    args: CallContext<'_, 'a>,
+) -> JSResult<'a> {
     if !args.arg(0).is_number() {
         Ok(JSValue::Bool(false))
     } else {
@@ -217,12 +220,12 @@ pub fn js_number_isNaN_isFinite(ctx: &JSContext, args: CallContext) -> JSResult 
     }
 }
 
-pub fn js_number_isInteger(ctx: &JSContext, args: CallContext) -> JSResult {
+pub fn js_number_isInteger<'a>(ctx: &JSContext<'a>, args: CallContext<'_, 'a>) -> JSResult<'a> {
     let b = args.arg(0).is_integral(ctx)?;
     Ok(b.into())
 }
 
-pub fn js_number_isSafeInteger(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_number_isSafeInteger<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let val = cc.arg(0);
     if !val.is_number() {
         return Ok(JSValue::Bool(false));
@@ -255,7 +258,7 @@ pub static js_number_funcs: [FieldDef; 14] = [
     JS_PROP_DOUBLE_DEF!("MIN_SAFE_INTEGER", -9007199254740991.0, 0), /* ES6 */
 ];
 
-pub fn js_number_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_number_constructor<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let val = if cc.length() == 0 {
         JSValue::Int(0)
     } else {

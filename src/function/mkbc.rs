@@ -14,11 +14,11 @@ use crate::{
 
 use super::JSFunctionDef;
 
-impl JSFunctionDef {
+impl<'a> JSFunctionDef<'a> {
     /// Compile function def to bytecode, returns the Bytecode.
     ///
     /// All the child functions are also created. It must be done this way to resolve all the variables.
-    pub fn compile(mut self: Box<Self>, ctx: &JSContext) -> Result<Bytecode, i32> {
+    pub fn compile(mut self: Box<Self>, ctx: &JSContext<'a>) -> Result<Bytecode<'a>, i32> {
         //
         // recompute scope linkage
         //

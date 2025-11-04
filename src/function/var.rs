@@ -196,7 +196,7 @@ impl JSGlobalVar {
     }
 }
 
-impl JSFunctionDef {
+impl<'a> JSFunctionDef<'a> {
     /// add a global variable definition
     pub fn add_global_var(
         &mut self,

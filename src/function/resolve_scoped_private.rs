@@ -7,7 +7,7 @@ use crate::{
     utils::{push_vec_atom, push_vec_u8, push_vec_u16},
 };
 
-impl JSFunctionDef {
+impl<'a> JSFunctionDef<'a> {
     /// `var_name` is not consumed
     fn resolve_scope_private_field1(
         &mut self,

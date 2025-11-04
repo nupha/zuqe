@@ -83,7 +83,7 @@ pub enum TokenData {
         str: StringContent,
         sep: i32,
     },
-    Num(JSValue),
+    Num(JSValue<'static>),
     Ident {
         atom: Atom,
         has_escape: bool,
@@ -144,9 +144,9 @@ impl TokenData {
     }
 
     /// if data is number type, returns number value.
-    pub const fn number(&self) -> Option<&JSValue> {
+    pub fn number(&self) -> Option<JSValue<'static>> {
         if let Self::Num(n) = self {
-            Some(n)
+            Some(n.clone())
         } else {
             None
         }

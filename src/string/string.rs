@@ -39,9 +39,9 @@ pub const JS_STRING_LEN_MAX: usize = (1 << 30) - 1;
 /// - A regular string with dynamic content
 /// - An atom string (interned for efficiency)
 /// - A symbol string (unique identifier)
-pub struct JSStringInner {
+pub struct JSStringInner<'a> {
     /// for const atom description, rt could be null.
-    rt: *mut JSRuntime,
+    rt: *mut JSRuntime<'a>,
 
     /// when registered as atom, this is hash value for atom.
     /// 0 if string is not registered as atom.
@@ -56,13 +56,13 @@ pub struct JSStringInner {
     gc_mark: Cell<bool>,
 }
 
-impl PartialEq for JSStringInner {
+impl PartialEq for JSStringInner<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.content() == other.content()
     }
 }
 
-impl PartialOrd for JSStringInner {
+impl PartialOrd for JSStringInner<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         let a1 = self.atom_info();
         let a2 = other.atom_info();
@@ -97,13 +97,13 @@ impl PartialOrd for JSStringInner {
     }
 }
 
-impl std::fmt::Debug for JSStringInner {
+impl std::fmt::Debug for JSStringInner<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self.content)
     }
 }
 
-impl JSStringInner {
+impl<'a> JSStringInner<'a> {
     #[inline(always)]
     pub fn id(&self) -> usize {
         self as *const Self as usize
@@ -111,7 +111,7 @@ impl JSStringInner {
 
     /// null means this is a const atom description
     #[inline(always)]
-    pub(crate) const fn rt_ptr(&self) -> *mut JSRuntime {
+    pub(crate) const fn rt_ptr(&self) -> *mut JSRuntime<'a> {
         self.rt
     }
 
@@ -187,7 +187,7 @@ impl JSStringInner {
         self.content().get(nth)
     }
 
-    pub(crate) fn copy_to_new(&self) -> JSString {
+    pub(crate) fn copy_to_new(&self) -> JSString<'a> {
         match self.content().data() {
             StringData::AsciiStatic(s) => JSString::from_static(s),
             StringData::Empty => {
@@ -208,10 +208,10 @@ impl JSStringInner {
 }
 
 #[derive(Clone)]
-pub struct JSString(pub(crate) Rc<JSStringInner>);
+pub struct JSString<'a>(pub(crate) Rc<JSStringInner<'a>>);
 
-impl std::ops::Deref for JSString {
-    type Target = JSStringInner;
+impl<'a> std::ops::Deref for JSString<'a> {
+    type Target = JSStringInner<'a>;
 
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
@@ -219,24 +219,24 @@ impl std::ops::Deref for JSString {
     }
 }
 
-impl PartialEq for JSString {
+impl PartialEq for JSString<'_> {
     #[inline(always)]
     fn eq(&self, other: &Self) -> bool {
         self.0.content() == other.0.content()
     }
 }
 
-impl From<JSString> for JSValue {
+impl<'a> From<JSString<'a>> for JSValue<'a> {
     #[inline(always)]
-    fn from(value: JSString) -> Self {
+    fn from(value: JSString<'a>) -> Self {
         Self::String(value)
     }
 }
 
-impl TryFrom<JSObject> for JSString {
+impl<'a> TryFrom<JSObject<'a>> for JSString<'a> {
     type Error = i32;
 
-    fn try_from(obj: JSObject) -> Result<Self, Self::Error> {
+    fn try_from(obj: JSObject<'a>) -> Result<Self, Self::Error> {
         if obj.class_id() == JS_CLASS_STRING {
             if let Some(JSValue::String(s)) = obj.payload().value() {
                 Ok(s.clone())
@@ -249,10 +249,10 @@ impl TryFrom<JSObject> for JSString {
     }
 }
 
-impl TryFrom<JSValue> for JSString {
+impl<'a> TryFrom<JSValue<'a>> for JSString<'a> {
     type Error = i32;
 
-    fn try_from(value: JSValue) -> Result<Self, Self::Error> {
+    fn try_from(value: JSValue<'a>) -> Result<Self, Self::Error> {
         match value {
             JSValue::String(s) => Ok(s),
             JSValue::Object(o) => o.try_into(),
@@ -261,23 +261,23 @@ impl TryFrom<JSValue> for JSString {
     }
 }
 
-impl std::fmt::Display for JSString {
+impl std::fmt::Display for JSString<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = self.content().to_utf8(false);
         write!(f, "{s}")
     }
 }
 
-impl std::fmt::Debug for JSString {
+impl std::fmt::Debug for JSString<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = self.content().to_utf8(true);
         write!(f, "{s}")
     }
 }
 
-impl JSString {
+impl<'a> JSString<'a> {
     /// create JSString with string content.
-    fn new_internal(rt: *mut JSRuntime, content: StringContent) -> Self {
+    fn new_internal(rt: *mut JSRuntime<'a>, content: StringContent) -> Self {
         let inner = JSStringInner {
             rt,
             hash_and_type: Cell::new(0),
@@ -291,7 +291,7 @@ impl JSString {
 
     /// create JSString with string content
     #[inline(always)]
-    pub(crate) fn new(rt: &JSRuntime, content: StringContent) -> Self {
+    pub(crate) fn new(rt: &JSRuntime<'a>, content: StringContent) -> Self {
         Self::new_internal(rt as *const _ as *mut _, content)
     }
 
@@ -307,7 +307,7 @@ impl JSString {
     /// # Returns
     /// * `Ok(Box<JSStringInner>)` - Newly created string
     /// * `Err(-1)` - Memory allocation or UTF-8 validation failed
-    pub(crate) fn from_str(rt: &JSRuntime, s: &str) -> Result<Self, i32> {
+    pub(crate) fn from_str(rt: &JSRuntime<'a>, s: &str) -> Result<Self, i32> {
         Ok(Self::new_internal(
             rt as *const _ as *mut _,
             StringBuf::from_str(s)?.into(),
@@ -333,7 +333,7 @@ impl JSString {
     /// # Returns
     /// * `Ok(Box<JSStringInner>)` - Newly created string
     /// * `Err(-1)` - Memory allocation or UTF-8 validation failed
-    pub(crate) fn from_utf8(rt: &JSRuntime, bytes: Vec<u8>) -> Result<Self, i32> {
+    pub(crate) fn from_utf8(rt: &JSRuntime<'a>, bytes: Vec<u8>) -> Result<Self, i32> {
         Ok(Self::new(
             rt,
             StringBuf::from_utf8(bytes).map_err(|_| -1)?.into(),
@@ -346,7 +346,7 @@ impl JSString {
     }
 
     /// make String class object with content from string `self`.
-    pub fn objectify(&self, ctx: &JSContext, ctor: &JSValue) -> Result<JSObject, i32> {
+    pub fn objectify(&self, ctx: &JSContext<'a>, ctor: &JSValue<'a>) -> Result<JSObject<'a>, i32> {
         let len = self.len();
         let o = ctx
             .create_object_from_ctor(ctor, ObjectPayload::STRING(self.clone().into()))
@@ -358,7 +358,7 @@ impl JSString {
 
     /// make sub string with content of given range.
     /// range is about buffer index, and end index is exclusive.
-    pub fn sub_string(&self, ctx: &JSContext, range: Range<usize>) -> Result<JSString, i32> {
+    pub fn sub_string(&self, ctx: &JSContext<'a>, range: Range<usize>) -> Result<Self, i32> {
         let end = std::cmp::min(range.end, self.len());
 
         if range.start == 0 && end == self.len() {
@@ -377,7 +377,7 @@ impl JSString {
     }
 
     /// coerce string to number. if can't convert string to number, returns NAN.
-    pub fn to_number(&self, ctx: &JSContext) -> JSValue {
+    pub fn to_number(&self, ctx: &JSContext<'a>) -> JSValue<'a> {
         let str = self.content().to_utf8(false);
         let str = str.as_ref().trim();
 
@@ -400,7 +400,7 @@ impl JSString {
         }
     }
 
-    pub fn downgrade(&self) -> JSStringWeakref {
+    pub fn downgrade(&self) -> JSStringWeakref<'a> {
         JSStringWeakref(Rc::downgrade(&self.0))
     }
 
@@ -414,23 +414,23 @@ impl JSString {
 }
 
 #[derive(Debug, Clone)]
-pub struct JSStringWeakref(Weak<JSStringInner>);
+pub struct JSStringWeakref<'a>(Weak<JSStringInner<'a>>);
 
-impl From<JSStringWeakref> for GCObjectWeakref {
-    fn from(value: JSStringWeakref) -> Self {
+impl<'a> From<JSStringWeakref<'a>> for GCObjectWeakref<'a> {
+    fn from(value: JSStringWeakref<'a>) -> Self {
         Self::String(value)
     }
 }
 
-impl JSStringWeakref {
-    pub fn upgrade(&self) -> Option<JSString> {
+impl<'a> JSStringWeakref<'a> {
+    pub fn upgrade(&self) -> Option<JSString<'a>> {
         self.0.upgrade().map(JSString)
     }
 }
 
-impl JSContext {
+impl<'a> JSContext<'a> {
     /// create string value from string buf.
-    pub(crate) fn create_string_with_buf(&self, sbuf: StringBuf) -> Result<JSString, i32> {
+    pub(crate) fn create_string_with_buf(&self, sbuf: StringBuf) -> Result<JSString<'a>, i32> {
         if sbuf.is_empty() {
             JS_ATOM_empty_string.force_string(self)
         } else {
@@ -442,7 +442,7 @@ impl JSContext {
     pub(crate) fn create_string_with_content(
         &self,
         content: StringContent,
-    ) -> Result<JSString, i32> {
+    ) -> Result<JSString<'a>, i32> {
         if content.is_empty() {
             JS_ATOM_empty_string.force_string(self)
         } else {
@@ -451,7 +451,7 @@ impl JSContext {
     }
 
     /// create string from utf8 encoded data.
-    pub fn create_string_from_utf8(&self, utf8_bytes: Vec<u8>) -> Result<JSString, i32> {
+    pub fn create_string_from_utf8(&self, utf8_bytes: Vec<u8>) -> Result<JSString<'a>, i32> {
         if utf8_bytes.is_empty() {
             JS_ATOM_empty_string.force_string(self)
         } else if utf8_bytes.len() > JS_STRING_LEN_MAX {
@@ -465,7 +465,7 @@ impl JSContext {
     }
 
     /// create string from str
-    pub fn create_string_from_str(&self, str: &str) -> Result<JSString, i32> {
+    pub fn create_string_from_str(&self, str: &str) -> Result<JSString<'a>, i32> {
         if unlikely(str.is_empty()) {
             JS_ATOM_empty_string.force_string(self)
         } else if unlikely(str.len() > JS_STRING_LEN_MAX) {
@@ -479,7 +479,7 @@ impl JSContext {
     }
 
     /// create string value from a single string char.
-    pub fn create_string_from_char(&self, ch: StringChar) -> Result<JSString, i32> {
+    pub fn create_string_from_char(&self, ch: StringChar) -> Result<JSString<'a>, i32> {
         let buf = match ch {
             StringChar::Char(ch) => {
                 if ch.is_ascii() {
@@ -501,12 +501,12 @@ impl JSContext {
 }
 
 /// Note: string value `str2` is consumed inside.
-pub fn JS_ConcatString3(
-    ctx: &JSContext,
+pub fn JS_ConcatString3<'a>(
+    ctx: &JSContext<'a>,
     str1: &CStr,
-    str2: JSValue,
+    str2: JSValue<'a>,
     str3: &CStr,
-) -> Result<JSString, i32> {
+) -> Result<JSString<'a>, i32> {
     let p = if let JSValue::String(s) = str2 {
         s
     } else {
@@ -535,7 +535,11 @@ pub fn JS_ConcatString3(
 /// op1 and op2 are converted to strings.
 /// For convience, op1 or op2 = JS_EXCEPTION are accepted and return JSValue::EXCEPTION.
 /// op1 and op2 are consumed
-pub fn JS_ConcatString(ctx: &JSContext, op1: JSValue, op2: JSValue) -> Result<JSString, i32> {
+pub fn JS_ConcatString<'a>(
+    ctx: &JSContext<'a>,
+    op1: JSValue<'a>,
+    op2: JSValue<'a>,
+) -> Result<JSString<'a>, i32> {
     let p1 = if let JSValue::String(s) = op1 {
         s
     } else {
@@ -572,11 +576,11 @@ pub fn JS_ConcatString(ctx: &JSContext, op1: JSValue, op2: JSValue) -> Result<JS
     ctx.create_string_with_buf(buf)
 }
 
-impl JSValue {
+impl<'a> JSValue<'a> {
     /// get a reference to value's string description. won't change value's ref_count.
     /// will panic if value is not string type.
     #[inline(always)]
-    pub unsafe fn string_unchecked(&self) -> &JSString {
+    pub unsafe fn string_unchecked(&self) -> &JSString<'a> {
         if let Self::String(s) = self {
             s
         } else {
@@ -588,7 +592,7 @@ impl JSValue {
     }
 
     /// Convert `self` to string or symbol value. (string is preferred)
-    pub fn to_string_or_symbol(&self, ctx: &JSContext) -> Result<Self, i32> {
+    pub fn to_string_or_symbol(&self, ctx: &JSContext<'a>) -> Result<Self, i32> {
         match self {
             Self::String(_) | Self::Symbol(_) => {
                 Ok(self.clone()) // string or symbol: as-is
@@ -632,13 +636,13 @@ impl JSValue {
 
     /// An alias for [`JSValue::to_string_or_symbol`](Self::to_string_or_symbol).
     #[inline(always)]
-    pub fn to_propkey(&self, ctx: &JSContext) -> Result<JSValue, i32> {
+    pub fn to_propkey(&self, ctx: &JSContext<'a>) -> Result<JSValue<'a>, i32> {
         self.to_string_or_symbol(ctx)
     }
 
     /// Coerce value `self` to string.
     /// if `self` is symbol, will return Err.
-    pub fn to_string(&self, ctx: &JSContext) -> Result<JSString, i32> {
+    pub fn to_string(&self, ctx: &JSContext<'a>) -> Result<JSString<'a>, i32> {
         match self {
             Self::String(s) => Ok(s.clone()),
             Self::Symbol(_) => {
@@ -657,7 +661,10 @@ impl JSValue {
     }
 
     /// Coerce value `val` to string, but null or undefined are forbidden.
-    pub fn to_string_non_undefined_or_null(&self, ctx: &JSContext) -> Result<JSString, i32> {
+    pub fn to_string_non_undefined_or_null(
+        &self,
+        ctx: &JSContext<'a>,
+    ) -> Result<JSString<'a>, i32> {
         if self.is_undefined_or_null() {
             ctx.throw_type_error("null or undefined are forbidden");
             Err(-1)
@@ -667,7 +674,7 @@ impl JSValue {
     }
 
     /// Invoking `toLocaleString()` method.
-    pub fn to_locale_string(&self, ctx: &JSContext) -> Result<JSValue, i32> {
+    pub fn to_locale_string(&self, ctx: &JSContext<'a>) -> Result<JSValue<'a>, i32> {
         if self.is_undefined_or_null() {
             self.to_string(ctx).map(JSValue::String)
         } else {
@@ -698,13 +705,13 @@ pub(crate) unsafe fn strstart(str: *const u8, val: *const u8, ptr: *mut *const u
 //
 
 /// prop is not consumed
-fn string_define_own_property(
-    ctx: &JSContext,
-    this_obj: &JSValue,
+fn string_define_own_property<'a>(
+    ctx: &JSContext<'a>,
+    this_obj: &JSValue<'a>,
     prop: &Atom,
-    val: JSValue,
-    getter: JSValue,
-    setter: JSValue,
+    val: JSValue<'a>,
+    getter: JSValue<'a>,
+    setter: JSValue<'a>,
     flags: i32,
 ) -> Result<bool, i32> {
     macro_rules! fail {

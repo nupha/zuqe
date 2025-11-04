@@ -68,7 +68,7 @@ use crate::{
     value::JSValue,
 };
 
-impl JSContext {
+impl<'a> JSContext<'a> {
     pub(super) fn intrinsic_base_object(&self) {
         let proto = self.class_proto(JS_CLASS_OBJECT).unwrap();
         proto
@@ -571,7 +571,7 @@ impl JSContext {
 
     /// create global namespace
     #[deprecated]
-    pub(crate) fn make_global(&self, fields: &[FieldDef]) -> Result<JSObject, i32> {
+    pub(crate) fn make_global(&self, fields: &[FieldDef]) -> Result<JSObject<'a>, i32> {
         let gobj = self.create_base_object().unwrap();
         gobj.install_field_defs(self, fields).unwrap();
 

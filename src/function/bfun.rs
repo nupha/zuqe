@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::{cell::RefCell, ffi::c_void, pin::Pin};
 
 use smallvec::SmallVec;
 
@@ -95,20 +95,20 @@ pub enum FuncCallType {
 /// * generator function,
 /// * async generator function
 #[derive(Debug)]
-pub struct BCFuncPayload {
-    bytecode: Bytecode,
+pub struct BCFuncPayload<'a> {
+    bytecode: Bytecode<'a>,
 
     /// closure variable refrences
-    pub(crate) var_refs: RefCell<Vec<JSVarRef>>,
+    pub(crate) var_refs: RefCell<Vec<JSVarRef<'a>>>,
 
     /// 函数对象关联的宿主对象，主要用于以下场景：
     /// - 私有字段的访问控制：当类方法需要访问私有字段时，需要通过home object定位到对应的私有品牌（private brand）进行权限验证。
     /// - for 'super' access
-    home_object: RefCell<Option<JSObject>>,
+    home_object: RefCell<Option<JSObject<'a>>>,
 }
 
-impl BCFuncPayload {
-    pub fn new(bytecode: Bytecode, var_refs: Vec<JSVarRef>) -> Box<Self> {
+impl<'a> BCFuncPayload<'a> {
+    pub fn new(bytecode: Bytecode<'a>, var_refs: Vec<JSVarRef<'a>>) -> Box<Self> {
         Box::new(BCFuncPayload {
             bytecode,
             var_refs: RefCell::new(var_refs),
@@ -118,22 +118,22 @@ impl BCFuncPayload {
 
     /// get function bytecode
     #[inline(always)]
-    pub const fn bytecode(&self) -> &Bytecode {
+    pub const fn bytecode(&self) -> &Bytecode<'a> {
         &self.bytecode
     }
 
     /// get function bytecode realm
     #[inline(always)]
-    pub fn realm(&self) -> Option<JSContext> {
+    pub fn realm(&self) -> Option<JSContext<'a>> {
         self.bytecode.realm()
     }
 
     #[inline(always)]
-    pub fn home_object(&self) -> Option<JSObject> {
+    pub fn home_object(&self) -> Option<JSObject<'a>> {
         self.home_object.borrow().clone()
     }
 
-    pub fn set_home_object(&self, obj: Option<JSObject>) {
+    pub fn set_home_object(&self, obj: Option<JSObject<'a>>) {
         *self.home_object.borrow_mut() = obj;
     }
 }
@@ -142,7 +142,7 @@ impl BCFuncPayload {
 /// which have bytecode.
 #[derive(Debug, Clone)]
 #[repr(transparent)]
-pub struct BCFunction(pub(super) JSObject);
+pub struct BCFunction<'a>(pub(super) JSObject<'a>);
 
 object_cast!(
     BCFunction,
@@ -152,7 +152,7 @@ object_cast!(
         | JS_CLASS_ASYNC_GENERATOR_FUNCTION
 );
 
-impl BCFunction {
+impl<'a> BCFunction<'a> {
     #[inline(always)]
     pub fn is_async(&self) -> bool {
         matches!(
@@ -171,11 +171,11 @@ impl BCFunction {
 
     /// get bcfunction payload
     #[inline]
-    pub fn payload(&self) -> &BCFuncPayload {
+    pub fn payload(&self) -> &BCFuncPayload<'a> {
         self.0.payload().bc_function().unwrap()
     }
 
-    pub fn method_set_home_object(&self, home_obj: Option<&JSObject>) {
+    pub fn method_set_home_object(&self, home_obj: Option<&JSObject<'a>>) {
         let fo = self.payload();
         if fo.bytecode().need_home_object() {
             fo.set_home_object(home_obj.cloned());
@@ -183,7 +183,7 @@ impl BCFunction {
     }
 }
 
-impl JSObject {
+impl<'a> JSObject<'a> {
     /// check if `self` is a function or a callable object.
     /// raise exception if not.
     pub fn ensure_function(&self, ctx: &JSContext) -> Result<&Self, i32> {
@@ -196,7 +196,7 @@ impl JSObject {
     }
 }
 
-impl JSValue {
+impl<'a> JSValue<'a> {
     /// check if value `self` is a function or a callable object.
     /// raise exception if not.
     pub fn ensure_function(&self, ctx: &JSContext) -> Result<&Self, i32> {
@@ -210,7 +210,10 @@ impl JSValue {
 }
 
 /// TODO: change func_obj type to JSObject
-pub fn JS_GetFunctionRealm(ctx: &JSContext, func_obj: &JSValue) -> Result<JSContext, i32> {
+pub fn JS_GetFunctionRealm<'a>(
+    ctx: &JSContext<'a>,
+    func_obj: &JSValue<'a>,
+) -> Result<JSContext<'a>, i32> {
     if !func_obj.is_object() {
         return Ok(ctx.clone());
     }
@@ -275,7 +278,12 @@ pub fn get_func_name(func: &JSValue) -> Option<String> {
 }
 
 /// define `length` and `name` properties on function object `func_obj`
-pub fn js_function_set_properties(ctx: &JSContext, func_obj: &JSObject, name: Atom, len: i32) {
+pub fn js_function_set_properties<'a>(
+    ctx: &JSContext<'a>,
+    func_obj: &JSObject<'a>,
+    name: Atom,
+    len: i32,
+) {
     let _ = func_obj.define_property_value(
         ctx,
         &JS_ATOM_length,
@@ -291,7 +299,7 @@ pub fn js_function_set_properties(ctx: &JSContext, func_obj: &JSObject, name: At
     );
 }
 
-pub fn js_function_proto(_: &JSContext, _: CallContext) -> JSResult {
+pub fn js_function_proto<'a>(_: &JSContext<'a>, _: CallContext<'_, 'a>) -> JSResult<'a> {
     Ok(JSValue::UNDEFINED)
 }
 
@@ -316,25 +324,25 @@ pub(crate) fn js_bytecode_function_mark(val: JSValue) {
 
 #[repr(transparent)]
 #[derive(Debug, Clone)]
-pub struct BytecodeFunction(JSObject);
+pub struct BytecodeFunction<'a>(JSObject<'a>);
 
 object_cast!(BytecodeFunction, JS_CLASS_BYTECODE_FUNCTION);
 
-impl BytecodeFunction {
+impl<'a> BytecodeFunction<'a> {
     #[inline]
-    pub fn payload(&self) -> &BCFuncPayload {
+    pub fn payload(&self) -> &BCFuncPayload<'a> {
         self.0.payload().bc_function().unwrap()
     }
 
     /// call bytecode function
     pub fn call(
         &self,
-        caller_ctx: &JSContext,
-        this_obj: &JSValue,
-        new_target: JSValue,
-        args: &[JSValue],
+        caller_ctx: &JSContext<'a>,
+        this_obj: &JSValue<'a>,
+        new_target: JSValue<'a>,
+        args: &[JSValue<'a>],
         flags: i32,
-    ) -> JSValue {
+    ) -> JSValue<'a> {
         let isa = self.payload();
         let bc = isa.bytecode();
 
@@ -412,7 +420,9 @@ impl BytecodeFunction {
         sf.var_base_ptr = unsafe { sf.local_buf.as_mut_ptr().add(arg_copy_num as usize) };
         sf.var_count = bc.var_count;
 
-        sf.prev_frame = caller_ctx.rt().cur_stack_frame;
+        sf.prev_frame = unsafe {
+            std::mem::transmute::<_, *mut Pin<StackFrame<'a>>>(caller_ctx.rt().cur_stack_frame)
+        };
         caller_ctx.rt_mut().cur_stack_frame = (sf as *mut StackFrame).cast();
 
         // to borrow short, clone home object
@@ -431,9 +441,11 @@ impl BytecodeFunction {
             false,
         );
 
-        debug_assert_eq!(
-            caller_ctx.rt().cur_stack_frame,
-            sf.prev_frame,
+        debug_assert!(
+            std::ptr::eq(
+                caller_ctx.rt().cur_stack_frame.cast::<c_void>(),
+                sf.prev_frame.cast::<c_void>()
+            ),
             "runtime current stack frame should be restored after running bytecodes"
         );
 
@@ -448,7 +460,10 @@ impl BytecodeFunction {
     /// ```js
     /// const f = new Function("a", "b", "return a+b")
     /// ```
-    pub fn class_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
+    pub fn class_constructor<'cc, 'b>(
+        ctx: &JSContext<'b>,
+        cc: CallContext<'cc, 'b>,
+    ) -> JSResult<'b> {
         debug_assert!((0..4).contains(&cc.magic()));
 
         // XXX: add a specific eval mode so that Function("}), ({") is rejected

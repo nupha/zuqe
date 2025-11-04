@@ -37,10 +37,10 @@ impl TwoNumbers {
     }
 
     /// if `coerce`is true, try coerce non-number, non-boolean value to number.
-    pub fn from_values(
-        ctx: &JSContext,
-        val1: &JSValue,
-        val2: &JSValue,
+    pub fn from_values<'a>(
+        ctx: &JSContext<'a>,
+        val1: &JSValue<'a>,
+        val2: &JSValue<'a>,
         coerce: bool,
     ) -> Result<Self, i32> {
         if let Some(n2) = Self::from_values0(val1, val2) {
@@ -69,7 +69,7 @@ impl TwoNumbers {
         }
     }
 
-    pub fn add(self) -> JSValue {
+    pub fn add(self) -> JSValue<'static> {
         match self {
             Self::Int(a, b) => {
                 JSValue::from(
@@ -80,14 +80,14 @@ impl TwoNumbers {
         }
     }
 
-    pub fn sub(self) -> JSValue {
+    pub fn sub<'a>(self) -> JSValue<'a> {
         match self {
             Self::Int(a, b) => JSValue::from(a - b),
             Self::Float(a, b) => JSValue::from(a - b),
         }
     }
 
-    pub fn mul(self) -> JSValue {
+    pub fn mul<'a>(self) -> JSValue<'a> {
         match self {
             Self::Int(a, b) => {
                 let n = (a as i64) * (b as i64);
@@ -101,14 +101,14 @@ impl TwoNumbers {
         }
     }
 
-    pub fn div(self) -> JSValue {
+    pub fn div<'a>(self) -> JSValue<'a> {
         match self {
             Self::Int(a, b) => JSValue::from((a as f64) / (b as f64)),
             Self::Float(a, b) => JSValue::from(a / b),
         }
     }
 
-    pub fn mod_(self) -> JSValue {
+    pub fn mod_<'a>(self) -> JSValue<'a> {
         match self {
             Self::Int(a, b) => {
                 if unlikely(b == 0) {
@@ -129,7 +129,7 @@ impl TwoNumbers {
         }
     }
 
-    pub fn pow(self) -> JSValue {
+    pub fn pow<'a>(self) -> JSValue<'a> {
         match self {
             Self::Int(a, b) => {
                 if b >= 0 {
@@ -150,7 +150,7 @@ impl TwoNumbers {
         }
     }
 
-    pub const fn shl(self) -> JSValue {
+    pub const fn shl<'a>(self) -> JSValue<'a> {
         let (a, b) = match self {
             Self::Int(v1, v2) => (v1, v2),
             Self::Float(v1, v2) => {
@@ -162,7 +162,7 @@ impl TwoNumbers {
         JSValue::Int(a << (b & 0x1f))
     }
 
-    pub const fn sar(self) -> JSValue {
+    pub const fn sar<'a>(self) -> JSValue<'a> {
         let (a, b) = match self {
             Self::Int(v1, v2) => (v1, v2),
             Self::Float(v1, v2) => {
@@ -174,7 +174,7 @@ impl TwoNumbers {
         JSValue::Int(a >> (b & 0x1f))
     }
 
-    pub fn shr(self) -> JSValue {
+    pub fn shr<'a>(self) -> JSValue<'a> {
         let (a, b) = match self {
             Self::Int(v1, v2) => (v1 as u32, v2 as u32),
             Self::Float(v1, v2) => {
@@ -186,21 +186,21 @@ impl TwoNumbers {
         JSValue::from(a >> (b & 0x1f))
     }
 
-    pub fn and(self) -> JSValue {
+    pub fn and<'a>(self) -> JSValue<'a> {
         match self {
             Self::Int(v1, v2) => JSValue::from((v1 as u32) & (v2 as u32)),
             Self::Float(v1, v2) => JSValue::from((v1.trunc() as u32) & (v2.trunc() as u32)),
         }
     }
 
-    pub fn or(self) -> JSValue {
+    pub fn or<'a>(self) -> JSValue<'a> {
         match self {
             Self::Int(v1, v2) => JSValue::from((v1 as u32) | (v2 as u32)),
             Self::Float(v1, v2) => JSValue::from((v1.trunc() as u32) | (v2.trunc() as u32)),
         }
     }
 
-    pub fn xor(self) -> JSValue {
+    pub fn xor<'a>(self) -> JSValue<'a> {
         match self {
             Self::Int(v1, v2) => JSValue::from((v1 as u32) ^ (v2 as u32)),
             Self::Float(v1, v2) => JSValue::from((v1.trunc() as u32) ^ (v2.trunc() as u32)),
@@ -216,7 +216,7 @@ pub(super) enum UnaryOp {
 
 impl UnaryOp {
     /// `val` is consumed
-    pub fn new(ctx: &JSContext, val: JSValue, allow_float: bool) -> Result<Self, i32> {
+    pub fn new<'a>(ctx: &JSContext<'a>, val: JSValue<'a>, allow_float: bool) -> Result<Self, i32> {
         match val {
             JSValue::Int(i) => Ok(UnaryOp::Int(i)),
             JSValue::Float64(f) if allow_float => Ok(UnaryOp::Float(f)),
@@ -236,14 +236,14 @@ impl UnaryOp {
 
     /// a shortcut for ::new(ctx, op1, false)
     #[inline(always)]
-    pub fn new_int(ctx: &JSContext, op1: JSValue) -> Result<Self, i32> {
+    pub fn new_int<'a>(ctx: &JSContext<'a>, op1: JSValue<'a>) -> Result<Self, i32> {
         match op1 {
             JSValue::Int(i) => Ok(Self::Int(i)),
             _ => op1.to_i32(ctx).map(Self::Int),
         }
     }
 
-    pub fn neg(self) -> JSValue {
+    pub fn neg<'a>(self) -> JSValue<'a> {
         match self {
             UnaryOp::Int(a) => {
                 if unlikely(a == 0) {
@@ -269,14 +269,14 @@ impl UnaryOp {
         }
     }
 
-    pub const fn plus(self) -> JSValue {
+    pub const fn plus<'a>(self) -> JSValue<'a> {
         match self {
             UnaryOp::Int(a) => JSValue::Int(a),
             UnaryOp::Float(a) => JSValue::Float64(a),
         }
     }
 
-    pub fn inc(self) -> JSValue {
+    pub fn inc<'a>(self) -> JSValue<'a> {
         match self {
             UnaryOp::Int(a) => {
                 if unlikely(a == i32::MAX) {
@@ -289,7 +289,7 @@ impl UnaryOp {
         }
     }
 
-    pub fn dec(self) -> JSValue {
+    pub fn dec<'a>(self) -> JSValue<'a> {
         match self {
             UnaryOp::Int(a) => {
                 if unlikely(a == i32::MIN) {
@@ -302,7 +302,7 @@ impl UnaryOp {
         }
     }
 
-    pub fn not(self) -> JSValue {
+    pub fn not<'a>(self) -> JSValue<'a> {
         match self {
             Self::Int(a) => JSValue::Int(!a),
             _ => unreachable!(),
@@ -311,11 +311,11 @@ impl UnaryOp {
 }
 
 #[inline]
-pub(super) fn op_binary_logic(
-    ctx: &JSContext,
+pub(super) fn op_binary_logic<'a>(
+    ctx: &JSContext<'a>,
     opcode: OpCode,
-    sp: *mut JSValue,
-) -> Result<*mut JSValue, i32> {
+    sp: *mut JSValue<'a>,
+) -> Result<*mut JSValue<'a>, i32> {
     let res = TwoNumbers::from_values(
         ctx,
         &unsafe { std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED) },
@@ -363,13 +363,13 @@ pub enum StrictEqMode {
     JS_EQ_SAME_VALUE_ZERO,
 }
 
-impl JSValue {
+impl<'a> JSValue<'a> {
     /// arithmatic compare of two values.
     /// returns None only if value converted to NaN
     pub fn arith_cmp(
         &self,
-        ctx: &JSContext,
-        other: &JSValue,
+        ctx: &JSContext<'a>,
+        other: &JSValue<'a>,
     ) -> Result<Option<std::cmp::Ordering>, i32> {
         // fast path
         if let Some(n2) = TwoNumbers::from_values0(self, other) {
@@ -411,7 +411,7 @@ impl JSValue {
     }
 
     /// arithmatic add of two values.
-    pub fn arith_add(ctx: &JSContext, op1: &Self, op2: &Self) -> JSResult {
+    pub fn arith_add(ctx: &JSContext<'a>, op1: &Self, op2: &Self) -> JSResult<'a> {
         let mut op1 = op1.clone();
         let mut op2 = op2.clone();
 
@@ -451,39 +451,39 @@ impl JSValue {
     }
 
     #[inline(always)]
-    pub fn arith_sub(ctx: &JSContext, op1: &Self, op2: &Self) -> JSResult {
+    pub fn arith_sub(ctx: &JSContext<'a>, op1: &Self, op2: &Self) -> JSResult<'a> {
         TwoNumbers::from_values(ctx, op1, op2, true).map(|bop| bop.sub())
     }
 
     #[inline(always)]
-    pub fn arith_mul(ctx: &JSContext, op1: &Self, op2: &Self) -> JSResult {
+    pub fn arith_mul(ctx: &JSContext<'a>, op1: &Self, op2: &Self) -> JSResult<'a> {
         TwoNumbers::from_values(ctx, op1, op2, true).map(|bop| bop.mul())
     }
 
     #[inline(always)]
-    pub fn arith_div(ctx: &JSContext, op1: &Self, op2: &Self) -> JSResult {
+    pub fn arith_div(ctx: &JSContext<'a>, op1: &Self, op2: &Self) -> JSResult<'a> {
         TwoNumbers::from_values(ctx, op1, op2, true).map(|bop| bop.div())
     }
 
     #[inline(always)]
-    pub fn arith_mod(ctx: &JSContext, op1: &Self, op2: &Self) -> JSResult {
+    pub fn arith_mod(ctx: &JSContext<'a>, op1: &Self, op2: &Self) -> JSResult<'a> {
         TwoNumbers::from_values(ctx, op1, op2, true).map(|bop| bop.mod_())
     }
 
     #[inline(always)]
-    pub fn arith_pow(ctx: &JSContext, op1: &Self, op2: &Self) -> JSResult {
+    pub fn arith_pow(ctx: &JSContext<'a>, op1: &Self, op2: &Self) -> JSResult<'a> {
         TwoNumbers::from_values(ctx, op1, op2, true).map(|bop| bop.pow())
     }
 
     /// test arithmatical equality (no-strict-eq): self == other?
     #[inline(always)]
-    pub fn arith_eq(&self, ctx: &JSContext, other: &Self) -> Result<bool, i32> {
+    pub fn arith_eq(&self, ctx: &JSContext<'a>, other: &Self) -> Result<bool, i32> {
         js_eq(ctx, self, other)
     }
 
     /// compare JSValues equality in given mode.
     /// Note: `self` and `other` are not consumed.
-    pub(crate) fn strict_eq_with_mode(&self, other: &JSValue, eq_mode: StrictEqMode) -> bool {
+    pub(crate) fn strict_eq_with_mode(&self, other: &Self, eq_mode: StrictEqMode) -> bool {
         if std::mem::discriminant(self) == std::mem::discriminant(other) {
             match (self, other) {
                 (JSValue::Float64(a), JSValue::Int(b)) => cmp_f64(*a, *b as f64, eq_mode),
@@ -505,24 +505,24 @@ impl JSValue {
 
     /// test strict equality (strict-eq): self === other?
     #[inline(always)]
-    pub fn strict_eq(&self, other: &JSValue) -> bool {
+    pub fn strict_eq(&self, other: &Self) -> bool {
         self.strict_eq_with_mode(other, StrictEqMode::JS_EQ_STRICT)
     }
 
     /// test if two values are strictly same. (-0!=0)
     #[inline(always)]
-    pub fn is_same(&self, other: &JSValue) -> bool {
+    pub fn is_same(&self, other: &Self) -> bool {
         self.strict_eq_with_mode(other, StrictEqMode::JS_EQ_SAME_VALUE)
     }
 
     /// test if two values are strictly same. (-0==0)
     #[inline(always)]
-    pub fn is_same0(&self, other: &JSValue) -> bool {
+    pub fn is_same0(&self, other: &Self) -> bool {
         self.strict_eq_with_mode(other, StrictEqMode::JS_EQ_SAME_VALUE_ZERO)
     }
 
     /// get order of `self` and `other`.
-    pub fn sort_cmp(&self, ctx: &JSContext, other: &Self) -> Result<Ordering, i32> {
+    pub fn sort_cmp(&self, ctx: &JSContext<'a>, other: &Self) -> Result<Ordering, i32> {
         let mut v1 = self.clone();
         let mut v2 = other.clone();
 
@@ -623,7 +623,7 @@ impl JSValue {
 }
 
 /// test arith equality (no-strict eq): val1 == val2
-fn js_eq(ctx: &JSContext, val1: &JSValue, val2: &JSValue) -> Result<bool, i32> {
+fn js_eq<'a>(ctx: &JSContext<'a>, val1: &JSValue<'a>, val2: &JSValue<'a>) -> Result<bool, i32> {
     if std::mem::discriminant(val1) == std::mem::discriminant(val2) {
         return Ok(val1 == val2);
     } else if let Some(n2) = TwoNumbers::from_values0(val1, val2) {

@@ -11,12 +11,12 @@ use crate::{
     value::JSValue,
 };
 
-impl JSContext {
+impl<'a> JSContext<'a> {
     /// construct a reference to specified global variable
     pub(crate) fn build_global_varref(
         &self,
         prop: &Atom,
-    ) -> Result<Option<(JSValue, JSValue)>, i32> {
+    ) -> Result<Option<(JSValue<'a>, JSValue<'a>)>, i32> {
         // no exotic behavior is possible in global_var_obj
         let gvobj = self.global_var_obj();
 
@@ -57,7 +57,7 @@ impl JSContext {
     pub fn define_global_function(
         &self,
         prop: &Atom,
-        func: JSValue,
+        func: JSValue<'a>,
         def_flags: u32,
     ) -> Result<bool, i32> {
         let gobj = self.global_obj();
@@ -150,7 +150,7 @@ impl JSContext {
         Ok(())
     }
 
-    pub fn get_global_var(&self, prop: &Atom, throw_ref_error: bool) -> JSResult {
+    pub fn get_global_var(&self, prop: &Atom, throw_ref_error: bool) -> JSResult<'a> {
         // no exotic behavior is possible in global_var_obj
         let gvobj = self.global_var_obj();
         if let Some((idx, _)) = gvobj.find_shape_property(prop) {
@@ -188,7 +188,7 @@ impl JSContext {
     /// * 0: normal variable write
     /// * 1: initialize lexical variable
     /// * 2: normal variable write, strict check was done before
-    pub fn set_global_var(&self, prop: &Atom, val: JSValue, flag: u32) -> Result<bool, i32> {
+    pub fn set_global_var(&self, prop: &Atom, val: JSValue<'a>, flag: u32) -> Result<bool, i32> {
         // no exotic behavior is possible in global_var_obj
         let gvobj = self.global_var_obj();
 

@@ -1,5 +1,6 @@
 use std::{
     cell::RefCell,
+    collections::VecDeque,
     ffi::c_void,
     ops::DerefMut,
     pin::Pin,
@@ -29,6 +30,7 @@ use crate::{
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_WRITABLE, JSObject, JSShape, ObjectPayload,
     },
+    promise::Job,
     regexp::RegExpData,
     runtime::JSRuntime,
     stack_frame::StackFrame,
@@ -39,9 +41,9 @@ use crate::{
 ///
 /// Represents a JavaScript execution environment with its own global object,
 /// stack, and execution state. Each context is associated with a runtime.
-pub struct JSContextInner {
+pub struct JSContextInner<'a> {
     /// pointer to runtime
-    pub rt: NonNull<JSRuntime>,
+    pub rt: NonNull<JSRuntime<'a>>,
 
     pub flags: u8,
 
@@ -52,34 +54,34 @@ pub struct JSContextInner {
     pub binary_object_size: i32,
 
     /// Initial shape for Array objects
-    pub array_shape: Option<JSShape>,
+    pub array_shape: Option<JSShape<'a>>,
 
     /// Class prototypes slot.
     /// element could be object or null, default to null.
     /// TODO: use Vec<Option<JSObject>> instead
-    pub class_proto: Vec<JSValue>,
+    pub class_proto: Vec<JSValue<'a>>,
 
-    pub(crate) iterator_proto: Option<JSObject>,
-    pub(crate) async_iterator_proto: Option<JSObject>,
-    pub(crate) native_error_proto: [JSValue; STD_ERROR_COUNT],
+    pub(crate) iterator_proto: Option<JSObject<'a>>,
+    pub(crate) async_iterator_proto: Option<JSObject<'a>>,
+    pub(crate) native_error_proto: [JSValue<'a>; STD_ERROR_COUNT],
 
-    pub function_ctor: JSValue,
-    pub array_ctor: JSValue,
-    pub regexp_ctor: JSValue,
-    pub promise_ctor: JSValue,
-    pub throw_type_error: JSValue,
-    pub array_proto_values: JSValue,
+    pub function_ctor: JSValue<'a>,
+    pub array_ctor: JSValue<'a>,
+    pub regexp_ctor: JSValue<'a>,
+    pub promise_ctor: JSValue<'a>,
+    pub throw_type_error: JSValue<'a>,
+    pub array_proto_values: JSValue<'a>,
 
     /// the function of eval().
-    pub eval_func: JSValue,
+    pub eval_func: JSValue<'a>,
 
     /// 传统的全局对象（类似ES3的全局环境），存储普通的全局变量（如var声明的变量）
     /// 默认WRITABLE，权限更宽松
-    pub global_obj: JSValue, // TODO: use JSObject instead
+    pub global_obj: JSValue<'a>, // TODO: use JSObject instead
 
     /// let/const或特殊标记(DEFINE_GLOBAL_LEX_VAR)定义的变量
     /// 强调CONFIGURABLE和约束写权限, 禁止复杂属性行为（如代理式操作）
-    pub global_var_obj: JSValue, // TODO: use JSObject instead
+    pub global_var_obj: JSValue<'a>, // TODO: use JSObject instead
 
     /// Random number generator state
     pub random_state: u64,
@@ -88,7 +90,7 @@ pub struct JSContextInner {
     pub interrupt_counter: i32,
 
     /// List of loaded modules
-    pub loaded_modules: Vec<ModuleDef>,
+    pub loaded_modules: Vec<ModuleDef<'a>>,
 
     /// Regexp compilation callback
     #[deprecated(note = "unused")]
@@ -106,10 +108,13 @@ pub struct JSContextInner {
     pub stack_limit: usize,
     pub stack_pointer: usize,
     pub stack_size: usize,
-    pub stack_frame: *mut Pin<StackFrame>,
+    pub stack_frame: *mut Pin<StackFrame<'a>>,
+
+    /// queued context jobs
+    pub(crate) job_list: VecDeque<Job<'a>>,
 }
 
-impl Drop for JSContextInner {
+impl Drop for JSContextInner<'_> {
     fn drop(&mut self) {
         #[cfg(debug_assertions)]
         println!("JSContextInner::drop({self:p})");
@@ -118,8 +123,8 @@ impl Drop for JSContextInner {
     }
 }
 
-impl JSContextInner {
-    pub fn new(rt: &mut JSRuntime) -> Result<Self, i32> {
+impl<'a> JSContextInner<'a> {
+    pub fn new(rt: &mut JSRuntime<'a>) -> Result<Self, i32> {
         let class_proto = {
             let n = rt.class_registry.len();
             let mut lst = Vec::<JSValue>::new();
@@ -165,6 +170,7 @@ impl JSContextInner {
             stack_size: 0,
             stack_frame: std::ptr::null_mut(),
 
+            job_list: VecDeque::new(),
             user_opaque: std::ptr::null_mut(),
         };
 
@@ -177,17 +183,17 @@ impl JSContextInner {
     }
 
     #[inline(always)]
-    pub const fn rt_ptr(&self) -> NonNull<JSRuntime> {
+    pub const fn rt_ptr(&self) -> NonNull<JSRuntime<'a>> {
         self.rt
     }
 
     #[inline(always)]
-    pub const fn rt(&self) -> &JSRuntime {
+    pub const fn rt(&self) -> &JSRuntime<'a> {
         unsafe { self.rt.as_ref() }
     }
 
     #[inline(always)]
-    pub const fn rt_mut(&mut self) -> &mut JSRuntime {
+    pub const fn rt_mut(&mut self) -> &mut JSRuntime<'a> {
         unsafe { self.rt.as_mut() }
     }
 
@@ -259,21 +265,21 @@ impl JSContextInner {
 
 #[repr(transparent)]
 #[derive(Clone)]
-pub struct JSContext(pub Rc<RefCell<JSContextInner>>);
+pub struct JSContext<'a>(pub Rc<RefCell<JSContextInner<'a>>>);
 
-impl PartialEq for JSContext {
+impl PartialEq for JSContext<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.id() == other.id()
     }
 }
 
-impl std::fmt::Debug for JSContext {
+impl std::fmt::Debug for JSContext<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "<JSContext {:p}>", self.id() as *const c_void)
     }
 }
 
-impl JSContext {
+impl<'a> JSContext<'a> {
     #[inline]
     pub fn id(&self) -> usize {
         self.0.borrow().id()
@@ -285,32 +291,32 @@ impl JSContext {
 
     /// Returns the runtime prt
     #[inline]
-    pub fn rt_ptr(&self) -> NonNull<JSRuntime> {
+    pub fn rt_ptr(&self) -> NonNull<JSRuntime<'a>> {
         self.0.borrow().rt_ptr()
     }
 
     /// Returns the runtime reference
     #[inline(always)]
-    pub fn rt(&self) -> &JSRuntime {
+    pub fn rt(&self) -> &JSRuntime<'a> {
         unsafe { self.rt_ptr().as_ref() }
     }
 
     /// Returns the runtime mut reference
     #[allow(clippy::mut_from_ref)]
     #[inline(always)]
-    pub fn rt_mut(&self) -> &mut JSRuntime {
+    pub fn rt_mut(&self) -> &mut JSRuntime<'a> {
         unsafe { self.rt_ptr().as_mut() }
     }
 
     /// get global object
     #[inline]
-    pub fn global_obj(&self) -> JSObject {
+    pub fn global_obj(&self) -> JSObject<'a> {
         unsafe { self.0.borrow().global_obj.as_object_unchecked().clone() }
     }
 
     /// get global var object
     #[inline]
-    pub fn global_var_obj(&self) -> JSObject {
+    pub fn global_var_obj(&self) -> JSObject<'a> {
         unsafe { self.0.borrow().global_var_obj.as_object_unchecked().clone() }
     }
 
@@ -318,7 +324,7 @@ impl JSContext {
     ///
     /// # Safety
     /// The caller must ensure the frame pointer is valid
-    pub fn push_stack_frame(&mut self, frame: *mut Pin<StackFrame>) {
+    pub fn push_stack_frame(&mut self, frame: *mut Pin<StackFrame<'a>>) {
         let mut ctx = self.0.borrow_mut();
 
         if ctx.stack_frame.is_null() {
@@ -335,7 +341,7 @@ impl JSContext {
     ///
     /// # Safety
     /// The caller must ensure no references to the popped frame remain
-    pub fn pop_stack_frame(&mut self) -> *mut Pin<StackFrame> {
+    pub fn pop_stack_frame(&mut self) -> *mut Pin<StackFrame<'a>> {
         let mut ctx = self.0.borrow_mut();
 
         if ctx.stack_frame.is_null() {
@@ -347,7 +353,7 @@ impl JSContext {
         }
     }
 
-    pub fn downgrade(&self) -> JSContextWeakref {
+    pub fn downgrade(&self) -> JSContextWeakref<'a> {
         JSContextWeakref(Rc::downgrade(&self.0))
     }
 
@@ -461,23 +467,23 @@ impl JSContext {
 
 #[repr(transparent)]
 #[derive(Debug, Clone)]
-pub struct JSContextWeakref(Weak<RefCell<JSContextInner>>);
+pub struct JSContextWeakref<'a>(Weak<RefCell<JSContextInner<'a>>>);
 
-impl Default for JSContextWeakref {
+impl<'a> Default for JSContextWeakref<'a> {
     fn default() -> Self {
         Self(Weak::new())
     }
 }
 
-impl JSContextWeakref {
-    pub fn upgrade(&self) -> Option<JSContext> {
+impl<'a> JSContextWeakref<'a> {
+    pub fn upgrade(&self) -> Option<JSContext<'a>> {
         self.0.upgrade().map(JSContext)
     }
 }
 
 /* only valid inside C functions */
-pub(crate) fn JS_GetActiveFunction(ctx: &JSContext) -> &JSValue {
-    unsafe { &(*ctx.rt().cur_stack_frame.cast::<StackFrame>()).cur_func }
+pub(crate) fn JS_GetActiveFunction<'a>(ctx: &JSContext<'a>) -> JSValue<'a> {
+    unsafe { (&(*ctx.rt().cur_stack_frame.cast::<StackFrame<'a>>()).cur_func).clone() }
 }
 
 pub const JS_MODE_STRICT: i32 = 1 << 0;
@@ -506,13 +512,13 @@ pub enum AtomicOp {
     Xor,
 }
 
-impl JSRuntime {
+impl<'a> JSRuntime<'a> {
     /// Creates JavaScript context with customized setup.
     pub(super) fn create_context_raw(
         &mut self,
-        setup: impl FnOnce(&JSContext) -> Result<(), i32>,
-    ) -> Result<JSContext, i32> {
-        let inner = JSContextInner::new(self)?;
+        setup: impl FnOnce(&JSContext<'a>) -> Result<(), i32>,
+    ) -> Result<JSContext<'a>, i32> {
+        let inner = JSContextInner::<'a>::new(self)?;
         let ctx = JSContext(Rc::new(RefCell::new(inner)));
 
         ctx.init_core_objects()?;
@@ -529,59 +535,59 @@ impl JSRuntime {
     pub(super) fn create_context(
         &mut self,
         setup: impl FnOnce(&JSContext) -> Result<(), i32>,
-    ) -> Result<JSContext, i32> {
+    ) -> Result<JSContext<'a>, i32> {
         self.create_context_raw(|cx| {
             cx.init_base_classes();
             setup(cx)
         })
     }
 
-    /// Creates new context initialized with ECMA standard classes
-    #[deprecated]
-    pub(crate) fn create_context_ecma_v1(&mut self) -> Result<JSContext, i32> {
-        self.create_context(|ctx| {
-            ctx.use_class(JS_CLASS_PROXY)?;
+    // /// Creates new context initialized with ECMA standard classes
+    // #[deprecated]
+    // pub(crate) fn create_context_ecma_v1(&mut self) -> Result<JSContext<'static>, i32> {
+    //     self.create_context(|ctx| {
+    //         ctx.use_class(JS_CLASS_PROXY)?;
 
-            // typed array
-            ctx.use_classes(&[JS_CLASS_ARRAY_BUFFER, JS_CLASS_SHARED_ARRAY_BUFFER])?;
-            ctx.use_classes(&(JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).collect::<Vec<_>>())?;
-            ctx.use_class(JS_CLASS_DATAVIEW)?;
+    //         // typed array
+    //         ctx.use_classes(&[JS_CLASS_ARRAY_BUFFER, JS_CLASS_SHARED_ARRAY_BUFFER])?;
+    //         ctx.use_classes(&(JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).collect::<Vec<_>>())?;
+    //         ctx.use_class(JS_CLASS_DATAVIEW)?;
 
-            // async
-            ctx.use_classes(&[
-                JS_CLASS_PROMISE,
-                JS_CLASS_ASYNC_FUNCTION,
-                JS_CLASS_ASYNC_GENERATOR,
-                JS_CLASS_ASYNC_GENERATOR_FUNCTION,
-                JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
-            ])?;
+    //         // async
+    //         ctx.use_classes(&[
+    //             JS_CLASS_PROMISE,
+    //             JS_CLASS_ASYNC_FUNCTION,
+    //             JS_CLASS_ASYNC_GENERATOR,
+    //             JS_CLASS_ASYNC_GENERATOR_FUNCTION,
+    //             JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
+    //         ])?;
 
-            // mapset
-            ctx.use_classes(&[
-                JS_CLASS_MAP,
-                JS_CLASS_SET,
-                JS_CLASS_WEAKMAP,
-                JS_CLASS_WEAKSET,
-                JS_CLASS_MAP_ITERATOR,
-                JS_CLASS_SET_ITERATOR,
-            ])?;
+    //         // mapset
+    //         ctx.use_classes(&[
+    //             JS_CLASS_MAP,
+    //             JS_CLASS_SET,
+    //             JS_CLASS_WEAKMAP,
+    //             JS_CLASS_WEAKSET,
+    //             JS_CLASS_MAP_ITERATOR,
+    //             JS_CLASS_SET_ITERATOR,
+    //         ])?;
 
-            // regexp
-            ctx.use_classes(&[JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR])?;
-            // date
-            ctx.use_class(JS_CLASS_DATE)?;
+    //         // regexp
+    //         ctx.use_classes(&[JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR])?;
+    //         // date
+    //         ctx.use_class(JS_CLASS_DATE)?;
 
-            //ctx.intrinsic_proxy();
-            //ctx.intrinsic_typed_arrays();
-            //ctx.intrinsic_async();
-            //ctx.intrinsic_mapset();
-            //ctx.intrinsic_regexp();
-            //ctx.intrinsic_date();
+    //         //ctx.intrinsic_proxy();
+    //         //ctx.intrinsic_typed_arrays();
+    //         //ctx.intrinsic_async();
+    //         //ctx.intrinsic_mapset();
+    //         //ctx.intrinsic_regexp();
+    //         //ctx.intrinsic_date();
 
-            ctx.intrinsic_math(); // Math: lazy init object
-            ctx.intrinsic_json(); // JSON: lazy init object
+    //         ctx.intrinsic_math(); // Math: lazy init object
+    //         ctx.intrinsic_json(); // JSON: lazy init object
 
-            Ok(())
-        })
-    }
+    //         Ok(())
+    //     })
+    // }
 }

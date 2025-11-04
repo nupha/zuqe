@@ -5,11 +5,11 @@ use crate::{
 
 use super::state::JSParseState;
 
-impl JSParseState<'_> {
+impl<'s> JSParseState<'s> {
     /// given an exception value, build traceback and throw it as current exception.
     /// old exception will be freed.
     #[cold]
-    pub fn throw(&self, exc: JSValue) {
+    pub fn throw(&self, exc: JSValue<'s>) {
         let backtrace_flags =
             if !self.cur_func_def.is_null() && self.cur_func().attrs.backtrace_barrier {
                 JS_BACKTRACE_FLAG_SINGLE_LEVEL

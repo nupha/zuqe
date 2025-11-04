@@ -13,10 +13,10 @@ pub use {dump::*, gcobj::*, obj::*, payload::*, property::*, shape::*};
 #[macro_export]
 macro_rules! object_cast {
     ($ty:ident, $($class_id:tt)|+) => {
-        impl TryFrom<JSObject> for $ty {
+        impl<'a> TryFrom<JSObject<'a>> for $ty<'a> {
             type Error = i32;
 
-            fn try_from(obj: JSObject) -> Result<Self, Self::Error> {
+            fn try_from(obj: JSObject<'a>) -> Result<Self, Self::Error> {
                 if matches!(obj.class_id(), $($class_id)|+) {
                     Ok(Self(obj))
                 } else {
@@ -25,10 +25,10 @@ macro_rules! object_cast {
             }
         }
 
-        impl TryFrom<JSValue> for $ty {
+        impl<'a> TryFrom<JSValue<'a>> for $ty<'a> {
             type Error = i32;
 
-            fn try_from(value: JSValue) -> Result<Self, Self::Error> {
+            fn try_from(value: JSValue<'a>) -> Result<Self, Self::Error> {
                 if let JSValue::Object(o) = value {
                     o.try_into()
                 } else {
@@ -37,22 +37,22 @@ macro_rules! object_cast {
             }
         }
 
-        impl From<$ty> for JSObject {
+        impl<'a> From<$ty<'a>> for JSObject<'a> {
             #[inline(always)]
-            fn from(value: $ty) -> Self {
+            fn from(value: $ty<'a>) -> Self {
                 value.0
             }
         }
 
-        impl From<$ty> for JSValue {
+        impl<'a> From<$ty<'a>> for JSValue<'a> {
             #[inline(always)]
-            fn from(value: $ty) -> Self {
+            fn from(value: $ty<'a>) -> Self {
                 Self::Object(value.into())
             }
         }
 
-        impl std::ops::Deref for $ty {
-            type Target = JSObject;
+        impl<'a> std::ops::Deref for $ty<'a> {
+            type Target = JSObject<'a>;
 
             #[inline(always)]
             fn deref(&self) -> &Self::Target {
@@ -60,29 +60,29 @@ macro_rules! object_cast {
             }
         }
 
-        impl JSObject {
+        impl<'a> JSObject<'a> {
             paste::paste! {
                 #[inline]
-                pub fn [<as_ $ty>](&self) -> Option<&$ty>{
+                pub fn [<as_ $ty>](&self) -> Option<&$ty<'a>>{
                     if matches!(self.class_id(), $($class_id)|+) {
-                        Some(unsafe { &*(self as *const Self as *const $ty) })
+                        Some(unsafe { &*(self as *const Self as *const _) })
                     } else {
                         None
                     }
                 }
 
                 #[inline(always)]
-                pub unsafe fn [<as_ $ty _unchecked>](&self) -> &[<$ty>] {
+                pub unsafe fn [<as_ $ty _unchecked>](&self) -> &$ty<'a> {
                     debug_assert!(matches!(self.class_id(), $($class_id)|+));
-                    unsafe { &*(self as *const Self as *const $ty) }
+                    unsafe { &*(self as *const Self as *const _) }
                 }
             }
         }
 
-        impl JSValue {
+        impl<'a> JSValue<'a> {
             paste::paste! {
                 #[inline]
-                pub fn [<as_object_ $ty>](&self) -> Option<&$ty>{
+                pub fn [<as_object_ $ty>](&self) -> Option<&$ty<'a>>{
                     if let Some(o) = self.as_object(){
                         o.[<as_ $ty>]()
                     } else {

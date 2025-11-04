@@ -21,10 +21,10 @@ pub fn JS_DumpObjectHeader() {
     );
 }
 
-impl JSRuntime {
+impl<'a> JSRuntime<'a> {
     /// Adds a GC object to the garbage collector's tracking list
     /// Initializes the object's mark and type, then adds it to the GC object list
-    pub fn gc_add_object(&mut self, id: usize, gcob: GCObjectWeakref) {
+    pub fn gc_add_object(&mut self, id: usize, gcob: GCObjectWeakref<'a>) {
         self.gc_obj_list.insert(id, gcob);
     }
 

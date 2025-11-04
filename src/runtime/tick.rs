@@ -1,6 +1,6 @@
 use super::JSRuntime;
 
-impl JSRuntime {
+impl<'a> JSRuntime<'a> {
     pub fn tick(&mut self) -> Result<bool, i32> {
         if self.gc_req {
             // FIXME: gc is buggy.
@@ -11,6 +11,6 @@ impl JSRuntime {
             self.gc_req = false;
         }
 
-        Ok(self.execute_job_once().map_err(|_| -1)?.is_some())
+        Ok(self.execute_job().map_err(|_| -1)?.is_some())
     }
 }

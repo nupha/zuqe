@@ -24,8 +24,8 @@ pub enum JSIteratorKindEnum {
 }
 
 #[derive(Debug)]
-pub struct ForInIterPayload {
-    pub obj: JSValue,
+pub struct ForInIterPayload<'a> {
+    pub obj: JSValue<'a>,
     /// obj is an array?
     pub is_array: bool,
 
@@ -41,10 +41,10 @@ pub struct ForInIterPayload {
     pub prop_count: u32,
 }
 
-impl ForInIterPayload {
+impl<'a> ForInIterPayload<'a> {
     /// create new object with ForInIterPayload payload for given value.
     /// the new object is of CLASS_FOR_IN_ITERATOR class.
-    pub fn create(ctx: &JSContext, val: JSValue) -> Result<JSObject, i32> {
+    pub fn create(ctx: &JSContext<'a>, val: JSValue<'a>) -> Result<JSObject<'a>, i32> {
         let obj: JSValue = match val {
             JSValue::Object(_) => val,
             JSValue::NULL | JSValue::UNDEFINED => val,
@@ -91,7 +91,7 @@ impl ForInIterPayload {
 
     /// build property-enumeration-list for current prototype.
     /// returns true if the enumeration is finished.
-    pub fn prepare_prototype_chain_enum(&mut self, ctx: &JSContext) -> Result<bool, i32> {
+    pub fn prepare_prototype_chain_enum(&mut self, ctx: &JSContext<'a>) -> Result<bool, i32> {
         // fast path: check if there are enumerable properties in the prototype chain
         let mut cur_obj = unsafe { self.obj.as_object_unchecked().clone() };
         loop {
@@ -148,15 +148,15 @@ impl ForInIterPayload {
 }
 
 #[derive(Debug, Clone)]
-pub struct ObjectIter {
-    pub(crate) target: JSObject,
-    pub(crate) next_method: JSValue,
-    pub(crate) ctx: JSContext,
+pub struct ObjectIter<'a> {
+    pub(crate) target: JSObject<'a>,
+    pub(crate) next_method: JSValue<'a>,
+    pub(crate) ctx: JSContext<'a>,
     pub(crate) done: bool,
 }
 
-impl Iterator for ObjectIter {
-    type Item = JSResult;
+impl<'a> Iterator for ObjectIter<'a> {
+    type Item = JSResult<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.done {
@@ -172,7 +172,7 @@ impl Iterator for ObjectIter {
     }
 }
 
-impl Drop for ObjectIter {
+impl<'a> Drop for ObjectIter<'a> {
     fn drop(&mut self) {
         if !self.done {
             let has_exc = !self.ctx.exception().is_undefined_or_null();
@@ -181,23 +181,23 @@ impl Drop for ObjectIter {
     }
 }
 
-impl From<ObjectIter> for JSObject {
-    fn from(mut value: ObjectIter) -> Self {
+impl<'a> From<ObjectIter<'a>> for JSObject<'a> {
+    fn from(mut value: ObjectIter<'a>) -> Self {
         value.done = true; // avoid close on drop
         value.target.clone()
     }
 }
 
-impl From<ObjectIter> for JSValue {
-    fn from(value: ObjectIter) -> Self {
+impl<'a> From<ObjectIter<'a>> for JSValue<'a> {
+    fn from(value: ObjectIter<'a>) -> Self {
         Self::Object(value.into())
     }
 }
 
-impl ObjectIter {
+impl<'a> ObjectIter<'a> {
     /// `next` is the name of method used to fetch the __next__ value when iterating.
     /// this atom is not consumed.
-    pub fn new(ctx: &JSContext, target: JSObject, next: &Atom) -> Result<Self, i32> {
+    pub fn new(ctx: &JSContext<'a>, target: JSObject<'a>, next: &Atom) -> Result<Self, i32> {
         let next_method = if !next.is_null() {
             target.get_property(ctx, next)?
         } else {
@@ -214,11 +214,11 @@ impl ObjectIter {
 
     /// apply `method` on `obj` to evaluate next iterate value
     pub(super) fn do_apply_next_method(
-        ctx: &JSContext,
-        obj: &JSObject,
-        method: &JSValue,
-        args: &[JSValue],
-    ) -> Result<(JSValue, IteratorState), i32> {
+        ctx: &JSContext<'a>,
+        obj: &JSObject<'a>,
+        method: &JSValue<'a>,
+        args: &[JSValue<'a>],
+    ) -> Result<(JSValue<'a>, IteratorState), i32> {
         if let JSValue::Object(p) = method
             && let ObjectPayload::C_FUNCTION(nfun) = p.payload()
         {
@@ -266,11 +266,11 @@ impl ObjectIter {
     /// get next value of iterator by calling specified `method`.
     /// returns: (next_value, is_done)
     pub(crate) fn fetch_next(
-        ctx: &JSContext,
-        obj: &JSObject,
-        method: &JSValue,
-        args: &[JSValue],
-    ) -> Result<(JSValue, bool), i32> {
+        ctx: &JSContext<'a>,
+        obj: &JSObject<'a>,
+        method: &JSValue<'a>,
+        args: &[JSValue<'a>],
+    ) -> Result<(JSValue<'a>, bool), i32> {
         match Self::do_apply_next_method(ctx, obj, method, args)? {
             (ret, state @ (IteratorState::NotDone | IteratorState::Done)) => {
                 Ok((ret, state == IteratorState::Done))
@@ -295,8 +295,8 @@ impl ObjectIter {
 
     /// pre-close before iterate is done, calling `return` method if available.
     pub(crate) fn do_close(
-        ctx: &JSContext,
-        obj: &JSObject,
+        ctx: &JSContext<'a>,
+        obj: &JSObject<'a>,
         has_exception: bool,
     ) -> Result<(), i32> {
         let pending_exc = if has_exception {
@@ -342,7 +342,7 @@ impl ObjectIter {
     }
 }
 
-impl JSValue {
+impl<'a> JSValue<'a> {
     /// Get `self`'s iterator object by calling `[Symbol.iterator]` or `[Symbol.asyncIterator]` method.
     ///
     /// - In case when is_async=true and method `[Symbol.asyncIterator]` is not defined,
@@ -350,7 +350,11 @@ impl JSValue {
     ///
     /// - If neither `[Symbol.iterator]` nor `[Symbol.asyncIterator]` are defined,
     ///   returns None indicating that `self` is not iterable.
-    pub fn get_iterator(&self, ctx: &JSContext, is_async: bool) -> Result<Option<JSObject>, i32> {
+    pub fn get_iterator(
+        &self,
+        ctx: &JSContext<'a>,
+        is_async: bool,
+    ) -> Result<Option<JSObject<'a>>, i32> {
         if is_async {
             if let Some(it) = self.invoke_defined(ctx, JS_ATOM_Symbol_asyncIterator.deref(), &[])? {
                 JSObject::try_from(it?)
@@ -391,7 +395,11 @@ impl JSValue {
     }
 
     /// Same as [get_iterator()], but will raise 'not iterable' error if get_iterator() returns None.
-    pub fn get_iterator_must(&self, ctx: &JSContext, is_async: bool) -> Result<JSObject, i32> {
+    pub fn get_iterator_must(
+        &self,
+        ctx: &JSContext<'a>,
+        is_async: bool,
+    ) -> Result<JSObject<'a>, i32> {
         self.get_iterator(ctx, is_async)?.ok_or_else(|| {
             ctx.throw_type_error("value is not iterable");
             -1
@@ -401,7 +409,7 @@ impl JSValue {
     /// Return an object that implements `Iterator` trait to iterate JSValue.
     /// The iterator uses `next()` method to retrive next value.
     #[inline]
-    pub fn iter(&self, ctx: &JSContext) -> Result<ObjectIter, i32> {
+    pub fn iter(&self, ctx: &JSContext<'a>) -> Result<ObjectIter<'a>, i32> {
         ObjectIter::new(
             ctx,
             self.get_iterator_must(ctx, false)?,
@@ -410,7 +418,11 @@ impl JSValue {
     }
 }
 
-pub fn JS_IteratorGetCompleteValue(ctx: &JSContext, obj: &JSValue, pdone: &mut bool) -> JSValue {
+pub fn JS_IteratorGetCompleteValue<'a>(
+    ctx: &JSContext<'a>,
+    obj: &JSValue<'a>,
+    pdone: &mut bool,
+) -> JSValue<'a> {
     if let Ok(done_val) = obj.get_property(ctx, JS_ATOM_done.deref()) {
         let done = done_val.to_bool().unwrap();
 
@@ -428,7 +440,11 @@ pub fn JS_IteratorGetCompleteValue(ctx: &JSContext, obj: &JSValue, pdone: &mut b
 }
 
 /// create an Object with two properties: `value` and `done`.
-pub fn js_create_iterator_result(ctx: &JSContext, value: JSValue, done: bool) -> JSResult {
+pub fn js_create_iterator_result<'a>(
+    ctx: &JSContext<'a>,
+    value: JSValue<'a>,
+    done: bool,
+) -> JSResult<'a> {
     let obj = ctx.create_base_object()?;
     obj.define_property_value(ctx, JS_ATOM_value.deref(), value, JS_PROP_C_W_E)?;
     obj.define_property_value(
@@ -458,7 +474,7 @@ pub fn js_for_in_iterator_mark(val: JSValue) {
     }
 }
 
-pub fn iterator_to_array(ctx: &JSContext, items: &JSValue) -> JSResult {
+pub fn iterator_to_array<'a>(ctx: &JSContext<'a>, items: &JSValue<'a>) -> JSResult<'a> {
     let it = items.iter(ctx)?;
     let arr = ctx.create_array()?;
     for (i, v) in it.enumerate() {
@@ -467,11 +483,11 @@ pub fn iterator_to_array(ctx: &JSContext, items: &JSValue) -> JSResult {
     Ok(arr.into())
 }
 
-pub fn js_array_from_iterator(
-    ctx: &JSContext,
-    obj: &JSValue,
-    method: &JSValue,
-) -> Result<(JSValue, usize), i32> {
+pub fn js_array_from_iterator<'a>(
+    ctx: &JSContext<'a>,
+    obj: &JSValue<'a>,
+    method: &JSValue<'a>,
+) -> Result<(JSValue<'a>, usize), i32> {
     if let JSValue::Object(obj) = method.call(ctx, obj, &[])? {
         let it = ObjectIter::new(ctx, obj, JS_ATOM_next.deref())?;
         let arr = ctx.create_array()?;
@@ -488,7 +504,7 @@ pub fn js_array_from_iterator(
     }
 }
 
-pub fn js_iterator_proto_iterator(_: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_iterator_proto_iterator<'a>(_: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     Ok(cc.this().clone())
 }
 

@@ -29,7 +29,7 @@ enum ResolveLabelsState {
     Fail,
 }
 
-impl JSFunctionDef {
+impl<'a> JSFunctionDef<'a> {
     /// pass 3: peephole optimizations and resolve goto/labels.
     pub fn resolve_labels(&mut self, ctx: &JSContext) -> Result<(), i32> {
         let bc_ptr = self.byte_code.as_ptr();

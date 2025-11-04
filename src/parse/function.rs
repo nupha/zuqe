@@ -51,7 +51,7 @@ impl<'s> JSParseState<'s> {
         ptr: *const u8,
         function_line_num: i32,
         is_expr: bool,
-    ) -> Result<Box<JSFunctionDef>, i32> {
+    ) -> Result<Box<JSFunctionDef<'s>>, i32> {
         // save original cur_func
         let parent_fd = self.cur_func_def;
 
@@ -471,7 +471,7 @@ impl<'s> JSParseState<'s> {
         ptr: *const u8,
         function_line_num: i32,
         export_flag: JSParseExportEnum,
-        pfd: *mut *mut JSFunctionDef,
+        pfd: *mut *mut JSFunctionDef<'s>,
     ) -> Result<(), i32> {
         let is_expr = !matches!(
             func_type,

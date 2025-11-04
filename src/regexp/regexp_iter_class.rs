@@ -10,11 +10,11 @@ use crate::{
 
 use super::JS_RegExpExec;
 
-fn js_regexp_string_iterator_next(
-    ctx: &JSContext,
-    cc: CallContext,
+fn js_regexp_string_iterator_next<'a>(
+    ctx: &JSContext<'a>,
+    cc: CallContext<'_, 'a>,
     state: &mut IteratorState,
-) -> JSResult {
+) -> JSResult<'a> {
     if let ObjectPayload::REGEXP_STRING_ITERATOR(it) = cc
         .this()
         .retrive_object_payload(ctx, JS_CLASS_REGEXP_STRING_ITERATOR)?

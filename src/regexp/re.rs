@@ -33,16 +33,16 @@ pub const LRE_FLAG_INDICES: i32 = 1 << 6; // Unused by libregexp, just recorded.
 pub const LRE_FLAG_NAMED_GROUPS: i32 = 1 << 7; // named groups are present in the regexp
 
 #[derive(Debug)]
-pub struct RegExpStringIterPayload {
-    iterating_regexp: JSObject,
+pub struct RegExpStringIterPayload<'a> {
+    iterating_regexp: JSObject<'a>,
     iterated_string: StringContent,
     pub global: bool,
     pub unicode: bool,
     done: Cell<bool>,
 }
 
-impl RegExpStringIterPayload {
-    pub fn new(regexp: JSObject, str: StringContent, global: bool, unicode: bool) -> Box<Self> {
+impl<'a> RegExpStringIterPayload<'a> {
+    pub fn new(regexp: JSObject<'a>, str: StringContent, global: bool, unicode: bool) -> Box<Self> {
         Box::new(Self {
             iterating_regexp: regexp,
             iterated_string: str,
@@ -53,7 +53,7 @@ impl RegExpStringIterPayload {
     }
 
     #[inline(always)]
-    pub const fn regexp(&self) -> &JSObject {
+    pub const fn regexp(&self) -> &JSObject<'a> {
         &self.iterating_regexp
     }
 
@@ -332,13 +332,17 @@ impl RegExpData {
 /// the regexp object
 #[derive(Debug, Clone)]
 #[repr(transparent)]
-pub struct RegExp(JSObject);
+pub struct RegExp<'a>(JSObject<'a>);
 
 object_cast!(RegExp, JS_CLASS_REGEXP);
 
-impl RegExp {
+impl<'a> RegExp<'a> {
     /// create RegExp object with given RegExpData, and constructor.
-    pub(crate) fn from(ctx: &JSContext, ctor: &JSValue, re: Box<RegExpData>) -> Result<Self, i32> {
+    pub(crate) fn from(
+        ctx: &JSContext<'a>,
+        ctor: &JSValue<'a>,
+        re: Box<RegExpData>,
+    ) -> Result<Self, i32> {
         let o = Self(
             ctx.create_object_from_ctor(ctor, ObjectPayload::REGEXP(re))
                 .map_err(|_| -1)?,
@@ -349,15 +353,18 @@ impl RegExp {
 
     #[inline(always)]
     pub fn create(
-        ctx: &JSContext,
-        ctor: &JSValue,
+        ctx: &JSContext<'a>,
+        ctor: &JSValue<'a>,
         pattern: StringContent,
         flags: StringContent,
     ) -> Result<Self, i32> {
         RegExpData::create(ctx, pattern, flags).and_then(|re| Self::from(ctx, ctor, Box::new(re)))
     }
 
-    pub fn class_initialize(ctx: &JSContext, class_id: ClassID) -> Result<Option<JSObject>, i32> {
+    pub fn class_initialize<'b>(
+        ctx: &JSContext<'b>,
+        class_id: ClassID,
+    ) -> Result<Option<JSObject<'b>>, i32> {
         match class_id {
             JS_CLASS_REGEXP => {
                 let obj = ctx.create_base_object()?;
@@ -395,12 +402,12 @@ impl RegExp {
 }
 
 /// build Array object to hold regexp matches.
-pub(super) fn make_regexp_capture_array(
-    ctx: &JSContext,
-    text: JSString,
+pub(super) fn make_regexp_capture_array<'a>(
+    ctx: &JSContext<'a>,
+    text: JSString<'a>,
     range_and_name: &[(Option<Range<usize>>, Option<&str>)],
     with_indices: bool,
-) -> Result<(JSValue, usize), i32> {
+) -> Result<(JSValue<'a>, usize), i32> {
     let mut start_index = 0;
     let mut last_index = 0;
 

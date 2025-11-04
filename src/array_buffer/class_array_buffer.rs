@@ -16,7 +16,10 @@ use crate::{
 // Prototype
 //
 
-fn js_array_buffer_get_byteLength(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_array_buffer_get_byteLength<'a>(
+    ctx: &JSContext<'a>,
+    cc: CallContext<'_, 'a>,
+) -> JSResult<'a> {
     let class_id = cc.magic() as ClassID;
 
     cc.this()
@@ -24,7 +27,7 @@ fn js_array_buffer_get_byteLength(ctx: &JSContext, cc: CallContext) -> JSResult 
         .map(|isa| JSValue::from(isa.array_buffer().unwrap().byte_length() as i64))
 }
 
-fn js_array_buffer_detached(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_array_buffer_detached<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     cc.this()
         .as_object()
         .filter(|o| o.class_id() == JS_CLASS_ARRAY_BUFFER)
@@ -39,7 +42,7 @@ fn js_array_buffer_detached(ctx: &JSContext, cc: CallContext) -> JSResult {
         })
 }
 
-fn js_array_buffer_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_array_buffer_slice<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let class_id = cc.magic() as ClassID;
 
     let abuf = cc
@@ -151,7 +154,7 @@ pub static js_shared_array_buffer_proto_funcs: [FieldDef; 3] = [
 // static methods
 //
 
-pub fn js_array_buffer_isView(_: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_array_buffer_isView<'a>(_: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let res = if let JSValue::Object(p) = cc.arg(0)
         && (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_DATAVIEW).contains(&p.class_id())
     {

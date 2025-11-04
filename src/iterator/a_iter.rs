@@ -20,30 +20,30 @@ use crate::{
 use super::{JS_IteratorGetCompleteValue, js_create_iterator_result};
 
 #[derive(Debug)]
-pub struct JSAsyncFromSyncIteratorData {
-    pub(crate) obj: JSObject,
-    pub(crate) next_method: JSValue,
+pub struct JSAsyncFromSyncIteratorData<'a> {
+    pub(crate) obj: JSObject<'a>,
+    pub(crate) next_method: JSValue<'a>,
 }
 
 #[derive(Debug, Clone)]
 #[repr(transparent)]
-pub struct AsyncFromSyncIterator(JSObject);
+pub struct AsyncFromSyncIterator<'a>(JSObject<'a>);
 
 object_cast!(AsyncFromSyncIterator, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR);
 
-impl AsyncFromSyncIterator {
-    pub fn class_initialize(ctx: &JSContext, _: ClassID) -> Result<Option<JSObject>, i32> {
+impl<'a> AsyncFromSyncIterator<'a> {
+    pub fn class_initialize(ctx: &JSContext<'a>, _: ClassID) -> Result<Option<JSObject<'a>>, i32> {
         let proto = ctx.create_base_object_with_proto(Some(ctx.async_iterator_proto()?))?;
         proto.install_field_defs(ctx, &js_async_from_sync_iterator_proto_funcs)?;
         Ok(Some(proto))
     }
 }
 
-impl JSContext {
+impl<'a> JSContext<'a> {
     /// get async iterator proto object which is used as proto of:
     /// AsyncFromSyncIterator, AsyncGenerator.
     /// if this proto is not initialized, will create it inside.
-    pub(crate) fn async_iterator_proto(&self) -> Result<JSObject, i32> {
+    pub(crate) fn async_iterator_proto(&self) -> Result<JSObject<'a>, i32> {
         if let Some(o) = self.0.borrow().async_iterator_proto.as_ref().cloned() {
             Ok(o)
         } else {
@@ -59,15 +59,18 @@ pub const GEN_MAGIC_NEXT: i32 = 0;
 pub const GEN_MAGIC_RETURN: i32 = 1;
 pub const GEN_MAGIC_THROW: i32 = 2;
 
-pub fn js_async_from_sync_iterator_unwrap(ctx: &JSContext, args: CallContext) -> JSResult {
-    let done = args.data(0).to_bool()?;
-    js_create_iterator_result(ctx, args.arg(0).clone(), done)
+pub fn js_async_from_sync_iterator_unwrap<'a>(
+    ctx: &JSContext<'a>,
+    cc: CallContext<'_, 'a>,
+) -> JSResult<'a> {
+    let done = cc.data(0).to_bool()?;
+    js_create_iterator_result(ctx, cc.arg(0).clone(), done)
 }
 
-pub unsafe fn js_async_from_sync_iterator_unwrap_func_create(
-    ctx: &JSContext,
+pub unsafe fn js_async_from_sync_iterator_unwrap_func_create<'a>(
+    ctx: &JSContext<'a>,
     done: bool,
-) -> JSValue {
+) -> JSValue<'a> {
     NativeFunctionWithData::create(
         ctx,
         js_async_from_sync_iterator_unwrap,
@@ -78,12 +81,18 @@ pub unsafe fn js_async_from_sync_iterator_unwrap_func_create(
     .map_or(JSValue::EXCEPTION, |x| x.into())
 }
 
-pub fn js_async_from_sync_iterator_next(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let done_resolve =
-        |rr: [JSValue; 2], err: JSValue, is_reject: usize, promise: Promise| -> JSValue {
-            let _ = rr[is_reject].call(ctx, &JSValue::UNDEFINED, &[err]);
-            promise.into()
-        };
+pub fn js_async_from_sync_iterator_next<'a>(
+    ctx: &JSContext<'a>,
+    cc: CallContext<'_, 'a>,
+) -> JSResult<'a> {
+    let done_resolve = |rr: [JSValue<'a>; 2],
+                        err: JSValue<'a>,
+                        is_reject: usize,
+                        promise: Promise<'a>|
+     -> JSValue<'a> {
+        let _ = rr[is_reject].call(ctx, &JSValue::UNDEFINED, &[err]);
+        promise.into()
+    };
 
     let (promise, resolving_funcs) = Promise::create(ctx)?;
 
@@ -151,12 +160,10 @@ pub fn js_async_from_sync_iterator_next(ctx: &JSContext, cc: CallContext) -> JSR
             };
 
             let value_wrapper_promise: Promise = {
-                let cc = CallContext::new(
+                let cc = CallContext::new_simple(
                     ctx,
                     ctx.0.borrow().promise_ctor.clone(),
                     std::slice::from_ref(&value),
-                    0,
-                    None,
                 );
                 if let Ok(r) = js_promise_resolve(ctx, cc) {
                     r.try_into()?

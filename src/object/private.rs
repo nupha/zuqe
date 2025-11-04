@@ -10,7 +10,7 @@ use crate::{
 
 use super::JS_PROP_C_W_E;
 
-impl JSObject {
+impl<'a> JSObject<'a> {
     /// check if `self` has own property suggested by `func.<home_object>.<brand>`.
     pub fn check_brand(&self, ctx: &JSContext, func: &JSValue) -> Result<bool, i32> {
         if let Some(home_obj) = func
@@ -38,7 +38,12 @@ impl JSObject {
         }
     }
 
-    fn set_private_field(&self, ctx: &JSContext, name: &JSValue, val: JSValue) -> Result<(), i32> {
+    fn set_private_field(
+        &self,
+        ctx: &JSContext<'a>,
+        name: &JSValue<'a>,
+        val: JSValue<'a>,
+    ) -> Result<(), i32> {
         if let JSValue::Symbol(s) = name {
             let prop = s.atom_info().unwrap().atom_ref();
 
@@ -71,7 +76,7 @@ impl JSObject {
         // }
     }
 
-    fn get_private_field(&self, ctx: &JSContext, name: &JSValue) -> JSResult {
+    fn get_private_field(&self, ctx: &JSContext<'a>, name: &JSValue<'a>) -> JSResult<'a> {
         if let JSValue::Symbol(s) = name {
             let prop = s.atom_info().unwrap().atom_ref();
 
@@ -115,9 +120,9 @@ impl JSObject {
     /// Private fields can be added even on non extensible objects or Proxies
     pub fn define_private_field(
         &self,
-        ctx: &JSContext,
-        name: &JSValue,
-        val: JSValue,
+        ctx: &JSContext<'a>,
+        name: &JSValue<'a>,
+        val: JSValue<'a>,
     ) -> Result<(), i32> {
         if let JSValue::Symbol(s) = name {
             let prop = s.atom_info().unwrap().atom_ref();
@@ -142,7 +147,7 @@ impl JSObject {
     }
 }
 
-impl JSValue {
+impl<'a> JSValue<'a> {
     /// check if `self` has own property suggested by `func.<home_object>.<brand>`.
     pub fn check_brand(&self, ctx: &JSContext, func: &JSValue) -> Result<bool, i32> {
         if let JSValue::Object(ob) = self {
@@ -155,7 +160,7 @@ impl JSValue {
 
     /// assign 'home_obj' a symbol as its ident, store that symbol in home_obj.<brand> field.
     /// if self is an object, then defined a property with the home_obj's symbol as key.
-    pub fn add_brand(&self, ctx: &JSContext, home_obj: &JSValue) -> Result<(), i32> {
+    pub fn add_brand(&self, ctx: &JSContext<'a>, home_obj: &JSValue<'a>) -> Result<(), i32> {
         if let JSValue::Object(home) = home_obj {
             let brand_sym: JSValue = if let Some((idx, _)) =
                 home.find_shape_property(&JS_ATOM_Private_brand)
@@ -201,9 +206,9 @@ impl JSValue {
 
     pub fn set_private_field(
         &self,
-        ctx: &JSContext,
-        name: &JSValue,
-        val: JSValue,
+        ctx: &JSContext<'a>,
+        name: &JSValue<'a>,
+        val: JSValue<'a>,
     ) -> Result<(), i32> {
         if let JSValue::Object(ob) = self {
             ob.set_private_field(ctx, name, val)
@@ -213,7 +218,7 @@ impl JSValue {
         }
     }
 
-    pub fn get_private_field(&self, ctx: &JSContext, name: &JSValue) -> JSResult {
+    pub fn get_private_field(&self, ctx: &JSContext<'a>, name: &JSValue<'a>) -> JSResult<'a> {
         if let Self::Object(ob) = self {
             ob.get_private_field(ctx, name)
         } else {
@@ -225,9 +230,9 @@ impl JSValue {
     /// Private fields can be added even on non extensible objects or Proxies
     pub fn define_private_field(
         &self,
-        ctx: &JSContext,
-        name: &JSValue,
-        val: JSValue,
+        ctx: &JSContext<'a>,
+        name: &JSValue<'a>,
+        val: JSValue<'a>,
     ) -> Result<(), i32> {
         if let Self::Object(ob) = self {
             ob.define_private_field(ctx, name, val)

@@ -17,38 +17,38 @@ use super::AsyncFuncState;
 
 #[repr(u8)]
 #[derive(Debug, Clone)]
-pub enum VarRefState {
+pub enum VarRefState<'a> {
     /// var ref is detached
-    Detached { value: JSValue },
+    Detached { value: JSValue<'a> },
 
     /// reference to a target var
     Bind {
         var_idx: u16,
         /// raw pointer to variable value
-        pvalue: NonNull<JSValue>,
-        async_func: Option<AsyncFuncState>,
+        pvalue: NonNull<JSValue<'a>>,
+        async_func: Option<AsyncFuncState<'a>>,
     },
 }
 
 #[derive(Debug)]
-pub(crate) struct JSVarRefInner {
-    pub header: GCObjectHeader,
+pub(crate) struct JSVarRefInner<'a> {
+    pub header: GCObjectHeader<'a>,
 
     /// bitfield for is_detached and is_arg
     pub bitfield: u8,
 
-    pub state: VarRefState,
+    pub state: VarRefState<'a>,
 }
 
-impl Drop for JSVarRefInner {
+impl<'a> Drop for JSVarRefInner<'a> {
     fn drop(&mut self) {
         self.finalize();
     }
 }
 
-impl JSVarRefInner {
+impl<'a> JSVarRefInner<'a> {
     /// create a detached var ref
-    pub const fn new(rt: &mut JSRuntime, value: JSValue) -> Self {
+    pub const fn new(rt: &mut JSRuntime<'a>, value: JSValue<'a>) -> Self {
         Self {
             header: GCObjectHeader::new(rt, 1),
             bitfield: 0,
@@ -58,11 +58,11 @@ impl JSVarRefInner {
 
     /// create a bind var ref
     pub const fn new_bind(
-        rt: &mut JSRuntime,
+        rt: &mut JSRuntime<'a>,
         var_idx: u16,
         is_arg: bool,
-        pvalue: NonNull<JSValue>,
-        async_func: Option<AsyncFuncState>,
+        pvalue: NonNull<JSValue<'a>>,
+        async_func: Option<AsyncFuncState<'a>>,
     ) -> Self {
         let mut vr = Self {
             header: GCObjectHeader::new(rt, 1),
@@ -93,7 +93,7 @@ impl JSVarRefInner {
     }
 
     /// get raw pointer to value
-    fn value_ptr(&self) -> NonNull<JSValue> {
+    fn value_ptr(&self) -> NonNull<JSValue<'a>> {
         match &self.state {
             VarRefState::Bind { pvalue, .. } => *pvalue,
             VarRefState::Detached { value } => NonNull::from(value),
@@ -102,7 +102,7 @@ impl JSVarRefInner {
 
     /// get value of the var.
     #[inline]
-    pub fn value(&self) -> JSValue {
+    pub fn value(&self) -> JSValue<'a> {
         match &self.state {
             VarRefState::Bind { pvalue, .. } => unsafe { pvalue.as_ref().clone() },
             VarRefState::Detached { value } => value.clone(),
@@ -112,7 +112,7 @@ impl JSVarRefInner {
     /// set value of var ref, free old value.
     /// Note: `value` is consumed
     #[inline]
-    pub fn set_value(&mut self, new_value: JSValue) {
+    pub fn set_value(&mut self, new_value: JSValue<'a>) {
         match &mut self.state {
             VarRefState::Bind { pvalue, .. } => unsafe {
                 std::ptr::replace(pvalue.as_ptr(), new_value);
@@ -150,7 +150,7 @@ impl JSVarRefInner {
     }
 
     /// get async function state pointer
-    pub fn async_func(&self) -> Option<AsyncFuncState> {
+    pub fn async_func(&self) -> Option<AsyncFuncState<'a>> {
         if let VarRefState::Bind { async_func, .. } = &self.state {
             async_func.clone()
         } else {
@@ -177,11 +177,11 @@ impl JSVarRefInner {
 }
 
 #[derive(Debug, Clone)]
-pub struct JSVarRef(pub(crate) Rc<RefCell<JSVarRefInner>>);
+pub struct JSVarRef<'a>(pub(crate) Rc<RefCell<JSVarRefInner<'a>>>);
 
-impl JSVarRef {
+impl<'a> JSVarRef<'a> {
     /// create a detached var ref
-    pub fn new(rt: &mut JSRuntime, value: JSValue) -> Self {
+    pub fn new(rt: &mut JSRuntime<'a>, value: JSValue<'a>) -> Self {
         let inner = JSVarRefInner::new(rt, value);
         let s = Rc::new(RefCell::new(inner));
         Self(s)
@@ -189,12 +189,12 @@ impl JSVarRef {
 
     /// create a bind var ref
     pub fn new_bind(
-        rt: &mut JSRuntime,
+        rt: &mut JSRuntime<'a>,
         var_idx: u16,
         is_arg: bool,
-        pvalue: NonNull<JSValue>,
-        async_func: Option<AsyncFuncState>,
-    ) -> JSVarRef {
+        pvalue: NonNull<JSValue<'a>>,
+        async_func: Option<AsyncFuncState<'a>>,
+    ) -> JSVarRef<'a> {
         let inner = JSVarRefInner::new_bind(rt, var_idx, is_arg, pvalue, async_func);
         let s = Rc::new(RefCell::new(inner));
         Self(s)
@@ -204,25 +204,25 @@ impl JSVarRef {
         self.0.borrow().id()
     }
 
-    pub fn downgrade(&self) -> JSVarRefWeakref {
+    pub fn downgrade(&self) -> JSVarRefWeakref<'a> {
         JSVarRefWeakref(Rc::downgrade(&self.0))
     }
 
     /// get pointer to value of the var.
     #[inline(always)]
-    pub(crate) fn value_ptr(&self) -> NonNull<JSValue> {
+    pub(crate) fn value_ptr(&self) -> NonNull<JSValue<'a>> {
         self.0.borrow().value_ptr()
     }
 
     /// get value of the var.
     #[inline(always)]
-    pub fn value(&self) -> JSValue {
+    pub fn value(&self) -> JSValue<'a> {
         self.0.borrow().value()
     }
 
     /// set new value to the referenced var. frees its old value.
     #[inline(always)]
-    pub fn set_value(&self, value: JSValue) {
+    pub fn set_value(&self, value: JSValue<'a>) {
         self.0.borrow_mut().set_value(value);
     }
 
@@ -254,7 +254,7 @@ impl JSVarRef {
 
     /// get async function state pointer
     #[inline(always)]
-    pub fn async_func(&self) -> Option<AsyncFuncState> {
+    pub fn async_func(&self) -> Option<AsyncFuncState<'a>> {
         self.0.borrow().async_func()
     }
 
@@ -268,28 +268,28 @@ impl JSVarRef {
 }
 
 #[derive(Debug, Clone)]
-pub struct JSVarRefWeakref(Weak<RefCell<JSVarRefInner>>);
+pub struct JSVarRefWeakref<'a>(Weak<RefCell<JSVarRefInner<'a>>>);
 
-impl From<JSVarRefWeakref> for GCObjectWeakref {
-    fn from(value: JSVarRefWeakref) -> Self {
+impl<'a> From<JSVarRefWeakref<'a>> for GCObjectWeakref<'a> {
+    fn from(value: JSVarRefWeakref<'a>) -> Self {
         Self::VarRef(value)
     }
 }
 
-impl JSVarRefWeakref {
-    pub fn upgrade(&self) -> Option<JSVarRef> {
+impl<'a> JSVarRefWeakref<'a> {
+    pub fn upgrade(&self) -> Option<JSVarRef<'a>> {
         self.0.upgrade().map(JSVarRef)
     }
 }
 
-impl StackFrame {
+impl<'a> StackFrame<'a> {
     /// find VarRef by id and is_arg. if not found, create new.
     pub(crate) fn get_var_ref(
         &mut self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         var_idx: u16,
         is_arg: bool,
-    ) -> Result<JSVarRef, i32> {
+    ) -> Result<JSVarRef<'a>, i32> {
         // search existing var refs
         if let Some(vr) = self
             .var_ref_list

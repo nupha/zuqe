@@ -9,7 +9,7 @@ use crate::{
     value::JSValue,
 };
 
-impl JSObject {
+impl<'a> JSObject<'a> {
     pub fn gc_mark(&self) {
         if !self.gc_has_mark() {
             self.gc_set_mark(true);
@@ -42,7 +42,7 @@ impl JSObject {
     }
 }
 
-impl JSProperty {
+impl<'a> JSProperty<'a> {
     pub fn gc_mark(&self) {
         match self {
             JSProperty::Normal(val) => {
@@ -114,7 +114,7 @@ impl JSProperty {
     }
 }
 
-impl JSShape {
+impl<'a> JSShape<'a> {
     pub fn gc_mark(&self) {
         if !self.gc_has_mark() {
             self.gc_set_mark(true);
@@ -131,7 +131,7 @@ impl JSShape {
     }
 }
 
-impl JSString {
+impl<'a> JSString<'a> {
     pub fn gc_mark(&self) {
         if !self.gc_has_mark() {
             self.gc_set_mark(true);
@@ -141,7 +141,7 @@ impl JSString {
     pub fn gc_sweep(&self) {}
 }
 
-impl ModuleDef {
+impl<'a> ModuleDef<'a> {
     pub fn gc_mark(&self) {
         if !self.gc_has_mark() {
             self.gc_set_mark(true);
@@ -195,7 +195,7 @@ impl ModuleDef {
     }
 }
 
-impl Bytecode {
+impl<'a> Bytecode<'a> {
     pub fn gc_mark(&self) {
         if !self.gc_has_mark() {
             self.gc_set_mark(true);
@@ -214,7 +214,7 @@ impl Bytecode {
     }
 }
 
-impl JSVarRef {
+impl<'a> JSVarRef<'a> {
     pub fn gc_mark(&self) {
         let state = self.0.borrow().state.clone();
         match state {
@@ -239,7 +239,7 @@ impl JSVarRef {
     }
 }
 
-impl AsyncFuncState {
+impl<'a> AsyncFuncState<'a> {
     pub fn gc_mark(&self) {
         let s = self.0.borrow();
         s.this_val.gc_mark();
@@ -255,7 +255,7 @@ impl AsyncFuncState {
     }
 }
 
-impl JSContext {
+impl<'a> JSContext<'a> {
     pub fn gc_mark(&self) {
         if !self.gc_has_mark() {
             self.gc_set_mark(true);
@@ -329,7 +329,7 @@ impl JSContext {
     }
 }
 
-impl JSValue {
+impl<'a> JSValue<'a> {
     pub fn gc_mark(&self) {
         match self {
             Self::Object(o) => {
@@ -361,7 +361,7 @@ impl JSValue {
     }
 }
 
-impl StackFrame {
+impl<'a> StackFrame<'a> {
     pub fn gc_mark(&self) {
         self.cur_func.gc_mark();
         for a in self.args_slice() {

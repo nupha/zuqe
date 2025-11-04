@@ -16,7 +16,7 @@ use crate::{
 
 use super::ModuleDef;
 
-impl ModuleDefInner {
+impl<'a> ModuleDefInner<'a> {
     #[inline(always)]
     pub const fn status(&self) -> JSModuleStatus {
         self.status.get()
@@ -28,7 +28,7 @@ impl ModuleDefInner {
     }
 
     /// set module status to `evaluated`
-    fn set_evaluated(&self, ctx: &JSContext) {
+    fn set_evaluated(&self, ctx: &JSContext<'a>) {
         debug_assert_ne!(
             self.status.get(),
             JSModuleStatus::JS_MODULE_STATUS_EVALUATED,
@@ -45,11 +45,11 @@ impl ModuleDefInner {
         }
     }
     #[inline(always)]
-    fn cycle_root(&self) -> Option<ModuleDef> {
+    fn cycle_root(&self) -> Option<ModuleDef<'a>> {
         self.cycle_root.borrow().as_ref().cloned()
     }
 
-    fn set_cycle_root(&self, root: ModuleDef) {
+    fn set_cycle_root(&self, root: ModuleDef<'a>) {
         debug_assert!(self.cycle_root.borrow().as_ref().is_none());
         self.cycle_root.borrow_mut().deref_mut().replace(root);
     }
@@ -65,10 +65,10 @@ impl ModuleDefInner {
     }
 }
 
-impl ModuleDef {
+impl<'a> ModuleDef<'a> {
     /// compile source as module, don't run. `filename` is used to identify the module.
     pub fn compile(
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         source: &[u8],
         filename: &str,
         strip: bool,
@@ -86,7 +86,7 @@ impl ModuleDef {
     }
 
     /// Run the <eval> function of the `self` module and of all its dependent modules.
-    pub(crate) fn eval(&self, ctx: &JSContext) -> Result<Promise, i32> {
+    pub(crate) fn eval(&self, ctx: &JSContext<'a>) -> Result<Promise<'a>, i32> {
         debug_assert!(matches!(
             self.status(),
             JSModuleStatus::JS_MODULE_STATUS_UNLINKED
@@ -161,10 +161,10 @@ impl ModuleDef {
     /// `index`: depth index
     fn eval_internal(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         index: i32,
-        stack_top: &mut Option<ModuleDef>,
-    ) -> Result<i32, JSValue> {
+        stack_top: &mut Option<ModuleDef<'a>>,
+    ) -> Result<i32, JSValue<'a>> {
         if js_check_stack_overflow(ctx.rt(), 0) {
             ctx.throw_stack_overflow();
             return Err(ctx.take_exception());
@@ -256,7 +256,8 @@ impl ModuleDef {
                 .async_evaluation_timestamp
                 .set(ctx.rt().module_async_evaluation_next_timestamp);
             ctx.rt_mut().module_async_evaluation_next_timestamp += 1;
-            self.execute_async_module(ctx)?;
+            self.execute_async_module(ctx)
+                .map_err(|e| JSValue::Int(e))?;
         } else {
             self.execute_sync_module(ctx)?;
         }
@@ -288,7 +289,7 @@ impl ModuleDef {
     }
 
     /// execute module function in async manner
-    fn execute_async_module(&self, ctx: &JSContext) -> Result<(), i32> {
+    fn execute_async_module(&self, ctx: &JSContext<'a>) -> Result<(), i32> {
         // Hint: bytecode is now a Function object
         let md_func = unsafe { (*self.0.bytecode.as_ptr()).clone() };
         debug_assert_eq!(
@@ -323,7 +324,7 @@ impl ModuleDef {
     }
 
     /// async module execution callback
-    fn execute_async_fulfilled(ctx: &JSContext, cc: CallContext) -> JSResult {
+    fn execute_async_fulfilled<'b>(ctx: &JSContext<'b>, cc: CallContext<'_, 'b>) -> JSResult<'b> {
         let JSValue::Module(md) = cc.data(0) else {
             unreachable!()
         };
@@ -383,7 +384,7 @@ impl ModuleDef {
     }
 
     /// async module execution reject callback
-    fn execute_async_rejected(ctx: &JSContext, cc: CallContext) -> JSResult {
+    fn execute_async_rejected<'b>(ctx: &JSContext<'b>, cc: CallContext<'_, 'b>) -> JSResult<'b> {
         if js_check_stack_overflow(ctx.rt(), 0) {
             ctx.throw_stack_overflow();
             return Err(-1);
@@ -433,7 +434,7 @@ impl ModuleDef {
         Ok(JSValue::UNDEFINED)
     }
 
-    fn execute_sync_module(&self, ctx: &JSContext) -> Result<(), JSValue> {
+    fn execute_sync_module(&self, ctx: &JSContext<'a>) -> Result<(), JSValue<'a>> {
         if let Some(f) = self.0.init_func.as_ref() {
             // is native module: no asynchronous execution
             if unlikely(f(ctx, self).is_err()) {
@@ -466,9 +467,14 @@ impl ModuleDef {
     }
 }
 
-impl JSContext {
+impl<'a> JSContext<'a> {
     /// eval `source` as module.
-    pub fn eval_module(&self, source: &[u8], filename: &str, strip: bool) -> Result<Promise, i32> {
+    pub fn eval_module(
+        &self,
+        source: &[u8],
+        filename: &str,
+        strip: bool,
+    ) -> Result<Promise<'a>, i32> {
         // compile
         let md = ModuleDef::compile(self, source, filename, strip)?;
         md.0.set_import_meta(self, filename, true)?;
@@ -482,10 +488,10 @@ impl JSContext {
     }
 }
 
-fn gather_module_ancestors(
-    ctx: &JSContext,
-    module: &ModuleDef,
-    exec_list: &mut Vec<ModuleDef>,
+fn gather_module_ancestors<'a>(
+    ctx: &JSContext<'a>,
+    module: &ModuleDef<'a>,
+    exec_list: &mut Vec<ModuleDef<'a>>,
 ) -> Result<(), i32> {
     if js_check_stack_overflow(ctx.rt(), 0) {
         ctx.throw_stack_overflow();

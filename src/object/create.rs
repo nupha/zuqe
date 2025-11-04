@@ -8,14 +8,14 @@ use crate::{
     value::JSValue,
 };
 
-impl JSContext {
+impl<'a> JSContext<'a> {
     /// create object using `shape` and `payload`.
     /// when failed, `payload` is returned back in Err, caller should free it.
     pub(crate) fn create_object_with_shape(
         &self,
-        shape: JSShape,
-        payload: ObjectPayload,
-    ) -> Result<JSObject, ObjectPayload> {
+        shape: JSShape<'a>,
+        payload: ObjectPayload<'a>,
+    ) -> Result<JSObject<'a>, ObjectPayload<'a>> {
         let obj = JSObject(Rc::new(ObjectInner::new(self, Some(shape), payload)?));
         self.rt_mut()
             .gc_add_object(obj.id(), obj.downgrade().into());
@@ -28,9 +28,9 @@ impl JSContext {
     /// - The `payload` determines what class the new object is.
     pub fn create_object_with_proto(
         &self,
-        proto: Option<JSObject>,
-        payload: ObjectPayload,
-    ) -> Result<JSObject, ObjectPayload> {
+        proto: Option<JSObject<'a>>,
+        payload: ObjectPayload<'a>,
+    ) -> Result<JSObject<'a>, ObjectPayload<'a>> {
         // find shape by prototype
         let shape = {
             match self.rt().find_shape_by_proto(proto.as_ref()) {
@@ -55,9 +55,9 @@ impl JSContext {
     /// - otherwise retrieve property `ctor.prototype` for prototype.
     pub fn create_object_from_ctor(
         &self,
-        ctor: &JSValue,
-        payload: ObjectPayload,
-    ) -> Result<JSObject, ObjectPayload> {
+        ctor: &JSValue<'a>,
+        payload: ObjectPayload<'a>,
+    ) -> Result<JSObject<'a>, ObjectPayload<'a>> {
         let class_id = payload.class_id();
 
         let proto: Option<JSObject> = if ctor.is_undefined() {
@@ -85,9 +85,9 @@ impl JSContext {
     /// - otherwise, retrieve property `ctor.prototype` as prototype.
     pub(crate) fn create_object_from_ctor_with(
         &self,
-        ctor: &JSValue,
-        payload_fn: impl FnOnce() -> Result<ObjectPayload, i32>,
-    ) -> Result<JSObject, i32> {
+        ctor: &JSValue<'a>,
+        payload_fn: impl FnOnce() -> Result<ObjectPayload<'a>, i32>,
+    ) -> Result<JSObject<'a>, i32> {
         let (proto, isa) = if ctor.is_undefined() {
             let payload = payload_fn()?;
             (self.class_proto(payload.class_id()), payload)
@@ -110,20 +110,26 @@ impl JSContext {
     /// create object with `payload` data.
     /// New object's prototype and shape are determined by `payload` automatically.
     #[inline]
-    pub fn create_object(&self, payload: ObjectPayload) -> Result<JSObject, ObjectPayload> {
+    pub fn create_object(
+        &self,
+        payload: ObjectPayload<'a>,
+    ) -> Result<JSObject<'a>, ObjectPayload<'a>> {
         self.create_object_with_proto(self.class_proto(payload.class_id()), payload)
     }
 
     /// create basic object with given prototype `proto`.
     #[inline(always)]
-    pub fn create_base_object_with_proto(&self, proto: Option<JSObject>) -> Result<JSObject, i32> {
+    pub fn create_base_object_with_proto(
+        &self,
+        proto: Option<JSObject<'a>>,
+    ) -> Result<JSObject<'a>, i32> {
         self.create_object_with_proto(proto, ObjectPayload::OBJECT)
             .map_err(|_| -1)
     }
 
     /// Create new basic object using default Object prototype
     #[inline(always)]
-    pub fn create_base_object(&self) -> Result<JSObject, i32> {
+    pub fn create_base_object(&self) -> Result<JSObject<'a>, i32> {
         self.create_object(ObjectPayload::OBJECT).map_err(|_| -1)
     }
 }

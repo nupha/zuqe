@@ -76,15 +76,15 @@ impl ClassDef {
 }
 
 #[derive(Debug)]
-pub struct ClassFieldsDef {
-    pub fields_init_fd: *mut JSFunctionDef,
+pub struct ClassFieldsDef<'a> {
+    pub fields_init_fd: *mut JSFunctionDef<'a>,
     pub computed_fields_count: i32,
     pub need_brand: bool,
     pub brand_push_pos: i32,
     pub is_static: bool,
 }
 
-impl Drop for ClassFieldsDef {
+impl<'a> Drop for ClassFieldsDef<'a> {
     fn drop(&mut self) {
         if !self.fields_init_fd.is_null() {
             drop(Box::from(self.fields_init_fd));
@@ -92,7 +92,7 @@ impl Drop for ClassFieldsDef {
     }
 }
 
-impl Default for ClassFieldsDef {
+impl<'a> Default for ClassFieldsDef<'a> {
     fn default() -> Self {
         Self {
             fields_init_fd: std::ptr::null_mut(),
@@ -105,13 +105,13 @@ impl Default for ClassFieldsDef {
 }
 
 /// prop is not consumed
-fn js_arguments_define_own_property(
-    ctx: &JSContext,
-    this_obj: &JSValue,
+fn js_arguments_define_own_property<'a>(
+    ctx: &JSContext<'a>,
+    this_obj: &JSValue<'a>,
     prop: &Atom,
-    val: JSValue,
-    getter: JSValue,
-    setter: JSValue,
+    val: JSValue<'a>,
+    getter: JSValue<'a>,
+    setter: JSValue<'a>,
     flags: i32,
 ) -> Result<bool, i32> {
     let p = this_obj.as_object().unwrap();

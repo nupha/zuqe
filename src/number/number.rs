@@ -41,7 +41,7 @@ impl From<i64> for IntOrFloat {
     }
 }
 
-impl From<IntOrFloat> for JSValue {
+impl<'a> From<IntOrFloat> for JSValue<'a> {
     fn from(value: IntOrFloat) -> Self {
         match value {
             IntOrFloat::Int64(i) => JSValue::from(i),
@@ -86,14 +86,14 @@ pub(crate) union JSFloat64Union {
     pub uint32: [u32; 2],
 }
 
-impl From<i32> for JSValue {
+impl<'a> From<i32> for JSValue<'a> {
     #[inline(always)]
     fn from(val: i32) -> Self {
         Self::Int(val)
     }
 }
 
-impl From<u32> for JSValue {
+impl<'a> From<u32> for JSValue<'a> {
     #[inline(always)]
     fn from(val: u32) -> Self {
         if val <= 0x7fffffff {
@@ -104,7 +104,7 @@ impl From<u32> for JSValue {
     }
 }
 
-impl From<i64> for JSValue {
+impl<'a> From<i64> for JSValue<'a> {
     /// convert an i64 to JSValue.
     ///
     /// if value beyonds \[-2^53, 2^53\] range, precision is not guaranteed.
@@ -126,7 +126,7 @@ impl From<i64> for JSValue {
     }
 }
 
-impl From<f64> for JSValue {
+impl<'a> From<f64> for JSValue<'a> {
     fn from(d: f64) -> Self {
         if d == 0.0 && d.is_sign_negative() {
             // -0
@@ -145,18 +145,18 @@ impl From<f64> for JSValue {
     }
 }
 
-impl JSValue {
+impl<'a> JSValue<'a> {
     /// create Float64 value as-is
     #[cfg(not(feature = "nan_boxing"))]
     #[inline(always)]
-    const fn from_f64_as_is(d: f64) -> JSValue {
+    const fn from_f64_as_is(d: f64) -> JSValue<'a> {
         JSValue::Float64(d)
     }
 
     /// create f64 value as-is
     #[cfg(feature = "nan_boxing")]
     #[inline]
-    pub(crate) const fn from_f64_as_is(d: f64) -> JSValue {
+    pub(crate) const fn from_f64_as_is(d: f64) -> JSValue<'a> {
         let u = Float64Union { d };
 
         // Normalize NaN
@@ -169,7 +169,7 @@ impl JSValue {
 
     /// test if the value is an intergral number.
     /// returns Err if test has exception.
-    pub fn is_integral(&self, ctx: &JSContext) -> Result<bool, i32> {
+    pub fn is_integral(&self, ctx: &JSContext<'a>) -> Result<bool, i32> {
         if !self.is_number() {
             Ok(false)
         } else {
@@ -182,7 +182,7 @@ impl JSValue {
     /// returns JSValue::Int, JSValue::Float64 value, or Err.
     ///
     /// Because BigInt is not supported, JSToNumberHintEnum does not effect
-    fn to_num_internal(&self, ctx: &JSContext, _flag: JSToNumberHintEnum) -> JSResult {
+    fn to_num_internal(&self, ctx: &JSContext<'a>, _flag: JSToNumberHintEnum) -> JSResult<'a> {
         let mut val = self.clone();
 
         loop {
@@ -223,18 +223,18 @@ impl JSValue {
 
     /// Convert value to number Int or Float64 (could be NaN).
     #[inline(always)]
-    pub fn to_number(&self, ctx: &JSContext) -> Result<JSValue, i32> {
+    pub fn to_number(&self, ctx: &JSContext<'a>) -> Result<JSValue<'a>, i32> {
         self.to_num_internal(ctx, JSToNumberHintEnum::TON_FLAG_NUMBER)
     }
 
     /// Convert value to Int, Float64 (could be NaN) value, or Err.
     /// Because BigInt is not supported, this method is same as coerce_to_number()
     #[inline(always)]
-    pub fn to_numeric(&self, ctx: &JSContext) -> Result<JSValue, i32> {
+    pub fn to_numeric(&self, ctx: &JSContext<'a>) -> Result<JSValue<'a>, i32> {
         self.to_num_internal(ctx, JSToNumberHintEnum::TON_FLAG_NUMERIC)
     }
 
-    pub fn coerce_to_u8_clamp(&self, ctx: &JSContext) -> Result<u8, i32> {
+    pub fn coerce_to_u8_clamp(&self, ctx: &JSContext<'a>) -> Result<u8, i32> {
         let mut val = self.clone();
 
         let res: i32 = loop {
@@ -270,7 +270,7 @@ impl JSValue {
     }
 
     /// coerce value to i32.
-    pub fn to_i32(&self, ctx: &JSContext) -> Result<i32, i32> {
+    pub fn to_i32(&self, ctx: &JSContext<'a>) -> Result<i32, i32> {
         let mut val = self.clone();
 
         let ret: i32 = loop {
@@ -300,7 +300,7 @@ impl JSValue {
     }
 
     // Note: the integer value is saturated to 32 bits
-    pub fn to_i32_saturating(&self, ctx: &JSContext) -> Result<i32, i32> {
+    pub fn to_i32_saturating(&self, ctx: &JSContext<'a>) -> Result<i32, i32> {
         let mut val = self.clone();
 
         let ret: i32 = loop {
@@ -343,7 +343,7 @@ impl JSValue {
 
     pub fn to_i32_clamp(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         min: i32,
         max: i32,
         min_offset: i32,
@@ -361,11 +361,11 @@ impl JSValue {
     }
 
     #[inline(always)]
-    pub fn to_u32(&self, ctx: &JSContext) -> Result<u32, i32> {
+    pub fn to_u32(&self, ctx: &JSContext<'a>) -> Result<u32, i32> {
         self.to_i32(ctx).map(|v| v as u32)
     }
 
-    pub fn to_i64_saturating(&self, ctx: &JSContext) -> Result<i64, i32> {
+    pub fn to_i64_saturating(&self, ctx: &JSContext<'a>) -> Result<i64, i32> {
         let mut val = self.clone();
 
         let res: i64 = loop {
@@ -405,7 +405,7 @@ impl JSValue {
     /// [min, max] is inclusive range.
     pub fn to_i64_clamp(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         min: i64,
         max: i64,
         neg_offset: i64,
@@ -423,7 +423,7 @@ impl JSValue {
     }
 
     /// coerce value to f64.
-    pub fn to_f64(&self, ctx: &JSContext) -> Result<f64, i32> {
+    pub fn to_f64(&self, ctx: &JSContext<'a>) -> Result<f64, i32> {
         match self {
             JSValue::Int(i) => Ok(*i as f64),
             JSValue::Bool(b) => Ok(*b as i32 as f64),
@@ -448,7 +448,7 @@ impl JSValue {
 
     /// convert value to length between \[0, MAX_SAFE_INTEGER\].
     #[inline]
-    pub fn to_length(&self, ctx: &JSContext) -> Result<i64, i32> {
+    pub fn to_length(&self, ctx: &JSContext<'a>) -> Result<i64, i32> {
         self.to_i64_clamp(ctx, 0, MAX_SAFE_INTEGER, 0)
     }
 }

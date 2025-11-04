@@ -13,9 +13,9 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct JSMapIteratorData {
+pub struct JSMapIteratorData<'a> {
     /// None if iterator is done.
-    pub obj: Option<JSObject>,
+    pub obj: Option<JSObject<'a>>,
 
     /// result kind
     pub kind: JSIteratorKindEnum,
@@ -26,7 +26,7 @@ pub struct JSMapIteratorData {
 
 #[derive(Debug, Clone)]
 #[repr(transparent)]
-pub struct MapIterator(pub(crate) JSObject);
+pub struct MapIterator<'a>(pub(crate) JSObject<'a>);
 
 object_cast!(MapIterator, JS_CLASS_MAP_ITERATOR);
 
@@ -41,7 +41,11 @@ pub fn js_map_iterator_mark(val: JSValue) {
     }
 }
 
-fn js_map_iterator_next(ctx: &JSContext, cc: CallContext, state: &mut IteratorState) -> JSResult {
+fn js_map_iterator_next<'a>(
+    ctx: &JSContext<'a>,
+    cc: CallContext<'_, 'a>,
+    state: &mut IteratorState,
+) -> JSResult<'a> {
     let is_set = cc.magic() & 1 != 0;
     *state = IteratorState::NotDone;
 

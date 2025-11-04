@@ -42,7 +42,7 @@ impl Label {
     }
 }
 
-impl JSFunctionDef {
+impl<'a> JSFunctionDef<'a> {
     /// Create a new label in function def. returns new label id.
     pub fn add_label(&mut self) -> Result<u32, i32> {
         if self.label_slots.len() == self.label_slots.capacity()

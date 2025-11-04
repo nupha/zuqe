@@ -17,18 +17,18 @@ use super::JSProperty;
 
 #[repr(u8)]
 #[derive(Debug, Clone)]
-pub enum LazyInit {
+pub enum LazyInit<'a> {
     /// Build prototype and set as constructor for target object
     Prototype,
     /// Build value from field def.
     Prop(NonNull<FieldDef>),
     /// Build module namespace object
-    ModuleNS(ModuleDef),
+    ModuleNS(ModuleDef<'a>),
 }
 
-impl LazyInit {
+impl<'a> LazyInit<'a> {
     /// apply init. returns instantiated value.
-    pub fn instantiate(&self, ctx: &JSContext, this_obj: &JSObject) -> JSResult {
+    pub fn instantiate(&self, ctx: &JSContext<'a>, this_obj: &JSObject<'a>) -> JSResult<'a> {
         match self {
             Self::Prototype => {
                 let obj = ctx.create_base_object()?;
@@ -69,7 +69,7 @@ impl LazyInit {
     }
 }
 
-impl JSProperty {
+impl<'a> JSProperty<'a> {
     /// Instantiate lazy object, and set instantiated value back to the property value slot as normal value,
     /// change shape property kind to NORMAL.
     ///
@@ -80,13 +80,13 @@ impl JSProperty {
     /// Note: will panic if property is not lazy type.
     pub(super) fn instantiate(
         &mut self,
-        master_obj: &JSObject,
+        master_obj: &JSObject<'a>,
         idx: usize,
-        this_obj: &JSObject,
-    ) -> JSResult {
+        this_obj: &JSObject<'a>,
+    ) -> JSResult<'a> {
         if let JSProperty::LazyInit {
             realm, init_type, ..
-        } = self
+        } = self.clone()
         {
             let realm = realm.upgrade().unwrap();
             master_obj.shape_prepare_update(&realm)?;
@@ -115,13 +115,13 @@ impl JSProperty {
     }
 }
 
-impl JSObject {
+impl<'a> JSObject<'a> {
     /// define an AutoInit property on object
     pub fn define_lazy_property(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         prop: &Atom,
-        lazy_init: LazyInit,
+        lazy_init: LazyInit<'a>,
         flags: u32,
     ) -> Result<(), i32> {
         debug_assert!(

@@ -10,7 +10,7 @@ use crate::{
     value::JSValue,
 };
 
-pub fn js_proxy_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_proxy_constructor<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let Some(target) = cc.arg(0).as_object() else {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
@@ -33,11 +33,9 @@ pub fn js_proxy_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(obj.into())
 }
 
-fn js_proxy_revocable(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let proxy_obj = js_proxy_constructor(
-        ctx,
-        CallContext::new(ctx, JSValue::UNDEFINED, cc.arguments(), 0, None),
-    )?;
+fn js_proxy_revocable<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+    let cc2 = unsafe { CallContext::new_simple(ctx, JSValue::UNDEFINED, cc.arguments()) };
+    let proxy_obj = js_proxy_constructor(ctx, cc2)?;
 
     // create revoke function
     let revoke_obj = NativeFunctionWithData::create(

@@ -17,12 +17,15 @@ use super::{CallContext, FieldDef};
 /// Async Function object
 #[repr(transparent)]
 #[derive(Debug, Clone)]
-pub struct AsyncFunction(pub(crate) JSObject);
+pub struct AsyncFunction<'a>(pub(crate) JSObject<'a>);
 
 object_cast!(AsyncFunction, JS_CLASS_ASYNC_FUNCTION);
 
-impl AsyncFunction {
-    pub fn class_initialize(ctx: &JSContext, _: ClassID) -> Result<Option<JSObject>, i32> {
+impl<'a> AsyncFunction<'a> {
+    pub fn class_initialize<'b>(
+        ctx: &JSContext<'b>,
+        _: ClassID,
+    ) -> Result<Option<JSObject<'b>>, i32> {
         let proto = ctx.create_base_object_with_proto(Some(ctx.function_proto()))?;
         proto.install_field_defs(ctx, &js_async_function_proto_funcs)?;
 
@@ -41,13 +44,13 @@ impl AsyncFunction {
     }
 
     /// hook to run function in async manner, returns a Promise.
-    pub fn class_call(
-        ctx: &JSContext,
-        func_obj: &JSValue,
-        this_obj: &JSValue,
-        args: &[JSValue],
+    pub fn class_call<'b>(
+        ctx: &JSContext<'b>,
+        func_obj: &JSValue<'b>,
+        this_obj: &JSValue<'b>,
+        args: &[JSValue<'b>],
         flags: i32,
-    ) -> JSResult {
+    ) -> JSResult<'b> {
         debug_assert_eq!(
             func_obj.as_object().unwrap().class_id(),
             JS_CLASS_ASYNC_FUNCTION
@@ -60,15 +63,15 @@ impl AsyncFunction {
     }
 }
 
-impl BCFunction {
+impl<'a> BCFunction<'a> {
     /// call a bc function in async manner
     pub fn call_async(
         &self,
-        ctx: &JSContext,
-        this_obj: &JSValue,
-        args: &[JSValue],
+        ctx: &JSContext<'a>,
+        this_obj: &JSValue<'a>,
+        args: &[JSValue<'a>],
         _flags: i32,
-    ) -> Result<Promise, i32> {
+    ) -> Result<Promise<'a>, i32> {
         let (promise, resolving_funcs) = Promise::create(ctx)?;
         async_function_resume(
             ctx,
@@ -84,15 +87,15 @@ impl BCFunction {
     }
 }
 
-impl JSObject {
+impl<'a> JSObject<'a> {
     /// call a bc function object in async manner
     pub fn call_async(
         &self,
-        ctx: &JSContext,
-        this_obj: &JSValue,
-        args: &[JSValue],
+        ctx: &JSContext<'a>,
+        this_obj: &JSValue<'a>,
+        args: &[JSValue<'a>],
         flags: i32,
-    ) -> Result<Promise, i32> {
+    ) -> Result<Promise<'a>, i32> {
         if let Some(bcf) = self.as_BCFunction() {
             bcf.call_async(ctx, this_obj, args, flags)
         } else {
@@ -102,17 +105,17 @@ impl JSObject {
     }
 }
 
-impl JSValue {
+impl<'a> JSValue<'a> {
     /// call a bc function object in async manner
     pub fn call_async(
         &self,
-        ctx: &JSContext,
-        this_obj: &JSValue,
-        args: &[JSValue],
+        ctx: &JSContext<'a>,
+        this_obj: &JSValue<'a>,
+        args: &[JSValue<'a>],
         flags: i32,
-    ) -> Result<Promise, i32> {
-        if let Some(bcf) = self.as_object_BCFunction() {
-            bcf.call_async(ctx, this_obj, args, flags)
+    ) -> Result<Promise<'a>, i32> {
+        if let Some(f) = self.as_object_BCFunction() {
+            f.call_async(ctx, this_obj, args, flags)
         } else {
             ctx.throw_type_error("not a function with bytecode");
             Err(-1)
@@ -121,7 +124,7 @@ impl JSValue {
 }
 
 /// Resume async function execution with an given state
-fn async_function_resume(ctx: &JSContext, s: &AsyncFuncState) {
+fn async_function_resume<'a>(ctx: &JSContext<'a>, s: &AsyncFuncState<'a>) {
     let func_ret = s.resume(ctx);
 
     if s.is_completed() {
@@ -146,7 +149,9 @@ fn async_function_resume(ctx: &JSContext, s: &AsyncFuncState) {
         // await
         let promise = if let Ok(p) = {
             let ctor = ctx.0.borrow().promise_ctor.clone();
-            let cc = CallContext::new_simple(ctx, ctor, std::slice::from_ref(&value));
+            let cc = CallContext::new_simple(ctx, ctor, unsafe {
+                std::mem::transmute(std::slice::from_ref(&value))
+            });
             js_promise_resolve(ctx, cc)
         } {
             Promise::try_from(p).unwrap()
@@ -181,10 +186,10 @@ fn async_function_resume(ctx: &JSContext, s: &AsyncFuncState) {
     }
 }
 
-fn js_async_function_resolve_create(
-    ctx: &JSContext,
-    s: &AsyncFuncState,
-) -> Result<[JSValue; 2], i32> {
+fn js_async_function_resolve_create<'a>(
+    ctx: &JSContext<'a>,
+    s: &AsyncFuncState<'a>,
+) -> Result<[JSValue<'a>; 2], i32> {
     let mut resolving_funcs = [const { JSValue::UNDEFINED }; 2];
 
     for i in 0..2 {
@@ -204,44 +209,36 @@ fn js_async_function_resolve_create(
     Ok(resolving_funcs)
 }
 
-pub(crate) fn js_async_function_resolve_call(
-    ctx: &JSContext,
-    func_obj: &JSValue,
-    _this_obj: &JSValue,
-    args: &[JSValue],
+pub(crate) fn js_async_function_resolve_call<'a>(
+    ctx: &JSContext<'a>,
+    func_obj: &JSValue<'a>,
+    _this_obj: &JSValue<'a>,
+    args: &[JSValue<'a>],
     _flags: i32,
-) -> JSResult {
+) -> JSResult<'a> {
     let p = unsafe { func_obj.as_object_unchecked() };
-    let s = p.payload().async_function_resolving().cloned().unwrap();
     let is_reject = p.class_id() == JS_CLASS_ASYNC_FUNCTION_REJECT;
 
-    let arg = if !args.is_empty() {
-        args[0].clone()
-    } else {
-        JSValue::UNDEFINED
-    };
-
-    unsafe {
-        s.0.borrow_mut().as_mut().get_unchecked_mut().throw_flag = is_reject;
-    }
+    let async_state: AsyncFuncState<'a> = p.payload().async_function_resolving().cloned().unwrap();
+    async_state.set_throw_flag(is_reject);
 
     if is_reject {
-        ctx.throw(arg);
+        ctx.throw(if args.is_empty() {
+            JSValue::UNDEFINED
+        } else {
+            args[0].clone()
+        });
     } else {
         // return value of await
-        debug_assert!(s.0.borrow().frame.cur_sp_offset > 0);
-
-        let mut s = s.0.borrow_mut();
-        let s = unsafe { s.as_mut().get_unchecked_mut() };
-        unsafe {
-            *s.frame
-                .stack_base_ptr()
-                .as_ptr()
-                .add(s.frame.cur_sp_offset as usize - 1) = arg;
-        }
+        debug_assert!(async_state.0.borrow().frame.cur_sp_offset > 0);
+        async_state.set_return_value(if args.is_empty() {
+            JSValue::UNDEFINED
+        } else {
+            args[0].clone()
+        });
     }
 
-    async_function_resume(ctx, &s);
+    async_function_resume(ctx, &async_state);
     Ok(JSValue::UNDEFINED)
 }
 

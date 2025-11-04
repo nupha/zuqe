@@ -514,7 +514,7 @@ fn datetime_parse(buf: &[u8]) -> Option<i64> {
 /// - 2: toISOString: "2018-01-02T23:02:56.927Z"
 /// - 3: toLocaleString: "1/2/2018, 11:40:40 PM"
 /// - part: 1=date, 2=time 3=all
-fn datetime_format(ctx: &JSContext, tm_val: i64, flags: i32) -> Result<JSString, i32> {
+fn datetime_format<'a>(ctx: &JSContext<'a>, tm_val: i64, flags: i32) -> Result<JSString<'a>, i32> {
     let fmt = (flags >> 4) & 0x0F;
     let part = flags & 0x0F;
 
@@ -675,7 +675,10 @@ impl Datetime {
         timestamp_ms: INVALID_TIMESTAMP,
     };
 
-    pub fn class_initialize(ctx: &JSContext, _: ClassID) -> Result<Option<JSObject>, i32> {
+    pub fn class_initialize<'a>(
+        ctx: &JSContext<'a>,
+        _: ClassID,
+    ) -> Result<Option<JSObject<'a>>, i32> {
         let obj = ctx.create_base_object()?;
         obj.install_field_defs(ctx, &js_date_proto_funcs).unwrap();
 
@@ -788,7 +791,7 @@ impl From<Datetime> for i64 {
     }
 }
 
-impl From<Datetime> for JSValue {
+impl<'a> From<Datetime> for JSValue<'a> {
     fn from(tm: Datetime) -> Self {
         if tm.is_invalid() {
             Self::from(f64::NAN)
@@ -798,7 +801,7 @@ impl From<Datetime> for JSValue {
     }
 }
 
-pub fn js_date_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_date_constructor<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let new_target = cc.this();
 
     let nargs = if new_target.is_undefined() {
@@ -860,7 +863,7 @@ pub fn js_date_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 }
 
-fn JS_ThisTimeValue(ctx: &JSContext, this: &JSValue) -> Result<Datetime, i32> {
+fn JS_ThisTimeValue<'a>(ctx: &JSContext<'a>, this: &JSValue<'a>) -> Result<Datetime, i32> {
     if let Some(t) = this.as_object().and_then(|o| {
         if let ObjectPayload::DATE(dt) = o.payload() {
             Some(dt.get())
@@ -875,11 +878,11 @@ fn JS_ThisTimeValue(ctx: &JSContext, this: &JSValue) -> Result<Datetime, i32> {
     }
 }
 
-fn js_date_getTime(ctx: &JSContext, cc: CallContext) -> JSResult {
-    JS_ThisTimeValue(ctx, cc.this()).map(|t| t.into())
+fn js_date_getTime<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+    JS_ThisTimeValue(ctx, cc.this()).map(JSValue::from)
 }
 
-fn js_date_setTime(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_date_setTime<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let this = cc.this();
     let _ = JS_ThisTimeValue(ctx, this)?;
 
@@ -899,12 +902,12 @@ fn js_date_setTime(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 }
 
-fn get_date_string(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn get_date_string<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let tm = JS_ThisTimeValue(ctx, cc.this())?;
     datetime_format(ctx, tm.into(), cc.magic()).map(JSValue::String)
 }
 
-fn js_date_Symbol_toPrimitive(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_date_Symbol_toPrimitive<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     // Symbol_toPrimitive(hint)
     let Some(obj) = cc.this().as_object() else {
         ctx.throw_type_error_not_an_object();
@@ -928,7 +931,7 @@ fn js_date_Symbol_toPrimitive(ctx: &JSContext, cc: CallContext) -> JSResult {
     obj.to_primitive(ctx, hint_num | HINT_FORCE_ORDINARY)
 }
 
-fn js_date_getTimezoneOffset(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_date_getTimezoneOffset<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let tm = JS_ThisTimeValue(ctx, cc.this())?;
     if tm.is_invalid() {
         Ok(JSValue::Float64(f64::NAN))
@@ -937,7 +940,7 @@ fn js_date_getTimezoneOffset(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 }
 
-fn get_date_field(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn get_date_field<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let tm = JS_ThisTimeValue(ctx, cc.this())?;
 
     let magic = cc.magic();
@@ -955,12 +958,12 @@ fn get_date_field(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 }
 
-fn set_date_field_internal(
-    ctx: &JSContext,
-    this: &JSValue,
-    args: &[JSValue],
+fn set_date_field_internal<'a>(
+    ctx: &JSContext<'a>,
+    this: &JSValue<'a>,
+    args: &[JSValue<'a>],
     magic: i32,
-) -> JSResult {
+) -> JSResult<'a> {
     let first_field = (magic >> 8) & 0x0F;
     let end_field = (magic >> 4) & 0x0F;
     let is_local = magic & 0x0F != 0;
@@ -1014,11 +1017,11 @@ fn set_date_field_internal(
     }
 }
 
-fn set_date_field(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn set_date_field<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     set_date_field_internal(ctx, cc.this(), cc.arguments(), cc.magic())
 }
 
-fn js_date_setYear(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_date_setYear<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let mut y = cc.arg(0).to_f64(ctx)?;
     if y.is_finite() {
         y = y.trunc();
@@ -1029,7 +1032,7 @@ fn js_date_setYear(ctx: &JSContext, cc: CallContext) -> JSResult {
     set_date_field_internal(ctx, cc.this(), &[JSValue::from(y)], 0x011)
 }
 
-fn js_date_toJSON(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_date_toJSON<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let obj = cc.this().clone().objectify(ctx)?;
 
     let tv = obj.to_primitive(ctx, HINT_NUMBER)?;
@@ -1099,18 +1102,18 @@ pub static js_date_proto_funcs: [FieldDef; 47] = [
     JS_CFUNC_NATIVE_DEF!("toJSON", 1, js_date_toJSON, 0),
 ];
 
-fn js_Date_now(_: &JSContext, _: CallContext) -> JSResult {
+fn js_Date_now<'a>(_: &JSContext<'a>, _: CallContext<'_, 'a>) -> JSResult<'a> {
     let ts = Datetime::now();
     Ok(JSValue::from(ts.timestamp()))
 }
 
-fn js_Date_parse(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_Date_parse<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let s = cc.arg(0).to_string(ctx)?;
     let tm = Datetime::parse(&s.content().encode_utf8_bytes()).unwrap_or(Datetime::INVALID);
-    Ok(tm.into())
+    Ok(JSValue::from(tm))
 }
 
-fn js_Date_UTC(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_Date_UTC<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let dt = if cc.length() == 0 {
         Datetime::INVALID
     } else {

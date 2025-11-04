@@ -98,12 +98,12 @@ impl Default for BytecodeAttrs {
     }
 }
 
-pub struct BytecodeInner {
-    rt: NonNull<JSRuntime>,
+pub struct BytecodeInner<'a> {
+    rt: NonNull<JSRuntime<'a>>,
     gc_mark: Cell<bool>,
 
     pub func_name: Atom,
-    realm: JSContextWeakref,
+    realm: JSContextWeakref<'a>,
 
     pub(crate) attrs: BytecodeAttrs,
 
@@ -133,17 +133,17 @@ pub struct BytecodeInner {
     pub has_debug: bool,
 }
 
-impl Drop for BytecodeInner {
+impl<'a> Drop for BytecodeInner<'a> {
     fn drop(&mut self) {
         self.finalize();
     }
 }
 
-impl BytecodeInner {
+impl<'a> BytecodeInner<'a> {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
-        ctx: &JSContext,
-        fd: &JSFunctionDef,
+        ctx: &JSContext<'a>,
+        fd: &JSFunctionDef<'a>,
         binary: Box<[u8]>,
         cpool_start: i32,
         cpool_count: u16,
@@ -197,12 +197,12 @@ impl BytecodeInner {
     }
 
     #[inline(always)]
-    pub const fn rt(&self) -> &JSRuntime {
+    pub const fn rt(&self) -> &JSRuntime<'a> {
         unsafe { self.rt.as_ref() }
     }
 
     /// get bytecode realm
-    pub fn realm(&self) -> Option<JSContext> {
+    pub fn realm(&self) -> Option<JSContext<'a>> {
         self.realm.upgrade()
     }
 
@@ -455,7 +455,7 @@ impl BytecodeInner {
     }
 
     /// get const values slice
-    pub fn consts(&self) -> &[JSValue] {
+    pub fn consts(&self) -> &[JSValue<'a>] {
         if self.cpool_start >= 0 {
             debug_assert!(self.cpool_count > 0);
             unsafe {
@@ -475,7 +475,7 @@ impl BytecodeInner {
 
     /// get a const value by index
     #[inline(always)]
-    pub fn load_const(&self, idx: usize) -> Option<JSValue> {
+    pub fn load_const(&self, idx: usize) -> Option<JSValue<'a>> {
         self.consts().get(idx).cloned()
     }
 
@@ -556,42 +556,42 @@ impl BytecodeInner {
 
 #[repr(transparent)]
 #[derive(Clone)]
-pub struct Bytecode(Rc<BytecodeInner>);
+pub struct Bytecode<'a>(Rc<BytecodeInner<'a>>);
 
-impl From<Rc<BytecodeInner>> for Bytecode {
-    fn from(value: Rc<BytecodeInner>) -> Self {
+impl<'a> From<Rc<BytecodeInner<'a>>> for Bytecode<'a> {
+    fn from(value: Rc<BytecodeInner<'a>>) -> Self {
         Self(value)
     }
 }
 
-impl From<Bytecode> for GCObject {
-    fn from(value: Bytecode) -> Self {
+impl<'a> From<Bytecode<'a>> for GCObject<'a> {
+    fn from(value: Bytecode<'a>) -> Self {
         Self::Bytecode(value)
     }
 }
 
-impl From<Bytecode> for JSValue {
-    fn from(value: Bytecode) -> Self {
+impl<'a> From<Bytecode<'a>> for JSValue<'a> {
+    fn from(value: Bytecode<'a>) -> Self {
         Self::Bytecode(value)
     }
 }
 
-impl std::ops::Deref for Bytecode {
-    type Target = BytecodeInner;
+impl<'a> std::ops::Deref for Bytecode<'a> {
+    type Target = BytecodeInner<'a>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl std::fmt::Debug for Bytecode {
+impl std::fmt::Debug for Bytecode<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "<Bytecode {:p}>", self.id() as *const c_void)
     }
 }
 
-impl Bytecode {
-    pub fn downgrade(&self) -> BytecodeWeakref {
+impl<'a> Bytecode<'a> {
+    pub fn downgrade(&self) -> BytecodeWeakref<'a> {
         BytecodeWeakref(Rc::downgrade(&self.0))
     }
 
@@ -606,11 +606,11 @@ impl Bytecode {
     /// Internally, it will create a function object with the bytecode, then eval the function.
     pub fn eval(
         &self,
-        ctx: &JSContext,
-        this_obj: &JSValue,
-        var_refs: &[JSVarRef],
-        parent_frame: Option<&mut StackFrame>,
-    ) -> JSResult {
+        ctx: &JSContext<'a>,
+        this_obj: &JSValue<'a>,
+        var_refs: &[JSVarRef<'a>],
+        parent_frame: Option<&mut StackFrame<'a>>,
+    ) -> JSResult<'a> {
         self.make_closure(ctx, var_refs, parent_frame, None)
             .and_then(|f| f.call(ctx, this_obj, &[]))
     }
@@ -628,10 +628,10 @@ impl Bytecode {
 
 #[repr(transparent)]
 #[derive(Debug, Clone)]
-pub struct BytecodeWeakref(Weak<BytecodeInner>);
+pub struct BytecodeWeakref<'a>(Weak<BytecodeInner<'a>>);
 
-impl BytecodeWeakref {
-    pub fn upgrade(&self) -> Option<Bytecode> {
+impl<'a> BytecodeWeakref<'a> {
+    pub fn upgrade(&self) -> Option<Bytecode<'a>> {
         self.0.upgrade().map(Bytecode)
     }
 }

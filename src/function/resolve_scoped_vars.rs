@@ -12,7 +12,7 @@ use super::optimize::{
     optimize_scope_make_ref,
 };
 
-impl JSFunctionDef {
+impl<'a> JSFunctionDef<'a> {
     /// Resolves variable references within a specific scope
     /// Searches for the variable starting from the given scope and moves upwards
     /// Rewrites bytecode to handle variable access appropriately

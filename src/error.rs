@@ -27,7 +27,7 @@ pub enum ErrorKind {
     Aggregate,
 }
 
-pub type JSResult = Result<JSValue, i32>;
+pub type JSResult<'a> = Result<JSValue<'a>, i32>;
 
 pub(crate) const STD_ERROR_COUNT: usize = ErrorKind::Aggregate as usize + 1;
 pub(crate) const STD_ERROR_NAMES: [&str; STD_ERROR_COUNT] = [
@@ -47,22 +47,22 @@ pub const JS_THROW_VAR_UNINITIALIZED: u8 = 2;
 pub const JS_THROW_ERROR_DELETE_SUPER: u8 = 3;
 pub const JS_THROW_ERROR_ITERATOR_THROW: u8 = 4;
 
-impl JSContext {
+impl<'a> JSContext<'a> {
     /// Get current exception value ref
-    pub fn exception(&self) -> &JSValue {
+    pub fn exception(&self) -> &JSValue<'a> {
         &self.rt().cur_exception
     }
 
     /// get current exception value, and reset current_exception to null.
     #[inline(always)]
-    pub(crate) fn take_exception(&self) -> JSValue {
+    pub(crate) fn take_exception(&self) -> JSValue<'a> {
         self.set_exception(JSValue::NULL)
     }
 
     /// set new obj to current_exception, returns the old exception value.
     /// Note: returned value should be freed by caller
     #[cold]
-    fn set_exception(&self, obj: JSValue) -> JSValue {
+    fn set_exception(&self, obj: JSValue<'a>) -> JSValue<'a> {
         std::mem::replace(&mut self.rt_mut().cur_exception, obj)
     }
 
@@ -70,7 +70,7 @@ impl JSContext {
     /// Note: `obj` is consumed.
     #[inline(never)]
     #[cold]
-    pub fn throw(&self, obj: JSValue) {
+    pub fn throw(&self, obj: JSValue<'a>) {
         // strict debug guard: don't allow to throw null or undefined.
         // #[cfg(debug_assertions)]
         // if obj.is_undefined_or_null() {
@@ -226,11 +226,11 @@ pub fn is_backtrace_needed(obj: &JSValue) -> bool {
     }
 }
 
-impl JSContext {
+impl<'a> JSContext<'a> {
     #[cold]
     fn do_build_backtrace(
         &self,
-        error_obj: &JSValue,
+        error_obj: &JSValue<'a>,
         file_line: Option<(&str, i32)>, // filename and line number
         mut backtrace_flags: i32,
     ) -> Result<String, i32> {
@@ -328,7 +328,7 @@ impl JSContext {
     #[cold]
     pub fn build_backtrace_to(
         &self,
-        error_obj: &JSValue,
+        error_obj: &JSValue<'a>,
         file_line: Option<(&str, i32)>,
         backtrace_flags: i32,
     ) {
@@ -348,7 +348,7 @@ impl JSContext {
     }
 }
 
-pub fn JS_ThrowReferenceErrorUninitialized(ctx: &JSContext, name: AtomRef) {
+pub fn JS_ThrowReferenceErrorUninitialized<'a>(ctx: &JSContext<'a>, name: AtomRef) {
     if name == JS_ATOM_NULL {
         ctx.throw_reference_error("lexical variable is not initialized");
     } else {
@@ -356,11 +356,16 @@ pub fn JS_ThrowReferenceErrorUninitialized(ctx: &JSContext, name: AtomRef) {
     }
 }
 
-pub fn JS_ThrowReferenceErrorNotDefined(ctx: &JSContext, name: AtomRef) {
+pub fn JS_ThrowReferenceErrorNotDefined<'a>(ctx: &JSContext<'a>, name: AtomRef) {
     ctx.throw_reference_error(&format!("'{}' is not defined", name.to_utf8()))
 }
 
-pub fn JS_ThrowReferenceErrorUninitialized2(ctx: &JSContext, b: &Bytecode, idx: u16, is_ref: bool) {
+pub fn JS_ThrowReferenceErrorUninitialized2<'a>(
+    ctx: &JSContext<'a>,
+    b: &Bytecode,
+    idx: u16,
+    is_ref: bool,
+) {
     let atom = if is_ref {
         b.get_closure_var(idx).map(|c| c.var_name.to_ref())
     } else {
@@ -373,15 +378,15 @@ pub fn JS_ThrowReferenceErrorUninitialized2(ctx: &JSContext, b: &Bytecode, idx: 
 }
 
 #[deprecated(note = "use JSContext::throw_type_error_revoked_proxy() instead")]
-pub fn JS_ThrowTypeErrorRevokedProxy(ctx: &JSContext) {
+pub fn JS_ThrowTypeErrorRevokedProxy<'a>(ctx: &JSContext<'a>) {
     ctx.throw_type_error("revoked proxy");
 }
 
-pub fn JS_ThrowTypeErrorDetachedArrayBuffer(ctx: &JSContext) {
+pub fn JS_ThrowTypeErrorDetachedArrayBuffer<'a>(ctx: &JSContext<'a>) {
     ctx.throw_type_error("ArrayBuffer is detached");
 }
 
-pub fn JS_ThrowTypeErrorPrivateNotFound(ctx: &JSContext, atom: AtomRef) {
+pub fn JS_ThrowTypeErrorPrivateNotFound<'a>(ctx: &JSContext<'a>, atom: AtomRef) {
     ctx.throw_type_error(&format!(
         "private class field '{}' does not exist",
         atom.to_utf8()
@@ -389,11 +394,11 @@ pub fn JS_ThrowTypeErrorPrivateNotFound(ctx: &JSContext, atom: AtomRef) {
 }
 
 #[deprecated(note = "use JSContext::throw_syntax_error() instead")]
-pub fn JS_ThrowSyntaxError(ctx: &JSContext, message: &str) {
+pub fn JS_ThrowSyntaxError<'a>(ctx: &JSContext<'a>, message: &str) {
     ctx.throw_error(ErrorKind::Syntax, message);
 }
 
-pub fn JS_ThrowSyntaxErrorVarRedeclaration(ctx: &JSContext, prop: AtomRef) {
+pub fn JS_ThrowSyntaxErrorVarRedeclaration<'a>(ctx: &JSContext<'a>, prop: AtomRef) {
     ctx.throw_syntax_error(&format!("redeclaration of '{}'", prop.to_utf8()));
 }
 
@@ -414,7 +419,7 @@ pub fn JS_SetUncatchableError(val: &JSValue, b: bool) {
     }
 }
 
-pub fn js_error_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_error_toString<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     if !cc.this().is_object() {
         ctx.throw_type_error_not_an_object();
         return Err(-1);

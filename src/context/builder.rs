@@ -14,7 +14,7 @@ use crate::{
     runtime::JSRuntime,
 };
 
-pub type SetupGlobalFn = fn(ctx: &JSContext, global: &JSObject) -> Result<(), i32>;
+pub type SetupGlobalFn = for<'a> fn(ctx: &JSContext<'a>, global: &JSObject<'a>) -> Result<(), i32>;
 
 #[derive(Debug, Default)]
 pub struct ContextBuilder {
@@ -46,7 +46,7 @@ impl ContextBuilder {
         self
     }
 
-    pub fn build(self, rt: &mut JSRuntime) -> Result<JSContext, i32> {
+    pub fn build<'a>(self, rt: &mut JSRuntime<'a>) -> Result<JSContext<'a>, i32> {
         rt.create_context_raw(|cx| {
             //
             // make global namespace - this must come first.
@@ -110,11 +110,11 @@ impl ContextBuilder {
     }
 }
 
-impl JSRuntime {
+impl<'a> JSRuntime<'a> {
     /// Creates new context initialized with ECMA standard classes and global entries.
     ///
     /// This also provides a demostration on how to use ContextBuilder to customize a context.
-    pub fn create_context_ecma(&mut self) -> Result<JSContext, i32> {
+    pub fn create_context_ecma(&mut self) -> Result<JSContext<'a>, i32> {
         ContextBuilder::new()
             .use_classes(&[
                 //proxy

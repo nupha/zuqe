@@ -14,19 +14,19 @@ use crate::{
 use super::class_dataview::{js_dataview_constructor, js_dataview_proto_funcs};
 
 #[derive(Debug)]
-pub struct DataViewPayload {
+pub struct DataViewPayload<'a> {
     /// underlaying array buffer object.
-    pub(super) buffer: ArrayBuffer,
+    pub(super) buffer: ArrayBuffer<'a>,
     /// start offset in array buffer  
     pub(super) offset: u32,
     /// number of bytes from array buffer
     pub(super) byte_length: u32,
 }
 
-impl DataViewPayload {
+impl<'a> DataViewPayload<'a> {
     /// create typed array payload with underlying array buffer `buffer`,
     /// offset in array buffer and type array element count.
-    fn new(buffer: ArrayBuffer, offset: usize, len: usize) -> Box<Self> {
+    fn new(buffer: ArrayBuffer<'a>, offset: usize, len: usize) -> Box<Self> {
         let abuf = buffer.payload();
         let byte_length = abuf.byte_length();
 
@@ -43,7 +43,7 @@ impl DataViewPayload {
 
     /// get underlaying array buffer object.
     #[inline(always)]
-    pub const fn array_buffer(&self) -> &ArrayBuffer {
+    pub const fn array_buffer(&self) -> &ArrayBuffer<'a> {
         &self.buffer
     }
 
@@ -79,12 +79,15 @@ impl DataViewPayload {
 
 #[repr(transparent)]
 #[derive(Debug, Clone)]
-pub struct DataView(JSObject);
+pub struct DataView<'a>(JSObject<'a>);
 
 object_cast!(DataView, JS_CLASS_DATAVIEW);
 
-impl DataView {
-    pub fn class_initialize(ctx: &JSContext, class_id: ClassID) -> Result<Option<JSObject>, i32> {
+impl<'a> DataView<'a> {
+    pub fn class_initialize(
+        ctx: &JSContext<'a>,
+        class_id: ClassID,
+    ) -> Result<Option<JSObject<'a>>, i32> {
         debug_assert_eq!(class_id, JS_CLASS_DATAVIEW);
 
         let dv_obj = ctx.create_base_object()?;
@@ -113,9 +116,9 @@ impl DataView {
 
     /// create a DataView with AarrayBuffer, offset and length.
     pub(crate) fn create(
-        ctx: &JSContext,
-        ctor: &JSValue,
-        array_buffer: ArrayBuffer,
+        ctx: &JSContext<'a>,
+        ctor: &JSValue<'a>,
+        array_buffer: ArrayBuffer<'a>,
         offset: usize,
         length: Option<usize>,
     ) -> Result<Self, i32> {
@@ -175,7 +178,7 @@ impl DataView {
     }
 
     #[inline]
-    pub fn payload(&self) -> &DataViewPayload {
+    pub fn payload(&self) -> &DataViewPayload<'a> {
         self.0.payload().data_view().unwrap()
     }
 
@@ -186,7 +189,7 @@ impl DataView {
     }
 
     #[inline]
-    pub fn array_buffer(&self) -> &ArrayBuffer {
+    pub fn array_buffer(&self) -> &ArrayBuffer<'a> {
         self.payload().array_buffer()
     }
 

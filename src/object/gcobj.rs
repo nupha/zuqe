@@ -11,17 +11,17 @@ use super::{JSObject, JSShape};
 
 #[repr(u8)]
 #[derive(Debug, Clone)]
-pub enum GCObject {
-    Object(JSObject),
-    Bytecode(Bytecode),
-    String(JSString),
-    Shape(JSShape),
-    VarRef(JSVarRef),
-    AsyncFunction(AsyncFuncState),
-    Context(JSContext),
+pub enum GCObject<'a> {
+    Object(JSObject<'a>),
+    Bytecode(Bytecode<'a>),
+    String(JSString<'a>),
+    Shape(JSShape<'a>),
+    VarRef(JSVarRef<'a>),
+    AsyncFunction(AsyncFuncState<'a>),
+    Context(JSContext<'a>),
 }
 
-impl PartialEq for GCObject {
+impl PartialEq for GCObject<'_> {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Object(l0), Self::Object(r0)) => l0.id() == r0.id(),
@@ -36,7 +36,7 @@ impl PartialEq for GCObject {
     }
 }
 
-impl GCObject {
+impl<'a> GCObject<'a> {
     #[inline]
     pub fn id(&self) -> usize {
         match self {
@@ -104,18 +104,18 @@ impl GCObject {
 
 #[repr(u8)]
 #[derive(Debug, Clone)]
-pub enum GCObjectWeakref {
-    Object(JSObjectWeakref),
-    Bytecode(BytecodeWeakref),
-    String(JSStringWeakref),
-    Shape(JSShapeWeakref),
-    VarRef(JSVarRefWeakref),
-    AsyncFunction(AsyncStateWeakref),
-    Context(JSContextWeakref),
+pub enum GCObjectWeakref<'a> {
+    Object(JSObjectWeakref<'a>),
+    Bytecode(BytecodeWeakref<'a>),
+    String(JSStringWeakref<'a>),
+    Shape(JSShapeWeakref<'a>),
+    VarRef(JSVarRefWeakref<'a>),
+    AsyncFunction(AsyncStateWeakref<'a>),
+    Context(JSContextWeakref<'a>),
 }
 
-impl GCObjectWeakref {
-    pub fn upgrade(&self) -> Option<GCObject> {
+impl<'a> GCObjectWeakref<'a> {
+    pub fn upgrade(&self) -> Option<GCObject<'a>> {
         match self {
             Self::Object(o) => o.upgrade().map(GCObject::Object),
             Self::Bytecode(o) => o.upgrade().map(GCObject::Bytecode),

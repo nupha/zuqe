@@ -27,7 +27,7 @@ pub const SKIP_HAS_ASSIGNMENT: i32 = 1 << 2; // Statement has assignment operato
 /// including the current position, token, scope, and parsing context.
 pub struct JSParseState<'s> {
     /// JavaScript context pointer for runtime operations
-    pub ctx: JSContext,
+    pub ctx: JSContext<'s>,
 
     /// Source file name being parsed
     pub filename: &'s str,
@@ -52,7 +52,7 @@ pub struct JSParseState<'s> {
 
     /// A raw pointer to current parsing function def.
     /// null if no current function def.
-    pub(super) cur_func_def: *mut JSFunctionDef,
+    pub(super) cur_func_def: *mut JSFunctionDef<'s>,
 
     /// Indicates if parsing a JavaScript module
     pub is_module: bool,
@@ -77,8 +77,8 @@ impl<'s> JSParseState<'s> {
     /// * `source` - Buffer containing source code
     /// * `filename` - Name of source file
     fn new_internal(
-        ctx: &JSContext,
-        fd: *mut JSFunctionDef,
+        ctx: &JSContext<'s>,
+        fd: *mut JSFunctionDef<'s>,
         source: &'s [u8],
         filename: &'s str,
     ) -> Self {
@@ -111,8 +111,8 @@ impl<'s> JSParseState<'s> {
     /// Create new parser state with root function def.
     #[inline(always)]
     pub fn new(
-        ctx: &JSContext,
-        fd: NonNull<JSFunctionDef>,
+        ctx: &JSContext<'s>,
+        fd: NonNull<JSFunctionDef<'s>>,
         source: &'s [u8],
         filename: &'s str,
     ) -> Self {
@@ -121,7 +121,7 @@ impl<'s> JSParseState<'s> {
 
     /// Create new parser state for json (which don't have function def).
     #[inline(always)]
-    pub fn new_for_json(ctx: &JSContext, source: &'s [u8], filename: &'s str) -> Self {
+    pub fn new_for_json(ctx: &JSContext<'s>, source: &'s [u8], filename: &'s str) -> Self {
         Self::new_internal(ctx, std::ptr::null_mut(), source, filename)
     }
 
@@ -137,7 +137,7 @@ impl<'s> JSParseState<'s> {
     /// Get function def which is currently being parsed.
     /// Will panic if cur_func is null.
     #[inline(always)]
-    pub(crate) fn cur_func(&self) -> &JSFunctionDef {
+    pub(crate) fn cur_func(&self) -> &JSFunctionDef<'s> {
         debug_assert!(!self.cur_func_def.is_null());
         unsafe { &*self.cur_func_def }
     }
@@ -146,7 +146,7 @@ impl<'s> JSParseState<'s> {
     /// Will panic if cur_func is null.
     #[allow(clippy::mut_from_ref)]
     #[inline(always)]
-    pub(super) fn cur_func_mut(&self) -> &mut JSFunctionDef {
+    pub(super) fn cur_func_mut(&self) -> &mut JSFunctionDef<'s> {
         debug_assert!(!self.cur_func_def.is_null());
         unsafe { &mut *self.cur_func_def }
     }

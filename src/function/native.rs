@@ -16,37 +16,51 @@ use crate::{
 
 use super::js_function_set_properties;
 
-pub type NativeCallback = for<'a> fn(ctx: &'a JSContext, cc: CallContext<'a>) -> JSResult;
-pub type NativeGetter = for<'a> fn(ctx: &'a JSContext, cc: CallContext<'a>) -> JSResult;
-pub type NativeSetter = for<'a> fn(ctx: &'a JSContext, cc: CallContext<'a>) -> JSResult;
-pub type NativeIteratorNext =
-    fn(ctx: &JSContext, cc: CallContext, iter_state: &mut IteratorState) -> JSResult;
+pub type NativeCallback =
+    for<'a, 'cc> fn(ctx: &JSContext<'a>, cc: CallContext<'cc, 'a>) -> JSResult<'a>;
+pub type NativeGetter =
+    for<'a, 'cc> fn(ctx: &JSContext<'a>, cc: CallContext<'cc, 'a>) -> JSResult<'a>;
+pub type NativeSetter =
+    for<'a, 'cc> fn(ctx: &JSContext<'a>, cc: CallContext<'cc, 'a>) -> JSResult<'a>;
+pub type NativeIteratorNext = for<'a, 'cc> fn(
+    ctx: &JSContext<'a>,
+    cc: CallContext<'cc, 'a>,
+    iter_state: &mut IteratorState,
+) -> JSResult<'a>;
 
-pub type JSCFunction = unsafe fn(ctx: &JSContext, this_val: JSValue, args: &[JSValue]) -> JSValue;
-pub type JSCFunctionMagic = unsafe fn(
-    ctx: &JSContext,
+pub type JSCFunction =
+    for<'a> unsafe fn(ctx: &JSContext<'a>, this_val: JSValue, args: &[JSValue]) -> JSValue<'a>;
+pub type JSCFunctionMagic = for<'a> unsafe fn(
+    ctx: &JSContext<'a>,
     this_val: JSValue,
     args: &[JSValue],
     magic: ::core::ffi::c_int,
-) -> JSValue;
+) -> JSValue<'a>;
 
-pub type JSCFunctionGetter = unsafe fn(&JSContext, JSValue) -> JSValue;
+pub type JSCFunctionGetter = for<'a> unsafe fn(&JSContext<'a>, JSValue<'a>) -> JSValue<'a>;
 pub type JSCFunctionGetterMagic =
-    unsafe fn(ctx: &JSContext, this_val: JSValue, magic: i32) -> JSValue;
+    for<'a> unsafe fn(ctx: &JSContext<'a>, this_val: JSValue<'a>, magic: i32) -> JSValue<'a>;
 
-pub type JSCFunctionSetter = unsafe fn(&JSContext, JSValue, JSValue) -> JSValue;
-pub type JSCFunctionSetterMagic = unsafe fn(&JSContext, JSValue, JSValue, i32) -> JSValue;
+pub type JSCFunctionSetter =
+    for<'a> unsafe fn(&JSContext<'a>, JSValue<'a>, JSValue<'a>) -> JSValue<'a>;
+pub type JSCFunctionSetterMagic =
+    for<'a> unsafe fn(&JSContext<'a>, JSValue<'a>, JSValue<'a>, i32) -> JSValue<'a>;
 
-pub type JSCFunctionData = unsafe fn(
-    ctx: &JSContext,
+pub type JSCFunctionData = for<'a> unsafe fn(
+    ctx: &JSContext<'a>,
     this_val: JSValue,
     args: &[JSValue],
     magic: i32,
     func_data: &mut [JSValue],
-) -> JSValue;
+) -> JSValue<'a>;
 
-pub type JSCFunctionIteratorNext =
-    fn(ctx: &JSContext, this: JSValue, args: &[JSValue], done: &mut i32, magic: i32) -> JSValue;
+pub type JSCFunctionIteratorNext = for<'a> fn(
+    ctx: &JSContext<'a>,
+    this: JSValue,
+    args: &[JSValue],
+    done: &mut i32,
+    magic: i32,
+) -> JSValue<'a>;
 
 pub type JSCFunctionFF = unsafe fn(f64) -> f64;
 pub type JSCFunctionFFF = unsafe fn(f64, f64) -> f64;
@@ -113,21 +127,21 @@ impl PartialEq for NativeFunctionType {
 }
 
 #[derive(Debug, Clone)]
-pub struct NFuncPayload {
+pub struct NFuncPayload<'a> {
     pub handler: NativeFunctionType,
-    pub realm: JSContextWeakref,
+    pub realm: JSContextWeakref<'a>,
     pub length: u8,
     pub magic: i16,
 }
 
-impl NFuncPayload {
-    pub fn class_call(
-        ctx: &JSContext,
-        func_obj: &JSValue,
-        mut this_obj: &JSValue,
-        args: &[JSValue],
+impl<'a> NFuncPayload<'a> {
+    pub fn class_call<'b>(
+        ctx: &JSContext<'b>,
+        func_obj: &JSValue<'b>,
+        mut this_obj: &JSValue<'b>,
+        args: &[JSValue<'b>],
         flags: i32,
-    ) -> JSResult {
+    ) -> JSResult<'b> {
         let rt = ctx.rt_mut();
 
         let (callback, arg_length, magic, realm) = if let ObjectPayload::C_FUNCTION(c) =
@@ -349,7 +363,7 @@ impl NFuncPayload {
 // #[derive(Debug, Clone)]
 // pub struct NativeFunction(JSValue);
 
-impl JSObject {
+impl<'a> JSObject<'a> {
     /// Checks if Object is native function of specific type.
     /// Matches both the callback pointer and magic.
     pub fn match_native_callback(&self, callback: NativeFunctionType, magic: i32) -> bool {
@@ -361,7 +375,7 @@ impl JSObject {
     }
 }
 
-impl JSValue {
+impl<'a> JSValue<'a> {
     /// Checks if a JSValue is native function of specific type.
     /// Matches both the callback pointer and magic.
     pub fn match_native_callback(&self, callback: NativeFunctionType, magic: i32) -> bool {
@@ -373,7 +387,7 @@ impl JSValue {
     }
 }
 
-impl JSContext {
+impl<'a> JSContext<'a> {
     /// Create new function object with native callback and shape of specified prototype.
     /// at least `length` arguments will be readable in arguments.
     pub fn create_native_function_with_proto(
@@ -382,8 +396,8 @@ impl JSContext {
         name: &str,
         length: u8,
         magic: i16,
-        proto: Option<JSObject>,
-    ) -> Result<JSObject, i32> {
+        proto: Option<JSObject<'a>>,
+    ) -> Result<JSObject<'a>, i32> {
         let func_obj = self
             .create_object_with_proto(
                 proto,
@@ -422,7 +436,7 @@ impl JSContext {
         name: &str,
         length: u8,
         magic: i16,
-    ) -> Result<JSObject, i32> {
+    ) -> Result<JSObject<'a>, i32> {
         self.create_native_function_with_proto(
             handler,
             name,

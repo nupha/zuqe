@@ -3997,8 +3997,8 @@ pub unsafe fn JS_ToArrayLengthFree(
 
 #[deprecated(note = "use Proxy::get_method() instead")]
 pub unsafe fn get_proxy_method<'a>(
-    ctx: &'a JSContext,
-    obj: &'a JSValue,
+    ctx: &JSContext<'a>,
+    obj: &JSValue<'a>,
     name: AtomRef,
 ) -> Result<(JSValue, &'a ProxyPayload), i32> {
     if let ObjectPayload::PROXY(s) = obj.as_object_unchecked().payload() {

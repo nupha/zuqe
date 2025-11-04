@@ -1,5 +1,4 @@
 use crate::{
-    JS_CLASS_OBJECT,
     branch_hints::unlikely,
     context::JSContext,
     error::JSResult,
@@ -8,12 +7,12 @@ use crate::{
 };
 
 /// To iterate over shape proto chain of an object
-pub struct ObjectShapeProtoIter {
-    obj: Option<JSObject>,
+pub struct ObjectShapeProtoIter<'a> {
+    obj: Option<JSObject<'a>>,
 }
 
-impl Iterator for ObjectShapeProtoIter {
-    type Item = JSObject;
+impl<'a> Iterator for ObjectShapeProtoIter<'a> {
+    type Item = JSObject<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(obj) = self.obj.take() {
@@ -26,17 +25,17 @@ impl Iterator for ObjectShapeProtoIter {
     }
 }
 
-impl JSObject {
+impl<'a> JSObject<'a> {
     /// get shape proto of object `self`
     #[inline(always)]
-    pub fn shape_proto(&self) -> Option<JSObject> {
+    pub fn shape_proto(&self) -> Option<JSObject<'a>> {
         self.shape().and_then(|s| s.0.borrow().proto.clone())
     }
 
     /// Get shape proto chain iterator, to iterate over the proto chain of an object.
     ///
     /// **Note: this iterator only concerns the `proto` field of shape, no proxy case is considered.**
-    pub fn shape_proto_iter(&self, include_self: bool) -> ObjectShapeProtoIter {
+    pub fn shape_proto_iter(&self, include_self: bool) -> ObjectShapeProtoIter<'a> {
         ObjectShapeProtoIter {
             obj: if include_self {
                 Some(self.clone())
@@ -51,7 +50,7 @@ impl JSObject {
     /// Returns:
     /// - Some(object) if it has prototype, None for no prototype.
     /// - Err in case Proxy object calling getPrototypeOf() failed.
-    pub fn prototype(&self, ctx: &JSContext) -> Result<Option<JSObject>, i32> {
+    pub fn prototype(&self, ctx: &JSContext<'a>) -> Result<Option<JSObject<'a>>, i32> {
         if let Some(p) = self.as_Proxy() {
             Ok(JSObject::try_from(p.get_prototype_of(ctx)?).ok())
         } else {
@@ -64,8 +63,8 @@ impl JSObject {
     /// - `throw_flag`: Whether to throw on error
     pub(crate) fn set_prototype_internal(
         &self,
-        ctx: &JSContext,
-        proto_val: JSValue,
+        ctx: &JSContext<'a>,
+        proto_val: JSValue<'a>,
         throw_flag: bool,
     ) -> Result<bool, i32> {
         // Guard: can't set prototype of `Object.prototype`
@@ -135,11 +134,11 @@ impl JSObject {
     }
 }
 
-impl JSValue {
+impl<'a> JSValue<'a> {
     /// Get prototype of value.
     /// Returns an object value if it has prototype, NULL for no prototype.
     /// Returns Err in case of Proxy object.
-    pub fn prototype(&self, ctx: &JSContext) -> JSResult {
+    pub fn prototype(&self, ctx: &JSContext<'a>) -> JSResult<'a> {
         if let Self::Object(o) = self {
             Ok(o.prototype(ctx)?.map_or(JSValue::NULL, JSValue::Object))
         } else {
@@ -152,8 +151,8 @@ impl JSValue {
     /// - `throw_flag`: Whether to throw on error
     pub(crate) fn set_prototype_internal(
         &self,
-        ctx: &JSContext,
-        proto_val: JSValue,
+        ctx: &JSContext<'a>,
+        proto_val: JSValue<'a>,
         throw_flag: bool,
     ) -> Result<bool, i32> {
         if unlikely(throw_flag && self.is_undefined_or_null()) {

@@ -9,15 +9,15 @@ use super::{
     JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty,
 };
 
-impl JSObject {
+impl<'a> JSObject<'a> {
     /// update value to property slot `idx`, handle 'writable' flag setting.
     pub(super) fn update_prop_slot_value(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         prop: &Atom,
         prs_flags: u32,
         idx: usize,
-        val: JSValue,
+        val: JSValue<'a>,
         flags: u32,
     ) -> Result<bool, i32> {
         //
@@ -160,12 +160,12 @@ impl JSObject {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn update_prop_slot_getset(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         prop: &Atom,
         prs_flags: u32,
         idx: usize,
-        getter: JSValue,
-        setter: JSValue,
+        getter: JSValue<'a>,
+        setter: JSValue<'a>,
         flags: u32,
     ) -> Result<bool, i32> {
         let new_getter = if flags & JS_PROP_HAS_GET != 0 && getter.is_function() {

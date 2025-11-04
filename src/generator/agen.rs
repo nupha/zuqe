@@ -34,39 +34,39 @@ pub enum AGenState {
 }
 
 #[derive(Debug)]
-pub struct JSAsyncGeneratorRequest {
+pub struct JSAsyncGeneratorRequest<'a> {
     /// completion: GEN_MAGIC_x
     pub completion_type: i32,
-    pub result: JSValue,
+    pub result: JSValue<'a>,
 
     /// promise capability
     /// TODO: use Promise
-    pub promise: JSValue,
-    pub resolving_funcs: [JSValue; 2],
+    pub promise: JSValue<'a>,
+    pub resolving_funcs: [JSValue<'a>; 2],
 }
 
 #[derive(Debug)]
-pub struct AGenPayload {
+pub struct AGenPayload<'a> {
     /// reference back to the generator object (const)
-    generator: RefCell<JSObjectWeakref>,
+    generator: RefCell<JSObjectWeakref<'a>>,
 
     state: Cell<AGenState>,
 
     /// None for state AWAITING_RETURN and COMPLETED
-    func_state: AsyncFuncState,
+    func_state: AsyncFuncState<'a>,
 
     /// list of JSAsyncGeneratorRequest.
     /// the queue's element is consumed in resolve() or reject() call.
-    queue: RefCell<Vec<Box<JSAsyncGeneratorRequest>>>,
+    queue: RefCell<Vec<Box<JSAsyncGeneratorRequest<'a>>>>,
 }
 
-impl AGenPayload {
+impl<'a> AGenPayload<'a> {
     #[inline]
     fn set_throw_flag(&self, is_reject: bool) {
         self.func_state.set_throw_flag(is_reject);
     }
 
-    pub(crate) fn resume_next(&self, ctx: &JSContext) {
+    pub(crate) fn resume_next(&self, ctx: &JSContext<'a>) {
         enum State {
             Resume,
             Done,
@@ -220,7 +220,7 @@ impl AGenPayload {
         }
     }
 
-    fn completed_return(&self, ctx: &JSContext, value: JSValue) -> Result<(), i32> {
+    fn completed_return(&self, ctx: &JSContext<'a>, value: JSValue<'a>) -> Result<(), i32> {
         let cc = CallContext::new(
             ctx,
             ctx.0.borrow().promise_ctor.clone(),
@@ -262,14 +262,12 @@ impl AGenPayload {
         )
     }
 
-    fn _await(&self, ctx: &JSContext, value: JSValue) -> Result<(), i32> {
+    fn _await(&self, ctx: &JSContext<'a>, value: JSValue<'a>) -> Result<(), i32> {
         let promise: Promise = {
-            let cc = CallContext::new(
+            let cc = CallContext::new_simple(
                 ctx,
                 ctx.0.borrow().promise_ctor.clone(),
                 std::slice::from_ref(&value),
-                0,
-                None,
             );
             js_promise_resolve(ctx, cc)?.try_into()?
         };
@@ -299,20 +297,20 @@ impl AGenPayload {
         }
     }
 
-    fn resolve_or_reject(&self, ctx: &JSContext, result: &JSValue, is_reject: bool) {
+    fn resolve_or_reject(&self, ctx: &JSContext<'a>, result: &JSValue<'a>, is_reject: bool) {
         let req = self.queue.borrow_mut().remove(0);
         req.resolving_funcs[is_reject as usize]
             .call(ctx, &JSValue::UNDEFINED, std::slice::from_ref(result))
             .unwrap();
     }
 
-    pub fn resolve(&self, ctx: &JSContext, value: JSValue, done: bool) {
+    pub fn resolve(&self, ctx: &JSContext<'a>, value: JSValue<'a>, done: bool) {
         let result = js_create_iterator_result(ctx, value, done).unwrap_or(JSValue::EXCEPTION);
         self.resolve_or_reject(ctx, &result, false);
     }
 
     #[inline(always)]
-    pub fn reject(&self, ctx: &JSContext, exception: JSValue) {
+    pub fn reject(&self, ctx: &JSContext<'a>, exception: JSValue<'a>) {
         self.resolve_or_reject(ctx, &exception, true);
     }
 }
@@ -320,18 +318,18 @@ impl AGenPayload {
 /// An AsyncGeneratorFunction object
 #[repr(transparent)]
 #[derive(Debug, Clone)]
-pub struct AsyncGeneratorFunction(JSObject);
+pub struct AsyncGeneratorFunction<'a>(JSObject<'a>);
 
 object_cast!(AsyncGeneratorFunction, JS_CLASS_ASYNC_GENERATOR_FUNCTION);
 
-impl AsyncGeneratorFunction {
-    pub fn class_call(
-        ctx: &JSContext,
-        func_obj: &JSValue,
-        this_obj: &JSValue,
-        args: &[JSValue],
+impl<'a> AsyncGeneratorFunction<'a> {
+    pub fn class_call<'b>(
+        ctx: &JSContext<'b>,
+        func_obj: &JSValue<'b>,
+        this_obj: &JSValue<'b>,
+        args: &[JSValue<'b>],
         _flags: i32,
-    ) -> JSResult {
+    ) -> JSResult<'b> {
         let s = Box::new(AGenPayload {
             generator: RefCell::new(JSObjectWeakref::default()),
             state: Cell::new(AGenState::JS_ASYNC_GENERATOR_STATE_SUSPENDED_START),
@@ -362,7 +360,10 @@ impl AsyncGeneratorFunction {
         Ok(obj.into())
     }
 
-    pub fn class_initialize(ctx: &JSContext, class_id: ClassID) -> Result<Option<JSObject>, i32> {
+    pub fn class_initialize<'b>(
+        ctx: &JSContext<'b>,
+        class_id: ClassID,
+    ) -> Result<Option<JSObject<'b>>, i32> {
         debug_assert!(
             matches!(
                 class_id,
@@ -420,7 +421,7 @@ impl AsyncGeneratorFunction {
 
     pub const fn class_finalizer(_rt: &mut JSRuntime, _isa: &ObjectPayload, _id: usize) {}
 
-    pub fn class_mark(val: JSValue) {
+    pub fn class_mark<'b>(val: JSValue<'b>) {
         if let ObjectPayload::ASYNC_GENERATOR(s) = unsafe { val.as_object_unchecked().payload() } {
             s.func_state.gc_mark();
 
@@ -435,11 +436,11 @@ impl AsyncGeneratorFunction {
 }
 
 /// create pair of functions to handle fullfil and reject.
-fn js_async_generator_resolve_function_create(
-    ctx: &JSContext,
-    generator: JSValue,
+fn js_async_generator_resolve_function_create<'a>(
+    ctx: &JSContext<'a>,
+    generator: JSValue<'a>,
     is_resume_next: bool,
-) -> Result<[JSValue; 2], i32> {
+) -> Result<[JSValue<'a>; 2], i32> {
     let resolving_funcs: [JSValue; 2] = [
         // handle fullfil
         NativeFunctionWithData::create(
@@ -464,7 +465,10 @@ fn js_async_generator_resolve_function_create(
     Ok(resolving_funcs)
 }
 
-fn js_async_generator_resolve_function(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_async_generator_resolve_function<'a>(
+    ctx: &JSContext<'a>,
+    cc: CallContext<'_, 'a>,
+) -> JSResult<'a> {
     let is_reject = cc.magic() & 1 != 0;
     let arg = cc.arg(0);
 
@@ -518,7 +522,7 @@ fn js_async_generator_resolve_function(ctx: &JSContext, cc: CallContext) -> JSRe
     }
 }
 
-fn js_async_generator_next(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_async_generator_next<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let (promise, resolving_funcs) = Promise::create(ctx)?;
 
     if let Ok(isa) = cc
@@ -548,7 +552,7 @@ fn js_async_generator_next(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(promise.into())
 }
 
-fn js_iterator_proto_iterator(_ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_iterator_proto_iterator<'a>(_: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     Ok(cc.this().clone())
 }
 

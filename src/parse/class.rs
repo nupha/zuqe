@@ -52,7 +52,7 @@ impl<'s> JSParseState<'s> {
     }
 
     /// parse class field defination
-    fn parse_class_field(&mut self, cfields: &mut ClassFieldsDef) -> Result<(), i32> {
+    fn parse_class_field(&mut self, cfields: &mut ClassFieldsDef<'s>) -> Result<(), i32> {
         let mut init = std::ptr::null_mut::<JSFunctionDef>();
 
         if cfields.fields_init_fd.is_null() {
@@ -223,7 +223,7 @@ impl<'s> JSParseState<'s> {
         class_name: &Atom,
         class_var_name: &Atom,
         class_flags: i32,
-        class_fields: &mut [ClassFieldsDef; 2],
+        class_fields: &mut [ClassFieldsDef<'s>; 2],
     ) -> Result<i32, i32> {
         macro_rules! private_field_already_defined {
             () => {
@@ -766,8 +766,8 @@ impl<'s> JSParseState<'s> {
     fn parse_class_default_ctor(
         &mut self,
         has_super: bool,
-        fd: *mut JSFunctionDef,
-    ) -> Result<*mut JSFunctionDef, i32> {
+        fd: *mut JSFunctionDef<'s>,
+    ) -> Result<*mut JSFunctionDef<'s>, i32> {
         let pos = self.get_pos();
 
         let (src, func_type) = if has_super {
@@ -818,9 +818,9 @@ impl<'s> JSParseState<'s> {
 }
 
 // create a function to initialize class fields
-pub(super) fn js_parse_function_class_fields_init(
-    s: &mut JSParseState,
-) -> Result<Box<JSFunctionDef>, i32> {
+pub(super) fn js_parse_function_class_fields_init<'a>(
+    s: &mut JSParseState<'a>,
+) -> Result<Box<JSFunctionDef<'a>>, i32> {
     let mut fd = JSFunctionDef::new(&s.ctx, Some(s.cur_func_mut()), false, false, s.filename, 0)?;
 
     fd.func_type = JSParseFunctionEnum::JS_PARSE_FUNC_METHOD;

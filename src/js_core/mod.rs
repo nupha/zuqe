@@ -8,6 +8,6 @@ pub mod string;
 
 use crate::{context::JSContext, error::JSResult, function::CallContext};
 
-pub fn js_get_this(_: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_get_this<'a>(_: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     Ok(cc.this().clone())
 }

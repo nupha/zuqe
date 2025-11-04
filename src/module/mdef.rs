@@ -20,39 +20,39 @@ use crate::{
 };
 
 pub type JSModuleNormalizeFunc = for<'a> fn(
-    ctx: &JSContext,
-    module_base_name: &'a str,
-    module_name: &'a str,
+    ctx: &JSContext<'a>,
+    module_base_name: &str,
+    module_name: &str,
     opaque: *mut ::core::ffi::c_void,
 ) -> Result<String, i32>;
 
-pub type JSModuleLoaderFunc = fn(
-    ctx: &JSContext,
+pub type JSModuleLoaderFunc = for<'a> fn(
+    ctx: &JSContext<'a>,
     module_name: &str,
     opaque: *mut ::core::ffi::c_void,
-) -> Result<ModuleDef, i32>;
+) -> Result<ModuleDef<'a>, i32>;
 
-pub trait ModuleInitFunc: Fn(&JSContext, &ModuleDef) -> Result<(), i32> {}
-impl<F> ModuleInitFunc for F where F: Fn(&JSContext, &ModuleDef) -> Result<(), i32> {}
+pub trait ModuleInitFunc<'a>: Fn(&JSContext<'a>, &ModuleDef<'a>) -> Result<(), i32> {}
+impl<'a, F> ModuleInitFunc<'a> for F where F: Fn(&JSContext<'a>, &ModuleDef<'a>) -> Result<(), i32> {}
 
-pub struct ModuleDefInner {
+pub struct ModuleDefInner<'a> {
     /// TODO: rt seems no use
-    rt: NonNull<JSRuntime>,
+    rt: NonNull<JSRuntime<'a>>,
 
     gc_mark: Cell<bool>,
 
     /// hold a refcount of the atom
     pub module_name: Atom,
 
-    pub(super) dependencies: RefCell<Vec<ModuleDependency>>,
+    pub(super) dependencies: RefCell<Vec<ModuleDependency<'a>>>,
     pub(crate) import_entries: RefCell<Vec<JSImportEntry>>,
-    pub(crate) export_entries: RefCell<Vec<ExportEntry>>,
+    pub(crate) export_entries: RefCell<Vec<ExportEntry<'a>>>,
 
     /// list of index in dependencies
     pub star_export_entries: RefCell<Vec<u16>>,
 
     /// module namespace.
-    pub module_ns: Cell<Option<JSObject>>,
+    pub module_ns: Cell<Option<JSObject<'a>>>,
 
     /// for js module, when func_created is:
     /// - true: bytecode field is a function object value
@@ -63,9 +63,9 @@ pub struct ModuleDefInner {
     /// * Bytecode, when func_created is false,
     /// * BCFunction object, when func_created is true.
     /// * `undefined` for uninitialized.
-    pub bytecode: Cell<JSValue>,
+    pub bytecode: Cell<JSValue<'a>>,
     /// for C modules only
-    pub init_func: Option<Box<dyn ModuleInitFunc>>,
+    pub init_func: Option<Box<dyn ModuleInitFunc<'a>>>,
 
     /// true if func_obj contains await
     has_tla: Cell<bool>,
@@ -76,41 +76,41 @@ pub struct ModuleDefInner {
     pub(super) dfs_index: Cell<i32>,
     pub(super) dfs_ancestor_index: Cell<i32>,
 
-    pub(super) stack_prev: RefCell<Option<ModuleDef>>,
-    pub(super) cycle_root: RefCell<Option<ModuleDef>>,
+    pub(super) stack_prev: RefCell<Option<ModuleDef<'a>>>,
+    pub(super) cycle_root: RefCell<Option<ModuleDef<'a>>>,
 
     //
     // temp use during js_module_evaluate()
     //
-    pub(super) async_parent_modules: RefCell<Vec<ModuleDef>>,
+    pub(super) async_parent_modules: RefCell<Vec<ModuleDef<'a>>>,
     pub(super) async_evaluation: Cell<bool>,
     pub(super) async_evaluation_timestamp: Cell<i64>,
     pub(super) pending_async_dependencies: Cell<i32>,
 
-    pub promise: Cell<Option<Promise>>, /* corresponds to spec field: capability */
-    pub resolving_funcs: Cell<[JSValue; 2]>, /* corresponds to spec field: capability */
+    pub promise: Cell<Option<Promise<'a>>>, /* corresponds to spec field: capability */
+    pub resolving_funcs: Cell<[JSValue<'a>; 2]>, /* corresponds to spec field: capability */
 
-    pub eval_exception: UnsafeCell<Option<JSValue>>,
+    pub eval_exception: UnsafeCell<Option<JSValue<'a>>>,
 
     /// the `import.meta` object of module
-    pub meta_obj: Cell<Option<JSObject>>,
+    pub meta_obj: Cell<Option<JSObject<'a>>>,
 }
 
-impl PartialEq for ModuleDefInner {
+impl PartialEq for ModuleDefInner<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.id() == other.id()
     }
 }
 
-impl Drop for ModuleDefInner {
+impl<'a> Drop for ModuleDefInner<'a> {
     fn drop(&mut self) {
         self.finalize();
     }
 }
 
-impl ModuleDefInner {
+impl<'a> ModuleDefInner<'a> {
     /// 'name' is consumed
-    fn new(ctx: &JSContext, name: Atom) -> Self {
+    fn new(ctx: &JSContext<'a>, name: Atom) -> Self {
         Self {
             rt: ctx.rt_ptr(),
             gc_mark: Cell::new(false),
@@ -152,9 +152,9 @@ impl ModuleDefInner {
 
     /// create a native module with init handler.
     fn create_native(
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         name: &str,
-        init_func: impl ModuleInitFunc + 'static,
+        init_func: impl ModuleInitFunc<'a> + 'static,
     ) -> Result<Self, i32> {
         let name = Atom::new(ctx.rt(), name)?;
         let mut inner = ModuleDefInner::new(ctx, name);
@@ -186,13 +186,13 @@ impl ModuleDefInner {
 
     /// get module loading promise
     #[inline(always)]
-    pub(crate) fn promise(&self) -> Option<Promise> {
+    pub(crate) fn promise(&self) -> Option<Promise<'a>> {
         unsafe { (*self.promise.as_ptr()).as_ref().cloned() }
     }
 
     /// get eval exception. None means no exception.
     #[inline(always)]
-    pub(crate) fn eval_exception(&self) -> Option<JSValue> {
+    pub(crate) fn eval_exception(&self) -> Option<JSValue<'a>> {
         unsafe {
             let p = &*self.eval_exception.get();
             p.clone()
@@ -200,7 +200,7 @@ impl ModuleDefInner {
     }
 
     /// set eval exception
-    pub(crate) fn set_eval_exception(&self, exc: Option<JSValue>) {
+    pub(crate) fn set_eval_exception(&self, exc: Option<JSValue<'a>>) {
         debug_assert!(exc.as_ref().is_none_or(|v| !v.is_undefined_or_null()));
         unsafe {
             let p = &mut *self.eval_exception.get();
@@ -228,7 +228,7 @@ impl ModuleDefInner {
     }
 
     /// get module import.meta object.
-    pub fn import_meta(&self, ctx: &JSContext) -> Result<JSObject, i32> {
+    pub fn import_meta(&self, ctx: &JSContext<'a>) -> Result<JSObject<'a>, i32> {
         if let Some(o) = self.meta_obj.take() {
             self.meta_obj.replace(Some(o.clone()));
             Ok(o)
@@ -243,7 +243,12 @@ impl ModuleDefInner {
     }
 
     /// set module import.meta props.
-    pub fn set_import_meta(&self, ctx: &JSContext, url: &str, is_main: bool) -> Result<(), i32> {
+    pub fn set_import_meta(
+        &self,
+        ctx: &JSContext<'a>,
+        url: &str,
+        is_main: bool,
+    ) -> Result<(), i32> {
         let meta_obj = self.import_meta(ctx)?;
         let sval = ctx.create_string_from_str(url)?;
         meta_obj.define_property_value_str(ctx, "url", sval.into(), JS_PROP_C_W_E)?;
@@ -252,7 +257,7 @@ impl ModuleDefInner {
     }
 
     // Make the <eval> function associated with the module, for bytecode module.
-    fn create_module_bytecode_function(&self, ctx: &JSContext) -> Result<(), i32> {
+    fn create_module_bytecode_function(&self, ctx: &JSContext<'a>) -> Result<(), i32> {
         debug_assert!(!self.func_created.get());
 
         match unsafe { (*self.bytecode.as_ptr()).clone() } {
@@ -302,7 +307,7 @@ impl ModuleDefInner {
 
     /// make module <eval> function from bytecode
     /// must be done before js_link_module() because of cyclic references
-    pub(super) fn create_module_function(&self, ctx: &JSContext) -> Result<(), i32> {
+    pub(super) fn create_module_function(&self, ctx: &JSContext<'a>) -> Result<(), i32> {
         if self.func_created.get() {
             return Ok(());
         }
@@ -366,23 +371,23 @@ impl ModuleDefInner {
 
 #[repr(transparent)]
 #[derive(Clone, PartialEq)]
-pub struct ModuleDef(pub(crate) Rc<ModuleDefInner>);
+pub struct ModuleDef<'a>(pub(crate) Rc<ModuleDefInner<'a>>);
 
-impl From<ModuleDef> for JSValue {
-    fn from(value: ModuleDef) -> Self {
+impl<'a> From<ModuleDef<'a>> for JSValue<'a> {
+    fn from(value: ModuleDef<'a>) -> Self {
         Self::Module(value)
     }
 }
 
-impl std::ops::Deref for ModuleDef {
-    type Target = ModuleDefInner;
+impl<'a> std::ops::Deref for ModuleDef<'a> {
+    type Target = ModuleDefInner<'a>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl std::fmt::Debug for ModuleDef {
+impl std::fmt::Debug for ModuleDef<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -392,11 +397,11 @@ impl std::fmt::Debug for ModuleDef {
     }
 }
 
-impl ModuleDef {
+impl<'a> ModuleDef<'a> {
     /// alloc an uninitialized (usually bytecode) module.
     ///
     /// 'name' is consumed
-    pub(crate) fn new(ctx: &JSContext, name: Atom) -> Self {
+    pub(crate) fn new(ctx: &JSContext<'a>, name: Atom) -> Self {
         let inner = ModuleDefInner::new(ctx, name);
         let m = Self(Rc::new(inner));
         ctx.0.borrow_mut().loaded_modules.push(m.clone());
@@ -405,9 +410,9 @@ impl ModuleDef {
 
     /// create a native module def.
     pub fn create_native(
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         name: &str,
-        init_func: impl ModuleInitFunc + 'static,
+        init_func: impl ModuleInitFunc<'a> + 'static,
     ) -> Result<Self, i32> {
         let inner = ModuleDefInner::create_native(ctx, name, init_func)?;
         let m = Self(Rc::new(inner));
@@ -415,21 +420,21 @@ impl ModuleDef {
         Ok(m)
     }
 
-    pub fn downgrade(&self) -> JSModuleDefWeakref {
+    pub fn downgrade(&self) -> JSModuleDefWeakref<'a> {
         JSModuleDefWeakref(Rc::downgrade(&self.0))
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct JSModuleDefWeakref(Weak<ModuleDefInner>);
+pub struct JSModuleDefWeakref<'a>(Weak<ModuleDefInner<'a>>);
 
-impl JSModuleDefWeakref {
-    pub fn upgrade(&self) -> Option<ModuleDef> {
+impl<'a> JSModuleDefWeakref<'a> {
+    pub fn upgrade(&self) -> Option<ModuleDef<'a>> {
         self.0.upgrade().map(ModuleDef)
     }
 }
 
-impl JSContext {
+impl<'a> JSContext<'a> {
     /// register a native module defination
     pub fn register_native_module(
         &self,
@@ -440,7 +445,7 @@ impl JSContext {
         let md = ModuleDef::create_native(
             self,
             name,
-            |cx: &JSContext, m: &ModuleDef| -> Result<(), i32> {
+            |cx: &JSContext<'a>, m: &ModuleDef<'a>| -> Result<(), i32> {
                 m.set_export_values(cx, exported_entries)
             },
         )?;
@@ -514,7 +519,7 @@ pub unsafe fn add_module_variables(ctx: &JSContext, fd: &mut JSFunctionDef) -> i
 }
 
 /* Unfortunately, the spec gives a different behavior from GetOwnProperty ! */
-fn js_module_ns_has(_: &JSContext, obj: &JSObject, prop: &Atom) -> Result<bool, i32> {
+fn js_module_ns_has<'a>(_: &JSContext<'a>, obj: &JSObject<'a>, prop: &Atom) -> Result<bool, i32> {
     Ok(obj.has_shape_property(prop))
 }
 
@@ -528,7 +533,10 @@ pub(crate) const js_module_ns_exotic_methods: JSClassExoticMethods = JSClassExot
     set_property: None,
 };
 
-pub fn js_create_module_var(ctx: &JSContext, is_lexical: bool) -> Result<JSVarRef, i32> {
+pub fn js_create_module_var<'a>(
+    ctx: &JSContext<'a>,
+    is_lexical: bool,
+) -> Result<JSVarRef<'a>, i32> {
     let var_ref = JSVarRef::new(
         ctx.rt_mut(),
         if is_lexical {
@@ -545,7 +553,7 @@ pub fn js_create_module_var(ctx: &JSContext, is_lexical: bool) -> Result<JSVarRe
 
 /// return JS_ATOM_NULL if the name cannot be found. Only works with
 /// not striped bytecode functions.
-pub fn JS_GetScriptOrModuleName(ctx: &JSContext, n_stack_levels: i32) -> Atom {
+pub fn JS_GetScriptOrModuleName<'a>(ctx: &JSContext<'a>, n_stack_levels: i32) -> Atom {
     // XXX: currently we just use the filename of the englobing
     // function from the debug info. May need to add a ScriptOrModule
     // info in Bytecode.
@@ -587,7 +595,7 @@ pub fn JS_GetScriptOrModuleName(ctx: &JSContext, n_stack_levels: i32) -> Atom {
 }
 
 /// get module import.meta object of context current execution.
-pub fn js_import_meta(ctx: &JSContext) -> Result<JSObject, i32> {
+pub fn js_import_meta<'a>(ctx: &JSContext<'a>) -> Result<JSObject<'a>, i32> {
     let filename = JS_GetScriptOrModuleName(ctx, 0);
     if filename.is_null() {
         ctx.throw_type_error("import.meta not supported in this context");
@@ -615,7 +623,7 @@ pub fn JS_SetModuleLoaderFunc(
     rt.module_loader_opaque = opaque;
 }
 
-pub fn js_dynamic_import(ctx: &JSContext, _specifier: &JSValue) -> JSResult {
+pub fn js_dynamic_import<'a>(ctx: &JSContext<'a>, _specifier: &JSValue<'a>) -> JSResult<'a> {
     ctx.throw_internal_error("import() is not implemented");
     Err(-1)
 }

@@ -39,8 +39,8 @@ pub mod typed_array;
 pub mod utils;
 pub mod value;
 
-#[deprecated(note = "unused stuff")]
-pub mod obsoletes;
+// #[deprecated(note = "unused stuff")]
+// pub mod obsoletes;
 
 pub(crate) mod branch_hints;
 

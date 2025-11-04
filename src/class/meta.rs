@@ -40,7 +40,7 @@ pub(crate) struct ClassMeta {
     pub gc_mark: Option<ClassGCMarkFn>,
 }
 
-impl JSRuntime {
+impl<'a> JSRuntime<'a> {
     /// register a class def to runtime.
     pub(super) fn add_class_internal(
         &mut self,
@@ -114,10 +114,10 @@ impl JSRuntime {
     }
 }
 
-impl JSContext {
+impl<'a> JSContext<'a> {
     /// get class proto object by `class_id`.
     /// if class proto object is not initialized in this context, returns None.
-    pub fn class_proto(&self, class_id: ClassID) -> Option<JSObject> {
+    pub fn class_proto(&self, class_id: ClassID) -> Option<JSObject<'a>> {
         self.0
             .borrow()
             .class_proto
@@ -130,7 +130,7 @@ impl JSContext {
     ///
     /// equivelent to call `ctx.class_proto(JS_CLASS_OBJECT).unwrap()`
     #[inline]
-    pub fn object_proto(&self) -> JSObject {
+    pub fn object_proto(&self) -> JSObject<'a> {
         debug_assert!(self.0.borrow().class_proto.len() > JS_CLASS_OBJECT as usize);
         unsafe {
             self.0
@@ -146,7 +146,7 @@ impl JSContext {
     ///
     /// equivelent to call `ctx.class_proto(JS_CLASS_BYTECODE_FUNCTION).unwrap()`
     #[inline]
-    pub fn function_proto(&self) -> JSObject {
+    pub fn function_proto(&self) -> JSObject<'a> {
         debug_assert!(self.0.borrow().class_proto.len() > JS_CLASS_BYTECODE_FUNCTION as usize);
         unsafe {
             self.0
@@ -162,7 +162,7 @@ impl JSContext {
     ///
     /// equivelent to call `ctx.class_proto(JS_ARRAY_FUNCTION).unwrap()`
     #[inline]
-    pub fn array_proto(&self) -> JSObject {
+    pub fn array_proto(&self) -> JSObject<'a> {
         debug_assert!(self.0.borrow().class_proto.len() > JS_CLASS_ARRAY as usize);
         unsafe {
             self.0
@@ -175,7 +175,7 @@ impl JSContext {
     }
 
     /// get iterator proto object
-    pub fn iterator_proto(&self) -> Result<JSObject, i32> {
+    pub fn iterator_proto(&self) -> Result<JSObject<'a>, i32> {
         if let Some(o) = self.0.borrow().iterator_proto.as_ref().cloned() {
             Ok(o)
         } else {
@@ -188,7 +188,7 @@ impl JSContext {
 
     /// mark function `func_obj` to be a constructor, set `proto` as its prototype,
     /// then add it to global namespace as `name`.
-    pub fn add_global_constructor(&self, name: &str, func_obj: &JSValue, proto: &JSValue) {
+    pub fn add_global_constructor(&self, name: &str, func_obj: &JSValue<'a>, proto: &JSValue<'a>) {
         self.0
             .borrow()
             .global_obj
@@ -210,9 +210,9 @@ impl JSContext {
         name: &str,
         handler: NativeFunctionType,
         length: i32,
-        proto: &JSValue,
+        proto: &JSValue<'a>,
         magic: i16,
-    ) -> JSResult {
+    ) -> JSResult<'a> {
         debug_assert!(matches!(
             handler,
             NativeFunctionType::Constructor(_) | NativeFunctionType::ConstructorOrFunc(_)
@@ -234,9 +234,9 @@ impl JSContext {
         name: &str,
         callback: NativeCallback,
         length: i32,
-        proto: &JSValue,
+        proto: &JSValue<'a>,
         magic: i16,
-    ) -> JSResult {
+    ) -> JSResult<'a> {
         self.create_global_constructor_internal(
             name,
             NativeFunctionType::ConstructorOrFunc(callback),
@@ -254,9 +254,9 @@ impl JSContext {
         name: &str,
         callback: NativeCallback,
         length: i32,
-        proto: &JSValue,
+        proto: &JSValue<'a>,
         magic: i16,
-    ) -> JSResult {
+    ) -> JSResult<'a> {
         self.create_global_constructor_internal(
             name,
             NativeFunctionType::Constructor(callback),
@@ -273,8 +273,8 @@ impl JSContext {
     /// Note: The `ctor` may not necessarily be a constructor
     pub(crate) fn bind_ctor_proto_ex(
         &self,
-        ctor: &JSValue,
-        proto: &JSValue,
+        ctor: &JSValue<'a>,
+        proto: &JSValue<'a>,
         proto_flags: u32,
         ctor_flags: u32,
     ) -> Result<(), i32> {
@@ -291,7 +291,7 @@ impl JSContext {
     ///
     /// Note: The `ctor` may not necessarily be a constructor
     #[inline(always)]
-    pub fn bind_ctor_proto(&self, ctor: &JSValue, proto: &JSValue) -> Result<(), i32> {
+    pub fn bind_ctor_proto(&self, ctor: &JSValue<'a>, proto: &JSValue<'a>) -> Result<(), i32> {
         self.bind_ctor_proto_ex(ctor, proto, 0, JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE)
     }
 }

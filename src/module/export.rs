@@ -18,20 +18,20 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-enum ExportedNameKind {
+enum ExportedNameKind<'a> {
     EXPORTED_NAME_AMBIGUOUS,
-    EXPORTED_NAME_NORMAL(JSVarRef),
-    EXPORTED_NAME_NS(ModuleDef),
+    EXPORTED_NAME_NORMAL(JSVarRef<'a>),
+    EXPORTED_NAME_NS(ModuleDef<'a>),
 }
 
 #[derive(Debug)]
-struct ExportedNameEntry {
+struct ExportedNameEntry<'a> {
     export_name: Atom,
-    export_type: ExportedNameKind,
+    export_type: ExportedNameKind<'a>,
 
     /// (export_type, local_name, export_name)
     /// using when the list is built.
-    cached: Option<(ExportType, Atom, Atom)>,
+    cached: Option<(ExportType<'a>, Atom, Atom)>,
 }
 
 // impl ExportedNameEntry {
@@ -45,17 +45,17 @@ struct ExportedNameEntry {
 // }
 
 #[derive(Debug, Default)]
-struct GetExportNamesState {
-    modules: Vec<ModuleDef>,
-    exported_names: Vec<ExportedNameEntry>,
+struct GetExportNamesState<'a> {
+    modules: Vec<ModuleDef<'a>>,
+    exported_names: Vec<ExportedNameEntry<'a>>,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) enum ExportType {
+pub(crate) enum ExportType<'a> {
     JS_EXPORT_TYPE_LOCAL {
         var_idx: u16,
         /// None means var ref is not linked yet.
-        var_ref: Option<JSVarRef>,
+        var_ref: Option<JSVarRef<'a>>,
     },
 
     /// indirect export with req_module_idx
@@ -63,8 +63,8 @@ pub(crate) enum ExportType {
 }
 
 #[derive(Debug, Clone)]
-pub struct ExportEntry {
-    pub(crate) export_type: ExportType,
+pub struct ExportEntry<'a> {
+    pub(crate) export_type: ExportType<'a>,
     /// '*' if export ns from. not used for local export after compilation
     pub local_name: Atom,
     /// exported variable name
@@ -73,10 +73,10 @@ pub struct ExportEntry {
 
 /// resolving module export result
 #[derive(Debug)]
-pub(super) enum ResolveExport {
+pub(super) enum ResolveExport<'a> {
     Found {
-        module: ModuleDef,
-        export_type: ExportType,
+        module: ModuleDef<'a>,
+        export_type: ExportType<'a>,
         export_name: Atom,
         local_name: Atom,
     },
@@ -85,11 +85,11 @@ pub(super) enum ResolveExport {
     Circular,
 }
 
-impl ResolveExport {
+impl<'a> ResolveExport<'a> {
     pub(super) fn throw_syntax_error_export(
         &self,
-        ctx: &JSContext,
-        m: &ModuleDefInner,
+        ctx: &JSContext<'a>,
+        m: &ModuleDefInner<'a>,
         export_name: &Atom,
     ) {
         match self {
@@ -119,9 +119,9 @@ impl ResolveExport {
     }
 }
 
-impl ModuleDefInner {
+impl<'a> ModuleDefInner<'a> {
     /// find export entry by name
-    pub fn find_export(&self, export_name: &Atom) -> Option<ExportEntry> {
+    pub fn find_export(&self, export_name: &Atom) -> Option<ExportEntry<'a>> {
         self.export_entries
             .borrow()
             .iter()
@@ -134,10 +134,10 @@ impl ModuleDefInner {
     /// Note: `local_name`, `export_name` are not consumed.
     pub(crate) fn add_export_internal(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         local_name: &Atom,
         export_name: &Atom,
-        export_type: ExportType,
+        export_type: ExportType<'a>,
     ) -> Result<(), i32> {
         if unlikely(self.find_export(export_name).is_some()) {
             ctx.throw_syntax_error(&format!(
@@ -166,7 +166,7 @@ impl ModuleDefInner {
     }
 
     /// declare a module export name
-    pub fn add_export(&self, ctx: &JSContext, export_name: &str) -> Result<(), i32> {
+    pub fn add_export(&self, ctx: &JSContext<'a>, export_name: &str) -> Result<(), i32> {
         let atom = Atom::new(ctx.rt(), export_name)?;
         self.add_export_internal(
             ctx,
@@ -180,7 +180,7 @@ impl ModuleDefInner {
     }
 
     /// update export value
-    pub fn set_export_values(&self, ctx: &JSContext, entries: &[FieldDef]) -> Result<(), i32> {
+    pub fn set_export_values(&self, ctx: &JSContext<'a>, entries: &[FieldDef]) -> Result<(), i32> {
         for entry in entries {
             let val: JSValue = match &entry.detail {
                 NativeFieldDetail::Func { handler, length } => ctx
@@ -208,9 +208,9 @@ impl ModuleDefInner {
     /// update or add a module export entry named `export_name`, with given value
     pub fn set_export_value(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         export_name: &str,
-        value: JSValue,
+        value: JSValue<'a>,
     ) -> Result<(), i32> {
         let atom = Atom::new(ctx.rt(), export_name)?;
         if let Some(me) = self.find_export(&atom) {
@@ -232,10 +232,10 @@ impl ModuleDefInner {
     }
 }
 
-impl ModuleDef {
+impl<'a> ModuleDef<'a> {
     pub(crate) fn add_star_export_entry(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         req_module_idx: u16,
     ) -> Result<(), i32> {
         let mut b = self.0.star_export_entries.borrow_mut();
@@ -253,8 +253,8 @@ impl ModuleDef {
 
     fn collect_exported_names(
         &self,
-        ctx: &JSContext,
-        s: &mut GetExportNamesState,
+        ctx: &JSContext<'a>,
+        s: &mut GetExportNamesState<'a>,
         from_star: bool,
     ) -> Result<(), i32> {
         // check circular reference
@@ -320,7 +320,7 @@ impl ModuleDef {
     }
 
     /// build module ns object
-    fn build_module_ns(&self, ctx: &JSContext) -> Result<JSObject, i32> {
+    fn build_module_ns(&self, ctx: &JSContext<'a>) -> Result<JSObject<'a>, i32> {
         let obj = ctx
             .create_object(ObjectPayload::MODULE_NS)
             .map_err(|_| -1)?;
@@ -438,7 +438,7 @@ impl ModuleDef {
 
     /// get module ns object.
     /// if ns object is not initialized, initialize it and return.
-    pub fn ns(&self, ctx: &JSContext) -> Result<JSObject, i32> {
+    pub fn ns(&self, ctx: &JSContext<'a>) -> Result<JSObject<'a>, i32> {
         if let Some(ns) = unsafe { (*self.0.module_ns.as_ptr()).clone() } {
             Ok(ns)
         } else {

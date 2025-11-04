@@ -9,7 +9,7 @@ use crate::{
 
 use super::JS_PROP_CONFIGURABLE;
 
-impl JSObject {
+impl<'a> JSObject<'a> {
     /// Delete an own property.
     ///
     /// The property is in shape, or delete via exotic/fast-array handler.
@@ -22,7 +22,7 @@ impl JSObject {
     /// Note: `prop` is not consumed.
     pub(crate) fn delete_property_internal(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         prop: &Atom,
     ) -> Result<bool, i32> {
         let obj_flags = self.flags();
@@ -113,7 +113,12 @@ impl JSObject {
         Ok(true)
     }
 
-    pub fn delete_property(&self, ctx: &JSContext, prop: &Atom, flags: u32) -> Result<bool, i32> {
+    pub fn delete_property(
+        &self,
+        ctx: &JSContext<'a>,
+        prop: &Atom,
+        flags: u32,
+    ) -> Result<bool, i32> {
         if self.delete_property_internal(ctx, prop)? {
             Ok(true)
         } else {
@@ -127,7 +132,12 @@ impl JSObject {
         }
     }
 
-    pub fn delete_property_i64(&self, ctx: &JSContext, idx: i64, flags: u32) -> Result<bool, i32> {
+    pub fn delete_property_i64(
+        &self,
+        ctx: &JSContext<'a>,
+        idx: i64,
+        flags: u32,
+    ) -> Result<bool, i32> {
         if (0..JS_ATOM_MAX_INT as i64).contains(&idx) {
             // fast path for fast array
             self.delete_property(ctx, &Atom::new_small_int(idx as u32), flags)
@@ -138,18 +148,28 @@ impl JSObject {
     }
 }
 
-impl JSValue {
+impl<'a> JSValue<'a> {
     /// 如果属性不可配置或无效对象则返回 false, 出现异常时返回 Err.
     /// flags 可以是 0、JS_PROP_THROW 或 JS_PROP_THROW_STRICT
     #[inline]
-    pub fn delete_property(&self, ctx: &JSContext, prop: &Atom, flags: u32) -> Result<bool, i32> {
+    pub fn delete_property(
+        &self,
+        ctx: &JSContext<'a>,
+        prop: &Atom,
+        flags: u32,
+    ) -> Result<bool, i32> {
         self.clone()
             .objectify(ctx)
             .and_then(|o| o.delete_property(ctx, prop, flags))
     }
 
     #[inline]
-    pub fn delete_property_i64(&self, ctx: &JSContext, idx: i64, flags: u32) -> Result<bool, i32> {
+    pub fn delete_property_i64(
+        &self,
+        ctx: &JSContext<'a>,
+        idx: i64,
+        flags: u32,
+    ) -> Result<bool, i32> {
         self.clone()
             .objectify(ctx)
             .and_then(|o| o.delete_property_i64(ctx, idx, flags))

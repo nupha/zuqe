@@ -13,17 +13,17 @@ use crate::{
 
 use super::{JS_PROP_GETSET, JS_PROP_LAZYINIT, JS_PROP_NORMAL, JS_PROP_TMASK, JS_PROP_VARREF};
 
-impl JSObject {
+impl<'a> JSObject<'a> {
     /// walk up proto chain and get property in shape or by exotic handler.
     /// `prop` is not consumed.
     /// Note: returned value is duplicated.
     pub(crate) fn get_property_internal(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         prop: &Atom,
-        this_obj: &JSValue,
+        this_obj: &JSValue<'a>,
         throw_ref_error: bool,
-    ) -> JSResult {
+    ) -> JSResult<'a> {
         for cur_obj in self.shape_proto_iter(true) {
             'redo: loop {
                 // 1. search own property (in shape)
@@ -141,7 +141,7 @@ impl JSObject {
     /// get property by atom name.
     /// `prop` is not consumed.
     #[inline(always)]
-    pub fn get_property(&self, ctx: &JSContext, prop: &Atom) -> JSResult {
+    pub fn get_property(&self, ctx: &JSContext<'a>, prop: &Atom) -> JSResult<'a> {
         self.get_property_internal(ctx, prop, &JSValue::Object(self.clone()), false)
     }
 
@@ -150,7 +150,7 @@ impl JSObject {
     /// Returns:
     /// - Some: property value
     /// - None: try slow path instead
-    fn get_property_index(&self, idx: usize) -> Option<JSResult> {
+    fn get_property_index(&self, idx: usize) -> Option<JSResult<'a>> {
         macro_rules! typed_array_el {
             ($ty:ident, $vtype:ident) => {
                 let ta = self.as_TypedArray().unwrap();
@@ -217,12 +217,12 @@ impl JSObject {
         None
     }
 
-    fn get_property_slow(&self, ctx: &JSContext, prop: &JSValue) -> JSResult {
+    fn get_property_slow(&self, ctx: &JSContext<'a>, prop: &JSValue<'a>) -> JSResult<'a> {
         let atom = prop.to_atom(ctx)?;
         self.get_property_internal(ctx, &atom, &JSValue::Object(self.clone()), false)
     }
 
-    pub fn get_property_value(&self, ctx: &JSContext, prop: &JSValue) -> JSResult {
+    pub fn get_property_value(&self, ctx: &JSContext<'a>, prop: &JSValue<'a>) -> JSResult<'a> {
         // check if prop is an index
         let index_key = match prop {
             JSValue::Int(i) if *i >= 0 => Some(*i as usize),
@@ -251,12 +251,12 @@ impl JSObject {
         self.get_property_slow(ctx, prop)
     }
 
-    pub fn get_property_u32(&self, ctx: &JSContext, idx: u32) -> JSResult {
+    pub fn get_property_u32(&self, ctx: &JSContext<'a>, idx: u32) -> JSResult<'a> {
         self.get_property_index(idx as usize)
             .unwrap_or_else(|| self.get_property_slow(ctx, &JSValue::from(idx)))
     }
 
-    pub fn get_property_i64(&self, ctx: &JSContext, idx: i64) -> JSResult {
+    pub fn get_property_i64(&self, ctx: &JSContext<'a>, idx: i64) -> JSResult<'a> {
         if (0..u32::MAX as i64).contains(&idx) {
             self.get_property_u32(ctx, idx as u32)
         } else {
@@ -265,7 +265,7 @@ impl JSObject {
         }
     }
 
-    pub fn get_property_str(&self, ctx: &JSContext, prop: &str) -> JSResult {
+    pub fn get_property_str(&self, ctx: &JSContext<'a>, prop: &str) -> JSResult<'a> {
         let atom = Atom::new(ctx.rt(), prop)?;
         self.get_property(ctx, &atom)
     }
@@ -273,7 +273,11 @@ impl JSObject {
     /// Check if `self` has a generalized numeric property `idx`.
     /// If yes, get property value of the prop `idx`.
     /// Returns Err for exception, Ok(Some(_)) if property exists, Ok(None) if proprty does not exist.
-    pub fn try_get_property_i64(&self, ctx: &JSContext, idx: i64) -> Result<Option<JSValue>, i32> {
+    pub fn try_get_property_i64(
+        &self,
+        ctx: &JSContext<'a>,
+        idx: i64,
+    ) -> Result<Option<JSValue<'a>>, i32> {
         if (0..=JS_ATOM_MAX_INT as i64).contains(&idx) {
             // fast path
             if self.has_property(ctx, &Atom::new_small_int(idx as u32))? {
@@ -296,15 +300,15 @@ impl JSObject {
     }
 }
 
-impl JSValue {
+impl<'a> JSValue<'a> {
     /// get property `prop` of `self` value.
     pub(crate) fn get_property_internal(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         prop: &Atom,
-        this_obj: &JSValue,
+        this_obj: &JSValue<'a>,
         throw_ref_error: bool,
-    ) -> JSResult {
+    ) -> JSResult<'a> {
         match self {
             Self::Object(o) => o.get_property_internal(ctx, prop, this_obj, throw_ref_error),
             Self::String(s) => {
@@ -353,11 +357,11 @@ impl JSValue {
 
     /// returns Exception when failed.
     #[inline(always)]
-    pub fn get_property(&self, ctx: &JSContext, prop: &Atom) -> JSResult {
+    pub fn get_property(&self, ctx: &JSContext<'a>, prop: &Atom) -> JSResult<'a> {
         self.get_property_internal(ctx, prop, self, false)
     }
 
-    pub fn get_property_value(&self, ctx: &JSContext, prop: &JSValue) -> JSResult {
+    pub fn get_property_value(&self, ctx: &JSContext<'a>, prop: &JSValue<'a>) -> JSResult<'a> {
         if let JSValue::Object(o) = self {
             o.get_property_value(ctx, prop)
         } else {
@@ -367,17 +371,17 @@ impl JSValue {
     }
 
     /// returns Exception when fail.
-    pub fn get_property_str(self, ctx: &JSContext, prop: &str) -> JSResult {
+    pub fn get_property_str(self, ctx: &JSContext<'a>, prop: &str) -> JSResult<'a> {
         let atom = Atom::new(ctx.rt(), prop)?;
         self.get_property(ctx, &atom)
     }
 
     #[inline(always)]
-    pub fn get_property_u32(&self, ctx: &JSContext, idx: u32) -> JSResult {
+    pub fn get_property_u32(&self, ctx: &JSContext<'a>, idx: u32) -> JSResult<'a> {
         self.get_property_value(ctx, &JSValue::from(idx))
     }
 
-    pub fn get_property_i64(&self, ctx: &JSContext, idx: i64) -> JSResult {
+    pub fn get_property_i64(&self, ctx: &JSContext<'a>, idx: i64) -> JSResult<'a> {
         if (0..=u32::MAX as i64).contains(&idx) {
             self.get_property_u32(ctx, idx as u32)
         } else {
@@ -389,7 +393,11 @@ impl JSValue {
     /// Check if `self` has a generalized numeric property `idx`.
     /// If yes, get property value of the prop `idx`.
     /// Returns Err for exception, Ok(Some(_)) if property exists, Ok(None) if proprty does not exist.
-    pub fn try_get_property_i64(&self, ctx: &JSContext, idx: i64) -> Result<Option<JSValue>, i32> {
+    pub fn try_get_property_i64(
+        &self,
+        ctx: &JSContext<'a>,
+        idx: i64,
+    ) -> Result<Option<JSValue<'a>>, i32> {
         if (0..=JS_ATOM_MAX_INT as i64).contains(&idx) {
             // fast path
             if self.has_property(ctx, &Atom::new_small_int(idx as u32))? {

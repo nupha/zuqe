@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, ops::DerefMut, ptr::NonNull};
+use std::{ops::DerefMut, ptr::NonNull};
 
 use crate::{
     atom::{Atom, consts::*},
@@ -27,11 +27,11 @@ pub(crate) struct BytecodeDebugSetting {
 }
 
 #[derive(Debug)]
-pub struct JSFunctionDef {
-    pub ctx: JSContext,
+pub struct JSFunctionDef<'a> {
+    pub ctx: JSContext<'a>,
 
     /// parent function def, null for root fd.
-    pub parent: *mut JSFunctionDef,
+    pub parent: *mut JSFunctionDef<'a>,
     /// scope level of parent fd
     pub parent_scope_level: i32,
     /// 在父级常量池中的索引，-1表示无
@@ -39,7 +39,7 @@ pub struct JSFunctionDef {
     pub parent_cpool_idx: i32,
 
     /// list of children function defs
-    pub child_list: Vec<NonNull<JSFunctionDef>>,
+    pub child_list: Vec<NonNull<JSFunctionDef<'a>>>,
 
     // TODO: use Option<EvalType>
     /// 是否是eval代码
@@ -74,7 +74,7 @@ pub struct JSFunctionDef {
     pub func_name: Atom,
 
     /// constants pool (string, function, number）.
-    pub cpool: Vec<JSValue>,
+    pub cpool: Vec<JSValue<'a>>,
     /// vars defination list
     pub vars: Vec<JSVarDef>,
     /// arguments defination list
@@ -161,7 +161,7 @@ pub struct JSFunctionDef {
     pub pc2line: Option<Vec<u8>>,
 
     /// 模块定义（解析模块时非空）
-    pub module: Option<ModuleDef>,
+    pub module: Option<ModuleDef<'a>>,
 
     /// 是否包含await（用于模块eval）
     pub has_await: bool,
@@ -170,16 +170,16 @@ pub struct JSFunctionDef {
     pub(crate) debug: BytecodeDebugSetting,
 }
 
-impl Drop for JSFunctionDef {
+impl<'a> Drop for JSFunctionDef<'a> {
     fn drop(&mut self) {
         self.finalize();
     }
 }
 
-impl JSFunctionDef {
+impl<'a> JSFunctionDef<'a> {
     /// alloc a function def, and initialize it.
     fn new_internal(
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         is_eval: bool,
         is_func_expr: bool,
         filename: &str,
@@ -274,8 +274,8 @@ impl JSFunctionDef {
 
     /// create function def and attach to parent-child chain
     pub(crate) fn new(
-        ctx: &JSContext,
-        parent: Option<&mut JSFunctionDef>,
+        ctx: &JSContext<'a>,
+        parent: Option<&mut JSFunctionDef<'a>>,
         is_eval: bool,
         is_func_expr: bool,
         filename: &str,
@@ -331,7 +331,7 @@ impl JSFunctionDef {
     }
 
     #[cfg(feature = "dump_bytecode")]
-    pub fn dump_bytecode(&self, ctx: &JSContext, pass: i32) {
+    pub fn dump_bytecode(&self, ctx: &JSContext<'a>, pass: i32) {
         if self.attrs.js_mode & JS_MODE_STRIP as u8 == 0 {
             println!("pass {pass}");
 
@@ -470,8 +470,8 @@ pub fn get_label_pos(s: &JSFunctionDef, mut label: i32) -> i32 {
     pos
 }
 
-pub(super) fn skip_dead_code(
-    s: &mut JSFunctionDef,
+pub(super) fn skip_dead_code<'a>(
+    s: &mut JSFunctionDef<'a>,
     bc_buf: *const u8,
     bc_len: usize,
     pos: usize,
@@ -707,12 +707,11 @@ pub(super) fn instantiate_hoisted_definitions(s: &mut JSFunctionDef, bc: &mut Ve
 }
 
 pub struct FunctionDefParentIter<'a> {
-    cur_fd: *const JSFunctionDef,
-    _mark: PhantomData<&'a ()>,
+    cur_fd: *const JSFunctionDef<'a>,
 }
 
 impl<'a> Iterator for FunctionDefParentIter<'a> {
-    type Item = &'a JSFunctionDef;
+    type Item = &'a JSFunctionDef<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if !self.cur_fd.is_null() {
@@ -727,26 +726,21 @@ impl<'a> Iterator for FunctionDefParentIter<'a> {
     }
 }
 
-impl JSFunctionDef {
+impl<'a> JSFunctionDef<'a> {
     /// iterate over parent function def chain.
-    pub fn parent_iter<'a>(&self, include_self: bool) -> FunctionDefParentIter<'a> {
+    pub fn parent_iter(&self, include_self: bool) -> FunctionDefParentIter<'a> {
         if include_self {
             FunctionDefParentIter {
                 cur_fd: self as *const Self,
-                _mark: PhantomData,
             }
         } else {
             let p = self.parent;
             if !p.is_null() {
                 debug_assert_eq!(self.parent_scope_level, unsafe { (*p).scope_level });
-                FunctionDefParentIter {
-                    cur_fd: p,
-                    _mark: PhantomData,
-                }
+                FunctionDefParentIter { cur_fd: p }
             } else {
                 FunctionDefParentIter {
                     cur_fd: std::ptr::null(),
-                    _mark: PhantomData,
                 }
             }
         }

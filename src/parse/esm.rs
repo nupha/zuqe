@@ -415,10 +415,10 @@ impl<'s> JSParseState<'s> {
     /// `local_name`, `export_name` are not consumed.
     pub(super) fn add_module_export(
         &self,
-        md: Option<&ModuleDef>,
+        md: Option<&ModuleDef<'s>>,
         local_name: &Atom,
         export_name: &Atom,
-        export_type: ExportType,
+        export_type: ExportType<'s>,
     ) -> Result<(), i32> {
         let md = md.unwrap_or_else(|| {
             // current function def must have module.
@@ -451,7 +451,7 @@ impl<'s> JSParseState<'s> {
     /// `local_name`, `import_name` are not consumed.
     pub(super) fn add_module_import(
         &self,
-        md: &ModuleDef,
+        md: &ModuleDef<'s>,
         local_name: &Atom,
         import_name: &Atom,
     ) -> Result<(), i32> {

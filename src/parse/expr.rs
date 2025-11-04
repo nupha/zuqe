@@ -229,7 +229,7 @@ impl<'s> JSParseState<'s> {
 
         match self.token.val {
             TOK_NUMBER => {
-                let val = self.token.data.number().unwrap().clone();
+                let val = self.token.data.number().unwrap();
                 if let JSValue::Int(i) = val {
                     self.emit_op(OpCode::PUSH_I32);
                     self.emit_u32(i as u32);

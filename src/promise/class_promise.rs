@@ -21,7 +21,7 @@ use super::{
 // Instance methods
 //
 
-pub fn js_promise_then(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_promise_then<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     if let Some(p) = cc.this().as_object_Promise() {
         p.then(ctx, cc.arg(0).clone(), cc.arg(1).clone())
             .map(|p| p.into())
@@ -31,12 +31,12 @@ pub fn js_promise_then(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_promise_catch(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_promise_catch<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     cc.this()
         .invoke(ctx, &JS_ATOM_then, &[JSValue::UNDEFINED, cc.arg(0).clone()])
 }
 
-fn js_promise_then_finally_func(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_promise_then_finally_func<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let ctor = cc.data(0);
     let on_finally = cc.data(1);
 
@@ -68,7 +68,7 @@ fn js_promise_then_finally_func(ctx: &JSContext, cc: CallContext) -> JSResult {
     promise.invoke(ctx, &JS_ATOM_then, std::slice::from_ref(&then_func))
 }
 
-pub fn js_promise_finally(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_promise_finally<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let on_finally = cc.arg(0);
 
     let then_funcs: [JSValue; 2] = if !on_finally.is_function() {
@@ -101,7 +101,7 @@ pub fn js_promise_finally(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 /// returned value is Promise object or Exception.
-pub fn js_promise_resolve(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_promise_resolve<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     if !cc.this().is_object() {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
@@ -127,7 +127,7 @@ pub fn js_promise_resolve(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(result_promise.into())
 }
 
-pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_promise_all<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     if !cc.this().is_object() {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
@@ -287,7 +287,7 @@ pub fn js_promise_all(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(result_promise.into())
 }
 
-pub fn js_promise_race(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_promise_race<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     if !cc.this().is_object() {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
@@ -336,7 +336,7 @@ pub fn js_promise_race(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_promise_withResolvers(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_promise_withResolvers<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     if !cc.this().is_object() {
         ctx.throw_type_error_not_an_object();
         return Err(-1);

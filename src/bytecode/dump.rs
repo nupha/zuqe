@@ -19,18 +19,18 @@ use super::{
 
 /// dump opcodes binary in pass 1,2,3
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn dump_opcodes(
-    ctx: &JSContext,
+pub(crate) fn dump_opcodes<'a>(
+    ctx: &JSContext<'a>,
     pass: i32,
     bin: &[u8],
     args: &[JSVarDef],
     vars: &[JSVarDef],
     closure_vars: &[JSClosureVar],
-    consts: &[JSValue],
+    consts: &[JSValue<'a>],
     source: Option<&str>,
     line_num: i32,
     labels: &[Label], // for pass 1, 2 only
-    bc: Option<&Bytecode>,
+    bc: Option<&Bytecode<'a>>,
 ) {
     let len = bin.len();
     let use_short_opcodes = bc.is_some();
@@ -410,9 +410,9 @@ pub(crate) fn dump_opcodes(
     }
 }
 
-impl Bytecode {
+impl<'a> Bytecode<'a> {
     /// dump Bytecode
-    pub fn dump(&self, ctx: &JSContext) {
+    pub fn dump(&self, ctx: &JSContext<'a>) {
         print!("{:?}: ", self);
 
         if self.has_debug && !self.debug.filename.is_null() {
@@ -642,12 +642,12 @@ fn print_lines(source: &str, from_line: usize, to_line: usize) {
 // }
 
 /// dump instruction (opcode and params) at given pc.
-pub(super) fn dump_run_instruction(
-    ctx: &JSContext,
-    b: &Bytecode,
+pub(super) fn dump_run_instruction<'a>(
+    ctx: &JSContext<'a>,
+    b: &Bytecode<'a>,
     pc: usize,
-    sp_base: *const JSValue,
-    sp_top: *const JSValue,
+    sp_base: *const JSValue<'a>,
+    sp_top: *const JSValue<'a>,
 ) -> usize {
     if !sp_top.is_null() {
         debug_assert!(sp_base <= sp_top);
@@ -878,9 +878,9 @@ pub(super) fn dump_run_instruction(
     size
 }
 
-pub(super) fn dump_run_stack(
-    ctx: &JSContext,
-    stack: &[JSValue],
+pub(super) fn dump_run_stack<'a>(
+    ctx: &JSContext<'a>,
+    stack: &[JSValue<'a>],
     tree: bool,
     mark_count: usize,
     mark: char,

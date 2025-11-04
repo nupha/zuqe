@@ -16,9 +16,9 @@ use super::{Promise, PromiseState, js_promise_resolve_thenable_job, promise_reac
 
 /// State of promise resolving function.
 #[derive(Debug)]
-pub struct PromiseResolvePayload {
+pub struct PromiseResolvePayload<'a> {
     /// the target Promise
-    pub(super) promise: Promise,
+    pub(super) promise: Promise<'a>,
     /// is resolved? this flag is shared between resolve and reject functions.
     /// so Rc is used
     pub(super) resolved: Rc<Cell<bool>>,
@@ -27,21 +27,21 @@ pub struct PromiseResolvePayload {
 /// Represent Promise resolve, reject function object
 #[repr(transparent)]
 #[derive(Debug, Clone)]
-pub struct PromiseResolveFunc(JSObject);
+pub struct PromiseResolveFunc<'a>(JSObject<'a>);
 
 object_cast!(
     PromiseResolveFunc,
     JS_CLASS_PROMISE_RESOLVE_FUNCTION | JS_CLASS_PROMISE_REJECT_FUNCTION
 );
 
-impl PromiseResolveFunc {
-    pub fn class_call(
-        ctx: &JSContext,
-        func_obj: &JSValue,
-        _this_val: &JSValue,
-        args: &[JSValue],
+impl<'a> PromiseResolveFunc<'a> {
+    pub fn class_call<'b>(
+        ctx: &JSContext<'b>,
+        func_obj: &JSValue<'b>,
+        _this_val: &JSValue<'b>,
+        args: &[JSValue<'b>],
         _flags: i32,
-    ) -> JSResult {
+    ) -> JSResult<'b> {
         let resolv = func_obj.as_object_PromiseResolveFunc().unwrap();
         let isa = resolv.payload();
 
@@ -98,12 +98,12 @@ impl PromiseResolveFunc {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct JSPromiseReactionData {
-    pub(super) resolving_funcs: [JSValue; 2],
-    pub(super) handler: JSValue,
+pub(super) struct JSPromiseReactionData<'a> {
+    pub(super) resolving_funcs: [JSValue<'a>; 2],
+    pub(super) handler: JSValue<'a>,
 }
 
-impl Default for JSPromiseReactionData {
+impl<'a> Default for JSPromiseReactionData<'a> {
     fn default() -> Self {
         Self {
             resolving_funcs: [const { JSValue::UNDEFINED }; 2],
@@ -112,7 +112,7 @@ impl Default for JSPromiseReactionData {
     }
 }
 
-impl Promise {
+impl<'a> Promise<'a> {
     /// Add a chained reaction to `self` Promise.
     ///
     /// Arguments:
@@ -121,9 +121,9 @@ impl Promise {
     ///   which activates the `reaction_funcs` execution.
     pub(crate) fn reaction(
         &self,
-        ctx: &JSContext,
-        reaction_funcs: &[JSValue; 2],
-        cap_resolving_funcs: &[JSValue; 2],
+        ctx: &JSContext<'a>,
+        reaction_funcs: &[JSValue<'a>; 2],
+        cap_resolving_funcs: &[JSValue<'a>; 2],
     ) -> Result<(), i32> {
         // TODO: should use Box::try_new() when stable
         let success = Box::new(JSPromiseReactionData {
@@ -199,7 +199,12 @@ impl Promise {
     /// create new promise for `then()`, register reaction handlers to `self` promise.
     /// `resolve` and `reject` are callback functions.
     /// `resolve` and `reject` are not consumed.
-    pub fn then(&self, ctx: &JSContext, success: JSValue, fail: JSValue) -> Result<JSObject, i32> {
+    pub fn then(
+        &self,
+        ctx: &JSContext<'a>,
+        success: JSValue<'a>,
+        fail: JSValue<'a>,
+    ) -> Result<JSObject<'a>, i32> {
         let ctor = JS_SpeciesConstructor(ctx, &self.clone().into(), JSValue::UNDEFINED)?;
         let (promise2, rr) = Self::create_from_ctor(ctx, &ctor)?;
 
@@ -210,7 +215,12 @@ impl Promise {
     /// save resolving resultand update promise status to 'fulfilled' or 'rejected'.
     /// call chained reactions which was registered by `then()`, `catch()` or `finally()`.
     /// Note: `value` is not consumed (duplicated inside).
-    pub(super) fn fulfill_or_reject(&self, ctx: &JSContext, value: JSValue, is_reject: bool) {
+    pub(super) fn fulfill_or_reject(
+        &self,
+        ctx: &JSContext<'a>,
+        value: JSValue<'a>,
+        is_reject: bool,
+    ) {
         let p = self.payload();
 
         debug_assert_eq!(p.state(), PromiseState::JS_PROMISE_PENDING);
@@ -250,7 +260,7 @@ impl Promise {
     /// Reject promise with `value`.
     /// A shortcut to `fulfill_or_reject()` with is_reject=true.
     #[inline(always)]
-    pub fn reject(&self, ctx: &JSContext, value: JSValue) {
+    pub fn reject(&self, ctx: &JSContext<'a>, value: JSValue<'a>) {
         self.fulfill_or_reject(ctx, value, true);
     }
 }

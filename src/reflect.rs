@@ -12,8 +12,8 @@ use crate::{
     value::JSValue,
 };
 
-pub fn js_reflect_apply(ctx: &JSContext, cc: CallContext) -> JSResult {
-    let c = CallContext::new(
+pub fn js_reflect_apply<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+    let cc2 = CallContext::new(
         ctx,
         cc.arg(0).clone(),
         if cc.length() == 0 {
@@ -24,11 +24,10 @@ pub fn js_reflect_apply(ctx: &JSContext, cc: CallContext) -> JSResult {
         2,
         None,
     );
-
-    js_function_apply(ctx, c)
+    js_function_apply(ctx, cc2)
 }
 
-pub fn js_reflect_construct(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_reflect_construct<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let func = cc.arg(0);
     let array_arg = cc.arg(1);
     let new_target = if cc.length() > 2 {
@@ -46,7 +45,7 @@ pub fn js_reflect_construct(ctx: &JSContext, cc: CallContext) -> JSResult {
     JS_CallConstructor2(ctx, func, new_target.clone(), &args).err()
 }
 
-pub fn js_reflect_deleteProperty(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_reflect_deleteProperty<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     if let JSValue::Object(obj) = cc.arg(0) {
         let atom = cc.arg(1).to_atom(ctx)?;
         let ret = obj.delete_property(ctx, &atom, 0);
@@ -57,7 +56,7 @@ pub fn js_reflect_deleteProperty(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_reflect_get(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_reflect_get<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let obj = cc.arg(0);
     if obj.is_object() {
         let prop = cc.arg(1);
@@ -70,7 +69,7 @@ pub fn js_reflect_get(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_reflect_has(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_reflect_has<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     if let JSValue::Object(obj) = cc.arg(0) {
         let prop = cc.arg(1);
         let atom = prop.to_atom(ctx)?;
@@ -81,7 +80,7 @@ pub fn js_reflect_has(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_reflect_set(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_reflect_set<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let target = cc.arg(0);
 
     if let Some(o) = target.as_object() {
@@ -108,13 +107,13 @@ pub fn js_reflect_set(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_reflect_setPrototypeOf(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_reflect_setPrototypeOf<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     cc.arg(0)
         .set_prototype_internal(ctx, cc.arg(1).clone(), false)
         .map(JSValue::Bool)
 }
 
-pub fn js_reflect_ownKeys(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_reflect_ownKeys<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let val = cc.arg(0);
     if val.is_object() {
         val.build_own_property_kvs_array(

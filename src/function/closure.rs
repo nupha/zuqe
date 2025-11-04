@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 use crate::{
     JS_CLASS_ASYNC_GENERATOR, JS_CLASS_GENERATOR,
     atom::{Atom, consts::*},
@@ -97,7 +95,7 @@ impl JSClosureVar {
     }
 }
 
-impl JSFunctionDef {
+impl<'a> JSFunctionDef<'a> {
     /// `fd` must be an ancestor of `self`.
     /// Create in 'self' a closure referencing a local variable (is_local = TRUE)
     /// or a closure (is_local = FALSE) in `fd`
@@ -105,7 +103,7 @@ impl JSFunctionDef {
     pub(super) fn get_closure_var2(
         &mut self,
         ctx: &JSContext,
-        fd: *const JSFunctionDef,
+        fd: *const JSFunctionDef<'a>,
         mut is_local: bool,
         is_arg: bool,
         var_idx: u16,
@@ -150,7 +148,7 @@ impl JSFunctionDef {
     pub(super) fn get_closure_var(
         &mut self,
         ctx: &JSContext,
-        fd: *const JSFunctionDef,
+        fd: *const JSFunctionDef<'a>,
         is_arg: bool,
         var_idx: u16,
         var_name: &Atom,
@@ -222,15 +220,15 @@ impl JSFunctionDef {
     }
 }
 
-impl Bytecode {
+impl<'a> Bytecode<'a> {
     /// Create function (a.k.a. closure) with `self` Bytecode and captured variables.
     pub fn make_closure(
         &self,
-        ctx: &JSContext,
-        cur_var_refs: &[JSVarRef],
-        parent_frame: Option<&mut StackFrame>,
-        proto: Option<JSObject>,
-    ) -> Result<BCFunction, i32> {
+        ctx: &JSContext<'a>,
+        cur_var_refs: &[JSVarRef<'a>],
+        parent_frame: Option<&mut StackFrame<'a>>,
+        proto: Option<JSObject<'a>>,
+    ) -> Result<BCFunction<'a>, i32> {
         let var_refs: Vec<JSVarRef> = if self.closure_var_count != 0 {
             debug_assert!(
                 parent_frame.is_some(),

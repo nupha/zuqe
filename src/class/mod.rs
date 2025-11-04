@@ -19,56 +19,66 @@ use crate::{
 
 pub type ClassID = u16;
 
-pub type ClassCallFn = fn(
-    ctx: &JSContext,
-    func_obj: &JSValue,
-    this_val: &JSValue,
-    args: &[JSValue],
+pub type ClassCallFn = for<'a> fn(
+    ctx: &JSContext<'a>,
+    func_obj: &JSValue<'a>,
+    this_val: &JSValue<'a>,
+    args: &[JSValue<'a>],
     flags: i32,
-) -> JSResult;
+) -> JSResult<'a>;
 
 /// initialize class proto, constructor to ctx.
 /// returns the class proto object created for specified ctx.
-pub type ClassInitializeFn = fn(&JSContext, ClassID) -> Result<Option<JSObject>, i32>;
+pub type ClassInitializeFn =
+    for<'a> fn(&JSContext<'a>, ClassID) -> Result<Option<JSObject<'a>>, i32>;
 
 /// class instance finalize callback. `isa` is the object's payload.
 pub type ClassFinalizeFn = fn(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize);
 
 pub type ClassGCMarkFn = fn(val: JSValue);
 
-pub type DefineOwnPropertyFn = fn(
-    ctx: &JSContext,
-    target: &JSValue,
+pub type DefineOwnPropertyFn = for<'a> fn(
+    ctx: &JSContext<'a>,
+    target: &JSValue<'a>,
     prop: &Atom,
-    val: JSValue,
-    getter: JSValue,
-    setter: JSValue,
+    val: JSValue<'a>,
+    getter: JSValue<'a>,
+    setter: JSValue<'a>,
     flags: i32,
 ) -> Result<bool, i32>;
 
-pub type HasPropertyFn = fn(ctx: &JSContext, target: &JSObject, prop: &Atom) -> Result<bool, i32>;
+pub type HasPropertyFn =
+    for<'a> fn(ctx: &JSContext<'a>, target: &JSObject<'a>, prop: &Atom) -> Result<bool, i32>;
 
 /// TODO: change target type to &JSObject
-pub type GetOwnPropertyFn =
-    fn(ctx: &JSContext, target: JSValue, prop: &Atom) -> Result<Option<JSPropertyDescriptor>, i32>;
+pub type GetOwnPropertyFn = for<'a> fn(
+    ctx: &JSContext<'a>,
+    target: JSValue<'a>,
+    prop: &Atom,
+) -> Result<Option<JSPropertyDescriptor<'a>>, i32>;
 
 pub type GetOwnPropertyNamesFn =
-    fn(ctx: &JSContext, target: &JSObject) -> Result<Box<[PropertyKey]>, i32>;
+    for<'a> fn(ctx: &JSContext<'a>, target: &JSObject<'a>) -> Result<Box<[PropertyKey]>, i32>;
 
-pub type GetPropertyFn =
-    fn(ctx: &JSContext, target: JSValue, prop: &Atom, this_obj: JSValue) -> JSResult;
-
-pub type SetPropertyFn = fn(
-    ctx: &JSContext,
-    target: JSValue,
+pub type GetPropertyFn = for<'a> fn(
+    ctx: &JSContext<'a>,
+    target: JSValue<'a>,
     prop: &Atom,
-    val: JSValue,
-    this_obj: JSValue,
+    this_obj: JSValue<'a>,
+) -> JSResult<'a>;
+
+pub type SetPropertyFn = for<'a> fn(
+    ctx: &JSContext<'a>,
+    target: JSValue<'a>,
+    prop: &Atom,
+    val: JSValue<'a>,
+    this_obj: JSValue<'a>,
     flags: i32,
 ) -> Result<bool, i32>;
 
 /// TODO: change target type to &JSObject
-pub type DeletePropertyFn = fn(ctx: &JSContext, target: JSValue, prop: &Atom) -> Result<bool, i32>;
+pub type DeletePropertyFn =
+    for<'a> fn(ctx: &JSContext<'a>, target: JSValue<'a>, prop: &Atom) -> Result<bool, i32>;
 
 /// free user class instance handler
 pub type FreeObjFn = fn(rt: &mut JSRuntime, opaque: *mut c_void, id: usize);

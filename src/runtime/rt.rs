@@ -38,16 +38,16 @@ pub const JS_STACK_SIZE_MAX: u16 = 65534;
 
 pub type JSInterruptHandler = fn(rt: &JSRuntime, opaque: *mut c_void) -> i32;
 
-pub struct JSRuntime {
+pub struct JSRuntime<'a> {
     /// registered classes
     pub(crate) class_registry: Vec<ClassMeta>,
 
     /// list of living contexts
-    pub(crate) context_list: Vec<JSContext>,
+    pub(crate) context_list: Vec<JSContext<'a>>,
 
     /// shapes weakref registry.
     /// use Vec<> to hold conflicted key values.
-    pub(crate) shape_registry: HashMap<u32, Vec<JSShapeWeakref>>,
+    pub(crate) shape_registry: HashMap<u32, Vec<JSShapeWeakref<'a>>>,
 
     /* stack limitation */
     pub(crate) stack_size: usize, /* in bytes, 0 if no limit */
@@ -55,12 +55,12 @@ pub struct JSRuntime {
     pub(crate) stack_limit: usize, /* lower stack limit */
 
     /// current exception value
-    pub(crate) cur_exception: JSValue,
+    pub(crate) cur_exception: JSValue<'a>,
     /* true if inside an out of memory error, to avoid recursing */
     pub(crate) in_out_of_memory: bool,
 
     // stack frame of currently executing function
-    pub(crate) cur_stack_frame: *mut Pin<StackFrame>,
+    pub(crate) cur_stack_frame: *mut Pin<StackFrame<'a>>,
 
     /// pre-compiled regexp in parsing state.
     pub(crate) regexp_precompiled: Vec<RegExpData>,
@@ -72,7 +72,7 @@ pub struct JSRuntime {
     pub(crate) host_promise_rejection_tracker_opaque: *mut c_void,
 
     /// queued jobs
-    pub(crate) job_list: VecDeque<Job>,
+    pub(crate) job_list: VecDeque<Job<'a>>,
 
     pub(crate) module_normalize_func: Option<JSModuleNormalizeFunc>,
     pub(crate) module_loader_func: Option<JSModuleLoaderFunc>,
@@ -89,11 +89,11 @@ pub struct JSRuntime {
     pub(crate) gc_req: bool,
     pub(crate) gc_phase: JSGCPhaseEnum,
     /// List of tracked GC objects (used by garbage collector)
-    pub(crate) gc_obj_list: HashMap<usize, GCObjectWeakref>,
+    pub(crate) gc_obj_list: HashMap<usize, GCObjectWeakref<'a>>,
     /// Used during JS_FreeValueRT()
-    pub(crate) gc_zero_ref_count_list: Vec<GCObjectWeakref>,
+    pub(crate) gc_zero_ref_count_list: Vec<GCObjectWeakref<'a>>,
     /// used during GC
-    pub(crate) tmp_obj_list: Vec<GCObjectWeakref>,
+    pub(crate) tmp_obj_list: Vec<GCObjectWeakref<'a>>,
 
     pub(crate) malloc_gc_threshold: usize,
 
@@ -104,36 +104,36 @@ pub struct JSRuntime {
     pub(crate) rt_info: *const c_char,
 }
 
-thread_local! {
-    /// List of living runtime raw pointers
-    static RUNTIME_LIST: UnsafeCell<Vec<NonNull<JSRuntime>>> = UnsafeCell::new(Vec::with_capacity(1));
-}
+// thread_local! {
+//     /// List of living runtime raw pointers
+//     static RUNTIME_LIST: UnsafeCell<Vec<NonNull<JSRuntime<'static>>>> = UnsafeCell::new(Vec::with_capacity(1));
+// }
 
-impl Drop for JSRuntime {
+impl<'a> Drop for JSRuntime<'a> {
     fn drop(&mut self) {
         self.finalize();
 
-        // unregister from list
-        let live_rt = RUNTIME_LIST.with(|list| {
-            let list = unsafe { &mut *list.get() };
-            let ptr = self as *const Self;
+        // // unregister from list
+        // let live_rt = RUNTIME_LIST.with(|list| {
+        //     let list = unsafe { &mut *list.get() };
+        //     let ptr = self as *const Self;
 
-            if let Some(i) = list.iter().position(|p| std::ptr::eq(p.as_ptr(), ptr)) {
-                list.swap_remove(i);
-                list.len()
-            } else {
-                unreachable!()
-            }
-        });
+        //     if let Some(i) = list.iter().position(|p| std::ptr::eq(p.as_ptr(), ptr)) {
+        //         list.swap_remove(i);
+        //         list.len()
+        //     } else {
+        //         unreachable!()
+        //     }
+        // });
 
-        if live_rt == 0 {
-            // no runtime alive, clear all atoms
-            AtomRegistry::clear();
-        }
+        // if live_rt == 0 {
+        //     // no runtime alive, clear all atoms
+        //     AtomRegistry::clear();
+        // }
     }
 }
 
-impl JSRuntime {
+impl<'a> JSRuntime<'a> {
     pub fn new(mf: JSMallocFunctions, opaque: *mut c_void) -> Result<Box<Self>, i32> {
         let ms = JSMallocState {
             opaque,
@@ -247,26 +247,24 @@ impl JSRuntime {
 
         JS_UpdateStackTop(rt.as_mut());
 
-        // register runtime raw pointer
-        RUNTIME_LIST.with(|list| unsafe {
-            (&mut *list.get()).push(NonNull::from(rt.as_ref()));
-        });
+        // // register runtime raw pointer
+        // RUNTIME_LIST.with(|list| unsafe {
+        //     (&mut *list.get()).push(NonNull::from(rt.as_ref()));
+        // });
 
         Ok(rt)
     }
 
-    /// run closure with any runtime
-    pub(crate) fn with_any<R>(f: impl FnOnce(&Self) -> R) -> Option<R> {
-        RUNTIME_LIST.with(|list| unsafe { (&*list.get()).first().map(|p| p.as_ref()).map(f) })
-    }
+    // /// run closure with any runtime
+    // pub(crate) fn with_any<R>(f: impl FnOnce(&Self) -> R) -> Option<R> {
+    //     RUNTIME_LIST.with(|list| unsafe { (&*list.get()).first().map(|p| p.as_ref()).map(f) })
+    // }
 
-    /// run closure with any runtime
-    pub(crate) fn with_any_mut<R>(f: impl FnOnce(&mut Self) -> R) -> Option<R> {
-        RUNTIME_LIST.with(|list| unsafe { (&mut *list.get()).first_mut().map(|r| f(r.as_mut())) })
-    }
-}
+    // /// run closure with any runtime
+    // pub(crate) fn with_any_mut<R>(f: impl FnOnce(&mut Self) -> R) -> Option<R> {
+    //     RUNTIME_LIST.with(|list| unsafe { (&mut *list.get()).first_mut().map(|r| f(r.as_mut())) })
+    // }
 
-impl JSRuntime {
     fn finalize(&mut self) {
         self.job_list.clear();
         self.cur_exception = JSValue::UNDEFINED;
@@ -450,7 +448,7 @@ impl JSRuntime {
     }
 }
 
-pub(crate) fn js_check_stack_overflow(rt: &JSRuntime, alloca_size: usize) -> bool {
+pub(crate) fn js_check_stack_overflow<'a>(rt: &JSRuntime<'a>, alloca_size: usize) -> bool {
     let sp = js_get_stack_pointer() as usize - alloca_size;
     if rt.stack_limit > 0 {
         sp < rt.stack_limit
@@ -459,7 +457,7 @@ pub(crate) fn js_check_stack_overflow(rt: &JSRuntime, alloca_size: usize) -> boo
     }
 }
 
-const fn update_stack_limit(rt: &mut JSRuntime) {
+const fn update_stack_limit<'a>(rt: &mut JSRuntime<'a>) {
     if rt.stack_size == 0 {
         rt.stack_limit = 0; // no limit
     } else {
@@ -467,7 +465,7 @@ const fn update_stack_limit(rt: &mut JSRuntime) {
     }
 }
 
-pub(crate) const fn JS_SetMaxStackSize(rt: &mut JSRuntime, stack_size: usize) {
+pub(crate) const fn JS_SetMaxStackSize<'a>(rt: &mut JSRuntime<'a>, stack_size: usize) {
     rt.stack_size = stack_size;
     update_stack_limit(rt);
 }

@@ -63,7 +63,7 @@ unsafe fn json_parse_ident(
     Ok(atom)
 }
 
-fn json_parse_value(s: &mut JSParseState) -> JSResult {
+fn json_parse_value<'a>(s: &mut JSParseState<'a>) -> JSResult<'a> {
     let mut val: JSValue = JSValue::NULL;
 
     match s.token.val {
@@ -422,7 +422,7 @@ fn json_parse_value_number(s: &mut JSParseState, mut p: *const u8) -> Result<*co
 
     if let Ok(num) = unsafe { js_atof(&s.ctx, p, &mut p, radix, flags) } {
         s.token.val = TOK_NUMBER;
-        s.token.data = TokenData::Num(num);
+        s.token.data = TokenData::Num(unsafe { std::mem::transmute(num) });
         Ok(p) // return updated pointer  
     } else {
         s.token.val = TOK_ERROR;
@@ -430,7 +430,12 @@ fn json_parse_value_number(s: &mut JSParseState, mut p: *const u8) -> Result<*co
     }
 }
 
-fn JS_ParseJSON2(ctx: &JSContext, source: &[u8], filename: &str, flags: i32) -> JSResult {
+fn JS_ParseJSON2<'a>(
+    ctx: &JSContext<'a>,
+    source: &'a [u8],
+    filename: &'a str,
+    flags: i32,
+) -> JSResult<'a> {
     let mut s = JSParseState::new_for_json(ctx, source, filename);
     s.ext_json = flags & JS_PARSE_JSON_EXT != 0;
 
@@ -446,6 +451,6 @@ fn JS_ParseJSON2(ctx: &JSContext, source: &[u8], filename: &str, flags: i32) -> 
 }
 
 #[inline(always)]
-pub fn JS_ParseJSON(ctx: &JSContext, source: &[u8], filename: &str) -> JSResult {
+pub fn JS_ParseJSON<'a>(ctx: &JSContext<'a>, source: &'a [u8], filename: &'a str) -> JSResult<'a> {
     JS_ParseJSON2(ctx, source, filename, 0)
 }

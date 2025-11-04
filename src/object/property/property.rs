@@ -90,14 +90,14 @@ pub const JS_GPN_ENUM_ONLY: i32 = 1 << 4;
 pub const JS_GPN_SET_ENUM: i32 = 1 << 5;
 
 #[derive(Debug, Clone)]
-pub struct JSPropertyDescriptor {
+pub struct JSPropertyDescriptor<'a> {
     pub flags: u32,
-    pub value: JSValue,
-    pub getter: JSValue,
-    pub setter: JSValue,
+    pub value: JSValue<'a>,
+    pub getter: JSValue<'a>,
+    pub setter: JSValue<'a>,
 }
 
-impl Default for JSPropertyDescriptor {
+impl<'a> Default for JSPropertyDescriptor<'a> {
     fn default() -> Self {
         Self {
             flags: 0,
@@ -108,9 +108,9 @@ impl Default for JSPropertyDescriptor {
     }
 }
 
-impl JSPropertyDescriptor {
+impl<'a> JSPropertyDescriptor<'a> {
     /// Parse an object to JSPropertyDescriptor.
-    pub(crate) fn parse(ctx: &JSContext, desc: &JSObject) -> Result<Self, i32> {
+    pub(crate) fn parse(ctx: &JSContext<'a>, desc: &JSObject<'a>) -> Result<Self, i32> {
         let mut flags: u32 = 0;
         let mut value: JSValue = JSValue::UNDEFINED;
         let mut getter: JSValue = JSValue::UNDEFINED;
@@ -181,7 +181,7 @@ impl JSPropertyDescriptor {
 
     /// Parse a value to JSPropertyDescriptor.
     #[inline]
-    pub(crate) fn from_value(ctx: &JSContext, desc: &JSValue) -> Result<Self, i32> {
+    pub(crate) fn from_value(ctx: &JSContext<'a>, desc: &JSValue<'a>) -> Result<Self, i32> {
         if let Some(o) = desc.as_object() {
             Self::parse(ctx, o)
         } else {
@@ -191,7 +191,7 @@ impl JSPropertyDescriptor {
     }
 
     /// build object from descriptor
-    pub fn make_object(&self, ctx: &JSContext) -> Result<JSObject, i32> {
+    pub fn make_object(&self, ctx: &JSContext<'a>) -> Result<JSObject<'a>, i32> {
         let ret = ctx.create_base_object()?;
 
         if self.flags & JS_PROP_HAS_GET != 0 {
@@ -250,30 +250,30 @@ impl JSPropertyDescriptor {
 /// the property content
 #[repr(u8)]
 #[derive(Debug, Clone)]
-pub enum JSProperty {
-    Normal(JSValue),
+pub enum JSProperty<'a> {
+    Normal(JSValue<'a>),
     GetSet {
-        getter: Option<JSObject>,
-        setter: Option<JSObject>,
+        getter: Option<JSObject<'a>>,
+        setter: Option<JSObject<'a>>,
     },
-    VarRef(JSVarRef),
+    VarRef(JSVarRef<'a>),
     /// TODO: use Box<PropertyInit> instead
     LazyInit {
-        realm: JSContextWeakref,
-        init_type: LazyInit,
+        realm: JSContextWeakref<'a>,
+        init_type: LazyInit<'a>,
         opaque: *mut c_void,
     },
 }
 
-impl Default for JSProperty {
+impl<'a> Default for JSProperty<'a> {
     fn default() -> Self {
         Self::Normal(JSValue::UNDEFINED)
     }
 }
 
-impl JSProperty {
+impl<'a> JSProperty<'a> {
     /// retrive property value
-    pub(super) fn value(&self, ctx: &JSContext, this_obj: &JSValue) -> JSResult {
+    pub(super) fn value(&self, ctx: &JSContext<'a>, this_obj: &JSValue<'a>) -> JSResult<'a> {
         match self {
             Self::Normal(v) => {
                 debug_assert!(!v.is_exception());
@@ -292,16 +292,16 @@ impl JSProperty {
     }
 }
 
-impl JSObject {
+impl<'a> JSObject<'a> {
     /// check if object is extensible.
     /// in case `self` is a Proxy object, may return Err.
-    pub fn is_extensible(&self, ctx: &JSContext) -> Result<bool, i32> {
+    pub fn is_extensible(&self, ctx: &JSContext<'a>) -> Result<bool, i32> {
         self.as_Proxy()
             .map_or_else(|| Ok(self.flags().extensible()), |p| p.is_extensible(ctx))
     }
 
     /// test if property `prop` exists, check along proto chain.
-    pub fn has_property(&self, ctx: &JSContext, prop: &Atom) -> Result<bool, i32> {
+    pub fn has_property(&self, ctx: &JSContext<'a>, prop: &Atom) -> Result<bool, i32> {
         let mut p = self.clone();
 
         loop {
@@ -339,7 +339,7 @@ impl JSObject {
     /// equivelent to js `Object::assign(self, source)`
     pub fn copy_data_properties_from(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         source: &Self,
         excluded: Option<&Self>,
         setprop: bool,
@@ -391,15 +391,14 @@ impl JSObject {
     /// if _length_ property is null or undefined, returns 0.
     ///
     /// Returned length is in range \[0, MAX_SAFE_INTEGER\]
-    pub fn get_length_prop(&self, ctx: &JSContext) -> Result<i64, i32> {
-        self.get_property(ctx, JS_ATOM_length.deref())?
-            .to_length(ctx)
+    pub fn get_length_prop(&self, ctx: &JSContext<'a>) -> Result<i64, i32> {
+        self.get_property(ctx, &JS_ATOM_length)?.to_length(ctx)
     }
 }
 
-impl JSValue {
+impl<'a> JSValue<'a> {
     /// return Err() if exception (Proxy object only) or TRUE/FALSE
-    pub fn is_extensible(&self, ctx: &JSContext) -> Result<bool, i32> {
+    pub fn is_extensible(&self, ctx: &JSContext<'a>) -> Result<bool, i32> {
         if let Self::Object(p) = self {
             p.is_extensible(ctx)
         } else {
@@ -407,7 +406,7 @@ impl JSValue {
         }
     }
 
-    pub fn has_property(&self, ctx: &JSContext, prop: &Atom) -> Result<bool, i32> {
+    pub fn has_property(&self, ctx: &JSContext<'a>, prop: &Atom) -> Result<bool, i32> {
         if let Self::Object(p) = self {
             p.has_property(ctx, prop)
         } else {
@@ -419,7 +418,7 @@ impl JSValue {
     /// equivelent to js `Object::assign(self, source)`
     pub fn copy_data_properties_from(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         source: &Self,
         excluded: &Self,
         setprop: bool,
@@ -442,7 +441,7 @@ impl JSValue {
     /// if _length_ property is null or undefined, returns 0.
     ///
     /// Returned length is in range \[0, MAX_SAFE_INTEGER\]
-    pub fn get_length_prop(&self, ctx: &JSContext) -> Result<i64, i32> {
+    pub fn get_length_prop(&self, ctx: &JSContext<'a>) -> Result<i64, i32> {
         self.get_property(ctx, JS_ATOM_length.deref())?
             .to_length(ctx)
     }
@@ -496,13 +495,13 @@ pub const fn check_define_prop_flags(prop_flags: u32, flags: u32) -> bool {
 
 /// Get object `length` property as u32
 #[deprecated(note = "use JSValue::get_length_prop() instead")]
-pub fn js_get_length32(ctx: &JSContext, obj: &JSValue) -> Result<u32, i32> {
+pub fn js_get_length32<'a>(ctx: &JSContext<'a>, obj: &JSValue<'a>) -> Result<u32, i32> {
     obj.get_property(ctx, JS_ATOM_length.deref())
         .and_then(|v| v.to_u32(ctx))
 }
 
 /// Get object `length` property as i64
 #[deprecated(note = "use JSObject::get_length_prop() or JSValue::get_length_prop() instead")]
-pub fn js_get_length64(ctx: &JSContext, obj: &JSValue) -> Result<i64, i32> {
+pub fn js_get_length64<'a>(ctx: &JSContext<'a>, obj: &JSValue<'a>) -> Result<i64, i32> {
     obj.get_length_prop(ctx)
 }

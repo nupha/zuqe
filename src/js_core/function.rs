@@ -11,7 +11,7 @@ use crate::{
     value::JSValue,
 };
 
-pub fn js_function_call(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_function_call<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     if cc.length() > 0 {
         cc.this().call(
             ctx,
@@ -23,7 +23,7 @@ pub fn js_function_call(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_function_bind(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_function_bind<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let this_val = cc.this();
     this_val.ensure_function(ctx)?;
 
@@ -108,7 +108,7 @@ pub fn js_function_bind(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(func_obj.into())
 }
 
-pub fn js_function_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_function_toString<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let this_val = cc.this();
     this_val.ensure_function(ctx)?;
 
@@ -141,7 +141,7 @@ pub fn js_function_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
     JS_ConcatString3(ctx, pref, name, suff).map(JSValue::String)
 }
 
-pub fn js_function_hasInstance(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_function_hasInstance<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     if let Some(o) = cc.arg(0).as_object() {
         o.ordinary_instance_of(ctx, cc.this()).map(JSValue::Bool)
     } else {
@@ -149,7 +149,10 @@ pub fn js_function_hasInstance(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_function_proto_fileName(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_function_proto_fileName<'a>(
+    ctx: &JSContext<'a>,
+    cc: CallContext<'_, 'a>,
+) -> JSResult<'a> {
     if let Some((has_debug, filename)) = cc.this().as_object().and_then(|o| {
         o.payload().bc_function().map(|x| {
             let b = x.bytecode();
@@ -166,7 +169,10 @@ pub fn js_function_proto_fileName(ctx: &JSContext, cc: CallContext) -> JSResult 
     }
 }
 
-pub fn js_function_proto_lineNumber(_: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_function_proto_lineNumber<'a>(
+    _: &JSContext<'a>,
+    cc: CallContext<'_, 'a>,
+) -> JSResult<'a> {
     if let Some((has_debug, line_num)) = cc.this().as_object().and_then(|o| {
         o.payload().bc_function().map(|x| {
             let b = &x.bytecode();

@@ -17,7 +17,7 @@ use crate::{
 
 use super::iter::JSMapIteratorData;
 
-pub fn js_map_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_map_constructor<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let magic = cc.magic();
     let is_set = magic & 1 == 1;
     let is_weak = matches!(magic, 2 | 3);
@@ -71,7 +71,7 @@ pub fn js_map_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(obj)
 }
 
-pub fn js_map_get(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_map_get<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let key = cc.arg(0);
 
     cc.this()
@@ -85,7 +85,7 @@ pub fn js_map_get(ctx: &JSContext, cc: CallContext) -> JSResult {
         })
 }
 
-pub fn js_map_set(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_map_set<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let this = cc.this();
     let key = cc.arg(0);
 
@@ -121,7 +121,7 @@ pub fn js_map_set(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(this.clone())
 }
 
-pub fn js_map_delete(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_map_delete<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let this = cc.this();
     let key = cc.arg(0);
 
@@ -148,7 +148,7 @@ pub fn js_map_delete(ctx: &JSContext, cc: CallContext) -> JSResult {
         })
 }
 
-pub fn js_map_has(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_map_has<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     cc.this()
         .retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as ClassID)
         .map(|r| {
@@ -161,7 +161,7 @@ pub fn js_map_has(ctx: &JSContext, cc: CallContext) -> JSResult {
         })
 }
 
-pub fn js_map_clear(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_map_clear<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     cc.this()
         .retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as ClassID)
         .map(|isa| {
@@ -170,13 +170,13 @@ pub fn js_map_clear(ctx: &JSContext, cc: CallContext) -> JSResult {
         })
 }
 
-pub fn js_map_get_size(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_map_get_size<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     cc.this()
         .retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as ClassID)
         .map(|r| JSValue::Int(r.mapset().unwrap().borrow().len() as i32))
 }
 
-pub fn js_map_forEach(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_map_forEach<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let is_set = cc.magic() & 1 == 1;
 
     let func = cc.arg(0);
@@ -246,7 +246,7 @@ pub fn js_map_forEach(ctx: &JSContext, cc: CallContext) -> JSResult {
     }
 }
 
-fn js_create_map_iterator(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_create_map_iterator<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     debug_assert!(matches!(cc.magic() >> 2, 0..=2));
     let kind = unsafe { std::mem::transmute::<u8, JSIteratorKindEnum>(cc.magic() as u8 >> 2) };
 
@@ -346,7 +346,7 @@ pub static js_weakset_proto_funcs: [FieldDef; 4] = [
     ),
 ];
 
-fn js_map_groupBy(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_map_groupBy<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     // check must be observed before argv[0] is accessed
     let func = cc.arg(1);
     func.ensure_function(ctx)?;

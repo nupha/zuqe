@@ -11,14 +11,14 @@ use crate::{
     value::JSValue,
 };
 
-impl ModuleDef {
+impl<'a> ModuleDef<'a> {
     fn resolve_export_internal(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         export_name: &Atom,
         mut expect: Option<(usize, AtomRef)>, // (module_id, local_name_atom)
         resolving: &mut Vec<(usize, AtomRef)>, // (module_id, export_atom), to detect circular
-    ) -> Result<ResolveExport, i32> {
+    ) -> Result<ResolveExport<'a>, i32> {
         if unlikely(
             resolving
                 .iter()
@@ -113,10 +113,10 @@ impl ModuleDef {
     /// optionally restricted by (expect_module_id, expect_local_name)==(module_id, local_name)
     pub(super) fn resolve_export(
         &self,
-        ctx: &JSContext,
+        ctx: &JSContext<'a>,
         export_name: &Atom,
         expect: Option<(usize, AtomRef)>, // (module_id, local_name_atom)
-    ) -> Result<ResolveExport, i32> {
+    ) -> Result<ResolveExport<'a>, i32> {
         let mut lst = Vec::<(usize, AtomRef)>::with_capacity(8);
         self.resolve_export_internal(ctx, export_name, expect, &mut lst)
     }
@@ -125,8 +125,8 @@ impl ModuleDef {
     /// Resolving imports, exports.
     fn inner_module_linking(
         &self,
-        ctx: &JSContext,
-        stack_top: &mut Option<ModuleDef>,
+        ctx: &JSContext<'a>,
+        stack_top: &mut Option<ModuleDef<'a>>,
         index: i32,
     ) -> Result<i32, i32> {
         if unlikely(js_check_stack_overflow(ctx.rt(), 0)) {
@@ -319,7 +319,7 @@ impl ModuleDef {
     /// - 变量引用解析：建立导入变量与导出变量之间的引用关系
     /// - 循环依赖处理：使用深度优先搜索(DFS)算法处理模块间的循环依赖
     /// - 状态管理：管理模块的链接状态转换
-    pub(super) fn link(&self, ctx: &JSContext) -> Result<(), i32> {
+    pub(super) fn link(&self, ctx: &JSContext<'a>) -> Result<(), i32> {
         debug_assert!(matches!(
             self.status(),
             JSModuleStatus::JS_MODULE_STATUS_UNLINKED

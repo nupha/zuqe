@@ -20,21 +20,21 @@ use crate::{
 /// A key-value pair in a map, either strong or weak
 #[derive(Debug, Clone)]
 #[repr(u8)]
-pub enum MapPair {
+pub enum MapPair<'a> {
     Strong {
-        key: JSValue,
-        value: JSValue,
+        key: JSValue<'a>,
+        value: JSValue<'a>,
     },
     /// use weakref for key
     Weak {
-        key: JSObjectWeakref,
-        value: JSValue,
+        key: JSObjectWeakref<'a>,
+        value: JSValue<'a>,
     },
     Removed,
 }
 
-impl MapPair {
-    pub fn normalize_key(key: JSValue) -> JSValue {
+impl<'a> MapPair<'a> {
+    pub fn normalize_key(key: JSValue<'a>) -> JSValue<'a> {
         if let JSValue::Float64(d) = key
             && d == 0.0
         {
@@ -45,10 +45,10 @@ impl MapPair {
 }
 
 #[derive(Debug)]
-pub struct JSMapState {
+pub struct JSMapState<'a> {
     /// is WeakSet/WeakMap?
     is_weak: bool,
-    pub(crate) slots: Vec<MapPair>,
+    pub(crate) slots: Vec<MapPair<'a>>,
     /// hash lookup table
     pub(crate) lut: HashMap<u32, Vec<usize>>,
     /// removed count
@@ -58,7 +58,7 @@ pub struct JSMapState {
     lock: u16,
 }
 
-impl JSMapState {
+impl<'a> JSMapState<'a> {
     pub fn new(is_weak: bool, cap: usize) -> Self {
         JSMapState {
             is_weak,
@@ -97,7 +97,12 @@ impl JSMapState {
 
     /// update or insert key-value pair.
     /// returns false if the value is updated, true if the key-value pair is inserted
-    pub fn upsert(&mut self, ctx: &JSContext, key: JSValue, value: JSValue) -> Result<bool, i32> {
+    pub fn upsert(
+        &mut self,
+        ctx: &JSContext<'a>,
+        key: JSValue<'a>,
+        value: JSValue<'a>,
+    ) -> Result<bool, i32> {
         let key = MapPair::normalize_key(key);
 
         if self.is_weak && !key.is_object() {
@@ -166,7 +171,7 @@ impl JSMapState {
     }
 
     /// find value by key.
-    pub fn find(&self, key: &JSValue) -> Option<JSValue> {
+    pub fn find(&self, key: &JSValue<'a>) -> Option<JSValue<'a>> {
         let key = MapPair::normalize_key(key.clone());
         let hash = key.hash();
 
@@ -195,7 +200,7 @@ impl JSMapState {
     }
 
     /// remove an entry by key.
-    pub fn remove(&mut self, key: &JSValue) {
+    pub fn remove(&mut self, key: &JSValue<'a>) {
         let key = MapPair::normalize_key(key.clone());
         let hash = key.hash();
 
@@ -248,7 +253,7 @@ impl JSMapState {
         }
     }
 
-    pub(crate) fn remove_weak_obj(&mut self, obj: &ObjectInner) {
+    pub(crate) fn remove_weak_obj(&mut self, obj: &ObjectInner<'a>) {
         debug_assert!(self.is_weak);
 
         let hash = hash_usize(obj.id());
@@ -326,15 +331,18 @@ impl JSMapState {
 /// Object representing a Map, Set, WeakMap, WeakSet instance.
 #[derive(Debug, Clone)]
 #[repr(transparent)]
-pub struct MapSet(pub(crate) JSObject);
+pub struct MapSet<'a>(pub(crate) JSObject<'a>);
 
 object_cast!(
     MapSet,
     JS_CLASS_MAP | JS_CLASS_SET | JS_CLASS_WEAKMAP | JS_CLASS_WEAKSET
 );
 
-impl MapSet {
-    pub fn class_initialize(ctx: &JSContext, class_id: ClassID) -> Result<Option<JSObject>, i32> {
+impl<'a> MapSet<'a> {
+    pub fn class_initialize<'b>(
+        ctx: &JSContext<'b>,
+        class_id: ClassID,
+    ) -> Result<Option<JSObject<'b>>, i32> {
         match class_id {
             JS_CLASS_MAP => {
                 let obj = ctx.create_base_object()?;
@@ -415,8 +423,8 @@ impl MapSet {
     }
 }
 
-impl JSContext {
-    pub fn create_map_with_entries(&self, entries: JSMapState) -> Result<JSObject, i32> {
+impl<'a> JSContext<'a> {
+    pub fn create_map_with_entries(&self, entries: JSMapState<'a>) -> Result<JSObject<'a>, i32> {
         self.create_object(ObjectPayload::MAP(RefCell::new(Box::new(entries))))
             .map_err(|_| -1)
     }

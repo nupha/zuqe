@@ -21,7 +21,7 @@ use crate::{
     value::JSValue,
 };
 
-pub(super) fn js_operator_delete(ctx: &JSContext, sp: *mut JSValue) -> i32 {
+pub(super) fn js_operator_delete<'a>(ctx: &JSContext<'a>, sp: *mut JSValue<'a>) -> i32 {
     let (op1, op2) = unsafe {
         (
             std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED),
@@ -45,7 +45,10 @@ pub(super) fn js_operator_delete(ctx: &JSContext, sp: *mut JSValue) -> i32 {
     }
 }
 
-pub(super) fn js_operator_instanceof(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
+pub(super) fn js_operator_instanceof<'a>(
+    ctx: &JSContext<'a>,
+    sp: *mut JSValue<'a>,
+) -> Result<(), i32> {
     let (val, ctor) = unsafe {
         (
             std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED),
@@ -61,7 +64,11 @@ pub(super) fn js_operator_instanceof(ctx: &JSContext, sp: *mut JSValue) -> Resul
     Ok(())
 }
 
-pub(super) fn js_operator_in(ctx: &JSContext, obj: &JSValue, prop: &JSValue) -> Result<bool, i32> {
+pub(super) fn js_operator_in<'a>(
+    ctx: &JSContext<'a>,
+    obj: &JSValue<'a>,
+    prop: &JSValue<'a>,
+) -> Result<bool, i32> {
     if unlikely(!obj.is_object()) {
         ctx.throw_type_error("invalid 'in' operand");
         Err(-1)
@@ -71,7 +78,10 @@ pub(super) fn js_operator_in(ctx: &JSContext, obj: &JSValue, prop: &JSValue) -> 
     }
 }
 
-pub(super) fn js_operator_private_in(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
+pub(super) fn js_operator_private_in<'a>(
+    ctx: &JSContext<'a>,
+    sp: *mut JSValue<'a>,
+) -> Result<(), i32> {
     let obj = unsafe { std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED) }; // object
     let item = unsafe { std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED) }; // field name or method function
 
@@ -94,13 +104,13 @@ pub(super) fn js_operator_private_in(ctx: &JSContext, sp: *mut JSValue) -> Resul
     }
 }
 
-pub(super) fn js_op_define_class(
-    ctx: &JSContext,
-    sp: *mut JSValue,
+pub(super) fn js_op_define_class<'a>(
+    ctx: &JSContext<'a>,
+    sp: *mut JSValue<'a>,
     class_name: &Atom,
     class_flags: i32,
-    cur_var_refs: &[JSVarRef],
-    sframe: &mut StackFrame,
+    cur_var_refs: &[JSVarRef<'a>],
+    sframe: &mut StackFrame<'a>,
     is_computed_name: bool,
 ) -> Result<(), i32> {
     // SP[-1] is bytecode
@@ -197,9 +207,13 @@ pub(super) fn js_op_define_class(
 /// test if `atom` property is true in value's \[Symbol.unscopables\] scope.
 ///
 /// `atom` is not consumed.
-pub(super) fn js_has_unscopable(ctx: &JSContext, obj: &JSValue, atom: &Atom) -> Result<bool, i32> {
+pub(super) fn js_has_unscopable<'a>(
+    ctx: &JSContext<'a>,
+    obj: &JSValue<'a>,
+    atom: &Atom,
+) -> Result<bool, i32> {
     if let Some(o) = obj
-        .get_property(ctx, JS_ATOM_Symbol_unscopables.deref())?
+        .get_property(ctx, &JS_ATOM_Symbol_unscopables)?
         .as_object()
     {
         o.get_property(ctx, atom)?.to_bool()
@@ -208,7 +222,10 @@ pub(super) fn js_has_unscopable(ctx: &JSContext, obj: &JSValue, atom: &Atom) -> 
     }
 }
 
-pub(crate) fn js_get_function_name(ctx: &JSContext, name: &Atom) -> Result<JSString, i32> {
+pub(crate) fn js_get_function_name<'a>(
+    ctx: &JSContext<'a>,
+    name: &Atom,
+) -> Result<JSString<'a>, i32> {
     let name_str = name.force_string(ctx)?;
     if name.has_string_desc() {
         JS_ConcatString3(ctx, c"[", name_str.into(), c"]")
@@ -220,12 +237,12 @@ pub(crate) fn js_get_function_name(ctx: &JSContext, name: &Atom) -> Result<JSStr
 /// Modify the name of a method according to the atom and
 /// 'flags'. 'flags' is a bitmask of JS_PROP_HAS_GET and
 /// JS_PROP_HAS_SET. Also set the home object of the method.
-pub fn js_method_set_properties(
-    ctx: &JSContext,
-    func_obj: &JSValue,
+pub fn js_method_set_properties<'a>(
+    ctx: &JSContext<'a>,
+    func_obj: &JSValue<'a>,
     name: &Atom,
     flags: u32,
-    home_obj: &JSValue,
+    home_obj: &JSValue<'a>,
 ) -> Result<(), i32> {
     let mut name_str = js_get_function_name(ctx, name)?;
 
@@ -248,7 +265,10 @@ pub fn js_method_set_properties(
 /// 类似于 JavaScript 中的 `[...iterable]` 或者 `array.push(...iterable)` 操作。
 ///
 /// 操作完成后, `SP[-3]`数组中加入了来自`SP[-1]`的全部元素，`SP[-1]`没有变化，`SP[-2]`更新为结束位置index。
-pub(super) unsafe fn js_append_enumerate(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
+pub(super) unsafe fn js_append_enumerate<'a>(
+    ctx: &JSContext<'a>,
+    sp: *mut JSValue<'a>,
+) -> Result<(), i32> {
     // the index where append starts
     let mut pos = if let JSValue::Int(i) = unsafe { &*sp.offset(-2) } {
         *i
@@ -321,7 +341,7 @@ pub(super) unsafe fn js_append_enumerate(ctx: &JSContext, sp: *mut JSValue) -> R
 }
 
 /// obj -> enum_obj
-pub(super) fn js_for_in_start(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
+pub(super) fn js_for_in_start<'a>(ctx: &JSContext<'a>, sp: *mut JSValue<'a>) -> Result<(), i32> {
     unsafe {
         let obj = std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED);
         let it = ForInIterPayload::create(ctx, obj).map_or(JSValue::EXCEPTION, JSValue::Object);
@@ -338,7 +358,7 @@ pub(super) fn js_for_in_start(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i
 
 /// 实现 JavaScript 中 for...in 循环的迭代器逻辑，用于遍历对象的可枚举属性
 /// enum_obj -> enum_obj value done
-pub(super) fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i32> {
+pub(super) fn js_for_in_next<'a>(ctx: &JSContext<'a>, sp: *mut JSValue<'a>) -> Result<(), i32> {
     let enum_obj = unsafe { &*sp.offset(-1) };
     debug_assert!(enum_obj.is_object());
 
@@ -463,7 +483,10 @@ pub(super) fn js_for_in_next(ctx: &JSContext, sp: *mut JSValue) -> Result<(), i3
     Ok(())
 }
 
-pub(super) unsafe fn js_iterator_get_value_done(ctx: &JSContext, sp: *mut JSValue) -> i32 {
+pub(super) unsafe fn js_iterator_get_value_done<'a>(
+    ctx: &JSContext<'a>,
+    sp: *mut JSValue<'a>,
+) -> i32 {
     let obj = unsafe { &*sp.offset(-1) };
     if !obj.is_object() {
         ctx.throw_type_error("iterator must return an object");
@@ -484,9 +507,9 @@ pub(super) unsafe fn js_iterator_get_value_done(ctx: &JSContext, sp: *mut JSValu
     0
 }
 
-pub(super) unsafe fn js_for_of_next(
-    ctx: &JSContext,
-    sp: *mut JSValue,
+pub(super) unsafe fn js_for_of_next<'a>(
+    ctx: &JSContext<'a>,
+    sp: *mut JSValue<'a>,
     base: i32,
 ) -> Result<(), i32> {
     let mut value: JSValue = JSValue::UNDEFINED;

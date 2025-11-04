@@ -45,7 +45,10 @@ pub const special_TA: i32 = 8;
 pub const special_reduce: i32 = 0;
 pub const special_reduceRight: i32 = 1;
 
-pub(crate) fn js_array_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub(crate) fn js_array_constructor<'a>(
+    ctx: &JSContext<'a>,
+    cc: CallContext<'_, 'a>,
+) -> JSResult<'a> {
     let new_target = cc.this();
 
     let (arr, len) = if cc.length() == 1 && cc.arg(0).is_number() {
@@ -89,7 +92,11 @@ pub(crate) fn js_array_constructor(ctx: &JSContext, cc: CallContext) -> JSResult
     Ok(arr.into())
 }
 
-fn JS_ArraySpeciesCreate(ctx: &JSContext, obj: &JSValue, len_val: &JSValue) -> JSResult {
+fn JS_ArraySpeciesCreate<'a>(
+    ctx: &JSContext<'a>,
+    obj: &JSValue<'a>,
+    len_val: &JSValue<'a>,
+) -> JSResult<'a> {
     if !obj.is_array(ctx)? {
         return js_array_constructor(
             ctx,
@@ -138,9 +145,9 @@ fn JS_ArraySpeciesCreate(ctx: &JSContext, obj: &JSValue, len_val: &JSValue) -> J
 }
 
 /// check `obj[Symbol.isConcatSpreabable]` property
-pub fn JS_isConcatSpreadable(ctx: &JSContext, obj: &JSValue) -> Result<bool, i32> {
+pub fn JS_isConcatSpreadable<'a>(ctx: &JSContext<'a>, obj: &JSValue<'a>) -> Result<bool, i32> {
     if obj.is_object() {
-        let s = obj.get_property(ctx, JS_ATOM_Symbol_isConcatSpreadable.deref())?;
+        let s = obj.get_property(ctx, &JS_ATOM_Symbol_isConcatSpreadable)?;
         if !s.is_undefined() {
             s.to_bool()
         } else {
@@ -151,7 +158,7 @@ pub fn JS_isConcatSpreadable(ctx: &JSContext, obj: &JSValue) -> Result<bool, i32
     }
 }
 
-pub fn js_array_at(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_array_at<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let obj: JSValue = cc.this().clone().objectify(ctx)?.into();
     let len = obj.get_length_prop(ctx)?;
 
@@ -177,7 +184,7 @@ pub fn js_array_at(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(ret)
 }
 
-pub fn js_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_array_with<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let obj = cc.this().clone().objectify(ctx)?;
     let len = obj.get_length_prop(ctx)?;
 
@@ -269,7 +276,7 @@ pub fn js_array_with(ctx: &JSContext, cc: CallContext) -> JSResult {
     ctx.create_array_with_values(new_lst).map(|a| a.into())
 }
 
-pub fn js_array_concat(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_array_concat<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let this: JSValue = cc.this().clone().objectify(ctx)?.into();
     let arr = JS_ArraySpeciesCreate(ctx, &this, &JSValue::Int(0))?;
 
@@ -307,7 +314,7 @@ pub fn js_array_concat(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(arr)
 }
 
-pub fn js_array_every(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_array_every<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let special = cc.magic();
 
     let obj: JSValue;
@@ -426,7 +433,7 @@ pub fn js_array_every(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(ret)
 }
 
-pub fn js_array_reduce(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_array_reduce<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let special = cc.magic();
 
     let obj: JSValue;
@@ -506,7 +513,7 @@ pub fn js_array_reduce(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(acc)
 }
 
-pub fn js_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_array_fill<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let obj: JSValue = cc.this().clone().objectify(ctx)?.into();
     let len = obj.get_length_prop(ctx)?;
 
@@ -531,7 +538,7 @@ pub fn js_array_fill(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(obj)
 }
 
-pub fn js_array_find(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_array_find<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let mode = cc.magic();
     let obj: JSValue = cc.this().clone().objectify(ctx)?.into();
     let len = obj.get_length_prop(ctx)?;
@@ -591,7 +598,7 @@ pub fn js_array_find(ctx: &JSContext, cc: CallContext) -> JSResult {
     )
 }
 
-pub fn js_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_array_indexOf<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let obj: JSValue = cc.this().clone().objectify(ctx)?.into();
     let len = obj.get_length_prop(ctx)?;
 
@@ -638,7 +645,7 @@ pub fn js_array_indexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(JSValue::from(res))
 }
 
-pub fn js_array_lastIndexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_array_lastIndexOf<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let obj: JSValue = cc.this().clone().objectify(ctx)?.into();
     let len = obj.get_length_prop(ctx)?;
     let target = cc.arg(0);
@@ -667,7 +674,7 @@ pub fn js_array_lastIndexOf(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(JSValue::from(res))
 }
 
-pub fn js_array_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_array_includes<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let obj = cc.this().clone().objectify(ctx)?;
     let length = obj.get_length_prop(ctx)?;
     let target = cc.arg(0);
@@ -716,7 +723,7 @@ pub fn js_array_includes(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(JSValue::Bool(res))
 }
 
-pub fn js_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_array_join<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let to_locale_string = cc.magic() == 1;
     let obj = cc.this().clone().objectify(ctx)?;
     let len = obj.get_length_prop(ctx)?;
@@ -767,7 +774,7 @@ pub fn js_array_join(ctx: &JSContext, cc: CallContext) -> JSResult {
     ctx.create_string_with_buf(sbuf).map(JSValue::String)
 }
 
-pub fn js_array_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_array_toString<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let obj = cc.this().clone().objectify(ctx)?;
     obj.invoke_callable(ctx, &JS_ATOM_join, &[])?
         .unwrap_or_else(|| {
@@ -776,7 +783,7 @@ pub fn js_array_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
         })
 }
 
-pub fn js_array_pop(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_array_pop<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let shift = cc.magic() == 1;
     let obj = cc.this().clone().objectify(ctx)?;
     let arr_len = obj.get_length_prop(ctx)?;
@@ -819,7 +826,7 @@ pub fn js_array_pop(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(res)
 }
 
-pub fn js_array_push(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_array_push<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let unshift = cc.magic();
 
     let obj = cc.this().clone().objectify(ctx)?;
@@ -846,7 +853,7 @@ pub fn js_array_push(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(JSValue::from(new_len))
 }
 
-pub fn js_array_reverse(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_array_reverse<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let obj: JSValue = cc.this().clone().objectify(ctx)?.into();
     let len = obj.get_length_prop(ctx)?;
 
@@ -914,7 +921,7 @@ pub fn js_array_reverse(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(obj)
 }
 
-pub fn js_array_toReversed(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_array_toReversed<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let this = cc.this().clone().objectify(ctx)?;
     let len = {
         let n = this.get_length_prop(ctx)?;
@@ -962,7 +969,7 @@ pub fn js_array_toReversed(ctx: &JSContext, cc: CallContext) -> JSResult {
     fa.map(|a| a.into())
 }
 
-fn js_array_sort(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_array_sort<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let cmpfn = {
         let f = cc.arg(0);
         if !f.is_undefined() {
@@ -977,7 +984,7 @@ fn js_array_sort(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(obj.into())
 }
 
-fn js_array_toSorted(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_array_toSorted<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let cmpfn = {
         let f = cc.arg(0);
         if !f.is_undefined() {
@@ -1028,7 +1035,7 @@ fn js_array_toSorted(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(arr.into())
 }
 
-pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_array_slice<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let is_splice = cc.magic() != 0;
 
     let obj = cc.this().clone().objectify(ctx)?;
@@ -1157,7 +1164,7 @@ pub fn js_array_slice(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(arr)
 }
 
-pub fn js_array_toSpliced(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_array_toSpliced<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let obj = cc.this().clone().objectify(ctx)?;
     let len = obj.get_length_prop(ctx)?;
 
@@ -1254,7 +1261,7 @@ pub fn js_array_toSpliced(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(res_arr.into())
 }
 
-pub fn js_array_copyWithin(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_array_copyWithin<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let obj = cc.this().clone().objectify(ctx)?;
     let len = obj.get_length_prop(ctx)?;
 
@@ -1285,7 +1292,7 @@ pub fn js_array_copyWithin(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(obj.into())
 }
 
-pub fn js_array_flatten(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_array_flatten<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let map = cc.magic();
 
     let source: JSValue = cc.this().clone().objectify(ctx)?.into();
@@ -1322,15 +1329,15 @@ pub fn js_array_flatten(ctx: &JSContext, cc: CallContext) -> JSResult {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn JS_FlattenIntoArray(
-    ctx: &JSContext,
-    target: &JSValue,
-    source: &JSValue,
+fn JS_FlattenIntoArray<'a>(
+    ctx: &JSContext<'a>,
+    target: &JSValue<'a>,
+    source: &JSValue<'a>,
     source_len: i64,
     mut target_index: i64,
     depth: i32,
-    mapper_func: &JSValue,
-    this_arg: &JSValue,
+    mapper_func: &JSValue<'a>,
+    this_arg: &JSValue<'a>,
 ) -> Result<i64, i32> {
     if js_check_stack_overflow(ctx.rt(), 0) {
         ctx.throw_stack_overflow();
@@ -1474,7 +1481,7 @@ pub static js_array_iterator_proto_funcs: [FieldDef; 2] = [
 // static array functions
 //
 
-fn js_array_from(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_array_from<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     // from(items, mapfn = void 0, this_arg = void 0)
 
     let items = cc.arg(0);
@@ -1544,7 +1551,7 @@ fn js_array_from(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(res)
 }
 
-pub fn js_array_of(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_array_of<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let obj = if cc.this().is_constructor() {
         JS_CallConstructor(ctx, cc.this(), &[JSValue::Int(cc.length() as i32)]).err()?
     } else {
@@ -1559,7 +1566,7 @@ pub fn js_array_of(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(obj)
 }
 
-pub fn js_array_isArray(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_array_isArray<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     Ok(JSValue::Bool(cc.arg(0).is_array(ctx)?))
 }
 
@@ -1573,9 +1580,9 @@ pub static js_array_funcs: [FieldDef; 4] = [
 /// 将数组 obj 中从 start_pos 开始的 count 个元素复制到 to_pos 开始的位置。
 /// - 正向复制（dir > 0）：从 start_pos 到 start_pos + count - 1 的元素依次复制到 to_pos 到 to_pos + count - 1。
 /// - 反向复制（dir < 0）：从 start_pos + count - 1 到 start_pos 的元素依次复制到 to_pos + count - 1 到 to_pos。
-fn copy_sub_array(
-    ctx: &JSContext,
-    obj: &JSObject,
+fn copy_sub_array<'a>(
+    ctx: &JSContext<'a>,
+    obj: &JSObject<'a>,
     to_pos: usize,
     start_pos: usize,
     count: usize,

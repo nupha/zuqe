@@ -18,16 +18,16 @@ use crate::{
 use super::stringify::JS_JSONStringify;
 
 #[inline(always)]
-fn js_json_stringify(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_json_stringify<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     JS_JSONStringify(ctx, cc.arg(0).clone(), cc.arg(1).clone(), cc.arg(2).clone())
 }
 
-fn internalize_json_property(
-    ctx: &JSContext,
-    holder: &JSValue,
+fn internalize_json_property<'a>(
+    ctx: &JSContext<'a>,
+    holder: &JSValue<'a>,
     name: &Atom,
-    reviver: &JSValue,
-) -> JSResult {
+    reviver: &JSValue<'a>,
+) -> JSResult<'a> {
     if js_check_stack_overflow(ctx.rt(), 0) {
         ctx.throw_stack_overflow();
         return Err(-1);
@@ -67,7 +67,7 @@ fn internalize_json_property(
     reviver.call(ctx, holder, &[name.string_or_symbol(ctx)?, val])
 }
 
-fn js_json_parse(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_json_parse<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let s = cc.arg(0).to_string(ctx)?;
     let mut obj = JS_ParseJSON(ctx, &s.content().encode_utf8_bytes(), "<input>")?;
 

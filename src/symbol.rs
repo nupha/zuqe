@@ -12,9 +12,13 @@ use crate::{
 
 use super::value::JSValue;
 
-impl JSContext {
+impl<'a> JSContext<'a> {
     /// `desc` should be None for anonymous symbol.
-    pub fn create_symbol(&self, str: Option<JSString>, atom_type: AtomTypeHint) -> JSResult {
+    pub fn create_symbol(
+        &self,
+        str: Option<JSString<'a>>,
+        atom_type: AtomTypeHint,
+    ) -> JSResult<'a> {
         debug_assert!(
             matches!(
                 atom_type,
@@ -36,7 +40,7 @@ impl JSContext {
     }
 
     /// `atom` must be a non-numeric string atom
-    pub fn create_symbol_from_atom(&self, atom: &Atom, atom_type: AtomTypeHint) -> JSResult {
+    pub fn create_symbol_from_atom(&self, atom: &Atom, atom_type: AtomTypeHint) -> JSResult<'a> {
         debug_assert!(!atom.is_small_int());
         let s = atom.description();
         self.create_symbol(Some(s), atom_type)
@@ -52,7 +56,7 @@ pub(crate) fn symbol_to_atom(val: &JSValue) -> Atom {
     }
 }
 
-pub fn js_symbol_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_symbol_constructor<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let new_target = cc.this();
     if !new_target.is_undefined() {
         ctx.throw_type_error("not a constructor");
@@ -71,7 +75,7 @@ pub fn js_symbol_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
 // prototype funcs
 //
 
-pub fn js_thisSymbolValue(ctx: &JSContext, val: &JSValue) -> JSResult {
+pub fn js_thisSymbolValue<'a>(ctx: &JSContext<'a>, val: &JSValue<'a>) -> JSResult<'a> {
     if val.is_symbol() {
         Ok(val.clone())
     } else {
@@ -95,18 +99,18 @@ pub fn js_thisSymbolValue(ctx: &JSContext, val: &JSValue) -> JSResult {
     }
 }
 
-pub fn js_symbol_toString(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_symbol_toString<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let val = js_thisSymbolValue(ctx, cc.this())?;
     // formatted as 'Symbol(XXX)'
     ctx.create_string_from_utf8(val.inspect(ctx)?.into_bytes())
         .map(JSValue::String)
 }
 
-pub fn js_symbol_valueOf(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_symbol_valueOf<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     js_thisSymbolValue(ctx, cc.this())
 }
 
-pub fn js_symbol_get_description(ctx: &JSContext, cc: CallContext) -> JSResult {
+pub fn js_symbol_get_description<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     if let JSValue::Symbol(p) = js_thisSymbolValue(ctx, cc.this())? {
         if p.content().is_ident() {
             Ok(JSValue::UNDEFINED)
@@ -127,12 +131,12 @@ pub static js_symbol_proto_funcs: [FieldDef; 5] = [
     JS_CGETSET_NATIVE_DEF!("description", js_symbol_get_description, NONE, 0),
 ];
 
-fn js_symbol_for(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_symbol_for<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let s = cc.arg(0).to_string(ctx)?;
     ctx.create_symbol(Some(s), AtomTypeHint::GlobalSymbol)
 }
 
-fn js_symbol_keyFor(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_symbol_keyFor<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     if let JSValue::Symbol(p) = cc.arg(0) {
         if p.atom_info().unwrap().type_hint() != AtomTypeHint::GlobalSymbol {
             Ok(JSValue::UNDEFINED)

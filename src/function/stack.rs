@@ -71,7 +71,7 @@ fn ss_check(
     Ok(())
 }
 
-impl JSFunctionDef {
+impl<'a> JSFunctionDef<'a> {
     pub fn compute_stack_size(&mut self, ctx: &JSContext) -> Result<u16, i32> {
         let bc_ptr = self.byte_code.as_ptr();
         let bc_len = self.byte_code.len();

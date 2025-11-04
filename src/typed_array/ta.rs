@@ -33,9 +33,9 @@ pub const JS_TYPED_ARRAY_COUNT: usize =
     JS_CLASS_FLOAT64_ARRAY as usize - JS_CLASS_UINT8C_ARRAY as usize + 1;
 
 #[derive(Debug)]
-pub struct TypedArrayPayload {
+pub struct TypedArrayPayload<'a> {
     /// underlaying array buffer object.
-    pub(super) buffer: ArrayBuffer,
+    pub(super) buffer: ArrayBuffer<'a>,
 
     /// start offset in array buffer  
     pub(super) offset: u32,
@@ -46,14 +46,14 @@ pub struct TypedArrayPayload {
 
     /// back reference to the TypedArray/DataView object.
     #[deprecated(note = "seems no use")]
-    obj: UnsafeCell<JSObjectWeakref>,
+    obj: UnsafeCell<JSObjectWeakref<'a>>,
 }
 
-impl TypedArrayPayload {
+impl<'a> TypedArrayPayload<'a> {
     /// create typed array payload with underlying array buffer `buffer`,
     /// offset in array buffer and type array element count.
     fn new(
-        buffer: ArrayBuffer,
+        buffer: ArrayBuffer<'a>,
         class_id: ClassID,
         offset: usize,
         count: usize,
@@ -90,7 +90,7 @@ impl TypedArrayPayload {
 
     /// get underlaying array buffer object.
     #[inline(always)]
-    pub const fn array_buffer(&self) -> &ArrayBuffer {
+    pub const fn array_buffer(&self) -> &ArrayBuffer<'a> {
         &self.buffer
     }
 
@@ -115,7 +115,7 @@ impl TypedArrayPayload {
         self.count.set(n as _);
     }
 
-    pub(super) fn set_obj(&self, obj: &JSObject) {
+    pub(super) fn set_obj(&self, obj: &JSObject<'a>) {
         unsafe {
             *self.obj.get() = obj.downgrade();
         }
@@ -142,7 +142,7 @@ impl TypedArrayPayload {
 
 #[repr(transparent)]
 #[derive(Debug, Clone)]
-pub struct TypedArray(JSObject);
+pub struct TypedArray<'a>(JSObject<'a>);
 
 object_cast!(
     TypedArray,
@@ -159,7 +159,7 @@ object_cast!(
         | JS_CLASS_FLOAT64_ARRAY
 );
 
-impl TypedArray {
+impl<'a> TypedArray<'a> {
     /// log2 size for each class_id
     const TYPED_ARRAY_SIZE_LOG2: [u8; JS_TYPED_ARRAY_COUNT] = [
         0, // JS_CLASS_UINT8C_ARRAY
@@ -185,7 +185,10 @@ impl TypedArray {
         Self::TYPED_ARRAY_SIZE_LOG2[(class_id - JS_CLASS_UINT8C_ARRAY) as usize]
     }
 
-    pub fn class_initialize(ctx: &JSContext, class_id: ClassID) -> Result<Option<JSObject>, i32> {
+    pub fn class_initialize(
+        ctx: &JSContext<'a>,
+        class_id: ClassID,
+    ) -> Result<Option<JSObject<'a>>, i32> {
         debug_assert!(matches!(
             class_id,
             JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY
@@ -261,7 +264,7 @@ impl TypedArray {
         }
     }
 
-    pub fn payload(&self) -> &TypedArrayPayload {
+    pub fn payload(&self) -> &TypedArrayPayload<'a> {
         self.0.payload().typed_array().unwrap()
     }
 
@@ -313,7 +316,7 @@ impl TypedArray {
     }
 
     /// get underlying array buffer object.
-    pub fn array_buffer(&self) -> &ArrayBuffer {
+    pub fn array_buffer(&self) -> &ArrayBuffer<'a> {
         self.payload().array_buffer()
     }
 
@@ -400,8 +403,8 @@ impl TypedArray {
     /// create a new TypedArray with content copied from `self` typed array.
     pub fn create_to_new(
         &self,
-        ctx: &JSContext,
-        new_target: &JSValue,
+        ctx: &JSContext<'a>,
+        new_target: &JSValue<'a>,
         class_id: ClassID,
     ) -> Result<Self, i32> {
         if self.is_detached() {
@@ -450,9 +453,9 @@ impl TypedArray {
     /// create an TypedArray with array buffer, offset and count.
     /// `count`: number of elements.
     fn create(
-        ctx: &JSContext,
-        new_target: &JSValue,
-        array_buffer: ArrayBuffer,
+        ctx: &JSContext<'a>,
+        new_target: &JSValue<'a>,
+        array_buffer: ArrayBuffer<'a>,
         offset: usize,
         count: usize,
         class_id: ClassID,
@@ -513,8 +516,8 @@ impl TypedArray {
     /// create an TypedArray with empty array buffer.
     /// `count`: number of elements
     pub fn with_capacity(
-        ctx: &JSContext,
-        new_target: &JSValue,
+        ctx: &JSContext<'a>,
+        new_target: &JSValue<'a>,
         count: usize,
         class_id: ClassID,
     ) -> Result<Self, i32> {
@@ -533,9 +536,9 @@ impl TypedArray {
     /// - ArrayBuffer, SharedArrayBuffer: create a TypedArray with array buffer;
     /// - An enumerable object: create a TypedArray with content from enumerated index property vals.
     pub(crate) fn create_from(
-        ctx: &JSContext,
-        new_target: &JSValue,
-        source: JSValue,
+        ctx: &JSContext<'a>,
+        new_target: &JSValue<'a>,
+        source: JSValue<'a>,
         offset: usize,
         length: usize,
         class_id: ClassID,
