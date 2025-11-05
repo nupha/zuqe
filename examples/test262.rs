@@ -83,7 +83,7 @@ fn js_string_codePointRange<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) ->
 }
 
 fn js_createRealm<'a>(ctx: &JSContext<'a>, _: CallContext<'_, 'a>) -> JSResult<'a> {
-    let ctx1 = ctx.rt_mut().create_context_ecma()?;
+    let ctx1 = ctx.rt().create_context_ecma()?;
     setup_ctx_test262_helpers(&ctx1)
 }
 
@@ -301,7 +301,7 @@ fn run_test_script(
         None
     };
 
-    while ctx.rt_mut().tick()? {
+    while ctx.rt().tick()? {
         std::thread::sleep(std::time::Duration::from_millis(1));
     }
 
@@ -493,7 +493,7 @@ fn run_test_file(
 
                 println!("TEST262 EXCEPTION: {:?}", exc);
                 let msg = if let JSValue::Object(o) = &exc {
-                    o.dump(ctx.rt());
+                    o.dump(&ctx.rt());
                     let msg = o.get_property(&ctx, &JS_ATOM_message).unwrap();
                     msg.inspect(&ctx).unwrap().to_string()
                 } else {

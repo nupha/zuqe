@@ -381,7 +381,7 @@ impl<'a> ArrayBuffer<'a> {
             if let ABufData::Raw(ptr, len, fin) = data0
                 && let Some(f) = fin
             {
-                f(ctx.rt(), abuf.opaque(), ptr.as_ptr(), len);
+                f(ctx.rt().deref(), abuf.opaque(), ptr.as_ptr(), len);
             }
 
             for w in abuf.array_list.borrow_mut().drain(..) {

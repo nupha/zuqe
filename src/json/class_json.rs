@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_OBJECT_DEF, JS_PROP_STRING_DEF,
     atom::{Atom, consts::JS_ATOM_empty_string},
@@ -26,7 +28,7 @@ fn internalize_json_property<'a>(
     name: &Atom,
     reviver: &JSValue<'a>,
 ) -> JSResult<'a> {
-    if js_check_stack_overflow(ctx.rt(), 0) {
+    if js_check_stack_overflow(ctx.rt().deref(), 0) {
         ctx.throw_stack_overflow();
         return Err(-1);
     }
@@ -48,7 +50,7 @@ fn internalize_json_property<'a>(
 
         for i in 0..len {
             let prop = if is_array {
-                Atom::from_i64(ctx.rt(), i as i64)?
+                Atom::from_i64(ctx.rt().deref(), i as i64)?
             } else {
                 unsafe { pks.get_unchecked(i as usize).atom.clone() }
             };

@@ -1,5 +1,6 @@
 use std::{
     cell::RefCell,
+    ops::Deref,
     pin::Pin,
     ptr::NonNull,
     rc::{Rc, Weak},
@@ -11,7 +12,7 @@ use crate::{
     function::BCFunction,
     gc::GCObjectHeader,
     object::{GCObjectWeakref, ObjectPayload},
-    runtime::{JSRuntime, js_check_stack_overflow},
+    runtime::{JSRuntime, RuntimeHandle, js_check_stack_overflow},
     stack_frame::StackFrame,
     value::JSValue,
 };
@@ -200,7 +201,7 @@ impl<'a> AsyncFuncState<'a> {
         }
 
         // register to gc
-        ctx.rt_mut().gc_obj_list.insert(sframe.id(), w.into());
+        ctx.rt().gc_obj_list.insert(sframe.id(), w.into());
 
         Ok(sframe)
     }
@@ -228,8 +229,8 @@ impl<'a> AsyncFuncState<'a> {
     }
 
     #[inline(always)]
-    pub fn rt(&self) -> &JSRuntime<'a> {
-        unsafe { self.0.borrow().header.rt_ptr().as_ref() }
+    pub fn rt(&self) -> RuntimeHandle<'a> {
+        self.0.borrow().header.rt()
     }
 
     #[inline(always)]
@@ -264,7 +265,7 @@ impl<'a> AsyncFuncState<'a> {
     pub fn resume(&self, ctx: &JSContext<'a>) -> JSResult<'a> {
         debug_assert!(!self.0.borrow().is_completed);
 
-        if js_check_stack_overflow(ctx.rt(), 0) {
+        if js_check_stack_overflow(ctx.rt().deref(), 0) {
             ctx.throw_stack_overflow();
             return Err(-1);
         }

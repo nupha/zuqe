@@ -1,4 +1,8 @@
-use std::{borrow::Cow, io::Write, ops::Deref};
+use std::{
+    borrow::Cow,
+    io::Write,
+    ops::{Deref, DerefMut},
+};
 
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CLASS_ERROR, JS_PROP_STRING_DEF,
@@ -50,7 +54,7 @@ pub const JS_THROW_ERROR_ITERATOR_THROW: u8 = 4;
 impl<'a> JSContext<'a> {
     /// Get current exception value ref
     pub fn exception(&self) -> &JSValue<'a> {
-        &self.rt().cur_exception
+        &self.rt().as_ref().cur_exception
     }
 
     /// get current exception value, and reset current_exception to null.
@@ -63,7 +67,7 @@ impl<'a> JSContext<'a> {
     /// Note: returned value should be freed by caller
     #[cold]
     fn set_exception(&self, obj: JSValue<'a>) -> JSValue<'a> {
-        std::mem::replace(&mut self.rt_mut().cur_exception, obj)
+        std::mem::replace(&mut self.rt().cur_exception, obj)
     }
 
     /// put `obj` to current_exception, free old exception.
@@ -200,10 +204,11 @@ impl<'a> JSContext<'a> {
 
     #[cold]
     pub fn throw_out_of_memory(&self) {
-        if !self.rt().in_out_of_memory {
-            self.rt_mut().in_out_of_memory = true;
+        let mut rt = self.rt();
+        if !rt.in_out_of_memory {
+            rt.in_out_of_memory = true;
             self.throw_internal_error("out of memory");
-            self.rt_mut().in_out_of_memory = false;
+            rt.in_out_of_memory = false;
         }
     }
 }

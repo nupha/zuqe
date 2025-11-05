@@ -1,8 +1,7 @@
 use std::{
     cell::{Cell, RefCell},
     fmt::Formatter,
-    ops::Deref,
-    ptr::NonNull,
+    ops::{Deref, DerefMut},
     rc::{Rc, Weak},
 };
 
@@ -18,7 +17,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     object::GCObjectWeakref,
-    runtime::JSRuntime,
+    runtime::RuntimeHandle,
     value::JSValue,
 };
 
@@ -147,7 +146,7 @@ impl ObjectFlags {
 }
 
 pub(crate) struct ObjectInner<'a> {
-    rt: NonNull<JSRuntime<'a>>,
+    rt: RuntimeHandle<'a>,
     pub(crate) gc_mark: Cell<bool>,
 
     /// object flags
@@ -205,7 +204,7 @@ impl<'a> ObjectInner<'a> {
         shape: Option<JSShape<'a>>,
         payload: ObjectPayload<'a>,
     ) -> Result<Self, ObjectPayload<'a>> {
-        ctx.rt_mut().gc_req = true;
+        ctx.rt().gc_req = true;
         //js_trigger_gc(ctx.rt_mut(), std::mem::size_of::<JSValue>());
 
         // alloc prop value slots, initializing with default value
@@ -307,7 +306,7 @@ impl<'a> ObjectInner<'a> {
         }
 
         let obj = Self {
-            rt: ctx.rt_ptr(),
+            rt: ctx.rt(),
             obj_flags: Cell::new(flags),
             shape: RefCell::new(shape),
             prop_values: RefCell::new(prop_values),
@@ -335,14 +334,9 @@ impl<'a> ObjectInner<'a> {
         self as *const Self as usize
     }
 
-    #[inline(always)]
-    pub const fn rt_ptr(&self) -> NonNull<JSRuntime<'a>> {
-        self.rt
-    }
-
     #[inline]
-    pub const fn rt(&self) -> &JSRuntime<'a> {
-        unsafe { self.rt.as_ref() }
+    pub const fn rt(&self) -> RuntimeHandle<'a> {
+        self.rt
     }
 
     #[inline(always)]
@@ -388,10 +382,10 @@ impl<'a> ObjectInner<'a> {
 
         // call class finalize.
         // object won't be accessed any more, so we can take payload out
-        let rt = unsafe { self.rt_ptr().as_mut() };
+        let mut rt = self.rt();
         if let Some(f) = rt.class_registry[self.class_id() as usize].finalize {
             let id = self.id();
-            f(rt, &self.payload, id);
+            f(rt.deref_mut(), &self.payload, id);
         }
 
         // untrack from gc
@@ -454,7 +448,7 @@ impl<'a> JSObject<'a> {
     }
 
     #[inline(always)]
-    pub fn rt(&self) -> &JSRuntime<'a> {
+    pub fn rt(&self) -> RuntimeHandle<'a> {
         self.0.rt()
     }
 
@@ -471,9 +465,8 @@ impl<'a> JSObject<'a> {
     }
 
     /// Get object class name atom.
-    #[inline]
     pub fn class_name(&self) -> &Atom {
-        &self.rt().class_registry[self.class_id() as usize].class_name
+        &self.0.rt.class_registry[self.class_id() as usize].class_name
     }
 
     /// Get object flags

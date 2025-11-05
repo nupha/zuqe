@@ -1,4 +1,4 @@
-use std::{ffi::c_void, ptr::NonNull};
+use std::{ffi::c_void, ops::Deref, ptr::NonNull};
 
 use crate::{
     USER_CLASS_ID_START,
@@ -106,7 +106,7 @@ impl<'a> JSContext<'a> {
     }
 
     pub fn use_class_name(&self, name: &str) -> Result<(), i32> {
-        let atom_name = Atom::from_str(self.rt(), name, AtomTypeHint::String)?;
+        let atom_name = Atom::from_str(self.rt().deref(), name, AtomTypeHint::String)?;
 
         if let Some(id) = self
             .rt()

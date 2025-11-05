@@ -166,7 +166,7 @@ impl JSParseState<'_> {
             }
         }
 
-        let atom = Atom::new(self.ctx.rt(), unsafe {
+        let atom = Atom::new(self.ctx.rt().deref(), unsafe {
             std::str::from_utf8_unchecked(&buf)
         })?;
 

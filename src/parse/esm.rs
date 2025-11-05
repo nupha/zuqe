@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 
 use crate::{
     atom::{Atom, AtomTypeHint, consts::*},
@@ -64,7 +64,7 @@ impl<'s> JSParseState<'s> {
         if self.token.val == TOK_STRING {
             // import "module-name"
             module_name = Atom::from_str(
-                self.ctx.rt_mut(),
+                self.ctx.rt().deref_mut(),
                 self.token.string().unwrap().to_utf8(false).as_ref(),
                 AtomTypeHint::String,
             )?;
@@ -128,7 +128,7 @@ impl<'s> JSParseState<'s> {
                                     self.token.atom().unwrap()
                                 }
                                 TOK_STRING => Atom::from_str(
-                                    self.ctx.rt_mut(),
+                                    self.ctx.rt().deref_mut(),
                                     &self.token.string().unwrap().to_utf8(false),
                                     AtomTypeHint::String,
                                 )?,
@@ -241,7 +241,7 @@ impl<'s> JSParseState<'s> {
                         TOK_STRING => {
                             let s = self.token.string().unwrap();
                             Atom::from_str(
-                                self.ctx.rt_mut(),
+                                self.ctx.rt().deref_mut(),
                                 &s.to_utf8(false),
                                 AtomTypeHint::String,
                             )?
@@ -266,7 +266,7 @@ impl<'s> JSParseState<'s> {
                             TOK_STRING => {
                                 let s = self.token.string().unwrap();
                                 Atom::from_str(
-                                    self.ctx.rt_mut(),
+                                    self.ctx.rt().deref_mut(),
                                     &s.to_utf8(false),
                                     AtomTypeHint::String,
                                 )?
@@ -328,7 +328,7 @@ impl<'s> JSParseState<'s> {
                         TOK_STRING => {
                             let s = self.token.string().unwrap();
                             Atom::from_str(
-                                self.ctx.rt_mut(),
+                                self.ctx.rt().deref_mut(),
                                 &s.to_utf8(false),
                                 AtomTypeHint::String,
                             )?

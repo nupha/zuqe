@@ -25,15 +25,26 @@ impl<'h> DerefMut for RuntimeHandle<'h> {
     }
 }
 
-impl<'h> RuntimeHandle<'h> {
-    #[inline(always)]
-    pub(super) const fn from(rt: &JSRuntime<'h>) -> Self {
-        Self(NonNull::from_ref(rt))
+impl<'h> From<&JSRuntime<'h>> for RuntimeHandle<'h> {
+    fn from(value: &JSRuntime<'h>) -> Self {
+        Self(NonNull::from_ref(value))
     }
+}
 
+impl<'h> RuntimeHandle<'h> {
     #[inline(always)]
     pub fn id(&self) -> usize {
         self.0.as_ptr() as usize
+    }
+
+    #[inline(always)]
+    pub(crate) const fn as_ptr(self) -> *mut JSRuntime<'h> {
+        self.0.as_ptr()
+    }
+
+    #[inline(always)]
+    pub const fn as_ref(self) -> &'h JSRuntime<'h> {
+        unsafe { self.0.as_ref() }
     }
 
     /// Manually drop a runtime by its handle.
@@ -64,7 +75,7 @@ impl RuntimeHandle<'static> {
 
 impl<'r> JSRuntime<'r> {
     /// get handle of runtime
-    pub const fn handle(&self) -> RuntimeHandle<'r> {
+    pub fn handle(&self) -> RuntimeHandle<'r> {
         RuntimeHandle::from(self)
     }
 }

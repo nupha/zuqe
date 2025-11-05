@@ -2,7 +2,7 @@ use std::{
     cell::Cell,
     cmp::Ordering,
     ffi::CStr,
-    ops::Range,
+    ops::{DerefMut, Range},
     rc::{Rc, Weak},
 };
 
@@ -434,7 +434,7 @@ impl<'a> JSContext<'a> {
         if sbuf.is_empty() {
             JS_ATOM_empty_string.force_string(self)
         } else {
-            Ok(JSString::new(self.rt_mut(), sbuf.into()))
+            Ok(JSString::new(self.rt().deref_mut(), sbuf.into()))
         }
     }
 
@@ -446,7 +446,7 @@ impl<'a> JSContext<'a> {
         if content.is_empty() {
             JS_ATOM_empty_string.force_string(self)
         } else {
-            Ok(JSString::new(self.rt_mut(), content))
+            Ok(JSString::new(self.rt().deref_mut(), content))
         }
     }
 
@@ -458,7 +458,7 @@ impl<'a> JSContext<'a> {
             self.throw_internal_error("string too long");
             Err(-1)
         } else {
-            JSString::from_utf8(self.rt_mut(), utf8_bytes).inspect_err(|_| {
+            JSString::from_utf8(self.rt().deref_mut(), utf8_bytes).inspect_err(|_| {
                 self.throw_out_of_memory();
             })
         }
@@ -472,7 +472,7 @@ impl<'a> JSContext<'a> {
             self.throw_internal_error("string too long");
             Err(-1)
         } else {
-            JSString::from_str(self.rt_mut(), str).inspect_err(|_| {
+            JSString::from_str(self.rt().deref_mut(), str).inspect_err(|_| {
                 self.throw_out_of_memory();
             })
         }

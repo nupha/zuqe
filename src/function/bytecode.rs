@@ -13,7 +13,7 @@ use crate::{
     eval::{JS_EVAL_TYPE_DIRECT, JS_EVAL_TYPE_INDIRECT},
     function::{JSFunctionDef, JSVarRef},
     object::GCObject,
-    runtime::JSRuntime,
+    runtime::RuntimeHandle,
     stack_frame::StackFrame,
     utils::{get_leb128, get_sleb128, read_from_ptr},
     value::JSValue,
@@ -99,7 +99,7 @@ impl Default for BytecodeAttrs {
 }
 
 pub struct BytecodeInner<'a> {
-    rt: NonNull<JSRuntime<'a>>,
+    rt: RuntimeHandle<'a>,
     gc_mark: Cell<bool>,
 
     pub func_name: Atom,
@@ -156,7 +156,7 @@ impl<'a> BytecodeInner<'a> {
         stack_size: u16,
     ) -> Self {
         Self {
-            rt: ctx.rt_ptr(),
+            rt: ctx.rt(),
             gc_mark: Cell::new(false),
 
             func_name: fd.func_name.clone(),
@@ -197,8 +197,8 @@ impl<'a> BytecodeInner<'a> {
     }
 
     #[inline(always)]
-    pub const fn rt(&self) -> &JSRuntime<'a> {
-        unsafe { self.rt.as_ref() }
+    pub const fn rt(&self) -> RuntimeHandle<'a> {
+        self.rt
     }
 
     /// get bytecode realm

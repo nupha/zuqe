@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
@@ -484,7 +486,7 @@ impl<'a> JSObject<'a> {
         self.set_property_index(ctx, idx as usize, val.clone(), JS_PROP_THROW)
             .unwrap_or_else(|| {
                 // slow path
-                let atom = Atom::from_i64(ctx.rt(), idx as i64)?;
+                let atom = Atom::from_i64(ctx.rt().deref(), idx as i64)?;
                 self.set_property_internal(ctx, &atom, val, Some(self), JS_PROP_THROW)
             })
     }
@@ -499,7 +501,7 @@ impl<'a> JSObject<'a> {
         if (0..=u32::MAX as i64).contains(&idx) {
             self.set_property_u32(ctx, idx as u32, val)
         } else {
-            let atom = Atom::from_i64(ctx.rt(), idx)?;
+            let atom = Atom::from_i64(ctx.rt().deref(), idx)?;
             self.set_property(ctx, &atom, val)
         }
     }
@@ -510,7 +512,7 @@ impl<'a> JSObject<'a> {
         prop: &str,
         val: JSValue<'a>,
     ) -> Result<bool, i32> {
-        let atom = Atom::new(ctx.rt(), prop)?;
+        let atom = Atom::new(ctx.rt().deref(), prop)?;
         self.set_property(ctx, &atom, val)
     }
 }
@@ -587,7 +589,7 @@ impl<'a> JSValue<'a> {
         prop: &str,
         val: Self,
     ) -> Result<bool, i32> {
-        let atom = Atom::new(ctx.rt(), prop)?;
+        let atom = Atom::new(ctx.rt().deref(), prop)?;
         self.set_property(ctx, &atom, val)
     }
 }

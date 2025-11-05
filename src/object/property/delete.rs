@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
     atom::{Atom, JS_ATOM_MAX_INT},
@@ -142,7 +144,7 @@ impl<'a> JSObject<'a> {
             // fast path for fast array
             self.delete_property(ctx, &Atom::new_small_int(idx as u32), flags)
         } else {
-            let atom = Atom::from_i64(ctx.rt(), idx)?;
+            let atom = Atom::from_i64(ctx.rt().deref(), idx)?;
             self.delete_property(ctx, &atom, flags)
         }
     }

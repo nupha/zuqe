@@ -1,4 +1,8 @@
-use std::{cell::RefCell, ops::DerefMut, rc::Rc};
+use std::{
+    cell::RefCell,
+    ops::{Deref, DerefMut},
+    rc::Rc,
+};
 
 use crate::{
     JS_CLASS_BYTECODE_FUNCTION,
@@ -165,7 +169,7 @@ impl<'a> ModuleDef<'a> {
         index: i32,
         stack_top: &mut Option<ModuleDef<'a>>,
     ) -> Result<i32, JSValue<'a>> {
-        if js_check_stack_overflow(ctx.rt(), 0) {
+        if js_check_stack_overflow(ctx.rt().deref(), 0) {
             ctx.throw_stack_overflow();
             return Err(ctx.take_exception());
         }
@@ -248,14 +252,14 @@ impl<'a> ModuleDef<'a> {
             self.0
                 .async_evaluation_timestamp
                 .set(ctx.rt().module_async_evaluation_next_timestamp);
-            ctx.rt_mut().module_async_evaluation_next_timestamp += 1;
+            ctx.rt().module_async_evaluation_next_timestamp += 1;
         } else if self.has_tla() {
             debug_assert!(!self.async_evaluation());
             self.set_async_evaluation(true);
             self.0
                 .async_evaluation_timestamp
                 .set(ctx.rt().module_async_evaluation_next_timestamp);
-            ctx.rt_mut().module_async_evaluation_next_timestamp += 1;
+            ctx.rt().module_async_evaluation_next_timestamp += 1;
             self.execute_async_module(ctx)
                 .map_err(|e| JSValue::Int(e))?;
         } else {
@@ -385,7 +389,7 @@ impl<'a> ModuleDef<'a> {
 
     /// async module execution reject callback
     fn execute_async_rejected<'b>(ctx: &JSContext<'b>, cc: CallContext<'_, 'b>) -> JSResult<'b> {
-        if js_check_stack_overflow(ctx.rt(), 0) {
+        if js_check_stack_overflow(ctx.rt().deref(), 0) {
             ctx.throw_stack_overflow();
             return Err(-1);
         }
@@ -493,7 +497,7 @@ fn gather_module_ancestors<'a>(
     module: &ModuleDef<'a>,
     exec_list: &mut Vec<ModuleDef<'a>>,
 ) -> Result<(), i32> {
-    if js_check_stack_overflow(ctx.rt(), 0) {
+    if js_check_stack_overflow(ctx.rt().deref(), 0) {
         ctx.throw_stack_overflow();
         return Err(-1);
     }

@@ -310,7 +310,7 @@ pub fn JS_CallInternal<'a>(
 
             frame.cur_sp_offset = -1;
 
-            let rt = caller_ctx.rt_mut();
+            let mut rt = caller_ctx.rt();
             frame.prev_frame = rt.cur_stack_frame;
             rt.cur_stack_frame = (frame.deref_mut() as *mut StackFrame).cast();
 

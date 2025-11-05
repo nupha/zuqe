@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use crate::{context::JSContext, error::JS_SetUncatchableError};
 
 /* must be large enough to have a negligible runtime cost and small
@@ -18,7 +20,7 @@ impl<'a> JSContext<'a> {
             let rt = self.rt();
 
             if let Some(cb) = rt.interrupt_handler
-                && cb(rt, rt.interrupt_opaque) != 0
+                && cb(rt.deref(), rt.interrupt_opaque) != 0
             {
                 // XXX: should set a specific flag to avoid catching
                 self.throw_internal_error("interrupted");

@@ -17,8 +17,7 @@ impl<'a> JSContext<'a> {
         payload: ObjectPayload<'a>,
     ) -> Result<JSObject<'a>, ObjectPayload<'a>> {
         let obj = JSObject(Rc::new(ObjectInner::new(self, Some(shape), payload)?));
-        self.rt_mut()
-            .gc_add_object(obj.id(), obj.downgrade().into());
+        self.rt().gc_add_object(obj.id(), obj.downgrade().into());
         Ok(obj)
     }
 

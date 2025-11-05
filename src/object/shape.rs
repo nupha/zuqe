@@ -1,7 +1,6 @@
 use std::{
     cell::RefCell,
     os::raw::c_void,
-    ptr::NonNull,
     rc::{Rc, Weak},
 };
 
@@ -12,7 +11,7 @@ use crate::{
     context::JSContext,
     gc::GCObjectHeader,
     object::{GCObject, GCObjectWeakref, JS_PROP_WRITABLE},
-    runtime::JSRuntime,
+    runtime::{JSRuntime, RuntimeHandle},
 };
 
 use super::{
@@ -91,7 +90,7 @@ impl<'a> JSShapeInner<'a> {
         }
 
         Ok(Self {
-            header: GCObjectHeader::new(ctx.rt_mut(), 1),
+            header: GCObjectHeader::new(ctx.rt(), 1),
             proto,
             prop_defs: props,
             has_small_array_index: false,
@@ -105,12 +104,13 @@ impl<'a> JSShapeInner<'a> {
         self as *const Self as usize
     }
 
-    pub fn rt_ptr(&self) -> NonNull<JSRuntime<'a>> {
-        self.header.rt_ptr()
+    #[inline(always)]
+    pub fn rt(&self) -> RuntimeHandle<'a> {
+        self.header.rt()
     }
 
     fn finalize(&mut self) {
-        let rt = unsafe { self.rt_ptr().as_mut() };
+        let mut rt = self.rt();
 
         // free prop key atoms
         self.prop_defs.clear();
@@ -162,8 +162,7 @@ impl<'a> JSShape<'a> {
             ctx, proto, prop_defs,
         )?)));
 
-        ctx.rt_mut()
-            .gc_add_object(shape.id(), shape.downgrade().into());
+        ctx.rt().gc_add_object(shape.id(), shape.downgrade().into());
 
         Ok(shape)
     }
@@ -209,8 +208,7 @@ impl<'a> JSShape<'a> {
         let sh = JSShapeInner::new(ctx, b.proto.clone(), props)?;
         let shape = Self(Rc::new(RefCell::new(sh)));
 
-        ctx.rt_mut()
-            .gc_add_object(shape.id(), shape.downgrade().into());
+        ctx.rt().gc_add_object(shape.id(), shape.downgrade().into());
 
         Ok(shape)
     }
@@ -273,7 +271,7 @@ impl<'a> JSShape<'a> {
         }
 
         let new_hash = if is_hashed {
-            ctx.rt_mut().unregister_shape(shape_id, old_hash);
+            ctx.rt().unregister_shape(shape_id, old_hash);
             shape_hasher_u32(shape_hasher_u32(old_hash, prop.id()), prop_flags)
         } else {
             0
@@ -288,7 +286,7 @@ impl<'a> JSShape<'a> {
 
         if is_hashed {
             self.0.borrow_mut().hash = new_hash;
-            ctx.rt_mut().register_shape(self).inspect_err(|_| {
+            ctx.rt().register_shape(self).inspect_err(|_| {
                 ctx.throw_out_of_memory();
             })?;
         }
@@ -488,7 +486,7 @@ impl<'a> ObjectInner<'a> {
                 true
             } else {
                 // exclusive: unregister
-                ctx.rt_mut().unregister_shape(shape_id, hash);
+                ctx.rt().unregister_shape(shape_id, hash);
                 false
             }
         } else {

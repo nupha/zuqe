@@ -1,7 +1,6 @@
 use std::{
     cell::{Cell, RefCell, UnsafeCell},
     ops::Deref,
-    ptr::NonNull,
     rc::{Rc, Weak},
 };
 
@@ -14,7 +13,7 @@ use crate::{
     module::{ExportEntry, ExportType, JSImportEntry, JSModuleStatus, ModuleDependency},
     object::{JS_PROP_C_W_E, JSObject, ObjectPayload},
     promise::Promise,
-    runtime::JSRuntime,
+    runtime::{JSRuntime, RuntimeHandle},
     stack_frame::StackFrame,
     value::JSValue,
 };
@@ -37,7 +36,7 @@ impl<'a, F> ModuleInitFunc<'a> for F where F: Fn(&JSContext<'a>, &ModuleDef<'a>)
 
 pub struct ModuleDefInner<'a> {
     /// TODO: rt seems no use
-    rt: NonNull<JSRuntime<'a>>,
+    rt: RuntimeHandle<'a>,
 
     gc_mark: Cell<bool>,
 
@@ -112,7 +111,7 @@ impl<'a> ModuleDefInner<'a> {
     /// 'name' is consumed
     fn new(ctx: &JSContext<'a>, name: Atom) -> Self {
         Self {
-            rt: ctx.rt_ptr(),
+            rt: ctx.rt(),
             gc_mark: Cell::new(false),
 
             module_name: name,
@@ -156,7 +155,7 @@ impl<'a> ModuleDefInner<'a> {
         name: &str,
         init_func: impl ModuleInitFunc<'a> + 'static,
     ) -> Result<Self, i32> {
-        let name = Atom::new(ctx.rt(), name)?;
+        let name = Atom::new(ctx.rt().deref(), name)?;
         let mut inner = ModuleDefInner::new(ctx, name);
         inner.init_func.replace(Box::new(init_func));
         Ok(inner)
@@ -282,7 +281,7 @@ impl<'a> ModuleDefInner<'a> {
                         } else {
                             // The other variables are imported from other modules.
                             // Add slot with a placeholder.
-                            var_refs.push(JSVarRef::new(ctx.rt_mut(), JSValue::UNDEFINED));
+                            var_refs.push(JSVarRef::new(ctx.rt(), JSValue::UNDEFINED));
                         }
                     }
                 }
@@ -538,7 +537,7 @@ pub fn js_create_module_var<'a>(
     is_lexical: bool,
 ) -> Result<JSVarRef<'a>, i32> {
     let var_ref = JSVarRef::new(
-        ctx.rt_mut(),
+        ctx.rt(),
         if is_lexical {
             JSValue::UNINITIALIZED
         } else {
@@ -546,7 +545,7 @@ pub fn js_create_module_var<'a>(
         },
     );
 
-    ctx.rt_mut()
+    ctx.rt()
         .gc_add_object(var_ref.id(), var_ref.downgrade().into());
     Ok(var_ref)
 }

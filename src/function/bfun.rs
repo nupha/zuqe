@@ -1,4 +1,4 @@
-use std::{cell::RefCell, ffi::c_void, pin::Pin};
+use std::{cell::RefCell, ffi::c_void, ops::Deref, pin::Pin};
 
 use smallvec::SmallVec;
 
@@ -370,7 +370,7 @@ impl<'a> BytecodeFunction<'a> {
         let sf = &mut sframe;
 
         // ensure stack has minimal free space.
-        if js_check_stack_overflow(caller_ctx.rt(), 32) {
+        if js_check_stack_overflow(caller_ctx.rt().deref(), 32) {
             caller_ctx.throw_stack_overflow();
             return JSValue::EXCEPTION;
         }
@@ -420,10 +420,8 @@ impl<'a> BytecodeFunction<'a> {
         sf.var_base_ptr = unsafe { sf.local_buf.as_mut_ptr().add(arg_copy_num as usize) };
         sf.var_count = bc.var_count;
 
-        sf.prev_frame = unsafe {
-            std::mem::transmute::<_, *mut Pin<StackFrame<'a>>>(caller_ctx.rt().cur_stack_frame)
-        };
-        caller_ctx.rt_mut().cur_stack_frame = (sf as *mut StackFrame).cast();
+        sf.prev_frame = caller_ctx.rt().cur_stack_frame;
+        caller_ctx.rt().cur_stack_frame = (sf as *mut StackFrame).cast();
 
         // to borrow short, clone home object
         let home_obj = isa.home_object.borrow().clone();

@@ -156,7 +156,7 @@ impl<'s> JSParseState<'s> {
             pattern.content().clone(),
             flags.content().clone(),
         )?;
-        self.ctx.rt_mut().regexp_precompiled.push(regexp);
+        self.ctx.rt().regexp_precompiled.push(regexp);
         let id = self.ctx.rt().regexp_precompiled.len() - 1;
 
         self.token.val = TOK_REGEXP;

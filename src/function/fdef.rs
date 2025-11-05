@@ -1,4 +1,7 @@
-use std::{ops::DerefMut, ptr::NonNull};
+use std::{
+    ops::{Deref, DerefMut},
+    ptr::NonNull,
+};
 
 use crate::{
     atom::{Atom, consts::*},
@@ -257,7 +260,7 @@ impl<'a> JSFunctionDef<'a> {
             line_number_last: 0,
             line_number_last_pc: 0,
 
-            filename: Atom::new(ctx.rt(), filename)?,
+            filename: Atom::new(ctx.rt().deref(), filename)?,
             line_num,
             pc2line: None,
             source: None,

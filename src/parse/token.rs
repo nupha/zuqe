@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use crate::{
     atom::{Atom, AtomRef, consts::*},
     context::JS_MODE_STRICT,
@@ -8,7 +10,6 @@ use crate::{
     },
     runtime::js_check_stack_overflow,
     string::{CP_LS, CP_PS, StringContent, UTF8_CHAR_LEN_MAX, char_is_space, unicode_from_utf8_v0},
-    value::JSValue,
 };
 
 use super::{
@@ -174,7 +175,7 @@ impl<'s> JSParseState<'s> {
     // which will soon use up stack space, and cause stack overflow.
     #[inline(never)]
     pub(super) fn next_token(&mut self) -> Result<i32, i32> {
-        if js_check_stack_overflow(self.ctx.rt(), 0) {
+        if js_check_stack_overflow(self.ctx.rt().deref(), 0) {
             self.throw_syntax_error("stack overflow");
             return Err(-1);
         }

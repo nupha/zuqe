@@ -1,4 +1,4 @@
-use std::ptr::NonNull;
+use std::{ops::Deref, ptr::NonNull};
 
 use crate::{
     atom::Atom,
@@ -142,7 +142,7 @@ impl<'a> NFuncPayload<'a> {
         args: &[JSValue<'b>],
         flags: i32,
     ) -> JSResult<'b> {
-        let rt = ctx.rt_mut();
+        let mut rt = ctx.rt();
 
         let (callback, arg_length, magic, realm) = if let ObjectPayload::C_FUNCTION(c) =
             unsafe { func_obj.as_object_unchecked().payload() }
@@ -153,7 +153,10 @@ impl<'a> NFuncPayload<'a> {
         };
 
         // better to always check stack overflow
-        if js_check_stack_overflow(rt, std::mem::size_of::<JSValue>() * arg_length as usize) {
+        if js_check_stack_overflow(
+            rt.deref(),
+            std::mem::size_of::<JSValue>() * arg_length as usize,
+        ) {
             ctx.throw_stack_overflow();
             return Err(-1);
         }
@@ -172,9 +175,8 @@ impl<'a> NFuncPayload<'a> {
         rt.cur_stack_frame = (sf as *mut StackFrame).cast();
 
         // NOTE: switch back to original frame when exit.
-        let mut rt_ptr = unsafe { NonNull::new_unchecked(rt) };
-        defer!(unsafe {
-            rt_ptr.as_mut().cur_stack_frame = orig_frame;
+        defer!({
+            rt.cur_stack_frame = orig_frame;
         });
 
         if args.len() < arg_length as usize {
@@ -421,7 +423,7 @@ impl<'a> JSContext<'a> {
         ));
 
         // define properties length and name on function.
-        let name_atom = Atom::new(self.rt(), name)?;
+        let name_atom = Atom::new(self.rt().deref(), name)?;
         js_function_set_properties(self, &func_obj, name_atom, length as i32);
 
         Ok(func_obj)

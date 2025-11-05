@@ -139,7 +139,7 @@ fn main() {
         let f = ctx
             .create_native_function(
                 NativeFunctionType::Func(|cx, _: CallContext| {
-                    let ctx1 = cx.rt_mut().create_context_ecma()?;
+                    let ctx1 = cx.rt().create_context_ecma()?;
                     let global = JSValue::Object(ctx1.global_obj());
                     Ok(global)
                 }),
@@ -218,7 +218,7 @@ fn main() {
             );
             if let JSValue::Object(o) = &v {
                 println!("    OBJECT DUMP");
-                o.dump(ctx.rt());
+                o.dump(&ctx.rt());
             }
 
             let promise = Promise::try_from(v).ok();
@@ -246,7 +246,7 @@ fn main() {
 
                         println!("!!! EXCEPTION {exc:?}: {:?}", exc.to_string(&ctx));
                         if let JSValue::Object(o) = exc {
-                            o.dump(ctx.rt());
+                            o.dump(&ctx.rt());
                         };
                         break;
                     }
@@ -259,7 +259,7 @@ fn main() {
 
             println!("!!! EXCEPTION {exc:?}: {:?}", exc.to_string(&ctx));
             if let JSValue::Object(o) = exc {
-                o.dump(ctx.rt());
+                o.dump(&ctx.rt());
             };
         }
     }

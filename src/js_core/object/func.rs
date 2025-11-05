@@ -335,9 +335,11 @@ pub fn js_object_getOwnPropertyDescriptors<'a>(
 
         let desc = js_object_getOwnPropertyDescriptor(
             ctx,
-            CallContext::new_simple(ctx, JSValue::UNDEFINED, unsafe {
-                std::mem::transmute([obj.clone().into(), atom_value].as_slice())
-            }),
+            CallContext::new_simple(
+                ctx,
+                JSValue::UNDEFINED,
+                [obj.clone().into(), atom_value].as_slice(),
+            ),
         )?;
 
         if !desc.is_undefined() {

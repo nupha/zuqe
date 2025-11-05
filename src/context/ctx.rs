@@ -2,7 +2,7 @@ use std::{
     cell::RefCell,
     collections::VecDeque,
     ffi::c_void,
-    ops::DerefMut,
+    ops::{Deref, DerefMut},
     pin::Pin,
     ptr::NonNull,
     rc::{Rc, Weak},
@@ -32,7 +32,7 @@ use crate::{
     },
     promise::Job,
     regexp::RegExpData,
-    runtime::JSRuntime,
+    runtime::{JSRuntime, RuntimeHandle},
     stack_frame::StackFrame,
     value::JSValue,
 };
@@ -42,8 +42,8 @@ use crate::{
 /// Represents a JavaScript execution environment with its own global object,
 /// stack, and execution state. Each context is associated with a runtime.
 pub struct JSContextInner<'a> {
-    /// pointer to runtime
-    pub rt: NonNull<JSRuntime<'a>>,
+    /// handle to runtime
+    pub rt: RuntimeHandle<'a>,
 
     pub flags: u8,
 
@@ -134,7 +134,7 @@ impl<'a> JSContextInner<'a> {
         };
 
         let c = Self {
-            rt: NonNull::from(rt),
+            rt: rt.handle(),
             flags: 0,
 
             binary_object_count: 0,
@@ -182,19 +182,10 @@ impl<'a> JSContextInner<'a> {
         self as *const Self as usize
     }
 
+    /// get runtime handle
     #[inline(always)]
-    pub const fn rt_ptr(&self) -> NonNull<JSRuntime<'a>> {
+    pub const fn rt(&self) -> RuntimeHandle<'a> {
         self.rt
-    }
-
-    #[inline(always)]
-    pub const fn rt(&self) -> &JSRuntime<'a> {
-        unsafe { self.rt.as_ref() }
-    }
-
-    #[inline(always)]
-    pub const fn rt_mut(&mut self) -> &mut JSRuntime<'a> {
-        unsafe { self.rt.as_mut() }
     }
 
     /// initialize random state
@@ -244,7 +235,7 @@ impl<'a> JSContextInner<'a> {
         crate::shape::JS_DumpShapes(ctx.rt);
 
         #[cfg(feature = "dump_objects")]
-        self.rt_mut().gc_dump_objects(1);
+        self.rt().gc_dump_objects(1);
 
         println!("[O.o][TODO] do gc when context dropped");
         // let rt = self.rt_mut();
@@ -289,23 +280,10 @@ impl<'a> JSContext<'a> {
         f(self.0.borrow_mut().deref_mut())
     }
 
-    /// Returns the runtime prt
-    #[inline]
-    pub fn rt_ptr(&self) -> NonNull<JSRuntime<'a>> {
-        self.0.borrow().rt_ptr()
-    }
-
     /// Returns the runtime reference
     #[inline(always)]
-    pub fn rt(&self) -> &JSRuntime<'a> {
-        unsafe { self.rt_ptr().as_ref() }
-    }
-
-    /// Returns the runtime mut reference
-    #[allow(clippy::mut_from_ref)]
-    #[inline(always)]
-    pub fn rt_mut(&self) -> &mut JSRuntime<'a> {
-        unsafe { self.rt_ptr().as_mut() }
+    pub fn rt(&self) -> RuntimeHandle<'a> {
+        self.0.borrow().rt
     }
 
     /// get global object

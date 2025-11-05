@@ -264,7 +264,7 @@ impl<'a> JSObject<'a> {
         val: JSValue<'a>,
         flags: u32,
     ) -> Result<bool, i32> {
-        let atom = Atom::new(ctx.rt(), prop)?;
+        let atom = Atom::new(ctx.rt().deref(), prop)?;
         self.define_property_value(ctx, &atom, val, flags)
     }
 
@@ -287,7 +287,7 @@ impl<'a> JSObject<'a> {
         val: JSValue<'a>,
         flags: u32,
     ) -> Result<bool, i32> {
-        let atom = Atom::from_i64(ctx.rt(), idx)?;
+        let atom = Atom::from_i64(ctx.rt().deref(), idx)?;
         self.define_property_value(ctx, &atom, val, flags)
     }
 
@@ -466,7 +466,7 @@ impl<'a> JSValue<'a> {
         val: JSValue<'a>,
         flags: u32,
     ) -> Result<bool, i32> {
-        let atom = Atom::new(ctx.rt(), prop)?;
+        let atom = Atom::new(ctx.rt().deref(), prop)?;
         self.define_property_value(ctx, &atom, val, flags)
     }
 
@@ -489,7 +489,7 @@ impl<'a> JSValue<'a> {
         val: JSValue<'a>,
         flags: u32,
     ) -> Result<bool, i32> {
-        let atom = Atom::from_i64(ctx.rt(), idx)?;
+        let atom = Atom::from_i64(ctx.rt().deref(), idx)?;
         self.define_property_value(ctx, &atom, val, flags)
     }
 

@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
     atom::{Atom, consts::JS_ATOM_length},
@@ -93,7 +95,7 @@ impl<'a> ObjectInner<'a> {
                 self.shape.borrow_mut().replace(sh0);
             } else {
                 // shape was unregistered
-                ctx.rt_mut().register_shape(&shape).unwrap();
+                ctx.rt().register_shape(&shape).unwrap();
                 self.shape.borrow_mut().replace(shape);
             }
             return Err(-1);
@@ -162,7 +164,7 @@ impl<'a> JSObject<'a> {
     }
 
     pub fn has_own_property_str(&self, ctx: &JSContext<'a>, prop: &str) -> Result<bool, i32> {
-        let atom = Atom::new(ctx.rt(), prop)?;
+        let atom = Atom::new(ctx.rt().deref(), prop)?;
         self.has_own_property(ctx, &atom)
     }
 

@@ -1,4 +1,4 @@
-use std::{borrow::Cow, ptr::NonNull};
+use std::{borrow::Cow, ops::Deref, ptr::NonNull};
 
 use crate::{
     atom::{Atom, AtomRef, consts::*},
@@ -188,7 +188,7 @@ impl<'a> JSContext<'a> {
             return Err(-1);
         }
 
-        Atom::new(self.rt(), str)
+        Atom::new(self.rt().deref(), str)
     }
 }
 

@@ -300,7 +300,7 @@ impl<'a> JSFunctionDef<'a> {
             bc.dump(ctx);
         }
 
-        ctx.rt_mut()
+        ctx.rt()
             .gc_add_object(bc.id(), GCObjectWeakref::Bytecode(bc.downgrade()));
 
         Ok(bc)

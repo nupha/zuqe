@@ -176,7 +176,7 @@ impl<'a> StackFrame<'a> {
         is_generator: bool,
     ) {
         debug_assert!(
-            std::ptr::eq(ctx.rt_mut().cur_stack_frame as *mut Self, self),
+            std::ptr::eq(ctx.rt().cur_stack_frame as *mut Self, self),
             "StackFrame::handle_exit() must be called on active stack frame"
         );
 
@@ -207,7 +207,7 @@ impl<'a> StackFrame<'a> {
         }
 
         // switch back to previous stack frame
-        ctx.rt_mut().cur_stack_frame = self.prev_frame;
+        ctx.rt().cur_stack_frame = self.prev_frame;
     }
 
     /// Cleans ups for stack frame

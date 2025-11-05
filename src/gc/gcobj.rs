@@ -1,6 +1,4 @@
-use std::ptr::NonNull;
-
-use crate::runtime::JSRuntime;
+use crate::runtime::RuntimeHandle;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -26,27 +24,22 @@ pub struct GCObjectHeader<'a> {
     pub ref_count: i32,
     bitfields: u8,
 
-    /// the runtime ptr
-    rt: NonNull<JSRuntime<'a>>,
+    /// the runtime
+    rt: RuntimeHandle<'a>,
 }
 
 impl<'a> GCObjectHeader<'a> {
-    pub(crate) const fn new(rt: &JSRuntime<'a>, ref_count: i32) -> Self {
+    pub(crate) const fn new(rt: RuntimeHandle<'a>, ref_count: i32) -> Self {
         Self {
             ref_count,
             bitfields: (GCObjectStatus::Tracking as u8) << 1,
-            rt: NonNull::from_ref(rt),
+            rt,
         }
     }
 
     #[inline(always)]
-    pub fn rt_ptr(&self) -> NonNull<JSRuntime<'a>> {
+    pub fn rt(&self) -> RuntimeHandle<'a> {
         self.rt
-    }
-
-    #[inline(always)]
-    pub fn rt(&self) -> &JSRuntime<'a> {
-        unsafe { self.rt.as_ref() }
     }
 
     #[inline(always)]

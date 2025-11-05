@@ -14,16 +14,11 @@ pub(crate) struct LocalResource {
     // DON'T CHANGE FIELD ORDER. THIS IS THE ORDER OF DROP
     //
     /// list of active runtime raw pointers
+    #[allow(clippy::vec_box)]
     pub(super) runtime_slot: RefCell<Vec<Box<JSRuntime<'static>>>>,
+
     /// atom registry
     pub(crate) atom_registry: Lazy<RefCell<AtomRegistry>>,
-}
-
-#[cfg(debug_assertions)]
-impl Drop for LocalResource {
-    fn drop(&mut self) {
-        println!("[O.o] LocalResource::drop()");
-    }
 }
 
 impl LocalResource {

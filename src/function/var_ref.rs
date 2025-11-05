@@ -8,7 +8,7 @@ use crate::{
     context::{JS_MODE_ASYNC, JSContext},
     gc::GCObjectHeader,
     object::GCObjectWeakref,
-    runtime::JSRuntime,
+    runtime::RuntimeHandle,
     stack_frame::StackFrame,
     value::JSValue,
 };
@@ -48,7 +48,7 @@ impl<'a> Drop for JSVarRefInner<'a> {
 
 impl<'a> JSVarRefInner<'a> {
     /// create a detached var ref
-    pub const fn new(rt: &mut JSRuntime<'a>, value: JSValue<'a>) -> Self {
+    pub const fn new(rt: RuntimeHandle<'a>, value: JSValue<'a>) -> Self {
         Self {
             header: GCObjectHeader::new(rt, 1),
             bitfield: 0,
@@ -58,7 +58,7 @@ impl<'a> JSVarRefInner<'a> {
 
     /// create a bind var ref
     pub const fn new_bind(
-        rt: &mut JSRuntime<'a>,
+        rt: RuntimeHandle<'a>,
         var_idx: u16,
         is_arg: bool,
         pvalue: NonNull<JSValue<'a>>,
@@ -181,7 +181,7 @@ pub struct JSVarRef<'a>(pub(crate) Rc<RefCell<JSVarRefInner<'a>>>);
 
 impl<'a> JSVarRef<'a> {
     /// create a detached var ref
-    pub fn new(rt: &mut JSRuntime<'a>, value: JSValue<'a>) -> Self {
+    pub fn new(rt: RuntimeHandle<'a>, value: JSValue<'a>) -> Self {
         let inner = JSVarRefInner::new(rt, value);
         let s = Rc::new(RefCell::new(inner));
         Self(s)
@@ -189,7 +189,7 @@ impl<'a> JSVarRef<'a> {
 
     /// create a bind var ref
     pub fn new_bind(
-        rt: &mut JSRuntime<'a>,
+        rt: RuntimeHandle<'a>,
         var_idx: u16,
         is_arg: bool,
         pvalue: NonNull<JSValue<'a>>,
@@ -302,7 +302,7 @@ impl<'a> StackFrame<'a> {
 
         // make new VarRef bind to target var_idx
         let vref = JSVarRef::new_bind(
-            ctx.rt_mut(),
+            ctx.rt(),
             var_idx,
             is_arg,
             unsafe {
@@ -331,8 +331,7 @@ impl<'a> StackFrame<'a> {
             },
         );
 
-        ctx.rt_mut()
-            .gc_add_object(vref.id(), vref.downgrade().into());
+        ctx.rt().gc_add_object(vref.id(), vref.downgrade().into());
         self.var_ref_list.push(vref.clone());
 
         Ok(vref)

@@ -1,4 +1,7 @@
-use std::{mem, ops::Deref};
+use std::{
+    mem,
+    ops::{Deref, DerefMut},
+};
 
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_SYMBOL, JS_PROP_STRING_DEF,
@@ -30,7 +33,7 @@ impl<'a> JSContext<'a> {
         let a = Atom::from_string_as_is(
             str.unwrap_or_else(|| {
                 debug_assert_eq!(atom_type, AtomTypeHint::Symbol);
-                JSString::new(self.rt_mut(), StringContent::ident())
+                JSString::new(self.rt().deref_mut(), StringContent::ident())
             }),
             atom_type,
         )?;
