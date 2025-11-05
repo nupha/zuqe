@@ -48,19 +48,22 @@ pub fn js_parseInt<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult
             Ok(JSValue::Float64(f64::NAN))
         } else {
             unsafe {
-                let v = js_atof(
+                let val = js_atof(
                     ctx,
                     str.as_ptr(),
                     std::ptr::null_mut(),
                     radix,
                     ATOD_INT_ONLY | ATOD_ACCEPT_PREFIX_AFTER_SIGN,
                 )
-                .unwrap_or_else(|_| {
-                    // fail to parse number, returns NaN
-                    ctx.take_exception();
-                    JSValue::Float64(f64::NAN)
-                });
-                Ok(v)
+                .map_or_else(
+                    |_| {
+                        // fail to parse number, returns NaN
+                        ctx.take_exception();
+                        JSValue::Float64(f64::NAN)
+                    },
+                    JSValue::from,
+                );
+                Ok(val)
             }
         }
     }
@@ -75,12 +78,15 @@ pub fn js_parseFloat<'a>(ctx: &JSContext<'a>, args: CallContext<'_, 'a>) -> JSRe
         Ok(JSValue::Float64(f64::NAN))
     } else {
         unsafe {
-            let v = js_atof(ctx, str.as_ptr(), std::ptr::null_mut(), 10, 0).unwrap_or_else(|_| {
-                // fail to parse number, returns NaN
-                ctx.take_exception();
-                JSValue::Float64(f64::NAN)
-            });
-            Ok(v)
+            let val = js_atof(ctx, str.as_ptr(), std::ptr::null_mut(), 10, 0).map_or_else(
+                |_| {
+                    // fail to parse number, returns NaN
+                    ctx.take_exception();
+                    JSValue::Float64(f64::NAN)
+                },
+                JSValue::from,
+            );
+            Ok(val)
         }
     }
 }

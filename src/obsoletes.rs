@@ -4989,3 +4989,8 @@ pub fn js_typed_array_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, id: usi
 pub unsafe fn typed_array_is_detached(p: *mut JSValue) -> bool {
     unreachable!("use TypedArray::is_detached() instead")
 }
+
+#[deprecated(note = "use JSParseState::json_next_token()")]
+fn json_next_token(s: &mut JSParseState) -> Result<(), i32> {
+    s.json_next_token()
+}

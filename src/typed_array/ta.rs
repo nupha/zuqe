@@ -185,10 +185,10 @@ impl<'a> TypedArray<'a> {
         Self::TYPED_ARRAY_SIZE_LOG2[(class_id - JS_CLASS_UINT8C_ARRAY) as usize]
     }
 
-    pub fn class_initialize(
-        ctx: &JSContext<'a>,
+    pub fn class_initialize<'b>(
+        ctx: &JSContext<'b>,
         class_id: ClassID,
-    ) -> Result<Option<JSObject<'a>>, i32> {
+    ) -> Result<Option<JSObject<'b>>, i32> {
         debug_assert!(matches!(
             class_id,
             JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY

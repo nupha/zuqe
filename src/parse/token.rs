@@ -4,7 +4,7 @@ use crate::{
     function::JSFunctionKindEnum,
     number::{
         ATOD_ACCEPT_BIN_OCT, ATOD_ACCEPT_LEGACY_OCTAL, ATOD_ACCEPT_SUFFIX, ATOD_ACCEPT_UNDERSCORES,
-        js_atof,
+        IntOrFloat, js_atof,
     },
     runtime::js_check_stack_overflow,
     string::{CP_LS, CP_PS, StringContent, UTF8_CHAR_LEN_MAX, char_is_space, unicode_from_utf8_v0},
@@ -83,7 +83,7 @@ pub enum TokenData {
         str: StringContent,
         sep: i32,
     },
-    Num(JSValue<'static>),
+    Num(IntOrFloat),
     Ident {
         atom: Atom,
         has_escape: bool,
@@ -144,9 +144,9 @@ impl TokenData {
     }
 
     /// if data is number type, returns number value.
-    pub fn number(&self) -> Option<JSValue<'static>> {
+    pub fn number(&self) -> Option<IntOrFloat> {
         if let Self::Num(n) = self {
-            Some(n.clone())
+            Some(*n)
         } else {
             None
         }

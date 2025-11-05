@@ -32,7 +32,10 @@ pub struct AsyncFromSyncIterator<'a>(JSObject<'a>);
 object_cast!(AsyncFromSyncIterator, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR);
 
 impl<'a> AsyncFromSyncIterator<'a> {
-    pub fn class_initialize(ctx: &JSContext<'a>, _: ClassID) -> Result<Option<JSObject<'a>>, i32> {
+    pub fn class_initialize<'b>(
+        ctx: &JSContext<'b>,
+        _: ClassID,
+    ) -> Result<Option<JSObject<'b>>, i32> {
         let proto = ctx.create_base_object_with_proto(Some(ctx.async_iterator_proto()?))?;
         proto.install_field_defs(ctx, &js_async_from_sync_iterator_proto_funcs)?;
         Ok(Some(proto))

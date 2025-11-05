@@ -1,7 +1,8 @@
 use smallvec::SmallVec;
 
 use crate::{
-    branch_hints::unlikely, context::JSContext, error::JSResult, string::strstart, value::JSValue,
+    branch_hints::unlikely, context::JSContext, error::JSResult, number::IntOrFloat,
+    string::strstart, value::JSValue,
 };
 
 pub const ATOD_INT_ONLY: i32 = 1 << 0;
@@ -103,13 +104,13 @@ pub(crate) fn parse_u32(str: &str) -> Option<u32> {
     Some(num)
 }
 
-pub unsafe fn js_atof<'a>(
-    ctx: &JSContext<'a>,
+pub unsafe fn js_atof(
+    ctx: &JSContext,
     str: *const u8,
     pp: *mut *const u8,
     mut radix: i32,
     flags: i32,
-) -> JSResult<'a> {
+) -> Result<IntOrFloat, i32> {
     let mut p = str;
     let mut p_start = p;
 
@@ -219,7 +220,7 @@ pub unsafe fn js_atof<'a>(
                     if !pp.is_null() {
                         *pp = p;
                     }
-                    return Ok(JSValue::from(d));
+                    return Ok(IntOrFloat::from(d));
                 }
             }
         }
@@ -323,21 +324,21 @@ pub unsafe fn js_atof<'a>(
                 // non-10 radix integer
                 if let Ok(i) = i64::from_str_radix(txt, radix as _) {
                     Ok(if unlikely(i == 0 && is_neg) {
-                        JSValue::Float64(-0.0) // -0
+                        IntOrFloat::Float64(-0.0) // -0
                     } else {
-                        JSValue::from(i)
+                        IntOrFloat::Int64(i)
                     })
                 } else if !is_neg && let Ok(u) = u64::from_str_radix(txt, radix as _) {
-                    Ok(JSValue::from(u as f64))
+                    Ok(IntOrFloat::from(u as f64))
                 } else if let Ok(i) = i128::from_str_radix(txt, radix as _) {
-                    Ok(JSValue::from(i as f64))
+                    Ok(IntOrFloat::Float64(i as f64))
                 } else {
                     fail!();
                 }
             } else {
                 // parse float64
                 if let Ok(f) = txt.parse::<f64>() {
-                    Ok(JSValue::from(f))
+                    Ok(IntOrFloat::from(f))
                 } else {
                     fail!();
                 }

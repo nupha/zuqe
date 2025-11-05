@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_OBJECT_DEF, JS_PROP_STRING_DEF,
     atom::{Atom, consts::JS_ATOM_empty_string},
@@ -74,13 +72,8 @@ fn js_json_parse<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'
     if cc.length() > 1 && cc.arg(1).is_function() {
         let reviver = cc.arg(1);
         let root: JSValue = ctx.create_base_object()?.into();
-        root.define_property_value(
-            ctx,
-            JS_ATOM_empty_string.deref(),
-            obj.clone(),
-            JS_PROP_C_W_E,
-        )?;
-        obj = internalize_json_property(ctx, &root, JS_ATOM_empty_string.deref(), reviver)?;
+        root.define_property_value(ctx, &JS_ATOM_empty_string, obj.clone(), JS_PROP_C_W_E)?;
+        obj = internalize_json_property(ctx, &root, &JS_ATOM_empty_string, reviver)?;
     }
 
     Ok(obj)

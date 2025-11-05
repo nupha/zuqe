@@ -5,6 +5,7 @@ use crate::{
     branch_hints::unlikely,
     bytecode::{OpCode, OpCodeTemp, SpecialObject, opcodes},
     function::{FuncCallType, JSFunctionKindEnum},
+    number::IntOrFloat,
     value::JSValue,
 };
 
@@ -229,12 +230,14 @@ impl<'s> JSParseState<'s> {
 
         match self.token.val {
             TOK_NUMBER => {
-                let val = self.token.data.number().unwrap();
-                if let JSValue::Int(i) = val {
-                    self.emit_op(OpCode::PUSH_I32);
-                    self.emit_u32(i as u32);
-                } else {
-                    self.emit_push_const(val, false)?;
+                match self.token.data.number().unwrap() {
+                    IntOrFloat::Int64(i) if (i32::MIN as i64..=i32::MAX as i64).contains(&i) => {
+                        self.emit_op(OpCode::PUSH_I32);
+                        self.emit_u32(i as u32);
+                    }
+                    n => {
+                        self.emit_push_const(JSValue::from(n), false)?;
+                    }
                 }
                 self.next_token()?;
             }

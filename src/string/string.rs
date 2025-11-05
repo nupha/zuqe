@@ -391,7 +391,7 @@ impl<'a> JSString<'a> {
                     // not a valid number.
                     JSValue::Float64(f64::NAN)
                 } else {
-                    num
+                    JSValue::from(num)
                 }
             } else {
                 let _ = ctx.take_exception();

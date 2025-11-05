@@ -84,10 +84,10 @@ pub struct DataView<'a>(JSObject<'a>);
 object_cast!(DataView, JS_CLASS_DATAVIEW);
 
 impl<'a> DataView<'a> {
-    pub fn class_initialize(
-        ctx: &JSContext<'a>,
+    pub fn class_initialize<'b>(
+        ctx: &JSContext<'b>,
         class_id: ClassID,
-    ) -> Result<Option<JSObject<'a>>, i32> {
+    ) -> Result<Option<JSObject<'b>>, i32> {
         debug_assert_eq!(class_id, JS_CLASS_DATAVIEW);
 
         let dv_obj = ctx.create_base_object()?;

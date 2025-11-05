@@ -26,7 +26,7 @@ object_cast!(BoundFunction, JS_CLASS_BOUND_FUNCTION);
 impl<'a> BoundFunction<'a> {
     pub const fn class_finalizer(_rt: &mut JSRuntime, _isa: &ObjectPayload, _id: usize) {}
 
-    pub fn class_mark(val: JSValue<'a>) {
+    pub fn class_mark(val: JSValue) {
         unsafe {
             if let ObjectPayload::BOUND_FUNCTION(bf) = val.as_object_unchecked().payload() {
                 val.gc_mark();

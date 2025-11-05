@@ -18,6 +18,7 @@ use crate::{
             TOK_ELLIPSIS, TOK_IDENT, TOK_NUMBER, TOK_PRIVATE_NAME, TOK_STRING,
         },
     },
+    value::JSValue,
 };
 
 use super::JSParseState;
@@ -211,7 +212,9 @@ impl<'s> JSParseState<'s> {
                     self.next_token()?;
                 }
                 TOK_NUMBER => {
-                    name.replace(self.token.data.number().unwrap().to_atom(&self.ctx)?);
+                    name.replace(
+                        JSValue::from(self.token.data.number().unwrap()).to_atom(&self.ctx)?,
+                    );
                     self.next_token()?;
                 }
                 // '['

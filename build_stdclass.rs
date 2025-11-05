@@ -90,7 +90,7 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|
         PayloadKey::BoundFunction,
         "Box<crate::function::BoundFuncObjPayload<'a>>",
     );
-    m.insert(PayloadKey::RegExp, "Box<crate::regexp::RegExpData<'a>>");
+    m.insert(PayloadKey::RegExp, "Box<crate::regexp::RegExpData>");
     m.insert(
         PayloadKey::ForInIterator,
         "std::cell::RefCell<Box<crate::iterator::ForInIterPayload<'a>>>",

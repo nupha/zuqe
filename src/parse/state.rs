@@ -1,6 +1,9 @@
 use std::ptr::NonNull;
 
-use crate::{context::JSContext, function::JSFunctionDef, parse::token::TokenData, value::JSValue};
+use crate::{
+    context::JSContext, function::JSFunctionDef, number::IntOrFloat, parse::token::TokenData,
+    value::JSValue,
+};
 
 use super::token::Token;
 
@@ -96,7 +99,7 @@ impl<'s> JSParseState<'s> {
                 val: ' ' as i32,
                 line_num: 1,
                 ptr: std::ptr::null(),
-                data: TokenData::Num(JSValue::Int(0)),
+                data: TokenData::Num(IntOrFloat::Int64(0)),
             },
 
             last_ptr: std::ptr::null(),
