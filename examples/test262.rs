@@ -19,7 +19,7 @@ use zhuque::{
     module::{JS_SetModuleLoaderFunc, ModuleDef},
     object::JS_PROP_C_W_E,
     promise::{Promise, PromiseState},
-    runtime::JSRuntime,
+    runtime::{JSRuntime, RuntimeHandle},
     value::JSValue,
 };
 
@@ -554,6 +554,10 @@ fn run_test_file(
             }
         }
     }
+
+    // drop ctx and runtime
+    drop(ctx);
+    RuntimeHandle::free(rt);
 }
 
 #[derive(Debug, Deserialize, Default)]

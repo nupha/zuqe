@@ -58,12 +58,17 @@ impl<'h> RuntimeHandle<'h> {
     pub fn free(handle: Self) {
         let this_id = handle.id();
 
-        let rt = LocalResource::with_runtimes_mut(|slot| {
-            slot.iter()
-                .position(|r| r.id() == this_id)
-                .map(|i| slot.swap_remove(i))
+        let _rt = LocalResource::with_runtimes_mut(|slot| {
+            slot.iter().position(|r| r.id() == this_id).map(|i| {
+                println!("[O.o] drop idx={i}");
+                slot.swap_remove(i)
+            })
         });
-        drop(rt);
+
+        #[cfg(debug_assertions)]
+        if let Some(r) = _rt.as_ref() {
+            debug_assert_eq!(handle.id(), r.id());
+        }
     }
 }
 

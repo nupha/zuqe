@@ -14,7 +14,7 @@ use zhuque::{
     object::JS_PROP_C_W_E,
     parse::JSParseState,
     promise::Promise,
-    runtime::JSRuntime,
+    runtime::{JSRuntime, RuntimeHandle},
     value::JSValue,
 };
 
@@ -265,6 +265,10 @@ fn main() {
     }
 
     println!("*** run use time: {} ms", tm.elapsed().as_millis());
+
+    // drop ctx and runtime
+    drop(ctx);
+    RuntimeHandle::free(rt);
 }
 
 fn js_module_loader<'a>(

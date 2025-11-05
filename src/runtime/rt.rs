@@ -104,11 +104,6 @@ pub struct JSRuntime<'a> {
     pub(crate) rt_info: *const c_char,
 }
 
-// thread_local! {
-//     /// List of living runtime raw pointers
-//     pub(super) static RUNTIME_LIST: RefCell<Vec<*mut JSRuntime<'static>>> = RefCell::new(Vec::with_capacity(1));
-// }
-
 impl<'a> Drop for JSRuntime<'a> {
     fn drop(&mut self) {
         self.finalize();
