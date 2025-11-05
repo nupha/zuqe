@@ -7,7 +7,7 @@ use zhuque::{
     value::JSValue,
 };
 
-fn std_exit(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn std_exit<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     println!("*** exit called");
     Ok(JSValue::UNDEFINED)
 }

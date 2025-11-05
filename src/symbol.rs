@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use std::{mem, ops::Deref};
 
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_SYMBOL, JS_PROP_STRING_DEF,
@@ -36,14 +36,18 @@ impl<'a> JSContext<'a> {
         )?;
 
         let ss = a.description();
-        Ok(JSValue::Symbol(ss))
+        // SAFETY: Atom descriptions have 'static lifetime and are safe to transmute
+        let ss_with_lifetime: JSString<'a> = unsafe { mem::transmute(ss) };
+        Ok(JSValue::Symbol(ss_with_lifetime))
     }
 
     /// `atom` must be a non-numeric string atom
     pub fn create_symbol_from_atom(&self, atom: &Atom, atom_type: AtomTypeHint) -> JSResult<'a> {
         debug_assert!(!atom.is_small_int());
         let s = atom.description();
-        self.create_symbol(Some(s), atom_type)
+        // SAFETY: Atom descriptions have 'static lifetime and are safe to transmute
+        let s_with_lifetime: JSString<'a> = unsafe { std::mem::transmute(s) };
+        self.create_symbol(Some(s_with_lifetime), atom_type)
     }
 }
 

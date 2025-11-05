@@ -99,7 +99,7 @@ impl Atom {
 
     /// get atom description. returns None if atom does not exist.
     #[inline(always)]
-    pub(crate) fn description<'a>(&self) -> AtomDesc<'a> {
+    pub(crate) fn description(&self) -> AtomDesc {
         AtomRegistry::get_desc(self.0).unwrap()
     }
 
@@ -169,13 +169,17 @@ impl Atom {
         }
 
         let d = self.description();
-        let content = d.content();
+        let desc: JSString<'_> = unsafe {
+            // SAFETY: Atom descriptions have 'static lifetime and are safe to transmute
+            std::mem::transmute(d)
+        };
 
+        let content = desc.content();
         if content.is_empty() || content.is_ident() {
             return Ok(None);
         }
 
-        if let AtomHintAndId::String(_) = d.atom_info().unwrap() {
+        if let AtomHintAndId::String(_) = desc.atom_info().unwrap() {
             let buf_len = content.len();
 
             // check for: -0, Infinity, -Infinity
@@ -224,11 +228,11 @@ impl Atom {
             // XXX: bignum: would be better to only accept integer to avoid
             // relying on current floating point precision
             // this is ECMA CanonicalNumericIndexString primitive
-            let num = d.to_number(ctx);
+            let num = desc.to_number(ctx);
 
             // test num as string is same to original value
             let str = num.to_string(ctx)?;
-            if d.content().eq(str.content()) {
+            if content.eq(str.content()) {
                 match num {
                     JSValue::Int(i) => Ok(Some(IntOrFloat::Int64(i as _))),
                     JSValue::Float64(d) => Ok(Some(IntOrFloat::Float64(d))),
@@ -252,7 +256,11 @@ impl Atom {
             ctx.create_string_from_utf8(format!("{n}",).into_bytes())
                 .map(JSValue::String)
         } else {
-            let d = self.description();
+            let d = unsafe {
+                // SAFETY: transmute 'static to 'a is safe
+                std::mem::transmute::<_, JSString<'a>>(self.description())
+            };
+
             match d.atom_info().unwrap() {
                 AtomHintAndId::String(_) | AtomHintAndId::Private(_) => Ok(JSValue::String(d)),
                 AtomHintAndId::Symbol(_) | AtomHintAndId::GlobalSymbol(_) => Ok(JSValue::Symbol(d)),

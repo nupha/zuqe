@@ -17,7 +17,7 @@ pub struct PointData {
     pub y: i32,
 }
 
-fn point_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn point_constructor<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let class_id = cc.magic() as ClassID;
 
     let x = cc.arg(0).to_i32(ctx)?;
@@ -28,7 +28,7 @@ fn point_constructor(ctx: &JSContext, cc: CallContext) -> JSResult {
     Ok(obj.into())
 }
 
-fn point_getset(_: &JSContext, cc: CallContext) -> JSResult {
+fn point_getset<'a>(_: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     if let Some(p) = cc.this().opaque_ref::<PointData>() {
         match cc.magic() {
             0 => Ok(p.x.into()),

@@ -43,5 +43,6 @@ pub mod value;
 // pub mod obsoletes;
 
 pub(crate) mod branch_hints;
+pub(crate) mod resource;
 
 include!(concat!(env!("OUT_DIR"), "/std_class_def.rs"));

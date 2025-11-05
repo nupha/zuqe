@@ -20,7 +20,7 @@ use zhuque::{
 
 use crate::{class_point::register_class_point, mod_std::init_mod_std};
 
-fn js_print(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_print<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let level = cc.magic();
     let inspect = level == 100;
 
@@ -73,7 +73,7 @@ fn main() {
     let tm0 = Instant::now();
     let mut rt = JSRuntime::new(JS_DEFAULT_MALLOC_FUNCTIONS, std::ptr::null_mut()).unwrap();
 
-    JS_SetModuleLoaderFunc(rt.as_mut(), None, js_module_loader, std::ptr::null_mut());
+    JS_SetModuleLoaderFunc(&mut rt, None, js_module_loader, std::ptr::null_mut());
 
     // register user's native classes
     let class_id_point = register_class_point(&mut rt).unwrap();
@@ -267,11 +267,11 @@ fn main() {
     println!("*** run use time: {} ms", tm.elapsed().as_millis());
 }
 
-fn js_module_loader(
-    ctx: &JSContext,
+fn js_module_loader<'a>(
+    ctx: &JSContext<'a>,
     module_name: &str,
     _: *mut std::ffi::c_void,
-) -> Result<ModuleDef, i32> {
+) -> Result<ModuleDef<'a>, i32> {
     match std::fs::read(module_name) {
         Ok(buf) => {
             let md = ModuleDef::compile(ctx, &buf, module_name, false)?;
@@ -284,9 +284,9 @@ fn js_module_loader(
     }
 }
 
-pub fn js_module_set_import_meta(
-    ctx: &JSContext,
-    md: &ModuleDef,
+pub fn js_module_set_import_meta<'a>(
+    ctx: &JSContext<'a>,
+    md: &ModuleDef<'a>,
     use_realpath: i32,
     is_main: bool,
 ) -> i32 {

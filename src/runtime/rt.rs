@@ -1,9 +1,7 @@
 use std::{
-    cell::UnsafeCell,
     collections::{HashMap, VecDeque},
     ffi::{c_char, c_void},
     pin::Pin,
-    ptr::NonNull,
     rc::Rc,
 };
 
@@ -27,6 +25,8 @@ use crate::{
     promise::{JSHostPromiseRejectionTracker, Job, PromiseResolveFunc},
     proxy::{Proxy, js_proxy_exotic_methods},
     regexp::RegExpData,
+    resource::{LOCAL_RESOURCE, LocalResource},
+    runtime::handle::RuntimeHandle,
     stack_frame::StackFrame,
     string::js_string_exotic_methods,
     utils::js_get_stack_pointer,
@@ -104,32 +104,32 @@ pub struct JSRuntime<'a> {
     pub(crate) rt_info: *const c_char,
 }
 
-thread_local! {
-    /// List of living runtime raw pointers
-    static RUNTIME_LIST: UnsafeCell<Vec<NonNull<JSRuntime<'static>>>> = UnsafeCell::new(Vec::with_capacity(1));
-}
+// thread_local! {
+//     /// List of living runtime raw pointers
+//     pub(super) static RUNTIME_LIST: RefCell<Vec<*mut JSRuntime<'static>>> = RefCell::new(Vec::with_capacity(1));
+// }
 
 impl<'a> Drop for JSRuntime<'a> {
     fn drop(&mut self) {
         self.finalize();
 
-        // // unregister from list
-        // let live_rt = RUNTIME_LIST.with(|list| {
-        //     let list = unsafe { &mut *list.get() };
-        //     let ptr = self as *const Self;
+        let this = self.id();
 
-        //     if let Some(i) = list.iter().position(|p| std::ptr::eq(p.as_ptr(), ptr)) {
-        //         list.swap_remove(i);
-        //         list.len()
-        //     } else {
-        //         unreachable!()
-        //     }
-        // });
-
-        // if live_rt == 0 {
-        //     // no runtime alive, clear all atoms
-        //     AtomRegistry::clear();
-        // }
+        // unregister rt
+        if let Ok(has_live) = LocalResource::try_with_runtimes_mut(|slot| {
+            if let Some(i) = slot.iter().position(|x| x.id() == this) {
+                slot.swap_remove(i);
+            }
+            !slot.is_empty()
+        }) {
+            if !has_live {
+                // no runtime alive, clear all user atoms.
+                // SAFETY: use try_with_atom to avoid corrupt in case thread local is destroyed when runtime drop is calling.
+                let _ = LocalResource::try_with_atoms_mut(|reg| {
+                    reg.clear_user_atoms();
+                });
+            }
+        }
     }
 }
 
@@ -250,26 +250,24 @@ impl<'a> JSRuntime<'a> {
         Ok(rt)
     }
 
-    pub fn new(mf: JSMallocFunctions, opaque: *mut c_void) -> Result<Box<Self>, i32> {
-        let rt = Self::new_internal(mf, opaque)?;
+    pub fn new(mf: JSMallocFunctions, opaque: *mut c_void) -> Result<RuntimeHandle<'static>, i32> {
+        let rt: Box<JSRuntime<'static>> =
+            unsafe { std::mem::transmute(Self::new_internal(mf, opaque)?) };
 
-        // // register runtime
-        // RUNTIME_LIST.with(|list| unsafe {
-        //     (&mut *list.get()).push(NonNull::from(rt.as_ref()));
-        // });
+        let h = rt.handle();
 
-        Ok(rt)
+        // register runtime
+        LocalResource::with_runtimes_mut(|slot| {
+            slot.push(rt);
+        });
+
+        Ok(h)
     }
 
-    // /// run closure with any runtime
-    // pub(crate) fn with_any<R>(f: impl FnOnce(&Self) -> R) -> Option<R> {
-    //     RUNTIME_LIST.with(|list| unsafe { (&*list.get()).first().map(|p| p.as_ref()).map(f) })
-    // }
-
-    // /// run closure with any runtime
-    // pub(crate) fn with_any_mut<R>(f: impl FnOnce(&mut Self) -> R) -> Option<R> {
-    //     RUNTIME_LIST.with(|list| unsafe { (&mut *list.get()).first_mut().map(|r| f(r.as_mut())) })
-    // }
+    #[inline(always)]
+    pub fn id(&self) -> usize {
+        self as *const Self as usize
+    }
 
     fn finalize(&mut self) {
         self.job_list.clear();
@@ -427,7 +425,7 @@ impl<'a> JSRuntime<'a> {
         //     }
         // }
 
-        // free atoms under rt
+        // free atoms under this runtime
         AtomRegistry::purge_for_rt(self);
 
         #[cfg(debug_assertions)]

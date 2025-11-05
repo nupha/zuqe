@@ -3,6 +3,7 @@
 use std::{
     collections::HashSet,
     io::{Read, Write},
+    ops::DerefMut,
     path::{Path, PathBuf},
     sync::atomic::{AtomicI32, Ordering},
 };
@@ -25,7 +26,7 @@ use zhuque::{
 /// counter of "Test262:AsyncTestComplete" messages
 static ASYNC_DONE: AtomicI32 = AtomicI32::new(0);
 
-fn js_print(ctx: &JSContext, args: CallContext) -> JSResult {
+fn js_print<'a>(ctx: &JSContext<'a>, args: CallContext<'_, 'a>) -> JSResult<'a> {
     for i in 0..args.length() {
         if i > 0 {
             print!(" ");
@@ -44,19 +45,19 @@ fn js_print(ctx: &JSContext, args: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
-fn js_detachArrayBuffer(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_detachArrayBuffer<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     if let Some(ab) = cc.arg(0).as_object_ArrayBuffer() {
         ab.detatch(ctx);
     }
     Ok(JSValue::UNDEFINED)
 }
 
-fn js_evalScript(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_evalScript<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let script = cc.arg(0).inspect(ctx)?;
     ctx.eval(script.as_bytes(), "<eval>", JS_EVAL_TYPE_GLOBAL)
 }
 
-fn js_string_codePointRange(ctx: &JSContext, cc: CallContext) -> JSResult {
+fn js_string_codePointRange<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
     let mut start = cc.arg(0).to_i32(ctx)? as u32;
     let end = std::cmp::min(cc.arg(1).to_i32(ctx)? as u32, 0x10ffff + 1);
     if start > end {
@@ -81,12 +82,12 @@ fn js_string_codePointRange(ctx: &JSContext, cc: CallContext) -> JSResult {
     ctx.create_string_from_utf8(cc).map(JSValue::String)
 }
 
-fn js_createRealm(ctx: &JSContext, _: CallContext) -> JSResult {
+fn js_createRealm<'a>(ctx: &JSContext<'a>, _: CallContext<'_, 'a>) -> JSResult<'a> {
     let ctx1 = ctx.rt_mut().create_context_ecma()?;
     setup_ctx_test262_helpers(&ctx1)
 }
 
-fn setup_ctx_test262_helpers(ctx: &JSContext) -> Result<JSValue, i32> {
+fn setup_ctx_test262_helpers<'a>(ctx: &JSContext<'a>) -> Result<JSValue<'a>, i32> {
     let global = JSValue::Object(ctx.global_obj());
 
     {
@@ -145,11 +146,11 @@ fn setup_ctx_test262_helpers(ctx: &JSContext) -> Result<JSValue, i32> {
     Ok(obj262.into())
 }
 
-pub fn js_module_loader(
-    ctx: &JSContext,
+pub fn js_module_loader<'a>(
+    ctx: &JSContext<'a>,
     module_name: &str,
     opaque: *mut std::ffi::c_void,
-) -> Result<ModuleDef, i32> {
+) -> Result<ModuleDef<'a>, i32> {
     match std::fs::read(module_name) {
         Ok(buf) => {
             // make abs url
@@ -178,9 +179,9 @@ pub fn js_module_loader(
     }
 }
 
-unsafe fn js_module_set_import_meta(
-    ctx: &JSContext,
-    func_val: &JSValue,
+unsafe fn js_module_set_import_meta<'a>(
+    ctx: &JSContext<'a>,
+    func_val: &JSValue<'a>,
     use_realpath: i32,
     is_main: bool,
 ) -> i32 {
@@ -331,9 +332,9 @@ fn run_test_script(
     Ok(())
 }
 
-fn dump_error(
-    ctx: &JSContext,
-    err_val: &JSValue,
+fn dump_error<'a>(
+    ctx: &JSContext<'a>,
+    err_val: &JSValue<'a>,
     msg: &str,
     strict: bool,
     is_module: bool,
@@ -405,7 +406,7 @@ fn run_test_file(
 
     // make runtime & context
     let mut rt = JSRuntime::new(JS_DEFAULT_MALLOC_FUNCTIONS, std::ptr::null_mut()).unwrap();
-    JS_SetModuleLoaderFunc(rt.as_mut(), None, js_module_loader, std::ptr::null_mut());
+    JS_SetModuleLoaderFunc(rt.deref_mut(), None, js_module_loader, std::ptr::null_mut());
 
     let ctx = rt.create_context_ecma().unwrap();
     setup_ctx_test262_helpers(&ctx).unwrap();

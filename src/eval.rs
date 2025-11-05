@@ -225,8 +225,8 @@ impl<'c> JSContext<'c> {
     pub fn eval_this(
         &self,
         this_obj: JSValue<'c>,
-        source: &'c [u8],
-        filename: &'c str,
+        source: &[u8],
+        filename: &str,
         flags: u32,
     ) -> JSResult<'c> {
         debug_assert!(matches!(flags & JS_EVAL_TYPE_MASK, JS_EVAL_TYPE_GLOBAL));
@@ -234,7 +234,7 @@ impl<'c> JSContext<'c> {
     }
 
     /// eval script with global as `this` binding.
-    pub fn eval(&self, source: &'c [u8], filename: &'c str, eval_flags: u32) -> JSResult<'c> {
+    pub fn eval(&self, source: &[u8], filename: &str, eval_flags: u32) -> JSResult<'c> {
         let global = self.0.borrow().global_obj.clone();
         self.eval_this(global, source, filename, eval_flags)
     }
