@@ -104,10 +104,10 @@ pub struct JSRuntime<'a> {
     pub(crate) rt_info: *const c_char,
 }
 
-// thread_local! {
-//     /// List of living runtime raw pointers
-//     static RUNTIME_LIST: UnsafeCell<Vec<NonNull<JSRuntime<'static>>>> = UnsafeCell::new(Vec::with_capacity(1));
-// }
+thread_local! {
+    /// List of living runtime raw pointers
+    static RUNTIME_LIST: UnsafeCell<Vec<NonNull<JSRuntime<'static>>>> = UnsafeCell::new(Vec::with_capacity(1));
+}
 
 impl<'a> Drop for JSRuntime<'a> {
     fn drop(&mut self) {
@@ -134,7 +134,7 @@ impl<'a> Drop for JSRuntime<'a> {
 }
 
 impl<'a> JSRuntime<'a> {
-    pub fn new(mf: JSMallocFunctions, opaque: *mut c_void) -> Result<Box<Self>, i32> {
+    fn new_internal(mf: JSMallocFunctions, opaque: *mut c_void) -> Result<Box<Self>, i32> {
         let ms = JSMallocState {
             opaque,
             malloc_limit: usize::MAX,
@@ -247,7 +247,13 @@ impl<'a> JSRuntime<'a> {
 
         JS_UpdateStackTop(rt.as_mut());
 
-        // // register runtime raw pointer
+        Ok(rt)
+    }
+
+    pub fn new(mf: JSMallocFunctions, opaque: *mut c_void) -> Result<Box<Self>, i32> {
+        let rt = Self::new_internal(mf, opaque)?;
+
+        // // register runtime
         // RUNTIME_LIST.with(|list| unsafe {
         //     (&mut *list.get()).push(NonNull::from(rt.as_ref()));
         // });
