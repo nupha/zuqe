@@ -2,21 +2,14 @@ use std::{
     cell::RefCell,
     collections::VecDeque,
     ffi::c_void,
-    ops::{Deref, DerefMut},
+    ops::DerefMut,
     pin::Pin,
-    ptr::NonNull,
     rc::{Rc, Weak},
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use crate::{
-    JS_CLASS_ARRAY, JS_CLASS_ARRAY_BUFFER, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
-    JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
-    JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_DATAVIEW, JS_CLASS_DATE, JS_CLASS_ERROR,
-    JS_CLASS_FLOAT64_ARRAY, JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, JS_CLASS_OBJECT, JS_CLASS_PROMISE,
-    JS_CLASS_PROXY, JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR, JS_CLASS_SET,
-    JS_CLASS_SET_ITERATOR, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY, JS_CLASS_WEAKMAP,
-    JS_CLASS_WEAKSET,
+    JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_ERROR, JS_CLASS_OBJECT,
     array::ArrayObjPayload,
     atom::{
         Atom,
@@ -32,7 +25,7 @@ use crate::{
     },
     promise::Job,
     regexp::RegExpData,
-    runtime::{JSRuntime, RuntimeHandle},
+    runtime::{JSRuntime, RuntimePtr},
     stack_frame::StackFrame,
     value::JSValue,
 };
@@ -42,8 +35,8 @@ use crate::{
 /// Represents a JavaScript execution environment with its own global object,
 /// stack, and execution state. Each context is associated with a runtime.
 pub struct JSContextInner<'a> {
-    /// handle to runtime
-    pub rt: RuntimeHandle<'a>,
+    /// back ref to runtime
+    pub rt: RuntimePtr<'a>,
 
     pub flags: u8,
 
@@ -134,7 +127,7 @@ impl<'a> JSContextInner<'a> {
         };
 
         let c = Self {
-            rt: rt.handle(),
+            rt: (&*rt).into(),
             flags: 0,
 
             binary_object_count: 0,
@@ -182,9 +175,9 @@ impl<'a> JSContextInner<'a> {
         self as *const Self as usize
     }
 
-    /// get runtime handle
+    /// get runtime ptr
     #[inline(always)]
-    pub const fn rt(&self) -> RuntimeHandle<'a> {
+    pub const fn rt(&self) -> RuntimePtr<'a> {
         self.rt
     }
 
@@ -282,8 +275,8 @@ impl<'a> JSContext<'a> {
 
     /// Returns the runtime reference
     #[inline(always)]
-    pub fn rt(&self) -> RuntimeHandle<'a> {
-        self.0.borrow().rt
+    pub fn rt(&self) -> RuntimePtr<'a> {
+        self.0.borrow().rt()
     }
 
     /// get global object
@@ -491,7 +484,7 @@ pub enum AtomicOp {
 }
 
 impl<'a> JSRuntime<'a> {
-    /// Creates JavaScript context with customized setup.
+    /// Creates context with setup closure.
     pub(super) fn create_context_raw(
         &mut self,
         setup: impl FnOnce(&JSContext<'a>) -> Result<(), i32>,
@@ -502,70 +495,9 @@ impl<'a> JSRuntime<'a> {
         ctx.init_core_objects()?;
         setup(&ctx)?;
 
-        // register context to list
+        // register context to runtime
         self.context_list.push(ctx.clone());
 
         Ok(ctx)
     }
-
-    /// Creates a new JavaScript context with customized setup.
-    #[deprecated]
-    pub(super) fn create_context(
-        &mut self,
-        setup: impl FnOnce(&JSContext) -> Result<(), i32>,
-    ) -> Result<JSContext<'a>, i32> {
-        self.create_context_raw(|cx| {
-            cx.init_base_classes();
-            setup(cx)
-        })
-    }
-
-    // /// Creates new context initialized with ECMA standard classes
-    // #[deprecated]
-    // pub(crate) fn create_context_ecma_v1(&mut self) -> Result<JSContext<'static>, i32> {
-    //     self.create_context(|ctx| {
-    //         ctx.use_class(JS_CLASS_PROXY)?;
-
-    //         // typed array
-    //         ctx.use_classes(&[JS_CLASS_ARRAY_BUFFER, JS_CLASS_SHARED_ARRAY_BUFFER])?;
-    //         ctx.use_classes(&(JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).collect::<Vec<_>>())?;
-    //         ctx.use_class(JS_CLASS_DATAVIEW)?;
-
-    //         // async
-    //         ctx.use_classes(&[
-    //             JS_CLASS_PROMISE,
-    //             JS_CLASS_ASYNC_FUNCTION,
-    //             JS_CLASS_ASYNC_GENERATOR,
-    //             JS_CLASS_ASYNC_GENERATOR_FUNCTION,
-    //             JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
-    //         ])?;
-
-    //         // mapset
-    //         ctx.use_classes(&[
-    //             JS_CLASS_MAP,
-    //             JS_CLASS_SET,
-    //             JS_CLASS_WEAKMAP,
-    //             JS_CLASS_WEAKSET,
-    //             JS_CLASS_MAP_ITERATOR,
-    //             JS_CLASS_SET_ITERATOR,
-    //         ])?;
-
-    //         // regexp
-    //         ctx.use_classes(&[JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR])?;
-    //         // date
-    //         ctx.use_class(JS_CLASS_DATE)?;
-
-    //         //ctx.intrinsic_proxy();
-    //         //ctx.intrinsic_typed_arrays();
-    //         //ctx.intrinsic_async();
-    //         //ctx.intrinsic_mapset();
-    //         //ctx.intrinsic_regexp();
-    //         //ctx.intrinsic_date();
-
-    //         ctx.intrinsic_math(); // Math: lazy init object
-    //         ctx.intrinsic_json(); // JSON: lazy init object
-
-    //         Ok(())
-    //     })
-    // }
 }

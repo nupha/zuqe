@@ -28,7 +28,7 @@ pub const JS_PARSE_JSON_EXT: i32 = 1;
 
 impl<'s> JSParseState<'s> {
     fn json_next_token(&mut self) -> Result<(), i32> {
-        if js_check_stack_overflow(self.ctx.rt().deref(), 0) {
+        if js_check_stack_overflow(self.ctx.rt().as_ref(), 0) {
             self.throw_syntax_error("stack overflow");
             return Err(-1);
         }
@@ -261,7 +261,7 @@ impl<'s> JSParseState<'s> {
                     loop {
                         let prop_name = if self.token.val == TOK_STRING {
                             Atom::new(
-                                self.ctx.rt().deref(),
+                                self.ctx.rt().as_ref(),
                                 &self.token.data.string().unwrap().to_utf8(true),
                             )?
                         } else if self.ext_json && self.token.val == TOK_IDENT {
@@ -412,7 +412,7 @@ unsafe fn json_parse_ident(
     }
 
     let atom = Atom::new(
-        s.ctx.rt().deref(),
+        s.ctx.rt().as_ref(),
         std::str::from_utf8(&buf).map_err(|_| -1)?,
     )?;
     *pp = p;
@@ -433,7 +433,7 @@ fn json_parse_value<'a>(s: &mut JSParseState<'a>) -> JSResult<'a> {
                 loop {
                     let prop_name = if s.token.val == TOK_STRING {
                         Atom::new(
-                            s.ctx.rt().deref(),
+                            s.ctx.rt().as_ref(),
                             &s.token.data.string().unwrap().to_utf8(true),
                         )?
                     } else if s.ext_json && s.token.val == TOK_IDENT {

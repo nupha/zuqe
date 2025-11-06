@@ -164,7 +164,7 @@ impl<'a> JSObject<'a> {
     }
 
     pub fn has_own_property_str(&self, ctx: &JSContext<'a>, prop: &str) -> Result<bool, i32> {
-        let atom = Atom::new(ctx.rt().deref(), prop)?;
+        let atom = Atom::new(ctx.rt().as_ref(), prop)?;
         self.has_own_property(ctx, &atom)
     }
 

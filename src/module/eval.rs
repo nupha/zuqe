@@ -169,7 +169,7 @@ impl<'a> ModuleDef<'a> {
         index: i32,
         stack_top: &mut Option<ModuleDef<'a>>,
     ) -> Result<i32, JSValue<'a>> {
-        if js_check_stack_overflow(ctx.rt().deref(), 0) {
+        if js_check_stack_overflow(ctx.rt().as_ref(), 0) {
             ctx.throw_stack_overflow();
             return Err(ctx.take_exception());
         }
@@ -389,7 +389,7 @@ impl<'a> ModuleDef<'a> {
 
     /// async module execution reject callback
     fn execute_async_rejected<'b>(ctx: &JSContext<'b>, cc: CallContext<'_, 'b>) -> JSResult<'b> {
-        if js_check_stack_overflow(ctx.rt().deref(), 0) {
+        if js_check_stack_overflow(ctx.rt().as_ref(), 0) {
             ctx.throw_stack_overflow();
             return Err(-1);
         }
@@ -497,7 +497,7 @@ fn gather_module_ancestors<'a>(
     module: &ModuleDef<'a>,
     exec_list: &mut Vec<ModuleDef<'a>>,
 ) -> Result<(), i32> {
-    if js_check_stack_overflow(ctx.rt().deref(), 0) {
+    if js_check_stack_overflow(ctx.rt().as_ref(), 0) {
         ctx.throw_stack_overflow();
         return Err(-1);
     }

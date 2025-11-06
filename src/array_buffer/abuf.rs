@@ -381,7 +381,7 @@ impl<'a> ArrayBuffer<'a> {
             if let ABufData::Raw(ptr, len, fin) = data0
                 && let Some(f) = fin
             {
-                f(ctx.rt().deref(), abuf.opaque(), ptr.as_ptr(), len);
+                f(ctx.rt().as_ref(), abuf.opaque(), ptr.as_ptr(), len);
             }
 
             for w in abuf.array_list.borrow_mut().drain(..) {
@@ -427,7 +427,7 @@ pub fn js_array_buffer_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, _id: u
             free_func(rt, abuf.opaque(), p.as_ptr(), *len);
         }
         ABufData::Shared(a) => {
-            if Arc::strong_count(&a) == 1
+            if Arc::strong_count(a) == 1
                 && let Some(fns) = &rt.sab_funcs
             {
                 (fns.sab_free)(fns.sab_opaque, a.read().unwrap().len());

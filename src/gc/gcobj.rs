@@ -1,4 +1,4 @@
-use crate::runtime::RuntimeHandle;
+use crate::runtime::RuntimePtr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -25,11 +25,11 @@ pub struct GCObjectHeader<'a> {
     bitfields: u8,
 
     /// the runtime
-    rt: RuntimeHandle<'a>,
+    rt: RuntimePtr<'a>,
 }
 
 impl<'a> GCObjectHeader<'a> {
-    pub(crate) const fn new(rt: RuntimeHandle<'a>, ref_count: i32) -> Self {
+    pub(crate) const fn new(rt: RuntimePtr<'a>, ref_count: i32) -> Self {
         Self {
             ref_count,
             bitfields: (GCObjectStatus::Tracking as u8) << 1,
@@ -38,7 +38,7 @@ impl<'a> GCObjectHeader<'a> {
     }
 
     #[inline(always)]
-    pub fn rt(&self) -> RuntimeHandle<'a> {
+    pub fn rt(&self) -> RuntimePtr<'a> {
         self.rt
     }
 

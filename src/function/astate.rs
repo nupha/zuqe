@@ -12,7 +12,7 @@ use crate::{
     function::BCFunction,
     gc::GCObjectHeader,
     object::{GCObjectWeakref, ObjectPayload},
-    runtime::{JSRuntime, RuntimeHandle, js_check_stack_overflow},
+    runtime::{JSRuntime, RuntimePtr, js_check_stack_overflow},
     stack_frame::StackFrame,
     value::JSValue,
 };
@@ -229,7 +229,7 @@ impl<'a> AsyncFuncState<'a> {
     }
 
     #[inline(always)]
-    pub fn rt(&self) -> RuntimeHandle<'a> {
+    pub fn rt(&self) -> RuntimePtr<'a> {
         self.0.borrow().header.rt()
     }
 
@@ -265,7 +265,7 @@ impl<'a> AsyncFuncState<'a> {
     pub fn resume(&self, ctx: &JSContext<'a>) -> JSResult<'a> {
         debug_assert!(!self.0.borrow().is_completed);
 
-        if js_check_stack_overflow(ctx.rt().deref(), 0) {
+        if js_check_stack_overflow(ctx.rt().as_ref(), 0) {
             ctx.throw_stack_overflow();
             return Err(-1);
         }

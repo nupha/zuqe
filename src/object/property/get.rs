@@ -262,13 +262,13 @@ impl<'a> JSObject<'a> {
         if (0..u32::MAX as i64).contains(&idx) {
             self.get_property_u32(ctx, idx as u32)
         } else {
-            let prop = Atom::from_i64(ctx.rt().deref(), idx)?;
+            let prop = Atom::from_i64(ctx.rt().as_ref(), idx)?;
             self.get_property(ctx, &prop)
         }
     }
 
     pub fn get_property_str(&self, ctx: &JSContext<'a>, prop: &str) -> JSResult<'a> {
-        let atom = Atom::new(ctx.rt().deref(), prop)?;
+        let atom = Atom::new(ctx.rt().as_ref(), prop)?;
         self.get_property(ctx, &atom)
     }
 
@@ -290,7 +290,7 @@ impl<'a> JSObject<'a> {
                 Ok(None)
             }
         } else {
-            let atom = Atom::from_i64(ctx.rt().deref(), idx)?;
+            let atom = Atom::from_i64(ctx.rt().as_ref(), idx)?;
             self.has_property(ctx, &atom).and_then(|found| {
                 if found {
                     Ok(Some(self.get_property(ctx, &atom)?))
@@ -374,7 +374,7 @@ impl<'a> JSValue<'a> {
 
     /// returns Exception when fail.
     pub fn get_property_str(self, ctx: &JSContext<'a>, prop: &str) -> JSResult<'a> {
-        let atom = Atom::new(ctx.rt().deref(), prop)?;
+        let atom = Atom::new(ctx.rt().as_ref(), prop)?;
         self.get_property(ctx, &atom)
     }
 
@@ -387,7 +387,7 @@ impl<'a> JSValue<'a> {
         if (0..=u32::MAX as i64).contains(&idx) {
             self.get_property_u32(ctx, idx as u32)
         } else {
-            let atom = Atom::from_i64(ctx.rt().deref(), idx)?;
+            let atom = Atom::from_i64(ctx.rt().as_ref(), idx)?;
             self.get_property(ctx, &atom)
         }
     }
@@ -410,7 +410,7 @@ impl<'a> JSValue<'a> {
                 Ok(None)
             }
         } else {
-            let atom = Atom::from_i64(ctx.rt().deref(), idx)?;
+            let atom = Atom::from_i64(ctx.rt().as_ref(), idx)?;
             self.has_property(ctx, &atom).and_then(|found| {
                 if found {
                     Ok(Some(self.get_property(ctx, &atom)?))

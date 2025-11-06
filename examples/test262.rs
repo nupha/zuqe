@@ -19,7 +19,7 @@ use zhuque::{
     module::{JS_SetModuleLoaderFunc, ModuleDef},
     object::JS_PROP_C_W_E,
     promise::{Promise, PromiseState},
-    runtime::{JSRuntime, RuntimeHandle},
+    runtime::JSRuntime,
     value::JSValue,
 };
 
@@ -405,7 +405,7 @@ fn run_test_file(
     }
 
     // make runtime & context
-    let mut rt = JSRuntime::new(JS_DEFAULT_MALLOC_FUNCTIONS, std::ptr::null_mut()).unwrap();
+    let mut rt = JSRuntime::create(JS_DEFAULT_MALLOC_FUNCTIONS, std::ptr::null_mut()).unwrap();
     JS_SetModuleLoaderFunc(rt.deref_mut(), None, js_module_loader, std::ptr::null_mut());
 
     let ctx = rt.create_context_ecma().unwrap();
@@ -554,10 +554,6 @@ fn run_test_file(
             }
         }
     }
-
-    // drop ctx and runtime
-    drop(ctx);
-    RuntimeHandle::free(rt);
 }
 
 #[derive(Debug, Deserialize, Default)]

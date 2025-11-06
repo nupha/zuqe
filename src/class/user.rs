@@ -106,7 +106,7 @@ impl<'a> JSContext<'a> {
     }
 
     pub fn use_class_name(&self, name: &str) -> Result<(), i32> {
-        let atom_name = Atom::from_str(self.rt().deref(), name, AtomTypeHint::String)?;
+        let atom_name = Atom::from_str(self.rt().as_ref(), name, AtomTypeHint::String)?;
 
         if let Some(id) = self
             .rt()

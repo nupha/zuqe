@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, VecDeque},
-    ffi::{c_char, c_void},
+    ffi::c_void,
     pin::Pin,
     rc::Rc,
 };
@@ -25,8 +25,8 @@ use crate::{
     promise::{JSHostPromiseRejectionTracker, Job, PromiseResolveFunc},
     proxy::{Proxy, js_proxy_exotic_methods},
     regexp::RegExpData,
-    resource::{LOCAL_RESOURCE, LocalResource},
-    runtime::handle::RuntimeHandle,
+    resource::LocalResource,
+    runtime::RuntimeHandle,
     stack_frame::StackFrame,
     string::js_string_exotic_methods,
     utils::js_get_stack_pointer,
@@ -101,7 +101,6 @@ pub struct JSRuntime<'a> {
 
     pub(crate) mf: JSMallocFunctions,
     pub(crate) malloc_state: JSMallocState,
-    pub(crate) rt_info: *const c_char,
 }
 
 impl<'a> Drop for JSRuntime<'a> {
@@ -116,20 +115,19 @@ impl<'a> Drop for JSRuntime<'a> {
                 slot.swap_remove(i);
             }
             !slot.is_empty()
-        }) {
-            if !has_live {
-                // no runtime alive, clear all user atoms.
-                // SAFETY: use try_with_atom to avoid corrupt in case thread local is destroyed when runtime drop is calling.
-                let _ = LocalResource::try_with_atoms_mut(|reg| {
-                    reg.clear_user_atoms();
-                });
-            }
+        }) && !has_live
+        {
+            // no runtime alive, clear all user atoms.
+            // SAFETY: use try_with_atom to avoid corrupt in case thread local is destroyed when runtime drop is calling.
+            let _ = LocalResource::try_with_atoms_mut(|reg| {
+                reg.clear_user_atoms();
+            });
         }
     }
 }
 
 impl<'a> JSRuntime<'a> {
-    fn new_internal(mf: JSMallocFunctions, opaque: *mut c_void) -> Result<Box<Self>, i32> {
+    fn new(mf: JSMallocFunctions, opaque: *mut c_void) -> Result<Box<Self>, i32> {
         let ms = JSMallocState {
             opaque,
             malloc_limit: usize::MAX,
@@ -139,7 +137,6 @@ impl<'a> JSRuntime<'a> {
         let mut rt = Box::new(JSRuntime {
             mf,
             malloc_state: ms,
-            rt_info: std::ptr::null(),
 
             class_registry: Vec::with_capacity(USER_CLASS_ID_START as usize),
 
@@ -245,11 +242,14 @@ impl<'a> JSRuntime<'a> {
         Ok(rt)
     }
 
-    pub fn new(mf: JSMallocFunctions, opaque: *mut c_void) -> Result<RuntimeHandle<'static>, i32> {
-        let rt: Box<JSRuntime<'static>> =
-            unsafe { std::mem::transmute(Self::new_internal(mf, opaque)?) };
+    /// create a new runtime
+    pub fn create(
+        mf: JSMallocFunctions,
+        opaque: *mut c_void,
+    ) -> Result<RuntimeHandle<'static>, i32> {
+        let rt: Box<JSRuntime<'static>> = unsafe { std::mem::transmute(Self::new(mf, opaque)?) };
 
-        let h = rt.handle();
+        let h = RuntimeHandle::new(rt.as_ref());
 
         // register runtime
         LocalResource::with_runtimes_mut(|slot| {

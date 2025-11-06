@@ -11,7 +11,7 @@ use crate::{
     context::JSContext,
     gc::GCObjectHeader,
     object::{GCObject, GCObjectWeakref, JS_PROP_WRITABLE},
-    runtime::{JSRuntime, RuntimeHandle},
+    runtime::{JSRuntime, RuntimePtr},
 };
 
 use super::{
@@ -105,7 +105,7 @@ impl<'a> JSShapeInner<'a> {
     }
 
     #[inline(always)]
-    pub fn rt(&self) -> RuntimeHandle<'a> {
+    pub fn rt(&self) -> RuntimePtr<'a> {
         self.header.rt()
     }
 

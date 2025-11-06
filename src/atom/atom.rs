@@ -424,7 +424,7 @@ impl<'a> JSString<'a> {
 
 impl<'a> JSContext<'a> {
     pub fn create_atom_string(&self, str: &str) -> Result<JSString<'a>, i32> {
-        let atom = Atom::new(self.rt().deref(), str)?;
+        let atom = Atom::new(self.rt().as_ref(), str)?;
         atom.force_string(self)
     }
 }
@@ -452,7 +452,7 @@ impl<'a> JSValue<'a> {
                     }));
                 }
                 JSValue::Int(i) => {
-                    return Atom::from_i64(ctx.rt().deref(), i as i64);
+                    return Atom::from_i64(ctx.rt().as_ref(), i as i64);
                 }
                 JSValue::String(s) => {
                     return s.to_atom();
@@ -505,7 +505,7 @@ pub unsafe fn js_atom_concat_str(ctx: &JSContext, name: &Atom, str1: *const u8) 
         std::ptr::copy_nonoverlapping(astr.as_ptr().cast(), new_str.as_mut_ptr(), len);
         std::ptr::copy_nonoverlapping(str1, new_str.as_mut_ptr().offset(len as isize), len1);
 
-        Atom::new(ctx.rt().deref(), std::str::from_utf8_unchecked(&new_str)).unwrap_or(Atom::NULL)
+        Atom::new(ctx.rt().as_ref(), std::str::from_utf8_unchecked(&new_str)).unwrap_or(Atom::NULL)
     } else {
         Atom::NULL
     }

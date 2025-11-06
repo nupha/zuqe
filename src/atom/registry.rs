@@ -513,7 +513,7 @@ impl Atom {
         }
     }
 
-    /// Make builtin const atom
+    /// Create const atom
     #[inline(always)]
     pub(crate) fn new_const(n: AtomRef) -> Self {
         debug_assert!(n.is_const());

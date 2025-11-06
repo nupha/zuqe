@@ -144,7 +144,7 @@ impl<'a> JSObject<'a> {
             // fast path for fast array
             self.delete_property(ctx, &Atom::new_small_int(idx as u32), flags)
         } else {
-            let atom = Atom::from_i64(ctx.rt().deref(), idx)?;
+            let atom = Atom::from_i64(ctx.rt().as_ref(), idx)?;
             self.delete_property(ctx, &atom, flags)
         }
     }

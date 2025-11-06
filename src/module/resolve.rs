@@ -131,7 +131,7 @@ impl<'a> ModuleDef<'a> {
         stack_top: &mut Option<ModuleDef<'a>>,
         index: i32,
     ) -> Result<i32, i32> {
-        if unlikely(js_check_stack_overflow(ctx.rt().deref(), 0)) {
+        if unlikely(js_check_stack_overflow(ctx.rt().as_ref(), 0)) {
             ctx.throw_stack_overflow();
             return Err(-1);
         } else if matches!(

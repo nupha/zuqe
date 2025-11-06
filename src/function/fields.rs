@@ -188,7 +188,7 @@ impl<'a> JSContext<'a> {
             return Err(-1);
         }
 
-        Atom::new(self.rt().deref(), str)
+        Atom::new(self.rt().as_ref(), str)
     }
 }
 

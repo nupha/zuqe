@@ -13,7 +13,7 @@ use crate::{
     module::{ExportEntry, ExportType, JSImportEntry, JSModuleStatus, ModuleDependency},
     object::{JS_PROP_C_W_E, JSObject, ObjectPayload},
     promise::Promise,
-    runtime::{JSRuntime, RuntimeHandle},
+    runtime::{JSRuntime, RuntimePtr},
     stack_frame::StackFrame,
     value::JSValue,
 };
@@ -36,7 +36,7 @@ impl<'a, F> ModuleInitFunc<'a> for F where F: Fn(&JSContext<'a>, &ModuleDef<'a>)
 
 pub struct ModuleDefInner<'a> {
     /// TODO: rt seems no use
-    rt: RuntimeHandle<'a>,
+    rt: RuntimePtr<'a>,
 
     gc_mark: Cell<bool>,
 
@@ -155,7 +155,7 @@ impl<'a> ModuleDefInner<'a> {
         name: &str,
         init_func: impl ModuleInitFunc<'a> + 'static,
     ) -> Result<Self, i32> {
-        let name = Atom::new(ctx.rt().deref(), name)?;
+        let name = Atom::new(ctx.rt().as_ref(), name)?;
         let mut inner = ModuleDefInner::new(ctx, name);
         inner.init_func.replace(Box::new(init_func));
         Ok(inner)

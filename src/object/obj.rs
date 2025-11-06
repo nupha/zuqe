@@ -17,7 +17,7 @@ use crate::{
     context::JSContext,
     error::JSResult,
     object::GCObjectWeakref,
-    runtime::RuntimeHandle,
+    runtime::RuntimePtr,
     value::JSValue,
 };
 
@@ -146,8 +146,8 @@ impl ObjectFlags {
 }
 
 pub(crate) struct ObjectInner<'a> {
-    rt: RuntimeHandle<'a>,
-    pub(crate) gc_mark: Cell<bool>,
+    rt: RuntimePtr<'a>,
+    gc_mark: Cell<bool>,
 
     /// object flags
     obj_flags: Cell<ObjectFlags>,
@@ -335,7 +335,7 @@ impl<'a> ObjectInner<'a> {
     }
 
     #[inline]
-    pub const fn rt(&self) -> RuntimeHandle<'a> {
+    pub const fn rt(&self) -> RuntimePtr<'a> {
         self.rt
     }
 
@@ -448,7 +448,7 @@ impl<'a> JSObject<'a> {
     }
 
     #[inline(always)]
-    pub fn rt(&self) -> RuntimeHandle<'a> {
+    pub fn rt(&self) -> RuntimePtr<'a> {
         self.0.rt()
     }
 

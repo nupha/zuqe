@@ -14,7 +14,7 @@ use zhuque::{
     object::JS_PROP_C_W_E,
     parse::JSParseState,
     promise::Promise,
-    runtime::{JSRuntime, RuntimeHandle},
+    runtime::JSRuntime,
     value::JSValue,
 };
 
@@ -71,7 +71,7 @@ fn main() {
     let script = std::fs::read_to_string(&filename).unwrap();
 
     let tm0 = Instant::now();
-    let mut rt = JSRuntime::new(JS_DEFAULT_MALLOC_FUNCTIONS, std::ptr::null_mut()).unwrap();
+    let mut rt = JSRuntime::create(JS_DEFAULT_MALLOC_FUNCTIONS, std::ptr::null_mut()).unwrap();
 
     JS_SetModuleLoaderFunc(&mut rt, None, js_module_loader, std::ptr::null_mut());
 
@@ -265,10 +265,6 @@ fn main() {
     }
 
     println!("*** run use time: {} ms", tm.elapsed().as_millis());
-
-    // drop ctx and runtime
-    drop(ctx);
-    RuntimeHandle::free(rt);
 }
 
 fn js_module_loader<'a>(

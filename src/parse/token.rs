@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 use crate::{
     atom::{Atom, AtomRef, consts::*},
     context::JS_MODE_STRICT,
@@ -76,8 +74,9 @@ impl Token {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum TokenData {
+    #[default]
     None,
     Char(char),
     Str {
@@ -91,12 +90,6 @@ pub enum TokenData {
         is_reserved: bool,
     },
     Regexp(usize),
-}
-
-impl Default for TokenData {
-    fn default() -> Self {
-        Self::None
-    }
 }
 
 impl TokenData {
@@ -175,7 +168,7 @@ impl<'s> JSParseState<'s> {
     // which will soon use up stack space, and cause stack overflow.
     #[inline(never)]
     pub(super) fn next_token(&mut self) -> Result<i32, i32> {
-        if js_check_stack_overflow(self.ctx.rt().deref(), 0) {
+        if js_check_stack_overflow(self.ctx.rt().as_ref(), 0) {
             self.throw_syntax_error("stack overflow");
             return Err(-1);
         }

@@ -1,4 +1,4 @@
-use std::{cell::RefCell, ffi::c_void, ops::Deref, pin::Pin};
+use std::{cell::RefCell, ffi::c_void, ops::Deref};
 
 use smallvec::SmallVec;
 
@@ -370,7 +370,7 @@ impl<'a> BytecodeFunction<'a> {
         let sf = &mut sframe;
 
         // ensure stack has minimal free space.
-        if js_check_stack_overflow(caller_ctx.rt().deref(), 32) {
+        if js_check_stack_overflow(caller_ctx.rt().as_ref(), 32) {
             caller_ctx.throw_stack_overflow();
             return JSValue::EXCEPTION;
         }
