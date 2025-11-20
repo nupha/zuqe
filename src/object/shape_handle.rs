@@ -3,22 +3,22 @@ use std::{
     ptr::NonNull,
 };
 
-use super::JSShape;
+use super::ShapeHandle;
 
 /// A wrapper upon raw pointer of Shape.
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
-pub struct JSShapeHandle(NonNull<JSShape>);
+pub struct JSShapeHandle(NonNull<ShapeHandle>);
 
 impl JSShapeHandle {
     #[inline(always)]
-    pub const fn as_ptr(self) -> *mut JSShape {
+    pub const fn as_ptr(self) -> *mut ShapeHandle {
         self.0.as_ptr()
     }
 }
 
 impl Deref for JSShapeHandle {
-    type Target = JSShape;
+    type Target = ShapeHandle;
 
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
@@ -39,21 +39,21 @@ impl PartialEq for JSShapeHandle {
     }
 }
 
-impl From<*mut JSShape> for JSShapeHandle {
+impl From<*mut ShapeHandle> for JSShapeHandle {
     #[inline(always)]
-    fn from(value: *mut JSShape) -> Self {
+    fn from(value: *mut ShapeHandle) -> Self {
         Self(NonNull::new(value).unwrap())
     }
 }
 
-impl From<&mut JSShape> for JSShapeHandle {
+impl From<&mut ShapeHandle> for JSShapeHandle {
     #[inline(always)]
-    fn from(value: &mut JSShape) -> Self {
+    fn from(value: &mut ShapeHandle) -> Self {
         Self(NonNull::from(value))
     }
 }
 
-impl From<JSShapeHandle> for *mut JSShape {
+impl From<JSShapeHandle> for *mut ShapeHandle {
     #[inline(always)]
     fn from(value: JSShapeHandle) -> Self {
         value.0.as_ptr()

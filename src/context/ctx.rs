@@ -1,123 +1,162 @@
 use std::{
-    cell::RefCell,
+    cell::Cell,
     collections::VecDeque,
     ffi::c_void,
-    ops::DerefMut,
+    marker::PhantomData,
+    ops::{Deref, DerefMut},
     pin::Pin,
-    rc::{Rc, Weak},
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use gc_lite::{Collect, GcRef, GcWeak};
+
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_ERROR, JS_CLASS_OBJECT,
-    array::ArrayObjPayload,
-    atom::{
-        Atom,
-        consts::{JS_ATOM_empty_string, JS_ATOM_length, JS_ATOM_message, JS_ATOM_name},
-    },
+    array::ArrayPayload,
+    atom::Atom,
     class::ClassID,
     error::{STD_ERROR_COUNT, STD_ERROR_NAMES, js_error_proto_funcs},
     eval::EvalFn,
     function::{NativeFunctionType, js_function_proto},
+    gcref_wrapper,
     module::{JSFreeModuleEnum, ModuleDef, js_free_modules},
     object::{
-        JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_WRITABLE, JSObject, JSShape, ObjectPayload,
+        JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_WRITABLE, ObjectPayload, ObjectRef,
+        ShapeHandle,
     },
     promise::Job,
     regexp::RegExpData,
-    runtime::{JSRuntime, RuntimePtr},
+    runtime::{RuntimeImpl, RuntimeRef},
     stack_frame::StackFrame,
     value::JSValue,
 };
 
-/// Execution context
-///
-/// Represents a JavaScript execution environment with its own global object,
-/// stack, and execution state. Each context is associated with a runtime.
-pub struct JSContextInner<'a> {
-    /// back ref to runtime
-    pub rt: RuntimePtr<'a>,
+/// An execution context, holds environment with global object, calling stack, and execution state.
+pub struct ContextImpl {
+    rt: RuntimeRef,
 
-    pub flags: u8,
+    pub(crate) flags: u8,
 
     /// Count of binary objects in this context
-    pub binary_object_count: u16,
+    pub(crate) binary_object_count: u16,
 
     /// Total size of binary objects in this context
-    pub binary_object_size: i32,
+    pub(crate) binary_object_size: i32,
 
     /// Initial shape for Array objects
-    pub array_shape: Option<JSShape<'a>>,
+    pub(crate) array_shape: Option<ShapeHandle>,
 
     /// Class prototypes slot.
     /// element could be object or null, default to null.
-    /// TODO: use Vec<Option<JSObject>> instead
-    pub class_proto: Vec<JSValue<'a>>,
+    /// TODO: use Vec<Option<ObjectRef>> instead
+    pub(crate) class_proto: Vec<JSValue>,
 
-    pub(crate) iterator_proto: Option<JSObject<'a>>,
-    pub(crate) async_iterator_proto: Option<JSObject<'a>>,
-    pub(crate) native_error_proto: [JSValue<'a>; STD_ERROR_COUNT],
+    pub(crate) iterator_proto: Option<ObjectRef>,
+    pub(crate) async_iterator_proto: Option<ObjectRef>,
+    pub(crate) native_error_proto: [JSValue; STD_ERROR_COUNT],
 
-    pub function_ctor: JSValue<'a>,
-    pub array_ctor: JSValue<'a>,
-    pub regexp_ctor: JSValue<'a>,
-    pub promise_ctor: JSValue<'a>,
-    pub throw_type_error: JSValue<'a>,
-    pub array_proto_values: JSValue<'a>,
+    pub(crate) function_ctor: JSValue,
+    pub(crate) array_ctor: JSValue,
+    pub(crate) regexp_ctor: JSValue,
+    pub(crate) promise_ctor: JSValue,
 
-    /// the function of eval().
-    pub eval_func: JSValue<'a>,
+    pub(crate) throw_type_error: JSValue,
+    pub(crate) array_proto_values: JSValue,
+
+    /// the eval() function
+    pub(crate) eval_func: JSValue,
 
     /// 传统的全局对象（类似ES3的全局环境），存储普通的全局变量（如var声明的变量）
     /// 默认WRITABLE，权限更宽松
-    pub global_obj: JSValue<'a>, // TODO: use JSObject instead
+    pub(crate) global_obj: JSValue, // TODO: use ObjectRef instead
 
     /// let/const或特殊标记(DEFINE_GLOBAL_LEX_VAR)定义的变量
     /// 强调CONFIGURABLE和约束写权限, 禁止复杂属性行为（如代理式操作）
-    pub global_var_obj: JSValue<'a>, // TODO: use JSObject instead
+    pub(crate) global_var_obj: JSValue, // TODO: use ObjectRef instead
 
     /// Random number generator state
-    pub random_state: u64,
+    pub(crate) random_state: u64,
 
     /// Interrupt counter for async operations
-    pub interrupt_counter: i32,
+    pub(crate) interrupt_counter: Cell<i32>,
 
     /// List of loaded modules
-    pub loaded_modules: Vec<ModuleDef<'a>>,
+    pub(crate) loaded_modules: Vec<ModuleDef>,
 
     /// Regexp compilation callback
     #[deprecated(note = "unused")]
     pub compile_regexp: Option<
-        fn(ctx: &JSContext, pattern: JSValue, flags: Option<&str>) -> Result<RegExpData, i32>,
+        fn(ctx: ContextRef, pattern: JSValue, flags: Option<&str>) -> Result<RegExpData, i32>,
     >,
 
     /// eval callback
-    pub eval_handle: Option<EvalFn>,
+    pub(crate) eval_handle: Option<EvalFn>,
 
     /// User data pointer
-    pub user_opaque: *mut std::ffi::c_void,
+    pub(crate) user_opaque: *mut std::ffi::c_void,
 
     /// Stack information
-    pub stack_limit: usize,
-    pub stack_pointer: usize,
-    pub stack_size: usize,
-    pub stack_frame: *mut Pin<StackFrame<'a>>,
+    pub(crate) stack_limit: usize,
+    pub(crate) stack_pointer: usize,
+    pub(crate) stack_size: usize,
+    pub(crate) stack_frame: *mut Pin<StackFrame>,
 
     /// queued context jobs
-    pub(crate) job_list: VecDeque<Job<'a>>,
+    pub(crate) job_list: VecDeque<Job>,
 }
 
-impl Drop for JSContextInner<'_> {
-    fn drop(&mut self) {
-        #[cfg(debug_assertions)]
-        println!("JSContextInner::drop({self:p})");
+unsafe impl Collect for ContextImpl {
+    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+        for p in self.class_proto.iter() {
+            p.trace(tracer);
+        }
 
+        if let Some(s) = &self.array_shape {
+            s.trace(tracer);
+        }
+
+        if let Some(o) = self.iterator_proto.as_ref() {
+            o.trace(tracer);
+        }
+        if let Some(o) = self.async_iterator_proto.as_ref() {
+            o.trace(tracer);
+        }
+
+        for p in self.class_proto.iter() {
+            p.trace(tracer);
+        }
+        self.array_proto_values.trace(tracer);
+        self.function_ctor.trace(tracer);
+        self.array_ctor.trace(tracer);
+        self.regexp_ctor.trace(tracer);
+        self.promise_ctor.trace(tracer);
+        self.throw_type_error.trace(tracer);
+        self.eval_func.trace(tracer);
+        self.global_obj.trace(tracer);
+        self.global_var_obj.trace(tracer);
+
+        for ev in self.native_error_proto.iter() {
+            ev.trace(tracer);
+        }
+
+        if let Some(sf) = unsafe { self.stack_frame.cast::<StackFrame>().as_ref() } {
+            sf.trace(tracer);
+        }
+
+        for m in self.loaded_modules.iter() {
+            m.trace(tracer);
+        }
+    }
+}
+
+impl Drop for ContextImpl {
+    fn drop(&mut self) {
         self.finalize();
     }
 }
 
-impl<'a> JSContextInner<'a> {
-    pub fn new(rt: &mut JSRuntime<'a>) -> Result<Self, i32> {
+impl ContextImpl {
+    pub fn new(rt: &mut RuntimeImpl) -> Result<Self, i32> {
         let class_proto = {
             let n = rt.class_registry.len();
             let mut lst = Vec::<JSValue>::new();
@@ -153,7 +192,7 @@ impl<'a> JSContextInner<'a> {
             global_var_obj: JSValue::UNDEFINED,
 
             random_state: 0,
-            interrupt_counter: 0,
+            interrupt_counter: Cell::new(0),
             loaded_modules: Vec::new(),
             compile_regexp: None,
             eval_handle: None,
@@ -177,8 +216,49 @@ impl<'a> JSContextInner<'a> {
 
     /// get runtime ptr
     #[inline(always)]
-    pub const fn rt(&self) -> RuntimePtr<'a> {
+    pub const fn rt(&self) -> RuntimeRef {
         self.rt
+    }
+
+    /// get global object
+    #[inline]
+    pub fn global_obj(&self) -> ObjectRef {
+        unsafe { *self.global_obj.as_object_unchecked() }
+    }
+
+    /// get global var object
+    #[inline]
+    pub fn global_var_obj(&self) -> ObjectRef {
+        unsafe { *self.global_var_obj.as_object_unchecked() }
+    }
+
+    /// Pushes a new stack frame onto the execution stack
+    ///
+    /// # Safety
+    /// The caller must ensure the frame pointer is valid
+    pub(crate) fn push_stack_frame(&mut self, frame: *mut Pin<StackFrame>) {
+        if self.stack_frame.is_null() {
+            self.stack_frame = frame;
+        } else {
+            unsafe {
+                (*frame.cast::<StackFrame>()).prev_frame = self.stack_frame;
+            }
+            self.stack_frame = frame;
+        }
+    }
+
+    /// Pops the current stack frame from the execution stack
+    ///
+    /// # Safety
+    /// The caller must ensure no references to the popped frame remain
+    pub(crate) fn pop_stack_frame(&mut self) -> *mut Pin<StackFrame> {
+        if self.stack_frame.is_null() {
+            std::ptr::null_mut()
+        } else {
+            let frame = self.stack_frame;
+            self.stack_frame = unsafe { (*frame.cast::<StackFrame>()).prev_frame };
+            frame
+        }
     }
 
     /// initialize random state
@@ -192,11 +272,7 @@ impl<'a> JSContextInner<'a> {
         self.random_state = if seed != 0 { seed } else { 1 };
     }
 
-    // fn gc_dump(&self, _rt: &JSRuntime) {
-    //     println!("{:14p} [context]", self);
-    // }
-
-    pub(crate) fn finalize(&mut self) {
+    fn finalize(&mut self) {
         // free loaded modules
         js_free_modules(self, JSFreeModuleEnum::JS_FREE_MODULE_ALL);
         #[cfg(debug_assertions)]
@@ -204,6 +280,8 @@ impl<'a> JSContextInner<'a> {
             // self.loaded_modules.retain(|w| w.upgrade().is_some());
             debug_assert!(self.loaded_modules.is_empty());
         }
+
+        self.class_proto.clear();
 
         self.array_shape.take();
         self.function_ctor = JSValue::UNDEFINED;
@@ -219,127 +297,77 @@ impl<'a> JSContextInner<'a> {
         self.global_var_obj = JSValue::UNDEFINED;
         self.eval_func = JSValue::UNDEFINED;
 
-        self.class_proto.clear();
-
-        #[cfg(feature = "dump_atoms")]
-        JS_DumpAtoms(rt);
-
-        #[cfg(feature = "dump_shapes")]
-        crate::shape::JS_DumpShapes(ctx.rt);
-
-        #[cfg(feature = "dump_objects")]
-        self.rt().gc_dump_objects(1);
-
-        println!("[O.o][TODO] do gc when context dropped");
-        // let rt = self.rt_mut();
-        // if rt.gc_phase != JSGCPhaseEnum::JS_GC_PHASE_REMOVE_CYCLES {
-        //     if rt.gc_phase == JSGCPhaseEnum::JS_GC_PHASE_NONE {
-        //         rt.gc_free_zeroed();
-        //     }
-        // }
-
-        #[cfg(feature = "DUMP_MEM")]
-        {
-            let mut stats: JSMemoryUsage;
-            JS_ComputeMemoryUsage(rt, &mut stats);
-            JS_DumpMemoryUsage(stdout, &stats, rt);
-        }
+        // // context is not gc root anymore
+        // self.rt()
+        //     .gc_heap_mut()
+        //     .unset_root(&unsafe { GcRef::from_ref_unchecked(self) });
     }
 }
 
-#[repr(transparent)]
-#[derive(Clone)]
-pub struct JSContext<'a>(pub Rc<RefCell<JSContextInner<'a>>>);
+/// Handle to context with lifetime restriction
+#[derive(Clone, Copy)]
+pub struct ContextHandle<'a> {
+    gc_ref: GcRef<ContextImpl>,
+    _mark: PhantomData<&'a ()>,
+}
 
-impl PartialEq for JSContext<'_> {
+impl<'a> Deref for ContextHandle<'a> {
+    type Target = ContextImpl;
+
+    #[inline(always)]
+    fn deref(&self) -> &Self::Target {
+        unsafe { self.gc_ref.as_ref() }
+    }
+}
+
+impl<'a> DerefMut for ContextHandle<'a> {
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { self.gc_ref.as_mut() }
+    }
+}
+
+impl<'a> ContextHandle<'a> {
+    /// get ContextRef
+    #[inline(always)]
+    pub const fn ptr(&self) -> ContextRef {
+        ContextRef(self.gc_ref)
+    }
+}
+
+/// A light-weight context pointer, efficent to copy, like a raw pointer.
+/// It can be dereferenced to ref or mut ref automatically.
+/// Safety: you are responsible to take more care to use it safe, keep in mind pointer could be dangling.
+///
+/// TODO: this should not expose to public api. define a `ContextHandle` instead,
+/// which has lifetime and can not clone.
+#[repr(transparent)]
+#[derive(Clone, Copy)]
+pub struct ContextRef(GcRef<ContextImpl>);
+
+gcref_wrapper!(ContextRef, ContextImpl);
+
+impl PartialEq for ContextRef {
+    #[inline(always)]
     fn eq(&self, other: &Self) -> bool {
         self.id() == other.id()
     }
 }
 
-impl std::fmt::Debug for JSContext<'_> {
+impl std::fmt::Debug for ContextRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "<JSContext {:p}>", self.id() as *const c_void)
+        write!(f, "<ContextRef {:p}>", self.id() as *const c_void)
     }
 }
 
-impl<'a> JSContext<'a> {
-    #[inline]
-    pub fn id(&self) -> usize {
-        self.0.borrow().id()
-    }
-
-    pub fn with_mut<R>(&self, f: impl FnOnce(&mut JSContextInner) -> R) -> R {
-        f(self.0.borrow_mut().deref_mut())
-    }
-
-    /// Returns the runtime reference
-    #[inline(always)]
-    pub fn rt(&self) -> RuntimePtr<'a> {
-        self.0.borrow().rt()
-    }
-
-    /// get global object
-    #[inline]
-    pub fn global_obj(&self) -> JSObject<'a> {
-        unsafe { self.0.borrow().global_obj.as_object_unchecked().clone() }
-    }
-
-    /// get global var object
-    #[inline]
-    pub fn global_var_obj(&self) -> JSObject<'a> {
-        unsafe { self.0.borrow().global_var_obj.as_object_unchecked().clone() }
-    }
-
-    /// Pushes a new stack frame onto the execution stack
-    ///
-    /// # Safety
-    /// The caller must ensure the frame pointer is valid
-    pub fn push_stack_frame(&mut self, frame: *mut Pin<StackFrame<'a>>) {
-        let mut ctx = self.0.borrow_mut();
-
-        if ctx.stack_frame.is_null() {
-            ctx.stack_frame = frame;
-        } else {
-            unsafe {
-                (*frame.cast::<StackFrame>()).prev_frame = ctx.stack_frame;
-            }
-            ctx.stack_frame = frame;
-        }
-    }
-
-    /// Pops the current stack frame from the execution stack
-    ///
-    /// # Safety
-    /// The caller must ensure no references to the popped frame remain
-    pub fn pop_stack_frame(&mut self) -> *mut Pin<StackFrame<'a>> {
-        let mut ctx = self.0.borrow_mut();
-
-        if ctx.stack_frame.is_null() {
-            std::ptr::null_mut()
-        } else {
-            let frame = ctx.stack_frame;
-            ctx.stack_frame = unsafe { (*frame.cast::<StackFrame>()).prev_frame };
-            frame
-        }
-    }
-
-    pub fn downgrade(&self) -> JSContextWeakref<'a> {
-        JSContextWeakref(Rc::downgrade(&self.0))
-    }
-
-    pub fn gc_has_mark(&self) -> bool {
-        self.0.borrow().flags & 1 != 0
-    }
-
-    pub fn gc_set_mark(&self, mark: bool) {
-        let mut b = self.0.borrow_mut();
-        b.flags = (b.flags & 0b1111_1110) | (mark as u8)
+impl ContextRef {
+    pub fn downgrade(&self) -> GcWeak<ContextImpl> {
+        self.0.downgrade(self.rt().gc_heap_mut())
     }
 
     /// Initialize minimum amount of objects to be able to compile code and display error messages.
     /// No Atom should be allocated by this function.
-    fn init_core_objects(&self) -> Result<(), i32> {
+    fn init_core_objects(&mut self) -> Result<(), i32> {
         debug_assert!(
             [
                 JS_CLASS_OBJECT,
@@ -356,7 +384,7 @@ impl<'a> JSContext<'a> {
 
         // Object
         let object = self.create_base_object_with_proto(None)?;
-        self.0.borrow_mut().class_proto[JS_CLASS_OBJECT as usize] = object.clone().into();
+        self.class_proto[JS_CLASS_OBJECT as usize] = object.into();
 
         // Function
         {
@@ -365,28 +393,28 @@ impl<'a> JSContext<'a> {
                 "",
                 0,
                 0,
-                object.clone().into(),
+                object.into(),
             )?;
-            self.0.borrow_mut().class_proto[JS_CLASS_BYTECODE_FUNCTION as usize] = func.into();
+            self.class_proto[JS_CLASS_BYTECODE_FUNCTION as usize] = func.into();
         }
 
         // Error
         {
-            let error = self.create_base_object()?;
+            let mut error = self.create_base_object()?;
             error
                 .install_field_defs(self, &js_error_proto_funcs)
                 .unwrap();
-            self.0.borrow_mut().class_proto[JS_CLASS_ERROR as usize] = error.clone().into();
+            self.class_proto[JS_CLASS_ERROR as usize] = error.into();
 
             // standard error objects
-            let msg = JS_ATOM_empty_string.force_string(self).unwrap();
+            let msg = Atom::CONST_empty_string.force_string(self).unwrap();
             for (i, name) in STD_ERROR_NAMES.iter().enumerate() {
-                let err = self.create_base_object_with_proto(Some(error.clone()))?;
+                let mut err = self.create_base_object_with_proto(Some(error))?;
 
                 let name = self.create_atom_string(name).unwrap();
                 err.define_property_value(
                     self,
-                    &JS_ATOM_name,
+                    Atom::CONST_name,
                     JSValue::String(name),
                     JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
                 )
@@ -394,13 +422,13 @@ impl<'a> JSContext<'a> {
 
                 err.define_property_value(
                     self,
-                    &JS_ATOM_message,
-                    JSValue::String(msg.clone()),
+                    Atom::CONST_message,
+                    JSValue::String(msg),
                     JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
                 )
                 .unwrap();
 
-                self.0.borrow_mut().native_error_proto[i] = err.into();
+                self.native_error_proto[i] = err.into();
             }
         }
 
@@ -409,52 +437,39 @@ impl<'a> JSContext<'a> {
             // 1. make Array prototype object
             let array_proto = self
                 .create_object_with_proto(
-                    object.clone().into(),
-                    ObjectPayload::ARRAY(ArrayObjPayload::default()),
+                    object.into(),
+                    ObjectPayload::ARRAY(ArrayPayload::default()),
                 )
                 .map_err(|_| -1)?;
 
-            self.0.borrow_mut().class_proto[JS_CLASS_ARRAY as usize] = array_proto.clone().into();
+            self.class_proto[JS_CLASS_ARRAY as usize] = array_proto.into();
 
             // 2. make default shape for Array
-            let array_shape = JSShape::new(self, Some(array_proto.clone()), 1).unwrap();
-
-            // define length property, index=0
+            let mut array_shape = ShapeHandle::new(self, Some(array_proto), 1).unwrap();
+            // define `length` property at #0
             array_shape
-                .add_shape_property(
-                    self,
-                    Atom::new_const(JS_ATOM_length),
-                    JS_PROP_WRITABLE | JS_PROP_LENGTH,
-                    None,
-                )
-                .unwrap();
+                .add_shape_properties(&[(Atom::CONST_length, JS_PROP_WRITABLE | JS_PROP_LENGTH)]);
 
-            self.0.borrow_mut().array_shape.replace(array_shape);
+            // register shape
+            self.rt().shape_registry.register(&array_shape).unwrap();
+            self.array_shape.replace(array_shape);
         }
 
         Ok(())
     }
-}
 
-#[repr(transparent)]
-#[derive(Debug, Clone)]
-pub struct JSContextWeakref<'a>(Weak<RefCell<JSContextInner<'a>>>);
-
-impl<'a> Default for JSContextWeakref<'a> {
-    fn default() -> Self {
-        Self(Weak::new())
+    pub fn gc_has_mark(&self) -> bool {
+        self.flags & 1 != 0
     }
-}
 
-impl<'a> JSContextWeakref<'a> {
-    pub fn upgrade(&self) -> Option<JSContext<'a>> {
-        self.0.upgrade().map(JSContext)
+    pub fn gc_set_mark(&mut self, mark: bool) {
+        self.flags = (self.flags & 0b1111_1110) | (mark as u8)
     }
 }
 
 /* only valid inside C functions */
-pub(crate) fn JS_GetActiveFunction<'a>(ctx: &JSContext<'a>) -> JSValue<'a> {
-    unsafe { (&(*ctx.rt().cur_stack_frame.cast::<StackFrame<'a>>()).cur_func).clone() }
+pub(crate) fn JS_GetActiveFunction(ctx: &ContextImpl) -> JSValue {
+    unsafe { (*ctx.rt().cur_stack_frame.cast::<StackFrame>()).cur_func }
 }
 
 pub const JS_MODE_STRICT: i32 = 1 << 0;
@@ -463,10 +478,35 @@ pub const JS_MODE_MATH: i32 = 1 << 2;
 pub const JS_MODE_ASYNC: i32 = 1 << 3; /* async function */
 
 /// test if content is currently in strict mode
-pub fn is_strict_mode(ctx: &JSContext) -> bool {
+pub fn is_strict_mode(ctx: &ContextImpl) -> bool {
     unsafe {
         let sf = ctx.rt().cur_stack_frame.cast::<StackFrame>();
         !sf.is_null() && (*sf).js_mode & JS_MODE_STRICT != 0
+    }
+}
+
+impl RuntimeImpl {
+    /// Creates context with setup closure.
+    pub(super) fn create_context_raw<'a>(
+        &mut self,
+        setup: impl FnOnce(ContextRef) -> Result<(), i32>,
+    ) -> Result<ContextHandle<'a>, i32> {
+        let inner = ContextImpl::new(self)?;
+
+        let gc_ref = self.gc_alloc(inner).map_err(|_| -1)?;
+        self.gc_heap_mut().set_root(&gc_ref);
+
+        let mut ctx = ContextRef(gc_ref);
+        ctx.init_core_objects()?;
+        setup(ctx)?;
+
+        // register context
+        self.context_list.push(ctx);
+
+        Ok(ContextHandle {
+            gc_ref,
+            _mark: PhantomData,
+        })
     }
 }
 
@@ -481,23 +521,4 @@ pub enum AtomicOp {
     Store,
     Sub,
     Xor,
-}
-
-impl<'a> JSRuntime<'a> {
-    /// Creates context with setup closure.
-    pub(super) fn create_context_raw(
-        &mut self,
-        setup: impl FnOnce(&JSContext<'a>) -> Result<(), i32>,
-    ) -> Result<JSContext<'a>, i32> {
-        let inner = JSContextInner::<'a>::new(self)?;
-        let ctx = JSContext(Rc::new(RefCell::new(inner)));
-
-        ctx.init_core_objects()?;
-        setup(&ctx)?;
-
-        // register context to runtime
-        self.context_list.push(ctx.clone());
-
-        Ok(ctx)
-    }
 }

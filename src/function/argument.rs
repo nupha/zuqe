@@ -1,25 +1,22 @@
-use std::ops::Deref;
-
 use crate::{
     JS_CLASS_OBJECT,
-    array::ArrayObjPayload,
-    atom::{Atom, consts::*},
+    array::ArrayPayload,
+    atom::Atom,
     branch_hints::unlikely,
-    context::JSContext,
+    context::ContextImpl,
     error::JSResult,
-    object::JSObject,
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_VARREF,
-        JS_PROP_WRITABLE, JSProperty, ObjectPayload,
+        JS_PROP_WRITABLE, JSProperty, ObjectPayload, ObjectRef,
     },
     runtime::JS_MAX_LOCAL_VARS,
     stack_frame::StackFrame,
     value::JSValue,
 };
 
-impl<'a> JSContext<'a> {
-    pub(crate) fn build_rest(&self, first: usize, args: &[JSValue<'a>]) -> JSResult<'a> {
-        let arr = self.create_array()?;
+impl ContextImpl {
+    pub(crate) fn build_rest(&self, first: usize, args: &[JSValue]) -> JSResult {
+        let mut arr = self.create_array()?;
         if !args.is_empty() {
             for (i, v) in args.iter().enumerate().skip(first) {
                 arr.define_property_value_u32(self, (i - first) as u32, v.clone(), JS_PROP_C_W_E)?;
@@ -29,10 +26,10 @@ impl<'a> JSContext<'a> {
     }
 }
 
-pub fn js_build_arguments<'a>(ctx: &JSContext<'a>, args: &[JSValue<'a>]) -> JSValue<'a> {
-    let obj: JSObject = if let Ok(o) = ctx.create_object_with_proto(
+pub fn js_build_arguments(ctx: &ContextImpl, args: &[JSValue]) -> JSValue {
+    let mut obj = if let Ok(o) = ctx.create_object_with_proto(
         ctx.class_proto(JS_CLASS_OBJECT),
-        ObjectPayload::ARGUMENTS(ArrayObjPayload::default()),
+        ObjectPayload::ARGUMENTS(ArrayPayload::default()),
     ) {
         o
     } else {
@@ -42,7 +39,7 @@ pub fn js_build_arguments<'a>(ctx: &JSContext<'a>, args: &[JSValue<'a>]) -> JSVa
     // add the length property (cannot fail)
     obj.add_own_property(
         ctx,
-        JS_ATOM_length.deref().clone(),
+        Atom::CONST_length,
         JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
         JSProperty::Normal(JSValue::Int(args.len() as i32)),
     )
@@ -66,19 +63,19 @@ pub fn js_build_arguments<'a>(ctx: &JSContext<'a>, args: &[JSValue<'a>]) -> JSVa
 
     obj.define_property_value(
         ctx,
-        JS_ATOM_Symbol_iterator.deref(),
-        ctx.0.borrow().array_proto_values.clone(),
+        Atom::CONST_Symbol_iterator,
+        ctx.array_proto_values,
         JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
     )
     .unwrap();
 
     // LEGACY: add 'callee' property
-    let throw_type_error = ctx.0.borrow().throw_type_error.clone();
+    let throw_type_error = ctx.throw_type_error;
     obj.define_property(
         ctx,
-        JS_ATOM_callee.deref(),
+        Atom::CONST_callee,
         JSValue::UNDEFINED,
-        throw_type_error.clone(),
+        throw_type_error,
         throw_type_error,
         JS_PROP_HAS_GET | JS_PROP_HAS_SET,
     )
@@ -88,13 +85,13 @@ pub fn js_build_arguments<'a>(ctx: &JSContext<'a>, args: &[JSValue<'a>]) -> JSVa
 }
 
 /// legacy arguments object: add references to the function arguments
-pub fn js_build_mapped_arguments<'a>(
-    ctx: &JSContext<'a>,
-    args: &[JSValue<'a>],
-    sf: &mut StackFrame<'a>,
+pub fn js_build_mapped_arguments(
+    ctx: &ContextImpl,
+    args: &[JSValue],
+    sf: &mut StackFrame,
     arg_count: i32,
-) -> Result<JSObject<'a>, i32> {
-    let obj = ctx
+) -> Result<ObjectRef, i32> {
+    let mut obj = ctx
         .create_object_with_proto(
             ctx.class_proto(JS_CLASS_OBJECT),
             ObjectPayload::MAPPED_ARGUMENTS,
@@ -104,7 +101,7 @@ pub fn js_build_mapped_arguments<'a>(
     // add the `length` property
     obj.add_own_property(
         ctx,
-        JS_ATOM_length.deref().clone(),
+        Atom::CONST_length,
         JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
         JSProperty::Normal(JSValue::Int(args.len() as i32)),
     )?;
@@ -126,15 +123,15 @@ pub fn js_build_mapped_arguments<'a>(
 
     obj.define_property_value(
         ctx,
-        &JS_ATOM_Symbol_iterator,
-        ctx.0.borrow().array_proto_values.clone(),
+        Atom::CONST_Symbol_iterator,
+        ctx.array_proto_values.clone(),
         JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
     )?;
 
     // callee returns this function in non strict mode
     obj.define_property_value(
         ctx,
-        &JS_ATOM_callee,
+        Atom::CONST_callee,
         unsafe {
             (*ctx.rt().cur_stack_frame.cast::<StackFrame>())
                 .cur_func
@@ -146,16 +143,8 @@ pub fn js_build_mapped_arguments<'a>(
     Ok(obj)
 }
 
-#[deprecated(note = "use JSContext::build_rest() instead")]
-pub fn js_build_rest<'a>(ctx: &JSContext<'a>, first: usize, args: &[JSValue<'a>]) -> JSValue<'a> {
-    ctx.build_rest(first, args).unwrap_or(JSValue::EXCEPTION)
-}
-
 // XXX: should use ValueArray
-pub fn build_arg_list<'a>(
-    ctx: &JSContext<'a>,
-    array_arg: &JSValue<'a>,
-) -> Result<Box<[JSValue<'a>]>, i32> {
+pub fn build_arg_list(ctx: &ContextImpl, array_arg: JSValue) -> Result<Box<[JSValue]>, i32> {
     if unlikely(!array_arg.is_object()) {
         ctx.throw_type_error_not_an_object();
         Err(-1)

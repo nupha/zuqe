@@ -1,6 +1,6 @@
 use std::{ops::Deref, ptr::NonNull};
 
-use crate::{atom::Atom, runtime::JSRuntime};
+use crate::{atom::Atom, runtime::RuntimeImpl};
 
 use super::AtomRef;
 
@@ -9,7 +9,7 @@ use super::AtomRef;
 #[derive(Debug)]
 pub struct AtomRc {
     atom: Atom,
-    rt: NonNull<JSRuntime>,
+    rt: NonNull<RuntimeImpl>,
 }
 
 impl AtomRc {
@@ -21,7 +21,7 @@ impl AtomRc {
 
     /// wrap a atom to atom rc by cloning it
     #[inline]
-    pub fn from_ref<A: Into<AtomRef>>(rt: &JSRuntime, atom: A) -> Self {
+    pub fn from_ref<A: Into<AtomRef>>(rt: &RuntimeImpl, atom: A) -> Self {
         let a: AtomRef = atom.into();
         a.dup(rt).into_rc(rt)
     }
@@ -80,7 +80,7 @@ impl From<AtomRc> for Atom {
 }
 
 impl Atom {
-    pub fn into_rc(self, rt: &JSRuntime) -> AtomRc {
+    pub fn into_rc(self, rt: &RuntimeImpl) -> AtomRc {
         AtomRc {
             atom: self,
             rt: NonNull::from(rt),

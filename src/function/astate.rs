@@ -1,60 +1,50 @@
-use std::{
-    cell::RefCell,
-    ops::Deref,
-    pin::Pin,
-    ptr::NonNull,
-    rc::{Rc, Weak},
-};
+use std::{pin::Pin, ptr::NonNull};
+
+use gc_lite::{Collect, GcRef};
 
 use crate::{
-    context::{JS_MODE_ASYNC, JSContext},
+    context::{ContextImpl, JS_MODE_ASYNC},
     error::JSResult,
     function::BCFunction,
-    gc::GCObjectHeader,
-    object::{GCObjectWeakref, ObjectPayload},
-    runtime::{JSRuntime, RuntimePtr, js_check_stack_overflow},
+    gcref_wrapper,
+    object::ObjectPayload,
+    runtime::{RuntimeImpl, js_check_stack_overflow},
     stack_frame::StackFrame,
     value::JSValue,
 };
 
-use super::call::{JS_CALL_FLAG_GENERATOR, JS_CallInternal};
-
 #[derive(Debug)]
-pub(crate) struct AsyncStateInner<'a> {
-    pub header: GCObjectHeader<'a>,
-
+pub struct AsyncStateImpl {
     /// 'this' argument
-    pub this_val: JSValue<'a>,
-
+    pub this_val: JSValue,
     /// number of function arguments
     pub argc: i32,
-
     /// used to throw an exception in JS_CallInternal()
     pub throw_flag: bool,
-
-    /* TRUE if the function has returned. The stack frame is no longer valid */
+    /// TRUE if the function has returned. The stack frame is no longer valid
     pub is_completed: bool,
-
     /// for async function only
-    pub resolving_funcs: [JSValue<'a>; 2],
-
-    /// a dedicated stack frame to run async function
-    pub frame: Box<StackFrame<'a>>,
+    pub resolving_funcs: [JSValue; 2],
+    /// a dedicated stack frame to run async
+    pub frame: Pin<Box<StackFrame>>,
 }
 
-impl<'a> Drop for AsyncStateInner<'a> {
-    fn drop(&mut self) {
-        self.finalize();
+unsafe impl Collect for AsyncStateImpl {
+    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+        self.this_val.trace(tracer);
+        self.resolving_funcs[0].trace(tracer);
+        self.resolving_funcs[1].trace(tracer);
+        self.frame.trace(tracer);
     }
 }
 
-impl<'a> AsyncStateInner<'a> {
+impl AsyncStateImpl {
     fn new(
-        ctx: &JSContext<'a>,
-        resolvings: [JSValue<'a>; 2],
-        bc_func: BCFunction<'a>,
-        this_obj: JSValue<'a>,
-        args: &[JSValue<'a>],
+        ctx: &ContextImpl,
+        resolvings: [JSValue; 2],
+        bc_func: BCFunction,
+        this_obj: JSValue,
+        args: &[JSValue],
     ) -> Result<Self, i32> {
         let (arg_count, var_count, stack_size, js_mode) = {
             let bc = bc_func.payload().bytecode();
@@ -80,34 +70,40 @@ impl<'a> AsyncStateInner<'a> {
 
             // copy arg values
             for (i, a) in args.iter().enumerate() {
-                lst[i] = a.clone();
+                lst[i] = *a;
             }
 
             lst
         };
 
-        let s = Self {
-            header: GCObjectHeader::new(ctx.rt(), 1),
+        let frame = Box::pin(StackFrame {
+            js_mode: js_mode as i32 | JS_MODE_ASYNC,
+            cur_func: bc_func.into(),
+            arg_base_ptr: local_buf.as_mut_ptr(),
+            arg_real_count: args.len() as _,
+            arg_count: arg_count as _,
+            var_base_ptr: unsafe { local_buf.as_mut_ptr().add(arg_count as usize) },
+            var_count,
+            local_buf,
+            ..Default::default()
+        });
 
+        // fix var_base_ptr - really need this?
+        // frame.var_base_ptr = unsafe { frame.local_buf.as_mut_ptr().add(arg_count as usize) };
+
+        // ensure var_base_ptr points to the correct offset in local_buf
+        debug_assert_eq!(frame.var_base_ptr as *const _, unsafe {
+            frame.local_buf.as_ptr().add(arg_count as usize)
+        });
+
+        Ok(Self {
             argc: args.len() as _,
             this_val: this_obj,
             resolving_funcs: resolvings,
             throw_flag: false,
             is_completed: false,
-
-            frame: Box::new(StackFrame {
-                js_mode: js_mode as i32 | JS_MODE_ASYNC,
-                cur_func: bc_func.into(),
-                arg_base_ptr: local_buf.as_mut_ptr(),
-                arg_real_count: args.len() as _,
-                arg_count: arg_count as _,
-                var_base_ptr: unsafe { local_buf.as_mut_ptr().add(arg_count as usize) },
-                var_count,
-                local_buf,
-                ..Default::default()
-            }),
-        };
-        Ok(s)
+            frame,
+        })
     }
 
     #[inline(always)]
@@ -116,7 +112,7 @@ impl<'a> AsyncStateInner<'a> {
     }
 
     #[inline(always)]
-    pub fn arg_ptr(&self) -> NonNull<JSValue<'a>> {
+    pub fn arg_ptr(&self) -> NonNull<JSValue> {
         unsafe { NonNull::new_unchecked(self.frame.arg_base_ptr) }
     }
 
@@ -125,31 +121,147 @@ impl<'a> AsyncStateInner<'a> {
         self.frame.arg_real_count as usize
     }
 
-    /// free values ranges from argument start through stack top.
-    fn free_stack_values(&mut self) {
-        // free values on async stack frame
-        if !self.frame.arg_base_ptr.is_null() {
-            debug_assert!(
-                self.frame.cur_sp_offset != -1,
-                "cannot free the function if it is running"
-            );
-
-            let mut p = self.frame.arg_base_ptr; // arg base is on local_buf
-            let end_p = self.frame.stack_cur_ptr().as_ptr(); // stack cur ptr is on local_buf
-            while p < end_p {
-                unsafe {
-                    std::ptr::replace(p, JSValue::UNDEFINED);
-                    p = p.add(1);
-                }
-            }
-
-            self.frame.arg_base_ptr = std::ptr::null_mut();
-        }
-
-        // clean up var refs
-        self.frame.clear();
+    #[inline(always)]
+    pub(crate) const fn set_throw_flag(&mut self, b: bool) {
+        self.throw_flag = b;
     }
 
+    /// put given value to stack at position current stack pointer -1
+    pub(super) fn set_return_value(&mut self, val: JSValue) {
+        unsafe {
+            *self
+                .frame
+                .stack_base_ptr()
+                .as_ptr()
+                .add(self.frame.cur_sp_offset as usize - 1) = val;
+        }
+    }
+
+    /// Resume execution of the async function.
+    pub(crate) fn resume(&mut self, ctx: &ContextImpl) -> JSResult {
+        debug_assert!(!self.is_completed);
+
+        if js_check_stack_overflow(&ctx.rt(), 0) {
+            ctx.throw_stack_overflow();
+            return Err(-1);
+        }
+
+        // short borrow to avoid conflict
+        let (this_val, arg_list) = {
+            (self.this_val, unsafe {
+                std::slice::from_raw_parts(self.arg_ptr().as_ptr(), self.arg_count())
+            })
+        };
+
+        // run async func
+        let mut ret = self.resume_call(ctx, this_val, arg_list);
+
+        let completed = match ret {
+            Ok(JSValue::UNDEFINED) => {
+                debug_assert!(self.frame.cur_sp_offset > 0);
+                // get stack top value
+                ret = Ok(unsafe {
+                    std::ptr::replace(
+                        // HINT: stack_cur_ptr advances the stack_top pointer by 1.
+                        // subtract 1 is the exact addr for stack_top.
+                        self.frame.stack_cur_ptr().offset(-1).as_ptr(),
+                        JSValue::UNDEFINED,
+                    )
+                });
+                true
+            }
+            Err(_) => true,
+            _ => false,
+        };
+
+        if completed {
+            // mark end of execution
+            self.is_completed = true;
+
+            unsafe {
+                // close the closure variables.
+                self.frame.as_mut().get_unchecked_mut().close_var_refs();
+            }
+        }
+
+        ret
+    }
+
+    fn resume_call(
+        &mut self,
+        caller_ctx: &ContextImpl,
+        this_obj: JSValue,
+        args: &[JSValue],
+    ) -> JSResult {
+        caller_ctx.poll_interrupts()?;
+
+        let throw_flag = self.throw_flag;
+
+        // state has a dedicated stack frame for async function
+        let mut bcf = *self.frame.cur_func.as_object_BCFunction().unwrap();
+        let pc_offset = self.frame.cur_pc_offset;
+        let sp_offset = self.frame.cur_sp_offset;
+        debug_assert!(sp_offset >= 0);
+
+        let stack_frame = unsafe { self.frame.as_mut().get_unchecked_mut() };
+        stack_frame.cur_sp_offset = -1;
+
+        let mut rt = caller_ctx.rt();
+        stack_frame.prev_frame = rt.cur_stack_frame;
+        rt.cur_stack_frame = (stack_frame as *const StackFrame as *mut StackFrame).cast();
+
+        let isa = bcf.payload_mut();
+        let bc = isa.bytecode();
+
+        let ret_val = bc.run(
+            caller_ctx,
+            isa.home_object(),
+            stack_frame,
+            this_obj,
+            JSValue::UNDEFINED,
+            pc_offset,
+            sp_offset as usize,
+            &mut isa.var_refs,
+            args,
+            throw_flag,
+        );
+
+        debug_assert_eq!(
+            caller_ctx.rt().cur_stack_frame.cast::<u8>(),
+            self.frame.prev_frame.cast::<u8>(),
+            "runtime current stack frame should be restored after running bytecodes"
+        );
+
+        ret_val.err()
+    }
+
+    /// free values ranges from argument start through stack top.
+    #[deprecated(note = "this is not used, let gc trace to mark alives")]
+    fn free_stack_values(&mut self) {
+        // // free values on async stack frame
+        // if !self.frame.arg_base_ptr.is_null() {
+        //     debug_assert!(
+        //         self.frame.cur_sp_offset != -1,
+        //         "cannot free the function if it is running"
+        //     );
+
+        //     let mut p = self.frame.arg_base_ptr; // arg base is on local_buf
+        //     let end_p = self.frame.stack_cur_ptr().as_ptr(); // stack cur ptr is on local_buf
+        //     while p < end_p {
+        //         unsafe {
+        //             std::ptr::replace(p, JSValue::UNDEFINED);
+        //             p = p.add(1);
+        //         }
+        //     }
+
+        //     self.frame.arg_base_ptr = std::ptr::null_mut();
+        // }
+
+        // // clean up var refs
+        // self.frame.clear();
+    }
+
+    #[deprecated]
     fn finalize(&mut self) {
         if !self.is_completed {
             // cannot close the closure variables here because it would
@@ -161,58 +273,50 @@ impl<'a> AsyncStateInner<'a> {
 
 /// async execution state.
 /// used to save execution state of an async function or generator.
-#[derive(Debug, Clone)]
-pub struct AsyncFuncState<'a>(pub(crate) Rc<RefCell<Pin<Box<AsyncStateInner<'a>>>>>);
+#[derive(Debug, Clone, Copy)]
+pub struct AsyncFuncState(GcRef<AsyncStateImpl>);
 
-impl<'a> AsyncFuncState<'a> {
-    /// create new AsyncFuncState, register to gc tracking list.
+gcref_wrapper!(AsyncFuncState, AsyncStateImpl);
+
+impl PartialEq for AsyncFuncState {
+    #[inline(always)]
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl AsyncFuncState {
     pub fn new_with_resolvings(
-        ctx: &JSContext<'a>,
-        resolvings: [JSValue<'a>; 2],
-        bc_func: BCFunction<'a>,
-        this_obj: JSValue<'a>,
-        args: &[JSValue<'a>],
+        ctx: &ContextImpl,
+        resolvings: [JSValue; 2],
+        bc_func: BCFunction,
+        this_obj: JSValue,
+        args: &[JSValue],
     ) -> Result<Self, i32> {
-        let inner = AsyncStateInner::new(ctx, resolvings, bc_func, this_obj, args)?;
+        let inner = AsyncStateImpl::new(ctx, resolvings, bc_func, this_obj, args)?;
 
-        // fix var_base_ptr field: it's self referenced
-        let mut pinned = Box::pin(inner);
+        let gc_ref = ctx.rt().gc_alloc(inner).map_err(|_| {
+            ctx.throw_out_of_memory();
+            -1
+        })?;
+        let mut a_state = Self(gc_ref);
+
+        // setup backref link for StackFrame to its wrapper AsyncState
+        let w = gc_ref.downgrade(ctx.rt().gc_heap_mut());
         unsafe {
-            let a = pinned.as_mut().get_unchecked_mut();
-            a.frame.var_base_ptr = a
-                .frame
-                .local_buf
-                .as_mut_ptr()
-                .add(a.frame.arg_count as usize);
+            a_state.frame.as_mut().get_unchecked_mut().async_func = w;
         }
 
-        let sframe = Self(Rc::new(RefCell::new(pinned)));
-        let w = sframe.downgrade();
-
-        // associate stack frame with async state
-        unsafe {
-            sframe
-                .0
-                .borrow_mut()
-                .as_mut()
-                .get_unchecked_mut()
-                .frame
-                .async_func = sframe.downgrade();
-        }
-
-        // register to gc
-        ctx.rt().gc_obj_list.insert(sframe.id(), w.into());
-
-        Ok(sframe)
+        Ok(a_state)
     }
 
     /// create new AsyncFuncState, register to gc tracking list.
     #[inline(always)]
     pub fn new(
-        ctx: &JSContext<'a>,
-        bc_func: BCFunction<'a>,
-        this_obj: JSValue<'a>,
-        args: &[JSValue<'a>],
+        ctx: &ContextImpl,
+        bc_func: BCFunction,
+        this_obj: JSValue,
+        args: &[JSValue],
     ) -> Result<Self, i32> {
         Self::new_with_resolvings(
             ctx,
@@ -223,145 +327,16 @@ impl<'a> AsyncFuncState<'a> {
         )
     }
 
-    #[inline(always)]
-    pub fn id(&self) -> usize {
-        self.0.borrow().id()
-    }
+    #[deprecated]
+    pub const fn class_finalizer(_rt: &mut RuntimeImpl, _isa: &ObjectPayload, _id: usize) {}
 
-    #[inline(always)]
-    pub fn rt(&self) -> RuntimePtr<'a> {
-        self.0.borrow().header.rt()
-    }
-
-    #[inline(always)]
-    pub fn is_completed(&self) -> bool {
-        self.0.borrow().is_completed
-    }
-
-    pub fn downgrade(&self) -> AsyncStateWeakref<'a> {
-        AsyncStateWeakref(Rc::downgrade(&self.0))
-    }
-
-    pub fn set_throw_flag(&self, b: bool) {
-        unsafe {
-            self.0.borrow_mut().as_mut().get_unchecked_mut().throw_flag = b;
-        }
-    }
-
-    /// put given value to stack at position current stack pointer -1
-    pub fn set_return_value(&self, val: JSValue<'a>) {
-        let mut s = self.0.borrow_mut();
-        unsafe {
-            let state = s.as_mut().get_unchecked_mut();
-            *state
-                .frame
-                .stack_base_ptr()
-                .as_ptr()
-                .add(state.frame.cur_sp_offset as usize - 1) = val;
-        }
-    }
-
-    /// Resume execution of the async function.
-    pub fn resume(&self, ctx: &JSContext<'a>) -> JSResult<'a> {
-        debug_assert!(!self.0.borrow().is_completed);
-
-        if js_check_stack_overflow(ctx.rt().as_ref(), 0) {
-            ctx.throw_stack_overflow();
-            return Err(-1);
-        }
-
-        // short borrow to avoid conflict
-        let (this_val, arg_list) = {
-            let b = self.0.borrow();
-            (b.this_val.clone(), unsafe {
-                std::slice::from_raw_parts(b.arg_ptr().as_ptr(), b.arg_count())
-            })
-        };
-
-        let mut ret = JS_CallInternal(
-            ctx,
-            &JSValue::AsyncStateResume(self.clone()), // <-- use special value type
-            &this_val,
-            JSValue::UNDEFINED,
-            arg_list,
-            JS_CALL_FLAG_GENERATOR,
-        )
-        .err();
-
-        let completed = match ret {
-            Ok(JSValue::UNDEFINED) => {
-                debug_assert!(self.0.borrow().frame.cur_sp_offset > 0);
-                // get stack top value
-                ret = Ok(unsafe {
-                    std::ptr::replace(
-                        // HINT: stack_cur_ptr advances the addr of stack top value by 1.
-                        // subtract 1 is the right addr for stack top.
-                        self.0.borrow().frame.stack_cur_ptr().offset(-1).as_ptr(),
-                        JSValue::UNDEFINED,
-                    )
-                });
-                true
-            }
-            Err(_) => true,
-            _ => false,
-        };
-
-        if completed {
-            // end of execution
-            let mut state = self.0.borrow_mut();
-            let state = unsafe { state.as_mut().get_unchecked_mut() };
-
-            state.is_completed = true;
-            // close the closure variables.
-            state.frame.close_var_refs();
-        }
-
-        ret
-    }
-
-    #[inline(always)]
-    pub fn gc_has_mark(&self) -> bool {
-        self.0.borrow().header.gc_has_mark()
-    }
-
-    #[inline(always)]
-    pub fn gc_set_mark(&self, mark: bool) {
-        self.0.borrow_mut().header.gc_set_mark(mark);
-    }
-
-    // fn gc_dump(&self, _rt: &JSRuntime) {
-    //     println!("{:14p} [async_function]", self.id() as *const Self);
-    // }
-
-    pub const fn class_finalizer(_rt: &mut JSRuntime, _isa: &ObjectPayload, _id: usize) {}
-
+    #[deprecated]
     pub fn class_mark(val: JSValue) {
-        if let Some(s) = val
-            .as_object()
-            .and_then(|p| p.payload().async_function_resolving().cloned())
-        {
-            s.gc_mark();
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct AsyncStateWeakref<'a>(Weak<RefCell<Pin<Box<AsyncStateInner<'a>>>>>);
-
-impl<'a> From<AsyncStateWeakref<'a>> for GCObjectWeakref<'a> {
-    fn from(value: AsyncStateWeakref<'a>) -> Self {
-        Self::AsyncFunction(value)
-    }
-}
-
-impl<'a> Default for AsyncStateWeakref<'a> {
-    fn default() -> Self {
-        Self(Weak::new())
-    }
-}
-
-impl<'a> AsyncStateWeakref<'a> {
-    pub fn upgrade(&self) -> Option<AsyncFuncState<'a>> {
-        self.0.upgrade().map(AsyncFuncState)
+        // if let Some(s) = val
+        //     .as_object()
+        //     .and_then(|p| p.payload().async_function_resolving().cloned())
+        // {
+        //     s.gc_mark();
+        // }
     }
 }

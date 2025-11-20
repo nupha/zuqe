@@ -1,24 +1,21 @@
-use std::{ops::Deref, rc::Rc};
-
 use crate::{
-    atom::{Atom, JS_ATOM_NULL, consts::*},
-    context::{JS_MODE_STRICT, JS_MODE_STRIP, JSContext},
+    atom::Atom,
+    context::{ContextImpl, JS_MODE_STRICT, JS_MODE_STRIP},
     function::{
-        ARG_SCOPE_END, ARG_SCOPE_INDEX, Bytecode, BytecodeInner, JSClosureVar, JSVarDef,
+        ARG_SCOPE_END, ARG_SCOPE_INDEX, Bytecode, BytecodeImpl, JSClosureVar, JSVarDef,
         JSVarKindEnum, is_var_in_arg_scope,
     },
     module::add_module_variables,
-    object::GCObjectWeakref,
     value::JSValue,
 };
 
 use super::JSFunctionDef;
 
-impl<'a> JSFunctionDef<'a> {
+impl JSFunctionDef {
     /// Compile function def to bytecode, returns the Bytecode.
     ///
     /// All the child functions are also created. It must be done this way to resolve all the variables.
-    pub fn compile(mut self: Box<Self>, ctx: &JSContext<'a>) -> Result<Bytecode<'a>, i32> {
+    pub fn build_bytecode(mut self: Box<Self>, ctx: &ContextImpl) -> Result<Bytecode, i32> {
         //
         // recompute scope linkage
         //
@@ -64,7 +61,7 @@ impl<'a> JSFunctionDef<'a> {
         }
 
         // add the module global variables in the closure
-        if self.module.is_some() && unsafe { add_module_variables(ctx, &mut self) } != 0 {
+        if self.module.is_some() && add_module_variables(ctx, &mut self) != 0 {
             return Err(-1);
         }
 
@@ -74,18 +71,18 @@ impl<'a> JSFunctionDef<'a> {
         for fd1 in self.child_list.drain(..) {
             // restore children fd ownership: allow auto drop after use.
             let sub_fd = unsafe { Box::from_raw(fd1.as_ptr()) };
-
             if !has_err {
                 let cpool_idx: i32 = sub_fd.parent_cpool_idx;
                 debug_assert!((0..self.cpool.len() as i32).contains(&cpool_idx));
 
-                if let Ok(sub_bc) = sub_fd.compile(ctx) {
-                    // strore child function to parent's constant pool slot
+                if let Ok(sub_bc) = sub_fd.build_bytecode(ctx) {
+                    // strore child function to constant pool
                     self.cpool[cpool_idx as usize] = JSValue::Bytecode(sub_bc);
                 } else {
                     has_err = true;
                 }
             }
+            // Note: sub_fd dropped here
         }
         debug_assert!(
             self.child_list.is_empty(),
@@ -113,13 +110,10 @@ impl<'a> JSFunctionDef<'a> {
         // make binary
         //
 
-        // cpool start
+        // cpool
+        let cpool_start = 0;
         let cpool_count = self.cpool.len();
-        let (mut bin_size, cpool_start) = if cpool_count != 0 {
-            (cpool_count * std::mem::size_of::<JSValue>(), 0)
-        } else {
-            (0, -1)
-        };
+        let mut bin_size = cpool_count * std::mem::size_of::<JSValue>();
 
         // vardefs (arg+var) start
         let mut vardefs_start = -1;
@@ -177,8 +171,8 @@ impl<'a> JSFunctionDef<'a> {
         }
 
         // 1. cpool section
-        if cpool_start >= 0 {
-            // migrate cpool values to function bytecode binary.
+        if cpool_count > 0 {
+            // transfer cpool values to function bytecode binary.
             unsafe {
                 let mut dst = bin.as_mut_ptr().add(cpool_start as usize).cast::<JSValue>();
                 for v in self.cpool.drain(..) {
@@ -216,20 +210,19 @@ impl<'a> JSFunctionDef<'a> {
                 }
             }
 
-            // IMPORTANT:
-            // vardefs have been copied to bin, we must clean args, vars list here,
-            // so that when calling JSFunctionDef::finalize() in ::drop(),
-            // JSVarDef::name atom won't free twice.
-            for vd in self.args.drain(..) {
-                unsafe {
-                    vd.var_name.leak(); // atom has been mem copied to bin
-                }
-            }
-            for vd in self.vars.drain(..) {
-                unsafe {
-                    vd.var_name.leak(); // atom has been mem copied to bin
-                }
-            }
+            // // vardefs have been copied to bin, we must clean args, vars list here,
+            // // so that when calling JSFunctionDef::finalize() in ::drop(),
+            // // JSVarDef::name atom won't free twice.
+            // for vd in self.args.drain(..) {
+            //     unsafe {
+            //         vd.var_name.leak_id(); // atom has been mem copied to bin
+            //     }
+            // }
+            // for vd in self.vars.drain(..) {
+            //     unsafe {
+            //         vd.var_name.leak_id(); // atom has been mem copied to bin
+            //     }
+            // }
         }
 
         // 3. closure vars section
@@ -265,12 +258,15 @@ impl<'a> JSFunctionDef<'a> {
         debug_assert_eq!(bin.len(), bin_size);
 
         // create bytecode
-        let mut inner = BytecodeInner::new(
+        let mut bc_inner = BytecodeImpl::new(
             ctx,
             &self,
             bin.into(),
-            cpool_start,
-            cpool_count as _,
+            if cpool_count > 0 {
+                Some((cpool_start, cpool_count as u16))
+            } else {
+                None
+            },
             vardefs_start,
             args_count as _,
             vars_count as _,
@@ -281,39 +277,43 @@ impl<'a> JSFunctionDef<'a> {
         );
 
         if self.attrs.js_mode & JS_MODE_STRIP as u8 == 0 {
-            inner.has_debug = true;
-            inner.debug.line_num = self.line_num;
-            inner.debug.filename = std::mem::replace(&mut self.filename, Atom::NULL);
+            // setup debug info
+            let debug = bc_inner.debug.as_mut().unwrap();
+
+            debug.line_num = self.line_num;
+            debug.filename = std::mem::replace(&mut self.filename, Atom::NULL);
 
             // move source and pc2line to func object.
-            inner.debug.source = self.source.take();
+            debug.source = self.source.take();
             if let Some(mut lst) = self.pc2line.take() {
                 lst.shrink_to_fit();
-                inner.debug.pc2line_buf.replace(lst);
+                debug.pc2line_buf.replace(lst);
             }
+        } else {
+            // no debug info
+            bc_inner.debug.take();
         }
 
-        let bc: Bytecode = Rc::new(inner).into();
+        let bc = Bytecode::from(ctx.rt().gc_alloc(bc_inner).map_err(|_| {
+            ctx.throw_out_of_memory();
+            -1
+        })?);
 
         #[cfg(feature = "dump_bytecode")]
         if self.attrs.js_mode & JS_MODE_STRIP as u8 == 0 {
             bc.dump(ctx);
         }
 
-        ctx.rt()
-            .gc_add_object(bc.id(), GCObjectWeakref::Bytecode(bc.downgrade()));
-
         Ok(bc)
     }
 
-    fn add_eval_variables(&mut self, ctx: &JSContext) {
+    fn add_eval_variables(&mut self, ctx: &ContextImpl) {
         // in non strict mode, variables are created in the caller's environment object
         if !self.is_eval && self.attrs.js_mode & JS_MODE_STRICT as u8 == 0 {
-            self.var_object_idx = Some(self.add_var(ctx, JS_ATOM__var_.deref()).unwrap());
+            self.var_object_idx = Some(self.add_var(ctx, Atom::CONST__var_).unwrap());
             if self.has_parameter_expressions {
                 // an additional variable object is needed for the argument scope
-                self.arg_var_object_idx =
-                    Some(self.add_var(ctx, JS_ATOM__arg_var_.deref()).unwrap());
+                self.arg_var_object_idx = Some(self.add_var(ctx, Atom::CONST__arg_var_).unwrap());
             }
         }
 
@@ -325,19 +325,17 @@ impl<'a> JSFunctionDef<'a> {
             }
             if self.new_target_var_idx.is_none() {
                 self.new_target_var_idx =
-                    Some(self.add_var(ctx, JS_ATOM_new_target.deref()).expect("TODO"));
+                    Some(self.add_var(ctx, Atom::CONST_new_target).expect("TODO"));
             }
             if self.attrs.is_derived_class_constructor && self.this_active_func_var_idx.is_none() {
                 self.this_active_func_var_idx = Some(
-                    self.add_var(ctx, JS_ATOM_this_active_func.deref())
+                    self.add_var(ctx, Atom::CONST_this_active_func)
                         .expect("TODO"),
                 );
             }
             if self.has_home_object && self.home_object_var_idx.is_none() {
-                self.home_object_var_idx = Some(
-                    self.add_var(ctx, JS_ATOM__home_object_.deref())
-                        .expect("TODO"),
-                );
+                self.home_object_var_idx =
+                    Some(self.add_var(ctx, Atom::CONST__home_object_).expect("TODO"));
             }
         }
 
@@ -353,8 +351,7 @@ impl<'a> JSFunctionDef<'a> {
         }
 
         if self.is_func_expr && !self.func_name.is_null() {
-            self.add_func_var(ctx, self.func_name.to_ref().deref())
-                .unwrap();
+            self.add_func_var(ctx, self.func_name).unwrap();
         }
 
         // eval can use all the variables of the enclosing functions, so
@@ -377,21 +374,17 @@ impl<'a> JSFunctionDef<'a> {
                 }
 
                 if fd.new_target_var_idx.is_none() {
-                    let i = fd.add_var(ctx, JS_ATOM_new_target.deref()).expect("TODO");
+                    let i = fd.add_var(ctx, Atom::CONST_new_target).expect("TODO");
                     fd.new_target_var_idx.replace(i);
                 }
 
                 if fd.attrs.is_derived_class_constructor && fd.this_active_func_var_idx.is_none() {
-                    let i = fd
-                        .add_var(ctx, JS_ATOM_this_active_func.deref())
-                        .expect("TODO");
+                    let i = fd.add_var(ctx, Atom::CONST_this_active_func).expect("TODO");
                     fd.this_active_func_var_idx.replace(i);
                 }
 
                 if fd.has_home_object && fd.home_object_var_idx.is_none() {
-                    let i = fd
-                        .add_var(ctx, JS_ATOM__home_object_.deref())
-                        .expect("TODO");
+                    let i = fd.add_var(ctx, Atom::CONST__home_object_).expect("TODO");
                     fd.home_object_var_idx.replace(i);
                 }
 
@@ -406,7 +399,7 @@ impl<'a> JSFunctionDef<'a> {
 
             // add function name
             if fd.is_func_expr && !fd.func_name.is_null() {
-                fd.add_func_var(ctx, fd.func_name.to_ref().deref()).unwrap();
+                fd.add_func_var(ctx, fd.func_name).unwrap();
             }
 
             // add lexical variables
@@ -423,7 +416,7 @@ impl<'a> JSFunctionDef<'a> {
                     true,
                     false,
                     scope_idx as u16,
-                    &vd.var_name,
+                    vd.var_name,
                     vd.is_const(),
                     vd.is_lexical(),
                     vd.var_kind(),
@@ -445,7 +438,7 @@ impl<'a> JSFunctionDef<'a> {
                             true,
                             true,
                             i as _,
-                            &vd.var_name,
+                            vd.var_name,
                             false,
                             vd.is_lexical(),
                             JSVarKindEnum::JS_VAR_NORMAL,
@@ -457,7 +450,7 @@ impl<'a> JSFunctionDef<'a> {
                 for (i, vd) in fd.vars.iter().enumerate() {
                     // do not close top level last result
                     if vd.scope_level == 0
-                        && !matches!(vd.var_name.to_ref(), JS_ATOM__ret_ | JS_ATOM_NULL)
+                        && !(vd.var_name.is_null() || vd.var_name == Atom::CONST__ret_)
                     {
                         self.get_closure_var2(
                             ctx,
@@ -465,7 +458,7 @@ impl<'a> JSFunctionDef<'a> {
                             true,
                             false,
                             i as _,
-                            &vd.var_name,
+                            vd.var_name,
                             false,
                             vd.is_lexical(),
                             JSVarKindEnum::JS_VAR_NORMAL,
@@ -483,7 +476,7 @@ impl<'a> JSFunctionDef<'a> {
                             true,
                             false,
                             i as _,
-                            &vd.var_name,
+                            vd.var_name,
                             false,
                             vd.is_lexical(),
                             JSVarKindEnum::JS_VAR_NORMAL,
@@ -503,7 +496,7 @@ impl<'a> JSFunctionDef<'a> {
                             false,
                             cv.is_arg(),
                             i as _,
-                            &cv.var_name,
+                            cv.var_name,
                             cv.is_const(),
                             cv.is_lexical(),
                             cv.var_kind(),

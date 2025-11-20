@@ -1,7 +1,7 @@
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_PROP_DOUBLE_DEF, JS_PROP_UNDEFINED_DEF,
     branch_hints::unlikely,
-    context::JSContext,
+    context::ContextRef,
     error::JSResult,
     eval::JS_EVAL_TYPE_INDIRECT,
     function::{CallContext, FieldDef},
@@ -10,18 +10,18 @@ use crate::{
     value::JSValue,
 };
 
-pub fn js_global_eval<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+pub fn js_global_eval(mut ctx: ContextRef, cc: CallContext) -> JSResult {
     // to avoid ctx borrow conflict, fetch global object in advance
     let global = JSValue::Object(ctx.global_obj());
     cc.arg(0)
-        .eval_object(ctx, global, JS_EVAL_TYPE_INDIRECT, -1)
+        .eval_object(&mut ctx, global, JS_EVAL_TYPE_INDIRECT, -1)
 }
 
 pub const MAGIC_NUM_IS_NAN: i32 = 1;
 pub const MAGIC_NUM_IS_FINITE: i32 = 2;
 
-pub fn js_global_isNaN_isFinite<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let d = cc.arg(0).to_f64(ctx)?;
+pub fn js_global_isNaN_isFinite(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let d = cc.arg(0).to_f64(&ctx)?;
     let b = match cc.magic() {
         MAGIC_NUM_IS_NAN => f64::is_nan(d),
         MAGIC_NUM_IS_FINITE => f64::is_finite(d),
@@ -38,10 +38,10 @@ const fn is_uri_reserved(c: u32) -> bool {
     )
 }
 
-fn js_global_decodeURI<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+fn js_global_decodeURI(ctx: ContextRef, cc: CallContext) -> JSResult {
     let is_component = cc.magic() == 1;
 
-    let str = cc.arg(0).to_string(ctx)?;
+    let str = cc.arg(0).to_string(&ctx)?;
     let len = str.len();
 
     let mut buf = StringBuf::with_capacity(len, false).map_err(|_| {

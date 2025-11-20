@@ -4,7 +4,7 @@ use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ARRAY_ITERATOR, JS_CLASS_BOOLEAN, JS_CLASS_BYTECODE_FUNCTION,
     JS_CLASS_ERROR, JS_CLASS_NUMBER, JS_CLASS_OBJECT,
     array::{
-        ArrayObjPayload, js_array_constructor, js_array_funcs, js_array_iterator_proto_funcs,
+        ArrayPayload, js_array_constructor, js_array_funcs, js_array_iterator_proto_funcs,
         js_array_proto_funcs,
     },
     atom::consts::{
@@ -12,14 +12,14 @@ use crate::{
         JS_ATOM_length, JS_ATOM_message, JS_ATOM_name, JS_ATOM_values,
     },
     class::ClassID,
-    context::{JS_MODE_STRICT, JSContext},
+    context::{ContextRef, JS_MODE_STRICT},
     error::{ErrorKind, STD_ERROR_NAMES, js_error_proto_funcs},
     function::{BytecodeFunction, JSFunctionKindEnum, NativeFunctionType, js_function_proto},
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_WRITABLE, JSShape, ObjectPayload},
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_WRITABLE, ShapeHandle, ObjectPayload},
     value::JSValue,
 };
 
-impl JSContext {
+impl ContextRef {
     /// Initialize minimum amount of objects to be able to compile code and display error messages.
     /// No Atom should be allocated by this function.
     pub fn init_core_objects(&self) {
@@ -75,7 +75,7 @@ impl JSContext {
                 let name = self.create_atom_string(name).unwrap();
                 err.define_property_value(
                     self,
-                    &JS_ATOM_name,
+                    Atom::CONST_name,
                     JSValue::String(name),
                     JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
                 )
@@ -83,7 +83,7 @@ impl JSContext {
 
                 err.define_property_value(
                     self,
-                    &JS_ATOM_message,
+                    Atom::CONST_message,
                     JSValue::String(msg.clone()),
                     JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
                 )
@@ -99,14 +99,14 @@ impl JSContext {
             let array_proto = self
                 .create_object_with_proto(
                     object.clone().into(),
-                    ObjectPayload::ARRAY(ArrayObjPayload::default()),
+                    ObjectPayload::ARRAY(ArrayPayload::default()),
                 )
                 .unwrap();
 
             self.0.borrow_mut().class_proto[JS_CLASS_ARRAY as usize] = array_proto.clone().into();
 
             // 2. make default shape for Array
-            let array_shape = JSShape::new(self, Some(array_proto.clone()), 1).unwrap();
+            let array_shape = ShapeHandle::new(self, Some(array_proto.clone()), 1).unwrap();
 
             // define length property, index=0
             array_shape
@@ -125,6 +125,6 @@ impl JSContext {
         new atoms are created in JS_AddIntrinsicBasicObjects(). It is
         necessary to avoid useless renumbering of atoms after
         JS_EvalBinary() if it is done just after JS_AddIntrinsicBasicObjects(). */
-        // assert_eq!((*ctx.rt).atom_count as u32, JS_ATOM_INIT_COUNT);
+        // assert_eq!((*ctx.rt).atom_count as u32, ATOM_CONST_COUNT);
     }
 }

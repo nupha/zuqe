@@ -1,19 +1,15 @@
-use std::{
-    cell::Cell,
-    os::raw::c_void,
-    ptr::NonNull,
-    rc::{Rc, Weak},
-};
+use std::{os::raw::c_void, ptr::NonNull};
+
+use gc_lite::{Collect, GcRef, GcWeak};
 
 use crate::{
     atom::Atom,
     bytecode::{OpcodeFormat, opcode_info_final, opcode_info_intermediate},
-    context::{JSContext, JSContextWeakref},
+    context::{ContextImpl, ContextRef},
     error::JSResult,
     eval::{JS_EVAL_TYPE_DIRECT, JS_EVAL_TYPE_INDIRECT},
     function::{JSFunctionDef, JSVarRef},
-    object::GCObject,
-    runtime::RuntimePtr,
+    runtime::RuntimeRef,
     stack_frame::StackFrame,
     utils::{get_leb128, get_sleb128, read_from_ptr},
     value::JSValue,
@@ -32,17 +28,10 @@ pub struct BytecodeDebugInfo {
     pub(crate) debug_setting: super::BytecodeDebugSetting,
 }
 
-impl Default for BytecodeDebugInfo {
-    fn default() -> Self {
-        Self {
-            filename: Atom::NULL,
-            line_num: 0,
-            source: None,
-            pc2line_buf: None,
-
-            #[cfg(debug_assertions)]
-            debug_setting: super::BytecodeDebugSetting::default(),
-        }
+unsafe impl Collect for BytecodeDebugInfo {
+    #[inline(always)]
+    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+        self.filename.trace(tracer);
     }
 }
 
@@ -98,29 +87,29 @@ impl Default for BytecodeAttrs {
     }
 }
 
-pub struct BytecodeInner<'a> {
-    rt: RuntimePtr<'a>,
-    gc_mark: Cell<bool>,
+pub struct BytecodeImpl {
+    rt: RuntimeRef,
 
-    pub func_name: Atom,
-    realm: JSContextWeakref<'a>,
+    pub(crate) func_name: Atom,
+    realm: GcWeak<ContextImpl>,
 
     pub(crate) attrs: BytecodeAttrs,
 
     /// used by JS_GetScriptOrModuleName()
-    pub is_direct_or_indirect_eval: bool,
+    pub(crate) is_direct_or_indirect_eval: bool,
 
-    pub stack_size: u16,
+    pub(crate) stack_size: u16,
 
-    pub cpool_count: u16,
     pub arg_count: u16,
     pub var_count: u16,
     pub closure_var_count: u16,
 
-    /// binary image
+    /// binary image.
+    /// SAFETY: may contains const, vararge, bytecode etc
+    /// which may contain value and atom. must manually free them when dropped
     pub binary: Box<[u8]>,
-    /// start index of cpool in binary >=0 for valid index
-    pub cpool_start: i32,
+    /// consts section (start_index, length)
+    pub consts_section: Option<(u16, u16)>,
     /// start index of vardefs in binary >=0 for valid index
     pub vardefs_start: i32,
     /// start index of closure vars >=0 for valid index
@@ -128,25 +117,71 @@ pub struct BytecodeInner<'a> {
     /// index where opcodes starts
     pub opcodes_start: u32,
 
-    // TODO: use Option<JSFunctionBytecodeDebug>>
-    pub debug: BytecodeDebugInfo,
-    pub has_debug: bool,
+    pub debug: Option<BytecodeDebugInfo>,
 }
 
-impl<'a> Drop for BytecodeInner<'a> {
-    fn drop(&mut self) {
-        self.finalize();
+unsafe impl Collect for BytecodeImpl {
+    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+        // trace const values
+        for v in self.consts() {
+            v.trace(tracer);
+        }
+
+        // trace var defs
+        for vd in self.vardefs() {
+            vd.trace(tracer);
+        }
+
+        // trace closure vars
+        for cv in self.closure_vars() {
+            cv.trace(tracer);
+        }
+
+        // trace atoms in opcodes
+        let bc = self.opcodes();
+        let bc_len = bc.len();
+        let mut pos = 0;
+        while pos < bc_len {
+            let op = bc[pos];
+            let oi = opcode_info_final(op);
+            if matches!(
+                oi.fmt,
+                OpcodeFormat::ATOM
+                    | OpcodeFormat::ATOM_U8
+                    | OpcodeFormat::ATOM_U16
+                    | OpcodeFormat::ATOM_LABEL_U8
+                    | OpcodeFormat::ATOM_LABEL_U16
+            ) {
+                unsafe {
+                    let id = read_from_ptr::<u32>(bc.as_ptr().add(pos + 1));
+                    let a = Atom::from_id(id);
+                    a.trace(tracer);
+                }
+            }
+            pos += oi.size as usize;
+        }
+
+        if let Some(d) = self.debug.as_ref() {
+            d.trace(tracer);
+        }
     }
 }
 
-impl<'a> BytecodeInner<'a> {
+#[cfg(debug_assertions)]
+impl Drop for BytecodeImpl {
+    fn drop(&mut self) {
+        println!("[O.o] BytecodeImpl::drop({:p})", self);
+        //self.finalize();
+    }
+}
+
+impl BytecodeImpl {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
-        ctx: &JSContext<'a>,
-        fd: &JSFunctionDef<'a>,
+        ctx: &ContextImpl,
+        fd: &JSFunctionDef,
         binary: Box<[u8]>,
-        cpool_start: i32,
-        cpool_count: u16,
+        consts_section: Option<(u16, u16)>,
         vardefs_start: i32,
         arg_count: u16,
         var_count: u16,
@@ -157,10 +192,9 @@ impl<'a> BytecodeInner<'a> {
     ) -> Self {
         Self {
             rt: ctx.rt(),
-            gc_mark: Cell::new(false),
 
-            func_name: fd.func_name.clone(),
-            realm: ctx.downgrade(),
+            func_name: fd.func_name,
+            realm: unsafe { ContextRef::from_ref_unchecked(ctx).downgrade() },
 
             attrs: BytecodeAttrs {
                 need_home_object: fd.attrs.need_home_object || fd.home_object_var_idx.is_some(),
@@ -173,8 +207,7 @@ impl<'a> BytecodeInner<'a> {
             stack_size,
 
             binary,
-            cpool_start,
-            cpool_count,
+            consts_section,
             vardefs_start,
             arg_count,
             var_count,
@@ -182,12 +215,14 @@ impl<'a> BytecodeInner<'a> {
             closure_var_count,
             opcodes_start,
 
-            has_debug: false,
-            debug: BytecodeDebugInfo {
+            debug: Some(BytecodeDebugInfo {
+                filename: Atom::NULL,
+                line_num: 0,
+                source: None,
+                pc2line_buf: None,
                 #[cfg(debug_assertions)]
                 debug_setting: fd.debug,
-                ..Default::default()
-            },
+            }),
         }
     }
 
@@ -197,13 +232,15 @@ impl<'a> BytecodeInner<'a> {
     }
 
     #[inline(always)]
-    pub const fn rt(&self) -> RuntimePtr<'a> {
+    pub const fn rt(&self) -> RuntimeRef {
         self.rt
     }
 
-    /// get bytecode realm
-    pub fn realm(&self) -> Option<JSContext<'a>> {
-        self.realm.upgrade()
+    /// get bytecode realm context
+    pub fn realm(&self) -> Option<ContextRef> {
+        self.realm
+            .upgrade(self.rt().gc_heap())
+            .map(ContextRef::from)
     }
 
     #[inline(always)]
@@ -455,41 +492,39 @@ impl<'a> BytecodeInner<'a> {
     }
 
     /// get const values slice
-    pub fn consts(&self) -> &[JSValue<'a>] {
-        if self.cpool_start >= 0 {
-            debug_assert!(self.cpool_count > 0);
+    pub fn consts(&self) -> &[JSValue] {
+        if let Some((start, len)) = self.consts_section {
+            debug_assert_eq!(start, 0);
+            debug_assert!(len > 0);
             unsafe {
                 std::slice::from_raw_parts(
-                    self.binary
-                        .as_ptr()
-                        .add(self.cpool_start as usize)
-                        .cast::<JSValue>(),
-                    self.cpool_count as usize,
+                    self.binary.as_ptr().add(start as usize).cast::<JSValue>(),
+                    len as usize,
                 )
             }
         } else {
-            debug_assert_eq!(self.cpool_count, 0);
             &[]
         }
     }
 
     /// get a const value by index
     #[inline(always)]
-    pub fn load_const(&self, idx: usize) -> Option<JSValue<'a>> {
+    pub fn load_const(&self, idx: usize) -> Option<JSValue> {
         self.consts().get(idx).cloned()
     }
 
     pub fn find_line_num(&self, pc_value: u32) -> Option<i32> {
-        if !self.has_debug || self.debug.pc2line_buf.is_none() {
+        if self.debug.as_ref().is_none_or(|d| d.pc2line_buf.is_none()) {
             // function was stripped
             return None;
         }
 
-        let mut p = self.debug.pc2line_buf.as_ref().unwrap().as_ptr();
-        let p_end = unsafe { p.add(self.debug.pc2line_buf.as_ref().map(|x| x.len()).unwrap()) };
+        let debug = self.debug.as_ref().unwrap();
+        let mut p = debug.pc2line_buf.as_ref().unwrap().as_ptr();
+        let p_end = unsafe { p.add(debug.pc2line_buf.as_ref().map(|x| x.len()).unwrap()) };
 
         let mut pc = 0;
-        let mut line_num = self.debug.line_num;
+        let mut line_num = debug.line_num;
 
         while p < p_end {
             unsafe {
@@ -505,7 +540,7 @@ impl<'a> BytecodeInner<'a> {
                     {
                         n
                     } else {
-                        return Some(self.debug.line_num);
+                        return Some(debug.line_num);
                     };
                     pc += val as i32;
                     p = p.add(ret);
@@ -515,7 +550,7 @@ impl<'a> BytecodeInner<'a> {
                     let ret = if let Ok(n) = get_sleb128(&mut v, std::slice::from_raw_parts(p, 5)) {
                         n
                     } else {
-                        return Some(self.debug.line_num);
+                        return Some(debug.line_num);
                     };
                     p = p.add(ret);
                     new_line_num = line_num + v;
@@ -535,70 +570,87 @@ impl<'a> BytecodeInner<'a> {
         Some(line_num)
     }
 
-    fn finalize(&mut self) {
-        free_bytecode_atoms(&self.binary[self.opcodes_start as usize..], true);
+    // #[deprecated]
+    // fn finalize(&mut self) {
+    //     // free atoms in bytecode section
+    //     free_bytecode_atoms(&self.binary[self.opcodes_start as usize..], true);
 
-        // free vardef var_name atom
-        if let Some(lst) = self.vardefs_mut() {
-            for vd in lst {
-                let _ = std::mem::replace(&mut vd.var_name, Atom::NULL);
-            }
-        }
+    //     // free vardef var_name atom
+    //     if let Some(lst) = self.vardefs_mut() {
+    //         for vd in lst {
+    //             let _ = std::mem::replace(&mut vd.var_name, Atom::NULL);
+    //         }
+    //     }
 
-        // free closure vars atom
-        if let Some(lst) = self.closure_vars_mut() {
-            for cv in lst {
-                let _ = std::mem::replace(&mut cv.var_name, Atom::NULL);
-            }
-        }
-    }
+    //     // free closure vars atom
+    //     if let Some(lst) = self.closure_vars_mut() {
+    //         for cv in lst {
+    //             let _ = std::mem::replace(&mut cv.var_name, Atom::NULL);
+    //         }
+    //     }
+
+    //     // free const values
+    //     if let Some(lst) = self.consts_mut() {
+    //         for v in lst {
+    //             std::mem::replace(v, JSValue::UNDEFINED);
+    //         }
+    //     }
+    // }
 }
 
 #[repr(transparent)]
-#[derive(Clone)]
-pub struct Bytecode<'a>(Rc<BytecodeInner<'a>>);
+#[derive(Clone, Copy)]
+pub struct Bytecode(GcRef<BytecodeImpl>);
 
-impl<'a> From<Rc<BytecodeInner<'a>>> for Bytecode<'a> {
-    fn from(value: Rc<BytecodeInner<'a>>) -> Self {
-        Self(value)
+unsafe impl Collect for Bytecode {
+    #[inline(always)]
+    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+        tracer.mark(self.0);
     }
 }
 
-impl<'a> From<Bytecode<'a>> for GCObject<'a> {
-    fn from(value: Bytecode<'a>) -> Self {
-        Self::Bytecode(value)
-    }
-}
+impl std::ops::Deref for Bytecode {
+    type Target = BytecodeImpl;
 
-impl<'a> From<Bytecode<'a>> for JSValue<'a> {
-    fn from(value: Bytecode<'a>) -> Self {
-        Self::Bytecode(value)
-    }
-}
-
-impl<'a> std::ops::Deref for Bytecode<'a> {
-    type Target = BytecodeInner<'a>;
-
+    #[inline(always)]
     fn deref(&self) -> &Self::Target {
-        &self.0
+        unsafe { self.0.as_ref() }
     }
 }
 
-impl std::fmt::Debug for Bytecode<'_> {
+impl std::ops::DerefMut for Bytecode {
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { self.0.as_mut() }
+    }
+}
+
+impl From<Bytecode> for JSValue {
+    #[inline(always)]
+    fn from(value: Bytecode) -> Self {
+        Self::Bytecode(value)
+    }
+}
+
+impl std::fmt::Debug for Bytecode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "<Bytecode {:p}>", self.id() as *const c_void)
     }
 }
 
-impl<'a> Bytecode<'a> {
-    pub fn downgrade(&self) -> BytecodeWeakref<'a> {
-        BytecodeWeakref(Rc::downgrade(&self.0))
+impl Bytecode {
+    #[inline(always)]
+    pub(crate) const fn from(gc_ref: GcRef<BytecodeImpl>) -> Self {
+        Self(gc_ref)
     }
 
-    /// get bytecode strong ref count
     #[inline(always)]
-    pub fn strong_count(&self) -> usize {
-        Rc::strong_count(&self.0)
+    pub const fn gc_ref(&self) -> GcRef<BytecodeImpl> {
+        self.0
+    }
+
+    pub fn downgrade(&self) -> GcWeak<BytecodeImpl> {
+        self.0.downgrade(self.rt().gc_heap_mut())
     }
 
     /// Evaluate Bytecode.
@@ -606,38 +658,18 @@ impl<'a> Bytecode<'a> {
     /// Internally, it will create a function object with the bytecode, then eval the function.
     pub fn eval(
         &self,
-        ctx: &JSContext<'a>,
-        this_obj: &JSValue<'a>,
-        var_refs: &[JSVarRef<'a>],
-        parent_frame: Option<&mut StackFrame<'a>>,
-    ) -> JSResult<'a> {
+        ctx: &ContextImpl,
+        this_obj: JSValue,
+        var_refs: &[JSVarRef],
+        parent_frame: Option<&mut StackFrame>,
+    ) -> JSResult {
         self.make_closure(ctx, var_refs, parent_frame, None)
             .and_then(|f| f.call(ctx, this_obj, &[]))
     }
-
-    #[inline]
-    pub fn gc_has_mark(&self) -> bool {
-        self.0.gc_mark.get()
-    }
-
-    #[inline]
-    pub fn gc_set_mark(&self, b: bool) {
-        self.0.gc_mark.set(b);
-    }
 }
 
-#[repr(transparent)]
-#[derive(Debug, Clone)]
-pub struct BytecodeWeakref<'a>(Weak<BytecodeInner<'a>>);
-
-impl<'a> BytecodeWeakref<'a> {
-    pub fn upgrade(&self) -> Option<Bytecode<'a>> {
-        self.0.upgrade().map(Bytecode)
-    }
-}
-
-/// free atom in bytecode.
-/// Note: each atom id in instruction holds an atom refcount.
+/// free atoms in bytecode.
+#[deprecated(note = "GC will do the job")]
 pub(super) fn free_bytecode_atoms(bc: &[u8], is_short_opcodes: bool) {
     let bc_len = bc.len();
     let mut pos = 0;
@@ -657,7 +689,9 @@ pub(super) fn free_bytecode_atoms(bc: &[u8], is_short_opcodes: bool) {
                 | OpcodeFormat::ATOM_LABEL_U8
                 | OpcodeFormat::ATOM_LABEL_U16
         ) {
-            Atom::free(unsafe { read_from_ptr::<u32>(bc.as_ptr().add(pos + 1)) });
+            // unsafe {
+            //     Atom::free(read_from_ptr::<u32>(bc.as_ptr().add(pos + 1)));
+            // }
         }
 
         pos += oi.size as usize;

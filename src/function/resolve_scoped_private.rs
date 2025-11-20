@@ -1,18 +1,17 @@
 use crate::{
     atom::{Atom, js_atom_concat_str},
     bytecode::opcodes,
-    context::JSContext,
+    context::ContextImpl,
     error::JS_THROW_VAR_RO,
     function::{JSFunctionDef, JSVarKindEnum, get_loc_or_ref},
     utils::{push_vec_atom, push_vec_u8, push_vec_u16},
 };
 
-impl<'a> JSFunctionDef<'a> {
-    /// `var_name` is not consumed
+impl JSFunctionDef {
     fn resolve_scope_private_field1(
         &mut self,
-        ctx: &JSContext,
-        var_name: &Atom,
+        ctx: &ContextImpl,
+        var_name: Atom,
         mut scope_level: i32,
     ) -> Result<(u16, JSVarKindEnum, bool), i32> {
         let mut root_fd: Option<&JSFunctionDef> = None;
@@ -49,7 +48,7 @@ impl<'a> JSFunctionDef<'a> {
             // find in closure of the eval function (the root fd)
             if let Some((i, cv)) = root_fd.closure_vars.as_ref().and_then(|cvars| {
                 cvars.iter().enumerate().find_map(|(i, cv)| {
-                    if cv.var_name.eq(var_name) {
+                    if cv.var_name == var_name {
                         Some((i, cv))
                     } else {
                         None
@@ -64,7 +63,7 @@ impl<'a> JSFunctionDef<'a> {
                         false,
                         cv.is_arg(),
                         i as _,
-                        &cv.var_name,
+                        cv.var_name,
                         cv.is_const(),
                         cv.is_lexical(),
                         cv.var_kind(),
@@ -83,12 +82,12 @@ impl<'a> JSFunctionDef<'a> {
 
     /// search `var_name` in all scopes since `scope_level`.
     /// `var_name` is not consumed.
-    fn find_private_class_field_all(&self, var_name: &Atom, scope_level: i32) -> Option<u16> {
+    fn find_private_class_field_all(&self, var_name: Atom, scope_level: i32) -> Option<u16> {
         debug_assert!(scope_level >= 0);
 
         let mut idx = self.scopes[scope_level as usize].first;
         while idx >= 0 {
-            if self.vars[idx as usize].var_name.eq(var_name) {
+            if self.vars[idx as usize].var_name == var_name {
                 return Some(idx as _);
             }
             idx = self.vars.get(idx as usize).unwrap().scope_next;
@@ -97,11 +96,10 @@ impl<'a> JSFunctionDef<'a> {
         None
     }
 
-    /// `var_name` is not consumed.
     pub(super) fn resolve_scope_private_field(
         &mut self,
-        ctx: &JSContext,
-        var_name: &Atom,
+        ctx: &ContextImpl,
+        var_name: Atom,
         scope_level: i32,
         op: u8,
         bc: &mut Vec<u8>,
@@ -141,7 +139,7 @@ impl<'a> JSFunctionDef<'a> {
                     JSVarKindEnum::JS_VAR_PRIVATE_SETTER => {
                         // XXX: add clearer error message
                         push_vec_u8(bc, opcodes::OP_throw_error);
-                        push_vec_atom(bc, var_name.clone());
+                        push_vec_atom(bc, var_name);
                         push_vec_u8(bc, JS_THROW_VAR_RO);
                     }
                     _ => {
@@ -158,18 +156,14 @@ impl<'a> JSFunctionDef<'a> {
                     JSVarKindEnum::JS_VAR_PRIVATE_METHOD | JSVarKindEnum::JS_VAR_PRIVATE_GETTER => {
                         // XXX: add clearer error message
                         push_vec_u8(bc, opcodes::OP_throw_error);
-                        push_vec_atom(bc, var_name.clone());
+                        push_vec_atom(bc, var_name);
                         push_vec_u8(bc, JS_THROW_VAR_RO);
                     }
                     JSVarKindEnum::JS_VAR_PRIVATE_SETTER
                     | JSVarKindEnum::JS_VAR_PRIVATE_GETTER_SETTER => {
-                        let setter_name = get_private_setter_name(ctx, var_name);
-                        if setter_name.is_null() {
-                            return Err(-1);
-                        }
-
+                        let setter_name = js_atom_concat_str(ctx, var_name, "<set>")?;
                         let (idx, var_kind, is_ref) =
-                            self.resolve_scope_private_field1(ctx, &setter_name, scope_level)?;
+                            self.resolve_scope_private_field1(ctx, setter_name, scope_level)?;
                         debug_assert_eq!(var_kind, JSVarKindEnum::JS_VAR_PRIVATE_SETTER);
 
                         get_loc_or_ref(bc, is_ref, idx);
@@ -202,9 +196,4 @@ impl<'a> JSFunctionDef<'a> {
 
         Ok(())
     }
-}
-
-/// build a private setter function name from the private getter name
-fn get_private_setter_name(ctx: &JSContext, name: &Atom) -> Atom {
-    unsafe { js_atom_concat_str(ctx, name, c"<set>".as_ptr().cast()) }
 }

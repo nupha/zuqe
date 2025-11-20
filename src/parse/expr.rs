@@ -1,7 +1,5 @@
-use std::ops::Deref;
-
 use crate::{
-    atom::{Atom, AtomRef, consts::*},
+    atom::Atom,
     branch_hints::unlikely,
     bytecode::{OpCode, OpCodeTemp, SpecialObject, opcodes},
     function::{FuncCallType, JSFunctionKindEnum},
@@ -50,7 +48,7 @@ impl<'s> JSParseState<'s> {
                 self.next_token()?;
 
                 let mut label: i32 = 0;
-                let mut name = AtomRef::NULL;
+                let mut name = Atom::NULL;
 
                 self.get_lvalue(
                     &mut opcode,
@@ -65,8 +63,8 @@ impl<'s> JSParseState<'s> {
                 self.parse_assign_expr2(parse_flags)?;
 
                 if op == CHAR_EQUAL {
-                    if opcode == OpCode::GET_REF_VALUE as _ && name == name0.to_ref() {
-                        self.set_object_name(name.deref().clone());
+                    if opcode == OpCode::GET_REF_VALUE as _ && name == name0 {
+                        self.set_object_name(name);
                     }
                 } else {
                     const assign_opcodes: [OpCode; 12] = [
@@ -89,7 +87,7 @@ impl<'s> JSParseState<'s> {
                 self.put_lvalue(
                     opcode,
                     scope,
-                    name.deref().clone(),
+                    name,
                     label,
                     PutLValueEnum::PUT_LVALUE_KEEP_TOP,
                     false,
@@ -100,7 +98,7 @@ impl<'s> JSParseState<'s> {
 
                 let mut label: i32 = 0;
                 let mut depth_lvalue: i32 = 0;
-                let mut name = AtomRef::NULL;
+                let mut name = Atom::NULL;
 
                 self.get_lvalue(
                     &mut opcode,
@@ -128,8 +126,8 @@ impl<'s> JSParseState<'s> {
 
                 self.parse_assign_expr2(parse_flags)?;
 
-                if opcode == OpCode::GET_REF_VALUE as i32 && name == name0.to_ref() {
-                    self.set_object_name(name.deref().clone());
+                if opcode == OpCode::GET_REF_VALUE as i32 && name == name0 {
+                    self.set_object_name(name);
                 }
 
                 match depth_lvalue {
@@ -144,7 +142,7 @@ impl<'s> JSParseState<'s> {
                 self.put_lvalue(
                     opcode,
                     scope,
-                    name.deref().clone(),
+                    name,
                     label,
                     PutLValueEnum::PUT_LVALUE_NOKEEP_DEPTH,
                     false,
@@ -246,12 +244,8 @@ impl<'s> JSParseState<'s> {
                 self.parse_template(false, &mut _x)?;
             }
             TOK_STRING => {
-                self.emit_push_const(
-                    self.ctx
-                        .create_string_with_content(self.token.data.string().unwrap().clone())?
-                        .into(),
-                    true,
-                )?;
+                let sbuf = self.token.data.take_string().unwrap();
+                self.emit_push_const(self.ctx.create_string_with_buf(sbuf)?.into(), true)?;
                 self.next_token()?;
             }
 
@@ -266,7 +260,10 @@ impl<'s> JSParseState<'s> {
                 // emit build RegExp opcode
                 let re_id = self.token.data.regexp().unwrap();
                 self.emit_push_const(
-                    JS_ATOM_empty_string.force_string(&self.ctx).unwrap().into(),
+                    Atom::CONST_empty_string
+                        .force_string(&self.ctx)
+                        .unwrap()
+                        .into(),
                     false,
                 )?;
                 self.emit_push_const(JSValue::Int(re_id as i32), false)?;
@@ -317,7 +314,7 @@ impl<'s> JSParseState<'s> {
             TOK_THIS => {
                 self.next_token()?;
                 self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                self.emit_atom(Atom::new_const(JS_ATOM_this));
+                self.emit_atom(Atom::CONST_this);
                 self.emit_u16(0);
             }
             TOK_FALSE => {
@@ -340,7 +337,7 @@ impl<'s> JSParseState<'s> {
                         self.token.ptr,
                         self.token.line_num,
                     )?;
-                } else if self.token_is_pseudo_keyword(JS_ATOM_async)
+                } else if self.token_is_pseudo_keyword(Atom::CONST_async)
                     && self.peek_token(true) != '\n' as i32
                 {
                     let source_ptr = self.token.ptr;
@@ -372,7 +369,7 @@ impl<'s> JSParseState<'s> {
                         )?;
                     } else {
                         self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                        self.emit_u32(JS_ATOM_async.0);
+                        self.emit_atom(Atom::CONST_async);
                         self.emit_u16(self.cur_func().scope_level as _);
                     }
                 } else {
@@ -380,7 +377,7 @@ impl<'s> JSParseState<'s> {
                     let name = self.token.atom().unwrap();
 
                     if unlikely(
-                        name.eq(&JS_ATOM_arguments) && !self.cur_func().attrs.arguments_allowed,
+                        name == Atom::CONST_arguments && !self.cur_func().attrs.arguments_allowed,
                     ) {
                         self.throw_syntax_error(
                             "'arguments' identifier is not allowed in class field initializer",
@@ -419,7 +416,7 @@ impl<'s> JSParseState<'s> {
                 if self.token.val == b'.' as i32 {
                     self.next_token()?;
 
-                    if !self.token_is_pseudo_keyword(JS_ATOM_target) {
+                    if !self.token_is_pseudo_keyword(Atom::CONST_target) {
                         self.throw_syntax_error("expecting target");
                         return Err(-1);
                     }
@@ -431,7 +428,7 @@ impl<'s> JSParseState<'s> {
                     self.next_token()?;
 
                     self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                    self.emit_atom(Atom::new_const(JS_ATOM_new_target));
+                    self.emit_atom(Atom::CONST_new_target);
                     self.emit_u16(0);
                 } else {
                     self.parse_postfix_expr(0)?;
@@ -464,10 +461,10 @@ impl<'s> JSParseState<'s> {
                     }
 
                     self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                    self.emit_atom(Atom::new_const(JS_ATOM_this));
+                    self.emit_atom(Atom::CONST_this);
                     self.emit_u16(0);
                     self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                    self.emit_atom(Atom::new_const(JS_ATOM__home_object_));
+                    self.emit_atom(Atom::CONST__home_object_);
                     self.emit_u16(0);
                     self.emit_op(OpCode::GET_SUPER);
                 } else {
@@ -480,7 +477,7 @@ impl<'s> JSParseState<'s> {
                 if self.token.val == b'.' as i32 {
                     self.next_token()?;
 
-                    if !self.token_is_pseudo_keyword(JS_ATOM_meta) {
+                    if !self.token_is_pseudo_keyword(Atom::CONST_meta) {
                         self.throw_syntax_error("meta expected");
                         return Err(-1);
                     }

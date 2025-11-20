@@ -1,21 +1,23 @@
+use gc_lite::{Collect, GcRef};
+
 use crate::{
     JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, JS_ITERATOR_NEXT_DEF, JS_PROP_STRING_DEF,
     class::ClassID,
-    context::JSContext,
+    context::ContextRef,
     error::JSResult,
     function::{CallContext, FieldDef, IteratorState},
     iterator::JSIteratorKindEnum,
     mapset::MapPair,
-    object::{JS_PROP_CONFIGURABLE, JSObject, ObjectPayload},
+    object::{JS_PROP_CONFIGURABLE, ObjectImpl, ObjectPayload, ObjectRef},
     object_cast,
-    runtime::JSRuntime,
+    runtime::RuntimeImpl,
     value::JSValue,
 };
 
 #[derive(Debug)]
-pub struct JSMapIteratorData<'a> {
+pub struct JSMapIteratorData {
     /// None if iterator is done.
-    pub obj: Option<JSObject<'a>>,
+    pub obj: Option<ObjectRef>,
 
     /// result kind
     pub kind: JSIteratorKindEnum,
@@ -24,46 +26,50 @@ pub struct JSMapIteratorData<'a> {
     pub(crate) index: usize,
 }
 
-#[derive(Debug, Clone)]
-#[repr(transparent)]
-pub struct MapIterator<'a>(pub(crate) JSObject<'a>);
-
-object_cast!(MapIterator, JS_CLASS_MAP_ITERATOR);
-
-pub const fn js_map_iterator_finalizer(_rt: &mut JSRuntime, _isa: &ObjectPayload, _id: usize) {}
-
-pub fn js_map_iterator_mark(val: JSValue) {
-    if let Some(o) = val.as_object()
-        && let Some(it) = o.payload().mapset_iterator()
-        && let Some(o) = &it.borrow().obj
-    {
-        o.gc_mark()
+unsafe impl Collect for JSMapIteratorData {
+    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+        if let Some(o) = self.obj {
+            o.trace(tracer);
+        }
     }
 }
 
-fn js_map_iterator_next<'a>(
-    ctx: &JSContext<'a>,
-    cc: CallContext<'_, 'a>,
-    state: &mut IteratorState,
-) -> JSResult<'a> {
-    let is_set = cc.magic() & 1 != 0;
+#[derive(Debug, Clone, Copy)]
+#[repr(transparent)]
+pub struct MapIterator(pub(crate) GcRef<ObjectImpl>);
+
+object_cast!(MapIterator, JS_CLASS_MAP_ITERATOR);
+
+pub const fn js_map_iterator_finalizer(_rt: &mut RuntimeImpl, _isa: &ObjectPayload, _id: usize) {}
+
+#[deprecated]
+pub fn js_map_iterator_mark(val: JSValue) {
+    if let Some(o) = val.as_object()
+        && let Some(it) = o.payload().mapset_iterator()
+        && let Some(_) = it.obj
+    {
+        // o.gc_mark()
+    }
+}
+
+fn js_map_iterator_next(ctx: ContextRef, cc: CallContext, state: &mut IteratorState) -> JSResult {
+    let magic = cc.magic();
+    let is_set = magic & 1 != 0;
+    let mut this = *cc.this();
+
     *state = IteratorState::NotDone;
 
-    let isa = cc
-        .this()
-        .retrive_object_payload(ctx, JS_CLASS_MAP_ITERATOR + cc.magic() as ClassID)?;
-
-    let Some(it) = isa.mapset_iterator() else {
+    let isa = this.retrive_object_payload_mut(&ctx, JS_CLASS_MAP_ITERATOR + magic as ClassID)?;
+    let Some(it) = isa.mapset_iterator_mut() else {
         return Err(-1);
     };
 
-    let mut it = it.borrow_mut();
     let mut ret: Option<JSValue> = None;
     let mut end = false;
 
-    if let Some(obj) = it.obj.clone() {
-        let r1 = obj.retrive_payload(ctx, JS_CLASS_MAP + cc.magic() as ClassID)?;
-        let ms = r1.mapset().unwrap().borrow();
+    if let Some(mut obj) = it.obj {
+        let r1 = obj.retrive_payload_mut(&ctx, JS_CLASS_MAP + magic as ClassID)?;
+        let ms = r1.mapset_mut().unwrap();
 
         if it.index < ms.slots.len() {
             let slice = &ms.slots[it.index..];
@@ -75,16 +81,14 @@ fn js_map_iterator_next<'a>(
 
                 match kv {
                     MapPair::Strong { key, value } => {
-                        let val = if is_set { key.clone() } else { value.clone() };
-                        pair.replace((key.clone(), val));
+                        let val = if is_set { *key } else { *value };
+                        pair.replace((*key, val));
                         break;
                     }
                     MapPair::Weak { key, value } => {
-                        if let Some(key) = key.upgrade() {
-                            pair.replace((
-                                key.clone().into(),
-                                if is_set { key.into() } else { value.clone() },
-                            ));
+                        if let Some(key) = key.upgrade(ctx.rt().gc_heap()) {
+                            let key = ObjectRef(key);
+                            pair.replace((key.into(), if is_set { key.into() } else { *value }));
                             break;
                         }
                     }

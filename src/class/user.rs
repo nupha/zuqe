@@ -1,22 +1,29 @@
-use std::{ffi::c_void, ops::Deref, ptr::NonNull};
+use std::{ffi::c_void, ptr::NonNull};
+
+use gc_lite::Collect;
 
 use crate::{
     USER_CLASS_ID_START,
-    atom::{Atom, AtomTypeHint},
+    atom::{Atom, AtomKind},
     class::{ClassDef, ClassID},
-    context::JSContext,
-    object::{JSObject, ObjectPayload},
-    runtime::JSRuntime,
+    context::{ContextImpl, ContextRef},
+    object::{ObjectImpl, ObjectPayload, ObjectRef},
+    runtime::RuntimeImpl,
     value::JSValue,
 };
 
 #[derive(Debug)]
-pub(crate) struct OtherPayload {
+pub struct OtherPayload {
     pub(crate) class_id: ClassID,
     pub(crate) opaque: *mut c_void,
 }
 
-impl<'a> JSRuntime<'a> {
+unsafe impl Collect for OtherPayload {
+    #[inline(always)]
+    fn trace(&self, _: &mut gc_lite::Tracer) {}
+}
+
+impl RuntimeImpl {
     /// register a user class defination. returns the registry class_id for it.
     pub fn register_class(&mut self, mut class_def: ClassDef) -> Result<ClassID, i32> {
         if class_def.class_name.is_empty() {
@@ -33,7 +40,7 @@ impl<'a> JSRuntime<'a> {
             }
         }
 
-        let class_atom = Atom::from_str(self, class_def.class_name, AtomTypeHint::String)?;
+        let class_atom = Atom::from_str(self, class_def.class_name, AtomKind::String)?;
 
         let class_id = self.class_registry.len() as ClassID; // new class_id
         debug_assert!(class_id >= USER_CLASS_ID_START);
@@ -43,7 +50,7 @@ impl<'a> JSRuntime<'a> {
     }
 }
 
-fn user_obj_finalize(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {
+fn user_obj_finalize(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize) {
     if let ObjectPayload::OTHER(u) = isa {
         if let Some(f) = rt.class_registry[u.class_id as usize].free_obj {
             f(rt, u.opaque, id)
@@ -53,20 +60,20 @@ fn user_obj_finalize(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {
     }
 }
 
-impl<'a> JSContext<'a> {
-    pub fn use_classes(&self, class_ids: &[ClassID]) -> Result<(), i32> {
+impl ContextImpl {
+    pub fn use_classes(&mut self, class_ids: &[ClassID]) -> Result<(), i32> {
         if let Some(mx) = class_ids.iter().max().copied() {
             if self.rt().class_registry.get(mx as usize).is_some() {
-                let n = self.0.borrow().class_proto.len();
+                let n = self.class_proto.len();
                 if mx as usize >= n {
                     // grow slot
                     let extra = mx as usize - n + 1;
-                    let slot = &mut self.0.borrow_mut().class_proto;
-                    slot.try_reserve_exact(extra).map_err(|_| {
+                    self.class_proto.try_reserve_exact(extra).map_err(|_| {
                         self.throw_out_of_memory();
                         -1
                     })?;
-                    slot.extend(std::iter::repeat_n(JSValue::NULL, extra));
+                    self.class_proto
+                        .extend(std::iter::repeat_n(JSValue::NULL, extra));
                 }
 
                 for id in class_ids {
@@ -74,11 +81,16 @@ impl<'a> JSContext<'a> {
 
                     if self.class_proto(class_id).is_none() {
                         // init class in ctx
-                        let cdef = &self.rt().class_registry[class_id as usize];
-                        if let Some(f) = cdef.initialize {
-                            if let Some(proto) = f(self, class_id)? {
-                                self.0.borrow_mut().class_proto[class_id as usize] = proto.into();
-                            } else if !self.0.borrow().class_proto[class_id as usize].is_object() {
+                        if let Some(f) = self
+                            .rt()
+                            .class_registry
+                            .get(class_id as usize)
+                            .and_then(|c| c.initialize)
+                        {
+                            let r = f(unsafe { ContextRef::from_ref_unchecked(self) }, class_id)?;
+                            if let Some(proto) = r {
+                                self.class_proto[class_id as usize] = proto.into();
+                            } else if !self.class_proto[class_id as usize].is_object() {
                                 self.throw_internal_error(&format!(
                                     "class ({}) initialization must setup proto object",
                                     class_id
@@ -88,6 +100,26 @@ impl<'a> JSContext<'a> {
                             self.throw_internal_error("can't initialize native class");
                             return Err(-1);
                         }
+
+                        // let cdef = &self.rt().class_registry[class_id as usize];
+                        // if let Some(f) = cdef.initialize {
+                        //     let r = f(self, class_id)?;
+                        //     if let Some(proto) = r {
+                        //         self.class_proto[class_id as usize] = unsafe {
+                        //             std::mem::transmute::<JSValue<'_>, JSValue>(
+                        //                 proto.into(),
+                        //             )
+                        //         };
+                        //     } else if !self.class_proto[class_id as usize].is_object() {
+                        //         self.throw_internal_error(&format!(
+                        //             "class ({}) initialization must setup proto object",
+                        //             class_id
+                        //         ));
+                        //     }
+                        // } else {
+                        //     self.throw_internal_error("can't initialize native class");
+                        //     return Err(-1);
+                        // }
                     }
                 }
 
@@ -101,12 +133,12 @@ impl<'a> JSContext<'a> {
         }
     }
 
-    pub fn use_class(&self, class_id: ClassID) -> Result<(), i32> {
+    pub fn use_class(&mut self, class_id: ClassID) -> Result<(), i32> {
         self.use_classes(&[class_id])
     }
 
-    pub fn use_class_name(&self, name: &str) -> Result<(), i32> {
-        let atom_name = Atom::from_str(self.rt().as_ref(), name, AtomTypeHint::String)?;
+    pub fn use_class_name(&mut self, name: &str) -> Result<(), i32> {
+        let atom_name = Atom::from_str(self.rt().as_ref(), name, AtomKind::String)?;
 
         if let Some(id) = self
             .rt()
@@ -125,9 +157,9 @@ impl<'a> JSContext<'a> {
     pub fn new_instance(
         &self,
         class_id: ClassID,
-        ctor: &JSValue<'a>,
+        ctor: JSValue,
         opaque: *mut c_void,
-    ) -> Result<JSObject<'a>, i32> {
+    ) -> Result<ObjectRef, i32> {
         self.create_object_from_ctor(
             ctor,
             ObjectPayload::OTHER(Box::new(OtherPayload { class_id, opaque })),
@@ -136,7 +168,7 @@ impl<'a> JSContext<'a> {
     }
 }
 
-impl<'a> JSObject<'a> {
+impl ObjectImpl {
     /// if the object is a user class instance, returns the opaque pointer if available
     pub fn opaque(&self) -> Option<NonNull<c_void>> {
         if let ObjectPayload::OTHER(u) = self.payload() {
@@ -156,7 +188,7 @@ impl<'a> JSObject<'a> {
     }
 }
 
-impl<'a> JSValue<'a> {
+impl JSValue {
     /// if the value is a user class instance, returns the opaque pointer if available
     pub fn opaque(&self) -> Option<NonNull<c_void>> {
         self.as_object()?.opaque()

@@ -1,7 +1,7 @@
-use std::ops::{Deref, DerefMut};
+use std::ops::DerefMut;
 
 use crate::{
-    atom::{Atom, AtomTypeHint, consts::*},
+    atom::{Atom, AtomKind},
     bytecode::OpCodeTemp,
     error::{ErrorKind, JS_BACKTRACE_FLAG_SINGLE_LEVEL},
     function::{JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
@@ -31,7 +31,7 @@ impl<'s> JSParseState<'s> {
     /// return atom of module name.
     /// returned atom is duplicated, caller should free it after use.
     fn parse_from_clause(&mut self) -> Result<Atom, i32> {
-        if !self.token_is_pseudo_keyword(JS_ATOM_from) {
+        if !self.token_is_pseudo_keyword(Atom::CONST_from) {
             self.throw_syntax_error("from clause expected");
             return Err(-1);
         }
@@ -45,8 +45,8 @@ impl<'s> JSParseState<'s> {
 
         let module_name = self
             .ctx
-            .create_string_with_content(self.token.data.string().unwrap().clone())
-            .and_then(|s| s.to_atom())?;
+            .create_string_with_buf(self.token.data.take_string().unwrap())
+            .and_then(|s| s.to_atom(self.ctx.rt()))?;
 
         self.next_token()?;
         Ok(module_name)
@@ -54,19 +54,19 @@ impl<'s> JSParseState<'s> {
 
     /// parse import statement
     pub fn parse_import(&mut self) -> Result<(), i32> {
-        let md = self.cur_func().module.clone().unwrap();
+        let mut md = self.cur_func().module.unwrap();
 
         self.next_token()?;
 
-        let first_import = md.0.import_entries.borrow().len();
+        let first_import = md.import_entries.len();
         let module_name: Atom;
 
         if self.token.val == TOK_STRING {
             // import "module-name"
             module_name = Atom::from_str(
                 self.ctx.rt().deref_mut(),
-                self.token.string().unwrap().to_utf8(false).as_ref(),
-                AtomTypeHint::String,
+                &self.token.data.string().unwrap().to_utf8(),
+                AtomKind::String,
             )?;
 
             self.next_token()?;
@@ -80,7 +80,7 @@ impl<'s> JSParseState<'s> {
 
                 let local_name = self.token.atom().unwrap();
                 self.next_token()?;
-                self.add_module_import(&md, &local_name, JS_ATOM_default.deref())?;
+                self.add_module_import(md, local_name, Atom::CONST_default)?;
 
                 if self.token.val == ',' as i32 {
                     // default import mixed with namespace or named import.
@@ -100,7 +100,7 @@ impl<'s> JSParseState<'s> {
                         // namespace
                         self.next_token()?;
 
-                        if !self.token_is_pseudo_keyword(JS_ATOM_as) {
+                        if !self.token_is_pseudo_keyword(Atom::CONST_as) {
                             self.throw_syntax_error("expecting 'as'");
                             return Err(-1);
                         }
@@ -114,7 +114,7 @@ impl<'s> JSParseState<'s> {
 
                         let local_name = self.token.atom().unwrap();
                         self.next_token()?;
-                        self.add_module_import(&md, &local_name, JS_ATOM__star_.deref())?;
+                        self.add_module_import(md, local_name, Atom::CONST__star_)?;
                     }
                     // '{'
                     0x7b => {
@@ -129,8 +129,8 @@ impl<'s> JSParseState<'s> {
                                 }
                                 TOK_STRING => Atom::from_str(
                                     self.ctx.rt().deref_mut(),
-                                    &self.token.string().unwrap().to_utf8(false),
-                                    AtomTypeHint::String,
+                                    &self.token.data.string().unwrap().to_utf8(),
+                                    AtomKind::String,
                                 )?,
                                 _ => {
                                     self.throw_syntax_error("identifier or string expected");
@@ -140,7 +140,7 @@ impl<'s> JSParseState<'s> {
 
                             self.next_token()?;
 
-                            let local_name = if self.token_is_pseudo_keyword(JS_ATOM_as) {
+                            let local_name = if self.token_is_pseudo_keyword(Atom::CONST_as) {
                                 self.next_token()?;
 
                                 if !Self::token_is_ident(self.token.val) {
@@ -152,10 +152,10 @@ impl<'s> JSParseState<'s> {
                                 self.next_token()?;
                                 ln
                             } else {
-                                import_name.clone()
+                                import_name
                             };
 
-                            self.add_module_import(&md, &local_name, &import_name)?;
+                            self.add_module_import(md, local_name, import_name)?;
 
                             if self.token.val == b',' as i32 {
                                 self.next_token()?;
@@ -174,7 +174,7 @@ impl<'s> JSParseState<'s> {
         }
 
         let idx = md.add_dependency(&self.ctx, module_name)?;
-        for imp in &mut md.0.import_entries.borrow_mut()[first_import..] {
+        for imp in &mut md.import_entries[first_import..] {
             imp.req_module_idx = idx as _;
         }
 
@@ -183,7 +183,7 @@ impl<'s> JSParseState<'s> {
     }
 
     pub fn parse_export(&mut self) -> Result<(), i32> {
-        let md = self.cur_func().module.as_ref().cloned().unwrap();
+        let mut md = self.cur_func().module.unwrap();
 
         let tok = self.next_token()?;
         match tok {
@@ -205,7 +205,7 @@ impl<'s> JSParseState<'s> {
                 };
             }
             TOK_IDENT
-                if (self.token_is_pseudo_keyword(JS_ATOM_async)
+                if (self.token_is_pseudo_keyword(Atom::CONST_async)
                     && self.peek_token(true) == TOK_FUNCTION) =>
             {
                 // export async function ...
@@ -230,7 +230,7 @@ impl<'s> JSParseState<'s> {
                 // export {...}
                 self.next_token()?;
 
-                let first_export = md.0.export_entries.borrow().len();
+                let first_export = md.export_entries.len();
 
                 while self.token.val != b'}' as i32 {
                     let local_name = match self.token.val {
@@ -239,11 +239,11 @@ impl<'s> JSParseState<'s> {
                             self.token.atom().unwrap()
                         }
                         TOK_STRING => {
-                            let s = self.token.string().unwrap();
+                            let s = self.token.data.string().unwrap();
                             Atom::from_str(
                                 self.ctx.rt().deref_mut(),
-                                &s.to_utf8(false),
-                                AtomTypeHint::String,
+                                &s.to_utf8(),
+                                AtomKind::String,
                             )?
                         }
                         _ => {
@@ -254,7 +254,7 @@ impl<'s> JSParseState<'s> {
 
                     self.next_token()?;
 
-                    let export_name = if self.token_is_pseudo_keyword(JS_ATOM_as) {
+                    let export_name = if self.token_is_pseudo_keyword(Atom::CONST_as) {
                         // <local_name> as <export_name>
                         self.next_token()?;
 
@@ -264,11 +264,11 @@ impl<'s> JSParseState<'s> {
                                 self.token.atom().unwrap()
                             }
                             TOK_STRING => {
-                                let s = self.token.string().unwrap();
+                                let s = self.token.data.string().unwrap();
                                 Atom::from_str(
                                     self.ctx.rt().deref_mut(),
-                                    &s.to_utf8(false),
-                                    AtomTypeHint::String,
+                                    &s.to_utf8(),
+                                    AtomKind::String,
                                 )?
                             }
                             _ => {
@@ -280,13 +280,13 @@ impl<'s> JSParseState<'s> {
                         self.next_token()?;
                         n
                     } else {
-                        local_name.clone()
+                        local_name
                     };
 
                     self.add_module_export(
-                        Some(&md),
-                        &local_name,
-                        &export_name,
+                        Some(md),
+                        local_name,
+                        export_name,
                         ExportType::JS_EXPORT_TYPE_LOCAL {
                             var_idx: u16::MAX, // unknown for now
                             var_ref: None,
@@ -303,10 +303,10 @@ impl<'s> JSParseState<'s> {
                 self.parse_expect('}' as i32)?;
 
                 // Handle re-exports
-                if self.token_is_pseudo_keyword(JS_ATOM_from) {
+                if self.token_is_pseudo_keyword(Atom::CONST_from) {
                     let module_name = self.parse_from_clause()?;
                     let idx = md.add_dependency(&self.ctx, module_name)?;
-                    for me in &mut md.0.export_entries.borrow_mut()[first_export..] {
+                    for me in &mut md.export_entries[first_export..] {
                         me.export_type = ExportType::JS_EXPORT_TYPE_INDIRECT(idx as _);
                     }
                 }
@@ -316,7 +316,7 @@ impl<'s> JSParseState<'s> {
             0x2a => {
                 self.next_token()?;
 
-                if self.token_is_pseudo_keyword(JS_ATOM_as) {
+                if self.token_is_pseudo_keyword(Atom::CONST_as) {
                     // export ns from
                     self.next_token()?;
 
@@ -326,11 +326,11 @@ impl<'s> JSParseState<'s> {
                             self.token.atom().unwrap()
                         }
                         TOK_STRING => {
-                            let s = self.token.string().unwrap();
+                            let s = self.token.data.string().unwrap();
                             Atom::from_str(
                                 self.ctx.rt().deref_mut(),
-                                &s.to_utf8(false),
-                                AtomTypeHint::String,
+                                &s.to_utf8(),
+                                AtomKind::String,
                             )?
                         }
                         _ => {
@@ -346,9 +346,9 @@ impl<'s> JSParseState<'s> {
 
                     let idx = r?;
                     self.add_module_export(
-                        Some(&md),
-                        JS_ATOM__star_.deref(),
-                        &export_name,
+                        Some(md),
+                        Atom::CONST__star_,
+                        export_name,
                         ExportType::JS_EXPORT_TYPE_INDIRECT(idx as _),
                     )?;
                 } else {
@@ -365,7 +365,7 @@ impl<'s> JSParseState<'s> {
                 if self.token.val == TOK_CLASS {
                     return self.parse_class(false, JSParseExportEnum::JS_PARSE_EXPORT_DEFAULT);
                 } else if self.token.val == TOK_FUNCTION
-                    || (self.token_is_pseudo_keyword(JS_ATOM_async)
+                    || (self.token_is_pseudo_keyword(Atom::CONST_async)
                         && self.peek_token(true) == TOK_FUNCTION)
                 {
                     return self.parse_function_decl_ex(
@@ -381,19 +381,19 @@ impl<'s> JSParseState<'s> {
                 }
 
                 // set the name of anonymous functions
-                self.set_object_name(Atom::new_const(JS_ATOM_default));
+                self.set_object_name(Atom::CONST_default);
 
                 // store the value in the _default_ global variable and export it
-                let loc = Atom::new_const(JS_ATOM__default_);
-                self.define_var_cur_func(&loc, JSVarDefEnum::JS_VAR_DEF_LET)?;
+                let loc = Atom::CONST__default_;
+                self.define_var_cur_func(loc, JSVarDefEnum::JS_VAR_DEF_LET)?;
                 self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
-                self.emit_atom(loc.clone());
+                self.emit_atom(loc);
                 self.emit_u16(0);
 
                 self.add_module_export(
-                    Some(&md),
-                    &loc,
-                    JS_ATOM_default.deref(),
+                    Some(md),
+                    loc,
+                    Atom::CONST_default,
                     ExportType::JS_EXPORT_TYPE_LOCAL {
                         var_idx: u16::MAX, // unknown for now
                         var_ref: None,
@@ -415,14 +415,14 @@ impl<'s> JSParseState<'s> {
     /// `local_name`, `export_name` are not consumed.
     pub(super) fn add_module_export(
         &self,
-        md: Option<&ModuleDef<'s>>,
-        local_name: &Atom,
-        export_name: &Atom,
-        export_type: ExportType<'s>,
+        md: Option<ModuleDef>,
+        local_name: Atom,
+        export_name: Atom,
+        export_type: ExportType,
     ) -> Result<(), i32> {
-        let md = md.unwrap_or_else(|| {
+        let mut md = md.unwrap_or_else(|| {
             // current function def must have module.
-            self.cur_func().module.as_ref().unwrap()
+            self.cur_func().module.unwrap()
         });
 
         match md.add_export_internal(&self.ctx, local_name, export_name, export_type) {
@@ -437,7 +437,7 @@ impl<'s> JSParseState<'s> {
                         0
                     };
                     self.ctx.build_backtrace_to(
-                        &self.ctx.rt().cur_exception,
+                        self.ctx.rt().exception(),
                         Some((self.filename, self.line_num)),
                         backtrace_flags,
                     );
@@ -451,50 +451,47 @@ impl<'s> JSParseState<'s> {
     /// `local_name`, `import_name` are not consumed.
     pub(super) fn add_module_import(
         &self,
-        md: &ModuleDef<'s>,
-        local_name: &Atom,
-        import_name: &Atom,
+        mut md: ModuleDef,
+        local_name: Atom,
+        import_name: Atom,
     ) -> Result<(), i32> {
-        if matches!(local_name.to_ref(), JS_ATOM_arguments | JS_ATOM_eval) {
+        if matches!(local_name, Atom::CONST_arguments | Atom::CONST_eval) {
             self.throw_syntax_error("invalid import binding");
             return Err(-1);
         }
 
-        if !local_name.eq(&JS_ATOM_default)
+        if local_name != Atom::CONST_default
             && self
                 .cur_func()
                 .closure_vars
                 .as_ref()
-                .is_some_and(|lst| lst.iter().any(|cv| cv.var_name.eq(local_name)))
+                .is_some_and(|lst| lst.iter().any(|cv| cv.var_name == local_name))
         {
             self.throw_syntax_error("duplicate import binding");
             return Err(-1);
         }
 
-        let is_local = import_name.to_ref() == JS_ATOM__star_;
+        let is_local = import_name == Atom::CONST__star_;
         let var_idx = self.cur_func_mut().add_closure_var(
             &self.ctx,
             is_local,
             false,
-            md.0.import_entries.borrow().len() as _,
+            md.import_entries.len() as _,
             local_name,
             true,
             true,
             JSVarKindEnum::JS_VAR_NORMAL,
         )?;
 
-        if md.0.import_entries.borrow().len() == md.0.import_entries.borrow().capacity() {
-            md.0.import_entries
-                .borrow_mut()
-                .try_reserve(2)
-                .map_err(|_| {
-                    self.ctx.throw_out_of_memory();
-                    -1
-                })?;
+        if md.import_entries.len() == md.import_entries.capacity() {
+            md.import_entries.try_reserve(2).map_err(|_| {
+                self.ctx.throw_out_of_memory();
+                -1
+            })?;
         }
-        md.0.import_entries.borrow_mut().push(JSImportEntry {
+        md.import_entries.push(JSImportEntry {
             var_idx,
-            import_name: import_name.clone(),
+            import_name,
             req_module_idx: 0,
         });
 

@@ -1,6 +1,6 @@
 use crate::{
     bytecode::{opcode_info_intermediate, opcodes},
-    context::{JS_MODE_STRIP, JSContext},
+    context::{JS_MODE_STRIP, ContextImpl},
     function::{
         BlockEnv, JSFunctionDef, PC2LINE_BASE, PC2LINE_DIFF_PC_MAX, PC2LINE_OP_FIRST, PC2LINE_RANGE,
     },
@@ -29,7 +29,7 @@ pub struct Label {
 }
 
 impl Label {
-    pub fn add_reloc(&mut self, ctx: &JSContext, addr: usize, size: i32) -> Result<(), i32> {
+    pub fn add_reloc(&mut self, ctx: &ContextImpl, addr: usize, size: i32) -> Result<(), i32> {
         if self.pending_relocs.len() == self.pending_relocs.capacity()
             && self.pending_relocs.try_reserve_exact(4).is_err()
         {
@@ -42,7 +42,7 @@ impl Label {
     }
 }
 
-impl<'a> JSFunctionDef<'a> {
+impl JSFunctionDef {
     /// Create a new label in function def. returns new label id.
     pub fn add_label(&mut self) -> Result<u32, i32> {
         if self.label_slots.len() == self.label_slots.capacity()

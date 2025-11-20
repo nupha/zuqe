@@ -6,25 +6,22 @@ use crate::{
     JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_ARRAY,
     JS_NATIVE_ITERATOR_NEXT_DEF, JS_PROP_STRING_DEF,
     array::Array,
-    atom::consts::{
-        JS_ATOM_Symbol_isConcatSpreadable, JS_ATOM_Symbol_iterator, JS_ATOM_Symbol_species,
-        JS_ATOM_constructor, JS_ATOM_join, JS_ATOM_length, JS_ATOM_next, JS_ATOM_set,
-    },
+    atom::Atom,
     bytecode::arithmatic::StrictEqMode,
-    context::JSContext,
+    context::{ContextImpl, ContextRef},
     error::JSResult,
     function::{CallContext, FieldDef, JS_CallConstructor, JS_GetFunctionRealm},
     iterator::{JSIteratorKindEnum, ObjectIter, js_array_iterator_next, js_create_array_iterator},
     js_core::{js_get_this, object::js_object_toString},
     number::MAX_SAFE_INTEGER,
-    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, JSObject, ObjectPayload},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, ObjectPayload, ObjectRef},
     runtime::js_check_stack_overflow,
-    string::{JSString, StringBuf},
+    string::{StringBuf, StringRef},
     typed_array::{js_typed_array___speciesCreate, js_typed_array_get_length_internal},
     value::JSValue,
 };
 
-use super::ArrayObjPayload;
+use super::ArrayPayload;
 
 pub const special_find: i32 = 0;
 pub const special_findIndex: i32 = 1;
@@ -45,19 +42,17 @@ pub const special_TA: i32 = 8;
 pub const special_reduce: i32 = 0;
 pub const special_reduceRight: i32 = 1;
 
-pub(crate) fn js_array_constructor<'a>(
-    ctx: &JSContext<'a>,
-    cc: CallContext<'_, 'a>,
-) -> JSResult<'a> {
-    let new_target = cc.this();
+pub(crate) fn js_array_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let ctx = &ctx;
+    let new_target = *cc.this();
 
-    let (arr, len) = if cc.length() == 1 && cc.arg(0).is_number() {
+    let (mut arr, len) = if cc.length() == 1 && cc.arg(0).is_number() {
         // new Array(capacity) case
         let cap = cc.arg(0).to_array_length(ctx, true)?;
         let arr = Array::try_from(
             ctx.create_object_from_ctor(
                 new_target,
-                ObjectPayload::ARRAY(ArrayObjPayload::new(Vec::new())),
+                ObjectPayload::ARRAY(ArrayPayload::new(Vec::new())),
             )
             .map_err(|_| -1)?,
         )
@@ -78,11 +73,8 @@ pub(crate) fn js_array_constructor<'a>(
         let len = list.len() as u32;
 
         let arr = Array::try_from(
-            ctx.create_object_from_ctor(
-                new_target,
-                ObjectPayload::ARRAY(ArrayObjPayload::new(list)),
-            )
-            .map_err(|_| -1)?,
+            ctx.create_object_from_ctor(new_target, ObjectPayload::ARRAY(ArrayPayload::new(list)))
+                .map_err(|_| -1)?,
         )
         .unwrap();
         (arr, len)
@@ -92,36 +84,32 @@ pub(crate) fn js_array_constructor<'a>(
     Ok(arr.into())
 }
 
-fn JS_ArraySpeciesCreate<'a>(
-    ctx: &JSContext<'a>,
-    obj: &JSValue<'a>,
-    len_val: &JSValue<'a>,
-) -> JSResult<'a> {
-    if !obj.is_array(ctx)? {
+fn JS_ArraySpeciesCreate(ctx: ContextRef, obj: JSValue, len_val: JSValue) -> JSResult {
+    if !obj.is_array(&ctx)? {
         return js_array_constructor(
             ctx,
             CallContext::new(
                 ctx,
                 JSValue::UNDEFINED,
-                std::slice::from_ref(len_val),
+                std::slice::from_ref(&len_val),
                 0,
                 None,
             ),
         );
     }
 
-    let mut ctor = obj.get_property(ctx, JS_ATOM_constructor.deref())?;
+    let mut ctor = obj.get_property(&ctx, Atom::CONST_constructor)?;
 
     if ctor.is_constructor() {
         // legacy web compatibility
-        let realm = JS_GetFunctionRealm(ctx, &ctor)?;
-        if !realm.eq(ctx) && ctor.is_same(&realm.0.borrow().array_ctor) {
+        let realm = JS_GetFunctionRealm(ctx, ctor)?;
+        if realm.id() != ctx.id() && ctor.is_same(realm.array_ctor) {
             ctor = JSValue::UNDEFINED;
         }
     }
 
     if ctor.is_object() {
-        let species = ctor.get_property(ctx, JS_ATOM_Symbol_species.deref())?;
+        let species = ctor.get_property(&ctx, Atom::CONST_Symbol_species)?;
         ctor = species;
         if ctor.is_null() {
             ctor = JSValue::UNDEFINED;
@@ -134,20 +122,20 @@ fn JS_ArraySpeciesCreate<'a>(
             CallContext::new(
                 ctx,
                 JSValue::UNDEFINED,
-                std::slice::from_ref(len_val),
+                std::slice::from_ref(&len_val),
                 0,
                 None,
             ),
         )
     } else {
-        JS_CallConstructor(ctx, &ctor, std::slice::from_ref(len_val)).err()
+        JS_CallConstructor(&ctx, ctor, std::slice::from_ref(&len_val)).err()
     }
 }
 
 /// check `obj[Symbol.isConcatSpreabable]` property
-pub fn JS_isConcatSpreadable<'a>(ctx: &JSContext<'a>, obj: &JSValue<'a>) -> Result<bool, i32> {
+pub fn JS_isConcatSpreadable(ctx: &ContextImpl, obj: &JSValue) -> Result<bool, i32> {
     if obj.is_object() {
-        let s = obj.get_property(ctx, &JS_ATOM_Symbol_isConcatSpreadable)?;
+        let s = obj.get_property(ctx, Atom::CONST_Symbol_isConcatSpreadable)?;
         if !s.is_undefined() {
             s.to_bool()
         } else {
@@ -158,11 +146,11 @@ pub fn JS_isConcatSpreadable<'a>(ctx: &JSContext<'a>, obj: &JSValue<'a>) -> Resu
     }
 }
 
-pub fn js_array_at<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let obj: JSValue = cc.this().clone().objectify(ctx)?.into();
-    let len = obj.get_length_prop(ctx)?;
+pub fn js_array_at(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let obj: JSValue = cc.this().objectify(&ctx)?.into();
+    let len = obj.get_length_prop(&ctx)?;
 
-    let mut idx: i64 = cc.arg(0).to_i64_saturating(ctx)?;
+    let mut idx: i64 = cc.arg(0).to_i64_saturating(&ctx)?;
     if idx < 0 {
         idx += len;
     }
@@ -177,18 +165,18 @@ pub fn js_array_at<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult
         val
     } else {
         // sparse array
-        obj.try_get_property_i64(ctx, idx)?
+        obj.try_get_property_i64(&ctx, idx)?
             .unwrap_or(JSValue::UNDEFINED)
     };
 
     Ok(ret)
 }
 
-pub fn js_array_with<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let obj = cc.this().clone().objectify(ctx)?;
-    let len = obj.get_length_prop(ctx)?;
+pub fn js_array_with(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let obj = cc.this().objectify(&ctx)?;
+    let len = obj.get_length_prop(&ctx)?;
 
-    let mut idx: i64 = cc.arg(0).to_i64_saturating(ctx)?;
+    let mut idx: i64 = cc.arg(0).to_i64_saturating(&ctx)?;
     if idx < 0 {
         idx += len;
     }
@@ -211,7 +199,7 @@ pub fn js_array_with<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResu
             -1
         })?;
         // modified element
-        dst[idx as usize] = cc.arg(1).clone();
+        dst[idx as usize] = *cc.arg(1);
         dst
     } else {
         // slow path
@@ -222,7 +210,7 @@ pub fn js_array_with<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResu
         })?;
 
         for i in 0..idx {
-            match obj.try_get_property_i64(ctx, i) {
+            match obj.try_get_property_i64(&ctx, i) {
                 Ok(Some(v)) => {
                     dst.push(v);
                 }
@@ -240,11 +228,11 @@ pub fn js_array_with<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResu
         }
 
         // the modified element
-        dst.push(cc.arg(1).clone());
+        dst.push(*cc.arg(1));
 
         // idx+1..end
         for i in (idx + 1)..len {
-            match obj.try_get_property_i64(ctx, i) {
+            match obj.try_get_property_i64(&ctx, i) {
                 Ok(Some(v)) => {
                     dst.push(v);
                 }
@@ -269,72 +257,74 @@ pub fn js_array_with<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResu
     #[cfg(debug_assertions)]
     {
         let arr = ctx.create_array_with_values(new_lst)?;
-        debug_assert_eq!(arr.get_length_prop(ctx).unwrap(), len);
+        debug_assert_eq!(arr.get_length_prop(&ctx).unwrap(), len);
         Ok(arr.into())
     }
     #[cfg(not(debug_assertions))]
     ctx.create_array_with_values(new_lst).map(|a| a.into())
 }
 
-pub fn js_array_concat<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let this: JSValue = cc.this().clone().objectify(ctx)?.into();
-    let arr = JS_ArraySpeciesCreate(ctx, &this, &JSValue::Int(0))?;
+pub fn js_array_concat(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let cx = ctx.deref();
+
+    let this: JSValue = cc.this().objectify(cx)?.into();
+    let mut arr = JS_ArraySpeciesCreate(ctx, this, JSValue::Int(0))?;
 
     let mut n = 0;
 
     for i in -1..cc.length() as i32 {
         let v = if i < 0 { &this } else { cc.arg(i as usize) };
-        let spreadable = JS_isConcatSpreadable(ctx, v)?;
+        let spreadable = JS_isConcatSpreadable(cx, v)?;
 
         if spreadable {
-            let len = v.get_length_prop(ctx)?;
+            let len = v.get_length_prop(cx)?;
             if n + len > MAX_SAFE_INTEGER {
-                ctx.throw_type_error("Array loo long");
+                cx.throw_type_error("Array loo long");
                 return Err(-1);
             }
 
             for k in 0..len {
-                if let Some(val) = v.try_get_property_i64(ctx, k)? {
-                    arr.define_property_value_i64(ctx, n, val, JS_PROP_C_W_E | JS_PROP_THROW)?;
+                if let Some(val) = v.try_get_property_i64(cx, k)? {
+                    arr.define_property_value_i64(cx, n, val, JS_PROP_C_W_E | JS_PROP_THROW)?;
                 }
                 n += 1;
             }
         } else {
             if n >= MAX_SAFE_INTEGER {
-                ctx.throw_type_error("Array loo long");
+                cx.throw_type_error("Array loo long");
                 return Err(-1);
             }
 
-            arr.define_property_value_i64(ctx, n, v.clone(), JS_PROP_C_W_E | JS_PROP_THROW)?;
+            arr.define_property_value_i64(cx, n, *v, JS_PROP_C_W_E | JS_PROP_THROW)?;
             n += 1;
         }
     }
 
-    arr.set_property(ctx, JS_ATOM_length.deref(), JSValue::from(n))?;
+    arr.set_property(cx, Atom::CONST_length, JSValue::from(n))?;
     Ok(arr)
 }
 
-pub fn js_array_every<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+pub fn js_array_every(ctx: ContextRef, cc: CallContext) -> JSResult {
     let special = cc.magic();
 
     let obj: JSValue;
     let len: i64;
 
     if special & special_TA != 0 {
-        obj = cc.this().clone();
-        len = js_typed_array_get_length_internal(ctx, &obj)? as i64;
+        obj = *cc.this();
+        len = js_typed_array_get_length_internal(&ctx, obj)? as i64;
     } else {
-        obj = cc.this().clone().objectify(ctx)?.into();
-        len = obj.get_length_prop(ctx)?;
+        obj = cc.this().objectify(&ctx)?.into();
+        len = obj.get_length_prop(&ctx)?;
     }
 
     let func = cc.arg(0);
     let this_arg = if cc.length() > 1 {
-        cc.arg(1)
+        *cc.arg(1)
     } else {
-        &JSValue::UNDEFINED
+        JSValue::UNDEFINED
     };
-    func.ensure_function(ctx)?;
+    func.ensure_function(&ctx)?;
 
     let mut ret: JSValue;
     match special {
@@ -345,16 +335,16 @@ pub fn js_array_every<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSRes
             ret = JSValue::Bool(false);
         }
         special_map => {
-            ret = JS_ArraySpeciesCreate(ctx, &obj, &JSValue::from(len))?;
+            ret = JS_ArraySpeciesCreate(ctx, obj, JSValue::from(len))?;
         }
         special_filter => {
-            ret = JS_ArraySpeciesCreate(ctx, &obj, &JSValue::Int(0))?;
+            ret = JS_ArraySpeciesCreate(ctx, obj, JSValue::Int(0))?;
         }
         s if s == special_map | special_TA => {
             ret = js_typed_array___speciesCreate(
                 ctx,
-                &JSValue::UNDEFINED,
-                &[obj.clone(), JSValue::from(len as i32)],
+                JSValue::UNDEFINED,
+                &[obj, JSValue::from(len as i32)],
             )?;
         }
         s if s == special_filter | special_TA => {
@@ -372,10 +362,10 @@ pub fn js_array_every<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSRes
         let mut val = JSValue::UNDEFINED;
 
         if special & special_TA != 0 {
-            val = obj.get_property_i64(ctx, k)?;
+            val = obj.get_property_i64(&ctx, k)?;
             present = true;
         } else {
-            match obj.try_get_property_i64(ctx, k)? {
+            match obj.try_get_property_i64(&ctx, k)? {
                 Some(r) => {
                     val = r;
                     present = true;
@@ -388,7 +378,7 @@ pub fn js_array_every<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSRes
 
         if present {
             let index_val = JSValue::from(k);
-            let res = func.call(ctx, this_arg, &[val.clone(), index_val, obj.clone()])?;
+            let res = func.call(&ctx, this_arg, &[val, index_val, obj])?;
 
             match special {
                 s if s == special_every || s == special_every | special_TA => {
@@ -404,14 +394,14 @@ pub fn js_array_every<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSRes
                     }
                 }
                 special_map => {
-                    ret.define_property_value_i64(ctx, k, res, JS_PROP_C_W_E | JS_PROP_THROW)?;
+                    ret.define_property_value_i64(&ctx, k, res, JS_PROP_C_W_E | JS_PROP_THROW)?;
                 }
                 s if s == special_map | special_TA => {
-                    ret.set_property_value(ctx, &JSValue::Int(k as i32), res, JS_PROP_THROW)?;
+                    ret.set_property_value(&ctx, JSValue::Int(k as i32), res, JS_PROP_THROW)?;
                 }
                 s if s == special_filter || s == special_filter | special_TA => {
                     if res.to_bool().unwrap_or(true) {
-                        ret.define_property_value_i64(ctx, n, val, JS_PROP_C_W_E | JS_PROP_THROW)?;
+                        ret.define_property_value_i64(&ctx, n, val, JS_PROP_C_W_E | JS_PROP_THROW)?;
                         n += 1;
                     }
                 }
@@ -423,37 +413,37 @@ pub fn js_array_every<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSRes
     if special == special_filter | special_TA {
         let arr = js_typed_array___speciesCreate(
             ctx,
-            &JSValue::UNDEFINED,
+            JSValue::UNDEFINED,
             &[obj, JSValue::Int(n as i32)],
         )?;
-        arr.invoke(ctx, JS_ATOM_set.deref(), std::slice::from_ref(&ret))?;
+        arr.invoke(&ctx, Atom::CONST_set, std::slice::from_ref(&ret))?;
         ret = arr;
     }
 
     Ok(ret)
 }
 
-pub fn js_array_reduce<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+pub fn js_array_reduce(ctx: ContextRef, cc: CallContext) -> JSResult {
     let special = cc.magic();
 
     let obj: JSValue;
     let len: i64;
     if special & special_TA != 0 {
-        obj = cc.this().clone();
-        len = js_typed_array_get_length_internal(ctx, &obj)? as i64;
+        obj = *cc.this();
+        len = js_typed_array_get_length_internal(&ctx, obj)? as i64;
     } else {
-        obj = cc.this().clone().objectify(ctx)?.into();
-        len = obj.get_length_prop(ctx)?;
+        obj = cc.this().objectify(&ctx)?.into();
+        len = obj.get_length_prop(&ctx)?;
     }
 
     let func = cc.arg(0);
-    func.ensure_function(ctx)?;
+    func.ensure_function(&ctx)?;
 
     let mut acc: JSValue;
     let mut k = 0;
 
     if cc.length() > 1 {
-        acc = cc.arg(1).clone();
+        acc = *cc.arg(1);
     } else {
         loop {
             if k >= len {
@@ -469,9 +459,9 @@ pub fn js_array_reduce<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSRe
             k += 1;
 
             if special & special_TA != 0 {
-                acc = obj.get_property_i64(ctx, k1)?;
+                acc = obj.get_property_i64(&ctx, k1)?;
                 break;
-            } else if let Some(r) = obj.try_get_property_i64(ctx, k1)? {
+            } else if let Some(r) = obj.try_get_property_i64(&ctx, k1)? {
                 acc = r;
                 break;
             }
@@ -488,10 +478,10 @@ pub fn js_array_reduce<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSRe
         k += 1;
 
         let present = if special & special_TA != 0 {
-            val = obj.get_property_i64(ctx, k1)?;
+            val = obj.get_property_i64(&ctx, k1)?;
             true
         } else {
-            match obj.try_get_property_i64(ctx, k1)? {
+            match obj.try_get_property_i64(&ctx, k1)? {
                 Some(r) => {
                     val = r;
                     true
@@ -502,55 +492,54 @@ pub fn js_array_reduce<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSRe
 
         if present {
             let index_val = JSValue::from(k1);
-            acc = func.call(
-                ctx,
-                &JSValue::UNDEFINED,
-                &[acc, val.clone(), index_val, obj.clone()],
-            )?;
+            acc = func.call(&ctx, JSValue::UNDEFINED, &[acc, val, index_val, obj])?;
         }
     }
 
     Ok(acc)
 }
 
-pub fn js_array_fill<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let obj: JSValue = cc.this().clone().objectify(ctx)?.into();
-    let len = obj.get_length_prop(ctx)?;
+pub fn js_array_fill(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let cx = ctx.deref();
+
+    let mut obj: JSValue = cc.this().objectify(cx)?.into();
+    let len = obj.get_length_prop(cx)?;
 
     let mut start = if cc.length() > 1 && !cc.arg(1).is_undefined() {
-        cc.arg(1).to_i64_clamp(ctx, 0, len, len)?
+        cc.arg(1).to_i64_clamp(cx, 0, len, len)?
     } else {
         0
     };
 
     let end = if cc.length() > 2 && !cc.arg(2).is_undefined() {
-        cc.arg(2).to_i64_clamp(ctx, 0, len, len)?
+        cc.arg(2).to_i64_clamp(cx, 0, len, len)?
     } else {
         len
     };
 
     // XXX: should special case fast arrays
     while start < end {
-        obj.set_property_i64(ctx, start, cc.arg(0).clone())?;
+        obj.set_property_i64(cx, start, *cc.arg(0))?;
         start += 1;
     }
 
     Ok(obj)
 }
 
-pub fn js_array_find<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+pub fn js_array_find(ctx: ContextRef, cc: CallContext) -> JSResult {
     let mode = cc.magic();
-    let obj: JSValue = cc.this().clone().objectify(ctx)?.into();
-    let len = obj.get_length_prop(ctx)?;
+
+    let obj: JSValue = cc.this().objectify(&ctx)?.into();
+    let len = obj.get_length_prop(&ctx)?;
 
     let func = cc.arg(0);
-    func.ensure_function(ctx)?;
+    func.ensure_function(&ctx)?;
 
-    let this_val = cc.this();
+    let this_val = *cc.this();
     let this_arg = if cc.length() > 1 {
-        cc.arg(1)
+        *cc.arg(1)
     } else {
-        &JSValue::UNDEFINED
+        JSValue::UNDEFINED
     };
 
     let mut k: i64;
@@ -570,12 +559,8 @@ pub fn js_array_find<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResu
     // TODO: add fast path for fast arrays
     while k != end {
         let index_val = JSValue::from(k);
-        let val = obj.get_property_value(ctx, &index_val)?;
-        let res = func.call(
-            ctx,
-            this_arg,
-            &[val.clone(), index_val.clone(), this_val.clone()],
-        )?;
+        let val = obj.get_property_value(&ctx, index_val)?;
+        let res = func.call(&ctx, this_arg, &[val, index_val, this_val])?;
 
         if res.to_bool()? {
             // found
@@ -598,26 +583,28 @@ pub fn js_array_find<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResu
     )
 }
 
-pub fn js_array_indexOf<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let obj: JSValue = cc.this().clone().objectify(ctx)?.into();
-    let len = obj.get_length_prop(ctx)?;
+pub fn js_array_indexOf(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let cx = ctx.deref();
+
+    let obj: JSValue = cc.this().objectify(cx)?.into();
+    let len = obj.get_length_prop(cx)?;
 
     let mut res = -1;
     if len > 0 {
         let mut n = if cc.length() > 1 {
-            cc.arg(1).to_i64_clamp(ctx, 0, len, len)?
+            cc.arg(1).to_i64_clamp(cx, 0, len, len)?
         } else {
             0
         };
 
-        let target = cc.arg(0).clone();
+        let target = *cc.arg(0);
 
         // try fast array
         let found = obj
             .with_fast_array_values(|lst| {
                 let start = n as usize;
                 for (i, el) in lst[start..].iter().enumerate() {
-                    if target.strict_eq_with_mode(el, StrictEqMode::JS_EQ_STRICT) {
+                    if target.strict_eq_with_mode(*el, StrictEqMode::JS_EQ_STRICT) {
                         return Some(start + i); // found
                     }
                 }
@@ -631,8 +618,8 @@ pub fn js_array_indexOf<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSR
 
         // try properties
         while n < len {
-            if let Some(v) = obj.try_get_property_i64(ctx, n)? {
-                let b = target.strict_eq_with_mode(&v, StrictEqMode::JS_EQ_STRICT);
+            if let Some(v) = obj.try_get_property_i64(cx, n)? {
+                let b = target.strict_eq_with_mode(v, StrictEqMode::JS_EQ_STRICT);
                 if b {
                     res = n;
                     break;
@@ -645,24 +632,26 @@ pub fn js_array_indexOf<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSR
     Ok(JSValue::from(res))
 }
 
-pub fn js_array_lastIndexOf<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let obj: JSValue = cc.this().clone().objectify(ctx)?.into();
-    let len = obj.get_length_prop(ctx)?;
+pub fn js_array_lastIndexOf(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let cx = ctx.deref();
+
+    let obj: JSValue = cc.this().objectify(cx)?.into();
+    let len = obj.get_length_prop(cx)?;
     let target = cc.arg(0);
 
     let mut res: i64 = -1;
 
     if len > 0 {
         let cnt = if cc.length() > 1 {
-            cc.arg(1).to_i64_clamp(ctx, -1, len - 1, len)?
+            cc.arg(1).to_i64_clamp(cx, -1, len - 1, len)?
         } else {
             len - 1
         };
 
         // TODO: should special case fast arrays
         for n in (0..=cnt).rev() {
-            if let Some(v) = obj.try_get_property_i64(ctx, n)? {
-                let b = target.strict_eq_with_mode(&v, StrictEqMode::JS_EQ_STRICT);
+            if let Some(v) = obj.try_get_property_i64(cx, n)? {
+                let b = target.strict_eq_with_mode(v, StrictEqMode::JS_EQ_STRICT);
                 if b {
                     res = n;
                     break;
@@ -674,16 +663,18 @@ pub fn js_array_lastIndexOf<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) ->
     Ok(JSValue::from(res))
 }
 
-pub fn js_array_includes<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let obj = cc.this().clone().objectify(ctx)?;
-    let length = obj.get_length_prop(ctx)?;
+pub fn js_array_includes(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let cx = ctx.deref();
+
+    let obj = cc.this().objectify(cx)?;
+    let length = obj.get_length_prop(cx)?;
     let target = cc.arg(0);
 
     let mut res = false;
 
     if length > 0 {
         let mut n = if cc.length() > 1 {
-            cc.arg(1).to_i64_clamp(ctx, 0, length, length)?
+            cc.arg(1).to_i64_clamp(cx, 0, length, length)?
         } else {
             0
         };
@@ -691,7 +682,7 @@ pub fn js_array_includes<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JS
         if let Some(found) = obj.with_fast_array_values(|lst| {
             let start = n as usize;
             for el in &lst[start..] {
-                if target.strict_eq_with_mode(el, StrictEqMode::JS_EQ_SAME_VALUE_ZERO) {
+                if target.strict_eq_with_mode(*el, StrictEqMode::JS_EQ_SAME_VALUE_ZERO) {
                     return true;
                 }
             }
@@ -710,8 +701,8 @@ pub fn js_array_includes<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JS
 
         // sparse array
         while n < length {
-            let val = obj.get_property_i64(ctx, n)?;
-            let b = target.strict_eq_with_mode(&val, StrictEqMode::JS_EQ_SAME_VALUE_ZERO);
+            let val = obj.get_property_i64(cx, n)?;
+            let b = target.strict_eq_with_mode(val, StrictEqMode::JS_EQ_SAME_VALUE_ZERO);
             if b {
                 res = true;
                 break;
@@ -723,16 +714,18 @@ pub fn js_array_includes<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JS
     Ok(JSValue::Bool(res))
 }
 
-pub fn js_array_join<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+pub fn js_array_join(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let cx = ctx.deref();
+
     let to_locale_string = cc.magic() == 1;
-    let obj = cc.this().clone().objectify(ctx)?;
-    let len = obj.get_length_prop(ctx)?;
+    let obj = cc.this().objectify(cx)?;
+    let len = obj.get_length_prop(cx)?;
 
     let mut c = b',' as i32; // default separator
-    let mut p: Option<JSString> = None;
+    let mut p: Option<StringRef> = None;
 
     if !to_locale_string && cc.length() > 0 && !cc.arg(0).is_undefined() {
-        let sep = cc.arg(0).to_string(ctx)?;
+        let sep = cc.arg(0).to_string(cx)?;
         c = if let Some(a) = sep.content().ascii()
             && a.len() == 1
         {
@@ -740,7 +733,7 @@ pub fn js_array_join<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResu
         } else {
             -1
         };
-        p.replace(sep.clone());
+        p.replace(sep);
     }
 
     let mut sbuf = StringBuf::Empty;
@@ -755,38 +748,40 @@ pub fn js_array_join<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResu
             }
         }
 
-        let el = obj.get_property_i64(ctx, i)?;
+        let el = obj.get_property_i64(cx, i)?;
         if !el.is_undefined_or_null() {
             let ss = if to_locale_string {
-                el.to_locale_string(ctx)?.to_string(ctx)?
+                el.to_locale_string(cx)?.to_string(cx)?
             } else if let JSValue::String(s) = el {
                 s
             } else {
-                el.to_string(ctx)?
+                el.to_string(cx)?
             };
             sbuf.push_content(ss.content()).map_err(|_| {
-                ctx.throw_out_of_memory();
+                cx.throw_out_of_memory();
                 -1
             })?
         }
     }
 
-    ctx.create_string_with_buf(sbuf).map(JSValue::String)
+    cx.create_string_with_buf(sbuf).map(JSValue::String)
 }
 
-pub fn js_array_toString<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let obj = cc.this().clone().objectify(ctx)?;
-    obj.invoke_callable(ctx, &JS_ATOM_join, &[])?
+pub fn js_array_toString(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let obj = cc.this().objectify(&ctx)?;
+    obj.invoke_callable(&ctx, Atom::CONST_join, &[])?
         .unwrap_or_else(|| {
             // use builtin `Object.prototype.toString`
             js_object_toString(ctx, CallContext::new(ctx, obj.into(), &[], 0, None))
         })
 }
 
-pub fn js_array_pop<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+pub fn js_array_pop(ctx: ContextRef, cc: CallContext) -> JSResult {
     let shift = cc.magic() == 1;
-    let obj = cc.this().clone().objectify(ctx)?;
-    let arr_len = obj.get_length_prop(ctx)?;
+    let cx = ctx.deref();
+
+    let mut obj = cc.this().objectify(cx)?;
+    let arr_len = obj.get_length_prop(cx)?;
 
     let mut res = JSValue::UNDEFINED;
     let mut new_len = 0;
@@ -813,49 +808,52 @@ pub fn js_array_pop<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResul
         } else {
             // slow path
             if shift {
-                res = obj.get_property_i64(ctx, 0)?;
-                copy_sub_array(ctx, &obj, 0, 1, arr_len as usize - 1, 1)?;
+                res = obj.get_property_i64(cx, 0)?;
+                copy_sub_array(cx, &mut obj, 0, 1, arr_len as usize - 1, 1)?;
             } else {
-                res = obj.get_property_i64(ctx, new_len)?;
+                res = obj.get_property_i64(cx, new_len)?;
             }
-            obj.delete_property_i64(ctx, new_len, JS_PROP_THROW)?;
+            obj.delete_property_i64(cx, new_len, JS_PROP_THROW)?;
         }
     }
 
-    obj.set_property(ctx, JS_ATOM_length.deref(), JSValue::from(new_len))?;
+    obj.set_property(cx, Atom::CONST_length, JSValue::from(new_len))?;
     Ok(res)
 }
 
-pub fn js_array_push<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+pub fn js_array_push(ctx: ContextRef, cc: CallContext) -> JSResult {
     let unshift = cc.magic();
+    let cx = ctx.deref();
 
-    let obj = cc.this().clone().objectify(ctx)?;
-    let len = obj.get_length_prop(ctx)?;
+    let mut obj = cc.this().objectify(cx)?;
+    let len = obj.get_length_prop(cx)?;
 
     let new_len = len + cc.length() as i64;
     if new_len > MAX_SAFE_INTEGER {
-        ctx.throw_type_error("Array loo long");
+        cx.throw_type_error("Array loo long");
         return Err(-1);
     }
 
     let mut from = len;
     if unshift != 0 && cc.length() > 0 {
-        copy_sub_array(ctx, &obj, cc.length() as _, 0, len as usize, -1)?;
+        copy_sub_array(cx, &mut obj, cc.length() as _, 0, len as usize, -1)?;
         from = 0;
     }
 
     for i in 0..cc.length() {
-        obj.set_property_i64(ctx, from + i as i64, cc.arg(i).clone())?;
+        obj.set_property_i64(cx, from + i as i64, *cc.arg(i))?;
     }
 
-    obj.set_property(ctx, JS_ATOM_length.deref(), JSValue::from(new_len))?;
+    obj.set_property(cx, Atom::CONST_length, JSValue::from(new_len))?;
 
     Ok(JSValue::from(new_len))
 }
 
-pub fn js_array_reverse<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let obj: JSValue = cc.this().clone().objectify(ctx)?.into();
-    let len = obj.get_length_prop(ctx)?;
+pub fn js_array_reverse(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let cx = ctx.deref();
+
+    let mut obj: JSValue = cc.this().objectify(cx)?.into();
+    let len = obj.get_length_prop(cx)?;
 
     if len <= 1 {
         return Ok(obj);
@@ -883,7 +881,7 @@ pub fn js_array_reverse<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSR
     let mut hval = JSValue::UNDEFINED;
 
     while l < h {
-        let l_present = match obj.try_get_property_i64(ctx, l)? {
+        let l_present = match obj.try_get_property_i64(cx, l)? {
             Some(v) => {
                 lval = v;
                 true
@@ -891,7 +889,7 @@ pub fn js_array_reverse<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSR
             None => false,
         };
 
-        let h_present = match obj.try_get_property_i64(ctx, h)? {
+        let h_present = match obj.try_get_property_i64(cx, h)? {
             Some(v) => {
                 hval = v;
                 true
@@ -900,17 +898,17 @@ pub fn js_array_reverse<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSR
         };
 
         if h_present {
-            obj.set_property_i64(ctx, l, hval.clone())?;
+            obj.set_property_i64(cx, l, hval)?;
 
             if l_present {
-                obj.set_property_i64(ctx, h, lval)?;
+                obj.set_property_i64(cx, h, lval)?;
                 lval = JSValue::UNDEFINED;
             } else {
-                obj.delete_property_i64(ctx, h, JS_PROP_THROW)?;
+                obj.delete_property_i64(cx, h, JS_PROP_THROW)?;
             }
         } else if l_present {
-            obj.delete_property_i64(ctx, l, JS_PROP_THROW)?;
-            obj.set_property_i64(ctx, h, lval)?;
+            obj.delete_property_i64(cx, l, JS_PROP_THROW)?;
+            obj.set_property_i64(cx, h, lval)?;
             lval = JSValue::UNDEFINED;
         }
 
@@ -921,12 +919,14 @@ pub fn js_array_reverse<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSR
     Ok(obj)
 }
 
-pub fn js_array_toReversed<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let this = cc.this().clone().objectify(ctx)?;
+pub fn js_array_toReversed(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let cx = ctx.deref();
+
+    let this = cc.this().objectify(cx)?;
     let len = {
-        let n = this.get_length_prop(ctx)?;
+        let n = this.get_length_prop(cx)?;
         if n > u32::MAX as i64 {
-            ctx.throw_range_error("invalid array length");
+            cx.throw_range_error("invalid array length");
             return Err(-1);
         } else {
             n as u32
@@ -940,65 +940,69 @@ pub fn js_array_toReversed<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> 
                 .with_fast_array_values(|lst| lst.iter().rev().cloned().try_collect::<Vec<_>>())
                 .unwrap()
                 .map_err(|_| {
-                    ctx.throw_out_of_memory();
+                    cx.throw_out_of_memory();
                     -1
                 })?;
-            ctx.create_array_with_values(rlst)
+            cx.create_array_with_values(rlst)
         } else {
             // sparse array
             let mut rlst = Vec::<JSValue>::new();
             rlst.try_reserve_exact(len as usize).map_err(|_| {
-                ctx.throw_out_of_memory();
+                cx.throw_out_of_memory();
                 -1
             })?;
 
             // Query order is observable; test262 expects descending order.
             for i in (0..len).rev() {
                 rlst.push(
-                    this.try_get_property_i64(ctx, i as i64)?
+                    this.try_get_property_i64(cx, i as i64)?
                         .unwrap_or(JSValue::UNDEFINED),
                 );
             }
-            ctx.create_array_with_values(rlst)
+            cx.create_array_with_values(rlst)
         }
     } else {
         // empty array
-        ctx.create_array()
+        cx.create_array()
     };
 
     fa.map(|a| a.into())
 }
 
-fn js_array_sort<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+fn js_array_sort(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let cx = ctx.deref();
+
     let cmpfn = {
         let f = cc.arg(0);
         if !f.is_undefined() {
-            f.ensure_function(ctx)?;
+            f.ensure_function(cx)?;
             Some(f)
         } else {
             None
         }
     };
-    let obj = cc.this().clone().objectify(ctx)?;
-    Array::sort(ctx, &obj, cmpfn)?;
+    let mut obj = cc.this().objectify(cx)?;
+    Array::sort(&ctx, &mut obj, cmpfn)?;
     Ok(obj.into())
 }
 
-fn js_array_toSorted<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+fn js_array_toSorted(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let cx = ctx.deref();
+
     let cmpfn = {
         let f = cc.arg(0);
         if !f.is_undefined() {
-            f.ensure_function(ctx)?;
+            f.ensure_function(cx)?;
             Some(f)
         } else {
             None
         }
     };
 
-    let obj = cc.this().clone().objectify(ctx)?;
-    let len = obj.get_length_prop(ctx)?;
+    let obj = cc.this().objectify(cx)?;
+    let len = obj.get_length_prop(cx)?;
     if len > u32::MAX as i64 {
-        ctx.throw_range_error("invalid array length");
+        cx.throw_range_error("invalid array length");
         return Err(-1);
     }
 
@@ -1010,18 +1014,18 @@ fn js_array_toSorted<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResu
         }) {
             // fast path
             dst.map_err(|_| {
-                ctx.throw_out_of_memory();
+                cx.throw_out_of_memory();
                 -1
             })?
         } else {
             // slow path
             let mut dst = Vec::<JSValue>::new();
             dst.try_reserve_exact(len as usize).map_err(|_| {
-                ctx.throw_out_of_memory();
+                cx.throw_out_of_memory();
                 -1
             })?;
             for i in 0..len {
-                let v = obj.try_get_property_i64(ctx, i)?;
+                let v = obj.try_get_property_i64(cx, i)?;
                 dst.push(v.unwrap_or(JSValue::UNDEFINED));
             }
             dst
@@ -1030,17 +1034,18 @@ fn js_array_toSorted<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResu
         Vec::new()
     };
 
-    let arr = ctx.create_array_with_values(new_lst)?;
-    Array::sort(ctx, &arr, cmpfn)?;
+    let mut arr = cx.create_array_with_values(new_lst)?;
+    Array::sort(&ctx, &mut arr, cmpfn)?;
     Ok(arr.into())
 }
 
-pub fn js_array_slice<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+pub fn js_array_slice(ctx: ContextRef, cc: CallContext) -> JSResult {
     let is_splice = cc.magic() != 0;
+    let cx = ctx.deref();
 
-    let obj = cc.this().clone().objectify(ctx)?;
-    let len = obj.get_length_prop(ctx)?;
-    let start = cc.arg(0).to_i64_clamp(ctx, 0, len, len)?;
+    let mut obj = cc.this().objectify(cx)?;
+    let len = obj.get_length_prop(cx)?;
+    let start = cc.arg(0).to_i64_clamp(cx, 0, len, len)?;
 
     let item_count: u32;
     let del_count: i64;
@@ -1053,11 +1058,11 @@ pub fn js_array_slice<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSRes
             del_count = len - start;
             item_count = 0;
         } else {
-            del_count = cc.arg(1).to_i64_clamp(ctx, 0, len - start, 0)?;
+            del_count = cc.arg(1).to_i64_clamp(cx, 0, len - start, 0)?;
             item_count = (cc.length() - 2) as u32;
         }
         if len + item_count as i64 - del_count > MAX_SAFE_INTEGER {
-            ctx.throw_type_error("Array loo long");
+            cx.throw_type_error("Array loo long");
             return Err(-1);
         }
         del_count
@@ -1065,7 +1070,7 @@ pub fn js_array_slice<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSRes
         item_count = 0;
         del_count = 0;
         let end = if !cc.arg(1).is_undefined() {
-            cc.arg(1).to_i64_clamp(ctx, 0, len, len)?
+            cc.arg(1).to_i64_clamp(cx, 0, len, len)?
         } else {
             len
         };
@@ -1076,7 +1081,7 @@ pub fn js_array_slice<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSRes
 
     // make return Array
     let len_val = JSValue::from(count);
-    let arr = JS_ArraySpeciesCreate(ctx, &obj.clone().into(), &len_val)?;
+    let mut arr = JS_ArraySpeciesCreate(ctx, obj.into(), len_val)?;
 
     let mut k = start;
     let mut n = 0;
@@ -1092,15 +1097,15 @@ pub fn js_array_slice<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSRes
                 .cloned()
                 .try_collect::<Vec<_>>()
                 .map_err(|_| {
-                    ctx.throw_out_of_memory();
+                    cx.throw_out_of_memory();
                     -1
                 })?;
             if !items.is_empty() {
                 n = items.len() as i64;
                 k += n;
-                arr.as_object_Array()
+                arr.as_object_Array_mut()
                     .unwrap()
-                    .reset_fast_array(ctx, items)?;
+                    .reset_fast_array(cx, items)?;
             }
 
             // generic code
@@ -1124,21 +1129,21 @@ pub fn js_array_slice<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSRes
 
     // Copy the remaining elements if any (handle case of inherited properties)
     while k < end {
-        if let Some(v) = obj.try_get_property_i64(ctx, k)? {
-            arr.define_property_value_i64(ctx, n, v, JS_PROP_C_W_E | JS_PROP_THROW)?;
+        if let Some(v) = obj.try_get_property_i64(cx, k)? {
+            arr.define_property_value_i64(cx, n, v, JS_PROP_C_W_E | JS_PROP_THROW)?;
         }
         k += 1;
         n += 1;
     }
 
-    arr.set_property(ctx, JS_ATOM_length.deref(), JSValue::from(n))?;
+    arr.set_property(cx, Atom::CONST_length, JSValue::from(n))?;
 
     if is_splice {
         let new_len = len + item_count as i64 - del_count;
         if item_count as i64 != del_count {
             copy_sub_array(
-                ctx,
-                &obj,
+                cx,
+                &mut obj,
                 start as usize + item_count as usize,
                 start as usize + del_count as usize,
                 len as usize - (start + del_count) as usize,
@@ -1150,26 +1155,28 @@ pub fn js_array_slice<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSRes
             )?;
 
             for i in (new_len..len).rev() {
-                obj.delete_property_i64(ctx, i, JS_PROP_THROW)?;
+                obj.delete_property_i64(cx, i, JS_PROP_THROW)?;
             }
         }
 
         for i in 0..item_count {
-            obj.set_property_i64(ctx, start + i as i64, cc.arg(i as usize + 2).clone())?;
+            obj.set_property_i64(cx, start + i as i64, *cc.arg(i as usize + 2))?;
         }
 
-        obj.set_property(ctx, JS_ATOM_length.deref(), JSValue::from(new_len))?;
+        obj.set_property(cx, Atom::CONST_length, JSValue::from(new_len))?;
     }
 
     Ok(arr)
 }
 
-pub fn js_array_toSpliced<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let obj = cc.this().clone().objectify(ctx)?;
-    let len = obj.get_length_prop(ctx)?;
+pub fn js_array_toSpliced(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let cx = ctx.deref();
+
+    let obj = cc.this().objectify(cx)?;
+    let len = obj.get_length_prop(cx)?;
 
     let start = if cc.length() > 0 {
-        cc.arg(0).to_i64_clamp(ctx, 0, len, len)?
+        cc.arg(0).to_i64_clamp(cx, 0, len, len)?
     } else {
         0
     };
@@ -1179,7 +1186,7 @@ pub fn js_array_toSpliced<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> J
         del = len - start;
     }
     if cc.length() > 1 {
-        del = cc.arg(1).to_i64_clamp(ctx, 0, del, 0)?;
+        del = cc.arg(1).to_i64_clamp(cx, 0, del, 0)?;
     }
 
     let mut add = 0_i64;
@@ -1189,12 +1196,12 @@ pub fn js_array_toSpliced<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> J
 
     let new_len = len + add - del;
     if new_len > MAX_SAFE_INTEGER {
-        ctx.throw_type_error("invalid array length");
+        cx.throw_type_error("invalid array length");
         return Err(-1);
     }
 
     // create result array
-    let res_arr = ctx.create_array_with_capacity(std::cmp::max(new_len, 0) as usize)?;
+    let mut res_arr = cx.create_array_with_capacity(std::cmp::max(new_len, 0) as usize)?;
     if new_len <= 0 {
         return Ok(res_arr.into());
     }
@@ -1216,13 +1223,13 @@ pub fn js_array_toSpliced<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> J
                 .with_fast_array_values(|lst| {
                     if lst.len() == len as usize {
                         for v in &lst[..start as usize] {
-                            new_lst.push(v.clone());
+                            new_lst.push(*v);
                         }
                         for j in 0..add {
-                            new_lst.push(cc.arg((2 + j) as usize).clone());
+                            new_lst.push(*cc.arg((2 + j) as usize));
                         }
                         for v in &lst[(start + del) as usize..] {
-                            new_lst.push(v.clone());
+                            new_lst.push(*v);
                         }
 
                         true
@@ -1234,7 +1241,7 @@ pub fn js_array_toSpliced<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> J
             {
                 // slow path: sparse array
                 for i in 0..start {
-                    if let Ok(val) = obj.try_get_property_i64(ctx, i) {
+                    if let Ok(val) = obj.try_get_property_i64(cx, i) {
                         new_lst.push(val.unwrap_or(JSValue::UNDEFINED));
                     } else {
                         error!(i);
@@ -1242,10 +1249,10 @@ pub fn js_array_toSpliced<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> J
                 }
 
                 for i in 0..add {
-                    new_lst.push(cc.arg((2 + i) as usize).clone());
+                    new_lst.push(*cc.arg((2 + i) as usize));
                 }
                 for i in (start + del)..len {
-                    if let Ok(val) = obj.try_get_property_i64(ctx, i) {
+                    if let Ok(val) = obj.try_get_property_i64(cx, i) {
                         new_lst.push(val.unwrap_or(JSValue::UNDEFINED));
                     } else {
                         error!(i);
@@ -1257,18 +1264,20 @@ pub fn js_array_toSpliced<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> J
         })
         .unwrap()?;
 
-    res_arr.set_property(ctx, JS_ATOM_length.deref(), JSValue::from(new_len))?;
+    res_arr.set_property(cx, Atom::CONST_length, JSValue::from(new_len))?;
     Ok(res_arr.into())
 }
 
-pub fn js_array_copyWithin<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let obj = cc.this().clone().objectify(ctx)?;
-    let len = obj.get_length_prop(ctx)?;
+pub fn js_array_copyWithin(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let cx = ctx.deref();
 
-    let to: i64 = cc.arg(0).to_i64_clamp(ctx, 0, len, len)?;
-    let start: i64 = cc.arg(1).to_i64_clamp(ctx, 0, len, len)?;
+    let mut obj = cc.this().objectify(cx)?;
+    let len = obj.get_length_prop(cx)?;
+
+    let to: i64 = cc.arg(0).to_i64_clamp(cx, 0, len, len)?;
+    let start: i64 = cc.arg(1).to_i64_clamp(cx, 0, len, len)?;
     let end = if cc.length() > 2 && !cc.arg(2).is_undefined() {
-        cc.arg(2).to_i64_clamp(ctx, 0, len, len)?
+        cc.arg(2).to_i64_clamp(cx, 0, len, len)?
     } else {
         len
     };
@@ -1276,8 +1285,8 @@ pub fn js_array_copyWithin<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> 
     let count = std::cmp::min(end - start, len - to);
     if count > 0 {
         copy_sub_array(
-            ctx,
-            &obj,
+            cx,
+            &mut obj,
             to as _,
             start as _,
             count as _,
@@ -1292,32 +1301,33 @@ pub fn js_array_copyWithin<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> 
     Ok(obj.into())
 }
 
-pub fn js_array_flatten<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+pub fn js_array_flatten(ctx: ContextRef, cc: CallContext) -> JSResult {
     let map = cc.magic();
+    let cx = ctx.deref();
 
-    let source: JSValue = cc.this().clone().objectify(ctx)?.into();
-    let source_len = source.get_length_prop(ctx)?;
+    let source: JSValue = cc.this().objectify(cx)?.into();
+    let source_len = source.get_length_prop(cx)?;
 
     let mut depth = 1;
-    let mut mapper_func = &JSValue::UNDEFINED;
-    let mut this_arg = &JSValue::UNDEFINED;
+    let mut mapper_func = JSValue::UNDEFINED;
+    let mut this_arg = JSValue::UNDEFINED;
 
     if map != 0 {
-        mapper_func = cc.arg(0);
+        mapper_func = *cc.arg(0);
         if cc.length() > 1 {
-            this_arg = cc.arg(1);
+            this_arg = *cc.arg(1);
         }
-        mapper_func.ensure_function(ctx)?;
+        mapper_func.ensure_function(cx)?;
     } else if cc.length() > 0 && !cc.arg(0).is_undefined() {
-        depth = cc.arg(0).to_i32_saturating(ctx)?;
+        depth = cc.arg(0).to_i32_saturating(cx)?;
     }
 
-    let res_arr = JS_ArraySpeciesCreate(ctx, &source, &JSValue::Int(0))?;
+    let arr = JS_ArraySpeciesCreate(ctx, source, JSValue::Int(0))?;
 
     JS_FlattenIntoArray(
-        ctx,
-        &res_arr,
-        &source,
+        &ctx,
+        arr,
+        source,
         source_len,
         0,
         depth as _,
@@ -1325,21 +1335,21 @@ pub fn js_array_flatten<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSR
         this_arg,
     )?;
 
-    Ok(res_arr)
+    Ok(arr)
 }
 
 #[allow(clippy::too_many_arguments)]
-fn JS_FlattenIntoArray<'a>(
-    ctx: &JSContext<'a>,
-    target: &JSValue<'a>,
-    source: &JSValue<'a>,
+fn JS_FlattenIntoArray(
+    ctx: &ContextImpl,
+    mut target: JSValue,
+    source: JSValue,
     source_len: i64,
     mut target_index: i64,
     depth: i32,
-    mapper_func: &JSValue<'a>,
-    this_arg: &JSValue<'a>,
+    mapper_func: JSValue,
+    this_arg: JSValue,
 ) -> Result<i64, i32> {
-    if js_check_stack_overflow(ctx.rt().as_ref(), 0) {
+    if js_check_stack_overflow(&ctx.rt(), 0) {
         ctx.throw_stack_overflow();
         return Err(-1);
     }
@@ -1353,7 +1363,7 @@ fn JS_FlattenIntoArray<'a>(
                     el = mapper_func.call(
                         ctx,
                         this_arg,
-                        &[el, JSValue::from(sourceIndex), source.clone()],
+                        &[el, JSValue::from(sourceIndex), source],
                     )?;
                 }
 
@@ -1362,12 +1372,12 @@ fn JS_FlattenIntoArray<'a>(
                     let new_targetIndex = JS_FlattenIntoArray(
                         ctx,
                         target,
-                        &el,
+                        el,
                         el_len,
                         target_index,
                         depth - 1,
-                        &JSValue::UNDEFINED,
-                        &JSValue::UNDEFINED,
+                        JSValue::UNDEFINED,
+                        JSValue::UNDEFINED,
                     )?;
 
                     target_index = new_targetIndex;
@@ -1481,93 +1491,94 @@ pub static js_array_iterator_proto_funcs: [FieldDef; 2] = [
 // static array functions
 //
 
-fn js_array_from<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+fn js_array_from(ctx: ContextRef, cc: CallContext) -> JSResult {
     // from(items, mapfn = void 0, this_arg = void 0)
 
     let items = cc.arg(0);
     let mut mapping = false;
-    let mut mapfn = &JSValue::UNDEFINED;
-    let mut this_arg = &JSValue::UNDEFINED;
+    let mut mapfn = JSValue::UNDEFINED;
+    let mut this_arg = JSValue::UNDEFINED;
 
     if cc.length() > 1 {
-        mapfn = cc.arg(1);
+        mapfn = *cc.arg(1);
         if !mapfn.is_undefined() {
-            mapfn.ensure_function(ctx)?;
+            mapfn.ensure_function(&ctx)?;
             mapping = true;
             if cc.length() > 2 {
-                this_arg = cc.arg(2);
+                this_arg = *cc.arg(2);
             }
         }
     }
 
     let mut k: i64 = 0;
 
-    let it = items.get_property(ctx, JS_ATOM_Symbol_iterator.deref())?;
+    let it = items.get_property(&ctx, Atom::CONST_Symbol_iterator)?;
     let res: JSValue = if !it.is_undefined() {
         // `items` has [Symbo.iterator] method
-        let arr = if cc.this().is_constructor() {
-            JS_CallConstructor(ctx, cc.this(), &[]).err()?
+        let mut arr = if cc.this().is_constructor() {
+            JS_CallConstructor(&ctx, *cc.this(), &[]).err()?
         } else {
             ctx.create_array()?.into()
         };
 
-        let iter = items.get_iterator_must(ctx, false)?;
-        let it = ObjectIter::new(ctx, iter, JS_ATOM_next.deref())?;
+        let iter = items.get_iterator_must(&ctx, false)?;
+        let ctx2 = ctx;
+        let it = ObjectIter::new(&ctx2, iter, Atom::CONST_next)?;
 
         for el in it {
             let mut val = el?;
             if mapping {
-                val = mapfn.call(ctx, this_arg, &[val, JSValue::Int(k as i32)])?;
+                val = mapfn.call(&ctx, this_arg, &[val, JSValue::Int(k as i32)])?;
             }
-            arr.define_property_value_i64(ctx, k, val, JS_PROP_C_W_E | JS_PROP_THROW)?;
+            arr.define_property_value_i64(&ctx, k, val, JS_PROP_C_W_E | JS_PROP_THROW)?;
             k += 1;
         }
 
         arr
     } else {
-        let src = items.clone().objectify(ctx)?;
-        let len = src.get_length_prop(ctx)?;
+        let src = items.objectify(&ctx)?;
+        let len = src.get_length_prop(&ctx)?;
         let len_val = JSValue::from(len);
 
-        let arr = if cc.this().is_constructor() {
-            JS_CallConstructor(ctx, cc.this(), &[len_val]).err()?
+        let mut arr = if cc.this().is_constructor() {
+            JS_CallConstructor(&ctx, *cc.this(), &[len_val]).err()?
         } else {
             ctx.create_array_with_capacity(len as usize)?.into()
         };
 
         for i in 0..len {
-            let mut el = src.get_property_i64(ctx, i)?;
+            let mut el = src.get_property_i64(&ctx, i)?;
             if mapping {
-                el = mapfn.call(ctx, this_arg, &[el, JSValue::Int(i as i32)])?;
+                el = mapfn.call(&ctx, this_arg, &[el, JSValue::Int(i as i32)])?;
             }
-            arr.define_property_value_i64(ctx, i, el, JS_PROP_C_W_E | JS_PROP_THROW)?;
+            arr.define_property_value_i64(&ctx, i, el, JS_PROP_C_W_E | JS_PROP_THROW)?;
         }
 
         k = len;
         arr
     };
 
-    res.set_property(ctx, JS_ATOM_length.deref(), JSValue::from(k as u32))?;
+    res.set_property(&ctx, Atom::CONST_length, JSValue::from(k as u32))?;
     Ok(res)
 }
 
-pub fn js_array_of<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let obj = if cc.this().is_constructor() {
-        JS_CallConstructor(ctx, cc.this(), &[JSValue::Int(cc.length() as i32)]).err()?
+pub fn js_array_of(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let mut arr = if cc.this().is_constructor() {
+        JS_CallConstructor(&ctx, *cc.this(), &[JSValue::Int(cc.length() as i32)]).err()?
     } else {
         ctx.create_array()?.into()
     };
 
     for i in 0..cc.length() {
-        obj.define_property_value_u32(ctx, i as _, cc.arg(i).clone(), JS_PROP_THROW)?;
+        arr.define_property_value_u32(&ctx, i as _, *cc.arg(i), JS_PROP_THROW)?;
     }
 
-    obj.set_property(ctx, &JS_ATOM_length, JSValue::from(cc.length() as u32))?;
-    Ok(obj)
+    arr.set_property(&ctx, Atom::CONST_length, JSValue::from(cc.length() as u32))?;
+    Ok(arr)
 }
 
-pub fn js_array_isArray<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    Ok(JSValue::Bool(cc.arg(0).is_array(ctx)?))
+pub fn js_array_isArray(ctx: ContextRef, cc: CallContext) -> JSResult {
+    Ok(JSValue::Bool(cc.arg(0).is_array(&ctx)?))
 }
 
 pub static js_array_funcs: [FieldDef; 4] = [
@@ -1580,9 +1591,9 @@ pub static js_array_funcs: [FieldDef; 4] = [
 /// 将数组 obj 中从 start_pos 开始的 count 个元素复制到 to_pos 开始的位置。
 /// - 正向复制（dir > 0）：从 start_pos 到 start_pos + count - 1 的元素依次复制到 to_pos 到 to_pos + count - 1。
 /// - 反向复制（dir < 0）：从 start_pos + count - 1 到 start_pos 的元素依次复制到 to_pos + count - 1 到 to_pos。
-fn copy_sub_array<'a>(
-    ctx: &JSContext<'a>,
-    obj: &JSObject<'a>,
+fn copy_sub_array(
+    ctx: &ContextImpl,
+    obj: &mut ObjectRef,
     to_pos: usize,
     start_pos: usize,
     count: usize,
@@ -1608,7 +1619,7 @@ fn copy_sub_array<'a>(
                     };
 
                     if from < len && to < len {
-                        lst[to] = lst[from].clone();
+                        lst[to] = lst[from];
                     } else {
                         return i;
                     }

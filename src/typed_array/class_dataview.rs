@@ -1,10 +1,12 @@
+use std::ops::Deref;
+
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_ARRAY_BUFFER, JS_CLASS_BIG_INT64_ARRAY,
     JS_CLASS_BIG_UINT64_ARRAY, JS_CLASS_DATAVIEW, JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY,
     JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY, JS_CLASS_UINT8_ARRAY,
     JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY, JS_PROP_STRING_DEF,
     class::ClassID,
-    context::JSContext,
+    context::ContextRef,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, FieldDef},
     number::JSFloat64Union,
@@ -14,17 +16,17 @@ use crate::{
 
 use super::{TA_GET_BUFFER, TA_GET_BYTE_LENGTH, TA_GET_BYTE_OFFSET, TypedArray, dv::DataView};
 
-pub fn js_dataview_constructor<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let Some(buffer) = cc.arg(0).as_object_ArrayBuffer() else {
+pub fn js_dataview_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let Some(buffer) = cc.arg(0).as_object_ArrayBuffer().copied() else {
         ctx.throw_type_error_invalid_class(JS_CLASS_ARRAY_BUFFER);
         return Err(-1);
     };
 
     let offset = if cc.length() > 1 {
-        let n = cc.arg(1).to_array_index(ctx)? as usize;
+        let n = cc.arg(1).to_array_index(&ctx)? as usize;
         // guard array buffer after reading arg #1
         if buffer.is_detached() {
-            JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+            JS_ThrowTypeErrorDetachedArrayBuffer(&ctx);
             return Err(-1);
         }
         n
@@ -33,15 +35,15 @@ pub fn js_dataview_constructor<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>)
     };
 
     let length: Option<usize> = if cc.length() > 2 && !cc.arg(2).is_undefined() {
-        Some(cc.arg(2).to_array_index(ctx)? as usize)
+        Some(cc.arg(2).to_array_index(&ctx)? as usize)
     } else {
         None
     };
 
-    DataView::create(ctx, cc.this(), buffer.clone(), offset as _, length).map(|o| o.into())
+    DataView::create(&ctx, *cc.this(), buffer, offset as _, length).map(|o| o.into())
 }
 
-pub fn js_dataview_getValue<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+pub fn js_dataview_getValue(ctx: ContextRef, cc: CallContext) -> JSResult {
     let Some(dataview) = cc.this().as_object_DataView() else {
         ctx.throw_type_error_invalid_class(JS_CLASS_DATAVIEW);
         return Err(-1);
@@ -49,7 +51,7 @@ pub fn js_dataview_getValue<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) ->
 
     let class_id = cc.magic() as ClassID;
     let size = 1 << TypedArray::SIZE_LOG2(class_id);
-    let pos = cc.arg(0).to_array_index(ctx)? as usize;
+    let pos = cc.arg(0).to_array_index(&ctx)? as usize;
 
     // is little endian?
     let le = if cc.length() > 1 {
@@ -58,9 +60,10 @@ pub fn js_dataview_getValue<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) ->
         false // default to BE
     };
 
-    let abuf = dataview.array_buffer().payload();
+    let ab = dataview.array_buffer();
+    let abuf = ab.payload();
     if abuf.is_detached() {
-        JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+        JS_ThrowTypeErrorDetachedArrayBuffer(&ctx);
         return Err(-1);
     }
 
@@ -145,28 +148,30 @@ pub fn js_dataview_getValue<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) ->
     })
 }
 
-pub fn js_dataview_setValue<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let dv = cc
-        .this()
-        .retrive_object_payload(ctx, JS_CLASS_DATAVIEW)?
+pub fn js_dataview_setValue(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let cx = ctx.deref();
+    let mut this = *cc.this();
+
+    let dv = this
+        .retrive_object_payload(cx, JS_CLASS_DATAVIEW)?
         .data_view()
         .unwrap();
 
     let class_id = cc.magic() as ClassID;
     let size = 1 << TypedArray::SIZE_LOG2(class_id);
-    let pos = cc.arg(0).to_array_index(ctx)? as usize;
+    let pos = cc.arg(0).to_array_index(cx)? as usize;
 
     let val = cc.arg(1);
     let mut v = 0_u32;
     let mut v64 = 0_u64;
 
     if class_id <= JS_CLASS_UINT32_ARRAY {
-        v = val.to_u32(ctx)?;
+        v = val.to_u32(cx)?;
     } else if class_id <= JS_CLASS_BIG_UINT64_ARRAY {
-        ctx.throw_type_error("BigInt is not supported");
+        cx.throw_type_error("BigInt is not supported");
         return Err(-1);
     } else {
-        let d: f64 = val.to_f64(ctx)?;
+        let d: f64 = val.to_f64(cx)?;
         if class_id == JS_CLASS_FLOAT32_ARRAY {
             union U {
                 f: f32,
@@ -187,15 +192,19 @@ pub fn js_dataview_setValue<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) ->
     };
 
     if dv.is_detached() {
-        JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+        JS_ThrowTypeErrorDetachedArrayBuffer(cx);
         return Err(-1);
-    }
-    if pos + size > dv.byte_length() {
-        ctx.throw_range_error("out of bound");
+    } else if pos + size > dv.byte_length() {
+        cx.throw_range_error("out of bound");
         return Err(-1);
     }
 
-    dv.with_bytes_mut(|buf| -> Result<(), i32> {
+    let dv_mut = this
+        .retrive_object_payload_mut(cx, JS_CLASS_DATAVIEW)?
+        .data_view_mut()
+        .unwrap();
+
+    dv_mut.with_bytes_mut(|buf| -> Result<(), i32> {
         unsafe {
             let ptr = buf.as_mut_ptr().add(pos);
 
@@ -228,7 +237,7 @@ pub fn js_dataview_setValue<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) ->
                     Ok(())
                 }
                 JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
-                    ctx.throw_type_error("BigInt64Array, BigUint64Array is not supported");
+                    cx.throw_type_error("BigInt64Array, BigUint64Array is not supported");
                     Err(-1)
                 }
                 _ => {
@@ -241,20 +250,20 @@ pub fn js_dataview_setValue<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) ->
     Ok(JSValue::UNDEFINED)
 }
 
-fn js_dataview_getter<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+fn js_dataview_getter(ctx: ContextRef, cc: CallContext) -> JSResult {
     if let Some(dv) = cc.this().as_object_DataView() {
         match cc.magic() {
-            TA_GET_BUFFER => Ok(dv.array_buffer().clone().into()),
+            TA_GET_BUFFER => Ok(dv.array_buffer().into()),
             TA_GET_BYTE_LENGTH => {
                 if !dv.is_detached() {
                     Ok(JSValue::Int(dv.byte_length() as i32))
                 } else {
-                    JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
+                    JS_ThrowTypeErrorDetachedArrayBuffer(&ctx);
                     Err(-1)
                 }
             }
             TA_GET_BYTE_OFFSET => dv
-                .array_buffer_byte_offset(ctx)
+                .array_buffer_byte_offset(&ctx)
                 .map(|n| JSValue::Int(n as i32)),
             _ => unreachable!(),
         }

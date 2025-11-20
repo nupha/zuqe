@@ -1,12 +1,14 @@
+use gc_lite::Collect;
+
 use crate::{
     JS_CLASS_ASYNC_GENERATOR, JS_CLASS_GENERATOR,
-    atom::{Atom, consts::*},
-    context::JSContext,
+    atom::Atom,
+    context::ContextImpl,
     function::{
         BCFuncPayload, BCFunction, Bytecode, JSFunctionKindEnum, JSVarRef,
         js_function_set_properties,
     },
-    object::{JS_PROP_WRITABLE, JSObject, LazyInit, ObjectPayload},
+    object::{JS_PROP_WRITABLE, LazyInit, ObjectPayload, ObjectRef},
     runtime::JS_MAX_LOCAL_VARS,
     stack_frame::StackFrame,
 };
@@ -30,6 +32,13 @@ pub struct JSClosureVar {
     //  is_lexical : 1;
     //  var_kind : 4; /* see JSVarKindEnum */
     bitfield: u8,
+}
+
+unsafe impl Collect for JSClosureVar {
+    #[inline(always)]
+    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+        self.var_name.trace(tracer);
+    }
 }
 
 impl JSClosureVar {
@@ -95,19 +104,19 @@ impl JSClosureVar {
     }
 }
 
-impl<'a> JSFunctionDef<'a> {
+impl JSFunctionDef {
     /// `fd` must be an ancestor of `self`.
     /// Create in 'self' a closure referencing a local variable (is_local = TRUE)
     /// or a closure (is_local = FALSE) in `fd`
     #[allow(clippy::too_many_arguments)]
     pub(super) fn get_closure_var2(
         &mut self,
-        ctx: &JSContext,
-        fd: *const JSFunctionDef<'a>,
+        ctx: &ContextImpl,
+        fd: *const JSFunctionDef,
         mut is_local: bool,
         is_arg: bool,
         var_idx: u16,
-        var_name: &Atom,
+        var_name: Atom,
         is_const: bool,
         is_lexical: bool,
         var_kind: JSVarKindEnum,
@@ -147,11 +156,11 @@ impl<'a> JSFunctionDef<'a> {
     #[inline(always)]
     pub(super) fn get_closure_var(
         &mut self,
-        ctx: &JSContext,
-        fd: *const JSFunctionDef<'a>,
+        ctx: &ContextImpl,
+        fd: *const JSFunctionDef,
         is_arg: bool,
         var_idx: u16,
-        var_name: &Atom,
+        var_name: Atom,
         is_const: bool,
         is_lexical: bool,
         var_kind: JSVarKindEnum,
@@ -165,11 +174,11 @@ impl<'a> JSFunctionDef<'a> {
     #[allow(clippy::too_many_arguments)]
     pub fn add_closure_var(
         &mut self,
-        ctx: &JSContext,
+        ctx: &ContextImpl,
         is_local: bool,
         is_arg: bool,
         var_idx: u16,
-        var_name: &Atom,
+        var_name: Atom,
         is_const: bool,
         is_lexical: bool,
         var_kind: JSVarKindEnum,
@@ -177,7 +186,7 @@ impl<'a> JSFunctionDef<'a> {
         let mut cv = JSClosureVar {
             bitfield: 0,
             var_idx,
-            var_name: var_name.clone(),
+            var_name,
         };
         cv.set_is_local(is_local);
         cv.set_is_arg(is_arg);
@@ -212,23 +221,23 @@ impl<'a> JSFunctionDef<'a> {
     }
 
     /// find closure var by name, returning index of the closure var
-    pub fn find_closure_var(&self, var_name: &Atom) -> Option<u16> {
+    pub fn find_closure_var(&self, var_name: Atom) -> Option<u16> {
         self.closure_vars
             .as_ref()
-            .and_then(|lst| lst.iter().position(|cv| cv.var_name.eq(var_name)))
+            .and_then(|lst| lst.iter().position(|cv| cv.var_name == var_name))
             .map(|idx| idx as u16)
     }
 }
 
-impl<'a> Bytecode<'a> {
+impl Bytecode {
     /// Create function (a.k.a. closure) with `self` Bytecode and captured variables.
     pub fn make_closure(
         &self,
-        ctx: &JSContext<'a>,
-        cur_var_refs: &[JSVarRef<'a>],
-        parent_frame: Option<&mut StackFrame<'a>>,
-        proto: Option<JSObject<'a>>,
-    ) -> Result<BCFunction<'a>, i32> {
+        ctx: &ContextImpl,
+        cur_var_refs: &[JSVarRef],
+        parent_frame: Option<&mut StackFrame>,
+        proto: Option<ObjectRef>,
+    ) -> Result<BCFunction, i32> {
         let var_refs: Vec<JSVarRef> = if self.closure_var_count != 0 {
             debug_assert!(
                 parent_frame.is_some(),
@@ -243,7 +252,7 @@ impl<'a> Bytecode<'a> {
                     ctx.throw_out_of_memory();
                     -1
                 })?;
-            for cv in self.closure_vars().iter() {
+            for cv in self.closure_vars() {
                 let var_ref = if cv.is_local() {
                     // reuse the existing variable reference if it already exists
                     sf.get_var_ref(ctx, cv.var_idx, cv.is_arg())?
@@ -259,7 +268,7 @@ impl<'a> Bytecode<'a> {
         };
 
         let payload = {
-            let p = BCFuncPayload::new(self.clone(), var_refs);
+            let p = BCFuncPayload::new(*self, var_refs);
             match self.func_kind() {
                 JSFunctionKindEnum::JS_FUNC_NORMAL => ObjectPayload::BYTECODE_FUNCTION(p),
                 JSFunctionKindEnum::JS_FUNC_GENERATOR => ObjectPayload::GENERATOR_FUNCTION(p),
@@ -269,21 +278,22 @@ impl<'a> Bytecode<'a> {
                 }
             }
         };
-        let func = BCFunction(
+        let mut func = BCFunction(
             ctx.create_object_with_proto(
                 proto.or_else(|| ctx.class_proto(payload.class_id())),
                 payload,
             )
-            .map_err(|_| -1)?,
+            .map_err(|_| -1)?
+            .gc_ref(),
         );
 
         js_function_set_properties(
             ctx,
-            &func,
+            func.into(),
             if self.func_name.is_null() {
-                Atom::new_const(JS_ATOM_empty_string)
+                Atom::CONST_empty_string
             } else {
-                self.func_name.clone()
+                self.func_name
             },
             self.attrs.defined_arg_count as _,
         );
@@ -297,7 +307,7 @@ impl<'a> Bytecode<'a> {
             ));
 
             let proto = ctx.create_base_object_with_proto(ctx.class_proto(gen_class_id))?;
-            func.define_property_value(ctx, &JS_ATOM_prototype, proto.into(), JS_PROP_WRITABLE)?;
+            func.define_property_value(ctx, Atom::CONST_prototype, proto.into(), JS_PROP_WRITABLE)?;
         } else if self.has_prototype() {
             // add the 'prototype' property: delay instantiation to avoid
             // creating cycles for every javascript function. The prototype
@@ -306,7 +316,7 @@ impl<'a> Bytecode<'a> {
 
             func.define_lazy_property(
                 ctx,
-                &JS_ATOM_prototype,
+                Atom::CONST_prototype,
                 LazyInit::Prototype,
                 JS_PROP_WRITABLE,
             )?;
@@ -318,8 +328,8 @@ impl<'a> Bytecode<'a> {
 
 /// for direct eval compilation: add references to the variables of the calling function.
 /// scope_idx=-1 means end of scope chain at top.
-pub unsafe fn add_closure_variables(
-    ctx: &JSContext,
+pub fn add_closure_variables(
+    ctx: &ContextImpl,
     s: &mut JSFunctionDef,
     bc: &Bytecode,
     scope_idx: i32,
@@ -379,7 +389,7 @@ pub unsafe fn add_closure_variables(
 
         // Add local non lexical variables
         for (i, vd) in bc.vars_slice().iter().enumerate() {
-            if vd.scope_level == 0 && vd.var_name.to_ref() != JS_ATOM__ret_ {
+            if vd.scope_level == 0 && vd.var_name != Atom::CONST__ret_ {
                 let mut cv = JSClosureVar {
                     bitfield: 0,
                     var_idx: i as _,

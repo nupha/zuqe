@@ -1,32 +1,36 @@
 use std::{cell::RefCell, rc::Rc};
 
+use gc_lite::{Collect, GcRef};
+
 use crate::{
     JS_CLASS_C_FUNCTION_DATA,
-    atom::{Atom, consts::JS_ATOM_empty_string},
-    context::JSContext,
+    atom::Atom,
+    context::{ContextImpl, ContextRef},
     error::JSResult,
     function::{CallContext, NativeCallback, js_function_set_properties},
-    object::{JSObject, ObjectPayload},
+    object::{ObjectImpl, ObjectPayload, ObjectRef},
     object_cast,
-    runtime::JSRuntime,
+    runtime::RuntimeImpl,
     value::JSValue,
 };
 
 #[derive(Debug)]
-pub struct NativeFuncData<'a> {
-    pub func: NativeCallback,
-    pub length: u8,
-    pub magic: u16,
-    pub data: Rc<RefCell<Box<[JSValue<'a>]>>>,
+pub struct NativeFuncData {
+    func: NativeCallback,
+    length: u8,
+    data: Rc<RefCell<Box<[JSValue]>>>,
+    magic: u16,
 }
 
-impl<'a> NativeFuncData<'a> {
-    fn new(
-        callback: NativeCallback,
-        length: u8,
-        magic: i32,
-        data: Box<[JSValue<'a>]>,
-    ) -> Box<Self> {
+unsafe impl Collect for NativeFuncData {
+    #[inline(always)]
+    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+        self.data.borrow().trace(tracer);
+    }
+}
+
+impl NativeFuncData {
+    fn new(callback: NativeCallback, length: u8, magic: i32, data: Box<[JSValue]>) -> Box<Self> {
         Box::new(NativeFuncData {
             func: callback,
             length,
@@ -47,7 +51,7 @@ impl<'a> NativeFuncData<'a> {
     }
 
     /// get nth data
-    pub fn data(&self, nth: usize) -> Option<JSValue<'a>> {
+    pub fn data(&self, nth: usize) -> Option<JSValue> {
         self.data.borrow().get(nth).cloned()
     }
 }
@@ -55,19 +59,19 @@ impl<'a> NativeFuncData<'a> {
 /// A callable object. Is an instance of JS_CLASS_C_FUNCTION_DATA class.
 /// When called, will invoke native callback with attached data payload.
 #[repr(transparent)]
-#[derive(Debug, Clone)]
-pub struct NativeFunctionWithData<'a>(JSObject<'a>);
+#[derive(Debug, Clone, Copy)]
+pub struct NativeFunctionWithData(GcRef<ObjectImpl>);
 
 object_cast!(NativeFunctionWithData, JS_CLASS_C_FUNCTION_DATA);
 
-impl<'a> NativeFunctionWithData<'a> {
+impl NativeFunctionWithData {
     /// Create a C_FUNCTION_DATA class object, which behaves like a native function, with attached data.
     pub(crate) fn create(
-        ctx: &JSContext<'a>,
+        ctx: &ContextImpl,
         callback: NativeCallback,
         length: u8,
         magic: i32,
-        data: Box<[JSValue<'a>]>,
+        data: Box<[JSValue]>,
     ) -> Result<Self, i32> {
         let func_obj = ctx
             .create_object_with_proto(
@@ -76,53 +80,48 @@ impl<'a> NativeFunctionWithData<'a> {
             )
             .map_err(|_| -1)?;
 
-        js_function_set_properties(
-            ctx,
-            &func_obj,
-            Atom::new_const(JS_ATOM_empty_string),
-            length as _,
-        );
-        Ok(Self(func_obj))
+        js_function_set_properties(ctx, func_obj, Atom::CONST_empty_string, length as _);
+        Ok(Self(func_obj.gc_ref()))
     }
 }
 
 //
 // Hooks
 //
-impl<'a> NativeFunctionWithData<'a> {
-    pub fn class_call<'b>(
-        ctx: &JSContext<'b>,
-        func_obj: &JSValue<'b>,
-        this_val: &JSValue<'b>,
-        args: &[JSValue<'b>],
+impl NativeFunctionWithData {
+    pub fn class_call(
+        ctx: ContextRef,
+        func_obj: JSValue,
+        this_val: JSValue,
+        args: &[JSValue],
         _flags: i32,
-    ) -> JSResult<'b> {
-        let (f, data, magic) = if let ObjectPayload::C_FUNCTION_DATA(s) =
+    ) -> JSResult {
+        if let ObjectPayload::C_FUNCTION_DATA(s) =
             unsafe { func_obj.as_object_unchecked().payload() }
         {
-            (s.func, s.data.clone(), s.magic)
+            (s.func)(
+                ctx,
+                CallContext::new(ctx, this_val, args, s.magic as _, Some(s.data.clone())),
+            )
         } else {
             unreachable!()
-        };
-
-        f(
-            ctx,
-            CallContext::new(ctx, this_val.clone(), args, magic as _, Some(data)),
-        )
+        }
     }
 
-    pub const fn class_finalizer(_rt: &mut JSRuntime, _isa: &ObjectPayload, _id: usize) {}
+    #[deprecated]
+    pub const fn class_finalizer(_rt: &mut RuntimeImpl, _isa: &ObjectPayload, _id: usize) {}
 
-    pub fn class_mark(val: JSValue) {
-        unsafe {
-            if let ObjectPayload::C_FUNCTION_DATA(p) = val.as_object_unchecked().payload() {
-                let n = p.len();
-                for i in 0..n {
-                    if let Some(v) = p.data(i) {
-                        v.gc_mark()
-                    }
-                }
-            }
-        }
+    #[deprecated]
+    pub const fn class_mark(val: JSValue) {
+        // unsafe {
+        //     if let ObjectPayload::C_FUNCTION_DATA(p) = val.as_object_unchecked().payload() {
+        //         let n = p.len();
+        //         for i in 0..n {
+        //             if let Some(v) = p.data(i) {
+        //                 v.gc_mark()
+        //             }
+        //         }
+        //     }
+        // }
     }
 }

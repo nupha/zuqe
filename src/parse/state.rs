@@ -1,8 +1,10 @@
 use std::ptr::NonNull;
 
 use crate::{
-    context::JSContext, function::JSFunctionDef, number::IntOrFloat, parse::token::TokenData,
-    value::JSValue,
+    context::{ContextImpl, ContextRef},
+    function::JSFunctionDef,
+    number::IntOrFloat,
+    parse::token::TokenData,
 };
 
 use super::token::Token;
@@ -30,17 +32,18 @@ pub const SKIP_HAS_ASSIGNMENT: i32 = 1 << 2; // Statement has assignment operato
 /// including the current position, token, scope, and parsing context.
 pub struct JSParseState<'s> {
     /// JavaScript context pointer for runtime operations
-    pub ctx: JSContext<'s>,
+    pub ctx: ContextRef,
 
     /// Source file name being parsed
     pub filename: &'s str,
+
     /// input bytes
     pub(super) input: &'s [u8],
+    /// End pointer to input bytes, inclusive
+    pub(super) input_end: *const u8,
 
-    /// Current position in the input buffer
+    /// Current pointer to the input
     pub(super) buf_ptr: *const u8,
-    /// End of the input buffer
-    pub(super) buf_end: *const u8,
     /// Pointer to the last processed character
     pub(super) last_ptr: *const u8,
 
@@ -55,7 +58,7 @@ pub struct JSParseState<'s> {
 
     /// A raw pointer to current parsing function def.
     /// null if no current function def.
-    pub(super) cur_func_def: *mut JSFunctionDef<'s>,
+    pub(super) cur_func_def: *mut JSFunctionDef,
 
     /// Indicates if parsing a JavaScript module
     pub is_module: bool,
@@ -80,17 +83,17 @@ impl<'s> JSParseState<'s> {
     /// * `source` - Buffer containing source code
     /// * `filename` - Name of source file
     fn new_internal(
-        ctx: &JSContext<'s>,
-        fd: *mut JSFunctionDef<'s>,
+        ctx: &ContextImpl,
+        fd: *mut JSFunctionDef,
         source: &'s [u8],
         filename: &'s str,
     ) -> Self {
         Self {
-            ctx: ctx.clone(),
+            ctx: unsafe { ContextRef::from_ref_unchecked(ctx) },
 
             input: source,
             buf_ptr: source.as_ptr(),
-            buf_end: unsafe { source.as_ptr().add(source.len()) },
+            input_end: unsafe { source.as_ptr().add(source.len()) },
 
             last_line_num: 0,
             line_num: 1,
@@ -114,8 +117,8 @@ impl<'s> JSParseState<'s> {
     /// Create new parser state with root function def.
     #[inline(always)]
     pub fn new(
-        ctx: &JSContext<'s>,
-        fd: NonNull<JSFunctionDef<'s>>,
+        ctx: &ContextImpl,
+        fd: NonNull<JSFunctionDef>,
         source: &'s [u8],
         filename: &'s str,
     ) -> Self {
@@ -124,7 +127,7 @@ impl<'s> JSParseState<'s> {
 
     /// Create new parser state for json (which don't have function def).
     #[inline(always)]
-    pub fn new_for_json(ctx: &JSContext<'s>, source: &'s [u8], filename: &'s str) -> Self {
+    pub fn new_for_json(ctx: &ContextImpl, source: &'s [u8], filename: &'s str) -> Self {
         Self::new_internal(ctx, std::ptr::null_mut(), source, filename)
     }
 
@@ -140,7 +143,7 @@ impl<'s> JSParseState<'s> {
     /// Get function def which is currently being parsed.
     /// Will panic if cur_func is null.
     #[inline(always)]
-    pub(crate) fn cur_func(&self) -> &JSFunctionDef<'s> {
+    pub(crate) fn cur_func(&self) -> &JSFunctionDef {
         debug_assert!(!self.cur_func_def.is_null());
         unsafe { &*self.cur_func_def }
     }
@@ -149,7 +152,7 @@ impl<'s> JSParseState<'s> {
     /// Will panic if cur_func is null.
     #[allow(clippy::mut_from_ref)]
     #[inline(always)]
-    pub(super) fn cur_func_mut(&self) -> &mut JSFunctionDef<'s> {
+    pub(super) fn cur_func_mut(&self) -> &mut JSFunctionDef {
         debug_assert!(!self.cur_func_def.is_null());
         unsafe { &mut *self.cur_func_def }
     }

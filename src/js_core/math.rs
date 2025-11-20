@@ -1,7 +1,7 @@
 use crate::{
     JS_CFUNC_FF_DEF, JS_CFUNC_FFF_DEF, JS_CFUNC_NATIVE_DEF, JS_OBJECT_DEF, JS_PROP_DOUBLE_DEF,
     JS_PROP_STRING_DEF,
-    context::JSContext,
+    context::ContextRef,
     error::JSResult,
     function::{CallContext, FieldDef},
     number::{IntOrFloat, JSFloat64Union},
@@ -9,7 +9,7 @@ use crate::{
     value::JSValue,
 };
 
-pub fn js_math_min_max<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+pub fn js_math_min_max(ctx: ContextRef, cc: CallContext) -> JSResult {
     let is_max = cc.magic() != 0;
 
     if cc.length() == 0 {
@@ -20,15 +20,15 @@ pub fn js_math_min_max<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSRe
         }));
     }
 
-    let mut res = if let JSValue::Int(r1) = cc.arg(0).to_number(ctx)? {
+    let mut res = if let JSValue::Int(r1) = cc.arg(0).to_number(&ctx)? {
         IntOrFloat::Int64(r1 as _)
     } else {
-        IntOrFloat::Float64(cc.arg(0).to_f64(ctx)?)
+        IntOrFloat::Float64(cc.arg(0).to_f64(&ctx)?)
     };
 
     if cc.length() > 1 {
         for a in &cc.arguments()[1..] {
-            match (a.to_number(ctx)?, &mut res) {
+            match (a.to_number(&ctx)?, &mut res) {
                 // int vs int
                 (JSValue::Int(n), IntOrFloat::Int64(mx)) => {
                     *mx = if is_max {
@@ -145,18 +145,18 @@ pub const fn js_math_round(a: f64) -> f64 {
     }
 }
 
-pub fn js_math_hypot<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+pub fn js_math_hypot(ctx: ContextRef, cc: CallContext) -> JSResult {
     let mut r = 0.0;
 
     if cc.length() > 0 {
-        r = cc.arg(0).to_f64(ctx)?;
+        r = cc.arg(0).to_f64(&ctx)?;
 
         if cc.length() == 1 {
             r = r.abs();
         } else {
             // use the built-in function to minimize precision loss
             for v in &cc.arguments()[1..] {
-                let a = v.to_f64(ctx)?;
+                let a = v.to_f64(&ctx)?;
                 r = r.hypot(a);
             }
         }
@@ -165,14 +165,14 @@ pub fn js_math_hypot<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResu
     Ok(JSValue::from(r))
 }
 
-pub fn js_math_imul<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let a = cc.arg(0).to_i32(ctx)?;
-    let b = cc.arg(1).to_i32(ctx)?;
+pub fn js_math_imul(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let a = cc.arg(0).to_i32(&ctx)?;
+    let b = cc.arg(1).to_i32(&ctx)?;
     Ok(JSValue::Int(a.wrapping_mul(b)))
 }
 
-pub fn js_math_clz32<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let a = cc.arg(0).to_u32(ctx)?;
+pub fn js_math_clz32(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let a = cc.arg(0).to_u32(&ctx)?;
     let r: u32 = if a == 0 { 32 } else { a.leading_zeros() };
     Ok(JSValue::Int(r as i32))
 }
@@ -189,8 +189,8 @@ const fn xorshift64star(pstate: &mut u64) -> u64 {
     x.wrapping_mul(0x2545F4914F6CDD1D)
 }
 
-pub fn js_math_random<'a>(ctx: &JSContext<'a>, _: CallContext<'_, 'a>) -> JSResult<'a> {
-    let v = xorshift64star(&mut ctx.0.borrow_mut().random_state);
+pub fn js_math_random(mut ctx: ContextRef, _: CallContext) -> JSResult {
+    let v = xorshift64star(&mut ctx.random_state);
     /* 1.0 <= u.d < 2 */
     let u = JSFloat64Union {
         uint64: (0x3ff << 52) | (v >> 12),

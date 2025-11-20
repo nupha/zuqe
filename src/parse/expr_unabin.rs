@@ -1,14 +1,8 @@
-use std::ops::Deref;
-
 use crate::{
-    atom::{
-        Atom, AtomRef, JS_ATOM_NULL,
-        consts::{JS_ATOM_new_target, JS_ATOM_this},
-    },
+    atom::Atom,
     bytecode::{OpCode, OpCodeTemp, opcodes},
     context::JS_MODE_STRICT,
     error::JS_THROW_ERROR_DELETE_SUPER,
-    function::JSFunctionDef,
     parse::{
         state::{PF_ARROW_FUNC, PF_IN_ACCEPTED, PF_POW_ALLOWED},
         token::TOK_IN,
@@ -41,6 +35,7 @@ impl<'s> JSParseState<'s> {
 
             self.next_token()?;
             if self.token.val != TOK_IN {
+                self.throw_syntax_error("expect 'in'");
                 return Err(-1);
             }
 
@@ -131,6 +126,7 @@ impl<'s> JSParseState<'s> {
 
             self.next_token()?;
             self.parse_expr_binary(level - 1, parse_flags & !PF_ARROW_FUNC)?;
+
             self.emit_op(opcode);
         }
     }
@@ -163,7 +159,7 @@ impl<'s> JSParseState<'s> {
                 let mut opcode: i32 = 0;
                 let mut scope: i32 = 0;
                 let mut label: i32 = 0;
-                let mut name = AtomRef::NULL;
+                let mut name = Atom::NULL;
 
                 self.get_lvalue(
                     &mut opcode,
@@ -184,7 +180,7 @@ impl<'s> JSParseState<'s> {
                 self.put_lvalue(
                     opcode,
                     scope,
-                    name.deref().clone(),
+                    name,
                     label,
                     PutLValueEnum::PUT_LVALUE_KEEP_TOP,
                     false,
@@ -231,7 +227,7 @@ impl<'s> JSParseState<'s> {
                     let mut opcode: i32 = 0;
                     let mut scope: i32 = 0;
                     let mut label: i32 = 0;
-                    let mut name = JS_ATOM_NULL;
+                    let mut name = Atom::NULL;
                     let tok = self.token.val;
                     self.get_lvalue(
                         &mut opcode,
@@ -252,7 +248,7 @@ impl<'s> JSParseState<'s> {
                     self.put_lvalue(
                         opcode,
                         scope,
-                        name.deref().clone(),
+                        name,
                         label,
                         PutLValueEnum::PUT_LVALUE_KEEP_SECOND,
                         false,
@@ -289,13 +285,12 @@ impl<'s> JSParseState<'s> {
 
         self.next_token()?;
         self.parse_unary(PF_POW_FORBIDDEN)?;
+
         debug_assert_eq!(
-            fd0,
-            self.cur_func_mut() as *mut JSFunctionDef,
-            "cur_func_ptr must not change"
+            fd0, self.cur_func_def,
+            "cur_func_def must not change after parse"
         );
 
-        let name: AtomRef;
         let fd = unsafe { fd0.as_mut().unwrap() };
 
         match get_prev_opcode(fd) {
@@ -312,7 +307,7 @@ impl<'s> JSParseState<'s> {
                     -1
                 };
 
-                name = AtomRef(unsafe {
+                let name = Atom::from_id(unsafe {
                     read_from_ptr::<u32>(
                         fd.byte_code
                             .as_ptr()
@@ -369,14 +364,14 @@ impl<'s> JSParseState<'s> {
             }
             opcodes::op_scope_get_var => {
                 // 'delete this': this is not a reference
-                name = AtomRef(unsafe {
+                let name = Atom::from_id(unsafe {
                     read_from_ptr::<u32>(
                         fd.byte_code
                             .as_ptr()
                             .offset(fd.last_opcode_pos as isize + 1),
                     )
                 });
-                if matches!(name, JS_ATOM_this | JS_ATOM_new_target) {
+                if matches!(name, Atom::CONST_this | Atom::CONST_new_target) {
                     self.emit_op(OpCode::DROP);
                     self.emit_op(OpCode::PUSH_TRUE);
                     return Ok(());

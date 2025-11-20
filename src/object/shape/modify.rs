@@ -1,0 +1,206 @@
+use crate::{
+    atom::Atom,
+    context::ContextImpl,
+    object::{ObjectImpl, ShapeImpl},
+};
+
+impl ObjectImpl {
+    /// modify object's shape by closure.
+    /// an exclusive, unregistered shape is passed to closure as argument.
+    pub(crate) fn modify_shape<R>(
+        &mut self,
+        ctx: &ContextImpl,
+        f: impl FnOnce(&mut ShapeImpl) -> R,
+    ) -> Result<R, i32> {
+        let ref_count = self.shape().unwrap().use_count();
+
+        let mut shape = if ref_count != 1 {
+            // shape is shared: dup to new
+            self.shape().unwrap().dup(ctx)?
+        } else {
+            // shape is exclusivly used, keep it
+            let sh = self.take_shape().unwrap();
+            ctx.rt().shape_registry.unregister(&sh);
+            sh
+        };
+
+        let r = f(&mut shape);
+
+        // restore shape to object
+        ctx.rt().shape_registry.register(&shape)?;
+        self.set_shape(shape);
+
+        Ok(r)
+    }
+
+    /// Append an extra property to shape
+    pub(crate) fn modify_shape_add_prop(
+        &mut self,
+        ctx: &ContextImpl,
+        prop: Atom,
+        prop_flags: u32,
+    ) -> Result<usize, i32> {
+        let (old_len, ref_count) = {
+            let sh = self.shape().unwrap();
+            (sh.len(), sh.use_count())
+        };
+        let new_len = old_len + 1;
+
+        debug_assert_eq!(self.prop_values.len(), old_len);
+
+        // grow prop values slot
+        self.grow_prop_value_slots(new_len).map_err(|_| {
+            ctx.throw_out_of_memory();
+            -1
+        })?;
+        debug_assert_eq!(self.prop_values.len(), new_len);
+
+        // find an existing shape in registry
+        if let Some(found) = ctx.rt().shape_registry.find_shape_with_extend_prop(
+            self.shape().unwrap(),
+            &prop,
+            prop_flags,
+        ) {
+            // use found shape
+            debug_assert_eq!(new_len, found.len());
+            self.set_shape(found);
+            Ok(new_len)
+        } else {
+            let mut target = if ref_count != 1 {
+                // current shape is shared, dup to new without register.
+                let mut sh2 = self.shape().unwrap().dup(ctx)?;
+                sh2.prop_defs.try_reserve_exact(1).map_err(|_| {
+                    ctx.throw_out_of_memory();
+                    -1
+                })?;
+                sh2
+            } else {
+                // current shape is exclusive, use it.
+                let mut sh = self.take_shape().unwrap();
+                if sh.prop_defs.try_reserve_exact(1).is_err() {
+                    self.set_shape(sh); // restore back
+                    ctx.throw_out_of_memory();
+                    return Err(-1);
+                }
+
+                ctx.rt().shape_registry.unregister(&sh);
+                sh
+            };
+
+            // shape can be modified now.
+            target.add_shape_properties(&[(prop, prop_flags)]);
+            // register the shape
+            ctx.rt().shape_registry.register(&target).unwrap();
+            // object uses the shape
+            self.set_shape(target);
+
+            Ok(new_len)
+        }
+    }
+
+    /// Updates flag of a shape property.
+    /// if object's shape was changed, returns true
+    pub(crate) fn modify_shape_property_flags(
+        &mut self,
+        ctx: &ContextImpl,
+        prop: Atom,
+        flags_fn: impl FnOnce(u32) -> u32,
+    ) -> Result<bool, i32> {
+        let cur_flags = self
+            .shape()
+            .unwrap()
+            .prop_defs
+            .get(&prop.id())
+            .map(|p| p.flags())
+            .unwrap();
+
+        let new_flags = flags_fn(cur_flags);
+
+        if cur_flags != new_flags {
+            self.modify_shape(ctx, |sh| {
+                sh.prop_defs
+                    .get_mut(&prop.id())
+                    .unwrap()
+                    .set_flags(new_flags);
+
+                // re-calc hash
+                sh.update_hash();
+            })?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    /// Updates flag of a shape property by index.
+    /// if object's shape was changed, returns true
+    pub(crate) fn modify_shape_property_index_flags(
+        &mut self,
+        ctx: &ContextImpl,
+        index: usize,
+        flags_fn: impl FnOnce(u32) -> u32,
+    ) -> Result<bool, i32> {
+        let cur_flags = self
+            .shape()
+            .unwrap()
+            .prop_defs
+            .get_index(index)
+            .map(|(_, p)| p.flags())
+            .unwrap();
+        let new_flags = flags_fn(cur_flags);
+
+        if cur_flags != new_flags {
+            self.modify_shape(ctx, |sh| {
+                sh.prop_defs
+                    .get_index_mut(index)
+                    .unwrap()
+                    .1
+                    .set_flags(new_flags);
+
+                // re-calc hash
+                sh.update_hash();
+            })?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+}
+
+// impl ObjectImpl {
+//     /// modify object's shape.
+//     /// An exclusive, unregistered shape is passed to closure as argument
+//     #[inline(always)]
+//     pub(crate) fn modify_shape<R>(
+//         &self,
+//         ctx: &ContextImpl,
+//         f: impl FnOnce(&mut ShapeImpl) -> R,
+//     ) -> Result<R, i32> {
+//         self.modify_shape(ctx, f)
+//     }
+
+//     /// Updates flag of shape property.
+//     /// if object's shape was changed, returns true
+//     #[inline(always)]
+//     pub(crate) fn modify_shape_property_flags(
+//         &self,
+//         ctx: &ContextImpl,
+//         prop: &Atom,
+//         flags_fn: impl FnOnce(u32) -> u32,
+//     ) -> Result<bool, i32> {
+//         self.0.modify_shape_property_flags(ctx, prop, flags_fn)
+//     }
+
+//     /// Updates flag of shape property, by index.
+//     /// if object's shape was changed, returns true
+//     #[inline(always)]
+//     pub(crate) fn modify_shape_property_index_flags(
+//         &self,
+//         ctx: &ContextImpl,
+//         index: usize,
+//         flags_fn: impl FnOnce(u32) -> u32,
+//     ) -> Result<bool, i32> {
+//         self.0
+//             .modify_shape_property_index_flags(ctx, index, flags_fn)
+//     }
+// }

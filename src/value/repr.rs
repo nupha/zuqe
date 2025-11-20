@@ -1,19 +1,16 @@
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_BOOLEAN, JS_CLASS_DATE, JS_CLASS_ERROR, JS_CLASS_MAPPED_ARGUMENTS,
-    JS_CLASS_NUMBER, JS_CLASS_REGEXP, JS_CLASS_STRING,
-    atom::consts::{JS_ATOM_Array, JS_ATOM_Function, JS_ATOM_Symbol_toStringTag},
-    context::JSContext,
-    number::f64_stringify,
-    object::JSObject,
+    JS_CLASS_NUMBER, JS_CLASS_REGEXP, JS_CLASS_STRING, atom::Atom, context::ContextImpl,
+    number::f64_stringify, object::ObjectRef,
 };
 
 use super::JSValue;
 
-impl<'a> JSValue<'a> {
+impl JSValue {
     /// Get inspect representation string of `self` value.
     /// `inspect()` string is only used for interactive prompting,
     /// use `to_string()` for other cases.
-    pub fn inspect(&self, ctx: &JSContext<'a>) -> Result<String, i32> {
+    pub fn inspect(&self, ctx: &ContextImpl) -> Result<String, i32> {
         match self {
             Self::Int(i) => Ok(format!("{}", *i)),
             Self::Bool(b) => Ok(if *b { "true" } else { "false" }.into()),
@@ -27,7 +24,7 @@ impl<'a> JSValue<'a> {
             }
 
             Self::String(s) => Ok(s.content().to_utf8(true).into()),
-            Self::Symbol(d) => Ok(format!("Symbol({})", d.content().to_utf8(false))),
+            Self::Symbol(a) => Ok(format!("Symbol({})", a.string().content().to_utf8(false))),
             Self::Object(o) => o.inspect(ctx),
             Self::Bytecode(b) => Ok(format!("[bytecode {}]", b.func_name.to_utf8())),
 
@@ -39,17 +36,16 @@ impl<'a> JSValue<'a> {
             Self::EXCEPTION => Ok("<exception>".into()),
             Self::UNINITIALIZED => Ok("<uninitialized>".into()),
             Self::CatchOffset(n) => Ok(format!("<catchoffset {}>", *n)),
-            Self::AsyncStateResume(_) => Ok("<asyncfuncresume>".into()),
         }
     }
 }
 
-impl<'a> JSObject<'a> {
-    pub fn inspect(&self, ctx: &JSContext<'a>) -> Result<String, i32> {
-        let tag_atom = if self.is_array(ctx)? {
-            JS_ATOM_Array
+impl ObjectRef {
+    pub fn inspect(&self, ctx: &ContextImpl) -> Result<String, i32> {
+        let tag_atom: Atom = if self.is_array(ctx)? {
+            Atom::CONST_Array
         } else if self.is_function() {
-            JS_ATOM_Function
+            Atom::CONST_Function
         } else {
             match self.class_id() {
                 cid @ (JS_CLASS_STRING
@@ -59,49 +55,20 @@ impl<'a> JSObject<'a> {
                 | JS_CLASS_BOOLEAN
                 | JS_CLASS_NUMBER
                 | JS_CLASS_DATE
-                | JS_CLASS_REGEXP) => ctx.rt().class_registry[cid as usize].class_name.to_ref(),
+                | JS_CLASS_REGEXP) => ctx.rt().class_registry[cid as usize].class_name,
 
-                _ => crate::atom::consts::JS_ATOM_Object,
+                _ => Atom::CONST_Object,
             }
         };
 
         // get [Symbol.toStringTag] property
-        let tag = if let JSValue::String(s) = self.get_property(ctx, &JS_ATOM_Symbol_toStringTag)? {
-            s
-        } else {
-            tag_atom.force_string(ctx)?
-        };
+        let tag =
+            if let JSValue::String(s) = self.get_property(ctx, Atom::CONST_Symbol_toStringTag)? {
+                s
+            } else {
+                tag_atom.force_string(ctx)?
+            };
 
         Ok(format!("[object {tag}]"))
     }
 }
-
-// pub fn JS_DumpString(p: &JSString) {
-//     let ref_cnt = Rc::strong_count(&p.0);
-//     print!("{ref_cnt}");
-
-//     let sep = if ref_cnt == 1 { b'\"' } else { b'\'' } as char;
-//     print!("{sep}");
-
-//     for (_, c) in p.content().iter() {
-//         match c {
-//             StringChar::Char(ch) => match ch {
-//                 '\'' | '"' if ch == sep => print!("\\{ch}"),
-//                 '\n' => print!("\\n"),
-//                 '\r' => print!("\\r"),
-//                 '\t' => print!("\\t"),
-//                 '\\' => print!("\\\\"),
-//                 ' '..='~' => print!("{ch}"),
-//                 _ => {
-//                     print!("{ch}");
-//                     // print!("\\u{:04x}", c as u32)
-//                 }
-//             },
-//             StringChar::Code(c) => {
-//                 print!("\\u{c:04X}")
-//             }
-//         }
-//     }
-
-//     print!("{sep}");
-// }

@@ -1,7 +1,5 @@
-use std::ops::Deref;
-
 use crate::{
-    atom::{Atom, AtomRef, consts::*},
+    atom::Atom,
     bytecode::{OpCode, OpCodeTemp},
     context::JS_MODE_STRICT,
     eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
@@ -23,10 +21,10 @@ use super::{
     },
 };
 
-impl JSParseState<'_> {
+impl<'s> JSParseState<'s> {
     /// buffer ptr skip shebang.
     pub fn skip_shebang(&mut self) {
-        self.buf_ptr = skip_shebang(self.buf_ptr, self.buf_end);
+        self.buf_ptr = skip_shebang(self.buf_ptr, self.input_end);
     }
 
     pub fn parse_program(&mut self) -> Result<(), i32> {
@@ -41,9 +39,8 @@ impl JSParseState<'_> {
 
         if !self.is_module {
             // hidden variable <ret> for the return value
-            let ctx = self.ctx.clone();
             let fd = self.cur_func_mut();
-            let idx = fd.add_var(&ctx, JS_ATOM__ret_.deref())?;
+            let idx = fd.add_var(&self.ctx, Atom::CONST__ret_)?;
             fd.eval_ret_idx.replace(idx);
         }
 
@@ -84,7 +81,7 @@ impl JSParseState<'_> {
                 self.parse_import()
             }
             _ => {
-                if self.token_is_pseudo_keyword(JS_ATOM_async)
+                if self.token_is_pseudo_keyword(Atom::CONST_async)
                     && self.peek_token(true) == TOK_FUNCTION
                 {
                     // async function
@@ -101,13 +98,84 @@ impl JSParseState<'_> {
         }
     }
 
-    /// returns (atom, has_escape)
+    /// returns (atom, has_escape, bytes_consumed)
     pub(super) fn parse_ident(
+        &mut self,
+        bytes: &[u8],
+        first_char: char,
+        is_private: bool,
+    ) -> Result<(Atom, bool, usize), i32> {
+        let mut buf = String::with_capacity(64);
+
+        if is_private {
+            buf.push('#');
+        }
+        buf.push(first_char);
+
+        let mut has_escape = false;
+        let mut consumed = 0;
+
+        let mut it = std::str::from_utf8(bytes)
+            .map_err(|_| {
+                self.throw_syntax_error("invalid UTF-8 sequence");
+                -1
+            })?
+            .char_indices()
+            .peekable();
+
+        while let Some((pos, c)) = it.next() {
+            if c == '\\' && it.peek().is_some_and(|(_, c2)| *c2 == 'u') {
+                // format \uXXXX
+                let bb = &bytes[pos + 1..]; // start from pos+1 to skip '/'
+                consumed += 1; // consumed +1 for '/'
+
+                let (code, adv) = self.parse_string_escape(bb, 1).inspect_err(|_| {
+                    self.throw_syntax_error("invalid string escape");
+                })?;
+
+                if let Some(uc) = char::from_u32(code) {
+                    buf.push(uc);
+                    it.nth(adv - 1); // this is 0-based
+                    consumed += adv;
+                    has_escape = true;
+                } else {
+                    self.throw_syntax_error("invalid char for ident");
+                    return Err(-1);
+                };
+            } else if !Self::is_ident_next(c) {
+                break;
+            } else {
+                buf.push(c);
+                consumed += c.len_utf8();
+            }
+
+            if buf.capacity() - buf.len() <= UTF8_CHAR_LEN_MAX {
+                buf.try_reserve(UTF8_CHAR_LEN_MAX).map_err(|_| {
+                    self.ctx.throw_out_of_memory();
+                    -1
+                })?;
+            }
+        }
+
+        let atom = Atom::new(&self.ctx.rt(), &buf)?;
+        Ok((atom, has_escape, consumed))
+    }
+
+    /// returns (atom, has_escape)
+    #[deprecated(note = "unsafe version is not used")]
+    pub(super) fn parse_ident_v0(
         &mut self,
         input: *mut *const u8,
         first_char: char,
         is_private: bool,
     ) -> Result<(Atom, bool), i32> {
+        unsafe {
+            println!(
+                "[O.o] parse_itent({:?}), first_char={first_char}",
+                std::ffi::CStr::from_ptr(*input.cast()),
+            );
+        }
+
         let mut buf = Vec::<u8>::with_capacity(64);
 
         if is_private {
@@ -137,7 +205,7 @@ impl JSParseState<'_> {
             if c == '\\' && unsafe { *p1 } == b'u' {
                 // escape \uXXXX
                 let mut p_temp = p1;
-                let cp = unsafe { self.parse_string_escape(&mut p_temp, 1)? };
+                let cp = unsafe { self.parse_string_escape_v0(&mut p_temp, 1)? };
                 c = if let Some(u) = char::from_u32(cp) {
                     u
                 } else {
@@ -222,13 +290,13 @@ impl JSParseState<'_> {
                 }
 
                 let name = self.token.atom().unwrap();
-                if name.to_ref() == JS_ATOM_let && matches!(tok, TOK_LET | TOK_CONST) {
+                if name == Atom::CONST_let && matches!(tok, TOK_LET | TOK_CONST) {
                     self.throw_syntax_error("'let' is not a valid lexical identifier");
                     return Err(-1);
                 }
 
                 self.next_token()?;
-                self.define_var(&name, tok, export)?;
+                self.define_var(name, tok, export)?;
 
                 if self.token.val == '=' as i32 {
                     self.next_token()?;
@@ -236,13 +304,13 @@ impl JSParseState<'_> {
                     if tok == TOK_VAR {
                         // Must make a reference for proper `with` semantics
                         self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                        self.emit_atom(name.clone());
+                        self.emit_atom(name);
                         self.emit_u16(self.cur_func().scope_level as u16);
 
                         let mut opcode: i32 = 0;
                         let mut scope: i32 = 0;
                         let mut label: i32 = 0;
-                        let mut name1 = AtomRef::NULL;
+                        let mut name1 = Atom::NULL;
                         self.get_lvalue(
                             &mut opcode,
                             &mut scope,
@@ -254,24 +322,24 @@ impl JSParseState<'_> {
                         )?;
 
                         self.parse_assign_expr2(parse_flags)?;
-                        self.set_object_name(name.clone());
+                        self.set_object_name(name);
                         self.put_lvalue(
                             opcode,
                             scope,
-                            name1.deref().clone(),
+                            name1,
                             label,
                             PutLValueEnum::PUT_LVALUE_NOKEEP,
                             false,
                         );
                     } else {
                         self.parse_assign_expr2(parse_flags)?;
-                        self.set_object_name(name.clone());
+                        self.set_object_name(name);
                         self.emit_op_temp(if tok == TOK_CONST || tok == TOK_LET {
                             OpCodeTemp::SCOPE_PUT_VAR_INIT
                         } else {
                             OpCodeTemp::SCOPE_PUT_VAR
                         });
-                        self.emit_atom(name.clone());
+                        self.emit_atom(name);
                         self.emit_u16(self.cur_func().scope_level as u16);
                     }
                 } else if tok == TOK_CONST {
@@ -281,7 +349,7 @@ impl JSParseState<'_> {
                     // initialize lexical variable upon entering its scope
                     self.emit_op(OpCode::UNDEFINED);
                     self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
-                    self.emit_atom(name.clone());
+                    self.emit_atom(name);
                     self.emit_u16(self.cur_func().scope_level as u16);
                 }
             } else {
@@ -430,7 +498,7 @@ impl JSParseState<'_> {
                                 .offset(if t == TOK_DIV_ASSIGN { -2 } else { -1 })
                         };
                         if self.parse_regexp().is_err() {
-                            let _ = self.ctx.take_exception(); //clear the exception
+                            let _ = self.ctx.rt().take_exception(); //clear the exception
                             break;
                         }
                     }
@@ -461,8 +529,8 @@ impl JSParseState<'_> {
 
             // last_tok is only used to recognize regexps
             last_tok = if self.token.val == TOK_IDENT
-                && (self.token_is_pseudo_keyword(JS_ATOM_of)
-                    || self.token_is_pseudo_keyword(JS_ATOM_yield))
+                && (self.token_is_pseudo_keyword(Atom::CONST_of)
+                    || self.token_is_pseudo_keyword(Atom::CONST_yield))
             {
                 TOK_OF
             } else {
@@ -475,7 +543,7 @@ impl JSParseState<'_> {
             }
             if level <= 1 {
                 tok = self.token.val;
-                if self.token_is_pseudo_keyword(JS_ATOM_of) {
+                if self.token_is_pseudo_keyword(Atom::CONST_of) {
                     tok = TOK_OF;
                 }
                 if no_line_terminator && self.last_line_num != self.token.line_num {

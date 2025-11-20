@@ -1,30 +1,40 @@
+use gc_lite::{Collect, GcRef};
+
 use crate::{
     JS_CLASS_BOUND_FUNCTION,
-    context::JSContext,
+    context::ContextRef,
     error::JSResult,
-    object::{JSObject, ObjectPayload},
+    object::{ObjectImpl, ObjectPayload, ObjectRef},
     object_cast,
-    runtime::JSRuntime,
+    runtime::RuntimeImpl,
     value::JSValue,
 };
 
 use super::{JS_CALL_FLAG_CONSTRUCTOR, JS_CallConstructor2};
 
 #[derive(Debug)]
-pub struct BoundFuncObjPayload<'a> {
-    pub func_obj: JSValue<'a>,
-    pub this_val: JSValue<'a>,
-    pub bind_args: Vec<JSValue<'a>>,
+pub struct BoundFuncObjPayload {
+    pub func_obj: JSValue,
+    pub this_val: JSValue,
+    pub bind_args: Vec<JSValue>,
+}
+
+unsafe impl Collect for BoundFuncObjPayload {
+    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+        self.func_obj.trace(tracer);
+        self.this_val.trace(tracer);
+        self.bind_args.trace(tracer);
+    }
 }
 
 #[repr(transparent)]
-#[derive(Debug, Clone)]
-pub struct BoundFunction<'a>(JSObject<'a>);
+#[derive(Debug, Clone, Copy)]
+pub struct BoundFunction(GcRef<ObjectImpl>);
 
 object_cast!(BoundFunction, JS_CLASS_BOUND_FUNCTION);
 
-impl<'a> BoundFunction<'a> {
-    pub const fn class_finalizer(_rt: &mut JSRuntime, _isa: &ObjectPayload, _id: usize) {}
+impl BoundFunction {
+    pub const fn class_finalizer(_rt: &mut RuntimeImpl, _isa: &ObjectPayload, _id: usize) {}
 
     pub fn class_mark(val: JSValue) {
         unsafe {
@@ -40,13 +50,13 @@ impl<'a> BoundFunction<'a> {
         }
     }
 
-    pub fn class_call<'b>(
-        ctx: &JSContext<'b>,
-        func_obj: &JSValue<'b>,
-        this_obj: &JSValue<'b>,
-        args: &[JSValue<'b>],
+    pub fn class_call(
+        ctx: ContextRef,
+        func_obj: JSValue,
+        this_obj: JSValue,
+        args: &[JSValue],
         flags: i32,
-    ) -> JSResult<'b> {
+    ) -> JSResult {
         if let ObjectPayload::BOUND_FUNCTION(bf) =
             unsafe { func_obj.as_object_unchecked().payload() }
         {
@@ -68,12 +78,12 @@ impl<'a> BoundFunction<'a> {
 
             if flags & JS_CALL_FLAG_CONSTRUCTOR != 0 {
                 let mut new_target = this_obj.clone();
-                if func_obj.is_same(&new_target) {
+                if func_obj.is_same(new_target) {
                     new_target = bf.func_obj.clone();
                 }
-                JS_CallConstructor2(ctx, &bf.func_obj, new_target, arg_list.as_slice()).err()
+                JS_CallConstructor2(&ctx, bf.func_obj, new_target, arg_list.as_slice()).err()
             } else {
-                bf.func_obj.call(ctx, &bf.this_val, arg_list.as_slice())
+                bf.func_obj.call(&ctx, bf.this_val, arg_list.as_slice())
             }
         } else {
             unreachable!()

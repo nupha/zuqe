@@ -1,5 +1,5 @@
 use crate::{
-    atom::{Atom, consts::JS_ATOM_empty_string},
+    atom::Atom,
     bytecode::{OpCode, opcodes},
     utils::{read_from_ptr, write_to_ptr},
 };
@@ -34,21 +34,15 @@ impl<'s> JSParseState<'s> {
                     opcodes::OP_define_class
                 );
 
-                // for consistency we free the previous atom, which is JS_ATOM_empty_string
+                // for consistency we free the previous atom, which is Atom::CONST_empty_string
                 #[cfg(debug_assertions)]
                 {
-                    use crate::atom::AtomRef;
-
-                    let old_atom = AtomRef(unsafe {
+                    let old_atom = Atom::from_id(unsafe {
                         read_from_ptr::<u32>(
                             fd.byte_code.as_ptr().offset(define_class_pos as isize + 1),
                         )
                     });
-                    debug_assert_eq!(old_atom, JS_ATOM_empty_string);
-
-                    // Note: const atom don't need to be freed
-                    // let a = Atom(old_atom.0);
-                    // a.free(ctx.rt_mut());
+                    debug_assert_eq!(old_atom, Atom::CONST_empty_string);
                 }
 
                 unsafe {
@@ -56,7 +50,7 @@ impl<'s> JSParseState<'s> {
                         fd.byte_code
                             .as_mut_ptr()
                             .offset(define_class_pos as isize + 1),
-                        name.leak(),
+                        name.id(),
                     );
                 }
                 fd.last_opcode_pos = -1;

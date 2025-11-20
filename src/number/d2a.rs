@@ -1,6 +1,6 @@
 use std::{borrow::Cow, ffi::CStr, io::Write};
 
-use crate::{context::JSContext, value::JSValue};
+use crate::{context::ContextImpl, value::JSValue};
 
 use super::MAX_SAFE_INTEGER;
 
@@ -50,12 +50,12 @@ impl RoundingMode {
 }
 
 /// format an f64
-pub(crate) fn f64_stringify<'a>(
+pub(crate) fn f64_stringify(
     num: f64,
     radix: u32,
     fixed_digits: Option<u32>, // limit count of digits after decimal point
     flags: i32,
-) -> Cow<'a, str> {
+) -> Cow<'static, str> {
     // fast path
     if !num.is_finite() {
         return if num.is_nan() {
@@ -138,7 +138,7 @@ pub(crate) fn f64_stringify<'a>(
 }
 
 // 'round': limit count of digits after decimal point
-fn f64_scientific<'a>(num: f64, round: Option<u32>, exp_plus_sign: bool) -> Cow<'a, str> {
+fn f64_scientific(num: f64, round: Option<u32>, exp_plus_sign: bool) -> Cow<'static, str> {
     let mut t = if let Some(p) = round {
         let t0 = format!("{:.1$e}", num, p as usize + 1);
         let i = t0.find('e').unwrap();
@@ -511,13 +511,7 @@ unsafe fn js_dtoa1(buf: *mut u8, d: f64, radix: i32, n_digits: i32, flags: i32) 
 }
 
 #[deprecated(note = "use f64_stringify() instead")]
-unsafe fn js_dtoa<'a>(
-    ctx: &JSContext<'a>,
-    d: f64,
-    radix: i32,
-    n_digits: i32,
-    flags: i32,
-) -> JSValue<'a> {
+unsafe fn js_dtoa(ctx: &ContextImpl, d: f64, radix: i32, n_digits: i32, flags: i32) -> JSValue {
     let mut buf: [u8; JS_DTOA_BUF_SIZE] = [0; JS_DTOA_BUF_SIZE];
     js_dtoa1(buf.as_mut_ptr(), d, radix, n_digits, flags);
     ctx.create_string_from_str(CStr::from_ptr(buf.as_ptr().cast()).to_str().unwrap())

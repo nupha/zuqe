@@ -1,6 +1,6 @@
 use crate::{
     bytecode::{OP_COUNT_FINAL, OpCode, OpcodeFormat, opcode_info_final, opcodes},
-    context::JSContext,
+    context::ContextImpl,
     runtime::JS_STACK_SIZE_MAX,
     utils::read_from_ptr,
 };
@@ -18,7 +18,7 @@ struct StackSizeState {
 
 // 'op' is only used for error indication
 fn ss_check(
-    ctx: &JSContext,
+    ctx: &ContextImpl,
     s: &mut StackSizeState,
     pos: usize,
     op: u8,
@@ -71,8 +71,8 @@ fn ss_check(
     Ok(())
 }
 
-impl<'a> JSFunctionDef<'a> {
-    pub fn compute_stack_size(&mut self, ctx: &JSContext) -> Result<u16, i32> {
+impl JSFunctionDef {
+    pub fn compute_stack_size(&mut self, ctx: &ContextImpl) -> Result<u16, i32> {
         let bc_ptr = self.byte_code.as_ptr();
         let bc_len = self.byte_code.len();
 

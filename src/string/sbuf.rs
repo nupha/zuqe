@@ -6,21 +6,16 @@ use std::{
 
 use fallible_collections::{FallibleVec, TryClone, TryCollect};
 
-use super::{StringChar, StringContent, StringData, char_is_space, string::JS_STRING_LEN_MAX};
+use super::{StringChar, StringData, char_is_space, string::JS_STRING_LEN_MAX};
 
 /// string content buffer, used to build string
 #[repr(u8)]
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub enum StringBuf {
+    #[default]
     Empty,
     Ascii(Vec<u8>), // TODO: upgrade to ISO8859 variant to hold 0..=255 chars
     Utf16(Vec<u16>),
-}
-
-impl Default for StringBuf {
-    fn default() -> Self {
-        Self::Empty
-    }
 }
 
 impl From<Vec<u8>> for StringBuf {
@@ -501,7 +496,7 @@ impl StringBuf {
     /// if `range` is out of bounds, the intersectioned range will be applied.
     pub fn push_content_range(
         &mut self,
-        content: &StringContent,
+        content: &StringData,
         range: Range<usize>,
     ) -> Result<(), TryReserveError> {
         if range.is_empty() || range.start >= content.len() {
@@ -514,12 +509,13 @@ impl StringBuf {
         // use a temp var to hold current self content
         let orig_data = std::mem::replace(self, Self::Empty);
 
-        let new_data: StringBuf = match (orig_data, content.deref()) {
+        let new_data: StringBuf = match (orig_data, content) {
             (s, StringData::Empty | StringData::Ident) => s,
             (Self::Empty, _) => content.to_buf_range(range)?,
 
             // same type
             (Self::Utf16(mut s1), StringData::Utf16(s2)) => {
+                let s2 = unsafe { s2.as_ref() };
                 if let Err(e) = s1.try_reserve_exact(s2.len()) {
                     *self = Self::Utf16(s1);
                     return Err(e);
@@ -529,6 +525,7 @@ impl StringBuf {
                 }
             }
             (Self::Ascii(mut s1), StringData::Ascii(s2)) => {
+                let s2 = unsafe { s2.as_ref() };
                 if let Err(e) = s1.try_reserve_exact(s2.len()) {
                     *self = Self::Ascii(s1);
                     return Err(e);
@@ -539,6 +536,7 @@ impl StringBuf {
             }
 
             (Self::Utf16(mut s1), StringData::Ascii(s2)) => {
+                let s2 = unsafe { s2.as_ref() };
                 if let Err(e) = s1.try_reserve(s2.len()) {
                     *self = Self::Utf16(s1);
                     return Err(e);
@@ -548,6 +546,7 @@ impl StringBuf {
                 }
             }
             (Self::Ascii(s1), StringData::Utf16(s2)) => {
+                let s2 = unsafe { s2.as_ref() };
                 let mut buf = Vec::<u16>::new();
                 if let Err(e) = buf.try_reserve_exact(s1.len() + s2.len()) {
                     *self = Self::Ascii(s1); // restore original
@@ -586,7 +585,7 @@ impl StringBuf {
     }
 
     #[inline(always)]
-    pub fn push_content(&mut self, content: &StringContent) -> Result<(), TryReserveError> {
+    pub fn push_content(&mut self, content: &StringData) -> Result<(), TryReserveError> {
         self.push_content_range(content, 0..content.len())
     }
 
@@ -727,8 +726,19 @@ impl StringBuf {
             buf_ranges: 0..self.len(),
         }
     }
+
+    pub fn to_utf8(&self) -> Cow<'_, str> {
+        match self {
+            StringBuf::Empty => Cow::Borrowed(""),
+            StringBuf::Ascii(s) => {
+                Cow::Borrowed(unsafe { std::str::from_utf8_unchecked(s.as_slice()) })
+            }
+            StringBuf::Utf16(s) => Cow::Owned(String::from_utf16_lossy(s.as_slice())),
+        }
+    }
 }
 
+#[deprecated(note = "not used")]
 #[derive(Clone)]
 pub struct StringBufSlice<'a> {
     src: &'a StringBuf,

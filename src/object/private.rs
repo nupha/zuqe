@@ -1,32 +1,31 @@
-use std::ops::Deref;
-
 use crate::{
-    atom::{AtomTypeHint, consts::*},
-    context::JSContext,
+    atom::{Atom, AtomKind},
+    branch_hints::unlikely,
+    context::ContextImpl,
     error::{JS_ThrowTypeErrorPrivateNotFound, JSResult},
-    object::{JSObject, JSProperty},
+    object::{JSProperty, ObjectRef},
     value::JSValue,
 };
 
 use super::JS_PROP_C_W_E;
 
-impl<'a> JSObject<'a> {
+impl ObjectRef {
     /// check if `self` has own property suggested by `func.<home_object>.<brand>`.
-    pub fn check_brand(&self, ctx: &JSContext, func: &JSValue) -> Result<bool, i32> {
+    pub fn check_brand(&self, ctx: &ContextImpl, func: JSValue) -> Result<bool, i32> {
         if let Some(home_obj) = func
             .as_object_BCFunction()
             .and_then(|o| o.payload().home_object())
         {
-            if let Some((idx, _)) = home_obj.find_shape_property(JS_ATOM_Private_brand.deref()) {
-                match home_obj.0.prop_values.borrow().get(idx).cloned().unwrap() {
-                    JSProperty::Normal(JSValue::Symbol(s)) => {
-                        Ok(self.has_shape_property(&s.atom_info().unwrap().atom_ref()))
-                    }
-                    _ => {
-                        ctx.throw_type_error_not_an_object();
-                        Err(-1)
-                    }
-                }
+            if let Some((idx, _)) = home_obj.find_shape_property(Atom::CONST_Private_brand) {
+                let atom = if let JSProperty::Normal(JSValue::Symbol(a)) =
+                    home_obj.prop_values.get(idx).unwrap()
+                {
+                    *a
+                } else {
+                    ctx.throw_type_error_not_an_object();
+                    return Err(-1);
+                };
+                Ok(self.has_shape_property(atom))
             } else {
                 ctx.throw_type_error("expecting <brand> private field");
                 Err(-1)
@@ -39,55 +38,35 @@ impl<'a> JSObject<'a> {
     }
 
     fn set_private_field(
-        &self,
-        ctx: &JSContext<'a>,
-        name: &JSValue<'a>,
-        val: JSValue<'a>,
+        &mut self,
+        ctx: &ContextImpl,
+        name: JSValue,
+        val: JSValue,
     ) -> Result<(), i32> {
-        if let JSValue::Symbol(s) = name {
-            let prop = s.atom_info().unwrap().atom_ref();
-
-            if let Some((idx, _)) = self.find_shape_property(&prop) {
-                self.0.prop_values.borrow_mut()[idx] = JSProperty::Normal(val);
+        if let JSValue::Symbol(atom) = name {
+            if let Some((idx, _)) = self.find_shape_property(atom) {
+                self.prop_values[idx] = JSProperty::Normal(val);
                 Ok(())
             } else {
-                JS_ThrowTypeErrorPrivateNotFound(ctx, prop);
+                JS_ThrowTypeErrorPrivateNotFound(ctx, atom);
                 Err(-1)
             }
         } else {
             ctx.throw_type_error_not_a_symbol();
             Err(-1)
         }
-
-        // // name must be a Symbol
-        // if !name.is_symbol() {
-        //     ctx.JS_ThrowTypeErrorNotASymbol();
-        //     return Err(-1);
-        // }
-
-        // let prop = symbol_to_atom(name);
-
-        // if let Some((idx, _)) = self.find_shape_property(prop) {
-        //     self.0.prop_values.borrow_mut()[idx] = JSProperty::Normal(val);
-        //     Ok(())
-        // } else {
-        //     JS_ThrowTypeErrorPrivateNotFound(ctx, prop);
-        //     Err(-1)
-        // }
     }
 
-    fn get_private_field(&self, ctx: &JSContext<'a>, name: &JSValue<'a>) -> JSResult<'a> {
-        if let JSValue::Symbol(s) = name {
-            let prop = s.atom_info().unwrap().atom_ref();
-
-            if let Some((idx, _)) = self.find_shape_property(&prop) {
-                if let JSProperty::Normal(val) = self.0.prop_values.borrow().get(idx).unwrap() {
-                    Ok(val.clone())
+    fn get_private_field(&self, ctx: &ContextImpl, name: JSValue) -> JSResult {
+        if let JSValue::Symbol(atom) = name {
+            if let Some((idx, _)) = self.find_shape_property(atom) {
+                if let JSProperty::Normal(val) = self.prop_values.get(idx).unwrap() {
+                    Ok(*val)
                 } else {
                     unreachable!()
                 }
             } else {
-                JS_ThrowTypeErrorPrivateNotFound(ctx, prop);
+                JS_ThrowTypeErrorPrivateNotFound(ctx, atom);
                 Err(-1)
             }
         } else {
@@ -96,49 +75,22 @@ impl<'a> JSObject<'a> {
         }
     }
 
-    // /// check if `self` has own property suggested by `func.<home_object>.<brand>`.
-    // #[inline(always)]
-    // pub fn check_brand(&self, ctx: &JSContext, func: &JSValue) -> Result<bool, i32> {
-    //     self.0.borrow().check_brand(ctx, func)
-    // }
-
-    // #[inline(always)]
-    // pub fn set_private_field(
-    //     &self,
-    //     ctx: &JSContext,
-    //     name: &JSValue,
-    //     val: JSValue,
-    // ) -> Result<(), i32> {
-    //     self.0.borrow_mut().set_private_field(ctx, name, val)
-    // }
-
-    // #[inline(always)]
-    // pub fn get_private_field(&self, ctx: &JSContext, name: &JSValue) -> JSResult {
-    //     self.0.borrow().get_private_field(ctx, name)
-    // }
-
     /// Private fields can be added even on non extensible objects or Proxies
     pub fn define_private_field(
-        &self,
-        ctx: &JSContext<'a>,
-        name: &JSValue<'a>,
-        val: JSValue<'a>,
+        &mut self,
+        ctx: &ContextImpl,
+        name: JSValue,
+        val: JSValue,
     ) -> Result<(), i32> {
-        if let JSValue::Symbol(s) = name {
-            let prop = s.atom_info().unwrap().atom_ref();
-            if self.has_shape_property(&prop) {
+        if let JSValue::Symbol(atom) = name {
+            if self.has_shape_property(atom) {
                 ctx.throw_type_error(&format!(
                     "private class field '{}' already exists",
-                    prop.to_utf8()
+                    atom.to_utf8()
                 ));
                 Err(-1)
             } else {
-                self.add_own_property(
-                    ctx,
-                    prop.deref().clone(),
-                    JS_PROP_C_W_E,
-                    JSProperty::Normal(val),
-                )
+                self.add_own_property(ctx, atom, JS_PROP_C_W_E, JSProperty::Normal(val))
             }
         } else {
             ctx.throw_type_error_not_a_symbol();
@@ -147,9 +99,9 @@ impl<'a> JSObject<'a> {
     }
 }
 
-impl<'a> JSValue<'a> {
+impl JSValue {
     /// check if `self` has own property suggested by `func.<home_object>.<brand>`.
-    pub fn check_brand(&self, ctx: &JSContext, func: &JSValue) -> Result<bool, i32> {
+    pub fn check_brand(&self, ctx: &ContextImpl, func: JSValue) -> Result<bool, i32> {
         if let JSValue::Object(ob) = self {
             ob.check_brand(ctx, func)
         } else {
@@ -160,31 +112,30 @@ impl<'a> JSValue<'a> {
 
     /// assign 'home_obj' a symbol as its ident, store that symbol in home_obj.<brand> field.
     /// if self is an object, then defined a property with the home_obj's symbol as key.
-    pub fn add_brand(&self, ctx: &JSContext<'a>, home_obj: &JSValue<'a>) -> Result<(), i32> {
-        if let JSValue::Object(home) = home_obj {
-            let brand_sym: JSValue = if let Some((idx, _)) =
-                home.find_shape_property(&JS_ATOM_Private_brand)
-            {
-                if let JSProperty::Normal(val) = home.0.prop_values.borrow().get(idx).unwrap() {
-                    val.clone()
+    pub fn add_brand(&mut self, ctx: &ContextImpl, home_obj: JSValue) -> Result<(), i32> {
+        if let JSValue::Object(mut home) = home_obj {
+            let brand_sym: JSValue =
+                if let Some((idx, _)) = home.find_shape_property(Atom::CONST_Private_brand) {
+                    if let JSProperty::Normal(val) = home.prop_values.get(idx).unwrap() {
+                        val.clone()
+                    } else {
+                        unreachable!()
+                    }
                 } else {
-                    unreachable!()
-                }
-            } else {
-                // the private <brand> prop is not present, add it
-                let br = ctx.create_symbol_from_atom(&JS_ATOM__brand_, AtomTypeHint::Private)?;
-                home.add_own_property(
-                    ctx,
-                    JS_ATOM_Private_brand.deref().clone(),
-                    JS_PROP_C_W_E,
-                    JSProperty::Normal(br.clone()),
-                )?;
-                br
-            };
+                    // the private <brand> prop is not present, add it
+                    let br = ctx.create_symbol_from_atom(Atom::CONST__brand_, AtomKind::Private)?;
+                    home.add_own_property(
+                        ctx,
+                        Atom::CONST_Private_brand,
+                        JS_PROP_C_W_E,
+                        JSProperty::Normal(br),
+                    )?;
+                    br
+                };
 
-            if let Some(ob) = self.as_object() {
+            if let Some(ob) = self.as_object_mut() {
                 let brand_atom = brand_sym.to_atom(ctx).unwrap();
-                if ob.has_shape_property(&brand_atom) {
+                if ob.has_shape_property(brand_atom) {
                     ctx.throw_type_error("private method is already present");
                     Err(-1)
                 } else {
@@ -205,20 +156,25 @@ impl<'a> JSValue<'a> {
     }
 
     pub fn set_private_field(
-        &self,
-        ctx: &JSContext<'a>,
-        name: &JSValue<'a>,
-        val: JSValue<'a>,
+        &mut self,
+        ctx: &ContextImpl,
+        name: JSValue,
+        val: JSValue,
     ) -> Result<(), i32> {
-        if let JSValue::Object(ob) = self {
-            ob.set_private_field(ctx, name, val)
+        if let JSValue::Object(o) = self {
+            if unlikely(!o.flags().extensible()) {
+                ctx.throw_type_error("object is nonextensible for private field");
+                Err(-1)
+            } else {
+                o.set_private_field(ctx, name, val)
+            }
         } else {
             ctx.throw_type_error_not_an_object();
             Err(-1)
         }
     }
 
-    pub fn get_private_field(&self, ctx: &JSContext<'a>, name: &JSValue<'a>) -> JSResult<'a> {
+    pub fn get_private_field(&self, ctx: &ContextImpl, name: JSValue) -> JSResult {
         if let Self::Object(ob) = self {
             ob.get_private_field(ctx, name)
         } else {
@@ -229,10 +185,10 @@ impl<'a> JSValue<'a> {
 
     /// Private fields can be added even on non extensible objects or Proxies
     pub fn define_private_field(
-        &self,
-        ctx: &JSContext<'a>,
-        name: &JSValue<'a>,
-        val: JSValue<'a>,
+        &mut self,
+        ctx: &ContextImpl,
+        name: JSValue,
+        val: JSValue,
     ) -> Result<(), i32> {
         if let Self::Object(ob) = self {
             ob.define_private_field(ctx, name, val)

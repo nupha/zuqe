@@ -4,17 +4,17 @@ use crate::{
     JS_CLASS_FLOAT64_ARRAY, JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, JS_CLASS_PROMISE, JS_CLASS_PROXY,
     JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR, JS_CLASS_SET, JS_CLASS_SET_ITERATOR,
     JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY, JS_CLASS_WEAKMAP, JS_CLASS_WEAKSET,
-    atom::consts::{JS_ATOM_global, JS_ATOM_globalThis},
+    atom::Atom,
     class::ClassID,
-    context::JSContext,
+    context::{ContextHandle, ContextRef},
     js_core::{global::js_global_props, math::js_math_obj},
     json::js_json_obj,
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, JSObject},
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, ObjectRef},
     reflect::js_reflect_obj,
-    runtime::JSRuntime,
+    runtime::RuntimeImpl,
 };
 
-pub type SetupGlobalFn = for<'a> fn(ctx: &JSContext<'a>, global: &JSObject<'a>) -> Result<(), i32>;
+pub type SetupGlobalFn = fn(ctx: ContextRef, global: ObjectRef) -> Result<(), i32>;
 
 #[derive(Debug, Default)]
 pub struct ContextBuilder {
@@ -46,36 +46,32 @@ impl ContextBuilder {
         self
     }
 
-    pub fn build<'a>(self, rt: &mut JSRuntime<'a>) -> Result<JSContext<'a>, i32> {
-        rt.create_context_raw(|cx| {
+    pub fn build<'a>(self, rt: &mut RuntimeImpl) -> Result<ContextHandle<'a>, i32> {
+        rt.create_context_raw(|mut cx| {
             //
             // make global namespace - this must come first.
             //
-            let gobj = cx.create_base_object()?;
+            let mut gobj = cx.create_base_object()?;
 
             // define name `globalThis` and `global`
             gobj.define_property_value(
-                cx,
-                &JS_ATOM_globalThis,
-                gobj.clone().into(),
+                &cx,
+                Atom::CONST_globalThis,
+                gobj.into(),
                 JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
             )?;
             gobj.define_property_value(
-                cx,
-                &JS_ATOM_global,
-                gobj.clone().into(),
+                &cx,
+                Atom::CONST_global,
+                gobj.into(),
                 JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
             )?;
 
-            {
-                // make global var object
-                let gvobj = cx.create_base_object_with_proto(None)?;
-
-                // save to ctx
-                let mut cx = cx.0.borrow_mut();
-                cx.global_obj = gobj.clone().into();
-                cx.global_var_obj = gvobj.into();
-            }
+            // make global var object
+            let gvobj = cx.create_base_object_with_proto(None)?;
+            // save to ctx
+            cx.global_obj = gobj.into();
+            cx.global_var_obj = gvobj.into();
 
             //
             // init intrinsic base classes
@@ -102,7 +98,7 @@ impl ContextBuilder {
             // setup global entries
             //
             if let Some(f) = self.setup_global {
-                f(cx, &gobj)?
+                f(cx, gobj)?
             }
 
             Ok(())
@@ -110,11 +106,11 @@ impl ContextBuilder {
     }
 }
 
-impl<'a> JSRuntime<'a> {
+impl RuntimeImpl {
     /// Creates new context initialized with ECMA standard classes and global entries.
     ///
     /// This also provides a demostration on how to use ContextBuilder to customize a context.
-    pub fn create_context_ecma(&mut self) -> Result<JSContext<'a>, i32> {
+    pub fn create_context_ecma<'a>(&mut self) -> Result<ContextHandle<'a>, i32> {
         ContextBuilder::new()
             .use_classes(&[
                 //proxy
@@ -146,18 +142,18 @@ impl<'a> JSRuntime<'a> {
                 // typed arries
                 &(JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).collect::<Vec<_>>(),
             )
-            .global(|cx, gobj| -> Result<(), i32> {
-                gobj.install_field_defs(cx, &js_global_props)?;
+            .global(|mut cx, mut gobj| -> Result<(), i32> {
+                gobj.install_field_defs(&cx, &js_global_props)?;
 
                 // Reflect: lazy init
-                gobj.install_field_defs(cx, &js_reflect_obj)?;
+                gobj.install_field_defs(&cx, &js_reflect_obj)?;
 
                 // JSON: lazy init
-                gobj.install_field_defs(cx, &js_json_obj)?;
+                gobj.install_field_defs(&cx, &js_json_obj)?;
 
                 // Math: lazy init
-                cx.0.borrow_mut().init_random_seed();
-                gobj.install_field_defs(cx, &js_math_obj)?;
+                cx.init_random_seed();
+                gobj.install_field_defs(&cx, &js_math_obj)?;
 
                 Ok(())
             })

@@ -1,13 +1,8 @@
-use std::ops::Deref;
-
 use smallvec::SmallVec;
 
 use crate::{
-    atom::{
-        Atom,
-        consts::{JS_ATOM_false, JS_ATOM_null, JS_ATOM_true},
-    },
-    context::JSContext,
+    atom::{Atom, AtomKind},
+    context::ContextImpl,
     error::JSResult,
     number::{ATOD_ACCEPT_BIN_OCT, js_atof},
     object::JS_PROP_C_W_E,
@@ -19,7 +14,7 @@ use crate::{
         },
     },
     runtime::js_check_stack_overflow,
-    string::{CP_LS, CP_PS, UTF8_CHAR_LEN_MAX, unicode_from_utf8_v0},
+    string::{CP_LS, CP_PS, UTF8_CHAR_LEN_MAX, escape_str, unicode_from_utf8_v0},
     value::JSValue,
 };
 
@@ -45,10 +40,10 @@ impl<'s> JSParseState<'s> {
         self.last_line_num = self.token.line_num;
 
         let todo = 'redo: loop {
-            if p >= self.buf_end {
+            if p >= self.input_end {
                 self.token.val = TOK_EOF;
                 self.token.data = TokenData::None;
-                self.buf_ptr = self.buf_end;
+                self.buf_ptr = self.input_end;
                 return Ok(());
             }
 
@@ -109,7 +104,7 @@ impl<'s> JSParseState<'s> {
                         // comment
                         p = p.add(2);
                         loop {
-                            if p >= self.buf_end {
+                            if p >= self.input_end {
                                 self.throw_syntax_error("unexpected end of comment");
                                 break;
                             }
@@ -137,7 +132,7 @@ impl<'s> JSParseState<'s> {
                         // line comment
                         p = p.offset(2);
                         loop {
-                            if p >= self.buf_end {
+                            if p >= self.input_end {
                                 break;
                             }
                             if matches!(*p, b'\r' | b'\n') {
@@ -248,8 +243,8 @@ impl<'s> JSParseState<'s> {
         }
     }
 
-    fn json_parse_value(&mut self) -> JSResult<'s> {
-        let val: JSValue<'s>;
+    fn json_parse_value(&mut self) -> JSResult {
+        let mut val: JSValue;
 
         match self.token.val {
             // '{'
@@ -260,9 +255,10 @@ impl<'s> JSParseState<'s> {
                 if self.token.val != b'}' as i32 {
                     loop {
                         let prop_name = if self.token.val == TOK_STRING {
-                            Atom::new(
+                            Atom::from_str(
                                 self.ctx.rt().as_ref(),
-                                &self.token.data.string().unwrap().to_utf8(true),
+                                &escape_str(&self.token.data.string().unwrap().to_utf8()),
+                                AtomKind::String,
                             )?
                         } else if self.ext_json && self.token.val == TOK_IDENT {
                             self.token.data.ident_atom().unwrap()
@@ -275,7 +271,7 @@ impl<'s> JSParseState<'s> {
                         json_parse_expect(self, ':' as i32)?;
 
                         let prop_val = self.json_parse_value()?;
-                        val.define_property_value(&self.ctx, &prop_name, prop_val, JS_PROP_C_W_E)?;
+                        val.define_property_value(&self.ctx, prop_name, prop_val, JS_PROP_C_W_E)?;
 
                         if self.token.val != ',' as i32 {
                             break;
@@ -324,10 +320,8 @@ impl<'s> JSParseState<'s> {
                 json_parse_expect(self, b']' as i32)?;
             }
             TOK_STRING => {
-                val = self
-                    .ctx
-                    .create_string_with_content(self.token.data.string().unwrap().clone())?
-                    .into();
+                let sbuf = self.token.data.take_string().unwrap();
+                val = self.ctx.create_string_with_buf(sbuf)?.into();
                 self.json_next_token()?;
             }
             TOK_NUMBER => {
@@ -335,10 +329,10 @@ impl<'s> JSParseState<'s> {
                 self.json_next_token()?;
             }
             TOK_IDENT => {
-                val = match self.token.data.ident_atom().unwrap().to_ref() {
-                    JS_ATOM_true => JSValue::Bool(true),
-                    JS_ATOM_false => JSValue::Bool(false),
-                    JS_ATOM_null => JSValue::NULL,
+                val = match self.token.data.ident_atom().unwrap() {
+                    Atom::CONST_true => JSValue::Bool(true),
+                    Atom::CONST_false => JSValue::Bool(false),
+                    Atom::CONST_null => JSValue::NULL,
                     _ => {
                         if self.token.val == TOK_EOF {
                             self.throw_syntax_error("unexpected end of input");
@@ -411,142 +405,9 @@ unsafe fn json_parse_ident(
         p = p.add(1);
     }
 
-    let atom = Atom::new(
-        s.ctx.rt().as_ref(),
-        std::str::from_utf8(&buf).map_err(|_| -1)?,
-    )?;
+    let atom = Atom::new(&s.ctx.rt(), std::str::from_utf8(&buf).map_err(|_| -1)?)?;
     *pp = p;
     Ok(atom)
-}
-
-#[deprecated(note = "use JSParseState::json_parse_value() instead")]
-fn json_parse_value<'a>(s: &mut JSParseState<'a>) -> JSResult<'a> {
-    let mut val: JSValue = JSValue::NULL;
-
-    match s.token.val {
-        // '{'
-        CHAR_CURLY_L => {
-            s.json_next_token()?;
-
-            val = s.ctx.create_base_object()?.into();
-            if s.token.val != b'}' as i32 {
-                loop {
-                    let prop_name = if s.token.val == TOK_STRING {
-                        Atom::new(
-                            s.ctx.rt().as_ref(),
-                            &s.token.data.string().unwrap().to_utf8(true),
-                        )?
-                    } else if s.ext_json && s.token.val == TOK_IDENT {
-                        s.token.data.ident_atom().unwrap()
-                    } else {
-                        s.throw_syntax_error("expecting property name");
-                        return Err(-1);
-                    };
-
-                    s.json_next_token()?;
-                    json_parse_expect(s, ':' as i32)?;
-
-                    let prop_val = s.json_parse_value()?;
-                    val.define_property_value(&s.ctx, &prop_name, prop_val, JS_PROP_C_W_E)?;
-
-                    if s.token.val != ',' as i32 {
-                        break;
-                    }
-                    s.json_next_token()?;
-                    if s.ext_json && s.token.val == b'}' as i32 {
-                        break;
-                    }
-                }
-            }
-            json_parse_expect(s, b'}' as i32)?;
-        }
-        // '['
-        CHAR_SQUARE_L => {
-            s.json_next_token()?;
-
-            let mut lst = Vec::<JSValue>::new();
-            if s.token.val != ']' as i32 {
-                'arr: loop {
-                    let el = s.json_parse_value()?;
-
-                    if lst.len() == lst.capacity() {
-                        lst.try_reserve(32).map_err(|_| {
-                            s.ctx.throw_out_of_memory();
-                            -1
-                        })?;
-                    }
-                    lst.push(el);
-
-                    if s.token.val != ',' as i32 {
-                        break 'arr;
-                    }
-
-                    s.json_next_token()?;
-
-                    if s.ext_json && s.token.val == b']' as i32 {
-                        break 'arr;
-                    }
-                }
-            }
-
-            // make Array
-            lst.shrink_to_fit();
-            val = s.ctx.create_array_with_values(lst)?.into();
-
-            json_parse_expect(s, b']' as i32)?;
-        }
-        TOK_STRING => {
-            val = s
-                .ctx
-                .create_string_with_content(s.token.data.string().unwrap().clone())?
-                .into();
-            s.json_next_token()?;
-        }
-        TOK_NUMBER => {
-            let n = s.token.data.number().unwrap();
-            val = JSValue::from(n);
-            s.json_next_token()?;
-        }
-        TOK_IDENT => {
-            val = match s.token.data.ident_atom().unwrap().to_ref() {
-                JS_ATOM_true => JSValue::Bool(true),
-                JS_ATOM_false => JSValue::Bool(false),
-                JS_ATOM_null => JSValue::NULL,
-                _ => {
-                    if s.token.val == TOK_EOF {
-                        s.throw_syntax_error("unexpected end of input");
-                    } else {
-                        s.throw_syntax_error(&format!("unexpected token: '{}'", unsafe {
-                            let t = std::slice::from_raw_parts(
-                                s.token.ptr,
-                                s.buf_ptr.offset_from(s.token.ptr) as usize,
-                            );
-                            std::str::from_utf8_unchecked(t)
-                        }));
-                    }
-                    return Err(-1);
-                }
-            };
-
-            s.json_next_token()?;
-        }
-        _ => {
-            if s.token.val == TOK_EOF {
-                s.throw_syntax_error("unexpected end of input");
-            } else {
-                s.throw_syntax_error(&format!("unexpected token: '{}'", unsafe {
-                    let t = std::slice::from_raw_parts(
-                        s.token.ptr,
-                        s.buf_ptr.offset_from(s.token.ptr) as usize,
-                    );
-                    std::str::from_utf8_unchecked(t)
-                }));
-            }
-            return Err(-1);
-        }
-    }
-
-    Ok(val)
 }
 
 // Helper function to encapsulate number parsing logic
@@ -565,7 +426,7 @@ fn json_parse_value_number(s: &mut JSParseState, mut p: *const u8) -> Result<*co
 
     if let Ok(num) = unsafe { js_atof(&s.ctx, p, &mut p, radix, flags) } {
         s.token.val = TOK_NUMBER;
-        s.token.data = TokenData::Num(unsafe { std::mem::transmute(num) });
+        s.token.data = TokenData::Num(num);
         Ok(p) // return updated pointer  
     } else {
         s.token.val = TOK_ERROR;
@@ -573,15 +434,11 @@ fn json_parse_value_number(s: &mut JSParseState, mut p: *const u8) -> Result<*co
     }
 }
 
-pub fn JS_ParseJSON<'a>(ctx: &JSContext<'a>, source: &[u8], filename: &str) -> JSResult<'a> {
+pub fn JS_ParseJSON(ctx: &ContextImpl, source: &[u8], filename: &str) -> JSResult {
     // Note: parser will be dropped within this function.
     // so, 'source' and 'filename' are safe w/o lifetime annotation
 
-    let mut parser = JSParseState::new_for_json(
-        ctx,
-        unsafe { std::mem::transmute(source) }, // safe to transmute lifespan
-        unsafe { std::mem::transmute(filename) }, // safe to transmute lifespan
-    );
+    let mut parser = JSParseState::new_for_json(ctx, source, filename);
     parser.ext_json = JS_PARSE_JSON_EXT != 0;
 
     parser.json_next_token()?;

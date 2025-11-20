@@ -2,8 +2,8 @@ use std::{ffi::c_void, ptr::NonNull};
 
 use crate::{
     branch_hints::unlikely,
-    context::JSContext,
-    runtime::{JSRuntime, RuntimePtr},
+    context::{ContextImpl, ContextRef},
+    runtime::RuntimeRef,
 };
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -174,24 +174,24 @@ pub struct JSMemoryUsage {
     pub binary_object_size: i64,
 }
 
-pub unsafe fn js_malloc_rt(mut rt: RuntimePtr, nbytes: usize) -> *mut c_void {
+pub unsafe fn js_malloc_rt(mut rt: RuntimeRef, nbytes: usize) -> *mut c_void {
     ((*rt).mf.js_malloc)(&mut rt.malloc_state, nbytes)
 }
 
-pub unsafe fn js_free_rt(mut rt: RuntimePtr, ptr: *mut c_void) {
+pub unsafe fn js_free_rt(mut rt: RuntimeRef, ptr: *mut c_void) {
     debug_assert!(!ptr.is_null());
     (rt.mf.js_free)(&mut rt.malloc_state, ptr);
 }
 
-pub unsafe fn js_realloc_rt(mut rt: RuntimePtr, ptr: *mut c_void, nbytes: usize) -> *mut c_void {
+pub unsafe fn js_realloc_rt(mut rt: RuntimeRef, ptr: *mut c_void, nbytes: usize) -> *mut c_void {
     (rt.mf.js_realloc)(&mut rt.malloc_state, ptr, nbytes)
 }
 
-pub unsafe fn js_malloc_usable_size_rt(rt: RuntimePtr, ptr: *const c_void) -> usize {
+pub unsafe fn js_malloc_usable_size_rt(rt: RuntimeRef, ptr: *const c_void) -> usize {
     ((rt.mf.js_malloc_usable_size).unwrap())(ptr)
 }
 
-pub unsafe fn js_mallocz_rt(rt: RuntimePtr, nytes: usize) -> *mut c_void {
+pub unsafe fn js_mallocz_rt(rt: RuntimeRef, nytes: usize) -> *mut c_void {
     let ptr = js_malloc_rt(rt, nytes);
     if !ptr.is_null() {
         std::ptr::write_bytes(ptr, 0, nytes);
@@ -200,7 +200,7 @@ pub unsafe fn js_mallocz_rt(rt: RuntimePtr, nytes: usize) -> *mut c_void {
 }
 
 /* Throw out of memory in case of error */
-pub unsafe fn js_malloc(ctx: &JSContext, nbytes: usize) -> *mut c_void {
+pub unsafe fn js_malloc(ctx: ContextRef, nbytes: usize) -> *mut c_void {
     let ptr = js_malloc_rt(ctx.rt(), nbytes);
     if unlikely(ptr.is_null()) {
         ctx.throw_out_of_memory();
@@ -210,7 +210,7 @@ pub unsafe fn js_malloc(ctx: &JSContext, nbytes: usize) -> *mut c_void {
     }
 }
 
-pub unsafe fn js_mallocz(ctx: &JSContext, size: usize) -> *mut c_void {
+pub unsafe fn js_mallocz(ctx: ContextRef, size: usize) -> *mut c_void {
     let ptr = js_mallocz_rt(ctx.rt(), size);
     if unlikely(ptr.is_null()) {
         ctx.throw_out_of_memory();
@@ -219,11 +219,11 @@ pub unsafe fn js_mallocz(ctx: &JSContext, size: usize) -> *mut c_void {
     ptr
 }
 
-pub unsafe fn js_free(ctx: &JSContext, ptr: *mut c_void) {
+pub unsafe fn js_free(ctx: ContextRef, ptr: *mut c_void) {
     js_free_rt(ctx.rt(), ptr);
 }
 
-pub unsafe fn js_realloc(ctx: &JSContext, ptr: *mut c_void, size: usize) -> *mut c_void {
+pub unsafe fn js_realloc(ctx: ContextRef, ptr: *mut c_void, size: usize) -> *mut c_void {
     let ret = js_realloc_rt(ctx.rt(), ptr, size);
     if unlikely(ret.is_null() && size != 0) {
         ctx.throw_out_of_memory();
@@ -233,7 +233,7 @@ pub unsafe fn js_realloc(ctx: &JSContext, ptr: *mut c_void, size: usize) -> *mut
 }
 
 pub unsafe fn js_realloc2(
-    ctx: &JSContext,
+    ctx: ContextRef,
     ptr: *mut c_void,
     size: usize,
     pslack: *mut usize,
@@ -250,7 +250,7 @@ pub unsafe fn js_realloc2(
     ret
 }
 
-pub unsafe fn js_malloc_usable_size(ctx: &JSContext, ptr: *const c_void) -> usize {
+pub unsafe fn js_malloc_usable_size(ctx: ContextRef, ptr: *const c_void) -> usize {
     js_malloc_usable_size_rt(ctx.rt(), ptr)
 }
 
@@ -259,7 +259,7 @@ pub unsafe fn js_malloc_usable_size(ctx: &JSContext, ptr: *const c_void) -> usiz
 //
 
 pub unsafe fn js_malloc_rt_typed<T>(
-    mut rt: RuntimePtr,
+    mut rt: RuntimeRef,
     count: usize,
     zeroed: bool,
 ) -> Option<NonNull<T>> {
@@ -286,9 +286,9 @@ pub unsafe fn js_malloc_rt_typed<T>(
 }
 
 /// Throw out of memory in case of error
-#[inline]
+#[deprecated]
 pub unsafe fn js_malloc_typed<T>(
-    ctx: &JSContext,
+    ctx: &ContextImpl,
     count: usize,
     zeroed: bool,
 ) -> Option<NonNull<T>> {
@@ -299,8 +299,9 @@ pub unsafe fn js_malloc_typed<T>(
     ptr
 }
 
+#[deprecated]
 pub unsafe fn js_realloc_array(
-    ctx: &JSContext,
+    ctx: ContextRef,
     parray: *mut *mut c_void,
     elem_size: i32,
     psize: *mut i32,
@@ -324,7 +325,7 @@ pub unsafe fn js_realloc_array(
 }
 
 pub unsafe fn js_resize_array(
-    ctx: &JSContext,
+    ctx: ContextRef,
     parray: *mut *mut c_void,
     elem_size: i32,
     psize: *mut i32,
@@ -338,7 +339,7 @@ pub unsafe fn js_resize_array(
 }
 
 // pub unsafe fn ident_realloc(
-//     ctx: &JSContext,
+//     ctx: ContextRef,
 //     pbuf: *mut *mut u8,
 //     psize: *mut usize,
 //     static_buf: *mut u8,

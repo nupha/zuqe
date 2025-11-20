@@ -1,13 +1,11 @@
-use std::ops::Deref;
-
 use crate::{
-    atom::{Atom, JS_ATOM_NULL, consts::*, js_atom_concat_num, js_atom_concat_str},
+    atom::{Atom, js_atom_concat_num, js_atom_concat_str},
     bytecode::{OpCode, OpCodeTemp},
     class::{
         ClassFieldsDef, JS_DEFINE_CLASS_HAS_HERITAGE, OP_DEFINE_METHOD_GETTER,
         OP_DEFINE_METHOD_METHOD, OP_DEFINE_METHOD_SETTER,
     },
-    context::{JS_MODE_STRICT, JS_MODE_STRIP, JSContext},
+    context::{JS_MODE_STRICT, JS_MODE_STRIP},
     defer,
     function::{JSFunctionDef, JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
     module::ExportType,
@@ -27,7 +25,7 @@ use super::{
 };
 
 impl<'s> JSParseState<'s> {
-    /// TODO: return Result<Option<AtomRef>,i32>
+    /// TODO: return Result<Option<Atom>,i32>
     fn parse_class_name(
         &mut self,
         is_class_expr: bool,
@@ -52,7 +50,7 @@ impl<'s> JSParseState<'s> {
     }
 
     /// parse class field defination
-    fn parse_class_field(&mut self, cfields: &mut ClassFieldsDef<'s>) -> Result<(), i32> {
+    fn parse_class_field(&mut self, cfields: &mut ClassFieldsDef) -> Result<(), i32> {
         let mut init = std::ptr::null_mut::<JSFunctionDef>();
 
         if cfields.fields_init_fd.is_null() {
@@ -76,7 +74,7 @@ impl<'s> JSParseState<'s> {
         // stack is now: fclosure
         self.push_scope()?;
         self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-        self.emit_atom(Atom::new_const(JS_ATOM_this));
+        self.emit_atom(Atom::CONST_this);
         self.emit_u16(0);
         // stack is now: fclosure this
         self.emit_op(OpCode::SWAP);
@@ -92,12 +90,12 @@ impl<'s> JSParseState<'s> {
         Ok(())
     }
 
-    unsafe fn parse_class_getset(
+    fn parse_class_getset(
         &mut self,
         is_set: bool,
         is_private: bool,
         is_static: bool,
-        name: &Atom,
+        name: Atom,
         cf: &mut ClassFieldsDef,
         start_ptr: *const u8,
     ) -> Result<(), i32> {
@@ -176,16 +174,13 @@ impl<'s> JSParseState<'s> {
             // XXX: missing function name
             self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
             if is_set {
-                let setter_name = get_private_setter_name(&self.ctx, name);
-                if setter_name.is_null() {
-                    return Err(-1);
-                }
-                self.emit_atom(setter_name.clone());
+                let setter_name = js_atom_concat_str(&self.ctx, name, "<set>")?;
+                self.emit_atom(setter_name);
 
                 let ret = add_private_class_field(
                     self,
                     self.cur_func_mut(),
-                    &setter_name,
+                    setter_name,
                     JSVarKindEnum::JS_VAR_PRIVATE_SETTER,
                     is_static,
                 );
@@ -195,15 +190,15 @@ impl<'s> JSParseState<'s> {
                     return Err(-1);
                 }
             } else {
-                self.emit_atom(name.clone());
+                self.emit_atom(name);
             }
             self.emit_u16(self.cur_func().scope_level as _);
         } else {
-            if name.to_ref() == JS_ATOM_NULL {
+            if name.is_null() {
                 self.emit_op(OpCode::DEFINE_METHOD_COMPUTED);
             } else {
                 self.emit_op(OpCode::DEFINE_METHOD);
-                self.emit_atom(name.clone());
+                self.emit_atom(name);
             }
             self.emit_u8(if is_set {
                 OP_DEFINE_METHOD_SETTER
@@ -220,10 +215,10 @@ impl<'s> JSParseState<'s> {
     fn parse_class_body(
         &mut self,
         class_source: *const u8,
-        class_name: &Atom,
-        class_var_name: &Atom,
+        class_name: Atom,
+        class_var_name: Atom,
         class_flags: i32,
-        class_fields: &mut [ClassFieldsDef<'s>; 2],
+        class_fields: &mut [ClassFieldsDef; 2],
     ) -> Result<i32, i32> {
         macro_rules! private_field_already_defined {
             () => {
@@ -251,13 +246,13 @@ impl<'s> JSParseState<'s> {
 
         self.emit_op(OpCode::DEFINE_CLASS);
         self.emit_atom(if class_name.is_null() {
-            Atom::new_const(if !class_var_name.is_null() {
-                JS_ATOM_default
+            if !class_var_name.is_null() {
+                Atom::CONST_default
             } else {
-                JS_ATOM_empty_string
-            })
+                Atom::CONST_empty_string
+            }
         } else {
-            class_name.clone()
+            class_name
         });
         self.emit_u8(class_flags as u8);
 
@@ -287,7 +282,7 @@ impl<'s> JSParseState<'s> {
                 // "static" field name
                 if self.token.val == ';' as i32 || self.token.val == '=' as i32 {
                     is_static = false;
-                    name = JS_ATOM_static.deref().clone();
+                    name = Atom::CONST_static;
                     prop_type = PROP_TYPE_IDENT;
                 }
             }
@@ -305,25 +300,25 @@ impl<'s> JSParseState<'s> {
             is_private = prop_type & PROP_TYPE_PRIVATE != 0;
             prop_type &= !PROP_TYPE_PRIVATE;
 
-            if (name.to_ref() == JS_ATOM_constructor && !is_static && prop_type != PROP_TYPE_IDENT)
-                || (name.to_ref() == JS_ATOM_prototype && is_static)
-                || name.to_ref() == JS_ATOM_hash_constructor
+            if (name == Atom::CONST_constructor && !is_static && prop_type != PROP_TYPE_IDENT)
+                || (name == Atom::CONST_prototype && is_static)
+                || name == Atom::CONST_hash_constructor
             {
                 self.throw_syntax_error("invalid method name");
                 return Err(-1);
             }
 
             match prop_type {
-                PROP_TYPE_GET | PROP_TYPE_SET => unsafe {
+                PROP_TYPE_GET | PROP_TYPE_SET => {
                     self.parse_class_getset(
                         prop_type == PROP_TYPE_SET,
                         is_private,
                         is_static,
-                        &name,
+                        name,
                         &mut class_fields[is_static as usize],
                         start_ptr,
                     )?;
-                },
+                }
                 PROP_TYPE_IDENT if self.token.val != '(' as i32 => {
                     let cf = &mut class_fields[is_static as usize];
                     let mut field_var_name = Atom::NULL;
@@ -331,7 +326,7 @@ impl<'s> JSParseState<'s> {
                     // class field
 
                     // XXX: spec: not consistent with method name checks
-                    if matches!(name.to_ref(), JS_ATOM_constructor | JS_ATOM_prototype) {
+                    if matches!(name, Atom::CONST_constructor | Atom::CONST_prototype) {
                         self.throw_syntax_error("invalid field name");
                         return Err(-1);
                     }
@@ -339,7 +334,7 @@ impl<'s> JSParseState<'s> {
                     if is_private {
                         if find_private_class_field(
                             self.cur_func_def,
-                            &name,
+                            name,
                             self.cur_func().scope_level,
                         ) >= 0
                         {
@@ -348,7 +343,7 @@ impl<'s> JSParseState<'s> {
                         if add_private_class_field(
                             self,
                             self.cur_func_mut(),
-                            &name,
+                            name,
                             JSVarKindEnum::JS_VAR_PRIVATE_FIELD,
                             is_static,
                         ) < 0
@@ -356,9 +351,9 @@ impl<'s> JSParseState<'s> {
                             return Err(-1);
                         }
                         self.emit_op(OpCode::PRIVATE_SYMBOL);
-                        self.emit_atom(name.clone());
+                        self.emit_atom(name);
                         self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
-                        self.emit_atom(name.clone());
+                        self.emit_atom(name);
                         self.emit_u16(self.cur_func().scope_level as _);
                     }
 
@@ -371,38 +366,34 @@ impl<'s> JSParseState<'s> {
                         field_var_name = js_atom_concat_num(
                             &self.ctx,
                             if is_static {
-                                JS_ATOM__static_computed_field_
+                                Atom::CONST__static_computed_field_
                             } else {
-                                JS_ATOM__computed_field_
-                            }
-                            .deref(),
+                                Atom::CONST__computed_field_
+                            },
                             cf.computed_fields_count as u32,
-                        );
-                        if field_var_name.is_null() {
-                            return Err(-1);
-                        }
+                        )?;
 
-                        self.define_var_cur_func(&field_var_name, JSVarDefEnum::JS_VAR_DEF_CONST)?;
+                        self.define_var_cur_func(field_var_name, JSVarDefEnum::JS_VAR_DEF_CONST)?;
 
                         self.emit_op(OpCode::TO_PROPKEY);
                         self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
-                        self.emit_atom(field_var_name.clone());
+                        self.emit_atom(field_var_name);
                         self.emit_u16(self.cur_func().scope_level as _);
                     }
 
                     self.cur_func_def = cf.fields_init_fd;
                     self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                    self.emit_atom(Atom::new_const(JS_ATOM_this));
+                    self.emit_atom(Atom::CONST_this);
                     self.emit_u16(0);
 
                     if name.is_null() {
                         self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                        self.emit_atom(field_var_name.clone());
+                        self.emit_atom(field_var_name);
                         self.emit_u16(self.cur_func().scope_level as _);
                         cf.computed_fields_count += 1;
                     } else if is_private {
                         self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                        self.emit_atom(name.clone());
+                        self.emit_atom(name);
                         self.emit_u16(self.cur_func().scope_level as _);
                     }
 
@@ -420,9 +411,9 @@ impl<'s> JSParseState<'s> {
                         self.emit_op(OpCode::DEFINE_ARRAY_EL);
                         self.emit_op(OpCode::DROP);
                     } else {
-                        self.set_object_name(name.clone());
+                        self.set_object_name(name);
                         self.emit_op(OpCode::DEFINE_FIELD);
-                        self.emit_atom(name.clone());
+                        self.emit_atom(name);
                     }
                     self.cur_func_def = self.cur_func().parent;
                     self.parse_expect_semi()?;
@@ -436,7 +427,7 @@ impl<'s> JSParseState<'s> {
                         PROP_TYPE_ASYNC => JSFunctionKindEnum::JS_FUNC_ASYNC,
                         PROP_TYPE_ASYNC_STAR => JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR,
                         _ => {
-                            if name.to_ref() == JS_ATOM_constructor && !is_static {
+                            if name == Atom::CONST_constructor && !is_static {
                                 if !ctor_fd.is_null() {
                                     self.throw_syntax_error(
                                         "property constructor appears more than once",
@@ -481,7 +472,7 @@ impl<'s> JSParseState<'s> {
 
                         if find_private_class_field(
                             self.cur_func_def,
-                            &name,
+                            name,
                             self.cur_func().scope_level,
                         ) >= 0
                         {
@@ -491,7 +482,7 @@ impl<'s> JSParseState<'s> {
                         if add_private_class_field(
                             self,
                             self.cur_func_mut(),
-                            &name,
+                            name,
                             JSVarKindEnum::JS_VAR_PRIVATE_METHOD,
                             is_static,
                         ) < 0
@@ -500,16 +491,16 @@ impl<'s> JSParseState<'s> {
                         }
                         self.emit_op(OpCode::SET_HOME_OBJECT);
                         self.emit_op(OpCode::SET_NAME);
-                        self.emit_atom(name.clone());
+                        self.emit_atom(name);
                         self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
-                        self.emit_atom(name.clone());
+                        self.emit_atom(name);
                         self.emit_u16(self.cur_func().scope_level as _);
                     } else {
                         if name.is_null() {
                             self.emit_op(OpCode::DEFINE_METHOD_COMPUTED);
                         } else {
                             self.emit_op(OpCode::DEFINE_METHOD);
-                            self.emit_atom(name.clone());
+                            self.emit_atom(name);
                         }
                         self.emit_u8(OP_DEFINE_METHOD_METHOD);
                     }
@@ -603,9 +594,9 @@ impl<'s> JSParseState<'s> {
 
         let class_var_name = if !is_class_expr {
             if class_name.is_null() {
-                Atom::new_const(JS_ATOM__default_) // export default
+                Atom::CONST__default_ // export default
             } else {
-                class_name.clone()
+                class_name
             }
         } else {
             Atom::NULL
@@ -625,7 +616,7 @@ impl<'s> JSParseState<'s> {
 
         // add a 'const' definition for the class name
         if !class_name.is_null() {
-            self.define_var_cur_func(&class_name, JSVarDefEnum::JS_VAR_DEF_CONST)?;
+            self.define_var_cur_func(class_name, JSVarDefEnum::JS_VAR_DEF_CONST)?;
         }
 
         self.parse_expect('{' as i32)?;
@@ -652,8 +643,8 @@ impl<'s> JSParseState<'s> {
         // entering class body {
         let define_class_offset = self.parse_class_body(
             class_source,
-            &class_name,
-            &class_var_name,
+            class_name,
+            class_var_name,
             class_flags,
             &mut class_fields,
         )?;
@@ -682,7 +673,7 @@ impl<'s> JSParseState<'s> {
 
             // store the function to initialize the fields...
             self.define_var_cur_func(
-                JS_ATOM__class_fields_init_.deref(),
+                Atom::CONST__class_fields_init_,
                 JSVarDefEnum::JS_VAR_DEF_CONST,
             )?;
 
@@ -692,7 +683,7 @@ impl<'s> JSParseState<'s> {
                 self.emit_op(OpCode::UNDEFINED);
             }
             self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
-            self.emit_atom(Atom::new_const(JS_ATOM__class_fields_init_));
+            self.emit_atom(Atom::CONST__class_fields_init_);
             self.emit_u16(self.cur_func().scope_level as _);
         }
 
@@ -712,7 +703,7 @@ impl<'s> JSParseState<'s> {
             definition) */
             self.emit_op(OpCode::DUP);
             self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
-            self.emit_atom(class_name.clone());
+            self.emit_atom(class_name);
             self.emit_u16(self.cur_func().scope_level as _);
         }
 
@@ -731,9 +722,9 @@ impl<'s> JSParseState<'s> {
 
         /* the class statements have a block level scope */
         if !class_var_name.is_null() {
-            self.define_var_cur_func(&class_var_name, JSVarDefEnum::JS_VAR_DEF_LET)?;
+            self.define_var_cur_func(class_var_name, JSVarDefEnum::JS_VAR_DEF_LET)?;
             self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
-            self.emit_atom(class_var_name.clone());
+            self.emit_atom(class_var_name);
             self.emit_u16(self.cur_func().scope_level as _);
         } else if class_name.is_null() {
             /* cannot use OP_set_name because the name of the class
@@ -746,11 +737,11 @@ impl<'s> JSParseState<'s> {
         if export_flag != JSParseExportEnum::JS_PARSE_EXPORT_NONE {
             self.add_module_export(
                 None,
-                &class_var_name,
+                class_var_name,
                 if export_flag == JSParseExportEnum::JS_PARSE_EXPORT_NAMED {
-                    &class_var_name
+                    class_var_name
                 } else {
-                    JS_ATOM_default.deref()
+                    Atom::CONST_default
                 },
                 ExportType::JS_EXPORT_TYPE_LOCAL {
                     var_idx: u16::MAX, // unknown
@@ -766,8 +757,8 @@ impl<'s> JSParseState<'s> {
     fn parse_class_default_ctor(
         &mut self,
         has_super: bool,
-        fd: *mut JSFunctionDef<'s>,
-    ) -> Result<*mut JSFunctionDef<'s>, i32> {
+        fd: *mut JSFunctionDef,
+    ) -> Result<*mut JSFunctionDef, i32> {
         let pos = self.get_pos();
 
         let (src, func_type) = if has_super {
@@ -782,12 +773,12 @@ impl<'s> JSParseState<'s> {
 
         // save current state
         let orig_buf_ptr = self.buf_ptr;
-        let orig_buf_end = self.buf_end;
+        let orig_buf_end = self.input_end;
         let orig_token = std::mem::take(&mut self.token);
 
         // set new source and parse
         self.buf_ptr = src.as_ptr();
-        self.buf_end = unsafe { src.as_ptr().add(src.len()) };
+        self.input_end = unsafe { src.as_ptr().add(src.len()) };
 
         let mut fd_fixed = fd;
 
@@ -805,7 +796,7 @@ impl<'s> JSParseState<'s> {
 
         // restore original parse state
         self.buf_ptr = orig_buf_ptr;
-        self.buf_end = orig_buf_end;
+        self.input_end = orig_buf_end;
         self.token = orig_token;
 
         if ret.is_err() {
@@ -818,9 +809,9 @@ impl<'s> JSParseState<'s> {
 }
 
 // create a function to initialize class fields
-pub(super) fn js_parse_function_class_fields_init<'a>(
-    s: &mut JSParseState<'a>,
-) -> Result<Box<JSFunctionDef<'a>>, i32> {
+pub(super) fn js_parse_function_class_fields_init<'s>(
+    s: &mut JSParseState<'s>,
+) -> Result<Box<JSFunctionDef>, i32> {
     let mut fd = JSFunctionDef::new(&s.ctx, Some(s.cur_func_mut()), false, false, s.filename, 0)?;
 
     fd.func_type = JSParseFunctionEnum::JS_PARSE_FUNC_METHOD;
@@ -839,7 +830,7 @@ pub(super) fn js_parse_function_class_fields_init<'a>(
 fn add_private_class_field(
     s: &JSParseState,
     fd: &mut JSFunctionDef,
-    name: &Atom,
+    name: Atom,
     var_kind: JSVarKindEnum,
     is_static: bool,
 ) -> i32 {
@@ -858,23 +849,18 @@ fn add_private_class_field(
 }
 
 // find field in the current scope
-fn find_private_class_field(fd: *mut JSFunctionDef, name: &Atom, scope_level: i32) -> i32 {
+fn find_private_class_field(fd: *mut JSFunctionDef, name: Atom, scope_level: i32) -> i32 {
     let mut idx = unsafe { (&*fd).scopes[scope_level as usize].first };
     while idx != -1 {
         let vd = unsafe { (&*fd).vars.get_unchecked(idx as usize) };
         if vd.scope_level != scope_level {
             break;
         }
-        if vd.var_name.eq(name) {
+        if vd.var_name == name {
             return idx;
         }
         idx = vd.scope_next;
     }
 
     -1
-}
-
-/* build a private setter function name from the private getter name */
-pub fn get_private_setter_name(ctx: &JSContext, name: &Atom) -> Atom {
-    unsafe { js_atom_concat_str(ctx, name, c"<set>".as_ptr().cast()) }
 }

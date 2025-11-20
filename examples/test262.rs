@@ -10,8 +10,8 @@ use std::{
 
 use serde::Deserialize;
 use zhuque::{
-    atom::consts::{JS_ATOM_message, JS_ATOM_stack},
-    context::JSContext,
+    atom::Atom,
+    context::{ContextImpl, ContextRef},
     error::JSResult,
     eval::{JS_EVAL_FLAG_STRICT, JS_EVAL_TYPE_GLOBAL},
     function::{CallContext, NativeFunctionType},
@@ -19,20 +19,20 @@ use zhuque::{
     module::{JS_SetModuleLoaderFunc, ModuleDef},
     object::JS_PROP_C_W_E,
     promise::{Promise, PromiseState},
-    runtime::JSRuntime,
+    runtime::RuntimeImpl,
     value::JSValue,
 };
 
 /// counter of "Test262:AsyncTestComplete" messages
 static ASYNC_DONE: AtomicI32 = AtomicI32::new(0);
 
-fn js_print<'a>(ctx: &JSContext<'a>, args: CallContext<'_, 'a>) -> JSResult<'a> {
+fn js_print(ctx: ContextRef, args: CallContext) -> JSResult {
     for i in 0..args.length() {
         if i > 0 {
             print!(" ");
         }
         let arg = args.arg(i);
-        let repr = arg.inspect(ctx)?;
+        let repr = arg.inspect(&ctx)?;
         print!("{}", repr);
 
         if repr.eq("Test262:AsyncTestComplete") {
@@ -45,21 +45,21 @@ fn js_print<'a>(ctx: &JSContext<'a>, args: CallContext<'_, 'a>) -> JSResult<'a> 
     Ok(JSValue::UNDEFINED)
 }
 
-fn js_detachArrayBuffer<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    if let Some(ab) = cc.arg(0).as_object_ArrayBuffer() {
-        ab.detatch(ctx);
+fn js_detachArrayBuffer(ctx: ContextRef, cc: CallContext) -> JSResult {
+    if let Some(mut ab) = cc.arg(0).as_object_ArrayBuffer().copied() {
+        ab.detatch(&ctx);
     }
     Ok(JSValue::UNDEFINED)
 }
 
-fn js_evalScript<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let script = cc.arg(0).inspect(ctx)?;
+fn js_evalScript(mut ctx: ContextRef, cc: CallContext) -> JSResult {
+    let script = cc.arg(0).inspect(&ctx)?;
     ctx.eval(script.as_bytes(), "<eval>", JS_EVAL_TYPE_GLOBAL)
 }
 
-fn js_string_codePointRange<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let mut start = cc.arg(0).to_i32(ctx)? as u32;
-    let end = std::cmp::min(cc.arg(1).to_i32(ctx)? as u32, 0x10ffff + 1);
+fn js_string_codePointRange(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let mut start = cc.arg(0).to_i32(&ctx)? as u32;
+    let end = std::cmp::min(cc.arg(1).to_i32(&ctx)? as u32, 0x10ffff + 1);
     if start > end {
         start = end;
     }
@@ -82,13 +82,13 @@ fn js_string_codePointRange<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) ->
     ctx.create_string_from_utf8(cc).map(JSValue::String)
 }
 
-fn js_createRealm<'a>(ctx: &JSContext<'a>, _: CallContext<'_, 'a>) -> JSResult<'a> {
-    let ctx1 = ctx.rt().create_context_ecma()?;
-    setup_ctx_test262_helpers(&ctx1)
+fn js_createRealm(ctx: ContextRef, _: CallContext) -> JSResult {
+    let mut ctx1 = ctx.rt().create_context_ecma()?;
+    setup_ctx_test262_helpers(&mut ctx1)
 }
 
-fn setup_ctx_test262_helpers<'a>(ctx: &JSContext<'a>) -> Result<JSValue<'a>, i32> {
-    let global = JSValue::Object(ctx.global_obj());
+fn setup_ctx_test262_helpers(ctx: &mut ContextImpl) -> Result<JSValue, i32> {
+    let mut global = JSValue::Object(ctx.global_obj());
 
     {
         let s = ctx.create_native_function(NativeFunctionType::Func(js_print), "print", 1, 0)?;
@@ -96,7 +96,7 @@ fn setup_ctx_test262_helpers<'a>(ctx: &JSContext<'a>) -> Result<JSValue<'a>, i32
     }
 
     // $262
-    let obj262 = ctx.create_base_object()?;
+    let mut obj262 = ctx.create_base_object()?;
 
     {
         let f = ctx.create_native_function(
@@ -140,17 +140,17 @@ fn setup_ctx_test262_helpers<'a>(ctx: &JSContext<'a>) -> Result<JSValue<'a>, i32
         obj262.set_property_str(ctx, "createRealm", f.into())?;
     }
 
-    obj262.set_property_str(ctx, "global", global.clone())?;
-    global.set_property_str(ctx, "$262", obj262.clone().into())?;
+    obj262.set_property_str(ctx, "global", global)?;
+    global.set_property_str(ctx, "$262", obj262.into())?;
 
     Ok(obj262.into())
 }
 
-pub fn js_module_loader<'a>(
-    ctx: &JSContext<'a>,
+pub fn js_module_loader(
+    mut ctx: ContextRef,
     module_name: &str,
-    opaque: *mut std::ffi::c_void,
-) -> Result<ModuleDef<'a>, i32> {
+    _opaque: *mut std::ffi::c_void,
+) -> Result<ModuleDef, i32> {
     match std::fs::read(module_name) {
         Ok(buf) => {
             // make abs url
@@ -169,7 +169,7 @@ pub fn js_module_loader<'a>(
             }
             let aurl = format!("{}", normalized.display());
 
-            let md = ModuleDef::compile(ctx, buf.as_slice(), &aurl, false)?;
+            let md = ModuleDef::compile(&mut ctx, buf.as_slice(), &aurl, false)?;
             Ok(md)
         }
         Err(_) => {
@@ -179,13 +179,13 @@ pub fn js_module_loader<'a>(
     }
 }
 
-unsafe fn js_module_set_import_meta<'a>(
-    ctx: &JSContext<'a>,
-    func_val: &JSValue<'a>,
+fn js_module_set_import_meta(
+    ctx: ContextRef,
+    func_val: JSValue,
     use_realpath: i32,
     is_main: bool,
 ) -> i32 {
-    if let JSValue::Module(m) = func_val {
+    if let JSValue::Module(mut m) = func_val {
         // make module name to absolute url
         let module_name_atom = m.module_name();
         let module_name = module_name_atom.to_utf8();
@@ -205,7 +205,7 @@ unsafe fn js_module_set_import_meta<'a>(
         }
         let aurl = format!("file://{}", normalized.display());
 
-        let meta_obj = if let Ok(m) = (*m).import_meta(ctx) {
+        let mut meta_obj = if let Ok(m) = m.import_meta(&ctx) {
             m
         } else {
             return -1;
@@ -213,7 +213,7 @@ unsafe fn js_module_set_import_meta<'a>(
 
         meta_obj
             .define_property_value_str(
-                ctx,
+                &ctx,
                 "url",
                 ctx.create_string_from_utf8(aurl.into_bytes())
                     .unwrap()
@@ -223,7 +223,7 @@ unsafe fn js_module_set_import_meta<'a>(
             .unwrap();
 
         meta_obj
-            .define_property_value_str(ctx, "main", is_main.into(), JS_PROP_C_W_E)
+            .define_property_value_str(&ctx, "main", is_main.into(), JS_PROP_C_W_E)
             .unwrap();
 
         0
@@ -250,7 +250,7 @@ struct Negative {
     type_: Option<String>,
 }
 
-fn run_harness(ctx: &JSContext, harness_files: &[PathBuf]) -> Result<(), i32> {
+fn run_harness(mut ctx: ContextRef, harness_files: &[PathBuf]) -> Result<(), i32> {
     for file in harness_files {
         let src = std::fs::read_to_string(file)
             .inspect_err(|_| {
@@ -269,7 +269,7 @@ fn run_harness(ctx: &JSContext, harness_files: &[PathBuf]) -> Result<(), i32> {
 }
 
 fn run_test_script(
-    ctx: &JSContext,
+    mut ctx: ContextRef,
     script: &str,
     filename: &Path,
     is_module: bool,
@@ -332,9 +332,9 @@ fn run_test_script(
     Ok(())
 }
 
-fn dump_error<'a>(
-    ctx: &JSContext<'a>,
-    err_val: &JSValue<'a>,
+fn dump_error(
+    ctx: ContextRef,
+    err_val: &JSValue,
     msg: &str,
     strict: bool,
     is_module: bool,
@@ -348,11 +348,11 @@ fn dump_error<'a>(
     .unwrap();
     writeln!(outf, "[MESSAGE] {msg}").unwrap();
 
-    match err_val.get_property(ctx, &JS_ATOM_stack) {
+    match err_val.get_property(&ctx, Atom::CONST_stack) {
         Ok(JSValue::NULL) | Ok(JSValue::UNDEFINED) => {}
         Err(_) => {}
         Ok(s) => {
-            let ss = s.inspect(ctx).unwrap();
+            let ss = s.inspect(&ctx).unwrap();
             writeln!(outf, "[STACK] {}", ss).unwrap();
         }
     }
@@ -405,25 +405,26 @@ fn run_test_file(
     }
 
     // make runtime & context
-    let mut rt = JSRuntime::create(JS_DEFAULT_MALLOC_FUNCTIONS, std::ptr::null_mut()).unwrap();
+    let mut rt = RuntimeImpl::create(JS_DEFAULT_MALLOC_FUNCTIONS, std::ptr::null_mut()).unwrap();
     JS_SetModuleLoaderFunc(rt.deref_mut(), None, js_module_loader, std::ptr::null_mut());
 
-    let ctx = rt.create_context_ecma().unwrap();
-    setup_ctx_test262_helpers(&ctx).unwrap();
+    let mut ctx_handle = rt.create_context_ecma().unwrap();
+    setup_ctx_test262_helpers(&mut ctx_handle).unwrap();
 
+    let ctx = ctx_handle.ptr();
     let mut has_err = false;
 
     if !harness_files.is_empty() {
         // eval included harness files
-        if run_harness(&ctx, &harness_files).is_err() {
-            let exc = ctx.exception();
+        if run_harness(ctx, &harness_files).is_err() {
+            let exc = ctx.rt().exception();
             let msg = exc.to_string(&ctx).unwrap();
 
             // write to outf
             writeln!(outf, "FAIL: can't eval harness").unwrap();
             dump_error(
-                &ctx,
-                exc,
+                ctx,
+                &exc,
                 msg.content().to_utf8(true).as_ref(),
                 false,
                 false,
@@ -435,8 +436,8 @@ fn run_test_file(
             writeln!(errf, "{}", filename.display()).unwrap();
             writeln!(outf, "FAIL: can't eval harness").unwrap();
             dump_error(
-                &ctx,
-                exc,
+                ctx,
+                &exc,
                 msg.content().to_utf8(true).as_ref(),
                 false,
                 false,
@@ -479,22 +480,15 @@ fn run_test_file(
         .into_iter()
         .flatten()
         {
-            if run_test_script(
-                &ctx,
-                content.as_str(),
-                filename,
-                is_module,
-                is_async,
-                strict,
-            )
-            .is_err()
+            if run_test_script(ctx, content.as_str(), filename, is_module, is_async, strict)
+                .is_err()
             {
-                let exc = ctx.exception();
+                let exc = ctx.rt().exception();
 
                 println!("TEST262 EXCEPTION: {:?}", exc);
                 let msg = if let JSValue::Object(o) = &exc {
                     o.dump(&ctx.rt());
-                    let msg = o.get_property(&ctx, &JS_ATOM_message).unwrap();
+                    let msg = o.get_property(&ctx, Atom::CONST_message).unwrap();
                     msg.inspect(&ctx).unwrap().to_string()
                 } else {
                     "<no msg>".into()
@@ -512,7 +506,7 @@ fn run_test_file(
                                 ty, err_class
                             )
                             .unwrap();
-                            dump_error(&ctx, exc, msg.as_ref(), strict, is_module, is_async, outf);
+                            dump_error(ctx, &exc, msg.as_ref(), strict, is_module, is_async, outf);
 
                             // write to err file
                             writeln!(errf, "{}", filename.display()).unwrap();
@@ -522,17 +516,17 @@ fn run_test_file(
                                 ty, err_class
                             )
                             .unwrap();
-                            dump_error(&ctx, exc, msg.as_ref(), strict, is_module, is_async, errf);
+                            dump_error(ctx, &exc, msg.as_ref(), strict, is_module, is_async, errf);
                         }
                     } else {
                         writeln!(outf, "pass").unwrap();
                     }
                 } else {
                     writeln!(outf, "fail").unwrap();
-                    dump_error(&ctx, exc, msg.as_ref(), strict, is_module, is_async, outf);
+                    dump_error(ctx, &exc, msg.as_ref(), strict, is_module, is_async, outf);
 
                     writeln!(errf, "{}", filename.display()).unwrap();
-                    dump_error(&ctx, exc, msg.as_ref(), strict, is_module, is_async, errf);
+                    dump_error(ctx, &exc, msg.as_ref(), strict, is_module, is_async, errf);
                 }
             } else if let Some(neg) = &negative {
                 writeln!(

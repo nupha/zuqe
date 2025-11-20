@@ -1,9 +1,9 @@
 #![cfg(feature = "dump_bytecode")]
 
 use crate::{
-    atom::AtomRef,
+    atom::Atom,
     bytecode::OpcodeFormat,
-    context::{JS_MODE_ASYNC, JS_MODE_STRICT, JSContext},
+    context::{ContextImpl, ContextRef, JS_MODE_ASYNC, JS_MODE_STRICT},
     function::{
         Bytecode, JSClosureVar, JSFunctionKindEnum, JSVarDef, JSVarKindEnum, Label, PC2LINE_BASE,
         PC2LINE_OP_FIRST, PC2LINE_RANGE,
@@ -19,18 +19,18 @@ use super::{
 
 /// dump opcodes binary in pass 1,2,3
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn dump_opcodes<'a>(
-    ctx: &JSContext<'a>,
+pub(crate) fn dump_opcodes(
+    ctx: &ContextImpl,
     pass: i32,
     bin: &[u8],
     args: &[JSVarDef],
     vars: &[JSVarDef],
     closure_vars: &[JSClosureVar],
-    consts: &[JSValue<'a>],
+    consts: &[JSValue],
     source: Option<&str>,
     line_num: i32,
     labels: &[Label], // for pass 1, 2 only
-    bc: Option<&Bytecode<'a>>,
+    bc: Option<&Bytecode>,
 ) {
     let len = bin.len();
     let use_short_opcodes = bc.is_some();
@@ -305,12 +305,12 @@ pub(crate) fn dump_opcodes<'a>(
             }
             OpcodeFormat::ATOM => {
                 let a = unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos)) };
-                AtomRef(a).with_utf8(|s| {
+                Atom::from_id(a).with_utf8(|s| {
                     print!(" {a}:{s}");
                 });
             }
             f @ (OpcodeFormat::ATOM_U8 | OpcodeFormat::ATOM_U16) => {
-                let atom = AtomRef(unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos)) });
+                let atom = Atom::from_id(unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos)) });
                 atom.with_utf8(|s| {
                     print!(
                         " {s}, {}",
@@ -323,7 +323,8 @@ pub(crate) fn dump_opcodes<'a>(
                 });
             }
             f @ (OpcodeFormat::ATOM_LABEL_U8 | OpcodeFormat::ATOM_LABEL_U16) => {
-                let atom = AtomRef(unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos as _)) });
+                let atom =
+                    Atom::from_id(unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos as _)) });
                 atom.with_utf8(|s| {
                     print!(" {s}");
                 });
@@ -410,17 +411,15 @@ pub(crate) fn dump_opcodes<'a>(
     }
 }
 
-impl<'a> Bytecode<'a> {
+impl Bytecode {
     /// dump Bytecode
-    pub fn dump(&self, ctx: &JSContext<'a>) {
+    pub fn dump(&self, ctx: &ContextImpl) {
         print!("{:?}: ", self);
 
-        if self.has_debug && !self.debug.filename.is_null() {
-            print!(
-                "{}:{}: ",
-                self.debug.filename.to_utf8(),
-                self.debug.line_num
-            );
+        if let Some(debug) = self.debug.as_ref()
+            && !debug.filename.is_null()
+        {
+            print!("{}:{}: ", debug.filename.to_utf8(), debug.line_num);
         }
 
         println!(
@@ -516,16 +515,8 @@ impl<'a> Bytecode<'a> {
             self.vars_slice(),
             self.closure_vars(),
             self.consts(),
-            if self.has_debug {
-                self.debug.source.as_deref()
-            } else {
-                None
-            },
-            if self.has_debug {
-                self.debug.line_num as _
-            } else {
-                -1
-            },
+            self.debug.as_ref().and_then(|d| d.source.as_deref()),
+            self.debug.as_ref().map_or(-1, |x| x.line_num),
             &[],
             Some(self),
         );
@@ -546,7 +537,7 @@ impl<'a> Bytecode<'a> {
     }
 }
 
-pub(super) unsafe fn dump_pc2line(ctx: &JSContext, buf: *const u8, len: i32, mut line_num: i32) {
+pub(super) unsafe fn dump_pc2line(ctx: ContextRef, buf: *const u8, len: i32, mut line_num: i32) {
     if len <= 0 {
         return;
     }
@@ -642,12 +633,12 @@ fn print_lines(source: &str, from_line: usize, to_line: usize) {
 // }
 
 /// dump instruction (opcode and params) at given pc.
-pub(super) fn dump_run_instruction<'a>(
-    ctx: &JSContext<'a>,
-    b: &Bytecode<'a>,
+pub(super) fn dump_run_instruction(
+    ctx: &ContextImpl,
+    b: &Bytecode,
     pc: usize,
-    sp_base: *const JSValue<'a>,
-    sp_top: *const JSValue<'a>,
+    sp_base: *const JSValue,
+    sp_top: *const JSValue,
 ) -> usize {
     if !sp_top.is_null() {
         debug_assert!(sp_base <= sp_top);
@@ -758,18 +749,18 @@ pub(super) fn dump_run_instruction<'a>(
         }
         OpcodeFormat::ATOM => {
             let a = unsafe { read_from_ptr::<u32>(tab.as_ptr().add(pos)) };
-            AtomRef(a).with_utf8(|s| {
+            Atom::from_id(a).with_utf8(|s| {
                 print!(" {a}'{s}");
             });
         }
         f @ (OpcodeFormat::ATOM_U8 | OpcodeFormat::ATOM_U16) => {
-            let atom = AtomRef(unsafe { read_from_ptr::<u32>(tab.as_ptr().add(pos)) });
+            let atom = Atom::from_id(unsafe { read_from_ptr::<u32>(tab.as_ptr().add(pos)) });
             atom.with_utf8(|s| {
                 print!(
                     " {}'{s}, {}",
-                    atom.0,
+                    atom.id(),
                     if f == OpcodeFormat::ATOM_U8 {
-                        tab[pos as usize + 4] as usize
+                        tab[pos + 4] as usize
                     } else {
                         unsafe { read_from_ptr::<u16>(tab.as_ptr().add(pos + 4)) as usize }
                     }
@@ -777,9 +768,9 @@ pub(super) fn dump_run_instruction<'a>(
             });
         }
         f @ (OpcodeFormat::ATOM_LABEL_U8 | OpcodeFormat::ATOM_LABEL_U16) => {
-            let atom = AtomRef(unsafe { read_from_ptr::<u32>(tab.as_ptr().add(pos)) });
+            let atom = Atom::from_id(unsafe { read_from_ptr::<u32>(tab.as_ptr().add(pos)) });
             atom.with_utf8(|s| {
-                print!(" {}'{s}", atom.0);
+                print!(" {}'{s}", atom.id());
             });
 
             // label
@@ -878,9 +869,9 @@ pub(super) fn dump_run_instruction<'a>(
     size
 }
 
-pub(super) fn dump_run_stack<'a>(
-    ctx: &JSContext<'a>,
-    stack: &[JSValue<'a>],
+pub(super) fn dump_run_stack(
+    ctx: &ContextImpl,
+    stack: &[JSValue],
     tree: bool,
     mark_count: usize,
     mark: char,

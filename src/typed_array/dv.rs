@@ -1,32 +1,41 @@
+use gc_lite::{Collect, GcRef};
+
 use crate::{
     JS_CLASS_DATAVIEW,
     array_buffer::ArrayBuffer,
     class::ClassID,
-    context::JSContext,
+    context::{ContextImpl, ContextRef},
     error::JS_ThrowTypeErrorDetachedArrayBuffer,
     function::NativeFunctionType,
-    object::{JSObject, ObjectPayload},
+    object::{ObjectImpl, ObjectPayload, ObjectRef},
     object_cast,
-    runtime::JSRuntime,
+    runtime::RuntimeImpl,
     value::JSValue,
 };
 
 use super::class_dataview::{js_dataview_constructor, js_dataview_proto_funcs};
 
 #[derive(Debug)]
-pub struct DataViewPayload<'a> {
-    /// underlaying array buffer object.
-    pub(super) buffer: ArrayBuffer<'a>,
-    /// start offset in array buffer  
+pub struct DataViewPayload {
+    /// underlaying ArrayBuffer object.
+    pub(super) buffer: ArrayBuffer,
+    /// start offset in ArrayBuffer
     pub(super) offset: u32,
-    /// number of bytes from array buffer
+    /// number of bytes from ArrayBuffer
     pub(super) byte_length: u32,
 }
 
-impl<'a> DataViewPayload<'a> {
+unsafe impl Collect for DataViewPayload {
+    #[inline(always)]
+    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+        self.buffer.trace(tracer);
+    }
+}
+
+impl DataViewPayload {
     /// create typed array payload with underlying array buffer `buffer`,
     /// offset in array buffer and type array element count.
-    fn new(buffer: ArrayBuffer<'a>, offset: usize, len: usize) -> Box<Self> {
+    fn new(buffer: ArrayBuffer, offset: usize, len: usize) -> Box<Self> {
         let abuf = buffer.payload();
         let byte_length = abuf.byte_length();
 
@@ -41,10 +50,10 @@ impl<'a> DataViewPayload<'a> {
         })
     }
 
-    /// get underlaying array buffer object.
+    /// get underlaying ArrayBuffer object.
     #[inline(always)]
-    pub const fn array_buffer(&self) -> &ArrayBuffer<'a> {
-        &self.buffer
+    pub const fn array_buffer(&self) -> ArrayBuffer {
+        self.buffer
     }
 
     /// check if `self` TypedArray is detached.
@@ -68,30 +77,30 @@ impl<'a> DataViewPayload<'a> {
     }
 
     /// run closure with underlaying bytes of typed array.
-    pub(super) fn with_bytes_mut<R>(&self, f: impl FnOnce(&mut [u8]) -> R) -> R {
+    pub(super) fn with_bytes_mut<R>(&mut self, f: impl FnOnce(&mut [u8]) -> R) -> R {
         let base = self.offset as usize;
         let len = self.byte_length as usize;
         self.array_buffer()
-            .payload()
+            .payload_mut()
             .with_bytes_mut(|buf| f(&mut buf[base..base + len]))
     }
 }
 
 #[repr(transparent)]
-#[derive(Debug, Clone)]
-pub struct DataView<'a>(JSObject<'a>);
+#[derive(Debug, Clone, Copy)]
+pub struct DataView(GcRef<ObjectImpl>);
 
 object_cast!(DataView, JS_CLASS_DATAVIEW);
 
-impl<'a> DataView<'a> {
-    pub fn class_initialize<'b>(
-        ctx: &JSContext<'b>,
+impl DataView {
+    pub fn class_initialize(
+        mut ctx: ContextRef,
         class_id: ClassID,
-    ) -> Result<Option<JSObject<'b>>, i32> {
+    ) -> Result<Option<ObjectRef>, i32> {
         debug_assert_eq!(class_id, JS_CLASS_DATAVIEW);
 
-        let dv_obj = ctx.create_base_object()?;
-        dv_obj.install_field_defs(ctx, &js_dataview_proto_funcs)?;
+        let mut dv_obj = ctx.create_base_object()?;
+        dv_obj.install_field_defs(&ctx, &js_dataview_proto_funcs)?;
 
         let dv_ctor: JSValue = ctx
             .create_native_function(
@@ -101,24 +110,26 @@ impl<'a> DataView<'a> {
                 0,
             )?
             .into();
-        ctx.add_global_constructor("DataView", &dv_ctor, &dv_obj.clone().into());
+        ctx.add_global_constructor("DataView", dv_ctor, dv_obj.into());
 
         Ok(Some(dv_obj))
     }
 
-    pub fn class_finalize(_: &mut JSRuntime, isa: &ObjectPayload, id: usize) {
+    pub fn class_finalize(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize) {
         if let Some(dv) = isa.data_view() {
             // during the GC the finalizers are called in an arbitrary
             // order so the ArrayBuffer finalize may have been called
-            dv.array_buffer().payload().remove_typed_array_weakref(id);
+            dv.array_buffer()
+                .payload_mut()
+                .remove_typed_array_weakref(rt, id);
         }
     }
 
     /// create a DataView with AarrayBuffer, offset and length.
     pub(crate) fn create(
-        ctx: &JSContext<'a>,
-        ctor: &JSValue<'a>,
-        array_buffer: ArrayBuffer<'a>,
+        ctx: &ContextImpl,
+        ctor: JSValue,
+        array_buffer: ArrayBuffer,
         offset: usize,
         length: Option<usize>,
     ) -> Result<Self, i32> {
@@ -143,7 +154,7 @@ impl<'a> DataView<'a> {
         let o = ctx
             .create_object_from_ctor(
                 ctor,
-                ObjectPayload::DATAVIEW(DataViewPayload::new(array_buffer.clone(), offset, len)),
+                ObjectPayload::DATAVIEW(DataViewPayload::new(array_buffer, offset, len)),
             )
             .map_err(|_| -1)?;
 
@@ -173,13 +184,12 @@ impl<'a> DataView<'a> {
         //     })
         //     .map_err(|_| -1)?;
 
-        let dv = Self(o);
-        Ok(dv)
+        Ok(Self(o.0))
     }
 
     #[inline]
-    pub fn payload(&self) -> &DataViewPayload<'a> {
-        self.0.payload().data_view().unwrap()
+    pub fn payload(&self) -> &DataViewPayload {
+        unsafe { self.0.as_ref().payload().data_view().unwrap() }
     }
 
     /// check if the TypedArray is detached.
@@ -189,7 +199,7 @@ impl<'a> DataView<'a> {
     }
 
     #[inline]
-    pub fn array_buffer(&self) -> &ArrayBuffer<'a> {
+    pub fn array_buffer(&self) -> ArrayBuffer {
         self.payload().array_buffer()
     }
 
@@ -203,7 +213,7 @@ impl<'a> DataView<'a> {
 
     /// Get underlying array buffer byte offset.
     /// When underlaying array buffer is detached, returns Err.
-    pub(super) fn array_buffer_byte_offset(&self, ctx: &JSContext) -> Result<usize, i32> {
+    pub(super) fn array_buffer_byte_offset(&self, ctx: &ContextImpl) -> Result<usize, i32> {
         if self.is_detached() {
             JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
             Err(-1)
@@ -213,7 +223,7 @@ impl<'a> DataView<'a> {
     }
 }
 
-// impl JSContext {
+// impl ContextRef {
 //     /// create a DataView with underlaying AarrayBuffer.
 //     #[deprecated(note = "use DataView::create() instead")]
 //     pub fn create_dataview(

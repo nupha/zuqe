@@ -1,39 +1,39 @@
-use std::{borrow::Cow, ops::Deref};
+use std::borrow::Cow;
 
 use smallvec::SmallVec;
 
 use crate::{
     JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING,
-    atom::consts::{JS_ATOM_empty_string, JS_ATOM_toJSON},
-    context::JSContext,
+    atom::Atom,
+    context::ContextImpl,
     error::JSResult,
     iterator::JSIteratorKindEnum,
     object::{JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_PROP_C_W_E},
-    string::{JSString, StringBuf, StringContent},
+    string::{StringBuf, StringData, StringRef},
     value::JSValue,
 };
 
-pub(super) struct JSONStringifyContext<'a> {
-    replacer_func: JSValue<'a>,
-    replacer_props: Option<Vec<JSString<'a>>>,
-    stack: SmallVec<[JSValue<'a>; 16]>,
-    gap: StringContent,
-    empty: JSString<'a>,
+pub(super) struct JSONStringifyContext {
+    replacer_func: JSValue,
+    replacer_props: Option<Vec<StringRef>>,
+    stack: SmallVec<[JSValue; 16]>,
+    gap: StringData,
+    empty: StringRef,
     buf: StringBuf,
 }
 
-pub fn JS_JSONStringify<'a>(
-    ctx: &JSContext<'a>,
-    obj: JSValue<'a>,
-    replacer: JSValue<'a>,
-    space: JSValue<'a>,
-) -> JSResult<'a> {
+pub fn JS_JSONStringify(
+    ctx: &ContextImpl,
+    obj: JSValue,
+    replacer: JSValue,
+    space: JSValue,
+) -> JSResult {
     let mut jsc = JSONStringifyContext {
         replacer_func: JSValue::UNDEFINED,
         stack: SmallVec::new(),
         replacer_props: None,
-        empty: JS_ATOM_empty_string.force_string(ctx).unwrap(),
-        gap: StringContent::empty(),
+        empty: Atom::CONST_empty_string.force_string(ctx).unwrap(),
+        gap: StringData::Empty,
         buf: StringBuf::Empty,
     };
 
@@ -42,14 +42,14 @@ pub fn JS_JSONStringify<'a>(
     } else if replacer.is_array(ctx)? {
         let n = replacer.get_length_prop(ctx)?;
 
-        let mut keylst = Vec::<JSString>::new();
+        let mut keylst = Vec::<StringRef>::new();
         keylst.try_reserve_exact(n as usize).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
         })?;
 
         for i in 0..n {
-            let k: JSString = match replacer.get_property_i64(ctx, i)? {
+            let k: StringRef = match replacer.get_property_i64(ctx, i)? {
                 JSValue::Object(o) => {
                     if matches!(o.class_id(), JS_CLASS_STRING | JS_CLASS_NUMBER) {
                         JSValue::Object(o).to_string(ctx)?
@@ -105,19 +105,14 @@ pub fn JS_JSONStringify<'a>(
         })?;
         jsc.gap = ctx.create_string_with_buf(b)?.content().clone();
     } else {
-        jsc.gap = StringContent::empty();
+        jsc.gap = StringData::Empty;
     }
 
-    let wrapper: JSValue = ctx.create_base_object()?.into();
-    wrapper.define_property_value(
-        ctx,
-        JS_ATOM_empty_string.deref(),
-        obj.clone(),
-        JS_PROP_C_W_E,
-    )?;
+    let mut wrapper: JSValue = ctx.create_base_object()?.into();
+    wrapper.define_property_value(ctx, Atom::CONST_empty_string, obj, JS_PROP_C_W_E)?;
 
-    let empty = jsc.empty.clone();
-    let val = js_json_check(ctx, &jsc, &wrapper, obj, empty)?;
+    let empty = jsc.empty;
+    let val = js_json_check(ctx, &jsc, wrapper, obj, empty)?;
     if val.is_undefined() {
         return Ok(JSValue::UNDEFINED);
     }
@@ -127,20 +122,20 @@ pub fn JS_JSONStringify<'a>(
     ctx.create_string_with_buf(jsc.buf).map(JSValue::String)
 }
 
-fn js_json_check<'a>(
-    ctx: &JSContext<'a>,
-    jsc: &JSONStringifyContext<'a>,
-    holder: &JSValue<'a>,
-    val: JSValue<'a>,
-    key: JSString<'a>,
-) -> JSResult<'a> {
+fn js_json_check(
+    ctx: &ContextImpl,
+    jsc: &JSONStringifyContext,
+    holder: JSValue,
+    val: JSValue,
+    key: StringRef,
+) -> JSResult {
     let mut val = val;
     let key = JSValue::String(key);
 
     if val.is_object() {
-        let f = val.get_property(ctx, JS_ATOM_toJSON.deref())?;
+        let f = val.get_property(ctx, Atom::CONST_toJSON)?;
         if f.is_function() {
-            val = f.call(ctx, &val, std::slice::from_ref(&key))?;
+            val = f.call(ctx, val, std::slice::from_ref(&key))?;
         }
     }
 
@@ -172,10 +167,10 @@ fn js_json_check<'a>(
     }
 }
 
-fn js_json_to_str<'a>(
-    ctx: &JSContext<'a>,
-    jsc: &mut JSONStringifyContext<'a>,
-    val: JSValue<'a>,
+fn js_json_to_str(
+    ctx: &ContextImpl,
+    jsc: &mut JSONStringifyContext,
+    val: JSValue,
     indent: &StringBuf,
 ) -> Result<(), i32> {
     match &val {
@@ -246,7 +241,7 @@ fn js_json_to_str<'a>(
                 ctx.throw_out_of_memory();
                 -1
             })?;
-            jsc.stack.push(val.clone());
+            jsc.stack.push(val);
 
             if val.is_array(ctx)? {
                 let len = val.get_length_prop(ctx)?;
@@ -272,7 +267,7 @@ fn js_json_to_str<'a>(
                     let mut v = js_json_check(
                         ctx,
                         jsc,
-                        &val,
+                        val,
                         val.get_property_i64(ctx, i)?,
                         ctx.create_string_from_str(&format!("{i}"))?,
                     )?;
@@ -292,7 +287,7 @@ fn js_json_to_str<'a>(
                 }
                 jsc.buf.push_char(']').unwrap();
             } else {
-                let tab: Cow<[JSString]> = if let Some(lst) = jsc.replacer_props.as_ref() {
+                let tab: Cow<[StringRef]> = if let Some(lst) = jsc.replacer_props.as_ref() {
                     // Unsafe: use raw pointer to avoid borrowing jsc,
                     // because jsc will be borrowed mut later.
                     // guarantee `replacer_props` won't be modified in this function
@@ -306,13 +301,13 @@ fn js_json_to_str<'a>(
                         JSIteratorKindEnum::JS_ITERATOR_KIND_KEY,
                     )?;
 
-                    let mut lst = Vec::<JSString>::new();
+                    let mut lst = Vec::<StringRef>::new();
                     lst.try_reserve_exact(kvs.len()).map_err(|_| {
                         ctx.throw_out_of_memory();
                         -1
                     })?;
                     for (key, _) in kvs {
-                        lst.push(JSString::try_from(key).unwrap());
+                        lst.push(StringRef::try_from(key).unwrap());
                     }
                     lst.into()
                 };
@@ -323,13 +318,15 @@ fn js_json_to_str<'a>(
                 })?;
 
                 let mut has_content = false;
-                for key in tab.as_ref() {
+                for k in tab.iter() {
+                    let key = *k;
+
                     let v = js_json_check(
                         ctx,
                         jsc,
-                        &val,
-                        val.get_property_value(ctx, &key.clone().into())?,
-                        key.clone(),
+                        val,
+                        val.get_property_value(ctx, key.into())?,
+                        key,
                     )?;
 
                     if !v.is_undefined() {

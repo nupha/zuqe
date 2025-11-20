@@ -1,17 +1,15 @@
-use std::ops::Deref;
-
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
     JS_CLASS_INT32_ARRAY, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT, JS_CLASS_UINT8_ARRAY,
     JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
-    atom::{Atom, consts::JS_ATOM_length},
+    atom::Atom,
     branch_hints::unlikely,
-    context::JSContext,
+    context::{ContextImpl, ContextRef},
     error::JS_ThrowReferenceErrorNotDefined,
     object::{
         JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_WRITABLE, JS_PROP_LAZYINIT,
-        JS_PROP_LENGTH, JS_PROP_NORMAL, JS_PROP_TMASK, JS_PROP_VARREF, JSObject, JSProperty,
+        JS_PROP_LENGTH, JS_PROP_NORMAL, JS_PROP_TMASK, JS_PROP_VARREF, JSProperty, ObjectRef,
     },
     value::{JS_GetPrototypePrimitive, JSValue},
 };
@@ -21,7 +19,7 @@ use super::{
     JS_PROP_WRITABLE,
 };
 
-impl<'a> JSObject<'a> {
+impl ObjectRef {
     /// 'flags' is a bitmask of JS_PROP_NO_ADD, JS_PROP_THROW or JS_PROP_THROW_STRICT.
     /// If JS_PROP_NO_ADD is set,  the new property is not added and an error is raised.
     ///
@@ -32,10 +30,10 @@ impl<'a> JSObject<'a> {
     /// - None: add new property is not allowed.
     pub(crate) fn set_property_internal(
         &self,
-        ctx: &JSContext<'a>,
-        prop: &Atom,
-        val: JSValue<'a>,
-        target: Option<&JSObject<'a>>,
+        ctx: &ContextImpl,
+        prop: Atom,
+        val: JSValue,
+        target: Option<ObjectRef>,
         flags: u32,
     ) -> Result<bool, i32> {
         macro_rules! fail {
@@ -52,7 +50,7 @@ impl<'a> JSObject<'a> {
         macro_rules! fail_read_only {
             ($prop:expr) => {
                 return if ctx.can_throw(flags) {
-                    ctx.throw_type_error_read_only($prop.to_ref());
+                    ctx.throw_type_error_read_only($prop);
                     Err(-1)
                 } else {
                     Ok(false)
@@ -61,36 +59,38 @@ impl<'a> JSObject<'a> {
         }
 
         // to check property existing
-        for cur_obj in self.shape_proto_iter(true) {
+        for mut cur_obj in self.shape_proto_iter(true) {
             // 1. find shape property
             'shape: while let Some((idx, prs_flags)) = cur_obj.find_shape_property(prop) {
                 match prs_flags & JS_PROP_TMASK {
-                    JS_PROP_NORMAL if target.is_some_and(|o| cur_obj.eq(o)) => {
+                    JS_PROP_NORMAL if target.is_some_and(|o| cur_obj == o) => {
                         // possible to update property value, when cur_obj == receiver
                         if unlikely(prs_flags & JS_PROP_LENGTH != 0) {
                             // set array length
                             debug_assert_eq!(cur_obj.class_id(), JS_CLASS_ARRAY);
-                            debug_assert_eq!(prop.to_ref(), JS_ATOM_length);
-                            return cur_obj.as_Array().unwrap().set_length(
-                                ctx,
-                                val.to_array_length(ctx, false)?,
-                                ctx.can_throw(flags),
-                            );
+                            debug_assert_eq!(prop, Atom::CONST_length);
+                            return unsafe {
+                                cur_obj.as_Array_mut_unchecked().set_length(
+                                    ctx,
+                                    val.to_array_length(ctx, false)?,
+                                    ctx.can_throw(flags),
+                                )
+                            };
                         }
 
                         if unlikely(prs_flags & JS_PROP_WRITABLE != 0) {
-                            cur_obj.0.prop_values.borrow_mut()[idx] = JSProperty::Normal(val);
+                            cur_obj.prop_values[idx] = JSProperty::Normal(val);
                             return Ok(true);
                         } else {
                             fail_read_only!(prop)
                         }
                     }
 
-                    JS_PROP_VARREF if target.is_some_and(|o| cur_obj.eq(o)) => {
+                    JS_PROP_VARREF if target.is_some_and(|o| cur_obj == o) => {
                         if unlikely(cur_obj.class_id() == JS_CLASS_MODULE_NS) {
                             fail_read_only!(prop)
                         } else if let Some(JSProperty::VarRef(vref)) =
-                            cur_obj.0.prop_values.borrow_mut().get_mut(idx)
+                            cur_obj.prop_values.get_mut(idx)
                         {
                             vref.set_value(val);
                             return Ok(true);
@@ -100,30 +100,21 @@ impl<'a> JSObject<'a> {
                     }
 
                     JS_PROP_GETSET => {
-                        let gs =
-                            unsafe { cur_obj.0.prop_values.borrow().get_unchecked(idx).clone() };
-
+                        let gs = &cur_obj.prop_values[idx];
                         return if let JSProperty::GetSet { setter, .. } = gs {
-                            call_setter(
-                                ctx,
-                                setter.as_ref(),
-                                &target.unwrap_or(self).clone().into(),
-                                val,
-                                flags,
-                            )
+                            call_setter(ctx, *setter, target.unwrap_or(*self).into(), val, flags)
                         } else {
                             unreachable!()
                         };
                     }
 
                     JS_PROP_LAZYINIT => {
+                        let this = cur_obj;
                         unsafe {
                             cur_obj
-                                .0
                                 .prop_values
-                                .borrow_mut()
                                 .get_unchecked_mut(idx)
-                                .instantiate(&cur_obj, idx, &cur_obj)?;
+                                .instantiate(this, idx, this)?;
                         }
                         continue 'shape;
                     }
@@ -147,8 +138,8 @@ impl<'a> JSObject<'a> {
                 if obj_flags.is_fast_array() {
                     if let Some(idx) = prop.to_small_int() {
                         if idx < cur_obj.fast_array_count() {
-                            return if target.is_some_and(|o| cur_obj.eq(o)) {
-                                cur_obj.set_property_value(ctx, &JSValue::Int(idx as _), val, flags)
+                            return if target.is_some_and(|o| cur_obj == o) {
+                                cur_obj.set_property_value(ctx, JSValue::Int(idx as _), val, flags)
                             } else {
                                 break; // proto iter loop
                             };
@@ -174,23 +165,27 @@ impl<'a> JSObject<'a> {
                     // apply exotic methods
                     if let Some(sp) = xm.set_property {
                         return sp(
-                            ctx,
-                            JSValue::Object(cur_obj.clone()),
+                            unsafe { ContextRef::from_ref_unchecked(ctx) },
+                            JSValue::Object(cur_obj),
                             prop,
                             val,
-                            target.unwrap_or(self).clone().into(),
+                            target.unwrap_or(*self).into(),
                             flags as _,
                         );
                     }
 
                     if let Some(f) = xm.get_own_property
-                        && let Some(desc) = f(ctx, JSValue::Object(cur_obj.clone()), prop)?
+                        && let Some(desc) = f(
+                            unsafe { ContextRef::from_ref_unchecked(ctx) },
+                            JSValue::Object(cur_obj),
+                            prop,
+                        )?
                     {
                         if desc.flags & JS_PROP_GETSET != 0 {
                             return call_setter(
                                 ctx,
-                                desc.setter.as_object(),
-                                &target.unwrap_or(self).clone().into(),
+                                desc.setter.as_object().copied(),
+                                target.unwrap_or(*self).into(),
                                 val,
                                 flags,
                             );
@@ -200,7 +195,7 @@ impl<'a> JSObject<'a> {
                             fail_read_only!(prop)
                         }
 
-                        if target.is_some_and(|o| cur_obj.eq(o)) {
+                        if target.is_some_and(|o| cur_obj == o) {
                             return cur_obj.define_property(
                                 ctx,
                                 prop,
@@ -220,20 +215,20 @@ impl<'a> JSObject<'a> {
         //
 
         if unlikely(flags & JS_PROP_NO_ADD != 0) {
-            JS_ThrowReferenceErrorNotDefined(ctx, prop.to_ref());
+            JS_ThrowReferenceErrorNotDefined(ctx, prop);
             return Err(-1);
         }
 
         // target must be provided in order to add new property on it.
-        if let Some(target) = target {
+        if let Some(mut target) = target {
             if unlikely(!target.flags().extensible()) {
                 fail!("object is not extensible")
             }
 
-            if target == self {
+            if target == *self {
                 if target.flags().is_exotic() {
                     if let Some(idx) = prop.to_small_int()
-                        && let Some(arr) = target.as_Array()
+                        && let Some(arr) = target.as_Array_mut()
                         && arr.is_fast_array()
                         // && arr.class_id() == JS_CLASS_ARRAY // should exclude JS_CLASS_ARGUMENTS?
                         && idx == arr.fast_array_count()
@@ -241,12 +236,7 @@ impl<'a> JSObject<'a> {
                         return arr.add_fast_array_element(ctx, val, flags);
                     }
                 } else {
-                    target.add_own_property(
-                        ctx,
-                        prop.clone(),
-                        JS_PROP_C_W_E,
-                        JSProperty::Normal(val),
-                    )?;
+                    target.add_own_property(ctx, prop, JS_PROP_C_W_E, JSProperty::Normal(val))?;
                     return Ok(true);
                 }
             } else {
@@ -275,7 +265,7 @@ impl<'a> JSObject<'a> {
             // create property on `target`, returns Result<bool, i32>
             target.create_property(
                 ctx,
-                prop.clone(),
+                prop,
                 val,
                 JSValue::UNDEFINED,
                 JSValue::UNDEFINED,
@@ -293,13 +283,8 @@ impl<'a> JSObject<'a> {
     }
 
     #[inline(always)]
-    pub fn set_property(
-        &self,
-        ctx: &JSContext<'a>,
-        prop: &Atom,
-        val: JSValue<'a>,
-    ) -> Result<bool, i32> {
-        self.set_property_internal(ctx, prop, val, Some(self), JS_PROP_THROW)
+    pub fn set_property(&self, ctx: &ContextImpl, prop: Atom, val: JSValue) -> Result<bool, i32> {
+        self.set_property_internal(ctx, prop, val, Some(*self), JS_PROP_THROW)
     }
 
     /// set property value with integral index key, usually used for fast arrays.
@@ -308,22 +293,24 @@ impl<'a> JSObject<'a> {
     /// - Some: when the property was set,
     /// - None: when the property was not set, perform slow path is needed.
     fn set_property_index(
-        &self,
-        ctx: &JSContext<'a>,
+        &mut self,
+        ctx: &ContextImpl,
         idx: usize,
-        val: JSValue<'a>,
+        val: JSValue,
         flags: u32,
     ) -> Option<Result<bool, i32>> {
         match self.class_id() {
             JS_CLASS_ARRAY => {
                 if self.flags().extensible() {
+                    let this = *self;
+
                     let ret = self
                         .with_fast_array_values_mut(|lst| -> Option<Result<bool, i32>> {
                             match idx.cmp(&lst.len()) {
                                 std::cmp::Ordering::Less => {
                                     // update existing
                                     unsafe {
-                                        *lst.get_unchecked_mut(idx) = val.clone();
+                                        *lst.get_unchecked_mut(idx) = val;
                                     }
                                     Some(Ok(true))
                                 }
@@ -336,7 +323,8 @@ impl<'a> JSObject<'a> {
                                     // 否则会违反 JavaScript 的属性查找规则。
 
                                     // Note: can't use ::prototype_iter() here, because of payload borrow conflict.
-                                    let mut up = self.shape().unwrap().0.borrow().proto.clone();
+                                    let mut up = this.shape().unwrap().proto;
+
                                     while let Some(p) = up {
                                         let sh1 = p.shape().unwrap();
                                         match p.class_id() {
@@ -346,7 +334,7 @@ impl<'a> JSObject<'a> {
                                                 }
                                             }
                                             JS_CLASS_OBJECT => {
-                                                if sh1.0.borrow().has_small_array_index {
+                                                if sh1.has_small_array_index {
                                                     return None;
                                                 }
                                             }
@@ -354,7 +342,7 @@ impl<'a> JSObject<'a> {
                                                 return None;
                                             }
                                         }
-                                        up = sh1.0.borrow().proto.clone();
+                                        up = sh1.proto;
                                     }
 
                                     Some(Ok(false)) // <-- indicated to append element
@@ -383,7 +371,7 @@ impl<'a> JSObject<'a> {
                     .with_fast_array_values_mut(|lst| -> bool {
                         if idx < lst.len() {
                             unsafe {
-                                *lst.get_unchecked_mut(idx) = val.clone();
+                                *lst.get_unchecked_mut(idx) = val;
                             }
                             true
                         } else {
@@ -407,7 +395,7 @@ impl<'a> JSObject<'a> {
                     return Some(Err(-1));
                 };
                 let _ = self
-                    .as_TypedArray()
+                    .as_TypedArray_mut()
                     .unwrap()
                     .set_element_int(idx as _, v as _);
                 Some(Ok(true))
@@ -421,14 +409,20 @@ impl<'a> JSObject<'a> {
                 let Ok(v) = val.to_i32(ctx) else {
                     return Some(Err(-1));
                 };
-                let _ = self.as_TypedArray().unwrap().set_element_int(idx as _, v);
+                let _ = self
+                    .as_TypedArray_mut()
+                    .unwrap()
+                    .set_element_int(idx as _, v);
                 Some(Ok(true))
             }
             JS_CLASS_FLOAT32_ARRAY | JS_CLASS_FLOAT64_ARRAY => {
                 let Ok(v) = val.to_f64(ctx) else {
                     return Some(Err(-1));
                 };
-                let _ = self.as_TypedArray().unwrap().set_element_float(idx as _, v);
+                let _ = self
+                    .as_TypedArray_mut()
+                    .unwrap()
+                    .set_element_float(idx as _, v);
                 Some(Ok(true))
             }
             JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY => {
@@ -441,16 +435,16 @@ impl<'a> JSObject<'a> {
 
     /// flags can be JS_PROP_THROW or JS_PROP_THROW_STRICT
     pub fn set_property_value(
-        &self,
-        ctx: &JSContext<'a>,
-        prop: &JSValue<'a>,
-        val: JSValue<'a>,
+        &mut self,
+        ctx: &ContextImpl,
+        prop: JSValue,
+        val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
         // check if prop is a u32 (a.k.a. index key)
         let index_key: Option<usize> = match prop {
-            JSValue::Int(i) if *i >= 0 => Some(*i as usize),
-            JSValue::Float64(f) if *f >= 0.0 => {
+            JSValue::Int(i) if i >= 0 => Some(i as usize),
+            JSValue::Float64(f) if f >= 0.0 => {
                 if f.fract() == 0.0 {
                     let n = f.trunc() as i64;
                     if n <= u32::MAX as i64 {
@@ -466,7 +460,7 @@ impl<'a> JSObject<'a> {
         };
 
         if let Some(idx) = index_key
-            && let Some(r) = self.set_property_index(ctx, idx, val.clone(), flags)
+            && let Some(r) = self.set_property_index(ctx, idx, val, flags)
         {
             // early exit for fast path
             return r;
@@ -474,50 +468,50 @@ impl<'a> JSObject<'a> {
 
         // slow path
         let atom = prop.to_atom(ctx)?;
-        self.set_property_internal(ctx, &atom, val, Some(self), flags)
+        self.set_property_internal(ctx, atom, val, Some(*self), flags)
     }
 
     pub fn set_property_u32(
-        &self,
-        ctx: &JSContext<'a>,
+        &mut self,
+        ctx: &ContextImpl,
         idx: u32,
-        val: JSValue<'a>,
+        val: JSValue,
     ) -> Result<bool, i32> {
-        self.set_property_index(ctx, idx as usize, val.clone(), JS_PROP_THROW)
+        self.set_property_index(ctx, idx as usize, val, JS_PROP_THROW)
             .unwrap_or_else(|| {
                 // slow path
-                let atom = Atom::from_i64(ctx.rt().as_ref(), idx as i64)?;
-                self.set_property_internal(ctx, &atom, val, Some(self), JS_PROP_THROW)
+                let atom = Atom::from_i64(&ctx.rt(), idx as i64)?;
+                self.set_property_internal(ctx, atom, val, Some(*self), JS_PROP_THROW)
             })
     }
 
     #[inline]
     pub fn set_property_i64(
-        &self,
-        ctx: &JSContext<'a>,
+        &mut self,
+        ctx: &ContextImpl,
         idx: i64,
-        val: JSValue<'a>,
+        val: JSValue,
     ) -> Result<bool, i32> {
         if (0..=u32::MAX as i64).contains(&idx) {
             self.set_property_u32(ctx, idx as u32, val)
         } else {
             let atom = Atom::from_i64(ctx.rt().as_ref(), idx)?;
-            self.set_property(ctx, &atom, val)
+            self.set_property(ctx, atom, val)
         }
     }
 
     pub fn set_property_str(
-        &self,
-        ctx: &JSContext<'a>,
+        &mut self,
+        ctx: &ContextImpl,
         prop: &str,
-        val: JSValue<'a>,
+        val: JSValue,
     ) -> Result<bool, i32> {
-        let atom = Atom::new(ctx.rt().as_ref(), prop)?;
-        self.set_property(ctx, &atom, val)
+        let atom = Atom::new(&ctx.rt(), prop)?;
+        self.set_property(ctx, atom, val)
     }
 }
 
-impl<'a> JSValue<'a> {
+impl JSValue {
     /// 'flags' is a bitmask of JS_PROP_NO_ADD, JS_PROP_THROW or JS_PROP_THROW_STRICT.
     /// If JS_PROP_NO_ADD is set,  the new property is not added and an error is raised.
     ///
@@ -525,14 +519,14 @@ impl<'a> JSValue<'a> {
     /// For other cases,  `receiver` should be None, suggesting it's same to `self`.
     pub(crate) fn set_property_internal(
         &self,
-        ctx: &JSContext<'a>,
-        prop: &Atom,
+        ctx: &ContextImpl,
+        prop: Atom,
         val: Self,
-        receiver: Option<&JSObject<'a>>,
+        receiver: Option<ObjectRef>,
         flags: u32,
     ) -> Result<bool, i32> {
         if let Self::Object(o) = self {
-            o.set_property_internal(ctx, prop, val, receiver.or(Some(o)), flags)
+            o.set_property_internal(ctx, prop, val, receiver.or(Some(*o)), flags)
         } else if let JSValue::Object(p) = JS_GetPrototypePrimitive(ctx, self) {
             p.set_property_internal(ctx, prop, val, receiver, flags)
         } else if unlikely(ctx.can_throw(flags)) {
@@ -545,15 +539,15 @@ impl<'a> JSValue<'a> {
 
     /// `prop` is not consumed.
     #[inline(always)]
-    pub fn set_property(&self, ctx: &JSContext<'a>, prop: &Atom, val: Self) -> Result<bool, i32> {
+    pub fn set_property(&self, ctx: &ContextImpl, prop: Atom, val: Self) -> Result<bool, i32> {
         self.set_property_internal(ctx, prop, val, None, JS_PROP_THROW)
     }
 
     #[inline]
     pub fn set_property_value(
-        &self,
-        ctx: &JSContext<'a>,
-        prop: &Self,
+        &mut self,
+        ctx: &ContextImpl,
+        prop: Self,
         val: Self,
         flags: u32,
     ) -> Result<bool, i32> {
@@ -561,48 +555,58 @@ impl<'a> JSValue<'a> {
             o.set_property_value(ctx, prop, val, flags)
         } else {
             let atom = prop.to_atom(ctx)?;
-            self.set_property_internal(ctx, &atom, val, None, flags)
+            self.set_property_internal(ctx, atom, val, None, flags)
         }
     }
 
     #[inline]
-    pub fn set_property_u32(&self, ctx: &JSContext<'a>, idx: u32, val: Self) -> Result<bool, i32> {
+    pub fn set_property_u32(
+        &mut self,
+        ctx: &ContextImpl,
+        idx: u32,
+        val: Self,
+    ) -> Result<bool, i32> {
         if let Self::Object(ob) = self {
             ob.set_property_u32(ctx, idx, val)
         } else {
-            self.set_property_value(ctx, &JSValue::from(idx), val, JS_PROP_THROW)
+            self.set_property_value(ctx, JSValue::from(idx), val, JS_PROP_THROW)
         }
     }
 
     #[inline]
-    pub fn set_property_i64(&self, ctx: &JSContext<'a>, idx: i64, val: Self) -> Result<bool, i32> {
-        if let Some(ob) = self.as_object() {
+    pub fn set_property_i64(
+        &mut self,
+        ctx: &ContextImpl,
+        idx: i64,
+        val: Self,
+    ) -> Result<bool, i32> {
+        if let Some(ob) = self.as_object_mut() {
             ob.set_property_i64(ctx, idx, val)
         } else {
-            self.set_property_value(ctx, &JSValue::from(idx), val, JS_PROP_THROW)
+            self.set_property_value(ctx, JSValue::from(idx), val, JS_PROP_THROW)
         }
     }
 
     pub fn set_property_str(
-        &self,
-        ctx: &JSContext<'a>,
+        &mut self,
+        ctx: &ContextImpl,
         prop: &str,
         val: Self,
     ) -> Result<bool, i32> {
         let atom = Atom::new(ctx.rt().as_ref(), prop)?;
-        self.set_property(ctx, &atom, val)
+        self.set_property(ctx, atom, val)
     }
 }
 
-fn call_setter<'a>(
-    ctx: &JSContext<'a>,
-    setter: Option<&JSObject<'a>>,
-    this_obj: &JSValue<'a>,
-    val: JSValue<'a>,
+fn call_setter(
+    ctx: &ContextImpl,
+    setter: Option<ObjectRef>,
+    this_obj: JSValue,
+    val: JSValue,
     flags: u32,
 ) -> Result<bool, i32> {
     if let Some(func) = setter {
-        JSValue::Object(func.clone()).call(ctx, this_obj, std::slice::from_ref(&val))?;
+        JSValue::Object(func).call(ctx, this_obj, std::slice::from_ref(&val))?;
         Ok(true)
     } else if unlikely(ctx.can_throw(flags)) {
         ctx.throw_type_error("no setter for property");

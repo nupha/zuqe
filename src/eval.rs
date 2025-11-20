@@ -1,12 +1,12 @@
 use std::{ops::Deref, ptr::NonNull};
 
 use crate::{
-    atom::{Atom, consts::JS_ATOM__eval_},
-    context::{JS_MODE_STRICT, JS_MODE_STRIP, JSContext},
+    atom::Atom,
+    context::{ContextImpl, ContextRef, JS_MODE_STRICT, JS_MODE_STRIP},
     error::JSResult,
     function::{Bytecode, JSFunctionDef, JSFunctionKindEnum, add_closure_variables},
     module::ModuleDef,
-    object::JSObject,
+    object::ObjectRef,
     parse::JSParseState,
     stack_frame::StackFrame,
     value::JSValue,
@@ -14,14 +14,14 @@ use crate::{
 
 /// Native function to handle `eval`, returns eval result.
 /// `input` is script source.
-pub type EvalFn = for<'a> fn(
-    ctx: &JSContext<'a>,
-    this_obj: &JSValue<'a>,
+pub type EvalFn = fn(
+    ctx: ContextRef,
+    this_obj: JSValue,
     input: &[u8],
     filename: &str,
     flags: u32,
     scope_idx: i32,
-) -> JSResult<'a>;
+) -> JSResult;
 
 // Eval types
 pub const JS_EVAL_TYPE_GLOBAL: u32 = 0;
@@ -39,30 +39,30 @@ pub const JS_EVAL_FLAG_BACKTRACE_BARRIER: u32 = 1 << 6;
 /// so that top-level-await is allowed.
 pub const JS_EVAL_FLAG_ASYNC: u32 = 1 << 7;
 
-pub(crate) enum Compiled<'c> {
+pub(crate) enum Compiled {
     /// compiled for global or indirect mode.
-    GlobalOrIndirect(Bytecode<'c>),
+    GlobalOrIndirect(Bytecode),
     /// compiled for direct mode.
-    Direct(Bytecode<'c>),
+    Direct(Bytecode),
     /// compiled as module.
-    Module(ModuleDef<'c>),
+    Module(ModuleDef),
 }
 
-impl<'c> JSContext<'c> {
+impl ContextImpl {
     /// compile script source according to requested mode.
     /// `source` is script source, `filename` is used to identify the module.
     /// compile only, won't run. internal use.
     pub(crate) fn compile(
-        &self,
+        &mut self,
         source: &[u8],
         filename: &str,
         flags: u32,
         scope_idx: i32,
-    ) -> Result<Compiled<'c>, i32> {
+    ) -> Result<Compiled, i32> {
         let eval_type = flags & JS_EVAL_TYPE_MASK;
 
         let sframe: Option<&mut StackFrame>;
-        let mut cur_frame_func: Option<JSObject> = None;
+        let mut cur_frame_func: Option<ObjectRef> = None;
 
         // get (bytecode, module, js_mode) of current stack frame
         let (bytecode, module, js_mode) = if eval_type == JS_EVAL_TYPE_DIRECT {
@@ -73,11 +73,11 @@ impl<'c> JSContext<'c> {
             sframe = unsafe { sf_ptr.as_mut() };
 
             // current function must be BCFunction object
-            let cur_func = sframe.unwrap().cur_func.as_object_BCFunction().unwrap();
+            let cur_func = *sframe.unwrap().cur_func.as_object_BCFunction().unwrap();
 
-            let bc = cur_func.payload().bytecode().clone();
+            let bc = cur_func.payload().bytecode();
             let mode = bc.mode() as u32;
-            cur_frame_func = Some(cur_func.clone().into());
+            cur_frame_func = Some(cur_func.into());
 
             (Some(bc), None, mode)
         } else {
@@ -92,7 +92,7 @@ impl<'c> JSContext<'c> {
             if eval_type == JS_EVAL_TYPE_MODULE {
                 let name = Atom::new(self.rt().as_ref(), filename)?;
                 js_mode |= JS_MODE_STRICT as u32;
-                (None, Some(ModuleDef::new(self, name)), js_mode)
+                (None, Some(ModuleDef::new(self, name)?), js_mode)
             } else {
                 (None, None, js_mode)
             }
@@ -102,7 +102,7 @@ impl<'c> JSContext<'c> {
         let mut fd = JSFunctionDef::new(self, None, true, false, filename, 1)?;
 
         fd.eval_type = eval_type;
-        fd.func_name = Atom::new_const(JS_ATOM__eval_);
+        fd.func_name = Atom::CONST__eval_;
         fd.has_this_binding = eval_type != JS_EVAL_TYPE_DIRECT;
         fd.attrs.backtrace_barrier = flags & JS_EVAL_FLAG_BACKTRACE_BARRIER != 0;
         fd.attrs.js_mode = js_mode as u8;
@@ -116,15 +116,13 @@ impl<'c> JSContext<'c> {
             fd.attrs.super_allowed = bc.attrs.super_allowed;
             fd.attrs.arguments_allowed = bc.attrs.arguments_allowed;
 
-            unsafe {
-                add_closure_variables(self, &mut fd, bc, scope_idx)?;
-            }
+            add_closure_variables(self, &mut fd, bc, scope_idx)?;
         } else {
             debug_assert_ne!(eval_type, JS_EVAL_TYPE_DIRECT, "can't be direct eval type");
             fd.attrs.arguments_allowed = true;
         }
 
-        fd.module = module.clone();
+        fd.module = module;
         if fd.module.is_some() || flags & JS_EVAL_FLAG_ASYNC != 0 {
             fd.in_function_body = true;
             fd.attrs.func_kind = JSFunctionKindEnum::JS_FUNC_ASYNC;
@@ -141,8 +139,8 @@ impl<'c> JSContext<'c> {
             let mut parser = JSParseState::new(
                 self,
                 unsafe { NonNull::new_unchecked(fd.as_mut()) },
-                unsafe { std::mem::transmute::<&[u8], &[u8]>(source) }, // cast lifetime
-                unsafe { std::mem::transmute::<&str, &str>(filename) }, // cast lifetime
+                source,
+                filename,
             );
             debug_assert!(std::ptr::eq(parser.cur_func(), fd.deref()));
 
@@ -158,21 +156,21 @@ impl<'c> JSContext<'c> {
         // has top-level await?
         let has_await = fd.has_await;
 
-        // compile function def to bytecode.
-        let bc_compiled = fd.compile(self)?;
+        // compile function def into bytecode.
+        let bc = fd.build_bytecode(self)?;
 
         // XXX: Could add a flag to avoid resolution if necessary
-        if let Some(md) = module {
+        if let Some(mut md) = module {
             // resolve module
-            md.0.bytecode.set(JSValue::Bytecode(bc_compiled.clone()));
+            md.bytecode = JSValue::Bytecode(bc);
             md.set_tla(has_await);
-            self.resolve_module(&md)?;
+            self.resolve_module(md)?;
             Ok(Compiled::Module(md))
         } else if cur_frame_func.is_some() {
             debug_assert_eq!(eval_type, JS_EVAL_TYPE_DIRECT);
-            Ok(Compiled::Direct(bc_compiled))
+            Ok(Compiled::Direct(bc))
         } else {
-            Ok(Compiled::GlobalOrIndirect(bc_compiled))
+            Ok(Compiled::GlobalOrIndirect(bc))
         }
     }
 
@@ -182,13 +180,13 @@ impl<'c> JSContext<'c> {
     /// * DIRECT
     /// * INDIRECT
     pub(crate) fn eval_internal(
-        &self,
-        this_obj: &JSValue<'c>,
+        &mut self,
+        this_obj: JSValue,
         source: &[u8],
         filename: &str,
         flags: u32,
         scope_idx: i32,
-    ) -> JSResult<'c> {
+    ) -> JSResult {
         #[cfg(debug_assertions)]
         if flags & JS_EVAL_FLAG_COMPILE_ONLY != 0 {
             panic!(
@@ -207,40 +205,33 @@ impl<'c> JSContext<'c> {
                     sf_ptr.as_mut().unwrap()
                 };
                 // current function of stack frame, must be a BCFunction
-                let frame_func = sframe.cur_func.as_object_BCFunction().cloned().unwrap();
-
-                bc.eval(
-                    self,
-                    this_obj,
-                    frame_func.payload().var_refs.borrow().as_slice(),
-                    Some(sframe),
-                )
+                let frame_func = sframe.cur_func.as_object_BCFunction().copied().unwrap();
+                bc.eval(self, this_obj, &frame_func.payload().var_refs, Some(sframe))
             }
-            Compiled::Module(m) => m.eval(self).map(|p| p.into()),
+            Compiled::Module(mut m) => m.eval(self).map(|p| p.into()),
         }
     }
 
     /// eval source in global mode, with specified `this` binding.
     #[inline(always)]
     pub fn eval_this(
-        &self,
-        this_obj: JSValue<'c>,
+        &mut self,
+        this_obj: JSValue,
         source: &[u8],
         filename: &str,
         flags: u32,
-    ) -> JSResult<'c> {
+    ) -> JSResult {
         debug_assert!(matches!(flags & JS_EVAL_TYPE_MASK, JS_EVAL_TYPE_GLOBAL));
-        self.eval_internal(&this_obj, source, filename, flags, -1)
+        self.eval_internal(this_obj, source, filename, flags, -1)
     }
 
     /// eval script with global as `this` binding.
-    pub fn eval(&self, source: &[u8], filename: &str, eval_flags: u32) -> JSResult<'c> {
-        let global = self.0.borrow().global_obj.clone();
-        self.eval_this(global, source, filename, eval_flags)
+    pub fn eval(&mut self, source: &[u8], filename: &str, eval_flags: u32) -> JSResult {
+        self.eval_this(self.global_obj().into(), source, filename, eval_flags)
     }
 }
 
-impl<'v> JSValue<'v> {
+impl JSValue {
     /// eval js value `self`.
     /// When `self` is a:
     /// - String: eval source script and return result,
@@ -249,21 +240,21 @@ impl<'v> JSValue<'v> {
     /// both `this_obj` and `self` are not consumed.
     pub fn eval_object(
         &self,
-        ctx: &JSContext<'v>,
-        this_obj: JSValue<'v>,
+        ctx: &mut ContextImpl,
+        this_obj: JSValue,
         flags: u32,
         scope_idx: i32,
-    ) -> JSResult<'v> {
+    ) -> JSResult {
         if let Self::String(s) = self {
             ctx.eval_internal(
-                &this_obj,
+                this_obj,
                 s.content().encode_utf8_bytes().as_ref(),
                 "<string>",
                 flags,
                 scope_idx,
             )
         } else {
-            Ok(self.clone())
+            Ok(*self)
         }
     }
 }

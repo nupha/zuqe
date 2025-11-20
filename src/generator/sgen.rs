@@ -1,20 +1,14 @@
-use std::cell::{Cell, UnsafeCell};
+use gc_lite::Collect;
 
 use crate::{
     JS_CLASS_GENERATOR, JS_ITERATOR_NEXT_DEF, JS_PROP_STRING_DEF,
-    atom::consts::JS_ATOM_prototype,
-    context::JSContext,
+    context::{ContextImpl, ContextRef},
     error::JSResult,
-    eval::JS_EVAL_TYPE_INDIRECT,
-    function::{
-        AsyncFuncState, CallContext, FieldDef, IteratorState, JS_GetFunctionRealm,
-        JSFunctionKindEnum,
-    },
+    function::{AsyncFuncState, CallContext, FieldDef, IteratorState},
     iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW},
     object::{JS_PROP_CONFIGURABLE, ObjectPayload},
-    runtime::JSRuntime,
+    runtime::RuntimeImpl,
     stack_frame::StackFrame,
-    string::{StringBuf, StringData},
     value::JSValue,
 };
 
@@ -34,169 +28,78 @@ pub const FUNC_RET_YIELD_STAR: i32 = 2;
 pub const FUNC_RET_INITIAL_YIELD: i32 = 3;
 
 #[derive(Debug)]
-pub struct GeneratorPayload<'a> {
-    state: Cell<GenState>,
-    func_state: UnsafeCell<AsyncFuncState<'a>>,
+pub struct GeneratorPayload {
+    state: GenState,
+    func_state: AsyncFuncState,
 }
 
-impl<'a> GeneratorPayload<'a> {
+unsafe impl Collect for GeneratorPayload {
+    #[inline(always)]
+    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+        self.func_state.trace(tracer);
+    }
+}
+
+impl GeneratorPayload {
     #[inline(always)]
     const fn state(&self) -> GenState {
-        self.state.get()
+        self.state
     }
 
     #[inline(always)]
-    fn set_state(&self, state: GenState) {
-        self.state.set(state);
+    const fn set_state(&mut self, state: GenState) {
+        self.state = state;
     }
 
-    fn set_throw_flag(&self, b: bool) {
-        unsafe {
-            (&*self.func_state.get()).set_throw_flag(b);
-        }
+    fn set_throw_flag(&mut self, b: bool) {
+        self.func_state.set_throw_flag(b);
     }
 
     #[inline(always)]
     pub fn is_completed(&self) -> bool {
-        unsafe { (&*self.func_state.get()).is_completed() }
+        self.func_state.is_completed
     }
 
     /// run with stack frame
     #[inline(always)]
-    fn with_stack_frame_mut<R>(&self, f: impl FnOnce(&mut StackFrame<'a>) -> R) -> R {
-        unsafe {
-            let mut t = (&*self.func_state.get()).0.borrow_mut();
-            f(&mut t.as_mut().get_mut().frame)
-        }
+    fn with_stack_frame_mut<R>(&mut self, f: impl FnOnce(&mut StackFrame) -> R) -> R {
+        f(unsafe { self.func_state.frame.as_mut().get_unchecked_mut() })
     }
 
     /// execute the function up to 'OP_initial_yield' opcode
     #[inline(always)]
-    pub fn resume(&self, ctx: &JSContext<'a>) -> JSResult<'a> {
-        unsafe { (&*self.func_state.get()).resume(ctx) }
+    pub fn resume(&mut self, ctx: &ContextImpl) -> JSResult {
+        self.func_state.resume(ctx)
     }
 
     /// mark generator is completed
-    pub fn complete(&self) {
-        if self.state() != GenState::JS_GENERATOR_STATE_COMPLETED {
+    pub fn complete(&mut self) {
+        if self.state != GenState::JS_GENERATOR_STATE_COMPLETED {
             self.set_state(GenState::JS_GENERATOR_STATE_COMPLETED);
-            //  self.func_state.take();
         }
     }
 }
 
-// XXX: add a specific eval mode so that Function("}), ({") is rejected
-#[deprecated(note = "should use BytecodeFunction::class_constructor ???")]
-pub fn js_function_constructor<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let func_kind =
-        unsafe { std::mem::transmute::<u8, crate::function::JSFunctionKindEnum>(cc.magic() as u8) };
-
-    // build function source
-    let mut source = StringBuf::with_capacity(64, false).map_err(|_| {
-        ctx.throw_out_of_memory();
-        -1
-    })?;
-    source.push_char('(').unwrap();
-    if matches!(
-        func_kind,
-        JSFunctionKindEnum::JS_FUNC_ASYNC | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
-    ) {
-        source.push_str("async").unwrap();
-    }
-    source.push_str("function").unwrap();
-
-    if matches!(
-        func_kind,
-        JSFunctionKindEnum::JS_FUNC_GENERATOR | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
-    ) {
-        source.push_char('*').unwrap();
-    }
-    source.push_str(" anonymous(").unwrap();
-
-    if let Some((body, args)) = cc.arguments().split_last() {
-        // args list
-        for (i, a) in args.iter().enumerate() {
-            if i != 0 {
-                source.push_char(',').map_err(|_| {
-                    ctx.throw_out_of_memory();
-                    -1
-                })?;
-            }
-            let s = a.to_string(ctx)?;
-            source.push_content(s.content()).map_err(|_| {
-                ctx.throw_out_of_memory();
-                -1
-            })?;
-        }
-        source.push_str(") {\n").map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
-
-        // body
-        let s = body.to_string(ctx)?;
-        source.push_content(s.content()).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
-
-        source.push_str("\n})").map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
-    } else {
-        source.push_str(") {})").map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
-    }
-
-    // eval to make function
-    let func_obj = ctx.eval_internal(
-        &JSValue::Object(ctx.global_obj()),
-        &StringData::from(source).encode_utf8_bytes(),
-        "<input>",
-        JS_EVAL_TYPE_INDIRECT,
-        -1,
-    )?;
-
-    // set prototype, if provided by `this`
-    let new_target = cc.this();
-    if !new_target.is_undefined() {
-        let mut proto = new_target.get_property(ctx, &JS_ATOM_prototype)?;
-        if !proto.is_object() {
-            let realm = JS_GetFunctionRealm(ctx, new_target)?;
-            proto = realm
-                .class_proto(func_kind.class_id())
-                .map_or(JSValue::NULL, JSValue::Object);
-        }
-
-        func_obj.set_prototype_internal(ctx, proto, true)?;
-    }
-
-    Ok(func_obj)
-}
-
-pub fn js_generator_function_call<'b>(
-    ctx: &JSContext<'b>,
-    func_obj: &JSValue<'b>,
-    this_obj: &JSValue<'b>,
-    args: &[JSValue<'b>],
+pub fn js_generator_function_call(
+    ctx: ContextRef,
+    func_obj: JSValue,
+    this_obj: JSValue,
+    args: &[JSValue],
     _flags: i32,
-) -> JSResult<'b> {
+) -> JSResult {
     let func_state = AsyncFuncState::new(
-        ctx,
-        func_obj.as_object_BCFunction().unwrap().clone(),
-        this_obj.clone(),
+        &ctx,
+        *func_obj.as_object_BCFunction().unwrap(),
+        this_obj,
         args,
     )?;
-    let g = Box::new(GeneratorPayload {
-        state: Cell::new(GenState::JS_GENERATOR_STATE_SUSPENDED_START),
-        func_state: UnsafeCell::new(func_state),
+    let mut g = Box::new(GeneratorPayload {
+        state: GenState::JS_GENERATOR_STATE_SUSPENDED_START,
+        func_state,
     });
 
-    // execute the function up to 'OP_initial_yield'
-    g.resume(ctx)?;
+    // execute bytecodes up to 'OP_initial_yield'
+    g.resume(&ctx)?;
 
     // create js object of generator class
     ctx.create_object_from_ctor(func_obj, ObjectPayload::GENERATOR(g))
@@ -204,26 +107,29 @@ pub fn js_generator_function_call<'b>(
         .map_err(|_| -1)
 }
 
-pub const fn js_generator_finalizer(_rt: &mut JSRuntime, _isa: &ObjectPayload, _id: usize) {
+#[deprecated]
+pub const fn js_generator_finalizer(_rt: &mut RuntimeImpl, _isa: &ObjectPayload, _id: usize) {
     // if let ObjectPayload::GENERATOR(_) = isa {
     //     //s.free_generator_stack_rt(rt);
     // }
 }
 
+#[deprecated]
 pub fn js_generator_mark(_: JSValue) {
     unimplemented!();
 }
 
-pub fn js_generator_next<'a>(
-    ctx: &JSContext<'a>,
-    cc: CallContext<'_, 'a>,
+pub fn js_generator_next(
+    ctx: ContextRef,
+    cc: CallContext,
     iter_state: &mut IteratorState,
-) -> JSResult<'a> {
+) -> JSResult {
     let magic = cc.magic();
     *iter_state = IteratorState::Done;
 
+    let mut this = *cc.this();
     if let ObjectPayload::GENERATOR(g) =
-        cc.this().retrive_object_payload(ctx, JS_CLASS_GENERATOR)?
+        this.retrive_object_payload_mut(&ctx, JS_CLASS_GENERATOR)?
     {
         enum WhatToDo {
             ExecNoArg,
@@ -242,7 +148,7 @@ pub fn js_generator_next<'a>(
             GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD_STAR
             | GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD => {
                 // SP[-1] was set to JS_UNDEFINED in the previous call
-                let val = cc.arg(0).clone();
+                let val = *cc.arg(0);
 
                 if magic == GEN_MAGIC_THROW
                     && g.state() == GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD
@@ -277,7 +183,7 @@ pub fn js_generator_next<'a>(
         match action {
             WhatToDo::ExecNoArg => {
                 g.set_state(GenState::JS_GENERATOR_STATE_EXECUTING);
-                let res = g.resume(ctx);
+                let res = g.resume(&ctx);
                 g.set_state(GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD);
 
                 if g.is_completed() {
@@ -286,15 +192,11 @@ pub fn js_generator_next<'a>(
                     return res;
                 }
 
-                debug_assert!(res.as_ref().unwrap().is_int());
+                debug_assert!(res.unwrap().is_int());
 
                 // get the returned yield value at the top of the stack
                 let ret_val = g.with_stack_frame_mut(|sf| unsafe {
-                    let v = std::ptr::replace(
-                        sf.stack_cur_ptr().offset(-1).as_ptr(),
-                        JSValue::UNDEFINED,
-                    );
-                    v
+                    std::ptr::replace(sf.stack_cur_ptr().offset(-1).as_ptr(), JSValue::UNDEFINED)
                 });
 
                 *iter_state = if let Ok(JSValue::Int(FUNC_RET_YIELD_STAR)) = res {
@@ -311,9 +213,9 @@ pub fn js_generator_next<'a>(
                 // execution is finished
                 match magic {
                     GEN_MAGIC_NEXT => Ok(JSValue::UNDEFINED),
-                    GEN_MAGIC_RETURN => Ok(cc.arg(0).clone()),
+                    GEN_MAGIC_RETURN => Ok(*cc.arg(0)),
                     GEN_MAGIC_THROW => {
-                        ctx.throw(cc.arg(0).clone());
+                        ctx.throw(*cc.arg(0));
                         Err(-1)
                     }
                     _ => {

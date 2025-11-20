@@ -1,8 +1,5 @@
 use crate::{
-    atom::{
-        Atom,
-        consts::{JS_ATOM_arguments, JS_ATOM_eval, JS_ATOM_let, JS_ATOM_undefined, JS_ATOM_yield},
-    },
+    atom::Atom,
     context::JS_MODE_STRICT,
     eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
     function::{GLOBAL_VAR_OFFSET, JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
@@ -17,7 +14,7 @@ impl<'s> JSParseState<'s> {
     /// `name` is not consumed.
     pub fn define_var_cur_func(
         &mut self,
-        name: &Atom,
+        name: Atom,
         var_def_type: JSVarDefEnum,
     ) -> Result<u32, i32> {
         let fd = self.cur_func_mut();
@@ -131,7 +128,7 @@ impl<'s> JSParseState<'s> {
                         id
                     } else {
                         let id = fd.add_var(&self.ctx, name)?;
-                        if name.to_ref() == JS_ATOM_arguments && fd.has_arguments_binding {
+                        if name == Atom::CONST_arguments && fd.has_arguments_binding {
                             fd.arguments_var_idx.replace(id);
                         }
                         fd.vars[id as usize].scope_next = fd.scope_level;
@@ -146,22 +143,24 @@ impl<'s> JSParseState<'s> {
 
     /// `name` is not consumed.
     /// in case current function def contains module, `export` suggests if this var is exported.
-    pub fn define_var(&mut self, name: &Atom, tok: i32, export: bool) -> Result<(), i32> {
+    pub fn define_var(&mut self, name: Atom, tok: i32, export: bool) -> Result<(), i32> {
         {
             let func = self.cur_func();
 
-            match name.to_ref() {
-                JS_ATOM_yield if func.attrs.func_kind == JSFunctionKindEnum::JS_FUNC_GENERATOR => {
+            match name {
+                Atom::CONST_yield
+                    if func.attrs.func_kind == JSFunctionKindEnum::JS_FUNC_GENERATOR =>
+                {
                     self.throw_syntax_error("yield is a reserved identifier");
                     return Err(-1);
                 }
-                JS_ATOM_arguments | JS_ATOM_eval
+                Atom::CONST_arguments | Atom::CONST_eval
                     if func.attrs.js_mode & JS_MODE_STRICT as u8 != 0 =>
                 {
                     self.throw_syntax_error("invalid variable name in strict mode");
                     return Err(-1);
                 }
-                JS_ATOM_let | JS_ATOM_undefined if matches!(tok, TOK_LET | TOK_CONST) => {
+                Atom::CONST_let | Atom::CONST_undefined if matches!(tok, TOK_LET | TOK_CONST) => {
                     self.throw_syntax_error("invalid lexical variable name");
                     return Err(-1);
                 }

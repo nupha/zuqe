@@ -1,9 +1,6 @@
 use smallvec::SmallVec;
 
-use crate::{
-    branch_hints::unlikely, context::JSContext, error::JSResult, number::IntOrFloat,
-    string::strstart, value::JSValue,
-};
+use crate::{branch_hints::unlikely, context::ContextImpl, number::IntOrFloat};
 
 pub const ATOD_INT_ONLY: i32 = 1 << 0;
 /* accept Oo and Ob prefixes in addition to 0x prefix if radix = 0 */
@@ -34,11 +31,11 @@ pub const fn to_digit(c: u8) -> i32 {
 }
 
 /// parse str to i64
-pub(crate) fn parse_i64(str: &str) -> Option<i64> {
-    let (str, minus) = if str.starts_with('-') {
-        (&str[1..], true)
+pub(crate) fn parse_i64(txt: &str) -> Option<i64> {
+    let (str, minus) = if let Some(s) = txt.strip_prefix('-') {
+        (s, true)
     } else {
-        (str, false)
+        (txt, false)
     };
 
     let len = str.len();
@@ -105,7 +102,7 @@ pub(crate) fn parse_u32(str: &str) -> Option<u32> {
 }
 
 pub unsafe fn js_atof(
-    ctx: &JSContext,
+    ctx: &ContextImpl,
     str: *const u8,
     pp: *mut *const u8,
     mut radix: i32,
@@ -355,4 +352,21 @@ pub unsafe fn js_atof(
 
         _ => unreachable!(),
     }
+}
+
+/// starts_with() equivalent
+unsafe fn strstart(str: *const u8, val: *const u8, ptr: *mut *const u8) -> bool {
+    let mut p = str;
+    let mut q = val;
+    while *q != 0 {
+        if *p != *q {
+            return false;
+        }
+        p = p.offset(1);
+        q = q.offset(1);
+    }
+    if !ptr.is_null() {
+        *ptr = p;
+    }
+    true
 }

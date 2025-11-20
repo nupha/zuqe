@@ -1,9 +1,9 @@
-use crate::{runtime::JSRuntime, value::JSValue};
+use crate::{runtime::RuntimeImpl, value::JSValue};
 
-use super::JSObject;
+use super::ObjectRef;
 
 #[deprecated(note = "unused")]
-pub unsafe fn reset_weak_ref(rt: *mut JSRuntime, p: *mut JSValue) {
+pub unsafe fn reset_weak_ref(rt: *mut RuntimeImpl, p: *mut JSValue) {
     unreachable!("unused")
     // // first pass to remove the records from the WeakMap/WeakSet lists
     // let mut mr = (*p).first_weak_ref;

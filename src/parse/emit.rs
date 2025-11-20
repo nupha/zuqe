@@ -1,5 +1,5 @@
 use crate::{
-    atom::{Atom, AtomTypeHint, consts::*},
+    atom::{Atom, AtomKind},
     bytecode::{OpCode, OpCodeTemp, opcodes},
     class::ClassFieldsDef,
     function::{JSFunctionDef, JSFunctionKindEnum},
@@ -10,7 +10,7 @@ use crate::{
 
 use super::state::JSParseState;
 
-impl<'a> JSFunctionDef<'a> {
+impl JSFunctionDef {
     #[inline(always)]
     pub fn emit_u8(&mut self, val: u8) {
         push_vec_u8(&mut self.byte_code, val);
@@ -28,13 +28,9 @@ impl<'a> JSFunctionDef<'a> {
 
     /// emit an atom.
     /// Note: `atom` will be duplicated inside
-    #[inline]
+    #[inline(always)]
     pub fn emit_atom(&mut self, atom: Atom) {
-        self.emit_u32(if atom.is_const() {
-            atom.id()
-        } else {
-            unsafe { atom.leak() }
-        });
+        self.emit_u32(atom.id());
     }
 
     fn emit_op_u8(&mut self, op: u8, last_line_num: i32) {
@@ -96,7 +92,7 @@ impl<'a> JSFunctionDef<'a> {
                         self.emit_op(OpCode::NIP, last_line_num); // next
                         self.emit_op(OpCode::SWAP, last_line_num);
                         self.emit_op(OpCode::GET_FIELD2, last_line_num);
-                        self.emit_atom(Atom::new_const(JS_ATOM_return));
+                        self.emit_atom(Atom::CONST_return);
 
                         // stack: iter_obj return_func
                         self.emit_op(OpCode::DUP, last_line_num);
@@ -146,7 +142,7 @@ impl<'a> JSFunctionDef<'a> {
             // The error should be raised in the caller context, so we use
             // a specific opcode
             self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR_CHECKTHIS, last_line_num);
-            self.emit_atom(Atom::new_const(JS_ATOM_this));
+            self.emit_atom(Atom::CONST_this);
             self.emit_u16(0);
 
             self.emit_label(label_return, last_line_num);
@@ -203,13 +199,13 @@ impl<'a> JSFunctionDef<'a> {
 
     pub fn emit_push_const(
         &mut self,
-        val: JSValue<'a>,
+        val: JSValue,
         as_atom: bool,
         last_line_num: i32,
     ) -> Result<(), i32> {
-        if let JSValue::String(ss) = &val
+        if let JSValue::String(ss) = val
             && as_atom
-            && let Ok(atom) = Atom::from_string(ss.clone(), AtomTypeHint::String)
+            && let Ok(atom) = Atom::from_string(self.ctx.rt(), ss, AtomKind::String)
             && !atom.is_small_int()
         {
             self.emit_op(OpCode::PUSH_ATOM_VALUE, last_line_num);
@@ -228,7 +224,7 @@ impl<'a> JSFunctionDef<'a> {
     <class_fields_init> can be variable references */
     pub fn emit_class_field_init(&mut self, last_line_num: i32) {
         self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR, last_line_num);
-        self.emit_atom(Atom::new_const(JS_ATOM__class_fields_init_));
+        self.emit_atom(Atom::CONST__class_fields_init_);
         self.emit_u16(self.scope_level as _);
 
         /* no need to call the class field initializer if not defined */
@@ -236,7 +232,7 @@ impl<'a> JSFunctionDef<'a> {
         let label_next = self.emit_goto(OpCode::IF_FALSE, -1, last_line_num);
 
         self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR, last_line_num);
-        self.emit_atom(Atom::new_const(JS_ATOM_this));
+        self.emit_atom(Atom::CONST_this);
         self.emit_u16(0);
 
         self.emit_op(OpCode::SWAP, last_line_num);
@@ -426,7 +422,7 @@ impl<'s> JSParseState<'s> {
 
     /// emit on current function def
     #[inline(always)]
-    pub fn emit_push_const(&mut self, val: JSValue<'s>, as_atom: bool) -> Result<(), i32> {
+    pub fn emit_push_const(&mut self, val: JSValue, as_atom: bool) -> Result<(), i32> {
         let ln = self.last_line_num;
         self.cur_func_mut().emit_push_const(val, as_atom, ln)
     }
@@ -538,10 +534,7 @@ impl<'s> JSParseState<'s> {
         self.emit_op(OpCode::DROP);
     }
 
-    pub(super) fn emit_class_init_start(
-        &mut self,
-        clsdef: &mut ClassFieldsDef<'s>,
-    ) -> Result<(), i32> {
+    pub(super) fn emit_class_init_start(&mut self, clsdef: &mut ClassFieldsDef) -> Result<(), i32> {
         debug_assert!(clsdef.fields_init_fd.is_null());
 
         clsdef.fields_init_fd = Box::into_raw(js_parse_function_class_fields_init(self)?);
@@ -557,11 +550,11 @@ impl<'s> JSParseState<'s> {
             let label_add_brand = self.emit_goto(OpCode::IF_FALSE, -1);
 
             self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-            self.emit_atom(Atom::new_const(JS_ATOM_this));
+            self.emit_atom(Atom::CONST_this);
             self.emit_u16(0);
 
             self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-            self.emit_atom(Atom::new_const(JS_ATOM__home_object_));
+            self.emit_atom(Atom::CONST__home_object_);
             self.emit_u16(0);
 
             self.emit_op(OpCode::ADD_BRAND);
@@ -572,7 +565,7 @@ impl<'s> JSParseState<'s> {
         Ok(())
     }
 
-    pub(super) fn emit_class_init_end(&mut self, clsdef: &ClassFieldsDef<'s>) {
+    pub(super) fn emit_class_init_end(&mut self, clsdef: &ClassFieldsDef) {
         self.cur_func_def = clsdef.fields_init_fd;
         self.emit_op(OpCode::RETURN_UNDEF);
         self.cur_func_def = self.cur_func().parent;

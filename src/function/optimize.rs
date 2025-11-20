@@ -1,11 +1,11 @@
 use crate::{
-    atom::{Atom, AtomRef},
+    atom::Atom,
     bytecode::{OpCode, OpcodeFormat, opcode_info_intermediate, opcodes},
     context::JS_MODE_STRICT,
     function::{JSFunctionDef, Label},
     utils::{
         M2, M3, push_vec_atom, push_vec_short_code, push_vec_short_int, push_vec_u8, push_vec_u16,
-        push_vec_u32, read_from_ptr, write_to_ptr,
+        read_from_ptr, write_to_ptr,
     },
 };
 
@@ -22,7 +22,7 @@ pub(super) struct CodeMatchState {
     pub idx: i32,
     pub label: i32,
     pub val: i32,
-    pub atom: AtomRef,
+    pub atom: Atom,
 }
 
 impl Default for CodeMatchState {
@@ -34,12 +34,12 @@ impl Default for CodeMatchState {
             idx: 0,
             label: 0,
             val: 0,
-            atom: AtomRef::NULL,
+            atom: Atom::NULL,
         }
     }
 }
 
-impl<'a> JSFunctionDef<'a> {
+impl JSFunctionDef {
     /// match in bytecodes for specified `pattern`, starting since `pos`.
     pub(super) fn code_match(&self, mut pos: usize, pattern: &[i32]) -> Option<CodeMatchState> {
         let bc_ptr = self.byte_code.as_ptr();
@@ -129,18 +129,18 @@ impl<'a> JSFunctionDef<'a> {
                         state.val = read_from_ptr::<u16>(bc_ptr.add(pos + 4)) as _;
                     }
                     OpcodeFormat::ATOM => {
-                        state.atom = AtomRef(read_from_ptr::<u32>(bc_ptr.add(pos)));
+                        state.atom = Atom::from_id(read_from_ptr::<u32>(bc_ptr.add(pos)));
                     }
                     OpcodeFormat::ATOM_U8 => {
-                        state.atom = AtomRef(read_from_ptr::<u32>(bc_ptr.add(pos)));
+                        state.atom = Atom::from_id(read_from_ptr::<u32>(bc_ptr.add(pos)));
                         state.val = *bc_ptr.add(pos + 4) as _;
                     }
                     OpcodeFormat::ATOM_U16 => {
-                        state.atom = AtomRef(read_from_ptr::<u32>(bc_ptr.add(pos)));
+                        state.atom = Atom::from_id(read_from_ptr::<u32>(bc_ptr.add(pos)));
                         state.val = read_from_ptr::<u16>(bc_ptr.add(pos + 4)) as _;
                     }
                     OpcodeFormat::ATOM_LABEL_U8 => {
-                        state.atom = AtomRef(read_from_ptr::<u32>(bc_ptr.add(pos)));
+                        state.atom = Atom::from_id(read_from_ptr::<u32>(bc_ptr.add(pos)));
                         state.label = read_from_ptr::<u32>(bc_ptr.add(pos + 4)) as _;
                         state.val = read_from_ptr::<u8>(bc_ptr.add(pos + 8)) as _;
                     }
@@ -235,13 +235,13 @@ impl<'a> JSFunctionDef<'a> {
                         dbuf_putc(&mut bc_out, OP_push_empty_string);
                     } else {
                         push_vec_u8(&mut bc_out, opcodes::OP_push_atom_value);
-                        push_vec_u32(&mut bc_out, cc.atom);
+                        push_vec_atom(&mut bc_out, cc.atom);
                     }
                 }
                 #[cfg(not(feature = "short_opcode"))]
                 {
                     push_vec_u8(bc_out, opcodes::OP_push_atom_value);
-                    push_vec_u32(bc_out, cc.atom.0);
+                    push_vec_atom(bc_out, cc.atom);
                 }
 
                 push_vec_u8(bc_out, opcodes::OP_add_loc);
@@ -400,7 +400,7 @@ impl<'a> JSFunctionDef<'a> {
             self.add_pc2line_info(bc_out.len() as _, *line_num);
             push_vec_u8(bc_out, OpCode::DEC as u8 + (op - OpCode::POST_DEC as u8));
             push_vec_u8(bc_out, cc.op as u8);
-            push_vec_u32(bc_out, cc.atom.0);
+            push_vec_atom(bc_out, cc.atom);
             *pos_next = cc.pos;
             return true;
         }
@@ -541,7 +541,7 @@ pub(super) const fn can_optimize_put_global_ref_value(bc_buf: *const u8, pos: i3
 
 pub(super) fn optimize_scope_make_ref(
     bc: &mut Vec<u8>,
-    bc_buf: *mut u8,
+    bc_orig: *mut u8,
     label: &Label,
     mut pos_next: usize,
     get_op: OpCode,
@@ -556,7 +556,7 @@ pub(super) fn optimize_scope_make_ref(
       OP_scope_make_ref(a), function calls, jumps and gosub.
     */
     /* replace the reference get/put with normal variable accesses */
-    if unsafe { *bc_buf.add(pos_next) } == opcodes::OP_get_ref_value {
+    if unsafe { *bc_orig.add(pos_next) } == opcodes::OP_get_ref_value {
         push_vec_u8(bc, get_op as u8);
         push_vec_u16(bc, var_idx as u16);
         pos_next += 1;
@@ -564,7 +564,7 @@ pub(super) fn optimize_scope_make_ref(
 
     let label_pos = label.pos as usize;
     let mut pos = label_pos - 5;
-    debug_assert_eq!(unsafe { *bc_buf.add(pos) }, opcodes::op_label);
+    debug_assert_eq!(unsafe { *bc_orig.add(pos) }, opcodes::op_label);
 
     /* label points to an instruction pair:
       - insert3 + put_ref_value => dup + put_var_ref
@@ -575,20 +575,20 @@ pub(super) fn optimize_scope_make_ref(
     let end_pos = label_pos + 2;
 
     unsafe {
-        if *bc_buf.add(label_pos) == opcodes::OP_insert3 {
-            *bc_buf.add(pos) = opcodes::OP_dup;
+        if *bc_orig.add(label_pos) == opcodes::OP_insert3 {
+            *bc_orig.add(pos) = opcodes::OP_dup;
             pos += 1;
         }
 
-        *bc_buf.add(pos) = get_op as u8 + 1;
-        write_to_ptr::<u16>(bc_buf.add(pos + 1), var_idx as u16);
+        *bc_orig.add(pos) = get_op as u8 + 1;
+        write_to_ptr::<u16>(bc_orig.add(pos + 1), var_idx as u16);
     }
 
     pos += 3;
     // pad with OP_nop
     while pos < end_pos {
         unsafe {
-            *bc_buf.add(pos) = opcodes::OP_nop;
+            *bc_orig.add(pos) = opcodes::OP_nop;
         }
         pos += 1;
     }
@@ -602,19 +602,19 @@ pub(super) fn optimize_scope_make_global_ref(
     bc_buf: *mut u8,
     label: &Label,
     mut pos_next: u32,
-    var_name: &Atom,
+    var_name: Atom,
 ) -> u32 {
     let is_strict = js_mode & JS_MODE_STRICT as u8 != 0;
     if is_strict {
         push_vec_u8(bc, opcodes::OP_check_var);
-        push_vec_atom(bc, var_name.clone());
+        push_vec_atom(bc, var_name);
     } else {
         // XXX: need 2 extra OP_true if destructuring an array
     }
 
     if unsafe { *bc_buf.add(pos_next as usize) } == opcodes::OP_get_ref_value {
         push_vec_u8(bc, opcodes::OP_get_var);
-        push_vec_atom(bc, var_name.clone());
+        push_vec_atom(bc, var_name);
         pos_next += 1;
     }
 
@@ -649,7 +649,7 @@ pub(super) fn optimize_scope_make_global_ref(
         } else {
             opcodes::OP_put_var
         };
-        write_to_ptr::<u32>(bc_buf.add(pos + 1), var_name.clone().leak());
+        write_to_ptr::<u32>(bc_buf.add(pos + 1), var_name.id());
     }
     pos += 5;
 

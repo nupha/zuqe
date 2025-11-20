@@ -1,8 +1,8 @@
 use crate::{
     JS_CFUNC_NATIVE_DEF,
-    atom::consts::{JS_ATOM_proxy, JS_ATOM_revoke},
+    atom::Atom,
     callable::NativeFunctionWithData,
-    context::JSContext,
+    context::ContextRef,
     error::JSResult,
     function::{CallContext, FieldDef},
     object::{JS_PROP_C_W_E, ObjectPayload},
@@ -10,7 +10,7 @@ use crate::{
     value::JSValue,
 };
 
-pub fn js_proxy_constructor<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+pub fn js_proxy_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
     let Some(target) = cc.arg(0).as_object() else {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
@@ -21,7 +21,7 @@ pub fn js_proxy_constructor<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) ->
         return Err(-1);
     };
 
-    let obj = ctx
+    let mut obj = ctx
         .create_object_with_proto(
             None,
             ObjectPayload::PROXY(ProxyPayload::new(target.clone(), handler.clone().into())),
@@ -33,13 +33,13 @@ pub fn js_proxy_constructor<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) ->
     Ok(obj.into())
 }
 
-fn js_proxy_revocable<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let cc2 = unsafe { CallContext::new_simple(ctx, JSValue::UNDEFINED, cc.arguments()) };
+fn js_proxy_revocable(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let cc2 = CallContext::new_simple(ctx, JSValue::UNDEFINED, cc.arguments());
     let proxy_obj = js_proxy_constructor(ctx, cc2)?;
 
     // create revoke function
     let revoke_obj = NativeFunctionWithData::create(
-        ctx,
+        &ctx,
         |_, mut cc| -> JSResult {
             if let Some(p) = cc.data(0).as_object_Proxy() {
                 p.payload().set_revoked();
@@ -53,9 +53,9 @@ fn js_proxy_revocable<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSRes
         [proxy_obj.clone()].into(),
     )?;
 
-    let obj = ctx.create_base_object()?;
-    obj.define_property_value(ctx, &JS_ATOM_proxy, proxy_obj, JS_PROP_C_W_E)?;
-    obj.define_property_value(ctx, &JS_ATOM_revoke, revoke_obj.into(), JS_PROP_C_W_E)?;
+    let mut obj = ctx.create_base_object()?;
+    obj.define_property_value(&ctx, Atom::CONST_proxy, proxy_obj, JS_PROP_C_W_E)?;
+    obj.define_property_value(&ctx, Atom::CONST_revoke, revoke_obj.into(), JS_PROP_C_W_E)?;
 
     Ok(obj.into())
 }

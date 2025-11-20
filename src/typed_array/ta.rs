@@ -1,7 +1,6 @@
-use std::{
-    cell::{Cell, UnsafeCell},
-    ops::Deref,
-};
+use std::cell::UnsafeCell;
+
+use gc_lite::{Collect, GcRef, GcWeak};
 
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ARRAY_BUFFER, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
@@ -9,18 +8,15 @@ use crate::{
     JS_CLASS_INT32_ARRAY, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8_ARRAY,
     JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
     array_buffer::ArrayBuffer,
-    atom::{
-        AtomRef,
-        consts::{JS_ATOM_Symbol_iterator, JS_ATOM_Uint8ClampedArray, JS_ATOM_toString},
-    },
+    atom::Atom,
     class::ClassID,
-    context::JSContext,
+    context::{ContextImpl, ContextRef},
     error::JS_ThrowTypeErrorDetachedArrayBuffer,
     function::NativeFunctionType,
     iterator::js_array_from_iterator,
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, JSObject, JSObjectWeakref, ObjectPayload},
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, ObjectImpl, ObjectPayload, ObjectRef},
     object_cast,
-    runtime::JSRuntime,
+    runtime::RuntimeImpl,
     value::JSValue,
 };
 
@@ -33,27 +29,34 @@ pub const JS_TYPED_ARRAY_COUNT: usize =
     JS_CLASS_FLOAT64_ARRAY as usize - JS_CLASS_UINT8C_ARRAY as usize + 1;
 
 #[derive(Debug)]
-pub struct TypedArrayPayload<'a> {
+pub struct TypedArrayPayload {
     /// underlaying array buffer object.
-    pub(super) buffer: ArrayBuffer<'a>,
+    pub(super) buffer: ArrayBuffer,
 
-    /// start offset in array buffer  
+    /// start offset in array buffer
     pub(super) offset: u32,
     /// number of bytes from array buffer
     pub(super) byte_length: u32,
     /// number of elements in typed array
-    pub(super) count: Cell<u32>,
+    count: u32,
 
     /// back reference to the TypedArray/DataView object.
     #[deprecated(note = "seems no use")]
-    obj: UnsafeCell<JSObjectWeakref<'a>>,
+    obj: UnsafeCell<GcWeak<ObjectImpl>>,
 }
 
-impl<'a> TypedArrayPayload<'a> {
+unsafe impl Collect for TypedArrayPayload {
+    #[inline(always)]
+    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+        self.buffer.trace(tracer);
+    }
+}
+
+impl TypedArrayPayload {
     /// create typed array payload with underlying array buffer `buffer`,
     /// offset in array buffer and type array element count.
     fn new(
-        buffer: ArrayBuffer<'a>,
+        buffer: ArrayBuffer,
         class_id: ClassID,
         offset: usize,
         count: usize,
@@ -79,19 +82,19 @@ impl<'a> TypedArrayPayload<'a> {
         debug_assert!(offset + (count << size_log2) <= byte_length);
 
         let ta = Self {
-            obj: UnsafeCell::new(JSObjectWeakref::default()), // empty weakref
             buffer,
             offset: offset as u32,
             byte_length: (count as u32) << size_log2,
-            count: Cell::new(count as u32),
+            count: count as u32,
+            obj: UnsafeCell::new(GcWeak::default()), // empty weakref
         };
         Ok(ta)
     }
 
     /// get underlaying array buffer object.
     #[inline(always)]
-    pub const fn array_buffer(&self) -> &ArrayBuffer<'a> {
-        &self.buffer
+    pub const fn array_buffer(&self) -> ArrayBuffer {
+        self.buffer
     }
 
     /// check if `self` TypedArray is detached.
@@ -107,18 +110,12 @@ impl<'a> TypedArrayPayload<'a> {
 
     #[inline(always)]
     pub const fn count(&self) -> usize {
-        self.count.get() as _
+        self.count as _
     }
 
     #[inline(always)]
-    pub fn set_count(&self, n: usize) {
-        self.count.set(n as _);
-    }
-
-    pub(super) fn set_obj(&self, obj: &JSObject<'a>) {
-        unsafe {
-            *self.obj.get() = obj.downgrade();
-        }
+    pub const fn set_count(&mut self, n: usize) {
+        self.count = n as _;
     }
 
     /// run closure with underlaying bytes of typed array.
@@ -131,18 +128,18 @@ impl<'a> TypedArrayPayload<'a> {
     }
 
     /// run closure with underlaying bytes of typed array.
-    pub(super) fn with_bytes_mut<R>(&self, f: impl FnOnce(&mut [u8]) -> R) -> R {
+    pub(super) fn with_bytes_mut<R>(&mut self, f: impl FnOnce(&mut [u8]) -> R) -> R {
         let base = self.offset as usize;
         let len = self.byte_length as usize;
         self.array_buffer()
-            .payload()
+            .payload_mut()
             .with_bytes_mut(|buf| f(&mut buf[base..base + len]))
     }
 }
 
 #[repr(transparent)]
-#[derive(Debug, Clone)]
-pub struct TypedArray<'a>(JSObject<'a>);
+#[derive(Debug, Clone, Copy)]
+pub struct TypedArray(GcRef<ObjectImpl>);
 
 object_cast!(
     TypedArray,
@@ -159,7 +156,7 @@ object_cast!(
         | JS_CLASS_FLOAT64_ARRAY
 );
 
-impl<'a> TypedArray<'a> {
+impl TypedArray {
     /// log2 size for each class_id
     const TYPED_ARRAY_SIZE_LOG2: [u8; JS_TYPED_ARRAY_COUNT] = [
         0, // JS_CLASS_UINT8C_ARRAY
@@ -185,100 +182,97 @@ impl<'a> TypedArray<'a> {
         Self::TYPED_ARRAY_SIZE_LOG2[(class_id - JS_CLASS_UINT8C_ARRAY) as usize]
     }
 
-    pub fn class_initialize<'b>(
-        ctx: &JSContext<'b>,
+    pub fn class_initialize(
+        mut ctx: ContextRef,
         class_id: ClassID,
-    ) -> Result<Option<JSObject<'b>>, i32> {
+    ) -> Result<Option<ObjectRef>, i32> {
         debug_assert!(matches!(
             class_id,
             JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY
         ));
 
-        let ta_proto = ctx.create_base_object().unwrap();
-        ta_proto.install_field_defs(ctx, &js_typed_array_base_proto_funcs)?;
+        let mut proto = ctx.create_base_object().unwrap();
+        proto.install_field_defs(&ctx, &js_typed_array_base_proto_funcs)?;
 
         // TypedArray.prototype.toString must be the same object as Array.prototype.toString
         let to_string = ctx
             .class_proto(JS_CLASS_ARRAY)
             .unwrap()
-            .get_property(ctx, &JS_ATOM_toString)?;
+            .get_property(&ctx, Atom::CONST_toString)?;
 
         // XXX: should use alias method in JSCFunctionListEntry
-        ta_proto.define_property_value(
-            ctx,
-            &JS_ATOM_toString,
+        proto.define_property_value(
+            &ctx,
+            Atom::CONST_toString,
             to_string,
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
         )?;
 
-        let typed_array_base_func = ctx.create_native_function(
+        let mut typed_array_base_func = ctx.create_native_function(
             NativeFunctionType::Func(js_typed_array_base_constructor),
             "TypedArray",
             0,
             0,
         )?;
         typed_array_base_func
-            .install_field_defs(ctx, &js_typed_array_base_funcs)
+            .install_field_defs(&ctx, &js_typed_array_base_funcs)
             .unwrap();
 
-        ctx.bind_ctor_proto(
-            &typed_array_base_func.clone().into(),
-            &ta_proto.clone().into(),
-        )
-        .unwrap();
+        ctx.bind_ctor_proto(typed_array_base_func.into(), proto.into())
+            .unwrap();
 
         // make proto for variant typed array classes
         for cid in JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY {
             let nby = 1 << TypedArray::SIZE_LOG2(cid);
-            let name =
-                AtomRef(JS_ATOM_Uint8ClampedArray.id() + (cid - JS_CLASS_UINT8C_ARRAY) as u32)
-                    .to_utf8();
+            let name = Atom::from_id(
+                Atom::CONST_Uint8ClampedArray.id() + (cid - JS_CLASS_UINT8C_ARRAY) as u32,
+            )
+            .to_utf8();
 
-            let ta_obj = ctx.create_base_object_with_proto(Some(ta_proto.clone()))?;
-            ta_obj.define_property_value_str(ctx, "BYTES_PER_ELEMENT", JSValue::Int(nby), 0)?;
+            let mut ta_obj = ctx.create_base_object_with_proto(Some(proto))?;
+            ta_obj.define_property_value_str(&ctx, "BYTES_PER_ELEMENT", JSValue::Int(nby), 0)?;
 
-            let func_obj: JSValue = ctx
+            let mut func_obj: JSValue = ctx
                 .create_native_function_with_proto(
                     NativeFunctionType::Constructor(js_typed_array_constructor),
                     &name,
                     3,
                     cid as i16, // magic
-                    Some(typed_array_base_func.clone()),
+                    Some(typed_array_base_func),
                 )?
                 .into();
 
-            ctx.add_global_constructor(name.as_ref(), &func_obj, &ta_obj.clone().into());
-            func_obj.define_property_value_str(ctx, "BYTES_PER_ELEMENT", JSValue::Int(nby), 0)?;
+            ctx.add_global_constructor(name.as_ref(), func_obj, ta_obj.into());
+            func_obj.define_property_value_str(&ctx, "BYTES_PER_ELEMENT", JSValue::Int(nby), 0)?;
 
-            ctx.0.borrow_mut().class_proto[cid as usize] = ta_obj.into();
+            ctx.class_proto[cid as usize] = ta_obj.into();
         }
 
         Ok(None)
     }
 
-    pub fn class_finalize(rt: &mut JSRuntime, isa: &ObjectPayload, id: usize) {
+    pub fn class_finalize(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize) {
         if let Some(ta) = isa.typed_array() {
             // during the GC the finalizers are called in an arbitrary
             // order so the ArrayBuffer finalize may have been called
-            ta.array_buffer().payload().remove_typed_array_weakref(id);
+            ta.array_buffer()
+                .payload_mut()
+                .remove_typed_array_weakref(rt, id);
         }
     }
 
-    pub fn payload(&self) -> &TypedArrayPayload<'a> {
-        self.0.payload().typed_array().unwrap()
+    #[inline(always)]
+    pub fn payload(&self) -> &TypedArrayPayload {
+        unsafe { self.0.as_ref().payload().typed_array().unwrap() }
     }
 
-    /// run closure with typed array data.
-    pub(super) fn with<R>(&self, f: impl FnOnce(&TypedArrayPayload) -> R) -> R {
-        self.0
-            .payload()
-            .typed_array()
-            .map(|x| f(x.deref()))
-            .unwrap()
+    #[inline(always)]
+    pub fn payload_mut(&mut self) -> &mut TypedArrayPayload {
+        unsafe { self.0.as_mut().payload_mut().typed_array_mut().unwrap() }
     }
 
     /// check if the TypedArray is detached.
-    #[inline]
+    #[inline(always)]
     pub fn is_detached(&self) -> bool {
         self.payload().is_detached()
     }
@@ -316,7 +310,8 @@ impl<'a> TypedArray<'a> {
     }
 
     /// get underlying array buffer object.
-    pub fn array_buffer(&self) -> &ArrayBuffer<'a> {
+    #[inline(always)]
+    pub fn array_buffer(&self) -> ArrayBuffer {
         self.payload().array_buffer()
     }
 
@@ -338,12 +333,12 @@ impl<'a> TypedArray<'a> {
 
     /// run closure with underlaying bytes of typed array
     #[inline(always)]
-    pub fn with_bytes_mut<R>(&self, f: impl FnOnce(&mut [u8]) -> R) -> R {
-        self.payload().with_bytes_mut(f)
+    pub fn with_bytes_mut<R>(&mut self, f: impl FnOnce(&mut [u8]) -> R) -> R {
+        self.payload_mut().with_bytes_mut(f)
     }
 
     /// if nth is out of range, return Err(-1)
-    pub(crate) fn set_element_int(&self, nth: usize, val: i32) -> Result<(), i32> {
+    pub(crate) fn set_element_int(&mut self, nth: usize, val: i32) -> Result<(), i32> {
         if nth < self.length() {
             let cid = self.class_id();
             self.with_bytes_mut(|buf| match cid {
@@ -375,7 +370,7 @@ impl<'a> TypedArray<'a> {
     }
 
     /// if nth is out of range, returns Err(-1)
-    pub(crate) fn set_element_float(&self, nth: usize, val: f64) -> Result<(), i32> {
+    pub(crate) fn set_element_float(&mut self, nth: usize, val: f64) -> Result<(), i32> {
         if nth < self.length() {
             let cid = self.class_id();
             self.with_bytes_mut(|buf| match cid {
@@ -403,8 +398,8 @@ impl<'a> TypedArray<'a> {
     /// create a new TypedArray with content copied from `self` typed array.
     pub fn create_to_new(
         &self,
-        ctx: &JSContext<'a>,
-        new_target: &JSValue<'a>,
+        ctx: &ContextImpl,
+        new_target: JSValue,
         class_id: ClassID,
     ) -> Result<Self, i32> {
         if self.is_detached() {
@@ -423,27 +418,26 @@ impl<'a> TypedArray<'a> {
         }
 
         // create an empty typed array with count capacity.
-        let new_ta = Self::create_from(ctx, new_target, new_buf.into(), 0, count, class_id)?;
+        let mut new_ta = Self::create_from(ctx, new_target, new_buf.into(), 0, count, class_id)?;
 
         // copy data from src_ta to new_ta
         if Self::SIZE_LOG2(self.class_id()) == size_log2 {
             // fast path for same element size: copy bytes
-            self.with(|src_ta| {
-                src_ta.with_bytes(|src| {
-                    new_ta.with_bytes_mut(|dst| unsafe {
-                        std::ptr::copy_nonoverlapping(
-                            src.as_ptr(),
-                            dst.as_mut_ptr(),
-                            count << size_log2,
-                        );
-                    });
+            let src_ta = self.payload();
+            src_ta.with_bytes(|src| {
+                new_ta.with_bytes_mut(|dst| unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        src.as_ptr(),
+                        dst.as_mut_ptr(),
+                        count << size_log2,
+                    );
                 });
             });
         } else {
             // slow path: get then set as props
             for i in 0..count {
-                let val = self.0.get_property_u32(ctx, i as u32)?;
-                new_ta.0.set_property_u32(ctx, i as u32, val)?;
+                let val = self.get_property_u32(ctx, i as u32)?;
+                new_ta.set_property_u32(ctx, i as u32, val)?;
             }
         }
 
@@ -453,9 +447,9 @@ impl<'a> TypedArray<'a> {
     /// create an TypedArray with array buffer, offset and count.
     /// `count`: number of elements.
     fn create(
-        ctx: &JSContext<'a>,
-        new_target: &JSValue<'a>,
-        array_buffer: ArrayBuffer<'a>,
+        ctx: &ContextImpl,
+        new_target: JSValue,
+        array_buffer: ArrayBuffer,
         offset: usize,
         count: usize,
         class_id: ClassID,
@@ -501,23 +495,20 @@ impl<'a> TypedArray<'a> {
             let p = ta.payload().typed_array().unwrap();
             let w = ta.downgrade();
 
-            p.array_buffer()
-                .payload()
-                .add_typed_array_weakref(w.clone());
-
+            p.array_buffer().payload_mut().add_typed_array_weakref(w);
             unsafe {
                 *p.obj.get() = w;
             }
         }
 
-        Ok(TypedArray(ta))
+        Ok(TypedArray(ta.0))
     }
 
     /// create an TypedArray with empty array buffer.
     /// `count`: number of elements
     pub fn with_capacity(
-        ctx: &JSContext<'a>,
-        new_target: &JSValue<'a>,
+        ctx: &ContextImpl,
+        new_target: JSValue,
         count: usize,
         class_id: ClassID,
     ) -> Result<Self, i32> {
@@ -536,9 +527,9 @@ impl<'a> TypedArray<'a> {
     /// - ArrayBuffer, SharedArrayBuffer: create a TypedArray with array buffer;
     /// - An enumerable object: create a TypedArray with content from enumerated index property vals.
     pub(crate) fn create_from(
-        ctx: &JSContext<'a>,
-        new_target: &JSValue<'a>,
-        source: JSValue<'a>,
+        ctx: &ContextImpl,
+        new_target: JSValue,
+        source: JSValue,
         offset: usize,
         length: usize,
         class_id: ClassID,
@@ -549,23 +540,23 @@ impl<'a> TypedArray<'a> {
             JSValue::Object(o) => {
                 match o.class_id() {
                     JS_CLASS_ARRAY_BUFFER | JS_CLASS_SHARED_ARRAY_BUFFER => {
-                        Self::create(ctx, new_target, ArrayBuffer(o), offset, length, class_id)
+                        Self::create(ctx, new_target, ArrayBuffer(o.0), offset, length, class_id)
                     }
                     JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY => {
-                        Self(o).create_to_new(ctx, new_target, class_id)
+                        Self(o.0).create_to_new(ctx, new_target, class_id)
                     }
                     _ => {
                         // source is an enumetable object.
                         // get property from source object and set to new array.
-                        let iter_method = o.get_property(ctx, &JS_ATOM_Symbol_iterator)?;
+                        let iter_method = o.get_property(ctx, Atom::CONST_Symbol_iterator)?;
                         let (enum_obj, count) = if !iter_method.is_undefined_or_null() {
-                            js_array_from_iterator(ctx, &o.clone().into(), &iter_method)?
+                            js_array_from_iterator(ctx, o.into(), iter_method)?
                         } else {
                             let len = o.get_length_prop(ctx)? as usize;
                             (o.into(), len)
                         };
 
-                        let new_ta = Self::create(
+                        let mut new_ta = Self::create(
                             ctx,
                             new_target,
                             ArrayBuffer::create(ctx, false, count << size_log2)?,
@@ -588,6 +579,7 @@ impl<'a> TypedArray<'a> {
     }
 }
 
+#[deprecated]
 pub fn js_typed_array_mark(val: JSValue) {
     let p = unsafe { val.as_object_unchecked() };
     if p.payload().typed_array().is_some() {

@@ -2,100 +2,357 @@ use std::{
     collections::{HashMap, hash_map::Entry},
     ffi::CStr,
     num::NonZeroU16,
-    rc::Rc,
 };
 
 use crate::{
-    atom::{Atom, JS_ATOM_HASH_PRIVATE, JS_ATOM_HASH_SYMBOL, JS_ATOM_TAG_INT, is_const_atom},
+    atom::{is_const_atom, is_small_int_atom},
     number::parse_u32,
     resource::LocalResource,
-    runtime::JSRuntime,
-    string::{JSString, JSStringInner, StringContent},
+    runtime::{RuntimeImpl, RuntimeRef},
+    string::{StringData, StringRef},
     utils::hash_u32_from_base,
 };
 
 use super::{
-    AtomHintAndId, AtomRef, AtomTypeHint, JS_ATOM_MAX_INT,
-    consts::{
-        JS_ATOM_INIT_COUNT, JS_ATOM_Private_brand, JS_ATOM_Symbol_toPrimitive,
-        JS_DEFAULT_ATOMS_TEXT,
-    },
+    ATOM_CONST_CAPTIONS, ATOM_CONST_COUNT, Atom, AtomDesc, AtomInfo, AtomKind,
+    JS_ATOM_HASH_PRIVATE, JS_ATOM_HASH_SYMBOL, JS_ATOM_MAX_INT, JS_ATOM_TAG_INT,
 };
 
-/// The thread global atom registry
 pub(crate) struct AtomRegistry {
     /// const atom description slots list.
-    /// index 0 is reserved for unused;
-    /// staring from index 1 is for atom 1; index 2 is for atom 2, ...
-    const_atom_slots: Vec<JSString<'static>>,
+    /// index #0 is reserved but unused;
+    /// staring from index 1, #1 is for atom 1; #2 is for atom 2; ...
+    const_atoms: Vec<AtomDesc>,
 
-    /// atom description slots list, null indicates the slot is unused.
-    /// index 0 is reserved for unused;
-    /// staring from index 1 is for atom 1; index 2 is for atom 2, ...
-    atom_slots: Vec<*mut JSStringInner<'static>>,
+    /// list of user atom description. None means the slot is unused.
+    user_atoms: Vec<Option<AtomDesc>>,
 
-    /// JSString hash to atom vec dict.
-    /// Value is list of atom indecies because JSString hash may have collison.
+    /// StringImpl hash to atom vec dict.
+    /// Value is list of atom indecies because StringImpl hash may have collison.
     atom_hash_lut: HashMap<u32, Vec<NonZeroU16>>,
 }
 
 impl Drop for AtomRegistry {
     fn drop(&mut self) {
-        // clear ups
         self.clear_user_atoms();
         self.clear_const_atoms();
         self.atom_hash_lut.clear();
     }
 }
 
-/// build const atoms list and hash lut
-fn load_const_atoms() -> (Vec<JSString<'static>>, HashMap<u32, Vec<NonZeroU16>>) {
-    let mut lst = Vec::<JSString>::with_capacity(JS_ATOM_INIT_COUNT as usize + 1);
-    let mut lut = HashMap::<u32, Vec<NonZeroU16>>::with_capacity(JS_ATOM_INIT_COUNT as usize);
+impl AtomRegistry {
+    /// create atom registry, setup with const atoms.
+    pub(crate) fn new() -> Self {
+        let (consts, lut) = load_const_atoms();
+        AtomRegistry {
+            const_atoms: consts,
+            user_atoms: Vec::with_capacity(128),
+            atom_hash_lut: lut,
+        }
+    }
 
-    // slot #0 is unused
-    lst.push(JSString::from_static("<unused>"));
+    /// register a user atom with string desciption.
+    /// (in case of creating an anonymous symbol, desc should be an ident-type-string)
+    /// Same `str` will return the matched existing atom.
+    fn register_internal(
+        &mut self,
+        rt: RuntimeRef,
+        str: StringRef,
+        mut atom_kind: AtomKind,
+    ) -> Result<Atom, i32> {
+        // match for existing atoms, don't register twice for same content.
+        let (mut atom_str, hash): (StringRef, u32) = match atom_kind {
+            AtomKind::String | AtomKind::GlobalSymbol => {
+                debug_assert!(!str.content().is_ident());
 
-    let mut p = JS_DEFAULT_ATOMS_TEXT.as_ptr();
+                let ss = if let Some(at) = str.atom_info() {
+                    // already registerd as atom
+                    if at.kind() == atom_kind
+                        && (is_const_atom(at.id()) || str.rt().is_some_and(|r| r == rt))
+                    {
+                        return Ok(Atom(at.id()));
+                    }
 
-    for i in 1..JS_ATOM_INIT_COUNT {
-        let cstr = unsafe { CStr::from_ptr(p.cast()) };
-        let atom_desc = JSString::from_static(cstr.to_str().unwrap());
+                    // make new string with same content under given runtime,
+                    // without atom info
+                    str.copy_to_new(rt)?
+                } else {
+                    str
+                };
 
-        let mut atom_type = if i == JS_ATOM_Private_brand.0 {
-            AtomTypeHint::Private
-        } else if i >= JS_ATOM_Symbol_toPrimitive.0 {
-            AtomTypeHint::Symbol
-        } else {
-            AtomTypeHint::String
-        };
+                let hash = Atom::calc_atom_hash(ss.content(), atom_kind);
 
-        let hash: u32;
-        match atom_type {
-            AtomTypeHint::String | AtomTypeHint::GlobalSymbol => {
-                hash = Atom::calc_atom_hash(atom_desc.content(), atom_type);
-                atom_desc.set_hash(hash);
+                // match registered atoms for hash, type and content
+                match self.atom_hash_lut.entry(hash) {
+                    Entry::Vacant(kv) => {
+                        kv.insert(Vec::with_capacity(1)); // prepare new entry for hash
+                    }
+                    Entry::Occupied(kv) => {
+                        for aid in kv.get() {
+                            let id = aid.get() as u32;
+                            if is_const_atom(id) {
+                                if self.const_atoms[id as usize].atom_info().kind() == atom_kind {
+                                    return Ok(Atom(id));
+                                }
+                            } else {
+                                let d = self.user_atoms[id as usize - ATOM_CONST_COUNT as usize]
+                                    .as_ref()
+                                    .unwrap();
+                                let at = d.str.atom_info().unwrap();
+                                if at.kind() == atom_kind
+                                    && d.str == ss
+                                    && d.str.rt().unwrap() == rt
+                                {
+                                    // found existing atom, reuse it.
+                                    return Ok(Atom(at.id()));
+                                }
+                            }
+                        }
+                    }
+                }
+
+                (ss, hash)
             }
-            AtomTypeHint::Symbol | AtomTypeHint::Private => {
-                hash = if atom_type == AtomTypeHint::Symbol {
+            AtomKind::Symbol | AtomKind::Private => {
+                // these atom types are distinct, even they have same string content.
+                let ss = if str.content().is_ident() {
+                    debug_assert_eq!(
+                        atom_kind,
+                        AtomKind::Symbol,
+                        "ident string type is only for anonymous symbol"
+                    );
+                    str
+                } else if str.atom_info().is_some() {
+                    // clone content as a new jsstring
+                    str.copy_to_new(rt)?
+                } else {
+                    str
+                };
+
+                let hash = if atom_kind == AtomKind::Symbol {
                     JS_ATOM_HASH_SYMBOL
                 } else {
-                    atom_type = AtomTypeHint::Symbol;
+                    atom_kind = AtomKind::Symbol;
                     JS_ATOM_HASH_PRIVATE
                 };
-                atom_desc.set_hash(hash);
+
+                (ss, hash)
             }
         };
 
-        let id = NonZeroU16::new(lst.len() as u16).unwrap();
-        atom_desc.set_atom_type(match atom_type {
-            AtomTypeHint::String => AtomHintAndId::String(id),
-            AtomTypeHint::GlobalSymbol => AtomHintAndId::GlobalSymbol(id),
-            AtomTypeHint::Symbol => AtomHintAndId::Symbol(id),
-            AtomTypeHint::Private => AtomHintAndId::Private(id),
-        });
+        if atom_str.rt().is_none() {
+            atom_str = atom_str.copy_to_new(rt)?
+        }
 
-        lst.push(atom_desc);
+        if self.atom_hash_lut.len() == self.atom_hash_lut.capacity() {
+            self.atom_hash_lut.try_reserve(16).map_err(|_| -1)?;
+        }
+
+        // find a free slot
+        let (idx, atom_id) = if let Some(i) = self.user_atoms.iter().position(|p| p.is_none()) {
+            (
+                Some(i),
+                NonZeroU16::new(i as u16 + ATOM_CONST_COUNT as u16).unwrap(),
+            )
+        } else {
+            if self.user_atoms.len() == self.user_atoms.capacity() {
+                self.user_atoms.try_reserve(16).map_err(|_| -1)?;
+            }
+            (
+                None,
+                NonZeroU16::new(self.user_atoms.len() as u16 + ATOM_CONST_COUNT as u16).unwrap(),
+            )
+        };
+
+        match self.atom_hash_lut.entry(hash) {
+            Entry::Vacant(kv) => {
+                kv.insert(vec![atom_id]);
+            }
+            Entry::Occupied(kv) => {
+                kv.into_mut().push(atom_id);
+            }
+        }
+
+        atom_str.set_atom_info(AtomInfo::new(atom_id, atom_kind, hash));
+
+        let d = AtomDesc { str: atom_str };
+
+        if let Some(i) = idx {
+            debug_assert_eq!(i, atom_id.get() as usize - ATOM_CONST_COUNT as usize);
+            debug_assert!(self.user_atoms[i].is_none(), "atom slot {i} is in use");
+            self.user_atoms[i].replace(d);
+        } else {
+            self.user_atoms.push(Some(d));
+            debug_assert_eq!(
+                self.user_atoms.len() - 1,
+                atom_id.get() as usize - ATOM_CONST_COUNT as usize
+            );
+        }
+
+        Ok(Atom(atom_id.get() as u32))
+    }
+
+    /// register a user atom with description.
+    ///
+    /// Safety: will panic if no runtime is initialized
+    fn register(rt: RuntimeRef, str: StringRef, kind: AtomKind) -> Result<Atom, i32> {
+        LocalResource::with_atoms_mut(|reg| reg.register_internal(rt, str, kind))
+    }
+
+    /// unregister an atom by id
+    /// this is called when the corresponding string is being dropped
+    fn unregister_internal(&mut self, atom_id: u32) {
+        debug_assert!(!is_const_atom(atom_id) && !is_small_int_atom(atom_id));
+
+        if let Some(slot) = self
+            .user_atoms
+            .get_mut(atom_id as usize - ATOM_CONST_COUNT as usize)
+            && let Some(desc) = slot.take()
+        {
+            // remove from hash lookup table
+            let hash = desc.atom_info().hash();
+            if let Some(mut ids) = self.atom_hash_lut.remove(&hash)
+                && let Some(pos) = ids.iter().position(|x| x.get() == atom_id as u16)
+            {
+                ids.swap_remove(pos);
+                if !ids.is_empty() {
+                    self.atom_hash_lut.insert(hash, ids);
+                }
+            }
+        }
+    }
+
+    pub fn unregister(id: u32) {
+        LocalResource::with_atoms_mut(|reg| {
+            reg.unregister_internal(id);
+        });
+    }
+
+    /// run closure with atom description suggested by atom id.
+    /// returns None if atom id was not found.
+    #[inline(always)]
+    pub(super) fn with_desc<R>(atom_id: u32, f: impl FnOnce(&AtomDesc) -> R) -> Option<R> {
+        LocalResource::with_atoms(|reg| reg.with_desc_internal(atom_id, f))
+    }
+
+    fn with_desc_internal<R>(&self, atom_id: u32, f: impl FnOnce(&AtomDesc) -> R) -> Option<R> {
+        debug_assert!(atom_id != 0 && !is_small_int_atom(atom_id));
+
+        if is_const_atom(atom_id) {
+            // const atom
+            Some(f(&self.const_atoms[atom_id as usize]))
+        } else {
+            // user atom
+            if let Some(Some(d)) = self
+                .user_atoms
+                .get(atom_id as usize - ATOM_CONST_COUNT as usize)
+            {
+                Some(f(d))
+            } else {
+                None
+            }
+        }
+    }
+
+    #[inline]
+    pub(super) fn with_string<R>(atom_id: u32, f: impl FnOnce(&StringRef) -> R) -> Option<R> {
+        debug_assert!(atom_id != 0);
+        debug_assert!(!is_small_int_atom(atom_id));
+        LocalResource::with_atoms(|reg| reg.with_desc_internal(atom_id, |d| f(&d.str)))
+    }
+
+    /// find atom desc by str and type
+    fn find_by_str_internal(&self, str: &str, atom_kind: AtomKind) -> Option<AtomDesc> {
+        self.atom_hash_lut
+            .get(&calc_atom_hash_str(str, atom_kind))
+            .and_then(|ids| {
+                ids.iter().find_map(|id| {
+                    let id = id.get() as u32;
+                    if id < ATOM_CONST_COUNT {
+                        // const atom
+                        Some(self.const_atoms[id as usize].clone())
+                    } else {
+                        // user atom
+                        let d = self
+                            .user_atoms
+                            .get(id as usize - ATOM_CONST_COUNT as usize)
+                            .cloned()
+                            .flatten()
+                            .unwrap();
+
+                        if d.atom_info().kind() == atom_kind && d.str.content().eq_str(str) {
+                            Some(d)
+                        } else {
+                            None
+                        }
+                    }
+                })
+            })
+    }
+
+    /// clear all const atoms
+    pub(crate) fn clear_const_atoms(&mut self) {
+        self.const_atoms.clear();
+    }
+
+    /// clear all user atoms
+    pub(crate) fn clear_user_atoms(&mut self) {
+        self.user_atoms.clear();
+
+        // purge lut to contain only const atoms
+        let mut remove = Vec::<u32>::with_capacity(self.atom_hash_lut.len());
+        for (k, ids) in self.atom_hash_lut.iter_mut() {
+            ids.retain(|x| x.get() < ATOM_CONST_COUNT as u16);
+            if ids.is_empty() {
+                remove.push(*k);
+            }
+        }
+        for k in remove {
+            self.atom_hash_lut.remove(&k);
+        }
+    }
+}
+
+/// build const atoms list and hash lut
+fn load_const_atoms() -> (Vec<AtomDesc>, HashMap<u32, Vec<NonZeroU16>>) {
+    let mut lst = Vec::<AtomDesc>::with_capacity(ATOM_CONST_COUNT as usize + 1);
+    let mut lut = HashMap::<u32, Vec<NonZeroU16>>::with_capacity(ATOM_CONST_COUNT as usize);
+
+    // slot #0 is unused
+    lst.push(AtomDesc {
+        str: StringRef::from_static(None, "", None).unwrap(),
+    });
+
+    let mut p = ATOM_CONST_CAPTIONS.as_ptr();
+
+    for i in 1..ATOM_CONST_COUNT {
+        let mut atom_kind = if i == Atom::CONST_Private_brand.id() {
+            AtomKind::Private
+        } else if i >= Atom::CONST_Symbol_toPrimitive.id() {
+            AtomKind::Symbol
+        } else {
+            AtomKind::String
+        };
+
+        let cstr = unsafe { CStr::from_ptr(p.cast()) };
+        let str = cstr.to_str().unwrap();
+        let hash: u32 = match atom_kind {
+            AtomKind::String | AtomKind::GlobalSymbol => Atom::calc_atom_str_hash(str, atom_kind),
+            AtomKind::Symbol | AtomKind::Private => {
+                if atom_kind == AtomKind::Symbol {
+                    JS_ATOM_HASH_SYMBOL
+                } else {
+                    atom_kind = AtomKind::Symbol;
+                    JS_ATOM_HASH_PRIVATE
+                }
+            }
+        };
+
+        let id = unsafe { NonZeroU16::new_unchecked(lst.len() as u16) };
+
+        let str =
+            StringRef::from_static(None, str, Some(AtomInfo::new(id, atom_kind, hash))).unwrap();
+        lst.push(AtomDesc { str });
 
         match lut.entry(hash) {
             Entry::Vacant(kv) => {
@@ -112,412 +369,58 @@ fn load_const_atoms() -> (Vec<JSString<'static>>, HashMap<u32, Vec<NonZeroU16>>)
     (lst, lut)
 }
 
-impl AtomRegistry {
-    /// create atom registry, setup with const atoms.
-    pub(crate) fn new() -> Self {
-        let (lst, lut) = load_const_atoms();
-        AtomRegistry {
-            const_atom_slots: lst,
-            atom_slots: Vec::with_capacity(128),
-            atom_hash_lut: lut,
-        }
-    }
-
-    /// register a user atom with string desciption.
-    /// (in case of creating an anonymous symbol, desc should be an ident-type-string)
-    /// returns atom with ownership, caller should free it after use.
-    /// Same `str` will return the matched existing atom.
-    fn register_internal(
-        reg: &mut Self,
-        str: JSString,
-        mut atom_type: AtomTypeHint,
-    ) -> Result<Atom, i32> {
-        // match for existing atoms, don't register twice for same content.
-        let atom_desc = match atom_type {
-            AtomTypeHint::String | AtomTypeHint::GlobalSymbol => {
-                debug_assert!(!str.content().is_ident());
-
-                let ss = if let Some(at) = str.atom_info() {
-                    if at.type_hint() == atom_type {
-                        if !is_const_atom(at.id()) {
-                            let _ = Rc::into_raw(str.0); // leak string strong count
-                        }
-                        return Ok(Atom(at.id()));
-                    } else {
-                        // make new string with same content but without atom info
-                        str.copy_to_new()
-                    }
-                } else {
-                    str
-                };
-
-                let hash = Atom::calc_atom_hash(ss.content(), atom_type);
-
-                // match registered atoms for hash, type and content
-                match reg.atom_hash_lut.entry(hash) {
-                    Entry::Vacant(kv) => {
-                        kv.insert(Vec::with_capacity(1)); // prepare new entry for hash
-                    }
-                    Entry::Occupied(kv) => {
-                        for aid in kv.get() {
-                            let id = aid.get() as u32;
-                            if id < JS_ATOM_INIT_COUNT {
-                                let at = reg.const_atom_slots[id as usize].atom_info().unwrap();
-                                if at.type_hint() == atom_type {
-                                    return Ok(Atom(at.id()));
-                                }
-                            } else {
-                                let p = reg.atom_slots[id as usize - JS_ATOM_INIT_COUNT as usize];
-                                debug_assert!(!p.is_null());
-
-                                let d = unsafe { &*p };
-                                let at = d.atom_info().unwrap();
-                                if at.type_hint() == atom_type && d.content() == ss.content() {
-                                    // found existing atom, should reuse it.
-                                    unsafe {
-                                        let d = Rc::from_raw(d);
-                                        let s = d.clone();
-                                        let _ = Rc::into_raw(d);
-                                        let _ = Rc::into_raw(s);
-                                    }
-                                    return Ok(Atom(at.id()));
-                                }
-                            }
-                        }
-                    }
-                }
-
-                ss.set_hash(hash);
-                ss
-            }
-            AtomTypeHint::Symbol | AtomTypeHint::Private => {
-                // these atom types are distinct, even they have same string content.
-                let ss = if str.content().is_ident() {
-                    // ident string type is only for anonymous symbol
-                    debug_assert_eq!(atom_type, AtomTypeHint::Symbol);
-                    str
-                } else if str.atom_info().is_none() {
-                    str
-                } else {
-                    // clone content as a new jsstring
-                    str.copy_to_new()
-                };
-
-                let hash = if atom_type == AtomTypeHint::Symbol {
-                    JS_ATOM_HASH_SYMBOL
-                } else {
-                    atom_type = AtomTypeHint::Symbol;
-                    JS_ATOM_HASH_PRIVATE
-                };
-                ss.set_hash(hash);
-                ss
-            }
-        };
-
-        if reg.atom_hash_lut.len() == reg.atom_hash_lut.capacity() {
-            reg.atom_hash_lut.try_reserve(16).map_err(|_| -1)?;
-        }
-
-        // find a free slot
-        let (idx, atom_id) = if let Some(idx) = reg.atom_slots.iter().position(|p| p.is_null()) {
-            (
-                Some(idx),
-                NonZeroU16::new(idx as u16 + JS_ATOM_INIT_COUNT as u16).unwrap(),
-            )
-        } else {
-            if reg.atom_slots.len() == reg.atom_slots.capacity() {
-                reg.atom_slots.try_reserve(16).map_err(|_| -1)?;
-            }
-            (
-                None,
-                NonZeroU16::new(reg.atom_slots.len() as u16 + JS_ATOM_INIT_COUNT as u16).unwrap(),
-            )
-        };
-
-        atom_desc.set_atom_type(match atom_type {
-            AtomTypeHint::String => AtomHintAndId::String(atom_id),
-            AtomTypeHint::GlobalSymbol => AtomHintAndId::GlobalSymbol(atom_id),
-            AtomTypeHint::Symbol => AtomHintAndId::Symbol(atom_id),
-            AtomTypeHint::Private => AtomHintAndId::Private(atom_id),
-        });
-
-        match reg.atom_hash_lut.entry(atom_desc.hash()) {
-            Entry::Vacant(kv) => {
-                kv.insert(vec![atom_id]);
-            }
-            Entry::Occupied(kv) => {
-                kv.into_mut().push(atom_id);
-            }
-        }
-
-        // IMPORTANT: leak a reference for the returning atom
-        {
-            let d = atom_desc.clone();
-            let _ = Rc::into_raw(d.0);
-        }
-
-        // IMPORTANT: leak a reference to atom desc in slot
-        let d = Rc::into_raw(atom_desc.0) as *mut JSStringInner;
-
-        if let Some(i) = idx {
-            debug_assert_eq!(i, atom_id.get() as usize - JS_ATOM_INIT_COUNT as usize);
-            debug_assert!(reg.atom_slots[i].is_null(), "atom slot {i} is in use");
-            reg.atom_slots[i] = d;
-        } else {
-            reg.atom_slots.push(d);
-            debug_assert_eq!(
-                reg.atom_slots.len() - 1,
-                atom_id.get() as usize - JS_ATOM_INIT_COUNT as usize
-            );
-        }
-
-        Ok(Atom(atom_id.get() as u32))
-    }
-
-    /// register a user atom with description.
-    ///
-    /// Safety: will panic if no runtime is initialized
-    fn register(str: JSString, atom_type: AtomTypeHint) -> Result<Atom, i32> {
-        LocalResource::with_atoms_mut(|reg| Self::register_internal(reg, str, atom_type))
-    }
-
-    /// get atom description by atom id.
-    /// returned atom description is cloned.
-    /// returns None if atom id was not registerd.
-    pub(super) fn get_desc(atom_id: u32) -> Option<JSString<'static>> {
-        debug_assert!(atom_id != 0);
-        LocalResource::with_atoms(|reg| {
-            if atom_id < JS_ATOM_INIT_COUNT {
-                // const atom
-                Some(reg.const_atom_slots[atom_id as usize].clone())
-            } else {
-                // user atom
-                reg.atom_slots
-                    .get(atom_id as usize - JS_ATOM_INIT_COUNT as usize)
-                    .and_then(|x| unsafe {
-                        if let Some(p) = x.as_ref() {
-                            let d = Rc::from_raw(p);
-                            let d2 = d.clone();
-                            let _ = Rc::into_raw(d);
-                            Some(JSString(d2))
-                        } else {
-                            None
-                        }
-                    })
-            }
-        })
-    }
-
-    /// find atom desc by str and type
-    fn find_desc_internal(
-        &self,
-        str: &str,
-        atom_type: AtomTypeHint,
-    ) -> Option<&JSStringInner<'static>> {
-        self.atom_hash_lut
-            .get(&calc_atom_hash_str(str, atom_type))
-            .and_then(|ids| {
-                ids.iter().find_map(|id| {
-                    let id = id.get() as u32;
-
-                    if id < JS_ATOM_INIT_COUNT {
-                        // const atom
-                        let s = self.const_atom_slots[id as usize].0.as_ref();
-                        Some(s)
-                    } else {
-                        let d = unsafe {
-                            self.atom_slots[id as usize - JS_ATOM_INIT_COUNT as usize]
-                                .as_ref()
-                                .unwrap()
-                        };
-                        if d.atom_info().unwrap().type_hint() == atom_type
-                            && d.content().eq_str(str)
-                        {
-                            Some(d)
-                        } else {
-                            None
-                        }
-                    }
-                })
-            })
-    }
-
-    /// retrive atom by str and type, returned atom has its refcount increased by 1.
-    fn find(str: &str, atom_type: AtomTypeHint) -> Option<Atom> {
-        LocalResource::with_atoms(|reg| {
-            reg.find_desc_internal(str, atom_type).map(|x| unsafe {
-                let id = x.atom_info().unwrap().id();
-
-                // clone and leak a reference for returned atom
-                let d = Rc::from_raw(x);
-                let d2 = d.clone();
-                let _ = Rc::into_raw(d);
-                let _ = Rc::into_raw(d2);
-
-                Atom(id)
-            })
-        })
-    }
-
-    /// free an non-const atom, descrease its ref count.
-    /// when the atom has no more user reference (refcount==2 in this case),
-    /// the atom desc will be unregistered and dropped.
-    pub(super) fn free(aid: u32) {
-        debug_assert!(aid >= JS_ATOM_INIT_COUNT, "don't free const atom");
-
-        let _ = LocalResource::try_with_atoms_mut(|reg| {
-            let idx = aid as usize - JS_ATOM_INIT_COUNT as usize;
-
-            if let Some(p) = reg.atom_slots.get(idx).and_then(|x| unsafe { x.as_ref() }) {
-                let d = unsafe { Rc::from_raw(p) };
-
-                if Rc::strong_count(&d) == 2 {
-                    // description strong ref count is now: 1 user ref + 1 desc ref,
-                    // that means the last atom was free'd.
-                    // we should drop the atom desc
-                    reg.atom_slots[idx] = std::ptr::null_mut();
-
-                    let hash = d.hash();
-                    let mut ids = reg.atom_hash_lut.remove(&hash).unwrap();
-                    debug_assert!(!ids.is_empty());
-
-                    if ids.len() == 1 {
-                        debug_assert_eq!(u16::from(ids[0]), aid as u16);
-                    } else {
-                        let i = ids.iter().position(|&x| x.get() == aid as u16).unwrap();
-                        ids.swap_remove(i);
-
-                        reg.atom_hash_lut.insert(hash, ids);
-                    }
-                }
-
-                // TODO: to decrease memory usage
-                // let rt=d.rt();
-                // rt.mem_usage.dec(..)
-            }
-        });
-    }
-
-    /// to drop non-const atoms under given runtime
-    pub(crate) fn purge_for_rt(rt: &JSRuntime) {
-        let this = (rt as *const JSRuntime).cast::<JSRuntime<'static>>();
-
-        // SAFETY: use `try_with_atoms` here because this routine could be called from JSRuntime::drop()
-        // when the thread local is destroyed.
-        let _ = LocalResource::try_with_atoms_mut(|reg| {
-            let mut removing = Vec::<(u32, u32)>::new();
-
-            for i in 0..reg.atom_slots.len() {
-                if let Some(d) = unsafe { reg.atom_slots.get_unchecked(i).as_ref() }
-                    && std::ptr::eq(d.rt_ptr(), this)
-                {
-                    let d = unsafe { Rc::from_raw(d) };
-                    reg.atom_slots[i] = std::ptr::null_mut();
-
-                    // remove the desc
-                    let hash = d.hash();
-                    removing.push((i as u32 + JS_ATOM_INIT_COUNT, hash));
-                }
-            }
-
-            for (atom_id, hash) in removing {
-                let mut ids = reg.atom_hash_lut.remove(&hash).unwrap();
-                if ids.len() == 1 {
-                    debug_assert_eq!(ids[0].get() as u32, atom_id);
-                } else {
-                    ids.retain(|id| id.get() as u32 != atom_id);
-                    reg.atom_hash_lut.insert(hash, ids);
-                }
-            }
-        });
-    }
-
-    /// clear all const atoms
-    pub(crate) fn clear_const_atoms(&mut self) {
-        self.const_atom_slots.clear();
-    }
-
-    /// clear all user atoms
-    pub(crate) fn clear_user_atoms(&mut self) {
-        #[cfg(debug_assertions)]
-        for (i, p) in self.atom_slots.drain(..).enumerate() {
-            unsafe {
-                if let Some(s) = p.as_ref() {
-                    let d = Rc::from_raw(s);
-
-                    let id = i as u32 + JS_ATOM_INIT_COUNT;
-                    println!("[atom registry clear] Atom({id}): {d:?}");
-                }
-            }
-        }
-        #[cfg(not(debug_assertions))]
-        for p in self.atom_slots.drain(..) {
-            unsafe {
-                if let Some(s) = p.as_ref() {
-                    let _ = Rc::from_raw(s);
-                }
-            }
-        }
-
-        // ensure lut contains only const atoms
-        let mut remove = Vec::<u32>::with_capacity(self.atom_hash_lut.len());
-        for (k, ids) in self.atom_hash_lut.iter_mut() {
-            ids.retain(|x| x.get() < JS_ATOM_INIT_COUNT as u16);
-            if ids.is_empty() {
-                remove.push(*k);
-            }
-        }
-        for k in remove {
-            self.atom_hash_lut.remove(&k);
-        }
-    }
-}
-
 impl Atom {
     #[inline(always)]
-    pub(crate) fn from_string_as_is(str: JSString, type_hint: AtomTypeHint) -> Result<Self, i32> {
-        AtomRegistry::register(str, type_hint)
+    pub(crate) fn from_string_as_is(
+        rt: RuntimeRef,
+        str: StringRef,
+        kind: AtomKind,
+    ) -> Result<Self, i32> {
+        AtomRegistry::register(rt, str, kind)
     }
 
-    /// make atom from given JSString.
-    /// Note: caller should free the result atom.
-    pub fn from_string(str: JSString, type_hint: AtomTypeHint) -> Result<Self, i32> {
-        if let Some(i) = str.content().parse_u32()
+    pub fn from_string(rt: RuntimeRef, str: StringRef, kind: AtomKind) -> Result<Self, i32> {
+        if str.is_empty() {
+            Ok(Atom::CONST_empty_string)
+        } else if let Some(i) = str.parse_u32()
             && i <= JS_ATOM_MAX_INT
         {
             Ok(Self::new_small_int(i))
         } else {
-            AtomRegistry::register(str, type_hint)
+            AtomRegistry::register(rt, str, kind)
         }
     }
 
     /// make atom from `str`. if `str` is a safe-integer representation, create int-atom instead.
-    pub fn from_str(rt: &JSRuntime, str: &str, type_hint: AtomTypeHint) -> Result<Self, i32> {
-        if let Some(i) = parse_u32(str)
+    pub fn from_str(rt: &RuntimeImpl, str: &str, kind: AtomKind) -> Result<Self, i32> {
+        if str.is_empty() {
+            Ok(Atom::CONST_empty_string)
+        } else if let Some(i) = parse_u32(str)
             && i <= JS_ATOM_MAX_INT
         {
             Ok(Self::new_small_int(i))
         } else {
-            Self::from_string(JSString::from_str(rt, str)?, type_hint)
+            Self::from_string(rt.into(), StringRef::from_str(rt, str)?, kind)
         }
     }
 
-    pub fn from_i64(rt: &JSRuntime, n: i64) -> Result<Self, i32> {
+    pub fn from_i64(rt: &RuntimeImpl, n: i64) -> Result<Self, i32> {
         if (0..JS_ATOM_MAX_INT as i64).contains(&n) {
             Ok(Self::new_small_int(n as u32))
         } else {
             Self::from_string(
-                JSString::from_utf8(rt, format!("{n}").into_bytes())?,
-                AtomTypeHint::String,
+                rt.into(),
+                StringRef::from_utf8(rt, format!("{n}").into_bytes())?,
+                AtomKind::String,
             )
         }
     }
 
     /// Create const atom
     #[inline(always)]
-    pub(crate) fn new_const(n: AtomRef) -> Self {
-        debug_assert!(n.is_const());
-        Self(n.id())
+    pub fn new_const(id: u32) -> Self {
+        debug_assert!(is_const_atom(id));
+        Self(id)
     }
 
     /// Make an small integral atom.
@@ -529,27 +432,30 @@ impl Atom {
     }
 
     /// create new or reuse existing atom for `str`.
-    pub fn new(rt: &JSRuntime, str: &str) -> Result<Self, i32> {
-        if str.is_empty() || !str.chars().next().unwrap().is_ascii_digit() {
-            // find atom in registry
-            if let Some(atom) = Self::find(str, AtomTypeHint::String) {
-                return Ok(atom);
-            }
-        }
+    #[inline(always)]
+    pub fn new(rt: &RuntimeImpl, str: &str) -> Result<Self, i32> {
+        // if str.is_empty() || !str.chars().next().unwrap().is_ascii_digit() {
+        //     // find atom in registry
+        //     if let Some(atom) = Self::find(str, AtomKind::String) {
+        //         return Ok(atom);
+        //     }
+        // }
 
-        // str is possibally an integer
-        Self::from_str(rt, str, AtomTypeHint::String)
+        Self::from_str(rt, str, AtomKind::String)
     }
 
     /// find atom by str
     #[inline(always)]
-    pub fn find(str: &str, atom_type: AtomTypeHint) -> Option<Self> {
-        AtomRegistry::find(str, atom_type)
+    pub fn find_by_str(str: &str, kind: AtomKind) -> Option<Self> {
+        LocalResource::with_atoms(|reg| {
+            reg.find_by_str_internal(str, kind)
+                .map(|d| Atom(d.atom_info().id()))
+        })
     }
 
-    /// calc atom hash for descriptor and type
-    pub(crate) fn calc_atom_hash(str: &StringContent, atom_type: AtomTypeHint) -> u32 {
-        let mut h = atom_type as u32;
+    /// calc atom hash with str and kind
+    pub(crate) fn calc_atom_hash(str: &StringData, kind: AtomKind) -> u32 {
+        let mut h = kind as u32;
         if !str.is_empty() && !str.is_ident() {
             for (_, c) in str.iter() {
                 h = hash_u32_from_base(h, c.to_u32());
@@ -558,33 +464,28 @@ impl Atom {
         h
     }
 
-    /// Safety: will panic if atom id does not exists
-    pub(crate) fn free(id: u32) {
-        if !is_const_atom(id) {
-            AtomRegistry::free(id);
+    /// calc atom hash for str and type.
+    pub(super) fn calc_atom_str_hash(str: &str, kind: AtomKind) -> u32 {
+        let mut h = kind as u32;
+        if !str.is_empty() {
+            for c in str.chars() {
+                h = hash_u32_from_base(h, c as _);
+            }
         }
+        h
+    }
+
+    /// unregister an atom by id
+    #[inline(always)]
+    pub fn unregister(id: u32) {
+        AtomRegistry::unregister(id);
     }
 }
 
-// impl AtomRef {
-//     /// Make an small integral atom.
-//     /// Small integral atom is primitive, and do not need to register.
-//     #[inline(always)]
-//     pub(crate) fn new_small_int(n: u32) -> Self {
-//         debug_assert!(n <= JS_ATOM_MAX_INT);
-//         Self::from(n | JS_ATOM_TAG_INT)
-//     }
-
-//     #[inline(always)]
-//     pub(crate) const fn from(n: u32) -> Self {
-//         Self(n)
-//     }
-// }
-
 /// calc hash for str when using as an atom descriptor
 #[inline(always)]
-fn calc_atom_hash_str(str: &str, atom_type: AtomTypeHint) -> u32 {
-    let mut h = atom_type as u32;
+fn calc_atom_hash_str(str: &str, atom_kind: AtomKind) -> u32 {
+    let mut h = atom_kind as u32;
     for c in str.encode_utf16() {
         h = hash_u32_from_base(h, c as u32);
     }

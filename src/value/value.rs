@@ -1,12 +1,12 @@
 use crate::{
     JS_CLASS_ERROR,
-    atom::{Atom, AtomTypeHint},
+    atom::{Atom, AtomKind},
     branch_hints::unlikely,
-    function::{AsyncFuncState, Bytecode},
+    function::Bytecode,
     module::ModuleDef,
     number::JSFloat64Union,
-    object::JSObject,
-    string::JSString,
+    object::ObjectRef,
+    string::StringRef,
     utils::hash_usize,
 };
 
@@ -91,12 +91,13 @@ mod nb_value {
     }
 }
 
+use gc_lite::Collect;
 #[cfg(feature = "nan_boxing")]
 pub use nb_value::*;
 
 #[repr(u8)]
-#[derive(Debug, Clone, Default)]
-pub enum JSValue<'v> {
+#[derive(Debug, Clone, Copy, Default)]
+pub enum JSValue {
     #[default]
     UNDEFINED,
     NULL,
@@ -106,17 +107,37 @@ pub enum JSValue<'v> {
     CatchOffset(i32),
     EXCEPTION,
     Float64(f64),
-    String(JSString<'v>),
-    Symbol(JSString<'v>),
-    Module(ModuleDef<'v>),
-    Object(JSObject<'v>),
-    Bytecode(Bytecode<'v>),
-
-    /// Special for async state resume execution only
-    AsyncStateResume(AsyncFuncState<'v>),
+    String(StringRef),
+    Symbol(Atom),
+    Module(ModuleDef),
+    Object(ObjectRef),
+    Bytecode(Bytecode),
 }
 
-impl PartialEq for JSValue<'_> {
+unsafe impl Collect for JSValue {
+    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+        match self {
+            Self::String(s) => {
+                s.trace(tracer);
+            }
+            Self::Object(o) => {
+                tracer.mark(o.gc_ref());
+            }
+            Self::Symbol(a) => {
+                a.trace(tracer);
+            }
+            Self::Bytecode(b) => {
+                b.trace(tracer);
+            }
+            Self::Module(m) => {
+                m.trace(tracer);
+            }
+            _ => {}
+        }
+    }
+}
+
+impl PartialEq for JSValue {
     /// Compare two JSValue of same type
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -124,8 +145,8 @@ impl PartialEq for JSValue<'_> {
             (Self::Int(i0), Self::Int(i1)) => *i0 == *i1,
             (Self::Float64(f0), Self::Float64(f1)) => f0.eq(f1),
             (Self::String(s0), Self::String(s1)) => s0 == s1,
-            (Self::Symbol(s0), Self::Symbol(s1)) => s0.atom_info() == s1.atom_info(),
-            (Self::Object(l0), Self::Object(r0)) => l0.id() == r0.id(),
+            (Self::Symbol(a0), Self::Symbol(a1)) => a0 == a1,
+            (Self::Object(l0), Self::Object(r0)) => l0 == r0,
 
             (Self::UNDEFINED, Self::UNDEFINED)
             | (Self::NULL, Self::NULL)
@@ -226,7 +247,7 @@ impl PartialEq for JSValue<'_> {
 // #[cfg(not(feature = "nan_boxing"))]
 // pub use nnb_value::*;
 
-impl<'a> JSValue<'a> {
+impl JSValue {
     #[inline(always)]
     pub const fn is_exception(&self) -> bool {
         matches!(self, Self::EXCEPTION)
@@ -293,8 +314,8 @@ impl<'a> JSValue<'a> {
     }
 
     pub fn is_htmldda(&self) -> bool {
-        if let Self::Object(obj) = self {
-            obj.flags().is_htmldda()
+        if let Self::Object(o) = self {
+            o.flags().is_htmldda()
         } else {
             false
         }
@@ -307,7 +328,7 @@ impl<'a> JSValue<'a> {
     /// - Objects of native class which has `call` handler
     #[inline]
     pub fn is_function(&self) -> bool {
-        self.as_object().is_some_and(JSObject::is_function)
+        self.as_object().is_some_and(|o| o.is_function())
     }
 
     pub fn is_error(&self) -> bool {
@@ -317,7 +338,7 @@ impl<'a> JSValue<'a> {
 
     /// if `self` is an exception, returns Err if yes; Otherwise returns Ok(self)
     #[inline]
-    pub fn err(self) -> Result<Self, i32> {
+    pub const fn err(self) -> Result<Self, i32> {
         if unlikely(self.is_exception()) {
             Err(-1)
         } else {
@@ -326,17 +347,18 @@ impl<'a> JSValue<'a> {
     }
 
     /// calc hash of value
-    pub fn hash(&self) -> u32 {
+    pub(crate) fn hash(&self) -> u32 {
         let h: u32 = match self {
             Self::Object(o) => hash_usize(o.id()),
             Self::Int(d) => {
                 let u = JSFloat64Union { uint64: *d as u64 };
                 unsafe { (u.uint32[0] ^ u.uint32[1]).wrapping_mul(3163) }
             }
-            Self::String(s) => Atom::calc_atom_hash(s.content(), AtomTypeHint::String),
-            Self::Symbol(s) => {
-                Atom::calc_atom_hash(s.content(), s.atom_info().unwrap().type_hint())
-            }
+            Self::String(s) => s.atom_info().map_or_else(
+                || Atom::calc_atom_hash(s.content(), AtomKind::String),
+                |a| a.hash(),
+            ),
+            Self::Symbol(a) => a.atom_info().hash(),
             Self::Float64(d) => {
                 let mut d = *d;
                 if d.is_nan() {
@@ -353,7 +375,6 @@ impl<'a> JSValue<'a> {
                 let u = JSFloat64Union { uint64: *i as u64 };
                 unsafe { (u.uint32[0] ^ u.uint32[1]).wrapping_mul(3163) }
             }
-            Self::AsyncStateResume(a) => hash_usize(a.id()),
         };
 
         let tag = unsafe { *<*const _>::from(self).cast::<u8>() };

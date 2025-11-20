@@ -1,7 +1,5 @@
-use std::ops::Deref;
-
 use crate::{
-    atom::{Atom, AtomRef, consts::*},
+    atom::Atom,
     branch_hints::unlikely,
     bytecode::{OpCode, OpCodeTemp},
     context::JS_MODE_STRICT,
@@ -226,7 +224,7 @@ impl<'s> JSParseState<'s> {
                 // convert keyword token to atom
                 let a = t - TOK_FIRST_KEYWORD + 1;
                 debug_assert!(a > 0);
-                js_unsupported_keyword(self, &AtomRef(a as u32));
+                js_unsupported_keyword(self, Atom::from_id(a as u32));
                 return Err(-1);
             }
             _ => {
@@ -276,13 +274,13 @@ impl<'s> JSParseState<'s> {
     }
 }
 
-pub fn js_unsupported_keyword(s: &mut JSParseState, atom: &Atom) -> i32 {
+pub fn js_unsupported_keyword(s: &JSParseState, atom: Atom) -> i32 {
     s.throw_syntax_error(&format!("unsupported keyword: {}", atom.to_utf8()));
     -1
 }
 
 // test if the current token is a label. Use simplistic look-ahead scanner
-fn is_label(s: &mut JSParseState) -> bool {
+fn is_label(s: &JSParseState) -> bool {
     s.token.val == TOK_IDENT && !s.token.data.is_reserved() && s.peek_token(false) == ':' as i32
 }
 
@@ -290,7 +288,7 @@ fn is_label(s: &mut JSParseState) -> bool {
 fn is_let(s: &mut JSParseState, decl_mask: i32) -> Result<bool, i32> {
     let mut res = Ok(false);
 
-    if s.token_is_pseudo_keyword(JS_ATOM_let) {
+    if s.token_is_pseudo_keyword(Atom::CONST_let) {
         let pos = s.get_pos();
 
         s.next_token()?;
@@ -427,7 +425,7 @@ fn stmt_for(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
 
     if (bits & SKIP_HAS_SEMI) == 0 {
         // parse for/in or for/of
-        return js_parse_for_in_of(s, &label_name, is_async);
+        return js_parse_for_in_of(s, label_name, is_async);
     }
 
     let block_scope_level = s.cur_func().scope_level;
@@ -679,7 +677,7 @@ fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
                 let name = s.token.atom().unwrap();
                 s.next_token()?;
 
-                s.define_var(&name, TOK_CATCH, false)?;
+                s.define_var(name, TOK_CATCH, false)?;
 
                 // store the exception value in the catch variable
                 s.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR);
@@ -753,8 +751,7 @@ fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
 
         if let Some(vidx) = s.cur_func().eval_ret_idx {
             // 'finally' updates eval_ret only if not a normal termination
-            let ctx = s.ctx.clone();
-            saved_eval_ret_idx = s.cur_func_mut().add_var(&ctx, JS_ATOM__ret_.deref())?;
+            saved_eval_ret_idx = s.cur_func_mut().add_var(&s.ctx, Atom::CONST__ret_)?;
 
             s.emit_op(OpCode::GET_LOC);
             s.emit_u16(vidx);
@@ -908,8 +905,7 @@ fn stmt_with(s: &mut JSParseState) -> Result<(), i32> {
 
         s.push_scope()?;
 
-        let with_idx =
-            s.define_var_cur_func(JS_ATOM__with_.deref(), JSVarDefEnum::JS_VAR_DEF_WITH)?;
+        let with_idx = s.define_var_cur_func(Atom::CONST__with_, JSVarDefEnum::JS_VAR_DEF_WITH)?;
 
         s.emit_op(OpCode::TO_OBJECT);
         s.emit_op(OpCode::PUT_LOC);
@@ -935,7 +931,7 @@ fn stmt_ident(s: &mut JSParseState, decl_mask: i32) -> Result<TodoState, i32> {
     if is_let(s, decl_mask)? {
         return Ok(TodoState::HasLet(TOK_LET));
     }
-    if s.token_is_pseudo_keyword(JS_ATOM_async) && s.peek_token(true) == TOK_FUNCTION {
+    if s.token_is_pseudo_keyword(Atom::CONST_async) && s.peek_token(true) == TOK_FUNCTION {
         if decl_mask & DECL_MASK_OTHER == 0 {
             s.throw_syntax_error("function declarations can't appear in single-statement context");
             return Err(-1);
@@ -965,11 +961,7 @@ fn hasexpr(s: &mut JSParseState) -> Result<(), i32> {
 
 // XXX: handle IteratorClose when exiting the loop before the
 // enumeration is done
-pub fn js_parse_for_in_of(
-    s: &mut JSParseState,
-    label_name: &Atom,
-    is_async: bool,
-) -> Result<(), i32> {
+fn js_parse_for_in_of(s: &mut JSParseState, label_name: Atom, is_async: bool) -> Result<(), i32> {
     // save current scope label
     let block_scope_level = s.cur_func().scope_level;
 
@@ -992,7 +984,7 @@ pub fn js_parse_for_in_of(
     // local for_in scope starts here so individual elements
     // can be closed in statement.
     let mut break_entry = BlockEnv {
-        label_name: label_name.clone(),
+        label_name,
         label_break,
         label_cont,
         drop_count: 1,
@@ -1030,17 +1022,17 @@ pub fn js_parse_for_in_of(
             var_name = s.token.atom().unwrap();
             s.next_token()?;
 
-            s.define_var(&var_name, tok, false)?;
+            s.define_var(var_name, tok, false)?;
             s.emit_op_temp(if tok == TOK_CONST || tok == TOK_LET {
                 OpCodeTemp::SCOPE_PUT_VAR_INIT
             } else {
                 OpCodeTemp::SCOPE_PUT_VAR
             });
-            s.emit_atom(var_name.clone());
+            s.emit_atom(var_name);
             s.emit_u16(s.cur_func().scope_level as _);
         }
     } else if unlikely(
-        !is_async && s.token_is_pseudo_keyword(JS_ATOM_async) && s.peek_token(false) == TOK_OF,
+        !is_async && s.token_is_pseudo_keyword(Atom::CONST_async) && s.peek_token(false) == TOK_OF,
     ) {
         s.throw_syntax_error("'for of' expression cannot start with 'async'");
         return Err(-1);
@@ -1066,7 +1058,7 @@ pub fn js_parse_for_in_of(
             let mut lvalue_label: i32 = 0;
             let mut opcode: i32 = 0;
             let mut scope: i32 = 0;
-            let mut name = AtomRef::NULL;
+            let mut name = Atom::NULL;
 
             s.get_lvalue(
                 &mut opcode,
@@ -1080,7 +1072,7 @@ pub fn js_parse_for_in_of(
             s.put_lvalue(
                 opcode,
                 scope,
-                name.deref().clone(),
+                name,
                 lvalue_label,
                 PutLValueEnum::PUT_LVALUE_NOKEEP_BOTTOM,
                 false,
@@ -1115,7 +1107,7 @@ pub fn js_parse_for_in_of(
 
     let mut is_for_of = false;
 
-    if s.token_is_pseudo_keyword(JS_ATOM_of) {
+    if s.token_is_pseudo_keyword(Atom::CONST_of) {
         is_for_of = true;
         break_entry.has_iterator = true;
         break_entry.drop_count += 2;

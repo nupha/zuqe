@@ -1,30 +1,20 @@
-use std::{
-    cell::{Cell, RefCell},
-    fmt::Formatter,
-    ops::{Deref, DerefMut},
-    rc::{Rc, Weak},
-};
+use std::{fmt::Formatter, ops::Deref};
+
+use gc_lite::{Collect, GcRef, GcWeak};
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
     JS_CLASS_BIG_INT, JS_CLASS_BOOLEAN, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION,
     JS_CLASS_DATAVIEW, JS_CLASS_DATE, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_GENERATOR_FUNCTION,
     JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_REGEXP, JS_CLASS_STRING, JS_CLASS_SYMBOL,
-    JS_CLASS_UINT8C_ARRAY,
-    atom::{Atom, consts::*},
-    branch_hints::unlikely,
-    class::ClassID,
-    context::JSContext,
-    error::JSResult,
-    object::GCObjectWeakref,
-    runtime::RuntimePtr,
-    value::JSValue,
+    JS_CLASS_UINT8C_ARRAY, atom::Atom, branch_hints::unlikely, class::ClassID,
+    context::ContextImpl, error::JSResult, gcref_wrapper, runtime::RuntimeRef, value::JSValue,
 };
 
 use super::{
-    GCObject, JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE,
-    JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_THROW,
-    JS_PROP_WRITABLE, JSProperty, JSShape, ObjectPayload,
+    JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE,
+    JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE, JSProperty,
+    ObjectPayload, ShapeHandle,
 };
 
 /// Bit flags and metadata for JavaScript objects
@@ -81,6 +71,7 @@ impl ObjectFlags {
     pub const fn is_exotic(&self) -> bool {
         self.bitfield & Self::MASK_IS_EXOTIC != 0
     }
+
     pub const fn set_exotic(&mut self, b: bool) {
         if b {
             self.bitfield |= Self::MASK_IS_EXOTIC;
@@ -145,34 +136,44 @@ impl ObjectFlags {
     }
 }
 
-pub(crate) struct ObjectInner<'a> {
-    rt: RuntimePtr<'a>,
-    gc_mark: Cell<bool>,
+pub struct ObjectImpl {
+    rt: RuntimeRef,
 
     /// object flags
-    obj_flags: Cell<ObjectFlags>,
+    obj_flags: ObjectFlags,
 
     /// Shape of object, to denote prototype and property names + flag
-    /// could be NULL while freeing an object
-    pub(crate) shape: RefCell<Option<JSShape<'a>>>,
+    shape: Option<ShapeHandle>,
 
     /// property value slots
-    pub(crate) prop_values: RefCell<Vec<JSProperty<'a>>>,
+    pub(crate) prop_values: Vec<JSProperty>,
 
     /// this object is weak referenced in state.
-    pub(crate) weak_refs: RefCell<Vec<JSObjectWeakref<'a>>>,
+    pub(crate) weak_refs: Vec<GcWeak<ObjectImpl>>,
 
     /// object payload.
-    payload: ObjectPayload<'a>,
+    pub(super) payload: ObjectPayload,
 }
 
-impl Drop for ObjectInner<'_> {
+unsafe impl Collect for ObjectImpl {
+    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+        if let Some(sh) = self.shape.as_ref() {
+            sh.trace(tracer);
+        }
+        for vr in self.prop_values.iter() {
+            vr.trace(tracer);
+        }
+        self.payload.trace(tracer);
+    }
+}
+
+impl Drop for ObjectImpl {
     fn drop(&mut self) {
         self.finalize();
     }
 }
 
-impl std::fmt::Display for ObjectInner<'_> {
+impl std::fmt::Display for ObjectImpl {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let rt = self.rt();
         let class_id = self.class_id();
@@ -180,14 +181,13 @@ impl std::fmt::Display for ObjectInner<'_> {
 
         #[cfg(debug_assertions)]
         {
-            let sh = self.shape.borrow();
             write!(
                 f,
                 "[{name} {:p} shape={:p} proto={}]",
                 self.id() as *const std::ffi::c_void,
-                sh.as_ref().map_or(0, |s| s.id()) as *const std::ffi::c_void,
-                sh.as_ref()
-                    .and_then(|s| s.0.borrow().proto.clone())
+                self.shape().map_or(0, |s| s.id()) as *const std::ffi::c_void,
+                self.shape()
+                    .and_then(|s| s.proto())
                     .map_or("<null>".to_string(), |x| x.to_string())
             )
         }
@@ -198,19 +198,27 @@ impl std::fmt::Display for ObjectInner<'_> {
     }
 }
 
-impl<'a> ObjectInner<'a> {
-    pub(crate) fn new(
-        ctx: &JSContext<'a>,
-        shape: Option<JSShape<'a>>,
-        payload: ObjectPayload<'a>,
-    ) -> Result<Self, ObjectPayload<'a>> {
+impl ObjectImpl {
+    pub(crate) fn create(
+        ctx: &ContextImpl,
+        shape: Option<ShapeHandle>,
+        payload: ObjectPayload,
+    ) -> Result<ObjectRef, ObjectPayload> {
+        #[cfg(debug_assertions)]
+        if let Some(sh) = &shape {
+            debug_assert!(
+                ctx.rt().shape_registry.is_registered(sh),
+                "shape must be registered when used by object"
+            );
+        }
+
         ctx.rt().gc_req = true;
         //js_trigger_gc(ctx.rt_mut(), std::mem::size_of::<JSValue>());
 
         // alloc prop value slots, initializing with default value
         let mut prop_values = Vec::<JSProperty>::new();
         if let Some(sh) = &shape {
-            let prop_count = sh.0.borrow().prop_defs.len();
+            let prop_count = sh.len();
             if prop_values
                 .try_reserve_exact(std::cmp::max(JS_PROP_INITIAL_SIZE as usize, prop_count))
                 .is_err()
@@ -252,14 +260,7 @@ impl<'a> ObjectInner<'a> {
                 flags.set_exotic(true);
                 flags.set_fast_array(true);
 
-                if shape_id.unwrap()
-                    == ctx
-                        .0
-                        .borrow()
-                        .array_shape
-                        .as_ref()
-                        .map_or(usize::MAX, |sh| sh.id())
-                {
+                if shape_id.unwrap() == ctx.array_shape.as_ref().map_or(usize::MAX, |sh| sh.id()) {
                     // set length property to 0
                     prop_values[0] = JSProperty::Normal(JSValue::Int(0));
                 } else {
@@ -307,23 +308,28 @@ impl<'a> ObjectInner<'a> {
 
         let obj = Self {
             rt: ctx.rt(),
-            obj_flags: Cell::new(flags),
-            shape: RefCell::new(shape),
-            prop_values: RefCell::new(prop_values),
+            obj_flags: flags,
+            shape,
+            prop_values,
             payload,
-            weak_refs: RefCell::new(Vec::new()),
-            gc_mark: Cell::new(false),
+            weak_refs: Vec::new(),
         };
 
+        let ob_impl = ctx.rt().gc_alloc(obj).map_err(|(_, mut o)| {
+            ctx.throw_out_of_memory();
+            std::mem::replace(&mut o.payload, ObjectPayload::NUMBER(JSValue::Int(0)))
+        })?;
+        let mut obj = ObjectRef(ob_impl);
+
         if add_length_prop {
-            // only used for the Array prototype object
+            // only for the Array prototype object
             obj.add_own_property(
                 ctx,
-                JS_ATOM_length.deref().clone(),
+                Atom::CONST_length,
                 JS_PROP_WRITABLE | JS_PROP_LENGTH,
                 JSProperty::Normal(JSValue::Int(0)),
             )
-            .unwrap()
+            .unwrap();
         }
 
         Ok(obj)
@@ -335,12 +341,24 @@ impl<'a> ObjectInner<'a> {
     }
 
     #[inline]
-    pub const fn rt(&self) -> RuntimePtr<'a> {
+    pub const fn rt(&self) -> RuntimeRef {
         self.rt
     }
 
+    /// get object payload
     #[inline(always)]
-    pub fn class_id(&self) -> ClassID {
+    pub const fn payload(&self) -> &ObjectPayload {
+        &self.payload
+    }
+
+    /// get object payload
+    #[inline(always)]
+    pub const fn payload_mut(&mut self) -> &mut ObjectPayload {
+        &mut self.payload
+    }
+
+    #[inline(always)]
+    pub const fn class_id(&self) -> ClassID {
         self.payload.class_id()
     }
 
@@ -365,169 +383,76 @@ impl<'a> ObjectInner<'a> {
         }
     }
 
-    fn finalize(&mut self) {
-        // free shape props and props
-        // self.shape.take();
-        // self.prop_values.borrow_mut().clear();
-
-        while let Some(w) = self.weak_refs.borrow_mut().pop() {
-            if let Some(o) = w.upgrade() {
-                o.0.payload
-                    .mapset()
-                    .unwrap()
-                    .borrow_mut()
-                    .remove_weak_obj(self)
-            }
-        }
-
-        // call class finalize.
-        // object won't be accessed any more, so we can take payload out
-        let mut rt = self.rt();
-        if let Some(f) = rt.class_registry[self.class_id() as usize].finalize {
-            let id = self.id();
-            f(rt.deref_mut(), &self.payload, id);
-        }
-
-        // untrack from gc
-        rt.gc_obj_list.remove(&self.id());
-    }
-}
-
-#[derive(Clone)]
-pub struct JSObject<'a>(pub(crate) Rc<ObjectInner<'a>>);
-
-impl PartialEq for JSObject<'_> {
-    #[inline]
-    fn eq(&self, other: &Self) -> bool {
-        self.id() == other.id()
-    }
-}
-
-impl<'a> From<JSObject<'a>> for JSValue<'a> {
+    /// get object's shape
     #[inline(always)]
-    fn from(value: JSObject<'a>) -> Self {
-        Self::Object(value)
-    }
-}
-
-impl<'a> TryFrom<JSValue<'a>> for JSObject<'a> {
-    type Error = i32;
-
-    #[inline]
-    fn try_from(value: JSValue<'a>) -> Result<Self, Self::Error> {
-        if let JSValue::Object(o) = value {
-            Ok(o)
-        } else {
-            Err(-1)
-        }
-    }
-}
-
-impl<'a> From<JSObject<'a>> for GCObject<'a> {
-    #[inline(always)]
-    fn from(value: JSObject<'a>) -> Self {
-        Self::Object(value)
-    }
-}
-
-impl std::fmt::Display for JSObject<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0.as_ref())
-    }
-}
-impl std::fmt::Debug for JSObject<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{self}")
-    }
-}
-
-impl<'a> JSObject<'a> {
-    #[inline(always)]
-    pub fn id(&self) -> usize {
-        self.0.id()
+    pub const fn shape(&self) -> Option<&ShapeHandle> {
+        self.shape.as_ref()
     }
 
-    #[inline(always)]
-    pub fn rt(&self) -> RuntimePtr<'a> {
-        self.0.rt()
+    pub fn set_shape(&mut self, sh: ShapeHandle) {
+        debug_assert!(
+            self.rt().shape_registry.is_registered(&sh),
+            "shape must be registered"
+        );
+        self.shape.replace(sh);
     }
 
-    /// get object payload
-    #[inline(always)]
-    pub fn payload(&self) -> &ObjectPayload<'a> {
-        &self.0.payload
-    }
-
-    /// Get object class id
-    #[inline(always)]
-    pub fn class_id(&self) -> ClassID {
-        self.payload().class_id()
+    pub const fn take_shape(&mut self) -> Option<ShapeHandle> {
+        self.shape.take()
     }
 
     /// Get object class name atom.
     pub fn class_name(&self) -> &Atom {
-        &self.0.rt.class_registry[self.class_id() as usize].class_name
+        &self.rt.class_registry[self.class_id() as usize].class_name
     }
 
     /// Get object flags
-    #[inline]
-    pub fn flags(&self) -> ObjectFlags {
-        self.0.obj_flags.get()
-    }
-    #[inline]
-    pub fn set_flag_fast_array(&self, b: bool) {
-        unsafe {
-            (&mut *self.0.obj_flags.as_ptr()).set_fast_array(b);
-        }
-        // equivelent but slower solution:
-        // let mut f = self.flags();
-        // f.set_fast_array(b);
-        // self.0.obj_flags.set(f);
-    }
-    #[inline]
-    pub fn set_flag_constructor(&self, b: bool) {
-        unsafe {
-            (&mut *self.0.obj_flags.as_ptr()).set_constructor(b);
-        }
-        // for equivelent but slower solution: see above
-    }
-    #[inline]
-    pub fn set_flag_extensible(&self, b: bool) {
-        unsafe {
-            (&mut *self.0.obj_flags.as_ptr()).set_extensible(b);
-        }
-        // for equivelent but slower solution: see above
-    }
-    #[inline]
-    pub fn set_flag_uncatchable_error(&self, b: bool) {
-        unsafe {
-            (&mut *self.0.obj_flags.as_ptr()).set_uncatchable_error(b);
-        }
-        // for equivelent but slower solution: see above
-    }
-
-    pub fn shape(&self) -> Option<JSShape<'a>> {
-        self.0.shape.borrow().clone()
-    }
-
-    /// Test if object `self` can be called like a function, that means value is a:
-    ///
-    /// - Compiled bytecode functions
-    /// - Proxy objects that wrapping a function
-    /// - Objects of native class which has `call` handler
     #[inline(always)]
-    pub fn is_function(&self) -> bool {
-        self.0.is_function()
+    pub const fn flags(&self) -> ObjectFlags {
+        self.obj_flags
+    }
+
+    /// test if object is fast array (could be one of Array, Argument, TypedArray fast array).
+    #[inline(always)]
+    pub const fn is_fast_array(&self) -> bool {
+        self.flags().is_fast_array()
     }
 
     #[inline(always)]
-    pub fn is_constructor(&self) -> bool {
-        self.flags().is_constructor()
+    pub const fn is_extensible(&self) -> bool {
+        self.flags().extensible()
+    }
+
+    #[inline]
+    pub const fn set_flag_fast_array(&mut self, b: bool) {
+        self.obj_flags.set_fast_array(b);
+    }
+
+    #[inline]
+    pub const fn set_flag_constructor(&mut self, b: bool) {
+        self.obj_flags.set_constructor(b);
+    }
+
+    #[inline]
+    pub const fn set_flag_extensible(&mut self, b: bool) {
+        self.obj_flags.set_extensible(b);
+    }
+
+    #[inline]
+    pub const fn set_flag_uncatchable_error(&mut self, b: bool) {
+        self.obj_flags.set_uncatchable_error(b);
+    }
+
+    #[inline(always)]
+    pub const fn is_constructor(&self) -> bool {
+        self.obj_flags.is_constructor()
     }
 
     /// return Err(-1) for Proxy only
-    pub fn prevent_extensions(&self, ctx: &JSContext<'a>) -> Result<bool, i32> {
-        self.as_Proxy().map_or_else(
+    pub fn prevent_extensions(&mut self, ctx: &ContextImpl) -> Result<bool, i32> {
+        let gc_ref = unsafe { GcRef::from_ref_unchecked(self) };
+
+        ObjectRef(gc_ref).as_Proxy_mut().map_or_else(
             || {
                 self.set_flag_extensible(false);
                 Ok(true)
@@ -536,28 +461,113 @@ impl<'a> JSObject<'a> {
         )
     }
 
-    pub fn method_set_home_object(&self, home_obj: Option<&JSObject<'a>>) {
-        if let Some(fo) = self.payload().bc_function()
-            && fo.bytecode().need_home_object()
-        {
-            fo.set_home_object(home_obj.cloned());
+    fn finalize(&mut self) {
+        // free shape props and props
+        self.shape.take();
+        self.prop_values.clear();
+
+        let mut rt = self.rt();
+
+        // Map Set object remove weak ref
+        while let Some(w) = self.weak_refs.pop() {
+            if let Some(o) = w.upgrade(rt.gc_heap()) {
+                unsafe {
+                    o.as_mut()
+                        .payload
+                        .mapset_mut()
+                        .unwrap()
+                        .remove_weak_obj(self)
+                }
+            }
         }
+
+        // call class finalize handler.
+        if let Some(f) = rt.class_registry[self.class_id() as usize].finalize {
+            let id = self.id();
+            f(&mut rt, &self.payload, id);
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct ObjectRef(pub(crate) GcRef<ObjectImpl>);
+
+gcref_wrapper!(ObjectRef, ObjectImpl);
+
+impl PartialEq for ObjectRef {
+    #[inline(always)]
+    fn eq(&self, other: &Self) -> bool {
+        self.id() == other.id()
+    }
+}
+
+impl From<ObjectRef> for JSValue {
+    #[inline(always)]
+    fn from(value: ObjectRef) -> Self {
+        Self::Object(value)
+    }
+}
+
+impl TryFrom<JSValue> for ObjectRef {
+    type Error = i32;
+
+    #[inline]
+    fn try_from(value: JSValue) -> Result<Self, Self::Error> {
+        if let JSValue::Object(o) = value {
+            Ok(o)
+        } else {
+            Err(-1)
+        }
+    }
+}
+
+impl From<GcRef<ObjectImpl>> for ObjectRef {
+    #[inline(always)]
+    fn from(value: GcRef<ObjectImpl>) -> Self {
+        Self(value)
+    }
+}
+
+impl From<GcRef<ObjectImpl>> for JSValue {
+    #[inline(always)]
+    fn from(value: GcRef<ObjectImpl>) -> Self {
+        Self::Object(ObjectRef(value))
+    }
+}
+
+impl std::fmt::Display for ObjectRef {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.deref())
+    }
+}
+
+impl std::fmt::Debug for ObjectRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self}")
+    }
+}
+
+impl ObjectRef {
+    #[inline]
+    pub fn downgrade(&self) -> GcWeak<ObjectImpl> {
+        self.0.downgrade(self.rt().gc_heap_mut())
     }
 
     /// Seal the object.
-    pub fn seal(&self, ctx: &JSContext<'a>, freeze: bool) -> Result<(), i32> {
+    pub fn seal(&mut self, ctx: &ContextImpl, freeze: bool) -> Result<(), i32> {
         if unlikely(!self.prevent_extensions(ctx)?) {
             ctx.throw_type_error("proxy preventExtensions handler returned false");
             Err(-1)
         } else {
-            let _ = self.own_property_names_foreach(
+            let this = *self;
+            let _ = this.own_property_names_foreach(
                 ctx,
                 JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK,
                 |_, pkey| {
                     let mut flags = JS_PROP_THROW | JS_PROP_HAS_CONFIGURABLE;
 
                     if freeze
-                        && let Some(desc) = self.get_own_property(ctx, &pkey.atom)?
+                        && let Some(desc) = self.get_own_property(ctx, pkey.atom)?
                         && desc.flags & JS_PROP_WRITABLE != 0
                     {
                         flags |= JS_PROP_HAS_WRITABLE;
@@ -567,7 +577,7 @@ impl<'a> JSObject<'a> {
                     // or {configurable:false, writable: false} if freeze=true
                     self.define_property(
                         ctx,
-                        &pkey.atom,
+                        pkey.atom,
                         JSValue::UNDEFINED,
                         JSValue::UNDEFINED,
                         JSValue::UNDEFINED,
@@ -583,12 +593,14 @@ impl<'a> JSObject<'a> {
     }
 
     /// check if object is sealed.
-    pub fn is_sealed(&self, ctx: &JSContext<'a>, is_frozen: bool) -> Result<bool, i32> {
+    pub fn is_sealed(&mut self, ctx: &ContextImpl, is_frozen: bool) -> Result<bool, i32> {
         const NOT_SEALED_ERR: i32 = i32::MAX;
 
+        let this = *self;
+
         if let Err(e) =
-            self.own_property_names_foreach(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK, |_, pk| {
-                if let Some(desc) = self.get_own_property(ctx, &pk.atom)?
+            this.own_property_names_foreach(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK, |_, pk| {
+                if let Some(desc) = self.get_own_property(ctx, pk.atom)?
                     && (desc.flags & JS_PROP_CONFIGURABLE != 0
                         || (is_frozen && (desc.flags & JS_PROP_WRITABLE != 0)))
                 {
@@ -608,65 +620,66 @@ impl<'a> JSObject<'a> {
 
         self.is_extensible(ctx).map(|b| !b)
     }
-
-    #[inline]
-    pub fn downgrade(&self) -> JSObjectWeakref<'a> {
-        JSObjectWeakref(Rc::downgrade(&self.0))
-    }
-
-    #[cfg(debug_assertions)]
-    pub fn ref_count(&self) -> usize {
-        Rc::strong_count(&self.0)
-    }
-
-    pub fn gc_has_mark(&self) -> bool {
-        self.0.gc_mark.get()
-    }
-
-    pub fn gc_set_mark(&self, mark: bool) {
-        self.0.gc_mark.set(mark);
-    }
-
-    pub fn gc_dump(&self, rt: &crate::runtime::JSRuntime) {
-        self.dump(rt);
-    }
 }
 
-#[derive(Debug, Clone)]
-pub struct JSObjectWeakref<'a>(pub(crate) Weak<ObjectInner<'a>>);
-
-impl<'a> From<JSObjectWeakref<'a>> for GCObjectWeakref<'a> {
-    fn from(value: JSObjectWeakref<'a>) -> Self {
-        Self::Object(value)
+impl JSValue {
+    pub const fn as_object(&self) -> Option<&ObjectRef> {
+        if let Self::Object(o) = self {
+            Some(o)
+        } else {
+            None
+        }
     }
-}
 
-impl Default for JSObjectWeakref<'_> {
-    fn default() -> Self {
-        Self(Weak::new())
-    }
-}
-
-impl<'a> JSObjectWeakref<'a> {
-    #[inline]
-    pub fn upgrade(&self) -> Option<JSObject<'a>> {
-        self.0.upgrade().map(JSObject)
-    }
-}
-
-impl<'a> JSValue<'a> {
-    pub const fn as_object(&self) -> Option<&JSObject<'a>> {
-        if let Self::Object(ob) = self {
-            Some(ob)
+    pub const fn as_object_mut(&mut self) -> Option<&mut ObjectRef> {
+        if let Self::Object(o) = self {
+            Some(o)
         } else {
             None
         }
     }
 
     #[inline]
-    pub unsafe fn as_object_unchecked(&self) -> &JSObject<'a> {
-        if let Self::Object(ob) = self {
-            ob
+    pub unsafe fn as_object_unchecked(&self) -> &ObjectRef {
+        if let Self::Object(o) = self {
+            o
+        } else {
+            #[cfg(debug_assertions)]
+            unreachable!("{self:?}");
+            #[cfg(not(debug_assertions))]
+            unsafe {
+                std::hint::unreachable_unchecked();
+            }
+        }
+    }
+
+    #[inline]
+    pub unsafe fn as_object_mut_unchecked(&mut self) -> &mut ObjectRef {
+        if let Self::Object(o) = self {
+            o
+        } else {
+            #[cfg(debug_assertions)]
+            unreachable!("{self:?}");
+            #[cfg(not(debug_assertions))]
+            unsafe {
+                std::hint::unreachable_unchecked();
+            }
+        }
+    }
+
+    #[inline]
+    pub const fn to_object(self) -> Option<ObjectRef> {
+        if let Self::Object(o) = self {
+            Some(o)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub unsafe fn to_object_unchecked(self) -> ObjectRef {
+        if let Self::Object(o) = self {
+            o
         } else {
             #[cfg(debug_assertions)]
             unreachable!("{self:?}");
@@ -687,19 +700,19 @@ impl<'a> JSValue<'a> {
     /// - "abc" => \[object "abc"\]
     /// - Symbol() => \[object Symbol()\]
     /// - null, undefined => Error
-    pub fn objectify(self, ctx: &JSContext<'a>) -> Result<JSObject<'a>, i32> {
+    pub fn objectify(&self, ctx: &ContextImpl) -> Result<ObjectRef, i32> {
         match self {
-            Self::Object(o) => Ok(o),
-            Self::String(s) => s.objectify(ctx, &JSValue::UNDEFINED),
+            Self::Object(o) => Ok(*o),
+            Self::String(s) => s.objectify(ctx, JSValue::UNDEFINED),
 
             Self::Int(_) | Self::Float64(_) => ctx
-                .create_object(ObjectPayload::NUMBER(self))
+                .create_object(ObjectPayload::NUMBER(*self))
                 .map_err(|_| -1),
             Self::Bool(_) => ctx
-                .create_object(ObjectPayload::BOOLEAN(self))
+                .create_object(ObjectPayload::BOOLEAN(*self))
                 .map_err(|_| -1),
             Self::Symbol(_) => ctx
-                .create_object(ObjectPayload::SYMBOL(self))
+                .create_object(ObjectPayload::SYMBOL(*self))
                 .map_err(|_| -1),
 
             Self::EXCEPTION => {
@@ -716,35 +729,28 @@ impl<'a> JSValue<'a> {
     }
 
     pub fn is_constructor(&self) -> bool {
-        if let Self::Object(ob) = self {
-            ob.flags().is_constructor()
+        if let Self::Object(o) = self {
+            o.flags().is_constructor()
         } else {
             false
         }
     }
 
     #[inline]
-    pub fn prevent_extensions(&self, ctx: &JSContext<'a>) -> Result<bool, i32> {
-        self.as_object()
+    pub fn prevent_extensions(&mut self, ctx: &ContextImpl) -> Result<bool, i32> {
+        self.as_object_mut()
             .map_or(Ok(false), |o| o.prevent_extensions(ctx))
     }
 
     /// Seal `self` if it is an object.
-    pub fn seal(&self, ctx: &JSContext<'a>, freeze: bool) -> Result<(), i32> {
-        if let JSValue::Object(p) = &self {
-            p.seal(ctx, freeze)
-        } else {
-            Ok(())
-        }
+    pub fn seal(&mut self, ctx: &ContextImpl, freeze: bool) -> Result<(), i32> {
+        self.as_object_mut().map_or(Ok(()), |o| o.seal(ctx, freeze))
     }
 
     /// check if value is sealed. Object value will check property, Non-object value is always treated as sealed.
-    pub fn is_sealed(&self, ctx: &JSContext<'a>, is_frozen: bool) -> Result<bool, i32> {
-        if let Some(o) = self.as_object() {
-            o.is_sealed(ctx, is_frozen)
-        } else {
-            Ok(true)
-        }
+    pub fn is_sealed(&mut self, ctx: &ContextImpl, is_frozen: bool) -> Result<bool, i32> {
+        self.as_object_mut()
+            .map_or(Ok(true), |o| o.is_sealed(ctx, is_frozen))
     }
 }
 
@@ -757,18 +763,16 @@ pub const JS_PROP_INITIAL_HASH_SIZE: usize = 8;
 pub const JS_PROP_INITIAL_HASH_SIZE: usize = 4;
 
 /// Note: all the fields are already sealed except length
-pub fn seal_template_obj<'a>(ctx: &JSContext<'a>, obj: JSValue<'a>) -> i32 {
-    let p = unsafe { obj.as_object_unchecked() };
+pub fn seal_template_obj(ctx: &ContextImpl, mut obj: JSValue) -> i32 {
+    let p = unsafe { obj.as_object_mut_unchecked() };
 
-    let (_, cur_flags) = p
-        .find_shape_property(JS_ATOM_length.deref())
-        .expect("length property must exist");
+    // let (_, cur_flags) = p
+    //     .find_shape_property(Atom::CONST_length)
+    //     .expect("length property must exist");
 
-    if p.update_shape_property_flags(
-        ctx,
-        JS_ATOM_length.deref(),
-        cur_flags & !(JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE),
-    )
+    if p.modify_shape_property_flags(ctx, Atom::CONST_length, |f| {
+        f & !(JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE)
+    })
     .is_err()
     {
         return -1;
@@ -778,19 +782,18 @@ pub fn seal_template_obj<'a>(ctx: &JSContext<'a>, obj: JSValue<'a>) -> i32 {
     0
 }
 
-pub fn JS_SpeciesConstructor<'a>(
-    ctx: &JSContext<'a>,
-    obj: &JSValue<'a>,
-    default_constructor: JSValue<'a>,
-) -> JSResult<'a> {
+pub fn JS_SpeciesConstructor(
+    ctx: &ContextImpl,
+    obj: JSValue,
+    default_constructor: JSValue,
+) -> JSResult {
     if let Some(o) = obj.as_object() {
-        let ctor = o.get_property(ctx, JS_ATOM_constructor.deref())?;
+        let ctor = o.get_property(ctx, Atom::CONST_constructor)?;
 
         if unlikely(ctor.is_undefined()) {
             Ok(default_constructor)
         } else if let Some(o1) = ctor.as_object() {
-            let species = o1.get_property(ctx, JS_ATOM_Symbol_species.deref())?;
-
+            let species = o1.get_property(ctx, Atom::CONST_Symbol_species)?;
             if species.is_undefined_or_null() {
                 Ok(default_constructor)
             } else if unlikely(!species.is_constructor()) {

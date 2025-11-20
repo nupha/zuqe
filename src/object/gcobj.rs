@@ -1,52 +1,45 @@
-use crate::{
-    context::{JSContext, JSContextWeakref},
-    function::{
-        AsyncFuncState, AsyncStateWeakref, Bytecode, BytecodeWeakref, JSVarRef, JSVarRefWeakref,
-    },
-    object::{JSObjectWeakref, JSShapeWeakref},
-    string::{JSString, JSStringWeakref},
-};
+use crate::function::{AsyncFuncState, Bytecode, JSVarRef};
 
-use super::{JSObject, JSShape};
+use super::ObjectRef;
 
 #[repr(u8)]
 #[derive(Debug, Clone)]
-pub enum GCObject<'a> {
-    Object(JSObject<'a>),
-    Bytecode(Bytecode<'a>),
-    String(JSString<'a>),
-    Shape(JSShape<'a>),
-    VarRef(JSVarRef<'a>),
-    AsyncFunction(AsyncFuncState<'a>),
-    Context(JSContext<'a>),
+pub enum GCObject {
+    // Object(ObjectRef),
+    //Bytecode(Bytecode),
+    //String(StringImpl),
+    //Shape(ShapeHandle),
+    VarRef(JSVarRef),
+    //  AsyncFunction(AsyncFuncState),
+    //Context(ContextImpl),
 }
 
-impl PartialEq for GCObject<'_> {
+impl PartialEq for GCObject {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Object(l0), Self::Object(r0)) => l0.id() == r0.id(),
-            (Self::String(l0), Self::String(r0)) => l0.content() == r0.content(),
-            (Self::Bytecode(l0), Self::Bytecode(r0)) => l0.id() == r0.id(),
-            (Self::Shape(l0), Self::Shape(r0)) => l0.id() == r0.id(),
+            // (Self::Object(l0), Self::Object(r0)) => l0.id() == r0.id(),
+            //(Self::String(l0), Self::String(r0)) => l0.content() == r0.content(),
+            //(Self::Bytecode(l0), Self::Bytecode(r0)) => l0.id() == r0.id(),
+            //(Self::Shape(l0), Self::Shape(r0)) => l0.id() == r0.id(),
             (Self::VarRef(l0), Self::VarRef(r0)) => l0.id() == r0.id(),
-            (Self::AsyncFunction(l0), Self::AsyncFunction(r0)) => l0.id() == r0.id(),
-            (Self::Context(l0), Self::Context(r0)) => l0.id() == r0.id(),
+            //   (Self::AsyncFunction(l0), Self::AsyncFunction(r0)) => l0.id() == r0.id(),
+            // (Self::Context(l0), Self::Context(r0)) => l0.id() == r0.id(),
             _ => false,
         }
     }
 }
 
-impl<'a> GCObject<'a> {
+impl GCObject {
     #[inline]
     pub fn id(&self) -> usize {
         match self {
-            Self::Object(o) => o.id(),
-            Self::Bytecode(o) => o.id(),
-            Self::String(o) => o.id(),
-            Self::Shape(o) => o.id(),
+            //Self::Object(o) => o.id(),
+            // Self::Bytecode(o) => o.id(),
+            //Self::String(o) => o.id(),
+            //Self::Shape(o) => o.id(),
             Self::VarRef(o) => o.id(),
-            Self::AsyncFunction(o) => o.id(),
-            Self::Context(o) => o.id(),
+            //  Self::AsyncFunction(o) => o.id(),
+            // Self::Context(o) => o.id(),
         }
     }
 
@@ -54,76 +47,78 @@ impl<'a> GCObject<'a> {
     pub fn ref_count(&self) -> usize {
         use std::rc::Rc;
 
-        match self {
-            Self::Object(o) => o.ref_count(),
-            Self::Bytecode(b) => b.strong_count(),
-            Self::String(s) => Rc::strong_count(&s.0),
-            Self::Shape(s) => s.strong_count(),
-            Self::VarRef(v) => Rc::strong_count(&v.0),
-            Self::AsyncFunction(a) => Rc::strong_count(&a.0),
-            Self::Context(c) => Rc::strong_count(&c.0),
-        }
+        // match self {
+        //     // Self::Object(o) => o.ref_count(),
+        //     //  Self::Bytecode(b) => b.strong_count(),
+        //     //Self::String(s) => Rc::strong_count(&s.0),
+        //     //Self::Shape(s) => s.ref_count(),
+        //     // Self::VarRef(v) => Rc::strong_count(&v.0),
+        //     //  Self::AsyncFunction(a) => Rc::strong_count(&a.0),
+        //     //Self::Context(c) => Rc::strong_count(&c.0),
+        // }
+        0
     }
 
     pub fn gc_has_mark(&self) -> bool {
-        match self {
-            Self::Object(o) => o.gc_has_mark(),
-            Self::Bytecode(o) => o.gc_has_mark(),
-            Self::String(o) => o.gc_has_mark(),
-            Self::Shape(o) => o.gc_has_mark(),
-            Self::VarRef(o) => o.gc_has_mark(),
-            Self::AsyncFunction(o) => o.gc_has_mark(),
-            Self::Context(o) => o.gc_has_mark(),
-        }
+        // match self {
+        //     // Self::Object(o) => o.gc_has_mark(),
+        //     //  Self::Bytecode(o) => o.gc_has_mark(),
+        //     //Self::String(o) => o.gc_has_mark(),
+        //     //Self::Shape(o) => o.gc_has_mark(),
+        //     //Self::VarRef(o) => o.gc_has_mark(),
+        //     //   Self::AsyncFunction(o) => o.gc_has_mark(),
+        //     // Self::Context(o) => o.gc_has_mark(),
+        // }
+
+        true
     }
 
     pub fn gc_set_mark(&self, b: bool) {
-        match self {
-            Self::Object(o) => o.gc_set_mark(b),
-            Self::Bytecode(o) => o.gc_set_mark(b),
-            Self::String(o) => o.gc_set_mark(b),
-            Self::Shape(o) => o.gc_set_mark(b),
-            Self::VarRef(o) => o.gc_set_mark(b),
-            Self::AsyncFunction(o) => o.gc_set_mark(b),
-            Self::Context(o) => o.gc_set_mark(b),
-        }
+        // match self {
+        //     // Self::Object(o) => o.gc_set_mark(b),
+        //     //  Self::Bytecode(o) => o.gc_set_mark(b),
+        //     //Self::String(o) => o.gc_set_mark(b),
+        //     //Self::Shape(o) => o.gc_set_mark(b),
+        //     Self::VarRef(o) => o.gc_set_mark(b),
+        //     //Self::AsyncFunction(o) => o.gc_set_mark(b),
+        //     // Self::Context(o) => o.gc_set_mark(b),
+        // }
     }
 
     pub fn gc_sweep(&self) {
-        match self {
-            Self::Object(o) => o.gc_sweep(),
-            Self::Bytecode(o) => o.gc_sweep(),
-            Self::String(o) => o.gc_sweep(),
-            Self::Shape(o) => o.gc_sweep(),
-            Self::VarRef(o) => o.gc_sweep(),
-            Self::AsyncFunction(o) => o.gc_sweep(),
-            Self::Context(o) => o.gc_sweep(),
-        }
+        // match self {
+        //     // Self::Object(o) => o.gc_sweep(),
+        //     //  Self::Bytecode(o) => o.gc_sweep(),
+        //     //Self::String(o) => o.gc_sweep(),
+        //     //Self::Shape(o) => o.gc_sweep(),
+        //     Self::VarRef(o) => o.gc_sweep(),
+        //     // Self::AsyncFunction(o) => o.gc_sweep(),
+        //     //  Self::Context(o) => o.gc_sweep(),
+        // }
     }
 }
 
-#[repr(u8)]
 #[derive(Debug, Clone)]
-pub enum GCObjectWeakref<'a> {
-    Object(JSObjectWeakref<'a>),
-    Bytecode(BytecodeWeakref<'a>),
-    String(JSStringWeakref<'a>),
-    Shape(JSShapeWeakref<'a>),
-    VarRef(JSVarRefWeakref<'a>),
-    AsyncFunction(AsyncStateWeakref<'a>),
-    Context(JSContextWeakref<'a>),
+pub enum GCObjectWeakref {
+    //Object(JSObjectWeakref),
+    // Bytecode(BytecodeWeakref),
+    //String(JSStringWeakref),
+    //Shape(JSShapeWeakref),
+    // VarRef(JSVarRefWeakref),
+    //AsyncFunction(AsyncStateWeakref),
+    // Context(JSContextWeakref),
 }
 
-impl<'a> GCObjectWeakref<'a> {
-    pub fn upgrade(&self) -> Option<GCObject<'a>> {
-        match self {
-            Self::Object(o) => o.upgrade().map(GCObject::Object),
-            Self::Bytecode(o) => o.upgrade().map(GCObject::Bytecode),
-            Self::String(o) => o.upgrade().map(GCObject::String),
-            Self::Shape(o) => o.upgrade().map(GCObject::Shape),
-            Self::VarRef(o) => o.upgrade().map(GCObject::VarRef),
-            Self::AsyncFunction(o) => o.upgrade().map(GCObject::AsyncFunction),
-            Self::Context(o) => o.upgrade().map(GCObject::Context),
-        }
-    }
+impl GCObjectWeakref {
+    // pub fn upgrade(&self) -> Option<GCObject> {
+    //     match self {
+    //         // Self::Object(o) => o.upgrade().map(GCObject::Object),
+    //         //Self::Bytecode(o) => o.upgrade().map(GCObject::Bytecode),
+    //         //Self::String(o) => o.upgrade().map(GCObject::String),
+    //         //Self::Shape(o) => o.upgrade().map(GCObject::Shape),
+    //         Self::VarRef(o) => o.upgrade().map(GCObject::VarRef),
+    //         //Self::AsyncFunction(o) => o.upgrade().map(GCObject::AsyncFunction),
+    //         // Self::Context(o) => o.upgrade().map(GCObject::Context),
+    //     }
+    // }
 }

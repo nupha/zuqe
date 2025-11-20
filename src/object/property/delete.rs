@@ -1,17 +1,15 @@
-use std::ops::Deref;
-
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
     atom::{Atom, JS_ATOM_MAX_INT},
     branch_hints::unlikely,
-    context::JSContext,
-    object::JSObject,
+    context::{ContextImpl, ContextRef},
+    object::ObjectRef,
     value::JSValue,
 };
 
 use super::JS_PROP_CONFIGURABLE;
 
-impl<'a> JSObject<'a> {
+impl ObjectRef {
     /// Delete an own property.
     ///
     /// The property is in shape, or delete via exotic/fast-array handler.
@@ -23,9 +21,9 @@ impl<'a> JSObject<'a> {
     ///
     /// Note: `prop` is not consumed.
     pub(crate) fn delete_property_internal(
-        &self,
-        ctx: &JSContext<'a>,
-        prop: &Atom,
+        &mut self,
+        ctx: &ContextImpl,
+        prop: Atom,
     ) -> Result<bool, i32> {
         let obj_flags = self.flags();
 
@@ -35,18 +33,13 @@ impl<'a> JSObject<'a> {
                 return if unlikely(prs_flags & JS_PROP_CONFIGURABLE == 0) {
                     Ok(false)
                 } else {
-                    self.shape_prepare_update(ctx)?;
                     // remove shape property defination.
-                    // shape hash is unchanged, even a field is removed.
-                    self.shape()
-                        .unwrap()
-                        .0
-                        .borrow_mut()
-                        .prop_defs
-                        .shift_remove(&prop.id());
+                    self.modify_shape(ctx, |sh| {
+                        sh.prop_defs.shift_remove_index(idx);
+                    })?;
 
                     // remove property value
-                    drop(self.0.prop_values.borrow_mut().remove(idx));
+                    self.prop_values.remove(idx);
 
                     Ok(true)
                 };
@@ -103,7 +96,11 @@ impl<'a> JSObject<'a> {
                         .as_ref()
                         .and_then(|m| m.delete_property)
                     {
-                        return cb(ctx, JSValue::Object(self.clone()), prop);
+                        return cb(
+                            unsafe { ContextRef::from_ref_unchecked(ctx) },
+                            JSValue::Object(*self),
+                            prop,
+                        );
                     }
                 }
             }
@@ -116,9 +113,9 @@ impl<'a> JSObject<'a> {
     }
 
     pub fn delete_property(
-        &self,
-        ctx: &JSContext<'a>,
-        prop: &Atom,
+        &mut self,
+        ctx: &ContextImpl,
+        prop: Atom,
         flags: u32,
     ) -> Result<bool, i32> {
         if self.delete_property_internal(ctx, prop)? {
@@ -135,45 +132,43 @@ impl<'a> JSObject<'a> {
     }
 
     pub fn delete_property_i64(
-        &self,
-        ctx: &JSContext<'a>,
+        &mut self,
+        ctx: &ContextImpl,
         idx: i64,
         flags: u32,
     ) -> Result<bool, i32> {
         if (0..JS_ATOM_MAX_INT as i64).contains(&idx) {
             // fast path for fast array
-            self.delete_property(ctx, &Atom::new_small_int(idx as u32), flags)
+            self.delete_property(ctx, Atom::new_small_int(idx as u32), flags)
         } else {
             let atom = Atom::from_i64(ctx.rt().as_ref(), idx)?;
-            self.delete_property(ctx, &atom, flags)
+            self.delete_property(ctx, atom, flags)
         }
     }
 }
 
-impl<'a> JSValue<'a> {
+impl JSValue {
     /// 如果属性不可配置或无效对象则返回 false, 出现异常时返回 Err.
     /// flags 可以是 0、JS_PROP_THROW 或 JS_PROP_THROW_STRICT
     #[inline]
     pub fn delete_property(
-        &self,
-        ctx: &JSContext<'a>,
-        prop: &Atom,
+        &mut self,
+        ctx: &ContextImpl,
+        prop: Atom,
         flags: u32,
     ) -> Result<bool, i32> {
-        self.clone()
-            .objectify(ctx)
-            .and_then(|o| o.delete_property(ctx, prop, flags))
+        self.objectify(ctx)
+            .and_then(|mut o| o.delete_property(ctx, prop, flags))
     }
 
     #[inline]
     pub fn delete_property_i64(
-        &self,
-        ctx: &JSContext<'a>,
+        &mut self,
+        ctx: &ContextImpl,
         idx: i64,
         flags: u32,
     ) -> Result<bool, i32> {
-        self.clone()
-            .objectify(ctx)
-            .and_then(|o| o.delete_property_i64(ctx, idx, flags))
+        self.objectify(ctx)
+            .and_then(|mut o| o.delete_property_i64(ctx, idx, flags))
     }
 }

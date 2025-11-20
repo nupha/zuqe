@@ -1,43 +1,43 @@
 use crate::{
     JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING, JS_CLASS_SYMBOL,
-    atom::consts::*,
-    context::JSContext,
+    atom::Atom,
+    context::ContextImpl,
     error::JSResult,
-    object::{JSObject, ObjectPayload},
-    runtime::JSRuntime,
+    object::{ObjectPayload, ObjectRef},
+    runtime::RuntimeImpl,
     value::{HINT_FORCE_ORDINARY, HINT_NUMBER, HINT_STRING, JSValue},
 };
 
-impl<'a> From<bool> for JSValue<'a> {
+impl From<bool> for JSValue {
     #[inline(always)]
     fn from(value: bool) -> Self {
         JSValue::Bool(value)
     }
 }
 
-impl<'a> JSObject<'a> {
+impl ObjectRef {
     /// Coerce object to primitive (non-object) value
-    pub fn to_primitive(&self, ctx: &JSContext<'a>, hint: i32) -> JSResult<'a> {
+    pub fn to_primitive(self, ctx: &ContextImpl, hint: i32) -> JSResult {
         let ignore_toPrimitive_method = hint & HINT_FORCE_ORDINARY != 0;
         let hint = hint & !HINT_FORCE_ORDINARY;
 
-        let this: JSValue = self.clone().into();
+        let this: JSValue = self.into();
 
         if !ignore_toPrimitive_method {
             // try .toPrimitive() method
-            let method = self.get_property(ctx, &JS_ATOM_Symbol_toPrimitive)?;
+            let method = self.get_property(ctx, Atom::CONST_Symbol_toPrimitive)?;
 
             /* ECMA says *If exoticToPrim is not undefined* but tests in
             test262 use null as a non-callable converter */
             if !method.is_undefined_or_null() {
                 let hint_val = match hint {
-                    HINT_STRING => JS_ATOM_string,
-                    HINT_NUMBER => JS_ATOM_number,
-                    _ => JS_ATOM_default,
+                    HINT_STRING => Atom::CONST_string,
+                    HINT_NUMBER => Atom::CONST_number,
+                    _ => Atom::CONST_default,
                 }
                 .force_string(ctx)?;
 
-                let ret = method.call(ctx, &this, &[hint_val.into()])?;
+                let ret = method.call(ctx, this, &[hint_val.into()])?;
                 return if !ret.is_object() {
                     Ok(ret)
                 } else {
@@ -51,13 +51,13 @@ impl<'a> JSObject<'a> {
         // - HINT_STRING: try toString() first, then valueOf()
         // - HINT_NUMBER/HINT_NONE: try valueOf() first, then toString()
         for prop in if hint == HINT_STRING {
-            [JS_ATOM_toString, JS_ATOM_valueOf]
+            [Atom::CONST_toString, Atom::CONST_valueOf]
         } else {
-            [JS_ATOM_valueOf, JS_ATOM_toString]
+            [Atom::CONST_valueOf, Atom::CONST_toString]
         } {
-            let method = self.get_property(ctx, &prop)?;
+            let method = self.get_property(ctx, prop)?;
             if method.is_function() {
-                let ret = method.call(ctx, &this, &[])?;
+                let ret = method.call(ctx, this, &[])?;
                 if !ret.is_object() {
                     return Ok(ret);
                 }
@@ -70,19 +70,19 @@ impl<'a> JSObject<'a> {
 
     /// Coerce object to number (Int or Float64)
     #[inline(always)]
-    pub fn to_number(&self, ctx: &JSContext<'a>) -> JSResult<'a> {
+    pub fn to_number(&self, ctx: &ContextImpl) -> JSResult {
         self.to_primitive(ctx, HINT_NUMBER)
     }
 }
 
-impl<'a> JSValue<'a> {
+impl JSValue {
     /// Coerce value to primitive (non-object) value
     #[inline]
-    pub fn to_primitive(&self, ctx: &JSContext<'a>, hint: i32) -> Result<JSValue<'a>, i32> {
+    pub fn to_primitive(&self, ctx: &ContextImpl, hint: i32) -> Result<JSValue, i32> {
         if let Self::Object(o) = self {
             o.to_primitive(ctx, hint)
         } else {
-            Ok(self.clone())
+            Ok(*self)
         }
     }
 
@@ -103,7 +103,7 @@ impl<'a> JSValue<'a> {
 
 /// For primitive types (number, bool, string, symbol), return prototype of associated type.
 /// Only works for primitive types, otherwise returns Null.
-pub fn JS_GetPrototypePrimitive<'a>(ctx: &JSContext<'a>, val: &JSValue<'a>) -> JSValue<'a> {
+pub fn JS_GetPrototypePrimitive(ctx: &ContextImpl, val: &JSValue) -> JSValue {
     match val {
         JSValue::Int(_) | JSValue::Float64(_) => ctx.class_proto(JS_CLASS_NUMBER),
         JSValue::Bool(_) => ctx.class_proto(JS_CLASS_BOOLEAN),
@@ -114,7 +114,7 @@ pub fn JS_GetPrototypePrimitive<'a>(ctx: &JSContext<'a>, val: &JSValue<'a>) -> J
     .map_or(JSValue::NULL, JSValue::Object)
 }
 
-pub const fn js_object_data_finalizer(_rt: &mut JSRuntime, _isa: &ObjectPayload, _id: usize) {
+pub const fn js_object_data_finalizer(_rt: &mut RuntimeImpl, _isa: &ObjectPayload, _id: usize) {
     // free object data
     // JS_FreeValueRT(
     //     rt,

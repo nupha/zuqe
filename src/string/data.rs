@@ -1,11 +1,4 @@
-use std::{
-    borrow::Cow,
-    cell::RefCell,
-    cmp::Ordering,
-    collections::{HashMap, TryReserveError},
-    ops::{Deref, Range},
-    rc::{Rc, Weak},
-};
+use std::{borrow::Cow, cmp::Ordering, collections::TryReserveError, ops::Range};
 
 use fallible_collections::TryCollect;
 use widestring::U16Str;
@@ -20,15 +13,15 @@ use super::{
     unicode_to_utf8,
 };
 
-/// read-only, ref-counted bytes that represents a string.
+/// read-only string content.
 #[repr(u8)]
 #[derive(Clone, Default)]
 pub enum StringData {
     #[default]
     Empty,
 
-    Ascii(Rc<[u8]>), // TODO: upgrade to ISO8859 variant to hold 0..=255 chars
-    Utf16(Rc<[u16]>),
+    Ascii(Box<[u8]>), // TODO: upgrade to ISO8859 variant to hold 0..=255 chars
+    Utf16(Box<[u16]>),
 
     /// the static ascii str
     AsciiStatic(&'static str),
@@ -49,8 +42,8 @@ impl PartialEq for StringData {
 
             // ascii vs utf16
             (Self::Ascii(s1), Self::Utf16(s2)) => {
-                let mut it1 = unsafe { std::str::from_utf8_unchecked(s1) }.chars();
-                let mut it2 = U16Str::from_slice(s2).chars_lossy();
+                let mut it1 = unsafe { std::str::from_utf8_unchecked(s1.as_ref()) }.chars();
+                let mut it2 = U16Str::from_slice(s2.as_ref()).chars_lossy();
                 loop {
                     match (it1.next(), it2.next()) {
                         (Some(a), Some(b)) => {
@@ -68,8 +61,8 @@ impl PartialEq for StringData {
                 }
             }
             (Self::Utf16(s1), Self::Ascii(s2)) => {
-                let mut it1 = U16Str::from_slice(s1).chars_lossy();
-                let mut it2 = unsafe { std::str::from_utf8_unchecked(s2) }.chars();
+                let mut it1 = U16Str::from_slice(s1.as_ref()).chars_lossy();
+                let mut it2 = unsafe { std::str::from_utf8_unchecked(s2.as_ref()) }.chars();
                 loop {
                     match (it1.next(), it2.next()) {
                         (Some(a), Some(b)) => {
@@ -92,7 +85,7 @@ impl PartialEq for StringData {
                 ss.as_bytes().eq(sa.as_ref())
             }
             (Self::AsciiStatic(ss), Self::Utf16(us)) | (Self::Utf16(us), Self::AsciiStatic(ss)) => {
-                let mut it1 = U16Str::from_slice(us).chars_lossy();
+                let mut it1 = U16Str::from_slice(us.as_ref()).chars_lossy();
                 let mut it2 = ss.chars();
                 loop {
                     match (it1.next(), it2.next()) {
@@ -128,16 +121,16 @@ impl Ord for StringData {
     fn cmp(&self, other: &Self) -> Ordering {
         match (self, other) {
             // for same kind.
-            (StringData::Ascii(s1), StringData::Ascii(s2)) => s1.cmp(s2),
-            (StringData::Utf16(s1), StringData::Utf16(s2)) => s1.cmp(s2),
+            (StringData::Ascii(s1), StringData::Ascii(s2)) => s1.as_ref().cmp(s2.as_ref()),
+            (StringData::Utf16(s1), StringData::Utf16(s2)) => s1.as_ref().cmp(s2.as_ref()),
             (StringData::Empty, StringData::Empty) | (StringData::Ident, StringData::Ident) => {
                 Ordering::Equal
             }
 
             // utf8 vs utf16 cmp
             (StringData::Ascii(s1), StringData::Utf16(s2)) => {
-                let mut it1 = s1.iter();
-                let mut it2 = s2.iter();
+                let mut it1 = s1.as_ref().iter();
+                let mut it2 = s2.as_ref().iter();
                 loop {
                     match (it1.next(), it2.next()) {
                         (Some(a), Some(b)) => {
@@ -159,8 +152,8 @@ impl Ord for StringData {
                 }
             }
             (StringData::Utf16(s1), StringData::Ascii(s2)) => {
-                let mut it1 = s1.iter();
-                let mut it2 = s2.iter();
+                let mut it1 = s1.as_ref().iter();
+                let mut it2 = s2.as_ref().iter();
                 loop {
                     match (it1.next(), it2.next()) {
                         (Some(a), Some(b)) => {
@@ -190,7 +183,7 @@ impl Ord for StringData {
             // str vs utf16
             (StringData::AsciiStatic(s), StringData::Utf16(w)) => {
                 let mut it1 = s.as_bytes().iter();
-                let mut it2 = w.iter();
+                let mut it2 = w.as_ref().iter();
                 loop {
                     match (it1.next(), it2.next()) {
                         (Some(a), Some(b)) => {
@@ -212,7 +205,7 @@ impl Ord for StringData {
                 }
             }
             (StringData::Utf16(w), StringData::AsciiStatic(s)) => {
-                let mut it1 = w.iter();
+                let mut it1 = w.as_ref().iter();
                 let mut it2 = s.as_bytes().iter();
                 loop {
                     match (it1.next(), it2.next()) {
@@ -303,8 +296,8 @@ impl StringData {
     pub fn len(&self) -> usize {
         match self {
             Self::Empty | Self::Ident => 0,
-            Self::Ascii(s) => s.len(),
-            Self::Utf16(s) => s.len(),
+            Self::Ascii(s) => s.as_ref().len(),
+            Self::Utf16(s) => s.as_ref().len(),
             Self::AsciiStatic(s) => s.len(),
         }
     }
@@ -367,7 +360,7 @@ impl StringData {
             let range = range.start..std::cmp::min(range.end, self.len());
             match self {
                 Self::Empty | Self::Ident => Cow::Borrowed(&[]),
-                Self::Ascii(s) => Cow::Borrowed(s.deref()),
+                Self::Ascii(s) => Cow::Borrowed(s),
                 Self::Utf16(s) => {
                     let slice = &s[range];
                     let len = slice
@@ -510,8 +503,8 @@ impl StringData {
     pub fn get(&self, index: usize) -> Option<u16> {
         match self {
             Self::Empty | Self::Ident => None,
-            Self::Ascii(lst) => lst.get(index).map(|n| *n as u16),
-            Self::Utf16(lst) => lst.get(index).copied(),
+            Self::Ascii(lst) => lst.as_ref().get(index).map(|n| *n as u16),
+            Self::Utf16(lst) => lst.as_ref().get(index).copied(),
             Self::AsciiStatic(s) => s.as_bytes().get(index).map(|n| *n as u16),
         }
     }
@@ -522,14 +515,14 @@ impl StringData {
         match self {
             Self::Empty | Self::Ident => StringCodepointIter::U8([].iter().peekable()),
             Self::Ascii(s) => {
-                if let Some(slice) = s.get(range) {
+                if let Some(slice) = { s.as_ref().get(range) } {
                     StringCodepointIter::U8(slice.iter().peekable())
                 } else {
                     StringCodepointIter::U8([].iter().peekable())
                 }
             }
             Self::Utf16(s) => {
-                if let Some(slice) = s.get(range) {
+                if let Some(slice) = { s.as_ref().get(range) } {
                     StringCodepointIter::U16(slice.iter().peekable())
                 } else {
                     StringCodepointIter::U16([].iter().peekable())
@@ -612,7 +605,7 @@ impl StringData {
     pub fn chars_count(&self) -> usize {
         match self {
             Self::Empty | Self::Ident => 0,
-            Self::Ascii(s) => s.len(),
+            Self::Ascii(s) => s.as_ref().len(),
             Self::Utf16(_) => self.iter().count(),
             Self::AsciiStatic(s) => s.len(),
         }
@@ -631,6 +624,7 @@ impl StringData {
                     None
                 } else {
                     let c1 = code as u8;
+
                     s[from_index..]
                         .iter()
                         .position(|&c| c == c1)
@@ -729,7 +723,7 @@ impl StringData {
             Self::Empty => other.is_empty(),
             Self::Ascii(s) => s.len() == other.len() && s.as_ref() == other.as_bytes(),
             Self::Utf16(s) => {
-                let mut a = U16Str::from_slice(s).chars_lossy();
+                let mut a = U16Str::from_slice(s.as_ref()).chars_lossy();
                 let mut b = other.chars();
                 loop {
                     match (a.next(), b.next()) {
@@ -818,23 +812,8 @@ fn hash_codepoints(s: impl Iterator<Item = StringChar>) -> u32 {
     h
 }
 
-impl From<StringBuf> for StringData {
-    #[inline(always)]
-    fn from(value: StringBuf) -> Self {
-        #[cfg(feature = "string_intern")]
-        {
-            Self::intern(value)
-        }
-
-        #[cfg(not(feature = "string_intern"))]
-        {
-            Self::from_buf(value)
-        }
-    }
-}
-
 impl StringData {
-    fn from_buf(buf: StringBuf) -> Self {
+    pub fn from_buf(buf: StringBuf) -> Self {
         match buf {
             StringBuf::Empty => Self::Empty,
             StringBuf::Ascii(s) => {
@@ -842,7 +821,7 @@ impl StringData {
                     Self::Empty
                 } else {
                     debug_assert!(s.is_ascii());
-                    Self::Ascii(s.into())
+                    Self::Ascii(s.into_boxed_slice())
                 }
             }
             StringBuf::Utf16(s) => {
@@ -850,9 +829,10 @@ impl StringData {
                     Self::Empty
                 } else if !s.iter().any(|c| *c >= 0x80) {
                     // ascii
-                    Self::Ascii(unsafe { s16_into_s8(s).into() })
+                    let data = unsafe { s16_into_s8(s) };
+                    Self::Ascii(data.into_boxed_slice())
                 } else {
-                    Self::Utf16(s.into())
+                    Self::Utf16(s.into_boxed_slice())
                 }
             }
         }

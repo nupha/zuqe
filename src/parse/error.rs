@@ -9,7 +9,7 @@ impl<'s> JSParseState<'s> {
     /// given an exception value, build traceback and throw it as current exception.
     /// old exception will be freed.
     #[cold]
-    pub fn throw(&self, exc: JSValue<'s>) {
+    pub fn throw(&self, exc: JSValue) {
         let backtrace_flags =
             if !self.cur_func_def.is_null() && self.cur_func().attrs.backtrace_barrier {
                 JS_BACKTRACE_FLAG_SINGLE_LEVEL
@@ -18,7 +18,7 @@ impl<'s> JSParseState<'s> {
             };
 
         self.ctx.build_backtrace_to(
-            &self.ctx.rt().cur_exception,
+            self.ctx.rt().exception(),
             Some((self.filename, self.line_num)),
             backtrace_flags,
         );
@@ -37,7 +37,7 @@ impl<'s> JSParseState<'s> {
                 0
             };
         self.ctx.build_backtrace_to(
-            &self.ctx.rt().cur_exception,
+            self.ctx.rt().exception(),
             Some((self.filename, self.line_num)),
             backtrace_flags,
         );

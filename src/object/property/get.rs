@@ -1,42 +1,38 @@
-use std::ops::Deref;
-
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
     JS_CLASS_INT32_ARRAY, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY,
     JS_CLASS_UINT32_ARRAY,
-    atom::{Atom, JS_ATOM_MAX_INT, consts::*},
+    atom::{Atom, JS_ATOM_MAX_INT},
     branch_hints::unlikely,
-    context::JSContext,
+    context::{ContextImpl, ContextRef},
     error::{JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized, JSResult},
-    object::{JSObject, JSProperty},
+    object::{JSProperty, ObjectRef},
     value::{JS_GetPrototypePrimitive, JSValue},
 };
 
 use super::{JS_PROP_GETSET, JS_PROP_LAZYINIT, JS_PROP_NORMAL, JS_PROP_TMASK, JS_PROP_VARREF};
 
-impl<'a> JSObject<'a> {
+impl ObjectRef {
     /// walk up proto chain and get property in shape or by exotic handler.
     /// `prop` is not consumed.
     /// Note: returned value is duplicated.
     pub(crate) fn get_property_internal(
         &self,
-        ctx: &JSContext<'a>,
-        prop: &Atom,
-        this_obj: &JSValue<'a>,
+        ctx: &ContextImpl,
+        prop: Atom,
+        this_obj: JSValue,
         throw_ref_error: bool,
-    ) -> JSResult<'a> {
-        for cur_obj in self.shape_proto_iter(true) {
+    ) -> JSResult {
+        for mut cur_obj in self.shape_proto_iter(true) {
             'redo: loop {
                 // 1. search own property (in shape)
                 if let Some((idx, prs_flags)) = cur_obj.find_shape_property(prop) {
                     match prs_flags & JS_PROP_TMASK {
                         JS_PROP_NORMAL => {
-                            return if let JSProperty::Normal(val) =
-                                &cur_obj.0.prop_values.borrow()[idx]
-                            {
+                            return if let JSProperty::Normal(val) = &cur_obj.prop_values[idx] {
                                 debug_assert!(!val.is_exception());
-                                Ok(val.clone())
+                                Ok(*val)
                             } else {
                                 #[cfg(debug_assertions)]
                                 unreachable!();
@@ -47,7 +43,7 @@ impl<'a> JSObject<'a> {
                             };
                         }
                         JS_PROP_GETSET => {
-                            let pr = cur_obj.0.prop_values.borrow()[idx].clone(); // borrow in short
+                            let pr = &cur_obj.prop_values[idx];
                             return if let JSProperty::GetSet {
                                 getter: Some(fun), ..
                             } = pr
@@ -58,10 +54,10 @@ impl<'a> JSObject<'a> {
                             };
                         }
                         JS_PROP_VARREF => {
-                            let pr = cur_obj.0.prop_values.borrow()[idx].clone(); // borrow in short
+                            let pr = &cur_obj.prop_values[idx];
                             let val = pr.value(ctx, this_obj)?;
                             return if unlikely(val.is_uninitialized()) {
-                                JS_ThrowReferenceErrorUninitialized(ctx, prop.to_ref());
+                                JS_ThrowReferenceErrorUninitialized(ctx, prop);
                                 Err(-1)
                             } else {
                                 Ok(val)
@@ -69,8 +65,8 @@ impl<'a> JSObject<'a> {
                         }
                         JS_PROP_LAZYINIT => {
                             // instantiate lazy object, and redo
-                            cur_obj.0.prop_values.borrow_mut()[idx]
-                                .instantiate(&cur_obj, idx, self)?;
+                            let o = cur_obj;
+                            cur_obj.prop_values[idx].instantiate(o, idx, *self)?;
                             continue 'redo;
                         }
                         _ => unreachable!(),
@@ -86,7 +82,7 @@ impl<'a> JSObject<'a> {
                 if ob_flags.is_fast_array() {
                     if let Some(idx) = prop.to_small_int() {
                         if idx < cur_obj.fast_array_count() {
-                            return cur_obj.get_property_value(ctx, &JSValue::from(idx));
+                            return cur_obj.get_property_value(ctx, JSValue::from(idx));
                         }
 
                         if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY)
@@ -96,30 +92,38 @@ impl<'a> JSObject<'a> {
                         }
                     } else if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY)
                         .contains(&cur_obj.class_id())
+                        && prop.is_numeric_index(ctx)?
                     {
-                        if prop.is_numeric_index(ctx)? {
-                            return Ok(JSValue::UNDEFINED);
-                        }
-                        // let ret = unsafe { JS_AtomIsNumericIndex(ctx, prop) };
-                        // if ret != 0 {
-                        //     return if unlikely(ret < 0) {
-                        //         Err(-1)
-                        //     } else {
-                        //         Ok(JSValue::UNDEFINED)
-                        //     };
-                        // }
+                        return Ok(JSValue::UNDEFINED);
                     }
+                    // let ret = unsafe { JS_AtomIsNumericIndex(ctx, prop) };
+                    // if ret != 0 {
+                    //     return if unlikely(ret < 0) {
+                    //         Err(-1)
+                    //     } else {
+                    //         Ok(JSValue::UNDEFINED)
+                    //     };
+                    // }
                 } else if let Some(pm) = ctx.rt().class_registry[cur_obj.class_id() as usize]
                     .exotic
                     .as_ref()
                 {
                     if let Some(cb) = pm.get_property {
                         // XXX: should pass throw_ref_error
-                        return cb(ctx, cur_obj.clone().into(), prop, this_obj.clone());
+                        return cb(
+                            unsafe { ContextRef::from_ref_unchecked(ctx) },
+                            cur_obj.into(),
+                            prop,
+                            this_obj,
+                        );
                     }
 
                     if let Some(cb) = pm.get_own_property
-                        && let Some(desc) = cb(ctx, JSValue::Object(cur_obj.clone()), prop)?
+                        && let Some(desc) = cb(
+                            unsafe { ContextRef::from_ref_unchecked(ctx) },
+                            JSValue::Object(cur_obj),
+                            prop,
+                        )?
                     {
                         return if unlikely(desc.flags & JS_PROP_GETSET != 0) {
                             desc.getter.call(ctx, this_obj, &[])
@@ -133,7 +137,7 @@ impl<'a> JSObject<'a> {
         }
 
         if unlikely(throw_ref_error) {
-            JS_ThrowReferenceErrorNotDefined(ctx, prop.to_ref());
+            JS_ThrowReferenceErrorNotDefined(ctx, prop);
             Err(-1)
         } else {
             Ok(JSValue::UNDEFINED)
@@ -143,8 +147,8 @@ impl<'a> JSObject<'a> {
     /// get property by atom name.
     /// `prop` is not consumed.
     #[inline(always)]
-    pub fn get_property(&self, ctx: &JSContext<'a>, prop: &Atom) -> JSResult<'a> {
-        self.get_property_internal(ctx, prop, &JSValue::Object(self.clone()), false)
+    pub fn get_property(&self, ctx: &ContextImpl, prop: Atom) -> JSResult {
+        self.get_property_internal(ctx, prop, JSValue::Object(*self), false)
     }
 
     /// get property by index key.
@@ -152,7 +156,7 @@ impl<'a> JSObject<'a> {
     /// Returns:
     /// - Some: property value
     /// - None: try slow path instead
-    fn get_property_index(&self, idx: usize) -> Option<JSResult<'a>> {
+    fn get_property_index(&self, idx: usize) -> Option<JSResult> {
         macro_rules! typed_array_el {
             ($ty:ident, $vtype:ident) => {
                 let ta = self.as_TypedArray().unwrap();
@@ -171,7 +175,7 @@ impl<'a> JSObject<'a> {
                 if let Some(el) = self
                     .with_fast_array_values(|lst| {
                         if idx < lst.len() {
-                            Some(lst[idx].clone()) // return element value
+                            Some(lst[idx]) // return element value
                         } else {
                             None // try slow path later
                         }
@@ -219,16 +223,16 @@ impl<'a> JSObject<'a> {
         None
     }
 
-    fn get_property_slow(&self, ctx: &JSContext<'a>, prop: &JSValue<'a>) -> JSResult<'a> {
+    fn get_property_slow(&self, ctx: &ContextImpl, prop: JSValue) -> JSResult {
         let atom = prop.to_atom(ctx)?;
-        self.get_property_internal(ctx, &atom, &JSValue::Object(self.clone()), false)
+        self.get_property_internal(ctx, atom, JSValue::Object(*self), false)
     }
 
-    pub fn get_property_value(&self, ctx: &JSContext<'a>, prop: &JSValue<'a>) -> JSResult<'a> {
+    pub fn get_property_value(&self, ctx: &ContextImpl, prop: JSValue) -> JSResult {
         // check if prop is an index
         let index_key = match prop {
-            JSValue::Int(i) if *i >= 0 => Some(*i as usize),
-            JSValue::Float64(f) if *f >= 0.0 => {
+            JSValue::Int(i) if i >= 0 => Some(i as usize),
+            JSValue::Float64(f) if f >= 0.0 => {
                 if f.fract() == 0.0 {
                     let n = f.trunc() as i64;
                     if n <= u32::MAX as i64 {
@@ -253,23 +257,23 @@ impl<'a> JSObject<'a> {
         self.get_property_slow(ctx, prop)
     }
 
-    pub fn get_property_u32(&self, ctx: &JSContext<'a>, idx: u32) -> JSResult<'a> {
+    pub fn get_property_u32(&self, ctx: &ContextImpl, idx: u32) -> JSResult {
         self.get_property_index(idx as usize)
-            .unwrap_or_else(|| self.get_property_slow(ctx, &JSValue::from(idx)))
+            .unwrap_or_else(|| self.get_property_slow(ctx, JSValue::from(idx)))
     }
 
-    pub fn get_property_i64(&self, ctx: &JSContext<'a>, idx: i64) -> JSResult<'a> {
+    pub fn get_property_i64(&self, ctx: &ContextImpl, idx: i64) -> JSResult {
         if (0..u32::MAX as i64).contains(&idx) {
             self.get_property_u32(ctx, idx as u32)
         } else {
-            let prop = Atom::from_i64(ctx.rt().as_ref(), idx)?;
-            self.get_property(ctx, &prop)
+            let atom = Atom::from_i64(&ctx.rt(), idx)?;
+            self.get_property(ctx, atom)
         }
     }
 
-    pub fn get_property_str(&self, ctx: &JSContext<'a>, prop: &str) -> JSResult<'a> {
+    pub fn get_property_str(&self, ctx: &ContextImpl, prop: &str) -> JSResult {
         let atom = Atom::new(ctx.rt().as_ref(), prop)?;
-        self.get_property(ctx, &atom)
+        self.get_property(ctx, atom)
     }
 
     /// Check if `self` has a generalized numeric property `idx`.
@@ -277,23 +281,23 @@ impl<'a> JSObject<'a> {
     /// Returns Err for exception, Ok(Some(_)) if property exists, Ok(None) if proprty does not exist.
     pub fn try_get_property_i64(
         &self,
-        ctx: &JSContext<'a>,
+        ctx: &ContextImpl,
         idx: i64,
-    ) -> Result<Option<JSValue<'a>>, i32> {
+    ) -> Result<Option<JSValue>, i32> {
         if (0..=JS_ATOM_MAX_INT as i64).contains(&idx) {
             // fast path
-            if self.has_property(ctx, &Atom::new_small_int(idx as u32))? {
+            if self.has_property(ctx, Atom::new_small_int(idx as u32))? {
                 Ok(Some(
-                    self.get_property_value(ctx, &JSValue::from(idx as u32))?,
+                    self.get_property_value(ctx, JSValue::from(idx as u32))?,
                 ))
             } else {
                 Ok(None)
             }
         } else {
-            let atom = Atom::from_i64(ctx.rt().as_ref(), idx)?;
-            self.has_property(ctx, &atom).and_then(|found| {
+            let atom = Atom::from_i64(&ctx.rt(), idx)?;
+            self.has_property(ctx, atom).and_then(|found| {
                 if found {
-                    Ok(Some(self.get_property(ctx, &atom)?))
+                    Ok(Some(self.get_property(ctx, atom)?))
                 } else {
                     Ok(None)
                 }
@@ -302,19 +306,19 @@ impl<'a> JSObject<'a> {
     }
 }
 
-impl<'a> JSValue<'a> {
+impl JSValue {
     /// get property `prop` of `self` value.
     pub(crate) fn get_property_internal(
         &self,
-        ctx: &JSContext<'a>,
-        prop: &Atom,
-        this_obj: &JSValue<'a>,
+        ctx: &ContextImpl,
+        prop: Atom,
+        this_obj: JSValue,
         throw_ref_error: bool,
-    ) -> JSResult<'a> {
+    ) -> JSResult {
         match self {
             Self::Object(o) => o.get_property_internal(ctx, prop, this_obj, throw_ref_error),
             Self::String(s) => {
-                if unlikely(prop.to_ref() == JS_ATOM_length) {
+                if unlikely(prop == Atom::CONST_length) {
                     // string length
                     Ok(JSValue::from(s.len() as u32))
                 } else if let Some(idx) = prop.to_small_int() {
@@ -359,36 +363,36 @@ impl<'a> JSValue<'a> {
 
     /// returns Exception when failed.
     #[inline(always)]
-    pub fn get_property(&self, ctx: &JSContext<'a>, prop: &Atom) -> JSResult<'a> {
-        self.get_property_internal(ctx, prop, self, false)
+    pub fn get_property(&self, ctx: &ContextImpl, prop: Atom) -> JSResult {
+        self.get_property_internal(ctx, prop, *self, false)
     }
 
-    pub fn get_property_value(&self, ctx: &JSContext<'a>, prop: &JSValue<'a>) -> JSResult<'a> {
+    pub fn get_property_value(&self, ctx: &ContextImpl, prop: JSValue) -> JSResult {
         if let JSValue::Object(o) = self {
             o.get_property_value(ctx, prop)
         } else {
             let atom = prop.to_atom(ctx)?;
-            self.get_property(ctx, &atom)
+            self.get_property(ctx, atom)
         }
     }
 
     /// returns Exception when fail.
-    pub fn get_property_str(self, ctx: &JSContext<'a>, prop: &str) -> JSResult<'a> {
-        let atom = Atom::new(ctx.rt().as_ref(), prop)?;
-        self.get_property(ctx, &atom)
+    pub fn get_property_str(self, ctx: &ContextImpl, prop: &str) -> JSResult {
+        let atom = Atom::new(&ctx.rt(), prop)?;
+        self.get_property(ctx, atom)
     }
 
     #[inline(always)]
-    pub fn get_property_u32(&self, ctx: &JSContext<'a>, idx: u32) -> JSResult<'a> {
-        self.get_property_value(ctx, &JSValue::from(idx))
+    pub fn get_property_u32(&self, ctx: &ContextImpl, idx: u32) -> JSResult {
+        self.get_property_value(ctx, JSValue::from(idx))
     }
 
-    pub fn get_property_i64(&self, ctx: &JSContext<'a>, idx: i64) -> JSResult<'a> {
+    pub fn get_property_i64(&self, ctx: &ContextImpl, idx: i64) -> JSResult {
         if (0..=u32::MAX as i64).contains(&idx) {
             self.get_property_u32(ctx, idx as u32)
         } else {
-            let atom = Atom::from_i64(ctx.rt().as_ref(), idx)?;
-            self.get_property(ctx, &atom)
+            let atom = Atom::from_i64(&ctx.rt(), idx)?;
+            self.get_property(ctx, atom)
         }
     }
 
@@ -397,23 +401,23 @@ impl<'a> JSValue<'a> {
     /// Returns Err for exception, Ok(Some(_)) if property exists, Ok(None) if proprty does not exist.
     pub fn try_get_property_i64(
         &self,
-        ctx: &JSContext<'a>,
+        ctx: &ContextImpl,
         idx: i64,
-    ) -> Result<Option<JSValue<'a>>, i32> {
+    ) -> Result<Option<JSValue>, i32> {
         if (0..=JS_ATOM_MAX_INT as i64).contains(&idx) {
             // fast path
-            if self.has_property(ctx, &Atom::new_small_int(idx as u32))? {
+            if self.has_property(ctx, Atom::new_small_int(idx as u32))? {
                 Ok(Some(
-                    self.get_property_value(ctx, &JSValue::from(idx as u32))?,
+                    self.get_property_value(ctx, JSValue::from(idx as u32))?,
                 ))
             } else {
                 Ok(None)
             }
         } else {
-            let atom = Atom::from_i64(ctx.rt().as_ref(), idx)?;
-            self.has_property(ctx, &atom).and_then(|found| {
+            let atom = Atom::from_i64(&ctx.rt(), idx)?;
+            self.has_property(ctx, atom).and_then(|found| {
                 if found {
-                    Ok(Some(self.get_property(ctx, &atom)?))
+                    Ok(Some(self.get_property(ctx, atom)?))
                 } else {
                     Ok(None)
                 }

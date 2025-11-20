@@ -1,9 +1,11 @@
 use std::{marker::PhantomPinned, pin::Pin, ptr::NonNull};
 
+use gc_lite::{Collect, GcWeak};
+
 use crate::{
-    context::JSContext,
+    context::ContextImpl,
     error::{JS_IsUncatchableError, is_backtrace_needed},
-    function::{AsyncStateWeakref, JSVarRef},
+    function::{AsyncStateImpl, JSVarRef},
     iterator::ObjectIter,
     value::JSValue,
 };
@@ -11,7 +13,7 @@ use crate::{
 /// Represents a call stack frame in JavaScript execution, tracking function state and local variables.
 /// StackFrame is usually allocated on stack, not heap.
 #[derive(Debug)]
-pub struct StackFrame<'a> {
+pub struct StackFrame {
     /// Pointer to previous stack frame (NULL for first frame)
     pub prev_frame: *mut Pin<Self>,
 
@@ -22,22 +24,22 @@ pub struct StackFrame<'a> {
     /// - native function object
     /// - undefined, which means stack frame is detached (cleared)
     ///
-    /// TODO: use Option<JSObject> type?
-    pub cur_func: JSValue<'a>,
+    /// TODO: use Option<ObjectRef> type?
+    pub(crate) cur_func: JSValue,
 
     /// Buffer storing arguments, local variables, and stack space
     /// TODO: Replace with Box<[JSValue]> for better memory efficiency
-    pub local_buf: Vec<JSValue<'a>>,
+    pub local_buf: Vec<JSValue>,
 
     /// Arguments array base pointer and count
     /// Points into local_buf (self-referencing)
-    pub arg_base_ptr: *mut JSValue<'a>, // TODO: Consider using *const ?
+    pub arg_base_ptr: *mut JSValue, // TODO: Consider using *const ?
     pub arg_real_count: u16,
     pub arg_count: u16, // at least has `length`
 
     /// Local variables base pointer and count
     /// Points into local_buf (self-referencing)
-    pub var_base_ptr: *mut JSValue<'a>,
+    pub var_base_ptr: *mut JSValue,
     pub var_count: u16,
 
     /// Program counter offset for bytecode functions
@@ -51,18 +53,42 @@ pub struct StackFrame<'a> {
     pub cur_sp_offset: i32,
 
     /// List of variable references registered in this frame
-    pub var_ref_list: Vec<JSVarRef<'a>>,
+    pub var_ref_list: Vec<JSVarRef>,
 
     /// Execution mode flags (only JS_MODE_MATH is valid for C functions)
     pub js_mode: i32,
 
-    /// Weak reference to async function state (for async frames only)
-    pub async_func: AsyncStateWeakref<'a>,
+    /// Weak back-ref to async state,
+    /// only valid if this stack frame is for an AsyncStateImpl
+    pub async_func: GcWeak<AsyncStateImpl>,
 
     pub _mark: PhantomPinned,
 }
 
-impl<'a> Default for StackFrame<'a> {
+unsafe impl Collect for StackFrame {
+    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+        if let Some(sf) = unsafe { self.prev_frame.cast::<StackFrame>().as_ref() } {
+            sf.trace(tracer);
+        }
+
+        self.cur_func.trace(tracer);
+        self.local_buf.trace(tracer);
+        self.var_ref_list.trace(tracer);
+
+        // this may have duplicated trace for argument values over local_buf,
+        // but this is a guard in case args are not copied to local_buf
+        for v in self.args_slice() {
+            v.trace(tracer);
+        }
+
+        // trace values on stack
+        for v in self.stack_slice() {
+            v.trace(tracer);
+        }
+    }
+}
+
+impl Default for StackFrame {
     fn default() -> Self {
         Self {
             prev_frame: std::ptr::null_mut(),
@@ -77,15 +103,15 @@ impl<'a> Default for StackFrame<'a> {
             cur_sp_offset: 0,
             var_ref_list: Vec::new(),
             js_mode: 0,
-            async_func: AsyncStateWeakref::default(),
+            async_func: GcWeak::default(),
             _mark: PhantomPinned,
         }
     }
 }
 
-impl<'a> StackFrame<'a> {
+impl StackFrame {
     /// Returns slice of actual argument values for this frame
-    pub const fn args_slice(&self) -> &[JSValue<'a>] {
+    pub const fn args_slice(&self) -> &[JSValue] {
         if self.arg_real_count == 0 {
             &[]
         } else {
@@ -95,7 +121,7 @@ impl<'a> StackFrame<'a> {
 
     /// Returns the base pointer of the stack in this frame
     #[inline(always)]
-    pub const fn stack_base_ptr(&self) -> NonNull<JSValue<'a>> {
+    pub const fn stack_base_ptr(&self) -> NonNull<JSValue> {
         unsafe { NonNull::new(self.var_base_ptr.add(self.var_count as usize)).unwrap() }
     }
 
@@ -104,13 +130,24 @@ impl<'a> StackFrame<'a> {
     /// Note: The returned pointer cannot be dereferenced directly as it refers to
     /// an invalid position. To access the top stack value, use offset(-1):
     ///
-    /// ```rust
-    /// let stack_top_val = self.stack_cur_ptr().offset(-1).as_ref();
-    /// ```
+    /// `let stack_top_val = frame.stack_cur_ptr().offset(-1).as_ref();`
     #[inline(always)]
-    pub const fn stack_cur_ptr(&self) -> NonNull<JSValue<'a>> {
+    pub const fn stack_cur_ptr(&self) -> NonNull<JSValue> {
         debug_assert!(self.cur_sp_offset >= 0);
         unsafe { self.stack_base_ptr().add(self.cur_sp_offset as usize) }
+    }
+
+    /// stack values slice
+    pub fn stack_slice(&self) -> &[JSValue] {
+        debug_assert!(self.cur_sp_offset >= 0);
+        if self.cur_sp_offset != 0 {
+            unsafe {
+                let len = self.cur_sp_offset as usize;
+                std::slice::from_raw_parts(self.stack_base_ptr().as_ptr(), len)
+            }
+        } else {
+            &[]
+        }
     }
 
     /// Handles current exception by adding backtrace information if needed
@@ -120,18 +157,18 @@ impl<'a> StackFrame<'a> {
     #[cold]
     pub(crate) fn handle_exception(
         &mut self,
-        ctx: &JSContext<'a>,
+        ctx: &ContextImpl,
         pc: usize,
         mut sp: usize,
     ) -> Option<(usize, usize)> {
-        if is_backtrace_needed(&ctx.rt().cur_exception) {
+        if is_backtrace_needed(ctx.rt().exception()) {
             // add the backtrace information now:
             // it is not done before if the exception happens in a bytecode operation
             self.cur_pc_offset = pc;
-            ctx.build_backtrace_to(&ctx.rt().cur_exception, None, 0);
+            ctx.build_backtrace_to(ctx.rt().exception(), None, 0);
         }
 
-        if unsafe { !JS_IsUncatchableError(ctx.exception()) } {
+        if unsafe { !JS_IsUncatchableError(ctx.rt().exception()) } {
             let sp_base = self.stack_base_ptr().as_ptr();
 
             // find catch offset
@@ -151,11 +188,11 @@ impl<'a> StackFrame<'a> {
                         if let JSValue::Object(o) =
                             unsafe { std::ptr::replace(sp_base.add(sp - 1), JSValue::UNDEFINED) }
                         {
-                            let _ = ObjectIter::do_close(ctx, &o, true);
+                            let _ = ObjectIter::do_close(ctx, o, true);
                         }
                     } else {
                         unsafe {
-                            std::ptr::replace(sp_base.add(sp), ctx.take_exception());
+                            std::ptr::replace(sp_base.add(sp), ctx.rt().take_exception());
                         }
                         sp += 1;
                         return Some((pos as usize, sp));
@@ -170,7 +207,7 @@ impl<'a> StackFrame<'a> {
     /// Prepare to exit bytecode running.
     pub(crate) fn handle_exit(
         &mut self,
-        ctx: &JSContext<'a>,
+        ctx: &ContextImpl,
         pc: usize,
         sp: usize,
         is_generator: bool,
@@ -199,7 +236,7 @@ impl<'a> StackFrame<'a> {
                 let end_ptr = unsafe { self.stack_base_ptr().add(sp).as_ptr() };
                 while pval < end_ptr {
                     unsafe {
-                        drop(std::ptr::replace(pval, JSValue::UNDEFINED));
+                        std::ptr::replace(pval, JSValue::UNDEFINED);
                         pval = pval.add(1);
                     }
                 }
@@ -212,6 +249,7 @@ impl<'a> StackFrame<'a> {
 
     /// Cleans ups for stack frame
     #[cold]
+    #[deprecated]
     pub(crate) fn clear(&mut self) {
         self.cur_func = JSValue::UNDEFINED;
         self.local_buf.clear();

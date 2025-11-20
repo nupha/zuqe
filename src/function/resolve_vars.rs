@@ -1,7 +1,7 @@
 use crate::{
-    atom::{Atom, AtomRef, consts::*},
+    atom::Atom,
     bytecode::{OpCode, OpCodeTemp, opcode_info_intermediate, opcodes},
-    context::JSContext,
+    context::ContextImpl,
     error::JS_THROW_VAR_REDECL,
     eval::JS_EVAL_TYPE_DIRECT,
     function::{
@@ -15,7 +15,7 @@ use crate::{
 
 use super::{DEFINE_GLOBAL_FUNC_VAR, DEFINE_GLOBAL_LEX_VAR, optimize::OPTIMIZE};
 
-impl<'a> JSFunctionDef<'a> {
+impl JSFunctionDef {
     /// Performs initial runtime checks for global variables
     /// This must be executed before creating any variables
     /// Checks for potential conflicts between global and closure variables
@@ -24,11 +24,11 @@ impl<'a> JSFunctionDef<'a> {
             // check if global variable (XXX: simplify)
             if let Some(cvars) = self.closure_vars.as_ref() {
                 for cv in cvars {
-                    match cv.var_name.to_ref() {
-                        JS_ATOM__var_ | JS_ATOM__arg_var_ => {
+                    match cv.var_name {
+                        Atom::CONST__var_ | Atom::CONST__arg_var_ => {
                             continue 'g_var;
                         }
-                        name if name == hf.var_name.to_ref() => {
+                        name if name == hf.var_name => {
                             if self.eval_type == JS_EVAL_TYPE_DIRECT && cv.is_lexical() {
                                 // Check if a lexical variable is
                                 // redefined as 'var'. XXX: Could abort
@@ -36,7 +36,7 @@ impl<'a> JSFunctionDef<'a> {
                                 // with the other checks, we delay the
                                 // error generation.
                                 push_vec_u8(bc_buf, OpCode::THROW_ERROR as u8);
-                                push_vec_atom(bc_buf, hf.var_name.clone());
+                                push_vec_atom(bc_buf, hf.var_name);
                                 push_vec_u8(bc_buf, JS_THROW_VAR_REDECL);
                             }
                             continue 'g_var;
@@ -47,7 +47,7 @@ impl<'a> JSFunctionDef<'a> {
             }
 
             push_vec_u8(bc_buf, OpCode::CHECK_DEFINE_VAR as u8);
-            push_vec_atom(bc_buf, hf.var_name.clone());
+            push_vec_atom(bc_buf, hf.var_name);
             push_vec_u8(bc_buf, {
                 let mut flags = 0;
                 if hf.is_lexical() {
@@ -65,7 +65,7 @@ impl<'a> JSFunctionDef<'a> {
     /// Converts global variable accesses to local/closure variables when needed
     /// This is the second pass of bytecode generation
     /// Handles scope resolution and variable binding
-    pub fn resolve_variables(&mut self, ctx: &JSContext) -> Result<(), i32> {
+    pub fn resolve_variables(&mut self, ctx: &ContextImpl) -> Result<(), i32> {
         let bc_buf_ptr = self.byte_code.as_mut_ptr();
         let bc_buf_len = self.byte_code.len();
 
@@ -140,15 +140,12 @@ impl<'a> JSFunctionDef<'a> {
                 | opcodes::op_scope_delete_var
                 | opcodes::op_scope_get_ref
                 | opcodes::op_scope_put_var_init => {
-                    let (var_name, scope) = unsafe {
-                        (
-                            AtomRef(read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1))),
-                            read_from_ptr::<u16>(bc_buf_ptr.add(pos + 5)),
-                        )
-                    };
+                    let var_name =
+                        unsafe { Atom::from_id(read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1))) };
+                    let scope = unsafe { read_from_ptr::<u16>(bc_buf_ptr.add(pos + 5)) };
                     pos_next = self.resolve_scope_var(
                         ctx,
-                        &var_name,
+                        var_name,
                         scope as _,
                         op,
                         &mut bc_out,
@@ -169,11 +166,11 @@ impl<'a> JSFunctionDef<'a> {
                     self.label_slots[label_id as usize].ref_count -= 1;
 
                     let var_name =
-                        AtomRef(unsafe { read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1)) });
+                        unsafe { Atom::from_id(read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1))) };
 
                     pos_next = self.resolve_scope_var(
                         ctx,
-                        &var_name,
+                        var_name,
                         scope as _,
                         op,
                         &mut bc_out,
@@ -186,19 +183,16 @@ impl<'a> JSFunctionDef<'a> {
                 | opcodes::op_scope_get_private_field2
                 | opcodes::op_scope_put_private_field
                 | opcodes::op_scope_in_private_field => {
-                    let (var_name, scope) = unsafe {
-                        (
-                            AtomRef(read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1))),
-                            read_from_ptr::<u16>(bc_buf_ptr.add(pos + 5)),
-                        )
-                    };
+                    let var_name =
+                        unsafe { Atom::from_id(read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1))) };
+                    let scope = unsafe { read_from_ptr::<u16>(bc_buf_ptr.add(pos + 5)) };
 
                     if self
-                        .resolve_scope_private_field(ctx, &var_name, scope as _, op, &mut bc_out)
+                        .resolve_scope_private_field(ctx, var_name, scope as _, op, &mut bc_out)
                         .is_err()
                     {
                         // fail: continue the copy to keep the atom refcounts consistent
-                        // TODO: use std::ptr::copy()?
+                        // TODO: use free_atoms_in_bytecode() with sub-slice from pos through end
                         while pos < bc_buf_len {
                             let op_len1 =
                                 opcode_info_intermediate(self.byte_code[pos]).size as usize;
@@ -217,9 +211,6 @@ impl<'a> JSFunctionDef<'a> {
                         self.byte_code = bc_out;
                         return Err(-1);
                     }
-
-                    // free atom
-                    Atom::free(var_name.id());
                 }
                 opcodes::OP_gosub => {
                     #[cfg(feature = "short_opcode")]
@@ -385,8 +376,9 @@ impl<'a> JSFunctionDef<'a> {
                     }
                 }
                 opcodes::OP_set_name => {
-                    /* remove dummy set_name opcodes */
-                    let name = AtomRef(unsafe { read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1)) });
+                    // remove dummy set_name opcodes
+                    let name =
+                        Atom::from_id(unsafe { read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1)) });
                     if !name.is_null() {
                         no_change!(pos, op_len);
                     }

@@ -1,13 +1,8 @@
-use std::ops::Deref;
-
 use crate::{
-    atom::{
-        Atom,
-        consts::{JS_ATOM_concat, JS_ATOM_raw},
-    },
+    atom::Atom,
     bytecode::OpCode,
     object::{JS_PROP_ENUMERABLE, JS_PROP_THROW, seal_template_obj},
-    parse::token::TokenData,
+    parse::token::{Token, TokenData},
     string::{StringBuf, UTF8_CHAR_LEN_MAX, unicode_from_utf8_v0},
     value::JSValue,
 };
@@ -19,7 +14,7 @@ impl<'s> JSParseState<'s> {
         let mut sbuf = StringBuf::Empty;
 
         let sep = loop {
-            if p >= self.buf_end {
+            if p >= self.input_end {
                 self.throw_syntax_error("unexpected end of string");
                 return Err(-1);
             }
@@ -44,7 +39,7 @@ impl<'s> JSParseState<'s> {
                     self.ctx.throw_out_of_memory();
                     -1
                 })?;
-                if p >= self.buf_end {
+                if p >= self.input_end {
                     self.throw_syntax_error("unexpected end of string");
                     return Err(-1);
                 } else {
@@ -90,7 +85,7 @@ impl<'s> JSParseState<'s> {
         self.token.val = TOK_TEMPLATE;
         self.token.data = TokenData::Str {
             sep: sep as i32, // could be '`' or '$'
-            str: sbuf.into(),
+            str: sbuf,
         };
         self.buf_ptr = p;
 
@@ -106,13 +101,13 @@ impl<'s> JSParseState<'s> {
             // Create a template object: an array of cooked strings
             // Create an array of raw strings and store it to the raw property
             template_object = self.ctx.create_array()?.into();
-            self.emit_push_const(template_object.clone(), false)?;
+            self.emit_push_const(template_object, false)?;
 
             raw_array = self.ctx.create_array()?.into();
             template_object.define_property_value(
                 &self.ctx,
-                JS_ATOM_raw.deref(),
-                raw_array.clone(),
+                Atom::CONST_raw,
+                raw_array,
                 JS_PROP_THROW,
             )?;
         }
@@ -120,13 +115,19 @@ impl<'s> JSParseState<'s> {
         let mut depth = 0;
         while self.token.val == TOK_TEMPLATE {
             let mut p = unsafe { self.token.ptr.add(1) };
-            let mut cooked = self.token.clone();
+
+            let mut cooked = Token {
+                val: self.token.val,
+                line_num: self.token.line_num,
+                ptr: self.token.ptr,
+                data: std::mem::replace(&mut self.token.data, TokenData::None),
+            };
+            let string_sep = cooked.data.string_sep().unwrap();
 
             if call {
                 let txt = self
                     .ctx
-                    .create_string_with_content(self.token.data.string().unwrap().clone())?;
-
+                    .create_string_from_str(&cooked.data.string().unwrap().to_utf8())?;
                 raw_array.define_property_value_u32(
                     &self.ctx,
                     depth as _,
@@ -142,7 +143,7 @@ impl<'s> JSParseState<'s> {
 
                         let txt = self
                             .ctx
-                            .create_string_with_content(cooked.data.string().unwrap().clone())?;
+                            .create_string_from_str(&cooked.data.string().unwrap().to_utf8())?;
                         template_object.define_property_value_u32(
                             &self.ctx,
                             depth as _,
@@ -162,34 +163,27 @@ impl<'s> JSParseState<'s> {
             } else {
                 // re-parse the string with escape sequences and throw a
                 // syntax error if it contains invalid sequences
-
-                // TODO: this is not nessecary, because ::drop() will handle string value free
-                // if let TokenData::Str { str, .. } = &mut cooked.data {
-                //     *str = JSValue::UNDEFINED;
-                // }
-
                 p = self.parse_string('`', true, p, Some(&mut cooked))?;
-                let str = cooked.data.string().unwrap();
-                if depth == 0 || !str.is_empty() {
+
+                let sbuf = cooked.data.string().unwrap();
+                if depth == 0 || !sbuf.is_empty() {
                     self.emit_push_const(
-                        self.ctx.create_string_with_content(str.clone())?.into(),
+                        self.ctx.create_string_from_str(&sbuf.to_utf8())?.into(),
                         true,
                     )?;
 
                     if depth == 0 {
-                        if self.token.data.string_sep().unwrap() == b'`' as i32 {
+                        if string_sep == b'`' as i32 {
                             return self.next_token();
                         }
                         self.emit_op(OpCode::GET_FIELD2);
-                        self.emit_atom(Atom::new_const(JS_ATOM_concat));
+                        self.emit_atom(Atom::CONST_concat);
                     }
                     depth += 1;
-                } else {
-                    // cooked.u.str.str = JSValue::UNDEFINED;
                 }
             }
 
-            if self.token.data.string_sep().unwrap() == b'`' as i32 {
+            if string_sep == b'`' as i32 {
                 // template is done
                 if call {
                     seal_template_obj(&self.ctx, raw_array);

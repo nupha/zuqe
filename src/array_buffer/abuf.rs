@@ -1,11 +1,10 @@
 use std::{
-    cell::{Cell, Ref, RefCell},
     ffi::c_void,
-    ops::{Deref, DerefMut},
     ptr::NonNull,
-    rc::Rc,
     sync::{Arc, RwLock},
 };
+
+use gc_lite::{Collect, GcRef, GcWeak};
 
 use crate::{
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_SHARED_ARRAY_BUFFER,
@@ -15,17 +14,17 @@ use crate::{
     },
     branch_hints::unlikely,
     class::ClassID,
-    context::JSContext,
+    context::{ContextImpl, ContextRef},
     error::JSResult,
     function::CallContext,
-    object::{JSObject, JSObjectWeakref, ObjectPayload},
+    object::{ObjectImpl, ObjectPayload, ObjectRef},
     object_cast,
-    runtime::JSRuntime,
+    runtime::RuntimeImpl,
     value::JSValue,
 };
 
 pub type JSFreeArrayBufferDataFunc =
-    fn(rt: &JSRuntime, opaque: *mut c_void, data: *mut u8, data_length: usize);
+    fn(rt: &RuntimeImpl, opaque: *mut c_void, data: *mut u8, data_length: usize);
 
 pub struct JSSharedArrayBufferFunctions {
     pub sab_alloc: fn(*mut c_void, usize) -> Result<Box<[u8]>, i32>,
@@ -35,7 +34,7 @@ pub struct JSSharedArrayBufferFunctions {
 }
 
 #[derive(Debug)]
-pub enum ABufData {
+pub(crate) enum ABufData {
     Empty,
     Owned(Box<[u8]>),
     Shared(Arc<RwLock<Box<[u8]>>>),
@@ -94,22 +93,24 @@ impl ABufData {
 }
 
 #[derive(Debug)]
-pub struct ABufInner<'a> {
-    content: RefCell<ABufData>,
-
+pub struct ArrayBufferPayload {
+    data: ABufData,
     /// if is shared, the array buffer cannot be detached
-    detached: Cell<bool>,
-
-    /// typed arrays that based on this array buffer.
-    array_list: RefCell<Vec<JSObjectWeakref<'a>>>,
-
+    detached: bool,
+    /// list of TypedArray objects that adopting this ArrayBuffer.
+    array_list: Vec<GcWeak<ObjectImpl>>,
     opaque: *mut c_void,
 }
 
-impl<'a> ABufInner<'a> {
+unsafe impl Collect for ArrayBufferPayload {
+    #[inline(always)]
+    fn trace(&self, _: &mut gc_lite::Tracer) {}
+}
+
+impl ArrayBufferPayload {
     #[inline(always)]
     pub const fn is_detached(&self) -> bool {
-        self.detached.get()
+        self.detached
     }
 
     /// get capacity of buffer, count in bytes
@@ -118,41 +119,40 @@ impl<'a> ABufInner<'a> {
         if unlikely(self.is_detached()) {
             0
         } else {
-            self.content.borrow().len()
+            self.data.len()
         }
     }
 
-    pub fn add_typed_array_weakref(&self, t: JSObjectWeakref<'a>) {
-        self.array_list.borrow_mut().push(t);
+    pub fn add_typed_array_weakref(&mut self, t: GcWeak<ObjectImpl>) {
+        self.array_list.push(t);
     }
 
     /// `obj_id` is the id of typed array object
-    pub fn remove_typed_array_weakref(&self, obj_id: usize) {
-        self.array_list
-            .borrow_mut()
-            .retain(|a| match a.0.strong_count() {
-                1 => {
-                    if let Some(o) = a.upgrade() {
-                        o.id() != obj_id
-                    } else {
-                        false
-                    }
-                }
-                0 => false,
-                _ => true,
-            });
+    pub fn remove_typed_array_weakref(&mut self, rt: &RuntimeImpl, obj_id: usize) {
+        let gcm = rt.gc_heap();
+
+        self.array_list.retain(|w| {
+            w.upgrade(gcm)
+                .is_some_and(|a| unsafe { a.as_ref().id() != obj_id })
+        });
     }
 
     /// get buffer content
     #[inline(always)]
-    pub fn content(&self) -> Ref<'_, ABufData> {
-        self.content.borrow()
+    pub(crate) const fn data(&self) -> &ABufData {
+        &self.data
     }
 
-    /// set buffer content, returns old content
-    pub(crate) fn replace_content(&self, content: ABufData) -> ABufData {
-        self.detached.set(false);
-        std::mem::replace(self.content.borrow_mut().deref_mut(), content)
+    // /// get buffer content
+    // #[inline(always)]
+    // pub(crate) const fn data_mut(&mut self) -> &mut ABufData {
+    //     &mut self.data
+    // }
+
+    /// replace buffer data, returns old data
+    pub(crate) const fn replace(&mut self, data: ABufData) -> ABufData {
+        self.detached = false;
+        std::mem::replace(&mut self.data, data)
     }
 
     #[inline(always)]
@@ -162,71 +162,59 @@ impl<'a> ABufInner<'a> {
 
     #[inline(always)]
     pub fn with_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
-        self.content.borrow().with_bytes(f)
+        self.data.with_bytes(f)
     }
 
     #[inline(always)]
-    pub fn with_bytes_mut<R>(&self, f: impl FnOnce(&mut [u8]) -> R) -> R {
-        self.content.borrow_mut().with_bytes_mut(f)
+    pub fn with_bytes_mut<R>(&mut self, f: impl FnOnce(&mut [u8]) -> R) -> R {
+        self.data.with_bytes_mut(f)
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct ArrayBufferPayload<'a>(Rc<ABufInner<'a>>);
-
-impl<'a> Deref for ArrayBufferPayload<'a> {
-    type Target = ABufInner<'a>;
-
-    #[inline(always)]
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 #[repr(transparent)]
-pub struct ArrayBuffer<'a>(pub(crate) JSObject<'a>);
+pub struct ArrayBuffer(pub(crate) GcRef<ObjectImpl>);
 
 object_cast!(
     ArrayBuffer,
     JS_CLASS_ARRAY_BUFFER | JS_CLASS_SHARED_ARRAY_BUFFER
 );
 
-impl<'a> ArrayBuffer<'a> {
-    pub fn class_initialize<'b>(
-        ctx: &JSContext<'b>,
+impl ArrayBuffer {
+    pub fn class_initialize(
+        mut ctx: ContextRef,
         class_id: ClassID,
-    ) -> Result<Option<JSObject<'b>>, i32> {
+    ) -> Result<Option<ObjectRef>, i32> {
         match class_id {
             JS_CLASS_ARRAY_BUFFER => {
                 // ArrayBuffer
-                let proto = ctx.create_base_object()?;
-                proto.install_field_defs(ctx, &js_array_buffer_proto_funcs)?;
+                let mut proto = ctx.create_base_object()?;
+                proto.install_field_defs(&ctx, &js_array_buffer_proto_funcs)?;
 
-                let ab_func = ctx.create_global_constructor_only(
+                let mut ab_func = ctx.create_global_constructor_only(
                     "ArrayBuffer",
                     js_array_buffer_constructor,
                     1,
-                    &proto.clone().into(),
+                    proto.into(),
                     0,
                 )?;
-                ab_func.install_field_defs(ctx, &js_array_buffer_funcs)?;
+                ab_func.install_field_defs(&ctx, &js_array_buffer_funcs)?;
 
                 Ok(Some(proto))
             }
             JS_CLASS_SHARED_ARRAY_BUFFER => {
                 // SharedArrayBuffer
-                let proto = ctx.create_base_object()?;
-                proto.install_field_defs(ctx, &js_shared_array_buffer_proto_funcs)?;
+                let mut proto = ctx.create_base_object()?;
+                proto.install_field_defs(&ctx, &js_shared_array_buffer_proto_funcs)?;
 
-                let sab_func = ctx.create_global_constructor_only(
+                let mut sab_func = ctx.create_global_constructor_only(
                     "SharedArrayBuffer",
                     js_shared_array_buffer_constructor,
                     1,
-                    &proto.clone().into(),
+                    proto.into(),
                     0,
                 )?;
-                sab_func.install_field_defs(ctx, &js_shared_array_buffer_funcs)?;
+                sab_func.install_field_defs(&ctx, &js_shared_array_buffer_funcs)?;
 
                 Ok(Some(proto))
             }
@@ -238,21 +226,21 @@ impl<'a> ArrayBuffer<'a> {
 
     /// Create new instance of class ARRAY_BUFFER or ARRAY_BUFFER_SHARED.
     fn create_internal(
-        ctx: &JSContext<'a>,
-        new_target: &JSValue<'a>,
+        ctx: &ContextImpl,
+        new_target: JSValue,
         shared: bool,
-        content: ABufData,
+        data: ABufData,
         opaque: *mut c_void,
     ) -> Result<Self, i32> {
         // make ArrayBuffer payload
         let ab = {
-            let inner = ABufInner {
-                content: RefCell::new(content),
-                detached: Cell::new(false),
-                array_list: RefCell::new(Vec::new()),
+            let inner = ArrayBufferPayload {
+                data,
+                detached: false,
+                array_list: Vec::new(),
                 opaque,
             };
-            ArrayBufferPayload(Rc::new(inner))
+            Box::new(inner)
         };
 
         // create array buffer or shared array buffer instance
@@ -264,15 +252,15 @@ impl<'a> ArrayBuffer<'a> {
                 ObjectPayload::SHARED_ARRAY_BUFFER(ab)
             },
         )
-        .map(ArrayBuffer)
+        .map(|o| ArrayBuffer(o.0))
         .map_err(|_| -1)
     }
 
     /// create empty array buffer instance with required capacity.
     /// `capacity` is counted in bytes.
     pub(crate) fn with_capacity_ex(
-        ctx: &JSContext<'a>,
-        new_target: &JSValue<'a>,
+        ctx: &ContextImpl,
+        new_target: JSValue,
         shared: bool,
         capacity: usize,
         opaque: *mut c_void,
@@ -283,13 +271,14 @@ impl<'a> ArrayBuffer<'a> {
         // then allocate buffer, and finally set buffer to array buffer instance created earlier.
 
         // 1. create ArrayBuffer instance
-        let isa = ArrayBufferPayload(Rc::new(ABufInner {
-            content: RefCell::new(ABufData::Empty),
-            detached: Cell::new(false),
-            array_list: RefCell::new(Vec::new()),
+        let isa = Box::new(ArrayBufferPayload {
+            data: ABufData::Empty,
+            detached: false,
+            array_list: Vec::new(),
             opaque,
-        }));
-        let obj = ctx
+        });
+
+        let mut obj = ctx
             .create_object_from_ctor(
                 new_target,
                 if !shared {
@@ -298,11 +287,11 @@ impl<'a> ArrayBuffer<'a> {
                     ObjectPayload::SHARED_ARRAY_BUFFER(isa)
                 },
             )
-            .map(Self)
+            .map(|o| Self(o.0))
             .map_err(|_| -1)?;
 
         // 2. allocate buffer and set buffer to instance
-        let content = if capacity == 0 {
+        let data = if capacity == 0 {
             ABufData::Empty
         } else {
             // we are currently limited to 2 GB
@@ -331,7 +320,7 @@ impl<'a> ArrayBuffer<'a> {
             }
         };
 
-        let _d = obj.payload().replace_content(content);
+        let _d = obj.payload_mut().replace(data);
         debug_assert!(matches!(_d, ABufData::Empty));
 
         Ok(obj)
@@ -339,8 +328,8 @@ impl<'a> ArrayBuffer<'a> {
 
     #[inline(always)]
     pub fn from_data(
-        ctx: &JSContext<'a>,
-        new_target: &JSValue<'a>,
+        ctx: &ContextImpl,
+        new_target: JSValue,
         shared: bool,
         data: Box<[u8]>,
         opaque: *mut c_void,
@@ -351,10 +340,10 @@ impl<'a> ArrayBuffer<'a> {
     /// create empty array buffer instance with required capacity.
     /// `capacity` is counted in bytes.
     #[inline(always)]
-    pub fn create(ctx: &JSContext<'a>, shared: bool, capacity: usize) -> Result<Self, i32> {
+    pub fn create(ctx: &ContextImpl, shared: bool, capacity: usize) -> Result<Self, i32> {
         Self::with_capacity_ex(
             ctx,
-            &JSValue::UNDEFINED,
+            JSValue::UNDEFINED,
             shared,
             capacity,
             std::ptr::null_mut(),
@@ -363,8 +352,14 @@ impl<'a> ArrayBuffer<'a> {
 
     /// get array buffer payload
     #[inline(always)]
-    pub(crate) fn payload(&self) -> &ArrayBufferPayload<'a> {
-        self.0.payload().array_buffer().unwrap()
+    pub(crate) fn payload(&self) -> &ArrayBufferPayload {
+        unsafe { self.0.as_ref().payload().array_buffer().unwrap() }
+    }
+
+    /// get array buffer payload
+    #[inline(always)]
+    pub(crate) fn payload_mut(&mut self) -> &mut ArrayBufferPayload {
+        unsafe { self.0.as_mut().payload_mut().array_buffer_mut().unwrap() }
     }
 
     pub fn is_detached(&self) -> bool {
@@ -372,57 +367,51 @@ impl<'a> ArrayBuffer<'a> {
     }
 
     /// detatch array buffer
-    pub fn detatch(&self, ctx: &JSContext) {
-        let abuf = self.payload();
+    pub fn detatch(&mut self, ctx: &ContextImpl) {
+        let abuf = self.payload_mut();
 
         if !abuf.is_detached() {
-            let data0 = abuf.replace_content(ABufData::Empty);
+            let data0 = abuf.replace(ABufData::Empty);
 
             if let ABufData::Raw(ptr, len, fin) = data0
                 && let Some(f) = fin
             {
-                f(ctx.rt().as_ref(), abuf.opaque(), ptr.as_ptr(), len);
+                f(&ctx.rt(), abuf.opaque(), ptr.as_ptr(), len);
             }
 
-            for w in abuf.array_list.borrow_mut().drain(..) {
-                if let Some(o) = w.upgrade() {
+            for w in abuf.array_list.drain(..) {
+                if let Some(o) = w.upgrade(ctx.rt().gc_heap()) {
                     // typed array or dataview
                     // Note: the typed array length and offset fields are not modified. set count to 0
-                    if let Some(ta) = o.as_TypedArray() {
-                        ta.payload().set_count(0);
+                    if let Some(ta) = ObjectRef::from(o).as_TypedArray_mut() {
+                        ta.payload_mut().set_count(0);
                     }
                 }
             }
 
-            abuf.detached.set(true);
+            abuf.detached = true;
         }
     }
 }
 
-pub fn js_array_buffer_constructor<'a>(
-    ctx: &JSContext<'a>,
-    cc: CallContext<'_, 'a>,
-) -> JSResult<'a> {
-    let size = cc.arg(0).to_array_index(ctx)? as usize;
-    ArrayBuffer::with_capacity_ex(ctx, cc.this(), false, size, std::ptr::null_mut())
+pub fn js_array_buffer_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let size = cc.arg(0).to_array_index(&ctx)? as usize;
+    ArrayBuffer::with_capacity_ex(&ctx, *cc.this(), false, size, std::ptr::null_mut())
         .map(|x| x.into())
 }
 
-pub fn js_shared_array_buffer_constructor<'a>(
-    ctx: &JSContext<'a>,
-    cc: CallContext<'_, 'a>,
-) -> JSResult<'a> {
-    let size = cc.arg(0).to_array_index(ctx)? as usize;
-    ArrayBuffer::with_capacity_ex(ctx, cc.this(), true, size, std::ptr::null_mut())
+pub fn js_shared_array_buffer_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let size = cc.arg(0).to_array_index(&ctx)? as usize;
+    ArrayBuffer::with_capacity_ex(&ctx, *cc.this(), true, size, std::ptr::null_mut())
         .map(|x| x.into())
 }
 
 // also used for SharedArrayBuffer
-pub fn js_array_buffer_finalizer(rt: &mut JSRuntime, isa: &ObjectPayload, _id: usize) {
+pub fn js_array_buffer_finalizer(rt: &mut RuntimeImpl, isa: &ObjectPayload, _id: usize) {
     let abuf = isa.array_buffer().unwrap();
 
     // free content
-    match abuf.content().deref() {
+    match abuf.data() {
         ABufData::Raw(p, len, Some(free_func)) => {
             free_func(rt, abuf.opaque(), p.as_ptr(), *len);
         }

@@ -1,18 +1,18 @@
 use std::collections::TryReserveError;
 
-use crate::string::{StringBuf, StringChar, StringCharIter, StringContent};
+use crate::string::{StringBuf, StringChar, StringCharIter, StringData};
 
 use super::UTF8_CHAR_LEN_MAX;
 
-impl StringContent {
+impl StringData {
     pub fn substitution_buf(
         matched: &Self,     // 匹配到的子字符串（对应 $&）
         str: &Self,         // 原字串
         position: usize,    // 匹配发生的位置索引
         replacement: &Self, // 替换字符串或替换函数。
-        captures: impl Fn(usize) -> Result<Option<StringContent>, i32>, // 捕获（对应 $1, $2 等）
+        captures: impl Fn(usize) -> Result<Option<StringData>, i32>, // 捕获（对应 $1, $2 等）
         captures_len: usize, // 最大捕获ID
-        named_captures: impl Fn(&str) -> Result<Option<StringContent>, i32>, // 命名捕获（对应 $<name>）
+        named_captures: impl Fn(&str) -> Result<Option<StringData>, i32>, // 命名捕获（对应 $<name>）
     ) -> Result<StringBuf, Option<TryReserveError>> {
         do_substitution(
             str,
@@ -38,13 +38,13 @@ impl StringContent {
 /// 对应规范：ECMAScript 的 GetSubstitution 抽象操作.
 /// 返回: 包含替换后的字符串值
 fn do_substitution(
-    str: &StringContent,                                            // 原始字符串。
-    position: usize,                                                // 匹配发生的位置索引
-    matched: &StringContent,                                        // 匹配到的子字符串（对应 $&）
-    replacement: &StringContent,                                    // 替换字符串或替换函数。
-    captures: impl Fn(usize) -> Result<Option<StringContent>, i32>, // 捕获（对应 $1, $2 等）
-    captures_len: usize,                                            // 最大捕获ID
-    named_captures: impl Fn(&str) -> Result<Option<StringContent>, i32>, // 命名捕获（对应 $<name>）
+    str: &StringData,                                                 // 原始字符串。
+    position: usize,                                                  // 匹配发生的位置索引
+    matched: &StringData,                                             // 匹配到的子字符串（对应 $&）
+    replacement: &StringData,                                         // 替换字符串或替换函数。
+    captures: impl Fn(usize) -> Result<Option<StringData>, i32>,      // 捕获（对应 $1, $2 等）
+    captures_len: usize,                                              // 最大捕获ID
+    named_captures: impl Fn(&str) -> Result<Option<StringData>, i32>, // 命名捕获（对应 $<name>）
 ) -> Result<StringBuf, Option<TryReserveError>> {
     // alloc result string buf
     let mut sbuf = StringBuf::with_capacity(matched.len(), false)?;

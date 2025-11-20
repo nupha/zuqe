@@ -74,7 +74,7 @@ pub(crate) fn push_vec_u32(buf: &mut Vec<u8>, val: u32) {
 
 #[inline(always)]
 pub(crate) fn push_vec_atom(buf: &mut Vec<u8>, a: Atom) {
-    push_vec_u32(buf, unsafe { a.leak() });
+    push_vec_u32(buf, a.id());
 }
 
 pub(crate) fn push_vec_short_code(buf: &mut Vec<u8>, op: u8, idx: u16) {

@@ -22,7 +22,7 @@ dump_bytecode = []
 dump_gc_free = []
 
 default = [
-    "string_intern",
+    #"string_intern",
     "all_unicode",
     "atomics",
 
@@ -59,6 +59,7 @@ widestring = "1.1"
 fallible_collections = "0.5"
 unicode-xid = "0.2"
 unicode-normalization = "0.1"
+gc-lite = { version = "0.2", path = "../gc-lite-v2" }
 regex = { version = "1.11", default-features = false, features = [
     "std",
     "unicode-case",

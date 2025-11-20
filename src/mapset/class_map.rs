@@ -1,30 +1,32 @@
-use std::{cell::RefCell, ops::Deref};
+use std::ops::Deref;
 
 use crate::{
     JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_MAP, JS_PROP_STRING_DEF,
-    atom::consts::{JS_ATOM_add, JS_ATOM_set},
+    atom::Atom,
     class::ClassID,
-    context::{JSContext, is_strict_mode},
+    context::{ContextRef, is_strict_mode},
     error::JSResult,
     function::{CallContext, FieldDef},
     iterator::JSIteratorKindEnum,
     js_core::js_get_this,
     mapset::{JSMapState, MapPair},
     number::MAX_SAFE_INTEGER,
-    object::{JS_PROP_CONFIGURABLE, ObjectPayload},
+    object::{JS_PROP_CONFIGURABLE, ObjectPayload, ObjectRef},
     value::JSValue,
 };
 
 use super::iter::JSMapIteratorData;
 
-pub fn js_map_constructor<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+pub fn js_map_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
     let magic = cc.magic();
     let is_set = magic & 1 == 1;
     let is_weak = matches!(magic, 2 | 3);
-    let new_target = cc.this();
+    let cx = ctx.deref();
 
-    let isa = RefCell::new(Box::new(JSMapState::new(is_weak, 16)));
-    let obj = ctx
+    let new_target = *cc.this();
+
+    let isa = Box::new(JSMapState::new(is_weak, 8));
+    let obj = cx
         .create_object_from_ctor(
             new_target,
             match magic {
@@ -45,24 +47,30 @@ pub fn js_map_constructor<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> J
     };
 
     if !arr.is_undefined_or_null() {
-        let adder =
-            obj.get_property(ctx, if is_set { JS_ATOM_add } else { JS_ATOM_set }.deref())?;
+        let adder = obj.get_property(
+            cx,
+            if is_set {
+                Atom::CONST_add
+            } else {
+                Atom::CONST_set
+            },
+        )?;
 
         if !adder.is_function() {
-            ctx.throw_type_error("set/add is not a function");
+            cx.throw_type_error("set/add is not a function");
             return Err(-1);
         }
 
-        for el in arr.iter(ctx)? {
+        for el in arr.iter(cx)? {
             let item = el?;
             if is_set {
-                adder.call(ctx, &obj, &[item])?;
+                adder.call(cx, obj, &[item])?;
             } else if let Some(o) = item.as_object() {
-                let key = o.get_property_u32(ctx, 0)?;
-                let value = o.get_property_u32(ctx, 1)?;
-                adder.call(ctx, &obj, &[key, value])?;
+                let key = o.get_property_u32(cx, 0)?;
+                let value = o.get_property_u32(cx, 1)?;
+                adder.call(cx, obj, &[key, value])?;
             } else {
-                ctx.throw_type_error_not_an_object();
+                cx.throw_type_error_not_an_object();
                 return Err(-1);
             }
         }
@@ -71,26 +79,25 @@ pub fn js_map_constructor<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> J
     Ok(obj)
 }
 
-pub fn js_map_get<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let key = cc.arg(0);
+pub fn js_map_get(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let key = *cc.arg(0);
 
     cc.this()
-        .retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as ClassID)
-        .map(|r| {
-            r.mapset()
-                .unwrap()
-                .borrow()
-                .find(key)
-                .unwrap_or(JSValue::UNDEFINED)
-        })
+        .retrive_object_payload(&ctx, JS_CLASS_MAP + cc.magic() as ClassID)
+        .map(|r| r.mapset().unwrap().find(key).unwrap_or(JSValue::UNDEFINED))
 }
 
-pub fn js_map_set<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let this = cc.this();
-    let key = cc.arg(0);
+pub fn js_map_set(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let magic = cc.magic();
 
-    let isa = this.retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as ClassID)?;
-    let mut s = isa.mapset().unwrap().borrow_mut();
+    let mut this = *cc.this();
+    let mut key = *cc.arg(0);
+    let val = *cc.arg(1);
+
+    let s = this
+        .retrive_object_payload_mut(&ctx, JS_CLASS_MAP + magic as ClassID)?
+        .mapset_mut()
+        .unwrap();
 
     if s.is_weak() && !key.is_object() {
         ctx.throw_type_error_not_an_object();
@@ -98,47 +105,48 @@ pub fn js_map_set<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<
     }
 
     if s.upsert(
-        ctx,
-        key.clone(),
-        if cc.magic() & 1 == 1 {
+        &ctx,
+        key,
+        if magic & 1 == 1 {
             JSValue::UNDEFINED // set or weakset
         } else {
-            cc.arg(1).clone() // map or weakmap
+            val // map or weakmap
         },
     )? {
         // inserted pair
         // make backref for key object if is weak
         if s.is_weak() {
-            key.as_object()
+            key.as_object_mut()
                 .unwrap()
-                .0
                 .weak_refs
-                .borrow_mut()
-                .push(this.as_object().unwrap().downgrade());
+                .push(cc.this().as_object().unwrap().downgrade());
         }
     }
 
-    Ok(this.clone())
+    Ok(this)
 }
 
-pub fn js_map_delete<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let this = cc.this();
-    let key = cc.arg(0);
+pub fn js_map_delete(ctx: ContextRef, mut cc: CallContext) -> JSResult {
+    let magic = cc.magic();
+    let this = *cc.this();
+    let mut key = *cc.arg(0);
 
-    this.retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as ClassID)
+    cc.this_mut()
+        .retrive_object_payload_mut(&ctx, JS_CLASS_MAP + magic as ClassID)
         .map(|isa| {
-            let mut s = isa.mapset().unwrap().borrow_mut();
+            let s = isa.mapset_mut().unwrap();
 
             if s.find(key).is_some() {
-                s.remove(key);
+                s.remove(&ctx, key);
 
                 if s.is_weak() {
                     let this_obj = this.as_object().unwrap();
-                    let kobj = key.as_object().unwrap();
-                    kobj.0
-                        .weak_refs
-                        .borrow_mut()
-                        .retain(|w| w.upgrade().is_some_and(|o| !o.eq(this_obj)));
+                    let key_obj = key.as_object_mut().unwrap();
+
+                    key_obj.weak_refs.retain(|w| {
+                        w.upgrade(ctx.rt().gc_heap())
+                            .is_some_and(|o| !ObjectRef::from(o).eq(this_obj))
+                    });
                 }
 
                 JSValue::Bool(true)
@@ -148,80 +156,70 @@ pub fn js_map_delete<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResu
         })
 }
 
-pub fn js_map_has<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+pub fn js_map_has(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let key = *cc.arg(0);
     cc.this()
-        .retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as ClassID)
-        .map(|r| {
-            r.mapset()
-                .unwrap()
-                .borrow()
-                .find(cc.arg(0))
-                .is_some()
-                .into()
-        })
+        .retrive_object_payload(&ctx, JS_CLASS_MAP + cc.magic() as ClassID)
+        .map(|r| r.mapset().unwrap().find(key).is_some().into())
 }
 
-pub fn js_map_clear<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    cc.this()
-        .retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as ClassID)
+pub fn js_map_clear(ctx: ContextRef, mut cc: CallContext) -> JSResult {
+    let magic = cc.magic();
+    cc.this_mut()
+        .retrive_object_payload_mut(&ctx, JS_CLASS_MAP + magic as ClassID)
         .map(|isa| {
-            isa.mapset().unwrap().borrow_mut().clear();
+            isa.mapset_mut().unwrap().clear();
             JSValue::UNDEFINED
         })
 }
 
-pub fn js_map_get_size<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+pub fn js_map_get_size(ctx: ContextRef, cc: CallContext) -> JSResult {
     cc.this()
-        .retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as ClassID)
-        .map(|r| JSValue::Int(r.mapset().unwrap().borrow().len() as i32))
+        .retrive_object_payload(&ctx, JS_CLASS_MAP + cc.magic() as ClassID)
+        .map(|r| JSValue::Int(r.mapset().unwrap().len() as i32))
 }
 
-pub fn js_map_forEach<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let is_set = cc.magic() & 1 == 1;
+pub fn js_map_forEach(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let magic = cc.magic();
+    let is_set = magic & 1 == 1;
 
-    let func = cc.arg(0);
-    func.ensure_function(ctx)?;
-    let this_arg = cc.arg(1);
+    let func = *cc.arg(0);
+    func.ensure_function(&ctx)?;
+
+    let this_arg = *cc.arg(1);
+    let mut this = *cc.this();
 
     // lock map, and ensure `this` is an object of expected class_id.
-    cc.this()
-        .retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as ClassID)?
-        .mapset()
+    this.retrive_object_payload_mut(&ctx, JS_CLASS_MAP + magic as ClassID)?
+        .mapset_mut()
         .unwrap()
-        .borrow_mut()
         .lock();
 
-    let this = cc.this();
+    let mut this_obj = *this.as_object().unwrap();
     let mut has_err = false;
-    let map_obj = this.as_object().unwrap();
     let mut i = 0;
 
     loop {
         // get index `i`
-        let kv = map_obj
-            .payload()
-            .mapset()
-            .unwrap()
-            .borrow()
-            .slots
-            .get(i)
-            .cloned();
+        let kv = this_obj.payload().mapset().unwrap().slots.get(i).cloned();
 
         if let Some(kv) = kv {
             let pair = match kv {
                 MapPair::Strong { key, value } => Some((key, value)),
-                MapPair::Weak { key, value } => key.upgrade().map(|k| (JSValue::Object(k), value)),
+                MapPair::Weak { key, value } => key
+                    .upgrade(ctx.rt().gc_heap())
+                    .map(|k| (JSValue::from(k), value)),
                 MapPair::Removed => None,
             };
             if let Some((key, val)) = pair
                 && func
                     .call(
-                        ctx,
+                        &ctx,
                         this_arg,
                         &if is_set {
-                            [key.clone(), key, this.clone()]
+                            [key, key, this]
                         } else {
-                            [val, key, this.clone()]
+                            [val, key, this]
                         },
                     )
                     .is_err()
@@ -237,7 +235,7 @@ pub fn js_map_forEach<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSRes
     }
 
     // unlock map
-    map_obj.payload().mapset().unwrap().borrow_mut().unlock();
+    this_obj.payload_mut().mapset_mut().unwrap().unlock();
 
     if has_err {
         Err(-1)
@@ -246,20 +244,20 @@ pub fn js_map_forEach<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSRes
     }
 }
 
-fn js_create_map_iterator<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+fn js_create_map_iterator(ctx: ContextRef, cc: CallContext) -> JSResult {
     debug_assert!(matches!(cc.magic() >> 2, 0..=2));
     let kind = unsafe { std::mem::transmute::<u8, JSIteratorKindEnum>(cc.magic() as u8 >> 2) };
 
     // ensure `this` is an object of expected class_id
-    let this = cc.this();
-    let _ = this.retrive_object_payload(ctx, JS_CLASS_MAP + (cc.magic() & 3) as ClassID)?;
+    let this = *cc.this();
+    let _ = this.retrive_object_payload(&ctx, JS_CLASS_MAP + (cc.magic() & 3) as ClassID)?;
 
     // create iterator object
-    let isa = RefCell::new(Box::new(JSMapIteratorData {
-        obj: this.as_object().cloned(),
+    let isa = Box::new(JSMapIteratorData {
+        obj: this.as_object().copied(),
         kind,
         index: 0,
-    }));
+    });
     ctx.create_object(match cc.magic() & 1 {
         0 => ObjectPayload::MAP_ITERATOR(isa),
         1 => ObjectPayload::SET_ITERATOR(isa),
@@ -346,27 +344,29 @@ pub static js_weakset_proto_funcs: [FieldDef; 4] = [
     ),
 ];
 
-fn js_map_groupBy<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+fn js_map_groupBy(ctx: ContextRef, cc: CallContext) -> JSResult {
     // check must be observed before argv[0] is accessed
-    let func = cc.arg(1);
-    func.ensure_function(ctx)?;
+    let cx = ctx.deref();
 
-    let this_val = if is_strict_mode(ctx) {
+    let func = cc.arg(1);
+    func.ensure_function(cx)?;
+
+    let this_val = if is_strict_mode(cx) {
         JSValue::UNDEFINED
     } else {
-        ctx.0.borrow().global_obj.clone() // clone to avoid borrow too long
+        cx.global_obj().into()
     };
 
     let mut groups = Vec::<(JSValue, Vec<JSValue>)>::with_capacity(16);
 
-    for (idx, val) in cc.arg(0).iter(ctx)?.enumerate() {
+    for (idx, val) in cc.arg(0).iter(cx)?.enumerate() {
         if idx as i64 >= MAX_SAFE_INTEGER {
-            ctx.throw_type_error("too many elements");
+            cx.throw_type_error("too many elements");
             return Err(-1);
         }
 
         let val = val?;
-        let key = func.call(ctx, &this_val, &[val.clone(), JSValue::from(idx as u32)])?;
+        let key = func.call(cx, this_val, &[val, JSValue::from(idx as u32)])?;
         let key = MapPair::normalize_key(key);
 
         if let Some(i) = groups.iter().position(|(k, _)| k == &key) {
@@ -381,11 +381,11 @@ fn js_map_groupBy<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<
     let mut ms = JSMapState::new(false, groups.len());
     for (key, mut lst) in groups {
         lst.shrink_to_fit();
-        let arr = ctx.create_array_with_values(lst)?;
-        ms.upsert(ctx, key, arr.into())?;
+        let arr = cx.create_array_with_values(lst)?;
+        ms.upsert(cx, key, arr.into())?;
     }
 
-    ctx.create_map_with_entries(ms).map(JSValue::Object)
+    cx.create_map_with_entries(ms).map(JSValue::Object)
 }
 
 pub static js_map_funcs: [FieldDef; 2] = [

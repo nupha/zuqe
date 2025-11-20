@@ -1,11 +1,11 @@
 mod class_point;
 mod mod_std;
 
-use std::{path::PathBuf, time::Instant};
+use std::time::Instant;
 
 use colorized::*;
 use zhuque::{
-    context::JSContext,
+    context::ContextRef,
     error::JSResult,
     eval::JS_EVAL_TYPE_GLOBAL,
     function::{CallContext, NativeFunctionType},
@@ -14,13 +14,13 @@ use zhuque::{
     object::JS_PROP_C_W_E,
     parse::JSParseState,
     promise::Promise,
-    runtime::JSRuntime,
+    runtime::RuntimeImpl,
     value::JSValue,
 };
 
 use crate::{class_point::register_class_point, mod_std::init_mod_std};
 
-fn js_print<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+fn js_print(ctx: ContextRef, cc: CallContext) -> JSResult {
     let level = cc.magic();
     let inspect = level == 100;
 
@@ -43,9 +43,9 @@ fn js_print<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
 
         colorize_print(
             if inspect {
-                arg.inspect(ctx)?.to_string()
+                arg.inspect(&ctx)?.to_string()
             } else {
-                format!("{}", arg.to_string(ctx)?)
+                format!("{}", arg.to_string(&ctx)?)
             },
             color(),
         );
@@ -71,7 +71,7 @@ fn main() {
     let script = std::fs::read_to_string(&filename).unwrap();
 
     let tm0 = Instant::now();
-    let mut rt = JSRuntime::create(JS_DEFAULT_MALLOC_FUNCTIONS, std::ptr::null_mut()).unwrap();
+    let mut rt = RuntimeImpl::create(JS_DEFAULT_MALLOC_FUNCTIONS, std::ptr::null_mut()).unwrap();
 
     JS_SetModuleLoaderFunc(&mut rt, None, js_module_loader, std::ptr::null_mut());
 
@@ -79,15 +79,15 @@ fn main() {
     let class_id_point = register_class_point(&mut rt).unwrap();
 
     // create context
-    let ctx = rt.create_context_ecma().unwrap();
+    let mut ctx = rt.create_context_ecma().unwrap();
     ctx.use_class(class_id_point).unwrap();
 
     // register native modules
-    init_mod_std(&ctx).unwrap();
+    init_mod_std(ctx.ptr()).unwrap();
 
     // setup globals
     {
-        let global = JSValue::Object(ctx.global_obj());
+        let mut global: JSValue = ctx.global_obj().into();
 
         let printf = NativeFunctionType::Func(js_print);
         global
@@ -152,7 +152,7 @@ fn main() {
             .set_property_str(&ctx, "createRealm", f.into())
             .unwrap();
 
-        let console = ctx.create_base_object().unwrap();
+        let mut console = ctx.create_base_object().unwrap();
         console
             .define_property_value_str(
                 &ctx,
@@ -183,9 +183,9 @@ fn main() {
                 &ctx,
                 "detachArrayBuffer",
                 ctx.create_native_function(
-                    NativeFunctionType::Func(|ctx: &JSContext, cc: CallContext| -> JSResult {
-                        if let Some(ab) = cc.arg(0).as_object_ArrayBuffer() {
-                            ab.detatch(ctx);
+                    NativeFunctionType::Func(|ctx: ContextRef, cc: CallContext| -> JSResult {
+                        if let Some(mut ab) = cc.arg(0).as_object_ArrayBuffer().copied() {
+                            ab.detatch(&ctx);
                         }
                         Ok(JSValue::UNDEFINED)
                     }),
@@ -241,7 +241,7 @@ fn main() {
                     Err(_) => {
                         println!("--- Error in promise job ---");
 
-                        let exc = ctx.exception();
+                        let exc = ctx.rt().exception();
                         debug_assert!(!exc.is_undefined_or_null()); // FIXME: this assert fails!
 
                         println!("!!! EXCEPTION {exc:?}: {:?}", exc.to_string(&ctx));
@@ -254,10 +254,13 @@ fn main() {
             }
         }
         Err(_) => {
-            let exc = ctx.exception();
+            let exc = ctx.rt().exception();
             debug_assert!(!exc.is_undefined_or_null());
 
-            println!("!!! EXCEPTION {exc:?}: {:?}", exc.to_string(&ctx));
+            println!(
+                "!!! EXCEPTION {exc:?}: {:?}",
+                ctx.rt().exception().to_string(&ctx)
+            );
             if let JSValue::Object(o) = exc {
                 o.dump(&ctx.rt());
             };
@@ -267,14 +270,14 @@ fn main() {
     println!("*** run use time: {} ms", tm.elapsed().as_millis());
 }
 
-fn js_module_loader<'a>(
-    ctx: &JSContext<'a>,
+fn js_module_loader(
+    mut ctx: ContextRef,
     module_name: &str,
     _: *mut std::ffi::c_void,
-) -> Result<ModuleDef<'a>, i32> {
+) -> Result<ModuleDef, i32> {
     match std::fs::read(module_name) {
         Ok(buf) => {
-            let md = ModuleDef::compile(ctx, &buf, module_name, false)?;
+            let md = ModuleDef::compile(&mut ctx, &buf, module_name, false)?;
             Ok(md)
         }
         Err(_) => {
@@ -284,51 +287,51 @@ fn js_module_loader<'a>(
     }
 }
 
-pub fn js_module_set_import_meta<'a>(
-    ctx: &JSContext<'a>,
-    md: &ModuleDef<'a>,
-    use_realpath: i32,
-    is_main: bool,
-) -> i32 {
-    // make module name to absolute url
-    let module_name_atom = md.module_name();
-    let module_name = module_name_atom.to_utf8();
+// pub fn js_module_set_import_meta(
+//     ctx: &ContextImpl,
+//     md: &ModuleDef,
+//     use_realpath: i32,
+//     is_main: bool,
+// ) -> i32 {
+//     // make module name to absolute url
+//     let module_name_atom = md.module_name();
+//     let module_name = module_name_atom.to_utf8();
 
-    let p = PathBuf::from(module_name);
-    let mut normalized = PathBuf::new();
-    for component in p.components() {
-        match component {
-            std::path::Component::ParentDir => {
-                normalized.pop();
-            }
-            std::path::Component::CurDir => {}
-            _ => {
-                normalized.push(component.as_os_str());
-            }
-        }
-    }
-    let aurl = format!("file://{}", normalized.display());
+//     let p = PathBuf::from(module_name);
+//     let mut normalized = PathBuf::new();
+//     for component in p.components() {
+//         match component {
+//             std::path::Component::ParentDir => {
+//                 normalized.pop();
+//             }
+//             std::path::Component::CurDir => {}
+//             _ => {
+//                 normalized.push(component.as_os_str());
+//             }
+//         }
+//     }
+//     let aurl = format!("file://{}", normalized.display());
 
-    let meta_obj = if let Ok(m) = md.import_meta(ctx) {
-        m
-    } else {
-        return -1;
-    };
+//     let meta_obj = if let Ok(m) = md.import_meta(ctx) {
+//         m
+//     } else {
+//         return -1;
+//     };
 
-    meta_obj
-        .define_property_value_str(
-            ctx,
-            "url",
-            ctx.create_string_from_utf8(aurl.into_bytes())
-                .unwrap()
-                .into(),
-            JS_PROP_C_W_E,
-        )
-        .unwrap();
+//     meta_obj
+//         .define_property_value_str(
+//             ctx,
+//             "url",
+//             ctx.create_string_from_utf8(aurl.into_bytes())
+//                 .unwrap()
+//                 .into(),
+//             JS_PROP_C_W_E,
+//         )
+//         .unwrap();
 
-    meta_obj
-        .define_property_value_str(ctx, "main", is_main.into(), JS_PROP_C_W_E)
-        .unwrap();
+//     meta_obj
+//         .define_property_value_str(ctx, "main", is_main.into(), JS_PROP_C_W_E)
+//         .unwrap();
 
-    0
-}
+//     0
+// }

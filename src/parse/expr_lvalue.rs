@@ -1,7 +1,5 @@
-use std::ops::Deref;
-
 use crate::{
-    atom::{Atom, AtomRef, consts::*},
+    atom::Atom,
     bytecode::{OpCode, OpCodeTemp, opcodes},
     context::JS_MODE_STRICT,
     utils::read_from_ptr,
@@ -33,7 +31,7 @@ impl<'s> JSParseState<'s> {
         &mut self,
         popcode: &mut i32,
         pscope: &mut i32,
-        pname: &mut AtomRef,
+        pname: &mut Atom,
         plabel: &mut i32,
         pdepth: *mut i32,
         keep: bool,
@@ -51,10 +49,9 @@ impl<'s> JSParseState<'s> {
             };
         }
 
-        //let fd = self.cur_func;
         let mut scope = 0;
-        let mut name = AtomRef::NULL;
         let mut label = -1;
+        let mut name = Atom::NULL; // restore atom in bytecode, take ownership
         let depth: i32;
 
         // we check the last opcode to get the lvalue type
@@ -62,14 +59,14 @@ impl<'s> JSParseState<'s> {
 
         match opcode {
             opcodes::op_scope_get_var => {
-                name = AtomRef(unsafe {
-                    read_from_ptr::<u32>(
+                name = unsafe {
+                    Atom::from_id(read_from_ptr::<u32>(
                         self.cur_func()
                             .byte_code
                             .as_ptr()
                             .offset(self.cur_func().last_opcode_pos as isize + 1),
-                    )
-                });
+                    ))
+                };
 
                 let last_opcode_pos = self.cur_func().last_opcode_pos;
                 scope = unsafe {
@@ -82,13 +79,13 @@ impl<'s> JSParseState<'s> {
                 };
 
                 match name {
-                    JS_ATOM_arguments | JS_ATOM_eval
+                    Atom::CONST_arguments | Atom::CONST_eval
                         if self.cur_func().attrs.js_mode & JS_MODE_STRICT as u8 != 0 =>
                     {
                         self.throw_syntax_error("invalid lvalue in strict mode");
                         return Err(-1);
                     }
-                    JS_ATOM_this | JS_ATOM_new_target => {
+                    Atom::CONST_this | Atom::CONST_new_target => {
                         throw_error!();
                         return Err(-1);
                     }
@@ -99,26 +96,26 @@ impl<'s> JSParseState<'s> {
             }
             opcodes::OP_get_field => {
                 let last_opcode_pos = self.cur_func().last_opcode_pos;
-                name = AtomRef(unsafe {
-                    read_from_ptr::<u32>(
+                name = unsafe {
+                    Atom::from_id(read_from_ptr::<u32>(
                         self.cur_func()
                             .byte_code
                             .as_ptr()
                             .offset(last_opcode_pos as isize + 1),
-                    )
-                });
+                    ))
+                };
                 depth = 1;
             }
             opcodes::op_scope_get_private_field => {
                 let last_opcode_pos = self.cur_func().last_opcode_pos;
-                name = AtomRef(unsafe {
-                    read_from_ptr::<u32>(
+                name = unsafe {
+                    Atom::from_id(read_from_ptr::<u32>(
                         self.cur_func()
                             .byte_code
                             .as_ptr()
                             .offset(last_opcode_pos as isize + 1),
-                    )
-                });
+                    ))
+                };
                 scope = unsafe {
                     read_from_ptr::<u16>(
                         self.cur_func()
@@ -157,7 +154,7 @@ impl<'s> JSParseState<'s> {
                         .expect("add_label() can't fail") as i32;
 
                     self.emit_op_temp(OpCodeTemp::SCOPE_MAKE_REF);
-                    self.emit_atom(name.deref().clone());
+                    self.emit_atom(name);
                     self.emit_u32(label as _);
                     self.emit_u16(scope);
                     self.cur_func_mut().update_label_ref_count(label as _, 1);
@@ -167,11 +164,11 @@ impl<'s> JSParseState<'s> {
                 }
                 opcodes::OP_get_field => {
                     self.emit_op(OpCode::GET_FIELD2);
-                    self.emit_atom(name.deref().clone());
+                    self.emit_atom(name);
                 }
                 opcodes::op_scope_get_private_field => {
                     self.emit_op_temp(OpCodeTemp::SCOPE_GET_PRIVATE_FIELD2);
-                    self.emit_atom(name.deref().clone());
+                    self.emit_atom(name);
                     self.emit_u16(scope);
                 }
                 opcodes::OP_get_array_el => {
@@ -198,7 +195,7 @@ impl<'s> JSParseState<'s> {
                         .expect("add_label() can't fail") as i32;
 
                     self.emit_op_temp(OpCodeTemp::SCOPE_MAKE_REF);
-                    self.emit_atom(name.deref().clone());
+                    self.emit_atom(name);
                     self.emit_u32(label as _);
                     self.emit_u16(scope);
                     self.cur_func_mut().update_label_ref_count(label as _, 1);
@@ -218,9 +215,6 @@ impl<'s> JSParseState<'s> {
         *popcode = opcode as i32;
         *pscope = scope as _;
         *plabel = label;
-
-        // name has refcount for OP_get_field and OP_get_ref_value,
-        // and JS_ATOM_NULL for other opcodes
         *pname = name;
 
         unsafe {

@@ -1,8 +1,5 @@
 use crate::{
-    atom::{
-        Atom,
-        consts::{JS_ATOM___proto__, JS_ATOM_async, JS_ATOM_get, JS_ATOM_set},
-    },
+    atom::Atom,
     bytecode::{OpCode, OpCodeTemp},
     class::{OP_DEFINE_METHOD_ENUMERABLE, OP_DEFINE_METHOD_GETTER, OP_DEFINE_METHOD_METHOD},
     function::JSFunctionKindEnum,
@@ -52,7 +49,7 @@ impl<'s> JSParseState<'s> {
                 if prop_type == PROP_TYPE_VAR {
                     // shortcut for x: x
                     self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
-                    self.emit_atom(name.clone());
+                    self.emit_atom(name);
                     self.emit_u16(self.cur_func().scope_level as _);
                     self.emit_op(OpCode::DEFINE_FIELD);
                     self.emit_atom(name);
@@ -111,7 +108,7 @@ impl<'s> JSParseState<'s> {
                         set_object_name_computed(self);
                         self.emit_op(OpCode::DEFINE_ARRAY_EL);
                         self.emit_op(OpCode::DROP);
-                    } else if name.eq(&JS_ATOM___proto__) {
+                    } else if name == Atom::CONST___proto__ {
                         if has_proto {
                             self.throw_syntax_error("duplicate __proto__ property name");
                             return Err(-1);
@@ -119,7 +116,7 @@ impl<'s> JSParseState<'s> {
                         self.emit_op(OpCode::SET_PROTO);
                         has_proto = true;
                     } else {
-                        self.set_object_name(name.clone());
+                        self.set_object_name(name);
                         self.emit_op(OpCode::DEFINE_FIELD);
                         self.emit_atom(name);
                     }
@@ -151,8 +148,8 @@ impl<'s> JSParseState<'s> {
         let mut name: Option<Atom> = None;
 
         if allow_method {
-            if self.token_is_pseudo_keyword(JS_ATOM_get)
-                || self.token_is_pseudo_keyword(JS_ATOM_set)
+            if self.token_is_pseudo_keyword(Atom::CONST_get)
+                || self.token_is_pseudo_keyword(Atom::CONST_set)
             {
                 // found `get...` or `set...`
                 name.replace(self.token.atom().unwrap());
@@ -166,7 +163,7 @@ impl<'s> JSParseState<'s> {
                         is_non_reserved_ident = true;
                     }
                     _ => {
-                        prop_type = if name.take().unwrap().to_ref() == JS_ATOM_get {
+                        prop_type = if name.take().unwrap() == Atom::CONST_get {
                             PROP_TYPE_GET
                         } else {
                             PROP_TYPE_SET
@@ -176,7 +173,7 @@ impl<'s> JSParseState<'s> {
             } else if self.token.val == '*' as i32 {
                 self.next_token()?;
                 prop_type = PROP_TYPE_STAR;
-            } else if self.token_is_pseudo_keyword(JS_ATOM_async)
+            } else if self.token_is_pseudo_keyword(Atom::CONST_async)
                 && self.peek_token(true) != '\n' as i32
             {
                 name.replace(self.token.atom().unwrap());
@@ -204,10 +201,11 @@ impl<'s> JSParseState<'s> {
         if name.is_none() {
             match self.token.val {
                 TOK_STRING => {
+                    let sbuf = self.token.data.take_string().unwrap();
                     name.replace(
                         self.ctx
-                            .create_string_with_content(self.token.data.string().unwrap().clone())
-                            .and_then(|s| s.to_atom())?,
+                            .create_string_with_buf(sbuf)
+                            .and_then(|s| s.to_atom(self.ctx.rt()))?,
                     );
                     self.next_token()?;
                 }

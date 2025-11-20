@@ -1,31 +1,31 @@
 use crate::{
-    context::JSContext, error::JSResult, promise::Promise, runtime::JSRuntime, value::JSValue,
+    context::ContextImpl, error::JSResult, promise::Promise, runtime::RuntimeImpl, value::JSValue,
 };
 
 #[repr(transparent)]
-pub(crate) struct Job<'a>(Box<dyn FnOnce() -> JSResult<'a> + 'a>);
+pub(crate) struct Job(Box<dyn FnOnce() -> JSResult>);
 
-impl<'a> Job<'a> {
+impl Job {
     #[inline(always)]
-    pub fn run(self) -> JSResult<'a> {
+    pub fn run(self) -> JSResult {
         (self.0)()
     }
 }
 
-impl<'a> JSContext<'a> {
+impl ContextImpl {
     /// Append a job to job queue.
-    pub(super) fn queue_job(&self, run: impl FnOnce() -> JSResult<'a> + 'a) {
-        self.0.borrow_mut().job_list.push_back(Job(Box::new(run)));
+    pub(super) fn queue_job(&mut self, run: impl FnOnce() -> JSResult + 'static) {
+        self.job_list.push_back(Job(Box::new(run)));
     }
 }
 
-pub(super) fn promise_reaction_job<'a>(
-    ctx: &JSContext<'a>,
-    resolving: [JSValue<'a>; 2],
-    handler: JSValue<'a>,
+pub(super) fn promise_reaction_job(
+    ctx: &mut ContextImpl,
+    resolving: [JSValue; 2],
+    handler: JSValue,
     is_reject: bool,
-    arg: JSValue<'a>,
-) -> JSResult<'a> {
+    arg: JSValue,
+) -> JSResult {
     let mut result = if handler.is_undefined() {
         if is_reject {
             ctx.throw(arg.clone());
@@ -35,12 +35,12 @@ pub(super) fn promise_reaction_job<'a>(
         }
     } else {
         handler
-            .call(ctx, &JSValue::UNDEFINED, std::slice::from_ref(&arg))
+            .call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&arg))
             .unwrap_or(JSValue::EXCEPTION)
     };
 
     let is_reject = if result.is_exception() {
-        result = ctx.take_exception();
+        result = ctx.rt().take_exception();
         true
     } else {
         false
@@ -51,28 +51,28 @@ pub(super) fn promise_reaction_job<'a>(
     // as an extension, we support undefined as value to avoid
     // creating a dummy promise in the 'await' implementation of async functions
     if !func.is_undefined() {
-        func.call(ctx, &JSValue::UNDEFINED, std::slice::from_ref(&result))
+        func.call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&result))
     } else {
         Ok(JSValue::UNDEFINED)
     }
 }
 
-pub(super) fn js_promise_resolve_thenable_job<'a>(
-    ctx: &JSContext<'a>,
-    promise: Promise<'a>,
-    thenable: JSValue<'a>,
-    then: JSValue<'a>,
-) -> JSResult<'a> {
+pub(super) fn js_promise_resolve_thenable_job(
+    ctx: &ContextImpl,
+    promise: Promise,
+    thenable: JSValue,
+    then: JSValue,
+) -> JSResult {
     let rr = promise.create_resolving_functions(ctx)?;
-    if let Ok(r) = then.call(ctx, &thenable, &rr) {
+    if let Ok(r) = then.call(ctx, thenable, &rr) {
         Ok(r)
     } else {
-        let exc = ctx.take_exception();
-        rr[1].call(ctx, &JSValue::UNDEFINED, std::slice::from_ref(&exc))
+        let exc = ctx.rt().take_exception();
+        rr[1].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&exc))
     }
 }
 
-impl<'r> JSRuntime<'r> {
+impl RuntimeImpl {
     /// execute pending jobs in queue.
     ///
     /// Returns:
@@ -96,15 +96,15 @@ impl<'r> JSRuntime<'r> {
         }
 
         //exec context jobs
-        for ctx in self.context_list.iter() {
-            let n = ctx.0.borrow().job_list.len();
+        for ctx in self.context_list.iter_mut() {
+            let n = ctx.job_list.len();
             if n > 0 {
                 for _ in 0..n {
-                    if let Some(job) = ctx.0.borrow_mut().job_list.pop_front() {
+                    if let Some(job) = ctx.job_list.pop_front() {
                         job.run()?;
                     }
                 }
-                if !ctx.0.borrow().job_list.is_empty() {
+                if !ctx.job_list.is_empty() {
                     has_pending = true;
                 }
             }

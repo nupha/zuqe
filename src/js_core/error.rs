@@ -2,38 +2,40 @@ use std::ops::Deref;
 
 use crate::{
     JS_CLASS_ERROR,
-    atom::consts::{JS_ATOM_cause, JS_ATOM_errors, JS_ATOM_message, JS_ATOM_prototype},
-    context::{JS_GetActiveFunction, JSContext},
+    atom::Atom,
+    context::{ContextImpl, ContextRef, JS_GetActiveFunction},
     error::{ErrorKind, JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL, JSResult},
     function::{CallContext, JS_GetFunctionRealm},
     iterator::iterator_to_array,
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, JSObject, ObjectPayload},
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, ObjectPayload, ObjectRef},
     value::JSValue,
 };
 
-pub fn js_error_constructor<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let mut new_target = cc.this().clone();
+pub fn js_error_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let cx = ctx.deref();
+
+    let mut new_target = *cc.this();
     if new_target.is_undefined() {
-        new_target = JS_GetActiveFunction(ctx).clone();
+        new_target = JS_GetActiveFunction(cx);
     }
 
     // use proper proto, ensure proto is an object
-    let mut proto = new_target.get_property(ctx, &JS_ATOM_prototype)?;
+    let mut proto = new_target.get_property(cx, Atom::CONST_prototype)?;
     if !proto.is_object() {
-        let realm = JS_GetFunctionRealm(ctx, &new_target)?;
+        let realm = JS_GetFunctionRealm(unsafe { ContextRef::from_ref_unchecked(cx) }, new_target)?;
         let magic = cc.magic();
         proto = if magic < 0 {
             realm.class_proto(JS_CLASS_ERROR).unwrap().into()
         } else {
-            realm.0.borrow().native_error_proto[magic as usize].clone()
+            realm.native_error_proto[magic as usize]
         };
     }
 
     debug_assert!(proto.is_object());
 
-    let obj = ctx
+    let mut obj = cx
         .create_object_with_proto(
-            Some(JSObject::try_from(proto).unwrap()),
+            Some(ObjectRef::try_from(proto).unwrap()),
             ObjectPayload::ERROR,
         )
         .map_err(|_| -1)?;
@@ -47,10 +49,10 @@ pub fn js_error_constructor<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) ->
     arg_index += 1;
 
     if !message.is_undefined() {
-        let msg = message.to_string(ctx)?;
+        let msg = message.to_string(cx)?;
         obj.define_property_value(
-            ctx,
-            JS_ATOM_message.deref(),
+            cx,
+            Atom::CONST_message,
             msg.into(),
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
         )?;
@@ -59,11 +61,11 @@ pub fn js_error_constructor<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) ->
     if arg_index < cc.length() {
         let options = cc.arg(arg_index);
 
-        if options.is_object() && options.has_property(ctx, &JS_ATOM_cause)? {
-            let cause = options.get_property(ctx, &JS_ATOM_cause)?;
+        if options.is_object() && options.has_property(cx, Atom::CONST_cause)? {
+            let cause = options.get_property(cx, Atom::CONST_cause)?;
             obj.define_property_value(
-                ctx,
-                &JS_ATOM_cause,
+                cx,
+                Atom::CONST_cause,
                 cause,
                 JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
             )?;
@@ -71,36 +73,32 @@ pub fn js_error_constructor<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) ->
     }
 
     if cc.magic() == ErrorKind::Aggregate as i32 {
-        let error_list = iterator_to_array(ctx, cc.arg(0))?;
+        let error_list = iterator_to_array(cx, cc.arg(0))?;
         obj.define_property_value(
-            ctx,
-            &JS_ATOM_errors,
+            cx,
+            Atom::CONST_errors,
             error_list,
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
         )?;
     }
 
     // skip the Error() function in the backtrace
-    ctx.build_backtrace_to(
-        &obj.clone().into(),
-        None,
-        JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL,
-    );
+    cx.build_backtrace_to(obj.into(), None, JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL);
 
     Ok(obj.into())
 }
 
 /// `errors` value is not consumed.
-pub fn js_aggregate_error_constructor<'a>(ctx: &JSContext<'a>, errors: JSValue<'a>) -> JSValue<'a> {
-    if let Ok(obj) = ctx.create_object_with_proto(
-        ctx.0.borrow().native_error_proto[ErrorKind::Aggregate as usize]
+pub fn js_aggregate_error_constructor(ctx: &ContextImpl, errors: JSValue) -> JSValue {
+    if let Ok(mut obj) = ctx.create_object_with_proto(
+        ctx.native_error_proto[ErrorKind::Aggregate as usize]
             .as_object()
-            .cloned(),
+            .copied(),
         ObjectPayload::ERROR,
     ) {
         obj.define_property_value(
             ctx,
-            JS_ATOM_errors.deref(),
+            Atom::CONST_errors,
             errors,
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
         )

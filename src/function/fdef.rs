@@ -1,12 +1,9 @@
-use std::{
-    ops::{Deref, DerefMut},
-    ptr::NonNull,
-};
+use std::{marker::PhantomData, ops::DerefMut, ptr::NonNull};
 
 use crate::{
-    atom::{Atom, consts::*},
+    atom::Atom,
     bytecode::{OpCode, OpCodeTemp, OpcodeFormat, opcode_info_intermediate, opcodes},
-    context::{JS_MODE_STRIP, JSContext},
+    context::{ContextImpl, ContextRef, JS_MODE_STRIP},
     eval::JS_EVAL_TYPE_GLOBAL,
     function::{
         BytecodeAttrs, DEFINE_GLOBAL_LEX_VAR, JSClosureVar, JSGlobalVar, JSVarDef, JSVarScope,
@@ -30,11 +27,11 @@ pub(crate) struct BytecodeDebugSetting {
 }
 
 #[derive(Debug)]
-pub struct JSFunctionDef<'a> {
-    pub ctx: JSContext<'a>,
+pub struct JSFunctionDef {
+    pub ctx: ContextRef,
 
     /// parent function def, null for root fd.
-    pub parent: *mut JSFunctionDef<'a>,
+    pub parent: *mut JSFunctionDef,
     /// scope level of parent fd
     pub parent_scope_level: i32,
     /// 在父级常量池中的索引，-1表示无
@@ -42,7 +39,7 @@ pub struct JSFunctionDef<'a> {
     pub parent_cpool_idx: i32,
 
     /// list of children function defs
-    pub child_list: Vec<NonNull<JSFunctionDef<'a>>>,
+    pub child_list: Vec<NonNull<JSFunctionDef>>,
 
     // TODO: use Option<EvalType>
     /// 是否是eval代码
@@ -77,7 +74,7 @@ pub struct JSFunctionDef<'a> {
     pub func_name: Atom,
 
     /// constants pool (string, function, number）.
-    pub cpool: Vec<JSValue<'a>>,
+    pub cpool: Vec<JSValue>,
     /// vars defination list
     pub vars: Vec<JSVarDef>,
     /// arguments defination list
@@ -123,7 +120,9 @@ pub struct JSFunctionDef<'a> {
     /// scope for function body, should be 1 after setup.
     pub body_scope: i32,
 
-    /// 字节码缓冲区
+    /// 字节码缓冲区.
+    /// SAFETY: 有些指令中包含Atom ID，此时Atom为悬空状态，直接清空此缓存会导致Atom泄漏。
+    /// 所以，销毁此缓冲前，必须释放涉及的Atom ID.
     pub byte_code: Vec<u8>,
     /// 最后操作码位置. -1 if no last opcode
     pub last_opcode_pos: i32,
@@ -164,7 +163,7 @@ pub struct JSFunctionDef<'a> {
     pub pc2line: Option<Vec<u8>>,
 
     /// 模块定义（解析模块时非空）
-    pub module: Option<ModuleDef<'a>>,
+    pub module: Option<ModuleDef>,
 
     /// 是否包含await（用于模块eval）
     pub has_await: bool,
@@ -173,23 +172,28 @@ pub struct JSFunctionDef<'a> {
     pub(crate) debug: BytecodeDebugSetting,
 }
 
-impl<'a> Drop for JSFunctionDef<'a> {
+// TODO: JSFunctionDef should be tracable?
+// unsafe impl Collect for JSFuntionDef {
+//     // TODO
+// }
+
+impl Drop for JSFunctionDef {
     fn drop(&mut self) {
         self.finalize();
     }
 }
 
-impl<'a> JSFunctionDef<'a> {
+impl JSFunctionDef {
     /// alloc a function def, and initialize it.
     fn new_internal(
-        ctx: &JSContext<'a>,
+        ctx: &ContextImpl,
         is_eval: bool,
         is_func_expr: bool,
         filename: &str,
         line_num: i32,
     ) -> Result<Box<Self>, i32> {
         let o = Self {
-            ctx: ctx.clone(),
+            ctx: unsafe { ContextRef::from_ref_unchecked(ctx) },
             parent: std::ptr::null_mut(),
             parent_cpool_idx: -1,
             parent_scope_level: 0,
@@ -260,7 +264,7 @@ impl<'a> JSFunctionDef<'a> {
             line_number_last: 0,
             line_number_last_pc: 0,
 
-            filename: Atom::new(ctx.rt().as_ref(), filename)?,
+            filename: Atom::new(&ctx.rt(), filename)?,
             line_num,
             pc2line: None,
             source: None,
@@ -277,8 +281,8 @@ impl<'a> JSFunctionDef<'a> {
 
     /// create function def and attach to parent-child chain
     pub(crate) fn new(
-        ctx: &JSContext<'a>,
-        parent: Option<&mut JSFunctionDef<'a>>,
+        ctx: &ContextImpl,
+        parent: Option<&mut JSFunctionDef>,
         is_eval: bool,
         is_func_expr: bool,
         filename: &str,
@@ -333,8 +337,15 @@ impl<'a> JSFunctionDef<'a> {
         }
     }
 
+    // /// set new byte code. atoms in old byte code will be freed.
+    // pub fn set_byte_code(&mut self, bc: Vec<u8>, use_short_opcodes: bool) {
+    //     let bc_old = std::mem::replace(&mut self.byte_code, bc);
+    //     let short = std::mem::replace(&mut self.use_short_opcodes, use_short_opcodes);
+    //     free_bytecode_atoms(&bc_old, short);
+    // }
+
     #[cfg(feature = "dump_bytecode")]
-    pub fn dump_bytecode(&self, ctx: &JSContext<'a>, pass: i32) {
+    pub fn dump_bytecode(&self, ctx: &ContextImpl, pass: i32) {
         if self.attrs.js_mode & JS_MODE_STRIP as u8 == 0 {
             println!("pass {pass}");
 
@@ -363,20 +374,6 @@ impl<'a> JSFunctionDef<'a> {
         }
 
         free_bytecode_atoms(&self.byte_code, self.use_short_opcodes);
-        // self.byte_code.clear();
-
-        // #[cfg(feature = "short_opcode")]
-        // self.jump_slots.clear();
-
-        // self.label_slots.clear();
-        // self.line_number_slots.clear();
-
-        // these are not nesserary
-        // self.cpool.clear();
-        // self.args.clear();
-        // self.vars.clear();
-        // self.global_vars.clear();
-        // self.closure_vars.take();
 
         // ensure `self` function def does not exist in parent's child_list
         if let Some(up) = unsafe { self.parent.as_mut() } {
@@ -473,8 +470,8 @@ pub fn get_label_pos(s: &JSFunctionDef, mut label: i32) -> i32 {
     pos
 }
 
-pub(super) fn skip_dead_code<'a>(
-    s: &mut JSFunctionDef<'a>,
+pub(super) fn skip_dead_code(
+    s: &mut JSFunctionDef,
     bc_buf: *const u8,
     bc_len: usize,
     pos: usize,
@@ -539,7 +536,7 @@ pub(super) fn skip_dead_code<'a>(
 
                     // Note: instruction with atom holds an atom refcount.
                     // must free atom before emilinate these instructions.
-                    Atom::free(read_from_ptr::<u32>(bc_buf.add(current_pos + 1)));
+                    // Atom::free(read_from_ptr::<u32>(bc_buf.add(current_pos + 1)));
                 },
                 _ => {}
             }
@@ -621,13 +618,13 @@ pub(super) fn instantiate_hoisted_definitions(s: &mut JSFunctionDef, bc: &mut Ve
         if let Some(cvars) = s.closure_vars.as_ref() {
             for (j, cv) in cvars.iter().enumerate() {
                 idx = j;
-                match cv.var_name.to_ref() {
-                    n if n == hf.var_name.to_ref() => {
+                match cv.var_name {
+                    n if n == hf.var_name => {
                         has_closure = 2;
                         force_init = false;
                         break;
                     }
-                    JS_ATOM__var_ | JS_ATOM__arg_var_ => {
+                    Atom::CONST__var_ | Atom::CONST__arg_var_ => {
                         push_vec_u8(bc, OpCode::GET_VAR_REF as u8);
                         push_vec_u16(bc, j as u16);
                         has_closure = 1;
@@ -672,10 +669,10 @@ pub(super) fn instantiate_hoisted_definitions(s: &mut JSFunctionDef, bc: &mut Ve
             if hf.cpool_idx >= 0 {
                 push_vec_u8(bc, OpCode::FCLOSURE as u8);
                 push_vec_u32(bc, hf.cpool_idx as u32);
-                if hf.var_name.to_ref() == JS_ATOM__default_ {
+                if hf.var_name == Atom::CONST__default_ {
                     // set default export function name
                     push_vec_u8(bc, OpCode::SET_NAME as u8);
-                    push_vec_atom(bc, Atom::new_const(JS_ATOM_default));
+                    push_vec_atom(bc, Atom::CONST_default);
                 }
             } else {
                 push_vec_u8(bc, OpCode::UNDEFINED as u8);
@@ -710,11 +707,12 @@ pub(super) fn instantiate_hoisted_definitions(s: &mut JSFunctionDef, bc: &mut Ve
 }
 
 pub struct FunctionDefParentIter<'a> {
-    cur_fd: *const JSFunctionDef<'a>,
+    cur_fd: *const JSFunctionDef,
+    _mark: PhantomData<&'a ()>,
 }
 
 impl<'a> Iterator for FunctionDefParentIter<'a> {
-    type Item = &'a JSFunctionDef<'a>;
+    type Item = &'a JSFunctionDef;
 
     fn next(&mut self) -> Option<Self::Item> {
         if !self.cur_fd.is_null() {
@@ -729,21 +727,26 @@ impl<'a> Iterator for FunctionDefParentIter<'a> {
     }
 }
 
-impl<'a> JSFunctionDef<'a> {
+impl JSFunctionDef {
     /// iterate over parent function def chain.
-    pub fn parent_iter(&self, include_self: bool) -> FunctionDefParentIter<'a> {
+    pub fn parent_iter<'a>(&self, include_self: bool) -> FunctionDefParentIter<'a> {
         if include_self {
             FunctionDefParentIter {
                 cur_fd: self as *const Self,
+                _mark: PhantomData,
             }
         } else {
             let p = self.parent;
             if !p.is_null() {
                 debug_assert_eq!(self.parent_scope_level, unsafe { (*p).scope_level });
-                FunctionDefParentIter { cur_fd: p }
+                FunctionDefParentIter {
+                    cur_fd: p,
+                    _mark: PhantomData,
+                }
             } else {
                 FunctionDefParentIter {
                     cur_fd: std::ptr::null(),
+                    _mark: PhantomData,
                 }
             }
         }

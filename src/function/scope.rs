@@ -1,9 +1,9 @@
 use std::{marker::PhantomData, ptr::NonNull};
 
 use crate::{
-    atom::{Atom, consts::JS_ATOM__with_},
+    atom::Atom,
     bytecode::OpCodeTemp,
-    context::JSContext,
+    context::ContextImpl,
     function::{JSFunctionDef, JSVarKindEnum},
 };
 
@@ -18,7 +18,7 @@ pub struct JSVarScope {
     pub first: i32,
 }
 
-impl<'a> JSFunctionDef<'a> {
+impl JSFunctionDef {
     /// Enters a new lexical scope for variable declarations.
     ///
     /// Create a new scope and push to scopes stack in the function def
@@ -91,8 +91,8 @@ impl<'a> JSFunctionDef<'a> {
     /// `name` is not consumed.
     pub fn add_scope_var(
         &mut self,
-        ctx: &JSContext,
-        name: &Atom,
+        ctx: &ContextImpl,
+        name: Atom,
         var_kind: JSVarKindEnum,
     ) -> Result<u16, i32> {
         let idx = self.add_var(ctx, name)?;
@@ -109,14 +109,14 @@ impl<'a> JSFunctionDef<'a> {
     }
 
     /// find a variable declaration in specified scope
-    pub fn find_var_in_scope(&mut self, name: &Atom, scope: u16) -> Option<u16> {
+    pub fn find_var_in_scope(&self, name: Atom, scope: u16) -> Option<u16> {
         let mut vidx = self.scopes[scope as usize].first;
 
         while vidx >= 0 {
             let vd = self.vars.get(vidx as usize).unwrap();
             if vd.scope_level != scope as i32 {
                 break;
-            } else if vd.var_name.eq(name) {
+            } else if vd.var_name == name {
                 return Some(vidx as u16);
             }
 
@@ -127,11 +127,11 @@ impl<'a> JSFunctionDef<'a> {
     }
 
     /// find a variable declaration in same or descendant scope of `scope`
-    pub fn find_var_in_child_scope(&self, name: &Atom, scope: i32) -> Option<u16> {
+    pub fn find_var_in_child_scope(&self, name: Atom, scope: i32) -> Option<u16> {
         self.vars
             .iter()
             .position(|vd| {
-                vd.var_name.eq(name)
+                vd.var_name == name
                     && vd.scope_level == 0
                     && self.is_child_scope(vd.scope_next, scope)
             })
@@ -160,7 +160,7 @@ impl<'a> JSFunctionDef<'a> {
             let mut scope_idx = unsafe { (&*s).scopes[scope_level as usize].first };
             while scope_idx >= 0 {
                 let vd = unsafe { ((&*s).vars).get(scope_idx as usize).unwrap() };
-                if vd.var_name.to_ref() == JS_ATOM__with_ {
+                if vd.var_name == Atom::CONST__with_ {
                     return true;
                 }
                 scope_idx = vd.scope_next;
@@ -183,13 +183,14 @@ pub struct ScopedVarsIterItem<'a> {
     pub arg_scope_end: bool,
 }
 
-pub struct ScopedVarsIter<'s> {
-    cur_fd: *const JSFunctionDef<'s>,
+pub struct ScopedVarsIter<'a> {
+    cur_fd: *const JSFunctionDef,
     cur_idx: i32,
+    _mark: PhantomData<&'a ()>,
 }
 
-impl<'s> Iterator for ScopedVarsIter<'s> {
-    type Item = ScopedVarsIterItem<'s>;
+impl<'a> Iterator for ScopedVarsIter<'a> {
+    type Item = ScopedVarsIterItem<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.cur_idx >= 0 {
@@ -215,7 +216,7 @@ impl<'s> Iterator for ScopedVarsIter<'s> {
     }
 }
 
-impl<'s> ScopedVarsIter<'s> {
+impl<'a> ScopedVarsIter<'a> {
     #[inline(always)]
     pub const fn is_arg_scope(&self) -> bool {
         self.cur_idx == ARG_SCOPE_END
@@ -230,13 +231,14 @@ pub struct ScopedVarsIterMutItem<'a> {
     pub arg_scope_end: bool,
 }
 
-pub struct ScopedVarsIterMut<'s> {
-    fd: NonNull<JSFunctionDef<'s>>,
+pub struct ScopedVarsIterMut<'a> {
+    fd: NonNull<JSFunctionDef>,
     cur_idx: i32,
+    _mark: PhantomData<&'a ()>,
 }
 
-impl<'s> Iterator for ScopedVarsIterMut<'s> {
-    type Item = ScopedVarsIterMutItem<'s>;
+impl<'a> Iterator for ScopedVarsIterMut<'a> {
+    type Item = ScopedVarsIterMutItem<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.cur_idx >= 0 {
@@ -255,27 +257,29 @@ impl<'s> Iterator for ScopedVarsIterMut<'s> {
     }
 }
 
-impl<'s> ScopedVarsIterMut<'s> {
+impl<'a> ScopedVarsIterMut<'a> {
     #[inline(always)]
     pub const fn is_arg_scope(&self) -> bool {
         self.cur_idx == ARG_SCOPE_END
     }
 }
 
-impl<'a> JSFunctionDef<'a> {
-    pub fn scoped_vars_iter(&self, scope: u16) -> ScopedVarsIter<'a> {
+impl JSFunctionDef {
+    pub fn scoped_vars_iter<'a>(&self, scope: u16) -> ScopedVarsIter<'a> {
         let idx = self.scopes[scope as usize].first;
         ScopedVarsIter {
             cur_fd: self as *const Self,
             cur_idx: idx,
+            _mark: PhantomData,
         }
     }
 
-    pub fn scoped_vars_iter_mut(&mut self, scope: u16) -> ScopedVarsIterMut<'a> {
+    pub fn scoped_vars_iter_mut<'a>(&mut self, scope: u16) -> ScopedVarsIterMut<'a> {
         let idx = self.scopes[scope as usize].first;
         ScopedVarsIterMut {
             fd: NonNull::from(self),
             cur_idx: idx,
+            _mark: PhantomData,
         }
     }
 }

@@ -1,4 +1,4 @@
-use crate::runtime::RuntimePtr;
+use crate::runtime::RuntimeRef;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -11,6 +11,7 @@ pub enum JSGCObjectTypeEnum {
     JS_GC_OBJ_TYPE_JS_CONTEXT,
 }
 
+#[deprecated]
 #[repr(u8)]
 pub enum GCObjectStatus {
     Zeroed = 0,
@@ -18,18 +19,19 @@ pub enum GCObjectStatus {
     Temp = 2,
 }
 
+#[deprecated]
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-pub struct GCObjectHeader<'a> {
+pub struct GCObjectHeader {
     pub ref_count: i32,
     bitfields: u8,
 
     /// the runtime
-    rt: RuntimePtr<'a>,
+    rt: RuntimeRef,
 }
 
-impl<'a> GCObjectHeader<'a> {
-    pub(crate) const fn new(rt: RuntimePtr<'a>, ref_count: i32) -> Self {
+impl GCObjectHeader {
+    pub(crate) const fn new(rt: RuntimeRef, ref_count: i32) -> Self {
         Self {
             ref_count,
             bitfields: (GCObjectStatus::Tracking as u8) << 1,
@@ -38,7 +40,7 @@ impl<'a> GCObjectHeader<'a> {
     }
 
     #[inline(always)]
-    pub fn rt(&self) -> RuntimePtr<'a> {
+    pub fn rt(&self) -> RuntimeRef {
         self.rt
     }
 

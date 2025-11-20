@@ -1,12 +1,14 @@
+use gc_lite::Collect;
+
 use crate::{
     JS_CLASS_STRING,
     atom::{Atom, AtomDescKind},
     branch_hints::unlikely,
-    context::JSContext,
+    context::{ContextImpl, ContextRef},
     error::{JS_ThrowReferenceErrorUninitialized, JSResult},
     iterator::JSIteratorKindEnum,
-    object::{JS_PROP_TMASK, JS_PROP_VARREF, JSObject, JSProperty},
-    string::JSString,
+    object::{JS_PROP_TMASK, JS_PROP_VARREF, JSProperty, ObjectRef},
+    string::StringRef,
     value::JSValue,
 };
 
@@ -28,6 +30,13 @@ pub struct PropertyKey {
     pub is_exotic: bool,
 }
 
+unsafe impl Collect for PropertyKey {
+    #[inline(always)]
+    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+        self.atom.trace(tracer);
+    }
+}
+
 impl PropertyKey {
     pub(crate) fn new(atom: Atom, is_enumerable: bool, is_exotic: bool) -> Self {
         let kind = if let Some(idx) = atom.to_array_index() {
@@ -47,7 +56,7 @@ impl PropertyKey {
     }
 }
 
-impl<'a> JSObject<'a> {
+impl ObjectRef {
     /// Iterates over all own properties of object `self` and executes `callback` for each property.
     ///
     /// This method handles three types of properties:
@@ -71,22 +80,15 @@ impl<'a> JSObject<'a> {
     /// 1. Then exotic properties (if has exotic `get_own_property_names`)
     pub fn own_property_names_foreach(
         &self,
-        ctx: &JSContext<'a>,
+        ctx: &ContextImpl,
         flags: i32,
-        mut callback: impl FnMut(&JSContext<'a>, PropertyKey) -> Result<(), i32>,
+        mut callback: impl FnMut(&ContextImpl, PropertyKey) -> Result<(), i32>,
     ) -> Result<(), i32> {
         let enum_only = flags & JS_GPN_ENUM_ONLY != 0;
+        let sh = self.shape().unwrap();
 
         // 1. shape props
-        for (i, (_, prs)) in self
-            .shape()
-            .unwrap()
-            .0
-            .borrow()
-            .prop_defs
-            .iter()
-            .enumerate()
-        {
+        for (i, (_, prs)) in sh.prop_defs.iter().enumerate() {
             if !prs.atom.is_null() {
                 let is_enumerable = prs.flags() & JS_PROP_ENUMERABLE != 0;
                 let kind = prs.atom.kind();
@@ -96,18 +98,14 @@ impl<'a> JSObject<'a> {
                     // name space (implicit GetOwnProperty)
                     if prs.flags() & JS_PROP_TMASK == JS_PROP_VARREF
                         && flags & (JS_GPN_ENUM_ONLY | JS_GPN_SET_ENUM) != 0
-                        && let JSProperty::VarRef(vref) =
-                            self.0.prop_values.borrow().get(i).unwrap()
+                        && let JSProperty::VarRef(vref) = self.prop_values.get(i).unwrap()
                         && unlikely(vref.value().is_uninitialized())
                     {
-                        JS_ThrowReferenceErrorUninitialized(ctx, prs.atom.to_ref());
+                        JS_ThrowReferenceErrorUninitialized(ctx, prs.atom);
                         return Err(-1);
                     }
 
-                    callback(
-                        ctx,
-                        PropertyKey::new(prs.atom.clone(), is_enumerable, false),
-                    )?;
+                    callback(ctx, PropertyKey::new(prs.atom, is_enumerable, false))?;
                 }
             }
         }
@@ -131,7 +129,7 @@ impl<'a> JSObject<'a> {
                 }
             } else if self.class_id() == JS_CLASS_STRING {
                 if flags & JS_GPN_INDEX_MASK != 0 {
-                    let buf_len = TryInto::<JSString>::try_into(self.clone()).unwrap().len();
+                    let buf_len = StringRef::try_from(*self).unwrap().len();
 
                     for i in 0..buf_len {
                         callback(
@@ -153,14 +151,14 @@ impl<'a> JSObject<'a> {
                 // Note: exotic keys comes after the object own properties.
                 let mut has_err = false;
 
-                for pk in f(ctx, self)? {
+                for pk in f(unsafe { ContextRef::from_ref_unchecked(ctx) }, *self)? {
                     if !has_err {
                         let atom_kind = pk.atom.kind();
                         if (flags >> (atom_kind as u8)) & 1 != 0 {
                             let mut is_enumerable = false;
 
                             if flags & (JS_GPN_SET_ENUM | JS_GPN_ENUM_ONLY) != 0
-                                && let Some(d) = self.get_own_property(ctx, &pk.atom)?
+                                && let Some(d) = self.get_own_property(ctx, pk.atom)?
                             {
                                 is_enumerable = d.flags & JS_PROP_ENUMERABLE != 0;
                             }
@@ -205,7 +203,7 @@ impl<'a> JSObject<'a> {
     /// - Can be filtered using flags
     pub fn get_own_property_names(
         &self,
-        ctx: &JSContext<'a>,
+        ctx: &ContextImpl,
         flags: i32,
     ) -> Result<Box<[PropertyKey]>, i32> {
         let mut lst = Vec::<PropertyKey>::with_capacity(16);
@@ -262,11 +260,11 @@ impl<'a> JSObject<'a> {
     ///
     /// Similar to JavaScript's Object.keys(), Object.values(), Object.entries()
     pub fn get_own_property_kvs(
-        &self,
-        ctx: &JSContext<'a>,
+        &mut self,
+        ctx: &ContextImpl,
         flags: i32,
         kind: JSIteratorKindEnum,
-    ) -> Result<Box<[(JSValue<'a>, JSValue<'a>)]>, i32> {
+    ) -> Result<Box<[(JSValue, JSValue)]>, i32> {
         let pkeys = self.get_own_property_names(ctx, flags & !JS_GPN_ENUM_ONLY)?;
 
         let mut ret = Vec::<(JSValue, JSValue)>::new();
@@ -277,7 +275,7 @@ impl<'a> JSObject<'a> {
 
         for pk in pkeys.iter() {
             if flags & JS_GPN_ENUM_ONLY != 0 {
-                match self.get_own_property(ctx, &pk.atom)? {
+                match self.get_own_property(ctx, pk.atom)? {
                     Some(desc) => {
                         if desc.flags & JS_PROP_ENUMERABLE == 0 {
                             continue; // skip non enumerable
@@ -296,11 +294,11 @@ impl<'a> JSObject<'a> {
                     key = pk.atom.string_or_symbol(ctx)?;
                 }
                 JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE => {
-                    val = self.get_property(ctx, &pk.atom)?;
+                    val = self.get_property(ctx, pk.atom)?;
                 }
                 JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE => {
                     key = pk.atom.string_or_symbol(ctx)?;
-                    val = self.get_property(ctx, &pk.atom)?;
+                    val = self.get_property(ctx, pk.atom)?;
                 }
             }
             ret.push((key, val));
@@ -310,7 +308,7 @@ impl<'a> JSObject<'a> {
     }
 }
 
-impl<'a> JSValue<'a> {
+impl JSValue {
     /// Gets object's own properties \[key, value\] pairs.
     ///
     /// Returns list of \[key, value\] pairs, sorted according to js specification.
@@ -324,13 +322,12 @@ impl<'a> JSValue<'a> {
     /// Similar to JavaScript's Object.keys(), Object.values(), Object.entries()
     pub fn get_own_property_kvs(
         &self,
-        ctx: &JSContext<'a>,
+        ctx: &ContextImpl,
         flags: i32,
         kind: JSIteratorKindEnum,
-    ) -> Result<Box<[(JSValue<'a>, JSValue<'a>)]>, i32> {
-        self.clone()
-            .objectify(ctx)
-            .and_then(|o| o.get_own_property_kvs(ctx, flags, kind))
+    ) -> Result<Box<[(JSValue, JSValue)]>, i32> {
+        self.objectify(ctx)
+            .and_then(|mut o| o.get_own_property_kvs(ctx, flags, kind))
     }
 
     /// Returns an value (Array object) containing the own properties of `self` value
@@ -342,10 +339,10 @@ impl<'a> JSValue<'a> {
     /// - An array of [key, value] pairs (for kind = KEY_AND_VALUE)
     pub(crate) fn build_own_property_kvs_array(
         &self,
-        ctx: &JSContext<'a>,
+        ctx: &ContextImpl,
         flags: i32,
         kind: JSIteratorKindEnum,
-    ) -> JSResult<'a> {
+    ) -> JSResult {
         let kvs = self.get_own_property_kvs(ctx, flags, kind)?;
 
         let mut lst = Vec::<JSValue>::new();

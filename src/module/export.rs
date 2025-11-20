@@ -1,41 +1,40 @@
-use std::{cmp::Ordering, ops::Deref};
+use std::cmp::Ordering;
+
+use gc_lite::Collect;
 
 use crate::{
-    atom::{
-        Atom,
-        consts::{JS_ATOM__star_, JS_ATOM_Module, JS_ATOM_Symbol_toStringTag, JS_ATOM_default},
-    },
+    atom::Atom,
     branch_hints::unlikely,
-    context::JSContext,
+    context::ContextImpl,
     error::ErrorKind,
     function::{FieldDef, JSVarRef, NativeFieldDetail},
     module::{ModuleDef, ModuleDefInner},
     object::{
-        JS_PROP_ENUMERABLE, JS_PROP_VARREF, JS_PROP_WRITABLE, JSObject, JSProperty, LazyInit,
-        ObjectPayload,
+        JS_PROP_ENUMERABLE, JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty, LazyInit, ObjectPayload,
+        ObjectRef,
     },
     value::JSValue,
 };
 
 #[derive(Debug, Clone)]
-enum ExportedNameKind<'a> {
+enum ExportedNameKind {
     EXPORTED_NAME_AMBIGUOUS,
-    EXPORTED_NAME_NORMAL(JSVarRef<'a>),
-    EXPORTED_NAME_NS(ModuleDef<'a>),
+    EXPORTED_NAME_NORMAL(JSVarRef),
+    EXPORTED_NAME_NS(ModuleDef),
 }
 
 #[derive(Debug)]
-struct ExportedNameEntry<'a> {
+struct ExportedNameEntry {
     export_name: Atom,
-    export_type: ExportedNameKind<'a>,
+    export_type: ExportedNameKind,
 
     /// (export_type, local_name, export_name)
     /// using when the list is built.
-    cached: Option<(ExportType<'a>, Atom, Atom)>,
+    cached: Option<(ExportType, Atom, Atom)>,
 }
 
 // impl ExportedNameEntry {
-//     pub fn dup(&self, rt: &JSRuntime) -> Self {
+//     pub fn dup(&self, rt: &RuntimeImpl) -> Self {
 //         Self {
 //             export_name: self.export_name.dup(rt),
 //             export_type: self.export_type.clone(),
@@ -44,39 +43,52 @@ struct ExportedNameEntry<'a> {
 //     }
 // }
 
-#[derive(Debug, Default)]
-struct GetExportNamesState<'a> {
-    modules: Vec<ModuleDef<'a>>,
-    exported_names: Vec<ExportedNameEntry<'a>>,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) enum ExportType<'a> {
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum ExportType {
     JS_EXPORT_TYPE_LOCAL {
         var_idx: u16,
         /// None means var ref is not linked yet.
-        var_ref: Option<JSVarRef<'a>>,
+        var_ref: Option<JSVarRef>,
     },
 
     /// indirect export with req_module_idx
     JS_EXPORT_TYPE_INDIRECT(i32),
 }
 
-#[derive(Debug, Clone)]
-pub struct ExportEntry<'a> {
-    pub(crate) export_type: ExportType<'a>,
+unsafe impl Collect for ExportType {
+    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+        if let Self::JS_EXPORT_TYPE_LOCAL {
+            var_ref: Some(vref),
+            ..
+        } = self
+        {
+            vref.trace(tracer);
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ExportEntry {
+    pub(crate) export_type: ExportType,
     /// '*' if export ns from. not used for local export after compilation
     pub local_name: Atom,
     /// exported variable name
     pub export_name: Atom,
 }
 
+unsafe impl Collect for ExportEntry {
+    #[inline(always)]
+    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+        self.local_name.trace(tracer);
+    }
+}
+
 /// resolving module export result
 #[derive(Debug)]
-pub(super) enum ResolveExport<'a> {
+pub(super) enum ResolveExport {
     Found {
-        module: ModuleDef<'a>,
-        export_type: ExportType<'a>,
+        module: ModuleDef,
+        export_type: ExportType,
         export_name: Atom,
         local_name: Atom,
     },
@@ -85,11 +97,28 @@ pub(super) enum ResolveExport<'a> {
     Circular,
 }
 
-impl<'a> ResolveExport<'a> {
+unsafe impl Collect for ResolveExport {
+    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+        if let Self::Found {
+            export_name,
+            local_name,
+            export_type,
+            module,
+        } = self
+        {
+            export_name.trace(tracer);
+            local_name.trace(tracer);
+            export_type.trace(tracer);
+            module.trace(tracer);
+        }
+    }
+}
+
+impl ResolveExport {
     pub(super) fn throw_syntax_error_export(
         &self,
-        ctx: &JSContext<'a>,
-        m: &ModuleDefInner<'a>,
+        ctx: &ContextImpl,
+        m: &ModuleDefInner,
         export_name: &Atom,
     ) {
         match self {
@@ -119,25 +148,23 @@ impl<'a> ResolveExport<'a> {
     }
 }
 
-impl<'a> ModuleDefInner<'a> {
+impl ModuleDefInner {
     /// find export entry by name
-    pub fn find_export(&self, export_name: &Atom) -> Option<ExportEntry<'a>> {
+    pub fn find_export(&self, export_name: Atom) -> Option<&ExportEntry> {
         self.export_entries
-            .borrow()
             .iter()
-            .find(|x| x.export_name.eq(export_name))
-            .cloned()
+            .find(|x| x.export_name == export_name)
     }
 
     /// add an export entry on `self`.
     ///
     /// Note: `local_name`, `export_name` are not consumed.
     pub(crate) fn add_export_internal(
-        &self,
-        ctx: &JSContext<'a>,
-        local_name: &Atom,
-        export_name: &Atom,
-        export_type: ExportType<'a>,
+        &mut self,
+        ctx: &ContextImpl,
+        local_name: Atom,
+        export_name: Atom,
+        export_type: ExportType,
     ) -> Result<(), i32> {
         if unlikely(self.find_export(export_name).is_some()) {
             ctx.throw_syntax_error(&format!(
@@ -146,19 +173,17 @@ impl<'a> ModuleDefInner<'a> {
             ));
             Err(ErrorKind::Syntax as i32)
         } else {
-            let mut lst = self.export_entries.borrow_mut();
-
-            if lst.len() == lst.capacity() {
-                lst.try_reserve(1).map_err(|_| {
+            if self.export_entries.len() == self.export_entries.capacity() {
+                self.export_entries.try_reserve(1).map_err(|_| {
                     ctx.throw_out_of_memory();
                     ErrorKind::Internal as i32
                 })?;
             }
 
-            lst.push(ExportEntry {
+            self.export_entries.push(ExportEntry {
                 export_type,
-                local_name: local_name.clone(),
-                export_name: export_name.clone(),
+                local_name,
+                export_name,
             });
 
             Ok(())
@@ -166,12 +191,12 @@ impl<'a> ModuleDefInner<'a> {
     }
 
     /// declare a module export name
-    pub fn add_export(&self, ctx: &JSContext<'a>, export_name: &str) -> Result<(), i32> {
+    pub fn add_export(&mut self, ctx: &ContextImpl, export_name: &str) -> Result<(), i32> {
         let atom = Atom::new(ctx.rt().as_ref(), export_name)?;
         self.add_export_internal(
             ctx,
-            &Atom::NULL,
-            &atom,
+            Atom::NULL,
+            atom,
             ExportType::JS_EXPORT_TYPE_LOCAL {
                 var_idx: u16::MAX, // unknown
                 var_ref: None,
@@ -180,14 +205,14 @@ impl<'a> ModuleDefInner<'a> {
     }
 
     /// update export value
-    pub fn set_export_values(&self, ctx: &JSContext<'a>, entries: &[FieldDef]) -> Result<(), i32> {
+    pub fn set_export_values(&self, ctx: &ContextImpl, entries: &[FieldDef]) -> Result<(), i32> {
         for entry in entries {
             let val: JSValue = match &entry.detail {
                 NativeFieldDetail::Func { handler, length } => ctx
                     .create_native_function(*handler, entry.name, *length, 0)?
                     .into(),
                 NativeFieldDetail::Object(fields) => {
-                    let o = ctx.create_base_object()?;
+                    let mut o = ctx.create_base_object()?;
                     o.install_field_defs(ctx, fields.as_ref())?;
                     o.into()
                 }
@@ -208,18 +233,19 @@ impl<'a> ModuleDefInner<'a> {
     /// update or add a module export entry named `export_name`, with given value
     pub fn set_export_value(
         &self,
-        ctx: &JSContext<'a>,
+        ctx: &ContextImpl,
         export_name: &str,
-        value: JSValue<'a>,
+        value: JSValue,
     ) -> Result<(), i32> {
         let atom = Atom::new(ctx.rt().as_ref(), export_name)?;
-        if let Some(me) = self.find_export(&atom) {
+
+        if let Some(me) = self.find_export(atom) {
             if let ExportType::JS_EXPORT_TYPE_LOCAL { var_ref, .. } = me.export_type {
                 debug_assert!(
                     var_ref.is_some(),
                     "exported local entry must have been linked"
                 );
-                var_ref.as_ref().unwrap().set_value(value);
+                var_ref.unwrap().set_value(value);
                 Ok(())
             } else {
                 // not a local export entry
@@ -232,29 +258,33 @@ impl<'a> ModuleDefInner<'a> {
     }
 }
 
-impl<'a> ModuleDef<'a> {
+#[derive(Debug, Default)]
+struct GetExportNamesState {
+    modules: Vec<ModuleDef>,
+    exported_names: Vec<ExportedNameEntry>,
+}
+
+impl ModuleDef {
     pub(crate) fn add_star_export_entry(
-        &self,
-        ctx: &JSContext<'a>,
+        &mut self,
+        ctx: &ContextImpl,
         req_module_idx: u16,
     ) -> Result<(), i32> {
-        let mut b = self.0.star_export_entries.borrow_mut();
-
-        if b.len() == b.capacity() {
-            b.try_reserve(4).map_err(|_| {
+        if self.star_export_entries.len() == self.star_export_entries.capacity() {
+            self.star_export_entries.try_reserve(4).map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1
             })?;
         }
 
-        b.push(req_module_idx);
+        self.star_export_entries.push(req_module_idx);
         Ok(())
     }
 
     fn collect_exported_names(
         &self,
-        ctx: &JSContext<'a>,
-        s: &mut GetExportNamesState<'a>,
+        ctx: &ContextImpl,
+        s: &mut GetExportNamesState,
         from_star: bool,
     ) -> Result<(), i32> {
         // check circular reference
@@ -266,17 +296,17 @@ impl<'a> ModuleDef<'a> {
             ctx.throw_out_of_memory();
             -1
         })?;
-        s.modules.push(self.clone());
+        s.modules.push(*self);
 
-        for exp in self.0.export_entries.borrow().iter() {
-            if from_star && exp.export_name.to_ref() == JS_ATOM_default {
+        for exp in self.export_entries.iter() {
+            if from_star && exp.export_name == Atom::CONST_default {
                 continue;
             }
 
             if let Some(entry) = s
                 .exported_names
                 .iter_mut()
-                .find(|x| x.export_name.to_ref() == exp.export_name.to_ref())
+                .find(|x| x.export_name == exp.export_name)
             {
                 entry.cached.take();
                 // if let Some(en) = entry.cached.take() {
@@ -291,27 +321,22 @@ impl<'a> ModuleDef<'a> {
                     })?;
                 }
                 s.exported_names.push(ExportedNameEntry {
-                    export_name: exp.export_name.clone(),
+                    export_name: exp.export_name,
                     export_type: ExportedNameKind::EXPORTED_NAME_AMBIGUOUS,
                     cached: if from_star
                         || !matches!(exp.export_type, ExportType::JS_EXPORT_TYPE_LOCAL { .. })
                     {
                         None
                     } else {
-                        Some((
-                            exp.export_type.clone(),
-                            exp.local_name.clone(),
-                            exp.export_name.clone(),
-                        ))
+                        Some((exp.export_type, exp.local_name, exp.export_name))
                     },
                 });
             }
         }
 
-        for idx in self.0.star_export_entries.borrow().iter() {
-            self.0.dependencies.borrow()[*idx as usize]
+        for idx in self.star_export_entries.iter() {
+            self.dependencies[*idx as usize]
                 .module
-                .as_ref()
                 .unwrap()
                 .collect_exported_names(ctx, s, true)?;
         }
@@ -320,8 +345,8 @@ impl<'a> ModuleDef<'a> {
     }
 
     /// build module ns object
-    fn build_module_ns(&self, ctx: &JSContext<'a>) -> Result<JSObject<'a>, i32> {
-        let obj = ctx
+    fn build_module_ns(&self, ctx: &ContextImpl) -> Result<ObjectRef, i32> {
+        let mut obj = ctx
             .create_object(ObjectPayload::MODULE_NS)
             .map_err(|_| -1)?;
 
@@ -330,18 +355,17 @@ impl<'a> ModuleDef<'a> {
 
         // Resolve the exported names. The ambiguous exports are removed
         for export in state.exported_names.iter_mut() {
-            let resolv =
-                if let Some((export_type, local_name, export_name)) = export.cached.as_ref() {
-                    // fast case: use cached, no resolution needed
-                    ResolveExport::Found {
-                        module: self.clone(),
-                        export_type: export_type.clone(),
-                        local_name: local_name.clone(),
-                        export_name: export_name.clone(),
-                    }
-                } else {
-                    self.resolve_export(ctx, &export.export_name, None)?
-                };
+            let resolv = if let Some((export_type, local_name, export_name)) = export.cached {
+                // fast case: use cached, no resolution needed
+                ResolveExport::Found {
+                    module: *self,
+                    export_type,
+                    local_name,
+                    export_name,
+                }
+            } else {
+                self.resolve_export(ctx, export.export_name, None)?
+            };
 
             match resolv {
                 ResolveExport::Found {
@@ -351,29 +375,26 @@ impl<'a> ModuleDef<'a> {
                     ..
                 } => match export_type {
                     ExportType::JS_EXPORT_TYPE_INDIRECT(dep_idx) => {
-                        if local_name.to_ref() == JS_ATOM__star_ {
+                        if local_name == Atom::CONST__star_ {
                             export.export_type = ExportedNameKind::EXPORTED_NAME_NS(
-                                module.0.dependencies.borrow()[dep_idx as usize]
-                                    .module
-                                    .clone()
-                                    .unwrap(),
+                                module.dependencies[dep_idx as usize].module.unwrap(),
                             );
                         }
                     }
                     ExportType::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } => {
-                        debug_assert_ne!(local_name.to_ref(), JS_ATOM__star_);
+                        debug_assert_ne!(local_name, Atom::CONST__star_);
 
                         export.export_type =
                             ExportedNameKind::EXPORTED_NAME_NORMAL(if let Some(vr) = var_ref {
                                 vr
                             } else {
                                 debug_assert_ne!(var_idx, u16::MAX);
-                                let p1 = unsafe {
-                                    (*module.0.bytecode.as_ptr())
-                                        .as_object_BCFunction()
-                                        .expect("BCFunction expected")
-                                };
-                                p1.payload().var_refs.borrow()[var_idx as usize].clone()
+                                let p1 = module
+                                    .bytecode
+                                    .as_object_BCFunction()
+                                    .copied()
+                                    .expect("BCFunction expected");
+                                p1.payload().var_refs[var_idx as usize]
                             });
                     }
                 },
@@ -381,7 +402,7 @@ impl<'a> ModuleDef<'a> {
                     export.export_type = ExportedNameKind::EXPORTED_NAME_AMBIGUOUS;
                 }
                 ResolveExport::NotFound | ResolveExport::Circular => {
-                    resolv.throw_syntax_error_export(ctx, &self.0, &export.export_name);
+                    resolv.throw_syntax_error_export(ctx, self, &export.export_name);
                     return Err(-1);
                 }
             }
@@ -403,21 +424,21 @@ impl<'a> ModuleDef<'a> {
         });
 
         for en in state.exported_names {
-            match &en.export_type {
+            match en.export_type {
                 ExportedNameKind::EXPORTED_NAME_NORMAL(vref) => {
                     obj.add_own_property(
                         ctx,
-                        en.export_name.clone(),
+                        en.export_name,
                         JS_PROP_ENUMERABLE | JS_PROP_WRITABLE | JS_PROP_VARREF,
-                        JSProperty::VarRef(vref.clone()),
+                        JSProperty::VarRef(vref),
                     )?;
                 }
                 ExportedNameKind::EXPORTED_NAME_NS(module) => {
                     // the exported namespace must be created on demand
                     obj.define_lazy_property(
                         ctx,
-                        &en.export_name,
-                        LazyInit::ModuleNS(module.clone()),
+                        en.export_name,
+                        LazyInit::ModuleNS(module),
                         JS_PROP_ENUMERABLE | JS_PROP_WRITABLE,
                     )?;
                 }
@@ -427,8 +448,8 @@ impl<'a> ModuleDef<'a> {
 
         obj.define_property_value(
             ctx,
-            JS_ATOM_Symbol_toStringTag.deref(),
-            JS_ATOM_Module.force_string(ctx)?.into(),
+            Atom::CONST_Symbol_toStringTag,
+            Atom::CONST_Module.force_string(ctx)?.into(),
             0,
         )?;
         obj.set_flag_extensible(false);
@@ -438,12 +459,12 @@ impl<'a> ModuleDef<'a> {
 
     /// get module ns object.
     /// if ns object is not initialized, initialize it and return.
-    pub fn ns(&self, ctx: &JSContext<'a>) -> Result<JSObject<'a>, i32> {
-        if let Some(ns) = unsafe { (*self.0.module_ns.as_ptr()).clone() } {
+    pub fn ns(&mut self, ctx: &ContextImpl) -> Result<ObjectRef, i32> {
+        if let Some(ns) = self.module_ns {
             Ok(ns)
         } else {
             let ns = self.build_module_ns(ctx)?;
-            self.0.module_ns.replace(Some(ns.clone()));
+            self.module_ns.replace(ns);
             Ok(ns)
         }
     }

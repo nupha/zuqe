@@ -1,18 +1,20 @@
-use std::{cell::RefCell, collections::HashMap};
+use std::collections::HashMap;
+
+use gc_lite::{Collect, GcRef, GcWeak};
 
 use crate::{
     JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, JS_CLASS_SET, JS_CLASS_SET_ITERATOR, JS_CLASS_WEAKMAP,
     JS_CLASS_WEAKSET,
     class::ClassID,
-    context::JSContext,
+    context::{ContextImpl, ContextRef},
     mapset::{
         js_map_constructor, js_map_funcs, js_map_iterator_proto_funcs, js_map_proto_funcs,
         js_set_funcs, js_set_iterator_proto_funcs, js_set_proto_funcs, js_weakmap_proto_funcs,
         js_weakset_proto_funcs,
     },
-    object::{JSObject, JSObjectWeakref, ObjectInner, ObjectPayload},
+    object::{ObjectImpl, ObjectPayload, ObjectRef},
     object_cast,
-    runtime::JSRuntime,
+    runtime::RuntimeImpl,
     utils::hash_usize,
     value::JSValue,
 };
@@ -20,21 +22,36 @@ use crate::{
 /// A key-value pair in a map, either strong or weak
 #[derive(Debug, Clone)]
 #[repr(u8)]
-pub enum MapPair<'a> {
+pub enum MapPair {
     Strong {
-        key: JSValue<'a>,
-        value: JSValue<'a>,
+        key: JSValue,
+        value: JSValue,
     },
     /// use weakref for key
     Weak {
-        key: JSObjectWeakref<'a>,
-        value: JSValue<'a>,
+        key: GcWeak<ObjectImpl>,
+        value: JSValue,
     },
     Removed,
 }
 
-impl<'a> MapPair<'a> {
-    pub fn normalize_key(key: JSValue<'a>) -> JSValue<'a> {
+unsafe impl Collect for MapPair {
+    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+        match self {
+            Self::Strong { key, value } => {
+                key.trace(tracer);
+                value.trace(tracer);
+            }
+            Self::Weak { value, .. } => {
+                value.trace(tracer);
+            }
+            _ => {}
+        }
+    }
+}
+
+impl MapPair {
+    pub fn normalize_key(key: JSValue) -> JSValue {
         if let JSValue::Float64(d) = key
             && d == 0.0
         {
@@ -45,10 +62,10 @@ impl<'a> MapPair<'a> {
 }
 
 #[derive(Debug)]
-pub struct JSMapState<'a> {
+pub struct JSMapState {
     /// is WeakSet/WeakMap?
     is_weak: bool,
-    pub(crate) slots: Vec<MapPair<'a>>,
+    pub(crate) slots: Vec<MapPair>,
     /// hash lookup table
     pub(crate) lut: HashMap<u32, Vec<usize>>,
     /// removed count
@@ -58,7 +75,14 @@ pub struct JSMapState<'a> {
     lock: u16,
 }
 
-impl<'a> JSMapState<'a> {
+unsafe impl Collect for JSMapState {
+    #[inline(always)]
+    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+        self.slots.trace(tracer);
+    }
+}
+
+impl JSMapState {
     pub fn new(is_weak: bool, cap: usize) -> Self {
         JSMapState {
             is_weak,
@@ -97,12 +121,7 @@ impl<'a> JSMapState<'a> {
 
     /// update or insert key-value pair.
     /// returns false if the value is updated, true if the key-value pair is inserted
-    pub fn upsert(
-        &mut self,
-        ctx: &JSContext<'a>,
-        key: JSValue<'a>,
-        value: JSValue<'a>,
-    ) -> Result<bool, i32> {
+    pub fn upsert(&mut self, ctx: &ContextImpl, key: JSValue, value: JSValue) -> Result<bool, i32> {
         let key = MapPair::normalize_key(key);
 
         if self.is_weak && !key.is_object() {
@@ -116,12 +135,12 @@ impl<'a> JSMapState<'a> {
             lst.iter().find_map(|i| match self.slots.get_mut(*i) {
                 Some(MapPair::Weak { key: k, value: v }) => {
                     debug_assert!(self.is_weak);
-                    let Some(o) = key.as_object() else {
+                    let Some(o) = key.as_object().copied() else {
                         unreachable!()
                     };
-                    k.upgrade().and_then(|k| {
-                        if k.eq(o) {
-                            *v = value.clone();
+                    k.upgrade(ctx.rt().gc_heap()).and_then(|k| {
+                        if ObjectRef(k) == o {
+                            *v = value;
                             Some(*i)
                         } else {
                             None
@@ -130,8 +149,8 @@ impl<'a> JSMapState<'a> {
                 }
                 Some(MapPair::Strong { key: k, value: v }) => {
                     debug_assert!(!self.is_weak);
-                    if key.is_same0(k) {
-                        *v = value.clone();
+                    if key.is_same0(*k) {
+                        *v = value;
                         Some(*i)
                     } else {
                         None
@@ -171,23 +190,28 @@ impl<'a> JSMapState<'a> {
     }
 
     /// find value by key.
-    pub fn find(&self, key: &JSValue<'a>) -> Option<JSValue<'a>> {
-        let key = MapPair::normalize_key(key.clone());
+    pub fn find(&self, key: JSValue) -> Option<JSValue> {
+        let key = MapPair::normalize_key(key);
         let hash = key.hash();
 
         if let Some(lst) = self.lut.get(&hash) {
             lst.iter().find_map(|i| match self.slots.get(*i) {
                 Some(MapPair::Weak { key: k, value }) => {
                     if let Some(o) = key.as_object() {
-                        k.upgrade()
-                            .and_then(|k| if k.eq(o) { Some(value.clone()) } else { None })
+                        k.upgrade(o.rt().gc_heap()).and_then(|k| {
+                            if ObjectRef(k) == *o {
+                                Some(*value)
+                            } else {
+                                None
+                            }
+                        })
                     } else {
                         None
                     }
                 }
                 Some(MapPair::Strong { key: k, value }) => {
-                    if key.is_same0(k) {
-                        Some(value.clone())
+                    if key.is_same0(*k) {
+                        Some(*value)
                     } else {
                         None
                     }
@@ -200,15 +224,15 @@ impl<'a> JSMapState<'a> {
     }
 
     /// remove an entry by key.
-    pub fn remove(&mut self, key: &JSValue<'a>) {
-        let key = MapPair::normalize_key(key.clone());
+    pub fn remove(&mut self, ctx: &ContextImpl, key: JSValue) {
+        let key = MapPair::normalize_key(key);
         let hash = key.hash();
 
         // remove from lut
         let purge_lut = if let Some(lst) = self.lut.get_mut(&hash) {
             lst.retain(|i| match self.slots.get(*i) {
                 Some(MapPair::Strong { key: k, .. }) => {
-                    if key.is_same0(k) {
+                    if key.is_same0(*k) {
                         self.slots[*i] = MapPair::Removed;
                         self.remove_count += 1;
                         false
@@ -217,8 +241,8 @@ impl<'a> JSMapState<'a> {
                     }
                 }
                 Some(MapPair::Weak { key: k, .. }) => {
-                    if let Some(k) = k.upgrade() {
-                        if k.eq(unsafe { key.as_object_unchecked() }) {
+                    if let Some(k) = k.upgrade(ctx.rt().gc_heap()) {
+                        if ObjectRef(k) == unsafe { *key.as_object_unchecked() } {
                             self.slots[*i] = MapPair::Removed;
                             self.remove_count += 1;
                             false
@@ -253,7 +277,7 @@ impl<'a> JSMapState<'a> {
         }
     }
 
-    pub(crate) fn remove_weak_obj(&mut self, obj: &ObjectInner<'a>) {
+    pub(crate) fn remove_weak_obj(&mut self, obj: &ObjectImpl) {
         debug_assert!(self.is_weak);
 
         let hash = hash_usize(obj.id());
@@ -262,7 +286,10 @@ impl<'a> JSMapState<'a> {
         let purge_lut = if let Some(lst) = self.lut.get_mut(&hash) {
             lst.retain(|i| match self.slots.get(*i) {
                 Some(MapPair::Weak { key, .. }) => {
-                    if key.upgrade().is_some_and(|k| k.id() != obj.id()) {
+                    if key
+                        .upgrade(obj.rt().gc_heap())
+                        .is_some_and(|k| ObjectRef(k).id() != obj.id())
+                    {
                         self.slots[*i] = MapPair::Removed;
                         false
                     } else {
@@ -307,12 +334,13 @@ impl<'a> JSMapState<'a> {
         self.remove_count = 0;
     }
 
-    pub const fn class_finalizer(_: &mut JSRuntime, _: &ObjectPayload, _: usize) {}
+    pub const fn class_finalizer(_: &mut RuntimeImpl, _: &ObjectPayload, _: usize) {}
 
+    #[deprecated]
     pub fn class_mark(val: JSValue) {
-        let p = unsafe { val.as_object_unchecked() };
-        if let Some(s) = p.payload().mapset() {
-            for kv in s.borrow().slots.iter() {
+        let o = unsafe { val.to_object_unchecked() };
+        if let Some(s) = o.payload().mapset() {
+            for kv in s.slots.iter() {
                 match kv {
                     MapPair::Strong { key, value } => {
                         key.gc_mark();
@@ -329,91 +357,81 @@ impl<'a> JSMapState<'a> {
 }
 
 /// Object representing a Map, Set, WeakMap, WeakSet instance.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 #[repr(transparent)]
-pub struct MapSet<'a>(pub(crate) JSObject<'a>);
+pub struct MapSet(pub(crate) GcRef<ObjectImpl>);
 
 object_cast!(
     MapSet,
     JS_CLASS_MAP | JS_CLASS_SET | JS_CLASS_WEAKMAP | JS_CLASS_WEAKSET
 );
 
-impl<'a> MapSet<'a> {
-    pub fn class_initialize<'b>(
-        ctx: &JSContext<'b>,
+impl MapSet {
+    pub fn class_initialize(
+        mut ctx: ContextRef,
         class_id: ClassID,
-    ) -> Result<Option<JSObject<'b>>, i32> {
+    ) -> Result<Option<ObjectRef>, i32> {
+        let iter_proto = ctx.iterator_proto()?;
+
         match class_id {
             JS_CLASS_MAP => {
-                let obj = ctx.create_base_object()?;
-                obj.install_field_defs(ctx, &js_map_proto_funcs)?;
+                let mut obj = ctx.create_base_object()?;
+                obj.install_field_defs(&ctx, &js_map_proto_funcs)?;
 
-                let ctor = ctx
-                    .create_global_constructor_only(
-                        "Map",
-                        js_map_constructor,
-                        0,
-                        &obj.clone().into(),
-                        0,
-                    )
+                let mut ctor = ctx
+                    .create_global_constructor_only("Map", js_map_constructor, 0, obj.into(), 0)
                     .unwrap();
-                ctor.install_field_defs(ctx, &js_map_funcs).unwrap();
+                ctor.install_field_defs(&ctx, &js_map_funcs).unwrap();
 
                 Ok(Some(obj))
             }
             JS_CLASS_SET => {
-                let obj = ctx.create_base_object()?;
-                obj.install_field_defs(ctx, &js_set_proto_funcs)?;
+                let mut obj = ctx.create_base_object()?;
+                obj.install_field_defs(&ctx, &js_set_proto_funcs)?;
 
-                let ctor = ctx
-                    .create_global_constructor_only(
-                        "Set",
-                        js_map_constructor,
-                        0,
-                        &obj.clone().into(),
-                        1,
-                    )
+                let mut ctor = ctx
+                    .create_global_constructor_only("Set", js_map_constructor, 0, obj.into(), 1)
                     .unwrap();
-                ctor.install_field_defs(ctx, &js_set_funcs)?;
+                ctor.install_field_defs(&ctx, &js_set_funcs)?;
 
                 Ok(Some(obj))
             }
             JS_CLASS_WEAKMAP => {
-                let obj = ctx.create_base_object()?;
-                obj.install_field_defs(ctx, &js_weakmap_proto_funcs)?;
+                let mut obj = ctx.create_base_object()?;
+                obj.install_field_defs(&ctx, &js_weakmap_proto_funcs)?;
 
                 ctx.create_global_constructor_only(
                     "WeakMap",
                     js_map_constructor,
                     0,
-                    &obj.clone().into(),
+                    obj.into(),
                     2,
                 )?;
 
                 Ok(Some(obj))
             }
             JS_CLASS_WEAKSET => {
-                let obj = ctx.create_base_object()?;
-                obj.install_field_defs(ctx, &js_weakset_proto_funcs)?;
+                let mut obj = ctx.create_base_object()?;
+                obj.install_field_defs(&ctx, &js_weakset_proto_funcs)?;
 
                 ctx.create_global_constructor_only(
                     "WeakSet",
                     js_map_constructor,
                     0,
-                    &obj.clone().into(),
+                    obj.into(),
                     3,
                 )?;
 
                 Ok(Some(obj))
             }
             JS_CLASS_MAP_ITERATOR => {
-                let proto = ctx.create_base_object_with_proto(Some(ctx.iterator_proto()?))?;
-                proto.install_field_defs(ctx, &js_map_iterator_proto_funcs)?;
+                let mut proto = ctx.create_base_object_with_proto(Some(iter_proto))?;
+                proto.install_field_defs(&ctx, &js_map_iterator_proto_funcs)?;
                 Ok(Some(proto))
             }
             JS_CLASS_SET_ITERATOR => {
-                let proto = ctx.create_base_object_with_proto(Some(ctx.iterator_proto()?))?;
-                proto.install_field_defs(ctx, &js_set_iterator_proto_funcs)?;
+                let mut proto = ctx.create_base_object_with_proto(Some(iter_proto))?;
+                proto.install_field_defs(&ctx, &js_set_iterator_proto_funcs)?;
                 Ok(Some(proto))
             }
             _ => {
@@ -423,9 +441,9 @@ impl<'a> MapSet<'a> {
     }
 }
 
-impl<'a> JSContext<'a> {
-    pub fn create_map_with_entries(&self, entries: JSMapState<'a>) -> Result<JSObject<'a>, i32> {
-        self.create_object(ObjectPayload::MAP(RefCell::new(Box::new(entries))))
+impl ContextImpl {
+    pub fn create_map_with_entries(&self, entries: JSMapState) -> Result<ObjectRef, i32> {
+        self.create_object(ObjectPayload::MAP(Box::new(entries)))
             .map_err(|_| -1)
     }
 }

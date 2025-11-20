@@ -2,8 +2,8 @@ use std::ops::Deref;
 
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF,
-    atom::consts::*,
-    context::JSContext,
+    atom::Atom,
+    context::ContextRef,
     error::JSResult,
     function::{BoundFuncObjPayload, CallContext, FieldDef, JSFunctionKindEnum, js_function_apply},
     object::{JS_PROP_CONFIGURABLE, ObjectPayload},
@@ -11,25 +11,27 @@ use crate::{
     value::JSValue,
 };
 
-pub fn js_function_call<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+pub fn js_function_call(ctx: ContextRef, cc: CallContext) -> JSResult {
     if cc.length() > 0 {
         cc.this().call(
-            ctx,
-            cc.arg(0),
+            &ctx,
+            *cc.arg(0),
             &cc.arguments()[1..], // chop first argument (thisArg)
         )
     } else {
-        cc.this().call(ctx, &JSValue::UNDEFINED, &[])
+        cc.this().call(&ctx, JSValue::UNDEFINED, &[])
     }
 }
 
-pub fn js_function_bind<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let this_val = cc.this();
-    this_val.ensure_function(ctx)?;
+pub fn js_function_bind(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let cx = ctx.deref();
+    let this_val = *cc.this();
+
+    this_val.ensure_function(cx)?;
 
     let mut bf = Box::new(BoundFuncObjPayload {
-        func_obj: this_val.clone(),
-        this_val: cc.arg(0).clone(), // argument #0 is for `this`
+        func_obj: this_val,
+        this_val: *cc.arg(0), // argument #0 is for `this`
         bind_args: Vec::new(),
     });
 
@@ -39,20 +41,17 @@ pub fn js_function_bind<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSR
     if arg_count > 0 {
         // collect arguments starting from #1
         bf.bind_args.try_reserve_exact(arg_count).map_err(|_| {
-            ctx.throw_out_of_memory();
+            cx.throw_out_of_memory();
             -1
         })?;
 
         for a in &cc.arguments()[1..] {
-            bf.bind_args.push(a.clone());
+            bf.bind_args.push(*a);
         }
     }
 
-    let func_obj = ctx
-        .create_object_with_proto(
-            Some(ctx.function_proto()),
-            ObjectPayload::BOUND_FUNCTION(bf),
-        )
+    let mut func_obj = cx
+        .create_object_with_proto(Some(cx.function_proto()), ObjectPayload::BOUND_FUNCTION(bf))
         .map_err(|_| -1)?;
 
     func_obj.set_flag_constructor(this_val.is_constructor());
@@ -60,12 +59,13 @@ pub fn js_function_bind<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSR
     /* XXX: the spec could be simpler by only using GetOwnProperty */
     let len_val = if cc
         .this()
-        .get_own_property(ctx, JS_ATOM_length.deref())?
+        .clone()
+        .get_own_property(cx, Atom::CONST_length)?
         .is_none()
     {
         JSValue::Int(0)
     } else {
-        let len = this_val.get_property(ctx, JS_ATOM_length.deref())?;
+        let len = this_val.get_property(cx, Atom::CONST_length)?;
         match len {
             JSValue::Int(n) => JSValue::Int(std::cmp::max(0, n - arg_count as i32)),
             JSValue::Float64(mut d) => {
@@ -85,41 +85,36 @@ pub fn js_function_bind<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSR
         }
     };
 
-    func_obj
-        .define_property_value(ctx, JS_ATOM_length.deref(), len_val, JS_PROP_CONFIGURABLE)
-        .unwrap();
+    func_obj.define_property_value(cx, Atom::CONST_length, len_val, JS_PROP_CONFIGURABLE)?;
 
-    let name = cc.this().get_property(ctx, JS_ATOM_name.deref())?;
+    let name = cc.this().get_property(cx, Atom::CONST_name)?;
     let name = if let JSValue::String(s) = name {
         s
     } else {
-        JS_ATOM_empty_string.force_string(ctx)?
+        Atom::CONST_empty_string.force_string(cx)?
     };
 
     // make bound function name.
-    let bf_name = JS_ConcatString3(ctx, c"bound ", name.into(), c"")?;
-    func_obj.define_property_value(
-        ctx,
-        JS_ATOM_name.deref(),
-        bf_name.into(),
-        JS_PROP_CONFIGURABLE,
-    )?;
+    let bf_name = JS_ConcatString3(cx, c"bound ", name.into(), c"")?;
+    func_obj.define_property_value(cx, Atom::CONST_name, bf_name.into(), JS_PROP_CONFIGURABLE)?;
 
     Ok(func_obj.into())
 }
 
-pub fn js_function_toString<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+pub fn js_function_toString(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let cx = ctx.deref();
     let this_val = cc.this();
-    this_val.ensure_function(ctx)?;
+
+    this_val.ensure_function(cx)?;
 
     let p = unsafe { this_val.as_object_unchecked() };
 
     let func_kind = if let Some(func) = p.payload().bc_function() {
         let bc = func.bytecode();
-        if bc.has_debug
-            && let Some(s) = bc.debug.source.as_deref()
+        if let Some(debug) = bc.debug.as_ref()
+            && let Some(s) = debug.source.as_deref()
         {
-            return ctx.create_string_from_str(s).map(JSValue::String);
+            return cx.create_string_from_str(s).map(JSValue::String);
         }
         bc.func_kind()
     } else {
@@ -133,57 +128,41 @@ pub fn js_function_toString<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) ->
         _ => c"function ",
     };
     let suff = c"() { [native code] }";
-    let mut name = this_val.get_property(ctx, JS_ATOM_name.deref())?;
+    let mut name = this_val.get_property(cx, Atom::CONST_name)?;
     if name.is_undefined() {
-        name = JS_ATOM_empty_string.force_string(ctx)?.into();
+        name = Atom::CONST_empty_string.force_string(cx)?.into();
     }
 
-    JS_ConcatString3(ctx, pref, name, suff).map(JSValue::String)
+    JS_ConcatString3(cx, pref, name, suff).map(JSValue::String)
 }
 
-pub fn js_function_hasInstance<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+pub fn js_function_hasInstance(ctx: ContextRef, cc: CallContext) -> JSResult {
     if let Some(o) = cc.arg(0).as_object() {
-        o.ordinary_instance_of(ctx, cc.this()).map(JSValue::Bool)
+        o.ordinary_instance_of(&ctx, *cc.this()).map(JSValue::Bool)
     } else {
         Ok(JSValue::Bool(false))
     }
 }
 
-pub fn js_function_proto_fileName<'a>(
-    ctx: &JSContext<'a>,
-    cc: CallContext<'_, 'a>,
-) -> JSResult<'a> {
-    if let Some((has_debug, filename)) = cc.this().as_object().and_then(|o| {
-        o.payload().bc_function().map(|x| {
-            let b = x.bytecode();
-            (b.has_debug, b.debug.filename.to_ref())
-        })
+pub fn js_function_proto_fileName(ctx: ContextRef, cc: CallContext) -> JSResult {
+    if let Some(filename) = cc.this().as_object().and_then(|o| {
+        o.payload()
+            .bc_function()
+            .and_then(|x| x.bytecode().debug.as_ref().map(|d| d.filename))
     }) {
-        if has_debug {
-            filename.force_string(ctx).map(JSValue::String)
-        } else {
-            Ok(JSValue::UNDEFINED)
-        }
+        filename.force_string(&ctx).map(JSValue::String)
     } else {
         Ok(JSValue::UNDEFINED)
     }
 }
 
-pub fn js_function_proto_lineNumber<'a>(
-    _: &JSContext<'a>,
-    cc: CallContext<'_, 'a>,
-) -> JSResult<'a> {
-    if let Some((has_debug, line_num)) = cc.this().as_object().and_then(|o| {
-        o.payload().bc_function().map(|x| {
-            let b = &x.bytecode();
-            (b.has_debug, b.debug.line_num)
-        })
+pub fn js_function_proto_lineNumber(_: ContextRef, cc: CallContext) -> JSResult {
+    if let Some(line_num) = cc.this().as_object().and_then(|o| {
+        o.payload()
+            .bc_function()
+            .and_then(|x| x.bytecode().debug.as_ref().map(|d| d.line_num))
     }) {
-        if has_debug {
-            Ok(JSValue::Int(line_num))
-        } else {
-            Ok(JSValue::UNDEFINED)
-        }
+        Ok(JSValue::Int(line_num))
     } else {
         Ok(JSValue::UNDEFINED)
     }

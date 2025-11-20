@@ -1,6 +1,6 @@
 use crate::{
     atom::Atom,
-    context::{JSContext, is_strict_mode},
+    context::{ContextImpl, is_strict_mode},
     error::{JS_ThrowReferenceErrorUninitialized, JS_ThrowSyntaxErrorVarRedeclaration, JSResult},
     function::{DEFINE_GLOBAL_FUNC_VAR, DEFINE_GLOBAL_LEX_VAR},
     object::{
@@ -11,37 +11,36 @@ use crate::{
     value::JSValue,
 };
 
-impl<'a> JSContext<'a> {
+impl ContextImpl {
     /// construct a reference to specified global variable
     pub(crate) fn build_global_varref(
         &self,
-        prop: &Atom,
-    ) -> Result<Option<(JSValue<'a>, JSValue<'a>)>, i32> {
+        prop: Atom,
+    ) -> Result<Option<(JSValue, JSValue)>, i32> {
         // no exotic behavior is possible in global_var_obj
         let gvobj = self.global_var_obj();
 
         let v0: JSValue = if let Some((idx, prs_flags)) = gvobj.find_shape_property(prop) {
             // check writable flag
             if prs_flags & JS_PROP_WRITABLE == 0 {
-                self.throw_type_error_read_only(prop.to_ref());
+                self.throw_type_error_read_only(prop);
                 return Err(-1);
             }
 
             // XXX: should handle JS_PROP_LAZYINIT properties?
             // XXX: conformance: do these tests in OP_put_var_ref/OP_get_var_ref ?
-            if let JSProperty::Normal(JSValue::UNINITIALIZED) =
-                gvobj.0.prop_values.borrow().get(idx).unwrap()
+            if let JSProperty::Normal(JSValue::UNINITIALIZED) = gvobj.prop_values.get(idx).unwrap()
             {
-                JS_ThrowReferenceErrorUninitialized(self, prop.to_ref());
+                JS_ThrowReferenceErrorUninitialized(self, prop);
                 return Err(-1);
             }
 
-            JSValue::Object(gvobj.clone())
+            JSValue::Object(gvobj)
         } else {
             // prop does not exist
             let gobj = self.global_obj();
             if gobj.has_property(self, prop)? {
-                JSValue::Object(gobj.clone())
+                JSValue::Object(gobj)
             } else {
                 JSValue::UNDEFINED
             }
@@ -56,11 +55,11 @@ impl<'a> JSContext<'a> {
     /// XXX: could support exotic global object.
     pub fn define_global_function(
         &self,
-        prop: &Atom,
-        func: JSValue<'a>,
+        prop: Atom,
+        func: JSValue,
         def_flags: u32,
     ) -> Result<bool, i32> {
-        let gobj = self.global_obj();
+        let mut gobj = self.global_obj();
 
         let mut flags = JS_PROP_HAS_VALUE | JS_PROP_THROW;
         let configurable = gobj
@@ -89,8 +88,8 @@ impl<'a> JSContext<'a> {
     /// def_flags is (0, DEFINE_GLOBAL_LEX_VAR) |
     ///   JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE
     // XXX: could support exotic global object.
-    pub fn define_global_var(&self, prop: &Atom, def_flags: u32) -> Result<(), i32> {
-        let (ob, flags, val) = if def_flags & DEFINE_GLOBAL_LEX_VAR as u32 != 0 {
+    pub fn define_global_var(&self, prop: Atom, def_flags: u32) -> Result<(), i32> {
+        let (mut ob, flags, val) = if def_flags & DEFINE_GLOBAL_LEX_VAR as u32 != 0 {
             (
                 self.global_var_obj(),
                 JS_PROP_ENUMERABLE | (def_flags & JS_PROP_WRITABLE) | JS_PROP_CONFIGURABLE,
@@ -107,20 +106,20 @@ impl<'a> JSContext<'a> {
         if !ob.flags().extensible() || ob.has_shape_property(prop) {
             Ok(())
         } else {
-            ob.add_own_property(self, prop.clone(), flags, JSProperty::Normal(val))
+            ob.add_own_property(self, prop, flags, JSProperty::Normal(val))
         }
     }
 
     /// flags is 0, DEFINE_GLOBAL_LEX_VAR or DEFINE_GLOBAL_FUNC_VAR
     /// XXX: could support exotic global object.
-    pub fn define_global_var_checked(&self, prop: &Atom, flags: u32) -> Result<(), i32> {
+    pub fn define_global_var_checked(&self, prop: Atom, flags: u32) -> Result<(), i32> {
         let gobj = self.global_obj();
         let prs = gobj.find_shape_property(prop).map(|(_, flags)| flags);
 
         // XXX: should handle JS_PROP_LAZYINIT
         if flags & DEFINE_GLOBAL_LEX_VAR as u32 != 0 {
             if prs.is_some_and(|f| f & JS_PROP_CONFIGURABLE == 0) {
-                JS_ThrowSyntaxErrorVarRedeclaration(self, prop.to_ref());
+                JS_ThrowSyntaxErrorVarRedeclaration(self, prop);
                 return Err(-1);
             }
         } else {
@@ -143,25 +142,25 @@ impl<'a> JSContext<'a> {
 
         // check if there already is a lexical declaration
         if self.global_var_obj().has_shape_property(prop) {
-            JS_ThrowSyntaxErrorVarRedeclaration(self, prop.to_ref());
+            JS_ThrowSyntaxErrorVarRedeclaration(self, prop);
             return Err(-1);
         }
 
         Ok(())
     }
 
-    pub fn get_global_var(&self, prop: &Atom, throw_ref_error: bool) -> JSResult<'a> {
+    pub fn get_global_var(&self, prop: Atom, throw_ref_error: bool) -> JSResult {
         // no exotic behavior is possible in global_var_obj
         let gvobj = self.global_var_obj();
         if let Some((idx, _)) = gvobj.find_shape_property(prop) {
             // found in global var object
             // XXX: should handle JS_PROP_TMASK properties
-            match gvobj.0.prop_values.borrow().get(idx).unwrap() {
+            match &gvobj.prop_values[idx] {
                 JSProperty::Normal(JSValue::UNINITIALIZED) => {
-                    JS_ThrowReferenceErrorUninitialized(self, prop.to_ref());
+                    JS_ThrowReferenceErrorUninitialized(self, prop);
                     Err(-1)
                 }
-                JSProperty::Normal(v) => Ok(v.clone()),
+                JSProperty::Normal(v) => Ok(*v),
                 _ => {
                     unreachable!()
                 }
@@ -169,12 +168,12 @@ impl<'a> JSContext<'a> {
         } else {
             // search global object
             let gobj = self.global_obj();
-            gobj.get_property_internal(self, prop, &JSValue::Object(gobj.clone()), throw_ref_error)
+            gobj.get_property_internal(self, prop, JSValue::Object(gobj), throw_ref_error)
         }
     }
 
     /// used for strict variable access: test if the variable exists
-    pub fn check_global_var(&self, prop: &Atom) -> Result<bool, i32> {
+    pub fn check_global_var(&self, prop: Atom) -> Result<bool, i32> {
         // no exotic behavior is possible in global_var_obj
         let p = self.global_var_obj();
         if p.has_shape_property(prop) {
@@ -188,23 +187,23 @@ impl<'a> JSContext<'a> {
     /// * 0: normal variable write
     /// * 1: initialize lexical variable
     /// * 2: normal variable write, strict check was done before
-    pub fn set_global_var(&self, prop: &Atom, val: JSValue<'a>, flag: u32) -> Result<bool, i32> {
+    pub fn set_global_var(&self, prop: Atom, val: JSValue, flag: u32) -> Result<bool, i32> {
         // no exotic behavior is possible in global_var_obj
-        let gvobj = self.global_var_obj();
+        let mut gvobj = self.global_var_obj();
 
         if let Some((idx, prs_flags)) = gvobj.find_shape_property(prop) {
             // XXX: should handle JS_PROP_LAZYINIT properties?
-            let pr = &mut gvobj.0.prop_values.borrow_mut()[idx];
+            let pr = &mut gvobj.prop_values[idx];
 
             if flag != 1 {
                 match pr {
                     JSProperty::Normal(JSValue::UNINITIALIZED) => {
-                        JS_ThrowReferenceErrorUninitialized(self, prop.to_ref());
+                        JS_ThrowReferenceErrorUninitialized(self, prop);
                         return Err(-1);
                     }
                     _ => {
                         if prs_flags & JS_PROP_WRITABLE == 0 {
-                            self.throw_type_error_read_only(prop.to_ref());
+                            self.throw_type_error_read_only(prop);
                             return Err(-1);
                         }
                     }
@@ -221,7 +220,7 @@ impl<'a> JSContext<'a> {
             }
 
             let gobj = self.global_obj();
-            gobj.set_property_internal(self, prop, val, Some(&gobj), flags1)
+            gobj.set_property_internal(self, prop, val, Some(gobj), flags1)
         }
     }
 }

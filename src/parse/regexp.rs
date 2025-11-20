@@ -15,7 +15,7 @@ impl<'s> JSParseState<'s> {
         let mut flags_str = StringBuf::Empty;
 
         let buf = unsafe {
-            let len = self.buf_end.offset_from(self.buf_ptr) as usize;
+            let len = self.input_end.offset_from(self.buf_ptr) as usize;
             std::slice::from_raw_parts(self.buf_ptr, len)
         };
 

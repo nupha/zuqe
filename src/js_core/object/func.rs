@@ -3,8 +3,8 @@ use std::ops::Deref;
 use crate::{
     JS_CFUNC_NATIVE_DEF,
     array::js_array_push,
-    atom::{Atom, consts::*},
-    context::{JS_GetActiveFunction, JSContext},
+    atom::Atom,
+    context::{ContextRef, JS_GetActiveFunction},
     error::JSResult,
     function::{CallContext, FieldDef},
     iterator::JSIteratorKindEnum,
@@ -18,37 +18,38 @@ use crate::{
     value::JSValue,
 };
 
-pub fn js_object_constructor<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let new_target = cc.this();
+pub fn js_object_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let cx = ctx.deref();
+    let new_target = *cc.this();
 
-    if !new_target.is_undefined() && !JS_GetActiveFunction(ctx).eq(new_target) {
-        ctx.create_object_from_ctor(new_target, ObjectPayload::OBJECT)
+    if !new_target.is_undefined() && JS_GetActiveFunction(cx) != new_target {
+        cx.create_object_from_ctor(new_target, ObjectPayload::OBJECT)
             .map_err(|_| -1)
     } else {
         match cc.arg(0) {
-            JSValue::NULL | JSValue::UNDEFINED => ctx.create_base_object(),
-            a => a.clone().objectify(ctx),
+            JSValue::NULL | JSValue::UNDEFINED => cx.create_base_object(),
+            a => a.objectify(cx),
         }
     }
     .map(JSValue::Object)
 }
 
-pub fn js_object_create<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+pub fn js_object_create(ctx: ContextRef, cc: CallContext) -> JSResult {
     let proto = cc.arg(0);
     if !proto.is_object() && !proto.is_null() {
         ctx.throw_type_error("not a prototype");
         return Err(-1);
     }
 
-    let obj = ctx.create_base_object_with_proto(proto.as_object().cloned())?;
-    let props = cc.arg(1);
+    let mut obj = ctx.create_base_object_with_proto(proto.as_object().cloned())?;
+    let props = *cc.arg(1);
     if !props.is_undefined() {
-        obj.define_properties(ctx, props)?;
+        obj.define_properties(&ctx, props)?;
     }
     Ok(obj.into())
 }
 
-pub fn js_object_getPrototypeOf<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+pub fn js_object_getPrototypeOf(ctx: ContextRef, cc: CallContext) -> JSResult {
     let magic = cc.magic();
     let val = cc.arg(0);
 
@@ -59,21 +60,23 @@ pub fn js_object_getPrototypeOf<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>
             return Err(-1);
         }
     }
-    val.prototype(ctx)
+    val.prototype(&ctx)
 }
 
-pub fn js_object_setPrototypeOf<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let obj = cc.arg(0);
-    obj.set_prototype_internal(ctx, cc.arg(1).clone(), true)?;
-    Ok(obj.clone())
+pub fn js_object_setPrototypeOf(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let mut obj = *cc.arg(0);
+    obj.set_prototype_internal(&ctx, *cc.arg(1), true)?;
+    Ok(obj)
 }
 
-pub fn js_object_defineProperty<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let prop = cc.arg(1);
-    let desc = cc.arg(2);
+pub fn js_object_defineProperty(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let cx = ctx.deref();
 
-    if let Some(obj) = cc.arg(0).as_object() {
-        let atom = prop.to_atom(ctx)?;
+    let prop = *cc.arg(1);
+    let desc = *cc.arg(2);
+
+    if let Some(mut obj) = cc.arg(0).as_object().copied() {
+        let atom = prop.to_atom(cx)?;
 
         // magic = 1: Reflect.defineProperty, don't throw on failure
         // magic = 0: Object.defineProperty, throw on failure
@@ -81,58 +84,47 @@ pub fn js_object_defineProperty<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>
         if cc.magic() == 0 {
             flags |= JS_PROP_THROW;
         }
-        let ret = obj.define_property_desc(ctx, &atom, desc, flags);
-
-        let b = ret?;
+        let b = obj.define_property_desc(cx, atom, desc, flags)?;
         Ok(if cc.magic() != 0 {
             JSValue::Bool(b)
         } else {
-            JSValue::Object(obj.clone())
+            JSValue::Object(obj)
         })
     } else {
-        ctx.throw_type_error_not_an_object();
+        cx.throw_type_error_not_an_object();
         Err(-1)
     }
 }
 
 /// defineProperties(obj, properties)
-pub fn js_object_defineProperties<'a>(
-    ctx: &JSContext<'a>,
-    cc: CallContext<'_, 'a>,
-) -> JSResult<'a> {
+pub fn js_object_defineProperties(ctx: ContextRef, cc: CallContext) -> JSResult {
     let obj = cc.arg(0);
-    if let Some(o) = obj.as_object() {
-        o.define_properties(ctx, cc.arg(1))?;
-        Ok(obj.clone())
+    if let Some(mut o) = obj.as_object().copied() {
+        o.define_properties(&ctx, *cc.arg(1))?;
+        Ok(o.into())
     } else {
         ctx.throw_type_error_not_an_object();
         Err(-1)
     }
 }
 
-pub fn js_object_getOwnPropertyNames<'a>(
-    ctx: &JSContext<'a>,
-    cc: CallContext<'_, 'a>,
-) -> JSResult<'a> {
+pub fn js_object_getOwnPropertyNames(ctx: ContextRef, cc: CallContext) -> JSResult {
     cc.arg(0).build_own_property_kvs_array(
-        ctx,
+        &ctx,
         JS_GPN_INDEX_MASK,
         JSIteratorKindEnum::JS_ITERATOR_KIND_KEY,
     )
 }
 
-pub fn js_object_getOwnPropertySymbols<'a>(
-    ctx: &JSContext<'a>,
-    cc: CallContext<'_, 'a>,
-) -> JSResult<'a> {
+pub fn js_object_getOwnPropertySymbols(ctx: ContextRef, cc: CallContext) -> JSResult {
     cc.arg(0).build_own_property_kvs_array(
-        ctx,
+        &ctx,
         JS_GPN_SYMBOL_MASK,
         JSIteratorKindEnum::JS_ITERATOR_KIND_KEY,
     )
 }
 
-pub fn js_object_keys<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+pub fn js_object_keys(ctx: ContextRef, cc: CallContext) -> JSResult {
     let kind = cc.magic();
 
     debug_assert!(
@@ -142,12 +134,12 @@ pub fn js_object_keys<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSRes
     );
 
     cc.arg(0)
-        .build_own_property_kvs_array(ctx, JS_GPN_ENUM_ONLY | JS_GPN_INDEX_MASK, unsafe {
+        .build_own_property_kvs_array(&ctx, JS_GPN_ENUM_ONLY | JS_GPN_INDEX_MASK, unsafe {
             std::mem::transmute::<u8, JSIteratorKindEnum>(kind as u8)
         })
 }
 
-pub fn js_object_groupBy<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+pub fn js_object_groupBy(ctx: ContextRef, cc: CallContext) -> JSResult {
     let is_map = cc.magic() == 1;
     debug_assert!(
         !is_map,
@@ -156,37 +148,37 @@ pub fn js_object_groupBy<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JS
 
     // check must be observed before argv[0] is accessed
     let func = cc.arg(1);
-    func.ensure_function(ctx)?;
+    func.ensure_function(&ctx)?;
 
-    let groups = if is_map {
+    let mut groups = if is_map {
         js_map_constructor(ctx, CallContext::new_simple(ctx, JSValue::UNDEFINED, &[]))?
     } else {
         ctx.create_base_object_with_proto(None)?.into()
     };
 
-    let global = ctx.0.borrow().global_obj.clone(); // clone to avoid borrow too long
+    let global = ctx.global_obj; // clone to avoid borrow too long
 
-    for (idx, val) in cc.arg(0).iter(ctx)?.enumerate() {
+    for (idx, val) in cc.arg(0).iter(&ctx)?.enumerate() {
         if idx >= MAX_SAFE_INTEGER as usize {
             ctx.throw_type_error("too many elements");
             return Err(-1);
         }
 
         let val = val?;
-        let key = func.call(ctx, &global, &[val.clone(), JSValue::from(idx as i64)])?;
+        let key = func.call(&ctx, global, &[val, JSValue::from(idx as i64)])?;
 
         // get prop value array and key atom
         let (mut props_arr, key_atom): (JSValue, Atom) = if is_map {
             (
                 js_map_get(
                     ctx,
-                    CallContext::new_simple(ctx, groups.clone(), std::slice::from_ref(&key)),
+                    CallContext::new_simple(ctx, groups, std::slice::from_ref(&key)),
                 )?,
                 Atom::NULL,
             )
         } else {
-            let atom = key.to_atom(ctx)?;
-            (groups.get_property(ctx, &atom)?, atom)
+            let atom = key.to_atom(&ctx)?;
+            (groups.get_property(&ctx, atom)?, atom)
         };
 
         // don't change order
@@ -199,16 +191,10 @@ pub fn js_object_groupBy<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JS
             if is_map {
                 js_map_set(
                     ctx,
-                    CallContext::new(
-                        ctx,
-                        groups.clone(),
-                        &[key.clone(), props_arr.clone()],
-                        0,
-                        None,
-                    ),
+                    CallContext::new(ctx, groups, &[key, props_arr], 0, None),
                 )?;
             } else {
-                groups.define_property_value(ctx, &key_atom, props_arr.clone(), JS_PROP_C_W_E)?;
+                groups.define_property_value(&ctx, key_atom, props_arr, JS_PROP_C_W_E)?;
             }
         }
 
@@ -221,7 +207,7 @@ pub fn js_object_groupBy<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JS
     Ok(groups)
 }
 
-pub fn js_object_isExtensible<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+pub fn js_object_isExtensible(ctx: ContextRef, cc: CallContext) -> JSResult {
     let reflect = cc.magic();
     let obj = cc.arg(0);
 
@@ -234,18 +220,15 @@ pub fn js_object_isExtensible<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) 
         };
     }
 
-    Ok(JSValue::Bool(obj.is_extensible(ctx)?))
+    Ok(JSValue::Bool(obj.is_extensible(&ctx)?))
 }
 
-pub fn js_object_preventExtensions<'a>(
-    ctx: &JSContext<'a>,
-    cc: CallContext<'_, 'a>,
-) -> JSResult<'a> {
+pub fn js_object_preventExtensions(ctx: ContextRef, cc: CallContext) -> JSResult {
     let reflect = cc.magic() != 0;
-    let arg = cc.arg(0);
+    let arg = *cc.arg(0);
 
-    if let Some(obj) = arg.as_object() {
-        let ret = obj.prevent_extensions(ctx)?;
+    if let Some(mut obj) = arg.as_object().copied() {
+        let ret = obj.prevent_extensions(&ctx)?;
 
         if reflect {
             Ok(JSValue::Bool(ret))
@@ -253,66 +236,64 @@ pub fn js_object_preventExtensions<'a>(
             ctx.throw_type_error("proxy preventExtensions handler returned false");
             Err(-1)
         } else {
-            Ok(obj.clone().into())
+            Ok(obj.into())
         }
     } else if reflect {
         ctx.throw_type_error_not_an_object();
         Err(-1)
     } else {
-        Ok(arg.clone())
+        Ok(arg)
     }
 }
 
-pub fn js_object_getOwnPropertyDescriptor<'a>(
-    ctx: &JSContext<'a>,
-    cc: CallContext<'_, 'a>,
-) -> JSResult<'a> {
+pub fn js_object_getOwnPropertyDescriptor(ctx: ContextRef, cc: CallContext) -> JSResult {
     let reflect = cc.magic() != 0;
+    let cx = ctx.deref();
 
     let obj = if reflect {
         // Reflect.getOwnPropertyDescriptor
         if let JSValue::Object(p) = cc.arg(0) {
-            p.clone()
+            *p
         } else {
-            ctx.throw_type_error_not_an_object();
+            cx.throw_type_error_not_an_object();
             return Err(-1);
         }
-    } else if let Ok(o) = cc.arg(0).clone().objectify(ctx) {
+    } else if let Ok(o) = cc.arg(0).objectify(cx) {
         o
     } else {
-        ctx.throw_type_error_not_an_object();
+        cx.throw_type_error_not_an_object();
         return Err(-1);
     };
 
     let prop = cc.arg(1);
-    let atom = prop.to_atom(ctx)?;
+    let atom = prop.to_atom(cx)?;
 
-    if let Some(desc) = obj.get_own_property(ctx, &atom)? {
-        let ret = ctx.create_base_object()?;
+    if let Some(desc) = obj.get_own_property(cx, atom)? {
+        let mut ret = cx.create_base_object()?;
         let prop_flags = JS_PROP_C_W_E | JS_PROP_THROW;
 
         if desc.flags & JS_PROP_GETSET != 0 {
-            ret.define_property_value(ctx, JS_ATOM_get.deref(), desc.getter, prop_flags)?;
-            ret.define_property_value(ctx, JS_ATOM_set.deref(), desc.setter, prop_flags)?;
+            ret.define_property_value(cx, Atom::CONST_get, desc.getter, prop_flags)?;
+            ret.define_property_value(cx, Atom::CONST_set, desc.setter, prop_flags)?;
         } else {
-            ret.define_property_value(ctx, JS_ATOM_value.deref(), desc.value, prop_flags)?;
+            ret.define_property_value(cx, Atom::CONST_value, desc.value, prop_flags)?;
             ret.define_property_value(
-                ctx,
-                JS_ATOM_writable.deref(),
+                cx,
+                Atom::CONST_writable,
                 JSValue::Bool(desc.flags & JS_PROP_WRITABLE != 0),
                 prop_flags,
             )?;
         }
 
         ret.define_property_value(
-            ctx,
-            JS_ATOM_enumerable.deref(),
+            cx,
+            Atom::CONST_enumerable,
             JSValue::Bool(desc.flags & JS_PROP_ENUMERABLE != 0),
             prop_flags,
         )?;
         ret.define_property_value(
-            ctx,
-            JS_ATOM_configurable.deref(),
+            cx,
+            Atom::CONST_configurable,
             JSValue::Bool(desc.flags & JS_PROP_CONFIGURABLE != 0),
             prop_flags,
         )?;
@@ -323,27 +304,19 @@ pub fn js_object_getOwnPropertyDescriptor<'a>(
     Ok(JSValue::UNDEFINED)
 }
 
-pub fn js_object_getOwnPropertyDescriptors<'a>(
-    ctx: &JSContext<'a>,
-    cc: CallContext<'_, 'a>,
-) -> JSResult<'a> {
-    let obj = cc.arg(0).clone().objectify(ctx)?;
-    let res_obj = ctx.create_base_object()?;
+pub fn js_object_getOwnPropertyDescriptors(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let obj = cc.arg(0).objectify(&ctx)?;
+    let mut res_obj = ctx.create_base_object()?;
 
-    obj.own_property_names_foreach(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK, |cx, pkey| {
-        let atom_value = pkey.atom.string_or_symbol(ctx)?;
-
+    obj.own_property_names_foreach(&ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK, |cx, pkey| {
+        let atom_value = pkey.atom.string_or_symbol(cx)?;
         let desc = js_object_getOwnPropertyDescriptor(
             ctx,
-            CallContext::new_simple(
-                ctx,
-                JSValue::UNDEFINED,
-                [obj.clone().into(), atom_value].as_slice(),
-            ),
+            CallContext::new_simple(ctx, JSValue::UNDEFINED, [obj.into(), atom_value].as_slice()),
         )?;
 
         if !desc.is_undefined() {
-            res_obj.define_property_value(cx, &pkey.atom, desc, JS_PROP_C_W_E | JS_PROP_THROW)?;
+            res_obj.define_property_value(cx, pkey.atom, desc, JS_PROP_C_W_E | JS_PROP_THROW)?;
         }
 
         Ok(())
@@ -352,19 +325,21 @@ pub fn js_object_getOwnPropertyDescriptors<'a>(
     Ok(res_obj.into())
 }
 
-pub fn js_object_is<'a>(_: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    Ok(JSValue::Bool(cc.arg(0).is_same(cc.arg(1))))
+pub fn js_object_is(_: ContextRef, cc: CallContext) -> JSResult {
+    Ok(JSValue::Bool(cc.arg(0).is_same(*cc.arg(1))))
 }
 
 /// Object.assign(obj, source1)
-pub fn js_object_assign<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let obj = cc.arg(0).clone().objectify(ctx)?;
+pub fn js_object_assign(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let cx = ctx.deref();
+
+    let mut obj = cc.arg(0).objectify(cx)?;
 
     if cc.length() > 1 {
         for a in &cc.arguments()[1..] {
             if !a.is_undefined_or_null() {
-                let src = a.clone().objectify(ctx)?;
-                obj.copy_data_properties_from(ctx, &src, None, true)?;
+                let src = a.objectify(cx)?;
+                obj.copy_data_properties_from(cx, src, None, true)?;
             }
         }
     }
@@ -372,30 +347,30 @@ pub fn js_object_assign<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSR
     Ok(obj.into())
 }
 
-pub fn js_object_seal<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+pub fn js_object_seal(ctx: ContextRef, cc: CallContext) -> JSResult {
     let freeze = cc.magic() == 1;
-    let obj = cc.arg(0).clone();
-    obj.seal(ctx, freeze)?;
+    let mut obj = *cc.arg(0);
+    obj.seal(&ctx, freeze)?;
     Ok(obj)
 }
 
-pub fn js_object_isSealed<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let b = cc.arg(0).is_sealed(ctx, cc.magic() != 0)?;
+pub fn js_object_isSealed(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let b = cc.arg(0).clone().is_sealed(&ctx, cc.magic() != 0)?;
     Ok(JSValue::Bool(b))
 }
 
-pub fn js_object_fromEntries<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let obj = ctx.create_base_object()?;
+pub fn js_object_fromEntries(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let mut obj = ctx.create_base_object()?;
 
     // RequireObjectCoercible() not necessary because it is tested in
     // JS_GetIterator() by JS_GetProperty()
-    for item in cc.arg(0).iter(ctx)? {
+    for item in cc.arg(0).iter(&ctx)? {
         if let Some(o) = item?.as_object() {
-            let key = o.get_property_u32(ctx, 0)?;
-            let value = o.get_property_u32(ctx, 1)?;
+            let key = o.get_property_u32(&ctx, 0)?;
+            let value = o.get_property_u32(&ctx, 1)?;
 
-            let atom = key.to_atom(ctx)?;
-            obj.define_property_value(ctx, &atom, value, JS_PROP_C_W_E | JS_PROP_THROW)?;
+            let atom = key.to_atom(&ctx)?;
+            obj.define_property_value(&ctx, atom, value, JS_PROP_C_W_E | JS_PROP_THROW)?;
         } else {
             ctx.throw_type_error_not_an_object();
             return Err(-1);
@@ -405,10 +380,12 @@ pub fn js_object_fromEntries<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -
     Ok(obj.into())
 }
 
-pub fn js_object_hasOwn<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let obj = cc.arg(0).clone().objectify(ctx)?;
-    let atom = cc.arg(1).to_atom(ctx)?;
-    Ok(JSValue::Bool(obj.get_own_property(ctx, &atom)?.is_some()))
+pub fn js_object_hasOwn(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let cx = ctx.deref();
+
+    let obj = cc.arg(0).objectify(cx)?;
+    let atom = cc.arg(1).to_atom(cx)?;
+    Ok(JSValue::Bool(obj.get_own_property(cx, atom)?.is_some()))
 }
 
 pub static js_object_funcs: [FieldDef; 23] = [

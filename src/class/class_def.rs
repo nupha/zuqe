@@ -1,7 +1,7 @@
 use crate::{
-    atom::{Atom, AtomRef},
+    atom::Atom,
     class::{ClassInitializeFn, FreeObjFn},
-    context::JSContext,
+    context::ContextRef,
     function::JSFunctionDef,
     object::JS_PROP_NO_EXOTIC,
     value::JSValue,
@@ -27,7 +27,7 @@ pub(crate) struct JSClassExoticMethods {
 
 /// builtin class definition
 pub struct StdClassDef {
-    pub class_name: AtomRef,
+    pub class_name: Atom,
     pub initialize: Option<ClassInitializeFn>,
     pub finalize: Option<ClassFinalizeFn>,
     pub gc_mark: Option<ClassGCMarkFn>,
@@ -76,15 +76,15 @@ impl ClassDef {
 }
 
 #[derive(Debug)]
-pub struct ClassFieldsDef<'a> {
-    pub fields_init_fd: *mut JSFunctionDef<'a>,
+pub struct ClassFieldsDef {
+    pub fields_init_fd: *mut JSFunctionDef,
     pub computed_fields_count: i32,
     pub need_brand: bool,
     pub brand_push_pos: i32,
     pub is_static: bool,
 }
 
-impl<'a> Drop for ClassFieldsDef<'a> {
+impl Drop for ClassFieldsDef {
     fn drop(&mut self) {
         if !self.fields_init_fd.is_null() {
             drop(Box::from(self.fields_init_fd));
@@ -92,7 +92,7 @@ impl<'a> Drop for ClassFieldsDef<'a> {
     }
 }
 
-impl<'a> Default for ClassFieldsDef<'a> {
+impl Default for ClassFieldsDef {
     fn default() -> Self {
         Self {
             fields_init_fd: std::ptr::null_mut(),
@@ -105,29 +105,29 @@ impl<'a> Default for ClassFieldsDef<'a> {
 }
 
 /// prop is not consumed
-fn js_arguments_define_own_property<'a>(
-    ctx: &JSContext<'a>,
-    this_obj: &JSValue<'a>,
-    prop: &Atom,
-    val: JSValue<'a>,
-    getter: JSValue<'a>,
-    setter: JSValue<'a>,
+fn js_arguments_define_own_property(
+    ctx: ContextRef,
+    this_obj: JSValue,
+    prop: Atom,
+    val: JSValue,
+    getter: JSValue,
+    setter: JSValue,
     flags: i32,
 ) -> Result<bool, i32> {
-    let p = this_obj.as_object().unwrap();
+    let mut obj = this_obj.as_object().copied().unwrap();
 
     // convert to normal array when redefining an existing numeric field
-    if p.flags().is_fast_array()
+    if obj.flags().is_fast_array()
         && prop
             .to_array_index()
-            .is_some_and(|i| i < p.fast_array_count())
+            .is_some_and(|i| i < obj.fast_array_count())
     {
-        p.destruct_fast_array(ctx)?;
+        obj.destruct_fast_array(&ctx)?;
     }
 
     // run the default define own property
-    this_obj.define_property(
-        ctx,
+    obj.define_property(
+        &ctx,
         prop,
         val,
         getter,

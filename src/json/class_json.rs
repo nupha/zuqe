@@ -1,9 +1,7 @@
-use std::ops::Deref;
-
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_OBJECT_DEF, JS_PROP_STRING_DEF,
-    atom::{Atom, consts::JS_ATOM_empty_string},
-    context::JSContext,
+    atom::Atom,
+    context::{ContextImpl, ContextRef},
     error::JSResult,
     function::{CallContext, FieldDef},
     object::{
@@ -18,24 +16,24 @@ use crate::{
 use super::stringify::JS_JSONStringify;
 
 #[inline(always)]
-fn js_json_stringify<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    JS_JSONStringify(ctx, cc.arg(0).clone(), cc.arg(1).clone(), cc.arg(2).clone())
+fn js_json_stringify(ctx: ContextRef, cc: CallContext) -> JSResult {
+    JS_JSONStringify(&ctx, *cc.arg(0), *cc.arg(1), *cc.arg(2))
 }
 
-fn internalize_json_property<'a>(
-    ctx: &JSContext<'a>,
-    holder: &JSValue<'a>,
-    name: &Atom,
-    reviver: &JSValue<'a>,
-) -> JSResult<'a> {
-    if js_check_stack_overflow(ctx.rt().as_ref(), 0) {
+fn internalize_json_property(
+    ctx: &ContextImpl,
+    holder: JSValue,
+    name: Atom,
+    reviver: JSValue,
+) -> JSResult {
+    if js_check_stack_overflow(&ctx.rt(), 0) {
         ctx.throw_stack_overflow();
         return Err(-1);
     }
 
-    let val = holder.get_property(ctx, name)?;
+    let mut val = holder.get_property(ctx, name)?;
 
-    if let Some(o) = val.as_object() {
+    if let Some(o) = val.as_object().copied() {
         let is_array = o.is_array(ctx)?;
         let len: u32;
         let pks: Box<[PropertyKey]>;
@@ -50,16 +48,16 @@ fn internalize_json_property<'a>(
 
         for i in 0..len {
             let prop = if is_array {
-                Atom::from_i64(ctx.rt().as_ref(), i as i64)?
+                Atom::from_i64(&ctx.rt(), i as i64)?
             } else {
-                unsafe { pks.get_unchecked(i as usize).atom.clone() }
+                unsafe { pks.get_unchecked(i as usize).atom }
             };
 
-            let new_el = internalize_json_property(ctx, &val, &prop, reviver)?;
+            let new_el = internalize_json_property(ctx, val, prop, reviver)?;
             if new_el.is_undefined() {
-                val.delete_property(ctx, &prop, 0)
+                val.delete_property(ctx, prop, 0)
             } else {
-                val.define_property_value(ctx, &prop, new_el, JS_PROP_C_W_E)
+                val.define_property_value(ctx, prop, new_el, JS_PROP_C_W_E)
             }?;
         }
     }
@@ -67,15 +65,15 @@ fn internalize_json_property<'a>(
     reviver.call(ctx, holder, &[name.string_or_symbol(ctx)?, val])
 }
 
-fn js_json_parse<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let s = cc.arg(0).to_string(ctx)?;
-    let mut obj = JS_ParseJSON(ctx, &s.content().encode_utf8_bytes(), "<input>")?;
+fn js_json_parse(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let s = cc.arg(0).to_string(&ctx)?;
+    let mut obj = JS_ParseJSON(&ctx, &s.content().encode_utf8_bytes(), "<input>")?;
 
     if cc.length() > 1 && cc.arg(1).is_function() {
-        let reviver = cc.arg(1);
-        let root: JSValue = ctx.create_base_object()?.into();
-        root.define_property_value(ctx, &JS_ATOM_empty_string, obj.clone(), JS_PROP_C_W_E)?;
-        obj = internalize_json_property(ctx, &root, &JS_ATOM_empty_string, reviver)?;
+        let reviver = *cc.arg(1);
+        let mut root: JSValue = ctx.create_base_object()?.into();
+        root.define_property_value(&ctx, Atom::CONST_empty_string, obj, JS_PROP_C_W_E)?;
+        obj = internalize_json_property(&ctx, root, Atom::CONST_empty_string, reviver)?;
     }
 
     Ok(obj)

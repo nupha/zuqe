@@ -1,5 +1,5 @@
 use crate::{
-    atom::{Atom, AtomRef, consts::*},
+    atom::{ATOM_CONST_KEYWORD_RANGE, ATOM_CONST_STRICT_KEYWORD_RANGE, Atom},
     context::JS_MODE_STRICT,
     function::JSFunctionKindEnum,
     number::{
@@ -7,7 +7,7 @@ use crate::{
         IntOrFloat, js_atof,
     },
     runtime::js_check_stack_overflow,
-    string::{CP_LS, CP_PS, StringContent, UTF8_CHAR_LEN_MAX, char_is_space, unicode_from_utf8_v0},
+    string::{CP_LS, CP_PS, StringBuf, UTF8_CHAR_LEN_MAX, char_is_space, unicode_from_utf8_v0},
 };
 
 use super::{
@@ -42,7 +42,7 @@ pub const CHAR_CR: i32 = '\r' as i32;
 pub const CHAR_BACK_SLASH: i32 = '\\' as i32;
 pub const CHAR_BACKTICK: i32 = '`' as i32;
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug)]
 pub struct Token {
     pub val: i32,
     /// line number of token start
@@ -58,29 +58,40 @@ impl Token {
             TOK_IDENT | TOK_PRIVATE_NAME => self.data.ident_atom(),
             t @ (TOK_FIRST_KEYWORD..=TOK_LAST_KEYWORD) => {
                 // convert keyword token to atom
-                let a = t - TOK_FIRST_KEYWORD + 1;
-                Some(Atom::new_const(AtomRef(a as u32)))
+                debug_assert!(t - TOK_FIRST_KEYWORD + 1 > 0);
+                let a = (t - TOK_FIRST_KEYWORD + 1) as u32;
+                Some(Atom::new_const(a))
             }
             _ => None,
         }
     }
 
-    pub(crate) fn string(&self) -> Option<StringContent> {
-        if let TokenData::Str { str, .. } = &self.data {
-            Some(str.clone())
-        } else {
-            None
-        }
-    }
+    // pub(crate) fn take_string(&mut self) -> Option<StringBuf> {
+    //     let d = std::mem::replace(&mut self.data, TokenData::None);
+    //     if let TokenData::Str { str, .. } = d {
+    //         Some(str)
+    //     } else {
+    //         self.data = d;
+    //         None
+    //     }
+    // }
+
+    // pub(crate) fn string(&self) -> Option<&StringBuf> {
+    //     if let TokenData::Str { str, .. } = &self.data {
+    //         Some(str)
+    //     } else {
+    //         None
+    //     }
+    // }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default)]
 pub enum TokenData {
     #[default]
     None,
     Char(char),
     Str {
-        str: StringContent,
+        str: StringBuf,
         sep: i32,
     },
     Num(IntOrFloat),
@@ -94,9 +105,9 @@ pub enum TokenData {
 
 impl TokenData {
     /// if data is ident, returns the atom.
-    pub fn ident_atom(&self) -> Option<Atom> {
+    pub const fn ident_atom(&self) -> Option<Atom> {
         if let Self::Ident { atom, .. } = self {
-            Some(atom.clone())
+            Some(*atom)
         } else {
             None
         }
@@ -120,9 +131,18 @@ impl TokenData {
         }
     }
 
-    /// if data is string type, returns string value.
-    pub const fn string(&self) -> Option<&StringContent> {
-        if let Self::Str { str, .. } = self {
+    pub(crate) fn take_string(&mut self) -> Option<StringBuf> {
+        let d = std::mem::replace(self, TokenData::None);
+        if let TokenData::Str { str, .. } = d {
+            Some(str)
+        } else {
+            *self = d;
+            None
+        }
+    }
+
+    pub(crate) const fn string(&self) -> Option<&StringBuf> {
+        if let TokenData::Str { str, .. } = self {
             Some(str)
         } else {
             None
@@ -138,7 +158,7 @@ impl TokenData {
     }
 
     /// if data is number type, returns number value.
-    pub fn number(&self) -> Option<IntOrFloat> {
+    pub const fn number(&self) -> Option<IntOrFloat> {
         if let Self::Num(n) = self {
             Some(*n)
         } else {
@@ -162,6 +182,7 @@ impl<'s> JSParseState<'s> {
         unsafe { simple_next_token(std::ptr::addr_of_mut!(p), no_line_terminator) }
     }
 
+    /// Calling this will clear current token data.
     // HINT: DON'T INLINE THIS.
     // inline this method will be very slow due to check stack overflow,
     // and will consume large stack space for each function that call this method,
@@ -194,7 +215,7 @@ impl<'s> JSParseState<'s> {
         let mut p = self.buf_ptr;
 
         'redo: loop {
-            if p >= self.buf_end {
+            if p >= self.input_end {
                 self.token.val = TOK_EOF;
                 self.token.data = TokenData::None;
                 break;
@@ -241,7 +262,7 @@ impl<'s> JSParseState<'s> {
                             // block comment
                             p = p.offset(2);
                             'in_comment: loop {
-                                if *p == 0 && p >= self.buf_end {
+                                if *p == 0 && p >= self.input_end {
                                     self.throw_syntax_error("unexpected end of comment");
                                     self.token.val = TOK_ERROR;
                                     self.token.data = TokenData::None;
@@ -297,11 +318,14 @@ impl<'s> JSParseState<'s> {
                     todo = Some(Todo::DefaultToken('\\'));
 
                     let bad = if *p.add(1) == b'u' {
-                        let mut p1 = p.add(1);
-                        if let Ok(cp) = self.parse_string_escape(&mut p1, 1) {
-                            if let Some(c1) = char::from_u32(cp) {
+                        let p1 = p.add(1);
+                        let bytes =
+                            std::slice::from_raw_parts(p1, self.input_end.offset_from(p1) as usize);
+
+                        if let Ok((code, consumed)) = self.parse_string_escape(bytes, 1) {
+                            if let Some(c1) = char::from_u32(code) {
                                 if Self::is_ident_first(c1) {
-                                    p = p1;
+                                    p = p1.add(consumed);
                                     todo = Some(Todo::HasIdent(c1, true));
                                     false
                                 } else {
@@ -331,10 +355,15 @@ impl<'s> JSParseState<'s> {
                     // private name
                     p = p.add(1);
                     let c = (*p) as char;
+
                     let mut p1 = p.add(1);
 
                     let c1 = if c == '\\' && *p1 == b'u' {
-                        let cp = self.parse_string_escape(&mut p1, 1)?;
+                        let bytes =
+                            std::slice::from_raw_parts(p1, self.input_end.offset_from(p1) as usize);
+                        let (cp, consumed) = self.parse_string_escape(bytes, 1)?;
+                        p1 = p1.add(consumed);
+                        // let cp = self.parse_string_escape(&mut p1, 1)?;
                         char::from_u32(cp).unwrap()
                     } else if !c.is_ascii() {
                         unicode_from_utf8_v0(p, UTF8_CHAR_LEN_MAX as _, &mut p1)?
@@ -346,14 +375,18 @@ impl<'s> JSParseState<'s> {
                         self.throw_syntax_error("invalid first charactor of private name");
                         todo = Some(Todo::Fail);
                     } else {
-                        p = p1;
-                        if let Ok((a, has_escape)) = self.parse_ident(&mut p, c1, true) {
+                        let bytes =
+                            std::slice::from_raw_parts(p1, self.input_end.offset_from(p1) as usize);
+
+                        if let Ok((atom, has_escape, consumed)) = self.parse_ident(bytes, c1, true)
+                        {
                             self.token.val = TOK_PRIVATE_NAME;
                             self.token.data = TokenData::Ident {
-                                atom: a,
+                                atom,
                                 has_escape,
                                 is_reserved: false,
                             };
+                            p = p1.add(consumed);
                         } else {
                             todo = Some(Todo::Fail);
                         }
@@ -361,6 +394,7 @@ impl<'s> JSParseState<'s> {
                 },
                 '.' => unsafe {
                     if *p.add(1) == b'.' && *p.add(2) == b'.' {
+                        // ...
                         p = p.add(3);
                         self.token.val = TOK_ELLIPSIS;
                         self.token.data = TokenData::None;
@@ -645,7 +679,12 @@ impl<'s> JSParseState<'s> {
                         p = unsafe { p.offset(1) };
                     }
                     Todo::HasIdent(first_char, escaped) => {
-                        if let Ok((atom, has_escape)) = self.parse_ident(&mut p, first_char, false)
+                        let bytes = unsafe {
+                            std::slice::from_raw_parts(p, self.input_end.offset_from(p) as usize)
+                        };
+
+                        if let Ok((atom, has_escape, advance)) =
+                            self.parse_ident(bytes, first_char, false)
                         {
                             self.token.val = TOK_IDENT;
                             self.token.data = TokenData::Ident {
@@ -653,6 +692,7 @@ impl<'s> JSParseState<'s> {
                                 has_escape: has_escape || escaped,
                                 is_reserved: false,
                             };
+                            p = unsafe { p.add(advance) };
 
                             // check if atom is a reserved keyword.
                             // if yes, convert token value to TOK_XXX
@@ -713,14 +753,14 @@ impl<'s> JSParseState<'s> {
         }
         .inspect_err(|_| {
             // re-throw error as parser syntax error
-            let exc_obj = self.ctx.take_exception();
+            let exc_obj = self.ctx.rt().take_exception();
             self.throw(exc_obj);
         })?;
 
-        debug_assert!(self.buf_end >= p);
+        debug_assert!(self.input_end >= p);
 
         // reject `10instanceof Number`
-        let len = unsafe { self.buf_end.offset_from(p) as usize };
+        let len = unsafe { self.input_end.offset_from(p) as usize };
         if let Some(c) = std::str::from_utf8(unsafe { std::slice::from_raw_parts(p, len) })
             .map_err(|_| {
                 self.throw_syntax_error("invalid UTF-8 sequence");
@@ -746,7 +786,7 @@ impl<'s> JSParseState<'s> {
         let mut p = ptr;
 
         loop {
-            if matches!(*p, b'\r' | b'\n') || (*p == 0 && p >= self.buf_end) {
+            if matches!(*p, b'\r' | b'\n') || (*p == 0 && p >= self.input_end) {
                 break;
             }
 
@@ -784,9 +824,9 @@ impl<'s> JSParseState<'s> {
     }
 
     #[inline(always)]
-    pub fn token_is_pseudo_keyword(&self, atom: AtomRef) -> bool {
+    pub fn token_is_pseudo_keyword(&self, atom: Atom) -> bool {
         self.token.val == TOK_IDENT
-            && self.token.data.ident_atom().is_some_and(|a| a.eq(&atom))
+            && self.token.data.ident_atom().is_some_and(|a| a == atom)
             && !self.token.data.ident_has_escape()
     }
 
@@ -816,8 +856,8 @@ impl<'s> JSParseState<'s> {
             has_escape,
         } = &mut self.token.data
         {
-            *is_reserved = match atom.to_ref() {
-                JS_ATOM_yield => {
+            *is_reserved = match *atom {
+                Atom::CONST_yield => {
                     matches!(
                         func_kind,
                         JSFunctionKindEnum::JS_FUNC_GENERATOR
@@ -831,7 +871,7 @@ impl<'s> JSParseState<'s> {
                                 | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
                         ))
                 }
-                JS_ATOM_await => {
+                Atom::CONST_await => {
                     self.is_module
                         || func_kind.is_async()
                         || func_type == JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT
@@ -846,10 +886,8 @@ impl<'s> JSParseState<'s> {
                             })
                 }
 
-                a if (1..=JS_ATOM_LAST_KEYWORD.0).contains(&a.0) => true,
-                a if (JS_ATOM_FIRST_STRICT_KEYWORD.0..=JS_ATOM_LAST_STRICT_KEYWORD.0)
-                    .contains(&a.0) =>
-                {
+                a if ATOM_CONST_KEYWORD_RANGE.contains(&a.id()) => true,
+                a if ATOM_CONST_STRICT_KEYWORD_RANGE.contains(&a.id()) => {
                     js_mode & JS_MODE_STRICT as u8 != 0
                 }
                 _ => false,

@@ -1,10 +1,10 @@
-use std::{borrow::Cow, ops::Deref, ptr::NonNull};
+use std::{borrow::Cow, ptr::NonNull};
 
 use crate::{
-    atom::{Atom, AtomRef, consts::*},
-    context::JSContext,
+    atom::{Atom, ATOM_CONST_COUNT},
+    context::ContextImpl,
     function::NativeFunctionType,
-    object::{JS_PROP_CONFIGURABLE, JSObject, LazyInit},
+    object::{JS_PROP_CONFIGURABLE, LazyInit, ObjectRef},
     value::JSValue,
 };
 
@@ -51,19 +51,23 @@ pub enum NativeFieldDetail {
     Undefined,
 }
 
-impl<'a> JSObject<'a> {
-    pub fn install_field_defs(&self, ctx: &JSContext<'a>, entries: &[FieldDef]) -> Result<(), i32> {
+impl ObjectRef {
+    pub fn install_field_defs(
+        &mut self,
+        ctx: &ContextImpl,
+        entries: &[FieldDef],
+    ) -> Result<(), i32> {
         for entry in entries {
             let atom = ctx.make_lazy_prop_atom(entry.name)?;
-            self.install_field_entry(ctx, &atom, entry)?;
+            self.install_field_entry(ctx, atom, entry)?;
         }
         Ok(())
     }
 
     fn install_field_entry(
-        &self,
-        ctx: &JSContext<'a>,
-        atom: &Atom,
+        &mut self,
+        ctx: &ContextImpl,
+        atom: Atom,
         e: &FieldDef,
     ) -> Result<(), i32> {
         let val: JSValue;
@@ -71,10 +75,10 @@ impl<'a> JSObject<'a> {
 
         match e.detail {
             NativeFieldDetail::Func { .. } => {
-                if atom.eq_ref(JS_ATOM_Symbol_toPrimitive) {
+                if atom == Atom::CONST_Symbol_toPrimitive {
                     // Symbol.toPrimitive functions are not writable
                     prop_flags = JS_PROP_CONFIGURABLE as u8;
-                } else if atom.eq_ref(JS_ATOM_Symbol_hasInstance) {
+                } else if atom == Atom::CONST_Symbol_hasInstance {
                     // Function.prototype[Symbol.hasInstance] is not writable nor configurable
                     prop_flags = 0;
                 }
@@ -135,18 +139,18 @@ impl<'a> JSObject<'a> {
                 // using autoinit for aliases is not safe
                 let name_atom = ctx.make_lazy_prop_atom(name)?;
                 val = match base {
-                    -1 => self.get_property(ctx, &name_atom)?,
-                    0 => ctx.global_obj().get_property(ctx, &name_atom)?,
-                    1 => ctx.array_proto().get_property(ctx, &name_atom)?,
+                    -1 => self.get_property(ctx, name_atom)?,
+                    0 => ctx.global_obj().get_property(ctx, name_atom)?,
+                    1 => ctx.array_proto().get_property(ctx, name_atom)?,
                     _ => {
                         unreachable!();
                     }
                 };
 
-                if atom.eq_ref(JS_ATOM_Symbol_toPrimitive) {
+                if atom == Atom::CONST_Symbol_toPrimitive {
                     // Symbol.toPrimitive functions are not writable
                     prop_flags = JS_PROP_CONFIGURABLE as u8;
-                } else if atom.eq_ref(JS_ATOM_Symbol_hasInstance) {
+                } else if atom == Atom::CONST_Symbol_hasInstance {
                     // Function.prototype[Symbol.hasInstance] is not writable nor configurable
                     prop_flags = 0;
                 }
@@ -158,8 +162,12 @@ impl<'a> JSObject<'a> {
     }
 }
 
-impl<'a> JSValue<'a> {
-    pub fn install_field_defs(&self, ctx: &JSContext<'a>, entries: &[FieldDef]) -> Result<(), i32> {
+impl JSValue {
+    pub fn install_field_defs(
+        &mut self,
+        ctx: &ContextImpl,
+        entries: &[FieldDef],
+    ) -> Result<(), i32> {
         if let Self::Object(o) = self {
             o.install_field_defs(ctx, entries)
         } else {
@@ -169,7 +177,7 @@ impl<'a> JSValue<'a> {
     }
 }
 
-impl<'a> JSContext<'a> {
+impl ContextImpl {
     /// create new or reuse existing atom for lazy init property
     fn make_lazy_prop_atom(&self, str: &str) -> Result<Atom, i32> {
         // format [xxxx]
@@ -177,10 +185,10 @@ impl<'a> JSContext<'a> {
             let name2 = &str[1..str.len() - 1]; // chop heading '[', tailing ']'
 
             // We assume 8 bit non null strings, which is the case for these symbols
-            for i in JS_ATOM_Symbol_toPrimitive.0..JS_ATOM_INIT_COUNT {
-                let a = AtomRef(i);
-                if a.description().content().eq_str(name2) {
-                    return Ok(Atom::new_const(a));
+            for i in Atom::CONST_Symbol_toPrimitive.id()..ATOM_CONST_COUNT {
+                let a = Atom::from_id(i);
+                if a.string().content().eq_str(name2) {
+                    return Ok(a);
                 }
             }
 
@@ -191,9 +199,3 @@ impl<'a> JSContext<'a> {
         Atom::new(self.rt().as_ref(), str)
     }
 }
-
-// #[deprecated(note = "use JSContext::make_lazy_prop_atom () instead")]
-// pub unsafe fn find_atom(ctx: &JSContext, name: &str) -> AtomRef {
-//     unreachable!("unused");
-//     // ctx.make_lazy_prop_atom(name).unwrap_or(JS_ATOM_NULL)
-// }

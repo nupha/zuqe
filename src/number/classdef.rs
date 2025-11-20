@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use crate::{
     JS_ALIAS_BASE_DEF, JS_CFUNC_NATIVE_DEF, JS_PROP_DOUBLE_DEF,
     branch_hints::unlikely,
-    context::JSContext,
+    context::{ContextImpl, ContextRef},
     error::JSResult,
     function::{CallContext, FieldDef},
     js_core::global::{MAGIC_NUM_IS_FINITE, MAGIC_NUM_IS_NAN, js_global_isNaN_isFinite},
@@ -17,9 +17,9 @@ use crate::{
 
 use super::{ATOD_ACCEPT_PREFIX_AFTER_SIGN, ATOD_INT_ONLY, f64_stringify, js_atof};
 
-pub fn js_thisNumberValue<'a>(ctx: &JSContext<'a>, this_val: &JSValue<'a>) -> JSResult<'a> {
+pub fn js_thisNumberValue(ctx: &ContextImpl, this_val: JSValue) -> JSResult {
     if this_val.is_number() {
-        Ok(this_val.clone())
+        Ok(this_val)
     } else {
         // check number object
         this_val
@@ -34,13 +34,13 @@ pub fn js_thisNumberValue<'a>(ctx: &JSContext<'a>, this_val: &JSValue<'a>) -> JS
     }
 }
 
-pub fn js_parseInt<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let radix: i32 = cc.arg(1).to_i32(ctx)?;
+pub fn js_parseInt(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let radix: i32 = cc.arg(1).to_i32(&ctx)?;
 
     if radix != 0 && !(2..=36).contains(&radix) {
         Ok(JSValue::Float64(f64::NAN))
     } else {
-        let str = cc.arg(0).to_string(ctx)?;
+        let str = cc.arg(0).to_string(&ctx)?;
         let s = str.content().to_utf8(false);
         let str = s.trim();
 
@@ -49,7 +49,7 @@ pub fn js_parseInt<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult
         } else {
             unsafe {
                 let val = js_atof(
-                    ctx,
+                    &ctx,
                     str.as_ptr(),
                     std::ptr::null_mut(),
                     radix,
@@ -58,7 +58,7 @@ pub fn js_parseInt<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult
                 .map_or_else(
                     |_| {
                         // fail to parse number, returns NaN
-                        ctx.take_exception();
+                        ctx.rt().take_exception();
                         JSValue::Float64(f64::NAN)
                     },
                     JSValue::from,
@@ -69,8 +69,8 @@ pub fn js_parseInt<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult
     }
 }
 
-pub fn js_parseFloat<'a>(ctx: &JSContext<'a>, args: CallContext<'_, 'a>) -> JSResult<'a> {
-    let str = args.arg(0).to_string(ctx)?;
+pub fn js_parseFloat(ctx: ContextRef, args: CallContext) -> JSResult {
+    let str = args.arg(0).to_string(&ctx)?;
     let s = str.content().to_utf8(false);
     let str = s.trim();
 
@@ -78,10 +78,10 @@ pub fn js_parseFloat<'a>(ctx: &JSContext<'a>, args: CallContext<'_, 'a>) -> JSRe
         Ok(JSValue::Float64(f64::NAN))
     } else {
         unsafe {
-            let val = js_atof(ctx, str.as_ptr(), std::ptr::null_mut(), 10, 0).map_or_else(
+            let val = js_atof(&ctx, str.as_ptr(), std::ptr::null_mut(), 10, 0).map_or_else(
                 |_| {
                     // fail to parse number, returns NaN
-                    ctx.take_exception();
+                    ctx.rt().take_exception();
                     JSValue::Float64(f64::NAN)
                 },
                 JSValue::from,
@@ -91,19 +91,19 @@ pub fn js_parseFloat<'a>(ctx: &JSContext<'a>, args: CallContext<'_, 'a>) -> JSRe
     }
 }
 
-pub fn js_number_valueOf<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    js_thisNumberValue(ctx, cc.this())
+pub fn js_number_valueOf(ctx: ContextRef, cc: CallContext) -> JSResult {
+    js_thisNumberValue(&ctx, *cc.this())
 }
 
-pub fn js_number_toString<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+pub fn js_number_toString(ctx: ContextRef, cc: CallContext) -> JSResult {
     let to_locale_string = cc.magic() != 0;
-    let val = js_thisNumberValue(ctx, cc.this())?;
-    let d: f64 = val.to_f64(ctx)?;
+    let val = js_thisNumberValue(&ctx, *cc.this())?;
+    let d: f64 = val.to_f64(&ctx)?;
 
     let radix = if to_locale_string || cc.arg(0).is_undefined() {
         10
     } else {
-        let r = cc.arg(0).to_i32_saturating(ctx)?;
+        let r = cc.arg(0).to_i32_saturating(&ctx)?;
         if !(2..=36).contains(&r) {
             ctx.throw_range_error("radix must be between 2 and 36");
             return Err(-1);
@@ -116,8 +116,8 @@ pub fn js_number_toString<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> J
         .map(JSValue::String)
 }
 
-pub fn js_number_toPrecision<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let d = js_thisNumberValue(ctx, cc.this())?.to_f64(ctx)?;
+pub fn js_number_toPrecision(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let d = js_thisNumberValue(&ctx, *cc.this())?.to_f64(&ctx)?;
 
     let a0 = cc.arg(0);
     let s: Cow<str> = if a0.is_undefined() {
@@ -134,7 +134,7 @@ pub fn js_number_toPrecision<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -
             format!("{d}").into()
         }
     } else {
-        let f = a0.to_i32_saturating(ctx)?;
+        let f = a0.to_i32_saturating(&ctx)?;
 
         if unlikely(!d.is_finite()) {
             if d.is_nan() {
@@ -156,12 +156,12 @@ pub fn js_number_toPrecision<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -
     ctx.create_string_from_str(&s).map(JSValue::String)
 }
 
-pub fn js_number_toExponential<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let val = js_thisNumberValue(ctx, cc.this())?;
-    let d: f64 = val.to_f64(ctx)?;
+pub fn js_number_toExponential(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let val = js_thisNumberValue(&ctx, *cc.this())?;
+    let d: f64 = val.to_f64(&ctx)?;
 
     let a0 = cc.arg(0);
-    let f = a0.to_i32_saturating(ctx)?;
+    let f = a0.to_i32_saturating(&ctx)?;
 
     let s = if unlikely(!d.is_finite()) {
         if d.is_nan() {
@@ -189,9 +189,9 @@ pub fn js_number_toExponential<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>)
     ctx.create_string_from_str(&s).map(JSValue::String)
 }
 
-pub fn js_number_toFixed<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
-    let d = js_thisNumberValue(ctx, cc.this())?.to_f64(ctx)?;
-    let f = cc.arg(0).to_i32_saturating(ctx)?;
+pub fn js_number_toFixed(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let d = js_thisNumberValue(&ctx, *cc.this())?.to_f64(&ctx)?;
+    let f = cc.arg(0).to_i32_saturating(&ctx)?;
 
     let s = if unlikely(!(0..=100).contains(&f)) {
         ctx.throw_range_error("invalid number of digits");
@@ -215,10 +215,7 @@ pub static js_number_proto_funcs: [FieldDef; 6] = [
     JS_CFUNC_NATIVE_DEF!("valueOf", 0, js_number_valueOf, 0),
 ];
 
-pub fn js_number_isNaN_isFinite<'a>(
-    ctx: &JSContext<'a>,
-    args: CallContext<'_, 'a>,
-) -> JSResult<'a> {
+pub fn js_number_isNaN_isFinite(ctx: ContextRef, args: CallContext) -> JSResult {
     if !args.arg(0).is_number() {
         Ok(JSValue::Bool(false))
     } else {
@@ -226,18 +223,18 @@ pub fn js_number_isNaN_isFinite<'a>(
     }
 }
 
-pub fn js_number_isInteger<'a>(ctx: &JSContext<'a>, args: CallContext<'_, 'a>) -> JSResult<'a> {
-    let b = args.arg(0).is_integral(ctx)?;
+pub fn js_number_isInteger(ctx: ContextRef, args: CallContext) -> JSResult {
+    let b = args.arg(0).is_integral(&ctx)?;
     Ok(b.into())
 }
 
-pub fn js_number_isSafeInteger<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+pub fn js_number_isSafeInteger(ctx: ContextRef, cc: CallContext) -> JSResult {
     let val = cc.arg(0);
     if !val.is_number() {
         return Ok(JSValue::Bool(false));
     }
 
-    let d: f64 = val.to_f64(ctx)?;
+    let d: f64 = val.to_f64(&ctx)?;
     Ok(is_safe_integer(d).into())
 }
 
@@ -264,14 +261,14 @@ pub static js_number_funcs: [FieldDef; 14] = [
     JS_PROP_DOUBLE_DEF!("MIN_SAFE_INTEGER", -9007199254740991.0, 0), /* ES6 */
 ];
 
-pub fn js_number_constructor<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+pub fn js_number_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
     let val = if cc.length() == 0 {
         JSValue::Int(0)
     } else {
-        cc.arg(0).to_numeric(ctx)?
+        cc.arg(0).to_numeric(&ctx)?
     };
 
-    let new_target = cc.this();
+    let new_target = *cc.this();
     if !new_target.is_undefined() {
         ctx.create_object_from_ctor(new_target, ObjectPayload::NUMBER(val))
             .map(JSValue::Object)

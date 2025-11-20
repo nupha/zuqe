@@ -1,14 +1,16 @@
 use std::{cell::Cell, rc::Rc};
 
+use gc_lite::{Collect, GcRef};
+
 use crate::{
     JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
-    atom::consts::*,
+    atom::Atom,
     branch_hints::unlikely,
-    context::JSContext,
+    context::{ContextImpl, ContextRef},
     error::JSResult,
-    object::{JS_SpeciesConstructor, JSObject, ObjectPayload},
+    object::{JS_SpeciesConstructor, ObjectImpl, ObjectPayload, ObjectRef},
     object_cast,
-    runtime::JSRuntime,
+    runtime::RuntimeImpl,
     value::JSValue,
 };
 
@@ -16,32 +18,38 @@ use super::{Promise, PromiseState, js_promise_resolve_thenable_job, promise_reac
 
 /// State of promise resolving function.
 #[derive(Debug)]
-pub struct PromiseResolvePayload<'a> {
+pub struct PromiseResolvePayload {
     /// the target Promise
-    pub(super) promise: Promise<'a>,
+    pub(super) promise: Promise,
     /// is resolved? this flag is shared between resolve and reject functions.
     /// so Rc is used
     pub(super) resolved: Rc<Cell<bool>>,
 }
 
+unsafe impl Collect for PromiseResolvePayload {
+    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+        self.promise.trace(tracer);
+    }
+}
+
 /// Represent Promise resolve, reject function object
 #[repr(transparent)]
-#[derive(Debug, Clone)]
-pub struct PromiseResolveFunc<'a>(JSObject<'a>);
+#[derive(Debug, Clone, Copy)]
+pub struct PromiseResolveFunc(GcRef<ObjectImpl>);
 
 object_cast!(
     PromiseResolveFunc,
     JS_CLASS_PROMISE_RESOLVE_FUNCTION | JS_CLASS_PROMISE_REJECT_FUNCTION
 );
 
-impl<'a> PromiseResolveFunc<'a> {
-    pub fn class_call<'b>(
-        ctx: &JSContext<'b>,
-        func_obj: &JSValue<'b>,
-        _this_val: &JSValue<'b>,
-        args: &[JSValue<'b>],
+impl PromiseResolveFunc {
+    pub fn class_call(
+        mut ctx: ContextRef,
+        func_obj: JSValue,
+        _this_val: JSValue,
+        args: &[JSValue],
         _flags: i32,
-    ) -> JSResult<'b> {
+    ) -> JSResult {
         let resolv = func_obj.as_object_PromiseResolveFunc().unwrap();
         let isa = resolv.payload();
 
@@ -62,29 +70,29 @@ impl<'a> PromiseResolveFunc<'a> {
             if is_reject || !arg0.is_object() {
                 s.promise.fulfill_or_reject(ctx, arg0, is_reject);
                 return Ok(JSValue::UNDEFINED);
-            } else if unlikely(arg0.is_same(&s.promise.clone().into())) {
+            } else if unlikely(arg0.is_same(s.promise.into())) {
                 ctx.throw_type_error("promise self resolution");
-                s.promise.reject(ctx, ctx.take_exception());
+                s.promise.reject(ctx, ctx.rt().take_exception());
                 return Ok(JSValue::UNDEFINED);
-            } else if let Ok(then) = arg0.get_property(ctx, &JS_ATOM_then) {
+            } else if let Ok(then) = arg0.get_property(&ctx, Atom::CONST_then) {
                 if !then.is_function() {
                     s.promise.fulfill_or_reject(ctx, arg0, is_reject);
                 } else {
-                    let promise = s.promise.clone();
-                    let cx = ctx.clone();
+                    let promise = s.promise;
+                    let ctx2 = ctx;
                     ctx.queue_job(move || {
-                        js_promise_resolve_thenable_job(&cx, promise, arg0, then)
+                        js_promise_resolve_thenable_job(&ctx2, promise, arg0, then)
                     });
                 }
             } else {
-                s.promise.reject(ctx, ctx.take_exception());
+                s.promise.reject(ctx, ctx.rt().take_exception());
             }
         }
 
         Ok(JSValue::UNDEFINED)
     }
 
-    pub const fn class_finalizer(_rt: &mut JSRuntime, _isa: &ObjectPayload, _id: usize) {}
+    pub const fn class_finalizer(_rt: &mut RuntimeImpl, _isa: &ObjectPayload, _id: usize) {}
 
     pub fn class_mark(val: JSValue) {
         if let Some(s) = unsafe {
@@ -92,18 +100,26 @@ impl<'a> PromiseResolveFunc<'a> {
                 .payload()
                 .promise_resolving_function()
         } {
-            s.promise.gc_mark();
+            //  s.promise.gc_mark();
         }
     }
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct JSPromiseReactionData<'a> {
-    pub(super) resolving_funcs: [JSValue<'a>; 2],
-    pub(super) handler: JSValue<'a>,
+pub(super) struct JSPromiseReactionData {
+    pub(super) resolving_funcs: [JSValue; 2],
+    pub(super) handler: JSValue,
 }
 
-impl<'a> Default for JSPromiseReactionData<'a> {
+unsafe impl Collect for JSPromiseReactionData {
+    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+        self.resolving_funcs[0].trace(tracer);
+        self.resolving_funcs[1].trace(tracer);
+        self.handler.trace(tracer);
+    }
+}
+
+impl Default for JSPromiseReactionData {
     fn default() -> Self {
         Self {
             resolving_funcs: [const { JSValue::UNDEFINED }; 2],
@@ -112,7 +128,7 @@ impl<'a> Default for JSPromiseReactionData<'a> {
     }
 }
 
-impl<'a> Promise<'a> {
+impl Promise {
     /// Add a chained reaction to `self` Promise.
     ///
     /// Arguments:
@@ -121,18 +137,15 @@ impl<'a> Promise<'a> {
     ///   which activates the `reaction_funcs` execution.
     pub(crate) fn reaction(
         &self,
-        ctx: &JSContext<'a>,
-        reaction_funcs: &[JSValue<'a>; 2],
-        cap_resolving_funcs: &[JSValue<'a>; 2],
+        ctx: &mut ContextImpl,
+        reaction_funcs: [JSValue; 2],
+        cap_resolving_funcs: [JSValue; 2],
     ) -> Result<(), i32> {
         // TODO: should use Box::try_new() when stable
         let success = Box::new(JSPromiseReactionData {
-            resolving_funcs: [
-                cap_resolving_funcs[0].clone(),
-                cap_resolving_funcs[1].clone(),
-            ],
+            resolving_funcs: [cap_resolving_funcs[0], cap_resolving_funcs[1]],
             handler: {
-                let h = reaction_funcs[0].clone();
+                let h = reaction_funcs[0];
                 if !h.is_function() {
                     JSValue::UNDEFINED
                 } else {
@@ -143,12 +156,9 @@ impl<'a> Promise<'a> {
 
         // TODO: should use Box::try_new() when stable
         let fail = Box::new(JSPromiseReactionData {
-            resolving_funcs: [
-                cap_resolving_funcs[0].clone(),
-                cap_resolving_funcs[1].clone(),
-            ],
+            resolving_funcs: [cap_resolving_funcs[0], cap_resolving_funcs[1]],
             handler: {
-                let h = reaction_funcs[1].clone();
+                let h = reaction_funcs[1];
                 if !h.is_function() {
                     JSValue::UNDEFINED
                 } else {
@@ -171,7 +181,7 @@ impl<'a> Promise<'a> {
                 {
                     cb(
                         ctx,
-                        self.clone(),
+                        *self,
                         s.result(),
                         true as i32,
                         ctx.rt().host_promise_rejection_tracker_opaque,
@@ -185,9 +195,16 @@ impl<'a> Promise<'a> {
                 };
                 let is_reject = state == PromiseState::JS_PROMISE_REJECTED;
                 let result = s.result();
-                let cx = ctx.clone();
+                let mut cx = unsafe { ContextRef::from_ref_unchecked(ctx) };
+
                 ctx.queue_job(move || {
-                    promise_reaction_job(&cx, act.resolving_funcs, act.handler, is_reject, result)
+                    promise_reaction_job(
+                        &mut cx,
+                        act.resolving_funcs,
+                        act.handler,
+                        is_reject,
+                        result,
+                    )
                 });
             }
         }
@@ -201,26 +218,21 @@ impl<'a> Promise<'a> {
     /// `resolve` and `reject` are not consumed.
     pub fn then(
         &self,
-        ctx: &JSContext<'a>,
-        success: JSValue<'a>,
-        fail: JSValue<'a>,
-    ) -> Result<JSObject<'a>, i32> {
-        let ctor = JS_SpeciesConstructor(ctx, &self.clone().into(), JSValue::UNDEFINED)?;
-        let (promise2, rr) = Self::create_from_ctor(ctx, &ctor)?;
+        ctx: &mut ContextImpl,
+        success: JSValue,
+        fail: JSValue,
+    ) -> Result<ObjectRef, i32> {
+        let ctor = JS_SpeciesConstructor(ctx, (*self).into(), JSValue::UNDEFINED)?;
+        let (promise2, rr) = Self::create_from_ctor(ctx, ctor)?;
 
-        self.reaction(ctx, &[success, fail], &rr)?;
+        self.reaction(ctx, [success, fail], rr)?;
         Ok(promise2)
     }
 
     /// save resolving resultand update promise status to 'fulfilled' or 'rejected'.
     /// call chained reactions which was registered by `then()`, `catch()` or `finally()`.
     /// Note: `value` is not consumed (duplicated inside).
-    pub(super) fn fulfill_or_reject(
-        &self,
-        ctx: &JSContext<'a>,
-        value: JSValue<'a>,
-        is_reject: bool,
-    ) {
+    pub(super) fn fulfill_or_reject(&self, mut ctx: ContextRef, value: JSValue, is_reject: bool) {
         let p = self.payload();
 
         debug_assert_eq!(p.state(), PromiseState::JS_PROMISE_PENDING);
@@ -235,10 +247,10 @@ impl<'a> Promise<'a> {
 
         if promise_state == PromiseState::JS_PROMISE_REJECTED
             && !p.is_handled()
-            && let Some(cb) = ctx.rt().host_promise_rejection_tracker
+            && let Some(f) = ctx.rt().host_promise_rejection_tracker
         {
-            cb(
-                ctx,
+            f(
+                &ctx,
                 self.clone(),
                 value.clone(),
                 0,
@@ -248,11 +260,12 @@ impl<'a> Promise<'a> {
 
         // call chained reactions registered by `then()`, `catch()` or `finally()`
         let mut reactions = p.take_reactions();
+        let mut ctx2 = ctx;
+
         for act in reactions[is_reject as usize].drain(..) {
-            let cx = ctx.clone();
             let val = value.clone();
             ctx.queue_job(move || {
-                promise_reaction_job(&cx, act.resolving_funcs, act.handler, is_reject, val)
+                promise_reaction_job(&mut ctx2, act.resolving_funcs, act.handler, is_reject, val)
             });
         }
     }
@@ -260,7 +273,7 @@ impl<'a> Promise<'a> {
     /// Reject promise with `value`.
     /// A shortcut to `fulfill_or_reject()` with is_reject=true.
     #[inline(always)]
-    pub fn reject(&self, ctx: &JSContext<'a>, value: JSValue<'a>) {
+    pub fn reject(&self, ctx: ContextRef, value: JSValue) {
         self.fulfill_or_reject(ctx, value, true);
     }
 }

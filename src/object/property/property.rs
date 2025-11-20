@@ -1,13 +1,15 @@
-use std::{ffi::c_void, ops::Deref};
+use std::ffi::c_void;
+
+use gc_lite::{Collect, GcWeak};
 
 use crate::{
     JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
-    atom::{Atom, consts::*},
+    atom::Atom,
     branch_hints::unlikely,
-    context::{JSContext, JSContextWeakref},
+    context::{ContextImpl, ContextRef},
     error::JSResult,
     function::JSVarRef,
-    object::{JSObject, LazyInit},
+    object::{LazyInit, ObjectRef},
     value::{JS_GetPrototypePrimitive, JSValue},
 };
 
@@ -90,14 +92,14 @@ pub const JS_GPN_ENUM_ONLY: i32 = 1 << 4;
 pub const JS_GPN_SET_ENUM: i32 = 1 << 5;
 
 #[derive(Debug, Clone)]
-pub struct JSPropertyDescriptor<'a> {
+pub struct JSPropertyDescriptor {
     pub flags: u32,
-    pub value: JSValue<'a>,
-    pub getter: JSValue<'a>,
-    pub setter: JSValue<'a>,
+    pub value: JSValue,
+    pub getter: JSValue,
+    pub setter: JSValue,
 }
 
-impl<'a> Default for JSPropertyDescriptor<'a> {
+impl Default for JSPropertyDescriptor {
     fn default() -> Self {
         Self {
             flags: 0,
@@ -108,55 +110,55 @@ impl<'a> Default for JSPropertyDescriptor<'a> {
     }
 }
 
-impl<'a> JSPropertyDescriptor<'a> {
+impl JSPropertyDescriptor {
     /// Parse an object to JSPropertyDescriptor.
-    pub(crate) fn parse(ctx: &JSContext<'a>, desc: &JSObject<'a>) -> Result<Self, i32> {
+    pub(crate) fn parse(ctx: &ContextImpl, desc: ObjectRef) -> Result<Self, i32> {
         let mut flags: u32 = 0;
         let mut value: JSValue = JSValue::UNDEFINED;
         let mut getter: JSValue = JSValue::UNDEFINED;
         let mut setter: JSValue = JSValue::UNDEFINED;
 
-        if desc.has_property(ctx, JS_ATOM_configurable.deref())? {
-            let conf = desc.get_property(ctx, &JS_ATOM_configurable)?;
+        if desc.has_property(ctx, Atom::CONST_configurable)? {
+            let conf = desc.get_property(ctx, Atom::CONST_configurable)?;
             flags |= JS_PROP_HAS_CONFIGURABLE;
             if conf.to_bool()? {
                 flags |= JS_PROP_CONFIGURABLE;
             }
         }
 
-        if desc.has_property(ctx, &JS_ATOM_writable)? {
-            let conf = desc.get_property(ctx, &JS_ATOM_writable)?;
+        if desc.has_property(ctx, Atom::CONST_writable)? {
+            let conf = desc.get_property(ctx, Atom::CONST_writable)?;
             flags |= JS_PROP_HAS_WRITABLE;
             if conf.to_bool()? {
                 flags |= JS_PROP_WRITABLE;
             }
         }
 
-        if desc.has_property(ctx, &JS_ATOM_enumerable)? {
-            let conf = desc.get_property(ctx, &JS_ATOM_enumerable)?;
+        if desc.has_property(ctx, Atom::CONST_enumerable)? {
+            let conf = desc.get_property(ctx, Atom::CONST_enumerable)?;
             flags |= JS_PROP_HAS_ENUMERABLE;
             if conf.to_bool()? {
                 flags |= JS_PROP_ENUMERABLE;
             }
         }
 
-        if desc.has_property(ctx, &JS_ATOM_value)? {
+        if desc.has_property(ctx, Atom::CONST_value)? {
             flags |= JS_PROP_HAS_VALUE;
-            value = desc.get_property(ctx, &JS_ATOM_value)?;
+            value = desc.get_property(ctx, Atom::CONST_value)?;
         }
 
-        if desc.has_property(ctx, &JS_ATOM_get)? {
+        if desc.has_property(ctx, Atom::CONST_get)? {
             flags |= JS_PROP_HAS_GET;
-            getter = desc.get_property(ctx, &JS_ATOM_get)?;
+            getter = desc.get_property(ctx, Atom::CONST_get)?;
             if unlikely(!(getter.is_undefined() || getter.is_function())) {
                 ctx.throw_type_error("invalid getter");
                 return Err(-1);
             }
         }
 
-        if desc.has_property(ctx, &JS_ATOM_set)? {
+        if desc.has_property(ctx, Atom::CONST_set)? {
             flags |= JS_PROP_HAS_SET;
-            setter = desc.get_property(ctx, &JS_ATOM_set)?;
+            setter = desc.get_property(ctx, Atom::CONST_set)?;
             if unlikely(!(setter.is_undefined() || setter.is_function())) {
                 ctx.throw_type_error("invalid setter");
                 return Err(-1);
@@ -181,9 +183,9 @@ impl<'a> JSPropertyDescriptor<'a> {
 
     /// Parse a value to JSPropertyDescriptor.
     #[inline]
-    pub(crate) fn from_value(ctx: &JSContext<'a>, desc: &JSValue<'a>) -> Result<Self, i32> {
+    pub(crate) fn from_value(ctx: &ContextImpl, desc: JSValue) -> Result<Self, i32> {
         if let Some(o) = desc.as_object() {
-            Self::parse(ctx, o)
+            Self::parse(ctx, *o)
         } else {
             ctx.throw_type_error_not_an_object();
             Err(-1)
@@ -191,37 +193,22 @@ impl<'a> JSPropertyDescriptor<'a> {
     }
 
     /// build object from descriptor
-    pub fn make_object(&self, ctx: &JSContext<'a>) -> Result<JSObject<'a>, i32> {
-        let ret = ctx.create_base_object()?;
+    pub fn make_object(&self, ctx: &ContextImpl) -> Result<ObjectRef, i32> {
+        let mut ret = ctx.create_base_object()?;
 
         if self.flags & JS_PROP_HAS_GET != 0 {
-            ret.define_property_value(
-                ctx,
-                JS_ATOM_get.deref(),
-                self.getter.clone(),
-                JS_PROP_C_W_E,
-            )?;
+            ret.define_property_value(ctx, Atom::CONST_get, self.getter, JS_PROP_C_W_E)?;
         }
         if self.flags & JS_PROP_HAS_SET != 0 {
-            ret.define_property_value(
-                ctx,
-                JS_ATOM_set.deref(),
-                self.setter.clone(),
-                JS_PROP_C_W_E,
-            )?;
+            ret.define_property_value(ctx, Atom::CONST_set, self.setter, JS_PROP_C_W_E)?;
         }
         if self.flags & JS_PROP_HAS_VALUE != 0 {
-            ret.define_property_value(
-                ctx,
-                JS_ATOM_value.deref(),
-                self.value.clone(),
-                JS_PROP_C_W_E,
-            )?;
+            ret.define_property_value(ctx, Atom::CONST_value, self.value, JS_PROP_C_W_E)?;
         }
         if self.flags & JS_PROP_HAS_WRITABLE != 0 {
             ret.define_property_value(
                 ctx,
-                JS_ATOM_writable.deref(),
+                Atom::CONST_writable,
                 (self.flags & JS_PROP_WRITABLE != 0).into(),
                 JS_PROP_C_W_E,
             )?;
@@ -229,7 +216,7 @@ impl<'a> JSPropertyDescriptor<'a> {
         if self.flags & JS_PROP_HAS_ENUMERABLE != 0 {
             ret.define_property_value(
                 ctx,
-                JS_ATOM_enumerable.deref(),
+                Atom::CONST_enumerable,
                 (self.flags & JS_PROP_ENUMERABLE != 0).into(),
                 JS_PROP_C_W_E,
             )?;
@@ -237,7 +224,7 @@ impl<'a> JSPropertyDescriptor<'a> {
         if self.flags & JS_PROP_HAS_CONFIGURABLE != 0 {
             ret.define_property_value(
                 ctx,
-                JS_ATOM_configurable.deref(),
+                Atom::CONST_configurable,
                 (self.flags & JS_PROP_CONFIGURABLE != 0).into(),
                 JS_PROP_C_W_E,
             )?;
@@ -249,39 +236,64 @@ impl<'a> JSPropertyDescriptor<'a> {
 
 /// the property content
 #[repr(u8)]
-#[derive(Debug, Clone)]
-pub enum JSProperty<'a> {
-    Normal(JSValue<'a>),
+#[derive(Debug)]
+pub enum JSProperty {
+    Normal(JSValue),
+    VarRef(JSVarRef),
+
+    /// TODO: use Box<PropertyGetSet>
     GetSet {
-        getter: Option<JSObject<'a>>,
-        setter: Option<JSObject<'a>>,
+        getter: Option<ObjectRef>,
+        setter: Option<ObjectRef>,
     },
-    VarRef(JSVarRef<'a>),
-    /// TODO: use Box<PropertyInit> instead
+
+    /// TODO: use Box<PropertyLazy>
     LazyInit {
-        realm: JSContextWeakref<'a>,
-        init_type: LazyInit<'a>,
+        realm: GcWeak<ContextImpl>,
+        init_type: LazyInit,
         opaque: *mut c_void,
     },
 }
 
-impl<'a> Default for JSProperty<'a> {
+unsafe impl Collect for JSProperty {
+    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+        match self {
+            Self::Normal(v) => {
+                v.trace(tracer);
+            }
+            Self::GetSet { getter, setter } => {
+                if let Some(o) = getter {
+                    tracer.mark(o.gc_ref());
+                }
+                if let Some(o) = setter {
+                    tracer.mark(o.gc_ref());
+                }
+            }
+            Self::VarRef(vr) => {
+                vr.trace(tracer);
+            }
+            Self::LazyInit { .. } => {}
+        }
+    }
+}
+
+impl Default for JSProperty {
     fn default() -> Self {
         Self::Normal(JSValue::UNDEFINED)
     }
 }
 
-impl<'a> JSProperty<'a> {
+impl JSProperty {
     /// retrive property value
-    pub(super) fn value(&self, ctx: &JSContext<'a>, this_obj: &JSValue<'a>) -> JSResult<'a> {
+    pub(super) fn value(&self, ctx: &ContextImpl, this_obj: JSValue) -> JSResult {
         match self {
             Self::Normal(v) => {
                 debug_assert!(!v.is_exception());
-                Ok(v.clone())
+                Ok(*v)
             }
             Self::GetSet { getter, .. } => {
                 if let Some(fun) = getter {
-                    JSValue::Object(fun.clone()).call(ctx, this_obj, &[])
+                    fun.call(ctx, this_obj, &[])
                 } else {
                     Ok(JSValue::UNDEFINED)
                 }
@@ -292,43 +304,36 @@ impl<'a> JSProperty<'a> {
     }
 }
 
-impl<'a> JSObject<'a> {
+impl ObjectRef {
     /// check if object is extensible.
     /// in case `self` is a Proxy object, may return Err.
-    pub fn is_extensible(&self, ctx: &JSContext<'a>) -> Result<bool, i32> {
+    pub fn is_extensible(&self, ctx: &ContextImpl) -> Result<bool, i32> {
         self.as_Proxy()
             .map_or_else(|| Ok(self.flags().extensible()), |p| p.is_extensible(ctx))
     }
 
     /// test if property `prop` exists, check along proto chain.
-    pub fn has_property(&self, ctx: &JSContext<'a>, prop: &Atom) -> Result<bool, i32> {
-        let mut p = self.clone();
+    pub fn has_property(&self, ctx: &ContextImpl, prop: Atom) -> Result<bool, i32> {
+        let cx = unsafe { ContextRef::from_ref_unchecked(ctx) };
 
-        loop {
-            if p.flags().is_exotic()
-                && let Some(cb) = ctx.rt().class_registry[p.class_id() as usize]
+        for cur_obj in self.shape_proto_iter(true) {
+            if cur_obj.flags().is_exotic()
+                && let Some(cb) = ctx.rt().class_registry[cur_obj.class_id() as usize]
                     .exotic
                     .as_ref()
                     .and_then(|x| x.has_property)
             {
-                return cb(ctx, &p, prop);
+                return cb(cx, cur_obj, prop);
             }
 
-            if p.get_own_property(ctx, prop)?.is_some() {
+            if cur_obj.get_own_property(ctx, prop)?.is_some() {
                 return Ok(true);
             }
 
-            if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).contains(&p.class_id())
+            if (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_FLOAT64_ARRAY).contains(&cur_obj.class_id())
                 && prop.is_numeric_index(ctx)?
             {
                 return Ok(false);
-            }
-
-            // walk up proto chain
-            if let Some(up) = p.shape().unwrap().0.borrow().proto.clone() {
-                p = up;
-            } else {
-                break;
             }
         }
 
@@ -338,10 +343,10 @@ impl<'a> JSObject<'a> {
     /// copy and assign enumerable properties from `source` to `self`.
     /// equivelent to js `Object::assign(self, source)`
     pub fn copy_data_properties_from(
-        &self,
-        ctx: &JSContext<'a>,
-        source: &Self,
-        excluded: Option<&Self>,
+        &mut self,
+        ctx: &ContextImpl,
+        source: ObjectRef,
+        excluded: Option<ObjectRef>,
         setprop: bool,
     ) -> Result<(), i32> {
         let mut gpn_flags = JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK | JS_GPN_ENUM_ONLY;
@@ -359,15 +364,14 @@ impl<'a> JSObject<'a> {
 
         for k in source.get_own_property_names(ctx, gpn_flags)? {
             if let Some(excl) = excluded {
-                let skip = excl.get_own_property(ctx, &k.atom).map(|x| x.is_some())?;
-
+                let skip = excl.get_own_property(ctx, k.atom).map(|x| x.is_some())?;
                 if skip {
                     continue; // excluded prop, skip
                 }
             }
 
             if gpn_flags & JS_GPN_ENUM_ONLY == 0 {
-                if let Some(desc) = source.get_own_property(ctx, &k.atom)? {
+                if let Some(desc) = source.get_own_property(ctx, k.atom)? {
                     if desc.flags & JS_PROP_ENUMERABLE == 0 {
                         continue; // skip if non enumerable
                     }
@@ -376,11 +380,11 @@ impl<'a> JSObject<'a> {
                 }
             }
 
-            let val = source.get_property(ctx, &k.atom)?;
+            let val = source.get_property(ctx, k.atom)?;
             if setprop {
-                self.set_property(ctx, &k.atom, val)?;
+                self.set_property(ctx, k.atom, val)?;
             } else {
-                self.define_property_value(ctx, &k.atom, val, JS_PROP_C_W_E)?;
+                self.define_property_value(ctx, k.atom, val, JS_PROP_C_W_E)?;
             }
         }
 
@@ -391,14 +395,14 @@ impl<'a> JSObject<'a> {
     /// if _length_ property is null or undefined, returns 0.
     ///
     /// Returned length is in range \[0, MAX_SAFE_INTEGER\]
-    pub fn get_length_prop(&self, ctx: &JSContext<'a>) -> Result<i64, i32> {
-        self.get_property(ctx, &JS_ATOM_length)?.to_length(ctx)
+    pub fn get_length_prop(&self, ctx: &ContextImpl) -> Result<i64, i32> {
+        self.get_property(ctx, Atom::CONST_length)?.to_length(ctx)
     }
 }
 
-impl<'a> JSValue<'a> {
+impl JSValue {
     /// return Err() if exception (Proxy object only) or TRUE/FALSE
-    pub fn is_extensible(&self, ctx: &JSContext<'a>) -> Result<bool, i32> {
+    pub fn is_extensible(&self, ctx: &ContextImpl) -> Result<bool, i32> {
         if let Self::Object(p) = self {
             p.is_extensible(ctx)
         } else {
@@ -406,7 +410,7 @@ impl<'a> JSValue<'a> {
         }
     }
 
-    pub fn has_property(&self, ctx: &JSContext<'a>, prop: &Atom) -> Result<bool, i32> {
+    pub fn has_property(&self, ctx: &ContextImpl, prop: Atom) -> Result<bool, i32> {
         if let Self::Object(p) = self {
             p.has_property(ctx, prop)
         } else {
@@ -417,17 +421,17 @@ impl<'a> JSValue<'a> {
     /// copy and assign enumerable properties from `source` value to `self`.
     /// equivelent to js `Object::assign(self, source)`
     pub fn copy_data_properties_from(
-        &self,
-        ctx: &JSContext<'a>,
+        &mut self,
+        ctx: &ContextImpl,
         source: &Self,
         excluded: &Self,
         setprop: bool,
     ) -> Result<(), i32> {
         if let Self::Object(src_obj) = source {
             if let Self::Object(o) = self {
-                o.copy_data_properties_from(ctx, src_obj, excluded.as_object(), setprop)
-            } else if let JSValue::Object(p) = JS_GetPrototypePrimitive(ctx, self) {
-                p.copy_data_properties_from(ctx, src_obj, excluded.as_object(), setprop)
+                o.copy_data_properties_from(ctx, *src_obj, excluded.as_object().copied(), setprop)
+            } else if let JSValue::Object(mut p) = JS_GetPrototypePrimitive(ctx, self) {
+                p.copy_data_properties_from(ctx, *src_obj, excluded.as_object().copied(), setprop)
             } else {
                 ctx.throw_type_error_not_an_object();
                 Err(-1)
@@ -441,9 +445,8 @@ impl<'a> JSValue<'a> {
     /// if _length_ property is null or undefined, returns 0.
     ///
     /// Returned length is in range \[0, MAX_SAFE_INTEGER\]
-    pub fn get_length_prop(&self, ctx: &JSContext<'a>) -> Result<i64, i32> {
-        self.get_property(ctx, JS_ATOM_length.deref())?
-            .to_length(ctx)
+    pub fn get_length_prop(&self, ctx: &ContextImpl) -> Result<i64, i32> {
+        self.get_property(ctx, Atom::CONST_length)?.to_length(ctx)
     }
 }
 
@@ -495,13 +498,13 @@ pub const fn check_define_prop_flags(prop_flags: u32, flags: u32) -> bool {
 
 /// Get object `length` property as u32
 #[deprecated(note = "use JSValue::get_length_prop() instead")]
-pub fn js_get_length32<'a>(ctx: &JSContext<'a>, obj: &JSValue<'a>) -> Result<u32, i32> {
-    obj.get_property(ctx, JS_ATOM_length.deref())
+pub fn js_get_length32(ctx: &ContextImpl, obj: JSValue) -> Result<u32, i32> {
+    obj.get_property(ctx, Atom::CONST_length)
         .and_then(|v| v.to_u32(ctx))
 }
 
 /// Get object `length` property as i64
-#[deprecated(note = "use JSObject::get_length_prop() or JSValue::get_length_prop() instead")]
-pub fn js_get_length64<'a>(ctx: &JSContext<'a>, obj: &JSValue<'a>) -> Result<i64, i32> {
+#[deprecated(note = "use ObjectRef::get_length_prop() or JSValue::get_length_prop() instead")]
+pub fn js_get_length64(ctx: &ContextImpl, obj: JSValue) -> Result<i64, i32> {
     obj.get_length_prop(ctx)
 }

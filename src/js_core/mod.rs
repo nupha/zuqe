@@ -6,8 +6,8 @@ pub mod math;
 pub mod object;
 pub mod string;
 
-use crate::{context::JSContext, error::JSResult, function::CallContext};
+use crate::{context::ContextRef, error::JSResult, function::CallContext};
 
-pub fn js_get_this<'a>(_: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+pub fn js_get_this(_: ContextRef, cc: CallContext) -> JSResult {
     Ok(cc.this().clone())
 }

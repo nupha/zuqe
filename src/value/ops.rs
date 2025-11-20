@@ -1,18 +1,18 @@
 use crate::{
     JS_CLASS_PROXY,
-    atom::{AtomRef, consts::*},
-    context::JSContext,
-    object::{JSObject, ObjectPayload},
+    atom::Atom,
+    context::ContextImpl,
+    object::{ObjectPayload, ObjectRef},
     value::JSValue,
 };
 
-impl<'a> JSObject<'a> {
+impl ObjectRef {
     /// test if object `self` is instance of `ctor`.
     /// Equivalent to: `self instanceof ctor`
     pub(crate) fn ordinary_instance_of(
         &self,
-        ctx: &JSContext<'a>,
-        ctor: &JSValue<'a>,
+        ctx: &ContextImpl,
+        ctor: JSValue,
     ) -> Result<bool, i32> {
         if !ctor.is_function() {
             return Ok(false);
@@ -23,15 +23,16 @@ impl<'a> JSObject<'a> {
 
         if let ObjectPayload::BOUND_FUNCTION(b) = ctor.payload() {
             // bound function case
-            return self.instance_of(ctx, &b.func_obj);
+            return self.instance_of(ctx, b.func_obj);
         }
 
-        match ctor.get_property(ctx, &JS_ATOM_prototype)? {
+        match ctor.get_property(ctx, Atom::CONST_prototype)? {
             JSValue::Object(proto) => {
-                let mut p = self.clone();
+                let mut p = *self;
+
                 loop {
-                    if let Some(up) = p.shape().unwrap().0.borrow().proto.clone() {
-                        if up.eq(&proto) {
+                    if let Some(up) = p.shape().unwrap().proto {
+                        if up == proto {
                             break Ok(true);
                         }
                         p = up;
@@ -67,10 +68,10 @@ impl<'a> JSObject<'a> {
 
     /// Test if value `self` is instance of `ctor`.
     /// Equivalent to `self instanceof ctor`
-    pub fn instance_of(&self, ctx: &JSContext<'a>, ctor: &JSValue<'a>) -> Result<bool, i32> {
+    pub fn instance_of(&self, ctx: &ContextImpl, ctor: JSValue) -> Result<bool, i32> {
         if let Some(o) = ctor.as_object() {
             if let Some(r) =
-                o.invoke_defined(ctx, &JS_ATOM_Symbol_hasInstance, &[self.clone().into()])?
+                o.invoke_defined(ctx, Atom::CONST_Symbol_hasInstance, &[(*self).into()])?
             {
                 return r.and_then(|v| v.to_bool());
             } else {
@@ -88,60 +89,41 @@ impl<'a> JSObject<'a> {
     }
 }
 
-impl<'a> JSValue<'a> {
+impl JSValue {
     /// get typeof value, equivalent to js `typeof val`
     ///
     /// Note:
     /// returned atom is not cloned, if caller want keep reference, should clone it.
-    pub fn type_of(&self) -> AtomRef {
+    pub fn type_of(&self) -> Atom {
         match self {
-            Self::Int(_) | Self::Float64(_) => JS_ATOM_number,
-            Self::Bool(_) => JS_ATOM_boolean,
-            Self::String(_) => JS_ATOM_string,
+            Self::Int(_) | Self::Float64(_) => Atom::CONST_number,
+            Self::Bool(_) => Atom::CONST_boolean,
+            Self::String(_) => Atom::CONST_string,
             Self::Object(p) => {
                 if p.flags().is_htmldda() {
-                    JS_ATOM_undefined
+                    Atom::CONST_undefined
                 } else if self.is_function() {
-                    JS_ATOM_function
+                    Atom::CONST_function
                 } else {
-                    JS_ATOM_object
+                    Atom::CONST_object
                 }
             }
-            JSValue::NULL => JS_ATOM_object,
-            Self::UNDEFINED => JS_ATOM_undefined,
-            JSValue::Symbol(_) => JS_ATOM_symbol,
-            _ => JS_ATOM_unknown,
+            Self::NULL => Atom::CONST_object,
+            Self::UNDEFINED => Atom::CONST_undefined,
+            Self::Symbol(_) => Atom::CONST_symbol,
+            _ => Atom::CONST_unknown,
         }
     }
 
     /// Test if value `self` is instance of `ctor`.
     /// Equivalent to `self instanceof ctor`
-    pub fn instance_of(&self, ctx: &JSContext<'a>, ctor: &JSValue<'a>) -> Result<bool, i32> {
-        // if ctor.is_object() {
-        //     let method = ctor.get_property(ctx, JS_ATOM_Symbol_hasInstance)?;
-        //     if !method.is_undefined_or_null() {
-        //         return method
-        //             .call(ctx, &ctor, std::slice::from_ref(self))
-        //             .and_then(|v| v.to_bool());
-        //     }
-        // }
-
-        // if ctor.is_function() {
-        //     // legacy case
-        //     if let Some(o) = self.as_object() {
-        //         o.ordinary_instance_of(ctx, ctor)
-        //     } else {
-        //         Ok(false)
-        //     }
-        // } else {
-        //     ctx.throw_type_error("invalid 'instanceof' right operand");
-        //     Err(-1)
-        // }
-
+    pub fn instance_of(&self, ctx: &ContextImpl, ctor: JSValue) -> Result<bool, i32> {
         if let Some(o) = ctor.as_object() {
-            if let Some(r) =
-                o.invoke_defined(ctx, &JS_ATOM_Symbol_hasInstance, std::slice::from_ref(self))?
-            {
+            if let Some(r) = o.invoke_defined(
+                ctx,
+                Atom::CONST_Symbol_hasInstance,
+                std::slice::from_ref(self),
+            )? {
                 return r.and_then(|v| v.to_bool());
             } else {
                 // no Symbol.hasInstance method: check legacy way

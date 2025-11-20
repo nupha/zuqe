@@ -1,7 +1,7 @@
-use std::ops::{Deref, DerefMut};
+use std::ops::DerefMut;
 
 use crate::{
-    atom::{Atom, JS_ATOM_NULL, consts::*},
+    atom::Atom,
     branch_hints::unlikely,
     bytecode::{OpCode, OpCodeTemp},
     context::{JS_MODE_STRICT, JS_MODE_STRIP},
@@ -51,7 +51,7 @@ impl<'s> JSParseState<'s> {
         ptr: *const u8,
         function_line_num: i32,
         is_expr: bool,
-    ) -> Result<Box<JSFunctionDef<'s>>, i32> {
+    ) -> Result<Box<JSFunctionDef>, i32> {
         // save original cur_func
         let parent_fd = self.cur_func_def;
 
@@ -64,7 +64,7 @@ impl<'s> JSParseState<'s> {
             function_line_num,
         )?;
 
-        sub_fd.func_name = func_name.clone();
+        sub_fd.func_name = func_name;
         sub_fd.attrs.has_prototype = matches!(
             func_type,
             JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT
@@ -156,7 +156,7 @@ impl<'s> JSParseState<'s> {
                 return Err(-1);
             }
 
-            fd1.add_arg(&self.ctx, &self.token.atom().unwrap())?;
+            fd1.add_arg(&self.ctx, self.token.atom().unwrap())?;
             fd1.attrs.defined_arg_count = 1;
         } else if func_type != JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT {
             if self.token.val == '(' as i32 {
@@ -193,7 +193,7 @@ impl<'s> JSParseState<'s> {
                         fd1.emit_u16(fd1.args.len() as _);
                     } else {
                         // unnamed arg for destructuring
-                        let idx = fd1.add_arg(&self.ctx, &Atom::NULL)? as i32;
+                        let idx = fd1.add_arg(&self.ctx, Atom::NULL)? as i32;
                         fd1.emit_op(OpCode::GET_ARG, self.last_line_num);
                         fd1.emit_u16(idx as _);
                     }
@@ -224,7 +224,7 @@ impl<'s> JSParseState<'s> {
 
                     let name = self.token.atom().unwrap();
 
-                    if name.to_ref() == JS_ATOM_yield
+                    if name == Atom::CONST_yield
                         && fd1.attrs.func_kind == JSFunctionKindEnum::JS_FUNC_GENERATOR
                     {
                         self.throw_reserved_identifier_error();
@@ -232,11 +232,11 @@ impl<'s> JSParseState<'s> {
                     }
                     if fd1.has_parameter_expressions {
                         // fd1 is the cur_func
-                        self.define_var_cur_func(&name, JSVarDefEnum::JS_VAR_DEF_LET)?;
+                        self.define_var_cur_func(name, JSVarDefEnum::JS_VAR_DEF_LET)?;
                     }
 
                     /* XXX: could avoid allocating an argument if rest is true */
-                    let idx = fd1.add_arg(&self.ctx, &name)? as i32;
+                    let idx = fd1.add_arg(&self.ctx, name)? as i32;
                     self.next_token()?;
 
                     if rest {
@@ -246,7 +246,7 @@ impl<'s> JSParseState<'s> {
                         if fd1.has_parameter_expressions {
                             fd1.emit_op(OpCode::DUP, self.last_line_num);
                             fd1.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT, self.last_line_num);
-                            fd1.emit_atom(name.clone());
+                            fd1.emit_atom(name);
                             fd1.emit_u16(fd1.scope_level as _);
                         }
                         fd1.emit_op(OpCode::PUT_ARG, self.last_line_num);
@@ -272,7 +272,7 @@ impl<'s> JSParseState<'s> {
 
                         self.parse_assign_expr()?;
 
-                        self.set_object_name(name.clone());
+                        self.set_object_name(name);
 
                         fd1.emit_op(OpCode::DUP, self.last_line_num);
                         fd1.emit_op(OpCode::PUT_ARG, self.last_line_num);
@@ -280,7 +280,7 @@ impl<'s> JSParseState<'s> {
 
                         fd1.emit_label(label, self.last_line_num);
                         fd1.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT, self.last_line_num);
-                        fd1.emit_atom(name.clone());
+                        fd1.emit_atom(name);
                         fd1.emit_u16(fd1.scope_level as _);
                     } else {
                         if !has_opt_arg {
@@ -291,7 +291,7 @@ impl<'s> JSParseState<'s> {
                             fd1.emit_op(OpCode::GET_ARG, self.last_line_num);
                             fd1.emit_u16(idx as _);
                             fd1.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT, self.last_line_num);
-                            fd1.emit_atom(name.clone());
+                            fd1.emit_atom(name);
                             fd1.emit_u16(fd1.scope_level as _);
                         }
                     }
@@ -328,24 +328,24 @@ impl<'s> JSParseState<'s> {
             while idx >= 0 {
                 let (scope_level, var_name, scope_next) = {
                     let vd = fd1.vars.get(idx as usize).unwrap();
-                    (vd.scope_level, vd.var_name.to_ref(), vd.scope_next)
+                    (vd.scope_level, vd.var_name, vd.scope_next)
                 };
 
                 if scope_level != fd1.scope_level {
                     break;
                 }
 
-                if fd1.find_var(var_name.deref()).is_none() {
-                    fd1.add_var(&self.ctx, var_name.deref())?;
+                if fd1.find_var(var_name).is_none() {
+                    fd1.add_var(&self.ctx, var_name)?;
 
-                    let vname = fd1.vars.get(idx as usize).unwrap().var_name.clone();
+                    let vname = fd1.vars.get(idx as usize).unwrap().var_name;
 
                     fd1.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR, self.last_line_num);
-                    fd1.emit_atom(vname.clone());
+                    fd1.emit_atom(vname);
                     fd1.emit_u16(fd1.scope_level as _);
 
                     fd1.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR, self.last_line_num);
-                    fd1.emit_atom(vname.clone());
+                    fd1.emit_atom(vname);
                     fd1.emit_u16(0);
                 }
 
@@ -379,7 +379,7 @@ impl<'s> JSParseState<'s> {
         if self.token.val == TOK_ARROW {
             self.next_token()?;
             if self.token.val != CHAR_CURLY_L {
-                self.parse_function_check_names(fd1, &func_name)?;
+                self.parse_function_check_names(fd1, func_name)?;
                 self.parse_assign_expr()?;
 
                 fd1.emit_op(
@@ -424,7 +424,7 @@ impl<'s> JSParseState<'s> {
         self.parse_directives()?;
 
         // in strict_mode, check function and argument names
-        self.parse_function_check_names(fd1, &func_name)?;
+        self.parse_function_check_names(fd1, func_name)?;
 
         while self.token.val != CHAR_CURLY_R {
             self.parse_source_element()?;
@@ -471,7 +471,7 @@ impl<'s> JSParseState<'s> {
         ptr: *const u8,
         function_line_num: i32,
         export_flag: JSParseExportEnum,
-        pfd: *mut *mut JSFunctionDef<'s>,
+        pfd: *mut *mut JSFunctionDef,
     ) -> Result<(), i32> {
         let is_expr = !matches!(
             func_type,
@@ -490,7 +490,7 @@ impl<'s> JSParseState<'s> {
             | JSParseFunctionEnum::JS_PARSE_FUNC_VAR
             | JSParseFunctionEnum::JS_PARSE_FUNC_EXPR => {
                 if func_kind == JSFunctionKindEnum::JS_FUNC_NORMAL
-                    && self.token_is_pseudo_keyword(JS_ATOM_async)
+                    && self.token_is_pseudo_keyword(Atom::CONST_async)
                     && self.peek_token(true) != b'\n' as i32
                 {
                     self.next_token()?;
@@ -511,10 +511,10 @@ impl<'s> JSParseState<'s> {
                 if self.token.val == TOK_IDENT {
                     let atom = self.token.atom().unwrap();
                     if self.token.data.is_reserved()
-                        || (atom.eq(&JS_ATOM_yield)
+                        || (atom == Atom::CONST_yield
                             && func_type == JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
                             && func_kind as u8 & JSFunctionKindEnum::JS_FUNC_GENERATOR as u8 != 0)
-                        || (atom.eq(&JS_ATOM_await)
+                        || (atom == Atom::CONST_await
                             && ((func_type == JSParseFunctionEnum::JS_PARSE_FUNC_EXPR
                                 && (func_kind as u8 & JSFunctionKindEnum::JS_FUNC_ASYNC as u8)
                                     != 0)
@@ -553,7 +553,7 @@ impl<'s> JSParseState<'s> {
                 JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT
                     | JSParseFunctionEnum::JS_PARSE_FUNC_VAR
             )
-            && let Some(v) = cur_fd.find_global_var(&func_name)
+            && let Some(v) = cur_fd.find_global_var(func_name)
             && v.scope_level == cur_fd.scope_level
         {
             self.throw_syntax_error("invalid redefinition of global identifier in module code");
@@ -561,15 +561,15 @@ impl<'s> JSParseState<'s> {
         }
 
         if func_type == JSParseFunctionEnum::JS_PARSE_FUNC_VAR {
-            let func_idx = cur_fd.find_var(&func_name).map_or(-1, |x| x as i32);
+            let func_idx = cur_fd.find_var(func_name).map_or(-1, |x| x as i32);
 
             if cur_fd.attrs.js_mode & JS_MODE_STRICT as u8 == 0
                 && func_kind == JSFunctionKindEnum::JS_FUNC_NORMAL
                 && cur_fd
-                    .find_lexical_decl(&func_name, cur_fd.scope_first, false)
+                    .find_lexical_decl(func_name, cur_fd.scope_first, false)
                     .is_none()
                 && !(func_idx >= 0 && func_idx & ARGUMENT_VAR_OFFSET != 0)
-                && !(func_name.eq(&JS_ATOM_arguments) && cur_fd.has_arguments_binding)
+                && !(func_name == Atom::CONST_arguments && cur_fd.has_arguments_binding)
             {
                 create_func_var = true;
             }
@@ -580,7 +580,7 @@ impl<'s> JSParseState<'s> {
                 && cur_fd.scope_level == cur_fd.body_scope
             {
                 // avoid creating a lexical variable in the global scope. XXX: check annex B
-                if let Some(hf) = cur_fd.find_global_var(&func_name) {
+                if let Some(hf) = cur_fd.find_global_var(func_name) {
                     /* XXX: should check scope chain */
                     if hf.scope_level == cur_fd.scope_level {
                         self.throw_syntax_error("invalid redefinition of global identifier");
@@ -593,7 +593,7 @@ impl<'s> JSParseState<'s> {
                 // now fd0 is still the cur_func
                 debug_assert_eq!(cur_fd as *mut JSFunctionDef, self.cur_func_def);
                 lexical_func_idx = self.define_var_cur_func(
-                    &func_name,
+                    func_name,
                     if func_kind != JSFunctionKindEnum::JS_FUNC_NORMAL {
                         JSVarDefEnum::JS_VAR_DEF_NEW_FUNCTION_DECL
                     } else {
@@ -632,7 +632,7 @@ impl<'s> JSParseState<'s> {
         // create function object from fd1
         {
             // reload the real sub func name
-            let sub_func_name = &sub_fd.func_name;
+            let sub_func_name = sub_fd.func_name;
 
             // the real object will be set at the end of the compilation
             let cp_idx = self
@@ -655,7 +655,7 @@ impl<'s> JSParseState<'s> {
 
                     if sub_func_name.is_null() {
                         self.emit_op(OpCode::SET_NAME);
-                        self.emit_u32(JS_ATOM_NULL.0);
+                        self.emit_atom(Atom::NULL);
                     }
                 }
             } else if func_type == JSParseFunctionEnum::JS_PARSE_FUNC_VAR {
@@ -667,10 +667,9 @@ impl<'s> JSParseState<'s> {
                         // the global variable must be defined at the start of the function
                         let js_mode = self.cur_func().attrs.js_mode;
 
-                        let hf = {
-                            let ctx = self.ctx.clone();
-                            self.cur_func_mut().add_global_var(&ctx, sub_func_name)?
-                        };
+                        let hf = self
+                            .cur_func_mut()
+                            .add_global_var(&self.ctx, sub_func_name)?;
 
                         /* it is considered as defined at the top level
                         (needed for annex B.3.3.4 and B.3.3.5
@@ -681,19 +680,18 @@ impl<'s> JSParseState<'s> {
                         /* store directly into global var, bypass lexical scope */
                         self.emit_op(OpCode::DUP);
                         self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR);
-                        self.emit_atom(sub_func_name.clone());
+                        self.emit_atom(sub_func_name);
                         self.emit_u16(0);
                     } else {
                         // do not call define_var to bypass lexical scope check
                         if self.cur_func().find_var(sub_func_name).is_none() {
-                            let ctx = self.ctx.clone();
-                            self.cur_func_mut().add_var(&ctx, sub_func_name)?;
+                            self.cur_func_mut().add_var(&self.ctx, sub_func_name)?;
                         };
 
                         /* store directly into local var, bypass lexical catch scope */
                         self.emit_op(OpCode::DUP);
                         self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR);
-                        self.emit_atom(sub_func_name.clone());
+                        self.emit_atom(sub_func_name);
                         self.emit_u16(0);
                     }
                 }
@@ -710,7 +708,7 @@ impl<'s> JSParseState<'s> {
                     /* store function object into its lexical name */
                     /* XXX: could use OP_put_loc directly */
                     self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
-                    self.emit_atom(sub_func_name.clone());
+                    self.emit_atom(sub_func_name);
                     self.emit_u16(self.cur_func().scope_level as _);
                 }
             } else if !self.cur_func().is_global_var {
@@ -726,7 +724,7 @@ impl<'s> JSParseState<'s> {
                 }
             } else {
                 let func_var_name = if sub_func_name.is_null() {
-                    JS_ATOM__default_.deref() // export default
+                    Atom::CONST__default_ // export default
                 } else {
                     sub_func_name
                 };
@@ -743,7 +741,7 @@ impl<'s> JSParseState<'s> {
                         if export_flag == JSParseExportEnum::JS_PARSE_EXPORT_NAMED {
                             func_var_name
                         } else {
-                            JS_ATOM_default.deref()
+                            Atom::CONST_default
                         },
                         ExportType::JS_EXPORT_TYPE_LOCAL {
                             var_idx: u16::MAX,
@@ -785,20 +783,20 @@ impl<'s> JSParseState<'s> {
         )
     }
 
-    fn parse_function_check_names(&self, fd: &JSFunctionDef, func_name: &Atom) -> Result<(), i32> {
+    fn parse_function_check_names(&self, fd: &JSFunctionDef, func_name: Atom) -> Result<(), i32> {
         if fd.attrs.js_mode & JS_MODE_STRICT as u8 != 0 {
             if !fd.attrs.has_simple_parameter_list && fd.has_use_strict {
                 self.throw_syntax_error(
                     "'use strict' not allowed in function with default or destructuring parameter",
                 );
                 return Err(-1);
-            } else if matches!(func_name.to_ref(), JS_ATOM_eval | JS_ATOM_arguments) {
+            } else if matches!(func_name, Atom::CONST_eval | Atom::CONST_arguments) {
                 self.throw_syntax_error("invalid function name in strict code");
                 return Err(-1);
             } else if fd
                 .args
                 .iter()
-                .any(|vd| matches!(vd.var_name.to_ref(), JS_ATOM_eval | JS_ATOM_arguments))
+                .any(|vd| matches!(vd.var_name, Atom::CONST_eval | Atom::CONST_arguments))
             {
                 self.throw_syntax_error("invalid argument name in strict code");
                 return Err(-1);
@@ -818,17 +816,12 @@ impl<'s> JSParseState<'s> {
         {
             for (idx, name) in fd.args.iter().enumerate().filter_map(|(i, vd)| {
                 if !vd.var_name.is_null() {
-                    Some((i, vd.var_name.to_ref()))
+                    Some((i, vd.var_name))
                 } else {
                     None
                 }
             }) {
-                if fd
-                    .args
-                    .iter()
-                    .take(idx)
-                    .any(|d| d.var_name.to_ref() == name)
-                {
+                if fd.args.iter().take(idx).any(|d| d.var_name.eq(&name)) {
                     self.throw_syntax_error("duplicate argument names not allowed in this context");
                     return Err(-1);
                 }
@@ -838,7 +831,7 @@ impl<'s> JSParseState<'s> {
                 if fd
                     .vars
                     .iter()
-                    .any(|d| d.var_name.to_ref() == name && d.scope_level == 0)
+                    .any(|d| d.var_name.eq(&name) && d.scope_level == 0)
                 {
                     self.throw_syntax_error("duplicate argument names not allowed in this context");
                     return Err(-1);

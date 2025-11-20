@@ -3,11 +3,11 @@ use std::ffi::c_void;
 use zhuque::{
     JS_CGETSET_NATIVE_DEF,
     class::{ClassDef, ClassID},
-    context::JSContext,
+    context::ContextRef,
     error::JSResult,
     function::{CallContext, FieldDef, NativeFunctionType},
-    object::{JS_PROP_C_W_E, JSObject},
-    runtime::JSRuntime,
+    object::{JS_PROP_C_W_E, ObjectRef},
+    runtime::RuntimeImpl,
     value::JSValue,
 };
 
@@ -17,18 +17,18 @@ pub struct PointData {
     pub y: i32,
 }
 
-fn point_constructor<'a>(ctx: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+fn point_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
     let class_id = cc.magic() as ClassID;
 
-    let x = cc.arg(0).to_i32(ctx)?;
-    let y = cc.arg(1).to_i32(ctx)?;
+    let x = cc.arg(0).to_i32(&ctx)?;
+    let y = cc.arg(1).to_i32(&ctx)?;
     let p = Box::new(PointData { x, y });
 
-    let obj = ctx.new_instance(class_id, cc.this(), Box::into_raw(p).cast())?;
+    let obj = ctx.new_instance(class_id, *cc.this(), Box::into_raw(p).cast())?;
     Ok(obj.into())
 }
 
-fn point_getset<'a>(_: &JSContext<'a>, cc: CallContext<'_, 'a>) -> JSResult<'a> {
+fn point_getset(_: ContextRef, cc: CallContext) -> JSResult {
     if let Some(p) = cc.this().opaque_ref::<PointData>() {
         match cc.magic() {
             0 => Ok(p.x.into()),
@@ -45,18 +45,18 @@ static class_point_proto: [FieldDef; 2] = [
     JS_CGETSET_NATIVE_DEF!("y", point_getset, NONE, 1),
 ];
 
-pub fn register_class_point(rt: &mut JSRuntime) -> Result<ClassID, i32> {
+pub fn register_class_point(rt: &mut RuntimeImpl) -> Result<ClassID, i32> {
     // register class
     let class_id = rt.register_class(
         ClassDef::new("Point")
             .initialize(
-                |ctx: &JSContext, class_id: ClassID| -> Result<Option<JSObject>, i32> {
+                |mut ctx: ContextRef, class_id: ClassID| -> Result<Option<ObjectRef>, i32> {
                     // create prototype
-                    let proto = ctx.create_base_object().unwrap();
-                    proto.install_field_defs(ctx, &class_point_proto)?;
+                    let mut proto = ctx.create_base_object().unwrap();
+                    proto.install_field_defs(&ctx, &class_point_proto)?;
 
                     // create constructor
-                    let ctor: JSValue = ctx
+                    let mut ctor: JSValue = ctx
                         .create_native_function(
                             NativeFunctionType::ConstructorOrFunc(point_constructor),
                             "Point",
@@ -64,13 +64,13 @@ pub fn register_class_point(rt: &mut JSRuntime) -> Result<ClassID, i32> {
                             class_id as i16,
                         )?
                         .into();
-                    ctor.install_field_defs(ctx, &class_point_proto)?;
+                    ctor.install_field_defs(&ctx, &class_point_proto)?;
 
-                    ctx.bind_ctor_proto(&ctor, &proto.clone().into())?;
+                    ctx.bind_ctor_proto(ctor, proto.into())?;
 
                     // expose ctor to global
                     ctx.global_obj().define_property_value_str(
-                        ctx,
+                        &ctx,
                         "Point",
                         ctor,
                         JS_PROP_C_W_E,
@@ -79,7 +79,7 @@ pub fn register_class_point(rt: &mut JSRuntime) -> Result<ClassID, i32> {
                     Ok(Some(proto))
                 },
             )
-            .free(|_: &mut JSRuntime, opaque: *mut c_void, id: usize| {
+            .free(|_: &mut RuntimeImpl, opaque: *mut c_void, id: usize| {
                 debug_assert!(!opaque.is_null());
                 unsafe {
                     let p = Box::from_raw(opaque.cast::<PointData>());

@@ -1,14 +1,14 @@
-use std::{ops::Deref, ptr::NonNull};
+use std::ptr::NonNull;
 
 use crate::{
-    atom::{Atom, consts::JS_ATOM_constructor},
-    context::JSContext,
+    atom::Atom,
+    context::{ContextImpl, ContextRef},
     error::JSResult,
     function::{FieldDef, NativeFieldDetail},
     module::ModuleDef,
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_LAZYINIT, JS_PROP_TMASK, JS_PROP_WRITABLE,
-        JSObject,
+        ObjectRef,
     },
     value::JSValue,
 };
@@ -16,29 +16,26 @@ use crate::{
 use super::JSProperty;
 
 #[repr(u8)]
-#[derive(Debug, Clone)]
-pub enum LazyInit<'a> {
+#[derive(Debug)]
+pub enum LazyInit {
     /// Build prototype and set as constructor for target object
     Prototype,
     /// Build value from field def.
     Prop(NonNull<FieldDef>),
     /// Build module namespace object
-    ModuleNS(ModuleDef<'a>),
+    ModuleNS(ModuleDef),
 }
 
-impl<'a> LazyInit<'a> {
+impl LazyInit {
     /// apply init. returns instantiated value.
-    pub fn instantiate(&self, ctx: &JSContext<'a>, this_obj: &JSObject<'a>) -> JSResult<'a> {
+    pub fn instantiate(&mut self, ctx: &ContextImpl, this_obj: ObjectRef) -> JSResult {
         match self {
             Self::Prototype => {
-                let obj = ctx.create_base_object()?;
-                // TODO: mark cyclic reference
-                // set_cycle_flag(ctx, &obj);
-                // set_cycle_flag(ctx, this_val);
+                let mut obj = ctx.create_base_object()?;
                 obj.define_property_value(
                     ctx,
-                    JS_ATOM_constructor.deref(),
-                    JSValue::Object(this_obj.clone()),
+                    Atom::CONST_constructor,
+                    JSValue::Object(this_obj),
                     JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
                 )?;
                 Ok(obj.into())
@@ -54,7 +51,7 @@ impl<'a> LazyInit<'a> {
                         .into(),
                     NativeFieldDetail::Str(s) => ctx.create_atom_string(s)?.into(),
                     NativeFieldDetail::Object(list) => {
-                        let obj = ctx.create_base_object()?;
+                        let mut obj = ctx.create_base_object()?;
                         obj.install_field_defs(ctx, list.as_ref())?;
                         obj.into()
                     }
@@ -69,41 +66,35 @@ impl<'a> LazyInit<'a> {
     }
 }
 
-impl<'a> JSProperty<'a> {
+impl JSProperty {
     /// Instantiate lazy object, and set instantiated value back to the property value slot as normal value,
     /// change shape property kind to NORMAL.
     ///
-    /// - `master_obj` is the object that owns this `self` property.
+    /// - `obj` is the object that owns this `self` property.
     /// - `this_obj` is the `this` bind used to call instantiate function.
     /// - `idx` is the index of the property in the shape.
     ///
     /// Note: will panic if property is not lazy type.
     pub(super) fn instantiate(
         &mut self,
-        master_obj: &JSObject<'a>,
+        mut obj: ObjectRef,
         idx: usize,
-        this_obj: &JSObject<'a>,
-    ) -> JSResult<'a> {
+        this_obj: ObjectRef,
+    ) -> JSResult {
         if let JSProperty::LazyInit {
             realm, init_type, ..
-        } = self.clone()
+        } = self
         {
-            let realm = realm.upgrade().unwrap();
-            master_obj.shape_prepare_update(&realm)?;
-            let val = init_type.instantiate(&realm, this_obj);
+            let realm = ContextRef::from(realm.upgrade(obj.rt().gc_heap()).unwrap());
 
             // modify shape property kind to NORMAL
-            master_obj.shape().unwrap().with_mut(|sh| {
-                if let Some((_, prs)) = sh.prop_defs.get_index_mut(idx) {
-                    prs.set_flags(prs.flags() & !JS_PROP_TMASK);
-                } else {
-                    unreachable!();
-                }
-            });
+            obj.modify_shape_property_index_flags(&realm, idx, |f| f & !JS_PROP_TMASK)?;
+
+            let val = init_type.instantiate(&realm, this_obj);
 
             // set instantiated value back
             if let Ok(val) = val {
-                *self = JSProperty::Normal(val.clone());
+                *self = JSProperty::Normal(val);
                 Ok(val)
             } else {
                 *self = JSProperty::Normal(JSValue::UNDEFINED);
@@ -115,13 +106,13 @@ impl<'a> JSProperty<'a> {
     }
 }
 
-impl<'a> JSObject<'a> {
+impl ObjectRef {
     /// define an AutoInit property on object
     pub fn define_lazy_property(
-        &self,
-        ctx: &JSContext<'a>,
-        prop: &Atom,
-        lazy_init: LazyInit<'a>,
+        &mut self,
+        ctx: &ContextImpl,
+        prop: Atom,
+        lazy_init: LazyInit,
         flags: u32,
     ) -> Result<(), i32> {
         debug_assert!(
@@ -133,11 +124,11 @@ impl<'a> JSObject<'a> {
 
         self.add_own_property(
             ctx,
-            prop.clone(),
+            prop,
             (flags & JS_PROP_C_W_E) | JS_PROP_LAZYINIT,
             JSProperty::LazyInit {
                 init_type: lazy_init,
-                realm: ctx.downgrade(),
+                realm: unsafe { ContextRef::from_ref_unchecked(ctx).downgrade() },
                 opaque: std::ptr::null_mut(),
             },
         )

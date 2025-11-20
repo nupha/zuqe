@@ -1,24 +1,23 @@
-use std::{cell::RefCell, ffi::c_void, ops::Deref};
+use std::ffi::c_void;
 
+use gc_lite::{Collect, GcRef};
 use smallvec::SmallVec;
 
 use crate::{
     JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
     JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION,
-    atom::{
-        Atom,
-        consts::{JS_ATOM_length, JS_ATOM_name, JS_ATOM_prototype},
-    },
+    atom::Atom,
     class::ClassID,
-    context::JSContext,
+    context::{ContextImpl, ContextRef},
     error::JSResult,
     eval::JS_EVAL_TYPE_INDIRECT,
     function::{Bytecode, CallContext, JS_CALL_FLAG_COPY_ARGV, JSVarRef},
     object::{
-        JS_PROP_CONFIGURABLE, JS_PROP_NORMAL, JS_PROP_TMASK, JSObject, JSProperty, ObjectPayload,
+        JS_PROP_CONFIGURABLE, JS_PROP_NORMAL, JS_PROP_TMASK, JSProperty, ObjectImpl, ObjectPayload,
+        ObjectRef,
     },
     object_cast,
-    runtime::{JSRuntime, js_check_stack_overflow},
+    runtime::{RuntimeImpl, js_check_stack_overflow},
     stack_frame::StackFrame,
     value::JSValue,
 };
@@ -95,54 +94,64 @@ pub enum FuncCallType {
 /// * generator function,
 /// * async generator function
 #[derive(Debug)]
-pub struct BCFuncPayload<'a> {
-    bytecode: Bytecode<'a>,
+pub struct BCFuncPayload {
+    bytecode: Bytecode,
 
-    /// closure variable refrences
-    pub(crate) var_refs: RefCell<Vec<JSVarRef<'a>>>,
+    /// closure variable references
+    pub(crate) var_refs: Vec<JSVarRef>,
 
     /// 函数对象关联的宿主对象，主要用于以下场景：
     /// - 私有字段的访问控制：当类方法需要访问私有字段时，需要通过home object定位到对应的私有品牌（private brand）进行权限验证。
     /// - for 'super' access
-    home_object: RefCell<Option<JSObject<'a>>>,
+    home_object: Option<ObjectRef>,
 }
 
-impl<'a> BCFuncPayload<'a> {
-    pub fn new(bytecode: Bytecode<'a>, var_refs: Vec<JSVarRef<'a>>) -> Box<Self> {
-        Box::new(BCFuncPayload {
+unsafe impl Collect for BCFuncPayload {
+    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+        self.bytecode.trace(tracer);
+        self.var_refs.trace(tracer);
+        if let Some(o) = self.home_object.as_ref() {
+            o.trace(tracer);
+        }
+    }
+}
+
+impl BCFuncPayload {
+    pub fn new(bytecode: Bytecode, var_refs: Vec<JSVarRef>) -> Box<Self> {
+        Box::new(Self {
             bytecode,
-            var_refs: RefCell::new(var_refs),
-            home_object: RefCell::new(None),
+            var_refs,
+            home_object: None,
         })
     }
 
     /// get function bytecode
     #[inline(always)]
-    pub const fn bytecode(&self) -> &Bytecode<'a> {
-        &self.bytecode
+    pub const fn bytecode(&self) -> Bytecode {
+        self.bytecode
     }
 
     /// get function bytecode realm
     #[inline(always)]
-    pub fn realm(&self) -> Option<JSContext<'a>> {
+    pub fn realm(&self) -> Option<ContextRef> {
         self.bytecode.realm()
     }
 
     #[inline(always)]
-    pub fn home_object(&self) -> Option<JSObject<'a>> {
-        self.home_object.borrow().clone()
+    pub const fn home_object(&self) -> Option<ObjectRef> {
+        self.home_object
     }
 
-    pub fn set_home_object(&self, obj: Option<JSObject<'a>>) {
-        *self.home_object.borrow_mut() = obj;
+    pub(crate) const fn set_home_object(&mut self, obj: Option<ObjectRef>) {
+        self.home_object = obj;
     }
 }
 
 /// represents a bytecode function, generator function, async function or async generator function,
 /// which have bytecode.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 #[repr(transparent)]
-pub struct BCFunction<'a>(pub(super) JSObject<'a>);
+pub struct BCFunction(pub(super) GcRef<ObjectImpl>);
 
 object_cast!(
     BCFunction,
@@ -152,7 +161,7 @@ object_cast!(
         | JS_CLASS_ASYNC_GENERATOR_FUNCTION
 );
 
-impl<'a> BCFunction<'a> {
+impl BCFunction {
     #[inline(always)]
     pub fn is_async(&self) -> bool {
         matches!(
@@ -171,22 +180,28 @@ impl<'a> BCFunction<'a> {
 
     /// get bcfunction payload
     #[inline]
-    pub fn payload(&self) -> &BCFuncPayload<'a> {
-        self.0.payload().bc_function().unwrap()
+    pub fn payload(&self) -> &BCFuncPayload {
+        unsafe { self.0.as_ref().payload().bc_function().unwrap() }
     }
 
-    pub fn method_set_home_object(&self, home_obj: Option<&JSObject<'a>>) {
-        let fo = self.payload();
+    /// get bcfunction payload
+    #[inline]
+    pub fn payload_mut(&mut self) -> &mut BCFuncPayload {
+        unsafe { self.0.as_mut().payload_mut().bc_function_mut().unwrap() }
+    }
+
+    pub(crate) fn method_set_home_object(&mut self, home_obj: Option<ObjectRef>) {
+        let fo = self.payload_mut();
         if fo.bytecode().need_home_object() {
-            fo.set_home_object(home_obj.cloned());
+            fo.set_home_object(home_obj);
         }
     }
 }
 
-impl<'a> JSObject<'a> {
+impl ObjectImpl {
     /// check if `self` is a function or a callable object.
     /// raise exception if not.
-    pub fn ensure_function(&self, ctx: &JSContext) -> Result<&Self, i32> {
+    pub fn ensure_function(&self, ctx: &ContextImpl) -> Result<&Self, i32> {
         if self.is_function() {
             Ok(self)
         } else {
@@ -196,10 +211,10 @@ impl<'a> JSObject<'a> {
     }
 }
 
-impl<'a> JSValue<'a> {
+impl JSValue {
     /// check if value `self` is a function or a callable object.
     /// raise exception if not.
-    pub fn ensure_function(&self, ctx: &JSContext) -> Result<&Self, i32> {
+    pub fn ensure_function(&self, ctx: &ContextImpl) -> Result<&Self, i32> {
         if self.is_function() {
             Ok(self)
         } else {
@@ -209,57 +224,55 @@ impl<'a> JSValue<'a> {
     }
 }
 
-/// TODO: change func_obj type to JSObject
-pub fn JS_GetFunctionRealm<'a>(
-    ctx: &JSContext<'a>,
-    func_obj: &JSValue<'a>,
-) -> Result<JSContext<'a>, i32> {
+/// TODO: change func_obj type to ObjectRef
+pub fn JS_GetFunctionRealm(ctx: ContextRef, func_obj: JSValue) -> Result<ContextRef, i32> {
     if !func_obj.is_object() {
-        return Ok(ctx.clone());
+        return Ok(ctx);
     }
 
-    let realm: JSContext;
+    let realm: ContextRef;
     let p = unsafe { func_obj.as_object_unchecked() };
 
     match p.payload() {
         ObjectPayload::C_FUNCTION(cfunc) => {
-            realm = cfunc.realm.upgrade().unwrap_or(ctx.clone());
+            realm = cfunc
+                .realm
+                .upgrade(ctx.rt().gc_heap())
+                .map_or(ctx, ContextRef::from);
         }
         ObjectPayload::BYTECODE_FUNCTION(fo)
         | ObjectPayload::GENERATOR_FUNCTION(fo)
         | ObjectPayload::ASYNC_FUNCTION(fo)
         | ObjectPayload::ASYNC_GENERATOR_FUNCTION(fo) => {
-            realm = fo.bytecode().realm().unwrap_or(ctx.clone());
+            realm = fo.bytecode().realm().unwrap_or(ctx);
         }
         ObjectPayload::PROXY(px) => {
             if px.is_revoked() {
                 ctx.throw_type_error_revoked_proxy();
                 return Err(-1);
             } else {
-                realm = JS_GetFunctionRealm(ctx, &px.target().clone().into())?;
+                realm = JS_GetFunctionRealm(ctx, px.target().into())?;
             }
         }
         ObjectPayload::BOUND_FUNCTION(bfunc) => {
-            realm = JS_GetFunctionRealm(ctx, &bfunc.func_obj)?;
+            realm = JS_GetFunctionRealm(ctx, bfunc.func_obj)?;
         }
         _ => {
-            realm = ctx.clone();
+            realm = ctx;
         }
     }
 
     Ok(realm)
 }
 
-pub fn get_func_name(func: &JSValue) -> Option<String> {
+pub fn get_func_name(func: JSValue) -> Option<String> {
     // in order to avoid executing arbitrary code during the stack trace generation,
     // we only look at simple 'name' properties containing a string.
     if let Some(obj) = func.as_object() {
-        if let Some((idx, prs_flags)) = obj.find_shape_property(&JS_ATOM_name)
+        if let Some((idx, prs_flags)) = obj.find_shape_property(Atom::CONST_name)
             && prs_flags & JS_PROP_TMASK == JS_PROP_NORMAL
         {
-            if let Some(JSProperty::Normal(JSValue::String(s))) =
-                obj.0.prop_values.borrow().get(idx)
-            {
+            if let Some(JSProperty::Normal(JSValue::String(s))) = obj.prop_values.get(idx) {
                 return Some(s.content().to_utf8(false).into_owned());
             } else {
                 #[cfg(debug_assertions)]
@@ -278,73 +291,80 @@ pub fn get_func_name(func: &JSValue) -> Option<String> {
 }
 
 /// define `length` and `name` properties on function object `func_obj`
-pub fn js_function_set_properties<'a>(
-    ctx: &JSContext<'a>,
-    func_obj: &JSObject<'a>,
+pub fn js_function_set_properties(
+    ctx: &ContextImpl,
+    mut func_obj: ObjectRef,
     name: Atom,
     len: i32,
 ) {
     let _ = func_obj.define_property_value(
         ctx,
-        &JS_ATOM_length,
+        Atom::CONST_length,
         JSValue::Int(len),
         JS_PROP_CONFIGURABLE, // ES6 feature non-compatible with ES5.1: length is configurable
     );
     let _ = func_obj.define_property_value(
         ctx,
-        &JS_ATOM_name,
+        Atom::CONST_name,
         name.force_string(ctx)
             .map_or(JSValue::EXCEPTION, JSValue::String),
         JS_PROP_CONFIGURABLE,
     );
 }
 
-pub fn js_function_proto<'a>(_: &JSContext<'a>, _: CallContext<'_, 'a>) -> JSResult<'a> {
+pub fn js_function_proto(_: ContextRef, _: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
+#[deprecated]
 pub(crate) const fn js_bytecode_function_finalizer(
-    _rt: &mut JSRuntime,
+    _rt: &mut RuntimeImpl,
     _isa: &ObjectPayload,
     _id: usize,
 ) {
 }
 
+#[deprecated]
 pub(crate) fn js_bytecode_function_mark(val: JSValue) {
-    let isa = val.as_object_BCFunction().unwrap().payload();
+    // let isa = val.as_object_BCFunction().unwrap().payload();
 
-    isa.bytecode().gc_mark();
-    for vr in isa.var_refs.borrow().iter() {
-        vr.gc_mark();
-    }
-    if let Some(ho) = isa.home_object.borrow().as_ref() {
-        ho.gc_mark();
-    }
+    // isa.bytecode().gc_mark();
+    // for vr in isa.var_refs .iter() {
+    //     vr.gc_mark();
+    // }
+
+    // if let Some(ho) = isa.home_object.borrow().as_ref() {
+    //     // ho.gc_mark();
+    // }
 }
 
 #[repr(transparent)]
-#[derive(Debug, Clone)]
-pub struct BytecodeFunction<'a>(JSObject<'a>);
+#[derive(Debug, Clone, Copy)]
+pub struct BytecodeFunction(GcRef<ObjectImpl>);
 
 object_cast!(BytecodeFunction, JS_CLASS_BYTECODE_FUNCTION);
 
-impl<'a> BytecodeFunction<'a> {
-    #[inline]
-    pub fn payload(&self) -> &BCFuncPayload<'a> {
-        self.0.payload().bc_function().unwrap()
+impl BytecodeFunction {
+    #[inline(always)]
+    pub fn payload(&self) -> &BCFuncPayload {
+        unsafe { self.0.as_ref().payload().bc_function().unwrap() }
+    }
+
+    #[inline(always)]
+    pub fn payload_mut(&mut self) -> &mut BCFuncPayload {
+        unsafe { self.0.as_mut().payload_mut().bc_function_mut().unwrap() }
     }
 
     /// call bytecode function
     pub fn call(
-        &self,
-        caller_ctx: &JSContext<'a>,
-        this_obj: &JSValue<'a>,
-        new_target: JSValue<'a>,
-        args: &[JSValue<'a>],
+        mut self,
+        caller_ctx: &ContextImpl,
+        this_obj: JSValue,
+        new_target: JSValue,
+        args: &[JSValue],
         flags: i32,
-    ) -> JSValue<'a> {
-        let isa = self.payload();
-        let bc = isa.bytecode();
+    ) -> JSValue {
+        let bc = self.payload().bytecode();
 
         // how many args that should be copied to local buf?
         // `args.len()` is actual argument count
@@ -363,7 +383,7 @@ impl<'a> BytecodeFunction<'a> {
         );
 
         let mut sframe = StackFrame {
-            cur_func: JSValue::Object(self.0.clone()),
+            cur_func: self.into(),
             js_mode,
             ..Default::default()
         };
@@ -423,18 +443,17 @@ impl<'a> BytecodeFunction<'a> {
         sf.prev_frame = caller_ctx.rt().cur_stack_frame;
         caller_ctx.rt().cur_stack_frame = (sf as *mut StackFrame).cast();
 
-        // to borrow short, clone home object
-        let home_obj = isa.home_object.borrow().clone();
+        let isa = self.payload_mut();
 
         let retval = bc.run(
             caller_ctx,
-            home_obj.as_ref(),
+            isa.home_object,
             sf,
             this_obj,
             new_target,
             0,
             0,
-            &isa.var_refs.borrow(),
+            &mut isa.var_refs,
             args,
             false,
         );
@@ -446,9 +465,7 @@ impl<'a> BytecodeFunction<'a> {
             ),
             "runtime current stack frame should be restored after running bytecodes"
         );
-
-        // stack frame is about to drop
-        sf.clear();
+        // stack frame is dropped here
 
         retval
     }
@@ -458,15 +475,12 @@ impl<'a> BytecodeFunction<'a> {
     /// ```js
     /// const f = new Function("a", "b", "return a+b")
     /// ```
-    pub fn class_constructor<'cc, 'b>(
-        ctx: &JSContext<'b>,
-        cc: CallContext<'cc, 'b>,
-    ) -> JSResult<'b> {
+    pub fn class_constructor(mut ctx: ContextRef, cc: CallContext) -> JSResult {
         debug_assert!((0..4).contains(&cc.magic()));
 
         // XXX: add a specific eval mode so that Function("}), ({") is rejected
 
-        let new_target = cc.this();
+        let new_target = *cc.this();
         let func_kind = unsafe { std::mem::transmute::<u8, JSFunctionKindEnum>(cc.magic() as u8) };
 
         //
@@ -500,12 +514,12 @@ impl<'a> BytecodeFunction<'a> {
                 if i != 0 {
                     buf.push(b',');
                 }
-                buf.extend_from_slice(a.to_string(ctx)?.content().to_utf8(false).as_bytes());
+                buf.extend_from_slice(a.to_string(&ctx)?.content().to_utf8(false).as_bytes());
             }
             buf.extend_from_slice(b"\n) {\n");
 
             // function body
-            buf.extend_from_slice(body.to_string(ctx)?.content().to_utf8(false).as_bytes());
+            buf.extend_from_slice(body.to_string(&ctx)?.content().to_utf8(false).as_bytes());
         } else {
             // no arguments
             buf.extend_from_slice(b") {\n");
@@ -514,28 +528,21 @@ impl<'a> BytecodeFunction<'a> {
         buf.extend_from_slice(b"\n})");
 
         // eval script
-        let func_val = {
-            // Note: to avoid ctx.0 borrow conflict, fetch global object in advance
+        let mut func_val = {
             let global = JSValue::Object(ctx.global_obj());
-            ctx.eval_internal(
-                &global,
-                buf.as_slice(),
-                "<input>",
-                JS_EVAL_TYPE_INDIRECT,
-                -1,
-            )?
+            ctx.eval_internal(global, buf.as_slice(), "<input>", JS_EVAL_TYPE_INDIRECT, -1)?
         };
 
         if !new_target.is_undefined() {
             // set the prototype
-            let mut proto = new_target.get_property(ctx, &JS_ATOM_prototype)?;
+            let mut proto = new_target.get_property(&ctx, Atom::CONST_prototype)?;
             if !proto.is_object() {
-                let realm = JS_GetFunctionRealm(ctx, new_target)?;
-                proto = realm
+                proto = JS_GetFunctionRealm(ctx, new_target)?
                     .class_proto(func_kind.class_id())
                     .map_or(JSValue::NULL, JSValue::Object);
             }
-            func_val.set_prototype_internal(ctx, proto, true)?;
+
+            func_val.set_prototype_internal(&ctx, proto, true)?;
         }
 
         Ok(func_val)
