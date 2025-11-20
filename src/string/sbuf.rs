@@ -511,7 +511,6 @@ impl StringBuf {
 
             // same type
             (Self::Utf16(mut s1), StringData::Utf16(s2)) => {
-                let s2 = unsafe { s2.as_ref() };
                 if let Err(e) = s1.try_reserve_exact(s2.len()) {
                     *self = Self::Utf16(s1);
                     return Err(e);
@@ -521,7 +520,6 @@ impl StringBuf {
                 }
             }
             (Self::Ascii(mut s1), StringData::Ascii(s2)) => {
-                let s2 = unsafe { s2.as_ref() };
                 if let Err(e) = s1.try_reserve_exact(s2.len()) {
                     *self = Self::Ascii(s1);
                     return Err(e);
@@ -532,7 +530,6 @@ impl StringBuf {
             }
 
             (Self::Utf16(mut s1), StringData::Ascii(s2)) => {
-                let s2 = unsafe { s2.as_ref() };
                 if let Err(e) = s1.try_reserve(s2.len()) {
                     *self = Self::Utf16(s1);
                     return Err(e);
@@ -542,7 +539,6 @@ impl StringBuf {
                 }
             }
             (Self::Ascii(s1), StringData::Utf16(s2)) => {
-                let s2 = unsafe { s2.as_ref() };
                 let mut buf = Vec::<u16>::new();
                 if let Err(e) = buf.try_reserve_exact(s1.len() + s2.len()) {
                     *self = Self::Ascii(s1); // restore original

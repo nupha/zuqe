@@ -28,10 +28,10 @@ pub(super) fn promise_reaction_job(
 ) -> JSResult {
     let mut result = if handler.is_undefined() {
         if is_reject {
-            ctx.throw(arg.clone());
+            ctx.throw(arg);
             JSValue::EXCEPTION
         } else {
-            arg.clone()
+            arg
         }
     } else {
         handler

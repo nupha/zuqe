@@ -16,7 +16,6 @@ use super::AsyncFuncState;
 enum VarRefState {
     /// var ref is detached
     Detached { value: JSValue },
-
     /// reference to a target var
     Bind {
         async_func: Option<AsyncFuncState>,
@@ -163,19 +162,6 @@ impl JSVarRefInner {
         } else {
             None
         }
-    }
-
-    const fn finalize(&mut self) {
-        // match &mut self.state {
-        //     VarRefState::Detached { value } => {
-        //         // JS_FreeValueRT(rt, &value);
-        //     }
-        //     VarRefState::Bind { async_func, .. } => {
-        //         // if !async_func.is_null() {
-        //         //     AsyncFuncState::free(rt, async_func);
-        //         // }
-        //     }
-        // }
     }
 }
 

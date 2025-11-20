@@ -95,7 +95,7 @@ impl PromisePayload {
     pub(super) const fn is_handled(&self) -> bool {
         self.is_handled
     }
-    pub(super) fn set_handled(&mut self, v: bool) {
+    pub(super) const fn set_handled(&mut self, v: bool) {
         self.is_handled = v;
     }
 }
@@ -195,13 +195,13 @@ impl Promise {
     ) -> Result<[JSValue; 2], i32> {
         // [resolve, reject]
         let mut resolving_funcs = [JSValue::UNDEFINED, JSValue::UNDEFINED];
-        let resolved = Rc::new(Cell::new(false));
+        let resolved_flag = Rc::new(Cell::new(false));
         let func_proto = ctx.function_proto();
 
         for i in 0..2 {
             let s = Box::new(PromiseResolvePayload {
                 promise: *self,
-                resolved: resolved.clone(), // shared between two functions
+                resolved: resolved_flag.clone(), // flag is shared between two functions
             });
             let func = ctx
                 .create_object_with_proto(

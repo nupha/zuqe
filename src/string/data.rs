@@ -803,14 +803,14 @@ impl StringData {
     }
 }
 
-/// calculates hash of a sequence of chars (code points)
-fn hash_codepoints(s: impl Iterator<Item = StringChar>) -> u32 {
-    let mut h = 0; // init hash
-    s.for_each(|c| {
-        h = hash_u32_from_base(h, c.to_u32());
-    });
-    h
-}
+// /// calculates hash of a sequence of chars (code points)
+// fn hash_codepoints(s: impl Iterator<Item = StringChar>) -> u32 {
+//     let mut h = 0; // init hash
+//     s.for_each(|c| {
+//         h = hash_u32_from_base(h, c.to_u32());
+//     });
+//     h
+// }
 
 impl StringData {
     pub fn from_buf(buf: StringBuf) -> Self {
