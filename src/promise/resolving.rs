@@ -44,22 +44,23 @@ object_cast!(
 impl PromiseResolveFunc {
     pub fn class_call(
         mut ctx: ContextRef,
-        func_obj: JSValue,
+        mut func_obj: JSValue,
         _this_val: JSValue,
         args: &[JSValue],
         _flags: i32,
     ) -> JSResult {
-        let resolv = func_obj.as_object_PromiseResolveFunc().unwrap();
-        let isa = resolv.payload();
+        let resolv = func_obj.as_object_PromiseResolveFunc_mut().unwrap();
+        let isa = resolv.payload_mut();
+        let class_id = isa.class_id();
 
-        if let Some(s) = isa.promise_resolving_function() {
+        if let Some(s) = isa.promise_resolving_function_mut() {
             if s.resolved.get() {
                 return Ok(JSValue::UNDEFINED);
             }
 
             s.resolved.set(true);
 
-            let is_reject = isa.class_id() == JS_CLASS_PROMISE_REJECT_FUNCTION;
+            let is_reject = class_id == JS_CLASS_PROMISE_REJECT_FUNCTION;
             let arg0 = if !args.is_empty() {
                 args[0]
             } else {
@@ -217,21 +218,29 @@ impl Promise {
     /// save resolving resultand update promise status to 'fulfilled' or 'rejected'.
     /// call chained reactions which was registered by `then()`, `catch()` or `finally()`.
     /// Note: `value` is not consumed (duplicated inside).
-    pub(super) fn fulfill_or_reject(&self, mut ctx: ContextRef, value: JSValue, is_reject: bool) {
-        let p = self.payload();
+    pub(super) fn fulfill_or_reject(
+        &mut self,
+        mut ctx: ContextRef,
+        value: JSValue,
+        is_reject: bool,
+    ) {
+        let (promise_state, is_handled) = {
+            let p = self.payload_mut();
+            debug_assert_eq!(p.state(), PromiseState::JS_PROMISE_PENDING);
 
-        debug_assert_eq!(p.state(), PromiseState::JS_PROMISE_PENDING);
+            let state = if is_reject {
+                PromiseState::JS_PROMISE_REJECTED
+            } else {
+                PromiseState::JS_PROMISE_FULFILLED
+            };
+            p.set_state(state);
+            p.set_result(value);
 
-        let promise_state = if is_reject {
-            PromiseState::JS_PROMISE_REJECTED
-        } else {
-            PromiseState::JS_PROMISE_FULFILLED
+            (state, p.is_handled())
         };
-        p.set_state(promise_state);
-        p.set_result(value);
 
         if promise_state == PromiseState::JS_PROMISE_REJECTED
-            && !p.is_handled()
+            && !is_handled
             && let Some(f) = ctx.rt().host_promise_rejection_tracker
         {
             f(
@@ -244,11 +253,11 @@ impl Promise {
         }
 
         // call chained reactions registered by `then()`, `catch()` or `finally()`
-        let mut reactions = p.take_reactions();
+        let mut reactions = self.payload_mut().take_reactions();
         let mut ctx2 = ctx;
 
         for act in reactions[is_reject as usize].drain(..) {
-            let val = value.clone();
+            let val = value;
             ctx.queue_job(move || {
                 promise_reaction_job(&mut ctx2, act.resolving_funcs, act.handler, is_reject, val)
             });
@@ -258,7 +267,7 @@ impl Promise {
     /// Reject promise with `value`.
     /// A shortcut to `fulfill_or_reject()` with is_reject=true.
     #[inline(always)]
-    pub fn reject(&self, ctx: ContextRef, value: JSValue) {
+    pub fn reject(&mut self, ctx: ContextRef, value: JSValue) {
         self.fulfill_or_reject(ctx, value, true);
     }
 }

@@ -41,7 +41,7 @@ pub enum PromiseState {
 
 #[derive(Debug)]
 pub struct PromisePayload {
-    promise_state: Cell<PromiseState>,
+    promise_state: PromiseState,
 
     /// list of pending reactions:
     /// #0 for fulfill, #1 for reject.
@@ -64,12 +64,12 @@ unsafe impl Collect for PromisePayload {
 impl PromisePayload {
     #[inline(always)]
     pub const fn state(&self) -> PromiseState {
-        self.promise_state.get()
+        self.promise_state
     }
 
     #[inline(always)]
-    pub fn set_state(&self, s: PromiseState) {
-        self.promise_state.set(s);
+    pub fn set_state(&mut self, s: PromiseState) {
+        self.promise_state = s
     }
 
     #[inline(always)]
@@ -116,7 +116,7 @@ impl Promise {
 
         // create js object of promise class
         let isa = Box::new(PromisePayload {
-            promise_state: Cell::new(PromiseState::JS_PROMISE_PENDING),
+            promise_state: PromiseState::JS_PROMISE_PENDING,
             promise_reactions: RefCell::new([Vec::new(), Vec::new()]),
             promise_result: RefCell::new(JSValue::UNDEFINED),
             is_handled: Cell::new(false),
@@ -226,6 +226,21 @@ impl Promise {
     pub fn payload(&self) -> &PromisePayload {
         if let ObjectPayload::PROMISE(p) = unsafe { self.0.as_ref().payload() } {
             p.as_ref()
+        } else {
+            #[cfg(debug_assertions)]
+            unreachable!();
+            #[cfg(not(debug_assertions))]
+            unsafe {
+                std::hint::unreachable_unchecked();
+            }
+        }
+    }
+
+    /// get Promise payload
+    #[inline(always)]
+    pub fn payload_mut(&mut self) -> &mut PromisePayload {
+        if let ObjectPayload::PROMISE(p) = unsafe { self.0.as_mut().payload_mut() } {
+            p.as_mut()
         } else {
             #[cfg(debug_assertions)]
             unreachable!();
