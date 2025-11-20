@@ -10,7 +10,6 @@ use crate::{
     function::{CallContext, NativeCallback, js_function_set_properties},
     object::{ObjectImpl, ObjectPayload, ObjectRef},
     object_cast,
-    runtime::RuntimeImpl,
     value::JSValue,
 };
 

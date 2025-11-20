@@ -18,7 +18,6 @@ use crate::{
     object::{JS_PROP_C_W_E, ObjectImpl, ObjectPayload, ObjectRef},
     object_cast,
     promise::{JSPromiseReactionData, js_promise_funcs, js_promise_proto_funcs},
-    runtime::RuntimeImpl,
     value::JSValue,
 };
 
@@ -75,7 +74,7 @@ impl PromisePayload {
 
     #[inline(always)]
     pub fn result(&self) -> JSValue {
-        self.promise_result.borrow().clone()
+        *self.promise_result.borrow()
     }
 
     pub fn set_result(&self, val: JSValue) {
@@ -162,7 +161,7 @@ impl Promise {
         )?;
 
         let promise: ObjectRef = if ctor.is_undefined() {
-            Self::from_executor(ctx, executor.clone().into(), JSValue::UNDEFINED)?.into()
+            Self::from_executor(ctx, executor.into(), JSValue::UNDEFINED)?.into()
         } else {
             JS_CallConstructor(ctx, ctor, std::slice::from_ref(&executor.into()))
                 .err()?
@@ -206,7 +205,7 @@ impl Promise {
 
         for i in 0..2 {
             let s = Box::new(PromiseResolvePayload {
-                promise: self.clone(),
+                promise: *self,
                 resolved: resolved.clone(), // shared between two functions
             });
             let func = ctx
@@ -268,16 +267,16 @@ impl Promise {
                 ctx.throw_type_error("resolving function already set");
                 return Err(-1);
             } else {
-                let _ = cc.replace_data(i, cc.arg(i).clone());
+                let _ = cc.replace_data(i, *cc.arg(i));
             }
         }
         Ok(JSValue::UNDEFINED)
     }
 
     /// the native callback for Promise constructor function
-    pub fn class_constructor(mut ctx: ContextRef, cc: CallContext) -> JSResult {
+    pub fn class_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
         let executor = *cc.arg(0).ensure_function(&ctx)?.as_object().unwrap();
-        Promise::from_executor(&mut ctx, executor, *cc.this()).map(|p| p.into())
+        Promise::from_executor(&ctx, executor, *cc.this()).map(|p| p.into())
     }
 
     pub fn class_initialize(mut ctx: ContextRef, _: ClassID) -> Result<Option<ObjectRef>, i32> {
@@ -293,7 +292,7 @@ impl Promise {
             )?
             .into();
         ctor.install_field_defs(&ctx, &js_promise_funcs)?;
-        ctx.bind_ctor_proto(ctor.clone(), proto.into())?;
+        ctx.bind_ctor_proto(ctor, proto.into())?;
 
         ctx.global_obj()
             .define_property_value_str(&ctx, "Promise", ctor, JS_PROP_C_W_E)?;
@@ -349,7 +348,7 @@ pub fn remainingElementsCount_add(
     Ok(if remainingElementsCount == 0 { 1 } else { 0 })
 }
 
-pub fn js_promise_all_resolve_element(mut ctx: ContextRef, mut cc: CallContext) -> JSResult {
+pub fn js_promise_all_resolve_element(ctx: ContextRef, mut cc: CallContext) -> JSResult {
     let resolve_type = cc.magic() & 3;
     let is_reject = cc.magic() & 4 != 0;
 
@@ -401,7 +400,7 @@ pub fn js_promise_all_resolve_element(mut ctx: ContextRef, mut cc: CallContext) 
                 values
             };
 
-            resolve.call(&mut ctx, JSValue::UNDEFINED, std::slice::from_ref(&arg))?;
+            resolve.call(&ctx, JSValue::UNDEFINED, std::slice::from_ref(&arg))?;
         }
         0 => {}
         _ => {

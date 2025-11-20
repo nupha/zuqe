@@ -16,7 +16,6 @@ use crate::{
         js_regexp_constructor, js_regexp_funcs, js_regexp_proto_funcs,
         js_regexp_string_iterator_proto_funcs,
     },
-    runtime::RuntimeImpl,
     string::{StringData, StringRef, map_utf8_to_utf16_range},
     value::JSValue,
 };
@@ -109,7 +108,7 @@ pub struct RegExpData {
 }
 
 unsafe impl Collect for RegExpData {
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {}
+    fn trace(&self, _: &mut gc_lite::Tracer) {}
 }
 
 impl RegExpData {
@@ -391,7 +390,7 @@ impl RegExp {
                     "RegExp",
                     js_regexp_constructor,
                     2,
-                    obj.clone().into(),
+                    obj.into(),
                     0,
                 )?;
                 ctor.install_field_defs(&ctx, &js_regexp_funcs).unwrap();
@@ -458,7 +457,7 @@ pub(super) fn make_regexp_capture_array(
             JSValue::UNDEFINED
         };
 
-        lst.push(val.clone());
+        lst.push(val);
 
         if let Some(name) = name {
             if group.is_undefined() {
@@ -477,7 +476,7 @@ pub(super) fn make_regexp_capture_array(
             } else {
                 JSValue::UNDEFINED
             };
-            idxlst.push(idx.clone());
+            idxlst.push(idx);
 
             if let Some(name) = name {
                 if idxgroup.is_undefined() {

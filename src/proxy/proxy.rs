@@ -627,7 +627,7 @@ fn js_proxy_get_own_property_names(
             .get_own_property_names(cx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK);
     }
 
-    let prop_array = method.call(cx, px.handler, &[px.target.clone().into()])?;
+    let prop_array = method.call(cx, px.handler, &[px.target.into()])?;
     let len = prop_array.get_length_prop(cx)? as usize;
 
     let mut tab = Vec::<PropertyKey>::new();

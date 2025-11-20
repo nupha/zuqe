@@ -8,9 +8,8 @@ use crate::{
     branch_hints::unlikely,
     context::{ContextImpl, ContextRef},
     error::JSResult,
-    object::{JS_SpeciesConstructor, ObjectImpl, ObjectPayload, ObjectRef},
+    object::{JS_SpeciesConstructor, ObjectImpl, ObjectRef},
     object_cast,
-    runtime::RuntimeImpl,
     value::JSValue,
 };
 
@@ -62,7 +61,7 @@ impl PromiseResolveFunc {
 
             let is_reject = isa.class_id() == JS_CLASS_PROMISE_REJECT_FUNCTION;
             let arg0 = if !args.is_empty() {
-                args[0].clone()
+                args[0]
             } else {
                 JSValue::UNDEFINED
             };
@@ -231,7 +230,7 @@ impl Promise {
             PromiseState::JS_PROMISE_FULFILLED
         };
         p.set_state(promise_state);
-        p.set_result(value.clone());
+        p.set_result(value);
 
         if promise_state == PromiseState::JS_PROMISE_REJECTED
             && !p.is_handled()
@@ -239,8 +238,8 @@ impl Promise {
         {
             f(
                 &ctx,
-                self.clone(),
-                value.clone(),
+                *self,
+                value,
                 0,
                 ctx.rt().host_promise_rejection_tracker_opaque,
             );
