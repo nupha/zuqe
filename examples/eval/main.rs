@@ -216,6 +216,8 @@ fn main() {
                 ">>> RESULT: {v:?}, {}",
                 v.inspect(&ctx).unwrap_or("<can't repr>".to_string())
             );
+
+            #[cfg(debug_assertions)]
             if let JSValue::Object(o) = &v {
                 println!("    OBJECT DUMP");
                 o.dump(&ctx.rt());
@@ -245,6 +247,8 @@ fn main() {
                         debug_assert!(!exc.is_undefined_or_null()); // FIXME: this assert fails!
 
                         println!("!!! EXCEPTION {exc:?}: {:?}", exc.to_string(&ctx));
+
+                        #[cfg(debug_assertions)]
                         if let JSValue::Object(o) = exc {
                             o.dump(&ctx.rt());
                         };
@@ -261,6 +265,8 @@ fn main() {
                 "!!! EXCEPTION {exc:?}: {:?}",
                 ctx.rt().exception().to_string(&ctx)
             );
+
+            #[cfg(debug_assertions)]
             if let JSValue::Object(o) = exc {
                 o.dump(&ctx.rt());
             };
