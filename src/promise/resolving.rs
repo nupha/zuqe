@@ -20,8 +20,10 @@ use super::{Promise, PromiseState, js_promise_resolve_thenable_job, promise_reac
 pub struct PromiseResolvePayload {
     /// the target Promise
     pub(super) promise: Promise,
-    /// is resolved? this flag is shared between resolve and reject functions.
-    /// so Rc is used
+
+    /// promise is resolved?
+    /// Note: this flag is shared between resolve and reject functions.
+    /// so Rc<T> is used here.
     pub(super) resolved: Rc<Cell<bool>>,
 }
 
@@ -160,7 +162,7 @@ impl Promise {
 
         match state {
             PromiseState::JS_PROMISE_PENDING => {
-                self.payload().add_reaction(success, fail);
+                self.payload_mut().add_reaction(success, fail);
             }
             state => {
                 // queue as job

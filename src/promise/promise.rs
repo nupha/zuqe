@@ -1,8 +1,4 @@
-use std::{
-    cell::{Cell, RefCell},
-    ops::DerefMut,
-    rc::Rc,
-};
+use std::{cell::Cell, rc::Rc};
 
 use gc_lite::{Collect, GcRef};
 
@@ -45,7 +41,7 @@ pub struct PromisePayload {
 
     /// list of pending reactions:
     /// #0 for fulfill, #1 for reject.
-    promise_reactions: RefCell<[Vec<JSPromiseReactionData>; 2]>,
+    promise_reactions: [Vec<JSPromiseReactionData>; 2],
 
     promise_result: JSValue,
 
@@ -55,8 +51,8 @@ pub struct PromisePayload {
 
 unsafe impl Collect for PromisePayload {
     fn trace(&self, tracer: &mut gc_lite::Tracer) {
-        self.promise_reactions.borrow()[0].trace(tracer);
-        self.promise_reactions.borrow()[1].trace(tracer);
+        self.promise_reactions[0].trace(tracer);
+        self.promise_reactions[1].trace(tracer);
         self.promise_result.trace(tracer);
     }
 }
@@ -82,15 +78,18 @@ impl PromisePayload {
     }
 
     /// add pending reaction callback functions
-    pub(super) fn add_reaction(&self, success: JSPromiseReactionData, fail: JSPromiseReactionData) {
-        let mut b = self.promise_reactions.borrow_mut();
-        b[0].push(success);
-        b[1].push(fail);
+    pub(super) fn add_reaction(
+        &mut self,
+        success: JSPromiseReactionData,
+        fail: JSPromiseReactionData,
+    ) {
+        self.promise_reactions[0].push(success);
+        self.promise_reactions[1].push(fail);
     }
 
     /// take pending reactions out, reset reactions list to empty.
-    pub(super) fn take_reactions(&self) -> [Vec<JSPromiseReactionData>; 2] {
-        std::mem::take(self.promise_reactions.borrow_mut().deref_mut())
+    pub(super) fn take_reactions(&mut self) -> [Vec<JSPromiseReactionData>; 2] {
+        std::mem::take(&mut self.promise_reactions)
     }
 
     pub(super) const fn is_handled(&self) -> bool {
@@ -117,7 +116,7 @@ impl Promise {
         // create js object of promise class
         let isa = Box::new(PromisePayload {
             promise_state: PromiseState::JS_PROMISE_PENDING,
-            promise_reactions: RefCell::new([Vec::new(), Vec::new()]),
+            promise_reactions: [Vec::new(), Vec::new()],
             promise_result: JSValue::UNDEFINED,
             is_handled: false,
         });
