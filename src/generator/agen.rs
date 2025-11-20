@@ -18,7 +18,6 @@ use crate::{
     object::{JS_PROP_CONFIGURABLE, ObjectImpl, ObjectPayload, ObjectRef},
     object_cast,
     promise::{Promise, js_promise_resolve},
-    runtime::RuntimeImpl,
     value::JSValue,
 };
 

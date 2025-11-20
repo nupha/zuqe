@@ -17,7 +17,7 @@ use crate::{
         ObjectRef,
     },
     object_cast,
-    runtime::{RuntimeImpl, js_check_stack_overflow},
+    runtime::js_check_stack_overflow,
     stack_frame::StackFrame,
     value::JSValue,
 };

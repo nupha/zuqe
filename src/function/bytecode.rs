@@ -4,7 +4,7 @@ use gc_lite::{Collect, GcRef, GcWeak};
 
 use crate::{
     atom::Atom,
-    bytecode::{OpcodeFormat, opcode_info_final, opcode_info_intermediate},
+    bytecode::{OpcodeFormat, opcode_info_final},
     context::{ContextImpl, ContextRef},
     error::JSResult,
     eval::{JS_EVAL_TYPE_DIRECT, JS_EVAL_TYPE_INDIRECT},
@@ -164,14 +164,6 @@ unsafe impl Collect for BytecodeImpl {
         if let Some(d) = self.debug.as_ref() {
             d.trace(tracer);
         }
-    }
-}
-
-#[cfg(debug_assertions)]
-impl Drop for BytecodeImpl {
-    fn drop(&mut self) {
-        println!("[O.o] BytecodeImpl::drop({:p})", self);
-        //self.finalize();
     }
 }
 
@@ -665,35 +657,5 @@ impl Bytecode {
     ) -> JSResult {
         self.make_closure(ctx, var_refs, parent_frame, None)
             .and_then(|f| f.call(ctx, this_obj, &[]))
-    }
-}
-
-/// free atoms in bytecode.
-#[deprecated(note = "GC will do the job")]
-pub(super) fn free_bytecode_atoms(bc: &[u8], is_short_opcodes: bool) {
-    let bc_len = bc.len();
-    let mut pos = 0;
-    while pos < bc_len {
-        let op = bc[pos];
-        let oi = if is_short_opcodes {
-            opcode_info_final(op)
-        } else {
-            opcode_info_intermediate(op)
-        };
-
-        if matches!(
-            oi.fmt,
-            OpcodeFormat::ATOM
-                | OpcodeFormat::ATOM_U8
-                | OpcodeFormat::ATOM_U16
-                | OpcodeFormat::ATOM_LABEL_U8
-                | OpcodeFormat::ATOM_LABEL_U16
-        ) {
-            // unsafe {
-            //     Atom::free(read_from_ptr::<u32>(bc.as_ptr().add(pos + 1)));
-            // }
-        }
-
-        pos += oi.size as usize;
     }
 }

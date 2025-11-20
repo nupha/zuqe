@@ -4,7 +4,7 @@ use crate::{
     context::JS_MODE_STRICT,
     eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
     function::JSFunctionKindEnum,
-    string::{UTF8_CHAR_LEN_MAX, unicode_from_utf8_v0, unicode_to_utf8},
+    string::{UTF8_CHAR_LEN_MAX, unicode_from_utf8_v0},
 };
 
 use super::{
@@ -159,90 +159,6 @@ impl<'s> JSParseState<'s> {
 
         let atom = Atom::new(&self.ctx.rt(), &buf)?;
         Ok((atom, has_escape, consumed))
-    }
-
-    /// returns (atom, has_escape)
-    #[deprecated(note = "unsafe version is not used")]
-    pub(super) fn parse_ident_v0(
-        &mut self,
-        input: *mut *const u8,
-        first_char: char,
-        is_private: bool,
-    ) -> Result<(Atom, bool), i32> {
-        unsafe {
-            println!(
-                "[O.o] parse_itent({:?}), first_char={first_char}",
-                std::ffi::CStr::from_ptr(*input.cast()),
-            );
-        }
-
-        let mut buf = Vec::<u8>::with_capacity(64);
-
-        if is_private {
-            buf.push(b'#');
-        }
-
-        let mut has_escape = false;
-        let mut c = first_char;
-        let mut p = unsafe { *input };
-        let mut p1;
-
-        loop {
-            p1 = p;
-
-            if c.is_ascii() {
-                buf.push(c as u8);
-            } else {
-                unicode_to_utf8(&mut buf, c as u32);
-            }
-
-            unsafe {
-                // next char
-                c = (*p1) as char;
-                p1 = p1.add(1);
-            }
-
-            if c == '\\' && unsafe { *p1 } == b'u' {
-                // escape \uXXXX
-                let mut p_temp = p1;
-                let cp = unsafe { self.parse_string_escape_v0(&mut p_temp, 1)? };
-                c = if let Some(u) = char::from_u32(cp) {
-                    u
-                } else {
-                    self.throw_syntax_error("invalid char for ident");
-                    return Err(-1);
-                };
-                p1 = p_temp;
-                has_escape = true;
-            } else if !c.is_ascii() {
-                let mut p_temp = p;
-                c = unicode_from_utf8_v0(p, UTF8_CHAR_LEN_MAX as i32, &mut p_temp)?;
-                p1 = p_temp;
-            }
-
-            if !Self::is_ident_next(c) {
-                break;
-            }
-
-            p = p1;
-
-            if buf.capacity() - buf.len() <= UTF8_CHAR_LEN_MAX {
-                buf.try_reserve_exact(32).map_err(|_| {
-                    self.ctx.throw_out_of_memory();
-                    -1
-                })?;
-            }
-        }
-
-        let atom = Atom::new(self.ctx.rt().as_ref(), unsafe {
-            std::str::from_utf8_unchecked(&buf)
-        })?;
-
-        unsafe {
-            *input = p; // consume input string: move pointer forward
-        }
-
-        Ok((atom, has_escape))
     }
 
     /// test if `c` is allowed in non-first char of an ident

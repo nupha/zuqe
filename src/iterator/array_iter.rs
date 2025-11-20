@@ -8,7 +8,6 @@ use crate::{
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, IteratorState},
     object::ObjectPayload,
-    runtime::RuntimeImpl,
     typed_array::TypedArray,
     value::JSValue,
 };

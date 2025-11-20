@@ -6,7 +6,6 @@ use crate::{
     error::JSResult,
     object::{ObjectImpl, ObjectPayload, ObjectRef},
     object_cast,
-    runtime::RuntimeImpl,
     value::JSValue,
 };
 

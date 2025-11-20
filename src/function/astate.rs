@@ -7,8 +7,7 @@ use crate::{
     error::JSResult,
     function::BCFunction,
     gcref_wrapper,
-    object::ObjectPayload,
-    runtime::{RuntimeImpl, js_check_stack_overflow},
+    runtime::js_check_stack_overflow,
     stack_frame::StackFrame,
     value::JSValue,
 };

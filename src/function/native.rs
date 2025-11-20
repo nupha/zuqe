@@ -11,7 +11,7 @@ use crate::{
     function::{CallContext, IteratorState, JS_CALL_FLAG_CONSTRUCTOR},
     iterator::js_create_iterator_result,
     object::{ObjectImpl, ObjectPayload, ObjectRef},
-    runtime::{RuntimeImpl, js_check_stack_overflow},
+    runtime::js_check_stack_overflow,
     stack_frame::StackFrame,
     value::JSValue,
 };

@@ -8,9 +8,8 @@ use crate::{
     function::{CallContext, FieldDef, IteratorState},
     iterator::JSIteratorKindEnum,
     mapset::MapPair,
-    object::{JS_PROP_CONFIGURABLE, ObjectImpl, ObjectPayload, ObjectRef},
+    object::{JS_PROP_CONFIGURABLE, ObjectImpl, ObjectRef},
     object_cast,
-    runtime::RuntimeImpl,
     value::JSValue,
 };
 
@@ -36,19 +35,9 @@ unsafe impl Collect for JSMapIteratorData {
 
 #[derive(Debug, Clone, Copy)]
 #[repr(transparent)]
-pub struct MapIterator(pub(crate) GcRef<ObjectImpl>);
+pub struct MapIterator(GcRef<ObjectImpl>);
 
 object_cast!(MapIterator, JS_CLASS_MAP_ITERATOR);
-
-#[deprecated]
-pub fn js_map_iterator_mark(val: JSValue) {
-    if let Some(o) = val.as_object()
-        && let Some(it) = o.payload().mapset_iterator()
-        && let Some(_) = it.obj
-    {
-        // o.gc_mark()
-    }
-}
 
 fn js_map_iterator_next(ctx: ContextRef, cc: CallContext, state: &mut IteratorState) -> JSResult {
     let magic = cc.magic();

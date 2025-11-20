@@ -8,8 +8,8 @@ use crate::{
 };
 
 use super::{
-    ClassCallFn, ClassFinalizeFn, ClassGCMarkFn, DefineOwnPropertyFn, DeletePropertyFn,
-    GetOwnPropertyFn, GetOwnPropertyNamesFn, GetPropertyFn, HasPropertyFn, SetPropertyFn,
+    ClassCallFn, ClassFinalizeFn, DefineOwnPropertyFn, DeletePropertyFn, GetOwnPropertyFn,
+    GetOwnPropertyNamesFn, GetPropertyFn, HasPropertyFn, SetPropertyFn,
 };
 
 pub(crate) const JS_DEFINE_CLASS_HAS_HERITAGE: i32 = 1 << 0;

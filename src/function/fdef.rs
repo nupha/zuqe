@@ -7,7 +7,6 @@ use crate::{
     eval::JS_EVAL_TYPE_GLOBAL,
     function::{
         BytecodeAttrs, DEFINE_GLOBAL_LEX_VAR, JSClosureVar, JSGlobalVar, JSVarDef, JSVarScope,
-        free_bytecode_atoms,
     },
     module::ModuleDef,
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
@@ -372,8 +371,6 @@ impl JSFunctionDef {
         for sub in self.child_list.drain(..) {
             let _ = unsafe { Box::from_raw(sub.as_ptr()) };
         }
-
-        free_bytecode_atoms(&self.byte_code, self.use_short_opcodes);
 
         // ensure `self` function def does not exist in parent's child_list
         if let Some(up) = unsafe { self.parent.as_mut() } {

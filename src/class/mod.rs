@@ -35,8 +35,6 @@ pub type ClassInitializeFn =
 /// class instance finalize callback. `isa` is the object's payload.
 pub type ClassFinalizeFn = fn(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize);
 
-pub type ClassGCMarkFn = fn(val: JSValue);
-
 pub type DefineOwnPropertyFn = fn(
     ctx: ContextRef,
     target: JSValue,

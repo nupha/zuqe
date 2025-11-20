@@ -13,7 +13,6 @@ use crate::{
         JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SET_ENUM, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
         JS_PROP_THROW, ObjectPayload, ObjectRef, PropertyKey,
     },
-    runtime::RuntimeImpl,
     value::JSValue,
 };
 
