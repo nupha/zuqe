@@ -124,7 +124,7 @@ impl Promise {
     /// - `cap_resolving_funcs` - resolving functions of wrapper promise,
     ///   which activates the `reaction_funcs` execution.
     pub(crate) fn reaction(
-        &self,
+        &mut self,
         ctx: &mut ContextImpl,
         reaction_funcs: [JSValue; 2],
         cap_resolving_funcs: [JSValue; 2],
@@ -153,22 +153,25 @@ impl Promise {
             },
         };
 
-        let s = self.payload();
+        let (state, result, is_handled) = {
+            let s = self.payload();
+            (s.state(), s.result(), s.is_handled())
+        };
 
-        match s.state() {
+        match state {
             PromiseState::JS_PROMISE_PENDING => {
-                s.add_reaction(success, fail);
+                self.payload().add_reaction(success, fail);
             }
             state => {
                 // queue as job
                 if state == PromiseState::JS_PROMISE_REJECTED
-                    && !s.is_handled()
+                    && !is_handled
                     && let Some(cb) = ctx.rt().host_promise_rejection_tracker
                 {
                     cb(
                         ctx,
                         *self,
-                        s.result(),
+                        result,
                         true as i32,
                         ctx.rt().host_promise_rejection_tracker_opaque,
                     );
@@ -180,9 +183,7 @@ impl Promise {
                     fail
                 };
                 let is_reject = state == PromiseState::JS_PROMISE_REJECTED;
-                let result = s.result();
                 let mut cx = unsafe { ContextRef::from_ref_unchecked(ctx) };
-
                 ctx.queue_job(move || {
                     promise_reaction_job(
                         &mut cx,
@@ -195,7 +196,7 @@ impl Promise {
             }
         }
 
-        s.set_handled(true);
+        self.payload_mut().set_handled(true);
         Ok(())
     }
 
@@ -203,7 +204,7 @@ impl Promise {
     /// `resolve` and `reject` are callback functions.
     /// `resolve` and `reject` are not consumed.
     pub fn then(
-        &self,
+        &mut self,
         ctx: &mut ContextImpl,
         success: JSValue,
         fail: JSValue,

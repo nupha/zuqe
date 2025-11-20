@@ -161,7 +161,7 @@ pub fn js_async_from_sync_iterator_next(mut ctx: ContextRef, cc: CallContext) ->
                 }
             };
 
-            let value_wrapper_promise: Promise = {
+            let mut value_wrapper_promise: Promise = {
                 let cc =
                     CallContext::new_simple(ctx, ctx.promise_ctor, std::slice::from_ref(&value));
                 if let Ok(r) = js_promise_resolve(ctx, cc) {

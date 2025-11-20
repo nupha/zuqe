@@ -22,7 +22,8 @@ use super::{
 //
 
 pub fn js_promise_then(mut ctx: ContextRef, cc: CallContext) -> JSResult {
-    if let Some(p) = cc.this().as_object_Promise() {
+    let mut this = *cc.this();
+    if let Some(p) = this.as_object_Promise_mut() {
         p.then(&mut ctx, *cc.arg(0), *cc.arg(1)).map(|p| p.into())
     } else {
         ctx.throw_type_error_invalid_class(JS_CLASS_PROMISE);

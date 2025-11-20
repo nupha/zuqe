@@ -47,17 +47,17 @@ pub struct PromisePayload {
     /// #0 for fulfill, #1 for reject.
     promise_reactions: RefCell<[Vec<JSPromiseReactionData>; 2]>,
 
-    promise_result: RefCell<JSValue>,
+    promise_result: JSValue,
 
     /// Note: only useful to debug
-    is_handled: Cell<bool>,
+    is_handled: bool,
 }
 
 unsafe impl Collect for PromisePayload {
     fn trace(&self, tracer: &mut gc_lite::Tracer) {
         self.promise_reactions.borrow()[0].trace(tracer);
         self.promise_reactions.borrow()[1].trace(tracer);
-        self.promise_result.borrow().trace(tracer);
+        self.promise_result.trace(tracer);
     }
 }
 
@@ -68,17 +68,17 @@ impl PromisePayload {
     }
 
     #[inline(always)]
-    pub fn set_state(&mut self, s: PromiseState) {
+    pub const fn set_state(&mut self, s: PromiseState) {
         self.promise_state = s
     }
 
     #[inline(always)]
-    pub fn result(&self) -> JSValue {
-        *self.promise_result.borrow()
+    pub const fn result(&self) -> JSValue {
+        self.promise_result
     }
 
-    pub fn set_result(&self, val: JSValue) {
-        *self.promise_result.borrow_mut() = val;
+    pub const fn set_result(&mut self, val: JSValue) {
+        self.promise_result = val;
     }
 
     /// add pending reaction callback functions
@@ -94,10 +94,10 @@ impl PromisePayload {
     }
 
     pub(super) const fn is_handled(&self) -> bool {
-        self.is_handled.get()
+        self.is_handled
     }
-    pub(super) fn set_handled(&self, v: bool) {
-        self.is_handled.set(v);
+    pub(super) fn set_handled(&mut self, v: bool) {
+        self.is_handled = v;
     }
 }
 
@@ -118,8 +118,8 @@ impl Promise {
         let isa = Box::new(PromisePayload {
             promise_state: PromiseState::JS_PROMISE_PENDING,
             promise_reactions: RefCell::new([Vec::new(), Vec::new()]),
-            promise_result: RefCell::new(JSValue::UNDEFINED),
-            is_handled: Cell::new(false),
+            promise_result: JSValue::UNDEFINED,
+            is_handled: false,
         });
         let promise = Self(
             ctx.create_object_from_ctor(ctor, ObjectPayload::PROMISE(isa))

@@ -251,7 +251,7 @@ impl AGenPayload {
             0, // is_reject=0
             None,
         );
-        let promise: Promise = match js_promise_resolve(ctx, cc) {
+        let mut promise: Promise = match js_promise_resolve(ctx, cc) {
             Ok(r) => r,
             Err(_) => {
                 // Fail looking up JS_ATOM_constructor when is_reject==0.
@@ -288,7 +288,7 @@ impl AGenPayload {
     }
 
     fn _await(&self, mut ctx: ContextRef, value: JSValue) -> Result<(), i32> {
-        let promise: Promise = {
+        let mut promise: Promise = {
             let cc = CallContext::new_simple(ctx, ctx.promise_ctor, std::slice::from_ref(&value));
             js_promise_resolve(ctx, cc)?.try_into()?
         };

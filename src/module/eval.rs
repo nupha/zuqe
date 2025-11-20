@@ -323,7 +323,7 @@ impl ModuleDef {
         );
 
         // execute bytecode function in async manner.
-        let promise = md_func.call_async(ctx, JSValue::UNDEFINED, &[], 0)?;
+        let mut promise = md_func.call_async(ctx, JSValue::UNDEFINED, &[], 0)?;
 
         promise.then(
             ctx,

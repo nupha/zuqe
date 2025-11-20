@@ -174,7 +174,7 @@ impl AsyncFuncState {
             };
 
             // await
-            let promise = if let Ok(p) = {
+            let mut promise = if let Ok(p) = {
                 let cc = CallContext::new_simple(
                     unsafe { ContextRef::from_ref_unchecked(ctx) },
                     ctx.promise_ctor,
