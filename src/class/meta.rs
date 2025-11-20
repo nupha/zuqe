@@ -2,8 +2,8 @@ use crate::{
     JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_OBJECT,
     atom::Atom,
     class::{
-        ClassCallFn, ClassDef, ClassFinalizeFn, ClassGCMarkFn, ClassID, ClassInitializeFn,
-        FreeObjFn, JSClassExoticMethods, StdClassDef,
+        ClassCallFn, ClassDef, ClassFinalizeFn, ClassID, ClassInitializeFn, FreeObjFn,
+        JSClassExoticMethods, StdClassDef,
     },
     context::ContextImpl,
     error::JSResult,
@@ -32,8 +32,6 @@ pub(crate) struct ClassMeta {
     /// initialize class proto, constructor to context
     pub initialize: Option<ClassInitializeFn>,
     pub finalize: Option<ClassFinalizeFn>,
-
-    pub gc_mark: Option<ClassGCMarkFn>,
 }
 
 impl RuntimeImpl {
@@ -74,7 +72,6 @@ impl RuntimeImpl {
 
             initialize: class_def.initialize,
             finalize: class_def.finalize,
-            gc_mark: class_def.gc_mark,
         };
 
         Ok(())
@@ -153,7 +150,7 @@ impl ContextImpl {
         } else {
             let mut obj = self.create_base_object()?;
             obj.install_field_defs(self, &js_iterator_proto_funcs)?;
-            self.iterator_proto.replace(obj.clone());
+            self.iterator_proto.replace(obj);
             obj
         };
 
@@ -167,7 +164,7 @@ impl ContextImpl {
             .define_property_value_str(
                 self,
                 name,
-                func_obj.clone(),
+                func_obj,
                 JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
             )
             .unwrap();
@@ -193,7 +190,7 @@ impl ContextImpl {
         let func_obj: JSValue = self
             .create_native_function(handler, name, length as _, magic)?
             .into();
-        self.add_global_constructor(name, func_obj.clone(), proto);
+        self.add_global_constructor(name, func_obj, proto);
 
         Ok(func_obj)
     }
@@ -250,8 +247,8 @@ impl ContextImpl {
         proto_flags: u32,
         ctor_flags: u32,
     ) -> Result<(), i32> {
-        ctor.define_property_value(self, Atom::CONST_prototype, proto.clone(), proto_flags)?;
-        proto.define_property_value(self, Atom::CONST_constructor, ctor.clone(), ctor_flags)?;
+        ctor.define_property_value(self, Atom::CONST_prototype, proto, proto_flags)?;
+        proto.define_property_value(self, Atom::CONST_constructor, ctor, ctor_flags)?;
         Ok(())
     }
 

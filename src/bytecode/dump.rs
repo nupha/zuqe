@@ -589,8 +589,8 @@ pub(super) unsafe fn dump_pc2line(ctx: ContextRef, buf: *const u8, len: i32, mut
             p = p_next;
         } else {
             op -= PC2LINE_OP_FIRST;
-            pc += (op / PC2LINE_RANGE) as i32;
-            line_num += (op % PC2LINE_RANGE) as i32 + PC2LINE_BASE;
+            pc += op / PC2LINE_RANGE;
+            line_num += (op % PC2LINE_RANGE) + PC2LINE_BASE;
         }
 
         println!("{:5} {:5}", pc, line_num);

@@ -178,14 +178,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
     vec![
         // CORE CLASSES START
         ClassInfo::class_def("Object", "OBJECT", PayloadKey::None, None, None, None),
-        ClassInfo::class_def(
-            "Array",
-            "ARRAY",
-            PayloadKey::Array,
-            None,
-            Some("crate::array::js_array_finalizer"),
-            Some("crate::array::js_array_mark"),
-        ),
+        ClassInfo::class_def("Array", "ARRAY", PayloadKey::Array, None, None, None),
         ClassInfo::class_def("Error", "ERROR", PayloadKey::None, None, None, None),
         ClassInfo::class_def(
             "Number",
@@ -224,8 +217,8 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "ARGUMENTS",
             PayloadKey::Array,
             None,
-            Some("crate::array::js_array_finalizer"),
-            Some("crate::array::js_array_mark"),
+            None,
+            None,
         ),
         ClassInfo::class_def(
             "Arguments",
@@ -274,8 +267,8 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "C_FUNCTION_DATA",
             PayloadKey::NativeFuncWithData,
             None,
-            Some("crate::callable::NativeFunctionWithData::class_finalizer"),
-            Some("crate::callable::NativeFunctionWithData::class_mark"),
+            None,
+            None,
         ),
         ClassInfo::class_def(
             "GeneratorFunction",
@@ -519,8 +512,8 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "PROXY",
             PayloadKey::Proxy,
             Some("crate::proxy::Proxy::class_initialize"),
-            Some("crate::proxy::Proxy::class_finalizer"),
-            Some("crate::proxy::Proxy::class_mark"),
+            None,
+            None,
         ),
         //
         // Async stuff

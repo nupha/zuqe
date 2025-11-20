@@ -9,5 +9,5 @@ pub mod string;
 use crate::{context::ContextRef, error::JSResult, function::CallContext};
 
 pub fn js_get_this(_: ContextRef, cc: CallContext) -> JSResult {
-    Ok(cc.this().clone())
+    Ok(*cc.this() )
 }

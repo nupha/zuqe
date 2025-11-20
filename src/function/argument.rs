@@ -19,7 +19,7 @@ impl ContextImpl {
         let mut arr = self.create_array()?;
         if !args.is_empty() {
             for (i, v) in args.iter().enumerate().skip(first) {
-                arr.define_property_value_u32(self, (i - first) as u32, v.clone(), JS_PROP_C_W_E)?;
+                arr.define_property_value_u32(self, (i - first) as u32, *v, JS_PROP_C_W_E)?;
             }
         }
         Ok(arr.into())
@@ -118,13 +118,13 @@ pub fn js_build_mapped_arguments(
 
     // the arguments not mapped to the arguments of the function can be normal properties
     for (i, a) in args.iter().enumerate().skip(arg_count as usize) {
-        obj.define_property_value_u32(ctx, i as _, a.clone(), JS_PROP_C_W_E)?;
+        obj.define_property_value_u32(ctx, i as _, *a, JS_PROP_C_W_E)?;
     }
 
     obj.define_property_value(
         ctx,
         Atom::CONST_Symbol_iterator,
-        ctx.array_proto_values.clone(),
+        ctx.array_proto_values,
         JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
     )?;
 
@@ -132,11 +132,7 @@ pub fn js_build_mapped_arguments(
     obj.define_property_value(
         ctx,
         Atom::CONST_callee,
-        unsafe {
-            (*ctx.rt().cur_stack_frame.cast::<StackFrame>())
-                .cur_func
-                .clone()
-        },
+        unsafe { (*ctx.rt().cur_stack_frame.cast::<StackFrame>()).cur_func },
         JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
     )?;
 

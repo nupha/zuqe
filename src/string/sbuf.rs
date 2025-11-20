@@ -1,8 +1,4 @@
-use std::{
-    borrow::Cow,
-    collections::TryReserveError,
-    ops::{Deref, Range},
-};
+use std::{borrow::Cow, collections::TryReserveError, ops::Range};
 
 use fallible_collections::{FallibleVec, TryClone, TryCollect};
 

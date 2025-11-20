@@ -14,7 +14,6 @@ use crate::{
         PropertyKeyKind,
     },
     object_cast,
-    runtime::RuntimeImpl,
     string::StringData,
     value::JSValue,
 };
@@ -261,9 +260,8 @@ impl Array {
                 })?;
 
                 for v in lst.iter().filter(|v| !v.is_undefined()) {
-                    let v = v.clone();
                     let s = v.to_string(ctx)?;
-                    slots.push((v, s.content().clone()));
+                    slots.push((*v, s.content().clone()));
                 }
 
                 sort_values_default(&mut slots);
@@ -716,18 +714,4 @@ impl JSValue {
             Err(-1)
         }
     }
-}
-
-#[deprecated]
-pub const fn js_array_finalizer(_rt: &mut RuntimeImpl, _isa: &ObjectPayload, _id: usize) {}
-
-#[deprecated]
-pub fn js_array_mark(val: JSValue) {
-    // unsafe {
-    //     val.as_object_unchecked().with_fast_array_values(|lst| {
-    //         for v in lst {
-    //             v.gc_mark();
-    //         }
-    //     });
-    // }
 }

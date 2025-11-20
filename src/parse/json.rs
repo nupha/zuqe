@@ -381,11 +381,7 @@ fn json_parse_expect(s: &mut JSParseState, tok: i32) -> Result<(), i32> {
 }
 
 /// 'c' is the first character.
-unsafe fn json_parse_ident(
-    s: &mut JSParseState,
-    pp: &mut *const u8,
-    mut c: u8,
-) -> Result<Atom, i32> {
+fn json_parse_ident(s: &mut JSParseState, pp: &mut *const u8, mut c: u8) -> Result<Atom, i32> {
     let mut p = *pp;
     let mut buf = SmallVec::<[u8; 128]>::new();
 
@@ -398,11 +394,13 @@ unsafe fn json_parse_ident(
         }
         buf.push(c);
 
-        c = *p;
-        if c >= 128 || !JSParseState::is_ident_next(c as _) {
-            break;
+        unsafe {
+            c = *p;
+            if c >= 128 || !JSParseState::is_ident_next(c as _) {
+                break;
+            }
+            p = p.add(1);
         }
-        p = p.add(1);
     }
 
     let atom = Atom::new(&s.ctx.rt(), std::str::from_utf8(&buf).map_err(|_| -1)?)?;

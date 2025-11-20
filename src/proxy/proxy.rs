@@ -168,11 +168,7 @@ impl ProxyPayload {
             return self.target.set_prototype_internal(ctx, proto_val, throw);
         }
 
-        let ret = method.call(
-            ctx,
-            self.handler,
-            &[self.target.clone().into(), proto_val.clone()],
-        )?;
+        let ret = method.call(ctx, self.handler, &[self.target.into(), proto_val])?;
 
         match ret.to_bool() {
             Ok(false) => {
@@ -221,7 +217,7 @@ impl Proxy {
         ctx.global_obj().define_property_value_str(
             &ctx,
             "Proxy",
-            proto.clone().into(),
+            proto.into(),
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
         )?;
 
@@ -235,10 +231,10 @@ impl Proxy {
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
-        let proxy = Proxy::try_from(func_obj.clone()).unwrap();
+        let proxy = Proxy::try_from(func_obj).unwrap();
 
         if flags & JS_CALL_FLAG_CONSTRUCTOR != 0 {
-            return js_proxy_call_constructor(ctx, &proxy, this_obj.clone(), args);
+            return js_proxy_call_constructor(ctx, &proxy, this_obj, args);
         }
 
         let px = proxy.payload();
@@ -249,29 +245,15 @@ impl Proxy {
 
         let method = px.get_method(&ctx, Atom::CONST_apply)?;
         if method.is_undefined() {
-            return JSValue::from(px.target.clone()).call(&ctx, this_obj, args);
+            return JSValue::from(px.target).call(&ctx, this_obj, args);
         }
 
         let arg_array = ctx.create_array_from_slice(args)?;
         method.call(
             &ctx,
             px.handler,
-            &[px.target.clone().into(), this_obj.clone(), arg_array.into()],
+            &[px.target.into(), this_obj, arg_array.into()],
         )
-    }
-
-    pub const fn class_finalizer(_rt: &mut RuntimeImpl, _: &ObjectPayload, _: usize) {
-        // this is done via rust drop()
-        // if let ObjectPayload::Proxy(p) = payload {
-        //     // free p.target and p.handler
-        // }
-    }
-
-    pub fn class_mark(val: JSValue) {
-        if let ObjectPayload::PROXY(p) = val.as_object().unwrap().payload() {
-            // p.target.gc_mark();
-            p.handler.gc_mark();
-        }
     }
 
     /// get proxy payload reference
@@ -605,7 +587,7 @@ fn js_proxy_delete_property(ctx: ContextRef, mut obj: JSValue, atom: Atom) -> Re
         .call(
             &ctx,
             px.handler,
-            &[px.target.clone().into(), atom.string_or_symbol(&ctx)?],
+            &[px.target.into(), atom.string_or_symbol(&ctx)?],
         )?
         .to_bool()?;
 

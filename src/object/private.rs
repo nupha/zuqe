@@ -117,7 +117,7 @@ impl JSValue {
             let brand_sym: JSValue =
                 if let Some((idx, _)) = home.find_shape_property(Atom::CONST_Private_brand) {
                     if let JSProperty::Normal(val) = home.prop_values.get(idx).unwrap() {
-                        val.clone()
+                        *val
                     } else {
                         unreachable!()
                     }

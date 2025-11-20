@@ -183,7 +183,7 @@ impl JSValue {
     ///
     /// Because BigInt is not supported, JSToNumberHintEnum does not effect
     fn to_num_internal(&self, ctx: &ContextImpl, _flag: JSToNumberHintEnum) -> JSResult {
-        let mut val = self.clone();
+        let mut val = *self;
 
         loop {
             match val {
@@ -235,7 +235,7 @@ impl JSValue {
     }
 
     pub fn coerce_to_u8_clamp(&self, ctx: &ContextImpl) -> Result<u8, i32> {
-        let mut val = self.clone();
+        let mut val = *self;
 
         let res: i32 = loop {
             match val {
@@ -271,7 +271,7 @@ impl JSValue {
 
     /// coerce value to i32.
     pub fn to_i32(&self, ctx: &ContextImpl) -> Result<i32, i32> {
-        let mut val = self.clone();
+        let mut val = *self;
 
         let ret: i32 = loop {
             match val {
@@ -301,7 +301,7 @@ impl JSValue {
 
     // Note: the integer value is saturated to 32 bits
     pub fn to_i32_saturating(&self, ctx: &ContextImpl) -> Result<i32, i32> {
-        let mut val = self.clone();
+        let mut val = *self;
 
         let ret: i32 = loop {
             match val {
@@ -366,7 +366,7 @@ impl JSValue {
     }
 
     pub fn to_i64_saturating(&self, ctx: &ContextImpl) -> Result<i64, i32> {
-        let mut val = self.clone();
+        let mut val = *self;
 
         let res: i64 = loop {
             match val {

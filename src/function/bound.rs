@@ -77,9 +77,9 @@ impl BoundFunction {
             arg_list.extend_from_slice(args);
 
             if flags & JS_CALL_FLAG_CONSTRUCTOR != 0 {
-                let mut new_target = this_obj.clone();
+                let mut new_target = this_obj;
                 if func_obj.is_same(new_target) {
-                    new_target = bf.func_obj.clone();
+                    new_target = bf.func_obj;
                 }
                 JS_CallConstructor2(&ctx, bf.func_obj, new_target, arg_list.as_slice()).err()
             } else {

@@ -660,7 +660,7 @@ pub(super) fn instantiate_hoisted_definitions(s: &mut JSFunctionDef, bc: &mut Ve
                     }
                 }
                 push_vec_u8(bc, OpCode::DEFINE_VAR as u8);
-                push_vec_atom(bc, hf.var_name.clone());
+                push_vec_atom(bc, hf.var_name);
                 push_vec_u8(bc, flags as u8);
             }
         }
@@ -683,12 +683,12 @@ pub(super) fn instantiate_hoisted_definitions(s: &mut JSFunctionDef, bc: &mut Ve
                 push_vec_u16(bc, idx as u16);
             } else if has_closure == 1 {
                 push_vec_u8(bc, OpCode::DEFINE_FIELD as u8);
-                push_vec_atom(bc, hf.var_name.clone());
+                push_vec_atom(bc, hf.var_name);
                 push_vec_u8(bc, OpCode::DROP as u8);
             } else {
                 // XXX: Check if variable is writable and enumerable
                 push_vec_u8(bc, OpCode::PUT_VAR as u8);
-                push_vec_atom(bc, hf.var_name.clone());
+                push_vec_atom(bc, hf.var_name);
             }
         }
 

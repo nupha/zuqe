@@ -377,8 +377,8 @@ impl JSValue {
         }
 
         // slow path
-        let mut op1 = self.clone();
-        let mut op2 = other.clone();
+        let mut op1 = *self;
+        let mut op2 = other;
         loop {
             match (&op1, &op2) {
                 // string vs string
@@ -519,9 +519,9 @@ impl JSValue {
     }
 
     /// get order of `self` and `other`.
-    pub fn sort_cmp(&self, ctx: &ContextImpl, other: &Self) -> Result<Ordering, i32> {
-        let mut v1 = self.clone();
-        let mut v2 = other.clone();
+    pub fn sort_cmp(&self, ctx: &ContextImpl, other: Self) -> Result<Ordering, i32> {
+        let mut v1 = *self;
+        let mut v2 = other;
 
         loop {
             match (&v1, &v2) {

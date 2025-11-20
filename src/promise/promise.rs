@@ -406,13 +406,13 @@ pub fn js_promise_all_resolve_element(mut ctx: ContextRef, mut cc: CallContext) 
             } else {
                 Atom::CONST_value
             },
-            cc.arg(0).clone(),
+            *cc.arg(0),
             JS_PROP_C_W_E,
         )?;
 
         ob.into()
     } else {
-        cc.arg(0).clone()
+        *cc.arg(0)
     };
 
     values.define_property_value_u32(&ctx, index as u32, obj, JS_PROP_C_W_E)?;

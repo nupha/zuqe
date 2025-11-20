@@ -257,7 +257,7 @@ impl Bytecode {
                     // reuse the existing variable reference if it already exists
                     sf.get_var_ref(ctx, cv.var_idx, cv.is_arg())?
                 } else {
-                    cur_var_refs[cv.var_idx as usize].clone()
+                    cur_var_refs[cv.var_idx as usize]
                 };
                 lst.push(var_ref);
             }
@@ -356,7 +356,7 @@ pub fn add_closure_variables(
             let mut cv = JSClosureVar {
                 bitfield: 0,
                 var_idx: i as _,
-                var_name: vd.var_name.clone(),
+                var_name: vd.var_name,
             };
             cv.set_is_local(true);
             cv.set_is_arg(false);
@@ -376,7 +376,7 @@ pub fn add_closure_variables(
             let mut cv = JSClosureVar {
                 bitfield: 0,
                 var_idx: i as _,
-                var_name: vd.var_name.clone(),
+                var_name: vd.var_name,
             };
             cv.set_is_local(true);
             cv.set_is_arg(true);
@@ -393,7 +393,7 @@ pub fn add_closure_variables(
                 let mut cv = JSClosureVar {
                     bitfield: 0,
                     var_idx: i as _,
-                    var_name: vd.var_name.clone(),
+                    var_name: vd.var_name,
                 };
                 cv.set_is_local(true);
                 cv.set_is_arg(false);
@@ -411,7 +411,7 @@ pub fn add_closure_variables(
                 let mut cv = JSClosureVar {
                     bitfield: 0,
                     var_idx: i as _,
-                    var_name: vd.var_name.clone(),
+                    var_name: vd.var_name,
                 };
                 cv.set_is_local(true);
                 cv.set_is_arg(false);
@@ -428,7 +428,7 @@ pub fn add_closure_variables(
         let mut cv = JSClosureVar {
             bitfield: 0,
             var_idx: i as _,
-            var_name: cv0.var_name.clone(),
+            var_name: cv0.var_name,
         };
         cv.set_is_local(false);
         cv.set_is_arg(cv0.is_arg());

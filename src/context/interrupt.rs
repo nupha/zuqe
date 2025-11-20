@@ -23,7 +23,7 @@ impl ContextImpl {
             {
                 // XXX: should set a specific flag to avoid catching
                 self.throw_internal_error("interrupted");
-                JS_SetUncatchableError(rt.exception().clone(), true);
+                JS_SetUncatchableError(rt.exception(), true);
                 return Err(-1);
             }
         }

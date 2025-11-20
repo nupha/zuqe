@@ -9,50 +9,25 @@ use crate::{
     context::{ContextRef, JS_MODE_STRICT},
     date::{js_date_constructor, js_date_funcs, js_date_proto_funcs},
     error::{ErrorKind, JSResult, STD_ERROR_NAMES},
-    function::{
-        BytecodeFunction, FieldDef, JSFunctionKindEnum, NativeFunctionType,
-        js_async_function_proto_funcs,
-    },
-    generator::{
-        js_async_generator_function_proto_funcs, js_async_generator_proto_funcs,
-        js_async_iterator_proto_funcs, js_generator_function_proto_funcs, js_generator_proto_funcs,
-    },
-    iterator::js_async_from_sync_iterator_proto_funcs,
+    function::{BytecodeFunction, JSFunctionKindEnum, NativeFunctionType},
+    generator::{js_generator_function_proto_funcs, js_generator_proto_funcs},
     js_core::{
         boolean::{js_boolean_constructor, js_boolean_proto_funcs},
         error::js_error_constructor,
         function::js_function_proto_funcs,
-        global::{js_global_eval, js_global_props},
+        global::js_global_eval,
         object::{js_object_constructor, js_object_funcs, js_object_proto_funcs},
         string::{
             js_string_constructor, js_string_funcs, js_string_iterator_proto_funcs,
             js_string_proto_funcs,
         },
     },
-    json::js_json_obj,
-    mapset::{
-        js_map_constructor, js_map_funcs, js_map_iterator_proto_funcs, js_map_proto_funcs,
-        js_set_funcs, js_set_iterator_proto_funcs, js_set_proto_funcs, js_weakmap_proto_funcs,
-        js_weakset_proto_funcs,
-    },
     number::{js_number_constructor, js_number_funcs, js_number_proto_funcs},
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET,
-        JS_PROP_HAS_SET, JS_PROP_WRITABLE, ObjectPayload, ObjectRef,
-    },
-    promise::{Promise, js_promise_funcs, js_promise_proto_funcs},
-    proxy::{js_proxy_constructor, js_proxy_funcs},
-    reflect::js_reflect_obj,
-    regexp::{
-        js_regexp_constructor, js_regexp_funcs, js_regexp_proto_funcs,
-        js_regexp_string_iterator_proto_funcs,
+        JS_PROP_HAS_SET, JS_PROP_WRITABLE, ObjectPayload,
     },
     symbol::{js_symbol_constructor, js_symbol_funcs, js_symbol_proto_funcs},
-    typed_array::{
-        JS_TYPED_ARRAY_COUNT, TypedArray, js_dataview_constructor, js_dataview_proto_funcs,
-        js_typed_array_base_constructor, js_typed_array_base_funcs,
-        js_typed_array_base_proto_funcs, js_typed_array_constructor,
-    },
     value::JSValue,
 };
 
@@ -63,13 +38,7 @@ impl ContextRef {
             .unwrap();
 
         let mut ctor = self
-            .create_global_constructor_or_func(
-                "Object",
-                js_object_constructor,
-                1,
-                obj.clone().into(),
-                0,
-            )
+            .create_global_constructor_or_func("Object", js_object_constructor, 1, obj.into(), 0)
             .unwrap();
         ctor.install_field_defs(&self, &js_object_funcs).unwrap();
     }
@@ -109,7 +78,7 @@ impl ContextRef {
             .unwrap();
 
         throw_type_error.seal(&self, true).unwrap();
-        self.throw_type_error = throw_type_error.clone().into();
+        self.throw_type_error = throw_type_error.into();
 
         let mut proto = self.function_proto();
 
@@ -286,7 +255,7 @@ impl ContextRef {
         let proto: JSValue = obj.into();
 
         let mut ctor = self
-            .create_global_constructor_or_func("Number", js_number_constructor, 1, proto.clone(), 0)
+            .create_global_constructor_or_func("Number", js_number_constructor, 1, proto, 0)
             .unwrap();
         ctor.install_field_defs(&self, &js_number_funcs).unwrap();
 
@@ -309,7 +278,7 @@ impl ContextRef {
             "Boolean",
             js_boolean_constructor,
             1,
-            bool_obj.clone().into(),
+            bool_obj.into(),
             0,
         )
         .unwrap();
@@ -333,13 +302,7 @@ impl ContextRef {
         };
 
         let mut string_ctor = self
-            .create_global_constructor_or_func(
-                "String",
-                js_string_constructor,
-                1,
-                string_obj.clone(),
-                0,
-            )
+            .create_global_constructor_or_func("String", js_string_constructor, 1, string_obj, 0)
             .unwrap();
         string_ctor
             .install_field_defs(&self, &js_string_funcs)
@@ -363,13 +326,7 @@ impl ContextRef {
             .unwrap();
 
         let mut ctor = self
-            .create_global_constructor_or_func(
-                "Symbol",
-                js_symbol_constructor,
-                0,
-                obj.clone().into(),
-                0,
-            )
+            .create_global_constructor_or_func("Symbol", js_symbol_constructor, 0, obj.into(), 0)
             .unwrap();
         ctor.install_field_defs(&self, &js_symbol_funcs).unwrap();
 
@@ -395,7 +352,7 @@ impl ContextRef {
         obj.install_field_defs(&self, &js_generator_proto_funcs)
             .unwrap();
         let proto: JSValue = obj.into();
-        self.class_proto[JS_CLASS_GENERATOR as usize] = proto.clone();
+        self.class_proto[JS_CLASS_GENERATOR as usize] = proto;
 
         // generator function prototype
         let mut generator_function = self
@@ -405,7 +362,7 @@ impl ContextRef {
             .install_field_defs(&self, &js_generator_function_proto_funcs)
             .unwrap();
         let generator_function_proto: JSValue = generator_function.into();
-        self.class_proto[JS_CLASS_GENERATOR_FUNCTION as usize] = generator_function_proto.clone();
+        self.class_proto[JS_CLASS_GENERATOR_FUNCTION as usize] = generator_function_proto;
 
         // generator constructor
         let ctor: JSValue = self
@@ -419,7 +376,7 @@ impl ContextRef {
             .into();
 
         self.bind_ctor_proto_ex(
-            generator_function_proto.clone(),
+            generator_function_proto,
             proto,
             JS_PROP_CONFIGURABLE,
             JS_PROP_CONFIGURABLE,
@@ -436,7 +393,7 @@ impl ContextRef {
         obj.install_field_defs(&self, &js_date_proto_funcs).unwrap();
 
         let mut ctor = self
-            .create_global_constructor_or_func("Date", js_date_constructor, 7, obj.clone(), 0)
+            .create_global_constructor_or_func("Date", js_date_constructor, 7, obj, 0)
             .unwrap();
         ctor.install_field_defs(&self, &js_date_funcs).unwrap();
 
@@ -460,7 +417,7 @@ impl ContextRef {
             .create_native_function(NativeFunctionType::Func(js_global_eval), "eval", 1, 0)
             .unwrap()
             .into();
-        self.eval_func = eval_func.clone();
+        self.eval_func = eval_func;
 
         self.global_obj()
             .define_property_value(
@@ -471,498 +428,4 @@ impl ContextRef {
             )
             .unwrap();
     }
-
-    // /// the `Math` name space.
-    // #[deprecated]
-    // pub fn intrinsic_math(&self) {
-    //     self.init_random_seed();
-    //     self.global_obj()
-    //         .install_field_defs(self, &js_math_obj)
-    //         .unwrap();
-    // }
-
-    // #[deprecated]
-    // pub fn intrinsic_mapset(&mut self) {
-    //     // Map
-    //     {
-    //         let obj: JSValue = self.create_base_object().unwrap().into();
-    //         obj.install_field_defs(self, &js_map_proto_funcs).unwrap();
-
-    //         let ctor = self
-    //             .create_global_constructor_only("Map", js_map_constructor, 0, obj.clone(), 0)
-    //             .unwrap();
-    //         ctor.install_field_defs(self, &js_map_funcs).unwrap();
-
-    //         self.class_proto[JS_CLASS_MAP as usize] = obj;
-    //     }
-
-    //     // Set
-    //     {
-    //         let obj: JSValue = self.create_base_object().unwrap().into();
-    //         obj.install_field_defs(self, &js_set_proto_funcs).unwrap();
-
-    //         let ctor = self
-    //             .create_global_constructor_only("Set", js_map_constructor, 0, obj.clone(), 1)
-    //             .unwrap();
-    //         ctor.install_field_defs(self, &js_set_funcs).unwrap();
-
-    //         self.class_proto[JS_CLASS_SET as usize] = obj;
-    //     }
-
-    //     // WeakMap
-    //     {
-    //         let obj: JSValue = self.create_base_object().unwrap().into();
-    //         obj.install_field_defs(self, &js_weakmap_proto_funcs)
-    //             .unwrap();
-
-    //         let _ = self
-    //             .create_global_constructor_only("WeakMap", js_map_constructor, 0, obj.clone(), 2)
-    //             .unwrap();
-
-    //         self.class_proto[JS_CLASS_WEAKMAP as usize] = obj;
-    //     }
-
-    //     // WeakSet
-    //     {
-    //         let obj: JSValue = self.create_base_object().unwrap().into();
-    //         obj.install_field_defs(self, &js_weakset_proto_funcs)
-    //             .unwrap();
-
-    //         let _ = self
-    //             .create_global_constructor_only("WeakSet", js_map_constructor, 0, obj.clone(), 3)
-    //             .unwrap();
-
-    //         self.class_proto[JS_CLASS_WEAKSET as usize] = obj;
-    //     }
-
-    //     let iter_proto = self.iterator_proto().unwrap();
-
-    //     // MapIterator
-    //     {
-    //         let proto: JSValue = self
-    //             .create_base_object_with_proto(Some(iter_proto.clone()))
-    //             .unwrap()
-    //             .into();
-    //         proto
-    //             .install_field_defs(self, &js_map_iterator_proto_funcs)
-    //             .unwrap();
-    //         self.class_proto[JS_CLASS_MAP_ITERATOR as usize] = proto;
-    //     }
-
-    //     // SetIterator
-    //     {
-    //         let proto: JSValue = self
-    //             .create_base_object_with_proto(Some(iter_proto))
-    //             .unwrap()
-    //             .into();
-    //         proto
-    //             .install_field_defs(self, &js_set_iterator_proto_funcs)
-    //             .unwrap();
-    //         self.class_proto[JS_CLASS_SET_ITERATOR as usize] = proto;
-    //     }
-    // }
-
-    // /// create global namespace
-    // #[deprecated]
-    // pub(crate) fn make_global(&mut self, fields: &[FieldDef]) -> Result<ObjectRef, i32> {
-    //     let mut gobj = self.create_base_object().unwrap();
-    //     gobj.install_field_defs(self, fields).unwrap();
-
-    //     // define name `globalThis` and `global`
-    //     // Note: global object is self referenced here.
-    //     gobj.define_property_value(
-    //         self,
-    //         Atom::CONST_globalThis,
-    //         gobj.into(),
-    //         JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
-    //     )
-    //     .unwrap();
-    //     gobj.define_property_value(
-    //         self,
-    //         Atom::CONST_global,
-    //         gobj.into(),
-    //         JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
-    //     )
-    //     .unwrap();
-
-    //     // global var object
-    //     let gvobj = self.create_base_object_with_proto(None).unwrap();
-    //     self.global_obj = gobj.into();
-    //     self.global_var_obj = gvobj.into();
-
-    //     Ok(gobj)
-    // }
-
-    // /// create global space and initialize basic class in context:
-    // /// Object, String, Array, Error, Number, Boolean, Symbol.
-    // #[deprecated]
-    // pub(crate) fn init_base_classes(&mut self) {
-    //     // global object - this must come first.
-    //     {
-    //         // isNan, parseInt, undefined, NaN etc
-    //         self.make_global(&js_global_props);
-
-    //         // Reflect: create as autoinit object in global
-    //         self.global_obj()
-    //             .install_field_defs(self, &js_reflect_obj)
-    //             .unwrap();
-    //     }
-
-    //     self.intrinsic_base_object(); // Object
-    //     self.intrinsic_base_function(); // Function
-    //     self.intrinsic_base_errors(); // Error
-    //     self.intrinsic_base_array(); // Array
-    //     self.intrinsic_base_number(); // Number
-    //     self.intrinsic_base_boolean(); // Boolean
-    //     self.intrinsic_base_string(); // String
-    //     self.intrinsic_base_symbol(); // Symbol
-
-    //     self.intrinsic_base_generator(); // Generator
-
-    //     self.intrinsic_eval(); // `eval()` function
-    // }
-
-    // #[deprecated]
-    // pub fn intrinsic_typed_arrays(&mut self) {
-    //     // ArrayBuffer
-    //     {
-    //         let ab_obj = self.create_base_object().unwrap();
-    //         ab_obj
-    //             .install_field_defs(self, &js_array_buffer_proto_funcs)
-    //             .unwrap();
-    //         let ab: JSValue = ab_obj.into();
-
-    //         let ab_func = self
-    //             .create_global_constructor_only(
-    //                 "ArrayBuffer",
-    //                 js_array_buffer_constructor,
-    //                 1,
-    //                 ab.clone(),
-    //                 0,
-    //             )
-    //             .unwrap();
-    //         ab_func
-    //             .install_field_defs(self, &js_array_buffer_funcs)
-    //             .unwrap();
-
-    //         self.class_proto[JS_CLASS_ARRAY_BUFFER as usize] = ab;
-    //     }
-
-    //     // SharedArrayBuffer
-    //     {
-    //         let sab_obj = self.create_base_object().unwrap();
-    //         sab_obj
-    //             .install_field_defs(self, &js_shared_array_buffer_proto_funcs)
-    //             .unwrap();
-    //         let sab: JSValue = sab_obj.into();
-
-    //         let sab_func = self
-    //             .create_global_constructor_only(
-    //                 "SharedArrayBuffer",
-    //                 js_shared_array_buffer_constructor,
-    //                 1,
-    //                 sab.clone(),
-    //                 0,
-    //             )
-    //             .unwrap();
-    //         sab_func
-    //             .install_field_defs(self, &js_shared_array_buffer_funcs)
-    //             .unwrap();
-
-    //         self.class_proto[JS_CLASS_SHARED_ARRAY_BUFFER as usize] = sab;
-    //     }
-
-    //     // Typed arrays
-    //     {
-    //         let ta_proto = self.create_base_object().unwrap();
-    //         ta_proto
-    //             .install_field_defs(self, &js_typed_array_base_proto_funcs)
-    //             .unwrap();
-
-    //         // TypedArray.prototype.toString must be the same object as Array.prototype.toString
-    //         let to_string = self
-    //             .class_proto(JS_CLASS_ARRAY)
-    //             .unwrap()
-    //             .get_property(self, Atom::CONST_toString)
-    //             .unwrap();
-
-    //         // XXX: should use alias method in JSCFunctionListEntry
-    //         ta_proto
-    //             .define_property_value(
-    //                 self,
-    //                 Atom::CONST_toString,
-    //                 to_string,
-    //                 JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-    //             )
-    //             .unwrap();
-
-    //         let typed_array_base_func = self
-    //             .create_native_function(
-    //                 NativeFunctionType::Func(js_typed_array_base_constructor),
-    //                 "TypedArray",
-    //                 0,
-    //                 0,
-    //             )
-    //             .unwrap();
-    //         typed_array_base_func
-    //             .install_field_defs(self, &js_typed_array_base_funcs)
-    //             .unwrap();
-
-    //         self.bind_ctor_proto(
-    //             typed_array_base_func.clone().into(),
-    //             ta_proto.clone().into(),
-    //         )
-    //         .unwrap();
-
-    //         for cid in
-    //             JS_CLASS_UINT8C_ARRAY..(JS_CLASS_UINT8C_ARRAY + JS_TYPED_ARRAY_COUNT as ClassID)
-    //         {
-    //             let nby = 1 << TypedArray::SIZE_LOG2(cid);
-
-    //             let ta_obj = self
-    //                 .create_base_object_with_proto(Some(ta_proto.clone()))
-    //                 .unwrap();
-    //             ta_obj
-    //                 .define_property_value_str(self, "BYTES_PER_ELEMENT", JSValue::Int(nby), 0)
-    //                 .unwrap();
-    //             let proto: JSValue = ta_obj.into();
-
-    //             let name =
-    //                 AtomRef(JS_ATOM_Uint8ClampedArray.id() + (cid - JS_CLASS_UINT8C_ARRAY) as u32)
-    //                     .to_utf8();
-
-    //             let func_obj: JSValue = self
-    //                 .create_native_function_with_proto(
-    //                     NativeFunctionType::Constructor(js_typed_array_constructor),
-    //                     &name,
-    //                     3,
-    //                     cid as i16, // magic
-    //                     Some(typed_array_base_func.clone()),
-    //                 )
-    //                 .unwrap()
-    //                 .into();
-
-    //             self.add_global_constructor(name.as_ref(), func_obj, proto);
-    //             func_obj
-    //                 .define_property_value_str(self, "BYTES_PER_ELEMENT", JSValue::Int(nby), 0)
-    //                 .unwrap();
-
-    //             self.class_proto[cid as usize] = proto;
-    //         }
-    //     }
-
-    //     // DataView
-    //     {
-    //         let dv_obj = self.create_base_object().unwrap();
-    //         dv_obj
-    //             .install_field_defs(self, &js_dataview_proto_funcs)
-    //             .unwrap();
-    //         let dv_proto: JSValue = dv_obj.into();
-
-    //         let dv_ctor: JSValue = self
-    //             .create_native_function(
-    //                 NativeFunctionType::Constructor(js_dataview_constructor),
-    //                 "DataView",
-    //                 1,
-    //                 0,
-    //             )
-    //             .unwrap()
-    //             .into();
-    //         self.add_global_constructor("DataView", dv_ctor, dv_proto.clone());
-
-    //         self.class_proto[JS_CLASS_DATAVIEW as usize] = dv_proto;
-    //     }
-    // }
-
-    // #[deprecated]
-    // pub fn intrinsic_regexp(&mut self) {
-    //     let obj = self.create_base_object().unwrap();
-    //     obj.install_field_defs(self, &js_regexp_proto_funcs)
-    //         .unwrap();
-
-    //     let ctor = self
-    //         .create_global_constructor_or_func(
-    //             "RegExp",
-    //             js_regexp_constructor,
-    //             2,
-    //             obj.clone().into(),
-    //             0,
-    //         )
-    //         .unwrap();
-    //     ctor.install_field_defs(self, &js_regexp_funcs).unwrap();
-
-    //     let iter_proto = self.iterator_proto().unwrap();
-    //     let iter = self
-    //         .create_base_object_with_proto(Some(iter_proto))
-    //         .unwrap();
-    //     iter.install_field_defs(self, &js_regexp_string_iterator_proto_funcs)
-    //         .unwrap();
-
-    //     self.regexp_ctor = ctor;
-    //     self.class_proto[JS_CLASS_REGEXP as usize] = obj.into();
-    //     self.class_proto[JS_CLASS_REGEXP_STRING_ITERATOR as usize] = iter.into();
-    // }
-
-    // #[deprecated]
-    // pub fn intrinsic_proxy(&self) {
-    //     let func_obj = self
-    //         .create_native_function(
-    //             NativeFunctionType::Constructor(js_proxy_constructor),
-    //             "Proxy",
-    //             2,
-    //             0,
-    //         )
-    //         .unwrap();
-
-    //     func_obj.set_flag_constructor(true);
-    //     func_obj.install_field_defs(self, &js_proxy_funcs).unwrap();
-
-    //     self.global_obj()
-    //         .define_property_value_str(
-    //             self,
-    //             "Proxy",
-    //             func_obj.into(),
-    //             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-    //         )
-    //         .unwrap();
-    // }
-
-    // #[deprecated]
-    // pub fn intrinsic_async(&mut self) {
-    //     let rt = self.rt();
-    //     debug_assert!(rt.is_class_registered(JS_CLASS_PROMISE));
-
-    //     // Promise
-    //     {
-    //         let promise_obj = self.create_base_object().unwrap();
-    //         promise_obj
-    //             .install_field_defs(self, &js_promise_proto_funcs)
-    //             .unwrap();
-    //         let promise_proto: JSValue = promise_obj.into();
-
-    //         let promise_ctor: JSValue = self
-    //             .create_native_function(
-    //                 NativeFunctionType::Constructor(Promise::class_constructor),
-    //                 "Promise",
-    //                 1,
-    //                 0,
-    //             )
-    //             .unwrap()
-    //             .into();
-    //         promise_ctor
-    //             .install_field_defs(self, &js_promise_funcs)
-    //             .unwrap();
-    //         self.add_global_constructor("Promise", &promise_ctor, &promise_proto);
-
-    //         self.class_proto[JS_CLASS_PROMISE as usize] = promise_proto;
-    //         self.promise_ctor = promise_ctor;
-    //     }
-
-    //     // AsyncFunction
-    //     {
-    //         let af_obj = self
-    //             .create_base_object_with_proto(Some(self.function_proto()).cloned())
-    //             .unwrap();
-    //         af_obj
-    //             .install_field_defs(self, &js_async_function_proto_funcs)
-    //             .unwrap();
-    //         let af_proto = af_obj.into();
-
-    //         let af_ctor: JSValue = self
-    //             .create_native_function_with_proto(
-    //                 NativeFunctionType::ConstructorOrFunc(BytecodeFunction::class_constructor),
-    //                 "AsyncFunction",
-    //                 1,
-    //                 JSFunctionKindEnum::JS_FUNC_ASYNC as i16,
-    //                 self.function_ctor.as_object().cloned(),
-    //             )
-    //             .unwrap()
-    //             .into();
-
-    //         self.bind_ctor_proto_ex(&af_ctor, &af_proto, 0, JS_PROP_CONFIGURABLE)
-    //             .unwrap();
-
-    //         self.class_proto[JS_CLASS_ASYNC_FUNCTION as usize] = af_proto;
-    //     }
-
-    //     // AsyncIteratorPrototype
-    //     {
-    //         let a_iter_obj = self.create_base_object().unwrap();
-    //         a_iter_obj
-    //             .install_field_defs(self, &js_async_iterator_proto_funcs)
-    //             .unwrap();
-    //         self.async_iterator_proto = a_iter_obj.into();
-    //     }
-
-    //     // AsyncFromSyncIteratorPrototype
-    //     {
-    //         let iter_obj = self
-    //             .create_base_object_with_proto(self.async_iterator_proto.clone())
-    //             .unwrap();
-    //         iter_obj
-    //             .install_field_defs(self, &js_async_from_sync_iterator_proto_funcs)
-    //             .unwrap();
-    //         self.class_proto[JS_CLASS_ASYNC_FROM_SYNC_ITERATOR as usize] = iter_obj.into();
-    //     }
-
-    //     // AsyncGenerator
-    //     {
-    //         // AsyncGeneratorPrototype
-    //         let proto: JSValue = {
-    //             let o = self
-    //                 .create_base_object_with_proto(self.async_iterator_proto.clone())
-    //                 .unwrap();
-    //             o.install_field_defs(self, &js_async_generator_proto_funcs)
-    //                 .unwrap();
-    //             o.into()
-    //         };
-
-    //         let func_proto = self.function_proto();
-
-    //         // AsyncGeneratorFunction
-    //         let agen_func: JSValue = {
-    //             let o = self
-    //                 .create_base_object_with_proto(Some(func_proto.clone()))
-    //                 .unwrap();
-    //             o.install_field_defs(self, &js_async_generator_function_proto_funcs)
-    //                 .unwrap();
-    //             o.into()
-    //         };
-
-    //         self.bind_ctor_proto_ex(
-    //             &agen_func,
-    //             &proto,
-    //             JS_PROP_CONFIGURABLE,
-    //             JS_PROP_CONFIGURABLE,
-    //         )
-    //         .unwrap();
-
-    //         let ctor: JSValue = self
-    //             .create_native_function_with_proto(
-    //                 NativeFunctionType::ConstructorOrFunc(BytecodeFunction::class_constructor),
-    //                 "AsyncGeneratorFunction",
-    //                 1,
-    //                 JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR as i16,
-    //                 Some(func_proto.clone()),
-    //             )
-    //             .unwrap()
-    //             .into();
-
-    //         self.bind_ctor_proto_ex(&ctor, &agen_func, 0, JS_PROP_CONFIGURABLE)
-    //             .unwrap();
-
-    //         {
-    //             let slot = &mut self.class_proto;
-    //             slot[JS_CLASS_ASYNC_GENERATOR as usize] = proto;
-    //             slot[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize] = agen_func;
-    //         }
-    //     }
-    // }
-
-    // #[deprecated]
-    // pub fn intrinsic_json(&self) {
-    //     self.global_obj
-    //         .install_field_defs(self, &js_json_obj)
-    //         .unwrap();
-    // }
 }
