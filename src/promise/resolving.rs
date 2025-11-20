@@ -128,8 +128,7 @@ impl Promise {
         reaction_funcs: [JSValue; 2],
         cap_resolving_funcs: [JSValue; 2],
     ) -> Result<(), i32> {
-        // TODO: should use Box::try_new() when stable
-        let success = Box::new(JSPromiseReactionData {
+        let success = JSPromiseReactionData {
             resolving_funcs: [cap_resolving_funcs[0], cap_resolving_funcs[1]],
             handler: {
                 let h = reaction_funcs[0];
@@ -139,10 +138,9 @@ impl Promise {
                     h
                 }
             },
-        });
+        };
 
-        // TODO: should use Box::try_new() when stable
-        let fail = Box::new(JSPromiseReactionData {
+        let fail = JSPromiseReactionData {
             resolving_funcs: [cap_resolving_funcs[0], cap_resolving_funcs[1]],
             handler: {
                 let h = reaction_funcs[1];
@@ -152,7 +150,7 @@ impl Promise {
                     h
                 }
             },
-        });
+        };
 
         let s = self.payload();
 

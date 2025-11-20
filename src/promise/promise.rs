@@ -45,7 +45,7 @@ pub struct PromisePayload {
 
     /// list of pending reactions:
     /// #0 for fulfill, #1 for reject.
-    promise_reactions: RefCell<[Vec<Box<JSPromiseReactionData>>; 2]>,
+    promise_reactions: RefCell<[Vec<JSPromiseReactionData>; 2]>,
 
     promise_result: RefCell<JSValue>,
 
@@ -82,18 +82,14 @@ impl PromisePayload {
     }
 
     /// add pending reaction callback functions
-    pub(super) fn add_reaction(
-        &self,
-        success: Box<JSPromiseReactionData>,
-        fail: Box<JSPromiseReactionData>,
-    ) {
+    pub(super) fn add_reaction(&self, success: JSPromiseReactionData, fail: JSPromiseReactionData) {
         let mut b = self.promise_reactions.borrow_mut();
         b[0].push(success);
         b[1].push(fail);
     }
 
     /// take pending reactions out, reset reactions list to empty.
-    pub(super) fn take_reactions(&self) -> [Vec<Box<JSPromiseReactionData>>; 2] {
+    pub(super) fn take_reactions(&self) -> [Vec<JSPromiseReactionData>; 2] {
         std::mem::take(self.promise_reactions.borrow_mut().deref_mut())
     }
 
