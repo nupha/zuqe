@@ -205,26 +205,6 @@ pub fn js_async_from_sync_iterator_next(mut ctx: ContextRef, cc: CallContext) ->
     }
 }
 
-#[deprecated]
-pub const fn js_async_from_sync_iterator_finalizer(
-    _rt: &mut RuntimeImpl,
-    _isa: &ObjectPayload,
-    _id: usize,
-) {
-    // if let ObjectPayload::ASYNC_FROM_SYNC_ITERATOR(p) = val.object_unchecked().isa() {
-    //     drop(Box::from_raw(p));
-    // }
-}
-
-#[deprecated]
-pub fn js_async_from_sync_iterator_mark(val: JSValue) {
-    // let p = unsafe { val.as_object_unchecked() };
-    // if let ObjectPayload::ASYNC_FROM_SYNC_ITERATOR(s) = p.payload() {
-    //     //s.obj.gc_mark();
-    //     s.next_method.gc_mark();
-    // }
-}
-
 pub static js_async_from_sync_iterator_proto_funcs: [FieldDef; 3] = [
     JS_CFUNC_NATIVE_DEF!(
         "next",

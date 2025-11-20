@@ -316,28 +316,6 @@ pub fn js_function_proto(_: ContextRef, _: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
-#[deprecated]
-pub(crate) const fn js_bytecode_function_finalizer(
-    _rt: &mut RuntimeImpl,
-    _isa: &ObjectPayload,
-    _id: usize,
-) {
-}
-
-#[deprecated]
-pub(crate) fn js_bytecode_function_mark(val: JSValue) {
-    // let isa = val.as_object_BCFunction().unwrap().payload();
-
-    // isa.bytecode().gc_mark();
-    // for vr in isa.var_refs .iter() {
-    //     vr.gc_mark();
-    // }
-
-    // if let Some(ho) = isa.home_object.borrow().as_ref() {
-    //     // ho.gc_mark();
-    // }
-}
-
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
 pub struct BytecodeFunction(GcRef<ObjectImpl>);

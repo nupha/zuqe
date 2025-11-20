@@ -91,18 +91,6 @@ impl PromiseResolveFunc {
 
         Ok(JSValue::UNDEFINED)
     }
-
-    pub const fn class_finalizer(_rt: &mut RuntimeImpl, _isa: &ObjectPayload, _id: usize) {}
-
-    pub fn class_mark(val: JSValue) {
-        if let Some(s) = unsafe {
-            val.as_object_unchecked()
-                .payload()
-                .promise_resolving_function()
-        } {
-            //  s.promise.gc_mark();
-        }
-    }
 }
 
 #[derive(Debug, Clone)]

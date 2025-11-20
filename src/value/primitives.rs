@@ -113,20 +113,3 @@ pub fn JS_GetPrototypePrimitive(ctx: &ContextImpl, val: &JSValue) -> JSValue {
     }
     .map_or(JSValue::NULL, JSValue::Object)
 }
-
-pub const fn js_object_data_finalizer(_rt: &mut RuntimeImpl, _isa: &ObjectPayload, _id: usize) {
-    // free object data
-    // JS_FreeValueRT(
-    //     rt,
-    //     val.object_unchecked()
-    //         .isa_mut()
-    //         .value_replace(rt.as_mut().unwrap(), JSValue::UNDEFINED)
-    //         .unwrap(),
-    // );
-}
-
-pub fn js_object_data_mark(val: JSValue) {
-    if let Some(o) = val.as_object() {
-        o.payload().value().unwrap().gc_mark();
-    }
-}

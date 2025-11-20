@@ -492,26 +492,6 @@ pub fn js_create_iterator_result(ctx: &ContextImpl, value: JSValue, done: bool) 
     Ok(obj.into())
 }
 
-#[deprecated]
-pub const fn js_for_in_iterator_finalizer(_rt: &mut RuntimeImpl, isa: &ObjectPayload, _id: usize) {
-    if let ObjectPayload::FOR_IN_ITERATOR(_it) = isa {
-        // let mut b = it.borrow_mut();
-        // if !b.is_array {
-        //     for x in b.prop_enums.iter_mut() {
-        //         std::mem::replace(&mut x.atom, Atom::NULL).free(rt);
-        //     }
-        // }
-    }
-}
-
-#[deprecated]
-pub const fn js_for_in_iterator_mark(val: JSValue) {
-    // let p = unsafe { val.as_object_unchecked() };
-    // if let ObjectPayload::FOR_IN_ITERATOR(it) = p.payload() {
-    //     it.obj.gc_mark();
-    // }
-}
-
 pub fn iterator_to_array(ctx: &ContextImpl, items: &JSValue) -> JSResult {
     let it = items.iter(ctx)?;
     let mut arr = ctx.create_array()?;

@@ -30,7 +30,6 @@ pub struct StdClassDef {
     pub class_name: Atom,
     pub initialize: Option<ClassInitializeFn>,
     pub finalize: Option<ClassFinalizeFn>,
-    pub gc_mark: Option<ClassGCMarkFn>,
 }
 
 /// class definition
@@ -50,8 +49,6 @@ pub struct ClassDef {
     pub(crate) initialize: Option<ClassInitializeFn>,
     /// class instance finalize callback
     pub(crate) finalize: Option<ClassFinalizeFn>,
-
-    pub(crate) gc_mark: Option<ClassGCMarkFn>,
 }
 
 impl ClassDef {

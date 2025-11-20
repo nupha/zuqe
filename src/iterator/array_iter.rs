@@ -69,16 +69,6 @@ impl ArrayIterPayload {
             *self.val.get() = obj;
         }
     }
-
-    pub const fn class_finalizer(_rt: &mut RuntimeImpl, _isa: &ObjectPayload, _id: usize) {}
-
-    pub fn class_mark(val: JSValue) {
-        let p = unsafe { val.as_object_unchecked() };
-        if let ObjectPayload::ARRAY_ITERATOR(it) | ObjectPayload::STRING_ITERATOR(it) = p.payload()
-        {
-            it.value().gc_mark();
-        }
-    }
 }
 
 /// 用于创建一个数组迭代器对象，该对象可以用来遍历数组中的元素。

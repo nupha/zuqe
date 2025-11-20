@@ -107,21 +107,4 @@ impl NativeFunctionWithData {
             unreachable!()
         }
     }
-
-    #[deprecated]
-    pub const fn class_finalizer(_rt: &mut RuntimeImpl, _isa: &ObjectPayload, _id: usize) {}
-
-    #[deprecated]
-    pub const fn class_mark(val: JSValue) {
-        // unsafe {
-        //     if let ObjectPayload::C_FUNCTION_DATA(p) = val.as_object_unchecked().payload() {
-        //         let n = p.len();
-        //         for i in 0..n {
-        //             if let Some(v) = p.data(i) {
-        //                 v.gc_mark()
-        //             }
-        //         }
-        //     }
-        // }
-    }
 }

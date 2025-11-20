@@ -14,7 +14,6 @@ use crate::{
     },
     object::{ObjectImpl, ObjectPayload, ObjectRef},
     object_cast,
-    runtime::RuntimeImpl,
     utils::hash_usize,
     value::JSValue,
 };
@@ -332,27 +331,6 @@ impl JSMapState {
         self.lut.clear();
         self.slots.clear();
         self.remove_count = 0;
-    }
-
-    pub const fn class_finalizer(_: &mut RuntimeImpl, _: &ObjectPayload, _: usize) {}
-
-    #[deprecated]
-    pub fn class_mark(val: JSValue) {
-        let o = unsafe { val.to_object_unchecked() };
-        if let Some(s) = o.payload().mapset() {
-            for kv in s.slots.iter() {
-                match kv {
-                    MapPair::Strong { key, value } => {
-                        key.gc_mark();
-                        value.gc_mark();
-                    }
-                    MapPair::Weak { value, .. } => {
-                        value.gc_mark();
-                    }
-                    MapPair::Removed => {}
-                }
-            }
-        }
     }
 }
 

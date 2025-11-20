@@ -7,7 +7,6 @@ use crate::{
     function::{AsyncFuncState, CallContext, FieldDef, IteratorState},
     iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW},
     object::{JS_PROP_CONFIGURABLE, ObjectPayload},
-    runtime::RuntimeImpl,
     stack_frame::StackFrame,
     value::JSValue,
 };
@@ -105,18 +104,6 @@ pub fn js_generator_function_call(
     ctx.create_object_from_ctor(func_obj, ObjectPayload::GENERATOR(g))
         .map(JSValue::Object)
         .map_err(|_| -1)
-}
-
-#[deprecated]
-pub const fn js_generator_finalizer(_rt: &mut RuntimeImpl, _isa: &ObjectPayload, _id: usize) {
-    // if let ObjectPayload::GENERATOR(_) = isa {
-    //     //s.free_generator_stack_rt(rt);
-    // }
-}
-
-#[deprecated]
-pub fn js_generator_mark(_: JSValue) {
-    unimplemented!();
 }
 
 pub fn js_generator_next(

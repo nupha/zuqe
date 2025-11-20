@@ -224,6 +224,26 @@ impl ArrayBuffer {
         }
     }
 
+    // also used for SharedArrayBuffer
+    pub fn class_finalize(rt: &mut RuntimeImpl, isa: &ObjectPayload, _id: usize) {
+        let abuf = isa.array_buffer().unwrap();
+
+        // free content
+        match abuf.data() {
+            ABufData::Raw(p, len, Some(free_func)) => {
+                free_func(rt, abuf.opaque(), p.as_ptr(), *len);
+            }
+            ABufData::Shared(a) => {
+                if Arc::strong_count(a) == 1
+                    && let Some(fns) = &rt.sab_funcs
+                {
+                    (fns.sab_free)(fns.sab_opaque, a.read().unwrap().len());
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// Create new instance of class ARRAY_BUFFER or ARRAY_BUFFER_SHARED.
     fn create_internal(
         ctx: &ContextImpl,
@@ -407,21 +427,23 @@ pub fn js_shared_array_buffer_constructor(ctx: ContextRef, cc: CallContext) -> J
 }
 
 // also used for SharedArrayBuffer
-pub fn js_array_buffer_finalizer(rt: &mut RuntimeImpl, isa: &ObjectPayload, _id: usize) {
-    let abuf = isa.array_buffer().unwrap();
+#[deprecated(note = "use ArrayBuffer::class_finalize() instead")]
+pub fn js_array_buffer_finalizer(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize) {
+    ArrayBuffer::class_finalize(rt, isa, id);
+    // let abuf = isa.array_buffer().unwrap();
 
-    // free content
-    match abuf.data() {
-        ABufData::Raw(p, len, Some(free_func)) => {
-            free_func(rt, abuf.opaque(), p.as_ptr(), *len);
-        }
-        ABufData::Shared(a) => {
-            if Arc::strong_count(a) == 1
-                && let Some(fns) = &rt.sab_funcs
-            {
-                (fns.sab_free)(fns.sab_opaque, a.read().unwrap().len());
-            }
-        }
-        _ => {}
-    }
+    // // free content
+    // match abuf.data() {
+    //     ABufData::Raw(p, len, Some(free_func)) => {
+    //         free_func(rt, abuf.opaque(), p.as_ptr(), *len);
+    //     }
+    //     ABufData::Shared(a) => {
+    //         if Arc::strong_count(a) == 1
+    //             && let Some(fns) = &rt.sab_funcs
+    //         {
+    //             (fns.sab_free)(fns.sab_opaque, a.read().unwrap().len());
+    //         }
+    //     }
+    //     _ => {}
+    // }
 }

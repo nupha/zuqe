@@ -1587,7 +1587,7 @@ pub fn JS_RunGC(rt: &mut RuntimeImpl) {
     rt.gc();
 }
 
-#[deprecated(note = "use JSMapState::class_finalizer() instead")]
+#[deprecated(note = "use JSMapState::class_finalize() instead")]
 pub unsafe fn js_map_finalizer(rt: *mut RuntimeImpl, val: JSValue) {
     unreachable!("unused");
 }
@@ -4005,7 +4005,7 @@ pub unsafe fn get_proxy_method<'a>(
     }
 }
 
-#[deprecated(note = "use Proxy::class_finalizer instead")]
+#[deprecated(note = "use Proxy::class_finalize instead")]
 pub fn js_proxy_finalizer(rt: &mut RuntimeImpl, is: &ObjectPayload, id: usize) {
     unimplemented!();
 }
@@ -4625,7 +4625,7 @@ pub fn js_get_radix(ctx: ContextRef, val: &JSValue) -> Result<i32, i32> {
     Ok(radix)
 }
 
-#[deprecated(note = "use RegExp::class_finalizer() instead")]
+#[deprecated(note = "use RegExp::class_finalize() instead")]
 pub fn js_regexp_finalizer(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize) {}
 
 #[deprecated(note = "use JSParseState::parse_function_check_names() instead")]

@@ -34,22 +34,6 @@ pub struct BoundFunction(GcRef<ObjectImpl>);
 object_cast!(BoundFunction, JS_CLASS_BOUND_FUNCTION);
 
 impl BoundFunction {
-    pub const fn class_finalizer(_rt: &mut RuntimeImpl, _isa: &ObjectPayload, _id: usize) {}
-
-    pub fn class_mark(val: JSValue) {
-        unsafe {
-            if let ObjectPayload::BOUND_FUNCTION(bf) = val.as_object_unchecked().payload() {
-                val.gc_mark();
-                bf.func_obj.gc_mark();
-                bf.this_val.gc_mark();
-
-                for a in bf.bind_args.iter() {
-                    a.gc_mark();
-                }
-            }
-        }
-    }
-
     pub fn class_call(
         ctx: ContextRef,
         func_obj: JSValue,

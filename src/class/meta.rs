@@ -90,7 +90,6 @@ impl RuntimeImpl {
             let cd = ClassDef {
                 initialize: item.initialize,
                 finalize: item.finalize,
-                gc_mark: item.gc_mark,
                 ..Default::default()
             };
             self.add_class_internal(class_id, &cd, item.class_name)?;

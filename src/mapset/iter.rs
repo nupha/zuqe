@@ -40,8 +40,6 @@ pub struct MapIterator(pub(crate) GcRef<ObjectImpl>);
 
 object_cast!(MapIterator, JS_CLASS_MAP_ITERATOR);
 
-pub const fn js_map_iterator_finalizer(_rt: &mut RuntimeImpl, _isa: &ObjectPayload, _id: usize) {}
-
 #[deprecated]
 pub fn js_map_iterator_mark(val: JSValue) {
     if let Some(o) = val.as_object()

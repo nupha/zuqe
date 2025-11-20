@@ -440,21 +440,6 @@ impl AsyncGeneratorFunction {
 
         Ok(None)
     }
-
-    pub const fn class_finalizer(_rt: &mut RuntimeImpl, _isa: &ObjectPayload, _id: usize) {}
-
-    pub fn class_mark(val: JSValue) {
-        if let ObjectPayload::ASYNC_GENERATOR(s) = unsafe { val.as_object_unchecked().payload() } {
-            // s.func_state.gc_mark();
-
-            for req in s.queue.borrow().iter() {
-                req.result.gc_mark();
-                req.promise.gc_mark();
-                req.resolving_funcs[0].gc_mark();
-                req.resolving_funcs[1].gc_mark();
-            }
-        }
-    }
 }
 
 /// create pair of functions to handle fullfil and reject.

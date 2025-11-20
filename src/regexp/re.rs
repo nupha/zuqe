@@ -17,7 +17,7 @@ use crate::{
         js_regexp_string_iterator_proto_funcs,
     },
     runtime::RuntimeImpl,
-    string::{StringRef, StringData, map_utf8_to_utf16_range},
+    string::{StringData, StringRef, map_utf8_to_utf16_range},
     value::JSValue,
 };
 
@@ -415,8 +415,6 @@ impl RegExp {
             }
         }
     }
-
-    pub const fn class_finalizer(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize) {}
 }
 
 /// build Array object to hold regexp matches.

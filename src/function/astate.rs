@@ -326,17 +326,4 @@ impl AsyncFuncState {
             args,
         )
     }
-
-    #[deprecated]
-    pub const fn class_finalizer(_rt: &mut RuntimeImpl, _isa: &ObjectPayload, _id: usize) {}
-
-    #[deprecated]
-    pub fn class_mark(val: JSValue) {
-        // if let Some(s) = val
-        //     .as_object()
-        //     .and_then(|p| p.payload().async_function_resolving().cloned())
-        // {
-        //     s.gc_mark();
-        // }
-    }
 }

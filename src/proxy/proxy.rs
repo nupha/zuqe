@@ -19,7 +19,7 @@ use crate::{
     },
     object_cast,
     proxy::{js_proxy_constructor, js_proxy_funcs},
-    runtime::{RuntimeImpl, js_check_stack_overflow},
+    runtime::js_check_stack_overflow,
     value::JSValue,
 };
 
@@ -69,7 +69,7 @@ impl ProxyPayload {
             self.target.is_extensible(ctx)
         } else {
             let b = method
-                .call(ctx, self.handler, &[self.target.clone().into()])?
+                .call(ctx, self.handler, &[self.target.into()])?
                 .to_bool()?;
 
             if b != self.target.is_extensible(ctx)? {

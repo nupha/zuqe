@@ -330,21 +330,6 @@ impl NFuncPayload {
 
         Ok(ret_val)
     }
-
-    #[deprecated]
-    pub fn class_finalizer(_rt: &mut RuntimeImpl, isa: &ObjectPayload, _id: usize) {
-        debug_assert!(matches!(isa, ObjectPayload::C_FUNCTION(_)));
-    }
-
-    #[deprecated]
-    pub fn class_mark(val: JSValue) {
-        unsafe {
-            if let ObjectPayload::C_FUNCTION(_) = val.as_object_unchecked().payload() {
-                // println!("[O.o] TODO cfunction mark");
-                // mark_func(rt, &cfunc.realm);
-            }
-        }
-    }
 }
 
 // #[repr(transparent)]

@@ -302,30 +302,6 @@ impl Promise {
         Ok(Some(proto))
     }
 
-    pub const fn class_finalizer(_: &mut RuntimeImpl, _isa: &ObjectPayload, _: usize) {
-        // if let ObjectPayload::PROMISE(mut s) = isa {
-        //     s.promise_reactions[0].clear();
-        //     s.promise_reactions[1].clear();
-        // }
-    }
-
-    pub fn class_mark(val: JSValue) {
-        if let Some(promise) = val.as_object_Promise() {
-            let s = promise.payload();
-
-            let re = s.promise_reactions.borrow();
-            for i in 0..2 {
-                for rd in re[i].iter() {
-                    rd.resolving_funcs[0].gc_mark();
-                    rd.resolving_funcs[1].gc_mark();
-                    rd.handler.gc_mark();
-                }
-            }
-
-            s.result().gc_mark();
-        }
-    }
-
     /// see ECMAScript spec `Promise.resolve()` and `Promise.reject()` for details.
     fn from_resolve_or_reject_value(
         ctx: &ContextImpl,

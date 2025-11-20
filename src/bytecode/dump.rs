@@ -580,7 +580,7 @@ pub(super) unsafe fn dump_pc2line(ctx: ContextRef, buf: *const u8, len: i32, mut
             };
 
             if (v & 1) == 0 {
-                v = v >> 1;
+                v >>= 1;
             } else {
                 v = -(v >> 1) - 1;
             }
