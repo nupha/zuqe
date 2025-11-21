@@ -28,10 +28,7 @@ default = [
 
     "dump_leaks",
     "dump_objects",
-    #"dump_shapes",
-    "dump_bytecode",
-    #"dump_free",
-    #"dump_gc_free",
+    #"dump_bytecode",
 ]
 
 [profile.release]

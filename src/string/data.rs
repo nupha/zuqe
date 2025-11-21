@@ -3,10 +3,7 @@ use std::{borrow::Cow, cmp::Ordering, collections::TryReserveError, ops::Range};
 use fallible_collections::TryCollect;
 use widestring::U16Str;
 
-use crate::{
-    number::{parse_i64, parse_u32},
-    utils::hash_u32_from_base,
-};
+use crate::number::{parse_i64, parse_u32};
 
 use super::{
     StringBuf, StringChar, StringCharIter, StringCodepointIter, U16CharIter, s16_into_s8,

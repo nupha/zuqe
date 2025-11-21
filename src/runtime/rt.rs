@@ -17,11 +17,10 @@ use crate::{
     class::{ClassMeta, js_arguments_exotic_methods},
     context::ContextRef,
     function::{AsyncFuncState, AsyncFunction, BoundFunction, NFuncPayload},
-    gc::JSGCPhaseEnum,
     generator::{AsyncGeneratorFunction, js_generator_function_call},
     mem::{JS_DEFAULT_STACK_SIZE, JSMallocFunctions, JSMallocState},
     module::{JSModuleLoaderFunc, JSModuleNormalizeFunc, js_module_ns_exotic_methods},
-    object::{GCObjectWeakref, ShapeRegistry},
+    object::ShapeRegistry,
     promise::{JSHostPromiseRejectionTracker, Job, PromiseResolveFunc},
     proxy::{Proxy, js_proxy_exotic_methods},
     regexp::RegExpData,
@@ -83,25 +82,13 @@ pub struct RuntimeImpl {
     /// queued jobs
     pub(crate) job_list: VecDeque<Job>,
 
-    /// gc requested mark
-    pub(crate) gc_req: bool,
     /// gc heap
     gc_heap: GcContext,
     /// gc partion id
     gc_part: PartitionId,
     pub(crate) gc_threshold: usize,
-
-    #[deprecated]
-    pub(crate) gc_phase: JSGCPhaseEnum,
-    /// List of tracked GC objects (used by garbage collector)
-    #[deprecated]
-    pub(crate) gc_obj_list: HashMap<usize, GCObjectWeakref>,
-    /// Used during JS_FreeValueRT()
-    #[deprecated]
-    pub(crate) gc_zero_ref_count_list: Vec<GCObjectWeakref>,
-    /// used during GC
-    #[deprecated]
-    pub(crate) tmp_obj_list: Vec<GCObjectWeakref>,
+    /// gc requested mark
+    pub(crate) gc_req: bool,
 
     pub(crate) user_opaque: *mut c_void,
 
@@ -157,14 +144,10 @@ impl RuntimeImpl {
 
             context_list: Vec::with_capacity(1),
 
-            gc_req: false,
             gc_heap,
             gc_part,
-            gc_phase: JSGCPhaseEnum::JS_GC_PHASE_NONE,
-            gc_obj_list: HashMap::with_capacity(128),
-            gc_zero_ref_count_list: Vec::new(),
-            tmp_obj_list: Vec::new(),
             gc_threshold: 256 * 1024,
+            gc_req: false,
 
             stack_size: JS_DEFAULT_STACK_SIZE,
             stack_top: 0,
