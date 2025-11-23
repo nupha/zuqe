@@ -140,6 +140,22 @@ fn setup_ctx_test262_helpers(ctx: &mut ContextImpl) -> Result<JSValue, i32> {
         obj262.set_property_str(ctx, "createRealm", f.into())?;
     }
 
+    obj262.set_property_str(
+        ctx,
+        "gc",
+        ctx.create_native_function(
+            NativeFunctionType::Func(|ctx, _| -> JSResult {
+                let part = ctx.rt().gc_part();
+                ctx.rt().gc_heap_mut().collect_garbage(part);
+                Ok(JSValue::UNDEFINED)
+            }),
+            "gc",
+            0,
+            0,
+        )?
+        .into(),
+    )?;
+
     obj262.set_property_str(ctx, "global", global)?;
     global.set_property_str(ctx, "$262", obj262.into())?;
 

@@ -12,7 +12,6 @@ use crate::{
     branch_hints::unlikely,
     class::JSClassExoticMethods,
     context::{ContextImpl, ContextRef},
-    gcref_wrapper,
     number::{ATOD_ACCEPT_BIN_OCT, JS_DTOA_VAR_FORMAT, f64_stringify, js_atof},
     object::{
         JS_PROP_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC, JSPropertyDescriptor,
@@ -237,7 +236,30 @@ impl StringImpl {
 #[repr(transparent)]
 pub struct StringRef(GcRef<StringImpl>);
 
-gcref_wrapper!(StringRef, StringImpl);
+unsafe impl Collect for StringRef {
+    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+        // Note: String for const atom (w/o rt) must not set mark.
+        if unsafe { self.0.as_ref().rt().is_some() } {
+            tracer.mark(self.0);
+        }
+    }
+}
+
+impl Deref for StringRef {
+    type Target = StringImpl;
+
+    #[inline(always)]
+    fn deref(&self) -> &Self::Target {
+        unsafe { self.0.as_ref() }
+    }
+}
+
+impl DerefMut for StringRef {
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { self.0.as_mut() }
+    }
+}
 
 impl PartialEq for StringRef {
     #[inline(always)]
@@ -294,6 +316,19 @@ impl TryFrom<JSValue> for StringRef {
 }
 
 impl StringRef {
+    #[inline(always)]
+    pub(crate) const fn from(r: gc_lite::GcRef<StringImpl>) -> Self {
+        Self(r)
+    }
+    #[inline(always)]
+    pub(crate) unsafe fn from_ref_unchecked(o: &StringImpl) -> Self {
+        Self(unsafe { gc_lite::GcRef::from_ref_unchecked(o) })
+    }
+    #[inline(always)]
+    pub(crate) const fn gc_ref(&self) -> GcRef<StringImpl> {
+        self.0
+    }
+
     /// create StringImpl with string content, and atom.
     fn new_internal(
         rt: Option<RuntimeRef>,
