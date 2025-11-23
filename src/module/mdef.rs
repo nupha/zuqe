@@ -562,7 +562,7 @@ pub fn JS_GetScriptOrModuleName(ctx: &ContextImpl, n_stack_levels: i32) -> Atom 
 
     let mut levels = n_stack_levels;
     while levels > 0 {
-        sf = unsafe { (&*sf).prev_frame.cast::<StackFrame>() };
+        sf = unsafe { (&*sf).parent.cast::<StackFrame>() };
         if sf.is_null() {
             return Atom::NULL;
         }
@@ -577,7 +577,7 @@ pub fn JS_GetScriptOrModuleName(ctx: &ContextImpl, n_stack_levels: i32) -> Atom 
                 return bc.debug.as_ref().map_or(Atom::NULL, |d| d.filename);
             } else {
                 // walk up parent stack frame
-                sf = unsafe { (&*sf).prev_frame.cast::<StackFrame>() };
+                sf = unsafe { (&*sf).parent.cast::<StackFrame>() };
                 if sf.is_null() {
                     return Atom::NULL;
                 }

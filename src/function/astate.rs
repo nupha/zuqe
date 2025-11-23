@@ -214,8 +214,8 @@ impl AsyncStateImpl {
         stack_frame.cur_sp_offset = -1;
 
         let mut rt = caller_ctx.rt();
-        stack_frame.prev_frame = rt.cur_stack_frame;
-        rt.cur_stack_frame = (stack_frame as *const StackFrame as *mut StackFrame).cast();
+        stack_frame.parent = rt.cur_stack_frame;
+        rt.cur_stack_frame = (stack_frame as *mut StackFrame).cast();
 
         let isa = bcf.payload_mut();
         let bc = isa.bytecode();
@@ -235,7 +235,7 @@ impl AsyncStateImpl {
 
         debug_assert_eq!(
             caller_ctx.rt().cur_stack_frame.cast::<u8>(),
-            self.frame.prev_frame.cast::<u8>(),
+            self.frame.parent.cast::<u8>(),
             "runtime current stack frame should be restored after running bytecodes"
         );
 

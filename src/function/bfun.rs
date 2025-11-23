@@ -439,7 +439,7 @@ impl BytecodeFunction {
         debug_assert!(
             std::ptr::eq(
                 caller_ctx.rt().cur_stack_frame.cast::<c_void>(),
-                sf.prev_frame.cast::<c_void>()
+                sf.parent.cast::<c_void>()
             ),
             "runtime current stack frame should be restored after running bytecodes"
         );

@@ -4,7 +4,6 @@ use std::{
     ffi::c_void,
     marker::PhantomData,
     ops::{Deref, DerefMut},
-    pin::Pin,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -27,7 +26,6 @@ use crate::{
     promise::Job,
     regexp::RegExpData,
     runtime::{RuntimeImpl, RuntimeRef},
-    stack_frame::StackFrame,
     value::JSValue,
 };
 
@@ -95,12 +93,6 @@ pub struct ContextImpl {
     /// User data pointer
     pub(crate) user_opaque: *mut std::ffi::c_void,
 
-    /// Stack information
-    pub(crate) stack_limit: usize,
-    pub(crate) stack_pointer: usize,
-    pub(crate) stack_size: usize,
-    pub(crate) stack_frame: *mut Pin<StackFrame>,
-
     /// queued context jobs
     pub(crate) job_list: VecDeque<Job>,
 }
@@ -137,10 +129,6 @@ unsafe impl Collect for ContextImpl {
 
         for ev in self.native_error_proto.iter() {
             ev.trace(tracer);
-        }
-
-        if let Some(sf) = unsafe { self.stack_frame.cast::<StackFrame>().as_ref() } {
-            sf.trace(tracer);
         }
 
         for m in self.loaded_modules.iter() {
@@ -197,11 +185,6 @@ impl ContextImpl {
             compile_regexp: None,
             eval_handle: None,
 
-            stack_limit: 0,
-            stack_pointer: 0,
-            stack_size: 0,
-            stack_frame: std::ptr::null_mut(),
-
             job_list: VecDeque::new(),
             user_opaque: std::ptr::null_mut(),
         };
@@ -232,35 +215,6 @@ impl ContextImpl {
         unsafe { *self.global_var_obj.as_object_unchecked() }
     }
 
-    /// Pushes a new stack frame onto the execution stack
-    ///
-    /// # Safety
-    /// The caller must ensure the frame pointer is valid
-    pub(crate) fn push_stack_frame(&mut self, frame: *mut Pin<StackFrame>) {
-        if self.stack_frame.is_null() {
-            self.stack_frame = frame;
-        } else {
-            unsafe {
-                (*frame.cast::<StackFrame>()).prev_frame = self.stack_frame;
-            }
-            self.stack_frame = frame;
-        }
-    }
-
-    /// Pops the current stack frame from the execution stack
-    ///
-    /// # Safety
-    /// The caller must ensure no references to the popped frame remain
-    pub(crate) fn pop_stack_frame(&mut self) -> *mut Pin<StackFrame> {
-        if self.stack_frame.is_null() {
-            std::ptr::null_mut()
-        } else {
-            let frame = self.stack_frame;
-            self.stack_frame = unsafe { (*frame.cast::<StackFrame>()).prev_frame };
-            frame
-        }
-    }
-
     /// initialize random state
     pub(crate) fn init_random_seed(&mut self) {
         let seed = SystemTime::now()
@@ -270,6 +224,13 @@ impl ContextImpl {
 
         // seed must not be zero.
         self.random_state = if seed != 0 { seed } else { 1 };
+    }
+
+    /// test if context is currently in strict mode
+    pub(crate) fn is_strict_mode(&self) -> bool {
+        self.rt()
+            .cur_stack_frame()
+            .is_some_and(|sf| sf.js_mode & JS_MODE_STRICT != 0)
     }
 
     fn finalize(&mut self) {
@@ -469,21 +430,13 @@ impl ContextRef {
 
 /* only valid inside C functions */
 pub(crate) fn JS_GetActiveFunction(ctx: &ContextImpl) -> JSValue {
-    unsafe { (*ctx.rt().cur_stack_frame.cast::<StackFrame>()).cur_func }
+    ctx.rt().cur_stack_frame().unwrap().cur_func
 }
 
 pub const JS_MODE_STRICT: i32 = 1 << 0;
 pub const JS_MODE_STRIP: i32 = 1 << 1;
 pub const JS_MODE_MATH: i32 = 1 << 2;
 pub const JS_MODE_ASYNC: i32 = 1 << 3; /* async function */
-
-/// test if content is currently in strict mode
-pub fn is_strict_mode(ctx: &ContextImpl) -> bool {
-    unsafe {
-        let sf = ctx.rt().cur_stack_frame.cast::<StackFrame>();
-        !sf.is_null() && (*sf).js_mode & JS_MODE_STRICT != 0
-    }
-}
 
 impl RuntimeImpl {
     /// Creates context with setup closure.

@@ -4,7 +4,7 @@ use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CLASS_ERROR, JS_PROP_STRING_DEF,
     atom::Atom,
     class::ClassID,
-    context::{ContextImpl, ContextRef, is_strict_mode},
+    context::{ContextImpl, ContextRef},
     function::{Bytecode, CallContext, FieldDef, get_func_name},
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE, ObjectPayload,
@@ -127,7 +127,7 @@ impl ContextImpl {
     /// test if allowed to throw error according to `flags`
     #[inline(always)]
     pub fn can_throw(&self, flags: u32) -> bool {
-        flags & JS_PROP_THROW != 0 || (flags & JS_PROP_THROW_STRICT != 0 && is_strict_mode(self))
+        flags & JS_PROP_THROW != 0 || (flags & JS_PROP_THROW_STRICT != 0 && self.is_strict_mode())
     }
 
     /// returns: true=exception raised; false=no exception raised
@@ -245,7 +245,7 @@ impl ContextImpl {
         while let Some(sf) = unsafe { sf_ptr.as_ref() } {
             if backtrace_flags & JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL != 0 {
                 backtrace_flags &= !JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL;
-                sf_ptr = sf.prev_frame.cast();
+                sf_ptr = sf.parent.cast();
                 continue;
             }
 
@@ -292,7 +292,7 @@ impl ContextImpl {
                 break;
             }
 
-            sf_ptr = sf.prev_frame.cast();
+            sf_ptr = sf.parent.cast();
         }
 
         Ok(String::from_utf8_lossy(dbuf.into_inner()).to_string())

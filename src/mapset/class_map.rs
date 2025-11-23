@@ -4,7 +4,7 @@ use crate::{
     JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_MAP, JS_PROP_STRING_DEF,
     atom::Atom,
     class::ClassID,
-    context::{ContextRef, is_strict_mode},
+    context::ContextRef,
     error::JSResult,
     function::{CallContext, FieldDef},
     iterator::JSIteratorKindEnum,
@@ -351,7 +351,7 @@ fn js_map_groupBy(ctx: ContextRef, cc: CallContext) -> JSResult {
     let func = cc.arg(1);
     func.ensure_function(cx)?;
 
-    let this_val = if is_strict_mode(cx) {
+    let this_val = if cx.is_strict_mode() {
         JSValue::UNDEFINED
     } else {
         cx.global_obj().into()

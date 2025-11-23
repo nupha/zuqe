@@ -1,6 +1,6 @@
 use crate::{
     atom::Atom,
-    context::{ContextImpl, is_strict_mode},
+    context::ContextImpl,
     error::{JS_ThrowReferenceErrorUninitialized, JS_ThrowSyntaxErrorVarRedeclaration, JSResult},
     function::{DEFINE_GLOBAL_FUNC_VAR, DEFINE_GLOBAL_LEX_VAR},
     object::{
@@ -215,7 +215,7 @@ impl ContextImpl {
         } else {
             // not exist
             let mut flags1 = JS_PROP_THROW_STRICT;
-            if is_strict_mode(self) {
+            if self.is_strict_mode() {
                 flags1 |= JS_PROP_NO_ADD;
             }
 

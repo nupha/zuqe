@@ -15,7 +15,7 @@ use crate::{
         OP_DEFINE_METHOD_ENUMERABLE, OP_DEFINE_METHOD_GETTER, OP_DEFINE_METHOD_METHOD,
         OP_DEFINE_METHOD_SETTER,
     },
-    context::{ContextImpl, JS_MODE_STRICT, is_strict_mode},
+    context::{ContextImpl, JS_MODE_STRICT},
     error::{
         JS_THROW_ERROR_DELETE_SUPER, JS_THROW_ERROR_ITERATOR_THROW, JS_THROW_VAR_REDECL,
         JS_THROW_VAR_RO, JS_THROW_VAR_UNINITIALIZED, JS_ThrowReferenceErrorNotDefined,
@@ -1925,14 +1925,14 @@ impl Bytecode {
                         let mut flags = JS_PROP_THROW_STRICT;
 
                         if unlikely(obj.is_undefined()) {
-                            if is_strict_mode(&realm) {
+                            if realm.is_strict_mode() {
                                 if let Ok(atom) = prop.to_atom(&realm) {
                                     JS_ThrowReferenceErrorNotDefined(&realm, atom);
                                 }
                                 break State::Exception;
                             }
                             obj = JSValue::Object(realm.global_obj());
-                        } else if is_strict_mode(&realm) {
+                        } else if realm.is_strict_mode() {
                             flags |= JS_PROP_NO_ADD;
                         }
 

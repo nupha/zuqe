@@ -7,6 +7,7 @@ use crate::{
     error::{JS_IsUncatchableError, is_backtrace_needed},
     function::{AsyncStateImpl, JSVarRef},
     iterator::ObjectIter,
+    runtime::Runtime,
     value::JSValue,
 };
 
@@ -14,8 +15,8 @@ use crate::{
 /// StackFrame is usually allocated on stack, not heap.
 #[derive(Debug)]
 pub struct StackFrame {
-    /// Pointer to previous stack frame (NULL for first frame)
-    pub prev_frame: *mut Pin<Self>,
+    /// Pointer to parent stack frame (NULL for first frame)
+    pub(crate) parent: *mut Pin<Self>,
 
     /// Currently executing function.
     ///
@@ -29,45 +30,45 @@ pub struct StackFrame {
 
     /// Buffer storing arguments, local variables, and stack space
     /// TODO: Replace with Box<[JSValue]> for better memory efficiency
-    pub local_buf: Vec<JSValue>,
+    pub(crate) local_buf: Vec<JSValue>,
 
     /// Arguments array base pointer and count
     /// Points into local_buf (self-referencing)
-    pub arg_base_ptr: *mut JSValue, // TODO: Consider using *const ?
-    pub arg_real_count: u16,
-    pub arg_count: u16, // at least has `length`
+    pub(crate) arg_base_ptr: *mut JSValue, // TODO: Consider using *const ?
+    pub(crate) arg_real_count: u16,
+    pub(crate) arg_count: u16, // at least has `length`
 
     /// Local variables base pointer and count
     /// Points into local_buf (self-referencing)
-    pub var_base_ptr: *mut JSValue,
-    pub var_count: u16,
+    pub(crate) var_base_ptr: *mut JSValue,
+    pub(crate) var_count: u16,
 
     /// Program counter offset for bytecode functions
     /// Position in local_buf relative to pc_base (see Bytecode::bytecode_start)
-    pub cur_pc_offset: usize,
+    pub(crate) cur_pc_offset: usize,
 
     /// Stack pointer offset (used for generator functions)
     /// -1 when function is actively executing
     /// Position in local_buf relative to stack_base_ptr()
     /// Use stack_cur_ptr() to get raw pointer to this position
-    pub cur_sp_offset: i32,
+    pub(crate) cur_sp_offset: i32,
 
     /// List of variable references registered in this frame
-    pub var_ref_list: Vec<JSVarRef>,
+    pub(crate) var_ref_list: Vec<JSVarRef>,
 
     /// Execution mode flags (only JS_MODE_MATH is valid for C functions)
-    pub js_mode: i32,
+    pub(crate) js_mode: i32,
 
     /// Weak back-ref to async state,
     /// only valid if this stack frame is for an AsyncStateImpl
-    pub async_func: GcWeak<AsyncStateImpl>,
+    pub(crate) async_func: GcWeak<AsyncStateImpl>,
 
-    pub _mark: PhantomPinned,
+    _mark: PhantomPinned,
 }
 
 unsafe impl Collect for StackFrame {
     fn trace(&self, tracer: &mut gc_lite::Tracer) {
-        if let Some(sf) = unsafe { self.prev_frame.cast::<StackFrame>().as_ref() } {
+        if let Some(sf) = unsafe { self.parent.cast::<StackFrame>().as_ref() } {
             sf.trace(tracer);
         }
 
@@ -92,7 +93,7 @@ impl StackFrame {
     /// Create new StackFrame. It's allocated on stack.
     pub fn new(parent_frame: Option<NonNull<Pin<Self>>>, func_obj: JSValue, mode: i32) -> Self {
         Self {
-            prev_frame: parent_frame.map_or(std::ptr::null_mut(), |p| p.as_ptr()),
+            parent: parent_frame.map_or(std::ptr::null_mut(), |p| p.as_ptr()),
             cur_func: func_obj,
             js_mode: mode,
 
@@ -246,7 +247,7 @@ impl StackFrame {
         }
 
         // switch back to previous stack frame
-        ctx.rt().cur_stack_frame = self.prev_frame;
+        ctx.rt().cur_stack_frame = self.parent;
     }
 
     /// Cleans ups for stack frame
@@ -256,5 +257,36 @@ impl StackFrame {
         self.cur_func = JSValue::UNDEFINED;
         self.local_buf.clear();
         self.var_ref_list.clear();
+    }
+}
+
+impl Runtime {
+    /// Pushes a new stack frame onto the execution stack
+    ///
+    /// # Safety
+    /// The caller must ensure the frame pointer is valid
+    pub(crate) fn push_stack_frame(&mut self, stack_frame: *mut Pin<StackFrame>) {
+        if self.cur_stack_frame.is_null() {
+            self.cur_stack_frame = stack_frame;
+        } else {
+            unsafe {
+                (*stack_frame.cast::<StackFrame>()).parent = self.cur_stack_frame;
+            }
+            self.cur_stack_frame = stack_frame;
+        }
+    }
+
+    /// Pops the current stack frame from the execution stack
+    ///
+    /// # Safety
+    /// The caller must ensure no references to the popped frame remain
+    pub(crate) fn pop_stack_frame(&mut self) -> *mut Pin<StackFrame> {
+        if self.cur_stack_frame.is_null() {
+            std::ptr::null_mut()
+        } else {
+            let frame = self.cur_stack_frame;
+            self.cur_stack_frame = unsafe { (*frame.cast::<StackFrame>()).parent };
+            frame
+        }
     }
 }

@@ -43,18 +43,18 @@ pub struct RuntimeImpl {
 
     pub(crate) shape_registry: ShapeRegistry,
 
-    /* stack limitation */
-    pub(crate) stack_size: usize, /* in bytes, 0 if no limit */
-    pub(crate) stack_top: usize,
+    //
+    // execution stack
+    //
+    pub(crate) stack_size: usize,  /* in bytes, 0 if no limit */
     pub(crate) stack_limit: usize, /* lower stack limit */
+    pub(crate) stack_top: usize,
+    pub(crate) cur_stack_frame: *mut Pin<StackFrame>,
 
     /// current exception value
     pub(crate) cur_exception: JSValue,
     /* true if inside an out of memory error, to avoid recursing */
     pub(crate) in_out_of_memory: bool,
-
-    // stack frame of currently executing function
-    pub(crate) cur_stack_frame: *mut Pin<StackFrame>,
 
     /// pre-compiled regexp in parsing state.
     pub(crate) regexp_precompiled: Vec<RegExpData>,
@@ -292,6 +292,21 @@ impl RuntimeImpl {
     #[cold]
     pub(crate) const fn set_exception(&mut self, obj: JSValue) {
         self.cur_exception = obj;
+    }
+
+    /// run closure with current stack frame
+    pub fn with_cur_stack_frame<R>(&self, f: impl FnOnce(&StackFrame) -> R) -> Option<R> {
+        unsafe { self.cur_stack_frame.cast::<StackFrame>().as_ref().map(f) }
+    }
+
+    /// get current active stack frame
+    pub const fn cur_stack_frame(&self) -> Option<&StackFrame> {
+        unsafe { self.cur_stack_frame.cast::<StackFrame>().as_ref() }
+    }
+
+    /// get current active stack frame
+    pub const fn cur_stack_frame_mut(&mut self) -> Option<&mut StackFrame> {
+        unsafe { self.cur_stack_frame.cast::<StackFrame>().as_mut() }
     }
 
     fn finalize(&mut self) {
