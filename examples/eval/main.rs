@@ -197,6 +197,25 @@ fn main() {
                 .into(),
             )
             .unwrap();
+
+        global
+            .set_property_str(
+                &ctx,
+                "gc",
+                ctx.create_native_function(
+                    NativeFunctionType::Func(|ctx, _| -> JSResult {
+                        let part = ctx.rt().gc_part();
+                        ctx.rt().gc_heap_mut().collect_garbage(part);
+                        Ok(JSValue::UNDEFINED)
+                    }),
+                    "gc",
+                    0,
+                    0,
+                )
+                .unwrap()
+                .into(),
+            )
+            .unwrap();
     }
 
     println!("*** prepare use time: {} ms", tm0.elapsed().as_millis());
