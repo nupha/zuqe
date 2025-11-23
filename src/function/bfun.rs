@@ -1,4 +1,4 @@
-use std::ffi::c_void;
+use std::{ffi::c_void, ptr::NonNull};
 
 use gc_lite::{Collect, GcRef};
 use smallvec::SmallVec;
@@ -360,12 +360,12 @@ impl BytecodeFunction {
             bc.mode() as i32,
         );
 
-        let mut sframe = StackFrame {
-            cur_func: self.into(),
+        let mut this_frame = StackFrame::new(
+            NonNull::new(caller_ctx.rt().cur_stack_frame),
+            self.into(),
             js_mode,
-            ..Default::default()
-        };
-        let sf = &mut sframe;
+        );
+        let sf = &mut this_frame;
 
         // ensure stack has minimal free space.
         if js_check_stack_overflow(caller_ctx.rt().as_ref(), 32) {
@@ -418,7 +418,7 @@ impl BytecodeFunction {
         sf.var_base_ptr = unsafe { sf.local_buf.as_mut_ptr().add(arg_copy_num as usize) };
         sf.var_count = bc.var_count;
 
-        sf.prev_frame = caller_ctx.rt().cur_stack_frame;
+        // sf.prev_frame = caller_ctx.rt().cur_stack_frame; // <-- done in StackFrame::new(...)
         caller_ctx.rt().cur_stack_frame = (sf as *mut StackFrame).cast();
 
         let isa = self.payload_mut();

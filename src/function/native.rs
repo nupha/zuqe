@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use std::{ops::Deref, ptr::NonNull};
 
 use gc_lite::{Collect, GcWeak};
 
@@ -135,7 +135,7 @@ impl NFuncPayload {
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
-        let mut rt = ctx.rt();
+        let mut rt: crate::runtime::RuntimeRef = ctx.rt();
 
         let (callback, arg_length, magic, realm) = if let ObjectPayload::C_FUNCTION(c) =
             unsafe { func_obj.as_object_unchecked().payload() }
@@ -159,13 +159,14 @@ impl NFuncPayload {
             return Err(-1);
         }
 
-        // new stack frame, alloc on stack.
-        let mut new_frame = StackFrame {
-            prev_frame: rt.cur_stack_frame,
-            cur_func: func_obj,
-            ..Default::default()
-        };
-        let sf = &mut new_frame;
+        // new stack frame
+        let mut this_frame = StackFrame::new(NonNull::new(rt.cur_stack_frame), func_obj, 0);
+        // let mut new_frame = StackFrame {
+        //     prev_frame: rt.cur_stack_frame,
+        //     cur_func: func_obj,
+        //     ..Default::default()
+        // };
+        let sf = &mut this_frame;
 
         // switch current stack frame to new.
         // switch back to original when exit

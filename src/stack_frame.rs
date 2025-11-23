@@ -88,28 +88,30 @@ unsafe impl Collect for StackFrame {
     }
 }
 
-impl Default for StackFrame {
-    fn default() -> Self {
+impl StackFrame {
+    /// Create new StackFrame. It's allocated on stack.
+    pub fn new(parent_frame: Option<NonNull<Pin<Self>>>, func_obj: JSValue, mode: i32) -> Self {
         Self {
-            prev_frame: std::ptr::null_mut(),
-            cur_func: JSValue::UNDEFINED,
+            prev_frame: parent_frame.map_or(std::ptr::null_mut(), |p| p.as_ptr()),
+            cur_func: func_obj,
+            js_mode: mode,
+
             local_buf: Vec::new(),
             arg_base_ptr: std::ptr::null_mut(),
             arg_real_count: 0,
             arg_count: 0,
             var_base_ptr: std::ptr::null_mut(),
             var_count: 0,
+
+            async_func: GcWeak::default(),
+            var_ref_list: Vec::new(),
             cur_pc_offset: 0,
             cur_sp_offset: 0,
-            var_ref_list: Vec::new(),
-            js_mode: 0,
-            async_func: GcWeak::default(),
+
             _mark: PhantomPinned,
         }
     }
-}
 
-impl StackFrame {
     /// Returns slice of actual argument values for this frame
     pub const fn args_slice(&self) -> &[JSValue] {
         if self.arg_real_count == 0 {

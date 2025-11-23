@@ -75,25 +75,33 @@ impl AsyncStateImpl {
             lst
         };
 
-        let frame = Box::pin(StackFrame {
-            js_mode: js_mode as i32 | JS_MODE_ASYNC,
-            cur_func: bc_func.into(),
-            arg_base_ptr: local_buf.as_mut_ptr(),
-            arg_real_count: args.len() as _,
-            arg_count: arg_count as _,
-            var_base_ptr: unsafe { local_buf.as_mut_ptr().add(arg_count as usize) },
-            var_count,
-            local_buf,
-            ..Default::default()
-        });
+        // let frame = Box::pin(StackFrame {
+        //     js_mode: js_mode as i32 | JS_MODE_ASYNC,
+        //     cur_func: bc_func.into(),
+        //     arg_base_ptr: local_buf.as_mut_ptr(),
+        //     arg_real_count: args.len() as _,
+        //     arg_count: arg_count as _,
+        //     var_base_ptr: unsafe { local_buf.as_mut_ptr().add(arg_count as usize) },
+        //     var_count,
+        //     local_buf,
+        //     ..Default::default()
+        // });
+        let mut frame = Box::pin(StackFrame::new(
+            None,
+            bc_func.into(),
+            js_mode as i32 | JS_MODE_ASYNC,
+        ));
 
-        // fix var_base_ptr - really need this?
-        // frame.var_base_ptr = unsafe { frame.local_buf.as_mut_ptr().add(arg_count as usize) };
-
-        // ensure var_base_ptr points to the correct offset in local_buf
-        debug_assert_eq!(frame.var_base_ptr as *const _, unsafe {
-            frame.local_buf.as_ptr().add(arg_count as usize)
-        });
+        // setup localbuf and sections
+        unsafe {
+            let sf = frame.as_mut().get_unchecked_mut();
+            sf.arg_base_ptr = local_buf.as_mut_ptr();
+            sf.arg_real_count = args.len() as _;
+            sf.arg_count = arg_count as _;
+            sf.var_base_ptr = local_buf.as_mut_ptr().add(arg_count as usize);
+            sf.var_count = var_count;
+            sf.local_buf = local_buf;
+        }
 
         Ok(Self {
             argc: args.len() as _,
