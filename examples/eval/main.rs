@@ -138,8 +138,8 @@ fn main() {
 
         let f = ctx
             .create_native_function(
-                NativeFunctionType::Func(|cx, _: CallContext| {
-                    let ctx1 = cx.rt().create_context_ecma()?;
+                NativeFunctionType::Func(|mut cx, _: CallContext| {
+                    let ctx1 = cx.rt_mut().create_context_ecma()?;
                     let global = JSValue::Object(ctx1.global_obj());
                     Ok(global)
                 }),
@@ -203,9 +203,9 @@ fn main() {
                 &ctx,
                 "gc",
                 ctx.create_native_function(
-                    NativeFunctionType::Func(|ctx, _| -> JSResult {
-                        let part = ctx.rt().gc_part();
-                        ctx.rt().gc_heap_mut().collect_garbage(part);
+                    NativeFunctionType::Func(|mut ctx, _| -> JSResult {
+                        let part = ctx.rt_ref().gc_part();
+                        ctx.rt_mut().gc_heap_mut().collect_garbage(part);
                         Ok(JSValue::UNDEFINED)
                     }),
                     "gc",
@@ -239,7 +239,7 @@ fn main() {
             #[cfg(debug_assertions)]
             if let JSValue::Object(o) = &v {
                 println!("    OBJECT DUMP");
-                o.dump(&ctx.rt());
+                o.dump(ctx.rt_ref());
             }
 
             let promise = Promise::try_from(v).ok();
@@ -262,14 +262,14 @@ fn main() {
                     Err(_) => {
                         println!("--- Error in promise job ---");
 
-                        let exc = ctx.rt().exception();
+                        let exc = ctx.rt_ref().exception();
                         debug_assert!(!exc.is_undefined_or_null()); // FIXME: this assert fails!
 
                         println!("!!! EXCEPTION {exc:?}: {:?}", exc.to_string(&ctx));
 
                         #[cfg(debug_assertions)]
                         if let JSValue::Object(o) = exc {
-                            o.dump(&ctx.rt());
+                            o.dump(ctx.rt_ref());
                         };
                         break;
                     }
@@ -277,17 +277,17 @@ fn main() {
             }
         }
         Err(_) => {
-            let exc = ctx.rt().exception();
+            let exc = ctx.rt_ref().exception();
             debug_assert!(!exc.is_undefined_or_null());
 
             println!(
                 "!!! EXCEPTION {exc:?}: {:?}",
-                ctx.rt().exception().to_string(&ctx)
+                ctx.rt_ref().exception().to_string(&ctx)
             );
 
             #[cfg(debug_assertions)]
             if let JSValue::Object(o) = exc {
-                o.dump(&ctx.rt());
+                o.dump(ctx.rt_ref());
             };
         }
     }

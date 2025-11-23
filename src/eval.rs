@@ -7,7 +7,6 @@ use crate::{
     function::{Bytecode, JSFunctionDef, JSFunctionKindEnum, add_closure_variables},
     module::ModuleDef,
     parse::JSParseState,
-    stack_frame::StackFrame,
     value::JSValue,
 };
 

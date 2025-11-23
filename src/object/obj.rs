@@ -8,7 +8,7 @@ use crate::{
     JS_CLASS_DATAVIEW, JS_CLASS_DATE, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_GENERATOR_FUNCTION,
     JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_REGEXP, JS_CLASS_STRING, JS_CLASS_SYMBOL,
     JS_CLASS_UINT8C_ARRAY, atom::Atom, branch_hints::unlikely, class::ClassID,
-    context::ContextImpl, error::JSResult, gcref_wrapper, runtime::RuntimeRef, value::JSValue,
+    context::ContextImpl, error::JSResult, gcref_wrapper, runtime::RuntimePtr, value::JSValue,
 };
 
 use super::{
@@ -137,7 +137,7 @@ impl ObjectFlags {
 }
 
 pub struct ObjectImpl {
-    rt: RuntimeRef,
+    rt: RuntimePtr,
 
     /// object flags
     obj_flags: ObjectFlags,
@@ -341,7 +341,7 @@ impl ObjectImpl {
     }
 
     #[inline]
-    pub const fn rt(&self) -> RuntimeRef {
+    pub const fn rt(&self) -> RuntimePtr {
         self.rt
     }
 

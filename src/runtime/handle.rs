@@ -56,9 +56,9 @@ impl Runtime {
 /// A light-weight runtime raw ptr.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(transparent)]
-pub struct RuntimeRef(NonNull<RuntimeImpl>);
+pub(crate) struct RuntimePtr(NonNull<RuntimeImpl>);
 
-impl Deref for RuntimeRef {
+impl Deref for RuntimePtr {
     type Target = RuntimeImpl;
 
     #[inline(always)]
@@ -67,21 +67,21 @@ impl Deref for RuntimeRef {
     }
 }
 
-impl DerefMut for RuntimeRef {
+impl DerefMut for RuntimePtr {
     #[inline(always)]
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { self.0.as_mut() }
     }
 }
 
-impl From<&RuntimeImpl> for RuntimeRef {
+impl From<&RuntimeImpl> for RuntimePtr {
     #[inline(always)]
     fn from(value: &RuntimeImpl) -> Self {
         Self(NonNull::from_ref(value))
     }
 }
 
-impl RuntimeRef {
+impl RuntimePtr {
     #[inline(always)]
     pub fn id(&self) -> usize {
         self.0.as_ptr() as usize

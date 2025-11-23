@@ -18,7 +18,7 @@ use crate::{
         ObjectPayload, ObjectRef, check_define_prop_flags,
     },
     resource::LocalResource,
-    runtime::{RuntimeImpl, RuntimeRef},
+    runtime::{RuntimeImpl, RuntimePtr},
     string::{StringChar, StringData},
     value::{HINT_STRING, JSValue},
 };
@@ -31,7 +31,7 @@ pub const JS_STRING_LEN_MAX: usize = (1 << 30) - 1;
 /// Bundle of string data, and atom info
 pub struct StringImpl {
     /// for empty, ident string or const atom description, this should be None.
-    rt: Option<RuntimeRef>,
+    rt: Option<RuntimePtr>,
     /// string content
     content: StringData,
     /// if string was registered as atom, this stores the atom info.
@@ -120,9 +120,9 @@ impl std::fmt::Debug for StringImpl {
 
 impl StringImpl {
     /// create StringImpl with string content, and atom info.
-    const fn new(rt: Option<RuntimeRef>, content: StringData, atom_info: Option<AtomInfo>) -> Self {
+    const fn new(rt: Option<RuntimePtr>, content: StringData, atom_info: Option<AtomInfo>) -> Self {
         StringImpl {
-            // TODO: remove RuntimeRef lifetime
+            // TODO: remove RuntimePtr lifetime
             rt,
             content,
             atom_info,
@@ -136,7 +136,7 @@ impl StringImpl {
 
     /// None means this is a const atom description
     #[inline(always)]
-    pub(crate) const fn rt(&self) -> Option<RuntimeRef> {
+    pub(crate) const fn rt(&self) -> Option<RuntimePtr> {
         self.rt
     }
 
@@ -195,7 +195,7 @@ impl StringImpl {
     }
 
     /// copy content to make a new string, with given rt.
-    pub(crate) fn copy_to_new(&self, rt: RuntimeRef) -> Result<StringRef, i32> {
+    pub(crate) fn copy_to_new(&self, rt: RuntimePtr) -> Result<StringRef, i32> {
         match self.content() {
             StringData::Empty => StringRef::new_internal(Some(rt), StringData::Empty, None),
             StringData::Ident => StringRef::new_internal(Some(rt), StringData::Ident, None),
@@ -316,22 +316,9 @@ impl TryFrom<JSValue> for StringRef {
 }
 
 impl StringRef {
-    #[inline(always)]
-    pub(crate) const fn from(r: gc_lite::GcRef<StringImpl>) -> Self {
-        Self(r)
-    }
-    #[inline(always)]
-    pub(crate) unsafe fn from_ref_unchecked(o: &StringImpl) -> Self {
-        Self(unsafe { gc_lite::GcRef::from_ref_unchecked(o) })
-    }
-    #[inline(always)]
-    pub(crate) const fn gc_ref(&self) -> GcRef<StringImpl> {
-        self.0
-    }
-
     /// create StringImpl with string content, and atom.
     fn new_internal(
-        rt: Option<RuntimeRef>,
+        rt: Option<RuntimePtr>,
         content: StringData,
         atom_info: Option<AtomInfo>,
     ) -> Result<Self, i32> {
@@ -367,7 +354,7 @@ impl StringRef {
     /// * `Ok(Box<StringImpl>)` - Newly created string
     /// * `Err(-1)` - Memory allocation or UTF-8 validation failed
     pub(crate) fn from_str(rt: &RuntimeImpl, s: &str) -> Result<Self, i32> {
-        let rt = RuntimeRef::from(rt);
+        let rt = RuntimePtr::from(rt);
         let sbuf = StringBuf::from_str(s)?;
         let data = StringData::from_buf(sbuf);
         Self::new_internal(Some(rt), data, None)
@@ -376,7 +363,7 @@ impl StringRef {
     /// static str `s` must be ascii str.
     #[inline(always)]
     pub(crate) fn from_static(
-        rt: Option<RuntimeRef>,
+        rt: Option<RuntimePtr>,
         s: &'static str,
         atom_info: Option<AtomInfo>,
     ) -> Result<Self, i32> {

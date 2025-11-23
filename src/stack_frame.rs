@@ -7,7 +7,7 @@ use crate::{
     error::{JS_IsUncatchableError, is_backtrace_needed},
     function::{AsyncStateImpl, JSVarRef},
     iterator::ObjectIter,
-    runtime::{Runtime, RuntimeImpl},
+    runtime::RuntimeImpl,
     value::JSValue,
 };
 

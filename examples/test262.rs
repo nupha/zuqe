@@ -82,8 +82,8 @@ fn js_string_codePointRange(ctx: ContextRef, cc: CallContext) -> JSResult {
     ctx.create_string_from_utf8(cc).map(JSValue::String)
 }
 
-fn js_createRealm(ctx: ContextRef, _: CallContext) -> JSResult {
-    let mut ctx1 = ctx.rt().create_context_ecma()?;
+fn js_createRealm(mut ctx: ContextRef, _: CallContext) -> JSResult {
+    let mut ctx1 = ctx.rt_mut().create_context_ecma()?;
     setup_ctx_test262_helpers(&mut ctx1)
 }
 
@@ -144,9 +144,9 @@ fn setup_ctx_test262_helpers(ctx: &mut ContextImpl) -> Result<JSValue, i32> {
         ctx,
         "gc",
         ctx.create_native_function(
-            NativeFunctionType::Func(|ctx, _| -> JSResult {
-                let part = ctx.rt().gc_part();
-                ctx.rt().gc_heap_mut().collect_garbage(part);
+            NativeFunctionType::Func(|mut ctx, _| -> JSResult {
+                let part = ctx.rt_ref().gc_part();
+                ctx.rt_mut().gc_heap_mut().collect_garbage(part);
                 Ok(JSValue::UNDEFINED)
             }),
             "gc",
@@ -317,7 +317,7 @@ fn run_test_script(
         None
     };
 
-    while ctx.rt().tick()? {
+    while ctx.rt_mut().tick()? {
         std::thread::sleep(std::time::Duration::from_millis(1));
     }
 
@@ -433,7 +433,7 @@ fn run_test_file(
     if !harness_files.is_empty() {
         // eval included harness files
         if run_harness(ctx, &harness_files).is_err() {
-            let exc = ctx.rt().exception();
+            let exc = ctx.rt_ref().exception();
             let msg = exc.to_string(&ctx).unwrap();
 
             // write to outf
@@ -499,11 +499,11 @@ fn run_test_file(
             if run_test_script(ctx, content.as_str(), filename, is_module, is_async, strict)
                 .is_err()
             {
-                let exc = ctx.rt().exception();
+                let exc = ctx.rt_ref().exception();
 
                 println!("TEST262 EXCEPTION: {:?}", exc);
                 let msg = if let JSValue::Object(o) = &exc {
-                    o.dump(&ctx.rt());
+                    o.dump(ctx.rt_ref());
                     let msg = o.get_property(&ctx, Atom::CONST_message).unwrap();
                     msg.inspect(&ctx).unwrap().to_string()
                 } else {

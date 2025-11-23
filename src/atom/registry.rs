@@ -8,7 +8,7 @@ use crate::{
     atom::{is_const_atom, is_small_int_atom},
     number::parse_u32,
     resource::LocalResource,
-    runtime::{RuntimeImpl, RuntimeRef},
+    runtime::{RuntimeImpl, RuntimePtr},
     string::{StringData, StringRef},
     utils::hash_u32_from_base,
 };
@@ -56,7 +56,7 @@ impl AtomRegistry {
     /// Same `str` will return the matched existing atom.
     fn register_internal(
         &mut self,
-        rt: RuntimeRef,
+        rt: RuntimePtr,
         str: StringRef,
         mut atom_kind: AtomKind,
     ) -> Result<Atom, i32> {
@@ -195,7 +195,7 @@ impl AtomRegistry {
     /// register a user atom with description.
     ///
     /// Safety: will panic if no runtime is initialized
-    fn register(rt: RuntimeRef, str: StringRef, kind: AtomKind) -> Result<Atom, i32> {
+    fn register(rt: RuntimePtr, str: StringRef, kind: AtomKind) -> Result<Atom, i32> {
         LocalResource::with_atoms_mut(|reg| reg.register_internal(rt, str, kind))
     }
 
@@ -372,14 +372,14 @@ fn load_const_atoms() -> (Vec<AtomDesc>, HashMap<u32, Vec<NonZeroU16>>) {
 impl Atom {
     #[inline(always)]
     pub(crate) fn from_string_as_is(
-        rt: RuntimeRef,
+        rt: RuntimePtr,
         str: StringRef,
         kind: AtomKind,
     ) -> Result<Self, i32> {
         AtomRegistry::register(rt, str, kind)
     }
 
-    pub fn from_string(rt: RuntimeRef, str: StringRef, kind: AtomKind) -> Result<Self, i32> {
+    pub fn from_string(rt: RuntimePtr, str: StringRef, kind: AtomKind) -> Result<Self, i32> {
         if str.is_empty() {
             Ok(Atom::CONST_empty_string)
         } else if let Some(i) = str.parse_u32()

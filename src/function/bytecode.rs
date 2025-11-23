@@ -9,7 +9,7 @@ use crate::{
     error::JSResult,
     eval::{JS_EVAL_TYPE_DIRECT, JS_EVAL_TYPE_INDIRECT},
     function::{JSFunctionDef, JSVarRef},
-    runtime::RuntimeRef,
+    runtime::RuntimePtr,
     stack_frame::StackFrame,
     utils::{get_leb128, get_sleb128, read_from_ptr},
     value::JSValue,
@@ -88,7 +88,7 @@ impl Default for BytecodeAttrs {
 }
 
 pub struct BytecodeImpl {
-    rt: RuntimeRef,
+    rt: RuntimePtr,
 
     pub(crate) func_name: Atom,
     realm: GcWeak<ContextImpl>,
@@ -224,7 +224,7 @@ impl BytecodeImpl {
     }
 
     #[inline(always)]
-    pub const fn rt(&self) -> RuntimeRef {
+    pub const fn rt(&self) -> RuntimePtr {
         self.rt
     }
 

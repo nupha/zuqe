@@ -12,7 +12,7 @@ use crate::{
     module::{ExportEntry, ExportType, JSImportEntry, JSModuleStatus, ModuleDependency},
     object::{JS_PROP_C_W_E, ObjectPayload, ObjectRef},
     promise::Promise,
-    runtime::{RuntimeImpl, RuntimeRef},
+    runtime::{RuntimeImpl, RuntimePtr},
     stack_frame::StackFrame,
     value::JSValue,
 };
@@ -35,7 +35,7 @@ impl<F> ModuleInitFunc for F where F: Fn(&ContextImpl, &ModuleDef) -> Result<(),
 
 pub struct ModuleDefInner {
     /// TODO: rt seems no use
-    rt: RuntimeRef,
+    rt: RuntimePtr,
 
     gc_mark: Cell<bool>,
 

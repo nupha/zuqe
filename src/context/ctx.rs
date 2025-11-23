@@ -25,13 +25,13 @@ use crate::{
     },
     promise::Job,
     regexp::RegExpData,
-    runtime::{RuntimeImpl, RuntimeRef},
+    runtime::{RuntimeImpl, RuntimePtr},
     value::JSValue,
 };
 
 /// An execution context, holds environment with global object, calling stack, and execution state.
 pub struct ContextImpl {
-    rt: RuntimeRef,
+    rt: RuntimePtr,
 
     pub(crate) flags: u8,
 
@@ -199,7 +199,7 @@ impl ContextImpl {
 
     /// get runtime ptr
     #[inline(always)]
-    pub const fn rt(&self) -> RuntimeRef {
+    pub const fn rt(&self) -> RuntimePtr {
         self.rt
     }
 

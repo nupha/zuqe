@@ -6,14 +6,14 @@ use std::{
 use gc_lite::{Collect, GcRef};
 use indexmap::IndexMap;
 
-use crate::{atom::Atom, context::ContextImpl, object::ShapeProperty, runtime::RuntimeRef};
+use crate::{atom::Atom, context::ContextImpl, object::ShapeProperty, runtime::RuntimePtr};
 
 use super::super::{obj::ObjectRef, property::JS_PROP_LENGTH};
 
 #[derive(Debug)]
 pub struct ShapeImpl {
     /// runtime raw pointer, None indicates the shape impl is dropped.
-    rt: Option<RuntimeRef>,
+    rt: Option<RuntimePtr>,
 
     /// count of uses
     pub(super) use_count: u32,
@@ -79,7 +79,7 @@ impl ShapeImpl {
     }
 
     #[inline(always)]
-    const fn rt(&self) -> Option<RuntimeRef> {
+    const fn rt(&self) -> Option<RuntimePtr> {
         self.rt
     }
 

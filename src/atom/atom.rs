@@ -6,7 +6,7 @@ use crate::{
     atom::{ATOM_CONST_COUNT, AtomDescKind, AtomInfo, AtomKind},
     context::ContextImpl,
     number::IntOrFloat,
-    runtime::RuntimeRef,
+    runtime::RuntimePtr,
     string::{StringBuf, StringChar, StringData, StringRef},
     value::JSValue,
 };
@@ -313,7 +313,7 @@ pub const ATOM_GET_STR_BUF_SIZE: usize = 64;
 
 impl StringRef {
     /// convert string to atom. if string is not registered as atom yet, do registration.
-    pub fn to_atom(&self, rt: RuntimeRef) -> Result<Atom, i32> {
+    pub fn to_atom(&self, rt: RuntimePtr) -> Result<Atom, i32> {
         if let Some(a) = self.atom_info()
             && self.rt().is_none_or(|x| x == rt)
         {

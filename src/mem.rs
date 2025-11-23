@@ -3,7 +3,7 @@ use std::{ffi::c_void, ptr::NonNull};
 use crate::{
     branch_hints::unlikely,
     context::{ContextImpl, ContextRef},
-    runtime::RuntimeRef,
+    runtime::RuntimePtr,
 };
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -174,24 +174,24 @@ pub struct JSMemoryUsage {
     pub binary_object_size: i64,
 }
 
-pub unsafe fn js_malloc_rt(mut rt: RuntimeRef, nbytes: usize) -> *mut c_void {
+pub unsafe fn js_malloc_rt(mut rt: RuntimePtr, nbytes: usize) -> *mut c_void {
     ((*rt).mf.js_malloc)(&mut rt.malloc_state, nbytes)
 }
 
-pub unsafe fn js_free_rt(mut rt: RuntimeRef, ptr: *mut c_void) {
+pub unsafe fn js_free_rt(mut rt: RuntimePtr, ptr: *mut c_void) {
     debug_assert!(!ptr.is_null());
     (rt.mf.js_free)(&mut rt.malloc_state, ptr);
 }
 
-pub unsafe fn js_realloc_rt(mut rt: RuntimeRef, ptr: *mut c_void, nbytes: usize) -> *mut c_void {
+pub unsafe fn js_realloc_rt(mut rt: RuntimePtr, ptr: *mut c_void, nbytes: usize) -> *mut c_void {
     (rt.mf.js_realloc)(&mut rt.malloc_state, ptr, nbytes)
 }
 
-pub unsafe fn js_malloc_usable_size_rt(rt: RuntimeRef, ptr: *const c_void) -> usize {
+pub unsafe fn js_malloc_usable_size_rt(rt: RuntimePtr, ptr: *const c_void) -> usize {
     ((rt.mf.js_malloc_usable_size).unwrap())(ptr)
 }
 
-pub unsafe fn js_mallocz_rt(rt: RuntimeRef, nytes: usize) -> *mut c_void {
+pub unsafe fn js_mallocz_rt(rt: RuntimePtr, nytes: usize) -> *mut c_void {
     let ptr = js_malloc_rt(rt, nytes);
     if !ptr.is_null() {
         std::ptr::write_bytes(ptr, 0, nytes);
@@ -259,7 +259,7 @@ pub unsafe fn js_malloc_usable_size(ctx: ContextRef, ptr: *const c_void) -> usiz
 //
 
 pub unsafe fn js_malloc_rt_typed<T>(
-    mut rt: RuntimeRef,
+    mut rt: RuntimePtr,
     count: usize,
     zeroed: bool,
 ) -> Option<NonNull<T>> {
