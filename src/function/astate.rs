@@ -87,7 +87,6 @@ impl AsyncStateImpl {
         //     ..Default::default()
         // });
         let mut frame = Box::pin(StackFrame::new(
-            None,
             bc_func.into(),
             js_mode as i32 | JS_MODE_ASYNC,
         ));
@@ -210,12 +209,11 @@ impl AsyncStateImpl {
         let sp_offset = self.frame.cur_sp_offset;
         debug_assert!(sp_offset >= 0);
 
-        let stack_frame = unsafe { self.frame.as_mut().get_unchecked_mut() };
-        stack_frame.cur_sp_offset = -1;
-
-        let mut rt = caller_ctx.rt();
-        stack_frame.parent = rt.cur_stack_frame;
-        rt.cur_stack_frame = (stack_frame as *mut StackFrame).cast();
+        caller_ctx
+            .rt()
+            .push_stack_frame(NonNull::from_ref(&self.frame));
+        // stack_frame.parent = rt.cur_stack_frame;
+        // rt.cur_stack_frame = (stack_frame as *mut StackFrame).cast();
 
         let isa = bcf.payload_mut();
         let bc = isa.bytecode();
@@ -223,7 +221,11 @@ impl AsyncStateImpl {
         let ret_val = bc.run(
             caller_ctx,
             isa.home_object(),
-            stack_frame,
+            unsafe {
+                let sf = self.frame.as_mut().get_unchecked_mut();
+                sf.cur_sp_offset = -1;
+                sf
+            },
             this_obj,
             JSValue::UNDEFINED,
             pc_offset,
@@ -234,8 +236,8 @@ impl AsyncStateImpl {
         );
 
         debug_assert_eq!(
-            caller_ctx.rt().cur_stack_frame.cast::<u8>(),
-            self.frame.parent.cast::<u8>(),
+            caller_ctx.rt().cur_stack_frame.cast::<()>(),
+            self.frame.parent.cast::<()>(),
             "runtime current stack frame should be restored after running bytecodes"
         );
 

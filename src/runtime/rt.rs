@@ -1,8 +1,4 @@
-use std::{
-    collections::{HashMap, VecDeque},
-    ffi::c_void,
-    pin::Pin,
-};
+use std::{collections::VecDeque, ffi::c_void, pin::Pin};
 
 use gc_lite::{Collect, GcContext, GcError, GcRef, PartitionId};
 
@@ -294,18 +290,15 @@ impl RuntimeImpl {
         self.cur_exception = obj;
     }
 
-    /// run closure with current stack frame
-    pub fn with_cur_stack_frame<R>(&self, f: impl FnOnce(&StackFrame) -> R) -> Option<R> {
-        unsafe { self.cur_stack_frame.cast::<StackFrame>().as_ref().map(f) }
-    }
-
     /// get current active stack frame
-    pub const fn cur_stack_frame(&self) -> Option<&StackFrame> {
+    #[inline(always)]
+    pub(crate) const fn current_stack_frame(&self) -> Option<&StackFrame> {
         unsafe { self.cur_stack_frame.cast::<StackFrame>().as_ref() }
     }
 
     /// get current active stack frame
-    pub const fn cur_stack_frame_mut(&mut self) -> Option<&mut StackFrame> {
+    #[inline(always)]
+    pub(crate) const fn current_stack_frame_mut(&mut self) -> Option<&mut StackFrame> {
         unsafe { self.cur_stack_frame.cast::<StackFrame>().as_mut() }
     }
 

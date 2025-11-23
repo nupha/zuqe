@@ -342,6 +342,7 @@ impl BytecodeFunction {
         args: &[JSValue],
         flags: i32,
     ) -> JSValue {
+        let mut rt = caller_ctx.rt();
         let bc = self.payload().bytecode();
 
         // how many args that should be copied to local buf?
@@ -360,15 +361,11 @@ impl BytecodeFunction {
             bc.mode() as i32,
         );
 
-        let mut this_frame = StackFrame::new(
-            NonNull::new(caller_ctx.rt().cur_stack_frame),
-            self.into(),
-            js_mode,
-        );
+        let mut this_frame = StackFrame::new(self.into(), js_mode);
         let sf = &mut this_frame;
 
         // ensure stack has minimal free space.
-        if js_check_stack_overflow(caller_ctx.rt().as_ref(), 32) {
+        if js_check_stack_overflow(&rt, 32) {
             caller_ctx.throw_stack_overflow();
             return JSValue::EXCEPTION;
         }
@@ -418,8 +415,8 @@ impl BytecodeFunction {
         sf.var_base_ptr = unsafe { sf.local_buf.as_mut_ptr().add(arg_copy_num as usize) };
         sf.var_count = bc.var_count;
 
-        // sf.prev_frame = caller_ctx.rt().cur_stack_frame; // <-- done in StackFrame::new(...)
-        caller_ctx.rt().cur_stack_frame = (sf as *mut StackFrame).cast();
+        // set new stack frame to be the 'current'.
+        rt.push_stack_frame(NonNull::from_ref(sf));
 
         let isa = self.payload_mut();
 
@@ -443,6 +440,7 @@ impl BytecodeFunction {
             ),
             "runtime current stack frame should be restored after running bytecodes"
         );
+
         // stack frame is dropped here
 
         retval

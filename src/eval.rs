@@ -6,7 +6,6 @@ use crate::{
     error::JSResult,
     function::{Bytecode, JSFunctionDef, JSFunctionKindEnum, add_closure_variables},
     module::ModuleDef,
-    object::ObjectRef,
     parse::JSParseState,
     stack_frame::StackFrame,
     value::JSValue,
@@ -61,23 +60,16 @@ impl ContextImpl {
     ) -> Result<Compiled, i32> {
         let eval_type = flags & JS_EVAL_TYPE_MASK;
 
-        let sframe: Option<&mut StackFrame>;
-        let mut cur_frame_func: Option<ObjectRef> = None;
-
         // get (bytecode, module, js_mode) of current stack frame
-        let (bytecode, module, js_mode) = if eval_type == JS_EVAL_TYPE_DIRECT {
-            let sf_ptr = self.rt().cur_stack_frame.cast::<StackFrame>();
-            debug_assert!(!sf_ptr.is_null());
-            debug_assert!(unsafe { (*sf_ptr).cur_func.is_object() });
-
-            sframe = unsafe { sf_ptr.as_mut() };
-
-            // current function must be BCFunction object
-            let cur_func = *sframe.unwrap().cur_func.as_object_BCFunction().unwrap();
+        let (frame_func_bc, frame_module, js_mode) = if eval_type == JS_EVAL_TYPE_DIRECT {
+            let cur_func = self
+                .rt_ref()
+                .current_stack_frame()
+                .and_then(|sf| sf.cur_func.as_object_BCFunction())
+                .unwrap(); // <-- Note: current stack function must be a BCFunction object
 
             let bc = cur_func.payload().bytecode();
             let mode = bc.mode() as u32;
-            cur_frame_func = Some(cur_func.into());
 
             (Some(bc), None, mode)
         } else {
@@ -107,9 +99,9 @@ impl ContextImpl {
         fd.attrs.backtrace_barrier = flags & JS_EVAL_FLAG_BACKTRACE_BARRIER != 0;
         fd.attrs.js_mode = js_mode as u8;
 
-        if let Some(bc) = &bytecode {
+        if let Some(bc) = &frame_func_bc {
             debug_assert_eq!(eval_type, JS_EVAL_TYPE_DIRECT, "must be direct eval type");
-            debug_assert!(module.is_none(), "must not be module");
+            debug_assert!(frame_module.is_none(), "must not be module");
 
             fd.attrs.new_target_allowed = bc.attrs.new_target_allowed;
             fd.attrs.super_call_allowed = bc.attrs.super_call_allowed;
@@ -122,7 +114,7 @@ impl ContextImpl {
             fd.attrs.arguments_allowed = true;
         }
 
-        fd.module = module;
+        fd.module = frame_module;
         if fd.module.is_some() || flags & JS_EVAL_FLAG_ASYNC != 0 {
             fd.in_function_body = true;
             fd.attrs.func_kind = JSFunctionKindEnum::JS_FUNC_ASYNC;
@@ -144,8 +136,8 @@ impl ContextImpl {
             );
             debug_assert!(std::ptr::eq(parser.cur_func(), fd.deref()));
 
-            parser.is_module = module.is_some();
-            parser.allow_html_comments = module.is_none();
+            parser.is_module = frame_module.is_some();
+            parser.allow_html_comments = frame_module.is_none();
 
             parser.skip_shebang();
             parser.parse_program()?;
@@ -160,13 +152,13 @@ impl ContextImpl {
         let bc = fd.build_bytecode(self)?;
 
         // XXX: Could add a flag to avoid resolution if necessary
-        if let Some(mut md) = module {
+        if let Some(mut md) = frame_module {
             // resolve module
             md.bytecode = JSValue::Bytecode(bc);
             md.set_tla(has_await);
             self.resolve_module(md)?;
             Ok(Compiled::Module(md))
-        } else if cur_frame_func.is_some() {
+        } else if frame_func_bc.is_some() {
             debug_assert_eq!(eval_type, JS_EVAL_TYPE_DIRECT);
             Ok(Compiled::Direct(bc))
         } else {
@@ -197,16 +189,21 @@ impl ContextImpl {
         match self.compile(source, filename, flags, scope_idx)? {
             Compiled::GlobalOrIndirect(bc) => bc.eval(self, this_obj, &[], None),
             Compiled::Direct(bc) => {
-                // stack frame
-                let sframe = unsafe {
-                    let sf_ptr = self.rt().cur_stack_frame.cast::<StackFrame>();
-                    debug_assert!(!sf_ptr.is_null());
-                    debug_assert!((*sf_ptr).cur_func.is_object());
-                    sf_ptr.as_mut().unwrap()
-                };
-                // current function of stack frame, must be a BCFunction
-                let frame_func = sframe.cur_func.as_object_BCFunction().copied().unwrap();
-                bc.eval(self, this_obj, &frame_func.payload().var_refs, Some(sframe))
+                let mut rt = self.rt();
+
+                bc.eval(
+                    self,
+                    this_obj,
+                    &rt.current_stack_frame()
+                        .unwrap()
+                        .cur_func
+                        .as_object_BCFunction()
+                        .copied()
+                        .unwrap() // <-- current stack frame function must be a BCFunction
+                        .payload()
+                        .var_refs,
+                    rt.current_stack_frame_mut(),
+                )
             }
             Compiled::Module(mut m) => m.eval(self).map(|p| p.into()),
         }

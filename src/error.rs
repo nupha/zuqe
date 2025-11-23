@@ -93,13 +93,13 @@ impl ContextImpl {
     /// old exception will be freed.
     #[cold]
     pub fn throw_error(&self, kind: ErrorKind, message: &str) {
-        let rt = self.rt();
+        let rt = self.rt_ref();
 
         // the backtrace is added later if called from a bytecode function
-        let sf = rt.cur_stack_frame.cast::<StackFrame>();
-
         let add_backtrace = !rt.in_out_of_memory
-            && (sf.is_null() || unsafe { (&*sf).cur_func.as_object_BCFunction().is_some() });
+            && rt
+                .current_stack_frame()
+                .is_none_or(|sf| sf.cur_func.as_object_BCFunction().is_some());
 
         self.throw_error_ex(kind, message, add_backtrace);
     }

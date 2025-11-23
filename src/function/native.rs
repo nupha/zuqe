@@ -135,7 +135,7 @@ impl NFuncPayload {
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
-        let mut rt: crate::runtime::RuntimeRef = ctx.rt();
+        let mut rt = ctx.rt();
 
         let (callback, arg_length, magic, realm) = if let ObjectPayload::C_FUNCTION(c) =
             unsafe { func_obj.as_object_unchecked().payload() }
@@ -160,22 +160,14 @@ impl NFuncPayload {
         }
 
         // new stack frame
-        let mut this_frame = StackFrame::new(NonNull::new(rt.cur_stack_frame), func_obj, 0);
-        // let mut new_frame = StackFrame {
-        //     prev_frame: rt.cur_stack_frame,
-        //     cur_func: func_obj,
-        //     ..Default::default()
-        // };
-        let sf = &mut this_frame;
+        let mut stack_frame = StackFrame::new(func_obj, 0);
+        let sf = &mut stack_frame;
 
-        // switch current stack frame to new.
-        // switch back to original when exit
-        let orig_frame = rt.cur_stack_frame;
-        rt.cur_stack_frame = (sf as *mut StackFrame).cast();
-
-        // NOTE: switch back to original frame when exit.
+        // set new stack frame to be the 'current',
+        // inform to pop stack frame at function exit.
+        rt.push_stack_frame(NonNull::from_ref(sf));
         defer!({
-            rt.cur_stack_frame = orig_frame;
+            rt.pop_stack_frame();
         });
 
         let realm_cx = &*realm;

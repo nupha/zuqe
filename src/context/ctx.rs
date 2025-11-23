@@ -203,6 +203,18 @@ impl ContextImpl {
         self.rt
     }
 
+    /// get runtime ref
+    #[inline(always)]
+    pub fn rt_ref(&self) -> &RuntimeImpl {
+        &self.rt
+    }
+
+    /// get runtime ref
+    #[inline(always)]
+    pub fn rt_mut(&mut self) -> &mut RuntimeImpl {
+        &mut self.rt
+    }
+
     /// get global object
     #[inline]
     pub fn global_obj(&self) -> ObjectRef {
@@ -229,7 +241,7 @@ impl ContextImpl {
     /// test if context is currently in strict mode
     pub(crate) fn is_strict_mode(&self) -> bool {
         self.rt()
-            .cur_stack_frame()
+            .current_stack_frame()
             .is_some_and(|sf| sf.js_mode & JS_MODE_STRICT != 0)
     }
 
@@ -430,7 +442,7 @@ impl ContextRef {
 
 /* only valid inside C functions */
 pub(crate) fn JS_GetActiveFunction(ctx: &ContextImpl) -> JSValue {
-    ctx.rt().cur_stack_frame().unwrap().cur_func
+    ctx.rt().current_stack_frame().unwrap().cur_func
 }
 
 pub const JS_MODE_STRICT: i32 = 1 << 0;

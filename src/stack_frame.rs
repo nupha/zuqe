@@ -7,7 +7,7 @@ use crate::{
     error::{JS_IsUncatchableError, is_backtrace_needed},
     function::{AsyncStateImpl, JSVarRef},
     iterator::ObjectIter,
-    runtime::Runtime,
+    runtime::{Runtime, RuntimeImpl},
     value::JSValue,
 };
 
@@ -91,9 +91,9 @@ unsafe impl Collect for StackFrame {
 
 impl StackFrame {
     /// Create new StackFrame. It's allocated on stack.
-    pub fn new(parent_frame: Option<NonNull<Pin<Self>>>, func_obj: JSValue, mode: i32) -> Self {
+    pub fn new(func_obj: JSValue, mode: i32) -> Self {
         Self {
-            parent: parent_frame.map_or(std::ptr::null_mut(), |p| p.as_ptr()),
+            parent: std::ptr::null_mut(),
             cur_func: func_obj,
             js_mode: mode,
 
@@ -260,19 +260,19 @@ impl StackFrame {
     }
 }
 
-impl Runtime {
+impl RuntimeImpl {
     /// Pushes a new stack frame onto the execution stack
     ///
     /// # Safety
     /// The caller must ensure the frame pointer is valid
-    pub(crate) fn push_stack_frame(&mut self, stack_frame: *mut Pin<StackFrame>) {
+    pub(crate) const fn push_stack_frame(&mut self, mut stack_frame: NonNull<StackFrame>) {
         if self.cur_stack_frame.is_null() {
-            self.cur_stack_frame = stack_frame;
+            self.cur_stack_frame = stack_frame.cast::<Pin<StackFrame>>().as_ptr();
         } else {
             unsafe {
-                (*stack_frame.cast::<StackFrame>()).parent = self.cur_stack_frame;
+                stack_frame.as_mut().parent = self.cur_stack_frame;
             }
-            self.cur_stack_frame = stack_frame;
+            self.cur_stack_frame = stack_frame.cast::<Pin<StackFrame>>().as_ptr();
         }
     }
 
@@ -284,9 +284,9 @@ impl Runtime {
         if self.cur_stack_frame.is_null() {
             std::ptr::null_mut()
         } else {
-            let frame = self.cur_stack_frame;
-            self.cur_stack_frame = unsafe { (*frame.cast::<StackFrame>()).parent };
-            frame
+            let sf = self.cur_stack_frame;
+            self.cur_stack_frame = unsafe { (*sf.cast::<StackFrame>()).parent };
+            sf
         }
     }
 }
