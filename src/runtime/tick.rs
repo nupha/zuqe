@@ -2,15 +2,12 @@ use super::RuntimeImpl;
 
 impl RuntimeImpl {
     pub fn tick(&mut self) -> Result<bool, i32> {
-        if self.gc_req {
-            // FIXME: gc is buggy.
-            // self.gc();
+        let has_pending_jobs = self.execute_job().map_err(|_| -1)?.is_some();
 
-            self.gc_threshold =
-                self.malloc_state.malloc_size + (self.malloc_state.malloc_size >> 1);
-            self.gc_req = false;
+        if self.gc_threshold >= self.gc_info().memory_used() {
+            self.gc_collect();
         }
 
-        Ok(self.execute_job().map_err(|_| -1)?.is_some())
+        Ok(has_pending_jobs)
     }
 }

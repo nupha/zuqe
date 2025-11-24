@@ -1,4 +1,4 @@
-use gc_lite::{Collect, GcContext, GcError, GcRef, PartitionId, Tracer};
+use gc_lite::{Collect, GcContext, GcError, GcRef, PartitionId, PartitionInfo, Tracer};
 
 use crate::runtime::RuntimeImpl;
 
@@ -6,6 +6,10 @@ impl RuntimeImpl {
     #[inline(always)]
     pub const fn gc_part(&self) -> PartitionId {
         self.gc_part
+    }
+
+    pub fn set_gc_threshold(&mut self, threshold: usize) {
+        self.gc_heap.set_gc_threshold(self.gc_part, threshold);
     }
 
     #[inline(always)]
@@ -16,6 +20,12 @@ impl RuntimeImpl {
     #[inline(always)]
     pub const fn gc_heap_mut(&mut self) -> &mut GcContext {
         &mut self.gc_heap
+    }
+
+    #[inline(always)]
+    pub fn gc_info(&self) -> &PartitionInfo {
+        let part = self.gc_part;
+        self.gc_heap.get_partition(part).unwrap()
     }
 
     /// alloc data in gc heap
@@ -39,6 +49,10 @@ impl RuntimeImpl {
 
         let freed = self.gc_heap.sweep(part);
         println!("分区 {part:?} 回收 {freed} 字节");
+
+        // next gc threshold
+        let used = self.gc_info().memory_used();
+        self.gc_threshold = used + (used >> 1); // x1.5 of used
 
         freed
     }
