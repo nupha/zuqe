@@ -1,4 +1,4 @@
-use gc_lite::{Collect, GcContext, GcError, GcRef, PartitionId, PartitionInfo, Tracer};
+use gc_lite::{Collect, GcContext, GcError, GcPartition, GcRef, PartitionId, Tracer};
 
 use crate::runtime::RuntimeImpl;
 
@@ -23,7 +23,7 @@ impl RuntimeImpl {
     }
 
     #[inline(always)]
-    pub fn gc_info(&self) -> &PartitionInfo {
+    pub fn gc_info(&self) -> &GcPartition {
         let part = self.gc_part;
         self.gc_heap.get_partition(part).unwrap()
     }
@@ -52,33 +52,8 @@ impl RuntimeImpl {
 
         // next gc threshold
         let used = self.gc_info().memory_used();
-        self.gc_threshold = used + (used >> 1); // x1.5 of used
+        self.gc_threshold = used + (used >> 1); // x1.5 of
 
         freed
-    }
-}
-
-pub fn js_trigger_gc(rt: &mut RuntimeImpl, size: usize) {
-    let force_gc: bool;
-
-    #[cfg(feature = "FORCE_GC_AT_MALLOC")]
-    {
-        force_gc = true;
-    }
-    #[cfg(not(feature = "FORCE_GC_AT_MALLOC"))]
-    {
-        force_gc = ((*rt).malloc_state.malloc_size + size) > (*rt).gc_threshold;
-    }
-
-    if force_gc {
-        todo!();
-
-        #[cfg(feature = "DUMP_GC")]
-        {
-            println!("GC: size={}", (*rt).malloc_state.malloc_size);
-        }
-
-        //rt.gc();
-        rt.gc_threshold = rt.malloc_state.malloc_size + (rt.malloc_state.malloc_size >> 1);
     }
 }
