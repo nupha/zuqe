@@ -395,7 +395,7 @@ pub unsafe fn JS_AtomToCString(ctx: ContextRef, atom: AtomRef) -> *const c_char 
 }
 
 /// `data` values are not consumed.
-#[deprecated(note = "use ContextRef::create_native_function_with_data() instead")]
+#[deprecated(note = "use NativeFunctionWithData::create() instead")]
 pub unsafe fn JS_NewCFunctionData(
     ctx: ContextRef,
     func: NativeCallback,
@@ -4403,7 +4403,7 @@ pub unsafe fn js_create_module_bytecode_function(
     // Ok(())
 }
 
-#[deprecated(note = "use ModuleDef::new() instead")]
+#[deprecated(note = "use JSValue::Module(m) instead")]
 pub unsafe fn JS_NewModuleValue(m: ModuleDef) -> JSValue {
     m.into()
 }

@@ -93,7 +93,7 @@ pub struct ContextImpl {
     /// User data pointer
     pub(crate) user_opaque: *mut std::ffi::c_void,
 
-    /// queued context jobs
+    /// context level queued jobs
     pub(crate) job_list: VecDeque<Job>,
 }
 
@@ -133,6 +133,10 @@ unsafe impl Collect for ContextImpl {
 
         for m in self.loaded_modules.iter() {
             m.trace(tracer);
+        }
+
+        for j in self.job_list.iter() {
+            j.trace(tracer);
         }
     }
 }
@@ -199,7 +203,7 @@ impl ContextImpl {
 
     /// get runtime ptr
     #[inline(always)]
-    pub const fn rt(&self) -> RuntimePtr {
+    pub(crate) const fn rt(&self) -> RuntimePtr {
         self.rt
     }
 
@@ -246,6 +250,8 @@ impl ContextImpl {
     }
 
     fn finalize(&mut self) {
+        self.job_list.clear();
+
         // free loaded modules
         js_free_modules(self, JSFreeModuleEnum::JS_FREE_MODULE_ALL);
         #[cfg(debug_assertions)]

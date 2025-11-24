@@ -204,7 +204,12 @@ impl ContextImpl {
                     rt.current_stack_frame_mut(),
                 )
             }
-            Compiled::Module(mut m) => m.eval(self).map(|p| p.into()),
+            Compiled::Module(mut m) => {
+                // Problem: m has created function? m was linked?
+                // if m has not created function, should use m.eval() instead of m.eval_func()
+                debug_assert!(m.func_created);
+                m.eval_func(self).map(|p| p.into())
+            }
         }
     }
 

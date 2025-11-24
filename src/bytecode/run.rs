@@ -1047,7 +1047,7 @@ impl Bytecode {
                         }
                     }
                     OpCode::IMPORT => {
-                        if let Ok(res) = js_dynamic_import(&realm, SP_REF!(-1)) {
+                        if let Ok(res) = js_dynamic_import(&mut realm, SP_VAL!(-1)) {
                             SP_PUT!(-1, res);
                         } else {
                             break State::Exception;

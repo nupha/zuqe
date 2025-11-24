@@ -400,6 +400,11 @@ impl StringRef {
         Ok(o)
     }
 
+    #[inline(always)]
+    pub fn gc_ref(&self) -> GcRef<StringImpl> {
+        self.0
+    }
+
     /// make sub string with content of given range.
     /// range is about buffer index, and end index is exclusive.
     pub fn sub_string(&self, ctx: &ContextImpl, range: Range<usize>) -> Result<Self, i32> {

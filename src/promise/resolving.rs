@@ -81,10 +81,14 @@ impl PromiseResolveFunc {
                     s.promise.fulfill_or_reject(ctx, arg0, is_reject);
                 } else {
                     let promise = s.promise;
+                    let promise2 = promise;
                     let ctx2 = ctx;
-                    ctx.queue_job(move || {
-                        js_promise_resolve_thenable_job(&ctx2, promise, arg0, then)
-                    });
+                    ctx.queue_job_with_trace(
+                        move || js_promise_resolve_thenable_job(&ctx2, promise, arg0, then),
+                        move |tracer| {
+                            promise2.trace(tracer);
+                        },
+                    );
                 }
             } else {
                 s.promise.reject(ctx, ctx.rt().take_exception());
@@ -185,16 +189,24 @@ impl Promise {
                     fail
                 };
                 let is_reject = state == PromiseState::JS_PROMISE_REJECTED;
+
                 let mut cx = unsafe { ContextRef::from_ref_unchecked(ctx) };
-                ctx.queue_job(move || {
-                    promise_reaction_job(
-                        &mut cx,
-                        act.resolving_funcs,
-                        act.handler,
-                        is_reject,
-                        result,
-                    )
-                });
+                let act2 = act.clone();
+
+                ctx.queue_job_with_trace(
+                    move || {
+                        promise_reaction_job(
+                            &mut cx,
+                            act.resolving_funcs,
+                            act.handler,
+                            is_reject,
+                            result,
+                        )
+                    },
+                    move |tracer| {
+                        act2.trace(tracer);
+                    },
+                );
             }
         }
 
@@ -261,9 +273,20 @@ impl Promise {
 
         for act in reactions[is_reject as usize].drain(..) {
             let val = value;
-            ctx.queue_job(move || {
-                promise_reaction_job(&mut ctx2, act.resolving_funcs, act.handler, is_reject, val)
-            });
+            ctx.queue_job_with_trace(
+                move || {
+                    promise_reaction_job(
+                        &mut ctx2,
+                        act.resolving_funcs,
+                        act.handler,
+                        is_reject,
+                        val,
+                    )
+                },
+                move |tracer| {
+                    val.trace(tracer);
+                },
+            );
         }
     }
 

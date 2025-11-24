@@ -6,6 +6,7 @@ use crate::{
     module::ModuleDef,
     number::JSFloat64Union,
     object::ObjectRef,
+    runtime::RuntimeImpl,
     string::StringRef,
     utils::hash_usize,
 };

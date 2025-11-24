@@ -78,8 +78,21 @@ impl ModuleDef {
         }
     }
 
-    /// Run the <eval> function of the `self` module and of all its dependent modules.
-    pub(crate) fn eval(&mut self, ctx: &mut ContextImpl) -> Result<Promise, i32> {
+    /// eval the module, includes:
+    /// - create module function,
+    /// - link,
+    /// - and eval the function.
+    pub fn eval(&mut self, ctx: &mut ContextImpl) -> Result<Promise, i32> {
+        // make module function
+        self.create_module_function(ctx)?;
+        // resolving imports, exports
+        self.link(ctx)?;
+        // evaluate module function
+        self.eval_func(ctx)
+    }
+
+    /// Run the <eval> function of the module and of all its dependent modules.
+    pub(crate) fn eval_func(&mut self, ctx: &mut ContextImpl) -> Result<Promise, i32> {
         debug_assert!(matches!(
             self.status(),
             JSModuleStatus::JS_MODULE_STATUS_UNLINKED
@@ -92,8 +105,8 @@ impl ModuleDef {
             JSModuleStatus::JS_MODULE_STATUS_LINKED => *self,
             JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
             | JSModuleStatus::JS_MODULE_STATUS_EVALUATED => self.cycle_root().unwrap(),
-            _ => {
-                unreachable!()
+            s => {
+                unreachable!("status={:?}", s);
             }
         };
 
@@ -499,12 +512,7 @@ impl ContextImpl {
         // compile
         let mut md = ModuleDef::compile(self, source, filename, strip)?;
         md.set_import_meta(self, filename, true)?;
-
-        // make module function
-        md.create_module_function(self)?;
-        // resolving imports, exports
-        md.link(self)?;
-        // evaluate module function
+        // eval
         md.eval(self)
     }
 }

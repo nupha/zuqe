@@ -75,7 +75,8 @@ pub struct RuntimeImpl {
     /// list of living contexts
     pub(crate) context_list: Vec<ContextRef>,
 
-    /// queued jobs
+    /// runtime level queued jobs
+    #[deprecated]
     pub(crate) job_list: VecDeque<Job>,
 
     /// gc heap

@@ -10,6 +10,7 @@ use crate::{
     context::{ContextImpl, ContextRef},
     error::JSResult,
     function::{CallContext, JS_CallConstructor, NativeFunctionType, js_function_set_properties},
+    gcref_wrapper,
     js_core::error::js_aggregate_error_constructor,
     object::{JS_PROP_C_W_E, ObjectImpl, ObjectPayload, ObjectRef},
     object_cast,
@@ -218,6 +219,11 @@ impl Promise {
         }
 
         Ok(resolving_funcs)
+    }
+
+    #[inline(always)]
+    pub const fn gc_ref(&self) -> GcRef<ObjectImpl> {
+        self.0
     }
 
     /// get Promise payload

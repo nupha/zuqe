@@ -230,6 +230,8 @@ fn main() {
     };
     match res {
         Ok(v) => {
+            rt.gc_set_root_value(v, true);
+
             println!(
                 ">>> RESULT: {v:?}, {}",
                 v.inspect(&ctx).unwrap_or("<can't repr>".to_string())
@@ -278,6 +280,7 @@ fn main() {
         Err(_) => {
             let exc = ctx.rt_ref().exception();
             debug_assert!(!exc.is_undefined_or_null());
+            rt.gc_set_root_value(exc, true);
 
             println!(
                 "!!! EXCEPTION {exc:?}: {:?}",

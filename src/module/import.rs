@@ -1,8 +1,164 @@
-use crate::atom::Atom;
+use gc_lite::Collect;
+
+use crate::{
+    atom::Atom,
+    callable::NativeFunctionWithData,
+    context::{ContextImpl, ContextRef},
+    error::JSResult,
+    function::CallContext,
+    module::{
+        JSFreeModuleEnum, get_script_or_module_name, js_free_modules,
+        js_host_resolve_imported_module,
+    },
+    promise::Promise,
+    value::JSValue,
+};
 
 #[derive(Debug)]
 pub struct JSImportEntry {
     pub var_idx: u16, // closure variable index
     pub import_name: Atom,
     pub req_module_idx: i32, // in dependencies
+}
+
+pub fn js_dynamic_import(ctx: &mut ContextImpl, specifier: JSValue) -> JSResult {
+    let basename = if let Some(a) = get_script_or_module_name(ctx, 0) {
+        if let JSValue::String(s) = a.string_or_symbol(ctx)? {
+            s.content().to_utf8(false).to_string()
+        } else {
+            ctx.throw_type_error("no function filename for import()");
+            return Err(-1);
+        }
+    } else {
+        ctx.throw_type_error("no function filename for import()");
+        return Err(-1);
+    };
+
+    let specifier = if let JSValue::String(s) = specifier {
+        s.content().to_utf8(false).to_string()
+    } else {
+        unreachable!();
+    };
+
+    let (promise, resolving_funcs) = Promise::create(ctx)?;
+
+    // cannot run JS_LoadModuleInternal synchronously because it would
+    // cause an unexpected recursion in js_evaluate_module()
+    let cx = unsafe { ContextRef::from_ref_unchecked(ctx) };
+    let rr = resolving_funcs;
+
+    ctx.queue_job_with_trace(
+        move || {
+            let _ = js_dynamic_import_job(cx, resolving_funcs, basename, specifier);
+            Ok(JSValue::UNDEFINED)
+        },
+        move |tracer| {
+            rr[0].trace(tracer);
+            rr[1].trace(tracer);
+        },
+    );
+
+    Ok(promise.into())
+}
+
+fn js_dynamic_import_job(
+    ctx: ContextRef,
+    resolving_funcs: [JSValue; 2],
+    basename: String,
+    specifier: String,
+) -> JSResult {
+    JS_LoadModuleInternal(ctx, basename, specifier, &resolving_funcs);
+    Ok(JSValue::UNDEFINED)
+}
+
+fn JS_LoadModuleInternal(
+    mut ctx: ContextRef,
+    basename: String,
+    filename: String,
+    resolving_funcs: &[JSValue; 2],
+) {
+    match js_host_resolve_imported_module(ctx, &basename, &filename) {
+        Ok(mut md) => {
+            if ctx.resolve_module(md).is_err() {
+                js_free_modules(&mut ctx, JSFreeModuleEnum::JS_FREE_MODULE_NOT_RESOLVED);
+                let err = ctx.rt().take_exception();
+                let _ =
+                    resolving_funcs[1].call(&ctx, JSValue::UNDEFINED, std::slice::from_ref(&err));
+                return;
+            }
+
+            // eval module
+            match md.eval(&mut ctx) {
+                Ok(mut evaluate_promise) => {
+                    let evaluate_resolving_funcs = [
+                        NativeFunctionWithData::create(
+                            &ctx,
+                            js_load_module_fulfilled,
+                            0,
+                            0,
+                            [resolving_funcs[0], resolving_funcs[1], md.into()].into(),
+                        )
+                        .unwrap(),
+                        NativeFunctionWithData::create(
+                            &ctx,
+                            js_load_module_rejected,
+                            0,
+                            0,
+                            [resolving_funcs[0], resolving_funcs[1], md.into()].into(),
+                        )
+                        .unwrap(),
+                    ];
+
+                    let _ = evaluate_promise.then(
+                        &mut ctx,
+                        evaluate_resolving_funcs[0].into(),
+                        evaluate_resolving_funcs[1].into(),
+                    );
+                }
+                Err(_) => {
+                    let err = ctx.rt().take_exception();
+                    let _ = resolving_funcs[1].call(
+                        &ctx,
+                        JSValue::UNDEFINED,
+                        std::slice::from_ref(&err),
+                    );
+                }
+            }
+        }
+        Err(e) => {
+            let err = ctx.rt().take_exception();
+            let _ = resolving_funcs[1].call(&ctx, JSValue::UNDEFINED, std::slice::from_ref(&err));
+        }
+    }
+}
+
+fn js_load_module_rejected(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let error = if cc.length() >= 1 {
+        *cc.arg(0)
+    } else {
+        JSValue::UNDEFINED
+    };
+    let _ = cc
+        .data(1)
+        .call(&ctx, JSValue::UNDEFINED, std::slice::from_ref(&error));
+    Ok(JSValue::UNDEFINED)
+}
+
+fn js_load_module_fulfilled(ctx: ContextRef, cc: CallContext) -> JSResult {
+    if let Ok(ns) = if let JSValue::Module(mut m) = cc.data(2) {
+        m.ns(&ctx)
+    } else {
+        unreachable!()
+    } {
+        // resolve with the module namespace
+        let _ = cc.data(0).call(&ctx, JSValue::UNDEFINED, &[ns.into()]);
+    } else {
+        // reject with error
+        let err = ctx.rt().take_exception();
+        let _ = cc
+            .data(1)
+            .call(&ctx, JSValue::UNDEFINED, std::slice::from_ref(&err));
+    }
+
+    Ok(JSValue::UNDEFINED)
 }

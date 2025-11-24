@@ -294,7 +294,7 @@ impl ModuleDefImpl {
     }
 
     /// make module <eval> function from bytecode
-    /// must be done before js_link_module() because of cyclic references
+    /// must be done before module link because of cyclic references
     pub(super) fn create_module_function(&mut self, ctx: &ContextImpl) -> Result<(), i32> {
         if self.func_created {
             return Ok(());
@@ -530,7 +530,7 @@ pub fn js_create_module_var(ctx: &ContextImpl, is_lexical: bool) -> Result<JSVar
 
 /// returns None if the name cannot be found.
 /// Only works with not striped bytecode functions.
-fn get_script_or_module_name(ctx: &ContextImpl, n_stack_levels: usize) -> Option<Atom> {
+pub(super) fn get_script_or_module_name(ctx: &ContextImpl, n_stack_levels: usize) -> Option<Atom> {
     // XXX: currently we just use the filename of the englobing
     // function from the debug info. May need to add a ScriptOrModule
     // info in Bytecode.
@@ -578,9 +578,4 @@ pub fn JS_SetModuleLoaderFunc(
     rt.module_normalize_func = module_normalize;
     rt.module_loader_func = Some(module_loader);
     rt.module_loader_opaque = opaque;
-}
-
-pub fn js_dynamic_import(ctx: &ContextImpl, _specifier: &JSValue) -> JSResult {
-    ctx.throw_internal_error("import() is not implemented");
-    Err(-1)
 }

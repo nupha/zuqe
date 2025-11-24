@@ -1,21 +1,68 @@
+use gc_lite::{Collect, Tracer};
+
 use crate::{
     context::ContextImpl, error::JSResult, promise::Promise, runtime::RuntimeImpl, value::JSValue,
 };
 
-#[repr(transparent)]
-pub(crate) struct Job(Box<dyn FnOnce() -> JSResult>);
+pub(crate) struct Job {
+    run: Box<dyn FnOnce() -> JSResult>,
+    trace: Option<Box<dyn Fn(&mut gc_lite::Tracer)>>,
+    finish: Option<Box<dyn FnOnce()>>,
+}
+
+unsafe impl Collect for Job {
+    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+        if let Some(f) = self.trace.as_ref() {
+            f(tracer)
+        }
+    }
+}
 
 impl Job {
     #[inline(always)]
     pub fn run(self) -> JSResult {
-        (self.0)()
+        let r = (self.run)();
+        if let Some(f) = self.finish {
+            f();
+        }
+        r
     }
 }
 
 impl ContextImpl {
     /// Append a job to job queue.
-    pub(super) fn queue_job(&mut self, run: impl FnOnce() -> JSResult + 'static) {
-        self.job_list.push_back(Job(Box::new(run)));
+    pub(crate) fn queue_job(&mut self, run: impl FnOnce() -> JSResult + 'static) {
+        self.job_list.push_back(Job {
+            run: Box::new(run),
+            trace: None,
+            finish: None,
+        });
+    }
+
+    /// Append a job to job queue.
+    pub(crate) fn queue_job_with_trace(
+        &mut self,
+        run: impl FnOnce() -> JSResult + 'static,
+        trace: impl Fn(&mut Tracer) + 'static,
+    ) {
+        self.job_list.push_back(Job {
+            run: Box::new(run),
+            trace: Some(Box::new(trace)),
+            finish: None,
+        });
+    }
+
+    /// Append a job to job queue.
+    pub(crate) fn queue_job_with_finish(
+        &mut self,
+        run: impl FnOnce() -> JSResult + 'static,
+        finish: impl FnOnce() + 'static,
+    ) {
+        self.job_list.push_back(Job {
+            run: Box::new(run),
+            trace: None,
+            finish: Some(Box::new(finish)),
+        });
     }
 }
 
@@ -82,28 +129,23 @@ impl RuntimeImpl {
     pub fn execute_job(&mut self) -> Result<Option<()>, i32> {
         let mut has_pending = false;
 
-        // exec runtime jobs
-        let n = self.job_list.len();
-        if n > 0 {
-            for _ in 0..n {
-                if let Some(job) = self.job_list.pop_front() {
-                    job.run()?;
-                }
-            }
-            if !self.job_list.is_empty() {
-                has_pending = true;
-            }
-        }
-
         //exec context jobs
-        for ctx in self.context_list.iter_mut() {
+        for ctx in self.context_list.iter() {
             let n = ctx.job_list.len();
             if n > 0 {
+                // trace all jobs before execute
+                let mut tracer = Tracer::new();
+                for j in ctx.job_list.iter() {
+                    self.gc_heap().trace_mark(j, &mut tracer);
+                }
+
+                let mut cx = *ctx;
                 for _ in 0..n {
-                    if let Some(job) = ctx.job_list.pop_front() {
+                    if let Some(job) = cx.job_list.pop_front() {
                         job.run()?;
                     }
                 }
+
                 if !ctx.job_list.is_empty() {
                     has_pending = true;
                 }

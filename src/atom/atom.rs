@@ -6,7 +6,7 @@ use crate::{
     atom::{ATOM_CONST_COUNT, AtomDescKind, AtomInfo, AtomKind},
     context::ContextImpl,
     number::IntOrFloat,
-    runtime::RuntimePtr,
+    runtime::{RuntimeImpl, RuntimePtr},
     string::{StringBuf, StringChar, StringData, StringRef},
     value::JSValue,
 };
@@ -86,6 +86,17 @@ impl Atom {
                 let k = a.kind();
                 (k == AtomKind::Symbol && a.hash() == JS_ATOM_HASH_SYMBOL)
                     || k == AtomKind::GlobalSymbol
+            }
+        }
+    }
+
+    pub fn set_gc_root(&self, b: bool) {
+        if !self.is_const() && !self.is_null() && !self.is_small_int() {
+            let s = self.string();
+            if b {
+                s.rt().unwrap().gc_heap_mut().set_root(&s.gc_ref());
+            } else {
+                s.rt().unwrap().gc_heap_mut().unset_root(&s.gc_ref());
             }
         }
     }

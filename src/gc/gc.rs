@@ -1,6 +1,6 @@
 use gc_lite::{Collect, GcContext, GcError, GcPartition, GcRef, PartitionId, Tracer};
 
-use crate::runtime::RuntimeImpl;
+use crate::{runtime::RuntimeImpl, value::JSValue};
 
 impl RuntimeImpl {
     #[inline(always)]
@@ -55,5 +55,44 @@ impl RuntimeImpl {
         self.gc_threshold = used + (used >> 1); // x1.5 of
 
         freed
+    }
+
+    pub fn gc_set_root_value(&mut self, val: JSValue, b: bool) {
+        match val {
+            JSValue::Object(o) => {
+                if b {
+                    self.gc_heap_mut().set_root(&o.gc_ref());
+                } else {
+                    self.gc_heap_mut().unset_root(&o.gc_ref());
+                }
+            }
+            JSValue::String(s) => {
+                if let Some(mut rt) = s.rt() {
+                    if b {
+                        self.gc_heap_mut().set_root(&s.gc_ref());
+                    } else {
+                        self.gc_heap_mut().unset_root(&s.gc_ref());
+                    }
+                }
+            }
+            JSValue::Symbol(a) => {
+                a.set_gc_root(b);
+            }
+            JSValue::Module(m) => {
+                if b {
+                    self.gc_heap_mut().set_root(&m.gc_ref());
+                } else {
+                    self.gc_heap_mut().unset_root(&m.gc_ref());
+                }
+            }
+            JSValue::Bytecode(bc) => {
+                if b {
+                    self.gc_heap_mut().set_root(&bc.gc_ref());
+                } else {
+                    self.gc_heap_mut().unset_root(&bc.gc_ref());
+                }
+            }
+            _ => {}
+        }
     }
 }
