@@ -407,7 +407,7 @@ impl ModuleDef {
 
     /// async module execution reject callback
     fn execute_async_rejected(ctx: ContextRef, cc: CallContext) -> JSResult {
-        if js_check_stack_overflow(ctx.rt().as_ref(), 0) {
+        if js_check_stack_overflow(&ctx.rt(), 0) {
             ctx.throw_stack_overflow();
             return Err(-1);
         }
@@ -514,7 +514,7 @@ fn gather_module_ancestors(
     module: ModuleDef,
     exec_list: &mut Vec<ModuleDef>,
 ) -> Result<(), i32> {
-    if js_check_stack_overflow(ctx.rt().as_ref(), 0) {
+    if js_check_stack_overflow(&ctx.rt(), 0) {
         ctx.throw_stack_overflow();
         return Err(-1);
     }

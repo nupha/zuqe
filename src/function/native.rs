@@ -1,4 +1,4 @@
-use std::{ops::Deref, ptr::NonNull};
+use std::ptr::NonNull;
 
 use gc_lite::{Collect, GcWeak};
 
@@ -151,10 +151,7 @@ impl NFuncPayload {
         };
 
         // better to always check stack overflow
-        if js_check_stack_overflow(
-            rt.deref(),
-            std::mem::size_of::<JSValue>() * arg_length as usize,
-        ) {
+        if js_check_stack_overflow(&rt, std::mem::size_of::<JSValue>() * arg_length as usize) {
             ctx.throw_stack_overflow();
             return Err(-1);
         }
