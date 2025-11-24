@@ -33,7 +33,7 @@ pub type JSModuleLoaderFunc = fn(
 pub trait ModuleInitFunc: Fn(&ContextImpl, &ModuleDef) -> Result<(), i32> {}
 impl<F> ModuleInitFunc for F where F: Fn(&ContextImpl, &ModuleDef) -> Result<(), i32> {}
 
-pub struct ModuleDefInner {
+pub struct ModuleDefImpl {
     /// TODO: rt seems no use
     rt: RuntimePtr,
 
@@ -93,7 +93,7 @@ pub struct ModuleDefInner {
     pub meta_obj: Option<ObjectRef>,
 }
 
-unsafe impl Collect for ModuleDefInner {
+unsafe impl Collect for ModuleDefImpl {
     fn trace(&self, tracer: &mut gc_lite::Tracer) {
         self.module_name.trace(tracer);
         self.bytecode.trace(tracer);
@@ -118,19 +118,19 @@ unsafe impl Collect for ModuleDefInner {
     }
 }
 
-impl PartialEq for ModuleDefInner {
+impl PartialEq for ModuleDefImpl {
     fn eq(&self, other: &Self) -> bool {
         self.id() == other.id()
     }
 }
 
-impl Drop for ModuleDefInner {
+impl Drop for ModuleDefImpl {
     fn drop(&mut self) {
         self.finalize();
     }
 }
 
-impl ModuleDefInner {
+impl ModuleDefImpl {
     /// 'name' is consumed
     fn new(ctx: &ContextImpl, name: Atom) -> Self {
         Self {
@@ -176,12 +176,12 @@ impl ModuleDefInner {
     fn create_native(
         ctx: &ContextImpl,
         name: &str,
-        init_func: impl ModuleInitFunc + 'static,
+        module_init_fn: impl ModuleInitFunc + 'static,
     ) -> Result<Self, i32> {
-        let name = Atom::new(ctx.rt().as_ref(), name)?;
-        let mut inner = ModuleDefInner::new(ctx, name);
-        inner.init_func.replace(Box::new(init_func));
-        Ok(inner)
+        let name = Atom::new(&ctx.rt(), name)?;
+        let mut md = ModuleDefImpl::new(ctx, name);
+        md.init_func.replace(Box::new(module_init_fn));
+        Ok(md)
     }
 
     #[inline(always)]
@@ -192,8 +192,8 @@ impl ModuleDefInner {
     /// get module name atom.
     /// returned atom is not duplicated, caller should clone it before keep it referenced.
     #[inline(always)]
-    pub const fn module_name(&self) -> &Atom {
-        &self.module_name
+    pub const fn module_name(&self) -> Atom {
+        self.module_name
     }
 
     #[inline(always)]
@@ -359,23 +359,15 @@ impl ModuleDefInner {
 
 #[repr(transparent)]
 #[derive(Clone, Copy)]
-pub struct ModuleDef(GcRef<ModuleDefInner>);
+pub struct ModuleDef(GcRef<ModuleDefImpl>);
 
-gcref_wrapper!(ModuleDef, ModuleDefInner);
+gcref_wrapper!(ModuleDef, ModuleDefImpl);
 
 impl From<ModuleDef> for JSValue {
     fn from(value: ModuleDef) -> Self {
         Self::Module(value)
     }
 }
-
-// impl std::ops::Deref for ModuleDef {
-//     type Target = ModuleDefInner;
-
-//     fn deref(&self) -> &Self::Target {
-//         &self.0
-//     }
-// }
 
 impl PartialEq for ModuleDef {
     #[inline(always)]
@@ -393,7 +385,7 @@ impl std::fmt::Debug for ModuleDef {
 impl ModuleDef {
     /// alloc an uninitialized (usually bytecode) module.
     pub(crate) fn new(ctx: &mut ContextImpl, name: Atom) -> Result<Self, i32> {
-        let inner = ModuleDefInner::new(ctx, name);
+        let inner = ModuleDefImpl::new(ctx, name);
         let gc_ref = ctx.rt().gc_alloc(inner).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
@@ -409,9 +401,9 @@ impl ModuleDef {
     pub fn create_native(
         ctx: &mut ContextImpl,
         name: &str,
-        init_func: impl ModuleInitFunc + 'static,
+        module_init_fn: impl ModuleInitFunc + 'static,
     ) -> Result<Self, i32> {
-        let inner = ModuleDefInner::create_native(ctx, name, init_func)?;
+        let inner = ModuleDefImpl::create_native(ctx, name, module_init_fn)?;
         let gc_ref = ctx.rt().gc_alloc(inner).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
@@ -420,20 +412,7 @@ impl ModuleDef {
         ctx.loaded_modules.push(m);
         Ok(m)
     }
-
-    // pub fn downgrade(&self) -> JSModuleDefWeakref {
-    //     JSModuleDefWeakref(Rc::downgrade(&self.0))
-    // }
 }
-
-// #[derive(Debug, Clone)]
-// pub struct JSModuleDefWeakref(Weak<ModuleDefInner>);
-
-// impl JSModuleDefWeakref {
-//     pub fn upgrade(&self) -> Option<ModuleDef> {
-//         self.0.upgrade().map(ModuleDef)
-//     }
-// }
 
 impl ContextImpl {
     /// register a native module defination

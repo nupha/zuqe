@@ -28,7 +28,7 @@ use crate::{
     generator::{AGenPayload, GeneratorPayload},
     iterator::{ForInIterPayload, JSIteratorKindEnum, ObjectIter},
     mapset::{JSMapState, MapPair},
-    module::{ExportEntry, ExportType, JSResolveResultEnum, ModuleDef, ModuleDefInner},
+    module::{ExportEntry, ExportType, JSResolveResultEnum, ModuleDef, ModuleDefImpl},
     number::{IntOrFloat, JSToNumberHintEnum},
     object::{
         GCObject, JSProperty, JSPropertyDescriptor, ObjectPayload, ObjectRef, PropertyKey,
@@ -3252,7 +3252,7 @@ pub unsafe fn add_req_module_entry(ctx: ContextRef, m: &ModuleDef, module_name: 
 #[deprecated(note = "use ModuleDef::resolve_export_inner() instead")]
 pub unsafe fn js_resolve_export1(
     ctx: ContextRef,
-    pmodule: *mut *mut ModuleDefInner,
+    pmodule: *mut *mut ModuleDefImpl,
     pme: *mut *mut ExportEntry,
     m: &ModuleDef,
     export_name: AtomRef,
@@ -3267,7 +3267,7 @@ pub unsafe fn js_resolve_export1(
 #[deprecated(note = "use ModuleDef::resolve_export() instead")]
 pub unsafe fn js_resolve_export(
     ctx: ContextRef,
-    pmodule: *mut *mut ModuleDefInner,
+    pmodule: *mut *mut ModuleDefImpl,
     pme: *mut *mut ExportEntry,
     m: &mut ModuleDef,
     export_name: AtomRef,
@@ -4259,12 +4259,12 @@ pub unsafe fn JS_DetectModule(input: &[u8]) -> bool {
 
 /// Note: 'name' is freed on error
 #[deprecated(note = "use JSModuleDefInner::new() instead")]
-pub unsafe fn js_new_module_def(ctx: ContextRef, name: AtomRef) -> *mut ModuleDefInner {
+pub unsafe fn js_new_module_def(ctx: ContextRef, name: AtomRef) -> *mut ModuleDefImpl {
     unreachable!("unused");
 }
 
 #[deprecated(note = "see impl Drop for JSModuleDefInner")]
-pub unsafe fn js_free_module_def(ctx: ContextRef, m: *mut ModuleDefInner) {
+pub unsafe fn js_free_module_def(ctx: ContextRef, m: *mut ModuleDefImpl) {
     unreachable!("unused")
 
     // JS_FreeAtom(ctx, (*m).module_name);
@@ -4309,7 +4309,7 @@ pub unsafe fn js_free_module_def(ctx: ContextRef, m: *mut ModuleDefInner) {
 }
 
 // Create the <eval> function associated with the module
-#[deprecated(note = "use ModuleDefInner::create_module_bytecode_function() instead")]
+#[deprecated(note = "use ModuleDefImpl::create_module_bytecode_function() instead")]
 pub unsafe fn js_create_module_bytecode_function(
     ctx: ContextRef,
     m: &ModuleDef,
@@ -4526,7 +4526,7 @@ pub unsafe fn find_export_entry(m: &ModuleDef, export_name: AtomRef) -> Option<E
 pub unsafe fn get_exported_names(
     ctx: ContextRef,
     s: *mut c_void, // GetExportNamesState,
-    m: *mut ModuleDefInner,
+    m: *mut ModuleDefImpl,
     from_star: bool,
 ) -> Result<(), i32> {
     unreachable!("unused");
@@ -4644,7 +4644,7 @@ fn add_eval_variables(ctx: ContextRef, s: &mut JSFunctionDef) {
 }
 
 #[deprecated(note = "use JSModuleDefInner::import_meta() instead")]
-pub unsafe fn JS_GetImportMeta(ctx: ContextRef, m: *mut ModuleDefInner) -> JSValue {
+pub unsafe fn JS_GetImportMeta(ctx: ContextRef, m: *mut ModuleDefImpl) -> JSValue {
     unreachable!("unused");
 }
 

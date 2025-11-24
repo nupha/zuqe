@@ -8,7 +8,7 @@ use crate::{
     error::JSResult,
     eval::{Compiled, JS_EVAL_FLAG_STRIP, JS_EVAL_TYPE_MODULE},
     function::CallContext,
-    module::{JSModuleStatus, ModuleDefInner},
+    module::{JSModuleStatus, ModuleDefImpl},
     promise::{Promise, PromiseState},
     runtime::js_check_stack_overflow,
     value::JSValue,
@@ -16,7 +16,7 @@ use crate::{
 
 use super::ModuleDef;
 
-impl ModuleDefInner {
+impl ModuleDefImpl {
     #[inline(always)]
     pub const fn status(&self) -> JSModuleStatus {
         self.status

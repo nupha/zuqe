@@ -8,7 +8,7 @@ use crate::{
     context::ContextImpl,
     error::ErrorKind,
     function::{FieldDef, JSVarRef, NativeFieldDetail},
-    module::{ModuleDef, ModuleDefInner},
+    module::{ModuleDef, ModuleDefImpl},
     object::{
         JS_PROP_ENUMERABLE, JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty, LazyInit, ObjectPayload,
         ObjectRef,
@@ -118,7 +118,7 @@ impl ResolveExport {
     pub(super) fn throw_syntax_error_export(
         &self,
         ctx: &ContextImpl,
-        m: &ModuleDefInner,
+        m: &ModuleDefImpl,
         export_name: &Atom,
     ) {
         match self {
@@ -148,7 +148,7 @@ impl ResolveExport {
     }
 }
 
-impl ModuleDefInner {
+impl ModuleDefImpl {
     /// find export entry by name
     pub fn find_export(&self, export_name: Atom) -> Option<&ExportEntry> {
         self.export_entries
