@@ -1,4 +1,8 @@
-use std::{marker::PhantomPinned, pin::Pin, ptr::NonNull};
+use std::{
+    marker::{PhantomData, PhantomPinned},
+    pin::Pin,
+    ptr::NonNull,
+};
 
 use gc_lite::{Collect, GcWeak};
 
@@ -258,6 +262,43 @@ impl StackFrame {
         self.local_buf.clear();
         self.var_ref_list.clear();
     }
+
+    /// get stack frame parent iterrator
+    pub const fn parent_iter(&self, include_self: bool) -> StackFrameParentIter {
+        StackFrameParentIter {
+            stack_frame: if include_self {
+                self as *const StackFrame as _
+            } else {
+                self.parent.cast::<StackFrame>()
+            },
+            _mark: PhantomData,
+        }
+    }
+}
+
+pub struct StackFrameParentIter<'a> {
+    stack_frame: *mut StackFrame,
+    _mark: PhantomData<&'a ()>,
+}
+
+impl<'a> Iterator for StackFrameParentIter<'a> {
+    type Item = &'a StackFrame;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(f) = unsafe { self.stack_frame.as_ref() } {
+            self.stack_frame = f.parent.cast::<StackFrame>();
+            Some(f)
+        } else {
+            None
+        }
+    }
+}
+
+impl StackFrameParentIter<'static> {
+    pub const EMPTY: Self = Self {
+        stack_frame: std::ptr::null_mut(),
+        _mark: PhantomData,
+    };
 }
 
 impl RuntimeImpl {

@@ -13,7 +13,7 @@ use crate::{
     object::{JS_PROP_C_W_E, ObjectPayload, ObjectRef},
     promise::Promise,
     runtime::{RuntimeImpl, RuntimePtr},
-    stack_frame::StackFrame,
+    stack_frame::StackFrameParentIter,
     value::JSValue,
 };
 
@@ -549,56 +549,41 @@ pub fn js_create_module_var(ctx: &ContextImpl, is_lexical: bool) -> Result<JSVar
     )
 }
 
-/// return JS_ATOM_NULL if the name cannot be found. Only works with
-/// not striped bytecode functions.
-pub fn JS_GetScriptOrModuleName(ctx: &ContextImpl, n_stack_levels: i32) -> Atom {
+/// returns None if the name cannot be found.
+/// Only works with not striped bytecode functions.
+fn get_script_or_module_name(ctx: &ContextImpl, n_stack_levels: usize) -> Option<Atom> {
     // XXX: currently we just use the filename of the englobing
     // function from the debug info. May need to add a ScriptOrModule
     // info in Bytecode.
-    let mut sf = ctx.rt().cur_stack_frame.cast::<StackFrame>();
-    if sf.is_null() {
-        return Atom::NULL;
-    }
-
-    let mut levels = n_stack_levels;
-    while levels > 0 {
-        sf = unsafe { (&*sf).parent.cast::<StackFrame>() };
-        if sf.is_null() {
-            return Atom::NULL;
-        }
-        levels -= 1;
-    }
-
-    loop {
-        if let Some(bcf) = unsafe { (&*sf).cur_func.as_object_BCFunction() } {
+    for sf in ctx
+        .rt()
+        .current_stack_frame()
+        .map_or(StackFrameParentIter::EMPTY, |f| f.parent_iter(true))
+        .skip(n_stack_levels)
+    {
+        if let Some(bcf) = sf.cur_func.as_object_BCFunction() {
             let bc = bcf.payload().bytecode();
-
             if !bc.is_direct_or_indirect_eval {
-                return bc.debug.as_ref().map_or(Atom::NULL, |d| d.filename);
-            } else {
-                // walk up parent stack frame
-                sf = unsafe { (&*sf).parent.cast::<StackFrame>() };
-                if sf.is_null() {
-                    return Atom::NULL;
-                }
+                return bc.debug.as_ref().map(|d| d.filename);
             }
         } else {
-            return Atom::NULL;
+            break;
         }
     }
+
+    None
 }
 
 /// get module import.meta object of context current execution.
 pub fn js_import_meta(ctx: &ContextImpl) -> Result<ObjectRef, i32> {
-    let filename = JS_GetScriptOrModuleName(ctx, 0);
-    if filename.is_null() {
-        ctx.throw_type_error("import.meta not supported in this context");
-        return Err(-1);
-    }
-
-    // XXX: inefficient, need to add a module or script pointer in Bytecode
-    if let Some(mut m) = ctx.find_loaded_module(filename) {
-        m.import_meta(ctx)
+    if let Some(filename) = get_script_or_module_name(ctx, 0) {
+        // XXX: inefficient, need to add a module or script pointer in Bytecode
+        if let Some(mut m) = ctx.find_loaded_module(filename) {
+            m.import_meta(ctx)
+        } else {
+            ctx.throw_type_error("import.meta not supported in this context");
+            Err(-1)
+        }
     } else {
         ctx.throw_type_error("import.meta not supported in this context");
         Err(-1)

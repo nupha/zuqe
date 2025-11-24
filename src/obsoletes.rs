@@ -5348,3 +5348,8 @@ pub(crate) fn js_async_function_resolve_call(
     async_function_resume(&mut ctx, &async_state);
     Ok(JSValue::UNDEFINED)
 }
+
+#[deprecated(note = "use get_script_or_module_name() instead")]
+fn JS_GetScriptOrModuleName(ctx: &ContextImpl, n_stack_levels: i32) -> Atom {
+    unreachable!("unused")
+}
