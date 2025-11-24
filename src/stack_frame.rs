@@ -264,7 +264,7 @@ impl StackFrame {
     }
 
     /// get stack frame parent iterrator
-    pub const fn parent_iter(&self, include_self: bool) -> StackFrameParentIter {
+    pub const fn parent_iter(&self, include_self: bool) -> StackFrameParentIter<'_> {
         StackFrameParentIter {
             stack_frame: if include_self {
                 self as *const StackFrame as _

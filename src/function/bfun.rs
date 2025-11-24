@@ -1,4 +1,4 @@
-use std::{ffi::c_void, ptr::NonNull};
+use std::ptr::NonNull;
 
 use gc_lite::{Collect, GcRef};
 use smallvec::SmallVec;
@@ -435,8 +435,8 @@ impl BytecodeFunction {
 
         debug_assert!(
             std::ptr::eq(
-                caller_ctx.rt().cur_stack_frame.cast::<c_void>(),
-                sf.parent.cast::<c_void>()
+                caller_ctx.rt().cur_stack_frame.cast::<()>(),
+                sf.parent.cast::<()>()
             ),
             "runtime current stack frame should be restored after running bytecodes"
         );
