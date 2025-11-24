@@ -72,10 +72,6 @@ pub struct StackFrame {
 
 unsafe impl Collect for StackFrame {
     fn trace(&self, tracer: &mut gc_lite::Tracer) {
-        if let Some(sf) = unsafe { self.parent.cast::<StackFrame>().as_ref() } {
-            sf.trace(tracer);
-        }
-
         self.cur_func.trace(tracer);
         self.local_buf.trace(tracer);
         self.var_ref_list.trace(tracer);
@@ -89,6 +85,10 @@ unsafe impl Collect for StackFrame {
         // trace values on stack
         for v in self.stack_slice() {
             v.trace(tracer);
+        }
+
+        if let Some(sf) = unsafe { self.parent.cast::<StackFrame>().as_ref() } {
+            sf.trace(tracer);
         }
     }
 }

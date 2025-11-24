@@ -79,9 +79,9 @@ pub struct RuntimeImpl {
     pub(crate) job_list: VecDeque<Job>,
 
     /// gc heap
-    gc_heap: GcContext,
+    pub(crate) gc_heap: GcContext,
     /// gc partion id
-    gc_part: PartitionId,
+    pub(crate) gc_part: PartitionId,
     pub(crate) gc_threshold: usize,
     /// gc requested mark
     pub(crate) gc_req: bool,
@@ -243,32 +243,6 @@ impl RuntimeImpl {
     #[inline(always)]
     pub fn id(&self) -> usize {
         self as *const Self as usize
-    }
-
-    #[inline(always)]
-    pub const fn gc_part(&self) -> PartitionId {
-        self.gc_part
-    }
-
-    #[inline(always)]
-    pub const fn gc_heap(&self) -> &GcContext {
-        &self.gc_heap
-    }
-
-    #[inline(always)]
-    pub const fn gc_heap_mut(&mut self) -> &mut GcContext {
-        &mut self.gc_heap
-    }
-
-    /// alloc data in gc heap
-    #[inline(always)]
-    pub fn gc_alloc<T: Collect>(&mut self, data: T) -> Result<GcRef<T>, (GcError, T)> {
-        self.gc_heap.alloc(self.gc_part, data)
-    }
-
-    /// collect garbage
-    pub fn gc_collect(&mut self) -> usize {
-        self.gc_heap.collect_garbage(self.gc_part)
     }
 
     /// get current exception value

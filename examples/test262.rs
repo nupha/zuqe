@@ -145,8 +145,7 @@ fn setup_ctx_test262_helpers(ctx: &mut ContextImpl) -> Result<JSValue, i32> {
         "gc",
         ctx.create_native_function(
             NativeFunctionType::Func(|mut ctx, _| -> JSResult {
-                let part = ctx.rt_ref().gc_part();
-                ctx.rt_mut().gc_heap_mut().collect_garbage(part);
+                ctx.rt_mut().gc_collect();
                 Ok(JSValue::UNDEFINED)
             }),
             "gc",
