@@ -1,6 +1,5 @@
 mod create;
 mod dump;
-mod gcobj;
 mod obj;
 mod payload;
 mod private;
@@ -8,7 +7,7 @@ mod property;
 mod prototype;
 mod shape;
 
-pub use {gcobj::*, obj::*, payload::*, property::*, shape::*};
+pub use {obj::*, payload::*, property::*, shape::*};
 
 #[macro_export]
 macro_rules! gcref_wrapper {

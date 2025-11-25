@@ -139,7 +139,7 @@ impl ObjectImpl {
     }
 }
 
-impl<'a> JSValue {
+impl JSValue {
     /// Get prototype of value.
     /// Returns an object value if it has prototype, NULL for no prototype.
     /// Returns Err in case of Proxy object.

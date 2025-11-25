@@ -249,8 +249,7 @@ impl ShapeHandle {
             })?;
 
         // Note: Shape should be root
-        // to ensure it is destroied after referencing object
-        //  rt.gc_heap_mut().set_root(sh, true);
+        // rt.gc_heap_mut().set_root(sh, true);
 
         Ok(Self(sh))
     }

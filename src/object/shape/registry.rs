@@ -19,7 +19,6 @@ unsafe impl Collect for ShapeRegistry {
     fn trace(&self, tracer: &mut gc_lite::Tracer) {
         for lst in self.lut.values() {
             for o in lst {
-                // debug_assert!(unsafe { o.as_ref().use_count() > 0 });
                 if unsafe { o.as_ref().use_count() > 0 } {
                     tracer.mark(*o);
                 }
