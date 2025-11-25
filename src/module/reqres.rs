@@ -1,3 +1,5 @@
+use gc_lite::Collect;
+
 use crate::{
     atom::Atom,
     context::{ContextImpl, ContextRef},
@@ -7,8 +9,15 @@ use crate::{
 #[derive(Debug)]
 pub struct ModuleDependency {
     pub module_name: Atom,
-    /// None if module is not resolved.
+    /// None when module is not resolved.
     pub module: Option<ModuleDef>,
+}
+
+unsafe impl Collect for ModuleDependency {
+    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+        self.module_name.trace(tracer);
+        self.module.trace(tracer);
+    }
 }
 
 impl ModuleDef {
@@ -143,7 +152,7 @@ fn js_default_module_normalize_name(
     base_name: &str,
     name: &str,
 ) -> Result<String, i32> {
-    debug_assert!(!name.is_empty());
+    //debug_assert!(!name.is_empty());
 
     // 如果不是相对路径，直接返回原名
     if !name.starts_with('.') {

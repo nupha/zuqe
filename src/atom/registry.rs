@@ -379,7 +379,7 @@ impl Atom {
         AtomRegistry::register(rt, str, kind)
     }
 
-    pub fn from_string(rt: RuntimePtr, str: StringRef, kind: AtomKind) -> Result<Self, i32> {
+    pub(crate) fn from_string(rt: RuntimePtr, str: StringRef, kind: AtomKind) -> Result<Self, i32> {
         if str.is_empty() {
             Ok(Atom::CONST_empty_string)
         } else if let Some(i) = str.parse_u32()

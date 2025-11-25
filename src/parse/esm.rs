@@ -5,7 +5,7 @@ use crate::{
     bytecode::OpCodeTemp,
     error::{ErrorKind, JS_BACKTRACE_FLAG_SINGLE_LEVEL},
     function::{JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
-    module::{ExportType, JSImportEntry, ModuleDef},
+    module::{ExportType, ImportEntry, ModuleDef},
     parse::token::{TOK_FIRST_KEYWORD, TOK_LAST_KEYWORD},
 };
 
@@ -489,7 +489,7 @@ impl<'s> JSParseState<'s> {
                 -1
             })?;
         }
-        md.import_entries.push(JSImportEntry {
+        md.import_entries.push(ImportEntry {
             var_idx,
             import_name,
             req_module_idx: 0,

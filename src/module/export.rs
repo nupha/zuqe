@@ -77,9 +77,10 @@ pub struct ExportEntry {
 }
 
 unsafe impl Collect for ExportEntry {
-    #[inline(always)]
     fn trace(&self, tracer: &mut gc_lite::Tracer) {
         self.local_name.trace(tracer);
+        self.export_name.trace(tracer);
+        self.export_type.trace(tracer);
     }
 }
 
@@ -299,6 +300,19 @@ impl ModuleDef {
         s.modules.push(*self);
 
         for exp in self.export_entries.iter() {
+            {
+                debug_assert!(
+                    exp.export_name.is_alive(),
+                    "[O.o] local_name {:?} must be alive",
+                    exp.local_name
+                );
+                debug_assert!(
+                    exp.export_name.is_alive(),
+                    "[O.o] export_name {:?} must be alive",
+                    exp.export_name
+                );
+            }
+
             if from_star && exp.export_name == Atom::CONST_default {
                 continue;
             }
@@ -309,10 +323,6 @@ impl ModuleDef {
                 .find(|x| x.export_name == exp.export_name)
             {
                 entry.cached.take();
-                // if let Some(en) = entry.cached.take() {
-                //     en.export_name.free(ctx.rt_mut());
-                //     en.local_name.free(ctx.rt_mut());
-                // }
             } else {
                 if s.exported_names.len() == s.exported_names.capacity() {
                     s.exported_names.try_reserve(1).map_err(|_| {

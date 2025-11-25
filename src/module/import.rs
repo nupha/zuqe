@@ -11,14 +11,21 @@ use crate::{
         js_host_resolve_imported_module,
     },
     promise::Promise,
+    string::StringRef,
     value::JSValue,
 };
 
 #[derive(Debug)]
-pub struct JSImportEntry {
+pub struct ImportEntry {
     pub var_idx: u16, // closure variable index
     pub import_name: Atom,
     pub req_module_idx: i32, // in dependencies
+}
+
+unsafe impl Collect for ImportEntry {
+    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+        self.import_name.trace(tracer);
+    }
 }
 
 pub fn js_dynamic_import(ctx: &mut ContextImpl, specifier: JSValue) -> JSResult {
@@ -34,11 +41,11 @@ pub fn js_dynamic_import(ctx: &mut ContextImpl, specifier: JSValue) -> JSResult 
         return Err(-1);
     };
 
-    let specifier = if let JSValue::String(s) = specifier {
-        s.content().to_utf8(false).to_string()
-    } else {
-        unreachable!();
-    };
+    let specifier = specifier
+        .to_string(ctx)?
+        .content()
+        .to_utf8(false)
+        .to_string();
 
     let (promise, resolving_funcs) = Promise::create(ctx)?;
 

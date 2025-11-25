@@ -90,6 +90,16 @@ impl Atom {
         }
     }
 
+    /// check atom is still registered, desc is still alive in gc.
+    #[cfg(debug_assertions)]
+    pub(crate) fn is_alive(&self) -> bool {
+        if !self.is_const() && !self.is_null() && !self.is_small_int() {
+            AtomRegistry::with_string(self.0, |_| true).unwrap_or(false)
+        } else {
+            true
+        }
+    }
+
     pub fn set_gc_root(&self, b: bool) {
         if !self.is_const() && !self.is_null() && !self.is_small_int() {
             let s = self.string();

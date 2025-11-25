@@ -107,6 +107,13 @@ pub struct Promise(GcRef<ObjectImpl>);
 
 object_cast!(Promise, JS_CLASS_PROMISE);
 
+unsafe impl Collect for Promise {
+    #[inline(always)]
+    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+        tracer.mark(self.0);
+    }
+}
+
 impl Promise {
     /// create new Promise object with given executor function.
     /// `new_target` - the 'new' operator target.

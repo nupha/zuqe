@@ -9,7 +9,7 @@ use crate::{
     error::JSResult,
     function::{BCFuncPayload, FieldDef, JSFunctionDef, JSVarKindEnum, JSVarRef},
     gcref_wrapper,
-    module::{ExportEntry, ExportType, JSImportEntry, JSModuleStatus, ModuleDependency},
+    module::{ExportEntry, ExportType, ImportEntry, JSModuleStatus, ModuleDependency},
     object::{JS_PROP_C_W_E, ObjectPayload, ObjectRef},
     promise::Promise,
     runtime::{RuntimeImpl, RuntimePtr},
@@ -43,7 +43,7 @@ pub struct ModuleDefImpl {
     pub module_name: Atom,
 
     pub(super) dependencies: Vec<ModuleDependency>,
-    pub(crate) import_entries: Vec<JSImportEntry>,
+    pub(crate) import_entries: Vec<ImportEntry>,
     pub(crate) export_entries: Vec<ExportEntry>,
 
     /// list of index in dependencies
@@ -86,9 +86,7 @@ pub struct ModuleDefImpl {
 
     pub promise: Option<Promise>, /* corresponds to spec field: capability */
     pub resolving_funcs: [JSValue; 2], /* corresponds to spec field: capability */
-
     pub eval_exception: Option<JSValue>,
-
     /// the `import.meta` object of module
     pub meta_obj: Option<ObjectRef>,
 }
@@ -96,25 +94,21 @@ pub struct ModuleDefImpl {
 unsafe impl Collect for ModuleDefImpl {
     fn trace(&self, tracer: &mut gc_lite::Tracer) {
         self.module_name.trace(tracer);
+        self.dependencies.trace(tracer);
+        self.export_entries.trace(tracer);
+        self.import_entries.trace(tracer);
+
         self.bytecode.trace(tracer);
         self.async_parent_modules.trace(tracer);
+        self.promise.trace(tracer);
         self.resolving_funcs[0].trace(tracer);
         self.resolving_funcs[1].trace(tracer);
-        if let Some(o) = self.promise {
-            o.trace(tracer);
-        }
-        if let Some(m) = self.stack_prev {
-            m.trace(tracer);
-        }
-        if let Some(m) = self.cycle_root {
-            m.trace(tracer);
-        }
-        if let Some(v) = self.eval_exception {
-            v.trace(tracer);
-        }
-        if let Some(o) = self.meta_obj {
-            o.trace(tracer);
-        }
+
+        self.stack_prev.trace(tracer);
+        self.module_ns.trace(tracer);
+        self.cycle_root.trace(tracer);
+        self.eval_exception.trace(tracer);
+        self.meta_obj.trace(tracer);
     }
 }
 
