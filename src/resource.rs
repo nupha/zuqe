@@ -4,7 +4,7 @@ use std::{
     thread::AccessError,
 };
 
-use gc_lite::{Collect, GcContext, GcError, GcRef, PartitionId};
+use gc_lite::{Collect, GcError, GcHeap, GcRef, PartitionId};
 use once_cell::unsync::Lazy;
 
 use crate::{atom::AtomRegistry, runtime::RuntimeImpl};
@@ -22,7 +22,7 @@ pub(crate) struct LocalResource {
     pub(crate) atom_registry: Lazy<RefCell<AtomRegistry>>,
 
     /// gc heap
-    pub(crate) gc_heap: RefCell<GcContext>,
+    pub(crate) gc_heap: RefCell<GcHeap>,
     /// gc default parition
     pub(crate) gc_default_partition: PartitionId,
 }
@@ -37,7 +37,7 @@ impl Drop for LocalResource {
 
 impl LocalResource {
     fn new() -> Self {
-        let mut heap = GcContext::new();
+        let mut heap = GcHeap::new();
         let p0 = heap.create_partition("default".to_string(), None);
 
         Self {
@@ -60,13 +60,13 @@ impl LocalResource {
             let mut heap = rcs.gc_heap.borrow_mut();
 
             let gc_ref = heap.alloc(part_id.unwrap_or(rcs.gc_default_partition), obj)?;
-            // everything allocated in static heap is a root obj
-            heap.set_root(&gc_ref);
+            // everything allocated in static heap is root obj
+            heap.set_root(gc_ref, true);
             Ok(gc_ref)
         })
     }
 
-    pub(crate) fn with_static_gc_heap<R>(f: impl FnOnce(&mut GcContext) -> R) -> R {
+    pub(crate) fn with_static_gc_heap<R>(f: impl FnOnce(&mut GcHeap) -> R) -> R {
         LOCAL_RESOURCE.with(|rcs| f(rcs.gc_heap.borrow_mut().deref_mut()))
     }
 

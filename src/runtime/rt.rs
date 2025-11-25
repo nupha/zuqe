@@ -1,6 +1,6 @@
 use std::{collections::VecDeque, ffi::c_void, pin::Pin, ptr::NonNull};
 
-use gc_lite::{Collect, GcContext, GcError, GcRef, PartitionId};
+use gc_lite::{GcHeap, PartitionId};
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT,
@@ -16,7 +16,7 @@ use crate::{
     generator::{AsyncGeneratorFunction, js_generator_function_call},
     mem::{JS_DEFAULT_STACK_SIZE, JSMallocFunctions, JSMallocState},
     module::{JSModuleLoaderFunc, JSModuleNormalizeFunc, js_module_ns_exotic_methods},
-    object::ShapeRegistry,
+    object::{ShapeImpl, ShapeRegistry},
     promise::{JSHostPromiseRejectionTracker, Job, PromiseResolveFunc},
     proxy::{Proxy, js_proxy_exotic_methods},
     regexp::RegExpData,
@@ -80,7 +80,7 @@ pub struct RuntimeImpl {
     pub(crate) job_list: VecDeque<Job>,
 
     /// gc heap
-    pub(crate) gc_heap: GcContext,
+    pub(crate) gc_heap: GcHeap,
     /// gc partion id
     pub(crate) gc_part: PartitionId,
     pub(crate) gc_threshold: usize,
@@ -125,7 +125,7 @@ impl RuntimeImpl {
         };
 
         // create gc for this runtime
-        let mut gc_heap = GcContext::new();
+        let mut gc_heap = GcHeap::new();
         let gc_part = gc_heap.create_partition("runtime".to_string(), None);
 
         let mut rt = Box::new(RuntimeImpl {
@@ -313,24 +313,8 @@ impl RuntimeImpl {
 
     fn finalize(&mut self) {
         self.cur_exception = JSValue::UNDEFINED;
+        self.context_list.clear();
         self.job_list.clear();
-
-        // #[cfg(debug_assertions)]
-        // {
-        //     // self.gc();
-
-        //     // ensure shapes and gc objects are freed.
-        //     // self.gc_obj_list.retain(|_, w| {
-        //     //     if let Some(o) = w.upgrade() {
-        //     //         println!("[O.o] live gc: {:?} [{}]", o, o.ref_count());
-        //     //         true
-        //     //     } else {
-        //     //         false
-        //     //     }
-        //     // });
-
-        //     // debug_assert!(self.gc_obj_list.is_empty(), "{:?}", self.gc_obj_list);
-        // }
 
         // clear all shapes in registry,
         // don't bother shape drop trait to do unregister.
@@ -338,6 +322,21 @@ impl RuntimeImpl {
 
         // remove gc partition
         let part = self.gc_part();
+
+        if let Some(type_shape) = self.gc_heap().type_idx_of::<ShapeImpl>() {
+            // purge all nodes except ShapeImpl
+            self.gc_heap_mut()
+                .sweep_ex(part, true, None, Some(&[type_shape]), true);
+        }
+        // purge all rest nodes
+        self.gc_heap_mut().sweep_ex(part, true, None, None, false);
+
+        debug_assert_eq!(
+            self.gc_heap().partition_node_iter(part).count(),
+            0,
+            "should not have live gc nodes"
+        );
+
         self.gc_heap_mut().remove_partition(part)
 
         // no need

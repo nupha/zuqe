@@ -460,7 +460,7 @@ impl RuntimeImpl {
         let inner = ContextImpl::new(self)?;
 
         let gc_ref = self.gc_alloc(inner).map_err(|_| -1)?;
-        self.gc_heap_mut().set_root(&gc_ref);
+        self.gc_heap_mut().set_root(gc_ref, true);
 
         let mut ctx = ContextRef(gc_ref);
         ctx.init_core_objects()?;

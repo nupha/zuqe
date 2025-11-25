@@ -33,9 +33,7 @@ pub struct ShapeImpl {
 
 unsafe impl Collect for ShapeImpl {
     fn trace(&self, tracer: &mut gc_lite::Tracer) {
-        if let Some(o) = self.proto {
-            o.trace(tracer);
-        }
+        self.proto.trace(tracer);
         for (_, p) in self.prop_defs.iter() {
             p.trace(tracer);
         }
@@ -46,7 +44,7 @@ impl Drop for ShapeImpl {
     fn drop(&mut self) {
         // Note: when ShapeImpl is dropped, set rt to None.
         // So that ShapeHandle will aware this case.
-        self.rt.take();
+        self.rt.take().unwrap();
     }
 }
 
@@ -171,9 +169,10 @@ impl ShapeImpl {
 }
 
 #[repr(transparent)]
-pub struct ShapeHandle(pub(super) GcRef<ShapeImpl>);
+pub struct ShapeHandle(GcRef<ShapeImpl>);
 
 unsafe impl Collect for ShapeHandle {
+    #[inline(always)]
     fn trace(&self, tracer: &mut gc_lite::Tracer) {
         tracer.mark(self.0);
     }
@@ -241,13 +240,17 @@ impl ShapeHandle {
         proto: Option<ObjectRef>,
         prop_defs: IndexMap<u32, ShapeProperty>,
     ) -> Result<Self, i32> {
-        let sh = ctx
-            .rt()
+        let mut rt = ctx.rt();
+        let sh = rt
             .gc_alloc(ShapeImpl::new(ctx, proto, prop_defs)?)
             .map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1
             })?;
+
+        // Note: Shape should be root
+        // to ensure it is destroied after referencing object
+        //  rt.gc_heap_mut().set_root(sh, true);
 
         Ok(Self(sh))
     }

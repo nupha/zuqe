@@ -157,12 +157,8 @@ pub struct ObjectImpl {
 
 unsafe impl Collect for ObjectImpl {
     fn trace(&self, tracer: &mut gc_lite::Tracer) {
-        if let Some(sh) = self.shape.as_ref() {
-            sh.trace(tracer);
-        }
-        for vr in self.prop_values.iter() {
-            vr.trace(tracer);
-        }
+        self.shape.trace(tracer);
+        self.prop_values.trace(tracer);
         self.payload.trace(tracer);
     }
 }
@@ -341,7 +337,7 @@ impl ObjectImpl {
     }
 
     #[inline]
-    pub const fn rt(&self) -> RuntimePtr {
+    pub(crate) const fn rt(&self) -> RuntimePtr {
         self.rt
     }
 

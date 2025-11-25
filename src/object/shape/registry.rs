@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
-use gc_lite::GcRef;
+use gc_lite::{Collect, GcRef};
 
 use crate::{
     atom::Atom,
     object::{
-        JS_PROP_INITIAL_HASH_SIZE, ShapeHandle, ObjectRef, ShapeImpl, shape::shape_hasher_u32,
+        JS_PROP_INITIAL_HASH_SIZE, ObjectRef, ShapeHandle, ShapeImpl, shape::shape_hasher_u32,
         shape_initial_hash,
     },
 };
@@ -13,6 +13,19 @@ use crate::{
 #[derive(Debug)]
 pub(crate) struct ShapeRegistry {
     pub(super) lut: HashMap<u32, Vec<GcRef<ShapeImpl>>>,
+}
+
+unsafe impl Collect for ShapeRegistry {
+    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+        for lst in self.lut.values() {
+            for o in lst {
+                // debug_assert!(unsafe { o.as_ref().use_count() > 0 });
+                if unsafe { o.as_ref().use_count() > 0 } {
+                    tracer.mark(*o);
+                }
+            }
+        }
+    }
 }
 
 impl ShapeRegistry {
@@ -91,10 +104,15 @@ impl ShapeRegistry {
     }
 
     /// decrease shape use count. when use count reaches zero, unregister the shape.
+    #[inline(always)]
     pub(super) fn dec_use(&mut self, shape: &ShapeHandle) {
         let shape_id = shape.id();
         let hash = shape.hash();
+        self.dec_use2(shape_id, hash);
+    }
 
+    /// decrease shape use count. when use count reaches zero, unregister the shape.
+    pub(super) fn dec_use2(&mut self, shape_id: usize, hash: u32) {
         let remove_key = if let Some(lst) = self.lut.get_mut(&hash) {
             debug_assert!(!lst.is_empty());
 
@@ -141,8 +159,19 @@ impl ShapeRegistry {
 
         self.lut.get(&hash).and_then(|lst| {
             lst.iter()
-                .find(|sh| {
-                    let s = unsafe { sh.as_ref() };
+                .find(|sh| unsafe {
+                    // println!(
+                    //     "[O.o] 1. shape gc {:?} use_count={:?}, len={}",
+                    //     sh,
+                    //     sh.as_ref().use_count(),
+                    //     sh.as_ref().len()
+                    // );
+                    // println!(
+                    //     "[O.o] 2. shape.proto={:?}",
+                    //     sh.as_ref().proto.map(|o| o.gc_ref())
+                    // );
+
+                    let s = sh.as_ref();
                     // no shape props, and proto equals to given
                     s.prop_defs.is_empty() && s.proto == proto
                 })

@@ -1,6 +1,6 @@
-use gc_lite::{Collect, GcContext, GcError, GcPartition, GcRef, PartitionId, Tracer};
+use gc_lite::{Collect, GcError, GcHeap, GcPartition, GcRef, PartitionId, Tracer};
 
-use crate::{runtime::RuntimeImpl, value::JSValue};
+use crate::{object::ShapeImpl, runtime::RuntimeImpl, value::JSValue};
 
 impl RuntimeImpl {
     #[inline(always)]
@@ -13,12 +13,12 @@ impl RuntimeImpl {
     }
 
     #[inline(always)]
-    pub const fn gc_heap(&self) -> &GcContext {
+    pub const fn gc_heap(&self) -> &GcHeap {
         &self.gc_heap
     }
 
     #[inline(always)]
-    pub const fn gc_heap_mut(&mut self) -> &mut GcContext {
+    pub const fn gc_heap_mut(&mut self) -> &mut GcHeap {
         &mut self.gc_heap
     }
 
@@ -37,20 +37,34 @@ impl RuntimeImpl {
     /// collect garbage
     pub fn gc_collect(&mut self) -> usize {
         let part = self.gc_part;
-        let mut tracer = Tracer::new();
 
-        // mark objects in stack - to keep function local variables alive
-        if let Some(sf) = self.current_stack_frame() {
-            self.gc_heap.trace_mark(sf, &mut tracer);
+        // GC: mark
+        {
+            let mut tracer = Tracer::new();
+
+            // mark roots
+            self.gc_heap.mark_roots(part, &mut tracer);
+
+            // additional marks other than roots
+            self.cur_exception.trace(&mut tracer);
+            self.shape_registry.trace(&mut tracer);
+            if let Some(sf) = self.current_stack_frame() {
+                // mark objects in stack-frames
+                self.gc_heap.trace_mark(sf, &mut tracer);
+            }
         }
 
-        // mark root
-        self.gc_heap.mark_roots(part, &mut tracer);
-
-        let freed = self.gc_heap.sweep(part);
+        // GC: ShapImpl must be freed at last
+        let mut freed = 0;
+        if let Some(type_shape) = self.gc_heap().type_idx_of::<ShapeImpl>() {
+            freed = self
+                .gc_heap
+                .sweep_ex(part, false, None, Some(&[type_shape]), true);
+        }
+        freed += self.gc_heap.sweep_ex(part, false, None, None, false);
         println!("分区 {part:?} 回收 {freed} 字节");
 
-        // next gc threshold
+        // GC: update gc threshold
         let used = self.gc_info().memory_used();
         self.gc_threshold = used + (used >> 1); // x1.5 of
 
@@ -60,37 +74,21 @@ impl RuntimeImpl {
     pub fn gc_set_root_value(&mut self, val: JSValue, b: bool) {
         match val {
             JSValue::Object(o) => {
-                if b {
-                    self.gc_heap_mut().set_root(&o.gc_ref());
-                } else {
-                    self.gc_heap_mut().unset_root(&o.gc_ref());
-                }
+                self.gc_heap_mut().set_root(o.gc_ref(), b);
             }
             JSValue::String(s) => {
                 if s.rt().is_some() {
-                    if b {
-                        self.gc_heap_mut().set_root(&s.gc_ref());
-                    } else {
-                        self.gc_heap_mut().unset_root(&s.gc_ref());
-                    }
+                    self.gc_heap_mut().set_root(s.gc_ref(), b);
                 }
             }
             JSValue::Symbol(a) => {
                 a.set_gc_root(b);
             }
             JSValue::Module(m) => {
-                if b {
-                    self.gc_heap_mut().set_root(&m.gc_ref());
-                } else {
-                    self.gc_heap_mut().unset_root(&m.gc_ref());
-                }
+                self.gc_heap_mut().set_root(m.gc_ref(), b);
             }
             JSValue::Bytecode(bc) => {
-                if b {
-                    self.gc_heap_mut().set_root(&bc.gc_ref());
-                } else {
-                    self.gc_heap_mut().unset_root(&bc.gc_ref());
-                }
+                self.gc_heap_mut().set_root(bc.gc_ref(), b);
             }
             _ => {}
         }

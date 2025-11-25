@@ -12,9 +12,9 @@ impl ObjectImpl {
         ctx: &ContextImpl,
         f: impl FnOnce(&mut ShapeImpl) -> R,
     ) -> Result<R, i32> {
-        let ref_count = self.shape().unwrap().use_count();
+        let use_count = self.shape().unwrap().use_count();
 
-        let mut shape = if ref_count != 1 {
+        let mut shape = if use_count != 1 {
             // shape is shared: dup to new
             self.shape().unwrap().dup(ctx)?
         } else {

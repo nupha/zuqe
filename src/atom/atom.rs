@@ -103,11 +103,7 @@ impl Atom {
     pub fn set_gc_root(&self, b: bool) {
         if !self.is_const() && !self.is_null() && !self.is_small_int() {
             let s = self.string();
-            if b {
-                s.rt().unwrap().gc_heap_mut().set_root(&s.gc_ref());
-            } else {
-                s.rt().unwrap().gc_heap_mut().unset_root(&s.gc_ref());
-            }
+            s.rt().unwrap().gc_heap_mut().set_root(s.gc_ref(), b);
         }
     }
 
