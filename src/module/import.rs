@@ -11,7 +11,6 @@ use crate::{
         js_host_resolve_imported_module,
     },
     promise::Promise,
-    string::StringRef,
     value::JSValue,
 };
 
@@ -132,7 +131,7 @@ fn JS_LoadModuleInternal(
                 }
             }
         }
-        Err(e) => {
+        Err(_) => {
             let err = ctx.rt().take_exception();
             let _ = resolving_funcs[1].call(&ctx, JSValue::UNDEFINED, std::slice::from_ref(&err));
         }

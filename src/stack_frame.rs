@@ -275,15 +275,6 @@ impl StackFrame {
         ctx.rt().pop_stack_frame();
     }
 
-    /// Cleans ups for stack frame
-    #[cold]
-    #[deprecated]
-    pub(crate) fn clear(&mut self) {
-        self.cur_func = JSValue::UNDEFINED;
-        self.local_buf.clear();
-        self.var_ref_list.clear();
-    }
-
     /// get stack frame parent iterator
     pub const fn parent_iter(&self, include_self: bool) -> StackFrameParentIter<'_> {
         StackFrameParentIter {

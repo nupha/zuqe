@@ -1,5 +1,3 @@
-use std::ptr::NonNull;
-
 use gc_lite::{Collect, GcRef};
 use smallvec::SmallVec;
 
@@ -342,7 +340,7 @@ impl BytecodeFunction {
         args: &[JSValue],
         flags: i32,
     ) -> JSValue {
-        let mut rt = caller_ctx.rt();
+        let rt = caller_ctx.rt();
         let bc = self.payload().bytecode();
 
         // how many args that should be copied to local buf?

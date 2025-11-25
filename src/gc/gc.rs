@@ -28,7 +28,7 @@ impl RuntimeImpl {
         self.gc_heap.get_partition(part).unwrap()
     }
 
-    /// alloc data in gc heap
+    /// alloc data in gc
     #[inline(always)]
     pub fn gc_alloc<T: Collect>(&mut self, data: T) -> Result<GcRef<T>, (GcError, T)> {
         self.gc_heap.alloc(self.gc_part, data)
@@ -49,7 +49,7 @@ impl RuntimeImpl {
             self.cur_exception.trace(&mut tracer);
             self.shape_registry.trace(&mut tracer);
             if let Some(sf) = self.current_stack_frame() {
-                // mark objects in stack-frames
+                // mark objects in stack-frames chain
                 self.gc_heap.trace_mark(sf, &mut tracer);
             }
         }
@@ -62,9 +62,10 @@ impl RuntimeImpl {
                 .sweep_ex(part, false, None, Some(&[type_shape]), true);
         }
         freed += self.gc_heap.sweep_ex(part, false, None, None, false);
-        println!("分区 {part:?} 回收 {freed} 字节");
 
-        // GC: update gc threshold
+        println!("[O.o] 分区 {part:?} 回收 {freed} 字节");
+
+        // GC: update gc threshold for next
         let used = self.gc_info().memory_used();
         self.gc_threshold = used + (used >> 1); // x1.5 of
 

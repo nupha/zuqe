@@ -3,7 +3,7 @@ use std::{marker::PhantomData, ops::DerefMut, ptr::NonNull};
 use crate::{
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp, OpcodeFormat, opcode_info_intermediate, opcodes},
-    context::{ContextImpl, ContextRef, JS_MODE_STRIP},
+    context::{ContextImpl, ContextRef},
     eval::JS_EVAL_TYPE_GLOBAL,
     function::{
         BytecodeAttrs, DEFINE_GLOBAL_LEX_VAR, JSClosureVar, JSGlobalVar, JSVarDef, JSVarScope,

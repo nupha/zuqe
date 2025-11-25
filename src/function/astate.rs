@@ -230,41 +230,6 @@ impl AsyncStateImpl {
 
         ret_val.err()
     }
-
-    /// free values ranges from argument start through stack top.
-    #[deprecated(note = "this is not used, let gc trace to mark alives")]
-    fn free_stack_values(&mut self) {
-        // // free values on async stack frame
-        // if !self.frame.arg_base_ptr.is_null() {
-        //     debug_assert!(
-        //         self.frame.cur_sp_offset != -1,
-        //         "cannot free the function if it is running"
-        //     );
-
-        //     let mut p = self.frame.arg_base_ptr; // arg base is on local_buf
-        //     let end_p = self.frame.stack_cur_ptr().as_ptr(); // stack cur ptr is on local_buf
-        //     while p < end_p {
-        //         unsafe {
-        //             std::ptr::replace(p, JSValue::UNDEFINED);
-        //             p = p.add(1);
-        //         }
-        //     }
-
-        //     self.frame.arg_base_ptr = std::ptr::null_mut();
-        // }
-
-        // // clean up var refs
-        // self.frame.clear();
-    }
-
-    #[deprecated]
-    fn finalize(&mut self) {
-        if !self.is_completed {
-            // cannot close the closure variables here because it would
-            // potentially modify the object graph
-            self.free_stack_values();
-        }
-    }
 }
 
 /// async execution state.

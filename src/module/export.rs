@@ -300,6 +300,7 @@ impl ModuleDef {
         s.modules.push(*self);
 
         for exp in self.export_entries.iter() {
+            #[cfg(debug_assertions)]
             {
                 debug_assert!(
                     exp.export_name.is_alive(),

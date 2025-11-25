@@ -504,7 +504,9 @@ fn run_test_file(
 
                 println!("TEST262 EXCEPTION: {:?}", exc);
                 let msg = if let JSValue::Object(o) = &exc {
+                    #[cfg(debug_assertions)]
                     o.dump(ctx.rt_ref());
+
                     let msg = o.get_property(&ctx, Atom::CONST_message).unwrap();
                     msg.inspect(&ctx).unwrap().to_string()
                 } else {

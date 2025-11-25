@@ -1,12 +1,9 @@
-use std::cell::Cell;
-
 use gc_lite::{Collect, GcRef};
 
 use crate::{
     atom::Atom,
     class::JSClassExoticMethods,
     context::{ContextImpl, ContextRef},
-    error::JSResult,
     function::{BCFuncPayload, FieldDef, JSFunctionDef, JSVarKindEnum, JSVarRef},
     gcref_wrapper,
     module::{ExportEntry, ExportType, ImportEntry, JSModuleStatus, ModuleDependency},
@@ -34,10 +31,8 @@ pub trait ModuleInitFunc: Fn(&ContextImpl, &ModuleDef) -> Result<(), i32> {}
 impl<F> ModuleInitFunc for F where F: Fn(&ContextImpl, &ModuleDef) -> Result<(), i32> {}
 
 pub struct ModuleDefImpl {
-    /// TODO: rt seems no use
+    #[deprecated(note = "seems no use, should be removed")]
     rt: RuntimePtr,
-
-    gc_mark: Cell<bool>,
 
     /// hold a refcount of the atom
     pub module_name: Atom,
@@ -118,20 +113,13 @@ impl PartialEq for ModuleDefImpl {
     }
 }
 
-impl Drop for ModuleDefImpl {
-    fn drop(&mut self) {
-        self.finalize();
-    }
-}
-
 impl ModuleDefImpl {
     /// 'name' is consumed
-    fn new(ctx: &ContextImpl, name: Atom) -> Self {
+    fn new(ctx: &ContextImpl, module_name: Atom) -> Self {
         Self {
             rt: ctx.rt(),
-            gc_mark: Cell::new(false),
 
-            module_name: name,
+            module_name,
 
             dependencies: Vec::new(),
             import_entries: Vec::new(),
@@ -314,40 +302,6 @@ impl ModuleDefImpl {
         }
 
         Ok(())
-    }
-
-    const fn finalize(&mut self) {
-        // let rt = self.rt_mut();
-
-        // let name = std::mem::replace(&mut self.module_name, Atom::NULL);
-        // name.free(rt);
-
-        // for dep in self.dependencies.borrow_mut().drain(..) {
-        //     dep.module_name.free(rt);
-        // }
-
-        // for me in self.export_entries.borrow_mut().drain(..) {
-        //     // if let JSExportTypeEnum::JS_EXPORT_TYPE_LOCAL { var_ref, .. } = me.export_type {
-        //     //     debug_assert!(var_ref.is_some());
-        //     //     drop(var_ref);
-        //     // }
-        //     me.export_name.free(rt);
-        //     me.local_name.free(rt);
-        // }
-
-        // for mi in self.import_entries.borrow_mut().drain(..) {
-        //     mi.import_name.free(rt);
-        // }
-    }
-
-    #[inline(always)]
-    pub const fn gc_has_mark(&self) -> bool {
-        self.gc_mark.get()
-    }
-
-    #[inline(always)]
-    pub fn gc_set_mark(&self, mark: bool) {
-        self.gc_mark.set(mark);
     }
 }
 

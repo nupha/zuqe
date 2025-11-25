@@ -224,7 +224,7 @@ impl BytecodeImpl {
     }
 
     #[inline(always)]
-    pub const fn rt(&self) -> RuntimePtr {
+    pub(crate) const fn rt(&self) -> RuntimePtr {
         self.rt
     }
 

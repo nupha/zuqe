@@ -6,8 +6,7 @@ use crate::{
 
 pub(crate) struct Job {
     run: Box<dyn FnOnce() -> JSResult>,
-    trace: Option<Box<dyn Fn(&mut gc_lite::Tracer)>>,
-    finish: Option<Box<dyn FnOnce()>>,
+    trace: Option<Box<dyn Fn(&mut Tracer)>>,
 }
 
 unsafe impl Collect for Job {
@@ -21,24 +20,11 @@ unsafe impl Collect for Job {
 impl Job {
     #[inline(always)]
     pub fn run(self) -> JSResult {
-        let r = (self.run)();
-        if let Some(f) = self.finish {
-            f();
-        }
-        r
+        (self.run)()
     }
 }
 
 impl ContextImpl {
-    /// Append a job to job queue.
-    pub(crate) fn queue_job(&mut self, run: impl FnOnce() -> JSResult + 'static) {
-        self.job_list.push_back(Job {
-            run: Box::new(run),
-            trace: None,
-            finish: None,
-        });
-    }
-
     /// Append a job to job queue.
     pub(crate) fn queue_job_with_trace(
         &mut self,
@@ -48,20 +34,6 @@ impl ContextImpl {
         self.job_list.push_back(Job {
             run: Box::new(run),
             trace: Some(Box::new(trace)),
-            finish: None,
-        });
-    }
-
-    /// Append a job to job queue.
-    pub(crate) fn queue_job_with_finish(
-        &mut self,
-        run: impl FnOnce() -> JSResult + 'static,
-        finish: impl FnOnce() + 'static,
-    ) {
-        self.job_list.push_back(Job {
-            run: Box::new(run),
-            trace: None,
-            finish: Some(Box::new(finish)),
         });
     }
 }
