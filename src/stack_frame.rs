@@ -11,7 +11,6 @@ use crate::{
     error::{JS_IsUncatchableError, is_backtrace_needed},
     function::{AsyncStateImpl, JSVarRef},
     iterator::ObjectIter,
-    runtime::RuntimeImpl,
     value::JSValue,
 };
 
@@ -19,8 +18,8 @@ use crate::{
 /// StackFrame is usually allocated on stack, not heap.
 #[derive(Debug)]
 pub struct StackFrame {
-    /// Pointer to parent stack frame (NULL for first frame)
-    pub(crate) parent: *mut Pin<Self>,
+    /// Pointer to previous stack frame (NULL for first frame)
+    pub(crate) prev: *mut Pin<Self>,
 
     /// Currently executing function.
     ///
@@ -73,23 +72,30 @@ pub struct StackFrame {
 unsafe impl Collect for StackFrame {
     fn trace(&self, tracer: &mut gc_lite::Tracer) {
         self.cur_func.trace(tracer);
-        self.local_buf.trace(tracer);
-        self.var_ref_list.trace(tracer);
+        // self.local_buf.trace(tracer);
 
-        // this may have duplicated trace for argument values over local_buf,
-        // but this is a guard in case args are not copied to local_buf
+        for v in self.vardefs_slice() {
+            v.trace(tracer);
+        }
         for v in self.args_slice() {
             v.trace(tracer);
         }
-
-        // trace values on stack
         for v in self.stack_slice() {
             v.trace(tracer);
         }
 
-        if let Some(sf) = unsafe { self.parent.cast::<StackFrame>().as_ref() } {
+        self.var_ref_list.trace(tracer);
+
+        if let Some(sf) = unsafe { self.prev.cast::<StackFrame>().as_ref() } {
             sf.trace(tracer);
         }
+    }
+}
+
+impl PartialEq for StackFrame {
+    #[inline(always)]
+    fn eq(&self, other: &Self) -> bool {
+        self.id() == other.id()
     }
 }
 
@@ -97,7 +103,7 @@ impl StackFrame {
     /// Create new StackFrame. It's allocated on stack.
     pub fn new(func_obj: JSValue, mode: i32) -> Self {
         Self {
-            parent: std::ptr::null_mut(),
+            prev: std::ptr::null_mut(),
             cur_func: func_obj,
             js_mode: mode,
 
@@ -117,12 +123,25 @@ impl StackFrame {
         }
     }
 
+    #[inline(always)]
+    pub fn id(&self) -> usize {
+        self as *const Self as usize
+    }
+
     /// Returns slice of actual argument values for this frame
     pub const fn args_slice(&self) -> &[JSValue] {
         if self.arg_real_count == 0 {
             &[]
         } else {
             unsafe { std::slice::from_raw_parts(self.arg_base_ptr, self.arg_real_count as usize) }
+        }
+    }
+
+    pub const fn vardefs_slice(&self) -> &[JSValue] {
+        if self.var_count == 0 {
+            &[]
+        } else {
+            unsafe { std::slice::from_raw_parts(self.var_base_ptr, self.var_count as usize) }
         }
     }
 
@@ -219,8 +238,9 @@ impl StackFrame {
         sp: usize,
         is_generator: bool,
     ) {
-        debug_assert!(
-            std::ptr::eq(ctx.rt().cur_stack_frame as *mut Self, self),
+        debug_assert_eq!(
+            ctx.rt().current_stack_frame(),
+            Some(&*self),
             "StackFrame::handle_exit() must be called on active stack frame"
         );
 
@@ -251,7 +271,8 @@ impl StackFrame {
         }
 
         // switch back to previous stack frame
-        ctx.rt().cur_stack_frame = self.parent;
+        // ctx.rt().cur_stack_frame = self.prev;
+        ctx.rt().pop_stack_frame();
     }
 
     /// Cleans ups for stack frame
@@ -263,13 +284,13 @@ impl StackFrame {
         self.var_ref_list.clear();
     }
 
-    /// get stack frame parent iterrator
+    /// get stack frame parent iterator
     pub const fn parent_iter(&self, include_self: bool) -> StackFrameParentIter<'_> {
         StackFrameParentIter {
             stack_frame: if include_self {
                 self as *const StackFrame as _
             } else {
-                self.parent.cast::<StackFrame>()
+                self.prev.cast::<StackFrame>()
             },
             _mark: PhantomData,
         }
@@ -286,7 +307,7 @@ impl<'a> Iterator for StackFrameParentIter<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(f) = unsafe { self.stack_frame.as_ref() } {
-            self.stack_frame = f.parent.cast::<StackFrame>();
+            self.stack_frame = f.prev.cast::<StackFrame>();
             Some(f)
         } else {
             None
@@ -299,35 +320,4 @@ impl StackFrameParentIter<'static> {
         stack_frame: std::ptr::null_mut(),
         _mark: PhantomData,
     };
-}
-
-impl RuntimeImpl {
-    /// Pushes a new stack frame onto the execution stack
-    ///
-    /// # Safety
-    /// The caller must ensure the frame pointer is valid
-    pub(crate) const fn push_stack_frame(&mut self, mut stack_frame: NonNull<StackFrame>) {
-        if self.cur_stack_frame.is_null() {
-            self.cur_stack_frame = stack_frame.cast::<Pin<StackFrame>>().as_ptr();
-        } else {
-            unsafe {
-                stack_frame.as_mut().parent = self.cur_stack_frame;
-            }
-            self.cur_stack_frame = stack_frame.cast::<Pin<StackFrame>>().as_ptr();
-        }
-    }
-
-    /// Pops the current stack frame from the execution stack
-    ///
-    /// # Safety
-    /// The caller must ensure no references to the popped frame remain
-    pub(crate) fn pop_stack_frame(&mut self) -> *mut Pin<StackFrame> {
-        if self.cur_stack_frame.is_null() {
-            std::ptr::null_mut()
-        } else {
-            let sf = self.cur_stack_frame;
-            self.cur_stack_frame = unsafe { (*sf.cast::<StackFrame>()).parent };
-            sf
-        }
-    }
 }

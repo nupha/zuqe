@@ -67,7 +67,7 @@ impl RuntimeImpl {
                 }
             }
             JSValue::String(s) => {
-                if let Some(mut rt) = s.rt() {
+                if s.rt().is_some() {
                     if b {
                         self.gc_heap_mut().set_root(&s.gc_ref());
                     } else {

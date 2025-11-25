@@ -150,10 +150,10 @@ fn js_load_module_fulfilled(ctx: ContextRef, cc: CallContext) -> JSResult {
     } else {
         unreachable!()
     } {
-        // resolve with the module namespace
+        // resolve() with module namespace
         let _ = cc.data(0).call(&ctx, JSValue::UNDEFINED, &[ns.into()]);
     } else {
-        // reject with error
+        // reject() with error
         let err = ctx.rt().take_exception();
         let _ = cc
             .data(1)

@@ -83,10 +83,13 @@ impl PromiseResolveFunc {
                     let promise = s.promise;
                     let promise2 = promise;
                     let ctx2 = ctx;
+
                     ctx.queue_job_with_trace(
                         move || js_promise_resolve_thenable_job(&ctx2, promise, arg0, then),
                         move |tracer| {
                             promise2.trace(tracer);
+                            arg0.trace(tracer);
+                            then.trace(tracer);
                         },
                     );
                 }
@@ -188,8 +191,8 @@ impl Promise {
                 } else {
                     fail
                 };
-                let is_reject = state == PromiseState::JS_PROMISE_REJECTED;
 
+                let is_reject = state == PromiseState::JS_PROMISE_REJECTED;
                 let mut cx = unsafe { ContextRef::from_ref_unchecked(ctx) };
                 let act2 = act.clone();
 
@@ -205,6 +208,7 @@ impl Promise {
                     },
                     move |tracer| {
                         act2.trace(tracer);
+                        result.trace(tracer);
                     },
                 );
             }
@@ -273,6 +277,8 @@ impl Promise {
 
         for act in reactions[is_reject as usize].drain(..) {
             let val = value;
+            let act2 = act.clone();
+
             ctx.queue_job_with_trace(
                 move || {
                     promise_reaction_job(
@@ -285,6 +291,7 @@ impl Promise {
                 },
                 move |tracer| {
                     val.trace(tracer);
+                    act2.trace(tracer);
                 },
             );
         }

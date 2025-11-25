@@ -133,17 +133,20 @@ impl RuntimeImpl {
         for ctx in self.context_list.iter() {
             let n = ctx.job_list.len();
             if n > 0 {
-                // trace all jobs before execute
-                let mut tracer = Tracer::new();
-                for j in ctx.job_list.iter() {
-                    self.gc_heap().trace_mark(j, &mut tracer);
-                }
+                // execute jobs first, then trace pending jobs.
+                // don't change order.
 
                 let mut cx = *ctx;
                 for _ in 0..n {
                     if let Some(job) = cx.job_list.pop_front() {
                         job.run()?;
                     }
+                }
+
+                // trace all jobs
+                let mut tracer = Tracer::new();
+                for j in ctx.job_list.iter() {
+                    self.gc_heap().trace_mark(j, &mut tracer);
                 }
 
                 if !ctx.job_list.is_empty() {

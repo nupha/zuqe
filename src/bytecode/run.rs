@@ -1,3 +1,5 @@
+use std::ptr::NonNull;
+
 use crate::{
     atom::{Atom, AtomKind},
     branch_hints::unlikely,
@@ -43,9 +45,12 @@ use crate::{
 };
 
 impl Bytecode {
-    /// run bytecodes.
-    /// before running, runtime current stack frame will be set to `sframe`.
-    /// when exited, runtime current stack frame will be restored back to the previous frame.
+    /// Execute bytecodes.
+    ///
+    /// Switch of runtime's current stack frame:
+    /// - during execution, current stack frame will be set to given `stack_frame`,
+    /// - On exit, current stack frame will be restored back to the original one.
+    /// - When exception raised (returns Err), `stack_frame` will be kept as current stack frame.
     #[allow(clippy::too_many_arguments)]
     pub fn run(
         &self,
@@ -79,6 +84,11 @@ impl Bytecode {
         let pc_base = bytecodes.as_ptr();
         // convert index to pointer
         let (mut pc, mut sp) = unsafe { (pc_base.add(pc_offset), sp_base.add(sp_offset)) };
+
+        // setup current stack frame frist.
+        caller_ctx
+            .rt()
+            .push_stack_frame(NonNull::from_ref(stack_frame));
 
         if throwed {
             // has thrown current exception, handle it before execution.

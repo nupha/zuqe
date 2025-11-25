@@ -144,7 +144,7 @@ impl NFuncPayload {
                 c.handler,
                 c.length,
                 c.magic,
-                ContextRef::from(c.realm.upgrade(ctx.rt().gc_heap()).unwrap()),
+                ContextRef::from(c.realm.upgrade(rt.gc_heap()).unwrap()),
             )
         } else {
             unreachable!()
@@ -160,8 +160,8 @@ impl NFuncPayload {
         let mut stack_frame = StackFrame::new(func_obj, 0);
         let sf = &mut stack_frame;
 
-        // set new stack frame to be the 'current',
-        // inform to pop stack frame at function exit.
+        // set new stack frame to be the 'current-stack-frame',
+        // setup to perform pop stack frame on function exit.
         rt.push_stack_frame(NonNull::from_ref(sf));
         defer!({
             rt.pop_stack_frame();
@@ -179,7 +179,7 @@ impl NFuncPayload {
                 })?;
 
             // copy pass in args, cloned
-            sf.local_buf.extend(args.iter().cloned());
+            sf.local_buf.extend(args.iter().copied());
             // padding with undefined
             sf.local_buf.extend(std::iter::repeat_n(
                 JSValue::UNDEFINED,
@@ -316,7 +316,7 @@ impl NFuncPayload {
         };
 
         // THIS IS DONE in defer!()
-        //rt.current_stack_frame = sf.prev_frame;
+        //rt.current_stack_frame = sf.prev;
 
         Ok(ret_val)
     }

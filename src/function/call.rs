@@ -275,7 +275,7 @@ pub(crate) fn JS_CallInternal(
 
     match func_obj {
         JSValue::Object(o) => {
-            if let Some(bf) = o.as_BytecodeFunction().copied() {
+            if let Some(bf) = o.as_BytecodeFunction() {
                 bf.call(caller_ctx, this_obj, new_target, args, flags)
             } else {
                 // non bytecode function: bound function, native function, async function etc.

@@ -275,11 +275,6 @@ impl ContextImpl {
         self.global_obj = JSValue::UNDEFINED;
         self.global_var_obj = JSValue::UNDEFINED;
         self.eval_func = JSValue::UNDEFINED;
-
-        // // context is not gc root anymore
-        // self.rt()
-        //     .gc_heap_mut()
-        //     .unset_root(&unsafe { GcRef::from_ref_unchecked(self) });
     }
 }
 

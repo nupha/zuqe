@@ -30,10 +30,10 @@ pub struct AsyncStateImpl {
 
 unsafe impl Collect for AsyncStateImpl {
     fn trace(&self, tracer: &mut gc_lite::Tracer) {
+        self.frame.trace(tracer);
         self.this_val.trace(tracer);
         self.resolving_funcs[0].trace(tracer);
         self.resolving_funcs[1].trace(tracer);
-        self.frame.trace(tracer);
     }
 }
 
@@ -209,19 +209,12 @@ impl AsyncStateImpl {
         let sp_offset = self.frame.cur_sp_offset;
         debug_assert!(sp_offset >= 0);
 
-        caller_ctx
-            .rt()
-            .push_stack_frame(NonNull::from_ref(&self.frame));
-        // stack_frame.parent = rt.cur_stack_frame;
-        // rt.cur_stack_frame = (stack_frame as *mut StackFrame).cast();
-
         let isa = bcf.payload_mut();
-        let bc = isa.bytecode();
-
-        let ret_val = bc.run(
+        let ret_val = isa.bytecode().run(
             caller_ctx,
             isa.home_object(),
             unsafe {
+                // use dedicated stack frame for async state
                 let sf = self.frame.as_mut().get_unchecked_mut();
                 sf.cur_sp_offset = -1;
                 sf
@@ -233,12 +226,6 @@ impl AsyncStateImpl {
             &mut isa.var_refs,
             args,
             throw_flag,
-        );
-
-        debug_assert_eq!(
-            caller_ctx.rt().cur_stack_frame.cast::<()>(),
-            self.frame.parent.cast::<()>(),
-            "runtime current stack frame should be restored after running bytecodes"
         );
 
         ret_val.err()

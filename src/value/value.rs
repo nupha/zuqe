@@ -6,7 +6,6 @@ use crate::{
     module::ModuleDef,
     number::JSFloat64Union,
     object::ObjectRef,
-    runtime::RuntimeImpl,
     string::StringRef,
     utils::hash_usize,
 };
@@ -119,7 +118,10 @@ unsafe impl Collect for JSValue {
     fn trace(&self, tracer: &mut gc_lite::Tracer) {
         match self {
             Self::String(s) => {
-                s.trace(tracer);
+                if s.rt().is_some() {
+                    // not string for const atom
+                    s.trace(tracer);
+                }
             }
             Self::Object(o) => {
                 tracer.mark(o.gc_ref());

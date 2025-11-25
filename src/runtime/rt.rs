@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, ffi::c_void, pin::Pin};
+use std::{collections::VecDeque, ffi::c_void, pin::Pin, ptr::NonNull};
 
 use gc_lite::{Collect, GcContext, GcError, GcRef, PartitionId};
 
@@ -265,16 +265,50 @@ impl RuntimeImpl {
         self.cur_exception = obj;
     }
 
-    /// get current active stack frame
+    /// get current stack frame
     #[inline(always)]
     pub(crate) const fn current_stack_frame(&self) -> Option<&StackFrame> {
         unsafe { self.cur_stack_frame.cast::<StackFrame>().as_ref() }
     }
 
-    /// get current active stack frame
+    /// get current stack frame
     #[inline(always)]
     pub(crate) const fn current_stack_frame_mut(&mut self) -> Option<&mut StackFrame> {
         unsafe { self.cur_stack_frame.cast::<StackFrame>().as_mut() }
+    }
+
+    /// Pushes a new stack frame onto the execution stack
+    ///
+    /// # Safety
+    /// The caller must ensure the frame pointer is valid
+    pub(crate) fn push_stack_frame(&mut self, mut stack_frame: NonNull<StackFrame>) {
+        debug_assert_ne!(
+            self.cur_stack_frame.cast::<()>(),
+            stack_frame.as_ptr().cast::<()>()
+        );
+
+        if self.cur_stack_frame.is_null() {
+            self.cur_stack_frame = stack_frame.cast::<Pin<StackFrame>>().as_ptr();
+        } else {
+            unsafe {
+                stack_frame.as_mut().prev = self.cur_stack_frame;
+            }
+            self.cur_stack_frame = stack_frame.cast::<Pin<StackFrame>>().as_ptr();
+        }
+    }
+
+    /// Pops the current stack frame, restore current frame stack to previouse
+    pub(crate) fn pop_stack_frame(&mut self) -> *mut Pin<StackFrame> {
+        if self.cur_stack_frame.is_null() {
+            std::ptr::null_mut()
+        } else {
+            let sf = self.cur_stack_frame;
+            unsafe {
+                self.cur_stack_frame = (*sf.cast::<StackFrame>()).prev;
+                (*sf.cast::<StackFrame>()).prev = std::ptr::null_mut();
+            }
+            sf
+        }
     }
 
     fn finalize(&mut self) {

@@ -310,6 +310,8 @@ fn run_test_script(
         )?
     };
 
+    ctx.rt_mut().gc_set_root_value(res, true);
+
     let promise = if is_async || is_module {
         Promise::try_from(res).ok()
     } else {

@@ -415,12 +415,8 @@ impl BytecodeFunction {
         sf.var_base_ptr = unsafe { sf.local_buf.as_mut_ptr().add(arg_copy_num as usize) };
         sf.var_count = bc.var_count;
 
-        // set new stack frame to be the 'current'.
-        rt.push_stack_frame(NonNull::from_ref(sf));
-
         let isa = self.payload_mut();
-
-        let retval = bc.run(
+        bc.run(
             caller_ctx,
             isa.home_object,
             sf,
@@ -431,19 +427,7 @@ impl BytecodeFunction {
             &mut isa.var_refs,
             args,
             false,
-        );
-
-        debug_assert!(
-            std::ptr::eq(
-                caller_ctx.rt().cur_stack_frame.cast::<()>(),
-                sf.parent.cast::<()>()
-            ),
-            "runtime current stack frame should be restored after running bytecodes"
-        );
-
-        // stack frame is dropped here
-
-        retval
+        )
     }
 
     /// handle `Function` constructor. For example:
