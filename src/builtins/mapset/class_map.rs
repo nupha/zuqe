@@ -3,19 +3,18 @@ use std::ops::Deref;
 use crate::{
     JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_MAP, JS_PROP_STRING_DEF,
     atom::Atom,
+    builtins::js_get_this,
     class::ClassID,
     context::ContextRef,
     error::JSResult,
     function::{CallContext, FieldDef},
     iterator::JSIteratorKindEnum,
-    builtins::js_get_this,
-    mapset::{JSMapState, MapPair},
     number::MAX_SAFE_INTEGER,
     object::{JS_PROP_CONFIGURABLE, ObjectPayload, ObjectRef},
     value::JSValue,
 };
 
-use super::iter::JSMapIteratorData;
+use super::{JSMapIteratorData, JSMapState, MapPair};
 
 pub fn js_map_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
     let magic = cc.magic();

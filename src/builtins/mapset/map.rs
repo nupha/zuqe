@@ -7,15 +7,16 @@ use crate::{
     JS_CLASS_WEAKSET,
     class::ClassID,
     context::{ContextImpl, ContextRef},
-    mapset::{
-        js_map_constructor, js_map_funcs, js_map_iterator_proto_funcs, js_map_proto_funcs,
-        js_set_funcs, js_set_iterator_proto_funcs, js_set_proto_funcs, js_weakmap_proto_funcs,
-        js_weakset_proto_funcs,
-    },
     object::{ObjectImpl, ObjectPayload, ObjectRef},
     object_cast,
     utils::hash_usize,
     value::JSValue,
+};
+
+use super::{
+    js_map_constructor, js_map_funcs, js_map_iterator_proto_funcs, js_map_proto_funcs,
+    js_set_funcs, js_set_iterator_proto_funcs, js_set_proto_funcs, js_weakmap_proto_funcs,
+    js_weakset_proto_funcs,
 };
 
 /// A key-value pair in a map, either strong or weak

@@ -19,7 +19,6 @@ pub mod generator;
 pub mod global;
 pub mod iterator;
 pub mod json;
-pub mod mapset;
 pub mod mem;
 pub mod module;
 pub mod number;

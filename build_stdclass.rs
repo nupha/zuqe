@@ -107,11 +107,14 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|
         PayloadKey::DataView,
         "Box<crate::builtins::typed_array::DataViewPayload>",
     );
-    m.insert(PayloadKey::MapSet, "Box<crate::mapset::JSMapState>");
+    m.insert(
+        PayloadKey::MapSet,
+        "Box<crate::builtins::mapset::JSMapState>",
+    );
     m.insert(
         PayloadKey::MapSetIterator,
-        "Box<crate::mapset::JSMapIteratorData>",
-        // "std::cell::RefCell<Box<crate::mapset::JSMapIteratorData>>",
+        "Box<crate::builtins::mapset::JSMapIteratorData>",
+        // "std::cell::RefCell<Box<crate::builtins::mapset::JSMapIteratorData>>",
     );
     m.insert(
         PayloadKey::ArrayIterator,
@@ -360,42 +363,42 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "Map",
             "MAP",
             PayloadKey::MapSet,
-            Some("crate::mapset::MapSet::class_initialize"),
+            Some("crate::builtins::mapset::MapSet::class_initialize"),
             None,
         ),
         ClassInfo::class_def(
             "Set",
             "SET",
             PayloadKey::MapSet,
-            Some("crate::mapset::MapSet::class_initialize"),
+            Some("crate::builtins::mapset::MapSet::class_initialize"),
             None,
         ),
         ClassInfo::class_def(
             "WeakMap",
             "WEAKMAP",
             PayloadKey::MapSet,
-            Some("crate::mapset::MapSet::class_initialize"),
+            Some("crate::builtins::mapset::MapSet::class_initialize"),
             None,
         ),
         ClassInfo::class_def(
             "WeakSet",
             "WEAKSET",
             PayloadKey::MapSet,
-            Some("crate::mapset::MapSet::class_initialize"),
+            Some("crate::builtins::mapset::MapSet::class_initialize"),
             None,
         ),
         ClassInfo::class_def(
             "Map_Iterator",
             "MAP_ITERATOR",
             PayloadKey::MapSetIterator,
-            Some("crate::mapset::MapSet::class_initialize"),
+            Some("crate::builtins::mapset::MapSet::class_initialize"),
             None,
         ),
         ClassInfo::class_def(
             "Set_Iterator",
             "SET_ITERATOR",
             PayloadKey::MapSetIterator,
-            Some("crate::mapset::MapSet::class_initialize"),
+            Some("crate::builtins::mapset::MapSet::class_initialize"),
             None,
         ),
         ClassInfo::class_def(

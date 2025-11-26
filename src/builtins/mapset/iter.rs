@@ -7,11 +7,12 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef, IteratorState},
     iterator::JSIteratorKindEnum,
-    mapset::MapPair,
     object::{JS_PROP_CONFIGURABLE, ObjectImpl, ObjectRef},
     object_cast,
     value::JSValue,
 };
+
+use super::MapPair;
 
 #[derive(Debug)]
 pub struct JSMapIteratorData {
