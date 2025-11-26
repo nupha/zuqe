@@ -13,7 +13,7 @@ use crate::{
     value::JSValue,
 };
 
-use super::stringify::JS_JSONStringify;
+use super::JS_JSONStringify;
 
 #[inline(always)]
 fn js_json_stringify(ctx: ContextRef, cc: CallContext) -> JSResult {

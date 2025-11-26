@@ -18,7 +18,6 @@ pub mod gc;
 pub mod generator;
 pub mod global;
 pub mod iterator;
-pub mod json;
 pub mod mem;
 pub mod module;
 pub mod number;
