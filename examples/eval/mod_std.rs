@@ -11,12 +11,19 @@ use crate::class_file::class_file_new_instance;
 
 fn js_std_open(ctx: ContextRef, cc: CallContext) -> JSResult {
     let filename = cc.arg(0).to_string(&ctx)?;
-    let mode = cc.arg(1).to_string(&ctx)?;
-    let mode_str = mode.content().to_utf8(false);
+    let mode = if cc.length() > 1 {
+        cc.arg(1)
+            .to_string(&ctx)?
+            .content()
+            .to_utf8(false)
+            .to_string()
+    } else {
+        "r".to_string()
+    };
 
     let mut opts = std::fs::OpenOptions::new();
 
-    match mode_str.as_ref() {
+    match mode.as_str() {
         "r" | "" => {
             opts.read(true);
         }
