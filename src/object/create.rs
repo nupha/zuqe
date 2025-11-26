@@ -1,7 +1,7 @@
 use std::ffi::c_void;
 
 use crate::{
-    JS_CLASS_ARRAY, USER_CLASS_ID_START,
+    USER_CLASS_ID_START,
     atom::Atom,
     class::{ClassID, OtherPayload},
     context::{ContextImpl, ContextRef},

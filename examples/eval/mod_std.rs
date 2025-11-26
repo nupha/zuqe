@@ -94,7 +94,7 @@ fn js_std_open(ctx: ContextRef, cc: CallContext) -> JSResult {
     }
 }
 
-fn std_exit(ctx: ContextRef, cc: CallContext) -> JSResult {
+fn std_exit(_: ContextRef, _: CallContext) -> JSResult {
     println!("*** exit called");
     Ok(JSValue::UNDEFINED)
 }

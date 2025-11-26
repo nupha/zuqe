@@ -40,7 +40,7 @@ fn point_getset(_: ContextRef, cc: CallContext) -> JSResult {
     }
 }
 
-static class_point_proto: [FieldDef; 2] = [
+static CLASS_POINTER_PROTO: [FieldDef; 2] = [
     FieldDef::GETSET("x", Some(point_getset), None, 0),
     FieldDef::GETSET("y", Some(point_getset), None, 1),
 ];
@@ -52,7 +52,7 @@ thread_local! {
                 |mut ctx: ContextRef, class_id: ClassID| -> Result<Option<ObjectRef>, i32> {
                     // create prototype
                     let mut proto = ctx.create_base_object().unwrap();
-                    proto.install_field_defs(&ctx, &class_point_proto)?;
+                    proto.install_field_defs(&ctx, &CLASS_POINTER_PROTO)?;
 
                     // create constructor
                     let mut ctor: JSValue = ctx
@@ -63,7 +63,7 @@ thread_local! {
                             class_id as i16,
                         )?
                         .into();
-                    ctor.install_field_defs(&ctx, &class_point_proto)?;
+                    ctor.install_field_defs(&ctx, &CLASS_POINTER_PROTO)?;
 
                     ctx.bind_ctor_proto(ctor, proto.into())?;
 

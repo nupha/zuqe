@@ -1,3 +1,5 @@
+#![allow(non_snake_case)]
+
 mod class_file;
 mod class_point;
 mod mod_std;
