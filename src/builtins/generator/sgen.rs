@@ -2,10 +2,10 @@ use gc_lite::Collect;
 
 use crate::{
     JS_CLASS_GENERATOR, JS_ITERATOR_NEXT_DEF, JS_PROP_STRING_DEF,
+    builtins::iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW},
     context::{ContextImpl, ContextRef},
     error::JSResult,
     function::{AsyncFuncState, CallContext, FieldDef, IteratorState},
-    iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW},
     object::{JS_PROP_CONFIGURABLE, ObjectPayload},
     stack_frame::StackFrame,
     value::JSValue,

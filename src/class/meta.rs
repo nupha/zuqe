@@ -1,6 +1,7 @@
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_OBJECT,
     atom::Atom,
+    builtins::iterator::js_iterator_proto_funcs,
     class::{
         ClassCallFn, ClassDef, ClassFinalizeFn, ClassID, ClassInitializeFn, FreeObjFn,
         JSClassExoticMethods, StdClassDef,
@@ -8,7 +9,6 @@ use crate::{
     context::ContextImpl,
     error::JSResult,
     function::{NativeCallback, NativeFunctionType},
-    iterator::js_iterator_proto_funcs,
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, ObjectRef},
     runtime::RuntimeImpl,
     value::JSValue,

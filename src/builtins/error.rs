@@ -3,10 +3,10 @@ use std::ops::Deref;
 use crate::{
     JS_CLASS_ERROR,
     atom::Atom,
+    builtins::iterator::iterator_to_array,
     context::{ContextImpl, ContextRef, JS_GetActiveFunction},
     error::{ErrorKind, JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL, JSResult},
     function::{CallContext, JS_GetFunctionRealm},
-    iterator::iterator_to_array,
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, ObjectPayload, ObjectRef},
     value::JSValue,
 };

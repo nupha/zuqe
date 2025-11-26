@@ -7,10 +7,10 @@ use std::{
 use gc_lite::{Collect, GcWeak};
 
 use crate::{
+    builtins::iterator::ObjectIter,
     context::ContextImpl,
     error::{JS_IsUncatchableError, is_backtrace_needed},
     function::{AsyncStateImpl, JSVarRef},
-    iterator::ObjectIter,
     value::JSValue,
 };
 

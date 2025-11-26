@@ -5,11 +5,11 @@ use gc_lite::{Collect, GcWeak};
 use crate::{
     atom::Atom,
     branch_hints::unlikely,
+    builtins::iterator::js_create_iterator_result,
     context::{ContextImpl, ContextRef},
     defer,
     error::JSResult,
     function::{CallContext, IteratorState, JS_CALL_FLAG_CONSTRUCTOR},
-    iterator::js_create_iterator_result,
     object::{ObjectImpl, ObjectPayload, ObjectRef},
     runtime::js_check_stack_overflow,
     stack_frame::StackFrame,

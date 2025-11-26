@@ -2,11 +2,11 @@ use gc_lite::{Collect, GcRef};
 
 use crate::{
     JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, JS_ITERATOR_NEXT_DEF, JS_PROP_STRING_DEF,
+    builtins::iterator::JSIteratorKindEnum,
     class::ClassID,
     context::ContextRef,
     error::JSResult,
     function::{CallContext, FieldDef, IteratorState},
-    iterator::JSIteratorKindEnum,
     object::{JS_PROP_CONFIGURABLE, ObjectImpl, ObjectRef},
     object_cast,
     value::JSValue,

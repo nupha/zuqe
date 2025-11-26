@@ -93,7 +93,7 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|
     );
     m.insert(
         PayloadKey::ForInIterator,
-        "Box<crate::iterator::ForInIterPayload>",
+        "Box<crate::builtins::iterator::ForInIterPayload>",
     );
     m.insert(
         PayloadKey::ArrayBuffer,
@@ -118,7 +118,7 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|
     );
     m.insert(
         PayloadKey::ArrayIterator,
-        "Box<crate::iterator::ArrayIterPayload>",
+        "Box<crate::builtins::iterator::ArrayIterPayload>",
     );
     m.insert(
         PayloadKey::RegExpStringIterator,
@@ -126,7 +126,7 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|
     );
     m.insert(
         PayloadKey::Generator,
-        "Box<crate::generator::GeneratorPayload>",
+        "Box<crate::builtins::generator::GeneratorPayload>",
     );
     m.insert(
         PayloadKey::Proxy,
@@ -146,11 +146,11 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|
     );
     m.insert(
         PayloadKey::AsyncFromSyncIterator,
-        "Box<crate::iterator::JSAsyncFromSyncIteratorData>",
+        "Box<crate::builtins::iterator::JSAsyncFromSyncIteratorData>",
     );
     m.insert(
         PayloadKey::AsyncGenerator,
-        "Box<crate::generator::AGenPayload>",
+        "Box<crate::builtins::generator::AGenPayload>",
     );
 
     m
@@ -485,21 +485,21 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "empty_string", // JS_ATOM_empty_string
             "ASYNC_FROM_SYNC_ITERATOR",
             PayloadKey::AsyncFromSyncIterator,
-            Some("crate::iterator::AsyncFromSyncIterator::class_initialize"),
+            Some("crate::builtins::iterator::AsyncFromSyncIterator::class_initialize"),
             None,
         ),
         ClassInfo::class_def(
             "AsyncGeneratorFunction",
             "ASYNC_GENERATOR_FUNCTION",
             PayloadKey::BcFunction,
-            Some("crate::generator::AsyncGeneratorFunction::class_initialize"),
+            Some("crate::builtins::generator::AsyncGeneratorFunction::class_initialize"),
             None,
         ),
         ClassInfo::class_def(
             "AsyncGenerator",
             "ASYNC_GENERATOR",
             PayloadKey::AsyncGenerator,
-            Some("crate::generator::AsyncGeneratorFunction::class_initialize"),
+            Some("crate::builtins::generator::AsyncGeneratorFunction::class_initialize"),
             None,
         ),
     ]

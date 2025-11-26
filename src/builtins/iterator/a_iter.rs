@@ -3,20 +3,21 @@ use gc_lite::{Collect, GcRef};
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
     atom::Atom,
-    builtins::promise::{Promise, js_promise_resolve},
+    builtins::{
+        generator::js_async_iterator_proto_funcs,
+        promise::{Promise, js_promise_resolve},
+    },
     callable::NativeFunctionWithData,
     class::ClassID,
     context::{ContextImpl, ContextRef},
     error::JSResult,
     function::{CallContext, FieldDef, IteratorState},
-    generator::js_async_iterator_proto_funcs,
-    iterator::ObjectIter,
     object::{ObjectImpl, ObjectPayload, ObjectRef},
     object_cast,
     value::JSValue,
 };
 
-use super::{JS_IteratorGetCompleteValue, js_create_iterator_result};
+use super::{JS_IteratorGetCompleteValue, ObjectIter, js_create_iterator_result};
 
 #[derive(Debug)]
 pub struct JSAsyncFromSyncIteratorData {

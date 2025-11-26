@@ -5,12 +5,12 @@ use crate::{
     atom::Atom,
     builtins::{
         array::js_array_push,
+        iterator::JSIteratorKindEnum,
         mapset::{js_map_constructor, js_map_get, js_map_set},
     },
     context::{ContextRef, JS_GetActiveFunction},
     error::JSResult,
     function::{CallContext, FieldDef},
-    iterator::JSIteratorKindEnum,
     number::MAX_SAFE_INTEGER,
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_C_W_E,

@@ -7,6 +7,9 @@ use crate::{
     JS_NATIVE_ITERATOR_NEXT_DEF, JS_PROP_STRING_DEF,
     atom::Atom,
     builtins::{
+        iterator::{
+            JSIteratorKindEnum, ObjectIter, js_array_iterator_next, js_create_array_iterator,
+        },
         js_get_this,
         object::js_object_toString,
         typed_array::{js_typed_array___speciesCreate, js_typed_array_get_length_internal},
@@ -15,7 +18,6 @@ use crate::{
     context::{ContextImpl, ContextRef},
     error::JSResult,
     function::{CallContext, FieldDef, JS_CallConstructor, JS_GetFunctionRealm},
-    iterator::{JSIteratorKindEnum, ObjectIter, js_array_iterator_next, js_create_array_iterator},
     number::MAX_SAFE_INTEGER,
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, ObjectPayload, ObjectRef},
     runtime::js_check_stack_overflow,

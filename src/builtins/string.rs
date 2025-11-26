@@ -8,10 +8,10 @@ use crate::{
     JS_PROP_INT32_DEF, JS_PROP_STRING_DEF,
     atom::Atom,
     branch_hints::unlikely,
+    builtins::iterator::{JSIteratorKindEnum, js_create_array_iterator},
     context::{ContextImpl, ContextRef},
     error::JSResult,
     function::{CallContext, FieldDef, IteratorState, JS_CallConstructor},
-    iterator::{JSIteratorKindEnum, js_create_array_iterator},
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, ObjectPayload},
     string::{
         JS_ConcatString, JS_ConcatString3, JS_STRING_LEN_MAX, StringBuf, StringChar, StringData,

@@ -5,9 +5,9 @@ use smallvec::SmallVec;
 use crate::{
     JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING,
     atom::Atom,
+    builtins::iterator::JSIteratorKindEnum,
     context::ContextImpl,
     error::JSResult,
-    iterator::JSIteratorKindEnum,
     object::{JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_PROP_C_W_E},
     string::{StringBuf, StringData, StringRef},
     value::JSValue,

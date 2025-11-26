@@ -2,13 +2,13 @@ use crate::{
     JS_CLASS_OBJECT,
     atom::Atom,
     branch_hints::unlikely,
-    class::JS_DEFINE_CLASS_HAS_HERITAGE,
-    context::ContextImpl,
-    function::{JSFunctionKindEnum, JSVarRef, NativeFunctionType},
-    iterator::{
+    builtins::iterator::{
         ForInIterPayload, JS_IteratorGetCompleteValue, JSIteratorKindEnum, ObjectIter,
         js_array_iterator_next, js_create_array_iterator,
     },
+    class::JS_DEFINE_CLASS_HAS_HERITAGE,
+    context::ContextImpl,
+    function::{JSFunctionKindEnum, JSVarRef, NativeFunctionType},
     object::{
         JS_GPN_INDEX_MASK, JS_GPN_SET_ENUM, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE,
         JS_PROP_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW, JS_PROP_THROW_STRICT,
