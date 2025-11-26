@@ -1,7 +1,7 @@
 use std::ops::Deref;
 
 use crate::{
-    JS_ALIAS_DEF, JS_CLASS_MAP,
+    JS_CLASS_MAP,
     atom::Atom,
     builtins::{iterator::JSIteratorKindEnum, js_get_this},
     class::ClassID,
@@ -291,7 +291,7 @@ pub static js_map_proto_funcs: [FieldDef; 12] = [
         js_create_map_iterator,
         (JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE as i16) << 2,
     ),
-    JS_ALIAS_DEF!("[Symbol.iterator]", "entries"),
+    FieldDef::ALIAS("[Symbol.iterator]", "entries"),
     FieldDef::STR("[Symbol.toStringTag]", "Map", JS_PROP_CONFIGURABLE),
 ];
 
@@ -308,8 +308,8 @@ pub static js_set_proto_funcs: [FieldDef; 11] = [
         js_create_map_iterator,
         ((JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16) << 2) | 1,
     ),
-    JS_ALIAS_DEF!("keys", "values"),
-    JS_ALIAS_DEF!("[Symbol.iterator]", "values"),
+    FieldDef::ALIAS("keys", "values"),
+    FieldDef::ALIAS("[Symbol.iterator]", "values"),
     FieldDef::FUNCTION(
         "entries",
         0,

@@ -1,7 +1,7 @@
 use gc_lite::Collect;
 
 use crate::{
-    JS_CLASS_GENERATOR, JS_ITERATOR_NEXT_DEF,
+    JS_CLASS_GENERATOR,
     builtins::iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW},
     context::{ContextImpl, ContextRef},
     error::JSResult,
@@ -217,9 +217,9 @@ pub fn js_generator_next(
 }
 
 pub static js_generator_proto_funcs: [FieldDef; 4] = [
-    JS_ITERATOR_NEXT_DEF!("next", 1, js_generator_next, GEN_MAGIC_NEXT as _),
-    JS_ITERATOR_NEXT_DEF!("return", 1, js_generator_next, GEN_MAGIC_RETURN as _),
-    JS_ITERATOR_NEXT_DEF!("throw", 1, js_generator_next, GEN_MAGIC_THROW as _),
+    FieldDef::ITERATOR_NEXT("next", 1, js_generator_next, GEN_MAGIC_NEXT as _),
+    FieldDef::ITERATOR_NEXT("return", 1, js_generator_next, GEN_MAGIC_RETURN as _),
+    FieldDef::ITERATOR_NEXT("throw", 1, js_generator_next, GEN_MAGIC_THROW as _),
     FieldDef::STR("[Symbol.toStringTag]", "Generator", JS_PROP_CONFIGURABLE),
 ];
 

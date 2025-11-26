@@ -1,7 +1,7 @@
 use std::{cmp::Ordering, ops::Deref};
 
 use crate::{
-    JS_ALIAS_DEF, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY, JS_CLASS_FLOAT32_ARRAY,
+    JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY, JS_CLASS_FLOAT32_ARRAY,
     JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY,
     JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
     atom::Atom,
@@ -1428,7 +1428,7 @@ pub static js_typed_array_base_proto_funcs: [FieldDef; 36] = [
         js_create_typed_array_iterator,
         JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16,
     ),
-    JS_ALIAS_DEF!("[Symbol.iterator]", "values"),
+    FieldDef::ALIAS("[Symbol.iterator]", "values"),
     FieldDef::FUNCTION(
         "keys",
         0,

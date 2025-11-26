@@ -1,7 +1,6 @@
 use std::borrow::Cow;
 
 use crate::{
-    JS_ALIAS_BASE_DEF, JS_PROP_DOUBLE_DEF,
     builtins::global::{MAGIC_NUM_IS_FINITE, MAGIC_NUM_IS_NAN, js_global_isNaN_isFinite},
     context::{ContextImpl, ContextRef},
     error::JSResult,
@@ -238,8 +237,8 @@ pub fn js_number_isSafeInteger(ctx: ContextRef, cc: CallContext) -> JSResult {
 
 pub static js_number_funcs: [FieldDef; 14] = [
     // global ParseInt and parseFloat should be defined already or delayed
-    JS_ALIAS_BASE_DEF!("parseInt", "parseInt", 0),
-    JS_ALIAS_BASE_DEF!("parseFloat", "parseFloat", 0),
+    FieldDef::ALIAS_BASE("parseInt", "parseInt", 0),
+    FieldDef::ALIAS_BASE("parseFloat", "parseFloat", 0),
     FieldDef::FUNCTION("isNaN", 1, js_number_isNaN_isFinite, MAGIC_NUM_IS_NAN as _),
     FieldDef::FUNCTION(
         "isFinite",
@@ -249,14 +248,14 @@ pub static js_number_funcs: [FieldDef; 14] = [
     ),
     FieldDef::FUNCTION("isInteger", 1, js_number_isInteger, 0),
     FieldDef::FUNCTION("isSafeInteger", 1, js_number_isSafeInteger, 0),
-    JS_PROP_DOUBLE_DEF!("MAX_VALUE", 1.797_693_134_862_315_7e308, 0),
-    JS_PROP_DOUBLE_DEF!("MIN_VALUE", 5e-324, 0),
-    JS_PROP_DOUBLE_DEF!("NaN", f64::NAN, 0),
-    JS_PROP_DOUBLE_DEF!("NEGATIVE_INFINITY", -f64::INFINITY, 0),
-    JS_PROP_DOUBLE_DEF!("POSITIVE_INFINITY", f64::INFINITY, 0),
-    JS_PROP_DOUBLE_DEF!("EPSILON", 2.220446049250313e-16, 0), /* ES6 */
-    JS_PROP_DOUBLE_DEF!("MAX_SAFE_INTEGER", 9007199254740991.0, 0), /* ES6 */
-    JS_PROP_DOUBLE_DEF!("MIN_SAFE_INTEGER", -9007199254740991.0, 0), /* ES6 */
+    FieldDef::FLOAT64("MAX_VALUE", 1.797_693_134_862_315_7e308, 0),
+    FieldDef::FLOAT64("MIN_VALUE", 5e-324, 0),
+    FieldDef::FLOAT64("NaN", f64::NAN, 0),
+    FieldDef::FLOAT64("NEGATIVE_INFINITY", -f64::INFINITY, 0),
+    FieldDef::FLOAT64("POSITIVE_INFINITY", f64::INFINITY, 0),
+    FieldDef::FLOAT64("EPSILON", 2.220446049250313e-16, 0), /* ES6 */
+    FieldDef::FLOAT64("MAX_SAFE_INTEGER", 9007199254740991.0, 0), /* ES6 */
+    FieldDef::FLOAT64("MIN_SAFE_INTEGER", -9007199254740991.0, 0), /* ES6 */
 ];
 
 pub fn js_number_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {

@@ -3,7 +3,7 @@ use std::ops::Deref;
 use fallible_collections::TryCollect;
 
 use crate::{
-    JS_ALIAS_DEF, JS_CLASS_ARRAY,
+    JS_CLASS_ARRAY,
     atom::Atom,
     builtins::{
         iterator::{
@@ -1466,7 +1466,7 @@ pub static js_array_proto_funcs: [FieldDef; 39] = [
         js_create_array_iterator,
         JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16,
     ),
-    JS_ALIAS_DEF!("[Symbol.iterator]", "values"),
+    FieldDef::ALIAS("[Symbol.iterator]", "values"),
     FieldDef::FUNCTION(
         "keys",
         0,

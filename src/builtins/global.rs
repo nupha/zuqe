@@ -1,5 +1,4 @@
 use crate::{
-    JS_PROP_DOUBLE_DEF, JS_PROP_UNDEFINED_DEF,
     builtins::number::{js_parseFloat, js_parseInt},
     context::ContextRef,
     error::JSResult,
@@ -163,7 +162,7 @@ pub static js_global_props: [FieldDef; 9] = [
     // JS_CFUNC_MAGIC_DEF("encodeURIComponent", 1, js_global_encodeURI, 1),
     // JS_CFUNC_DEF("escape", 1, js_global_escape),
     // JS_CFUNC_DEF("unescape", 1, js_global_unescape),
-    JS_PROP_DOUBLE_DEF!("Infinity", f64::INFINITY, 0),
-    JS_PROP_DOUBLE_DEF!("NaN", f64::NAN, 0),
-    JS_PROP_UNDEFINED_DEF!("undefined", 0),
+    FieldDef::FLOAT64("Infinity", f64::INFINITY, 0),
+    FieldDef::FLOAT64("NaN", f64::NAN, 0),
+    FieldDef::UNDEFINED("undefined", 0),
 ];

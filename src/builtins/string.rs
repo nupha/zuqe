@@ -4,7 +4,7 @@ use unicode_normalization::UnicodeNormalization;
 use widestring::U16Str;
 
 use crate::{
-    JS_ALIAS_DEF, JS_CLASS_STRING_ITERATOR,
+    JS_CLASS_STRING_ITERATOR,
     atom::Atom,
     builtins::iterator::{JSIteratorKindEnum, js_create_array_iterator},
     context::{ContextImpl, ContextRef},
@@ -954,9 +954,9 @@ pub static js_string_proto_funcs: [FieldDef; 39] = [
     FieldDef::FUNCTION("padStart", 1, js_string_pad, 0),
     FieldDef::FUNCTION("trim", 0, js_string_trim, 3),
     FieldDef::FUNCTION("trimEnd", 0, js_string_trim, 2),
-    JS_ALIAS_DEF!("trimRight", "trimEnd"),
+    FieldDef::ALIAS("trimRight", "trimEnd"),
     FieldDef::FUNCTION("trimStart", 0, js_string_trim, 1),
-    JS_ALIAS_DEF!("trimLeft", "trimStart"),
+    FieldDef::ALIAS("trimLeft", "trimStart"),
     FieldDef::FUNCTION("toString", 0, js_string_toString, 0),
     FieldDef::FUNCTION("valueOf", 0, js_string_toString, 0),
     FieldDef::FUNCTION("localeCompare", 1, js_string_localeCompare, 0),

@@ -116,11 +116,31 @@ impl FieldDef {
         }
     }
 
+    /// Define a lazy init object with entries.
+    pub const fn OBJECT(name: &'static str, entries: &'static [Self], prop_flags: u32) -> Self {
+        Self {
+            name,
+            detail: FieldDetail::Object(Cow::Borrowed(entries)),
+            prop_flags: prop_flags as u8,
+            magic: 0,
+        }
+    }
+
     /// Define an i32 field
     pub const fn INT32(name: &'static str, val: i32, prop_flags: u32) -> Self {
         Self {
             name,
             detail: FieldDetail::Int32(val),
+            prop_flags: prop_flags as u8,
+            magic: 0,
+        }
+    }
+
+    /// Define an f64 field
+    pub const fn FLOAT64(name: &'static str, val: f64, prop_flags: u32) -> Self {
+        Self {
+            name,
+            detail: FieldDetail::Float64(val),
             prop_flags: prop_flags as u8,
             magic: 0,
         }
@@ -136,14 +156,33 @@ impl FieldDef {
         }
     }
 
-    /// Define a lazy init object with entries.
-    pub const fn OBJECT(name: &'static str, entries: &'static [Self], prop_flags: u32) -> Self {
+    /// Define an undefined value field
+    pub const fn UNDEFINED(name: &'static str, prop_flags: u32) -> Self {
         Self {
             name,
-            detail: FieldDetail::Object(Cow::Borrowed(entries)),
+            detail: FieldDetail::Undefined,
             prop_flags: prop_flags as u8,
             magic: 0,
         }
+    }
+
+    /// Define an alias field
+    pub const fn ALIAS_BASE(name: &'static str, from_name: &'static str, base: i32) -> Self {
+        Self {
+            name,
+            detail: FieldDetail::Alias {
+                name: from_name,
+                base,
+            },
+            prop_flags: (JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) as u8,
+            magic: 0,
+        }
+    }
+
+    /// Define an alias field
+    #[inline(always)]
+    pub const fn ALIAS(name: &'static str, from_name: &'static str) -> Self {
+        Self::ALIAS_BASE(name, from_name, -1)
     }
 }
 

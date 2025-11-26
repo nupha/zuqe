@@ -1,5 +1,5 @@
 use crate::{
-    JS_CFUNC_FF_DEF, JS_CFUNC_FFF_DEF, JS_PROP_DOUBLE_DEF,
+    JS_CFUNC_FF_DEF, JS_CFUNC_FFF_DEF,
     context::ContextRef,
     error::JSResult,
     function::{CallContext, FieldDef},
@@ -260,14 +260,14 @@ pub static js_math_funcs: [FieldDef; 44] = [
     FieldDef::FUNCTION("imul", 2, js_math_imul, 0),
     FieldDef::FUNCTION("clz32", 1, js_math_clz32, 0),
     FieldDef::STR("[Symbol.toStringTag]", "Math", JS_PROP_CONFIGURABLE),
-    JS_PROP_DOUBLE_DEF!("E", std::f64::consts::E, 0),
-    JS_PROP_DOUBLE_DEF!("LN10", std::f64::consts::LN_10, 0),
-    JS_PROP_DOUBLE_DEF!("LN2", std::f64::consts::LN_2, 0),
-    JS_PROP_DOUBLE_DEF!("LOG2E", std::f64::consts::LOG2_E, 0),
-    JS_PROP_DOUBLE_DEF!("LOG10E", std::f64::consts::LOG10_E, 0),
-    JS_PROP_DOUBLE_DEF!("PI", std::f64::consts::PI, 0),
-    JS_PROP_DOUBLE_DEF!("SQRT1_2", std::f64::consts::FRAC_1_SQRT_2, 0),
-    JS_PROP_DOUBLE_DEF!("SQRT2", std::f64::consts::SQRT_2, 0),
+    FieldDef::FLOAT64("E", std::f64::consts::E, 0),
+    FieldDef::FLOAT64("LN10", std::f64::consts::LN_10, 0),
+    FieldDef::FLOAT64("LN2", std::f64::consts::LN_2, 0),
+    FieldDef::FLOAT64("LOG2E", std::f64::consts::LOG2_E, 0),
+    FieldDef::FLOAT64("LOG10E", std::f64::consts::LOG10_E, 0),
+    FieldDef::FLOAT64("PI", std::f64::consts::PI, 0),
+    FieldDef::FLOAT64("SQRT1_2", std::f64::consts::FRAC_1_SQRT_2, 0),
+    FieldDef::FLOAT64("SQRT2", std::f64::consts::SQRT_2, 0),
 ];
 
 pub static js_math_obj: [FieldDef; 1] = [FieldDef::OBJECT(

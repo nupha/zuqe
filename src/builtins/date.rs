@@ -7,7 +7,6 @@ use std::{
 use gc_lite::Collect;
 
 use crate::{
-    JS_ALIAS_DEF,
     atom::Atom,
     class::ClassID,
     context::{ContextImpl, ContextRef},
@@ -1051,7 +1050,7 @@ pub static js_date_proto_funcs: [FieldDef; 47] = [
     FieldDef::FUNCTION("toString", 0, get_date_string, 0x13),
     FieldDef::FUNCTION("[Symbol.toPrimitive]", 1, js_date_Symbol_toPrimitive, 0),
     FieldDef::FUNCTION("toUTCString", 0, get_date_string, 0x03),
-    JS_ALIAS_DEF!("toGMTString", "toUTCString"),
+    FieldDef::ALIAS("toGMTString", "toUTCString"),
     FieldDef::FUNCTION("toISOString", 0, get_date_string, 0x23),
     FieldDef::FUNCTION("toDateString", 0, get_date_string, 0x11),
     FieldDef::FUNCTION("toTimeString", 0, get_date_string, 0x12),
