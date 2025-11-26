@@ -10,6 +10,7 @@ use crate::{
     JS_CLASS_PROXY, JS_CLASS_STRING, STD_CLASS_DEFS, USER_CLASS_ID_START,
     builtins::{
         array_buffer::JSSharedArrayBufferFunctions,
+        promise::{JSHostPromiseRejectionTracker, Job, PromiseResolveFunc},
         proxy::{Proxy, js_proxy_exotic_methods},
         regexp::RegExpData,
     },
@@ -21,7 +22,6 @@ use crate::{
     mem::{JS_DEFAULT_STACK_SIZE, JSMallocFunctions, JSMallocState},
     module::{JSModuleLoaderFunc, JSModuleNormalizeFunc, js_module_ns_exotic_methods},
     object::{ShapeImpl, ShapeRegistry},
-    promise::{JSHostPromiseRejectionTracker, Job, PromiseResolveFunc},
     resource::LocalResource,
     runtime::Runtime,
     stack_frame::StackFrame,

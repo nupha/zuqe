@@ -3,6 +3,7 @@ use gc_lite::{Collect, GcRef};
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
     atom::Atom,
+    builtins::promise::{Promise, js_promise_resolve},
     callable::NativeFunctionWithData,
     class::ClassID,
     context::{ContextImpl, ContextRef},
@@ -12,7 +13,6 @@ use crate::{
     iterator::ObjectIter,
     object::{ObjectImpl, ObjectPayload, ObjectRef},
     object_cast,
-    promise::{Promise, js_promise_resolve},
     value::JSValue,
 };
 

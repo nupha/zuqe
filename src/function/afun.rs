@@ -2,6 +2,7 @@ use gc_lite::GcRef;
 
 use crate::{
     JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT, JS_PROP_STRING_DEF,
+    builtins::promise::{Promise, js_promise_resolve},
     class::ClassID,
     context::{ContextImpl, ContextRef},
     error::JSResult,
@@ -10,7 +11,6 @@ use crate::{
     },
     object::{JS_PROP_CONFIGURABLE, ObjectImpl, ObjectPayload, ObjectRef},
     object_cast,
-    promise::{Promise, js_promise_resolve},
     value::JSValue,
 };
 

@@ -3,13 +3,13 @@ use std::{cell::RefCell, rc::Rc};
 use crate::{
     JS_CLASS_BYTECODE_FUNCTION,
     branch_hints::unlikely,
+    builtins::promise::{Promise, PromiseState},
     callable::NativeFunctionWithData,
     context::{ContextImpl, ContextRef},
     error::JSResult,
     eval::{Compiled, JS_EVAL_FLAG_STRIP, JS_EVAL_TYPE_MODULE},
     function::CallContext,
     module::{JSModuleStatus, ModuleDefImpl},
-    promise::{Promise, PromiseState},
     runtime::js_check_stack_overflow,
     value::JSValue,
 };

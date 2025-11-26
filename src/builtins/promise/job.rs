@@ -1,8 +1,8 @@
 use gc_lite::{Collect, Tracer};
 
-use crate::{
-    context::ContextImpl, error::JSResult, promise::Promise, runtime::RuntimeImpl, value::JSValue,
-};
+use crate::{context::ContextImpl, error::JSResult, runtime::RuntimeImpl, value::JSValue};
+
+use super::Promise;
 
 pub(crate) struct Job {
     run: Box<dyn FnOnce() -> JSResult>,

@@ -5,19 +5,20 @@ use gc_lite::{Collect, GcRef};
 use crate::{
     JS_CLASS_PROMISE,
     atom::Atom,
+    builtins::error::js_aggregate_error_constructor,
     callable::NativeFunctionWithData,
     class::ClassID,
     context::{ContextImpl, ContextRef},
     error::JSResult,
     function::{CallContext, JS_CallConstructor, NativeFunctionType, js_function_set_properties},
-    builtins::error::js_aggregate_error_constructor,
     object::{JS_PROP_C_W_E, ObjectImpl, ObjectPayload, ObjectRef},
     object_cast,
-    promise::{JSPromiseReactionData, js_promise_funcs, js_promise_proto_funcs},
     value::JSValue,
 };
 
-use super::PromiseResolvePayload;
+use super::{
+    JSPromiseReactionData, PromiseResolvePayload, js_promise_funcs, js_promise_proto_funcs,
+};
 
 pub type JSHostPromiseRejectionTracker = fn(
     ctx: &ContextImpl,

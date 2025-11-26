@@ -2,13 +2,13 @@ use gc_lite::{Collect, GcRef};
 
 use crate::{
     atom::Atom,
+    builtins::promise::Promise,
     class::JSClassExoticMethods,
     context::{ContextImpl, ContextRef},
     function::{BCFuncPayload, FieldDef, JSFunctionDef, JSVarKindEnum, JSVarRef},
     gcref_wrapper,
     module::{ExportEntry, ExportType, ImportEntry, JSModuleStatus, ModuleDependency},
     object::{JS_PROP_C_W_E, ObjectPayload, ObjectRef},
-    promise::Promise,
     runtime::{RuntimeImpl, RuntimePtr},
     stack_frame::StackFrameParentIter,
     value::JSValue,
