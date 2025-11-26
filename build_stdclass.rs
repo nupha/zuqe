@@ -73,7 +73,7 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|
 
     m.insert(PayloadKey::Array, "crate::builtins::array::ArrayPayload");
     m.insert(PayloadKey::Value, "crate::value::JSValue");
-    m.insert(PayloadKey::Datetime, "crate::date::Datetime");
+    m.insert(PayloadKey::Datetime, "crate::builtins::date::Datetime");
     m.insert(PayloadKey::NativeFunc, "crate::function::NFuncPayload");
     m.insert(
         PayloadKey::NativeFuncWithData,
@@ -205,7 +205,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "Date",
             "DATE",
             PayloadKey::Datetime,
-            Some("crate::date::Datetime::class_initialize"),
+            Some("crate::builtins::date::Datetime::class_initialize"),
             None,
         ),
         // CORE CLASSES END

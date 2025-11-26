@@ -10,7 +10,6 @@ pub mod bytecode;
 pub mod callable;
 pub mod class;
 pub mod context;
-pub mod date;
 pub mod error;
 pub mod eval;
 pub mod function;
