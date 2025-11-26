@@ -5,6 +5,7 @@ mod bfun;
 mod bound;
 mod bytecode;
 mod call;
+mod callable;
 mod closure;
 mod cpool;
 mod fdef;
@@ -23,6 +24,6 @@ mod var;
 mod var_ref;
 
 pub use {
-    afun::*, argument::*, astate::*, bfun::*, bound::*, bytecode::*, call::*, closure::*, fdef::*,
-    fields::*, label::*, native::*, optimize::*, scope::*, var::*, var_ref::*,
+    afun::*, argument::*, astate::*, bfun::*, bound::*, bytecode::*, call::*, callable::*,
+    closure::*, fdef::*, fields::*, label::*, native::*, optimize::*, scope::*, var::*, var_ref::*,
 };

@@ -15,10 +15,11 @@ use crate::{
         proxy::{Proxy, js_proxy_exotic_methods},
         regexp::RegExpData,
     },
-    callable::NativeFunctionWithData,
     class::{ClassMeta, js_arguments_exotic_methods},
     context::ContextRef,
-    function::{AsyncFuncState, AsyncFunction, BoundFunction, NFuncPayload},
+    function::{
+        AsyncFuncState, AsyncFunction, BoundFunction, NFuncPayload, NativeFunctionWithData,
+    },
     mem::{JS_DEFAULT_STACK_SIZE, JSMallocFunctions, JSMallocState},
     module::{JSModuleLoaderFunc, JSModuleNormalizeFunc, js_module_ns_exotic_methods},
     object::{ShapeImpl, ShapeRegistry},

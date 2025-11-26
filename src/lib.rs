@@ -7,7 +7,6 @@
 pub mod atom;
 pub mod builtins;
 pub mod bytecode;
-pub mod callable;
 pub mod class;
 pub mod context;
 pub mod error;

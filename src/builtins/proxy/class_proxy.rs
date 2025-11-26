@@ -1,10 +1,9 @@
 use crate::{
     JS_CFUNC_NATIVE_DEF,
     atom::Atom,
-    callable::NativeFunctionWithData,
     context::ContextRef,
     error::JSResult,
-    function::{CallContext, FieldDef},
+    function::{CallContext, FieldDef, NativeFunctionWithData},
     object::{JS_PROP_C_W_E, ObjectPayload},
     value::JSValue,
 };

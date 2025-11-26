@@ -3,10 +3,9 @@ use crate::{
     atom::Atom,
     branch_hints::unlikely,
     builtins::{error::js_aggregate_error_constructor, js_get_this},
-    callable::NativeFunctionWithData,
     context::{ContextImpl, ContextRef},
     error::JSResult,
-    function::{CallContext, FieldDef},
+    function::{CallContext, FieldDef, NativeFunctionWithData},
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_SpeciesConstructor},
     value::JSValue,
 };

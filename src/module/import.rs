@@ -3,10 +3,10 @@ use gc_lite::Collect;
 use crate::{
     atom::Atom,
     builtins::promise::Promise,
-    callable::NativeFunctionWithData,
     context::{ContextImpl, ContextRef},
     error::JSResult,
     function::CallContext,
+    function::NativeFunctionWithData,
     module::{
         JSFreeModuleEnum, get_script_or_module_name, js_free_modules,
         js_host_resolve_imported_module,
