@@ -20,11 +20,9 @@ use crate::{
     function::{
         AsyncFuncState, AsyncFunction, BoundFunction, NFuncPayload, NativeFunctionWithData,
     },
-    mem::{JS_DEFAULT_STACK_SIZE, JSMallocFunctions, JSMallocState},
     module::{JSModuleLoaderFunc, JSModuleNormalizeFunc, js_module_ns_exotic_methods},
     object::{ShapeImpl, ShapeRegistry},
     resource::LocalResource,
-    runtime::Runtime,
     stack_frame::StackFrame,
     string::js_string_exotic_methods,
     utils::js_get_stack_pointer,
@@ -33,6 +31,7 @@ use crate::{
 
 pub const JS_MAX_LOCAL_VARS: u16 = 65535;
 pub const JS_STACK_SIZE_MAX: u16 = 65534;
+pub const JS_DEFAULT_STACK_SIZE: usize = 512 * 1024;
 
 pub type JSInterruptHandler = fn(rt: &RuntimeImpl, opaque: *mut c_void) -> i32;
 
@@ -89,11 +88,6 @@ pub struct RuntimeImpl {
     pub(crate) gc_threshold: usize,
     /// gc requested mark
     pub(crate) gc_req: bool,
-
-    pub(crate) user_opaque: *mut c_void,
-
-    pub(crate) mf: JSMallocFunctions,
-    pub(crate) malloc_state: JSMallocState,
 }
 
 impl Drop for RuntimeImpl {
@@ -120,21 +114,12 @@ impl Drop for RuntimeImpl {
 }
 
 impl RuntimeImpl {
-    fn new(mf: JSMallocFunctions, opaque: *mut c_void) -> Result<Box<Self>, i32> {
-        let ms = JSMallocState {
-            opaque,
-            malloc_limit: usize::MAX,
-            ..Default::default()
-        };
-
-        // create gc for this runtime
+    pub(super) fn new() -> Result<Box<Self>, i32> {
+        // create gc heap for this runtime
         let mut gc_heap = GcHeap::new();
         let gc_part = gc_heap.create_partition("runtime".to_string(), None);
 
-        let mut rt = Box::new(RuntimeImpl {
-            mf,
-            malloc_state: ms,
-
+        let mut rt = Box::new(Self {
             class_registry: Vec::with_capacity(USER_CLASS_ID_START as usize),
 
             cur_stack_frame: std::ptr::null_mut(),
@@ -165,7 +150,6 @@ impl RuntimeImpl {
 
             shape_registry: ShapeRegistry::new(),
 
-            user_opaque: std::ptr::null_mut(),
             interrupt_opaque: std::ptr::null_mut(),
         });
 
@@ -229,19 +213,6 @@ impl RuntimeImpl {
         JS_UpdateStackTop(rt.as_mut());
 
         Ok(rt)
-    }
-
-    /// create a new runtime
-    pub fn create(mf: JSMallocFunctions, opaque: *mut c_void) -> Result<Runtime, i32> {
-        let rt: Box<RuntimeImpl> = Self::new(mf, opaque)?;
-        let h = Runtime::new(rt.as_ref());
-
-        // register runtime
-        LocalResource::with_runtimes_mut(|slot| {
-            slot.push(rt);
-        });
-
-        Ok(h)
     }
 
     #[inline(always)]

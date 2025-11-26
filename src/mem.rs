@@ -15,7 +15,7 @@ pub const JS_DEFAULT_STACK_SIZE: usize = 512 * 1024;
 
 #[derive(Debug)]
 #[repr(C)]
-pub struct JSMallocState {
+struct JSMallocState {
     pub malloc_count: usize,
     pub malloc_size: usize,
     pub malloc_limit: usize,
@@ -136,13 +136,6 @@ pub unsafe fn js_def_malloc_usable_size(ptr: *const c_void) -> usize {
 
     0
 }
-
-pub const JS_DEFAULT_MALLOC_FUNCTIONS: JSMallocFunctions = JSMallocFunctions {
-    js_malloc: js_def_malloc,
-    js_free: js_def_free,
-    js_realloc: js_def_realloc,
-    js_malloc_usable_size: Some(js_def_malloc_usable_size),
-};
 
 #[repr(C)]
 pub struct JSMemoryUsage {

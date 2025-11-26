@@ -16,10 +16,9 @@ use zhuque::{
     error::JSResult,
     eval::{JS_EVAL_FLAG_STRICT, JS_EVAL_TYPE_GLOBAL},
     function::{CallContext, NativeFunctionType},
-    mem::JS_DEFAULT_MALLOC_FUNCTIONS,
     module::{JS_SetModuleLoaderFunc, ModuleDef},
     object::JS_PROP_C_W_E,
-    runtime::RuntimeImpl,
+    runtime::Runtime,
     value::JSValue,
 };
 
@@ -422,7 +421,7 @@ fn run_test_file(
     }
 
     // make runtime & context
-    let mut rt = RuntimeImpl::create(JS_DEFAULT_MALLOC_FUNCTIONS, std::ptr::null_mut()).unwrap();
+    let mut rt = Runtime::create().unwrap();
     JS_SetModuleLoaderFunc(rt.deref_mut(), None, js_module_loader, std::ptr::null_mut());
 
     let mut ctx_handle = rt.create_context_ecma().unwrap();

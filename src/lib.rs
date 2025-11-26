@@ -13,7 +13,6 @@ pub mod error;
 pub mod eval;
 pub mod function;
 pub mod gc;
-pub mod mem;
 pub mod module;
 pub mod number;
 pub mod object;

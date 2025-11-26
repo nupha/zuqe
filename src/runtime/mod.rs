@@ -2,4 +2,6 @@ mod handle;
 mod rt;
 mod tick;
 
-pub use {handle::*, rt::*};
+pub use {handle::Runtime, rt::RuntimeImpl};
+
+pub(crate) use {handle::RuntimePtr, rt::*};

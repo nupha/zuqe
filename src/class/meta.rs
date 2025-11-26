@@ -99,7 +99,8 @@ impl RuntimeImpl {
         Ok(())
     }
 
-    pub(crate) fn is_class_registered(&self, class_id: ClassID) -> bool {
+    /// test if class_id exists.
+    pub fn is_class_registered(&self, class_id: ClassID) -> bool {
         class_id < self.class_registry.len() as ClassID
             && !self.class_registry[class_id as usize].class_name.is_null()
     }

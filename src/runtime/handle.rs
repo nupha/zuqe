@@ -48,8 +48,21 @@ impl DerefMut for Runtime {
 }
 
 impl Runtime {
-    pub(super) fn new(value: &RuntimeImpl) -> Self {
-        Self(Rc::new(NonNull::from_ref(value)))
+    /// create runtime
+    pub fn create() -> Result<Runtime, i32> {
+        let rt: Box<RuntimeImpl> = RuntimeImpl::new()?;
+        let h = Runtime::from(rt.as_ref());
+
+        // register runtime
+        LocalResource::with_runtimes_mut(|slot| {
+            slot.push(rt);
+        });
+
+        Ok(h)
+    }
+
+    fn from(inner: &RuntimeImpl) -> Self {
+        Self(Rc::new(NonNull::from_ref(inner)))
     }
 }
 
