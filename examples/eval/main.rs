@@ -5,6 +5,7 @@ use std::time::Instant;
 
 use colorized::*;
 use zhuque::{
+    builtins::promise::Promise,
     context::ContextRef,
     error::JSResult,
     eval::JS_EVAL_TYPE_GLOBAL,
@@ -13,7 +14,6 @@ use zhuque::{
     module::{JS_SetModuleLoaderFunc, ModuleDef},
     object::JS_PROP_C_W_E,
     parse::JSParseState,
-    promise::Promise,
     runtime::RuntimeImpl,
     value::JSValue,
 };

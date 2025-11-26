@@ -129,10 +129,13 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|
         PayloadKey::Proxy,
         "Box<crate::builtins::proxy::ProxyPayload>",
     );
-    m.insert(PayloadKey::Promise, "Box<crate::promise::PromisePayload>");
+    m.insert(
+        PayloadKey::Promise,
+        "Box<crate::builtins::promise::PromisePayload>",
+    );
     m.insert(
         PayloadKey::PromiseResolvingFunction,
-        "Box<crate::promise::PromiseResolvePayload>",
+        "Box<crate::builtins::promise::PromiseResolvePayload>",
     );
     m.insert(
         PayloadKey::AsyncFunctionResolving,
@@ -437,7 +440,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "Promise",
             "PROMISE",
             PayloadKey::Promise,
-            Some("crate::promise::Promise::class_initialize"),
+            Some("crate::builtins::promise::Promise::class_initialize"),
             None,
         ),
         ClassInfo::class_def(

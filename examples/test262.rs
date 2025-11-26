@@ -11,6 +11,7 @@ use std::{
 use serde::Deserialize;
 use zhuque::{
     atom::Atom,
+    builtins::promise::{Promise, PromiseState},
     context::{ContextImpl, ContextRef},
     error::JSResult,
     eval::{JS_EVAL_FLAG_STRICT, JS_EVAL_TYPE_GLOBAL},
@@ -18,7 +19,6 @@ use zhuque::{
     mem::JS_DEFAULT_MALLOC_FUNCTIONS,
     module::{JS_SetModuleLoaderFunc, ModuleDef},
     object::JS_PROP_C_W_E,
-    promise::{Promise, PromiseState},
     runtime::RuntimeImpl,
     value::JSValue,
 };
