@@ -14,6 +14,7 @@ use crate::{
         function::js_function_proto_funcs,
         generator::{js_generator_function_proto_funcs, js_generator_proto_funcs},
         global::js_global_eval,
+        number::{js_number_constructor, js_number_funcs, js_number_proto_funcs},
         object::{js_object_constructor, js_object_funcs, js_object_proto_funcs},
         string::{
             js_string_constructor, js_string_funcs, js_string_iterator_proto_funcs,
@@ -24,7 +25,6 @@ use crate::{
     context::{ContextRef, JS_MODE_STRICT},
     error::{ErrorKind, JSResult, STD_ERROR_NAMES},
     function::{BytecodeFunction, JSFunctionKindEnum, NativeFunctionType},
-    number::{js_number_constructor, js_number_funcs, js_number_proto_funcs},
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET,
         JS_PROP_HAS_SET, JS_PROP_WRITABLE, ObjectPayload,

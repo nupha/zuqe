@@ -10,6 +10,7 @@ pub mod iterator;
 pub mod json;
 pub mod mapset;
 pub mod math;
+pub mod number;
 pub mod object;
 pub mod promise;
 pub mod proxy;

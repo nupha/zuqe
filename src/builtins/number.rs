@@ -3,19 +3,17 @@ use std::borrow::Cow;
 use crate::{
     JS_ALIAS_BASE_DEF, JS_CFUNC_NATIVE_DEF, JS_PROP_DOUBLE_DEF,
     branch_hints::unlikely,
+    builtins::global::{MAGIC_NUM_IS_FINITE, MAGIC_NUM_IS_NAN, js_global_isNaN_isFinite},
     context::{ContextImpl, ContextRef},
     error::JSResult,
     function::{CallContext, FieldDef},
-    builtins::global::{MAGIC_NUM_IS_FINITE, MAGIC_NUM_IS_NAN, js_global_isNaN_isFinite},
     number::{
-        JS_DTOA_FIXED_FORMAT, JS_DTOA_FORCE_EXP, JS_DTOA_FRAC_FORMAT, JS_DTOA_VAR_FORMAT,
-        is_safe_integer,
+        ATOD_ACCEPT_PREFIX_AFTER_SIGN, ATOD_INT_ONLY, JS_DTOA_FIXED_FORMAT, JS_DTOA_FORCE_EXP,
+        JS_DTOA_FRAC_FORMAT, JS_DTOA_VAR_FORMAT, f64_stringify, is_safe_integer, js_atof,
     },
     object::ObjectPayload,
     value::JSValue,
 };
-
-use super::{ATOD_ACCEPT_PREFIX_AFTER_SIGN, ATOD_INT_ONLY, f64_stringify, js_atof};
 
 pub fn js_thisNumberValue(ctx: &ContextImpl, this_val: JSValue) -> JSResult {
     if this_val.is_number() {

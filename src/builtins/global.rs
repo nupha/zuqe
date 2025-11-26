@@ -1,11 +1,11 @@
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_PROP_DOUBLE_DEF, JS_PROP_UNDEFINED_DEF,
     branch_hints::unlikely,
+    builtins::number::{js_parseFloat, js_parseInt},
     context::ContextRef,
     error::JSResult,
     eval::JS_EVAL_TYPE_INDIRECT,
     function::{CallContext, FieldDef},
-    number::{js_parseFloat, js_parseInt},
     string::StringBuf,
     value::JSValue,
 };
