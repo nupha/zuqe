@@ -5,11 +5,12 @@ use crate::{
     JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR, JS_CLASS_SET, JS_CLASS_SET_ITERATOR,
     JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY, JS_CLASS_WEAKMAP, JS_CLASS_WEAKSET,
     atom::Atom,
-    builtins::{global::js_global_props, json::js_json_obj, math::js_math_obj},
+    builtins::{
+        global::js_global_props, json::js_json_obj, math::js_math_obj, reflect::js_reflect_obj,
+    },
     class::ClassID,
     context::{ContextHandle, ContextRef},
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, ObjectRef},
-    reflect::js_reflect_obj,
     runtime::RuntimeImpl,
 };
 

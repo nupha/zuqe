@@ -11,6 +11,7 @@ pub mod math;
 pub mod object;
 pub mod promise;
 pub mod proxy;
+pub mod reflect;
 pub mod regexp;
 pub mod string;
 pub mod typed_array;

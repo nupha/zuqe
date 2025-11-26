@@ -22,7 +22,6 @@ pub mod module;
 pub mod number;
 pub mod object;
 pub mod parse;
-pub mod reflect;
 pub mod runtime;
 pub mod stack_frame;
 pub mod string;
