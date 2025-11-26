@@ -75,7 +75,7 @@ thread_local! {
                     Ok(Some(proto))
                 },
             )
-            .free(|_: &mut RuntimeImpl, opaque: *mut c_void, id: usize| {
+            .finalize_opaque(|_: &mut RuntimeImpl, opaque: *mut c_void, id: usize| {
                 debug_assert!(!opaque.is_null());
                 unsafe {
                     let p = Box::from_raw(opaque.cast::<PointData>());

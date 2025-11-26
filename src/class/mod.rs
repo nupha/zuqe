@@ -32,7 +32,7 @@ pub type ClassCallFn = fn(
 pub type ClassInitializeFn =
     fn(ctx: ContextRef, class_id: ClassID) -> Result<Option<ObjectRef>, i32>;
 
-/// class instance finalize callback. `isa` is the object's payload.
+/// class instance finalize callback.
 pub type ClassFinalizeFn = fn(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize);
 
 pub type DefineOwnPropertyFn = fn(

@@ -98,13 +98,11 @@ thread_local! {
                     Ok(Some(proto))
                 },
             )
-            .free(|_: &mut RuntimeImpl, opaque: *mut c_void, _: usize| {
-                if !opaque.is_null(){
-                    unsafe {
-                        let p = Box::from_raw(opaque.cast::<std::fs::File>());
-                        println!("[O.o] --- drop {p:?}");
-                        drop(p);
-                    }
+            .finalize_opaque(|_: &mut RuntimeImpl, opaque: *mut c_void, _: usize| {
+                if !opaque.is_null() {
+                    let p = unsafe { Box::from_raw(opaque.cast::<std::fs::File>())};
+                    println!("[O.o] --- drop {p:?}");
+                    drop(p);
                 }
             })
     });

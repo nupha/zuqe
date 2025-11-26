@@ -5,7 +5,7 @@ use gc_lite::Collect;
 use crate::{
     USER_CLASS_ID_START,
     atom::{Atom, AtomKind},
-    class::{ClassDef, ClassID, ClassInitializeFn, FreeObjFn},
+    class::{ClassDef, ClassFinalizeFn, ClassID, ClassInitializeFn, FreeObjFn},
     context::{ContextImpl, ContextRef},
     object::{ObjectImpl, ObjectPayload, ObjectRef},
     runtime::RuntimeImpl,
@@ -40,7 +40,7 @@ impl ClassDef {
         static USER_CLASS_ID_SERIAL: Cell<u16> = const { Cell::new(USER_CLASS_ID_START) };
     }
 
-    /// create a user-defined-class def.
+    /// create a non-builtin class def.
     pub fn define(class_name: &'static str) -> Self {
         debug_assert!(!class_name.is_empty());
 
@@ -55,7 +55,8 @@ impl ClassDef {
             class_id,
             call: None,
             exotic: None,
-            free_obj: None,
+            finalize_opaque: None,
+
             initialize: None,
             finalize: Some(Self::user_class_finalize),
         }
@@ -66,10 +67,10 @@ impl ClassDef {
         self
     }
 
-    /// handle class instance free.
-    /// for instance of user defined class only.
-    pub const fn free(mut self, f: FreeObjFn) -> Self {
-        self.free_obj.replace(f);
+    /// Callback on class instance finalize to process opaque pointer.
+    /// used for of non-builtin class instance only.
+    pub const fn finalize_opaque(mut self, f: FreeObjFn) -> Self {
+        self.finalize_opaque.replace(f);
         self
     }
 
@@ -85,7 +86,7 @@ impl ClassDef {
 }
 
 impl RuntimeImpl {
-    /// register a user class defination. returns the registry class_id for it.
+    /// register a non-builtin class defination. returns the class_id for it.
     pub fn register_class_def(&mut self, class_def: &ClassDef) -> Result<ClassID, i32> {
         debug_assert!(!class_def.class_name.is_empty());
         debug_assert!(class_def.finalize.is_some());
@@ -98,32 +99,6 @@ impl RuntimeImpl {
         self.add_class_internal(class_id, class_atom, class_def)?;
         Ok(class_id)
     }
-
-    // /// register a user class defination. returns the registry class_id for it.
-    // #[deprecated]
-    // pub fn register_class(&mut self, mut class_def: ClassDef) -> Result<ClassID, i32> {
-    //     if class_def.class_name.is_empty() {
-    //         println!("invalid class name");
-    //         return Err(-1);
-    //     }
-
-    //     if class_def.free_obj.is_some() {
-    //         if class_def.finalize.is_some() {
-    //             println!("set either 'free' or 'finalize'");
-    //             return Err(-1);
-    //         } else {
-    //             class_def.finalize.replace(user_obj_finalize);
-    //         }
-    //     }
-
-    //     let class_atom = Atom::from_str(self, class_def.class_name, AtomKind::String)?;
-
-    //     let class_id = self.class_registry.len() as ClassID; // new class_id
-    //     debug_assert!(class_id >= USER_CLASS_ID_START);
-
-    //     self.add_class_internal(class_id, &class_def, class_atom)?;
-    //     Ok(class_id)
-    // }
 }
 
 impl ContextImpl {

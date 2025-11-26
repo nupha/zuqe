@@ -48,7 +48,7 @@ pub struct ClassDef {
     /// exotic property method handlers
     pub(crate) exotic: Option<Box<JSClassExoticMethods>>,
     /// free user class instance handler
-    pub(crate) free_obj: Option<FreeObjFn>,
+    pub(crate) finalize_opaque: Option<FreeObjFn>,
 
     /// initialize class proto, constructor to context
     pub(crate) initialize: Option<ClassInitializeFn>,
@@ -57,6 +57,7 @@ pub struct ClassDef {
 }
 
 impl ClassDef {
+    /// for non-builtin class defs only
     #[inline(always)]
     pub const fn class_id(&self) -> ClassID {
         self.class_id

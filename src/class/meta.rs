@@ -69,7 +69,7 @@ impl RuntimeImpl {
 
             call: class_def.call,
             exotic: class_def.exotic.as_ref().cloned(),
-            free_obj: class_def.free_obj,
+            free_obj: class_def.finalize_opaque,
 
             initialize: class_def.initialize,
             finalize: class_def.finalize,
