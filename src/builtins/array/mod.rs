@@ -1,5 +1,5 @@
 #[allow(clippy::module_inception)]
 mod array;
-mod classdef;
+mod class_array;
 
-pub use {array::*, classdef::*};
+pub use {array::*, class_array::*};
