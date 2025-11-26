@@ -13,7 +13,6 @@ use crate::{
         JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, JS_SpeciesConstructor, ObjectPayload,
         ObjectRef,
     },
-    runtime::RuntimeImpl,
     string::{JS_ConcatString3, StringBuf, StringChar, StringData, StringRef},
     value::JSValue,
 };
@@ -158,20 +157,6 @@ pub fn js_is_regexp(ctx: &ContextImpl, obj: &JSValue) -> Result<bool, i32> {
     } else {
         Ok(false)
     }
-}
-
-#[deprecated]
-pub const fn js_regexp_iterator_finalizer(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize) {}
-
-#[deprecated]
-pub fn js_regexp_iterator_mark(val: JSValue) {
-    // unsafe {
-    //     if let ObjectPayload::REGEXP_STRING_ITERATOR(p) =
-    //         val.object_unchecked().0.payload.borrow().deref()
-    //     {
-    //         //
-    //     }
-    // }
 }
 
 pub fn js_regexp_get_source(ctx: ContextRef, cc: CallContext) -> JSResult {
