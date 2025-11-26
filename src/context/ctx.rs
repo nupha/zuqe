@@ -12,7 +12,7 @@ use gc_lite::{Collect, GcRef, GcWeak};
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_ERROR, JS_CLASS_OBJECT,
     atom::Atom,
-    builtins::array::ArrayPayload,
+    builtins::{array::ArrayPayload, regexp::RegExpData},
     class::ClassID,
     error::{STD_ERROR_COUNT, STD_ERROR_NAMES, js_error_proto_funcs},
     eval::EvalFn,
@@ -24,7 +24,6 @@ use crate::{
         ShapeHandle,
     },
     promise::Job,
-    regexp::RegExpData,
     runtime::{RuntimeImpl, RuntimePtr},
     value::JSValue,
 };

@@ -87,7 +87,10 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|
         PayloadKey::BoundFunction,
         "Box<crate::function::BoundFuncObjPayload>",
     );
-    m.insert(PayloadKey::RegExp, "Box<crate::regexp::RegExpData>");
+    m.insert(
+        PayloadKey::RegExp,
+        "Box<crate::builtins::regexp::RegExpData>",
+    );
     m.insert(
         PayloadKey::ForInIterator,
         "Box<crate::iterator::ForInIterPayload>",
@@ -116,7 +119,7 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|
     );
     m.insert(
         PayloadKey::RegExpStringIterator,
-        "Box<crate::regexp::RegExpStringIterPayload>",
+        "Box<crate::builtins::regexp::RegExpStringIterPayload>",
     );
     m.insert(
         PayloadKey::Generator,
@@ -238,7 +241,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "RegExp",
             "REGEXP",
             PayloadKey::RegExp,
-            Some("crate::regexp::RegExp::class_initialize"),
+            Some("crate::builtins::regexp::RegExp::class_initialize"),
             None,
         ),
         ClassInfo::class_def(
@@ -407,7 +410,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "RegExp_String_Iterator",
             "REGEXP_STRING_ITERATOR",
             PayloadKey::RegExpStringIterator,
-            Some("crate::regexp::RegExp::class_initialize"),
+            Some("crate::builtins::regexp::RegExp::class_initialize"),
             None,
         ),
         //

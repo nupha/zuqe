@@ -13,7 +13,6 @@ use crate::{
         JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, JS_SpeciesConstructor, ObjectPayload,
         ObjectRef,
     },
-    regexp::RegExp,
     runtime::RuntimeImpl,
     string::{JS_ConcatString3, StringBuf, StringChar, StringData, StringRef},
     value::JSValue,
@@ -21,7 +20,7 @@ use crate::{
 
 use super::{
     LRE_FLAG_DOTALL, LRE_FLAG_GLOBAL, LRE_FLAG_IGNORECASE, LRE_FLAG_INDICES, LRE_FLAG_MULTILINE,
-    LRE_FLAG_STICKY, LRE_FLAG_UTF16, RegExpData, RegExpStringIterPayload,
+    LRE_FLAG_STICKY, LRE_FLAG_UTF16, RegExp, RegExpData, RegExpStringIterPayload,
     make_regexp_capture_array,
 };
 

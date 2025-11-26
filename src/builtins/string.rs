@@ -13,13 +13,14 @@ use crate::{
     function::{CallContext, FieldDef, IteratorState, JS_CallConstructor},
     iterator::{JSIteratorKindEnum, js_create_array_iterator},
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, ObjectPayload},
-    regexp::js_is_regexp,
     string::{
         JS_ConcatString, JS_ConcatString3, JS_STRING_LEN_MAX, StringBuf, StringChar, StringData,
         StringImpl, StringRef,
     },
     value::JSValue,
 };
+
+use super::regexp::js_is_regexp;
 
 const MAGIC_INCLUDES: i32 = 1;
 const MAGIC_STARTS_WITH: i32 = 2;

@@ -3,6 +3,7 @@ use std::ptr::NonNull;
 use crate::{
     atom::{Atom, AtomKind},
     branch_hints::unlikely,
+    builtins::regexp::RegExp,
     bytecode::{
         OpCode, SpecialObject,
         arithmatic::{UnaryOp, op_binary_logic},
@@ -38,7 +39,6 @@ use crate::{
         JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_VARREF,
         JS_PROP_WRITABLE, JSProperty, ObjectRef,
     },
-    regexp::RegExp,
     stack_frame::StackFrame,
     utils::read_from_ptr,
     value::JSValue,

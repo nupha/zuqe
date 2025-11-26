@@ -12,12 +12,13 @@ use crate::{
         JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, ObjectImpl, ObjectPayload, ObjectRef,
     },
     object_cast,
-    regexp::{
-        js_regexp_constructor, js_regexp_funcs, js_regexp_proto_funcs,
-        js_regexp_string_iterator_proto_funcs,
-    },
     string::{StringData, StringRef, map_utf8_to_utf16_range},
     value::JSValue,
+};
+
+use super::{
+    js_regexp_constructor, js_regexp_funcs, js_regexp_proto_funcs,
+    js_regexp_string_iterator_proto_funcs,
 };
 
 pub const RE_HEADER_FLAGS: usize = 0;

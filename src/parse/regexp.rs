@@ -1,7 +1,7 @@
 use crate::{
     branch_hints::unlikely,
+    builtins::regexp::RegExpData,
     parse::token::{TOK_REGEXP, TokenData},
-    regexp::RegExpData,
     string::{CP_LS, CP_PS, StringBuf, unicode_from_utf8},
 };
 
