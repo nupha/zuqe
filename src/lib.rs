@@ -25,7 +25,6 @@ pub mod parse;
 pub mod runtime;
 pub mod stack_frame;
 pub mod string;
-pub mod symbol;
 pub mod utils;
 pub mod value;
 

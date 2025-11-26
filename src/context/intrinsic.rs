@@ -18,6 +18,7 @@ use crate::{
             js_string_constructor, js_string_funcs, js_string_iterator_proto_funcs,
             js_string_proto_funcs,
         },
+        symbol::{js_symbol_constructor, js_symbol_funcs, js_symbol_proto_funcs},
     },
     context::{ContextRef, JS_MODE_STRICT},
     error::{ErrorKind, JSResult, STD_ERROR_NAMES},
@@ -28,7 +29,6 @@ use crate::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET,
         JS_PROP_HAS_SET, JS_PROP_WRITABLE, ObjectPayload,
     },
-    symbol::{js_symbol_constructor, js_symbol_funcs, js_symbol_proto_funcs},
     value::JSValue,
 };
 

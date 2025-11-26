@@ -6,9 +6,8 @@ use crate::{
     function::{CallContext, FieldDef},
     object::JS_PROP_CONFIGURABLE,
     string::{StringData, StringRef},
+    value::JSValue,
 };
-
-use super::value::JSValue;
 
 impl ContextImpl {
     /// `str` could be None for anonymous symbol.

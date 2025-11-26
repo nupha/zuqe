@@ -14,6 +14,7 @@ pub mod proxy;
 pub mod reflect;
 pub mod regexp;
 pub mod string;
+pub mod symbol;
 pub mod typed_array;
 
 use crate::{context::ContextRef, error::JSResult, function::CallContext};
