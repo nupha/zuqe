@@ -4,11 +4,11 @@ use gc_lite::Collect;
 
 use crate::{
     JS_CLASS_ARRAY_ITERATOR, JS_CLASS_STRING_ITERATOR,
+    builtins::typed_array::TypedArray,
     context::ContextRef,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, IteratorState},
     object::ObjectPayload,
-    typed_array::TypedArray,
     value::JSValue,
 };
 

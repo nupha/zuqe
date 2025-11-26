@@ -4,8 +4,6 @@
 #![allow(clippy::missing_safety_doc)]
 #![warn(clippy::missing_const_for_fn)]
 
-pub mod array;
-pub mod array_buffer;
 pub mod atom;
 pub mod builtins;
 pub mod bytecode;
@@ -35,12 +33,8 @@ pub mod runtime;
 pub mod stack_frame;
 pub mod string;
 pub mod symbol;
-pub mod typed_array;
 pub mod utils;
 pub mod value;
-
-// #[deprecated(note = "unused stuff")]
-// pub mod obsoletes;
 
 pub(crate) mod branch_hints;
 pub(crate) mod resource;

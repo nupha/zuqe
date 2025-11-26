@@ -8,10 +8,6 @@ use gc_lite::{Collect, GcRef, GcWeak};
 
 use crate::{
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_SHARED_ARRAY_BUFFER,
-    array_buffer::{
-        js_array_buffer_funcs, js_array_buffer_proto_funcs, js_shared_array_buffer_funcs,
-        js_shared_array_buffer_proto_funcs,
-    },
     branch_hints::unlikely,
     class::ClassID,
     context::{ContextImpl, ContextRef},
@@ -21,6 +17,11 @@ use crate::{
     object_cast,
     runtime::RuntimeImpl,
     value::JSValue,
+};
+
+use super::{
+    js_array_buffer_funcs, js_array_buffer_proto_funcs, js_shared_array_buffer_funcs,
+    js_shared_array_buffer_proto_funcs,
 };
 
 pub type JSFreeArrayBufferDataFunc =
@@ -224,7 +225,7 @@ impl ArrayBuffer {
         }
     }
 
-    // also used for SharedArrayBuffer
+    /// also used for SharedArrayBuffer
     pub fn class_finalize(rt: &mut RuntimeImpl, isa: &ObjectPayload, _id: usize) {
         let abuf = isa.array_buffer().unwrap();
 

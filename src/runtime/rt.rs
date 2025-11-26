@@ -8,7 +8,7 @@ use crate::{
     JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_MODULE_NS,
     JS_CLASS_OBJECT, JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
     JS_CLASS_PROXY, JS_CLASS_STRING, STD_CLASS_DEFS, USER_CLASS_ID_START,
-    array_buffer::JSSharedArrayBufferFunctions,
+    builtins::array_buffer::JSSharedArrayBufferFunctions,
     callable::NativeFunctionWithData,
     class::{ClassMeta, js_arguments_exotic_methods},
     context::ContextRef,

@@ -2,7 +2,7 @@ use gc_lite::{Collect, GcRef};
 
 use crate::{
     JS_CLASS_DATAVIEW,
-    array_buffer::ArrayBuffer,
+    builtins::array_buffer::ArrayBuffer,
     class::ClassID,
     context::{ContextImpl, ContextRef},
     error::JS_ThrowTypeErrorDetachedArrayBuffer,

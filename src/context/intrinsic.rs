@@ -2,16 +2,12 @@ use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ARRAY_ITERATOR, JS_CLASS_BOOLEAN, JS_CLASS_DATE, JS_CLASS_ERROR,
     JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_NUMBER, JS_CLASS_OBJECT,
     JS_CLASS_STRING, JS_CLASS_STRING_ITERATOR, JS_CLASS_SYMBOL,
-    array::{
-        js_array_constructor, js_array_funcs, js_array_iterator_proto_funcs, js_array_proto_funcs,
-    },
     atom::{ATOM_CONST_SYMBOL_RANGE, Atom},
-    context::{ContextRef, JS_MODE_STRICT},
-    date::{js_date_constructor, js_date_funcs, js_date_proto_funcs},
-    error::{ErrorKind, JSResult, STD_ERROR_NAMES},
-    function::{BytecodeFunction, JSFunctionKindEnum, NativeFunctionType},
-    generator::{js_generator_function_proto_funcs, js_generator_proto_funcs},
     builtins::{
+        array::{
+            js_array_constructor, js_array_funcs, js_array_iterator_proto_funcs,
+            js_array_proto_funcs,
+        },
         boolean::{js_boolean_constructor, js_boolean_proto_funcs},
         error::js_error_constructor,
         function::js_function_proto_funcs,
@@ -22,6 +18,11 @@ use crate::{
             js_string_proto_funcs,
         },
     },
+    context::{ContextRef, JS_MODE_STRICT},
+    date::{js_date_constructor, js_date_funcs, js_date_proto_funcs},
+    error::{ErrorKind, JSResult, STD_ERROR_NAMES},
+    function::{BytecodeFunction, JSFunctionKindEnum, NativeFunctionType},
+    generator::{js_generator_function_proto_funcs, js_generator_proto_funcs},
     number::{js_number_constructor, js_number_funcs, js_number_proto_funcs},
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET,

@@ -2,8 +2,8 @@ use std::ops::Deref;
 
 use crate::{
     JS_CFUNC_NATIVE_DEF,
-    array::js_array_push,
     atom::Atom,
+    builtins::array::js_array_push,
     context::{ContextRef, JS_GetActiveFunction},
     error::JSResult,
     function::{CallContext, FieldDef},

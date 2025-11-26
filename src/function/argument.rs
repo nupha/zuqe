@@ -1,8 +1,8 @@
 use crate::{
     JS_CLASS_OBJECT,
-    array::ArrayPayload,
     atom::Atom,
     branch_hints::unlikely,
+    builtins::array::ArrayPayload,
     context::ContextImpl,
     error::JSResult,
     object::{

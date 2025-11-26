@@ -71,7 +71,7 @@ impl std::fmt::Display for PayloadKey {
 static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|| {
     let mut m = HashMap::with_capacity(128);
 
-    m.insert(PayloadKey::Array, "crate::array::ArrayPayload");
+    m.insert(PayloadKey::Array, "crate::builtins::array::ArrayPayload");
     m.insert(PayloadKey::Value, "crate::value::JSValue");
     m.insert(PayloadKey::Datetime, "crate::date::Datetime");
     m.insert(PayloadKey::NativeFunc, "crate::function::NFuncPayload");
@@ -94,15 +94,15 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|
     );
     m.insert(
         PayloadKey::ArrayBuffer,
-        "Box<crate::array_buffer::ArrayBufferPayload>",
+        "Box<crate::builtins::array_buffer::ArrayBufferPayload>",
     );
     m.insert(
         PayloadKey::TypedArray,
-        "Box<crate::typed_array::TypedArrayPayload>",
+        "Box<crate::builtins::typed_array::TypedArrayPayload>",
     );
     m.insert(
         PayloadKey::DataView,
-        "Box<crate::typed_array::DataViewPayload>",
+        "Box<crate::builtins::typed_array::DataViewPayload>",
     );
     m.insert(PayloadKey::MapSet, "Box<crate::mapset::JSMapState>");
     m.insert(
@@ -245,15 +245,15 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "ArrayBuffer",
             "ARRAY_BUFFER",
             PayloadKey::ArrayBuffer,
-            Some("crate::array_buffer::ArrayBuffer::class_initialize"),
-            Some("crate::array_buffer::ArrayBuffer::class_finalize"),
+            Some("crate::builtins::array_buffer::ArrayBuffer::class_initialize"),
+            Some("crate::builtins::array_buffer::ArrayBuffer::class_finalize"),
         ),
         ClassInfo::class_def(
             "SharedArrayBuffer",
             "SHARED_ARRAY_BUFFER",
             PayloadKey::ArrayBuffer,
-            Some("crate::array_buffer::ArrayBuffer::class_initialize"),
-            Some("crate::array_buffer::ArrayBuffer::class_finalize"),
+            Some("crate::builtins::array_buffer::ArrayBuffer::class_initialize"),
+            Some("crate::builtins::array_buffer::ArrayBuffer::class_finalize"),
         ),
         //
         // start of typed arrays
@@ -262,85 +262,85 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "Uint8ClampedArray",
             "UINT8C_ARRAY",
             PayloadKey::TypedArray,
-            Some("crate::typed_array::TypedArray::class_initialize"),
-            Some("crate::typed_array::TypedArray::class_finalize"),
+            Some("crate::builtins::typed_array::TypedArray::class_initialize"),
+            Some("crate::builtins::typed_array::TypedArray::class_finalize"),
         ),
         ClassInfo::class_def(
             "Int8Array",
             "INT8_ARRAY",
             PayloadKey::TypedArray,
-            Some("crate::typed_array::TypedArray::class_initialize"),
-            Some("crate::typed_array::TypedArray::class_finalize"),
+            Some("crate::builtins::typed_array::TypedArray::class_initialize"),
+            Some("crate::builtins::typed_array::TypedArray::class_finalize"),
         ),
         ClassInfo::class_def(
             "Uint8Array",
             "UINT8_ARRAY",
             PayloadKey::TypedArray,
-            Some("crate::typed_array::TypedArray::class_initialize"),
-            Some("crate::typed_array::TypedArray::class_finalize"),
+            Some("crate::builtins::typed_array::TypedArray::class_initialize"),
+            Some("crate::builtins::typed_array::TypedArray::class_finalize"),
         ),
         ClassInfo::class_def(
             "Int16Array",
             "INT16_ARRAY",
             PayloadKey::TypedArray,
-            Some("crate::typed_array::TypedArray::class_initialize"),
-            Some("crate::typed_array::TypedArray::class_finalize"),
+            Some("crate::builtins::typed_array::TypedArray::class_initialize"),
+            Some("crate::builtins::typed_array::TypedArray::class_finalize"),
         ),
         ClassInfo::class_def(
             "Uint16Array",
             "UINT16_ARRAY",
             PayloadKey::TypedArray,
-            Some("crate::typed_array::TypedArray::class_initialize"),
-            Some("crate::typed_array::TypedArray::class_finalize"),
+            Some("crate::builtins::typed_array::TypedArray::class_initialize"),
+            Some("crate::builtins::typed_array::TypedArray::class_finalize"),
         ),
         ClassInfo::class_def(
             "Int32Array",
             "INT32_ARRAY",
             PayloadKey::TypedArray,
-            Some("crate::typed_array::TypedArray::class_initialize"),
-            Some("crate::typed_array::TypedArray::class_finalize"),
+            Some("crate::builtins::typed_array::TypedArray::class_initialize"),
+            Some("crate::builtins::typed_array::TypedArray::class_finalize"),
         ),
         ClassInfo::class_def(
             "Uint32Array",
             "UINT32_ARRAY",
             PayloadKey::TypedArray,
-            Some("crate::typed_array::TypedArray::class_initialize"),
-            Some("crate::typed_array::TypedArray::class_finalize"),
+            Some("crate::builtins::typed_array::TypedArray::class_initialize"),
+            Some("crate::builtins::typed_array::TypedArray::class_finalize"),
         ),
         ClassInfo::class_def(
             "BigInt64Array",
             "BIG_INT64_ARRAY",
             PayloadKey::TypedArray,
-            Some("crate::typed_array::TypedArray::class_initialize"),
-            Some("crate::typed_array::TypedArray::class_finalize"),
+            Some("crate::builtins::typed_array::TypedArray::class_initialize"),
+            Some("crate::builtins::typed_array::TypedArray::class_finalize"),
         ),
         ClassInfo::class_def(
             "BigUint64Array",
             "BIG_UINT64_ARRAY",
             PayloadKey::TypedArray,
-            Some("crate::typed_array::TypedArray::class_initialize"),
-            Some("crate::typed_array::TypedArray::class_finalize"),
+            Some("crate::builtins::typed_array::TypedArray::class_initialize"),
+            Some("crate::builtins::typed_array::TypedArray::class_finalize"),
         ),
         ClassInfo::class_def(
             "Float32Array",
             "FLOAT32_ARRAY",
             PayloadKey::TypedArray,
-            Some("crate::typed_array::TypedArray::class_initialize"),
-            Some("crate::typed_array::TypedArray::class_finalize"),
+            Some("crate::builtins::typed_array::TypedArray::class_initialize"),
+            Some("crate::builtins::typed_array::TypedArray::class_finalize"),
         ),
         ClassInfo::class_def(
             "Float64Array",
             "FLOAT64_ARRAY",
             PayloadKey::TypedArray,
-            Some("crate::typed_array::TypedArray::class_initialize"),
-            Some("crate::typed_array::TypedArray::class_finalize"),
+            Some("crate::builtins::typed_array::TypedArray::class_initialize"),
+            Some("crate::builtins::typed_array::TypedArray::class_finalize"),
         ),
         // end of typed arrays
         ClassInfo::class_def(
             "DataView",
             "DATAVIEW",
             PayloadKey::DataView,
-            Some("crate::typed_array::DataView::class_initialize"),
+            Some("crate::builtins::typed_array::DataView::class_initialize"),
             None,
         ),
         ClassInfo::class_def("BigInt", "BIG_INT", PayloadKey::None, None, None),

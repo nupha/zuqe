@@ -5,9 +5,12 @@ use fallible_collections::TryCollect;
 use crate::{
     JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_ARRAY,
     JS_NATIVE_ITERATOR_NEXT_DEF, JS_PROP_STRING_DEF,
-    array::Array,
     atom::Atom,
-    builtins::{js_get_this, object::js_object_toString},
+    builtins::{
+        js_get_this,
+        object::js_object_toString,
+        typed_array::{js_typed_array___speciesCreate, js_typed_array_get_length_internal},
+    },
     bytecode::arithmatic::StrictEqMode,
     context::{ContextImpl, ContextRef},
     error::JSResult,
@@ -17,11 +20,10 @@ use crate::{
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, ObjectPayload, ObjectRef},
     runtime::js_check_stack_overflow,
     string::{StringBuf, StringRef},
-    typed_array::{js_typed_array___speciesCreate, js_typed_array_get_length_internal},
     value::JSValue,
 };
 
-use super::ArrayPayload;
+use super::{Array, ArrayPayload};
 
 pub const special_find: i32 = 0;
 pub const special_findIndex: i32 = 1;

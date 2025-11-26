@@ -1,8 +1,8 @@
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
+    builtins::typed_array::TypedArray,
     object::{JSProperty, ShapeImpl},
     runtime::RuntimeImpl,
-    typed_array::TypedArray,
 };
 
 use super::ObjectRef;
