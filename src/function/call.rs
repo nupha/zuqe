@@ -6,11 +6,11 @@ use std::{
 
 use crate::{
     atom::Atom,
-    branch_hints::unlikely,
     context::{ContextImpl, ContextRef},
     error::JSResult,
     function::build_arg_list,
     object::{ObjectPayload, ObjectRef},
+    utils::unlikely,
     value::JSValue,
 };
 

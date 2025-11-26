@@ -2,7 +2,6 @@ use std::borrow::Cow;
 
 use crate::{
     JS_ALIAS_BASE_DEF, JS_CFUNC_NATIVE_DEF, JS_PROP_DOUBLE_DEF,
-    branch_hints::unlikely,
     builtins::global::{MAGIC_NUM_IS_FINITE, MAGIC_NUM_IS_NAN, js_global_isNaN_isFinite},
     context::{ContextImpl, ContextRef},
     error::JSResult,
@@ -12,6 +11,7 @@ use crate::{
         JS_DTOA_FRAC_FORMAT, JS_DTOA_VAR_FORMAT, f64_stringify, is_safe_integer, js_atof,
     },
     object::ObjectPayload,
+    utils::unlikely,
     value::JSValue,
 };
 

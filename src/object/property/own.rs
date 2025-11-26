@@ -1,7 +1,6 @@
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
     atom::Atom,
-    branch_hints::unlikely,
     context::{ContextImpl, ContextRef},
     error::JS_ThrowReferenceErrorUninitialized,
     object::{
@@ -10,6 +9,7 @@ use crate::{
         JS_PROP_TMASK, JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty, JSPropertyDescriptor,
         ObjectImpl, ObjectRef, get_prop_flags,
     },
+    utils::unlikely,
     value::JSValue,
 };
 

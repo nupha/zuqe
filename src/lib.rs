@@ -24,7 +24,6 @@ pub mod string;
 pub mod utils;
 pub mod value;
 
-pub(crate) mod branch_hints;
 pub(crate) mod resource;
 
 include!(concat!(env!("OUT_DIR"), "/std_class_def.rs"));

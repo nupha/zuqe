@@ -1,13 +1,12 @@
 use crate::{
     JS_CLASS_ERROR,
     atom::{Atom, AtomKind},
-    branch_hints::unlikely,
     function::Bytecode,
     module::ModuleDef,
     number::JSFloat64Union,
     object::ObjectRef,
     string::StringRef,
-    utils::hash_usize,
+    utils::{hash_usize, unlikely},
 };
 
 #[cfg(feature = "nan_boxing")]

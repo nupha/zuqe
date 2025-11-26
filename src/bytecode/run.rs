@@ -2,7 +2,6 @@ use std::ptr::NonNull;
 
 use crate::{
     atom::{Atom, AtomKind},
-    branch_hints::unlikely,
     builtins::{
         generator::{FUNC_RET_AWAIT, FUNC_RET_INITIAL_YIELD, FUNC_RET_YIELD, FUNC_RET_YIELD_STAR},
         iterator::ObjectIter,
@@ -42,7 +41,7 @@ use crate::{
         JS_PROP_WRITABLE, JSProperty, ObjectRef,
     },
     stack_frame::StackFrame,
-    utils::read_from_ptr,
+    utils::{read_from_ptr, unlikely},
     value::JSValue,
 };
 

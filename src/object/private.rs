@@ -1,9 +1,9 @@
 use crate::{
     atom::{Atom, AtomKind},
-    branch_hints::unlikely,
     context::ContextImpl,
     error::{JS_ThrowTypeErrorPrivateNotFound, JSResult},
     object::{JSProperty, ObjectRef},
+    utils::unlikely,
     value::JSValue,
 };
 

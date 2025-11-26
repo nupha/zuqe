@@ -5,7 +5,6 @@ use gc_lite::{Collect, GcRef, GcWeak};
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
     JS_PROP_STRING_DEF,
-    branch_hints::unlikely,
     builtins::{
         iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW, js_create_iterator_result},
         promise::{Promise, js_promise_resolve},
@@ -19,6 +18,7 @@ use crate::{
     },
     object::{JS_PROP_CONFIGURABLE, ObjectImpl, ObjectPayload, ObjectRef},
     object_cast,
+    utils::unlikely,
     value::JSValue,
 };
 

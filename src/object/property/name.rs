@@ -3,12 +3,12 @@ use gc_lite::Collect;
 use crate::{
     JS_CLASS_STRING,
     atom::{Atom, AtomDescKind},
-    branch_hints::unlikely,
     builtins::iterator::JSIteratorKindEnum,
     context::{ContextImpl, ContextRef},
     error::{JS_ThrowReferenceErrorUninitialized, JSResult},
     object::{JS_PROP_TMASK, JS_PROP_VARREF, JSProperty, ObjectRef},
     string::StringRef,
+    utils::unlikely,
     value::JSValue,
 };
 

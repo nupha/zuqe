@@ -7,7 +7,6 @@ use crate::{
     JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_CLASS_STRING_ITERATOR, JS_NATIVE_ITERATOR_NEXT_DEF,
     JS_PROP_INT32_DEF, JS_PROP_STRING_DEF,
     atom::Atom,
-    branch_hints::unlikely,
     builtins::iterator::{JSIteratorKindEnum, js_create_array_iterator},
     context::{ContextImpl, ContextRef},
     error::JSResult,
@@ -17,6 +16,7 @@ use crate::{
         JS_ConcatString, JS_ConcatString3, JS_STRING_LEN_MAX, StringBuf, StringChar, StringData,
         StringImpl, StringRef,
     },
+    utils::unlikely,
     value::JSValue,
 };
 

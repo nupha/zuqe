@@ -4,10 +4,10 @@ use crate::{
     JS_CLASS_INT32_ARRAY, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY,
     JS_CLASS_UINT32_ARRAY,
     atom::{Atom, JS_ATOM_MAX_INT},
-    branch_hints::unlikely,
     context::{ContextImpl, ContextRef},
     error::{JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized, JSResult},
     object::{JSProperty, ObjectRef},
+    utils::unlikely,
     value::{JS_GetPrototypePrimitive, JSValue},
 };
 

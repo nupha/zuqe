@@ -1,6 +1,5 @@
 use crate::{
     atom::Atom,
-    branch_hints::unlikely,
     bytecode::{OpCode, OpCodeTemp, opcodes},
     context::JS_MODE_STRICT,
     function::BlockEnv,
@@ -8,6 +7,7 @@ use crate::{
     parse::token::{
         CHAR_COMMA, CHAR_CURLY_L, CHAR_CURLY_R, CHAR_EQUAL, CHAR_SQUARE_L, CHAR_SQUARE_R,
     },
+    utils::unlikely,
 };
 
 use super::{

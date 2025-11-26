@@ -8,7 +8,6 @@ use gc_lite::{Collect, GcRef, GcWeak};
 
 use crate::{
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_SHARED_ARRAY_BUFFER,
-    branch_hints::unlikely,
     class::ClassID,
     context::{ContextImpl, ContextRef},
     error::JSResult,
@@ -16,6 +15,7 @@ use crate::{
     object::{ObjectImpl, ObjectPayload, ObjectRef},
     object_cast,
     runtime::RuntimeImpl,
+    utils::unlikely,
     value::JSValue,
 };
 

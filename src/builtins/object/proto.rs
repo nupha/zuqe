@@ -3,7 +3,6 @@ use std::ops::Deref;
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF,
     atom::Atom,
-    branch_hints::unlikely,
     context::{ContextImpl, ContextRef},
     error::JSResult,
     function::{CallContext, FieldDef},
@@ -11,6 +10,7 @@ use crate::{
         JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_CONFIGURABLE,
         JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW,
     },
+    utils::unlikely,
     value::JSValue,
 };
 

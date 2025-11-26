@@ -5,7 +5,6 @@ use gc_lite::{Collect, GcRef};
 use crate::{
     JS_CLASS_PROXY,
     atom::Atom,
-    branch_hints::unlikely,
     class::{ClassID, JSClassExoticMethods},
     context::{ContextImpl, ContextRef},
     error::JSResult,
@@ -19,6 +18,7 @@ use crate::{
     },
     object_cast,
     runtime::js_check_stack_overflow,
+    utils::unlikely,
     value::JSValue,
 };
 

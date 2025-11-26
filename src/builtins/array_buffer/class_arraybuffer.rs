@@ -1,13 +1,13 @@
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_ARRAY_BUFFER, JS_CLASS_DATAVIEW,
     JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY, JS_PROP_STRING_DEF,
-    branch_hints::unlikely,
     builtins::js_get_this,
     class::ClassID,
     context::ContextRef,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, FieldDef, JS_CallConstructor},
     object::{JS_PROP_CONFIGURABLE, JS_SpeciesConstructor},
+    utils::unlikely,
     value::JSValue,
 };
 

@@ -5,7 +5,6 @@ use smallvec::SmallVec;
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_PROXY,
     atom::Atom,
-    branch_hints::unlikely,
     context::ContextImpl,
     number::MAX_SAFE_INTEGER,
     object::{
@@ -15,6 +14,7 @@ use crate::{
     },
     object_cast,
     string::StringData,
+    utils::unlikely,
     value::JSValue,
 };
 

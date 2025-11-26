@@ -1,6 +1,6 @@
 use crate::{
-    JS_CLASS_MODULE_NS, atom::Atom, branch_hints::unlikely, context::ContextImpl,
-    object::ObjectRef, value::JSValue,
+    JS_CLASS_MODULE_NS, atom::Atom, context::ContextImpl, object::ObjectRef, utils::unlikely,
+    value::JSValue,
 };
 
 use super::{

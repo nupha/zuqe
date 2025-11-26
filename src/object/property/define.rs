@@ -1,7 +1,6 @@
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
     atom::{Atom, JS_ATOM_TAG_INT},
-    branch_hints::unlikely,
     bytecode::js_get_function_name,
     context::ContextImpl,
     number::IntOrFloat,
@@ -9,6 +8,7 @@ use crate::{
         JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_THROW, JSProperty,
         ObjectRef, PropertyKey,
     },
+    utils::unlikely,
     value::JSValue,
 };
 

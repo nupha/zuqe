@@ -4,7 +4,6 @@ use gc_lite::{Collect, GcWeak};
 
 use crate::{
     atom::Atom,
-    branch_hints::unlikely,
     builtins::iterator::js_create_iterator_result,
     context::{ContextImpl, ContextRef},
     defer,
@@ -13,6 +12,7 @@ use crate::{
     object::{ObjectImpl, ObjectPayload, ObjectRef},
     runtime::js_check_stack_overflow,
     stack_frame::StackFrame,
+    utils::unlikely,
     value::JSValue,
 };
 

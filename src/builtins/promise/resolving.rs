@@ -5,11 +5,11 @@ use gc_lite::{Collect, GcRef};
 use crate::{
     JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
     atom::Atom,
-    branch_hints::unlikely,
     context::{ContextImpl, ContextRef},
     error::JSResult,
     object::{JS_SpeciesConstructor, ObjectImpl, ObjectRef},
     object_cast,
+    utils::unlikely,
     value::JSValue,
 };
 

@@ -1,9 +1,9 @@
 use crate::{
     atom::Atom,
-    branch_hints::unlikely,
     bytecode::{OpCode, OpCodeTemp, SpecialObject, opcodes},
     function::{FuncCallType, JSFunctionKindEnum},
     number::IntOrFloat,
+    utils::unlikely,
     value::JSValue,
 };
 

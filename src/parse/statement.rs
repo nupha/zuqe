@@ -1,10 +1,10 @@
 use crate::{
     atom::Atom,
-    branch_hints::unlikely,
     bytecode::{OpCode, OpCodeTemp},
     context::JS_MODE_STRICT,
     function::{BlockEnv, JSFunctionKindEnum, JSVarDefEnum, OPTIMIZE},
     parse::token::TOK_FIRST_KEYWORD,
+    utils::unlikely,
     utils::write_to_ptr,
 };
 

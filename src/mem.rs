@@ -1,9 +1,9 @@
 use std::{ffi::c_void, ptr::NonNull};
 
 use crate::{
-    branch_hints::unlikely,
     context::{ContextImpl, ContextRef},
     runtime::RuntimePtr,
+    utils::unlikely,
 };
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]

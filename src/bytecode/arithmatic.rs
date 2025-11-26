@@ -1,12 +1,12 @@
 use std::cmp::Ordering;
 
 use crate::{
-    branch_hints::unlikely,
     bytecode::OpCode,
     context::ContextImpl,
     error::JSResult,
     number::{JSFloat64Union, js_f64_to_i32},
     string::JS_ConcatString,
+    utils::unlikely,
     value::{HINT_NONE, HINT_NUMBER, JSValue},
 };
 

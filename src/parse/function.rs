@@ -2,12 +2,12 @@ use std::ops::DerefMut;
 
 use crate::{
     atom::Atom,
-    branch_hints::unlikely,
     bytecode::{OpCode, OpCodeTemp},
     context::{JS_MODE_STRICT, JS_MODE_STRIP},
     eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
     function::{ARGUMENT_VAR_OFFSET, JSFunctionDef, JSFunctionKindEnum, JSVarDefEnum},
     module::ExportType,
+    utils::unlikely,
     value::JSValue,
 };
 

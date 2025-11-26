@@ -6,7 +6,6 @@ use crate::{
     JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY,
     JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
     atom::Atom,
-    branch_hints::unlikely,
     builtins::{
         array::{
             js_array_every, js_array_reduce, special_TA, special_every, special_filter,
@@ -25,6 +24,7 @@ use crate::{
     number::JSFloat64Union,
     object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_SpeciesConstructor, ObjectRef},
     string::StringBuf,
+    utils::unlikely,
     value::{HINT_NUMBER, JSValue},
 };
 

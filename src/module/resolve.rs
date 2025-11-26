@@ -1,10 +1,10 @@
 use crate::{
     atom::Atom,
-    branch_hints::unlikely,
     context::ContextImpl,
     function::BCFunction,
     module::{ExportType, JSModuleStatus, ModuleDef, ResolveExport, js_create_module_var},
     runtime::js_check_stack_overflow,
+    utils::unlikely,
     value::JSValue,
 };
 

@@ -1,6 +1,6 @@
 use smallvec::SmallVec;
 
-use crate::{branch_hints::unlikely, context::ContextImpl, number::IntOrFloat};
+use crate::{context::ContextImpl, number::IntOrFloat, utils::unlikely};
 
 pub const ATOD_INT_ONLY: i32 = 1 << 0;
 /* accept Oo and Ob prefixes in addition to 0x prefix if radix = 0 */

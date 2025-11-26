@@ -1,10 +1,10 @@
 use std::marker::PhantomData;
 
 use crate::{
-    branch_hints::unlikely,
     context::ContextImpl,
     error::JSResult,
     object::{ObjectImpl, ObjectRef},
+    utils::unlikely,
     value::{JS_GetPrototypePrimitive, JSValue},
 };
 

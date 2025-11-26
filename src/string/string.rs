@@ -9,7 +9,6 @@ use gc_lite::{Collect, GcRef, GcWeak};
 use crate::{
     JS_CLASS_STRING,
     atom::{Atom, AtomInfo, AtomKind, is_const_atom, is_small_int_atom},
-    branch_hints::unlikely,
     class::JSClassExoticMethods,
     context::{ContextImpl, ContextRef},
     number::{ATOD_ACCEPT_BIN_OCT, JS_DTOA_VAR_FORMAT, f64_stringify, js_atof},
@@ -20,6 +19,7 @@ use crate::{
     resource::LocalResource,
     runtime::{RuntimeImpl, RuntimePtr},
     string::{StringChar, StringData},
+    utils::unlikely,
     value::{HINT_STRING, JSValue},
 };
 

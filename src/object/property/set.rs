@@ -4,13 +4,13 @@ use crate::{
     JS_CLASS_INT32_ARRAY, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT, JS_CLASS_UINT8_ARRAY,
     JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
     atom::Atom,
-    branch_hints::unlikely,
     context::{ContextImpl, ContextRef},
     error::JS_ThrowReferenceErrorNotDefined,
     object::{
         JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_WRITABLE, JS_PROP_LAZYINIT,
         JS_PROP_LENGTH, JS_PROP_NORMAL, JS_PROP_TMASK, JS_PROP_VARREF, JSProperty, ObjectRef,
     },
+    utils::unlikely,
     value::{JS_GetPrototypePrimitive, JSValue},
 };
 

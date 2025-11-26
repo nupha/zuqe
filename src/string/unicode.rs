@@ -1,4 +1,4 @@
-use crate::branch_hints::unlikely;
+use crate::utils::unlikely;
 
 // UTF-8字符最大长度
 pub const UTF8_CHAR_LEN_MAX: usize = 6;

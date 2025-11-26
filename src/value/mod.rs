@@ -1,6 +1,6 @@
 mod ops;
 mod primitives;
 mod repr;
-mod value;
+mod val;
 
-pub use {primitives::*, value::*};
+pub use {primitives::*, val::*};

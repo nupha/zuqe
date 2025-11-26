@@ -1,12 +1,12 @@
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_PROMISE, JS_PROP_STRING_DEF,
     atom::Atom,
-    branch_hints::unlikely,
     builtins::{error::js_aggregate_error_constructor, js_get_this},
     context::{ContextImpl, ContextRef},
     error::JSResult,
     function::{CallContext, FieldDef, NativeFunctionWithData},
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_SpeciesConstructor},
+    utils::unlikely,
     value::JSValue,
 };
 

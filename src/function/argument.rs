@@ -1,7 +1,6 @@
 use crate::{
     JS_CLASS_OBJECT,
     atom::Atom,
-    branch_hints::unlikely,
     builtins::array::ArrayPayload,
     context::ContextImpl,
     error::JSResult,
@@ -11,6 +10,7 @@ use crate::{
     },
     runtime::JS_MAX_LOCAL_VARS,
     stack_frame::StackFrame,
+    utils::unlikely,
     value::JSValue,
 };
 

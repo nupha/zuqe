@@ -1,7 +1,6 @@
 use crate::{
     JS_CLASS_OBJECT,
     atom::Atom,
-    branch_hints::unlikely,
     builtins::iterator::{
         ForInIterPayload, JS_IteratorGetCompleteValue, JSIteratorKindEnum, ObjectIter,
         js_array_iterator_next, js_create_array_iterator,
@@ -16,6 +15,7 @@ use crate::{
     },
     stack_frame::StackFrame,
     string::{JS_ConcatString3, StringRef},
+    utils::unlikely,
     value::JSValue,
 };
 

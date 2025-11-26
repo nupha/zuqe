@@ -7,8 +7,8 @@ use crate::{
     JS_CLASS_BIG_INT, JS_CLASS_BOOLEAN, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION,
     JS_CLASS_DATAVIEW, JS_CLASS_DATE, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_GENERATOR_FUNCTION,
     JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_REGEXP, JS_CLASS_STRING, JS_CLASS_SYMBOL,
-    JS_CLASS_UINT8C_ARRAY, atom::Atom, branch_hints::unlikely, class::ClassID,
-    context::ContextImpl, error::JSResult, gcref_wrapper, runtime::RuntimePtr, value::JSValue,
+    JS_CLASS_UINT8C_ARRAY, atom::Atom, class::ClassID, context::ContextImpl, error::JSResult,
+    gcref_wrapper, runtime::RuntimePtr, utils::unlikely, value::JSValue,
 };
 
 use super::{

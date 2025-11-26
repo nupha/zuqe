@@ -2,7 +2,6 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::{
     JS_CLASS_BYTECODE_FUNCTION,
-    branch_hints::unlikely,
     builtins::promise::{Promise, PromiseState},
     context::{ContextImpl, ContextRef},
     error::JSResult,
@@ -11,6 +10,7 @@ use crate::{
     function::NativeFunctionWithData,
     module::{JSModuleStatus, ModuleDefImpl},
     runtime::js_check_stack_overflow,
+    utils::unlikely,
     value::JSValue,
 };
 

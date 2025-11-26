@@ -4,7 +4,6 @@ use gc_lite::Collect;
 
 use crate::{
     atom::Atom,
-    branch_hints::unlikely,
     context::ContextImpl,
     error::ErrorKind,
     function::{FieldDef, JSVarRef, NativeFieldDetail},
@@ -13,6 +12,7 @@ use crate::{
         JS_PROP_ENUMERABLE, JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty, LazyInit, ObjectPayload,
         ObjectRef,
     },
+    utils::unlikely,
     value::JSValue,
 };
 

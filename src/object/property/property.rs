@@ -5,11 +5,11 @@ use gc_lite::{Collect, GcWeak};
 use crate::{
     JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
     atom::Atom,
-    branch_hints::unlikely,
     context::{ContextImpl, ContextRef},
     error::JSResult,
     function::JSVarRef,
     object::{LazyInit, ObjectRef},
+    utils::unlikely,
     value::{JS_GetPrototypePrimitive, JSValue},
 };
 
