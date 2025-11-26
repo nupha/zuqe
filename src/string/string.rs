@@ -4,7 +4,7 @@ use std::{
     ops::{Deref, DerefMut, Range},
 };
 
-use gc_lite::{Collect, GcRef, GcWeak};
+use gc_lite::{Collect, GcRef};
 
 use crate::{
     JS_CLASS_STRING,
@@ -237,6 +237,7 @@ impl StringImpl {
 pub struct StringRef(GcRef<StringImpl>);
 
 unsafe impl Collect for StringRef {
+    #[inline(always)]
     fn trace(&self, tracer: &mut gc_lite::Tracer) {
         // Note: String for const atom (w/o rt) must not set mark.
         if unsafe { self.0.as_ref().rt().is_some() } {
@@ -401,7 +402,7 @@ impl StringRef {
     }
 
     #[inline(always)]
-    pub fn gc_ref(&self) -> GcRef<StringImpl> {
+    pub const fn gc_ref(&self) -> GcRef<StringImpl> {
         self.0
     }
 
@@ -423,16 +424,6 @@ impl StringRef {
                 ctx.create_string_with_content(StringData::Empty)
             }
         }
-    }
-}
-
-#[derive(Debug, Clone)]
-#[repr(transparent)]
-pub struct JSStringWeak(GcWeak<StringImpl>);
-
-impl JSStringWeak {
-    pub fn upgrade(&self) -> Option<StringRef> {
-        LocalResource::with_static_gc_heap(|heap| self.0.upgrade(heap)).map(StringRef)
     }
 }
 

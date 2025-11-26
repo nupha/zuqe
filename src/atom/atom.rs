@@ -330,7 +330,7 @@ pub const ATOM_GET_STR_BUF_SIZE: usize = 64;
 
 impl StringRef {
     /// convert string to atom. if string is not registered as atom yet, do registration.
-    pub(crate) fn to_atom(&self, rt: RuntimePtr) -> Result<Atom, i32> {
+    pub(crate) fn to_atom(self, rt: RuntimePtr) -> Result<Atom, i32> {
         if let Some(a) = self.atom_info()
             && self.rt().is_none_or(|x| x == rt)
         {
@@ -338,7 +338,7 @@ impl StringRef {
             Ok(Atom::from_id(a.id()))
         } else {
             // register as string atom
-            Atom::from_string(rt, *self, AtomKind::String)
+            Atom::from_string(rt, self, AtomKind::String)
         }
     }
 }
