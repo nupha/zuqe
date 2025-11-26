@@ -1,5 +1,9 @@
+use std::ffi::c_void;
+
 use crate::{
+    JS_CLASS_ARRAY, USER_CLASS_ID_START,
     atom::Atom,
+    class::{ClassID, OtherPayload},
     context::{ContextImpl, ContextRef},
     function::JS_GetFunctionRealm,
     object::{ObjectImpl, ObjectPayload, ObjectRef, ShapeHandle},
@@ -74,41 +78,27 @@ impl ContextImpl {
         self.create_object_with_proto(proto, payload)
     }
 
-    // /// create object applying constructor `ctor`, with payload data returned by factory function.
-    // /// new object's class is determined by `payload` kind.
-    // ///
-    // /// if `ctor` is:
-    // /// - undefined, use the `payload` kind associated class prototype,
-    // /// - otherwise, retrieve property `ctor.prototype` as prototype.
-    // pub(crate) fn create_object_from_ctor_with(
-    //     &self,
-    //     ctor: JSValue,
-    //     payload_fn: impl FnOnce() -> Result<ObjectPayload, i32>,
-    // ) -> Result<ObjectRef, i32> {
-    //     let (proto, isa) = if ctor.is_undefined() {
-    //         let payload = payload_fn()?;
-    //         (self.class_proto(payload.class_id()), payload)
-    //     } else {
-    //         // don't change following 2 lines order
-    //         let p = ctor.get_property(self, Atom::CONST_prototype)?; // <- may exec user script here
-    //         let payload = payload_fn()?;
-
-    //         if let Some(o) = p.as_object() {
-    //             (Some(*o), payload)
-    //         } else {
-    //             let realm = JS_GetFunctionRealm(ContextRef::try_from_ref(self).unwrap(), ctor)?;
-    //             (realm.class_proto(payload.class_id()), payload)
-    //         }
-    //     };
-
-    //     self.create_object_with_proto(proto, isa).map_err(|_| -1)
-    // }
-
-    /// create object with `payload` data.
-    /// New object's prototype and shape are determined by `payload` automatically.
-    #[inline]
+    /// Create object with `payload` data, applying its implied class.
+    /// That means the new object's prototype and shape are determined by `payload` automatically.
+    #[inline(always)]
     pub fn create_object(&self, payload: ObjectPayload) -> Result<ObjectRef, ObjectPayload> {
         self.create_object_with_proto(self.class_proto(payload.class_id()), payload)
+    }
+
+    /// Create object of user defined native class
+    #[inline]
+    pub fn create_object_user_class(
+        &self,
+        class_id: ClassID,
+        opaque: *mut c_void,
+    ) -> Result<ObjectRef, ObjectPayload> {
+        if class_id < USER_CLASS_ID_START {
+            self.throw_internal_error("expect user defined native class id");
+            Err(ObjectPayload::OTHER(OtherPayload::new(class_id, opaque)))
+        } else {
+            let payload = ObjectPayload::OTHER(OtherPayload::new(class_id, opaque));
+            self.create_object(payload)
+        }
     }
 
     /// create basic object with given prototype `proto`.

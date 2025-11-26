@@ -1,9 +1,13 @@
+use std::cell::Cell;
+
 use crate::{
+    USER_CLASS_ID_START,
     atom::Atom,
-    class::{ClassInitializeFn, FreeObjFn},
+    class::{ClassID, ClassInitializeFn, FreeObjFn},
     context::ContextRef,
     function::JSFunctionDef,
-    object::JS_PROP_NO_EXOTIC,
+    object::{JS_PROP_NO_EXOTIC, ObjectPayload},
+    runtime::RuntimeImpl,
     value::JSValue,
 };
 
@@ -37,6 +41,7 @@ pub struct StdClassDef {
 pub struct ClassDef {
     /// class name
     pub(crate) class_name: &'static str,
+    pub(crate) class_id: ClassID,
 
     /// callback handler when called
     pub(crate) call: Option<ClassCallFn>,
@@ -52,23 +57,9 @@ pub struct ClassDef {
 }
 
 impl ClassDef {
-    pub fn new(class_name: &'static str) -> Self {
-        Self {
-            class_name,
-            ..Default::default()
-        }
-    }
-
-    pub fn initialize(mut self, f: ClassInitializeFn) -> Self {
-        self.initialize.replace(f);
-        self
-    }
-
-    /// handle a class instance free.
-    /// for user defined class instance onyl.
-    pub fn free(mut self, f: FreeObjFn) -> Self {
-        self.free_obj.replace(f);
-        self
+    #[inline(always)]
+    pub const fn class_id(&self) -> ClassID {
+        self.class_id
     }
 }
 

@@ -905,7 +905,7 @@ impl<'s> JSParseState<'s> {
 /* only used for ':' and '=>', 'let' or 'function' look-ahead. *pp is
 only set if TOK_IMPORT is returned */
 /* XXX: handle all unicode cases */
-pub unsafe fn simple_next_token(pp: *mut *const u8, no_line_terminator: bool) -> i32 {
+pub(super) unsafe fn simple_next_token(pp: *mut *const u8, no_line_terminator: bool) -> i32 {
     let mut p = *pp;
 
     // skip spaces and comments

@@ -31,7 +31,7 @@ impl ObjectImpl {
     /// get object's payload borrow ref.
     /// if the object is not the required class_id (optional),
     /// throws type error.
-    pub(crate) fn retrive_payload(
+    pub fn retrive_payload(
         &self,
         ctx: &ContextImpl,
         class_id: ClassID,
@@ -72,7 +72,7 @@ impl JSValue {
     /// get object value's payload borrow ref.
     /// if the value is not an object, or optionally is not the required class_id,
     /// throws type error.
-    pub(crate) fn retrive_object_payload(
+    pub fn retrive_object_payload(
         &self,
         ctx: &ContextImpl,
         class_id: ClassID,

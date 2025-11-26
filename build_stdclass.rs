@@ -616,7 +616,7 @@ pub fn gen_class_payload(outfile: &Path) {
 
     // get payload methods
     let mut get_payload_methods = Vec::<String>::with_capacity(class_defs.len() + 8);
-    let mut collect_arms = Vec::<String>::with_capacity(class_defs.len() + 8);
+    let mut gc_trace_arms = Vec::<String>::with_capacity(class_defs.len() + 8);
 
     let mut kvs = CLASS_PAYLOAD_TYPE.iter().collect::<Vec<_>>();
     kvs.sort();
@@ -642,9 +642,12 @@ pub fn gen_class_payload(outfile: &Path) {
                 arms.join("|")
             ));
 
-            collect_arms.push(format!("{} => {{ x.trace(tracer); }}", arms.join("|")));
+            gc_trace_arms.push(format!("{} => {{ x.trace(tracer); }}", arms.join("|")));
         }
     }
+
+    get_payload_methods.push("pub const fn other(&self)->Option<&crate::class::OtherPayload> { if let Self::OTHER(o)=self {Some(o)} else{None} }".to_string());
+    get_payload_methods.push("pub const fn other_mut(&mut self)->Option<&mut crate::class::OtherPayload> { if let Self::OTHER(o)=self {Some(o)} else{None} }".to_string());
 
     let lines: Vec<String> = vec![
         "use crate::{  class::{ClassID }};\n".to_string(),
@@ -675,7 +678,7 @@ pub fn gen_class_payload(outfile: &Path) {
                     }}
                 }}
             }}"#,
-            collect_arms.join(",\n")
+            gc_trace_arms.join(",\n")
         ),
     ];
 

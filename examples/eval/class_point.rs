@@ -1,5 +1,6 @@
 use std::ffi::c_void;
 
+use once_cell::unsync::Lazy;
 use zhuque::{
     JS_CGETSET_NATIVE_DEF,
     class::{ClassDef, ClassID},
@@ -45,10 +46,9 @@ static class_point_proto: [FieldDef; 2] = [
     JS_CGETSET_NATIVE_DEF!("y", point_getset, NONE, 1),
 ];
 
-pub fn register_class_point(rt: &mut RuntimeImpl) -> Result<ClassID, i32> {
-    // register class
-    let class_id = rt.register_class(
-        ClassDef::new("Point")
+thread_local! {
+    static CLASS_DEF_POINTER: Lazy<ClassDef> = Lazy::new(|| {
+        ClassDef::define("Point")
             .initialize(
                 |mut ctx: ContextRef, class_id: ClassID| -> Result<Option<ObjectRef>, i32> {
                     // create prototype
@@ -69,12 +69,8 @@ pub fn register_class_point(rt: &mut RuntimeImpl) -> Result<ClassID, i32> {
                     ctx.bind_ctor_proto(ctor, proto.into())?;
 
                     // expose ctor to global
-                    ctx.global_obj().define_property_value_str(
-                        &ctx,
-                        "Point",
-                        ctor,
-                        JS_PROP_C_W_E,
-                    )?;
+                    ctx.global_obj()
+                        .define_property_value_str(&ctx, "Point", ctor, JS_PROP_C_W_E)?;
 
                     Ok(Some(proto))
                 },
@@ -85,8 +81,10 @@ pub fn register_class_point(rt: &mut RuntimeImpl) -> Result<ClassID, i32> {
                     let p = Box::from_raw(opaque.cast::<PointData>());
                     println!("--- Point instance free: {opaque:?}, obj_id: {id}, data: {p:?}");
                 }
-            }),
-    )?;
+            })
+    });
+}
 
-    Ok(class_id)
+pub fn register_class_point(rt: &mut RuntimeImpl) -> Result<ClassID, i32> {
+    CLASS_DEF_POINTER.with(|c| rt.register_class_def(c))
 }

@@ -1,11 +1,11 @@
-use std::{ffi::c_void, ptr::NonNull};
+use std::{cell::Cell, ffi::c_void, ptr::NonNull};
 
 use gc_lite::Collect;
 
 use crate::{
     USER_CLASS_ID_START,
     atom::{Atom, AtomKind},
-    class::{ClassDef, ClassID},
+    class::{ClassDef, ClassID, ClassInitializeFn, FreeObjFn},
     context::{ContextImpl, ContextRef},
     object::{ObjectImpl, ObjectPayload, ObjectRef},
     runtime::RuntimeImpl,
@@ -23,41 +23,107 @@ unsafe impl Collect for OtherPayload {
     fn trace(&self, _: &mut gc_lite::Tracer) {}
 }
 
-impl RuntimeImpl {
-    /// register a user class defination. returns the registry class_id for it.
-    pub fn register_class(&mut self, mut class_def: ClassDef) -> Result<ClassID, i32> {
-        if class_def.class_name.is_empty() {
-            println!("invalid class name");
-            return Err(-1);
-        }
-
-        if class_def.free_obj.is_some() {
-            if class_def.finalize.is_some() {
-                println!("set either 'free' or 'finalize'");
-                return Err(-1);
-            } else {
-                class_def.finalize.replace(user_obj_finalize);
-            }
-        }
-
-        let class_atom = Atom::from_str(self, class_def.class_name, AtomKind::String)?;
-
-        let class_id = self.class_registry.len() as ClassID; // new class_id
+impl OtherPayload {
+    pub(crate) fn new(class_id: ClassID, opaque: *mut c_void) -> Box<Self> {
         debug_assert!(class_id >= USER_CLASS_ID_START);
+        Box::new(Self { class_id, opaque })
+    }
 
-        self.add_class_internal(class_id, &class_def, class_atom)?;
-        Ok(class_id)
+    #[inline(always)]
+    pub const fn opaque(&self) -> *mut c_void {
+        self.opaque
     }
 }
 
-fn user_obj_finalize(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize) {
-    if let ObjectPayload::OTHER(u) = isa {
-        if let Some(f) = rt.class_registry[u.class_id as usize].free_obj {
-            f(rt, u.opaque, id)
-        }
-    } else {
-        unreachable!();
+impl ClassDef {
+    thread_local! {
+        static USER_CLASS_ID_SERIAL: Cell<u16> = const { Cell::new(USER_CLASS_ID_START) };
     }
+
+    /// create a user-defined-class def.
+    pub fn define(class_name: &'static str) -> Self {
+        debug_assert!(!class_name.is_empty());
+
+        let class_id = Self::USER_CLASS_ID_SERIAL.with(|ser| {
+            let i = ser.get();
+            ser.set(i + 1);
+            i
+        });
+
+        Self {
+            class_name,
+            class_id,
+            call: None,
+            exotic: None,
+            free_obj: None,
+            initialize: None,
+            finalize: Some(Self::user_class_finalize),
+        }
+    }
+
+    pub const fn initialize(mut self, f: ClassInitializeFn) -> Self {
+        self.initialize.replace(f);
+        self
+    }
+
+    /// handle class instance free.
+    /// for instance of user defined class only.
+    pub const fn free(mut self, f: FreeObjFn) -> Self {
+        self.free_obj.replace(f);
+        self
+    }
+
+    fn user_class_finalize(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize) {
+        if let Some(u) = isa.other() {
+            if let Some(f) = rt.class_registry[u.class_id as usize].free_obj {
+                f(rt, u.opaque, id)
+            }
+        } else {
+            unreachable!();
+        }
+    }
+}
+
+impl RuntimeImpl {
+    /// register a user class defination. returns the registry class_id for it.
+    pub fn register_class_def(&mut self, class_def: &ClassDef) -> Result<ClassID, i32> {
+        debug_assert!(!class_def.class_name.is_empty());
+        debug_assert!(class_def.finalize.is_some());
+
+        let class_id = class_def.class_id;
+        debug_assert!(class_id >= USER_CLASS_ID_START);
+
+        let class_atom = Atom::from_str(self, class_def.class_name, AtomKind::String)?;
+
+        self.add_class_internal(class_id, class_atom, class_def)?;
+        Ok(class_id)
+    }
+
+    // /// register a user class defination. returns the registry class_id for it.
+    // #[deprecated]
+    // pub fn register_class(&mut self, mut class_def: ClassDef) -> Result<ClassID, i32> {
+    //     if class_def.class_name.is_empty() {
+    //         println!("invalid class name");
+    //         return Err(-1);
+    //     }
+
+    //     if class_def.free_obj.is_some() {
+    //         if class_def.finalize.is_some() {
+    //             println!("set either 'free' or 'finalize'");
+    //             return Err(-1);
+    //         } else {
+    //             class_def.finalize.replace(user_obj_finalize);
+    //         }
+    //     }
+
+    //     let class_atom = Atom::from_str(self, class_def.class_name, AtomKind::String)?;
+
+    //     let class_id = self.class_registry.len() as ClassID; // new class_id
+    //     debug_assert!(class_id >= USER_CLASS_ID_START);
+
+    //     self.add_class_internal(class_id, &class_def, class_atom)?;
+    //     Ok(class_id)
+    // }
 }
 
 impl ContextImpl {

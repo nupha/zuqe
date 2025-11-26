@@ -17,21 +17,22 @@ use crate::{
 /// class meta info for registry.
 #[derive(Default)]
 pub(crate) struct ClassMeta {
-    /// NULL atom indicates this class is not initialized
-    pub class_name: Atom,
+    /// Atom::NULL indicates the class slot is not used
+    pub(crate) class_name: Atom,
 
     /// callback handler when called
-    pub call: Option<ClassCallFn>,
+    pub(crate) call: Option<ClassCallFn>,
 
     /// exotic property method handlers
-    pub exotic: Option<Box<JSClassExoticMethods>>,
+    pub(crate) exotic: Option<Box<JSClassExoticMethods>>,
 
-    /// free user class instance handler
-    pub free_obj: Option<FreeObjFn>,
+    /// handler to free instance of class
+    pub(crate) free_obj: Option<FreeObjFn>,
 
     /// initialize class proto, constructor to context
-    pub initialize: Option<ClassInitializeFn>,
-    pub finalize: Option<ClassFinalizeFn>,
+    pub(crate) initialize: Option<ClassInitializeFn>,
+    /// instance finalize handler
+    pub(crate) finalize: Option<ClassFinalizeFn>,
 }
 
 impl RuntimeImpl {
@@ -39,8 +40,8 @@ impl RuntimeImpl {
     pub(super) fn add_class_internal(
         &mut self,
         class_id: ClassID,
-        class_def: &ClassDef,
         class_name: Atom,
+        class_def: &ClassDef,
     ) -> Result<(), i32> {
         if (class_id as usize) < self.class_registry.len() {
             if !self.class_registry[class_id as usize].class_name.is_null() {
@@ -92,7 +93,7 @@ impl RuntimeImpl {
                 finalize: item.finalize,
                 ..Default::default()
             };
-            self.add_class_internal(class_id, &cd, item.class_name)?;
+            self.add_class_internal(class_id, item.class_name, &cd)?;
             class_id += 1;
         }
 
