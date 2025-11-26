@@ -1,6 +1,5 @@
 use crate::{
-    JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_ARRAY_BUFFER, JS_CLASS_DATAVIEW,
-    JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY, JS_PROP_STRING_DEF,
+    JS_CLASS_ARRAY_BUFFER, JS_CLASS_DATAVIEW, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY,
     builtins::js_get_this,
     class::ClassID,
     context::ContextRef,
@@ -116,39 +115,39 @@ fn js_array_buffer_slice(ctx: ContextRef, cc: CallContext) -> JSResult {
 }
 
 pub static js_array_buffer_proto_funcs: [FieldDef; 4] = [
-    JS_CGETSET_NATIVE_DEF!(
+    FieldDef::GETSET(
         "byteLength",
-        js_array_buffer_get_byteLength,
-        NONE,
-        JS_CLASS_ARRAY_BUFFER as i16
+        Some(js_array_buffer_get_byteLength),
+        None,
+        JS_CLASS_ARRAY_BUFFER as i16,
     ),
-    JS_CGETSET_NATIVE_DEF!("detached", js_array_buffer_detached, NONE, 0),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::GETSET("detached", Some(js_array_buffer_detached), None, 0),
+    FieldDef::FUNCTION(
         "slice",
         2,
         js_array_buffer_slice,
-        JS_CLASS_ARRAY_BUFFER as i16
+        JS_CLASS_ARRAY_BUFFER as i16,
     ),
-    JS_PROP_STRING_DEF!("[Symbol.toStringTag]", "ArrayBuffer", JS_PROP_CONFIGURABLE),
+    FieldDef::STR("[Symbol.toStringTag]", "ArrayBuffer", JS_PROP_CONFIGURABLE),
 ];
 
 pub static js_shared_array_buffer_proto_funcs: [FieldDef; 3] = [
-    JS_CGETSET_NATIVE_DEF!(
+    FieldDef::GETSET(
         "byteLength",
-        js_array_buffer_get_byteLength,
-        NONE,
-        JS_CLASS_SHARED_ARRAY_BUFFER as i16
+        Some(js_array_buffer_get_byteLength),
+        None,
+        JS_CLASS_SHARED_ARRAY_BUFFER as i16,
     ),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION(
         "slice",
         2,
         js_array_buffer_slice,
-        JS_CLASS_SHARED_ARRAY_BUFFER as i16
+        JS_CLASS_SHARED_ARRAY_BUFFER as i16,
     ),
-    JS_PROP_STRING_DEF!(
+    FieldDef::STR(
         "[Symbol.toStringTag]",
         "SharedArrayBuffer",
-        JS_PROP_CONFIGURABLE as i16
+        JS_PROP_CONFIGURABLE,
     ),
 ];
 
@@ -168,13 +167,13 @@ pub fn js_array_buffer_isView(_: ContextRef, cc: CallContext) -> JSResult {
 }
 
 pub static js_array_buffer_funcs: [FieldDef; 2] = [
-    JS_CFUNC_NATIVE_DEF!("isView", 1, js_array_buffer_isView, 0),
-    JS_CGETSET_NATIVE_DEF!("[Symbol.species]", js_get_this, NONE, 0),
+    FieldDef::FUNCTION("isView", 1, js_array_buffer_isView, 0),
+    FieldDef::GETSET("[Symbol.species]", Some(js_get_this), None, 0),
 ];
 
-pub static js_shared_array_buffer_funcs: [FieldDef; 1] = [JS_CGETSET_NATIVE_DEF!(
+pub static js_shared_array_buffer_funcs: [FieldDef; 1] = [FieldDef::GETSET(
     "[Symbol.species]",
-    js_get_this,
-    NONE,
-    0
+    Some(js_get_this),
+    None,
+    0,
 )];

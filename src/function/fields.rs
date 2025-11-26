@@ -3,8 +3,10 @@ use std::{borrow::Cow, ptr::NonNull};
 use crate::{
     atom::{ATOM_CONST_COUNT, Atom},
     context::ContextImpl,
-    function::NativeFunctionType,
-    object::{JS_PROP_CONFIGURABLE, LazyInit, ObjectRef},
+    function::{
+        NativeCallback, NativeFunctionType, NativeGetter, NativeIteratorNext, NativeSetter,
+    },
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, LazyInit, ObjectRef},
     value::JSValue,
 };
 
@@ -20,17 +22,9 @@ pub const JS_DEF_PROP_UNDEFINED: u8 = 7;
 pub const JS_DEF_OBJECT: u8 = 8;
 pub const JS_DEF_ALIAS: u8 = 9;
 
-#[derive(Clone)]
-pub struct FieldDef {
-    pub name: &'static str,
-    pub detail: NativeFieldDetail,
-    pub prop_flags: u8,
-    pub magic: i16,
-}
-
 #[repr(u8)]
 #[derive(Clone)]
-pub enum NativeFieldDetail {
+pub enum FieldDetail {
     Func {
         handler: NativeFunctionType,
         length: u8,
@@ -43,12 +37,114 @@ pub enum NativeFieldDetail {
         name: &'static str,
         base: i32,
     },
-    /// Lazy init object
+    /// Lazy init object with entries
     Object(Cow<'static, [FieldDef]>),
     Str(&'static str),
     Int32(i32),
     Float64(f64),
     Undefined,
+}
+
+#[derive(Clone)]
+pub struct FieldDef {
+    pub name: &'static str,
+    pub detail: FieldDetail,
+    pub prop_flags: u8,
+    pub magic: i16,
+}
+
+impl FieldDef {
+    /// Define a function field backed by a native callback handler.
+    pub const fn FUNCTION(
+        name: &'static str,
+        length: u8,
+        callback: NativeCallback,
+        magic: i16,
+    ) -> Self {
+        Self {
+            name,
+            detail: FieldDetail::Func {
+                handler: NativeFunctionType::Func(callback),
+                length,
+            },
+            prop_flags: (JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) as u8,
+            magic,
+        }
+    }
+
+    /// Define a getter, setter field
+    pub const fn GETSET(
+        name: &'static str,
+        get: Option<NativeGetter>,
+        set: Option<NativeSetter>,
+        magic: i16,
+    ) -> Self {
+        Self {
+            name,
+            detail: FieldDetail::GetSet {
+                get: if let Some(f) = get {
+                    Some(NativeFunctionType::Getter(f))
+                } else {
+                    None
+                },
+                set: if let Some(f) = set {
+                    Some(NativeFunctionType::Setter(f))
+                } else {
+                    None
+                },
+            },
+            prop_flags: JS_PROP_CONFIGURABLE as u8,
+            magic,
+        }
+    }
+
+    /// Define an iterator next function field backed by a native callback handler.
+    pub const fn ITERATOR_NEXT(
+        name: &'static str,
+        length: u8,
+        callback: NativeIteratorNext,
+        magic: i16,
+    ) -> Self {
+        Self {
+            name,
+            detail: FieldDetail::Func {
+                handler: NativeFunctionType::IteratorNext(callback),
+                length,
+            },
+            prop_flags: (JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) as u8,
+            magic,
+        }
+    }
+
+    /// Define an i32 field
+    pub const fn INT32(name: &'static str, val: i32, prop_flags: u32) -> Self {
+        Self {
+            name,
+            detail: FieldDetail::Int32(val),
+            prop_flags: prop_flags as u8,
+            magic: 0,
+        }
+    }
+
+    /// Define a str field
+    pub const fn STR(name: &'static str, val: &'static str, prop_flags: u32) -> Self {
+        Self {
+            name,
+            detail: FieldDetail::Str(val),
+            prop_flags: prop_flags as u8,
+            magic: 0,
+        }
+    }
+
+    /// Define a lazy init object with entries.
+    pub const fn OBJECT(name: &'static str, entries: &'static [Self], prop_flags: u32) -> Self {
+        Self {
+            name,
+            detail: FieldDetail::Object(Cow::Borrowed(entries)),
+            prop_flags: prop_flags as u8,
+            magic: 0,
+        }
+    }
 }
 
 impl ObjectRef {
@@ -74,7 +170,7 @@ impl ObjectRef {
         let mut prop_flags = e.prop_flags;
 
         match e.detail {
-            NativeFieldDetail::Func { .. } => {
+            FieldDetail::Func { .. } => {
                 if atom == Atom::CONST_Symbol_toPrimitive {
                     // Symbol.toPrimitive functions are not writable
                     prop_flags = JS_PROP_CONFIGURABLE as u8;
@@ -92,7 +188,7 @@ impl ObjectRef {
 
                 return Ok(());
             }
-            NativeFieldDetail::GetSet { get, set } => {
+            FieldDetail::GetSet { get, set } => {
                 // XXX: use autoinit again ?
                 return self
                     .define_property_getset(
@@ -114,7 +210,7 @@ impl ObjectRef {
                     )
                     .map(|_| ());
             }
-            NativeFieldDetail::Str(_) | NativeFieldDetail::Object(_) => {
+            FieldDetail::Str(_) | FieldDetail::Object(_) => {
                 return self.define_lazy_property(
                     ctx,
                     atom,
@@ -125,17 +221,17 @@ impl ObjectRef {
                 );
             }
 
-            NativeFieldDetail::Int32(i) => {
+            FieldDetail::Int32(i) => {
                 val = JSValue::Int(i);
             }
-            NativeFieldDetail::Float64(d) => {
+            FieldDetail::Float64(d) => {
                 val = JSValue::Float64(d);
             }
-            NativeFieldDetail::Undefined => {
+            FieldDetail::Undefined => {
                 val = JSValue::UNDEFINED;
             }
 
-            NativeFieldDetail::Alias { name, base } => {
+            FieldDetail::Alias { name, base } => {
                 // using autoinit for aliases is not safe
                 let name_atom = ctx.make_lazy_prop_atom(name)?;
                 val = match base {

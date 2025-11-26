@@ -1,7 +1,7 @@
 use gc_lite::GcRef;
 
 use crate::{
-    JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT, JS_PROP_STRING_DEF,
+    JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT,
     builtins::promise::{Promise, js_promise_resolve},
     class::ClassID,
     context::{ContextImpl, ContextRef},
@@ -235,8 +235,8 @@ impl AsyncFuncState {
     }
 }
 
-pub static js_async_function_proto_funcs: [FieldDef; 1] = [JS_PROP_STRING_DEF!(
+pub static js_async_function_proto_funcs: [FieldDef; 1] = [FieldDef::STR(
     "[Symbol.toStringTag]",
     "AsyncFunction",
-    JS_PROP_CONFIGURABLE
+    JS_PROP_CONFIGURABLE,
 )];

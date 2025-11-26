@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use crate::{
-    JS_ALIAS_BASE_DEF, JS_CFUNC_NATIVE_DEF, JS_PROP_DOUBLE_DEF,
+    JS_ALIAS_BASE_DEF, JS_PROP_DOUBLE_DEF,
     builtins::global::{MAGIC_NUM_IS_FINITE, MAGIC_NUM_IS_NAN, js_global_isNaN_isFinite},
     context::{ContextImpl, ContextRef},
     error::JSResult,
@@ -205,12 +205,12 @@ pub fn js_number_toFixed(ctx: ContextRef, cc: CallContext) -> JSResult {
 }
 
 pub static js_number_proto_funcs: [FieldDef; 6] = [
-    JS_CFUNC_NATIVE_DEF!("toFixed", 1, js_number_toFixed, 0),
-    JS_CFUNC_NATIVE_DEF!("toPrecision", 1, js_number_toPrecision, 0),
-    JS_CFUNC_NATIVE_DEF!("toExponential", 1, js_number_toExponential, 0),
-    JS_CFUNC_NATIVE_DEF!("toString", 1, js_number_toString, 0),
-    JS_CFUNC_NATIVE_DEF!("toLocaleString", 0, js_number_toString, 1),
-    JS_CFUNC_NATIVE_DEF!("valueOf", 0, js_number_valueOf, 0),
+    FieldDef::FUNCTION("toFixed", 1, js_number_toFixed, 0),
+    FieldDef::FUNCTION("toPrecision", 1, js_number_toPrecision, 0),
+    FieldDef::FUNCTION("toExponential", 1, js_number_toExponential, 0),
+    FieldDef::FUNCTION("toString", 1, js_number_toString, 0),
+    FieldDef::FUNCTION("toLocaleString", 0, js_number_toString, 1),
+    FieldDef::FUNCTION("valueOf", 0, js_number_valueOf, 0),
 ];
 
 pub fn js_number_isNaN_isFinite(ctx: ContextRef, args: CallContext) -> JSResult {
@@ -240,15 +240,15 @@ pub static js_number_funcs: [FieldDef; 14] = [
     // global ParseInt and parseFloat should be defined already or delayed
     JS_ALIAS_BASE_DEF!("parseInt", "parseInt", 0),
     JS_ALIAS_BASE_DEF!("parseFloat", "parseFloat", 0),
-    JS_CFUNC_NATIVE_DEF!("isNaN", 1, js_number_isNaN_isFinite, MAGIC_NUM_IS_NAN as _),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION("isNaN", 1, js_number_isNaN_isFinite, MAGIC_NUM_IS_NAN as _),
+    FieldDef::FUNCTION(
         "isFinite",
         1,
         js_number_isNaN_isFinite,
-        MAGIC_NUM_IS_FINITE as _
+        MAGIC_NUM_IS_FINITE as _,
     ),
-    JS_CFUNC_NATIVE_DEF!("isInteger", 1, js_number_isInteger, 0),
-    JS_CFUNC_NATIVE_DEF!("isSafeInteger", 1, js_number_isSafeInteger, 0),
+    FieldDef::FUNCTION("isInteger", 1, js_number_isInteger, 0),
+    FieldDef::FUNCTION("isSafeInteger", 1, js_number_isSafeInteger, 0),
     JS_PROP_DOUBLE_DEF!("MAX_VALUE", 1.797_693_134_862_315_7e308, 0),
     JS_PROP_DOUBLE_DEF!("MIN_VALUE", 5e-324, 0),
     JS_PROP_DOUBLE_DEF!("NaN", f64::NAN, 0),

@@ -1,13 +1,9 @@
-use std::cell::Cell;
-
 use crate::{
-    USER_CLASS_ID_START,
     atom::Atom,
     class::{ClassID, ClassInitializeFn, FreeObjFn},
     context::ContextRef,
     function::JSFunctionDef,
-    object::{JS_PROP_NO_EXOTIC, ObjectPayload},
-    runtime::RuntimeImpl,
+    object::JS_PROP_NO_EXOTIC,
     value::JSValue,
 };
 

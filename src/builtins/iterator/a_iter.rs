@@ -1,7 +1,7 @@
 use gc_lite::{Collect, GcRef};
 
 use crate::{
-    JS_CFUNC_NATIVE_DEF, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
+    JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
     atom::Atom,
     builtins::{
         generator::js_async_iterator_proto_funcs,
@@ -205,22 +205,22 @@ pub fn js_async_from_sync_iterator_next(mut ctx: ContextRef, cc: CallContext) ->
 }
 
 pub static js_async_from_sync_iterator_proto_funcs: [FieldDef; 3] = [
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION(
         "next",
         1,
         js_async_from_sync_iterator_next,
-        GEN_MAGIC_NEXT as _
+        GEN_MAGIC_NEXT as _,
     ),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION(
         "return",
         1,
         js_async_from_sync_iterator_next,
-        GEN_MAGIC_RETURN as _
+        GEN_MAGIC_RETURN as _,
     ),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION(
         "throw",
         1,
         js_async_from_sync_iterator_next,
-        GEN_MAGIC_THROW as _
+        GEN_MAGIC_THROW as _,
     ),
 ];

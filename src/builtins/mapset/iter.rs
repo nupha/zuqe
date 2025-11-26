@@ -1,7 +1,7 @@
 use gc_lite::{Collect, GcRef};
 
 use crate::{
-    JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, JS_ITERATOR_NEXT_DEF, JS_PROP_STRING_DEF,
+    JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, JS_ITERATOR_NEXT_DEF,
     builtins::iterator::JSIteratorKindEnum,
     class::ClassID,
     context::ContextRef,
@@ -118,18 +118,10 @@ fn js_map_iterator_next(ctx: ContextRef, cc: CallContext, state: &mut IteratorSt
 
 pub static js_map_iterator_proto_funcs: [FieldDef; 2] = [
     JS_ITERATOR_NEXT_DEF!("next", 0, js_map_iterator_next, 0),
-    JS_PROP_STRING_DEF!(
-        "[Symbol.toStringTag]",
-        "Map Iterator",
-        JS_PROP_CONFIGURABLE as i16
-    ),
+    FieldDef::STR("[Symbol.toStringTag]", "Map Iterator", JS_PROP_CONFIGURABLE),
 ];
 
 pub static js_set_iterator_proto_funcs: [FieldDef; 2] = [
     JS_ITERATOR_NEXT_DEF!("next", 0, js_map_iterator_next, 1),
-    JS_PROP_STRING_DEF!(
-        "[Symbol.toStringTag]",
-        "Set Iterator",
-        JS_PROP_CONFIGURABLE as i16
-    ),
+    FieldDef::STR("[Symbol.toStringTag]", "Set Iterator", JS_PROP_CONFIGURABLE),
 ];

@@ -5,7 +5,7 @@ use gc_lite::Collect;
 use crate::{
     USER_CLASS_ID_START,
     atom::{Atom, AtomKind},
-    class::{ClassDef, ClassFinalizeFn, ClassID, ClassInitializeFn, FreeObjFn},
+    class::{ClassDef, ClassID, ClassInitializeFn, FreeObjFn},
     context::{ContextImpl, ContextRef},
     object::{ObjectImpl, ObjectPayload, ObjectRef},
     runtime::RuntimeImpl,
@@ -133,40 +133,19 @@ impl ContextImpl {
                                 self.class_proto[class_id as usize] = proto.into();
                             } else if !self.class_proto[class_id as usize].is_object() {
                                 self.throw_internal_error(&format!(
-                                    "class ({}) initialization must setup proto object",
-                                    class_id
+                                    "class ({class_id}) initialization must setup proto object"
                                 ));
                             }
                         } else {
                             self.throw_internal_error("can't initialize native class");
                             return Err(-1);
                         }
-
-                        // let cdef = &self.rt().class_registry[class_id as usize];
-                        // if let Some(f) = cdef.initialize {
-                        //     let r = f(self, class_id)?;
-                        //     if let Some(proto) = r {
-                        //         self.class_proto[class_id as usize] = unsafe {
-                        //             std::mem::transmute::<JSValue<'_>, JSValue>(
-                        //                 proto.into(),
-                        //             )
-                        //         };
-                        //     } else if !self.class_proto[class_id as usize].is_object() {
-                        //         self.throw_internal_error(&format!(
-                        //             "class ({}) initialization must setup proto object",
-                        //             class_id
-                        //         ));
-                        //     }
-                        // } else {
-                        //     self.throw_internal_error("can't initialize native class");
-                        //     return Err(-1);
-                        // }
                     }
                 }
 
                 Ok(())
             } else {
-                self.throw_internal_error("unknown native class");
+                self.throw_internal_error(&format!("unknown class id {mx}"));
                 Err(-1)
             }
         } else {

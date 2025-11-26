@@ -1,7 +1,7 @@
 use std::{borrow::Cow, io::Write};
 
 use crate::{
-    JS_CFUNC_NATIVE_DEF, JS_CLASS_ERROR, JS_PROP_STRING_DEF,
+    JS_CLASS_ERROR,
     atom::Atom,
     class::ClassID,
     context::{ContextImpl, ContextRef},
@@ -411,7 +411,7 @@ pub fn js_error_toString(ctx: ContextRef, cc: CallContext) -> JSResult {
 }
 
 pub static js_error_proto_funcs: [FieldDef; 3] = [
-    JS_CFUNC_NATIVE_DEF!("toString", 0, js_error_toString, 0),
-    JS_PROP_STRING_DEF!("name", "Error", JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE),
-    JS_PROP_STRING_DEF!("message", "", JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE),
+    FieldDef::FUNCTION("toString", 0, js_error_toString, 0),
+    FieldDef::STR("name", "Error", JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE),
+    FieldDef::STR("message", "", JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE),
 ];

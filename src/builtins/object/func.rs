@@ -1,7 +1,6 @@
 use std::ops::Deref;
 
 use crate::{
-    JS_CFUNC_NATIVE_DEF,
     atom::Atom,
     builtins::{
         array::js_array_push,
@@ -391,57 +390,57 @@ pub fn js_object_hasOwn(ctx: ContextRef, cc: CallContext) -> JSResult {
 }
 
 pub static js_object_funcs: [FieldDef; 23] = [
-    JS_CFUNC_NATIVE_DEF!("create", 2, js_object_create, 0),
-    JS_CFUNC_NATIVE_DEF!("getPrototypeOf", 1, js_object_getPrototypeOf, 0),
-    JS_CFUNC_NATIVE_DEF!("setPrototypeOf", 2, js_object_setPrototypeOf, 0),
-    JS_CFUNC_NATIVE_DEF!("defineProperty", 3, js_object_defineProperty, 0),
-    JS_CFUNC_NATIVE_DEF!("defineProperties", 2, js_object_defineProperties, 0),
-    JS_CFUNC_NATIVE_DEF!("getOwnPropertyNames", 1, js_object_getOwnPropertyNames, 0),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION("create", 2, js_object_create, 0),
+    FieldDef::FUNCTION("getPrototypeOf", 1, js_object_getPrototypeOf, 0),
+    FieldDef::FUNCTION("setPrototypeOf", 2, js_object_setPrototypeOf, 0),
+    FieldDef::FUNCTION("defineProperty", 3, js_object_defineProperty, 0),
+    FieldDef::FUNCTION("defineProperties", 2, js_object_defineProperties, 0),
+    FieldDef::FUNCTION("getOwnPropertyNames", 1, js_object_getOwnPropertyNames, 0),
+    FieldDef::FUNCTION(
         "getOwnPropertySymbols",
         1,
         js_object_getOwnPropertySymbols,
-        0
+        0,
     ),
-    JS_CFUNC_NATIVE_DEF!("groupBy", 2, js_object_groupBy, 0),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION("groupBy", 2, js_object_groupBy, 0),
+    FieldDef::FUNCTION(
         "keys",
         1,
         js_object_keys,
-        JSIteratorKindEnum::JS_ITERATOR_KIND_KEY as i16
+        JSIteratorKindEnum::JS_ITERATOR_KIND_KEY as i16,
     ),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION(
         "values",
         1,
         js_object_keys,
-        JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16
+        JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16,
     ),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION(
         "entries",
         1,
         js_object_keys,
-        JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE as i16
+        JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE as i16,
     ),
-    JS_CFUNC_NATIVE_DEF!("isExtensible", 1, js_object_isExtensible, 0),
-    JS_CFUNC_NATIVE_DEF!("preventExtensions", 1, js_object_preventExtensions, 0),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION("isExtensible", 1, js_object_isExtensible, 0),
+    FieldDef::FUNCTION("preventExtensions", 1, js_object_preventExtensions, 0),
+    FieldDef::FUNCTION(
         "getOwnPropertyDescriptor",
         2,
         js_object_getOwnPropertyDescriptor,
-        0
+        0,
     ),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION(
         "getOwnPropertyDescriptors",
         1,
         js_object_getOwnPropertyDescriptors,
-        0
+        0,
     ),
-    JS_CFUNC_NATIVE_DEF!("is", 2, js_object_is, 0),
-    JS_CFUNC_NATIVE_DEF!("assign", 2, js_object_assign, 0),
-    JS_CFUNC_NATIVE_DEF!("seal", 1, js_object_seal, 0),
-    JS_CFUNC_NATIVE_DEF!("freeze", 1, js_object_seal, 1),
-    JS_CFUNC_NATIVE_DEF!("isSealed", 1, js_object_isSealed, 0),
-    JS_CFUNC_NATIVE_DEF!("isFrozen", 1, js_object_isSealed, 1),
+    FieldDef::FUNCTION("is", 2, js_object_is, 0),
+    FieldDef::FUNCTION("assign", 2, js_object_assign, 0),
+    FieldDef::FUNCTION("seal", 1, js_object_seal, 0),
+    FieldDef::FUNCTION("freeze", 1, js_object_seal, 1),
+    FieldDef::FUNCTION("isSealed", 1, js_object_isSealed, 0),
+    FieldDef::FUNCTION("isFrozen", 1, js_object_isSealed, 1),
     //JS_CFUNC_DEF!(c"__getClass", 1, js_object___getClass),
     //JS_CFUNC_DEF(c"__isObject", 1, js_object___isObject ),
     //JS_CFUNC_DEF(c"__isConstructor", 1, js_object___isConstructor ),
@@ -453,6 +452,6 @@ pub static js_object_funcs: [FieldDef; 23] = [
     //JS_CFUNC_DEF(c"__isSameValueZero", 2, js_object___isSameValueZero ),
     //JS_CFUNC_DEF(c"__getObjectData", 1, js_object___getObjectData ),
     //JS_CFUNC_DEF(c"__setObjectData", 2, js_object___setObjectData ),
-    JS_CFUNC_NATIVE_DEF!("fromEntries", 1, js_object_fromEntries, 0),
-    JS_CFUNC_NATIVE_DEF!("hasOwn", 2, js_object_hasOwn, 0),
+    FieldDef::FUNCTION("fromEntries", 1, js_object_fromEntries, 0),
+    FieldDef::FUNCTION("hasOwn", 2, js_object_hasOwn, 0),
 ];

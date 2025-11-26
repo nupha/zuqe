@@ -6,7 +6,7 @@ use crate::{
     atom::Atom,
     context::ContextImpl,
     error::ErrorKind,
-    function::{FieldDef, JSVarRef, NativeFieldDetail},
+    function::{FieldDef, FieldDetail, JSVarRef},
     module::{ModuleDef, ModuleDefImpl},
     object::{
         JS_PROP_ENUMERABLE, JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty, LazyInit, ObjectPayload,
@@ -209,17 +209,17 @@ impl ModuleDefImpl {
     pub fn set_export_values(&self, ctx: &ContextImpl, entries: &[FieldDef]) -> Result<(), i32> {
         for entry in entries {
             let val: JSValue = match &entry.detail {
-                NativeFieldDetail::Func { handler, length } => ctx
+                FieldDetail::Func { handler, length } => ctx
                     .create_native_function(*handler, entry.name, *length, 0)?
                     .into(),
-                NativeFieldDetail::Object(fields) => {
+                FieldDetail::Object(fields) => {
                     let mut o = ctx.create_base_object()?;
                     o.install_field_defs(ctx, fields.as_ref())?;
                     o.into()
                 }
-                NativeFieldDetail::Str(s) => ctx.create_string_from_str(s)?.into(),
-                NativeFieldDetail::Int32(i) => JSValue::Int(*i),
-                NativeFieldDetail::Float64(d) => JSValue::from(*d),
+                FieldDetail::Str(s) => ctx.create_string_from_str(s)?.into(),
+                FieldDetail::Int32(i) => JSValue::Int(*i),
+                FieldDetail::Float64(d) => JSValue::from(*d),
                 _ => {
                     unreachable!();
                 }

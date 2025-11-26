@@ -5,12 +5,11 @@ use std::{
 
 use once_cell::unsync::Lazy;
 use zhuque::{
-    JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF,
     class::{ClassDef, ClassID},
     context::{ContextImpl, ContextRef},
     error::JSResult,
     function::{CallContext, FieldDef},
-    object::{JS_PROP_C_W_E, ObjectPayload, ObjectRef},
+    object::ObjectRef,
     runtime::RuntimeImpl,
     value::JSValue,
 };
@@ -70,11 +69,11 @@ fn js_file_readAsString(ctx: ContextRef, cc: CallContext) -> JSResult {
     ctx.create_string_from_utf8(buf).map(JSValue::String)
 }
 
-static CLASS_FILE_PROTO: [FieldDef; 1] = [JS_CFUNC_NATIVE_DEF!(
+static CLASS_FILE_PROTO: [FieldDef; 1] = [FieldDef::FUNCTION(
     "readAsString",
     0,
     js_file_readAsString,
-    0
+    0,
 )];
 
 pub fn class_file_new_instance(ctx: &ContextImpl, fh: std::fs::File) -> Result<ObjectRef, i32> {

@@ -1,5 +1,4 @@
 use crate::{
-    JS_CFUNC_NATIVE_DEF, JS_OBJECT_DEF, JS_PROP_STRING_DEF,
     builtins::{
         iterator::JSIteratorKindEnum,
         object::{
@@ -131,29 +130,29 @@ pub fn js_reflect_ownKeys(ctx: ContextRef, cc: CallContext) -> JSResult {
 }
 
 pub static js_reflect_funcs: [FieldDef; 14] = [
-    JS_CFUNC_NATIVE_DEF!("apply", 3, js_reflect_apply, 0),
-    JS_CFUNC_NATIVE_DEF!("construct", 2, js_reflect_construct, 0),
-    JS_CFUNC_NATIVE_DEF!("defineProperty", 3, js_object_defineProperty, 1),
-    JS_CFUNC_NATIVE_DEF!("deleteProperty", 2, js_reflect_deleteProperty, 0),
-    JS_CFUNC_NATIVE_DEF!("get", 2, js_reflect_get, 0),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION("apply", 3, js_reflect_apply, 0),
+    FieldDef::FUNCTION("construct", 2, js_reflect_construct, 0),
+    FieldDef::FUNCTION("defineProperty", 3, js_object_defineProperty, 1),
+    FieldDef::FUNCTION("deleteProperty", 2, js_reflect_deleteProperty, 0),
+    FieldDef::FUNCTION("get", 2, js_reflect_get, 0),
+    FieldDef::FUNCTION(
         "getOwnPropertyDescriptor",
         2,
         js_object_getOwnPropertyDescriptor,
-        1
+        1,
     ),
-    JS_CFUNC_NATIVE_DEF!("getPrototypeOf", 1, js_object_getPrototypeOf, 1),
-    JS_CFUNC_NATIVE_DEF!("has", 2, js_reflect_has, 0),
-    JS_CFUNC_NATIVE_DEF!("isExtensible", 1, js_object_isExtensible, 1),
-    JS_CFUNC_NATIVE_DEF!("ownKeys", 1, js_reflect_ownKeys, 0),
-    JS_CFUNC_NATIVE_DEF!("preventExtensions", 1, js_object_preventExtensions, 1),
-    JS_CFUNC_NATIVE_DEF!("set", 3, js_reflect_set, 0),
-    JS_CFUNC_NATIVE_DEF!("setPrototypeOf", 2, js_reflect_setPrototypeOf, 0),
-    JS_PROP_STRING_DEF!("[Symbol.toStringTag]", "Reflect", JS_PROP_CONFIGURABLE),
+    FieldDef::FUNCTION("getPrototypeOf", 1, js_object_getPrototypeOf, 1),
+    FieldDef::FUNCTION("has", 2, js_reflect_has, 0),
+    FieldDef::FUNCTION("isExtensible", 1, js_object_isExtensible, 1),
+    FieldDef::FUNCTION("ownKeys", 1, js_reflect_ownKeys, 0),
+    FieldDef::FUNCTION("preventExtensions", 1, js_object_preventExtensions, 1),
+    FieldDef::FUNCTION("set", 3, js_reflect_set, 0),
+    FieldDef::FUNCTION("setPrototypeOf", 2, js_reflect_setPrototypeOf, 0),
+    FieldDef::STR("[Symbol.toStringTag]", "Reflect", JS_PROP_CONFIGURABLE),
 ];
 
-pub static js_reflect_obj: [FieldDef; 1] = [JS_OBJECT_DEF!(
+pub static js_reflect_obj: [FieldDef; 1] = [FieldDef::OBJECT(
     "Reflect",
     &js_reflect_funcs,
-    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE
+    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
 )];

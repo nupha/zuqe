@@ -1,10 +1,9 @@
 use std::ops::Deref;
 
 use crate::{
-    JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_ARRAY_BUFFER, JS_CLASS_BIG_INT64_ARRAY,
-    JS_CLASS_BIG_UINT64_ARRAY, JS_CLASS_DATAVIEW, JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY,
-    JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY, JS_CLASS_UINT8_ARRAY,
-    JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY, JS_PROP_STRING_DEF,
+    JS_CLASS_ARRAY_BUFFER, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY, JS_CLASS_DATAVIEW,
+    JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
+    JS_CLASS_INT32_ARRAY, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
     class::ClassID,
     context::ContextRef,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
@@ -274,138 +273,138 @@ fn js_dataview_getter(ctx: ContextRef, cc: CallContext) -> JSResult {
 }
 
 pub static js_dataview_proto_funcs: [FieldDef; 20] = [
-    JS_CGETSET_NATIVE_DEF!("buffer", js_dataview_getter, NONE, TA_GET_BUFFER as _),
-    JS_CGETSET_NATIVE_DEF!(
+    FieldDef::GETSET("buffer", Some(js_dataview_getter), None, TA_GET_BUFFER as _),
+    FieldDef::GETSET(
         "byteLength",
-        js_dataview_getter,
-        NONE,
-        TA_GET_BYTE_LENGTH as _
+        Some(js_dataview_getter),
+        None,
+        TA_GET_BYTE_LENGTH as _,
     ),
-    JS_CGETSET_NATIVE_DEF!(
+    FieldDef::GETSET(
         "byteOffset",
-        js_dataview_getter,
-        NONE,
-        TA_GET_BYTE_OFFSET as _
+        Some(js_dataview_getter),
+        None,
+        TA_GET_BYTE_OFFSET as _,
     ),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION(
         "getInt8",
         1,
         js_dataview_getValue,
-        JS_CLASS_INT8_ARRAY as i16
+        JS_CLASS_INT8_ARRAY as i16,
     ),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION(
         "getUint8",
         1,
         js_dataview_getValue,
-        JS_CLASS_UINT8_ARRAY as i16
+        JS_CLASS_UINT8_ARRAY as i16,
     ),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION(
         "getInt16",
         1,
         js_dataview_getValue,
-        JS_CLASS_INT16_ARRAY as i16
+        JS_CLASS_INT16_ARRAY as i16,
     ),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION(
         "getUint16",
         1,
         js_dataview_getValue,
-        JS_CLASS_UINT16_ARRAY as i16
+        JS_CLASS_UINT16_ARRAY as i16,
     ),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION(
         "getInt32",
         1,
         js_dataview_getValue,
-        JS_CLASS_INT32_ARRAY as i16
+        JS_CLASS_INT32_ARRAY as i16,
     ),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION(
         "getUint32",
         1,
         js_dataview_getValue,
-        JS_CLASS_UINT32_ARRAY as i16
+        JS_CLASS_UINT32_ARRAY as i16,
     ),
-    // JS_CFUNC_NATIVE_DEF!(
+    // FieldDef::FUNCTION(
     //     c"getBigInt64",
     //     1,
     //     js_dataview_getValue,
     //     JS_CLASS_BIG_INT64_ARRAY as i16
     // ),
-    // JS_CFUNC_NATIVE_DEF!(
+    // FieldDef::FUNCTION(
     //     c"getBigUint64",
     //     1,
     //     js_dataview_getValue,
     //     JS_CLASS_BIG_UINT64_ARRAY as i16
     // ),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION(
         "getFloat32",
         1,
         js_dataview_getValue,
-        JS_CLASS_FLOAT32_ARRAY as i16
+        JS_CLASS_FLOAT32_ARRAY as i16,
     ),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION(
         "getFloat64",
         1,
         js_dataview_getValue,
-        JS_CLASS_FLOAT64_ARRAY as i16
+        JS_CLASS_FLOAT64_ARRAY as i16,
     ),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION(
         "setInt8",
         2,
         js_dataview_setValue,
-        JS_CLASS_INT8_ARRAY as i16
+        JS_CLASS_INT8_ARRAY as i16,
     ),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION(
         "setUint8",
         2,
         js_dataview_setValue,
-        JS_CLASS_UINT8_ARRAY as i16
+        JS_CLASS_UINT8_ARRAY as i16,
     ),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION(
         "setInt16",
         2,
         js_dataview_setValue,
-        JS_CLASS_INT16_ARRAY as i16
+        JS_CLASS_INT16_ARRAY as i16,
     ),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION(
         "setUint16",
         2,
         js_dataview_setValue,
-        JS_CLASS_UINT16_ARRAY as i16
+        JS_CLASS_UINT16_ARRAY as i16,
     ),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION(
         "setInt32",
         2,
         js_dataview_setValue,
-        JS_CLASS_INT32_ARRAY as i16
+        JS_CLASS_INT32_ARRAY as i16,
     ),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION(
         "setUint32",
         2,
         js_dataview_setValue,
-        JS_CLASS_UINT32_ARRAY as i16
+        JS_CLASS_UINT32_ARRAY as i16,
     ),
-    // JS_CFUNC_NATIVE_DEF!(
+    // FieldDef::FUNCTION(
     //     c"setBigInt64",
     //     2,
     //     js_dataview_setValue,
     //     JS_CLASS_BIG_INT64_ARRAY as i16
     // ),
-    // JS_CFUNC_NATIVE_DEF!(
+    // FieldDef::FUNCTION(
     //     c"setBigUint64",
     //     2,
     //     js_dataview_setValue,
     //     JS_CLASS_BIG_UINT64_ARRAY as i16
     // ),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION(
         "setFloat32",
         2,
         js_dataview_setValue,
-        JS_CLASS_FLOAT32_ARRAY as i16
+        JS_CLASS_FLOAT32_ARRAY as i16,
     ),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION(
         "setFloat64",
         2,
         js_dataview_setValue,
-        JS_CLASS_FLOAT64_ARRAY as i16
+        JS_CLASS_FLOAT64_ARRAY as i16,
     ),
-    JS_PROP_STRING_DEF!("[Symbol.toStringTag]", "DataView", JS_PROP_CONFIGURABLE),
+    FieldDef::STR("[Symbol.toStringTag]", "DataView", JS_PROP_CONFIGURABLE),
 ];

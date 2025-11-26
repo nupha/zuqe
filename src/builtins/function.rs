@@ -1,7 +1,6 @@
 use std::ops::Deref;
 
 use crate::{
-    JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF,
     atom::Atom,
     context::ContextRef,
     error::JSResult,
@@ -169,11 +168,11 @@ pub fn js_function_proto_lineNumber(_: ContextRef, cc: CallContext) -> JSResult 
 }
 
 pub static js_function_proto_funcs: [FieldDef; 7] = [
-    JS_CFUNC_NATIVE_DEF!("call", 1, js_function_call, 0),
-    JS_CFUNC_NATIVE_DEF!("apply", 2, js_function_apply, 0),
-    JS_CFUNC_NATIVE_DEF!("bind", 1, js_function_bind, 0),
-    JS_CFUNC_NATIVE_DEF!("toString", 0, js_function_toString, 0),
-    JS_CFUNC_NATIVE_DEF!("[Symbol.hasInstance]", 1, js_function_hasInstance, 0),
-    JS_CGETSET_NATIVE_DEF!("fileName", js_function_proto_fileName, NONE, 0),
-    JS_CGETSET_NATIVE_DEF!("lineNumber", js_function_proto_lineNumber, NONE, 0),
+    FieldDef::FUNCTION("call", 1, js_function_call, 0),
+    FieldDef::FUNCTION("apply", 2, js_function_apply, 0),
+    FieldDef::FUNCTION("bind", 1, js_function_bind, 0),
+    FieldDef::FUNCTION("toString", 0, js_function_toString, 0),
+    FieldDef::FUNCTION("[Symbol.hasInstance]", 1, js_function_hasInstance, 0),
+    FieldDef::GETSET("fileName", Some(js_function_proto_fileName), None, 0),
+    FieldDef::GETSET("lineNumber", Some(js_function_proto_lineNumber), None, 0),
 ];

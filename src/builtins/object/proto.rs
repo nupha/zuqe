@@ -1,7 +1,6 @@
 use std::ops::Deref;
 
 use crate::{
-    JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF,
     atom::Atom,
     context::{ContextImpl, ContextRef},
     error::JSResult,
@@ -233,17 +232,17 @@ pub unsafe fn js_object___lookupGetter__(
 }
 
 pub static js_object_proto_funcs: [FieldDef; 7] = [
-    JS_CFUNC_NATIVE_DEF!("toString", 0, js_object_toString, 0),
-    JS_CFUNC_NATIVE_DEF!("toLocaleString", 0, js_object_toLocaleString, 0),
-    JS_CFUNC_NATIVE_DEF!("valueOf", 0, js_object_valueOf, 0),
-    JS_CFUNC_NATIVE_DEF!("hasOwnProperty", 1, js_object_hasOwnProperty, 0),
-    JS_CFUNC_NATIVE_DEF!("isPrototypeOf", 1, js_object_isPrototypeOf, 0),
-    JS_CFUNC_NATIVE_DEF!("propertyIsEnumerable", 1, js_object_propertyIsEnumerable, 0),
-    JS_CGETSET_NATIVE_DEF!(
+    FieldDef::FUNCTION("toString", 0, js_object_toString, 0),
+    FieldDef::FUNCTION("toLocaleString", 0, js_object_toLocaleString, 0),
+    FieldDef::FUNCTION("valueOf", 0, js_object_valueOf, 0),
+    FieldDef::FUNCTION("hasOwnProperty", 1, js_object_hasOwnProperty, 0),
+    FieldDef::FUNCTION("isPrototypeOf", 1, js_object_isPrototypeOf, 0),
+    FieldDef::FUNCTION("propertyIsEnumerable", 1, js_object_propertyIsEnumerable, 0),
+    FieldDef::GETSET(
         "__proto__",
-        js_object_getset___proto__,
-        js_object_getset___proto__,
-        0
+        Some(js_object_getset___proto__),
+        Some(js_object_getset___proto__),
+        0,
     ),
     // JS_CFUNC_MAGIC_DEF!(c"__defineGetter__", 2, js_object___defineGetter__, 0),
     // JS_CFUNC_MAGIC_DEF!(c"__defineSetter__", 2, js_object___defineGetter__, 1),

@@ -1,5 +1,4 @@
 use zhuque::{
-    JS_CFUNC_NATIVE_DEF, JS_PROP_INT32_DEF,
     context::ContextRef,
     error::JSResult,
     function::{CallContext, FieldDef},
@@ -101,9 +100,9 @@ fn std_exit(ctx: ContextRef, cc: CallContext) -> JSResult {
 }
 
 static MOD_STD_ENTRIES: [FieldDef; 3] = [
-    JS_CFUNC_NATIVE_DEF!("open", 2, js_std_open, 0),
-    JS_CFUNC_NATIVE_DEF!("exit", 1, std_exit, 0),
-    JS_PROP_INT32_DEF!("out", 9, JS_PROP_C_W_E),
+    FieldDef::FUNCTION("open", 2, js_std_open, 0),
+    FieldDef::FUNCTION("exit", 1, std_exit, 0),
+    FieldDef::INT32("out", 9, JS_PROP_C_W_E),
 ];
 
 pub fn init_mod_std(mut ctx: ContextRef) -> Result<(), i32> {

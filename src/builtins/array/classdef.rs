@@ -3,8 +3,7 @@ use std::ops::Deref;
 use fallible_collections::TryCollect;
 
 use crate::{
-    JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_ARRAY,
-    JS_NATIVE_ITERATOR_NEXT_DEF, JS_PROP_STRING_DEF,
+    JS_ALIAS_DEF, JS_CLASS_ARRAY,
     atom::Atom,
     builtins::{
         iterator::{
@@ -1416,78 +1415,78 @@ fn JS_FlattenIntoArray(
 }
 
 pub static js_array_proto_funcs: [FieldDef; 39] = [
-    JS_CFUNC_NATIVE_DEF!("at", 1, js_array_at, 0),
-    JS_CFUNC_NATIVE_DEF!("with", 2, js_array_with, 0),
-    JS_CFUNC_NATIVE_DEF!("concat", 1, js_array_concat, 0),
-    JS_CFUNC_NATIVE_DEF!("every", 1, js_array_every, special_every as i16),
-    JS_CFUNC_NATIVE_DEF!("some", 1, js_array_every, special_some as i16),
-    JS_CFUNC_NATIVE_DEF!("forEach", 1, js_array_every, special_forEach as i16),
-    JS_CFUNC_NATIVE_DEF!("map", 1, js_array_every, special_map as i16),
-    JS_CFUNC_NATIVE_DEF!("filter", 1, js_array_every, special_filter as i16),
-    JS_CFUNC_NATIVE_DEF!("reduce", 1, js_array_reduce, special_reduce as i16),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION("at", 1, js_array_at, 0),
+    FieldDef::FUNCTION("with", 2, js_array_with, 0),
+    FieldDef::FUNCTION("concat", 1, js_array_concat, 0),
+    FieldDef::FUNCTION("every", 1, js_array_every, special_every as i16),
+    FieldDef::FUNCTION("some", 1, js_array_every, special_some as i16),
+    FieldDef::FUNCTION("forEach", 1, js_array_every, special_forEach as i16),
+    FieldDef::FUNCTION("map", 1, js_array_every, special_map as i16),
+    FieldDef::FUNCTION("filter", 1, js_array_every, special_filter as i16),
+    FieldDef::FUNCTION("reduce", 1, js_array_reduce, special_reduce as i16),
+    FieldDef::FUNCTION(
         "reduceRight",
         1,
         js_array_reduce,
-        special_reduceRight as i16
+        special_reduceRight as i16,
     ),
-    JS_CFUNC_NATIVE_DEF!("fill", 1, js_array_fill, 0),
-    JS_CFUNC_NATIVE_DEF!("find", 1, js_array_find, special_find as i16),
-    JS_CFUNC_NATIVE_DEF!("findIndex", 1, js_array_find, special_findIndex as i16),
-    JS_CFUNC_NATIVE_DEF!("findLast", 1, js_array_find, special_findLast as i16),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION("fill", 1, js_array_fill, 0),
+    FieldDef::FUNCTION("find", 1, js_array_find, special_find as i16),
+    FieldDef::FUNCTION("findIndex", 1, js_array_find, special_findIndex as i16),
+    FieldDef::FUNCTION("findLast", 1, js_array_find, special_findLast as i16),
+    FieldDef::FUNCTION(
         "findLastIndex",
         1,
         js_array_find,
-        special_findLastIndex as i16
+        special_findLastIndex as i16,
     ),
-    JS_CFUNC_NATIVE_DEF!("indexOf", 1, js_array_indexOf, 0),
-    JS_CFUNC_NATIVE_DEF!("lastIndexOf", 1, js_array_lastIndexOf, 0),
-    JS_CFUNC_NATIVE_DEF!("includes", 1, js_array_includes, 0),
-    JS_CFUNC_NATIVE_DEF!("join", 1, js_array_join, 0),
-    JS_CFUNC_NATIVE_DEF!("toString", 0, js_array_toString, 0),
-    JS_CFUNC_NATIVE_DEF!("toLocaleString", 0, js_array_join, 1),
-    JS_CFUNC_NATIVE_DEF!("pop", 0, js_array_pop, 0),
-    JS_CFUNC_NATIVE_DEF!("push", 1, js_array_push, 0),
-    JS_CFUNC_NATIVE_DEF!("shift", 0, js_array_pop, 1),
-    JS_CFUNC_NATIVE_DEF!("unshift", 1, js_array_push, 1),
-    JS_CFUNC_NATIVE_DEF!("reverse", 0, js_array_reverse, 0),
-    JS_CFUNC_NATIVE_DEF!("toReversed", 0, js_array_toReversed, 0),
-    JS_CFUNC_NATIVE_DEF!("sort", 1, js_array_sort, 0),
-    JS_CFUNC_NATIVE_DEF!("toSorted", 1, js_array_toSorted, 0),
-    JS_CFUNC_NATIVE_DEF!("slice", 2, js_array_slice, 0),
-    JS_CFUNC_NATIVE_DEF!("splice", 2, js_array_slice, 1),
-    JS_CFUNC_NATIVE_DEF!("toSpliced", 2, js_array_toSpliced, 0),
-    JS_CFUNC_NATIVE_DEF!("copyWithin", 2, js_array_copyWithin, 0),
-    JS_CFUNC_NATIVE_DEF!("flatMap", 1, js_array_flatten, 1),
-    JS_CFUNC_NATIVE_DEF!("flat", 0, js_array_flatten, 0),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION("indexOf", 1, js_array_indexOf, 0),
+    FieldDef::FUNCTION("lastIndexOf", 1, js_array_lastIndexOf, 0),
+    FieldDef::FUNCTION("includes", 1, js_array_includes, 0),
+    FieldDef::FUNCTION("join", 1, js_array_join, 0),
+    FieldDef::FUNCTION("toString", 0, js_array_toString, 0),
+    FieldDef::FUNCTION("toLocaleString", 0, js_array_join, 1),
+    FieldDef::FUNCTION("pop", 0, js_array_pop, 0),
+    FieldDef::FUNCTION("push", 1, js_array_push, 0),
+    FieldDef::FUNCTION("shift", 0, js_array_pop, 1),
+    FieldDef::FUNCTION("unshift", 1, js_array_push, 1),
+    FieldDef::FUNCTION("reverse", 0, js_array_reverse, 0),
+    FieldDef::FUNCTION("toReversed", 0, js_array_toReversed, 0),
+    FieldDef::FUNCTION("sort", 1, js_array_sort, 0),
+    FieldDef::FUNCTION("toSorted", 1, js_array_toSorted, 0),
+    FieldDef::FUNCTION("slice", 2, js_array_slice, 0),
+    FieldDef::FUNCTION("splice", 2, js_array_slice, 1),
+    FieldDef::FUNCTION("toSpliced", 2, js_array_toSpliced, 0),
+    FieldDef::FUNCTION("copyWithin", 2, js_array_copyWithin, 0),
+    FieldDef::FUNCTION("flatMap", 1, js_array_flatten, 1),
+    FieldDef::FUNCTION("flat", 0, js_array_flatten, 0),
+    FieldDef::FUNCTION(
         "values",
         0,
         js_create_array_iterator,
-        JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16
+        JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16,
     ),
     JS_ALIAS_DEF!("[Symbol.iterator]", "values"),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION(
         "keys",
         0,
         js_create_array_iterator,
-        JSIteratorKindEnum::JS_ITERATOR_KIND_KEY as i16
+        JSIteratorKindEnum::JS_ITERATOR_KIND_KEY as i16,
     ),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION(
         "entries",
         0,
         js_create_array_iterator,
-        JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE as i16
+        JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE as i16,
     ),
 ];
 
 pub static js_array_iterator_proto_funcs: [FieldDef; 2] = [
-    JS_NATIVE_ITERATOR_NEXT_DEF!("next", 0, js_array_iterator_next, 0),
-    JS_PROP_STRING_DEF!(
+    FieldDef::ITERATOR_NEXT("next", 0, js_array_iterator_next, 0),
+    FieldDef::STR(
         "[Symbol.toStringTag]",
         "Array Iterator",
-        JS_PROP_CONFIGURABLE
+        JS_PROP_CONFIGURABLE,
     ),
 ];
 
@@ -1586,10 +1585,10 @@ pub fn js_array_isArray(ctx: ContextRef, cc: CallContext) -> JSResult {
 }
 
 pub static js_array_funcs: [FieldDef; 4] = [
-    JS_CFUNC_NATIVE_DEF!("isArray", 1, js_array_isArray, 0),
-    JS_CFUNC_NATIVE_DEF!("from", 1, js_array_from, 0),
-    JS_CFUNC_NATIVE_DEF!("of", 0, js_array_of, 0),
-    JS_CGETSET_NATIVE_DEF!("[Symbol.species]", js_get_this, NONE, 0),
+    FieldDef::FUNCTION("isArray", 1, js_array_isArray, 0),
+    FieldDef::FUNCTION("from", 1, js_array_from, 0),
+    FieldDef::FUNCTION("of", 0, js_array_of, 0),
+    FieldDef::GETSET("[Symbol.species]", Some(js_get_this), None, 0),
 ];
 
 /// 将数组 obj 中从 start_pos 开始的 count 个元素复制到 to_pos 开始的位置。

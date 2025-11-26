@@ -3,7 +3,7 @@ use std::{ops::Deref, rc::Rc};
 use smallvec::SmallVec;
 
 use crate::{
-    JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_REGEXP,
+    JS_CLASS_REGEXP,
     atom::Atom,
     builtins::js_get_this,
     context::{ContextImpl, ContextRef, JS_GetActiveFunction},
@@ -919,45 +919,65 @@ pub fn js_regexp_Symbol_split(ctx: ContextRef, cc: CallContext) -> JSResult {
 }
 
 pub static js_regexp_proto_funcs: [FieldDef; 18] = [
-    JS_CGETSET_NATIVE_DEF!("flags", js_regexp_get_flags, NONE, 0),
-    JS_CGETSET_NATIVE_DEF!("source", js_regexp_get_source, NONE, 0),
-    JS_CGETSET_NATIVE_DEF!("global", js_regexp_get_flag, NONE, LRE_FLAG_GLOBAL as _),
-    JS_CGETSET_NATIVE_DEF!(
+    FieldDef::GETSET("flags", Some(js_regexp_get_flags), None, 0),
+    FieldDef::GETSET("source", Some(js_regexp_get_source), None, 0),
+    FieldDef::GETSET(
+        "global",
+        Some(js_regexp_get_flag),
+        None,
+        LRE_FLAG_GLOBAL as _,
+    ),
+    FieldDef::GETSET(
         "ignoreCase",
-        js_regexp_get_flag,
-        NONE,
-        LRE_FLAG_IGNORECASE as _
+        Some(js_regexp_get_flag),
+        None,
+        LRE_FLAG_IGNORECASE as _,
     ),
-    JS_CGETSET_NATIVE_DEF!(
+    FieldDef::GETSET(
         "multiline",
-        js_regexp_get_flag,
-        NONE,
-        LRE_FLAG_MULTILINE as _
+        Some(js_regexp_get_flag),
+        None,
+        LRE_FLAG_MULTILINE as _,
     ),
-    JS_CGETSET_NATIVE_DEF!("dotAll", js_regexp_get_flag, NONE, LRE_FLAG_DOTALL as _),
-    JS_CGETSET_NATIVE_DEF!("unicode", js_regexp_get_flag, NONE, LRE_FLAG_UTF16 as _),
-    JS_CGETSET_NATIVE_DEF!("sticky", js_regexp_get_flag, NONE, LRE_FLAG_STICKY as _),
-    JS_CGETSET_NATIVE_DEF!(
+    FieldDef::GETSET(
+        "dotAll",
+        Some(js_regexp_get_flag),
+        None,
+        LRE_FLAG_DOTALL as _,
+    ),
+    FieldDef::GETSET(
+        "unicode",
+        Some(js_regexp_get_flag),
+        None,
+        LRE_FLAG_UTF16 as _,
+    ),
+    FieldDef::GETSET(
+        "sticky",
+        Some(js_regexp_get_flag),
+        None,
+        LRE_FLAG_STICKY as _,
+    ),
+    FieldDef::GETSET(
         "hasIndices",
-        js_regexp_get_flag,
-        NONE,
-        LRE_FLAG_INDICES as _
+        Some(js_regexp_get_flag),
+        None,
+        LRE_FLAG_INDICES as _,
     ),
-    JS_CFUNC_NATIVE_DEF!("exec", 1, js_regexp_exec, 0),
-    JS_CFUNC_NATIVE_DEF!("compile", 2, js_regexp_compile, 0),
-    JS_CFUNC_NATIVE_DEF!("test", 1, js_regexp_test, 0),
-    JS_CFUNC_NATIVE_DEF!("toString", 0, js_regexp_toString, 0),
-    JS_CFUNC_NATIVE_DEF!("[Symbol.replace]", 2, js_regexp_Symbol_replace, 0),
-    JS_CFUNC_NATIVE_DEF!("[Symbol.match]", 1, js_regexp_Symbol_match, 0),
-    JS_CFUNC_NATIVE_DEF!("[Symbol.matchAll]", 1, js_regexp_Symbol_matchAll, 0),
-    JS_CFUNC_NATIVE_DEF!("[Symbol.search]", 1, js_regexp_Symbol_search, 0),
-    JS_CFUNC_NATIVE_DEF!("[Symbol.split]", 2, js_regexp_Symbol_split, 0),
+    FieldDef::FUNCTION("exec", 1, js_regexp_exec, 0),
+    FieldDef::FUNCTION("compile", 2, js_regexp_compile, 0),
+    FieldDef::FUNCTION("test", 1, js_regexp_test, 0),
+    FieldDef::FUNCTION("toString", 0, js_regexp_toString, 0),
+    FieldDef::FUNCTION("[Symbol.replace]", 2, js_regexp_Symbol_replace, 0),
+    FieldDef::FUNCTION("[Symbol.match]", 1, js_regexp_Symbol_match, 0),
+    FieldDef::FUNCTION("[Symbol.matchAll]", 1, js_regexp_Symbol_matchAll, 0),
+    FieldDef::FUNCTION("[Symbol.search]", 1, js_regexp_Symbol_search, 0),
+    FieldDef::FUNCTION("[Symbol.split]", 2, js_regexp_Symbol_split, 0),
     //JS_CGETSET_DEF("__source", js_regexp_get___source, NULL ),
     //JS_CGETSET_DEF("__flags", js_regexp_get___flags, NULL ),
 ];
 
 pub static js_regexp_funcs: [FieldDef; 1] = [
-    JS_CGETSET_NATIVE_DEF!("[Symbol.species]", js_get_this, NONE, 0),
+    FieldDef::GETSET("[Symbol.species]", Some(js_get_this), None, 0),
     //JS_CFUNC_DEF("__RegExpExec", 2, js_regexp___RegExpExec ),
     //JS_CFUNC_DEF("__RegExpDelete", 2, js_regexp___RegExpDelete ),
 ];

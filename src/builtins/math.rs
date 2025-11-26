@@ -1,6 +1,5 @@
 use crate::{
-    JS_CFUNC_FF_DEF, JS_CFUNC_FFF_DEF, JS_CFUNC_NATIVE_DEF, JS_OBJECT_DEF, JS_PROP_DOUBLE_DEF,
-    JS_PROP_STRING_DEF,
+    JS_CFUNC_FF_DEF, JS_CFUNC_FFF_DEF, JS_PROP_DOUBLE_DEF,
     context::ContextRef,
     error::JSResult,
     function::{CallContext, FieldDef},
@@ -199,8 +198,8 @@ pub fn js_math_random(mut ctx: ContextRef, _: CallContext) -> JSResult {
 }
 
 pub static js_math_funcs: [FieldDef; 44] = [
-    JS_CFUNC_NATIVE_DEF!("min", 2, js_math_min_max, 0),
-    JS_CFUNC_NATIVE_DEF!("max", 2, js_math_min_max, 1),
+    FieldDef::FUNCTION("min", 2, js_math_min_max, 0),
+    FieldDef::FUNCTION("max", 2, js_math_min_max, 1),
     //
     JS_CFUNC_FF_DEF!("abs", 1, f64::abs, 0),
     JS_CFUNC_FF_DEF!("floor", 1, f64::floor, 0),
@@ -255,12 +254,12 @@ pub static js_math_funcs: [FieldDef; 44] = [
     JS_CFUNC_FF_DEF!("log2", 1, f64::log2, 0),
     JS_CFUNC_FF_DEF!("log10", 1, f64::log10, 0),
     JS_CFUNC_FF_DEF!("cbrt", 1, f64::cbrt, 0),
-    JS_CFUNC_NATIVE_DEF!("hypot", 2, js_math_hypot, 0),
-    JS_CFUNC_NATIVE_DEF!("random", 0, js_math_random, 0),
+    FieldDef::FUNCTION("hypot", 2, js_math_hypot, 0),
+    FieldDef::FUNCTION("random", 0, js_math_random, 0),
     JS_CFUNC_FF_DEF!("fround", 1, |a: f64| -> f64 { (a as f32) as f64 }, 0),
-    JS_CFUNC_NATIVE_DEF!("imul", 2, js_math_imul, 0),
-    JS_CFUNC_NATIVE_DEF!("clz32", 1, js_math_clz32, 0),
-    JS_PROP_STRING_DEF!("[Symbol.toStringTag]", "Math", JS_PROP_CONFIGURABLE),
+    FieldDef::FUNCTION("imul", 2, js_math_imul, 0),
+    FieldDef::FUNCTION("clz32", 1, js_math_clz32, 0),
+    FieldDef::STR("[Symbol.toStringTag]", "Math", JS_PROP_CONFIGURABLE),
     JS_PROP_DOUBLE_DEF!("E", std::f64::consts::E, 0),
     JS_PROP_DOUBLE_DEF!("LN10", std::f64::consts::LN_10, 0),
     JS_PROP_DOUBLE_DEF!("LN2", std::f64::consts::LN_2, 0),
@@ -271,8 +270,8 @@ pub static js_math_funcs: [FieldDef; 44] = [
     JS_PROP_DOUBLE_DEF!("SQRT2", std::f64::consts::SQRT_2, 0),
 ];
 
-pub static js_math_obj: [FieldDef; 1] = [JS_OBJECT_DEF!(
+pub static js_math_obj: [FieldDef; 1] = [FieldDef::OBJECT(
     "Math",
     &js_math_funcs,
-    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE
+    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
 )];

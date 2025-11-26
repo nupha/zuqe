@@ -3,8 +3,7 @@ use std::cell::{Cell, RefCell};
 use gc_lite::{Collect, GcRef, GcWeak};
 
 use crate::{
-    JS_CFUNC_NATIVE_DEF, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
-    JS_PROP_STRING_DEF,
+    JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
     builtins::{
         iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW, js_create_iterator_result},
         promise::{Promise, js_promise_resolve},
@@ -557,26 +556,26 @@ fn js_iterator_proto_iterator(_: ContextRef, cc: CallContext) -> JSResult {
     Ok(*cc.this())
 }
 
-pub static js_async_iterator_proto_funcs: [FieldDef; 1] = [JS_CFUNC_NATIVE_DEF!(
+pub static js_async_iterator_proto_funcs: [FieldDef; 1] = [FieldDef::FUNCTION(
     "[Symbol.asyncIterator]",
     0,
     js_iterator_proto_iterator,
-    0
+    0,
 )];
 
 pub static js_async_generator_proto_funcs: [FieldDef; 4] = [
-    JS_CFUNC_NATIVE_DEF!("next", 1, js_async_generator_next, GEN_MAGIC_NEXT as _),
-    JS_CFUNC_NATIVE_DEF!("return", 1, js_async_generator_next, GEN_MAGIC_RETURN as _),
-    JS_CFUNC_NATIVE_DEF!("throw", 1, js_async_generator_next, GEN_MAGIC_THROW as _),
-    JS_PROP_STRING_DEF!(
+    FieldDef::FUNCTION("next", 1, js_async_generator_next, GEN_MAGIC_NEXT as _),
+    FieldDef::FUNCTION("return", 1, js_async_generator_next, GEN_MAGIC_RETURN as _),
+    FieldDef::FUNCTION("throw", 1, js_async_generator_next, GEN_MAGIC_THROW as _),
+    FieldDef::STR(
         "[Symbol.toStringTag]",
         "AsyncGenerator",
-        JS_PROP_CONFIGURABLE
+        JS_PROP_CONFIGURABLE,
     ),
 ];
 
-pub static js_async_generator_function_proto_funcs: [FieldDef; 1] = [JS_PROP_STRING_DEF!(
+pub static js_async_generator_function_proto_funcs: [FieldDef; 1] = [FieldDef::STR(
     "[Symbol.toStringTag]",
     "AsyncGeneratorFunction",
-    JS_PROP_CONFIGURABLE
+    JS_PROP_CONFIGURABLE,
 )];

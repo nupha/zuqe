@@ -1,5 +1,4 @@
 use crate::{
-    JS_CFUNC_NATIVE_DEF, JS_OBJECT_DEF, JS_PROP_STRING_DEF,
     atom::Atom,
     context::{ContextImpl, ContextRef},
     error::JSResult,
@@ -80,13 +79,13 @@ fn js_json_parse(ctx: ContextRef, cc: CallContext) -> JSResult {
 }
 
 static js_json_funcs: [FieldDef; 3] = [
-    JS_CFUNC_NATIVE_DEF!("parse", 2, js_json_parse, 0),
-    JS_CFUNC_NATIVE_DEF!("stringify", 3, js_json_stringify, 0),
-    JS_PROP_STRING_DEF!("[Symbol.toStringTag]", "JSON", JS_PROP_CONFIGURABLE),
+    FieldDef::FUNCTION("parse", 2, js_json_parse, 0),
+    FieldDef::FUNCTION("stringify", 3, js_json_stringify, 0),
+    FieldDef::STR("[Symbol.toStringTag]", "JSON", JS_PROP_CONFIGURABLE),
 ];
 
-pub static js_json_obj: [FieldDef; 1] = [JS_OBJECT_DEF!(
+pub static js_json_obj: [FieldDef; 1] = [FieldDef::OBJECT(
     "JSON",
     &js_json_funcs,
-    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE
+    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
 )];

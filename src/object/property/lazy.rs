@@ -4,7 +4,7 @@ use crate::{
     atom::Atom,
     context::{ContextImpl, ContextRef},
     error::JSResult,
-    function::{FieldDef, NativeFieldDetail},
+    function::{FieldDef, FieldDetail},
     module::ModuleDef,
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_LAZYINIT, JS_PROP_TMASK, JS_PROP_WRITABLE,
@@ -46,11 +46,11 @@ impl LazyInit {
             Self::Prop(field) => {
                 let field = unsafe { field.as_ref() };
                 let val: JSValue = match &field.detail {
-                    NativeFieldDetail::Func { handler, length } => ctx
+                    FieldDetail::Func { handler, length } => ctx
                         .create_native_function(*handler, field.name, *length, field.magic)?
                         .into(),
-                    NativeFieldDetail::Str(s) => ctx.create_atom_string(s)?.into(),
-                    NativeFieldDetail::Object(list) => {
+                    FieldDetail::Str(s) => ctx.create_atom_string(s)?.into(),
+                    FieldDetail::Object(list) => {
                         let mut obj = ctx.create_base_object()?;
                         obj.install_field_defs(ctx, list.as_ref())?;
                         obj.into()

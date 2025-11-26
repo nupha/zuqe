@@ -2,7 +2,6 @@ use std::ffi::c_void;
 
 use once_cell::unsync::Lazy;
 use zhuque::{
-    JS_CGETSET_NATIVE_DEF,
     class::{ClassDef, ClassID},
     context::ContextRef,
     error::JSResult,
@@ -42,8 +41,8 @@ fn point_getset(_: ContextRef, cc: CallContext) -> JSResult {
 }
 
 static class_point_proto: [FieldDef; 2] = [
-    JS_CGETSET_NATIVE_DEF!("x", point_getset, NONE, 0),
-    JS_CGETSET_NATIVE_DEF!("y", point_getset, NONE, 1),
+    FieldDef::GETSET("x", Some(point_getset), None, 0),
+    FieldDef::GETSET("y", Some(point_getset), None, 1),
 ];
 
 thread_local! {

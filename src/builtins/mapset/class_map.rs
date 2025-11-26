@@ -1,7 +1,7 @@
 use std::ops::Deref;
 
 use crate::{
-    JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_MAP, JS_PROP_STRING_DEF,
+    JS_ALIAS_DEF, JS_CLASS_MAP,
     atom::Atom,
     builtins::{iterator::JSIteratorKindEnum, js_get_this},
     class::ClassID,
@@ -266,80 +266,72 @@ fn js_create_map_iterator(ctx: ContextRef, cc: CallContext) -> JSResult {
 }
 
 pub static js_map_proto_funcs: [FieldDef; 12] = [
-    JS_CFUNC_NATIVE_DEF!("set", 2, js_map_set, 0),
-    JS_CFUNC_NATIVE_DEF!("get", 1, js_map_get, 0),
-    JS_CFUNC_NATIVE_DEF!("has", 1, js_map_has, 0),
-    JS_CFUNC_NATIVE_DEF!("delete", 1, js_map_delete, 0),
-    JS_CFUNC_NATIVE_DEF!("clear", 0, js_map_clear, 0),
-    JS_CGETSET_NATIVE_DEF!("size", js_map_get_size, NONE, 0),
-    JS_CFUNC_NATIVE_DEF!("forEach", 1, js_map_forEach, 0),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION("set", 2, js_map_set, 0),
+    FieldDef::FUNCTION("get", 1, js_map_get, 0),
+    FieldDef::FUNCTION("has", 1, js_map_has, 0),
+    FieldDef::FUNCTION("delete", 1, js_map_delete, 0),
+    FieldDef::FUNCTION("clear", 0, js_map_clear, 0),
+    FieldDef::GETSET("size", Some(js_map_get_size), None, 0),
+    FieldDef::FUNCTION("forEach", 1, js_map_forEach, 0),
+    FieldDef::FUNCTION(
         "values",
         0,
         js_create_map_iterator,
-        (JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16) << 2
+        (JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16) << 2,
     ),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION(
         "keys",
         0,
         js_create_map_iterator,
-        (JSIteratorKindEnum::JS_ITERATOR_KIND_KEY as i16) << 2
+        (JSIteratorKindEnum::JS_ITERATOR_KIND_KEY as i16) << 2,
     ),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION(
         "entries",
         0,
         js_create_map_iterator,
-        (JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE as i16) << 2
+        (JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE as i16) << 2,
     ),
     JS_ALIAS_DEF!("[Symbol.iterator]", "entries"),
-    JS_PROP_STRING_DEF!("[Symbol.toStringTag]", "Map", JS_PROP_CONFIGURABLE as i16),
+    FieldDef::STR("[Symbol.toStringTag]", "Map", JS_PROP_CONFIGURABLE),
 ];
 
 pub static js_set_proto_funcs: [FieldDef; 11] = [
-    JS_CFUNC_NATIVE_DEF!("add", 1, js_map_set, 1),
-    JS_CFUNC_NATIVE_DEF!("has", 1, js_map_has, 1),
-    JS_CFUNC_NATIVE_DEF!("delete", 1, js_map_delete, 1),
-    JS_CFUNC_NATIVE_DEF!("clear", 0, js_map_clear, 1),
-    JS_CGETSET_NATIVE_DEF!("size", js_map_get_size, NONE, 1),
-    JS_CFUNC_NATIVE_DEF!("forEach", 1, js_map_forEach, 1),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION("add", 1, js_map_set, 1),
+    FieldDef::FUNCTION("has", 1, js_map_has, 1),
+    FieldDef::FUNCTION("delete", 1, js_map_delete, 1),
+    FieldDef::FUNCTION("clear", 0, js_map_clear, 1),
+    FieldDef::GETSET("size", Some(js_map_get_size), None, 1),
+    FieldDef::FUNCTION("forEach", 1, js_map_forEach, 1),
+    FieldDef::FUNCTION(
         "values",
         0,
         js_create_map_iterator,
-        ((JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16) << 2) | 1
+        ((JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16) << 2) | 1,
     ),
     JS_ALIAS_DEF!("keys", "values"),
     JS_ALIAS_DEF!("[Symbol.iterator]", "values"),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION(
         "entries",
         0,
         js_create_map_iterator,
-        ((JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE as i16) << 2) | 1
+        ((JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE as i16) << 2) | 1,
     ),
-    JS_PROP_STRING_DEF!("[Symbol.toStringTag]", "Set", JS_PROP_CONFIGURABLE as i16),
+    FieldDef::STR("[Symbol.toStringTag]", "Set", JS_PROP_CONFIGURABLE),
 ];
 
 pub static js_weakmap_proto_funcs: [FieldDef; 5] = [
-    JS_CFUNC_NATIVE_DEF!("set", 2, js_map_set, 2),
-    JS_CFUNC_NATIVE_DEF!("get", 1, js_map_get, 2),
-    JS_CFUNC_NATIVE_DEF!("has", 1, js_map_has, 2),
-    JS_CFUNC_NATIVE_DEF!("delete", 1, js_map_delete, 2),
-    JS_PROP_STRING_DEF!(
-        "[Symbol.toStringTag]",
-        "WeakMap",
-        JS_PROP_CONFIGURABLE as i16
-    ),
+    FieldDef::FUNCTION("set", 2, js_map_set, 2),
+    FieldDef::FUNCTION("get", 1, js_map_get, 2),
+    FieldDef::FUNCTION("has", 1, js_map_has, 2),
+    FieldDef::FUNCTION("delete", 1, js_map_delete, 2),
+    FieldDef::STR("[Symbol.toStringTag]", "WeakMap", JS_PROP_CONFIGURABLE),
 ];
 
 pub static js_weakset_proto_funcs: [FieldDef; 4] = [
-    JS_CFUNC_NATIVE_DEF!("add", 1, js_map_set, 3),
-    JS_CFUNC_NATIVE_DEF!("has", 1, js_map_has, 3),
-    JS_CFUNC_NATIVE_DEF!("delete", 1, js_map_delete, 3),
-    JS_PROP_STRING_DEF!(
-        "[Symbol.toStringTag]",
-        "WeakSet",
-        JS_PROP_CONFIGURABLE as i16
-    ),
+    FieldDef::FUNCTION("add", 1, js_map_set, 3),
+    FieldDef::FUNCTION("has", 1, js_map_has, 3),
+    FieldDef::FUNCTION("delete", 1, js_map_delete, 3),
+    FieldDef::STR("[Symbol.toStringTag]", "WeakSet", JS_PROP_CONFIGURABLE),
 ];
 
 fn js_map_groupBy(ctx: ContextRef, cc: CallContext) -> JSResult {
@@ -387,13 +379,13 @@ fn js_map_groupBy(ctx: ContextRef, cc: CallContext) -> JSResult {
 }
 
 pub static js_map_funcs: [FieldDef; 2] = [
-    JS_CFUNC_NATIVE_DEF!("groupBy", 2, js_map_groupBy, 0),
-    JS_CGETSET_NATIVE_DEF!("[Symbol.species]", js_get_this, NONE, 0),
+    FieldDef::FUNCTION("groupBy", 2, js_map_groupBy, 0),
+    FieldDef::GETSET("[Symbol.species]", Some(js_get_this), None, 0),
 ];
 
-pub static js_set_funcs: [FieldDef; 1] = [JS_CGETSET_NATIVE_DEF!(
+pub static js_set_funcs: [FieldDef; 1] = [FieldDef::GETSET(
     "[Symbol.species]",
-    js_get_this,
-    NONE,
-    0
+    Some(js_get_this),
+    None,
+    0,
 )];

@@ -1,5 +1,5 @@
 use crate::{
-    JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_PROMISE, JS_PROP_STRING_DEF,
+    JS_CLASS_PROMISE,
     atom::Atom,
     builtins::{error::js_aggregate_error_constructor, js_get_this},
     context::{ContextImpl, ContextRef},
@@ -356,19 +356,19 @@ pub fn js_promise_withResolvers(ctx: ContextRef, cc: CallContext) -> JSResult {
 }
 
 pub static js_promise_funcs: [FieldDef; 8] = [
-    JS_CFUNC_NATIVE_DEF!("resolve", 1, js_promise_resolve, 0),
-    JS_CFUNC_NATIVE_DEF!("reject", 1, js_promise_resolve, 1),
-    JS_CFUNC_NATIVE_DEF!("all", 1, js_promise_all, PROMISE_MAGIC_all as _),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION("resolve", 1, js_promise_resolve, 0),
+    FieldDef::FUNCTION("reject", 1, js_promise_resolve, 1),
+    FieldDef::FUNCTION("all", 1, js_promise_all, PROMISE_MAGIC_all as _),
+    FieldDef::FUNCTION(
         "allSettled",
         1,
         js_promise_all,
-        PROMISE_MAGIC_allSettled as _
+        PROMISE_MAGIC_allSettled as _,
     ),
-    JS_CFUNC_NATIVE_DEF!("any", 1, js_promise_all, PROMISE_MAGIC_any as _),
-    JS_CFUNC_NATIVE_DEF!("race", 1, js_promise_race, 0),
-    JS_CFUNC_NATIVE_DEF!("withResolvers", 0, js_promise_withResolvers, 0),
-    JS_CGETSET_NATIVE_DEF!("[Symbol.species]", js_get_this, NONE, 0),
+    FieldDef::FUNCTION("any", 1, js_promise_all, PROMISE_MAGIC_any as _),
+    FieldDef::FUNCTION("race", 1, js_promise_race, 0),
+    FieldDef::FUNCTION("withResolvers", 0, js_promise_withResolvers, 0),
+    FieldDef::GETSET("[Symbol.species]", Some(js_get_this), None, 0),
 ];
 
 //
@@ -384,8 +384,8 @@ pub static js_promise_funcs: [FieldDef; 8] = [
 // }
 
 pub static js_promise_proto_funcs: [FieldDef; 4] = [
-    JS_CFUNC_NATIVE_DEF!("then", 2, js_promise_then, 0),
-    JS_CFUNC_NATIVE_DEF!("catch", 1, js_promise_catch, 0),
-    JS_CFUNC_NATIVE_DEF!("finally", 1, js_promise_finally, 0),
-    JS_PROP_STRING_DEF!("[Symbol.toStringTag]", "Promise", JS_PROP_CONFIGURABLE),
+    FieldDef::FUNCTION("then", 2, js_promise_then, 0),
+    FieldDef::FUNCTION("catch", 1, js_promise_catch, 0),
+    FieldDef::FUNCTION("finally", 1, js_promise_finally, 0),
+    FieldDef::STR("[Symbol.toStringTag]", "Promise", JS_PROP_CONFIGURABLE),
 ];

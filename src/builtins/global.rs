@@ -1,5 +1,5 @@
 use crate::{
-    JS_CFUNC_NATIVE_DEF, JS_PROP_DOUBLE_DEF, JS_PROP_UNDEFINED_DEF,
+    JS_PROP_DOUBLE_DEF, JS_PROP_UNDEFINED_DEF,
     builtins::number::{js_parseFloat, js_parseInt},
     context::ContextRef,
     error::JSResult,
@@ -148,17 +148,17 @@ fn js_global_decodeURI(ctx: ContextRef, cc: CallContext) -> JSResult {
 
 // global objects
 pub static js_global_props: [FieldDef; 9] = [
-    JS_CFUNC_NATIVE_DEF!("parseInt", 2, js_parseInt, 0),
-    JS_CFUNC_NATIVE_DEF!("parseFloat", 1, js_parseFloat, 0),
-    JS_CFUNC_NATIVE_DEF!("isNaN", 1, js_global_isNaN_isFinite, MAGIC_NUM_IS_NAN as _),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION("parseInt", 2, js_parseInt, 0),
+    FieldDef::FUNCTION("parseFloat", 1, js_parseFloat, 0),
+    FieldDef::FUNCTION("isNaN", 1, js_global_isNaN_isFinite, MAGIC_NUM_IS_NAN as _),
+    FieldDef::FUNCTION(
         "isFinite",
         1,
         js_global_isNaN_isFinite,
-        MAGIC_NUM_IS_FINITE as _
+        MAGIC_NUM_IS_FINITE as _,
     ),
-    JS_CFUNC_NATIVE_DEF!("decodeURI", 1, js_global_decodeURI, 0),
-    JS_CFUNC_NATIVE_DEF!("decodeURIComponent", 1, js_global_decodeURI, 1),
+    FieldDef::FUNCTION("decodeURI", 1, js_global_decodeURI, 0),
+    FieldDef::FUNCTION("decodeURIComponent", 1, js_global_decodeURI, 1),
     // JS_CFUNC_MAGIC_DEF("encodeURI", 1, js_global_encodeURI, 0),
     // JS_CFUNC_MAGIC_DEF("encodeURIComponent", 1, js_global_encodeURI, 1),
     // JS_CFUNC_DEF("escape", 1, js_global_escape),

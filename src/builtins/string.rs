@@ -4,8 +4,7 @@ use unicode_normalization::UnicodeNormalization;
 use widestring::U16Str;
 
 use crate::{
-    JS_ALIAS_DEF, JS_CFUNC_NATIVE_DEF, JS_CLASS_STRING_ITERATOR, JS_NATIVE_ITERATOR_NEXT_DEF,
-    JS_PROP_INT32_DEF, JS_PROP_STRING_DEF,
+    JS_ALIAS_DEF, JS_CLASS_STRING_ITERATOR,
     atom::Atom,
     builtins::iterator::{JSIteratorKindEnum, js_create_array_iterator},
     context::{ContextImpl, ContextRef},
@@ -913,64 +912,64 @@ fn js_string_normalize(ctx: ContextRef, cc: CallContext) -> JSResult {
 }
 
 pub static js_string_proto_funcs: [FieldDef; 39] = [
-    JS_PROP_INT32_DEF!("length", 0, JS_PROP_CONFIGURABLE),
-    JS_CFUNC_NATIVE_DEF!("charAt", 1, js_string_at, 0),
-    JS_CFUNC_NATIVE_DEF!("at", 1, js_string_at, 1),
-    JS_CFUNC_NATIVE_DEF!("charCodeAt", 1, js_string_at, 2),
-    JS_CFUNC_NATIVE_DEF!("concat", 1, js_string_concat, 0),
-    JS_CFUNC_NATIVE_DEF!("codePointAt", 1, js_string_codePointAt, 0),
-    JS_CFUNC_NATIVE_DEF!("isWellFormed", 0, js_string_isWellFormed, 0),
-    JS_CFUNC_NATIVE_DEF!("toWellFormed", 0, js_string_toWellFormed, 0),
-    JS_CFUNC_NATIVE_DEF!("indexOf", 1, js_string_indexOf, 0),
-    JS_CFUNC_NATIVE_DEF!("lastIndexOf", 1, js_string_indexOf, 1),
-    JS_CFUNC_NATIVE_DEF!("includes", 1, js_string_includes, MAGIC_INCLUDES as _),
-    JS_CFUNC_NATIVE_DEF!("endsWith", 1, js_string_includes, MAGIC_ENDS_WITH as _),
-    JS_CFUNC_NATIVE_DEF!("startsWith", 1, js_string_includes, MAGIC_STARTS_WITH as _),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::INT32("length", 0, JS_PROP_CONFIGURABLE),
+    FieldDef::FUNCTION("charAt", 1, js_string_at, 0),
+    FieldDef::FUNCTION("at", 1, js_string_at, 1),
+    FieldDef::FUNCTION("charCodeAt", 1, js_string_at, 2),
+    FieldDef::FUNCTION("concat", 1, js_string_concat, 0),
+    FieldDef::FUNCTION("codePointAt", 1, js_string_codePointAt, 0),
+    FieldDef::FUNCTION("isWellFormed", 0, js_string_isWellFormed, 0),
+    FieldDef::FUNCTION("toWellFormed", 0, js_string_toWellFormed, 0),
+    FieldDef::FUNCTION("indexOf", 1, js_string_indexOf, 0),
+    FieldDef::FUNCTION("lastIndexOf", 1, js_string_indexOf, 1),
+    FieldDef::FUNCTION("includes", 1, js_string_includes, MAGIC_INCLUDES as _),
+    FieldDef::FUNCTION("endsWith", 1, js_string_includes, MAGIC_ENDS_WITH as _),
+    FieldDef::FUNCTION("startsWith", 1, js_string_includes, MAGIC_STARTS_WITH as _),
+    FieldDef::FUNCTION(
         "match",
         1,
         js_string_match,
-        Atom::CONST_Symbol_match.id() as _
+        Atom::CONST_Symbol_match.id() as _,
     ),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION(
         "matchAll",
         1,
         js_string_match,
-        Atom::CONST_Symbol_matchAll.id() as _
+        Atom::CONST_Symbol_matchAll.id() as _,
     ),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION(
         "search",
         1,
         js_string_match,
-        Atom::CONST_Symbol_search.id() as _
+        Atom::CONST_Symbol_search.id() as _,
     ),
-    JS_CFUNC_NATIVE_DEF!("split", 2, js_string_split, 0),
-    JS_CFUNC_NATIVE_DEF!("substring", 2, js_string_substring, 0),
-    JS_CFUNC_NATIVE_DEF!("substr", 2, js_string_substr, 0),
-    JS_CFUNC_NATIVE_DEF!("slice", 2, js_string_slice, 0),
-    JS_CFUNC_NATIVE_DEF!("repeat", 1, js_string_repeat, 0),
-    JS_CFUNC_NATIVE_DEF!("replace", 2, js_string_replace, 0),
-    JS_CFUNC_NATIVE_DEF!("replaceAll", 2, js_string_replace, 1),
-    JS_CFUNC_NATIVE_DEF!("padEnd", 1, js_string_pad, 1),
-    JS_CFUNC_NATIVE_DEF!("padStart", 1, js_string_pad, 0),
-    JS_CFUNC_NATIVE_DEF!("trim", 0, js_string_trim, 3),
-    JS_CFUNC_NATIVE_DEF!("trimEnd", 0, js_string_trim, 2),
+    FieldDef::FUNCTION("split", 2, js_string_split, 0),
+    FieldDef::FUNCTION("substring", 2, js_string_substring, 0),
+    FieldDef::FUNCTION("substr", 2, js_string_substr, 0),
+    FieldDef::FUNCTION("slice", 2, js_string_slice, 0),
+    FieldDef::FUNCTION("repeat", 1, js_string_repeat, 0),
+    FieldDef::FUNCTION("replace", 2, js_string_replace, 0),
+    FieldDef::FUNCTION("replaceAll", 2, js_string_replace, 1),
+    FieldDef::FUNCTION("padEnd", 1, js_string_pad, 1),
+    FieldDef::FUNCTION("padStart", 1, js_string_pad, 0),
+    FieldDef::FUNCTION("trim", 0, js_string_trim, 3),
+    FieldDef::FUNCTION("trimEnd", 0, js_string_trim, 2),
     JS_ALIAS_DEF!("trimRight", "trimEnd"),
-    JS_CFUNC_NATIVE_DEF!("trimStart", 0, js_string_trim, 1),
+    FieldDef::FUNCTION("trimStart", 0, js_string_trim, 1),
     JS_ALIAS_DEF!("trimLeft", "trimStart"),
-    JS_CFUNC_NATIVE_DEF!("toString", 0, js_string_toString, 0),
-    JS_CFUNC_NATIVE_DEF!("valueOf", 0, js_string_toString, 0),
-    JS_CFUNC_NATIVE_DEF!("localeCompare", 1, js_string_localeCompare, 0),
-    JS_CFUNC_NATIVE_DEF!("toLowerCase", 0, js_string_toLowerCase, 1),
-    JS_CFUNC_NATIVE_DEF!("toUpperCase", 0, js_string_toLowerCase, 0),
-    JS_CFUNC_NATIVE_DEF!("toLocaleLowerCase", 0, js_string_toLowerCase, 1),
-    JS_CFUNC_NATIVE_DEF!("toLocaleUpperCase", 0, js_string_toLowerCase, 0),
-    JS_CFUNC_NATIVE_DEF!("normalize", 0, js_string_normalize, 0),
-    JS_CFUNC_NATIVE_DEF!(
+    FieldDef::FUNCTION("toString", 0, js_string_toString, 0),
+    FieldDef::FUNCTION("valueOf", 0, js_string_toString, 0),
+    FieldDef::FUNCTION("localeCompare", 1, js_string_localeCompare, 0),
+    FieldDef::FUNCTION("toLowerCase", 0, js_string_toLowerCase, 1),
+    FieldDef::FUNCTION("toUpperCase", 0, js_string_toLowerCase, 0),
+    FieldDef::FUNCTION("toLocaleLowerCase", 0, js_string_toLowerCase, 1),
+    FieldDef::FUNCTION("toLocaleUpperCase", 0, js_string_toLowerCase, 0),
+    FieldDef::FUNCTION("normalize", 0, js_string_normalize, 0),
+    FieldDef::FUNCTION(
         "[Symbol.iterator]",
         0,
         js_create_array_iterator,
-        (JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16) | 4
+        (JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16) | 4,
     ),
     // ES6 Annex B 2.3.2 etc.
     // JS_CFUNC_MAGIC_DEF("anchor", 1, js_string_CreateHTML, magic_string_anchor),
@@ -1026,11 +1025,11 @@ fn js_string_iterator_next(
 }
 
 pub static js_string_iterator_proto_funcs: [FieldDef; 2] = [
-    JS_NATIVE_ITERATOR_NEXT_DEF!("next", 0, js_string_iterator_next, 0),
-    JS_PROP_STRING_DEF!(
+    FieldDef::ITERATOR_NEXT("next", 0, js_string_iterator_next, 0),
+    FieldDef::STR(
         "[Symbol.toStringTag]",
         "String Iterator",
-        JS_PROP_CONFIGURABLE
+        JS_PROP_CONFIGURABLE,
     ),
 ];
 
@@ -1127,7 +1126,7 @@ pub fn js_string_raw(ctx: ContextRef, cc: CallContext) -> JSResult {
 }
 
 pub const js_string_funcs: [FieldDef; 3] = [
-    JS_CFUNC_NATIVE_DEF!("fromCharCode", 1, js_string_fromCharCode, 0),
-    JS_CFUNC_NATIVE_DEF!("fromCodePoint", 1, js_string_fromCodePoint, 0),
-    JS_CFUNC_NATIVE_DEF!("raw", 1, js_string_raw, 0),
+    FieldDef::FUNCTION("fromCharCode", 1, js_string_fromCharCode, 0),
+    FieldDef::FUNCTION("fromCodePoint", 1, js_string_fromCodePoint, 0),
+    FieldDef::FUNCTION("raw", 1, js_string_raw, 0),
 ];

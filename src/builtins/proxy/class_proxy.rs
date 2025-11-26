@@ -1,5 +1,4 @@
 use crate::{
-    JS_CFUNC_NATIVE_DEF,
     atom::Atom,
     context::ContextRef,
     error::JSResult,
@@ -61,4 +60,4 @@ fn js_proxy_revocable(ctx: ContextRef, cc: CallContext) -> JSResult {
 }
 
 pub static js_proxy_funcs: [FieldDef; 1] =
-    [JS_CFUNC_NATIVE_DEF!("revocable", 2, js_proxy_revocable, 0)];
+    [FieldDef::FUNCTION("revocable", 2, js_proxy_revocable, 0)];

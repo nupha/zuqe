@@ -1,5 +1,5 @@
 use crate::{
-    JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_SYMBOL, JS_PROP_STRING_DEF,
+    JS_CLASS_SYMBOL,
     atom::{Atom, AtomKind},
     context::{ContextImpl, ContextRef},
     error::JSResult,
@@ -126,12 +126,12 @@ pub fn js_symbol_get_description(ctx: ContextRef, cc: CallContext) -> JSResult {
 }
 
 pub static js_symbol_proto_funcs: [FieldDef; 5] = [
-    JS_CFUNC_NATIVE_DEF!("toString", 0, js_symbol_toString, 0),
-    JS_CFUNC_NATIVE_DEF!("valueOf", 0, js_symbol_valueOf, 0),
+    FieldDef::FUNCTION("toString", 0, js_symbol_toString, 0),
+    FieldDef::FUNCTION("valueOf", 0, js_symbol_valueOf, 0),
     // XXX: should have writable: false
-    JS_CFUNC_NATIVE_DEF!("[Symbol.toPrimitive]", 1, js_symbol_valueOf, 0),
-    JS_PROP_STRING_DEF!("[Symbol.toStringTag]", "Symbol", JS_PROP_CONFIGURABLE),
-    JS_CGETSET_NATIVE_DEF!("description", js_symbol_get_description, NONE, 0),
+    FieldDef::FUNCTION("[Symbol.toPrimitive]", 1, js_symbol_valueOf, 0),
+    FieldDef::STR("[Symbol.toStringTag]", "Symbol", JS_PROP_CONFIGURABLE),
+    FieldDef::GETSET("description", Some(js_symbol_get_description), None, 0),
 ];
 
 fn js_symbol_for(ctx: ContextRef, cc: CallContext) -> JSResult {
@@ -154,6 +154,6 @@ fn js_symbol_keyFor(ctx: ContextRef, cc: CallContext) -> JSResult {
 }
 
 pub static js_symbol_funcs: [FieldDef; 2] = [
-    JS_CFUNC_NATIVE_DEF!("for", 1, js_symbol_for, 0),
-    JS_CFUNC_NATIVE_DEF!("keyFor", 1, js_symbol_keyFor, 0),
+    FieldDef::FUNCTION("for", 1, js_symbol_for, 0),
+    FieldDef::FUNCTION("keyFor", 1, js_symbol_keyFor, 0),
 ];

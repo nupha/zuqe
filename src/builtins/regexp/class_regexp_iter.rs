@@ -1,7 +1,7 @@
 use std::ops::Deref;
 
 use crate::{
-    JS_CLASS_REGEXP_STRING_ITERATOR, JS_ITERATOR_NEXT_DEF, JS_PROP_STRING_DEF,
+    JS_CLASS_REGEXP_STRING_ITERATOR, JS_ITERATOR_NEXT_DEF,
     atom::Atom,
     context::ContextRef,
     error::JSResult,
@@ -74,9 +74,9 @@ fn js_regexp_string_iterator_next(
 
 pub static js_regexp_string_iterator_proto_funcs: [FieldDef; 2] = [
     JS_ITERATOR_NEXT_DEF!("next", 0, js_regexp_string_iterator_next, 0),
-    JS_PROP_STRING_DEF!(
+    FieldDef::STR(
         "[Symbol.toStringTag]",
         "RegExp String Iterator",
-        JS_PROP_CONFIGURABLE
+        JS_PROP_CONFIGURABLE,
     ),
 ];

@@ -255,7 +255,7 @@ macro_rules! JS_CFUNC_NATIVE_DEF {
     ($name:expr, $length:expr, $func:expr, $magic:expr) => {
         $crate::function::FieldDef {
             name: $name,
-            detail: $crate::function::NativeFieldDetail::Func {
+            detail: $crate::function::FieldDetail::Func {
                 handler: $crate::function::NativeFunctionType::Func($func),
                 length: $length,
             },
@@ -271,7 +271,7 @@ macro_rules! JS_CGETSET_NATIVE_DEF {
     ($name:expr, $getter:expr, NONE, $magic:expr) => {
         $crate::function::FieldDef {
             name: $name,
-            detail: $crate::function::NativeFieldDetail::GetSet {
+            detail: $crate::function::FieldDetail::GetSet {
                 get: Some($crate::function::NativeFunctionType::Getter($getter)),
                 set: None,
             },
@@ -283,7 +283,7 @@ macro_rules! JS_CGETSET_NATIVE_DEF {
     ($name:expr, NONE, $setter:expr, $magic:expr) => {
         $crate::function::FieldDef {
             name: $name,
-            detail: $crate::function::NativeFieldDetail::GetSet {
+            detail: $crate::function::FieldDetail::GetSet {
                 get: NONE,
                 set: Some($crate::function::NativeFunctionType::Setter($setter)),
             },
@@ -295,7 +295,7 @@ macro_rules! JS_CGETSET_NATIVE_DEF {
     ($name:expr, $getter:expr, $setter:expr, $magic:expr) => {
         $crate::function::FieldDef {
             name: $name,
-            detail: $crate::function::NativeFieldDetail::GetSet {
+            detail: $crate::function::FieldDetail::GetSet {
                 get: Some($crate::function::NativeFunctionType::Getter($getter)),
                 set: Some($crate::function::NativeFunctionType::Setter($setter)),
             },
@@ -310,7 +310,7 @@ macro_rules! JS_NATIVE_ITERATOR_NEXT_DEF {
     ($name:expr, $length:expr, $callback:expr, $magic:expr) => {
         $crate::function::FieldDef {
             name: $name,
-            detail: $crate::function::NativeFieldDetail::Func {
+            detail: $crate::function::FieldDetail::Func {
                 handler: $crate::function::NativeFunctionType::IteratorNext($callback),
                 length: $length,
             },
@@ -352,7 +352,7 @@ macro_rules! JS_CFUNC_FF_DEF {
     ($name:expr, $length:expr, $func:expr, $magic:expr) => {
         $crate::function::FieldDef {
             name: $name,
-            detail: $crate::function::NativeFieldDetail::Func {
+            detail: $crate::function::FieldDetail::Func {
                 handler: $crate::function::NativeFunctionType::FF($func),
                 length: $length,
             },
@@ -368,7 +368,7 @@ macro_rules! JS_CFUNC_FFF_DEF {
     ($name:expr, $length:expr, $func:expr, $magic:expr) => {
         $crate::function::FieldDef {
             name: $name,
-            detail: $crate::function::NativeFieldDetail::Func {
+            detail: $crate::function::FieldDetail::Func {
                 handler: $crate::function::NativeFunctionType::FFF($func),
                 length: $length,
             },
@@ -387,7 +387,7 @@ macro_rules! JS_ITERATOR_NEXT_DEF {
             prop_flags: ($crate::object::JS_PROP_WRITABLE | $crate::object::JS_PROP_CONFIGURABLE)
                 as u8,
             magic: $magic,
-            detail: $crate::function::NativeFieldDetail::Func {
+            detail: $crate::function::FieldDetail::Func {
                 handler: $crate::function::NativeFunctionType::IteratorNext($func),
                 length: $length,
             },
@@ -401,7 +401,7 @@ macro_rules! JS_PROP_STRING_DEF {
         $crate::function::FieldDef {
             name: $name,
             prop_flags: $prop_flags as u8,
-            detail: $crate::function::NativeFieldDetail::Str($str),
+            detail: $crate::function::FieldDetail::Str($str),
             magic: 0,
         }
     };
@@ -412,7 +412,7 @@ macro_rules! JS_PROP_INT32_DEF {
     ($name:expr, $val:expr, $prop_flags:expr) => {
         $crate::function::FieldDef {
             name: $name,
-            detail: $crate::function::NativeFieldDetail::Int32($val),
+            detail: $crate::function::FieldDetail::Int32($val),
             prop_flags: $prop_flags as u8,
             magic: 0,
         }
@@ -424,7 +424,7 @@ macro_rules! JS_ALIAS_DEF {
     ($name:expr, $from:expr) => {
         $crate::function::FieldDef {
             name: $name,
-            detail: $crate::function::NativeFieldDetail::Alias {
+            detail: $crate::function::FieldDetail::Alias {
                 name: $from,
                 base: -1,
             },
@@ -440,7 +440,7 @@ macro_rules! JS_PROP_DOUBLE_DEF {
     ($name:expr, $val:expr, $flags:expr) => {
         $crate::function::FieldDef {
             name: $name,
-            detail: $crate::function::NativeFieldDetail::Float64($val),
+            detail: $crate::function::FieldDetail::Float64($val),
             prop_flags: $flags as u8,
             magic: 0,
         }
@@ -452,7 +452,7 @@ macro_rules! JS_PROP_UNDEFINED_DEF {
     ($name:expr, $flags:expr) => {
         $crate::function::FieldDef {
             name: $name,
-            detail: $crate::function::NativeFieldDetail::Undefined,
+            detail: $crate::function::FieldDetail::Undefined,
             prop_flags: $flags as u8,
             magic: 0,
         }
@@ -465,7 +465,7 @@ macro_rules! JS_OBJECT_DEF {
     ($name:expr, $props:expr, $flags:expr) => {
         $crate::function::FieldDef {
             name: $name,
-            detail: $crate::function::NativeFieldDetail::Object(std::borrow::Cow::Borrowed($props)),
+            detail: $crate::function::FieldDetail::Object(std::borrow::Cow::Borrowed($props)),
             prop_flags: $flags as u8,
             magic: 0,
         }
@@ -477,7 +477,7 @@ macro_rules! JS_ALIAS_BASE_DEF {
     ($name:expr, $from:expr, $base:expr) => {
         $crate::function::FieldDef {
             name: $name,
-            detail: $crate::function::NativeFieldDetail::Alias {
+            detail: $crate::function::FieldDetail::Alias {
                 name: $from,
                 base: $base,
             },

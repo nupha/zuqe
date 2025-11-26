@@ -3,7 +3,6 @@ use std::marker::PhantomData;
 use gc_lite::Collect;
 
 use crate::{
-    JS_CFUNC_NATIVE_DEF,
     atom::Atom,
     context::{ContextImpl, ContextRef},
     error::JSResult,
@@ -526,9 +525,9 @@ pub fn js_iterator_proto_iterator(_: ContextRef, cc: CallContext) -> JSResult {
     Ok(*cc.this())
 }
 
-pub static js_iterator_proto_funcs: [FieldDef; 1] = [JS_CFUNC_NATIVE_DEF!(
+pub static js_iterator_proto_funcs: [FieldDef; 1] = [FieldDef::FUNCTION(
     "[Symbol.iterator]",
     0,
     js_iterator_proto_iterator,
-    0
+    0,
 )];
