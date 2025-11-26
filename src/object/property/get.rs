@@ -272,7 +272,7 @@ impl ObjectRef {
     }
 
     pub fn get_property_str(&self, ctx: &ContextImpl, prop: &str) -> JSResult {
-        let atom = Atom::new(ctx.rt().as_ref(), prop)?;
+        let atom = Atom::new(&ctx.rt(), prop)?;
         self.get_property(ctx, atom)
     }
 

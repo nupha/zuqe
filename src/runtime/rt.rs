@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, ffi::c_void, pin::Pin, ptr::NonNull};
+use std::{ffi::c_void, pin::Pin, ptr::NonNull};
 
 use gc_lite::{GcHeap, PartitionId};
 
@@ -11,7 +11,7 @@ use crate::{
     builtins::{
         array_buffer::JSSharedArrayBufferFunctions,
         generator::{AsyncGeneratorFunction, js_generator_function_call},
-        promise::{JSHostPromiseRejectionTracker, Job, PromiseResolveFunc},
+        promise::{JSHostPromiseRejectionTracker, PromiseResolveFunc},
         proxy::{Proxy, js_proxy_exotic_methods},
         regexp::RegExpData,
     },
@@ -77,10 +77,6 @@ pub struct RuntimeImpl {
     /// list of living contexts
     pub(crate) context_list: Vec<ContextRef>,
 
-    /// runtime level queued jobs
-    #[deprecated]
-    pub(crate) job_list: VecDeque<Job>,
-
     /// gc heap
     pub(crate) gc_heap: GcHeap,
     /// gc partion id
@@ -142,7 +138,7 @@ impl RuntimeImpl {
             in_out_of_memory: false,
             interrupt_handler: None,
             host_promise_rejection_tracker: None,
-            job_list: VecDeque::with_capacity(8),
+
             module_normalize_func: None,
             module_loader_func: None,
             module_async_evaluation_next_timestamp: 0,
@@ -288,7 +284,6 @@ impl RuntimeImpl {
     fn finalize(&mut self) {
         self.cur_exception = JSValue::UNDEFINED;
         self.context_list.clear();
-        self.job_list.clear();
 
         // clear all shapes in registry,
         // don't bother shape drop trait to do unregister.

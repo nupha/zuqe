@@ -193,7 +193,7 @@ impl ModuleDefImpl {
 
     /// declare a module export name
     pub fn add_export(&mut self, ctx: &ContextImpl, export_name: &str) -> Result<(), i32> {
-        let atom = Atom::new(ctx.rt().as_ref(), export_name)?;
+        let atom = Atom::new(&ctx.rt(), export_name)?;
         self.add_export_internal(
             ctx,
             Atom::NULL,
@@ -238,7 +238,7 @@ impl ModuleDefImpl {
         export_name: &str,
         value: JSValue,
     ) -> Result<(), i32> {
-        let atom = Atom::new(ctx.rt().as_ref(), export_name)?;
+        let atom = Atom::new(&ctx.rt(), export_name)?;
 
         if let Some(me) = self.find_export(atom) {
             if let ExportType::JS_EXPORT_TYPE_LOCAL { var_ref, .. } = me.export_type {

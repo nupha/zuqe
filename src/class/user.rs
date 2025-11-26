@@ -138,7 +138,7 @@ impl ContextImpl {
     }
 
     pub fn use_class_name(&mut self, name: &str) -> Result<(), i32> {
-        let atom_name = Atom::from_str(self.rt().as_ref(), name, AtomKind::String)?;
+        let atom_name = Atom::from_str(&self.rt(), name, AtomKind::String)?;
 
         if let Some(id) = self
             .rt()

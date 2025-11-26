@@ -93,15 +93,3 @@ impl From<&RuntimeImpl> for RuntimePtr {
         Self(NonNull::from_ref(value))
     }
 }
-
-impl RuntimePtr {
-    #[inline(always)]
-    pub fn id(&self) -> usize {
-        self.0.as_ptr() as usize
-    }
-
-    #[inline(always)]
-    pub const fn as_ref(&self) -> &RuntimeImpl {
-        unsafe { self.0.as_ref() }
-    }
-}

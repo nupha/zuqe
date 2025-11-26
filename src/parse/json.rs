@@ -256,7 +256,7 @@ impl<'s> JSParseState<'s> {
                     loop {
                         let prop_name = if self.token.val == TOK_STRING {
                             Atom::from_str(
-                                self.ctx.rt().as_ref(),
+                                &self.ctx.rt(),
                                 &escape_str(&self.token.data.string().unwrap().to_utf8()),
                                 AtomKind::String,
                             )?

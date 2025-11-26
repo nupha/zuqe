@@ -495,7 +495,7 @@ impl ObjectRef {
         if (0..=u32::MAX as i64).contains(&idx) {
             self.set_property_u32(ctx, idx as u32, val)
         } else {
-            let atom = Atom::from_i64(ctx.rt().as_ref(), idx)?;
+            let atom = Atom::from_i64(&ctx.rt(), idx)?;
             self.set_property(ctx, atom, val)
         }
     }
@@ -593,7 +593,7 @@ impl JSValue {
         prop: &str,
         val: Self,
     ) -> Result<bool, i32> {
-        let atom = Atom::new(ctx.rt().as_ref(), prop)?;
+        let atom = Atom::new(&ctx.rt(), prop)?;
         self.set_property(ctx, atom, val)
     }
 }

@@ -345,7 +345,7 @@ impl StringRef {
 
 impl ContextImpl {
     pub fn create_atom_string(&self, str: &str) -> Result<StringRef, i32> {
-        let atom = Atom::new(self.rt().as_ref(), str)?;
+        let atom = Atom::new(&self.rt(), str)?;
         atom.force_string(self)
     }
 }

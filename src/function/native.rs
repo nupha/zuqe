@@ -384,7 +384,7 @@ impl ContextImpl {
         ));
 
         // define properties length and name on function.
-        let name_atom = Atom::new(self.rt().as_ref(), name)?;
+        let name_atom = Atom::new(&self.rt(), name)?;
         js_function_set_properties(self, func_obj, name_atom, length as i32);
 
         Ok(func_obj)

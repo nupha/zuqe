@@ -1,7 +1,7 @@
 use std::{borrow::Cow, ptr::NonNull};
 
 use crate::{
-    atom::{Atom, ATOM_CONST_COUNT},
+    atom::{ATOM_CONST_COUNT, Atom},
     context::ContextImpl,
     function::NativeFunctionType,
     object::{JS_PROP_CONFIGURABLE, LazyInit, ObjectRef},
@@ -196,6 +196,6 @@ impl ContextImpl {
             return Err(-1);
         }
 
-        Atom::new(self.rt().as_ref(), str)
+        Atom::new(&self.rt(), str)
     }
 }

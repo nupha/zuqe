@@ -252,7 +252,7 @@ impl ObjectRef {
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        let atom = Atom::new(ctx.rt().as_ref(), prop)?;
+        let atom = Atom::new(&ctx.rt(), prop)?;
         self.define_property_value(ctx, atom, val, flags)
     }
 

@@ -202,7 +202,7 @@ impl StringImpl {
             StringData::AsciiStatic(s) => StringRef::from_static(Some(rt), s, None),
             _ => {
                 debug_assert!(self.rt.is_some(), "can't copy const atom description");
-                StringRef::new(self.rt.unwrap().as_ref(), self.content().clone())
+                StringRef::new(&self.rt.unwrap(), self.content().clone())
             }
         }
     }
