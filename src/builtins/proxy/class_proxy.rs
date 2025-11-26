@@ -6,9 +6,10 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     object::{JS_PROP_C_W_E, ObjectPayload},
-    proxy::ProxyPayload,
     value::JSValue,
 };
+
+use super::ProxyPayload;
 
 pub fn js_proxy_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
     let Some(target) = cc.arg(0).as_object().copied() else {

@@ -125,7 +125,10 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|
         PayloadKey::Generator,
         "Box<crate::generator::GeneratorPayload>",
     );
-    m.insert(PayloadKey::Proxy, "Box<crate::proxy::ProxyPayload>");
+    m.insert(
+        PayloadKey::Proxy,
+        "Box<crate::builtins::proxy::ProxyPayload>",
+    );
     m.insert(PayloadKey::Promise, "Box<crate::promise::PromisePayload>");
     m.insert(
         PayloadKey::PromiseResolvingFunction,
@@ -424,7 +427,7 @@ static CLASS_DEF_LIST: Lazy<Vec<ClassInfo>> = Lazy::new(|| {
             "Object", // Proxy class name is Object
             "PROXY",
             PayloadKey::Proxy,
-            Some("crate::proxy::Proxy::class_initialize"),
+            Some("crate::builtins::proxy::Proxy::class_initialize"),
             None,
         ),
         //

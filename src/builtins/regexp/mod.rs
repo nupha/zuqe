@@ -1,5 +1,5 @@
+mod class_regexp;
+mod class_regexp_iter;
 mod re;
-mod regexp_class;
-mod regexp_iter_class;
 
-pub use {re::*, regexp_class::*, regexp_iter_class::*};
+pub use {class_regexp::*, class_regexp_iter::*, re::*};

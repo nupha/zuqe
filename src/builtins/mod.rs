@@ -6,6 +6,7 @@ pub mod function;
 pub mod global;
 pub mod math;
 pub mod object;
+pub mod proxy;
 pub mod regexp;
 pub mod string;
 pub mod typed_array;

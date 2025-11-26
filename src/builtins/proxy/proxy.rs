@@ -18,10 +18,11 @@ use crate::{
         check_define_prop_flags,
     },
     object_cast,
-    proxy::{js_proxy_constructor, js_proxy_funcs},
     runtime::js_check_stack_overflow,
     value::JSValue,
 };
+
+use super::{js_proxy_constructor, js_proxy_funcs};
 
 #[derive(Debug)]
 pub struct ProxyPayload {
