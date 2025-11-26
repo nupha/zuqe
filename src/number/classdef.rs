@@ -6,7 +6,7 @@ use crate::{
     context::{ContextImpl, ContextRef},
     error::JSResult,
     function::{CallContext, FieldDef},
-    js_core::global::{MAGIC_NUM_IS_FINITE, MAGIC_NUM_IS_NAN, js_global_isNaN_isFinite},
+    builtins::global::{MAGIC_NUM_IS_FINITE, MAGIC_NUM_IS_NAN, js_global_isNaN_isFinite},
     number::{
         JS_DTOA_FIXED_FORMAT, JS_DTOA_FORCE_EXP, JS_DTOA_FRAC_FORMAT, JS_DTOA_VAR_FORMAT,
         is_safe_integer,

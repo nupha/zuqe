@@ -1,13 +1,13 @@
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_OBJECT_DEF, JS_PROP_STRING_DEF,
+    builtins::object::{
+        js_object_defineProperty, js_object_getOwnPropertyDescriptor, js_object_getPrototypeOf,
+        js_object_isExtensible, js_object_preventExtensions,
+    },
     context::ContextRef,
     error::JSResult,
     function::{CallContext, FieldDef, JS_CallConstructor2, build_arg_list, js_function_apply},
     iterator::JSIteratorKindEnum,
-    js_core::object::{
-        js_object_defineProperty, js_object_getOwnPropertyDescriptor, js_object_getPrototypeOf,
-        js_object_isExtensible, js_object_preventExtensions,
-    },
     object::{JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
     value::JSValue,
 };

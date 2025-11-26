@@ -7,7 +7,7 @@ use crate::{
     context::ContextRef,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, FieldDef, JS_CallConstructor},
-    js_core::js_get_this,
+    builtins::js_get_this,
     object::{JS_PROP_CONFIGURABLE, JS_SpeciesConstructor},
     value::JSValue,
 };

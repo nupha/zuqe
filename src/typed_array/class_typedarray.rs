@@ -19,7 +19,7 @@ use crate::{
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, FieldDef, JS_CallConstructor},
     iterator::{JSIteratorKindEnum, js_create_array_iterator},
-    js_core::js_get_this,
+    builtins::js_get_this,
     number::JSFloat64Union,
     object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_SpeciesConstructor, ObjectRef},
     string::StringBuf,

@@ -6,7 +6,7 @@ use crate::{
     context::{ContextImpl, ContextRef},
     error::JSResult,
     function::{CallContext, FieldDef},
-    js_core::{error::js_aggregate_error_constructor, js_get_this},
+    builtins::{error::js_aggregate_error_constructor, js_get_this},
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_SpeciesConstructor},
     promise::Promise,
     value::JSValue,

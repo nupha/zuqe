@@ -11,7 +11,7 @@ use crate::{
     error::{ErrorKind, JSResult, STD_ERROR_NAMES},
     function::{BytecodeFunction, JSFunctionKindEnum, NativeFunctionType},
     generator::{js_generator_function_proto_funcs, js_generator_proto_funcs},
-    js_core::{
+    builtins::{
         boolean::{js_boolean_constructor, js_boolean_proto_funcs},
         error::js_error_constructor,
         function::js_function_proto_funcs,

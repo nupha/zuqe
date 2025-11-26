@@ -7,6 +7,7 @@
 pub mod array;
 pub mod array_buffer;
 pub mod atom;
+pub mod builtins;
 pub mod bytecode;
 pub mod callable;
 pub mod class;
@@ -19,7 +20,6 @@ pub mod gc;
 pub mod generator;
 pub mod global;
 pub mod iterator;
-pub mod js_core;
 pub mod json;
 pub mod mapset;
 pub mod mem;

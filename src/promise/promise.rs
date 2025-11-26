@@ -10,7 +10,7 @@ use crate::{
     context::{ContextImpl, ContextRef},
     error::JSResult,
     function::{CallContext, JS_CallConstructor, NativeFunctionType, js_function_set_properties},
-    js_core::error::js_aggregate_error_constructor,
+    builtins::error::js_aggregate_error_constructor,
     object::{JS_PROP_C_W_E, ObjectImpl, ObjectPayload, ObjectRef},
     object_cast,
     promise::{JSPromiseReactionData, js_promise_funcs, js_promise_proto_funcs},

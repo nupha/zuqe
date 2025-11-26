@@ -5,17 +5,17 @@ use smallvec::SmallVec;
 use crate::{
     JS_CFUNC_NATIVE_DEF, JS_CGETSET_NATIVE_DEF, JS_CLASS_REGEXP,
     atom::Atom,
+    builtins::js_get_this,
     context::{ContextImpl, ContextRef, JS_GetActiveFunction},
     error::JSResult,
     function::{CallContext, FieldDef, JS_CallConstructor, NativeFunctionType, js_function_apply},
-    js_core::js_get_this,
     object::{
         JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, JS_SpeciesConstructor, ObjectPayload,
         ObjectRef,
     },
     regexp::RegExp,
     runtime::RuntimeImpl,
-    string::{JS_ConcatString3, StringRef, StringBuf, StringChar, StringData},
+    string::{JS_ConcatString3, StringBuf, StringChar, StringData, StringRef},
     value::JSValue,
 };
 
@@ -59,8 +59,8 @@ pub fn js_regexp_constructor_internal(
 pub fn js_regexp_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
-    let mut pat = cc.arg(0).clone();
-    let mut flags1 = cc.arg(1).clone();
+    let mut pat = *cc.arg(0);
+    let mut flags1 = *cc.arg(1);
 
     let pat_is_regexp = js_is_regexp(cx, &pat)?;
 
@@ -70,7 +70,7 @@ pub fn js_regexp_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
         if pat_is_regexp && flags1.is_undefined() {
             let ctor = pat.get_property(cx, Atom::CONST_constructor)?;
             if ctor.is_same(new_target_tmp) {
-                return Ok(pat.clone());
+                return Ok(pat);
             }
         }
     }
@@ -314,19 +314,19 @@ pub fn js_regexp_toString(ctx: ContextRef, cc: CallContext) -> JSResult {
             return Err(-1);
         };
 
-        let _ = buf.push_u8('/' as u8);
+        let _ = buf.push_u8(b'/');
 
         let pattern = cc
             .this()
             .get_property(cx, Atom::CONST_source)
             .and_then(|v| v.to_string(cx))?;
 
-        buf.push_content(&pattern.content()).map_err(|_| {
+        buf.push_content(pattern.content()).map_err(|_| {
             cx.throw_out_of_memory();
             -1
         })?;
 
-        buf.push_u8('/' as u8).map_err(|_| {
+        buf.push_u8(b'/').map_err(|_| {
             cx.throw_out_of_memory();
             -1
         })?;
@@ -397,7 +397,7 @@ fn js_regexp_compile(ctx: ContextRef, cc: CallContext) -> JSResult {
     cc.this()
         .set_property(cx, Atom::CONST_lastIndex, JSValue::Int(0))?;
 
-    Ok(cc.this().clone())
+    Ok(*cc.this())
 }
 
 pub fn js_regexp_exec(ctx: ContextRef, cc: CallContext) -> JSResult {
@@ -559,7 +559,7 @@ pub fn js_regexp_Symbol_matchAll(ctx: ContextRef, cc: CallContext) -> JSResult {
     //
     // make matcher: regexp object
     //
-    let regexp_ctor = cx.regexp_ctor.clone();
+    let regexp_ctor = cx.regexp_ctor;
     let ctor = JS_SpeciesConstructor(cx, *cc.this(), regexp_ctor)?;
     let regexp = JS_CallConstructor(
         cx,
@@ -599,14 +599,14 @@ pub fn js_regexp_Symbol_replace(ctx: ContextRef, cc: CallContext) -> JSResult {
     // [Symbol.replace](str, rep)
     let cx = ctx.deref();
 
-    let Some(this) = cc.this().as_object() else {
+    let Some(this) = cc.this().as_object().copied() else {
         cx.throw_type_error_not_an_object();
         return Err(-1);
     };
 
     let str = cc.arg(0).to_string(cx)?;
 
-    let rep = cc.arg(1);
+    let rep = *cc.arg(1);
     let rep_is_func = rep.is_function();
     let rep_str: Option<StringData> = if !rep_is_func {
         Some(rep.to_string(cx)?.content().clone())
@@ -642,7 +642,7 @@ pub fn js_regexp_Symbol_replace(ctx: ContextRef, cc: CallContext) -> JSResult {
 
     // regexp match results list
     let mut matches = SmallVec::<[ObjectRef; 10]>::new();
-    while let Ok(m) = ObjectRef::try_from(JS_RegExpExec(cx, this.clone(), str.clone())?) {
+    while let Ok(m) = ObjectRef::try_from(JS_RegExpExec(cx, this, str)?) {
         if let Ok(s) = StringRef::try_from(m.get_property_u32(cx, 0)?)
             && s.is_empty()
         {
@@ -744,18 +744,18 @@ pub fn js_regexp_Symbol_replace(ctx: ContextRef, cc: CallContext) -> JSResult {
             m.define_property_value_i64(
                 cx,
                 length as i64 + 1,
-                str.clone().into(),
+                str.into(),
                 JS_PROP_C_W_E | JS_PROP_THROW,
             )?;
 
             // apply replacement function
             let t = js_function_apply(
                 ctx,
-                CallContext::new(ctx, rep.clone(), &[JSValue::UNDEFINED, m.into()], 0, None),
+                CallContext::new(ctx, rep, &[JSValue::UNDEFINED, m.into()], 0, None),
             )?
             .to_string(cx)?;
 
-            sbuf.push_content(&t.content()).map_err(|_| {
+            sbuf.push_content(t.content()).map_err(|_| {
                 cx.throw_out_of_memory();
                 -1
             })?;
@@ -777,7 +777,7 @@ pub fn js_regexp_Symbol_replace(ctx: ContextRef, cc: CallContext) -> JSResult {
 fn js_regexp_Symbol_search(ctx: ContextRef, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
-    let Some(this) = cc.this().as_object() else {
+    let Some(this) = cc.this().as_object().copied() else {
         cx.throw_type_error_not_an_object();
         return Err(-1);
     };
@@ -792,7 +792,7 @@ fn js_regexp_Symbol_search(ctx: ContextRef, cc: CallContext) -> JSResult {
 
     let str = cc.arg(0).to_string(cx)?;
 
-    let m = JS_RegExpExec(cx, this.clone(), str.clone())?;
+    let m = JS_RegExpExec(cx, this, str)?;
     let cur_last_index = this
         .get_property(cx, Atom::CONST_lastIndex)?
         .to_array_index(cx)? as usize;
@@ -841,7 +841,7 @@ pub fn js_regexp_Symbol_split(ctx: ContextRef, cc: CallContext) -> JSResult {
             flags = JS_ConcatString3(cx, c"", flags.into(), c"y")?;
         }
 
-        let regexp_ctor = cx.regexp_ctor.clone();
+        let regexp_ctor = cx.regexp_ctor;
         let ctor = JS_SpeciesConstructor(cx, *cc.this(), regexp_ctor)?;
 
         let re = JS_CallConstructor(cx, ctor, &[*cc.this(), flags.into()]).err()?;
@@ -857,7 +857,7 @@ pub fn js_regexp_Symbol_split(ctx: ContextRef, cc: CallContext) -> JSResult {
     let mut idx = 0_usize;
 
     if str.is_empty() {
-        let z = JS_RegExpExec(cx, splitter.clone(), str.clone())?;
+        let z = JS_RegExpExec(cx, splitter, str)?;
         if z.is_null() {
             // not match: add tail, must be an empty str
             arr.define_property_value_u32(
@@ -878,7 +878,7 @@ pub fn js_regexp_Symbol_split(ctx: ContextRef, cc: CallContext) -> JSResult {
         // match regexp from `pos`
         let m = {
             splitter.set_property(cx, Atom::CONST_lastIndex, JSValue::Int(last_index as i32))?;
-            JS_RegExpExec(cx, splitter.clone(), str.clone())?
+            JS_RegExpExec(cx, splitter, str)?
         };
 
         if m.is_null() {

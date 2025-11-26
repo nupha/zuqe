@@ -31,7 +31,7 @@ fn js_regexp_string_iterator_next(
         // initialize state
         *state = IteratorState::NotDone;
 
-        let res = JS_RegExpExec(cx, it.regexp().clone(), it.string())?;
+        let res = JS_RegExpExec(cx, it.regexp(), it.string())?;
 
         if res.is_null() {
             it.set_done(true);

@@ -7,7 +7,7 @@ use crate::{
     atom::Atom,
     class::ClassID,
     context::{ContextHandle, ContextRef},
-    js_core::{global::js_global_props, math::js_math_obj},
+    builtins::{global::js_global_props, math::js_math_obj},
     json::js_json_obj,
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, ObjectRef},
     reflect::js_reflect_obj,

@@ -8,7 +8,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     iterator::JSIteratorKindEnum,
-    js_core::js_get_this,
+    builtins::js_get_this,
     mapset::{JSMapState, MapPair},
     number::MAX_SAFE_INTEGER,
     object::{JS_PROP_CONFIGURABLE, ObjectPayload, ObjectRef},
