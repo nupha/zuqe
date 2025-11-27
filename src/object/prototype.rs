@@ -29,7 +29,7 @@ impl<'a> Iterator for ObjectShapeProtoIter<'a> {
 
 impl ObjectImpl {
     /// get shape proto of object `self`
-    #[inline]
+    #[inline(always)]
     pub fn shape_proto(&self) -> Option<ObjectRef> {
         self.shape().and_then(|s| s.proto())
     }
@@ -37,6 +37,7 @@ impl ObjectImpl {
     /// Get shape proto chain iterator, to iterate over the proto chain of an object.
     ///
     /// **Note: this iterator only concerns the Shape `proto` field, no proxy case is considered.**
+    #[inline]
     pub fn shape_proto_iter<'a>(&self, include_self: bool) -> ObjectShapeProtoIter<'a> {
         ObjectShapeProtoIter {
             obj: if include_self {

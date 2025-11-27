@@ -11,7 +11,7 @@ use crate::{
     object::{
         JS_GPN_INDEX_MASK, JS_GPN_SET_ENUM, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE,
         JS_PROP_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW, JS_PROP_THROW_STRICT,
-        JS_PROP_WRITABLE, ObjectPayload, ObjectRef,
+        JS_PROP_WRITABLE, ObjectRef,
     },
     stack_frame::StackFrame,
     string::{JS_ConcatString3, StringRef},
@@ -330,85 +330,90 @@ pub(super) fn js_for_in_start(ctx: &ContextImpl, sp: *mut JSValue) -> Result<(),
 }
 
 /// 实现 JavaScript 中 for...in 循环的迭代器逻辑，用于遍历对象的可枚举属性
-/// enum_obj -> enum_obj value done
+/// [enum_obj, ^] -> [enum_obj, value, done, ^]
 pub(super) fn js_for_in_next(ctx: &ContextImpl, sp: *mut JSValue) -> Result<(), i32> {
-    let enum_obj = unsafe { &mut *sp.offset(-1) };
-    debug_assert!(enum_obj.is_object());
+    let mut enum_obj = unsafe {
+        let v = &mut *sp.offset(-1);
+        debug_assert!(v.is_object());
+        *v.as_object_unchecked()
+    };
 
-    let mut ob = unsafe { *enum_obj.as_object_unchecked() };
-
-    if let ObjectPayload::FOR_IN_ITERATOR(it) = ob.payload_mut() {
+    let mut ob2 = enum_obj;
+    if let Some(it) = ob2.payload_mut().for_in_iterator_mut() {
         let mut prop: Atom;
 
         loop {
             if it.idx >= it.prop_count {
-                if it.obj.is_undefined_or_null() {
-                    // object has no parent prototype
-                    unsafe {
-                        std::ptr::replace(sp.offset(0), JSValue::UNDEFINED);
-                        std::ptr::replace(sp.offset(1), JSValue::Bool(true));
+                // prepare enumrable names for parent proto.
+                if let Some(ob) = it.obj.take() {
+                    if !it.in_prototype_chain {
+                        let done = it.prepare_prototype_chain_enum(ctx, ob)?;
+                        for name in it.prop_enums.iter() {
+                            enum_obj.define_property_value(
+                                ctx,
+                                name.atom,
+                                JSValue::NULL,
+                                JS_PROP_ENUMERABLE,
+                            )?;
+                        }
+                        if done {
+                            unsafe {
+                                std::ptr::replace(sp.offset(0), JSValue::UNDEFINED);
+                                std::ptr::replace(sp.offset(1), JSValue::Bool(true));
+                            }
+                            return Ok(());
+                        } else {
+                            it.in_prototype_chain = true;
+                        }
                     }
-                    return Ok(());
-                }
 
-                if !it.in_prototype_chain {
-                    let done = it.prepare_prototype_chain_enum(ctx)?;
-                    for name in it.prop_enums.iter() {
-                        enum_obj.define_property_value(
-                            ctx,
-                            name.atom,
-                            JSValue::NULL,
-                            JS_PROP_ENUMERABLE,
-                        )?;
-                    }
-                    if done {
+                    // walk up prototype chain.
+                    if let Some(up) = ob.prototype(ctx)? {
+                        it.obj.replace(up);
+
+                        // must check for timeout to avoid infinite loop
+                        ctx.poll_interrupts()?;
+
+                        let names =
+                            up.get_own_property_names(ctx, JS_GPN_INDEX_MASK | JS_GPN_SET_ENUM)?;
+                        it.prop_count = names.len() as _;
+                        it.prop_enums = names;
+                        it.idx = 0;
+                    } else {
+                        // end of prototype chain.
+                        debug_assert!(it.obj.is_none());
                         unsafe {
                             std::ptr::replace(sp.offset(0), JSValue::UNDEFINED);
                             std::ptr::replace(sp.offset(1), JSValue::Bool(true));
                         }
                         return Ok(());
-                    } else {
-                        it.in_prototype_chain = true;
                     }
-                }
-
-                // walk up prototype chain.
-                it.obj = it.obj.prototype(ctx)?;
-
-                // end of prototype chain.
-                if it.obj.is_null() {
+                } else {
                     unsafe {
                         std::ptr::replace(sp.offset(0), JSValue::UNDEFINED);
                         std::ptr::replace(sp.offset(1), JSValue::Bool(true));
                     }
                     return Ok(());
                 }
-
-                // must check for timeout to avoid infinite loop
-                ctx.poll_interrupts()?;
-
-                let names = unsafe {
-                    it.obj
-                        .as_object_unchecked()
-                        .get_own_property_names(ctx, JS_GPN_INDEX_MASK | JS_GPN_SET_ENUM)?
-                };
-                it.prop_count = names.len() as _;
-                it.prop_enums = names;
-                it.idx = 0;
             } else {
                 // enumerate on props_enum of current it.obj.
                 if it.is_array {
                     prop = Atom::new_small_int(it.idx);
                     it.idx += 1;
                 } else {
-                    prop = it.prop_enums[it.idx as usize].atom;
-                    let is_enumerable = it.prop_enums[it.idx as usize].is_enumerable;
+                    #[cfg(debug_assertions)]
+                    let p = it.prop_enums.get(it.idx as usize).unwrap();
+                    #[cfg(not(debug_assertions))]
+                    let p = unsafe { it.prop_enums.get_unchecked(it.idx as usize) };
+
+                    prop = p.atom;
+                    let is_enumerable = p.is_enumerable;
 
                     it.idx += 1;
+
                     if it.in_prototype_chain {
                         // slow case: we are in the prototype chain
-                        match unsafe { enum_obj.as_object_unchecked().get_own_property(ctx, prop)? }
-                        {
+                        match enum_obj.get_own_property(ctx, prop)? {
                             Some(_) => {
                                 continue; // already visited
                             }
@@ -428,7 +433,14 @@ pub(super) fn js_for_in_next(ctx: &ContextImpl, sp: *mut JSValue) -> Result<(), 
                     }
                 }
 
-                if it.obj.get_own_property(ctx, prop)?.is_some() {
+                debug_assert!(it.obj.is_some());
+
+                if unsafe {
+                    it.obj
+                        .unwrap_unchecked()
+                        .get_own_property(ctx, prop)?
+                        .is_some()
+                } {
                     break;
                 }
             }
@@ -439,7 +451,7 @@ pub(super) fn js_for_in_next(ctx: &ContextImpl, sp: *mut JSValue) -> Result<(), 
                 sp.offset(0),
                 prop.string_or_symbol(ctx).unwrap_or(JSValue::EXCEPTION),
             ); // value
-            std::ptr::replace(sp.offset(1), JSValue::Bool(false)); // done?
+            std::ptr::replace(sp.offset(1), JSValue::Bool(false)); // done flag
         }
     } else {
         unsafe {

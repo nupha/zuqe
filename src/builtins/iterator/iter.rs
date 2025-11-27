@@ -26,20 +26,20 @@ pub enum JSIteratorKindEnum {
 
 #[derive(Debug)]
 pub struct ForInIterPayload {
-    pub obj: JSValue,
+    pub(crate) obj: Option<ObjectRef>,
     /// obj is an array?
-    pub is_array: bool,
+    pub(crate) is_array: bool,
 
-    pub in_prototype_chain: bool,
+    pub(crate) in_prototype_chain: bool,
 
     /// current iterate index
-    pub idx: u32,
+    pub(crate) idx: u32,
 
     /// enumerable props list
-    pub prop_enums: Box<[PropertyKey]>,
+    pub(crate) prop_enums: Box<[PropertyKey]>,
     /// for fast array, this equals length of array.
     /// for non fast array, this equals to prop_enums.len()
-    pub prop_count: u32,
+    pub(crate) prop_count: u32,
 }
 
 unsafe impl Collect for ForInIterPayload {
@@ -53,10 +53,10 @@ impl ForInIterPayload {
     /// create new object with ForInIterPayload payload for given value.
     /// the new object is of CLASS_FOR_IN_ITERATOR class.
     pub fn create(ctx: &ContextImpl, val: JSValue) -> Result<ObjectRef, i32> {
-        let obj: JSValue = match val {
-            JSValue::Object(_) => val,
-            JSValue::NULL | JSValue::UNDEFINED => val,
-            _ => val.objectify(ctx)?.into(),
+        let obj = match val {
+            JSValue::Object(o) => Some(o),
+            JSValue::NULL | JSValue::UNDEFINED => None,
+            _ => Some(val.objectify(ctx)?),
         };
         let mut it = Box::new(ForInIterPayload {
             obj,
@@ -66,7 +66,8 @@ impl ForInIterPayload {
             is_array: false,
             prop_enums: Box::new([]),
         });
-        if let JSValue::Object(ob) = it.obj {
+
+        if let Some(ob) = it.obj {
             if ob.flags().is_fast_array() {
                 // check that there are no enumerable normal fields
                 if !ob
@@ -95,13 +96,17 @@ impl ForInIterPayload {
             .map_err(|_| -1)
     }
 
-    /// build property-enumeration-list for current prototype.
+    /// build property-enumeration-list for `obj`.
     /// returns true if the enumeration is finished.
-    pub fn prepare_prototype_chain_enum(&mut self, ctx: &ContextImpl) -> Result<bool, i32> {
+    pub(crate) fn prepare_prototype_chain_enum(
+        &mut self,
+        ctx: &ContextImpl,
+        obj: ObjectRef,
+    ) -> Result<bool, i32> {
         // fast path: check if there are enumerable properties in shape proto chain
-        let mut use_slow_path = false;
+        let mut slow_path = false;
 
-        for proto in unsafe { self.obj.as_object_unchecked().shape_proto_iter(true) } {
+        for proto in obj.shape_proto_iter(true) {
             // count own property on proto
             let mut props_count: u32 = 0;
             proto.own_property_names_foreach(
@@ -114,7 +119,7 @@ impl ForInIterPayload {
             )?;
 
             if props_count != 0 {
-                use_slow_path = true;
+                slow_path = true;
                 break;
             }
 
@@ -122,81 +127,18 @@ impl ForInIterPayload {
             ctx.poll_interrupts()?;
         }
 
-        if use_slow_path {
+        if slow_path {
             if self.is_array {
-                let lst = unsafe {
-                    self.obj
-                        .as_object_mut_unchecked()
-                        .get_own_property_names(ctx, JS_GPN_INDEX_MASK | JS_GPN_SET_ENUM)
-                }?;
+                let names = obj.get_own_property_names(ctx, JS_GPN_INDEX_MASK | JS_GPN_SET_ENUM)?;
                 self.is_array = false;
-                self.prop_count = lst.len() as _;
-                self.prop_enums = lst;
+                self.prop_count = names.len() as _;
+                self.prop_enums = names;
             }
-
-            // add the visited properties, even if they are not enumerable:
-            // this is migrated to caller.
-            // for name in it.prop_enums.iter() {
-            //     enum_obj.define_property_value(ctx, name.atom, JSValue::NULL, JS_PROP_ENUMERABLE)?;
-            // }
-
             Ok(false)
         } else {
             // searched till top of prototype chain, enumeration is done
             Ok(true)
         }
-
-        // let mut cur_obj = unsafe { *self.obj.as_object_unchecked() };
-        // loop {
-        //     match cur_obj.prototype(ctx)? {
-        //         None => {
-        //             // top of prototype chain, enumeration is done
-        //             return Ok(true);
-        //         }
-        //         Some(up) => {
-        //             cur_obj = up;
-
-        //             // count own property on cur proto
-        //             let mut props_count: u32 = 0;
-        //             cur_obj.own_property_names_foreach(
-        //                 ctx,
-        //                 JS_GPN_INDEX_MASK | JS_GPN_ENUM_ONLY,
-        //                 |_, _| {
-        //                     props_count += 1;
-        //                     Ok(())
-        //                 },
-        //             )?;
-        //             if props_count != 0 {
-        //                 break; // try slow path
-        //             }
-
-        //             // must check for timeout to avoid infinite loop
-        //             ctx.poll_interrupts()?;
-
-        //             // redo on upper prototype
-        //         }
-        //     }
-        // }
-
-        // // slow_path
-        // if self.is_array {
-        //     let lst = unsafe {
-        //         self.obj
-        //             .as_object_mut_unchecked()
-        //             .get_own_property_names(ctx, JS_GPN_INDEX_MASK | JS_GPN_SET_ENUM)
-        //     }?;
-        //     self.is_array = false;
-        //     self.prop_count = lst.len() as _;
-        //     self.prop_enums = lst;
-        // }
-
-        // // add the visited properties, even if they are not enumerable:
-        // // this is migrated to caller.
-        // // for name in it.prop_enums.iter() {
-        // //     enum_obj.define_property_value(ctx, name.atom, JSValue::NULL, JS_PROP_ENUMERABLE)?;
-        // // }
-
-        // Ok(false)
     }
 }
 
