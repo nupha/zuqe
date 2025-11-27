@@ -1,5 +1,3 @@
-use std::time::{Instant, SystemTime};
-
 use zhuque::{
     context::{ContextImpl, ContextRef},
     error::JSResult,
@@ -8,12 +6,16 @@ use zhuque::{
 };
 
 fn js_os_now(_: ContextRef, _: CallContext) -> JSResult {
-    let ns = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos() as i64;
+    let tm = unsafe {
+        let mut ts = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts);
+        ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64
+    };
 
-    Ok(JSValue::from(ns))
+    Ok(JSValue::from(tm as f64 / 1e6))
 }
 
 static MOD_OS_ENTRIES: [FieldDef; 1] = [FieldDef::FUNCTION("now", 0, js_os_now, 0)];
