@@ -46,6 +46,16 @@ debug = false
 opt-level = 3
 strip = "symbols"
 
+# used for flamegraph
+[profile.release-with-debug]
+inherits = "release"
+debug = true
+strip = false
+[profile.release-with-debug.package."*"]
+overflow-check = false
+debug = true
+strip = false
+
 [dependencies]
 paste = "1.0"
 libc = "0.2"
