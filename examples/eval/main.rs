@@ -3,26 +3,23 @@
 mod class_file;
 mod class_point;
 mod global;
+mod mod_os;
 mod mod_std;
 
 use std::time::Instant;
 
-use colorized::*;
 use zhuque::{
     builtins::promise::Promise,
     context::ContextRef,
-    error::JSResult,
     eval::JS_EVAL_TYPE_GLOBAL,
-    function::{CallContext, NativeFunctionType},
     module::{JS_SetModuleLoaderFunc, ModuleDef},
-    object::JS_PROP_C_W_E,
     parse::JSParseState,
     runtime::Runtime,
     value::JSValue,
 };
 
 use crate::{
-    class_file::JSFile, class_point::register_class_point, global::setup_globals,
+    class_file::JSFile, class_point::register_class_point, global::setup_globals, mod_os::ModuleOS,
     mod_std::init_mod_std,
 };
 
@@ -57,6 +54,7 @@ fn main() {
 
     // register native modules
     init_mod_std(ctx.ptr()).unwrap();
+    ModuleOS::register(&mut ctx.ptr()).unwrap();
 
     setup_globals(&mut ctx).unwrap();
 

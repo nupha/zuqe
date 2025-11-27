@@ -696,6 +696,7 @@ impl JSValue {
     /// - "abc" => \[object "abc"\]
     /// - Symbol() => \[object Symbol()\]
     /// - null, undefined => Error
+    #[inline]
     pub fn objectify(&self, ctx: &ContextImpl) -> Result<ObjectRef, i32> {
         match self {
             Self::Object(o) => Ok(*o),
@@ -754,7 +755,7 @@ pub const JS_PROP_INITIAL_SIZE: u32 = 2;
 pub const JS_ARRAY_INITIAL_SIZE: u32 = 2;
 
 #[cfg(target_pointer_width = "64")]
-pub const JS_PROP_INITIAL_HASH_SIZE: usize = 8;
+pub const JS_PROP_INITIAL_HASH_SIZE: usize = 32;
 #[cfg(not(target_pointer_width = "64"))]
 pub const JS_PROP_INITIAL_HASH_SIZE: usize = 4;
 

@@ -19,6 +19,7 @@ use crate::{
     value::JSValue,
 };
 
+#[inline(always)]
 pub(super) fn js_operator_delete(ctx: &ContextImpl, sp: *mut JSValue) -> i32 {
     let (mut op1, op2) = unsafe {
         (

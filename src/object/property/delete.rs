@@ -18,8 +18,6 @@ impl ObjectRef {
     /// - Ok(false) if property is not configurable;
     /// - Ok(true) if successfully deleted.
     /// - Err() on failure. e.g. fail to prepare shape update, fail to convert fast array to sparse array etc.
-    ///
-    /// Note: `prop` is not consumed.
     pub(crate) fn delete_property_internal(
         &mut self,
         ctx: &ContextImpl,
@@ -63,7 +61,8 @@ impl ObjectRef {
                                                 true
                                             } else {
                                                 // returns false to
-                                                // indicate convert to sparse array, then delete property
+                                                // suggest convert fast array to sparse array is needed,
+                                                // then delete the property
                                                 false
                                             }
                                         })
@@ -112,6 +111,7 @@ impl ObjectRef {
         Ok(true)
     }
 
+    #[inline(always)]
     pub fn delete_property(
         &mut self,
         ctx: &ContextImpl,
@@ -150,7 +150,7 @@ impl ObjectRef {
 impl JSValue {
     /// 如果属性不可配置或无效对象则返回 false, 出现异常时返回 Err.
     /// flags 可以是 0、JS_PROP_THROW 或 JS_PROP_THROW_STRICT
-    #[inline]
+    #[inline(always)]
     pub fn delete_property(
         &mut self,
         ctx: &ContextImpl,

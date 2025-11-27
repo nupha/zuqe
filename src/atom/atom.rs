@@ -375,7 +375,9 @@ impl JSValue {
                 JSValue::Int(i) => {
                     return Atom::from_i64(&ctx.rt(), i as i64);
                 }
-                JSValue::String(s) => return s.to_atom(ctx.rt()),
+                JSValue::String(s) => {
+                    return s.to_atom(ctx.rt());
+                }
                 JSValue::Symbol(a) => {
                     return Ok(a);
                 }

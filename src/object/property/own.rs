@@ -58,7 +58,7 @@ impl ObjectRef {
 
     /// Find shape property by prop atom.
     /// Returns shape property index and prop flags if the prop exists.
-    #[inline]
+    #[inline(always)]
     pub(crate) fn find_shape_property(&self, prop: Atom) -> Option<(usize, u32)> {
         self.shape().and_then(|sh| {
             sh.prop_defs
