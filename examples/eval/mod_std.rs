@@ -6,7 +6,7 @@ use zhuque::{
     value::JSValue,
 };
 
-use crate::class_file::class_file_new_instance;
+use crate::class_file::JSFile;
 
 fn js_std_open(ctx: ContextRef, cc: CallContext) -> JSResult {
     let filename = cc.arg(0).to_string(&ctx)?;
@@ -88,7 +88,7 @@ fn js_std_open(ctx: ContextRef, cc: CallContext) -> JSResult {
     }
 
     if let Some(fh) = fh {
-        class_file_new_instance(&ctx, fh).map(JSValue::Object)
+        JSFile::new_instance(&ctx, fh).map(JSValue::Object)
     } else {
         Ok(JSValue::NULL)
     }
