@@ -33,6 +33,11 @@ impl OtherPayload {
     pub const fn opaque(&self) -> *mut c_void {
         self.opaque
     }
+
+    #[inline(always)]
+    pub const unsafe fn replace_opaque(&mut self, opaque: *mut c_void) -> *mut c_void {
+        std::mem::replace(&mut self.opaque, opaque)
+    }
 }
 
 impl ClassDef {

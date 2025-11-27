@@ -88,7 +88,7 @@ impl JSValue {
     /// get object value's payload borrow ref.
     /// if the value is not an object, or optionally is not the required class_id,
     /// throws type error.
-    pub(crate) fn retrive_object_payload_mut(
+    pub fn retrive_object_payload_mut(
         &mut self,
         ctx: &ContextImpl,
         class_id: ClassID,

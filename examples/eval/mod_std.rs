@@ -23,47 +23,26 @@ fn js_std_open(ctx: ContextRef, cc: CallContext) -> JSResult {
     let mut opts = std::fs::OpenOptions::new();
 
     match mode.as_str() {
-        "r" | "" => {
+        "r" | "rb" | "rrr" | "" => {
             opts.read(true);
         }
-        "w" => {
-            opts.write(true);
+        "w" | "wb" => {
+            opts.write(true).create(true);
         }
-        "a" => {
-            opts.append(true);
+        "a" | "ab" => {
+            opts.write(true).append(true).create(true);
         }
-        "r+" => {
-            opts.read(true).write(true);
+        "r+" | "r+b" | "rb+" => {
+            opts.read(true).write(true).create(true);
         }
-        "w+" => {
-            opts.read(true).write(true).truncate(true);
+        "w+" | "w+b" | "wb+" => {
+            opts.read(true).write(true).truncate(true).create(true);
         }
-        "a+" => {
-            opts.read(true).write(true).append(true);
-        }
-        "rb" => {
-            opts.read(true);
-        }
-        "wb" => {
-            opts.write(true);
-        }
-        "ab" => {
-            opts.append(true);
-        }
-        "r+b" | "rb+" => {
-            opts.read(true).write(true);
-        }
-        "w+b" | "wb+" => {
-            opts.read(true).write(true).truncate(true);
-        }
-        "a+b" | "ab+" => {
-            opts.read(true).write(true).append(true);
+        "a+" | "a+b" | "ab+" => {
+            opts.read(true).write(true).append(true).create(true);
         }
         "rw" => {
-            opts.read(true).write(true);
-        }
-        "rrr" => {
-            opts.read(true);
+            opts.read(true).write(true).create(true);
         }
         _ => {
             ctx.throw_type_error("invalid file mode");

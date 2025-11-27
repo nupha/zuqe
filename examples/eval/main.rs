@@ -2,6 +2,7 @@
 
 mod class_file;
 mod class_point;
+mod global;
 mod mod_std;
 
 use std::time::Instant;
@@ -20,42 +21,10 @@ use zhuque::{
     value::JSValue,
 };
 
-use crate::{class_file::JSFile, class_point::register_class_point, mod_std::init_mod_std};
-
-fn js_print(ctx: ContextRef, cc: CallContext) -> JSResult {
-    let level = cc.magic();
-    let inspect = level == 100;
-
-    let color = || {
-        match level {
-            1 => Colors::CyanFg, // debug
-            2 => Colors::GreenFg,
-            3 => Colors::YellowFg,
-            4 => Colors::RedBg,
-            _ => Colors::WhiteFg,
-        }
-    };
-
-    for i in 0..cc.length() {
-        if i > 0 {
-            colorize_print(" ", color());
-        }
-
-        let arg = cc.arg(i);
-
-        colorize_print(
-            if inspect {
-                arg.inspect(&ctx)?.to_string()
-            } else {
-                format!("{}", arg.to_string(&ctx)?)
-            },
-            color(),
-        );
-    }
-
-    colorize_println("", color());
-    Ok(JSValue::UNDEFINED)
-}
+use crate::{
+    class_file::JSFile, class_point::register_class_point, global::setup_globals,
+    mod_std::init_mod_std,
+};
 
 fn main() {
     unsafe {
@@ -89,137 +58,7 @@ fn main() {
     // register native modules
     init_mod_std(ctx.ptr()).unwrap();
 
-    // setup globals
-    {
-        let mut global: JSValue = ctx.global_obj().into();
-
-        let printf = NativeFunctionType::Func(js_print);
-        global
-            .set_property_str(
-                &ctx,
-                "print",
-                ctx.create_native_function(printf, "print", 0, 0)
-                    .unwrap()
-                    .into(),
-            )
-            .unwrap();
-        global
-            .set_property_str(
-                &ctx,
-                "debug",
-                ctx.create_native_function(printf, "debug", 0, 1)
-                    .unwrap()
-                    .into(),
-            )
-            .unwrap();
-        global
-            .set_property_str(
-                &ctx,
-                "info",
-                ctx.create_native_function(printf, "info", 0, 2)
-                    .unwrap()
-                    .into(),
-            )
-            .unwrap();
-        global
-            .set_property_str(
-                &ctx,
-                "warn",
-                ctx.create_native_function(printf, "warn", 0, 3)
-                    .unwrap()
-                    .into(),
-            )
-            .unwrap();
-        global
-            .set_property_str(
-                &ctx,
-                "error",
-                ctx.create_native_function(printf, "error", 0, 4)
-                    .unwrap()
-                    .into(),
-            )
-            .unwrap();
-
-        let f = ctx
-            .create_native_function(
-                NativeFunctionType::Func(|mut cx, _: CallContext| {
-                    let ctx1 = cx.rt_mut().create_context_ecma()?;
-                    let global = JSValue::Object(ctx1.global_obj());
-                    Ok(global)
-                }),
-                "createRealm",
-                1,
-                0,
-            )
-            .unwrap();
-        global
-            .set_property_str(&ctx, "createRealm", f.into())
-            .unwrap();
-
-        let mut console = ctx.create_base_object().unwrap();
-        console
-            .define_property_value_str(
-                &ctx,
-                "log",
-                ctx.create_native_function(printf, "print", 0, 0)
-                    .unwrap()
-                    .into(),
-                JS_PROP_C_W_E,
-            )
-            .unwrap();
-        console
-            .define_property_value_str(
-                &ctx,
-                "inspect",
-                ctx.create_native_function(printf, "inspect", 0, 100)
-                    .unwrap()
-                    .into(),
-                JS_PROP_C_W_E,
-            )
-            .unwrap();
-        global
-            .define_property_value_str(&ctx, "console", console.into(), JS_PROP_C_W_E)
-            .unwrap();
-
-        // detachArrayBuffer
-        global
-            .set_property_str(
-                &ctx,
-                "detachArrayBuffer",
-                ctx.create_native_function(
-                    NativeFunctionType::Func(|ctx: ContextRef, cc: CallContext| -> JSResult {
-                        if let Some(mut ab) = cc.arg(0).as_object_ArrayBuffer().copied() {
-                            ab.detatch(&ctx);
-                        }
-                        Ok(JSValue::UNDEFINED)
-                    }),
-                    "detachArrayBuffer",
-                    1,
-                    0,
-                )
-                .unwrap()
-                .into(),
-            )
-            .unwrap();
-
-        global
-            .set_property_str(
-                &ctx,
-                "gc",
-                ctx.create_native_function(
-                    NativeFunctionType::Func(|mut ctx, _| -> JSResult {
-                        ctx.rt_mut().gc_collect();
-                        Ok(JSValue::UNDEFINED)
-                    }),
-                    "gc",
-                    0,
-                    0,
-                )
-                .unwrap()
-                .into(),
-            )
-            .unwrap();
-    }
+    setup_globals(&mut ctx).unwrap();
 
     println!("*** prepare use time: {} ms", tm0.elapsed().as_millis());
 

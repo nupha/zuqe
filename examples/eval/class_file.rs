@@ -1,6 +1,6 @@
 use std::{
     ffi::c_void,
-    io::{Read, Seek},
+    io::{Read, Seek, Write},
 };
 
 use once_cell::unsync::Lazy;
@@ -14,7 +14,6 @@ use zhuque::{
     value::JSValue,
 };
 
-#[deny(clippy::mut_from_ref)]
 fn js_file_get<'a>(ctx: ContextRef, obj: JSValue) -> Result<&'a mut std::fs::File, i32> {
     let opaque = obj
         .retrive_object_payload(&ctx, JSFile::class_id())?
@@ -68,12 +67,43 @@ fn js_file_readAsString(ctx: ContextRef, cc: CallContext) -> JSResult {
     ctx.create_string_from_utf8(buf).map(JSValue::String)
 }
 
-static CLASS_FILE_PROTO: [FieldDef; 1] = [FieldDef::FUNCTION(
-    "readAsString",
-    0,
-    js_file_readAsString,
-    0,
-)];
+fn js_file_puts(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let fh = js_file_get(ctx, *cc.this())?;
+
+    for arg in cc.arguments() {
+        let s = arg.to_string(&ctx)?;
+        let s = s.content().to_utf8(false);
+
+        fh.write_all(s.as_bytes()).map_err(|e| {
+            ctx.throw_internal_error(&e.to_string());
+            -1
+        })?;
+    }
+
+    Ok(JSValue::UNDEFINED)
+}
+
+fn js_file_close(ctx: ContextRef, cc: CallContext) -> JSResult {
+    let mut this = *cc.this();
+    let u = this
+        .retrive_object_payload_mut(&ctx, JSFile::class_id())?
+        .other_mut()
+        .unwrap();
+
+    if !u.opaque().is_null() {
+        unsafe {
+            let p = u.replace_opaque(std::ptr::null_mut());
+            let f = Box::from_raw(p.cast::<std::fs::File>());
+        }
+    }
+    Ok(JSValue::UNDEFINED)
+}
+
+static CLASS_FILE_PROTO: [FieldDef; 3] = [
+    FieldDef::FUNCTION("readAsString", 0, js_file_readAsString, 0),
+    FieldDef::FUNCTION("puts", 1, js_file_puts, 0),
+    FieldDef::FUNCTION("close", 0, js_file_close, 0),
+];
 
 pub struct JSFile;
 
@@ -94,7 +124,6 @@ impl JSFile {
     fn fini(_: &mut RuntimeImpl, opaque: *mut c_void, _: usize) {
         if !opaque.is_null() {
             let p = unsafe { Box::from_raw(opaque.cast::<std::fs::File>()) };
-            println!("[O.o] --- drop {p:?}");
             drop(p);
         }
     }
