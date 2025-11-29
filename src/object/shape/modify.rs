@@ -53,13 +53,7 @@ impl ObjectImpl {
             ctx.throw_out_of_memory();
             -1
         })?;
-        // debug_assert_eq!(
-        //     self.prop_values
-        //         .iter()
-        //         .filter(|x| !matches!(x, crate::object::JSProperty::Deleted))
-        //         .count(),
-        //     new_len
-        // );
+        debug_assert_eq!(self.prop_values.len(), new_len);
 
         // find shape registry
         if let Some(found) = ctx.rt().shape_registry.find_shape_with_extend_prop(
