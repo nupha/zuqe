@@ -159,20 +159,9 @@ impl ShapeRegistry {
         self.lut.get(&hash).and_then(|lst| {
             lst.iter()
                 .find(|sh| unsafe {
-                    // println!(
-                    //     "[O.o] 1. shape gc {:?} use_count={:?}, len={}",
-                    //     sh,
-                    //     sh.as_ref().use_count(),
-                    //     sh.as_ref().len()
-                    // );
-                    // println!(
-                    //     "[O.o] 2. shape.proto={:?}",
-                    //     sh.as_ref().proto.map(|o| o.gc_ref())
-                    // );
-
                     let s = sh.as_ref();
                     // no shape props, and proto equals to given
-                    s.prop_defs.is_empty() && s.proto == proto
+                    s.prop_defs.count() == 0 && s.proto == proto
                 })
                 .copied()
                 .map(|s| unsafe {
@@ -187,7 +176,7 @@ impl ShapeRegistry {
     pub(super) fn find_shape_with_extend_prop(
         &self,
         base_shape: &ShapeHandle,
-        prop: &Atom,
+        prop: Atom,
         prop_flags: u32,
     ) -> Option<ShapeHandle> {
         // calc hash for base_shape + (atom, prop_flags)
@@ -211,7 +200,7 @@ impl ShapeRegistry {
             .prop_defs
             .iter()
             .zip(unsafe { found.as_ref().prop_defs.iter() })
-            .all(|(a, b)| a.1.atom == b.1.atom && a.1.flags() == b.1.flags())
+            .all(|(a, b)| a == b)
         {
             let shape = unsafe { found.as_mut() };
 
@@ -219,9 +208,9 @@ impl ShapeRegistry {
             if shape
                 .prop_defs
                 .last()
-                .is_some_and(|(_, pr)| pr.atom.eq(prop) && pr.flags() == prop_flags)
+                .is_some_and(|pr| pr.atom == prop && pr.flags() == prop_flags)
             {
-                shape.use_count += 1; // increase refcount to return the shape
+                shape.use_count += 1; // increase use count
                 return Some(ShapeHandle::from(found));
             }
         }

@@ -2,7 +2,7 @@ use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
     atom::{Atom, JS_ATOM_MAX_INT},
     context::{ContextImpl, ContextRef},
-    object::ObjectRef,
+    object::{JSProperty, ObjectRef},
     utils::unlikely,
     value::JSValue,
 };
@@ -31,13 +31,26 @@ impl ObjectRef {
                 return if unlikely(prs_flags & JS_PROP_CONFIGURABLE == 0) {
                     Ok(false)
                 } else {
-                    // remove shape property defination.
-                    self.modify_shape(ctx, |sh| {
-                        sh.prop_defs.shift_remove_index(idx);
+                    // remove shape property
+                    let compact = self.modify_shape(ctx, |sh| {
+                        sh.prop_defs.remove_index(idx);
+
+                        if (sh.prop_defs.count() >> 1) >= sh.prop_defs.count_deleted() {
+                            sh.prop_defs.compact();
+                            true
+                        } else {
+                            false
+                        }
                     })?;
 
-                    // remove property value
-                    self.prop_values.remove(idx);
+                    // mark property value as deleted
+                    self.prop_values[idx] = JSProperty::Deleted;
+
+                    if compact {
+                        // compact prop values list too
+                        self.prop_values
+                            .retain(|p| !matches!(p, JSProperty::Deleted));
+                    }
 
                     Ok(true)
                 };

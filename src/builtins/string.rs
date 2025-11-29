@@ -1125,7 +1125,7 @@ pub fn js_string_raw(ctx: ContextRef, cc: CallContext) -> JSResult {
     cx.create_string_with_buf(sbuf).map(JSValue::String)
 }
 
-pub const js_string_funcs: [FieldDef; 3] = [
+pub static js_string_funcs: [FieldDef; 3] = [
     FieldDef::FUNCTION("fromCharCode", 1, js_string_fromCharCode, 0),
     FieldDef::FUNCTION("fromCodePoint", 1, js_string_fromCodePoint, 0),
     FieldDef::FUNCTION("raw", 1, js_string_raw, 0),

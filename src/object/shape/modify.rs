@@ -40,33 +40,39 @@ impl ObjectImpl {
         prop: Atom,
         prop_flags: u32,
     ) -> Result<usize, i32> {
-        let (old_len, ref_count) = {
+        let (old_len, use_count) = {
             let sh = self.shape().unwrap();
             (sh.len(), sh.use_count())
         };
-        let new_len = old_len + 1;
-
         debug_assert_eq!(self.prop_values.len(), old_len);
+
+        let new_len = old_len + 1;
 
         // grow prop values slot
         self.grow_prop_value_slots(new_len).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
         })?;
-        debug_assert_eq!(self.prop_values.len(), new_len);
+        // debug_assert_eq!(
+        //     self.prop_values
+        //         .iter()
+        //         .filter(|x| !matches!(x, crate::object::JSProperty::Deleted))
+        //         .count(),
+        //     new_len
+        // );
 
-        // find an existing shape in registry
+        // find shape registry
         if let Some(found) = ctx.rt().shape_registry.find_shape_with_extend_prop(
             self.shape().unwrap(),
-            &prop,
+            prop,
             prop_flags,
         ) {
-            // use found shape
+            // use existing shape
             debug_assert_eq!(new_len, found.len());
             self.set_shape(found);
             Ok(new_len)
         } else {
-            let mut target = if ref_count != 1 {
+            let mut target = if use_count != 1 {
                 // current shape is shared, dup to new without register.
                 let mut sh2 = self.shape().unwrap().dup(ctx)?;
                 sh2.prop_defs.try_reserve_exact(1).map_err(|_| {
@@ -106,25 +112,25 @@ impl ObjectImpl {
         prop: Atom,
         flags_fn: impl FnOnce(u32) -> u32,
     ) -> Result<bool, i32> {
-        let cur_flags = self
+        let (idx, prs_flag) = self
             .shape()
             .unwrap()
             .prop_defs
-            .get(&prop.id())
-            .map(|p| p.flags())
+            .find_hash(prop.id())
+            .next()
+            .map(|(i, p)| (i, p.flags()))
             .unwrap();
 
-        let new_flags = flags_fn(cur_flags);
+        let new_flags = flags_fn(prs_flag);
 
-        if cur_flags != new_flags {
+        if prs_flag != new_flags {
             self.modify_shape(ctx, |sh| {
                 sh.prop_defs
-                    .get_mut(&prop.id())
+                    .get_index_mut(idx)
                     .unwrap()
                     .set_flags(new_flags);
 
-                // re-calc hash
-                sh.update_hash();
+                sh.full_rehash();
             })?;
             Ok(true)
         } else {
@@ -145,7 +151,7 @@ impl ObjectImpl {
             .unwrap()
             .prop_defs
             .get_index(index)
-            .map(|(_, p)| p.flags())
+            .map(|p| p.flags())
             .unwrap();
         let new_flags = flags_fn(cur_flags);
 
@@ -154,11 +160,9 @@ impl ObjectImpl {
                 sh.prop_defs
                     .get_index_mut(index)
                     .unwrap()
-                    .1
                     .set_flags(new_flags);
 
-                // re-calc hash
-                sh.update_hash();
+                sh.full_rehash();
             })?;
             Ok(true)
         } else {

@@ -4,7 +4,7 @@ use std::{
 };
 
 use gc_lite::{Collect, GcRef};
-use indexmap::IndexMap;
+use hashlist::HashList;
 
 use crate::{atom::Atom, context::ContextImpl, object::ShapeProperty, runtime::RuntimePtr};
 
@@ -22,19 +22,19 @@ pub struct ShapeImpl {
     /// If false, the shape is guaranteed not to have small array index properties
     pub has_small_array_index: bool,
 
-    /// shape hash value.
+    /// cached shape hash value
     pub hash: u32,
 
-    pub proto: Option<ObjectRef>,
+    pub(crate) proto: Option<ObjectRef>,
 
-    /// shape property definitions
-    pub prop_defs: IndexMap<u32, ShapeProperty>,
+    /// shape properties
+    pub(crate) prop_defs: HashList<ShapeProperty>,
 }
 
 unsafe impl Collect for ShapeImpl {
     fn trace(&self, tracer: &mut gc_lite::Tracer) {
         self.proto.trace(tracer);
-        for (_, p) in self.prop_defs.iter() {
+        for p in self.prop_defs.iter() {
             p.trace(tracer);
         }
     }
@@ -43,7 +43,7 @@ unsafe impl Collect for ShapeImpl {
 impl Drop for ShapeImpl {
     fn drop(&mut self) {
         // Note: when ShapeImpl is dropped, set rt to None.
-        // So that ShapeHandle will aware this case.
+        // So that ShapeHandle will aware its inner shape was droppped.
         self.rt.take().unwrap();
     }
 }
@@ -53,11 +53,11 @@ impl ShapeImpl {
     fn new(
         ctx: &ContextImpl,
         proto: Option<ObjectRef>,
-        props: IndexMap<u32, ShapeProperty>,
+        props: HashList<ShapeProperty>,
     ) -> Result<Self, i32> {
         //calc shape hash
         let mut hash = shape_initial_hash(proto.map_or(0, |p| p.id()));
-        for (_, prs) in props.iter() {
+        for prs in props.iter() {
             hash = shape_hasher_u32(shape_hasher_u32(hash, prs.atom.id()), prs.flags());
         }
 
@@ -86,16 +86,19 @@ impl ShapeImpl {
         self.use_count
     }
 
-    /// property count
+    /// shape property length
+    #[inline(always)]
     pub fn len(&self) -> usize {
         self.prop_defs.len()
     }
 
+    #[inline(always)]
     pub fn is_empty(&self) -> bool {
-        self.prop_defs.is_empty()
+        self.prop_defs.len() == 0
     }
 
     /// get shape proto
+    #[inline(always)]
     pub const fn proto(&self) -> Option<ObjectRef> {
         self.proto
     }
@@ -106,12 +109,14 @@ impl ShapeImpl {
         self.hash
     }
 
-    /// re-calc and update shape hash
-    pub(super) fn update_hash(&mut self) {
+    /// fully re-calculate and update shape hash
+    pub(super) fn full_rehash(&mut self) -> u32 {
         let mut hash = shape_initial_hash(self.proto.as_ref().map_or(0, |p| p.id()));
-        for (_, prs) in self.prop_defs.iter() {
+        for prs in self.prop_defs.iter() {
             hash = shape_hasher_u32(shape_hasher_u32(hash, prs.atom.id()), prs.flags());
         }
+        self.hash = hash;
+        hash
     }
 
     pub(crate) fn add_shape_properties(&mut self, extras: &[(Atom, u32)]) -> usize {
@@ -127,7 +132,6 @@ impl ShapeImpl {
                 debug_assert_eq!(old_len + i, 0, "length must be the first shape prop")
             }
 
-            let atom_id = prop.id();
             let is_small_int = prop.is_small_int();
 
             let mut prs = ShapeProperty {
@@ -136,11 +140,12 @@ impl ShapeImpl {
             };
             prs.set_flags(*prop_flags);
 
-            self.prop_defs.insert(atom_id, prs);
+            self.prop_defs.push(prs);
             self.has_small_array_index |= is_small_int;
-        }
 
-        self.update_hash();
+            // update shape hash
+            self.hash = shape_hasher_u32(shape_hasher_u32(self.hash, prop.id()), *prop_flags);
+        }
 
         new_len
     }
@@ -149,19 +154,15 @@ impl ShapeImpl {
     /// The new shape is not registered.
     pub(crate) fn dup(&self, ctx: &ContextImpl) -> Result<ShapeHandle, i32> {
         // clone properties
-        let mut props = IndexMap::<u32, ShapeProperty>::new();
-        props.try_reserve(self.len()).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
-        for (id, sp) in self.prop_defs.iter() {
-            props.insert(
-                *id,
-                ShapeProperty {
-                    flags: sp.flags,
-                    atom: sp.atom,
-                },
-            );
+        let mut props = HashList::<ShapeProperty>::new();
+        props
+            .try_reserve_exact(self.prop_defs.count())
+            .map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?;
+        for prs in self.prop_defs.iter() {
+            props.push(*prs);
         }
 
         ShapeHandle::new_internal(ctx, self.proto, props)
@@ -238,7 +239,7 @@ impl ShapeHandle {
     pub(crate) fn new_internal(
         ctx: &ContextImpl,
         proto: Option<ObjectRef>,
-        prop_defs: IndexMap<u32, ShapeProperty>,
+        prop_defs: HashList<ShapeProperty>,
     ) -> Result<Self, i32> {
         let mut rt = ctx.rt();
         let sh = rt
@@ -248,9 +249,6 @@ impl ShapeHandle {
                 -1
             })?;
 
-        // Note: Shape should be root
-        // rt.gc_heap_mut().set_root(sh, true);
-
         Ok(Self(sh))
     }
 
@@ -258,7 +256,7 @@ impl ShapeHandle {
     /// new shape is not registered,
     /// new shape is added to GC, new shape is registered.
     pub fn new(ctx: &ContextImpl, proto: Option<ObjectRef>, prop_cap: i32) -> Result<Self, i32> {
-        let mut prop_defs = IndexMap::<u32, ShapeProperty>::new();
+        let mut prop_defs = HashList::<ShapeProperty>::new();
         prop_defs.try_reserve_exact(prop_cap as _).map_err(|_| {
             ctx.throw_out_of_memory();
             -1

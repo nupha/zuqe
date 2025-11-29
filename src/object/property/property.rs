@@ -253,6 +253,8 @@ pub enum JSProperty {
         init_type: LazyInit,
         opaque: *mut c_void,
     },
+
+    Deleted,
 }
 
 unsafe impl Collect for JSProperty {
@@ -273,6 +275,7 @@ unsafe impl Collect for JSProperty {
                 vr.trace(tracer);
             }
             Self::LazyInit { .. } => {}
+            Self::Deleted => {}
         }
     }
 }
@@ -300,6 +303,9 @@ impl JSProperty {
             }
             Self::VarRef(vref) => Ok(vref.value()),
             Self::LazyInit { .. } => Ok(JSValue::UNDEFINED),
+            Self::Deleted => {
+                unreachable!()
+            }
         }
     }
 }

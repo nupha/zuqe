@@ -82,11 +82,18 @@ impl Array {
     pub fn set_length(&mut self, ctx: &ContextImpl, length: u32, throw: bool) -> Result<bool, i32> {
         #[cfg(debug_assertions)]
         debug_assert!(
-            self.shape().unwrap().prop_defs[0].is_length(),
+            self.shape().unwrap().prop_defs.first().unwrap().is_length(),
             "missing length property at index 0"
         );
 
-        if !self.shape().unwrap().prop_defs[0].is_writable() {
+        if !self
+            .shape()
+            .unwrap()
+            .prop_defs
+            .first()
+            .unwrap() // <-- first prop is length, must exist.
+            .is_writable()
+        {
             return if throw {
                 ctx.throw_type_error("'length' is read-only");
                 Err(-1)
@@ -130,31 +137,28 @@ impl Array {
                     // faster to iterate thru all the properties.
                     // Need two passes in case one of the property is not  configurable
                     cur_len = length;
-                    for pr in sh.prop_defs.values() {
-                        if let Some(i) = pr.atom.to_array_index()
+                    for prs in sh.prop_defs.iter() {
+                        if let Some(i) = prs.atom.to_array_index()
                             && i >= cur_len
-                            && (pr.flags() & JS_PROP_CONFIGURABLE == 0)
+                            && (prs.flags() & JS_PROP_CONFIGURABLE == 0)
                         {
                             cur_len = i + 1;
                         }
                     }
 
-                    // Hint: to avoid index conflict, do remove from tail to head
+                    // Hint: to avoid index conflict, remove from tail to head
                     for i in (0..propdef_len).rev() {
-                        let prop = sh
-                            .prop_defs
-                            .get_index(i as usize)
-                            .map(|(_, p)| p.atom)
-                            .unwrap();
+                        if let Some(prop) = sh.prop_defs.get_index(i as usize).map(|p| p.atom) {
+                            // non-deleted prop
+                            if let Some(idx) = prop.to_array_index()
+                                && idx >= cur_len
+                            {
+                                let _r = self.delete_property_internal(ctx, prop);
+                                debug_assert!(_r.is_ok());
 
-                        if let Some(idx) = prop.to_array_index()
-                            && idx >= cur_len
-                        {
-                            let _r = self.delete_property_internal(ctx, prop);
-                            debug_assert!(_r.is_ok());
-
-                            // WARNING: the shape may have been modified
-                            sh = self.shape().unwrap();
+                                // WARNING: the shape may have been modified
+                                sh = self.shape().unwrap();
+                            }
                         }
                     }
                 }
@@ -211,7 +215,7 @@ impl Array {
 
         // set array length, can't fail
         debug_assert!(
-            self.shape().unwrap().prop_defs[0].flags() & JS_PROP_LENGTH != 0,
+            self.shape().unwrap().prop_defs.first().unwrap().flags() & JS_PROP_LENGTH != 0,
             "Array.length property must be index 0"
         );
         self.prop_values[0] = JSProperty::Normal(JSValue::from(len as u32));
@@ -574,7 +578,7 @@ impl ObjectRef {
         {
             let r = self
                 .shape()
-                .and_then(|sh| sh.prop_defs.get_index(0).map(|(_, p)| p.flags()))
+                .and_then(|sh| sh.prop_defs.first().map(|p| p.flags()))
                 .unwrap();
 
             if unlikely(r & JS_PROP_WRITABLE == 0) {

@@ -1,4 +1,5 @@
 use gc_lite::Collect;
+use hashlist::HashedElement;
 
 use crate::{
     atom::Atom,
@@ -6,16 +7,24 @@ use crate::{
 };
 
 /// Property defination in shape
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ShapeProperty {
-    pub atom: Atom,
-    pub flags: u32,
+    pub(crate) atom: Atom,
+    pub(super) flags: u32,
 }
 
 unsafe impl Collect for ShapeProperty {
     #[inline(always)]
     fn trace(&self, tracer: &mut gc_lite::Tracer) {
         self.atom.trace(tracer);
+    }
+}
+
+impl HashedElement for ShapeProperty {
+    /// use atom id as hash value
+    #[inline(always)]
+    fn get_hash(&self) -> u32 {
+        self.atom.id()
     }
 }
 

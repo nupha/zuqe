@@ -55,8 +55,21 @@ impl LazyInit {
                         obj.install_field_defs(ctx, list.as_ref())?;
                         obj.into()
                     }
-                    _ => {
-                        unreachable!();
+                    //
+                    FieldDetail::Alias { name, base } => {
+                        unreachable!("Alias: name={name:?}, base={base}");
+                    }
+                    FieldDetail::Float64(_) => {
+                        unreachable!("Float64");
+                    }
+                    FieldDetail::GetSet { get, set } => {
+                        unreachable!("GetSet");
+                    }
+                    FieldDetail::Int32(_) => {
+                        unreachable!("Int32");
+                    }
+                    FieldDetail::Undefined => {
+                        unreachable!("Undefined");
                     }
                 };
 

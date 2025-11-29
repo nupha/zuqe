@@ -46,6 +46,7 @@ impl ObjectRef {
     ) -> Result<(), i32> {
         let len = self.modify_shape_add_prop(ctx, prop, prop_flags)?;
         debug_assert_eq!(self.prop_values.len(), len);
+
         self.prop_values[len - 1] = value;
         Ok(())
     }
@@ -53,17 +54,18 @@ impl ObjectRef {
     /// Check if given property exists in shape.
     pub(crate) fn has_shape_property(&self, prop: Atom) -> bool {
         self.shape()
-            .is_some_and(|sh| sh.prop_defs.get(&prop.id()).is_some())
+            .is_some_and(|sh| sh.prop_defs.find_hash(prop.id()).count() != 0)
     }
 
     /// Find shape property by prop atom.
-    /// Returns shape property index and prop flags if the prop exists.
+    /// Returns shape property index (the slot index, not the sequence) and prop flags if the prop exists.
     #[inline(always)]
     pub(crate) fn find_shape_property(&self, prop: Atom) -> Option<(usize, u32)> {
         self.shape().and_then(|sh| {
             sh.prop_defs
-                .get_full(&prop.id())
-                .map(|(i, _, pr)| (i, pr.flags()))
+                .find_hash(prop.id())
+                .map(|(i, pr)| (i, pr.flags()))
+                .next()
         })
     }
 
@@ -210,11 +212,12 @@ impl ObjectRef {
                 debug_assert!(idx < u32::MAX, "array length<=u32::MAX, so idx<u32::MAX");
 
                 if idx + 1 > cur_len as u32 {
-                    // prop index 0 is `length`
+                    // first prop must be `length`
                     let prs_flags = arr
                         .shape()
-                        .map(|sh| sh.prop_defs.first().unwrap().1.flags())
-                        .unwrap();
+                        .and_then(|sh| sh.prop_defs.first())
+                        .map(|p| p.flags())
+                        .unwrap(); // <-- prop length must exist.
 
                     if unlikely(prs_flags & JS_PROP_WRITABLE == 0) {
                         return if ctx.can_throw(flags) {

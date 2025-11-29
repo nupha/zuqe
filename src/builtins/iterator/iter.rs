@@ -75,7 +75,7 @@ impl ForInIterPayload {
                     .unwrap()
                     .prop_defs
                     .iter()
-                    .any(|(_, prs)| prs.flags() & JS_PROP_ENUMERABLE != 0)
+                    .any(|prs| prs.flags() & JS_PROP_ENUMERABLE != 0)
                 {
                     // no enumerable property, is fast array.
                     // we only store the number of elements

@@ -214,7 +214,7 @@ impl ModuleDefImpl {
                     .into(),
                 FieldDetail::Object(fields) => {
                     let mut o = ctx.create_base_object()?;
-                    o.install_field_defs(ctx, fields.as_ref())?;
+                    o.install_field_defs(ctx, fields)?;
                     o.into()
                 }
                 FieldDetail::Str(s) => ctx.create_string_from_str(s)?.into(),

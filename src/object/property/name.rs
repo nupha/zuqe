@@ -88,7 +88,7 @@ impl ObjectRef {
         let sh = self.shape().unwrap();
 
         // 1. shape props
-        for (i, (_, prs)) in sh.prop_defs.iter().enumerate() {
+        for (idx, prs) in sh.prop_defs.iter_with_index() {
             if !prs.atom.is_null() {
                 let is_enumerable = prs.flags() & JS_PROP_ENUMERABLE != 0;
                 let kind = prs.atom.kind();
@@ -98,7 +98,7 @@ impl ObjectRef {
                     // name space (implicit GetOwnProperty)
                     if prs.flags() & JS_PROP_TMASK == JS_PROP_VARREF
                         && flags & (JS_GPN_ENUM_ONLY | JS_GPN_SET_ENUM) != 0
-                        && let JSProperty::VarRef(vref) = self.prop_values.get(i).unwrap()
+                        && let JSProperty::VarRef(vref) = self.prop_values.get(idx).unwrap()
                         && unlikely(vref.value().is_uninitialized())
                     {
                         JS_ThrowReferenceErrorUninitialized(ctx, prs.atom);

@@ -104,7 +104,7 @@ impl ObjectRef {
             print!("{{ ");
 
             let mut is_first: bool = true;
-            for (idx, (_, prs)) in sh.prop_defs.iter().enumerate() {
+            for (idx, prs) in sh.prop_defs.iter().enumerate() {
                 if !is_first {
                     print!(", ");
                 };
@@ -135,6 +135,7 @@ impl ObjectRef {
                                 opaque
                             );
                         }
+                        JSProperty::Deleted => {}
                     }
                 } else {
                     // prop value slots is cleared

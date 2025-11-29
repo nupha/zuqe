@@ -23,7 +23,7 @@ pub const JS_DEF_OBJECT: u8 = 8;
 pub const JS_DEF_ALIAS: u8 = 9;
 
 #[repr(u8)]
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum FieldDetail {
     Func {
         handler: NativeFunctionType,
@@ -38,14 +38,14 @@ pub enum FieldDetail {
         base: i32,
     },
     /// Lazy init object with entries
-    Object(Cow<'static, [FieldDef]>),
+    Object(&'static [FieldDef]),
     Str(&'static str),
     Int32(i32),
     Float64(f64),
     Undefined,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct FieldDef {
     pub name: &'static str,
     pub detail: FieldDetail,
@@ -120,7 +120,7 @@ impl FieldDef {
     pub const fn OBJECT(name: &'static str, entries: &'static [Self], prop_flags: u32) -> Self {
         Self {
             name,
-            detail: FieldDetail::Object(Cow::Borrowed(entries)),
+            detail: FieldDetail::Object(entries),
             prop_flags: prop_flags as u8,
             magic: 0,
         }
@@ -190,7 +190,7 @@ impl ObjectRef {
     pub fn install_field_defs(
         &mut self,
         ctx: &ContextImpl,
-        entries: &[FieldDef],
+        entries: &'static [FieldDef],
     ) -> Result<(), i32> {
         for entry in entries {
             let atom = ctx.make_lazy_prop_atom(entry.name)?;
@@ -203,12 +203,12 @@ impl ObjectRef {
         &mut self,
         ctx: &ContextImpl,
         atom: Atom,
-        e: &FieldDef,
+        entry: &'static FieldDef,
     ) -> Result<(), i32> {
         let val: JSValue;
-        let mut prop_flags = e.prop_flags;
+        let mut prop_flags = entry.prop_flags;
 
-        match e.detail {
+        match entry.detail {
             FieldDetail::Func { .. } => {
                 if atom == Atom::CONST_Symbol_toPrimitive {
                     // Symbol.toPrimitive functions are not writable
@@ -221,7 +221,7 @@ impl ObjectRef {
                 self.define_lazy_property(
                     ctx,
                     atom,
-                    LazyInit::Prop(NonNull::from(e)),
+                    LazyInit::Prop(NonNull::from(entry)),
                     prop_flags as _,
                 )?;
 
@@ -234,14 +234,24 @@ impl ObjectRef {
                         ctx,
                         atom,
                         if let Some(f) = get {
-                            ctx.create_native_function(f, &format!("get {}", e.name), 0, e.magic)?
-                                .into()
+                            ctx.create_native_function(
+                                f,
+                                &format!("get {}", entry.name),
+                                0,
+                                entry.magic,
+                            )?
+                            .into()
                         } else {
                             JSValue::UNDEFINED
                         },
                         if let Some(f) = set {
-                            ctx.create_native_function(f, &format!("set {}", e.name), 1, e.magic)?
-                                .into()
+                            ctx.create_native_function(
+                                f,
+                                &format!("set {}", entry.name),
+                                1,
+                                entry.magic,
+                            )?
+                            .into()
                         } else {
                             JSValue::UNDEFINED
                         },
@@ -254,7 +264,7 @@ impl ObjectRef {
                     ctx,
                     atom,
                     LazyInit::Prop(unsafe {
-                        NonNull::new_unchecked(e as *const FieldDef as *mut FieldDef)
+                        NonNull::new_unchecked(entry as *const FieldDef as *mut FieldDef)
                     }),
                     prop_flags as _,
                 );
@@ -301,7 +311,7 @@ impl JSValue {
     pub fn install_field_defs(
         &mut self,
         ctx: &ContextImpl,
-        entries: &[FieldDef],
+        entries: &'static [FieldDef],
     ) -> Result<(), i32> {
         if let Self::Object(o) = self {
             o.install_field_defs(ctx, entries)
