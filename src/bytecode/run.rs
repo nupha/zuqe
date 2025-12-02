@@ -1016,8 +1016,8 @@ impl Bytecode {
                             };
 
                             if let Ok(v) = ret_val {
-                                SP_VAL!(-2);
-                                SP_VAL!(-1);
+                                // SP_VAL!(-2);
+                                // SP_VAL!(-1);
                                 SP_GO!(-2);
                                 SP_PUT!(0, v);
                                 SP_GO!(1);
@@ -1480,7 +1480,7 @@ impl Bytecode {
                                 // leave iter_obj in stack
                                 break State::Exception;
                             } else {
-                                SP_VAL!(-1);
+                                // SP_VAL!(-1);
                             }
                         }
                         SP_GO!(-1); // pop iter_obj
