@@ -51,21 +51,28 @@ impl ObjectRef {
         Ok(())
     }
 
-    /// Check if given property exists in shape.
-    pub(crate) fn has_shape_property(&self, prop: Atom) -> bool {
-        self.shape()
-            .is_some_and(|sh| sh.prop_defs.find_hash(prop.id()).count() != 0)
-    }
-
-    /// Find shape property by prop atom.
+    /// Find shape property by name atom.
     /// Returns shape property index (the slot index, not the sequence) and prop flags if the prop exists.
     #[inline(always)]
     pub(crate) fn find_shape_property(&self, prop: Atom) -> Option<(usize, u32)> {
         self.shape().and_then(|sh| {
             sh.prop_defs
                 .find_hash(prop.id())
-                .map(|(i, pr)| (i, pr.flags()))
+                .filter(|(_, p)| p.atom == prop)
+                .map(|(i, prs)| (i, prs.flags()))
                 .next()
+        })
+    }
+
+    /// Check if given property name exists in shape.
+    #[inline(always)]
+    pub(crate) fn has_shape_property(&self, prop: Atom) -> bool {
+        self.shape().is_some_and(|sh| {
+            sh.prop_defs
+                .find_hash(prop.id())
+                .filter(|(_, p)| p.atom == prop)
+                .count()
+                != 0
         })
     }
 
