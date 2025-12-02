@@ -118,17 +118,7 @@ impl Bytecode {
             }
         }
 
-        /// get value at position `idx`
-        #[cfg(debug_assertions)]
-        macro_rules! SP_VAL {
-            (0) => {
-                unsafe { *sp }
-            };
-            ($idx:expr) => {
-                unsafe { *sp.offset($idx as isize) }
-            };
-        }
-        #[cfg(not(debug_assertions))]
+        /// get value at stack position `idx`
         macro_rules! SP_VAL {
             (0) => {
                 unsafe { *sp }
@@ -138,7 +128,7 @@ impl Bytecode {
             };
         }
 
-        /// get value ref at position `idx`
+        /// get value ref at stack position `idx`
         #[cfg(debug_assertions)]
         macro_rules! SP_REF {
             (0) => {
@@ -158,17 +148,13 @@ impl Bytecode {
             };
         }
 
-        /// put a value at position `idx`, drop old value at that position
+        /// put new value at stack position `idx`
         macro_rules! SP_PUT {
             (0, $val:expr) => {
-                unsafe {
-                    *sp = $val;
-                }
+                unsafe { *sp = $val }
             };
             ($idx:expr, $val:expr) => {
-                unsafe {
-                    *sp.offset(($idx) as isize) = $val;
-                }
+                unsafe { *sp.offset(($idx) as isize) = $val }
             };
         }
 
