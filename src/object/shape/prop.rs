@@ -1,5 +1,5 @@
 use gc_lite::Collect;
-use hashlist::HashedElement;
+use hashlist::{HashedElement, PrimitiveHashedElement};
 
 use crate::{
     atom::Atom,
@@ -20,11 +20,21 @@ unsafe impl Collect for ShapeProperty {
     }
 }
 
-impl HashedElement for ShapeProperty {
+impl PrimitiveHashedElement for ShapeProperty {
     /// use atom id as hash value
     #[inline(always)]
     fn get_hash(&self) -> u32 {
         self.atom.id()
+    }
+
+    #[inline(always)]
+    fn is_deleted(&self) -> bool {
+        self.atom.is_null()
+    }
+
+    #[inline(always)]
+    fn set_delete(&mut self) {
+        self.atom = Atom::NULL;
     }
 }
 

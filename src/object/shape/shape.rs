@@ -4,7 +4,7 @@ use std::{
 };
 
 use gc_lite::{Collect, GcRef};
-use hashlist::CompactHashList;
+use hashlist::PrimitiveHashList;
 
 use crate::{atom::Atom, context::ContextImpl, object::ShapeProperty, runtime::RuntimePtr};
 
@@ -28,7 +28,7 @@ pub struct ShapeImpl {
     pub(crate) proto: Option<ObjectRef>,
 
     /// shape properties
-    pub(crate) prop_defs: CompactHashList<ShapeProperty>,
+    pub(crate) prop_defs: PrimitiveHashList<ShapeProperty>,
 }
 
 unsafe impl Collect for ShapeImpl {
@@ -53,7 +53,7 @@ impl ShapeImpl {
     fn new(
         ctx: &ContextImpl,
         proto: Option<ObjectRef>,
-        props: CompactHashList<ShapeProperty>,
+        props: PrimitiveHashList<ShapeProperty>,
     ) -> Result<Self, i32> {
         //calc shape hash
         let mut hash = shape_initial_hash(proto.map_or(0, |p| p.id()));
@@ -154,7 +154,7 @@ impl ShapeImpl {
     /// The new shape is not registered.
     pub(crate) fn dup(&self, ctx: &ContextImpl) -> Result<ShapeHandle, i32> {
         // clone properties
-        let mut props = CompactHashList::<ShapeProperty>::new();
+        let mut props = PrimitiveHashList::<ShapeProperty>::new();
         props
             .try_reserve_exact(self.prop_defs.count())
             .map_err(|_| {
@@ -239,7 +239,7 @@ impl ShapeHandle {
     pub(crate) fn new_internal(
         ctx: &ContextImpl,
         proto: Option<ObjectRef>,
-        prop_defs: CompactHashList<ShapeProperty>,
+        prop_defs: PrimitiveHashList<ShapeProperty>,
     ) -> Result<Self, i32> {
         let mut rt = ctx.rt();
         let sh = rt
@@ -256,7 +256,7 @@ impl ShapeHandle {
     /// new shape is not registered,
     /// new shape is added to GC, new shape is registered.
     pub fn new(ctx: &ContextImpl, proto: Option<ObjectRef>, prop_cap: i32) -> Result<Self, i32> {
-        let mut prop_defs = CompactHashList::<ShapeProperty>::new();
+        let mut prop_defs = PrimitiveHashList::<ShapeProperty>::new();
         prop_defs.try_reserve_exact(prop_cap as _).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
