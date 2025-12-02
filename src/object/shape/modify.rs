@@ -13,22 +13,20 @@ impl ObjectImpl {
         f: impl FnOnce(&mut ShapeImpl) -> R,
     ) -> Result<R, i32> {
         let use_count = self.shape().unwrap().use_count();
-
-        let mut shape = if use_count != 1 {
+        let mut use_shape = if use_count != 1 {
             // shape is shared: dup to new
             self.shape().unwrap().dup(ctx)?
         } else {
-            // shape is exclusivly used, keep it
+            // shape is exclusivly used, use it
             let sh = self.take_shape().unwrap();
             ctx.rt().shape_registry.unregister(&sh);
             sh
         };
 
-        let r = f(&mut shape);
+        let r = f(&mut use_shape);
 
-        // restore shape to object
-        ctx.rt().shape_registry.register(&shape)?;
-        self.set_shape(shape);
+        ctx.rt().shape_registry.register(&use_shape)?;
+        self.set_shape(use_shape);
 
         Ok(r)
     }

@@ -7,38 +7,6 @@ use crate::{
 
 use super::ObjectRef;
 
-// pub unsafe fn JS_DumpShapes(rt: &mut RuntimeImpl) {
-//     println!("JSShapes: {{");
-//     println!(
-//         "{:5} {:4} {:2} {:14} {:14} {:5} {:5} PROPS",
-//         "SLOT", "REFS", "GC", "ADDR", "PROTO", "SIZE", "COUNT"
-//     );
-
-//     // dump hashed shapes
-//     for (_, lst) in rt.shape_registry.iter() {
-//         for sh in lst {
-//             if let Some(sh) = sh.upgrade() {
-//                 sh.0.borrow().dump();
-//                 debug_assert!(sh.0.borrow().is_hashed);
-//             }
-//         }
-//     }
-
-//     // dump non-hashed shapes
-//     for (_, w) in rt.gc_obj_list.iter() {
-//         if let Some(GCObject::Object(p)) = w.upgrade() {
-//             let sh = p.shape().unwrap();
-//             unsafe {
-//                 if !sh.as_ref().is_hashed() {
-//                     sh.0.as_ref().dump();
-//                 }
-//             }
-//         }
-//     }
-
-//     println!("}}");
-// }
-
 #[cfg(debug_assertions)]
 impl ObjectRef {
     /// print object debug info to console
@@ -163,21 +131,3 @@ impl ObjectRef {
         println!();
     }
 }
-
-// impl ShapeImpl {
-//     /// print shape debug info to console
-//     pub fn dump(&self) {
-//         // XXX: should output readable class prototype
-//         print!(
-//             "{:14p} {:14p} {:5} [",
-//             self.id() as *const std::ffi::c_void,
-//             self.proto.as_ref().map_or(0, |p| p.id()) as *const std::ffi::c_void,
-//             self.prop_defs.len(),
-//         );
-
-//         for (_, prs) in self.prop_defs.iter() {
-//             print!(" {}:{}", prs.atom.to_utf8(), prs.flags());
-//         }
-//         println!(" ]");
-//     }
-// }

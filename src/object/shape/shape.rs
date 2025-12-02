@@ -4,7 +4,7 @@ use std::{
 };
 
 use gc_lite::{Collect, GcRef};
-use hashlist::{CompactHashList, HashList};
+use hashlist::CompactHashList;
 
 use crate::{atom::Atom, context::ContextImpl, object::ShapeProperty, runtime::RuntimePtr};
 
