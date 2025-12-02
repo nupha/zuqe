@@ -151,10 +151,14 @@ impl Bytecode {
         /// put new value at stack position `idx`
         macro_rules! SP_PUT {
             (0, $val:expr) => {
-                unsafe { *sp = $val }
+                unsafe {
+                    *sp = $val;
+                }
             };
             ($idx:expr, $val:expr) => {
-                unsafe { *sp.offset(($idx) as isize) = $val }
+                unsafe {
+                    *sp.offset(($idx) as isize) = $val;
+                }
             };
         }
 

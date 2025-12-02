@@ -1,5 +1,5 @@
 use gc_lite::Collect;
-use hashlist::{HashedElement, PrimitiveHashedElement};
+use hashlist::PrimitiveHashedElement;
 
 use crate::{
     atom::Atom,
