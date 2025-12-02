@@ -96,14 +96,6 @@ impl ObjectRef {
                     {
                         return Ok(JSValue::UNDEFINED);
                     }
-                    // let ret = unsafe { JS_AtomIsNumericIndex(ctx, prop) };
-                    // if ret != 0 {
-                    //     return if unlikely(ret < 0) {
-                    //         Err(-1)
-                    //     } else {
-                    //         Ok(JSValue::UNDEFINED)
-                    //     };
-                    // }
                 } else if let Some(pm) = ctx.rt().class_registry[cur_obj.class_id() as usize]
                     .exotic
                     .as_ref()
@@ -367,6 +359,7 @@ impl JSValue {
         self.get_property_internal(ctx, prop, *self, false)
     }
 
+    #[inline(always)]
     pub fn get_property_value(&self, ctx: &ContextImpl, prop: JSValue) -> JSResult {
         if let JSValue::Object(o) = self {
             o.get_property_value(ctx, prop)
@@ -377,6 +370,7 @@ impl JSValue {
     }
 
     /// returns Exception when fail.
+    #[inline(always)]
     pub fn get_property_str(self, ctx: &ContextImpl, prop: &str) -> JSResult {
         let atom = Atom::new(&ctx.rt(), prop)?;
         self.get_property(ctx, atom)
