@@ -1,8 +1,5 @@
-use std::ops::Deref;
-
 use crate::{
     atom::Atom,
-    context::ContextPtr,
     error::JSResult,
     function::{BoundFuncObjPayload, CallContext, FieldDef, JSFunctionKindEnum, js_function_apply},
     object::{JS_PROP_CONFIGURABLE, ObjectPayload},
@@ -10,23 +7,25 @@ use crate::{
     value::JSValue,
 };
 
-pub fn js_function_call(ctx: ContextPtr, cc: CallContext) -> JSResult {
+fn js_function_call(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
+
     if cc.length() > 0 {
         cc.this().call(
-            &ctx,
+            ctx,
             *cc.arg(0),
             &cc.arguments()[1..], // chop first argument (thisArg)
         )
     } else {
-        cc.this().call(&ctx, JSValue::UNDEFINED, &[])
+        cc.this().call(ctx, JSValue::UNDEFINED, &[])
     }
 }
 
-pub fn js_function_bind(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    let cx = ctx.deref();
+fn js_function_bind(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
     let this_val = *cc.this();
 
-    this_val.ensure_function(cx)?;
+    this_val.ensure_function(ctx)?;
 
     let mut bf = Box::new(BoundFuncObjPayload {
         func_obj: this_val,
@@ -40,7 +39,7 @@ pub fn js_function_bind(ctx: ContextPtr, cc: CallContext) -> JSResult {
     if arg_count > 0 {
         // collect arguments starting from #1
         bf.bind_args.try_reserve_exact(arg_count).map_err(|_| {
-            cx.throw_out_of_memory();
+            ctx.throw_out_of_memory();
             -1
         })?;
 
@@ -49,8 +48,11 @@ pub fn js_function_bind(ctx: ContextPtr, cc: CallContext) -> JSResult {
         }
     }
 
-    let mut func_obj = cx
-        .create_object_with_proto(Some(cx.function_proto()), ObjectPayload::BOUND_FUNCTION(bf))
+    let mut func_obj = ctx
+        .create_object_with_proto(
+            Some(ctx.function_proto()),
+            ObjectPayload::BOUND_FUNCTION(bf),
+        )
         .map_err(|_| -1)?;
 
     func_obj.set_flag_constructor(this_val.is_constructor());
@@ -59,12 +61,12 @@ pub fn js_function_bind(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let len_val = if cc
         .this()
         .clone()
-        .get_own_property(cx, Atom::CONST_length)?
+        .get_own_property(ctx, Atom::CONST_length)?
         .is_none()
     {
         JSValue::Int(0)
     } else {
-        let len = this_val.get_property(cx, Atom::CONST_length)?;
+        let len = this_val.get_property(ctx, Atom::CONST_length)?;
         match len {
             JSValue::Int(n) => JSValue::Int(std::cmp::max(0, n - arg_count as i32)),
             JSValue::Float64(mut d) => {
@@ -84,27 +86,27 @@ pub fn js_function_bind(ctx: ContextPtr, cc: CallContext) -> JSResult {
         }
     };
 
-    func_obj.define_property_value(cx, Atom::CONST_length, len_val, JS_PROP_CONFIGURABLE)?;
+    func_obj.define_property_value(ctx, Atom::CONST_length, len_val, JS_PROP_CONFIGURABLE)?;
 
-    let name = cc.this().get_property(cx, Atom::CONST_name)?;
+    let name = cc.this().get_property(ctx, Atom::CONST_name)?;
     let name = if let JSValue::String(s) = name {
         s
     } else {
-        Atom::CONST_empty_string.force_string(cx)?
+        Atom::CONST_empty_string.force_string(ctx)?
     };
 
     // make bound function name.
-    let bf_name = JS_ConcatString3(cx, c"bound ", name.into(), c"")?;
-    func_obj.define_property_value(cx, Atom::CONST_name, bf_name.into(), JS_PROP_CONFIGURABLE)?;
+    let bf_name = JS_ConcatString3(ctx, c"bound ", name.into(), c"")?;
+    func_obj.define_property_value(ctx, Atom::CONST_name, bf_name.into(), JS_PROP_CONFIGURABLE)?;
 
     Ok(func_obj.into())
 }
 
-pub fn js_function_toString(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    let cx = ctx.deref();
+fn js_function_toString(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
     let this_val = cc.this();
 
-    this_val.ensure_function(cx)?;
+    this_val.ensure_function(ctx)?;
 
     let p = unsafe { this_val.as_object_unchecked() };
 
@@ -113,7 +115,7 @@ pub fn js_function_toString(ctx: ContextPtr, cc: CallContext) -> JSResult {
         if let Some(debug) = bc.debug.as_ref()
             && let Some(s) = debug.source.as_deref()
         {
-            return cx.create_string_from_str(s).map(JSValue::String);
+            return ctx.create_string_from_str(s).map(JSValue::String);
         }
         bc.func_kind()
     } else {
@@ -127,23 +129,24 @@ pub fn js_function_toString(ctx: ContextPtr, cc: CallContext) -> JSResult {
         _ => c"function ",
     };
     let suff = c"() { [native code] }";
-    let mut name = this_val.get_property(cx, Atom::CONST_name)?;
+    let mut name = this_val.get_property(ctx, Atom::CONST_name)?;
     if name.is_undefined() {
-        name = Atom::CONST_empty_string.force_string(cx)?.into();
+        name = Atom::CONST_empty_string.force_string(ctx)?.into();
     }
 
-    JS_ConcatString3(cx, pref, name, suff).map(JSValue::String)
+    JS_ConcatString3(ctx, pref, name, suff).map(JSValue::String)
 }
 
-pub fn js_function_hasInstance(ctx: ContextPtr, cc: CallContext) -> JSResult {
+fn js_function_hasInstance(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
     if let Some(o) = cc.arg(0).as_object() {
-        o.ordinary_instance_of(&ctx, *cc.this()).map(JSValue::Bool)
+        o.ordinary_instance_of(ctx, *cc.this()).map(JSValue::Bool)
     } else {
         Ok(JSValue::Bool(false))
     }
 }
 
-pub fn js_function_proto_fileName(cc: CallContext) -> JSResult {
+fn js_function_proto_fileName(cc: CallContext) -> JSResult {
     let ctx = cc.ctx();
     if let Some(filename) = cc.this().as_object().and_then(|o| {
         o.payload()
@@ -156,7 +159,7 @@ pub fn js_function_proto_fileName(cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_function_proto_lineNumber(cc: CallContext) -> JSResult {
+fn js_function_proto_lineNumber(cc: CallContext) -> JSResult {
     if let Some(line_num) = cc.this().as_object().and_then(|o| {
         o.payload()
             .bc_function()
@@ -169,11 +172,11 @@ pub fn js_function_proto_lineNumber(cc: CallContext) -> JSResult {
 }
 
 pub static js_function_proto_funcs: [FieldDef; 7] = [
-    FieldDef::FUNCTION_V1("call", 1, js_function_call, 0),
-    FieldDef::FUNCTION_V1("apply", 2, js_function_apply, 0),
-    FieldDef::FUNCTION_V1("bind", 1, js_function_bind, 0),
-    FieldDef::FUNCTION_V1("toString", 0, js_function_toString, 0),
-    FieldDef::FUNCTION_V1("[Symbol.hasInstance]", 1, js_function_hasInstance, 0),
+    FieldDef::CALL("call", 1, js_function_call, 0),
+    FieldDef::CALL("apply", 2, js_function_apply, 0),
+    FieldDef::CALL("bind", 1, js_function_bind, 0),
+    FieldDef::CALL("toString", 0, js_function_toString, 0),
+    FieldDef::CALL("[Symbol.hasInstance]", 1, js_function_hasInstance, 0),
     FieldDef::GETSET("fileName", Some(js_function_proto_fileName), None, 0),
     FieldDef::GETSET("lineNumber", Some(js_function_proto_lineNumber), None, 0),
 ];

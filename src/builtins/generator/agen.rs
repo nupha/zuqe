@@ -251,7 +251,7 @@ impl AGenPayload {
             0, // is_reject=0
             None,
         );
-        let mut promise: Promise = match js_promise_resolve(ctx, cc) {
+        let mut promise: Promise = match js_promise_resolve(cc) {
             Ok(r) => r,
             Err(_) => {
                 // Fail looking up JS_ATOM_constructor when is_reject==0.
@@ -265,7 +265,7 @@ impl AGenPayload {
                     1, // is_reject=1
                     None,
                 );
-                js_promise_resolve(ctx, cc)?
+                js_promise_resolve(cc)?
             }
         }
         .try_into()?;
@@ -290,7 +290,7 @@ impl AGenPayload {
     fn _await(&self, mut ctx: ContextPtr, value: JSValue) -> Result<(), i32> {
         let mut promise: Promise = {
             let cc = CallContext::new_simple(ctx, ctx.promise_ctor, std::slice::from_ref(&value));
-            js_promise_resolve(ctx, cc)?.try_into()?
+            js_promise_resolve(cc)?.try_into()?
         };
 
         let resolving_funcs = js_async_generator_resolve_function_create(
@@ -471,8 +471,9 @@ fn js_async_generator_resolve_function_create(
     Ok(resolving_funcs)
 }
 
-fn js_async_generator_resolve_function(ctx: ContextPtr, cc: CallContext) -> JSResult {
+fn js_async_generator_resolve_function(cc: CallContext) -> JSResult {
     let is_reject = cc.magic() & 1 != 0;
+    let mut ctx = cc.context();
     let arg = *cc.arg(0);
 
     let mut data0 = *cc.data(0).as_object().unwrap();
@@ -515,7 +516,7 @@ fn js_async_generator_resolve_function(ctx: ContextPtr, cc: CallContext) -> JSRe
                 }
             }
 
-            s.resume_next(ctx);
+            s.resume_next(ctx.into());
         }
 
         Ok(JSValue::UNDEFINED)

@@ -842,10 +842,13 @@ impl Bytecode {
                         let op_1 = SP_VAL!(-1);
                         SP_GO!(-3);
 
-                        if let Ok(res) = js_function_apply(
+                        if let Ok(res) = js_function_apply(CallContext::new(
                             realm,
-                            CallContext::new(realm, op_3, &[op_2, op_1], magic, None),
-                        ) {
+                            op_3,
+                            &[op_2, op_1],
+                            magic,
+                            None,
+                        )) {
                             SP_PUT!(0, res);
                             SP_GO!(1);
                         } else {

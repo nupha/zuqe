@@ -735,10 +735,13 @@ pub fn js_regexp_Symbol_replace(ctx: ContextPtr, cc: CallContext) -> JSResult {
             )?;
 
             // apply replacement function
-            let t = js_function_apply(
+            let t = js_function_apply(CallContext::new(
                 ctx,
-                CallContext::new(ctx, rep, &[JSValue::UNDEFINED, m.into()], 0, None),
-            )?
+                rep,
+                &[JSValue::UNDEFINED, m.into()],
+                0,
+                None,
+            ))?
             .to_string(cx)?;
 
             sbuf.push_content(t.content()).map_err(|_| {

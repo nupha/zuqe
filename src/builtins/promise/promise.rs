@@ -286,10 +286,10 @@ impl Promise {
     /// callback to execute a promise:
     /// setting resolve and reject functions as attaching data of 'executor'.
     /// arg#0: resolve function, arg#1: reject function
-    fn executor_handler(ctx: ContextPtr, mut cc: CallContext) -> JSResult {
+    fn executor_handler(mut cc: CallContext) -> JSResult {
         for i in 0..2 {
             if !cc.data(i).is_undefined() {
-                ctx.throw_type_error("resolving function already set");
+                cc.ctx().throw_type_error("resolving function already set");
                 return Err(-1);
             } else {
                 let _ = cc.replace_data(i, *cc.arg(i));
@@ -374,7 +374,7 @@ pub fn remainingElementsCount_add(
     Ok(if remainingElementsCount == 0 { 1 } else { 0 })
 }
 
-pub fn js_promise_all_resolve_element(ctx: ContextPtr, mut cc: CallContext) -> JSResult {
+pub fn js_promise_all_resolve_element(mut cc: CallContext) -> JSResult {
     let resolve_type = cc.magic() & 3;
     let is_reject = cc.magic() & 4 != 0;
 
@@ -382,26 +382,27 @@ pub fn js_promise_all_resolve_element(ctx: ContextPtr, mut cc: CallContext) -> J
     let mut values = cc.data(2);
     let resolve = cc.data(3);
     let resolve_element_env = cc.data(4);
-    let index = cc.data(1).to_i32(&ctx)?;
+    let index = cc.data(1).to_i32(cc.ctx())?;
 
     if alreadyCalled {
         return Ok(JSValue::UNDEFINED);
     }
 
     let _ = cc.replace_data(0, JSValue::Bool(true));
+    let ctx = cc.ctx();
 
     let obj: JSValue = if resolve_type == PROMISE_MAGIC_allSettled {
         let mut ob = ctx.create_base_object()?;
 
         ob.define_property_value(
-            &ctx,
+            ctx,
             Atom::CONST_status,
             ctx.create_string_from_str(if is_reject { "rejected" } else { "fulfilled" })?
                 .into(),
             JS_PROP_C_W_E,
         )?;
         ob.define_property_value(
-            &ctx,
+            ctx,
             if is_reject {
                 Atom::CONST_reason
             } else {

@@ -42,7 +42,7 @@ fn js_proxy_revocable(cc: CallContext) -> JSResult {
     // create revoke function
     let revoke_obj = NativeFunctionWithData::create(
         ctx,
-        |_, mut cc| -> JSResult {
+        |mut cc| -> JSResult {
             if let Some(px) = cc.data(0).as_object_Proxy() {
                 px.payload().set_revoked();
                 // clear attached data (Proxy value)

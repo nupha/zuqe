@@ -9,7 +9,7 @@ use gc_lite::{Collect, GcRef, GcWeak};
 use crate::{
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_SHARED_ARRAY_BUFFER,
     class::ClassID,
-    context::{ContextHandle, ContextImpl, ContextPtr},
+    context::{ContextHandle, ContextImpl},
     error::JSResult,
     function::CallContext,
     object::{ObjectImpl, ObjectPayload, ObjectRef},

@@ -19,41 +19,48 @@ use super::{
 // Instance methods
 //
 
-pub fn js_promise_then(mut ctx: ContextPtr, cc: CallContext) -> JSResult {
+pub fn js_promise_then(cc: CallContext) -> JSResult {
     let mut this = *cc.this();
+
     if let Some(p) = this.as_object_Promise_mut() {
-        p.then(&mut ctx, *cc.arg(0), *cc.arg(1)).map(|p| p.into())
+        p.then(&mut cc.context(), *cc.arg(0), *cc.arg(1))
+            .map(|p| p.into())
     } else {
-        ctx.throw_type_error_invalid_class(JS_CLASS_PROMISE);
+        cc.ctx().throw_type_error_invalid_class(JS_CLASS_PROMISE);
         Err(-1)
     }
 }
 
-pub fn js_promise_catch(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    cc.this()
-        .invoke(&ctx, Atom::CONST_then, &[JSValue::UNDEFINED, *cc.arg(0)])
+pub fn js_promise_catch(cc: CallContext) -> JSResult {
+    cc.this().invoke(
+        cc.ctx(),
+        Atom::CONST_then,
+        &[JSValue::UNDEFINED, *cc.arg(0)],
+    )
 }
 
-fn js_promise_then_finally_func(ctx: ContextPtr, cc: CallContext) -> JSResult {
+fn js_promise_then_finally_func(cc: CallContext) -> JSResult {
+    let ctx = cc.context();
     let ctor = cc.data(0);
     let on_finally = cc.data(1);
 
     let res = on_finally.call(&ctx, JSValue::UNDEFINED, &[])?;
 
-    let promise = js_promise_resolve(
-        ctx,
-        CallContext::new_simple(ctx, ctor, std::slice::from_ref(&res)),
-    )?;
+    let promise = js_promise_resolve(CallContext::new_simple(
+        ctx.into(),
+        ctor,
+        std::slice::from_ref(&res),
+    ))?;
 
     // create inner resolving function for finally()
     let then_func: JSValue = NativeFunctionWithData::create(
         &ctx,
-        |cx: ContextPtr, cc: CallContext| -> JSResult {
+        |cc: CallContext| -> JSResult {
             let val = cc.data(0);
             if cc.magic() == 0 {
                 val.err() // resolve
             } else {
-                cx.throw(val); // reject
+                cc.ctx().throw(val); // reject
                 Err(-1)
             }
         },
@@ -66,7 +73,8 @@ fn js_promise_then_finally_func(ctx: ContextPtr, cc: CallContext) -> JSResult {
     promise.invoke(&ctx, Atom::CONST_then, std::slice::from_ref(&then_func))
 }
 
-pub fn js_promise_finally(ctx: ContextPtr, cc: CallContext) -> JSResult {
+pub fn js_promise_finally(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
     let on_finally = *cc.arg(0);
 
     let then_funcs: [JSValue; 2] = if !on_finally.is_function() {
@@ -75,7 +83,7 @@ pub fn js_promise_finally(ctx: ContextPtr, cc: CallContext) -> JSResult {
         let ctor = JS_SpeciesConstructor(&ctx, *cc.this(), JSValue::UNDEFINED)?;
         [
             NativeFunctionWithData::create(
-                &ctx,
+                ctx,
                 js_promise_then_finally_func,
                 1,
                 0,
@@ -95,11 +103,13 @@ pub fn js_promise_finally(ctx: ContextPtr, cc: CallContext) -> JSResult {
         ]
     };
 
-    cc.this().invoke(&ctx, Atom::CONST_then, &then_funcs)
+    cc.this().invoke(ctx, Atom::CONST_then, &then_funcs)
 }
 
 /// returned value is Promise object or Exception.
-pub fn js_promise_resolve(ctx: ContextPtr, cc: CallContext) -> JSResult {
+pub fn js_promise_resolve(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
+
     if !cc.this().is_object() {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
@@ -116,23 +126,25 @@ pub fn js_promise_resolve(ctx: ContextPtr, cc: CallContext) -> JSResult {
         }
     }
 
-    let (result_promise, resolving_funcs) = Promise::create_from_ctor(&ctx, *cc.this())?;
+    let (result_promise, resolving_funcs) = Promise::create_from_ctor(ctx, *cc.this())?;
     resolving_funcs[is_reject as usize].call(
-        &ctx,
+        ctx,
         JSValue::UNDEFINED,
         std::slice::from_ref(&arg0),
     )?;
     Ok(result_promise.into())
 }
 
-pub fn js_promise_all(ctx: ContextPtr, cc: CallContext) -> JSResult {
+pub fn js_promise_all(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
+
     if !cc.this().is_object() {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
     }
 
     let is_promise_any = cc.magic() == PROMISE_MAGIC_any;
-    let (result_promise, resolving_funcs) = Promise::create_from_ctor(&ctx, *cc.this())?;
+    let (result_promise, resolving_funcs) = Promise::create_from_ctor(ctx, *cc.this())?;
 
     let fail_reject = |cx: &ContextImpl| -> JSResult {
         let error = cx.rt().take_exception();
@@ -140,7 +152,7 @@ pub fn js_promise_all(ctx: ContextPtr, cc: CallContext) -> JSResult {
         Ok(JSValue::Object(result_promise))
     };
 
-    let promise_resolve = if let Ok(x) = cc.this().get_property(&ctx, Atom::CONST_resolve) {
+    let promise_resolve = if let Ok(x) = cc.this().get_property(ctx, Atom::CONST_resolve) {
         if unlikely(x.ensure_function(&ctx).is_err()) {
             return fail_reject(&ctx);
         } else {
@@ -176,13 +188,13 @@ pub fn js_promise_all(ctx: ContextPtr, cc: CallContext) -> JSResult {
     while let Some(a) = it.next() {
         if let Ok(item) = a {
             let Ok(next_promise) =
-                promise_resolve.call(&ctx, *cc.this(), std::slice::from_ref(&item))
+                promise_resolve.call(ctx, *cc.this(), std::slice::from_ref(&item))
             else {
-                return fail_reject(&ctx);
+                return fail_reject(ctx);
             };
 
             let mut resolve_element: JSValue = if let Ok(v) = NativeFunctionWithData::create(
-                &ctx,
+                ctx,
                 js_promise_all_resolve_element,
                 1,
                 cc.magic(),
@@ -203,7 +215,7 @@ pub fn js_promise_all(ctx: ContextPtr, cc: CallContext) -> JSResult {
             let reject_element: JSValue = match cc.magic() {
                 PROMISE_MAGIC_allSettled => {
                     if let Ok(r) = NativeFunctionWithData::create(
-                        &ctx,
+                        ctx,
                         js_promise_all_resolve_element,
                         1,
                         cc.magic() | 4,
@@ -223,25 +235,25 @@ pub fn js_promise_all(ctx: ContextPtr, cc: CallContext) -> JSResult {
                 }
                 PROMISE_MAGIC_any => {
                     if values
-                        .define_property_value_u32(&ctx, index as u32, JSValue::UNDEFINED, 0x7)
+                        .define_property_value_u32(ctx, index as u32, JSValue::UNDEFINED, 0x7)
                         .is_err()
                     {
-                        return fail_reject(&ctx);
+                        return fail_reject(ctx);
                     }
                     std::mem::replace(&mut resolve_element, resolving_funcs[0]) // take out old value
                 }
                 _ => resolving_funcs[1],
             };
 
-            if remainingElementsCount_add(&ctx, resolve_element_env, 1).is_err() {
+            if remainingElementsCount_add(ctx, resolve_element_env, 1).is_err() {
                 return fail_reject(&ctx);
             }
 
             if next_promise
-                .invoke(&ctx, Atom::CONST_then, &[resolve_element, reject_element])
+                .invoke(ctx, Atom::CONST_then, &[resolve_element, reject_element])
                 .is_err()
             {
-                return fail_reject(&ctx);
+                return fail_reject(ctx);
             }
 
             index += 1;
@@ -250,32 +262,32 @@ pub fn js_promise_all(ctx: ContextPtr, cc: CallContext) -> JSResult {
             // conformance: should close the iterator if error on 'done' access, but not on 'value' access.
             // so we set field .done to true by hand to avoid closing the iterator in ObjectIter::drop();
             it.done = true;
-            return fail_reject(&ctx);
+            return fail_reject(ctx);
         }
     }
 
-    match remainingElementsCount_add(&ctx, resolve_element_env, -1) {
+    match remainingElementsCount_add(ctx, resolve_element_env, -1) {
         Ok(1) => {
             if cc.magic() == PROMISE_MAGIC_any {
-                let error = js_aggregate_error_constructor(&ctx, values);
+                let error = js_aggregate_error_constructor(ctx, values);
                 if error.is_exception() {
-                    return fail_reject(&ctx);
+                    return fail_reject(ctx);
                 }
                 values = error;
             }
 
             let ret = resolving_funcs[is_promise_any as usize].call(
-                &ctx,
+                ctx,
                 JSValue::UNDEFINED,
                 std::slice::from_ref(&values),
             );
             if ret.is_err() {
-                return fail_reject(&ctx);
+                return fail_reject(ctx);
             }
         }
         Ok(0) => {}
         Err(_) => {
-            return fail_reject(&ctx);
+            return fail_reject(ctx);
         }
         Ok(_) => {
             unreachable!()
@@ -285,13 +297,15 @@ pub fn js_promise_all(ctx: ContextPtr, cc: CallContext) -> JSResult {
     Ok(result_promise.into())
 }
 
-pub fn js_promise_race(ctx: ContextPtr, cc: CallContext) -> JSResult {
+pub fn js_promise_race(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
+
     if !cc.this().is_object() {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
     }
 
-    let (result_promise, resolving_funcs) = Promise::create_from_ctor(&ctx, *cc.this())?;
+    let (result_promise, resolving_funcs) = Promise::create_from_ctor(ctx, *cc.this())?;
 
     let fail_reject = |cx: &ContextImpl| -> JSResult {
         let error = cx.rt().take_exception();
@@ -301,14 +315,14 @@ pub fn js_promise_race(ctx: ContextPtr, cc: CallContext) -> JSResult {
 
     let promise_resolve = cc
         .this()
-        .get_property(&ctx, Atom::CONST_resolve)
+        .get_property(ctx, Atom::CONST_resolve)
         .unwrap_or(JSValue::EXCEPTION);
 
-    if unlikely(promise_resolve.is_exception() || promise_resolve.ensure_function(&ctx).is_err()) {
-        fail_reject(&ctx)
+    if unlikely(promise_resolve.is_exception() || promise_resolve.ensure_function(ctx).is_err()) {
+        fail_reject(ctx)
     } else {
-        let Ok(mut it) = cc.arg(0).iter(&ctx) else {
-            return fail_reject(&ctx);
+        let Ok(mut it) = cc.arg(0).iter(ctx) else {
+            return fail_reject(ctx);
         };
         let this = *cc.this();
 
@@ -316,17 +330,17 @@ pub fn js_promise_race(ctx: ContextPtr, cc: CallContext) -> JSResult {
             if let Ok(val) = item {
                 if promise_resolve
                     .call(&ctx, this, std::slice::from_ref(&val))
-                    .and_then(|pr| pr.invoke(&ctx, Atom::CONST_then, &resolving_funcs))
+                    .and_then(|pr| pr.invoke(ctx, Atom::CONST_then, &resolving_funcs))
                     .is_err()
                 {
-                    return fail_reject(&ctx);
+                    return fail_reject(ctx);
                 }
             } else {
                 // has error when accessing 'value' property.
                 // conformance: should close the iterator if error on 'done' access, but not on 'value' access.
                 // so we set field .done to true by hand to avoid closing the iterator in ObjectIter::drop();
                 it.done = true;
-                return fail_reject(&ctx);
+                return fail_reject(ctx);
             }
         }
 
@@ -334,40 +348,42 @@ pub fn js_promise_race(ctx: ContextPtr, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_promise_withResolvers(ctx: ContextPtr, cc: CallContext) -> JSResult {
+pub fn js_promise_withResolvers(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
+
     if !cc.this().is_object() {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
     }
 
-    let (result_promise, resolving_funcs) = Promise::create_from_ctor(&ctx, *cc.this())?;
+    let (result_promise, resolving_funcs) = Promise::create_from_ctor(ctx, *cc.this())?;
     let mut obj = ctx.create_base_object()?;
 
     obj.define_property_value(
-        &ctx,
+        ctx,
         Atom::CONST_promise,
         result_promise.into(),
         JS_PROP_C_W_E,
     )?;
-    obj.define_property_value(&ctx, Atom::CONST_resolve, resolving_funcs[0], JS_PROP_C_W_E)?;
-    obj.define_property_value(&ctx, Atom::CONST_reject, resolving_funcs[1], JS_PROP_C_W_E)?;
+    obj.define_property_value(ctx, Atom::CONST_resolve, resolving_funcs[0], JS_PROP_C_W_E)?;
+    obj.define_property_value(ctx, Atom::CONST_reject, resolving_funcs[1], JS_PROP_C_W_E)?;
 
     Ok(obj.into())
 }
 
 pub static js_promise_funcs: [FieldDef; 8] = [
-    FieldDef::FUNCTION_V1("resolve", 1, js_promise_resolve, 0),
-    FieldDef::FUNCTION_V1("reject", 1, js_promise_resolve, 1),
-    FieldDef::FUNCTION_V1("all", 1, js_promise_all, PROMISE_MAGIC_all as _),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL("resolve", 1, js_promise_resolve, 0),
+    FieldDef::CALL("reject", 1, js_promise_resolve, 1),
+    FieldDef::CALL("all", 1, js_promise_all, PROMISE_MAGIC_all as _),
+    FieldDef::CALL(
         "allSettled",
         1,
         js_promise_all,
         PROMISE_MAGIC_allSettled as _,
     ),
-    FieldDef::FUNCTION_V1("any", 1, js_promise_all, PROMISE_MAGIC_any as _),
-    FieldDef::FUNCTION_V1("race", 1, js_promise_race, 0),
-    FieldDef::FUNCTION_V1("withResolvers", 0, js_promise_withResolvers, 0),
+    FieldDef::CALL("any", 1, js_promise_all, PROMISE_MAGIC_any as _),
+    FieldDef::CALL("race", 1, js_promise_race, 0),
+    FieldDef::CALL("withResolvers", 0, js_promise_withResolvers, 0),
     FieldDef::GETSET("[Symbol.species]", Some(js_get_this), None, 0),
 ];
 
@@ -384,8 +400,8 @@ pub static js_promise_funcs: [FieldDef; 8] = [
 // }
 
 pub static js_promise_proto_funcs: [FieldDef; 4] = [
-    FieldDef::FUNCTION_V1("then", 2, js_promise_then, 0),
-    FieldDef::FUNCTION_V1("catch", 1, js_promise_catch, 0),
-    FieldDef::FUNCTION_V1("finally", 1, js_promise_finally, 0),
+    FieldDef::CALL("then", 2, js_promise_then, 0),
+    FieldDef::CALL("catch", 1, js_promise_catch, 0),
+    FieldDef::CALL("finally", 1, js_promise_finally, 0),
     FieldDef::STR("[Symbol.toStringTag]", "Promise", JS_PROP_CONFIGURABLE),
 ];

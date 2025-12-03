@@ -362,7 +362,7 @@ impl ModuleDef {
     }
 
     /// async module execution callback
-    fn execute_async_fulfilled(mut ctx: ContextPtr, cc: CallContext) -> JSResult {
+    fn execute_async_fulfilled(mut cc: CallContext) -> JSResult {
         let JSValue::Module(mut md) = cc.data(0) else {
             unreachable!()
         };
@@ -377,10 +377,10 @@ impl ModuleDef {
         debug_assert!(md.async_evaluation());
 
         md.set_async_evaluation(false);
-        md.set_evaluated(&ctx);
+        md.set_evaluated(cc.ctx());
 
         let mut exec_list = Vec::<ModuleDef>::with_capacity(8);
-        gather_module_ancestors(&ctx, md, &mut exec_list)?;
+        gather_module_ancestors(cc.ctx(), md, &mut exec_list)?;
 
         // sort by async_evaluation timestamp
         exec_list.sort_by(|m1, m2| {
@@ -393,23 +393,20 @@ impl ModuleDef {
             if m.status() == JSModuleStatus::JS_MODULE_STATUS_EVALUATED {
                 debug_assert!(m.eval_exception().is_some());
             } else if m.has_tla() {
-                m.execute_async_module(&mut ctx)?;
+                m.execute_async_module(cc.ctx_mut())?;
             } else {
-                match m.execute_sync_module(&mut ctx) {
+                match m.execute_sync_module(cc.ctx_mut()) {
                     Ok(_) => {
-                        m.set_evaluated(&ctx);
+                        m.set_evaluated(cc.ctx());
                     }
                     Err(e) => {
-                        Self::execute_async_rejected(
-                            ctx,
-                            CallContext::new(
-                                ctx,
-                                JSValue::UNDEFINED,
-                                std::slice::from_ref(&e),
-                                0,
-                                Some(Rc::new(RefCell::new([JSValue::Module(m)].into()))),
-                            ),
-                        )?;
+                        Self::execute_async_rejected(CallContext::new(
+                            cc.ctx_ptr(),
+                            JSValue::UNDEFINED,
+                            std::slice::from_ref(&e),
+                            0,
+                            Some(Rc::new(RefCell::new([JSValue::Module(m)].into()))),
+                        ))?;
                     }
                 }
             }
@@ -419,9 +416,9 @@ impl ModuleDef {
     }
 
     /// async module execution reject callback
-    fn execute_async_rejected(ctx: ContextPtr, cc: CallContext) -> JSResult {
-        if js_check_stack_overflow(&ctx.rt(), 0) {
-            ctx.throw_stack_overflow();
+    fn execute_async_rejected(cc: CallContext) -> JSResult {
+        if js_check_stack_overflow(cc.ctx().rt_ref(), 0) {
+            cc.ctx().throw_stack_overflow();
             return Err(-1);
         }
 
@@ -450,19 +447,19 @@ impl ModuleDef {
 
         for m in md.async_parent_modules.iter() {
             let cc = CallContext::new(
-                ctx,
+                cc.ctx_ptr(),
                 JSValue::UNDEFINED,
                 std::slice::from_ref(err_val),
                 0,
                 Some(Rc::new(RefCell::new([JSValue::Module(*m)].into()))),
             );
-            Self::execute_async_rejected(ctx, cc).unwrap();
+            Self::execute_async_rejected(cc).unwrap();
         }
 
         if md.promise.is_some() {
             debug_assert_eq!(md.cycle_root().unwrap().id(), md.id());
             let func = md.resolving_funcs[1];
-            let _ = func.call(&ctx, JSValue::UNDEFINED, std::slice::from_ref(err_val));
+            let _ = func.call(cc.ctx(), JSValue::UNDEFINED, std::slice::from_ref(err_val));
         }
 
         Ok(JSValue::UNDEFINED)

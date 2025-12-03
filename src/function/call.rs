@@ -384,21 +384,23 @@ pub fn JS_CallConstructor(ctx: &ContextImpl, func_obj: JSValue, args: &[JSValue]
 }
 
 // magic value: 0 = normal apply, 1 = apply for constructor, 2 = Reflect.apply
-pub fn js_function_apply(ctx: ContextPtr, cc: CallContext) -> JSResult {
+pub(crate) fn js_function_apply(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
+
     let this_val = *cc.this();
-    this_val.ensure_function(&ctx)?;
+    this_val.ensure_function(ctx)?;
 
     let this_arg = *cc.arg(0);
     let array_arg = *cc.arg(1);
 
     if unlikely(array_arg.is_undefined_or_null() && cc.magic() != 2) {
-        this_val.call(&ctx, this_arg, &[])
+        this_val.call(ctx, this_arg, &[])
     } else {
-        let arg_list = build_arg_list(&ctx, array_arg)?;
+        let arg_list = build_arg_list(ctx, array_arg)?;
         if cc.magic() & 1 != 0 {
-            JS_CallConstructor2(&ctx, this_val, this_arg, arg_list.as_ref()).err()
+            JS_CallConstructor2(ctx, this_val, this_arg, arg_list.as_ref()).err()
         } else {
-            this_val.call(&ctx, this_arg, arg_list.as_ref())
+            this_val.call(ctx, this_arg, arg_list.as_ref())
         }
     }
 }

@@ -7,7 +7,7 @@ use crate::{
     atom::Atom,
     context::{ContextHandle, ContextImpl},
     error::JSResult,
-    function::{CallContext, NativeCallback_v1, js_function_set_properties},
+    function::{CallContext, NativeCallbackFn, js_function_set_properties},
     object::{ObjectImpl, ObjectPayload, ObjectRef},
     object_cast,
     value::JSValue,
@@ -15,7 +15,7 @@ use crate::{
 
 #[derive(Debug)]
 pub struct NativeFuncData {
-    func: NativeCallback_v1,
+    func: NativeCallbackFn,
     length: u8,
     data: Rc<RefCell<Box<[JSValue]>>>,
     magic: u16,
@@ -29,7 +29,7 @@ unsafe impl Collect for NativeFuncData {
 }
 
 impl NativeFuncData {
-    fn new(callback: NativeCallback_v1, length: u8, magic: i32, data: Box<[JSValue]>) -> Box<Self> {
+    fn new(callback: NativeCallbackFn, length: u8, magic: i32, data: Box<[JSValue]>) -> Box<Self> {
         Box::new(NativeFuncData {
             func: callback,
             length,
@@ -67,7 +67,7 @@ impl NativeFunctionWithData {
     /// Create a C_FUNCTION_DATA class object, which behaves like a native function, with attached data.
     pub(crate) fn create(
         ctx: &ContextImpl,
-        callback: NativeCallback_v1,
+        callback: NativeCallbackFn,
         length: u8,
         magic: i32,
         data: Box<[JSValue]>,
@@ -98,16 +98,13 @@ impl NativeFunctionWithData {
         if let ObjectPayload::C_FUNCTION_DATA(s) =
             unsafe { func_obj.as_object_unchecked().payload() }
         {
-            (s.func)(
+            (s.func)(CallContext::new(
                 ctx.into(),
-                CallContext::new(
-                    ctx.into(),
-                    this_val,
-                    args,
-                    s.magic as _,
-                    Some(s.data.clone()),
-                ),
-            )
+                this_val,
+                args,
+                s.magic as _,
+                Some(s.data.clone()),
+            ))
         } else {
             unreachable!()
         }

@@ -138,7 +138,7 @@ fn JS_LoadModuleInternal(
     }
 }
 
-fn js_load_module_rejected(ctx: ContextPtr, cc: CallContext) -> JSResult {
+fn js_load_module_rejected(cc: CallContext) -> JSResult {
     let error = if cc.length() >= 1 {
         *cc.arg(0)
     } else {
@@ -146,24 +146,24 @@ fn js_load_module_rejected(ctx: ContextPtr, cc: CallContext) -> JSResult {
     };
     let _ = cc
         .data(1)
-        .call(&ctx, JSValue::UNDEFINED, std::slice::from_ref(&error));
+        .call(cc.ctx(), JSValue::UNDEFINED, std::slice::from_ref(&error));
     Ok(JSValue::UNDEFINED)
 }
 
-fn js_load_module_fulfilled(ctx: ContextPtr, cc: CallContext) -> JSResult {
+fn js_load_module_fulfilled(cc: CallContext) -> JSResult {
     if let Ok(ns) = if let JSValue::Module(mut m) = cc.data(2) {
-        m.ns(&ctx)
+        m.ns(cc.ctx())
     } else {
         unreachable!()
     } {
         // resolve() with module namespace
-        let _ = cc.data(0).call(&ctx, JSValue::UNDEFINED, &[ns.into()]);
+        let _ = cc.data(0).call(cc.ctx(), JSValue::UNDEFINED, &[ns.into()]);
     } else {
         // reject() with error
-        let err = ctx.rt().take_exception();
+        let err = cc.ctx().rt().take_exception();
         let _ = cc
             .data(1)
-            .call(&ctx, JSValue::UNDEFINED, std::slice::from_ref(&err));
+            .call(cc.ctx(), JSValue::UNDEFINED, std::slice::from_ref(&err));
     }
 
     Ok(JSValue::UNDEFINED)

@@ -178,7 +178,7 @@ impl AsyncFuncState {
                     ctx.promise_ctor,
                     std::slice::from_ref(&value),
                 );
-                js_promise_resolve(cc.ctx_ptr(), cc)
+                js_promise_resolve(cc)
             } {
                 Promise::try_from(p).unwrap()
             } else {

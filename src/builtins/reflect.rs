@@ -25,7 +25,7 @@ pub fn js_reflect_apply(ctx: ContextPtr, cc: CallContext) -> JSResult {
         2,
         None,
     );
-    js_function_apply(ctx, cc2)
+    js_function_apply(cc2)
 }
 
 pub fn js_reflect_construct(ctx: ContextPtr, cc: CallContext) -> JSResult {
