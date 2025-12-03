@@ -276,7 +276,7 @@ impl ContextImpl {
     }
 }
 
-/// Handle to context with lifetime restriction
+/// Handle to context with lifetime
 #[derive(Clone, Copy)]
 pub struct ContextHandle<'a> {
     gc_ref: GcRef<ContextImpl>,
@@ -299,20 +299,14 @@ impl<'a> DerefMut for ContextHandle<'a> {
     }
 }
 
-impl<'a> ContextHandle<'a> {
-    /// get ContextRef
-    #[inline(always)]
-    pub const fn ptr(&self) -> ContextRef {
-        ContextRef(self.gc_ref)
-    }
-}
-
 /// A light-weight context pointer, efficent to copy, like a raw pointer.
 /// It can be dereferenced to ref or mut ref automatically.
 /// Safety: you are responsible to take more care to use it safe, keep in mind pointer could be dangling.
 ///
-/// TODO: this should not expose to public api. define a `ContextHandle` instead,
-/// which has lifetime and can not clone.
+/// This is suggested to use internally only,
+/// for public api, use `ContextHandle` instead, which is same but has lifetime restriction.
+///
+// TODO: make this in-crate visible.
 #[repr(transparent)]
 #[derive(Clone, Copy)]
 pub struct ContextRef(GcRef<ContextImpl>);
@@ -326,6 +320,13 @@ impl PartialEq for ContextRef {
     }
 }
 
+impl From<ContextHandle<'_>> for ContextRef {
+    #[inline(always)]
+    fn from(h: ContextHandle<'_>) -> Self {
+        Self(h.gc_ref)
+    }
+}
+
 impl std::fmt::Debug for ContextRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "<ContextRef {:p}>", self.id() as *const c_void)
@@ -333,10 +334,6 @@ impl std::fmt::Debug for ContextRef {
 }
 
 impl ContextRef {
-    pub fn downgrade(&self) -> GcWeak<ContextImpl> {
-        self.0.downgrade(self.rt().gc_heap_mut())
-    }
-
     /// Initialize minimum amount of objects to be able to compile code and display error messages.
     /// No Atom should be allocated by this function.
     fn init_core_objects(&mut self) -> Result<(), i32> {
@@ -430,12 +427,9 @@ impl ContextRef {
         Ok(())
     }
 
-    pub fn gc_has_mark(&self) -> bool {
-        self.flags & 1 != 0
-    }
-
-    pub fn gc_set_mark(&mut self, mark: bool) {
-        self.flags = (self.flags & 0b1111_1110) | (mark as u8)
+    #[inline(always)]
+    pub fn downgrade(&self) -> GcWeak<ContextImpl> {
+        self.0.downgrade(self.rt().gc_heap_mut())
     }
 }
 

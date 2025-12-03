@@ -12,7 +12,7 @@ use serde::Deserialize;
 use zhuque::{
     atom::Atom,
     builtins::promise::{Promise, PromiseState},
-    context::{ContextImpl, ContextRef},
+    context::{ContextHandle, ContextImpl, ContextRef},
     error::JSResult,
     eval::{JS_EVAL_FLAG_STRICT, JS_EVAL_TYPE_GLOBAL},
     function::{CallContext, NativeFunctionType},
@@ -264,7 +264,7 @@ struct Negative {
     type_: Option<String>,
 }
 
-fn run_harness(mut ctx: ContextRef, harness_files: &[PathBuf]) -> Result<(), i32> {
+fn run_harness(mut ctx: ContextHandle, harness_files: &[PathBuf]) -> Result<(), i32> {
     for file in harness_files {
         let src = std::fs::read_to_string(file)
             .inspect_err(|_| {
@@ -283,7 +283,7 @@ fn run_harness(mut ctx: ContextRef, harness_files: &[PathBuf]) -> Result<(), i32
 }
 
 fn run_test_script(
-    mut ctx: ContextRef,
+    mut ctx: ContextHandle,
     script: &str,
     filename: &Path,
     is_module: bool,
@@ -349,7 +349,7 @@ fn run_test_script(
 }
 
 fn dump_error(
-    ctx: ContextRef,
+    ctx: ContextHandle,
     err_val: &JSValue,
     msg: &str,
     strict: bool,
@@ -424,10 +424,9 @@ fn run_test_file(
     let mut rt = Runtime::create().unwrap();
     JS_SetModuleLoaderFunc(rt.deref_mut(), None, js_module_loader, std::ptr::null_mut());
 
-    let mut ctx_handle = rt.create_context_ecma().unwrap();
-    setup_ctx_test262_helpers(&mut ctx_handle).unwrap();
+    let mut ctx = rt.create_context_ecma().unwrap();
+    setup_ctx_test262_helpers(&mut ctx).unwrap();
 
-    let ctx = ctx_handle.ptr();
     let mut has_err = false;
 
     if !harness_files.is_empty() {

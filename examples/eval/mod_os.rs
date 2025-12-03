@@ -1,5 +1,5 @@
 use zhuque::{
-    context::{ContextImpl, ContextRef},
+    context::{ContextHandle, ContextImpl, ContextRef},
     error::JSResult,
     function::{CallContext, FieldDef},
     value::JSValue,
@@ -23,7 +23,7 @@ static MOD_OS_ENTRIES: [FieldDef; 1] = [FieldDef::FUNCTION("now", 0, js_os_now, 
 pub struct ModuleOS;
 
 impl ModuleOS {
-    pub fn register(ctx: &mut ContextImpl) -> Result<(), i32> {
+    pub fn register(mut ctx: ContextHandle) -> Result<(), i32> {
         ctx.register_native_module("os", &MOD_OS_ENTRIES)?;
         Ok(())
     }

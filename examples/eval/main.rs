@@ -53,8 +53,8 @@ fn main() {
     ctx.use_class(class_id_file).unwrap();
 
     // register native modules
-    init_mod_std(ctx.ptr()).unwrap();
-    ModuleOS::register(&mut ctx.ptr()).unwrap();
+    init_mod_std(ctx).unwrap();
+    ModuleOS::register(ctx).unwrap();
 
     setup_globals(&mut ctx).unwrap();
 
