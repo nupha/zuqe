@@ -9,7 +9,7 @@ use gc_lite::{Collect, GcRef, GcWeak};
 use crate::{
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_SHARED_ARRAY_BUFFER,
     class::ClassID,
-    context::{ContextImpl, ContextRef},
+    context::{ContextHandle, ContextImpl, ContextRef},
     error::JSResult,
     function::CallContext,
     object::{ObjectImpl, ObjectPayload, ObjectRef},
@@ -183,7 +183,7 @@ object_cast!(
 
 impl ArrayBuffer {
     pub fn class_initialize(
-        mut ctx: ContextRef,
+        mut ctx: ContextHandle,
         class_id: ClassID,
     ) -> Result<Option<ObjectRef>, i32> {
         match class_id {

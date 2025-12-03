@@ -9,7 +9,7 @@ use gc_lite::Collect;
 use crate::{
     atom::Atom,
     class::ClassID,
-    context::{ContextImpl, ContextRef},
+    context::{ContextHandle, ContextImpl, ContextRef},
     error::JSResult,
     function::{CallContext, FieldDef},
     object::{ObjectPayload, ObjectRef},
@@ -677,7 +677,7 @@ impl Datetime {
         timestamp_ms: INVALID_TIMESTAMP,
     };
 
-    pub fn class_initialize(mut ctx: ContextRef, _: ClassID) -> Result<Option<ObjectRef>, i32> {
+    pub fn class_initialize(mut ctx: ContextHandle, _: ClassID) -> Result<Option<ObjectRef>, i32> {
         let mut obj = ctx.create_base_object()?;
         obj.install_field_defs(&ctx, &js_date_proto_funcs).unwrap();
 

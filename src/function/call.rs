@@ -58,12 +58,12 @@ impl<'cc> CallContext<'cc> {
     }
 
     #[inline(always)]
-    pub(crate) fn ctx(&self) -> &ContextImpl {
+    pub fn ctx(&self) -> &ContextImpl {
         self.ctx.deref()
     }
 
     #[inline(always)]
-    pub(crate) fn ctx_mut(&mut self) -> &mut ContextImpl {
+    pub fn ctx_mut(&mut self) -> &mut ContextImpl {
         self.ctx.deref_mut()
     }
 

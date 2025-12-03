@@ -10,7 +10,7 @@ use crate::{
     atom::Atom,
     builtins::{array_buffer::ArrayBuffer, iterator::js_array_from_iterator},
     class::ClassID,
-    context::{ContextImpl, ContextRef},
+    context::{ContextHandle, ContextImpl, ContextRef},
     error::JS_ThrowTypeErrorDetachedArrayBuffer,
     function::Callback,
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, ObjectImpl, ObjectPayload, ObjectRef},
@@ -182,7 +182,7 @@ impl TypedArray {
     }
 
     pub fn class_initialize(
-        mut ctx: ContextRef,
+        mut ctx: ContextHandle,
         class_id: ClassID,
     ) -> Result<Option<ObjectRef>, i32> {
         debug_assert!(matches!(

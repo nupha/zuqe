@@ -9,7 +9,7 @@ use crate::{
         promise::{Promise, js_promise_resolve},
     },
     class::ClassID,
-    context::{ContextImpl, ContextRef},
+    context::{ContextHandle, ContextImpl, ContextRef},
     error::JSResult,
     function::{
         AsyncFuncState, BytecodeFunction, CallContext, Callback, FieldDef, JSFunctionKindEnum,
@@ -384,7 +384,7 @@ impl AsyncGeneratorFunction {
     }
 
     pub fn class_initialize(
-        mut ctx: ContextRef,
+        mut ctx: ContextHandle,
         class_id: ClassID,
     ) -> Result<Option<ObjectRef>, i32> {
         debug_assert!(

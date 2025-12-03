@@ -7,7 +7,7 @@ use crate::{
     JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR,
     atom::Atom,
     class::ClassID,
-    context::{ContextImpl, ContextRef},
+    context::{ContextHandle, ContextImpl, ContextRef},
     object::{
         JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, ObjectImpl, ObjectPayload, ObjectRef,
     },
@@ -378,7 +378,7 @@ impl RegExp {
     }
 
     pub fn class_initialize(
-        mut ctx: ContextRef,
+        mut ctx: ContextHandle,
         class_id: ClassID,
     ) -> Result<Option<ObjectRef>, i32> {
         match class_id {

@@ -7,7 +7,7 @@ use crate::{
     atom::Atom,
     builtins::error::js_aggregate_error_constructor,
     class::ClassID,
-    context::{ContextImpl, ContextRef},
+    context::{ContextHandle, ContextImpl, ContextRef},
     error::JSResult,
     function::{
         CallContext, Callback, JS_CallConstructor, NativeFunctionWithData,
@@ -305,7 +305,7 @@ impl Promise {
         Promise::from_executor(ctx, executor, *cc.this()).map(|p| p.into())
     }
 
-    pub fn class_initialize(mut ctx: ContextRef, _: ClassID) -> Result<Option<ObjectRef>, i32> {
+    pub fn class_initialize(mut ctx: ContextHandle, _: ClassID) -> Result<Option<ObjectRef>, i32> {
         let mut proto = ctx.create_base_object()?;
         proto.install_field_defs(&ctx, &js_promise_proto_funcs)?;
 

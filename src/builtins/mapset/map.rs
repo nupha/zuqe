@@ -6,7 +6,7 @@ use crate::{
     JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, JS_CLASS_SET, JS_CLASS_SET_ITERATOR, JS_CLASS_WEAKMAP,
     JS_CLASS_WEAKSET,
     class::ClassID,
-    context::{ContextImpl, ContextRef},
+    context::{ContextHandle, ContextImpl, ContextRef},
     object::{ObjectImpl, ObjectPayload, ObjectRef},
     object_cast,
     utils::hash_usize,
@@ -347,7 +347,7 @@ object_cast!(
 
 impl MapSet {
     pub fn class_initialize(
-        mut ctx: ContextRef,
+        mut ctx: ContextHandle,
         class_id: ClassID,
     ) -> Result<Option<ObjectRef>, i32> {
         let iter_proto = ctx.iterator_proto()?;

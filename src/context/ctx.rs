@@ -306,11 +306,9 @@ impl<'a> DerefMut for ContextHandle<'a> {
 ///
 /// This is suggested to use internally only,
 /// for public api, use `ContextHandle` instead, which is same but has lifetime restriction.
-///
-/// TODO: make this in-crate visible.
 #[repr(transparent)]
 #[derive(Clone, Copy)]
-pub struct ContextRef(GcRef<ContextImpl>);
+pub(crate) struct ContextRef(GcRef<ContextImpl>);
 
 gcref_wrapper!(ContextRef, ContextImpl);
 

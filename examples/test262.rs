@@ -11,7 +11,7 @@ use serde::Deserialize;
 use zhuque::{
     atom::Atom,
     builtins::promise::{Promise, PromiseState},
-    context::{ContextHandle, ContextImpl, ContextRef},
+    context::ContextHandle,
     error::JSResult,
     eval::{JS_EVAL_FLAG_STRICT, JS_EVAL_TYPE_GLOBAL},
     function::{CallContext, Callback},
@@ -46,21 +46,22 @@ fn js_print(cc: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
-fn js_detachArrayBuffer(ctx: ContextRef, cc: CallContext) -> JSResult {
+fn js_detachArrayBuffer(cc: CallContext) -> JSResult {
     if let Some(mut ab) = cc.arg(0).as_object_ArrayBuffer().copied() {
-        ab.detatch(&ctx);
+        ab.detatch(cc.ctx());
     }
     Ok(JSValue::UNDEFINED)
 }
 
-fn js_evalScript(mut ctx: ContextRef, cc: CallContext) -> JSResult {
-    let script = cc.arg(0).inspect(&ctx)?;
-    ctx.eval(script.as_bytes(), "<eval>", JS_EVAL_TYPE_GLOBAL)
+fn js_evalScript(mut cc: CallContext) -> JSResult {
+    let script = cc.arg(0).inspect(cc.ctx())?;
+    cc.ctx_mut()
+        .eval(script.as_bytes(), "<eval>", JS_EVAL_TYPE_GLOBAL)
 }
 
-fn js_string_codePointRange(ctx: ContextRef, cc: CallContext) -> JSResult {
-    let mut start = cc.arg(0).to_i32(&ctx)? as u32;
-    let end = std::cmp::min(cc.arg(1).to_i32(&ctx)? as u32, 0x10ffff + 1);
+fn js_string_codePointRange(cc: CallContext) -> JSResult {
+    let mut start = cc.arg(0).to_i32(cc.ctx())? as u32;
+    let end = std::cmp::min(cc.arg(1).to_i32(cc.ctx())? as u32, 0x10ffff + 1);
     if start > end {
         start = end;
     }
@@ -70,30 +71,29 @@ fn js_string_codePointRange(ctx: ContextRef, cc: CallContext) -> JSResult {
         n += end - std::cmp::max(start, 0x10000);
     }
 
-    let mut cc = Vec::<u8>::with_capacity(n as usize);
-
+    let mut buf = Vec::<u8>::with_capacity(n as usize);
     for i in start..end {
-        cc.extend_from_slice(
+        buf.extend_from_slice(
             char::from_u32(i)
                 .unwrap()
                 .encode_utf8(&mut [0u8; 4])
                 .as_bytes(),
         );
     }
-    ctx.create_string_from_utf8(cc).map(JSValue::String)
+    cc.ctx().create_string_from_utf8(buf).map(JSValue::String)
 }
 
-fn js_createRealm(mut ctx: ContextRef, _: CallContext) -> JSResult {
-    let mut ctx1 = ctx.rt_mut().create_context_ecma()?;
-    setup_ctx_test262_helpers(&mut ctx1)
+fn js_createRealm(cc: CallContext) -> JSResult {
+    let ctx2 = cc.context().rt_mut().create_context_ecma()?;
+    setup_ctx_test262_helpers(ctx2)
 }
 
-fn setup_ctx_test262_helpers(ctx: &mut ContextImpl) -> Result<JSValue, i32> {
+fn setup_ctx_test262_helpers(ctx: ContextHandle) -> Result<JSValue, i32> {
     let mut global = JSValue::Object(ctx.global_obj());
 
     {
         let s = ctx.create_native_function(Callback::Func(js_print), "print", 1, 0)?;
-        global.set_property_str(ctx, "print", s.into())?;
+        global.set_property_str(&ctx, "print", s.into())?;
     }
 
     // $262
@@ -101,43 +101,42 @@ fn setup_ctx_test262_helpers(ctx: &mut ContextImpl) -> Result<JSValue, i32> {
 
     {
         let f = ctx.create_native_function(
-            Callback::Func_v1(js_detachArrayBuffer),
+            Callback::Func(js_detachArrayBuffer),
             "detachArrayBuffer",
             1,
             0,
         )?;
-        obj262.set_property_str(ctx, "detachArrayBuffer", f.into())?;
+        obj262.set_property_str(&ctx, "detachArrayBuffer", f.into())?;
     }
 
     {
-        let f = ctx.create_native_function(Callback::Func_v1(js_evalScript), "evalScript", 1, 0)?;
-        obj262.set_property_str(ctx, "evalScript", f.into())?;
+        let f = ctx.create_native_function(Callback::Func(js_evalScript), "evalScript", 1, 0)?;
+        obj262.set_property_str(&ctx, "evalScript", f.into())?;
     }
 
     {
         let f: JSValue = ctx
             .create_native_function(
-                Callback::Func_v1(js_string_codePointRange),
+                Callback::Func(js_string_codePointRange),
                 "codePointRange",
                 1,
                 0,
             )?
             .into();
-        obj262.set_property_str(ctx, "codePointRange", f)?;
+        obj262.set_property_str(&ctx, "codePointRange", f)?;
     }
 
     {
-        let f =
-            ctx.create_native_function(Callback::Func_v1(js_createRealm), "createRealm", 1, 0)?;
-        obj262.set_property_str(ctx, "createRealm", f.into())?;
+        let f = ctx.create_native_function(Callback::Func(js_createRealm), "createRealm", 1, 0)?;
+        obj262.set_property_str(&ctx, "createRealm", f.into())?;
     }
 
     obj262.set_property_str(
-        ctx,
+        &ctx,
         "gc",
         ctx.create_native_function(
-            Callback::Func_v1(|mut ctx, _| -> JSResult {
-                ctx.rt_mut().gc_collect();
+            Callback::Func(|cc| -> JSResult {
+                cc.context().rt_mut().gc_collect();
                 Ok(JSValue::UNDEFINED)
             }),
             "gc",
@@ -147,8 +146,8 @@ fn setup_ctx_test262_helpers(ctx: &mut ContextImpl) -> Result<JSValue, i32> {
         .into(),
     )?;
 
-    obj262.set_property_str(ctx, "global", global)?;
-    global.set_property_str(ctx, "$262", obj262.into())?;
+    obj262.set_property_str(&ctx, "global", global)?;
+    global.set_property_str(&ctx, "$262", obj262.into())?;
 
     Ok(obj262.into())
 }
@@ -187,7 +186,7 @@ pub fn js_module_loader(
 }
 
 fn js_module_set_import_meta(
-    ctx: ContextRef,
+    ctx: ContextHandle,
     func_val: JSValue,
     use_realpath: i32,
     is_main: bool,
@@ -415,11 +414,10 @@ fn run_test_file(
 
     // make runtime & context
     let mut rt = Runtime::create().unwrap();
-
     rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());
 
-    let mut ctx = rt.create_context_ecma().unwrap();
-    setup_ctx_test262_helpers(&mut ctx).unwrap();
+    let ctx = rt.create_context_ecma().unwrap();
+    setup_ctx_test262_helpers(ctx).unwrap();
 
     let mut has_err = false;
 

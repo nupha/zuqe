@@ -4,7 +4,7 @@ use crate::{
     JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT,
     builtins::promise::{Promise, js_promise_resolve},
     class::ClassID,
-    context::{ContextImpl, ContextRef},
+    context::{ContextHandle, ContextImpl, ContextRef},
     error::JSResult,
     function::{AsyncFuncState, BCFunction, BytecodeFunction, Callback, JSFunctionKindEnum},
     object::{JS_PROP_CONFIGURABLE, ObjectImpl, ObjectPayload, ObjectRef},
@@ -22,7 +22,7 @@ pub struct AsyncFunction(pub(crate) GcRef<ObjectImpl>);
 object_cast!(AsyncFunction, JS_CLASS_ASYNC_FUNCTION);
 
 impl AsyncFunction {
-    pub fn class_initialize(ctx: ContextRef, _: ClassID) -> Result<Option<ObjectRef>, i32> {
+    pub fn class_initialize(ctx: ContextHandle, _: ClassID) -> Result<Option<ObjectRef>, i32> {
         let mut proto = ctx.create_base_object_with_proto(Some(ctx.function_proto()))?;
         proto.install_field_defs(&ctx, &js_async_function_proto_funcs)?;
 

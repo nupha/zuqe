@@ -68,7 +68,7 @@ fn js_std_open(cc: CallContext) -> JSResult {
     }
 
     if let Some(fh) = fh {
-        JSFile::new_instance(&ctx, fh).map(JSValue::Object)
+        JSFile::new_instance(ctx, fh).map(JSValue::Object)
     } else {
         Ok(JSValue::NULL)
     }

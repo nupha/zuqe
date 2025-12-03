@@ -133,7 +133,10 @@ impl ContextImpl {
                             .get(class_id as usize)
                             .and_then(|c| c.initialize)
                         {
-                            let r = f(unsafe { ContextRef::from_ref_unchecked(self) }, class_id)?;
+                            let r = f(
+                                unsafe { ContextRef::from_ref_unchecked(self).into() },
+                                class_id,
+                            )?;
                             if let Some(proto) = r {
                                 self.class_proto[class_id as usize] = proto.into();
                             } else if !self.class_proto[class_id as usize].is_object() {

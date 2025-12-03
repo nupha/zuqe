@@ -51,7 +51,7 @@ fn main() {
     init_mod_std(ctx).unwrap();
     init_mod_os(ctx).unwrap();
 
-    setup_globals(&mut ctx).unwrap();
+    setup_globals(ctx).unwrap();
 
     println!("*** prepare use time: {} ms", tm0.elapsed().as_millis());
 

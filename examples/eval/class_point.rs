@@ -3,7 +3,7 @@ use std::ffi::c_void;
 use once_cell::unsync::Lazy;
 use zhuque::{
     class::{ClassDef, ClassID},
-    context::ContextRef,
+    context::ContextHandle,
     error::JSResult,
     function::{CallContext, Callback, FieldDef},
     object::{JS_PROP_C_W_E, ObjectRef},
@@ -50,7 +50,7 @@ thread_local! {
     static CLASS_DEF_POINTER: Lazy<ClassDef> = Lazy::new(|| {
         ClassDef::define("Point")
             .initialize(
-                |mut ctx: ContextRef, class_id: ClassID| -> Result<Option<ObjectRef>, i32> {
+                |mut ctx: ContextHandle, class_id: ClassID| -> Result<Option<ObjectRef>, i32> {
                     // create prototype
                     let mut proto = ctx.create_base_object().unwrap();
                     proto.install_field_defs(&ctx, &CLASS_POINTER_PROTO)?;
