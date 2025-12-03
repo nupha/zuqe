@@ -13,9 +13,9 @@ use crate::{
     value::JSValue,
 };
 
-pub fn js_reflect_apply(ctx: ContextPtr, cc: CallContext) -> JSResult {
+fn js_reflect_apply(cc: CallContext) -> JSResult {
     let cc2 = CallContext::new(
-        ctx,
+        cc.ctx_ptr(),
         *cc.arg(0),
         if cc.length() == 0 {
             &[]
@@ -28,13 +28,14 @@ pub fn js_reflect_apply(ctx: ContextPtr, cc: CallContext) -> JSResult {
     js_function_apply(cc2)
 }
 
-pub fn js_reflect_construct(ctx: ContextPtr, cc: CallContext) -> JSResult {
+fn js_reflect_construct(cc: CallContext) -> JSResult {
     let func = *cc.arg(0);
     let array_arg = *cc.arg(1);
+
     let new_target = if cc.length() > 2 {
         let target = cc.arg(2);
         if !target.is_constructor() {
-            ctx.throw_type_error("not a constructor");
+            cc.ctx().throw_type_error("not a constructor");
             return Err(-1);
         }
         *target
@@ -42,11 +43,11 @@ pub fn js_reflect_construct(ctx: ContextPtr, cc: CallContext) -> JSResult {
         func
     };
 
-    let args = build_arg_list(&ctx, array_arg)?;
-    JS_CallConstructor2(&ctx, func, new_target, &args).err()
+    let args = build_arg_list(cc.ctx(), array_arg)?;
+    JS_CallConstructor2(cc.ctx(), func, new_target, &args).err()
 }
 
-pub fn js_reflect_deleteProperty(ctx: ContextPtr, cc: CallContext) -> JSResult {
+fn js_reflect_deleteProperty(ctx: ContextPtr, cc: CallContext) -> JSResult {
     if let JSValue::Object(mut obj) = *cc.arg(0) {
         let atom = cc.arg(1).to_atom(&ctx)?;
         let ret = obj.delete_property(&ctx, atom, 0);
@@ -57,7 +58,7 @@ pub fn js_reflect_deleteProperty(ctx: ContextPtr, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_reflect_get(ctx: ContextPtr, cc: CallContext) -> JSResult {
+fn js_reflect_get(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let obj = *cc.arg(0);
     if obj.is_object() {
         let prop = cc.arg(1);
@@ -70,7 +71,7 @@ pub fn js_reflect_get(ctx: ContextPtr, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_reflect_has(ctx: ContextPtr, cc: CallContext) -> JSResult {
+fn js_reflect_has(ctx: ContextPtr, cc: CallContext) -> JSResult {
     if let JSValue::Object(obj) = cc.arg(0) {
         let prop = cc.arg(1);
         let atom = prop.to_atom(&ctx)?;
@@ -81,7 +82,7 @@ pub fn js_reflect_has(ctx: ContextPtr, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_reflect_set(ctx: ContextPtr, cc: CallContext) -> JSResult {
+fn js_reflect_set(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let target = cc.arg(0);
 
     if let Some(o) = target.as_object() {
@@ -108,14 +109,14 @@ pub fn js_reflect_set(ctx: ContextPtr, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_reflect_setPrototypeOf(ctx: ContextPtr, cc: CallContext) -> JSResult {
+fn js_reflect_setPrototypeOf(ctx: ContextPtr, cc: CallContext) -> JSResult {
     cc.arg(0)
         .clone()
         .set_prototype_internal(&ctx, *cc.arg(1), false)
         .map(JSValue::Bool)
 }
 
-pub fn js_reflect_ownKeys(ctx: ContextPtr, cc: CallContext) -> JSResult {
+fn js_reflect_ownKeys(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let val = cc.arg(0);
     if val.is_object() {
         val.build_own_property_kvs_array(
@@ -130,8 +131,8 @@ pub fn js_reflect_ownKeys(ctx: ContextPtr, cc: CallContext) -> JSResult {
 }
 
 pub static js_reflect_funcs: [FieldDef; 14] = [
-    FieldDef::FUNCTION_V1("apply", 3, js_reflect_apply, 0),
-    FieldDef::FUNCTION_V1("construct", 2, js_reflect_construct, 0),
+    FieldDef::CALL("apply", 3, js_reflect_apply, 0),
+    FieldDef::CALL("construct", 2, js_reflect_construct, 0),
     FieldDef::FUNCTION_V1("defineProperty", 3, js_object_defineProperty, 1),
     FieldDef::FUNCTION_V1("deleteProperty", 2, js_reflect_deleteProperty, 0),
     FieldDef::FUNCTION_V1("get", 2, js_reflect_get, 0),

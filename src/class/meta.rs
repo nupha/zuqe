@@ -8,7 +8,7 @@ use crate::{
     },
     context::ContextImpl,
     error::JSResult,
-    function::{Callback, NativeCallback_v1, NativeCallbackFn},
+    function::{Callback, NativeCallbackFn},
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, ObjectRef},
     runtime::RuntimeImpl,
     value::JSValue,
