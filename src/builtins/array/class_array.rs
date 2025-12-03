@@ -715,8 +715,8 @@ pub fn js_array_includes(ctx: ContextPtr, cc: CallContext) -> JSResult {
     Ok(JSValue::Bool(res))
 }
 
-pub fn js_array_join(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    let cx = ctx.deref();
+pub(crate) fn js_array_join(cc: CallContext) -> JSResult {
+    let cx = cc.ctx();
 
     let to_locale_string = cc.magic() == 1;
     let obj = cc.this().objectify(cx)?;
@@ -768,18 +768,19 @@ pub fn js_array_join(ctx: ContextPtr, cc: CallContext) -> JSResult {
     cx.create_string_with_buf(sbuf).map(JSValue::String)
 }
 
-pub fn js_array_toString(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    let obj = cc.this().objectify(&ctx)?;
-    obj.invoke_callable(&ctx, Atom::CONST_join, &[])?
+pub(crate) fn js_array_toString(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
+    let obj = cc.this().objectify(ctx)?;
+    obj.invoke_callable(ctx, Atom::CONST_join, &[])?
         .unwrap_or_else(|| {
             // use builtin `Object.prototype.toString`
-            js_object_toString(CallContext::new(ctx, obj.into(), &[], 0, None))
+            js_object_toString(CallContext::new(cc.ctx_ptr(), obj.into(), &[], 0, None))
         })
 }
 
-pub fn js_array_pop(ctx: ContextPtr, cc: CallContext) -> JSResult {
+pub(crate) fn js_array_pop(cc: CallContext) -> JSResult {
     let shift = cc.magic() == 1;
-    let cx = ctx.deref();
+    let cx = cc.ctx();
 
     let mut obj = cc.this().objectify(cx)?;
     let arr_len = obj.get_length_prop(cx)?;
@@ -822,9 +823,9 @@ pub fn js_array_pop(ctx: ContextPtr, cc: CallContext) -> JSResult {
     Ok(res)
 }
 
-pub fn js_array_push(ctx: ContextPtr, cc: CallContext) -> JSResult {
+pub(crate) fn js_array_push(cc: CallContext) -> JSResult {
     let unshift = cc.magic();
-    let cx = ctx.deref();
+    let cx = cc.ctx();
 
     let mut obj = cc.this().objectify(cx)?;
     let len = obj.get_length_prop(cx)?;
@@ -1040,9 +1041,9 @@ fn js_array_toSorted(ctx: ContextPtr, cc: CallContext) -> JSResult {
     Ok(arr.into())
 }
 
-pub fn js_array_slice(ctx: ContextPtr, cc: CallContext) -> JSResult {
+pub(crate) fn js_array_slice(cc: CallContext) -> JSResult {
     let is_splice = cc.magic() != 0;
-    let cx = ctx.deref();
+    let cx = cc.ctx();
 
     let mut obj = cc.this().objectify(cx)?;
     let len = obj.get_length_prop(cx)?;
@@ -1082,7 +1083,7 @@ pub fn js_array_slice(ctx: ContextPtr, cc: CallContext) -> JSResult {
 
     // make return Array
     let len_val = JSValue::from(count);
-    let mut arr = JS_ArraySpeciesCreate(ctx, obj.into(), len_val)?;
+    let mut arr = JS_ArraySpeciesCreate(cc.ctx_ptr(), obj.into(), len_val)?;
 
     let mut k = start;
     let mut n = 0;
@@ -1302,12 +1303,12 @@ pub fn js_array_copyWithin(ctx: ContextPtr, cc: CallContext) -> JSResult {
     Ok(obj.into())
 }
 
-pub fn js_array_flatten(ctx: ContextPtr, cc: CallContext) -> JSResult {
+pub(crate) fn js_array_flatten(cc: CallContext) -> JSResult {
     let map = cc.magic();
-    let cx = ctx.deref();
+    let ctx = cc.ctx();
 
-    let source: JSValue = cc.this().objectify(cx)?.into();
-    let source_len = source.get_length_prop(cx)?;
+    let source: JSValue = cc.this().objectify(ctx)?.into();
+    let source_len = source.get_length_prop(ctx)?;
 
     let mut depth = 1;
     let mut mapper_func = JSValue::UNDEFINED;
@@ -1318,15 +1319,15 @@ pub fn js_array_flatten(ctx: ContextPtr, cc: CallContext) -> JSResult {
         if cc.length() > 1 {
             this_arg = *cc.arg(1);
         }
-        mapper_func.ensure_function(cx)?;
+        mapper_func.ensure_function(ctx)?;
     } else if cc.length() > 0 && !cc.arg(0).is_undefined() {
-        depth = cc.arg(0).to_i32_saturating(cx)?;
+        depth = cc.arg(0).to_i32_saturating(ctx)?;
     }
 
-    let arr = JS_ArraySpeciesCreate(ctx, source, JSValue::Int(0))?;
+    let arr = JS_ArraySpeciesCreate(cc.ctx_ptr(), source, JSValue::Int(0))?;
 
     JS_FlattenIntoArray(
-        &ctx,
+        ctx,
         arr,
         source,
         source_len,
@@ -1441,23 +1442,23 @@ pub static js_array_proto_funcs: [FieldDef; 39] = [
     FieldDef::FUNCTION_V1("indexOf", 1, js_array_indexOf, 0),
     FieldDef::FUNCTION_V1("lastIndexOf", 1, js_array_lastIndexOf, 0),
     FieldDef::FUNCTION_V1("includes", 1, js_array_includes, 0),
-    FieldDef::FUNCTION_V1("join", 1, js_array_join, 0),
-    FieldDef::FUNCTION_V1("toString", 0, js_array_toString, 0),
-    FieldDef::FUNCTION_V1("toLocaleString", 0, js_array_join, 1),
-    FieldDef::FUNCTION_V1("pop", 0, js_array_pop, 0),
-    FieldDef::FUNCTION_V1("push", 1, js_array_push, 0),
-    FieldDef::FUNCTION_V1("shift", 0, js_array_pop, 1),
-    FieldDef::FUNCTION_V1("unshift", 1, js_array_push, 1),
+    FieldDef::CALL("join", 1, js_array_join, 0),
+    FieldDef::CALL("toString", 0, js_array_toString, 0),
+    FieldDef::CALL("toLocaleString", 0, js_array_join, 1),
+    FieldDef::CALL("pop", 0, js_array_pop, 0),
+    FieldDef::CALL("push", 1, js_array_push, 0),
+    FieldDef::CALL("shift", 0, js_array_pop, 1),
+    FieldDef::CALL("unshift", 1, js_array_push, 1),
     FieldDef::FUNCTION_V1("reverse", 0, js_array_reverse, 0),
     FieldDef::FUNCTION_V1("toReversed", 0, js_array_toReversed, 0),
     FieldDef::FUNCTION_V1("sort", 1, js_array_sort, 0),
     FieldDef::FUNCTION_V1("toSorted", 1, js_array_toSorted, 0),
-    FieldDef::FUNCTION_V1("slice", 2, js_array_slice, 0),
-    FieldDef::FUNCTION_V1("splice", 2, js_array_slice, 1),
+    FieldDef::CALL("slice", 2, js_array_slice, 0),
+    FieldDef::CALL("splice", 2, js_array_slice, 1),
     FieldDef::FUNCTION_V1("toSpliced", 2, js_array_toSpliced, 0),
     FieldDef::FUNCTION_V1("copyWithin", 2, js_array_copyWithin, 0),
-    FieldDef::FUNCTION_V1("flatMap", 1, js_array_flatten, 1),
-    FieldDef::FUNCTION_V1("flat", 0, js_array_flatten, 0),
+    FieldDef::CALL("flatMap", 1, js_array_flatten, 1),
+    FieldDef::CALL("flat", 0, js_array_flatten, 0),
     FieldDef::CALL(
         "values",
         0,

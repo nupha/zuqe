@@ -206,10 +206,13 @@ pub(crate) fn js_object_groupBy(cc: CallContext) -> JSResult {
             }
         }
 
-        js_array_push(
+        js_array_push(CallContext::new(
             cc.ctx_ptr(),
-            CallContext::new(cc.ctx_ptr(), props_arr, std::slice::from_ref(&val), 0, None),
-        )?;
+            props_arr,
+            std::slice::from_ref(&val),
+            0,
+            None,
+        ))?;
     }
 
     Ok(groups)
