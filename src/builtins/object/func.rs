@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 use crate::{
     atom::Atom,
     builtins::{
@@ -7,7 +5,7 @@ use crate::{
         iterator::JSIteratorKindEnum,
         mapset::{js_map_constructor, js_map_get, js_map_set},
     },
-    context::{ContextPtr, JS_GetActiveFunction},
+    context::JS_GetActiveFunction,
     error::JSResult,
     function::{CallContext, FieldDef},
     number::MAX_SAFE_INTEGER,
@@ -102,36 +100,35 @@ pub(crate) fn js_object_defineProperty(cc: CallContext) -> JSResult {
 }
 
 /// defineProperties(obj, properties)
-pub fn js_object_defineProperties(ctx: ContextPtr, cc: CallContext) -> JSResult {
+pub(crate) fn js_object_defineProperties(cc: CallContext) -> JSResult {
     let obj = cc.arg(0);
     if let Some(mut o) = obj.as_object().copied() {
-        o.define_properties(&ctx, *cc.arg(1))?;
+        o.define_properties(cc.ctx(), *cc.arg(1))?;
         Ok(o.into())
     } else {
-        ctx.throw_type_error_not_an_object();
+        cc.ctx().throw_type_error_not_an_object();
         Err(-1)
     }
 }
 
-pub fn js_object_getOwnPropertyNames(ctx: ContextPtr, cc: CallContext) -> JSResult {
+pub(crate) fn js_object_getOwnPropertyNames(cc: CallContext) -> JSResult {
     cc.arg(0).build_own_property_kvs_array(
-        &ctx,
+        cc.ctx(),
         JS_GPN_INDEX_MASK,
         JSIteratorKindEnum::JS_ITERATOR_KIND_KEY,
     )
 }
 
-pub fn js_object_getOwnPropertySymbols(ctx: ContextPtr, cc: CallContext) -> JSResult {
+pub(crate) fn js_object_getOwnPropertySymbols(cc: CallContext) -> JSResult {
     cc.arg(0).build_own_property_kvs_array(
-        &ctx,
+        cc.ctx(),
         JS_GPN_SYMBOL_MASK,
         JSIteratorKindEnum::JS_ITERATOR_KIND_KEY,
     )
 }
 
-pub fn js_object_keys(ctx: ContextPtr, cc: CallContext) -> JSResult {
+pub(crate) fn js_object_keys(cc: CallContext) -> JSResult {
     let kind = cc.magic();
-
     debug_assert!(
         (JSIteratorKindEnum::JS_ITERATOR_KIND_KEY as i32
             ..=JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE as i32)
@@ -139,51 +136,57 @@ pub fn js_object_keys(ctx: ContextPtr, cc: CallContext) -> JSResult {
     );
 
     cc.arg(0)
-        .build_own_property_kvs_array(&ctx, JS_GPN_ENUM_ONLY | JS_GPN_INDEX_MASK, unsafe {
+        .build_own_property_kvs_array(cc.ctx(), JS_GPN_ENUM_ONLY | JS_GPN_INDEX_MASK, unsafe {
             std::mem::transmute::<u8, JSIteratorKindEnum>(kind as u8)
         })
 }
 
-pub fn js_object_groupBy(ctx: ContextPtr, cc: CallContext) -> JSResult {
+pub(crate) fn js_object_groupBy(cc: CallContext) -> JSResult {
     let is_map = cc.magic() == 1;
     debug_assert!(
         !is_map,
         "deprecated: use js_map_groupBy for Map.groupBy() instead"
     );
 
+    let ctx = cc.ctx();
+
     // check must be observed before argv[0] is accessed
     let func = cc.arg(1);
-    func.ensure_function(&ctx)?;
+    func.ensure_function(ctx)?;
 
     let mut groups = if is_map {
-        js_map_constructor(CallContext::new_simple(ctx, JSValue::UNDEFINED, &[]))?
+        js_map_constructor(CallContext::new_simple(
+            cc.ctx_ptr(),
+            JSValue::UNDEFINED,
+            &[],
+        ))?
     } else {
         ctx.create_base_object_with_proto(None)?.into()
     };
 
     let global = ctx.global_obj; // clone to avoid borrow too long
 
-    for (idx, val) in cc.arg(0).iter(&ctx)?.enumerate() {
+    for (idx, val) in cc.arg(0).iter(ctx)?.enumerate() {
         if idx >= MAX_SAFE_INTEGER as usize {
             ctx.throw_type_error("too many elements");
             return Err(-1);
         }
 
         let val = val?;
-        let key = func.call(&ctx, global, &[val, JSValue::from(idx as i64)])?;
+        let key = func.call(ctx, global, &[val, JSValue::from(idx as i64)])?;
 
         // get prop value array and key atom
         let (mut props_arr, key_atom): (JSValue, Atom) = if is_map {
             (
                 js_map_get(
-                    ctx,
-                    CallContext::new_simple(ctx, groups, std::slice::from_ref(&key)),
+                    cc.ctx_ptr(),
+                    CallContext::new_simple(cc.ctx_ptr(), groups, std::slice::from_ref(&key)),
                 )?,
                 Atom::NULL,
             )
         } else {
-            let atom = key.to_atom(&ctx)?;
-            (groups.get_property(&ctx, atom)?, atom)
+            let atom = key.to_atom(ctx)?;
+            (groups.get_property(ctx, atom)?, atom)
         };
 
         // don't change order
@@ -195,17 +198,17 @@ pub fn js_object_groupBy(ctx: ContextPtr, cc: CallContext) -> JSResult {
             // set to groups
             if is_map {
                 js_map_set(
-                    ctx,
-                    CallContext::new(ctx, groups, &[key, props_arr], 0, None),
+                    cc.ctx_ptr(),
+                    CallContext::new(cc.ctx_ptr(), groups, &[key, props_arr], 0, None),
                 )?;
             } else {
-                groups.define_property_value(&ctx, key_atom, props_arr, JS_PROP_C_W_E)?;
+                groups.define_property_value(ctx, key_atom, props_arr, JS_PROP_C_W_E)?;
             }
         }
 
         js_array_push(
-            ctx,
-            CallContext::new(ctx, props_arr, std::slice::from_ref(&val), 0, None),
+            cc.ctx_ptr(),
+            CallContext::new(cc.ctx_ptr(), props_arr, std::slice::from_ref(&val), 0, None),
         )?;
     }
 
@@ -311,14 +314,15 @@ pub(crate) fn js_object_getOwnPropertyDescriptor(cc: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
-pub fn js_object_getOwnPropertyDescriptors(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    let obj = cc.arg(0).objectify(&ctx)?;
+pub(crate) fn js_object_getOwnPropertyDescriptors(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
+    let obj = cc.arg(0).objectify(ctx)?;
     let mut res_obj = ctx.create_base_object()?;
 
-    obj.own_property_names_foreach(&ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK, |cx, pkey| {
+    obj.own_property_names_foreach(ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK, |cx, pkey| {
         let atom_value = pkey.atom.string_or_symbol(cx)?;
         let desc = js_object_getOwnPropertyDescriptor(CallContext::new_simple(
-            ctx,
+            cc.ctx_ptr(),
             JSValue::UNDEFINED,
             [obj.into(), atom_value].as_slice(),
         ))?;
@@ -333,14 +337,13 @@ pub fn js_object_getOwnPropertyDescriptors(ctx: ContextPtr, cc: CallContext) -> 
     Ok(res_obj.into())
 }
 
-pub fn js_object_is(_: ContextPtr, cc: CallContext) -> JSResult {
+pub(crate) fn js_object_is(cc: CallContext) -> JSResult {
     Ok(JSValue::Bool(cc.arg(0).is_same(*cc.arg(1))))
 }
 
 /// Object.assign(obj, source1)
-pub fn js_object_assign(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    let cx = ctx.deref();
-
+pub(crate) fn js_object_assign(cc: CallContext) -> JSResult {
+    let cx = cc.ctx();
     let mut obj = cc.arg(0).objectify(cx)?;
 
     if cc.length() > 1 {
@@ -355,30 +358,31 @@ pub fn js_object_assign(ctx: ContextPtr, cc: CallContext) -> JSResult {
     Ok(obj.into())
 }
 
-pub fn js_object_seal(ctx: ContextPtr, cc: CallContext) -> JSResult {
+pub(crate) fn js_object_seal(cc: CallContext) -> JSResult {
     let freeze = cc.magic() == 1;
     let mut obj = *cc.arg(0);
-    obj.seal(&ctx, freeze)?;
+    obj.seal(cc.ctx(), freeze)?;
     Ok(obj)
 }
 
-pub fn js_object_isSealed(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    let b = cc.arg(0).clone().is_sealed(&ctx, cc.magic() != 0)?;
+pub(crate) fn js_object_isSealed(cc: CallContext) -> JSResult {
+    let b = cc.arg(0).clone().is_sealed(cc.ctx(), cc.magic() != 0)?;
     Ok(JSValue::Bool(b))
 }
 
-pub fn js_object_fromEntries(ctx: ContextPtr, cc: CallContext) -> JSResult {
+pub(crate) fn js_object_fromEntries(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
     let mut obj = ctx.create_base_object()?;
 
     // RequireObjectCoercible() not necessary because it is tested in
     // JS_GetIterator() by JS_GetProperty()
-    for item in cc.arg(0).iter(&ctx)? {
+    for item in cc.arg(0).iter(ctx)? {
         if let Some(o) = item?.as_object() {
-            let key = o.get_property_u32(&ctx, 0)?;
-            let value = o.get_property_u32(&ctx, 1)?;
+            let key = o.get_property_u32(ctx, 0)?;
+            let value = o.get_property_u32(ctx, 1)?;
 
-            let atom = key.to_atom(&ctx)?;
-            obj.define_property_value(&ctx, atom, value, JS_PROP_C_W_E | JS_PROP_THROW)?;
+            let atom = key.to_atom(ctx)?;
+            obj.define_property_value(ctx, atom, value, JS_PROP_C_W_E | JS_PROP_THROW)?;
         } else {
             ctx.throw_type_error_not_an_object();
             return Err(-1);
@@ -388,12 +392,11 @@ pub fn js_object_fromEntries(ctx: ContextPtr, cc: CallContext) -> JSResult {
     Ok(obj.into())
 }
 
-pub fn js_object_hasOwn(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    let cx = ctx.deref();
-
-    let obj = cc.arg(0).objectify(cx)?;
-    let atom = cc.arg(1).to_atom(cx)?;
-    Ok(JSValue::Bool(obj.get_own_property(cx, atom)?.is_some()))
+pub(crate) fn js_object_hasOwn(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
+    let obj = cc.arg(0).objectify(ctx)?;
+    let atom = cc.arg(1).to_atom(ctx)?;
+    Ok(JSValue::Bool(obj.get_own_property(ctx, atom)?.is_some()))
 }
 
 pub static js_object_funcs: [FieldDef; 23] = [
@@ -401,28 +404,28 @@ pub static js_object_funcs: [FieldDef; 23] = [
     FieldDef::CALL("getPrototypeOf", 1, js_object_getPrototypeOf, 0),
     FieldDef::CALL("setPrototypeOf", 2, js_object_setPrototypeOf, 0),
     FieldDef::CALL("defineProperty", 3, js_object_defineProperty, 0),
-    FieldDef::FUNCTION_V1("defineProperties", 2, js_object_defineProperties, 0),
-    FieldDef::FUNCTION_V1("getOwnPropertyNames", 1, js_object_getOwnPropertyNames, 0),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL("defineProperties", 2, js_object_defineProperties, 0),
+    FieldDef::CALL("getOwnPropertyNames", 1, js_object_getOwnPropertyNames, 0),
+    FieldDef::CALL(
         "getOwnPropertySymbols",
         1,
         js_object_getOwnPropertySymbols,
         0,
     ),
-    FieldDef::FUNCTION_V1("groupBy", 2, js_object_groupBy, 0),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL("groupBy", 2, js_object_groupBy, 0),
+    FieldDef::CALL(
         "keys",
         1,
         js_object_keys,
         JSIteratorKindEnum::JS_ITERATOR_KIND_KEY as i16,
     ),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL(
         "values",
         1,
         js_object_keys,
         JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16,
     ),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL(
         "entries",
         1,
         js_object_keys,
@@ -436,18 +439,18 @@ pub static js_object_funcs: [FieldDef; 23] = [
         js_object_getOwnPropertyDescriptor,
         0,
     ),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL(
         "getOwnPropertyDescriptors",
         1,
         js_object_getOwnPropertyDescriptors,
         0,
     ),
-    FieldDef::FUNCTION_V1("is", 2, js_object_is, 0),
-    FieldDef::FUNCTION_V1("assign", 2, js_object_assign, 0),
-    FieldDef::FUNCTION_V1("seal", 1, js_object_seal, 0),
-    FieldDef::FUNCTION_V1("freeze", 1, js_object_seal, 1),
-    FieldDef::FUNCTION_V1("isSealed", 1, js_object_isSealed, 0),
-    FieldDef::FUNCTION_V1("isFrozen", 1, js_object_isSealed, 1),
+    FieldDef::CALL("is", 2, js_object_is, 0),
+    FieldDef::CALL("assign", 2, js_object_assign, 0),
+    FieldDef::CALL("seal", 1, js_object_seal, 0),
+    FieldDef::CALL("freeze", 1, js_object_seal, 1),
+    FieldDef::CALL("isSealed", 1, js_object_isSealed, 0),
+    FieldDef::CALL("isFrozen", 1, js_object_isSealed, 1),
     //JS_CFUNC_DEF!(c"__getClass", 1, js_object___getClass),
     //JS_CFUNC_DEF(c"__isObject", 1, js_object___isObject ),
     //JS_CFUNC_DEF(c"__isConstructor", 1, js_object___isConstructor ),
@@ -459,6 +462,6 @@ pub static js_object_funcs: [FieldDef; 23] = [
     //JS_CFUNC_DEF(c"__isSameValueZero", 2, js_object___isSameValueZero ),
     //JS_CFUNC_DEF(c"__getObjectData", 1, js_object___getObjectData ),
     //JS_CFUNC_DEF(c"__setObjectData", 2, js_object___setObjectData ),
-    FieldDef::FUNCTION_V1("fromEntries", 1, js_object_fromEntries, 0),
-    FieldDef::FUNCTION_V1("hasOwn", 2, js_object_hasOwn, 0),
+    FieldDef::CALL("fromEntries", 1, js_object_fromEntries, 0),
+    FieldDef::CALL("hasOwn", 2, js_object_hasOwn, 0),
 ];
