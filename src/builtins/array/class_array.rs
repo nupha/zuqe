@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 use fallible_collections::TryCollect;
 
 use crate::{
@@ -163,7 +161,7 @@ fn js_array_at(cc: CallContext) -> JSResult {
         val
     } else {
         // sparse array
-        obj.try_get_property_i64(&ctx, idx)?
+        obj.try_get_property_i64(ctx, idx)?
             .unwrap_or(JSValue::UNDEFINED)
     };
 
@@ -256,7 +254,7 @@ fn js_array_with(cc: CallContext) -> JSResult {
     #[cfg(debug_assertions)]
     {
         let arr = ctx.create_array_with_values(new_lst)?;
-        debug_assert_eq!(arr.get_length_prop(&ctx).unwrap(), len);
+        debug_assert_eq!(arr.get_length_prop(ctx).unwrap(), len);
         Ok(arr.into())
     }
     #[cfg(not(debug_assertions))]
@@ -462,7 +460,7 @@ pub(crate) fn js_array_reduce(cc: CallContext) -> JSResult {
             if special & special_TA != 0 {
                 acc = obj.get_property_i64(ctx, k1)?;
                 break;
-            } else if let Some(r) = obj.try_get_property_i64(&ctx, k1)? {
+            } else if let Some(r) = obj.try_get_property_i64(ctx, k1)? {
                 acc = r;
                 break;
             }
@@ -663,18 +661,18 @@ pub(crate) fn js_array_lastIndexOf(cc: CallContext) -> JSResult {
     Ok(JSValue::from(res))
 }
 
-pub fn js_array_includes(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    let cx = ctx.deref();
+fn js_array_includes(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
 
-    let obj = cc.this().objectify(cx)?;
-    let length = obj.get_length_prop(cx)?;
+    let obj = cc.this().objectify(ctx)?;
+    let length = obj.get_length_prop(ctx)?;
     let target = cc.arg(0);
 
     let mut res = false;
 
     if length > 0 {
         let mut n = if cc.length() > 1 {
-            cc.arg(1).to_i64_clamp(cx, 0, length, length)?
+            cc.arg(1).to_i64_clamp(ctx, 0, length, length)?
         } else {
             0
         };
@@ -701,7 +699,7 @@ pub fn js_array_includes(ctx: ContextPtr, cc: CallContext) -> JSResult {
 
         // sparse array
         while n < length {
-            let val = obj.get_property_i64(cx, n)?;
+            let val = obj.get_property_i64(ctx, n)?;
             let b = target.strict_eq_with_mode(val, StrictEqMode::JS_EQ_SAME_VALUE_ZERO);
             if b {
                 res = true;
@@ -850,9 +848,8 @@ pub(crate) fn js_array_push(cc: CallContext) -> JSResult {
     Ok(JSValue::from(new_len))
 }
 
-pub fn js_array_reverse(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    let cx = ctx.deref();
-
+fn js_array_reverse(cc: CallContext) -> JSResult {
+    let cx = cc.ctx();
     let mut obj: JSValue = cc.this().objectify(cx)?.into();
     let len = obj.get_length_prop(cx)?;
 
@@ -970,40 +967,40 @@ fn js_array_toReversed(cc: CallContext) -> JSResult {
     fa.map(|a| a.into())
 }
 
-fn js_array_sort(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    let cx = ctx.deref();
+fn js_array_sort(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
 
     let cmpfn = {
         let f = cc.arg(0);
         if !f.is_undefined() {
-            f.ensure_function(cx)?;
+            f.ensure_function(ctx)?;
             Some(f)
         } else {
             None
         }
     };
-    let mut obj = cc.this().objectify(cx)?;
-    Array::sort(&ctx, &mut obj, cmpfn)?;
+    let mut obj = cc.this().objectify(ctx)?;
+    Array::sort(ctx, &mut obj, cmpfn)?;
     Ok(obj.into())
 }
 
-fn js_array_toSorted(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    let cx = ctx.deref();
+fn js_array_toSorted(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
 
     let cmpfn = {
         let f = cc.arg(0);
         if !f.is_undefined() {
-            f.ensure_function(cx)?;
+            f.ensure_function(ctx)?;
             Some(f)
         } else {
             None
         }
     };
 
-    let obj = cc.this().objectify(cx)?;
-    let len = obj.get_length_prop(cx)?;
+    let obj = cc.this().objectify(ctx)?;
+    let len = obj.get_length_prop(ctx)?;
     if len > u32::MAX as i64 {
-        cx.throw_range_error("invalid array length");
+        ctx.throw_range_error("invalid array length");
         return Err(-1);
     }
 
@@ -1015,18 +1012,18 @@ fn js_array_toSorted(ctx: ContextPtr, cc: CallContext) -> JSResult {
         }) {
             // fast path
             dst.map_err(|_| {
-                cx.throw_out_of_memory();
+                ctx.throw_out_of_memory();
                 -1
             })?
         } else {
             // slow path
             let mut dst = Vec::<JSValue>::new();
             dst.try_reserve_exact(len as usize).map_err(|_| {
-                cx.throw_out_of_memory();
+                ctx.throw_out_of_memory();
                 -1
             })?;
             for i in 0..len {
-                let v = obj.try_get_property_i64(cx, i)?;
+                let v = obj.try_get_property_i64(ctx, i)?;
                 dst.push(v.unwrap_or(JSValue::UNDEFINED));
             }
             dst
@@ -1035,8 +1032,8 @@ fn js_array_toSorted(ctx: ContextPtr, cc: CallContext) -> JSResult {
         Vec::new()
     };
 
-    let mut arr = cx.create_array_with_values(new_lst)?;
-    Array::sort(&ctx, &mut arr, cmpfn)?;
+    let mut arr = ctx.create_array_with_values(new_lst)?;
+    Array::sort(ctx, &mut arr, cmpfn)?;
     Ok(arr.into())
 }
 
@@ -1170,14 +1167,14 @@ pub(crate) fn js_array_slice(cc: CallContext) -> JSResult {
     Ok(arr)
 }
 
-pub fn js_array_toSpliced(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    let cx = ctx.deref();
+fn js_array_toSpliced(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
 
-    let obj = cc.this().objectify(cx)?;
-    let len = obj.get_length_prop(cx)?;
+    let obj = cc.this().objectify(ctx)?;
+    let len = obj.get_length_prop(ctx)?;
 
     let start = if cc.length() > 0 {
-        cc.arg(0).to_i64_clamp(cx, 0, len, len)?
+        cc.arg(0).to_i64_clamp(ctx, 0, len, len)?
     } else {
         0
     };
@@ -1187,7 +1184,7 @@ pub fn js_array_toSpliced(ctx: ContextPtr, cc: CallContext) -> JSResult {
         del = len - start;
     }
     if cc.length() > 1 {
-        del = cc.arg(1).to_i64_clamp(cx, 0, del, 0)?;
+        del = cc.arg(1).to_i64_clamp(ctx, 0, del, 0)?;
     }
 
     let mut add = 0_i64;
@@ -1197,12 +1194,12 @@ pub fn js_array_toSpliced(ctx: ContextPtr, cc: CallContext) -> JSResult {
 
     let new_len = len + add - del;
     if new_len > MAX_SAFE_INTEGER {
-        cx.throw_type_error("invalid array length");
+        ctx.throw_type_error("invalid array length");
         return Err(-1);
     }
 
     // create result array
-    let mut res_arr = cx.create_array_with_capacity(std::cmp::max(new_len, 0) as usize)?;
+    let mut res_arr = ctx.create_array_with_capacity(std::cmp::max(new_len, 0) as usize)?;
     if new_len <= 0 {
         return Ok(res_arr.into());
     }
@@ -1242,7 +1239,7 @@ pub fn js_array_toSpliced(ctx: ContextPtr, cc: CallContext) -> JSResult {
             {
                 // slow path: sparse array
                 for i in 0..start {
-                    if let Ok(val) = obj.try_get_property_i64(cx, i) {
+                    if let Ok(val) = obj.try_get_property_i64(ctx, i) {
                         new_lst.push(val.unwrap_or(JSValue::UNDEFINED));
                     } else {
                         error!(i);
@@ -1253,7 +1250,7 @@ pub fn js_array_toSpliced(ctx: ContextPtr, cc: CallContext) -> JSResult {
                     new_lst.push(*cc.arg((2 + i) as usize));
                 }
                 for i in (start + del)..len {
-                    if let Ok(val) = obj.try_get_property_i64(cx, i) {
+                    if let Ok(val) = obj.try_get_property_i64(ctx, i) {
                         new_lst.push(val.unwrap_or(JSValue::UNDEFINED));
                     } else {
                         error!(i);
@@ -1265,7 +1262,7 @@ pub fn js_array_toSpliced(ctx: ContextPtr, cc: CallContext) -> JSResult {
         })
         .unwrap()?;
 
-    res_arr.set_property(cx, Atom::CONST_length, JSValue::from(new_len))?;
+    res_arr.set_property(ctx, Atom::CONST_length, JSValue::from(new_len))?;
     Ok(res_arr.into())
 }
 
@@ -1440,7 +1437,7 @@ pub static js_array_proto_funcs: [FieldDef; 39] = [
     ),
     FieldDef::CALL("indexOf", 1, js_array_indexOf, 0),
     FieldDef::CALL("lastIndexOf", 1, js_array_lastIndexOf, 0),
-    FieldDef::FUNCTION_V1("includes", 1, js_array_includes, 0),
+    FieldDef::CALL("includes", 1, js_array_includes, 0),
     FieldDef::CALL("join", 1, js_array_join, 0),
     FieldDef::CALL("toString", 0, js_array_toString, 0),
     FieldDef::CALL("toLocaleString", 0, js_array_join, 1),
@@ -1448,13 +1445,13 @@ pub static js_array_proto_funcs: [FieldDef; 39] = [
     FieldDef::CALL("push", 1, js_array_push, 0),
     FieldDef::CALL("shift", 0, js_array_pop, 1),
     FieldDef::CALL("unshift", 1, js_array_push, 1),
-    FieldDef::FUNCTION_V1("reverse", 0, js_array_reverse, 0),
+    FieldDef::CALL("reverse", 0, js_array_reverse, 0),
     FieldDef::CALL("toReversed", 0, js_array_toReversed, 0),
-    FieldDef::FUNCTION_V1("sort", 1, js_array_sort, 0),
-    FieldDef::FUNCTION_V1("toSorted", 1, js_array_toSorted, 0),
+    FieldDef::CALL("sort", 1, js_array_sort, 0),
+    FieldDef::CALL("toSorted", 1, js_array_toSorted, 0),
     FieldDef::CALL("slice", 2, js_array_slice, 0),
     FieldDef::CALL("splice", 2, js_array_slice, 1),
-    FieldDef::FUNCTION_V1("toSpliced", 2, js_array_toSpliced, 0),
+    FieldDef::CALL("toSpliced", 2, js_array_toSpliced, 0),
     FieldDef::CALL("copyWithin", 2, js_array_copyWithin, 0),
     FieldDef::CALL("flatMap", 1, js_array_flatten, 1),
     FieldDef::CALL("flat", 0, js_array_flatten, 0),
@@ -1528,9 +1525,9 @@ fn js_array_from(cc: CallContext) -> JSResult {
         for el in it {
             let mut val = el?;
             if mapping {
-                val = mapfn.call(&ctx, this_arg, &[val, JSValue::Int(k as i32)])?;
+                val = mapfn.call(ctx, this_arg, &[val, JSValue::Int(k as i32)])?;
             }
-            arr.define_property_value_i64(&ctx, k, val, JS_PROP_C_W_E | JS_PROP_THROW)?;
+            arr.define_property_value_i64(ctx, k, val, JS_PROP_C_W_E | JS_PROP_THROW)?;
             k += 1;
         }
 
