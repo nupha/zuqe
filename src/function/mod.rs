@@ -6,13 +6,13 @@ mod bound;
 mod bytecode;
 mod call;
 mod callable;
+mod callback;
 mod closure;
 mod cpool;
 mod fdef;
 mod fields;
 mod label;
 mod mkbc;
-mod native;
 mod optimize;
 mod resolve_labels;
 mod resolve_scoped_private;
@@ -25,5 +25,6 @@ mod var_ref;
 
 pub use {
     afun::*, argument::*, astate::*, bfun::*, bound::*, bytecode::*, call::*, callable::*,
-    closure::*, fdef::*, fields::*, label::*, native::*, optimize::*, scope::*, var::*, var_ref::*,
+    callback::*, closure::*, fdef::*, fields::*, label::*, optimize::*, scope::*, var::*,
+    var_ref::*,
 };
