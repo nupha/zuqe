@@ -2,7 +2,7 @@ use crate::{
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_DATAVIEW, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY,
     builtins::js_get_this,
     class::ClassID,
-    context::ContextRef,
+    context::ContextPtr,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, FieldDef, JS_CallConstructor},
     object::{JS_PROP_CONFIGURABLE, JS_SpeciesConstructor},
@@ -42,7 +42,7 @@ fn js_array_buffer_detached(cc: CallContext) -> JSResult {
         })
 }
 
-fn js_array_buffer_slice(ctx: ContextRef, cc: CallContext) -> JSResult {
+fn js_array_buffer_slice(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let class_id = cc.magic() as ClassID;
 
     let abuf = cc
@@ -158,7 +158,7 @@ pub static js_shared_array_buffer_proto_funcs: [FieldDef; 3] = [
 // static methods
 //
 
-pub fn js_array_buffer_isView(_: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_array_buffer_isView(_: ContextPtr, cc: CallContext) -> JSResult {
     let res = if let JSValue::Object(p) = cc.arg(0)
         && (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_DATAVIEW).contains(&p.class_id())
     {

@@ -6,7 +6,7 @@ use crate::{
     USER_CLASS_ID_START,
     atom::{Atom, AtomKind},
     class::{ClassDef, ClassID, ClassInitializeFn, FreeObjFn},
-    context::{ContextImpl, ContextRef},
+    context::{ContextImpl, ContextPtr},
     object::{ObjectImpl, ObjectPayload, ObjectRef},
     runtime::RuntimeImpl,
     value::JSValue,
@@ -134,7 +134,7 @@ impl ContextImpl {
                             .and_then(|c| c.initialize)
                         {
                             let r = f(
-                                unsafe { ContextRef::from_ref_unchecked(self).into() },
+                                unsafe { ContextPtr::from_ref_unchecked(self).into() },
                                 class_id,
                             )?;
                             if let Some(proto) = r {

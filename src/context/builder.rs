@@ -9,12 +9,12 @@ use crate::{
         global::js_global_props, json::js_json_obj, math::js_math_obj, reflect::js_reflect_obj,
     },
     class::ClassID,
-    context::{ContextHandle, ContextRef},
+    context::{ContextHandle, ContextPtr},
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, ObjectRef},
     runtime::RuntimeImpl,
 };
 
-pub type SetupGlobalFn = fn(ctx: ContextRef, global: ObjectRef) -> Result<(), i32>;
+pub type SetupGlobalFn = fn(ctx: ContextPtr, global: ObjectRef) -> Result<(), i32>;
 
 #[derive(Debug, Default)]
 pub struct ContextBuilder {

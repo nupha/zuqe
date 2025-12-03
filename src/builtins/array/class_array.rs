@@ -14,7 +14,7 @@ use crate::{
         typed_array::{js_typed_array___speciesCreate, js_typed_array_get_length_internal},
     },
     bytecode::arithmatic::StrictEqMode,
-    context::{ContextImpl, ContextRef},
+    context::{ContextImpl, ContextPtr},
     error::JSResult,
     function::{CallContext, FieldDef, JS_CallConstructor, JS_GetFunctionRealm},
     number::MAX_SAFE_INTEGER,
@@ -87,7 +87,7 @@ pub(crate) fn js_array_constructor(cc: CallContext) -> JSResult {
     Ok(arr.into())
 }
 
-fn JS_ArraySpeciesCreate(ctx: ContextRef, obj: JSValue, len_val: JSValue) -> JSResult {
+fn JS_ArraySpeciesCreate(ctx: ContextPtr, obj: JSValue, len_val: JSValue) -> JSResult {
     if !obj.is_array(&ctx)? {
         return js_array_constructor(CallContext::new(
             ctx,
@@ -143,7 +143,7 @@ pub fn JS_isConcatSpreadable(ctx: &ContextImpl, obj: &JSValue) -> Result<bool, i
     }
 }
 
-pub fn js_array_at(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_array_at(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let obj: JSValue = cc.this().objectify(&ctx)?.into();
     let len = obj.get_length_prop(&ctx)?;
 
@@ -169,7 +169,7 @@ pub fn js_array_at(ctx: ContextRef, cc: CallContext) -> JSResult {
     Ok(ret)
 }
 
-pub fn js_array_with(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_array_with(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let obj = cc.this().objectify(&ctx)?;
     let len = obj.get_length_prop(&ctx)?;
 
@@ -261,7 +261,7 @@ pub fn js_array_with(ctx: ContextRef, cc: CallContext) -> JSResult {
     ctx.create_array_with_values(new_lst).map(|a| a.into())
 }
 
-pub fn js_array_concat(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_array_concat(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
     let this: JSValue = cc.this().objectify(cx)?.into();
@@ -301,7 +301,7 @@ pub fn js_array_concat(ctx: ContextRef, cc: CallContext) -> JSResult {
     Ok(arr)
 }
 
-pub fn js_array_every(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_array_every(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let special = cc.magic();
 
     let obj: JSValue;
@@ -420,7 +420,7 @@ pub fn js_array_every(ctx: ContextRef, cc: CallContext) -> JSResult {
     Ok(ret)
 }
 
-pub fn js_array_reduce(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_array_reduce(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let special = cc.magic();
 
     let obj: JSValue;
@@ -496,7 +496,7 @@ pub fn js_array_reduce(ctx: ContextRef, cc: CallContext) -> JSResult {
     Ok(acc)
 }
 
-pub fn js_array_fill(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_array_fill(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
     let mut obj: JSValue = cc.this().objectify(cx)?.into();
@@ -523,7 +523,7 @@ pub fn js_array_fill(ctx: ContextRef, cc: CallContext) -> JSResult {
     Ok(obj)
 }
 
-pub fn js_array_find(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_array_find(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let mode = cc.magic();
 
     let obj: JSValue = cc.this().objectify(&ctx)?.into();
@@ -580,7 +580,7 @@ pub fn js_array_find(ctx: ContextRef, cc: CallContext) -> JSResult {
     )
 }
 
-pub fn js_array_indexOf(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_array_indexOf(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
     let obj: JSValue = cc.this().objectify(cx)?.into();
@@ -629,7 +629,7 @@ pub fn js_array_indexOf(ctx: ContextRef, cc: CallContext) -> JSResult {
     Ok(JSValue::from(res))
 }
 
-pub fn js_array_lastIndexOf(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_array_lastIndexOf(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
     let obj: JSValue = cc.this().objectify(cx)?.into();
@@ -660,7 +660,7 @@ pub fn js_array_lastIndexOf(ctx: ContextRef, cc: CallContext) -> JSResult {
     Ok(JSValue::from(res))
 }
 
-pub fn js_array_includes(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_array_includes(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
     let obj = cc.this().objectify(cx)?;
@@ -711,7 +711,7 @@ pub fn js_array_includes(ctx: ContextRef, cc: CallContext) -> JSResult {
     Ok(JSValue::Bool(res))
 }
 
-pub fn js_array_join(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_array_join(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
     let to_locale_string = cc.magic() == 1;
@@ -764,7 +764,7 @@ pub fn js_array_join(ctx: ContextRef, cc: CallContext) -> JSResult {
     cx.create_string_with_buf(sbuf).map(JSValue::String)
 }
 
-pub fn js_array_toString(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_array_toString(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let obj = cc.this().objectify(&ctx)?;
     obj.invoke_callable(&ctx, Atom::CONST_join, &[])?
         .unwrap_or_else(|| {
@@ -773,7 +773,7 @@ pub fn js_array_toString(ctx: ContextRef, cc: CallContext) -> JSResult {
         })
 }
 
-pub fn js_array_pop(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_array_pop(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let shift = cc.magic() == 1;
     let cx = ctx.deref();
 
@@ -818,7 +818,7 @@ pub fn js_array_pop(ctx: ContextRef, cc: CallContext) -> JSResult {
     Ok(res)
 }
 
-pub fn js_array_push(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_array_push(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let unshift = cc.magic();
     let cx = ctx.deref();
 
@@ -846,7 +846,7 @@ pub fn js_array_push(ctx: ContextRef, cc: CallContext) -> JSResult {
     Ok(JSValue::from(new_len))
 }
 
-pub fn js_array_reverse(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_array_reverse(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
     let mut obj: JSValue = cc.this().objectify(cx)?.into();
@@ -916,7 +916,7 @@ pub fn js_array_reverse(ctx: ContextRef, cc: CallContext) -> JSResult {
     Ok(obj)
 }
 
-pub fn js_array_toReversed(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_array_toReversed(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
     let this = cc.this().objectify(cx)?;
@@ -966,7 +966,7 @@ pub fn js_array_toReversed(ctx: ContextRef, cc: CallContext) -> JSResult {
     fa.map(|a| a.into())
 }
 
-fn js_array_sort(ctx: ContextRef, cc: CallContext) -> JSResult {
+fn js_array_sort(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
     let cmpfn = {
@@ -983,7 +983,7 @@ fn js_array_sort(ctx: ContextRef, cc: CallContext) -> JSResult {
     Ok(obj.into())
 }
 
-fn js_array_toSorted(ctx: ContextRef, cc: CallContext) -> JSResult {
+fn js_array_toSorted(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
     let cmpfn = {
@@ -1036,7 +1036,7 @@ fn js_array_toSorted(ctx: ContextRef, cc: CallContext) -> JSResult {
     Ok(arr.into())
 }
 
-pub fn js_array_slice(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_array_slice(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let is_splice = cc.magic() != 0;
     let cx = ctx.deref();
 
@@ -1166,7 +1166,7 @@ pub fn js_array_slice(ctx: ContextRef, cc: CallContext) -> JSResult {
     Ok(arr)
 }
 
-pub fn js_array_toSpliced(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_array_toSpliced(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
     let obj = cc.this().objectify(cx)?;
@@ -1265,7 +1265,7 @@ pub fn js_array_toSpliced(ctx: ContextRef, cc: CallContext) -> JSResult {
     Ok(res_arr.into())
 }
 
-pub fn js_array_copyWithin(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_array_copyWithin(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
     let mut obj = cc.this().objectify(cx)?;
@@ -1298,7 +1298,7 @@ pub fn js_array_copyWithin(ctx: ContextRef, cc: CallContext) -> JSResult {
     Ok(obj.into())
 }
 
-pub fn js_array_flatten(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_array_flatten(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let map = cc.magic();
     let cx = ctx.deref();
 
@@ -1488,7 +1488,7 @@ pub static js_array_iterator_proto_funcs: [FieldDef; 2] = [
 // static array functions
 //
 
-fn js_array_from(ctx: ContextRef, cc: CallContext) -> JSResult {
+fn js_array_from(ctx: ContextPtr, cc: CallContext) -> JSResult {
     // from(items, mapfn = void 0, this_arg = void 0)
 
     let items = cc.arg(0);
@@ -1559,7 +1559,7 @@ fn js_array_from(ctx: ContextRef, cc: CallContext) -> JSResult {
     Ok(res)
 }
 
-pub fn js_array_of(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_array_of(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let mut arr = if cc.this().is_constructor() {
         JS_CallConstructor(&ctx, *cc.this(), &[JSValue::Int(cc.length() as i32)]).err()?
     } else {
@@ -1574,7 +1574,7 @@ pub fn js_array_of(ctx: ContextRef, cc: CallContext) -> JSResult {
     Ok(arr)
 }
 
-pub fn js_array_isArray(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_array_isArray(ctx: ContextPtr, cc: CallContext) -> JSResult {
     Ok(JSValue::Bool(cc.arg(0).is_array(&ctx)?))
 }
 

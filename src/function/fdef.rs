@@ -3,7 +3,7 @@ use std::{marker::PhantomData, ops::DerefMut, ptr::NonNull};
 use crate::{
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp, OpcodeFormat, opcode_info_intermediate, opcodes},
-    context::{ContextImpl, ContextRef},
+    context::{ContextImpl, ContextPtr},
     eval::JS_EVAL_TYPE_GLOBAL,
     function::{
         BytecodeAttrs, DEFINE_GLOBAL_LEX_VAR, JSClosureVar, JSGlobalVar, JSVarDef, JSVarScope,
@@ -27,7 +27,7 @@ pub(crate) struct BytecodeDebugSetting {
 
 #[derive(Debug)]
 pub struct JSFunctionDef {
-    pub ctx: ContextRef,
+    pub ctx: ContextPtr,
 
     /// parent function def, null for root fd.
     pub parent: *mut JSFunctionDef,
@@ -192,7 +192,7 @@ impl JSFunctionDef {
         line_num: i32,
     ) -> Result<Box<Self>, i32> {
         let o = Self {
-            ctx: unsafe { ContextRef::from_ref_unchecked(ctx) },
+            ctx: unsafe { ContextPtr::from_ref_unchecked(ctx) },
             parent: std::ptr::null_mut(),
             parent_cpool_idx: -1,
             parent_scope_level: 0,

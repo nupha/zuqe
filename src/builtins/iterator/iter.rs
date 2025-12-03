@@ -4,7 +4,7 @@ use gc_lite::Collect;
 
 use crate::{
     atom::Atom,
-    context::{ContextImpl, ContextRef},
+    context::{ContextImpl, ContextPtr},
     error::JSResult,
     function::{CallContext, Callback, FieldDef, IteratorState},
     object::{
@@ -146,7 +146,7 @@ impl ForInIterPayload {
 pub struct ObjectIter<'a> {
     pub(crate) target: ObjectRef,
     pub(crate) next_method: JSValue,
-    pub(crate) ctx: ContextRef,
+    pub(crate) ctx: ContextPtr,
     pub(crate) done: bool,
     _mark: PhantomData<&'a ()>,
 }
@@ -204,7 +204,7 @@ impl<'a> ObjectIter<'a> {
             target,
             done: next_method.is_undefined(),
             next_method,
-            ctx: unsafe { ContextRef::from_ref_unchecked(ctx) },
+            ctx: unsafe { ContextPtr::from_ref_unchecked(ctx) },
             _mark: PhantomData,
         })
     }
@@ -224,7 +224,7 @@ impl<'a> ObjectIter<'a> {
             match nfun.handler {
                 Callback::IteratorNext(f) => {
                     let cc = CallContext::new(
-                        unsafe { ContextRef::from_ref_unchecked(ctx) },
+                        unsafe { ContextPtr::from_ref_unchecked(ctx) },
                         obj.into(),
                         args,
                         nfun.magic as _,
@@ -468,7 +468,7 @@ pub fn js_array_from_iterator(
     }
 }
 
-pub fn js_iterator_proto_iterator(_: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_iterator_proto_iterator(_: ContextPtr, cc: CallContext) -> JSResult {
     Ok(*cc.this())
 }
 

@@ -2,7 +2,7 @@ use std::ptr::NonNull;
 
 use crate::{
     atom::Atom,
-    context::{ContextImpl, ContextRef},
+    context::{ContextImpl, ContextPtr},
     error::JSResult,
     function::{FieldDef, FieldDetail},
     module::ModuleDef,
@@ -85,7 +85,7 @@ impl JSProperty {
             realm, init_type, ..
         } = self
         {
-            let realm = ContextRef::from(realm.upgrade(obj.rt().gc_heap()).unwrap());
+            let realm = ContextPtr::from(realm.upgrade(obj.rt().gc_heap()).unwrap());
 
             // modify shape property kind to NORMAL
             obj.modify_shape_property_index_flags(&realm, idx, |f| f & !JS_PROP_TMASK)?;
@@ -128,7 +128,7 @@ impl ObjectRef {
             (flags & JS_PROP_C_W_E) | JS_PROP_LAZYINIT,
             JSProperty::LazyInit {
                 init_type: lazy_init,
-                realm: unsafe { ContextRef::from_ref_unchecked(ctx).downgrade() },
+                realm: unsafe { ContextPtr::from_ref_unchecked(ctx).downgrade() },
                 opaque: std::ptr::null_mut(),
             },
         )

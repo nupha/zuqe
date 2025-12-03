@@ -5,7 +5,7 @@ use gc_lite::{Collect, GcRef};
 use crate::{
     JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
     atom::Atom,
-    context::{ContextImpl, ContextRef},
+    context::{ContextImpl, ContextPtr},
     error::JSResult,
     object::{JS_SpeciesConstructor, ObjectImpl, ObjectRef},
     object_cast,
@@ -45,7 +45,7 @@ object_cast!(
 
 impl PromiseResolveFunc {
     pub fn class_call(
-        mut ctx: ContextRef,
+        mut ctx: ContextPtr,
         mut func_obj: JSValue,
         _this_val: JSValue,
         args: &[JSValue],
@@ -193,7 +193,7 @@ impl Promise {
                 };
 
                 let is_reject = state == PromiseState::JS_PROMISE_REJECTED;
-                let mut cx = unsafe { ContextRef::from_ref_unchecked(ctx) };
+                let mut cx = unsafe { ContextPtr::from_ref_unchecked(ctx) };
                 let act2 = act.clone();
 
                 ctx.queue_job_with_trace(
@@ -239,7 +239,7 @@ impl Promise {
     /// Note: `value` is not consumed (duplicated inside).
     pub(super) fn fulfill_or_reject(
         &mut self,
-        mut ctx: ContextRef,
+        mut ctx: ContextPtr,
         value: JSValue,
         is_reject: bool,
     ) {
@@ -300,7 +300,7 @@ impl Promise {
     /// Reject promise with `value`.
     /// A shortcut to `fulfill_or_reject()` with is_reject=true.
     #[inline(always)]
-    pub fn reject(&mut self, ctx: ContextRef, value: JSValue) {
+    pub fn reject(&mut self, ctx: ContextPtr, value: JSValue) {
         self.fulfill_or_reject(ctx, value, true);
     }
 }

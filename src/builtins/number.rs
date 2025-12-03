@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use crate::{
     builtins::global::{MAGIC_NUM_IS_FINITE, MAGIC_NUM_IS_NAN, js_global_isNaN_isFinite},
-    context::{ContextImpl, ContextRef},
+    context::{ContextImpl, ContextPtr},
     error::JSResult,
     function::{CallContext, FieldDef},
     number::{
@@ -31,7 +31,7 @@ pub fn js_thisNumberValue(ctx: &ContextImpl, this_val: JSValue) -> JSResult {
     }
 }
 
-pub fn js_parseInt(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_parseInt(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let radix: i32 = cc.arg(1).to_i32(&ctx)?;
 
     if radix != 0 && !(2..=36).contains(&radix) {
@@ -66,7 +66,7 @@ pub fn js_parseInt(ctx: ContextRef, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_parseFloat(ctx: ContextRef, args: CallContext) -> JSResult {
+pub fn js_parseFloat(ctx: ContextPtr, args: CallContext) -> JSResult {
     let str = args.arg(0).to_string(&ctx)?;
     let s = str.content().to_utf8(false);
     let str = s.trim();
@@ -88,11 +88,11 @@ pub fn js_parseFloat(ctx: ContextRef, args: CallContext) -> JSResult {
     }
 }
 
-pub fn js_number_valueOf(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_number_valueOf(ctx: ContextPtr, cc: CallContext) -> JSResult {
     js_thisNumberValue(&ctx, *cc.this())
 }
 
-pub fn js_number_toString(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_number_toString(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let to_locale_string = cc.magic() != 0;
     let val = js_thisNumberValue(&ctx, *cc.this())?;
     let d: f64 = val.to_f64(&ctx)?;
@@ -113,7 +113,7 @@ pub fn js_number_toString(ctx: ContextRef, cc: CallContext) -> JSResult {
         .map(JSValue::String)
 }
 
-pub fn js_number_toPrecision(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_number_toPrecision(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let d = js_thisNumberValue(&ctx, *cc.this())?.to_f64(&ctx)?;
 
     let a0 = cc.arg(0);
@@ -153,7 +153,7 @@ pub fn js_number_toPrecision(ctx: ContextRef, cc: CallContext) -> JSResult {
     ctx.create_string_from_str(&s).map(JSValue::String)
 }
 
-pub fn js_number_toExponential(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_number_toExponential(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let val = js_thisNumberValue(&ctx, *cc.this())?;
     let d: f64 = val.to_f64(&ctx)?;
 
@@ -186,7 +186,7 @@ pub fn js_number_toExponential(ctx: ContextRef, cc: CallContext) -> JSResult {
     ctx.create_string_from_str(&s).map(JSValue::String)
 }
 
-pub fn js_number_toFixed(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_number_toFixed(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let d = js_thisNumberValue(&ctx, *cc.this())?.to_f64(&ctx)?;
     let f = cc.arg(0).to_i32_saturating(&ctx)?;
 
@@ -212,7 +212,7 @@ pub static js_number_proto_funcs: [FieldDef; 6] = [
     FieldDef::FUNCTION_V1("valueOf", 0, js_number_valueOf, 0),
 ];
 
-pub fn js_number_isNaN_isFinite(ctx: ContextRef, args: CallContext) -> JSResult {
+pub fn js_number_isNaN_isFinite(ctx: ContextPtr, args: CallContext) -> JSResult {
     if !args.arg(0).is_number() {
         Ok(JSValue::Bool(false))
     } else {
@@ -220,12 +220,12 @@ pub fn js_number_isNaN_isFinite(ctx: ContextRef, args: CallContext) -> JSResult 
     }
 }
 
-pub fn js_number_isInteger(ctx: ContextRef, args: CallContext) -> JSResult {
+pub fn js_number_isInteger(ctx: ContextPtr, args: CallContext) -> JSResult {
     let b = args.arg(0).is_integral(&ctx)?;
     Ok(b.into())
 }
 
-pub fn js_number_isSafeInteger(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_number_isSafeInteger(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let val = cc.arg(0);
     if !val.is_number() {
         return Ok(JSValue::Bool(false));

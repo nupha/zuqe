@@ -10,7 +10,7 @@ use std::ffi::c_void;
 
 use crate::{
     atom::Atom,
-    context::{ContextHandle, ContextRef},
+    context::{ContextHandle, ContextPtr},
     error::JSResult,
     object::{JSPropertyDescriptor, ObjectPayload, ObjectRef, PropertyKey},
     runtime::RuntimeImpl,
@@ -20,7 +20,7 @@ use crate::{
 pub type ClassID = u16;
 
 pub type ClassCallFn = fn(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     func_obj: JSValue,
     this_val: JSValue,
     args: &[JSValue],
@@ -36,7 +36,7 @@ pub type ClassInitializeFn =
 pub type ClassFinalizeFn = fn(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize);
 
 pub type DefineOwnPropertyFn = fn(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     target: JSValue,
     prop: Atom,
     val: JSValue,
@@ -45,20 +45,20 @@ pub type DefineOwnPropertyFn = fn(
     flags: i32,
 ) -> Result<bool, i32>;
 
-pub type HasPropertyFn = fn(ctx: ContextRef, target: ObjectRef, prop: Atom) -> Result<bool, i32>;
+pub type HasPropertyFn = fn(ctx: ContextPtr, target: ObjectRef, prop: Atom) -> Result<bool, i32>;
 
 /// TODO: change target type to ObjectRef
 pub type GetOwnPropertyFn =
-    fn(ctx: ContextRef, target: JSValue, prop: Atom) -> Result<Option<JSPropertyDescriptor>, i32>;
+    fn(ctx: ContextPtr, target: JSValue, prop: Atom) -> Result<Option<JSPropertyDescriptor>, i32>;
 
 pub type GetOwnPropertyNamesFn =
-    fn(ctx: ContextRef, target: ObjectRef) -> Result<Box<[PropertyKey]>, i32>;
+    fn(ctx: ContextPtr, target: ObjectRef) -> Result<Box<[PropertyKey]>, i32>;
 
 pub type GetPropertyFn =
-    fn(ctx: ContextRef, target: JSValue, prop: Atom, this_obj: JSValue) -> JSResult;
+    fn(ctx: ContextPtr, target: JSValue, prop: Atom, this_obj: JSValue) -> JSResult;
 
 pub type SetPropertyFn = fn(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     target: JSValue,
     prop: Atom,
     val: JSValue,
@@ -67,7 +67,7 @@ pub type SetPropertyFn = fn(
 ) -> Result<bool, i32>;
 
 /// TODO: change target type to ObjectRef
-pub type DeletePropertyFn = fn(ctx: ContextRef, target: JSValue, prop: Atom) -> Result<bool, i32>;
+pub type DeletePropertyFn = fn(ctx: ContextPtr, target: JSValue, prop: Atom) -> Result<bool, i32>;
 
 /// free user class instance handler
 pub type FreeObjFn = fn(rt: &mut RuntimeImpl, opaque: *mut c_void, id: usize);

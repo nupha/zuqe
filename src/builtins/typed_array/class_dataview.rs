@@ -5,7 +5,7 @@ use crate::{
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
     JS_CLASS_INT32_ARRAY, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
     class::ClassID,
-    context::ContextRef,
+    context::ContextPtr,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, FieldDef},
     number::JSFloat64Union,
@@ -44,7 +44,7 @@ pub fn js_dataview_constructor(cc: CallContext) -> JSResult {
     DataView::create(&ctx, *cc.this(), buffer, offset as _, length).map(|o| o.into())
 }
 
-pub fn js_dataview_getValue(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_dataview_getValue(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let Some(dataview) = cc.this().as_object_DataView() else {
         ctx.throw_type_error_invalid_class(JS_CLASS_DATAVIEW);
         return Err(-1);
@@ -149,7 +149,7 @@ pub fn js_dataview_getValue(ctx: ContextRef, cc: CallContext) -> JSResult {
     })
 }
 
-pub fn js_dataview_setValue(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_dataview_setValue(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
     let mut this = *cc.this();
 

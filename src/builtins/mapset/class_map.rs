@@ -5,7 +5,7 @@ use crate::{
     atom::Atom,
     builtins::{iterator::JSIteratorKindEnum, js_get_this},
     class::ClassID,
-    context::ContextRef,
+    context::ContextPtr,
     error::JSResult,
     function::{CallContext, FieldDef},
     number::MAX_SAFE_INTEGER,
@@ -77,7 +77,7 @@ pub fn js_map_constructor(cc: CallContext) -> JSResult {
     Ok(obj)
 }
 
-pub fn js_map_get(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_map_get(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let key = *cc.arg(0);
 
     cc.this()
@@ -85,7 +85,7 @@ pub fn js_map_get(ctx: ContextRef, cc: CallContext) -> JSResult {
         .map(|r| r.mapset().unwrap().find(key).unwrap_or(JSValue::UNDEFINED))
 }
 
-pub fn js_map_set(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_map_set(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let magic = cc.magic();
 
     let mut this = *cc.this();
@@ -124,7 +124,7 @@ pub fn js_map_set(ctx: ContextRef, cc: CallContext) -> JSResult {
     Ok(this)
 }
 
-pub fn js_map_delete(ctx: ContextRef, mut cc: CallContext) -> JSResult {
+pub fn js_map_delete(ctx: ContextPtr, mut cc: CallContext) -> JSResult {
     let magic = cc.magic();
     let this = *cc.this();
     let mut key = *cc.arg(0);
@@ -154,14 +154,14 @@ pub fn js_map_delete(ctx: ContextRef, mut cc: CallContext) -> JSResult {
         })
 }
 
-pub fn js_map_has(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_map_has(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let key = *cc.arg(0);
     cc.this()
         .retrive_object_payload(&ctx, JS_CLASS_MAP + cc.magic() as ClassID)
         .map(|r| r.mapset().unwrap().find(key).is_some().into())
 }
 
-pub fn js_map_clear(ctx: ContextRef, mut cc: CallContext) -> JSResult {
+pub fn js_map_clear(ctx: ContextPtr, mut cc: CallContext) -> JSResult {
     let magic = cc.magic();
     cc.this_mut()
         .retrive_object_payload_mut(&ctx, JS_CLASS_MAP + magic as ClassID)
@@ -178,7 +178,7 @@ pub fn js_map_get_size(cc: CallContext) -> JSResult {
         .map(|r| JSValue::Int(r.mapset().unwrap().len() as i32))
 }
 
-pub fn js_map_forEach(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_map_forEach(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let magic = cc.magic();
     let is_set = magic & 1 == 1;
 
@@ -243,7 +243,7 @@ pub fn js_map_forEach(ctx: ContextRef, cc: CallContext) -> JSResult {
     }
 }
 
-fn js_create_map_iterator(ctx: ContextRef, cc: CallContext) -> JSResult {
+fn js_create_map_iterator(ctx: ContextPtr, cc: CallContext) -> JSResult {
     debug_assert!(matches!(cc.magic() >> 2, 0..=2));
     let kind = unsafe { std::mem::transmute::<u8, JSIteratorKindEnum>(cc.magic() as u8 >> 2) };
 
@@ -335,7 +335,7 @@ pub static js_weakset_proto_funcs: [FieldDef; 4] = [
     FieldDef::STR("[Symbol.toStringTag]", "WeakSet", JS_PROP_CONFIGURABLE),
 ];
 
-fn js_map_groupBy(ctx: ContextRef, cc: CallContext) -> JSResult {
+fn js_map_groupBy(ctx: ContextPtr, cc: CallContext) -> JSResult {
     // check must be observed before argv[0] is accessed
     let cx = ctx.deref();
 

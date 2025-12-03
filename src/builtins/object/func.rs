@@ -7,7 +7,7 @@ use crate::{
         iterator::JSIteratorKindEnum,
         mapset::{js_map_constructor, js_map_get, js_map_set},
     },
-    context::{ContextRef, JS_GetActiveFunction},
+    context::{ContextPtr, JS_GetActiveFunction},
     error::JSResult,
     function::{CallContext, FieldDef},
     number::MAX_SAFE_INTEGER,
@@ -35,7 +35,7 @@ pub fn js_object_constructor(cc: CallContext) -> JSResult {
     .map(JSValue::Object)
 }
 
-pub fn js_object_create(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_object_create(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let proto = cc.arg(0);
     if !proto.is_object() && !proto.is_null() {
         ctx.throw_type_error("not a prototype");
@@ -50,7 +50,7 @@ pub fn js_object_create(ctx: ContextRef, cc: CallContext) -> JSResult {
     Ok(obj.into())
 }
 
-pub fn js_object_getPrototypeOf(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_object_getPrototypeOf(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let magic = cc.magic();
     let val = cc.arg(0);
 
@@ -64,13 +64,13 @@ pub fn js_object_getPrototypeOf(ctx: ContextRef, cc: CallContext) -> JSResult {
     val.prototype(&ctx)
 }
 
-pub fn js_object_setPrototypeOf(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_object_setPrototypeOf(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let mut obj = *cc.arg(0);
     obj.set_prototype_internal(&ctx, *cc.arg(1), true)?;
     Ok(obj)
 }
 
-pub fn js_object_defineProperty(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_object_defineProperty(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
     let prop = *cc.arg(1);
@@ -98,7 +98,7 @@ pub fn js_object_defineProperty(ctx: ContextRef, cc: CallContext) -> JSResult {
 }
 
 /// defineProperties(obj, properties)
-pub fn js_object_defineProperties(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_object_defineProperties(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let obj = cc.arg(0);
     if let Some(mut o) = obj.as_object().copied() {
         o.define_properties(&ctx, *cc.arg(1))?;
@@ -109,7 +109,7 @@ pub fn js_object_defineProperties(ctx: ContextRef, cc: CallContext) -> JSResult 
     }
 }
 
-pub fn js_object_getOwnPropertyNames(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_object_getOwnPropertyNames(ctx: ContextPtr, cc: CallContext) -> JSResult {
     cc.arg(0).build_own_property_kvs_array(
         &ctx,
         JS_GPN_INDEX_MASK,
@@ -117,7 +117,7 @@ pub fn js_object_getOwnPropertyNames(ctx: ContextRef, cc: CallContext) -> JSResu
     )
 }
 
-pub fn js_object_getOwnPropertySymbols(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_object_getOwnPropertySymbols(ctx: ContextPtr, cc: CallContext) -> JSResult {
     cc.arg(0).build_own_property_kvs_array(
         &ctx,
         JS_GPN_SYMBOL_MASK,
@@ -125,7 +125,7 @@ pub fn js_object_getOwnPropertySymbols(ctx: ContextRef, cc: CallContext) -> JSRe
     )
 }
 
-pub fn js_object_keys(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_object_keys(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let kind = cc.magic();
 
     debug_assert!(
@@ -140,7 +140,7 @@ pub fn js_object_keys(ctx: ContextRef, cc: CallContext) -> JSResult {
         })
 }
 
-pub fn js_object_groupBy(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_object_groupBy(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let is_map = cc.magic() == 1;
     debug_assert!(
         !is_map,
@@ -208,7 +208,7 @@ pub fn js_object_groupBy(ctx: ContextRef, cc: CallContext) -> JSResult {
     Ok(groups)
 }
 
-pub fn js_object_isExtensible(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_object_isExtensible(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let reflect = cc.magic();
     let obj = cc.arg(0);
 
@@ -224,7 +224,7 @@ pub fn js_object_isExtensible(ctx: ContextRef, cc: CallContext) -> JSResult {
     Ok(JSValue::Bool(obj.is_extensible(&ctx)?))
 }
 
-pub fn js_object_preventExtensions(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_object_preventExtensions(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let reflect = cc.magic() != 0;
     let arg = *cc.arg(0);
 
@@ -247,7 +247,7 @@ pub fn js_object_preventExtensions(ctx: ContextRef, cc: CallContext) -> JSResult
     }
 }
 
-pub fn js_object_getOwnPropertyDescriptor(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_object_getOwnPropertyDescriptor(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let reflect = cc.magic() != 0;
     let cx = ctx.deref();
 
@@ -305,7 +305,7 @@ pub fn js_object_getOwnPropertyDescriptor(ctx: ContextRef, cc: CallContext) -> J
     Ok(JSValue::UNDEFINED)
 }
 
-pub fn js_object_getOwnPropertyDescriptors(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_object_getOwnPropertyDescriptors(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let obj = cc.arg(0).objectify(&ctx)?;
     let mut res_obj = ctx.create_base_object()?;
 
@@ -326,12 +326,12 @@ pub fn js_object_getOwnPropertyDescriptors(ctx: ContextRef, cc: CallContext) -> 
     Ok(res_obj.into())
 }
 
-pub fn js_object_is(_: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_object_is(_: ContextPtr, cc: CallContext) -> JSResult {
     Ok(JSValue::Bool(cc.arg(0).is_same(*cc.arg(1))))
 }
 
 /// Object.assign(obj, source1)
-pub fn js_object_assign(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_object_assign(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
     let mut obj = cc.arg(0).objectify(cx)?;
@@ -348,19 +348,19 @@ pub fn js_object_assign(ctx: ContextRef, cc: CallContext) -> JSResult {
     Ok(obj.into())
 }
 
-pub fn js_object_seal(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_object_seal(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let freeze = cc.magic() == 1;
     let mut obj = *cc.arg(0);
     obj.seal(&ctx, freeze)?;
     Ok(obj)
 }
 
-pub fn js_object_isSealed(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_object_isSealed(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let b = cc.arg(0).clone().is_sealed(&ctx, cc.magic() != 0)?;
     Ok(JSValue::Bool(b))
 }
 
-pub fn js_object_fromEntries(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_object_fromEntries(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let mut obj = ctx.create_base_object()?;
 
     // RequireObjectCoercible() not necessary because it is tested in
@@ -381,7 +381,7 @@ pub fn js_object_fromEntries(ctx: ContextRef, cc: CallContext) -> JSResult {
     Ok(obj.into())
 }
 
-pub fn js_object_hasOwn(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_object_hasOwn(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
     let obj = cc.arg(0).objectify(cx)?;

@@ -9,7 +9,7 @@ use crate::{
         promise::{Promise, js_promise_resolve},
     },
     class::ClassID,
-    context::{ContextHandle, ContextImpl, ContextRef},
+    context::{ContextHandle, ContextImpl, ContextPtr},
     error::JSResult,
     function::{
         AsyncFuncState, BytecodeFunction, CallContext, Callback, FieldDef, JSFunctionKindEnum,
@@ -83,7 +83,7 @@ impl AGenPayload {
         self.func_state.set_throw_flag(is_reject);
     }
 
-    pub(crate) fn resume_next(&mut self, ctx: ContextRef) {
+    pub(crate) fn resume_next(&mut self, ctx: ContextPtr) {
         enum State {
             Resume,
             Done,
@@ -243,7 +243,7 @@ impl AGenPayload {
         }
     }
 
-    fn completed_return(&self, mut ctx: ContextRef, value: JSValue) -> Result<(), i32> {
+    fn completed_return(&self, mut ctx: ContextPtr, value: JSValue) -> Result<(), i32> {
         let cc = CallContext::new(
             ctx,
             ctx.promise_ctor,
@@ -287,7 +287,7 @@ impl AGenPayload {
         )
     }
 
-    fn _await(&self, mut ctx: ContextRef, value: JSValue) -> Result<(), i32> {
+    fn _await(&self, mut ctx: ContextPtr, value: JSValue) -> Result<(), i32> {
         let mut promise: Promise = {
             let cc = CallContext::new_simple(ctx, ctx.promise_ctor, std::slice::from_ref(&value));
             js_promise_resolve(ctx, cc)?.try_into()?
@@ -347,7 +347,7 @@ object_cast!(AsyncGeneratorFunction, JS_CLASS_ASYNC_GENERATOR_FUNCTION);
 
 impl AsyncGeneratorFunction {
     pub fn class_call(
-        ctx: ContextRef,
+        ctx: ContextPtr,
         func_obj: JSValue,
         this_obj: JSValue,
         args: &[JSValue],
@@ -471,7 +471,7 @@ fn js_async_generator_resolve_function_create(
     Ok(resolving_funcs)
 }
 
-fn js_async_generator_resolve_function(ctx: ContextRef, cc: CallContext) -> JSResult {
+fn js_async_generator_resolve_function(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let is_reject = cc.magic() & 1 != 0;
     let arg = *cc.arg(0);
 
@@ -524,7 +524,7 @@ fn js_async_generator_resolve_function(ctx: ContextRef, cc: CallContext) -> JSRe
     }
 }
 
-fn js_async_generator_next(ctx: ContextRef, cc: CallContext) -> JSResult {
+fn js_async_generator_next(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let (promise, resolving_funcs) = Promise::create(&ctx)?;
 
     let mut this = *cc.this();
@@ -552,7 +552,7 @@ fn js_async_generator_next(ctx: ContextRef, cc: CallContext) -> JSResult {
     Ok(promise.into())
 }
 
-fn js_iterator_proto_iterator(_: ContextRef, cc: CallContext) -> JSResult {
+fn js_iterator_proto_iterator(_: ContextPtr, cc: CallContext) -> JSResult {
     Ok(*cc.this())
 }
 

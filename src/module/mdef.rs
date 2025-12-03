@@ -4,7 +4,7 @@ use crate::{
     atom::Atom,
     builtins::promise::Promise,
     class::JSClassExoticMethods,
-    context::{ContextHandle, ContextImpl, ContextRef},
+    context::{ContextHandle, ContextImpl, ContextPtr},
     function::{BCFuncPayload, FieldDef, JSFunctionDef, JSVarKindEnum, JSVarRef},
     gcref_wrapper,
     module::{ExportEntry, ExportType, ImportEntry, JSModuleStatus, ModuleDependency},
@@ -459,7 +459,7 @@ pub fn add_module_variables(ctx: &ContextImpl, fd: &mut JSFunctionDef) -> i32 {
 }
 
 /* Unfortunately, the spec gives a different behavior from GetOwnProperty ! */
-fn js_module_ns_has(_: ContextRef, obj: ObjectRef, prop: Atom) -> Result<bool, i32> {
+fn js_module_ns_has(_: ContextPtr, obj: ObjectRef, prop: Atom) -> Result<bool, i32> {
     Ok(obj.has_shape_property(prop))
 }
 

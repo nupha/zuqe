@@ -4,7 +4,7 @@ use crate::{
     JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT,
     builtins::promise::{Promise, js_promise_resolve},
     class::ClassID,
-    context::{ContextHandle, ContextImpl, ContextRef},
+    context::{ContextHandle, ContextImpl, ContextPtr},
     error::JSResult,
     function::{AsyncFuncState, BCFunction, BytecodeFunction, Callback, JSFunctionKindEnum},
     object::{JS_PROP_CONFIGURABLE, ObjectImpl, ObjectPayload, ObjectRef},
@@ -42,7 +42,7 @@ impl AsyncFunction {
 
     /// hook to run function in async manner, returns a Promise.
     pub fn class_call(
-        mut ctx: ContextRef,
+        mut ctx: ContextPtr,
         func_obj: JSValue,
         this_obj: JSValue,
         args: &[JSValue],
@@ -116,7 +116,7 @@ impl JSValue {
 
 impl AsyncFuncState {
     pub fn class_call(
-        mut ctx: ContextRef,
+        mut ctx: ContextPtr,
         func_obj: JSValue,
         _this_obj: JSValue,
         args: &[JSValue],
@@ -174,7 +174,7 @@ impl AsyncFuncState {
             // await
             let mut promise = if let Ok(p) = {
                 let cc = CallContext::new_simple(
-                    unsafe { ContextRef::from_ref_unchecked(ctx) },
+                    unsafe { ContextPtr::from_ref_unchecked(ctx) },
                     ctx.promise_ctor,
                     std::slice::from_ref(&value),
                 );

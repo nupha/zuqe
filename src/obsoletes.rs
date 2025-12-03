@@ -17,7 +17,7 @@ use crate::{
     },
     bytecode::{OpCode, OpCodeTemp, arithmatic::StrictEqMode},
     class::{ClassDef, ClassFieldsDef, ClassID, StdClassDef},
-    context::ContextRef,
+    context::ContextPtr,
     error::{ErrorKind, JSResult},
     function::{
         AsyncFuncState, BlockEnv, Bytecode, CallContext, FieldDef, JSCFunction, JSCFunctionMagic,
@@ -53,7 +53,7 @@ pub enum JSAutoInitIDEnum {
 }
 
 #[deprecated(note = "unused")]
-pub fn JS_FreeValue(ctx: ContextRef, v: &JSValue) {
+pub fn JS_FreeValue(ctx: ContextPtr, v: &JSValue) {
     JS_FreeValueRT(ctx.rt_mut(), v)
 }
 
@@ -158,20 +158,20 @@ pub unsafe fn __JS_FreeValueRT(rt: *mut RuntimeImpl, payload: &GCObject) {
 /// (freeing the value can reallocate the object data)
 #[deprecated(note = "use JSValue::replace_free() instead")]
 #[inline(always)]
-pub unsafe fn set_value(ctx: ContextRef, pval: *mut JSValue, new_val: JSValue) {
+pub unsafe fn set_value(ctx: ContextPtr, pval: *mut JSValue, new_val: JSValue) {
     unreachable!("unused")
 }
 
-#[deprecated(note = "use ContextRef::create_string() instead")]
-pub unsafe fn JS_NewStringLen(ctx: ContextRef, buf: *const u8, buf_len: usize) -> JSValue {
+#[deprecated(note = "use ContextPtr::create_string() instead")]
+pub unsafe fn JS_NewStringLen(ctx: ContextPtr, buf: *const u8, buf_len: usize) -> JSValue {
     unreachable!("unused");
     // ctx.create_string(std::str::from_utf8_unchecked(std::slice::from_raw_parts(
     //     buf, buf_len,
     // )))
 }
 
-#[deprecated(note = "use ContextRef::create_string_utf8() instead")]
-pub unsafe fn JS_NewString(ctx: ContextRef, str: &CStr) -> JSValue {
+#[deprecated(note = "use ContextPtr::create_string_utf8() instead")]
+pub unsafe fn JS_NewString(ctx: ContextPtr, str: &CStr) -> JSValue {
     unreachable!("unused");
     // ctx.create_string(str.to_string_lossy().as_ref())
 }
@@ -195,7 +195,7 @@ pub unsafe fn JS_GetOpaque(obj: JSValue, class_id: ClassID) -> *mut c_void {
 }
 
 #[deprecated(note = "use ObjectRef::opaque_must() instead")]
-pub unsafe fn JS_GetOpaque2(ctx: ContextRef, obj: JSValue, class_id: ClassID) -> *mut c_void {
+pub unsafe fn JS_GetOpaque2(ctx: ContextPtr, obj: JSValue, class_id: ClassID) -> *mut c_void {
     let p = JS_GetOpaque(obj, class_id);
     if p.is_null() {
         ctx.throw_type_error_invalid_class(class_id);
@@ -214,12 +214,12 @@ pub unsafe fn JS_SetOpaque(obj: JSValue, opaque: *mut c_void) {
 }
 
 #[deprecated(note = "unused")]
-pub fn JS_ThrowSyntaxErrorAtom(ctx: ContextRef, fmt: &str, atom: AtomRef) {
+pub fn JS_ThrowSyntaxErrorAtom(ctx: ContextPtr, fmt: &str, atom: AtomRef) {
     unreachable!("unused")
 }
 
-#[deprecated(note = "use ContextRef::JS_ThrowTypeErr()")]
-pub unsafe fn JS_ThrowTypeErrorAtom(ctx: ContextRef, fmt: &CStr, atom: AtomRef) -> JSValue {
+#[deprecated(note = "use ContextPtr::JS_ThrowTypeErr()")]
+pub unsafe fn JS_ThrowTypeErrorAtom(ctx: ContextPtr, fmt: &CStr, atom: AtomRef) -> JSValue {
     unreachable!("unused")
 }
 
@@ -232,7 +232,7 @@ pub fn JS_NewBool(val: bool) -> JSValue {
 /// `val` keeps ref count unchanged after calling this function.
 #[deprecated(note = "use JSValue::corece_to_string_value() instead")]
 pub unsafe fn JS_ToStringInternal(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     val: JSValue,
     is_ToPropertyKey: bool,
 ) -> JSValue {
@@ -241,47 +241,47 @@ pub unsafe fn JS_ToStringInternal(
 
 /// `val` keeps ref count unchanged after calling this function.
 #[deprecated(note = "use JSValue::coerce_to_string_value() instead")]
-pub unsafe fn JS_ToString(ctx: ContextRef, val: JSValue) -> JSValue {
+pub unsafe fn JS_ToString(ctx: ContextPtr, val: JSValue) -> JSValue {
     unreachable!("use JSValue::coerce_to_string_value() instead");
 }
 
 #[deprecated(note = "use JSValue::coerce_to_propkey_value() instead")]
-pub unsafe fn JS_ToPropertyKey(ctx: ContextRef, val: JSValue) -> JSValue {
+pub unsafe fn JS_ToPropertyKey(ctx: ContextPtr, val: JSValue) -> JSValue {
     unreachable!("use JSValue::coerce_to_propkey_value() instead");
 }
 
 /// `val` keeps ref count after calling this function.
 #[deprecated(note = "use JSValue::coerce_number() instead")]
-pub unsafe fn JS_ToNumber(ctx: ContextRef, val: JSValue) -> JSValue {
+pub unsafe fn JS_ToNumber(ctx: ContextPtr, val: JSValue) -> JSValue {
     val.to_number(ctx).unwrap_or(JSValue::EXCEPTION)
 }
 
 #[deprecated(note = "use JSValue::coerce_to_primitive() + JS_FreeValue() instead")]
-pub unsafe fn JS_ToPrimitiveFree(ctx: ContextRef, val: JSValue, hint: i32) -> JSValue {
+pub unsafe fn JS_ToPrimitiveFree(ctx: ContextPtr, val: JSValue, hint: i32) -> JSValue {
     unreachable!("use JSValue::coerce_to_primitive() + JS_FreeValue() instead");
 }
 
 #[deprecated(note = "use JSValue::coerce_to_primitive() instead")]
-pub unsafe fn JS_ToPrimitive(ctx: ContextRef, val: JSValue, hint: i32) -> JSValue {
+pub unsafe fn JS_ToPrimitive(ctx: ContextPtr, val: JSValue, hint: i32) -> JSValue {
     val.to_primitive(ctx, hint).unwrap_or(JSValue::EXCEPTION)
 
     //JS_ToPrimitiveFree(ctx, val.dup(), hint)
 }
 
 #[deprecated(note = "use JSValue::is_function() instead")]
-pub unsafe fn JS_IsFunction(ctx: ContextRef, val: JSValue) -> bool {
+pub unsafe fn JS_IsFunction(ctx: ContextPtr, val: JSValue) -> bool {
     val.is_function()
 }
 
 #[deprecated(note = "use JSValue::is_constructor() instead")]
 #[inline(always)]
-pub unsafe fn JS_IsConstructor(ctx: ContextRef, val: JSValue) -> bool {
+pub unsafe fn JS_IsConstructor(ctx: ContextPtr, val: JSValue) -> bool {
     val.is_constructor()
 }
 
-#[deprecated(note = "use ContextRef::add_global_constructor() instead")]
+#[deprecated(note = "use ContextPtr::add_global_constructor() instead")]
 pub unsafe fn JS_NewGlobalCConstructor2(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     func_obj: JSValue,
     name: &CStr,
     proto: JSValue,
@@ -289,9 +289,9 @@ pub unsafe fn JS_NewGlobalCConstructor2(
     ctx.add_global_constructor(name.to_string_lossy().as_ref(), &func_obj, &proto);
 }
 
-#[deprecated(note = "use ContextRef::create_global_constructor() instead")]
+#[deprecated(note = "use ContextPtr::create_global_constructor() instead")]
 pub unsafe fn JS_NewGlobalCConstructor(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     name: &CStr,
     func: JSCFunction,
     length: i32,
@@ -315,7 +315,7 @@ pub unsafe fn init_class_range(
 }
 
 #[deprecated(note = "not used")]
-pub unsafe fn check_exception_free(ctx: ContextRef, obj: JSValue) -> bool {
+pub unsafe fn check_exception_free(ctx: ContextPtr, obj: JSValue) -> bool {
     unreachable!("unused");
 }
 
@@ -331,7 +331,7 @@ pub unsafe fn JS_AtomGetStrRT(
 
 #[deprecated(note = "use AtomRef::to_str() instead")]
 pub unsafe fn JS_AtomGetStr(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     buf: *mut c_char,
     buf_size: usize,
     atom: AtomRef,
@@ -378,26 +378,26 @@ pub unsafe fn js_get_atom_index(rt: &RuntimeImpl, p: *const AtomDesc) -> AtomRef
 }
 
 #[deprecated(note = "use AtomRef::to_value() instead")]
-pub unsafe fn JS_AtomToString(ctx: ContextRef, atom: AtomRef) -> JSValue {
+pub unsafe fn JS_AtomToString(ctx: ContextPtr, atom: AtomRef) -> JSValue {
     unreachable!("use AtomRef::to_value() instead");
     // __JS_AtomToValue(ctx, atom, true)
 }
 
 /// Warning: 'p' is freed
 #[deprecated(note = "use RuntimeImpl::add_atom_jsstring() instead")]
-pub unsafe fn JS_NewAtomStr(ctx: ContextRef, p: *mut StringImpl) -> AtomRef {
+pub unsafe fn JS_NewAtomStr(ctx: ContextPtr, p: *mut StringImpl) -> AtomRef {
     unreachable!("use RuntimeImpl::add_atom_jsstring() instead");
 }
 
 #[deprecated(note = "use AtomRef::to_utf8_string() instead")]
-pub unsafe fn JS_AtomToCString(ctx: ContextRef, atom: AtomRef) -> *const c_char {
+pub unsafe fn JS_AtomToCString(ctx: ContextPtr, atom: AtomRef) -> *const c_char {
     unreachable!("use AtomRef::to_utf8_string() instead");
 }
 
 /// `data` values are not consumed.
 #[deprecated(note = "use NativeFunctionWithData::create() instead")]
 pub unsafe fn JS_NewCFunctionData(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     func: NativeCallback,
     length: u8,
     magic: i32,
@@ -416,7 +416,7 @@ pub unsafe fn JS_NewCFunctionData(
 
 /// op1, op2 ref_count unchanged
 #[deprecated(note = "use JSValue::is_same() instead")]
-pub unsafe fn js_same_value(ctx: ContextRef, op1: JSValue, op2: JSValue) -> bool {
+pub unsafe fn js_same_value(ctx: ContextPtr, op1: JSValue, op2: JSValue) -> bool {
     unreachable!("use JSValue::is_same_to() instead");
     // js_strict_eq2(
     //     ctx,
@@ -427,7 +427,7 @@ pub unsafe fn js_same_value(ctx: ContextRef, op1: JSValue, op2: JSValue) -> bool
 }
 
 #[deprecated(note = "unused")]
-pub unsafe fn free_arg_list(ctx: ContextRef, tab: *mut JSValue, len: u32) {
+pub unsafe fn free_arg_list(ctx: ContextPtr, tab: *mut JSValue, len: u32) {
     unreachable!("unused");
     // for i in 0..len {
     //     JS_FreeValue(ctx, *tab.add(i as _));
@@ -467,13 +467,13 @@ pub fn JS_IsNumber(v: JSValue) -> bool {
 
 /// `val` is consumed.
 #[deprecated(note = "use JSValue::coerce_to_string() instead")]
-pub fn JS_ToStringFree(ctx: ContextRef, val: JSValue) -> JSValue {
+pub fn JS_ToStringFree(ctx: ContextPtr, val: JSValue) -> JSValue {
     unreachable!("unused")
 }
 
 /// `val` is consumed.
 #[deprecated(note = "use JSValue::to_locale_string() instead")]
-pub unsafe fn JS_ToLocaleStringFree(ctx: ContextRef, val: JSValue) -> JSValue {
+pub unsafe fn JS_ToLocaleStringFree(ctx: ContextPtr, val: JSValue) -> JSValue {
     unreachable!("unused")
     // let r = val.to_locale_string(ctx).unwrap_or(JSValue::EXCEPTION);
     // r
@@ -484,14 +484,14 @@ pub unsafe fn JS_ResizeAtomHash(rt: *mut RuntimeImpl, new_hash_size: i32) -> i32
     unreachable!("unused");
 }
 
-#[deprecated(note = "use ContextRef::class_proto() instead")]
-pub unsafe fn JS_GetClassProto(ctx: ContextRef, class_id: ClassID) -> JSValue {
+#[deprecated(note = "use ContextPtr::class_proto() instead")]
+pub unsafe fn JS_GetClassProto(ctx: ContextPtr, class_id: ClassID) -> JSValue {
     todo!();
     // ctx.get_class_proto(class_id)
 }
 
 #[deprecated(note = "unused")]
-pub unsafe fn JS_SetClassProto(ctx: ContextRef, class_id: ClassID, obj: JSValue) {
+pub unsafe fn JS_SetClassProto(ctx: ContextPtr, class_id: ClassID, obj: JSValue) {
     todo!()
     // ctx.set_class_proto(class_id, obj);
 }
@@ -518,7 +518,7 @@ pub unsafe fn JS_NewClass1(
 
 /// return -1 if exception
 #[deprecated(note = "not used")]
-pub unsafe fn expand_fast_array(ctx: ContextRef, p: *mut JSValue, new_len: u32) -> i32 {
+pub unsafe fn expand_fast_array(ctx: ContextPtr, p: *mut JSValue, new_len: u32) -> i32 {
     unreachable!("unused");
     // let mut slack: usize = 0;
 
@@ -543,9 +543,9 @@ pub unsafe fn expand_fast_array(ctx: ContextRef, p: *mut JSValue, new_len: u32) 
     // return 0;
 }
 
-#[deprecated(note = "use ContextRef::create_array_with_capacity() instead")]
-pub unsafe fn js_allocate_fast_array(ctx: ContextRef, len: i64) -> JSValue {
-    unreachable!("use ContextRef::create_array_with_capacity() instead");
+#[deprecated(note = "use ContextPtr::create_array_with_capacity() instead")]
+pub unsafe fn js_allocate_fast_array(ctx: ContextPtr, len: i64) -> JSValue {
+    unreachable!("use ContextPtr::create_array_with_capacity() instead");
 }
 
 #[deprecated(note = "use JSParseState::parse_string_escape() instead")]
@@ -555,7 +555,7 @@ pub unsafe fn lre_parse_escape(pp: *mut *const u8, allow_utf16: i32) -> Result<u
 
 #[deprecated(note = "use JSFunctionDef::find_var_in_child_scope() instead")]
 pub unsafe fn find_var_in_child_scope(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     fd: *mut JSFunctionDef,
     name: AtomRef,
     scope_level: i32,
@@ -565,7 +565,7 @@ pub unsafe fn find_var_in_child_scope(
 
 #[deprecated(note = "use JSFunctionDef::add_scope_var() instead")]
 pub unsafe fn add_scope_var(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     fd: *mut JSFunctionDef,
     name: AtomRef,
     var_kind: JSVarKindEnum,
@@ -575,7 +575,7 @@ pub unsafe fn add_scope_var(
 
 #[deprecated(note = "use JSStackFrame::get_var_ref() instead")]
 pub unsafe fn get_var_ref(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     sf: *mut StackFrame,
     var_idx: u16,
     is_arg: bool,
@@ -590,7 +590,7 @@ pub unsafe fn js_async_generator_free(rt: *mut RuntimeImpl, s: *mut AGenPayload)
 
 #[deprecated(note = "use AsyncGeneratorFunction::function_call() instead")]
 pub unsafe fn js_async_generator_function_call(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     func_obj: JSValue,
     this_obj: JSValue,
     argc: i32,
@@ -601,7 +601,7 @@ pub unsafe fn js_async_generator_function_call(
 }
 
 #[deprecated(note = "unused")]
-unsafe fn js_promise_executor_new(ctx: ContextRef) -> JSValue {
+unsafe fn js_promise_executor_new(ctx: ContextPtr) -> JSValue {
     unreachable!("unused");
 }
 
@@ -613,20 +613,20 @@ pub(super) unsafe fn promise_reaction_data_free(
     unreachable!("use JSPromiseReactionData::dispose() instead");
 }
 
-#[deprecated(note = "use ContextRef::create_promise() instead")]
+#[deprecated(note = "use ContextPtr::create_promise() instead")]
 pub unsafe fn js_new_promise_capability(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     resolving_funcs: *mut JSValue,
     ctor: JSValue,
 ) -> JSValue {
-    unreachable!("use ContextRef::create_promise() instead")
+    unreachable!("use ContextPtr::create_promise() instead")
 }
 
 /// create and return [resolve, reject] functions for `promise` object.
 /// Note: `promise` is not consumed.
 #[deprecated(note = "use Promise::create_resolving_functions() instead")]
 pub unsafe fn js_create_resolving_functions(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     promise: JSValue,
 ) -> Result<[JSValue; 2], i32> {
     unreachable!("use Promise::create_resolving_functions() instead");
@@ -647,7 +647,7 @@ pub unsafe fn js_alloc_string_rt(
 
 #[deprecated(note = "use StringImpl::new() instead")]
 pub unsafe fn js_alloc_string(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     max_len: usize,
     is_wide_char: bool,
 ) -> *mut StringImpl {
@@ -717,25 +717,25 @@ pub unsafe fn copy_str16(dst: *mut u16, p: *const StringImpl, offset: usize, len
 
 #[deprecated]
 pub unsafe fn JS_ConcatString1(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     p1: *const StringImpl,
     p2: *const StringImpl,
 ) -> JSValue {
     unreachable!("unused");
 }
 
-#[deprecated(note = "use ContextRef::create_string8() instead")]
-pub unsafe fn js_new_string8(ctx: ContextRef, buf: *const u8, len: usize) -> JSValue {
+#[deprecated(note = "use ContextPtr::create_string8() instead")]
+pub unsafe fn js_new_string8(ctx: ContextPtr, buf: *const u8, len: usize) -> JSValue {
     unreachable!("js_new_string8() is obsolete");
 }
 
-#[deprecated(note = "use ContextRef::create_string16() instead")]
-pub unsafe fn js_new_string16(ctx: ContextRef, buf: *const u16, len: usize) -> JSValue {
+#[deprecated(note = "use ContextPtr::create_string16() instead")]
+pub unsafe fn js_new_string16(ctx: ContextPtr, buf: *const u16, len: usize) -> JSValue {
     unreachable!("js_new_string16() is obsolete");
 }
 
-#[deprecated(note = "use ContextRef::create_string_char() instead")]
-pub unsafe fn js_new_string_char(ctx: ContextRef, c: u16) -> JSValue {
+#[deprecated(note = "use ContextPtr::create_string_char() instead")]
+pub unsafe fn js_new_string_char(ctx: ContextPtr, c: u16) -> JSValue {
     unreachable!("js_new_string_char() is obsolete");
 }
 
@@ -744,7 +744,7 @@ pub unsafe fn js_new_string_char(ctx: ContextRef, c: u16) -> JSValue {
 /* cesu8 determines if non-BMP1 codepoints are encoded as 1 or 2 utf-8 sequences */
 #[deprecated(note = "use JSValue::to_utf8() instead")]
 pub unsafe fn JS_ToCStringLen2(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     plen: *mut usize,
     val1: JSValue,
     cesu8: bool,
@@ -753,24 +753,24 @@ pub unsafe fn JS_ToCStringLen2(
 }
 
 #[deprecated(note = "use JSValue::to_utf8() instead")]
-pub unsafe fn JS_ToCStringLen(ctx: ContextRef, plen: *mut usize, val1: JSValue) -> *const c_char {
+pub unsafe fn JS_ToCStringLen(ctx: ContextPtr, plen: *mut usize, val1: JSValue) -> *const c_char {
     unreachable!("unused");
 }
 
 #[deprecated(note = "use JSValue::to_string().content().to_utf8() instead")]
-pub unsafe fn JS_ToCString(ctx: ContextRef, val1: JSValue) -> *const c_char {
+pub unsafe fn JS_ToCString(ctx: ContextPtr, val1: JSValue) -> *const c_char {
     unreachable!("unused");
 }
 
 #[deprecated(note = "not used")]
-pub unsafe fn JS_FreeCString(ctx: ContextRef, ptr: *const c_char) {
+pub unsafe fn JS_FreeCString(ctx: ContextPtr, ptr: *const c_char) {
     unreachable!("JS_FreeCString() is not used any more");
 }
 
 /// return 0 if OK, < 0 if exception.
-#[deprecated(note = "use ContextRef::enqueue_job() instead")]
+#[deprecated(note = "use ContextPtr::enqueue_job() instead")]
 pub unsafe fn JS_EnqueueJob(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     job_func: *mut c_void,
     argc: i32,
     argv: *const JSValue,
@@ -781,7 +781,7 @@ pub unsafe fn JS_EnqueueJob(
 /// return < 0 if exception, 0 if no job pending, 1 if a job was
 /// executed successfully. the context of the job is stored in '*pctx'
 #[deprecated(note = "use RuntimeImpl::execute_pending_job() instead")]
-pub unsafe fn JS_ExecutePendingJob(rt: &mut RuntimeImpl, pctx: *mut ContextRef) -> i32 {
+pub unsafe fn JS_ExecutePendingJob(rt: &mut RuntimeImpl, pctx: *mut ContextPtr) -> i32 {
     unreachable!("unused");
     // match rt.execute_pending_job() {
     //     Ok((Some(ctx), _)) => {
@@ -797,8 +797,8 @@ pub unsafe fn JS_ExecutePendingJob(rt: &mut RuntimeImpl, pctx: *mut ContextRef) 
     // }
 }
 
-#[deprecated(note = "use ContextRef::create_promise() instead")]
-pub unsafe fn JS_NewPromiseCapability(ctx: ContextRef, resolving_funcs: *mut JSValue) -> JSValue {
+#[deprecated(note = "use ContextPtr::create_promise() instead")]
+pub unsafe fn JS_NewPromiseCapability(ctx: ContextPtr, resolving_funcs: *mut JSValue) -> JSValue {
     unreachable!("unused");
     // if let Ok((promise, rr)) = ctx.create_promise(&JSValue::UNDEFINED) {
     //     *resolving_funcs.add(0) = rr[0];
@@ -810,13 +810,13 @@ pub unsafe fn JS_NewPromiseCapability(ctx: ContextRef, resolving_funcs: *mut JSV
 }
 
 #[deprecated(note = "use Promise::state() instead")]
-pub unsafe fn JS_PromiseState(ctx: ContextRef, promise: JSValue) -> Result<PromiseState, i32> {
+pub unsafe fn JS_PromiseState(ctx: ContextPtr, promise: JSValue) -> Result<PromiseState, i32> {
     unreachable!("unused");
 }
 
 /// to free `fd` and all its children
 #[deprecated(note = "use JSFunctionDef::dispose() instead")]
-pub unsafe fn js_free_function_def(ctx: ContextRef, fd: *mut JSFunctionDef) {
+pub unsafe fn js_free_function_def(ctx: ContextPtr, fd: *mut JSFunctionDef) {
     unreachable!("unused");
 }
 
@@ -824,20 +824,20 @@ pub unsafe fn js_free_function_def(ctx: ContextRef, fd: *mut JSFunctionDef) {
 /// All the child functions are also created. It must be done this way to resolve all the variables.
 /// The function definition is freed.
 #[deprecated(note = "use JSFunctionDef::compile() instead")]
-pub unsafe fn js_create_function(ctx: ContextRef, fd: *mut JSFunctionDef) -> JSValue {
+pub unsafe fn js_create_function(ctx: ContextPtr, fd: *mut JSFunctionDef) -> JSValue {
     unreachable!("unused");
     // Box::from_raw(fd).make_function(ctx)
 }
 
 #[deprecated(note = "use Bytecode::find_line_num() instead")]
-pub unsafe fn find_line_num(ctx: ContextRef, b: *mut Bytecode, pc_value: u32) -> i32 {
+pub unsafe fn find_line_num(ctx: ContextPtr, b: *mut Bytecode, pc_value: u32) -> i32 {
     (*b).find_line_num(pc_value).unwrap_or(-1)
 }
 
 /// Note: `value` is duplicated inside.
 #[deprecated(note = "use Promise::fulfill_or_reject() instead")]
 pub unsafe fn fulfill_or_reject_promise(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     promise: Promise,
     value: JSValue,
     is_reject: bool,
@@ -846,13 +846,13 @@ pub unsafe fn fulfill_or_reject_promise(
 }
 
 #[deprecated(note = "use Promise::reject() instead")]
-pub unsafe fn reject_promise(ctx: ContextRef, promise: Promise, value: JSValue) {
+pub unsafe fn reject_promise(ctx: ContextPtr, promise: Promise, value: JSValue) {
     unreachable!("use Promise::reject() instead");
 }
 
 #[deprecated(note = "use Promise::reaction() instead")]
 pub unsafe fn perform_promise_then(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     promise: Promise,
     resolve_reject: &[JSValue; 2],
     cap_resolving_funcs: &[JSValue; 2],
@@ -874,13 +874,13 @@ pub unsafe fn js_parse_from_clause(s: *mut JSParseState) -> AtomRef {
 /// Run the <eval> function of the module and of all its requested modules.
 /// Return a promise or an exception.
 #[deprecated(note = "use ModuleDef::eval() instead")]
-pub unsafe fn js_evaluate_module(ctx: ContextRef, m: *mut ModuleDef) -> JSValue {
+pub unsafe fn js_evaluate_module(ctx: ContextPtr, m: *mut ModuleDef) -> JSValue {
     unreachable!("");
     // (*m).eval(ctx).map_or(JSValue::EXCEPTION, |p| p.into())
 }
 
 #[deprecated(note = "use Promise::result() instead")]
-pub unsafe fn JS_PromiseResult(ctx: ContextRef, promise: JSValue) -> JSValue {
+pub unsafe fn JS_PromiseResult(ctx: ContextPtr, promise: JSValue) -> JSValue {
     Promise::try_from(promise).unwrap().result()
 }
 
@@ -897,7 +897,7 @@ pub unsafe fn JS_PromiseResult(ctx: ContextRef, promise: JSValue) -> JSValue {
 /// Note: property `val` is duplicated inside.
 #[deprecated(note = "use JSValue::define_property() instead")]
 pub unsafe fn JS_DefineProperty(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     this_obj: JSValue,
     prop: AtomRef,
     val: JSValue,
@@ -915,7 +915,7 @@ pub unsafe fn JS_DefineProperty(
 /// Note: property value is consumed.
 #[deprecated(note = "use JSValue::defined_property_value() instead")]
 pub unsafe fn JS_DefinePropertyValue(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     this_obj: JSValue,
     prop: AtomRef,
     val: JSValue,
@@ -929,7 +929,7 @@ pub unsafe fn JS_DefinePropertyValue(
 
 #[deprecated(note = "use JSValue::defined_property_value_str() instead")]
 pub unsafe fn JS_DefinePropertyValueStr(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     this_obj: JSValue,
     prop: &CStr,
     val: JSValue,
@@ -942,7 +942,7 @@ pub unsafe fn JS_DefinePropertyValueStr(
 
 #[deprecated(note = "unused")]
 pub unsafe fn JS_DefinePropertyValueValue(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     this_obj: JSValue,
     prop: JSValue,
     val: JSValue,
@@ -953,7 +953,7 @@ pub unsafe fn JS_DefinePropertyValueValue(
 
 #[deprecated(note = "use JSValue::create_data_property_u32() instead")]
 pub unsafe fn JS_CreateDataPropertyUint32(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     this_obj: JSValue,
     idx: i64,
     val: JSValue,
@@ -966,7 +966,7 @@ pub unsafe fn JS_CreateDataPropertyUint32(
 
 #[deprecated(note = "use JSValue::defined_property_value_u32() instead")]
 pub unsafe fn JS_DefinePropertyValueUint32(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     this_obj: JSValue,
     idx: u32,
     val: JSValue,
@@ -979,7 +979,7 @@ pub unsafe fn JS_DefinePropertyValueUint32(
 
 #[deprecated(note = "use JSValue::defined_property_value_i64() instead")]
 pub unsafe fn JS_DefinePropertyValueInt64(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     this_obj: JSValue,
     idx: i64,
     val: JSValue,
@@ -992,7 +992,7 @@ pub unsafe fn JS_DefinePropertyValueInt64(
 
 #[deprecated(note = "use JSValue::defined_property_desc() instead")]
 pub unsafe fn JS_DefinePropertyDesc(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     obj: JSValue,
     prop: AtomRef,
     desc: JSValue,
@@ -1004,7 +1004,7 @@ pub unsafe fn JS_DefinePropertyDesc(
 /// `getter` and `setter` are consumed.
 #[deprecated(note = "use JSValue::define_property_getset() instead")]
 pub unsafe fn JS_DefinePropertyGetSet(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     this_obj: JSValue,
     prop: AtomRef,
     getter: JSValue,
@@ -1019,7 +1019,7 @@ pub unsafe fn JS_DefinePropertyGetSet(
 
 #[deprecated(note = "use ObjectRef::define_auto_init_property() instead")]
 pub unsafe fn JS_DefineAutoInitProperty(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     this_obj: JSValue,
     prop: AtomRef,
     id: JSAutoInitIDEnum,
@@ -1033,7 +1033,7 @@ pub unsafe fn JS_DefineAutoInitProperty(
 /// returned value has its ref_count increased by 1.
 #[deprecated(note = "use JSValue::get_property_internal() instead")]
 pub unsafe fn JS_GetPropertyInternal(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     obj: JSValue,
     prop: AtomRef,
     this_obj: JSValue,
@@ -1045,14 +1045,14 @@ pub unsafe fn JS_GetPropertyInternal(
 
 #[deprecated(note = "use JSValue::get_property() instead")]
 #[inline(always)]
-pub unsafe fn JS_GetProperty(ctx: ContextRef, this_obj: JSValue, prop: AtomRef) -> JSValue {
+pub unsafe fn JS_GetProperty(ctx: ContextPtr, this_obj: JSValue, prop: AtomRef) -> JSValue {
     unreachable!("unused");
     // this_obj.get_property(ctx, prop)
 }
 
 #[deprecated(note = "use JSValue::get_property_str() instead")]
 pub unsafe fn JS_GetPropertyStr(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     this_obj: JSValue,
     prop: *const c_char,
 ) -> JSValue {
@@ -1062,19 +1062,19 @@ pub unsafe fn JS_GetPropertyStr(
 
 /// NOTE: returned property value has increased ref_count by 1
 #[deprecated(note = "use JSValue::get_property_value() instead")]
-pub unsafe fn JS_GetPropertyValue(ctx: ContextRef, this_obj: JSValue, prop: JSValue) -> JSValue {
+pub unsafe fn JS_GetPropertyValue(ctx: ContextPtr, this_obj: JSValue, prop: JSValue) -> JSValue {
     unreachable!("unused");
     // this_obj.get_property_value(ctx, &prop)
 }
 
 #[deprecated(note = "use JSValue::get_property_u32() instead")]
-pub unsafe fn JS_GetPropertyUint32(ctx: ContextRef, this_obj: JSValue, idx: u32) -> JSValue {
+pub unsafe fn JS_GetPropertyUint32(ctx: ContextPtr, this_obj: JSValue, idx: u32) -> JSValue {
     unreachable!("unused");
     // this_obj.get_property_u32(ctx, idx)
 }
 
 #[deprecated(note = "use JSValue::get_property_i64() instead")]
-pub unsafe fn JS_GetPropertyInt64(ctx: ContextRef, obj: JSValue, idx: i64) -> JSValue {
+pub unsafe fn JS_GetPropertyInt64(ctx: ContextPtr, obj: JSValue, idx: i64) -> JSValue {
     unreachable!("unused");
     // obj.get_property_i64(ctx, idx)
 }
@@ -1085,7 +1085,7 @@ pub unsafe fn JS_GetPropertyInt64(ctx: ContextRef, obj: JSValue, idx: i64) -> JS
 /// Ok(None) if proprty does not exist.
 #[deprecated(note = "use JSValue::try_get_property_i64() instead")]
 pub unsafe fn JS_TryGetPropertyInt64(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     obj: JSValue,
     idx: i64,
 ) -> Result<Option<JSValue>, i32> {
@@ -1096,7 +1096,7 @@ pub unsafe fn JS_TryGetPropertyInt64(
 flags 可以是 0、JS_PROP_THROW 或 JS_PROP_THROW_STRICT */
 #[deprecated(note = "use JSValue::delete_property() instead")]
 pub unsafe fn JS_DeleteProperty(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     obj: JSValue,
     prop: AtomRef,
     flags: u32,
@@ -1106,7 +1106,7 @@ pub unsafe fn JS_DeleteProperty(
 
 #[deprecated(note = "use JSValue::delete_property_i64() instead")]
 pub unsafe fn JS_DeletePropertyInt64(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     obj: JSValue,
     idx: i64,
     flags: u32,
@@ -1115,9 +1115,9 @@ pub unsafe fn JS_DeletePropertyInt64(
 }
 
 /// the indirection is needed to make 'eval' optional.
-#[deprecated(note = "use ContextRef::eval_internal() instead")]
+#[deprecated(note = "use ContextPtr::eval_internal() instead")]
 pub unsafe fn JS_EvalInternal(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     this_obj: JSValue,
     input: &CStr,
     filename: &str,
@@ -1127,9 +1127,9 @@ pub unsafe fn JS_EvalInternal(
     unreachable!("unused");
 }
 
-#[deprecated(note = "use ContextRef::eval_this() instead")]
+#[deprecated(note = "use ContextPtr::eval_this() instead")]
 pub unsafe fn JS_EvalThis(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     this_obj: JSValue,
     input: &CStr,
     filename: &str,
@@ -1138,14 +1138,14 @@ pub unsafe fn JS_EvalThis(
     unreachable!("unused");
 }
 
-#[deprecated(note = "use ContextRef::eval() instead")]
-pub unsafe fn JS_Eval(ctx: ContextRef, input: &CStr, filename: &str, eval_flags: u32) -> JSValue {
+#[deprecated(note = "use ContextPtr::eval() instead")]
+pub unsafe fn JS_Eval(ctx: ContextPtr, input: &CStr, filename: &str, eval_flags: u32) -> JSValue {
     unreachable!("unused");
 }
 
 /// both `this_obj` and `val` are not consumed.
 pub unsafe fn JS_EvalObject(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     this_obj: JSValue,
     val: JSValue,
     flags: u32,
@@ -1155,21 +1155,21 @@ pub unsafe fn JS_EvalObject(
 }
 
 #[deprecated(note = "use ModuleDef::build_ns() instead")]
-pub unsafe fn js_build_module_ns(ctx: ContextRef, m: *mut ModuleDef) -> JSValue {
+pub unsafe fn js_build_module_ns(ctx: ContextPtr, m: *mut ModuleDef) -> JSValue {
     unreachable!("unused");
 }
 
 #[deprecated(note = "use ModuleDef::ns() instead")]
-pub unsafe fn js_get_module_ns(ctx: ContextRef, m: *mut ModuleDef) -> JSValue {
+pub unsafe fn js_get_module_ns(ctx: ContextPtr, m: *mut ModuleDef) -> JSValue {
     (*m).ns(ctx).map_or(JSValue::EXCEPTION, JSValue::Object)
 }
 
 /// build traceback, set it as property of `error_obj`.
 /// if filename/line number is provided, they are defined as property of `error_obj` too.
 /// `error_obj` ref count is unchanged.
-#[deprecated(note = "use ContextRef::build_backtrace_to() instead")]
+#[deprecated(note = "use ContextPtr::build_backtrace_to() instead")]
 pub unsafe fn build_backtrace(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     error_obj: JSValue,
     file_line: Option<(&str, i32)>, // filename and line number
     backtrace_flags: i32,
@@ -1180,7 +1180,7 @@ pub unsafe fn build_backtrace(
 /// op1, op2 are consumed
 #[deprecated(note = "use JSValue::strict_eq_with_mode() instead")]
 pub unsafe fn js_strict_eq2(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     op1: JSValue,
     op2: JSValue,
     eq_mode: StrictEqMode,
@@ -1194,7 +1194,7 @@ pub unsafe fn js_strict_eq2(
 
 /// op1, op2 are consumed
 #[deprecated(note = "use JSValue::strict_eq() instead")]
-pub unsafe fn js_strict_eq(ctx: ContextRef, op1: JSValue, op2: JSValue) -> bool {
+pub unsafe fn js_strict_eq(ctx: ContextPtr, op1: JSValue, op2: JSValue) -> bool {
     unreachable!("use JSValue::strict_eq() instead");
     // let res = op1.strict_eq(op2);
     // JS_FreeValue(ctx, op1);
@@ -1203,7 +1203,7 @@ pub unsafe fn js_strict_eq(ctx: ContextRef, op1: JSValue, op2: JSValue) -> bool 
 }
 
 #[deprecated(note = "use JSValue::is_same0() instead")]
-pub unsafe fn js_same_value_zero(ctx: ContextRef, op1: JSValue, op2: JSValue) -> bool {
+pub unsafe fn js_same_value_zero(ctx: ContextPtr, op1: JSValue, op2: JSValue) -> bool {
     op1.is_same0(&op2)
 }
 
@@ -1223,7 +1223,7 @@ pub unsafe fn find_global_var(fd: *mut JSFunctionDef, name: &Atom) -> *mut JSGlo
 /* add a global variable definition */
 #[deprecated(note = "use JSFunctionDef::add_global_var() instead")]
 pub unsafe fn add_global_var(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     s: *mut JSFunctionDef,
     name: &Atom,
 ) -> *mut JSGlobalVar {
@@ -1232,7 +1232,7 @@ pub unsafe fn add_global_var(
 }
 
 #[deprecated(note = "use JSFunctionDef::add_arg() instead")]
-pub unsafe fn add_arg(ctx: ContextRef, fd: *mut JSFunctionDef, name: AtomRef) -> i32 {
+pub unsafe fn add_arg(ctx: ContextPtr, fd: *mut JSFunctionDef, name: AtomRef) -> i32 {
     unreachable!("unused");
     // (*fd).add_arg(ctx, name).map_or(-1, |x| x as i32)
 }
@@ -1240,27 +1240,27 @@ pub unsafe fn add_arg(ctx: ContextRef, fd: *mut JSFunctionDef, name: AtomRef) ->
 #[deprecated(note = "use JSFunctionDef::find_arg() instead")]
 /* return the variable index or -1 if not found,
 add ARGUMENT_VAR_OFFSET for argument variables */
-pub unsafe fn find_arg(ctx: ContextRef, fd: *const JSFunctionDef, name: AtomRef) -> i32 {
+pub unsafe fn find_arg(ctx: ContextPtr, fd: *const JSFunctionDef, name: AtomRef) -> i32 {
     unreachable!("unused");
     // (*fd).find_arg(name).map_or(-1, |x| x as i32)
 }
 
 #[deprecated(note = "use JSFunctionDef::find_var_or_arg() instead")]
-pub unsafe fn find_var(ctx: ContextRef, fd: *const JSFunctionDef, name: AtomRef) -> i32 {
+pub unsafe fn find_var(ctx: ContextPtr, fd: *const JSFunctionDef, name: AtomRef) -> i32 {
     unreachable!("unused");
     // (*fd).find_var(name).map_or(-1, |x| x as i32)
 }
 
 #[deprecated(note = "use JSFunctionDef::add_var() instead")]
 /* return the variable index or -1 if error */
-pub unsafe fn add_var(ctx: ContextRef, fd: *mut JSFunctionDef, name: AtomRef) -> i32 {
+pub unsafe fn add_var(ctx: ContextPtr, fd: *mut JSFunctionDef, name: AtomRef) -> i32 {
     unreachable!("unused");
     // (*fd).add_var(ctx, name).map_or(-1, |x| x as i32)
 }
 
 // return the constant pool index. 'val' is not duplicated.
 #[deprecated(note = "use JSParseState::cpool_add() instead")]
-pub unsafe fn cpool_add(s: *mut JSParseState, ctx: ContextRef, val: JSValue) -> i32 {
+pub unsafe fn cpool_add(s: *mut JSParseState, ctx: ContextPtr, val: JSValue) -> i32 {
     unreachable!("unused");
     // let fd = (*s).cur_func_mut();
     // fd.cpool_add(val).map_or(-1, |x| x as i32)
@@ -1268,7 +1268,7 @@ pub unsafe fn cpool_add(s: *mut JSParseState, ctx: ContextRef, val: JSValue) -> 
 
 #[deprecated(note = "use LabelInfo::add_reloc() instead")]
 pub unsafe fn add_reloc(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     ls: *mut Label,
     addr: usize,
     size: i32,
@@ -1330,7 +1330,7 @@ pub unsafe fn parse_ident(
 /// find a variable declaration in a given scope
 #[deprecated(note = "use JSFunctionDef::find_var_in_scope() instead")]
 pub fn find_var_in_scope(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     fd: &mut JSFunctionDef,
     name: AtomRef,
     scope_level: i32,
@@ -1349,7 +1349,7 @@ pub unsafe fn find_lexical_global_var(fd: *mut JSFunctionDef, name: AtomRef) -> 
 
 #[deprecated(note = "use JSFSunctionDef::find_lexical_decl() instead")]
 pub unsafe fn find_lexical_decl(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     fd: *mut JSFunctionDef,
     name: AtomRef,
     scope_idx: i32,
@@ -1416,7 +1416,7 @@ pub unsafe fn is_child_scope(fd: *const JSFunctionDef, scope: i32, parent_scope:
 /// return the position of the next opcode
 #[deprecated(note = "use JSFUnctionDef::resolve_scope_var() instead")]
 pub unsafe fn resolve_scope_var(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     s: *mut JSFunctionDef,
     var_name: AtomRef,
     scope_level: i32,
@@ -1434,7 +1434,7 @@ pub unsafe fn resolve_scope_var(
 /// This is the second pass of bytecode generation
 /// Handles scope resolution and variable binding
 #[deprecated(note = "use JSFunctionDef::resolve_variables() instead")]
-pub unsafe fn resolve_variables(ctx: ContextRef, s: *mut JSFunctionDef) -> Result<(), i32> {
+pub unsafe fn resolve_variables(ctx: ContextPtr, s: *mut JSFunctionDef) -> Result<(), i32> {
     (*s).resolve_variables(ctx)
 }
 
@@ -1473,15 +1473,15 @@ pub unsafe fn add_pc2line_info(s: *mut JSFunctionDef, pc: u32, line_num: i32) {
     (*s).add_pc2line_info(pc, line_num);
 }
 
-#[deprecated(note = "use ContextRef::create_array() instead")]
-pub unsafe fn JS_NewArray(ctx: ContextRef) -> JSValue {
+#[deprecated(note = "use ContextPtr::create_array() instead")]
+pub unsafe fn JS_NewArray(ctx: ContextPtr) -> JSValue {
     unreachable!("unused")
     // ctx.create_array().unwrap_or(JSValue::EXCEPTION)
 }
 
-#[deprecated(note = "use ContextRef::create_object_from_shape() instead")]
+#[deprecated(note = "use ContextPtr::create_object_from_shape() instead")]
 pub unsafe fn JS_NewObjectFromShape(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     sh: *mut ShapeHandle,
     class_id: ClassID,
 ) -> JSValue {
@@ -1491,7 +1491,7 @@ pub unsafe fn JS_NewObjectFromShape(
 /* create a new empty shape with prototype 'proto' */
 #[deprecated(note = "use ShapeHandle::with_capacity instead")]
 pub unsafe fn js_new_shape2(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     proto: *mut JSValue,
     hash_size: usize,
     prop_size: i32,
@@ -1502,7 +1502,7 @@ pub unsafe fn js_new_shape2(
 }
 
 #[deprecated(note = "use ShapeHandle::new() instead")]
-pub unsafe fn js_new_shape(ctx: ContextRef, proto: *mut JSValue) -> *mut ShapeHandle {
+pub unsafe fn js_new_shape(ctx: ContextPtr, proto: *mut JSValue) -> *mut ShapeHandle {
     unreachable!("unused");
 }
 
@@ -1514,7 +1514,7 @@ pub unsafe fn js_dup_shape(sh: *mut ShapeHandle) -> *mut ShapeHandle {
 /* The shape is cloned. The new shape is not inserted in the shape hash table */
 #[deprecated(note = "use ShapeHandle::clone() instead")]
 pub unsafe fn js_clone_shape(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     sh1: *mut ShapeHandle,
 ) -> Result<*mut ShapeHandle, i32> {
     unreachable!("unused");
@@ -1650,7 +1650,7 @@ pub(super) unsafe fn mark_children(
 #[deprecated]
 pub unsafe fn JS_MarkContext(
     rt: &mut crate::runtime::RuntimeImpl,
-    ctx: &mut crate::context::ContextRef,
+    ctx: &mut crate::context::ContextPtr,
     mark_func: JS_MarkFunc,
 ) {
     unreachable!("unused");
@@ -1731,7 +1731,7 @@ pub unsafe fn async_func_free(rt: *mut RuntimeImpl, s: *mut AsyncFuncState) {
 /// make new AsyncFuncState (used by generator and async functions)
 #[deprecated(note = "use AsyncFuncState::new() instead")]
 pub unsafe fn async_func_init(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     func_obj: JSValue,
     this_obj: JSValue,
     argc: i32,
@@ -1752,9 +1752,9 @@ pub unsafe fn async_func_init(
 }
 
 /// 'input' must be zero terminated i.e. input[input_len] = '\0'.
-#[deprecated(note = "use ContextRef::eval_internal() instead")]
+#[deprecated(note = "use ContextPtr::eval_internal() instead")]
 pub fn __JS_EvalInternal(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     this_obj: JSValue,
     input: &CStr,
     filename: &str,
@@ -1778,7 +1778,7 @@ pub fn JS_IsError(val: &JSValue) -> bool {
     note = "use JSValue::set_property_internal() or ObjectRef::set_property_internal() instead"
 )]
 pub unsafe fn JS_SetPropertyInternal(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     obj: JSValue,
     prop: AtomRef,
     val: JSValue,
@@ -1792,7 +1792,7 @@ pub unsafe fn JS_SetPropertyInternal(
 /// Note: `val` is consumed
 #[deprecated(note = "use JSValue::set_property_value() instead")]
 pub unsafe fn JS_SetPropertyValue(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     this_obj: JSValue,
     prop: JSValue,
     val: JSValue,
@@ -1806,7 +1806,7 @@ pub unsafe fn JS_SetPropertyValue(
 #[deprecated(note = "use JSValue::set_property() instead")]
 #[inline(always)]
 pub unsafe fn JS_SetProperty(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     this_obj: JSValue,
     prop: AtomRef,
     val: JSValue,
@@ -1819,7 +1819,7 @@ pub unsafe fn JS_SetProperty(
 
 #[deprecated(note = "use JSValue::set_property_u32() instead")]
 pub unsafe fn JS_SetPropertyUint32(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     this_obj: JSValue,
     idx: u32,
     val: JSValue,
@@ -1831,7 +1831,7 @@ pub unsafe fn JS_SetPropertyUint32(
 
 #[deprecated(note = "use JSValue::set_property_i64() instead")]
 pub unsafe fn JS_SetPropertyInt64(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     this_obj: JSValue,
     idx: i64,
     val: JSValue,
@@ -1843,7 +1843,7 @@ pub unsafe fn JS_SetPropertyInt64(
 
 #[deprecated(note = "use JSValue::set_property_str() instead")]
 pub unsafe fn JS_SetPropertyStr(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     this_obj: JSValue,
     prop: &CStr,
     val: JSValue,
@@ -1861,7 +1861,7 @@ pub unsafe fn JS_SetPropertyStr(
 // 'obj' must be an allocated typed array object
 #[deprecated(note = "use TypedArrayObj::init() instead")]
 pub unsafe fn typed_array_init(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     obj: JSValue,
     buffer: JSValue,
     offset: u64,
@@ -1875,7 +1875,7 @@ pub unsafe fn typed_array_init(
 
 #[deprecated(note = "use JSValue::typed_array() instead")]
 pub unsafe fn get_typed_array(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     this_val: JSValue,
     is_dataview: bool,
 ) -> *mut JSValue {
@@ -1890,24 +1890,24 @@ pub unsafe fn get_typed_array(
 /* WARNING: 'p' must be a typed array. Works even if the array buffer
 is detached */
 #[deprecated(note = "use TypedArray::capacity() instead")]
-pub unsafe fn typed_array_get_length(ctx: ContextRef, p: *mut JSValue) -> usize {
+pub unsafe fn typed_array_get_length(ctx: ContextPtr, p: *mut JSValue) -> usize {
     unreachable!("use TypedArray::capacity() instead")
 }
 
 /// returns Err if val is an exception.
 /// `val` is consumed
 #[deprecated(note = "use JSValue::to_bool() instead")]
-pub unsafe fn JS_ToBoolFree(ctx: ContextRef, val: JSValue) -> Result<bool, i32> {
+pub unsafe fn JS_ToBoolFree(ctx: ContextPtr, val: JSValue) -> Result<bool, i32> {
     val.to_bool()
 }
 #[deprecated(note = "use JSValue::to_bool() instead")]
-pub unsafe fn JS_ToBool(ctx: ContextRef, val: &JSValue) -> Result<bool, i32> {
+pub unsafe fn JS_ToBool(ctx: ContextPtr, val: &JSValue) -> Result<bool, i32> {
     val.to_bool()
 }
 
 #[deprecated(note = "use JSValue::get_own_property_names2() instead")]
 pub unsafe fn JS_GetOwnPropertyNames2(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     target: JSValue,
     flags: i32,
     kind: JSIteratorKindEnum,
@@ -1918,7 +1918,7 @@ pub unsafe fn JS_GetOwnPropertyNames2(
 }
 
 // #[deprecated]
-// pub unsafe fn js_free_prop_enum(ctx: ContextRef, tab: *mut PropertyKey, len: usize) {
+// pub unsafe fn js_free_prop_enum(ctx: ContextPtr, tab: *mut PropertyKey, len: usize) {
 //     if !tab.is_null() {
 //         for i in 0..len {
 //             JS_FreeAtom(ctx, (*tab.add(i)).atom);
@@ -1930,7 +1930,7 @@ pub unsafe fn JS_GetOwnPropertyNames2(
 // ptab and its atoms must be freed by the user.
 #[deprecated(note = "use ObjectRef::get_own_property_names() instead")]
 pub unsafe fn JS_GetOwnPropertyNamesInternal(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     ptab: *mut *mut PropertyKey,
     plen: *mut u32,
     p: *mut JSValue,
@@ -1939,9 +1939,9 @@ pub unsafe fn JS_GetOwnPropertyNamesInternal(
     unreachable!("unused");
 }
 
-#[deprecated(note = "use ContextRef::create_object_with_proto() instead")]
+#[deprecated(note = "use ContextPtr::create_object_with_proto() instead")]
 pub unsafe fn JS_NewObjectProtoClass(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     proto_val: JSValue,
     class_id: ClassID,
 ) -> JSValue {
@@ -1950,8 +1950,8 @@ pub unsafe fn JS_NewObjectProtoClass(
 
 /// Instantiate object of specific class
 /// Returns New object or Exception
-#[deprecated(note = "use ContextRef::create_object() instead")]
-pub unsafe fn JS_NewObjectClass(ctx: ContextRef, class_id: ClassID) -> JSValue {
+#[deprecated(note = "use ContextPtr::create_object() instead")]
+pub unsafe fn JS_NewObjectClass(ctx: ContextPtr, class_id: ClassID) -> JSValue {
     unreachable!("unused");
 
     // ctx
@@ -1963,14 +1963,14 @@ pub unsafe fn JS_NewObjectClass(ctx: ContextRef, class_id: ClassID) -> JSValue {
 /// Parameters:
 /// - ctx: JavaScript context
 /// - proto: Prototype object (can be null)
-#[deprecated(note = "use ContextRef::create_base_object_with_proto() instead")]
-pub unsafe fn JS_NewObjectProto(ctx: ContextRef, proto: JSValue) -> JSValue {
+#[deprecated(note = "use ContextPtr::create_base_object_with_proto() instead")]
+pub unsafe fn JS_NewObjectProto(ctx: ContextPtr, proto: JSValue) -> JSValue {
     JS_NewObjectProtoClass(ctx, proto, JS_CLASS_OBJECT)
 }
 
 /// Create basic object using default Object prototype
-#[deprecated(note = "use ContextRef::create_base_object() instead")]
-pub unsafe fn JS_NewObject(ctx: ContextRef) -> JSValue {
+#[deprecated(note = "use ContextPtr::create_base_object() instead")]
+pub unsafe fn JS_NewObject(ctx: ContextPtr) -> JSValue {
     ctx.create_base_object()
         .map_or(JSValue::EXCEPTION, JSValue::Object)
 }
@@ -1980,13 +1980,13 @@ pub unsafe fn JS_NewObject(ctx: ContextRef) -> JSValue {
 /// Returns exception for null/undefined inputs.
 /// `val` is consumed
 #[deprecated(note = "use JSValue::coerce_to_object() instead")]
-pub fn JS_ToObject(ctx: ContextRef, val: JSValue) -> JSValue {
+pub fn JS_ToObject(ctx: ContextPtr, val: JSValue) -> JSValue {
     val.objectify(ctx)
         .map_or(JSValue::EXCEPTION, JSValue::Object)
 }
 
 #[deprecated(note = "use JSValue::coerce_to_object() instead")]
-pub unsafe fn JS_ToObjectFree(ctx: ContextRef, val: JSValue) -> JSValue {
+pub unsafe fn JS_ToObjectFree(ctx: ContextPtr, val: JSValue) -> JSValue {
     val.objectify(ctx)
         .map_or(JSValue::EXCEPTION, JSValue::Object)
 }
@@ -1994,20 +1994,20 @@ pub unsafe fn JS_ToObjectFree(ctx: ContextRef, val: JSValue) -> JSValue {
 /// Return an Object, JS_NULL or JS_EXCEPTION in case of Proxy object.
 /// `obj` keep ref count unchanged after calling.
 #[deprecated(note = "use JSValue::prototype() instead")]
-pub fn JS_GetPrototype(ctx: ContextRef, obj: &JSValue) -> JSValue {
+pub fn JS_GetPrototype(ctx: ContextPtr, obj: &JSValue) -> JSValue {
     obj.prototype(ctx).unwrap_or(JSValue::EXCEPTION)
 }
 
 /// `obj` is consumed
 #[deprecated(note = "use JSValue::prototype() instead")]
-pub fn JS_GetPrototypeFree(ctx: ContextRef, obj: JSValue) -> JSValue {
+pub fn JS_GetPrototypeFree(ctx: ContextPtr, obj: JSValue) -> JSValue {
     JS_GetPrototype(ctx, &obj)
 }
 
 // Private fields can be added even on non extensible objects or Proxies
 #[deprecated(note = "use JSValue::define_private_field() instead")]
 pub unsafe fn JS_DefinePrivateField(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     obj: &JSValue,
     name: JSValue,
     val: JSValue,
@@ -2016,14 +2016,14 @@ pub unsafe fn JS_DefinePrivateField(
 }
 
 #[deprecated(note = "use JSValue::get_private_field() instead")]
-pub unsafe fn JS_GetPrivateField(ctx: ContextRef, obj: JSValue, name: JSValue) -> JSValue {
+pub unsafe fn JS_GetPrivateField(ctx: ContextPtr, obj: JSValue, name: JSValue) -> JSValue {
     obj.get_private_field(ctx, &name)
         .unwrap_or(JSValue::EXCEPTION)
 }
 
 #[deprecated(note = "use JSValue::set_private_field() instead")]
 pub unsafe fn JS_SetPrivateField(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     obj: &JSValue,
     name: &JSValue,
     val: JSValue,
@@ -2238,39 +2238,39 @@ pub unsafe fn token_is_pseudo_keyword(s: *mut JSParseState, atom: AtomRef) -> bo
 }
 
 #[deprecated(note = "use AtomRef::to_string_or_symbol() instead")]
-pub unsafe fn __JS_AtomToValue(ctx: ContextRef, atom: AtomRef, force_string: bool) -> JSValue {
+pub unsafe fn __JS_AtomToValue(ctx: ContextPtr, atom: AtomRef, force_string: bool) -> JSValue {
     unreachable!("unused")
     // atom.to_string_or_symbol(ctx, force_string)
     //     .unwrap_or(JSValue::EXCEPTION)
 }
 
 #[deprecated(note = "use AtomRef::to_string_or_symbol() instead")]
-pub unsafe fn JS_AtomToValue(ctx: ContextRef, atom: AtomRef) -> JSValue {
+pub unsafe fn JS_AtomToValue(ctx: ContextPtr, atom: AtomRef) -> JSValue {
     __JS_AtomToValue(ctx, atom, false)
 }
 
 #[deprecated(note = "use AtomRef::new() instead")]
-pub unsafe fn JS_NewAtomLen(ctx: ContextRef, str: *const u8, len: usize) -> AtomRef {
+pub unsafe fn JS_NewAtomLen(ctx: ContextPtr, str: *const u8, len: usize) -> AtomRef {
     unreachable!("unused");
 }
 
 #[deprecated(note = "use AtomRef::new() instead")]
-pub unsafe fn JS_NewAtom(ctx: ContextRef, str: &CStr) -> AtomRef {
+pub unsafe fn JS_NewAtom(ctx: ContextPtr, str: &CStr) -> AtomRef {
     unreachable!("unused");
 }
 
-#[deprecated(note = "use ContextRef::create_atom_string() instead")]
-pub unsafe fn JS_NewAtomString(ctx: ContextRef, str: &str) -> JSValue {
+#[deprecated(note = "use ContextPtr::create_atom_string() instead")]
+pub unsafe fn JS_NewAtomString(ctx: ContextPtr, str: &str) -> JSValue {
     unreachable!("unused");
 }
 
 #[deprecated(note = "use AtomRef::from_u32() instead")]
-pub unsafe fn JS_NewAtomUInt32(ctx: ContextRef, n: u32) -> AtomRef {
+pub unsafe fn JS_NewAtomUInt32(ctx: ContextPtr, n: u32) -> AtomRef {
     unreachable!("unused");
 }
 
 #[deprecated(note = "use AtomRef::from_i64() instead")]
-pub unsafe fn JS_NewAtomInt64(ctx: ContextRef, n: i64) -> AtomRef {
+pub unsafe fn JS_NewAtomInt64(ctx: ContextPtr, n: i64) -> AtomRef {
     unreachable!("unused");
 }
 
@@ -2281,7 +2281,7 @@ pub unsafe fn async_func_free_frame(rt: *mut RuntimeImpl, s: *mut AsyncFuncState
 
 /* return Err() if exception (Proxy object only) or TRUE/FALSE */
 #[deprecated(note = "use JSValue::is_extensible() instead")]
-pub unsafe fn JS_IsExtensible(ctx: ContextRef, obj: &JSValue) -> Result<bool, i32> {
+pub unsafe fn JS_IsExtensible(ctx: ContextPtr, obj: &JSValue) -> Result<bool, i32> {
     obj.is_extensible(ctx)
 }
 
@@ -2290,7 +2290,7 @@ FALSE if the property does not exist, TRUE if it exists. If TRUE is
 returned, the property descriptor 'desc' is filled present. */
 #[deprecated(note = "use JSValue::get_own_property() or ObjectRef::get_own_property() instead")]
 pub unsafe fn JS_GetOwnPropertyInternal(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     desc: *mut JSPropertyDescriptor,
     p: &JSValue,
     prop: AtomRef,
@@ -2300,7 +2300,7 @@ pub unsafe fn JS_GetOwnPropertyInternal(
 
 #[deprecated(note = "JSValue::get_own_property() instead")]
 pub unsafe fn JS_GetOwnProperty(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     desc: *mut JSPropertyDescriptor,
     obj: JSValue,
     prop: AtomRef,
@@ -2310,7 +2310,7 @@ pub unsafe fn JS_GetOwnProperty(
 
 #[deprecated(note = "use JSValue::copy_data_properties_from() instead")]
 pub unsafe fn JS_CopyDataProperties(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     target: JSValue,
     source: JSValue,
     excluded: JSValue,
@@ -2321,7 +2321,7 @@ pub unsafe fn JS_CopyDataProperties(
 
 #[deprecated(note = "use JSValue::ordinary_instance_of() instead")]
 pub unsafe fn JS_OrdinaryIsInstanceOf(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     val: &JSValue,
     obj: &JSValue,
 ) -> Result<bool, i32> {
@@ -2329,19 +2329,19 @@ pub unsafe fn JS_OrdinaryIsInstanceOf(
 }
 
 #[deprecated(note = "use JSValue::instance_of() instead")]
-pub unsafe fn JS_IsInstanceOf(ctx: ContextRef, val: &JSValue, obj: &JSValue) -> Result<bool, i32> {
+pub unsafe fn JS_IsInstanceOf(ctx: ContextPtr, val: &JSValue, obj: &JSValue) -> Result<bool, i32> {
     obj.instance_of(ctx, val)
 }
 
 #[deprecated(note = "use JSValue::type_of() instead")]
-pub fn js_operator_typeof(ctx: ContextRef, op1: &JSValue) -> AtomRef {
+pub fn js_operator_typeof(ctx: ContextPtr, op1: &JSValue) -> AtomRef {
     op1.type_of()
 }
 
 /// Access an Array's internal JSValue array if available
 #[deprecated(note = "use JSValue::fast_array_values_mut() instead")]
 pub unsafe fn js_get_fast_array(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     mut obj: JSValue,
     arrpp: *mut *mut JSValue,
     countp: *mut u32,
@@ -2357,7 +2357,7 @@ pub unsafe fn js_get_fast_array(
 }
 
 #[deprecated(note = "use JSValue::is_fast_array() instead")]
-pub unsafe fn js_is_fast_array(ctx: ContextRef, obj: JSValue) -> bool {
+pub unsafe fn js_is_fast_array(ctx: ContextPtr, obj: JSValue) -> bool {
     obj.is_fast_array()
 }
 
@@ -2366,7 +2366,7 @@ pub unsafe fn js_is_fast_array(ctx: ContextRef, obj: JSValue) -> bool {
 /// Note: `val` is consumed.
 #[deprecated(note = "use JSObjectInner::add_fast_array_element() instead")]
 pub unsafe fn add_fast_array_element(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     p: *mut JSValue,
     val: JSValue,
     flags: u32,
@@ -2376,7 +2376,7 @@ pub unsafe fn add_fast_array_element(
 
 // return Err if exception (proxy case) or TRUE/FALSE
 #[deprecated(note = "use JSValue::is_array() instead")]
-pub unsafe fn JS_IsArray(ctx: ContextRef, val: &JSValue) -> Result<bool, i32> {
+pub unsafe fn JS_IsArray(ctx: ContextPtr, val: &JSValue) -> Result<bool, i32> {
     if let JSValue::Object(p) = val {
         if p.class_id() == JS_CLASS_PROXY {
             js_proxy_isArray(ctx, val)
@@ -2391,7 +2391,7 @@ pub unsafe fn JS_IsArray(ctx: ContextRef, val: &JSValue) -> Result<bool, i32> {
 /// set the array length and remove the array elements if necessary.
 /// returns 0,1,-1
 #[deprecated(note = "use ObjectRef::set_array_length() instead")]
-pub unsafe fn set_array_length(ctx: ContextRef, p: *mut JSValue, val: JSValue, flags: u32) -> i32 {
+pub unsafe fn set_array_length(ctx: ContextPtr, p: *mut JSValue, val: JSValue, flags: u32) -> i32 {
     unreachable!("unused")
     // (*p).object_unchecked()
     //     .set_array_length2(ctx, val, flags)
@@ -2401,7 +2401,7 @@ pub unsafe fn set_array_length(ctx: ContextRef, p: *mut JSValue, val: JSValue, f
 /// `val` is duplicated inside
 #[deprecated(note = "use ObjectRef::create_property() instead")]
 pub unsafe fn JS_CreateProperty(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     p: *mut JSValue,
     prop: AtomRef,
     val: JSValue,
@@ -2413,7 +2413,7 @@ pub unsafe fn JS_CreateProperty(
 }
 
 #[deprecated(note = "use JSValue::has_property() instead")]
-pub unsafe fn JS_HasProperty(ctx: ContextRef, obj: JSValue, prop: AtomRef) -> Result<bool, i32> {
+pub unsafe fn JS_HasProperty(ctx: ContextPtr, obj: JSValue, prop: AtomRef) -> Result<bool, i32> {
     unreachable!("ununsed");
     // obj.has_property(ctx, prop)
 }
@@ -2468,9 +2468,9 @@ enum JSCFunctionEnum {
 }
 
 // Note: at least 'length' arguments will be readable in 'argv'
-#[deprecated(note = "use native callback instead. see ContextRef::create_native_function()")]
+#[deprecated(note = "use native callback instead. see ContextPtr::create_native_function()")]
 pub unsafe fn JS_NewCFunction3(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     func: JSCFunction,
     name: &str,
     length: u8,
@@ -2511,10 +2511,10 @@ pub unsafe fn JS_NewCFunction3(
 }
 
 /* Note: at least 'length' arguments will be readable in 'argv' */
-#[deprecated(note = "use native callback instead. see ContextRef::create_native_function()")]
+#[deprecated(note = "use native callback instead. see ContextPtr::create_native_function()")]
 #[inline(always)]
 pub fn JS_NewCFunction2(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     func: JSCFunction,
     name: &str,
     length: u8,
@@ -2536,15 +2536,15 @@ pub fn JS_NewCFunction2(
 }
 
 #[inline(always)]
-#[deprecated(note = "use native callback instead. see ContextRef::create_native_function()")]
-pub fn JS_NewCFunction(ctx: ContextRef, func: JSCFunction, name: &str, length: u8) -> JSValue {
+#[deprecated(note = "use native callback instead. see ContextPtr::create_native_function()")]
+pub fn JS_NewCFunction(ctx: ContextPtr, func: JSCFunction, name: &str, length: u8) -> JSValue {
     JS_NewCFunction2(ctx, func, name, length, JSCFunctionEnum::Generic, 0)
 }
 
 #[inline(always)]
-#[deprecated(note = "use native callback instead. see ContextRef::create_native_function()")]
+#[deprecated(note = "use native callback instead. see ContextPtr::create_native_function()")]
 pub fn JS_NewCFunctionMagic(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     func: JSCFunctionMagic,
     name: &str,
     length: u8,
@@ -2561,7 +2561,7 @@ pub fn JS_GetFunctionBytecode(val: &JSValue) -> *mut Bytecode {
 }
 
 #[deprecated(note = "use JSValue::ensure_function() instead")]
-pub unsafe fn check_function(ctx: ContextRef, obj: JSValue) -> Result<(), i32> {
+pub unsafe fn check_function(ctx: ContextPtr, obj: JSValue) -> Result<(), i32> {
     obj.ensure_function(ctx)?;
     Ok(())
 }
@@ -2575,8 +2575,8 @@ pub unsafe fn JS_IsCFunction(val: &JSValue, func: JSCFunction, magic: i32) -> bo
 
 /// flags is 0, DEFINE_GLOBAL_LEX_VAR or DEFINE_GLOBAL_FUNC_VAR
 /// XXX: could support exotic global object.
-#[deprecated(note = "use ContextRef::define_global_var_checked() instead")]
-pub fn JS_CheckDefineGlobalVar(ctx: ContextRef, prop: AtomRef, flags: u32) -> i32 {
+#[deprecated(note = "use ContextPtr::define_global_var_checked() instead")]
+pub fn JS_CheckDefineGlobalVar(ctx: ContextPtr, prop: AtomRef, flags: u32) -> i32 {
     unreachable!("unused");
 }
 
@@ -2584,16 +2584,16 @@ pub fn JS_CheckDefineGlobalVar(ctx: ContextRef, prop: AtomRef, flags: u32) -> i3
 //   JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE
 // XXX: could support exotic global object.
 #[deprecated(note = "use JSontext::define_global_var() instead")]
-pub fn JS_DefineGlobalVar(ctx: ContextRef, prop: AtomRef, def_flags: u32) -> i32 {
+pub fn JS_DefineGlobalVar(ctx: ContextPtr, prop: AtomRef, def_flags: u32) -> i32 {
     unreachable!("unused");
 }
 
 /// 'def_flags' is 0 or JS_PROP_CONFIGURABLE.
 /// `func` is not consumed.
 /// XXX: could support exotic global object.
-#[deprecated(note = "use ContextRef::define_global_function() instead")]
+#[deprecated(note = "use ContextPtr::define_global_function() instead")]
 pub fn JS_DefineGlobalFunction(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     prop: AtomRef,
     func: &JSValue,
     def_flags: u32,
@@ -2601,39 +2601,39 @@ pub fn JS_DefineGlobalFunction(
     unreachable!("unused");
 }
 
-#[deprecated(note = "use ContextRef::get_global_var() instead")]
-pub fn JS_GetGlobalVar(ctx: ContextRef, prop: AtomRef, throw_ref_error: bool) -> JSValue {
+#[deprecated(note = "use ContextPtr::get_global_var() instead")]
+pub fn JS_GetGlobalVar(ctx: ContextPtr, prop: AtomRef, throw_ref_error: bool) -> JSValue {
     unreachable!("unused");
 }
 
 // construct a reference to a global variable
 #[deprecated(note = "use ContextImpl::build_global_varref() instead")]
-pub unsafe fn JS_GetGlobalVarRef(ctx: ContextRef, prop: AtomRef, sp: *mut JSValue) -> i32 {
+pub unsafe fn JS_GetGlobalVarRef(ctx: ContextPtr, prop: AtomRef, sp: *mut JSValue) -> i32 {
     unreachable!("unused");
 }
 
 /// used for strict variable access: test if the variable exists
-#[deprecated(note = "ContextRef::check_global_var() instead")]
-pub fn JS_CheckGlobalVar(ctx: ContextRef, prop: AtomRef) -> i32 {
+#[deprecated(note = "ContextPtr::check_global_var() instead")]
+pub fn JS_CheckGlobalVar(ctx: ContextPtr, prop: AtomRef) -> i32 {
     unreachable!("unused");
 }
 
 // flag = 0: normal variable write
 // flag = 1: initialize lexical variable
 // flag = 2: normal variable write, strict check was done before
-#[deprecated(note = "use ContextRef::set_global_var() instead")]
-pub fn JS_SetGlobalVar(ctx: ContextRef, prop: AtomRef, val: JSValue, flag: u32) -> i32 {
+#[deprecated(note = "use ContextPtr::set_global_var() instead")]
+pub fn JS_SetGlobalVar(ctx: ContextPtr, prop: AtomRef, val: JSValue, flag: u32) -> i32 {
     unreachable!("unused");
 }
 
 #[deprecated(note = "use AsyncFuncState::resume() instead")]
-pub fn async_func_resume(ctx: ContextRef, af: &AsyncFuncState) -> JSValue {
+pub fn async_func_resume(ctx: ContextPtr, af: &AsyncFuncState) -> JSValue {
     af.resume(ctx).unwrap_or(JSValue::EXCEPTION)
 }
 
 #[deprecated(note = "use AsyncFunction::class_call() instead")]
 pub fn js_async_function_call(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     func_obj: &JSValue,
     this_obj: &JSValue,
     args: &[JSValue],
@@ -2644,7 +2644,7 @@ pub fn js_async_function_call(
 
 // Note: the integer value is saturated to 32 bits
 #[deprecated(note = "use JSValue::to_i32_saturating() instead")]
-pub unsafe fn JS_ToInt32SatFree(ctx: ContextRef, pres: *mut i32, mut val: JSValue) -> i32 {
+pub unsafe fn JS_ToInt32SatFree(ctx: ContextPtr, pres: *mut i32, mut val: JSValue) -> i32 {
     let ret: i32 = loop {
         match val {
             JSValue::NULL | JSValue::UNDEFINED => {
@@ -2687,14 +2687,14 @@ pub unsafe fn JS_ToInt32SatFree(ctx: ContextRef, pres: *mut i32, mut val: JSValu
 
 /// val is not consumed
 #[deprecated(note = "use JSValue::to_i32_saturating() instead")]
-pub unsafe fn JS_ToInt32Sat(ctx: ContextRef, pres: *mut i32, val: &JSValue) -> i32 {
+pub unsafe fn JS_ToInt32Sat(ctx: ContextPtr, pres: *mut i32, val: &JSValue) -> i32 {
     JS_ToInt32SatFree(ctx, pres, val.clone())
 }
 
 /// val is not consumed
 #[deprecated(note = "use JSValue::to_i32_clamp() instead")]
 pub unsafe fn JS_ToInt32Clamp(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     pres: *mut i32,
     val: &JSValue,
     min: i32,
@@ -2718,35 +2718,35 @@ pub unsafe fn JS_ToInt32Clamp(
 }
 
 #[deprecated(note = "use JSValue::to_number() instead")]
-pub unsafe fn JS_ToNumberFree(ctx: ContextRef, val: JSValue) -> JSValue {
+pub unsafe fn JS_ToNumberFree(ctx: ContextPtr, val: JSValue) -> JSValue {
     val.to_number(ctx).unwrap_or(JSValue::EXCEPTION)
 }
 
 #[deprecated(note = "use JSValue::to_numeric() instead")]
-pub unsafe fn JS_ToNumericFree(ctx: ContextRef, val: JSValue) -> JSValue {
+pub unsafe fn JS_ToNumericFree(ctx: ContextPtr, val: JSValue) -> JSValue {
     val.to_numeric(ctx).unwrap_or(JSValue::EXCEPTION)
 }
 
 #[deprecated(note = "use JSValue::to_numeric() instead")]
-pub unsafe fn JS_ToNumeric(ctx: ContextRef, val: JSValue) -> JSValue {
+pub unsafe fn JS_ToNumeric(ctx: ContextPtr, val: JSValue) -> JSValue {
     val.to_numeric(ctx).unwrap_or(JSValue::EXCEPTION)
 }
 
 #[deprecated(note = "use JSValue::to_i64_saturating() instead")]
-pub unsafe fn JS_ToInt64SatFree(ctx: ContextRef, pres: *mut i64, mut val: JSValue) -> i32 {
+pub unsafe fn JS_ToInt64SatFree(ctx: ContextPtr, pres: *mut i64, mut val: JSValue) -> i32 {
     unreachable!("unused");
 }
 
 /// val is not consumed
 #[deprecated(note = "use JSValue::to_i64_saturating() instead")]
-pub unsafe fn JS_ToInt64Sat(ctx: ContextRef, pres: *mut i64, val: &JSValue) -> i32 {
+pub unsafe fn JS_ToInt64Sat(ctx: ContextPtr, pres: *mut i64, val: &JSValue) -> i32 {
     unreachable!("unused");
 }
 
 /// val is not consumed
 #[deprecated(note = "use JSValue::to_i64_clamp() instead")]
 pub unsafe fn JS_ToInt64Clamp(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     pres: *mut i64,
     val: &JSValue,
     min: i64,
@@ -2756,21 +2756,21 @@ pub unsafe fn JS_ToInt64Clamp(
     unreachable!("unused");
 }
 
-#[deprecated(note = "use ContextRef::throw_range_error() instead")]
-pub fn JS_ThrowRangeError(ctx: ContextRef, message: &str) {
+#[deprecated(note = "use ContextPtr::throw_range_error() instead")]
+pub fn JS_ThrowRangeError(ctx: ContextPtr, message: &str) {
     ctx.throw_error(ErrorKind::Range, message);
 }
 
 /// convert a value to a length between 0 and MAX_SAFE_INTEGER.
 #[deprecated(note = "use JSValue::to_length() instead")]
-pub unsafe fn JS_ToLengthFree(ctx: ContextRef, val: JSValue) -> Result<i64, i32> {
+pub unsafe fn JS_ToLengthFree(ctx: ContextPtr, val: JSValue) -> Result<i64, i32> {
     unreachable!("unused");
 }
 
 /// returns value of int, float64, nan, exception
 #[deprecated(note = "use JSValue::do_coerce_number_free() instead")]
 pub unsafe fn JS_ToNumberHintFree(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     val: JSValue,
     flag: JSToNumberHintEnum,
 ) -> JSValue {
@@ -2779,47 +2779,47 @@ pub unsafe fn JS_ToNumberHintFree(
 }
 
 #[deprecated(note = "use JSValue::to_array_index() instead")]
-pub fn JS_ToIndex(ctx: ContextRef, val: &JSValue) -> Result<i64, i32> {
+pub fn JS_ToIndex(ctx: ContextPtr, val: &JSValue) -> Result<i64, i32> {
     val.to_array_index(ctx)
 }
 
 #[deprecated(note = "use JSValue::from_i32() instead")]
-pub fn JS_NewInt32(ctx: ContextRef, val: i32) -> JSValue {
+pub fn JS_NewInt32(ctx: ContextPtr, val: i32) -> JSValue {
     JSValue::Int(val)
 }
 
 #[inline(always)]
 #[deprecated(note = "use JSValue::from_u32() instead")]
-pub fn JS_NewUint32(ctx: ContextRef, val: u32) -> JSValue {
+pub fn JS_NewUint32(ctx: ContextPtr, val: u32) -> JSValue {
     JSValue::from(val)
 }
 
 #[deprecated(note = "use JSValue::from_i64() instead")]
 #[inline(always)]
-pub fn JS_NewInt64(ctx: ContextRef, val: i64) -> JSValue {
+pub fn JS_NewInt64(ctx: ContextPtr, val: i64) -> JSValue {
     JSValue::from(val)
 }
 
 #[inline(always)]
 #[deprecated(note = "use JSValue::from_f64_as_is() instead")]
-pub fn __JS_NewFloat64(ctx: ContextRef, d: f64) -> JSValue {
+pub fn __JS_NewFloat64(ctx: ContextPtr, d: f64) -> JSValue {
     JSValue::Float64(d)
 }
 
 #[inline(always)]
 #[deprecated(note = "use JSValue::from_f64() instead")]
-pub fn JS_NewFloat64(ctx: ContextRef, d: f64) -> JSValue {
+pub fn JS_NewFloat64(ctx: ContextPtr, d: f64) -> JSValue {
     JSValue::from(d)
 }
 
 /* Note: can return an exception (-1) */
 #[deprecated(note = "use JSValue::is_integer() instead")]
-pub unsafe fn JS_NumberIsInteger(ctx: ContextRef, val: JSValue) -> i32 {
+pub unsafe fn JS_NumberIsInteger(ctx: ContextPtr, val: JSValue) -> i32 {
     val.is_integral(ctx).map_or(-1, |b| b as i32)
 }
 
 #[deprecated(note = "use JSValue::to_i32() instead")]
-pub unsafe fn JS_ToInt32Free(ctx: ContextRef, pres: *mut i32, val: JSValue) -> i32 {
+pub unsafe fn JS_ToInt32Free(ctx: ContextPtr, pres: *mut i32, val: JSValue) -> i32 {
     val.to_i32(ctx).map_or(-1, |v| {
         *pres = v;
         0
@@ -2828,7 +2828,7 @@ pub unsafe fn JS_ToInt32Free(ctx: ContextRef, pres: *mut i32, val: JSValue) -> i
 
 /// `val` is not consumed
 #[deprecated(note = "use JSValue::to_i32() instead")]
-pub unsafe fn JS_ToInt32(ctx: ContextRef, val: &JSValue) -> Result<i32, i32> {
+pub unsafe fn JS_ToInt32(ctx: ContextPtr, val: &JSValue) -> Result<i32, i32> {
     let mut n = 0;
     if JS_ToInt32Free(ctx, &mut n, val.clone()) == -1 {
         Err(-1)
@@ -2838,39 +2838,39 @@ pub unsafe fn JS_ToInt32(ctx: ContextRef, val: &JSValue) -> Result<i32, i32> {
 }
 
 #[deprecated(note = "use JSValue::to_u32() instead")]
-pub unsafe fn JS_ToUint32(ctx: ContextRef, val: &JSValue) -> Result<u32, i32> {
+pub unsafe fn JS_ToUint32(ctx: ContextPtr, val: &JSValue) -> Result<u32, i32> {
     val.to_u32(ctx)
 }
 
 #[inline(always)]
 #[deprecated(note = "use JSValue::to_u32() instead")]
-pub unsafe fn JS_ToUint32Free(ctx: ContextRef, val: JSValue) -> Result<u32, i32> {
+pub unsafe fn JS_ToUint32Free(ctx: ContextPtr, val: JSValue) -> Result<u32, i32> {
     val.to_u32(ctx)
 }
 
 #[deprecated(note = "use JSValue::coerce_to_u8_clamp() instead")]
-pub unsafe fn JS_ToUint8ClampFree(ctx: ContextRef, pres: *mut i32, val: JSValue) -> i32 {
+pub unsafe fn JS_ToUint8ClampFree(ctx: ContextPtr, pres: *mut i32, val: JSValue) -> i32 {
     unreachable!("unused");
 }
 
 #[deprecated(note = "use JSValue::coerce_to_u8_clamp() instead")]
-pub unsafe fn JS_ToUint8Clamp(ctx: ContextRef, pres: *mut i32, val: &JSValue) -> i32 {
+pub unsafe fn JS_ToUint8Clamp(ctx: ContextPtr, pres: *mut i32, val: &JSValue) -> i32 {
     unreachable!("unused");
 }
 
 #[deprecated(note = "use JSValue::to_f64() instead")]
-pub unsafe fn JS_ToFloat64Free(ctx: ContextRef, pres: *mut f64, val: JSValue) -> i32 {
+pub unsafe fn JS_ToFloat64Free(ctx: ContextPtr, pres: *mut f64, val: JSValue) -> i32 {
     unreachable!("unused");
 }
 
 #[deprecated(note = "use JSValue::to_f64() instead")]
-pub unsafe fn JS_ToFloat64(ctx: ContextRef, pres: *mut f64, val: &JSValue) -> i32 {
+pub unsafe fn JS_ToFloat64(ctx: ContextPtr, pres: *mut f64, val: &JSValue) -> i32 {
     JS_ToFloat64Free(ctx, pres, val.clone())
 }
 
 /// Note: `val` is consumed
 #[deprecated(note = "use JSValue::to_f64() instead")]
-pub unsafe fn __JS_ToFloat64Free(ctx: ContextRef, pres: *mut f64, val: JSValue) -> i32 {
+pub unsafe fn __JS_ToFloat64Free(ctx: ContextPtr, pres: *mut f64, val: JSValue) -> i32 {
     unreachable!("unused");
 }
 
@@ -2886,7 +2886,7 @@ pub unsafe fn free_function_bytecode(
 /// Returns closure function object.
 #[deprecated(note = "use Bytecode::make_closure() instead")]
 pub fn js_closure(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     bc: &Bytecode,
     cur_var_refs: &[JSVarRef],
     parent_frame: Option<&mut StackFrame>,
@@ -2897,7 +2897,7 @@ pub fn js_closure(
 
 #[deprecated(note = "use Bytecode::make_closure_to() instead")]
 pub(crate) unsafe fn js_closure2(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     func_obj: JSValue,
     bc: Bytecode,
     cur_var_refs: &[JSVarRef],
@@ -2916,7 +2916,7 @@ pub(crate) unsafe fn js_closure2(
 #[deprecated(note = "use JSFunctionDef::add_closure_var() instead")]
 /// returns added closure var index, or Err for error.
 pub unsafe fn add_closure_var(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     s: &mut JSFunctionDef,
     is_local: bool,
     is_arg: bool,
@@ -2936,7 +2936,7 @@ pub unsafe fn add_closure_var(
 /// `fun_obj` could be Bytecode or Module.
 #[deprecated(note = "unused")]
 pub unsafe fn JS_EvalFunctionInternal(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     fun_obj: &JSValue,
     this_obj: &JSValue,
     var_refs: &[JSVarRef],
@@ -2948,37 +2948,37 @@ pub unsafe fn JS_EvalFunctionInternal(
 }
 
 #[deprecated(note = "unused")]
-pub unsafe fn JS_EvalFunction(ctx: ContextRef, fun_obj: &JSValue) -> JSValue {
+pub unsafe fn JS_EvalFunction(ctx: ContextPtr, fun_obj: &JSValue) -> JSValue {
     return JS_EvalFunctionInternal(ctx, fun_obj, &ctx.global_obj.clone(), &[], None);
 }
 
 #[deprecated(note = "use JSFunctionDef::add_func_var() instead")]
-pub unsafe fn add_func_var(ctx: ContextRef, fd: *mut JSFunctionDef, name: AtomRef) -> i32 {
+pub unsafe fn add_func_var(ctx: ContextPtr, fd: *mut JSFunctionDef, name: AtomRef) -> i32 {
     unreachable!("unused");
     // (*fd).add_func_var(ctx, name).map_or(-1, |x| x as i32)
 }
 
 #[deprecated(note = "use JSFunctionDef::add_var_this() instead")]
-pub unsafe fn add_var_this(ctx: ContextRef, fd: *mut JSFunctionDef) -> i32 {
+pub unsafe fn add_var_this(ctx: ContextPtr, fd: *mut JSFunctionDef) -> i32 {
     (*fd).add_var_this(ctx).map_or(-1, |x| x as i32)
 }
 
 #[deprecated(note = "use JSFunctionDef::add_arguments(ctx, false) instead")]
-pub unsafe fn add_arguments_var(ctx: ContextRef, fd: *mut JSFunctionDef) -> i32 {
+pub unsafe fn add_arguments_var(ctx: ContextPtr, fd: *mut JSFunctionDef) -> i32 {
     (*fd).add_arguments(ctx, false).map_or(-1, |x| x as i32)
 }
 
 // add an argument definition in the argument scope. Only needed when
 // "eval()" may be called in the argument scope. Return 0 if OK.
 #[deprecated(note = "use JSFunctionDef::add_arguments() instead")]
-pub unsafe fn add_arguments_arg(ctx: ContextRef, fd: &mut JSFunctionDef) -> i32 {
+pub unsafe fn add_arguments_arg(ctx: ContextPtr, fd: &mut JSFunctionDef) -> i32 {
     (*fd).add_arguments(ctx, true).map_or(-1, |x| x as i32)
 }
 
 /// find closure var by name, returning index of the closure var
 #[deprecated(note = "use JSFunctionDef::find_closure_var() instead")]
 pub unsafe fn find_closure_var(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     s: &mut JSFunctionDef,
     var_name: AtomRef,
 ) -> Option<u16> {
@@ -2990,7 +2990,7 @@ pub unsafe fn find_closure_var(
 // 'fd'
 #[deprecated(note = "use JSFunctionDef::get_closure_var2() instead")]
 pub unsafe fn get_closure_var2(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     s: &mut JSFunctionDef,
     fd: *const JSFunctionDef,
     is_local: bool,
@@ -3009,7 +3009,7 @@ pub unsafe fn get_closure_var2(
 
 #[deprecated(note = "use JSFunctionDef::get_closure_var2() instead")]
 pub unsafe fn get_closure_var(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     s: &mut JSFunctionDef,
     fd: *const JSFunctionDef,
     is_arg: bool,
@@ -3047,7 +3047,7 @@ pub unsafe fn js_parse_destructuring_var(s: *mut JSParseState, tok: i32, is_arg:
 
 #[deprecated(note = "use JSValue::install_native_field_entry() instead")]
 pub unsafe fn JS_SetPropertyFunctionList(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     obj: &JSValue,
     tab: *const FieldDef,
     len: usize,
@@ -3059,7 +3059,7 @@ pub unsafe fn JS_SetPropertyFunctionList(
 
 #[deprecated(note = "use JSValue::install_field_defs() instead")]
 pub unsafe fn JS_InstantiateFunctionListItem(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     obj: &JSValue,
     atom: AtomRef,
     e: *const FieldDef,
@@ -3071,7 +3071,7 @@ pub unsafe fn JS_InstantiateFunctionListItem(
 error. */
 #[deprecated(note = "use ObjectRef::add_own_property() instead")]
 pub unsafe fn add_property(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     p: *mut JSValue,
     prop: AtomRef,
     prop_flags: u32,
@@ -3080,19 +3080,19 @@ pub unsafe fn add_property(
 }
 
 #[deprecated(note = "use AGenPayload::resume_next() instead")]
-pub unsafe fn js_async_generator_resume_next(ctx: ContextRef, s: *mut AGenPayload) {
+pub unsafe fn js_async_generator_resume_next(ctx: ContextPtr, s: *mut AGenPayload) {
     (*s).resume_next(ctx);
 }
 
 #[deprecated(note = "use AGenPayload::complete() instead")]
-pub unsafe fn js_async_generator_complete(ctx: ContextRef, s: *mut AGenPayload) {
+pub unsafe fn js_async_generator_complete(ctx: ContextPtr, s: *mut AGenPayload) {
     (*s).complete();
 }
 
 /// `value` is not consumed.
 #[deprecated(note = "use AGenPayload::resolve() instead")]
 pub unsafe fn js_async_generator_resolve(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     s: *mut AGenPayload,
     value: JSValue,
     done: bool,
@@ -3102,13 +3102,13 @@ pub unsafe fn js_async_generator_resolve(
 
 #[inline(always)]
 #[deprecated(note = "use AGenPayload::reject() instead")]
-pub unsafe fn js_async_generator_reject(ctx: ContextRef, s: *mut AGenPayload, exception: JSValue) {
+pub unsafe fn js_async_generator_reject(ctx: ContextPtr, s: *mut AGenPayload, exception: JSValue) {
     (*s).reject(ctx, exception);
 }
 
 #[deprecated(note = "use AGenPayload::resolve_or_reject() instead")]
 pub unsafe fn js_async_generator_resolve_or_reject(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     s: *mut AGenPayload,
     result: JSValue,
     is_reject: bool,
@@ -3119,12 +3119,12 @@ pub unsafe fn js_async_generator_resolve_or_reject(
 
 #[cfg(feature = "dump_bytecode")]
 #[deprecated(note = "use Bytecode::dump() instead")]
-pub fn js_dump_function_bytecode(ctx: ContextRef, bc: &Bytecode) {
+pub fn js_dump_function_bytecode(ctx: ContextPtr, bc: &Bytecode) {
     bc.dump(ctx);
 }
 
 #[deprecated(note = "use JSFunctionDef::compute_stack_size() instead")]
-pub unsafe fn compute_stack_size(ctx: ContextRef, fd: *mut JSFunctionDef) -> Result<u16, i32> {
+pub unsafe fn compute_stack_size(ctx: ContextPtr, fd: *mut JSFunctionDef) -> Result<u16, i32> {
     (*fd).compute_stack_size(ctx)
 }
 
@@ -3143,24 +3143,24 @@ pub(crate) fn js_symbol_to_atom(val: &JSValue) -> AtomRef {
 }
 
 /// `atom` must be a non-numeric string atom
-#[deprecated(note = "use ContextRef::create_symbol_from_atom() instead")]
-pub unsafe fn JS_NewSymbolFromAtom(ctx: ContextRef, atom: AtomRef, atom_kind: AtomKind) -> JSValue {
+#[deprecated(note = "use ContextPtr::create_symbol_from_atom() instead")]
+pub unsafe fn JS_NewSymbolFromAtom(ctx: ContextPtr, atom: AtomRef, atom_kind: AtomKind) -> JSValue {
     unreachable!("unused");
 }
 
-#[deprecated(note = "use ContextRef::create_symbol() instead")]
-pub fn JS_NewSymbol(ctx: ContextRef, p: StringImpl, atom_kind: AtomKind) -> JSValue {
+#[deprecated(note = "use ContextPtr::create_symbol() instead")]
+pub fn JS_NewSymbol(ctx: ContextPtr, p: StringImpl, atom_kind: AtomKind) -> JSValue {
     unreachable!("unused");
 }
 
 #[deprecated(note = "use JSValue::to_atom() instead")]
-pub fn JS_ValueToAtom(ctx: ContextRef, val: &JSValue) -> AtomRef {
+pub fn JS_ValueToAtom(ctx: ContextPtr, val: &JSValue) -> AtomRef {
     unreachable!("unused");
 }
 
 /* return < 0, 0 or > 0 */
 #[deprecated(note = "use StringBuf::cmp() instead")]
-pub unsafe fn js_string_compare(ctx: ContextRef, p1: &StringImpl, p2: &StringImpl) -> i32 {
+pub unsafe fn js_string_compare(ctx: ContextPtr, p1: &StringImpl, p2: &StringImpl) -> i32 {
     match p1.content().cmp(p2.content()) {
         std::cmp::Ordering::Less => -1,
         std::cmp::Ordering::Equal => 0,
@@ -3179,7 +3179,7 @@ pub fn JS_IsEmptyString(v: &JSValue) -> bool {
 
 #[deprecated(note = "use ObjectRef::shape_prepare_update() instead")]
 pub unsafe fn js_shape_prepare_update(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     p: *mut ObjectRef,
     pprs: *mut *mut ShapeProperty,
 ) -> i32 {
@@ -3195,7 +3195,7 @@ pub fn update_token_ident(s: &mut JSParseState) {
 
 /// Prepare a module to be executed by resolving all the imported variables.
 #[deprecated(note = "use JSModuleDef::link() instead")]
-pub fn js_link_module(ctx: ContextRef, m: &ModuleDef) -> i32 {
+pub fn js_link_module(ctx: ContextPtr, m: &ModuleDef) -> i32 {
     unreachable!("unused")
     // m.link(ctx).map_or(-1, |_| 0)
 }
@@ -3203,7 +3203,7 @@ pub fn js_link_module(ctx: ContextRef, m: &ModuleDef) -> i32 {
 // Prepare a module to be executed by resolving all the imported variables.
 #[deprecated(note = "use ModuleDef::inner_module_linking() instead")]
 pub unsafe fn js_inner_module_linking(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     m: &ModuleDef, // FIXME: use ModuleInner instead
     pstack_top: &mut Option<ModuleDef>,
     index: i32,
@@ -3212,20 +3212,20 @@ pub unsafe fn js_inner_module_linking(
 }
 
 /// find the loaded module by module name
-#[deprecated(note = "use ContextRef::find_loaded_module() instead")]
-pub fn js_find_loaded_module(ctx: ContextRef, name: AtomRef) -> Option<ModuleDef> {
+#[deprecated(note = "use ContextPtr::find_loaded_module() instead")]
+pub fn js_find_loaded_module(ctx: ContextPtr, name: AtomRef) -> Option<ModuleDef> {
     unreachable!("unused");
 }
 
 // Load all the required modules for module 'm'
-#[deprecated(note = "use ContextRef::resolve_module() instead")]
-pub unsafe fn js_resolve_module(ctx: ContextRef, m: &ModuleDef) -> i32 {
+#[deprecated(note = "use ContextPtr::resolve_module() instead")]
+pub unsafe fn js_resolve_module(ctx: ContextPtr, m: &ModuleDef) -> i32 {
     ctx.resolve_module(m).map_or(-1, |_| 0)
 }
 
 #[deprecated(note = "unused")]
 pub unsafe fn js_resolve_export_throw_error(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     res: JSResolveResultEnum,
     m: &ModuleDef,
     export_name: AtomRef,
@@ -3235,7 +3235,7 @@ pub unsafe fn js_resolve_export_throw_error(
 
 #[deprecated(note = "not used")]
 pub unsafe fn add_resolve_entry(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     lst: &mut Vec<*mut c_void>, // JSResolveEntry
     m: &ModuleDef,
     name: AtomRef,
@@ -3245,13 +3245,13 @@ pub unsafe fn add_resolve_entry(
 
 /// add dependent module
 #[deprecated(note = "use JSModuleDef::add_dependency() instead")]
-pub unsafe fn add_req_module_entry(ctx: ContextRef, m: &ModuleDef, module_name: AtomRef) -> i32 {
+pub unsafe fn add_req_module_entry(ctx: ContextPtr, m: &ModuleDef, module_name: AtomRef) -> i32 {
     unreachable!("unused")
 }
 
 #[deprecated(note = "use ModuleDef::resolve_export_inner() instead")]
 pub unsafe fn js_resolve_export1(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     pmodule: *mut *mut ModuleDefImpl,
     pme: *mut *mut ExportEntry,
     m: &ModuleDef,
@@ -3266,7 +3266,7 @@ pub unsafe fn js_resolve_export1(
 // (*pme). Otherwise return (NULL, NULL)
 #[deprecated(note = "use ModuleDef::resolve_export() instead")]
 pub unsafe fn js_resolve_export(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     pmodule: *mut *mut ModuleDefImpl,
     pme: *mut *mut ExportEntry,
     m: &mut ModuleDef,
@@ -3299,7 +3299,7 @@ pub unsafe fn find_resolve_entry(
 
 #[deprecated(note = "use ModuleDef::add_export_internal() or JSParseState::add_module_export()")]
 unsafe fn add_export_entry2(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     s: *mut JSParseState,
     m: &ModuleDef,
     local_name: AtomRef,
@@ -3332,9 +3332,9 @@ pub unsafe fn add_import(
     unreachable!("unused");
 }
 
-#[deprecated(note = "use ContextRef::create_array_buffer_ex() instead")]
+#[deprecated(note = "use ContextPtr::create_array_buffer_ex() instead")]
 pub unsafe fn js_array_buffer_constructor3(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     new_target: JSValue,
     byte_length: usize,
     class_id: ClassID,
@@ -3365,7 +3365,7 @@ pub unsafe fn js_array_buffer_free(
 
 #[deprecated(note = "use ArrayBuffer::create() instead")]
 pub unsafe fn js_array_buffer_constructor2(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     new_target: &JSValue,
     byte_length: usize,
     class_id: ClassID,
@@ -3375,7 +3375,7 @@ pub unsafe fn js_array_buffer_constructor2(
 
 #[deprecated(note = "not used")]
 pub unsafe fn js_array_buffer_constructor1(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     new_target: &JSValue,
     byte_length: usize,
 ) -> JSValue {
@@ -3557,12 +3557,12 @@ pub unsafe fn JS_DupAtomRT(rt: *mut RuntimeImpl, v: AtomRef) -> AtomRef {
 
 #[deprecated(note = "use AtomRef::dup() instead")]
 #[inline(always)]
-pub unsafe fn JS_DupAtom(ctx: ContextRef, v: AtomRef) -> AtomRef {
+pub unsafe fn JS_DupAtom(ctx: ContextPtr, v: AtomRef) -> AtomRef {
     unreachable!("unused");
 }
 
 #[deprecated(note = "use Atom::kind() instead")]
-pub unsafe fn JS_AtomGetKind(ctx: ContextRef, v: AtomRef) -> AtomDescKind {
+pub unsafe fn JS_AtomGetKind(ctx: ContextPtr, v: AtomRef) -> AtomDescKind {
     v.kind()
 }
 
@@ -3574,7 +3574,7 @@ pub unsafe fn print_atom(rt: &RuntimeImpl, atom: AtomRef) {
 
 #[deprecated(note = "use JSFunctionDef::new() instead")]
 pub unsafe fn js_new_function_def(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     parent: *mut JSFunctionDef,
     is_eval: bool,
     is_func_expr: bool,
@@ -3601,7 +3601,7 @@ pub unsafe fn update_label(fd: *mut JSFunctionDef, label: u32, delta: i32) -> i3
 // return 0 if OK or -1 if the private field could not be resolved
 #[deprecated(note = "use JSFunctionDef::resolve_scope_private_field() instead")]
 pub fn resolve_scope_private_field(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     s: *mut JSFunctionDef,
     var_name: AtomRef,
     scope_level: i32,
@@ -3633,7 +3633,7 @@ pub fn find_private_class_field_all(
 /// var_name is not consumed
 #[deprecated(note = "use JSFunctionDef::resolve_scope_private_field1() instead")]
 pub fn resolve_scope_private_field1(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     pis_ref: *mut bool,
     pvar_kind: *mut JSVarKindEnum,
     s: *mut JSFunctionDef,
@@ -3702,7 +3702,7 @@ pub unsafe fn code_has_label(s: *mut std::ffi::c_void, pos: usize, label: u32) -
 }
 
 #[deprecated(note = "use ObjectIter iterator")]
-pub fn JS_GetIterator2(ctx: ContextRef, obj: &JSValue, method: &JSValue) -> JSValue {
+pub fn JS_GetIterator2(ctx: ContextPtr, obj: &JSValue, method: &JSValue) -> JSValue {
     let enum_obj = JS_Call(ctx, method, obj, &[]);
     if enum_obj.is_exception() {
         return enum_obj;
@@ -3717,7 +3717,7 @@ pub fn JS_GetIterator2(ctx: ContextRef, obj: &JSValue, method: &JSValue) -> JSVa
 }
 
 #[deprecated(note = "use ObjectRef::get_iterator_must() instead")]
-pub fn JS_GetIterator(ctx: ContextRef, obj: &JSValue, is_async: bool) -> JSValue {
+pub fn JS_GetIterator(ctx: ContextPtr, obj: &JSValue, is_async: bool) -> JSValue {
     unreachable!("unused");
     // let iter = if is_async {
     //     let mut val = obj.get_property(ctx, JS_ATOM_Symbol_asyncIterator);
@@ -3765,14 +3765,14 @@ pub fn JS_GetIterator(ctx: ContextRef, obj: &JSValue, is_async: bool) -> JSValue
 #[deprecated(
     note = "use JSForInIterator::prepare_prototype_chain_enum() + ObjectRef::define_property() to achieve"
 )]
-pub unsafe fn js_for_in_prepare_prototype_chain_enum(ctx: ContextRef, enum_obj: &JSValue) -> i32 {
+pub unsafe fn js_for_in_prepare_prototype_chain_enum(ctx: ContextPtr, enum_obj: &JSValue) -> i32 {
     unreachable!("unused");
 }
 
 /// return *pdone: 0-not done, 1-done, 2-the iterator object is not parsed
 #[deprecated(note = "use IteratorObject::apply_next_method() instead")]
 pub fn JS_IteratorNext2(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     enum_obj: &JSValue,
     method: &JSValue,
     args: &[JSValue],
@@ -3783,7 +3783,7 @@ pub fn JS_IteratorNext2(
 
 #[deprecated(note = "use IteratorObject::next() instead")]
 pub fn JS_IteratorNext(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     enum_obj: &JSValue,
     method: &JSValue,
     args: &[JSValue],
@@ -3796,7 +3796,7 @@ pub fn JS_IteratorNext(
 /// or replace enum_obj: &JSValue with enum_obj: &ObjectRef
 #[deprecated(note = "use IteratorObject::close() instead")]
 pub fn JS_IteratorClose(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     enum_obj: &JSValue,
     has_exception: bool,
 ) -> Result<(), i32> {
@@ -3804,13 +3804,13 @@ pub fn JS_IteratorClose(
 }
 
 #[deprecated(note = "use JSForInIterator::new() instead")]
-pub fn build_for_in_iterator(ctx: ContextRef, obj: JSValue) -> JSValue {
+pub fn build_for_in_iterator(ctx: ContextPtr, obj: JSValue) -> JSValue {
     ForInIterPayload::create(ctx, obj).map_or(JSValue::EXCEPTION, JSValue::Object)
 }
 
 /// return TRUE if 'atom' is a symbol with a string description
 #[deprecated(note = "use AtomRef::has_description() instead")]
-pub fn JS_AtomSymbolHasDescription(ctx: ContextRef, atom: AtomRef) -> bool {
+pub fn JS_AtomSymbolHasDescription(ctx: ContextPtr, atom: AtomRef) -> bool {
     atom.has_string_desc()
 }
 
@@ -3855,7 +3855,7 @@ pub fn __JS_AtomToUInt32(atom: AtomRef) -> u32 {
 
 /// test if the `atom` can be used as an array index (in 0..u32::MAX range).
 #[deprecated(note = "use AtomRef::to_array_index() instead")]
-pub fn JS_AtomIsArrayIndex(ctx: ContextRef, pval: *mut u32, atom: AtomRef) -> bool {
+pub fn JS_AtomIsArrayIndex(ctx: ContextPtr, pval: *mut u32, atom: AtomRef) -> bool {
     unreachable!("unused");
 }
 
@@ -3871,7 +3871,7 @@ pub fn __JS_FindAtom(rt: &RuntimeImpl, str: &str, atom_kind: AtomKind) -> Option
 }
 
 #[deprecated(note = "use JSValue::to_string_non_undefined_or_null() instead")]
-pub fn JS_ToStringCheckObject(ctx: ContextRef, val: JSValue) -> Result<StringImpl, i32> {
+pub fn JS_ToStringCheckObject(ctx: ContextPtr, val: JSValue) -> Result<StringImpl, i32> {
     val.to_string_non_undefined_or_null(ctx)
     // if val.is_undefined_or_null() {
     //     ctx.throw_type_error("null or undefined are forbidden");
@@ -3889,7 +3889,7 @@ pub unsafe fn js_parse_regexp(s: &mut JSParseState) -> Result<(), i32> {
 #[deprecated(note = "use JSValue::call() instead")]
 #[inline(always)]
 pub fn JS_Call(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     func_obj: &JSValue,
     this_obj: &JSValue,
     args: &[JSValue],
@@ -3902,7 +3902,7 @@ pub fn JS_Call(
 /// call func_obj, and free func_obj
 #[deprecated(note = "use JS_Call() instead")]
 pub fn JS_CallFree(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     func_obj: JSValue,
     this_obj: JSValue,
     args: &[JSValue],
@@ -3914,7 +3914,7 @@ pub fn JS_CallFree(
 
 /// `this_val` is not consumed
 #[deprecated(note = "use JSValue::invoke() instead")]
-pub fn JS_Invoke(ctx: ContextRef, this_val: &JSValue, atom: AtomRef, args: &[JSValue]) -> JSValue {
+pub fn JS_Invoke(ctx: ContextPtr, this_val: &JSValue, atom: AtomRef, args: &[JSValue]) -> JSValue {
     unreachable!("ununsed");
     // let func_obj = this_val.get_property(ctx, atom);
     // if func_obj.is_err() {
@@ -3926,7 +3926,7 @@ pub fn JS_Invoke(ctx: ContextRef, this_val: &JSValue, atom: AtomRef, args: &[JSV
 /// `this_val` is consumed
 #[deprecated(note = "use JSValue::invoke() instead")]
 pub fn JS_InvokeFree(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     this_val: JSValue,
     atom: AtomRef,
     args: &[JSValue],
@@ -3935,8 +3935,8 @@ pub fn JS_InvokeFree(
     // JS_Invoke(ctx, &this_val, atom, args)
 }
 
-#[deprecated(note = "use ContextRef::take_exception() instead")]
-pub unsafe fn JS_GetException(ctx: ContextRef) -> JSValue {
+#[deprecated(note = "use ContextPtr::take_exception() instead")]
+pub unsafe fn JS_GetException(ctx: ContextPtr) -> JSValue {
     ctx.take_exception()
 }
 
@@ -3971,21 +3971,21 @@ pub unsafe fn string_indexof_char(p: *mut StringImpl, c: i32, from: i32) -> i32 
     // }
 }
 
-#[deprecated(note = "use ContextRef::create_array_from_slice() instead")]
-pub fn js_create_array(ctx: ContextRef, tab: &[JSValue]) -> Result<Array, i32> {
+#[deprecated(note = "use ContextPtr::create_array_from_slice() instead")]
+pub fn js_create_array(ctx: ContextPtr, tab: &[JSValue]) -> Result<Array, i32> {
     unreachable!("unused");
 }
 
 /// can be called on Array or Arguments objects. return < 0 if memory alloc error.
 /// returns -1 if fail.
 #[deprecated(note = "use ObjectRef::destruct_fast_array() instead")]
-pub fn convert_fast_array_to_array(ctx: ContextRef, obj: &ObjectRef) -> i32 {
+pub fn convert_fast_array_to_array(ctx: ContextPtr, obj: &ObjectRef) -> i32 {
     obj.destruct_fast_array(ctx).map_or(-1, |_| 0)
 }
 
 #[deprecated(note = "use JSValue::to_array_length() instead")]
 pub unsafe fn JS_ToArrayLengthFree(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     val: JSValue,
     is_array_ctor: bool,
 ) -> Result<u32, i32> {
@@ -4016,28 +4016,28 @@ pub fn js_proxy_mark(val: JSValue) {
 }
 
 #[deprecated(note = "use Proxy::is_array() instead")]
-pub fn js_proxy_isArray(ctx: ContextRef, val: &JSValue) -> Result<bool, i32> {
+pub fn js_proxy_isArray(ctx: ContextPtr, val: &JSValue) -> Result<bool, i32> {
     unreachable!("unused")
 }
 
 #[deprecated(note = "use Proxy::is_extensible() instead")]
-pub fn js_proxy_isExtensible(ctx: ContextRef, obj: &JSValue) -> Result<bool, i32> {
+pub fn js_proxy_isExtensible(ctx: ContextPtr, obj: &JSValue) -> Result<bool, i32> {
     unreachable!("unused")
 }
 
 #[deprecated(note = "use Proxy::prevent_extensions() instead")]
-pub fn js_proxy_preventExtensions(ctx: ContextRef, obj: &JSValue) -> Result<bool, i32> {
+pub fn js_proxy_preventExtensions(ctx: ContextPtr, obj: &JSValue) -> Result<bool, i32> {
     unreachable!("unused")
 }
 
 #[deprecated(note = "use Proxy::get_prototype_of() instead")]
-pub unsafe fn js_proxy_getPrototypeOf(ctx: ContextRef, obj: &JSValue) -> JSValue {
+pub unsafe fn js_proxy_getPrototypeOf(ctx: ContextPtr, obj: &JSValue) -> JSValue {
     unreachable!("unused")
 }
 
 #[deprecated(note = "use Proxy::set_prototype_of instead")]
 pub unsafe fn js_proxy_setPrototypeOf(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     obj: &JSValue,
     proto_val: JSValue,
     throw_flag: bool,
@@ -4046,13 +4046,13 @@ pub unsafe fn js_proxy_setPrototypeOf(
 }
 
 #[deprecated(note = "use JSPropertyDescriptor::parse() instead")]
-pub fn js_obj_to_desc(ctx: *const ContextRef, d: *mut JSPropertyDescriptor, desc: JSValue) -> i32 {
+pub fn js_obj_to_desc(ctx: *const ContextPtr, d: *mut JSPropertyDescriptor, desc: JSValue) -> i32 {
     unreachable!("unused");
 }
 
 #[deprecated(note = "use JSPropertyDescriptor::make_object() instead")]
 pub fn js_create_desc(
-    ctx: *const ContextRef,
+    ctx: *const ContextPtr,
     val: JSValue,
     getter: JSValue,
     setter: JSValue,
@@ -4091,7 +4091,7 @@ pub unsafe fn js_parse_seek_token(
 
 #[deprecated(note = "use ObjectRef::define_property_desc_multi() instead")]
 pub fn JS_ObjectDefineProperties(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     obj: &JSValue,
     properties: &JSValue,
 ) -> Result<(), i32> {
@@ -4131,7 +4131,7 @@ pub unsafe fn js_autoinit_get_id(pr: *const JSProperty) -> i32 {
 }
 
 #[deprecated(note = "use JSProperty::realm() instead")]
-pub unsafe fn js_autoinit_get_realm(pr: &JSProperty) -> ContextRef {
+pub unsafe fn js_autoinit_get_realm(pr: &JSProperty) -> ContextPtr {
     if let JSProperty::LazyInit { realm, .. } = pr {
         realm.upgrade().unwrap()
     } else {
@@ -4145,7 +4145,7 @@ pub unsafe fn js_autoinit_free(rt: &RuntimeImpl, pr: *const JSProperty) {}
 /* warning: 'prs' is reallocated after it */
 #[deprecated(note = "use JSProperty::auto_init() instead")]
 pub unsafe fn JS_AutoInitProperty(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     p: &JSValue,
     prop: AtomRef,
     pr: &JSProperty,
@@ -4155,13 +4155,13 @@ pub unsafe fn JS_AutoInitProperty(
 }
 
 #[deprecated(note = "unused")]
-pub unsafe fn js_free_desc(ctx: ContextRef, desc: *mut JSPropertyDescriptor) {
+pub unsafe fn js_free_desc(ctx: ContextPtr, desc: *mut JSPropertyDescriptor) {
     unreachable!("unused");
 }
 
 #[deprecated(note = "use JSValue::set_prototype_internal() instead")]
 pub fn JS_SetPrototypeInternal(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     obj: &JSValue,
     proto_val: JSValue,
     throw_flag: bool,
@@ -4171,28 +4171,28 @@ pub fn JS_SetPrototypeInternal(
 
 // XXX: could normalize strings to speed up comparison
 #[deprecated(note = "use MapKV::normalize_key() instead")]
-pub unsafe fn map_normalize_key(ctx: ContextRef, key: JSValue) -> JSValue {
+pub unsafe fn map_normalize_key(ctx: ContextPtr, key: JSValue) -> JSValue {
     MapPair::normalize_key(key)
 }
 
 // XXX: better hash ?
 #[deprecated(note = "use JSValue::hash() instead")]
-pub unsafe fn map_hash_key(ctx: ContextRef, key: JSValue) -> u32 {
+pub unsafe fn map_hash_key(ctx: ContextPtr, key: JSValue) -> u32 {
     key.hash()
 }
 
 #[deprecated(note = "use JSMapState::find() instead")]
-pub unsafe fn map_find_record(ctx: ContextRef, s: *mut JSMapState, key: JSValue) -> *mut MapPair {
+pub unsafe fn map_find_record(ctx: ContextPtr, s: *mut JSMapState, key: JSValue) -> *mut MapPair {
     unreachable!("unused");
 }
 
 #[deprecated(note = "use JSMapState::add_kv() instead")]
-pub unsafe fn map_add_record(ctx: ContextRef, s: *mut JSMapState, key: JSValue) -> *mut MapPair {
+pub unsafe fn map_add_record(ctx: ContextPtr, s: *mut JSMapState, key: JSValue) -> *mut MapPair {
     unreachable!("unused");
 }
 
 #[deprecated]
-pub unsafe fn map_hash_resize(ctx: ContextRef, s: *mut JSMapState) {
+pub unsafe fn map_hash_resize(ctx: ContextPtr, s: *mut JSMapState) {
     unreachable!("unused")
 }
 
@@ -4218,14 +4218,14 @@ pub fn js_object_has_name(obj: &JSValue) -> bool {
 }
 
 #[deprecated(note = "use ObjectRef::define_name() instead")]
-pub fn JS_DefineObjectName(ctx: ContextRef, obj: &JSValue, name: AtomRef, flags: u32) -> i32 {
+pub fn JS_DefineObjectName(ctx: ContextPtr, obj: &JSValue, name: AtomRef, flags: u32) -> i32 {
     unreachable!("ununsed");
 }
 
 /// Note: `obj` and `str_val` are not consumed.
 #[deprecated(note = "use ObjectRef::define_name_computed() instead")]
 pub unsafe fn JS_DefineObjectNameComputed(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     obj: &JSValue,
     str_val: &JSValue,
     flags: u32,
@@ -4259,12 +4259,12 @@ pub unsafe fn JS_DetectModule(input: &[u8]) -> bool {
 
 /// Note: 'name' is freed on error
 #[deprecated(note = "use JSModuleDefInner::new() instead")]
-pub unsafe fn js_new_module_def(ctx: ContextRef, name: AtomRef) -> *mut ModuleDefImpl {
+pub unsafe fn js_new_module_def(ctx: ContextPtr, name: AtomRef) -> *mut ModuleDefImpl {
     unreachable!("unused");
 }
 
 #[deprecated(note = "see impl Drop for JSModuleDefInner")]
-pub unsafe fn js_free_module_def(ctx: ContextRef, m: *mut ModuleDefImpl) {
+pub unsafe fn js_free_module_def(ctx: ContextPtr, m: *mut ModuleDefImpl) {
     unreachable!("unused")
 
     // JS_FreeAtom(ctx, (*m).module_name);
@@ -4311,7 +4311,7 @@ pub unsafe fn js_free_module_def(ctx: ContextRef, m: *mut ModuleDefImpl) {
 // Create the <eval> function associated with the module
 #[deprecated(note = "use ModuleDefImpl::create_module_bytecode_function() instead")]
 pub unsafe fn js_create_module_bytecode_function(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     m: &ModuleDef,
 ) -> Result<(), i32> {
     unreachable!("unused")
@@ -4410,14 +4410,14 @@ pub unsafe fn JS_NewModuleValue(m: ModuleDef) -> JSValue {
 
 // must be done before js_link_module() because of cyclic references
 #[deprecated(note = "use ModuleDef::create_module_function() instead")]
-pub unsafe fn js_create_module_function(ctx: ContextRef, m: &ModuleDef) -> i32 {
+pub unsafe fn js_create_module_function(ctx: ContextPtr, m: &ModuleDef) -> i32 {
     unreachable!("unused");
 }
 
 // spec: InnerModuleEvaluation. Return (index, JSValue::UNDEFINED) or (-1, exception)
 #[deprecated(note = "use ModuleDef::eval_internal() instead")]
 pub unsafe fn js_inner_module_evaluation(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     m: *mut ModuleDef,
     index: i32,
     pstack_top: &mut Option<ModuleDef>,
@@ -4427,14 +4427,14 @@ pub unsafe fn js_inner_module_evaluation(
 }
 
 #[deprecated(note = "use ModuleDef::execute_async() instead")]
-pub unsafe fn js_execute_async_module(ctx: ContextRef, m: *mut ModuleDef) -> i32 {
+pub unsafe fn js_execute_async_module(ctx: ContextPtr, m: *mut ModuleDef) -> i32 {
     unreachable!("unused");
     // (*m).execute_async(ctx).map_or(-1, |_| -1)
 }
 
 #[deprecated(note = "use ModuleDef::execute_sync() instead")]
 pub unsafe fn js_execute_sync_module(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     m: *mut ModuleDef,
     pvalue: *mut JSValue,
 ) -> i32 {
@@ -4442,7 +4442,7 @@ pub unsafe fn js_execute_sync_module(
 }
 
 #[deprecated(note = "use ModuleDef::execute_async_reject_callback() instead")]
-pub fn js_async_module_execution_rejected(ctx: ContextRef, args: CallContext) -> JSResult {
+pub fn js_async_module_execution_rejected(ctx: ContextPtr, args: CallContext) -> JSResult {
     unreachable!("unused");
     // ModuleDef::execute_async_reject_callback(ctx, args)
 }
@@ -4456,7 +4456,7 @@ pub struct ExecModuleList {
 
 #[deprecated(note = "use gather_module_ancestors() instead")]
 pub unsafe fn gather_available_ancestors(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     module: *mut ModuleDef,
     exec_list: &mut ExecModuleList,
 ) -> i32 {
@@ -4524,7 +4524,7 @@ pub unsafe fn find_export_entry(m: &ModuleDef, export_name: AtomRef) -> Option<E
 
 #[deprecated(note = "use JSModuleDefInner::get_exportd_names() instead")]
 pub unsafe fn get_exported_names(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     s: *mut c_void, // GetExportNamesState,
     m: *mut ModuleDefImpl,
     from_star: bool,
@@ -4535,7 +4535,7 @@ pub unsafe fn get_exported_names(
 
 #[deprecated(note = "use ModuleDef::add_star_export_entry() instead")]
 pub(crate) fn add_star_export_entry(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     m: &ModuleDef,
     req_module_idx: u16,
 ) -> Result<(), i32> {
@@ -4543,13 +4543,13 @@ pub(crate) fn add_star_export_entry(
 }
 
 #[deprecated(note = "use ModuleDef::execute_async_fulfill_callback() instead")]
-pub fn js_async_module_execution_fulfilled(ctx: ContextRef, args: CallContext) -> JSResult {
+pub fn js_async_module_execution_fulfilled(ctx: ContextPtr, args: CallContext) -> JSResult {
     unreachable!("unused");
     // ModuleDef::execute_async_fulfill_callback(ctx, args)
 }
 
 #[deprecated(note = "use ModuleDef::set_evaluated() instead")]
-pub unsafe fn js_set_module_evaluated(ctx: ContextRef, m: &ModuleDef) {
+pub unsafe fn js_set_module_evaluated(ctx: ContextPtr, m: &ModuleDef) {
     unreachable!("unused");
     // m.0.set_evaluated(ctx);
 }
@@ -4565,7 +4565,7 @@ pub const func_kind_to_class_id: [ClassID; 4] = [
 
 #[deprecated(note = "use AGenPayload::complete_return() instead")]
 pub fn js_async_generator_completed_return(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     s: &mut AGenPayload,
     value: JSValue,
 ) -> Result<(), i32> {
@@ -4574,7 +4574,7 @@ pub fn js_async_generator_completed_return(
 }
 
 #[deprecated(note = "use AGenPayload::_await() instead")]
-fn js_async_generator_await(s: &AGenPayload, ctx: ContextRef, value: JSValue) -> Result<(), i32> {
+fn js_async_generator_await(s: &AGenPayload, ctx: ContextPtr, value: JSValue) -> Result<(), i32> {
     unreachable!("unused")
 }
 
@@ -4587,7 +4587,7 @@ pub(crate) fn typed_array_size_log2(classid: ClassID) -> u8 {
 
 #[deprecated(note = "use TypedArray::create_from() instead")]
 pub fn js_typed_array_constructor_obj(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     new_target: &JSValue,
     obj: &JSValue,
     classid: i32,
@@ -4598,7 +4598,7 @@ pub fn js_typed_array_constructor_obj(
 
 #[deprecated]
 pub fn js_typed_array_constructor_ta(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     new_target: &JSValue,
     src_obj: JSValue,
     classid: i32,
@@ -4609,14 +4609,14 @@ pub fn js_typed_array_constructor_ta(
 }
 
 #[deprecated(note = "use ArrayBuffer::detach() instead")]
-pub fn JS_DetachArrayBuffer(ctx: ContextRef, obj: &JSValue) {
+pub fn JS_DetachArrayBuffer(ctx: ContextPtr, obj: &JSValue) {
     if let Some(ab) = obj.as_object_ArrayBuffer() {
         ab.detatch(ctx);
     }
 }
 
 #[deprecated]
-pub fn js_get_radix(ctx: ContextRef, val: &JSValue) -> Result<i32, i32> {
+pub fn js_get_radix(ctx: ContextPtr, val: &JSValue) -> Result<i32, i32> {
     let radix: i32 = val.to_i32_saturating(ctx)?;
     if !(2..=36).contains(&radix) {
         ctx.throw_range_error("radix must be between 2 and 36");
@@ -4639,12 +4639,12 @@ pub(super) fn js_parse_check_duplicate_parameter(s: &JSParseState, name: AtomRef
 }
 
 #[deprecated(note = "use JSFunctionDef::add_eval_variables() instead")]
-fn add_eval_variables(ctx: ContextRef, s: &mut JSFunctionDef) {
+fn add_eval_variables(ctx: ContextPtr, s: &mut JSFunctionDef) {
     unreachable!("unused")
 }
 
 #[deprecated(note = "use JSModuleDefInner::import_meta() instead")]
-pub unsafe fn JS_GetImportMeta(ctx: ContextRef, m: *mut ModuleDefImpl) -> JSValue {
+pub unsafe fn JS_GetImportMeta(ctx: ContextPtr, m: *mut ModuleDefImpl) -> JSValue {
     unreachable!("unused");
 }
 
@@ -4663,7 +4663,7 @@ pub unsafe fn js_parse_class_default_ctor(
 /// - 反向复制（dir < 0）：从 start_pos + count - 1 到 start_pos 的元素依次复制到 to_pos + count - 1 到 to_pos。
 #[deprecated(note = "use copy_sub_array() instead")]
 fn JS_CopySubArray(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     obj: &JSValue,
     to_pos: usize,
     start_pos: usize,
@@ -4778,13 +4778,13 @@ pub unsafe fn JS_DumpAtoms(rt: &RuntimeImpl) {
     // println!("}}");
 }
 
-#[deprecated(note = "use ContextRef::clone() instead")]
-pub fn JS_DupContext(ctx: ContextRef) -> ContextRef {
+#[deprecated(note = "use ContextPtr::clone() instead")]
+pub fn JS_DupContext(ctx: ContextPtr) -> ContextPtr {
     ctx.clone()
 }
 
 #[deprecated(note = "unused")]
-pub unsafe fn JS_FreeContext(ctx: ContextRef) {
+pub unsafe fn JS_FreeContext(ctx: ContextPtr) {
     unreachable!("unused");
     // if ctx.dec_ref() == 0 {
     //     let rt = ctx.rt_mut();
@@ -4806,7 +4806,7 @@ pub unsafe fn JS_FreeContext(ctx: ContextRef) {
 // If argument `label_done` is None, new label will be created.
 #[deprecated(note = "use JSFunctionDef::var_object_test() instead")]
 pub unsafe fn var_object_test(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     s: *mut JSFunctionDef,
     var_name: &Atom,
     op: u8,
@@ -4823,7 +4823,7 @@ pub unsafe fn var_object_test(
 /// Returns None if the variable is not a pseudo variable
 #[deprecated(note = "use JSFunctionDef::resolve_pseudo_var() instead")]
 pub unsafe fn resolve_pseudo_var(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     s: *mut JSFunctionDef,
     var_name: &Atom,
 ) -> Option<u16> {
@@ -4837,17 +4837,17 @@ pub unsafe fn free_var_ref(rt: *mut RuntimeImpl, var_ref: *mut JSVarRef) {
 }
 
 #[deprecated(note = "use JSStackFrame::close_lexical_var() instead")]
-pub unsafe fn close_lexical_var(ctx: ContextRef, sf: *mut StackFrame, var_idx: u16, is_arg: bool) {
+pub unsafe fn close_lexical_var(ctx: ContextPtr, sf: *mut StackFrame, var_idx: u16, is_arg: bool) {
     (*sf).close_lexical_var(var_idx, is_arg);
 }
 
 #[deprecated(note = "use JSStackFrame::close_var_refs() instead")]
-pub unsafe fn close_var_refs(ctx: ContextRef, sf: *mut StackFrame) {
+pub unsafe fn close_var_refs(ctx: ContextPtr, sf: *mut StackFrame) {
     (*sf).close_var_refs();
 }
 
 #[deprecated(note = "unused")]
-pub unsafe fn JS_CreateAsyncFromSyncIterator(ctx: ContextRef, sync_iter: JSValue) -> JSValue {
+pub unsafe fn JS_CreateAsyncFromSyncIterator(ctx: ContextPtr, sync_iter: JSValue) -> JSValue {
     unreachable!("unused")
 }
 
@@ -4858,7 +4858,7 @@ pub unsafe fn JS_CreateAsyncFromSyncIterator(ctx: ContextRef, sync_iter: JSValue
     note = "use JSValue::get_iterator_must() and JSValue::get_property(JS_ATOM_next) combination"
 )]
 pub(super) fn js_for_of_start(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     sp: *mut JSValue,
     is_async: bool,
 ) -> Result<(), i32> {
@@ -4871,13 +4871,13 @@ pub(super) fn js_for_of_start(
     Ok(())
 }
 
-#[deprecated(note = "use ContextRef::create_instance_with_ctor() instead")]
-pub unsafe fn js_create_from_ctor(_ctx: ContextRef, _ctor: JSValue, _class_id: ClassID) -> JSValue {
+#[deprecated(note = "use ContextPtr::create_instance_with_ctor() instead")]
+pub unsafe fn js_create_from_ctor(_ctx: ContextPtr, _ctor: JSValue, _class_id: ClassID) -> JSValue {
     unreachable!("unused");
 }
 
 #[deprecated(note = "use ObjectRef::prevent_extensions() or JSValue::prevent_extensions() instead")]
-pub fn JS_PreventExtensions(ctx: ContextRef, obj: &JSValue) -> Result<bool, i32> {
+pub fn JS_PreventExtensions(ctx: ContextPtr, obj: &JSValue) -> Result<bool, i32> {
     if let JSValue::Object(p) = obj {
         if p.class_id() == JS_CLASS_PROXY {
             obj.prevent_extensions(ctx)
@@ -4892,14 +4892,14 @@ pub fn JS_PreventExtensions(ctx: ContextRef, obj: &JSValue) -> Result<bool, i32>
 
 // check if the brand of the home object of 'func' is present on 'obj'
 #[deprecated(note = "use JSValue::check_brand() instead")]
-pub unsafe fn JS_CheckBrand(ctx: ContextRef, obj: &JSValue, func: &JSValue) -> Result<bool, i32> {
+pub unsafe fn JS_CheckBrand(ctx: ContextPtr, obj: &JSValue, func: &JSValue) -> Result<bool, i32> {
     obj.check_brand(ctx, func)
 }
 
 // add a private brand field to 'home_obj' if not already present and
 // if obj is != null add a private brand to it
 #[deprecated(note = "use JSValue::add_brand() instead")]
-pub fn JS_AddBrand(ctx: ContextRef, obj: &JSValue, home_obj: &JSValue) -> Result<(), i32> {
+pub fn JS_AddBrand(ctx: ContextPtr, obj: &JSValue, home_obj: &JSValue) -> Result<(), i32> {
     obj.add_brand(ctx, home_obj)
 }
 
@@ -4908,9 +4908,9 @@ pub fn JS_AddBrand(ctx: ContextRef, obj: &JSValue, home_obj: &JSValue) -> Result
 /// - Define property `proto.constructor = func_obj`.
 ///
 /// Note: The `func_obj` may not necessarily be a constructor
-#[deprecated(note = "use ContextRef::bind_ctor_proto_ex() instead")]
+#[deprecated(note = "use ContextPtr::bind_ctor_proto_ex() instead")]
 pub fn JS_SetConstructor2(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     func_obj: &JSValue,
     proto: &JSValue,
     proto_flags: u32,
@@ -4925,8 +4925,8 @@ pub fn JS_SetConstructor2(
 /// - Define property `proto.constructor = func_obj`.
 ///
 /// Note: The `func_obj` may not necessarily be a constructor
-#[deprecated(note = "use ContextRef::bind_ctor_proto() instead")]
-pub fn JS_SetConstructor(ctx: ContextRef, func_obj: &JSValue, proto: &JSValue) {
+#[deprecated(note = "use ContextPtr::bind_ctor_proto() instead")]
+pub fn JS_SetConstructor(ctx: ContextPtr, func_obj: &JSValue, proto: &JSValue) {
     ctx.bind_ctor_proto(func_obj, proto).unwrap();
 }
 
@@ -4957,7 +4957,7 @@ pub(crate) fn JS_SetConstructorBit(func_obj: &JSValue, val: bool) -> bool {
 // method name). Return JS_UNDEFINED if not a numeric
 // index. JS_EXCEPTION can also be returned.
 #[deprecated(note = "use Atom::to_numeric_index() instead")]
-pub fn JS_AtomIsNumericIndex1(ctx: ContextRef, atom: &Atom) -> JSValue {
+pub fn JS_AtomIsNumericIndex1(ctx: ContextPtr, atom: &Atom) -> JSValue {
     atom.to_numeric_index(ctx)
         .map_or(JSValue::EXCEPTION, |n| match n {
             Some(IntOrFloat::Int64(n)) => JSValue::from(n),
@@ -4968,7 +4968,7 @@ pub fn JS_AtomIsNumericIndex1(ctx: ContextRef, atom: &Atom) -> JSValue {
 
 // return -1 if exception or TRUE/FALSE
 #[deprecated(note = "use Atom::is_numeric_index() instead")]
-pub unsafe fn JS_AtomIsNumericIndex(ctx: ContextRef, atom: &Atom) -> i32 {
+pub unsafe fn JS_AtomIsNumericIndex(ctx: ContextPtr, atom: &Atom) -> i32 {
     atom.is_numeric_index(ctx).map_or(-1, |x| x as i32)
 }
 
@@ -4994,7 +4994,7 @@ fn json_next_token(s: &mut JSParseState) -> Result<(), i32> {
 
 // XXX: add a specific eval mode so that Function("}), ({") is rejected
 #[deprecated(note = "should use BytecodeFunction::class_constructor ???")]
-pub fn js_function_constructor<'a>(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_function_constructor<'a>(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let func_kind =
         unsafe { std::mem::transmute::<u8, crate::function::JSFunctionKindEnum>(cc.magic() as u8) };
 
@@ -5084,17 +5084,17 @@ pub fn js_function_constructor<'a>(ctx: ContextRef, cc: CallContext) -> JSResult
     Ok(func_obj)
 }
 
-#[deprecated(note = "use ContextRef::throw_type_error_revoked_proxy() instead")]
-pub fn JS_ThrowTypeErrorRevokedProxy<'a>(ctx: ContextRef) {
+#[deprecated(note = "use ContextPtr::throw_type_error_revoked_proxy() instead")]
+pub fn JS_ThrowTypeErrorRevokedProxy<'a>(ctx: ContextPtr) {
     ctx.throw_type_error("revoked proxy");
 }
 
-#[deprecated(note = "use ContextRef::throw_syntax_error() instead")]
-pub fn JS_ThrowSyntaxError<'a>(ctx: ContextRef, message: &str) {
+#[deprecated(note = "use ContextPtr::throw_syntax_error() instead")]
+pub fn JS_ThrowSyntaxError<'a>(ctx: ContextPtr, message: &str) {
     ctx.throw_error(ErrorKind::Syntax, message);
 }
 
-#[deprecated(note = "use ContextRef::build_rest() instead")]
+#[deprecated(note = "use ContextPtr::build_rest() instead")]
 pub fn js_build_rest<'a>(ctx: &ContextImpl, first: usize, args: &[JSValue]) -> JSValue {
     ctx.build_rest(first, args).unwrap_or(JSValue::EXCEPTION)
 }
@@ -5253,7 +5253,7 @@ fn async_function_resume(ctx: &mut ContextImpl, s: &AsyncFuncState) {
         // await
         let promise = if let Ok(p) = {
             let cc = CallContext::new_simple(
-                unsafe { ContextRef::from_ref_unchecked(ctx) },
+                unsafe { ContextPtr::from_ref_unchecked(ctx) },
                 ctx.promise_ctor.clone(),
                 std::slice::from_ref(&value),
             );
@@ -5317,7 +5317,7 @@ fn js_async_function_resolve_create(
 
 #[deprecated(note = "use AsyncFuncState::class_call() instead")]
 pub(crate) fn js_async_function_resolve_call(
-    mut ctx: ContextRef,
+    mut ctx: ContextPtr,
     func_obj: &JSValue,
     _this_obj: &JSValue,
     args: &[JSValue],

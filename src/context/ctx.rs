@@ -83,7 +83,7 @@ pub struct ContextImpl {
     /// Regexp compilation callback
     #[deprecated(note = "unused")]
     pub compile_regexp: Option<
-        fn(ctx: ContextRef, pattern: JSValue, flags: Option<&str>) -> Result<RegExpData, i32>,
+        fn(ctx: ContextPtr, pattern: JSValue, flags: Option<&str>) -> Result<RegExpData, i32>,
     >,
 
     /// eval callback
@@ -308,27 +308,27 @@ impl<'a> DerefMut for ContextHandle<'a> {
 /// for public api, use `ContextHandle` instead, which is same but has lifetime restriction.
 #[repr(transparent)]
 #[derive(Clone, Copy)]
-pub(crate) struct ContextRef(GcRef<ContextImpl>);
+pub(crate) struct ContextPtr(GcRef<ContextImpl>);
 
-gcref_wrapper!(ContextRef, ContextImpl);
+gcref_wrapper!(ContextPtr, ContextImpl);
 
-impl PartialEq for ContextRef {
+impl PartialEq for ContextPtr {
     #[inline(always)]
     fn eq(&self, other: &Self) -> bool {
         self.id() == other.id()
     }
 }
 
-impl From<ContextHandle<'_>> for ContextRef {
+impl From<ContextHandle<'_>> for ContextPtr {
     #[inline(always)]
     fn from(h: ContextHandle<'_>) -> Self {
         Self(h.gc_ref)
     }
 }
 
-impl<'a> From<ContextRef> for ContextHandle<'a> {
+impl<'a> From<ContextPtr> for ContextHandle<'a> {
     #[inline(always)]
-    fn from(p: ContextRef) -> Self {
+    fn from(p: ContextPtr) -> Self {
         Self {
             gc_ref: p.gc_ref(),
             _mark: PhantomData,
@@ -336,13 +336,13 @@ impl<'a> From<ContextRef> for ContextHandle<'a> {
     }
 }
 
-impl std::fmt::Debug for ContextRef {
+impl std::fmt::Debug for ContextPtr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "<ContextRef {:p}>", self.id() as *const c_void)
+        write!(f, "<ContextPtr {:p}>", self.id() as *const c_void)
     }
 }
 
-impl ContextRef {
+impl ContextPtr {
     /// Initialize minimum amount of objects to be able to compile code and display error messages.
     /// No Atom should be allocated by this function.
     fn init_core_objects(&mut self) -> Result<(), i32> {
@@ -456,14 +456,14 @@ impl RuntimeImpl {
     /// Creates context with setup closure.
     pub(super) fn create_context_raw<'a>(
         &mut self,
-        setup: impl FnOnce(ContextRef) -> Result<(), i32>,
+        setup: impl FnOnce(ContextPtr) -> Result<(), i32>,
     ) -> Result<ContextHandle<'a>, i32> {
         let inner = ContextImpl::new(self)?;
 
         let gc_ref = self.gc_alloc(inner).map_err(|_| -1)?;
         self.gc_heap_mut().set_root(gc_ref, true);
 
-        let mut ctx = ContextRef(gc_ref);
+        let mut ctx = ContextPtr(gc_ref);
         ctx.init_core_objects()?;
         setup(ctx)?;
 

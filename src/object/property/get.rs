@@ -4,7 +4,7 @@ use crate::{
     JS_CLASS_INT32_ARRAY, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY,
     JS_CLASS_UINT32_ARRAY,
     atom::{Atom, JS_ATOM_MAX_INT},
-    context::{ContextImpl, ContextRef},
+    context::{ContextImpl, ContextPtr},
     error::{JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized, JSResult},
     object::{JSProperty, ObjectRef},
     utils::unlikely,
@@ -103,7 +103,7 @@ impl ObjectRef {
                     if let Some(cb) = pm.get_property {
                         // XXX: should pass throw_ref_error
                         return cb(
-                            unsafe { ContextRef::from_ref_unchecked(ctx) },
+                            unsafe { ContextPtr::from_ref_unchecked(ctx) },
                             cur_obj.into(),
                             prop,
                             this_obj,
@@ -112,7 +112,7 @@ impl ObjectRef {
 
                     if let Some(cb) = pm.get_own_property
                         && let Some(desc) = cb(
-                            unsafe { ContextRef::from_ref_unchecked(ctx) },
+                            unsafe { ContextPtr::from_ref_unchecked(ctx) },
                             JSValue::Object(cur_obj),
                             prop,
                         )?

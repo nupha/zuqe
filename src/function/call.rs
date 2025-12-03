@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     atom::Atom,
-    context::{ContextHandle, ContextImpl, ContextRef},
+    context::{ContextHandle, ContextImpl, ContextPtr},
     error::JSResult,
     function::build_arg_list,
     object::{ObjectPayload, ObjectRef},
@@ -15,7 +15,7 @@ use crate::{
 };
 
 pub struct CallContext<'cc> {
-    ctx: ContextRef,
+    ctx: ContextPtr,
     this_value: JSValue,
     args: &'cc [JSValue],
     magic: i32,
@@ -26,7 +26,7 @@ pub struct CallContext<'cc> {
 
 impl<'cc> CallContext<'cc> {
     pub(crate) const fn new(
-        ctx: ContextRef,
+        ctx: ContextPtr,
         this_value: JSValue,
         args: &'cc [JSValue],
         magic: i32,
@@ -42,7 +42,7 @@ impl<'cc> CallContext<'cc> {
     }
 
     #[inline(always)]
-    pub(crate) const fn new_simple(ctx: ContextRef, this: JSValue, args: &'cc [JSValue]) -> Self {
+    pub(crate) const fn new_simple(ctx: ContextPtr, this: JSValue, args: &'cc [JSValue]) -> Self {
         Self::new(ctx, this, args, 0, None)
     }
 
@@ -53,7 +53,7 @@ impl<'cc> CallContext<'cc> {
     }
 
     #[inline(always)]
-    pub(crate) const fn ctx_ptr(&self) -> ContextRef {
+    pub(crate) const fn ctx_ptr(&self) -> ContextPtr {
         self.ctx
     }
 
@@ -287,7 +287,7 @@ pub(crate) fn JS_CallInternal(
                 // use callback defined on the class.
                 if let Some(f) = caller_ctx.rt().class_registry[o.class_id() as usize].call {
                     f(
-                        unsafe { ContextRef::from_ref_unchecked(caller_ctx) },
+                        unsafe { ContextPtr::from_ref_unchecked(caller_ctx) },
                         func_obj,
                         this_obj,
                         args,
@@ -350,7 +350,7 @@ pub(crate) fn JS_CallConstructorInternal(
             // call class exotic handler
             if let Some(cb) = ctx.rt().class_registry[o.class_id() as usize].call {
                 cb(
-                    unsafe { ContextRef::from_ref_unchecked(ctx) },
+                    unsafe { ContextPtr::from_ref_unchecked(ctx) },
                     func_obj,
                     new_target,
                     args,
@@ -384,7 +384,7 @@ pub fn JS_CallConstructor(ctx: &ContextImpl, func_obj: JSValue, args: &[JSValue]
 }
 
 // magic value: 0 = normal apply, 1 = apply for constructor, 2 = Reflect.apply
-pub fn js_function_apply(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_function_apply(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let this_val = *cc.this();
     this_val.ensure_function(&ctx)?;
 

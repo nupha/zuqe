@@ -5,7 +5,7 @@ use gc_lite::{Collect, GcRef, GcWeak};
 use crate::{
     atom::Atom,
     bytecode::{OpcodeFormat, opcode_info_final},
-    context::{ContextImpl, ContextRef},
+    context::{ContextImpl, ContextPtr},
     error::JSResult,
     eval::{JS_EVAL_TYPE_DIRECT, JS_EVAL_TYPE_INDIRECT},
     function::{JSFunctionDef, JSVarRef},
@@ -186,7 +186,7 @@ impl BytecodeImpl {
             rt: ctx.rt(),
 
             func_name: fd.func_name,
-            realm: unsafe { ContextRef::from_ref_unchecked(ctx).downgrade() },
+            realm: unsafe { ContextPtr::from_ref_unchecked(ctx).downgrade() },
 
             attrs: BytecodeAttrs {
                 need_home_object: fd.attrs.need_home_object || fd.home_object_var_idx.is_some(),
@@ -229,10 +229,10 @@ impl BytecodeImpl {
     }
 
     /// get bytecode realm context
-    pub fn realm(&self) -> Option<ContextRef> {
+    pub fn realm(&self) -> Option<ContextPtr> {
         self.realm
             .upgrade(self.rt().gc_heap())
-            .map(ContextRef::from)
+            .map(ContextPtr::from)
     }
 
     #[inline(always)]

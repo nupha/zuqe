@@ -4,7 +4,7 @@ use crate::{
     JS_CLASS_ERROR,
     atom::Atom,
     class::ClassID,
-    context::{ContextImpl, ContextRef},
+    context::{ContextImpl, ContextPtr},
     function::{Bytecode, CallContext, FieldDef, get_func_name},
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE, ObjectPayload,
@@ -383,7 +383,7 @@ pub fn JS_SetUncatchableError(val: JSValue, b: bool) {
     }
 }
 
-pub fn js_error_toString(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_error_toString(ctx: ContextPtr, cc: CallContext) -> JSResult {
     if !cc.this().is_object() {
         ctx.throw_type_error_not_an_object();
         return Err(-1);

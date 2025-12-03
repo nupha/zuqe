@@ -7,7 +7,7 @@ use crate::{
     JS_CLASS_STRING_ITERATOR,
     atom::Atom,
     builtins::iterator::{JSIteratorKindEnum, js_create_array_iterator},
-    context::{ContextImpl, ContextRef},
+    context::{ContextImpl, ContextPtr},
     error::JSResult,
     function::{CallContext, FieldDef, IteratorState, JS_CallConstructor},
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, ObjectPayload},
@@ -49,7 +49,7 @@ pub fn js_string_constructor(cc: CallContext) -> JSResult {
 }
 
 /// impl for `charAt()`, `at()`, `chatCodeAt()`
-pub fn js_string_at(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_string_at(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
     let str = cc.this().to_string_non_undefined_or_null(cx)?;
@@ -83,7 +83,7 @@ pub fn js_string_at(ctx: ContextRef, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_string_codePointAt(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_string_codePointAt(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
     let s = cc.this().to_string_non_undefined_or_null(cx)?;
@@ -96,7 +96,7 @@ pub fn js_string_codePointAt(ctx: ContextRef, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_string_concat(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_string_concat(ctx: ContextPtr, cc: CallContext) -> JSResult {
     // TODO: Use more efficient method
     // XXX: should use string_buffer?
     let mut s = cc.this().to_string_non_undefined_or_null(&ctx)?;
@@ -119,13 +119,13 @@ pub(crate) unsafe fn js_string_find_invalid_codepoint(p: &StringImpl) -> i32 {
     }
 }
 
-pub fn js_string_isWellFormed(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_string_isWellFormed(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let p = cc.this().to_string_non_undefined_or_null(&ctx)?;
     let ret = unsafe { js_string_find_invalid_codepoint(&p) } < 0;
     Ok(JSValue::Bool(ret))
 }
 
-pub fn js_string_toWellFormed(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_string_toWellFormed(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let p = cc.this().to_string_non_undefined_or_null(&ctx)?;
 
     // avoid reallocating the string if it is well-formed
@@ -150,7 +150,7 @@ pub fn js_string_toWellFormed(ctx: ContextRef, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_string_indexOf(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_string_indexOf(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let lastIndexOf = cc.magic();
     let cx = ctx.deref();
 
@@ -207,7 +207,7 @@ pub fn js_string_indexOf(ctx: ContextRef, cc: CallContext) -> JSResult {
     Ok(JSValue::Int(ret))
 }
 
-pub fn js_string_replace(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_string_replace(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let is_replace_all = cc.magic() != 0;
     let cx = ctx.deref();
 
@@ -330,7 +330,7 @@ pub fn js_string_replace(ctx: ContextRef, cc: CallContext) -> JSResult {
     cx.create_string_with_buf(res_string).map(JSValue::String)
 }
 
-pub fn js_string_split(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_string_split(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
     let this = *cc.this();
@@ -417,7 +417,7 @@ pub fn js_string_split(ctx: ContextRef, cc: CallContext) -> JSResult {
     Ok(ret_arr.into())
 }
 
-pub fn js_string_substring(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_string_substring(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
     let p = cc.this().to_string_non_undefined_or_null(cx)?;
 
@@ -434,7 +434,7 @@ pub fn js_string_substring(ctx: ContextRef, cc: CallContext) -> JSResult {
         .map(JSValue::String)
 }
 
-pub fn js_string_substr(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_string_substr(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
     let p = cc.this().to_string_non_undefined_or_null(cx)?;
@@ -451,7 +451,7 @@ pub fn js_string_substr(ctx: ContextRef, cc: CallContext) -> JSResult {
         .map(JSValue::String)
 }
 
-pub fn js_string_slice(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_string_slice(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
     let p = cc.this().to_string_non_undefined_or_null(cx)?;
@@ -467,7 +467,7 @@ pub fn js_string_slice(ctx: ContextRef, cc: CallContext) -> JSResult {
         .map(JSValue::String)
 }
 
-pub fn js_string_pad(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_string_pad(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let is_pad_end = cc.magic() != 0;
     let cx = ctx.deref();
 
@@ -540,7 +540,7 @@ pub fn js_string_pad(ctx: ContextRef, cc: CallContext) -> JSResult {
     cx.create_string_with_buf(sbuf).map(JSValue::String)
 }
 
-pub fn js_string_repeat(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_string_repeat(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
     let p = cc.this().to_string_non_undefined_or_null(cx)?;
@@ -573,7 +573,7 @@ pub fn js_string_repeat(ctx: ContextRef, cc: CallContext) -> JSResult {
     cx.create_string_with_buf(res_string).map(JSValue::String)
 }
 
-pub fn js_string_includes(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_string_includes(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
     let p = cc.this().to_string_non_undefined_or_null(cx)?;
@@ -647,7 +647,7 @@ pub fn js_string_includes(ctx: ContextRef, cc: CallContext) -> JSResult {
     }
 }
 
-fn js_string_localeCompare(ctx: ContextRef, cc: CallContext) -> JSResult {
+fn js_string_localeCompare(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
     let a = cc.this().to_string_non_undefined_or_null(cx)?;
@@ -712,7 +712,7 @@ pub fn check_regexp_g_flag(ctx: &ContextImpl, regexp: &JSValue) -> i32 {
     0
 }
 
-pub fn js_string_match(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_string_match(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let magic_method = Atom::from_id(cc.magic() as u32); // match, matchAll, search
     let cx = ctx.deref();
 
@@ -754,7 +754,7 @@ pub fn js_string_match(ctx: ContextRef, cc: CallContext) -> JSResult {
     re_obj.invoke(&ctx, magic_method, &[str.into()])
 }
 
-pub fn js_string_trim(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_string_trim(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let str = cc.this().to_string_non_undefined_or_null(&ctx)?;
     let mut s = str.content().to_buf().map_err(|_| {
         ctx.throw_out_of_memory();
@@ -795,18 +795,18 @@ pub fn string_cmp(p1: &StringImpl, p2: &StringImpl, x1: usize, x2: usize, len: u
 }
 
 /// also used for String.prototype.valueOf
-pub fn js_string_toString(ctx: ContextRef, cc: CallContext) -> Result<JSValue, i32> {
+pub fn js_string_toString(ctx: ContextPtr, cc: CallContext) -> Result<JSValue, i32> {
     js_thisStringValue(ctx, *cc.this()).map(JSValue::String)
 }
 
 #[inline]
-fn js_thisStringValue(ctx: ContextRef, this_val: JSValue) -> Result<StringRef, i32> {
+fn js_thisStringValue(ctx: ContextPtr, this_val: JSValue) -> Result<StringRef, i32> {
     StringRef::try_from(this_val).inspect_err(|_| {
         ctx.throw_type_error("not a string");
     })
 }
 
-pub fn js_string_toLowerCase(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_string_toLowerCase(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let to_lower = cc.magic() != 0;
 
     let p = cc.this().to_string_non_undefined_or_null(&ctx)?;
@@ -866,7 +866,7 @@ pub fn js_string_toLowerCase(ctx: ContextRef, cc: CallContext) -> JSResult {
     ctx.create_string_with_buf(sbuf).map(JSValue::String)
 }
 
-fn js_string_normalize(ctx: ContextRef, cc: CallContext) -> JSResult {
+fn js_string_normalize(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
     let val = cc.this().to_string_non_undefined_or_null(cx)?;
@@ -1029,7 +1029,7 @@ pub static js_string_iterator_proto_funcs: [FieldDef; 2] = [
     ),
 ];
 
-pub fn js_string_fromCharCode(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_string_fromCharCode(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
     let mut buf = StringBuf::Empty;
 
@@ -1044,7 +1044,7 @@ pub fn js_string_fromCharCode(ctx: ContextRef, cc: CallContext) -> JSResult {
     cx.create_string_with_buf(buf).map(JSValue::String)
 }
 
-pub fn js_string_fromCodePoint(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_string_fromCodePoint(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
     let mut sbuf = StringBuf::Empty;
@@ -1091,7 +1091,7 @@ pub fn js_string_fromCodePoint(ctx: ContextRef, cc: CallContext) -> JSResult {
     cx.create_string_with_buf(sbuf).map(JSValue::String)
 }
 
-pub fn js_string_raw(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_string_raw(ctx: ContextPtr, cc: CallContext) -> JSResult {
     // raw(temp,...a)
     let cx = ctx.deref();
 

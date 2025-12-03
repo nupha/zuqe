@@ -2,7 +2,7 @@ use gc_lite::Collect;
 
 use crate::{
     atom::Atom,
-    context::{ContextImpl, ContextRef},
+    context::{ContextImpl, ContextPtr},
     module::ModuleDef,
 };
 
@@ -73,7 +73,7 @@ impl ContextImpl {
             // resolve dependency modules
             for dep in m.dependencies.iter_mut() {
                 let m1 = js_host_resolve_imported_module_atom(
-                    unsafe { ContextRef::from_ref_unchecked(self) },
+                    unsafe { ContextPtr::from_ref_unchecked(self) },
                     &base_module_name,
                     &dep.module_name,
                 )?;
@@ -107,7 +107,7 @@ pub enum JSModuleStatus {
 }
 
 pub fn js_host_resolve_imported_module(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     base_cname: &str,
     cname1: &str,
 ) -> Result<ModuleDef, i32> {
@@ -138,7 +138,7 @@ pub fn js_host_resolve_imported_module(
 }
 
 pub fn js_host_resolve_imported_module_atom(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     base_module_name: &Atom,
     module_name1: &Atom,
 ) -> Result<ModuleDef, i32> {

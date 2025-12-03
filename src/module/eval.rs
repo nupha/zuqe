@@ -3,7 +3,7 @@ use std::{cell::RefCell, rc::Rc};
 use crate::{
     JS_CLASS_BYTECODE_FUNCTION,
     builtins::promise::{Promise, PromiseState},
-    context::{ContextImpl, ContextRef},
+    context::{ContextImpl, ContextPtr},
     error::JSResult,
     eval::{Compiled, JS_EVAL_FLAG_STRIP, JS_EVAL_TYPE_MODULE},
     function::CallContext,
@@ -362,7 +362,7 @@ impl ModuleDef {
     }
 
     /// async module execution callback
-    fn execute_async_fulfilled(mut ctx: ContextRef, cc: CallContext) -> JSResult {
+    fn execute_async_fulfilled(mut ctx: ContextPtr, cc: CallContext) -> JSResult {
         let JSValue::Module(mut md) = cc.data(0) else {
             unreachable!()
         };
@@ -419,7 +419,7 @@ impl ModuleDef {
     }
 
     /// async module execution reject callback
-    fn execute_async_rejected(ctx: ContextRef, cc: CallContext) -> JSResult {
+    fn execute_async_rejected(ctx: ContextPtr, cc: CallContext) -> JSResult {
         if js_check_stack_overflow(&ctx.rt(), 0) {
             ctx.throw_stack_overflow();
             return Err(-1);

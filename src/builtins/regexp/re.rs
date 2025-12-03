@@ -7,7 +7,7 @@ use crate::{
     JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR,
     atom::Atom,
     class::ClassID,
-    context::{ContextHandle, ContextImpl, ContextRef},
+    context::{ContextHandle, ContextImpl, ContextPtr},
     object::{
         JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, ObjectImpl, ObjectPayload, ObjectRef,
     },

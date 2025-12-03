@@ -1,6 +1,6 @@
 use crate::{
     atom::Atom,
-    context::{ContextImpl, ContextRef},
+    context::{ContextImpl, ContextPtr},
     error::JSResult,
     function::{CallContext, FieldDef},
     object::ObjectPayload,
@@ -36,7 +36,7 @@ pub fn js_thisBooleanValue(ctx: &ContextImpl, this_val: JSValue) -> JSResult {
     }
 }
 
-pub fn js_boolean_toString(ctx: ContextRef, args: CallContext) -> JSResult {
+pub fn js_boolean_toString(ctx: ContextPtr, args: CallContext) -> JSResult {
     match js_thisBooleanValue(&ctx, *args.this())? {
         JSValue::Bool(true) => Atom::CONST_true,
         JSValue::Bool(false) => Atom::CONST_false,
@@ -49,7 +49,7 @@ pub fn js_boolean_toString(ctx: ContextRef, args: CallContext) -> JSResult {
     .map(JSValue::String)
 }
 
-pub fn js_boolean_valueOf(ctx: ContextRef, args: CallContext) -> JSResult {
+pub fn js_boolean_valueOf(ctx: ContextPtr, args: CallContext) -> JSResult {
     js_thisBooleanValue(&ctx, *args.this())
 }
 

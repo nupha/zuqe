@@ -4,7 +4,7 @@ use crate::{
     JS_CLASS_STRING,
     atom::{Atom, AtomDescKind},
     builtins::iterator::JSIteratorKindEnum,
-    context::{ContextImpl, ContextRef},
+    context::{ContextImpl, ContextPtr},
     error::{JS_ThrowReferenceErrorUninitialized, JSResult},
     object::{JS_PROP_TMASK, JS_PROP_VARREF, JSProperty, ObjectRef},
     string::StringRef,
@@ -151,7 +151,7 @@ impl ObjectRef {
                 // Note: exotic keys comes after the object own properties.
                 let mut has_err = false;
 
-                for pk in f(unsafe { ContextRef::from_ref_unchecked(ctx) }, *self)? {
+                for pk in f(unsafe { ContextPtr::from_ref_unchecked(ctx) }, *self)? {
                     if !has_err {
                         let atom_kind = pk.atom.kind();
                         if (flags >> (atom_kind as u8)) & 1 != 0 {

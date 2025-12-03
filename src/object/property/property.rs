@@ -5,7 +5,7 @@ use gc_lite::{Collect, GcWeak};
 use crate::{
     JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
     atom::Atom,
-    context::{ContextImpl, ContextRef},
+    context::{ContextImpl, ContextPtr},
     error::JSResult,
     function::JSVarRef,
     object::{LazyInit, ObjectRef},
@@ -320,7 +320,7 @@ impl ObjectRef {
 
     /// test if property `prop` exists, check along proto chain.
     pub fn has_property(&self, ctx: &ContextImpl, prop: Atom) -> Result<bool, i32> {
-        let cx = unsafe { ContextRef::from_ref_unchecked(ctx) };
+        let cx = unsafe { ContextPtr::from_ref_unchecked(ctx) };
 
         for cur_obj in self.shape_proto_iter(true) {
             if cur_obj.flags().is_exotic()

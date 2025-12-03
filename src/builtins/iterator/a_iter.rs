@@ -8,7 +8,7 @@ use crate::{
         promise::{Promise, js_promise_resolve},
     },
     class::ClassID,
-    context::{ContextHandle, ContextImpl, ContextRef},
+    context::{ContextHandle, ContextImpl, ContextPtr},
     error::JSResult,
     function::{CallContext, FieldDef, IteratorState, NativeFunctionWithData},
     object::{ObjectImpl, ObjectPayload, ObjectRef},
@@ -66,7 +66,7 @@ pub const GEN_MAGIC_NEXT: i32 = 0;
 pub const GEN_MAGIC_RETURN: i32 = 1;
 pub const GEN_MAGIC_THROW: i32 = 2;
 
-pub fn js_async_from_sync_iterator_unwrap(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_async_from_sync_iterator_unwrap(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let done = cc.data(0).to_bool()?;
     js_create_iterator_result(&ctx, *cc.arg(0), done)
 }
@@ -85,7 +85,7 @@ pub unsafe fn js_async_from_sync_iterator_unwrap_func_create(
     .map_or(JSValue::EXCEPTION, |x| x.into())
 }
 
-pub fn js_async_from_sync_iterator_next(mut ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_async_from_sync_iterator_next(mut ctx: ContextPtr, cc: CallContext) -> JSResult {
     let done_resolve = |cx: &ContextImpl,
                         rr: [JSValue; 2],
                         err: JSValue,

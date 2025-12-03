@@ -4,7 +4,7 @@ use crate::{
     JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR,
     builtins::iterator::JSIteratorKindEnum,
     class::ClassID,
-    context::ContextRef,
+    context::ContextPtr,
     error::JSResult,
     function::{CallContext, FieldDef, IteratorState},
     object::{JS_PROP_CONFIGURABLE, ObjectImpl, ObjectRef},

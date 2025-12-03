@@ -4,7 +4,7 @@ use crate::{
     USER_CLASS_ID_START,
     atom::Atom,
     class::{ClassID, OtherPayload},
-    context::{ContextImpl, ContextRef},
+    context::{ContextImpl, ContextPtr},
     function::JS_GetFunctionRealm,
     object::{ObjectImpl, ObjectPayload, ObjectRef, ShapeHandle},
     value::JSValue,
@@ -65,7 +65,7 @@ impl ContextImpl {
             if let Some(o) = p.as_object().copied() {
                 Some(o)
             } else if let Ok(realm) =
-                JS_GetFunctionRealm(unsafe { ContextRef::from_ref_unchecked(self) }, ctor)
+                JS_GetFunctionRealm(unsafe { ContextPtr::from_ref_unchecked(self) }, ctor)
             {
                 realm.class_proto(class_id)
             } else {

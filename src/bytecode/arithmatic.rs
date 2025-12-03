@@ -340,7 +340,7 @@ pub(super) fn op_binary_logic(
 
 // /// compare op1, op2
 // pub(super) fn relational(
-//     ctx: ContextRef,
+//     ctx: ContextPtr,
 //     op1: JSValue,
 //     op2: JSValue,
 //     opcode: OpCode,

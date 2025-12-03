@@ -2,7 +2,7 @@ use std::ops::Deref;
 
 use crate::{
     atom::Atom,
-    context::ContextRef,
+    context::ContextPtr,
     error::JSResult,
     function::{BoundFuncObjPayload, CallContext, FieldDef, JSFunctionKindEnum, js_function_apply},
     object::{JS_PROP_CONFIGURABLE, ObjectPayload},
@@ -10,7 +10,7 @@ use crate::{
     value::JSValue,
 };
 
-pub fn js_function_call(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_function_call(ctx: ContextPtr, cc: CallContext) -> JSResult {
     if cc.length() > 0 {
         cc.this().call(
             &ctx,
@@ -22,7 +22,7 @@ pub fn js_function_call(ctx: ContextRef, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_function_bind(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_function_bind(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
     let this_val = *cc.this();
 
@@ -100,7 +100,7 @@ pub fn js_function_bind(ctx: ContextRef, cc: CallContext) -> JSResult {
     Ok(func_obj.into())
 }
 
-pub fn js_function_toString(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_function_toString(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
     let this_val = cc.this();
 
@@ -135,7 +135,7 @@ pub fn js_function_toString(ctx: ContextRef, cc: CallContext) -> JSResult {
     JS_ConcatString3(cx, pref, name, suff).map(JSValue::String)
 }
 
-pub fn js_function_hasInstance(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_function_hasInstance(ctx: ContextPtr, cc: CallContext) -> JSResult {
     if let Some(o) = cc.arg(0).as_object() {
         o.ordinary_instance_of(&ctx, *cc.this()).map(JSValue::Bool)
     } else {

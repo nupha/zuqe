@@ -6,7 +6,7 @@ use crate::{
     JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION,
     atom::Atom,
     class::ClassID,
-    context::{ContextImpl, ContextRef},
+    context::{ContextImpl, ContextPtr},
     error::JSResult,
     eval::JS_EVAL_TYPE_INDIRECT,
     function::{Bytecode, CallContext, JS_CALL_FLAG_COPY_ARGV, JSVarRef},
@@ -131,7 +131,7 @@ impl BCFuncPayload {
 
     /// get function bytecode realm
     #[inline(always)]
-    pub fn realm(&self) -> Option<ContextRef> {
+    pub fn realm(&self) -> Option<ContextPtr> {
         self.bytecode.realm()
     }
 
@@ -223,12 +223,12 @@ impl JSValue {
 }
 
 /// TODO: change func_obj type to ObjectRef
-pub fn JS_GetFunctionRealm(ctx: ContextRef, func_obj: JSValue) -> Result<ContextRef, i32> {
+pub fn JS_GetFunctionRealm(ctx: ContextPtr, func_obj: JSValue) -> Result<ContextPtr, i32> {
     if !func_obj.is_object() {
         return Ok(ctx);
     }
 
-    let realm: ContextRef;
+    let realm: ContextPtr;
     let p = unsafe { func_obj.as_object_unchecked() };
 
     match p.payload() {
@@ -236,7 +236,7 @@ pub fn JS_GetFunctionRealm(ctx: ContextRef, func_obj: JSValue) -> Result<Context
             realm = cfunc
                 .realm
                 .upgrade(ctx.rt().gc_heap())
-                .map_or(ctx, ContextRef::from);
+                .map_or(ctx, ContextPtr::from);
         }
         ObjectPayload::BYTECODE_FUNCTION(fo)
         | ObjectPayload::GENERATOR_FUNCTION(fo)
@@ -310,7 +310,7 @@ pub fn js_function_set_properties(
     );
 }
 
-pub fn js_function_proto(_: ContextRef, _: CallContext) -> JSResult {
+pub fn js_function_proto(_: ContextPtr, _: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 

@@ -12,14 +12,14 @@ use crate::{
         JS_ATOM_length, JS_ATOM_message, JS_ATOM_name, JS_ATOM_values,
     },
     class::ClassID,
-    context::{ContextRef, JS_MODE_STRICT},
+    context::{ContextPtr, JS_MODE_STRICT},
     error::{ErrorKind, STD_ERROR_NAMES, js_error_proto_funcs},
     function::{BytecodeFunction, Callback, JSFunctionKindEnum, js_function_proto},
     object::{JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_WRITABLE, ObjectPayload, ShapeHandle},
     value::JSValue,
 };
 
-impl ContextRef {
+impl ContextPtr {
     /// Initialize minimum amount of objects to be able to compile code and display error messages.
     /// No Atom should be allocated by this function.
     pub fn init_core_objects(&self) {

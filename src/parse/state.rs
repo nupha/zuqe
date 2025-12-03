@@ -1,7 +1,7 @@
 use std::ptr::NonNull;
 
 use crate::{
-    context::{ContextImpl, ContextRef},
+    context::{ContextImpl, ContextPtr},
     function::JSFunctionDef,
     number::IntOrFloat,
     parse::token::TokenData,
@@ -32,7 +32,7 @@ pub const SKIP_HAS_ASSIGNMENT: i32 = 1 << 2; // Statement has assignment operato
 /// including the current position, token, scope, and parsing context.
 pub struct JSParseState<'s> {
     /// JavaScript context pointer for runtime operations
-    pub ctx: ContextRef,
+    pub ctx: ContextPtr,
 
     /// Source file name being parsed
     pub filename: &'s str,
@@ -89,7 +89,7 @@ impl<'s> JSParseState<'s> {
         filename: &'s str,
     ) -> Self {
         Self {
-            ctx: unsafe { ContextRef::from_ref_unchecked(ctx) },
+            ctx: unsafe { ContextPtr::from_ref_unchecked(ctx) },
 
             input: source,
             buf_ptr: source.as_ptr(),

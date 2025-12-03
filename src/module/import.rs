@@ -3,7 +3,7 @@ use gc_lite::Collect;
 use crate::{
     atom::Atom,
     builtins::promise::Promise,
-    context::{ContextImpl, ContextRef},
+    context::{ContextImpl, ContextPtr},
     error::JSResult,
     function::CallContext,
     function::NativeFunctionWithData,
@@ -50,7 +50,7 @@ pub fn js_dynamic_import(ctx: &mut ContextImpl, specifier: JSValue) -> JSResult 
 
     // cannot run JS_LoadModuleInternal synchronously because it would
     // cause an unexpected recursion in js_evaluate_module()
-    let cx = unsafe { ContextRef::from_ref_unchecked(ctx) };
+    let cx = unsafe { ContextPtr::from_ref_unchecked(ctx) };
     let rr = resolving_funcs;
 
     ctx.queue_job_with_trace(
@@ -68,7 +68,7 @@ pub fn js_dynamic_import(ctx: &mut ContextImpl, specifier: JSValue) -> JSResult 
 }
 
 fn js_dynamic_import_job(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     resolving_funcs: [JSValue; 2],
     basename: String,
     specifier: String,
@@ -78,7 +78,7 @@ fn js_dynamic_import_job(
 }
 
 fn JS_LoadModuleInternal(
-    mut ctx: ContextRef,
+    mut ctx: ContextPtr,
     basename: String,
     filename: String,
     resolving_funcs: &[JSValue; 2],
@@ -138,7 +138,7 @@ fn JS_LoadModuleInternal(
     }
 }
 
-fn js_load_module_rejected(ctx: ContextRef, cc: CallContext) -> JSResult {
+fn js_load_module_rejected(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let error = if cc.length() >= 1 {
         *cc.arg(0)
     } else {
@@ -150,7 +150,7 @@ fn js_load_module_rejected(ctx: ContextRef, cc: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
-fn js_load_module_fulfilled(ctx: ContextRef, cc: CallContext) -> JSResult {
+fn js_load_module_fulfilled(ctx: ContextPtr, cc: CallContext) -> JSResult {
     if let Ok(ns) = if let JSValue::Module(mut m) = cc.data(2) {
         m.ns(&ctx)
     } else {

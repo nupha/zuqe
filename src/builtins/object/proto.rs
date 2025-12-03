@@ -2,7 +2,7 @@ use std::ops::Deref;
 
 use crate::{
     atom::Atom,
-    context::{ContextImpl, ContextRef},
+    context::{ContextImpl, ContextPtr},
     error::JSResult,
     function::{CallContext, FieldDef},
     object::{
@@ -13,7 +13,7 @@ use crate::{
     value::JSValue,
 };
 
-pub fn js_object_toString(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_object_toString(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
     let txt = match cc.this() {
@@ -27,15 +27,15 @@ pub fn js_object_toString(ctx: ContextRef, cc: CallContext) -> JSResult {
         .map(JSValue::String)
 }
 
-pub fn js_object_toLocaleString(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_object_toLocaleString(ctx: ContextPtr, cc: CallContext) -> JSResult {
     cc.this().invoke(&ctx, Atom::CONST_toString, &[])
 }
 
-pub fn js_object_valueOf(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_object_valueOf(ctx: ContextPtr, cc: CallContext) -> JSResult {
     cc.this().objectify(&ctx).map(JSValue::Object)
 }
 
-pub fn js_object_hasOwnProperty(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_object_hasOwnProperty(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
     // must be done first
@@ -44,7 +44,7 @@ pub fn js_object_hasOwnProperty(ctx: ContextRef, cc: CallContext) -> JSResult {
     Ok(obj.get_own_property(cx, atom)?.is_some().into())
 }
 
-pub fn js_object_isPrototypeOf(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_object_isPrototypeOf(ctx: ContextPtr, cc: CallContext) -> JSResult {
     if let JSValue::Object(ctor) = *cc.arg(0) {
         let obj = cc.this().objectify(&ctx)?;
 
@@ -70,7 +70,7 @@ pub fn js_object_isPrototypeOf(ctx: ContextRef, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_object_propertyIsEnumerable(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_object_propertyIsEnumerable(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
     let obj = cc.this().objectify(cx)?;

@@ -5,7 +5,7 @@ use gc_lite::Collect;
 use crate::{
     JS_CLASS_ARRAY_ITERATOR, JS_CLASS_STRING_ITERATOR,
     builtins::typed_array::TypedArray,
-    context::ContextRef,
+    context::ContextPtr,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, IteratorState},
     object::ObjectPayload,
@@ -72,7 +72,7 @@ impl ArrayIterPayload {
 
 /// 用于创建一个数组迭代器对象，该对象可以用来遍历数组中的元素。
 /// 通常被用于实现数组的 keys、values 和 entries 方法
-pub fn js_create_array_iterator(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_create_array_iterator(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let kind = unsafe { std::mem::transmute::<u8, JSIteratorKindEnum>(cc.magic() as u8 & 3) };
     let (class_id, obj) = if cc.magic() & 4 != 0 {
         (

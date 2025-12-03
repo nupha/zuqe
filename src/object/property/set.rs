@@ -4,7 +4,7 @@ use crate::{
     JS_CLASS_INT32_ARRAY, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT, JS_CLASS_UINT8_ARRAY,
     JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
     atom::Atom,
-    context::{ContextImpl, ContextRef},
+    context::{ContextImpl, ContextPtr},
     error::JS_ThrowReferenceErrorNotDefined,
     object::{
         JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_WRITABLE, JS_PROP_LAZYINIT,
@@ -165,7 +165,7 @@ impl ObjectRef {
                     // apply exotic methods
                     if let Some(sp) = xm.set_property {
                         return sp(
-                            unsafe { ContextRef::from_ref_unchecked(ctx) },
+                            unsafe { ContextPtr::from_ref_unchecked(ctx) },
                             JSValue::Object(cur_obj),
                             prop,
                             val,
@@ -176,7 +176,7 @@ impl ObjectRef {
 
                     if let Some(f) = xm.get_own_property
                         && let Some(desc) = f(
-                            unsafe { ContextRef::from_ref_unchecked(ctx) },
+                            unsafe { ContextPtr::from_ref_unchecked(ctx) },
                             JSValue::Object(cur_obj),
                             prop,
                         )?

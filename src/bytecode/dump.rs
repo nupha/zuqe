@@ -3,7 +3,7 @@
 use crate::{
     atom::Atom,
     bytecode::OpcodeFormat,
-    context::{ContextImpl, ContextRef, JS_MODE_ASYNC, JS_MODE_STRICT},
+    context::{ContextImpl, ContextPtr, JS_MODE_ASYNC, JS_MODE_STRICT},
     function::{
         Bytecode, JSClosureVar, JSFunctionKindEnum, JSVarDef, JSVarKindEnum, Label, PC2LINE_BASE,
         PC2LINE_OP_FIRST, PC2LINE_RANGE,
@@ -537,7 +537,7 @@ impl Bytecode {
     }
 }
 
-pub(super) unsafe fn dump_pc2line(ctx: ContextRef, buf: *const u8, len: i32, mut line_num: i32) {
+pub(super) unsafe fn dump_pc2line(ctx: ContextPtr, buf: *const u8, len: i32, mut line_num: i32) {
     if len <= 0 {
         return;
     }

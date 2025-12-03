@@ -10,7 +10,7 @@ use crate::{
     JS_CLASS_STRING,
     atom::{Atom, AtomInfo, AtomKind, is_const_atom, is_small_int_atom},
     class::JSClassExoticMethods,
-    context::{ContextImpl, ContextRef},
+    context::{ContextImpl, ContextPtr},
     number::{ATOD_ACCEPT_BIN_OCT, JS_DTOA_VAR_FORMAT, f64_stringify, js_atof},
     object::{
         JS_PROP_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC, JSPropertyDescriptor,
@@ -689,7 +689,7 @@ impl JSValue {
 
 /// prop is not consumed
 fn string_define_own_property(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     mut this_obj: JSValue,
     prop: Atom,
     val: JSValue,
@@ -763,7 +763,7 @@ fn string_define_own_property(
 
 pub(crate) const js_string_exotic_methods: JSClassExoticMethods = JSClassExoticMethods {
     get_own_property: Some(
-        |ctx: ContextRef, obj: JSValue, prop: Atom| -> Result<Option<JSPropertyDescriptor>, i32> {
+        |ctx: ContextPtr, obj: JSValue, prop: Atom| -> Result<Option<JSPropertyDescriptor>, i32> {
             // This is a class exotic method for JS_CLASS_STRING object
             if let Some(idx) = prop.to_small_int()
                 && let Some(JSValue::String(s)) = obj.as_object().and_then(|o| o.payload().value())

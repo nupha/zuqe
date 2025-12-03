@@ -5,7 +5,7 @@ use gc_lite::{Collect, GcWeak};
 use crate::{
     atom::Atom,
     builtins::iterator::js_create_iterator_result,
-    context::{ContextImpl, ContextRef},
+    context::{ContextImpl, ContextPtr},
     defer,
     error::JSResult,
     function::{CallContext, IteratorState, JS_CALL_FLAG_CONSTRUCTOR},
@@ -24,7 +24,7 @@ pub type NativeSetterFn = fn(cc: CallContext) -> JSResult;
 pub type NativeIteratorNextFn = fn(cc: CallContext, iter_state: &mut IteratorState) -> JSResult;
 
 #[deprecated(note = "should migrate to NativeCallback")]
-pub(crate) type NativeCallback_v1 = fn(ctx: ContextRef, cc: CallContext) -> JSResult;
+pub(crate) type NativeCallback_v1 = fn(ctx: ContextPtr, cc: CallContext) -> JSResult;
 
 pub type JSCFunction = unsafe fn(ctx: &ContextImpl, this_val: JSValue, args: &[JSValue]) -> JSValue;
 pub type JSCFunctionMagic = unsafe fn(
@@ -137,7 +137,7 @@ unsafe impl Collect for NFuncPayload {
 
 impl NFuncPayload {
     pub fn class_call(
-        ctx: ContextRef,
+        ctx: ContextPtr,
         func_obj: JSValue,
         mut this_obj: JSValue,
         args: &[JSValue],
@@ -152,7 +152,7 @@ impl NFuncPayload {
                 c.handler,
                 c.length,
                 c.magic,
-                ContextRef::from(c.realm.upgrade(rt.gc_heap()).unwrap()),
+                ContextPtr::from(c.realm.upgrade(rt.gc_heap()).unwrap()),
             )
         } else {
             unreachable!()
@@ -375,7 +375,7 @@ impl ContextImpl {
                     handler: call,
                     length,
                     magic,
-                    realm: unsafe { ContextRef::from_ref_unchecked(self).downgrade() },
+                    realm: unsafe { ContextPtr::from_ref_unchecked(self).downgrade() },
                 }),
             )
             .map_err(|_| -1)?;

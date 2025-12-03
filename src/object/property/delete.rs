@@ -1,7 +1,7 @@
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
     atom::{Atom, JS_ATOM_MAX_INT},
-    context::{ContextImpl, ContextRef},
+    context::{ContextImpl, ContextPtr},
     object::{JSProperty, ObjectRef},
     utils::unlikely,
     value::JSValue,
@@ -109,7 +109,7 @@ impl ObjectRef {
                         .and_then(|m| m.delete_property)
                     {
                         return cb(
-                            unsafe { ContextRef::from_ref_unchecked(ctx) },
+                            unsafe { ContextPtr::from_ref_unchecked(ctx) },
                             JSValue::Object(*self),
                             prop,
                         );

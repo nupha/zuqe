@@ -1,6 +1,6 @@
 use crate::{
     atom::Atom,
-    context::{ContextImpl, ContextRef},
+    context::{ContextImpl, ContextPtr},
     error::JSResult,
     function::{CallContext, FieldDef},
     object::{
@@ -15,7 +15,7 @@ use crate::{
 use super::JS_JSONStringify;
 
 #[inline(always)]
-fn js_json_stringify(ctx: ContextRef, cc: CallContext) -> JSResult {
+fn js_json_stringify(ctx: ContextPtr, cc: CallContext) -> JSResult {
     JS_JSONStringify(&ctx, *cc.arg(0), *cc.arg(1), *cc.arg(2))
 }
 
@@ -64,7 +64,7 @@ fn internalize_json_property(
     reviver.call(ctx, holder, &[name.string_or_symbol(ctx)?, val])
 }
 
-fn js_json_parse(ctx: ContextRef, cc: CallContext) -> JSResult {
+fn js_json_parse(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let s = cc.arg(0).to_string(&ctx)?;
     let mut obj = JS_ParseJSON(&ctx, &s.content().encode_utf8_bytes(), "<input>")?;
 

@@ -1,6 +1,6 @@
 use crate::{
     builtins::number::{js_parseFloat, js_parseInt},
-    context::ContextRef,
+    context::ContextPtr,
     error::JSResult,
     eval::JS_EVAL_TYPE_INDIRECT,
     function::{CallContext, FieldDef},
@@ -9,7 +9,7 @@ use crate::{
     value::JSValue,
 };
 
-pub fn js_global_eval(mut ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_global_eval(mut ctx: ContextPtr, cc: CallContext) -> JSResult {
     // to avoid ctx borrow conflict, fetch global object in advance
     let global = JSValue::Object(ctx.global_obj());
     cc.arg(0)
@@ -19,7 +19,7 @@ pub fn js_global_eval(mut ctx: ContextRef, cc: CallContext) -> JSResult {
 pub const MAGIC_NUM_IS_NAN: i32 = 1;
 pub const MAGIC_NUM_IS_FINITE: i32 = 2;
 
-pub fn js_global_isNaN_isFinite(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_global_isNaN_isFinite(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let d = cc.arg(0).to_f64(&ctx)?;
     let b = match cc.magic() {
         MAGIC_NUM_IS_NAN => f64::is_nan(d),
@@ -37,7 +37,7 @@ const fn is_uri_reserved(c: u32) -> bool {
     )
 }
 
-fn js_global_decodeURI(ctx: ContextRef, cc: CallContext) -> JSResult {
+fn js_global_decodeURI(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let is_component = cc.magic() == 1;
 
     let str = cc.arg(0).to_string(&ctx)?;

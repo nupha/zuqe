@@ -3,7 +3,7 @@ use gc_lite::Collect;
 use crate::{
     JS_CLASS_GENERATOR,
     builtins::iterator::{GEN_MAGIC_NEXT, GEN_MAGIC_RETURN, GEN_MAGIC_THROW},
-    context::{ContextImpl, ContextRef},
+    context::{ContextImpl, ContextPtr},
     error::JSResult,
     function::{AsyncFuncState, CallContext, FieldDef, IteratorState},
     object::{JS_PROP_CONFIGURABLE, ObjectPayload},
@@ -80,7 +80,7 @@ impl GeneratorPayload {
 }
 
 pub fn js_generator_function_call(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     func_obj: JSValue,
     this_obj: JSValue,
     args: &[JSValue],

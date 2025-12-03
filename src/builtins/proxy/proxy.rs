@@ -6,7 +6,7 @@ use crate::{
     JS_CLASS_PROXY,
     atom::Atom,
     class::{ClassID, JSClassExoticMethods},
-    context::{ContextHandle, ContextImpl, ContextRef},
+    context::{ContextHandle, ContextImpl, ContextPtr},
     error::JSResult,
     function::{Callback, JS_CALL_FLAG_CONSTRUCTOR, JS_CallConstructor2},
     object::{
@@ -222,7 +222,7 @@ impl Proxy {
     }
 
     pub fn class_call(
-        ctx: ContextRef,
+        ctx: ContextPtr,
         func_obj: JSValue,
         this_obj: JSValue,
         args: &[JSValue],
@@ -332,7 +332,7 @@ impl Proxy {
 }
 
 fn js_proxy_call_constructor(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     func_obj: &Proxy,
     new_target: JSValue,
     args: &[JSValue],
@@ -368,7 +368,7 @@ fn js_proxy_call_constructor(
 //
 
 fn js_proxy_get_own_property(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     obj: JSValue,
     prop: Atom,
 ) -> Result<Option<JSPropertyDescriptor>, i32> {
@@ -458,7 +458,7 @@ fn js_proxy_get_own_property(
 }
 
 fn js_proxy_define_own_property(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     obj: JSValue,
     prop: Atom,
     value: JSValue,
@@ -566,7 +566,7 @@ fn js_proxy_define_own_property(
     Ok(true)
 }
 
-fn js_proxy_delete_property(ctx: ContextRef, mut obj: JSValue, atom: Atom) -> Result<bool, i32> {
+fn js_proxy_delete_property(ctx: ContextPtr, mut obj: JSValue, atom: Atom) -> Result<bool, i32> {
     let Some(px) = obj
         .as_object_mut()
         .and_then(|x| x.as_Proxy_mut())
@@ -603,7 +603,7 @@ fn js_proxy_delete_property(ctx: ContextRef, mut obj: JSValue, atom: Atom) -> Re
 }
 
 fn js_proxy_get_own_property_names(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     mut obj: ObjectRef,
 ) -> Result<Box<[PropertyKey]>, i32> {
     let cx = &*ctx;
@@ -688,7 +688,7 @@ fn js_proxy_get_own_property_names(
     Ok(tab.into_boxed_slice())
 }
 
-fn js_proxy_has(ctx: ContextRef, mut obj: ObjectRef, atom: Atom) -> Result<bool, i32> {
+fn js_proxy_has(ctx: ContextPtr, mut obj: ObjectRef, atom: Atom) -> Result<bool, i32> {
     let cx = &*ctx;
 
     let Some(px) = obj.as_Proxy_mut().map(|x| x.payload_mut()) else {
@@ -727,7 +727,7 @@ fn js_proxy_has(ctx: ContextRef, mut obj: ObjectRef, atom: Atom) -> Result<bool,
     Ok(ret)
 }
 
-fn js_proxy_get(ctx: ContextRef, obj: JSValue, atom: Atom, receiver: JSValue) -> JSResult {
+fn js_proxy_get(ctx: ContextPtr, obj: JSValue, atom: Atom, receiver: JSValue) -> JSResult {
     let cx = &*ctx;
 
     let Some(px) = obj
@@ -769,7 +769,7 @@ fn js_proxy_get(ctx: ContextRef, obj: JSValue, atom: Atom, receiver: JSValue) ->
 }
 
 fn js_proxy_set(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     obj: JSValue,
     atom: Atom,
     value: JSValue,

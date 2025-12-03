@@ -1,7 +1,7 @@
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
     atom::Atom,
-    context::{ContextImpl, ContextRef},
+    context::{ContextImpl, ContextPtr},
     error::JS_ThrowReferenceErrorUninitialized,
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_GET,
@@ -101,7 +101,7 @@ impl ObjectRef {
                 .and_then(|x| x.get_own_property)
             {
                 return cb(
-                    unsafe { ContextRef::from_ref_unchecked(ctx) },
+                    unsafe { ContextPtr::from_ref_unchecked(ctx) },
                     (*self).into(),
                     prop,
                 )
@@ -189,7 +189,7 @@ impl ObjectRef {
                 .and_then(|x| x.get_own_property)
             {
                 return f(
-                    unsafe { ContextRef::from_ref_unchecked(ctx) },
+                    unsafe { ContextPtr::from_ref_unchecked(ctx) },
                     JSValue::Object(*self),
                     prop,
                 );
@@ -359,7 +359,7 @@ impl ObjectRef {
                     {
                         if let Some(f) = pm.define_own_property {
                             return f(
-                                unsafe { ContextRef::from_ref_unchecked(ctx) },
+                                unsafe { ContextPtr::from_ref_unchecked(ctx) },
                                 JSValue::Object(*self),
                                 prop,
                                 val,

@@ -2,7 +2,7 @@ use crate::{
     JS_CLASS_PROMISE,
     atom::Atom,
     builtins::{error::js_aggregate_error_constructor, js_get_this},
-    context::{ContextImpl, ContextRef},
+    context::{ContextImpl, ContextPtr},
     error::JSResult,
     function::{CallContext, FieldDef, NativeFunctionWithData},
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_SpeciesConstructor},
@@ -19,7 +19,7 @@ use super::{
 // Instance methods
 //
 
-pub fn js_promise_then(mut ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_promise_then(mut ctx: ContextPtr, cc: CallContext) -> JSResult {
     let mut this = *cc.this();
     if let Some(p) = this.as_object_Promise_mut() {
         p.then(&mut ctx, *cc.arg(0), *cc.arg(1)).map(|p| p.into())
@@ -29,12 +29,12 @@ pub fn js_promise_then(mut ctx: ContextRef, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_promise_catch(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_promise_catch(ctx: ContextPtr, cc: CallContext) -> JSResult {
     cc.this()
         .invoke(&ctx, Atom::CONST_then, &[JSValue::UNDEFINED, *cc.arg(0)])
 }
 
-fn js_promise_then_finally_func(ctx: ContextRef, cc: CallContext) -> JSResult {
+fn js_promise_then_finally_func(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let ctor = cc.data(0);
     let on_finally = cc.data(1);
 
@@ -48,7 +48,7 @@ fn js_promise_then_finally_func(ctx: ContextRef, cc: CallContext) -> JSResult {
     // create inner resolving function for finally()
     let then_func: JSValue = NativeFunctionWithData::create(
         &ctx,
-        |cx: ContextRef, cc: CallContext| -> JSResult {
+        |cx: ContextPtr, cc: CallContext| -> JSResult {
             let val = cc.data(0);
             if cc.magic() == 0 {
                 val.err() // resolve
@@ -66,7 +66,7 @@ fn js_promise_then_finally_func(ctx: ContextRef, cc: CallContext) -> JSResult {
     promise.invoke(&ctx, Atom::CONST_then, std::slice::from_ref(&then_func))
 }
 
-pub fn js_promise_finally(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_promise_finally(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let on_finally = *cc.arg(0);
 
     let then_funcs: [JSValue; 2] = if !on_finally.is_function() {
@@ -99,7 +99,7 @@ pub fn js_promise_finally(ctx: ContextRef, cc: CallContext) -> JSResult {
 }
 
 /// returned value is Promise object or Exception.
-pub fn js_promise_resolve(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_promise_resolve(ctx: ContextPtr, cc: CallContext) -> JSResult {
     if !cc.this().is_object() {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
@@ -125,7 +125,7 @@ pub fn js_promise_resolve(ctx: ContextRef, cc: CallContext) -> JSResult {
     Ok(result_promise.into())
 }
 
-pub fn js_promise_all(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_promise_all(ctx: ContextPtr, cc: CallContext) -> JSResult {
     if !cc.this().is_object() {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
@@ -285,7 +285,7 @@ pub fn js_promise_all(ctx: ContextRef, cc: CallContext) -> JSResult {
     Ok(result_promise.into())
 }
 
-pub fn js_promise_race(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_promise_race(ctx: ContextPtr, cc: CallContext) -> JSResult {
     if !cc.this().is_object() {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
@@ -334,7 +334,7 @@ pub fn js_promise_race(ctx: ContextRef, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_promise_withResolvers(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_promise_withResolvers(ctx: ContextPtr, cc: CallContext) -> JSResult {
     if !cc.this().is_object() {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
@@ -375,10 +375,10 @@ pub static js_promise_funcs: [FieldDef; 8] = [
 // Prototype methods
 //
 
-// pub fn js_promise_finally_value_thunk(ctx: ContextRef, args: CallContext) -> JSResult {
+// pub fn js_promise_finally_value_thunk(ctx: ContextPtr, args: CallContext) -> JSResult {
 //     args.data_raw(0).dup().check_exception()
 // }
-// pub fn js_promise_finally_thrower(ctx: ContextRef, args: CallContext) -> JSResult {
+// pub fn js_promise_finally_thrower(ctx: ContextPtr, args: CallContext) -> JSResult {
 //     ctx.throw(args.data_raw(0).dup());
 //     Err(-1)
 // }

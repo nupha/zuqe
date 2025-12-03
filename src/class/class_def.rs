@@ -1,7 +1,7 @@
 use crate::{
     atom::Atom,
     class::{ClassID, ClassInitializeFn, FreeObjFn},
-    context::ContextRef,
+    context::ContextPtr,
     function::JSFunctionDef,
     object::JS_PROP_NO_EXOTIC,
     value::JSValue,
@@ -91,7 +91,7 @@ impl Default for ClassFieldsDef {
 
 /// prop is not consumed
 fn js_arguments_define_own_property(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     this_obj: JSValue,
     prop: Atom,
     val: JSValue,

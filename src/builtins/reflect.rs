@@ -6,14 +6,14 @@ use crate::{
             js_object_isExtensible, js_object_preventExtensions,
         },
     },
-    context::ContextRef,
+    context::ContextPtr,
     error::JSResult,
     function::{CallContext, FieldDef, JS_CallConstructor2, build_arg_list, js_function_apply},
     object::{JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
     value::JSValue,
 };
 
-pub fn js_reflect_apply(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_reflect_apply(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cc2 = CallContext::new(
         ctx,
         *cc.arg(0),
@@ -28,7 +28,7 @@ pub fn js_reflect_apply(ctx: ContextRef, cc: CallContext) -> JSResult {
     js_function_apply(ctx, cc2)
 }
 
-pub fn js_reflect_construct(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_reflect_construct(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let func = *cc.arg(0);
     let array_arg = *cc.arg(1);
     let new_target = if cc.length() > 2 {
@@ -46,7 +46,7 @@ pub fn js_reflect_construct(ctx: ContextRef, cc: CallContext) -> JSResult {
     JS_CallConstructor2(&ctx, func, new_target, &args).err()
 }
 
-pub fn js_reflect_deleteProperty(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_reflect_deleteProperty(ctx: ContextPtr, cc: CallContext) -> JSResult {
     if let JSValue::Object(mut obj) = *cc.arg(0) {
         let atom = cc.arg(1).to_atom(&ctx)?;
         let ret = obj.delete_property(&ctx, atom, 0);
@@ -57,7 +57,7 @@ pub fn js_reflect_deleteProperty(ctx: ContextRef, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_reflect_get(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_reflect_get(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let obj = *cc.arg(0);
     if obj.is_object() {
         let prop = cc.arg(1);
@@ -70,7 +70,7 @@ pub fn js_reflect_get(ctx: ContextRef, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_reflect_has(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_reflect_has(ctx: ContextPtr, cc: CallContext) -> JSResult {
     if let JSValue::Object(obj) = cc.arg(0) {
         let prop = cc.arg(1);
         let atom = prop.to_atom(&ctx)?;
@@ -81,7 +81,7 @@ pub fn js_reflect_has(ctx: ContextRef, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_reflect_set(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_reflect_set(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let target = cc.arg(0);
 
     if let Some(o) = target.as_object() {
@@ -108,14 +108,14 @@ pub fn js_reflect_set(ctx: ContextRef, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_reflect_setPrototypeOf(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_reflect_setPrototypeOf(ctx: ContextPtr, cc: CallContext) -> JSResult {
     cc.arg(0)
         .clone()
         .set_prototype_internal(&ctx, *cc.arg(1), false)
         .map(JSValue::Bool)
 }
 
-pub fn js_reflect_ownKeys(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_reflect_ownKeys(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let val = cc.arg(0);
     if val.is_object() {
         val.build_own_property_kvs_array(

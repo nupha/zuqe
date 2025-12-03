@@ -22,7 +22,7 @@ use crate::{
         },
         symbol::{js_symbol_constructor, js_symbol_funcs, js_symbol_proto_funcs},
     },
-    context::{ContextRef, JS_MODE_STRICT},
+    context::{ContextPtr, JS_MODE_STRICT},
     error::{ErrorKind, JSResult, STD_ERROR_NAMES},
     function::{BytecodeFunction, Callback, JSFunctionKindEnum},
     object::{
@@ -32,7 +32,7 @@ use crate::{
     value::JSValue,
 };
 
-impl ContextRef {
+impl ContextPtr {
     pub(super) fn intrinsic_base_object(mut self) {
         let mut obj = self.class_proto(JS_CLASS_OBJECT).unwrap();
         obj.install_field_defs(&self, &js_object_proto_funcs)
@@ -403,7 +403,7 @@ impl ContextRef {
 
     pub(super) fn intrinsic_eval(mut self) {
         self.eval_handle.replace(
-            |mut ctx: ContextRef,
+            |mut ctx: ContextPtr,
              this_obj: JSValue,
              input: &[u8],
              filename: &str,

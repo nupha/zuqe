@@ -2,7 +2,7 @@ use std::{ops::Deref, ptr::NonNull};
 
 use crate::{
     atom::Atom,
-    context::{ContextImpl, ContextRef, JS_MODE_STRICT, JS_MODE_STRIP},
+    context::{ContextImpl, ContextPtr, JS_MODE_STRICT, JS_MODE_STRIP},
     error::JSResult,
     function::{Bytecode, JSFunctionDef, JSFunctionKindEnum, add_closure_variables},
     module::ModuleDef,
@@ -13,7 +13,7 @@ use crate::{
 /// Native function to handle `eval`, returns eval result.
 /// `input` is script source.
 pub type EvalFn = fn(
-    ctx: ContextRef,
+    ctx: ContextPtr,
     this_obj: JSValue,
     input: &[u8],
     filename: &str,

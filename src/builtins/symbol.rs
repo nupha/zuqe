@@ -1,7 +1,7 @@
 use crate::{
     JS_CLASS_SYMBOL,
     atom::{Atom, AtomKind},
-    context::{ContextImpl, ContextRef},
+    context::{ContextImpl, ContextPtr},
     error::JSResult,
     function::{CallContext, FieldDef},
     object::JS_PROP_CONFIGURABLE,
@@ -103,14 +103,14 @@ pub fn js_thisSymbolValue(ctx: &ContextImpl, val: JSValue) -> JSResult {
     }
 }
 
-pub fn js_symbol_toString(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_symbol_toString(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let val = js_thisSymbolValue(&ctx, *cc.this())?;
     // formatted as 'Symbol(XXX)'
     ctx.create_string_from_utf8(val.inspect(&ctx)?.into_bytes())
         .map(JSValue::String)
 }
 
-pub fn js_symbol_valueOf(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_symbol_valueOf(ctx: ContextPtr, cc: CallContext) -> JSResult {
     js_thisSymbolValue(&ctx, *cc.this())
 }
 
@@ -138,12 +138,12 @@ pub static js_symbol_proto_funcs: [FieldDef; 5] = [
     FieldDef::GETSET("description", Some(js_symbol_get_description), None, 0),
 ];
 
-fn js_symbol_for(ctx: ContextRef, cc: CallContext) -> JSResult {
+fn js_symbol_for(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let s = cc.arg(0).to_string(&ctx)?;
     ctx.create_symbol(Some(s), AtomKind::GlobalSymbol)
 }
 
-fn js_symbol_keyFor(ctx: ContextRef, cc: CallContext) -> JSResult {
+fn js_symbol_keyFor(ctx: ContextPtr, cc: CallContext) -> JSResult {
     if let JSValue::Symbol(a) = cc.arg(0) {
         let s = a.string();
         if s.atom_info().unwrap().kind() != AtomKind::GlobalSymbol {

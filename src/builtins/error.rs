@@ -2,7 +2,7 @@ use crate::{
     JS_CLASS_ERROR,
     atom::Atom,
     builtins::iterator::iterator_to_array,
-    context::{ContextImpl, ContextRef, JS_GetActiveFunction},
+    context::{ContextImpl, ContextPtr, JS_GetActiveFunction},
     error::{ErrorKind, JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL, JSResult},
     function::{CallContext, JS_GetFunctionRealm},
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, ObjectPayload, ObjectRef},
@@ -21,7 +21,7 @@ pub fn js_error_constructor(cc: CallContext) -> JSResult {
     let mut proto = new_target.get_property(ctx, Atom::CONST_prototype)?;
     if !proto.is_object() {
         let realm =
-            JS_GetFunctionRealm(unsafe { ContextRef::from_ref_unchecked(ctx) }, new_target)?;
+            JS_GetFunctionRealm(unsafe { ContextPtr::from_ref_unchecked(ctx) }, new_target)?;
         let magic = cc.magic();
         proto = if magic < 0 {
             realm.class_proto(JS_CLASS_ERROR).unwrap().into()

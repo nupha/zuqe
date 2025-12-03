@@ -6,7 +6,7 @@ use crate::{
     JS_CLASS_REGEXP,
     atom::Atom,
     builtins::js_get_this,
-    context::{ContextImpl, ContextRef, JS_GetActiveFunction},
+    context::{ContextImpl, ContextPtr, JS_GetActiveFunction},
     error::JSResult,
     function::{CallContext, Callback, FieldDef, JS_CallConstructor, js_function_apply},
     object::{
@@ -293,7 +293,7 @@ pub fn js_regexp_get_flags(cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_regexp_toString(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_regexp_toString(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
     if let JSValue::Object(_) = cc.this() {
@@ -337,7 +337,7 @@ pub fn js_regexp_toString(ctx: ContextRef, cc: CallContext) -> JSResult {
     }
 }
 
-fn js_regexp_compile(ctx: ContextRef, cc: CallContext) -> JSResult {
+fn js_regexp_compile(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
     let _ = js_get_regexp(cx, cc.this(), true).ok_or(-1)?;
@@ -388,7 +388,7 @@ fn js_regexp_compile(ctx: ContextRef, cc: CallContext) -> JSResult {
     Ok(*cc.this())
 }
 
-pub fn js_regexp_exec(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_regexp_exec(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
     let re = js_get_regexp(cx, cc.this(), true).ok_or(-1)?;
@@ -414,11 +414,11 @@ pub fn js_regexp_exec(ctx: ContextRef, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_regexp_test(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_regexp_test(ctx: ContextPtr, cc: CallContext) -> JSResult {
     js_regexp_exec(ctx, cc).map(|v| JSValue::Bool(!v.is_null()))
 }
 
-pub fn js_regexp_Symbol_match(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_regexp_Symbol_match(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
     let str = cc.arg(0).to_string(cx)?;
@@ -534,7 +534,7 @@ pub fn js_regexp_Symbol_match(ctx: ContextRef, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_regexp_Symbol_matchAll(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_regexp_Symbol_matchAll(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
     let re = js_get_regexp(cx, cc.this(), true).ok_or(-1)?;
@@ -581,7 +581,7 @@ fn js_is_standard_regexp(ctx: &ContextImpl, rx: ObjectRef) -> Result<bool, i32> 
     }
 }
 
-pub fn js_regexp_Symbol_replace(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_regexp_Symbol_replace(ctx: ContextPtr, cc: CallContext) -> JSResult {
     // [Symbol.replace](str, rep)
     let cx = ctx.deref();
 
@@ -760,7 +760,7 @@ pub fn js_regexp_Symbol_replace(ctx: ContextRef, cc: CallContext) -> JSResult {
     cx.create_string_with_buf(sbuf).map(JSValue::String)
 }
 
-fn js_regexp_Symbol_search(ctx: ContextRef, cc: CallContext) -> JSResult {
+fn js_regexp_Symbol_search(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
     let Some(this) = cc.this().as_object().copied() else {
@@ -801,7 +801,7 @@ fn js_regexp_Symbol_search(ctx: ContextRef, cc: CallContext) -> JSResult {
 }
 
 /// [Symbol.split](str, limit)
-pub fn js_regexp_Symbol_split(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_regexp_Symbol_split(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let cx = ctx.deref();
 
     let Some(this_obj) = cc.this().as_object() else {
@@ -1000,7 +1000,7 @@ pub(super) fn JS_RegExpExec(ctx: &ContextImpl, re: ObjectRef, str: StringRef) ->
             Ok(ret)
         }
     } else {
-        let ctx = unsafe { ContextRef::from_ref_unchecked(ctx) };
+        let ctx = unsafe { ContextPtr::from_ref_unchecked(ctx) };
         js_regexp_exec(
             ctx,
             CallContext::new(ctx, re.into(), std::slice::from_ref(&args), 0, None),

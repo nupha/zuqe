@@ -16,7 +16,7 @@ use crate::{
         regexp::RegExpData,
     },
     class::{ClassMeta, js_arguments_exotic_methods},
-    context::ContextRef,
+    context::ContextPtr,
     function::{
         AsyncFuncState, AsyncFunction, BoundFunction, NFuncPayload, NativeFunctionWithData,
     },
@@ -76,7 +76,7 @@ pub struct RuntimeImpl {
     pub(crate) sab_funcs: Option<JSSharedArrayBufferFunctions>,
 
     /// list of living contexts
-    pub(crate) context_list: Vec<ContextRef>,
+    pub(crate) context_list: Vec<ContextPtr>,
 
     /// gc heap
     pub(crate) gc_heap: GcHeap,
