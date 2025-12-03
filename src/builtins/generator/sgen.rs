@@ -106,18 +106,13 @@ pub fn js_generator_function_call(
         .map_err(|_| -1)
 }
 
-pub fn js_generator_next(
-    ctx: ContextRef,
-    cc: CallContext,
-    iter_state: &mut IteratorState,
-) -> JSResult {
+pub fn js_generator_next(cc: CallContext, iter_state: &mut IteratorState) -> JSResult {
     let magic = cc.magic();
+    let ctx = cc.ctx();
     *iter_state = IteratorState::Done;
 
     let mut this = *cc.this();
-    if let ObjectPayload::GENERATOR(g) =
-        this.retrive_object_payload_mut(&ctx, JS_CLASS_GENERATOR)?
-    {
+    if let ObjectPayload::GENERATOR(g) = this.retrive_object_payload_mut(ctx, JS_CLASS_GENERATOR)? {
         enum WhatToDo {
             ExecNoArg,
             Done,
@@ -170,7 +165,7 @@ pub fn js_generator_next(
         match action {
             WhatToDo::ExecNoArg => {
                 g.set_state(GenState::JS_GENERATOR_STATE_EXECUTING);
-                let res = g.resume(&ctx);
+                let res = g.resume(ctx);
                 g.set_state(GenState::JS_GENERATOR_STATE_SUSPENDED_YIELD);
 
                 if g.is_completed() {

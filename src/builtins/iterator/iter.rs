@@ -223,10 +223,15 @@ impl<'a> ObjectIter<'a> {
             // intermediate result object)
             match nfun.handler {
                 Callback::IteratorNext(f) => {
+                    let cc = CallContext::new(
+                        unsafe { ContextRef::from_ref_unchecked(ctx) },
+                        obj.into(),
+                        args,
+                        nfun.magic as _,
+                        None,
+                    );
                     let mut state = IteratorState::NotDone;
-                    let ctx_ptr = unsafe { ContextRef::from_ref_unchecked(ctx) };
-                    let cc = CallContext::new(ctx_ptr, obj.into(), args, nfun.magic as _, None);
-                    let ret = f(ctx_ptr, cc, &mut state)?;
+                    let ret = f(cc, &mut state)?;
                     return Ok((ret, state));
                 }
                 Callback::CIteratorNext(f) => {

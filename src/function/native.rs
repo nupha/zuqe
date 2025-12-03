@@ -21,8 +21,7 @@ use super::js_function_set_properties;
 pub type NativeCallbackFn = fn(cc: CallContext) -> JSResult;
 pub type NativeGetterFn = fn(ctx: ContextRef, cc: CallContext) -> JSResult;
 pub type NativeSetterFn = fn(ctx: ContextRef, cc: CallContext) -> JSResult;
-pub type NativeIteratorNextFn =
-    fn(ctx: ContextRef, cc: CallContext, iter_state: &mut IteratorState) -> JSResult;
+pub type NativeIteratorNextFn = fn(cc: CallContext, iter_state: &mut IteratorState) -> JSResult;
 
 #[deprecated(note = "should migrate to NativeCallback")]
 pub(crate) type NativeCallback_v1 = fn(ctx: ContextRef, cc: CallContext) -> JSResult;
@@ -238,7 +237,7 @@ impl NFuncPayload {
             Callback::IteratorNext(f) => {
                 let cc = CallContext::new(realm, this_obj, sf.args_slice(), magic as _, None);
                 let mut iter_state = IteratorState::NotDone;
-                let mut r = f(realm, cc, &mut iter_state);
+                let mut r = f(cc, &mut iter_state);
                 if r.is_ok() && iter_state != IteratorState::NotParsed {
                     r = js_create_iterator_result(
                         realm_cx,

@@ -100,16 +100,12 @@ pub fn js_create_array_iterator(ctx: ContextRef, cc: CallContext) -> JSResult {
     .map_err(|_| -1)
 }
 
-pub fn js_array_iterator_next(
-    ctx: ContextRef,
-    cc: CallContext,
-    state: &mut IteratorState,
-) -> JSResult {
-    let cx = ctx.deref();
+pub fn js_array_iterator_next(cc: CallContext, state: &mut IteratorState) -> JSResult {
+    let ctx = cc.ctx();
 
     if let ObjectPayload::ARRAY_ITERATOR(it) = cc
         .this()
-        .retrive_object_payload(cx, JS_CLASS_ARRAY_ITERATOR)?
+        .retrive_object_payload(ctx, JS_CLASS_ARRAY_ITERATOR)?
     {
         let obj = it.value();
 
@@ -122,13 +118,13 @@ pub fn js_array_iterator_next(
         let len = if let Ok(tao) = TypedArray::try_from(obj) {
             // is typed array
             if tao.is_detached() {
-                JS_ThrowTypeErrorDetachedArrayBuffer(cx);
+                JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
                 return Err(-1);
             }
             tao.length() as u32
         } else {
             // is Array or String
-            it.value().get_length_prop(cx)? as u32
+            it.value().get_length_prop(ctx)? as u32
         };
 
         let idx = it.index();
@@ -143,11 +139,11 @@ pub fn js_array_iterator_next(
 
         match it.kind {
             JSIteratorKindEnum::JS_ITERATOR_KIND_KEY => Ok(JSValue::from(idx)),
-            JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE => it.value().get_property_u32(cx, idx),
+            JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE => it.value().get_property_u32(ctx, idx),
             JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE => {
-                let val = it.value().get_property_u32(cx, idx)?;
+                let val = it.value().get_property_u32(ctx, idx)?;
                 let num = JSValue::from(idx);
-                cx.create_array_with_values(vec![num, val])
+                ctx.create_array_with_values(vec![num, val])
                     .map(|a| a.into())
             }
         }

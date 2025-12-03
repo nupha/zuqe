@@ -1,9 +1,6 @@
-use std::ops::Deref;
-
 use crate::{
     JS_CLASS_REGEXP_STRING_ITERATOR,
     atom::Atom,
-    context::ContextRef,
     error::JSResult,
     function::{CallContext, FieldDef, IteratorState},
     object::{JS_PROP_CONFIGURABLE, ObjectPayload},
@@ -12,16 +9,12 @@ use crate::{
 
 use super::JS_RegExpExec;
 
-fn js_regexp_string_iterator_next(
-    ctx: ContextRef,
-    cc: CallContext,
-    state: &mut IteratorState,
-) -> JSResult {
-    let cx = ctx.deref();
+fn js_regexp_string_iterator_next(cc: CallContext, state: &mut IteratorState) -> JSResult {
+    let ctx = cc.ctx();
 
     if let ObjectPayload::REGEXP_STRING_ITERATOR(it) = cc
         .this()
-        .retrive_object_payload(cx, JS_CLASS_REGEXP_STRING_ITERATOR)?
+        .retrive_object_payload(ctx, JS_CLASS_REGEXP_STRING_ITERATOR)?
     {
         if it.done() {
             *state = IteratorState::Done;
@@ -31,21 +24,23 @@ fn js_regexp_string_iterator_next(
         // initialize state
         *state = IteratorState::NotDone;
 
-        let res = JS_RegExpExec(cx, it.regexp(), it.string())?;
+        let res = JS_RegExpExec(ctx, it.regexp(), it.string())?;
 
         if res.is_null() {
             it.set_done(true);
             *state = IteratorState::Done;
             return Ok(JSValue::UNDEFINED);
         } else if it.is_global() {
-            let str = res.get_property_i64(cx, 0).and_then(|x| x.to_string(cx))?;
+            let str = res
+                .get_property_i64(ctx, 0)
+                .and_then(|x| x.to_string(ctx))?;
 
             if str.is_empty() {
                 // matched is empty
                 let last_index = it
                     .regexp()
-                    .get_property(cx, Atom::CONST_lastIndex)
-                    .and_then(|v| v.to_u32(cx))
+                    .get_property(ctx, Atom::CONST_lastIndex)
+                    .and_then(|v| v.to_u32(ctx))
                     .inspect_err(|_| {
                         *state = IteratorState::NotDone;
                     })? as usize;
@@ -57,7 +52,7 @@ fn js_regexp_string_iterator_next(
                     .unwrap_or(last_index + 1);
 
                 it.regexp()
-                    .set_property(cx, Atom::CONST_lastIndex, JSValue::from(next_index as u32))
+                    .set_property(ctx, Atom::CONST_lastIndex, JSValue::from(next_index as u32))
                     .inspect_err(|_| {
                         *state = IteratorState::NotDone;
                     })?;

@@ -987,16 +987,12 @@ pub static js_string_proto_funcs: [FieldDef; 39] = [
     // JS_CFUNC_MAGIC_DEF("sup", 0, js_string_CreateHTML, magic_string_sup),
 ];
 
-fn js_string_iterator_next(
-    ctx: ContextRef,
-    cc: CallContext,
-    state: &mut IteratorState,
-) -> JSResult {
-    let cx = ctx.deref();
+fn js_string_iterator_next(cc: CallContext, state: &mut IteratorState) -> JSResult {
+    let ctx = cc.ctx();
 
     if let ObjectPayload::STRING_ITERATOR(it) = cc
         .this()
-        .retrive_object_payload(cx, JS_CLASS_STRING_ITERATOR)?
+        .retrive_object_payload(ctx, JS_CLASS_STRING_ITERATOR)?
     {
         match it.value() {
             JSValue::UNDEFINED => {
@@ -1008,7 +1004,7 @@ fn js_string_iterator_next(
                 if let Some((next_idx, c)) = ss.content().iter_since(it.index() as usize).next() {
                     it.set_index(next_idx as u32);
                     *state = IteratorState::NotDone;
-                    cx.create_string_from_char(c).map(JSValue::String)
+                    ctx.create_string_from_char(c).map(JSValue::String)
                 } else {
                     it.set_value(JSValue::UNDEFINED);
                     *state = IteratorState::Done;
