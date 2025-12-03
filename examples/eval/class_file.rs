@@ -6,7 +6,7 @@ use std::{
 use once_cell::unsync::Lazy;
 use zhuque::{
     class::{ClassDef, ClassID},
-    context::{ContextImpl, ContextRef},
+    context::{ContextHandle, ContextImpl, ContextRef},
     error::JSResult,
     function::{CallContext, FieldDef},
     object::ObjectRef,
@@ -14,7 +14,7 @@ use zhuque::{
     value::JSValue,
 };
 
-fn js_file_get<'a>(ctx: ContextRef, obj: JSValue) -> Result<&'a mut std::fs::File, i32> {
+fn js_file_get<'a>(ctx: ContextHandle, obj: JSValue) -> Result<&'a mut std::fs::File, i32> {
     let opaque = obj
         .retrive_object_payload(&ctx, JSFile::class_id())?
         .other()
@@ -29,7 +29,8 @@ fn js_file_get<'a>(ctx: ContextRef, obj: JSValue) -> Result<&'a mut std::fs::Fil
     }
 }
 
-fn js_file_readAsString(ctx: ContextRef, cc: CallContext) -> JSResult {
+fn js_file_readAsString(cc: CallContext) -> JSResult {
+    let ctx = cc.context();
     let fh = js_file_get(ctx, *cc.this())?;
 
     let max_size_val = *cc.arg(0);
@@ -67,7 +68,8 @@ fn js_file_readAsString(ctx: ContextRef, cc: CallContext) -> JSResult {
     ctx.create_string_from_utf8(buf).map(JSValue::String)
 }
 
-fn js_file_puts(ctx: ContextRef, cc: CallContext) -> JSResult {
+fn js_file_puts(cc: CallContext) -> JSResult {
+    let ctx = cc.context();
     let fh = js_file_get(ctx, *cc.this())?;
 
     for arg in cc.arguments() {
@@ -83,26 +85,27 @@ fn js_file_puts(ctx: ContextRef, cc: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
-fn js_file_close(ctx: ContextRef, cc: CallContext) -> JSResult {
+fn js_file_close(cc: CallContext) -> JSResult {
     let mut this = *cc.this();
     let u = this
-        .retrive_object_payload_mut(&ctx, JSFile::class_id())?
+        .retrive_object_payload_mut(&cc.context(), JSFile::class_id())?
         .other_mut()
         .unwrap();
 
     if !u.opaque().is_null() {
         unsafe {
             let p = u.replace_opaque(std::ptr::null_mut());
-            let f = Box::from_raw(p.cast::<std::fs::File>());
+            drop(Box::from_raw(p.cast::<std::fs::File>()));
         }
     }
+
     Ok(JSValue::UNDEFINED)
 }
 
 static CLASS_FILE_PROTO: [FieldDef; 3] = [
-    FieldDef::FUNCTION("readAsString", 0, js_file_readAsString, 0),
-    FieldDef::FUNCTION("puts", 1, js_file_puts, 0),
-    FieldDef::FUNCTION("close", 0, js_file_close, 0),
+    FieldDef::CALL("readAsString", 0, js_file_readAsString, 0),
+    FieldDef::CALL("puts", 1, js_file_puts, 0),
+    FieldDef::CALL("close", 0, js_file_close, 0),
 ];
 
 pub struct JSFile;

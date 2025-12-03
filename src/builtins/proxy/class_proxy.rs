@@ -60,4 +60,4 @@ fn js_proxy_revocable(ctx: ContextRef, cc: CallContext) -> JSResult {
 }
 
 pub static js_proxy_funcs: [FieldDef; 1] =
-    [FieldDef::FUNCTION("revocable", 2, js_proxy_revocable, 0)];
+    [FieldDef::FUNCTION_V1("revocable", 2, js_proxy_revocable, 0)];

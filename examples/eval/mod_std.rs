@@ -1,5 +1,5 @@
 use zhuque::{
-    context::{ContextHandle, ContextImpl, ContextRef},
+    context::ContextHandle,
     error::JSResult,
     function::{CallContext, FieldDef},
     object::JS_PROP_C_W_E,
@@ -8,7 +8,8 @@ use zhuque::{
 
 use crate::class_file::JSFile;
 
-fn js_std_open(ctx: ContextRef, cc: CallContext) -> JSResult {
+fn js_std_open(cc: CallContext) -> JSResult {
+    let ctx = cc.context();
     let filename = cc.arg(0).to_string(&ctx)?;
     let mode = if cc.length() > 1 {
         cc.arg(1)
@@ -27,7 +28,7 @@ fn js_std_open(ctx: ContextRef, cc: CallContext) -> JSResult {
             opts.read(true);
         }
         "w" | "wb" => {
-            opts.write(true).create(true);
+            opts.write(true).truncate(true).create(true);
         }
         "a" | "ab" => {
             opts.write(true).append(true).create(true);
@@ -73,14 +74,14 @@ fn js_std_open(ctx: ContextRef, cc: CallContext) -> JSResult {
     }
 }
 
-fn std_exit(_: ContextRef, _: CallContext) -> JSResult {
+fn std_exit(_: CallContext) -> JSResult {
     println!("*** exit called");
     Ok(JSValue::UNDEFINED)
 }
 
 static MOD_STD_ENTRIES: [FieldDef; 3] = [
-    FieldDef::FUNCTION("open", 2, js_std_open, 0),
-    FieldDef::FUNCTION("exit", 1, std_exit, 0),
+    FieldDef::CALL("open", 2, js_std_open, 0),
+    FieldDef::CALL("exit", 1, std_exit, 0),
     FieldDef::INT32("out", 9, JS_PROP_C_W_E),
 ];
 

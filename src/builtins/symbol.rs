@@ -126,10 +126,10 @@ pub fn js_symbol_get_description(ctx: ContextRef, cc: CallContext) -> JSResult {
 }
 
 pub static js_symbol_proto_funcs: [FieldDef; 5] = [
-    FieldDef::FUNCTION("toString", 0, js_symbol_toString, 0),
-    FieldDef::FUNCTION("valueOf", 0, js_symbol_valueOf, 0),
+    FieldDef::FUNCTION_V1("toString", 0, js_symbol_toString, 0),
+    FieldDef::FUNCTION_V1("valueOf", 0, js_symbol_valueOf, 0),
     // XXX: should have writable: false
-    FieldDef::FUNCTION("[Symbol.toPrimitive]", 1, js_symbol_valueOf, 0),
+    FieldDef::FUNCTION_V1("[Symbol.toPrimitive]", 1, js_symbol_valueOf, 0),
     FieldDef::STR("[Symbol.toStringTag]", "Symbol", JS_PROP_CONFIGURABLE),
     FieldDef::GETSET("description", Some(js_symbol_get_description), None, 0),
 ];
@@ -154,6 +154,6 @@ fn js_symbol_keyFor(ctx: ContextRef, cc: CallContext) -> JSResult {
 }
 
 pub static js_symbol_funcs: [FieldDef; 2] = [
-    FieldDef::FUNCTION("for", 1, js_symbol_for, 0),
-    FieldDef::FUNCTION("keyFor", 1, js_symbol_keyFor, 0),
+    FieldDef::FUNCTION_V1("for", 1, js_symbol_for, 0),
+    FieldDef::FUNCTION_V1("keyFor", 1, js_symbol_keyFor, 0),
 ];

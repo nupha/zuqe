@@ -5,7 +5,7 @@ use zhuque::{
     class::{ClassDef, ClassID},
     context::ContextRef,
     error::JSResult,
-    function::{CallContext, FieldDef, NativeFunctionType},
+    function::{CallContext, CallbackType, FieldDef},
     object::{JS_PROP_C_W_E, ObjectRef},
     runtime::RuntimeImpl,
     value::JSValue,
@@ -17,7 +17,8 @@ pub struct PointData {
     pub y: i32,
 }
 
-fn point_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
+fn point_constructor(cc: CallContext) -> JSResult {
+    let ctx = cc.context();
     let class_id = cc.magic() as ClassID;
 
     let x = cc.arg(0).to_i32(&ctx)?;
@@ -57,7 +58,7 @@ thread_local! {
                     // create constructor
                     let mut ctor: JSValue = ctx
                         .create_native_function(
-                            NativeFunctionType::ConstructorOrFunc(point_constructor),
+                            CallbackType::ConstructorOrFunc(point_constructor),
                             "Point",
                             2,
                             class_id as i16,

@@ -12,8 +12,8 @@ use crate::{
     context::{ContextImpl, ContextRef},
     error::JSResult,
     function::{
-        AsyncFuncState, BytecodeFunction, CallContext, FieldDef, JSFunctionKindEnum,
-        NativeFunctionType, NativeFunctionWithData,
+        AsyncFuncState, BytecodeFunction, CallContext, CallbackType, FieldDef, JSFunctionKindEnum,
+        NativeFunctionWithData,
     },
     object::{JS_PROP_CONFIGURABLE, ObjectImpl, ObjectPayload, ObjectRef},
     object_cast,
@@ -424,7 +424,7 @@ impl AsyncGeneratorFunction {
 
         let ctor: JSValue = ctx
             .create_native_function_with_proto(
-                NativeFunctionType::ConstructorOrFunc(BytecodeFunction::class_constructor),
+                CallbackType::ConstructorOrFunc_v1(BytecodeFunction::class_constructor),
                 "AsyncGeneratorFunction",
                 1,
                 JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR as i16,
@@ -556,7 +556,7 @@ fn js_iterator_proto_iterator(_: ContextRef, cc: CallContext) -> JSResult {
     Ok(*cc.this())
 }
 
-pub static js_async_iterator_proto_funcs: [FieldDef; 1] = [FieldDef::FUNCTION(
+pub static js_async_iterator_proto_funcs: [FieldDef; 1] = [FieldDef::FUNCTION_V1(
     "[Symbol.asyncIterator]",
     0,
     js_iterator_proto_iterator,
@@ -564,9 +564,9 @@ pub static js_async_iterator_proto_funcs: [FieldDef; 1] = [FieldDef::FUNCTION(
 )];
 
 pub static js_async_generator_proto_funcs: [FieldDef; 4] = [
-    FieldDef::FUNCTION("next", 1, js_async_generator_next, GEN_MAGIC_NEXT as _),
-    FieldDef::FUNCTION("return", 1, js_async_generator_next, GEN_MAGIC_RETURN as _),
-    FieldDef::FUNCTION("throw", 1, js_async_generator_next, GEN_MAGIC_THROW as _),
+    FieldDef::FUNCTION_V1("next", 1, js_async_generator_next, GEN_MAGIC_NEXT as _),
+    FieldDef::FUNCTION_V1("return", 1, js_async_generator_next, GEN_MAGIC_RETURN as _),
+    FieldDef::FUNCTION_V1("throw", 1, js_async_generator_next, GEN_MAGIC_THROW as _),
     FieldDef::STR(
         "[Symbol.toStringTag]",
         "AsyncGenerator",

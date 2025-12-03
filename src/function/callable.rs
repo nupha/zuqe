@@ -7,7 +7,7 @@ use crate::{
     atom::Atom,
     context::{ContextImpl, ContextRef},
     error::JSResult,
-    function::{CallContext, NativeCallback, js_function_set_properties},
+    function::{CallContext, NativeCallback_v1, js_function_set_properties},
     object::{ObjectImpl, ObjectPayload, ObjectRef},
     object_cast,
     value::JSValue,
@@ -15,7 +15,7 @@ use crate::{
 
 #[derive(Debug)]
 pub struct NativeFuncData {
-    func: NativeCallback,
+    func: NativeCallback_v1,
     length: u8,
     data: Rc<RefCell<Box<[JSValue]>>>,
     magic: u16,
@@ -29,7 +29,7 @@ unsafe impl Collect for NativeFuncData {
 }
 
 impl NativeFuncData {
-    fn new(callback: NativeCallback, length: u8, magic: i32, data: Box<[JSValue]>) -> Box<Self> {
+    fn new(callback: NativeCallback_v1, length: u8, magic: i32, data: Box<[JSValue]>) -> Box<Self> {
         Box::new(NativeFuncData {
             func: callback,
             length,
@@ -67,7 +67,7 @@ impl NativeFunctionWithData {
     /// Create a C_FUNCTION_DATA class object, which behaves like a native function, with attached data.
     pub(crate) fn create(
         ctx: &ContextImpl,
-        callback: NativeCallback,
+        callback: NativeCallback_v1,
         length: u8,
         magic: i32,
         data: Box<[JSValue]>,

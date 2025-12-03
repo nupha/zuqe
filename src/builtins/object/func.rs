@@ -390,57 +390,57 @@ pub fn js_object_hasOwn(ctx: ContextRef, cc: CallContext) -> JSResult {
 }
 
 pub static js_object_funcs: [FieldDef; 23] = [
-    FieldDef::FUNCTION("create", 2, js_object_create, 0),
-    FieldDef::FUNCTION("getPrototypeOf", 1, js_object_getPrototypeOf, 0),
-    FieldDef::FUNCTION("setPrototypeOf", 2, js_object_setPrototypeOf, 0),
-    FieldDef::FUNCTION("defineProperty", 3, js_object_defineProperty, 0),
-    FieldDef::FUNCTION("defineProperties", 2, js_object_defineProperties, 0),
-    FieldDef::FUNCTION("getOwnPropertyNames", 1, js_object_getOwnPropertyNames, 0),
-    FieldDef::FUNCTION(
+    FieldDef::FUNCTION_V1("create", 2, js_object_create, 0),
+    FieldDef::FUNCTION_V1("getPrototypeOf", 1, js_object_getPrototypeOf, 0),
+    FieldDef::FUNCTION_V1("setPrototypeOf", 2, js_object_setPrototypeOf, 0),
+    FieldDef::FUNCTION_V1("defineProperty", 3, js_object_defineProperty, 0),
+    FieldDef::FUNCTION_V1("defineProperties", 2, js_object_defineProperties, 0),
+    FieldDef::FUNCTION_V1("getOwnPropertyNames", 1, js_object_getOwnPropertyNames, 0),
+    FieldDef::FUNCTION_V1(
         "getOwnPropertySymbols",
         1,
         js_object_getOwnPropertySymbols,
         0,
     ),
-    FieldDef::FUNCTION("groupBy", 2, js_object_groupBy, 0),
-    FieldDef::FUNCTION(
+    FieldDef::FUNCTION_V1("groupBy", 2, js_object_groupBy, 0),
+    FieldDef::FUNCTION_V1(
         "keys",
         1,
         js_object_keys,
         JSIteratorKindEnum::JS_ITERATOR_KIND_KEY as i16,
     ),
-    FieldDef::FUNCTION(
+    FieldDef::FUNCTION_V1(
         "values",
         1,
         js_object_keys,
         JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16,
     ),
-    FieldDef::FUNCTION(
+    FieldDef::FUNCTION_V1(
         "entries",
         1,
         js_object_keys,
         JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE as i16,
     ),
-    FieldDef::FUNCTION("isExtensible", 1, js_object_isExtensible, 0),
-    FieldDef::FUNCTION("preventExtensions", 1, js_object_preventExtensions, 0),
-    FieldDef::FUNCTION(
+    FieldDef::FUNCTION_V1("isExtensible", 1, js_object_isExtensible, 0),
+    FieldDef::FUNCTION_V1("preventExtensions", 1, js_object_preventExtensions, 0),
+    FieldDef::FUNCTION_V1(
         "getOwnPropertyDescriptor",
         2,
         js_object_getOwnPropertyDescriptor,
         0,
     ),
-    FieldDef::FUNCTION(
+    FieldDef::FUNCTION_V1(
         "getOwnPropertyDescriptors",
         1,
         js_object_getOwnPropertyDescriptors,
         0,
     ),
-    FieldDef::FUNCTION("is", 2, js_object_is, 0),
-    FieldDef::FUNCTION("assign", 2, js_object_assign, 0),
-    FieldDef::FUNCTION("seal", 1, js_object_seal, 0),
-    FieldDef::FUNCTION("freeze", 1, js_object_seal, 1),
-    FieldDef::FUNCTION("isSealed", 1, js_object_isSealed, 0),
-    FieldDef::FUNCTION("isFrozen", 1, js_object_isSealed, 1),
+    FieldDef::FUNCTION_V1("is", 2, js_object_is, 0),
+    FieldDef::FUNCTION_V1("assign", 2, js_object_assign, 0),
+    FieldDef::FUNCTION_V1("seal", 1, js_object_seal, 0),
+    FieldDef::FUNCTION_V1("freeze", 1, js_object_seal, 1),
+    FieldDef::FUNCTION_V1("isSealed", 1, js_object_isSealed, 0),
+    FieldDef::FUNCTION_V1("isFrozen", 1, js_object_isSealed, 1),
     //JS_CFUNC_DEF!(c"__getClass", 1, js_object___getClass),
     //JS_CFUNC_DEF(c"__isObject", 1, js_object___isObject ),
     //JS_CFUNC_DEF(c"__isConstructor", 1, js_object___isConstructor ),
@@ -452,6 +452,6 @@ pub static js_object_funcs: [FieldDef; 23] = [
     //JS_CFUNC_DEF(c"__isSameValueZero", 2, js_object___isSameValueZero ),
     //JS_CFUNC_DEF(c"__getObjectData", 1, js_object___getObjectData ),
     //JS_CFUNC_DEF(c"__setObjectData", 2, js_object___setObjectData ),
-    FieldDef::FUNCTION("fromEntries", 1, js_object_fromEntries, 0),
-    FieldDef::FUNCTION("hasOwn", 2, js_object_hasOwn, 0),
+    FieldDef::FUNCTION_V1("fromEntries", 1, js_object_fromEntries, 0),
+    FieldDef::FUNCTION_V1("hasOwn", 2, js_object_hasOwn, 0),
 ];

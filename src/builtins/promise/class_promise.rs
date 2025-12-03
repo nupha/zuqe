@@ -356,18 +356,18 @@ pub fn js_promise_withResolvers(ctx: ContextRef, cc: CallContext) -> JSResult {
 }
 
 pub static js_promise_funcs: [FieldDef; 8] = [
-    FieldDef::FUNCTION("resolve", 1, js_promise_resolve, 0),
-    FieldDef::FUNCTION("reject", 1, js_promise_resolve, 1),
-    FieldDef::FUNCTION("all", 1, js_promise_all, PROMISE_MAGIC_all as _),
-    FieldDef::FUNCTION(
+    FieldDef::FUNCTION_V1("resolve", 1, js_promise_resolve, 0),
+    FieldDef::FUNCTION_V1("reject", 1, js_promise_resolve, 1),
+    FieldDef::FUNCTION_V1("all", 1, js_promise_all, PROMISE_MAGIC_all as _),
+    FieldDef::FUNCTION_V1(
         "allSettled",
         1,
         js_promise_all,
         PROMISE_MAGIC_allSettled as _,
     ),
-    FieldDef::FUNCTION("any", 1, js_promise_all, PROMISE_MAGIC_any as _),
-    FieldDef::FUNCTION("race", 1, js_promise_race, 0),
-    FieldDef::FUNCTION("withResolvers", 0, js_promise_withResolvers, 0),
+    FieldDef::FUNCTION_V1("any", 1, js_promise_all, PROMISE_MAGIC_any as _),
+    FieldDef::FUNCTION_V1("race", 1, js_promise_race, 0),
+    FieldDef::FUNCTION_V1("withResolvers", 0, js_promise_withResolvers, 0),
     FieldDef::GETSET("[Symbol.species]", Some(js_get_this), None, 0),
 ];
 
@@ -384,8 +384,8 @@ pub static js_promise_funcs: [FieldDef; 8] = [
 // }
 
 pub static js_promise_proto_funcs: [FieldDef; 4] = [
-    FieldDef::FUNCTION("then", 2, js_promise_then, 0),
-    FieldDef::FUNCTION("catch", 1, js_promise_catch, 0),
-    FieldDef::FUNCTION("finally", 1, js_promise_finally, 0),
+    FieldDef::FUNCTION_V1("then", 2, js_promise_then, 0),
+    FieldDef::FUNCTION_V1("catch", 1, js_promise_catch, 0),
+    FieldDef::FUNCTION_V1("finally", 1, js_promise_finally, 0),
     FieldDef::STR("[Symbol.toStringTag]", "Promise", JS_PROP_CONFIGURABLE),
 ];

@@ -24,7 +24,7 @@ use crate::{
     },
     context::{ContextRef, JS_MODE_STRICT},
     error::{ErrorKind, JSResult, STD_ERROR_NAMES},
-    function::{BytecodeFunction, JSFunctionKindEnum, NativeFunctionType},
+    function::{BytecodeFunction, CallbackType, JSFunctionKindEnum},
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET,
         JS_PROP_HAS_SET, JS_PROP_WRITABLE, ObjectPayload,
@@ -48,7 +48,7 @@ impl ContextRef {
         // FOR LEGACY: make throw type error function
         let mut throw_type_error = self
             .create_native_function(
-                NativeFunctionType::Func(|ctx, cc| {
+                CallbackType::Func_v1(|ctx, cc| {
                     // throw only in strict mode
                     let throw = cc
                         .this()
@@ -120,7 +120,7 @@ impl ContextRef {
 
         let ctor: JSValue = self
             .create_native_function(
-                NativeFunctionType::ConstructorOrFunc(BytecodeFunction::class_constructor),
+                CallbackType::ConstructorOrFunc_v1(BytecodeFunction::class_constructor),
                 "Function",
                 1,
                 JSFunctionKindEnum::JS_FUNC_NORMAL as _,
@@ -136,7 +136,7 @@ impl ContextRef {
         // Error() constructor
         let ctor = self
             .create_native_function(
-                NativeFunctionType::ConstructorOrFunc(js_error_constructor),
+                CallbackType::ConstructorOrFunc_v1(js_error_constructor),
                 "Error",
                 1,
                 -1,
@@ -150,7 +150,7 @@ impl ContextRef {
         for (i, name) in STD_ERROR_NAMES.iter().enumerate() {
             let func_obj = self
                 .create_native_function_with_proto(
-                    NativeFunctionType::ConstructorOrFunc(js_error_constructor),
+                    CallbackType::ConstructorOrFunc_v1(js_error_constructor),
                     name,
                     if i == ErrorKind::Aggregate as usize {
                         2
@@ -368,7 +368,7 @@ impl ContextRef {
         // generator constructor
         let ctor: JSValue = self
             .create_native_function(
-                NativeFunctionType::ConstructorOrFunc(BytecodeFunction::class_constructor),
+                CallbackType::ConstructorOrFunc_v1(BytecodeFunction::class_constructor),
                 "GeneratorFunction",
                 1,
                 JSFunctionKindEnum::JS_FUNC_GENERATOR as i16,
@@ -415,7 +415,7 @@ impl ContextRef {
         );
 
         let eval_func: JSValue = self
-            .create_native_function(NativeFunctionType::Func(js_global_eval), "eval", 1, 0)
+            .create_native_function(CallbackType::Func_v1(js_global_eval), "eval", 1, 0)
             .unwrap()
             .into();
         self.eval_func = eval_func;

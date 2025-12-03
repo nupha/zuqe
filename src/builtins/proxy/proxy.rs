@@ -8,7 +8,7 @@ use crate::{
     class::{ClassID, JSClassExoticMethods},
     context::{ContextImpl, ContextRef},
     error::JSResult,
-    function::{JS_CALL_FLAG_CONSTRUCTOR, JS_CallConstructor2, NativeFunctionType},
+    function::{CallbackType, JS_CALL_FLAG_CONSTRUCTOR, JS_CallConstructor2},
     object::{
         JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_GETSET,
         JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
@@ -206,7 +206,7 @@ object_cast!(Proxy, JS_CLASS_PROXY);
 impl Proxy {
     pub fn class_initialize(ctx: ContextRef, _: ClassID) -> Result<Option<ObjectRef>, i32> {
         let mut proto = ctx.create_native_function(
-            NativeFunctionType::Constructor(js_proxy_constructor),
+            CallbackType::Constructor_v1(js_proxy_constructor),
             "Proxy",
             2,
             0,

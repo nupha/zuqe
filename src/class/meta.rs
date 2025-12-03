@@ -8,7 +8,7 @@ use crate::{
     },
     context::ContextImpl,
     error::JSResult,
-    function::{NativeCallback, NativeFunctionType},
+    function::{CallbackType, NativeCallback_v1},
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, ObjectRef},
     runtime::RuntimeImpl,
     value::JSValue,
@@ -178,14 +178,17 @@ impl ContextImpl {
     fn create_global_constructor_internal(
         &mut self,
         name: &str,
-        handler: NativeFunctionType,
+        handler: CallbackType,
         length: i32,
         proto: JSValue,
         magic: i16,
     ) -> JSResult {
         debug_assert!(matches!(
             handler,
-            NativeFunctionType::Constructor(_) | NativeFunctionType::ConstructorOrFunc(_)
+            CallbackType::Constructor(_)
+                | CallbackType::ConstructorOrFunc(_)
+                | CallbackType::Constructor_v1(_)
+                | CallbackType::ConstructorOrFunc_v1(_)
         ));
 
         let func_obj: JSValue = self
@@ -202,14 +205,14 @@ impl ContextImpl {
     pub fn create_global_constructor_or_func(
         &mut self,
         name: &str,
-        callback: NativeCallback,
+        callback: NativeCallback_v1,
         length: i32,
         proto: JSValue,
         magic: i16,
     ) -> JSResult {
         self.create_global_constructor_internal(
             name,
-            NativeFunctionType::ConstructorOrFunc(callback),
+            CallbackType::ConstructorOrFunc_v1(callback),
             length,
             proto,
             magic,
@@ -222,14 +225,14 @@ impl ContextImpl {
     pub fn create_global_constructor_only(
         &mut self,
         name: &str,
-        callback: NativeCallback,
+        callback: NativeCallback_v1,
         length: i32,
         proto: JSValue,
         magic: i16,
     ) -> JSResult {
         self.create_global_constructor_internal(
             name,
-            NativeFunctionType::Constructor(callback),
+            CallbackType::Constructor_v1(callback),
             length,
             proto,
             magic,

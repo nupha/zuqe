@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     atom::Atom,
-    context::{ContextImpl, ContextRef},
+    context::{ContextHandle, ContextImpl, ContextRef},
     error::JSResult,
     function::build_arg_list,
     object::{ObjectPayload, ObjectRef},
@@ -46,18 +46,24 @@ impl<'cc> CallContext<'cc> {
         Self::new(ctx, this, args, 0, None)
     }
 
+    /// Context handle
     #[inline(always)]
-    pub const fn ctx_ptr(&self) -> ContextRef {
+    pub fn context(&self) -> ContextHandle<'cc> {
+        ContextHandle::from(self.ctx)
+    }
+
+    #[inline(always)]
+    pub(crate) const fn ctx_ptr(&self) -> ContextRef {
         self.ctx
     }
 
     #[inline(always)]
-    pub fn ctx(&self) -> &ContextImpl {
+    pub(crate) fn ctx(&self) -> &ContextImpl {
         self.ctx.deref()
     }
 
     #[inline(always)]
-    pub fn ctx_mut(&mut self) -> &mut ContextImpl {
+    pub(crate) fn ctx_mut(&mut self) -> &mut ContextImpl {
         self.ctx.deref_mut()
     }
 
@@ -65,7 +71,7 @@ impl<'cc> CallContext<'cc> {
         self.magic
     }
 
-    /// get arguments count
+    /// number of actual arguments
     #[inline(always)]
     pub const fn length(&self) -> usize {
         self.args.len()
@@ -85,11 +91,11 @@ impl<'cc> CallContext<'cc> {
 
     /// set new `this` value, drop old `this`.
     /// Note: `this_val` is consumed.
-    pub const fn set_this(&mut self, this_val: JSValue) {
+    pub(crate) const fn set_this(&mut self, this_val: JSValue) {
         self.this_value = this_val;
     }
 
-    /// get nth argument value ref
+    /// get `nth` argument, fail-safe to JSValue::UNDEFINED.
     #[inline(always)]
     pub fn arg(&self, nth: usize) -> &JSValue {
         self.args.get(nth).unwrap_or(&JSValue::UNDEFINED)
@@ -101,8 +107,7 @@ impl<'cc> CallContext<'cc> {
         self.args
     }
 
-    /// get nth extra data value.
-    /// returned value is cloned, caller should free it after use.
+    /// get `nth` bound data.
     #[inline]
     pub fn data(&self, nth: usize) -> JSValue {
         self.data
@@ -111,7 +116,7 @@ impl<'cc> CallContext<'cc> {
             .unwrap_or(JSValue::UNDEFINED)
     }
 
-    /// data length
+    /// number of bound data values
     #[inline]
     pub fn data_len(&self) -> usize {
         self.data.as_ref().map(|d| d.borrow().len()).unwrap_or(0)

@@ -16,7 +16,7 @@ use crate::{
     class::ClassID,
     error::{STD_ERROR_COUNT, STD_ERROR_NAMES, js_error_proto_funcs},
     eval::EvalFn,
-    function::{NativeFunctionType, js_function_proto},
+    function::{CallbackType, js_function_proto},
     gcref_wrapper,
     module::{JSFreeModuleEnum, ModuleDef, js_free_modules},
     object::{
@@ -28,6 +28,7 @@ use crate::{
 };
 
 /// An execution context, holds environment with global object, calling stack, and execution state.
+/// TODO: make this in-crate visible.
 pub struct ContextImpl {
     rt: RuntimePtr,
 
@@ -306,7 +307,7 @@ impl<'a> DerefMut for ContextHandle<'a> {
 /// This is suggested to use internally only,
 /// for public api, use `ContextHandle` instead, which is same but has lifetime restriction.
 ///
-// TODO: make this in-crate visible.
+/// TODO: make this in-crate visible.
 #[repr(transparent)]
 #[derive(Clone, Copy)]
 pub struct ContextRef(GcRef<ContextImpl>);
@@ -324,6 +325,16 @@ impl From<ContextHandle<'_>> for ContextRef {
     #[inline(always)]
     fn from(h: ContextHandle<'_>) -> Self {
         Self(h.gc_ref)
+    }
+}
+
+impl<'a> From<ContextRef> for ContextHandle<'a> {
+    #[inline(always)]
+    fn from(p: ContextRef) -> Self {
+        Self {
+            gc_ref: p.gc_ref(),
+            _mark: PhantomData,
+        }
     }
 }
 
@@ -358,7 +369,7 @@ impl ContextRef {
         // Function
         {
             let func = self.create_native_function_with_proto(
-                NativeFunctionType::Func(js_function_proto),
+                CallbackType::Func_v1(js_function_proto),
                 "",
                 0,
                 0,
@@ -466,17 +477,4 @@ impl RuntimeImpl {
             _mark: PhantomData,
         })
     }
-}
-
-/// Represents atomic operations
-pub enum AtomicOp {
-    Add,
-    And,
-    CompareExchange,
-    Exchange,
-    Load,
-    Or,
-    Store,
-    Sub,
-    Xor,
 }

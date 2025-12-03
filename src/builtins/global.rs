@@ -147,17 +147,17 @@ fn js_global_decodeURI(ctx: ContextRef, cc: CallContext) -> JSResult {
 
 // global objects
 pub static js_global_props: [FieldDef; 9] = [
-    FieldDef::FUNCTION("parseInt", 2, js_parseInt, 0),
-    FieldDef::FUNCTION("parseFloat", 1, js_parseFloat, 0),
-    FieldDef::FUNCTION("isNaN", 1, js_global_isNaN_isFinite, MAGIC_NUM_IS_NAN as _),
-    FieldDef::FUNCTION(
+    FieldDef::FUNCTION_V1("parseInt", 2, js_parseInt, 0),
+    FieldDef::FUNCTION_V1("parseFloat", 1, js_parseFloat, 0),
+    FieldDef::FUNCTION_V1("isNaN", 1, js_global_isNaN_isFinite, MAGIC_NUM_IS_NAN as _),
+    FieldDef::FUNCTION_V1(
         "isFinite",
         1,
         js_global_isNaN_isFinite,
         MAGIC_NUM_IS_FINITE as _,
     ),
-    FieldDef::FUNCTION("decodeURI", 1, js_global_decodeURI, 0),
-    FieldDef::FUNCTION("decodeURIComponent", 1, js_global_decodeURI, 1),
+    FieldDef::FUNCTION_V1("decodeURI", 1, js_global_decodeURI, 0),
+    FieldDef::FUNCTION_V1("decodeURIComponent", 1, js_global_decodeURI, 1),
     // JS_CFUNC_MAGIC_DEF("encodeURI", 1, js_global_encodeURI, 0),
     // JS_CFUNC_MAGIC_DEF("encodeURIComponent", 1, js_global_encodeURI, 1),
     // JS_CFUNC_DEF("escape", 1, js_global_escape),

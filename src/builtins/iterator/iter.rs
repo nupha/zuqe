@@ -6,7 +6,7 @@ use crate::{
     atom::Atom,
     context::{ContextImpl, ContextRef},
     error::JSResult,
-    function::{CallContext, FieldDef, IteratorState, NativeFunctionType},
+    function::{CallContext, CallbackType, FieldDef, IteratorState},
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SET_ENUM, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
         JS_PROP_THROW, ObjectPayload, ObjectRef, PropertyKey,
@@ -222,14 +222,14 @@ impl<'a> ObjectIter<'a> {
             // fast path for the built-in iterators (avoid creating the
             // intermediate result object)
             match nfun.handler {
-                NativeFunctionType::IteratorNext(f) => {
+                CallbackType::IteratorNext(f) => {
                     let mut state = IteratorState::NotDone;
                     let ctx_ptr = unsafe { ContextRef::from_ref_unchecked(ctx) };
                     let cc = CallContext::new(ctx_ptr, obj.into(), args, nfun.magic as _, None);
                     let ret = f(ctx_ptr, cc, &mut state)?;
                     return Ok((ret, state));
                 }
-                NativeFunctionType::CIteratorNext(f) => {
+                CallbackType::CIteratorNext(f) => {
                     let mut pdone = 0;
                     let ret = f(ctx, obj.into(), args, &mut pdone, nfun.magic as _).err()?;
 
@@ -467,7 +467,7 @@ pub fn js_iterator_proto_iterator(_: ContextRef, cc: CallContext) -> JSResult {
     Ok(*cc.this())
 }
 
-pub static js_iterator_proto_funcs: [FieldDef; 1] = [FieldDef::FUNCTION(
+pub static js_iterator_proto_funcs: [FieldDef; 1] = [FieldDef::FUNCTION_V1(
     "[Symbol.iterator]",
     0,
     js_iterator_proto_iterator,

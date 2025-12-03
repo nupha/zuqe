@@ -2484,7 +2484,7 @@ pub unsafe fn JS_NewCFunction3(
     //     proto_val,
     //     ObjectPayload::C_FUNCTION(NFuncPayload {
     //         realm: ctx.downgrade(),
-    //         handler: NativeFunctionType::CFunc(func),
+    //         handler: CallbackType::CFunc(func),
     //         length,
     //         magic,
     //     }),

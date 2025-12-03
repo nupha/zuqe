@@ -14,8 +14,8 @@ use crate::{
     class::ClassID,
     context::{ContextRef, JS_MODE_STRICT},
     error::{ErrorKind, STD_ERROR_NAMES, js_error_proto_funcs},
-    function::{BytecodeFunction, JSFunctionKindEnum, NativeFunctionType, js_function_proto},
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_WRITABLE, ShapeHandle, ObjectPayload},
+    function::{BytecodeFunction, CallbackType, JSFunctionKindEnum, js_function_proto},
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_WRITABLE, ObjectPayload, ShapeHandle},
     value::JSValue,
 };
 
@@ -45,7 +45,7 @@ impl ContextRef {
         {
             let func_obj = self
                 .create_native_function_with_proto(
-                    NativeFunctionType::Func(js_function_proto),
+                    CallbackType::Func(js_function_proto),
                     "",
                     0,
                     0,

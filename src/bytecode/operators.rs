@@ -7,7 +7,7 @@ use crate::{
     },
     class::JS_DEFINE_CLASS_HAS_HERITAGE,
     context::ContextImpl,
-    function::{JSFunctionKindEnum, JSVarRef, NativeFunctionType},
+    function::{JSFunctionKindEnum, JSVarRef, CallbackType},
     object::{
         JS_GPN_INDEX_MASK, JS_GPN_SET_ENUM, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE,
         JS_PROP_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW, JS_PROP_THROW_STRICT,
@@ -269,7 +269,7 @@ pub(super) unsafe fn js_append_enumerate(ctx: &ContextImpl, sp: *mut JSValue) ->
     let is_array_iterator = src
         .get_property(ctx, Atom::CONST_Symbol_iterator)?
         .match_native_callback(
-            NativeFunctionType::Func(js_create_array_iterator),
+            CallbackType::Func_v1(js_create_array_iterator),
             JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as _,
         );
 
@@ -278,7 +278,7 @@ pub(super) unsafe fn js_append_enumerate(ctx: &ContextImpl, sp: *mut JSValue) ->
     let is_sparse_array = if is_array_iterator
         && it
             .next_method
-            .match_native_callback(NativeFunctionType::IteratorNext(js_array_iterator_next), 0)
+            .match_native_callback(CallbackType::IteratorNext(js_array_iterator_next), 0)
     {
         // fast path: fast array
         src.with_fast_array_values(|lst| -> Result<bool, i32> {

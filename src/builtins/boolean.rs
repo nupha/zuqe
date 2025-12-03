@@ -53,6 +53,6 @@ pub fn js_boolean_valueOf(ctx: ContextRef, args: CallContext) -> JSResult {
 }
 
 pub static js_boolean_proto_funcs: [FieldDef; 2] = [
-    FieldDef::FUNCTION("toString", 0, js_boolean_toString, 0),
-    FieldDef::FUNCTION("valueOf", 0, js_boolean_valueOf, 0),
+    FieldDef::FUNCTION_V1("toString", 0, js_boolean_toString, 0),
+    FieldDef::FUNCTION_V1("valueOf", 0, js_boolean_valueOf, 0),
 ];

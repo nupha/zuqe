@@ -79,8 +79,8 @@ fn js_json_parse(ctx: ContextRef, cc: CallContext) -> JSResult {
 }
 
 static js_json_funcs: [FieldDef; 3] = [
-    FieldDef::FUNCTION("parse", 2, js_json_parse, 0),
-    FieldDef::FUNCTION("stringify", 3, js_json_stringify, 0),
+    FieldDef::FUNCTION_V1("parse", 2, js_json_parse, 0),
+    FieldDef::FUNCTION_V1("stringify", 3, js_json_stringify, 0),
     FieldDef::STR("[Symbol.toStringTag]", "JSON", JS_PROP_CONFIGURABLE),
 ];
 

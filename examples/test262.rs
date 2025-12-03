@@ -15,7 +15,7 @@ use zhuque::{
     context::{ContextHandle, ContextImpl, ContextRef},
     error::JSResult,
     eval::{JS_EVAL_FLAG_STRICT, JS_EVAL_TYPE_GLOBAL},
-    function::{CallContext, NativeFunctionType},
+    function::{CallContext, CallbackType},
     module::{JS_SetModuleLoaderFunc, ModuleDef},
     object::JS_PROP_C_W_E,
     runtime::Runtime,
@@ -25,12 +25,14 @@ use zhuque::{
 /// counter of "Test262:AsyncTestComplete" messages
 static ASYNC_DONE: AtomicI32 = AtomicI32::new(0);
 
-fn js_print(ctx: ContextRef, args: CallContext) -> JSResult {
-    for i in 0..args.length() {
+fn js_print(cc: CallContext) -> JSResult {
+    let ctx = cc.context();
+
+    for i in 0..cc.length() {
         if i > 0 {
             print!(" ");
         }
-        let arg = args.arg(i);
+        let arg = cc.arg(i);
         let repr = arg.inspect(&ctx)?;
         print!("{}", repr);
 
@@ -41,6 +43,7 @@ fn js_print(ctx: ContextRef, args: CallContext) -> JSResult {
         }
     }
     println!();
+
     Ok(JSValue::UNDEFINED)
 }
 
@@ -90,7 +93,7 @@ fn setup_ctx_test262_helpers(ctx: &mut ContextImpl) -> Result<JSValue, i32> {
     let mut global = JSValue::Object(ctx.global_obj());
 
     {
-        let s = ctx.create_native_function(NativeFunctionType::Func(js_print), "print", 1, 0)?;
+        let s = ctx.create_native_function(CallbackType::Func(js_print), "print", 1, 0)?;
         global.set_property_str(ctx, "print", s.into())?;
     }
 
@@ -99,7 +102,7 @@ fn setup_ctx_test262_helpers(ctx: &mut ContextImpl) -> Result<JSValue, i32> {
 
     {
         let f = ctx.create_native_function(
-            NativeFunctionType::Func(js_detachArrayBuffer),
+            CallbackType::Func_v1(js_detachArrayBuffer),
             "detachArrayBuffer",
             1,
             0,
@@ -108,19 +111,15 @@ fn setup_ctx_test262_helpers(ctx: &mut ContextImpl) -> Result<JSValue, i32> {
     }
 
     {
-        let f = ctx.create_native_function(
-            NativeFunctionType::Func(js_evalScript),
-            "evalScript",
-            1,
-            0,
-        )?;
+        let f =
+            ctx.create_native_function(CallbackType::Func_v1(js_evalScript), "evalScript", 1, 0)?;
         obj262.set_property_str(ctx, "evalScript", f.into())?;
     }
 
     {
         let f: JSValue = ctx
             .create_native_function(
-                NativeFunctionType::Func(js_string_codePointRange),
+                CallbackType::Func_v1(js_string_codePointRange),
                 "codePointRange",
                 1,
                 0,
@@ -130,12 +129,8 @@ fn setup_ctx_test262_helpers(ctx: &mut ContextImpl) -> Result<JSValue, i32> {
     }
 
     {
-        let f = ctx.create_native_function(
-            NativeFunctionType::Func(js_createRealm),
-            "createRealm",
-            1,
-            0,
-        )?;
+        let f =
+            ctx.create_native_function(CallbackType::Func_v1(js_createRealm), "createRealm", 1, 0)?;
         obj262.set_property_str(ctx, "createRealm", f.into())?;
     }
 
@@ -143,7 +138,7 @@ fn setup_ctx_test262_helpers(ctx: &mut ContextImpl) -> Result<JSValue, i32> {
         ctx,
         "gc",
         ctx.create_native_function(
-            NativeFunctionType::Func(|mut ctx, _| -> JSResult {
+            CallbackType::Func_v1(|mut ctx, _| -> JSResult {
                 ctx.rt_mut().gc_collect();
                 Ok(JSValue::UNDEFINED)
             }),

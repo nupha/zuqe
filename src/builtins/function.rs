@@ -168,11 +168,11 @@ pub fn js_function_proto_lineNumber(_: ContextRef, cc: CallContext) -> JSResult 
 }
 
 pub static js_function_proto_funcs: [FieldDef; 7] = [
-    FieldDef::FUNCTION("call", 1, js_function_call, 0),
-    FieldDef::FUNCTION("apply", 2, js_function_apply, 0),
-    FieldDef::FUNCTION("bind", 1, js_function_bind, 0),
-    FieldDef::FUNCTION("toString", 0, js_function_toString, 0),
-    FieldDef::FUNCTION("[Symbol.hasInstance]", 1, js_function_hasInstance, 0),
+    FieldDef::FUNCTION_V1("call", 1, js_function_call, 0),
+    FieldDef::FUNCTION_V1("apply", 2, js_function_apply, 0),
+    FieldDef::FUNCTION_V1("bind", 1, js_function_bind, 0),
+    FieldDef::FUNCTION_V1("toString", 0, js_function_toString, 0),
+    FieldDef::FUNCTION_V1("[Symbol.hasInstance]", 1, js_function_hasInstance, 0),
     FieldDef::GETSET("fileName", Some(js_function_proto_fileName), None, 0),
     FieldDef::GETSET("lineNumber", Some(js_function_proto_lineNumber), None, 0),
 ];

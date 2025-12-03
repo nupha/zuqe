@@ -19,8 +19,8 @@ use zhuque::{
 };
 
 use crate::{
-    class_file::JSFile, class_point::register_class_point, global::setup_globals, mod_os::ModuleOS,
-    mod_std::init_mod_std,
+    class_file::JSFile, class_point::register_class_point, global::setup_globals,
+    mod_os::init_mod_os, mod_std::init_mod_std,
 };
 
 fn main() {
@@ -54,7 +54,7 @@ fn main() {
 
     // register native modules
     init_mod_std(ctx).unwrap();
-    ModuleOS::register(ctx).unwrap();
+    init_mod_os(ctx).unwrap();
 
     setup_globals(&mut ctx).unwrap();
 

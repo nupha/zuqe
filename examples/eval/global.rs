@@ -2,12 +2,13 @@ use colorized::{Colors, colorize_print, colorize_println};
 use zhuque::{
     context::{ContextImpl, ContextRef},
     error::JSResult,
-    function::{CallContext, NativeFunctionType},
+    function::{CallContext, CallbackType},
     object::JS_PROP_C_W_E,
     value::JSValue,
 };
 
-fn js_print(ctx: ContextRef, cc: CallContext) -> JSResult {
+fn js_print(cc: CallContext) -> JSResult {
+    let ctx = cc.context();
     let level = cc.magic();
     let inspect = level == 100;
 
@@ -45,7 +46,7 @@ fn js_print(ctx: ContextRef, cc: CallContext) -> JSResult {
 pub fn setup_globals(ctx: &mut ContextImpl) -> Result<(), i32> {
     let mut global: JSValue = ctx.global_obj().into();
 
-    let printf = NativeFunctionType::Func(js_print);
+    let printf = CallbackType::Func(js_print);
     global.set_property_str(
         ctx,
         "print",
@@ -77,7 +78,7 @@ pub fn setup_globals(ctx: &mut ContextImpl) -> Result<(), i32> {
     )?;
 
     let f = ctx.create_native_function(
-        NativeFunctionType::Func(|mut cx, _: CallContext| {
+        CallbackType::Func_v1(|mut cx, _: CallContext| {
             let ctx1 = cx.rt_mut().create_context_ecma()?;
             let global = JSValue::Object(ctx1.global_obj());
             Ok(global)
@@ -113,7 +114,7 @@ pub fn setup_globals(ctx: &mut ContextImpl) -> Result<(), i32> {
             ctx,
             "detachArrayBuffer",
             ctx.create_native_function(
-                NativeFunctionType::Func(|ctx: ContextRef, cc: CallContext| -> JSResult {
+                CallbackType::Func_v1(|ctx: ContextRef, cc: CallContext| -> JSResult {
                     if let Some(mut ab) = cc.arg(0).as_object_ArrayBuffer().copied() {
                         ab.detatch(&ctx);
                     }
@@ -131,7 +132,7 @@ pub fn setup_globals(ctx: &mut ContextImpl) -> Result<(), i32> {
         ctx,
         "gc",
         ctx.create_native_function(
-            NativeFunctionType::Func(|mut ctx, _| -> JSResult {
+            CallbackType::Func_v1(|mut ctx, _| -> JSResult {
                 ctx.rt_mut().gc_collect();
                 Ok(JSValue::UNDEFINED)
             }),

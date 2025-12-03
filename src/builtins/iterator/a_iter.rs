@@ -205,19 +205,19 @@ pub fn js_async_from_sync_iterator_next(mut ctx: ContextRef, cc: CallContext) ->
 }
 
 pub static js_async_from_sync_iterator_proto_funcs: [FieldDef; 3] = [
-    FieldDef::FUNCTION(
+    FieldDef::FUNCTION_V1(
         "next",
         1,
         js_async_from_sync_iterator_next,
         GEN_MAGIC_NEXT as _,
     ),
-    FieldDef::FUNCTION(
+    FieldDef::FUNCTION_V1(
         "return",
         1,
         js_async_from_sync_iterator_next,
         GEN_MAGIC_RETURN as _,
     ),
-    FieldDef::FUNCTION(
+    FieldDef::FUNCTION_V1(
         "throw",
         1,
         js_async_from_sync_iterator_next,

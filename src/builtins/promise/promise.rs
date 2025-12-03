@@ -10,7 +10,7 @@ use crate::{
     context::{ContextImpl, ContextRef},
     error::JSResult,
     function::{
-        CallContext, JS_CallConstructor, NativeFunctionType, NativeFunctionWithData,
+        CallContext, CallbackType, JS_CallConstructor, NativeFunctionWithData,
         js_function_set_properties,
     },
     object::{JS_PROP_C_W_E, ObjectImpl, ObjectPayload, ObjectRef},
@@ -310,7 +310,7 @@ impl Promise {
 
         let mut ctor: JSValue = ctx
             .create_native_function(
-                NativeFunctionType::ConstructorOrFunc(Self::class_constructor),
+                CallbackType::ConstructorOrFunc_v1(Self::class_constructor),
                 "Promise",
                 1,
                 0,

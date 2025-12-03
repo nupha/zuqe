@@ -122,7 +122,7 @@ pub static js_array_buffer_proto_funcs: [FieldDef; 4] = [
         JS_CLASS_ARRAY_BUFFER as i16,
     ),
     FieldDef::GETSET("detached", Some(js_array_buffer_detached), None, 0),
-    FieldDef::FUNCTION(
+    FieldDef::FUNCTION_V1(
         "slice",
         2,
         js_array_buffer_slice,
@@ -138,7 +138,7 @@ pub static js_shared_array_buffer_proto_funcs: [FieldDef; 3] = [
         None,
         JS_CLASS_SHARED_ARRAY_BUFFER as i16,
     ),
-    FieldDef::FUNCTION(
+    FieldDef::FUNCTION_V1(
         "slice",
         2,
         js_array_buffer_slice,
@@ -167,7 +167,7 @@ pub fn js_array_buffer_isView(_: ContextRef, cc: CallContext) -> JSResult {
 }
 
 pub static js_array_buffer_funcs: [FieldDef; 2] = [
-    FieldDef::FUNCTION("isView", 1, js_array_buffer_isView, 0),
+    FieldDef::FUNCTION_V1("isView", 1, js_array_buffer_isView, 0),
     FieldDef::GETSET("[Symbol.species]", Some(js_get_this), None, 0),
 ];
 

@@ -1,10 +1,11 @@
-use std::{borrow::Cow, ptr::NonNull};
+use std::ptr::NonNull;
 
 use crate::{
     atom::{ATOM_CONST_COUNT, Atom},
     context::ContextImpl,
     function::{
-        NativeCallback, NativeFunctionType, NativeGetter, NativeIteratorNext, NativeSetter,
+        CallbackType, NativeCallback_v1, NativeCallbackFn, NativeGetterFn, NativeIteratorNextFn,
+        NativeSetterFn,
     },
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, LazyInit, ObjectRef},
     value::JSValue,
@@ -26,12 +27,12 @@ pub const JS_DEF_ALIAS: u8 = 9;
 #[derive(Debug, Clone)]
 pub enum FieldDetail {
     Func {
-        handler: NativeFunctionType,
+        handler: CallbackType,
         length: u8,
     },
     GetSet {
-        get: Option<NativeFunctionType>,
-        set: Option<NativeFunctionType>,
+        get: Option<CallbackType>,
+        set: Option<CallbackType>,
     },
     Alias {
         name: &'static str,
@@ -54,17 +55,36 @@ pub struct FieldDef {
 }
 
 impl FieldDef {
-    /// Define a function field backed by a native callback handler.
-    pub const fn FUNCTION(
+    /// Define a callback function backed by a native handler.
+    pub const fn CALL(
         name: &'static str,
         length: u8,
-        callback: NativeCallback,
+        callback: NativeCallbackFn,
         magic: i16,
     ) -> Self {
         Self {
             name,
             detail: FieldDetail::Func {
-                handler: NativeFunctionType::Func(callback),
+                handler: CallbackType::Func(callback),
+                length,
+            },
+            prop_flags: (JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) as u8,
+            magic,
+        }
+    }
+
+    /// Define a function field backed by a native callback handler.
+    #[deprecated(note = "use ::CALL() instead")]
+    pub(crate) const fn FUNCTION_V1(
+        name: &'static str,
+        length: u8,
+        callback: NativeCallback_v1,
+        magic: i16,
+    ) -> Self {
+        Self {
+            name,
+            detail: FieldDetail::Func {
+                handler: CallbackType::Func_v1(callback),
                 length,
             },
             prop_flags: (JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) as u8,
@@ -75,20 +95,20 @@ impl FieldDef {
     /// Define a getter, setter field
     pub const fn GETSET(
         name: &'static str,
-        get: Option<NativeGetter>,
-        set: Option<NativeSetter>,
+        get: Option<NativeGetterFn>,
+        set: Option<NativeSetterFn>,
         magic: i16,
     ) -> Self {
         Self {
             name,
             detail: FieldDetail::GetSet {
                 get: if let Some(f) = get {
-                    Some(NativeFunctionType::Getter(f))
+                    Some(CallbackType::Getter(f))
                 } else {
                     None
                 },
                 set: if let Some(f) = set {
-                    Some(NativeFunctionType::Setter(f))
+                    Some(CallbackType::Setter(f))
                 } else {
                     None
                 },
@@ -102,13 +122,13 @@ impl FieldDef {
     pub const fn ITERATOR_NEXT(
         name: &'static str,
         length: u8,
-        callback: NativeIteratorNext,
+        callback: NativeIteratorNextFn,
         magic: i16,
     ) -> Self {
         Self {
             name,
             detail: FieldDetail::Func {
-                handler: NativeFunctionType::IteratorNext(callback),
+                handler: CallbackType::IteratorNext(callback),
                 length,
             },
             prop_flags: (JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) as u8,

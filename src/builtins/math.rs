@@ -198,8 +198,8 @@ pub fn js_math_random(mut ctx: ContextRef, _: CallContext) -> JSResult {
 }
 
 pub static js_math_funcs: [FieldDef; 44] = [
-    FieldDef::FUNCTION("min", 2, js_math_min_max, 0),
-    FieldDef::FUNCTION("max", 2, js_math_min_max, 1),
+    FieldDef::FUNCTION_V1("min", 2, js_math_min_max, 0),
+    FieldDef::FUNCTION_V1("max", 2, js_math_min_max, 1),
     //
     JS_CFUNC_FF_DEF!("abs", 1, f64::abs, 0),
     JS_CFUNC_FF_DEF!("floor", 1, f64::floor, 0),
@@ -254,11 +254,11 @@ pub static js_math_funcs: [FieldDef; 44] = [
     JS_CFUNC_FF_DEF!("log2", 1, f64::log2, 0),
     JS_CFUNC_FF_DEF!("log10", 1, f64::log10, 0),
     JS_CFUNC_FF_DEF!("cbrt", 1, f64::cbrt, 0),
-    FieldDef::FUNCTION("hypot", 2, js_math_hypot, 0),
-    FieldDef::FUNCTION("random", 0, js_math_random, 0),
+    FieldDef::FUNCTION_V1("hypot", 2, js_math_hypot, 0),
+    FieldDef::FUNCTION_V1("random", 0, js_math_random, 0),
     JS_CFUNC_FF_DEF!("fround", 1, |a: f64| -> f64 { (a as f32) as f64 }, 0),
-    FieldDef::FUNCTION("imul", 2, js_math_imul, 0),
-    FieldDef::FUNCTION("clz32", 1, js_math_clz32, 0),
+    FieldDef::FUNCTION_V1("imul", 2, js_math_imul, 0),
+    FieldDef::FUNCTION_V1("clz32", 1, js_math_clz32, 0),
     FieldDef::STR("[Symbol.toStringTag]", "Math", JS_PROP_CONFIGURABLE),
     FieldDef::FLOAT64("E", std::f64::consts::E, 0),
     FieldDef::FLOAT64("LN10", std::f64::consts::LN_10, 0),

@@ -8,7 +8,7 @@ use crate::{
     builtins::js_get_this,
     context::{ContextImpl, ContextRef, JS_GetActiveFunction},
     error::JSResult,
-    function::{CallContext, FieldDef, JS_CallConstructor, NativeFunctionType, js_function_apply},
+    function::{CallContext, CallbackType, FieldDef, JS_CallConstructor, js_function_apply},
     object::{
         JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, JS_SpeciesConstructor, ObjectPayload,
         ObjectRef,
@@ -422,9 +422,7 @@ pub fn js_regexp_Symbol_match(ctx: ContextRef, cc: CallContext) -> JSResult {
     let re = js_get_regexp(cx, cc.this(), true).ok_or(-1)?;
     let exec = cc.this().get_property(cx, Atom::CONST_exec)?;
 
-    if !exec.is_function()
-        || exec.match_native_callback(NativeFunctionType::Func(js_regexp_exec), 0)
-    {
+    if !exec.is_function() || exec.match_native_callback(CallbackType::Func_v1(js_regexp_exec), 0) {
         // fast path: use native regex find()
         if re.flags & LRE_FLAG_GLOBAL as u8 != 0 {
             // has g flag: use find(), returns array of match
@@ -573,7 +571,7 @@ fn js_is_standard_regexp(ctx: &ContextImpl, rx: ObjectRef) -> Result<bool, i32> 
     let val = rx.get_property(ctx, Atom::CONST_constructor)?;
     if val.is_same(ctx.regexp_ctor) {
         let f = rx.get_property(ctx, Atom::CONST_exec)?;
-        Ok(f.match_native_callback(NativeFunctionType::Func(js_regexp_exec), 0))
+        Ok(f.match_native_callback(CallbackType::Func_v1(js_regexp_exec), 0))
     } else {
         Ok(false)
     }
@@ -963,15 +961,15 @@ pub static js_regexp_proto_funcs: [FieldDef; 18] = [
         None,
         LRE_FLAG_INDICES as _,
     ),
-    FieldDef::FUNCTION("exec", 1, js_regexp_exec, 0),
-    FieldDef::FUNCTION("compile", 2, js_regexp_compile, 0),
-    FieldDef::FUNCTION("test", 1, js_regexp_test, 0),
-    FieldDef::FUNCTION("toString", 0, js_regexp_toString, 0),
-    FieldDef::FUNCTION("[Symbol.replace]", 2, js_regexp_Symbol_replace, 0),
-    FieldDef::FUNCTION("[Symbol.match]", 1, js_regexp_Symbol_match, 0),
-    FieldDef::FUNCTION("[Symbol.matchAll]", 1, js_regexp_Symbol_matchAll, 0),
-    FieldDef::FUNCTION("[Symbol.search]", 1, js_regexp_Symbol_search, 0),
-    FieldDef::FUNCTION("[Symbol.split]", 2, js_regexp_Symbol_split, 0),
+    FieldDef::FUNCTION_V1("exec", 1, js_regexp_exec, 0),
+    FieldDef::FUNCTION_V1("compile", 2, js_regexp_compile, 0),
+    FieldDef::FUNCTION_V1("test", 1, js_regexp_test, 0),
+    FieldDef::FUNCTION_V1("toString", 0, js_regexp_toString, 0),
+    FieldDef::FUNCTION_V1("[Symbol.replace]", 2, js_regexp_Symbol_replace, 0),
+    FieldDef::FUNCTION_V1("[Symbol.match]", 1, js_regexp_Symbol_match, 0),
+    FieldDef::FUNCTION_V1("[Symbol.matchAll]", 1, js_regexp_Symbol_matchAll, 0),
+    FieldDef::FUNCTION_V1("[Symbol.search]", 1, js_regexp_Symbol_search, 0),
+    FieldDef::FUNCTION_V1("[Symbol.split]", 2, js_regexp_Symbol_split, 0),
     //JS_CGETSET_DEF("__source", js_regexp_get___source, NULL ),
     //JS_CGETSET_DEF("__flags", js_regexp_get___flags, NULL ),
 ];
