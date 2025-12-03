@@ -9,13 +9,8 @@ mod mod_std;
 use std::time::Instant;
 
 use zhuque::{
-    builtins::promise::Promise,
-    context::ContextRef,
-    eval::JS_EVAL_TYPE_GLOBAL,
-    module::{JS_SetModuleLoaderFunc, ModuleDef},
-    parse::JSParseState,
-    runtime::Runtime,
-    value::JSValue,
+    builtins::promise::Promise, context::ContextHandle, eval::JS_EVAL_TYPE_GLOBAL,
+    module::ModuleDef, parse::JSParseState, runtime::Runtime, value::JSValue,
 };
 
 use crate::{
@@ -41,7 +36,7 @@ fn main() {
     let tm0 = Instant::now();
     let mut rt = Runtime::create().unwrap();
 
-    JS_SetModuleLoaderFunc(&mut rt, None, js_module_loader, std::ptr::null_mut());
+    rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());
 
     // register user's native classes
     let class_id_point = register_class_point(&mut rt).unwrap();
@@ -139,7 +134,7 @@ fn main() {
 }
 
 fn js_module_loader(
-    mut ctx: ContextRef,
+    mut ctx: ContextHandle,
     module_name: &str,
     _: *mut std::ffi::c_void,
 ) -> Result<ModuleDef, i32> {

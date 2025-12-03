@@ -5353,3 +5353,15 @@ pub(crate) fn js_async_function_resolve_call(
 fn JS_GetScriptOrModuleName(ctx: &ContextImpl, n_stack_levels: i32) -> Atom {
     unreachable!("unused")
 }
+
+#[deprecated(note = "use RuntimeImpl::set_module_loader() instead")]
+pub fn JS_SetModuleLoaderFunc(
+    rt: &mut RuntimeImpl,
+    module_normalize: Option<ModuleNormalizeFn>,
+    module_loader: ModuleLoadFn,
+    opaque: *mut std::ffi::c_void,
+) {
+    rt.module_normalize_func = module_normalize;
+    rt.module_load_func = Some(module_loader);
+    rt.module_load_opaque = opaque;
+}

@@ -21,7 +21,7 @@ fn js_os_now(_: CallContext) -> JSResult {
 static MOD_OS_ENTRIES: [FieldDef; 1] = [FieldDef::CALL("now", 0, js_os_now, 0)];
 
 pub fn init_mod_os(mut ctx: ContextHandle) -> Result<(), i32> {
-    ctx.register_native_module("os", &MOD_OS_ENTRIES)?;
+    ctx.register_module("os", &MOD_OS_ENTRIES)?;
     Ok(())
 }
 

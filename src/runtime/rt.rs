@@ -20,7 +20,7 @@ use crate::{
     function::{
         AsyncFuncState, AsyncFunction, BoundFunction, NFuncPayload, NativeFunctionWithData,
     },
-    module::{JSModuleLoaderFunc, JSModuleNormalizeFunc, js_module_ns_exotic_methods},
+    module::{ModuleLoadFn, ModuleNormalizeFn, js_module_ns_exotic_methods},
     object::{ShapeImpl, ShapeRegistry},
     resource::LocalResource,
     stack_frame::StackFrame,
@@ -63,9 +63,10 @@ pub struct RuntimeImpl {
     pub(crate) host_promise_rejection_tracker: Option<JSHostPromiseRejectionTracker>,
     pub(crate) host_promise_rejection_tracker_opaque: *mut c_void,
 
-    pub(crate) module_normalize_func: Option<JSModuleNormalizeFunc>,
-    pub(crate) module_loader_func: Option<JSModuleLoaderFunc>,
-    pub(crate) module_loader_opaque: *mut c_void,
+    pub(crate) module_normalize_func: Option<ModuleNormalizeFn>,
+    pub(crate) module_load_func: Option<ModuleLoadFn>,
+    pub(crate) module_load_opaque: *mut c_void,
+
     /* timestamp for internal use in module evaluation */
     pub(crate) module_async_evaluation_next_timestamp: i64,
 
@@ -120,7 +121,7 @@ impl RuntimeImpl {
 
             cur_stack_frame: std::ptr::null_mut(),
             host_promise_rejection_tracker_opaque: std::ptr::null_mut(),
-            module_loader_opaque: std::ptr::null_mut(),
+            module_load_opaque: std::ptr::null_mut(),
             sab_funcs: None,
 
             context_list: Vec::with_capacity(1),
@@ -140,7 +141,7 @@ impl RuntimeImpl {
             host_promise_rejection_tracker: None,
 
             module_normalize_func: None,
-            module_loader_func: None,
+            module_load_func: None,
             module_async_evaluation_next_timestamp: 0,
             can_block: false,
 

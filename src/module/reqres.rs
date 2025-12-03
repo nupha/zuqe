@@ -111,8 +111,9 @@ pub fn js_host_resolve_imported_module(
     base_cname: &str,
     cname1: &str,
 ) -> Result<ModuleDef, i32> {
+    // normalize module name
     let name = if let Some(cb) = ctx.rt().module_normalize_func {
-        cb(ctx, base_cname, cname1, ctx.rt().module_loader_opaque)
+        cb(ctx.into(), base_cname, cname1, ctx.rt().module_load_opaque)
     } else {
         js_default_module_normalize_name(&ctx, base_cname, cname1)
     }?;
@@ -124,9 +125,9 @@ pub fn js_host_resolve_imported_module(
         return Ok(m);
     }
 
-    // load the module
-    if let Some(cb) = ctx.rt().module_loader_func {
-        cb(ctx, &name, ctx.rt().module_loader_opaque)
+    // load module
+    if let Some(cb) = ctx.rt().module_load_func {
+        cb(ctx.into(), &name, ctx.rt().module_load_opaque)
     } else {
         #[cfg(debug_assertions)]
         println!("WARN: module loader function is not set, can't import module.");

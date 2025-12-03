@@ -4,7 +4,7 @@ use crate::{
     atom::Atom,
     builtins::promise::Promise,
     class::JSClassExoticMethods,
-    context::{ContextImpl, ContextRef},
+    context::{ContextHandle, ContextImpl, ContextRef},
     function::{BCFuncPayload, FieldDef, JSFunctionDef, JSVarKindEnum, JSVarRef},
     gcref_wrapper,
     module::{ExportEntry, ExportType, ImportEntry, JSModuleStatus, ModuleDependency},
@@ -14,21 +14,21 @@ use crate::{
     value::JSValue,
 };
 
-pub type JSModuleNormalizeFunc = fn(
-    ctx: ContextRef,
-    module_base_name: &str,
-    module_name: &str,
+pub type ModuleNormalizeFn = fn(
+    ctx: ContextHandle,
+    base_name: &str,
+    name: &str,
     opaque: *mut ::core::ffi::c_void,
 ) -> Result<String, i32>;
 
-pub type JSModuleLoaderFunc = fn(
-    ctx: ContextRef,
+pub type ModuleLoadFn = fn(
+    ctx: ContextHandle,
     module_name: &str,
     opaque: *mut ::core::ffi::c_void,
 ) -> Result<ModuleDef, i32>;
 
-pub trait ModuleInitFunc: Fn(&ContextImpl, &ModuleDef) -> Result<(), i32> {}
-impl<F> ModuleInitFunc for F where F: Fn(&ContextImpl, &ModuleDef) -> Result<(), i32> {}
+pub(crate) trait ModuleInitFn: Fn(&ContextImpl, &ModuleDef) -> Result<(), i32> {}
+impl<F> ModuleInitFn for F where F: Fn(&ContextImpl, &ModuleDef) -> Result<(), i32> {}
 
 pub struct ModuleDefImpl {
     #[deprecated(note = "seems no use, should be removed")]
@@ -42,22 +42,22 @@ pub struct ModuleDefImpl {
     pub(crate) export_entries: Vec<ExportEntry>,
 
     /// list of index in dependencies
-    pub star_export_entries: Vec<u16>,
+    pub(crate) star_export_entries: Vec<u16>,
 
     /// module namespace.
-    pub module_ns: Option<ObjectRef>,
+    pub(super) module_ns: Option<ObjectRef>,
 
     /// for js module, when func_created is:
     /// - true: bytecode field is a function object value
     /// - false: bytecode field is a bytecode value
-    pub func_created: bool,
+    pub(crate) func_created: bool,
     /// for JS modules only, this value could be:
     /// * Bytecode, when func_created is false,
     /// * BCFunction object, when func_created is true.
     /// * undefined for uninitialized.
-    pub bytecode: JSValue,
-    /// for C modules only
-    pub init_func: Option<Box<dyn ModuleInitFunc>>,
+    pub(crate) bytecode: JSValue,
+    /// init callback for native module
+    pub(super) init_func: Option<Box<dyn ModuleInitFn>>,
 
     /// true if func_obj contains await
     has_tla: bool,
@@ -114,7 +114,6 @@ impl PartialEq for ModuleDefImpl {
 }
 
 impl ModuleDefImpl {
-    /// 'name' is consumed
     fn new(ctx: &ContextImpl, module_name: Atom) -> Self {
         Self {
             rt: ctx.rt(),
@@ -154,15 +153,15 @@ impl ModuleDefImpl {
         }
     }
 
-    /// create a native module with init handler.
-    fn create_native(
+    /// create a native module def with module init func.
+    fn create(
         ctx: &ContextImpl,
         name: &str,
-        module_init_fn: impl ModuleInitFunc + 'static,
+        init: impl ModuleInitFn + 'static,
     ) -> Result<Self, i32> {
         let name = Atom::new(&ctx.rt(), name)?;
         let mut md = ModuleDefImpl::new(ctx, name);
-        md.init_func.replace(Box::new(module_init_fn));
+        md.init_func.replace(Box::new(init));
         Ok(md)
     }
 
@@ -346,12 +345,12 @@ impl ModuleDef {
     }
 
     /// create a native module def.
-    pub fn create_native(
+    pub(crate) fn create(
         ctx: &mut ContextImpl,
         name: &str,
-        module_init_fn: impl ModuleInitFunc + 'static,
+        init: impl ModuleInitFn + 'static,
     ) -> Result<Self, i32> {
-        let inner = ModuleDefImpl::create_native(ctx, name, module_init_fn)?;
+        let inner = ModuleDefImpl::create(ctx, name, init)?;
         let gc_ref = ctx.rt().gc_alloc(inner).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
@@ -363,27 +362,36 @@ impl ModuleDef {
 }
 
 impl ContextImpl {
-    /// register a native module defination
-    pub fn register_native_module(
-        &mut self,
-        name: &str,
-        exported_entries: &'static [FieldDef],
-    ) -> Result<(), i32> {
-        // create native module
-        let mut md = ModuleDef::create_native(
+    /// register a native module
+    pub fn register_module(&mut self, name: &str, entries: &'static [FieldDef]) -> Result<(), i32> {
+        let mut md = ModuleDef::create(
             self,
             name,
             |cx: &ContextImpl, m: &ModuleDef| -> Result<(), i32> {
-                m.set_export_values(cx, exported_entries)
+                m.set_export_values(cx, entries)
             },
         )?;
 
         // declare export names
-        for me in exported_entries {
+        for me in entries {
             md.add_export(self, me.name)?;
         }
 
         Ok(())
+    }
+}
+
+impl RuntimeImpl {
+    /// set module loader callbacks
+    pub fn set_module_loader(
+        &mut self,
+        norm_func: Option<ModuleNormalizeFn>,
+        load_func: ModuleLoadFn,
+        opaque: *mut std::ffi::c_void,
+    ) {
+        self.module_normalize_func = norm_func;
+        self.module_load_func = Some(load_func);
+        self.module_load_opaque = opaque;
     }
 }
 
@@ -515,15 +523,4 @@ pub fn js_import_meta(ctx: &ContextImpl) -> Result<ObjectRef, i32> {
         ctx.throw_type_error("import.meta not supported in this context");
         Err(-1)
     }
-}
-
-pub fn JS_SetModuleLoaderFunc(
-    rt: &mut RuntimeImpl,
-    module_normalize: Option<JSModuleNormalizeFunc>,
-    module_loader: JSModuleLoaderFunc,
-    opaque: *mut std::ffi::c_void,
-) {
-    rt.module_normalize_func = module_normalize;
-    rt.module_loader_func = Some(module_loader);
-    rt.module_loader_opaque = opaque;
 }

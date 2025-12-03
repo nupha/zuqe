@@ -86,6 +86,6 @@ static MOD_STD_ENTRIES: [FieldDef; 3] = [
 ];
 
 pub fn init_mod_std(mut ctx: ContextHandle) -> Result<(), i32> {
-    ctx.register_native_module("std", &MOD_STD_ENTRIES)?;
+    ctx.register_module("std", &MOD_STD_ENTRIES)?;
     Ok(())
 }

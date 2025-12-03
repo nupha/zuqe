@@ -3,7 +3,6 @@
 use std::{
     collections::HashSet,
     io::{Read, Write},
-    ops::DerefMut,
     path::{Path, PathBuf},
     sync::atomic::{AtomicI32, Ordering},
 };
@@ -16,7 +15,7 @@ use zhuque::{
     error::JSResult,
     eval::{JS_EVAL_FLAG_STRICT, JS_EVAL_TYPE_GLOBAL},
     function::{CallContext, Callback},
-    module::{JS_SetModuleLoaderFunc, ModuleDef},
+    module::ModuleDef,
     object::JS_PROP_C_W_E,
     runtime::Runtime,
     value::JSValue,
@@ -111,8 +110,7 @@ fn setup_ctx_test262_helpers(ctx: &mut ContextImpl) -> Result<JSValue, i32> {
     }
 
     {
-        let f =
-            ctx.create_native_function(Callback::Func_v1(js_evalScript), "evalScript", 1, 0)?;
+        let f = ctx.create_native_function(Callback::Func_v1(js_evalScript), "evalScript", 1, 0)?;
         obj262.set_property_str(ctx, "evalScript", f.into())?;
     }
 
@@ -156,7 +154,7 @@ fn setup_ctx_test262_helpers(ctx: &mut ContextImpl) -> Result<JSValue, i32> {
 }
 
 pub fn js_module_loader(
-    mut ctx: ContextRef,
+    mut ctx: ContextHandle,
     module_name: &str,
     _opaque: *mut std::ffi::c_void,
 ) -> Result<ModuleDef, i32> {
@@ -417,7 +415,8 @@ fn run_test_file(
 
     // make runtime & context
     let mut rt = Runtime::create().unwrap();
-    JS_SetModuleLoaderFunc(rt.deref_mut(), None, js_module_loader, std::ptr::null_mut());
+
+    rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());
 
     let mut ctx = rt.create_context_ecma().unwrap();
     setup_ctx_test262_helpers(&mut ctx).unwrap();
