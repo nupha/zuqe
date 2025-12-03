@@ -50,7 +50,7 @@ pub(crate) fn js_typed_array_get_length_internal(
         })
 }
 
-fn js_typed_array_base_constructor(cc: CallContext) -> JSResult {
+pub(crate) fn js_typed_array_base_constructor(cc: CallContext) -> JSResult {
     cc.ctx().throw_type_error("cannot be called");
     Err(-1)
 }
@@ -424,7 +424,7 @@ fn js_create_typed_array_iterator(ctx: ContextPtr, cc: CallContext) -> JSResult 
             JS_ThrowTypeErrorDetachedArrayBuffer(&ctx);
             Err(-1)
         } else {
-            js_create_array_iterator(ctx, cc)
+            js_create_array_iterator(cc)
         }
     } else {
         ctx.throw_type_error("not a TypedArray");

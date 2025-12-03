@@ -1454,20 +1454,20 @@ pub static js_array_proto_funcs: [FieldDef; 39] = [
     FieldDef::FUNCTION_V1("copyWithin", 2, js_array_copyWithin, 0),
     FieldDef::FUNCTION_V1("flatMap", 1, js_array_flatten, 1),
     FieldDef::FUNCTION_V1("flat", 0, js_array_flatten, 0),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL(
         "values",
         0,
         js_create_array_iterator,
         JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16,
     ),
     FieldDef::ALIAS("[Symbol.iterator]", "values"),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL(
         "keys",
         0,
         js_create_array_iterator,
         JSIteratorKindEnum::JS_ITERATOR_KIND_KEY as i16,
     ),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL(
         "entries",
         0,
         js_create_array_iterator,

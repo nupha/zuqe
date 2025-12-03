@@ -965,7 +965,7 @@ pub static js_string_proto_funcs: [FieldDef; 39] = [
     FieldDef::FUNCTION_V1("toLocaleLowerCase", 0, js_string_toLowerCase, 1),
     FieldDef::FUNCTION_V1("toLocaleUpperCase", 0, js_string_toLowerCase, 0),
     FieldDef::FUNCTION_V1("normalize", 0, js_string_normalize, 0),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL(
         "[Symbol.iterator]",
         0,
         js_create_array_iterator,

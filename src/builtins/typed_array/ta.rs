@@ -10,7 +10,7 @@ use crate::{
     atom::Atom,
     builtins::{array_buffer::ArrayBuffer, iterator::js_array_from_iterator},
     class::ClassID,
-    context::{ContextHandle, ContextImpl, ContextPtr},
+    context::{ContextHandle, ContextImpl},
     error::JS_ThrowTypeErrorDetachedArrayBuffer,
     function::Callback,
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, ObjectImpl, ObjectPayload, ObjectRef},
