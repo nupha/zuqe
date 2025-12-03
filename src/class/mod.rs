@@ -20,7 +20,7 @@ use crate::{
 pub type ClassID = u16;
 
 pub type ClassCallFn = fn(
-    ctx: ContextPtr,
+    ctx: ContextHandle,
     func_obj: JSValue,
     this_val: JSValue,
     args: &[JSValue],

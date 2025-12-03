@@ -347,7 +347,7 @@ object_cast!(AsyncGeneratorFunction, JS_CLASS_ASYNC_GENERATOR_FUNCTION);
 
 impl AsyncGeneratorFunction {
     pub fn class_call(
-        ctx: ContextPtr,
+        ctx: ContextHandle,
         func_obj: JSValue,
         this_obj: JSValue,
         args: &[JSValue],

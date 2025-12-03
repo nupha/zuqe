@@ -42,7 +42,7 @@ impl AsyncFunction {
 
     /// hook to run function in async manner, returns a Promise.
     pub fn class_call(
-        mut ctx: ContextPtr,
+        mut ctx: ContextHandle,
         func_obj: JSValue,
         this_obj: JSValue,
         args: &[JSValue],
@@ -116,7 +116,7 @@ impl JSValue {
 
 impl AsyncFuncState {
     pub fn class_call(
-        mut ctx: ContextPtr,
+        mut ctx: ContextHandle,
         func_obj: JSValue,
         _this_obj: JSValue,
         args: &[JSValue],

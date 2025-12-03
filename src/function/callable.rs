@@ -5,7 +5,7 @@ use gc_lite::{Collect, GcRef};
 use crate::{
     JS_CLASS_C_FUNCTION_DATA,
     atom::Atom,
-    context::{ContextImpl, ContextPtr},
+    context::{ContextHandle, ContextImpl},
     error::JSResult,
     function::{CallContext, NativeCallback_v1, js_function_set_properties},
     object::{ObjectImpl, ObjectPayload, ObjectRef},
@@ -89,7 +89,7 @@ impl NativeFunctionWithData {
 //
 impl NativeFunctionWithData {
     pub fn class_call(
-        ctx: ContextPtr,
+        ctx: ContextHandle,
         func_obj: JSValue,
         this_val: JSValue,
         args: &[JSValue],
@@ -99,8 +99,14 @@ impl NativeFunctionWithData {
             unsafe { func_obj.as_object_unchecked().payload() }
         {
             (s.func)(
-                ctx,
-                CallContext::new(ctx, this_val, args, s.magic as _, Some(s.data.clone())),
+                ctx.into(),
+                CallContext::new(
+                    ctx.into(),
+                    this_val,
+                    args,
+                    s.magic as _,
+                    Some(s.data.clone()),
+                ),
             )
         } else {
             unreachable!()

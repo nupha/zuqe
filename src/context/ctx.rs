@@ -367,7 +367,7 @@ impl ContextPtr {
         // Function
         {
             let func = self.create_native_function_with_proto(
-                Callback::Func_v1(js_function_proto),
+                Callback::Func(js_function_proto),
                 "",
                 0,
                 0,

@@ -4,7 +4,7 @@ use crate::{
     JS_CLASS_ERROR,
     atom::Atom,
     class::ClassID,
-    context::{ContextImpl, ContextPtr},
+    context::ContextImpl,
     function::{Bytecode, CallContext, FieldDef, get_func_name},
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE, ObjectPayload,
@@ -383,35 +383,37 @@ pub fn JS_SetUncatchableError(val: JSValue, b: bool) {
     }
 }
 
-pub fn js_error_toString(ctx: ContextPtr, cc: CallContext) -> JSResult {
+pub fn js_error_toString(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
+
     if !cc.this().is_object() {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
     }
 
-    let name = cc.this().get_property(&ctx, Atom::CONST_name)?;
+    let name = cc.this().get_property(ctx, Atom::CONST_name)?;
     let mut name = if name.is_undefined() {
-        Atom::CONST_Error.force_string(&ctx)?
+        Atom::CONST_Error.force_string(ctx)?
     } else {
-        name.to_string(&ctx)?
+        name.to_string(ctx)?
     };
 
-    let msg = cc.this().get_property(&ctx, Atom::CONST_message)?;
+    let msg = cc.this().get_property(ctx, Atom::CONST_message)?;
     let msg = if msg.is_undefined() {
-        Atom::CONST_empty_string.force_string(&ctx)?
+        Atom::CONST_empty_string.force_string(ctx)?
     } else {
-        msg.to_string(&ctx)?
+        msg.to_string(ctx)?
     };
 
     if !name.is_empty() && !msg.is_empty() {
-        name = JS_ConcatString3(&ctx, c"", name.into(), c": ")?;
+        name = JS_ConcatString3(ctx, c"", name.into(), c": ")?;
     }
 
-    JS_ConcatString(&ctx, name.into(), msg.into()).map(JSValue::String)
+    JS_ConcatString(ctx, name.into(), msg.into()).map(JSValue::String)
 }
 
 pub static js_error_proto_funcs: [FieldDef; 3] = [
-    FieldDef::FUNCTION_V1("toString", 0, js_error_toString, 0),
+    FieldDef::CALL("toString", 0, js_error_toString, 0),
     FieldDef::STR("name", "Error", JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE),
     FieldDef::STR("message", "", JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE),
 ];

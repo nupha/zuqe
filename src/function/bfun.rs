@@ -310,7 +310,7 @@ pub fn js_function_set_properties(
     );
 }
 
-pub fn js_function_proto(_: ContextPtr, _: CallContext) -> JSResult {
+pub fn js_function_proto(_: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 

@@ -5,7 +5,7 @@ use gc_lite::{Collect, GcRef};
 use crate::{
     JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
     atom::Atom,
-    context::{ContextImpl, ContextPtr},
+    context::{ContextHandle, ContextImpl, ContextPtr},
     error::JSResult,
     object::{JS_SpeciesConstructor, ObjectImpl, ObjectRef},
     object_cast,
@@ -45,7 +45,7 @@ object_cast!(
 
 impl PromiseResolveFunc {
     pub fn class_call(
-        mut ctx: ContextPtr,
+        mut ctx: ContextHandle,
         mut func_obj: JSValue,
         _this_val: JSValue,
         args: &[JSValue],
@@ -69,23 +69,24 @@ impl PromiseResolveFunc {
                 JSValue::UNDEFINED
             };
 
+            let cx: ContextPtr = ctx.into();
+
             if is_reject || !arg0.is_object() {
-                s.promise.fulfill_or_reject(ctx, arg0, is_reject);
+                s.promise.fulfill_or_reject(cx, arg0, is_reject);
                 return Ok(JSValue::UNDEFINED);
             } else if unlikely(arg0.is_same(s.promise.into())) {
                 ctx.throw_type_error("promise self resolution");
-                s.promise.reject(ctx, ctx.rt().take_exception());
+                s.promise.reject(cx, ctx.rt().take_exception());
                 return Ok(JSValue::UNDEFINED);
             } else if let Ok(then) = arg0.get_property(&ctx, Atom::CONST_then) {
                 if !then.is_function() {
-                    s.promise.fulfill_or_reject(ctx, arg0, is_reject);
+                    s.promise.fulfill_or_reject(cx, arg0, is_reject);
                 } else {
                     let promise = s.promise;
                     let promise2 = promise;
-                    let ctx2 = ctx;
-
+                    let cx2 = cx;
                     ctx.queue_job_with_trace(
-                        move || js_promise_resolve_thenable_job(&ctx2, promise, arg0, then),
+                        move || js_promise_resolve_thenable_job(&cx2, promise, arg0, then),
                         move |tracer| {
                             promise2.trace(tracer);
                             arg0.trace(tracer);
@@ -94,7 +95,7 @@ impl PromiseResolveFunc {
                     );
                 }
             } else {
-                s.promise.reject(ctx, ctx.rt().take_exception());
+                s.promise.reject(cx, ctx.rt().take_exception());
             }
         }
 
