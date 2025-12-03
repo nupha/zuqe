@@ -19,7 +19,7 @@ use crate::{
     value::JSValue,
 };
 
-pub fn js_object_constructor(cc: CallContext) -> JSResult {
+pub(crate) fn js_object_constructor(cc: CallContext) -> JSResult {
     let ctx = cc.ctx();
     let new_target = *cc.this();
 
@@ -35,23 +35,27 @@ pub fn js_object_constructor(cc: CallContext) -> JSResult {
     .map(JSValue::Object)
 }
 
-pub fn js_object_create(ctx: ContextPtr, cc: CallContext) -> JSResult {
+pub(crate) fn js_object_create(cc: CallContext) -> JSResult {
     let proto = cc.arg(0);
     if !proto.is_object() && !proto.is_null() {
-        ctx.throw_type_error("not a prototype");
+        cc.ctx().throw_type_error("not a prototype");
         return Err(-1);
     }
 
-    let mut obj = ctx.create_base_object_with_proto(proto.as_object().cloned())?;
+    let mut obj = cc
+        .ctx()
+        .create_base_object_with_proto(proto.as_object().cloned())?;
+
     let props = *cc.arg(1);
     if !props.is_undefined() {
-        obj.define_properties(&ctx, props)?;
+        obj.define_properties(cc.ctx(), props)?;
     }
     Ok(obj.into())
 }
 
-pub fn js_object_getPrototypeOf(ctx: ContextPtr, cc: CallContext) -> JSResult {
+pub(crate) fn js_object_getPrototypeOf(cc: CallContext) -> JSResult {
     let magic = cc.magic();
+    let ctx = cc.ctx();
     let val = cc.arg(0);
 
     if !val.is_object() {
@@ -61,23 +65,23 @@ pub fn js_object_getPrototypeOf(ctx: ContextPtr, cc: CallContext) -> JSResult {
             return Err(-1);
         }
     }
-    val.prototype(&ctx)
+    val.prototype(ctx)
 }
 
-pub fn js_object_setPrototypeOf(ctx: ContextPtr, cc: CallContext) -> JSResult {
+pub(crate) fn js_object_setPrototypeOf(cc: CallContext) -> JSResult {
     let mut obj = *cc.arg(0);
-    obj.set_prototype_internal(&ctx, *cc.arg(1), true)?;
+    obj.set_prototype_internal(cc.ctx(), *cc.arg(1), true)?;
     Ok(obj)
 }
 
-pub fn js_object_defineProperty(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    let cx = ctx.deref();
+pub(crate) fn js_object_defineProperty(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
 
     let prop = *cc.arg(1);
     let desc = *cc.arg(2);
 
     if let Some(mut obj) = cc.arg(0).as_object().copied() {
-        let atom = prop.to_atom(cx)?;
+        let atom = prop.to_atom(ctx)?;
 
         // magic = 1: Reflect.defineProperty, don't throw on failure
         // magic = 0: Object.defineProperty, throw on failure
@@ -85,14 +89,14 @@ pub fn js_object_defineProperty(ctx: ContextPtr, cc: CallContext) -> JSResult {
         if cc.magic() == 0 {
             flags |= JS_PROP_THROW;
         }
-        let b = obj.define_property_desc(cx, atom, desc, flags)?;
+        let b = obj.define_property_desc(ctx, atom, desc, flags)?;
         Ok(if cc.magic() != 0 {
             JSValue::Bool(b)
         } else {
             JSValue::Object(obj)
         })
     } else {
-        cx.throw_type_error_not_an_object();
+        ctx.throw_type_error_not_an_object();
         Err(-1)
     }
 }
@@ -208,8 +212,9 @@ pub fn js_object_groupBy(ctx: ContextPtr, cc: CallContext) -> JSResult {
     Ok(groups)
 }
 
-pub fn js_object_isExtensible(ctx: ContextPtr, cc: CallContext) -> JSResult {
+pub(crate) fn js_object_isExtensible(cc: CallContext) -> JSResult {
     let reflect = cc.magic();
+    let ctx = cc.ctx();
     let obj = cc.arg(0);
 
     if !obj.is_object() {
@@ -221,15 +226,16 @@ pub fn js_object_isExtensible(ctx: ContextPtr, cc: CallContext) -> JSResult {
         };
     }
 
-    Ok(JSValue::Bool(obj.is_extensible(&ctx)?))
+    Ok(JSValue::Bool(obj.is_extensible(ctx)?))
 }
 
-pub fn js_object_preventExtensions(ctx: ContextPtr, cc: CallContext) -> JSResult {
+pub(crate) fn js_object_preventExtensions(cc: CallContext) -> JSResult {
     let reflect = cc.magic() != 0;
+    let ctx = cc.ctx();
     let arg = *cc.arg(0);
 
     if let Some(mut obj) = arg.as_object().copied() {
-        let ret = obj.prevent_extensions(&ctx)?;
+        let ret = obj.prevent_extensions(ctx)?;
 
         if reflect {
             Ok(JSValue::Bool(ret))
@@ -247,39 +253,39 @@ pub fn js_object_preventExtensions(ctx: ContextPtr, cc: CallContext) -> JSResult
     }
 }
 
-pub fn js_object_getOwnPropertyDescriptor(ctx: ContextPtr, cc: CallContext) -> JSResult {
+pub(crate) fn js_object_getOwnPropertyDescriptor(cc: CallContext) -> JSResult {
     let reflect = cc.magic() != 0;
-    let cx = ctx.deref();
+    let ctx = cc.ctx();
 
     let obj = if reflect {
         // Reflect.getOwnPropertyDescriptor
         if let JSValue::Object(p) = cc.arg(0) {
             *p
         } else {
-            cx.throw_type_error_not_an_object();
+            ctx.throw_type_error_not_an_object();
             return Err(-1);
         }
-    } else if let Ok(o) = cc.arg(0).objectify(cx) {
+    } else if let Ok(o) = cc.arg(0).objectify(ctx) {
         o
     } else {
-        cx.throw_type_error_not_an_object();
+        ctx.throw_type_error_not_an_object();
         return Err(-1);
     };
 
     let prop = cc.arg(1);
-    let atom = prop.to_atom(cx)?;
+    let atom = prop.to_atom(ctx)?;
 
-    if let Some(desc) = obj.get_own_property(cx, atom)? {
-        let mut ret = cx.create_base_object()?;
+    if let Some(desc) = obj.get_own_property(ctx, atom)? {
+        let mut ret = ctx.create_base_object()?;
         let prop_flags = JS_PROP_C_W_E | JS_PROP_THROW;
 
         if desc.flags & JS_PROP_GETSET != 0 {
-            ret.define_property_value(cx, Atom::CONST_get, desc.getter, prop_flags)?;
-            ret.define_property_value(cx, Atom::CONST_set, desc.setter, prop_flags)?;
+            ret.define_property_value(ctx, Atom::CONST_get, desc.getter, prop_flags)?;
+            ret.define_property_value(ctx, Atom::CONST_set, desc.setter, prop_flags)?;
         } else {
-            ret.define_property_value(cx, Atom::CONST_value, desc.value, prop_flags)?;
+            ret.define_property_value(ctx, Atom::CONST_value, desc.value, prop_flags)?;
             ret.define_property_value(
-                cx,
+                ctx,
                 Atom::CONST_writable,
                 JSValue::Bool(desc.flags & JS_PROP_WRITABLE != 0),
                 prop_flags,
@@ -287,13 +293,13 @@ pub fn js_object_getOwnPropertyDescriptor(ctx: ContextPtr, cc: CallContext) -> J
         }
 
         ret.define_property_value(
-            cx,
+            ctx,
             Atom::CONST_enumerable,
             JSValue::Bool(desc.flags & JS_PROP_ENUMERABLE != 0),
             prop_flags,
         )?;
         ret.define_property_value(
-            cx,
+            ctx,
             Atom::CONST_configurable,
             JSValue::Bool(desc.flags & JS_PROP_CONFIGURABLE != 0),
             prop_flags,
@@ -311,10 +317,11 @@ pub fn js_object_getOwnPropertyDescriptors(ctx: ContextPtr, cc: CallContext) -> 
 
     obj.own_property_names_foreach(&ctx, JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK, |cx, pkey| {
         let atom_value = pkey.atom.string_or_symbol(cx)?;
-        let desc = js_object_getOwnPropertyDescriptor(
+        let desc = js_object_getOwnPropertyDescriptor(CallContext::new_simple(
             ctx,
-            CallContext::new_simple(ctx, JSValue::UNDEFINED, [obj.into(), atom_value].as_slice()),
-        )?;
+            JSValue::UNDEFINED,
+            [obj.into(), atom_value].as_slice(),
+        ))?;
 
         if !desc.is_undefined() {
             res_obj.define_property_value(cx, pkey.atom, desc, JS_PROP_C_W_E | JS_PROP_THROW)?;
@@ -390,10 +397,10 @@ pub fn js_object_hasOwn(ctx: ContextPtr, cc: CallContext) -> JSResult {
 }
 
 pub static js_object_funcs: [FieldDef; 23] = [
-    FieldDef::FUNCTION_V1("create", 2, js_object_create, 0),
-    FieldDef::FUNCTION_V1("getPrototypeOf", 1, js_object_getPrototypeOf, 0),
-    FieldDef::FUNCTION_V1("setPrototypeOf", 2, js_object_setPrototypeOf, 0),
-    FieldDef::FUNCTION_V1("defineProperty", 3, js_object_defineProperty, 0),
+    FieldDef::CALL("create", 2, js_object_create, 0),
+    FieldDef::CALL("getPrototypeOf", 1, js_object_getPrototypeOf, 0),
+    FieldDef::CALL("setPrototypeOf", 2, js_object_setPrototypeOf, 0),
+    FieldDef::CALL("defineProperty", 3, js_object_defineProperty, 0),
     FieldDef::FUNCTION_V1("defineProperties", 2, js_object_defineProperties, 0),
     FieldDef::FUNCTION_V1("getOwnPropertyNames", 1, js_object_getOwnPropertyNames, 0),
     FieldDef::FUNCTION_V1(
@@ -421,9 +428,9 @@ pub static js_object_funcs: [FieldDef; 23] = [
         js_object_keys,
         JSIteratorKindEnum::JS_ITERATOR_KIND_KEY_AND_VALUE as i16,
     ),
-    FieldDef::FUNCTION_V1("isExtensible", 1, js_object_isExtensible, 0),
-    FieldDef::FUNCTION_V1("preventExtensions", 1, js_object_preventExtensions, 0),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL("isExtensible", 1, js_object_isExtensible, 0),
+    FieldDef::CALL("preventExtensions", 1, js_object_preventExtensions, 0),
+    FieldDef::CALL(
         "getOwnPropertyDescriptor",
         2,
         js_object_getOwnPropertyDescriptor,

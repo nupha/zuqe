@@ -6,7 +6,6 @@ use crate::{
             js_object_isExtensible, js_object_preventExtensions,
         },
     },
-    context::ContextPtr,
     error::JSResult,
     function::{CallContext, FieldDef, JS_CallConstructor2, build_arg_list, js_function_apply},
     object::{JS_GPN_INDEX_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
@@ -47,10 +46,12 @@ fn js_reflect_construct(cc: CallContext) -> JSResult {
     JS_CallConstructor2(cc.ctx(), func, new_target, &args).err()
 }
 
-fn js_reflect_deleteProperty(ctx: ContextPtr, cc: CallContext) -> JSResult {
+fn js_reflect_deleteProperty(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
+
     if let JSValue::Object(mut obj) = *cc.arg(0) {
-        let atom = cc.arg(1).to_atom(&ctx)?;
-        let ret = obj.delete_property(&ctx, atom, 0);
+        let atom = cc.arg(1).to_atom(ctx)?;
+        let ret = obj.delete_property(ctx, atom, 0);
         ret.map(JSValue::Bool)
     } else {
         ctx.throw_type_error_not_an_object();
@@ -58,41 +59,46 @@ fn js_reflect_deleteProperty(ctx: ContextPtr, cc: CallContext) -> JSResult {
     }
 }
 
-fn js_reflect_get(ctx: ContextPtr, cc: CallContext) -> JSResult {
+fn js_reflect_get(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
     let obj = *cc.arg(0);
+
     if obj.is_object() {
         let prop = cc.arg(1);
         let receiver = if cc.length() > 2 { *cc.arg(2) } else { obj };
-        let atom = prop.to_atom(&ctx)?;
-        obj.get_property_internal(&ctx, atom, receiver, false)
+        let atom = prop.to_atom(ctx)?;
+        obj.get_property_internal(ctx, atom, receiver, false)
     } else {
         ctx.throw_type_error_not_an_object();
         Err(-1)
     }
 }
 
-fn js_reflect_has(ctx: ContextPtr, cc: CallContext) -> JSResult {
+fn js_reflect_has(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
+
     if let JSValue::Object(obj) = cc.arg(0) {
         let prop = cc.arg(1);
-        let atom = prop.to_atom(&ctx)?;
-        obj.has_property(&ctx, atom).map(JSValue::Bool)
+        let atom = prop.to_atom(ctx)?;
+        obj.has_property(ctx, atom).map(JSValue::Bool)
     } else {
         ctx.throw_type_error_not_an_object();
         Err(-1)
     }
 }
 
-fn js_reflect_set(ctx: ContextPtr, cc: CallContext) -> JSResult {
+fn js_reflect_set(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
     let target = cc.arg(0);
 
     if let Some(o) = target.as_object() {
         let prop = *cc.arg(1);
         let val = *cc.arg(2);
         let receiver = if cc.length() > 3 { cc.arg(3) } else { target };
-        let atom = prop.to_atom(&ctx)?;
+        let atom = prop.to_atom(ctx)?;
 
         o.set_property_internal(
-            &ctx,
+            ctx,
             atom,
             val,
             match receiver {
@@ -109,18 +115,18 @@ fn js_reflect_set(ctx: ContextPtr, cc: CallContext) -> JSResult {
     }
 }
 
-fn js_reflect_setPrototypeOf(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    cc.arg(0)
-        .clone()
-        .set_prototype_internal(&ctx, *cc.arg(1), false)
+fn js_reflect_setPrototypeOf(cc: CallContext) -> JSResult {
+    let mut val = *cc.arg(0);
+    val.set_prototype_internal(cc.ctx(), *cc.arg(1), false)
         .map(JSValue::Bool)
 }
 
-fn js_reflect_ownKeys(ctx: ContextPtr, cc: CallContext) -> JSResult {
+fn js_reflect_ownKeys(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
     let val = cc.arg(0);
     if val.is_object() {
         val.build_own_property_kvs_array(
-            &ctx,
+            ctx,
             JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK,
             JSIteratorKindEnum::JS_ITERATOR_KIND_KEY,
         )
@@ -133,22 +139,22 @@ fn js_reflect_ownKeys(ctx: ContextPtr, cc: CallContext) -> JSResult {
 pub static js_reflect_funcs: [FieldDef; 14] = [
     FieldDef::CALL("apply", 3, js_reflect_apply, 0),
     FieldDef::CALL("construct", 2, js_reflect_construct, 0),
-    FieldDef::FUNCTION_V1("defineProperty", 3, js_object_defineProperty, 1),
-    FieldDef::FUNCTION_V1("deleteProperty", 2, js_reflect_deleteProperty, 0),
-    FieldDef::FUNCTION_V1("get", 2, js_reflect_get, 0),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL("defineProperty", 3, js_object_defineProperty, 1),
+    FieldDef::CALL("deleteProperty", 2, js_reflect_deleteProperty, 0),
+    FieldDef::CALL("get", 2, js_reflect_get, 0),
+    FieldDef::CALL(
         "getOwnPropertyDescriptor",
         2,
         js_object_getOwnPropertyDescriptor,
         1,
     ),
-    FieldDef::FUNCTION_V1("getPrototypeOf", 1, js_object_getPrototypeOf, 1),
-    FieldDef::FUNCTION_V1("has", 2, js_reflect_has, 0),
-    FieldDef::FUNCTION_V1("isExtensible", 1, js_object_isExtensible, 1),
-    FieldDef::FUNCTION_V1("ownKeys", 1, js_reflect_ownKeys, 0),
-    FieldDef::FUNCTION_V1("preventExtensions", 1, js_object_preventExtensions, 1),
-    FieldDef::FUNCTION_V1("set", 3, js_reflect_set, 0),
-    FieldDef::FUNCTION_V1("setPrototypeOf", 2, js_reflect_setPrototypeOf, 0),
+    FieldDef::CALL("getPrototypeOf", 1, js_object_getPrototypeOf, 1),
+    FieldDef::CALL("has", 2, js_reflect_has, 0),
+    FieldDef::CALL("isExtensible", 1, js_object_isExtensible, 1),
+    FieldDef::CALL("ownKeys", 1, js_reflect_ownKeys, 0),
+    FieldDef::CALL("preventExtensions", 1, js_object_preventExtensions, 1),
+    FieldDef::CALL("set", 3, js_reflect_set, 0),
+    FieldDef::CALL("setPrototypeOf", 2, js_reflect_setPrototypeOf, 0),
     FieldDef::STR("[Symbol.toStringTag]", "Reflect", JS_PROP_CONFIGURABLE),
 ];
 
