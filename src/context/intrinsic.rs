@@ -48,7 +48,7 @@ impl ContextPtr {
         // FOR LEGACY: make throw type error function
         let mut throw_type_error = self
             .create_native_function(
-                Callback::Func_v1(|ctx, cc| {
+                Callback::Func(|cc| {
                     // throw only in strict mode
                     let throw = cc
                         .this()
@@ -62,7 +62,7 @@ impl ContextPtr {
                         .unwrap_or(true);
 
                     if throw {
-                        ctx.throw_type_error("invalid property access");
+                        cc.ctx().throw_type_error("invalid property access");
                         Err(-1)
                     } else {
                         Ok(if cc.length() == 0 {
@@ -415,7 +415,7 @@ impl ContextPtr {
         );
 
         let eval_func: JSValue = self
-            .create_native_function(Callback::Func_v1(js_global_eval), "eval", 1, 0)
+            .create_native_function(Callback::Func(js_global_eval), "eval", 1, 0)
             .unwrap()
             .into();
         self.eval_func = eval_func;

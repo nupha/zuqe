@@ -50,8 +50,8 @@ pub(crate) fn js_typed_array_get_length_internal(
         })
 }
 
-pub fn js_typed_array_base_constructor(ctx: ContextPtr, _cc: CallContext) -> JSResult {
-    ctx.throw_type_error("cannot be called");
+fn js_typed_array_base_constructor(cc: CallContext) -> JSResult {
+    cc.ctx().throw_type_error("cannot be called");
     Err(-1)
 }
 

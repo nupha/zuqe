@@ -72,17 +72,19 @@ impl ArrayIterPayload {
 
 /// 用于创建一个数组迭代器对象，该对象可以用来遍历数组中的元素。
 /// 通常被用于实现数组的 keys、values 和 entries 方法
-pub fn js_create_array_iterator(ctx: ContextPtr, cc: CallContext) -> JSResult {
+pub fn js_create_array_iterator(cc: CallContext) -> JSResult {
     let kind = unsafe { std::mem::transmute::<u8, JSIteratorKindEnum>(cc.magic() as u8 & 3) };
+    let ctx = cc.ctx();
+
     let (class_id, obj) = if cc.magic() & 4 != 0 {
         (
             JS_CLASS_STRING_ITERATOR,
-            JSValue::from(cc.this().to_string_non_undefined_or_null(&ctx)?),
+            JSValue::from(cc.this().to_string_non_undefined_or_null(ctx)?),
         )
     } else {
         (
             JS_CLASS_ARRAY_ITERATOR,
-            JSValue::from(cc.this().objectify(&ctx)?),
+            JSValue::from(cc.this().objectify(ctx)?),
         )
     };
 

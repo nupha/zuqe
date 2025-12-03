@@ -208,7 +208,7 @@ impl TypedArray {
         )?;
 
         let mut typed_array_base_func = ctx.create_native_function(
-            Callback::Func_v1(js_typed_array_base_constructor),
+            Callback::Func(js_typed_array_base_constructor),
             "TypedArray",
             0,
             0,

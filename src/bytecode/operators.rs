@@ -7,7 +7,7 @@ use crate::{
     },
     class::JS_DEFINE_CLASS_HAS_HERITAGE,
     context::ContextImpl,
-    function::{JSFunctionKindEnum, JSVarRef, Callback},
+    function::{Callback, JSFunctionKindEnum, JSVarRef},
     object::{
         JS_GPN_INDEX_MASK, JS_GPN_SET_ENUM, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE,
         JS_PROP_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW, JS_PROP_THROW_STRICT,
@@ -269,7 +269,7 @@ pub(super) unsafe fn js_append_enumerate(ctx: &ContextImpl, sp: *mut JSValue) ->
     let is_array_iterator = src
         .get_property(ctx, Atom::CONST_Symbol_iterator)?
         .match_native_callback(
-            Callback::Func_v1(js_create_array_iterator),
+            Callback::Func(js_create_array_iterator),
             JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as _,
         );
 

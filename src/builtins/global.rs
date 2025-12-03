@@ -9,11 +9,11 @@ use crate::{
     value::JSValue,
 };
 
-pub fn js_global_eval(mut ctx: ContextPtr, cc: CallContext) -> JSResult {
+pub fn js_global_eval(mut cc: CallContext) -> JSResult {
     // to avoid ctx borrow conflict, fetch global object in advance
-    let global = JSValue::Object(ctx.global_obj());
-    cc.arg(0)
-        .eval_object(&mut ctx, global, JS_EVAL_TYPE_INDIRECT, -1)
+    let global = JSValue::Object(cc.ctx().global_obj());
+    let val = *cc.arg(0);
+    val.eval_object(cc.ctx_mut(), global, JS_EVAL_TYPE_INDIRECT, -1)
 }
 
 pub const MAGIC_NUM_IS_NAN: i32 = 1;
