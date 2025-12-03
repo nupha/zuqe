@@ -1,8 +1,6 @@
-use std::ops::Deref;
-
 use crate::{
     atom::Atom,
-    context::{ContextImpl, ContextPtr},
+    context::ContextImpl,
     error::JSResult,
     function::{CallContext, FieldDef},
     object::{
@@ -13,8 +11,8 @@ use crate::{
     value::JSValue,
 };
 
-pub fn js_object_toString(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    let cx = ctx.deref();
+pub(crate) fn js_object_toString(cc: CallContext) -> JSResult {
+    let cx = cc.ctx();
 
     let txt = match cc.this() {
         JSValue::NULL => "[object Null]".to_string(),
@@ -27,30 +25,31 @@ pub fn js_object_toString(ctx: ContextPtr, cc: CallContext) -> JSResult {
         .map(JSValue::String)
 }
 
-pub fn js_object_toLocaleString(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    cc.this().invoke(&ctx, Atom::CONST_toString, &[])
+pub(crate) fn js_object_toLocaleString(cc: CallContext) -> JSResult {
+    cc.this().invoke(cc.ctx(), Atom::CONST_toString, &[])
 }
 
-pub fn js_object_valueOf(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    cc.this().objectify(&ctx).map(JSValue::Object)
+pub(crate) fn js_object_valueOf(cc: CallContext) -> JSResult {
+    cc.this().objectify(cc.ctx()).map(JSValue::Object)
 }
 
-pub fn js_object_hasOwnProperty(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    let cx = ctx.deref();
+pub(crate) fn js_object_hasOwnProperty(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
 
     // must be done first
-    let atom = cc.arg(0).to_atom(cx)?;
-    let obj = cc.this().objectify(cx)?;
-    Ok(obj.get_own_property(cx, atom)?.is_some().into())
+    let atom = cc.arg(0).to_atom(ctx)?;
+    let obj = cc.this().objectify(ctx)?;
+    Ok(obj.get_own_property(ctx, atom)?.is_some().into())
 }
 
-pub fn js_object_isPrototypeOf(ctx: ContextPtr, cc: CallContext) -> JSResult {
+pub(crate) fn js_object_isPrototypeOf(cc: CallContext) -> JSResult {
     if let JSValue::Object(ctor) = *cc.arg(0) {
-        let obj = cc.this().objectify(&ctx)?;
+        let ctx = cc.ctx();
+        let obj = cc.this().objectify(ctx)?;
 
         let mut cur_obj = ctor;
         let b = loop {
-            if let Some(p) = cur_obj.prototype(&ctx)? {
+            if let Some(p) = cur_obj.prototype(ctx)? {
                 if p == obj {
                     break true;
                 } else {
@@ -70,9 +69,8 @@ pub fn js_object_isPrototypeOf(ctx: ContextPtr, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_object_propertyIsEnumerable(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    let cx = ctx.deref();
-
+pub(crate) fn js_object_propertyIsEnumerable(cc: CallContext) -> JSResult {
+    let cx = cc.ctx();
     let obj = cc.this().objectify(cx)?;
     let atom = cc.arg(0).to_atom(cx)?;
 
@@ -83,7 +81,7 @@ pub fn js_object_propertyIsEnumerable(ctx: ContextPtr, cc: CallContext) -> JSRes
     })
 }
 
-pub fn js_object_getset___proto__(cc: CallContext) -> JSResult {
+pub(crate) fn js_object_getset___proto__(cc: CallContext) -> JSResult {
     let ctx = cc.ctx();
 
     if cc.length() == 0 {
@@ -111,7 +109,7 @@ pub fn js_object_getset___proto__(cc: CallContext) -> JSResult {
 }
 
 // magic = 1 if called as __defineSetter__
-pub unsafe fn js_object___defineGetter__(
+unsafe fn js_object___defineGetter__(
     ctx: &ContextImpl,
     this_val: JSValue,
     _argc: i32,
@@ -160,7 +158,7 @@ pub unsafe fn js_object___defineGetter__(
     }
 }
 
-pub unsafe fn js_object___lookupGetter__(
+unsafe fn js_object___lookupGetter__(
     ctx: &ContextImpl,
     this_val: JSValue,
     argc: i32,
@@ -232,12 +230,12 @@ pub unsafe fn js_object___lookupGetter__(
 }
 
 pub static js_object_proto_funcs: [FieldDef; 7] = [
-    FieldDef::FUNCTION_V1("toString", 0, js_object_toString, 0),
-    FieldDef::FUNCTION_V1("toLocaleString", 0, js_object_toLocaleString, 0),
-    FieldDef::FUNCTION_V1("valueOf", 0, js_object_valueOf, 0),
-    FieldDef::FUNCTION_V1("hasOwnProperty", 1, js_object_hasOwnProperty, 0),
-    FieldDef::FUNCTION_V1("isPrototypeOf", 1, js_object_isPrototypeOf, 0),
-    FieldDef::FUNCTION_V1("propertyIsEnumerable", 1, js_object_propertyIsEnumerable, 0),
+    FieldDef::CALL("toString", 0, js_object_toString, 0),
+    FieldDef::CALL("toLocaleString", 0, js_object_toLocaleString, 0),
+    FieldDef::CALL("valueOf", 0, js_object_valueOf, 0),
+    FieldDef::CALL("hasOwnProperty", 1, js_object_hasOwnProperty, 0),
+    FieldDef::CALL("isPrototypeOf", 1, js_object_isPrototypeOf, 0),
+    FieldDef::CALL("propertyIsEnumerable", 1, js_object_propertyIsEnumerable, 0),
     FieldDef::GETSET(
         "__proto__",
         Some(js_object_getset___proto__),

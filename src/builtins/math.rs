@@ -1,6 +1,5 @@
 use crate::{
     JS_CFUNC_FF_DEF, JS_CFUNC_FFF_DEF,
-    context::ContextPtr,
     error::JSResult,
     function::{CallContext, FieldDef},
     number::{IntOrFloat, JSFloat64Union},
@@ -8,8 +7,9 @@ use crate::{
     value::JSValue,
 };
 
-pub fn js_math_min_max(ctx: ContextPtr, cc: CallContext) -> JSResult {
+fn js_math_min_max(cc: CallContext) -> JSResult {
     let is_max = cc.magic() != 0;
+    let ctx = cc.ctx();
 
     if cc.length() == 0 {
         return Ok(JSValue::Float64(if is_max {
@@ -19,15 +19,15 @@ pub fn js_math_min_max(ctx: ContextPtr, cc: CallContext) -> JSResult {
         }));
     }
 
-    let mut res = if let JSValue::Int(r1) = cc.arg(0).to_number(&ctx)? {
+    let mut res = if let JSValue::Int(r1) = cc.arg(0).to_number(ctx)? {
         IntOrFloat::Int64(r1 as _)
     } else {
-        IntOrFloat::Float64(cc.arg(0).to_f64(&ctx)?)
+        IntOrFloat::Float64(cc.arg(0).to_f64(ctx)?)
     };
 
     if cc.length() > 1 {
         for a in &cc.arguments()[1..] {
-            match (a.to_number(&ctx)?, &mut res) {
+            match (a.to_number(ctx)?, &mut res) {
                 // int vs int
                 (JSValue::Int(n), IntOrFloat::Int64(mx)) => {
                     *mx = if is_max {
@@ -144,18 +144,19 @@ pub const fn js_math_round(a: f64) -> f64 {
     }
 }
 
-pub fn js_math_hypot(ctx: ContextPtr, cc: CallContext) -> JSResult {
+fn js_math_hypot(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
     let mut r = 0.0;
 
     if cc.length() > 0 {
-        r = cc.arg(0).to_f64(&ctx)?;
+        r = cc.arg(0).to_f64(ctx)?;
 
         if cc.length() == 1 {
             r = r.abs();
         } else {
             // use the built-in function to minimize precision loss
             for v in &cc.arguments()[1..] {
-                let a = v.to_f64(&ctx)?;
+                let a = v.to_f64(ctx)?;
                 r = r.hypot(a);
             }
         }
@@ -164,14 +165,16 @@ pub fn js_math_hypot(ctx: ContextPtr, cc: CallContext) -> JSResult {
     Ok(JSValue::from(r))
 }
 
-pub fn js_math_imul(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    let a = cc.arg(0).to_i32(&ctx)?;
-    let b = cc.arg(1).to_i32(&ctx)?;
+fn js_math_imul(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
+    let a = cc.arg(0).to_i32(ctx)?;
+    let b = cc.arg(1).to_i32(ctx)?;
     Ok(JSValue::Int(a.wrapping_mul(b)))
 }
 
-pub fn js_math_clz32(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    let a = cc.arg(0).to_u32(&ctx)?;
+fn js_math_clz32(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
+    let a = cc.arg(0).to_u32(ctx)?;
     let r: u32 = if a == 0 { 32 } else { a.leading_zeros() };
     Ok(JSValue::Int(r as i32))
 }
@@ -188,8 +191,8 @@ const fn xorshift64star(pstate: &mut u64) -> u64 {
     x.wrapping_mul(0x2545F4914F6CDD1D)
 }
 
-pub fn js_math_random(mut ctx: ContextPtr, _: CallContext) -> JSResult {
-    let v = xorshift64star(&mut ctx.random_state);
+pub fn js_math_random(mut cc: CallContext) -> JSResult {
+    let v = xorshift64star(&mut cc.ctx_mut().random_state);
     /* 1.0 <= u.d < 2 */
     let u = JSFloat64Union {
         uint64: (0x3ff << 52) | (v >> 12),
@@ -198,8 +201,8 @@ pub fn js_math_random(mut ctx: ContextPtr, _: CallContext) -> JSResult {
 }
 
 pub static js_math_funcs: [FieldDef; 44] = [
-    FieldDef::FUNCTION_V1("min", 2, js_math_min_max, 0),
-    FieldDef::FUNCTION_V1("max", 2, js_math_min_max, 1),
+    FieldDef::CALL("min", 2, js_math_min_max, 0),
+    FieldDef::CALL("max", 2, js_math_min_max, 1),
     //
     JS_CFUNC_FF_DEF!("abs", 1, f64::abs, 0),
     JS_CFUNC_FF_DEF!("floor", 1, f64::floor, 0),
@@ -254,11 +257,11 @@ pub static js_math_funcs: [FieldDef; 44] = [
     JS_CFUNC_FF_DEF!("log2", 1, f64::log2, 0),
     JS_CFUNC_FF_DEF!("log10", 1, f64::log10, 0),
     JS_CFUNC_FF_DEF!("cbrt", 1, f64::cbrt, 0),
-    FieldDef::FUNCTION_V1("hypot", 2, js_math_hypot, 0),
-    FieldDef::FUNCTION_V1("random", 0, js_math_random, 0),
+    FieldDef::CALL("hypot", 2, js_math_hypot, 0),
+    FieldDef::CALL("random", 0, js_math_random, 0),
     JS_CFUNC_FF_DEF!("fround", 1, |a: f64| -> f64 { (a as f32) as f64 }, 0),
-    FieldDef::FUNCTION_V1("imul", 2, js_math_imul, 0),
-    FieldDef::FUNCTION_V1("clz32", 1, js_math_clz32, 0),
+    FieldDef::CALL("imul", 2, js_math_imul, 0),
+    FieldDef::CALL("clz32", 1, js_math_clz32, 0),
     FieldDef::STR("[Symbol.toStringTag]", "Math", JS_PROP_CONFIGURABLE),
     FieldDef::FLOAT64("E", std::f64::consts::E, 0),
     FieldDef::FLOAT64("LN10", std::f64::consts::LN_10, 0),

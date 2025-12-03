@@ -1,6 +1,5 @@
 use crate::{
     builtins::number::{js_parseFloat, js_parseInt},
-    context::ContextPtr,
     error::JSResult,
     eval::JS_EVAL_TYPE_INDIRECT,
     function::{CallContext, FieldDef},
@@ -19,8 +18,8 @@ pub fn js_global_eval(mut cc: CallContext) -> JSResult {
 pub const MAGIC_NUM_IS_NAN: i32 = 1;
 pub const MAGIC_NUM_IS_FINITE: i32 = 2;
 
-pub fn js_global_isNaN_isFinite(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    let d = cc.arg(0).to_f64(&ctx)?;
+pub(crate) fn js_global_isNaN_isFinite(cc: CallContext) -> JSResult {
+    let d = cc.arg(0).to_f64(cc.ctx())?;
     let b = match cc.magic() {
         MAGIC_NUM_IS_NAN => f64::is_nan(d),
         MAGIC_NUM_IS_FINITE => f64::is_finite(d),
@@ -37,10 +36,11 @@ const fn is_uri_reserved(c: u32) -> bool {
     )
 }
 
-fn js_global_decodeURI(ctx: ContextPtr, cc: CallContext) -> JSResult {
+fn js_global_decodeURI(cc: CallContext) -> JSResult {
     let is_component = cc.magic() == 1;
+    let ctx = cc.ctx();
 
-    let str = cc.arg(0).to_string(&ctx)?;
+    let str = cc.arg(0).to_string(ctx)?;
     let len = str.len();
 
     let mut buf = StringBuf::with_capacity(len, false).map_err(|_| {
@@ -147,17 +147,17 @@ fn js_global_decodeURI(ctx: ContextPtr, cc: CallContext) -> JSResult {
 
 // global objects
 pub static js_global_props: [FieldDef; 9] = [
-    FieldDef::FUNCTION_V1("parseInt", 2, js_parseInt, 0),
-    FieldDef::FUNCTION_V1("parseFloat", 1, js_parseFloat, 0),
-    FieldDef::FUNCTION_V1("isNaN", 1, js_global_isNaN_isFinite, MAGIC_NUM_IS_NAN as _),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL("parseInt", 2, js_parseInt, 0),
+    FieldDef::CALL("parseFloat", 1, js_parseFloat, 0),
+    FieldDef::CALL("isNaN", 1, js_global_isNaN_isFinite, MAGIC_NUM_IS_NAN as _),
+    FieldDef::CALL(
         "isFinite",
         1,
         js_global_isNaN_isFinite,
         MAGIC_NUM_IS_FINITE as _,
     ),
-    FieldDef::FUNCTION_V1("decodeURI", 1, js_global_decodeURI, 0),
-    FieldDef::FUNCTION_V1("decodeURIComponent", 1, js_global_decodeURI, 1),
+    FieldDef::CALL("decodeURI", 1, js_global_decodeURI, 0),
+    FieldDef::CALL("decodeURIComponent", 1, js_global_decodeURI, 1),
     // JS_CFUNC_MAGIC_DEF("encodeURI", 1, js_global_encodeURI, 0),
     // JS_CFUNC_MAGIC_DEF("encodeURIComponent", 1, js_global_encodeURI, 1),
     // JS_CFUNC_DEF("escape", 1, js_global_escape),

@@ -1,7 +1,7 @@
 use crate::{
     JS_CLASS_SYMBOL,
     atom::{Atom, AtomKind},
-    context::{ContextImpl, ContextPtr},
+    context::ContextImpl,
     error::JSResult,
     function::{CallContext, FieldDef},
     object::JS_PROP_CONFIGURABLE,

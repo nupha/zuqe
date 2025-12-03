@@ -143,11 +143,12 @@ pub fn JS_isConcatSpreadable(ctx: &ContextImpl, obj: &JSValue) -> Result<bool, i
     }
 }
 
-pub fn js_array_at(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    let obj: JSValue = cc.this().objectify(&ctx)?.into();
-    let len = obj.get_length_prop(&ctx)?;
+fn js_array_at(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
+    let obj: JSValue = cc.this().objectify(ctx)?.into();
+    let len = obj.get_length_prop(ctx)?;
 
-    let mut idx: i64 = cc.arg(0).to_i64_saturating(&ctx)?;
+    let mut idx: i64 = cc.arg(0).to_i64_saturating(ctx)?;
     if idx < 0 {
         idx += len;
     }
@@ -169,11 +170,12 @@ pub fn js_array_at(ctx: ContextPtr, cc: CallContext) -> JSResult {
     Ok(ret)
 }
 
-pub fn js_array_with(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    let obj = cc.this().objectify(&ctx)?;
-    let len = obj.get_length_prop(&ctx)?;
+fn js_array_with(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
+    let obj = cc.this().objectify(ctx)?;
+    let len = obj.get_length_prop(ctx)?;
 
-    let mut idx: i64 = cc.arg(0).to_i64_saturating(&ctx)?;
+    let mut idx: i64 = cc.arg(0).to_i64_saturating(ctx)?;
     if idx < 0 {
         idx += len;
     }
@@ -301,18 +303,19 @@ pub fn js_array_concat(ctx: ContextPtr, cc: CallContext) -> JSResult {
     Ok(arr)
 }
 
-pub fn js_array_every(ctx: ContextPtr, cc: CallContext) -> JSResult {
+pub(crate) fn js_array_every(cc: CallContext) -> JSResult {
     let special = cc.magic();
+    let ctx = cc.ctx();
 
     let obj: JSValue;
     let len: i64;
 
     if special & special_TA != 0 {
         obj = *cc.this();
-        len = js_typed_array_get_length_internal(&ctx, obj)? as i64;
+        len = js_typed_array_get_length_internal(ctx, obj)? as i64;
     } else {
-        obj = cc.this().objectify(&ctx)?.into();
-        len = obj.get_length_prop(&ctx)?;
+        obj = cc.this().objectify(ctx)?.into();
+        len = obj.get_length_prop(ctx)?;
     }
 
     let func = cc.arg(0);
@@ -321,7 +324,7 @@ pub fn js_array_every(ctx: ContextPtr, cc: CallContext) -> JSResult {
     } else {
         JSValue::UNDEFINED
     };
-    func.ensure_function(&ctx)?;
+    func.ensure_function(ctx)?;
 
     let mut ret: JSValue;
     match special {
@@ -332,14 +335,14 @@ pub fn js_array_every(ctx: ContextPtr, cc: CallContext) -> JSResult {
             ret = JSValue::Bool(false);
         }
         special_map => {
-            ret = JS_ArraySpeciesCreate(ctx, obj, JSValue::from(len))?;
+            ret = JS_ArraySpeciesCreate(cc.ctx_ptr(), obj, JSValue::from(len))?;
         }
         special_filter => {
-            ret = JS_ArraySpeciesCreate(ctx, obj, JSValue::Int(0))?;
+            ret = JS_ArraySpeciesCreate(cc.ctx_ptr(), obj, JSValue::Int(0))?;
         }
         s if s == special_map | special_TA => {
             ret = js_typed_array___speciesCreate(
-                ctx,
+                cc.ctx_ptr(),
                 JSValue::UNDEFINED,
                 &[obj, JSValue::from(len as i32)],
             )?;
@@ -409,7 +412,7 @@ pub fn js_array_every(ctx: ContextPtr, cc: CallContext) -> JSResult {
 
     if special == special_filter | special_TA {
         let arr = js_typed_array___speciesCreate(
-            ctx,
+            cc.ctx_ptr(),
             JSValue::UNDEFINED,
             &[obj, JSValue::Int(n as i32)],
         )?;
@@ -523,14 +526,15 @@ pub fn js_array_fill(ctx: ContextPtr, cc: CallContext) -> JSResult {
     Ok(obj)
 }
 
-pub fn js_array_find(ctx: ContextPtr, cc: CallContext) -> JSResult {
+fn js_array_find(cc: CallContext) -> JSResult {
     let mode = cc.magic();
+    let ctx = cc.ctx();
 
-    let obj: JSValue = cc.this().objectify(&ctx)?.into();
-    let len = obj.get_length_prop(&ctx)?;
+    let obj: JSValue = cc.this().objectify(ctx)?.into();
+    let len = obj.get_length_prop(ctx)?;
 
     let func = cc.arg(0);
-    func.ensure_function(&ctx)?;
+    func.ensure_function(ctx)?;
 
     let this_val = *cc.this();
     let this_arg = if cc.length() > 1 {
@@ -556,8 +560,8 @@ pub fn js_array_find(ctx: ContextPtr, cc: CallContext) -> JSResult {
     // TODO: add fast path for fast arrays
     while k != end {
         let index_val = JSValue::from(k);
-        let val = obj.get_property_value(&ctx, index_val)?;
-        let res = func.call(&ctx, this_arg, &[val, index_val, this_val])?;
+        let val = obj.get_property_value(ctx, index_val)?;
+        let res = func.call(ctx, this_arg, &[val, index_val, this_val])?;
 
         if res.to_bool()? {
             // found
@@ -769,7 +773,7 @@ pub fn js_array_toString(ctx: ContextPtr, cc: CallContext) -> JSResult {
     obj.invoke_callable(&ctx, Atom::CONST_join, &[])?
         .unwrap_or_else(|| {
             // use builtin `Object.prototype.toString`
-            js_object_toString(ctx, CallContext::new(ctx, obj.into(), &[], 0, None))
+            js_object_toString(CallContext::new(ctx, obj.into(), &[], 0, None))
         })
 }
 
@@ -1409,14 +1413,14 @@ fn JS_FlattenIntoArray(
 }
 
 pub static js_array_proto_funcs: [FieldDef; 39] = [
-    FieldDef::FUNCTION_V1("at", 1, js_array_at, 0),
-    FieldDef::FUNCTION_V1("with", 2, js_array_with, 0),
+    FieldDef::CALL("at", 1, js_array_at, 0),
+    FieldDef::CALL("with", 2, js_array_with, 0),
     FieldDef::FUNCTION_V1("concat", 1, js_array_concat, 0),
-    FieldDef::FUNCTION_V1("every", 1, js_array_every, special_every as i16),
-    FieldDef::FUNCTION_V1("some", 1, js_array_every, special_some as i16),
-    FieldDef::FUNCTION_V1("forEach", 1, js_array_every, special_forEach as i16),
-    FieldDef::FUNCTION_V1("map", 1, js_array_every, special_map as i16),
-    FieldDef::FUNCTION_V1("filter", 1, js_array_every, special_filter as i16),
+    FieldDef::CALL("every", 1, js_array_every, special_every as i16),
+    FieldDef::CALL("some", 1, js_array_every, special_some as i16),
+    FieldDef::CALL("forEach", 1, js_array_every, special_forEach as i16),
+    FieldDef::CALL("map", 1, js_array_every, special_map as i16),
+    FieldDef::CALL("filter", 1, js_array_every, special_filter as i16),
     FieldDef::FUNCTION_V1("reduce", 1, js_array_reduce, special_reduce as i16),
     FieldDef::FUNCTION_V1(
         "reduceRight",
@@ -1425,10 +1429,10 @@ pub static js_array_proto_funcs: [FieldDef; 39] = [
         special_reduceRight as i16,
     ),
     FieldDef::FUNCTION_V1("fill", 1, js_array_fill, 0),
-    FieldDef::FUNCTION_V1("find", 1, js_array_find, special_find as i16),
-    FieldDef::FUNCTION_V1("findIndex", 1, js_array_find, special_findIndex as i16),
-    FieldDef::FUNCTION_V1("findLast", 1, js_array_find, special_findLast as i16),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL("find", 1, js_array_find, special_find as i16),
+    FieldDef::CALL("findIndex", 1, js_array_find, special_findIndex as i16),
+    FieldDef::CALL("findLast", 1, js_array_find, special_findLast as i16),
+    FieldDef::CALL(
         "findLastIndex",
         1,
         js_array_find,

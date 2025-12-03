@@ -1457,26 +1457,26 @@ pub static js_typed_array_base_proto_funcs: [FieldDef; 36] = [
         0,
     ),
     FieldDef::FUNCTION_V1("copyWithin", 2, js_typed_array_copyWithin, 0),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL(
         "every",
         1,
         js_array_every,
         (special_every | special_TA) as i16,
     ),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL(
         "some",
         1,
         js_array_every,
         (special_some | special_TA) as i16,
     ),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL(
         "forEach",
         1,
         js_array_every,
         (special_forEach | special_TA) as i16,
     ),
-    FieldDef::FUNCTION_V1("map", 1, js_array_every, (special_map | special_TA) as i16),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL("map", 1, js_array_every, (special_map | special_TA) as i16),
+    FieldDef::CALL(
         "filter",
         1,
         js_array_every,
