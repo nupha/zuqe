@@ -6,7 +6,7 @@ use crate::{
     atom::Atom,
     context::{ContextImpl, ContextRef},
     error::JSResult,
-    function::{CallContext, CallbackType, FieldDef, IteratorState},
+    function::{CallContext, Callback, FieldDef, IteratorState},
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_GPN_SET_ENUM, JS_PROP_C_W_E, JS_PROP_ENUMERABLE,
         JS_PROP_THROW, ObjectPayload, ObjectRef, PropertyKey,
@@ -222,14 +222,14 @@ impl<'a> ObjectIter<'a> {
             // fast path for the built-in iterators (avoid creating the
             // intermediate result object)
             match nfun.handler {
-                CallbackType::IteratorNext(f) => {
+                Callback::IteratorNext(f) => {
                     let mut state = IteratorState::NotDone;
                     let ctx_ptr = unsafe { ContextRef::from_ref_unchecked(ctx) };
                     let cc = CallContext::new(ctx_ptr, obj.into(), args, nfun.magic as _, None);
                     let ret = f(ctx_ptr, cc, &mut state)?;
                     return Ok((ret, state));
                 }
-                CallbackType::CIteratorNext(f) => {
+                Callback::CIteratorNext(f) => {
                     let mut pdone = 0;
                     let ret = f(ctx, obj.into(), args, &mut pdone, nfun.magic as _).err()?;
 

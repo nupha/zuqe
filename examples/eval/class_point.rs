@@ -5,7 +5,7 @@ use zhuque::{
     class::{ClassDef, ClassID},
     context::ContextRef,
     error::JSResult,
-    function::{CallContext, CallbackType, FieldDef},
+    function::{CallContext, Callback, FieldDef},
     object::{JS_PROP_C_W_E, ObjectRef},
     runtime::RuntimeImpl,
     value::JSValue,
@@ -58,7 +58,7 @@ thread_local! {
                     // create constructor
                     let mut ctor: JSValue = ctx
                         .create_native_function(
-                            CallbackType::ConstructorOrFunc(point_constructor),
+                            Callback::ConstructorOrFunc(point_constructor),
                             "Point",
                             2,
                             class_id as i16,

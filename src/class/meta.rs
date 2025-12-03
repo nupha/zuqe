@@ -8,7 +8,7 @@ use crate::{
     },
     context::ContextImpl,
     error::JSResult,
-    function::{CallbackType, NativeCallback_v1},
+    function::{Callback, NativeCallback_v1},
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, ObjectRef},
     runtime::RuntimeImpl,
     value::JSValue,
@@ -178,17 +178,17 @@ impl ContextImpl {
     fn create_global_constructor_internal(
         &mut self,
         name: &str,
-        handler: CallbackType,
+        handler: Callback,
         length: i32,
         proto: JSValue,
         magic: i16,
     ) -> JSResult {
         debug_assert!(matches!(
             handler,
-            CallbackType::Constructor(_)
-                | CallbackType::ConstructorOrFunc(_)
-                | CallbackType::Constructor_v1(_)
-                | CallbackType::ConstructorOrFunc_v1(_)
+            Callback::Constructor(_)
+                | Callback::ConstructorOrFunc(_)
+                | Callback::Constructor_v1(_)
+                | Callback::ConstructorOrFunc_v1(_)
         ));
 
         let func_obj: JSValue = self
@@ -212,7 +212,7 @@ impl ContextImpl {
     ) -> JSResult {
         self.create_global_constructor_internal(
             name,
-            CallbackType::ConstructorOrFunc_v1(callback),
+            Callback::ConstructorOrFunc_v1(callback),
             length,
             proto,
             magic,
@@ -232,7 +232,7 @@ impl ContextImpl {
     ) -> JSResult {
         self.create_global_constructor_internal(
             name,
-            CallbackType::Constructor_v1(callback),
+            Callback::Constructor_v1(callback),
             length,
             proto,
             magic,

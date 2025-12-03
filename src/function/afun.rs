@@ -6,9 +6,7 @@ use crate::{
     class::ClassID,
     context::{ContextImpl, ContextRef},
     error::JSResult,
-    function::{
-        AsyncFuncState, BCFunction, BytecodeFunction, JSFunctionKindEnum, CallbackType,
-    },
+    function::{AsyncFuncState, BCFunction, BytecodeFunction, Callback, JSFunctionKindEnum},
     object::{JS_PROP_CONFIGURABLE, ObjectImpl, ObjectPayload, ObjectRef},
     object_cast,
     value::JSValue,
@@ -30,7 +28,7 @@ impl AsyncFunction {
 
         let ctor: JSValue = ctx
             .create_native_function_with_proto(
-                CallbackType::ConstructorOrFunc_v1(BytecodeFunction::class_constructor),
+                Callback::ConstructorOrFunc_v1(BytecodeFunction::class_constructor),
                 "AsyncFunction",
                 1,
                 JSFunctionKindEnum::JS_FUNC_ASYNC as i16,

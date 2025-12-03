@@ -16,7 +16,7 @@ use crate::{
     class::ClassID,
     error::{STD_ERROR_COUNT, STD_ERROR_NAMES, js_error_proto_funcs},
     eval::EvalFn,
-    function::{CallbackType, js_function_proto},
+    function::{Callback, js_function_proto},
     gcref_wrapper,
     module::{JSFreeModuleEnum, ModuleDef, js_free_modules},
     object::{
@@ -369,7 +369,7 @@ impl ContextRef {
         // Function
         {
             let func = self.create_native_function_with_proto(
-                CallbackType::Func_v1(js_function_proto),
+                Callback::Func_v1(js_function_proto),
                 "",
                 0,
                 0,

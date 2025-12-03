@@ -6,7 +6,7 @@ use crate::{
     class::ClassID,
     context::{ContextImpl, ContextRef},
     error::JS_ThrowTypeErrorDetachedArrayBuffer,
-    function::CallbackType,
+    function::Callback,
     object::{ObjectImpl, ObjectPayload, ObjectRef},
     object_cast,
     runtime::RuntimeImpl,
@@ -104,7 +104,7 @@ impl DataView {
 
         let dv_ctor: JSValue = ctx
             .create_native_function(
-                CallbackType::Constructor_v1(js_dataview_constructor),
+                Callback::Constructor_v1(js_dataview_constructor),
                 "DataView",
                 1,
                 0,

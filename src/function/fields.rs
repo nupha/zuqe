@@ -4,7 +4,7 @@ use crate::{
     atom::{ATOM_CONST_COUNT, Atom},
     context::ContextImpl,
     function::{
-        CallbackType, NativeCallback_v1, NativeCallbackFn, NativeGetterFn, NativeIteratorNextFn,
+        Callback, NativeCallback_v1, NativeCallbackFn, NativeGetterFn, NativeIteratorNextFn,
         NativeSetterFn,
     },
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, LazyInit, ObjectRef},
@@ -27,12 +27,12 @@ pub const JS_DEF_ALIAS: u8 = 9;
 #[derive(Debug, Clone)]
 pub enum FieldDetail {
     Func {
-        handler: CallbackType,
+        handler: Callback,
         length: u8,
     },
     GetSet {
-        get: Option<CallbackType>,
-        set: Option<CallbackType>,
+        get: Option<Callback>,
+        set: Option<Callback>,
     },
     Alias {
         name: &'static str,
@@ -65,7 +65,7 @@ impl FieldDef {
         Self {
             name,
             detail: FieldDetail::Func {
-                handler: CallbackType::Func(callback),
+                handler: Callback::Func(callback),
                 length,
             },
             prop_flags: (JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) as u8,
@@ -84,7 +84,7 @@ impl FieldDef {
         Self {
             name,
             detail: FieldDetail::Func {
-                handler: CallbackType::Func_v1(callback),
+                handler: Callback::Func_v1(callback),
                 length,
             },
             prop_flags: (JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) as u8,
@@ -103,12 +103,12 @@ impl FieldDef {
             name,
             detail: FieldDetail::GetSet {
                 get: if let Some(f) = get {
-                    Some(CallbackType::Getter(f))
+                    Some(Callback::Getter(f))
                 } else {
                     None
                 },
                 set: if let Some(f) = set {
-                    Some(CallbackType::Setter(f))
+                    Some(Callback::Setter(f))
                 } else {
                     None
                 },
@@ -128,7 +128,7 @@ impl FieldDef {
         Self {
             name,
             detail: FieldDetail::Func {
-                handler: CallbackType::IteratorNext(callback),
+                handler: Callback::IteratorNext(callback),
                 length,
             },
             prop_flags: (JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) as u8,

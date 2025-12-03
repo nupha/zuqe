@@ -12,7 +12,7 @@ use crate::{
     context::{ContextImpl, ContextRef},
     error::JSResult,
     function::{
-        AsyncFuncState, BytecodeFunction, CallContext, CallbackType, FieldDef, JSFunctionKindEnum,
+        AsyncFuncState, BytecodeFunction, CallContext, Callback, FieldDef, JSFunctionKindEnum,
         NativeFunctionWithData,
     },
     object::{JS_PROP_CONFIGURABLE, ObjectImpl, ObjectPayload, ObjectRef},
@@ -424,7 +424,7 @@ impl AsyncGeneratorFunction {
 
         let ctor: JSValue = ctx
             .create_native_function_with_proto(
-                CallbackType::ConstructorOrFunc_v1(BytecodeFunction::class_constructor),
+                Callback::ConstructorOrFunc_v1(BytecodeFunction::class_constructor),
                 "AsyncGeneratorFunction",
                 1,
                 JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR as i16,

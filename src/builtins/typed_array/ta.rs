@@ -12,7 +12,7 @@ use crate::{
     class::ClassID,
     context::{ContextImpl, ContextRef},
     error::JS_ThrowTypeErrorDetachedArrayBuffer,
-    function::CallbackType,
+    function::Callback,
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, ObjectImpl, ObjectPayload, ObjectRef},
     object_cast,
     runtime::RuntimeImpl,
@@ -208,7 +208,7 @@ impl TypedArray {
         )?;
 
         let mut typed_array_base_func = ctx.create_native_function(
-            CallbackType::Func_v1(js_typed_array_base_constructor),
+            Callback::Func_v1(js_typed_array_base_constructor),
             "TypedArray",
             0,
             0,
@@ -233,7 +233,7 @@ impl TypedArray {
 
             let mut func_obj: JSValue = ctx
                 .create_native_function_with_proto(
-                    CallbackType::Constructor_v1(js_typed_array_constructor),
+                    Callback::Constructor_v1(js_typed_array_constructor),
                     &name,
                     3,
                     cid as i16, // magic

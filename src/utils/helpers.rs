@@ -278,7 +278,7 @@ macro_rules! JS_CFUNC_FF_DEF {
         $crate::function::FieldDef {
             name: $name,
             detail: $crate::function::FieldDetail::Func {
-                handler: $crate::function::CallbackType::FF($func),
+                handler: $crate::function::Callback::FF($func),
                 length: $length,
             },
             prop_flags: ($crate::object::JS_PROP_WRITABLE | $crate::object::JS_PROP_CONFIGURABLE)
@@ -294,7 +294,7 @@ macro_rules! JS_CFUNC_FFF_DEF {
         $crate::function::FieldDef {
             name: $name,
             detail: $crate::function::FieldDetail::Func {
-                handler: $crate::function::CallbackType::FFF($func),
+                handler: $crate::function::Callback::FFF($func),
                 length: $length,
             },
             prop_flags: ($crate::object::JS_PROP_WRITABLE | $crate::object::JS_PROP_CONFIGURABLE)

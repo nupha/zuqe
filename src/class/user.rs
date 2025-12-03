@@ -72,7 +72,7 @@ impl ClassDef {
         self
     }
 
-    /// Callback on class instance finalize to process opaque pointer.
+    /// Handler on class instance finalize to process opaque pointer.
     /// used for of non-builtin class instance only.
     pub const fn finalize_opaque(mut self, f: FreeObjFn) -> Self {
         self.finalize_opaque.replace(f);

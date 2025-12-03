@@ -58,7 +58,7 @@ pub type JSCFunctionFFF = unsafe fn(f64, f64) -> f64;
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy)]
-pub enum CallbackType {
+pub enum Callback {
     Func(NativeCallbackFn),
     Getter(NativeGetterFn),
     Setter(NativeSetterFn),
@@ -89,7 +89,7 @@ pub enum CallbackType {
     FFF(JSCFunctionFFF),
 }
 
-impl PartialEq for CallbackType {
+impl PartialEq for Callback {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Func(a), Self::Func(b)) => std::ptr::fn_addr_eq(*a, *b),
@@ -133,7 +133,7 @@ impl PartialEq for CallbackType {
 
 #[derive(Debug, Clone)]
 pub struct NFuncPayload {
-    pub handler: CallbackType,
+    pub handler: Callback,
     pub realm: GcWeak<ContextImpl>,
     pub length: u8,
     pub magic: i16,
@@ -214,11 +214,11 @@ impl NFuncPayload {
         }
 
         let ret_val: JSResult = match callback {
-            CallbackType::Func(f) => {
+            Callback::Func(f) => {
                 let cc = CallContext::new(realm, this_obj, sf.args_slice(), magic as _, None);
                 f(cc)
             }
-            CallbackType::Constructor(f) => {
+            Callback::Constructor(f) => {
                 if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
                     realm_cx.throw_type_error("must be called with new");
                     return Err(-1);
@@ -226,24 +226,24 @@ impl NFuncPayload {
                 let cc = CallContext::new(realm, this_obj, sf.args_slice(), magic as _, None);
                 f(cc)
             }
-            CallbackType::ConstructorOrFunc(f) => {
+            Callback::ConstructorOrFunc(f) => {
                 if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
                     this_obj = JSValue::UNDEFINED;
                 }
                 let cc = CallContext::new(realm, this_obj, sf.args_slice(), magic as _, None);
                 f(cc)
             }
-            CallbackType::Getter(f) => {
+            Callback::Getter(f) => {
                 debug_assert_eq!(sf.arg_count, 0);
                 let cc = CallContext::new(realm, this_obj, sf.args_slice(), magic as _, None);
                 f(realm, cc)
             }
-            CallbackType::Setter(f) => {
+            Callback::Setter(f) => {
                 debug_assert_eq!(sf.arg_count, 1);
                 let cc = CallContext::new(realm, this_obj, sf.args_slice(), magic as _, None);
                 f(realm, cc)
             }
-            CallbackType::IteratorNext(f) => {
+            Callback::IteratorNext(f) => {
                 let cc = CallContext::new(realm, this_obj, sf.args_slice(), magic as _, None);
                 let mut iter_state = IteratorState::NotDone;
                 let mut r = f(realm, cc, &mut iter_state);
@@ -257,11 +257,11 @@ impl NFuncPayload {
                 r
             }
 
-            CallbackType::Func_v1(f) => {
+            Callback::Func_v1(f) => {
                 let cc = CallContext::new(realm, this_obj, sf.args_slice(), magic as _, None);
                 f(realm, cc)
             }
-            CallbackType::Constructor_v1(f) => {
+            Callback::Constructor_v1(f) => {
                 if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
                     realm_cx.throw_type_error("must be called with new");
                     return Err(-1);
@@ -269,7 +269,7 @@ impl NFuncPayload {
                 let cc = CallContext::new(realm, this_obj, sf.args_slice(), magic as _, None);
                 f(realm, cc)
             }
-            CallbackType::ConstructorOrFunc_v1(f) => {
+            Callback::ConstructorOrFunc_v1(f) => {
                 if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
                     this_obj = JSValue::UNDEFINED;
                 }
@@ -280,15 +280,13 @@ impl NFuncPayload {
             //
             // LEGACIES
             //
-            CallbackType::CConstructor(f)
-            | CallbackType::CConstructorOrFunc(f)
-            | CallbackType::CFunc(f) => {
+            Callback::CConstructor(f) | Callback::CConstructorOrFunc(f) | Callback::CFunc(f) => {
                 if matches!(
                     callback,
-                    CallbackType::CConstructorOrFunc(_) | CallbackType::CConstructor(_)
+                    Callback::CConstructorOrFunc(_) | Callback::CConstructor(_)
                 ) && flags & JS_CALL_FLAG_CONSTRUCTOR == 0
                 {
-                    if unlikely(matches!(callback, CallbackType::Constructor_v1(_))) {
+                    if unlikely(matches!(callback, Callback::Constructor_v1(_))) {
                         realm_cx.throw_type_error("must be called with new");
                         return Err(-1);
                     } else {
@@ -297,15 +295,15 @@ impl NFuncPayload {
                 }
                 unsafe { f(realm_cx, this_obj, sf.args_slice()).err() }
             }
-            CallbackType::CConstructorMagic(f)
-            | CallbackType::CConstructorOrFuncMagic(f)
-            | CallbackType::CFuncMagic(f) => {
+            Callback::CConstructorMagic(f)
+            | Callback::CConstructorOrFuncMagic(f)
+            | Callback::CFuncMagic(f) => {
                 if matches!(
                     callback,
-                    CallbackType::CConstructorMagic(_) | CallbackType::CConstructorOrFuncMagic(_)
+                    Callback::CConstructorMagic(_) | Callback::CConstructorOrFuncMagic(_)
                 ) && flags & JS_CALL_FLAG_CONSTRUCTOR == 0
                 {
-                    if unlikely(matches!(callback, CallbackType::CConstructorMagic(_))) {
+                    if unlikely(matches!(callback, Callback::CConstructorMagic(_))) {
                         realm_cx.throw_type_error("must be called with new");
                         return Err(-1);
                     } else {
@@ -314,10 +312,10 @@ impl NFuncPayload {
                 }
                 unsafe { f(realm_cx, this_obj, sf.args_slice(), magic as i32).err() }
             }
-            CallbackType::CGetter(f) => unsafe { f(realm_cx, this_obj).err() },
-            CallbackType::CSetter(f) => unsafe { f(realm_cx, this_obj, sf.args_slice()[0]).err() },
-            CallbackType::CGetterMagic(f) => unsafe { f(realm_cx, this_obj, magic as _).err() },
-            CallbackType::CSetterMagic(f) => unsafe {
+            Callback::CGetter(f) => unsafe { f(realm_cx, this_obj).err() },
+            Callback::CSetter(f) => unsafe { f(realm_cx, this_obj, sf.args_slice()[0]).err() },
+            Callback::CGetterMagic(f) => unsafe { f(realm_cx, this_obj, magic as _).err() },
+            Callback::CSetterMagic(f) => unsafe {
                 f(
                     realm_cx,
                     this_obj,
@@ -326,7 +324,7 @@ impl NFuncPayload {
                 )
                 .err()
             },
-            CallbackType::CIteratorNext(f) => {
+            Callback::CIteratorNext(f) => {
                 let mut done = 0;
                 let mut r = f(realm_cx, this_obj, sf.args_slice(), &mut done, magic as _);
                 if !r.is_exception() && done != 2 {
@@ -336,10 +334,10 @@ impl NFuncPayload {
                 r.err()
             }
 
-            CallbackType::FF(f) => sf.args_slice()[0]
+            Callback::FF(f) => sf.args_slice()[0]
                 .to_f64(realm_cx)
                 .map(|n| JSValue::from(unsafe { f(n) })),
-            CallbackType::FFF(f) => {
+            Callback::FFF(f) => {
                 let args = sf.args_slice();
                 let d1 = args[0].to_f64(realm_cx)?;
                 let d2 = args[1].to_f64(realm_cx)?;
@@ -362,7 +360,7 @@ impl NFuncPayload {
 impl ObjectImpl {
     /// Checks if Object is native function of specific type.
     /// Matches both the callback pointer and magic.
-    pub fn match_native_callback(&self, callback: CallbackType, magic: i32) -> bool {
+    pub fn match_native_callback(&self, callback: Callback, magic: i32) -> bool {
         if let ObjectPayload::C_FUNCTION(cfunc) = self.payload() {
             cfunc.magic == magic as i16 && callback.eq(&cfunc.handler)
         } else {
@@ -374,7 +372,7 @@ impl ObjectImpl {
 impl JSValue {
     /// Checks if a JSValue is native function of specific type.
     /// Matches both the callback pointer and magic.
-    pub fn match_native_callback(&self, callback: CallbackType, magic: i32) -> bool {
+    pub fn match_native_callback(&self, callback: Callback, magic: i32) -> bool {
         if let Self::Object(o) = self {
             o.match_native_callback(callback, magic)
         } else {
@@ -388,7 +386,7 @@ impl ContextImpl {
     /// at least `length` arguments will be readable in arguments.
     pub fn create_native_function_with_proto(
         &self,
-        call: CallbackType,
+        call: Callback,
         name: &str,
         length: u8,
         magic: i16,
@@ -408,14 +406,14 @@ impl ContextImpl {
 
         func_obj.set_flag_constructor(matches!(
             call,
-            CallbackType::Constructor(_)
-                | CallbackType::ConstructorOrFunc(_)
-                | CallbackType::Constructor_v1(_)
-                | CallbackType::ConstructorOrFunc_v1(_)
-                | CallbackType::CConstructor(_)
-                | CallbackType::CConstructorMagic(_)
-                | CallbackType::CConstructorOrFunc(_)
-                | CallbackType::CConstructorOrFuncMagic(_)
+            Callback::Constructor(_)
+                | Callback::ConstructorOrFunc(_)
+                | Callback::Constructor_v1(_)
+                | Callback::ConstructorOrFunc_v1(_)
+                | Callback::CConstructor(_)
+                | Callback::CConstructorMagic(_)
+                | Callback::CConstructorOrFunc(_)
+                | Callback::CConstructorOrFuncMagic(_)
         ));
 
         // define properties length and name on function.
@@ -430,7 +428,7 @@ impl ContextImpl {
     #[inline(always)]
     pub fn create_native_function(
         &self,
-        handler: CallbackType,
+        handler: Callback,
         name: &str,
         length: u8,
         magic: i16,
