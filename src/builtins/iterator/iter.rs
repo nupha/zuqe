@@ -468,11 +468,11 @@ pub fn js_array_from_iterator(
     }
 }
 
-pub fn js_iterator_proto_iterator(_: ContextPtr, cc: CallContext) -> JSResult {
+fn js_iterator_proto_iterator(cc: CallContext) -> JSResult {
     Ok(*cc.this())
 }
 
-pub static js_iterator_proto_funcs: [FieldDef; 1] = [FieldDef::FUNCTION_V1(
+pub static js_iterator_proto_funcs: [FieldDef; 1] = [FieldDef::CALL(
     "[Symbol.iterator]",
     0,
     js_iterator_proto_iterator,

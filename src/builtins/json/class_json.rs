@@ -14,9 +14,8 @@ use crate::{
 
 use super::JS_JSONStringify;
 
-#[inline(always)]
-fn js_json_stringify(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    JS_JSONStringify(&ctx, *cc.arg(0), *cc.arg(1), *cc.arg(2))
+fn js_json_stringify(cc: CallContext) -> JSResult {
+    JS_JSONStringify(cc.ctx(), *cc.arg(0), *cc.arg(1), *cc.arg(2))
 }
 
 fn internalize_json_property(
@@ -64,23 +63,25 @@ fn internalize_json_property(
     reviver.call(ctx, holder, &[name.string_or_symbol(ctx)?, val])
 }
 
-fn js_json_parse(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    let s = cc.arg(0).to_string(&ctx)?;
-    let mut obj = JS_ParseJSON(&ctx, &s.content().encode_utf8_bytes(), "<input>")?;
+fn js_json_parse(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
+
+    let s = cc.arg(0).to_string(ctx)?;
+    let mut obj = JS_ParseJSON(ctx, &s.content().encode_utf8_bytes(), "<input>")?;
 
     if cc.length() > 1 && cc.arg(1).is_function() {
         let reviver = *cc.arg(1);
         let mut root: JSValue = ctx.create_base_object()?.into();
-        root.define_property_value(&ctx, Atom::CONST_empty_string, obj, JS_PROP_C_W_E)?;
-        obj = internalize_json_property(&ctx, root, Atom::CONST_empty_string, reviver)?;
+        root.define_property_value(ctx, Atom::CONST_empty_string, obj, JS_PROP_C_W_E)?;
+        obj = internalize_json_property(ctx, root, Atom::CONST_empty_string, reviver)?;
     }
 
     Ok(obj)
 }
 
 static js_json_funcs: [FieldDef; 3] = [
-    FieldDef::FUNCTION_V1("parse", 2, js_json_parse, 0),
-    FieldDef::FUNCTION_V1("stringify", 3, js_json_stringify, 0),
+    FieldDef::CALL("parse", 2, js_json_parse, 0),
+    FieldDef::CALL("stringify", 3, js_json_stringify, 0),
     FieldDef::STR("[Symbol.toStringTag]", "JSON", JS_PROP_CONFIGURABLE),
 ];
 

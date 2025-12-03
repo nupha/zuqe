@@ -8,7 +8,7 @@ use crate::{
         promise::{Promise, js_promise_resolve},
     },
     class::ClassID,
-    context::{ContextHandle, ContextImpl, ContextPtr},
+    context::{ContextHandle, ContextImpl},
     error::JSResult,
     function::{CallContext, FieldDef, IteratorState, NativeFunctionWithData},
     object::{ObjectImpl, ObjectPayload, ObjectRef},
@@ -85,7 +85,7 @@ pub unsafe fn js_async_from_sync_iterator_unwrap_func_create(
     .map_or(JSValue::EXCEPTION, |x| x.into())
 }
 
-pub fn js_async_from_sync_iterator_next(mut ctx: ContextPtr, cc: CallContext) -> JSResult {
+fn js_async_from_sync_iterator_next(cc: CallContext) -> JSResult {
     let done_resolve = |cx: &ContextImpl,
                         rr: [JSValue; 2],
                         err: JSValue,
@@ -96,6 +96,7 @@ pub fn js_async_from_sync_iterator_next(mut ctx: ContextPtr, cc: CallContext) ->
         promise.into()
     };
 
+    let mut ctx = cc.ctx_ptr();
     let (promise, resolving_funcs) = Promise::create(&ctx)?;
 
     let this_val = cc.this();
@@ -205,19 +206,19 @@ pub fn js_async_from_sync_iterator_next(mut ctx: ContextPtr, cc: CallContext) ->
 }
 
 pub static js_async_from_sync_iterator_proto_funcs: [FieldDef; 3] = [
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL(
         "next",
         1,
         js_async_from_sync_iterator_next,
         GEN_MAGIC_NEXT as _,
     ),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL(
         "return",
         1,
         js_async_from_sync_iterator_next,
         GEN_MAGIC_RETURN as _,
     ),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL(
         "throw",
         1,
         js_async_from_sync_iterator_next,
