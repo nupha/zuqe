@@ -1,11 +1,8 @@
-use std::ops::Deref;
-
 use crate::{
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY, JS_CLASS_DATAVIEW,
     JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY, JS_CLASS_INT16_ARRAY,
     JS_CLASS_INT32_ARRAY, JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
     class::ClassID,
-    context::ContextPtr,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, FieldDef},
     number::JSFloat64Union,
@@ -15,7 +12,7 @@ use crate::{
 
 use super::{TA_GET_BUFFER, TA_GET_BYTE_LENGTH, TA_GET_BYTE_OFFSET, TypedArray, dv::DataView};
 
-pub fn js_dataview_constructor(cc: CallContext) -> JSResult {
+pub(super) fn js_dataview_constructor(cc: CallContext) -> JSResult {
     let ctx = cc.context();
 
     let Some(buffer) = cc.arg(0).as_object_ArrayBuffer().copied() else {
@@ -44,7 +41,9 @@ pub fn js_dataview_constructor(cc: CallContext) -> JSResult {
     DataView::create(&ctx, *cc.this(), buffer, offset as _, length).map(|o| o.into())
 }
 
-pub fn js_dataview_getValue(ctx: ContextPtr, cc: CallContext) -> JSResult {
+fn js_dataview_getValue(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
+
     let Some(dataview) = cc.this().as_object_DataView() else {
         ctx.throw_type_error_invalid_class(JS_CLASS_DATAVIEW);
         return Err(-1);
@@ -52,7 +51,7 @@ pub fn js_dataview_getValue(ctx: ContextPtr, cc: CallContext) -> JSResult {
 
     let class_id = cc.magic() as ClassID;
     let size = 1 << TypedArray::SIZE_LOG2(class_id);
-    let pos = cc.arg(0).to_array_index(&ctx)? as usize;
+    let pos = cc.arg(0).to_array_index(ctx)? as usize;
 
     // is little endian?
     let le = if cc.length() > 1 {
@@ -64,7 +63,7 @@ pub fn js_dataview_getValue(ctx: ContextPtr, cc: CallContext) -> JSResult {
     let ab = dataview.array_buffer();
     let abuf = ab.payload();
     if abuf.is_detached() {
-        JS_ThrowTypeErrorDetachedArrayBuffer(&ctx);
+        JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
         return Err(-1);
     }
 
@@ -149,8 +148,8 @@ pub fn js_dataview_getValue(ctx: ContextPtr, cc: CallContext) -> JSResult {
     })
 }
 
-pub fn js_dataview_setValue(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    let cx = ctx.deref();
+fn js_dataview_setValue(cc: CallContext) -> JSResult {
+    let cx = cc.ctx();
     let mut this = *cc.this();
 
     let dv = this
@@ -290,37 +289,37 @@ pub static js_dataview_proto_funcs: [FieldDef; 20] = [
         None,
         TA_GET_BYTE_OFFSET as _,
     ),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL(
         "getInt8",
         1,
         js_dataview_getValue,
         JS_CLASS_INT8_ARRAY as i16,
     ),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL(
         "getUint8",
         1,
         js_dataview_getValue,
         JS_CLASS_UINT8_ARRAY as i16,
     ),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL(
         "getInt16",
         1,
         js_dataview_getValue,
         JS_CLASS_INT16_ARRAY as i16,
     ),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL(
         "getUint16",
         1,
         js_dataview_getValue,
         JS_CLASS_UINT16_ARRAY as i16,
     ),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL(
         "getInt32",
         1,
         js_dataview_getValue,
         JS_CLASS_INT32_ARRAY as i16,
     ),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL(
         "getUint32",
         1,
         js_dataview_getValue,
@@ -338,49 +337,49 @@ pub static js_dataview_proto_funcs: [FieldDef; 20] = [
     //     js_dataview_getValue,
     //     JS_CLASS_BIG_UINT64_ARRAY as i16
     // ),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL(
         "getFloat32",
         1,
         js_dataview_getValue,
         JS_CLASS_FLOAT32_ARRAY as i16,
     ),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL(
         "getFloat64",
         1,
         js_dataview_getValue,
         JS_CLASS_FLOAT64_ARRAY as i16,
     ),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL(
         "setInt8",
         2,
         js_dataview_setValue,
         JS_CLASS_INT8_ARRAY as i16,
     ),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL(
         "setUint8",
         2,
         js_dataview_setValue,
         JS_CLASS_UINT8_ARRAY as i16,
     ),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL(
         "setInt16",
         2,
         js_dataview_setValue,
         JS_CLASS_INT16_ARRAY as i16,
     ),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL(
         "setUint16",
         2,
         js_dataview_setValue,
         JS_CLASS_UINT16_ARRAY as i16,
     ),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL(
         "setInt32",
         2,
         js_dataview_setValue,
         JS_CLASS_INT32_ARRAY as i16,
     ),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL(
         "setUint32",
         2,
         js_dataview_setValue,
@@ -398,13 +397,13 @@ pub static js_dataview_proto_funcs: [FieldDef; 20] = [
     //     js_dataview_setValue,
     //     JS_CLASS_BIG_UINT64_ARRAY as i16
     // ),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL(
         "setFloat32",
         2,
         js_dataview_setValue,
         JS_CLASS_FLOAT32_ARRAY as i16,
     ),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL(
         "setFloat64",
         2,
         js_dataview_setValue,
