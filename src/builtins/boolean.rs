@@ -1,6 +1,6 @@
 use crate::{
     atom::Atom,
-    context::{ContextImpl, ContextPtr},
+    context::ContextImpl,
     error::JSResult,
     function::{CallContext, FieldDef},
     object::ObjectPayload,
@@ -36,8 +36,10 @@ pub fn js_thisBooleanValue(ctx: &ContextImpl, this_val: JSValue) -> JSResult {
     }
 }
 
-pub fn js_boolean_toString(ctx: ContextPtr, args: CallContext) -> JSResult {
-    match js_thisBooleanValue(&ctx, *args.this())? {
+fn js_boolean_toString(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
+
+    match js_thisBooleanValue(ctx, *cc.this())? {
         JSValue::Bool(true) => Atom::CONST_true,
         JSValue::Bool(false) => Atom::CONST_false,
         _ => {
@@ -45,15 +47,15 @@ pub fn js_boolean_toString(ctx: ContextPtr, args: CallContext) -> JSResult {
             return Err(-1);
         }
     }
-    .force_string(&ctx)
+    .force_string(ctx)
     .map(JSValue::String)
 }
 
-pub fn js_boolean_valueOf(ctx: ContextPtr, args: CallContext) -> JSResult {
-    js_thisBooleanValue(&ctx, *args.this())
+fn js_boolean_valueOf(cc: CallContext) -> JSResult {
+    js_thisBooleanValue(cc.ctx(), *cc.this())
 }
 
 pub static js_boolean_proto_funcs: [FieldDef; 2] = [
-    FieldDef::FUNCTION_V1("toString", 0, js_boolean_toString, 0),
-    FieldDef::FUNCTION_V1("valueOf", 0, js_boolean_valueOf, 0),
+    FieldDef::CALL("toString", 0, js_boolean_toString, 0),
+    FieldDef::CALL("valueOf", 0, js_boolean_valueOf, 0),
 ];

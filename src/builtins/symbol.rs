@@ -103,18 +103,20 @@ pub fn js_thisSymbolValue(ctx: &ContextImpl, val: JSValue) -> JSResult {
     }
 }
 
-pub fn js_symbol_toString(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    let val = js_thisSymbolValue(&ctx, *cc.this())?;
+fn js_symbol_toString(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
+
+    let val = js_thisSymbolValue(ctx, *cc.this())?;
     // formatted as 'Symbol(XXX)'
-    ctx.create_string_from_utf8(val.inspect(&ctx)?.into_bytes())
+    ctx.create_string_from_utf8(val.inspect(ctx)?.into_bytes())
         .map(JSValue::String)
 }
 
-pub fn js_symbol_valueOf(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    js_thisSymbolValue(&ctx, *cc.this())
+fn js_symbol_valueOf(cc: CallContext) -> JSResult {
+    js_thisSymbolValue(cc.ctx(), *cc.this())
 }
 
-pub fn js_symbol_get_description(cc: CallContext) -> JSResult {
+fn js_symbol_get_description(cc: CallContext) -> JSResult {
     let ctx = cc.ctx();
 
     if let JSValue::Symbol(a) = js_thisSymbolValue(ctx, *cc.this())? {
@@ -130,20 +132,20 @@ pub fn js_symbol_get_description(cc: CallContext) -> JSResult {
 }
 
 pub static js_symbol_proto_funcs: [FieldDef; 5] = [
-    FieldDef::FUNCTION_V1("toString", 0, js_symbol_toString, 0),
-    FieldDef::FUNCTION_V1("valueOf", 0, js_symbol_valueOf, 0),
+    FieldDef::CALL("toString", 0, js_symbol_toString, 0),
+    FieldDef::CALL("valueOf", 0, js_symbol_valueOf, 0),
     // XXX: should have writable: false
-    FieldDef::FUNCTION_V1("[Symbol.toPrimitive]", 1, js_symbol_valueOf, 0),
+    FieldDef::CALL("[Symbol.toPrimitive]", 1, js_symbol_valueOf, 0),
     FieldDef::STR("[Symbol.toStringTag]", "Symbol", JS_PROP_CONFIGURABLE),
     FieldDef::GETSET("description", Some(js_symbol_get_description), None, 0),
 ];
 
-fn js_symbol_for(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    let s = cc.arg(0).to_string(&ctx)?;
-    ctx.create_symbol(Some(s), AtomKind::GlobalSymbol)
+fn js_symbol_for(cc: CallContext) -> JSResult {
+    let s = cc.arg(0).to_string(cc.ctx())?;
+    cc.ctx().create_symbol(Some(s), AtomKind::GlobalSymbol)
 }
 
-fn js_symbol_keyFor(ctx: ContextPtr, cc: CallContext) -> JSResult {
+fn js_symbol_keyFor(cc: CallContext) -> JSResult {
     if let JSValue::Symbol(a) = cc.arg(0) {
         let s = a.string();
         if s.atom_info().unwrap().kind() != AtomKind::GlobalSymbol {
@@ -152,12 +154,12 @@ fn js_symbol_keyFor(ctx: ContextPtr, cc: CallContext) -> JSResult {
             Ok(JSValue::String(s))
         }
     } else {
-        ctx.throw_type_error_not_a_symbol();
+        cc.ctx().throw_type_error_not_a_symbol();
         Err(-1)
     }
 }
 
 pub static js_symbol_funcs: [FieldDef; 2] = [
-    FieldDef::FUNCTION_V1("for", 1, js_symbol_for, 0),
-    FieldDef::FUNCTION_V1("keyFor", 1, js_symbol_keyFor, 0),
+    FieldDef::CALL("for", 1, js_symbol_for, 0),
+    FieldDef::CALL("keyFor", 1, js_symbol_keyFor, 0),
 ];

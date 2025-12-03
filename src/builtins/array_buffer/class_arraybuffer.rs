@@ -2,7 +2,6 @@ use crate::{
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_DATAVIEW, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY,
     builtins::js_get_this,
     class::ClassID,
-    context::ContextPtr,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, FieldDef, JS_CallConstructor},
     object::{JS_PROP_CONFIGURABLE, JS_SpeciesConstructor},
@@ -42,33 +41,34 @@ fn js_array_buffer_detached(cc: CallContext) -> JSResult {
         })
 }
 
-fn js_array_buffer_slice(ctx: ContextPtr, cc: CallContext) -> JSResult {
+fn js_array_buffer_slice(cc: CallContext) -> JSResult {
     let class_id = cc.magic() as ClassID;
+    let ctx = cc.ctx();
 
     let abuf = cc
         .this()
-        .retrive_object_payload(&ctx, class_id)
+        .retrive_object_payload(ctx, class_id)
         .map(|isa| isa.array_buffer().unwrap())?;
 
     if abuf.is_detached() {
-        JS_ThrowTypeErrorDetachedArrayBuffer(&ctx);
+        JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
         return Err(-1);
     }
 
     let len = abuf.byte_length() as i64;
-    let start: i64 = cc.arg(0).to_i64_clamp(&ctx, 0, len, len)?;
+    let start: i64 = cc.arg(0).to_i64_clamp(ctx, 0, len, len)?;
     let end = if !cc.arg(1).is_undefined() {
-        cc.arg(1).to_i64_clamp(&ctx, 0, len, len)?
+        cc.arg(1).to_i64_clamp(ctx, 0, len, len)?
     } else {
         len
     };
 
     let new_len = std::cmp::max(end - start, 0);
-    let ctor = JS_SpeciesConstructor(&ctx, *cc.this(), JSValue::UNDEFINED)?;
+    let ctor = JS_SpeciesConstructor(ctx, *cc.this(), JSValue::UNDEFINED)?;
 
     let mut new_obj = if ctor.is_undefined() {
         ArrayBuffer::with_capacity_ex(
-            &ctx,
+            ctx,
             JSValue::UNDEFINED,
             cc.magic() as ClassID == JS_CLASS_SHARED_ARRAY_BUFFER,
             new_len as usize,
@@ -76,18 +76,18 @@ fn js_array_buffer_slice(ctx: ContextPtr, cc: CallContext) -> JSResult {
         )
         .map(|x| x.into())
     } else {
-        JS_CallConstructor(&ctx, ctor, &[JSValue::from(new_len)]).err()
+        JS_CallConstructor(ctx, ctor, &[JSValue::from(new_len)]).err()
     }?;
 
     let new_abuf = new_obj
-        .retrive_object_payload(&ctx, class_id)
+        .retrive_object_payload(ctx, class_id)
         .map(|isa| isa.array_buffer().unwrap())?;
 
     if unlikely(new_obj.is_same(*cc.this())) {
         ctx.throw_type_error("cannot use identical ArrayBuffer");
         Err(-1)
     } else if unlikely(new_abuf.is_detached()) {
-        JS_ThrowTypeErrorDetachedArrayBuffer(&ctx);
+        JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
         Err(-1)
     } else if unlikely(new_abuf.byte_length() < new_len as usize) {
         ctx.throw_type_error("new ArrayBuffer is too small");
@@ -95,12 +95,12 @@ fn js_array_buffer_slice(ctx: ContextPtr, cc: CallContext) -> JSResult {
     } else {
         // must test again because of side effects
         if abuf.is_detached() {
-            JS_ThrowTypeErrorDetachedArrayBuffer(&ctx);
+            JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
             return Err(-1);
         }
 
         let new_abuf_mut = new_obj
-            .retrive_object_payload_mut(&ctx, class_id)
+            .retrive_object_payload_mut(ctx, class_id)
             .map(|isa| isa.array_buffer_mut().unwrap())?;
 
         abuf.with_bytes(|src| {
@@ -125,7 +125,7 @@ pub static js_array_buffer_proto_funcs: [FieldDef; 4] = [
         JS_CLASS_ARRAY_BUFFER as i16,
     ),
     FieldDef::GETSET("detached", Some(js_array_buffer_detached), None, 0),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL(
         "slice",
         2,
         js_array_buffer_slice,
@@ -141,7 +141,7 @@ pub static js_shared_array_buffer_proto_funcs: [FieldDef; 3] = [
         None,
         JS_CLASS_SHARED_ARRAY_BUFFER as i16,
     ),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL(
         "slice",
         2,
         js_array_buffer_slice,
@@ -158,7 +158,7 @@ pub static js_shared_array_buffer_proto_funcs: [FieldDef; 3] = [
 // static methods
 //
 
-pub fn js_array_buffer_isView(_: ContextPtr, cc: CallContext) -> JSResult {
+fn js_array_buffer_isView(cc: CallContext) -> JSResult {
     let res = if let JSValue::Object(p) = cc.arg(0)
         && (JS_CLASS_UINT8C_ARRAY..=JS_CLASS_DATAVIEW).contains(&p.class_id())
     {
@@ -170,7 +170,7 @@ pub fn js_array_buffer_isView(_: ContextPtr, cc: CallContext) -> JSResult {
 }
 
 pub static js_array_buffer_funcs: [FieldDef; 2] = [
-    FieldDef::FUNCTION_V1("isView", 1, js_array_buffer_isView, 0),
+    FieldDef::CALL("isView", 1, js_array_buffer_isView, 0),
     FieldDef::GETSET("[Symbol.species]", Some(js_get_this), None, 0),
 ];
 

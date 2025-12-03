@@ -473,7 +473,7 @@ fn js_async_generator_resolve_function_create(
 
 fn js_async_generator_resolve_function(cc: CallContext) -> JSResult {
     let is_reject = cc.magic() & 1 != 0;
-    let mut ctx = cc.context();
+    let ctx = cc.ctx();
     let arg = *cc.arg(0);
 
     let mut data0 = *cc.data(0).as_object().unwrap();
@@ -488,9 +488,9 @@ fn js_async_generator_resolve_function(cc: CallContext) -> JSResult {
 
             s.state.set(AGenState::JS_ASYNC_GENERATOR_STATE_COMPLETED);
             if is_reject {
-                s.reject(&ctx, arg);
+                s.reject(ctx, arg);
             } else {
-                s.resolve(&ctx, arg, true);
+                s.resolve(ctx, arg, true);
             }
         } else {
             // restart function execution after await()
@@ -516,7 +516,7 @@ fn js_async_generator_resolve_function(cc: CallContext) -> JSResult {
                 }
             }
 
-            s.resume_next(ctx.into());
+            s.resume_next(cc.ctx_ptr());
         }
 
         Ok(JSValue::UNDEFINED)
@@ -525,11 +525,11 @@ fn js_async_generator_resolve_function(cc: CallContext) -> JSResult {
     }
 }
 
-fn js_async_generator_next(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    let (promise, resolving_funcs) = Promise::create(&ctx)?;
+fn js_async_generator_next(cc: CallContext) -> JSResult {
+    let (promise, resolving_funcs) = Promise::create(cc.ctx())?;
 
     let mut this = *cc.this();
-    if let Ok(isa) = this.retrive_object_payload_mut(&ctx, JS_CLASS_ASYNC_GENERATOR) {
+    if let Ok(isa) = this.retrive_object_payload_mut(cc.ctx(), JS_CLASS_ASYNC_GENERATOR) {
         let ObjectPayload::ASYNC_GENERATOR(s) = isa else {
             unreachable!()
         };
@@ -543,21 +543,21 @@ fn js_async_generator_next(ctx: ContextPtr, cc: CallContext) -> JSResult {
         s.queue.borrow_mut().push(req);
 
         if s.state.get() != AGenState::JS_ASYNC_GENERATOR_STATE_EXECUTING {
-            s.resume_next(ctx);
+            s.resume_next(cc.ctx_ptr());
         }
     } else {
-        let err = ctx.rt().take_exception();
-        resolving_funcs[1].call(&ctx, JSValue::UNDEFINED, std::slice::from_ref(&err))?;
+        let err = cc.ctx().rt().take_exception();
+        resolving_funcs[1].call(cc.ctx(), JSValue::UNDEFINED, std::slice::from_ref(&err))?;
     }
 
     Ok(promise.into())
 }
 
-fn js_iterator_proto_iterator(_: ContextPtr, cc: CallContext) -> JSResult {
+fn js_iterator_proto_iterator(cc: CallContext) -> JSResult {
     Ok(*cc.this())
 }
 
-pub static js_async_iterator_proto_funcs: [FieldDef; 1] = [FieldDef::FUNCTION_V1(
+pub static js_async_iterator_proto_funcs: [FieldDef; 1] = [FieldDef::CALL(
     "[Symbol.asyncIterator]",
     0,
     js_iterator_proto_iterator,
@@ -565,9 +565,9 @@ pub static js_async_iterator_proto_funcs: [FieldDef; 1] = [FieldDef::FUNCTION_V1
 )];
 
 pub static js_async_generator_proto_funcs: [FieldDef; 4] = [
-    FieldDef::FUNCTION_V1("next", 1, js_async_generator_next, GEN_MAGIC_NEXT as _),
-    FieldDef::FUNCTION_V1("return", 1, js_async_generator_next, GEN_MAGIC_RETURN as _),
-    FieldDef::FUNCTION_V1("throw", 1, js_async_generator_next, GEN_MAGIC_THROW as _),
+    FieldDef::CALL("next", 1, js_async_generator_next, GEN_MAGIC_NEXT as _),
+    FieldDef::CALL("return", 1, js_async_generator_next, GEN_MAGIC_RETURN as _),
+    FieldDef::CALL("throw", 1, js_async_generator_next, GEN_MAGIC_THROW as _),
     FieldDef::STR(
         "[Symbol.toStringTag]",
         "AsyncGenerator",
