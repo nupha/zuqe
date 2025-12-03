@@ -54,8 +54,8 @@ pub fn js_regexp_constructor_internal(
     }
 }
 
-pub fn js_regexp_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
-    let cx = ctx.deref();
+pub fn js_regexp_constructor(cc: CallContext) -> JSResult {
+    let cx = cc.ctx();
 
     let mut pat = *cc.arg(0);
     let mut flags1 = *cc.arg(1);

@@ -205,12 +205,8 @@ object_cast!(Proxy, JS_CLASS_PROXY);
 
 impl Proxy {
     pub fn class_initialize(ctx: ContextRef, _: ClassID) -> Result<Option<ObjectRef>, i32> {
-        let mut proto = ctx.create_native_function(
-            Callback::Constructor_v1(js_proxy_constructor),
-            "Proxy",
-            2,
-            0,
-        )?;
+        let mut proto =
+            ctx.create_native_function(Callback::Constructor(js_proxy_constructor), "Proxy", 2, 0)?;
 
         proto.set_flag_constructor(true);
         proto.install_field_defs(&ctx, &js_proxy_funcs).unwrap();

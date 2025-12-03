@@ -25,24 +25,24 @@ const MAGIC_INCLUDES: i32 = 1;
 const MAGIC_STARTS_WITH: i32 = 2;
 const MAGIC_ENDS_WITH: i32 = 3;
 
-pub fn js_string_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
-    let cx = ctx.deref();
+pub fn js_string_constructor(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
     let new_target = *cc.this();
 
     let str_val = if cc.length() == 0 {
-        Atom::CONST_empty_string.force_string(cx)?
+        Atom::CONST_empty_string.force_string(ctx)?
     } else if let JSValue::Symbol(a) = cc.arg(0)
         && new_target.is_undefined()
     {
         // "Symbol(desc)"
-        JS_ConcatString3(cx, c"Symbol(", a.string().into(), c")")?
+        JS_ConcatString3(ctx, c"Symbol(", a.string().into(), c")")?
     } else {
-        cc.arg(0).to_string(cx)?
+        cc.arg(0).to_string(ctx)?
     };
 
     if !new_target.is_undefined() {
         // make String object using `new_target` as prototype.
-        str_val.objectify(cx, new_target).map(JSValue::Object)
+        str_val.objectify(ctx, new_target).map(JSValue::Object)
     } else {
         Ok(str_val.into())
     }

@@ -415,15 +415,17 @@ impl ArrayBuffer {
     }
 }
 
-pub fn js_array_buffer_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
-    let size = cc.arg(0).to_array_index(&ctx)? as usize;
-    ArrayBuffer::with_capacity_ex(&ctx, *cc.this(), false, size, std::ptr::null_mut())
+pub fn js_array_buffer_constructor(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
+    let size = cc.arg(0).to_array_index(ctx)? as usize;
+    ArrayBuffer::with_capacity_ex(ctx, *cc.this(), false, size, std::ptr::null_mut())
         .map(|x| x.into())
 }
 
-pub fn js_shared_array_buffer_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
-    let size = cc.arg(0).to_array_index(&ctx)? as usize;
-    ArrayBuffer::with_capacity_ex(&ctx, *cc.this(), true, size, std::ptr::null_mut())
+pub fn js_shared_array_buffer_constructor(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
+    let size = cc.arg(0).to_array_index(ctx)? as usize;
+    ArrayBuffer::with_capacity_ex(ctx, *cc.this(), true, size, std::ptr::null_mut())
         .map(|x| x.into())
 }
 
@@ -431,20 +433,4 @@ pub fn js_shared_array_buffer_constructor(ctx: ContextRef, cc: CallContext) -> J
 #[deprecated(note = "use ArrayBuffer::class_finalize() instead")]
 pub fn js_array_buffer_finalizer(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize) {
     ArrayBuffer::class_finalize(rt, isa, id);
-    // let abuf = isa.array_buffer().unwrap();
-
-    // // free content
-    // match abuf.data() {
-    //     ABufData::Raw(p, len, Some(free_func)) => {
-    //         free_func(rt, abuf.opaque(), p.as_ptr(), *len);
-    //     }
-    //     ABufData::Shared(a) => {
-    //         if Arc::strong_count(a) == 1
-    //             && let Some(fns) = &rt.sab_funcs
-    //         {
-    //             (fns.sab_free)(fns.sab_opaque, a.read().unwrap().len());
-    //         }
-    //     }
-    //     _ => {}
-    // }
 }

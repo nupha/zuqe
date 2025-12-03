@@ -45,8 +45,8 @@ pub const special_TA: i32 = 8;
 pub const special_reduce: i32 = 0;
 pub const special_reduceRight: i32 = 1;
 
-pub(crate) fn js_array_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
-    let ctx = &ctx;
+pub(crate) fn js_array_constructor(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
     let new_target = *cc.this();
 
     let (mut arr, len) = if cc.length() == 1 && cc.arg(0).is_number() {
@@ -89,16 +89,13 @@ pub(crate) fn js_array_constructor(ctx: ContextRef, cc: CallContext) -> JSResult
 
 fn JS_ArraySpeciesCreate(ctx: ContextRef, obj: JSValue, len_val: JSValue) -> JSResult {
     if !obj.is_array(&ctx)? {
-        return js_array_constructor(
+        return js_array_constructor(CallContext::new(
             ctx,
-            CallContext::new(
-                ctx,
-                JSValue::UNDEFINED,
-                std::slice::from_ref(&len_val),
-                0,
-                None,
-            ),
-        );
+            JSValue::UNDEFINED,
+            std::slice::from_ref(&len_val),
+            0,
+            None,
+        ));
     }
 
     let mut ctor = obj.get_property(&ctx, Atom::CONST_constructor)?;
@@ -120,16 +117,13 @@ fn JS_ArraySpeciesCreate(ctx: ContextRef, obj: JSValue, len_val: JSValue) -> JSR
     }
 
     if ctor.is_undefined() {
-        js_array_constructor(
+        js_array_constructor(CallContext::new(
             ctx,
-            CallContext::new(
-                ctx,
-                JSValue::UNDEFINED,
-                std::slice::from_ref(&len_val),
-                0,
-                None,
-            ),
-        )
+            JSValue::UNDEFINED,
+            std::slice::from_ref(&len_val),
+            0,
+            None,
+        ))
     } else {
         JS_CallConstructor(&ctx, ctor, std::slice::from_ref(&len_val)).err()
     }

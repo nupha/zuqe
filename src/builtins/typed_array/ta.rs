@@ -233,7 +233,7 @@ impl TypedArray {
 
             let mut func_obj: JSValue = ctx
                 .create_native_function_with_proto(
-                    Callback::Constructor_v1(js_typed_array_constructor),
+                    Callback::Constructor(js_typed_array_constructor),
                     &name,
                     3,
                     cid as i16, // magic

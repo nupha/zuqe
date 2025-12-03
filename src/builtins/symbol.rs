@@ -58,8 +58,10 @@ pub(crate) fn symbol_to_atom(val: JSValue) -> Atom {
     }
 }
 
-pub fn js_symbol_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_symbol_constructor(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
     let new_target = cc.this();
+
     if !new_target.is_undefined() {
         ctx.throw_type_error("not a constructor");
         return Err(-1);
@@ -68,7 +70,7 @@ pub fn js_symbol_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
     let str: Option<StringRef> = if cc.arg(0).is_undefined() {
         None
     } else {
-        Some(cc.arg(0).to_string(&ctx)?)
+        Some(cc.arg(0).to_string(ctx)?)
     };
     ctx.create_symbol(str, AtomKind::Symbol)
 }

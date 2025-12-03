@@ -70,16 +70,20 @@ pub fn js_typed_array___speciesCreate(
     let ctor = JS_SpeciesConstructor(&ctx, obj, JSValue::UNDEFINED)?;
     let args_list = if args.len() > 1 { &args[1..] } else { &[] };
     if ctor.is_undefined() {
-        js_typed_array_constructor(
+        js_typed_array_constructor(CallContext::new(
             ctx,
-            CallContext::new(ctx, JSValue::UNDEFINED, args_list, ta.class_id() as _, None),
-        )
+            JSValue::UNDEFINED,
+            args_list,
+            ta.class_id() as _,
+            None,
+        ))
     } else {
         js_typed_array_create(&ctx, ctor, args_list)
     }
 }
 
-pub fn js_typed_array_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_typed_array_constructor(cc: CallContext) -> JSResult {
+    let ctx = cc.context();
     let new_target = *cc.this();
     let class_id = cc.magic() as ClassID;
 

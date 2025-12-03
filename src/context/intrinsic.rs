@@ -120,7 +120,7 @@ impl ContextRef {
 
         let ctor: JSValue = self
             .create_native_function(
-                Callback::ConstructorOrFunc_v1(BytecodeFunction::class_constructor),
+                Callback::ConstructorOrFunc(BytecodeFunction::class_constructor),
                 "Function",
                 1,
                 JSFunctionKindEnum::JS_FUNC_NORMAL as _,
@@ -136,7 +136,7 @@ impl ContextRef {
         // Error() constructor
         let ctor = self
             .create_native_function(
-                Callback::ConstructorOrFunc_v1(js_error_constructor),
+                Callback::ConstructorOrFunc(js_error_constructor),
                 "Error",
                 1,
                 -1,
@@ -150,7 +150,7 @@ impl ContextRef {
         for (i, name) in STD_ERROR_NAMES.iter().enumerate() {
             let func_obj = self
                 .create_native_function_with_proto(
-                    Callback::ConstructorOrFunc_v1(js_error_constructor),
+                    Callback::ConstructorOrFunc(js_error_constructor),
                     name,
                     if i == ErrorKind::Aggregate as usize {
                         2
@@ -368,7 +368,7 @@ impl ContextRef {
         // generator constructor
         let ctor: JSValue = self
             .create_native_function(
-                Callback::ConstructorOrFunc_v1(BytecodeFunction::class_constructor),
+                Callback::ConstructorOrFunc(BytecodeFunction::class_constructor),
                 "GeneratorFunction",
                 1,
                 JSFunctionKindEnum::JS_FUNC_GENERATOR as i16,

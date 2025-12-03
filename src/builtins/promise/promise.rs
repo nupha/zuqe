@@ -299,9 +299,10 @@ impl Promise {
     }
 
     /// the native callback for Promise constructor function
-    pub fn class_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
-        let executor = *cc.arg(0).ensure_function(&ctx)?.as_object().unwrap();
-        Promise::from_executor(&ctx, executor, *cc.this()).map(|p| p.into())
+    pub fn class_constructor(cc: CallContext) -> JSResult {
+        let ctx = cc.ctx();
+        let executor = *cc.arg(0).ensure_function(ctx)?.as_object().unwrap();
+        Promise::from_executor(ctx, executor, *cc.this()).map(|p| p.into())
     }
 
     pub fn class_initialize(mut ctx: ContextRef, _: ClassID) -> Result<Option<ObjectRef>, i32> {
@@ -310,7 +311,7 @@ impl Promise {
 
         let mut ctor: JSValue = ctx
             .create_native_function(
-                Callback::ConstructorOrFunc_v1(Self::class_constructor),
+                Callback::ConstructorOrFunc(Self::class_constructor),
                 "Promise",
                 1,
                 0,

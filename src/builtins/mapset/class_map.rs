@@ -15,11 +15,11 @@ use crate::{
 
 use super::{JSMapIteratorData, JSMapState, MapPair};
 
-pub fn js_map_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_map_constructor(cc: CallContext) -> JSResult {
+    let cx = cc.ctx();
     let magic = cc.magic();
     let is_set = magic & 1 == 1;
     let is_weak = matches!(magic, 2 | 3);
-    let cx = ctx.deref();
 
     let new_target = *cc.this();
 

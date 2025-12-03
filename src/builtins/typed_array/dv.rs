@@ -104,7 +104,7 @@ impl DataView {
 
         let dv_ctor: JSValue = ctx
             .create_native_function(
-                Callback::Constructor_v1(js_dataview_constructor),
+                Callback::Constructor(js_dataview_constructor),
                 "DataView",
                 1,
                 0,

@@ -7,7 +7,8 @@ use crate::{
     value::JSValue,
 };
 
-pub fn js_boolean_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_boolean_constructor(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
     let val = JSValue::Bool(cc.arg(0).to_bool().unwrap_or(true));
 
     let new_target = *cc.this();

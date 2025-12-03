@@ -19,17 +19,17 @@ use crate::{
     value::JSValue,
 };
 
-pub fn js_object_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
-    let cx = ctx.deref();
+pub fn js_object_constructor(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
     let new_target = *cc.this();
 
-    if !new_target.is_undefined() && JS_GetActiveFunction(cx) != new_target {
-        cx.create_object_from_ctor(new_target, ObjectPayload::OBJECT)
+    if !new_target.is_undefined() && JS_GetActiveFunction(ctx) != new_target {
+        ctx.create_object_from_ctor(new_target, ObjectPayload::OBJECT)
             .map_err(|_| -1)
     } else {
         match cc.arg(0) {
-            JSValue::NULL | JSValue::UNDEFINED => cx.create_base_object(),
-            a => a.objectify(cx),
+            JSValue::NULL | JSValue::UNDEFINED => ctx.create_base_object(),
+            a => a.objectify(ctx),
         }
     }
     .map(JSValue::Object)
@@ -152,7 +152,7 @@ pub fn js_object_groupBy(ctx: ContextRef, cc: CallContext) -> JSResult {
     func.ensure_function(&ctx)?;
 
     let mut groups = if is_map {
-        js_map_constructor(ctx, CallContext::new_simple(ctx, JSValue::UNDEFINED, &[]))?
+        js_map_constructor(CallContext::new_simple(ctx, JSValue::UNDEFINED, &[]))?
     } else {
         ctx.create_base_object_with_proto(None)?.into()
     };

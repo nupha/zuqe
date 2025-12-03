@@ -424,7 +424,7 @@ impl AsyncGeneratorFunction {
 
         let ctor: JSValue = ctx
             .create_native_function_with_proto(
-                Callback::ConstructorOrFunc_v1(BytecodeFunction::class_constructor),
+                Callback::ConstructorOrFunc(BytecodeFunction::class_constructor),
                 "AsyncGeneratorFunction",
                 1,
                 JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR as i16,

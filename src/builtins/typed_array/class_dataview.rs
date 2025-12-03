@@ -15,7 +15,9 @@ use crate::{
 
 use super::{TA_GET_BUFFER, TA_GET_BYTE_LENGTH, TA_GET_BYTE_OFFSET, TypedArray, dv::DataView};
 
-pub fn js_dataview_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_dataview_constructor(cc: CallContext) -> JSResult {
+    let ctx = cc.context();
+
     let Some(buffer) = cc.arg(0).as_object_ArrayBuffer().copied() else {
         ctx.throw_type_error_invalid_class(JS_CLASS_ARRAY_BUFFER);
         return Err(-1);

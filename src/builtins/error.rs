@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 use crate::{
     JS_CLASS_ERROR,
     atom::Atom,
@@ -11,18 +9,19 @@ use crate::{
     value::JSValue,
 };
 
-pub fn js_error_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
-    let cx = ctx.deref();
+pub fn js_error_constructor(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
 
     let mut new_target = *cc.this();
     if new_target.is_undefined() {
-        new_target = JS_GetActiveFunction(cx);
+        new_target = JS_GetActiveFunction(ctx);
     }
 
     // use proper proto, ensure proto is an object
-    let mut proto = new_target.get_property(cx, Atom::CONST_prototype)?;
+    let mut proto = new_target.get_property(ctx, Atom::CONST_prototype)?;
     if !proto.is_object() {
-        let realm = JS_GetFunctionRealm(unsafe { ContextRef::from_ref_unchecked(cx) }, new_target)?;
+        let realm =
+            JS_GetFunctionRealm(unsafe { ContextRef::from_ref_unchecked(ctx) }, new_target)?;
         let magic = cc.magic();
         proto = if magic < 0 {
             realm.class_proto(JS_CLASS_ERROR).unwrap().into()
@@ -33,7 +32,7 @@ pub fn js_error_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
 
     debug_assert!(proto.is_object());
 
-    let mut obj = cx
+    let mut obj = ctx
         .create_object_with_proto(
             Some(ObjectRef::try_from(proto).unwrap()),
             ObjectPayload::ERROR,
@@ -49,9 +48,9 @@ pub fn js_error_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
     arg_index += 1;
 
     if !message.is_undefined() {
-        let msg = message.to_string(cx)?;
+        let msg = message.to_string(ctx)?;
         obj.define_property_value(
-            cx,
+            ctx,
             Atom::CONST_message,
             msg.into(),
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
@@ -61,10 +60,10 @@ pub fn js_error_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
     if arg_index < cc.length() {
         let options = cc.arg(arg_index);
 
-        if options.is_object() && options.has_property(cx, Atom::CONST_cause)? {
-            let cause = options.get_property(cx, Atom::CONST_cause)?;
+        if options.is_object() && options.has_property(ctx, Atom::CONST_cause)? {
+            let cause = options.get_property(ctx, Atom::CONST_cause)?;
             obj.define_property_value(
-                cx,
+                ctx,
                 Atom::CONST_cause,
                 cause,
                 JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
@@ -73,9 +72,9 @@ pub fn js_error_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
     }
 
     if cc.magic() == ErrorKind::Aggregate as i32 {
-        let error_list = iterator_to_array(cx, cc.arg(0))?;
+        let error_list = iterator_to_array(ctx, cc.arg(0))?;
         obj.define_property_value(
-            cx,
+            ctx,
             Atom::CONST_errors,
             error_list,
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
@@ -83,7 +82,7 @@ pub fn js_error_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
     }
 
     // skip the Error() function in the backtrace
-    cx.build_backtrace_to(obj.into(), None, JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL);
+    ctx.build_backtrace_to(obj.into(), None, JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL);
 
     Ok(obj.into())
 }

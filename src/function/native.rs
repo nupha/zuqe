@@ -68,10 +68,6 @@ pub enum Callback {
 
     #[deprecated]
     Func_v1(NativeCallback_v1),
-    #[deprecated]
-    Constructor_v1(NativeCallback_v1),
-    #[deprecated]
-    ConstructorOrFunc_v1(NativeCallback_v1),
 
     CFunc(JSCFunction),
     CFuncMagic(JSCFunctionMagic),
@@ -102,10 +98,6 @@ impl PartialEq for Callback {
             (Self::IteratorNext(a), Self::IteratorNext(b)) => std::ptr::fn_addr_eq(*a, *b),
 
             (Self::Func_v1(a), Self::Func_v1(b)) => std::ptr::fn_addr_eq(*a, *b),
-            (Self::Constructor_v1(a), Self::Constructor_v1(b)) => std::ptr::fn_addr_eq(*a, *b),
-            (Self::ConstructorOrFunc_v1(a), Self::ConstructorOrFunc_v1(b)) => {
-                std::ptr::fn_addr_eq(*a, *b)
-            }
 
             (Self::CFunc(a), Self::CFunc(b)) => std::ptr::fn_addr_eq(*a, *b),
             (Self::CFuncMagic(a), Self::CFuncMagic(b)) => std::ptr::fn_addr_eq(*a, *b),
@@ -261,21 +253,6 @@ impl NFuncPayload {
                 let cc = CallContext::new(realm, this_obj, sf.args_slice(), magic as _, None);
                 f(realm, cc)
             }
-            Callback::Constructor_v1(f) => {
-                if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
-                    realm_cx.throw_type_error("must be called with new");
-                    return Err(-1);
-                }
-                let cc = CallContext::new(realm, this_obj, sf.args_slice(), magic as _, None);
-                f(realm, cc)
-            }
-            Callback::ConstructorOrFunc_v1(f) => {
-                if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
-                    this_obj = JSValue::UNDEFINED;
-                }
-                let cc = CallContext::new(realm, this_obj, sf.args_slice(), magic as _, None);
-                f(realm, cc)
-            }
 
             //
             // LEGACIES
@@ -286,7 +263,7 @@ impl NFuncPayload {
                     Callback::CConstructorOrFunc(_) | Callback::CConstructor(_)
                 ) && flags & JS_CALL_FLAG_CONSTRUCTOR == 0
                 {
-                    if unlikely(matches!(callback, Callback::Constructor_v1(_))) {
+                    if unlikely(matches!(callback, Callback::Constructor(_))) {
                         realm_cx.throw_type_error("must be called with new");
                         return Err(-1);
                     } else {
@@ -408,8 +385,6 @@ impl ContextImpl {
             call,
             Callback::Constructor(_)
                 | Callback::ConstructorOrFunc(_)
-                | Callback::Constructor_v1(_)
-                | Callback::ConstructorOrFunc_v1(_)
                 | Callback::CConstructor(_)
                 | Callback::CConstructorMagic(_)
                 | Callback::CConstructorOrFunc(_)

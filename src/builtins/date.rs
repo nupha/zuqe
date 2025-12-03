@@ -795,7 +795,8 @@ impl From<Datetime> for JSValue {
     }
 }
 
-pub fn js_date_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_date_constructor(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
     let new_target = *cc.this();
 
     let nargs = if new_target.is_undefined() {
@@ -816,10 +817,10 @@ pub fn js_date_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
             }) {
                 *ts
             } else {
-                match cc.arg(0).to_primitive(&ctx, HINT_NONE)? {
+                match cc.arg(0).to_primitive(ctx, HINT_NONE)? {
                     JSValue::String(s) => Datetime::parse(&s.content().encode_utf8_bytes())
                         .unwrap_or(Datetime::INVALID),
-                    v => v.to_f64(&ctx)?.into(),
+                    v => v.to_f64(ctx)?.into(),
                 }
             }
         }

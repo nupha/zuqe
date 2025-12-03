@@ -258,11 +258,12 @@ pub static js_number_funcs: [FieldDef; 14] = [
     FieldDef::FLOAT64("MIN_SAFE_INTEGER", -9007199254740991.0, 0), /* ES6 */
 ];
 
-pub fn js_number_constructor(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_number_constructor(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
     let val = if cc.length() == 0 {
         JSValue::Int(0)
     } else {
-        cc.arg(0).to_numeric(&ctx)?
+        cc.arg(0).to_numeric(ctx)?
     };
 
     let new_target = *cc.this();
