@@ -16,15 +16,18 @@ use super::ArrayBuffer;
 // Prototype
 //
 
-fn js_array_buffer_get_byteLength(ctx: ContextRef, cc: CallContext) -> JSResult {
+fn js_array_buffer_get_byteLength(cc: CallContext) -> JSResult {
     let class_id = cc.magic() as ClassID;
+    let ctx = cc.ctx();
 
     cc.this()
-        .retrive_object_payload(&ctx, class_id)
+        .retrive_object_payload(ctx, class_id)
         .map(|isa| JSValue::from(isa.array_buffer().unwrap().byte_length() as i64))
 }
 
-fn js_array_buffer_detached(ctx: ContextRef, cc: CallContext) -> JSResult {
+fn js_array_buffer_detached(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
+
     cc.this()
         .as_object()
         .filter(|o| o.class_id() == JS_CLASS_ARRAY_BUFFER)

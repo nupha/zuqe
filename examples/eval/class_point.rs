@@ -29,7 +29,7 @@ fn point_constructor(cc: CallContext) -> JSResult {
     Ok(obj.into())
 }
 
-fn point_getset(_: ContextRef, cc: CallContext) -> JSResult {
+fn point_getset(cc: CallContext) -> JSResult {
     if let Some(p) = cc.this().opaque_ref::<PointData>() {
         match cc.magic() {
             0 => Ok(p.x.into()),

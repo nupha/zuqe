@@ -83,18 +83,18 @@ pub fn js_object_propertyIsEnumerable(ctx: ContextRef, cc: CallContext) -> JSRes
     })
 }
 
-pub fn js_object_getset___proto__(ctx: ContextRef, cc: CallContext) -> JSResult {
-    let cx = ctx.deref();
+pub fn js_object_getset___proto__(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
 
     if cc.length() == 0 {
         // getter
-        let p = cc.this().objectify(cx).and_then(|o| o.prototype(cx))?;
+        let p = cc.this().objectify(ctx).and_then(|o| o.prototype(ctx))?;
         Ok(p.map_or(JSValue::NULL, JSValue::Object))
     } else {
         // setter
         let mut this_val = *cc.this();
         if this_val.is_undefined_or_null() {
-            cx.throw_type_error_not_an_object();
+            ctx.throw_type_error_not_an_object();
             return Err(-1);
         }
 
@@ -104,7 +104,7 @@ pub fn js_object_getset___proto__(ctx: ContextRef, cc: CallContext) -> JSResult 
             Ok(JSValue::UNDEFINED)
         } else {
             // `proto` is an object or null
-            this_val.set_prototype_internal(cx, proto, true)?;
+            this_val.set_prototype_internal(ctx, proto, true)?;
             Ok(JSValue::UNDEFINED)
         }
     }

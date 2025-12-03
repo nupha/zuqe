@@ -228,7 +228,8 @@ pub static js_typed_array_base_funcs: [FieldDef; 3] = [
 // Prototype
 //
 
-pub fn js_typed_array_get_length(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_typed_array_get_length(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
     TypedArray::try_from(*cc.this())
         .map(|p| JSValue::Int(p.length() as i32))
         .map_err(|_| {
@@ -241,7 +242,9 @@ pub(super) const TA_GET_BUFFER: i32 = 1;
 pub(super) const TA_GET_BYTE_LENGTH: i32 = 2;
 pub(super) const TA_GET_BYTE_OFFSET: i32 = 3;
 
-fn js_typed_array_getter(ctx: ContextRef, cc: CallContext) -> JSResult {
+fn js_typed_array_getter(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
+
     if let Some(ta) = cc.this().as_object_TypedArray() {
         match cc.magic() {
             TA_GET_BUFFER => Ok(ta.array_buffer().into()),
@@ -429,11 +432,13 @@ fn js_create_typed_array_iterator(ctx: ContextRef, cc: CallContext) -> JSResult 
     }
 }
 
-fn js_typed_array_get_toStringTag(ctx: ContextRef, cc: CallContext) -> JSResult {
+fn js_typed_array_get_toStringTag(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
+
     if let Some(ta) = cc.this().as_object_TypedArray() {
         ctx.rt().class_registry[ta.class_id() as usize]
             .class_name
-            .force_string(&ctx)
+            .force_string(ctx)
             .map(JSValue::String)
     } else {
         Ok(JSValue::UNDEFINED)

@@ -171,9 +171,10 @@ pub fn js_map_clear(ctx: ContextRef, mut cc: CallContext) -> JSResult {
         })
 }
 
-pub fn js_map_get_size(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_map_get_size(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
     cc.this()
-        .retrive_object_payload(&ctx, JS_CLASS_MAP + cc.magic() as ClassID)
+        .retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as ClassID)
         .map(|r| JSValue::Int(r.mapset().unwrap().len() as i32))
 }
 

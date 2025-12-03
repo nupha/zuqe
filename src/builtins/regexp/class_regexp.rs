@@ -159,7 +159,8 @@ pub fn js_is_regexp(ctx: &ContextImpl, obj: &JSValue) -> Result<bool, i32> {
     }
 }
 
-pub fn js_regexp_get_source(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_regexp_get_source(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
     let this = cc.this();
 
     if this.is_object() {
@@ -171,7 +172,7 @@ pub fn js_regexp_get_source(ctx: ContextRef, cc: CallContext) -> JSResult {
             return ctx.create_string_from_str("(?:))").map(JSValue::String);
         }
 
-        let re = js_get_regexp(&ctx, this, true).ok_or(-1)?;
+        let re = js_get_regexp(ctx, this, true).ok_or(-1)?;
 
         if re.pattern.is_empty() {
             return ctx.create_string_from_str("(?:))").map(JSValue::String);
@@ -237,12 +238,13 @@ pub fn js_regexp_get_source(ctx: ContextRef, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_regexp_get_flag(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_regexp_get_flag(cc: CallContext) -> JSResult {
     let mask = cc.magic();
+    let ctx = cc.ctx();
     let this = cc.this();
 
     if this.is_object() {
-        if let Some(re) = js_get_regexp(&ctx, this, false) {
+        if let Some(re) = js_get_regexp(ctx, this, false) {
             Ok(JSValue::Bool((re.flags as i32) & mask != 0))
         } else if this.is_same(
             ctx.class_proto(JS_CLASS_REGEXP)
@@ -259,7 +261,9 @@ pub fn js_regexp_get_flag(ctx: ContextRef, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_regexp_get_flags(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_regexp_get_flags(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
+
     if let JSValue::Object(o) = cc.this() {
         const TESTS: [(&str, u8); 7] = [
             ("hasIndices", b'd'),
@@ -275,7 +279,7 @@ pub fn js_regexp_get_flags(ctx: ContextRef, cc: CallContext) -> JSResult {
         let mut pos = 0_usize;
 
         for (name, ch) in TESTS.iter() {
-            if o.get_property_str(&ctx, name).and_then(|b| b.to_bool())? {
+            if o.get_property_str(ctx, name).and_then(|b| b.to_bool())? {
                 str[pos] = *ch;
                 pos += 1;
             }

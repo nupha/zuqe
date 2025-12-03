@@ -143,19 +143,20 @@ pub fn js_function_hasInstance(ctx: ContextRef, cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_function_proto_fileName(ctx: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_function_proto_fileName(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
     if let Some(filename) = cc.this().as_object().and_then(|o| {
         o.payload()
             .bc_function()
             .and_then(|x| x.bytecode().debug.as_ref().map(|d| d.filename))
     }) {
-        filename.force_string(&ctx).map(JSValue::String)
+        filename.force_string(ctx).map(JSValue::String)
     } else {
         Ok(JSValue::UNDEFINED)
     }
 }
 
-pub fn js_function_proto_lineNumber(_: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_function_proto_lineNumber(cc: CallContext) -> JSResult {
     if let Some(line_num) = cc.this().as_object().and_then(|o| {
         o.payload()
             .bc_function()

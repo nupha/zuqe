@@ -251,7 +251,9 @@ pub fn js_dataview_setValue(ctx: ContextRef, cc: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
-fn js_dataview_getter(ctx: ContextRef, cc: CallContext) -> JSResult {
+fn js_dataview_getter(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
+
     if let Some(dv) = cc.this().as_object_DataView() {
         match cc.magic() {
             TA_GET_BUFFER => Ok(dv.array_buffer().into()),
@@ -259,12 +261,12 @@ fn js_dataview_getter(ctx: ContextRef, cc: CallContext) -> JSResult {
                 if !dv.is_detached() {
                     Ok(JSValue::Int(dv.byte_length() as i32))
                 } else {
-                    JS_ThrowTypeErrorDetachedArrayBuffer(&ctx);
+                    JS_ThrowTypeErrorDetachedArrayBuffer(ctx);
                     Err(-1)
                 }
             }
             TA_GET_BYTE_OFFSET => dv
-                .array_buffer_byte_offset(&ctx)
+                .array_buffer_byte_offset(ctx)
                 .map(|n| JSValue::Int(n as i32)),
             _ => unreachable!(),
         }

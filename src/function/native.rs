@@ -19,8 +19,8 @@ use crate::{
 use super::js_function_set_properties;
 
 pub type NativeCallbackFn = fn(cc: CallContext) -> JSResult;
-pub type NativeGetterFn = fn(ctx: ContextRef, cc: CallContext) -> JSResult;
-pub type NativeSetterFn = fn(ctx: ContextRef, cc: CallContext) -> JSResult;
+pub type NativeGetterFn = fn(cc: CallContext) -> JSResult;
+pub type NativeSetterFn = fn(cc: CallContext) -> JSResult;
 pub type NativeIteratorNextFn = fn(cc: CallContext, iter_state: &mut IteratorState) -> JSResult;
 
 #[deprecated(note = "should migrate to NativeCallback")]
@@ -227,12 +227,12 @@ impl NFuncPayload {
             Callback::Getter(f) => {
                 debug_assert_eq!(sf.arg_count, 0);
                 let cc = CallContext::new(realm, this_obj, sf.args_slice(), magic as _, None);
-                f(realm, cc)
+                f(cc)
             }
             Callback::Setter(f) => {
                 debug_assert_eq!(sf.arg_count, 1);
                 let cc = CallContext::new(realm, this_obj, sf.args_slice(), magic as _, None);
-                f(realm, cc)
+                f(cc)
             }
             Callback::IteratorNext(f) => {
                 let cc = CallContext::new(realm, this_obj, sf.args_slice(), magic as _, None);

@@ -20,8 +20,8 @@ pub mod string;
 pub mod symbol;
 pub mod typed_array;
 
-use crate::{context::ContextRef, error::JSResult, function::CallContext};
+use crate::{error::JSResult, function::CallContext};
 
-pub fn js_get_this(_: ContextRef, cc: CallContext) -> JSResult {
+pub fn js_get_this(cc: CallContext) -> JSResult {
     Ok(*cc.this())
 }

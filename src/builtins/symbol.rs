@@ -114,8 +114,10 @@ pub fn js_symbol_valueOf(ctx: ContextRef, cc: CallContext) -> JSResult {
     js_thisSymbolValue(&ctx, *cc.this())
 }
 
-pub fn js_symbol_get_description(ctx: ContextRef, cc: CallContext) -> JSResult {
-    if let JSValue::Symbol(a) = js_thisSymbolValue(&ctx, *cc.this())? {
+pub fn js_symbol_get_description(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
+
+    if let JSValue::Symbol(a) = js_thisSymbolValue(ctx, *cc.this())? {
         let s = a.string();
         if s.content().is_ident() {
             Ok(JSValue::UNDEFINED)
