@@ -228,8 +228,8 @@ impl BytecodeImpl {
         self.rt
     }
 
-    /// get bytecode realm context
-    pub fn realm(&self) -> Option<ContextPtr> {
+    /// get bytecode realm context, returns None if the context is gone.
+    pub(crate) fn realm(&self) -> Option<ContextPtr> {
         self.realm
             .upgrade(self.rt().gc_heap())
             .map(ContextPtr::from)

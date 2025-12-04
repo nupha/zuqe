@@ -123,16 +123,10 @@ impl BCFuncPayload {
         })
     }
 
-    /// get function bytecode
+    /// get bytecode
     #[inline(always)]
     pub const fn bytecode(&self) -> Bytecode {
         self.bytecode
-    }
-
-    /// get function bytecode realm
-    #[inline(always)]
-    pub(crate) fn realm(&self) -> Option<ContextPtr> {
-        self.bytecode.realm()
     }
 
     #[inline(always)]

@@ -144,7 +144,7 @@ pub fn setup_globals(ctx: Context) -> Result<(), i32> {
         .into(),
     )?;
 
-    let mut args = Vec::<JSValue>::new();
+    let mut args = Vec::<JSValue>::with_capacity(std::env::args().count());
     for a in std::env::args().skip(1) {
         let s = ctx.create_string_from_utf8(a.into_bytes())?;
         args.push(s.into());

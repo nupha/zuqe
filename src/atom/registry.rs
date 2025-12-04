@@ -8,7 +8,7 @@ use crate::{
     atom::{is_const_atom, is_small_int_atom},
     number::parse_u32,
     resource::LocalResource,
-    runtime::{RuntimeImpl, RuntimePtr},
+    runtime::RuntimePtr,
     string::{StringData, StringRef},
     utils::hash_u32_from_base,
 };
@@ -192,7 +192,7 @@ impl AtomRegistry {
         Ok(Atom(atom_id.get() as u32))
     }
 
-    /// register a user atom with description.
+    /// register a user atom with string description.
     ///
     /// Safety: will panic if no runtime is initialized
     fn register(rt: RuntimePtr, str: StringRef, kind: AtomKind) -> Result<Atom, i32> {
@@ -392,7 +392,7 @@ impl Atom {
     }
 
     /// make atom from `str`. if `str` is a safe-integer representation, create int-atom instead.
-    pub fn from_str(rt: RuntimePtr, str: &str, kind: AtomKind) -> Result<Self, i32> {
+    pub(crate) fn from_str(rt: RuntimePtr, str: &str, kind: AtomKind) -> Result<Self, i32> {
         if str.is_empty() {
             Ok(Atom::CONST_empty_string)
         } else if let Some(i) = parse_u32(str)
@@ -400,7 +400,7 @@ impl Atom {
         {
             Ok(Self::new_small_int(i))
         } else {
-            Self::from_string(rt.into(), StringRef::from_str(rt, str)?, kind)
+            Self::from_string(rt, StringRef::from_str(rt, str)?, kind)
         }
     }
 

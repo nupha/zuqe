@@ -9,12 +9,12 @@ use crate::{
         global::js_global_props, json::js_json_obj, math::js_math_obj, reflect::js_reflect_obj,
     },
     class::ClassID,
-    context::{Context, ContextPtr},
+    context::Context,
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, ObjectRef},
     runtime::RuntimeImpl,
 };
 
-pub type SetupGlobalFn = fn(ctx: ContextPtr, global: ObjectRef) -> Result<(), i32>;
+pub type SetupGlobalFn = fn(ctx: Context, global: ObjectRef) -> Result<(), i32>;
 
 #[derive(Debug, Default)]
 pub struct ContextBuilder {
@@ -95,10 +95,10 @@ impl ContextBuilder {
             cx.use_classes(&self.use_classes)?;
 
             //
-            // setup global entries
+            // setup global
             //
             if let Some(f) = self.setup_global {
-                f(cx, gobj)?
+                f(cx.into(), gobj)?
             }
 
             Ok(())

@@ -14,7 +14,7 @@ use crate::{
     value::JSValue,
 };
 
-pub fn js_thisNumberValue(ctx: &ContextImpl, this_val: JSValue) -> JSResult {
+fn js_thisNumberValue(ctx: &ContextImpl, this_val: JSValue) -> JSResult {
     if this_val.is_number() {
         Ok(this_val)
     } else {
@@ -31,7 +31,7 @@ pub fn js_thisNumberValue(ctx: &ContextImpl, this_val: JSValue) -> JSResult {
     }
 }
 
-pub(crate) fn js_parseInt(cc: CallContext) -> JSResult {
+pub(super) fn js_parseInt(cc: CallContext) -> JSResult {
     let ctx = cc.ctx();
     let radix: i32 = cc.arg(1).to_i32(ctx)?;
 
@@ -67,7 +67,7 @@ pub(crate) fn js_parseInt(cc: CallContext) -> JSResult {
     }
 }
 
-pub(crate) fn js_parseFloat(cc: CallContext) -> JSResult {
+pub(super) fn js_parseFloat(cc: CallContext) -> JSResult {
     let ctx = cc.ctx();
     let str = cc.arg(0).to_string(ctx)?;
     let s = str.content().to_utf8(false);
@@ -195,7 +195,7 @@ fn js_number_toExponential(cc: CallContext) -> JSResult {
 
 fn js_number_toFixed(cc: CallContext) -> JSResult {
     let ctx = cc.ctx();
-    let d = js_thisNumberValue(ctx, *cc.this())?.to_f64(&ctx)?;
+    let d = js_thisNumberValue(ctx, *cc.this())?.to_f64(ctx)?;
     let f = cc.arg(0).to_i32_saturating(ctx)?;
 
     let s = if unlikely(!(0..=100).contains(&f)) {

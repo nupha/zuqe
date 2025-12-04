@@ -19,7 +19,7 @@ use crate::{
 };
 
 #[derive(Debug, Default)]
-pub struct ArrayPayload {
+pub(crate) struct ArrayPayload {
     values: Vec<JSValue>,
 }
 
