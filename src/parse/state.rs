@@ -32,10 +32,10 @@ pub const SKIP_HAS_ASSIGNMENT: i32 = 1 << 2; // Statement has assignment operato
 /// including the current position, token, scope, and parsing context.
 pub struct JSParseState<'s> {
     /// JavaScript context pointer for runtime operations
-    pub ctx: ContextPtr,
+    pub(super) ctx: ContextPtr,
 
     /// Source file name being parsed
-    pub filename: &'s str,
+    pub(super) filename: &'s str,
 
     /// input bytes
     pub(super) input: &'s [u8],
@@ -61,11 +61,12 @@ pub struct JSParseState<'s> {
     pub(super) cur_func_def: *mut JSFunctionDef,
 
     /// Indicates if parsing a JavaScript module
-    pub is_module: bool,
+    pub(crate) is_module: bool,
     /// Controls whether HTML-style comments are allowed
-    pub allow_html_comments: bool,
+    pub(crate) allow_html_comments: bool,
+
     /// Enables parsing of JSON superset syntax
-    pub ext_json: bool,
+    pub(super) ext_json: bool,
 }
 
 impl Drop for JSParseState<'_> {
@@ -116,7 +117,7 @@ impl<'s> JSParseState<'s> {
 
     /// Create new parser state with root function def.
     #[inline(always)]
-    pub fn new(
+    pub(crate) fn new(
         ctx: &ContextImpl,
         fd: NonNull<JSFunctionDef>,
         source: &'s [u8],

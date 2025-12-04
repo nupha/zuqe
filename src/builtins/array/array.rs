@@ -50,12 +50,12 @@ impl Array {
     }
 
     #[inline(always)]
-    pub fn payload(&self) -> &ArrayPayload {
+    pub(crate) fn payload(&self) -> &ArrayPayload {
         unsafe { self.0.as_ref().payload().array().unwrap() }
     }
 
     #[inline(always)]
-    pub fn payload_mut(&mut self) -> &mut ArrayPayload {
+    pub(crate) fn payload_mut(&mut self) -> &mut ArrayPayload {
         unsafe { self.0.as_mut().payload_mut().array_mut().unwrap() }
     }
 

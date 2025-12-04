@@ -27,7 +27,6 @@ pub const JS_EVAL_TYPE_MODULE: u32 = 1;
 pub const JS_EVAL_TYPE_DIRECT: u32 = 2;
 pub const JS_EVAL_TYPE_INDIRECT: u32 = 3;
 pub const JS_EVAL_TYPE_MASK: u32 = 3;
-
 // Eval flags
 pub const JS_EVAL_FLAG_STRICT: u32 = 1 << 3;
 pub const JS_EVAL_FLAG_STRIP: u32 = 1 << 4;

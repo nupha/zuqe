@@ -1,6 +1,6 @@
 use crate::{
     atom::Atom,
-    context::{ContextImpl, ContextPtr},
+    context::ContextImpl,
     error::JSResult,
     function::{CallContext, FieldDef},
     object::{

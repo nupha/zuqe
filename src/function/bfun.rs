@@ -217,7 +217,7 @@ impl JSValue {
 }
 
 /// TODO: change func_obj type to ObjectRef
-pub fn JS_GetFunctionRealm(ctx: ContextPtr, func_obj: JSValue) -> Result<ContextPtr, i32> {
+pub(crate) fn JS_GetFunctionRealm(ctx: ContextPtr, func_obj: JSValue) -> Result<ContextPtr, i32> {
     if !func_obj.is_object() {
         return Ok(ctx);
     }

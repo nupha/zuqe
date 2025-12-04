@@ -355,7 +355,6 @@ impl StringRef {
     /// * `Ok(Box<StringImpl>)` - Newly created string
     /// * `Err(-1)` - Memory allocation or UTF-8 validation failed
     pub(crate) fn from_str(rt: RuntimePtr, s: &str) -> Result<Self, i32> {
-        let rt = RuntimePtr::from(rt);
         let sbuf = StringBuf::from_str(s)?;
         let data = StringData::from_buf(sbuf);
         Self::new_internal(Some(rt), data, None)

@@ -290,12 +290,18 @@ impl<'s> JSParseState<'s> {
 
                     // Parse hex digits
                     let mut cp = 0_u32;
-                    for i in hex_start..pos {
-                        cp = (cp << 4) + (from_hex(bytes[i])? as u32);
+                    for b in bytes.iter().take(pos).skip(hex_start) {
+                        cp = (cp << 4) + (from_hex(*b)? as u32);
                         if cp > 0x10ffff {
                             return Err(-1); // bad unicode
                         }
                     }
+                    // for i in hex_start..pos {
+                    //     cp = (cp << 4) + (from_hex(bytes[i])? as u32);
+                    //     if cp > 0x10ffff {
+                    //         return Err(-1); // bad unicode
+                    //     }
+                    // }
 
                     let consumed = pos + 1; // from #0 to '}' inclusive
                     (cp, consumed)
@@ -307,9 +313,12 @@ impl<'s> JSParseState<'s> {
                     }
 
                     let mut cp = 0_u32;
-                    for i in pos..pos + cnt {
-                        cp = (cp << 4) | (from_hex(bytes[i])? as u32);
+                    for b in bytes.iter().skip(pos).take(cnt) {
+                        cp = (cp << 4) | (from_hex(*b)? as u32);
                     }
+                    // for i in pos..pos + cnt {
+                    //     cp = (cp << 4) | (from_hex(bytes[i])? as u32);
+                    // }
 
                     let mut consumed = cnt + 1; // +1 for the initial char
 
