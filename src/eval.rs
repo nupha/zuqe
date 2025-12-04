@@ -12,7 +12,7 @@ use crate::{
 
 /// Native function to handle `eval`, returns eval result.
 /// `input` is script source.
-pub type EvalFn = fn(
+pub(crate) type EvalFn = fn(
     ctx: ContextPtr,
     this_obj: JSValue,
     input: &[u8],

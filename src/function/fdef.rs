@@ -26,8 +26,8 @@ pub(crate) struct BytecodeDebugSetting {
 }
 
 #[derive(Debug)]
-pub struct JSFunctionDef {
-    pub ctx: ContextPtr,
+pub(crate) struct JSFunctionDef {
+    pub(crate) ctx: ContextPtr,
 
     /// parent function def, null for root fd.
     pub parent: *mut JSFunctionDef,
@@ -441,7 +441,7 @@ pub struct JumpSlot {
     pub label: i32,
 }
 
-pub fn get_label_pos(s: &JSFunctionDef, mut label: i32) -> i32 {
+pub(super) fn get_label_pos(s: &JSFunctionDef, mut label: i32) -> i32 {
     let mut pos: i32 = 0;
 
     for _ in 0..20 {
@@ -703,7 +703,7 @@ pub(super) fn instantiate_hoisted_definitions(s: &mut JSFunctionDef, bc: &mut Ve
     debug_assert!(s.global_vars.is_empty());
 }
 
-pub struct FunctionDefParentIter<'a> {
+pub(crate) struct FunctionDefParentIter<'a> {
     cur_fd: *const JSFunctionDef,
     _mark: PhantomData<&'a ()>,
 }

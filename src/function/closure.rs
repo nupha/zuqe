@@ -328,7 +328,7 @@ impl Bytecode {
 
 /// for direct eval compilation: add references to the variables of the calling function.
 /// scope_idx=-1 means end of scope chain at top.
-pub fn add_closure_variables(
+pub(crate) fn add_closure_variables(
     ctx: &ContextImpl,
     s: &mut JSFunctionDef,
     bc: &Bytecode,
