@@ -1,5 +1,3 @@
-use std::ops::DerefMut;
-
 use crate::{
     atom::{Atom, AtomKind},
     bytecode::OpCodeTemp,
@@ -64,7 +62,7 @@ impl<'s> JSParseState<'s> {
         if self.token.val == TOK_STRING {
             // import "module-name"
             module_name = Atom::from_str(
-                self.ctx.rt().deref_mut(),
+                self.ctx.rt(),
                 &self.token.data.string().unwrap().to_utf8(),
                 AtomKind::String,
             )?;
@@ -128,7 +126,7 @@ impl<'s> JSParseState<'s> {
                                     self.token.atom().unwrap()
                                 }
                                 TOK_STRING => Atom::from_str(
-                                    self.ctx.rt().deref_mut(),
+                                    self.ctx.rt(),
                                     &self.token.data.string().unwrap().to_utf8(),
                                     AtomKind::String,
                                 )?,
@@ -240,11 +238,7 @@ impl<'s> JSParseState<'s> {
                         }
                         TOK_STRING => {
                             let s = self.token.data.string().unwrap();
-                            Atom::from_str(
-                                self.ctx.rt().deref_mut(),
-                                &s.to_utf8(),
-                                AtomKind::String,
-                            )?
+                            Atom::from_str(self.ctx.rt(), &s.to_utf8(), AtomKind::String)?
                         }
                         _ => {
                             self.throw_syntax_error("identifier or string expected");
@@ -265,11 +259,7 @@ impl<'s> JSParseState<'s> {
                             }
                             TOK_STRING => {
                                 let s = self.token.data.string().unwrap();
-                                Atom::from_str(
-                                    self.ctx.rt().deref_mut(),
-                                    &s.to_utf8(),
-                                    AtomKind::String,
-                                )?
+                                Atom::from_str(self.ctx.rt(), &s.to_utf8(), AtomKind::String)?
                             }
                             _ => {
                                 self.throw_syntax_error("identifier or string expected");
@@ -327,11 +317,7 @@ impl<'s> JSParseState<'s> {
                         }
                         TOK_STRING => {
                             let s = self.token.data.string().unwrap();
-                            Atom::from_str(
-                                self.ctx.rt().deref_mut(),
-                                &s.to_utf8(),
-                                AtomKind::String,
-                            )?
+                            Atom::from_str(self.ctx.rt(), &s.to_utf8(), AtomKind::String)?
                         }
                         _ => {
                             self.throw_syntax_error("identifier or string expected");

@@ -81,7 +81,7 @@ impl ContextImpl {
             }
 
             if eval_type == JS_EVAL_TYPE_MODULE {
-                let name = Atom::new(&self.rt(), filename)?;
+                let name = Atom::new(self.rt(), filename)?;
                 js_mode |= JS_MODE_STRICT as u32;
                 (None, Some(ModuleDef::new(self, name)?), js_mode)
             } else {

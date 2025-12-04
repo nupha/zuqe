@@ -26,7 +26,7 @@ impl ContextImpl {
                 s
             } else {
                 debug_assert_eq!(atom_kind, AtomKind::Symbol);
-                StringRef::new(&self.rt(), StringData::Ident).map_err(|_| {
+                StringRef::new(self.rt(), StringData::Ident).map_err(|_| {
                     self.throw_out_of_memory();
                     -1
                 })?

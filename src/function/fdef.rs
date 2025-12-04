@@ -263,7 +263,7 @@ impl JSFunctionDef {
             line_number_last: 0,
             line_number_last_pc: 0,
 
-            filename: Atom::new(ctx.rt_ref(), filename)?,
+            filename: Atom::new(ctx.rt(), filename)?,
             line_num,
             pc2line: None,
             source: None,

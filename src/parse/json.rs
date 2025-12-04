@@ -256,7 +256,7 @@ impl<'s> JSParseState<'s> {
                     loop {
                         let prop_name = if self.token.val == TOK_STRING {
                             Atom::from_str(
-                                &self.ctx.rt(),
+                                self.ctx.rt(),
                                 &escape_str(&self.token.data.string().unwrap().to_utf8()),
                                 AtomKind::String,
                             )?
@@ -403,7 +403,7 @@ fn json_parse_ident(s: &mut JSParseState, pp: &mut *const u8, mut c: u8) -> Resu
         }
     }
 
-    let atom = Atom::new(&s.ctx.rt(), std::str::from_utf8(&buf).map_err(|_| -1)?)?;
+    let atom = Atom::new(s.ctx.rt(), std::str::from_utf8(&buf).map_err(|_| -1)?)?;
     *pp = p;
     Ok(atom)
 }

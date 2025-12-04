@@ -156,7 +156,7 @@ impl ModuleDefImpl {
         name: &str,
         init: impl ModuleInitFn + 'static,
     ) -> Result<Self, i32> {
-        let name = Atom::new(ctx.rt_ref(), name)?;
+        let name = Atom::new(ctx.rt(), name)?;
         let mut md = ModuleDefImpl::new(ctx, name);
         md.init_func.replace(Box::new(init));
         Ok(md)

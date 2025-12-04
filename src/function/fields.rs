@@ -339,6 +339,6 @@ impl ContextImpl {
             return Err(-1);
         }
 
-        Atom::new(&self.rt(), str)
+        Atom::new(self.rt(), str)
     }
 }

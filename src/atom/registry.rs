@@ -392,7 +392,7 @@ impl Atom {
     }
 
     /// make atom from `str`. if `str` is a safe-integer representation, create int-atom instead.
-    pub fn from_str(rt: &RuntimeImpl, str: &str, kind: AtomKind) -> Result<Self, i32> {
+    pub fn from_str(rt: RuntimePtr, str: &str, kind: AtomKind) -> Result<Self, i32> {
         if str.is_empty() {
             Ok(Atom::CONST_empty_string)
         } else if let Some(i) = parse_u32(str)
@@ -404,12 +404,12 @@ impl Atom {
         }
     }
 
-    pub fn from_i64(rt: &RuntimeImpl, n: i64) -> Result<Self, i32> {
+    pub(crate) fn from_i64(rt: RuntimePtr, n: i64) -> Result<Self, i32> {
         if (0..JS_ATOM_MAX_INT as i64).contains(&n) {
             Ok(Self::new_small_int(n as u32))
         } else {
             Self::from_string(
-                rt.into(),
+                rt,
                 StringRef::from_utf8(rt, format!("{n}").into_bytes())?,
                 AtomKind::String,
             )
@@ -433,14 +433,13 @@ impl Atom {
 
     /// create new or reuse existing atom for `str`.
     #[inline(always)]
-    pub fn new(rt: &RuntimeImpl, str: &str) -> Result<Self, i32> {
+    pub(crate) fn new(rt: RuntimePtr, str: &str) -> Result<Self, i32> {
         // if str.is_empty() || !str.chars().next().unwrap().is_ascii_digit() {
         //     // find atom in registry
         //     if let Some(atom) = Self::find(str, AtomKind::String) {
         //         return Ok(atom);
         //     }
         // }
-
         Self::from_str(rt, str, AtomKind::String)
     }
 

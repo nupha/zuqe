@@ -93,3 +93,10 @@ impl From<&RuntimeImpl> for RuntimePtr {
         Self(NonNull::from_ref(value))
     }
 }
+
+impl From<&mut RuntimeImpl> for RuntimePtr {
+    #[inline(always)]
+    fn from(value: &mut RuntimeImpl) -> Self {
+        Self(NonNull::from_ref(value))
+    }
+}

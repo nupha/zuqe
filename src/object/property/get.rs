@@ -255,14 +255,14 @@ impl ObjectRef {
         if (0..u32::MAX as i64).contains(&idx) {
             self.get_property_u32(ctx, idx as u32)
         } else {
-            let atom = Atom::from_i64(ctx.rt_ref(), idx)?;
+            let atom = Atom::from_i64(ctx.rt(), idx)?;
             self.get_property(ctx, atom)
         }
     }
 
     #[inline(always)]
     pub fn get_property_str(&self, ctx: &ContextImpl, prop: &str) -> JSResult {
-        let atom = Atom::new(ctx.rt_ref(), prop)?;
+        let atom = Atom::new(ctx.rt(), prop)?;
         self.get_property(ctx, atom)
     }
 
@@ -284,7 +284,7 @@ impl ObjectRef {
                 Ok(None)
             }
         } else {
-            let atom = Atom::from_i64(ctx.rt_ref(), idx)?;
+            let atom = Atom::from_i64(ctx.rt(), idx)?;
             self.has_property(ctx, atom).and_then(|found| {
                 if found {
                     Ok(Some(self.get_property(ctx, atom)?))
@@ -370,7 +370,7 @@ impl JSValue {
     /// get property by str prop
     #[inline(always)]
     pub fn get_property_str(&self, ctx: &ContextImpl, prop: &str) -> JSResult {
-        let atom = Atom::new(ctx.rt_ref(), prop)?;
+        let atom = Atom::new(ctx.rt(), prop)?;
         self.get_property(ctx, atom)
     }
 
@@ -384,7 +384,7 @@ impl JSValue {
         if (0..=u32::MAX as i64).contains(&idx) {
             self.get_property_u32(ctx, idx as u32)
         } else {
-            let atom = Atom::from_i64(ctx.rt_ref(), idx)?;
+            let atom = Atom::from_i64(ctx.rt(), idx)?;
             self.get_property(ctx, atom)
         }
     }
@@ -407,7 +407,7 @@ impl JSValue {
                 Ok(None)
             }
         } else {
-            let atom = Atom::from_i64(ctx.rt_ref(), idx)?;
+            let atom = Atom::from_i64(ctx.rt(), idx)?;
             self.has_property(ctx, atom).and_then(|found| {
                 if found {
                     Ok(Some(self.get_property(ctx, atom)?))

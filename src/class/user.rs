@@ -91,7 +91,7 @@ impl ClassDef {
 }
 
 impl RuntimeImpl {
-    /// register a non-builtin class defination. returns the class_id for it.
+    /// register a non-builtin class defination. returns the class_id.
     pub fn register_class_def(&mut self, class_def: &ClassDef) -> Result<ClassID, i32> {
         debug_assert!(!class_def.class_name.is_empty());
         debug_assert!(class_def.finalize.is_some());
@@ -99,7 +99,7 @@ impl RuntimeImpl {
         let class_id = class_def.class_id;
         debug_assert!(class_id >= USER_CLASS_ID_START);
 
-        let class_atom = Atom::from_str(self, class_def.class_name, AtomKind::String)?;
+        let class_atom = Atom::from_str(self.into(), class_def.class_name, AtomKind::String)?;
 
         self.add_class_internal(class_id, class_atom, class_def)?;
         Ok(class_id)
@@ -166,7 +166,7 @@ impl ContextImpl {
     }
 
     pub fn use_class_name(&mut self, name: &str) -> Result<(), i32> {
-        let atom_name = Atom::from_str(&self.rt(), name, AtomKind::String)?;
+        let atom_name = Atom::from_str(self.rt(), name, AtomKind::String)?;
 
         if let Some(id) = self
             .rt()

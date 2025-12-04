@@ -344,8 +344,9 @@ impl StringRef {
 }
 
 impl ContextImpl {
+    /// create or reuse an Atom from `str`
     pub fn create_atom_string(&self, str: &str) -> Result<StringRef, i32> {
-        let atom = Atom::new(self.rt_ref(), str)?;
+        let atom = Atom::new(self.rt(), str)?;
         atom.force_string(self)
     }
 }
@@ -373,7 +374,7 @@ impl JSValue {
                     });
                 }
                 JSValue::Int(i) => {
-                    return Atom::from_i64(ctx.rt_ref(), i as i64);
+                    return Atom::from_i64(ctx.rt(), i as i64);
                 }
                 JSValue::String(s) => {
                     return s.to_atom(ctx.rt());
@@ -428,7 +429,7 @@ pub fn js_atom_concat_str_v0(ctx: &ContextImpl, name: Atom, str1: *const u8) -> 
             ctx.throw_out_of_memory();
             -1
         })?;
-    let s = StringRef::new(ctx.rt_ref(), StringData::from_buf(buf)).map_err(|_| {
+    let s = StringRef::new(ctx.rt(), StringData::from_buf(buf)).map_err(|_| {
         ctx.throw_out_of_memory();
         -1
     })?;
@@ -462,10 +463,11 @@ pub fn js_atom_concat_str(ctx: &ContextImpl, atom: Atom, str1: &str) -> Result<A
     buf.push_str(&astr);
     buf.push_str(str1);
 
-    Atom::new(ctx.rt_ref(), &buf)
+    Atom::new(ctx.rt(), &buf)
 }
 
 /// Note: returned atom should be freed by caller.
+#[inline(always)]
 pub fn js_atom_concat_num(ctx: &ContextImpl, atom: Atom, n: u32) -> Result<Atom, i32> {
     js_atom_concat_str(ctx, atom, &format!("{n}"))
 }

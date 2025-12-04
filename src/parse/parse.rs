@@ -157,7 +157,7 @@ impl<'s> JSParseState<'s> {
             }
         }
 
-        let atom = Atom::new(&self.ctx.rt(), &buf)?;
+        let atom = Atom::new(self.ctx.rt(), &buf)?;
         Ok((atom, has_escape, consumed))
     }
 

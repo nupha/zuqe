@@ -112,8 +112,9 @@ impl ObjectRef {
         Ok(false)
     }
 
+    #[inline]
     pub fn has_own_property_str(&self, ctx: &ContextImpl, prop: &str) -> Result<bool, i32> {
-        let atom = Atom::new(ctx.rt_ref(), prop)?;
+        let atom = Atom::new(ctx.rt(), prop)?;
         self.has_own_property(ctx, atom)
     }
 

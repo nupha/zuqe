@@ -17,7 +17,7 @@ use crate::{
         ObjectPayload, ObjectRef, check_define_prop_flags,
     },
     resource::LocalResource,
-    runtime::{RuntimeImpl, RuntimePtr},
+    runtime::RuntimePtr,
     string::{StringChar, StringData},
     utils::unlikely,
     value::{HINT_STRING, JSValue},
@@ -202,7 +202,7 @@ impl StringImpl {
             StringData::AsciiStatic(s) => StringRef::from_static(Some(rt), s, None),
             _ => {
                 debug_assert!(self.rt.is_some(), "can't copy const atom description");
-                StringRef::new(&self.rt.unwrap(), self.content().clone())
+                StringRef::new(self.rt.unwrap(), self.content().clone())
             }
         }
     }
@@ -338,8 +338,8 @@ impl StringRef {
 
     /// create StringImpl with string content
     #[inline(always)]
-    pub fn new(rt: &RuntimeImpl, content: StringData) -> Result<Self, i32> {
-        Self::new_internal(Some(rt.into()), content, None)
+    pub(crate) fn new(rt: RuntimePtr, content: StringData) -> Result<Self, i32> {
+        Self::new_internal(Some(rt), content, None)
     }
 
     /// Creates a StringImpl from a Rust string slice
@@ -354,7 +354,7 @@ impl StringRef {
     /// # Returns
     /// * `Ok(Box<StringImpl>)` - Newly created string
     /// * `Err(-1)` - Memory allocation or UTF-8 validation failed
-    pub(crate) fn from_str(rt: &RuntimeImpl, s: &str) -> Result<Self, i32> {
+    pub(crate) fn from_str(rt: RuntimePtr, s: &str) -> Result<Self, i32> {
         let rt = RuntimePtr::from(rt);
         let sbuf = StringBuf::from_str(s)?;
         let data = StringData::from_buf(sbuf);
@@ -385,7 +385,7 @@ impl StringRef {
     /// # Returns
     /// * `Ok(Box<StringImpl>)` - Newly created string
     /// * `Err(-1)` - Memory allocation or UTF-8 validation failed
-    pub(crate) fn from_utf8(rt: &RuntimeImpl, bytes: Vec<u8>) -> Result<Self, i32> {
+    pub(crate) fn from_utf8(rt: RuntimePtr, bytes: Vec<u8>) -> Result<Self, i32> {
         let data = StringData::from_buf(StringBuf::from_utf8(bytes).map_err(|_| -1)?);
         Self::new(rt, data)
     }
@@ -434,7 +434,7 @@ impl ContextImpl {
             Atom::CONST_empty_string.force_string(self)
         } else {
             let data = StringData::from_buf(sbuf);
-            StringRef::new(&self.rt(), data).map_err(|_| {
+            StringRef::new(self.rt(), data).map_err(|_| {
                 self.throw_out_of_memory();
                 -1
             })
@@ -446,7 +446,7 @@ impl ContextImpl {
         if content.is_empty() {
             Atom::CONST_empty_string.force_string(self)
         } else {
-            StringRef::new(&self.rt(), content).map_err(|_| {
+            StringRef::new(self.rt(), content).map_err(|_| {
                 self.throw_out_of_memory();
                 -1
             })
@@ -461,7 +461,7 @@ impl ContextImpl {
             self.throw_internal_error("string too long");
             Err(-1)
         } else {
-            StringRef::from_utf8(self.rt().deref_mut(), utf8_bytes).inspect_err(|_| {
+            StringRef::from_utf8(self.rt(), utf8_bytes).inspect_err(|_| {
                 self.throw_out_of_memory();
             })
         }
@@ -475,7 +475,7 @@ impl ContextImpl {
             self.throw_internal_error("string too long");
             Err(-1)
         } else {
-            StringRef::from_str(self.rt().deref_mut(), str).inspect_err(|_| {
+            StringRef::from_str(self.rt(), str).inspect_err(|_| {
                 self.throw_out_of_memory();
             })
         }
