@@ -17,10 +17,11 @@ pub struct ObjectShapeProtoIter<'a> {
 impl<'a> Iterator for ObjectShapeProtoIter<'a> {
     type Item = ObjectRef;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(obj) = self.obj.take() {
-            self.obj = obj.shape().and_then(|s| s.proto());
-            Some(obj)
+        if let Some(o) = self.obj.take() {
+            self.obj = o.shape().and_then(|s| s.proto());
+            Some(o)
         } else {
             None
         }
@@ -28,7 +29,7 @@ impl<'a> Iterator for ObjectShapeProtoIter<'a> {
 }
 
 impl ObjectImpl {
-    /// get shape proto of object `self`
+    /// get shape proto of `self`
     #[inline(always)]
     pub fn shape_proto(&self) -> Option<ObjectRef> {
         self.shape().and_then(|s| s.proto())
