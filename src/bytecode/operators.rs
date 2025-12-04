@@ -332,6 +332,7 @@ pub(super) fn js_for_in_start(ctx: &ContextImpl, sp: *mut JSValue) -> Result<(),
 
 /// 实现 JavaScript 中 for...in 循环的迭代器逻辑，用于遍历对象的可枚举属性
 /// [enum_obj, ^] -> [enum_obj, value, done, ^]
+#[inline]
 pub(super) fn js_for_in_next(ctx: &ContextImpl, sp: *mut JSValue) -> Result<(), i32> {
     let mut enum_obj = unsafe {
         let v = &mut *sp.offset(-1);
@@ -359,8 +360,8 @@ pub(super) fn js_for_in_next(ctx: &ContextImpl, sp: *mut JSValue) -> Result<(), 
                         }
                         if done {
                             unsafe {
-                                std::ptr::replace(sp.offset(0), JSValue::UNDEFINED);
-                                std::ptr::replace(sp.offset(1), JSValue::Bool(true));
+                                *sp = JSValue::UNDEFINED;
+                                *sp.offset(1) = JSValue::Bool(true);
                             }
                             return Ok(());
                         } else {
@@ -384,15 +385,15 @@ pub(super) fn js_for_in_next(ctx: &ContextImpl, sp: *mut JSValue) -> Result<(), 
                         // end of prototype chain.
                         debug_assert!(it.obj.is_none());
                         unsafe {
-                            std::ptr::replace(sp.offset(0), JSValue::UNDEFINED);
-                            std::ptr::replace(sp.offset(1), JSValue::Bool(true));
+                            *sp = JSValue::UNDEFINED;
+                            *sp.offset(1) = JSValue::Bool(true);
                         }
                         return Ok(());
                     }
                 } else {
                     unsafe {
-                        std::ptr::replace(sp.offset(0), JSValue::UNDEFINED);
-                        std::ptr::replace(sp.offset(1), JSValue::Bool(true));
+                        *sp = JSValue::UNDEFINED;
+                        *sp.offset(1) = JSValue::Bool(true);
                     }
                     return Ok(());
                 }
@@ -448,16 +449,13 @@ pub(super) fn js_for_in_next(ctx: &ContextImpl, sp: *mut JSValue) -> Result<(), 
         }
 
         unsafe {
-            std::ptr::replace(
-                sp.offset(0),
-                prop.string_or_symbol(ctx).unwrap_or(JSValue::EXCEPTION),
-            ); // value
-            std::ptr::replace(sp.offset(1), JSValue::Bool(false)); // done flag
+            *sp = prop.string_or_symbol(ctx).unwrap_or(JSValue::EXCEPTION); // value
+            *sp.offset(1) = JSValue::Bool(false); // done flag
         }
     } else {
         unsafe {
-            std::ptr::replace(sp.offset(0), JSValue::UNDEFINED);
-            std::ptr::replace(sp.offset(1), JSValue::Bool(true));
+            *sp = JSValue::UNDEFINED;
+            *sp.offset(1) = JSValue::Bool(true);
         }
     }
 
@@ -478,13 +476,14 @@ pub(super) unsafe fn js_iterator_get_value_done(ctx: &ContextImpl, sp: *mut JSVa
     }
 
     unsafe {
-        std::ptr::replace(sp.offset(-1), value);
-        std::ptr::replace(sp.offset(0), JSValue::Bool(done));
+        *sp.offset(-1) = value;
+        *sp = JSValue::Bool(done);
     }
 
     0
 }
 
+#[inline]
 pub(super) unsafe fn js_for_of_next(
     ctx: &ContextImpl,
     sp: *mut JSValue,
@@ -493,26 +492,36 @@ pub(super) unsafe fn js_for_of_next(
     let mut value: JSValue = JSValue::UNDEFINED;
     let mut done = true;
 
-    if let JSValue::Object(iter_obj) = *sp.offset(base as isize) {
-        if let Ok((v, d)) =
-            ObjectIter::fetch_next(ctx, iter_obj, *sp.offset((base + 1) as isize), &[])
-        {
+    if let JSValue::Object(iter_obj) = unsafe { *sp.offset(base as isize) } {
+        if let Ok((v, d)) = ObjectIter::fetch_next(
+            ctx,
+            iter_obj,
+            unsafe { *sp.offset((base + 1) as isize) },
+            &[],
+        ) {
             done = d;
             value = if done {
                 // replace the iteration object with undefined
-                std::ptr::replace(sp.offset(base as isize), JSValue::UNDEFINED);
+                unsafe {
+                    *sp.offset(base as isize) = JSValue::UNDEFINED;
+                }
                 JSValue::UNDEFINED
             } else {
                 v
             };
         } else {
             // replace the iteration object with undefined
-            std::ptr::replace(sp.offset(base as isize), JSValue::UNDEFINED);
+            unsafe {
+                *sp.offset(base as isize) = JSValue::UNDEFINED;
+            }
             return Err(-1);
         }
     }
 
-    std::ptr::replace(sp.add(0), value);
-    std::ptr::replace(sp.add(1), JSValue::Bool(done));
+    unsafe {
+        *sp = value;
+        *sp.add(1) = JSValue::Bool(done);
+    }
+
     Ok(())
 }
