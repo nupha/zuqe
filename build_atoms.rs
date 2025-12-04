@@ -259,15 +259,19 @@ pub fn gen_atoms(outfile: &Path) {
     //output.push("use crate::atom::Atom;\n\n".to_string());
 
     for (i, txt) in ATOM_DESCR_DEFS.iter().enumerate() {
-        let label = if txt.len() > 2 && txt.starts_with("<") && txt.ends_with(">") {
-            format!("_{}_", &txt[1..txt.len() - 1])
-        } else if txt.len() > 2 && txt.starts_with("*") && txt.ends_with("*") {
+        let label = if txt.len() > 2
+            && ((txt.starts_with("<") && txt.ends_with(">"))
+                || (txt.starts_with("*") && txt.ends_with("*")))
+        {
+            // <XXX> or *XXX*
             format!("_{}_", &txt[1..txt.len() - 1])
         } else if txt.starts_with("#") {
-            format!("hash_{}", &txt[1..])
+            // #XXX
+            format!("hash_{}", txt.strip_prefix('#').unwrap())
         } else if txt.eq(&"*") {
             "_star_".to_string()
         } else if txt.contains('.') {
+            // aaa.bbb to aaa_bbb
             txt.replace('.', "_")
         } else {
             txt.to_string()
@@ -316,7 +320,7 @@ pub fn gen_atoms(outfile: &Path) {
 
     // atom consts
     output.push(format!("\n\nimpl Atom {{ {} }}\n\n", consts.join("\n")));
- 
+
     // Symbol_XXX id ranges
     output.push(format!(
         "pub const ATOM_CONST_SYMBOL_RANGE: core::ops::RangeInclusive<u32> = Atom::CONST_{}.id()..=Atom::CONST_{}.id();",
@@ -333,13 +337,12 @@ pub fn gen_atoms(outfile: &Path) {
     ));
 
     // keyword id ranges
-    output.push( 
+    output.push(
         "pub const ATOM_CONST_STRICT_KEYWORD_RANGE: core::ops::RangeInclusive<u32> = Atom::CONST_implements.id()..=Atom::CONST_yield.id();".to_string()
     );
-
-    output.push( 
+    output.push(
         "pub const ATOM_CONST_KEYWORD_RANGE: core::ops::RangeInclusive<u32> = 1..=Atom::CONST_super.id();".to_string()
-     );
+    );
 
     std::fs::write(outfile, output.join("\n")).unwrap();
 

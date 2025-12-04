@@ -106,7 +106,7 @@ pub enum JSModuleStatus {
     JS_MODULE_STATUS_EVALUATED,
 }
 
-pub fn js_host_resolve_imported_module(
+pub(super) fn js_host_resolve_imported_module(
     ctx: ContextPtr,
     base_cname: &str,
     cname1: &str,
@@ -137,7 +137,8 @@ pub fn js_host_resolve_imported_module(
     }
 }
 
-pub fn js_host_resolve_imported_module_atom(
+#[inline(always)]
+fn js_host_resolve_imported_module_atom(
     ctx: ContextPtr,
     base_module_name: &Atom,
     module_name1: &Atom,

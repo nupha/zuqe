@@ -3,7 +3,7 @@ use std::{cell::RefCell, rc::Rc};
 use crate::{
     JS_CLASS_BYTECODE_FUNCTION,
     builtins::promise::{Promise, PromiseState},
-    context::{ContextImpl, ContextPtr},
+    context::ContextImpl,
     error::JSResult,
     eval::{Compiled, JS_EVAL_FLAG_STRIP, JS_EVAL_TYPE_MODULE},
     function::CallContext,

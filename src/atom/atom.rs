@@ -409,7 +409,7 @@ impl JSValue {
 
 /// return a string atom containing name concatenated with str1.
 /// Note: returned atom should be freed by caller.
-pub fn js_atom_concat_str_v0(ctx: &ContextImpl, name: Atom, str1: *const u8) -> Result<Atom, i32> {
+fn js_atom_concat_str_v0(ctx: &ContextImpl, name: Atom, str1: *const u8) -> Result<Atom, i32> {
     let str_val = name.force_string(ctx)?;
     let astr = str_val.content().to_utf8(false);
     let len = astr.len();
@@ -449,7 +449,7 @@ pub fn js_atom_concat_str_v0(ctx: &ContextImpl, name: Atom, str1: *const u8) -> 
 
 /// return a string atom containing name concatenated with str1.
 /// Note: returned atom should be freed by caller.
-pub fn js_atom_concat_str(ctx: &ContextImpl, atom: Atom, str1: &str) -> Result<Atom, i32> {
+pub(crate) fn js_atom_concat_str(ctx: &ContextImpl, atom: Atom, str1: &str) -> Result<Atom, i32> {
     let str_val = atom.force_string(ctx)?;
     let astr = str_val.content().to_utf8(false);
 

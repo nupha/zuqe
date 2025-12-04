@@ -66,10 +66,6 @@ impl LocalResource {
         })
     }
 
-    pub(crate) fn with_static_gc_heap<R>(f: impl FnOnce(&mut GcHeap) -> R) -> R {
-        LOCAL_RESOURCE.with(|rcs| f(rcs.gc_heap.borrow_mut().deref_mut()))
-    }
-
     pub(crate) fn with_runtimes<R>(f: impl FnOnce(&[Box<RuntimeImpl>]) -> R) -> R {
         LOCAL_RESOURCE.with(|rcs| f(rcs.runtime_slot.borrow().as_slice()))
     }
