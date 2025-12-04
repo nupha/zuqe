@@ -1,6 +1,6 @@
 use crate::{
     atom::{ATOM_CONST_KEYWORD_RANGE, ATOM_CONST_STRICT_KEYWORD_RANGE, Atom},
-    context::JS_MODE_STRICT,
+    context::EvalMode,
     function::JSFunctionKindEnum,
     number::{
         ATOD_ACCEPT_BIN_OCT, ATOD_ACCEPT_LEGACY_OCTAL, ATOD_ACCEPT_SUFFIX, ATOD_ACCEPT_UNDERSCORES,
@@ -406,7 +406,7 @@ impl<'s> JSParseState<'s> {
                 },
                 '0' => {
                     todo = if unsafe { (*p.add(1)).is_ascii_digit() }
-                        && self.cur_func().attrs.js_mode & JS_MODE_STRICT as u8 != 0
+                        && self.cur_func().attrs.js_mode.contains(EvalMode::STRICT)
                     {
                         // in strict mode, octal literals are not accepted
                         self.throw_syntax_error("octal literals are deprecated in strict mode");
@@ -888,7 +888,7 @@ impl<'s> JSParseState<'s> {
 
                 a if ATOM_CONST_KEYWORD_RANGE.contains(&a.id()) => true,
                 a if ATOM_CONST_STRICT_KEYWORD_RANGE.contains(&a.id()) => {
-                    js_mode & JS_MODE_STRICT as u8 != 0
+                    js_mode.contains(EvalMode::STRICT)
                 }
                 _ => false,
             };

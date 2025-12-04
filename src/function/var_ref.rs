@@ -3,7 +3,7 @@ use std::ptr::NonNull;
 use gc_lite::{Collect, GcRef};
 
 use crate::{
-    context::{ContextImpl, JS_MODE_ASYNC},
+    context::{ContextImpl, EvalMode},
     gcref_wrapper,
     stack_frame::StackFrame,
     value::JSValue,
@@ -228,7 +228,7 @@ impl StackFrame {
                     self.var_base_ptr.offset(var_idx as isize)
                 })
             },
-            if self.js_mode & JS_MODE_ASYNC != 0 {
+            if self.js_mode.contains(EvalMode::ASYNC) {
                 // The stack frame is detached and may be destroyed at any
                 // time so its reference count must be increased. Calling
                 // close_var_refs() when destroying the stack frame is not

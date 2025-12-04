@@ -1,4 +1,4 @@
-use crate::context::{JS_MODE_STRICT, JS_MODE_STRIP};
+use crate::context::EvalMode;
 
 use super::{
     state::JSParseState,
@@ -89,10 +89,10 @@ impl JSParseState<'_> {
             "use strict" => {
                 let cfn = self.cur_func_mut();
                 cfn.has_use_strict = true;
-                cfn.attrs.js_mode |= JS_MODE_STRICT as u8;
+                cfn.attrs.js_mode |= EvalMode::STRICT;
             }
             "use strip" => {
-                self.cur_func_mut().attrs.js_mode |= JS_MODE_STRIP as u8;
+                self.cur_func_mut().attrs.js_mode |= EvalMode::STRIP;
             }
 
             #[cfg(all(debug_assertions, feature = "dump_bytecode"))]

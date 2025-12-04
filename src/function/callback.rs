@@ -5,7 +5,7 @@ use gc_lite::{Collect, GcWeak};
 use crate::{
     atom::Atom,
     builtins::iterator::js_create_iterator_result,
-    context::{Context, ContextImpl, ContextPtr},
+    context::{Context, ContextImpl, ContextPtr, EvalMode},
     defer,
     error::JSResult,
     function::{CallContext, IteratorState, JS_CALL_FLAG_CONSTRUCTOR},
@@ -157,7 +157,7 @@ impl NFuncPayload {
         }
 
         // new stack frame
-        let mut stack_frame = StackFrame::new(func_obj, 0);
+        let mut stack_frame = StackFrame::new(func_obj, EvalMode::empty());
         let sf = &mut stack_frame;
 
         // set new stack frame to be the 'current-stack-frame',

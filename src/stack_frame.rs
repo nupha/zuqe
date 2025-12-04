@@ -8,7 +8,7 @@ use gc_lite::{Collect, GcWeak};
 
 use crate::{
     builtins::iterator::ObjectIter,
-    context::ContextImpl,
+    context::{ContextImpl, EvalMode},
     error::{JS_IsUncatchableError, is_backtrace_needed},
     function::{AsyncStateImpl, JSVarRef},
     value::JSValue,
@@ -59,8 +59,8 @@ pub struct StackFrame {
     /// List of variable references registered in this frame
     pub(crate) var_ref_list: Vec<JSVarRef>,
 
-    /// Execution mode flags (only JS_MODE_MATH is valid for C functions)
-    pub(crate) js_mode: i32,
+    /// Execution mode flags
+    pub(crate) js_mode: EvalMode,
 
     /// Weak back-ref to async state,
     /// only valid if this stack frame is for an AsyncStateImpl
@@ -101,7 +101,7 @@ impl PartialEq for StackFrame {
 
 impl StackFrame {
     /// Create new StackFrame. It's allocated on stack.
-    pub fn new(func_obj: JSValue, mode: i32) -> Self {
+    pub fn new(func_obj: JSValue, mode: EvalMode) -> Self {
         Self {
             prev: std::ptr::null_mut(),
             cur_func: func_obj,

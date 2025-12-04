@@ -1,7 +1,7 @@
 use crate::{
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp},
-    context::JS_MODE_STRICT,
+    context::EvalMode,
     function::{BlockEnv, JSFunctionKindEnum, JSVarDefEnum, OPTIMIZE},
     parse::token::TOK_FIRST_KEYWORD,
     utils::unlikely,
@@ -86,7 +86,7 @@ impl<'s> JSParseState<'s> {
                 self.cur_func_mut().push_break_entry(&mut break_entry);
 
                 self.parse_statement_or_decl(
-                    if self.cur_func().attrs.js_mode & JS_MODE_STRICT as u8 == 0
+                    if !self.cur_func().attrs.js_mode.contains(EvalMode::STRICT)
                         && (decl_mask & DECL_MASK_FUNC_WITH_LABEL) != 0
                     {
                         DECL_MASK_FUNC | DECL_MASK_FUNC_WITH_LABEL
@@ -592,7 +592,7 @@ fn stmt_if(s: &mut JSParseState) -> Result<(), i32> {
     s.parse_expr_parens()?;
 
     let mut label1 = s.emit_goto(OpCode::IF_FALSE, -1);
-    let mask = if s.cur_func().attrs.js_mode & JS_MODE_STRICT as u8 != 0 {
+    let mask = if s.cur_func().attrs.js_mode.contains(EvalMode::STRICT) {
         0
     } else {
         DECL_MASK_FUNC // Annex B.3.4
@@ -896,7 +896,7 @@ fn stmt_switch(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
 
 #[inline(always)]
 fn stmt_with(s: &mut JSParseState) -> Result<(), i32> {
-    if s.cur_func().attrs.js_mode & JS_MODE_STRICT as u8 != 0 {
+    if s.cur_func().attrs.js_mode.contains(EvalMode::STRICT) {
         s.throw_syntax_error("invalid keyword: with");
         Err(-1)
     } else {
@@ -1125,7 +1125,7 @@ fn js_parse_for_in_of(s: &mut JSParseState, label_name: Atom, is_async: bool) ->
         }
         if has_initializer
             && (tok != TOK_VAR
-                || s.cur_func().attrs.js_mode & JS_MODE_STRICT as u8 != 0
+                || s.cur_func().attrs.js_mode.contains(EvalMode::STRICT)
                 || has_destructuring)
         {
             s.throw_syntax_error(&format!(

@@ -5,7 +5,7 @@ use gc_lite::{Collect, GcRef, GcWeak};
 use crate::{
     atom::Atom,
     bytecode::{OpcodeFormat, opcode_info_final},
-    context::{ContextImpl, ContextPtr},
+    context::{ContextImpl, ContextPtr, EvalMode},
     error::JSResult,
     eval::{JS_EVAL_TYPE_DIRECT, JS_EVAL_TYPE_INDIRECT},
     function::{JSFunctionDef, JSVarRef},
@@ -65,7 +65,7 @@ pub struct BytecodeAttrs {
     //// true if home_object needs to be initialized
     pub need_home_object: bool,
     /// execution mode
-    pub js_mode: u8,
+    pub js_mode: EvalMode,
 }
 
 impl Default for BytecodeAttrs {
@@ -82,7 +82,7 @@ impl Default for BytecodeAttrs {
             backtrace_barrier: false,
             defined_arg_count: 0,
             need_home_object: false,
-            js_mode: 0,
+            js_mode: EvalMode::empty(),
         }
     }
 }
@@ -246,7 +246,7 @@ impl BytecodeImpl {
     }
 
     #[inline(always)]
-    pub const fn mode(&self) -> u8 {
+    pub const fn mode(&self) -> EvalMode {
         self.attrs.js_mode
     }
 

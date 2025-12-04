@@ -1,7 +1,7 @@
 use crate::{
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp, opcodes},
-    context::JS_MODE_STRICT,
+    context::EvalMode,
     error::JS_THROW_ERROR_DELETE_SUPER,
     parse::{
         state::{PF_ARROW_FUNC, PF_IN_ACCEPTED, PF_POW_ALLOWED},
@@ -376,7 +376,7 @@ impl<'s> JSParseState<'s> {
                     self.emit_op(OpCode::PUSH_TRUE);
                     return Ok(());
                 }
-                if fd.attrs.js_mode & JS_MODE_STRICT as u8 != 0 {
+                if fd.attrs.js_mode.contains(EvalMode::STRICT) {
                     self.throw_syntax_error("cannot delete a direct reference in strict mode");
                     return Err(-1);
                 } else {

@@ -21,7 +21,7 @@ use crate::{
         },
         symbol::{js_symbol_constructor, js_symbol_funcs, js_symbol_proto_funcs},
     },
-    context::{ContextPtr, JS_MODE_STRICT},
+    context::{ContextPtr, EvalMode},
     error::{ErrorKind, JSResult, STD_ERROR_NAMES},
     function::{BytecodeFunction, Callback, JSFunctionKindEnum},
     object::{
@@ -55,7 +55,7 @@ impl ContextPtr {
                         .and_then(|o| {
                             o.payload().bc_function().map(|bc| {
                                 let b = bc.bytecode();
-                                b.mode() & JS_MODE_STRICT as u8 != 0 || !b.has_prototype()
+                                b.mode().contains(EvalMode::STRICT) || !b.has_prototype()
                             })
                         })
                         .unwrap_or(true);

@@ -6,7 +6,7 @@ mod intrinsic;
 
 pub use {
     builder::*,
-    ctx::{Context, JS_MODE_ASYNC, JS_MODE_STRICT, JS_MODE_STRIP},
+    ctx::{Context, EvalMode},
 };
 
 pub(crate) use ctx::{ContextImpl, ContextPtr, JS_GetActiveFunction};

@@ -3,7 +3,7 @@ use std::{pin::Pin, ptr::NonNull};
 use gc_lite::{Collect, GcRef};
 
 use crate::{
-    context::{ContextImpl, JS_MODE_ASYNC},
+    context::{ContextImpl, EvalMode},
     error::JSResult,
     function::BCFunction,
     gcref_wrapper,
@@ -86,10 +86,7 @@ impl AsyncStateImpl {
         //     local_buf,
         //     ..Default::default()
         // });
-        let mut frame = Box::pin(StackFrame::new(
-            bc_func.into(),
-            js_mode as i32 | JS_MODE_ASYNC,
-        ));
+        let mut frame = Box::pin(StackFrame::new(bc_func.into(), js_mode | EvalMode::ASYNC));
 
         // setup localbuf and sections
         unsafe {

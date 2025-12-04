@@ -1,7 +1,7 @@
 use crate::{
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp, opcodes},
-    context::JS_MODE_STRICT,
+    context::EvalMode,
     utils::read_from_ptr,
 };
 
@@ -80,7 +80,7 @@ impl<'s> JSParseState<'s> {
 
                 match name {
                     Atom::CONST_arguments | Atom::CONST_eval
-                        if self.cur_func().attrs.js_mode & JS_MODE_STRICT as u8 != 0 =>
+                        if self.cur_func().attrs.js_mode.contains(EvalMode::STRICT) =>
                     {
                         self.throw_syntax_error("invalid lvalue in strict mode");
                         return Err(-1);

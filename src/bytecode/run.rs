@@ -21,7 +21,7 @@ use crate::{
         OP_DEFINE_METHOD_ENUMERABLE, OP_DEFINE_METHOD_GETTER, OP_DEFINE_METHOD_METHOD,
         OP_DEFINE_METHOD_SETTER,
     },
-    context::{ContextImpl, JS_MODE_STRICT},
+    context::{ContextImpl, EvalMode},
     error::{
         JS_THROW_ERROR_DELETE_SUPER, JS_THROW_ERROR_ITERATOR_THROW, JS_THROW_VAR_REDECL,
         JS_THROW_VAR_RO, JS_THROW_VAR_UNINITIALIZED, JS_ThrowReferenceErrorNotDefined,
@@ -372,7 +372,7 @@ impl Bytecode {
                     OpCode::PUSH_THIS => {
                         // only called at the start of a function.
                         // could be EXCEPTION.
-                        let val: JSValue = if mode & JS_MODE_STRICT == 0 {
+                        let val: JSValue = if !mode.contains(EvalMode::STRICT) {
                             match this_obj {
                                 JSValue::Object(_) => this_obj,
                                 JSValue::NULL | JSValue::UNDEFINED => {

@@ -5,7 +5,7 @@ use crate::{
         ClassFieldsDef, JS_DEFINE_CLASS_HAS_HERITAGE, OP_DEFINE_METHOD_GETTER,
         OP_DEFINE_METHOD_METHOD, OP_DEFINE_METHOD_SETTER,
     },
-    context::{JS_MODE_STRICT, JS_MODE_STRIP},
+    context::EvalMode,
     defer,
     function::{JSFunctionDef, JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
     module::ExportType,
@@ -539,7 +539,7 @@ impl<'s> JSParseState<'s> {
         }
 
         // store the class source code in the constructor.
-        if self.cur_func().attrs.js_mode & JS_MODE_STRIP as u8 == 0 {
+        if !self.cur_func().attrs.js_mode.contains(EvalMode::STRIP) {
             debug_assert!(self.buf_ptr >= class_source);
 
             let src_len = unsafe { self.buf_ptr.offset_from(class_source) as usize };
@@ -575,7 +575,7 @@ impl<'s> JSParseState<'s> {
         let orig_mode = {
             let fd = self.cur_func_mut();
             let m = fd.attrs.js_mode;
-            fd.attrs.js_mode |= JS_MODE_STRICT as u8;
+            fd.attrs.js_mode |= EvalMode::STRICT;
             m
         };
         // Note: restore original mode on exit

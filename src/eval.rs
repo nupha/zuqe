@@ -2,7 +2,7 @@ use std::{ops::Deref, ptr::NonNull};
 
 use crate::{
     atom::Atom,
-    context::{ContextImpl, ContextPtr, JS_MODE_STRICT, JS_MODE_STRIP},
+    context::{ContextImpl, ContextPtr, EvalMode},
     error::JSResult,
     function::{Bytecode, JSFunctionDef, JSFunctionKindEnum, add_closure_variables},
     module::ModuleDef,
@@ -68,21 +68,21 @@ impl ContextImpl {
                 .unwrap(); // <-- Note: current stack function must be a BCFunction object
 
             let bc = cur_func.payload().bytecode();
-            let mode = bc.mode() as u32;
+            let mode = bc.mode();
 
             (Some(bc), None, mode)
         } else {
-            let mut js_mode = 0;
+            let mut js_mode = EvalMode::empty();
+
             if flags & JS_EVAL_FLAG_STRICT != 0 {
-                js_mode |= JS_MODE_STRICT as u32;
+                js_mode |= EvalMode::STRICT;
             }
             if flags & JS_EVAL_FLAG_STRIP != 0 {
-                js_mode |= JS_MODE_STRIP as u32;
+                js_mode |= EvalMode::STRIP;
             }
-
             if eval_type == JS_EVAL_TYPE_MODULE {
                 let name = Atom::new(self.rt(), filename)?;
-                js_mode |= JS_MODE_STRICT as u32;
+                js_mode |= EvalMode::STRICT;
                 (None, Some(ModuleDef::new(self, name)?), js_mode)
             } else {
                 (None, None, js_mode)
@@ -96,7 +96,7 @@ impl ContextImpl {
         fd.func_name = Atom::CONST__eval_;
         fd.has_this_binding = eval_type != JS_EVAL_TYPE_DIRECT;
         fd.attrs.backtrace_barrier = flags & JS_EVAL_FLAG_BACKTRACE_BARRIER != 0;
-        fd.attrs.js_mode = js_mode as u8;
+        fd.attrs.js_mode = js_mode;
 
         if let Some(bc) = &frame_func_bc {
             debug_assert_eq!(eval_type, JS_EVAL_TYPE_DIRECT, "must be direct eval type");

@@ -350,7 +350,7 @@ impl BytecodeFunction {
         // how many bytes to allocate for local buf (args+vars+stack)?
         let (buf_values_count, js_mode) = (
             arg_copy_num as usize + bc.var_count as usize + bc.stack_size as usize,
-            bc.mode() as i32,
+            bc.mode(),
         );
 
         let mut this_frame = StackFrame::new(self.into(), js_mode);

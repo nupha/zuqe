@@ -1,6 +1,6 @@
 use crate::{
     bytecode::{opcode_info_intermediate, opcodes},
-    context::{JS_MODE_STRIP, ContextImpl},
+    context::{ContextImpl, EvalMode},
     function::{
         BlockEnv, JSFunctionDef, PC2LINE_BASE, PC2LINE_DIFF_PC_MAX, PC2LINE_OP_FIRST, PC2LINE_RANGE,
     },
@@ -169,7 +169,7 @@ impl JSFunctionDef {
     }
 
     pub fn compute_pc2line_info(&mut self) {
-        if self.attrs.js_mode & JS_MODE_STRIP as u8 == 0 && !self.line_number_slots.is_empty() {
+        if !self.attrs.js_mode.contains(EvalMode::STRIP) && !self.line_number_slots.is_empty() {
             let mut last_line_num = self.line_num;
             let mut last_pc: u32 = 0;
 

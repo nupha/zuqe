@@ -1,6 +1,6 @@
 use crate::{
     atom::Atom,
-    context::{ContextImpl, JS_MODE_STRICT, JS_MODE_STRIP},
+    context::{ContextImpl, EvalMode},
     function::{
         ARG_SCOPE_END, ARG_SCOPE_INDEX, Bytecode, BytecodeImpl, JSClosureVar, JSVarDef,
         JSVarKindEnum, is_var_in_arg_scope,
@@ -119,7 +119,7 @@ impl JSFunctionDef {
         let mut vardefs_start = -1;
         let args_count = self.args.len();
         let vars_count = self.vars.len();
-        if self.attrs.js_mode & JS_MODE_STRIP as u8 == 0 || self.has_eval_call {
+        if self.has_eval_call || !self.attrs.js_mode.contains(EvalMode::STRIP) {
             let n: usize = args_count + vars_count;
             if n != 0 {
                 const ly: std::alloc::Layout = std::alloc::Layout::new::<JSVarDef>();
@@ -276,7 +276,7 @@ impl JSFunctionDef {
             stack_size,
         );
 
-        if self.attrs.js_mode & JS_MODE_STRIP as u8 == 0 {
+        if !self.attrs.js_mode.contains(EvalMode::STRIP) {
             // setup debug info
             let debug = bc_inner.debug.as_mut().unwrap();
 
@@ -309,7 +309,7 @@ impl JSFunctionDef {
 
     fn add_eval_variables(&mut self, ctx: &ContextImpl) {
         // in non strict mode, variables are created in the caller's environment object
-        if !self.is_eval && self.attrs.js_mode & JS_MODE_STRICT as u8 == 0 {
+        if !self.is_eval && !self.attrs.js_mode.contains(EvalMode::STRICT) {
             self.var_object_idx = Some(self.add_var(ctx, Atom::CONST__var_).unwrap());
             if self.has_parameter_expressions {
                 // an additional variable object is needed for the argument scope
@@ -345,7 +345,7 @@ impl JSFunctionDef {
 
             // also add `arguments` binding in the argument scope.
             // to raise an error if a direct eval in the argument scope tries to redefine it.
-            if self.has_parameter_expressions && self.attrs.js_mode & JS_MODE_STRICT as u8 == 0 {
+            if self.has_parameter_expressions && !self.attrs.js_mode.contains(EvalMode::STRICT) {
                 self.add_arguments(ctx, true).unwrap();
             }
         }

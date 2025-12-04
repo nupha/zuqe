@@ -245,7 +245,7 @@ impl ContextImpl {
     pub(crate) fn is_strict_mode(&self) -> bool {
         self.rt()
             .current_stack_frame()
-            .is_some_and(|sf| sf.js_mode & JS_MODE_STRICT != 0)
+            .is_some_and(|sf| sf.js_mode.contains(EvalMode::STRICT))
     }
 
     fn finalize(&mut self) {
@@ -447,10 +447,16 @@ pub(crate) fn JS_GetActiveFunction(ctx: &ContextImpl) -> JSValue {
     ctx.rt().current_stack_frame().unwrap().cur_func
 }
 
-pub const JS_MODE_STRICT: i32 = 1 << 0;
-pub const JS_MODE_STRIP: i32 = 1 << 1;
-pub const JS_MODE_MATH: i32 = 1 << 2;
-pub const JS_MODE_ASYNC: i32 = 1 << 3; /* async function */
+bitflags::bitflags! {
+    #[repr(transparent)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+    pub struct EvalMode: u8 {
+        const STRICT = 1 << 0;
+        const STRIP  = 1 << 1;
+        const MATH   = 1 << 2;
+        const ASYNC  = 1 << 3; // async function
+    }
+}
 
 impl RuntimeImpl {
     /// Creates context with setup closure.

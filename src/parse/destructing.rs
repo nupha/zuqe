@@ -1,7 +1,7 @@
 use crate::{
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp, opcodes},
-    context::JS_MODE_STRICT,
+    context::EvalMode,
     function::BlockEnv,
     object::PROP_TYPE_IDENT,
     parse::token::{
@@ -296,7 +296,7 @@ impl<'s> JSParseState<'s> {
                 }
 
                 if unlikely(
-                    self.cur_func().attrs.js_mode & JS_MODE_STRICT as u8 != 0
+                    self.cur_func().attrs.js_mode.contains(EvalMode::STRICT)
                         && matches!(prop_name, Atom::CONST_eval | Atom::CONST_arguments),
                 ) {
                     self.throw_syntax_error("invalid destructuring target");
@@ -615,7 +615,7 @@ impl<'s> JSParseState<'s> {
     fn parse_destructuring_var(&mut self, is_arg: bool) -> Result<Atom, i32> {
         if unlikely(
             (self.token.val != TOK_IDENT || self.token.data.is_reserved())
-                || (self.cur_func().attrs.js_mode & JS_MODE_STRICT as u8 != 0
+                || (self.cur_func().attrs.js_mode.contains(EvalMode::STRICT)
                     && matches!(
                         self.token.atom().unwrap(),
                         Atom::CONST_eval | Atom::CONST_arguments
