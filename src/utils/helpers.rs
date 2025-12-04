@@ -2,23 +2,23 @@ use std::ffi::c_void;
 
 use crate::{atom::Atom, bytecode::opcodes};
 
-fn get_frame_address(level: usize) -> Option<*const c_void> {
-    // NOTE: 除了libc, 还可以用backtrace实现
+// fn get_frame_address(level: usize) -> Option<*const c_void> {
+//     // NOTE: 除了libc, 还可以用backtrace实现
 
-    // 定义一个数组来存储调用栈的地址
-    const MAX_STACK_DEPTH: usize = 32;
-    let mut addrs: [*mut c_void; MAX_STACK_DEPTH] = [std::ptr::null_mut(); MAX_STACK_DEPTH];
+//     // 定义一个数组来存储调用栈的地址
+//     const MAX_STACK_DEPTH: usize = 32;
+//     let mut addrs: [*mut c_void; MAX_STACK_DEPTH] = [std::ptr::null_mut(); MAX_STACK_DEPTH];
 
-    // 使用 libc::backtrace 获取调用栈地址
-    let depth = unsafe { libc::backtrace(addrs.as_mut_ptr(), MAX_STACK_DEPTH as i32) };
+//     // 使用 libc::backtrace 获取调用栈地址
+//     let depth = unsafe { libc::backtrace(addrs.as_mut_ptr(), MAX_STACK_DEPTH as i32) };
 
-    // 检查 level 是否在有效范围内
-    if level < depth as usize {
-        Some(addrs[level])
-    } else {
-        None // 如果层级超出调用栈深度，返回 None
-    }
-}
+//     // 检查 level 是否在有效范围内
+//     if level < depth as usize {
+//         Some(addrs[level])
+//     } else {
+//         None // 如果层级超出调用栈深度，返回 None
+//     }
+// }
 
 /// get stack top level addr
 #[inline(always)]

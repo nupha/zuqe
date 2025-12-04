@@ -182,8 +182,8 @@ impl JSValue {
     /// returns JSValue::Int, JSValue::Float64 value, or Err.
     ///
     /// Because BigInt is not supported, JSToNumberHintEnum does not effect
-    fn to_num_internal(&self, ctx: &ContextImpl, _flag: JSToNumberHintEnum) -> JSResult {
-        let mut val = *self;
+    fn to_num_internal(self, ctx: &ContextImpl, _flag: JSToNumberHintEnum) -> JSResult {
+        let mut val = self;
 
         loop {
             match val {

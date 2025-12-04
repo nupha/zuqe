@@ -177,7 +177,7 @@ fn get_timezone_offset(time: i64) -> i32 {
 
     let ti: time_t = time as time_t;
 
-    #[cfg(target_os = "windows")]
+    #[cfg(windows)]
     let res = unsafe {
         let tm = gmtime(&ti);
         let gm_ti = mktime(tm);
@@ -187,12 +187,16 @@ fn get_timezone_offset(time: i64) -> i32 {
 
         ((gm_ti - loc_ti) / 60) as i32
     };
-    #[cfg(not(target_os = "windows"))]
+
+    #[cfg(unix)]
     let res = unsafe {
         let mut tm: libc::tm = std::mem::zeroed();
         libc::localtime_r(&ti, &mut tm);
         (-(tm.tm_gmtoff) / 60) as i32
     };
+
+    #[cfg(all(not(unix), not(windows)))]
+    let res = 0;
 
     res
 }

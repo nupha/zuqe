@@ -2,7 +2,7 @@ use gc_lite::{Collect, GcRef};
 
 use crate::{
     JS_CLASS_BOUND_FUNCTION,
-    context::{Context, ContextPtr},
+    context::Context,
     error::JSResult,
     object::{ObjectImpl, ObjectPayload, ObjectRef},
     object_cast,
