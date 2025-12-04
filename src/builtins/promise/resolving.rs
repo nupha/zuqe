@@ -301,7 +301,7 @@ impl Promise {
     /// Reject promise with `value`.
     /// A shortcut to `fulfill_or_reject()` with is_reject=true.
     #[inline(always)]
-    pub fn reject(&mut self, ctx: ContextPtr, value: JSValue) {
+    pub(super) fn reject(&mut self, ctx: ContextPtr, value: JSValue) {
         self.fulfill_or_reject(ctx, value, true);
     }
 }

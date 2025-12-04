@@ -4,7 +4,7 @@ use crate::{
     JS_CLASS_DATAVIEW,
     builtins::array_buffer::ArrayBuffer,
     class::ClassID,
-    context::{ContextHandle, ContextImpl, ContextPtr},
+    context::{ContextHandle, ContextImpl},
     error::JS_ThrowTypeErrorDetachedArrayBuffer,
     function::Callback,
     object::{ObjectImpl, ObjectPayload, ObjectRef},
@@ -222,17 +222,3 @@ impl DataView {
         }
     }
 }
-
-// impl ContextPtr {
-//     /// create a DataView with underlaying AarrayBuffer.
-//     #[deprecated(note = "use DataView::create() instead")]
-//     pub fn create_dataview(
-//         &self,
-//         ctor: &JSValue,
-//         array_buffer: ArrayBuffer,
-//         offset: usize,
-//         length: Option<usize>,
-//     ) -> Result<DataView, i32> {
-//         DataView::create(self, ctor, array_buffer, offset, length)
-//     }
-// }

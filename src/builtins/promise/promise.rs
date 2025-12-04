@@ -7,7 +7,7 @@ use crate::{
     atom::Atom,
     builtins::error::js_aggregate_error_constructor,
     class::ClassID,
-    context::{ContextHandle, ContextImpl, ContextPtr},
+    context::{ContextHandle, ContextImpl},
     error::JSResult,
     function::{
         CallContext, Callback, JS_CallConstructor, NativeFunctionWithData,
@@ -417,17 +417,17 @@ pub fn js_promise_all_resolve_element(mut cc: CallContext) -> JSResult {
         *cc.arg(0)
     };
 
-    values.define_property_value_u32(&ctx, index as u32, obj, JS_PROP_C_W_E)?;
+    values.define_property_value_u32(ctx, index as u32, obj, JS_PROP_C_W_E)?;
 
-    match remainingElementsCount_add(&ctx, resolve_element_env, -1)? {
+    match remainingElementsCount_add(ctx, resolve_element_env, -1)? {
         1 => {
             let arg = if resolve_type == PROMISE_MAGIC_any {
-                js_aggregate_error_constructor(&ctx, values).err()?
+                js_aggregate_error_constructor(ctx, values).err()?
             } else {
                 values
             };
 
-            resolve.call(&ctx, JSValue::UNDEFINED, std::slice::from_ref(&arg))?;
+            resolve.call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&arg))?;
         }
         0 => {}
         _ => {

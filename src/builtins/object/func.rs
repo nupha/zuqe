@@ -178,10 +178,11 @@ pub(crate) fn js_object_groupBy(cc: CallContext) -> JSResult {
         // get prop value array and key atom
         let (mut props_arr, key_atom): (JSValue, Atom) = if is_map {
             (
-                js_map_get(
+                js_map_get(CallContext::new_simple(
                     cc.ctx_ptr(),
-                    CallContext::new_simple(cc.ctx_ptr(), groups, std::slice::from_ref(&key)),
-                )?,
+                    groups,
+                    std::slice::from_ref(&key),
+                ))?,
                 Atom::NULL,
             )
         } else {
@@ -197,10 +198,13 @@ pub(crate) fn js_object_groupBy(cc: CallContext) -> JSResult {
 
             // set to groups
             if is_map {
-                js_map_set(
+                js_map_set(CallContext::new(
                     cc.ctx_ptr(),
-                    CallContext::new(cc.ctx_ptr(), groups, &[key, props_arr], 0, None),
-                )?;
+                    groups,
+                    &[key, props_arr],
+                    0,
+                    None,
+                ))?;
             } else {
                 groups.define_property_value(ctx, key_atom, props_arr, JS_PROP_C_W_E)?;
             }

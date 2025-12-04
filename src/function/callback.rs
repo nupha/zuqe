@@ -23,9 +23,6 @@ pub type NativeGetterFn = fn(cc: CallContext) -> JSResult;
 pub type NativeSetterFn = fn(cc: CallContext) -> JSResult;
 pub type NativeIteratorNextFn = fn(cc: CallContext, iter_state: &mut IteratorState) -> JSResult;
 
-#[deprecated(note = "should migrate to NativeCallback")]
-pub(crate) type NativeCallback_v1 = fn(ctx: ContextPtr, cc: CallContext) -> JSResult;
-
 pub type JSCFunction = unsafe fn(ctx: &ContextImpl, this_val: JSValue, args: &[JSValue]) -> JSValue;
 pub type JSCFunctionMagic = unsafe fn(
     ctx: &ContextImpl,
@@ -65,9 +62,6 @@ pub enum Callback {
     ConstructorOrFunc(NativeCallbackFn),
     IteratorNext(NativeIteratorNextFn),
 
-    #[deprecated]
-    Func_v1(NativeCallback_v1),
-
     CFunc(JSCFunction),
     CFuncMagic(JSCFunctionMagic),
     CConstructor(JSCFunction),
@@ -95,8 +89,6 @@ impl PartialEq for Callback {
                 std::ptr::fn_addr_eq(*a, *b)
             }
             (Self::IteratorNext(a), Self::IteratorNext(b)) => std::ptr::fn_addr_eq(*a, *b),
-
-            (Self::Func_v1(a), Self::Func_v1(b)) => std::ptr::fn_addr_eq(*a, *b),
 
             (Self::CFunc(a), Self::CFunc(b)) => std::ptr::fn_addr_eq(*a, *b),
             (Self::CFuncMagic(a), Self::CFuncMagic(b)) => std::ptr::fn_addr_eq(*a, *b),
@@ -246,11 +238,6 @@ impl NFuncPayload {
                     );
                 }
                 r
-            }
-
-            Callback::Func_v1(f) => {
-                let cc = CallContext::new(realm, this_obj, sf.args_slice(), magic as _, None);
-                f(realm, cc)
             }
 
             //

@@ -1,11 +1,10 @@
-use std::{cell::UnsafeCell, ops::Deref};
+use std::cell::UnsafeCell;
 
 use gc_lite::Collect;
 
 use crate::{
     JS_CLASS_ARRAY_ITERATOR, JS_CLASS_STRING_ITERATOR,
     builtins::typed_array::TypedArray,
-    context::ContextPtr,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::{CallContext, IteratorState},
     object::ObjectPayload,

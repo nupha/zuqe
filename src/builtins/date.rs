@@ -9,7 +9,7 @@ use gc_lite::Collect;
 use crate::{
     atom::Atom,
     class::ClassID,
-    context::{ContextHandle, ContextImpl, ContextPtr},
+    context::{ContextHandle, ContextImpl},
     error::JSResult,
     function::{CallContext, FieldDef},
     object::{ObjectPayload, ObjectRef},
@@ -829,7 +829,7 @@ pub fn js_date_constructor(cc: CallContext) -> JSResult {
             let mut has_invalid = false;
 
             for i in 0..std::cmp::min(n, 7) {
-                let d = cc.arg(i).to_f64(&ctx)?;
+                let d = cc.arg(i).to_f64(ctx)?;
                 if d.is_finite() {
                     fields[i] = d.trunc();
                     if i == 0 && (0.0..100.0).contains(&fields[0]) {
@@ -850,7 +850,7 @@ pub fn js_date_constructor(cc: CallContext) -> JSResult {
 
     if new_target.is_undefined() {
         // invoked as a function, returns toString()
-        datetime_format(&ctx, tm.into(), 0x13).map(JSValue::String)
+        datetime_format(ctx, tm.into(), 0x13).map(JSValue::String)
     } else {
         ctx.create_object_from_ctor(new_target, ObjectPayload::DATE(tm))
             .map(JSValue::Object)
@@ -858,7 +858,7 @@ pub fn js_date_constructor(cc: CallContext) -> JSResult {
     }
 }
 
-fn JS_ThisTimeValue(ctx: ContextPtr, this: &JSValue) -> Result<Datetime, i32> {
+fn JS_ThisTimeValue(ctx: &ContextImpl, this: JSValue) -> Result<Datetime, i32> {
     if let Some(t) = this.as_object().and_then(|o| {
         if let ObjectPayload::DATE(dt) = o.payload() {
             Some(*dt)
@@ -873,14 +873,14 @@ fn JS_ThisTimeValue(ctx: ContextPtr, this: &JSValue) -> Result<Datetime, i32> {
     }
 }
 
-fn js_date_getTime(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    JS_ThisTimeValue(ctx, cc.this()).map(JSValue::from)
+fn js_date_getTime(cc: CallContext) -> JSResult {
+    JS_ThisTimeValue(cc.ctx(), *cc.this()).map(JSValue::from)
 }
 
-fn js_date_setTime(ctx: ContextPtr, mut cc: CallContext) -> JSResult {
-    let _ = JS_ThisTimeValue(ctx, cc.this())?;
+fn js_date_setTime(mut cc: CallContext) -> JSResult {
+    let _ = JS_ThisTimeValue(cc.ctx(), *cc.this())?;
 
-    let a = cc.arg(0).to_f64(&ctx)?;
+    let a = cc.arg(0).to_f64(cc.ctx())?;
     let dt2 = if a.is_finite() {
         Datetime::from_timestamp_ms(a.trunc() as i64) // will clip inside
     } else {
@@ -891,25 +891,25 @@ fn js_date_setTime(ctx: ContextPtr, mut cc: CallContext) -> JSResult {
         *dt = dt2;
         Ok(dt2.into())
     } else {
-        ctx.throw_type_error("not a Date object");
+        cc.ctx().throw_type_error("not a Date object");
         Err(-1)
     }
 }
 
-fn get_date_string(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    let tm = JS_ThisTimeValue(ctx, cc.this())?;
-    datetime_format(&ctx, tm.into(), cc.magic()).map(JSValue::String)
+fn get_date_string(cc: CallContext) -> JSResult {
+    let tm = JS_ThisTimeValue(cc.ctx(), *cc.this())?;
+    datetime_format(cc.ctx(), tm.into(), cc.magic()).map(JSValue::String)
 }
 
-fn js_date_Symbol_toPrimitive(ctx: ContextPtr, cc: CallContext) -> JSResult {
+fn js_date_Symbol_toPrimitive(cc: CallContext) -> JSResult {
     // Symbol_toPrimitive(hint)
     let Some(obj) = cc.this().as_object() else {
-        ctx.throw_type_error_not_an_object();
+        cc.ctx().throw_type_error_not_an_object();
         return Err(-1);
     };
 
     let hint: Atom = if let JSValue::String(s) = cc.arg(0) {
-        s.to_atom(ctx.rt())?
+        s.to_atom(cc.ctx().rt())?
     } else {
         Atom::CONST_empty_string
     };
@@ -918,15 +918,15 @@ fn js_date_Symbol_toPrimitive(ctx: ContextPtr, cc: CallContext) -> JSResult {
         Atom::CONST_number => HINT_NUMBER,
         Atom::CONST_string | Atom::CONST_default => HINT_STRING,
         _ => {
-            ctx.throw_type_error("invalid hint ");
+            cc.ctx().throw_type_error("invalid hint ");
             return Err(-1);
         }
     };
-    obj.to_primitive(&ctx, hint_num | HINT_FORCE_ORDINARY)
+    obj.to_primitive(cc.ctx(), hint_num | HINT_FORCE_ORDINARY)
 }
 
-fn js_date_getTimezoneOffset(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    let tm = JS_ThisTimeValue(ctx, cc.this())?;
+fn js_date_getTimezoneOffset(cc: CallContext) -> JSResult {
+    let tm = JS_ThisTimeValue(cc.ctx(), *cc.this())?;
     if tm.is_invalid() {
         Ok(JSValue::Float64(f64::NAN))
     } else {
@@ -934,8 +934,8 @@ fn js_date_getTimezoneOffset(ctx: ContextPtr, cc: CallContext) -> JSResult {
     }
 }
 
-fn get_date_field(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    let tm = JS_ThisTimeValue(ctx, cc.this())?;
+fn get_date_field(cc: CallContext) -> JSResult {
+    let tm = JS_ThisTimeValue(cc.ctx(), *cc.this())?;
 
     let magic = cc.magic();
     let is_local = magic & 0x0F != 0;
@@ -953,7 +953,7 @@ fn get_date_field(ctx: ContextPtr, cc: CallContext) -> JSResult {
 }
 
 fn set_date_field_internal(
-    ctx: ContextPtr,
+    ctx: &ContextImpl,
     mut this: JSValue,
     args: &[JSValue],
     magic: i32,
@@ -963,7 +963,7 @@ fn set_date_field_internal(
     let is_local = magic & 0x0F != 0;
 
     let (mut fields, this_is_bad) =
-        if let Some(ff) = timestamp_to_fields(JS_ThisTimeValue(ctx, &this)?.into(), is_local) {
+        if let Some(ff) = timestamp_to_fields(JS_ThisTimeValue(ctx, this)?.into(), is_local) {
             let mut ff2: [f64; 7] = [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0];
             for (i, n) in ff.into_iter().take(7).enumerate() {
                 ff2[i] = n as f64;
@@ -978,7 +978,7 @@ fn set_date_field_internal(
 
     let field_range = first_field as usize..end_field as usize;
     for (v, i) in args.iter().zip(field_range.into_iter()) {
-        let a = v.to_f64(&ctx)?;
+        let a = v.to_f64(ctx)?;
         if a.is_finite() {
             if let Some(f) = &mut fields {
                 f[i] = a.trunc();
@@ -1011,35 +1011,36 @@ fn set_date_field_internal(
     }
 }
 
-fn set_date_field(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    set_date_field_internal(ctx, *cc.this(), cc.arguments(), cc.magic())
+fn set_date_field(cc: CallContext) -> JSResult {
+    set_date_field_internal(cc.ctx(), *cc.this(), cc.arguments(), cc.magic())
 }
 
-fn js_date_setYear(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    let mut y = cc.arg(0).to_f64(&ctx)?;
+fn js_date_setYear(cc: CallContext) -> JSResult {
+    let mut y = cc.arg(0).to_f64(cc.ctx())?;
     if y.is_finite() {
         y = y.trunc();
         if (0.0..100.0).contains(&y) {
             y += 1900.0;
         }
     }
-    set_date_field_internal(ctx, *cc.this(), &[JSValue::from(y)], 0x011)
+    set_date_field_internal(cc.ctx(), *cc.this(), &[JSValue::from(y)], 0x011)
 }
 
-fn js_date_toJSON(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    let obj = cc.this().objectify(&ctx)?;
+fn js_date_toJSON(cc: CallContext) -> JSResult {
+    let ctx = cc.ctx();
+    let obj = cc.this().objectify(ctx)?;
 
-    let tv = obj.to_primitive(&ctx, HINT_NUMBER)?;
+    let tv = obj.to_primitive(ctx, HINT_NUMBER)?;
     if tv.is_number() {
-        let d = tv.to_f64(&ctx)?;
+        let d = tv.to_f64(ctx)?;
         if !d.is_finite() {
             return Ok(JSValue::NULL);
         }
     }
 
-    let method = obj.get_property_str(&ctx, "toISOString")?;
+    let method = obj.get_property_str(ctx, "toISOString")?;
     if method.is_function() {
-        method.call(&ctx, obj.into(), &[])
+        method.call(ctx, obj.into(), &[])
     } else {
         ctx.throw_type_error("object needs toISOString method");
         Err(-1)
@@ -1047,73 +1048,74 @@ fn js_date_toJSON(ctx: ContextPtr, cc: CallContext) -> JSResult {
 }
 
 pub static js_date_proto_funcs: [FieldDef; 47] = [
-    FieldDef::FUNCTION_V1("valueOf", 0, js_date_getTime, 0),
-    FieldDef::FUNCTION_V1("toString", 0, get_date_string, 0x13),
-    FieldDef::FUNCTION_V1("[Symbol.toPrimitive]", 1, js_date_Symbol_toPrimitive, 0),
-    FieldDef::FUNCTION_V1("toUTCString", 0, get_date_string, 0x03),
+    FieldDef::CALL("valueOf", 0, js_date_getTime, 0),
+    FieldDef::CALL("toString", 0, get_date_string, 0x13),
+    FieldDef::CALL("[Symbol.toPrimitive]", 1, js_date_Symbol_toPrimitive, 0),
+    FieldDef::CALL("toUTCString", 0, get_date_string, 0x03),
     FieldDef::ALIAS("toGMTString", "toUTCString"),
-    FieldDef::FUNCTION_V1("toISOString", 0, get_date_string, 0x23),
-    FieldDef::FUNCTION_V1("toDateString", 0, get_date_string, 0x11),
-    FieldDef::FUNCTION_V1("toTimeString", 0, get_date_string, 0x12),
-    FieldDef::FUNCTION_V1("toLocaleString", 0, get_date_string, 0x33),
-    FieldDef::FUNCTION_V1("toLocaleDateString", 0, get_date_string, 0x31),
-    FieldDef::FUNCTION_V1("toLocaleTimeString", 0, get_date_string, 0x32),
-    FieldDef::FUNCTION_V1("getTimezoneOffset", 0, js_date_getTimezoneOffset, 0),
-    FieldDef::FUNCTION_V1("getTime", 0, js_date_getTime, 0),
-    FieldDef::FUNCTION_V1("getYear", 0, get_date_field, 0x101),
-    FieldDef::FUNCTION_V1("getFullYear", 0, get_date_field, 0x01),
-    FieldDef::FUNCTION_V1("getUTCFullYear", 0, get_date_field, 0x00),
-    FieldDef::FUNCTION_V1("getMonth", 0, get_date_field, 0x11),
-    FieldDef::FUNCTION_V1("getUTCMonth", 0, get_date_field, 0x10),
-    FieldDef::FUNCTION_V1("getDate", 0, get_date_field, 0x21),
-    FieldDef::FUNCTION_V1("getUTCDate", 0, get_date_field, 0x20),
-    FieldDef::FUNCTION_V1("getHours", 0, get_date_field, 0x31),
-    FieldDef::FUNCTION_V1("getUTCHours", 0, get_date_field, 0x30),
-    FieldDef::FUNCTION_V1("getMinutes", 0, get_date_field, 0x41),
-    FieldDef::FUNCTION_V1("getUTCMinutes", 0, get_date_field, 0x40),
-    FieldDef::FUNCTION_V1("getSeconds", 0, get_date_field, 0x51),
-    FieldDef::FUNCTION_V1("getUTCSeconds", 0, get_date_field, 0x50),
-    FieldDef::FUNCTION_V1("getMilliseconds", 0, get_date_field, 0x61),
-    FieldDef::FUNCTION_V1("getUTCMilliseconds", 0, get_date_field, 0x60),
-    FieldDef::FUNCTION_V1("getDay", 0, get_date_field, 0x71),
-    FieldDef::FUNCTION_V1("getUTCDay", 0, get_date_field, 0x70),
-    FieldDef::FUNCTION_V1("setTime", 1, js_date_setTime, 0),
-    FieldDef::FUNCTION_V1("setMilliseconds", 1, set_date_field, 0x671),
-    FieldDef::FUNCTION_V1("setUTCMilliseconds", 1, set_date_field, 0x670),
-    FieldDef::FUNCTION_V1("setSeconds", 2, set_date_field, 0x571),
-    FieldDef::FUNCTION_V1("setUTCSeconds", 2, set_date_field, 0x570),
-    FieldDef::FUNCTION_V1("setMinutes", 3, set_date_field, 0x471),
-    FieldDef::FUNCTION_V1("setUTCMinutes", 3, set_date_field, 0x470),
-    FieldDef::FUNCTION_V1("setHours", 4, set_date_field, 0x371),
-    FieldDef::FUNCTION_V1("setUTCHours", 4, set_date_field, 0x370),
-    FieldDef::FUNCTION_V1("setDate", 1, set_date_field, 0x231),
-    FieldDef::FUNCTION_V1("setUTCDate", 1, set_date_field, 0x230),
-    FieldDef::FUNCTION_V1("setMonth", 2, set_date_field, 0x131),
-    FieldDef::FUNCTION_V1("setUTCMonth", 2, set_date_field, 0x130),
-    FieldDef::FUNCTION_V1("setYear", 1, js_date_setYear, 0),
-    FieldDef::FUNCTION_V1("setFullYear", 3, set_date_field, 0x031),
-    FieldDef::FUNCTION_V1("setUTCFullYear", 3, set_date_field, 0x030),
-    FieldDef::FUNCTION_V1("toJSON", 1, js_date_toJSON, 0),
+    FieldDef::CALL("toISOString", 0, get_date_string, 0x23),
+    FieldDef::CALL("toDateString", 0, get_date_string, 0x11),
+    FieldDef::CALL("toTimeString", 0, get_date_string, 0x12),
+    FieldDef::CALL("toLocaleString", 0, get_date_string, 0x33),
+    FieldDef::CALL("toLocaleDateString", 0, get_date_string, 0x31),
+    FieldDef::CALL("toLocaleTimeString", 0, get_date_string, 0x32),
+    FieldDef::CALL("getTimezoneOffset", 0, js_date_getTimezoneOffset, 0),
+    FieldDef::CALL("getTime", 0, js_date_getTime, 0),
+    FieldDef::CALL("getYear", 0, get_date_field, 0x101),
+    FieldDef::CALL("getFullYear", 0, get_date_field, 0x01),
+    FieldDef::CALL("getUTCFullYear", 0, get_date_field, 0x00),
+    FieldDef::CALL("getMonth", 0, get_date_field, 0x11),
+    FieldDef::CALL("getUTCMonth", 0, get_date_field, 0x10),
+    FieldDef::CALL("getDate", 0, get_date_field, 0x21),
+    FieldDef::CALL("getUTCDate", 0, get_date_field, 0x20),
+    FieldDef::CALL("getHours", 0, get_date_field, 0x31),
+    FieldDef::CALL("getUTCHours", 0, get_date_field, 0x30),
+    FieldDef::CALL("getMinutes", 0, get_date_field, 0x41),
+    FieldDef::CALL("getUTCMinutes", 0, get_date_field, 0x40),
+    FieldDef::CALL("getSeconds", 0, get_date_field, 0x51),
+    FieldDef::CALL("getUTCSeconds", 0, get_date_field, 0x50),
+    FieldDef::CALL("getMilliseconds", 0, get_date_field, 0x61),
+    FieldDef::CALL("getUTCMilliseconds", 0, get_date_field, 0x60),
+    FieldDef::CALL("getDay", 0, get_date_field, 0x71),
+    FieldDef::CALL("getUTCDay", 0, get_date_field, 0x70),
+    FieldDef::CALL("setTime", 1, js_date_setTime, 0),
+    FieldDef::CALL("setMilliseconds", 1, set_date_field, 0x671),
+    FieldDef::CALL("setUTCMilliseconds", 1, set_date_field, 0x670),
+    FieldDef::CALL("setSeconds", 2, set_date_field, 0x571),
+    FieldDef::CALL("setUTCSeconds", 2, set_date_field, 0x570),
+    FieldDef::CALL("setMinutes", 3, set_date_field, 0x471),
+    FieldDef::CALL("setUTCMinutes", 3, set_date_field, 0x470),
+    FieldDef::CALL("setHours", 4, set_date_field, 0x371),
+    FieldDef::CALL("setUTCHours", 4, set_date_field, 0x370),
+    FieldDef::CALL("setDate", 1, set_date_field, 0x231),
+    FieldDef::CALL("setUTCDate", 1, set_date_field, 0x230),
+    FieldDef::CALL("setMonth", 2, set_date_field, 0x131),
+    FieldDef::CALL("setUTCMonth", 2, set_date_field, 0x130),
+    FieldDef::CALL("setYear", 1, js_date_setYear, 0),
+    FieldDef::CALL("setFullYear", 3, set_date_field, 0x031),
+    FieldDef::CALL("setUTCFullYear", 3, set_date_field, 0x030),
+    FieldDef::CALL("toJSON", 1, js_date_toJSON, 0),
 ];
 
-fn js_Date_now(_: ContextPtr, _: CallContext) -> JSResult {
+fn js_Date_now(_: CallContext) -> JSResult {
     let ts = Datetime::now();
     Ok(JSValue::from(ts.timestamp()))
 }
 
-fn js_Date_parse(ctx: ContextPtr, cc: CallContext) -> JSResult {
-    let s = cc.arg(0).to_string(&ctx)?;
+fn js_Date_parse(cc: CallContext) -> JSResult {
+    let s = cc.arg(0).to_string(cc.ctx())?;
     let tm = Datetime::parse(&s.content().encode_utf8_bytes()).unwrap_or(Datetime::INVALID);
     Ok(JSValue::from(tm))
 }
 
-fn js_Date_UTC(ctx: ContextPtr, cc: CallContext) -> JSResult {
+fn js_Date_UTC(cc: CallContext) -> JSResult {
     let dt = if cc.length() == 0 {
         Datetime::INVALID
     } else {
+        let ctx = cc.ctx();
         let mut fields: [f64; 7] = [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0];
         for (i, a) in cc.arguments().iter().take(7).enumerate() {
-            let v = a.to_f64(&ctx)?;
+            let v = a.to_f64(ctx)?;
             if !v.is_finite() {
                 return Ok(JSValue::Float64(f64::NAN));
             }
@@ -1128,7 +1130,7 @@ fn js_Date_UTC(ctx: ContextPtr, cc: CallContext) -> JSResult {
 }
 
 pub static js_date_funcs: [FieldDef; 3] = [
-    FieldDef::FUNCTION_V1("now", 0, js_Date_now, 0),
-    FieldDef::FUNCTION_V1("parse", 1, js_Date_parse, 0),
-    FieldDef::FUNCTION_V1("UTC", 7, js_Date_UTC, 0),
+    FieldDef::CALL("now", 0, js_Date_now, 0),
+    FieldDef::CALL("parse", 1, js_Date_parse, 0),
+    FieldDef::CALL("UTC", 7, js_Date_UTC, 0),
 ];

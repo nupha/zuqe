@@ -1,11 +1,8 @@
-use std::ops::Deref;
-
 use crate::{
     JS_CLASS_MAP,
     atom::Atom,
     builtins::{iterator::JSIteratorKindEnum, js_get_this},
     class::ClassID,
-    context::ContextPtr,
     error::JSResult,
     function::{CallContext, FieldDef},
     number::MAX_SAFE_INTEGER,
@@ -77,23 +74,25 @@ pub fn js_map_constructor(cc: CallContext) -> JSResult {
     Ok(obj)
 }
 
-pub fn js_map_get(ctx: ContextPtr, cc: CallContext) -> JSResult {
+pub(crate) fn js_map_get(cc: CallContext) -> JSResult {
     let key = *cc.arg(0);
+    let ctx = cc.ctx();
 
     cc.this()
-        .retrive_object_payload(&ctx, JS_CLASS_MAP + cc.magic() as ClassID)
+        .retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as ClassID)
         .map(|r| r.mapset().unwrap().find(key).unwrap_or(JSValue::UNDEFINED))
 }
 
-pub fn js_map_set(ctx: ContextPtr, cc: CallContext) -> JSResult {
+pub(crate) fn js_map_set(cc: CallContext) -> JSResult {
     let magic = cc.magic();
+    let ctx = cc.ctx();
 
     let mut this = *cc.this();
     let mut key = *cc.arg(0);
     let val = *cc.arg(1);
 
     let s = this
-        .retrive_object_payload_mut(&ctx, JS_CLASS_MAP + magic as ClassID)?
+        .retrive_object_payload_mut(ctx, JS_CLASS_MAP + magic as ClassID)?
         .mapset_mut()
         .unwrap();
 
@@ -103,7 +102,7 @@ pub fn js_map_set(ctx: ContextPtr, cc: CallContext) -> JSResult {
     }
 
     if s.upsert(
-        &ctx,
+        ctx,
         key,
         if magic & 1 == 1 {
             JSValue::UNDEFINED // set or weakset
@@ -124,18 +123,21 @@ pub fn js_map_set(ctx: ContextPtr, cc: CallContext) -> JSResult {
     Ok(this)
 }
 
-pub fn js_map_delete(ctx: ContextPtr, mut cc: CallContext) -> JSResult {
+fn js_map_delete(cc: CallContext) -> JSResult {
     let magic = cc.magic();
+    let ctx = cc.ctx();
+
     let this = *cc.this();
     let mut key = *cc.arg(0);
 
-    cc.this_mut()
-        .retrive_object_payload_mut(&ctx, JS_CLASS_MAP + magic as ClassID)
+    let mut this2 = this;
+    this2
+        .retrive_object_payload_mut(ctx, JS_CLASS_MAP + magic as ClassID)
         .map(|isa| {
             let s = isa.mapset_mut().unwrap();
 
             if s.find(key).is_some() {
-                s.remove(&ctx, key);
+                s.remove(ctx, key);
 
                 if s.is_weak() {
                     let this_obj = this.as_object().unwrap();
@@ -154,42 +156,44 @@ pub fn js_map_delete(ctx: ContextPtr, mut cc: CallContext) -> JSResult {
         })
 }
 
-pub fn js_map_has(ctx: ContextPtr, cc: CallContext) -> JSResult {
+fn js_map_has(cc: CallContext) -> JSResult {
     let key = *cc.arg(0);
     cc.this()
-        .retrive_object_payload(&ctx, JS_CLASS_MAP + cc.magic() as ClassID)
+        .retrive_object_payload(cc.ctx(), JS_CLASS_MAP + cc.magic() as ClassID)
         .map(|r| r.mapset().unwrap().find(key).is_some().into())
 }
 
-pub fn js_map_clear(ctx: ContextPtr, mut cc: CallContext) -> JSResult {
+fn js_map_clear(cc: CallContext) -> JSResult {
     let magic = cc.magic();
-    cc.this_mut()
-        .retrive_object_payload_mut(&ctx, JS_CLASS_MAP + magic as ClassID)
+    let mut this = *cc.this();
+
+    this.retrive_object_payload_mut(cc.ctx(), JS_CLASS_MAP + magic as ClassID)
         .map(|isa| {
             isa.mapset_mut().unwrap().clear();
             JSValue::UNDEFINED
         })
 }
 
-pub fn js_map_get_size(cc: CallContext) -> JSResult {
+fn js_map_get_size(cc: CallContext) -> JSResult {
     let ctx = cc.ctx();
     cc.this()
         .retrive_object_payload(ctx, JS_CLASS_MAP + cc.magic() as ClassID)
         .map(|r| JSValue::Int(r.mapset().unwrap().len() as i32))
 }
 
-pub fn js_map_forEach(ctx: ContextPtr, cc: CallContext) -> JSResult {
+fn js_map_forEach(cc: CallContext) -> JSResult {
     let magic = cc.magic();
     let is_set = magic & 1 == 1;
+    let ctx = cc.ctx();
 
     let func = *cc.arg(0);
-    func.ensure_function(&ctx)?;
+    func.ensure_function(ctx)?;
 
     let this_arg = *cc.arg(1);
     let mut this = *cc.this();
 
     // lock map, and ensure `this` is an object of expected class_id.
-    this.retrive_object_payload_mut(&ctx, JS_CLASS_MAP + magic as ClassID)?
+    this.retrive_object_payload_mut(ctx, JS_CLASS_MAP + magic as ClassID)?
         .mapset_mut()
         .unwrap()
         .lock();
@@ -213,7 +217,7 @@ pub fn js_map_forEach(ctx: ContextPtr, cc: CallContext) -> JSResult {
             if let Some((key, val)) = pair
                 && func
                     .call(
-                        &ctx,
+                        ctx,
                         this_arg,
                         &if is_set {
                             [key, key, this]
@@ -243,13 +247,15 @@ pub fn js_map_forEach(ctx: ContextPtr, cc: CallContext) -> JSResult {
     }
 }
 
-fn js_create_map_iterator(ctx: ContextPtr, cc: CallContext) -> JSResult {
+fn js_create_map_iterator(cc: CallContext) -> JSResult {
     debug_assert!(matches!(cc.magic() >> 2, 0..=2));
+
     let kind = unsafe { std::mem::transmute::<u8, JSIteratorKindEnum>(cc.magic() as u8 >> 2) };
+    let ctx = cc.ctx();
 
     // ensure `this` is an object of expected class_id
     let this = *cc.this();
-    let _ = this.retrive_object_payload(&ctx, JS_CLASS_MAP + (cc.magic() & 3) as ClassID)?;
+    let _ = this.retrive_object_payload(ctx, JS_CLASS_MAP + (cc.magic() & 3) as ClassID)?;
 
     // create iterator object
     let isa = Box::new(JSMapIteratorData {
@@ -267,26 +273,26 @@ fn js_create_map_iterator(ctx: ContextPtr, cc: CallContext) -> JSResult {
 }
 
 pub static js_map_proto_funcs: [FieldDef; 12] = [
-    FieldDef::FUNCTION_V1("set", 2, js_map_set, 0),
-    FieldDef::FUNCTION_V1("get", 1, js_map_get, 0),
-    FieldDef::FUNCTION_V1("has", 1, js_map_has, 0),
-    FieldDef::FUNCTION_V1("delete", 1, js_map_delete, 0),
-    FieldDef::FUNCTION_V1("clear", 0, js_map_clear, 0),
+    FieldDef::CALL("set", 2, js_map_set, 0),
+    FieldDef::CALL("get", 1, js_map_get, 0),
+    FieldDef::CALL("has", 1, js_map_has, 0),
+    FieldDef::CALL("delete", 1, js_map_delete, 0),
+    FieldDef::CALL("clear", 0, js_map_clear, 0),
     FieldDef::GETSET("size", Some(js_map_get_size), None, 0),
-    FieldDef::FUNCTION_V1("forEach", 1, js_map_forEach, 0),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL("forEach", 1, js_map_forEach, 0),
+    FieldDef::CALL(
         "values",
         0,
         js_create_map_iterator,
         (JSIteratorKindEnum::JS_ITERATOR_KIND_VALUE as i16) << 2,
     ),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL(
         "keys",
         0,
         js_create_map_iterator,
         (JSIteratorKindEnum::JS_ITERATOR_KIND_KEY as i16) << 2,
     ),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL(
         "entries",
         0,
         js_create_map_iterator,
@@ -297,13 +303,13 @@ pub static js_map_proto_funcs: [FieldDef; 12] = [
 ];
 
 pub static js_set_proto_funcs: [FieldDef; 11] = [
-    FieldDef::FUNCTION_V1("add", 1, js_map_set, 1),
-    FieldDef::FUNCTION_V1("has", 1, js_map_has, 1),
-    FieldDef::FUNCTION_V1("delete", 1, js_map_delete, 1),
-    FieldDef::FUNCTION_V1("clear", 0, js_map_clear, 1),
+    FieldDef::CALL("add", 1, js_map_set, 1),
+    FieldDef::CALL("has", 1, js_map_has, 1),
+    FieldDef::CALL("delete", 1, js_map_delete, 1),
+    FieldDef::CALL("clear", 0, js_map_clear, 1),
     FieldDef::GETSET("size", Some(js_map_get_size), None, 1),
-    FieldDef::FUNCTION_V1("forEach", 1, js_map_forEach, 1),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL("forEach", 1, js_map_forEach, 1),
+    FieldDef::CALL(
         "values",
         0,
         js_create_map_iterator,
@@ -311,7 +317,7 @@ pub static js_set_proto_funcs: [FieldDef; 11] = [
     ),
     FieldDef::ALIAS("keys", "values"),
     FieldDef::ALIAS("[Symbol.iterator]", "values"),
-    FieldDef::FUNCTION_V1(
+    FieldDef::CALL(
         "entries",
         0,
         js_create_map_iterator,
@@ -321,23 +327,23 @@ pub static js_set_proto_funcs: [FieldDef; 11] = [
 ];
 
 pub static js_weakmap_proto_funcs: [FieldDef; 5] = [
-    FieldDef::FUNCTION_V1("set", 2, js_map_set, 2),
-    FieldDef::FUNCTION_V1("get", 1, js_map_get, 2),
-    FieldDef::FUNCTION_V1("has", 1, js_map_has, 2),
-    FieldDef::FUNCTION_V1("delete", 1, js_map_delete, 2),
+    FieldDef::CALL("set", 2, js_map_set, 2),
+    FieldDef::CALL("get", 1, js_map_get, 2),
+    FieldDef::CALL("has", 1, js_map_has, 2),
+    FieldDef::CALL("delete", 1, js_map_delete, 2),
     FieldDef::STR("[Symbol.toStringTag]", "WeakMap", JS_PROP_CONFIGURABLE),
 ];
 
 pub static js_weakset_proto_funcs: [FieldDef; 4] = [
-    FieldDef::FUNCTION_V1("add", 1, js_map_set, 3),
-    FieldDef::FUNCTION_V1("has", 1, js_map_has, 3),
-    FieldDef::FUNCTION_V1("delete", 1, js_map_delete, 3),
+    FieldDef::CALL("add", 1, js_map_set, 3),
+    FieldDef::CALL("has", 1, js_map_has, 3),
+    FieldDef::CALL("delete", 1, js_map_delete, 3),
     FieldDef::STR("[Symbol.toStringTag]", "WeakSet", JS_PROP_CONFIGURABLE),
 ];
 
-fn js_map_groupBy(ctx: ContextPtr, cc: CallContext) -> JSResult {
+fn js_map_groupBy(cc: CallContext) -> JSResult {
     // check must be observed before argv[0] is accessed
-    let cx = ctx.deref();
+    let cx = cc.ctx();
 
     let func = cc.arg(1);
     func.ensure_function(cx)?;
@@ -380,7 +386,7 @@ fn js_map_groupBy(ctx: ContextPtr, cc: CallContext) -> JSResult {
 }
 
 pub static js_map_funcs: [FieldDef; 2] = [
-    FieldDef::FUNCTION_V1("groupBy", 2, js_map_groupBy, 0),
+    FieldDef::CALL("groupBy", 2, js_map_groupBy, 0),
     FieldDef::GETSET("[Symbol.species]", Some(js_get_this), None, 0),
 ];
 

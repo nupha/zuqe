@@ -3,10 +3,7 @@ use std::ptr::NonNull;
 use crate::{
     atom::{ATOM_CONST_COUNT, Atom},
     context::ContextImpl,
-    function::{
-        Callback, NativeCallback_v1, NativeCallbackFn, NativeGetterFn, NativeIteratorNextFn,
-        NativeSetterFn,
-    },
+    function::{Callback, NativeCallbackFn, NativeGetterFn, NativeIteratorNextFn, NativeSetterFn},
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, LazyInit, ObjectRef},
     value::JSValue,
 };
@@ -66,25 +63,6 @@ impl FieldDef {
             name,
             detail: FieldDetail::Func {
                 handler: Callback::Func(callback),
-                length,
-            },
-            prop_flags: (JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) as u8,
-            magic,
-        }
-    }
-
-    /// Define a function field backed by a native callback handler.
-    #[deprecated(note = "use ::CALL() instead")]
-    pub(crate) const fn FUNCTION_V1(
-        name: &'static str,
-        length: u8,
-        callback: NativeCallback_v1,
-        magic: i16,
-    ) -> Self {
-        Self {
-            name,
-            detail: FieldDetail::Func {
-                handler: Callback::Func_v1(callback),
                 length,
             },
             prop_flags: (JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) as u8,

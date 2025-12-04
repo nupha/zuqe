@@ -2,7 +2,7 @@ use crate::{
     JS_CLASS_PROMISE,
     atom::Atom,
     builtins::{error::js_aggregate_error_constructor, js_get_this},
-    context::{ContextImpl, ContextPtr},
+    context::ContextImpl,
     error::JSResult,
     function::{CallContext, FieldDef, NativeFunctionWithData},
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_SpeciesConstructor},
@@ -40,21 +40,21 @@ pub fn js_promise_catch(cc: CallContext) -> JSResult {
 }
 
 fn js_promise_then_finally_func(cc: CallContext) -> JSResult {
-    let ctx = cc.context();
+    let ctx = cc.ctx();
     let ctor = cc.data(0);
     let on_finally = cc.data(1);
 
-    let res = on_finally.call(&ctx, JSValue::UNDEFINED, &[])?;
+    let res = on_finally.call(ctx, JSValue::UNDEFINED, &[])?;
 
     let promise = js_promise_resolve(CallContext::new_simple(
-        ctx.into(),
+        cc.ctx_ptr(),
         ctor,
         std::slice::from_ref(&res),
     ))?;
 
     // create inner resolving function for finally()
     let then_func: JSValue = NativeFunctionWithData::create(
-        &ctx,
+        ctx,
         |cc: CallContext| -> JSResult {
             let val = cc.data(0);
             if cc.magic() == 0 {
@@ -70,7 +70,7 @@ fn js_promise_then_finally_func(cc: CallContext) -> JSResult {
     )?
     .into();
 
-    promise.invoke(&ctx, Atom::CONST_then, std::slice::from_ref(&then_func))
+    promise.invoke(ctx, Atom::CONST_then, std::slice::from_ref(&then_func))
 }
 
 pub fn js_promise_finally(cc: CallContext) -> JSResult {
@@ -80,7 +80,7 @@ pub fn js_promise_finally(cc: CallContext) -> JSResult {
     let then_funcs: [JSValue; 2] = if !on_finally.is_function() {
         [on_finally, on_finally]
     } else {
-        let ctor = JS_SpeciesConstructor(&ctx, *cc.this(), JSValue::UNDEFINED)?;
+        let ctor = JS_SpeciesConstructor(ctx, *cc.this(), JSValue::UNDEFINED)?;
         [
             NativeFunctionWithData::create(
                 ctx,
@@ -92,7 +92,7 @@ pub fn js_promise_finally(cc: CallContext) -> JSResult {
             )?
             .into(),
             NativeFunctionWithData::create(
-                &ctx,
+                ctx,
                 js_promise_then_finally_func,
                 1,
                 1,
@@ -120,7 +120,7 @@ pub fn js_promise_resolve(cc: CallContext) -> JSResult {
 
     if !is_reject && arg0.retrive_object_payload0(JS_CLASS_PROMISE).is_some() {
         // resolve and argument #0 is Promise
-        let ctor = arg0.get_property(&ctx, Atom::CONST_constructor)?;
+        let ctor = arg0.get_property(ctx, Atom::CONST_constructor)?;
         if ctor.is_same(*cc.this()) {
             return Ok(arg0);
         }
@@ -153,34 +153,34 @@ pub fn js_promise_all(cc: CallContext) -> JSResult {
     };
 
     let promise_resolve = if let Ok(x) = cc.this().get_property(ctx, Atom::CONST_resolve) {
-        if unlikely(x.ensure_function(&ctx).is_err()) {
-            return fail_reject(&ctx);
+        if unlikely(x.ensure_function(ctx).is_err()) {
+            return fail_reject(ctx);
         } else {
             x
         }
     } else {
-        return fail_reject(&ctx);
+        return fail_reject(ctx);
     };
 
-    let Ok(mut it) = cc.arg(0).iter(&ctx) else {
-        return fail_reject(&ctx);
+    let Ok(mut it) = cc.arg(0).iter(ctx) else {
+        return fail_reject(ctx);
     };
     let mut values: JSValue = if let Ok(a) = ctx.create_array() {
         a.into()
     } else {
-        return fail_reject(&ctx);
+        return fail_reject(ctx);
     };
     let mut resolve_element_env: JSValue = if let Ok(a) = ctx.create_array() {
         a.into()
     } else {
-        return fail_reject(&ctx);
+        return fail_reject(ctx);
     };
 
     if resolve_element_env
-        .define_property_value_u32(&ctx, 0, JSValue::Int(1), 0x7)
+        .define_property_value_u32(ctx, 0, JSValue::Int(1), 0x7)
         .is_err()
     {
-        return fail_reject(&ctx);
+        return fail_reject(ctx);
     }
 
     let mut index = 0;
@@ -209,7 +209,7 @@ pub fn js_promise_all(cc: CallContext) -> JSResult {
             ) {
                 v.into()
             } else {
-                return fail_reject(&ctx);
+                return fail_reject(ctx);
             };
 
             let reject_element: JSValue = match cc.magic() {
@@ -230,7 +230,7 @@ pub fn js_promise_all(cc: CallContext) -> JSResult {
                     ) {
                         r.into()
                     } else {
-                        return fail_reject(&ctx);
+                        return fail_reject(ctx);
                     }
                 }
                 PROMISE_MAGIC_any => {
@@ -246,7 +246,7 @@ pub fn js_promise_all(cc: CallContext) -> JSResult {
             };
 
             if remainingElementsCount_add(ctx, resolve_element_env, 1).is_err() {
-                return fail_reject(&ctx);
+                return fail_reject(ctx);
             }
 
             if next_promise
@@ -329,7 +329,7 @@ pub fn js_promise_race(cc: CallContext) -> JSResult {
         while let Some(item) = it.next() {
             if let Ok(val) = item {
                 if promise_resolve
-                    .call(&ctx, this, std::slice::from_ref(&val))
+                    .call(ctx, this, std::slice::from_ref(&val))
                     .and_then(|pr| pr.invoke(ctx, Atom::CONST_then, &resolving_funcs))
                     .is_err()
                 {
