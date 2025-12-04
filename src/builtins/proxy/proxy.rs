@@ -90,7 +90,7 @@ impl ProxyPayload {
     /// get proxied method. returns function object or undefined
     pub fn get_method(&self, ctx: &ContextImpl, name: Atom) -> Result<JSValue, i32> {
         // safer to test recursion in all proxy methods
-        if js_check_stack_overflow(&ctx.rt(), 0) {
+        if js_check_stack_overflow(ctx.rt_ref(), 0) {
             ctx.throw_stack_overflow();
             return Err(-1);
         }
@@ -290,7 +290,7 @@ impl Proxy {
     }
 
     pub fn is_array(&self, ctx: &ContextImpl) -> Result<bool, i32> {
-        if unlikely(js_check_stack_overflow(&ctx.rt(), 0)) {
+        if unlikely(js_check_stack_overflow(ctx.rt_ref(), 0)) {
             ctx.throw_stack_overflow();
             Err(-1)
         } else {

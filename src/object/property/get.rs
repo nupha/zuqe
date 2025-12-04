@@ -15,8 +15,6 @@ use super::{JS_PROP_GETSET, JS_PROP_LAZYINIT, JS_PROP_NORMAL, JS_PROP_TMASK, JS_
 
 impl ObjectRef {
     /// walk up proto chain and get property in shape or by exotic handler.
-    /// `prop` is not consumed.
-    /// Note: returned value is duplicated.
     pub(crate) fn get_property_internal(
         &self,
         ctx: &ContextImpl,
@@ -252,11 +250,12 @@ impl ObjectRef {
             .unwrap_or_else(|| self.get_property_value_slow(ctx, JSValue::from(idx)))
     }
 
+    #[inline]
     pub fn get_property_i64(&self, ctx: &ContextImpl, idx: i64) -> JSResult {
         if (0..u32::MAX as i64).contains(&idx) {
             self.get_property_u32(ctx, idx as u32)
         } else {
-            let atom = Atom::from_i64(&ctx.rt(), idx)?;
+            let atom = Atom::from_i64(ctx.rt_ref(), idx)?;
             self.get_property(ctx, atom)
         }
     }
@@ -285,7 +284,7 @@ impl ObjectRef {
                 Ok(None)
             }
         } else {
-            let atom = Atom::from_i64(&ctx.rt(), idx)?;
+            let atom = Atom::from_i64(ctx.rt_ref(), idx)?;
             self.has_property(ctx, atom).and_then(|found| {
                 if found {
                     Ok(Some(self.get_property(ctx, atom)?))

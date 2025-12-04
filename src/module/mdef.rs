@@ -21,11 +21,8 @@ pub type ModuleNormalizeFn = fn(
     opaque: *mut ::core::ffi::c_void,
 ) -> Result<String, i32>;
 
-pub type ModuleLoadFn = fn(
-    ctx: Context,
-    module_name: &str,
-    opaque: *mut ::core::ffi::c_void,
-) -> Result<ModuleDef, i32>;
+pub type ModuleLoadFn =
+    fn(ctx: Context, module_name: &str, opaque: *mut ::core::ffi::c_void) -> Result<ModuleDef, i32>;
 
 pub(crate) trait ModuleInitFn: Fn(&ContextImpl, &ModuleDef) -> Result<(), i32> {}
 impl<F> ModuleInitFn for F where F: Fn(&ContextImpl, &ModuleDef) -> Result<(), i32> {}
@@ -159,7 +156,7 @@ impl ModuleDefImpl {
         name: &str,
         init: impl ModuleInitFn + 'static,
     ) -> Result<Self, i32> {
-        let name = Atom::new(&ctx.rt(), name)?;
+        let name = Atom::new(ctx.rt_ref(), name)?;
         let mut md = ModuleDefImpl::new(ctx, name);
         md.init_func.replace(Box::new(init));
         Ok(md)

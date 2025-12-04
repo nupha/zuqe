@@ -147,7 +147,7 @@ impl AsyncStateImpl {
     pub(crate) fn resume(&mut self, ctx: &ContextImpl) -> JSResult {
         debug_assert!(!self.is_completed);
 
-        if js_check_stack_overflow(&ctx.rt(), 0) {
+        if js_check_stack_overflow(ctx.rt_ref(), 0) {
             ctx.throw_stack_overflow();
             return Err(-1);
         }

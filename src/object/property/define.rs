@@ -252,7 +252,7 @@ impl ObjectRef {
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        let atom = Atom::new(&ctx.rt(), prop)?;
+        let atom = Atom::new(ctx.rt_ref(), prop)?;
         self.define_property_value(ctx, atom, val, flags)
     }
 
@@ -275,7 +275,7 @@ impl ObjectRef {
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        let atom = Atom::from_i64(&ctx.rt(), idx)?;
+        let atom = Atom::from_i64(ctx.rt_ref(), idx)?;
         self.define_property_value(ctx, atom, val, flags)
     }
 
@@ -451,7 +451,7 @@ impl JSValue {
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        let atom = Atom::new(&ctx.rt(), prop)?;
+        let atom = Atom::new(ctx.rt_ref(), prop)?;
         self.define_property_value(ctx, atom, val, flags)
     }
 
@@ -474,7 +474,7 @@ impl JSValue {
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        let atom = Atom::from_i64(&ctx.rt(), idx)?;
+        let atom = Atom::from_i64(ctx.rt_ref(), idx)?;
         self.define_property_value(ctx, atom, val, flags)
     }
 

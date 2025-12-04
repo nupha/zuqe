@@ -118,7 +118,7 @@ pub fn js_host_resolve_imported_module(
         js_default_module_normalize_name(&ctx, base_cname, cname1)
     }?;
 
-    let module_name = Atom::new(&ctx.rt(), &name)?;
+    let module_name = Atom::new(ctx.rt_ref(), &name)?;
 
     // search in loaded_modules
     if let Some(m) = ctx.find_loaded_module(module_name) {

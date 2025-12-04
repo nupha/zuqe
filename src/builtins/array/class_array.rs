@@ -1347,7 +1347,7 @@ fn JS_FlattenIntoArray(
     mapper_func: JSValue,
     this_arg: JSValue,
 ) -> Result<i64, i32> {
-    if js_check_stack_overflow(&ctx.rt(), 0) {
+    if js_check_stack_overflow(ctx.rt_ref(), 0) {
         ctx.throw_stack_overflow();
         return Err(-1);
     }
