@@ -7,7 +7,7 @@ use crate::{
     JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR,
     atom::Atom,
     class::ClassID,
-    context::{ContextHandle, ContextImpl, ContextPtr},
+    context::{Context, ContextImpl, ContextPtr},
     object::{
         JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, ObjectImpl, ObjectPayload, ObjectRef,
     },
@@ -377,10 +377,7 @@ impl RegExp {
         RegExpData::create(ctx, pattern, flags).and_then(|re| Self::from(ctx, ctor, Box::new(re)))
     }
 
-    pub fn class_initialize(
-        mut ctx: ContextHandle,
-        class_id: ClassID,
-    ) -> Result<Option<ObjectRef>, i32> {
+    pub fn class_initialize(mut ctx: Context, class_id: ClassID) -> Result<Option<ObjectRef>, i32> {
         match class_id {
             JS_CLASS_REGEXP => {
                 let mut obj = ctx.create_base_object()?;

@@ -9,7 +9,7 @@ mod mod_std;
 use std::time::Instant;
 
 use zhuque::{
-    builtins::promise::Promise, context::ContextHandle, eval::JS_EVAL_TYPE_GLOBAL,
+    builtins::promise::Promise, context::Context, eval::JS_EVAL_TYPE_GLOBAL,
     module::ModuleDef, parse::JSParseState, runtime::Runtime, value::JSValue,
 };
 
@@ -134,7 +134,7 @@ fn main() {
 }
 
 fn js_module_loader(
-    mut ctx: ContextHandle,
+    mut ctx: Context,
     module_name: &str,
     _: *mut std::ffi::c_void,
 ) -> Result<ModuleDef, i32> {

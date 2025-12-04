@@ -5,7 +5,7 @@ use gc_lite::{Collect, GcRef};
 use crate::{
     JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
     atom::Atom,
-    context::{ContextHandle, ContextImpl, ContextPtr},
+    context::{Context, ContextImpl, ContextPtr},
     error::JSResult,
     object::{JS_SpeciesConstructor, ObjectImpl, ObjectRef},
     object_cast,
@@ -45,7 +45,7 @@ object_cast!(
 
 impl PromiseResolveFunc {
     pub fn class_call(
-        mut ctx: ContextHandle,
+        mut ctx: Context,
         mut func_obj: JSValue,
         _this_val: JSValue,
         args: &[JSValue],

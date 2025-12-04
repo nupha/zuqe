@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     atom::Atom,
-    context::{ContextHandle, ContextImpl, ContextPtr},
+    context::{Context, ContextImpl, ContextPtr},
     error::JSResult,
     function::build_arg_list,
     object::{ObjectPayload, ObjectRef},
@@ -48,8 +48,8 @@ impl<'cc> CallContext<'cc> {
 
     /// Context handle
     #[inline(always)]
-    pub fn context(&self) -> ContextHandle<'cc> {
-        ContextHandle::from(self.ctx)
+    pub fn context(&self) -> Context<'cc> {
+        Context::from(self.ctx)
     }
 
     #[inline(always)]

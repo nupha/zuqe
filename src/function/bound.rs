@@ -2,7 +2,7 @@ use gc_lite::{Collect, GcRef};
 
 use crate::{
     JS_CLASS_BOUND_FUNCTION,
-    context::{ContextHandle, ContextPtr},
+    context::{Context, ContextPtr},
     error::JSResult,
     object::{ObjectImpl, ObjectPayload, ObjectRef},
     object_cast,
@@ -34,7 +34,7 @@ object_cast!(BoundFunction, JS_CLASS_BOUND_FUNCTION);
 
 impl BoundFunction {
     pub fn class_call(
-        ctx: ContextHandle,
+        ctx: Context,
         func_obj: JSValue,
         this_obj: JSValue,
         args: &[JSValue],

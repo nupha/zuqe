@@ -61,12 +61,12 @@ impl ClassDef {
 }
 
 #[derive(Debug)]
-pub struct ClassFieldsDef {
-    pub fields_init_fd: *mut JSFunctionDef,
-    pub computed_fields_count: i32,
-    pub need_brand: bool,
-    pub brand_push_pos: i32,
-    pub is_static: bool,
+pub(crate) struct ClassFieldsDef {
+    pub(crate) fields_init_fd: *mut JSFunctionDef,
+    pub(crate) computed_fields_count: i32,
+    pub(crate) need_brand: bool,
+    pub(crate) brand_push_pos: i32,
+    pub(crate) is_static: bool,
 }
 
 impl Drop for ClassFieldsDef {

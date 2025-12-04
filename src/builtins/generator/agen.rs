@@ -9,7 +9,7 @@ use crate::{
         promise::{Promise, js_promise_resolve},
     },
     class::ClassID,
-    context::{ContextHandle, ContextImpl, ContextPtr},
+    context::{Context, ContextImpl, ContextPtr},
     error::JSResult,
     function::{
         AsyncFuncState, BytecodeFunction, CallContext, Callback, FieldDef, JSFunctionKindEnum,
@@ -347,7 +347,7 @@ object_cast!(AsyncGeneratorFunction, JS_CLASS_ASYNC_GENERATOR_FUNCTION);
 
 impl AsyncGeneratorFunction {
     pub fn class_call(
-        ctx: ContextHandle,
+        ctx: Context,
         func_obj: JSValue,
         this_obj: JSValue,
         args: &[JSValue],
@@ -383,10 +383,7 @@ impl AsyncGeneratorFunction {
         Ok(obj.into())
     }
 
-    pub fn class_initialize(
-        mut ctx: ContextHandle,
-        class_id: ClassID,
-    ) -> Result<Option<ObjectRef>, i32> {
+    pub fn class_initialize(mut ctx: Context, class_id: ClassID) -> Result<Option<ObjectRef>, i32> {
         debug_assert!(
             matches!(
                 class_id,

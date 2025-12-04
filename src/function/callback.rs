@@ -5,7 +5,7 @@ use gc_lite::{Collect, GcWeak};
 use crate::{
     atom::Atom,
     builtins::iterator::js_create_iterator_result,
-    context::{ContextHandle, ContextImpl, ContextPtr},
+    context::{Context, ContextImpl, ContextPtr},
     defer,
     error::JSResult,
     function::{CallContext, IteratorState, JS_CALL_FLAG_CONSTRUCTOR},
@@ -129,7 +129,7 @@ unsafe impl Collect for NFuncPayload {
 
 impl NFuncPayload {
     pub fn class_call(
-        ctx: ContextHandle,
+        ctx: Context,
         func_obj: JSValue,
         mut this_obj: JSValue,
         args: &[JSValue],

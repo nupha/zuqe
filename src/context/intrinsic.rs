@@ -1,7 +1,7 @@
 use crate::{
-    JS_CLASS_ARRAY, JS_CLASS_ARRAY_ITERATOR, JS_CLASS_BOOLEAN, JS_CLASS_DATE, JS_CLASS_ERROR,
-    JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_NUMBER, JS_CLASS_OBJECT,
-    JS_CLASS_STRING, JS_CLASS_STRING_ITERATOR, JS_CLASS_SYMBOL,
+    JS_CLASS_ARRAY, JS_CLASS_ARRAY_ITERATOR, JS_CLASS_BOOLEAN, JS_CLASS_ERROR, JS_CLASS_GENERATOR,
+    JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_STRING,
+    JS_CLASS_STRING_ITERATOR, JS_CLASS_SYMBOL,
     atom::{ATOM_CONST_SYMBOL_RANGE, Atom},
     builtins::{
         array::{
@@ -9,7 +9,6 @@ use crate::{
             js_array_proto_funcs,
         },
         boolean::{js_boolean_constructor, js_boolean_proto_funcs},
-        date::{js_date_constructor, js_date_funcs, js_date_proto_funcs},
         error::js_error_constructor,
         function::js_function_proto_funcs,
         generator::{js_generator_function_proto_funcs, js_generator_proto_funcs},

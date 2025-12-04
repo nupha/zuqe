@@ -1,6 +1,6 @@
 use colorized::{Colors, colorize_print, colorize_println};
 use zhuque::{
-    context::ContextHandle,
+    context::Context,
     error::JSResult,
     function::{CallContext, Callback},
     object::JS_PROP_C_W_E,
@@ -43,7 +43,7 @@ fn js_print(cc: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
-pub fn setup_globals(ctx: ContextHandle) -> Result<(), i32> {
+pub fn setup_globals(ctx: Context) -> Result<(), i32> {
     let mut global: JSValue = ctx.global_obj().into();
     let ctx = &ctx;
 

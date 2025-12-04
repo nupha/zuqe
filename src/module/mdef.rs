@@ -4,7 +4,7 @@ use crate::{
     atom::Atom,
     builtins::promise::Promise,
     class::JSClassExoticMethods,
-    context::{ContextHandle, ContextImpl, ContextPtr},
+    context::{Context, ContextImpl, ContextPtr},
     function::{BCFuncPayload, FieldDef, JSFunctionDef, JSVarKindEnum, JSVarRef},
     gcref_wrapper,
     module::{ExportEntry, ExportType, ImportEntry, JSModuleStatus, ModuleDependency},
@@ -15,14 +15,14 @@ use crate::{
 };
 
 pub type ModuleNormalizeFn = fn(
-    ctx: ContextHandle,
+    ctx: Context,
     base_name: &str,
     name: &str,
     opaque: *mut ::core::ffi::c_void,
 ) -> Result<String, i32>;
 
 pub type ModuleLoadFn = fn(
-    ctx: ContextHandle,
+    ctx: Context,
     module_name: &str,
     opaque: *mut ::core::ffi::c_void,
 ) -> Result<ModuleDef, i32>;

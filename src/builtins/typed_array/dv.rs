@@ -4,7 +4,7 @@ use crate::{
     JS_CLASS_DATAVIEW,
     builtins::array_buffer::ArrayBuffer,
     class::ClassID,
-    context::{ContextHandle, ContextImpl},
+    context::{Context, ContextImpl},
     error::JS_ThrowTypeErrorDetachedArrayBuffer,
     function::Callback,
     object::{ObjectImpl, ObjectPayload, ObjectRef},
@@ -93,10 +93,7 @@ pub struct DataView(GcRef<ObjectImpl>);
 object_cast!(DataView, JS_CLASS_DATAVIEW);
 
 impl DataView {
-    pub fn class_initialize(
-        mut ctx: ContextHandle,
-        class_id: ClassID,
-    ) -> Result<Option<ObjectRef>, i32> {
+    pub fn class_initialize(mut ctx: Context, class_id: ClassID) -> Result<Option<ObjectRef>, i32> {
         debug_assert_eq!(class_id, JS_CLASS_DATAVIEW);
 
         let mut dv_obj = ctx.create_base_object()?;

@@ -11,7 +11,7 @@ use serde::Deserialize;
 use zhuque::{
     atom::Atom,
     builtins::promise::{Promise, PromiseState},
-    context::ContextHandle,
+    context::Context,
     error::JSResult,
     eval::{JS_EVAL_FLAG_STRICT, JS_EVAL_TYPE_GLOBAL},
     function::{CallContext, Callback},
@@ -88,7 +88,7 @@ fn js_createRealm(cc: CallContext) -> JSResult {
     setup_ctx_test262_helpers(ctx2)
 }
 
-fn setup_ctx_test262_helpers(ctx: ContextHandle) -> Result<JSValue, i32> {
+fn setup_ctx_test262_helpers(ctx: Context) -> Result<JSValue, i32> {
     let mut global = JSValue::Object(ctx.global_obj());
 
     {
@@ -153,7 +153,7 @@ fn setup_ctx_test262_helpers(ctx: ContextHandle) -> Result<JSValue, i32> {
 }
 
 pub fn js_module_loader(
-    mut ctx: ContextHandle,
+    mut ctx: Context,
     module_name: &str,
     _opaque: *mut std::ffi::c_void,
 ) -> Result<ModuleDef, i32> {
@@ -186,7 +186,7 @@ pub fn js_module_loader(
 }
 
 fn js_module_set_import_meta(
-    ctx: ContextHandle,
+    ctx: Context,
     func_val: JSValue,
     use_realpath: i32,
     is_main: bool,
@@ -256,7 +256,7 @@ struct Negative {
     type_: Option<String>,
 }
 
-fn run_harness(mut ctx: ContextHandle, harness_files: &[PathBuf]) -> Result<(), i32> {
+fn run_harness(mut ctx: Context, harness_files: &[PathBuf]) -> Result<(), i32> {
     for file in harness_files {
         let src = std::fs::read_to_string(file)
             .inspect_err(|_| {
@@ -275,7 +275,7 @@ fn run_harness(mut ctx: ContextHandle, harness_files: &[PathBuf]) -> Result<(), 
 }
 
 fn run_test_script(
-    mut ctx: ContextHandle,
+    mut ctx: Context,
     script: &str,
     filename: &Path,
     is_module: bool,
@@ -341,7 +341,7 @@ fn run_test_script(
 }
 
 fn dump_error(
-    ctx: ContextHandle,
+    ctx: Context,
     err_val: &JSValue,
     msg: &str,
     strict: bool,

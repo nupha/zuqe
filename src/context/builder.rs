@@ -9,7 +9,7 @@ use crate::{
         global::js_global_props, json::js_json_obj, math::js_math_obj, reflect::js_reflect_obj,
     },
     class::ClassID,
-    context::{ContextHandle, ContextPtr},
+    context::{Context, ContextPtr},
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, ObjectRef},
     runtime::RuntimeImpl,
 };
@@ -46,7 +46,7 @@ impl ContextBuilder {
         self
     }
 
-    pub fn build<'a>(self, rt: &mut RuntimeImpl) -> Result<ContextHandle<'a>, i32> {
+    pub fn build<'a>(self, rt: &mut RuntimeImpl) -> Result<Context<'a>, i32> {
         rt.create_context_raw(|mut cx| {
             //
             // make global namespace - this must come first.
@@ -110,7 +110,7 @@ impl RuntimeImpl {
     /// Creates new context initialized with ECMA standard classes and global entries.
     ///
     /// This also provides a demostration on how to use ContextBuilder to customize a context.
-    pub fn create_context_ecma<'a>(&mut self) -> Result<ContextHandle<'a>, i32> {
+    pub fn create_context_ecma<'a>(&mut self) -> Result<Context<'a>, i32> {
         ContextBuilder::new()
             .use_classes(&[
                 //proxy

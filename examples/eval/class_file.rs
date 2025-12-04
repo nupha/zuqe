@@ -6,7 +6,7 @@ use std::{
 use once_cell::unsync::Lazy;
 use zhuque::{
     class::{ClassDef, ClassID},
-    context::ContextHandle,
+    context::Context,
     error::JSResult,
     function::{CallContext, FieldDef},
     object::ObjectRef,
@@ -14,7 +14,7 @@ use zhuque::{
     value::JSValue,
 };
 
-fn js_file_get<'a>(ctx: ContextHandle, obj: JSValue) -> Result<&'a mut std::fs::File, i32> {
+fn js_file_get<'a>(ctx: Context, obj: JSValue) -> Result<&'a mut std::fs::File, i32> {
     let opaque = obj
         .retrive_object_payload(&ctx, JSFile::class_id())?
         .other()
@@ -119,7 +119,7 @@ impl JSFile {
         });
     }
 
-    fn init(ctx: ContextHandle, _: ClassID) -> Result<Option<ObjectRef>, i32> {
+    fn init(ctx: Context, _: ClassID) -> Result<Option<ObjectRef>, i32> {
         let mut proto = ctx.create_base_object()?;
         proto.install_field_defs(&ctx, &CLASS_FILE_PROTO)?;
         Ok(Some(proto))
@@ -140,7 +140,7 @@ impl JSFile {
         Self::CLASS_DEF.with(|cdef| cdef.class_id())
     }
 
-    pub fn new_instance(ctx: ContextHandle, fh: std::fs::File) -> Result<ObjectRef, i32> {
+    pub fn new_instance(ctx: Context, fh: std::fs::File) -> Result<ObjectRef, i32> {
         let class_id = Self::class_id();
         let opaque = Box::into_raw(Box::new(fh)).cast::<c_void>();
 

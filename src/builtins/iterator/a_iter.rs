@@ -8,7 +8,7 @@ use crate::{
         promise::{Promise, js_promise_resolve},
     },
     class::ClassID,
-    context::{ContextHandle, ContextImpl},
+    context::{Context, ContextImpl},
     error::JSResult,
     function::{CallContext, FieldDef, IteratorState, NativeFunctionWithData},
     object::{ObjectImpl, ObjectPayload, ObjectRef},
@@ -38,7 +38,7 @@ pub struct AsyncFromSyncIterator(GcRef<ObjectImpl>);
 object_cast!(AsyncFromSyncIterator, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR);
 
 impl AsyncFromSyncIterator {
-    pub fn class_initialize(mut ctx: ContextHandle, _: ClassID) -> Result<Option<ObjectRef>, i32> {
+    pub fn class_initialize(mut ctx: Context, _: ClassID) -> Result<Option<ObjectRef>, i32> {
         let aiter_proto = ctx.async_iterator_proto()?;
         let mut proto = ctx.create_base_object_with_proto(Some(aiter_proto))?;
         proto.install_field_defs(&ctx, &js_async_from_sync_iterator_proto_funcs)?;

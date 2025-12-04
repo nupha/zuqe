@@ -6,7 +6,7 @@ use crate::{
     JS_CLASS_PROXY,
     atom::Atom,
     class::{ClassID, JSClassExoticMethods},
-    context::{ContextHandle, ContextImpl, ContextPtr},
+    context::{Context, ContextImpl, ContextPtr},
     error::JSResult,
     function::{Callback, JS_CALL_FLAG_CONSTRUCTOR, JS_CallConstructor2},
     object::{
@@ -204,7 +204,7 @@ pub struct Proxy(pub(super) GcRef<ObjectImpl>);
 object_cast!(Proxy, JS_CLASS_PROXY);
 
 impl Proxy {
-    pub fn class_initialize(ctx: ContextHandle, _: ClassID) -> Result<Option<ObjectRef>, i32> {
+    pub fn class_initialize(ctx: Context, _: ClassID) -> Result<Option<ObjectRef>, i32> {
         let mut proto =
             ctx.create_native_function(Callback::Constructor(js_proxy_constructor), "Proxy", 2, 0)?;
 
@@ -222,7 +222,7 @@ impl Proxy {
     }
 
     pub fn class_call(
-        ctx: ContextHandle,
+        ctx: Context,
         func_obj: JSValue,
         this_obj: JSValue,
         args: &[JSValue],

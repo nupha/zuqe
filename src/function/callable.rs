@@ -5,7 +5,7 @@ use gc_lite::{Collect, GcRef};
 use crate::{
     JS_CLASS_C_FUNCTION_DATA,
     atom::Atom,
-    context::{ContextHandle, ContextImpl},
+    context::{Context, ContextImpl},
     error::JSResult,
     function::{CallContext, NativeCallbackFn, js_function_set_properties},
     object::{ObjectImpl, ObjectPayload, ObjectRef},
@@ -89,7 +89,7 @@ impl NativeFunctionWithData {
 //
 impl NativeFunctionWithData {
     pub fn class_call(
-        ctx: ContextHandle,
+        ctx: Context,
         func_obj: JSValue,
         this_val: JSValue,
         args: &[JSValue],

@@ -1,5 +1,5 @@
 use zhuque::{
-    context::ContextHandle,
+    context::Context,
     error::JSResult,
     function::{CallContext, FieldDef},
     object::JS_PROP_C_W_E,
@@ -85,7 +85,7 @@ static MOD_STD_ENTRIES: [FieldDef; 3] = [
     FieldDef::INT32("out", 9, JS_PROP_C_W_E),
 ];
 
-pub fn init_mod_std(mut ctx: ContextHandle) -> Result<(), i32> {
+pub fn init_mod_std(mut ctx: Context) -> Result<(), i32> {
     ctx.register_module("std", &MOD_STD_ENTRIES)?;
     Ok(())
 }

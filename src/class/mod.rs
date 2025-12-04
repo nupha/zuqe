@@ -10,7 +10,7 @@ use std::ffi::c_void;
 
 use crate::{
     atom::Atom,
-    context::{ContextHandle, ContextPtr},
+    context::{Context, ContextPtr},
     error::JSResult,
     object::{JSPropertyDescriptor, ObjectPayload, ObjectRef, PropertyKey},
     runtime::RuntimeImpl,
@@ -20,7 +20,7 @@ use crate::{
 pub type ClassID = u16;
 
 pub type ClassCallFn = fn(
-    ctx: ContextHandle,
+    ctx: Context,
     func_obj: JSValue,
     this_val: JSValue,
     args: &[JSValue],
@@ -30,7 +30,7 @@ pub type ClassCallFn = fn(
 /// initialize class proto, constructor to ctx.
 /// returns the class proto object created for specified ctx.
 pub type ClassInitializeFn =
-    fn(ctx: ContextHandle, class_id: ClassID) -> Result<Option<ObjectRef>, i32>;
+    fn(ctx: Context, class_id: ClassID) -> Result<Option<ObjectRef>, i32>;
 
 /// class instance finalize callback.
 pub type ClassFinalizeFn = fn(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize);

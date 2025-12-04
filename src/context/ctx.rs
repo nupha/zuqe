@@ -279,12 +279,12 @@ impl ContextImpl {
 
 /// Handle to context with lifetime
 #[derive(Clone, Copy)]
-pub struct ContextHandle<'a> {
+pub struct Context<'a> {
     gc_ref: GcRef<ContextImpl>,
     _mark: PhantomData<&'a ()>,
 }
 
-impl<'a> Deref for ContextHandle<'a> {
+impl<'a> Deref for Context<'a> {
     type Target = ContextImpl;
 
     #[inline(always)]
@@ -293,7 +293,7 @@ impl<'a> Deref for ContextHandle<'a> {
     }
 }
 
-impl<'a> DerefMut for ContextHandle<'a> {
+impl<'a> DerefMut for Context<'a> {
     #[inline(always)]
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { self.gc_ref.as_mut() }
@@ -305,7 +305,7 @@ impl<'a> DerefMut for ContextHandle<'a> {
 /// Safety: you are responsible to take more care to use it safe, keep in mind pointer could be dangling.
 ///
 /// This is suggested to use internally only,
-/// for public api, use `ContextHandle` instead, which is same but has lifetime restriction.
+/// for public api, use `Context` instead, which is same but has lifetime restriction.
 #[repr(transparent)]
 #[derive(Clone, Copy)]
 pub(crate) struct ContextPtr(GcRef<ContextImpl>);
@@ -319,14 +319,14 @@ impl PartialEq for ContextPtr {
     }
 }
 
-impl From<ContextHandle<'_>> for ContextPtr {
+impl From<Context<'_>> for ContextPtr {
     #[inline(always)]
-    fn from(h: ContextHandle<'_>) -> Self {
+    fn from(h: Context<'_>) -> Self {
         Self(h.gc_ref)
     }
 }
 
-impl<'a> From<ContextPtr> for ContextHandle<'a> {
+impl<'a> From<ContextPtr> for Context<'a> {
     #[inline(always)]
     fn from(p: ContextPtr) -> Self {
         Self {
@@ -457,7 +457,7 @@ impl RuntimeImpl {
     pub(super) fn create_context_raw<'a>(
         &mut self,
         setup: impl FnOnce(ContextPtr) -> Result<(), i32>,
-    ) -> Result<ContextHandle<'a>, i32> {
+    ) -> Result<Context<'a>, i32> {
         let inner = ContextImpl::new(self)?;
 
         let gc_ref = self.gc_alloc(inner).map_err(|_| -1)?;
@@ -470,7 +470,7 @@ impl RuntimeImpl {
         // register context
         self.context_list.push(ctx);
 
-        Ok(ContextHandle {
+        Ok(Context {
             gc_ref,
             _mark: PhantomData,
         })
