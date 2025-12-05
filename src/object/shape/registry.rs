@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use gc_lite::{GcTracable, GcRef};
+use gc_lite::{GcRef, GcTracable};
 
 use crate::{
     atom::Atom,
@@ -64,7 +64,7 @@ impl ShapeRegistry {
         let shape_id = shape.id();
 
         if let Some(lst) = self.lut.get_mut(&hash) {
-            if lst.len() == 1 && unsafe { lst[0].as_ref().id() } == shape_id {
+            if lst.len() == 1 && unsafe { lst.get_unchecked(0).as_ref().id() } == shape_id {
                 self.lut.remove(&hash);
             } else {
                 lst.iter()
@@ -101,17 +101,16 @@ impl ShapeRegistry {
         }
     }
 
-    /// decrease shape use count. when use count reaches zero, unregister the shape.
+    /// decrease shape use count.
+    /// when use count reaches zero, unregister the shape.
     #[inline(always)]
     pub(super) fn dec_use(&mut self, shape: &ShapeHandle) {
-        let shape_id = shape.id();
-        let hash = shape.hash();
-        self.dec_use2(shape_id, hash);
+        self.dec_use2(shape.id(), shape.hash());
     }
 
     /// decrease shape use count. when use count reaches zero, unregister the shape.
-    pub(super) fn dec_use2(&mut self, shape_id: usize, hash: u32) {
-        let remove_key = if let Some(lst) = self.lut.get_mut(&hash) {
+    fn dec_use2(&mut self, shape_id: usize, hash: u32) {
+        if let Some(lst) = self.lut.get_mut(&hash) {
             debug_assert!(!lst.is_empty());
 
             let remove_idx = if let Some((i, slot)) = lst
@@ -133,20 +132,12 @@ impl ShapeRegistry {
 
             if remove_idx >= 0 {
                 if lst.len() == 1 {
-                    true // remove key
+                    // remove key from lut
+                    self.lut.remove(&hash);
                 } else {
                     lst.swap_remove(remove_idx as usize);
-                    false
                 }
-            } else {
-                false
             }
-        } else {
-            false
-        };
-
-        if remove_key {
-            self.lut.remove(&hash);
         }
     }
 
