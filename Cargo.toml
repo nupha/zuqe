@@ -49,10 +49,10 @@ strip = "symbols"
 # used for flamegraph
 [profile.release-with-debug]
 inherits = "release"
-#debug = true
+debug = true
 strip = false
 [profile.release-with-debug.package."*"]
-#debug = true
+debug = true
 strip = false
 
 [dependencies]
