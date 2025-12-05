@@ -1,4 +1,4 @@
-use gc_lite::Collect;
+use gc_lite::GcTracable;
 
 use crate::{
     JS_CLASS_GENERATOR,
@@ -32,9 +32,9 @@ pub struct GeneratorPayload {
     func_state: AsyncFuncState,
 }
 
-unsafe impl Collect for GeneratorPayload {
+unsafe impl GcTracable for GeneratorPayload {
     #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         self.func_state.trace(tracer);
     }
 }

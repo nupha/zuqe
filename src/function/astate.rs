@@ -1,6 +1,6 @@
 use std::{pin::Pin, ptr::NonNull};
 
-use gc_lite::{Collect, GcRef};
+use gc_lite::{GcRef, GcTracable};
 
 use crate::{
     context::{ContextImpl, EvalMode},
@@ -28,8 +28,9 @@ pub struct AsyncStateImpl {
     pub frame: Pin<Box<StackFrame>>,
 }
 
-unsafe impl Collect for AsyncStateImpl {
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+unsafe impl GcTracable for AsyncStateImpl {
+    #[inline(always)]
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         self.frame.trace(tracer);
         self.this_val.trace(tracer);
         self.resolving_funcs[0].trace(tracer);

@@ -1,4 +1,4 @@
-use gc_lite::Collect;
+use gc_lite::GcTracable;
 
 use crate::{
     atom::Atom,
@@ -13,8 +13,9 @@ pub struct ModuleDependency {
     pub module: Option<ModuleDef>,
 }
 
-unsafe impl Collect for ModuleDependency {
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+unsafe impl GcTracable for ModuleDependency {
+    #[inline(always)]
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         self.module_name.trace(tracer);
         self.module.trace(tracer);
     }

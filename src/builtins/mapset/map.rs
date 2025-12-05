@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use gc_lite::{Collect, GcRef, GcWeak};
+use gc_lite::{GcRef, GcTracable, GcWeak};
 
 use crate::{
     JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, JS_CLASS_SET, JS_CLASS_SET_ITERATOR, JS_CLASS_WEAKMAP,
@@ -35,8 +35,8 @@ pub enum MapPair {
     Removed,
 }
 
-unsafe impl Collect for MapPair {
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+unsafe impl GcTracable for MapPair {
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         match self {
             Self::Strong { key, value } => {
                 key.trace(tracer);
@@ -75,10 +75,10 @@ pub struct JSMapState {
     lock: u16,
 }
 
-unsafe impl Collect for JSMapState {
+unsafe impl GcTracable for JSMapState {
     #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
-        self.slots.trace(tracer);
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
+        self.slots.iter().for_each(|x| x.trace(tracer));
     }
 }
 

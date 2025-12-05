@@ -1,6 +1,6 @@
 use std::{fmt::Formatter, ops::Deref};
 
-use gc_lite::{Collect, GcRef, GcWeak};
+use gc_lite::{GcTracable, GcRef, GcWeak};
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
@@ -155,10 +155,11 @@ pub struct ObjectImpl {
     pub(super) payload: ObjectPayload,
 }
 
-unsafe impl Collect for ObjectImpl {
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+unsafe impl GcTracable for ObjectImpl {
+    #[inline(always)]
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         self.shape.trace(tracer);
-        self.prop_values.trace(tracer);
+        self.prop_values.iter().for_each(|x| x.trace(tracer));
         self.payload.trace(tracer);
     }
 }

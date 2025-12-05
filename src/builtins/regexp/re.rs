@@ -1,6 +1,6 @@
 use std::{borrow::Cow, cell::Cell, ops::Range, rc::Rc};
 
-use gc_lite::{Collect, GcRef};
+use gc_lite::{GcRef, GcTracable};
 use regex::bytes::{Regex, RegexBuilder};
 
 use crate::{
@@ -44,8 +44,9 @@ pub struct RegExpStringIterPayload {
     done: Cell<bool>,
 }
 
-unsafe impl Collect for RegExpStringIterPayload {
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+unsafe impl GcTracable for RegExpStringIterPayload {
+    #[inline(always)]
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         self.iterated_string.trace(tracer);
         self.iterating_regexp.trace(tracer);
     }
@@ -108,8 +109,9 @@ pub struct RegExpData {
     pub(super) regex: Rc<Regex>,
 }
 
-unsafe impl Collect for RegExpData {
-    fn trace(&self, _: &mut gc_lite::Tracer) {}
+unsafe impl GcTracable for RegExpData {
+    #[inline(always)]
+    fn trace(&self, _: &mut gc_lite::GcTracer) {}
 }
 
 impl RegExpData {

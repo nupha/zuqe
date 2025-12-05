@@ -1,6 +1,6 @@
 use std::{os::raw::c_void, ptr::NonNull};
 
-use gc_lite::{Collect, GcRef, GcWeak};
+use gc_lite::{GcRef, GcTracable, GcWeak};
 
 use crate::{
     atom::Atom,
@@ -28,9 +28,9 @@ pub struct BytecodeDebugInfo {
     pub(crate) debug_setting: super::BytecodeDebugSetting,
 }
 
-unsafe impl Collect for BytecodeDebugInfo {
+unsafe impl GcTracable for BytecodeDebugInfo {
     #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         self.filename.trace(tracer);
     }
 }
@@ -120,22 +120,15 @@ pub struct BytecodeImpl {
     pub debug: Option<BytecodeDebugInfo>,
 }
 
-unsafe impl Collect for BytecodeImpl {
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+unsafe impl GcTracable for BytecodeImpl {
+    #[inline]
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         // trace const values
-        for v in self.consts() {
-            v.trace(tracer);
-        }
-
+        self.consts().iter().for_each(|x| x.trace(tracer));
         // trace var defs
-        for vd in self.vardefs() {
-            vd.trace(tracer);
-        }
-
+        self.vardefs().iter().for_each(|x| x.trace(tracer));
         // trace closure vars
-        for cv in self.closure_vars() {
-            cv.trace(tracer);
-        }
+        self.closure_vars().iter().for_each(|x| x.trace(tracer));
 
         // trace atoms in opcodes
         let bc = self.opcodes();
@@ -161,9 +154,7 @@ unsafe impl Collect for BytecodeImpl {
             pos += oi.size as usize;
         }
 
-        if let Some(d) = self.debug.as_ref() {
-            d.trace(tracer);
-        }
+        self.debug.trace(tracer);
     }
 }
 
@@ -594,9 +585,9 @@ impl BytecodeImpl {
 #[derive(Clone, Copy)]
 pub struct Bytecode(GcRef<BytecodeImpl>);
 
-unsafe impl Collect for Bytecode {
+unsafe impl GcTracable for Bytecode {
     #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         tracer.mark(self.0);
     }
 }

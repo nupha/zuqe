@@ -4,7 +4,7 @@ use std::{
     ptr::NonNull,
 };
 
-use gc_lite::{Collect, GcWeak};
+use gc_lite::{GcTracable, GcWeak};
 
 use crate::{
     builtins::iterator::ObjectIter,
@@ -69,22 +69,16 @@ pub struct StackFrame {
     _mark: PhantomPinned,
 }
 
-unsafe impl Collect for StackFrame {
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+unsafe impl GcTracable for StackFrame {
+    #[inline]
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         self.cur_func.trace(tracer);
         // self.local_buf.trace(tracer);
 
-        for v in self.vardefs_slice() {
-            v.trace(tracer);
-        }
-        for v in self.args_slice() {
-            v.trace(tracer);
-        }
-        for v in self.stack_slice() {
-            v.trace(tracer);
-        }
-
-        self.var_ref_list.trace(tracer);
+        self.vardefs_slice().iter().for_each(|x| x.trace(tracer));
+        self.args_slice().iter().for_each(|x| x.trace(tracer));
+        self.stack_slice().iter().for_each(|x| x.trace(tracer));
+        self.var_ref_list.iter().for_each(|x| x.trace(tracer));
 
         if let Some(sf) = unsafe { self.prev.cast::<StackFrame>().as_ref() } {
             sf.trace(tracer);

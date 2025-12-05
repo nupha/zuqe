@@ -1,4 +1,4 @@
-use gc_lite::Collect;
+use gc_lite::GcTracable;
 
 use crate::{
     atom::Atom,
@@ -72,9 +72,9 @@ pub struct JSVarDef {
     pub func_pool_idx: i32,
 }
 
-unsafe impl Collect for JSVarDef {
+unsafe impl GcTracable for JSVarDef {
     #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         self.var_name.trace(tracer);
     }
 }

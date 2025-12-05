@@ -1,6 +1,6 @@
 use std::ptr::NonNull;
 
-use gc_lite::{Collect, GcWeak};
+use gc_lite::{GcTracable, GcWeak};
 
 use crate::{
     atom::Atom,
@@ -122,9 +122,9 @@ pub struct NFuncPayload {
     pub magic: i16,
 }
 
-unsafe impl Collect for NFuncPayload {
+unsafe impl GcTracable for NFuncPayload {
     #[inline(always)]
-    fn trace(&self, _: &mut gc_lite::Tracer) {}
+    fn trace(&self, _: &mut gc_lite::GcTracer) {}
 }
 
 impl NFuncPayload {

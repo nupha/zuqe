@@ -1,6 +1,6 @@
 use std::{cell::Cell, ffi::c_void, ptr::NonNull};
 
-use gc_lite::Collect;
+use gc_lite::GcTracable;
 
 use crate::{
     USER_CLASS_ID_START,
@@ -18,9 +18,9 @@ pub struct OtherPayload {
     pub(crate) opaque: *mut c_void,
 }
 
-unsafe impl Collect for OtherPayload {
+unsafe impl GcTracable for OtherPayload {
     #[inline(always)]
-    fn trace(&self, _: &mut gc_lite::Tracer) {}
+    fn trace(&self, _: &mut gc_lite::GcTracer) {}
 }
 
 impl OtherPayload {

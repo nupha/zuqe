@@ -1,4 +1,4 @@
-use gc_lite::{Collect, GcRef};
+use gc_lite::{GcRef, GcTracable};
 
 use crate::{
     JS_CLASS_BOUND_FUNCTION,
@@ -18,11 +18,12 @@ pub struct BoundFuncObjPayload {
     pub bind_args: Vec<JSValue>,
 }
 
-unsafe impl Collect for BoundFuncObjPayload {
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+unsafe impl GcTracable for BoundFuncObjPayload {
+    #[inline(always)]
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         self.func_obj.trace(tracer);
         self.this_val.trace(tracer);
-        self.bind_args.trace(tracer);
+        self.bind_args.iter().for_each(|x| x.trace(tracer));
     }
 }
 

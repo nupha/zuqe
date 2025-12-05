@@ -1,6 +1,6 @@
 use std::ptr::NonNull;
 
-use gc_lite::{Collect, GcRef};
+use gc_lite::{GcRef, GcTracable};
 
 use crate::{
     context::{ContextImpl, EvalMode},
@@ -25,8 +25,9 @@ enum VarRefState {
     },
 }
 
-unsafe impl Collect for VarRefState {
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+unsafe impl GcTracable for VarRefState {
+    #[inline(always)]
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         match self {
             Self::Detached { value } => {
                 value.trace(tracer);
@@ -52,9 +53,9 @@ pub struct JSVarRefInner {
     is_arg: bool,
 }
 
-unsafe impl Collect for JSVarRefInner {
+unsafe impl GcTracable for JSVarRefInner {
     #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         self.state.trace(tracer);
     }
 }

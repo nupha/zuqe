@@ -1,4 +1,4 @@
-use gc_lite::Collect;
+use gc_lite::GcTracable;
 
 use crate::{
     JS_CLASS_ASYNC_GENERATOR, JS_CLASS_GENERATOR,
@@ -34,9 +34,9 @@ pub struct JSClosureVar {
     bitfield: u8,
 }
 
-unsafe impl Collect for JSClosureVar {
+unsafe impl GcTracable for JSClosureVar {
     #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         self.var_name.trace(tracer);
     }
 }

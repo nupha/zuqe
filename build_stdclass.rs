@@ -670,8 +670,8 @@ pub fn gen_class_payload(outfile: &Path) {
         // impl collect trait
         "\n\n".to_string(),
         format!(
-            r#"unsafe impl gc_lite::Collect for ObjectPayload {{
-                fn trace(&self, tracer: &mut gc_lite::Tracer) {{
+            r#"unsafe impl gc_lite::GcTracable for ObjectPayload {{
+                fn trace(&self, tracer: &mut gc_lite::GcTracer) {{
                     match self {{
                         {},
                         _=>{{ }}

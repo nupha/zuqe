@@ -7,7 +7,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use gc_lite::{Collect, GcRef, GcWeak};
+use gc_lite::{GcRef, GcTracable, GcWeak};
 
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_ERROR, JS_CLASS_OBJECT,
@@ -89,33 +89,20 @@ pub struct ContextImpl {
     /// eval callback
     pub(crate) eval_handle: Option<EvalFn>,
 
-    /// User data pointer
-    pub(crate) user_opaque: *mut std::ffi::c_void,
-
     /// context level queued jobs
     pub(crate) job_list: VecDeque<Job>,
+
+    /// User data pointer
+    pub(crate) user_opaque: *mut std::ffi::c_void,
 }
 
-unsafe impl Collect for ContextImpl {
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
-        for p in self.class_proto.iter() {
-            p.trace(tracer);
-        }
-
-        if let Some(s) = &self.array_shape {
-            s.trace(tracer);
-        }
-
-        if let Some(o) = self.iterator_proto.as_ref() {
-            o.trace(tracer);
-        }
-        if let Some(o) = self.async_iterator_proto.as_ref() {
-            o.trace(tracer);
-        }
-
-        for p in self.class_proto.iter() {
-            p.trace(tracer);
-        }
+unsafe impl GcTracable for ContextImpl {
+    #[inline]
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
+        self.class_proto.iter().for_each(|x| x.trace(tracer));
+        self.array_shape.trace(tracer);
+        self.iterator_proto.trace(tracer);
+        self.async_iterator_proto.trace(tracer);
         self.array_proto_values.trace(tracer);
         self.function_ctor.trace(tracer);
         self.array_ctor.trace(tracer);
@@ -125,18 +112,9 @@ unsafe impl Collect for ContextImpl {
         self.eval_func.trace(tracer);
         self.global_obj.trace(tracer);
         self.global_var_obj.trace(tracer);
-
-        for ev in self.native_error_proto.iter() {
-            ev.trace(tracer);
-        }
-
-        for m in self.loaded_modules.iter() {
-            m.trace(tracer);
-        }
-
-        for j in self.job_list.iter() {
-            j.trace(tracer);
-        }
+        self.native_error_proto.iter().for_each(|x| x.trace(tracer));
+        self.loaded_modules.iter().for_each(|x| x.trace(tracer));
+        self.job_list.iter().for_each(|x| x.trace(tracer));
     }
 }
 

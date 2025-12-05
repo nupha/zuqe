@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use gc_lite::{Collect, GcRef};
+use gc_lite::{GcTracable, GcRef};
 
 use crate::{
     atom::Atom,
@@ -15,14 +15,13 @@ pub(crate) struct ShapeRegistry {
     pub(super) lut: HashMap<u32, Vec<GcRef<ShapeImpl>>>,
 }
 
-unsafe impl Collect for ShapeRegistry {
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+unsafe impl GcTracable for ShapeRegistry {
+    #[inline(always)]
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         for lst in self.lut.values() {
-            for o in lst {
-                if unsafe { o.as_ref().use_count() > 0 } {
-                    tracer.mark(*o);
-                }
-            }
+            lst.iter()
+                .filter(|o| unsafe { o.as_ref().use_count() > 0 })
+                .for_each(|g| tracer.mark(*g));
         }
     }
 }

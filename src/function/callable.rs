@@ -1,6 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
-use gc_lite::{Collect, GcRef};
+use gc_lite::{GcRef, GcTracable};
 
 use crate::{
     JS_CLASS_C_FUNCTION_DATA,
@@ -21,10 +21,10 @@ pub struct NativeFuncData {
     magic: u16,
 }
 
-unsafe impl Collect for NativeFuncData {
+unsafe impl GcTracable for NativeFuncData {
     #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
-        self.data.borrow().trace(tracer);
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
+        self.data.borrow().iter().for_each(|x| x.trace(tracer));
     }
 }
 

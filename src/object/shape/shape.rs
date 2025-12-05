@@ -3,7 +3,7 @@ use std::{
     os::raw::c_void,
 };
 
-use gc_lite::{Collect, GcRef};
+use gc_lite::{GcTracable, GcRef};
 use hashlist::PrimitiveCompactHashList;
 
 use crate::{atom::Atom, context::ContextImpl, object::ShapeProperty, runtime::RuntimePtr};
@@ -31,12 +31,11 @@ pub struct ShapeImpl {
     pub(crate) prop_defs: PrimitiveCompactHashList<ShapeProperty>,
 }
 
-unsafe impl Collect for ShapeImpl {
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+unsafe impl GcTracable for ShapeImpl {
+    #[inline(always)]
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         self.proto.trace(tracer);
-        for p in self.prop_defs.iter() {
-            p.trace(tracer);
-        }
+        self.prop_defs.iter().for_each(|x| x.trace(tracer));
     }
 }
 
@@ -172,9 +171,9 @@ impl ShapeImpl {
 #[repr(transparent)]
 pub struct ShapeHandle(GcRef<ShapeImpl>);
 
-unsafe impl Collect for ShapeHandle {
+unsafe impl GcTracable for ShapeHandle {
     #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         tracer.mark(self.0);
     }
 }

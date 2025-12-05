@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use gc_lite::Collect;
+use gc_lite::GcTracable;
 
 use crate::{
     atom::{ATOM_CONST_COUNT, AtomDescKind, AtomInfo, AtomKind},
@@ -17,8 +17,9 @@ use super::AtomRegistry;
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord)]
 pub struct Atom(pub(super) u32);
 
-unsafe impl Collect for Atom {
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+unsafe impl GcTracable for Atom {
+    #[inline(always)]
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         if !self.is_const() && !self.is_null() && !self.is_small_int() {
             AtomRegistry::with_desc(self.0, |d| {
                 d.string().trace(tracer);

@@ -1,6 +1,6 @@
 use std::ffi::c_void;
 
-use gc_lite::{Collect, GcWeak};
+use gc_lite::{GcTracable, GcWeak};
 
 use crate::{
     JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
@@ -257,19 +257,16 @@ pub enum JSProperty {
     Deleted,
 }
 
-unsafe impl Collect for JSProperty {
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+unsafe impl GcTracable for JSProperty {
+    #[inline(always)]
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         match self {
             Self::Normal(v) => {
                 v.trace(tracer);
             }
             Self::GetSet { getter, setter } => {
-                if let Some(o) = getter {
-                    tracer.mark(o.gc_ref());
-                }
-                if let Some(o) = setter {
-                    tracer.mark(o.gc_ref());
-                }
+                getter.trace(tracer);
+                setter.trace(tracer);
             }
             Self::VarRef(vr) => {
                 vr.trace(tracer);

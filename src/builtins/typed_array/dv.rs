@@ -1,4 +1,4 @@
-use gc_lite::{Collect, GcRef};
+use gc_lite::{GcRef, GcTracable};
 
 use crate::{
     JS_CLASS_DATAVIEW,
@@ -25,9 +25,9 @@ pub struct DataViewPayload {
     pub(super) byte_length: u32,
 }
 
-unsafe impl Collect for DataViewPayload {
+unsafe impl GcTracable for DataViewPayload {
     #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         self.buffer.trace(tracer);
     }
 }

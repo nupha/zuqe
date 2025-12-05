@@ -1,4 +1,4 @@
-use gc_lite::{Collect, GcRef};
+use gc_lite::{GcRef, GcTracable};
 
 use crate::{
     JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
@@ -24,8 +24,9 @@ pub struct JSAsyncFromSyncIteratorData {
     pub(super) next_method: JSValue,
 }
 
-unsafe impl Collect for JSAsyncFromSyncIteratorData {
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+unsafe impl GcTracable for JSAsyncFromSyncIteratorData {
+    #[inline(always)]
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         self.obj.trace(tracer);
         self.next_method.trace(tracer);
     }

@@ -1,4 +1,4 @@
-use gc_lite::{Collect, GcRef};
+use gc_lite::{GcTracable, GcRef};
 
 use crate::{
     atom::Atom,
@@ -83,15 +83,18 @@ pub struct ModuleDefImpl {
     pub meta_obj: Option<ObjectRef>,
 }
 
-unsafe impl Collect for ModuleDefImpl {
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+unsafe impl GcTracable for ModuleDefImpl {
+    #[inline]
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         self.module_name.trace(tracer);
-        self.dependencies.trace(tracer);
-        self.export_entries.trace(tracer);
-        self.import_entries.trace(tracer);
+        self.dependencies.iter().for_each(|x| x.trace(tracer));
+        self.export_entries.iter().for_each(|x| x.trace(tracer));
+        self.import_entries.iter().for_each(|x| x.trace(tracer));
 
         self.bytecode.trace(tracer);
-        self.async_parent_modules.trace(tracer);
+        self.async_parent_modules
+            .iter()
+            .for_each(|x| x.trace(tracer));
         self.promise.trace(tracer);
         self.resolving_funcs[0].trace(tracer);
         self.resolving_funcs[1].trace(tracer);

@@ -1,4 +1,4 @@
-use gc_lite::{Collect, Tracer};
+use gc_lite::{GcTracable, GcTracer};
 
 use crate::{context::ContextImpl, error::JSResult, runtime::RuntimeImpl, value::JSValue};
 
@@ -6,11 +6,12 @@ use super::Promise;
 
 pub(crate) struct Job {
     run: Box<dyn FnOnce() -> JSResult>,
-    trace: Option<Box<dyn Fn(&mut Tracer)>>,
+    trace: Option<Box<dyn Fn(&mut GcTracer)>>,
 }
 
-unsafe impl Collect for Job {
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+unsafe impl GcTracable for Job {
+    #[inline(always)]
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         if let Some(f) = self.trace.as_ref() {
             f(tracer)
         }
@@ -29,7 +30,7 @@ impl ContextImpl {
     pub(crate) fn queue_job_with_trace(
         &mut self,
         run: impl FnOnce() -> JSResult + 'static,
-        trace: impl Fn(&mut Tracer) + 'static,
+        trace: impl Fn(&mut GcTracer) + 'static,
     ) {
         self.job_list.push_back(Job {
             run: Box::new(run),
@@ -116,10 +117,9 @@ impl RuntimeImpl {
                 }
 
                 // trace all jobs
-                let mut tracer = Tracer::new();
-                for j in ctx.job_list.iter() {
-                    self.gc_heap().trace_mark(j, &mut tracer);
-                }
+                let mut tracer = GcTracer::new();
+                ctx.job_list.iter().for_each(|x| x.trace(&mut tracer));
+                tracer.commit_marks(&self.gc_heap);
 
                 if !ctx.job_list.is_empty() {
                     has_pending = true;

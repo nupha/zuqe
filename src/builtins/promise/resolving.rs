@@ -1,6 +1,6 @@
 use std::{cell::Cell, rc::Rc};
 
-use gc_lite::{Collect, GcRef};
+use gc_lite::{GcRef, GcTracable};
 
 use crate::{
     JS_CLASS_PROMISE_REJECT_FUNCTION, JS_CLASS_PROMISE_RESOLVE_FUNCTION,
@@ -27,8 +27,8 @@ pub struct PromiseResolvePayload {
     pub(super) resolved: Rc<Cell<bool>>,
 }
 
-unsafe impl Collect for PromiseResolvePayload {
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+unsafe impl GcTracable for PromiseResolvePayload {
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         self.promise.trace(tracer);
     }
 }
@@ -109,8 +109,9 @@ pub(super) struct JSPromiseReactionData {
     pub(super) handler: JSValue,
 }
 
-unsafe impl Collect for JSPromiseReactionData {
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+unsafe impl GcTracable for JSPromiseReactionData {
+    #[inline(always)]
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         self.resolving_funcs[0].trace(tracer);
         self.resolving_funcs[1].trace(tracer);
         self.handler.trace(tracer);

@@ -1,4 +1,4 @@
-use gc_lite::Collect;
+use gc_lite::GcTracable;
 use hashlist::PrimitiveHashedElement;
 
 use crate::{
@@ -13,9 +13,9 @@ pub struct ShapeProperty {
     pub(super) flags: u32,
 }
 
-unsafe impl Collect for ShapeProperty {
+unsafe impl GcTracable for ShapeProperty {
     #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         self.atom.trace(tracer);
     }
 }

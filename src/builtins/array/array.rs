@@ -1,5 +1,5 @@
 use fallible_collections::{FallibleVec, TryCollect};
-use gc_lite::{Collect, GcRef};
+use gc_lite::{GcRef, GcTracable};
 use smallvec::SmallVec;
 
 use crate::{
@@ -23,10 +23,12 @@ pub(crate) struct ArrayPayload {
     values: Vec<JSValue>,
 }
 
-unsafe impl Collect for ArrayPayload {
+unsafe impl GcTracable for ArrayPayload {
     #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
-        self.values.trace(tracer);
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
+        for v in self.values.iter() {
+            v.trace(tracer);
+        }
     }
 }
 

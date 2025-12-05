@@ -4,7 +4,7 @@ use std::{
     ops::{Deref, DerefMut, Range},
 };
 
-use gc_lite::{Collect, GcRef};
+use gc_lite::{GcTracable, GcRef};
 
 use crate::{
     JS_CLASS_STRING,
@@ -39,8 +39,9 @@ pub struct StringImpl {
     atom_info: Option<AtomInfo>,
 }
 
-unsafe impl Collect for StringImpl {
-    fn trace(&self, _: &mut gc_lite::Tracer) {}
+unsafe impl GcTracable for StringImpl {
+    #[inline(always)]
+    fn trace(&self, _: &mut gc_lite::GcTracer) {}
 }
 
 impl Drop for StringImpl {
@@ -236,9 +237,9 @@ impl StringImpl {
 #[repr(transparent)]
 pub struct StringRef(GcRef<StringImpl>);
 
-unsafe impl Collect for StringRef {
+unsafe impl GcTracable for StringRef {
     #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         // Note: String for const atom (w/o rt) must not set mark.
         if unsafe { self.0.as_ref().rt().is_some() } {
             tracer.mark(self.0);

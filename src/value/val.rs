@@ -90,7 +90,7 @@ mod nb_value {
     }
 }
 
-use gc_lite::Collect;
+use gc_lite::GcTracable;
 #[cfg(feature = "nan_boxing")]
 pub use nb_value::*;
 
@@ -113,8 +113,9 @@ pub enum JSValue {
     Bytecode(Bytecode),
 }
 
-unsafe impl Collect for JSValue {
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+unsafe impl GcTracable for JSValue {
+    #[inline(always)]
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         match self {
             Self::String(s) => {
                 if s.rt().is_some() {
@@ -123,7 +124,7 @@ unsafe impl Collect for JSValue {
                 }
             }
             Self::Object(o) => {
-                tracer.mark(o.gc_ref());
+                o.trace(tracer);
             }
             Self::Symbol(a) => {
                 a.trace(tracer);

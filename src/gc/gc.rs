@@ -1,4 +1,4 @@
-use gc_lite::{Collect, GcError, GcHeap, GcPartition, GcRef, PartitionId, Tracer};
+use gc_lite::{GcTracable, GcError, GcHeap, GcPartition, GcRef, PartitionId, GcTracer};
 
 use crate::{object::ShapeImpl, runtime::RuntimeImpl, value::JSValue};
 
@@ -30,7 +30,7 @@ impl RuntimeImpl {
 
     /// alloc data in gc
     #[inline(always)]
-    pub fn gc_alloc<T: Collect>(&mut self, data: T) -> Result<GcRef<T>, (GcError, T)> {
+    pub fn gc_alloc<T: GcTracable>(&mut self, data: T) -> Result<GcRef<T>, (GcError, T)> {
         self.gc_heap.alloc(self.gc_part, data)
     }
 
@@ -40,18 +40,21 @@ impl RuntimeImpl {
 
         // GC: mark
         {
-            let mut tracer = Tracer::new();
+            let mut tracer = GcTracer::new();
 
             // mark roots
             self.gc_heap.mark_roots(part, &mut tracer);
 
-            // additional marks other than roots
+            // mark additional nodes other than roots
             self.cur_exception.trace(&mut tracer);
             self.shape_registry.trace(&mut tracer);
+
+            // mark nodes in stack-frame chain
             if let Some(sf) = self.current_stack_frame() {
-                // mark objects in stack-frames chain
-                self.gc_heap.trace_mark(sf, &mut tracer);
+                sf.trace(&mut tracer);
             }
+
+            tracer.commit_marks(&self.gc_heap);
         }
 
         // GC: ShapImpl must be freed at last
@@ -63,7 +66,7 @@ impl RuntimeImpl {
         }
         freed += self.gc_heap.sweep_ex(part, false, None, None, false);
 
-        println!("[O.o] 分区 {part:?} 回收 {freed} 字节");
+        println!("[O.o][Runtime::gc_collect] Partition {part:?} collected {freed} bytes");
 
         // GC: update gc threshold for next
         let used = self.gc_info().memory_used();

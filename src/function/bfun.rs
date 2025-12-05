@@ -1,4 +1,4 @@
-use gc_lite::{Collect, GcRef};
+use gc_lite::{GcRef, GcTracable};
 use smallvec::SmallVec;
 
 use crate::{
@@ -104,13 +104,12 @@ pub struct BCFuncPayload {
     home_object: Option<ObjectRef>,
 }
 
-unsafe impl Collect for BCFuncPayload {
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+unsafe impl GcTracable for BCFuncPayload {
+    #[inline(always)]
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         self.bytecode.trace(tracer);
-        self.var_refs.trace(tracer);
-        if let Some(o) = self.home_object.as_ref() {
-            o.trace(tracer);
-        }
+        self.var_refs.iter().for_each(|x| x.trace(tracer));
+        self.home_object.trace(tracer);
     }
 }
 

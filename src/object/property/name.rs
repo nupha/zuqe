@@ -1,4 +1,4 @@
-use gc_lite::Collect;
+use gc_lite::GcTracable;
 
 use crate::{
     JS_CLASS_STRING,
@@ -30,9 +30,9 @@ pub struct PropertyKey {
     pub is_exotic: bool,
 }
 
-unsafe impl Collect for PropertyKey {
+unsafe impl GcTracable for PropertyKey {
     #[inline(always)]
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         self.atom.trace(tracer);
     }
 }

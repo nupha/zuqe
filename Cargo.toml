@@ -3,7 +3,7 @@ name = "zhuque"
 version = "0.2.0"
 edition = "2024"
 description = "A simple, but not too simple JS engine"
-authors = ["johnray <996351336@qq.com>"]
+authors = ["John Ray <996351336@qq.com>"]
 build = "build.rs"
 
 [features]
@@ -65,7 +65,7 @@ widestring = "1.1"
 fallible_collections = "0.5"
 unicode-xid = "0.2"
 unicode-normalization = "0.1"
-gc-lite = { version = "0.2", path = "../gc-lite-v2" }
+gc-lite = { version = "0.3", path = "../gc-lite-v2" }
 regex = { version = "1.11", default-features = false, features = [
     "std",
     "unicode-case",

@@ -1,4 +1,4 @@
-use gc_lite::Collect;
+use gc_lite::GcTracable;
 
 use crate::{
     atom::Atom,
@@ -21,8 +21,9 @@ pub struct ImportEntry {
     pub req_module_idx: i32, // in dependencies
 }
 
-unsafe impl Collect for ImportEntry {
-    fn trace(&self, tracer: &mut gc_lite::Tracer) {
+unsafe impl GcTracable for ImportEntry {
+    #[inline(always)]
+    fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         self.import_name.trace(tracer);
     }
 }
