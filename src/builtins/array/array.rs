@@ -711,7 +711,7 @@ impl JSValue {
     }
 
     /// coerce value to array index, which is in range \[0, MAX_SAFE_INTEGER\].
-    pub fn to_array_index(&self, ctx: &ContextImpl) -> Result<i64, i32> {
+    pub fn to_index(&self, ctx: &ContextImpl) -> Result<i64, i32> {
         let i: i64 = self.to_i64_saturating(ctx)?;
         if (0..=MAX_SAFE_INTEGER).contains(&i) {
             Ok(i)

@@ -370,13 +370,13 @@ impl ArrayBuffer {
 
     /// get array buffer payload
     #[inline(always)]
-    pub(crate) fn payload(&self) -> &ArrayBufferPayload {
+    pub fn payload(&self) -> &ArrayBufferPayload {
         unsafe { self.0.as_ref().payload().array_buffer().unwrap() }
     }
 
     /// get array buffer payload
     #[inline(always)]
-    pub(crate) fn payload_mut(&mut self) -> &mut ArrayBufferPayload {
+    pub fn payload_mut(&mut self) -> &mut ArrayBufferPayload {
         unsafe { self.0.as_mut().payload_mut().array_buffer_mut().unwrap() }
     }
 
@@ -414,14 +414,14 @@ impl ArrayBuffer {
 
 pub fn js_array_buffer_constructor(cc: CallContext) -> JSResult {
     let ctx = cc.ctx();
-    let size = cc.arg(0).to_array_index(ctx)? as usize;
+    let size = cc.arg(0).to_index(ctx)? as usize;
     ArrayBuffer::with_capacity_ex(ctx, *cc.this(), false, size, std::ptr::null_mut())
         .map(|x| x.into())
 }
 
 pub fn js_shared_array_buffer_constructor(cc: CallContext) -> JSResult {
     let ctx = cc.ctx();
-    let size = cc.arg(0).to_array_index(ctx)? as usize;
+    let size = cc.arg(0).to_index(ctx)? as usize;
     ArrayBuffer::with_capacity_ex(ctx, *cc.this(), true, size, std::ptr::null_mut())
         .map(|x| x.into())
 }

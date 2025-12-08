@@ -2,9 +2,9 @@ use std::ptr::NonNull;
 
 use crate::{
     atom::{ATOM_CONST_COUNT, Atom},
-    context::ContextImpl,
+    context::{Context, ContextImpl, ContextPtr},
     function::{Callback, NativeCallbackFn, NativeGetterFn, NativeIteratorNextFn, NativeSetterFn},
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, LazyInit, ObjectRef},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, LazyInit, ObjectRef},
     value::JSValue,
 };
 
@@ -41,6 +41,8 @@ pub enum FieldDetail {
     Int32(i32),
     Float64(f64),
     Undefined,
+    /// user defined value build func
+    Build(fn(Context) -> Result<JSValue, i32>),
 }
 
 #[derive(Debug, Clone)]
@@ -164,6 +166,19 @@ impl FieldDef {
         }
     }
 
+    pub const fn BUILD(
+        name: &'static str,
+        f: fn(Context) -> Result<JSValue, i32>,
+        prop_flags: u32,
+    ) -> Self {
+        Self {
+            name,
+            detail: FieldDetail::Build(f),
+            prop_flags: prop_flags as u8,
+            magic: 0,
+        }
+    }
+
     /// Define an alias field
     pub const fn ALIAS_BASE(name: &'static str, from_name: &'static str, base: i32) -> Self {
         Self {
@@ -276,6 +291,10 @@ impl ObjectRef {
             }
             FieldDetail::Undefined => {
                 val = JSValue::UNDEFINED;
+            }
+            FieldDetail::Build(f) => {
+                let c = unsafe { ContextPtr::from_ref_unchecked(ctx) };
+                val = f(c.into())?;
             }
 
             FieldDetail::Alias { name, base } => {

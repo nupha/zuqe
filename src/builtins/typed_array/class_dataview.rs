@@ -21,7 +21,7 @@ pub(super) fn js_dataview_constructor(cc: CallContext) -> JSResult {
     };
 
     let offset = if cc.length() > 1 {
-        let n = cc.arg(1).to_array_index(&ctx)? as usize;
+        let n = cc.arg(1).to_index(&ctx)? as usize;
         // guard array buffer after reading arg #1
         if buffer.is_detached() {
             JS_ThrowTypeErrorDetachedArrayBuffer(&ctx);
@@ -33,7 +33,7 @@ pub(super) fn js_dataview_constructor(cc: CallContext) -> JSResult {
     };
 
     let length: Option<usize> = if cc.length() > 2 && !cc.arg(2).is_undefined() {
-        Some(cc.arg(2).to_array_index(&ctx)? as usize)
+        Some(cc.arg(2).to_index(&ctx)? as usize)
     } else {
         None
     };
@@ -51,7 +51,7 @@ fn js_dataview_getValue(cc: CallContext) -> JSResult {
 
     let class_id = cc.magic() as ClassID;
     let size = 1 << TypedArray::SIZE_LOG2(class_id);
-    let pos = cc.arg(0).to_array_index(ctx)? as usize;
+    let pos = cc.arg(0).to_index(ctx)? as usize;
 
     // is little endian?
     let le = if cc.length() > 1 {
@@ -159,7 +159,7 @@ fn js_dataview_setValue(cc: CallContext) -> JSResult {
 
     let class_id = cc.magic() as ClassID;
     let size = 1 << TypedArray::SIZE_LOG2(class_id);
-    let pos = cc.arg(0).to_array_index(cx)? as usize;
+    let pos = cc.arg(0).to_index(cx)? as usize;
 
     let val = cc.arg(1);
     let mut v = 0_u32;

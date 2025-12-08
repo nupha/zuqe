@@ -1,4 +1,4 @@
-use gc_lite::{GcTracable, GcError, GcHeap, GcPartition, GcRef, PartitionId, GcTracer};
+use gc_lite::{GcError, GcHeap, GcPartition, GcRef, GcTracable, GcTracer, PartitionId};
 
 use crate::{object::ShapeImpl, runtime::RuntimeImpl, value::JSValue};
 
@@ -8,7 +8,7 @@ impl RuntimeImpl {
         self.gc_part
     }
 
-    pub fn set_gc_threshold(&mut self, threshold: usize) {
+    pub fn gc_set_threshold(&mut self, threshold: usize) {
         self.gc_heap.set_gc_threshold(self.gc_part, threshold);
     }
 
@@ -38,20 +38,25 @@ impl RuntimeImpl {
     pub fn gc_collect(&mut self) -> usize {
         let part = self.gc_part;
 
-        // GC: mark
+        // GC: trace & mark
         {
             let mut tracer = GcTracer::new();
 
             // mark roots
             self.gc_heap.mark_roots(part, &mut tracer);
 
-            // mark additional nodes other than roots
+            // mark nodes other than roots
             self.cur_exception.trace(&mut tracer);
             self.shape_registry.trace(&mut tracer);
 
             // mark nodes in stack-frame chain
             if let Some(sf) = self.current_stack_frame() {
                 sf.trace(&mut tracer);
+            }
+
+            // mark user defined handler
+            if let Some(f) = self.gc_user_trace.as_ref() {
+                f(&mut tracer);
             }
 
             tracer.commit_marks(&self.gc_heap);
@@ -96,5 +101,9 @@ impl RuntimeImpl {
             }
             _ => {}
         }
+    }
+
+    pub fn gc_set_trace_handler(&mut self, f: impl Fn(&mut GcTracer) + 'static) {
+        self.gc_user_trace.replace(Box::new(f));
     }
 }

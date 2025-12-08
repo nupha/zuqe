@@ -775,9 +775,7 @@ fn js_regexp_Symbol_search(cc: CallContext) -> JSResult {
         return Err(-1);
     };
 
-    let prev_last_index = this
-        .get_property(cx, Atom::CONST_lastIndex)?
-        .to_array_index(cx)? as usize;
+    let prev_last_index = this.get_property(cx, Atom::CONST_lastIndex)?.to_index(cx)? as usize;
 
     if prev_last_index != 0 {
         this.set_property(cx, Atom::CONST_lastIndex, JSValue::Int(0))?;
@@ -786,9 +784,7 @@ fn js_regexp_Symbol_search(cc: CallContext) -> JSResult {
     let str = cc.arg(0).to_string(cx)?;
 
     let m = JS_RegExpExec(cx, this, str)?;
-    let cur_last_index = this
-        .get_property(cx, Atom::CONST_lastIndex)?
-        .to_array_index(cx)? as usize;
+    let cur_last_index = this.get_property(cx, Atom::CONST_lastIndex)?.to_index(cx)? as usize;
 
     if cur_last_index != prev_last_index {
         // restore original lastIndex
@@ -802,7 +798,7 @@ fn js_regexp_Symbol_search(cc: CallContext) -> JSResult {
     if m.is_null() {
         Ok(JSValue::Int(-1))
     } else {
-        let index = m.get_property(cx, Atom::CONST_index)?.to_array_index(cx)?;
+        let index = m.get_property(cx, Atom::CONST_index)?.to_index(cx)?;
         Ok(JSValue::Int(index as i32))
     }
 }

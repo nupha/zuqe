@@ -1,6 +1,6 @@
-use std::{ffi::c_void, pin::Pin, ptr::NonNull};
+use std::{ffi::c_void, pin::Pin, ptr::NonNull, task::Context};
 
-use gc_lite::{GcHeap, PartitionId};
+use gc_lite::{GcHeap, GcTracer, PartitionId};
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_FUNCTION_REJECT,
@@ -85,6 +85,8 @@ pub struct RuntimeImpl {
     pub(crate) gc_threshold: usize,
     /// gc requested mark
     pub(crate) gc_req: bool,
+    /// user defined gc trace callback
+    pub(crate) gc_user_trace: Option<Box<dyn Fn(&mut GcTracer)>>,
 }
 
 impl Drop for RuntimeImpl {
@@ -129,6 +131,7 @@ impl RuntimeImpl {
             gc_heap,
             gc_part,
             gc_threshold: 256 * 1024,
+            gc_user_trace: None,
             gc_req: false,
 
             stack_size: JS_DEFAULT_STACK_SIZE,

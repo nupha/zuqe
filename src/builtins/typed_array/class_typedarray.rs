@@ -92,7 +92,7 @@ pub fn js_typed_array_constructor(cc: CallContext) -> JSResult {
             let size_log2 = TypedArray::SIZE_LOG2(class_id as _);
             let byte_length = ab.payload().byte_length();
 
-            let offset = cc.arg(1).to_array_index(&ctx)? as usize;
+            let offset = cc.arg(1).to_index(&ctx)? as usize;
             // guard side effect (detach) of retrieving arg #1.
             if ab.is_detached() {
                 JS_ThrowTypeErrorDetachedArrayBuffer(&ctx);
@@ -116,7 +116,7 @@ pub fn js_typed_array_constructor(cc: CallContext) -> JSResult {
                     }
                     (byte_length - offset) >> size_log2
                 } else {
-                    let n = a2.to_array_index(&ctx)? as usize;
+                    let n = a2.to_index(&ctx)? as usize;
                     // guard side effect (detach) of retrieving arg #2.
                     if ab.is_detached() {
                         JS_ThrowTypeErrorDetachedArrayBuffer(&ctx);
@@ -136,7 +136,7 @@ pub fn js_typed_array_constructor(cc: CallContext) -> JSResult {
             TypedArray::create_from(&ctx, new_target, *cc.arg(0), 0, 0, class_id as _)
         }
     } else {
-        let len = cc.arg(0).to_array_index(&ctx)? as usize;
+        let len = cc.arg(0).to_index(&ctx)? as usize;
         TypedArray::with_capacity(&ctx, new_target, len, class_id)
     };
 

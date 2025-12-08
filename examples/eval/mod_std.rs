@@ -1,8 +1,8 @@
+use once_cell::sync::Lazy;
 use zhuque::{
     context::Context,
     error::JSResult,
     function::{CallContext, FieldDef},
-    object::JS_PROP_C_W_E,
     value::JSValue,
 };
 
@@ -79,11 +79,37 @@ fn std_exit(_: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
-static MOD_STD_ENTRIES: [FieldDef; 3] = [
-    FieldDef::CALL("open", 2, js_std_open, 0),
-    FieldDef::CALL("exit", 1, std_exit, 0),
-    FieldDef::INT32("out", 9, JS_PROP_C_W_E),
-];
+static MOD_STD_ENTRIES: Lazy<Box<[FieldDef]>> = Lazy::new(|| {
+    let lst = vec![
+        FieldDef::CALL("open", 2, js_std_open, 0),
+        FieldDef::CALL("exit", 1, std_exit, 0),
+        FieldDef::BUILD(
+            "in",
+            |cx| {
+                let obj = JSFile::new_instance_stdin(cx)?;
+                Ok(JSValue::Object(obj))
+            },
+            0,
+        ),
+        FieldDef::BUILD(
+            "out",
+            |cx| {
+                let obj = JSFile::new_instance_stdout(cx)?;
+                Ok(JSValue::Object(obj))
+            },
+            0,
+        ),
+        FieldDef::BUILD(
+            "err",
+            |cx| {
+                let obj = JSFile::new_instance_stderr(cx)?;
+                Ok(JSValue::Object(obj))
+            },
+            0,
+        ),
+    ];
+    lst.into()
+});
 
 pub fn init_mod_std(mut ctx: Context) -> Result<(), i32> {
     ctx.register_module("std", &MOD_STD_ENTRIES)?;

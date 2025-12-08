@@ -9,13 +9,16 @@ mod mod_std;
 use std::time::Instant;
 
 use zhuque::{
-    builtins::promise::Promise, context::Context, eval::JS_EVAL_TYPE_GLOBAL,
-    module::ModuleDef, parse::JSParseState, runtime::Runtime, value::JSValue,
+    builtins::promise::Promise, context::Context, eval::JS_EVAL_TYPE_GLOBAL, module::ModuleDef,
+    parse::JSParseState, runtime::Runtime, value::JSValue,
 };
 
 use crate::{
-    class_file::JSFile, class_point::register_class_point, global::setup_globals,
-    mod_os::init_mod_os, mod_std::init_mod_std,
+    class_file::JSFile,
+    class_point::register_class_point,
+    global::setup_globals,
+    mod_os::{init_mod_os, mod_os_gc_trace},
+    mod_std::init_mod_std,
 };
 
 fn main() {
@@ -37,6 +40,9 @@ fn main() {
     let mut rt = Runtime::create().unwrap();
 
     rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());
+    rt.gc_set_trace_handler(|tracer| {
+        mod_os_gc_trace(tracer);
+    });
 
     // register user's native classes
     let class_id_point = register_class_point(&mut rt).unwrap();

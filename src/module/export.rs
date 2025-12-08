@@ -4,9 +4,9 @@ use gc_lite::GcTracable;
 
 use crate::{
     atom::Atom,
-    context::ContextImpl,
-    error::ErrorKind,
-    function::{FieldDef, FieldDetail, JSVarRef},
+    context::{ContextImpl, ContextPtr},
+    error::{ErrorKind, JSResult},
+    function::{Callback, FieldDef, FieldDetail, JSVarRef, NativeCallbackFn},
     module::{ModuleDef, ModuleDefImpl},
     object::{
         JS_PROP_ENUMERABLE, JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty, LazyInit, ObjectPayload,
@@ -209,7 +209,11 @@ impl ModuleDefImpl {
     }
 
     /// update export value
-    pub fn set_export_values(&self, ctx: &ContextImpl, entries: &[FieldDef]) -> Result<(), i32> {
+    pub(super) fn set_export_values(
+        &self,
+        ctx: &ContextImpl,
+        entries: &[FieldDef],
+    ) -> Result<(), i32> {
         for entry in entries {
             let val: JSValue = match &entry.detail {
                 FieldDetail::Func { handler, length } => ctx
@@ -223,12 +227,17 @@ impl ModuleDefImpl {
                 FieldDetail::Str(s) => ctx.create_string_from_str(s)?.into(),
                 FieldDetail::Int32(i) => JSValue::Int(*i),
                 FieldDetail::Float64(d) => JSValue::from(*d),
-                _ => {
-                    unreachable!();
+                FieldDetail::Build(f) => f(unsafe { ContextPtr::from_ref_unchecked(ctx).into() })?,
+
+                FieldDetail::Undefined | FieldDetail::Alias { .. } | FieldDetail::GetSet { .. } => {
+                    // module export ignores Alias, Get/Set, Undefined fields
+                    JSValue::UNDEFINED
                 }
             };
 
-            self.set_export_value(ctx, entry.name, val)?;
+            if !val.is_undefined() {
+                self.set_export_value(ctx, entry.name, val)?;
+            }
         }
 
         Ok(())
