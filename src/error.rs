@@ -1,5 +1,7 @@
 use std::{borrow::Cow, io::Write};
 
+use smallvec::SmallVec;
+
 use crate::{
     JS_CLASS_ERROR,
     atom::Atom,
@@ -224,13 +226,13 @@ impl ContextImpl {
             error_obj.define_property_value(
                 self,
                 Atom::CONST_fileName,
-                str.map_or(JSValue::EXCEPTION, JSValue::String),
+                str.map_or(JSValue::UNDEFINED, JSValue::String),
                 JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
             )?;
             error_obj.define_property_value(
                 self,
                 Atom::CONST_lineNumber,
-                JSValue::from(line_num),
+                JSValue::Int(line_num),
                 JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
             )?;
 
@@ -299,7 +301,7 @@ impl ContextImpl {
     /// if filename/line number is provided, they are defined as property of `error_obj` too.
     /// `error_obj` is not consumed.
     #[cold]
-    pub fn build_backtrace_to(
+    pub(crate) fn build_backtrace_to(
         &self,
         mut target: JSValue,
         file_line: Option<(&str, i32)>,
@@ -374,11 +376,11 @@ pub unsafe fn JS_IsUncatchableError(val: JSValue) -> bool {
     }
 }
 
-pub fn JS_SetUncatchableError(val: JSValue, b: bool) {
-    if let JSValue::Object(mut p) = val
-        && p.class_id() == JS_CLASS_ERROR
+pub fn JS_SetUncatchableError(error_val: JSValue, is_uncatchable: bool) {
+    if let JSValue::Object(mut o) = error_val
+        && o.class_id() == JS_CLASS_ERROR
     {
-        p.set_flag_uncatchable_error(b);
+        o.set_flag_uncatchable_error(is_uncatchable);
     }
 }
 

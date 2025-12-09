@@ -81,17 +81,17 @@ fn main() {
         Ok(v) => {
             rt.gc_set_root_value(v, true);
 
-            #[cfg(debug_assertions)]
-            {
-                println!(
-                    ">>> RESULT: {v:?}, {}",
-                    v.inspect(&ctx).unwrap_or("<can't repr>".to_string())
-                );
-                if let JSValue::Object(o) = &v {
-                    println!("    OBJECT DUMP");
-                    o.dump(ctx.rt_ref());
-                }
-            }
+            // #[cfg(debug_assertions)]
+            // {
+            //     println!(
+            //         ">>> RESULT: {v:?}, {}",
+            //         v.inspect(&ctx).unwrap_or("<can't repr>".to_string())
+            //     );
+            //     if let JSValue::Object(o) = &v {
+            //         println!("    OBJECT DUMP");
+            //         o.dump(ctx.rt_ref());
+            //     }
+            // }
 
             let mut promise = Promise::try_from(v).ok();
             if let Some(p) = promise {
@@ -104,17 +104,7 @@ fn main() {
                         promise = None;
                     }
                     PromiseState::Rejected => {
-                        let r = p.result();
-                        colorize_println(format!("{}", r.to_string(&ctx).unwrap()), RedFg);
-
-                        match r.get_property(&ctx, Atom::CONST_stack) {
-                            Ok(JSValue::NULL) | Ok(JSValue::UNDEFINED) => {}
-                            Ok(s) => {
-                                let ss = s.inspect(&ctx).unwrap();
-                                colorize_println(ss, RedFg);
-                            }
-                            Err(_) => {}
-                        }
+                        print_exception(ctx, p.result());
                         promise = None;
                     }
                     _ => {}
@@ -137,20 +127,7 @@ fn main() {
                                     );
                                 }
                                 PromiseState::Rejected => {
-                                    let r = p.result();
-                                    colorize_println(
-                                        format!("{}", r.to_string(&ctx).unwrap()),
-                                        RedFg,
-                                    );
-
-                                    match r.get_property(&ctx, Atom::CONST_stack) {
-                                        Ok(JSValue::NULL) | Ok(JSValue::UNDEFINED) => {}
-                                        Ok(s) => {
-                                            let ss = s.inspect(&ctx).unwrap();
-                                            colorize_println(ss, RedFg);
-                                        }
-                                        Err(_) => {}
-                                    }
+                                    print_exception(ctx, p.result());
                                 }
                                 _ => {
                                     unreachable!()
@@ -210,6 +187,19 @@ fn js_module_loader(
             ctx.throw_reference_error(&format!("could not load module '{module_name}'"));
             Err(-1)
         }
+    }
+}
+
+fn print_exception(ctx: Context, r: JSValue) {
+    colorize_println(format!("{}", r.to_string(&ctx).unwrap()), RedFg);
+
+    match r.get_property(&ctx, Atom::CONST_stack) {
+        Ok(JSValue::NULL) | Ok(JSValue::UNDEFINED) => {}
+        Ok(s) => {
+            let ss = s.inspect(&ctx).unwrap();
+            colorize_println(ss, RedFg);
+        }
+        Err(_) => {}
     }
 }
 

@@ -99,7 +99,7 @@ struct Timer {
 }
 
 thread_local! {
-    static OS_PENDING_SIGNALS: Cell<u64> = const { Cell::new(0) };
+    pub(super) static OS_PENDING_SIGNALS: Cell<u64> = const { Cell::new(0) };
     static RW_HANDLERS: RefCell<HashMap<i32, [JSValue; 2]>> = RefCell::new(HashMap::new());
     static SIG_HANDLERS: RefCell<HashMap<u32, JSValue>> = RefCell::new(HashMap::new());
 

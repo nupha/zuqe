@@ -24,7 +24,7 @@ enum FileDesc {
 }
 
 impl FileDesc {
-    pub fn fileno(&self) -> i32 {
+    pub fn as_raw_fd(&self) -> i32 {
         match self {
             Self::File(f) => f.as_raw_fd(),
             Self::Stdin => std::io::stdin().as_raw_fd(),
@@ -52,7 +52,7 @@ fn js_file_get_desc_mut<'a>(ctx: Context, obj: JSValue) -> Result<&'a mut FileDe
 fn js_file_fileno(cc: CallContext) -> JSResult {
     let ctx = cc.context();
     let fh = js_file_get_desc_mut(ctx, *cc.this())?;
-    Ok(JSValue::Int(fh.fileno()))
+    Ok(JSValue::Int(fh.as_raw_fd()))
 }
 
 fn js_file_readAsString(cc: CallContext) -> JSResult {
@@ -114,9 +114,15 @@ fn js_file_readAsString(cc: CallContext) -> JSResult {
     ctx.create_string_from_utf8(buf).map(JSValue::String)
 }
 
-fn js_file_puts(cc: CallContext) -> JSResult {
+pub(super) fn js_file_puts(cc: CallContext) -> JSResult {
+    let magic = cc.magic();
     let ctx = cc.context();
-    let fh = js_file_get_desc_mut(ctx, *cc.this())?;
+
+    let fh = if magic == 1 {
+        js_file_get_desc_mut(ctx, *cc.this())?
+    } else {
+        &mut FileDesc::Stdout
+    };
 
     for arg in cc.arguments() {
         let s = arg.to_string(&ctx)?;
@@ -148,6 +154,30 @@ fn js_file_puts(cc: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
+fn js_file_flush(cc: CallContext) -> JSResult {
+    let fh = js_file_get_desc_mut(cc.context(), *cc.this())?;
+    match fh {
+        FileDesc::File(f) => {
+            let _ = f.flush().inspect_err(|e| {
+                eprintln!("Error: {}", e);
+            });
+        }
+        FileDesc::Stdout => {
+            let _ = std::io::stdout().flush().inspect_err(|e| {
+                eprintln!("Error: {}", e);
+            });
+        }
+        FileDesc::Stderr => {
+            let _ = std::io::stderr().flush().inspect_err(|e| {
+                eprintln!("Error: {}", e);
+            });
+        }
+        FileDesc::Stdin => {}
+    }
+
+    Ok(JSValue::UNDEFINED)
+}
+
 fn js_file_close(cc: CallContext) -> JSResult {
     let mut this = *cc.this();
     let u = this
@@ -170,7 +200,8 @@ static CLASS_FILE_PROTO: once_cell::sync::Lazy<Box<[FieldDef]>> =
         let lst = vec![
             FieldDef::CALL("fileno", 0, js_file_fileno, 0),
             FieldDef::CALL("readAsString", 0, js_file_readAsString, 0),
-            FieldDef::CALL("puts", 1, js_file_puts, 0),
+            FieldDef::CALL("puts", 1, js_file_puts, 1),
+            FieldDef::CALL("flush", 0, js_file_flush, 0),
             FieldDef::CALL("close", 0, js_file_close, 0),
         ];
         lst.into()
