@@ -1,4 +1,4 @@
-use gc_lite::{GcTracable, GcRef};
+use gc_lite::{GcRef, GcTracable};
 
 use crate::{
     atom::Atom,
@@ -396,13 +396,13 @@ impl RuntimeImpl {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum JSFreeModuleEnum {
+pub(crate) enum JSFreeModuleEnum {
     JS_FREE_MODULE_ALL,
     JS_FREE_MODULE_NOT_RESOLVED,
 }
 
 // XXX: would be more efficient with separate module lists
-pub fn js_free_modules(ctx: &mut ContextImpl, flag: JSFreeModuleEnum) {
+pub(crate) fn js_free_modules(ctx: &mut ContextImpl, flag: JSFreeModuleEnum) {
     // To free modules that meet condition:
     // flag == JSFreeModuleEnum::JS_FREE_MODULE_ALL || (flag == JSFreeModuleEnum::JS_FREE_MODULE_NOT_RESOLVED && m.resolved)
     ctx.loaded_modules.retain(|m| {
@@ -411,7 +411,7 @@ pub fn js_free_modules(ctx: &mut ContextImpl, flag: JSFreeModuleEnum) {
     });
 }
 
-pub fn add_module_variables(ctx: &ContextImpl, fd: &mut JSFunctionDef) -> i32 {
+pub(crate) fn add_module_variables(ctx: &ContextImpl, fd: &mut JSFunctionDef) -> i32 {
     // The imported global variables were added as closure variables
     // in js_parse_import(). We add here the module global
     // variables.

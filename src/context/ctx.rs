@@ -92,7 +92,7 @@ pub struct ContextImpl {
     /// context level queued jobs
     pub(crate) job_list: VecDeque<Job>,
     /// user defined tick handlers
-    pub(crate) tick_handlers: Vec<fn(Context)>,
+    pub(crate) tick_handlers: Vec<fn(Context) -> bool>,
 
     /// User data pointer
     pub(crate) user_opaque: *mut std::ffi::c_void,

@@ -8,9 +8,15 @@ mod mod_std;
 
 use std::time::Instant;
 
+use colorized::{Colors::*, colorize_println};
 use zhuque::{
-    builtins::promise::Promise, context::Context, eval::JS_EVAL_TYPE_GLOBAL, module::ModuleDef,
-    parse::JSParseState, runtime::Runtime, value::JSValue,
+    builtins::promise::{Promise, PromiseState},
+    context::Context,
+    eval::JS_EVAL_TYPE_GLOBAL,
+    module::ModuleDef,
+    parse::JSParseState,
+    runtime::Runtime,
+    value::JSValue,
 };
 
 use crate::{
@@ -74,18 +80,35 @@ fn main() {
         Ok(v) => {
             rt.gc_set_root_value(v, true);
 
-            println!(
-                ">>> RESULT: {v:?}, {}",
-                v.inspect(&ctx).unwrap_or("<can't repr>".to_string())
-            );
-
             #[cfg(debug_assertions)]
-            if let JSValue::Object(o) = &v {
-                println!("    OBJECT DUMP");
-                o.dump(ctx.rt_ref());
+            {
+                println!(
+                    ">>> RESULT: {v:?}, {}",
+                    v.inspect(&ctx).unwrap_or("<can't repr>".to_string())
+                );
+                if let JSValue::Object(o) = &v {
+                    println!("    OBJECT DUMP");
+                    o.dump(ctx.rt_ref());
+                }
             }
 
-            let promise = Promise::try_from(v).ok();
+            let mut promise = Promise::try_from(v).ok();
+            if let Some(p) = promise {
+                match p.state() {
+                    PromiseState::JS_PROMISE_FULFILLED => {
+                        colorize_println(
+                            format!("{}", p.result().to_string(&ctx).unwrap()),
+                            GreenFg,
+                        );
+                        promise = None;
+                    }
+                    PromiseState::JS_PROMISE_REJECTED => {
+                        colorize_println(format!("{}", p.result().to_string(&ctx).unwrap()), RedFg);
+                        promise = None;
+                    }
+                    _ => {}
+                }
+            }
 
             loop {
                 match rt.tick() {
@@ -94,21 +117,34 @@ fn main() {
                         continue;
                     }
                     Ok(false) => {
-                        if let Some(pr) = promise {
-                            let r = pr.result();
-                            println!("promise state:  {:?}", pr.state());
-                            println!("promise result: {r:?}, {:?}", r.inspect(&ctx));
-                            println!("{:?}", r.to_string(&ctx));
+                        if let Some(p) = promise {
+                            match p.state() {
+                                PromiseState::JS_PROMISE_FULFILLED => {
+                                    colorize_println(
+                                        format!("{}", p.result().to_string(&ctx).unwrap()),
+                                        GreenFg,
+                                    );
+                                }
+                                PromiseState::JS_PROMISE_REJECTED => {
+                                    colorize_println(
+                                        format!("{}", p.result().to_string(&ctx).unwrap()),
+                                        RedFg,
+                                    );
+                                }
+                                _ => {
+                                    unreachable!()
+                                }
+                            }
                         }
                         break;
                     }
                     Err(_) => {
-                        println!("--- Error in promise job ---");
+                        eprintln!("--- Error in tick ---");
 
                         let exc = ctx.rt_ref().exception();
                         debug_assert!(!exc.is_undefined_or_null()); // FIXME: this assert fails!
 
-                        println!("!!! EXCEPTION {exc:?}: {:?}", exc.to_string(&ctx));
+                        eprintln!("!!! EXCEPTION {exc:?}: {:?}", exc.to_string(&ctx));
 
                         #[cfg(debug_assertions)]
                         if let JSValue::Object(o) = exc {
@@ -124,7 +160,7 @@ fn main() {
             debug_assert!(!exc.is_undefined_or_null());
             rt.gc_set_root_value(exc, true);
 
-            println!(
+            eprintln!(
                 "!!! EXCEPTION {exc:?}: {:?}",
                 ctx.rt_ref().exception().to_string(&ctx)
             );

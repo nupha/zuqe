@@ -71,7 +71,11 @@ impl RuntimeImpl {
         }
         freed += self.gc_heap.sweep_ex(part, false, None, None, false);
 
-        println!("[O.o][Runtime::gc_collect] Partition {part:?} collected {freed} bytes");
+        // O.o debug
+        #[cfg(debug_assertions)]
+        if freed > 0 {
+            println!("[O.o][Runtime::gc_collect] Partition {part:?} collected {freed} bytes");
+        }
 
         // GC: update gc threshold for next
         let used = self.gc_info().memory_used();

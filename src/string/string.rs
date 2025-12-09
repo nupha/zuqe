@@ -4,7 +4,7 @@ use std::{
     ops::{Deref, DerefMut, Range},
 };
 
-use gc_lite::{GcTracable, GcRef};
+use gc_lite::{GcRef, GcTracable};
 
 use crate::{
     JS_CLASS_STRING,
@@ -331,7 +331,7 @@ impl StringRef {
             LocalResource::gc_alloc(rt.map(|r| r.gc_part()), s)
         }
         .map_err(|_| {
-            println!("[O.o] alloc error");
+            eprintln!("[O.o] alloc error");
             -1
         })
         .map(Self)

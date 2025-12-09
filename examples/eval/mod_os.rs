@@ -116,7 +116,7 @@ fn get_time_ms() -> u64 {
     }
 }
 
-pub fn js_os_poll(ctx: Context) -> i32 {
+fn js_os_poll(ctx: Context) -> bool {
     let ctx = &ctx;
 
     unsafe {
@@ -137,12 +137,12 @@ pub fn js_os_poll(ctx: Context) -> i32 {
                 None
             });
             if let Some(r) = ret {
-                return r;
+                return true;
             }
         }
 
         if RW_HANDLERS.with_borrow(|s| s.is_empty()) && TIMERS.with_borrow(|s| s.is_empty()) {
-            return -1; // no more events
+            return false; // no more events
         }
 
         let min_tv = TIMERS.with_borrow_mut(|timers| {
@@ -174,6 +174,7 @@ pub fn js_os_poll(ctx: Context) -> i32 {
                 };
                 Some(tv)
             } else {
+                // Some(std::mem::zeroed::<libc::timeval>())
                 None
             }
         });
@@ -194,7 +195,7 @@ pub fn js_os_poll(ctx: Context) -> i32 {
 
                 for (fd, rh) in rws.iter() {
                     fd_max = std::cmp::max(fd_max, *fd);
-                    if !rh[1].is_null() {
+                    if !rh[0].is_null() {
                         libc::FD_SET(*fd, &mut rfds);
                     }
                     if !rh[1].is_null() {
@@ -205,25 +206,38 @@ pub fn js_os_poll(ctx: Context) -> i32 {
                 let ret = libc::select(fd_max + 1, &mut rfds, &mut wfds, std::ptr::null_mut(), tvp);
                 if ret > 0 {
                     for (fd, rh) in rws.iter() {
-                        if !rh[0].is_null() && libc::FD_ISSET(*fd, &rfds) {
-                            if rh[0].call(ctx, JSValue::UNDEFINED, &[]).is_err() {
-                                println!("Error: {:?}", ctx.rt_ref().exception().to_string(ctx));
-                                break;
-                            }
+                        if !rh[0].is_null()
+                            && libc::FD_ISSET(*fd, &rfds)
+                            && rh[0].call(ctx, JSValue::UNDEFINED, &[]).is_err()
+                        {
+                            eprintln!(
+                                "Error: {}",
+                                ctx.rt_ref().exception().to_string(ctx).unwrap()
+                            );
+                            break;
                         }
-                        if !rh[1].is_null() && libc::FD_ISSET(*fd, &wfds) {
-                            if rh[1].call(ctx, JSValue::UNDEFINED, &[]).is_err() {
-                                println!("Error: {:?}", ctx.rt_ref().exception().to_string(ctx));
-                                break;
-                            }
+
+                        if !rh[1].is_null()
+                            && libc::FD_ISSET(*fd, &wfds)
+                            && rh[1].call(ctx, JSValue::UNDEFINED, &[]).is_err()
+                        {
+                            eprintln!(
+                                "Error: {}",
+                                ctx.rt_ref().exception().to_string(ctx).unwrap()
+                            );
+                            break;
                         }
                     }
+                } else if ret == -1 {
+                    // error
+                    let eno = libc::__error();
+                    eprintln!("Error: fd select errno {}", *eno);
                 }
             }
         });
     }
 
-    0
+    true
 }
 
 pub fn mod_os_gc_trace(tracer: &mut GcTracer) {
@@ -406,12 +420,6 @@ static MOD_OS_ENTRIES: Lazy<Box<[FieldDef]>> = Lazy::new(|| {
 
 pub fn init_mod_os(mut ctx: Context) -> Result<(), i32> {
     ctx.register_module("os", &MOD_OS_ENTRIES)?;
-    ctx.add_tick_handler(|cx| {
-        loop {
-            if js_os_poll(cx) != 0 {
-                break;
-            }
-        }
-    });
+    ctx.add_tick_handler(|cx| -> bool { js_os_poll(cx) });
     Ok(())
 }

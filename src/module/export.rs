@@ -5,8 +5,8 @@ use gc_lite::GcTracable;
 use crate::{
     atom::Atom,
     context::{ContextImpl, ContextPtr},
-    error::{ErrorKind, JSResult},
-    function::{Callback, FieldDef, FieldDetail, JSVarRef, NativeCallbackFn},
+    error::ErrorKind,
+    function::{FieldDef, FieldDetail, JSVarRef},
     module::{ModuleDef, ModuleDefImpl},
     object::{
         JS_PROP_ENUMERABLE, JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty, LazyInit, ObjectPayload,
@@ -27,21 +27,10 @@ enum ExportedNameKind {
 struct ExportedNameEntry {
     export_name: Atom,
     export_type: ExportedNameKind,
-
     /// (export_type, local_name, export_name)
     /// using when the list is built.
     cached: Option<(ExportType, Atom, Atom)>,
 }
-
-// impl ExportedNameEntry {
-//     pub fn dup(&self, rt: &RuntimeImpl) -> Self {
-//         Self {
-//             export_name: self.export_name.dup(rt),
-//             export_type: self.export_type.clone(),
-//             cached: self.cached.as_ref().map(|x| x.dup(rt)),
-//         }
-//     }
-// }
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum ExportType {
