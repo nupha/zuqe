@@ -119,7 +119,7 @@ fn get_time_ms() -> u64 {
 fn js_os_poll(ctx: Context) -> bool {
     let ctx = &ctx;
 
-    unsafe {
+    let need_next_poll = {
         // only check signals in the main thread
         if os_pending_signals.get() != 0 {
             let ret = SIG_HANDLERS.with_borrow(|lut| {
@@ -185,7 +185,7 @@ fn js_os_poll(ctx: Context) -> bool {
             std::ptr::null_mut()
         };
 
-        RW_HANDLERS.with_borrow_mut(|rws| {
+        let poll_fd = RW_HANDLERS.with_borrow_mut(|rws| unsafe {
             if !rws.is_empty() {
                 let mut rfds = std::mem::zeroed::<libc::fd_set>();
                 let mut wfds = std::mem::zeroed::<libc::fd_set>();
@@ -230,14 +230,25 @@ fn js_os_poll(ctx: Context) -> bool {
                     }
                 } else if ret == -1 {
                     // error
-                    let eno = libc::__error();
-                    eprintln!("Error: fd select errno {}", *eno);
+                    let eno = *libc::__error();
+                    if eno == libc::EINTR {
+                        // interrupt
+                        return false;
+                    } else {
+                        eprintln!("Error: fd select got errno {}. ingored", eno);
+                    }
                 }
+
+                true
+            } else {
+                false
             }
         });
-    }
 
-    true
+        poll_fd || min_tv.is_some()
+    };
+
+    need_next_poll
 }
 
 pub fn mod_os_gc_trace(tracer: &mut GcTracer) {
