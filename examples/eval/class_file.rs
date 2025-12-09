@@ -155,8 +155,7 @@ pub(super) fn js_file_puts(cc: CallContext) -> JSResult {
 }
 
 fn js_file_flush(cc: CallContext) -> JSResult {
-    let fh = js_file_get_desc_mut(cc.context(), *cc.this())?;
-    match fh {
+    match js_file_get_desc_mut(cc.context(), *cc.this())? {
         FileDesc::File(f) => {
             let _ = f.flush().inspect_err(|e| {
                 eprintln!("Error: {}", e);

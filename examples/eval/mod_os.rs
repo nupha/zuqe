@@ -123,6 +123,8 @@ fn js_os_poll(ctx: Context) -> bool {
     let need_next_poll = {
         // only check signals in the main thread
         if OS_PENDING_SIGNALS.get() != 0 {
+            println!("[O.o] OS_PENDING_SIGNALS={}", OS_PENDING_SIGNALS.get());
+
             let ret = SIG_HANDLERS.with_borrow(|lut| {
                 for (sig_num, func) in lut {
                     let mask = 1_u64 << *sig_num;
@@ -130,7 +132,7 @@ fn js_os_poll(ctx: Context) -> bool {
                     if p & mask != 0 {
                         OS_PENDING_SIGNALS.set(p & !mask);
                         if func.call(ctx, JSValue::UNDEFINED, &[]).is_err() {
-                            println!("Error: {:?}", ctx.rt_ref().exception().to_string(ctx));
+                            eprintln!("Error: {:?}", ctx.rt_ref().exception().to_string(ctx));
                         }
                         return Some(true);
                     }

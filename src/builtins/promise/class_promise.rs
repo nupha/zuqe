@@ -19,9 +19,8 @@ use super::{
 // Instance methods
 //
 
-pub fn js_promise_then(cc: CallContext) -> JSResult {
+fn js_promise_then(cc: CallContext) -> JSResult {
     let mut this = *cc.this();
-
     if let Some(p) = this.as_object_Promise_mut() {
         p.then(&mut cc.context(), *cc.arg(0), *cc.arg(1))
             .map(|p| p.into())
@@ -31,7 +30,7 @@ pub fn js_promise_then(cc: CallContext) -> JSResult {
     }
 }
 
-pub fn js_promise_catch(cc: CallContext) -> JSResult {
+fn js_promise_catch(cc: CallContext) -> JSResult {
     cc.this().invoke(
         cc.ctx(),
         Atom::CONST_then,

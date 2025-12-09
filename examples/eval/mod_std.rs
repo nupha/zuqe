@@ -1,4 +1,4 @@
-use std::{cell::Cell, os::unix::thread};
+use std::cell::Cell;
 
 use once_cell::sync::Lazy;
 use zhuque::{
@@ -81,12 +81,6 @@ fn js_std_open(cc: CallContext) -> JSResult {
 }
 
 fn js_evalScript(mut cc: CallContext) -> JSResult {
-    // let rt: *mut JSRuntime = JS_GetRuntime(ctx);
-    // let ts: *mut JSThreadState = JS_GetRuntimeOpaque(rt) as *mut JSThreadState;
-    // let str: *const ::std::os::raw::c_char;
-    // let len: usize;
-    // let ret: JSValue;
-    // let options_obj: JSValueConst;
     let mut backtrace_barrier = false;
     let mut is_async = false;
 
@@ -128,7 +122,6 @@ fn js_evalScript(mut cc: CallContext) -> JSResult {
         flags |= JS_EVAL_FLAG_ASYNC;
     }
 
-    // ret = JS_Eval(ctx, str, len, c"<evalScript>", flags);
     let ret = cc.ctx_mut().eval(
         str.content().encode_utf8_bytes().as_ref(),
         "<evalScript>",

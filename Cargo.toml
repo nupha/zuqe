@@ -26,9 +26,9 @@ default = [
     "all_unicode",
     "atomics",
 
-    "dump_leaks",
-    "dump_objects",
-    #"dump_bytecode",
+    #"dump_leaks",
+    #"dump_objects",
+    "dump_bytecode",
 ]
 
 [profile.release]

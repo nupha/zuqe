@@ -300,7 +300,7 @@ impl JSFunctionDef {
         })?);
 
         #[cfg(feature = "dump_bytecode")]
-        if self.attrs.js_mode & JS_MODE_STRIP as u8 == 0 {
+        if !self.attrs.js_mode.contains(EvalMode::STRIP) {
             bc.dump(ctx);
         }
 

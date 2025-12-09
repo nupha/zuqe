@@ -102,6 +102,8 @@ impl RuntimeImpl {
     pub fn execute_job(&mut self) -> Result<Option<()>, i32> {
         let mut has_pending = false;
 
+        println!("[O.o] exec jobs");
+
         //exec context jobs
         for ctx in self.context_list.iter() {
             let n = ctx.job_list.len();

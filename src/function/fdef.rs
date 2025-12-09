@@ -345,7 +345,9 @@ impl JSFunctionDef {
 
     #[cfg(feature = "dump_bytecode")]
     pub fn dump_bytecode(&self, ctx: &ContextImpl, pass: i32) {
-        if self.attrs.js_mode & JS_MODE_STRIP as u8 == 0 {
+        use crate::context::EvalMode;
+
+        if !self.attrs.js_mode.contains(EvalMode::STRIP) {
             println!("pass {pass}");
 
             crate::bytecode::dump_opcodes(

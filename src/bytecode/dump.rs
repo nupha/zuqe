@@ -3,7 +3,7 @@
 use crate::{
     atom::Atom,
     bytecode::OpcodeFormat,
-    context::{ContextImpl, ContextPtr, JS_MODE_ASYNC, JS_MODE_STRICT},
+    context::{ContextImpl, ContextPtr, EvalMode},
     function::{
         Bytecode, JSClosureVar, JSFunctionKindEnum, JSVarDef, JSVarKindEnum, Label, PC2LINE_BASE,
         PC2LINE_OP_FIRST, PC2LINE_RANGE,
@@ -432,12 +432,12 @@ impl Bytecode {
             self.func_name.to_utf8(),
         );
 
-        if self.mode() != 0 {
+        if !self.mode().is_empty() {
             print!("  mode:");
-            if self.mode() & JS_MODE_STRICT as u8 != 0 {
+            if self.mode().contains(EvalMode::STRICT) {
                 print!(" strict");
             }
-            if self.mode() & JS_MODE_ASYNC as u8 != 0 {
+            if self.mode().contains(EvalMode::ASYNC) {
                 print!(" async");
             }
             println!();
