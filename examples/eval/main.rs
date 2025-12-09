@@ -10,6 +10,7 @@ use std::time::Instant;
 
 use colorized::{Colors::*, colorize_println};
 use zhuque::{
+    atom::Atom,
     builtins::promise::{Promise, PromiseState},
     context::Context,
     eval::JS_EVAL_TYPE_GLOBAL,
@@ -103,7 +104,17 @@ fn main() {
                         promise = None;
                     }
                     PromiseState::Rejected => {
-                        colorize_println(format!("{}", p.result().to_string(&ctx).unwrap()), RedFg);
+                        let r = p.result();
+                        colorize_println(format!("{}", r.to_string(&ctx).unwrap()), RedFg);
+
+                        match r.get_property(&ctx, Atom::CONST_stack) {
+                            Ok(JSValue::NULL) | Ok(JSValue::UNDEFINED) => {}
+                            Ok(s) => {
+                                let ss = s.inspect(&ctx).unwrap();
+                                colorize_println(ss, RedFg);
+                            }
+                            Err(_) => {}
+                        }
                         promise = None;
                     }
                     _ => {}
@@ -126,10 +137,20 @@ fn main() {
                                     );
                                 }
                                 PromiseState::Rejected => {
+                                    let r = p.result();
                                     colorize_println(
-                                        format!("{}", p.result().to_string(&ctx).unwrap()),
+                                        format!("{}", r.to_string(&ctx).unwrap()),
                                         RedFg,
                                     );
+
+                                    match r.get_property(&ctx, Atom::CONST_stack) {
+                                        Ok(JSValue::NULL) | Ok(JSValue::UNDEFINED) => {}
+                                        Ok(s) => {
+                                            let ss = s.inspect(&ctx).unwrap();
+                                            colorize_println(ss, RedFg);
+                                        }
+                                        Err(_) => {}
+                                    }
                                 }
                                 _ => {
                                     unreachable!()

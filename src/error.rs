@@ -305,7 +305,7 @@ impl ContextImpl {
         file_line: Option<(&str, i32)>,
         backtrace_flags: i32,
     ) {
-        let tb_val = if let Ok(s) = self.do_build_backtrace(target, file_line, backtrace_flags) {
+        let traceback = if let Ok(s) = self.do_build_backtrace(target, file_line, backtrace_flags) {
             self.create_string_from_utf8(s.into_bytes())
                 .map_or(JSValue::UNDEFINED, JSValue::String)
         } else {
@@ -315,7 +315,7 @@ impl ContextImpl {
         let _ = target.define_property_value(
             self,
             Atom::CONST_stack,
-            tb_val,
+            traceback,
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
         );
     }
