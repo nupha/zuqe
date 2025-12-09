@@ -487,9 +487,9 @@ impl ModuleDef {
                 .map_err(|_| ctx.rt().take_exception())?;
 
             match promise.state() {
-                PromiseState::JS_PROMISE_FULFILLED => Ok(()),
-                PromiseState::JS_PROMISE_REJECTED => Err(promise.result()),
-                PromiseState::JS_PROMISE_PENDING => {
+                PromiseState::Fulfilled => Ok(()),
+                PromiseState::Rejected => Err(promise.result()),
+                PromiseState::Pending => {
                     ctx.throw_type_error("promise is pending");
                     Err(ctx.rt().take_exception())
                 }

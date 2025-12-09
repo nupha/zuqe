@@ -60,9 +60,6 @@ pub struct RuntimeImpl {
     pub(crate) interrupt_handler: Option<JSInterruptHandler>,
     pub(crate) interrupt_opaque: *mut c_void,
 
-    pub(crate) host_promise_rejection_tracker: Option<JSHostPromiseRejectionTracker>,
-    pub(crate) host_promise_rejection_tracker_opaque: *mut c_void,
-
     pub(crate) module_normalize_func: Option<ModuleNormalizeFn>,
     pub(crate) module_load_func: Option<ModuleLoadFn>,
     pub(crate) module_load_opaque: *mut c_void,
@@ -87,6 +84,11 @@ pub struct RuntimeImpl {
     pub(crate) gc_req: bool,
     /// user defined gc trace callback
     pub(crate) gc_user_trace: Option<Box<dyn Fn(&mut GcTracer)>>,
+
+    #[deprecated]
+    pub(crate) host_promise_rejection_tracker: Option<JSHostPromiseRejectionTracker>,
+    #[deprecated]
+    pub(crate) host_promise_rejection_tracker_opaque: *mut c_void,
 }
 
 impl Drop for RuntimeImpl {

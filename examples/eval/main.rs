@@ -95,14 +95,14 @@ fn main() {
             let mut promise = Promise::try_from(v).ok();
             if let Some(p) = promise {
                 match p.state() {
-                    PromiseState::JS_PROMISE_FULFILLED => {
+                    PromiseState::Fulfilled => {
                         colorize_println(
                             format!("{}", p.result().to_string(&ctx).unwrap()),
                             GreenFg,
                         );
                         promise = None;
                     }
-                    PromiseState::JS_PROMISE_REJECTED => {
+                    PromiseState::Rejected => {
                         colorize_println(format!("{}", p.result().to_string(&ctx).unwrap()), RedFg);
                         promise = None;
                     }
@@ -119,13 +119,13 @@ fn main() {
                     Ok(false) => {
                         if let Some(p) = promise {
                             match p.state() {
-                                PromiseState::JS_PROMISE_FULFILLED => {
+                                PromiseState::Fulfilled => {
                                     colorize_println(
                                         format!("{}", p.result().to_string(&ctx).unwrap()),
                                         GreenFg,
                                     );
                                 }
-                                PromiseState::JS_PROMISE_REJECTED => {
+                                PromiseState::Rejected => {
                                     colorize_println(
                                         format!("{}", p.result().to_string(&ctx).unwrap()),
                                         RedFg,

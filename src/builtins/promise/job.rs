@@ -6,13 +6,13 @@ use super::Promise;
 
 pub(crate) struct Job {
     run: Box<dyn FnOnce() -> JSResult>,
-    trace: Option<Box<dyn Fn(&mut GcTracer)>>,
+    gc_trace: Option<Box<dyn Fn(&mut GcTracer)>>,
 }
 
 unsafe impl GcTracable for Job {
     #[inline(always)]
     fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        if let Some(f) = self.trace.as_ref() {
+        if let Some(f) = self.gc_trace.as_ref() {
             f(tracer)
         }
     }
@@ -27,14 +27,14 @@ impl Job {
 
 impl ContextImpl {
     /// Append a job to job queue.
-    pub(crate) fn queue_job_with_trace(
+    pub(crate) fn queue_job_with_gc_trace(
         &mut self,
         run: impl FnOnce() -> JSResult + 'static,
-        trace: impl Fn(&mut GcTracer) + 'static,
+        gc_trace: impl Fn(&mut GcTracer) + 'static,
     ) {
         self.job_list.push_back(Job {
             run: Box::new(run),
-            trace: Some(Box::new(trace)),
+            gc_trace: Some(Box::new(gc_trace)),
         });
     }
 }

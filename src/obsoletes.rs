@@ -605,12 +605,12 @@ unsafe fn js_promise_executor_new(ctx: ContextPtr) -> JSValue {
     unreachable!("unused");
 }
 
-#[deprecated(note = "use JSPromiseReactionData::dispose() instead")]
+#[deprecated(note = "use PromiseReaction::dispose() instead")]
 pub(super) unsafe fn promise_reaction_data_free(
     rt: *mut RuntimeImpl,
-    rd: *mut c_void, // JSPromiseReactionData,
+    rd: *mut c_void, // PromiseReaction,
 ) {
-    unreachable!("use JSPromiseReactionData::dispose() instead");
+    unreachable!("use PromiseReaction::dispose() instead");
 }
 
 #[deprecated(note = "use ContextPtr::create_promise() instead")]

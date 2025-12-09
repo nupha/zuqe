@@ -325,12 +325,12 @@ fn run_test_script(
     if let Some(promise) = promise {
         // check if the returned promise is fulfilled
         match promise.state() {
-            PromiseState::JS_PROMISE_FULFILLED => {}
-            PromiseState::JS_PROMISE_REJECTED => {
+            PromiseState::Fulfilled => {}
+            PromiseState::Rejected => {
                 ctx.throw(promise.result());
                 return Err(-1);
             }
-            PromiseState::JS_PROMISE_PENDING => {
+            PromiseState::Pending => {
                 ctx.throw_type_error("promise is pending");
                 return Err(-1);
             }

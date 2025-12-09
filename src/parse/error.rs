@@ -28,7 +28,8 @@ impl<'s> JSParseState<'s> {
 
     #[cold]
     pub fn throw_syntax_error(&self, message: &str) {
-        self.ctx.throw_error_ex(ErrorKind::Syntax, message, false);
+        self.ctx
+            .throw_error_internal(ErrorKind::Syntax, message, false);
 
         let backtrace_flags =
             if !self.cur_func_def.is_null() && self.cur_func().attrs.backtrace_barrier {

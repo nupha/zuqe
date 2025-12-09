@@ -495,22 +495,18 @@ fn js_async_generator_resolve_function(cc: CallContext) -> JSResult {
             debug_assert_eq!(s.state.get(), AGenState::JS_ASYNC_GENERATOR_STATE_EXECUTING);
 
             s.set_throw_flag(is_reject);
-
-            if is_reject {
+            if unlikely(is_reject) {
                 ctx.throw(arg);
             } else {
-                // return value of await.
+                // set return value of await.
                 unsafe {
-                    std::ptr::replace(
-                        s.func_state
-                            .frame
-                            // HINT: stack_cur_ptr advances the addr of stack top value by 1.
-                            // subtract 1 to access stack top value addr.
-                            .stack_cur_ptr()
-                            .offset(-1)
-                            .as_ptr(),
-                        arg,
-                    );
+                    *s.func_state
+                        .frame
+                        // HINT: stack_cur_ptr() advances the stack top addr by 1,
+                        // subtract 1 to access stack top.
+                        .stack_cur_ptr()
+                        .offset(-1)
+                        .as_ptr() = arg;
                 }
             }
 

@@ -48,8 +48,7 @@ pub const JS_THROW_ERROR_DELETE_SUPER: u8 = 3;
 pub const JS_THROW_ERROR_ITERATOR_THROW: u8 = 4;
 
 impl ContextImpl {
-    /// put `obj` to current_exception, free old exception.
-    /// Note: `obj` is consumed.
+    /// put `obj` to current_exception.
     #[inline(never)]
     #[cold]
     pub fn throw(&self, obj: JSValue) {
@@ -63,11 +62,11 @@ impl ContextImpl {
     }
 
     /// make error object and throw it as current exception.
-    /// old exception will be freed.
     #[cold]
-    pub(crate) fn throw_error_ex(&self, kind: ErrorKind, message: &str, add_backtrace: bool) {
-        let proto = self.native_error_proto[kind as usize].as_object().cloned();
-        let exc = if let Ok(mut o) = self.create_object_with_proto(proto, ObjectPayload::ERROR) {
+    pub(crate) fn throw_error_internal(&self, kind: ErrorKind, message: &str, add_backtrace: bool) {
+        let proto = self.native_error_proto[kind as usize].as_object().copied();
+        let exc_val = if let Ok(mut o) = self.create_object_with_proto(proto, ObjectPayload::ERROR)
+        {
             let s = self.create_string_from_str(message);
             let _ = o.define_property_value(
                 self,
@@ -86,7 +85,7 @@ impl ContextImpl {
             JSValue::NULL
         };
 
-        self.throw(exc);
+        self.throw(exc_val);
     }
 
     /// make error object and throw it as current exception.
@@ -95,13 +94,13 @@ impl ContextImpl {
     pub fn throw_error(&self, kind: ErrorKind, message: &str) {
         let rt = self.rt_ref();
 
-        // the backtrace is added later if called from a bytecode function
+        // add backtrace if called from a bytecode function
         let add_backtrace = !rt.in_out_of_memory
             && rt
                 .current_stack_frame()
                 .is_none_or(|sf| sf.cur_func.as_object_BCFunction().is_some());
 
-        self.throw_error_ex(kind, message, add_backtrace);
+        self.throw_error_internal(kind, message, add_backtrace);
     }
 
     #[inline(always)]

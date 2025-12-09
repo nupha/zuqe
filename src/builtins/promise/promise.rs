@@ -18,9 +18,7 @@ use crate::{
     value::JSValue,
 };
 
-use super::{
-    JSPromiseReactionData, PromiseResolvePayload, js_promise_funcs, js_promise_proto_funcs,
-};
+use super::{PromiseReaction, PromiseResolvePayload, js_promise_funcs, js_promise_proto_funcs};
 
 pub type JSHostPromiseRejectionTracker = fn(
     ctx: &ContextImpl,
@@ -33,78 +31,72 @@ pub type JSHostPromiseRejectionTracker = fn(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum PromiseState {
-    JS_PROMISE_PENDING,
-    JS_PROMISE_FULFILLED,
-    JS_PROMISE_REJECTED,
+    Pending,
+    Fulfilled,
+    Rejected,
 }
 
 #[derive(Debug)]
-pub struct PromisePayload {
-    promise_state: PromiseState,
-
-    /// list of pending reactions:
-    /// #0 for fulfill, #1 for reject.
-    promise_reactions: [Vec<JSPromiseReactionData>; 2],
-
-    promise_result: JSValue,
+pub struct PromiseData {
+    state: PromiseState,
+    /// list of pending reactions: #0 for fulfills, #1 for rejects.
+    reactions: [Vec<PromiseReaction>; 2],
+    /// promise result
+    result: JSValue,
 
     /// Note: only useful to debug
     is_handled: bool,
 }
 
-unsafe impl GcTracable for PromisePayload {
+unsafe impl GcTracable for PromiseData {
     #[inline(always)]
     fn trace(&self, tracer: &mut gc_lite::GcTracer) {
-        self.promise_reactions[0]
-            .iter()
-            .for_each(|x| x.trace(tracer));
-
-        self.promise_reactions[1]
-            .iter()
-            .for_each(|x| x.trace(tracer));
-
-        self.promise_result.trace(tracer);
+        self.reactions[0].iter().for_each(|x| x.trace(tracer));
+        self.reactions[1].iter().for_each(|x| x.trace(tracer));
+        self.result.trace(tracer);
     }
 }
 
-impl PromisePayload {
+impl PromiseData {
     #[inline(always)]
     pub const fn state(&self) -> PromiseState {
-        self.promise_state
+        self.state
     }
 
     #[inline(always)]
-    pub const fn set_state(&mut self, s: PromiseState) {
-        self.promise_state = s
+    pub(crate) const fn set_state(&mut self, s: PromiseState) {
+        self.state = s
     }
 
     #[inline(always)]
     pub const fn result(&self) -> JSValue {
-        self.promise_result
+        self.result
     }
 
-    pub const fn set_result(&mut self, val: JSValue) {
-        self.promise_result = val;
+    #[inline(always)]
+    pub(crate) const fn set_result(&mut self, val: JSValue) {
+        self.result = val;
     }
 
     /// add pending reaction callback functions
-    pub(super) fn add_reaction(
-        &mut self,
-        success: JSPromiseReactionData,
-        fail: JSPromiseReactionData,
-    ) {
-        self.promise_reactions[0].push(success);
-        self.promise_reactions[1].push(fail);
+    #[inline]
+    pub(super) fn add_reaction(&mut self, success: PromiseReaction, fail: PromiseReaction) {
+        self.reactions[0].push(success);
+        self.reactions[1].push(fail);
     }
 
     /// take pending reactions out, reset reactions list to empty.
-    pub(super) fn take_reactions(&mut self) -> [Vec<JSPromiseReactionData>; 2] {
-        std::mem::take(&mut self.promise_reactions)
+    #[inline(always)]
+    pub(super) fn take_reactions(&mut self) -> [Vec<PromiseReaction>; 2] {
+        std::mem::take(&mut self.reactions)
     }
 
+    #[inline(always)]
     pub(super) const fn is_handled(&self) -> bool {
         self.is_handled
     }
+
+    #[inline(always)]
     pub(super) const fn set_handled(&mut self, v: bool) {
         self.is_handled = v;
     }
@@ -131,10 +123,10 @@ impl Promise {
         executor.ensure_function(ctx)?;
 
         // create js object of promise class
-        let isa = Box::new(PromisePayload {
-            promise_state: PromiseState::JS_PROMISE_PENDING,
-            promise_reactions: [Vec::new(), Vec::new()],
-            promise_result: JSValue::UNDEFINED,
+        let isa = Box::new(PromiseData {
+            state: PromiseState::Pending,
+            reactions: [Vec::new(), Vec::new()],
+            result: JSValue::UNDEFINED,
             is_handled: false,
         });
         let promise = Self(
@@ -195,7 +187,7 @@ impl Promise {
         }
     }
 
-    /// create default Promise and associated resolving functions.
+    /// create default Promise and its associated resolving functions.
     /// returns a Promise object and \[resolve, reject\] functions pair.
     #[inline]
     pub fn create(ctx: &ContextImpl) -> Result<(Self, [JSValue; 2]), i32> {
@@ -244,9 +236,9 @@ impl Promise {
 
     /// get Promise payload
     #[inline(always)]
-    pub fn payload(&self) -> &PromisePayload {
-        if let ObjectPayload::PROMISE(p) = unsafe { self.0.as_ref().payload() } {
-            p.as_ref()
+    pub fn payload(&self) -> &PromiseData {
+        if let Some(p) = unsafe { self.0.as_ref().payload().promise() } {
+            p
         } else {
             #[cfg(debug_assertions)]
             unreachable!();
@@ -259,9 +251,9 @@ impl Promise {
 
     /// get Promise payload
     #[inline(always)]
-    pub fn payload_mut(&mut self) -> &mut PromisePayload {
-        if let ObjectPayload::PROMISE(p) = unsafe { self.0.as_mut().payload_mut() } {
-            p.as_mut()
+    pub fn payload_mut(&mut self) -> &mut PromiseData {
+        if let Some(p) = unsafe { self.0.as_mut().payload_mut().promise_mut() } {
+            p
         } else {
             #[cfg(debug_assertions)]
             unreachable!();

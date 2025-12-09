@@ -54,7 +54,7 @@ pub fn js_dynamic_import(ctx: &mut ContextImpl, specifier: JSValue) -> JSResult 
     let cx = unsafe { ContextPtr::from_ref_unchecked(ctx) };
     let rr = resolving_funcs;
 
-    ctx.queue_job_with_trace(
+    ctx.queue_job_with_gc_trace(
         move || {
             let _ = js_dynamic_import_job(cx, resolving_funcs, basename, specifier);
             Ok(JSValue::UNDEFINED)

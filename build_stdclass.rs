@@ -134,7 +134,7 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|
     );
     m.insert(
         PayloadKey::Promise,
-        "Box<crate::builtins::promise::PromisePayload>",
+        "Box<crate::builtins::promise::PromiseData>",
     );
     m.insert(
         PayloadKey::PromiseResolvingFunction,

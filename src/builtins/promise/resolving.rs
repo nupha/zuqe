@@ -75,8 +75,10 @@ impl PromiseResolveFunc {
                 s.promise.fulfill_or_reject(cx, arg0, is_reject);
                 return Ok(JSValue::UNDEFINED);
             } else if unlikely(arg0.is_same(s.promise.into())) {
-                ctx.throw_type_error("promise self resolution");
-                s.promise.reject(cx, ctx.rt().take_exception());
+                s.promise.reject(cx, {
+                    ctx.throw_type_error("promise self resolution");
+                    ctx.rt().take_exception()
+                });
                 return Ok(JSValue::UNDEFINED);
             } else if let Ok(then) = arg0.get_property(&ctx, Atom::CONST_then) {
                 if !then.is_function() {
@@ -85,7 +87,7 @@ impl PromiseResolveFunc {
                     let promise = s.promise;
                     let promise2 = promise;
                     let cx2 = cx;
-                    ctx.queue_job_with_trace(
+                    ctx.queue_job_with_gc_trace(
                         move || js_promise_resolve_thenable_job(&cx2, promise, arg0, then),
                         move |tracer| {
                             promise2.trace(tracer);
@@ -104,12 +106,12 @@ impl PromiseResolveFunc {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct JSPromiseReactionData {
+pub(super) struct PromiseReaction {
     pub(super) resolving_funcs: [JSValue; 2],
     pub(super) handler: JSValue,
 }
 
-unsafe impl GcTracable for JSPromiseReactionData {
+unsafe impl GcTracable for PromiseReaction {
     #[inline(always)]
     fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         self.resolving_funcs[0].trace(tracer);
@@ -118,7 +120,7 @@ unsafe impl GcTracable for JSPromiseReactionData {
     }
 }
 
-impl Default for JSPromiseReactionData {
+impl Default for PromiseReaction {
     fn default() -> Self {
         Self {
             resolving_funcs: [const { JSValue::UNDEFINED }; 2],
@@ -140,7 +142,7 @@ impl Promise {
         reaction_funcs: [JSValue; 2],
         cap_resolving_funcs: [JSValue; 2],
     ) -> Result<(), i32> {
-        let success = JSPromiseReactionData {
+        let success = PromiseReaction {
             resolving_funcs: [cap_resolving_funcs[0], cap_resolving_funcs[1]],
             handler: {
                 let h = reaction_funcs[0];
@@ -152,7 +154,7 @@ impl Promise {
             },
         };
 
-        let fail = JSPromiseReactionData {
+        let fail = PromiseReaction {
             resolving_funcs: [cap_resolving_funcs[0], cap_resolving_funcs[1]],
             handler: {
                 let h = reaction_funcs[1];
@@ -170,12 +172,11 @@ impl Promise {
         };
 
         match state {
-            PromiseState::JS_PROMISE_PENDING => {
+            PromiseState::Pending => {
                 self.payload_mut().add_reaction(success, fail);
             }
             state => {
-                // queue as job
-                if state == PromiseState::JS_PROMISE_REJECTED
+                if state == PromiseState::Rejected
                     && !is_handled
                     && let Some(cb) = ctx.rt().host_promise_rejection_tracker
                 {
@@ -188,31 +189,34 @@ impl Promise {
                     );
                 }
 
-                let act = if state == PromiseState::JS_PROMISE_FULFILLED {
+                let action = if state == PromiseState::Fulfilled {
                     success
                 } else {
                     fail
                 };
 
-                let is_reject = state == PromiseState::JS_PROMISE_REJECTED;
-                let mut cx = unsafe { ContextPtr::from_ref_unchecked(ctx) };
-                let act2 = act.clone();
+                // add to job list
+                {
+                    let is_reject = state == PromiseState::Rejected;
+                    let mut cx = unsafe { ContextPtr::from_ref_unchecked(ctx) };
+                    let act2 = action.clone();
 
-                ctx.queue_job_with_trace(
-                    move || {
-                        promise_reaction_job(
-                            &mut cx,
-                            act.resolving_funcs,
-                            act.handler,
-                            is_reject,
-                            result,
-                        )
-                    },
-                    move |tracer| {
-                        act2.trace(tracer);
-                        result.trace(tracer);
-                    },
-                );
+                    ctx.queue_job_with_gc_trace(
+                        move || {
+                            promise_reaction_job(
+                                &mut cx,
+                                action.resolving_funcs,
+                                action.handler,
+                                is_reject,
+                                result,
+                            )
+                        },
+                        move |tracer| {
+                            act2.trace(tracer);
+                            result.trace(tracer);
+                        },
+                    );
+                }
             }
         }
 
@@ -245,22 +249,22 @@ impl Promise {
         value: JSValue,
         is_reject: bool,
     ) {
-        let (promise_state, is_handled) = {
+        let (state, is_handled) = {
             let p = self.payload_mut();
-            debug_assert_eq!(p.state(), PromiseState::JS_PROMISE_PENDING);
+            debug_assert_eq!(p.state(), PromiseState::Pending);
 
-            let state = if is_reject {
-                PromiseState::JS_PROMISE_REJECTED
+            let s = if is_reject {
+                PromiseState::Rejected
             } else {
-                PromiseState::JS_PROMISE_FULFILLED
+                PromiseState::Fulfilled
             };
-            p.set_state(state);
+            p.set_state(s);
             p.set_result(value);
 
-            (state, p.is_handled())
+            (s, p.is_handled())
         };
 
-        if promise_state == PromiseState::JS_PROMISE_REJECTED
+        if state == PromiseState::Rejected
             && !is_handled
             && let Some(f) = ctx.rt().host_promise_rejection_tracker
         {
@@ -281,7 +285,7 @@ impl Promise {
             let val = value;
             let act2 = act.clone();
 
-            ctx.queue_job_with_trace(
+            ctx.queue_job_with_gc_trace(
                 move || {
                     promise_reaction_job(
                         &mut ctx2,
