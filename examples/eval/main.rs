@@ -94,22 +94,26 @@ fn main() {
             // }
 
             let mut promise = Promise::try_from(v).ok();
-            if let Some(p) = promise {
+            let result = if let Some(p) = promise {
                 match p.state() {
                     PromiseState::Fulfilled => {
-                        colorize_println(
-                            format!("{}", p.result().to_string(&ctx).unwrap()),
-                            GreenFg,
-                        );
+                        // colorize_println(
+                        //     format!("{}", p.result().to_string(&ctx).unwrap()),
+                        //     GreenFg,
+                        // );
                         promise = None;
+                        p.result()
                     }
                     PromiseState::Rejected => {
                         print_exception(ctx, p.result());
                         promise = None;
+                        JSValue::UNDEFINED
                     }
-                    _ => {}
+                    _ => JSValue::UNDEFINED,
                 }
-            }
+            } else {
+                v
+            };
 
             loop {
                 match rt.tick() {
@@ -133,21 +137,26 @@ fn main() {
                                     unreachable!()
                                 }
                             }
+                        } else {
+                            colorize_println(
+                                format!("{}", result.to_string(&ctx).unwrap()),
+                                GreenFg,
+                            );
                         }
                         break;
                     }
                     Err(_) => {
                         eprintln!("--- Error in tick ---");
-
                         let exc = ctx.rt_ref().exception();
                         debug_assert!(!exc.is_undefined_or_null()); // FIXME: this assert fails!
+                        print_exception(ctx, exc);
 
-                        eprintln!("!!! EXCEPTION {exc:?}: {:?}", exc.to_string(&ctx));
+                        // eprintln!("!!! EXCEPTION {exc:?}: {:?}", exc.to_string(&ctx));
+                        // #[cfg(debug_assertions)]
+                        // if let JSValue::Object(o) = exc {
+                        //     o.dump(ctx.rt_ref());
+                        // };
 
-                        #[cfg(debug_assertions)]
-                        if let JSValue::Object(o) = exc {
-                            o.dump(ctx.rt_ref());
-                        };
                         break;
                     }
                 }
@@ -157,16 +166,16 @@ fn main() {
             let exc = ctx.rt_ref().exception();
             debug_assert!(!exc.is_undefined_or_null());
             rt.gc_set_root_value(exc, true);
+            print_exception(ctx, exc);
 
-            eprintln!(
-                "!!! EXCEPTION {exc:?}: {:?}",
-                ctx.rt_ref().exception().to_string(&ctx)
-            );
-
-            #[cfg(debug_assertions)]
-            if let JSValue::Object(o) = exc {
-                o.dump(ctx.rt_ref());
-            };
+            // eprintln!(
+            //     "!!! EXCEPTION {exc:?}: {:?}",
+            //     ctx.rt_ref().exception().to_string(&ctx)
+            // );
+            // #[cfg(debug_assertions)]
+            // if let JSValue::Object(o) = exc {
+            //     o.dump(ctx.rt_ref());
+            // };
         }
     }
 
