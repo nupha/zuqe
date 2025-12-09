@@ -99,21 +99,22 @@ struct Timer {
 }
 
 thread_local! {
+    static OS_PENDING_SIGNALS: Cell<u64> = const { Cell::new(0) };
     static RW_HANDLERS: RefCell<HashMap<i32, [JSValue; 2]>> = RefCell::new(HashMap::new());
-
     static SIG_HANDLERS: RefCell<HashMap<u32, JSValue>> = RefCell::new(HashMap::new());
 
     static TIMERS: RefCell<LinkedList<Timer>> = const { RefCell::new(LinkedList::new()) };
-
-    static os_pending_signals: Cell<u64> = Cell::new(0);
 }
 
 fn get_time_ms() -> u64 {
+    let mut ts = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
     unsafe {
-        let mut ts = std::mem::zeroed::<libc::timespec>();
         libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts);
-        ts.tv_sec as u64 * 1000 + (ts.tv_nsec as u64 / 1000000)
     }
+    ts.tv_sec as u64 * 1000 + (ts.tv_nsec as u64 / 1000000)
 }
 
 fn js_os_poll(ctx: Context) -> bool {
@@ -121,23 +122,23 @@ fn js_os_poll(ctx: Context) -> bool {
 
     let need_next_poll = {
         // only check signals in the main thread
-        if os_pending_signals.get() != 0 {
+        if OS_PENDING_SIGNALS.get() != 0 {
             let ret = SIG_HANDLERS.with_borrow(|lut| {
                 for (sig_num, func) in lut {
                     let mask = 1_u64 << *sig_num;
-                    let p = os_pending_signals.get();
+                    let p = OS_PENDING_SIGNALS.get();
                     if p & mask != 0 {
-                        os_pending_signals.set(p & !mask);
+                        OS_PENDING_SIGNALS.set(p & !mask);
                         if func.call(ctx, JSValue::UNDEFINED, &[]).is_err() {
                             println!("Error: {:?}", ctx.rt_ref().exception().to_string(ctx));
                         }
-                        return Some(0);
+                        return Some(true);
                     }
                 }
                 None
             });
-            if let Some(r) = ret {
-                return true;
+            if let Some(b) = ret {
+                return b;
             }
         }
 
@@ -396,7 +397,7 @@ fn js_os_signal(cc: CallContext) -> JSResult {
         });
 
         fn os_signal_handler(sig_num: i32) {
-            os_pending_signals.set(os_pending_signals.get() | (1_u64 << sig_num));
+            OS_PENDING_SIGNALS.set(OS_PENDING_SIGNALS.get() | (1_u64 << sig_num));
         }
 
         unsafe {
