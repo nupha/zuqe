@@ -123,8 +123,6 @@ fn js_os_poll(ctx: Context) -> bool {
     let need_next_poll = {
         // only check signals in the main thread
         if OS_PENDING_SIGNALS.get() != 0 {
-            println!("[O.o] OS_PENDING_SIGNALS={}", OS_PENDING_SIGNALS.get());
-
             let ret = SIG_HANDLERS.with_borrow(|lut| {
                 for (sig_num, func) in lut {
                     let mask = 1_u64 << *sig_num;
@@ -132,7 +130,10 @@ fn js_os_poll(ctx: Context) -> bool {
                     if p & mask != 0 {
                         OS_PENDING_SIGNALS.set(p & !mask);
                         if func.call(ctx, JSValue::UNDEFINED, &[]).is_err() {
-                            eprintln!("Error: {:?}", ctx.rt_ref().exception().to_string(ctx));
+                            eprintln!(
+                                "signal {sig_num} handle error: {:?}",
+                                ctx.rt_ref().exception().to_string(ctx)
+                            );
                         }
                         return Some(true);
                     }
@@ -161,7 +162,7 @@ fn js_os_poll(ctx: Context) -> bool {
                     if delay <= 0 {
                         let func = std::mem::replace(&mut tm.func, JSValue::UNDEFINED);
                         if func.call(ctx, JSValue::UNDEFINED, &[]).is_err() {
-                            println!("Error: {:?}", ctx.rt_ref().exception().to_string(ctx));
+                            eprintln!("Timer error: {:?}", ctx.rt_ref().exception().to_string(ctx));
                         }
                     } else if delay < min_delay {
                         min_delay = delay;
@@ -217,7 +218,7 @@ fn js_os_poll(ctx: Context) -> bool {
                             && rh[0].call(ctx, JSValue::UNDEFINED, &[]).is_err()
                         {
                             eprintln!(
-                                "Error: {}",
+                                "read handler error: {}",
                                 ctx.rt_ref().exception().to_string(ctx).unwrap()
                             );
                             break;
@@ -228,7 +229,7 @@ fn js_os_poll(ctx: Context) -> bool {
                             && rh[1].call(ctx, JSValue::UNDEFINED, &[]).is_err()
                         {
                             eprintln!(
-                                "Error: {}",
+                                "write handler error: {}",
                                 ctx.rt_ref().exception().to_string(ctx).unwrap()
                             );
                             break;
@@ -241,7 +242,7 @@ fn js_os_poll(ctx: Context) -> bool {
                         // interrupt
                         return false;
                     } else {
-                        eprintln!("Error: fd select got errno {}. ingored", eno);
+                        eprintln!("select error: {}. ingored", eno);
                     }
                 }
 
