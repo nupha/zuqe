@@ -177,7 +177,10 @@ fn js_os_poll(ctx: Context) -> bool {
                 };
                 Some(tv)
             } else {
-                // Some(std::mem::zeroed::<libc::timeval>())
+                // Some(libc::timeval {
+                //     tv_sec: 0,
+                //     tv_usec: 0,
+                // })
                 None
             }
         });

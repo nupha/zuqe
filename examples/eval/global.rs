@@ -49,36 +49,6 @@ pub fn setup_globals(ctx: Context) -> Result<(), i32> {
 
     let printf = Callback::Func(js_print);
 
-    // global.set_property_str(
-    //     ctx,
-    //     "print",
-    //     ctx.create_native_function(printf, "print", 0, 0)?.into(),
-    // )?;
-    // global.set_property_str(
-    //     ctx,
-    //     "debug",
-    //     ctx.create_native_function(printf, "debug", 0, 1)?.into(),
-    // )?;
-    // global.set_property_str(
-    //     ctx,
-    //     "info",
-    //     ctx.create_native_function(printf, "info", 0, 2)?.into(),
-    // )?;
-    // global.set_property_str(
-    //     ctx,
-    //     "warn",
-    //     ctx.create_native_function(printf, "warn", 0, 3)
-    //         .unwrap()
-    //         .into(),
-    // )?;
-    // global.set_property_str(
-    //     ctx,
-    //     "error",
-    //     ctx.create_native_function(printf, "error", 0, 4)
-    //         .unwrap()
-    //         .into(),
-    // )?;
-
     let f = ctx.create_native_function(
         Callback::Func(|cc: CallContext| {
             let ctx1 = cc.context().rt_mut().create_context_ecma()?;

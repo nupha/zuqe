@@ -152,6 +152,12 @@ fn js_evalScript(mut cc: CallContext) -> JSResult {
     ret
 }
 
+fn js_gc(cc: CallContext) -> JSResult {
+    cc.context().rt_mut().gc_request();
+    //cc.context().rt_mut().gc_collect();
+    Ok(JSValue::UNDEFINED)
+}
+
 fn std_exit(_: CallContext) -> JSResult {
     println!("*** exit called");
     Ok(JSValue::UNDEFINED)
@@ -162,6 +168,7 @@ static MOD_STD_ENTRIES: Lazy<Box<[FieldDef]>> = Lazy::new(|| {
         FieldDef::CALL("open", 2, js_std_open, 0),
         FieldDef::CALL("puts", 1, js_file_puts, 0), // stdout
         FieldDef::CALL("evalScript", 1, js_evalScript, 0),
+        FieldDef::CALL("gc", 0, js_gc, 0),
         FieldDef::CALL("exit", 1, std_exit, 0),
         FieldDef::BUILD(
             "in",

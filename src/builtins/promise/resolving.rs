@@ -85,12 +85,11 @@ impl PromiseResolveFunc {
                     s.promise.fulfill_or_reject(cx, arg0, is_reject);
                 } else {
                     let promise = s.promise;
-                    let promise2 = promise;
                     let cx2 = cx;
                     ctx.queue_job_with_gc_trace(
                         move || js_promise_resolve_thenable_job(&cx2, promise, arg0, then),
                         move |tracer| {
-                            promise2.trace(tracer);
+                            promise.trace(tracer);
                             arg0.trace(tracer);
                             then.trace(tracer);
                         },
@@ -105,7 +104,7 @@ impl PromiseResolveFunc {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub(super) struct PromiseReaction {
     pub(super) resolving_funcs: [JSValue; 2],
     pub(super) handler: JSValue,
@@ -143,7 +142,7 @@ impl Promise {
         cap_resolving_funcs: [JSValue; 2],
     ) -> Result<(), i32> {
         let success = PromiseReaction {
-            resolving_funcs: [cap_resolving_funcs[0], cap_resolving_funcs[1]],
+            resolving_funcs: cap_resolving_funcs,
             handler: {
                 let h = reaction_funcs[0];
                 if !h.is_function() {
@@ -155,7 +154,7 @@ impl Promise {
         };
 
         let fail = PromiseReaction {
-            resolving_funcs: [cap_resolving_funcs[0], cap_resolving_funcs[1]],
+            resolving_funcs: cap_resolving_funcs,
             handler: {
                 let h = reaction_funcs[1];
                 if !h.is_function() {
@@ -175,7 +174,7 @@ impl Promise {
             PromiseState::Pending => {
                 self.payload_mut().add_reaction(success, fail);
             }
-            state => {
+            _ => {
                 if state == PromiseState::Rejected
                     && !is_handled
                     && let Some(cb) = ctx.rt().host_promise_rejection_tracker
@@ -199,7 +198,6 @@ impl Promise {
                 {
                     let is_reject = state == PromiseState::Rejected;
                     let mut cx = unsafe { ContextPtr::from_ref_unchecked(ctx) };
-                    let act2 = action.clone();
 
                     ctx.queue_job_with_gc_trace(
                         move || {
@@ -212,7 +210,7 @@ impl Promise {
                             )
                         },
                         move |tracer| {
-                            act2.trace(tracer);
+                            action.trace(tracer);
                             result.trace(tracer);
                         },
                     );
@@ -235,20 +233,14 @@ impl Promise {
     ) -> Result<ObjectRef, i32> {
         let ctor = JS_SpeciesConstructor(ctx, (*self).into(), JSValue::UNDEFINED)?;
         let (promise2, rr) = Self::create_from_ctor(ctx, ctor)?;
-
         self.reaction(ctx, [success, fail], rr)?;
         Ok(promise2)
     }
 
     /// save resolving resultand update promise status to 'fulfilled' or 'rejected'.
+    /// set promise state to 'fulfilled' or 'rejected',
     /// call chained reactions which was registered by `then()`, `catch()` or `finally()`.
-    /// Note: `value` is not consumed (duplicated inside).
-    pub(super) fn fulfill_or_reject(
-        &mut self,
-        mut ctx: ContextPtr,
-        value: JSValue,
-        is_reject: bool,
-    ) {
+    pub(super) fn fulfill_or_reject(&mut self, ctx: ContextPtr, value: JSValue, is_reject: bool) {
         let (state, is_handled) = {
             let p = self.payload_mut();
             debug_assert_eq!(p.state(), PromiseState::Pending);
@@ -279,27 +271,49 @@ impl Promise {
 
         // call chained reactions registered by `then()`, `catch()` or `finally()`
         let mut reactions = self.payload_mut().take_reactions();
-        let mut ctx2 = ctx;
-
         for act in reactions[is_reject as usize].drain(..) {
-            let val = value;
-            let act2 = act.clone();
+            let mut value = if act.handler.is_undefined() {
+                if is_reject {
+                    ctx.throw(value);
+                    JSValue::EXCEPTION
+                } else {
+                    value
+                }
+            } else {
+                act.handler
+                    .call(&ctx, JSValue::UNDEFINED, std::slice::from_ref(&value))
+                    .unwrap_or(JSValue::EXCEPTION)
+            };
 
-            ctx.queue_job_with_gc_trace(
-                move || {
-                    promise_reaction_job(
-                        &mut ctx2,
-                        act.resolving_funcs,
-                        act.handler,
-                        is_reject,
-                        val,
-                    )
-                },
-                move |tracer| {
-                    val.trace(tracer);
-                    act2.trace(tracer);
-                },
-            );
+            let is_reject = if value.is_exception() {
+                value = ctx.rt().take_exception();
+                true
+            } else {
+                false
+            };
+
+            let func = act.resolving_funcs[is_reject as usize];
+            if !func.is_undefined() {
+                let _ = func.call(&ctx, JSValue::UNDEFINED, std::slice::from_ref(&value));
+            }
+
+            // solution 2: queue to job list to resolve in next iter
+            // let mut ctx2 = ctx;
+            // ctx.queue_job_with_gc_trace(
+            //     move || {
+            //         promise_reaction_job(
+            //             &mut ctx2,
+            //             act.resolving_funcs,
+            //             act.handler,
+            //             is_reject,
+            //             value,
+            //         )
+            //     },
+            //     move |tracer| {
+            //         value.trace(tracer);
+            //         act.trace(tracer);
+            //     },
+            // );
         }
     }
 

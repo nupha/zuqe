@@ -123,6 +123,7 @@ pub struct BytecodeImpl {
 unsafe impl GcTracable for BytecodeImpl {
     #[inline]
     fn trace(&self, tracer: &mut gc_lite::GcTracer) {
+        self.func_name.trace(tracer);
         // trace const values
         self.consts().iter().for_each(|x| x.trace(tracer));
         // trace var defs

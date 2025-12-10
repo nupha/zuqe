@@ -28,7 +28,7 @@ default = [
 
     #"dump_leaks",
     #"dump_objects",
-    "dump_bytecode",
+    #"dump_bytecode",
 ]
 
 [profile.release]

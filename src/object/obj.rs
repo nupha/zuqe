@@ -1,6 +1,6 @@
 use std::{fmt::Formatter, ops::Deref};
 
-use gc_lite::{GcTracable, GcRef, GcWeak};
+use gc_lite::{GcRef, GcTracable, GcWeak};
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
@@ -209,7 +209,6 @@ impl ObjectImpl {
             );
         }
 
-        ctx.rt().gc_req = true;
         //js_trigger_gc(ctx.rt_mut(), std::mem::size_of::<JSValue>());
 
         // alloc prop value slots, initializing with default value

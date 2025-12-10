@@ -93,37 +93,51 @@ pub(super) fn js_promise_resolve_thenable_job(
 }
 
 impl RuntimeImpl {
+    /// Execute all jobs in queue.
+    ///
+    /// Returns Err when has fail in executing job,
+    /// remainder jobs are still in queue in this case.
+    pub(crate) fn execute_all_jobs(&mut self) -> Result<(), i32> {
+        for ctx in self.context_list.iter() {
+            let mut cx = *ctx;
+            while let Some(job) = cx.job_list.pop_front() {
+                job.run()?;
+            }
+        }
+
+        Ok(())
+    }
+
     /// execute pending jobs in queue.
     ///
     /// Returns:
     /// Some(_): the Context of the executed job.
     /// None: there is no pending job.
     /// Err: fail in execute job. ctx is the context of the executed job.
-    pub fn execute_job(&mut self) -> Result<Option<()>, i32> {
+    #[deprecated]
+    pub(crate) fn execute_jobs(&mut self) -> Result<Option<()>, i32> {
         let mut has_pending = false;
-
-        println!("[O.o] exec jobs");
 
         //exec context jobs
         for ctx in self.context_list.iter() {
             let n = ctx.job_list.len();
             if n > 0 {
-                // execute jobs first, then trace pending jobs.
+                // execute first job, then trace pending jobs.
                 // don't change order.
-
                 let mut cx = *ctx;
+
                 for _ in 0..n {
                     if let Some(job) = cx.job_list.pop_front() {
+                        println!("[O.o] exec job");
                         job.run()?;
                     }
                 }
 
-                // trace all jobs
-                let mut tracer = GcTracer::new();
-                ctx.job_list.iter().for_each(|x| x.trace(&mut tracer));
-                tracer.commit_marks(&self.gc_heap);
-
                 if !ctx.job_list.is_empty() {
+                    let mut tracer = GcTracer::new();
+                    ctx.job_list.iter().for_each(|x| x.trace(&mut tracer));
+                    tracer.commit_marks(&self.gc_heap);
+
                     has_pending = true;
                 }
             }

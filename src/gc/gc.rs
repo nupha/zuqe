@@ -54,6 +54,11 @@ impl RuntimeImpl {
                 sf.trace(&mut tracer);
             }
 
+            // mark jobs
+            for cx in self.context_list.iter() {
+                cx.job_list.iter().for_each(|x| x.trace(&mut tracer));
+            }
+
             // mark user defined handler
             if let Some(f) = self.gc_user_trace.as_ref() {
                 f(&mut tracer);
@@ -80,6 +85,7 @@ impl RuntimeImpl {
         // GC: update gc threshold for next
         let used = self.gc_info().memory_used();
         self.gc_threshold = used + (used >> 1); // x1.5 of
+        self.gc_req = false;
 
         freed
     }
@@ -109,5 +115,10 @@ impl RuntimeImpl {
 
     pub fn gc_set_trace_handler(&mut self, f: impl Fn(&mut GcTracer) + 'static) {
         self.gc_user_trace.replace(Box::new(f));
+    }
+
+    /// request gc collect
+    pub const fn gc_request(&mut self) {
+        self.gc_req = true;
     }
 }
