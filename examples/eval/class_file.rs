@@ -158,17 +158,17 @@ fn js_file_flush(cc: CallContext) -> JSResult {
     match js_file_get_desc_mut(cc.context(), *cc.this())? {
         FileDesc::File(f) => {
             let _ = f.flush().inspect_err(|e| {
-                eprintln!("File error: {}", e);
+                eprintln!("flush file error: {}", e);
             });
         }
         FileDesc::Stdout => {
             let _ = std::io::stdout().flush().inspect_err(|e| {
-                eprintln!("stdout error: {}", e);
+                eprintln!("flush stdout error: {}", e);
             });
         }
         FileDesc::Stderr => {
             let _ = std::io::stderr().flush().inspect_err(|e| {
-                eprintln!("stderr error: {}", e);
+                eprintln!("flush stderr error: {}", e);
             });
         }
         FileDesc::Stdin => {}

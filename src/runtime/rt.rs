@@ -31,7 +31,7 @@ use crate::{
 
 pub const JS_MAX_LOCAL_VARS: u16 = 65535;
 pub const JS_STACK_SIZE_MAX: u16 = 65534;
-pub const JS_DEFAULT_STACK_SIZE: usize = 512 * 1024;
+pub const JS_DEFAULT_STACK_SIZE: usize = 640 * 1024; // 512 * 1024;
 
 pub type JSInterruptHandler = fn(rt: &RuntimeImpl, opaque: *mut c_void) -> i32;
 
