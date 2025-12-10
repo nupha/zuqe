@@ -287,6 +287,7 @@ fn js_os_setReadHandler(cc: CallContext) -> JSResult {
     let func = *cc.arg(1);
 
     if func.is_null() {
+        // FIXME: this may cause borrow conflict
         RW_HANDLERS.with(|lut| {
             let mut b = lut.borrow_mut();
             let prune = if let Some(rh) = b.get_mut(&fd) {
@@ -304,6 +305,7 @@ fn js_os_setReadHandler(cc: CallContext) -> JSResult {
         });
         Ok(JSValue::UNDEFINED)
     } else if func.as_object_BCFunction().is_some() {
+        // FIXME: this may cause borrow conflict
         RW_HANDLERS.with(|lut| {
             let mut b = lut.borrow_mut();
             if let Some(rh) = b.get_mut(&fd) {

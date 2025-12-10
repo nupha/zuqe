@@ -910,7 +910,23 @@ fn js_string_normalize(cc: CallContext) -> JSResult {
         .map(JSValue::String)
 }
 
-pub static js_string_proto_funcs: [FieldDef; 39] = [
+// non-standard
+fn js_string__quote(cc: CallContext) -> JSResult {
+    let val = *cc.this();
+    if val.is_undefined_or_null() {
+        cc.ctx()
+            .throw_type_error("undefined or null is not allowed");
+        Err(-1)
+    } else {
+        let s = val.to_string(cc.ctx())?;
+        let s = s.content().to_utf8(true);
+        cc.ctx()
+            .create_string_from_utf8(format!("\"{}\"", s).into_bytes())
+            .map(|x| x.into())
+    }
+}
+
+pub static js_string_proto_funcs: [FieldDef; 40] = [
     FieldDef::INT32("length", 0, JS_PROP_CONFIGURABLE),
     FieldDef::CALL("charAt", 1, js_string_at, 0),
     FieldDef::CALL("at", 1, js_string_at, 1),
@@ -984,6 +1000,7 @@ pub static js_string_proto_funcs: [FieldDef; 39] = [
     // JS_CFUNC_MAGIC_DEF("strike", 0, js_string_CreateHTML, magic_string_strike),
     // JS_CFUNC_MAGIC_DEF("sub", 0, js_string_CreateHTML, magic_string_sub),
     // JS_CFUNC_MAGIC_DEF("sup", 0, js_string_CreateHTML, magic_string_sup),
+    FieldDef::CALL("__quote", 0, js_string__quote, 0),
 ];
 
 fn js_string_iterator_next(cc: CallContext, state: &mut IteratorState) -> JSResult {

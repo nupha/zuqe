@@ -406,7 +406,21 @@ pub(crate) fn js_object_hasOwn(cc: CallContext) -> JSResult {
     Ok(JSValue::Bool(obj.get_own_property(ctx, atom)?.is_some()))
 }
 
-pub static js_object_funcs: [FieldDef; 23] = [
+//
+// non-standard
+//
+fn js_object___getClass(cc: CallContext) -> JSResult {
+    let name = if let Some(o) = cc.arg(0).as_object() {
+        let cls = &cc.ctx().rt().class_registry[o.class_id() as usize];
+        cls.class_name
+    } else {
+        Atom::CONST_empty_string
+    };
+
+    Ok(name.force_string(cc.ctx()).unwrap().into())
+}
+
+pub static js_object_funcs: [FieldDef; 24] = [
     FieldDef::CALL("create", 2, js_object_create, 0),
     FieldDef::CALL("getPrototypeOf", 1, js_object_getPrototypeOf, 0),
     FieldDef::CALL("setPrototypeOf", 2, js_object_setPrototypeOf, 0),
@@ -458,7 +472,10 @@ pub static js_object_funcs: [FieldDef; 23] = [
     FieldDef::CALL("freeze", 1, js_object_seal, 1),
     FieldDef::CALL("isSealed", 1, js_object_isSealed, 0),
     FieldDef::CALL("isFrozen", 1, js_object_isSealed, 1),
-    //JS_CFUNC_DEF!(c"__getClass", 1, js_object___getClass),
+    FieldDef::CALL("fromEntries", 1, js_object_fromEntries, 0),
+    FieldDef::CALL("hasOwn", 2, js_object_hasOwn, 0),
+    // non standard
+    FieldDef::CALL("__getClass", 1, js_object___getClass, 0),
     //JS_CFUNC_DEF(c"__isObject", 1, js_object___isObject ),
     //JS_CFUNC_DEF(c"__isConstructor", 1, js_object___isConstructor ),
     //JS_CFUNC_DEF(c"__toObject", 1, js_object___toObject ),
@@ -469,6 +486,4 @@ pub static js_object_funcs: [FieldDef; 23] = [
     //JS_CFUNC_DEF(c"__isSameValueZero", 2, js_object___isSameValueZero ),
     //JS_CFUNC_DEF(c"__getObjectData", 1, js_object___getObjectData ),
     //JS_CFUNC_DEF(c"__setObjectData", 2, js_object___setObjectData ),
-    FieldDef::CALL("fromEntries", 1, js_object_fromEntries, 0),
-    FieldDef::CALL("hasOwn", 2, js_object_hasOwn, 0),
 ];

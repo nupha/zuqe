@@ -104,7 +104,6 @@ impl RuntimeImpl {
                 job.run()?;
             }
         }
-
         Ok(())
     }
 
@@ -125,12 +124,8 @@ impl RuntimeImpl {
                 // execute first job, then trace pending jobs.
                 // don't change order.
                 let mut cx = *ctx;
-
-                for _ in 0..n {
-                    if let Some(job) = cx.job_list.pop_front() {
-                        println!("[O.o] exec job");
-                        job.run()?;
-                    }
+                if let Some(job) = cx.job_list.pop_front() {
+                    job.run()?;
                 }
 
                 if !ctx.job_list.is_empty() {
