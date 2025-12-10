@@ -79,13 +79,19 @@ impl RuntimeImpl {
         // O.o debug
         #[cfg(debug_assertions)]
         if freed > 0 {
-            println!("[O.o][Runtime::gc_collect] Partition {part:?} collected {freed} bytes");
+            let used = self.gc_info().memory_used();
+            println!(
+                "[O.o][GC {}] Partition {part:?} collected {freed}, used {used}, threshold->{}",
+                if self.gc_req { "req" } else { "threshold" },
+                used + (used >> 1)
+            );
         }
+
+        self.gc_req = false;
 
         // GC: update gc threshold for next
         let used = self.gc_info().memory_used();
         self.gc_threshold = used + (used >> 1); // x1.5 of
-        self.gc_req = false;
 
         freed
     }

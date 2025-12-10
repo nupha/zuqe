@@ -21,7 +21,9 @@ impl RuntimeImpl {
             }
         }
 
-        if self.gc_req || self.gc_threshold >= self.gc_info().memory_used() {
+        if self.gc_req
+            || (self.gc_threshold > 0 && self.gc_info().memory_used() >= self.gc_threshold)
+        {
             self.gc_collect();
         }
 
