@@ -12,16 +12,15 @@ use crate::{
     object::{ObjectImpl, ObjectPayload, ObjectRef},
     runtime::js_check_stack_overflow,
     stack_frame::StackFrame,
-    utils::unlikely,
     value::JSValue,
 };
 
 use super::js_function_set_properties;
 
-pub type NativeCallbackFn = fn(cc: CallContext) -> JSResult;
-pub type NativeGetterFn = fn(cc: CallContext) -> JSResult;
-pub type NativeSetterFn = fn(cc: CallContext) -> JSResult;
-pub type NativeIteratorNextFn = fn(cc: CallContext, iter_state: &mut IteratorState) -> JSResult;
+pub type CallbackFn = fn(cc: CallContext) -> JSResult;
+pub type GetterFn = fn(cc: CallContext) -> JSResult;
+pub type SetterFn = fn(cc: CallContext) -> JSResult;
+pub type IteratorFn = fn(cc: CallContext, iter_state: &mut IteratorState) -> JSResult;
 
 pub type JSCFunction = unsafe fn(ctx: &ContextImpl, this_val: JSValue, args: &[JSValue]) -> JSValue;
 pub type JSCFunctionMagic = unsafe fn(
@@ -31,13 +30,6 @@ pub type JSCFunctionMagic = unsafe fn(
     magic: ::core::ffi::c_int,
 ) -> JSValue;
 
-pub type JSCFunctionGetter = unsafe fn(&ContextImpl, JSValue) -> JSValue;
-pub type JSCFunctionGetterMagic =
-    unsafe fn(ctx: &ContextImpl, this_val: JSValue, magic: i32) -> JSValue;
-
-pub type JSCFunctionSetter = unsafe fn(&ContextImpl, JSValue, JSValue) -> JSValue;
-pub type JSCFunctionSetterMagic = unsafe fn(&ContextImpl, JSValue, JSValue, i32) -> JSValue;
-
 pub type JSCFunctionData = unsafe fn(
     ctx: &ContextImpl,
     this_val: JSValue,
@@ -46,33 +38,21 @@ pub type JSCFunctionData = unsafe fn(
     func_data: &mut [JSValue],
 ) -> JSValue;
 
-pub type JSCFunctionIteratorNext =
-    fn(ctx: &ContextImpl, this: JSValue, args: &[JSValue], done: &mut i32, magic: i32) -> JSValue;
-
 pub type JSCFunctionFF = unsafe fn(f64) -> f64;
 pub type JSCFunctionFFF = unsafe fn(f64, f64) -> f64;
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy)]
 pub enum Callback {
-    Func(NativeCallbackFn),
-    Getter(NativeGetterFn),
-    Setter(NativeSetterFn),
-    Constructor(NativeCallbackFn),
-    ConstructorOrFunc(NativeCallbackFn),
-    IteratorNext(NativeIteratorNextFn),
+    Func(CallbackFn),
+    Getter(GetterFn),
+    Setter(SetterFn),
+    Constructor(CallbackFn),
+    ConstructorOrFunc(CallbackFn),
+    IteratorNext(IteratorFn),
 
     CFunc(JSCFunction),
     CFuncMagic(JSCFunctionMagic),
-    CConstructor(JSCFunction),
-    CConstructorOrFunc(JSCFunction),
-    CConstructorMagic(JSCFunctionMagic),
-    CConstructorOrFuncMagic(JSCFunctionMagic),
-    CGetter(JSCFunctionGetter),
-    CGetterMagic(JSCFunctionGetterMagic),
-    CSetter(JSCFunctionSetter),
-    CSetterMagic(JSCFunctionSetterMagic),
-    CIteratorNext(JSCFunctionIteratorNext),
 
     FF(JSCFunctionFF),
     FFF(JSCFunctionFFF),
@@ -92,21 +72,7 @@ impl PartialEq for Callback {
 
             (Self::CFunc(a), Self::CFunc(b)) => std::ptr::fn_addr_eq(*a, *b),
             (Self::CFuncMagic(a), Self::CFuncMagic(b)) => std::ptr::fn_addr_eq(*a, *b),
-            (Self::CConstructor(a), Self::CConstructor(b)) => std::ptr::fn_addr_eq(*a, *b),
-            (Self::CConstructorOrFunc(a), Self::CConstructorOrFunc(b)) => {
-                std::ptr::fn_addr_eq(*a, *b)
-            }
-            (Self::CConstructorMagic(a), Self::CConstructorMagic(b)) => {
-                std::ptr::fn_addr_eq(*a, *b)
-            }
-            (Self::CConstructorOrFuncMagic(a), Self::CConstructorOrFuncMagic(b)) => {
-                std::ptr::fn_addr_eq(*a, *b)
-            }
-            (Self::CGetter(a), Self::CGetter(b)) => std::ptr::fn_addr_eq(*a, *b),
-            (Self::CGetterMagic(a), Self::CGetterMagic(b)) => std::ptr::fn_addr_eq(*a, *b),
-            (Self::CSetter(a), Self::CSetter(b)) => std::ptr::fn_addr_eq(*a, *b),
-            (Self::CSetterMagic(a), Self::CSetterMagic(b)) => std::ptr::fn_addr_eq(*a, *b),
-            (Self::CIteratorNext(a), Self::CIteratorNext(b)) => std::ptr::fn_addr_eq(*a, *b),
+
             (Self::FF(a), Self::FF(b)) => std::ptr::fn_addr_eq(*a, *b),
             (Self::FFF(a), Self::FFF(b)) => std::ptr::fn_addr_eq(*a, *b),
             _ => false,
@@ -201,21 +167,7 @@ impl NFuncPayload {
                 let cc = CallContext::new(realm, this_obj, sf.args_slice(), magic as _, None);
                 f(cc)
             }
-            Callback::Constructor(f) => {
-                if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
-                    realm_cx.throw_type_error("must be called with new");
-                    return Err(-1);
-                }
-                let cc = CallContext::new(realm, this_obj, sf.args_slice(), magic as _, None);
-                f(cc)
-            }
-            Callback::ConstructorOrFunc(f) => {
-                if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
-                    this_obj = JSValue::UNDEFINED;
-                }
-                let cc = CallContext::new(realm, this_obj, sf.args_slice(), magic as _, None);
-                f(cc)
-            }
+
             Callback::Getter(f) => {
                 debug_assert_eq!(sf.arg_count, 0);
                 let cc = CallContext::new(realm, this_obj, sf.args_slice(), magic as _, None);
@@ -239,63 +191,28 @@ impl NFuncPayload {
                 }
                 r
             }
-
+            Callback::Constructor(f) => {
+                if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
+                    realm_cx.throw_type_error("must be called with new");
+                    return Err(-1);
+                }
+                let cc = CallContext::new(realm, this_obj, sf.args_slice(), magic as _, None);
+                f(cc)
+            }
+            Callback::ConstructorOrFunc(f) => {
+                if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
+                    this_obj = JSValue::UNDEFINED;
+                }
+                let cc = CallContext::new(realm, this_obj, sf.args_slice(), magic as _, None);
+                f(cc)
+            }
             //
             // LEGACIES
             //
-            Callback::CConstructor(f) | Callback::CConstructorOrFunc(f) | Callback::CFunc(f) => {
-                if matches!(
-                    callback,
-                    Callback::CConstructorOrFunc(_) | Callback::CConstructor(_)
-                ) && flags & JS_CALL_FLAG_CONSTRUCTOR == 0
-                {
-                    if unlikely(matches!(callback, Callback::Constructor(_))) {
-                        realm_cx.throw_type_error("must be called with new");
-                        return Err(-1);
-                    } else {
-                        this_obj = JSValue::UNDEFINED;
-                    }
-                }
-                unsafe { f(realm_cx, this_obj, sf.args_slice()).err() }
-            }
-            Callback::CConstructorMagic(f)
-            | Callback::CConstructorOrFuncMagic(f)
-            | Callback::CFuncMagic(f) => {
-                if matches!(
-                    callback,
-                    Callback::CConstructorMagic(_) | Callback::CConstructorOrFuncMagic(_)
-                ) && flags & JS_CALL_FLAG_CONSTRUCTOR == 0
-                {
-                    if unlikely(matches!(callback, Callback::CConstructorMagic(_))) {
-                        realm_cx.throw_type_error("must be called with new");
-                        return Err(-1);
-                    } else {
-                        this_obj = JSValue::UNDEFINED;
-                    }
-                }
-                unsafe { f(realm_cx, this_obj, sf.args_slice(), magic as i32).err() }
-            }
-            Callback::CGetter(f) => unsafe { f(realm_cx, this_obj).err() },
-            Callback::CSetter(f) => unsafe { f(realm_cx, this_obj, sf.args_slice()[0]).err() },
-            Callback::CGetterMagic(f) => unsafe { f(realm_cx, this_obj, magic as _).err() },
-            Callback::CSetterMagic(f) => unsafe {
-                f(
-                    realm_cx,
-                    this_obj,
-                    sf.args_slice().first().cloned().unwrap(),
-                    magic as _,
-                )
-                .err()
+            Callback::CFunc(f) => unsafe { f(realm_cx, this_obj, sf.args_slice()).err() },
+            Callback::CFuncMagic(f) => unsafe {
+                f(realm_cx, this_obj, sf.args_slice(), magic as i32).err()
             },
-            Callback::CIteratorNext(f) => {
-                let mut done = 0;
-                let mut r = f(realm_cx, this_obj, sf.args_slice(), &mut done, magic as _);
-                if !r.is_exception() && done != 2 {
-                    r = js_create_iterator_result(realm_cx, r, done != 0)
-                        .unwrap_or(JSValue::EXCEPTION);
-                }
-                r.err()
-            }
 
             Callback::FF(f) => sf.args_slice()[0]
                 .to_f64(realm_cx)
@@ -369,12 +286,7 @@ impl ContextImpl {
 
         func_obj.set_flag_constructor(matches!(
             call,
-            Callback::Constructor(_)
-                | Callback::ConstructorOrFunc(_)
-                | Callback::CConstructor(_)
-                | Callback::CConstructorMagic(_)
-                | Callback::CConstructorOrFunc(_)
-                | Callback::CConstructorOrFuncMagic(_)
+            Callback::Constructor(_) | Callback::ConstructorOrFunc(_)
         ));
 
         // define properties length and name on function.

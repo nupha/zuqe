@@ -8,7 +8,7 @@ use crate::{
     },
     context::ContextImpl,
     error::JSResult,
-    function::{Callback, NativeCallbackFn},
+    function::{Callback, CallbackFn},
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, ObjectRef},
     runtime::RuntimeImpl,
     value::JSValue,
@@ -202,7 +202,7 @@ impl ContextImpl {
     pub fn create_global_constructor_or_func(
         &mut self,
         name: &str,
-        callback: NativeCallbackFn,
+        callback: CallbackFn,
         length: i32,
         proto: JSValue,
         magic: i16,
@@ -222,7 +222,7 @@ impl ContextImpl {
     pub fn create_global_constructor_only(
         &mut self,
         name: &str,
-        callback: NativeCallbackFn,
+        callback: CallbackFn,
         length: i32,
         proto: JSValue,
         magic: i16,

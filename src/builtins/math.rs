@@ -1,5 +1,4 @@
 use crate::{
-    JS_CFUNC_FF_DEF, JS_CFUNC_FFF_DEF,
     error::JSResult,
     function::{CallContext, FieldDef},
     number::{IntOrFloat, JSFloat64Union},
@@ -204,19 +203,19 @@ pub static js_math_funcs: [FieldDef; 44] = [
     FieldDef::CALL("min", 2, js_math_min_max, 0),
     FieldDef::CALL("max", 2, js_math_min_max, 1),
     //
-    JS_CFUNC_FF_DEF!("abs", 1, f64::abs, 0),
-    JS_CFUNC_FF_DEF!("floor", 1, f64::floor, 0),
-    JS_CFUNC_FF_DEF!("ceil", 1, f64::ceil, 0),
-    JS_CFUNC_FF_DEF!("round", 1, js_math_round, 0),
-    JS_CFUNC_FF_DEF!("sqrt", 1, f64::sqrt, 0),
-    JS_CFUNC_FF_DEF!("acos", 1, f64::acos, 0),
-    JS_CFUNC_FF_DEF!("asin", 1, f64::asin, 0),
-    JS_CFUNC_FF_DEF!("atan", 1, f64::atan, 0),
-    JS_CFUNC_FFF_DEF!("atan2", 2, f64::atan2, 0),
-    JS_CFUNC_FF_DEF!("cos", 1, f64::cos, 0),
-    JS_CFUNC_FF_DEF!("exp", 1, f64::exp, 0),
-    JS_CFUNC_FF_DEF!("log", 1, f64::ln, 0),
-    JS_CFUNC_FFF_DEF!(
+    FieldDef::CALL_FF("abs", 1, f64::abs, 0),
+    FieldDef::CALL_FF("floor", 1, f64::floor, 0),
+    FieldDef::CALL_FF("ceil", 1, f64::ceil, 0),
+    FieldDef::CALL_FF("round", 1, js_math_round, 0),
+    FieldDef::CALL_FF("sqrt", 1, f64::sqrt, 0),
+    FieldDef::CALL_FF("acos", 1, f64::acos, 0),
+    FieldDef::CALL_FF("asin", 1, f64::asin, 0),
+    FieldDef::CALL_FF("atan", 1, f64::atan, 0),
+    FieldDef::CALL_FFF("atan2", 2, f64::atan2, 0),
+    FieldDef::CALL_FF("cos", 1, f64::cos, 0),
+    FieldDef::CALL_FF("exp", 1, f64::exp, 0),
+    FieldDef::CALL_FF("log", 1, f64::ln, 0),
+    FieldDef::CALL_FFF(
         "pow",
         2,
         |a: f64, b: f64| -> f64 {
@@ -226,13 +225,13 @@ pub static js_math_funcs: [FieldDef; 44] = [
                 a.powf(b)
             }
         },
-        0
+        0,
     ),
-    JS_CFUNC_FF_DEF!("sin", 1, f64::sin, 0),
-    JS_CFUNC_FF_DEF!("tan", 1, f64::tan, 0),
+    FieldDef::CALL_FF("sin", 1, f64::sin, 0),
+    FieldDef::CALL_FF("tan", 1, f64::tan, 0),
     // ES6
-    JS_CFUNC_FF_DEF!("trunc", 1, f64::trunc, 0),
-    JS_CFUNC_FF_DEF!(
+    FieldDef::CALL_FF("trunc", 1, f64::trunc, 0),
+    FieldDef::CALL_FF(
         "sign",
         1,
         |a: f64| -> f64 {
@@ -244,22 +243,22 @@ pub static js_math_funcs: [FieldDef; 44] = [
                 1.0
             }
         },
-        0
+        0,
     ),
-    JS_CFUNC_FF_DEF!("cosh", 1, f64::cosh, 0),
-    JS_CFUNC_FF_DEF!("sinh", 1, f64::sinh, 0),
-    JS_CFUNC_FF_DEF!("tanh", 1, f64::tanh, 0),
-    JS_CFUNC_FF_DEF!("acosh", 1, f64::acosh, 0),
-    JS_CFUNC_FF_DEF!("asinh", 1, f64::asinh, 0),
-    JS_CFUNC_FF_DEF!("atanh", 1, f64::atanh, 0),
-    JS_CFUNC_FF_DEF!("expm1", 1, f64::exp_m1, 0),
-    JS_CFUNC_FF_DEF!("log1p", 1, f64::ln_1p, 0),
-    JS_CFUNC_FF_DEF!("log2", 1, f64::log2, 0),
-    JS_CFUNC_FF_DEF!("log10", 1, f64::log10, 0),
-    JS_CFUNC_FF_DEF!("cbrt", 1, f64::cbrt, 0),
+    FieldDef::CALL_FF("cosh", 1, f64::cosh, 0),
+    FieldDef::CALL_FF("sinh", 1, f64::sinh, 0),
+    FieldDef::CALL_FF("tanh", 1, f64::tanh, 0),
+    FieldDef::CALL_FF("acosh", 1, f64::acosh, 0),
+    FieldDef::CALL_FF("asinh", 1, f64::asinh, 0),
+    FieldDef::CALL_FF("atanh", 1, f64::atanh, 0),
+    FieldDef::CALL_FF("expm1", 1, f64::exp_m1, 0),
+    FieldDef::CALL_FF("log1p", 1, f64::ln_1p, 0),
+    FieldDef::CALL_FF("log2", 1, f64::log2, 0),
+    FieldDef::CALL_FF("log10", 1, f64::log10, 0),
+    FieldDef::CALL_FF("cbrt", 1, f64::cbrt, 0),
     FieldDef::CALL("hypot", 2, js_math_hypot, 0),
     FieldDef::CALL("random", 0, js_math_random, 0),
-    JS_CFUNC_FF_DEF!("fround", 1, |a: f64| -> f64 { (a as f32) as f64 }, 0),
+    FieldDef::CALL_FF("fround", 1, |a: f64| -> f64 { (a as f32) as f64 }, 0),
     FieldDef::CALL("imul", 2, js_math_imul, 0),
     FieldDef::CALL("clz32", 1, js_math_clz32, 0),
     FieldDef::STR("[Symbol.toStringTag]", "Math", JS_PROP_CONFIGURABLE),

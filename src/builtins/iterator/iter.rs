@@ -220,41 +220,19 @@ impl<'a> ObjectIter<'a> {
         if let JSValue::Object(p) = method
             && let ObjectPayload::C_FUNCTION(nfun) = p.payload()
         {
-            // fast path for the built-in iterators (avoid creating the
-            // intermediate result object)
-            match nfun.handler {
-                Callback::IteratorNext(f) => {
-                    let cc = CallContext::new(
-                        unsafe { ContextPtr::from_ref_unchecked(ctx) },
-                        obj.into(),
-                        args,
-                        nfun.magic as _,
-                        None,
-                    );
-                    let mut state = IteratorState::NotDone;
-                    let ret = f(cc, &mut state)?;
-                    return Ok((ret, state));
-                }
-                Callback::CIteratorNext(f) => {
-                    let mut pdone = 0;
-                    let ret = f(ctx, obj.into(), args, &mut pdone, nfun.magic as _).err()?;
-
-                    return if let JSValue::Object(ret) = ret {
-                        Ok((
-                            ret.into(),
-                            match pdone {
-                                0 => IteratorState::NotDone,
-                                1 => IteratorState::Done,
-                                2 => IteratorState::NotParsed,
-                                _ => unreachable!(),
-                            },
-                        ))
-                    } else {
-                        ctx.throw_type_error("iterator must return an object");
-                        Err(-1)
-                    };
-                }
-                _ => {}
+            // fast path for the built-in iterators,
+            // avoid creating the intermediate result object
+            if let Callback::IteratorNext(f) = nfun.handler {
+                let cc = CallContext::new(
+                    unsafe { ContextPtr::from_ref_unchecked(ctx) },
+                    obj.into(),
+                    args,
+                    nfun.magic as _,
+                    None,
+                );
+                let mut state = IteratorState::NotDone;
+                let ret = f(cc, &mut state)?;
+                return Ok((ret, state));
             }
         }
 

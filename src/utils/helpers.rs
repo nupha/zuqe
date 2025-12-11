@@ -246,64 +246,6 @@ pub(crate) const fn hash_usize(id: usize) -> u32 {
     id.wrapping_mul(3163) as u32
 }
 
-//
-// FIELD DEFINATION MACROS
-//
-
-#[macro_export]
-macro_rules! JS_CFUNC_MAGIC_DEF {
-    ($name:expr, $length:expr, $func1:expr, $magic:expr) => {
-        $crate::function::FieldDef {
-            name: $name,
-            prop_flags: ($crate::object::JS_PROP_WRITABLE | $crate::object::JS_PROP_CONFIGURABLE)
-                as u8,
-            def_type: $crate::function::JS_DEF_CFUNC,
-            magic: $magic,
-            u: $crate::function::JSCFunctionListEntryUnion {
-                func: $crate::function::JSCFunctionListEntryFunc {
-                    length: $length,
-                    cproto: $crate::function::JSCFunctionEnum::GenericMagic,
-                    cfunc: $crate::function::JSCFunctionType {
-                        generic_magic: $func1,
-                    },
-                },
-            },
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! JS_CFUNC_FF_DEF {
-    ($name:expr, $length:expr, $func:expr, $magic:expr) => {
-        $crate::function::FieldDef {
-            name: $name,
-            detail: $crate::function::FieldDetail::Func {
-                handler: $crate::function::Callback::FF($func),
-                length: $length,
-            },
-            prop_flags: ($crate::object::JS_PROP_WRITABLE | $crate::object::JS_PROP_CONFIGURABLE)
-                as u8,
-            magic: $magic,
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! JS_CFUNC_FFF_DEF {
-    ($name:expr, $length:expr, $func:expr, $magic:expr) => {
-        $crate::function::FieldDef {
-            name: $name,
-            detail: $crate::function::FieldDetail::Func {
-                handler: $crate::function::Callback::FFF($func),
-                length: $length,
-            },
-            prop_flags: ($crate::object::JS_PROP_WRITABLE | $crate::object::JS_PROP_CONFIGURABLE)
-                as u8,
-            magic: $magic,
-        }
-    };
-}
-
 #[macro_export]
 macro_rules! defer {
     ($($code:tt)*) => {

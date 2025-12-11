@@ -204,20 +204,22 @@ fn js_os_poll(ctx: Context) -> bool {
                 libc::FD_ZERO(&mut wfds);
                 let mut fd_max = -1;
 
-                let b = rws.borrow();
-                for (fd, rh) in b.iter() {
-                    fd_max = std::cmp::max(fd_max, *fd);
-                    if !rh[0].is_null() {
-                        libc::FD_SET(*fd, &mut rfds);
-                    }
-                    if !rh[1].is_null() {
-                        libc::FD_SET(*fd, &mut wfds);
+                {
+                    let b = rws.borrow();
+                    for (fd, rh) in b.iter() {
+                        fd_max = std::cmp::max(fd_max, *fd);
+                        if !rh[0].is_null() {
+                            libc::FD_SET(*fd, &mut rfds);
+                        }
+                        if !rh[1].is_null() {
+                            libc::FD_SET(*fd, &mut wfds);
+                        }
                     }
                 }
 
+                let mut callbacks = SmallVec::<[JSValue; 8]>::new();
                 let ret = libc::select(fd_max + 1, &mut rfds, &mut wfds, std::ptr::null_mut(), tvp);
                 if ret > 0 {
-                    let mut callbacks = SmallVec::<[JSValue; 8]>::new();
                     let b = rws.borrow();
 
                     for (fd, rh) in b.iter() {
@@ -228,16 +230,6 @@ fn js_os_poll(ctx: Context) -> bool {
                             callbacks.push(rh[1]);
                         }
                     }
-
-                    for f in callbacks {
-                        if f.call(ctx, JSValue::UNDEFINED, &[]).is_err() {
-                            eprintln!(
-                                "read handler error: {}",
-                                ctx.rt_ref().exception().to_string(ctx).unwrap()
-                            );
-                            break;
-                        }
-                    }
                 } else if ret == -1 {
                     let eno = *libc::__error();
                     if eno == libc::EINTR {
@@ -245,6 +237,16 @@ fn js_os_poll(ctx: Context) -> bool {
                         return false;
                     } else {
                         eprintln!("select error: {}. ingored", eno);
+                    }
+                }
+
+                for f in callbacks {
+                    if f.call(ctx, JSValue::UNDEFINED, &[]).is_err() {
+                        eprintln!(
+                            "read handler error: {}",
+                            ctx.rt_ref().exception().to_string(ctx).unwrap()
+                        );
+                        break;
                     }
                 }
 
@@ -292,17 +294,11 @@ fn js_os_setReadHandler(cc: CallContext) -> JSResult {
         // FIXME: this may cause borrow conflict
         RW_HANDLERS.with(|lut| {
             let mut b = lut.borrow_mut();
-            let prune = if let Some(rh) = b.get_mut(&fd) {
+            if let Some(rh) = b.get_mut(&fd) {
                 rh[magic] = JSValue::NULL;
-                rh[0].is_null() && rh[1].is_null()
-            } else {
-                false
-            };
-
-            if prune {
-                RW_HANDLERS.with(|lut| {
-                    lut.borrow_mut().remove(&fd);
-                });
+                if rh[0].is_null() && rh[1].is_null() {
+                    b.remove(&fd);
+                }
             }
         });
         Ok(JSValue::UNDEFINED)

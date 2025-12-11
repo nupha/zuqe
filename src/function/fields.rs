@@ -3,7 +3,9 @@ use std::ptr::NonNull;
 use crate::{
     atom::{ATOM_CONST_COUNT, Atom},
     context::{Context, ContextImpl, ContextPtr},
-    function::{Callback, NativeCallbackFn, NativeGetterFn, NativeIteratorNextFn, NativeSetterFn},
+    function::{
+        Callback, CallbackFn, GetterFn, IteratorFn, JSCFunctionFF, JSCFunctionFFF, SetterFn,
+    },
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, LazyInit, ObjectRef},
     value::JSValue,
 };
@@ -55,12 +57,7 @@ pub struct FieldDef {
 
 impl FieldDef {
     /// Define a callback function backed by a native handler.
-    pub const fn CALL(
-        name: &'static str,
-        length: u8,
-        callback: NativeCallbackFn,
-        magic: i16,
-    ) -> Self {
+    pub const fn CALL(name: &'static str, length: u8, callback: CallbackFn, magic: i16) -> Self {
         Self {
             name,
             detail: FieldDetail::Func {
@@ -75,8 +72,8 @@ impl FieldDef {
     /// Define a getter, setter field
     pub const fn GETSET(
         name: &'static str,
-        get: Option<NativeGetterFn>,
-        set: Option<NativeSetterFn>,
+        get: Option<GetterFn>,
+        set: Option<SetterFn>,
         magic: i16,
     ) -> Self {
         Self {
@@ -102,7 +99,7 @@ impl FieldDef {
     pub const fn ITERATOR_NEXT(
         name: &'static str,
         length: u8,
-        callback: NativeIteratorNextFn,
+        callback: IteratorFn,
         magic: i16,
     ) -> Self {
         Self {
@@ -196,6 +193,42 @@ impl FieldDef {
     #[inline(always)]
     pub const fn ALIAS(name: &'static str, from_name: &'static str) -> Self {
         Self::ALIAS_BASE(name, from_name, -1)
+    }
+
+    /// Define a (f64)->f64 callback function backed by a native handler.
+    pub(crate) const fn CALL_FF(
+        name: &'static str,
+        length: u8,
+        callback: JSCFunctionFF,
+        magic: i16,
+    ) -> Self {
+        Self {
+            name,
+            detail: FieldDetail::Func {
+                handler: Callback::FF(callback),
+                length,
+            },
+            prop_flags: (JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) as u8,
+            magic,
+        }
+    }
+
+    /// Define a (f64, f64)->f64 callback function backed by a native handler.
+    pub(crate) const fn CALL_FFF(
+        name: &'static str,
+        length: u8,
+        callback: JSCFunctionFFF,
+        magic: i16,
+    ) -> Self {
+        Self {
+            name,
+            detail: FieldDetail::Func {
+                handler: Callback::FFF(callback),
+                length,
+            },
+            prop_flags: (JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE) as u8,
+            magic,
+        }
     }
 }
 
