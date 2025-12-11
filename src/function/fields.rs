@@ -6,7 +6,7 @@ use crate::{
     function::{
         Callback, CallbackFn, GetterFn, IteratorFn, JSCFunctionFF, JSCFunctionFFF, SetterFn,
     },
-    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, LazyInit, ObjectRef},
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, LazyInit, ObjectRef},
     value::JSValue,
 };
 

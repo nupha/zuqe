@@ -158,9 +158,11 @@ fn js_gc(cc: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
-fn std_exit(_: CallContext) -> JSResult {
-    println!("*** exit called");
+fn std_exit(mut cc: CallContext) -> JSResult {
+    let n = cc.arg(0).to_i32(cc.ctx()).unwrap_or(-1);
+    cc.ctx_mut().rt_mut().stop(n);
     Ok(JSValue::UNDEFINED)
+    // std::process::exit(n);
 }
 
 static MOD_STD_ENTRIES: Lazy<Box<[FieldDef]>> = Lazy::new(|| {

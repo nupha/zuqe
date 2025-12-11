@@ -120,30 +120,33 @@ fn get_time_ms() -> u64 {
 
 fn js_os_poll(ctx: Context) -> bool {
     let ctx = &ctx;
+    let mut callbacks = SmallVec::<[JSValue; 8]>::new();
 
     let need_next_poll = {
-        // only check signals in the main thread
         if OS_PENDING_SIGNALS.get() != 0 {
-            let ret = SIG_HANDLERS.with_borrow(|lut| {
-                for (sig_num, func) in lut {
+            SIG_HANDLERS.with(|lut| {
+                let b = lut.borrow();
+
+                for (sig_num, func) in b.iter() {
                     let mask = 1_u64 << *sig_num;
                     let p = OS_PENDING_SIGNALS.get();
                     if p & mask != 0 {
                         OS_PENDING_SIGNALS.set(p & !mask);
-                        if func.call(ctx, JSValue::UNDEFINED, &[]).is_err() {
-                            eprintln!(
-                                "signal {sig_num} handle error: {:?}",
-                                ctx.rt_ref().exception().to_string(ctx)
-                            );
-                        }
-                        return Some(true);
+                        callbacks.push(*func);
                     }
                 }
-                None
             });
-            if let Some(b) = ret {
-                return b;
+
+            for func in callbacks.drain(..) {
+                if func.call(ctx, JSValue::UNDEFINED, &[]).is_err() {
+                    eprintln!(
+                        "signal handle error: {:?}",
+                        ctx.rt_ref().exception().to_string(ctx)
+                    );
+                }
             }
+
+            return true;
         }
 
         if RW_HANDLERS.with(|s| s.borrow().is_empty()) && TIMERS.with(|s| s.borrow().is_empty()) {
@@ -195,7 +198,6 @@ fn js_os_poll(ctx: Context) -> bool {
         } else {
             std::ptr::null_mut()
         };
-        let mut callbacks = SmallVec::<[JSValue; 8]>::new();
 
         let poll_fd = RW_HANDLERS.with(|rws| unsafe {
             if !rws.borrow().is_empty() {
@@ -255,7 +257,7 @@ fn js_os_poll(ctx: Context) -> bool {
             }
         }
 
-        poll_fd || min_tv.is_some()
+        poll_fd || min_tv.is_some() || OS_PENDING_SIGNALS.get() != 0
     };
 
     need_next_poll
@@ -364,24 +366,17 @@ fn js_os_read_write(cc: CallContext) -> JSResult {
 
 fn js_os_signal(cc: CallContext) -> JSResult {
     let ctx = cc.ctx();
+
     let sig_num = cc.arg(0).to_u32(ctx)?;
     if sig_num >= 64 {
         ctx.throw_range_error("invalid signal number");
         return Err(-1);
     }
 
-    // let sh: *mut JSOSSignalHandler;
-    // let handler: sighandler_t;
-    // if !is_main_thread(rt) {
-    //     return JS_ThrowTypeError(
-    //         ctx,
-    //         b"signal handler can only be set in the main thread\0".as_ptr() as *const i8,
-    //     );
-    // }
-
     let func = *cc.arg(1);
+
     if func.is_undefined_or_null() {
-        SIG_HANDLERS.with_borrow_mut(|lut| lut.remove(&sig_num));
+        SIG_HANDLERS.with(|lut| lut.borrow_mut().remove(&sig_num));
         unsafe {
             libc::signal(
                 sig_num as _,
@@ -404,7 +399,6 @@ fn js_os_signal(cc: CallContext) -> JSResult {
         fn os_signal_handler(sig_num: i32) {
             OS_PENDING_SIGNALS.set(OS_PENDING_SIGNALS.get() | (1_u64 << sig_num));
         }
-
         unsafe {
             libc::signal(sig_num as _, os_signal_handler as *const c_void as usize);
         }

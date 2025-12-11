@@ -6,10 +6,27 @@ impl ContextImpl {
     pub fn add_tick_handler(&mut self, f: fn(Context) -> bool) {
         self.tick_handlers.push(f);
     }
+
+    pub fn remove_tick_handler(&mut self, f: fn(Context) -> bool) {
+        self.tick_handlers.retain(|x| !std::ptr::fn_addr_eq(f, *x));
+    }
+}
+
+pub(crate) enum TickStatus {
+    Continue,
+    Stop(i32),
 }
 
 impl RuntimeImpl {
+    pub const fn stop(&mut self, code: i32) {
+        self.stop = Some(code);
+    }
+
     pub fn tick(&mut self) -> Result<bool, i32> {
+        if let Some(_) = self.stop.take() {
+            return Ok(false);
+        }
+
         self.execute_all_jobs().map_err(|_| -1)?;
 
         let mut need_next_tick = false;

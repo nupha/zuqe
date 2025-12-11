@@ -80,10 +80,12 @@ pub struct RuntimeImpl {
     /// gc partion id
     pub(crate) gc_part: PartitionId,
     pub(crate) gc_threshold: usize,
-    /// gc requested mark
-    pub(crate) gc_req: bool,
     /// user defined gc trace callback
     pub(crate) gc_user_trace: Option<Box<dyn Fn(&mut GcTracer)>>,
+    /// gc request flag
+    pub(crate) gc_req: bool,
+    /// tick stop flag
+    pub(crate) stop: Option<i32>,
 
     #[deprecated]
     pub(crate) host_promise_rejection_tracker: Option<JSHostPromiseRejectionTracker>,
@@ -130,12 +132,6 @@ impl RuntimeImpl {
 
             context_list: Vec::with_capacity(1),
 
-            gc_heap,
-            gc_part,
-            gc_threshold: 256 * 1024,
-            gc_user_trace: None,
-            gc_req: false,
-
             stack_size: JS_DEFAULT_STACK_SIZE,
             stack_top: 0,
             stack_limit: 0,
@@ -153,6 +149,13 @@ impl RuntimeImpl {
             shape_registry: ShapeRegistry::new(),
 
             interrupt_opaque: std::ptr::null_mut(),
+
+            gc_heap,
+            gc_part,
+            gc_threshold: 256 * 1024,
+            gc_user_trace: None,
+            gc_req: false,
+            stop: None,
         });
 
         // register builtin classes
