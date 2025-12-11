@@ -1,7 +1,6 @@
 #![allow(non_snake_case)]
 
 mod class_file;
-mod class_point;
 mod global;
 mod mod_os;
 mod mod_std;
@@ -22,7 +21,6 @@ use zhuque::{
 
 use crate::{
     class_file::JSFile,
-    class_point::register_class_point,
     global::setup_globals,
     mod_os::{init_mod_os, mod_os_gc_trace},
     mod_std::init_mod_std,
@@ -43,7 +41,9 @@ fn main() {
     let filename = args.get(1).unwrap().clone();
     let script = std::fs::read_to_string(&filename).unwrap();
 
+    #[cfg(debug_assertions)]
     let tm0 = Instant::now();
+
     let mut rt = Runtime::create().unwrap();
 
     rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());
@@ -51,13 +51,11 @@ fn main() {
         mod_os_gc_trace(tracer);
     });
 
-    // register user's native classes
-    let class_id_point = register_class_point(&mut rt).unwrap();
+    // register user defined classes
     let class_id_file = JSFile::register(&mut rt).unwrap();
 
     // create context
     let mut ctx = rt.create_context_ecma().unwrap();
-    ctx.use_class(class_id_point).unwrap();
     ctx.use_class(class_id_file).unwrap();
 
     // register native modules
