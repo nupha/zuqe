@@ -146,7 +146,7 @@ fn js_os_poll(ctx: Context) -> bool {
             }
         }
 
-        if RW_HANDLERS.with_borrow(|s| s.is_empty()) && TIMERS.with_borrow(|s| s.is_empty()) {
+        if RW_HANDLERS.with(|s| s.borrow().is_empty()) && TIMERS.with(|s| s.borrow().is_empty()) {
             return false; // no more events
         }
 
@@ -195,6 +195,7 @@ fn js_os_poll(ctx: Context) -> bool {
         } else {
             std::ptr::null_mut()
         };
+        let mut callbacks = SmallVec::<[JSValue; 8]>::new();
 
         let poll_fd = RW_HANDLERS.with(|rws| unsafe {
             if !rws.borrow().is_empty() {
@@ -217,11 +218,9 @@ fn js_os_poll(ctx: Context) -> bool {
                     }
                 }
 
-                let mut callbacks = SmallVec::<[JSValue; 8]>::new();
                 let ret = libc::select(fd_max + 1, &mut rfds, &mut wfds, std::ptr::null_mut(), tvp);
                 if ret > 0 {
                     let b = rws.borrow();
-
                     for (fd, rh) in b.iter() {
                         if !rh[0].is_null() && libc::FD_ISSET(*fd, &rfds) {
                             callbacks.push(rh[0]);
@@ -240,21 +239,21 @@ fn js_os_poll(ctx: Context) -> bool {
                     }
                 }
 
-                for f in callbacks {
-                    if f.call(ctx, JSValue::UNDEFINED, &[]).is_err() {
-                        eprintln!(
-                            "read handler error: {}",
-                            ctx.rt_ref().exception().to_string(ctx).unwrap()
-                        );
-                        break;
-                    }
-                }
-
                 true
             } else {
                 false
             }
         });
+
+        for f in callbacks {
+            if f.call(ctx, JSValue::UNDEFINED, &[]).is_err() {
+                eprintln!(
+                    "read handler error: {}",
+                    ctx.rt_ref().exception().to_string(ctx).unwrap()
+                );
+                break;
+            }
+        }
 
         poll_fd || min_tv.is_some()
     };

@@ -66,9 +66,10 @@ fn main() {
 
     setup_globals(ctx).unwrap();
 
+    #[cfg(debug_assertions)]
     println!("*** prepare use time: {} ms", tm0.elapsed().as_millis());
 
-    println!("start running ...");
+    #[cfg(debug_assertions)]
     let tm = Instant::now();
 
     let res = if filename.ends_with(".mjs") || JSParseState::detect_module(script.as_bytes()) {
@@ -179,6 +180,7 @@ fn main() {
         }
     }
 
+    #[cfg(debug_assertions)]
     println!("*** run use time: {} ms", tm.elapsed().as_millis());
 }
 
