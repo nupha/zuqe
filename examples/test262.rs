@@ -17,7 +17,7 @@ use zhuque::{
     function::{CallContext, Callback},
     module::ModuleDef,
     object::JS_PROP_C_W_E,
-    runtime::Runtime,
+    runtime::{Runtime, TickStatus},
     value::JSValue,
 };
 
@@ -281,7 +281,7 @@ fn run_test_script(
     is_module: bool,
     is_async: bool,
     is_strict: bool,
-) -> Result<(), i32> {
+) -> Result<i32, i32> {
     if is_async {
         ASYNC_DONE.store(0, std::sync::atomic::Ordering::SeqCst);
     }
@@ -309,35 +309,40 @@ fn run_test_script(
         None
     };
 
-    while ctx.rt_mut().tick()? {
-        std::thread::sleep(std::time::Duration::from_millis(1));
-    }
+    loop {
+        match ctx.rt_mut().tick()? {
+            TickStatus::Continue => {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            TickStatus::Stop(code) => {
+                if is_async {
+                    // test if the test called $DONE() once
+                    let n = ASYNC_DONE.load(Ordering::SeqCst);
+                    if n != 1 {
+                        ctx.throw_type_error(&format!("$DONE() not called {n}"));
+                        return Err(-1);
+                    }
+                }
 
-    if is_async {
-        // test if the test called $DONE() once
-        let n = ASYNC_DONE.load(Ordering::SeqCst);
-        if n != 1 {
-            ctx.throw_type_error(&format!("$DONE() not called {n}"));
-            return Err(-1);
+                if let Some(promise) = promise {
+                    // check if the returned promise is fulfilled
+                    match promise.state() {
+                        PromiseState::Fulfilled => {}
+                        PromiseState::Rejected => {
+                            ctx.throw(promise.result());
+                            return Err(-1);
+                        }
+                        PromiseState::Pending => {
+                            ctx.throw_type_error("promise is pending");
+                            return Err(-1);
+                        }
+                    }
+                }
+
+                return Ok(code);
+            }
         }
     }
-
-    if let Some(promise) = promise {
-        // check if the returned promise is fulfilled
-        match promise.state() {
-            PromiseState::Fulfilled => {}
-            PromiseState::Rejected => {
-                ctx.throw(promise.result());
-                return Err(-1);
-            }
-            PromiseState::Pending => {
-                ctx.throw_type_error("promise is pending");
-                return Err(-1);
-            }
-        }
-    }
-
-    Ok(())
 }
 
 fn dump_error(

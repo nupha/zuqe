@@ -12,7 +12,7 @@ impl ContextImpl {
     }
 }
 
-pub(crate) enum TickStatus {
+pub enum TickStatus {
     Continue,
     Stop(i32),
 }
@@ -22,9 +22,9 @@ impl RuntimeImpl {
         self.stop = Some(code);
     }
 
-    pub fn tick(&mut self) -> Result<bool, i32> {
-        if let Some(_) = self.stop.take() {
-            return Ok(false);
+    pub fn tick(&mut self) -> Result<TickStatus, i32> {
+        if let Some(n) = self.stop.take() {
+            return Ok(TickStatus::Stop(n));
         }
 
         self.execute_all_jobs().map_err(|_| -1)?;
@@ -44,6 +44,10 @@ impl RuntimeImpl {
             self.gc_collect();
         }
 
-        Ok(need_next_tick)
+        Ok(if need_next_tick {
+            TickStatus::Continue
+        } else {
+            TickStatus::Stop(0)
+        })
     }
 }

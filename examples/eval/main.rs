@@ -5,7 +5,7 @@ mod global;
 mod mod_os;
 mod mod_std;
 
-use std::time::Instant;
+use std::process::ExitCode;
 
 use colorized::{Colors::*, colorize_println};
 use zhuque::{
@@ -15,7 +15,7 @@ use zhuque::{
     eval::JS_EVAL_TYPE_GLOBAL,
     module::ModuleDef,
     parse::JSParseState,
-    runtime::Runtime,
+    runtime::{Runtime, TickStatus},
     value::JSValue,
 };
 
@@ -26,7 +26,7 @@ use crate::{
     mod_std::init_mod_std,
 };
 
-fn main() {
+fn main() -> ExitCode {
     unsafe {
         std::env::set_var("RUST_LOG", "INFO");
     }
@@ -40,9 +40,6 @@ fn main() {
 
     let filename = args.get(1).unwrap().clone();
     let script = std::fs::read_to_string(&filename).unwrap();
-
-    #[cfg(debug_assertions)]
-    let tm0 = Instant::now();
 
     let mut rt = Runtime::create().unwrap();
 
@@ -63,12 +60,6 @@ fn main() {
     init_mod_os(ctx).unwrap();
 
     setup_globals(ctx).unwrap();
-
-    #[cfg(debug_assertions)]
-    println!("*** prepare use time: {} ms", tm0.elapsed().as_millis());
-
-    #[cfg(debug_assertions)]
-    let tm = Instant::now();
 
     let res = if filename.ends_with(".mjs") || JSParseState::detect_module(script.as_bytes()) {
         ctx.eval_module(script.as_bytes(), &filename, false)
@@ -114,13 +105,13 @@ fn main() {
                 v
             };
 
-            loop {
+            let exit_code = loop {
                 match rt.tick() {
-                    Ok(true) => {
+                    Ok(TickStatus::Continue) => {
                         std::thread::sleep(std::time::Duration::from_millis(1));
                         continue;
                     }
-                    Ok(false) => {
+                    Ok(TickStatus::Stop(code)) => {
                         if let Some(p) = promise {
                             match p.state() {
                                 PromiseState::Fulfilled => {
@@ -142,7 +133,7 @@ fn main() {
                                 GreenFg,
                             );
                         }
-                        break;
+                        break code;
                     }
                     Err(_) => {
                         eprintln!("--- Error in tick ---");
@@ -156,9 +147,15 @@ fn main() {
                         //     o.dump(ctx.rt_ref());
                         // };
 
-                        break;
+                        break -1;
                     }
                 }
+            };
+
+            if exit_code < 0 {
+                ExitCode::FAILURE
+            } else {
+                ExitCode::from(exit_code as u8)
             }
         }
         Err(_) => {
@@ -166,7 +163,6 @@ fn main() {
             debug_assert!(!exc.is_undefined_or_null());
             rt.gc_set_root_value(exc, true);
             print_exception(ctx, exc);
-
             // eprintln!(
             //     "!!! EXCEPTION {exc:?}: {:?}",
             //     ctx.rt_ref().exception().to_string(&ctx)
@@ -175,11 +171,9 @@ fn main() {
             // if let JSValue::Object(o) = exc {
             //     o.dump(ctx.rt_ref());
             // };
+            ExitCode::FAILURE
         }
     }
-
-    #[cfg(debug_assertions)]
-    println!("*** run use time: {} ms", tm.elapsed().as_millis());
 }
 
 fn js_module_loader(
