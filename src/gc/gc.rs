@@ -119,12 +119,20 @@ impl RuntimeImpl {
         }
     }
 
+    #[inline(always)]
     pub fn gc_set_trace_handler(&mut self, f: impl Fn(&mut GcTracer) + 'static) {
         self.gc_user_trace.replace(Box::new(f));
     }
 
     /// request gc collect
+    #[inline(always)]
     pub const fn gc_request(&mut self) {
         self.gc_req = true;
+    }
+
+    /// request gc collect
+    #[inline(always)]
+    pub const fn gc_has_request(&self) -> bool {
+        self.gc_req
     }
 }

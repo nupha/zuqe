@@ -6,6 +6,7 @@ use std::{
 
 use gc_lite::{GcTracable, GcTracer};
 use once_cell::sync::Lazy;
+use smallvec::SmallVec;
 use zhuque::{
     context::Context,
     error::JSResult,
@@ -177,11 +178,14 @@ fn js_os_poll(ctx: Context) -> bool {
                     tv_usec: ((min_delay % 1000) * 1000) as _,
                 };
                 Some(tv)
+            } else if ctx.rt_ref().gc_has_request() {
+                // non-block poll
+                Some(libc::timeval {
+                    tv_sec: 0,
+                    tv_usec: 0,
+                })
             } else {
-                // Some(libc::timeval {
-                //     tv_sec: 0,
-                //     tv_usec: 0,
-                // })
+                // block poll
                 None
             }
         });
@@ -192,15 +196,16 @@ fn js_os_poll(ctx: Context) -> bool {
             std::ptr::null_mut()
         };
 
-        let poll_fd = RW_HANDLERS.with_borrow_mut(|rws| unsafe {
-            if !rws.is_empty() {
+        let poll_fd = RW_HANDLERS.with(|rws| unsafe {
+            if !rws.borrow().is_empty() {
                 let mut rfds = std::mem::zeroed::<libc::fd_set>();
                 let mut wfds = std::mem::zeroed::<libc::fd_set>();
                 libc::FD_ZERO(&mut rfds);
                 libc::FD_ZERO(&mut wfds);
                 let mut fd_max = -1;
 
-                for (fd, rh) in rws.iter() {
+                let b = rws.borrow();
+                for (fd, rh) in b.iter() {
                     fd_max = std::cmp::max(fd_max, *fd);
                     if !rh[0].is_null() {
                         libc::FD_SET(*fd, &mut rfds);
@@ -212,31 +217,28 @@ fn js_os_poll(ctx: Context) -> bool {
 
                 let ret = libc::select(fd_max + 1, &mut rfds, &mut wfds, std::ptr::null_mut(), tvp);
                 if ret > 0 {
-                    for (fd, rh) in rws.iter() {
-                        if !rh[0].is_null()
-                            && libc::FD_ISSET(*fd, &rfds)
-                            && rh[0].call(ctx, JSValue::UNDEFINED, &[]).is_err()
-                        {
+                    let mut callbacks = SmallVec::<[JSValue; 8]>::new();
+                    let b = rws.borrow();
+
+                    for (fd, rh) in b.iter() {
+                        if !rh[0].is_null() && libc::FD_ISSET(*fd, &rfds) {
+                            callbacks.push(rh[0]);
+                        }
+                        if !rh[1].is_null() && libc::FD_ISSET(*fd, &wfds) {
+                            callbacks.push(rh[1]);
+                        }
+                    }
+
+                    for f in callbacks {
+                        if f.call(ctx, JSValue::UNDEFINED, &[]).is_err() {
                             eprintln!(
                                 "read handler error: {}",
                                 ctx.rt_ref().exception().to_string(ctx).unwrap()
                             );
                             break;
                         }
-
-                        if !rh[1].is_null()
-                            && libc::FD_ISSET(*fd, &wfds)
-                            && rh[1].call(ctx, JSValue::UNDEFINED, &[]).is_err()
-                        {
-                            eprintln!(
-                                "write handler error: {}",
-                                ctx.rt_ref().exception().to_string(ctx).unwrap()
-                            );
-                            break;
-                        }
                     }
                 } else if ret == -1 {
-                    // error
                     let eno = *libc::__error();
                     if eno == libc::EINTR {
                         // interrupt
