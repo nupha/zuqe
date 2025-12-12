@@ -231,27 +231,20 @@ impl ContextImpl {
         }
     }
 
-    /// eval script in given mode, with global as `this` binding.
+    /// eval source as global type, with global as `this` binding.
     #[inline]
-    pub fn eval(
-        &mut self,
-        source: &[u8],
-        filename: &str,
-        eval_type: EvalType,
-        eval_flags: u32,
-    ) -> JSResult {
-        debug_assert_eq!(eval_flags & JS_EVAL_TYPE_MASK, JS_EVAL_TYPE_GLOBAL);
+    pub fn eval_global(&mut self, source: &[u8], filename: &str, eval_flags: u32) -> JSResult {
         self.eval_internal(
             self.global_obj().into(),
             source,
             filename,
-            eval_type,
+            EvalType::Global,
             eval_flags,
             -1,
         )
     }
 
-    /// eval `source` as module, with global as `this` binding.
+    /// eval `source` as module type, with global as `this` binding.
     pub fn eval_module(
         &mut self,
         source: &[u8],
@@ -273,6 +266,8 @@ impl ContextImpl {
         eval_flags: u32,
         handle: impl FnOnce(JSValue) -> R,
     ) -> Result<R, ErrorText> {
+        debug_assert!(matches!(eval_type, EvalType::Global | EvalType::Module));
+
         let mut rt = self.rt_ptr();
 
         // eval
@@ -280,7 +275,7 @@ impl ContextImpl {
             self.eval_module(source, filename, eval_flags & JS_EVAL_FLAG_STRIP != 0)
                 .map(|p| p.into())
         } else {
-            self.eval(source, filename, EvalType::Global, eval_flags)
+            self.eval_global(source, filename, eval_flags)
         }
         .map_err(|_| {
             let exc = rt.take_exception();

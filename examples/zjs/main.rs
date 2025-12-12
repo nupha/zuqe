@@ -9,11 +9,7 @@ use std::process::ExitCode;
 
 use colorized::{Colors::*, colorize_println};
 use zhuque::{
-    context::Context,
-    eval::{EvalType, JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
-    module::ModuleDef,
-    parse::JSParseState,
-    runtime::Runtime,
+    context::Context, eval::EvalType, module::ModuleDef, parse::JSParseState, runtime::Runtime,
 };
 
 use crate::{

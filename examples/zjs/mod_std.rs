@@ -121,10 +121,9 @@ fn js_evalScript(mut cc: CallContext) -> JSResult {
         flags |= JS_EVAL_FLAG_ASYNC;
     }
 
-    let ret = cc.ctx_mut().eval(
+    let ret = cc.ctx_mut().eval_global(
         str.content().encode_utf8_bytes().as_ref(),
         "<evalScript>",
-        EvalType::Global,
         flags,
     );
     let lev = EVAL_SCRIPT_RECURSE.with(|s| {
