@@ -23,7 +23,7 @@ use crate::{
     },
     context::ContextPtr,
     error::{ErrorKind, JSResult, STD_ERROR_NAMES},
-    eval::EvalMode,
+    eval::{EvalMode, EvalType},
     function::{BytecodeFunction, Callback, JSFunctionKindEnum},
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET,
@@ -407,10 +407,11 @@ impl ContextPtr {
              this_obj: JSValue,
              input: &[u8],
              filename: &str,
-             flags: u32,
+             eval_type: EvalType,
+             eval_flags: u32,
              scope_idx: i32|
              -> JSResult {
-                ctx.eval_internal(this_obj, input, filename, flags, scope_idx)
+                ctx.eval_internal(this_obj, input, filename, eval_type, eval_flags, scope_idx)
             },
         );
 

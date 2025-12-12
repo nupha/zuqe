@@ -7,7 +7,7 @@ use crate::{
     bytecode::{OpcodeFormat, opcode_info_final},
     context::{ContextImpl, ContextPtr},
     error::JSResult,
-    eval::{EvalMode, JS_EVAL_TYPE_DIRECT, JS_EVAL_TYPE_INDIRECT},
+    eval::{EvalMode, EvalType},
     function::{JSFunctionDef, JSVarRef},
     runtime::RuntimePtr,
     stack_frame::StackFrame,
@@ -186,7 +186,7 @@ impl BytecodeImpl {
             },
             is_direct_or_indirect_eval: matches!(
                 fd.eval_type,
-                JS_EVAL_TYPE_DIRECT | JS_EVAL_TYPE_INDIRECT
+                EvalType::Direct | EvalType::Indirect
             ),
             stack_size,
 

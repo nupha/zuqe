@@ -12,14 +12,25 @@ use crate::{
     value::JSValue,
 };
 
-/// Native function to handle `eval`, returns eval result.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EvalType {
+    #[default]
+    Global,
+    Module,
+    Direct,
+    Indirect,
+}
+
+/// callback to handle `eval`, returns eval result.
 /// `input` is script source.
 pub(super) type EvalFn = fn(
     ctx: ContextPtr,
     this_obj: JSValue,
     input: &[u8],
     filename: &str,
-    flags: u32,
+    eval_type: EvalType,
+    eval_flags: u32,
     scope_idx: i32,
 ) -> JSResult;
 
@@ -65,13 +76,12 @@ impl ContextImpl {
         &mut self,
         source: &[u8],
         filename: &str,
-        flags: u32,
+        eval_type: EvalType,
+        eval_flags: u32,
         scope_idx: i32,
     ) -> Result<Compiled, i32> {
-        let eval_type = flags & JS_EVAL_TYPE_MASK;
-
         // get (bytecode, module, js_mode) of current stack frame
-        let (frame_func_bc, frame_module, js_mode) = if eval_type == JS_EVAL_TYPE_DIRECT {
+        let (frame_func_bc, frame_module, js_mode) = if eval_type == EvalType::Direct {
             let cur_func = self
                 .rt_ref()
                 .current_stack_frame()
@@ -85,13 +95,13 @@ impl ContextImpl {
         } else {
             let mut js_mode = EvalMode::empty();
 
-            if flags & JS_EVAL_FLAG_STRICT != 0 {
+            if eval_flags & JS_EVAL_FLAG_STRICT != 0 {
                 js_mode |= EvalMode::STRICT;
             }
-            if flags & JS_EVAL_FLAG_STRIP != 0 {
+            if eval_flags & JS_EVAL_FLAG_STRIP != 0 {
                 js_mode |= EvalMode::STRIP;
             }
-            if eval_type == JS_EVAL_TYPE_MODULE {
+            if eval_type == EvalType::Module {
                 let name = Atom::new(self.rt_ptr(), filename)?;
                 js_mode |= EvalMode::STRICT;
                 (None, Some(ModuleDef::new(self, name)?), js_mode)
@@ -105,12 +115,12 @@ impl ContextImpl {
 
         fd.eval_type = eval_type;
         fd.func_name = Atom::CONST__eval_;
-        fd.has_this_binding = eval_type != JS_EVAL_TYPE_DIRECT;
-        fd.attrs.backtrace_barrier = flags & JS_EVAL_FLAG_BACKTRACE_BARRIER != 0;
+        fd.has_this_binding = eval_type != EvalType::Direct;
+        fd.attrs.backtrace_barrier = eval_flags & JS_EVAL_FLAG_BACKTRACE_BARRIER != 0;
         fd.attrs.js_mode = js_mode;
 
         if let Some(bc) = &frame_func_bc {
-            debug_assert_eq!(eval_type, JS_EVAL_TYPE_DIRECT, "must be direct eval type");
+            debug_assert_eq!(eval_type, EvalType::Direct, "must be direct eval type");
             debug_assert!(frame_module.is_none(), "must not be module");
 
             fd.attrs.new_target_allowed = bc.attrs.new_target_allowed;
@@ -120,12 +130,12 @@ impl ContextImpl {
 
             add_closure_variables(self, &mut fd, bc, scope_idx)?;
         } else {
-            debug_assert_ne!(eval_type, JS_EVAL_TYPE_DIRECT, "can't be direct eval type");
+            debug_assert_ne!(eval_type, EvalType::Direct, "can't be direct eval type");
             fd.attrs.arguments_allowed = true;
         }
 
         fd.module = frame_module;
-        if fd.module.is_some() || flags & JS_EVAL_FLAG_ASYNC != 0 {
+        if fd.module.is_some() || eval_flags & JS_EVAL_FLAG_ASYNC != 0 {
             fd.in_function_body = true;
             fd.attrs.func_kind = JSFunctionKindEnum::JS_FUNC_ASYNC;
         }
@@ -169,34 +179,31 @@ impl ContextImpl {
             self.resolve_module(md)?;
             Ok(Compiled::Module(md))
         } else if frame_func_bc.is_some() {
-            debug_assert_eq!(eval_type, JS_EVAL_TYPE_DIRECT);
+            debug_assert_eq!(eval_type, EvalType::Direct);
             Ok(Compiled::Direct(bc))
         } else {
             Ok(Compiled::GlobalOrIndirect(bc))
         }
     }
 
-    /// compile source, then eval it. allowed eval types:
-    /// * MODULE
-    /// * GLOBAL
-    /// * DIRECT
-    /// * INDIRECT
+    /// compile source, then eval it.
     pub(super) fn eval_internal(
         &mut self,
         this_obj: JSValue,
         source: &[u8],
         filename: &str,
-        flags: u32,
+        eval_type: EvalType,
+        eval_flags: u32,
         scope_idx: i32,
     ) -> JSResult {
         #[cfg(debug_assertions)]
-        if flags & JS_EVAL_FLAG_COMPILE_ONLY != 0 {
+        if eval_flags & JS_EVAL_FLAG_COMPILE_ONLY != 0 {
             panic!(
                 "don't use JS_EVAL_FLAG_COMPILE_ONLY flag in eval().\nif you want compile only, use ::compile() method."
             );
         }
 
-        match self.compile(source, filename, flags, scope_idx)? {
+        match self.compile(source, filename, eval_type, eval_flags, scope_idx)? {
             Compiled::GlobalOrIndirect(bc) => bc.eval(self, this_obj, &[], None),
             Compiled::Direct(bc) => {
                 let mut rt = self.rt_ptr();
@@ -225,9 +232,23 @@ impl ContextImpl {
     }
 
     /// eval script in given mode, with global as `this` binding.
-    pub fn eval(&mut self, source: &[u8], filename: &str, eval_flags: u32) -> JSResult {
+    #[inline]
+    pub fn eval(
+        &mut self,
+        source: &[u8],
+        filename: &str,
+        eval_type: EvalType,
+        eval_flags: u32,
+    ) -> JSResult {
         debug_assert_eq!(eval_flags & JS_EVAL_TYPE_MASK, JS_EVAL_TYPE_GLOBAL);
-        self.eval_internal(self.global_obj().into(), source, filename, eval_flags, -1)
+        self.eval_internal(
+            self.global_obj().into(),
+            source,
+            filename,
+            eval_type,
+            eval_flags,
+            -1,
+        )
     }
 
     /// eval `source` as module, with global as `this` binding.
@@ -257,7 +278,7 @@ impl ContextImpl {
         let val = if eval_flags & JS_EVAL_TYPE_MASK == JS_EVAL_TYPE_MODULE {
             self.eval_module(source, filename, false).map(|p| p.into())
         } else {
-            self.eval(source, filename, JS_EVAL_TYPE_GLOBAL)
+            self.eval(source, filename, EvalType::Global, 0)
         }
         .map_err(|_| {
             let exc = rt.take_exception();
@@ -342,7 +363,8 @@ impl JSValue {
         &self,
         ctx: &mut ContextImpl,
         this_obj: JSValue,
-        flags: u32,
+        eval_type: EvalType,
+        eval_flags: u32,
         scope_idx: i32,
     ) -> JSResult {
         if let Self::String(s) = self {
@@ -350,7 +372,8 @@ impl JSValue {
                 this_obj,
                 s.content().encode_utf8_bytes().as_ref(),
                 "<string>",
-                flags,
+                eval_type,
+                eval_flags,
                 scope_idx,
             )
         } else {

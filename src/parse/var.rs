@@ -1,6 +1,6 @@
 use crate::{
     atom::Atom,
-    eval::{EvalMode, JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
+    eval::{EvalMode, EvalType},
     function::{GLOBAL_VAR_OFFSET, JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
     module::ExportType,
     parse::token::{TOK_CATCH, TOK_CONST, TOK_LET, TOK_VAR},
@@ -79,7 +79,7 @@ impl<'s> JSParseState<'s> {
                 }
 
                 if fd.is_eval
-                    && matches!(fd.eval_type, JS_EVAL_TYPE_GLOBAL | JS_EVAL_TYPE_MODULE)
+                    && matches!(fd.eval_type, EvalType::Global | EvalType::Module)
                     && fd.scope_level == fd.body_scope
                 {
                     let hf = fd.add_global_var(&self.ctx, name)?;
@@ -113,7 +113,7 @@ impl<'s> JSParseState<'s> {
                     if let Some(hf) = fd.find_global_var(name)
                         && hf.is_lexical()
                         && hf.scope_level == fd.scope_level
-                        && fd.eval_type == JS_EVAL_TYPE_MODULE
+                        && fd.eval_type == EvalType::Module
                     {
                         self.throw_syntax_error("invalid redefinition of lexical identifier");
                         return Err(-1);

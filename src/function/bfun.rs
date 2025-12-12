@@ -8,7 +8,7 @@ use crate::{
     class::ClassID,
     context::{ContextImpl, ContextPtr},
     error::JSResult,
-    eval::JS_EVAL_TYPE_INDIRECT,
+    eval::EvalType,
     function::{Bytecode, CallContext, JS_CALL_FLAG_COPY_ARGV, JSVarRef},
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_NORMAL, JS_PROP_TMASK, JSProperty, ObjectImpl, ObjectPayload,
@@ -481,8 +481,15 @@ impl BytecodeFunction {
 
         // eval script
         let mut func_val = {
-            let global = JSValue::Object(ctx.global_obj());
-            ctx.eval_internal(global, buf.as_slice(), "<input>", JS_EVAL_TYPE_INDIRECT, -1)?
+            let global = ctx.global_obj();
+            ctx.eval_internal(
+                global.into(),
+                buf.as_slice(),
+                "<input>",
+                EvalType::Indirect,
+                0,
+                -1,
+            )?
         };
 
         if !new_target.is_undefined() {

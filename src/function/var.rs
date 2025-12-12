@@ -3,7 +3,7 @@ use gc_lite::GcTracable;
 use crate::{
     atom::Atom,
     context::ContextImpl,
-    eval::{EvalMode, JS_EVAL_TYPE_GLOBAL},
+    eval::{EvalMode, EvalType},
     function::JSFunctionDef,
     runtime::JS_MAX_LOCAL_VARS,
 };
@@ -432,7 +432,7 @@ impl JSFunctionDef {
         }
 
         if self.is_eval
-            && self.eval_type == JS_EVAL_TYPE_GLOBAL
+            && self.eval_type == EvalType::Global
             && self.find_lexical_global_var(name).is_some()
         {
             return Some(GLOBAL_VAR_OFFSET as u32);

@@ -5,9 +5,8 @@ use crate::{
     builtins::promise::{Promise, PromiseState},
     context::ContextImpl,
     error::JSResult,
-    eval::{Compiled, JS_EVAL_FLAG_STRIP, JS_EVAL_TYPE_MODULE},
-    function::CallContext,
-    function::NativeFunctionWithData,
+    eval::{Compiled, EvalType, JS_EVAL_FLAG_STRIP},
+    function::{CallContext, NativeFunctionWithData},
     module::{JSModuleStatus, ModuleDefImpl},
     runtime::js_check_stack_overflow,
     utils::unlikely,
@@ -59,7 +58,8 @@ impl ModuleDefImpl {
 }
 
 impl ModuleDef {
-    /// compile source as module, don't run. `filename` is used to identify the module.
+    /// compile `source` to module def.
+    /// `filename` is used to identify the module.
     pub fn compile(
         ctx: &mut ContextImpl,
         source: &[u8],
@@ -69,7 +69,8 @@ impl ModuleDef {
         if let Compiled::Module(md) = ctx.compile(
             source,
             filename,
-            JS_EVAL_TYPE_MODULE | if strip { JS_EVAL_FLAG_STRIP } else { 0 },
+            EvalType::Module,
+            if strip { JS_EVAL_FLAG_STRIP } else { 0 },
             -1,
         )? {
             Ok(md)

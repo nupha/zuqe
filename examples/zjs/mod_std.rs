@@ -4,7 +4,7 @@ use once_cell::sync::Lazy;
 use zhuque::{
     context::Context,
     error::{JS_SetUncatchableError, JSResult},
-    eval::{JS_EVAL_FLAG_ASYNC, JS_EVAL_FLAG_BACKTRACE_BARRIER, JS_EVAL_TYPE_GLOBAL},
+    eval::{EvalType, JS_EVAL_FLAG_ASYNC, JS_EVAL_FLAG_BACKTRACE_BARRIER},
     function::{CallContext, FieldDef},
     value::JSValue,
 };
@@ -113,7 +113,7 @@ fn js_evalScript(mut cc: CallContext) -> JSResult {
         });
     }
 
-    let mut flags = JS_EVAL_TYPE_GLOBAL;
+    let mut flags = 0;
     if backtrace_barrier {
         flags |= JS_EVAL_FLAG_BACKTRACE_BARRIER;
     }
@@ -124,6 +124,7 @@ fn js_evalScript(mut cc: CallContext) -> JSResult {
     let ret = cc.ctx_mut().eval(
         str.content().encode_utf8_bytes().as_ref(),
         "<evalScript>",
+        EvalType::Global,
         flags,
     );
     let lev = EVAL_SCRIPT_RECURSE.with(|s| {

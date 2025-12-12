@@ -11,7 +11,7 @@ use serde::Deserialize;
 use zhuque::{
     context::Context,
     error::{ErrorText, JSResult},
-    eval::{JS_EVAL_FLAG_STRICT, JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
+    eval::{EvalType, JS_EVAL_FLAG_STRICT, JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
     function::{CallContext, Callback},
     module::ModuleDef,
     object::JS_PROP_C_W_E,
@@ -54,7 +54,7 @@ fn js_detachArrayBuffer(cc: CallContext) -> JSResult {
 fn js_evalScript(mut cc: CallContext) -> JSResult {
     let script = cc.arg(0).inspect(cc.ctx())?;
     cc.ctx_mut()
-        .eval(script.as_bytes(), "<eval>", JS_EVAL_TYPE_GLOBAL)
+        .eval(script.as_bytes(), "<eval>", EvalType::Global, 0)
 }
 
 fn js_string_codePointRange(cc: CallContext) -> JSResult {
@@ -265,7 +265,8 @@ fn run_harness(mut ctx: Context, harness_files: &[PathBuf]) -> Result<(), ErrorT
         ctx.eval(
             src.as_bytes(),
             file.as_os_str().to_string_lossy().as_ref(),
-            JS_EVAL_TYPE_GLOBAL,
+            EvalType::Global,
+            0,
         )
         .map_err(|_| {
             let exc = ctx.rt_mut().take_exception();

@@ -3,7 +3,7 @@ use std::ops::DerefMut;
 use crate::{
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp},
-    eval::{EvalMode, JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
+    eval::{EvalMode, EvalType},
     function::{ARGUMENT_VAR_OFFSET, JSFunctionDef, JSFunctionKindEnum, JSVarDefEnum},
     module::ExportType,
     utils::unlikely,
@@ -546,7 +546,7 @@ impl<'s> JSParseState<'s> {
         }
 
         if cur_fd.is_eval
-            && cur_fd.eval_type == JS_EVAL_TYPE_MODULE
+            && cur_fd.eval_type == EvalType::Module
             && matches!(
                 func_type,
                 JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT
@@ -575,7 +575,7 @@ impl<'s> JSParseState<'s> {
 
             // Create the lexical name here so that the function closure contains it
             if cur_fd.is_eval
-                && matches!(cur_fd.eval_type, JS_EVAL_TYPE_GLOBAL | JS_EVAL_TYPE_MODULE)
+                && matches!(cur_fd.eval_type, EvalType::Global | EvalType::Module)
                 && cur_fd.scope_level == cur_fd.body_scope
             {
                 // avoid creating a lexical variable in the global scope. XXX: check annex B

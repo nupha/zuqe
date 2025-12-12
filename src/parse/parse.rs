@@ -1,7 +1,7 @@
 use crate::{
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp},
-    eval::{EvalMode, JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
+    eval::{EvalMode, EvalType},
     function::JSFunctionKindEnum,
     string::{UTF8_CHAR_LEN_MAX, unicode_from_utf8_v0},
 };
@@ -32,7 +32,7 @@ impl<'s> JSParseState<'s> {
 
         {
             let fd = self.cur_func_mut();
-            fd.is_global_var = matches!(fd.eval_type, JS_EVAL_TYPE_GLOBAL | JS_EVAL_TYPE_MODULE)
+            fd.is_global_var = matches!(fd.eval_type, EvalType::Global | EvalType::Module)
                 || !fd.attrs.js_mode.contains(EvalMode::STRICT);
         }
 

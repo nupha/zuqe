@@ -4,7 +4,7 @@ use crate::{
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp, OpcodeFormat, opcode_info_intermediate, opcodes},
     context::{ContextImpl, ContextPtr},
-    eval::JS_EVAL_TYPE_GLOBAL,
+    eval::EvalType,
     function::{
         BytecodeAttrs, DEFINE_GLOBAL_LEX_VAR, JSClosureVar, JSGlobalVar, JSVarDef, JSVarScope,
     },
@@ -44,7 +44,7 @@ pub(crate) struct JSFunctionDef {
     /// 是否是eval代码
     pub is_eval: bool,
     /// 仅当is_eval=true时有效
-    pub eval_type: u32,
+    pub eval_type: EvalType,
 
     /// 变量是否未在本地定义
     pub is_global_var: bool,
@@ -200,7 +200,7 @@ impl JSFunctionDef {
             attrs: BytecodeAttrs::default(),
 
             is_eval,
-            eval_type: 0,
+            eval_type: EvalType::Global,
             is_global_var: false,
             is_func_expr,
             has_home_object: false,
@@ -637,7 +637,7 @@ pub(super) fn instantiate_hoisted_definitions(s: &mut JSFunctionDef, bc: &mut Ve
 
         if has_closure == 0 {
             let mut flags: u32 = 0;
-            if s.eval_type != JS_EVAL_TYPE_GLOBAL {
+            if s.eval_type != EvalType::Global {
                 flags |= JS_PROP_CONFIGURABLE;
             }
 

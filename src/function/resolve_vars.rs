@@ -3,7 +3,7 @@ use crate::{
     bytecode::{OpCode, OpCodeTemp, opcode_info_intermediate, opcodes},
     context::ContextImpl,
     error::JS_THROW_VAR_REDECL,
-    eval::JS_EVAL_TYPE_DIRECT,
+    eval::EvalType,
     function::{
         JSFunctionDef, JSVarKindEnum, get_label_pos, instantiate_hoisted_definitions,
         skip_dead_code,
@@ -29,7 +29,7 @@ impl JSFunctionDef {
                             continue 'g_var;
                         }
                         name if name == hf.var_name => {
-                            if self.eval_type == JS_EVAL_TYPE_DIRECT && cv.is_lexical() {
+                            if self.eval_type == EvalType::Direct && cv.is_lexical() {
                                 // Check if a lexical variable is
                                 // redefined as 'var'. XXX: Could abort
                                 // compilation here, but for consistency
