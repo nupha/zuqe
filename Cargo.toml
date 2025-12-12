@@ -93,8 +93,8 @@ anyhow = { version = "1", default-features = false }
 lib = "src/lib.rs"
 
 [[example]]
-name = "eval"
-path = "examples/eval/main.rs"
+name = "zjs"
+path = "examples/zjs/main.rs"
 
 [[example]]
 name = "test262"
