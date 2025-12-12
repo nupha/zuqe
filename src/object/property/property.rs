@@ -321,7 +321,7 @@ impl ObjectRef {
 
         for cur_obj in self.shape_proto_iter(true) {
             if cur_obj.flags().is_exotic()
-                && let Some(cb) = ctx.rt().class_registry[cur_obj.class_id() as usize]
+                && let Some(cb) = ctx.rt_ptr().class_registry[cur_obj.class_id() as usize]
                     .exotic
                     .as_ref()
                     .and_then(|x| x.has_property)
@@ -354,7 +354,7 @@ impl ObjectRef {
     ) -> Result<(), i32> {
         let mut gpn_flags = JS_GPN_INDEX_MASK | JS_GPN_SYMBOL_MASK | JS_GPN_ENUM_ONLY;
         if source.flags().is_exotic()
-            && ctx.rt().class_registry[source.class_id() as usize]
+            && ctx.rt_ptr().class_registry[source.class_id() as usize]
                 .exotic
                 .as_ref()
                 .and_then(|x| x.get_own_property_names)

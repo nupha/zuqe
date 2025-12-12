@@ -157,7 +157,7 @@ impl<'s> JSParseState<'s> {
             }
         }
 
-        let atom = Atom::new(self.ctx.rt(), &buf)?;
+        let atom = Atom::new(self.ctx.rt_ptr(), &buf)?;
         Ok((atom, has_escape, consumed))
     }
 
@@ -414,7 +414,7 @@ impl<'s> JSParseState<'s> {
                                 .offset(if t == TOK_DIV_ASSIGN { -2 } else { -1 })
                         };
                         if self.parse_regexp().is_err() {
-                            let _ = self.ctx.rt().take_exception(); //clear the exception
+                            let _ = self.ctx.rt_ptr().take_exception(); //clear the exception
                             break;
                         }
                     }

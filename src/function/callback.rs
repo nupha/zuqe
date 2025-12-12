@@ -101,7 +101,7 @@ impl NFuncPayload {
         args: &[JSValue],
         flags: i32,
     ) -> JSResult {
-        let mut rt = ctx.rt();
+        let mut rt = ctx.rt_ptr();
 
         let (callback, arg_length, magic, realm) = if let ObjectPayload::C_FUNCTION(c) =
             unsafe { func_obj.as_object_unchecked().payload() }
@@ -290,7 +290,7 @@ impl ContextImpl {
         ));
 
         // define properties length and name on function.
-        let name_atom = Atom::new(self.rt(), name)?;
+        let name_atom = Atom::new(self.rt_ptr(), name)?;
         js_function_set_properties(self, func_obj, name_atom, length as i32);
 
         Ok(func_obj)

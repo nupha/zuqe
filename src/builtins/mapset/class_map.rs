@@ -144,7 +144,7 @@ fn js_map_delete(cc: CallContext) -> JSResult {
                     let key_obj = key.as_object_mut().unwrap();
 
                     key_obj.weak_refs.retain(|w| {
-                        w.upgrade(ctx.rt().gc_heap())
+                        w.upgrade(ctx.rt_ptr().gc_heap())
                             .is_some_and(|o| !ObjectRef::from(o).eq(this_obj))
                     });
                 }
@@ -210,7 +210,7 @@ fn js_map_forEach(cc: CallContext) -> JSResult {
             let pair = match kv {
                 MapPair::Strong { key, value } => Some((key, value)),
                 MapPair::Weak { key, value } => key
-                    .upgrade(ctx.rt().gc_heap())
+                    .upgrade(ctx.rt_ptr().gc_heap())
                     .map(|k| (JSValue::from(k), value)),
                 MapPair::Removed => None,
             };

@@ -205,7 +205,7 @@ impl<'s> JSParseState<'s> {
                     name.replace(
                         self.ctx
                             .create_string_with_buf(sbuf)
-                            .and_then(|s| s.to_atom(self.ctx.rt()))?,
+                            .and_then(|s| s.to_atom(self.ctx.rt_ptr()))?,
                     );
                     self.next_token()?;
                 }

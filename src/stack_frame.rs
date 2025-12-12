@@ -181,14 +181,14 @@ impl StackFrame {
         pc: usize,
         mut sp: usize,
     ) -> Option<(usize, usize)> {
-        if is_backtrace_needed(ctx.rt().exception()) {
+        if is_backtrace_needed(ctx.rt_ptr().exception()) {
             // add the backtrace information now:
             // it is not done before if the exception happens in a bytecode operation
             self.cur_pc_offset = pc;
-            ctx.build_backtrace_to(ctx.rt().exception(), None, 0);
+            ctx.build_backtrace_to(ctx.rt_ptr().exception(), None, 0);
         }
 
-        if unsafe { !JS_IsUncatchableError(ctx.rt().exception()) } {
+        if unsafe { !JS_IsUncatchableError(ctx.rt_ptr().exception()) } {
             let sp_base = self.stack_base_ptr().as_ptr();
 
             // find catch offset
@@ -212,7 +212,7 @@ impl StackFrame {
                         }
                     } else {
                         unsafe {
-                            std::ptr::replace(sp_base.add(sp), ctx.rt().take_exception());
+                            std::ptr::replace(sp_base.add(sp), ctx.rt_ptr().take_exception());
                         }
                         sp += 1;
                         return Some((pos as usize, sp));
@@ -233,7 +233,7 @@ impl StackFrame {
         is_generator: bool,
     ) {
         debug_assert_eq!(
-            ctx.rt().current_stack_frame(),
+            ctx.rt_ptr().current_stack_frame(),
             Some(&*self),
             "StackFrame::handle_exit() must be called on active stack frame"
         );
@@ -266,7 +266,7 @@ impl StackFrame {
 
         // switch back to previous stack frame
         // ctx.rt().cur_stack_frame = self.prev;
-        ctx.rt().pop_stack_frame();
+        ctx.rt_ptr().pop_stack_frame();
     }
 
     /// get stack frame parent iterator

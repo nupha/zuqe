@@ -3,8 +3,8 @@ use std::{ops::Deref, ptr::NonNull};
 use crate::{
     atom::Atom,
     builtins::promise::{Promise, PromiseState},
-    context::{Context, ContextImpl, ContextPtr, EvalMode},
-    error::JSResult,
+    context::{ContextImpl, ContextPtr, EvalMode},
+    error::{ErrorText, JSResult},
     function::{Bytecode, JSFunctionDef, JSFunctionKindEnum, add_closure_variables},
     module::ModuleDef,
     parse::JSParseState,
@@ -81,7 +81,7 @@ impl ContextImpl {
                 js_mode |= EvalMode::STRIP;
             }
             if eval_type == JS_EVAL_TYPE_MODULE {
-                let name = Atom::new(self.rt(), filename)?;
+                let name = Atom::new(self.rt_ptr(), filename)?;
                 js_mode |= EvalMode::STRICT;
                 (None, Some(ModuleDef::new(self, name)?), js_mode)
             } else {
@@ -188,7 +188,7 @@ impl ContextImpl {
         match self.compile(source, filename, flags, scope_idx)? {
             Compiled::GlobalOrIndirect(bc) => bc.eval(self, this_obj, &[], None),
             Compiled::Direct(bc) => {
-                let mut rt = self.rt();
+                let mut rt = self.rt_ptr();
 
                 bc.eval(
                     self,
@@ -231,6 +231,96 @@ impl ContextImpl {
         md.set_import_meta(self, filename, true)?;
         md.eval(self)
     }
+
+    /// run script, handle result value with callback. wait till execution terminates.
+    pub fn run_wait_with<R>(
+        &mut self,
+        source: &[u8],
+        filename: &str,
+        eval_flags: u32,
+        handle: impl FnOnce(JSValue) -> R,
+    ) -> Result<R, ErrorText> {
+        let mut rt = self.rt_ptr();
+
+        // eval
+        let val = if eval_flags & JS_EVAL_TYPE_MASK == JS_EVAL_TYPE_MODULE {
+            self.eval_module(source, filename, false).map(|p| p.into())
+        } else {
+            self.eval(source, filename, JS_EVAL_TYPE_GLOBAL)
+        }
+        .map_err(|_| {
+            let exc = rt.take_exception();
+            ErrorText::from(self, exc)
+        })?;
+
+        // to set val as gc root - is this nessesary?
+        // rt.gc_set_root_value(val, true);
+
+        let mut promise = Promise::try_from(val).ok();
+        let mut result = if let Some(p) = promise {
+            match p.state() {
+                PromiseState::Fulfilled => {
+                    promise = None;
+                    Ok(p.result())
+                }
+                PromiseState::Rejected => {
+                    promise = None;
+                    Err(ErrorText::from(self, p.result()))
+                }
+                _ => Ok(JSValue::UNDEFINED),
+            }
+        } else {
+            Ok(val)
+        };
+
+        // tick to finish
+        let exit_code = loop {
+            match rt.tick() {
+                Ok(TickStatus::Continue) => {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                    continue;
+                }
+                Ok(TickStatus::Stop(code)) => {
+                    if let Some(p) = promise {
+                        match p.state() {
+                            PromiseState::Fulfilled => {
+                                result = Ok(p.result());
+                            }
+                            PromiseState::Rejected => {
+                                result = Err(ErrorText::from(self, p.result()));
+                            }
+                            _ => {
+                                self.throw_type_error("Promise is pending");
+                                let exc = rt.take_exception();
+                                result = Err(ErrorText::from(self, exc));
+                            }
+                        }
+                    }
+                    break code;
+                }
+                Err(_) => {
+                    let exc = rt.take_exception();
+                    result = Err(ErrorText::from(self, exc));
+                    break -1;
+                }
+            }
+        };
+
+        match result {
+            Ok(v) => Ok(handle(v)),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// run script, wait till execution terminates.
+    pub fn run_wait(
+        &mut self,
+        source: &[u8],
+        filename: &str,
+        eval_flags: u32,
+    ) -> Result<(), ErrorText> {
+        self.run_wait_with(source, filename, eval_flags, |_| {})
+    }
 }
 
 impl JSValue {
@@ -255,110 +345,5 @@ impl JSValue {
         } else {
             Ok(*self)
         }
-    }
-}
-
-impl<'a> Context<'a> {
-    /// run script, handle result value with callback. wait till execution terminates.
-    pub fn run_with<R>(
-        &self,
-        source: &[u8],
-        filename: &str,
-        eval_flags: u32,
-        handle: impl FnOnce(JSValue) -> R,
-    ) -> Result<R, String> {
-        fn get_err_msg(cx: &ContextImpl, err: JSValue) -> String {
-            if let Ok(s) = err.to_string(cx) {
-                let mut txt = s.content().to_utf8(false).to_string();
-
-                match err.get_property(cx, Atom::CONST_stack) {
-                    Ok(JSValue::NULL) | Ok(JSValue::UNDEFINED) => {}
-                    Ok(s) => {
-                        if let Ok(ss) = s.inspect(cx) {
-                            txt = format!("{txt}\n{ss}");
-                        }
-                    }
-                    Err(_) => {}
-                }
-                txt
-            } else {
-                "can't get error message".to_string()
-            }
-        }
-
-        // eval
-        let mut c = *self;
-        let mut rt = c.rt();
-
-        let val = if eval_flags & JS_EVAL_TYPE_MASK == JS_EVAL_TYPE_MODULE {
-            c.eval_module(source, filename, false).map(|p| p.into())
-        } else {
-            c.eval(source, filename, JS_EVAL_TYPE_GLOBAL)
-        }
-        .map_err(|_| {
-            let exc = c.rt_mut().take_exception();
-            get_err_msg(&c, exc)
-        })?;
-
-        // to set val as gc root - is this nessesary?
-        // rt.gc_set_root_value(val, true);
-
-        let mut promise = Promise::try_from(val).ok();
-        let mut result = if let Some(p) = promise {
-            match p.state() {
-                PromiseState::Fulfilled => {
-                    promise = None;
-                    Ok(p.result())
-                }
-                PromiseState::Rejected => {
-                    promise = None;
-                    Err(get_err_msg(&c, p.result()))
-                }
-                _ => Ok(JSValue::UNDEFINED),
-            }
-        } else {
-            Ok(val)
-        };
-
-        // tick
-        let exit_code = loop {
-            match rt.tick() {
-                Ok(TickStatus::Continue) => {
-                    std::thread::sleep(std::time::Duration::from_millis(1));
-                    continue;
-                }
-                Ok(TickStatus::Stop(code)) => {
-                    if let Some(p) = promise {
-                        match p.state() {
-                            PromiseState::Fulfilled => {
-                                result = Ok(p.result());
-                            }
-                            PromiseState::Rejected => {
-                                result = Err(get_err_msg(&c, p.result()));
-                            }
-                            _ => {
-                                unreachable!()
-                            }
-                        }
-                    }
-                    break code;
-                }
-                Err(_) => {
-                    let exc = c.rt_mut().take_exception();
-                    result = Err(get_err_msg(&c, exc));
-                    break -1;
-                }
-            }
-        };
-
-        match result {
-            Ok(v) => Ok(handle(v)),
-            Err(e) => Err(e),
-        }
-    }
-
-    /// run script, wait till execution terminates.
-    pub fn run(&self, source: &[u8], filename: &str, eval_flags: u32) -> Result<(), String> {
-        self.run_with(source, filename, eval_flags, |_| {})
     }
 }

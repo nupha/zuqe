@@ -158,7 +158,7 @@ impl ObjectRef {
                         let _ = val.to_number(ctx)?;
                         return Ok(true);
                     }
-                } else if let Some(xm) = ctx.rt().class_registry[cur_obj.class_id() as usize]
+                } else if let Some(xm) = ctx.rt_ptr().class_registry[cur_obj.class_id() as usize]
                     .exotic
                     .as_ref()
                 {
@@ -480,7 +480,7 @@ impl ObjectRef {
         self.set_property_index(ctx, idx as usize, val, JS_PROP_THROW)
             .unwrap_or_else(|| {
                 // slow path
-                let atom = Atom::from_i64(ctx.rt(), idx as i64)?;
+                let atom = Atom::from_i64(ctx.rt_ptr(), idx as i64)?;
                 self.set_property_internal(ctx, atom, val, Some(*self), JS_PROP_THROW)
             })
     }
@@ -495,7 +495,7 @@ impl ObjectRef {
         if (0..=u32::MAX as i64).contains(&idx) {
             self.set_property_u32(ctx, idx as u32, val)
         } else {
-            let atom = Atom::from_i64(ctx.rt(), idx)?;
+            let atom = Atom::from_i64(ctx.rt_ptr(), idx)?;
             self.set_property(ctx, atom, val)
         }
     }
@@ -507,7 +507,7 @@ impl ObjectRef {
         prop: &str,
         val: JSValue,
     ) -> Result<bool, i32> {
-        let atom = Atom::new(ctx.rt(), prop)?;
+        let atom = Atom::new(ctx.rt_ptr(), prop)?;
         self.set_property(ctx, atom, val)
     }
 }
@@ -595,7 +595,7 @@ impl JSValue {
         prop: &str,
         val: Self,
     ) -> Result<bool, i32> {
-        let atom = Atom::new(ctx.rt(), prop)?;
+        let atom = Atom::new(ctx.rt_ptr(), prop)?;
         self.set_property(ctx, atom, val)
     }
 }

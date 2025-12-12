@@ -444,7 +444,7 @@ fn js_typed_array_get_toStringTag(cc: CallContext) -> JSResult {
     let ctx = cc.ctx();
 
     if let Some(ta) = cc.this().as_object_TypedArray() {
-        ctx.rt().class_registry[ta.class_id() as usize]
+        ctx.rt_ptr().class_registry[ta.class_id() as usize]
             .class_name
             .force_string(ctx)
             .map(JSValue::String)

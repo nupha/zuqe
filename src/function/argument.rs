@@ -132,7 +132,7 @@ pub fn js_build_mapped_arguments(
     obj.define_property_value(
         ctx,
         Atom::CONST_callee,
-        ctx.rt().current_stack_frame().unwrap().cur_func,
+        ctx.rt_ptr().current_stack_frame().unwrap().cur_func,
         JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
     )?;
 

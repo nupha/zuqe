@@ -294,7 +294,7 @@ impl JSFunctionDef {
             bc_inner.debug.take();
         }
 
-        let bc = Bytecode::from(ctx.rt().gc_alloc(bc_inner).map_err(|_| {
+        let bc = Bytecode::from(ctx.rt_ptr().gc_alloc(bc_inner).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
         })?);

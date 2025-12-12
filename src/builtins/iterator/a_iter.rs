@@ -131,7 +131,7 @@ fn js_async_from_sync_iterator_next(cc: CallContext) -> JSResult {
                     return Ok(done_resolve(
                         &ctx,
                         resolving_funcs,
-                        ctx.rt().take_exception(),
+                        ctx.rt_ptr().take_exception(),
                         1,
                         promise,
                     ));
@@ -156,7 +156,7 @@ fn js_async_from_sync_iterator_next(cc: CallContext) -> JSResult {
                     let mut _done = false;
                     value = JS_IteratorGetCompleteValue(&ctx, value, &mut _done);
                     if value.is_exception() {
-                        let err = ctx.rt().take_exception();
+                        let err = ctx.rt_ptr().take_exception();
                         return Ok(done_resolve(&ctx, resolving_funcs, err, 1, promise));
                     }
                     _done
@@ -172,7 +172,7 @@ fn js_async_from_sync_iterator_next(cc: CallContext) -> JSResult {
                     return Ok(done_resolve(
                         &ctx,
                         resolving_funcs,
-                        ctx.rt().take_exception(),
+                        ctx.rt_ptr().take_exception(),
                         1,
                         promise,
                     ));
@@ -189,7 +189,7 @@ fn js_async_from_sync_iterator_next(cc: CallContext) -> JSResult {
             Ok(done_resolve(
                 &ctx,
                 resolving_funcs,
-                ctx.rt().take_exception(),
+                ctx.rt_ptr().take_exception(),
                 1,
                 promise,
             ))
@@ -199,7 +199,7 @@ fn js_async_from_sync_iterator_next(cc: CallContext) -> JSResult {
         Ok(done_resolve(
             &ctx,
             resolving_funcs,
-            ctx.rt().take_exception(),
+            ctx.rt_ptr().take_exception(),
             1,
             promise,
         ))

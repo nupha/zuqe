@@ -204,7 +204,7 @@ impl ObjectImpl {
         #[cfg(debug_assertions)]
         if let Some(sh) = &shape {
             debug_assert!(
-                ctx.rt().shape_registry.is_registered(sh),
+                ctx.rt_ptr().shape_registry.is_registered(sh),
                 "shape must be registered when used by object"
             );
         }
@@ -273,7 +273,7 @@ impl ObjectImpl {
 
             class_id @ (JS_CLASS_NUMBER | JS_CLASS_STRING | JS_CLASS_BOOLEAN | JS_CLASS_SYMBOL
             | JS_CLASS_DATE | JS_CLASS_BIG_INT) => {
-                if ctx.rt().class_registry[class_id as usize].exotic.is_some() {
+                if ctx.rt_ptr().class_registry[class_id as usize].exotic.is_some() {
                     flags.set_exotic(true);
                 }
             }
@@ -296,14 +296,14 @@ impl ObjectImpl {
             }
 
             class_id => {
-                if ctx.rt().class_registry[class_id as usize].exotic.is_some() {
+                if ctx.rt_ptr().class_registry[class_id as usize].exotic.is_some() {
                     flags.set_exotic(true);
                 }
             }
         }
 
         let obj = Self {
-            rt: ctx.rt(),
+            rt: ctx.rt_ptr(),
             obj_flags: flags,
             shape,
             prop_values,
@@ -311,7 +311,7 @@ impl ObjectImpl {
             weak_refs: Vec::new(),
         };
 
-        let ob_impl = ctx.rt().gc_alloc(obj).map_err(|(_, mut o)| {
+        let ob_impl = ctx.rt_ptr().gc_alloc(obj).map_err(|(_, mut o)| {
             ctx.throw_out_of_memory();
             std::mem::replace(&mut o.payload, ObjectPayload::NUMBER(JSValue::Int(0)))
         })?;

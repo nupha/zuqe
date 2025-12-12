@@ -184,7 +184,7 @@ impl ContextImpl {
 
     /// get runtime ptr
     #[inline(always)]
-    pub(crate) const fn rt(&self) -> RuntimePtr {
+    pub(crate) const fn rt_ptr(&self) -> RuntimePtr {
         self.rt
     }
 
@@ -225,7 +225,7 @@ impl ContextImpl {
 
     /// test if context is currently in strict mode
     pub(crate) fn is_strict_mode(&self) -> bool {
-        self.rt()
+        self.rt_ptr()
             .current_stack_frame()
             .is_some_and(|sf| sf.js_mode.contains(EvalMode::STRICT))
     }
@@ -339,7 +339,7 @@ impl ContextPtr {
             .max()
             .copied()
             .unwrap()
-                < self.rt().class_registry.len() as ClassID
+                < self.rt_ptr().class_registry.len() as ClassID
         );
 
         // Object
@@ -411,7 +411,7 @@ impl ContextPtr {
                 .add_shape_properties(&[(Atom::CONST_length, JS_PROP_WRITABLE | JS_PROP_LENGTH)]);
 
             // register shape
-            self.rt().shape_registry.register(&array_shape).unwrap();
+            self.rt_ptr().shape_registry.register(&array_shape).unwrap();
             self.array_shape.replace(array_shape);
         }
 
@@ -420,13 +420,13 @@ impl ContextPtr {
 
     #[inline(always)]
     pub fn downgrade(&self) -> GcWeak<ContextImpl> {
-        self.0.downgrade(self.rt().gc_heap_mut())
+        self.0.downgrade(self.rt_ptr().gc_heap_mut())
     }
 }
 
 /* only valid inside C functions */
 pub(crate) fn JS_GetActiveFunction(ctx: &ContextImpl) -> JSValue {
-    ctx.rt().current_stack_frame().unwrap().cur_func
+    ctx.rt_ptr().current_stack_frame().unwrap().cur_func
 }
 
 bitflags::bitflags! {

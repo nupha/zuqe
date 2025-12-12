@@ -95,7 +95,7 @@ impl ObjectRef {
                     // array index is own property
                     return Ok(true);
                 }
-            } else if let Some(cb) = ctx.rt().class_registry[self.class_id() as usize]
+            } else if let Some(cb) = ctx.rt_ptr().class_registry[self.class_id() as usize]
                 .exotic
                 .as_ref()
                 .and_then(|x| x.get_own_property)
@@ -114,7 +114,7 @@ impl ObjectRef {
 
     #[inline]
     pub fn has_own_property_str(&self, ctx: &ContextImpl, prop: &str) -> Result<bool, i32> {
-        let atom = Atom::new(ctx.rt(), prop)?;
+        let atom = Atom::new(ctx.rt_ptr(), prop)?;
         self.has_own_property(ctx, atom)
     }
 
@@ -184,7 +184,7 @@ impl ObjectRef {
                         setter: JSValue::UNDEFINED,
                     }));
                 }
-            } else if let Some(f) = ctx.rt().class_registry[self.class_id() as usize]
+            } else if let Some(f) = ctx.rt_ptr().class_registry[self.class_id() as usize]
                 .exotic
                 .as_ref()
                 .and_then(|x| x.get_own_property)
@@ -356,7 +356,7 @@ impl ObjectRef {
 
                 cid => {
                     if flags & JS_PROP_NO_EXOTIC == 0
-                        && let Some(pm) = ctx.rt().class_registry[cid as usize].exotic.as_ref()
+                        && let Some(pm) = ctx.rt_ptr().class_registry[cid as usize].exotic.as_ref()
                     {
                         if let Some(f) = pm.define_own_property {
                             return f(

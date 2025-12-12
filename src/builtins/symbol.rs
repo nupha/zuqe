@@ -21,12 +21,12 @@ impl ContextImpl {
         );
 
         let atom = Atom::from_string_as_is(
-            self.rt(),
+            self.rt_ptr(),
             if let Some(s) = str {
                 s
             } else {
                 debug_assert_eq!(atom_kind, AtomKind::Symbol);
-                StringRef::new(self.rt(), StringData::Ident).map_err(|_| {
+                StringRef::new(self.rt_ptr(), StringData::Ident).map_err(|_| {
                     self.throw_out_of_memory();
                     -1
                 })?

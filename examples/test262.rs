@@ -9,15 +9,13 @@ use std::{
 
 use serde::Deserialize;
 use zhuque::{
-    atom::Atom,
-    builtins::promise::{Promise, PromiseState},
     context::Context,
-    error::JSResult,
-    eval::{JS_EVAL_FLAG_STRICT, JS_EVAL_TYPE_GLOBAL},
+    error::{ErrorText, JSResult},
+    eval::{JS_EVAL_FLAG_STRICT, JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
     function::{CallContext, Callback},
     module::ModuleDef,
     object::JS_PROP_C_W_E,
-    runtime::{Runtime, TickStatus},
+    runtime::Runtime,
     value::JSValue,
 };
 
@@ -256,7 +254,7 @@ struct Negative {
     type_: Option<String>,
 }
 
-fn run_harness(mut ctx: Context, harness_files: &[PathBuf]) -> Result<(), i32> {
+fn run_harness(mut ctx: Context, harness_files: &[PathBuf]) -> Result<(), ErrorText> {
     for file in harness_files {
         let src = std::fs::read_to_string(file)
             .inspect_err(|_| {
@@ -268,7 +266,11 @@ fn run_harness(mut ctx: Context, harness_files: &[PathBuf]) -> Result<(), i32> {
             src.as_bytes(),
             file.as_os_str().to_string_lossy().as_ref(),
             JS_EVAL_TYPE_GLOBAL,
-        )?;
+        )
+        .map_err(|_| {
+            let exc = ctx.rt_mut().take_exception();
+            ErrorText::from(&ctx, exc)
+        })?;
     }
 
     Ok(())
@@ -281,74 +283,37 @@ fn run_test_script(
     is_module: bool,
     is_async: bool,
     is_strict: bool,
-) -> Result<i32, i32> {
+) -> Result<i32, ErrorText> {
     if is_async {
         ASYNC_DONE.store(0, std::sync::atomic::Ordering::SeqCst);
     }
 
-    let res = if is_module {
-        ctx.eval_module(
-            script.as_bytes(),
-            filename.as_os_str().to_str().unwrap(),
-            false,
-        )
-        .map(|p| p.into())?
-    } else {
-        ctx.eval(
-            script.as_bytes(),
-            filename.as_os_str().to_str().unwrap(),
-            JS_EVAL_TYPE_GLOBAL | if is_strict { JS_EVAL_FLAG_STRICT } else { 0 },
-        )?
-    };
+    ctx.run_wait(
+        script.as_bytes(),
+        filename.as_os_str().to_str().unwrap(),
+        if is_module {
+            JS_EVAL_TYPE_MODULE
+        } else {
+            JS_EVAL_TYPE_GLOBAL
+        } | if is_strict { JS_EVAL_FLAG_STRICT } else { 0 },
+    )?;
 
-    ctx.rt_mut().gc_set_root_value(res, true);
-
-    let promise = if is_async || is_module {
-        Promise::try_from(res).ok()
-    } else {
-        None
-    };
-
-    loop {
-        match ctx.rt_mut().tick()? {
-            TickStatus::Continue => {
-                std::thread::sleep(std::time::Duration::from_millis(1));
-            }
-            TickStatus::Stop(code) => {
-                if is_async {
-                    // test if the test called $DONE() once
-                    let n = ASYNC_DONE.load(Ordering::SeqCst);
-                    if n != 1 {
-                        ctx.throw_type_error(&format!("$DONE() not called {n}"));
-                        return Err(-1);
-                    }
-                }
-
-                if let Some(promise) = promise {
-                    // check if the returned promise is fulfilled
-                    match promise.state() {
-                        PromiseState::Fulfilled => {}
-                        PromiseState::Rejected => {
-                            ctx.throw(promise.result());
-                            return Err(-1);
-                        }
-                        PromiseState::Pending => {
-                            ctx.throw_type_error("promise is pending");
-                            return Err(-1);
-                        }
-                    }
-                }
-
-                return Ok(code);
-            }
+    if is_async {
+        // test if the test called $DONE() once
+        let n = ASYNC_DONE.load(Ordering::SeqCst);
+        if n != 1 {
+            return Err(ErrorText {
+                message: format!("TypeError: $DONE() not called {n}"),
+                traceback: None,
+            });
         }
     }
+
+    Ok(0)
 }
 
 fn dump_error(
-    ctx: Context,
-    err_val: &JSValue,
-    msg: &str,
+    err_val: &ErrorText,
     strict: bool,
     is_module: bool,
     is_async: bool,
@@ -359,15 +324,11 @@ fn dump_error(
         "[ENV] strict={strict}, module={is_module}, async={is_async}"
     )
     .unwrap();
-    writeln!(outf, "[MESSAGE] {msg}").unwrap();
 
-    match err_val.get_property(&ctx, Atom::CONST_stack) {
-        Ok(JSValue::NULL) | Ok(JSValue::UNDEFINED) => {}
-        Err(_) => {}
-        Ok(s) => {
-            let ss = s.inspect(&ctx).unwrap();
-            writeln!(outf, "[STACK] {}", ss).unwrap();
-        }
+    writeln!(outf, "{}", err_val.message).unwrap();
+
+    if let Some(tb) = err_val.traceback.as_ref() {
+        writeln!(outf, "{tb}").unwrap();
     }
 }
 
@@ -428,34 +389,15 @@ fn run_test_file(
 
     if !harness_files.is_empty() {
         // eval included harness files
-        if run_harness(ctx, &harness_files).is_err() {
-            let exc = ctx.rt_ref().exception();
-            let msg = exc.to_string(&ctx).unwrap();
-
+        if let Err(exc) = run_harness(ctx, &harness_files) {
             // write to outf
             writeln!(outf, "FAIL: can't eval harness").unwrap();
-            dump_error(
-                ctx,
-                &exc,
-                msg.content().to_utf8(true).as_ref(),
-                false,
-                false,
-                false,
-                outf,
-            );
+            dump_error(&exc, false, false, false, outf);
 
             // write to err
             writeln!(errf, "{}", filename.display()).unwrap();
             writeln!(outf, "FAIL: can't eval harness").unwrap();
-            dump_error(
-                ctx,
-                &exc,
-                msg.content().to_utf8(true).as_ref(),
-                false,
-                false,
-                false,
-                errf,
-            );
+            dump_error(&exc, false, false, false, errf);
 
             has_err = true;
         }
@@ -492,25 +434,26 @@ fn run_test_file(
         .into_iter()
         .flatten()
         {
-            if run_test_script(ctx, content.as_str(), filename, is_module, is_async, strict)
-                .is_err()
+            if let Err(exc) =
+                run_test_script(ctx, content.as_str(), filename, is_module, is_async, strict)
             {
-                let exc = ctx.rt_ref().exception();
+                // let exc = ctx.rt_ref().exception();
 
-                println!("TEST262 EXCEPTION: {:?}", exc);
-                let msg = if let JSValue::Object(o) = &exc {
-                    #[cfg(debug_assertions)]
-                    o.dump(ctx.rt_ref());
+                eprintln!("TEST262 EXCEPTION: {:?}", exc.message);
 
-                    let msg = o.get_property(&ctx, Atom::CONST_message).unwrap();
-                    msg.inspect(&ctx).unwrap().to_string()
-                } else {
-                    "<no msg>".into()
-                };
+                // let msg = if let JSValue::Object(o) = &exc {
+                //     #[cfg(debug_assertions)]
+                //     o.dump(ctx.rt_ref());
+
+                //     let msg = o.get_property(&ctx, Atom::CONST_message).unwrap();
+                //     msg.inspect(&ctx).unwrap().to_string()
+                // } else {
+                //     "<no msg>".into()
+                // };
 
                 if let Some(neg) = &negative {
                     if let Some(ty) = neg.type_.as_ref() {
-                        let err_class = msg.split(":").next().unwrap();
+                        let err_class = exc.message.split(":").next().unwrap();
                         if err_class == ty {
                             writeln!(outf, "pass").unwrap();
                         } else {
@@ -520,7 +463,7 @@ fn run_test_file(
                                 ty, err_class
                             )
                             .unwrap();
-                            dump_error(ctx, &exc, msg.as_ref(), strict, is_module, is_async, outf);
+                            dump_error(&exc, strict, is_module, is_async, outf);
 
                             // write to err file
                             writeln!(errf, "{}", filename.display()).unwrap();
@@ -530,17 +473,17 @@ fn run_test_file(
                                 ty, err_class
                             )
                             .unwrap();
-                            dump_error(ctx, &exc, msg.as_ref(), strict, is_module, is_async, errf);
+                            dump_error(&exc, strict, is_module, is_async, errf);
                         }
                     } else {
                         writeln!(outf, "pass").unwrap();
                     }
                 } else {
                     writeln!(outf, "fail").unwrap();
-                    dump_error(ctx, &exc, msg.as_ref(), strict, is_module, is_async, outf);
+                    dump_error(&exc, strict, is_module, is_async, outf);
 
                     writeln!(errf, "{}", filename.display()).unwrap();
-                    dump_error(ctx, &exc, msg.as_ref(), strict, is_module, is_async, errf);
+                    dump_error(&exc, strict, is_module, is_async, errf);
                 }
             } else if let Some(neg) = &negative {
                 writeln!(

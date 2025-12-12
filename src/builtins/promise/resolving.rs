@@ -77,7 +77,7 @@ impl PromiseResolveFunc {
             } else if unlikely(arg0.is_same(s.promise.into())) {
                 s.promise.reject(cx, {
                     ctx.throw_type_error("promise self resolution");
-                    ctx.rt().take_exception()
+                    ctx.rt_ptr().take_exception()
                 });
                 return Ok(JSValue::UNDEFINED);
             } else if let Ok(then) = arg0.get_property(&ctx, Atom::CONST_then) {
@@ -96,7 +96,7 @@ impl PromiseResolveFunc {
                     );
                 }
             } else {
-                s.promise.reject(cx, ctx.rt().take_exception());
+                s.promise.reject(cx, ctx.rt_ptr().take_exception());
             }
         }
 
@@ -177,14 +177,14 @@ impl Promise {
             _ => {
                 if state == PromiseState::Rejected
                     && !is_handled
-                    && let Some(cb) = ctx.rt().host_promise_rejection_tracker
+                    && let Some(cb) = ctx.rt_ptr().host_promise_rejection_tracker
                 {
                     cb(
                         ctx,
                         *self,
                         result,
                         true as i32,
-                        ctx.rt().host_promise_rejection_tracker_opaque,
+                        ctx.rt_ptr().host_promise_rejection_tracker_opaque,
                     );
                 }
 
@@ -258,14 +258,14 @@ impl Promise {
 
         if state == PromiseState::Rejected
             && !is_handled
-            && let Some(f) = ctx.rt().host_promise_rejection_tracker
+            && let Some(f) = ctx.rt_ptr().host_promise_rejection_tracker
         {
             f(
                 &ctx,
                 *self,
                 value,
                 0,
-                ctx.rt().host_promise_rejection_tracker_opaque,
+                ctx.rt_ptr().host_promise_rejection_tracker_opaque,
             );
         }
 
@@ -286,7 +286,7 @@ impl Promise {
             };
 
             let is_reject = if value.is_exception() {
-                value = ctx.rt().take_exception();
+                value = ctx.rt_ptr().take_exception();
                 true
             } else {
                 false

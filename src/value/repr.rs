@@ -55,7 +55,7 @@ impl ObjectRef {
                 | JS_CLASS_BOOLEAN
                 | JS_CLASS_NUMBER
                 | JS_CLASS_DATE
-                | JS_CLASS_REGEXP) => ctx.rt().class_registry[cid as usize].class_name,
+                | JS_CLASS_REGEXP) => ctx.rt_ptr().class_registry[cid as usize].class_name,
 
                 _ => Atom::CONST_Object,
             }

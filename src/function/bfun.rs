@@ -228,7 +228,7 @@ pub(crate) fn JS_GetFunctionRealm(ctx: ContextPtr, func_obj: JSValue) -> Result<
         ObjectPayload::C_FUNCTION(cfunc) => {
             realm = cfunc
                 .realm
-                .upgrade(ctx.rt().gc_heap())
+                .upgrade(ctx.rt_ptr().gc_heap())
                 .map_or(ctx, ContextPtr::from);
         }
         ObjectPayload::BYTECODE_FUNCTION(fo)
@@ -333,7 +333,7 @@ impl BytecodeFunction {
         args: &[JSValue],
         flags: i32,
     ) -> JSValue {
-        let rt = caller_ctx.rt();
+        let rt = caller_ctx.rt_ptr();
         let bc = self.payload().bytecode();
 
         // how many args that should be copied to local buf?

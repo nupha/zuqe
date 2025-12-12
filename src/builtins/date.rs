@@ -913,7 +913,7 @@ fn js_date_Symbol_toPrimitive(cc: CallContext) -> JSResult {
     };
 
     let hint: Atom = if let JSValue::String(s) = cc.arg(0) {
-        s.to_atom(cc.ctx().rt())?
+        s.to_atom(cc.ctx().rt_ptr())?
     } else {
         Atom::CONST_empty_string
     };

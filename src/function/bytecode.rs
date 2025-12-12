@@ -175,7 +175,7 @@ impl BytecodeImpl {
         stack_size: u16,
     ) -> Self {
         Self {
-            rt: ctx.rt(),
+            rt: ctx.rt_ptr(),
 
             func_name: fd.func_name,
             realm: unsafe { ContextPtr::from_ref_unchecked(ctx).downgrade() },

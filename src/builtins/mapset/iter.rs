@@ -73,7 +73,7 @@ fn js_map_iterator_next(cc: CallContext, state: &mut IteratorState) -> JSResult 
                         break;
                     }
                     MapPair::Weak { key, value } => {
-                        if let Some(key) = key.upgrade(ctx.rt().gc_heap()) {
+                        if let Some(key) = key.upgrade(ctx.rt_ptr().gc_heap()) {
                             let key = ObjectRef(key);
                             pair.replace((key.into(), if is_set { key.into() } else { *value }));
                             break;

@@ -137,7 +137,7 @@ impl Promise {
 
         let rr = promise.create_resolving_functions(ctx)?;
         if executor.call(ctx, JSValue::UNDEFINED, &rr).is_err() {
-            let exc = ctx.rt().take_exception();
+            let exc = ctx.rt_ptr().take_exception();
             rr[1].call(ctx, JSValue::UNDEFINED, &[exc])?;
         }
 

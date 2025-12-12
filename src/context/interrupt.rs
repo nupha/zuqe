@@ -22,7 +22,7 @@ impl RuntimeImpl {
 impl ContextImpl {
     #[inline(never)]
     pub(crate) fn poll_interrupts(&self) -> Result<(), i32> {
-        let rt = self.rt();
+        let rt = self.rt_ptr();
 
         if let Some(cb) = rt.interrupt_handler.as_ref() {
             let mut intr = self.interrupt_counter.get();

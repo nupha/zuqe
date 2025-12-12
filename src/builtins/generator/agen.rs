@@ -123,7 +123,7 @@ impl AGenPayload {
                         if unlikely(self.completed_return(ctx, result).is_err()) {
                             eprintln!(
                                 "{}",
-                                ctx.rt()
+                                ctx.rt_ptr()
                                     .exception()
                                     .to_string(&ctx)
                                     .map(|s| s.content().to_utf8(false).to_string())
@@ -190,7 +190,7 @@ impl AGenPayload {
                                 self.resolve(&ctx, val, true);
                             }
                             Err(_) => {
-                                let exc = ctx.rt().take_exception();
+                                let exc = ctx.rt_ptr().take_exception();
                                 self.complete();
                                 self.reject(&ctx, exc);
                             }
@@ -258,7 +258,7 @@ impl AGenPayload {
                 // Fail looking up JS_ATOM_constructor when is_reject==0.
                 // A poisoned .constructor property is observable and the resulting
                 // exception should be delivered to the catch handler.
-                let err = ctx.rt().take_exception();
+                let err = ctx.rt_ptr().take_exception();
                 let cc = CallContext::new(
                     ctx,
                     ctx.promise_ctor,
@@ -274,7 +274,7 @@ impl AGenPayload {
         let resolving_funcs = js_async_generator_resolve_function_create(
             &ctx,
             JSValue::Object(ObjectRef(
-                self.generator.borrow().upgrade(ctx.rt().gc_heap()).unwrap(),
+                self.generator.borrow().upgrade(ctx.rt_ptr().gc_heap()).unwrap(),
             )),
             true,
         )?;
@@ -297,7 +297,7 @@ impl AGenPayload {
         let resolving_funcs = js_async_generator_resolve_function_create(
             &ctx,
             JSValue::Object(ObjectRef(
-                self.generator.borrow().upgrade(ctx.rt().gc_heap()).unwrap(),
+                self.generator.borrow().upgrade(ctx.rt_ptr().gc_heap()).unwrap(),
             )),
             false,
         )?;
@@ -540,7 +540,7 @@ fn js_async_generator_next(cc: CallContext) -> JSResult {
             s.resume_next(cc.ctx_ptr());
         }
     } else {
-        let err = cc.ctx().rt().take_exception();
+        let err = cc.ctx().rt_ptr().take_exception();
         resolving_funcs[1].call(cc.ctx(), JSValue::UNDEFINED, std::slice::from_ref(&err))?;
     }
 

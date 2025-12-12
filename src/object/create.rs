@@ -32,7 +32,7 @@ impl ContextImpl {
     ) -> Result<ObjectRef, ObjectPayload> {
         // find shape by prototype
         let shape = {
-            match self.rt().shape_registry.find_shape_by_proto(proto) {
+            match self.rt_ptr().shape_registry.find_shape_by_proto(proto) {
                 Some(sh) => sh,
                 None => {
                     if let Ok(sh) = ShapeHandle::new(self, proto, 0) {

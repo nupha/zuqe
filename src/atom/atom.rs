@@ -347,7 +347,7 @@ impl StringRef {
 impl ContextImpl {
     /// create or reuse an Atom from `str`
     pub fn create_atom_string(&self, str: &str) -> Result<StringRef, i32> {
-        let atom = Atom::new(self.rt(), str)?;
+        let atom = Atom::new(self.rt_ptr(), str)?;
         atom.force_string(self)
     }
 }
@@ -375,10 +375,10 @@ impl JSValue {
                     });
                 }
                 JSValue::Int(i) => {
-                    return Atom::from_i64(ctx.rt(), i as i64);
+                    return Atom::from_i64(ctx.rt_ptr(), i as i64);
                 }
                 JSValue::String(s) => {
-                    return s.to_atom(ctx.rt());
+                    return s.to_atom(ctx.rt_ptr());
                 }
                 JSValue::Symbol(a) => {
                     return Ok(a);
@@ -464,7 +464,7 @@ pub(crate) fn js_atom_concat_str(ctx: &ContextImpl, atom: Atom, str1: &str) -> R
     buf.push_str(&astr);
     buf.push_str(str1);
 
-    Atom::new(ctx.rt(), &buf)
+    Atom::new(ctx.rt_ptr(), &buf)
 }
 
 /// Note: returned atom should be freed by caller.

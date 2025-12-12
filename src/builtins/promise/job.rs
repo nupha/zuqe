@@ -60,7 +60,7 @@ pub(super) fn promise_reaction_job(
     };
 
     let is_reject = if result.is_exception() {
-        result = ctx.rt().take_exception();
+        result = ctx.rt_ptr().take_exception();
         true
     } else {
         false
@@ -87,7 +87,7 @@ pub(super) fn js_promise_resolve_thenable_job(
     if let Ok(r) = then.call(ctx, thenable, &rr) {
         Ok(r)
     } else {
-        let exc = ctx.rt().take_exception();
+        let exc = ctx.rt_ptr().take_exception();
         rr[1].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&exc))
     }
 }

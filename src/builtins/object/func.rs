@@ -411,7 +411,7 @@ pub(crate) fn js_object_hasOwn(cc: CallContext) -> JSResult {
 //
 fn js_object___getClass(cc: CallContext) -> JSResult {
     let name = if let Some(o) = cc.arg(0).as_object() {
-        let cls = &cc.ctx().rt().class_registry[o.class_id() as usize];
+        let cls = &cc.ctx().rt_ptr().class_registry[o.class_id() as usize];
         cls.class_name
     } else {
         Atom::CONST_empty_string

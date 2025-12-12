@@ -226,7 +226,7 @@ impl StringImpl {
                     JSValue::from(num)
                 }
             } else {
-                ctx.rt().take_exception();
+                ctx.rt_ptr().take_exception();
                 JSValue::Float64(f64::NAN)
             }
         }
@@ -434,7 +434,7 @@ impl ContextImpl {
             Atom::CONST_empty_string.force_string(self)
         } else {
             let data = StringData::from_buf(sbuf);
-            StringRef::new(self.rt(), data).map_err(|_| {
+            StringRef::new(self.rt_ptr(), data).map_err(|_| {
                 self.throw_out_of_memory();
                 -1
             })
@@ -446,7 +446,7 @@ impl ContextImpl {
         if content.is_empty() {
             Atom::CONST_empty_string.force_string(self)
         } else {
-            StringRef::new(self.rt(), content).map_err(|_| {
+            StringRef::new(self.rt_ptr(), content).map_err(|_| {
                 self.throw_out_of_memory();
                 -1
             })
@@ -461,7 +461,7 @@ impl ContextImpl {
             self.throw_internal_error("string too long");
             Err(-1)
         } else {
-            StringRef::from_utf8(self.rt(), utf8_bytes).inspect_err(|_| {
+            StringRef::from_utf8(self.rt_ptr(), utf8_bytes).inspect_err(|_| {
                 self.throw_out_of_memory();
             })
         }
@@ -475,7 +475,7 @@ impl ContextImpl {
             self.throw_internal_error("string too long");
             Err(-1)
         } else {
-            StringRef::from_str(self.rt(), str).inspect_err(|_| {
+            StringRef::from_str(self.rt_ptr(), str).inspect_err(|_| {
                 self.throw_out_of_memory();
             })
         }

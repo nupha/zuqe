@@ -175,7 +175,7 @@ impl JSVarRef {
     /// create a detached var ref
     pub fn new(ctx: &ContextImpl, value: JSValue) -> Result<Self, i32> {
         let inner = JSVarRefInner::new(value);
-        let gc_ref = ctx.rt().gc_alloc(inner).map_err(|_| {
+        let gc_ref = ctx.rt_ptr().gc_alloc(inner).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
         })?;
@@ -191,7 +191,7 @@ impl JSVarRef {
         async_func: Option<AsyncFuncState>,
     ) -> Result<Self, i32> {
         let inner = JSVarRefInner::new_bind(var_idx, is_arg, pvalue, async_func);
-        let gc_ref = ctx.rt().gc_alloc(inner).map_err(|_| {
+        let gc_ref = ctx.rt_ptr().gc_alloc(inner).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
         })?;
@@ -241,7 +241,7 @@ impl StackFrame {
 
                 let af = self
                     .async_func
-                    .upgrade(ctx.rt().gc_heap())
+                    .upgrade(ctx.rt_ptr().gc_heap())
                     .map(AsyncFuncState::from);
 
                 debug_assert!(af.is_some());

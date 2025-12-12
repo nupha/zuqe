@@ -161,7 +161,7 @@ impl AsyncFuncState {
                 }
                 Err(_) => {
                     let func = self.resolving_funcs[1]; // reject 
-                    let error = ctx.rt().take_exception();
+                    let error = ctx.rt_ptr().take_exception();
                     let _ = func.call(ctx, JSValue::UNDEFINED, &[error]);
                 }
             }
@@ -182,7 +182,7 @@ impl AsyncFuncState {
             } {
                 Promise::try_from(p).unwrap()
             } else {
-                let exc = ctx.rt().take_exception();
+                let exc = ctx.rt_ptr().take_exception();
                 let func = self.resolving_funcs[1];
                 let _ = func.call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&exc)); // TODO what to do if exception?
                 return;
@@ -191,7 +191,7 @@ impl AsyncFuncState {
             let resolving_funcs = if let Ok(rr) = self.async_function_resolve_create(ctx) {
                 rr
             } else {
-                let error = ctx.rt().take_exception();
+                let error = ctx.rt_ptr().take_exception();
                 let func = self.resolving_funcs[1];
                 let _ = func.call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&error));
                 [const { JSValue::UNDEFINED }; 2]
@@ -205,7 +205,7 @@ impl AsyncFuncState {
             );
 
             if res.is_err() {
-                let exc = ctx.rt().take_exception();
+                let exc = ctx.rt_ptr().take_exception();
                 let _ = self.resolving_funcs[1].call(ctx, JSValue::UNDEFINED, &[exc]);
             }
         }

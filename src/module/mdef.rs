@@ -116,7 +116,7 @@ impl PartialEq for ModuleDefImpl {
 impl ModuleDefImpl {
     fn new(ctx: &ContextImpl, module_name: Atom) -> Self {
         Self {
-            rt: ctx.rt(),
+            rt: ctx.rt_ptr(),
 
             module_name,
 
@@ -159,7 +159,7 @@ impl ModuleDefImpl {
         name: &str,
         init: impl ModuleInitFn + 'static,
     ) -> Result<Self, i32> {
-        let name = Atom::new(ctx.rt(), name)?;
+        let name = Atom::new(ctx.rt_ptr(), name)?;
         let mut md = ModuleDefImpl::new(ctx, name);
         md.init_func.replace(Box::new(init));
         Ok(md)
@@ -333,7 +333,7 @@ impl ModuleDef {
     /// alloc an uninitialized (usually bytecode) module.
     pub(crate) fn new(ctx: &mut ContextImpl, name: Atom) -> Result<Self, i32> {
         let inner = ModuleDefImpl::new(ctx, name);
-        let gc_ref = ctx.rt().gc_alloc(inner).map_err(|_| {
+        let gc_ref = ctx.rt_ptr().gc_alloc(inner).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
         })?;
@@ -351,7 +351,7 @@ impl ModuleDef {
         init: impl ModuleInitFn + 'static,
     ) -> Result<Self, i32> {
         let inner = ModuleDefImpl::create(ctx, name, init)?;
-        let gc_ref = ctx.rt().gc_alloc(inner).map_err(|_| {
+        let gc_ref = ctx.rt_ptr().gc_alloc(inner).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
         })?;
@@ -491,7 +491,7 @@ pub(super) fn get_script_or_module_name(ctx: &ContextImpl, n_stack_levels: usize
     // function from the debug info. May need to add a ScriptOrModule
     // info in Bytecode.
     for sf in ctx
-        .rt()
+        .rt_ptr()
         .current_stack_frame()
         .map_or(StackFrameParentIter::EMPTY, |f| f.parent_iter(true))
         .skip(n_stack_levels)

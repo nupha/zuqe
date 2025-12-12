@@ -128,7 +128,7 @@ impl Array {
                 if d <= propdef_len {
                     // faster to iterate
                     while cur_len > length {
-                        let atom = Atom::from_i64(ctx.rt(), cur_len as i64 - 1)?;
+                        let atom = Atom::from_i64(ctx.rt_ptr(), cur_len as i64 - 1)?;
                         let ret = self.delete_property_internal(ctx, atom);
                         if let Ok(false) = ret {
                             break; // property is not configurable

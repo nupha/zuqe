@@ -88,7 +88,7 @@ impl Bytecode {
 
         // setup current stack frame frist.
         caller_ctx
-            .rt()
+            .rt_ptr()
             .push_stack_frame(NonNull::from_ref(stack_frame));
 
         if throwed {
@@ -1035,7 +1035,7 @@ impl Bytecode {
                         // [pattern, pre_compiled_id, ^] -> [regexp, ^]
                         if let JSValue::Int(re_id) = SP_VAL!(-1) {
                             let re =
-                                Box::new(realm.rt().regexp_precompiled[re_id as usize].clone());
+                                Box::new(realm.rt_ptr().regexp_precompiled[re_id as usize].clone());
                             let regexp = RegExp::from(&realm, JSValue::UNDEFINED, re)
                                 .map_or(JSValue::EXCEPTION, |o| o.into());
                             SP_PUT!(-2, regexp);

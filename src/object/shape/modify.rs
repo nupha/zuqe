@@ -19,13 +19,13 @@ impl ObjectImpl {
         } else {
             // shape is exclusivly used, use it
             let sh = self.take_shape().unwrap();
-            ctx.rt().shape_registry.unregister(&sh);
+            ctx.rt_ptr().shape_registry.unregister(&sh);
             sh
         };
 
         let r = f(&mut use_shape);
 
-        ctx.rt().shape_registry.register(&use_shape)?;
+        ctx.rt_ptr().shape_registry.register(&use_shape)?;
         self.set_shape(use_shape);
 
         Ok(r)
@@ -54,7 +54,7 @@ impl ObjectImpl {
         debug_assert_eq!(self.prop_values.len(), new_len);
 
         // find shape registry
-        if let Some(found) = ctx.rt().shape_registry.find_shape_with_extend_prop(
+        if let Some(found) = ctx.rt_ptr().shape_registry.find_shape_with_extend_prop(
             self.shape().unwrap(),
             prop,
             prop_flags,
@@ -81,14 +81,14 @@ impl ObjectImpl {
                     return Err(-1);
                 }
 
-                ctx.rt().shape_registry.unregister(&sh);
+                ctx.rt_ptr().shape_registry.unregister(&sh);
                 sh
             };
 
             // shape can be modified now.
             target.add_shape_properties(&[(prop, prop_flags)]);
             // register the shape
-            ctx.rt().shape_registry.register(&target).unwrap();
+            ctx.rt_ptr().shape_registry.register(&target).unwrap();
             // object uses the shape
             self.set_shape(target);
 

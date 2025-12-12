@@ -254,14 +254,14 @@ impl AsyncFuncState {
     ) -> Result<Self, i32> {
         let inner = AsyncStateImpl::new(ctx, resolvings, bc_func, this_obj, args)?;
 
-        let gc_ref = ctx.rt().gc_alloc(inner).map_err(|_| {
+        let gc_ref = ctx.rt_ptr().gc_alloc(inner).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
         })?;
         let mut a_state = Self(gc_ref);
 
         // setup backref link for StackFrame to its wrapper AsyncState
-        let w = gc_ref.downgrade(ctx.rt().gc_heap_mut());
+        let w = gc_ref.downgrade(ctx.rt_ptr().gc_heap_mut());
         unsafe {
             a_state.frame.as_mut().get_unchecked_mut().async_func = w;
         }

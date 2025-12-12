@@ -44,7 +44,7 @@ impl<'s> JSParseState<'s> {
         let module_name = self
             .ctx
             .create_string_with_buf(self.token.data.take_string().unwrap())
-            .and_then(|s| s.to_atom(self.ctx.rt()))?;
+            .and_then(|s| s.to_atom(self.ctx.rt_ptr()))?;
 
         self.next_token()?;
         Ok(module_name)
@@ -62,7 +62,7 @@ impl<'s> JSParseState<'s> {
         if self.token.val == TOK_STRING {
             // import "module-name"
             module_name = Atom::from_str(
-                self.ctx.rt(),
+                self.ctx.rt_ptr(),
                 &self.token.data.string().unwrap().to_utf8(),
                 AtomKind::String,
             )?;
@@ -126,7 +126,7 @@ impl<'s> JSParseState<'s> {
                                     self.token.atom().unwrap()
                                 }
                                 TOK_STRING => Atom::from_str(
-                                    self.ctx.rt(),
+                                    self.ctx.rt_ptr(),
                                     &self.token.data.string().unwrap().to_utf8(),
                                     AtomKind::String,
                                 )?,
@@ -238,7 +238,7 @@ impl<'s> JSParseState<'s> {
                         }
                         TOK_STRING => {
                             let s = self.token.data.string().unwrap();
-                            Atom::from_str(self.ctx.rt(), &s.to_utf8(), AtomKind::String)?
+                            Atom::from_str(self.ctx.rt_ptr(), &s.to_utf8(), AtomKind::String)?
                         }
                         _ => {
                             self.throw_syntax_error("identifier or string expected");
@@ -259,7 +259,7 @@ impl<'s> JSParseState<'s> {
                             }
                             TOK_STRING => {
                                 let s = self.token.data.string().unwrap();
-                                Atom::from_str(self.ctx.rt(), &s.to_utf8(), AtomKind::String)?
+                                Atom::from_str(self.ctx.rt_ptr(), &s.to_utf8(), AtomKind::String)?
                             }
                             _ => {
                                 self.throw_syntax_error("identifier or string expected");
@@ -317,7 +317,7 @@ impl<'s> JSParseState<'s> {
                         }
                         TOK_STRING => {
                             let s = self.token.data.string().unwrap();
-                            Atom::from_str(self.ctx.rt(), &s.to_utf8(), AtomKind::String)?
+                            Atom::from_str(self.ctx.rt_ptr(), &s.to_utf8(), AtomKind::String)?
                         }
                         _ => {
                             self.throw_syntax_error("identifier or string expected");
@@ -423,7 +423,7 @@ impl<'s> JSParseState<'s> {
                         0
                     };
                     self.ctx.build_backtrace_to(
-                        self.ctx.rt().exception(),
+                        self.ctx.rt_ptr().exception(),
                         Some((self.filename, self.line_num)),
                         backtrace_flags,
                     );

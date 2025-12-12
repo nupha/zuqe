@@ -398,7 +398,7 @@ impl ArrayBuffer {
             }
 
             for w in abuf.array_list.drain(..) {
-                if let Some(o) = w.upgrade(ctx.rt().gc_heap()) {
+                if let Some(o) = w.upgrade(ctx.rt_ptr().gc_heap()) {
                     // typed array or dataview
                     // Note: the typed array length and offset fields are not modified. set count to 0
                     if let Some(ta) = ObjectRef::from(o).as_TypedArray_mut() {

@@ -146,7 +146,7 @@ pub fn js_promise_all(cc: CallContext) -> JSResult {
     let (result_promise, resolving_funcs) = Promise::create_from_ctor(ctx, *cc.this())?;
 
     let fail_reject = |cx: &ContextImpl| -> JSResult {
-        let error = cx.rt().take_exception();
+        let error = cx.rt_ptr().take_exception();
         resolving_funcs[1].call(cx, JSValue::UNDEFINED, std::slice::from_ref(&error))?;
         Ok(JSValue::Object(result_promise))
     };
@@ -307,7 +307,7 @@ pub fn js_promise_race(cc: CallContext) -> JSResult {
     let (result_promise, resolving_funcs) = Promise::create_from_ctor(ctx, *cc.this())?;
 
     let fail_reject = |cx: &ContextImpl| -> JSResult {
-        let error = cx.rt().take_exception();
+        let error = cx.rt_ptr().take_exception();
         resolving_funcs[1].call(cx, JSValue::UNDEFINED, std::slice::from_ref(&error))?;
         Ok(result_promise.into())
     };

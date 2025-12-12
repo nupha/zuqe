@@ -1,7 +1,5 @@
 use std::{borrow::Cow, io::Write};
 
-use smallvec::SmallVec;
-
 use crate::{
     JS_CLASS_ERROR,
     atom::Atom,
@@ -27,6 +25,37 @@ pub enum ErrorKind {
     Uri,
     Internal,
     Aggregate,
+}
+
+/// Represent error in text
+pub struct ErrorText {
+    pub message: String,
+    pub traceback: Option<String>,
+}
+
+impl ErrorText {
+    /// retrive `message` and `stack` from `value`, create error text.
+    pub fn from(ctx: &ContextImpl, value: JSValue) -> Self {
+        let mut ret = Self {
+            message: value
+                .get_property(ctx, Atom::CONST_message)
+                .and_then(|s| s.to_string(ctx))
+                .map_or("".to_string(), |s| s.content().to_utf8(false).to_string()),
+            traceback: None,
+        };
+
+        match value.get_property(ctx, Atom::CONST_stack) {
+            Ok(JSValue::NULL) | Ok(JSValue::UNDEFINED) => {}
+            Ok(s) => {
+                if let Ok(ss) = s.inspect(ctx) {
+                    ret.traceback.replace(ss);
+                }
+            }
+            Err(_) => {}
+        }
+
+        ret
+    }
 }
 
 pub type JSResult = Result<JSValue, i32>;
@@ -60,7 +89,7 @@ impl ContextImpl {
         //     panic!("throw a null or undefined value is not recommended");
         // }
 
-        self.rt().set_exception(obj);
+        self.rt_ptr().set_exception(obj);
     }
 
     /// make error object and throw it as current exception.
@@ -158,7 +187,7 @@ impl ContextImpl {
 
     #[cold]
     pub fn throw_type_error_invalid_class(&self, class_id: ClassID) {
-        let name = self.rt().class_registry[class_id as usize].class_name;
+        let name = self.rt_ptr().class_registry[class_id as usize].class_name;
         self.throw_type_error(&format!("{} object expected", name.to_utf8()))
     }
 
@@ -179,34 +208,14 @@ impl ContextImpl {
 
     #[cold]
     pub fn throw_out_of_memory(&self) {
-        let mut rt = self.rt();
+        let mut rt = self.rt_ptr();
         if !rt.in_out_of_memory {
             rt.in_out_of_memory = true;
             self.throw_internal_error("out of memory");
             rt.in_out_of_memory = false;
         }
     }
-}
 
-pub const JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL: i32 = 1 << 0;
-/* only taken into account if filename is provided */
-pub const JS_BACKTRACE_FLAG_SINGLE_LEVEL: i32 = 1 << 1;
-
-/* Note: it is important that no exception is returned by this function */
-#[cold]
-pub fn is_backtrace_needed(obj: JSValue) -> bool {
-    if let JSValue::Object(p) = obj {
-        if p.class_id() != JS_CLASS_ERROR {
-            false
-        } else {
-            !p.has_shape_property(Atom::CONST_stack)
-        }
-    } else {
-        false
-    }
-}
-
-impl ContextImpl {
     #[cold]
     fn do_build_backtrace(
         &self,
@@ -242,7 +251,7 @@ impl ContextImpl {
         }
 
         for sf in self
-            .rt()
+            .rt_ptr()
             .current_stack_frame()
             .map_or(StackFrameParentIter::EMPTY, |f| f.parent_iter(true))
         {
@@ -320,6 +329,24 @@ impl ContextImpl {
             traceback,
             JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
         );
+    }
+}
+
+pub const JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL: i32 = 1 << 0;
+/* only taken into account if filename is provided */
+pub const JS_BACKTRACE_FLAG_SINGLE_LEVEL: i32 = 1 << 1;
+
+/* Note: it is important that no exception is returned by this function */
+#[cold]
+pub fn is_backtrace_needed(obj: JSValue) -> bool {
+    if let JSValue::Object(p) = obj {
+        if p.class_id() != JS_CLASS_ERROR {
+            false
+        } else {
+            !p.has_shape_property(Atom::CONST_stack)
+        }
+    } else {
+        false
     }
 }
 

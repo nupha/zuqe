@@ -103,7 +103,7 @@ impl ObjectRef {
                     }
                 } else {
                     // use exotic delete_property callback
-                    if let Some(cb) = ctx.rt().class_registry[self.class_id() as usize]
+                    if let Some(cb) = ctx.rt_ptr().class_registry[self.class_id() as usize]
                         .exotic
                         .as_ref()
                         .and_then(|m| m.delete_property)
@@ -154,7 +154,7 @@ impl ObjectRef {
             // fast path for fast array
             self.delete_property(ctx, Atom::new_small_int(idx as u32), flags)
         } else {
-            let atom = Atom::from_i64(ctx.rt(), idx)?;
+            let atom = Atom::from_i64(ctx.rt_ptr(), idx)?;
             self.delete_property(ctx, atom, flags)
         }
     }

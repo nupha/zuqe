@@ -18,7 +18,7 @@ impl<'s> JSParseState<'s> {
             };
 
         self.ctx.build_backtrace_to(
-            self.ctx.rt().exception(),
+            self.ctx.rt_ptr().exception(),
             Some((self.filename, self.line_num)),
             backtrace_flags,
         );
@@ -38,7 +38,7 @@ impl<'s> JSParseState<'s> {
                 0
             };
         self.ctx.build_backtrace_to(
-            self.ctx.rt().exception(),
+            self.ctx.rt_ptr().exception(),
             Some((self.filename, self.line_num)),
             backtrace_flags,
         );

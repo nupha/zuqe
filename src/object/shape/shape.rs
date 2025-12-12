@@ -3,7 +3,7 @@ use std::{
     os::raw::c_void,
 };
 
-use gc_lite::{GcTracable, GcRef};
+use gc_lite::{GcRef, GcTracable};
 use hashlist::PrimitiveCompactHashList;
 
 use crate::{atom::Atom, context::ContextImpl, object::ShapeProperty, runtime::RuntimePtr};
@@ -61,7 +61,7 @@ impl ShapeImpl {
         }
 
         Ok(Self {
-            rt: Some(ctx.rt()),
+            rt: Some(ctx.rt_ptr()),
             use_count: 1,
             proto,
             prop_defs: props,
@@ -240,7 +240,7 @@ impl ShapeHandle {
         proto: Option<ObjectRef>,
         prop_defs: PrimitiveCompactHashList<ShapeProperty>,
     ) -> Result<Self, i32> {
-        let mut rt = ctx.rt();
+        let mut rt = ctx.rt_ptr();
         let sh = rt
             .gc_alloc(ShapeImpl::new(ctx, proto, prop_defs)?)
             .map_err(|_| {
@@ -262,7 +262,7 @@ impl ShapeHandle {
         })?;
 
         let shape = Self::new_internal(ctx, proto, prop_defs)?;
-        ctx.rt().shape_registry.register(&shape)?;
+        ctx.rt_ptr().shape_registry.register(&shape)?;
 
         Ok(shape)
     }

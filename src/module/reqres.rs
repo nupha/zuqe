@@ -113,13 +113,13 @@ pub(super) fn js_host_resolve_imported_module(
     cname1: &str,
 ) -> Result<ModuleDef, i32> {
     // normalize module name
-    let name = if let Some(cb) = ctx.rt().module_normalize_func {
-        cb(ctx.into(), base_cname, cname1, ctx.rt().module_load_opaque)
+    let name = if let Some(cb) = ctx.rt_ptr().module_normalize_func {
+        cb(ctx.into(), base_cname, cname1, ctx.rt_ptr().module_load_opaque)
     } else {
         js_default_module_normalize_name(&ctx, base_cname, cname1)
     }?;
 
-    let module_name = Atom::new(ctx.rt(), &name)?;
+    let module_name = Atom::new(ctx.rt_ptr(), &name)?;
 
     // search in loaded_modules
     if let Some(m) = ctx.find_loaded_module(module_name) {
@@ -127,8 +127,8 @@ pub(super) fn js_host_resolve_imported_module(
     }
 
     // load module
-    if let Some(cb) = ctx.rt().module_load_func {
-        cb(ctx.into(), &name, ctx.rt().module_load_opaque)
+    if let Some(cb) = ctx.rt_ptr().module_load_func {
+        cb(ctx.into(), &name, ctx.rt_ptr().module_load_opaque)
     } else {
         #[cfg(debug_assertions)]
         println!("WARN: module loader function is not set, can't import module.");

@@ -285,7 +285,7 @@ pub(crate) fn JS_CallInternal(
             } else {
                 // non bytecode function: bound function, native function, async function etc.
                 // use callback defined on the class.
-                if let Some(f) = caller_ctx.rt().class_registry[o.class_id() as usize].call {
+                if let Some(f) = caller_ctx.rt_ptr().class_registry[o.class_id() as usize].call {
                     f(
                         unsafe { ContextPtr::from_ref_unchecked(caller_ctx).into() },
                         func_obj,
@@ -348,7 +348,7 @@ pub(crate) fn JS_CallConstructorInternal(
             }
         } else {
             // call class exotic handler
-            if let Some(cb) = ctx.rt().class_registry[o.class_id() as usize].call {
+            if let Some(cb) = ctx.rt_ptr().class_registry[o.class_id() as usize].call {
                 cb(
                     unsafe { ContextPtr::from_ref_unchecked(ctx).into() },
                     func_obj,

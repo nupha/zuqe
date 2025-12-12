@@ -59,7 +59,7 @@ fn main() -> ExitCode {
     setup_globals(ctx).unwrap();
 
     let is_module = filename.ends_with(".mjs") || JSParseState::detect_module(script.as_bytes());
-    let res = ctx.run_with(
+    let res = ctx.run_wait_with(
         script.as_bytes(),
         &filename,
         if is_module {

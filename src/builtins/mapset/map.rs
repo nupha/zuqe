@@ -138,7 +138,7 @@ impl JSMapState {
                     let Some(o) = key.as_object().copied() else {
                         unreachable!()
                     };
-                    k.upgrade(ctx.rt().gc_heap()).and_then(|k| {
+                    k.upgrade(ctx.rt_ptr().gc_heap()).and_then(|k| {
                         if ObjectRef(k) == o {
                             *v = value;
                             Some(*i)
@@ -241,7 +241,7 @@ impl JSMapState {
                     }
                 }
                 Some(MapPair::Weak { key: k, .. }) => {
-                    if let Some(k) = k.upgrade(ctx.rt().gc_heap()) {
+                    if let Some(k) = k.upgrade(ctx.rt_ptr().gc_heap()) {
                         if ObjectRef(k) == unsafe { *key.as_object_unchecked() } {
                             self.slots[*i] = MapPair::Removed;
                             self.remove_count += 1;

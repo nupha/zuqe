@@ -109,7 +109,7 @@ impl RuntimeImpl {
 impl ContextImpl {
     pub fn use_classes(&mut self, class_ids: &[ClassID]) -> Result<(), i32> {
         if let Some(mx) = class_ids.iter().max().copied() {
-            if self.rt().class_registry.get(mx as usize).is_some() {
+            if self.rt_ptr().class_registry.get(mx as usize).is_some() {
                 let n = self.class_proto.len();
                 if mx as usize >= n {
                     // grow slot
@@ -128,7 +128,7 @@ impl ContextImpl {
                     if self.class_proto(class_id).is_none() {
                         // init class in ctx
                         if let Some(f) = self
-                            .rt()
+                            .rt_ptr()
                             .class_registry
                             .get(class_id as usize)
                             .and_then(|c| c.initialize)
@@ -166,10 +166,10 @@ impl ContextImpl {
     }
 
     pub fn use_class_name(&mut self, name: &str) -> Result<(), i32> {
-        let atom_name = Atom::from_str(self.rt(), name, AtomKind::String)?;
+        let atom_name = Atom::from_str(self.rt_ptr(), name, AtomKind::String)?;
 
         if let Some(id) = self
-            .rt()
+            .rt_ptr()
             .class_registry
             .iter()
             .position(|x| !x.class_name.is_null() && x.class_name == atom_name)
