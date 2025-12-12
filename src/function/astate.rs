@@ -3,13 +3,8 @@ use std::{pin::Pin, ptr::NonNull};
 use gc_lite::{GcRef, GcTracable};
 
 use crate::{
-    context::{ContextImpl, EvalMode},
-    error::JSResult,
-    function::BCFunction,
-    gcref_wrapper,
-    runtime::js_check_stack_overflow,
-    stack_frame::StackFrame,
-    value::JSValue,
+    context::ContextImpl, error::JSResult, eval::EvalMode, function::BCFunction, gcref_wrapper,
+    runtime::js_check_stack_overflow, stack_frame::StackFrame, value::JSValue,
 };
 
 #[derive(Debug)]

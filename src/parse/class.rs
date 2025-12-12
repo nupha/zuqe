@@ -5,8 +5,8 @@ use crate::{
         ClassFieldsDef, JS_DEFINE_CLASS_HAS_HERITAGE, OP_DEFINE_METHOD_GETTER,
         OP_DEFINE_METHOD_METHOD, OP_DEFINE_METHOD_SETTER,
     },
-    context::EvalMode,
     defer,
+    eval::EvalMode,
     function::{JSFunctionDef, JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
     module::ExportType,
     object::{

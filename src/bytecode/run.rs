@@ -21,14 +21,14 @@ use crate::{
         OP_DEFINE_METHOD_ENUMERABLE, OP_DEFINE_METHOD_GETTER, OP_DEFINE_METHOD_METHOD,
         OP_DEFINE_METHOD_SETTER,
     },
-    context::{ContextImpl, EvalMode},
+    context::ContextImpl,
     error::{
         JS_THROW_ERROR_DELETE_SUPER, JS_THROW_ERROR_ITERATOR_THROW, JS_THROW_VAR_REDECL,
         JS_THROW_VAR_RO, JS_THROW_VAR_UNINITIALIZED, JS_ThrowReferenceErrorNotDefined,
         JS_ThrowReferenceErrorUninitialized, JS_ThrowReferenceErrorUninitialized2,
         JS_ThrowSyntaxErrorVarRedeclaration,
     },
-    eval::JS_EVAL_TYPE_DIRECT,
+    eval::{EvalMode, JS_EVAL_TYPE_DIRECT},
     function::{
         Bytecode, CallContext, JS_CallConstructorInternal, JS_CallInternal, JSFunctionKindEnum,
         JSVarRef, build_arg_list, js_build_arguments, js_build_mapped_arguments, js_function_apply,

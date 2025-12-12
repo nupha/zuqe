@@ -1,7 +1,7 @@
 use crate::{
     atom::Atom,
     bytecode::{OpCode, OpcodeFormat, opcode_info_intermediate, opcodes},
-    context::EvalMode,
+    eval::EvalMode,
     function::{JSFunctionDef, Label},
     utils::{
         M2, M3, push_vec_atom, push_vec_short_code, push_vec_short_int, push_vec_u8, push_vec_u16,

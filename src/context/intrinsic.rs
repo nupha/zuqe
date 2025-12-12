@@ -21,8 +21,9 @@ use crate::{
         },
         symbol::{js_symbol_constructor, js_symbol_funcs, js_symbol_proto_funcs},
     },
-    context::{ContextPtr, EvalMode},
+    context::ContextPtr,
     error::{ErrorKind, JSResult, STD_ERROR_NAMES},
+    eval::EvalMode,
     function::{BytecodeFunction, Callback, JSFunctionKindEnum},
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET,

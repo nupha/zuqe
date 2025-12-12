@@ -1,8 +1,7 @@
 use crate::{
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp},
-    context::EvalMode,
-    eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
+    eval::{EvalMode, JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
     function::JSFunctionKindEnum,
     string::{UTF8_CHAR_LEN_MAX, unicode_from_utf8_v0},
 };

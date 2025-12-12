@@ -8,8 +8,9 @@ use gc_lite::{GcTracable, GcWeak};
 
 use crate::{
     builtins::iterator::ObjectIter,
-    context::{ContextImpl, EvalMode},
+    context::ContextImpl,
     error::{JS_IsUncatchableError, is_backtrace_needed},
+    eval::EvalMode,
     function::{AsyncStateImpl, JSVarRef},
     value::JSValue,
 };

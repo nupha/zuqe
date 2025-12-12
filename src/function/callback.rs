@@ -5,9 +5,10 @@ use gc_lite::{GcTracable, GcWeak};
 use crate::{
     atom::Atom,
     builtins::iterator::js_create_iterator_result,
-    context::{Context, ContextImpl, ContextPtr, EvalMode},
+    context::{Context, ContextImpl, ContextPtr},
     defer,
     error::JSResult,
+    eval::EvalMode,
     function::{CallContext, IteratorState, JS_CALL_FLAG_CONSTRUCTOR},
     object::{ObjectImpl, ObjectPayload, ObjectRef},
     runtime::js_check_stack_overflow,

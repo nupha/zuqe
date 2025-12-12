@@ -1,7 +1,7 @@
 use crate::{
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp, opcodes},
-    context::EvalMode,
+    eval::EvalMode,
     function::BlockEnv,
     object::PROP_TYPE_IDENT,
     parse::token::{

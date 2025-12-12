@@ -1,6 +1,7 @@
 use crate::{
     bytecode::{opcode_info_intermediate, opcodes},
-    context::{ContextImpl, EvalMode},
+    context::ContextImpl,
+    eval::EvalMode,
     function::{
         BlockEnv, JSFunctionDef, PC2LINE_BASE, PC2LINE_DIFF_PC_MAX, PC2LINE_OP_FIRST, PC2LINE_RANGE,
     },

@@ -59,6 +59,8 @@ fn main() -> ExitCode {
     setup_globals(ctx).unwrap();
 
     let is_module = filename.ends_with(".mjs") || JSParseState::detect_module(script.as_bytes());
+    let cx = ctx;
+
     let res = ctx.run_wait_with(
         script.as_bytes(),
         &filename,
@@ -68,11 +70,15 @@ fn main() -> ExitCode {
             JS_EVAL_TYPE_GLOBAL
         },
         |val| {
-            colorize_println(val.inspect(&ctx).unwrap(), GreenFg);
+            colorize_println(val.inspect(&cx).unwrap(), GreenFg);
         },
     );
 
-    if let Err(err_msg) = res {
+    if let Err(text) = res {
+        let mut err_msg = text.message;
+        if let Some(tb) = text.traceback {
+            err_msg = format!("{err_msg}\n{tb}");
+        }
         colorize_println(err_msg, RedFg);
         ExitCode::FAILURE
     } else {

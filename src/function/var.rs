@@ -2,8 +2,8 @@ use gc_lite::GcTracable;
 
 use crate::{
     atom::Atom,
-    context::{ContextImpl, EvalMode},
-    eval::JS_EVAL_TYPE_GLOBAL,
+    context::ContextImpl,
+    eval::{EvalMode, JS_EVAL_TYPE_GLOBAL},
     function::JSFunctionDef,
     runtime::JS_MAX_LOCAL_VARS,
 };

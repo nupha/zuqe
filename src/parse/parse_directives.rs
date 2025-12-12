@@ -1,4 +1,4 @@
-use crate::context::EvalMode;
+use crate::eval::EvalMode;
 
 use super::{
     state::JSParseState,

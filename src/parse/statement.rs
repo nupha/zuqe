@@ -1,11 +1,10 @@
 use crate::{
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp},
-    context::EvalMode,
+    eval::EvalMode,
     function::{BlockEnv, JSFunctionKindEnum, JSVarDefEnum, OPTIMIZE},
     parse::token::TOK_FIRST_KEYWORD,
-    utils::unlikely,
-    utils::write_to_ptr,
+    utils::{unlikely, write_to_ptr},
 };
 
 use super::{

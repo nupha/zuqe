@@ -1,6 +1,7 @@
 use crate::{
     atom::Atom,
-    context::{ContextImpl, EvalMode},
+    context::ContextImpl,
+    eval::EvalMode,
     function::{
         ARG_SCOPE_END, ARG_SCOPE_INDEX, Bytecode, BytecodeImpl, JSClosureVar, JSVarDef,
         JSVarKindEnum, is_var_in_arg_scope,

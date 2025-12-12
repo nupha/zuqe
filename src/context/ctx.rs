@@ -15,7 +15,7 @@ use crate::{
     builtins::{array::ArrayPayload, promise::Job, regexp::RegExpData},
     class::ClassID,
     error::{STD_ERROR_COUNT, STD_ERROR_NAMES, js_error_proto_funcs},
-    eval::EvalFn,
+    eval::{EvalFn, EvalMode},
     function::{Callback, js_function_proto},
     gcref_wrapper,
     module::{JSFreeModuleEnum, ModuleDef, js_free_modules},
@@ -427,17 +427,6 @@ impl ContextPtr {
 /* only valid inside C functions */
 pub(crate) fn JS_GetActiveFunction(ctx: &ContextImpl) -> JSValue {
     ctx.rt_ptr().current_stack_frame().unwrap().cur_func
-}
-
-bitflags::bitflags! {
-    #[repr(transparent)]
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-    pub struct EvalMode: u8 {
-        const STRICT = 1 << 0;
-        const STRIP  = 1 << 1;
-        const MATH   = 1 << 2;
-        const ASYNC  = 1 << 3; // async function
-    }
 }
 
 impl RuntimeImpl {

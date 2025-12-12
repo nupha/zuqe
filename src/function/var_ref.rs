@@ -3,10 +3,7 @@ use std::ptr::NonNull;
 use gc_lite::{GcRef, GcTracable};
 
 use crate::{
-    context::{ContextImpl, EvalMode},
-    gcref_wrapper,
-    stack_frame::StackFrame,
-    value::JSValue,
+    context::ContextImpl, eval::EvalMode, gcref_wrapper, stack_frame::StackFrame, value::JSValue,
 };
 
 use super::AsyncFuncState;

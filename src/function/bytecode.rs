@@ -5,9 +5,9 @@ use gc_lite::{GcRef, GcTracable, GcWeak};
 use crate::{
     atom::Atom,
     bytecode::{OpcodeFormat, opcode_info_final},
-    context::{ContextImpl, ContextPtr, EvalMode},
+    context::{ContextImpl, ContextPtr},
     error::JSResult,
-    eval::{JS_EVAL_TYPE_DIRECT, JS_EVAL_TYPE_INDIRECT},
+    eval::{EvalMode, JS_EVAL_TYPE_DIRECT, JS_EVAL_TYPE_INDIRECT},
     function::{JSFunctionDef, JSVarRef},
     runtime::RuntimePtr,
     stack_frame::StackFrame,

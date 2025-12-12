@@ -3,8 +3,7 @@ use std::ops::DerefMut;
 use crate::{
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp},
-    context::EvalMode,
-    eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
+    eval::{EvalMode, JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
     function::{ARGUMENT_VAR_OFFSET, JSFunctionDef, JSFunctionKindEnum, JSVarDefEnum},
     module::ExportType,
     utils::unlikely,

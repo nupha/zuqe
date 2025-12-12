@@ -1,8 +1,8 @@
 use crate::{
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp, opcodes},
-    context::EvalMode,
     error::JS_THROW_ERROR_DELETE_SUPER,
+    eval::EvalMode,
     parse::{
         state::{PF_ARROW_FUNC, PF_IN_ACCEPTED, PF_POW_ALLOWED},
         token::TOK_IN,

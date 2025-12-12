@@ -1,7 +1,6 @@
 use crate::{
     atom::Atom,
-    context::EvalMode,
-    eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
+    eval::{EvalMode, JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
     function::{GLOBAL_VAR_OFFSET, JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
     module::ExportType,
     parse::token::{TOK_CATCH, TOK_CONST, TOK_LET, TOK_VAR},

@@ -1,7 +1,7 @@
 use crate::{
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp, opcodes},
-    context::EvalMode,
+    eval::EvalMode,
     utils::read_from_ptr,
 };
 

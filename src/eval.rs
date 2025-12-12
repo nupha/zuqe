@@ -3,7 +3,7 @@ use std::{ops::Deref, ptr::NonNull};
 use crate::{
     atom::Atom,
     builtins::promise::{Promise, PromiseState},
-    context::{ContextImpl, ContextPtr, EvalMode},
+    context::{ContextImpl, ContextPtr},
     error::{ErrorText, JSResult},
     function::{Bytecode, JSFunctionDef, JSFunctionKindEnum, add_closure_variables},
     module::ModuleDef,
@@ -22,6 +22,17 @@ pub(super) type EvalFn = fn(
     flags: u32,
     scope_idx: i32,
 ) -> JSResult;
+
+bitflags::bitflags! {
+    #[repr(transparent)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+    pub struct EvalMode: u8 {
+        const STRICT = 1 << 0;
+        const STRIP  = 1 << 1;
+        const MATH   = 1 << 2;
+        const ASYNC  = 1 << 3; // async function
+    }
+}
 
 // Eval types
 pub const JS_EVAL_TYPE_GLOBAL: u32 = 0;
