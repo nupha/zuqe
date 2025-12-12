@@ -9,14 +9,11 @@ use std::process::ExitCode;
 
 use colorized::{Colors::*, colorize_println};
 use zhuque::{
-    atom::Atom,
-    builtins::promise::{Promise, PromiseState},
     context::Context,
     eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
     module::ModuleDef,
     parse::JSParseState,
-    runtime::{Runtime, TickStatus},
-    value::JSValue,
+    runtime::Runtime,
 };
 
 use crate::{
@@ -62,7 +59,7 @@ fn main() -> ExitCode {
     setup_globals(ctx).unwrap();
 
     let is_module = filename.ends_with(".mjs") || JSParseState::detect_module(script.as_bytes());
-    let res = ctx.run(
+    let res = ctx.run_with(
         script.as_bytes(),
         &filename,
         if is_module {
@@ -70,10 +67,13 @@ fn main() -> ExitCode {
         } else {
             JS_EVAL_TYPE_GLOBAL
         },
+        |val| {
+            colorize_println(val.inspect(&ctx).unwrap(), GreenFg);
+        },
     );
 
-    if let Err(e) = res {
-        eprintln!("{e}");
+    if let Err(err_msg) = res {
+        colorize_println(err_msg, RedFg);
         ExitCode::FAILURE
     } else {
         ExitCode::SUCCESS
@@ -94,18 +94,5 @@ fn js_module_loader(
             ctx.throw_reference_error(&format!("could not load module '{module_name}'"));
             Err(-1)
         }
-    }
-}
-
-fn print_exception(ctx: Context, r: JSValue) {
-    colorize_println(format!("{}", r.to_string(&ctx).unwrap()), RedFg);
-
-    match r.get_property(&ctx, Atom::CONST_stack) {
-        Ok(JSValue::NULL) | Ok(JSValue::UNDEFINED) => {}
-        Ok(s) => {
-            let ss = s.inspect(&ctx).unwrap();
-            colorize_println(ss, RedFg);
-        }
-        Err(_) => {}
     }
 }

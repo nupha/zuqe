@@ -259,8 +259,14 @@ impl JSValue {
 }
 
 impl<'a> Context<'a> {
-    /// run script, wait till execution terminates.
-    pub fn run(&self, source: &[u8], filename: &str, eval_flags: u32) -> Result<(), String> {
+    /// run script, handle result value with callback. wait till execution terminates.
+    pub fn run_with<R>(
+        &self,
+        source: &[u8],
+        filename: &str,
+        eval_flags: u32,
+        handle: impl FnOnce(JSValue) -> R,
+    ) -> Result<R, String> {
         fn get_err_msg(cx: &ContextImpl, err: JSValue) -> String {
             if let Ok(s) = err.to_string(cx) {
                 let mut txt = s.content().to_utf8(false).to_string();
@@ -346,11 +352,13 @@ impl<'a> Context<'a> {
         };
 
         match result {
-            Ok(v) => {
-                // TODO with value
-                Ok(())
-            }
+            Ok(v) => Ok(handle(v)),
             Err(e) => Err(e),
         }
+    }
+
+    /// run script, wait till execution terminates.
+    pub fn run(&self, source: &[u8], filename: &str, eval_flags: u32) -> Result<(), String> {
+        self.run_with(source, filename, eval_flags, |_| {})
     }
 }
