@@ -87,10 +87,6 @@ fn main() -> ExitCode {
             let result = if let Some(p) = promise {
                 match p.state() {
                     PromiseState::Fulfilled => {
-                        // colorize_println(
-                        //     format!("{}", p.result().to_string(&ctx).unwrap()),
-                        //     GreenFg,
-                        // );
                         promise = None;
                         p.result()
                     }
@@ -140,13 +136,6 @@ fn main() -> ExitCode {
                         let exc = ctx.rt_ref().exception();
                         debug_assert!(!exc.is_undefined_or_null()); // FIXME: this assert fails!
                         print_exception(ctx, exc);
-
-                        // eprintln!("!!! EXCEPTION {exc:?}: {:?}", exc.to_string(&ctx));
-                        // #[cfg(debug_assertions)]
-                        // if let JSValue::Object(o) = exc {
-                        //     o.dump(ctx.rt_ref());
-                        // };
-
                         break -1;
                     }
                 }
@@ -163,14 +152,6 @@ fn main() -> ExitCode {
             debug_assert!(!exc.is_undefined_or_null());
             rt.gc_set_root_value(exc, true);
             print_exception(ctx, exc);
-            // eprintln!(
-            //     "!!! EXCEPTION {exc:?}: {:?}",
-            //     ctx.rt_ref().exception().to_string(&ctx)
-            // );
-            // #[cfg(debug_assertions)]
-            // if let JSValue::Object(o) = exc {
-            //     o.dump(ctx.rt_ref());
-            // };
             ExitCode::FAILURE
         }
     }
@@ -205,52 +186,3 @@ fn print_exception(ctx: Context, r: JSValue) {
         Err(_) => {}
     }
 }
-
-// pub fn js_module_set_import_meta(
-//     ctx: &ContextImpl,
-//     md: &ModuleDef,
-//     use_realpath: i32,
-//     is_main: bool,
-// ) -> i32 {
-//     // make module name to absolute url
-//     let module_name_atom = md.module_name();
-//     let module_name = module_name_atom.to_utf8();
-
-//     let p = PathBuf::from(module_name);
-//     let mut normalized = PathBuf::new();
-//     for component in p.components() {
-//         match component {
-//             std::path::Component::ParentDir => {
-//                 normalized.pop();
-//             }
-//             std::path::Component::CurDir => {}
-//             _ => {
-//                 normalized.push(component.as_os_str());
-//             }
-//         }
-//     }
-//     let aurl = format!("file://{}", normalized.display());
-
-//     let meta_obj = if let Ok(m) = md.import_meta(ctx) {
-//         m
-//     } else {
-//         return -1;
-//     };
-
-//     meta_obj
-//         .define_property_value_str(
-//             ctx,
-//             "url",
-//             ctx.create_string_from_utf8(aurl.into_bytes())
-//                 .unwrap()
-//                 .into(),
-//             JS_PROP_C_W_E,
-//         )
-//         .unwrap();
-
-//     meta_obj
-//         .define_property_value_str(ctx, "main", is_main.into(), JS_PROP_C_W_E)
-//         .unwrap();
-
-//     0
-// }

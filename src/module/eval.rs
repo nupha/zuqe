@@ -498,22 +498,6 @@ impl ModuleDef {
     }
 }
 
-impl ContextImpl {
-    /// eval `source` as module.
-    pub fn eval_module(
-        &mut self,
-        source: &[u8],
-        filename: &str,
-        strip: bool,
-    ) -> Result<Promise, i32> {
-        // compile
-        let mut md = ModuleDef::compile(self, source, filename, strip)?;
-        md.set_import_meta(self, filename, true)?;
-        // eval
-        md.eval(self)
-    }
-}
-
 fn gather_module_ancestors(
     ctx: &ContextImpl,
     module: ModuleDef,

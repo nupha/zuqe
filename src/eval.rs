@@ -2,6 +2,7 @@ use std::{ops::Deref, ptr::NonNull};
 
 use crate::{
     atom::Atom,
+    builtins::promise::Promise,
     context::{ContextImpl, ContextPtr, EvalMode},
     error::JSResult,
     function::{Bytecode, JSFunctionDef, JSFunctionKindEnum, add_closure_variables},
@@ -46,9 +47,8 @@ pub(crate) enum Compiled {
 }
 
 impl ContextImpl {
-    /// compile script source according to requested mode.
-    /// `source` is script source, `filename` is used to identify the module.
-    /// compile only, won't run. internal use.
+    /// compile `source` according to `flags` mode, don't eval.
+    /// `filename` is used to identify the module.
     pub(crate) fn compile(
         &mut self,
         source: &[u8],
@@ -212,22 +212,26 @@ impl ContextImpl {
         }
     }
 
-    /// eval source in global mode, with specified `this` binding.
-    #[inline(always)]
-    pub fn eval_this(
-        &mut self,
-        this_obj: JSValue,
-        source: &[u8],
-        filename: &str,
-        flags: u32,
-    ) -> JSResult {
-        debug_assert!(matches!(flags & JS_EVAL_TYPE_MASK, JS_EVAL_TYPE_GLOBAL));
-        self.eval_internal(this_obj, source, filename, flags, -1)
+    /// eval script in given mode, with global as `this` binding.
+    pub fn eval(&mut self, source: &[u8], filename: &str, eval_flags: u32) -> JSResult {
+        debug_assert!(matches!(
+            eval_flags & JS_EVAL_TYPE_MASK,
+            JS_EVAL_TYPE_GLOBAL
+        ));
+        self.eval_internal(self.global_obj().into(), source, filename, eval_flags, -1)
     }
 
-    /// eval script with global as `this` binding.
-    pub fn eval(&mut self, source: &[u8], filename: &str, eval_flags: u32) -> JSResult {
-        self.eval_this(self.global_obj().into(), source, filename, eval_flags)
+    /// eval `source` as module, with global as `this` binding.
+    pub fn eval_module(
+        &mut self,
+        source: &[u8],
+        filename: &str,
+        strip: bool,
+    ) -> Result<Promise, i32> {
+        // compile source into module, then eval it.
+        let mut md = ModuleDef::compile(self, source, filename, strip)?;
+        md.set_import_meta(self, filename, true)?;
+        md.eval(self)
     }
 }
 
