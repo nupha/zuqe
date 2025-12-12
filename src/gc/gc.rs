@@ -4,7 +4,7 @@ use crate::{object::ShapeImpl, runtime::RuntimeImpl, value::JSValue};
 
 impl RuntimeImpl {
     #[inline(always)]
-    pub const fn gc_part(&self) -> PartitionId {
+    pub(crate) const fn gc_part(&self) -> PartitionId {
         self.gc_part
     }
 
@@ -13,12 +13,12 @@ impl RuntimeImpl {
     }
 
     #[inline(always)]
-    pub const fn gc_heap(&self) -> &GcHeap {
+    pub(crate) const fn gc_heap(&self) -> &GcHeap {
         &self.gc_heap
     }
 
     #[inline(always)]
-    pub const fn gc_heap_mut(&mut self) -> &mut GcHeap {
+    pub(crate) const fn gc_heap_mut(&mut self) -> &mut GcHeap {
         &mut self.gc_heap
     }
 
@@ -30,11 +30,12 @@ impl RuntimeImpl {
 
     /// alloc data in gc
     #[inline(always)]
-    pub fn gc_alloc<T: GcTracable>(&mut self, data: T) -> Result<GcRef<T>, (GcError, T)> {
+    pub(crate) fn gc_alloc<T: GcTracable>(&mut self, data: T) -> Result<GcRef<T>, (GcError, T)> {
         self.gc_heap.alloc(self.gc_part, data)
     }
 
-    /// collect garbage
+    /// collect garbage.
+    /// TODO: this should not expose to public
     pub fn gc_collect(&mut self) -> usize {
         let part = self.gc_part;
 
@@ -96,6 +97,7 @@ impl RuntimeImpl {
         freed
     }
 
+    /// TODO: this should not expose to public
     pub fn gc_set_root_value(&mut self, val: JSValue, b: bool) {
         match val {
             JSValue::Object(o) => {

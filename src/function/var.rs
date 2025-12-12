@@ -237,7 +237,7 @@ impl JSFunctionDef {
     }
 
     #[inline]
-    pub fn find_global_var_mut(&mut self, name: Atom) -> Option<&mut JSGlobalVar> {
+    pub(crate) fn find_global_var_mut(&mut self, name: Atom) -> Option<&mut JSGlobalVar> {
         self.global_vars.iter_mut().find(|x| x.var_name == name)
     }
 
@@ -250,7 +250,7 @@ impl JSFunctionDef {
 
     #[inline]
     /// `name` is not consumed.
-    pub fn find_lexical_global_var_mut(&mut self, name: Atom) -> Option<&mut JSGlobalVar> {
+    pub(crate) fn find_lexical_global_var_mut(&mut self, name: Atom) -> Option<&mut JSGlobalVar> {
         self.find_global_var_mut(name)
             .and_then(|v| if v.is_lexical() { Some(v) } else { None })
     }

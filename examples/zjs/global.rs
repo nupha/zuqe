@@ -100,21 +100,6 @@ pub fn setup_globals(ctx: Context) -> Result<(), i32> {
         )
         .unwrap();
 
-    global.set_property_str(
-        ctx,
-        "gc",
-        ctx.create_native_function(
-            Callback::Func(|cc| -> JSResult {
-                cc.context().rt_mut().gc_collect();
-                Ok(JSValue::UNDEFINED)
-            }),
-            "gc",
-            0,
-            0,
-        )?
-        .into(),
-    )?;
-
     let mut args = Vec::<JSValue>::with_capacity(std::env::args().count());
     for a in std::env::args().skip(1) {
         let s = ctx.create_string_from_utf8(a.into_bytes())?;

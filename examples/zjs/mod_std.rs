@@ -107,11 +107,10 @@ fn js_evalScript(mut cc: CallContext) -> JSResult {
 
     if lev == 1 {
         /* install the interrupt handler */
-        // JS_SetInterruptHandler(
-        //     JS_GetRuntime(ctx),
-        //     Some(interrupt_handler),
-        //     std::ptr::null_mut(),
-        // );
+        cc.ctx_mut().rt_mut().set_interrupt_handler(|_| {
+            let s = OS_PENDING_SIGNALS.get();
+            (s >> libc::SIGINT) & 1 != 0 // break if has SIGINT
+        });
     }
 
     let mut flags = JS_EVAL_TYPE_GLOBAL;
@@ -135,7 +134,7 @@ fn js_evalScript(mut cc: CallContext) -> JSResult {
 
     if lev == 0 {
         /* remove the interrupt handler */
-        // JS_SetInterruptHandler(ctx.rt_mut(), None, std::ptr::null_mut());
+        cc.ctx_mut().rt_mut().unset_interrupt_handler();
 
         OS_PENDING_SIGNALS.with(|s| {
             let n = s.get() & !(1_u64 << libc::SIGINT);
@@ -154,7 +153,6 @@ fn js_evalScript(mut cc: CallContext) -> JSResult {
 
 fn js_gc(cc: CallContext) -> JSResult {
     cc.context().rt_mut().gc_request();
-    //cc.context().rt_mut().gc_collect();
     Ok(JSValue::UNDEFINED)
 }
 

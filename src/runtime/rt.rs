@@ -1,4 +1,4 @@
-use std::{ffi::c_void, pin::Pin, ptr::NonNull, task::Context};
+use std::{ffi::c_void, pin::Pin, ptr::NonNull};
 
 use gc_lite::{GcHeap, GcTracer, PartitionId};
 
@@ -33,12 +33,14 @@ pub const JS_MAX_LOCAL_VARS: u16 = 65535;
 pub const JS_STACK_SIZE_MAX: u16 = 65534;
 pub const JS_DEFAULT_STACK_SIZE: usize = 640 * 1024; // 512 * 1024;
 
-pub type JSInterruptHandler = fn(rt: &RuntimeImpl, opaque: *mut c_void) -> i32;
+/// interrupt returns true to break execution
+pub trait InterruptFn: Fn(&RuntimeImpl) -> bool {}
+impl<C> InterruptFn for C where C: Fn(&RuntimeImpl) -> bool {}
 
 pub struct RuntimeImpl {
     /// registered classes
     pub(crate) class_registry: Vec<ClassMeta>,
-
+    /// registered shapes
     pub(crate) shape_registry: ShapeRegistry,
 
     //
@@ -56,9 +58,6 @@ pub struct RuntimeImpl {
 
     /// pre-compiled regexp in parsing state.
     pub(crate) regexp_precompiled: Vec<RegExpData>,
-
-    pub(crate) interrupt_handler: Option<JSInterruptHandler>,
-    pub(crate) interrupt_opaque: *mut c_void,
 
     pub(crate) module_normalize_func: Option<ModuleNormalizeFn>,
     pub(crate) module_load_func: Option<ModuleLoadFn>,
@@ -86,6 +85,8 @@ pub struct RuntimeImpl {
     pub(crate) gc_req: bool,
     /// tick stop flag
     pub(crate) stop: Option<i32>,
+
+    pub(crate) interrupt_handler: Option<Box<dyn InterruptFn>>,
 
     #[deprecated]
     pub(crate) host_promise_rejection_tracker: Option<JSHostPromiseRejectionTracker>,
@@ -147,8 +148,6 @@ impl RuntimeImpl {
             can_block: false,
 
             shape_registry: ShapeRegistry::new(),
-
-            interrupt_opaque: std::ptr::null_mut(),
 
             gc_heap,
             gc_part,
