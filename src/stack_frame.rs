@@ -60,7 +60,7 @@ pub struct StackFrame {
     /// List of variable references registered in this frame
     pub(crate) var_ref_list: Vec<JSVarRef>,
 
-    /// Execution mode flags
+    /// Execution mode of stack frame.
     pub(crate) js_mode: EvalMode,
 
     /// Weak back-ref to async state,

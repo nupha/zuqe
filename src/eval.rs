@@ -38,10 +38,14 @@ bitflags::bitflags! {
     #[repr(transparent)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
     pub struct EvalMode: u8 {
+        /// strict execution
         const STRICT = 1 << 0;
+        /// strip debug source
         const STRIP  = 1 << 1;
-        const MATH   = 1 << 2;
-        const ASYNC  = 1 << 3; // async function
+        /// is the dedicated stack frame for async function execution
+        const ASYNC  = 1 << 2;
+
+        const MATH   = 1 << 3;
     }
 }
 
@@ -51,10 +55,11 @@ pub const JS_EVAL_TYPE_MODULE: u32 = 1;
 pub const JS_EVAL_TYPE_DIRECT: u32 = 2;
 pub const JS_EVAL_TYPE_INDIRECT: u32 = 3;
 pub const JS_EVAL_TYPE_MASK: u32 = 3;
+
 // Eval flags
 pub const JS_EVAL_FLAG_STRICT: u32 = 1 << 3;
 pub const JS_EVAL_FLAG_STRIP: u32 = 1 << 4;
-pub const JS_EVAL_FLAG_COMPILE_ONLY: u32 = 1 << 5;
+// pub const JS_EVAL_FLAG_COMPILE_ONLY: u32 = 1 << 5;
 pub const JS_EVAL_FLAG_BACKTRACE_BARRIER: u32 = 1 << 6;
 /// compile script as root async function,
 /// so that top-level-await is allowed.
@@ -71,7 +76,7 @@ pub(crate) enum Compiled {
 
 impl ContextImpl {
     /// compile `source` according to `flags` mode, don't eval.
-    /// `filename` is used to identify the module.
+    /// - `filename` is used to identify the module.
     pub(crate) fn compile(
         &mut self,
         source: &[u8],
@@ -93,20 +98,19 @@ impl ContextImpl {
 
             (Some(bc), None, mode)
         } else {
-            let mut js_mode = EvalMode::empty();
-
+            let mut mode = EvalMode::empty();
             if eval_flags & JS_EVAL_FLAG_STRICT != 0 {
-                js_mode |= EvalMode::STRICT;
+                mode |= EvalMode::STRICT;
             }
             if eval_flags & JS_EVAL_FLAG_STRIP != 0 {
-                js_mode |= EvalMode::STRIP;
+                mode |= EvalMode::STRIP;
             }
             if eval_type == EvalType::Module {
                 let name = Atom::new(self.rt_ptr(), filename)?;
-                js_mode |= EvalMode::STRICT;
-                (None, Some(ModuleDef::new(self, name)?), js_mode)
+                mode |= EvalMode::STRICT;
+                (None, Some(ModuleDef::new(self, name)?), mode)
             } else {
-                (None, None, js_mode)
+                (None, None, mode)
             }
         };
 
@@ -196,12 +200,12 @@ impl ContextImpl {
         eval_flags: u32,
         scope_idx: i32,
     ) -> JSResult {
-        #[cfg(debug_assertions)]
-        if eval_flags & JS_EVAL_FLAG_COMPILE_ONLY != 0 {
-            panic!(
-                "don't use JS_EVAL_FLAG_COMPILE_ONLY flag in eval().\nif you want compile only, use ::compile() method."
-            );
-        }
+        // #[cfg(debug_assertions)]
+        // if eval_flags & JS_EVAL_FLAG_COMPILE_ONLY != 0 {
+        //     panic!(
+        //         "don't use JS_EVAL_FLAG_COMPILE_ONLY flag in eval().\nif you want compile only, use ::compile() method."
+        //     );
+        // }
 
         match self.compile(source, filename, eval_type, eval_flags, scope_idx)? {
             Compiled::GlobalOrIndirect(bc) => bc.eval(self, this_obj, &[], None),
@@ -231,7 +235,7 @@ impl ContextImpl {
         }
     }
 
-    /// eval source as global type, with global as `this` binding.
+    /// eval `source` as global type, with global object as `this` binding.
     #[inline]
     pub fn eval_global(&mut self, source: &[u8], filename: &str, eval_flags: u32) -> JSResult {
         self.eval_internal(
@@ -244,7 +248,7 @@ impl ContextImpl {
         )
     }
 
-    /// eval `source` as module type, with global as `this` binding.
+    /// eval `source` as module type, with global object as `this` binding.
     pub fn eval_module(
         &mut self,
         source: &[u8],

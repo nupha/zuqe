@@ -41,7 +41,7 @@ impl AsyncStateImpl {
         this_obj: JSValue,
         args: &[JSValue],
     ) -> Result<Self, i32> {
-        let (arg_count, var_count, stack_size, js_mode) = {
+        let (arg_count, var_count, stack_size, mode) = {
             let bc = bc_func.payload().bytecode();
             (bc.arg_count, bc.var_count, bc.stack_size, bc.mode())
         };
@@ -71,18 +71,9 @@ impl AsyncStateImpl {
             lst
         };
 
-        // let frame = Box::pin(StackFrame {
-        //     js_mode: js_mode as i32 | JS_MODE_ASYNC,
-        //     cur_func: bc_func.into(),
-        //     arg_base_ptr: local_buf.as_mut_ptr(),
-        //     arg_real_count: args.len() as _,
-        //     arg_count: arg_count as _,
-        //     var_base_ptr: unsafe { local_buf.as_mut_ptr().add(arg_count as usize) },
-        //     var_count,
-        //     local_buf,
-        //     ..Default::default()
-        // });
-        let mut frame = Box::pin(StackFrame::new(bc_func.into(), js_mode | EvalMode::ASYNC));
+        // make a dedicated stack frame for async function execution
+        // (the stack frame mode has ASYNC flag set).
+        let mut frame = Box::pin(StackFrame::new(bc_func.into(), mode | EvalMode::ASYNC));
 
         // setup localbuf and sections
         unsafe {
