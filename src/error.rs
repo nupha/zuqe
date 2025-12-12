@@ -10,7 +10,6 @@ use crate::{
         JS_PROP_CONFIGURABLE, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE, ObjectPayload,
     },
     stack_frame::StackFrameParentIter,
-    string::{JS_ConcatString, JS_ConcatString3},
     value::JSValue,
 };
 
@@ -34,12 +33,11 @@ pub struct ErrorText {
 }
 
 impl ErrorText {
-    /// retrive `message` and `stack` from `value`, create error text.
+    /// create error text info from `value`
     pub fn from(ctx: &ContextImpl, value: JSValue) -> Self {
         let mut ret = Self {
             message: value
-                .get_property(ctx, Atom::CONST_message)
-                .and_then(|s| s.to_string(ctx))
+                .to_string(ctx)
                 .map_or("".to_string(), |s| s.content().to_utf8(false).to_string()),
             traceback: None,
         };
@@ -88,7 +86,6 @@ impl ContextImpl {
         // if obj.is_undefined_or_null() {
         //     panic!("throw a null or undefined value is not recommended");
         // }
-
         self.rt_ptr().set_exception(obj);
     }
 
@@ -161,7 +158,8 @@ impl ContextImpl {
     }
 
     /// returns: true=exception raised; false=no exception raised
-    pub fn throw_type_error_or_false(&self, flags: u32, message: &str) -> bool {
+    #[deprecated(note = "use ::can_throw() and ::throw_XXX() instead")]
+    pub(crate) fn throw_type_error_or_false(&self, flags: u32, message: &str) -> bool {
         if self.can_throw(flags) {
             self.throw_type_error(message);
             true
@@ -420,24 +418,27 @@ pub fn js_error_toString(cc: CallContext) -> JSResult {
     }
 
     let name = cc.this().get_property(ctx, Atom::CONST_name)?;
-    let mut name = if name.is_undefined() {
+    let name = if name.is_undefined() {
         Atom::CONST_Error.force_string(ctx)?
     } else {
         name.to_string(ctx)?
     };
 
-    let msg = cc.this().get_property(ctx, Atom::CONST_message)?;
-    let msg = if msg.is_undefined() {
+    let message = cc.this().get_property(ctx, Atom::CONST_message)?;
+    let message = if message.is_undefined() {
         Atom::CONST_empty_string.force_string(ctx)?
     } else {
-        msg.to_string(ctx)?
+        message.to_string(ctx)?
     };
 
-    if !name.is_empty() && !msg.is_empty() {
-        name = JS_ConcatString3(ctx, c"", name.into(), c": ")?;
-    }
+    let txt: Cow<'_, str> = match (name.is_empty(), message.is_empty()) {
+        (false, false) => format!("{}: {}", name.to_utf8(false), message.to_utf8(false)).into(),
+        (false, true) => name.to_utf8(false),
+        (true, false) => message.to_utf8(false),
+        (true, true) => "".into(),
+    };
 
-    JS_ConcatString(ctx, name.into(), msg.into()).map(JSValue::String)
+    cc.ctx().create_string_from_str(&txt).map(JSValue::String)
 }
 
 pub static js_error_proto_funcs: [FieldDef; 3] = [
