@@ -1,8 +1,6 @@
 /*
  * ZJS Read Eval Print Loop
  *
- * Copyright (c) 2017-2020 Fabrice Bellard
- * Copyright (c) 2017-2020 Charlie Gordon
  * Copyright (c) 2025 John Ray
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -22,6 +20,10 @@
  * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
+ *
+ * This work is derived from QuickJS repl.js, which has Copyright:
+ * Copyright (c) 2017-2020 Fabrice Bellard
+ * Copyright (c) 2017-2020 Charlie Gordon
  */
 "use strip";
 
@@ -741,7 +743,9 @@ import * as os from "os";
   };
 
   function dupstr(str, count) {
-    return str.repeat(count);
+    if (count > 0) {
+      return str.repeat(count);
+    }
   }
 
   var readline_keys;
@@ -835,7 +839,6 @@ import * as os from "os";
           return;
         case -3:
           /* uninstall a Ctrl-C signal handler */
-          console.log("uninstall ctrl-c signal");
           os.signal(os.SIGINT, null);
           /* uninstall the stdin read handler */
           os.setReadHandler(term_fd, null);
