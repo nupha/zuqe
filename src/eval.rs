@@ -269,16 +269,18 @@ impl ContextImpl {
         &mut self,
         source: &[u8],
         filename: &str,
+        eval_type: EvalType,
         eval_flags: u32,
         handle: impl FnOnce(JSValue) -> R,
     ) -> Result<R, ErrorText> {
         let mut rt = self.rt_ptr();
 
         // eval
-        let val = if eval_flags & JS_EVAL_TYPE_MASK == JS_EVAL_TYPE_MODULE {
-            self.eval_module(source, filename, false).map(|p| p.into())
+        let val = if eval_type == EvalType::Module {
+            self.eval_module(source, filename, eval_flags & JS_EVAL_FLAG_STRIP != 0)
+                .map(|p| p.into())
         } else {
-            self.eval(source, filename, EvalType::Global, 0)
+            self.eval(source, filename, EvalType::Global, eval_flags)
         }
         .map_err(|_| {
             let exc = rt.take_exception();
@@ -349,9 +351,10 @@ impl ContextImpl {
         &mut self,
         source: &[u8],
         filename: &str,
+        eval_type: EvalType,
         eval_flags: u32,
     ) -> Result<(), ErrorText> {
-        self.run_wait_with(source, filename, eval_flags, |_| {})
+        self.run_wait_with(source, filename, eval_type, eval_flags, |_| {})
     }
 }
 

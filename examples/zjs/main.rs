@@ -10,7 +10,7 @@ use std::process::ExitCode;
 use colorized::{Colors::*, colorize_println};
 use zhuque::{
     context::Context,
-    eval::{JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
+    eval::{EvalType, JS_EVAL_TYPE_GLOBAL, JS_EVAL_TYPE_MODULE},
     module::ModuleDef,
     parse::JSParseState,
     runtime::Runtime,
@@ -65,10 +65,11 @@ fn main() -> ExitCode {
         script.as_bytes(),
         &filename,
         if is_module {
-            JS_EVAL_TYPE_MODULE
+            EvalType::Module
         } else {
-            JS_EVAL_TYPE_GLOBAL
+            EvalType::Global
         },
+        0,
         |val| {
             colorize_println(val.inspect(&cx).unwrap(), GreenFg);
         },

@@ -293,10 +293,11 @@ fn run_test_script(
         script.as_bytes(),
         filename.as_os_str().to_str().unwrap(),
         if is_module {
-            JS_EVAL_TYPE_MODULE
+            EvalType::Module
         } else {
-            JS_EVAL_TYPE_GLOBAL
-        } | if is_strict { JS_EVAL_FLAG_STRICT } else { 0 },
+            EvalType::Global
+        },
+        if is_strict { JS_EVAL_FLAG_STRICT } else { 0 },
     )?;
 
     if is_async {
