@@ -5,7 +5,7 @@ use crate::{
     builtins::promise::{Promise, PromiseState},
     context::ContextImpl,
     error::JSResult,
-    eval::{Compiled, EvalType, JS_EVAL_FLAG_STRIP},
+    eval::{Compiled, EvalFlags, EvalType},
     function::{CallContext, NativeFunctionWithData},
     module::{JSModuleStatus, ModuleDefImpl},
     runtime::js_check_stack_overflow,
@@ -70,7 +70,11 @@ impl ModuleDef {
             source,
             filename,
             EvalType::Module,
-            if strip { JS_EVAL_FLAG_STRIP } else { 0 },
+            if strip {
+                EvalFlags::STRIP
+            } else {
+                EvalFlags::empty()
+            },
             -1,
         )? {
             Ok(md)

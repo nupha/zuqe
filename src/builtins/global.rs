@@ -1,7 +1,7 @@
 use crate::{
     builtins::number::{js_parseFloat, js_parseInt},
     error::JSResult,
-    eval::EvalType,
+    eval::{EvalFlags, EvalType},
     function::{CallContext, FieldDef},
     string::StringBuf,
     utils::unlikely,
@@ -11,7 +11,13 @@ use crate::{
 pub fn js_global_eval(mut cc: CallContext) -> JSResult {
     let global = cc.ctx().global_obj();
     let val = *cc.arg(0);
-    val.eval_object(cc.ctx_mut(), global.into(), EvalType::Indirect, 0, -1)
+    val.eval_object(
+        cc.ctx_mut(),
+        global.into(),
+        EvalType::Indirect,
+        EvalFlags::empty(),
+        -1,
+    )
 }
 
 pub const MAGIC_NUM_IS_NAN: i32 = 1;

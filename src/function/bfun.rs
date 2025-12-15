@@ -8,7 +8,7 @@ use crate::{
     class::ClassID,
     context::{ContextImpl, ContextPtr},
     error::JSResult,
-    eval::EvalType,
+    eval::{EvalFlags, EvalType},
     function::{Bytecode, CallContext, JS_CALL_FLAG_COPY_ARGV, JSVarRef},
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_NORMAL, JS_PROP_TMASK, JSProperty, ObjectImpl, ObjectPayload,
@@ -487,7 +487,7 @@ impl BytecodeFunction {
                 buf.as_slice(),
                 "<input>",
                 EvalType::Indirect,
-                0,
+                EvalFlags::empty(),
                 -1,
             )?
         };

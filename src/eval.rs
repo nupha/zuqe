@@ -30,11 +30,12 @@ pub(super) type EvalFn = fn(
     input: &[u8],
     filename: &str,
     eval_type: EvalType,
-    eval_flags: u32,
+    eval_flags: EvalFlags,
     scope_idx: i32,
 ) -> JSResult;
 
 bitflags::bitflags! {
+    /// exeution mode.
     #[repr(transparent)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
     pub struct EvalMode: u8 {
@@ -47,23 +48,19 @@ bitflags::bitflags! {
 
         const MATH   = 1 << 3;
     }
+
+    /// eval flags passed to eval() family funcs, as options.
+    #[repr(transparent)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+    pub struct EvalFlags: u8 {
+        const STRICT = 1 << 0;
+        const STRIP = 1 << 1;
+        const BACKTRACE_BARRIER = 1 << 2;
+        /// compile script as root async function,
+        /// so that top-level-await is allowed.
+        const ASYNC = 1 << 3;
+    }
 }
-
-// Eval types
-pub const JS_EVAL_TYPE_GLOBAL: u32 = 0;
-pub const JS_EVAL_TYPE_MODULE: u32 = 1;
-pub const JS_EVAL_TYPE_DIRECT: u32 = 2;
-pub const JS_EVAL_TYPE_INDIRECT: u32 = 3;
-pub const JS_EVAL_TYPE_MASK: u32 = 3;
-
-// Eval flags
-pub const JS_EVAL_FLAG_STRICT: u32 = 1 << 3;
-pub const JS_EVAL_FLAG_STRIP: u32 = 1 << 4;
-// pub const JS_EVAL_FLAG_COMPILE_ONLY: u32 = 1 << 5;
-pub const JS_EVAL_FLAG_BACKTRACE_BARRIER: u32 = 1 << 6;
-/// compile script as root async function,
-/// so that top-level-await is allowed.
-pub const JS_EVAL_FLAG_ASYNC: u32 = 1 << 7;
 
 pub(crate) enum Compiled {
     /// compiled for global or indirect mode.
@@ -82,7 +79,7 @@ impl ContextImpl {
         source: &[u8],
         filename: &str,
         eval_type: EvalType,
-        eval_flags: u32,
+        eval_flags: EvalFlags,
         scope_idx: i32,
     ) -> Result<Compiled, i32> {
         // get (bytecode, module, js_mode) of current stack frame
@@ -99,10 +96,10 @@ impl ContextImpl {
             (Some(bc), None, mode)
         } else {
             let mut mode = EvalMode::empty();
-            if eval_flags & JS_EVAL_FLAG_STRICT != 0 {
+            if eval_flags.contains(EvalFlags::STRICT) {
                 mode |= EvalMode::STRICT;
             }
-            if eval_flags & JS_EVAL_FLAG_STRIP != 0 {
+            if eval_flags.contains(EvalFlags::STRIP) {
                 mode |= EvalMode::STRIP;
             }
             if eval_type == EvalType::Module {
@@ -120,7 +117,7 @@ impl ContextImpl {
         fd.eval_type = eval_type;
         fd.func_name = Atom::CONST__eval_;
         fd.has_this_binding = eval_type != EvalType::Direct;
-        fd.attrs.backtrace_barrier = eval_flags & JS_EVAL_FLAG_BACKTRACE_BARRIER != 0;
+        fd.attrs.backtrace_barrier = eval_flags.contains(EvalFlags::BACKTRACE_BARRIER);
         fd.attrs.js_mode = js_mode;
 
         if let Some(bc) = &frame_func_bc {
@@ -139,7 +136,7 @@ impl ContextImpl {
         }
 
         fd.module = frame_module;
-        if fd.module.is_some() || eval_flags & JS_EVAL_FLAG_ASYNC != 0 {
+        if fd.module.is_some() || eval_flags.contains(EvalFlags::ASYNC) {
             fd.in_function_body = true;
             fd.attrs.func_kind = JSFunctionKindEnum::JS_FUNC_ASYNC;
         }
@@ -197,7 +194,7 @@ impl ContextImpl {
         source: &[u8],
         filename: &str,
         eval_type: EvalType,
-        eval_flags: u32,
+        eval_flags: EvalFlags,
         scope_idx: i32,
     ) -> JSResult {
         // #[cfg(debug_assertions)]
@@ -237,7 +234,12 @@ impl ContextImpl {
 
     /// eval `source` as global type, with global object as `this` binding.
     #[inline]
-    pub fn eval_global(&mut self, source: &[u8], filename: &str, eval_flags: u32) -> JSResult {
+    pub fn eval_global(
+        &mut self,
+        source: &[u8],
+        filename: &str,
+        eval_flags: EvalFlags,
+    ) -> JSResult {
         self.eval_internal(
             self.global_obj().into(),
             source,
@@ -267,7 +269,7 @@ impl ContextImpl {
         source: &[u8],
         filename: &str,
         eval_type: EvalType,
-        eval_flags: u32,
+        eval_flags: EvalFlags,
         handle: impl FnOnce(JSValue) -> R,
     ) -> Result<R, ErrorText> {
         debug_assert!(matches!(eval_type, EvalType::Global | EvalType::Module));
@@ -276,7 +278,7 @@ impl ContextImpl {
 
         // eval
         let val = if eval_type == EvalType::Module {
-            self.eval_module(source, filename, eval_flags & JS_EVAL_FLAG_STRIP != 0)
+            self.eval_module(source, filename, eval_flags.contains(EvalFlags::STRIP))
                 .map(|p| p.into())
         } else {
             self.eval_global(source, filename, eval_flags)
@@ -351,7 +353,7 @@ impl ContextImpl {
         source: &[u8],
         filename: &str,
         eval_type: EvalType,
-        eval_flags: u32,
+        eval_flags: EvalFlags,
     ) -> Result<(), ErrorText> {
         self.run_wait_with(source, filename, eval_type, eval_flags, |_| {})
     }
@@ -366,7 +368,7 @@ impl JSValue {
         ctx: &mut ContextImpl,
         this_obj: JSValue,
         eval_type: EvalType,
-        eval_flags: u32,
+        eval_flags: EvalFlags,
         scope_idx: i32,
     ) -> JSResult {
         if let Self::String(s) = self {

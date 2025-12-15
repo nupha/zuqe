@@ -28,7 +28,7 @@ use crate::{
         JS_ThrowReferenceErrorUninitialized, JS_ThrowReferenceErrorUninitialized2,
         JS_ThrowSyntaxErrorVarRedeclaration,
     },
-    eval::{EvalMode, EvalType},
+    eval::{EvalFlags, EvalMode, EvalType},
     function::{
         Bytecode, CallContext, JS_CallConstructorInternal, JS_CallInternal, JSFunctionKindEnum,
         JSVarRef, build_arg_list, js_build_arguments, js_build_mapped_arguments, js_function_apply,
@@ -958,7 +958,7 @@ impl Bytecode {
                                     &mut realm,
                                     JSValue::UNDEFINED,
                                     EvalType::Direct,
-                                    0,
+                                    EvalFlags::empty(),
                                     scope_idx as _,
                                 )
                             } else {
@@ -1009,7 +1009,7 @@ impl Bytecode {
                                         &mut realm,
                                         JSValue::UNDEFINED,
                                         EvalType::Direct,
-                                        0,
+                                        EvalFlags::empty(),
                                         scope_idx,
                                     )
                                 } else {

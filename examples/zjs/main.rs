@@ -9,7 +9,11 @@ use std::process::ExitCode;
 
 use colorized::{Colors::*, colorize_println};
 use zhuque::{
-    context::Context, eval::EvalType, module::ModuleDef, parse::JSParseState, runtime::Runtime,
+    context::Context,
+    eval::{EvalFlags, EvalType},
+    module::ModuleDef,
+    parse::JSParseState,
+    runtime::Runtime,
 };
 
 use crate::{
@@ -65,7 +69,7 @@ fn main() -> ExitCode {
         } else {
             EvalType::Global
         },
-        0,
+        EvalFlags::empty(),
         |val| {
             colorize_println(val.inspect(&cx).unwrap(), GreenFg);
         },
