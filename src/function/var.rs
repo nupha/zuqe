@@ -1,11 +1,8 @@
 use gc_lite::GcTracable;
 
 use crate::{
-    atom::Atom,
-    context::ContextImpl,
-    eval::{EvalMode, EvalType},
-    function::JSFunctionDef,
-    runtime::JS_MAX_LOCAL_VARS,
+    atom::Atom, context::ContextImpl, eval::EvalType, function::JSFunctionDef,
+    runtime::JS_MAX_LOCAL_VARS, stack_frame::ExecAttrs,
 };
 
 use super::ARG_SCOPE_INDEX;
@@ -364,7 +361,7 @@ impl JSFunctionDef {
 
             let vd = self.vars.get_mut(vi as usize).unwrap();
             vd.set_var_kind(JSVarKindEnum::JS_VAR_FUNCTION_NAME as _);
-            if self.attrs.js_mode.contains(EvalMode::STRICT) {
+            if self.attrs.js_mode.contains(ExecAttrs::STRICT) {
                 vd.set_is_const(true);
             }
 

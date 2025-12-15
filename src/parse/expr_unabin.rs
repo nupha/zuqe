@@ -2,11 +2,11 @@ use crate::{
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp, opcodes},
     error::JS_THROW_ERROR_DELETE_SUPER,
-    eval::EvalMode,
     parse::{
         state::{PF_ARROW_FUNC, PF_IN_ACCEPTED, PF_POW_ALLOWED},
         token::TOK_IN,
     },
+    stack_frame::ExecAttrs,
     utils::read_from_ptr,
 };
 
@@ -376,7 +376,7 @@ impl<'s> JSParseState<'s> {
                     self.emit_op(OpCode::PUSH_TRUE);
                     return Ok(());
                 }
-                if fd.attrs.js_mode.contains(EvalMode::STRICT) {
+                if fd.attrs.js_mode.contains(ExecAttrs::STRICT) {
                     self.throw_syntax_error("cannot delete a direct reference in strict mode");
                     return Err(-1);
                 } else {

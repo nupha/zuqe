@@ -6,7 +6,6 @@ use crate::{
         OP_DEFINE_METHOD_METHOD, OP_DEFINE_METHOD_SETTER,
     },
     defer,
-    eval::EvalMode,
     function::{JSFunctionDef, JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
     module::ExportType,
     object::{
@@ -14,6 +13,7 @@ use crate::{
         PROP_TYPE_SET, PROP_TYPE_STAR,
     },
     parse::obj::set_object_name_computed,
+    stack_frame::ExecAttrs,
     utils::write_to_ptr,
 };
 
@@ -539,7 +539,12 @@ impl<'s> JSParseState<'s> {
         }
 
         // store the class source code in the constructor.
-        if !self.cur_func().attrs.js_mode.contains(EvalMode::STRIP) {
+        if !self
+            .cur_func()
+            .attrs
+            .js_mode
+            .contains(ExecAttrs::STRIP)
+        {
             debug_assert!(self.buf_ptr >= class_source);
 
             let src_len = unsafe { self.buf_ptr.offset_from(class_source) as usize };
@@ -575,7 +580,7 @@ impl<'s> JSParseState<'s> {
         let orig_mode = {
             let fd = self.cur_func_mut();
             let m = fd.attrs.js_mode;
-            fd.attrs.js_mode |= EvalMode::STRICT;
+            fd.attrs.js_mode |= ExecAttrs::STRICT;
             m
         };
         // Note: restore original mode on exit

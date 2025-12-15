@@ -28,7 +28,7 @@ use crate::{
         JS_ThrowReferenceErrorUninitialized, JS_ThrowReferenceErrorUninitialized2,
         JS_ThrowSyntaxErrorVarRedeclaration,
     },
-    eval::{EvalFlags, EvalMode, EvalType},
+    eval::{EvalFlags, EvalType},
     function::{
         Bytecode, CallContext, JS_CallConstructorInternal, JS_CallInternal, JSFunctionKindEnum,
         JSVarRef, build_arg_list, js_build_arguments, js_build_mapped_arguments, js_function_apply,
@@ -40,7 +40,7 @@ use crate::{
         JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_VARREF,
         JS_PROP_WRITABLE, JSProperty, ObjectRef,
     },
-    stack_frame::StackFrame,
+    stack_frame::{ExecAttrs, StackFrame},
     utils::{read_from_ptr, unlikely},
     value::JSValue,
 };
@@ -372,7 +372,7 @@ impl Bytecode {
                     OpCode::PUSH_THIS => {
                         // only called at the start of a function.
                         // could be EXCEPTION.
-                        let val: JSValue = if !mode.contains(EvalMode::STRICT) {
+                        let val: JSValue = if !mode.contains(ExecAttrs::STRICT) {
                             match this_obj {
                                 JSValue::Object(_) => this_obj,
                                 JSValue::NULL | JSValue::UNDEFINED => {

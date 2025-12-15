@@ -10,10 +10,23 @@ use crate::{
     builtins::iterator::ObjectIter,
     context::ContextImpl,
     error::{JS_IsUncatchableError, is_backtrace_needed},
-    eval::EvalMode,
     function::{AsyncStateImpl, JSVarRef},
     value::JSValue,
 };
+
+bitflags::bitflags! {
+    /// exeution attrs of stack frame.
+    #[repr(transparent)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+    pub(crate) struct ExecAttrs: u8 {
+        /// strict mode
+        const STRICT = 1 << 0;
+        /// strip debug source
+        const STRIP  = 1 << 1;
+        /// is dedicated stack frame for async function execution
+        const ASYNC  = 1 << 2;
+    }
+}
 
 /// Represents a call stack frame in JavaScript execution, tracking function state and local variables.
 /// StackFrame is usually allocated on stack, not heap.
@@ -60,8 +73,8 @@ pub struct StackFrame {
     /// List of variable references registered in this frame
     pub(crate) var_ref_list: Vec<JSVarRef>,
 
-    /// Execution mode of stack frame.
-    pub(crate) js_mode: EvalMode,
+    /// Execution attrs of stack frame.
+    pub(crate) js_mode: ExecAttrs,
 
     /// Weak back-ref to async state,
     /// only valid if this stack frame is for an AsyncStateImpl
@@ -96,7 +109,7 @@ impl PartialEq for StackFrame {
 
 impl StackFrame {
     /// Create new StackFrame. It's allocated on stack.
-    pub fn new(func_obj: JSValue, mode: EvalMode) -> Self {
+    pub(crate) fn new(func_obj: JSValue, mode: ExecAttrs) -> Self {
         Self {
             prev: std::ptr::null_mut(),
             cur_func: func_obj,

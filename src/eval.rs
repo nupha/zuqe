@@ -9,6 +9,7 @@ use crate::{
     module::ModuleDef,
     parse::JSParseState,
     runtime::TickStatus,
+    stack_frame::ExecAttrs,
     value::JSValue,
 };
 
@@ -22,6 +23,24 @@ pub enum EvalType {
     Indirect,
 }
 
+bitflags::bitflags! {
+    #[repr(transparent)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+    pub struct EvalFlags :u8 {
+        /// strict mode
+        const STRICT = 1 << 0;
+        /// strip debug source
+        const STRIP = 1 << 1;
+        // /// indicates dedicated stack frame for async function execution
+        // const ASYNC = 1 << 2;
+
+        const BACKTRACE_BARRIER = 1 << 4;
+        /// compile script as root async function,
+        /// so that top-level-await is allowed.
+        const COMPILE_TO_ASYNC = 1 << 5;
+    }
+}
+
 /// callback to handle `eval`, returns eval result.
 /// `input` is script source.
 pub(super) type EvalFn = fn(
@@ -33,34 +52,6 @@ pub(super) type EvalFn = fn(
     eval_flags: EvalFlags,
     scope_idx: i32,
 ) -> JSResult;
-
-bitflags::bitflags! {
-    /// exeution mode.
-    #[repr(transparent)]
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-    pub struct EvalMode: u8 {
-        /// strict execution
-        const STRICT = 1 << 0;
-        /// strip debug source
-        const STRIP  = 1 << 1;
-        /// is the dedicated stack frame for async function execution
-        const ASYNC  = 1 << 2;
-
-        const MATH   = 1 << 3;
-    }
-
-    /// eval flags passed to eval() family funcs, as options.
-    #[repr(transparent)]
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-    pub struct EvalFlags: u8 {
-        const STRICT = 1 << 0;
-        const STRIP = 1 << 1;
-        const BACKTRACE_BARRIER = 1 << 2;
-        /// compile script as root async function,
-        /// so that top-level-await is allowed.
-        const ASYNC = 1 << 3;
-    }
-}
 
 pub(crate) enum Compiled {
     /// compiled for global or indirect mode.
@@ -95,16 +86,16 @@ impl ContextImpl {
 
             (Some(bc), None, mode)
         } else {
-            let mut mode = EvalMode::empty();
+            let mut mode = ExecAttrs::empty();
             if eval_flags.contains(EvalFlags::STRICT) {
-                mode |= EvalMode::STRICT;
+                mode |= ExecAttrs::STRICT;
             }
             if eval_flags.contains(EvalFlags::STRIP) {
-                mode |= EvalMode::STRIP;
+                mode |= ExecAttrs::STRIP;
             }
             if eval_type == EvalType::Module {
                 let name = Atom::new(self.rt_ptr(), filename)?;
-                mode |= EvalMode::STRICT;
+                mode |= ExecAttrs::STRICT;
                 (None, Some(ModuleDef::new(self, name)?), mode)
             } else {
                 (None, None, mode)
@@ -136,7 +127,7 @@ impl ContextImpl {
         }
 
         fd.module = frame_module;
-        if fd.module.is_some() || eval_flags.contains(EvalFlags::ASYNC) {
+        if fd.module.is_some() || eval_flags.contains(EvalFlags::COMPILE_TO_ASYNC) {
             fd.in_function_body = true;
             fd.attrs.func_kind = JSFunctionKindEnum::JS_FUNC_ASYNC;
         }

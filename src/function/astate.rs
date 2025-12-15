@@ -3,8 +3,9 @@ use std::{pin::Pin, ptr::NonNull};
 use gc_lite::{GcRef, GcTracable};
 
 use crate::{
-    context::ContextImpl, error::JSResult, eval::EvalMode, function::BCFunction, gcref_wrapper,
-    runtime::js_check_stack_overflow, stack_frame::StackFrame, value::JSValue,
+    context::ContextImpl, error::JSResult, function::BCFunction, gcref_wrapper,
+    runtime::js_check_stack_overflow, stack_frame::ExecAttrs, stack_frame::StackFrame,
+    value::JSValue,
 };
 
 #[derive(Debug)]
@@ -73,7 +74,7 @@ impl AsyncStateImpl {
 
         // make a dedicated stack frame for async function execution
         // (the stack frame mode has ASYNC flag set).
-        let mut frame = Box::pin(StackFrame::new(bc_func.into(), mode | EvalMode::ASYNC));
+        let mut frame = Box::pin(StackFrame::new(bc_func.into(), mode | ExecAttrs::ASYNC));
 
         // setup localbuf and sections
         unsafe {

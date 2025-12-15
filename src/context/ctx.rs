@@ -15,7 +15,7 @@ use crate::{
     builtins::{array::ArrayPayload, promise::Job, regexp::RegExpData},
     class::ClassID,
     error::{STD_ERROR_COUNT, STD_ERROR_NAMES, js_error_proto_funcs},
-    eval::{EvalFn, EvalMode},
+    eval::EvalFn,
     function::{Callback, js_function_proto},
     gcref_wrapper,
     module::{JSFreeModuleEnum, ModuleDef, js_free_modules},
@@ -24,6 +24,7 @@ use crate::{
         ShapeHandle,
     },
     runtime::{RuntimeImpl, RuntimePtr},
+    stack_frame::ExecAttrs,
     value::JSValue,
 };
 
@@ -227,7 +228,7 @@ impl ContextImpl {
     pub(crate) fn is_strict_mode(&self) -> bool {
         self.rt_ptr()
             .current_stack_frame()
-            .is_some_and(|sf| sf.js_mode.contains(EvalMode::STRICT))
+            .is_some_and(|sf| sf.js_mode.contains(ExecAttrs::STRICT))
     }
 
     fn finalize(&mut self) {

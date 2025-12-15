@@ -1,8 +1,8 @@
 use crate::{
     atom::Atom,
     bytecode::{OpCode, OpcodeFormat, opcode_info_intermediate, opcodes},
-    eval::EvalMode,
     function::{JSFunctionDef, Label},
+    stack_frame::ExecAttrs,
     utils::{
         M2, M3, push_vec_atom, push_vec_short_code, push_vec_short_int, push_vec_u8, push_vec_u16,
         read_from_ptr, write_to_ptr,
@@ -597,14 +597,14 @@ pub(super) fn optimize_scope_make_ref(
 }
 
 pub(super) fn optimize_scope_make_global_ref(
-    js_mode: EvalMode,
+    js_mode: ExecAttrs,
     bc: &mut Vec<u8>,
     bc_buf: *mut u8,
     label: &Label,
     mut pos_next: u32,
     var_name: Atom,
 ) -> u32 {
-    let is_strict = js_mode.contains(EvalMode::STRICT);
+    let is_strict = js_mode.contains(ExecAttrs::STRICT);
     if is_strict {
         push_vec_u8(bc, opcodes::OP_check_var);
         push_vec_atom(bc, var_name);

@@ -8,11 +8,10 @@ use crate::{
     context::{Context, ContextImpl, ContextPtr},
     defer,
     error::JSResult,
-    eval::EvalMode,
     function::{CallContext, IteratorState, JS_CALL_FLAG_CONSTRUCTOR},
     object::{ObjectImpl, ObjectPayload, ObjectRef},
     runtime::js_check_stack_overflow,
-    stack_frame::StackFrame,
+    stack_frame::{ExecAttrs, StackFrame},
     value::JSValue,
 };
 
@@ -124,7 +123,7 @@ impl NFuncPayload {
         }
 
         // new stack frame
-        let mut stack_frame = StackFrame::new(func_obj, EvalMode::empty());
+        let mut stack_frame = StackFrame::new(func_obj, ExecAttrs::empty());
         let sf = &mut stack_frame;
 
         // set new stack frame to be the 'current-stack-frame',

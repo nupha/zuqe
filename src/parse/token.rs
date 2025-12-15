@@ -1,12 +1,12 @@
 use crate::{
     atom::{ATOM_CONST_KEYWORD_RANGE, ATOM_CONST_STRICT_KEYWORD_RANGE, Atom},
-    eval::EvalMode,
     function::JSFunctionKindEnum,
     number::{
         ATOD_ACCEPT_BIN_OCT, ATOD_ACCEPT_LEGACY_OCTAL, ATOD_ACCEPT_SUFFIX, ATOD_ACCEPT_UNDERSCORES,
         IntOrFloat, js_atof,
     },
     runtime::js_check_stack_overflow,
+    stack_frame::ExecAttrs,
     string::{CP_LS, CP_PS, StringBuf, UTF8_CHAR_LEN_MAX, char_is_space, unicode_from_utf8_v0},
 };
 
@@ -406,7 +406,11 @@ impl<'s> JSParseState<'s> {
                 },
                 '0' => {
                     todo = if unsafe { (*p.add(1)).is_ascii_digit() }
-                        && self.cur_func().attrs.js_mode.contains(EvalMode::STRICT)
+                        && self
+                            .cur_func()
+                            .attrs
+                            .js_mode
+                            .contains(ExecAttrs::STRICT)
                     {
                         // in strict mode, octal literals are not accepted
                         self.throw_syntax_error("octal literals are deprecated in strict mode");
@@ -888,7 +892,7 @@ impl<'s> JSParseState<'s> {
 
                 a if ATOM_CONST_KEYWORD_RANGE.contains(&a.id()) => true,
                 a if ATOM_CONST_STRICT_KEYWORD_RANGE.contains(&a.id()) => {
-                    js_mode.contains(EvalMode::STRICT)
+                    js_mode.contains(ExecAttrs::STRICT)
                 }
                 _ => false,
             };

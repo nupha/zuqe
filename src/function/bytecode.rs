@@ -7,10 +7,10 @@ use crate::{
     bytecode::{OpcodeFormat, opcode_info_final},
     context::{ContextImpl, ContextPtr},
     error::JSResult,
-    eval::{EvalMode, EvalType},
+    eval::EvalType,
     function::{JSFunctionDef, JSVarRef},
     runtime::RuntimePtr,
-    stack_frame::StackFrame,
+    stack_frame::{ExecAttrs, StackFrame},
     utils::{get_leb128, get_sleb128, read_from_ptr},
     value::JSValue,
 };
@@ -43,29 +43,29 @@ pub const PC2LINE_DIFF_PC_MAX: i32 = (255 - PC2LINE_OP_FIRST) / PC2LINE_RANGE;
 
 #[derive(Debug, Clone)]
 pub struct BytecodeAttrs {
-    pub func_kind: JSFunctionKindEnum,
+    pub(crate) func_kind: JSFunctionKindEnum,
     /// true if a prototype field is necessary
-    pub has_prototype: bool,
+    pub(crate) has_prototype: bool,
     /// 是否有简单参数列表
-    pub has_simple_parameter_list: bool,
+    pub(crate) has_simple_parameter_list: bool,
     /// 是否是派生类构造函数
-    pub is_derived_class_constructor: bool,
+    pub(crate) is_derived_class_constructor: bool,
     /// 是否允许new.target
-    pub new_target_allowed: bool,
+    pub(crate) new_target_allowed: bool,
     /// 是否允许super()
-    pub super_call_allowed: bool,
+    pub(crate) super_call_allowed: bool,
     /// 是否允许super.或super[]
-    pub super_allowed: bool,
+    pub(crate) super_allowed: bool,
     /// 是否允许arguments标识符
-    pub arguments_allowed: bool,
+    pub(crate) arguments_allowed: bool,
     /// stop backtrace on this function
-    pub backtrace_barrier: bool,
+    pub(crate) backtrace_barrier: bool,
     /// for length function property
-    pub defined_arg_count: u16,
+    pub(crate) defined_arg_count: u16,
     //// true if home_object needs to be initialized
-    pub need_home_object: bool,
+    pub(crate) need_home_object: bool,
     /// execution mode
-    pub js_mode: EvalMode,
+    pub(crate) js_mode: ExecAttrs,
 }
 
 impl Default for BytecodeAttrs {
@@ -82,7 +82,7 @@ impl Default for BytecodeAttrs {
             backtrace_barrier: false,
             defined_arg_count: 0,
             need_home_object: false,
-            js_mode: EvalMode::empty(),
+            js_mode: ExecAttrs::empty(),
         }
     }
 }
@@ -238,7 +238,7 @@ impl BytecodeImpl {
     }
 
     #[inline(always)]
-    pub const fn mode(&self) -> EvalMode {
+    pub const fn mode(&self) -> ExecAttrs {
         self.attrs.js_mode
     }
 

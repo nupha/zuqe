@@ -118,7 +118,7 @@ fn js_evalScript(mut cc: CallContext) -> JSResult {
         flags |= EvalFlags::BACKTRACE_BARRIER;
     }
     if is_async {
-        flags |= EvalFlags::ASYNC;
+        flags |= EvalFlags::COMPILE_TO_ASYNC;
     }
 
     let ret = cc.ctx_mut().eval_global(

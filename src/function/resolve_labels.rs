@@ -1,8 +1,8 @@
 use crate::{
     bytecode::{OpCode, SpecialObject, opcode_info_intermediate, opcodes},
     context::ContextImpl,
-    eval::EvalMode,
     function::{CodeMatchState, JSFunctionDef, skip_dead_code},
+    stack_frame::ExecAttrs,
     utils::{
         M2, M3, M4, push_vec_atom, push_vec_short_code, push_vec_short_int, push_vec_slice,
         push_vec_u8, push_vec_u16, push_vec_u32, read_from_ptr, write_to_ptr,
@@ -55,7 +55,7 @@ impl JSFunctionDef {
         }
 
         // XXX: Should skip this phase if not generating SHORT_OPCODES
-        if self.line_number_slots_cap != 0 && !self.attrs.js_mode.contains(EvalMode::STRIP) {
+        if self.line_number_slots_cap != 0 && !self.attrs.js_mode.contains(ExecAttrs::STRIP) {
             self.line_number_slots
                 .try_reserve(self.line_number_slots_cap)
                 .map_err(|_| {
@@ -102,7 +102,7 @@ impl JSFunctionDef {
 
         // initialize the 'arguments' variable if needed
         if let Some(vidx) = self.arguments_var_idx {
-            if self.attrs.js_mode.contains(EvalMode::STRICT)
+            if self.attrs.js_mode.contains(ExecAttrs::STRICT)
                 || !self.attrs.has_simple_parameter_list
             {
                 push_vec_u8(&mut bc_out, OpCode::SPECIAL_OBJECT as u8);

@@ -3,9 +3,10 @@ use std::ops::DerefMut;
 use crate::{
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp},
-    eval::{EvalMode, EvalType},
+    eval::EvalType,
     function::{ARGUMENT_VAR_OFFSET, JSFunctionDef, JSFunctionKindEnum, JSVarDefEnum},
     module::ExportType,
+    stack_frame::ExecAttrs,
     utils::unlikely,
     value::JSValue,
 };
@@ -390,7 +391,7 @@ impl<'s> JSParseState<'s> {
                     self.last_line_num,
                 );
 
-                if !fd1.attrs.js_mode.contains(EvalMode::STRIP) {
+                if !fd1.attrs.js_mode.contains(ExecAttrs::STRIP) {
                     // save the function source code
                     // the end of the function source code is after the last
                     // token of the function source stored into s->last_ptr
@@ -429,7 +430,7 @@ impl<'s> JSParseState<'s> {
             self.parse_source_element()?;
         }
 
-        if !fd1.attrs.js_mode.contains(EvalMode::STRIP) {
+        if !fd1.attrs.js_mode.contains(ExecAttrs::STRIP) {
             // save the function source code
             debug_assert!(self.buf_ptr >= ptr);
             debug_assert!(fd1.source.is_none());
@@ -527,7 +528,7 @@ impl<'s> JSParseState<'s> {
 
                 if self.token.val == TOK_IDENT
                     || ((self.token.val == TOK_YIELD
-                        && !cur_fd.attrs.js_mode.contains(EvalMode::STRICT)
+                        && !cur_fd.attrs.js_mode.contains(ExecAttrs::STRICT)
                         || (self.token.val == TOK_AWAIT && !self.is_module))
                         && func_type == JSParseFunctionEnum::JS_PARSE_FUNC_EXPR)
                 {
@@ -562,7 +563,7 @@ impl<'s> JSParseState<'s> {
         if func_type == JSParseFunctionEnum::JS_PARSE_FUNC_VAR {
             let func_idx = cur_fd.find_var(func_name).map_or(-1, |x| x as i32);
 
-            if !cur_fd.attrs.js_mode.contains(EvalMode::STRICT)
+            if !cur_fd.attrs.js_mode.contains(ExecAttrs::STRICT)
                 && func_kind == JSFunctionKindEnum::JS_FUNC_NORMAL
                 && cur_fd
                     .find_lexical_decl(func_name, cur_fd.scope_first, false)
@@ -674,7 +675,7 @@ impl<'s> JSParseState<'s> {
                         (needed for annex B.3.3.4 and B.3.3.5
                         checks) */
                         hf.scope_level = 0;
-                        hf.set_force_init(js_mode.contains(EvalMode::STRICT));
+                        hf.set_force_init(js_mode.contains(ExecAttrs::STRICT));
 
                         /* store directly into global var, bypass lexical scope */
                         self.emit_op(OpCode::DUP);
@@ -783,7 +784,7 @@ impl<'s> JSParseState<'s> {
     }
 
     fn parse_function_check_names(&self, fd: &JSFunctionDef, func_name: Atom) -> Result<(), i32> {
-        if fd.attrs.js_mode.contains(EvalMode::STRICT) {
+        if fd.attrs.js_mode.contains(ExecAttrs::STRICT) {
             if !fd.attrs.has_simple_parameter_list && fd.has_use_strict {
                 self.throw_syntax_error(
                     "'use strict' not allowed in function with default or destructuring parameter",
@@ -803,7 +804,7 @@ impl<'s> JSParseState<'s> {
         }
 
         // check async_generator case
-        if fd.attrs.js_mode.contains(EvalMode::STRICT)
+        if fd.attrs.js_mode.contains(ExecAttrs::STRICT)
             || !fd.attrs.has_simple_parameter_list
             || (fd.func_type == JSParseFunctionEnum::JS_PARSE_FUNC_METHOD
                 && fd.attrs.func_kind == JSFunctionKindEnum::JS_FUNC_ASYNC)
