@@ -6,7 +6,7 @@ use crate::{
         IntOrFloat, js_atof,
     },
     runtime::js_check_stack_overflow,
-    stack_frame::ExecAttrs,
+    stack_frame::ExecMode,
     string::{CP_LS, CP_PS, StringBuf, UTF8_CHAR_LEN_MAX, char_is_space, unicode_from_utf8_v0},
 };
 
@@ -409,8 +409,8 @@ impl<'s> JSParseState<'s> {
                         && self
                             .cur_func()
                             .attrs
-                            .js_mode
-                            .contains(ExecAttrs::STRICT)
+                            .exec_mode
+                            .contains(ExecMode::STRICT)
                     {
                         // in strict mode, octal literals are not accepted
                         self.throw_syntax_error("octal literals are deprecated in strict mode");
@@ -850,7 +850,7 @@ impl<'s> JSParseState<'s> {
                 fd.attrs.func_kind,
                 fd.in_function_body,
                 fd.parent,
-                fd.attrs.js_mode,
+                fd.attrs.exec_mode,
             )
         };
 
@@ -892,7 +892,7 @@ impl<'s> JSParseState<'s> {
 
                 a if ATOM_CONST_KEYWORD_RANGE.contains(&a.id()) => true,
                 a if ATOM_CONST_STRICT_KEYWORD_RANGE.contains(&a.id()) => {
-                    js_mode.contains(ExecAttrs::STRICT)
+                    js_mode.contains(ExecMode::STRICT)
                 }
                 _ => false,
             };

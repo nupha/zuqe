@@ -1,9 +1,10 @@
 [package]
 name = "zhuque"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "A simple, but not too simple JS engine"
 authors = ["John Ray <996351336@qq.com>"]
+license = "Apache-2.0"
 build = "build.rs"
 
 [features]

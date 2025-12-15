@@ -4,7 +4,7 @@ use crate::{
     function::{
         BlockEnv, JSFunctionDef, PC2LINE_BASE, PC2LINE_DIFF_PC_MAX, PC2LINE_OP_FIRST, PC2LINE_RANGE,
     },
-    stack_frame::ExecAttrs,
+    stack_frame::ExecMode,
     utils::{push_vec_leb128, push_vec_sleb128, push_vec_u8, read_from_ptr},
 };
 
@@ -170,7 +170,7 @@ impl JSFunctionDef {
     }
 
     pub fn compute_pc2line_info(&mut self) {
-        if !self.attrs.js_mode.contains(ExecAttrs::STRIP) && !self.line_number_slots.is_empty() {
+        if !self.attrs.exec_mode.contains(ExecMode::STRIP) && !self.line_number_slots.is_empty() {
             let mut last_line_num = self.line_num;
             let mut last_pc: u32 = 0;
 

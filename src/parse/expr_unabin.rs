@@ -6,7 +6,7 @@ use crate::{
         state::{PF_ARROW_FUNC, PF_IN_ACCEPTED, PF_POW_ALLOWED},
         token::TOK_IN,
     },
-    stack_frame::ExecAttrs,
+    stack_frame::ExecMode,
     utils::read_from_ptr,
 };
 
@@ -376,7 +376,7 @@ impl<'s> JSParseState<'s> {
                     self.emit_op(OpCode::PUSH_TRUE);
                     return Ok(());
                 }
-                if fd.attrs.js_mode.contains(ExecAttrs::STRICT) {
+                if fd.attrs.exec_mode.contains(ExecMode::STRICT) {
                     self.throw_syntax_error("cannot delete a direct reference in strict mode");
                     return Err(-1);
                 } else {

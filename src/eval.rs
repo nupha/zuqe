@@ -9,7 +9,7 @@ use crate::{
     module::ModuleDef,
     parse::JSParseState,
     runtime::TickStatus,
-    stack_frame::ExecAttrs,
+    stack_frame::ExecMode,
     value::JSValue,
 };
 
@@ -86,16 +86,16 @@ impl ContextImpl {
 
             (Some(bc), None, mode)
         } else {
-            let mut mode = ExecAttrs::empty();
+            let mut mode = ExecMode::empty();
             if eval_flags.contains(EvalFlags::STRICT) {
-                mode |= ExecAttrs::STRICT;
+                mode |= ExecMode::STRICT;
             }
             if eval_flags.contains(EvalFlags::STRIP) {
-                mode |= ExecAttrs::STRIP;
+                mode |= ExecMode::STRIP;
             }
             if eval_type == EvalType::Module {
                 let name = Atom::new(self.rt_ptr(), filename)?;
-                mode |= ExecAttrs::STRICT;
+                mode |= ExecMode::STRICT;
                 (None, Some(ModuleDef::new(self, name)?), mode)
             } else {
                 (None, None, mode)
@@ -109,7 +109,7 @@ impl ContextImpl {
         fd.func_name = Atom::CONST__eval_;
         fd.has_this_binding = eval_type != EvalType::Direct;
         fd.attrs.backtrace_barrier = eval_flags.contains(EvalFlags::BACKTRACE_BARRIER);
-        fd.attrs.js_mode = js_mode;
+        fd.attrs.exec_mode = js_mode;
 
         if let Some(bc) = &frame_func_bc {
             debug_assert_eq!(eval_type, EvalType::Direct, "must be direct eval type");

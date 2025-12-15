@@ -13,7 +13,7 @@ use crate::{
         PROP_TYPE_SET, PROP_TYPE_STAR,
     },
     parse::obj::set_object_name_computed,
-    stack_frame::ExecAttrs,
+    stack_frame::ExecMode,
     utils::write_to_ptr,
 };
 
@@ -539,12 +539,7 @@ impl<'s> JSParseState<'s> {
         }
 
         // store the class source code in the constructor.
-        if !self
-            .cur_func()
-            .attrs
-            .js_mode
-            .contains(ExecAttrs::STRIP)
-        {
+        if !self.cur_func().attrs.exec_mode.contains(ExecMode::STRIP) {
             debug_assert!(self.buf_ptr >= class_source);
 
             let src_len = unsafe { self.buf_ptr.offset_from(class_source) as usize };
@@ -579,14 +574,14 @@ impl<'s> JSParseState<'s> {
         // class is always parsed and executed in strict mode
         let orig_mode = {
             let fd = self.cur_func_mut();
-            let m = fd.attrs.js_mode;
-            fd.attrs.js_mode |= ExecAttrs::STRICT;
+            let m = fd.attrs.exec_mode;
+            fd.attrs.exec_mode |= ExecMode::STRICT;
             m
         };
         // Note: restore original mode on exit
         let _cur_func_ptr = self.cur_func_def;
         defer!(unsafe {
-            _cur_func_ptr.as_mut().unwrap().attrs.js_mode = orig_mode;
+            _cur_func_ptr.as_mut().unwrap().attrs.exec_mode = orig_mode;
         });
 
         let class_source = self.token.ptr;

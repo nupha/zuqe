@@ -29,7 +29,7 @@ use crate::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET,
         JS_PROP_HAS_SET, JS_PROP_WRITABLE, ObjectPayload,
     },
-    stack_frame::ExecAttrs,
+    stack_frame::ExecMode,
     value::JSValue,
 };
 
@@ -57,7 +57,7 @@ impl ContextPtr {
                         .and_then(|o| {
                             o.payload().bc_function().map(|bc| {
                                 let b = bc.bytecode();
-                                b.mode().contains(ExecAttrs::STRICT) || !b.has_prototype()
+                                b.mode().contains(ExecMode::STRICT) || !b.has_prototype()
                             })
                         })
                         .unwrap_or(true);

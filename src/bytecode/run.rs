@@ -40,7 +40,7 @@ use crate::{
         JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_VARREF,
         JS_PROP_WRITABLE, JSProperty, ObjectRef,
     },
-    stack_frame::{ExecAttrs, StackFrame},
+    stack_frame::{ExecMode, StackFrame},
     utils::{read_from_ptr, unlikely},
     value::JSValue,
 };
@@ -372,7 +372,7 @@ impl Bytecode {
                     OpCode::PUSH_THIS => {
                         // only called at the start of a function.
                         // could be EXCEPTION.
-                        let val: JSValue = if !mode.contains(ExecAttrs::STRICT) {
+                        let val: JSValue = if !mode.contains(ExecMode::STRICT) {
                             match this_obj {
                                 JSValue::Object(_) => this_obj,
                                 JSValue::NULL | JSValue::UNDEFINED => {

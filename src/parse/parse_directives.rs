@@ -1,4 +1,4 @@
-use crate::stack_frame::ExecAttrs;
+use crate::stack_frame::ExecMode;
 
 use super::{
     state::JSParseState,
@@ -89,10 +89,10 @@ impl JSParseState<'_> {
             "use strict" => {
                 let cfn = self.cur_func_mut();
                 cfn.has_use_strict = true;
-                cfn.attrs.js_mode |= ExecAttrs::STRICT;
+                cfn.attrs.exec_mode |= ExecMode::STRICT;
             }
             "use strip" => {
-                self.cur_func_mut().attrs.js_mode |= ExecAttrs::STRIP;
+                self.cur_func_mut().attrs.exec_mode |= ExecMode::STRIP;
             }
 
             #[cfg(all(debug_assertions, feature = "dump_bytecode"))]

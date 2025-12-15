@@ -15,10 +15,10 @@ use crate::{
 };
 
 bitflags::bitflags! {
-    /// exeution attrs of stack frame.
+    /// execution mode
     #[repr(transparent)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-    pub(crate) struct ExecAttrs: u8 {
+    pub(crate) struct ExecMode: u8 {
         /// strict mode
         const STRICT = 1 << 0;
         /// strip debug source
@@ -74,7 +74,7 @@ pub struct StackFrame {
     pub(crate) var_ref_list: Vec<JSVarRef>,
 
     /// Execution attrs of stack frame.
-    pub(crate) js_mode: ExecAttrs,
+    pub(crate) js_mode: ExecMode,
 
     /// Weak back-ref to async state,
     /// only valid if this stack frame is for an AsyncStateImpl
@@ -109,7 +109,7 @@ impl PartialEq for StackFrame {
 
 impl StackFrame {
     /// Create new StackFrame. It's allocated on stack.
-    pub(crate) fn new(func_obj: JSValue, mode: ExecAttrs) -> Self {
+    pub(crate) fn new(func_obj: JSValue, mode: ExecMode) -> Self {
         Self {
             prev: std::ptr::null_mut(),
             cur_func: func_obj,

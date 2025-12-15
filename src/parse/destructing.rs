@@ -6,7 +6,7 @@ use crate::{
     parse::token::{
         CHAR_COMMA, CHAR_CURLY_L, CHAR_CURLY_R, CHAR_EQUAL, CHAR_SQUARE_L, CHAR_SQUARE_R,
     },
-    stack_frame::ExecAttrs,
+    stack_frame::ExecMode,
     utils::unlikely,
 };
 
@@ -296,10 +296,7 @@ impl<'s> JSParseState<'s> {
                 }
 
                 if unlikely(
-                    self.cur_func()
-                        .attrs
-                        .js_mode
-                        .contains(ExecAttrs::STRICT)
+                    self.cur_func().attrs.exec_mode.contains(ExecMode::STRICT)
                         && matches!(prop_name, Atom::CONST_eval | Atom::CONST_arguments),
                 ) {
                     self.throw_syntax_error("invalid destructuring target");
@@ -618,11 +615,7 @@ impl<'s> JSParseState<'s> {
     fn parse_destructuring_var(&mut self, is_arg: bool) -> Result<Atom, i32> {
         if unlikely(
             (self.token.val != TOK_IDENT || self.token.data.is_reserved())
-                || (self
-                    .cur_func()
-                    .attrs
-                    .js_mode
-                    .contains(ExecAttrs::STRICT)
+                || (self.cur_func().attrs.exec_mode.contains(ExecMode::STRICT)
                     && matches!(
                         self.token.atom().unwrap(),
                         Atom::CONST_eval | Atom::CONST_arguments

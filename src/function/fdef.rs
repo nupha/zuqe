@@ -294,7 +294,7 @@ impl JSFunctionDef {
         if let Some(parent) = parent {
             fd.parent = parent;
             fd.parent_scope_level = parent.scope_level;
-            fd.attrs.js_mode = parent.attrs.js_mode;
+            fd.attrs.exec_mode = parent.attrs.exec_mode;
 
             if parent.child_list.len() == parent.child_list.capacity() {
                 parent.child_list.try_reserve(8).map_err(|_| {
@@ -345,9 +345,9 @@ impl JSFunctionDef {
 
     #[cfg(feature = "dump_bytecode")]
     pub fn dump_bytecode(&self, ctx: &ContextImpl, pass: i32) {
-        use crate::eval::ExecAttrs;
+        use crate::eval::ExecMode;
 
-        if !self.attrs.js_mode.contains(ExecAttrs::STRIP) {
+        if !self.attrs.js_mode.contains(ExecMode::STRIP) {
             println!("pass {pass}");
 
             crate::bytecode::dump_opcodes(

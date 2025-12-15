@@ -11,7 +11,7 @@ use crate::{
     function::{CallContext, IteratorState, JS_CALL_FLAG_CONSTRUCTOR},
     object::{ObjectImpl, ObjectPayload, ObjectRef},
     runtime::js_check_stack_overflow,
-    stack_frame::{ExecAttrs, StackFrame},
+    stack_frame::{ExecMode, StackFrame},
     value::JSValue,
 };
 
@@ -123,7 +123,7 @@ impl NFuncPayload {
         }
 
         // new stack frame
-        let mut stack_frame = StackFrame::new(func_obj, ExecAttrs::empty());
+        let mut stack_frame = StackFrame::new(func_obj, ExecMode::empty());
         let sf = &mut stack_frame;
 
         // set new stack frame to be the 'current-stack-frame',

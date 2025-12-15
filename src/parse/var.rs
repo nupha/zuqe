@@ -4,7 +4,7 @@ use crate::{
     function::{GLOBAL_VAR_OFFSET, JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
     module::ExportType,
     parse::token::{TOK_CATCH, TOK_CONST, TOK_LET, TOK_VAR},
-    stack_frame::ExecAttrs,
+    stack_frame::ExecMode,
 };
 
 use super::state::JSParseState;
@@ -35,7 +35,7 @@ impl<'s> JSParseState<'s> {
                         let vd = fd.vars.get(var_id as usize).unwrap();
                         if vd.scope_level == fd.scope_level {
                             // same scope: in non strict mode, functions can be redefined (annex B.3.3.4).
-                            if !(!fd.attrs.js_mode.contains(ExecAttrs::STRICT)
+                            if !(!fd.attrs.exec_mode.contains(ExecMode::STRICT)
                                 && var_def_type == JSVarDefEnum::JS_VAR_DEF_FUNCTION_DECL
                                 && vd.var_kind() == JSVarKindEnum::JS_VAR_FUNCTION_DECL)
                             {
@@ -155,7 +155,7 @@ impl<'s> JSParseState<'s> {
                     return Err(-1);
                 }
                 Atom::CONST_arguments | Atom::CONST_eval
-                    if func.attrs.js_mode.contains(ExecAttrs::STRICT) =>
+                    if func.attrs.exec_mode.contains(ExecMode::STRICT) =>
                 {
                     self.throw_syntax_error("invalid variable name in strict mode");
                     return Err(-1);

@@ -4,24 +4,24 @@ use gc_lite::{GcRef, GcTracable};
 
 use crate::{
     context::ContextImpl, error::JSResult, function::BCFunction, gcref_wrapper,
-    runtime::js_check_stack_overflow, stack_frame::ExecAttrs, stack_frame::StackFrame,
+    runtime::js_check_stack_overflow, stack_frame::ExecMode, stack_frame::StackFrame,
     value::JSValue,
 };
 
 #[derive(Debug)]
-pub struct AsyncStateImpl {
+pub(crate) struct AsyncStateImpl {
     /// 'this' argument
-    pub this_val: JSValue,
+    pub(crate) this_val: JSValue,
     /// number of function arguments
-    pub argc: i32,
+    pub(crate) argc: i32,
     /// used to throw an exception in JS_CallInternal()
-    pub throw_flag: bool,
+    pub(crate) throw_flag: bool,
     /// TRUE if the function has returned. The stack frame is no longer valid
-    pub is_completed: bool,
+    pub(crate) is_completed: bool,
     /// for async function only
-    pub resolving_funcs: [JSValue; 2],
+    pub(crate) resolving_funcs: [JSValue; 2],
     /// a dedicated stack frame to run async
-    pub frame: Pin<Box<StackFrame>>,
+    pub(crate) frame: Pin<Box<StackFrame>>,
 }
 
 unsafe impl GcTracable for AsyncStateImpl {
@@ -74,7 +74,7 @@ impl AsyncStateImpl {
 
         // make a dedicated stack frame for async function execution
         // (the stack frame mode has ASYNC flag set).
-        let mut frame = Box::pin(StackFrame::new(bc_func.into(), mode | ExecAttrs::ASYNC));
+        let mut frame = Box::pin(StackFrame::new(bc_func.into(), mode | ExecMode::ASYNC));
 
         // setup localbuf and sections
         unsafe {

@@ -6,7 +6,7 @@ use crate::{
         JSVarKindEnum, is_var_in_arg_scope,
     },
     module::add_module_variables,
-    stack_frame::ExecAttrs,
+    stack_frame::ExecMode,
     value::JSValue,
 };
 
@@ -120,7 +120,7 @@ impl JSFunctionDef {
         let mut vardefs_start = -1;
         let args_count = self.args.len();
         let vars_count = self.vars.len();
-        if self.has_eval_call || !self.attrs.js_mode.contains(ExecAttrs::STRIP) {
+        if self.has_eval_call || !self.attrs.exec_mode.contains(ExecMode::STRIP) {
             let n: usize = args_count + vars_count;
             if n != 0 {
                 const ly: std::alloc::Layout = std::alloc::Layout::new::<JSVarDef>();
@@ -277,7 +277,7 @@ impl JSFunctionDef {
             stack_size,
         );
 
-        if !self.attrs.js_mode.contains(ExecAttrs::STRIP) {
+        if !self.attrs.exec_mode.contains(ExecMode::STRIP) {
             // setup debug info
             let debug = bc_inner.debug.as_mut().unwrap();
 
@@ -301,7 +301,7 @@ impl JSFunctionDef {
         })?);
 
         #[cfg(feature = "dump_bytecode")]
-        if !self.attrs.js_mode.contains(ExecAttrs::STRIP) {
+        if !self.attrs.js_mode.contains(ExecMode::STRIP) {
             bc.dump(ctx);
         }
 
@@ -310,7 +310,7 @@ impl JSFunctionDef {
 
     fn add_eval_variables(&mut self, ctx: &ContextImpl) {
         // in non strict mode, variables are created in the caller's environment object
-        if !self.is_eval && !self.attrs.js_mode.contains(ExecAttrs::STRICT) {
+        if !self.is_eval && !self.attrs.exec_mode.contains(ExecMode::STRICT) {
             self.var_object_idx = Some(self.add_var(ctx, Atom::CONST__var_).unwrap());
             if self.has_parameter_expressions {
                 // an additional variable object is needed for the argument scope
@@ -346,7 +346,7 @@ impl JSFunctionDef {
 
             // also add `arguments` binding in the argument scope.
             // to raise an error if a direct eval in the argument scope tries to redefine it.
-            if self.has_parameter_expressions && !self.attrs.js_mode.contains(ExecAttrs::STRICT) {
+            if self.has_parameter_expressions && !self.attrs.exec_mode.contains(ExecMode::STRICT) {
                 self.add_arguments(ctx, true).unwrap();
             }
         }

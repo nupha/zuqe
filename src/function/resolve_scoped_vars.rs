@@ -689,7 +689,7 @@ impl JSFunctionDef {
 
                 if label_done.is_none() && can_optimize_put_global_ref_value(bc_buf, label.pos) {
                     pos_next = optimize_scope_make_global_ref(
-                        self.attrs.js_mode,
+                        self.attrs.exec_mode,
                         bc,
                         bc_buf,
                         label,

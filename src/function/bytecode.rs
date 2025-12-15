@@ -10,7 +10,7 @@ use crate::{
     eval::EvalType,
     function::{JSFunctionDef, JSVarRef},
     runtime::RuntimePtr,
-    stack_frame::{ExecAttrs, StackFrame},
+    stack_frame::{ExecMode, StackFrame},
     utils::{get_leb128, get_sleb128, read_from_ptr},
     value::JSValue,
 };
@@ -65,7 +65,7 @@ pub struct BytecodeAttrs {
     //// true if home_object needs to be initialized
     pub(crate) need_home_object: bool,
     /// execution mode
-    pub(crate) js_mode: ExecAttrs,
+    pub(crate) exec_mode: ExecMode,
 }
 
 impl Default for BytecodeAttrs {
@@ -82,7 +82,7 @@ impl Default for BytecodeAttrs {
             backtrace_barrier: false,
             defined_arg_count: 0,
             need_home_object: false,
-            js_mode: ExecAttrs::empty(),
+            exec_mode: ExecMode::empty(),
         }
     }
 }
@@ -238,8 +238,8 @@ impl BytecodeImpl {
     }
 
     #[inline(always)]
-    pub const fn mode(&self) -> ExecAttrs {
-        self.attrs.js_mode
+    pub const fn mode(&self) -> ExecMode {
+        self.attrs.exec_mode
     }
 
     #[inline(always)]

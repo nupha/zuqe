@@ -1,6 +1,6 @@
 use crate::{
     parse::token::TokenData,
-    stack_frame::ExecAttrs,
+    stack_frame::ExecMode,
     string::{StringBuf, UTF8_CHAR_LEN_MAX, unicode_from_utf8_v0},
 };
 
@@ -103,8 +103,8 @@ impl<'s> JSParseState<'s> {
                             if !self
                                 .cur_func()
                                 .attrs
-                                .js_mode
-                                .contains(ExecAttrs::STRICT)
+                                .exec_mode
+                                .contains(ExecMode::STRICT)
                                 && sep != '`'
                             {
                                 // parse escape sequence in non-strict mode
