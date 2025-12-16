@@ -100,11 +100,7 @@ impl<'s> JSParseState<'s> {
                                 return Err(-1);
                             }
 
-                            if !self
-                                .cur_func()
-                                .attrs
-                                .exec_mode
-                                .contains(ExecMode::STRICT)
+                            if !self.cur_func().attrs.exec_mode.contains(ExecMode::STRICT)
                                 && sep != '`'
                             {
                                 // parse escape sequence in non-strict mode
@@ -247,7 +243,7 @@ impl<'s> JSParseState<'s> {
     }
 
     /// parse escaped char code \u{XXXX}, \uXXXX, \xXX from given bytes.
-    /// bytes starts since next char after '\'
+    /// bytes starts since next char after '\\'
     ///
     /// Returns:
     /// - (code_point, byte_consumed)

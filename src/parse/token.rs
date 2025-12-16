@@ -406,11 +406,7 @@ impl<'s> JSParseState<'s> {
                 },
                 '0' => {
                     todo = if unsafe { (*p.add(1)).is_ascii_digit() }
-                        && self
-                            .cur_func()
-                            .attrs
-                            .exec_mode
-                            .contains(ExecMode::STRICT)
+                        && self.cur_func().attrs.exec_mode.contains(ExecMode::STRICT)
                     {
                         // in strict mode, octal literals are not accepted
                         self.throw_syntax_error("octal literals are deprecated in strict mode");
