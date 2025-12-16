@@ -1,7 +1,7 @@
 use std::cell::Cell;
 
 use once_cell::sync::Lazy;
-use zhuque::{
+use zuqe::{
     context::Context,
     error::{JS_SetUncatchableError, JSResult},
     eval::EvalFlags,

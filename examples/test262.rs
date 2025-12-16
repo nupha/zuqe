@@ -8,7 +8,7 @@ use std::{
 };
 
 use serde::Deserialize;
-use zhuque::{
+use zuqe::{
     context::Context,
     error::{ErrorText, JSResult},
     eval::{EvalFlags, EvalType},

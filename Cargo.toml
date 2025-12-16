@@ -1,8 +1,8 @@
 [package]
-name = "zhuque"
+name = "zuqe"
 version = "0.3.0"
 edition = "2024"
-description = "A simple, but not too simple JS engine"
+description = "Zuqe JS Engine - A lightweight, fast JS engine implemented in Rust, designed for embedded systems and general‑purpose use."
 authors = ["John Ray <996351336@qq.com>"]
 license = "Apache-2.0"
 build = "build.rs"
@@ -10,25 +10,14 @@ build = "build.rs"
 [features]
 string_intern = []
 nan_boxing = []
-short_opcode = []
 all_unicode = []
 atomics = []
-
-dump_objects = []
-dump_atoms = []
-dump_shapes = []
-dump_leaks = []
-dump_free = []
 dump_bytecode = []
-dump_gc_free = []
 
 default = [
     #"string_intern",
     "all_unicode",
     "atomics",
-
-    #"dump_leaks",
-    #"dump_objects",
     #"dump_bytecode",
 ]
 

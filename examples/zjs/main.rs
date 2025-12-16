@@ -8,7 +8,7 @@ mod mod_std;
 use std::process::ExitCode;
 
 use colorized::{Colors::*, colorize_println};
-use zhuque::{
+use zuqe::{
     context::Context,
     eval::{EvalFlags, EvalType},
     module::ModuleDef,

@@ -1,5 +1,5 @@
 use colorized::{Colors, colorize_print, colorize_println};
-use zhuque::{
+use zuqe::{
     context::Context,
     error::JSResult,
     function::{CallContext, Callback},

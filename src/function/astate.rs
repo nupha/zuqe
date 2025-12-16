@@ -9,7 +9,7 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub(crate) struct AsyncStateImpl {
+pub struct AsyncStateImpl {
     /// 'this' argument
     pub(crate) this_val: JSValue,
     /// number of function arguments

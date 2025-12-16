@@ -5,7 +5,7 @@ use std::{
 };
 
 use once_cell::unsync::Lazy;
-use zhuque::{
+use zuqe::{
     class::{ClassDef, ClassID},
     context::Context,
     error::JSResult,

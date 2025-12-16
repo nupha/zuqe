@@ -7,7 +7,7 @@ use std::{
 use gc_lite::{GcTracable, GcTracer};
 use once_cell::sync::Lazy;
 use smallvec::SmallVec;
-use zhuque::{
+use zuqe::{
     context::Context,
     error::JSResult,
     function::{CallContext, FieldDef},
