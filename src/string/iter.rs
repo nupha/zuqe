@@ -4,7 +4,9 @@ use super::StringBuf;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum StringChar {
+    /// unichar
     Char(char),
+    /// invalid data
     Code(u16),
 }
 

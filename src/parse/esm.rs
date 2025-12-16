@@ -484,13 +484,14 @@ impl<'s> JSParseState<'s> {
         Ok(())
     }
 
-    /// return true if `input` is esm source, that means skip comments and expect:
-    /// * 'import' keyword not followed by '(' or '.' char;
-    /// * 'export' keyword;
+    /// return true if `input` is module.
     pub fn detect_module(input: &[u8]) -> bool {
-        let buf_p = input.as_ptr();
-        let mut p = skip_shebang(buf_p, unsafe { buf_p.add(input.len()) });
+        // skip comments and expect:
+        // * 'import' keyword not followed by '(' or '.' char;
+        // * 'export' keyword;
 
+        let n = skip_shebang(input);
+        let mut p = unsafe { input.as_ptr().add(n) };
         match unsafe { simple_next_token(&mut p, false) } {
             TOK_IMPORT => {
                 let tok = unsafe { simple_next_token(&mut p, false) };

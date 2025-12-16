@@ -1,4 +1,4 @@
-use crate::utils::unlikely;
+use crate::{string::StringChar, utils::unlikely};
 
 // UTF-8字符最大长度
 pub const UTF8_CHAR_LEN_MAX: usize = 6;
@@ -265,54 +265,6 @@ pub(crate) fn unicode_to_utf8(buf: &mut Vec<u8>, c: u32) {
     }
 }
 
-// 将Unicode代码点编码为UTF-8字节序列
-// 最多编码31位。最多输出UTF8_CHAR_LEN_MAX字节。
-#[deprecated]
-pub unsafe fn unicode_to_utf8_v0(buf: *mut u8, c: u32) -> i32 {
-    let mut q = buf;
-
-    if c < 0x80 {
-        *q = c as u8;
-        q = q.offset(1);
-    } else {
-        if c < 0x800 {
-            *q = ((c >> 6) as u8) | 0xc0;
-            q = q.offset(1);
-        } else {
-            if c < 0x10000 {
-                *q = ((c >> 12) as u8) | 0xe0;
-                q = q.offset(1);
-            } else {
-                if c < 0x00200000 {
-                    *q = ((c >> 18) as u8) | 0xf0;
-                    q = q.offset(1);
-                } else {
-                    if c < 0x04000000 {
-                        *q = ((c >> 24) as u8) | 0xf8;
-                        q = q.offset(1);
-                    } else if c < 0x80000000 {
-                        *q = ((c >> 30) as u8) | 0xfc;
-                        q = q.offset(1);
-                        *q = ((c >> 24) as u8 & 0x3f) | 0x80;
-                        q = q.offset(1);
-                    } else {
-                        return 0;
-                    }
-                    *q = ((c >> 18) as u8 & 0x3f) | 0x80;
-                    q = q.offset(1);
-                }
-                *q = ((c >> 12) as u8 & 0x3f) | 0x80;
-                q = q.offset(1);
-            }
-            *q = ((c >> 6) as u8 & 0x3f) | 0x80;
-            q = q.offset(1);
-        }
-        *q = (c as u8 & 0x3f) | 0x80;
-        q = q.offset(1);
-    }
-    q.offset_from(buf) as i32
-}
-
 #[inline(always)]
 pub(crate) const fn char_is_space(ch: char) -> bool {
     ch.is_whitespace()
@@ -325,3 +277,147 @@ pub(crate) const fn char_is_space(ch: char) -> bool {
             '\u{2060}' // Word Joiner
         )
 }
+
+/// UTF-8 字符迭代器
+pub struct Utf8CharIter<'a> {
+    bytes: &'a [u8], // UTF-8 bytes
+    index: usize,    // current byte index
+}
+
+impl<'a> Utf8CharIter<'a> {
+    /// 从字节切片创建迭代器
+    pub fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes, index: 0 }
+    }
+
+    /// 尝试解码当前位置的 UTF-8 字符
+    /// 返回 (字符, 消耗的字节数) 或错误
+    fn try_decode_current(&self) -> Result<(char, usize), DecodeError> {
+        if self.index >= self.bytes.len() {
+            return Err(DecodeError::EndOfInput);
+        }
+
+        let b = self.bytes[self.index];
+
+        // ASCII 字符 (0x00-0x7F)
+        if b <= 0x7F {
+            return Ok((b as char, 1));
+        }
+
+        // 确定 UTF-8 序列长度
+        let seq_len = match b {
+            0xC0..=0xDF => 2,
+            0xE0..=0xEF => 3,
+            0xF0..=0xF7 => 4,
+            0xF8..=0xFB => 5,
+            0xFC..=0xFD => 6,
+            _ => return Err(DecodeError::InvalidStartByte(b)),
+        };
+
+        // 检查是否有足够的字节
+        if self.index + seq_len > self.bytes.len() {
+            return Err(DecodeError::IncompleteSequence);
+        }
+
+        // 解码 UTF-8 序列
+        let mut code_point = match seq_len {
+            2 => (b as u32 & 0x1F) << 6,
+            3 => (b as u32 & 0x0F) << 12,
+            4 => (b as u32 & 0x07) << 18,
+            5 => (b as u32 & 0x03) << 24,
+            6 => (b as u32 & 0x01) << 30,
+            _ => unreachable!(),
+        };
+
+        // 解码后续字节
+        for i in 1..seq_len {
+            let b = self.bytes[self.index + i];
+            if !(0x80..0xC0).contains(&b) {
+                return Err(DecodeError::InvalidContinuationByte(b, i));
+            }
+            code_point |= ((b & 0x3F) as u32) << (6 * (seq_len - i - 1));
+        }
+
+        // 检查代码点有效性
+        if code_point > 0x10FFFF {
+            return Err(DecodeError::CodePointOutOfRange(code_point));
+        }
+
+        // 检查过短编码（非最小形式）
+        if (seq_len == 2 && code_point < 0x80)
+            || (seq_len == 3 && code_point < 0x800)
+            || (seq_len == 4 && code_point < 0x10000)
+        {
+            return Err(DecodeError::OverlongEncoding);
+        }
+
+        // 检查代理对范围（U+D800..U+DFFF）
+        if (0xD800..=0xDFFF).contains(&code_point) {
+            return Err(DecodeError::SurrogateCodePoint(code_point));
+        }
+
+        // 转换为字符
+        char::from_u32(code_point)
+            .ok_or(DecodeError::InvalidCodePoint(code_point))
+            .map(|c| (c, seq_len))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum DecodeError {
+    EndOfInput,
+    InvalidStartByte(u8),
+    InvalidContinuationByte(u8, usize),
+    IncompleteSequence,
+    OverlongEncoding,
+    CodePointOutOfRange(u32),
+    SurrogateCodePoint(u32),
+    InvalidCodePoint(u32),
+}
+
+impl<'a> Iterator for Utf8CharIter<'a> {
+    type Item = (usize, StringChar); // (字节偏移量, 字符)
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let len = self.bytes.len();
+        if self.index < len {
+            let current_index = self.index;
+
+            match self.try_decode_current() {
+                Ok((ch, bytes_consumed)) => {
+                    self.index += bytes_consumed;
+                    Some((current_index, StringChar::Char(ch)))
+                }
+                Err(DecodeError::EndOfInput) => None,
+                Err(
+                    DecodeError::InvalidStartByte(_)
+                    | DecodeError::InvalidContinuationByte(_, _)
+                    | DecodeError::IncompleteSequence
+                    | DecodeError::OverlongEncoding
+                    | DecodeError::CodePointOutOfRange(_)
+                    | DecodeError::SurrogateCodePoint(_)
+                    | DecodeError::InvalidCodePoint(_),
+                ) => {
+                    let bad_index = self.index;
+                    self.index += 1;
+                    Some((
+                        current_index,
+                        StringChar::Code(self.bytes[bad_index] as u16),
+                    ))
+                }
+            }
+        } else {
+            None
+        }
+    }
+}
+
+// /// 便捷函数：创建容错 UTF-8 字符迭代器
+// pub fn tolerant_utf8_chars(bytes: &[u8]) -> Utf8CharIter<'_> {
+//     Utf8CharIter::new(bytes)
+// }
+
+// /// 便捷函数：只获取字符（不包含偏移量）
+// pub fn tolerant_utf8_chars_only(bytes: &[u8]) -> impl Iterator<Item = char> + '_ {
+//     Utf8CharIter::new(bytes).map(|(_, ch)| ch)
+// }

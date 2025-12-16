@@ -4,7 +4,7 @@ use crate::{
     eval::EvalType,
     function::JSFunctionKindEnum,
     stack_frame::ExecMode,
-    string::{UTF8_CHAR_LEN_MAX, unicode_from_utf8_v0},
+    string::{StringChar, UTF8_CHAR_LEN_MAX, Utf8CharIter},
 };
 
 use super::{
@@ -22,9 +22,14 @@ use super::{
 };
 
 impl<'s> JSParseState<'s> {
-    /// buffer ptr skip shebang.
     pub fn skip_shebang(&mut self) {
-        self.buf_ptr = skip_shebang(self.buf_ptr, self.input_end);
+        let n = skip_shebang(unsafe {
+            std::slice::from_raw_parts(
+                self.buf_ptr,
+                self.input_end.offset_from(self.buf_ptr) as usize,
+            )
+        });
+        self.buf_ptr = unsafe { self.buf_ptr.add(n) };
     }
 
     pub fn parse_program(&mut self) -> Result<(), i32> {
@@ -476,35 +481,53 @@ impl<'s> JSParseState<'s> {
     }
 }
 
-pub(super) fn skip_shebang(start_ptr: *const u8, end_ptr: *const u8) -> *const u8 {
-    let mut p = start_ptr;
-
-    if unsafe { *p == b'#' && *p.add(1) == b'!' } {
-        unsafe {
-            p = p.add(2);
-        }
-        while p < end_ptr {
-            match unsafe { *p } {
-                b'\n' | b'\r' => {
-                    break;
-                }
-                b if b >= 0x80 => {
-                    if let Ok(c) = unicode_from_utf8_v0(p, UTF8_CHAR_LEN_MAX as i32, &mut p) {
-                        if matches!(c, '\u{2028}' | '\u{2029}') {
-                            break;
-                        }
-                    } else {
-                        p = unsafe { p.add(1) }; // skip invalid UTF-8
+pub(super) fn skip_shebang(buf: &[u8]) -> usize {
+    if buf.starts_with(b"#!") {
+        for (i, c) in Utf8CharIter::new(&buf[2..]) {
+            match c {
+                StringChar::Char(ch) => {
+                    if matches!(ch, '\n' | '\r' | '\u{2028}' | '\u{2029}') {
+                        return i + ch.len_utf8() + 2;
                     }
                 }
-                _ => {
-                    p = unsafe { p.add(1) };
+                StringChar::Code(_) => {
+                    // skip invalid UTF-8 byte
                 }
             }
         }
-    }
 
-    p
+        buf.len()
+
+        // let mut chars = buf.iter().enumerate().skip(2);
+        // let mut skip = 2_usize;
+
+        // while let Some((i, c)) = chars.next() {
+        //     match *c {
+        //         b'\n' | b'\r' => {
+        //             break;
+        //         }
+        //         b if b >= 0x80 => {
+        //             if let Ok((cp, n)) = unicode_from_utf8(&buf[i..]) {
+        //                 debug_assert!(n > 0);
+        //                 skip += n;
+        //                 let _ = chars.nth(n - 1);
+        //                 if matches!(cp, 0x2028 | 0x2029) {
+        //                     break;
+        //                 }
+        //             } else {
+        //                 // skip invalid UTF-8
+        //                 skip += 1;
+        //             }
+        //         }
+        //         _ => {
+        //             skip += 1;
+        //         }
+        //     }
+        // }
+        // skip
+    } else {
+        0
+    }
 }
 
 // // if the current token is an identifier or keyword, reparse it
