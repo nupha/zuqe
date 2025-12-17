@@ -285,8 +285,7 @@ pub struct Utf8CharIter<'a> {
 }
 
 impl<'a> Utf8CharIter<'a> {
-    /// 从字节切片创建迭代器
-    pub fn new(bytes: &'a [u8]) -> Self {
+    pub const fn new(bytes: &'a [u8]) -> Self {
         Self { bytes, index: 0 }
     }
 
@@ -411,13 +410,3 @@ impl<'a> Iterator for Utf8CharIter<'a> {
         }
     }
 }
-
-// /// 便捷函数：创建容错 UTF-8 字符迭代器
-// pub fn tolerant_utf8_chars(bytes: &[u8]) -> Utf8CharIter<'_> {
-//     Utf8CharIter::new(bytes)
-// }
-
-// /// 便捷函数：只获取字符（不包含偏移量）
-// pub fn tolerant_utf8_chars_only(bytes: &[u8]) -> impl Iterator<Item = char> + '_ {
-//     Utf8CharIter::new(bytes).map(|(_, ch)| ch)
-// }

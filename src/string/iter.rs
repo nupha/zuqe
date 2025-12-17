@@ -2,11 +2,12 @@ use std::{iter::Peekable, ops::Range};
 
 use super::StringBuf;
 
+#[repr(u8)]
 #[derive(Clone, Copy, PartialEq)]
 pub enum StringChar {
     /// unichar
     Char(char),
-    /// invalid data
+    /// invalid code
     Code(u16),
 }
 

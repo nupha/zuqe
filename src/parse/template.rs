@@ -22,7 +22,7 @@ impl<'s> JSParseState<'s> {
             match sc {
                 StringChar::Char('`') => {
                     sep = '`';
-                    consume = i + 1; // next char of `
+                    consume = i + 1; // next to '`'
                     break;
                 }
                 StringChar::Char('$')
@@ -33,7 +33,7 @@ impl<'s> JSParseState<'s> {
                     // ${ template start or middle part
                     let _ = chars.next(); // skip '{'
                     sep = '$';
-                    consume = i + 2; // next char of {
+                    consume = i + 2; // next to '{'
                     break;
                 }
                 StringChar::Char('\\') => {
