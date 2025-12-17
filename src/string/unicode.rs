@@ -14,6 +14,7 @@ pub const utf8_first_code_mask: [u8; 5] = [0x1f, 0x0f, 0x07, 0x03, 0x01];
 
 /// dececode utf8 from buf, returns decoded unicode point.
 /// Note: may return invalid unicode point.
+#[deprecated(note = "use Utf8CharIter instead")]
 pub(crate) fn unicode_from_utf8(buf: &[u8]) -> Result<(u32, usize), i32> {
     debug_assert!(!buf.is_empty());
 
@@ -378,14 +379,13 @@ impl<'a> Iterator for Utf8CharIter<'a> {
     type Item = (usize, StringChar); // (字节偏移量, 字符)
 
     fn next(&mut self) -> Option<Self::Item> {
-        let len = self.bytes.len();
-        if self.index < len {
-            let current_index = self.index;
+        if self.index < self.bytes.len() {
+            let pos = self.index;
 
             match self.try_decode_current() {
-                Ok((ch, bytes_consumed)) => {
-                    self.index += bytes_consumed;
-                    Some((current_index, StringChar::Char(ch)))
+                Ok((ch, consumed)) => {
+                    self.index += consumed;
+                    Some((pos, StringChar::Char(ch)))
                 }
                 Err(DecodeError::EndOfInput) => None,
                 Err(
@@ -398,11 +398,8 @@ impl<'a> Iterator for Utf8CharIter<'a> {
                     | DecodeError::InvalidCodePoint(_),
                 ) => {
                     let bad_index = self.index;
-                    self.index += 1;
-                    Some((
-                        current_index,
-                        StringChar::Code(self.bytes[bad_index] as u16),
-                    ))
+                    self.index += 1; // skip one byte when invalid utf8 sequence
+                    Some((pos, StringChar::Code(self.bytes[bad_index] as u16)))
                 }
             }
         } else {

@@ -7,7 +7,10 @@ use crate::{
     },
     runtime::js_check_stack_overflow,
     stack_frame::ExecMode,
-    string::{CP_LS, CP_PS, StringBuf, UTF8_CHAR_LEN_MAX, char_is_space, unicode_from_utf8_v0},
+    string::{
+        CP_LS, CP_PS, StringBuf, StringChar, UTF8_CHAR_LEN_MAX, Utf8CharIter, char_is_space,
+        unicode_from_utf8_v0,
+    },
 };
 
 use super::{
@@ -489,10 +492,14 @@ impl<'s> JSParseState<'s> {
                             && *p.offset(2) == b'>'
                             && self.last_line_num != self.line_num
                         {
-                            /* Annex B: `-->` at beginning of line is an html comment end.
-                              It extends to the end of the line.
-                            */
-                            p = self.next_token_skip_line_comment(p);
+                            // Annex B: `-->` at beginning of line is an html comment end.
+                            // It extends to the end of the line.
+                            // p = self.next_token_skip_line_comment(p);
+                            let n = self.skip_line_comment(std::slice::from_raw_parts(
+                                p,
+                                self.input_end.offset_from(p) as usize,
+                            ));
+                            p = p.add(n);
                             continue 'redo;
                         } else {
                             p = p.offset(2);
@@ -523,8 +530,13 @@ impl<'s> JSParseState<'s> {
                         && *p.offset(2) == b'-'
                         && *p.offset(3) == b'-'
                     {
-                        /* Annex B: handle `<!--` single line html comments */
-                        p = self.next_token_skip_line_comment(p);
+                        // Annex B: handle `<!--` single line html comments
+                        // p = self.next_token_skip_line_comment(p);
+                        let n = self.skip_line_comment(std::slice::from_raw_parts(
+                            p,
+                            self.input_end.offset_from(p) as usize,
+                        ));
+                        p = p.add(n);
                         continue 'redo;
                     } else {
                         todo = Some(Todo::DefaultToken('<'));
@@ -729,7 +741,12 @@ impl<'s> JSParseState<'s> {
                         continue 'redo;
                     }
                     Todo::SkipLineComment => unsafe {
-                        p = self.next_token_skip_line_comment(p);
+                        // p = self.next_token_skip_line_comment(p);
+                        let n = self.skip_line_comment(std::slice::from_raw_parts(
+                            p,
+                            self.input_end.offset_from(p) as usize,
+                        ));
+                        p = p.add(n);
                         continue 'redo;
                     },
                     Todo::ParseNumber => {
@@ -801,30 +818,19 @@ impl<'s> JSParseState<'s> {
         Ok(p)
     }
 
-    /// returns new pointer
-    unsafe fn next_token_skip_line_comment(&self, ptr: *const u8) -> *const u8 {
-        let mut p = ptr;
-
-        loop {
-            if matches!(*p, b'\r' | b'\n') || (*p == 0 && p >= self.input_end) {
-                break;
-            }
-
-            if unsafe { *p } >= 0x80 {
-                // 处理Unicode行终止符
-                if let Ok(uc) = unicode_from_utf8_v0(p, UTF8_CHAR_LEN_MAX as i32, &mut p) {
-                    if matches!(uc, '\u{2028}' | '\u{2029}') {
-                        break;
-                    }
-                } else {
-                    p = unsafe { p.add(1) }; // skip invalid utf8
+    /// returns number of skipped bytes
+    fn skip_line_comment(&self, buf: &[u8]) -> usize {
+        for (i, sc) in Utf8CharIter::new(buf) {
+            match sc {
+                StringChar::Char(c @ ('\r' | '\n' | '\u{2028}' | '\u{2029}')) => {
+                    return i + c.len_utf8();
                 }
-            } else {
-                p = unsafe { p.add(1) };
+                StringChar::Char(_) => {}
+                StringChar::Code(_) => {}
             }
         }
 
-        p
+        buf.len()
     }
 
     /// start to seek token from `pos`

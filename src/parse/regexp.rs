@@ -15,9 +15,12 @@ impl<'s> JSParseState<'s> {
         let mut flags_str = StringBuf::Empty;
 
         let buf = unsafe {
-            let len = self.input_end.offset_from(self.buf_ptr) as usize;
-            std::slice::from_raw_parts(self.buf_ptr, len)
+            std::slice::from_raw_parts(
+                self.buf_ptr,
+                self.input_end.offset_from(self.buf_ptr) as usize,
+            )
         };
+        debug_assert_eq!(buf[0], b'/');
 
         let mut i = 1; // skip leading '/'
 
