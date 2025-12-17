@@ -65,7 +65,7 @@ impl<'s> JSParseState<'s> {
         Ok(())
     }
 
-    pub fn parse_source_element(&mut self) -> Result<(), i32> {
+    pub(super) fn parse_source_element(&mut self) -> Result<(), i32> {
         let is_module = self.cur_func().module.is_some();
 
         match self.token.val {
@@ -168,7 +168,7 @@ impl<'s> JSParseState<'s> {
 
     /// test if `c` is allowed in non-first char of an ident
     #[inline]
-    pub fn is_ident_next(c: char) -> bool {
+    pub(super) fn is_ident_next(c: char) -> bool {
         if c.is_ascii() {
             matches!(c, '0'..='9' | 'A'..='Z' | 'a'..='z' | '_' | '$')
         } else {
@@ -202,7 +202,12 @@ impl<'s> JSParseState<'s> {
     }
 
     // allowed parse_flags: PF_IN_ACCEPTED
-    pub fn parse_var(&mut self, parse_flags: i32, tok: i32, export: bool) -> Result<(), i32> {
+    pub(super) fn parse_var(
+        &mut self,
+        parse_flags: i32,
+        tok: i32,
+        export: bool,
+    ) -> Result<(), i32> {
         loop {
             if self.token.val == TOK_IDENT {
                 if self.token.data.is_reserved() {
@@ -305,7 +310,7 @@ impl<'s> JSParseState<'s> {
     }
 
     /// expect current token to be `tok`. if yes, advance to next token.
-    pub fn parse_expect(&mut self, tok: i32) -> Result<i32, i32> {
+    pub(super) fn parse_expect(&mut self, tok: i32) -> Result<i32, i32> {
         if self.token.val != tok {
             if tok > 0 {
                 // is char
@@ -327,7 +332,7 @@ impl<'s> JSParseState<'s> {
         }
     }
 
-    pub fn parse_expect_semi(&mut self) -> Result<i32, i32> {
+    pub(super) fn parse_expect_semi(&mut self) -> Result<i32, i32> {
         if self.token.val != CHAR_SEMI {
             if matches!(self.token.val, TOK_EOF | CHAR_CURLY_R) || self.got_lf {
                 // automatic insertion of ';'
@@ -344,7 +349,7 @@ impl<'s> JSParseState<'s> {
     // XXX: improve speed with early bailout
     // XXX: no longer works if regexps are present. Could use previous
     //   regexp parsing heuristics to handle most cases
-    pub fn parse_skip_parens_token(
+    pub(super) fn parse_skip_parens_token(
         &mut self,
         pbits: &mut i32,
         no_line_terminator: bool,
@@ -497,52 +502,14 @@ pub(super) fn skip_shebang(buf: &[u8]) -> usize {
         }
 
         buf.len()
-
-        // let mut chars = buf.iter().enumerate().skip(2);
-        // let mut skip = 2_usize;
-
-        // while let Some((i, c)) = chars.next() {
-        //     match *c {
-        //         b'\n' | b'\r' => {
-        //             break;
-        //         }
-        //         b if b >= 0x80 => {
-        //             if let Ok((cp, n)) = unicode_from_utf8(&buf[i..]) {
-        //                 debug_assert!(n > 0);
-        //                 skip += n;
-        //                 let _ = chars.nth(n - 1);
-        //                 if matches!(cp, 0x2028 | 0x2029) {
-        //                     break;
-        //                 }
-        //             } else {
-        //                 // skip invalid UTF-8
-        //                 skip += 1;
-        //             }
-        //         }
-        //         _ => {
-        //             skip += 1;
-        //         }
-        //     }
-        // }
-        // skip
     } else {
         0
     }
 }
 
-// // if the current token is an identifier or keyword, reparse it
-// // according to the current function type
-// pub unsafe fn reparse_ident_token(s: *mut JSParseState) {
-//     if (*s).token.val == TOK_IDENT
-//         || (TOK_FIRST_KEYWORD..=TOK_LAST_KEYWORD).contains(&(*s).token.val)
-//     {
-//         (*s).update_token_ident();
-//     }
-// }
-
 /// return TRUE if a regexp literal is allowed after token `tok`
 #[inline(always)]
-pub const fn is_regexp_allowed(tok: i32) -> bool {
+const fn is_regexp_allowed(tok: i32) -> bool {
     // regexp may occur after
     !matches!(
         tok,

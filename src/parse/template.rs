@@ -92,7 +92,6 @@ impl<'s> JSParseState<'s> {
         Ok(())
     }
 
-    // TODO: argc seems no use.
     pub(super) fn parse_template(&mut self, call: bool, argc: &mut i32) -> Result<i32, i32> {
         let mut raw_array = JSValue::UNDEFINED;
         let mut template_object = JSValue::UNDEFINED;
@@ -114,7 +113,7 @@ impl<'s> JSParseState<'s> {
 
         let mut depth = 0;
         while self.token.val == TOK_TEMPLATE {
-            let mut p = unsafe { self.token.ptr.add(1) };
+            let p = unsafe { self.token.ptr.add(1) };
 
             let mut cooked = Token {
                 val: self.token.val,
@@ -145,9 +144,7 @@ impl<'s> JSParseState<'s> {
                     },
                     Some(&mut cooked),
                 ) {
-                    Ok(consumed) => {
-                        // p = unsafe { p.add(consumed) };
-
+                    Ok(_) => {
                         let txt = self
                             .ctx
                             .create_string_from_str(&cooked.data.string().unwrap().to_utf8())?;
@@ -170,7 +167,7 @@ impl<'s> JSParseState<'s> {
             } else {
                 // re-parse the string with escape sequences and throw a
                 // syntax error if it contains invalid sequences
-                let consumed = self.parse_string(
+                self.parse_string(
                     '`',
                     true,
                     unsafe {
@@ -178,7 +175,6 @@ impl<'s> JSParseState<'s> {
                     },
                     Some(&mut cooked),
                 )?;
-                //   p = unsafe { p.add(consumed) };
 
                 let sbuf = cooked.data.string().unwrap();
                 if depth == 0 || !sbuf.is_empty() {
