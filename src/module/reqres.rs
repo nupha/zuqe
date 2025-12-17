@@ -109,17 +109,17 @@ pub enum JSModuleStatus {
 
 pub(super) fn js_host_resolve_imported_module(
     ctx: ContextPtr,
-    base_cname: &str,
-    cname1: &str,
+    base_name: &str,
+    name: &str,
 ) -> Result<ModuleDef, i32> {
     // normalize module name
-    let name = if let Some(cb) = ctx.rt_ptr().module_normalize_func {
-        cb(ctx.into(), base_cname, cname1, ctx.rt_ptr().module_load_opaque)
+    let norm_name = if let Some(cb) = ctx.rt_ref().module_normalize_func {
+        cb(ctx.into(), base_name, name, ctx.rt_ptr().module_load_opaque)
     } else {
-        js_default_module_normalize_name(&ctx, base_cname, cname1)
+        js_default_module_normalize_name(&ctx, base_name, name)
     }?;
 
-    let module_name = Atom::new(ctx.rt_ptr(), &name)?;
+    let module_name = Atom::new(ctx.rt_ptr(), &norm_name)?;
 
     // search in loaded_modules
     if let Some(m) = ctx.find_loaded_module(module_name) {
@@ -128,12 +128,12 @@ pub(super) fn js_host_resolve_imported_module(
 
     // load module
     if let Some(cb) = ctx.rt_ptr().module_load_func {
-        cb(ctx.into(), &name, ctx.rt_ptr().module_load_opaque)
+        cb(ctx.into(), &norm_name, ctx.rt_ptr().module_load_opaque)
     } else {
         #[cfg(debug_assertions)]
         println!("WARN: module loader function is not set, can't import module.");
 
-        ctx.throw_reference_error(&format!("could not load module '{}'", name));
+        ctx.throw_reference_error(&format!("could not load module '{}'", norm_name));
         Err(-1)
     }
 }

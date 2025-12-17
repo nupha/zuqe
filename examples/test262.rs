@@ -442,8 +442,6 @@ fn run_test_file(
             if let Err(exc) =
                 run_test_script(ctx, content.as_str(), filename, is_module, is_async, strict)
             {
-                // let exc = ctx.rt_ref().exception();
-
                 eprintln!("TEST262 EXCEPTION: {:?}", exc.message);
 
                 // let msg = if let JSValue::Object(o) = &exc {

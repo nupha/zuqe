@@ -137,9 +137,16 @@ impl<'s> JSParseState<'s> {
 
                 // re-parse the string with escape sequences but do not throw a
                 // syntax error if it contains invalid sequences
-                match self.parse_string('`', false, p, Some(&mut cooked)) {
-                    Ok(p2) => {
-                        p = p2;
+                match self.parse_string(
+                    '`',
+                    false,
+                    unsafe {
+                        std::slice::from_raw_parts(p, self.input_end.offset_from(p) as usize)
+                    },
+                    Some(&mut cooked),
+                ) {
+                    Ok(consumed) => {
+                        // p = unsafe { p.add(consumed) };
 
                         let txt = self
                             .ctx
@@ -163,7 +170,15 @@ impl<'s> JSParseState<'s> {
             } else {
                 // re-parse the string with escape sequences and throw a
                 // syntax error if it contains invalid sequences
-                p = self.parse_string('`', true, p, Some(&mut cooked))?;
+                let consumed = self.parse_string(
+                    '`',
+                    true,
+                    unsafe {
+                        std::slice::from_raw_parts(p, self.input_end.offset_from(p) as usize)
+                    },
+                    Some(&mut cooked),
+                )?;
+                //   p = unsafe { p.add(consumed) };
 
                 let sbuf = cooked.data.string().unwrap();
                 if depth == 0 || !sbuf.is_empty() {

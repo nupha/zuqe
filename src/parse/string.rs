@@ -1,7 +1,7 @@
 use crate::{
     parse::token::TokenData,
     stack_frame::ExecMode,
-    string::{StringBuf, UTF8_CHAR_LEN_MAX, unicode_from_utf8_v0},
+    string::{StringBuf, StringChar, Utf8CharIter},
 };
 
 use super::{
@@ -10,236 +10,208 @@ use super::{
 };
 
 impl<'s> JSParseState<'s> {
+    /// returns consumed number of bytes (include the trailing seperator char)
     /// `token`: None for self.token
     pub(super) fn parse_string(
         &mut self,
         sep: char,
-        do_throw: bool,
-        ptr: *const u8,
+        throw_err: bool,
+        buf: &[u8],
         token: Option<&mut Token>,
-    ) -> Result<*const u8, i32> {
+    ) -> Result<usize, i32> {
         let mut sbuf = StringBuf::Empty;
-        let mut p = ptr;
+        let mut consume: Option<usize> = None;
+        let mut u8_chars = Utf8CharIter::new(buf).peekable();
 
-        loop {
-            if p >= self.input_end {
-                if do_throw {
-                    self.throw_syntax_error("unexpected end of string");
-                }
-                return Err(-1);
-            }
-
-            let mut char_code: u32 = 0;
-
-            match unsafe { (*p) as char } {
-                c @ ('\r' | '\n') => {
-                    if sep == '`' {
-                        p = unsafe { p.offset(1) };
-                        if c == '\r' && unsafe { *p == b'\n' } {
-                            p = unsafe { p.offset(1) };
+        while let Some((i, sc)) = u8_chars.next() {
+            if let StringChar::Char(mut c) = sc {
+                if (c as u32) < 0x20 {
+                    // ascii control chars
+                    if self.cur_func_def.is_null() {
+                        if throw_err {
+                            self.throw_syntax_error("invalid character in a JSON string");
                         }
-                        char_code = '\n' as u32;
-                        // do not update s->line_num
-                    } else {
-                        if do_throw {
+                        return Err(-1);
+                    }
+
+                    if sep == '`' {
+                        if c == '\r' {
+                            if let Some((_, StringChar::Char('\n'))) = u8_chars.peek() {
+                                let _ = u8_chars.next(); // skip \n after \r
+                            }
+                            c = '\n'
+                        }
+                    } else if matches!(c, '\r' | '\n') {
+                        if throw_err {
                             self.throw_syntax_error("unexpected end of string");
                         }
                         return Err(-1);
                     }
                 }
-                c if c == sep => {
-                    // found string ending delimiter
-                    p = unsafe { p.offset(1) };
+
+                if c == sep {
+                    // string end, consumed includes trailing delimitor.
+                    consume = Some(i + c.len_utf8());
+                    break;
+                } else if c == '$'
+                    && sep == '`'
+                    && let Some((_, StringChar::Char('{'))) = u8_chars.peek()
+                {
+                    // template expression start
+                    let _ = u8_chars.next(); // skip '{'
+                    consume = Some(i + 2);
                     break;
                 }
 
-                '$' if unsafe { *p.add(1) } == b'{' && sep == '`' => {
-                    // found template expression start
-                    p = unsafe { p.offset(2) }; // skip ${
-                    break;
-                }
-                '\\' => {
-                    // handle escape sequences
-                    p = unsafe { p.offset(1) };
-                    let mut do_parse_escape: Option<char> = None;
+                let mut char_code = StringChar::Char(c);
 
-                    match unsafe { *p as char } {
-                        '\0' => {
-                            if p >= self.input_end {
-                                if do_throw {
-                                    self.throw_syntax_error("unexpected end of string");
-                                }
-                                return Err(-1);
-                            }
-                            p = unsafe { p.offset(1) };
-                            char_code = 0;
-                        }
-                        c1 @ ('\'' | '\"' | '\\') => {
-                            char_code = c1 as u32;
-                            p = unsafe { p.offset(1) };
-                        }
-                        c1 @ ('\r' | '\n') => {
-                            p = unsafe { p.offset(1) };
-                            if c1 == '\r' && unsafe { *p == b'\n' } {
-                                p = unsafe { p.offset(1) };
-                            }
-                            // skip escaped line breaks
-                            if sep != '`' {
-                                self.line_num += 1;
-                            }
-                            continue;
-                        }
-                        c1 @ ('0'..='9') => {
-                            if self.cur_func_def.is_null() {
-                                // parsing JSON
-                                if do_throw {
-                                    self.throw_syntax_error(
-                                        "malformed escape sequence in string literal",
-                                    );
-                                }
-                                return Err(-1);
-                            }
+                if c == '\\' {
+                    // handle escape sequence
+                    if let Some((j, sc2)) = u8_chars.peek() {
+                        let j = *j;
+                        let sc2 = *sc2;
+                        let mut should_parse_escape: Option<char> = None;
 
-                            if !self.cur_func().attrs.exec_mode.contains(ExecMode::STRICT)
-                                && sep != '`'
-                            {
-                                // parse escape sequence in non-strict mode
-                                do_parse_escape = Some(c1);
-                            } else if c1 == '0' && unsafe { !(*p.add(1)).is_ascii_digit() } {
-                                // handle null character escape
-                                p = unsafe { p.add(1) };
-                                char_code = 0;
-                            } else {
-                                // ES2021: octal escapes 8/9 not allowed in strict mode/templates
-                                if do_throw {
-                                    self.throw_syntax_error(if c1 >= '8' || sep == '`' {
-                                        "malformed escape sequence in string literal"
+                        match sc2 {
+                            StringChar::Char(c1 @ ('\'' | '\"' | '\\')) => {
+                                let _ = u8_chars.next();
+                                char_code = StringChar::Code(c1 as _);
+                            }
+                            StringChar::Char(c1 @ ('\r' | '\n')) => {
+                                let _ = u8_chars.next(); // skip \r
+                                if c1 == '\r'
+                                    && let Some((_, StringChar::Char('\n'))) = u8_chars.peek()
+                                {
+                                    let _ = u8_chars.next(); // skip \n
+                                }
+                                // skip escaped line breaks
+                                if sep != '`' {
+                                    self.line_num += 1;
+                                }
+                                continue;
+                            }
+                            StringChar::Char(c1 @ ('0'..='9')) => {
+                                if self.cur_func_def.is_null() {
+                                    // parsing JSON
+                                    if throw_err {
+                                        self.throw_syntax_error(
+                                            "malformed escape sequence in string literal",
+                                        );
+                                    }
+                                    return Err(-1);
+                                }
+
+                                if !self.cur_func().attrs.exec_mode.contains(ExecMode::STRICT)
+                                    && sep != '`'
+                                {
+                                    // parse escape sequence in non-strict mode
+                                    should_parse_escape = Some(c1);
+                                } else if c1 == '0' && {
+                                    u8_chars.next(); // skip '0'
+                                    if let Some((_, StringChar::Char(a))) = u8_chars.peek() {
+                                        !a.is_ascii_digit()
                                     } else {
-                                        "octal escape sequences are not allowed in strict mode"
-                                    });
-                                }
-                                return Err(-1);
-                            }
-                        }
-                        c1 => {
-                            if !c1.is_ascii() {
-                                let mut p_next = std::ptr::null::<u8>();
-                                match unicode_from_utf8_v0(
-                                    p,
-                                    UTF8_CHAR_LEN_MAX as i32,
-                                    std::ptr::addr_of_mut!(p_next),
-                                ) {
-                                    Ok(uc) => {
-                                        p = p_next;
-                                        if matches!(uc, '\u{2028}' | '\u{2029}') {
-                                            continue; // skip line/paragraph separators
-                                        } else {
-                                            char_code = uc as u32;
-                                        }
+                                        true
                                     }
-                                    Err(_) => {
-                                        if do_throw {
-                                            self.throw_syntax_error("invalid UTF-8 sequence");
-                                        }
-                                        return Err(-1);
-                                    }
-                                }
-                            } else {
-                                do_parse_escape = Some(c1)
-                            }
-                        }
-                    } // match
-
-                    if let Some(ch) = do_parse_escape.take() {
-                        let bytes = unsafe {
-                            std::slice::from_raw_parts(p, self.input_end.offset_from(p) as usize)
-                        };
-                        match self.parse_string_escape(bytes, 1) {
-                            Ok((code, consume)) => {
-                                char_code = code;
-                                p = unsafe { p.add(consume) };
-                            }
-                            Err(-1) => {
-                                if do_throw {
-                                    self.throw_syntax_error(
-                                        "malformed escape sequence in string literal",
-                                    );
-                                }
-                                return Err(-1);
-                            }
-                            Err(-2) => {
-                                // ignore the '\' (could output a warning)
-                                char_code = ch as u32;
-                                p = unsafe { p.add(1) };
-                            }
-                            _ => unreachable!(),
-                        }
-                    }
-                }
-                c => {
-                    if !c.is_ascii() {
-                        // handle UTF-8 characters
-                        let mut p_next = std::ptr::null::<u8>();
-                        match unicode_from_utf8_v0(
-                            p,
-                            UTF8_CHAR_LEN_MAX as i32,
-                            std::ptr::addr_of_mut!(p_next),
-                        ) {
-                            Ok(uc) => {
-                                p = p_next;
-                                if matches!(uc, '\u{2088}' | '\u{2089}') {
-                                    continue; // LS or PS are skipped
+                                } {
+                                    // handle null character escape \0
+                                    char_code = StringChar::Char('\0');
                                 } else {
-                                    char_code = uc as u32;
+                                    // ES2021: octal escapes 8/9 not allowed in strict mode/templates
+                                    if throw_err {
+                                        self.throw_syntax_error(if c1 >= '8' || sep == '`' {
+                                            "malformed escape sequence in string literal"
+                                        } else {
+                                            "octal escape sequences are not allowed in strict mode"
+                                        });
+                                    }
+                                    return Err(-1);
                                 }
                             }
-                            Err(_) => {
-                                if do_throw {
+                            StringChar::Char('\u{2028}' | '\u{2029}') => {
+                                // skip line/paragraph separators
+                                let _ = u8_chars.next();
+                                continue;
+                            }
+                            StringChar::Char(c1) => {
+                                if c1.is_ascii() {
+                                    should_parse_escape = Some(c1)
+                                } else {
+                                    let _ = u8_chars.next();
+                                    char_code = StringChar::Char(c1);
+                                }
+                            }
+                            StringChar::Code(_) => {
+                                if throw_err {
                                     self.throw_syntax_error("invalid UTF-8 sequence");
                                 }
                                 return Err(-1);
                             }
                         }
-                    } else {
-                        // ascii char
-                        char_code = c as u32;
-                        if char_code < 0x20 {
-                            // ascii control chars
-                            if self.cur_func_def.is_null() {
-                                if do_throw {
-                                    self.throw_syntax_error("invalid character in a JSON string");
+
+                        if let Some(ch) = should_parse_escape.take() {
+                            let bytes = &buf[j..];
+                            match self.parse_string_escape(bytes, 1) {
+                                Ok((code, consume)) => {
+                                    let _ = u8_chars.nth(consume - 1);
+                                    char_code = char::from_u32(code)
+                                        .map_or(StringChar::Code(code as u16), StringChar::Char);
                                 }
-                                return Err(-1);
+                                Err(-1) => {
+                                    if throw_err {
+                                        self.throw_syntax_error(
+                                            "malformed escape sequence in string literal",
+                                        );
+                                    }
+                                    return Err(-1);
+                                }
+                                Err(-2) => {
+                                    // ignore the '\' (could output a warning)
+                                    let _ = u8_chars.next();
+                                    char_code = StringChar::Char(ch);
+                                }
+                                _ => unreachable!(),
                             }
                         }
-                        p = unsafe { p.offset(1) };
+                    } else {
+                        if throw_err {
+                            self.throw_syntax_error("unexpected end of string");
+                        }
+                        return Err(-1);
                     }
                 }
-            }
 
-            // add char_code to string content
-            if sbuf.capacity() == sbuf.len() {
-                sbuf.try_reserve_exact(32).map_err(|_| {
-                    self.ctx.throw_out_of_memory();
-                    -1
-                })?;
-            }
-            if let Some(uc) = char::from_u32(char_code) {
-                sbuf.push_char(uc).unwrap(); // can't fail
+                // add char_code to string buf
+                if sbuf.capacity() == sbuf.len() {
+                    sbuf.try_reserve_exact(32).map_err(|_| {
+                        self.ctx.throw_out_of_memory();
+                        -1
+                    })?;
+                }
+                let _ = sbuf.push_char(char_code); // can't fail
             } else {
-                sbuf.push_u16(char_code as u16).unwrap(); // can't fail
+                if throw_err {
+                    self.throw_syntax_error("invalid UTF-8 sequence");
+                }
+                return Err(-1);
             }
         }
 
-        // update token
-        let tok = token.unwrap_or(&mut self.token);
-        tok.val = TOK_STRING;
-        tok.data = TokenData::Str {
-            str: sbuf,
-            sep: sep as i32,
-        };
-
-        Ok(p)
+        if let Some(consume) = consume {
+            // update token
+            let tok = token.unwrap_or(&mut self.token);
+            tok.val = TOK_STRING;
+            tok.data = TokenData::Str {
+                str: sbuf,
+                sep: sep as i32,
+            };
+            Ok(consume)
+        } else {
+            if throw_err {
+                self.throw_syntax_error("unexpected end of string");
+            }
+            Err(-1)
+        }
     }
 
     /// parse escaped char code \u{XXXX}, \uXXXX, \xXX from given bytes.

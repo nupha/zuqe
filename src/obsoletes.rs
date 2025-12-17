@@ -5365,3 +5365,13 @@ pub fn JS_SetModuleLoaderFunc(
     rt.module_load_func = Some(module_loader);
     rt.module_load_opaque = opaque;
 }
+
+#[deprecated(note = "use js_load_module_internal() instead")]
+fn JS_LoadModuleInternal(
+    mut ctx: ContextPtr,
+    basename: &str,
+    filename: String,
+    resolving_funcs: &[JSValue; 2],
+) {
+    //
+}

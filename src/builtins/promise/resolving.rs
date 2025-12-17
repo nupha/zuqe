@@ -129,7 +129,7 @@ impl Default for PromiseReaction {
 }
 
 impl Promise {
-    /// Add a chained reaction to `self` Promise.
+    /// Add a chained reaction to Promise.
     ///
     /// Arguments:
     /// - `reaction_funcs` - [success, fail] reaction callback functions, user's logic.
@@ -240,7 +240,12 @@ impl Promise {
     /// save resolving resultand update promise status to 'fulfilled' or 'rejected'.
     /// set promise state to 'fulfilled' or 'rejected',
     /// call chained reactions which was registered by `then()`, `catch()` or `finally()`.
-    pub(super) fn fulfill_or_reject(&mut self, ctx: ContextPtr, value: JSValue, is_reject: bool) {
+    pub(super) fn fulfill_or_reject(
+        &mut self,
+        mut ctx: ContextPtr,
+        value: JSValue,
+        is_reject: bool,
+    ) {
         let (state, is_handled) = {
             let p = self.payload_mut();
             debug_assert_eq!(p.state(), PromiseState::Pending);
@@ -271,49 +276,25 @@ impl Promise {
 
         // call chained reactions registered by `then()`, `catch()` or `finally()`
         let mut reactions = self.payload_mut().take_reactions();
+        let mut ctx2 = ctx;
+
         for act in reactions[is_reject as usize].drain(..) {
-            let mut value = if act.handler.is_undefined() {
-                if is_reject {
-                    ctx.throw(value);
-                    JSValue::EXCEPTION
-                } else {
-                    value
-                }
-            } else {
-                act.handler
-                    .call(&ctx, JSValue::UNDEFINED, std::slice::from_ref(&value))
-                    .unwrap_or(JSValue::EXCEPTION)
-            };
-
-            let is_reject = if value.is_exception() {
-                value = ctx.rt_ptr().take_exception();
-                true
-            } else {
-                false
-            };
-
-            let func = act.resolving_funcs[is_reject as usize];
-            if !func.is_undefined() {
-                let _ = func.call(&ctx, JSValue::UNDEFINED, std::slice::from_ref(&value));
-            }
-
-            // solution 2: queue to job list to resolve in next iter
-            // let mut ctx2 = ctx;
-            // ctx.queue_job_with_gc_trace(
-            //     move || {
-            //         promise_reaction_job(
-            //             &mut ctx2,
-            //             act.resolving_funcs,
-            //             act.handler,
-            //             is_reject,
-            //             value,
-            //         )
-            //     },
-            //     move |tracer| {
-            //         value.trace(tracer);
-            //         act.trace(tracer);
-            //     },
-            // );
+            // queue reaction in job list to resolve in next tick
+            ctx.queue_job_with_gc_trace(
+                move || {
+                    promise_reaction_job(
+                        &mut ctx2,
+                        act.resolving_funcs,
+                        act.handler,
+                        is_reject,
+                        value,
+                    )
+                },
+                move |tracer| {
+                    value.trace(tracer);
+                    act.trace(tracer);
+                },
+            );
         }
     }
 

@@ -313,9 +313,10 @@ impl ContextImpl {
                                 result = Ok(p.result());
                             }
                             PromiseState::Rejected => {
-                                result = Err(ErrorText::from(self, p.result()));
+                                // no need to return reject value
+                                // result = Err(ErrorText::from(self, p.result()));
                             }
-                            _ => {
+                            PromiseState::Pending => {
                                 self.throw_type_error("Promise is pending");
                                 let exc = rt.take_exception();
                                 result = Err(ErrorText::from(self, exc));

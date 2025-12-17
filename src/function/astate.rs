@@ -146,7 +146,6 @@ impl AsyncStateImpl {
 
         // run async func
         let mut ret = self.resume_call(ctx, this_val, arg_list);
-
         let completed = match ret {
             Ok(JSValue::UNDEFINED) => {
                 debug_assert!(self.frame.cur_sp_offset > 0);

@@ -199,7 +199,7 @@ impl ModuleDefImpl {
         self.eval_exception = exc;
     }
 
-    /// get module import.meta object.
+    /// get module `import.meta` object.
     pub fn import_meta(&mut self, ctx: &ContextImpl) -> Result<ObjectRef, i32> {
         if let Some(o) = self.meta_obj {
             Ok(o)

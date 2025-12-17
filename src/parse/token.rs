@@ -235,14 +235,24 @@ impl<'s> JSParseState<'s> {
                         p = self.buf_ptr;
                     }
                 }
-                c @ ('\'' | '\"') => match self.parse_string(c, true, unsafe { p.add(1) }, None) {
-                    Ok(p2) => {
-                        p = p2;
+                c @ ('\'' | '"') => {
+                    p = unsafe { p.add(1) }; // skip delimitor ' or "
+                    match self.parse_string(
+                        c,
+                        true,
+                        unsafe {
+                            std::slice::from_raw_parts(p, self.input_end.offset_from(p) as usize)
+                        },
+                        None,
+                    ) {
+                        Ok(consumed) => {
+                            p = unsafe { p.add(consumed) }; // next char of ending delimitor
+                        }
+                        Err(_) => {
+                            todo = Some(Todo::Fail);
+                        }
                     }
-                    Err(_) => {
-                        todo = Some(Todo::Fail);
-                    }
-                },
+                }
                 c @ ('\r' | '\n') => unsafe {
                     if c == '\r' && *p.offset(1) == b'\n' {
                         // \r\n sequence

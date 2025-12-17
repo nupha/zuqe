@@ -61,24 +61,34 @@ pub struct AGenPayload {
     /// back ref to the generator object (const)
     generator: RefCell<GcWeak<ObjectImpl>>,
 
-    state: Cell<AGenState>,
+    state: AGenState,
 
     /// None for state AWAITING_RETURN and COMPLETED
     func_state: AsyncFuncState,
 
     /// list of JSAsyncGeneratorRequest.
     /// the queue's element is consumed in resolve() or reject() call.
-    queue: RefCell<Vec<Box<JSAsyncGeneratorRequest>>>,
+    queue: Vec<Box<JSAsyncGeneratorRequest>>,
 }
 
 unsafe impl GcTracable for AGenPayload {
     fn trace(&self, tracer: &mut gc_lite::GcTracer) {
         self.func_state.trace(tracer);
-        self.queue.borrow().iter().for_each(|x| x.trace(tracer));
+        self.queue.iter().for_each(|x| x.trace(tracer));
     }
 }
 
 impl AGenPayload {
+    #[inline(always)]
+    const fn state(&self) -> AGenState {
+        self.state
+    }
+
+    #[inline]
+    const fn set_state(&mut self, state: AGenState) {
+        self.state = state;
+    }
+
     #[inline]
     fn set_throw_flag(&mut self, is_reject: bool) {
         self.func_state.set_throw_flag(is_reject);
@@ -90,14 +100,10 @@ impl AGenPayload {
             Done,
         }
 
-        while let Some((completion_type, result)) = {
-            // Note: borrow() is enclosed in this code block
-            self.queue
-                .borrow()
-                .first()
-                .map(|x| (x.completion_type, x.result))
-        } {
-            let state = match self.state.get() {
+        while let Some((completion_type, result)) =
+            self.queue.first().map(|x| (x.completion_type, x.result))
+        {
+            let state = match self.state() {
                 AGenState::JS_ASYNC_GENERATOR_STATE_EXECUTING => {
                     // only happens when restarting execution after await()
                     State::Resume
@@ -106,8 +112,7 @@ impl AGenPayload {
                 AGenState::JS_ASYNC_GENERATOR_STATE_SUSPENDED_START => {
                     if completion_type == GEN_MAGIC_NEXT {
                         self.set_throw_flag(false);
-                        self.state
-                            .set(AGenState::JS_ASYNC_GENERATOR_STATE_EXECUTING);
+                        self.set_state(AGenState::JS_ASYNC_GENERATOR_STATE_EXECUTING);
                         State::Resume
                     } else {
                         self.complete();
@@ -118,8 +123,7 @@ impl AGenPayload {
                     if completion_type == GEN_MAGIC_NEXT {
                         self.resolve(&ctx, JSValue::UNDEFINED, true);
                     } else if completion_type == GEN_MAGIC_RETURN {
-                        self.state
-                            .set(AGenState::JS_ASYNC_GENERATOR_STATE_AWAITING_RETURN);
+                        self.set_state(AGenState::JS_ASYNC_GENERATOR_STATE_AWAITING_RETURN);
                         if unlikely(self.completed_return(ctx, result).is_err()) {
                             eprintln!(
                                 "{}",
@@ -137,7 +141,7 @@ impl AGenPayload {
                 }
                 AGenState::JS_ASYNC_GENERATOR_STATE_SUSPENDED_YIELD
                 | AGenState::JS_ASYNC_GENERATOR_STATE_SUSPENDED_YIELD_STAR => {
-                    if self.state.get() == AGenState::JS_ASYNC_GENERATOR_STATE_SUSPENDED_YIELD
+                    if self.state() == AGenState::JS_ASYNC_GENERATOR_STATE_SUSPENDED_YIELD
                         && completion_type == GEN_MAGIC_THROW
                     {
                         ctx.throw(result);
@@ -150,17 +154,12 @@ impl AGenPayload {
 
                         // to update stack:
                         // SP[-1] <- value
-                        // SP[0] <- next completion type
+                        // SP[0] <- completion type
                         // SP++
                         unsafe {
-                            std::ptr::replace(
-                                self.func_state.frame.stack_cur_ptr().offset(-1).as_ptr(),
-                                result,
-                            );
-                            std::ptr::replace(
-                                self.func_state.frame.stack_cur_ptr().as_ptr(),
-                                JSValue::Int(completion_type),
-                            );
+                            let sp = self.func_state.frame.stack_cur_ptr().as_ptr();
+                            *sp.offset(-1) = result;
+                            *sp = JSValue::Int(completion_type);
 
                             self.func_state
                                 .frame
@@ -170,8 +169,7 @@ impl AGenPayload {
                         }
                     }
 
-                    self.state
-                        .set(AGenState::JS_ASYNC_GENERATOR_STATE_EXECUTING);
+                    self.set_state(AGenState::JS_ASYNC_GENERATOR_STATE_EXECUTING);
                     State::Resume
                 }
             };
@@ -218,7 +216,7 @@ impl AGenPayload {
 
                         match code {
                             FUNC_RET_YIELD | FUNC_RET_YIELD_STAR => {
-                                self.state.set(if code == FUNC_RET_YIELD_STAR {
+                                self.set_state(if code == FUNC_RET_YIELD_STAR {
                                     AGenState::JS_ASYNC_GENERATOR_STATE_SUSPENDED_YIELD_STAR
                                 } else {
                                     AGenState::JS_ASYNC_GENERATOR_STATE_SUSPENDED_YIELD
@@ -227,7 +225,6 @@ impl AGenPayload {
                             }
                             FUNC_RET_AWAIT => {
                                 if self._await(ctx, value).is_err() {
-                                    // exception: throw it
                                     self.set_throw_flag(true);
                                     continue 'resume;
                                 } else {
@@ -274,7 +271,10 @@ impl AGenPayload {
         let resolving_funcs = js_async_generator_resolve_function_create(
             &ctx,
             JSValue::Object(ObjectRef(
-                self.generator.borrow().upgrade(ctx.rt_ptr().gc_heap()).unwrap(),
+                self.generator
+                    .borrow()
+                    .upgrade(ctx.rt_ptr().gc_heap())
+                    .unwrap(),
             )),
             true,
         )?;
@@ -297,7 +297,10 @@ impl AGenPayload {
         let resolving_funcs = js_async_generator_resolve_function_create(
             &ctx,
             JSValue::Object(ObjectRef(
-                self.generator.borrow().upgrade(ctx.rt_ptr().gc_heap()).unwrap(),
+                self.generator
+                    .borrow()
+                    .upgrade(ctx.rt_ptr().gc_heap())
+                    .unwrap(),
             )),
             false,
         )?;
@@ -313,28 +316,28 @@ impl AGenPayload {
     }
 
     /// mark async generator is completed
-    pub fn complete(&self) {
-        if self.state.get() != AGenState::JS_ASYNC_GENERATOR_STATE_COMPLETED {
-            self.state
-                .set(AGenState::JS_ASYNC_GENERATOR_STATE_COMPLETED);
+    pub fn complete(&mut self) {
+        if self.state() != AGenState::JS_ASYNC_GENERATOR_STATE_COMPLETED {
+            self.set_state(AGenState::JS_ASYNC_GENERATOR_STATE_COMPLETED);
             // self.func_state.take();
         }
     }
 
-    fn resolve_or_reject(&self, ctx: &ContextImpl, result: &JSValue, is_reject: bool) {
-        let req = self.queue.borrow_mut().remove(0);
+    fn resolve_or_reject(&mut self, ctx: &ContextImpl, result: &JSValue, is_reject: bool) {
+        let req = self.queue.remove(0);
         req.resolving_funcs[is_reject as usize]
             .call(ctx, JSValue::UNDEFINED, std::slice::from_ref(result))
             .unwrap();
     }
 
-    pub fn resolve(&self, ctx: &ContextImpl, value: JSValue, done: bool) {
+    #[inline]
+    pub fn resolve(&mut self, ctx: &ContextImpl, value: JSValue, done: bool) {
         let result = js_create_iterator_result(ctx, value, done).unwrap_or(JSValue::EXCEPTION);
         self.resolve_or_reject(ctx, &result, false);
     }
 
     #[inline(always)]
-    pub fn reject(&self, ctx: &ContextImpl, exception: JSValue) {
+    pub fn reject(&mut self, ctx: &ContextImpl, exception: JSValue) {
         self.resolve_or_reject(ctx, &exception, true);
     }
 }
@@ -356,27 +359,28 @@ impl AsyncGeneratorFunction {
     ) -> JSResult {
         let mut s = Box::new(AGenPayload {
             generator: RefCell::new(GcWeak::default()),
-            state: Cell::new(AGenState::JS_ASYNC_GENERATOR_STATE_SUSPENDED_START),
+            state: AGenState::JS_ASYNC_GENERATOR_STATE_SUSPENDED_START,
             func_state: AsyncFuncState::new(
                 &ctx,
                 *func_obj.as_object_BCFunction().unwrap(),
                 this_obj,
                 args,
             )?,
-            queue: RefCell::new(Vec::with_capacity(2)),
+            queue: Vec::with_capacity(2),
         });
 
         // execute the function till 'OpCode::INITIAL_YIELD' (no yield nor await are possible)
         s.func_state.resume(&ctx)?;
 
         // create AsyncGenerator object
-        let obj = ctx
+        let mut obj = ctx
             .create_object_from_ctor(func_obj, ObjectPayload::ASYNC_GENERATOR(s))
             .map_err(|_| -1)?;
 
         // set generator to obj weakref
-        if let ObjectPayload::ASYNC_GENERATOR(s) = obj.payload() {
-            *s.generator.borrow_mut() = obj.downgrade();
+        let w = obj.downgrade();
+        if let ObjectPayload::ASYNC_GENERATOR(s) = obj.payload_mut() {
+            *s.generator.borrow_mut() = w;
         } else {
             unreachable!()
         }
@@ -479,12 +483,12 @@ fn js_async_generator_resolve_function(cc: CallContext) -> JSResult {
         if cc.magic() >= 2 {
             // resume next case in AWAITING_RETURN state
             debug_assert!(matches!(
-                s.state.get(),
+                s.state(),
                 AGenState::JS_ASYNC_GENERATOR_STATE_AWAITING_RETURN
                     | AGenState::JS_ASYNC_GENERATOR_STATE_COMPLETED
             ));
 
-            s.state.set(AGenState::JS_ASYNC_GENERATOR_STATE_COMPLETED);
+            s.set_state(AGenState::JS_ASYNC_GENERATOR_STATE_COMPLETED);
             if is_reject {
                 s.reject(ctx, arg);
             } else {
@@ -492,7 +496,7 @@ fn js_async_generator_resolve_function(cc: CallContext) -> JSResult {
             }
         } else {
             // restart function execution after await()
-            debug_assert_eq!(s.state.get(), AGenState::JS_ASYNC_GENERATOR_STATE_EXECUTING);
+            debug_assert_eq!(s.state(), AGenState::JS_ASYNC_GENERATOR_STATE_EXECUTING);
 
             s.set_throw_flag(is_reject);
             if unlikely(is_reject) {
@@ -534,9 +538,9 @@ fn js_async_generator_next(cc: CallContext) -> JSResult {
             promise: promise.into(),
             resolving_funcs,
         });
-        s.queue.borrow_mut().push(req);
+        s.queue.push(req);
 
-        if s.state.get() != AGenState::JS_ASYNC_GENERATOR_STATE_EXECUTING {
+        if s.state() != AGenState::JS_ASYNC_GENERATOR_STATE_EXECUTING {
             s.resume_next(cc.ctx_ptr());
         }
     } else {

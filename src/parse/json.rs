@@ -59,9 +59,16 @@ impl<'s> JSParseState<'s> {
                         // standard JSON does not accept single quoted strings
                         break Todo::DefaultToken('\'' as _);
                     }
-
-                    if let Ok(r) = self.parse_string('"', true, unsafe { p.add(1) }, None) {
-                        p = r;
+                    p = unsafe { p.add(1) }; // skip delimitor
+                    if let Ok(consumed) = self.parse_string(
+                        '"',
+                        true,
+                        unsafe {
+                            std::slice::from_raw_parts(p, self.input_end.offset_from(p) as usize)
+                        },
+                        None,
+                    ) {
+                        p = unsafe { p.add(consumed) }; // next char of ending delimitor
                         self.buf_ptr = p;
                         return Ok(());
                     } else {

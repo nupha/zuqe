@@ -29,23 +29,11 @@ unsafe impl GcTracable for ImportEntry {
 }
 
 pub fn js_dynamic_import(ctx: &mut ContextImpl, specifier: JSValue) -> JSResult {
-    let basename = if let Some(a) = get_script_or_module_name(ctx, 0) {
-        if let JSValue::String(s) = a.string_or_symbol(ctx)? {
-            s.content().to_utf8(false).to_string()
-        } else {
-            ctx.throw_type_error("no function filename for import()");
-            return Err(-1);
-        }
+    let basename_val: JSValue = if let Some(a) = get_script_or_module_name(ctx, 0) {
+        a.string_or_symbol(ctx)?
     } else {
-        ctx.throw_type_error("no function filename for import()");
-        return Err(-1);
+        JSValue::NULL
     };
-
-    let specifier = specifier
-        .to_string(ctx)?
-        .content()
-        .to_utf8(false)
-        .to_string();
 
     let (promise, resolving_funcs) = Promise::create(ctx)?;
 
@@ -53,13 +41,14 @@ pub fn js_dynamic_import(ctx: &mut ContextImpl, specifier: JSValue) -> JSResult 
     // cause an unexpected recursion in js_evaluate_module()
     let cx = unsafe { ContextPtr::from_ref_unchecked(ctx) };
     let rr = resolving_funcs;
-
     ctx.queue_job_with_gc_trace(
         move || {
-            let _ = js_dynamic_import_job(cx, resolving_funcs, basename, specifier);
+            js_dynamic_import_job(cx, resolving_funcs, basename_val, specifier);
             Ok(JSValue::UNDEFINED)
         },
         move |tracer| {
+            basename_val.trace(tracer);
+            specifier.trace(tracer);
             rr[0].trace(tracer);
             rr[1].trace(tracer);
         },
@@ -69,22 +58,39 @@ pub fn js_dynamic_import(ctx: &mut ContextImpl, specifier: JSValue) -> JSResult 
 }
 
 fn js_dynamic_import_job(
-    ctx: ContextPtr,
+    mut ctx: ContextPtr,
     resolving_funcs: [JSValue; 2],
-    basename: String,
-    specifier: String,
-) -> JSResult {
-    JS_LoadModuleInternal(ctx, basename, specifier, &resolving_funcs);
-    Ok(JSValue::UNDEFINED)
+    basename: JSValue,
+    name: JSValue,
+) {
+    let r = if let JSValue::String(base) = basename {
+        name.to_string(&ctx).map(|nm| {
+            js_load_module_internal(
+                ctx,
+                &base.content().to_utf8(false),
+                &nm.content().to_utf8(false),
+                &resolving_funcs,
+            );
+        })
+    } else {
+        ctx.throw_type_error("no function filename for import()");
+        Err(-1)
+    };
+
+    if r.is_err() {
+        // call reject func if has error
+        let err = ctx.rt_mut().take_exception();
+        let _ = resolving_funcs[1].call(&ctx, JSValue::UNDEFINED, std::slice::from_ref(&err));
+    }
 }
 
-fn JS_LoadModuleInternal(
+fn js_load_module_internal(
     mut ctx: ContextPtr,
-    basename: String,
-    filename: String,
+    basename: &str,
+    filename: &str,
     resolving_funcs: &[JSValue; 2],
 ) {
-    match js_host_resolve_imported_module(ctx, &basename, &filename) {
+    match js_host_resolve_imported_module(ctx, basename, filename) {
         Ok(mut md) => {
             if ctx.resolve_module(md).is_err() {
                 js_free_modules(&mut ctx, JSFreeModuleEnum::JS_FREE_MODULE_NOT_RESOLVED);

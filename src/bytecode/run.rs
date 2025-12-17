@@ -2396,11 +2396,11 @@ impl Bytecode {
                     OpCode::YIELD_STAR | OpCode::ASYNC_YIELD_STAR => {
                         break State::Done(JSValue::Int(FUNC_RET_YIELD_STAR), true);
                     }
-                    OpCode::RETURN_ASYNC => {
-                        break State::Done(JSValue::UNDEFINED, true);
-                    }
                     OpCode::INITIAL_YIELD => {
                         break State::Done(JSValue::Int(FUNC_RET_INITIAL_YIELD), true);
+                    }
+                    OpCode::RETURN_ASYNC => {
+                        break State::Done(JSValue::UNDEFINED, true);
                     }
 
                     OpCode::IS_UNDEFINED_OR_NULL => {
