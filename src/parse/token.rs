@@ -47,6 +47,7 @@ pub struct Token {
     pub val: i32,
     /// line number of token start
     pub line_num: i32,
+    /// raw point (within input buf) to start of token
     pub ptr: *const u8,
     pub data: TokenData,
 }
@@ -229,7 +230,16 @@ impl<'s> JSParseState<'s> {
                     todo = Some(Todo::DefaultToken('\0'));
                 }
                 '`' => {
-                    if self.parse_template_part(unsafe { p.offset(1) }).is_err() {
+                    if self
+                        .parse_template_part(unsafe {
+                            let ptr = p.offset(1);
+                            std::slice::from_raw_parts(
+                                ptr,
+                                self.input_end.offset_from(ptr) as usize,
+                            )
+                        })
+                        .is_err()
+                    {
                         todo = Some(Todo::Fail);
                     } else {
                         p = self.buf_ptr;

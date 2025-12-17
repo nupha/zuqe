@@ -398,7 +398,16 @@ impl<'s> JSParseState<'s> {
                         // Resume TOK_TEMPLATE parsing (s->token.line_num and s->token.ptr are OK)
                         self.got_lf = false;
                         self.last_line_num = self.token.line_num;
-                        if self.parse_template_part(self.buf_ptr).is_err() {
+
+                        if self
+                            .parse_template_part(unsafe {
+                                std::slice::from_raw_parts(
+                                    self.buf_ptr,
+                                    self.input_end.offset_from(self.buf_ptr) as usize,
+                                )
+                            })
+                            .is_err()
+                        {
                             break;
                         } else {
                             continue;

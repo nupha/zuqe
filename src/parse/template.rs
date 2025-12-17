@@ -3,93 +3,102 @@ use crate::{
     bytecode::OpCode,
     object::{JS_PROP_ENUMERABLE, JS_PROP_THROW, seal_template_obj},
     parse::token::{Token, TokenData},
-    string::{StringBuf, UTF8_CHAR_LEN_MAX, unicode_from_utf8_v0},
+    string::{StringBuf, StringChar, Utf8CharIter},
+    utils::unlikely,
     value::JSValue,
 };
 
 use super::{state::JSParseState, token::TOK_TEMPLATE};
 
 impl<'s> JSParseState<'s> {
-    pub(super) fn parse_template_part(&mut self, mut p: *const u8) -> Result<(), i32> {
+    pub(super) fn parse_template_part(&mut self, buf: &[u8]) -> Result<(), i32> {
         let mut sbuf = StringBuf::Empty;
+        let mut chars = Utf8CharIter::new(buf).peekable();
 
-        let sep = loop {
-            if p >= self.input_end {
-                self.throw_syntax_error("unexpected end of string");
-                return Err(-1);
-            }
+        let mut sep: char = '\0';
+        let mut consume = 0;
 
-            let mut ch = unsafe { *p as char };
-            p = unsafe { p.offset(1) };
-
-            match ch {
-                '`' => {
-                    break ch; // ` template end part
+        while let Some((i, sc)) = chars.next() {
+            match sc {
+                StringChar::Char('`') => {
+                    sep = '`';
+                    consume = i + 1; // next char of `
+                    break;
                 }
-                '$' if unsafe { *p } == b'{' => {
+                StringChar::Char('$')
+                    if chars
+                        .peek()
+                        .is_some_and(|(_, a)| matches!(a, StringChar::Char('{'))) =>
+                {
                     // ${ template start or middle part
-                    p = unsafe { p.offset(1) };
-                    break ch;
+                    let _ = chars.next(); // skip '{'
+                    sep = '$';
+                    consume = i + 2; // next char of {
+                    break;
                 }
-                _ => {}
-            }
+                StringChar::Char('\\') => {
+                    sbuf.push_char('\\').map_err(|_| {
+                        self.ctx.throw_out_of_memory();
+                        -1
+                    })?;
 
-            if ch == '\\' {
-                sbuf.push_char(ch).map_err(|_| {
-                    self.ctx.throw_out_of_memory();
-                    -1
-                })?;
-                if p >= self.input_end {
-                    self.throw_syntax_error("unexpected end of string");
-                    return Err(-1);
-                } else {
-                    unsafe {
-                        ch = *p as char;
-                        p = p.offset(1);
+                    match chars.peek() {
+                        Some((_, StringChar::Char('\r' | '\n'))) => {
+                            continue; // match \r or \n arm
+                        }
+                        Some(_) => {
+                            let (_, c1) = chars.next().unwrap();
+                            sbuf.push_char(c1).map_err(|_| {
+                                self.ctx.throw_out_of_memory();
+                                -1
+                            })?;
+                        }
+                        None => {
+                            self.throw_syntax_error("unexpected end of string");
+                            return Err(-1);
+                        }
                     }
                 }
-            }
-
-            if ch == '\r' {
-                // newline sequences are normalized as single '\n'
-                if unsafe { *p } == b'\n' {
-                    p = unsafe { p.offset(1) };
+                StringChar::Char(c1 @ ('\r' | '\n')) => {
+                    if c1 == '\r'
+                        && let Some((_, StringChar::Char('\n'))) = chars.peek()
+                    {
+                        let _ = chars.next(); // skip \n after \r
+                    }
+                    sbuf.push_char('\n').map_err(|_| {
+                        self.ctx.throw_out_of_memory();
+                        -1
+                    })?;
+                    self.line_num += 1;
                 }
-                ch = '\n';
-            }
-
-            if ch == '\n' {
-                self.line_num += 1;
-            } else if !ch.is_ascii() {
-                let mut p_next = std::ptr::null::<u8>();
-                // TODO: use str::from_utf8() instead
-                ch = unicode_from_utf8_v0(
-                    unsafe { p.offset(-1) },
-                    UTF8_CHAR_LEN_MAX as _,
-                    &mut p_next,
-                )
-                .map_err(|_| {
+                StringChar::Char(ch) => {
+                    sbuf.push_char(ch).map_err(|_| {
+                        self.ctx.throw_out_of_memory();
+                        -1
+                    })?;
+                }
+                StringChar::Code(_) => {
                     self.throw_syntax_error("invalid UTF-8 sequence");
-                    -1
-                })?;
-                p = p_next;
+                    return Err(-1);
+                }
             }
+        }
 
-            // append char to buf
-            sbuf.push_char(ch).map_err(|_| {
-                self.ctx.throw_out_of_memory();
-                -1
-            })?;
-        };
+        debug_assert!(matches!(sep, '\0' | '`' | '$'));
 
-        self.token.val = TOK_TEMPLATE;
-        self.token.data = TokenData::Str {
-            sep: sep as i32, // could be '`' or '$'
-            str: sbuf,
-        };
-        self.buf_ptr = p;
+        if unlikely(sep == '\0') {
+            self.throw_syntax_error("unexpected end of string");
+            Err(-1)
+        } else {
+            self.token.val = TOK_TEMPLATE;
+            self.token.data = TokenData::Str {
+                sep: sep as i32,
+                str: sbuf,
+            };
+            self.buf_ptr = unsafe { buf.as_ptr().add(consume) };
 
-        Ok(())
+            Ok(())
+        }
     }
 
     pub(super) fn parse_template(&mut self, call: bool, argc: &mut i32) -> Result<i32, i32> {
@@ -223,7 +232,12 @@ impl<'s> JSParseState<'s> {
             self.got_lf = false;
             self.last_line_num = self.token.line_num;
 
-            self.parse_template_part(self.buf_ptr)?
+            self.parse_template_part(unsafe {
+                std::slice::from_raw_parts(
+                    self.buf_ptr,
+                    self.input_end.offset_from(self.buf_ptr) as usize,
+                )
+            })?
         }
 
         self.parse_expect(TOK_TEMPLATE)
