@@ -497,20 +497,22 @@ impl<'s> JSParseState<'s> {
 
 pub(super) fn skip_shebang(buf: &[u8]) -> usize {
     if buf.starts_with(b"#!") {
-        for (i, c) in Utf8CharIter::new(&buf[2..]) {
-            match c {
-                StringChar::Char(ch) => {
-                    if matches!(ch, '\n' | '\r' | '\u{2028}' | '\u{2029}') {
-                        return i + ch.len_utf8() + 2;
-                    }
+        Utf8CharIter::new(&buf[2..])
+            .find_map(|(i, c)| {
+                if let StringChar::Char(ch @ ('\n' | '\r' | '\u{2028}' | '\u{2029}')) = c {
+                    Some(i + ch.len_utf8() + 2)
+                } else {
+                    None
                 }
-                StringChar::Code(_) => {
-                    // skip invalid UTF-8 byte
-                }
-            }
-        }
+            })
+            .unwrap_or(buf.len())
 
-        buf.len()
+        // for (i, c) in Utf8CharIter::new(&buf[2..]) {
+        //     if let StringChar::Char(ch @ ('\n' | '\r' | '\u{2028}' | '\u{2029}')) = c {
+        //         return i + ch.len_utf8() + 2;
+        //     }
+        // }
+        // buf.len()
     } else {
         0
     }
