@@ -6,7 +6,7 @@ use widestring::U16Str;
 use crate::number::{parse_i64, parse_u32};
 
 use super::{
-    StringBuf, StringChar, StringCharIter, StringCodepointIter, U16CharIter, s16_into_s8,
+    CharCode, StringBuf, StringCharIter, StringCodepointIter, U16CharIter, s16_into_s8,
     unicode_to_utf8,
 };
 
@@ -441,7 +441,7 @@ impl StringData {
                         let mut out = String::with_capacity(slice.len() * 4);
                         for (_, c) in U16CharIter::new(slice, 0) {
                             match c {
-                                StringChar::Char(c) => {
+                                CharCode::Char(c) => {
                                     if c == '\\' {
                                         out.push('\\');
                                         out.push('\\');
@@ -449,7 +449,7 @@ impl StringData {
                                         out.push(c)
                                     }
                                 }
-                                StringChar::Code(c) => {
+                                CharCode::Code(c) => {
                                     out.push_str(&format!("\\u{c:04x}"));
                                 }
                             }
@@ -588,8 +588,8 @@ impl StringData {
 
     pub fn chars_range_lossy(&self, range: Range<usize>) -> impl Iterator<Item = char> {
         self.iter_range(range).map(|(_, c)| match c {
-            StringChar::Char(c) => c,
-            StringChar::Code(_) => '\u{FFFD}',
+            CharCode::Char(c) => c,
+            CharCode::Code(_) => '\u{FFFD}',
         })
     }
 
@@ -685,12 +685,12 @@ impl StringData {
     }
 
     /// find index of char occurrence in self, starting at from.
-    pub fn index_of_char<C: Into<StringChar>>(&self, ch: C, from_index: usize) -> Option<usize> {
+    pub fn index_of_char<C: Into<CharCode>>(&self, ch: C, from_index: usize) -> Option<usize> {
         let len = self.len();
         if !(0..len).contains(&from_index) {
             None
         } else {
-            let ch: StringChar = ch.into();
+            let ch: CharCode = ch.into();
             self.iter_since(from_index)
                 .find(|(_, c)| ch.eq(c))
                 .map(|(i, _)| i + from_index)
@@ -702,7 +702,7 @@ impl StringData {
         if pos < self.len() {
             if must_char && self.is_wide() {
                 for (i, c) in self.iter_since(pos) {
-                    if matches!(c, StringChar::Char(_)) {
+                    if matches!(c, CharCode::Char(_)) {
                         return Some(i);
                     }
                 }
@@ -801,7 +801,7 @@ impl StringData {
 }
 
 // /// calculates hash of a sequence of chars (code points)
-// fn hash_codepoints(s: impl Iterator<Item = StringChar>) -> u32 {
+// fn hash_codepoints(s: impl Iterator<Item = CharCode>) -> u32 {
 //     let mut h = 0; // init hash
 //     s.for_each(|c| {
 //         h = hash_u32_from_base(h, c.to_u32());

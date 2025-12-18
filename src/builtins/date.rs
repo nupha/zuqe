@@ -13,7 +13,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     object::{ObjectPayload, ObjectRef},
-    string::{StringBuf, StringChar, StringRef},
+    string::{StringBuf, CharCode, StringRef},
     value::{HINT_FORCE_ORDINARY, HINT_NONE, HINT_NUMBER, HINT_STRING, JSValue},
 };
 
@@ -632,7 +632,7 @@ fn datetime_format(ctx: &ContextImpl, tm_val: i64, flags: i32) -> Result<StringR
                     s.chars()
                         .chain(std::iter::once(if tz < 0 { '-' } else { '+' }))
                         .chain(format!("{:02}{:02}", tz.abs() / 60, tz.abs() % 60).chars())
-                        .map(StringChar::Char),
+                        .map(CharCode::Char),
                 )
                 .map_err(|_| {
                     ctx.throw_out_of_memory();

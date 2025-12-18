@@ -3,7 +3,7 @@ use crate::{
     bytecode::OpCode,
     object::{JS_PROP_ENUMERABLE, JS_PROP_THROW, seal_template_obj},
     parse::token::{Token, TokenData},
-    string::{StringBuf, StringChar, Utf8CharIter},
+    string::{StringBuf, CharCode, Utf8CharIter},
     utils::unlikely,
     value::JSValue,
 };
@@ -20,15 +20,15 @@ impl<'s> JSParseState<'s> {
 
         while let Some((i, sc)) = chars.next() {
             match sc {
-                StringChar::Char('`') => {
+                CharCode::Char('`') => {
                     sep = '`';
                     consume = i + 1; // next to '`'
                     break;
                 }
-                StringChar::Char('$')
+                CharCode::Char('$')
                     if chars
                         .peek()
-                        .is_some_and(|(_, a)| matches!(a, StringChar::Char('{'))) =>
+                        .is_some_and(|(_, a)| matches!(a, CharCode::Char('{'))) =>
                 {
                     // ${ template start or middle part
                     let _ = chars.next(); // skip '{'
@@ -36,14 +36,14 @@ impl<'s> JSParseState<'s> {
                     consume = i + 2; // next to '{'
                     break;
                 }
-                StringChar::Char('\\') => {
+                CharCode::Char('\\') => {
                     sbuf.push_char('\\').map_err(|_| {
                         self.ctx.throw_out_of_memory();
                         -1
                     })?;
 
                     match chars.peek() {
-                        Some((_, StringChar::Char('\r' | '\n'))) => {
+                        Some((_, CharCode::Char('\r' | '\n'))) => {
                             continue; // match \r or \n arm
                         }
                         Some(_) => {
@@ -59,9 +59,9 @@ impl<'s> JSParseState<'s> {
                         }
                     }
                 }
-                StringChar::Char(c1 @ ('\r' | '\n')) => {
+                CharCode::Char(c1 @ ('\r' | '\n')) => {
                     if c1 == '\r'
-                        && let Some((_, StringChar::Char('\n'))) = chars.peek()
+                        && let Some((_, CharCode::Char('\n'))) = chars.peek()
                     {
                         let _ = chars.next(); // skip \n after \r
                     }
@@ -71,13 +71,13 @@ impl<'s> JSParseState<'s> {
                     })?;
                     self.line_num += 1;
                 }
-                StringChar::Char(ch) => {
+                CharCode::Char(ch) => {
                     sbuf.push_char(ch).map_err(|_| {
                         self.ctx.throw_out_of_memory();
                         -1
                     })?;
                 }
-                StringChar::Code(_) => {
+                CharCode::Code(_) => {
                     self.throw_syntax_error("invalid UTF-8 sequence");
                     return Err(-1);
                 }

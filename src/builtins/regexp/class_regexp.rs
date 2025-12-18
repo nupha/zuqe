@@ -13,7 +13,7 @@ use crate::{
         JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, JS_SpeciesConstructor, ObjectPayload,
         ObjectRef,
     },
-    string::{JS_ConcatString3, StringBuf, StringChar, StringData, StringRef},
+    string::{JS_ConcatString3, StringBuf, CharCode, StringData, StringRef},
     value::JSValue,
 };
 
@@ -194,17 +194,17 @@ pub fn js_regexp_get_source(cc: CallContext) -> JSResult {
         let mut chars = re.pattern.iter();
         while let Some((_, c)) = chars.next() {
             match c {
-                StringChar::Char('\\') => {
+                CharCode::Char('\\') => {
                     let _ = buf.push_char('\\');
                     if let Some((_, x)) = chars.next() {
                         let _ = buf.push_char(x);
                     }
                 }
-                StringChar::Char(']') => {
+                CharCode::Char(']') => {
                     bra = false;
                     let _ = buf.push_char(']');
                 }
-                StringChar::Char('[') => {
+                CharCode::Char('[') => {
                     if !bra {
                         if chars.peek() == Some(']' as u32 as u16) {
                             // [] case
@@ -216,14 +216,14 @@ pub fn js_regexp_get_source(cc: CallContext) -> JSResult {
                     }
                     let _ = buf.push_char('[');
                 }
-                StringChar::Char('\n') => {
+                CharCode::Char('\n') => {
                     let _ = buf.push_char('\n');
                 }
-                StringChar::Char('\r') => {
+                CharCode::Char('\r') => {
                     let _ = buf.push_char('\r');
                 }
 
-                StringChar::Char('/') => {
+                CharCode::Char('/') => {
                     if bra {
                         let _ = buf.push_str("\\/");
                     } else {

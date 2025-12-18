@@ -18,7 +18,7 @@ use crate::{
     },
     resource::LocalResource,
     runtime::RuntimePtr,
-    string::{StringChar, StringData},
+    string::{CharCode, StringData},
     utils::unlikely,
     value::{HINT_STRING, JSValue},
 };
@@ -482,16 +482,16 @@ impl ContextImpl {
     }
 
     /// create string value from a single string char.
-    pub fn create_string_from_char(&self, ch: StringChar) -> Result<StringRef, i32> {
+    pub fn create_string_from_char(&self, ch: CharCode) -> Result<StringRef, i32> {
         let buf = match ch {
-            StringChar::Char(ch) => {
+            CharCode::Char(ch) => {
                 if ch.is_ascii() {
                     StringBuf::Ascii(vec![ch as u8])
                 } else {
                     StringBuf::Utf16(ch.encode_utf16(&mut [0; 2]).to_vec())
                 }
             }
-            StringChar::Code(c) => {
+            CharCode::Code(c) => {
                 if c < 0x80 {
                     StringBuf::Ascii(vec![c as u8])
                 } else {

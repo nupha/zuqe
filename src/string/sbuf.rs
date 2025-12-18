@@ -2,7 +2,7 @@ use std::{borrow::Cow, collections::TryReserveError, ops::Range};
 
 use fallible_collections::{FallibleVec, TryClone, TryCollect};
 
-use super::{StringChar, StringData, char_is_space, string::JS_STRING_LEN_MAX};
+use super::{CharCode, StringData, char_is_space, string::JS_STRING_LEN_MAX};
 
 /// string content buffer, used to build string
 #[repr(u8)]
@@ -387,23 +387,23 @@ impl StringBuf {
         }
     }
 
-    pub fn push_char<C: Into<StringChar>>(&mut self, c: C) -> Result<(), TryReserveError> {
-        let c: StringChar = c.into();
+    pub fn push_char<C: Into<CharCode>>(&mut self, c: C) -> Result<(), TryReserveError> {
+        let c: CharCode = c.into();
         match c {
-            StringChar::Char(c) => {
+            CharCode::Char(c) => {
                 if c.is_ascii() {
                     self.push_u8(c as u8)
                 } else {
                     self.push_u16_slice(c.encode_utf16(&mut [0; 2]))
                 }
             }
-            StringChar::Code(c) => self.push_u16(c),
+            CharCode::Code(c) => self.push_u16(c),
         }
     }
 
     pub fn push_chars_iter(
         &mut self,
-        chars: impl Iterator<Item = StringChar>,
+        chars: impl Iterator<Item = CharCode>,
     ) -> Result<(), TryReserveError> {
         let sz = chars.size_hint();
         let len = std::cmp::max(sz.0, sz.1.unwrap_or(1));
@@ -416,8 +416,8 @@ impl StringBuf {
                 for c in chars {
                     let mut a = [0u16; 2];
                     lst.try_extend_from_slice(match c {
-                        StringChar::Char(c) => c.encode_utf16(&mut a),
-                        StringChar::Code(c) => {
+                        CharCode::Char(c) => c.encode_utf16(&mut a),
+                        CharCode::Code(c) => {
                             a[0] = c;
                             &a[..1]
                         }
@@ -438,7 +438,7 @@ impl StringBuf {
 
                 for c in chars {
                     match c {
-                        StringChar::Char(c) => {
+                        CharCode::Char(c) => {
                             if let Some(d16) = s16.as_mut() {
                                 d16.try_extend_from_slice(c.encode_utf16(&mut [0u16; 2]))?;
                             } else if c.is_ascii() {
@@ -450,7 +450,7 @@ impl StringBuf {
                                 s16.replace(d16);
                             }
                         }
-                        StringChar::Code(c) => {
+                        CharCode::Code(c) => {
                             debug_assert!(c >= 0x80);
 
                             if let Some(s16) = &mut s16 {
@@ -474,10 +474,10 @@ impl StringBuf {
                 lst.try_reserve(len)?;
                 for c in chars {
                     match c {
-                        StringChar::Char(c) => {
+                        CharCode::Char(c) => {
                             lst.try_extend_from_slice(c.encode_utf16(&mut [0; 2]))?;
                         }
-                        StringChar::Code(c) => {
+                        CharCode::Code(c) => {
                             lst.try_push(c)?;
                         }
                     }
@@ -636,7 +636,7 @@ impl StringBuf {
 
             let mut pos = 0;
             for (i, c) in self.iter() {
-                if let StringChar::Char(ch) = c
+                if let CharCode::Char(ch) = c
                     && !char_is_space(ch)
                 {
                     if start.is_none() {

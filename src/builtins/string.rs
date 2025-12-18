@@ -10,7 +10,7 @@ use crate::{
     function::{CallContext, FieldDef, IteratorState, JS_CallConstructor},
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, ObjectPayload},
     string::{
-        JS_ConcatString, JS_ConcatString3, JS_STRING_LEN_MAX, StringBuf, StringChar, StringData,
+        JS_ConcatString, JS_ConcatString3, JS_STRING_LEN_MAX, StringBuf, CharCode, StringData,
         StringImpl, StringRef,
     },
     utils::unlikely,
@@ -482,7 +482,7 @@ fn js_string_pad(cc: CallContext) -> JSResult {
     ttl_len -= len;
 
     let mut fill_str: Option<StringRef> = None;
-    let mut fill_char = StringChar::Char(' ');
+    let mut fill_char = CharCode::Char(' ');
 
     if cc.length() > 1 && !cc.arg(1).is_undefined() {
         let s = cc.arg(1).to_string(cx)?;
@@ -491,7 +491,7 @@ fn js_string_pad(cc: CallContext) -> JSResult {
         }
 
         if s.len() == 1 {
-            fill_char = StringChar::from(s.content().get(0).unwrap());
+            fill_char = CharCode::from(s.content().get(0).unwrap());
         } else {
             fill_str.replace(s);
         }

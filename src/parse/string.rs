@@ -1,7 +1,7 @@
 use crate::{
     parse::token::TokenData,
     stack_frame::ExecMode,
-    string::{StringBuf, StringChar, Utf8CharIter},
+    string::{StringBuf, CharCode, Utf8CharIter},
 };
 
 use super::{
@@ -24,7 +24,7 @@ impl<'s> JSParseState<'s> {
         let mut u8_chars = Utf8CharIter::new(buf).peekable();
 
         while let Some((i, sc)) = u8_chars.next() {
-            if let StringChar::Char(mut c) = sc {
+            if let CharCode::Char(mut c) = sc {
                 if (c as u32) < 0x20 {
                     // ascii control chars
                     if self.cur_func_def.is_null() {
@@ -36,7 +36,7 @@ impl<'s> JSParseState<'s> {
 
                     if sep == '`' {
                         if c == '\r' {
-                            if let Some((_, StringChar::Char('\n'))) = u8_chars.peek() {
+                            if let Some((_, CharCode::Char('\n'))) = u8_chars.peek() {
                                 let _ = u8_chars.next(); // skip \n after \r
                             }
                             c = '\n'
@@ -55,7 +55,7 @@ impl<'s> JSParseState<'s> {
                     break;
                 } else if c == '$'
                     && sep == '`'
-                    && let Some((_, StringChar::Char('{'))) = u8_chars.peek()
+                    && let Some((_, CharCode::Char('{'))) = u8_chars.peek()
                 {
                     // template expression start
                     let _ = u8_chars.next(); // skip '{'
@@ -63,7 +63,7 @@ impl<'s> JSParseState<'s> {
                     break;
                 }
 
-                let mut char_code = StringChar::Char(c);
+                let mut char_code = CharCode::Char(c);
 
                 if c == '\\' {
                     // handle escape sequence
@@ -73,14 +73,14 @@ impl<'s> JSParseState<'s> {
                         let mut should_parse_escape: Option<char> = None;
 
                         match sc2 {
-                            StringChar::Char(c1 @ ('\'' | '\"' | '\\')) => {
+                            CharCode::Char(c1 @ ('\'' | '\"' | '\\')) => {
                                 let _ = u8_chars.next();
-                                char_code = StringChar::Code(c1 as _);
+                                char_code = CharCode::Code(c1 as _);
                             }
-                            StringChar::Char(c1 @ ('\r' | '\n')) => {
+                            CharCode::Char(c1 @ ('\r' | '\n')) => {
                                 let _ = u8_chars.next(); // skip \r
                                 if c1 == '\r'
-                                    && let Some((_, StringChar::Char('\n'))) = u8_chars.peek()
+                                    && let Some((_, CharCode::Char('\n'))) = u8_chars.peek()
                                 {
                                     let _ = u8_chars.next(); // skip \n
                                 }
@@ -90,7 +90,7 @@ impl<'s> JSParseState<'s> {
                                 }
                                 continue;
                             }
-                            StringChar::Char(c1 @ ('0'..='9')) => {
+                            CharCode::Char(c1 @ ('0'..='9')) => {
                                 if self.cur_func_def.is_null() {
                                     // parsing JSON
                                     if throw_err {
@@ -108,14 +108,14 @@ impl<'s> JSParseState<'s> {
                                     should_parse_escape = Some(c1);
                                 } else if c1 == '0' && {
                                     u8_chars.next(); // skip '0'
-                                    if let Some((_, StringChar::Char(a))) = u8_chars.peek() {
+                                    if let Some((_, CharCode::Char(a))) = u8_chars.peek() {
                                         !a.is_ascii_digit()
                                     } else {
                                         true
                                     }
                                 } {
                                     // handle null character escape \0
-                                    char_code = StringChar::Char('\0');
+                                    char_code = CharCode::Char('\0');
                                 } else {
                                     // ES2021: octal escapes 8/9 not allowed in strict mode/templates
                                     if throw_err {
@@ -128,20 +128,20 @@ impl<'s> JSParseState<'s> {
                                     return Err(-1);
                                 }
                             }
-                            StringChar::Char('\u{2028}' | '\u{2029}') => {
+                            CharCode::Char('\u{2028}' | '\u{2029}') => {
                                 // skip line/paragraph separators
                                 let _ = u8_chars.next();
                                 continue;
                             }
-                            StringChar::Char(c1) => {
+                            CharCode::Char(c1) => {
                                 if c1.is_ascii() {
                                     should_parse_escape = Some(c1)
                                 } else {
                                     let _ = u8_chars.next();
-                                    char_code = StringChar::Char(c1);
+                                    char_code = CharCode::Char(c1);
                                 }
                             }
-                            StringChar::Code(_) => {
+                            CharCode::Code(_) => {
                                 if throw_err {
                                     self.throw_syntax_error("invalid UTF-8 sequence");
                                 }
@@ -155,7 +155,7 @@ impl<'s> JSParseState<'s> {
                                 Ok((code, consume)) => {
                                     let _ = u8_chars.nth(consume - 1);
                                     char_code = char::from_u32(code)
-                                        .map_or(StringChar::Code(code as u16), StringChar::Char);
+                                        .map_or(CharCode::Code(code as u16), CharCode::Char);
                                 }
                                 Err(-1) => {
                                     if throw_err {
@@ -168,7 +168,7 @@ impl<'s> JSParseState<'s> {
                                 Err(-2) => {
                                     // ignore the '\' (could output a warning)
                                     let _ = u8_chars.next();
-                                    char_code = StringChar::Char(ch);
+                                    char_code = CharCode::Char(ch);
                                 }
                                 _ => unreachable!(),
                             }

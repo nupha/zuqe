@@ -7,7 +7,7 @@ use crate::{
     context::ContextImpl,
     number::IntOrFloat,
     runtime::RuntimePtr,
-    string::{StringChar, StringRef},
+    string::{CharCode, StringRef},
     value::JSValue,
 };
 
@@ -156,7 +156,7 @@ impl Atom {
             if let Some((_, c)) = chars.next() {
                 if let Some(mut ch) = c.char() {
                     if ch == '-' {
-                        if let Some((_, StringChar::Char(c2))) = chars.next() {
+                        if let Some((_, CharCode::Char(c2))) = chars.next() {
                             // -0 case is specific
                             if c2 == '0' && buf_len == 2 {
                                 return Ok(Some(IntOrFloat::Float64(-0.0)));
@@ -174,7 +174,7 @@ impl Atom {
                             let mut nfinity = "nfinity".chars();
                             loop {
                                 match (chars.next(), nfinity.next()) {
-                                    (Some((_, StringChar::Char(a))), Some(b)) if a == b => {}
+                                    (Some((_, CharCode::Char(a))), Some(b)) if a == b => {}
                                     (None, None) => {
                                         break; // Infinity is allowed
                                     }
@@ -425,7 +425,7 @@ impl JSValue {
 //     })?;
 
 //     buf.push_content(str_val.content()).unwrap();
-//     buf.push_chars_iter(str.to_string_lossy().chars().map(StringChar::Char))
+//     buf.push_chars_iter(str.to_string_lossy().chars().map(CharCode::Char))
 //         .map_err(|_| {
 //             ctx.throw_out_of_memory();
 //             -1

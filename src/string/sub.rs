@@ -1,6 +1,6 @@
 use std::collections::TryReserveError;
 
-use crate::string::{StringBuf, StringChar, StringCharIter, StringData};
+use crate::string::{CharCode, StringBuf, StringCharIter, StringData};
 
 use super::UTF8_CHAR_LEN_MAX;
 
@@ -52,26 +52,26 @@ fn do_substitution(
 
     // escape $-patterns in `replacement`
     while let Some((_, c)) = replace_chars.next() {
-        if c == StringChar::Char('$') {
+        if c == CharCode::Char('$') {
             if let Some((_, c1)) = replace_chars.next() {
                 match c1 {
-                    StringChar::Char('$') => {
+                    CharCode::Char('$') => {
                         // $$ -> $
                         sbuf.push_char('$')?;
                     }
-                    StringChar::Char('&') => {
+                    CharCode::Char('&') => {
                         // $& -> matched
                         sbuf.push_content(matched)?;
                     }
-                    StringChar::Char('`') => {
+                    CharCode::Char('`') => {
                         // $` -> str[0..position]
                         sbuf.push_content_range(str, 0..position)?;
                     }
-                    StringChar::Char('\'') => {
+                    CharCode::Char('\'') => {
                         // $' -> str[position+matched.len()..]
                         sbuf.push_content_range(str, (position + matched.len())..str.len())?;
                     }
-                    StringChar::Char(a @ ('0'..='9')) => {
+                    CharCode::Char(a @ ('0'..='9')) => {
                         // $k -> captures[k]
                         let mut id = a as u32 - '0' as u32;
                         if let Some(c2) = replace_chars.peek()
@@ -93,19 +93,19 @@ fn do_substitution(
                             sbuf.push_char(a)?; // 0
                         }
                     }
-                    StringChar::Char('<') => {
+                    CharCode::Char('<') => {
                         // $<name> -> names_captures[name]
                         let name_start = sbuf.len();
                         sbuf.push_str("$<")?;
 
                         for (_, c1) in replace_chars.by_ref() {
-                            if c1 == StringChar::Char('>') {
+                            if c1 == CharCode::Char('>') {
                                 // extract name
                                 let name = sbuf
                                     .iter_since(name_start)
                                     .map(|(_, c)| match c {
-                                        StringChar::Char(c) => c,
-                                        StringChar::Code(_) => '\u{FFFD}',
+                                        CharCode::Char(c) => c,
+                                        CharCode::Code(_) => '\u{FFFD}',
                                     })
                                     .skip(2) // chop leading $<
                                     .collect::<String>();
@@ -162,7 +162,7 @@ fn quote_string_internal(src: StringCharIter, len: usize) -> Result<StringBuf, T
         }
 
         match ch {
-            StringChar::Char(c) => match c {
+            CharCode::Char(c) => match c {
                 '\t' => {
                     buf.push_str("\\t")?;
                     continue;
@@ -198,7 +198,7 @@ fn quote_string_internal(src: StringCharIter, len: usize) -> Result<StringBuf, T
                     buf.push_char(c)?;
                 }
             },
-            StringChar::Code(c) => {
+            CharCode::Code(c) => {
                 buf.push_str(&format!("\\u{:04x}", c))?;
             }
         }

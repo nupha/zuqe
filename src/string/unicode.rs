@@ -1,6 +1,6 @@
 use std::ptr::NonNull;
 
-use crate::{string::StringChar, utils::unlikely};
+use crate::{string::CharCode, utils::unlikely};
 
 // Maximum UTF-8 character length
 pub const UTF8_CHAR_LEN_MAX: usize = 6;
@@ -434,7 +434,7 @@ enum DecodeError {
 }
 
 impl<'a> Iterator for Utf8CharIter<'a> {
-    type Item = (usize, StringChar); // (byte_index, character)
+    type Item = (usize, CharCode); // (byte_index, character)
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.index < self.bytes.len() {
@@ -443,7 +443,7 @@ impl<'a> Iterator for Utf8CharIter<'a> {
             match self.decode_char(pos) {
                 Ok((ch, consumed)) => {
                     self.index += consumed;
-                    Some((pos, StringChar::Char(ch)))
+                    Some((pos, CharCode::Char(ch)))
                 }
                 Err(DecodeError::EndOfInput) => None,
                 Err(
@@ -456,7 +456,7 @@ impl<'a> Iterator for Utf8CharIter<'a> {
                     | DecodeError::InvalidCodePoint(_),
                 ) => {
                     self.index += 1; // skip one byte when invalid utf8 sequence
-                    Some((pos, StringChar::Code(self.bytes[pos] as u16)))
+                    Some((pos, CharCode::Code(self.bytes[pos] as u16)))
                 }
             }
         } else {

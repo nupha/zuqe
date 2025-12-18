@@ -8,7 +8,7 @@ use crate::{
     runtime::js_check_stack_overflow,
     stack_frame::ExecMode,
     string::{
-        StringBuf, StringChar, UTF8_CHAR_LEN_MAX, Utf8CharIter, char_is_space, unicode_from_utf8_v0,
+        StringBuf, CharCode, UTF8_CHAR_LEN_MAX, Utf8CharIter, char_is_space, unicode_from_utf8_v0,
     },
 };
 
@@ -799,11 +799,11 @@ impl<'s> JSParseState<'s> {
     pub(super) fn skip_line_comment(&self, buf: &[u8]) -> usize {
         for (i, sc) in Utf8CharIter::new(buf) {
             match sc {
-                StringChar::Char('\r' | '\n' | '\u{2028}' | '\u{2029}') => {
+                CharCode::Char('\r' | '\n' | '\u{2028}' | '\u{2029}') => {
                     return i;
                 }
-                StringChar::Char(_) => {}
-                StringChar::Code(_) => {}
+                CharCode::Char(_) => {}
+                CharCode::Code(_) => {}
             }
         }
         buf.len()
@@ -814,14 +814,14 @@ impl<'s> JSParseState<'s> {
 
         while let Some((i, sc)) = chars.next() {
             match sc {
-                StringChar::Char('\n') => {
+                CharCode::Char('\n') => {
                     self.line_num += 1;
                     self.got_lf = true;
                 }
-                StringChar::Char('\r' | '\u{2028}' | '\u{2029}') => {
+                CharCode::Char('\r' | '\u{2028}' | '\u{2029}') => {
                     self.got_lf = true;
                 }
-                StringChar::Char('*') => {
+                CharCode::Char('*') => {
                     if let Some(b'/') = chars.peek_offset(0) {
                         return Some(i + 2); // skip '*/'
                     }

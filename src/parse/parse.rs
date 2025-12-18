@@ -4,7 +4,7 @@ use crate::{
     eval::EvalType,
     function::JSFunctionKindEnum,
     stack_frame::ExecMode,
-    string::{StringChar, UTF8_CHAR_LEN_MAX, Utf8CharIter},
+    string::{CharCode, UTF8_CHAR_LEN_MAX, Utf8CharIter},
 };
 
 use super::{
@@ -499,7 +499,7 @@ pub(super) fn skip_shebang(buf: &[u8]) -> usize {
     if buf.starts_with(b"#!") {
         Utf8CharIter::new(&buf[2..])
             .find_map(|(i, c)| {
-                if let StringChar::Char(ch @ ('\n' | '\r' | '\u{2028}' | '\u{2029}')) = c {
+                if let CharCode::Char(ch @ ('\n' | '\r' | '\u{2028}' | '\u{2029}')) = c {
                     Some(i + ch.len_utf8() + 2)
                 } else {
                     None
@@ -508,7 +508,7 @@ pub(super) fn skip_shebang(buf: &[u8]) -> usize {
             .unwrap_or(buf.len())
 
         // for (i, c) in Utf8CharIter::new(&buf[2..]) {
-        //     if let StringChar::Char(ch @ ('\n' | '\r' | '\u{2028}' | '\u{2029}')) = c {
+        //     if let CharCode::Char(ch @ ('\n' | '\r' | '\u{2028}' | '\u{2029}')) = c {
         //         return i + ch.len_utf8() + 2;
         //     }
         // }

@@ -2,28 +2,29 @@ use std::{iter::Peekable, ops::Range};
 
 use super::StringBuf;
 
+/// Represent char (for valid unicode) or code data (for invalid unicode)
 #[repr(u8)]
 #[derive(Clone, Copy, PartialEq)]
-pub enum StringChar {
-    /// unichar
+pub enum CharCode {
+    /// unichar - for valid unicode
     Char(char),
-    /// invalid code
+    /// code - for invalid unicode
     Code(u16),
 }
 
-impl From<char> for StringChar {
+impl From<char> for CharCode {
     fn from(value: char) -> Self {
         Self::Char(value)
     }
 }
 
-impl From<u8> for StringChar {
+impl From<u8> for CharCode {
     fn from(value: u8) -> Self {
         Self::Char(value as char)
     }
 }
 
-impl From<u16> for StringChar {
+impl From<u16> for CharCode {
     fn from(value: u16) -> Self {
         if matches!(value, 0xD800..=0xDFFF) {
             // invalid high or low surrogate.
@@ -34,7 +35,7 @@ impl From<u16> for StringChar {
     }
 }
 
-impl std::fmt::Display for StringChar {
+impl std::fmt::Display for CharCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Char(c) => {
@@ -47,13 +48,13 @@ impl std::fmt::Display for StringChar {
     }
 }
 
-impl std::fmt::Debug for StringChar {
+impl std::fmt::Debug for CharCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "'{self}'")
     }
 }
 
-impl StringChar {
+impl CharCode {
     pub const fn to_u32(self) -> u32 {
         match self {
             Self::Char(c) => c as u32,
@@ -78,7 +79,7 @@ pub struct U16CharIter<'a> {
 }
 
 impl<'a> Iterator for U16CharIter<'a> {
-    type Item = (usize, StringChar);
+    type Item = (usize, CharCode);
 
     /// returns (next_pos, char)
     fn next(&mut self) -> Option<Self::Item> {
@@ -96,21 +97,21 @@ impl<'a> Iterator for U16CharIter<'a> {
                     if let Some(ch) = char::from_u32(code_point) {
                         self.data.next(); // 消耗低代理项
                         self.cursor += 1;
-                        return Some((self.cursor, StringChar::Char(ch)));
+                        return Some((self.cursor, CharCode::Char(ch)));
                     }
                 }
 
                 // 非法代理对（单独的高代理或无效组合）→ 保留原始 u16
-                StringChar::Code(high as _)
+                CharCode::Code(high as _)
             } else if (0xDC00..=0xDFFF).contains(&high) {
                 // 单独的低代理项 → 保留原始 u16
-                StringChar::Code(high as _)
+                CharCode::Code(high as _)
             } else {
                 // 普通 BMP 字符（U+0000..=U+FFFF）
                 if let Some(ch) = char::from_u32(high) {
-                    StringChar::Char(ch)
+                    CharCode::Char(ch)
                 } else {
-                    StringChar::Code(high as _)
+                    CharCode::Code(high as _)
                 }
             };
 
@@ -147,7 +148,7 @@ pub enum StringCharIter<'a> {
 }
 
 impl<'a> Iterator for StringCharIter<'a> {
-    type Item = (usize, StringChar);
+    type Item = (usize, CharCode);
 
     /// returns (next_pos, char)
     fn next(&mut self) -> Option<Self::Item> {
@@ -155,7 +156,7 @@ impl<'a> Iterator for StringCharIter<'a> {
             Self::U16(it) => it.next(),
             Self::U8 { it, cursor } => it.next().map(|c| {
                 *cursor += 1;
-                (*cursor, StringChar::Char(*c as char))
+                (*cursor, CharCode::Char(*c as char))
             }),
         }
     }
@@ -288,15 +289,15 @@ impl StringBuf {
 
     pub fn chars_range_lossy(&self, range: Range<usize>) -> impl Iterator<Item = char> {
         self.iter_range(range).map(|(_, c)| match c {
-            StringChar::Char(c) => c,
-            StringChar::Code(_) => '\u{FFFD}',
+            CharCode::Char(c) => c,
+            CharCode::Code(_) => '\u{FFFD}',
         })
     }
 
     pub fn chars_lossy(&self) -> impl Iterator<Item = char> {
         self.iter().map(|(_, c)| match c {
-            StringChar::Char(c) => c,
-            StringChar::Code(_) => '\u{FFFD}',
+            CharCode::Char(c) => c,
+            CharCode::Code(_) => '\u{FFFD}',
         })
     }
 }
