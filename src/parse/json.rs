@@ -14,7 +14,8 @@ use crate::{
         },
     },
     runtime::js_check_stack_overflow,
-    string::{CP_LS, CP_PS, UTF8_CHAR_LEN_MAX, escape_str, unicode_from_utf8_v0},
+    string::{UTF8_CHAR_LEN_MAX, Utf8CharIter, escape_str},
+    utils::unlikely,
     value::JSValue,
 };
 
@@ -31,223 +32,273 @@ impl<'s> JSParseState<'s> {
         self.clear_token_data();
 
         enum Todo {
-            DefaultToken(i32),
+            Token(i32),
             Fail,
         }
 
-        let mut p = self.buf_ptr;
-        self.last_ptr = p;
+        self.last_ptr = self.buf_ptr;
         self.last_line_num = self.token.line_num;
 
-        let todo = 'redo: loop {
-            if p >= self.input_end {
-                self.token.val = TOK_EOF;
-                self.token.data = TokenData::None;
-                self.buf_ptr = self.input_end;
-                return Ok(());
+        let buf = unsafe {
+            if self.buf_ptr < self.input_end {
+                std::slice::from_raw_parts(
+                    self.buf_ptr,
+                    self.input_end.offset_from(self.buf_ptr) as usize,
+                )
+            } else {
+                &[]
             }
+        };
+        let mut ins = Utf8CharIter::new(buf);
+        let mut todo: Option<Todo> = None;
 
+        while let Some(b) = ins.peek_byte(0) {
             self.token.line_num = self.line_num;
-            self.token.ptr = p;
+            self.token.ptr = ins.current_ptr().map_or(self.input_end, |p| p.as_ptr());
 
-            match unsafe { *p } {
-                b'\0' => {
-                    break Todo::DefaultToken(0);
-                }
-                c @ (b'\'' | b'"') => {
-                    if c == b'\'' && !self.ext_json {
+            match b {
+                quote @ (b'\'' | b'"') => {
+                    if quote == b'\'' && !self.ext_json {
                         // standard JSON does not accept single quoted strings
-                        break Todo::DefaultToken('\'' as _);
-                    }
-                    p = unsafe { p.add(1) }; // skip delimitor
-                    if let Ok(consumed) = self.parse_string(
-                        '"',
-                        true,
-                        unsafe {
-                            std::slice::from_raw_parts(p, self.input_end.offset_from(p) as usize)
-                        },
-                        None,
-                    ) {
-                        p = unsafe { p.add(consumed) }; // next char of ending delimitor
-                        self.buf_ptr = p;
-                        return Ok(());
+                        todo = Some(Todo::Token('\'' as _));
+                        break;
                     } else {
-                        break Todo::Fail;
+                        ins.seek_offset(1); // skip starting quote
+
+                        if let Ok(n) =
+                            self.parse_string(quote as _, true, ins.remainder_bytes(), None)
+                        {
+                            ins.seek_offset(n as _); // at next char of ending quote
+                            debug_assert_eq!(ins.peek_offset(-1).unwrap(), quote);
+
+                            self.buf_ptr = ins.current_ptr().map_or(self.input_end, |p| p.as_ptr());
+                            return Ok(());
+                        } else {
+                            todo = Some(Todo::Fail);
+                            break;
+                        }
                     }
                 }
-                b'\r' => unsafe {
-                    // accept DOS and MAC newline sequences
-                    if *p.add(1) == b'\n' {
-                        p = p.add(1);
+                c @ (b'\r' | b'\n') => {
+                    if c == b'\r'
+                        && let Some(b'\n') = ins.peek_byte(1)
+                    {
+                        ins.seek_offset(1);
                     }
-                    p = p.add(1);
+                    ins.seek_offset(1);
                     self.line_num += 1;
-                    continue 'redo;
-                },
-                b'\n' => unsafe {
-                    p = p.add(1);
-                    self.line_num += 1;
-                    continue 'redo;
-                },
+                    continue;
+                }
                 //b'\f' | b'\v'
-                c @ (0x0c | 0x0b) => {
+                c @ (b'\x0c' | b'\x0b') => {
                     if !self.ext_json {
                         // JSONWhitespace does not match <VT>, nor <FF>
-                        break Todo::DefaultToken(c as _);
+                        todo = Some(Todo::Token(c as _));
+                        break;
+                    } else {
+                        ins.seek_offset(1);
+                        continue;
                     }
-                    p = unsafe { p.add(1) };
-                    continue 'redo;
                 }
                 b' ' | b'\t' => {
-                    p = unsafe { p.add(1) };
-                    continue 'redo;
+                    ins.seek_offset(1);
+                    continue;
                 }
-                b'/' => unsafe {
+                b'/' => {
                     if !self.ext_json {
                         // JSON does not accept comments
-                        break Todo::DefaultToken('/' as _);
+                        todo = Some(Todo::Token('/' as _));
+                        break;
                     }
-                    if *p.add(1) == b'*' {
-                        // comment
-                        p = p.add(2);
-                        loop {
-                            if p >= self.input_end {
-                                self.throw_syntax_error("unexpected end of comment");
-                                break;
-                            }
 
-                            if *p == b'*' && *p.add(1) == b'/' {
-                                p = p.add(2);
-                                break;
-                            }
-                            if *p == b'\n' {
-                                self.line_num += 1;
-                                p = p.add(1);
-                            } else if *p == b'\r' {
-                                p = p.add(1);
-                            } else if *p >= 0x80 {
-                                if unicode_from_utf8_v0(p, UTF8_CHAR_LEN_MAX as _, &mut p).is_err()
-                                {
-                                    p = p.add(1); // skip invalid UTF-8
-                                }
-                            } else {
-                                p = p.add(1);
-                            }
-                        }
-                        continue 'redo;
-                    } else if *p.offset(1) == b'/' {
-                        // line comment
-                        p = p.offset(2);
-                        loop {
-                            if p >= self.input_end {
-                                break;
-                            }
-                            if matches!(*p, b'\r' | b'\n') {
-                                break;
-                            }
-                            if *p >= 0x80 {
-                                if let Ok(c) =
-                                    unicode_from_utf8_v0(p, UTF8_CHAR_LEN_MAX as _, &mut p)
-                                {
-                                    // LS or PS are considered as line terminator
-                                    if matches!(c as u32, CP_LS | CP_PS) {
-                                        break;
-                                    }
+                    match ins.peek_byte(1) {
+                        Some(b'*') => {
+                            // block comment
+                            ins.seek_offset(2); // skip '/*'
+                            if let Some(pos) = ins.current_index() {
+                                if let Some(n) = self.skip_block_comment(&buf[pos..]) {
+                                    ins.seek_offset(n as _);
+                                    continue;
                                 } else {
-                                    p = p.offset(1); // skip invalid UTF-8
+                                    ins.end();
+                                    self.throw_syntax_error("unexpected end of comment");
+                                    todo = Some(Todo::Fail);
+                                    break;
                                 }
-                            } else {
-                                p = p.offset(1);
                             }
                         }
-                        continue 'redo;
-                    } else {
-                        break Todo::DefaultToken('/' as _);
+                        Some(b'/') => {
+                            // line comment
+                            ins.seek_offset(2); // skip '//'
+                            if let Some(pos) = ins.current_index() {
+                                let n = self.skip_line_comment(&buf[pos..]);
+                                ins.seek_offset(n as _);
+                                continue;
+                            }
+                        }
+                        _ => {
+                            todo = Some(Todo::Token('/' as _));
+                            break;
+                        }
                     }
-                },
-                c @ (b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'$') => unsafe {
+                }
+                c @ (b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'$') => {
                     // identifier : only pure ascii characters are accepted
-                    p = p.add(1);
-                    if let Ok(atom) = json_parse_ident(self, &mut p, c) {
+                    ins.seek_offset(1);
+                    if let Ok(atom) = self.json_parse_ident(&mut ins, c) {
                         self.token.data = TokenData::Ident {
                             atom,
                             has_escape: false,
                             is_reserved: false,
                         };
                         self.token.val = TOK_IDENT;
-                        self.buf_ptr = p;
+                        self.buf_ptr = ins.current_ptr().map_or(self.input_end, |p| p.as_ptr());
                         return Ok(());
                     } else {
-                        break Todo::Fail;
+                        todo = Some(Todo::Fail);
+                        break;
                     }
-                },
-                b'+' => unsafe {
-                    if !self.ext_json || !(*p.add(1)).is_ascii_digit() {
-                        break Todo::DefaultToken('+' as _);
+                }
+                b'+' => {
+                    if !self.ext_json || ins.peek_byte(1).is_none_or(|b| !b.is_ascii_digit()) {
+                        todo = Some(Todo::Token('+' as _));
+                        break;
                     }
-                    if let Ok(q) = json_parse_value_number(self, p) {
-                        p = q;
-                        self.buf_ptr = q;
+
+                    if let Ok(n) = self.json_parse_value_number(ins.current_ptr().unwrap().as_ptr())
+                    {
+                        ins.seek_offset(n as _);
+                        self.buf_ptr = ins.current_ptr().map_or(self.input_end, |p| p.as_ptr());
                         return Ok(());
                     } else {
-                        break Todo::Fail;
-                    };
-                },
-                b'0' => unsafe {
-                    if (*p.add(1)).is_ascii_digit() {
-                        break Todo::DefaultToken('0' as _);
+                        todo = Some(Todo::Fail);
+                        break;
                     }
-                    if let Ok(q) = json_parse_value_number(self, p) {
-                        p = q;
-                        self.buf_ptr = q;
-                        return Ok(());
-                    } else {
-                        break Todo::Fail;
-                    };
-                },
+                }
                 b'-' => {
-                    if unsafe { !(*p.add(1)).is_ascii_digit() } {
-                        break Todo::DefaultToken('-' as _);
+                    if ins.peek_byte(1).is_none_or(|b| !b.is_ascii_digit()) {
+                        todo = Some(Todo::Token('-' as _));
+                        break;
                     }
-                    if let Ok(q) = json_parse_value_number(self, p) {
-                        p = q;
-                        self.buf_ptr = q;
+
+                    if let Ok(n) = self.json_parse_value_number(ins.current_ptr().unwrap().as_ptr())
+                    {
+                        ins.seek_offset(n as _);
+                        self.buf_ptr = ins.current_ptr().map_or(self.input_end, |p| p.as_ptr());
                         return Ok(());
                     } else {
-                        break Todo::Fail;
-                    };
+                        todo = Some(Todo::Fail);
+                        break;
+                    }
+                }
+                b'0' => {
+                    if ins.peek_byte(1).is_some_and(|b| b.is_ascii_digit()) {
+                        todo = Some(Todo::Token('0' as _));
+                        break;
+                    }
+
+                    if let Ok(n) = self.json_parse_value_number(ins.current_ptr().unwrap().as_ptr())
+                    {
+                        ins.seek_offset(n as _);
+                        self.buf_ptr = ins.current_ptr().map_or(self.input_end, |p| p.as_ptr());
+                        return Ok(());
+                    } else {
+                        todo = Some(Todo::Fail);
+                        break;
+                    }
                 }
                 b'1'..=b'9' => {
-                    if let Ok(q) = json_parse_value_number(self, p) {
-                        p = q;
-                        self.buf_ptr = q;
+                    let p0 = ins.current_ptr().unwrap().as_ptr();
+                    if let Ok(n) = self.json_parse_value_number(p0) {
+                        ins.seek_offset(n as i32);
+                        self.buf_ptr = ins.current_ptr().map_or(self.input_end, |p| p.as_ptr());
                         return Ok(());
                     } else {
-                        break Todo::Fail;
-                    };
+                        todo = Some(Todo::Fail);
+                        break;
+                    }
                 }
-                c if c >= 128 => {
+                c if c.is_ascii() => {
+                    todo = Some(Todo::Token(c as _));
+                    break;
+                }
+                _ => {
                     self.throw_syntax_error("unexpected character");
-                    break Todo::Fail;
+                    todo = Some(Todo::Fail);
+                    break;
                 }
-                c => {
-                    break Todo::DefaultToken(c as _);
-                }
-            }
-        };
-
-        match todo {
-            Todo::DefaultToken(c) => {
-                self.token.val = c;
-                p = unsafe { p.add(1) };
-                self.buf_ptr = p;
-                Ok(())
-            }
-            Todo::Fail => {
-                self.token.val = TOK_ERROR;
-                Err(-1)
             }
         }
+
+        if let Some(todo) = todo {
+            match todo {
+                Todo::Token(c) => {
+                    self.token.val = c;
+                    ins.seek_offset(1);
+                    self.buf_ptr = ins.current_ptr().map_or(self.input_end, |p| p.as_ptr());
+                    Ok(())
+                }
+                Todo::Fail => {
+                    self.token.val = TOK_ERROR;
+                    Err(-1)
+                }
+            }
+        } else {
+            self.token.val = TOK_EOF;
+            self.token.data = TokenData::None;
+            self.buf_ptr = self.input_end;
+            Ok(())
+        }
+    }
+
+    // Returns consumed bytes
+    fn json_parse_value_number(&mut self, mut p: *const u8) -> Result<usize, i32> {
+        let flags: i32;
+        let radix: i32;
+
+        if !self.ext_json {
+            flags = 0;
+            radix = 10;
+        } else {
+            flags = ATOD_ACCEPT_BIN_OCT;
+            radix = 0;
+        }
+
+        let p0 = p;
+
+        if let Ok(num) = unsafe { js_atof(&self.ctx, p, &mut p, radix, flags) } {
+            self.token.val = TOK_NUMBER;
+            self.token.data = TokenData::Num(num);
+            Ok(unsafe { p.offset_from(p0) as usize })
+        } else {
+            self.token.val = TOK_ERROR;
+            Err(-1)
+        }
+    }
+
+    fn json_parse_ident(&mut self, inp: &mut Utf8CharIter, first_char: u8) -> Result<Atom, i32> {
+        let mut buf = SmallVec::<[u8; 64]>::new();
+        buf.push(first_char);
+
+        while let Some(c) = inp.peek_byte(0)
+            && c.is_ascii()
+            && Self::is_ident_next(c as _)
+        {
+            if buf.capacity() - buf.len() >= UTF8_CHAR_LEN_MAX {
+                buf.try_reserve(64).map_err(|_| {
+                    self.ctx.throw_out_of_memory();
+                    -1
+                })?;
+            }
+            buf.push(c);
+            inp.seek_offset(1);
+        }
+
+        let atom = Atom::new(
+            self.ctx.rt_ptr(),
+            std::str::from_utf8(&buf).map_err(|_| -1)?,
+        )?;
+        Ok(atom)
     }
 
     fn json_parse_value(&mut self) -> JSResult {
@@ -387,72 +438,22 @@ fn json_parse_expect(s: &mut JSParseState, tok: i32) -> Result<(), i32> {
     }
 }
 
-/// 'c' is the first character.
-fn json_parse_ident(s: &mut JSParseState, pp: &mut *const u8, mut c: u8) -> Result<Atom, i32> {
-    let mut p = *pp;
-    let mut buf = SmallVec::<[u8; 128]>::new();
+impl ContextImpl {
+    pub fn json_parse(&self, source: &[u8], filename: &str, flags: i32) -> JSResult {
+        // Note: parser will be dropped within this function.
+        // so, 'source' and 'filename' are safe w/o lifetime annotation
 
-    loop {
-        if buf.capacity() - buf.len() >= UTF8_CHAR_LEN_MAX {
-            buf.try_reserve(128).map_err(|_| {
-                s.ctx.throw_out_of_memory();
-                -1
-            })?;
+        let mut parser = JSParseState::new_for_json(self, source, filename);
+        parser.ext_json = flags & JS_PARSE_JSON_EXT != 0;
+
+        parser.json_next_token()?;
+        let val = parser.json_parse_value()?;
+
+        if unlikely(parser.token.val != TOK_EOF) {
+            parser.throw_syntax_error("unexpected data at the end");
+            Err(-1)
+        } else {
+            Ok(val)
         }
-        buf.push(c);
-
-        unsafe {
-            c = *p;
-            if c >= 128 || !JSParseState::is_ident_next(c as _) {
-                break;
-            }
-            p = p.add(1);
-        }
-    }
-
-    let atom = Atom::new(s.ctx.rt_ptr(), std::str::from_utf8(&buf).map_err(|_| -1)?)?;
-    *pp = p;
-    Ok(atom)
-}
-
-// Helper function to encapsulate number parsing logic
-// Returns new pointer on success, or null pointer on failure (to signal goto fail)
-fn json_parse_value_number(s: &mut JSParseState, mut p: *const u8) -> Result<*const u8, i32> {
-    let flags: i32;
-    let radix: i32;
-
-    if !s.ext_json {
-        flags = 0;
-        radix = 10;
-    } else {
-        flags = ATOD_ACCEPT_BIN_OCT;
-        radix = 0;
-    }
-
-    if let Ok(num) = unsafe { js_atof(&s.ctx, p, &mut p, radix, flags) } {
-        s.token.val = TOK_NUMBER;
-        s.token.data = TokenData::Num(num);
-        Ok(p) // return updated pointer  
-    } else {
-        s.token.val = TOK_ERROR;
-        Err(-1)
-    }
-}
-
-pub fn JS_ParseJSON(ctx: &ContextImpl, source: &[u8], filename: &str) -> JSResult {
-    // Note: parser will be dropped within this function.
-    // so, 'source' and 'filename' are safe w/o lifetime annotation
-
-    let mut parser = JSParseState::new_for_json(ctx, source, filename);
-    parser.ext_json = JS_PARSE_JSON_EXT != 0;
-
-    parser.json_next_token()?;
-
-    let val = parser.json_parse_value()?;
-    if parser.token.val != TOK_EOF {
-        parser.throw_syntax_error("unexpected data at the end");
-        Err(-1)
-    } else {
-        Ok(val)
     }
 }

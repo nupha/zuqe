@@ -13,7 +13,7 @@ use crate::{
     value::JSValue,
 };
 
-pub(super) struct JSONStringifyContext {
+struct JSONStringifyContext {
     replacer_func: JSValue,
     replacer_props: Option<Vec<StringRef>>,
     stack: SmallVec<[JSValue; 16]>,
@@ -22,104 +22,101 @@ pub(super) struct JSONStringifyContext {
     buf: StringBuf,
 }
 
-pub fn JS_JSONStringify(
-    ctx: &ContextImpl,
-    obj: JSValue,
-    replacer: JSValue,
-    space: JSValue,
-) -> JSResult {
-    let mut jsc = JSONStringifyContext {
-        replacer_func: JSValue::UNDEFINED,
-        stack: SmallVec::new(),
-        replacer_props: None,
-        empty: Atom::CONST_empty_string.force_string(ctx).unwrap(),
-        gap: StringData::Empty,
-        buf: StringBuf::Empty,
-    };
-
-    if replacer.is_function() {
-        jsc.replacer_func = replacer;
-    } else if replacer.is_array(ctx)? {
-        let n = replacer.get_length_prop(ctx)?;
-
-        let mut keylst = Vec::<StringRef>::new();
-        keylst.try_reserve_exact(n as usize).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
-
-        for i in 0..n {
-            let k: StringRef = match replacer.get_property_i64(ctx, i)? {
-                JSValue::Object(o) => {
-                    if matches!(o.class_id(), JS_CLASS_STRING | JS_CLASS_NUMBER) {
-                        JSValue::Object(o).to_string(ctx)?
-                    } else {
-                        continue; // symbols are ignored
-                    }
-                }
-                JSValue::String(s) => s,
-                v if v.is_number() => v.to_string(ctx)?,
-                _ => {
-                    continue; // ignored
-                }
-            };
-
-            // add non-duplicated property key
-            if !keylst.iter().any(|x| k.eq(x)) {
-                keylst.push(k);
-            }
-        }
-
-        jsc.replacer_props.replace(keylst);
-    }
-
-    let mut space: JSValue = space;
-    if let Some(p) = space.as_object() {
-        match p.class_id() {
-            JS_CLASS_NUMBER => {
-                space = space.to_number(ctx)?;
-            }
-            JS_CLASS_STRING => {
-                space = space.to_string(ctx)?.into();
-            }
-            _ => {}
-        }
-    }
-
-    if space.is_number() {
-        let n = space.to_i32_clamp(ctx, 0, 10, 0)? as usize;
-        jsc.gap = unsafe {
-            let spc = [b' '; 10];
-            ctx.create_string_from_str(std::str::from_utf8_unchecked(&spc[..n]))?
-                .content()
-                .clone()
+impl ContextImpl {
+    pub fn json_stringify(&self, obj: JSValue, replacer: JSValue, space: JSValue) -> JSResult {
+        let mut jsc = JSONStringifyContext {
+            replacer_func: JSValue::UNDEFINED,
+            stack: SmallVec::new(),
+            replacer_props: None,
+            empty: Atom::CONST_empty_string.force_string(self).unwrap(),
+            gap: StringData::Empty,
+            buf: StringBuf::Empty,
         };
-    } else if let JSValue::String(s) = space {
-        let mut b = StringBuf::with_capacity(s.len(), false).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
-        b.push_content_range(s.content(), 0..10).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
-        jsc.gap = ctx.create_string_with_buf(b)?.content().clone();
-    } else {
-        jsc.gap = StringData::Empty;
+
+        if replacer.is_function() {
+            jsc.replacer_func = replacer;
+        } else if replacer.is_array(self)? {
+            let n = replacer.get_length_prop(self)?;
+
+            let mut keylst = Vec::<StringRef>::new();
+            keylst.try_reserve_exact(n as usize).map_err(|_| {
+                self.throw_out_of_memory();
+                -1
+            })?;
+
+            for i in 0..n {
+                let k: StringRef = match replacer.get_property_i64(self, i)? {
+                    JSValue::Object(o) => {
+                        if matches!(o.class_id(), JS_CLASS_STRING | JS_CLASS_NUMBER) {
+                            JSValue::Object(o).to_string(self)?
+                        } else {
+                            continue; // symbols are ignored
+                        }
+                    }
+                    JSValue::String(s) => s,
+                    v if v.is_number() => v.to_string(self)?,
+                    _ => {
+                        continue; // ignored
+                    }
+                };
+
+                // add non-duplicated property key
+                if !keylst.iter().any(|x| k.eq(x)) {
+                    keylst.push(k);
+                }
+            }
+
+            jsc.replacer_props.replace(keylst);
+        }
+
+        let mut space: JSValue = space;
+        if let Some(p) = space.as_object() {
+            match p.class_id() {
+                JS_CLASS_NUMBER => {
+                    space = space.to_number(self)?;
+                }
+                JS_CLASS_STRING => {
+                    space = space.to_string(self)?.into();
+                }
+                _ => {}
+            }
+        }
+
+        if space.is_number() {
+            let n = space.to_i32_clamp(self, 0, 10, 0)? as usize;
+            jsc.gap = unsafe {
+                let spc = [b' '; 10];
+                self.create_string_from_str(std::str::from_utf8_unchecked(&spc[..n]))?
+                    .content()
+                    .clone()
+            };
+        } else if let JSValue::String(s) = space {
+            let mut b = StringBuf::with_capacity(s.len(), false).map_err(|_| {
+                self.throw_out_of_memory();
+                -1
+            })?;
+            b.push_content_range(s.content(), 0..10).map_err(|_| {
+                self.throw_out_of_memory();
+                -1
+            })?;
+            jsc.gap = self.create_string_with_buf(b)?.content().clone();
+        } else {
+            jsc.gap = StringData::Empty;
+        }
+
+        let mut wrapper: JSValue = self.create_base_object()?.into();
+        wrapper.define_property_value(self, Atom::CONST_empty_string, obj, JS_PROP_C_W_E)?;
+
+        let empty = jsc.empty;
+        let val = js_json_check(self, &jsc, wrapper, obj, empty)?;
+        if val.is_undefined() {
+            return Ok(JSValue::UNDEFINED);
+        }
+
+        js_json_to_str(self, &mut jsc, val, &StringBuf::Empty)?;
+        jsc.buf.shrink_to_fit();
+        self.create_string_with_buf(jsc.buf).map(JSValue::String)
     }
-
-    let mut wrapper: JSValue = ctx.create_base_object()?.into();
-    wrapper.define_property_value(ctx, Atom::CONST_empty_string, obj, JS_PROP_C_W_E)?;
-
-    let empty = jsc.empty;
-    let val = js_json_check(ctx, &jsc, wrapper, obj, empty)?;
-    if val.is_undefined() {
-        return Ok(JSValue::UNDEFINED);
-    }
-
-    js_json_to_str(ctx, &mut jsc, val, &StringBuf::Empty)?;
-    jsc.buf.shrink_to_fit();
-    ctx.create_string_with_buf(jsc.buf).map(JSValue::String)
 }
 
 fn js_json_check(

@@ -1,3 +1,5 @@
+use std::ptr::NonNull;
+
 use crate::{string::StringChar, utils::unlikely};
 
 // Maximum UTF-8 character length
@@ -368,6 +370,60 @@ impl<'a> Utf8CharIter<'a> {
     #[inline(always)]
     pub fn peek_byte(&self, n: usize) -> Option<u8> {
         self.bytes.get(self.index + n).copied()
+    }
+
+    /// get byte at offset to current cursor position
+    /// e.g. 0=current index, 1=next of current index, -1=prev of current index
+    #[inline(always)]
+    pub fn peek_offset(&self, n: i32) -> Option<u8> {
+        let i = self.index as i32 + n;
+        if i >= 0 {
+            self.bytes.get(i as usize).copied()
+        } else {
+            None
+        }
+    }
+
+    /// move cursor to position by offset from current index
+    pub fn seek_offset(&mut self, n: i32) {
+        self.index = if n >= 0 {
+            std::cmp::min(self.index + n as usize, self.bytes.len())
+        } else {
+            (self.index as i32).saturating_add(n) as usize
+        }
+    }
+
+    /// move cursor to end
+    #[inline(always)]
+    pub const fn end(&mut self) {
+        self.index = self.bytes.len()
+    }
+
+    /// get current index.
+    pub const fn current_index(&self) -> Option<usize> {
+        if self.index < self.bytes.len() {
+            Some(self.index)
+        } else {
+            None
+        }
+    }
+
+    /// get raw pointer to current cursor in bytes.
+    /// if cursor index out of bound, returns None
+    pub const fn current_ptr(&self) -> Option<NonNull<u8>> {
+        if self.index < self.bytes.len() {
+            Some(unsafe { NonNull::new_unchecked(self.bytes.as_ptr().add(self.index) as _) })
+        } else {
+            None
+        }
+    }
+
+    pub fn remainder_bytes(&self) -> &[u8] {
+        if self.index < self.bytes.len() {
+            &self.bytes[self.index..]
+        } else {
+            &[]
+        }
     }
 }
 

@@ -796,7 +796,7 @@ impl<'s> JSParseState<'s> {
     }
 
     /// returns number of skipped bytes (before but not include char \r, \n, LS or PS).
-    fn skip_line_comment(&self, buf: &[u8]) -> usize {
+    pub(super) fn skip_line_comment(&self, buf: &[u8]) -> usize {
         for (i, sc) in Utf8CharIter::new(buf) {
             match sc {
                 StringChar::Char('\r' | '\n' | '\u{2028}' | '\u{2029}') => {
@@ -809,7 +809,7 @@ impl<'s> JSParseState<'s> {
         buf.len()
     }
 
-    fn skip_block_comment(&mut self, buf: &[u8]) -> Option<usize> {
+    pub(super) fn skip_block_comment(&mut self, buf: &[u8]) -> Option<usize> {
         let mut chars = Utf8CharIter::new(buf);
 
         while let Some((i, sc)) = chars.next() {

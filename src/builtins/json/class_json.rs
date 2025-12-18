@@ -7,15 +7,12 @@ use crate::{
         JS_GPN_ENUM_ONLY, JS_GPN_INDEX_MASK, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE,
         PropertyKey,
     },
-    parse::JS_ParseJSON,
     runtime::js_check_stack_overflow,
     value::JSValue,
 };
 
-use super::JS_JSONStringify;
-
 fn js_json_stringify(cc: CallContext) -> JSResult {
-    JS_JSONStringify(cc.ctx(), *cc.arg(0), *cc.arg(1), *cc.arg(2))
+    cc.ctx().json_stringify(*cc.arg(0), *cc.arg(1), *cc.arg(2))
 }
 
 fn internalize_json_property(
@@ -67,7 +64,7 @@ fn js_json_parse(cc: CallContext) -> JSResult {
     let ctx = cc.ctx();
 
     let s = cc.arg(0).to_string(ctx)?;
-    let mut obj = JS_ParseJSON(ctx, &s.content().encode_utf8_bytes(), "<input>")?;
+    let mut obj = ctx.json_parse(&s.content().encode_utf8_bytes(), "<input>", 0)?;
 
     if cc.length() > 1 && cc.arg(1).is_function() {
         let reviver = *cc.arg(1);

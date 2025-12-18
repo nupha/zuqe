@@ -5375,3 +5375,8 @@ fn JS_LoadModuleInternal(
 ) {
     //
 }
+
+#[deprecated(note = "use parse_json() instead")]
+pub fn JS_ParseJSON(ctx: &ContextImpl, source: &[u8], filename: &str, flags: i32) -> JSResult {
+    todo!()
+}
