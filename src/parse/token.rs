@@ -822,7 +822,7 @@ impl<'s> JSParseState<'s> {
                     self.got_lf = true;
                 }
                 StringChar::Char('*') => {
-                    if let Some(b'/') = chars.peek_byte(0) {
+                    if let Some(b'/') = chars.peek_offset(0) {
                         return Some(i + 2); // skip '*/'
                     }
                 }

@@ -168,7 +168,7 @@ impl<'s> JSParseState<'s> {
 
     /// a short-cut to `self.parse_assign_expr2(PF_IN_ACCEPTED)`
     #[inline(always)]
-    pub fn parse_assign_expr(&mut self) -> Result<(), i32> {
+    pub(super) fn parse_assign_expr(&mut self) -> Result<(), i32> {
         self.parse_assign_expr2(PF_IN_ACCEPTED)
     }
 
@@ -201,11 +201,11 @@ impl<'s> JSParseState<'s> {
 
     /// a short-cut to `self.parse_expr2(PF_IN_ACCEPTED)`
     #[inline(always)]
-    pub fn parse_expr(&mut self) -> Result<(), i32> {
+    pub(super) fn parse_expr(&mut self) -> Result<(), i32> {
         self.parse_expr2(PF_IN_ACCEPTED)
     }
 
-    pub fn parse_expr_parens(&mut self) -> Result<(), i32> {
+    pub(super) fn parse_expr_parens(&mut self) -> Result<(), i32> {
         self.parse_expect(CHAR_BRACKET_L)?;
         self.parse_expr()?;
         self.parse_expect(CHAR_BRACKET_R)?;
@@ -222,7 +222,7 @@ impl<'s> JSParseState<'s> {
     /// and then checking for postfix operators or access patterns that follow it.
     ///
     /// allowed parse_flags: PF_POSTFIX_CALL, PF_ARROW_FUNC
-    pub fn parse_postfix_expr(&mut self, parse_flags: i32) -> Result<(), i32> {
+    pub(super) fn parse_postfix_expr(&mut self, parse_flags: i32) -> Result<(), i32> {
         let mut accept_lparen: bool = (parse_flags & PF_POSTFIX_CALL) != 0;
         let mut call_type = FuncCallType::FUNC_CALL_NORMAL;
 
@@ -609,7 +609,11 @@ impl<'s> JSParseState<'s> {
         Ok(())
     }
 
-    pub fn optional_chain_test(&mut self, poptional_chaining_label: &mut i32, drop_count: i32) {
+    pub(super) fn optional_chain_test(
+        &mut self,
+        poptional_chaining_label: &mut i32,
+        drop_count: i32,
+    ) {
         if *poptional_chaining_label < 0 {
             *poptional_chaining_label = self.cur_func_mut().add_label().map_or(-1, |x| x as i32);
         }

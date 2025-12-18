@@ -128,7 +128,7 @@ pub(crate) fn unicode_from_utf8_v0(
 }
 
 // UTF-8 to Unicode-16 iterator
-pub struct Utf8ToUnicode16Iter<'a> {
+pub(crate) struct Utf8ToUnicode16Iter<'a> {
     pub bytes: &'a [u8],           // UTF-8 byte sequence
     pub size: usize,               // Length of byte sequence
     pub index: usize,              // Current index
@@ -365,16 +365,9 @@ impl<'a> Utf8CharIter<'a> {
             .map(|c| (c, seq_len))
     }
 
-    /// `n` is the offset to **current index**.
-    /// e.g. 0=current index, 1=next of current index
-    #[inline(always)]
-    pub fn peek_byte(&self, n: usize) -> Option<u8> {
-        self.bytes.get(self.index + n).copied()
-    }
-
     /// get byte at offset to current cursor position
     /// e.g. 0=current index, 1=next of current index, -1=prev of current index
-    #[inline(always)]
+    #[inline]
     pub fn peek_offset(&self, n: i32) -> Option<u8> {
         let i = self.index as i32 + n;
         if i >= 0 {
@@ -391,12 +384,6 @@ impl<'a> Utf8CharIter<'a> {
         } else {
             (self.index as i32).saturating_add(n) as usize
         }
-    }
-
-    /// move cursor to end
-    #[inline(always)]
-    pub const fn end(&mut self) {
-        self.index = self.bytes.len()
     }
 
     /// get current index.
@@ -418,12 +405,19 @@ impl<'a> Utf8CharIter<'a> {
         }
     }
 
+    /// get remainder bytes slice since current cursor to end
     pub fn remainder_bytes(&self) -> &[u8] {
         if self.index < self.bytes.len() {
             &self.bytes[self.index..]
         } else {
             &[]
         }
+    }
+
+    /// move cursor to end
+    #[inline(always)]
+    pub const fn end(&mut self) {
+        self.index = self.bytes.len()
     }
 }
 

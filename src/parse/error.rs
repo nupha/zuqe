@@ -9,7 +9,7 @@ impl<'s> JSParseState<'s> {
     /// given an exception value, build traceback and throw it as current exception.
     /// old exception will be freed.
     #[cold]
-    pub fn throw(&self, exc: JSValue) {
+    pub(super) fn throw(&self, exc: JSValue) {
         let backtrace_flags =
             if !self.cur_func_def.is_null() && self.cur_func().attrs.backtrace_barrier {
                 JS_BACKTRACE_FLAG_SINGLE_LEVEL
@@ -27,7 +27,7 @@ impl<'s> JSParseState<'s> {
     }
 
     #[cold]
-    pub fn throw_syntax_error(&self, message: &str) {
+    pub(super) fn throw_syntax_error(&self, message: &str) {
         self.ctx
             .throw_error_internal(ErrorKind::Syntax, message, false);
 
@@ -45,7 +45,7 @@ impl<'s> JSParseState<'s> {
     }
 
     #[cold]
-    pub fn throw_reserved_identifier_error(&self) {
+    pub(super) fn throw_reserved_identifier_error(&self) {
         self.throw_syntax_error(&format!(
             "'{}' is a reserved identifier",
             self.token.atom().unwrap().to_utf8(),

@@ -52,7 +52,7 @@ impl<'s> JSParseState<'s> {
         let mut ins = Utf8CharIter::new(buf);
         let mut todo: Option<Todo> = None;
 
-        while let Some(b) = ins.peek_byte(0) {
+        while let Some(b) = ins.peek_offset(0) {
             self.token.line_num = self.line_num;
             self.token.ptr = ins.current_ptr().map_or(self.input_end, |p| p.as_ptr());
 
@@ -81,7 +81,7 @@ impl<'s> JSParseState<'s> {
                 }
                 c @ (b'\r' | b'\n') => {
                     if c == b'\r'
-                        && let Some(b'\n') = ins.peek_byte(1)
+                        && let Some(b'\n') = ins.peek_offset(1)
                     {
                         ins.seek_offset(1);
                     }
@@ -111,7 +111,7 @@ impl<'s> JSParseState<'s> {
                         break;
                     }
 
-                    match ins.peek_byte(1) {
+                    match ins.peek_offset(1) {
                         Some(b'*') => {
                             // block comment
                             ins.seek_offset(2); // skip '/*'
@@ -160,7 +160,7 @@ impl<'s> JSParseState<'s> {
                     }
                 }
                 b'+' => {
-                    if !self.ext_json || ins.peek_byte(1).is_none_or(|b| !b.is_ascii_digit()) {
+                    if !self.ext_json || ins.peek_offset(1).is_none_or(|b| !b.is_ascii_digit()) {
                         todo = Some(Todo::Token('+' as _));
                         break;
                     }
@@ -176,7 +176,7 @@ impl<'s> JSParseState<'s> {
                     }
                 }
                 b'-' => {
-                    if ins.peek_byte(1).is_none_or(|b| !b.is_ascii_digit()) {
+                    if ins.peek_offset(1).is_none_or(|b| !b.is_ascii_digit()) {
                         todo = Some(Todo::Token('-' as _));
                         break;
                     }
@@ -192,7 +192,7 @@ impl<'s> JSParseState<'s> {
                     }
                 }
                 b'0' => {
-                    if ins.peek_byte(1).is_some_and(|b| b.is_ascii_digit()) {
+                    if ins.peek_offset(1).is_some_and(|b| b.is_ascii_digit()) {
                         todo = Some(Todo::Token('0' as _));
                         break;
                     }
@@ -280,7 +280,7 @@ impl<'s> JSParseState<'s> {
         let mut buf = SmallVec::<[u8; 64]>::new();
         buf.push(first_char);
 
-        while let Some(c) = inp.peek_byte(0)
+        while let Some(c) = inp.peek_offset(0)
             && c.is_ascii()
             && Self::is_ident_next(c as _)
         {
