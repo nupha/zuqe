@@ -39,7 +39,7 @@ pub struct JSParseState<'s> {
 
     /// input bytes
     pub(super) input: &'s [u8],
-    /// End pointer to input bytes, inclusive
+    /// End pointer to input bytes, exclusive
     pub(super) input_end: *const u8,
 
     /// Current pointer to the input
@@ -93,8 +93,8 @@ impl<'s> JSParseState<'s> {
             ctx: unsafe { ContextPtr::from_ref_unchecked(ctx) },
 
             input: source,
-            buf_ptr: source.as_ptr(),
             input_end: unsafe { source.as_ptr().add(source.len()) },
+            buf_ptr: source.as_ptr(),
 
             last_line_num: 0,
             line_num: 1,

@@ -363,6 +363,8 @@ impl<'a> Utf8CharIter<'a> {
             .map(|c| (c, seq_len))
     }
 
+    /// `n` is the offset to **current index**.
+    /// e.g. 0=current index, 1=next of current index
     #[inline(always)]
     pub fn peek_byte(&self, n: usize) -> Option<u8> {
         self.bytes.get(self.index + n).copied()

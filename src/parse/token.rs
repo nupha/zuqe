@@ -8,8 +8,7 @@ use crate::{
     runtime::js_check_stack_overflow,
     stack_frame::ExecMode,
     string::{
-        CP_LS, CP_PS, StringBuf, StringChar, UTF8_CHAR_LEN_MAX, Utf8CharIter, char_is_space,
-        unicode_from_utf8_v0,
+        StringBuf, StringChar, UTF8_CHAR_LEN_MAX, Utf8CharIter, char_is_space, unicode_from_utf8_v0,
     },
 };
 
@@ -283,41 +282,19 @@ impl<'s> JSParseState<'s> {
                     match *p.offset(1) {
                         b'*' => {
                             // block comment
-                            p = p.offset(2);
-                            'in_comment: loop {
-                                if *p == 0 && p >= self.input_end {
-                                    self.throw_syntax_error("unexpected end of comment");
-                                    self.token.val = TOK_ERROR;
-                                    self.token.data = TokenData::None;
-                                    return Err(-1);
-                                }
-                                if *p == b'*' && *p.offset(1) == b'/' {
-                                    p = p.offset(2);
-                                    break 'in_comment;
-                                }
-                                if *p == b'\n' {
-                                    self.line_num += 1;
-                                    self.got_lf = true; /* considered as LF for ASI */
-                                    p = p.offset(1);
-                                } else if *p == b'\r' {
-                                    self.got_lf = true; /* considered as LF for ASI */
-                                    p = p.offset(1);
-                                } else if *p >= 0x80 {
-                                    // 处理Unicode字符
-                                    if let Ok(uc) =
-                                        unicode_from_utf8_v0(p, UTF8_CHAR_LEN_MAX as i32, &mut p)
-                                    {
-                                        if matches!(uc as u32, CP_LS | CP_PS) {
-                                            self.got_lf = true; /* considered as LF for ASI */
-                                        }
-                                    } else {
-                                        p = p.add(1); // skip invalud utf-8
-                                    }
-                                } else {
-                                    p = p.add(1);
-                                }
+                            p = p.offset(2); // skip '/*'
+                            if let Some(n) = self.skip_block_comment(std::slice::from_raw_parts(
+                                p,
+                                self.input_end.offset_from(p) as usize,
+                            )) {
+                                p = p.add(n);
+                                continue 'redo;
+                            } else {
+                                self.throw_syntax_error("unexpected end of comment");
+                                self.token.val = TOK_ERROR;
+                                self.token.data = TokenData::None;
+                                return Err(-1);
                             }
-                            continue 'redo;
                         }
                         b'/' => {
                             // line comment
@@ -830,6 +807,30 @@ impl<'s> JSParseState<'s> {
             }
         }
         buf.len()
+    }
+
+    fn skip_block_comment(&mut self, buf: &[u8]) -> Option<usize> {
+        let mut chars = Utf8CharIter::new(buf);
+
+        while let Some((i, sc)) = chars.next() {
+            match sc {
+                StringChar::Char('\n') => {
+                    self.line_num += 1;
+                    self.got_lf = true;
+                }
+                StringChar::Char('\r' | '\u{2028}' | '\u{2029}') => {
+                    self.got_lf = true;
+                }
+                StringChar::Char('*') => {
+                    if let Some(b'/') = chars.peek_byte(0) {
+                        return Some(i + 2); // skip '*/'
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        None
     }
 
     /// start to seek token from `pos`
