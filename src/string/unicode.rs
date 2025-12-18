@@ -1,18 +1,18 @@
 use crate::{string::StringChar, utils::unlikely};
 
-// UTF-8字符最大长度
+// Maximum UTF-8 character length
 pub const UTF8_CHAR_LEN_MAX: usize = 6;
 
-// Unicode代码点
-pub const CP_LS: u32 = 0x2028; // 行分隔符
-pub const CP_PS: u32 = 0x2029; // 段落分隔符
+// Unicode code points
+pub const CP_LS: u32 = 0x2028; // Line separator
+pub const CP_PS: u32 = 0x2029; // Paragraph separator
 
-// UTF-8编码的最小代码点值
+// Minimum code point values for UTF-8 encoding
 pub const utf8_min_code: [u32; 5] = [0x80, 0x800, 0x10000, 0x00200000, 0x04000000];
-// UTF-8编码的首字节掩码
+// First byte masks for UTF-8 encoding
 pub const utf8_first_code_mask: [u8; 5] = [0x1f, 0x0f, 0x07, 0x03, 0x01];
 
-/// dececode utf8 from buf, returns decoded unicode point.
+/// Decode utf8 from buf, returns decoded unicode point.
 /// Note: may return invalid unicode point.
 #[deprecated(note = "use Utf8CharIter instead")]
 pub(crate) fn unicode_from_utf8(buf: &[u8]) -> Result<(u32, usize), i32> {
@@ -20,38 +20,39 @@ pub(crate) fn unicode_from_utf8(buf: &[u8]) -> Result<(u32, usize), i32> {
 
     let c = buf[0];
 
-    // 根据首字节确定UTF-8序列长度
+    // Determine UTF-8 sequence length based on first byte
     let n = match c {
         0x00..=0x7f => {
-            // ascii
-            return Ok((c as u32, 1));
+            return Ok((c as u32, 1)); // ASCII
         }
         0xc0..=0xdf => 1,
         0xe0..=0xef => 2,
         0xf0..=0xf7 => 3,
         0xf8..=0xfb => 4,
         0xfc..=0xfd => 5,
-        _ => return Err(-1), // 无效的UTF-8首字节
+        _ => {
+            return Err(-1); // Invalid UTF-8 start byte
+        }
     };
 
     if n > buf.len() - 1 {
         return Err(-1);
     }
 
-    // 应用首字节掩码
+    // Apply first byte mask
     let mut c = c as u32;
     c &= utf8_first_code_mask[n - 1] as u32;
 
-    // 解码后续字节
+    // Decode subsequent bytes
     for i in 0..n {
         let b = buf[i + 1];
         if !(0x80..0xc0).contains(&b) {
-            return Err(-1); // 无效的UTF-8后续字节
+            return Err(-1); // Invalid UTF-8 continuation byte
         }
         c = (c << 6) | ((b & 0x3f) as u32);
     }
 
-    // 检查解码后的代码点是否有效
+    // Check if decoded code point is valid
     if unlikely(c < utf8_min_code[n - 1]) {
         Err(-1)
     } else {
@@ -59,9 +60,9 @@ pub(crate) fn unicode_from_utf8(buf: &[u8]) -> Result<(u32, usize), i32> {
     }
 }
 
-// 从UTF-8字节序列解码Unicode代码点
-// 返回-1表示错误。*pp在错误情况下不会被更新。max_len必须>=1。
-// UTF-8字节序列的最大长度为6字节 (max_len=6)。
+// Decode Unicode code point from UTF-8 byte sequence
+// Returns -1 on error. *pp is not updated on error. max_len must be >=1.
+// Maximum length of UTF-8 byte sequence is 6 bytes (max_len=6).
 #[deprecated(note = "use unicode_from_utf8() instead")]
 pub(crate) fn unicode_from_utf8_v0(
     mut p: *const u8,
@@ -74,7 +75,7 @@ pub(crate) fn unicode_from_utf8_v0(
         c
     };
 
-    // ASCII字符直接返回
+    // ASCII characters returned directly
     if c.is_ascii() {
         unsafe {
             *pp = p;
@@ -82,38 +83,38 @@ pub(crate) fn unicode_from_utf8_v0(
         return Ok(c);
     }
 
-    // 根据首字节确定UTF-8序列长度
+    // Determine UTF-8 sequence length based on first byte
     let l = match c as u8 {
         0xc0..=0xdf => 1,
         0xe0..=0xef => 2,
         0xf0..=0xf7 => 3,
         0xf8..=0xfb => 4,
         0xfc..=0xfd => 5,
-        _ => return Err(-1), // 无效的UTF-8首字节
+        _ => return Err(-1), // Invalid UTF-8 start byte
     };
 
-    // 检查是否有足够的字节
+    // Check if enough bytes are available
     if l > (max_len - 1) {
         return Err(-1);
     }
 
-    // 应用首字节掩码
+    // Apply first byte mask
     let mut c = c as u32;
     c &= utf8_first_code_mask[l as usize - 1] as u32;
 
-    // 解码后续字节
+    // Decode subsequent bytes
     for _ in 0..l {
         unsafe {
             let b = *p;
             p = p.offset(1);
             if !(0x80..0xc0).contains(&b) {
-                return Err(-1); // 无效的UTF-8后续字节
+                return Err(-1); // Invalid UTF-8 continuation byte
             }
             c = (c << 6) | ((b & 0x3f) as u32);
         }
     }
 
-    // 检查解码后的代码点是否有效
+    // Check if decoded code point is valid
     if c < utf8_min_code[l as usize - 1] {
         return Err(-1);
     }
@@ -124,12 +125,12 @@ pub(crate) fn unicode_from_utf8_v0(
     char::from_u32(c).ok_or(-1)
 }
 
-// UTF-8到Unicode-16的迭代器
+// UTF-8 to Unicode-16 iterator
 pub struct Utf8ToUnicode16Iter<'a> {
-    pub bytes: &'a [u8],           // UTF-8字节序列
-    pub size: usize,               // 字节序列长度
-    pub index: usize,              // 当前索引
-    pub next_unichar: Option<u16>, // 用于存储代理对中的第二个字符
+    pub bytes: &'a [u8],           // UTF-8 byte sequence
+    pub size: usize,               // Length of byte sequence
+    pub index: usize,              // Current index
+    pub next_unichar: Option<u16>, // Stores the second character of a surrogate pair
 }
 
 impl<'a> Iterator for Utf8ToUnicode16Iter<'a> {
@@ -145,10 +146,10 @@ impl<'a> Iterator for Utf8ToUnicode16Iter<'a> {
             self.index += 1;
 
             match b1 {
-                0x00..=0x7F => Some(b1 as u16), // ASCII字符
-                0x80..=0xBF => Some(0xFFFD),    // 无效的UTF-8后续字节
+                0x00..=0x7F => Some(b1 as u16), // ASCII character
+                0x80..=0xBF => Some(0xFFFD),    // Invalid UTF-8 continuation byte
                 0xC0..=0xDF => {
-                    // 2字节UTF-8序列
+                    // 2-byte UTF-8 sequence
                     if self.index < self.size {
                         //same to: self.index < self.size && self.size > self.index
                         let b2 = self.bytes[self.index];
@@ -162,7 +163,7 @@ impl<'a> Iterator for Utf8ToUnicode16Iter<'a> {
                                 Some(0xFFFD)
                             }
                         } else {
-                            self.index -= 1; // 回退无效的后续字节
+                            self.index -= 1; // Roll back invalid continuation byte
                             Some(0xFFFD)
                         }
                     } else {
@@ -171,7 +172,7 @@ impl<'a> Iterator for Utf8ToUnicode16Iter<'a> {
                     }
                 }
                 0xE0..=0xEF => {
-                    // 3字节UTF-8序列
+                    // 3-byte UTF-8 sequence
                     if self.index < self.size - 2 && self.size >= self.index + 2 {
                         let b2 = self.bytes[self.index];
                         let b3 = self.bytes[self.index + 1];
@@ -189,7 +190,7 @@ impl<'a> Iterator for Utf8ToUnicode16Iter<'a> {
                                 Some(0xFFFD)
                             }
                         } else {
-                            self.index -= 2; // 回退无效的后续字节
+                            self.index -= 2; // Roll back invalid continuation byte
                             Some(0xFFFD)
                         }
                     } else {
@@ -198,7 +199,7 @@ impl<'a> Iterator for Utf8ToUnicode16Iter<'a> {
                     }
                 }
                 0xF0..=0xF7 => {
-                    // 4字节UTF-8序列
+                    // 4-byte UTF-8 sequence
                     if self.index < self.size - 3 && self.size >= self.index + 3 {
                         let b2 = self.bytes[self.index];
                         let b3 = self.bytes[self.index + 1];
@@ -219,7 +220,7 @@ impl<'a> Iterator for Utf8ToUnicode16Iter<'a> {
                                 Some(0xFFFD)
                             }
                         } else {
-                            self.index -= 3; // 回退无效的后续字节
+                            self.index -= 3; // Roll back invalid continuation byte
                             Some(0xFFFD)
                         }
                     } else {
@@ -227,14 +228,14 @@ impl<'a> Iterator for Utf8ToUnicode16Iter<'a> {
                         Some(0xFFFD)
                     }
                 }
-                _ => Some(0xFFFD), // 无效的UTF-8首字节
+                _ => Some(0xFFFD), // Invalid UTF-8 start byte
             }
         }
     }
 }
 
-// 将Unicode代码点编码为UTF-8字节序列
-// 最多编码31位。最多输出UTF8_CHAR_LEN_MAX字节。
+// Encode Unicode code point to UTF-8 byte sequence
+// Encodes up to 31 bits. Outputs at most UTF8_CHAR_LEN_MAX bytes.
 pub(crate) fn unicode_to_utf8(buf: &mut Vec<u8>, c: u32) {
     if c < 0x80 {
         buf.push(c as u8);
@@ -279,8 +280,8 @@ pub(crate) const fn char_is_space(ch: char) -> bool {
         )
 }
 
-/// UTF-8 字符迭代器
-pub struct Utf8CharIter<'a> {
+/// UTF-8 character iterator
+pub(crate) struct Utf8CharIter<'a> {
     bytes: &'a [u8], // UTF-8 bytes
     index: usize,    // current byte index
 }
@@ -290,21 +291,21 @@ impl<'a> Utf8CharIter<'a> {
         Self { bytes, index: 0 }
     }
 
-    /// 尝试解码当前位置的 UTF-8 字符
-    /// 返回 (字符, 消耗的字节数) 或错误
-    fn try_decode_current(&self) -> Result<(char, usize), DecodeError> {
-        if self.index >= self.bytes.len() {
+    /// Attempt to decode the UTF-8 character since starting position
+    /// Returns (character, bytes consumed) or error
+    fn decode_char(&self, since: usize) -> Result<(char, usize), DecodeError> {
+        if since >= self.bytes.len() {
             return Err(DecodeError::EndOfInput);
         }
 
         let b = self.bytes[self.index];
 
-        // ASCII 字符 (0x00-0x7F)
+        // ASCII character (0x00-0x7F)
         if b <= 0x7F {
             return Ok((b as char, 1));
         }
 
-        // 确定 UTF-8 序列长度
+        // Determine UTF-8 sequence length
         let seq_len = match b {
             0xC0..=0xDF => 2,
             0xE0..=0xEF => 3,
@@ -314,12 +315,12 @@ impl<'a> Utf8CharIter<'a> {
             _ => return Err(DecodeError::InvalidStartByte(b)),
         };
 
-        // 检查是否有足够的字节
-        if self.index + seq_len > self.bytes.len() {
+        // Check if enough bytes are available
+        if since + seq_len > self.bytes.len() {
             return Err(DecodeError::IncompleteSequence);
         }
 
-        // 解码 UTF-8 序列
+        // Decode UTF-8 sequence
         let mut code_point = match seq_len {
             2 => (b as u32 & 0x1F) << 6,
             3 => (b as u32 & 0x0F) << 12,
@@ -329,21 +330,21 @@ impl<'a> Utf8CharIter<'a> {
             _ => unreachable!(),
         };
 
-        // 解码后续字节
+        // Decode subsequent bytes
         for i in 1..seq_len {
-            let b = self.bytes[self.index + i];
+            let b = self.bytes[since + i];
             if !(0x80..0xC0).contains(&b) {
                 return Err(DecodeError::InvalidContinuationByte(b, i));
             }
             code_point |= ((b & 0x3F) as u32) << (6 * (seq_len - i - 1));
         }
 
-        // 检查代码点有效性
+        // Check code point validity
         if code_point > 0x10FFFF {
             return Err(DecodeError::CodePointOutOfRange(code_point));
         }
 
-        // 检查过短编码（非最小形式）
+        // Check for overlong encoding (non‑minimal form)
         if (seq_len == 2 && code_point < 0x80)
             || (seq_len == 3 && code_point < 0x800)
             || (seq_len == 4 && code_point < 0x10000)
@@ -351,15 +352,20 @@ impl<'a> Utf8CharIter<'a> {
             return Err(DecodeError::OverlongEncoding);
         }
 
-        // 检查代理对范围（U+D800..U+DFFF）
+        // Check surrogate pair range (U+D800..U+DFFF)
         if (0xD800..=0xDFFF).contains(&code_point) {
             return Err(DecodeError::SurrogateCodePoint(code_point));
         }
 
-        // 转换为字符
+        // Convert to character
         char::from_u32(code_point)
             .ok_or(DecodeError::InvalidCodePoint(code_point))
             .map(|c| (c, seq_len))
+    }
+
+    #[inline(always)]
+    pub fn peek_byte(&self, n: usize) -> Option<u8> {
+        self.bytes.get(self.index + n).copied()
     }
 }
 
@@ -376,13 +382,13 @@ enum DecodeError {
 }
 
 impl<'a> Iterator for Utf8CharIter<'a> {
-    type Item = (usize, StringChar); // (字节偏移量, 字符)
+    type Item = (usize, StringChar); // (byte_index, character)
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.index < self.bytes.len() {
             let pos = self.index;
 
-            match self.try_decode_current() {
+            match self.decode_char(pos) {
                 Ok((ch, consumed)) => {
                     self.index += consumed;
                     Some((pos, StringChar::Char(ch)))
@@ -397,9 +403,8 @@ impl<'a> Iterator for Utf8CharIter<'a> {
                     | DecodeError::SurrogateCodePoint(_)
                     | DecodeError::InvalidCodePoint(_),
                 ) => {
-                    let bad_index = self.index;
                     self.index += 1; // skip one byte when invalid utf8 sequence
-                    Some((pos, StringChar::Code(self.bytes[bad_index] as u16)))
+                    Some((pos, StringChar::Code(self.bytes[pos] as u16)))
                 }
             }
         } else {

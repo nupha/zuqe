@@ -818,18 +818,17 @@ impl<'s> JSParseState<'s> {
         Ok(p)
     }
 
-    /// returns number of skipped bytes
+    /// returns number of skipped bytes (before but not include char \r, \n, LS or PS).
     fn skip_line_comment(&self, buf: &[u8]) -> usize {
         for (i, sc) in Utf8CharIter::new(buf) {
             match sc {
-                StringChar::Char(c @ ('\r' | '\n' | '\u{2028}' | '\u{2029}')) => {
-                    return i + c.len_utf8();
+                StringChar::Char('\r' | '\n' | '\u{2028}' | '\u{2029}') => {
+                    return i;
                 }
                 StringChar::Char(_) => {}
                 StringChar::Code(_) => {}
             }
         }
-
         buf.len()
     }
 
