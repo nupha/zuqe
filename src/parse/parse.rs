@@ -506,13 +506,6 @@ pub(super) fn skip_shebang(buf: &[u8]) -> usize {
                 }
             })
             .unwrap_or(buf.len())
-
-        // for (i, c) in Utf8CharIter::new(&buf[2..]) {
-        //     if let CharCode::Char(ch @ ('\n' | '\r' | '\u{2028}' | '\u{2029}')) = c {
-        //         return i + ch.len_utf8() + 2;
-        //     }
-        // }
-        // buf.len()
     } else {
         0
     }

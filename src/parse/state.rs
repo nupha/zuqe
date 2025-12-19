@@ -65,6 +65,7 @@ pub struct JSParseState<'s> {
     /// Controls whether HTML-style comments are allowed
     pub(crate) allow_html_comments: bool,
 
+    #[cfg(feature = "builtin_json")]
     /// Enables parsing of JSON superset syntax
     pub(super) ext_json: bool,
 }
@@ -110,8 +111,10 @@ impl<'s> JSParseState<'s> {
             cur_func_def: fd,
             is_module: false,
             allow_html_comments: false,
-            ext_json: false,
             got_lf: false,
+
+            #[cfg(feature = "builtin_json")]
+            ext_json: false,
         }
     }
 

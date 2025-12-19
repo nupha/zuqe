@@ -9,7 +9,7 @@ use crate::{
 
 use super::{
     function::JSParseFunctionEnum,
-    skip_shebang,
+    parse::skip_shebang,
     state::JSParseState,
     token::{
         CHAR_BRACKET_L, CHAR_COMMA, CHAR_CURLY_R, CHAR_DOT, TOK_CLASS, TOK_CONST, TOK_DEFAULT,

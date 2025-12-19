@@ -5,9 +5,7 @@ use crate::{
     JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR, JS_CLASS_SET, JS_CLASS_SET_ITERATOR,
     JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8C_ARRAY, JS_CLASS_WEAKMAP, JS_CLASS_WEAKSET,
     atom::Atom,
-    builtins::{
-        global::js_global_props, json::js_json_obj, math::js_math_obj, reflect::js_reflect_obj,
-    },
+    builtins::{global::js_global_props, math::js_math_obj, reflect::js_reflect_obj},
     class::ClassID,
     context::Context,
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, ObjectRef},
@@ -149,7 +147,8 @@ impl RuntimeImpl {
                 gobj.install_field_defs(&cx, &js_reflect_obj)?;
 
                 // JSON: lazy init
-                gobj.install_field_defs(&cx, &js_json_obj)?;
+                #[cfg(feature = "builtin_json")]
+                gobj.install_field_defs(&cx, &crate::builtins::json::js_json_obj)?;
 
                 // Math: lazy init
                 cx.init_random_seed();

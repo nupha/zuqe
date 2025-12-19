@@ -1,4 +1,6 @@
+#![cfg(feature = "builtin_json")]
+
 mod class_json;
 mod stringify;
 
-pub use {class_json::*, stringify::*};
+pub use class_json::js_json_obj;

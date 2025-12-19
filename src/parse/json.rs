@@ -1,3 +1,5 @@
+#![cfg(feature = "builtin_json")]
+
 use smallvec::SmallVec;
 
 use crate::{

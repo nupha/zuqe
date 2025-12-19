@@ -13,7 +13,6 @@ mod expr_property;
 mod expr_unabin;
 mod expr_yield;
 mod function;
-mod json;
 mod obj;
 mod parse;
 mod parse_directives;
@@ -25,6 +24,7 @@ mod template;
 mod token;
 mod var;
 
-pub use {
-    esm::JSParseExportEnum, function::JSParseFunctionEnum, json::*, parse::*, state::JSParseState,
-};
+#[cfg(feature = "builtin_json")]
+mod json;
+
+pub use {esm::JSParseExportEnum, function::JSParseFunctionEnum, state::JSParseState};

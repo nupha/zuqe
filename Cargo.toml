@@ -12,6 +12,7 @@ string_intern = []
 nan_boxing = []
 all_unicode = []
 atomics = []
+builtin_json = []
 dump_bytecode = []
 
 default = [
@@ -19,6 +20,8 @@ default = [
     "all_unicode",
     "atomics",
     #"dump_bytecode",
+
+    "builtin_json",
 ]
 
 [profile.release]
