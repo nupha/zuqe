@@ -14,7 +14,6 @@ use crate::{
 fn js_json_stringify(cc: CallContext) -> JSResult {
     cc.ctx().json_stringify(*cc.arg(0), *cc.arg(1), *cc.arg(2))
 }
-
 fn internalize_json_property(
     ctx: &ContextImpl,
     holder: JSValue,

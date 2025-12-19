@@ -23,7 +23,7 @@ struct JSONStringifyContext {
 }
 
 impl ContextImpl {
-    pub fn json_stringify(&self, obj: JSValue, replacer: JSValue, space: JSValue) -> JSResult {
+    pub fn json_stringify(&self, obj: JSValue, replacer: JSValue, mut space: JSValue) -> JSResult {
         let mut jsc = JSONStringifyContext {
             replacer_func: JSValue::UNDEFINED,
             stack: SmallVec::new(),
@@ -69,7 +69,6 @@ impl ContextImpl {
             jsc.replacer_props.replace(keylst);
         }
 
-        let mut space: JSValue = space;
         if let Some(p) = space.as_object() {
             match p.class_id() {
                 JS_CLASS_NUMBER => {
@@ -84,11 +83,14 @@ impl ContextImpl {
 
         if space.is_number() {
             let n = space.to_i32_clamp(self, 0, 10, 0)? as usize;
-            jsc.gap = unsafe {
-                let spc = [b' '; 10];
-                self.create_string_from_str(std::str::from_utf8_unchecked(&spc[..n]))?
-                    .content()
-                    .clone()
+            jsc.gap = if n == 0 {
+                StringData::Empty
+            } else {
+                StringData::Ascii({
+                    let mut a = Vec::<u8>::with_capacity(n);
+                    a.extend(std::iter::repeat_n(b' ', n));
+                    a.into()
+                })
             };
         } else if let JSValue::String(s) = space {
             let mut b = StringBuf::with_capacity(s.len(), false).map_err(|_| {
