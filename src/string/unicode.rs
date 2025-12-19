@@ -365,27 +365,6 @@ impl<'a> Utf8CharIter<'a> {
             .map(|c| (c, seq_len))
     }
 
-    /// get byte at offset to current cursor position
-    /// e.g. 0=current index, 1=next of current index, -1=prev of current index
-    #[inline]
-    pub fn peek_offset(&self, n: i32) -> Option<u8> {
-        let i = self.index as i32 + n;
-        if i >= 0 {
-            self.bytes.get(i as usize).copied()
-        } else {
-            None
-        }
-    }
-
-    /// move cursor to position by offset from current index
-    pub fn seek_offset(&mut self, n: i32) {
-        self.index = if n >= 0 {
-            std::cmp::min(self.index + n as usize, self.bytes.len())
-        } else {
-            (self.index as i32).saturating_add(n) as usize
-        }
-    }
-
     /// get current index.
     pub const fn current_index(&self) -> Option<usize> {
         if self.index < self.bytes.len() {
@@ -405,13 +384,90 @@ impl<'a> Utf8CharIter<'a> {
         }
     }
 
-    /// get remainder bytes slice since current cursor to end
+    #[inline(always)]
+    pub const fn start_ptr(&self) -> NonNull<u8> {
+        unsafe { NonNull::new_unchecked(self.bytes.as_ptr() as _) }
+    }
+
+    /// decode char at current position, don't advance cursor.
+    pub fn peek(&self) -> Option<(usize, CharCode)> {
+        let pos = self.index;
+
+        match self.decode_char(pos) {
+            Ok((c, _)) => Some((pos, CharCode::Char(c))),
+            Err(DecodeError::EndOfInput) => None,
+            Err(
+                DecodeError::InvalidStartByte(_)
+                | DecodeError::InvalidContinuationByte(_, _)
+                | DecodeError::IncompleteSequence
+                | DecodeError::OverlongEncoding
+                | DecodeError::CodePointOutOfRange(_)
+                | DecodeError::SurrogateCodePoint(_)
+                | DecodeError::InvalidCodePoint(_),
+            ) => Some((pos, CharCode::Code(self.bytes[pos] as _))),
+        }
+    }
+
+    /// get bytes since current position (inclusive) through end
     pub fn remainder_bytes(&self) -> &[u8] {
         if self.index < self.bytes.len() {
             &self.bytes[self.index..]
         } else {
             &[]
         }
+    }
+
+    /// get N bytes since current position (inclusive), to given `buf`.
+    /// returns actual bytes count.
+    pub fn peek_bytes(&self, buf: &mut [u8]) -> usize {
+        if self.index < self.bytes.len() {
+            let cnt = std::cmp::min(self.bytes.len() - self.index, buf.len());
+            unsafe {
+                std::ptr::copy(self.bytes.as_ptr().add(self.index), buf.as_mut_ptr(), cnt);
+            }
+            cnt
+        } else {
+            0
+        }
+    }
+
+    /// test if remainder bytes starts with given pattern.
+    ///
+    /// this roughly equivelent to `s.remainder_bytes().starts_with(needle)`
+    pub fn match_bytes(&self, needle: &[u8]) -> bool {
+        let n = self.index + needle.len();
+        if n <= self.bytes.len() {
+            self.bytes[self.index..n].eq(needle)
+        } else {
+            false
+        }
+    }
+
+    /// get byte at offset relative to current position
+    /// e.g. 0=current index, 1=next of current index, -1=prev of current index
+    #[inline]
+    pub fn peek_byte_at(&self, offset: i32) -> Option<u8> {
+        let i = self.index as i32 + offset;
+        if i >= 0 {
+            self.bytes.get(i as usize).copied()
+        } else {
+            None
+        }
+    }
+
+    /// advance or rewind cursor by offset relative to current position
+    pub fn move_cursor_by(&mut self, offset: i32) {
+        self.index = if offset >= 0 {
+            std::cmp::min(self.index + offset as usize, self.bytes.len())
+        } else {
+            (self.index as i32).saturating_add(offset) as usize
+        }
+    }
+
+    /// move cursor to end
+    #[inline(always)]
+    pub const fn is_end(&self) -> bool {
+        self.index >= self.bytes.len()
     }
 
     /// move cursor to end

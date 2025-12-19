@@ -7,9 +7,7 @@ use crate::{
     },
     runtime::js_check_stack_overflow,
     stack_frame::ExecMode,
-    string::{
-        StringBuf, CharCode, UTF8_CHAR_LEN_MAX, Utf8CharIter, char_is_space, unicode_from_utf8_v0,
-    },
+    string::{CharCode, StringBuf, Utf8CharIter, char_is_space},
 };
 
 use super::{
@@ -201,12 +199,10 @@ impl<'s> JSParseState<'s> {
 
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         enum Todo {
-            DefaultToken(char),
-            SkipLineComment,
+            Char(char),
             HasIdent(char, bool),
-            LineTerminator,
             ParseNumber,
-            Fail,
+            SyntaxError,
         }
         let mut todo: Option<Todo> = None;
 
@@ -214,118 +210,97 @@ impl<'s> JSParseState<'s> {
         self.got_lf = false;
         self.last_line_num = self.token.line_num;
 
-        // current pointer to input
-        let mut p = self.buf_ptr;
+        let mut input = if self.buf_ptr < self.input_end {
+            let pos = unsafe { self.buf_ptr.offset_from(self.input.as_ptr()) as usize };
+            Utf8CharIter::new(&self.input[pos..])
+        } else {
+            Utf8CharIter::new(&[]) // no more bytes
+        };
 
-        'redo: loop {
-            if p >= self.input_end {
-                self.token.val = TOK_EOF;
-                self.token.data = TokenData::None;
-                break;
-            }
+        let base_ptr = input.start_ptr().as_ptr();
 
+        while let Some((i, sc)) = input.next() {
             self.token.line_num = self.line_num;
-            self.token.ptr = p;
+            self.token.ptr = unsafe { base_ptr.add(i) };
 
-            match unsafe { (*p) as char } {
-                '\0' => {
-                    todo = Some(Todo::DefaultToken('\0'));
-                }
-                '`' => {
-                    if self
-                        .parse_template_part(unsafe {
-                            let ptr = p.offset(1);
-                            std::slice::from_raw_parts(
-                                ptr,
-                                self.input_end.offset_from(ptr) as usize,
-                            )
-                        })
-                        .is_err()
-                    {
-                        todo = Some(Todo::Fail);
+            match sc {
+                CharCode::Char('`') => {
+                    if let Ok(n) = self.parse_template_part(input.remainder_bytes()) {
+                        input.move_cursor_by(n as _);
                     } else {
-                        p = self.buf_ptr;
+                        todo = Some(Todo::SyntaxError);
                     }
                 }
-                c @ ('\'' | '"') => {
-                    p = unsafe { p.add(1) }; // skip delimitor ' or "
-                    match self.parse_string(
-                        c,
-                        true,
-                        unsafe {
-                            std::slice::from_raw_parts(p, self.input_end.offset_from(p) as usize)
-                        },
-                        None,
-                    ) {
-                        Ok(consumed) => {
-                            p = unsafe { p.add(consumed) }; // next char of ending delimitor
+                CharCode::Char(c @ ('\'' | '\"')) => {
+                    match self.parse_string(c, true, input.remainder_bytes(), None) {
+                        Ok(n) => {
+                            input.move_cursor_by(n as _);
                         }
                         Err(_) => {
-                            todo = Some(Todo::Fail);
+                            todo = Some(Todo::SyntaxError);
                         }
                     }
                 }
-                c @ ('\r' | '\n') => unsafe {
-                    if c == '\r' && *p.offset(1) == b'\n' {
-                        // \r\n sequence
-                        p = p.offset(1);
+                CharCode::Char(c @ ('\r' | '\n')) => {
+                    if c == '\r'
+                        && let Some(b'\n') = input.peek_byte_at(0)
+                    {
+                        input.move_cursor_by(1);
                     }
-                    p = p.offset(1);
-                    todo = Some(Todo::LineTerminator);
-                },
+                    self.got_lf = true;
+                    self.line_num += 1;
+                    continue;
+                }
                 // 0x0c='\f', 0x0b='\v'
-                '\u{000c}' | '\u{000b}' | ' ' | '\t' => unsafe {
-                    p = p.add(1);
-                    continue 'redo;
-                },
-                '/' => unsafe {
-                    match *p.offset(1) {
-                        b'*' => {
-                            // block comment
-                            p = p.offset(2); // skip '/*'
-                            if let Some(n) = self.skip_block_comment(std::slice::from_raw_parts(
-                                p,
-                                self.input_end.offset_from(p) as usize,
-                            )) {
-                                p = p.add(n);
-                                continue 'redo;
-                            } else {
-                                self.throw_syntax_error("unexpected end of comment");
-                                self.token.val = TOK_ERROR;
+                CharCode::Char('\u{000c}' | '\u{000b}' | ' ' | '\t') => {
+                    continue;
+                }
+                CharCode::Char('/') => {
+                    if let Some((_, sc2)) = input.peek() {
+                        match sc2 {
+                            CharCode::Char('*') => {
+                                // block comment
+                                input.move_cursor_by(1); // skip '*'
+                                if let Some(n) = self.skip_block_comment(input.remainder_bytes()) {
+                                    input.move_cursor_by(n as _);
+                                    continue;
+                                } else {
+                                    // at end of stream, but block comment is not closed.
+                                    self.throw_syntax_error("unexpected end of comment");
+                                    self.token.val = TOK_ERROR;
+                                    self.token.data = TokenData::None;
+                                    return Err(-1);
+                                }
+                            }
+                            CharCode::Char('/') => {
+                                // line comment
+                                input.move_cursor_by(1); // skip '/'
+                                let n = self.skip_line_comment(input.remainder_bytes());
+                                input.move_cursor_by(n as _);
+                                continue;
+                            }
+                            CharCode::Char('=') => {
+                                // /=
+                                input.move_cursor_by(1); // skip '='
+                                self.token.val = TOK_DIV_ASSIGN;
                                 self.token.data = TokenData::None;
-                                return Err(-1);
+                            }
+                            _ => {
+                                self.token.val = b'/' as i32;
+                                self.token.data = TokenData::Char('/')
                             }
                         }
-                        b'/' => {
-                            // line comment
-                            p = p.add(2);
-                            todo = Some(Todo::SkipLineComment);
-                        }
-                        b'=' => {
-                            // /=
-                            p = p.add(2);
-                            self.token.val = TOK_DIV_ASSIGN;
-                            self.token.data = TokenData::None;
-                        }
-                        _ => {
-                            p = p.add(1);
-                            self.token.val = b'/' as i32;
-                            self.token.data = TokenData::Char('/')
-                        }
-                    } // starts with '/'
-                },
-                '\\' => unsafe {
-                    todo = Some(Todo::DefaultToken('\\'));
-
-                    let bad = if *p.add(1) == b'u' {
-                        let p1 = p.add(1);
-                        let bytes =
-                            std::slice::from_raw_parts(p1, self.input_end.offset_from(p1) as usize);
-
-                        if let Ok((code, consumed)) = self.parse_string_escape(bytes, 1) {
+                    }
+                }
+                CharCode::Char('\\') => {
+                    if let Some(b'u') = input.peek_byte_at(0) {
+                        // \u
+                        let is_bad = if let Ok((code, consumed)) =
+                            self.parse_string_escape(input.remainder_bytes(), 1)
+                        {
                             if let Some(c1) = char::from_u32(code) {
                                 if Self::is_ident_first(c1) {
-                                    p = p1.add(consumed);
+                                    input.move_cursor_by(consumed as _);
                                     todo = Some(Todo::HasIdent(c1, true));
                                     false
                                 } else {
@@ -336,49 +311,52 @@ impl<'s> JSParseState<'s> {
                             }
                         } else {
                             true
+                        };
+
+                        if is_bad {
+                            self.throw_syntax_error("Invalid Unicode escape sequence");
+                            return Err(-1);
                         }
                     } else {
-                        false
-                    };
-
-                    if bad {
-                        self.throw_syntax_error("Invalid Unicode escape sequence");
-                        return Err(-1);
+                        todo = Some(Todo::Char('\\'));
                     }
-                },
-                ch @ ('a'..='z' | 'A'..='Z' | '_' | '$') => unsafe {
-                    // identifier
-                    p = p.add(1);
+                }
+                CharCode::Char(ch @ ('a'..='z' | 'A'..='Z' | '_' | '$')) => {
+                    // start of identifier
                     todo = Some(Todo::HasIdent(ch, false));
-                },
-                '#' => unsafe {
+                }
+                CharCode::Char('#') => {
                     // private name
-                    p = p.add(1);
-                    let c = (*p) as char;
+                    if let Some((_, c)) = input.next() {
+                        let c1 = match c {
+                            CharCode::Char('\\') => {
+                                if let Some(b'u') = input.peek_byte_at(0) {
+                                    // \u
+                                    let (code, consumed) =
+                                        self.parse_string_escape(input.remainder_bytes(), 1)?;
+                                    if let Some(x) = char::from_u32(code) {
+                                        input.move_cursor_by(consumed as _);
+                                        x
+                                    } else {
+                                        self.throw_syntax_error("Invalid Unicode escape sequence");
+                                        return Err(-1);
+                                    }
+                                } else {
+                                    '\\'
+                                }
+                            }
+                            CharCode::Char(c) => c,
+                            CharCode::Code(_) => {
+                                self.throw_syntax_error("Invalid Unicode escape sequence");
+                                return Err(-1);
+                            }
+                        };
 
-                    let mut p1 = p.add(1);
-
-                    let c1 = if c == '\\' && *p1 == b'u' {
-                        let bytes =
-                            std::slice::from_raw_parts(p1, self.input_end.offset_from(p1) as usize);
-                        let (cp, consumed) = self.parse_string_escape(bytes, 1)?;
-                        p1 = p1.add(consumed);
-                        // let cp = self.parse_string_escape(&mut p1, 1)?;
-                        char::from_u32(cp).unwrap()
-                    } else if !c.is_ascii() {
-                        unicode_from_utf8_v0(p, UTF8_CHAR_LEN_MAX as _, &mut p1)?
-                    } else {
-                        c
-                    };
-
-                    if !Self::is_ident_first(c1) {
-                        self.throw_syntax_error("invalid first charactor of private name");
-                        todo = Some(Todo::Fail);
-                    } else {
-                        let bytes =
-                            std::slice::from_raw_parts(p1, self.input_end.offset_from(p1) as usize);
-
-                        if let Ok((atom, has_escape, consumed)) = self.parse_ident(bytes, c1, true)
+                        if !Self::is_ident_first(c1) {
+                            self.throw_syntax_error("invalid first charactor of private name");
+                            todo = Some(Todo::SyntaxError);
+                        } else if let Ok((atom, has_escape, consumed)) =
+                            self.parse_ident(input.remainder_bytes(), c1, true)
                         {
                             self.token.val = TOK_PRIVATE_NAME;
                             self.token.data = TokenData::Ident {
@@ -386,314 +364,375 @@ impl<'s> JSParseState<'s> {
                                 has_escape,
                                 is_reserved: false,
                             };
-                            p = p1.add(consumed);
+                            input.move_cursor_by(consumed as _);
                         } else {
-                            todo = Some(Todo::Fail);
+                            todo = Some(Todo::SyntaxError);
                         }
                     }
-                },
-                '.' => unsafe {
-                    if *p.add(1) == b'.' && *p.add(2) == b'.' {
-                        // ...
-                        p = p.add(3);
-                        self.token.val = TOK_ELLIPSIS;
-                        self.token.data = TokenData::None;
-                    } else if (*p.add(1)).is_ascii_digit() {
-                        todo = Some(Todo::ParseNumber);
-                    } else {
-                        todo = Some(Todo::DefaultToken('.'))
+                }
+                CharCode::Char('.') => {
+                    let mut bb = [0u8; 2];
+                    input.peek_bytes(&mut bb);
+                    match (bb[0], bb[1]) {
+                        (b'.', b'.') => {
+                            // ...
+                            input.move_cursor_by(2);
+                            self.token.val = TOK_ELLIPSIS;
+                            self.token.data = TokenData::None;
+                        }
+                        (b'0'..=b'9', _) => {
+                            input.move_cursor_by(-1); // rewind to .
+                            todo = Some(Todo::ParseNumber);
+                        }
+                        _ => {
+                            todo = Some(Todo::Char('.'));
+                        }
                     }
-                },
-                '0' => {
-                    todo = if unsafe { (*p.add(1)).is_ascii_digit() }
+                }
+                CharCode::Char('0') => {
+                    todo = if input.peek_byte_at(0).is_some_and(|b| b.is_ascii_digit())
                         && self.cur_func().attrs.exec_mode.contains(ExecMode::STRICT)
                     {
-                        // in strict mode, octal literals are not accepted
                         self.throw_syntax_error("octal literals are deprecated in strict mode");
-                        Some(Todo::Fail)
+                        Some(Todo::SyntaxError)
                     } else {
+                        input.move_cursor_by(-1); // rewind to first '0'
                         Some(Todo::ParseNumber)
                     };
                 }
-                '1'..='9' => {
+                CharCode::Char('1'..='9') => {
+                    input.move_cursor_by(-1); // rewind to first digit
                     todo = Some(Todo::ParseNumber);
                 }
-                '*' => unsafe {
-                    if *p.offset(1) == b'=' {
-                        p = p.offset(2);
-                        self.token.val = TOK_MUL_ASSIGN;
-                        self.token.data = TokenData::None;
-                    } else if *p.offset(1) == b'*' {
-                        if *p.offset(2) == b'=' {
-                            p = p.offset(3);
-                            self.token.val = TOK_POW_ASSIGN;
-                            self.token.data = TokenData::None;
-                        } else {
-                            p = p.offset(2);
-                            self.token.val = TOK_POW;
+                CharCode::Char('*') => {
+                    match input.peek_byte_at(0) {
+                        Some(b'=') => {
+                            input.move_cursor_by(1);
+                            self.token.val = TOK_MUL_ASSIGN;
                             self.token.data = TokenData::None;
                         }
-                    } else {
-                        todo = Some(Todo::DefaultToken('*'));
+                        Some(b'*') => {
+                            if let Some(b'=') = input.peek_byte_at(1) {
+                                // **=
+                                input.move_cursor_by(2);
+                                self.token.val = TOK_POW_ASSIGN;
+                            } else {
+                                // **
+                                input.move_cursor_by(1);
+                                self.token.val = TOK_POW;
+                            }
+                            self.token.data = TokenData::None;
+                        }
+                        _ => {
+                            todo = Some(Todo::Char('*'));
+                        }
                     }
-                },
-                '%' => unsafe {
-                    if *p.offset(1) == b'=' {
-                        p = p.offset(2);
+                }
+                CharCode::Char('%') => {
+                    if let Some(b'=') = input.peek_byte_at(0) {
+                        input.move_cursor_by(1);
                         self.token.val = TOK_MOD_ASSIGN;
                         self.token.data = TokenData::None;
                     } else {
-                        todo = Some(Todo::DefaultToken('%'));
+                        todo = Some(Todo::Char('%'));
                     }
-                },
-                '+' => unsafe {
-                    if *p.offset(1) == b'=' {
-                        p = p.offset(2);
+                }
+                CharCode::Char('+') => match input.peek_byte_at(0) {
+                    Some(b'=') => {
+                        input.move_cursor_by(1);
                         self.token.val = TOK_PLUS_ASSIGN;
                         self.token.data = TokenData::None;
-                    } else if *p.offset(1) == b'+' {
-                        p = p.offset(2);
+                    }
+                    Some(b'+') => {
+                        input.move_cursor_by(1);
                         self.token.val = TOK_INC;
                         self.token.data = TokenData::None;
-                    } else {
-                        todo = Some(Todo::DefaultToken('+'));
+                    }
+                    _ => {
+                        todo = Some(Todo::Char('+'));
                     }
                 },
-                '-' => unsafe {
-                    if *p.offset(1) == b'=' {
-                        p = p.offset(2);
-                        self.token.val = TOK_MINUS_ASSIGN;
-                        self.token.data = TokenData::None;
-                    } else if *p.offset(1) == b'-' {
-                        if self.allow_html_comments
-                            && *p.offset(2) == b'>'
-                            && self.last_line_num != self.line_num
-                        {
-                            // Annex B: `-->` at beginning of line is an html comment end.
-                            // It extends to the end of the line.
-                            // p = self.next_token_skip_line_comment(p);
-                            let n = self.skip_line_comment(std::slice::from_raw_parts(
-                                p,
-                                self.input_end.offset_from(p) as usize,
-                            ));
-                            p = p.add(n);
-                            continue 'redo;
-                        } else {
-                            p = p.offset(2);
-                            self.token.val = TOK_DEC;
+                CharCode::Char('-') => {
+                    match input.peek_byte_at(0) {
+                        Some(b'=') => {
+                            input.move_cursor_by(1);
+                            self.token.val = TOK_MINUS_ASSIGN;
                             self.token.data = TokenData::None;
                         }
-                    } else {
-                        todo = Some(Todo::DefaultToken('-'));
-                    }
-                },
-                '<' => unsafe {
-                    if *p.offset(1) == b'=' {
-                        p = p.offset(2);
-                        self.token.val = TOK_LTE;
-                        self.token.data = TokenData::None;
-                    } else if *p.offset(1) == b'<' {
-                        if *p.offset(2) == b'=' {
-                            p = p.offset(3);
-                            self.token.val = TOK_SHL_ASSIGN;
-                            self.token.data = TokenData::None;
-                        } else {
-                            p = p.offset(2);
-                            self.token.val = TOK_SHL;
-                            self.token.data = TokenData::None;
-                        }
-                    } else if self.allow_html_comments
-                        && *p.offset(1) == b'!'
-                        && *p.offset(2) == b'-'
-                        && *p.offset(3) == b'-'
-                    {
-                        // Annex B: handle `<!--` single line html comments
-                        // p = self.next_token_skip_line_comment(p);
-                        let n = self.skip_line_comment(std::slice::from_raw_parts(
-                            p,
-                            self.input_end.offset_from(p) as usize,
-                        ));
-                        p = p.add(n);
-                        continue 'redo;
-                    } else {
-                        todo = Some(Todo::DefaultToken('<'));
-                    }
-                },
-                '>' => unsafe {
-                    if *p.offset(1) == b'=' {
-                        p = p.offset(2);
-                        self.token.val = TOK_GTE;
-                        self.token.data = TokenData::None;
-                    } else if *p.offset(1) == b'>' {
-                        if *p.offset(2) == b'>' {
-                            if *p.offset(3) == b'=' {
-                                p = p.offset(4);
-                                self.token.val = TOK_SHR_ASSIGN;
-                                self.token.data = TokenData::None;
+                        Some(b'-') => {
+                            if self.allow_html_comments
+                                && let Some(b'>') = input.peek_byte_at(1)
+                                && self.last_line_num != self.line_num
+                            {
+                                // Annex B: `-->` at beginning of line is an html comment end.
+                                // It extends to the end of the line.
+                                input.move_cursor_by(-1);
+                                let n = self.skip_line_comment(input.remainder_bytes());
+                                input.move_cursor_by(n as _);
+                                continue;
                             } else {
-                                p = p.offset(3);
-                                self.token.val = TOK_SHR;
+                                input.move_cursor_by(1);
+                                self.token.val = TOK_DEC;
                                 self.token.data = TokenData::None;
                             }
-                        } else if *p.offset(2) == b'=' {
-                            p = p.offset(3);
+                        }
+                        _ => {
+                            todo = Some(Todo::Char('-'));
+                        }
+                    }
+                }
+                CharCode::Char('<') => {
+                    match input.peek_byte_at(0) {
+                        Some(b'=') => {
+                            // <=
+                            input.move_cursor_by(1);
+                            self.token.val = TOK_LTE;
+                            self.token.data = TokenData::None;
+                        }
+                        Some(b'<') => {
+                            if let Some(b'=') = input.peek_byte_at(1) {
+                                // <<=
+                                input.move_cursor_by(2);
+                                self.token.val = TOK_SHL_ASSIGN;
+                                self.token.data = TokenData::None;
+                            } else {
+                                // <<
+                                input.move_cursor_by(1);
+                                self.token.val = TOK_SHL;
+                                self.token.data = TokenData::None;
+                            }
+                        }
+                        Some(_) if self.allow_html_comments && input.match_bytes(b"!--") => {
+                            // Annex B: handle `<!--` single line html comments
+                            let n = self.skip_line_comment(input.remainder_bytes());
+                            input.move_cursor_by(n as _);
+                            continue;
+                        }
+                        _ => {
+                            todo = Some(Todo::Char('<'));
+                        }
+                    }
+                }
+                CharCode::Char('>') => {
+                    let mut bb = [0u8; 3];
+                    input.peek_bytes(&mut bb);
+
+                    match (bb[0], bb[1], bb[2]) {
+                        (b'=', _, _) => {
+                            // >=
+                            input.move_cursor_by(1);
+                            self.token.val = TOK_GTE;
+                            self.token.data = TokenData::None;
+                        }
+                        (b'>', b'>', b'=') => {
+                            // >>>=
+                            input.move_cursor_by(3);
                             self.token.val = TOK_SHR_ASSIGN;
                             self.token.data = TokenData::None;
-                        } else {
-                            p = p.offset(2);
+                        }
+                        (b'>', b'>', _) => {
+                            // >>>
+                            input.move_cursor_by(2);
+                            self.token.val = TOK_SHR;
+                            self.token.data = TokenData::None;
+                        }
+                        (b'>', b'=', _) => {
+                            // >>=
+                            input.move_cursor_by(2);
+                            self.token.val = TOK_SAR_ASSIGN;
+                            self.token.data = TokenData::None;
+                        }
+                        (b'>', _, _) => {
+                            // >>
+                            input.move_cursor_by(1);
                             self.token.val = TOK_SAR;
                             self.token.data = TokenData::None;
                         }
-                    } else {
-                        todo = Some(Todo::DefaultToken('>'));
+                        _ => {
+                            todo = Some(Todo::Char('>'));
+                        }
                     }
-                },
-                '=' => unsafe {
-                    if *p.offset(1) == b'=' {
-                        if *p.offset(2) == b'=' {
-                            p = p.offset(3);
-                            self.token.val = TOK_STRICT_EQ;
-                            self.token.data = TokenData::None;
-                        } else {
-                            p = p.offset(2);
-                            self.token.val = TOK_EQ;
+                }
+                CharCode::Char('=') => {
+                    let mut bb = [0u8; 2];
+                    input.peek_bytes(&mut bb);
+                    match bb[0] {
+                        b'=' => {
+                            if bb.starts_with(b"==") {
+                                // ===
+                                input.move_cursor_by(2);
+                                self.token.val = TOK_STRICT_EQ;
+                                self.token.data = TokenData::None;
+                            } else {
+                                // ==
+                                input.move_cursor_by(1);
+                                self.token.val = TOK_EQ;
+                                self.token.data = TokenData::None;
+                            }
+                        }
+                        b'>' => {
+                            // =>
+                            input.move_cursor_by(1);
+                            self.token.val = TOK_ARROW;
                             self.token.data = TokenData::None;
                         }
-                    } else if *p.offset(1) == b'>' {
-                        p = p.offset(2);
-                        self.token.val = TOK_ARROW;
-                        self.token.data = TokenData::None;
-                    } else {
-                        self.token.val = '=' as i32;
-                        self.token.data = TokenData::Char('=');
-                        p = p.offset(1);
+                        _ => {
+                            self.token.val = '=' as i32;
+                            self.token.data = TokenData::Char('=');
+                        }
                     }
-                },
-                '!' => unsafe {
-                    if *p.offset(1) == b'=' {
-                        if *p.offset(2) == b'=' {
-                            p = p.offset(3);
-                            self.token.val = TOK_STRICT_NEQ;
-                            self.token.data = TokenData::None;
-                        } else {
-                            p = p.offset(2);
-                            self.token.val = TOK_NEQ;
+                }
+                CharCode::Char('!') => {
+                    let mut bb = [0u8; 2];
+                    input.peek_bytes(&mut bb);
+                    match bb[0] {
+                        b'=' => {
+                            if bb.starts_with(b"==") {
+                                // !==
+                                input.move_cursor_by(2);
+                                self.token.val = TOK_STRICT_NEQ;
+                                self.token.data = TokenData::None;
+                            } else {
+                                // !=
+                                input.move_cursor_by(1);
+                                self.token.val = TOK_NEQ;
+                                self.token.data = TokenData::None;
+                            }
+                        }
+                        _ => {
+                            todo = Some(Todo::Char('!'));
+                        }
+                    }
+                }
+                CharCode::Char('&') => {
+                    let mut bb = [0u8; 2];
+                    input.peek_bytes(&mut bb);
+                    match (bb[0], bb[1]) {
+                        (b'=', _) => {
+                            // &=
+                            input.move_cursor_by(1);
+                            self.token.val = TOK_AND_ASSIGN;
                             self.token.data = TokenData::None;
                         }
-                    } else {
-                        todo = Some(Todo::DefaultToken('!'));
-                    }
-                },
-                '&' => unsafe {
-                    if *p.offset(1) == b'=' {
-                        p = p.offset(2);
-                        self.token.val = TOK_AND_ASSIGN;
-                        self.token.data = TokenData::None;
-                    } else if *p.offset(1) == b'&' {
-                        if *p.offset(2) == b'=' {
-                            p = p.offset(3);
+                        (b'&', b'=') => {
+                            // &&=
+                            input.move_cursor_by(2);
                             self.token.val = TOK_LAND_ASSIGN;
                             self.token.data = TokenData::None;
-                        } else {
-                            p = p.offset(2);
+                        }
+                        (b'&', _) => {
+                            // &&
+                            input.move_cursor_by(1);
                             self.token.val = TOK_LAND;
                             self.token.data = TokenData::None;
                         }
-                    } else {
-                        todo = Some(Todo::DefaultToken('&'));
+                        _ => {
+                            todo = Some(Todo::Char('&'));
+                        }
                     }
-                },
-                '^' => unsafe {
-                    if *p.offset(1) == b'=' {
-                        p = p.offset(2);
+                }
+                CharCode::Char('^') => {
+                    if let Some(b'=') = input.peek_byte_at(0) {
+                        // ^=
+                        input.move_cursor_by(1);
                         self.token.val = TOK_XOR_ASSIGN;
                         self.token.data = TokenData::None;
                     } else {
-                        todo = Some(Todo::DefaultToken('^'))
+                        todo = Some(Todo::Char('^'))
                     }
-                },
-                '|' => unsafe {
-                    if *p.offset(1) == b'=' {
-                        p = p.offset(2);
-                        self.token.val = TOK_OR_ASSIGN;
-                        self.token.data = TokenData::None;
-                    } else if *p.offset(1) == b'|' {
-                        if *p.offset(2) == b'=' {
-                            p = p.offset(3);
+                }
+                CharCode::Char('|') => {
+                    let mut bb = [0u8; 2];
+                    input.peek_bytes(&mut bb);
+                    match (bb[0], bb[1]) {
+                        (b'=', _) => {
+                            // |=
+                            input.move_cursor_by(1);
+                            self.token.val = TOK_OR_ASSIGN;
+                            self.token.data = TokenData::None;
+                        }
+                        (b'|', b'=') => {
+                            // ||=
+                            input.move_cursor_by(2);
                             self.token.val = TOK_LOR_ASSIGN;
                             self.token.data = TokenData::None;
-                        } else {
-                            p = p.offset(2);
+                        }
+                        (b'|', _) => {
+                            // ||
+                            input.move_cursor_by(1);
                             self.token.val = TOK_LOR;
                             self.token.data = TokenData::None;
                         }
-                    } else {
-                        todo = Some(Todo::DefaultToken('|'));
+                        _ => {
+                            todo = Some(Todo::Char('|'));
+                        }
                     }
-                },
-                '?' => unsafe {
-                    if *p.offset(1) == b'?' {
-                        if *p.offset(2) == b'=' {
-                            p = p.offset(3);
+                }
+                CharCode::Char('?') => {
+                    let mut bb = [0u8; 2];
+                    input.peek_bytes(&mut bb);
+                    match (bb[0], bb[1]) {
+                        (b'?', b'=') => {
+                            // ??=
+                            input.move_cursor_by(2);
                             self.token.val = TOK_DOUBLE_QUESTION_MARK_ASSIGN;
                             self.token.data = TokenData::None;
-                        } else {
-                            p = p.offset(2);
+                        }
+                        (b'?', _) => {
+                            // ??
+                            input.move_cursor_by(1);
                             self.token.val = TOK_DOUBLE_QUESTION_MARK;
                             self.token.data = TokenData::None;
                         }
-                    } else if *p.offset(1) == b'.'
-                        && !(*p.offset(2) >= b'0' && *p.offset(2) <= b'9')
-                    {
-                        p = p.offset(2);
-                        self.token.val = TOK_QUESTION_MARK_DOT;
-                        self.token.data = TokenData::None;
+                        (b'.', x) if !x.is_ascii_digit() => {
+                            // ?.
+                            input.move_cursor_by(1);
+                            self.token.val = TOK_QUESTION_MARK_DOT;
+                            self.token.data = TokenData::None;
+                        }
+                        _ => {
+                            todo = Some(Todo::Char('?'));
+                        }
+                    }
+                }
+                CharCode::Char('\u{2028}' | '\u{2029}') => {
+                    // XXX: should avoid incrementing line_number, but needed to handle HTML comments
+                    self.got_lf = true;
+                    self.line_num += 1;
+                    continue;
+                }
+                CharCode::Char(ch) => {
+                    if char_is_space(ch) {
+                        continue;
+                    }
+
+                    todo = if !ch.is_ascii() {
+                        if JSParseState::is_ident_first(ch) {
+                            Some(Todo::HasIdent(ch, false))
+                        } else {
+                            self.throw_syntax_error("unexpected character");
+                            Some(Todo::SyntaxError)
+                        }
                     } else {
-                        todo = Some(Todo::DefaultToken('?'));
-                    }
-                },
-
-                c if !c.is_ascii() => {
-                    match unicode_from_utf8_v0(p, UTF8_CHAR_LEN_MAX as i32, &mut p)? {
-                        '\u{2028}' | '\u{2029}' => {
-                            // XXX: should avoid incrementing line_number, but needed to handle HTML comments
-                            self.got_lf = true;
-                            self.line_num += 1;
-                            continue 'redo;
-                        }
-                        ch if char_is_space(ch) => {
-                            continue 'redo;
-                        }
-                        ch => {
-                            todo = if JSParseState::is_ident_first(ch) {
-                                Some(Todo::HasIdent(ch, false))
-                            } else {
-                                self.throw_syntax_error("unexpected character");
-                                Some(Todo::Fail)
-                            };
-                        }
-                    }
+                        Some(Todo::Char(ch))
+                    };
                 }
-                c => {
-                    todo = Some(Todo::DefaultToken(c));
-                }
-            } // match ch
 
-            // handle token type
+                CharCode::Code(_) => {
+                    self.throw_syntax_error("Invalid Unicode escape sequence");
+                    return Err(-1);
+                }
+            }
+
             if let Some(what) = todo.take() {
                 match what {
-                    Todo::DefaultToken(ch) => {
+                    Todo::Char(ch) => {
                         self.token.val = ch as i32;
                         self.token.data = TokenData::Char(ch);
-                        p = unsafe { p.offset(1) };
                     }
                     Todo::HasIdent(first_char, escaped) => {
-                        let bytes = unsafe {
-                            std::slice::from_raw_parts(p, self.input_end.offset_from(p) as usize)
-                        };
-
-                        if let Ok((atom, has_escape, advance)) =
-                            self.parse_ident(bytes, first_char, false)
+                        if let Ok((atom, has_escape, consumed)) =
+                            self.parse_ident(input.remainder_bytes(), first_char, false)
                         {
                             self.token.val = TOK_IDENT;
                             self.token.data = TokenData::Ident {
@@ -701,7 +740,7 @@ impl<'s> JSParseState<'s> {
                                 has_escape: has_escape || escaped,
                                 is_reserved: false,
                             };
-                            p = unsafe { p.add(advance) };
+                            input.move_cursor_by(consumed as _);
 
                             // check if atom is a reserved keyword.
                             // if yes, convert token value to TOK_XXX
@@ -712,27 +751,15 @@ impl<'s> JSParseState<'s> {
                             return Err(-1);
                         }
                     }
-                    Todo::LineTerminator => {
-                        self.got_lf = true;
-                        self.line_num += 1;
-                        continue 'redo;
-                    }
-                    Todo::SkipLineComment => unsafe {
-                        // p = self.next_token_skip_line_comment(p);
-                        let n = self.skip_line_comment(std::slice::from_raw_parts(
-                            p,
-                            self.input_end.offset_from(p) as usize,
-                        ));
-                        p = p.add(n);
-                        continue 'redo;
-                    },
                     Todo::ParseNumber => {
-                        p = self.parse_number(p).inspect_err(|_| {
+                        let p0 = input.current_ptr().unwrap().as_ptr();
+                        let p = self.parse_number(p0).inspect_err(|_| {
                             self.token.val = TOK_ERROR;
                             self.token.data = TokenData::None;
                         })?;
+                        input.move_cursor_by(unsafe { p.offset_from(p0) as _ });
                     }
-                    Todo::Fail => {
+                    Todo::SyntaxError => {
                         self.token.val = TOK_ERROR;
                         self.token.data = TokenData::None;
                         return Err(-1);
@@ -740,16 +767,20 @@ impl<'s> JSParseState<'s> {
                 }
             }
 
-            break;
-        } // loop
+            // return token
+            self.buf_ptr = input.current_ptr().map_or(self.input_end, |x| x.as_ptr());
+            return Ok(self.token.val);
+        }
 
-        self.buf_ptr = p;
-
+        // reach end of stream
+        self.buf_ptr = input.current_ptr().map_or(self.input_end, |x| x.as_ptr());
+        self.token.val = TOK_EOF;
+        self.token.data = TokenData::None;
         Ok(self.token.val)
     }
 
     /// returns updated str pointer
-    #[inline(always)]
+    #[inline(never)]
     fn parse_number(&mut self, ptr: *const u8) -> Result<*const u8, i32> {
         let mut p = ptr;
 
@@ -796,6 +827,7 @@ impl<'s> JSParseState<'s> {
     }
 
     /// returns number of skipped bytes (before but not include char \r, \n, LS or PS).
+    #[inline(never)]
     pub(super) fn skip_line_comment(&self, buf: &[u8]) -> usize {
         for (i, sc) in Utf8CharIter::new(buf) {
             match sc {
@@ -809,6 +841,7 @@ impl<'s> JSParseState<'s> {
         buf.len()
     }
 
+    #[inline(never)]
     pub(super) fn skip_block_comment(&mut self, buf: &[u8]) -> Option<usize> {
         let mut chars = Utf8CharIter::new(buf);
 
@@ -822,7 +855,7 @@ impl<'s> JSParseState<'s> {
                     self.got_lf = true;
                 }
                 CharCode::Char('*') => {
-                    if let Some(b'/') = chars.peek_offset(0) {
+                    if let Some(b'/') = chars.peek_byte_at(0) {
                         return Some(i + 2); // skip '*/'
                     }
                 }
@@ -858,7 +891,7 @@ impl<'s> JSParseState<'s> {
 
     /// check if token is reserved keyword or not.
     ///  if it is a keyword, convert keyword token.
-    pub fn update_token_ident(&mut self) {
+    pub(super) fn update_token_ident(&mut self) {
         if matches!(self.token.val, TOK_FIRST_KEYWORD..=TOK_LAST_KEYWORD) {
             return;
         }

@@ -54,7 +54,7 @@ impl<'s> JSParseState<'s> {
         let mut ins = Utf8CharIter::new(buf);
         let mut todo: Option<Todo> = None;
 
-        while let Some(b) = ins.peek_offset(0) {
+        while let Some(b) = ins.peek_byte_at(0) {
             self.token.line_num = self.line_num;
             self.token.ptr = ins.current_ptr().map_or(self.input_end, |p| p.as_ptr());
 
@@ -65,13 +65,13 @@ impl<'s> JSParseState<'s> {
                         todo = Some(Todo::Token('\'' as _));
                         break;
                     } else {
-                        ins.seek_offset(1); // skip starting quote
+                        ins.move_cursor_by(1); // skip starting quote
 
                         if let Ok(n) =
                             self.parse_string(quote as _, true, ins.remainder_bytes(), None)
                         {
-                            ins.seek_offset(n as _); // at next char of ending quote
-                            debug_assert_eq!(ins.peek_offset(-1).unwrap(), quote);
+                            ins.move_cursor_by(n as _); // at next char of ending quote
+                            debug_assert_eq!(ins.peek_byte_at(-1).unwrap(), quote);
 
                             self.buf_ptr = ins.current_ptr().map_or(self.input_end, |p| p.as_ptr());
                             return Ok(());
@@ -83,11 +83,11 @@ impl<'s> JSParseState<'s> {
                 }
                 c @ (b'\r' | b'\n') => {
                     if c == b'\r'
-                        && let Some(b'\n') = ins.peek_offset(1)
+                        && let Some(b'\n') = ins.peek_byte_at(1)
                     {
-                        ins.seek_offset(1);
+                        ins.move_cursor_by(1);
                     }
-                    ins.seek_offset(1);
+                    ins.move_cursor_by(1);
                     self.line_num += 1;
                     continue;
                 }
@@ -98,12 +98,12 @@ impl<'s> JSParseState<'s> {
                         todo = Some(Todo::Token(c as _));
                         break;
                     } else {
-                        ins.seek_offset(1);
+                        ins.move_cursor_by(1);
                         continue;
                     }
                 }
                 b' ' | b'\t' => {
-                    ins.seek_offset(1);
+                    ins.move_cursor_by(1);
                     continue;
                 }
                 b'/' => {
@@ -113,13 +113,13 @@ impl<'s> JSParseState<'s> {
                         break;
                     }
 
-                    match ins.peek_offset(1) {
+                    match ins.peek_byte_at(1) {
                         Some(b'*') => {
                             // block comment
-                            ins.seek_offset(2); // skip '/*'
+                            ins.move_cursor_by(2); // skip '/*'
                             if let Some(pos) = ins.current_index() {
                                 if let Some(n) = self.skip_block_comment(&buf[pos..]) {
-                                    ins.seek_offset(n as _);
+                                    ins.move_cursor_by(n as _);
                                     continue;
                                 } else {
                                     ins.end();
@@ -131,10 +131,10 @@ impl<'s> JSParseState<'s> {
                         }
                         Some(b'/') => {
                             // line comment
-                            ins.seek_offset(2); // skip '//'
+                            ins.move_cursor_by(2); // skip '//'
                             if let Some(pos) = ins.current_index() {
                                 let n = self.skip_line_comment(&buf[pos..]);
-                                ins.seek_offset(n as _);
+                                ins.move_cursor_by(n as _);
                                 continue;
                             }
                         }
@@ -146,7 +146,7 @@ impl<'s> JSParseState<'s> {
                 }
                 c @ (b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'$') => {
                     // identifier : only pure ascii characters are accepted
-                    ins.seek_offset(1);
+                    ins.move_cursor_by(1);
                     if let Ok(atom) = self.json_parse_ident(&mut ins, c) {
                         self.token.data = TokenData::Ident {
                             atom,
@@ -162,14 +162,14 @@ impl<'s> JSParseState<'s> {
                     }
                 }
                 b'+' => {
-                    if !self.ext_json || ins.peek_offset(1).is_none_or(|b| !b.is_ascii_digit()) {
+                    if !self.ext_json || ins.peek_byte_at(1).is_none_or(|b| !b.is_ascii_digit()) {
                         todo = Some(Todo::Token('+' as _));
                         break;
                     }
 
                     if let Ok(n) = self.json_parse_value_number(ins.current_ptr().unwrap().as_ptr())
                     {
-                        ins.seek_offset(n as _);
+                        ins.move_cursor_by(n as _);
                         self.buf_ptr = ins.current_ptr().map_or(self.input_end, |p| p.as_ptr());
                         return Ok(());
                     } else {
@@ -178,14 +178,14 @@ impl<'s> JSParseState<'s> {
                     }
                 }
                 b'-' => {
-                    if ins.peek_offset(1).is_none_or(|b| !b.is_ascii_digit()) {
+                    if ins.peek_byte_at(1).is_none_or(|b| !b.is_ascii_digit()) {
                         todo = Some(Todo::Token('-' as _));
                         break;
                     }
 
                     if let Ok(n) = self.json_parse_value_number(ins.current_ptr().unwrap().as_ptr())
                     {
-                        ins.seek_offset(n as _);
+                        ins.move_cursor_by(n as _);
                         self.buf_ptr = ins.current_ptr().map_or(self.input_end, |p| p.as_ptr());
                         return Ok(());
                     } else {
@@ -194,14 +194,14 @@ impl<'s> JSParseState<'s> {
                     }
                 }
                 b'0' => {
-                    if ins.peek_offset(1).is_some_and(|b| b.is_ascii_digit()) {
+                    if ins.peek_byte_at(1).is_some_and(|b| b.is_ascii_digit()) {
                         todo = Some(Todo::Token('0' as _));
                         break;
                     }
 
                     if let Ok(n) = self.json_parse_value_number(ins.current_ptr().unwrap().as_ptr())
                     {
-                        ins.seek_offset(n as _);
+                        ins.move_cursor_by(n as _);
                         self.buf_ptr = ins.current_ptr().map_or(self.input_end, |p| p.as_ptr());
                         return Ok(());
                     } else {
@@ -212,7 +212,7 @@ impl<'s> JSParseState<'s> {
                 b'1'..=b'9' => {
                     let p0 = ins.current_ptr().unwrap().as_ptr();
                     if let Ok(n) = self.json_parse_value_number(p0) {
-                        ins.seek_offset(n as i32);
+                        ins.move_cursor_by(n as i32);
                         self.buf_ptr = ins.current_ptr().map_or(self.input_end, |p| p.as_ptr());
                         return Ok(());
                     } else {
@@ -236,7 +236,7 @@ impl<'s> JSParseState<'s> {
             match todo {
                 Todo::Token(c) => {
                     self.token.val = c;
-                    ins.seek_offset(1);
+                    ins.move_cursor_by(1);
                     self.buf_ptr = ins.current_ptr().map_or(self.input_end, |p| p.as_ptr());
                     Ok(())
                 }
@@ -282,7 +282,7 @@ impl<'s> JSParseState<'s> {
         let mut buf = SmallVec::<[u8; 64]>::new();
         buf.push(first_char);
 
-        while let Some(c) = inp.peek_offset(0)
+        while let Some(c) = inp.peek_byte_at(0)
             && c.is_ascii()
             && Self::is_ident_next(c as _)
         {
@@ -293,7 +293,7 @@ impl<'s> JSParseState<'s> {
                 })?;
             }
             buf.push(c);
-            inp.seek_offset(1);
+            inp.move_cursor_by(1);
         }
 
         let atom = Atom::new(

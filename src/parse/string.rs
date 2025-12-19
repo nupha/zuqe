@@ -1,7 +1,7 @@
 use crate::{
     parse::token::TokenData,
     stack_frame::ExecMode,
-    string::{StringBuf, CharCode, Utf8CharIter},
+    string::{CharCode, StringBuf, Utf8CharIter},
 };
 
 use super::{
@@ -10,7 +10,8 @@ use super::{
 };
 
 impl<'s> JSParseState<'s> {
-    /// returns consumed number of bytes (include the trailing seperator char)
+    /// `buf` starts at content of string, not include starting delimitor.
+    /// returns consumed number of bytes (include the trailing delimitor)
     /// `token`: None for self.token
     pub(super) fn parse_string(
         &mut self,

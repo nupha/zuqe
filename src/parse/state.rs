@@ -90,12 +90,14 @@ impl<'s> JSParseState<'s> {
         source: &'s [u8],
         filename: &'s str,
     ) -> Self {
+        let ptr = source.as_ptr();
+
         Self {
             ctx: unsafe { ContextPtr::from_ref_unchecked(ctx) },
 
             input: source,
-            input_end: unsafe { source.as_ptr().add(source.len()) },
-            buf_ptr: source.as_ptr(),
+            input_end: unsafe { ptr.add(source.len()) },
+            buf_ptr: ptr,
 
             last_line_num: 0,
             line_num: 1,

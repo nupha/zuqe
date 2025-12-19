@@ -772,13 +772,15 @@ impl<'s> JSParseState<'s> {
         };
 
         // save current state
-        let orig_buf_ptr = self.buf_ptr;
+        let orig_buf = self.input;
         let orig_buf_end = self.input_end;
+        let orig_buf_ptr = self.buf_ptr;
         let orig_token = std::mem::take(&mut self.token);
 
         // set new source and parse
-        self.buf_ptr = src.as_ptr();
+        self.input = src.as_bytes();
         self.input_end = unsafe { src.as_ptr().add(src.len()) };
+        self.buf_ptr = src.as_ptr();
 
         let mut fd_fixed = fd;
 
@@ -795,8 +797,9 @@ impl<'s> JSParseState<'s> {
         });
 
         // restore original parse state
-        self.buf_ptr = orig_buf_ptr;
+        self.input = orig_buf;
         self.input_end = orig_buf_end;
+        self.buf_ptr = orig_buf_ptr;
         self.token = orig_token;
 
         if ret.is_err() {

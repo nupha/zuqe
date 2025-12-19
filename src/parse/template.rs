@@ -3,7 +3,7 @@ use crate::{
     bytecode::OpCode,
     object::{JS_PROP_ENUMERABLE, JS_PROP_THROW, seal_template_obj},
     parse::token::{Token, TokenData},
-    string::{StringBuf, CharCode, Utf8CharIter},
+    string::{CharCode, StringBuf, Utf8CharIter},
     utils::unlikely,
     value::JSValue,
 };
@@ -11,7 +11,8 @@ use crate::{
 use super::{state::JSParseState, token::TOK_TEMPLATE};
 
 impl<'s> JSParseState<'s> {
-    pub(super) fn parse_template_part(&mut self, buf: &[u8]) -> Result<(), i32> {
+    /// returns number of bytes consumed (include ending delimitor)
+    pub(super) fn parse_template_part(&mut self, buf: &[u8]) -> Result<usize, i32> {
         let mut sbuf = StringBuf::Empty;
         let mut chars = Utf8CharIter::new(buf).peekable();
 
@@ -97,7 +98,7 @@ impl<'s> JSParseState<'s> {
             };
             self.buf_ptr = unsafe { buf.as_ptr().add(consume) };
 
-            Ok(())
+            Ok(consume)
         }
     }
 
@@ -237,7 +238,7 @@ impl<'s> JSParseState<'s> {
                     self.buf_ptr,
                     self.input_end.offset_from(self.buf_ptr) as usize,
                 )
-            })?
+            })?;
         }
 
         self.parse_expect(TOK_TEMPLATE)
