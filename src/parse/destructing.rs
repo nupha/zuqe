@@ -3,7 +3,7 @@ use crate::{
     bytecode::{OpCode, OpCodeTemp, opcodes},
     function::BlockEnv,
     object::PROP_TYPE_IDENT,
-    parse::token::{
+    parse::tokenize::{
         CHAR_COMMA, CHAR_CURLY_L, CHAR_CURLY_R, CHAR_EQUAL, CHAR_SQUARE_L, CHAR_SQUARE_R,
     },
     stack_frame::ExecMode,
@@ -13,7 +13,7 @@ use crate::{
 use super::{
     expr_lvalue::PutLValueEnum,
     state::{JSParseState, SKIP_HAS_ELLIPSIS},
-    token::{TOK_CONST, TOK_ELLIPSIS, TOK_IDENT, TOK_LET, TOK_VAR},
+    tokenize::{TOK_CONST, TOK_ELLIPSIS, TOK_IDENT, TOK_LET, TOK_VAR},
 };
 
 impl<'s> JSParseState<'s> {

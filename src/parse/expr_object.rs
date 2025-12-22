@@ -10,7 +10,7 @@ use crate::{
     parse::{
         JSParseFunctionEnum,
         obj::set_object_name_computed,
-        token::{
+        tokenize::{
             CHAR_BRACKET_L, CHAR_COLON, CHAR_COMMA, CHAR_CURLY_R, CHAR_SEMI, CHAR_SQUARE_L,
             TOK_ELLIPSIS, TOK_IDENT, TOK_NUMBER, TOK_PRIVATE_NAME, TOK_STRING,
         },

@@ -3,7 +3,7 @@ use crate::{
     bytecode::OpCode,
     error::JS_THROW_ERROR_ITERATOR_THROW,
     function::JSFunctionKindEnum,
-    parse::token::{
+    parse::tokenize::{
         CHAR_BRACKET_R, CHAR_COLON, CHAR_COMMA, CHAR_CURLY_R, CHAR_SEMI, CHAR_SQUARE_R, CHAR_STAR,
         TOK_YIELD,
     },

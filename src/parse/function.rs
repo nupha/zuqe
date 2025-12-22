@@ -15,7 +15,7 @@ use super::{
     emit::js_is_live_code,
     esm::JSParseExportEnum,
     state::{JSParseState, SKIP_HAS_ASSIGNMENT},
-    token::{
+    tokenize::{
         CHAR_BRACKET_R, CHAR_COMMA, CHAR_CURLY_L, CHAR_CURLY_R, CHAR_EQUAL, CHAR_STAR, TOK_ARROW,
         TOK_AWAIT, TOK_ELLIPSIS, TOK_FIRST_KEYWORD, TOK_IDENT, TOK_LAST_KEYWORD, TOK_LET, TOK_VAR,
         TOK_YIELD,

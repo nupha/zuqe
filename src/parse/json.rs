@@ -10,7 +10,7 @@ use crate::{
     object::JS_PROP_C_W_E,
     parse::{
         JSParseState,
-        token::{
+        tokenize::{
             CHAR_CURLY_L, CHAR_SQUARE_L, TOK_EOF, TOK_ERROR, TOK_IDENT, TOK_NUMBER, TOK_STRING,
             TokenData,
         },

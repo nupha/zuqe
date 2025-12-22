@@ -8,7 +8,7 @@ use crate::{
 use super::{
     emit::get_prev_opcode,
     state::{JSParseState, PF_POSTFIX_CALL},
-    token::{TOK_DEC, TOK_FOR, TOK_INC},
+    tokenize::{TOK_DEC, TOK_FOR, TOK_INC},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

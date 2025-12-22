@@ -3,7 +3,7 @@ use crate::{
     eval::EvalType,
     function::{GLOBAL_VAR_OFFSET, JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
     module::ExportType,
-    parse::token::{TOK_CATCH, TOK_CONST, TOK_LET, TOK_VAR},
+    parse::tokenize::{TOK_CATCH, TOK_CONST, TOK_LET, TOK_VAR},
     stack_frame::ExecMode,
 };
 

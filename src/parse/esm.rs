@@ -4,14 +4,14 @@ use crate::{
     error::{ErrorKind, JS_BACKTRACE_FLAG_SINGLE_LEVEL},
     function::{JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
     module::{ExportType, ImportEntry, ModuleDef},
-    parse::token::{TOK_FIRST_KEYWORD, TOK_LAST_KEYWORD},
+    parse::tokenize::{TOK_FIRST_KEYWORD, TOK_LAST_KEYWORD},
 };
 
 use super::{
     function::JSParseFunctionEnum,
     parse::skip_shebang,
     state::JSParseState,
-    token::{
+    tokenize::{
         CHAR_BRACKET_L, CHAR_COMMA, CHAR_CURLY_R, CHAR_DOT, TOK_CLASS, TOK_CONST, TOK_DEFAULT,
         TOK_EXPORT, TOK_FUNCTION, TOK_IDENT, TOK_IMPORT, TOK_LET, TOK_STRING, TOK_VAR,
         simple_next_token,

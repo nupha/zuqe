@@ -1,12 +1,12 @@
 use crate::{
-    parse::token::TokenData,
+    parse::tokenize::TokenData,
     stack_frame::ExecMode,
     string::{CharCode, StringBuf, Utf8CharIter},
 };
 
 use super::{
     state::JSParseState,
-    token::{TOK_STRING, Token},
+    tokenize::{TOK_STRING, Token},
 };
 
 impl<'s> JSParseState<'s> {

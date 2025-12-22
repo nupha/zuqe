@@ -4,7 +4,7 @@ use crate::{
     error::JS_THROW_ERROR_DELETE_SUPER,
     parse::{
         state::{PF_ARROW_FUNC, PF_IN_ACCEPTED, PF_POW_ALLOWED},
-        token::TOK_IN,
+        tokenize::TOK_IN,
     },
     stack_frame::ExecMode,
     utils::read_from_ptr,
@@ -14,7 +14,7 @@ use super::{
     emit::get_prev_opcode,
     expr_lvalue::PutLValueEnum,
     state::{JSParseState, PF_POSTFIX_CALL, PF_POW_FORBIDDEN},
-    token::{
+    tokenize::{
         CHAR_MINUS, CHAR_PERCENT, CHAR_PLUS, CHAR_SLASH, CHAR_STAR, TOK_AWAIT, TOK_DEC, TOK_DELETE,
         TOK_EQ, TOK_GTE, TOK_INC, TOK_INSTANCEOF, TOK_LTE, TOK_NEQ, TOK_POW, TOK_PRIVATE_NAME,
         TOK_SAR, TOK_SHL, TOK_SHR, TOK_STRICT_EQ, TOK_STRICT_NEQ, TOK_TYPEOF, TOK_VOID,

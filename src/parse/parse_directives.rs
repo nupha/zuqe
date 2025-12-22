@@ -2,7 +2,7 @@ use crate::stack_frame::ExecMode;
 
 use super::{
     state::JSParseState,
-    token::{
+    tokenize::{
         CHAR_CURLY_R, CHAR_SEMI, TOK_CLASS, TOK_CONST, TOK_DEBUGGER, TOK_DEC, TOK_DELETE, TOK_DO,
         TOK_ENUM, TOK_EOF, TOK_EXPORT, TOK_FALSE, TOK_FOR, TOK_FUNCTION, TOK_IDENT, TOK_IF,
         TOK_IMPORT, TOK_INC, TOK_INTERFACE, TOK_LET, TOK_NEW, TOK_NULL, TOK_NUMBER, TOK_PACKAGE,

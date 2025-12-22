@@ -2,7 +2,7 @@ use crate::{
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp},
     function::{BlockEnv, JSFunctionKindEnum, JSVarDefEnum, OPTIMIZE},
-    parse::token::TOK_FIRST_KEYWORD,
+    parse::tokenize::TOK_FIRST_KEYWORD,
     stack_frame::ExecMode,
     utils::{unlikely, write_to_ptr},
 };
@@ -13,7 +13,7 @@ use super::{
     expr_lvalue::PutLValueEnum,
     function::JSParseFunctionEnum,
     state::{JSParseState, SKIP_HAS_ELLIPSIS, SKIP_HAS_SEMI},
-    token::{
+    tokenize::{
         CHAR_BRACKET_L, CHAR_BRACKET_R, CHAR_COLON, CHAR_CURLY_L, CHAR_CURLY_R, CHAR_EQUAL,
         CHAR_SEMI, CHAR_SQUARE_L, TOK_AWAIT, TOK_BREAK, TOK_CASE, TOK_CATCH, TOK_CLASS, TOK_CONST,
         TOK_CONTINUE, TOK_DEBUGGER, TOK_DEFAULT, TOK_DO, TOK_ELSE, TOK_ENUM, TOK_EXPORT,
@@ -85,11 +85,7 @@ impl<'s> JSParseState<'s> {
                 self.cur_func_mut().push_break_entry(&mut break_entry);
 
                 self.parse_statement_or_decl(
-                    if !self
-                        .cur_func()
-                        .attrs
-                        .exec_mode
-                        .contains(ExecMode::STRICT)
+                    if !self.cur_func().attrs.exec_mode.contains(ExecMode::STRICT)
                         && (decl_mask & DECL_MASK_FUNC_WITH_LABEL) != 0
                     {
                         DECL_MASK_FUNC | DECL_MASK_FUNC_WITH_LABEL

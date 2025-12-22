@@ -2,13 +2,13 @@ use crate::{
     atom::Atom,
     bytecode::OpCode,
     object::{JS_PROP_ENUMERABLE, JS_PROP_THROW, seal_template_obj},
-    parse::token::{Token, TokenData},
+    parse::tokenize::{Token, TokenData},
     string::{CharCode, StringBuf, Utf8CharIter},
     utils::unlikely,
     value::JSValue,
 };
 
-use super::{state::JSParseState, token::TOK_TEMPLATE};
+use super::{state::JSParseState, tokenize::TOK_TEMPLATE};
 
 impl<'s> JSParseState<'s> {
     /// returns number of bytes consumed (include ending delimitor)

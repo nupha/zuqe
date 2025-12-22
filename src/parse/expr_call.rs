@@ -8,7 +8,7 @@ use crate::{
 use super::{
     emit::get_prev_opcode,
     state::JSParseState,
-    token::{CHAR_COMMA, TOK_ELLIPSIS},
+    tokenize::{CHAR_COMMA, TOK_ELLIPSIS},
 };
 
 impl<'s> JSParseState<'s> {

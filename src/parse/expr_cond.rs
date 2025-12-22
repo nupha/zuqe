@@ -2,7 +2,7 @@ use crate::bytecode::OpCode;
 
 use super::{
     state::{JSParseState, PF_ARROW_FUNC, PF_IN_ACCEPTED},
-    token::{CHAR_COLON, TOK_DOUBLE_QUESTION_MARK, TOK_LAND, TOK_LOR},
+    tokenize::{CHAR_COLON, TOK_DOUBLE_QUESTION_MARK, TOK_LAND, TOK_LOR},
 };
 
 impl<'s> JSParseState<'s> {

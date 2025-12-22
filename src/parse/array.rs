@@ -1,6 +1,6 @@
-use crate::{atom::Atom, bytecode::OpCode, parse::token::CHAR_COMMA};
+use crate::{atom::Atom, bytecode::OpCode, parse::tokenize::CHAR_COMMA};
 
-use super::{state::JSParseState, token::TOK_ELLIPSIS};
+use super::{state::JSParseState, tokenize::TOK_ELLIPSIS};
 
 // -1: error, 0: success
 pub fn js_parse_array_literal(s: &mut JSParseState) -> i32 {

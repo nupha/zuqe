@@ -6,7 +6,7 @@ use crate::{
 use super::{
     emit::get_prev_opcode,
     state::JSParseState,
-    token::{CHAR_SQUARE_R, TOK_PRIVATE_NAME},
+    tokenize::{CHAR_SQUARE_R, TOK_PRIVATE_NAME},
 };
 
 impl<'s> JSParseState<'s> {

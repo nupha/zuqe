@@ -1,6 +1,6 @@
 use crate::{
     builtins::regexp::RegExpData,
-    parse::token::{TOK_REGEXP, TokenData},
+    parse::tokenize::{TOK_REGEXP, TokenData},
     string::{CP_LS, CP_PS, StringBuf, unicode_from_utf8},
     utils::unlikely,
 };

@@ -4,10 +4,10 @@ use crate::{
     context::{ContextImpl, ContextPtr},
     function::JSFunctionDef,
     number::IntOrFloat,
-    parse::token::TokenData,
+    parse::tokenize::TokenData,
 };
 
-use super::token::Token;
+use super::tokenize::Token;
 
 // Parse flags for controlling expression parsing behavior
 /// Allow the 'in' binary operator

@@ -21,7 +21,7 @@ mod state;
 mod statement;
 mod string;
 mod template;
-mod token;
+mod tokenize;
 mod var;
 
 #[cfg(feature = "builtin_json")]

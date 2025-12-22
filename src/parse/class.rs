@@ -21,7 +21,7 @@ use super::{
     esm::JSParseExportEnum,
     function::JSParseFunctionEnum,
     state::JSParseState,
-    token::{TOK_EXTENDS, TOK_IDENT, TOK_STATIC},
+    tokenize::{TOK_EXTENDS, TOK_IDENT, TOK_STATIC},
 };
 
 impl<'s> JSParseState<'s> {
