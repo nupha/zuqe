@@ -261,8 +261,7 @@ impl<'s> JSParseState<'s> {
                             CharCode::Char('*') => {
                                 // block comment
                                 input.move_cursor_by(1); // skip '*'
-                                if let Some(n) = self.skip_block_comment(input.remainder_bytes()) {
-                                    input.move_cursor_by(n as _);
+                                if self.skip_block_comment(&mut input) {
                                     continue;
                                 } else {
                                     // at end of stream, but block comment is not closed.
@@ -838,11 +837,10 @@ impl<'s> JSParseState<'s> {
         }
     }
 
+    /// when exit, cursor is exactly at next char of '*/' (returns true), or at end of stream (returns false).
     #[inline(never)]
-    pub(super) fn skip_block_comment(&mut self, buf: &[u8]) -> Option<usize> {
-        let mut chars = Utf8CharIter::new(buf);
-
-        while let Some((i, sc)) = chars.next() {
+    pub(super) fn skip_block_comment(&mut self, input: &mut Utf8CharIter) -> bool {
+        while let Some((_, sc)) = input.next() {
             match sc {
                 CharCode::Char('\n') => {
                     self.line_num += 1;
@@ -852,15 +850,16 @@ impl<'s> JSParseState<'s> {
                     self.got_lf = true;
                 }
                 CharCode::Char('*') => {
-                    if let Some(b'/') = chars.peek_byte_at(0) {
-                        return Some(i + 2); // skip '*/'
+                    if let Some(b'/') = input.peek_byte_at(0) {
+                        input.move_cursor_by(1); // skip '/'
+                        return true;
                     }
                 }
                 _ => {}
             }
         }
 
-        None
+        false
     }
 
     /// start to seek token from `pos`

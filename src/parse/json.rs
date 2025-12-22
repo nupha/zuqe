@@ -51,12 +51,12 @@ impl<'s> JSParseState<'s> {
                 &[]
             }
         };
-        let mut ins = Utf8CharIter::new(buf);
+        let mut input = Utf8CharIter::new(buf);
         let mut todo: Option<Todo> = None;
 
-        while let Some(b) = ins.peek_byte_at(0) {
+        while let Some(b) = input.peek_byte_at(0) {
             self.token.line_num = self.line_num;
-            self.token.ptr = ins.current_ptr().map_or(self.input_end, |p| p.as_ptr());
+            self.token.ptr = input.current_ptr().map_or(self.input_end, |p| p.as_ptr());
 
             match b {
                 quote @ (b'\'' | b'"') => {
@@ -65,15 +65,16 @@ impl<'s> JSParseState<'s> {
                         todo = Some(Todo::Token('\'' as _));
                         break;
                     } else {
-                        ins.move_cursor_by(1); // skip starting quote
+                        input.move_cursor_by(1); // skip starting quote
 
                         if let Ok(n) =
-                            self.parse_string(quote as _, true, ins.remainder_bytes(), None)
+                            self.parse_string(quote as _, true, input.remainder_bytes(), None)
                         {
-                            ins.move_cursor_by(n as _); // at next char of ending quote
-                            debug_assert_eq!(ins.peek_byte_at(-1).unwrap(), quote);
+                            input.move_cursor_by(n as _); // at next char of ending quote
+                            debug_assert_eq!(input.peek_byte_at(-1).unwrap(), quote);
 
-                            self.buf_ptr = ins.current_ptr().map_or(self.input_end, |p| p.as_ptr());
+                            self.buf_ptr =
+                                input.current_ptr().map_or(self.input_end, |p| p.as_ptr());
                             return Ok(());
                         } else {
                             todo = Some(Todo::Fail);
@@ -83,11 +84,11 @@ impl<'s> JSParseState<'s> {
                 }
                 c @ (b'\r' | b'\n') => {
                     if c == b'\r'
-                        && let Some(b'\n') = ins.peek_byte_at(1)
+                        && let Some(b'\n') = input.peek_byte_at(1)
                     {
-                        ins.move_cursor_by(1);
+                        input.move_cursor_by(1);
                     }
-                    ins.move_cursor_by(1);
+                    input.move_cursor_by(1);
                     self.line_num += 1;
                     continue;
                 }
@@ -98,12 +99,12 @@ impl<'s> JSParseState<'s> {
                         todo = Some(Todo::Token(c as _));
                         break;
                     } else {
-                        ins.move_cursor_by(1);
+                        input.move_cursor_by(1);
                         continue;
                     }
                 }
                 b' ' | b'\t' => {
-                    ins.move_cursor_by(1);
+                    input.move_cursor_by(1);
                     continue;
                 }
                 b'/' => {
@@ -113,26 +114,23 @@ impl<'s> JSParseState<'s> {
                         break;
                     }
 
-                    match ins.peek_byte_at(1) {
+                    match input.peek_byte_at(1) {
                         Some(b'*') => {
                             // block comment
-                            ins.move_cursor_by(2); // skip '/*'
-                            if let Some(pos) = ins.current_index() {
-                                if let Some(n) = self.skip_block_comment(&buf[pos..]) {
-                                    ins.move_cursor_by(n as _);
-                                    continue;
-                                } else {
-                                    ins.end();
-                                    self.throw_syntax_error("unexpected end of comment");
-                                    todo = Some(Todo::Fail);
-                                    break;
-                                }
+                            input.move_cursor_by(2); // skip '/*'
+                            if self.skip_block_comment(&mut input) {
+                                continue;
+                            } else {
+                                debug_assert!(input.is_end());
+                                self.throw_syntax_error("unexpected end of comment");
+                                todo = Some(Todo::Fail);
+                                break;
                             }
                         }
                         Some(b'/') => {
                             // line comment
-                            ins.move_cursor_by(2); // skip '//'
-                            self.skip_line_comment(&mut ins);
+                            input.move_cursor_by(2); // skip '//'
+                            self.skip_line_comment(&mut input);
                         }
                         _ => {
                             todo = Some(Todo::Token('/' as _));
@@ -142,15 +140,15 @@ impl<'s> JSParseState<'s> {
                 }
                 c @ (b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'$') => {
                     // identifier : only pure ascii characters are accepted
-                    ins.move_cursor_by(1);
-                    if let Ok(atom) = self.json_parse_ident(&mut ins, c) {
+                    input.move_cursor_by(1);
+                    if let Ok(atom) = self.json_parse_ident(&mut input, c) {
                         self.token.data = TokenData::Ident {
                             atom,
                             has_escape: false,
                             is_reserved: false,
                         };
                         self.token.val = TOK_IDENT;
-                        self.buf_ptr = ins.current_ptr().map_or(self.input_end, |p| p.as_ptr());
+                        self.buf_ptr = input.current_ptr().map_or(self.input_end, |p| p.as_ptr());
                         return Ok(());
                     } else {
                         todo = Some(Todo::Fail);
@@ -158,15 +156,16 @@ impl<'s> JSParseState<'s> {
                     }
                 }
                 b'+' => {
-                    if !self.ext_json || ins.peek_byte_at(1).is_none_or(|b| !b.is_ascii_digit()) {
+                    if !self.ext_json || input.peek_byte_at(1).is_none_or(|b| !b.is_ascii_digit()) {
                         todo = Some(Todo::Token('+' as _));
                         break;
                     }
 
-                    if let Ok(n) = self.json_parse_value_number(ins.current_ptr().unwrap().as_ptr())
+                    if let Ok(n) =
+                        self.json_parse_value_number(input.current_ptr().unwrap().as_ptr())
                     {
-                        ins.move_cursor_by(n as _);
-                        self.buf_ptr = ins.current_ptr().map_or(self.input_end, |p| p.as_ptr());
+                        input.move_cursor_by(n as _);
+                        self.buf_ptr = input.current_ptr().map_or(self.input_end, |p| p.as_ptr());
                         return Ok(());
                     } else {
                         todo = Some(Todo::Fail);
@@ -174,15 +173,16 @@ impl<'s> JSParseState<'s> {
                     }
                 }
                 b'-' => {
-                    if ins.peek_byte_at(1).is_none_or(|b| !b.is_ascii_digit()) {
+                    if input.peek_byte_at(1).is_none_or(|b| !b.is_ascii_digit()) {
                         todo = Some(Todo::Token('-' as _));
                         break;
                     }
 
-                    if let Ok(n) = self.json_parse_value_number(ins.current_ptr().unwrap().as_ptr())
+                    if let Ok(n) =
+                        self.json_parse_value_number(input.current_ptr().unwrap().as_ptr())
                     {
-                        ins.move_cursor_by(n as _);
-                        self.buf_ptr = ins.current_ptr().map_or(self.input_end, |p| p.as_ptr());
+                        input.move_cursor_by(n as _);
+                        self.buf_ptr = input.current_ptr().map_or(self.input_end, |p| p.as_ptr());
                         return Ok(());
                     } else {
                         todo = Some(Todo::Fail);
@@ -190,15 +190,16 @@ impl<'s> JSParseState<'s> {
                     }
                 }
                 b'0' => {
-                    if ins.peek_byte_at(1).is_some_and(|b| b.is_ascii_digit()) {
+                    if input.peek_byte_at(1).is_some_and(|b| b.is_ascii_digit()) {
                         todo = Some(Todo::Token('0' as _));
                         break;
                     }
 
-                    if let Ok(n) = self.json_parse_value_number(ins.current_ptr().unwrap().as_ptr())
+                    if let Ok(n) =
+                        self.json_parse_value_number(input.current_ptr().unwrap().as_ptr())
                     {
-                        ins.move_cursor_by(n as _);
-                        self.buf_ptr = ins.current_ptr().map_or(self.input_end, |p| p.as_ptr());
+                        input.move_cursor_by(n as _);
+                        self.buf_ptr = input.current_ptr().map_or(self.input_end, |p| p.as_ptr());
                         return Ok(());
                     } else {
                         todo = Some(Todo::Fail);
@@ -206,10 +207,10 @@ impl<'s> JSParseState<'s> {
                     }
                 }
                 b'1'..=b'9' => {
-                    let p0 = ins.current_ptr().unwrap().as_ptr();
+                    let p0 = input.current_ptr().unwrap().as_ptr();
                     if let Ok(n) = self.json_parse_value_number(p0) {
-                        ins.move_cursor_by(n as i32);
-                        self.buf_ptr = ins.current_ptr().map_or(self.input_end, |p| p.as_ptr());
+                        input.move_cursor_by(n as i32);
+                        self.buf_ptr = input.current_ptr().map_or(self.input_end, |p| p.as_ptr());
                         return Ok(());
                     } else {
                         todo = Some(Todo::Fail);
@@ -232,8 +233,8 @@ impl<'s> JSParseState<'s> {
             match todo {
                 Todo::Token(c) => {
                     self.token.val = c;
-                    ins.move_cursor_by(1);
-                    self.buf_ptr = ins.current_ptr().map_or(self.input_end, |p| p.as_ptr());
+                    input.move_cursor_by(1);
+                    self.buf_ptr = input.current_ptr().map_or(self.input_end, |p| p.as_ptr());
                     Ok(())
                 }
                 Todo::Fail => {
