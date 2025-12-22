@@ -37,16 +37,13 @@ enum TodoState {
 }
 
 impl<'s> JSParseState<'s> {
-    pub fn parse_block(&mut self) -> Result<i32, i32> {
+    fn parse_block(&mut self) -> Result<i32, i32> {
         self.parse_expect(CHAR_CURLY_L)?;
 
         if self.token.val != CHAR_CURLY_R {
             self.push_scope()?;
-            loop {
-                self.parse_statement_or_decl(DECL_MASK_ALL)?;
-                if self.token.val == CHAR_CURLY_R {
-                    break;
-                }
+            while self.token.val != CHAR_CURLY_R {
+                self.parse_stmt_or_decl(DECL_MASK_ALL)?;
             }
             self.pop_scope();
         }
@@ -54,7 +51,7 @@ impl<'s> JSParseState<'s> {
         self.next_token()
     }
 
-    pub(super) fn parse_statement_or_decl(&mut self, decl_mask: i32) -> Result<(), i32> {
+    pub(super) fn parse_stmt_or_decl(&mut self, decl_mask: i32) -> Result<(), i32> {
         let mut label_name = Atom::NULL;
 
         // specific label handling
@@ -84,7 +81,7 @@ impl<'s> JSParseState<'s> {
                 };
                 self.cur_func_mut().push_break_entry(&mut break_entry);
 
-                self.parse_statement_or_decl(
+                self.parse_stmt_or_decl(
                     if !self.cur_func().attrs.exec_mode.contains(ExecMode::STRICT)
                         && (decl_mask & DECL_MASK_FUNC_WITH_LABEL) != 0
                     {
@@ -260,8 +257,8 @@ impl<'s> JSParseState<'s> {
     }
 
     #[inline(always)]
-    pub fn parse_statement(&mut self) -> Result<(), i32> {
-        self.parse_statement_or_decl(0)
+    fn parse_statement(&mut self) -> Result<(), i32> {
+        self.parse_stmt_or_decl(0)
     }
 
     fn set_eval_ret_undefined(&mut self) {
@@ -357,7 +354,6 @@ fn is_let(s: &mut JSParseState, decl_mask: i32) -> Result<bool, i32> {
 //     Ok(())
 // }
 
-#[inline(always)]
 fn stmt_do(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
     let (label_cont, label_break, label1) = {
         let fd = s.cur_func_mut();
@@ -597,14 +593,14 @@ fn stmt_if(s: &mut JSParseState) -> Result<(), i32> {
         DECL_MASK_FUNC // Annex B.3.4
     };
 
-    s.parse_statement_or_decl(mask)?;
+    s.parse_stmt_or_decl(mask)?;
 
     if s.token.val == TOK_ELSE {
         let label2 = s.emit_goto(OpCode::GOTO, -1);
         s.next_token()?;
 
         s.emit_label(label1);
-        s.parse_statement_or_decl(mask)?;
+        s.parse_stmt_or_decl(mask)?;
 
         label1 = label2;
     }
@@ -866,7 +862,7 @@ fn stmt_switch(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
                 s.throw_syntax_error("invalid switch statement");
                 return Err(-1);
             }
-            s.parse_statement_or_decl(DECL_MASK_ALL)?;
+            s.parse_stmt_or_decl(DECL_MASK_ALL)?;
         }
     }
 

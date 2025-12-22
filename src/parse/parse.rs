@@ -97,7 +97,7 @@ impl<'s> JSParseState<'s> {
                         self.token.line_num,
                     )
                 } else {
-                    self.parse_statement_or_decl(DECL_MASK_ALL)
+                    self.parse_stmt_or_decl(DECL_MASK_ALL)
                 }
             }
         }
@@ -309,7 +309,10 @@ impl<'s> JSParseState<'s> {
         Ok(())
     }
 
-    /// expect current token to be `tok`. if yes, advance to next token.
+    /// Expect current token to be `tok`:
+    ///
+    /// - If yes, advance to next token;
+    /// - If no, throw syntax error.
     pub(super) fn parse_expect(&mut self, tok: i32) -> Result<i32, i32> {
         if self.token.val != tok {
             if tok > 0 {
