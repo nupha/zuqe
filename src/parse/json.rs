@@ -132,11 +132,7 @@ impl<'s> JSParseState<'s> {
                         Some(b'/') => {
                             // line comment
                             ins.move_cursor_by(2); // skip '//'
-                            if let Some(pos) = ins.current_index() {
-                                let n = self.skip_line_comment(&buf[pos..]);
-                                ins.move_cursor_by(n as _);
-                                continue;
-                            }
+                            self.skip_line_comment(&mut ins);
                         }
                         _ => {
                             todo = Some(Todo::Token('/' as _));

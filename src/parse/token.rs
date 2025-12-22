@@ -275,8 +275,7 @@ impl<'s> JSParseState<'s> {
                             CharCode::Char('/') => {
                                 // line comment
                                 input.move_cursor_by(1); // skip '/'
-                                let n = self.skip_line_comment(input.remainder_bytes());
-                                input.move_cursor_by(n as _);
+                                self.skip_line_comment(&mut input);
                                 continue;
                             }
                             CharCode::Char('=') => {
@@ -467,8 +466,7 @@ impl<'s> JSParseState<'s> {
                                 // Annex B: `-->` at beginning of line is an html comment end.
                                 // It extends to the end of the line.
                                 input.move_cursor_by(-1);
-                                let n = self.skip_line_comment(input.remainder_bytes());
-                                input.move_cursor_by(n as _);
+                                self.skip_line_comment(&mut input);
                                 continue;
                             } else {
                                 input.move_cursor_by(1);
@@ -504,8 +502,7 @@ impl<'s> JSParseState<'s> {
                         }
                         Some(_) if self.allow_html_comments && input.match_bytes(b"!--") => {
                             // Annex B: handle `<!--` single line html comments
-                            let n = self.skip_line_comment(input.remainder_bytes());
-                            input.move_cursor_by(n as _);
+                            self.skip_line_comment(&mut input);
                             continue;
                         }
                         _ => {
@@ -826,19 +823,19 @@ impl<'s> JSParseState<'s> {
         Ok(p)
     }
 
-    /// returns number of skipped bytes (before but not include char \r, \n, LS or PS).
+    /// when exit, cursor is exactly at the \r, \n, LS or PS char of line.
     #[inline(never)]
-    pub(super) fn skip_line_comment(&self, buf: &[u8]) -> usize {
-        for (i, sc) in Utf8CharIter::new(buf) {
+    pub(super) fn skip_line_comment(&self, input: &mut Utf8CharIter) {
+        while let Some((_, sc)) = input.next() {
             match sc {
-                CharCode::Char('\r' | '\n' | '\u{2028}' | '\u{2029}') => {
-                    return i;
+                CharCode::Char(c @ ('\r' | '\n' | '\u{2028}' | '\u{2029}')) => {
+                    input.move_cursor_by(-(c.len_utf8() as i32)); // rewind to line terminator
+                    return;
                 }
                 CharCode::Char(_) => {}
                 CharCode::Code(_) => {}
             }
         }
-        buf.len()
     }
 
     #[inline(never)]
