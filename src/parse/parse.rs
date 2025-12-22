@@ -4,7 +4,7 @@ use crate::{
     eval::EvalType,
     function::JSFunctionKindEnum,
     stack_frame::ExecMode,
-    string::{CharCode, UTF8_CHAR_LEN_MAX, Utf8CharIter},
+    string::{CharCode, UTF8_CHAR_LEN_MAX, Utf8Stream},
 };
 
 use super::{
@@ -497,7 +497,7 @@ impl<'s> JSParseState<'s> {
 
 pub(super) fn skip_shebang(buf: &[u8]) -> usize {
     if buf.starts_with(b"#!") {
-        Utf8CharIter::new(&buf[2..])
+        Utf8Stream::new(&buf[2..])
             .find_map(|(i, c)| {
                 if let CharCode::Char(ch @ ('\n' | '\r' | '\u{2028}' | '\u{2029}')) = c {
                     Some(i + ch.len_utf8() + 2)

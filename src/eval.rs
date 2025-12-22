@@ -154,7 +154,7 @@ impl ContextImpl {
             parser.skip_shebang();
             parser.parse_program()?;
 
-            // parser dropped here, source and filename are still alive.
+            // parser is dropped here, source and filename are still alive.
         }
 
         // has top-level await?
@@ -366,7 +366,7 @@ impl JSValue {
         if let Self::String(s) = self {
             ctx.eval_internal(
                 this_obj,
-                s.content().encode_utf8_bytes().as_ref(),
+                s.content().to_utf8_bytes().as_ref(),
                 "<string>",
                 eval_type,
                 eval_flags,

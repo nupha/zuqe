@@ -122,7 +122,7 @@ fn js_evalScript(mut cc: CallContext) -> JSResult {
     }
 
     let ret = cc.ctx_mut().eval_global(
-        str.content().encode_utf8_bytes().as_ref(),
+        str.content().to_utf8_bytes().as_ref(),
         "<evalScript>",
         flags,
     );

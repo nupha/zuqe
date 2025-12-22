@@ -350,7 +350,7 @@ impl StringData {
     /// encode content to utf8 bytes.
     ///
     /// Note: if has invalid utf16 code points, encode to invalid utf8 bytes too.
-    pub fn encode_utf8_bytes_range(&self, range: Range<usize>) -> Cow<'_, [u8]> {
+    pub fn to_utf8_bytes_range(&self, range: Range<usize>) -> Cow<'_, [u8]> {
         if range.is_empty() || range.start >= self.len() {
             Cow::Borrowed(&[])
         } else {
@@ -397,8 +397,8 @@ impl StringData {
     ///
     /// Note: If content has invalid utf16 code points, encode it as invalid utf8 bytes too.
     #[inline(always)]
-    pub fn encode_utf8_bytes(&self) -> Cow<'_, [u8]> {
-        self.encode_utf8_bytes_range(0..self.len())
+    pub fn to_utf8_bytes(&self) -> Cow<'_, [u8]> {
+        self.to_utf8_bytes_range(0..self.len())
     }
 
     /// encode content to utf8 str.

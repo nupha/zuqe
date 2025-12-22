@@ -1,7 +1,7 @@
 use crate::{
     parse::tokenize::TokenData,
     stack_frame::ExecMode,
-    string::{CharCode, StringBuf, Utf8CharIter},
+    string::{CharCode, StringBuf, Utf8Stream},
 };
 
 use super::{
@@ -16,7 +16,7 @@ impl<'s> JSParseState<'s> {
     /// `token`: None for self.token
     pub(super) fn parse_string(
         &mut self,
-        input: &mut Utf8CharIter,
+        input: &mut Utf8Stream,
         sep: char,
         token: Option<&mut Token>,
         throw_err: bool,
@@ -37,7 +37,7 @@ impl<'s> JSParseState<'s> {
 
                     if sep == '`' {
                         if c == '\r' {
-                            if let Some((_, CharCode::Char('\n'))) = input.peek() {
+                            if let Some((_, CharCode::Char('\n'))) = input.peek_char() {
                                 let _ = input.next(); // skip \n after \r
                             }
                             c = '\n'
@@ -68,7 +68,7 @@ impl<'s> JSParseState<'s> {
 
                 if c == '\\' {
                     // handle escape sequence
-                    if let Some((_, sc2)) = input.peek() {
+                    if let Some((_, sc2)) = input.peek_char() {
                         let mut should_parse_escape: Option<char> = None;
 
                         match sc2 {

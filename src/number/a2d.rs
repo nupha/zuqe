@@ -101,7 +101,7 @@ pub(crate) fn parse_u32(str: &str) -> Option<u32> {
     Some(num)
 }
 
-pub unsafe fn js_atof(
+pub(crate) unsafe fn js_atof(
     ctx: &ContextImpl,
     str: *const u8,
     pp: *mut *const u8,

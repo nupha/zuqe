@@ -37,6 +37,7 @@ pub struct JSParseState<'s> {
     /// Source file name being parsed
     pub(super) filename: &'s str,
 
+    // TODO: bundle input, input_end, buf_ptr to stream cursor
     /// input bytes
     pub(super) input: &'s [u8],
     /// End pointer to input bytes, exclusive

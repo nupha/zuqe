@@ -3,7 +3,7 @@ use crate::{
     bytecode::OpCode,
     object::{JS_PROP_ENUMERABLE, JS_PROP_THROW, seal_template_obj},
     parse::tokenize::{Token, TokenData},
-    string::{CharCode, StringBuf, Utf8CharIter},
+    string::{CharCode, StringBuf, Utf8Stream},
     utils::unlikely,
     value::JSValue,
 };
@@ -14,7 +14,7 @@ impl<'s> JSParseState<'s> {
     /// returns number of bytes consumed (include ending delimitor)
     pub(super) fn parse_template_part(&mut self, buf: &[u8]) -> Result<usize, i32> {
         let mut sbuf = StringBuf::Empty;
-        let mut chars = Utf8CharIter::new(buf).peekable();
+        let mut chars = Utf8Stream::new(buf).peekable();
 
         let mut sep: char = '\0';
         let mut consume = 0;
@@ -132,7 +132,7 @@ impl<'s> JSParseState<'s> {
                 } else {
                     &[]
                 };
-                Utf8CharIter::new(bb)
+                Utf8Stream::new(bb)
             };
 
             let mut cooked = Token {

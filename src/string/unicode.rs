@@ -16,7 +16,7 @@ pub const utf8_first_code_mask: [u8; 5] = [0x1f, 0x0f, 0x07, 0x03, 0x01];
 
 /// Decode utf8 from buf, returns decoded unicode point.
 /// Note: may return invalid unicode point.
-#[deprecated(note = "use Utf8CharIter instead")]
+#[deprecated(note = "use Utf8Stream instead")]
 pub(crate) fn unicode_from_utf8(buf: &[u8]) -> Result<(u32, usize), i32> {
     debug_assert!(!buf.is_empty());
 
@@ -217,13 +217,12 @@ pub(crate) const fn char_is_space(ch: char) -> bool {
         )
 }
 
-/// UTF-8 character iterator
-pub(crate) struct Utf8CharIter<'a> {
+pub(crate) struct Utf8Stream<'a> {
     bytes: &'a [u8], // UTF-8 bytes
     index: usize,    // current byte index
 }
 
-impl<'a> Utf8CharIter<'a> {
+impl<'a> Utf8Stream<'a> {
     pub const fn new(bytes: &'a [u8]) -> Self {
         Self { bytes, index: 0 }
     }
@@ -325,7 +324,7 @@ impl<'a> Utf8CharIter<'a> {
     }
 
     /// decode char at current position, don't advance cursor.
-    pub fn peek(&self) -> Option<(usize, CharCode)> {
+    pub fn peek_char(&self) -> Option<(usize, CharCode)> {
         let pos = self.index;
 
         match self.decode_char(pos) {
@@ -340,6 +339,35 @@ impl<'a> Utf8CharIter<'a> {
                 | DecodeError::SurrogateCodePoint(_)
                 | DecodeError::InvalidCodePoint(_),
             ) => Some((pos, CharCode::Code(self.bytes[pos] as _))),
+        }
+    }
+
+    /// decode char at current cursur, and advance cursor to next char.
+    pub fn next_char(&mut self) -> Option<(usize, CharCode)> {
+        if self.index < self.bytes.len() {
+            let pos = self.index;
+
+            match self.decode_char(pos) {
+                Ok((ch, consumed)) => {
+                    self.index += consumed;
+                    Some((pos, CharCode::Char(ch)))
+                }
+                Err(DecodeError::EndOfInput) => None,
+                Err(
+                    DecodeError::InvalidStartByte(_)
+                    | DecodeError::InvalidContinuationByte(_, _)
+                    | DecodeError::IncompleteSequence
+                    | DecodeError::OverlongEncoding
+                    | DecodeError::CodePointOutOfRange(_)
+                    | DecodeError::SurrogateCodePoint(_)
+                    | DecodeError::InvalidCodePoint(_),
+                ) => {
+                    self.index += 1; // skip one byte when invalid utf8 sequence
+                    Some((pos, CharCode::Code(self.bytes[pos] as u16)))
+                }
+            }
+        } else {
+            None
         }
     }
 
@@ -411,12 +439,6 @@ impl<'a> Utf8CharIter<'a> {
     pub const fn is_end(&self) -> bool {
         self.index >= self.bytes.len()
     }
-
-    /// move cursor to end
-    #[inline(always)]
-    pub const fn end(&mut self) {
-        self.index = self.bytes.len()
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -431,34 +453,11 @@ enum DecodeError {
     InvalidCodePoint(u32),
 }
 
-impl<'a> Iterator for Utf8CharIter<'a> {
+impl<'a> Iterator for Utf8Stream<'a> {
     type Item = (usize, CharCode); // (byte_index, character)
 
+    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
-        if self.index < self.bytes.len() {
-            let pos = self.index;
-
-            match self.decode_char(pos) {
-                Ok((ch, consumed)) => {
-                    self.index += consumed;
-                    Some((pos, CharCode::Char(ch)))
-                }
-                Err(DecodeError::EndOfInput) => None,
-                Err(
-                    DecodeError::InvalidStartByte(_)
-                    | DecodeError::InvalidContinuationByte(_, _)
-                    | DecodeError::IncompleteSequence
-                    | DecodeError::OverlongEncoding
-                    | DecodeError::CodePointOutOfRange(_)
-                    | DecodeError::SurrogateCodePoint(_)
-                    | DecodeError::InvalidCodePoint(_),
-                ) => {
-                    self.index += 1; // skip one byte when invalid utf8 sequence
-                    Some((pos, CharCode::Code(self.bytes[pos] as u16)))
-                }
-            }
-        } else {
-            None
-        }
+        self.next_char()
     }
 }

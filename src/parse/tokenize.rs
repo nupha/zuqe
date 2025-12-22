@@ -7,7 +7,7 @@ use crate::{
     },
     runtime::js_check_stack_overflow,
     stack_frame::ExecMode,
-    string::{CharCode, StringBuf, Utf8CharIter, char_is_space},
+    string::{CharCode, StringBuf, Utf8Stream, char_is_space},
 };
 
 use super::{
@@ -207,9 +207,9 @@ impl<'s> JSParseState<'s> {
 
         let mut input = if self.buf_ptr < self.input_end {
             let pos = unsafe { self.buf_ptr.offset_from(self.input.as_ptr()) as usize };
-            Utf8CharIter::new(&self.input[pos..])
+            Utf8Stream::new(&self.input[pos..])
         } else {
-            Utf8CharIter::new(&[]) // no more bytes
+            Utf8Stream::new(&[]) // no more bytes
         };
 
         let base_ptr = input.start_ptr().as_ptr();
@@ -246,7 +246,7 @@ impl<'s> JSParseState<'s> {
                     continue;
                 }
                 CharCode::Char('/') => {
-                    if let Some((_, sc2)) = input.peek() {
+                    if let Some((_, sc2)) = input.peek_char() {
                         match sc2 {
                             CharCode::Char('*') => {
                                 // block comment
@@ -814,7 +814,7 @@ impl<'s> JSParseState<'s> {
 
     /// when exit, cursor is exactly at the \r, \n, LS or PS char of line.
     #[inline(never)]
-    pub(super) fn skip_line_comment(&self, input: &mut Utf8CharIter) {
+    pub(super) fn skip_line_comment(&self, input: &mut Utf8Stream) {
         while let Some((_, sc)) = input.next() {
             match sc {
                 CharCode::Char(c @ ('\r' | '\n' | '\u{2028}' | '\u{2029}')) => {
@@ -829,7 +829,7 @@ impl<'s> JSParseState<'s> {
 
     /// when exit, cursor is exactly at next char of '*/' (returns true), or at end of stream (returns false).
     #[inline(never)]
-    pub(super) fn skip_block_comment(&mut self, input: &mut Utf8CharIter) -> bool {
+    pub(super) fn skip_block_comment(&mut self, input: &mut Utf8Stream) -> bool {
         while let Some((_, sc)) = input.next() {
             match sc {
                 CharCode::Char('\n') => {
@@ -948,7 +948,7 @@ impl<'s> JSParseState<'s> {
 
     /// only used for ':' and '=>', 'let' or 'function' look-ahead.
     /// `inp` stream will update its cursor to end of token.
-    pub(super) fn peek_token_internal(inp: &mut Utf8CharIter, no_line_terminator: bool) -> i32 {
+    pub(super) fn peek_token_internal(inp: &mut Utf8Stream, no_line_terminator: bool) -> i32 {
         while let Some((_, sc)) = inp.next() {
             match sc {
                 CharCode::Char('\r' | '\n') => {
@@ -1069,7 +1069,7 @@ impl<'s> JSParseState<'s> {
     pub(super) fn peek_token(&self, no_line_terminator: bool) -> i32 {
         if self.buf_ptr < self.input_end {
             Self::peek_token_internal(
-                &mut Utf8CharIter::new(unsafe {
+                &mut Utf8Stream::new(unsafe {
                     std::slice::from_raw_parts(
                         self.buf_ptr,
                         self.input_end.offset_from(self.buf_ptr) as usize,

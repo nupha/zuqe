@@ -21,7 +21,7 @@ use crate::{
 use super::JSParseState;
 
 impl<'s> JSParseState<'s> {
-    pub fn parse_object_literal(&mut self) -> Result<i32, i32> {
+    pub(super) fn parse_object_literal(&mut self) -> Result<i32, i32> {
         self.next_token()?;
 
         // XXX: add an initial length that will be patched back

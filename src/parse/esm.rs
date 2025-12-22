@@ -5,7 +5,7 @@ use crate::{
     function::{JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
     module::{ExportType, ImportEntry, ModuleDef},
     parse::tokenize::{TOK_FIRST_KEYWORD, TOK_LAST_KEYWORD},
-    string::Utf8CharIter,
+    string::Utf8Stream,
 };
 
 use super::{
@@ -493,7 +493,7 @@ impl<'s> JSParseState<'s> {
 
         let n = skip_shebang(buf);
 
-        let mut inp = Utf8CharIter::new(&buf[n..]);
+        let mut inp = Utf8Stream::new(&buf[n..]);
         match Self::peek_token_internal(&mut inp, false) {
             TOK_IMPORT => !matches!(
                 Self::peek_token_internal(&mut inp, false),

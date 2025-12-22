@@ -14,7 +14,7 @@ use crate::{
         },
     },
     runtime::js_check_stack_overflow,
-    string::{UTF8_CHAR_LEN_MAX, Utf8CharIter, escape_str},
+    string::{UTF8_CHAR_LEN_MAX, Utf8Stream, escape_str},
     utils::unlikely,
     value::JSValue,
 };
@@ -49,7 +49,7 @@ impl<'s> JSParseState<'s> {
                 &[]
             }
         };
-        let mut input = Utf8CharIter::new(buf);
+        let mut input = Utf8Stream::new(buf);
         let mut todo: Option<Todo> = None;
 
         while let Some(b) = input.current_byte() {
@@ -271,7 +271,7 @@ impl<'s> JSParseState<'s> {
         }
     }
 
-    fn json_parse_ident(&mut self, inp: &mut Utf8CharIter, first_char: u8) -> Result<Atom, i32> {
+    fn json_parse_ident(&mut self, inp: &mut Utf8Stream, first_char: u8) -> Result<Atom, i32> {
         let mut buf = SmallVec::<[u8; 64]>::new();
         buf.push(first_char);
 
