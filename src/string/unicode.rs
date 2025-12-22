@@ -455,6 +455,13 @@ impl<'a> Utf8CharIter<'a> {
         }
     }
 
+    /// Get byte at current cursor.
+    /// For semantic meaning, this is actually an alias to `::peek_byte_at(0)`
+    #[inline(always)]
+    pub fn current_byte(&self) -> Option<u8> {
+        self.peek_byte_at(0)
+    }
+
     /// advance or rewind cursor by offset relative to current position
     pub fn move_cursor_by(&mut self, offset: i32) {
         self.index = if offset >= 0 {

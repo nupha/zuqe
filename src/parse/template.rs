@@ -122,8 +122,18 @@ impl<'s> JSParseState<'s> {
         }
 
         let mut depth = 0;
+
         while self.token.val == TOK_TEMPLATE {
-            let p = unsafe { self.token.ptr.add(1) };
+            // the template content stream since token.ptr through input end, w/o starting quote.
+            let mut tmpl = unsafe {
+                let p = self.token.ptr.add(1); // skip '`'
+                let bb = if p < self.input_end {
+                    std::slice::from_raw_parts(p, self.input_end.offset_from(p) as usize)
+                } else {
+                    &[]
+                };
+                Utf8CharIter::new(bb)
+            };
 
             let mut cooked = Token {
                 val: self.token.val,
@@ -143,16 +153,9 @@ impl<'s> JSParseState<'s> {
                     JS_PROP_ENUMERABLE | JS_PROP_THROW,
                 )?;
 
-                // re-parse the string with escape sequences but do not throw a
+                // re-parse the template string with escape sequences but do not throw a
                 // syntax error if it contains invalid sequences
-                match self.parse_string(
-                    '`',
-                    false,
-                    unsafe {
-                        std::slice::from_raw_parts(p, self.input_end.offset_from(p) as usize)
-                    },
-                    Some(&mut cooked),
-                ) {
+                match self.parse_string(&mut tmpl, '`', Some(&mut cooked), false) {
                     Ok(_) => {
                         template_object.define_property_value_u32(
                             &self.ctx,
@@ -173,16 +176,9 @@ impl<'s> JSParseState<'s> {
                     }
                 }
             } else {
-                // re-parse the string with escape sequences and throw a
+                // re-parse the template string with escape sequences and throw a
                 // syntax error if it contains invalid sequences
-                self.parse_string(
-                    '`',
-                    true,
-                    unsafe {
-                        std::slice::from_raw_parts(p, self.input_end.offset_from(p) as usize)
-                    },
-                    Some(&mut cooked),
-                )?;
+                self.parse_string(&mut tmpl, '`', Some(&mut cooked), true)?;
 
                 let sbuf = cooked.data.string().unwrap();
                 if depth == 0 || !sbuf.is_empty() {

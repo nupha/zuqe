@@ -232,18 +232,13 @@ impl<'s> JSParseState<'s> {
                     }
                 }
                 CharCode::Char(c @ ('\'' | '\"')) => {
-                    match self.parse_string(c, true, input.remainder_bytes(), None) {
-                        Ok(n) => {
-                            input.move_cursor_by(n as _);
-                        }
-                        Err(_) => {
-                            todo = Some(Todo::SyntaxError);
-                        }
+                    if self.parse_string(&mut input, c, None, true).is_err() {
+                        todo = Some(Todo::SyntaxError);
                     }
                 }
                 CharCode::Char(c @ ('\r' | '\n')) => {
                     if c == '\r'
-                        && let Some(b'\n') = input.peek_byte_at(0)
+                        && let Some(b'\n') = input.current_byte()
                     {
                         input.move_cursor_by(1);
                     }
@@ -291,7 +286,7 @@ impl<'s> JSParseState<'s> {
                     }
                 }
                 CharCode::Char('\\') => {
-                    if let Some(b'u') = input.peek_byte_at(0) {
+                    if let Some(b'u') = input.current_byte() {
                         // \u
                         let is_bad = if let Ok((code, consumed)) =
                             self.parse_string_escape(input.remainder_bytes(), 1)
@@ -328,7 +323,7 @@ impl<'s> JSParseState<'s> {
                     if let Some((_, c)) = input.next() {
                         let c1 = match c {
                             CharCode::Char('\\') => {
-                                if let Some(b'u') = input.peek_byte_at(0) {
+                                if let Some(b'u') = input.current_byte() {
                                     // \u
                                     let (code, consumed) =
                                         self.parse_string_escape(input.remainder_bytes(), 1)?;
@@ -388,7 +383,7 @@ impl<'s> JSParseState<'s> {
                     }
                 }
                 CharCode::Char('0') => {
-                    todo = if input.peek_byte_at(0).is_some_and(|b| b.is_ascii_digit())
+                    todo = if input.current_byte().is_some_and(|b| b.is_ascii_digit())
                         && self.cur_func().attrs.exec_mode.contains(ExecMode::STRICT)
                     {
                         self.throw_syntax_error("octal literals are deprecated in strict mode");
@@ -403,7 +398,7 @@ impl<'s> JSParseState<'s> {
                     todo = Some(Todo::ParseNumber);
                 }
                 CharCode::Char('*') => {
-                    match input.peek_byte_at(0) {
+                    match input.current_byte() {
                         Some(b'=') => {
                             input.move_cursor_by(1);
                             self.token.val = TOK_MUL_ASSIGN;
@@ -427,7 +422,7 @@ impl<'s> JSParseState<'s> {
                     }
                 }
                 CharCode::Char('%') => {
-                    if let Some(b'=') = input.peek_byte_at(0) {
+                    if let Some(b'=') = input.current_byte() {
                         input.move_cursor_by(1);
                         self.token.val = TOK_MOD_ASSIGN;
                         self.token.data = TokenData::None;
@@ -435,7 +430,7 @@ impl<'s> JSParseState<'s> {
                         todo = Some(Todo::Char('%'));
                     }
                 }
-                CharCode::Char('+') => match input.peek_byte_at(0) {
+                CharCode::Char('+') => match input.current_byte() {
                     Some(b'=') => {
                         input.move_cursor_by(1);
                         self.token.val = TOK_PLUS_ASSIGN;
@@ -451,7 +446,7 @@ impl<'s> JSParseState<'s> {
                     }
                 },
                 CharCode::Char('-') => {
-                    match input.peek_byte_at(0) {
+                    match input.current_byte() {
                         Some(b'=') => {
                             input.move_cursor_by(1);
                             self.token.val = TOK_MINUS_ASSIGN;
@@ -479,7 +474,7 @@ impl<'s> JSParseState<'s> {
                     }
                 }
                 CharCode::Char('<') => {
-                    match input.peek_byte_at(0) {
+                    match input.current_byte() {
                         Some(b'=') => {
                             // <=
                             input.move_cursor_by(1);
@@ -628,7 +623,7 @@ impl<'s> JSParseState<'s> {
                     }
                 }
                 CharCode::Char('^') => {
-                    if let Some(b'=') = input.peek_byte_at(0) {
+                    if let Some(b'=') = input.current_byte() {
                         // ^=
                         input.move_cursor_by(1);
                         self.token.val = TOK_XOR_ASSIGN;
@@ -850,7 +845,7 @@ impl<'s> JSParseState<'s> {
                     self.got_lf = true;
                 }
                 CharCode::Char('*') => {
-                    if let Some(b'/') = input.peek_byte_at(0) {
+                    if let Some(b'/') = input.current_byte() {
                         input.move_cursor_by(1); // skip '/'
                         return true;
                     }

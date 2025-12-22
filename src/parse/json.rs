@@ -54,7 +54,7 @@ impl<'s> JSParseState<'s> {
         let mut input = Utf8CharIter::new(buf);
         let mut todo: Option<Todo> = None;
 
-        while let Some(b) = input.peek_byte_at(0) {
+        while let Some(b) = input.current_byte() {
             self.token.line_num = self.line_num;
             self.token.ptr = input.current_ptr().map_or(self.input_end, |p| p.as_ptr());
 
@@ -66,13 +66,11 @@ impl<'s> JSParseState<'s> {
                         break;
                     } else {
                         input.move_cursor_by(1); // skip starting quote
-
-                        if let Ok(n) =
-                            self.parse_string(quote as _, true, input.remainder_bytes(), None)
+                        if self
+                            .parse_string(&mut input, quote as _, None, true)
+                            .is_ok()
                         {
-                            input.move_cursor_by(n as _); // at next char of ending quote
                             debug_assert_eq!(input.peek_byte_at(-1).unwrap(), quote);
-
                             self.buf_ptr =
                                 input.current_ptr().map_or(self.input_end, |p| p.as_ptr());
                             return Ok(());
@@ -279,7 +277,7 @@ impl<'s> JSParseState<'s> {
         let mut buf = SmallVec::<[u8; 64]>::new();
         buf.push(first_char);
 
-        while let Some(c) = inp.peek_byte_at(0)
+        while let Some(c) = inp.current_byte()
             && c.is_ascii()
             && Self::is_ident_next(c as _)
         {

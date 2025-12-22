@@ -10,19 +10,19 @@ use super::{
 };
 
 impl<'s> JSParseState<'s> {
-    /// `buf` starts at content of string, not include starting delimitor.
-    /// returns consumed number of bytes (include the trailing delimitor)
+    /// `input` cursor at start if string content, not include string starting delimitor.
+    /// returns consumed number of bytes (include the trailing delimitor).
+    /// when exit, cursor is exactly at next char of ending delimitor.
     /// `token`: None for self.token
     pub(super) fn parse_string(
         &mut self,
+        input: &mut Utf8CharIter,
         sep: char,
-        throw_err: bool,
-        buf: &[u8],
         token: Option<&mut Token>,
+        throw_err: bool,
     ) -> Result<usize, i32> {
         let mut sbuf = StringBuf::Empty;
         let mut consume: Option<usize> = None;
-        let mut input = Utf8CharIter::new(buf);
 
         while let Some((i, sc)) = input.next() {
             if let CharCode::Char(mut c) = sc {
@@ -56,7 +56,7 @@ impl<'s> JSParseState<'s> {
                     break;
                 } else if c == '$'
                     && sep == '`'
-                    && let Some((_, CharCode::Char('{'))) = input.peek()
+                    && let Some(b'{') = input.current_byte()
                 {
                     // template expression start
                     let _ = input.next(); // skip '{'
@@ -68,27 +68,30 @@ impl<'s> JSParseState<'s> {
 
                 if c == '\\' {
                     // handle escape sequence
-                    if let Some((j, sc2)) = input.peek() {
+                    if let Some((_, sc2)) = input.peek() {
                         let mut should_parse_escape: Option<char> = None;
+
                         match sc2 {
                             CharCode::Char(c1 @ ('\'' | '\"' | '\\')) => {
-                                let _ = input.next();
+                                input.move_cursor_by(1);
                                 char_code = CharCode::Code(c1 as _);
                             }
-                            CharCode::Char(c1 @ ('\r' | '\n')) => {
-                                let _ = input.next(); // skip \r
-                                if c1 == '\r'
-                                    && let Some((_, CharCode::Char('\n'))) = input.peek()
+                            CharCode::Char(n @ ('\r' | '\n')) => {
+                                if n == '\r'
+                                    && let Some(b'\n') = input.peek_byte_at(1)
                                 {
-                                    let _ = input.next(); // skip \n
+                                    input.move_cursor_by(2); // skip \r\n
+                                } else {
+                                    input.move_cursor_by(1); // skip \r or \n
                                 }
+
                                 // skip escaped line breaks
                                 if sep != '`' {
                                     self.line_num += 1;
                                 }
                                 continue;
                             }
-                            CharCode::Char(c1 @ ('0'..='9')) => {
+                            CharCode::Char(d @ ('0'..='9')) => {
                                 if self.cur_func_def.is_null() {
                                     // parsing JSON
                                     if throw_err {
@@ -103,21 +106,17 @@ impl<'s> JSParseState<'s> {
                                     && sep != '`'
                                 {
                                     // parse escape sequence in non-strict mode
-                                    should_parse_escape = Some(c1);
-                                } else if c1 == '0' && {
-                                    input.next(); // skip '0'
-                                    if let Some((_, CharCode::Char(a))) = input.peek() {
-                                        !a.is_ascii_digit()
-                                    } else {
-                                        true
-                                    }
-                                } {
-                                    // handle null character escape \0
+                                    should_parse_escape = Some(d);
+                                } else if d == '0'
+                                    && input.peek_byte_at(1).is_none_or(|x| !x.is_ascii_digit())
+                                {
+                                    // found \0
+                                    input.move_cursor_by(1); // skip '0'
                                     char_code = CharCode::Char('\0');
                                 } else {
                                     // ES2021: octal escapes 8/9 not allowed in strict mode/templates
                                     if throw_err {
-                                        self.throw_syntax_error(if c1 >= '8' || sep == '`' {
+                                        self.throw_syntax_error(if d >= '8' || sep == '`' {
                                             "malformed escape sequence in string literal"
                                         } else {
                                             "octal escape sequences are not allowed in strict mode"
@@ -126,16 +125,16 @@ impl<'s> JSParseState<'s> {
                                     return Err(-1);
                                 }
                             }
-                            CharCode::Char('\u{2028}' | '\u{2029}') => {
+                            CharCode::Char(c1 @ ('\u{2028}' | '\u{2029}')) => {
                                 // skip line/paragraph separators
-                                let _ = input.next();
+                                input.move_cursor_by(c1.len_utf8() as _);
                                 continue;
                             }
                             CharCode::Char(c1) => {
                                 if c1.is_ascii() {
                                     should_parse_escape = Some(c1)
                                 } else {
-                                    let _ = input.next();
+                                    input.move_cursor_by(c1.len_utf8() as i32);
                                     char_code = CharCode::Char(c1);
                                 }
                             }
@@ -148,7 +147,7 @@ impl<'s> JSParseState<'s> {
                         }
 
                         if let Some(ch) = should_parse_escape.take() {
-                            let bytes = &buf[j..];
+                            let bytes = input.remainder_bytes(); //&buf[j..];
                             match self.parse_string_escape(bytes, 1) {
                                 Ok((code, consume)) => {
                                     let _ = input.nth(consume - 1);
