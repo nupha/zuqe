@@ -491,7 +491,7 @@ impl<'s> JSParseState<'s> {
             | JSParseFunctionEnum::JS_PARSE_FUNC_EXPR => {
                 if func_kind == JSFunctionKindEnum::JS_FUNC_NORMAL
                     && self.token_is_pseudo_keyword(Atom::CONST_async)
-                    && self.peek_token(true) != b'\n' as i32
+                    && self.peek_token(true) != '\n' as i32
                 {
                     self.next_token()?;
                     func_kind = JSFunctionKindEnum::JS_FUNC_ASYNC;

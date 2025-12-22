@@ -946,118 +946,139 @@ impl<'s> JSParseState<'s> {
         }
     }
 
-    /* only used for ':' and '=>', 'let' or 'function' look-ahead. *pp is
-    only set if TOK_IMPORT is returned */
-    /* XXX: handle all unicode cases */
-    pub(super) unsafe fn simple_next_token(pp: *mut *const u8, no_line_terminator: bool) -> i32 {
-        let mut p = *pp;
-
-        // skip spaces and comments
-        loop {
-            let c = *p;
-            p = p.add(1);
-
-            match c {
-                b'\r' | b'\n' => {
+    /// only used for ':' and '=>', 'let' or 'function' look-ahead.
+    /// `inp` stream will update its cursor to end of token.
+    pub(super) fn peek_token_internal(inp: &mut Utf8CharIter, no_line_terminator: bool) -> i32 {
+        while let Some((_, sc)) = inp.next() {
+            match sc {
+                CharCode::Char('\r' | '\n') => {
                     if no_line_terminator {
-                        return b'\n' as i32;
+                        return '\n' as i32;
                     }
-                    continue;
                 }
-
                 // 0x0c: \f, 0x0b: \v
-                b' ' | b'\t' | 0x0c | 0x0b => continue,
-                b'/' => {
-                    if *p == b'/' {
-                        if no_line_terminator {
-                            return b'\n' as i32;
-                        }
-                        while *p != 0 && *p != b'\r' && *p != b'\n' {
-                            p = p.add(1);
-                        }
-                        continue;
-                    }
-                    if *p == b'*' {
-                        p = p.add(1);
-                        loop {
-                            if *p == 0 {
-                                break;
-                            }
-                            if (*p == b'\r' || *p == b'\n') && no_line_terminator {
+                CharCode::Char(' ' | '\t' | '\x0c' | '\x0b') => {}
+                CharCode::Char('/') => {
+                    match inp.current_byte() {
+                        Some(b'/') => {
+                            // '//'
+                            if no_line_terminator {
                                 return b'\n' as i32;
+                            } else {
+                                inp.move_cursor_by(1); // skip /
+                                while inp
+                                    .current_byte()
+                                    .is_some_and(|x| !matches!(x, b'\r' | b'\n'))
+                                {
+                                    inp.move_cursor_by(1);
+                                }
                             }
-                            if *p == b'*' && *p.add(1) == b'/' {
-                                p = p.add(2);
-                                break;
-                            }
-                            p = p.add(1);
                         }
-                        continue;
-                    }
-                }
-                b'=' => {
-                    if *p == b'>' {
-                        p = p.add(1);
-                        return TOK_ARROW;
-                    }
-                    return c as i32;
-                }
-                _ => {
-                    if JSParseState::is_ident_first(c as char) {
-                        if c == b'i' {
-                            if *p == b'n' && !JSParseState::is_ident_next(*p.add(1) as char) {
-                                p = p.add(1);
-                                return TOK_IN;
+                        Some(b'*') => {
+                            // '/*'
+                            inp.move_cursor_by(1); // skip *
+                            while let Some(b2) = inp.current_byte() {
+                                match b2 {
+                                    b'\r' | b'\n' if no_line_terminator => {
+                                        return '\n' as i32;
+                                    }
+                                    b'*' if inp.peek_byte_at(1).is_some_and(|x| x == b'/') => {
+                                        // '*/'
+                                        inp.move_cursor_by(1); // skip /
+                                        break;
+                                    }
+                                    _ => {
+                                        inp.move_cursor_by(1);
+                                    }
+                                }
                             }
-                            if *p == b'm'
-                                && *p.add(1) == b'p'
-                                && *p.add(2) == b'o'
-                                && *p.add(3) == b'r'
-                                && *p.add(4) == b't'
-                                && !JSParseState::is_ident_next(*p.add(5) as char)
-                            {
-                                *pp = p.add(5);
-                                return TOK_IMPORT;
-                            }
-                        } else if c == b'o'
-                            && *p == b'f'
-                            && !JSParseState::is_ident_next(*p.add(1) as char)
-                        {
-                            p = p.add(1);
-                            return TOK_OF;
-                        } else if c == b'e'
-                            && *p == b'x'
-                            && *p.add(1) == b'p'
-                            && *p.add(2) == b'o'
-                            && *p.add(3) == b'r'
-                            && *p.add(4) == b't'
-                            && !JSParseState::is_ident_next(*p.add(5) as char)
-                        {
-                            *pp = p.add(5);
-                            return TOK_EXPORT;
-                        } else if c == b'f'
-                            && *p == b'u'
-                            && *p.add(1) == b'n'
-                            && *p.add(2) == b'c'
-                            && *p.add(3) == b't'
-                            && *p.add(4) == b'i'
-                            && *p.add(5) == b'o'
-                            && *p.add(6) == b'n'
-                            && !JSParseState::is_ident_next(*p.add(7) as char)
-                        {
-                            p = p.add(7);
-                            return TOK_FUNCTION;
                         }
-                        return TOK_IDENT;
+                        None => {
+                            break;
+                        }
+                        _ => {}
                     }
-                    return c as i32;
                 }
+                CharCode::Char('=') => {
+                    return if let Some(b'>') = inp.current_byte() {
+                        // '=>'
+                        inp.move_cursor_by(1);
+                        TOK_ARROW
+                    } else {
+                        '=' as i32
+                    };
+                }
+                CharCode::Char('i') => {
+                    let mut bb = [0u8; 5];
+                    inp.peek_bytes(&mut bb);
+
+                    match (bb[0], bb[1], bb[2], bb[3], bb[4]) {
+                        (b'n', ..) => {
+                            inp.move_cursor_by(1);
+                            return TOK_IN;
+                        }
+                        (b'm', b'p', b'o', b'r', b't') => {
+                            inp.move_cursor_by(5);
+                            return TOK_IMPORT;
+                        }
+                        _ => {
+                            return TOK_IDENT;
+                        }
+                    }
+                }
+                CharCode::Char('o') => {
+                    return if inp.current_byte().is_some_and(|x| x == b'f') {
+                        inp.move_cursor_by(1);
+                        TOK_OF
+                    } else {
+                        TOK_IDENT
+                    };
+                }
+                CharCode::Char('e') => {
+                    return if inp.match_bytes(b"xport") {
+                        inp.move_cursor_by(5);
+                        TOK_EXPORT
+                    } else {
+                        TOK_IDENT
+                    };
+                }
+                CharCode::Char('f') => {
+                    return if inp.match_bytes(b"unction") {
+                        inp.move_cursor_by(7);
+                        TOK_FUNCTION
+                    } else {
+                        TOK_IDENT
+                    };
+                }
+                CharCode::Char(c) => {
+                    return if Self::is_ident_first(c) {
+                        TOK_IDENT
+                    } else {
+                        c as i32
+                    };
+                }
+                _ => {}
             }
         }
+
+        TOK_EOF
     }
 
+    /// peek next token since current bytes cursor.
+    /// this function won't update cursor position.
     pub(super) fn peek_token(&self, no_line_terminator: bool) -> i32 {
-        let mut p = self.buf_ptr;
-        unsafe { Self::simple_next_token(std::ptr::addr_of_mut!(p), no_line_terminator) }
+        if self.buf_ptr < self.input_end {
+            Self::peek_token_internal(
+                &mut Utf8CharIter::new(unsafe {
+                    std::slice::from_raw_parts(
+                        self.buf_ptr,
+                        self.input_end.offset_from(self.buf_ptr) as usize,
+                    )
+                }),
+                no_line_terminator,
+            )
+        } else {
+            TOK_EOF
+        }
     }
 }

@@ -5,6 +5,7 @@ use crate::{
     function::{JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
     module::{ExportType, ImportEntry, ModuleDef},
     parse::tokenize::{TOK_FIRST_KEYWORD, TOK_LAST_KEYWORD},
+    string::Utf8CharIter,
 };
 
 use super::{
@@ -50,6 +51,7 @@ impl<'s> JSParseState<'s> {
     }
 
     /// parse import statement
+    #[inline(never)]
     pub fn parse_import(&mut self) -> Result<(), i32> {
         let mut md = self.cur_func().module.unwrap();
 
@@ -483,19 +485,20 @@ impl<'s> JSParseState<'s> {
         Ok(())
     }
 
-    /// return true if `input` is module.
-    pub fn detect_module(input: &[u8]) -> bool {
+    /// return true if script `buf` is module.
+    pub fn detect_module(buf: &[u8]) -> bool {
         // skip comments and expect:
         // * 'import' keyword not followed by '(' or '.' char;
         // * 'export' keyword;
 
-        let n = skip_shebang(input);
-        let mut p = unsafe { input.as_ptr().add(n) };
-        match unsafe { Self::simple_next_token(&mut p, false) } {
-            TOK_IMPORT => {
-                let tok = unsafe { Self::simple_next_token(&mut p, false) };
-                !matches!(tok, CHAR_BRACKET_L | CHAR_DOT)
-            }
+        let n = skip_shebang(buf);
+
+        let mut inp = Utf8CharIter::new(&buf[n..]);
+        match Self::peek_token_internal(&mut inp, false) {
+            TOK_IMPORT => !matches!(
+                Self::peek_token_internal(&mut inp, false),
+                CHAR_BRACKET_L | CHAR_DOT
+            ),
             TOK_EXPORT => true,
             _ => false,
         }
