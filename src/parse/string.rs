@@ -22,9 +22,9 @@ impl<'s> JSParseState<'s> {
     ) -> Result<usize, i32> {
         let mut sbuf = StringBuf::Empty;
         let mut consume: Option<usize> = None;
-        let mut u8_chars = Utf8CharIter::new(buf).peekable();
+        let mut input = Utf8CharIter::new(buf);
 
-        while let Some((i, sc)) = u8_chars.next() {
+        while let Some((i, sc)) = input.next() {
             if let CharCode::Char(mut c) = sc {
                 if (c as u32) < 0x20 {
                     // ascii control chars
@@ -37,8 +37,8 @@ impl<'s> JSParseState<'s> {
 
                     if sep == '`' {
                         if c == '\r' {
-                            if let Some((_, CharCode::Char('\n'))) = u8_chars.peek() {
-                                let _ = u8_chars.next(); // skip \n after \r
+                            if let Some((_, CharCode::Char('\n'))) = input.peek() {
+                                let _ = input.next(); // skip \n after \r
                             }
                             c = '\n'
                         }
@@ -56,10 +56,10 @@ impl<'s> JSParseState<'s> {
                     break;
                 } else if c == '$'
                     && sep == '`'
-                    && let Some((_, CharCode::Char('{'))) = u8_chars.peek()
+                    && let Some((_, CharCode::Char('{'))) = input.peek()
                 {
                     // template expression start
-                    let _ = u8_chars.next(); // skip '{'
+                    let _ = input.next(); // skip '{'
                     consume = Some(i + 2);
                     break;
                 }
@@ -68,22 +68,19 @@ impl<'s> JSParseState<'s> {
 
                 if c == '\\' {
                     // handle escape sequence
-                    if let Some((j, sc2)) = u8_chars.peek() {
-                        let j = *j;
-                        let sc2 = *sc2;
+                    if let Some((j, sc2)) = input.peek() {
                         let mut should_parse_escape: Option<char> = None;
-
                         match sc2 {
                             CharCode::Char(c1 @ ('\'' | '\"' | '\\')) => {
-                                let _ = u8_chars.next();
+                                let _ = input.next();
                                 char_code = CharCode::Code(c1 as _);
                             }
                             CharCode::Char(c1 @ ('\r' | '\n')) => {
-                                let _ = u8_chars.next(); // skip \r
+                                let _ = input.next(); // skip \r
                                 if c1 == '\r'
-                                    && let Some((_, CharCode::Char('\n'))) = u8_chars.peek()
+                                    && let Some((_, CharCode::Char('\n'))) = input.peek()
                                 {
-                                    let _ = u8_chars.next(); // skip \n
+                                    let _ = input.next(); // skip \n
                                 }
                                 // skip escaped line breaks
                                 if sep != '`' {
@@ -108,8 +105,8 @@ impl<'s> JSParseState<'s> {
                                     // parse escape sequence in non-strict mode
                                     should_parse_escape = Some(c1);
                                 } else if c1 == '0' && {
-                                    u8_chars.next(); // skip '0'
-                                    if let Some((_, CharCode::Char(a))) = u8_chars.peek() {
+                                    input.next(); // skip '0'
+                                    if let Some((_, CharCode::Char(a))) = input.peek() {
                                         !a.is_ascii_digit()
                                     } else {
                                         true
@@ -131,14 +128,14 @@ impl<'s> JSParseState<'s> {
                             }
                             CharCode::Char('\u{2028}' | '\u{2029}') => {
                                 // skip line/paragraph separators
-                                let _ = u8_chars.next();
+                                let _ = input.next();
                                 continue;
                             }
                             CharCode::Char(c1) => {
                                 if c1.is_ascii() {
                                     should_parse_escape = Some(c1)
                                 } else {
-                                    let _ = u8_chars.next();
+                                    let _ = input.next();
                                     char_code = CharCode::Char(c1);
                                 }
                             }
@@ -154,7 +151,7 @@ impl<'s> JSParseState<'s> {
                             let bytes = &buf[j..];
                             match self.parse_string_escape(bytes, 1) {
                                 Ok((code, consume)) => {
-                                    let _ = u8_chars.nth(consume - 1);
+                                    let _ = input.nth(consume - 1);
                                     char_code = char::from_u32(code)
                                         .map_or(CharCode::Code(code as u16), CharCode::Char);
                                 }
@@ -168,7 +165,7 @@ impl<'s> JSParseState<'s> {
                                 }
                                 Err(-2) => {
                                     // ignore the '\' (could output a warning)
-                                    let _ = u8_chars.next();
+                                    let _ = input.next();
                                     char_code = CharCode::Char(ch);
                                 }
                                 _ => unreachable!(),

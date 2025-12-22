@@ -134,13 +134,12 @@ impl<'s> JSParseState<'s> {
             let string_sep = cooked.data.string_sep().unwrap();
 
             if call {
-                let txt = self
-                    .ctx
-                    .create_string_from_str(&cooked.data.string().unwrap().to_utf8())?;
                 raw_array.define_property_value_u32(
                     &self.ctx,
                     depth as _,
-                    txt.into(),
+                    self.ctx
+                        .create_string_from_str(&cooked.data.string().unwrap().to_utf8())?
+                        .into(),
                     JS_PROP_ENUMERABLE | JS_PROP_THROW,
                 )?;
 
@@ -155,13 +154,12 @@ impl<'s> JSParseState<'s> {
                     Some(&mut cooked),
                 ) {
                     Ok(_) => {
-                        let txt = self
-                            .ctx
-                            .create_string_from_str(&cooked.data.string().unwrap().to_utf8())?;
                         template_object.define_property_value_u32(
                             &self.ctx,
                             depth as _,
-                            txt.into(),
+                            self.ctx
+                                .create_string_from_str(&cooked.data.string().unwrap().to_utf8())?
+                                .into(),
                             JS_PROP_ENUMERABLE | JS_PROP_THROW,
                         )?;
                     }
