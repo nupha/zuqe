@@ -1,6 +1,6 @@
 use std::ptr::NonNull;
 
-use crate::{string::CharCode, utils::unlikely};
+use crate::string::CharCode;
 
 // Maximum UTF-8 character length
 pub const UTF8_CHAR_LEN_MAX: usize = 6;
@@ -8,59 +8,6 @@ pub const UTF8_CHAR_LEN_MAX: usize = 6;
 // Unicode code points
 pub const CP_LS: u32 = 0x2028; // Line separator
 pub const CP_PS: u32 = 0x2029; // Paragraph separator
-
-// Minimum code point values for UTF-8 encoding
-pub const utf8_min_code: [u32; 5] = [0x80, 0x800, 0x10000, 0x00200000, 0x04000000];
-// First byte masks for UTF-8 encoding
-pub const utf8_first_code_mask: [u8; 5] = [0x1f, 0x0f, 0x07, 0x03, 0x01];
-
-/// Decode utf8 from buf, returns decoded unicode point.
-/// Note: may return invalid unicode point.
-#[deprecated(note = "use Utf8Stream instead")]
-pub(crate) fn unicode_from_utf8(buf: &[u8]) -> Result<(u32, usize), i32> {
-    debug_assert!(!buf.is_empty());
-
-    let c = buf[0];
-
-    // Determine UTF-8 sequence length based on first byte
-    let n = match c {
-        0x00..=0x7f => {
-            return Ok((c as u32, 1)); // ASCII
-        }
-        0xc0..=0xdf => 1,
-        0xe0..=0xef => 2,
-        0xf0..=0xf7 => 3,
-        0xf8..=0xfb => 4,
-        0xfc..=0xfd => 5,
-        _ => {
-            return Err(-1); // Invalid UTF-8 start byte
-        }
-    };
-
-    if n > buf.len() - 1 {
-        return Err(-1);
-    }
-
-    // Apply first byte mask
-    let mut c = c as u32;
-    c &= utf8_first_code_mask[n - 1] as u32;
-
-    // Decode subsequent bytes
-    for i in 0..n {
-        let b = buf[i + 1];
-        if !(0x80..0xc0).contains(&b) {
-            return Err(-1); // Invalid UTF-8 continuation byte
-        }
-        c = (c << 6) | ((b & 0x3f) as u32);
-    }
-
-    // Check if decoded code point is valid
-    if unlikely(c < utf8_min_code[n - 1]) {
-        Err(-1)
-    } else {
-        Ok((c, n + 1))
-    }
-}
 
 // UTF-8 to Unicode-16 iterator
 pub(crate) struct Utf8ToUnicode16Iter<'a> {

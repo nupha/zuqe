@@ -1,148 +1,111 @@
 use crate::{
     builtins::regexp::RegExpData,
     parse::tokenize::{TOK_REGEXP, TokenData},
-    string::{CP_LS, CP_PS, StringBuf, unicode_from_utf8},
-    utils::unlikely,
+    string::{CharCode, StringBuf, Utf8Stream},
 };
 
 use super::JSParseState;
 
 impl<'s> JSParseState<'s> {
-    pub(super) fn parse_regexp(&mut self) -> Result<(), i32> {
+    /// input stream starts with '/' char
+    fn parse_regexp_internal(&mut self, inp: &mut Utf8Stream) -> Result<(), i32> {
+        debug_assert_eq!(inp.current_byte(), Some(b'/'));
+        inp.move_cursor_by(1); // skip  leading '/'
+
         let mut in_class = false;
-        let mut cursor = 0_usize;
+        let mut pattern_ok = false;
         let mut pattern_str = StringBuf::Empty;
-        let mut flags_str = StringBuf::Empty;
-
-        let buf = unsafe {
-            std::slice::from_raw_parts(
-                self.buf_ptr,
-                self.input_end.offset_from(self.buf_ptr) as usize,
-            )
-        };
-        debug_assert_eq!(buf[0], b'/');
-
-        let mut i = 1; // skip leading '/'
 
         // pattern
-        while i < buf.len() {
-            let mut c = buf[i];
+        while let Some((_, sc)) = inp.next() {
+            if pattern_str.len() == pattern_str.capacity() {
+                pattern_str.try_reserve(1).map_err(|_| {
+                    self.ctx.throw_out_of_memory();
+                    -1
+                })?
+            }
 
-            match c {
-                b'\n' | b'\r' => {
+            match sc {
+                CharCode::Char('\n' | '\r') => {
                     self.throw_syntax_error("unexpected line terminator in regexp");
                     return Err(-1);
                 }
-                b'/' => {
+                CharCode::Char('/') => {
                     if !in_class {
-                        i += 1;
-                        cursor = i;
+                        pattern_ok = true;
                         break;
+                    } else {
+                        let _ = pattern_str.push_char('/');
                     }
                 }
-                b']' => {
+                CharCode::Char('[') => {
+                    in_class = true;
+                    let _ = pattern_str.push_char('[');
+                }
+                CharCode::Char(']') => {
                     // XXX: incorrect as the first character in a class
                     in_class = false;
+                    let _ = pattern_str.push_char(']');
                 }
-                b'\\' => {
-                    pattern_str.push_u8(c).map_err(|_| {
-                        self.ctx.throw_out_of_memory();
-                        -1
-                    })?;
+                CharCode::Char('\\') => {
+                    let _ = pattern_str.push_u8(b'\\');
 
-                    // get next byte
-                    i += 1;
-                    c = buf
-                        .get(i)
-                        .ok_or(-1)
-                        .and_then(|&x| {
-                            if matches!(x, b'\n' | b'\r') {
-                                Err(-1)
-                            } else {
-                                Ok(x)
+                    if let Some((_, sc2)) = inp.next() {
+                        match sc2 {
+                            CharCode::Char('\n' | '\r' | '\u{2028}' | '\u{2029}') => {
+                                self.throw_syntax_error("unexpected line terminator in regexp");
+                                return Err(-1);
                             }
-                        })
-                        .inspect_err(|_| {
-                            self.throw_syntax_error("unexpected line terminator in regexp");
-                        })?;
-
-                    if c >= 0x80 {
-                        let (ch, cnt) = unicode_from_utf8(&buf[i..])
-                            .and_then(|(x, n)| if x > 0x10ffff { Err(-1) } else { Ok((x, n)) })
-                            .inspect_err(|_| {
+                            CharCode::Char(ch) => {
+                                pattern_str.push_char(ch).map_err(|_| {
+                                    self.ctx.throw_out_of_memory();
+                                    -1
+                                })?;
+                                continue;
+                            }
+                            CharCode::Code(_) => {
                                 self.throw_syntax_error("invalid utf-8 sequence");
-                            })?;
-
-                        if unlikely(matches!(ch, CP_LS | CP_PS)) {
-                            self.throw_syntax_error("unexpected line terminator in regexp");
-                            return Err(-1);
-                        } else {
-                            pattern_str.push_u32(ch).map_err(|_| {
-                                self.ctx.throw_out_of_memory();
-                                -1
-                            })?;
-                            i += cnt;
-                            continue;
+                                return Err(-1);
+                            }
                         }
-                    }
-                }
-
-                _ if c >= 0x80 => {
-                    let (ch, cnt) = unicode_from_utf8(&buf[i..])
-                        .and_then(|(x, n)| if x > 0x10ffff { Err(-1) } else { Ok((x, n)) })
-                        .inspect_err(|_| {
-                            self.throw_syntax_error("invalid utf-8 sequence");
-                        })?;
-
-                    if unlikely(matches!(ch, CP_LS | CP_PS)) {
-                        self.throw_syntax_error("unexpected line terminator in regexp");
-                        return Err(-1);
                     } else {
-                        pattern_str.push_u32(ch).map_err(|_| {
-                            self.ctx.throw_out_of_memory();
-                            -1
-                        })?;
-                        i += cnt;
-                        continue;
+                        break; // EOF
                     }
                 }
-
-                _ => {}
+                CharCode::Char(c) => {
+                    let _ = pattern_str.push_char(c);
+                }
+                CharCode::Code(_) => {
+                    self.throw_syntax_error("invalid utf-8 sequence");
+                    return Err(-1);
+                }
             }
+        }
 
-            // ascii char
-            debug_assert!(c.is_ascii());
-            pattern_str.push_u8(c).map_err(|_| {
-                self.ctx.throw_out_of_memory();
-                -1
-            })?;
-            i += 1;
+        if !pattern_ok {
+            self.throw_syntax_error("expected end of regexp");
+            return Err(-1);
         }
 
         // flags
-        while i < buf.len() {
-            let c = buf[i];
-            let c = if unlikely(c >= 0x80) {
-                let (ch, cnt) = unicode_from_utf8(&buf[i..])
-                    .and_then(|(x, n)| if x > 0x10ffff { Err(-1) } else { Ok((x, n)) })
-                    .inspect_err(|_| {
-                        self.throw_syntax_error("invalid utf-8 sequence");
-                    })?;
-                i += cnt;
-                ch
-            } else {
-                i += 1;
-                c as _
-            };
-
-            if char::from_u32(c).is_none_or(|c| !JSParseState::is_ident_next(c)) {
-                break;
-            } else {
-                flags_str.push_u32(c).map_err(|_| {
-                    self.ctx.throw_out_of_memory();
-                    -1
-                })?;
-                cursor = i;
+        let mut flags_str = StringBuf::Empty;
+        while let Some((_, sc)) = inp.next() {
+            match sc {
+                CharCode::Char(c) => {
+                    if JSParseState::is_ident_next(c) {
+                        flags_str.push_char(c).map_err(|_| {
+                            self.ctx.throw_out_of_memory();
+                            -1
+                        })?;
+                    } else {
+                        inp.move_cursor_by(-(c.len_utf8() as i32)); // rewind
+                        break;
+                    }
+                }
+                CharCode::Code(_) => {
+                    self.throw_syntax_error("invalid utf-8 sequence");
+                    return Err(-1);
+                }
             }
         }
 
@@ -165,7 +128,21 @@ impl<'s> JSParseState<'s> {
         self.token.val = TOK_REGEXP;
         self.token.data = TokenData::Regexp(id);
 
-        self.buf_ptr = unsafe { self.buf_ptr.add(cursor) };
+        self.buf_ptr = inp.current_ptr().map_or(self.input_end, |x| x.as_ptr());
         Ok(())
+    }
+
+    pub(super) fn parse_regexp(&mut self) -> Result<(), i32> {
+        if self.buf_ptr < self.input_end {
+            let buf = unsafe {
+                std::slice::from_raw_parts(
+                    self.buf_ptr,
+                    self.input_end.offset_from(self.buf_ptr) as usize,
+                )
+            };
+            self.parse_regexp_internal(&mut Utf8Stream::new(buf))
+        } else {
+            Ok(())
+        }
     }
 }
