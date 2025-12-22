@@ -14,7 +14,6 @@ use super::{
     tokenize::{
         CHAR_BRACKET_L, CHAR_COMMA, CHAR_CURLY_R, CHAR_DOT, TOK_CLASS, TOK_CONST, TOK_DEFAULT,
         TOK_EXPORT, TOK_FUNCTION, TOK_IDENT, TOK_IMPORT, TOK_LET, TOK_STRING, TOK_VAR,
-        simple_next_token,
     },
 };
 
@@ -492,9 +491,9 @@ impl<'s> JSParseState<'s> {
 
         let n = skip_shebang(input);
         let mut p = unsafe { input.as_ptr().add(n) };
-        match unsafe { simple_next_token(&mut p, false) } {
+        match unsafe { Self::simple_next_token(&mut p, false) } {
             TOK_IMPORT => {
-                let tok = unsafe { simple_next_token(&mut p, false) };
+                let tok = unsafe { Self::simple_next_token(&mut p, false) };
                 !matches!(tok, CHAR_BRACKET_L | CHAR_DOT)
             }
             TOK_EXPORT => true,

@@ -178,11 +178,6 @@ impl TokenData {
 }
 
 impl<'s> JSParseState<'s> {
-    pub fn peek_token(&self, no_line_terminator: bool) -> i32 {
-        let mut p = self.buf_ptr;
-        unsafe { simple_next_token(std::ptr::addr_of_mut!(p), no_line_terminator) }
-    }
-
     /// Calling this will clear current token data.
     // HINT: DON'T INLINE THIS.
     // inline this method will be very slow due to check stack overflow,
@@ -950,72 +945,88 @@ impl<'s> JSParseState<'s> {
             }
         }
     }
-}
 
-/* only used for ':' and '=>', 'let' or 'function' look-ahead. *pp is
-only set if TOK_IMPORT is returned */
-/* XXX: handle all unicode cases */
-pub(super) unsafe fn simple_next_token(pp: *mut *const u8, no_line_terminator: bool) -> i32 {
-    let mut p = *pp;
+    /* only used for ':' and '=>', 'let' or 'function' look-ahead. *pp is
+    only set if TOK_IMPORT is returned */
+    /* XXX: handle all unicode cases */
+    pub(super) unsafe fn simple_next_token(pp: *mut *const u8, no_line_terminator: bool) -> i32 {
+        let mut p = *pp;
 
-    // skip spaces and comments
-    loop {
-        let c = *p;
-        p = p.add(1);
+        // skip spaces and comments
+        loop {
+            let c = *p;
+            p = p.add(1);
 
-        match c {
-            b'\r' | b'\n' => {
-                if no_line_terminator {
-                    return b'\n' as i32;
-                }
-                continue;
-            }
-
-            // 0x0c: \f, 0x0b: \v
-            b' ' | b'\t' | 0x0c | 0x0b => continue,
-            b'/' => {
-                if *p == b'/' {
+            match c {
+                b'\r' | b'\n' => {
                     if no_line_terminator {
                         return b'\n' as i32;
                     }
-                    while *p != 0 && *p != b'\r' && *p != b'\n' {
-                        p = p.add(1);
-                    }
                     continue;
                 }
-                if *p == b'*' {
-                    p = p.add(1);
-                    loop {
-                        if *p == 0 {
-                            break;
-                        }
-                        if (*p == b'\r' || *p == b'\n') && no_line_terminator {
+
+                // 0x0c: \f, 0x0b: \v
+                b' ' | b'\t' | 0x0c | 0x0b => continue,
+                b'/' => {
+                    if *p == b'/' {
+                        if no_line_terminator {
                             return b'\n' as i32;
                         }
-                        if *p == b'*' && *p.add(1) == b'/' {
-                            p = p.add(2);
-                            break;
-                        }
-                        p = p.add(1);
-                    }
-                    continue;
-                }
-            }
-            b'=' => {
-                if *p == b'>' {
-                    p = p.add(1);
-                    return TOK_ARROW;
-                }
-                return c as i32;
-            }
-            _ => {
-                if JSParseState::is_ident_first(c as char) {
-                    if c == b'i' {
-                        if *p == b'n' && !JSParseState::is_ident_next(*p.add(1) as char) {
+                        while *p != 0 && *p != b'\r' && *p != b'\n' {
                             p = p.add(1);
-                            return TOK_IN;
                         }
-                        if *p == b'm'
+                        continue;
+                    }
+                    if *p == b'*' {
+                        p = p.add(1);
+                        loop {
+                            if *p == 0 {
+                                break;
+                            }
+                            if (*p == b'\r' || *p == b'\n') && no_line_terminator {
+                                return b'\n' as i32;
+                            }
+                            if *p == b'*' && *p.add(1) == b'/' {
+                                p = p.add(2);
+                                break;
+                            }
+                            p = p.add(1);
+                        }
+                        continue;
+                    }
+                }
+                b'=' => {
+                    if *p == b'>' {
+                        p = p.add(1);
+                        return TOK_ARROW;
+                    }
+                    return c as i32;
+                }
+                _ => {
+                    if JSParseState::is_ident_first(c as char) {
+                        if c == b'i' {
+                            if *p == b'n' && !JSParseState::is_ident_next(*p.add(1) as char) {
+                                p = p.add(1);
+                                return TOK_IN;
+                            }
+                            if *p == b'm'
+                                && *p.add(1) == b'p'
+                                && *p.add(2) == b'o'
+                                && *p.add(3) == b'r'
+                                && *p.add(4) == b't'
+                                && !JSParseState::is_ident_next(*p.add(5) as char)
+                            {
+                                *pp = p.add(5);
+                                return TOK_IMPORT;
+                            }
+                        } else if c == b'o'
+                            && *p == b'f'
+                            && !JSParseState::is_ident_next(*p.add(1) as char)
+                        {
+                            p = p.add(1);
+                            return TOK_OF;
+                        } else if c == b'e'
+                            && *p == b'x'
                             && *p.add(1) == b'p'
                             && *p.add(2) == b'o'
                             && *p.add(3) == b'r'
@@ -1023,41 +1034,30 @@ pub(super) unsafe fn simple_next_token(pp: *mut *const u8, no_line_terminator: b
                             && !JSParseState::is_ident_next(*p.add(5) as char)
                         {
                             *pp = p.add(5);
-                            return TOK_IMPORT;
+                            return TOK_EXPORT;
+                        } else if c == b'f'
+                            && *p == b'u'
+                            && *p.add(1) == b'n'
+                            && *p.add(2) == b'c'
+                            && *p.add(3) == b't'
+                            && *p.add(4) == b'i'
+                            && *p.add(5) == b'o'
+                            && *p.add(6) == b'n'
+                            && !JSParseState::is_ident_next(*p.add(7) as char)
+                        {
+                            p = p.add(7);
+                            return TOK_FUNCTION;
                         }
-                    } else if c == b'o'
-                        && *p == b'f'
-                        && !JSParseState::is_ident_next(*p.add(1) as char)
-                    {
-                        p = p.add(1);
-                        return TOK_OF;
-                    } else if c == b'e'
-                        && *p == b'x'
-                        && *p.add(1) == b'p'
-                        && *p.add(2) == b'o'
-                        && *p.add(3) == b'r'
-                        && *p.add(4) == b't'
-                        && !JSParseState::is_ident_next(*p.add(5) as char)
-                    {
-                        *pp = p.add(5);
-                        return TOK_EXPORT;
-                    } else if c == b'f'
-                        && *p == b'u'
-                        && *p.add(1) == b'n'
-                        && *p.add(2) == b'c'
-                        && *p.add(3) == b't'
-                        && *p.add(4) == b'i'
-                        && *p.add(5) == b'o'
-                        && *p.add(6) == b'n'
-                        && !JSParseState::is_ident_next(*p.add(7) as char)
-                    {
-                        p = p.add(7);
-                        return TOK_FUNCTION;
+                        return TOK_IDENT;
                     }
-                    return TOK_IDENT;
+                    return c as i32;
                 }
-                return c as i32;
             }
         }
+    }
+
+    pub(super) fn peek_token(&self, no_line_terminator: bool) -> i32 {
+        let mut p = self.buf_ptr;
+        unsafe { Self::simple_next_token(std::ptr::addr_of_mut!(p), no_line_terminator) }
     }
 }
