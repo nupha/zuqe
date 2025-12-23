@@ -7,7 +7,6 @@ use crate::{
 };
 
 use super::{
-    emit::get_prev_opcode,
     expr_lvalue::PutLValueEnum,
     state::{
         JSParseState, PF_ARROW_FUNC, PF_IN_ACCEPTED, PF_POSTFIX_CALL, PF_POW_ALLOWED,
@@ -184,7 +183,7 @@ impl<'s> JSParseState<'s> {
                 self.parse_unary(PF_POW_FORBIDDEN)?;
 
                 // reference access should not return an exception, so we patch the get_var
-                if get_prev_opcode(self.cur_func()) == OpCodeTemp::SCOPE_GET_VAR as u8 {
+                if self.cur_func().get_prev_opcode() == OpCodeTemp::SCOPE_GET_VAR as u8 {
                     let last_opcode_pos = self.cur_func().last_opcode_pos;
                     self.cur_func_mut().byte_code[last_opcode_pos as usize] =
                         OpCodeTemp::SCOPE_GET_VAR_UNDEF as u8;
@@ -288,7 +287,7 @@ impl<'s> JSParseState<'s> {
 
         let fd = unsafe { fd0.as_mut().unwrap() };
 
-        match get_prev_opcode(fd) {
+        match fd.get_prev_opcode() {
             opcode @ (opcodes::OP_get_field | opcodes::op_get_field_opt_chain) => {
                 let opt_chain_label: i32 = if opcode == opcodes::op_get_field_opt_chain {
                     unsafe {

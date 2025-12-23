@@ -4,14 +4,14 @@ use crate::{
     utils::{read_from_ptr, write_to_ptr},
 };
 
-use super::{emit::get_prev_opcode, state::JSParseState};
+use super::state::JSParseState;
 
 impl<'s> JSParseState<'s> {
     /// `name` is not consumed.
     pub fn set_object_name(&mut self, name: Atom) {
         let fd = self.cur_func_mut();
 
-        match get_prev_opcode(fd) {
+        match fd.get_prev_opcode() {
             opcodes::OP_set_name => {
                 // XXX: should free atom after OP_set_name?
                 fd.byte_code.truncate(fd.last_opcode_pos as usize); //   (*fd).byte_code.size = (*fd).last_opcode_pos;
@@ -62,7 +62,7 @@ impl<'s> JSParseState<'s> {
 
 pub fn set_object_name_computed(s: &mut JSParseState) {
     let fd = s.cur_func_mut();
-    let opcode = get_prev_opcode(fd);
+    let opcode = fd.get_prev_opcode();
 
     if opcode == opcodes::OP_set_name {
         // XXX: should free atom after OP_set_name?

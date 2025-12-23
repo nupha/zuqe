@@ -6,9 +6,8 @@ use crate::{
     eval::EvalType,
     function::{
         JSFunctionDef, JSVarKindEnum, get_label_pos, instantiate_hoisted_definitions,
-        skip_dead_code,
+        push_vec_atom, push_vec_slice, push_vec_u8, push_vec_u16, push_vec_u32, skip_dead_code,
     },
-    parse::{push_vec_atom, push_vec_slice, push_vec_u8, push_vec_u16, push_vec_u32},
     utils::{M2, read_from_ptr},
 };
 

@@ -2,9 +2,9 @@ use crate::{
     bytecode::{opcode_info_intermediate, opcodes},
     context::ContextImpl,
     function::{
-        BlockEnv, JSFunctionDef, PC2LINE_BASE, PC2LINE_DIFF_PC_MAX, PC2LINE_OP_FIRST, PC2LINE_RANGE,
+        BlockEnv, JSFunctionDef, PC2LINE_BASE, PC2LINE_DIFF_PC_MAX, PC2LINE_OP_FIRST,
+        PC2LINE_RANGE, push_vec_leb128, push_vec_sleb128, push_vec_u8,
     },
-    parse::{push_vec_leb128, push_vec_sleb128, push_vec_u8},
     stack_frame::ExecMode,
     utils::read_from_ptr,
 };

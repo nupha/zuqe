@@ -12,7 +12,6 @@ use crate::{
 };
 
 use super::{
-    emit::js_is_live_code,
     esm::JSParseExportEnum,
     state::{JSParseState, SKIP_HAS_ASSIGNMENT},
     tokenize::TokenKind,
@@ -450,8 +449,8 @@ impl<'s> JSParseState<'s> {
         // consume the '}'
         self.next_token()?;
 
-        /* in case there is no return, add one */
-        if js_is_live_code(self) {
+        // in case there is no return, add one
+        if self.cur_func().is_live_code() {
             fd1.emit_return(false, self.last_line_num);
         }
 

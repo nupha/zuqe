@@ -5,7 +5,7 @@ use crate::{
     utils::read_from_ptr,
 };
 
-use super::{emit::get_prev_opcode, state::JSParseState, tokenize::TokenKind};
+use super::{state::JSParseState, tokenize::TokenKind};
 
 impl<'s> JSParseState<'s> {
     /// parse function call for current function def.
@@ -179,7 +179,7 @@ impl<'s> JSParseState<'s> {
         has_optional_chain: bool,
         optional_chaining_label: &mut i32,
     ) -> u8 {
-        let mut opcode = get_prev_opcode(self.cur_func());
+        let mut opcode = self.cur_func().get_prev_opcode();
         let drop_count: i32;
 
         match opcode {

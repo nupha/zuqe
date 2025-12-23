@@ -9,6 +9,7 @@ mod callable;
 mod callback;
 mod closure;
 mod cpool;
+mod emit;
 mod fdef;
 mod fields;
 mod label;
@@ -28,3 +29,5 @@ pub use {
     callback::*, closure::*, fdef::*, fields::*, label::*, optimize::*, scope::*, var::*,
     var_ref::*,
 };
+
+pub(crate) use emit::*;

@@ -7,7 +7,6 @@ use crate::{
 };
 
 use super::{
-    emit::js_is_live_code,
     esm::JSParseExportEnum,
     expr_lvalue::PutLValueEnum,
     function::JSParseFunctionEnum,
@@ -158,9 +157,8 @@ impl<'s> JSParseState<'s> {
                     Atom::NULL
                 };
 
-                if self.emit_break(&label, t == TokenKind::CONTINUE) != 0 {
-                    return Err(-1);
-                }
+                self.emit_break(label, t == TokenKind::CONTINUE)?;
+
                 if !label.is_null() {
                     self.next_token()?;
                 }
@@ -631,7 +629,7 @@ fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
         s.cur_func_mut().pop_break_entry();
     }
 
-    if js_is_live_code(s) {
+    if s.cur_func().is_live_code() {
         // drop the catch offset
         s.emit_op(OpCode::DROP);
         // must push dummy value to keep same stack size
@@ -695,7 +693,7 @@ fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
         s.pop_scope(); // catch block
         s.pop_scope(); // catch variable
 
-        if js_is_live_code(s) {
+        if s.cur_func().is_live_code() {
             // drop the catch2 offset
             s.emit_op(OpCode::DROP);
             // XXX: should keep the address to nop it out if there is no finally block

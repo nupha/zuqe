@@ -47,14 +47,14 @@ impl<'s> JSParseState<'s> {
     }
 
     /// parse class field defination
-    fn parse_class_field(&mut self, cfields: &mut ClassFieldsDef) -> Result<(), i32> {
-        let mut init = std::ptr::null_mut::<JSFunctionDef>();
+    fn parse_class_field(&mut self, cls_fields: &mut ClassFieldsDef) -> Result<(), i32> {
+        let mut init_fd = std::ptr::null_mut::<JSFunctionDef>();
 
-        if cfields.fields_init_fd.is_null() {
-            self.emit_class_init_start(cfields)?;
+        if cls_fields.fields_init_fd.is_null() {
+            self.emit_class_init_start(cls_fields)?;
         }
 
-        self.cur_func_def = cfields.fields_init_fd;
+        self.cur_func_def = cls_fields.fields_init_fd;
 
         // XXX: could try to avoid creating a new function and
         // reuse 'fields_init_fd' with a specific 'var' scope
@@ -65,7 +65,7 @@ impl<'s> JSParseState<'s> {
             self.token.ptr,
             self.token.line_num,
             JSParseExportEnum::JS_PARSE_EXPORT_NONE,
-            std::ptr::addr_of_mut!(init),
+            std::ptr::addr_of_mut!(init_fd),
         )?;
 
         // stack is now: fclosure
@@ -82,6 +82,7 @@ impl<'s> JSParseState<'s> {
         self.emit_op(OpCode::DROP);
         // stack is now: <empty>
         self.pop_scope();
+
         self.cur_func_def = self.cur_func().parent;
 
         Ok(())
@@ -806,24 +807,6 @@ impl<'s> JSParseState<'s> {
             Ok(fd_fixed)
         }
     }
-}
-
-// create a function to initialize class fields
-pub(super) fn js_parse_function_class_fields_init<'s>(
-    s: &mut JSParseState<'s>,
-) -> Result<Box<JSFunctionDef>, i32> {
-    let mut fd = JSFunctionDef::new(&s.ctx, Some(s.cur_func_mut()), false, false, s.filename, 0)?;
-
-    fd.func_type = JSParseFunctionEnum::JS_PARSE_FUNC_METHOD;
-    fd.has_home_object = true; // <-- this line must be prior to `fd.attrs.super_allowed = XXX`
-    fd.has_arguments_binding = false;
-    fd.has_this_binding = true;
-
-    fd.attrs.func_kind = JSFunctionKindEnum::JS_FUNC_NORMAL;
-    fd.attrs.super_allowed = fd.has_home_object;
-    fd.attrs.new_target_allowed = true;
-
-    Ok(fd)
 }
 
 /// add a private field variable in the current scope

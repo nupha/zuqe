@@ -205,14 +205,8 @@ impl<'s> JSParseState<'s> {
 
     /// Perform close scopes on current function def. For detail, see JSFunctionDef::close_scopes()
     pub(super) fn close_scopes(&mut self, scope: i32, scope_stop: i32) {
-        if !self.cur_func_def.is_null() {
-            unsafe {
-                (*self.cur_func_def).close_scopes(scope as _, scope_stop as _, self.last_line_num);
-            }
-        } else {
-            #[cfg(debug_assertions)]
-            unreachable!("empty current function def");
-        }
+        self.cur_func_mut()
+            .close_scopes(scope as _, scope_stop as _, self.last_line_num);
     }
 
     /// get parse pos

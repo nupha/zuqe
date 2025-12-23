@@ -3,7 +3,7 @@ use crate::{
     function::JSFunctionDef,
 };
 
-use super::{emit::get_prev_opcode, state::JSParseState, tokenize::TokenKind};
+use super::{state::JSParseState, tokenize::TokenKind};
 
 impl<'s> JSParseState<'s> {
     pub(super) fn parse_property(
@@ -14,7 +14,7 @@ impl<'s> JSParseState<'s> {
     ) -> Result<(), i32> {
         if self.token.kind == TokenKind::PRIVATE_NAME {
             // private class field
-            if get_prev_opcode(fd) == opcodes::OP_get_super {
+            if fd.get_prev_opcode() == opcodes::OP_get_super {
                 self.throw_syntax_error("private class field forbidden after super");
                 return Err(-1);
             }
@@ -29,7 +29,7 @@ impl<'s> JSParseState<'s> {
                 self.throw_syntax_error("expecting field name");
                 return Err(-1);
             }
-            if get_prev_opcode(fd) == opcodes::OP_get_super {
+            if fd.get_prev_opcode() == opcodes::OP_get_super {
                 let val = self.token.atom().unwrap().string_or_symbol(&self.ctx)?;
                 self.emit_push_const(val, true)?;
                 self.emit_op(OpCode::GET_SUPER_VALUE);
@@ -52,7 +52,7 @@ impl<'s> JSParseState<'s> {
         has_optional_chain: bool,
         optional_chaining_label: &mut i32,
     ) -> Result<(), i32> {
-        let prev_op = get_prev_opcode(fd);
+        let prev_op = fd.get_prev_opcode();
 
         if has_optional_chain {
             self.optional_chain_test(optional_chaining_label, 1);

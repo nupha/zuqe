@@ -6,7 +6,6 @@ use crate::{
 };
 
 use super::{
-    emit::get_prev_opcode,
     state::{JSParseState, PF_POSTFIX_CALL},
     tokenize::TokenKind,
 };
@@ -54,7 +53,7 @@ impl<'s> JSParseState<'s> {
         let depth: i32;
 
         // we check the last opcode to get the lvalue type
-        let mut opcode = get_prev_opcode(self.cur_func());
+        let mut opcode = self.cur_func().get_prev_opcode();
 
         match opcode {
             opcodes::op_scope_get_var => {

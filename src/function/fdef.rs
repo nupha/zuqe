@@ -7,10 +7,11 @@ use crate::{
     eval::EvalType,
     function::{
         BytecodeAttrs, DEFINE_GLOBAL_LEX_VAR, JSClosureVar, JSGlobalVar, JSVarDef, JSVarScope,
+        push_vec_atom, push_vec_u8, push_vec_u16, push_vec_u32,
     },
     module::ModuleDef,
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
-    parse::{JSParseFunctionEnum, push_vec_atom, push_vec_u8, push_vec_u16, push_vec_u32},
+    parse::JSParseFunctionEnum,
     utils::read_from_ptr,
     value::JSValue,
 };

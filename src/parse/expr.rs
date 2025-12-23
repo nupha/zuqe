@@ -9,7 +9,6 @@ use crate::{
 
 use super::{
     array::js_parse_array_literal,
-    emit::get_prev_opcode,
     esm::JSParseExportEnum,
     expr_lvalue::PutLValueEnum,
     function::JSParseFunctionEnum,
@@ -567,7 +566,7 @@ impl<'s> JSParseState<'s> {
             self.emit_label_raw(optional_chaining_label);
 
             /* modify the last opcode to indicate optional chain */
-            match get_prev_opcode(self.cur_func()) {
+            match self.cur_func().get_prev_opcode() {
                 op @ (opcodes::OP_get_field | opcodes::OP_get_array_el) => {
                     let last_opcode_pos = self.cur_func().last_opcode_pos;
                     self.cur_func_mut().byte_code[last_opcode_pos as usize] =
