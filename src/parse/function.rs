@@ -15,11 +15,7 @@ use super::{
     emit::js_is_live_code,
     esm::JSParseExportEnum,
     state::{JSParseState, SKIP_HAS_ASSIGNMENT},
-    tokenize::{
-        CHAR_BRACKET_R, CHAR_COMMA, CHAR_CURLY_L, CHAR_CURLY_R, CHAR_EQUAL, CHAR_STAR, TOK_ARROW,
-        TOK_AWAIT, TOK_ELLIPSIS, TOK_FIRST_KEYWORD, TOK_IDENT, TOK_LAST_KEYWORD, TOK_LET, TOK_VAR,
-        TOK_YIELD,
-    },
+    tokenize::TokenKind,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -150,7 +146,9 @@ impl<'s> JSParseState<'s> {
         fd1.has_parameter_expressions = false;
         let mut has_opt_arg = false;
 
-        if func_type == JSParseFunctionEnum::JS_PARSE_FUNC_ARROW && self.token.val == TOK_IDENT {
+        if func_type == JSParseFunctionEnum::JS_PARSE_FUNC_ARROW
+            && self.token.val == TokenKind::IDENT
+        {
             if self.token.data.is_reserved() {
                 self.throw_reserved_identifier_error();
                 return Err(-1);
@@ -159,7 +157,7 @@ impl<'s> JSParseState<'s> {
             fd1.add_arg(&self.ctx, self.token.atom().unwrap())?;
             fd1.attrs.defined_arg_count = 1;
         } else if func_type != JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT {
-            if self.token.val == '(' as i32 {
+            if self.token.val == TokenKind::Char('(') {
                 let mut skip_bits: i32 = 0;
                 /* if there is an '=' inside the parameter list, we
                 consider there is a parameter expression inside */
@@ -169,7 +167,7 @@ impl<'s> JSParseState<'s> {
                 }
                 self.next_token()?;
             } else {
-                self.parse_expect('(' as i32)?;
+                self.parse_expect(TokenKind::Char('('))?;
             }
 
             if fd1.has_parameter_expressions {
@@ -177,8 +175,9 @@ impl<'s> JSParseState<'s> {
                 self.push_scope()?;
             }
 
-            while self.token.val != ')' as i32 {
-                let rest = if self.token.val == TOK_ELLIPSIS {
+            // arguments
+            while self.token.val != TokenKind::Char(')') {
+                let rest = if self.token.val == TokenKind::ELLIPSIS {
                     fd1.attrs.has_simple_parameter_list = false;
                     self.next_token()?;
                     true
@@ -186,7 +185,7 @@ impl<'s> JSParseState<'s> {
                     false
                 };
 
-                if matches!(self.token.val as u8, b'[' | b'{') {
+                if matches!(self.token.val, TokenKind::Char('[' | '{')) {
                     fd1.attrs.has_simple_parameter_list = false;
                     if rest {
                         fd1.emit_op(OpCode::REST, self.last_line_num);
@@ -200,9 +199,9 @@ impl<'s> JSParseState<'s> {
 
                     let has_initializer = self.parse_destructuring_element(
                         if fd1.has_parameter_expressions {
-                            TOK_LET
+                            TokenKind::LET
                         } else {
-                            TOK_VAR
+                            TokenKind::VAR
                         },
                         true,
                         true,
@@ -216,7 +215,7 @@ impl<'s> JSParseState<'s> {
                     if !has_opt_arg {
                         fd1.attrs.defined_arg_count += 1;
                     }
-                } else if self.token.val == TOK_IDENT {
+                } else if self.token.val == TokenKind::IDENT {
                     if self.token.data.is_reserved() {
                         self.throw_reserved_identifier_error();
                         return Err(-1);
@@ -254,7 +253,7 @@ impl<'s> JSParseState<'s> {
 
                         fd1.attrs.has_simple_parameter_list = false;
                         has_opt_arg = true;
-                    } else if self.token.val == CHAR_EQUAL {
+                    } else if self.token.val == TokenKind::Char('=') {
                         fd1.attrs.has_simple_parameter_list = false;
                         has_opt_arg = true;
 
@@ -300,15 +299,15 @@ impl<'s> JSParseState<'s> {
                     return Err(-1);
                 }
 
-                if rest && self.token.val != CHAR_BRACKET_R {
-                    let _ = self.parse_expect(CHAR_BRACKET_R);
+                if rest && self.token.val != TokenKind::Char(')') {
+                    let _ = self.parse_expect(TokenKind::Char(')'));
                     return Err(-1);
                 }
-
-                if self.token.val == CHAR_BRACKET_R {
+                if self.token.val == TokenKind::Char(')') {
                     break;
                 }
-                self.parse_expect(CHAR_COMMA)?;
+
+                self.parse_expect(TokenKind::Char(','))?;
             }
 
             if (func_type == JSParseFunctionEnum::JS_PARSE_FUNC_GETTER && !fd1.args.is_empty())
@@ -376,9 +375,9 @@ impl<'s> JSParseState<'s> {
         // enter body scope
         fd1.body_scope = self.push_scope().unwrap() as i32;
 
-        if self.token.val == TOK_ARROW {
+        if self.token.val == TokenKind::ARROW {
             self.next_token()?;
-            if self.token.val != CHAR_CURLY_L {
+            if self.token.val != TokenKind::Char('{') {
                 self.parse_function_check_names(fd1, func_name)?;
                 self.parse_assign_expr()?;
 
@@ -418,7 +417,7 @@ impl<'s> JSParseState<'s> {
         }
 
         if func_type != JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT {
-            self.parse_expect(CHAR_CURLY_L)?;
+            self.parse_expect(TokenKind::Char('{'))?;
         }
 
         self.parse_directives()?;
@@ -426,7 +425,7 @@ impl<'s> JSParseState<'s> {
         // in strict_mode, check function and argument names
         self.parse_function_check_names(fd1, func_name)?;
 
-        while self.token.val != CHAR_CURLY_R {
+        while self.token.val != TokenKind::Char('}') {
             self.parse_source_element()?;
         }
 
@@ -491,7 +490,7 @@ impl<'s> JSParseState<'s> {
             | JSParseFunctionEnum::JS_PARSE_FUNC_EXPR => {
                 if func_kind == JSFunctionKindEnum::JS_FUNC_NORMAL
                     && self.token_is_pseudo_keyword(Atom::CONST_async)
-                    && self.peek_token(true) != '\n' as i32
+                    && self.peek_token(true) != TokenKind::Char('\n')
                 {
                     self.next_token()?;
                     func_kind = JSFunctionKindEnum::JS_FUNC_ASYNC;
@@ -499,7 +498,7 @@ impl<'s> JSParseState<'s> {
 
                 self.next_token()?;
 
-                if self.token.val == CHAR_STAR {
+                if self.token.val == TokenKind::Char('*') {
                     self.next_token()?;
                     func_kind = unsafe {
                         std::mem::transmute::<u8, JSFunctionKindEnum>(
@@ -508,7 +507,7 @@ impl<'s> JSParseState<'s> {
                     }
                 }
 
-                if self.token.val == TOK_IDENT {
+                if self.token.val == TokenKind::IDENT {
                     let atom = self.token.atom().unwrap();
                     if self.token.data.is_reserved()
                         || (atom == Atom::CONST_yield
@@ -526,10 +525,10 @@ impl<'s> JSParseState<'s> {
                     }
                 }
 
-                if self.token.val == TOK_IDENT
-                    || ((self.token.val == TOK_YIELD
+                if self.token.val == TokenKind::IDENT
+                    || ((self.token.val == TokenKind::YIELD
                         && !cur_fd.attrs.exec_mode.contains(ExecMode::STRICT)
-                        || (self.token.val == TOK_AWAIT && !self.is_module))
+                        || (self.token.val == TokenKind::AWAIT && !self.is_module))
                         && func_type == JSParseFunctionEnum::JS_PARSE_FUNC_EXPR)
                 {
                     func_name = self.token.atom().unwrap();
@@ -622,10 +621,7 @@ impl<'s> JSParseState<'s> {
         // reparse_ident_token:
         // if the current token is an identifier or keyword, reparse it
         // according to the current function type
-        if matches!(
-            self.token.val,
-            TOK_IDENT | TOK_FIRST_KEYWORD..=TOK_LAST_KEYWORD
-        ) {
+        if self.token.val == TokenKind::IDENT || self.token.val.is_keyword() {
             self.update_token_ident();
         }
 

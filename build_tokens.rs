@@ -95,36 +95,76 @@ static TOKENS: Lazy<Vec<&str>> = Lazy::new(|| {
         "PUBLIC",
         "STATIC",
         "YIELD",
-        "AWAIT", // must be last
-        "OF",    //only used for js_parse_skip_parens_token()
+        "AWAIT", // must be last keyword
+        "OF",    // only used for js_parse_skip_parens_token()
     ];
     lst
 });
 
-const TOKEN_START_ID: i32 = -128;
+// const TOKEN_START_ID: i32 = -128;
 const TOKEN_START_KEYWORD: &str = "NULL";
+const TOKEN_LAST_KEYWORD: &str = "AWAIT";
 
 pub fn gen_tokens(outfile: &Path) {
     let mut output = Vec::<String>::with_capacity(1024);
 
-    // token consts
-    for (i, tok) in TOKENS.iter().enumerate() {
-        output.push(format!(
-            "pub const TOK_{tok}: i32 = {};",
-            i as i32 + TOKEN_START_ID
-        ));
+    // token enum
+    output.push(
+        "#[repr(u8)]\n#[derive(Debug,Clone,Copy,PartialEq,PartialOrd)]\npub(super) enum TokenKind {"
+            .into(),
+    );
+    for tok in TOKENS.iter() {
+        output.push(format!("{tok},"));
     }
+    output.push("Char(char),".to_string());
+    output.push("}\n".into());
 
-    // token to string
-    output.push("pub fn token_keyword_to_str(tok:i32)->Option<&'static str> { match tok {".into());
-    let n = TOKENS
+    let kw_begin = TOKENS
         .iter()
         .position(|s| s.eq(&TOKEN_START_KEYWORD))
         .unwrap();
-    for t in &TOKENS[n..] {
-        output.push(format!("TOK_{t} => Some(\"{}\"),", t.to_lowercase()));
+    let kw_end: usize = TOKENS
+        .iter()
+        .position(|s| s.eq(&TOKEN_LAST_KEYWORD))
+        .unwrap();
+
+    output.push("impl TokenKind {\n".into());
+
+    output.push("pub const KEYWORD_TOKEN_RANGE: std::ops::RangeInclusive<TokenKind> = Self::NULL..=Self::AWAIT;".into());
+    output.push(
+        r#"#[inline(always)]
+        pub fn is_keyword(&self) -> bool {{ Self::KEYWORD_TOKEN_RANGE.contains(self) }}
+        "#
+        .into(),
+    );
+
+    // keyword to string
+    output.push("pub const fn keyword_str(&self)->Option<&'static str> { match self {".into());
+    for t in &TOKENS[kw_begin..=kw_end] {
+        output.push(format!("Self::{t} => Some(\"{}\"),", t.to_lowercase()));
     }
-    output.push("_=>None}}".into());
+    output.push("_=>None}".into());
+    output.push("}\n".into());
+
+    output.push("pub const fn keyword_atom(&self)->Option<crate::Atom>{ match self {".into());
+    for (i, t) in TOKENS[kw_begin..=kw_end].iter().enumerate() {
+        output.push(format!(
+            "Self::{t} => Some(crate::Atom::new_const({})),",
+            i + 1
+        ));
+    }
+    output.push("_=>None}".into());
+    output.push("}\n".into());
+
+    output
+        .push("pub fn from_keyword_atom(atom:crate::Atom)->Option<Self>{ match atom.id() {".into());
+    for (i, t) in TOKENS[kw_begin..=kw_end].iter().enumerate() {
+        output.push(format!("{} => Some(Self::{t}),", i + 1));
+    }
+    output.push("_=>None}".into());
+    output.push("}\n".into());
+
+    output.push("}\n".into()); // end of impl
 
     output.push("".into());
     std::fs::write(outfile, output.join("\n")).unwrap();

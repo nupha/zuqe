@@ -6,17 +6,15 @@ use crate::{
     error::JSResult,
     number::{ATOD_ACCEPT_BIN_OCT, js_atof},
     object::JS_PROP_C_W_E,
-    parse::{
-        JSParseState,
-        tokenize::{
-            CHAR_CURLY_L, CHAR_SQUARE_L, TOK_EOF, TOK_ERROR, TOK_IDENT, TOK_NUMBER, TOK_STRING,
-            TokenData,
-        },
-    },
     runtime::js_check_stack_overflow,
     string::{UTF8_CHAR_LEN_MAX, Utf8Stream, escape_str},
     utils::unlikely,
     value::JSValue,
+};
+
+use super::{
+    JSParseState,
+    tokenize::{TokenData, TokenKind},
 };
 
 /// allow extended JSON
@@ -32,7 +30,7 @@ impl<'s> JSParseState<'s> {
         self.clear_token_data();
 
         enum Todo {
-            Token(i32),
+            Token(u8),
             Fail,
         }
 
@@ -60,7 +58,7 @@ impl<'s> JSParseState<'s> {
                 quote @ (b'\'' | b'"') => {
                     if quote == b'\'' && !self.ext_json {
                         // standard JSON does not accept single quoted strings
-                        todo = Some(Todo::Token('\'' as _));
+                        todo = Some(Todo::Token(b'\''));
                         break;
                     } else {
                         input.move_cursor_by(1); // skip starting quote
@@ -92,7 +90,7 @@ impl<'s> JSParseState<'s> {
                 c @ (b'\x0c' | b'\x0b') => {
                     if !self.ext_json {
                         // JSONWhitespace does not match <VT>, nor <FF>
-                        todo = Some(Todo::Token(c as _));
+                        todo = Some(Todo::Token(c));
                         break;
                     } else {
                         input.move_cursor_by(1);
@@ -106,7 +104,7 @@ impl<'s> JSParseState<'s> {
                 b'/' => {
                     if !self.ext_json {
                         // JSON does not accept comments
-                        todo = Some(Todo::Token('/' as _));
+                        todo = Some(Todo::Token(b'/'));
                         break;
                     }
 
@@ -129,7 +127,7 @@ impl<'s> JSParseState<'s> {
                             self.skip_line_comment(&mut input);
                         }
                         _ => {
-                            todo = Some(Todo::Token('/' as _));
+                            todo = Some(Todo::Token(b'/'));
                             break;
                         }
                     }
@@ -143,7 +141,7 @@ impl<'s> JSParseState<'s> {
                             has_escape: false,
                             is_reserved: false,
                         };
-                        self.token.val = TOK_IDENT;
+                        self.token.val = TokenKind::IDENT;
                         self.buf_ptr = input.current_ptr().map_or(self.input_end, |p| p.as_ptr());
                         return Ok(());
                     } else {
@@ -153,7 +151,7 @@ impl<'s> JSParseState<'s> {
                 }
                 b'+' => {
                     if !self.ext_json || input.peek_byte_at(1).is_none_or(|b| !b.is_ascii_digit()) {
-                        todo = Some(Todo::Token('+' as _));
+                        todo = Some(Todo::Token(b'+'));
                         break;
                     }
 
@@ -170,7 +168,7 @@ impl<'s> JSParseState<'s> {
                 }
                 b'-' => {
                     if input.peek_byte_at(1).is_none_or(|b| !b.is_ascii_digit()) {
-                        todo = Some(Todo::Token('-' as _));
+                        todo = Some(Todo::Token(b'-'));
                         break;
                     }
 
@@ -187,7 +185,7 @@ impl<'s> JSParseState<'s> {
                 }
                 b'0' => {
                     if input.peek_byte_at(1).is_some_and(|b| b.is_ascii_digit()) {
-                        todo = Some(Todo::Token('0' as _));
+                        todo = Some(Todo::Token(b'0'));
                         break;
                     }
 
@@ -214,7 +212,7 @@ impl<'s> JSParseState<'s> {
                     }
                 }
                 c if c.is_ascii() => {
-                    todo = Some(Todo::Token(c as _));
+                    todo = Some(Todo::Token(c));
                     break;
                 }
                 _ => {
@@ -228,18 +226,18 @@ impl<'s> JSParseState<'s> {
         if let Some(todo) = todo {
             match todo {
                 Todo::Token(c) => {
-                    self.token.val = c;
+                    self.token.val = TokenKind::Char(c as _);
                     input.move_cursor_by(1);
                     self.buf_ptr = input.current_ptr().map_or(self.input_end, |p| p.as_ptr());
                     Ok(())
                 }
                 Todo::Fail => {
-                    self.token.val = TOK_ERROR;
+                    self.token.val = TokenKind::ERROR;
                     Err(-1)
                 }
             }
         } else {
-            self.token.val = TOK_EOF;
+            self.token.val = TokenKind::EOF;
             self.token.data = TokenData::None;
             self.buf_ptr = self.input_end;
             Ok(())
@@ -262,11 +260,11 @@ impl<'s> JSParseState<'s> {
         let p0 = p;
 
         if let Ok(num) = unsafe { js_atof(&self.ctx, p, &mut p, radix, flags) } {
-            self.token.val = TOK_NUMBER;
+            self.token.val = TokenKind::NUMBER;
             self.token.data = TokenData::Num(num);
             Ok(unsafe { p.offset_from(p0) as usize })
         } else {
-            self.token.val = TOK_ERROR;
+            self.token.val = TokenKind::ERROR;
             Err(-1)
         }
     }
@@ -300,20 +298,19 @@ impl<'s> JSParseState<'s> {
         let mut val: JSValue;
 
         match self.token.val {
-            // '{'
-            CHAR_CURLY_L => {
+            TokenKind::Char('{') => {
                 self.json_next_token()?;
 
                 val = self.ctx.create_base_object()?.into();
-                if self.token.val != b'}' as i32 {
+                if self.token.val != TokenKind::Char('}') {
                     loop {
-                        let prop_name = if self.token.val == TOK_STRING {
+                        let prop_name = if self.token.val == TokenKind::STRING {
                             Atom::from_str(
                                 self.ctx.rt_ptr(),
                                 &escape_str(&self.token.data.string().unwrap().to_utf8()),
                                 AtomKind::String,
                             )?
-                        } else if self.ext_json && self.token.val == TOK_IDENT {
+                        } else if self.ext_json && self.token.val == TokenKind::IDENT {
                             self.token.data.ident_atom().unwrap()
                         } else {
                             self.throw_syntax_error("expecting property name");
@@ -321,28 +318,28 @@ impl<'s> JSParseState<'s> {
                         };
 
                         self.json_next_token()?;
-                        json_parse_expect(self, ':' as i32)?;
+                        json_parse_expect(self, ':')?;
 
                         let prop_val = self.json_parse_value()?;
                         val.define_property_value(&self.ctx, prop_name, prop_val, JS_PROP_C_W_E)?;
 
-                        if self.token.val != ',' as i32 {
+                        if self.token.val != TokenKind::Char(',') {
                             break;
                         }
                         self.json_next_token()?;
-                        if self.ext_json && self.token.val == b'}' as i32 {
+                        if self.ext_json && self.token.val == TokenKind::Char('}') {
                             break;
                         }
                     }
                 }
-                json_parse_expect(self, b'}' as i32)?;
+                json_parse_expect(self, '}')?;
             }
-            // '['
-            CHAR_SQUARE_L => {
+
+            TokenKind::Char('[') => {
                 self.json_next_token()?;
 
                 let mut lst = Vec::<JSValue>::new();
-                if self.token.val != ']' as i32 {
+                if self.token.val != TokenKind::Char(']') {
                     'arr: loop {
                         let el = self.json_parse_value()?;
 
@@ -354,13 +351,13 @@ impl<'s> JSParseState<'s> {
                         }
                         lst.push(el);
 
-                        if self.token.val != ',' as i32 {
+                        if self.token.val != TokenKind::Char(',') {
                             break 'arr;
                         }
 
                         self.json_next_token()?;
 
-                        if self.ext_json && self.token.val == b']' as i32 {
+                        if self.ext_json && self.token.val == TokenKind::Char(']') {
                             break 'arr;
                         }
                     }
@@ -370,24 +367,24 @@ impl<'s> JSParseState<'s> {
                 lst.shrink_to_fit();
                 val = self.ctx.create_array_with_values(lst)?.into();
 
-                json_parse_expect(self, b']' as i32)?;
+                json_parse_expect(self, ']')?;
             }
-            TOK_STRING => {
+            TokenKind::STRING => {
                 let sbuf = self.token.data.take_string().unwrap();
                 val = self.ctx.create_string_with_buf(sbuf)?.into();
                 self.json_next_token()?;
             }
-            TOK_NUMBER => {
+            TokenKind::NUMBER => {
                 val = JSValue::from(self.token.data.number().unwrap());
                 self.json_next_token()?;
             }
-            TOK_IDENT => {
+            TokenKind::IDENT => {
                 val = match self.token.data.ident_atom().unwrap() {
                     Atom::CONST_true => JSValue::Bool(true),
                     Atom::CONST_false => JSValue::Bool(false),
                     Atom::CONST_null => JSValue::NULL,
                     _ => {
-                        if self.token.val == TOK_EOF {
+                        if self.token.val == TokenKind::EOF {
                             self.throw_syntax_error("unexpected end of input");
                         } else {
                             self.throw_syntax_error(&format!("unexpected token: '{}'", unsafe {
@@ -405,7 +402,7 @@ impl<'s> JSParseState<'s> {
                 self.json_next_token()?;
             }
             _ => {
-                if self.token.val == TOK_EOF {
+                if self.token.val == TokenKind::EOF {
                     self.throw_syntax_error("unexpected end of input");
                 } else {
                     self.throw_syntax_error(&format!("unexpected token: '{}'", unsafe {
@@ -424,9 +421,9 @@ impl<'s> JSParseState<'s> {
     }
 }
 
-fn json_parse_expect(s: &mut JSParseState, tok: i32) -> Result<(), i32> {
-    if s.token.val != tok {
-        s.throw_syntax_error(&format!("expecting '{tok}'"));
+fn json_parse_expect(s: &mut JSParseState, ch: char) -> Result<(), i32> {
+    if s.token.val != TokenKind::Char(ch) {
+        s.throw_syntax_error(&format!("expecting '{ch}'"));
         Err(-1)
     } else {
         s.json_next_token()
@@ -444,7 +441,7 @@ impl ContextImpl {
         parser.json_next_token()?;
         let val = parser.json_parse_value()?;
 
-        if unlikely(parser.token.val != TOK_EOF) {
+        if unlikely(parser.token.val != TokenKind::EOF) {
             parser.throw_syntax_error("unexpected data at the end");
             Err(-1)
         } else {

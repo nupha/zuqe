@@ -4,10 +4,9 @@ use crate::{
     context::{ContextImpl, ContextPtr},
     function::JSFunctionDef,
     number::IntOrFloat,
-    parse::tokenize::TokenData,
 };
 
-use super::tokenize::Token;
+use super::tokenize::{Token, TokenData, TokenKind};
 
 // Parse flags for controlling expression parsing behavior
 /// Allow the 'in' binary operator
@@ -104,7 +103,7 @@ impl<'s> JSParseState<'s> {
             line_num: 1,
             filename,
             token: Token {
-                val: ' ' as i32,
+                val: TokenKind::Char(' '),
                 line_num: 1,
                 ptr: std::ptr::null(),
                 data: TokenData::Num(IntOrFloat::Int64(0)),

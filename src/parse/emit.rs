@@ -3,12 +3,11 @@ use crate::{
     bytecode::{OpCode, OpCodeTemp, opcodes},
     class::ClassFieldsDef,
     function::{JSFunctionDef, JSFunctionKindEnum},
-    parse::class::js_parse_function_class_fields_init,
     utils::{push_vec_u8, push_vec_u16, push_vec_u32},
     value::JSValue,
 };
 
-use super::state::JSParseState;
+use super::{class::js_parse_function_class_fields_init, state::JSParseState};
 
 impl JSFunctionDef {
     #[inline(always)]

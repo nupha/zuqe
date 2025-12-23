@@ -4,18 +4,11 @@ use crate::{
     error::{ErrorKind, JS_BACKTRACE_FLAG_SINGLE_LEVEL},
     function::{JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
     module::{ExportType, ImportEntry, ModuleDef},
-    parse::tokenize::{TOK_FIRST_KEYWORD, TOK_LAST_KEYWORD},
     string::Utf8Stream,
 };
 
 use super::{
-    function::JSParseFunctionEnum,
-    parse::skip_shebang,
-    state::JSParseState,
-    tokenize::{
-        CHAR_BRACKET_L, CHAR_COMMA, CHAR_CURLY_R, CHAR_DOT, TOK_CLASS, TOK_CONST, TOK_DEFAULT,
-        TOK_EXPORT, TOK_FUNCTION, TOK_IDENT, TOK_IMPORT, TOK_LET, TOK_STRING, TOK_VAR,
-    },
+    function::JSParseFunctionEnum, parse::skip_shebang, state::JSParseState, tokenize::TokenKind,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,7 +29,7 @@ impl<'s> JSParseState<'s> {
 
         self.next_token()?;
 
-        if self.token.val != TOK_STRING {
+        if self.token.val != TokenKind::STRING {
             self.throw_syntax_error("string expected");
             return Err(-1);
         }
@@ -60,7 +53,7 @@ impl<'s> JSParseState<'s> {
         let first_import = md.import_entries.len();
         let module_name: Atom;
 
-        if self.token.val == TOK_STRING {
+        if self.token.val == TokenKind::STRING {
             // import "module-name"
             module_name = Atom::from_str(
                 self.ctx.rt_ptr(),
@@ -70,7 +63,7 @@ impl<'s> JSParseState<'s> {
 
             self.next_token()?;
         } else {
-            let done = if self.token.val == TOK_IDENT {
+            let done = if self.token.val == TokenKind::IDENT {
                 // import <default>
                 if self.token.data.is_reserved() {
                     self.throw_reserved_identifier_error();
@@ -81,7 +74,7 @@ impl<'s> JSParseState<'s> {
                 self.next_token()?;
                 self.add_module_import(md, local_name, Atom::CONST_default)?;
 
-                if self.token.val == ',' as i32 {
+                if self.token.val == TokenKind::Char(',') {
                     // default import mixed with namespace or named import.
                     self.next_token()?;
                     false // <-- go on parsing namespace or named import.
@@ -95,7 +88,7 @@ impl<'s> JSParseState<'s> {
             if !done {
                 match self.token.val {
                     //'*'
-                    0x2a => {
+                    TokenKind::Char('*') => {
                         // namespace
                         self.next_token()?;
 
@@ -116,21 +109,19 @@ impl<'s> JSParseState<'s> {
                         self.add_module_import(md, local_name, Atom::CONST__star_)?;
                     }
                     // '{'
-                    0x7b => {
+                    TokenKind::Char('{') => {
                         // name dict
                         self.next_token()?;
 
-                        while self.token.val != '}' as i32 {
+                        while self.token.val != TokenKind::Char('}') {
                             let import_name = match self.token.val {
-                                TOK_IDENT | TOK_FIRST_KEYWORD..=TOK_LAST_KEYWORD => {
-                                    // Accept ident, keywords and reserved words as property names
-                                    self.token.atom().unwrap()
-                                }
-                                TOK_STRING => Atom::from_str(
+                                TokenKind::IDENT => self.token.atom().unwrap(),
+                                TokenKind::STRING => Atom::from_str(
                                     self.ctx.rt_ptr(),
                                     &self.token.data.string().unwrap().to_utf8(),
                                     AtomKind::String,
                                 )?,
+                                t if t.is_keyword() => t.keyword_atom().unwrap(),
                                 _ => {
                                     self.throw_syntax_error("identifier or string expected");
                                     return Err(-1);
@@ -156,14 +147,14 @@ impl<'s> JSParseState<'s> {
 
                             self.add_module_import(md, local_name, import_name)?;
 
-                            if self.token.val == b',' as i32 {
+                            if self.token.val == TokenKind::Char(',') {
                                 self.next_token()?;
                             } else {
                                 break;
                             }
                         }
 
-                        self.parse_expect(CHAR_CURLY_R)?;
+                        self.parse_expect(TokenKind::Char('}'))?;
                     }
                     _ => {}
                 }
@@ -186,11 +177,11 @@ impl<'s> JSParseState<'s> {
 
         let tok = self.next_token()?;
         match tok {
-            TOK_CLASS => {
+            TokenKind::CLASS => {
                 // export class ...
                 return self.parse_class(false, JSParseExportEnum::JS_PARSE_EXPORT_NAMED);
             }
-            TOK_FUNCTION => {
+            TokenKind::FUNCTION => {
                 // export function ...
                 return {
                     self.parse_function_decl_ex(
@@ -203,9 +194,9 @@ impl<'s> JSParseState<'s> {
                     )
                 };
             }
-            TOK_IDENT
+            TokenKind::IDENT
                 if (self.token_is_pseudo_keyword(Atom::CONST_async)
-                    && self.peek_token(true) == TOK_FUNCTION) =>
+                    && self.peek_token(true) == TokenKind::FUNCTION) =>
             {
                 // export async function ...
                 return {
@@ -219,28 +210,26 @@ impl<'s> JSParseState<'s> {
                     )
                 };
             }
-            TOK_VAR | TOK_LET | TOK_CONST => {
+            TokenKind::VAR | TokenKind::LET | TokenKind::CONST => {
                 // export var, export let, export const
                 self.next_token()?;
                 return self.parse_var(1, tok, true);
             }
             // '{'
-            0x7b => {
+            TokenKind::Char('{') => {
                 // export {...}
                 self.next_token()?;
 
                 let first_export = md.export_entries.len();
 
-                while self.token.val != b'}' as i32 {
+                while self.token.val != TokenKind::Char('}') {
                     let local_name = match self.token.val {
-                        TOK_IDENT | TOK_FIRST_KEYWORD..=TOK_LAST_KEYWORD => {
-                            // Accept ident, keywords and reserved words as property names
-                            self.token.atom().unwrap()
-                        }
-                        TOK_STRING => {
+                        TokenKind::IDENT => self.token.atom().unwrap(),
+                        TokenKind::STRING => {
                             let s = self.token.data.string().unwrap();
                             Atom::from_str(self.ctx.rt_ptr(), &s.to_utf8(), AtomKind::String)?
                         }
+                        t if t.is_keyword() => t.keyword_atom().unwrap(),
                         _ => {
                             self.throw_syntax_error("identifier or string expected");
                             return Err(-1);
@@ -254,14 +243,12 @@ impl<'s> JSParseState<'s> {
                         self.next_token()?;
 
                         let n = match self.token.val {
-                            TOK_IDENT | TOK_FIRST_KEYWORD..=TOK_LAST_KEYWORD => {
-                                // Accept ident, keywords and reserved words as property names
-                                self.token.atom().unwrap()
-                            }
-                            TOK_STRING => {
+                            TokenKind::IDENT => self.token.atom().unwrap(),
+                            TokenKind::STRING => {
                                 let s = self.token.data.string().unwrap();
                                 Atom::from_str(self.ctx.rt_ptr(), &s.to_utf8(), AtomKind::String)?
                             }
+                            t if t.is_keyword() => t.keyword_atom().unwrap(),
                             _ => {
                                 self.throw_syntax_error("identifier or string expected");
                                 return Err(-1);
@@ -284,14 +271,14 @@ impl<'s> JSParseState<'s> {
                         },
                     )?;
 
-                    if self.token.val != CHAR_COMMA {
+                    if self.token.val != TokenKind::Char(',') {
                         break;
                     }
 
                     self.next_token()?;
                 }
 
-                self.parse_expect('}' as i32)?;
+                self.parse_expect(TokenKind::Char('}'))?;
 
                 // Handle re-exports
                 if self.token_is_pseudo_keyword(Atom::CONST_from) {
@@ -303,8 +290,7 @@ impl<'s> JSParseState<'s> {
                 }
             }
 
-            // *
-            0x2a => {
+            TokenKind::Char('*') => {
                 self.next_token()?;
 
                 if self.token_is_pseudo_keyword(Atom::CONST_as) {
@@ -312,14 +298,15 @@ impl<'s> JSParseState<'s> {
                     self.next_token()?;
 
                     let export_name = match self.token.val {
-                        TOK_IDENT | TOK_FIRST_KEYWORD..=TOK_LAST_KEYWORD => {
+                        TokenKind::IDENT => {
                             // Accept ident, keywords and reserved words as property names
                             self.token.atom().unwrap()
                         }
-                        TOK_STRING => {
+                        TokenKind::STRING => {
                             let s = self.token.data.string().unwrap();
                             Atom::from_str(self.ctx.rt_ptr(), &s.to_utf8(), AtomKind::String)?
                         }
+                        t if t.is_keyword() => t.keyword_atom().unwrap(),
                         _ => {
                             self.throw_syntax_error("identifier or string expected");
                             return Err(-1);
@@ -346,14 +333,14 @@ impl<'s> JSParseState<'s> {
                 }
             }
 
-            TOK_DEFAULT => {
+            TokenKind::DEFAULT => {
                 self.next_token()?;
 
-                if self.token.val == TOK_CLASS {
+                if self.token.val == TokenKind::CLASS {
                     return self.parse_class(false, JSParseExportEnum::JS_PARSE_EXPORT_DEFAULT);
-                } else if self.token.val == TOK_FUNCTION
+                } else if self.token.val == TokenKind::FUNCTION
                     || (self.token_is_pseudo_keyword(Atom::CONST_async)
-                        && self.peek_token(true) == TOK_FUNCTION)
+                        && self.peek_token(true) == TokenKind::FUNCTION)
                 {
                     return self.parse_function_decl_ex(
                         JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
@@ -494,12 +481,13 @@ impl<'s> JSParseState<'s> {
         let n = skip_shebang(buf);
 
         let mut inp = Utf8Stream::new(&buf[n..]);
+
         match Self::peek_token_internal(&mut inp, false) {
-            TOK_IMPORT => !matches!(
+            TokenKind::IMPORT => !matches!(
                 Self::peek_token_internal(&mut inp, false),
-                CHAR_BRACKET_L | CHAR_DOT
+                TokenKind::Char('(' | '.')
             ),
-            TOK_EXPORT => true,
+            TokenKind::EXPORT => true,
             _ => false,
         }
     }

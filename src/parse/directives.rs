@@ -2,14 +2,7 @@ use crate::stack_frame::ExecMode;
 
 use super::{
     state::JSParseState,
-    tokenize::{
-        CHAR_CURLY_R, CHAR_SEMI, TOK_CLASS, TOK_CONST, TOK_DEBUGGER, TOK_DEC, TOK_DELETE, TOK_DO,
-        TOK_ENUM, TOK_EOF, TOK_EXPORT, TOK_FALSE, TOK_FOR, TOK_FUNCTION, TOK_IDENT, TOK_IF,
-        TOK_IMPORT, TOK_INC, TOK_INTERFACE, TOK_LET, TOK_NEW, TOK_NULL, TOK_NUMBER, TOK_PACKAGE,
-        TOK_PRIVATE, TOK_PROTECTED, TOK_PUBLIC, TOK_REGEXP, TOK_RETURN, TOK_STATIC, TOK_STRING,
-        TOK_SUPER, TOK_SWITCH, TOK_TEMPLATE, TOK_THIS, TOK_THROW, TOK_TRUE, TOK_TRY, TOK_TYPEOF,
-        TOK_VAR, TOK_WHILE, TOK_WITH, TokenData,
-    },
+    tokenize::{TokenData, TokenKind},
 };
 
 impl JSParseState<'_> {
@@ -24,7 +17,7 @@ impl JSParseState<'_> {
         // seeking sole strings within current code block to check for directives.
         while let TokenData::Str { .. } = &self.token.data {
             debug_assert!(
-                matches!(self.token.val, TOK_STRING | TOK_TEMPLATE),
+                matches!(self.token.val, TokenKind::STRING | TokenKind::TEMPLATE),
                 "{:?}",
                 self.token
             );
@@ -47,22 +40,52 @@ impl JSParseState<'_> {
 
             let mut has_semi = false;
             match self.token.val {
-                // ';'
-                CHAR_SEMI => {
+                TokenKind::Char(';') => {
                     self.next_token()?;
                     has_semi = true;
                 }
-                // '}'
-                CHAR_CURLY_R | TOK_EOF => {
+                TokenKind::Char('}') | TokenKind::EOF => {
                     has_semi = true;
                 }
-                TOK_NUMBER | TOK_STRING | TOK_TEMPLATE | TOK_IDENT | TOK_REGEXP | TOK_DEC
-                | TOK_INC | TOK_NULL | TOK_FALSE | TOK_TRUE | TOK_IF | TOK_RETURN | TOK_VAR
-                | TOK_THIS | TOK_DELETE | TOK_TYPEOF | TOK_NEW | TOK_DO | TOK_WHILE | TOK_FOR
-                | TOK_SWITCH | TOK_THROW | TOK_TRY | TOK_FUNCTION | TOK_DEBUGGER | TOK_WITH
-                | TOK_CLASS | TOK_CONST | TOK_ENUM | TOK_EXPORT | TOK_IMPORT | TOK_SUPER
-                | TOK_INTERFACE | TOK_LET | TOK_PACKAGE | TOK_PRIVATE | TOK_PROTECTED
-                | TOK_PUBLIC | TOK_STATIC => {
+                TokenKind::NUMBER
+                | TokenKind::STRING
+                | TokenKind::TEMPLATE
+                | TokenKind::IDENT
+                | TokenKind::REGEXP
+                | TokenKind::DEC
+                | TokenKind::INC
+                | TokenKind::NULL
+                | TokenKind::FALSE
+                | TokenKind::TRUE
+                | TokenKind::IF
+                | TokenKind::RETURN
+                | TokenKind::VAR
+                | TokenKind::THIS
+                | TokenKind::DELETE
+                | TokenKind::TYPEOF
+                | TokenKind::NEW
+                | TokenKind::DO
+                | TokenKind::WHILE
+                | TokenKind::FOR
+                | TokenKind::SWITCH
+                | TokenKind::THROW
+                | TokenKind::TRY
+                | TokenKind::FUNCTION
+                | TokenKind::DEBUGGER
+                | TokenKind::WITH
+                | TokenKind::CLASS
+                | TokenKind::CONST
+                | TokenKind::ENUM
+                | TokenKind::EXPORT
+                | TokenKind::IMPORT
+                | TokenKind::SUPER
+                | TokenKind::INTERFACE
+                | TokenKind::LET
+                | TokenKind::PACKAGE
+                | TokenKind::PRIVATE
+                | TokenKind::PROTECTED
+                | TokenKind::PUBLIC
+                | TokenKind::STATIC => {
                     // automatic insertion of ';'
                     if self.got_lf {
                         has_semi = true;
@@ -70,6 +93,7 @@ impl JSParseState<'_> {
                 }
                 _ => {}
             }
+
             if !has_semi {
                 break;
             }

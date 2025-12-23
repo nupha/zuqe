@@ -3,9 +3,6 @@ use crate::{
     bytecode::{OpCode, OpCodeTemp, opcodes},
     function::BlockEnv,
     object::PROP_TYPE_IDENT,
-    parse::tokenize::{
-        CHAR_COMMA, CHAR_CURLY_L, CHAR_CURLY_R, CHAR_EQUAL, CHAR_SQUARE_L, CHAR_SQUARE_R,
-    },
     stack_frame::ExecMode,
     utils::unlikely,
 };
@@ -13,19 +10,23 @@ use crate::{
 use super::{
     expr_lvalue::PutLValueEnum,
     state::{JSParseState, SKIP_HAS_ELLIPSIS},
-    tokenize::{TOK_CONST, TOK_ELLIPSIS, TOK_IDENT, TOK_LET, TOK_VAR},
+    tokenize::TokenKind,
 };
 
 impl<'s> JSParseState<'s> {
     /// parse { ... }
     fn parse_destructuring_curly(
         &mut self,
-        tok: i32,
+        tok: TokenKind,
         is_arg: bool,
         has_ellipsis: bool,
         export: bool,
     ) -> Result<(), i32> {
-        debug_assert_eq!(self.token.val, '{' as i32, "body starts with '{{'");
+        debug_assert_eq!(
+            self.token.val,
+            TokenKind::Char('{'),
+            "body starts with '{{'"
+        );
 
         self.next_token()?;
 
@@ -46,12 +47,12 @@ impl<'s> JSParseState<'s> {
 
         macro_rules! set_val {
             () => {
-                if tok != 0 {
+                if tok != TokenKind::Char('\0') {
                     self.define_var(var_name, tok, export)?;
                     scope = self.cur_func().scope_level as _;
                 }
 
-                if self.token.val == '=' as i32 {
+                if self.token.val == TokenKind::Char('=') {
                     // handle optional default value
                     self.emit_op(OpCode::DUP);
                     self.emit_op(OpCode::UNDEFINED);
@@ -78,15 +79,15 @@ impl<'s> JSParseState<'s> {
                     var_name,
                     label_lvalue,
                     PutLValueEnum::PUT_LVALUE_NOKEEP_DEPTH,
-                    matches!(tok, TOK_CONST | TOK_LET),
+                    matches!(tok, TokenKind::CONST | TokenKind::LET),
                 );
 
-                if self.token.val == '}' as i32 {
+                if self.token.val == TokenKind::Char('}') {
                     break;
                 }
 
                 // accept a trailing comma before the '}'
-                self.parse_expect(',' as i32)?;
+                self.parse_expect(TokenKind::Char(','))?;
             };
         }
         macro_rules! lvalue {
@@ -99,7 +100,7 @@ impl<'s> JSParseState<'s> {
                     &mut label_lvalue,
                     &mut depth_lvalue1,
                     false,
-                    '{' as i32,
+                    TokenKind::Char('{'),
                 )?;
 
                 /* swap ref and lvalue object if any */
@@ -141,8 +142,8 @@ impl<'s> JSParseState<'s> {
         }
 
         // parse till '}'
-        while self.token.val != '}' as i32 {
-            if self.token.val == TOK_ELLIPSIS {
+        while self.token.val != TokenKind::Char('}') {
+            if self.token.val == TokenKind::ELLIPSIS {
                 if !has_ellipsis {
                     self.ctx.throw_internal_error("unexpected ellipsis token");
                     return Err(-1);
@@ -151,7 +152,7 @@ impl<'s> JSParseState<'s> {
                 self.next_token()?;
 
                 let mut depth_lvalue = 0_i32;
-                if tok != 0 {
+                if tok != TokenKind::Char('\0') {
                     var_name = self.parse_destructuring_var(is_arg)?;
                     opcode = opcodes::op_scope_get_var as _;
                     scope = self.cur_func().scope_level;
@@ -168,12 +169,12 @@ impl<'s> JSParseState<'s> {
                         &mut label_lvalue,
                         &mut depth_lvalue,
                         false,
-                        '{' as i32,
+                        TokenKind::Char('{'),
                     )?;
                     var_name = a;
                 }
 
-                if self.token.val != '}' as i32 {
+                if self.token.val != TokenKind::Char('}') {
                     self.throw_syntax_error("assignment rest property must be last");
                     return Err(-1);
                 }
@@ -199,13 +200,13 @@ impl<'s> JSParseState<'s> {
                 self.next_token()?;
 
                 // token: [{ && after-parens-token: ,=}
-                if matches!(self.token.val, CHAR_SQUARE_L | CHAR_CURLY_L)
+                if matches!(self.token.val, TokenKind::Char('[' | '{'))
                     && matches!(
                         {
                             let mut _p = 0;
                             self.parse_skip_parens_token(&mut _p, false)?
                         },
-                        CHAR_COMMA | CHAR_EQUAL | CHAR_CURLY_R // , | = | }
+                        TokenKind::Char(',' | '=' | '}')
                     )
                 {
                     if prop_name.is_null() {
@@ -237,11 +238,11 @@ impl<'s> JSParseState<'s> {
 
                     self.parse_destructuring_element(tok, is_arg, true, -1, true, export)?;
 
-                    if self.token.val == '}' as i32 {
+                    if self.token.val == TokenKind::Char('}') {
                         break;
                     } else {
                         // accept a trailing comma before the '}'
-                        self.parse_expect(',' as i32)?;
+                        self.parse_expect(TokenKind::Char(','))?;
                         continue;
                     }
                 }
@@ -270,7 +271,7 @@ impl<'s> JSParseState<'s> {
                     self.emit_op(OpCode::DUP);
                 }
 
-                if tok != 0 {
+                if tok != TokenKind::Char('\0') {
                     var_name = self.parse_destructuring_var(is_arg)?;
                 } else {
                     self.parse_left_hand_side_expr()?;
@@ -314,7 +315,7 @@ impl<'s> JSParseState<'s> {
 
                 let mut goto_lvalue = false;
 
-                if matches!(tok, 0 | TOK_VAR) {
+                if matches!(tok, TokenKind::Char('\0') | TokenKind::VAR) {
                     /* generate reference */
                     /* source -- source source */
                     self.emit_op(OpCode::DUP);
@@ -364,12 +365,12 @@ impl<'s> JSParseState<'s> {
     /// parse [ ... ]
     fn parse_destructuring_square(
         &mut self,
-        tok: i32,
+        tok: TokenKind,
         is_arg: bool,
         mut skip_bits: i32,
         export: bool,
     ) -> Result<(), i32> {
-        debug_assert_eq!(self.token.val, '[' as i32, "body starts with '['");
+        debug_assert_eq!(self.token.val, TokenKind::Char('['), "body starts with '['");
 
         self.next_token()?;
 
@@ -385,11 +386,11 @@ impl<'s> JSParseState<'s> {
         let mut has_spread = false;
 
         // parse till ']'
-        while self.token.val != ']' as i32 {
+        while self.token.val != TokenKind::Char(']') {
             // get the next value
-            if self.token.val == TOK_ELLIPSIS {
+            if self.token.val == TokenKind::ELLIPSIS {
                 self.next_token()?;
-                if self.token.val == ',' as i32 || self.token.val == ']' as i32 {
+                if matches!(self.token.val, TokenKind::Char(',' | ']')) {
                     self.throw_syntax_error("missing binding pattern...");
                     return Err(-1);
                 }
@@ -401,7 +402,7 @@ impl<'s> JSParseState<'s> {
             let mut label_lvalue = -1;
 
             let parse_expr = match self.token.val {
-                CHAR_COMMA => {
+                TokenKind::Char(',') => {
                     // do nothing, skip the value, has_spread is false */
                     self.emit_op(OpCode::FOR_OF_NEXT);
                     self.emit_u8(0);
@@ -409,11 +410,11 @@ impl<'s> JSParseState<'s> {
                     self.emit_op(OpCode::DROP);
                     false
                 }
-                CHAR_SQUARE_L | CHAR_CURLY_L => {
+                TokenKind::Char('[' | '{') => {
                     match self.parse_skip_parens_token(&mut skip_bits, false)? {
-                        t @ (CHAR_COMMA | CHAR_EQUAL | CHAR_SQUARE_R) => {
+                        TokenKind::Char(c @ (',' | '=' | ']')) => {
                             if has_spread {
-                                if t == '=' as i32 {
+                                if c == '=' {
                                     self.throw_syntax_error(
                                         "rest element cannot have a default value",
                                     );
@@ -447,7 +448,7 @@ impl<'s> JSParseState<'s> {
                 let mut var_name = Atom::NULL;
                 let mut enum_depth = 0;
 
-                if tok != 0 {
+                if tok != TokenKind::Char('\0') {
                     var_name = self.parse_destructuring_var(is_arg)?;
                     self.define_var(var_name, tok, export)?;
                     opcode = opcodes::op_scope_get_var as i32;
@@ -462,7 +463,7 @@ impl<'s> JSParseState<'s> {
                         &mut label_lvalue,
                         &mut enum_depth,
                         false,
-                        '[' as i32,
+                        TokenKind::Char('['),
                     )?;
                 }
 
@@ -474,7 +475,7 @@ impl<'s> JSParseState<'s> {
                     self.emit_op(OpCode::DROP);
                 }
 
-                if self.token.val == '=' as i32 && !has_spread {
+                if self.token.val == TokenKind::Char('=') && !has_spread {
                     /* handle optional default value */
                     self.emit_op(OpCode::DUP);
                     self.emit_op(OpCode::UNDEFINED);
@@ -501,11 +502,11 @@ impl<'s> JSParseState<'s> {
                     var_name,
                     label_lvalue,
                     PutLValueEnum::PUT_LVALUE_NOKEEP_DEPTH,
-                    tok == TOK_CONST || tok == TOK_LET,
+                    matches!(tok, TokenKind::CONST | TokenKind::LET),
                 );
             }
 
-            if self.token.val == ']' as i32 {
+            if self.token.val == TokenKind::Char(']') {
                 break;
             }
             if has_spread {
@@ -514,7 +515,7 @@ impl<'s> JSParseState<'s> {
             }
 
             // accept a trailing comma before the ']'
-            self.parse_expect(',' as i32)?;
+            self.parse_expect(TokenKind::Char(','))?;
         }
 
         // close iterator object:
@@ -531,7 +532,7 @@ impl<'s> JSParseState<'s> {
     /// like that in parse_var() does.
     pub fn parse_destructuring_element(
         &mut self,
-        tok: i32,
+        tok: TokenKind,
         is_arg: bool,
         hasval: bool,
         mut has_ellipsis: i32,
@@ -567,12 +568,12 @@ impl<'s> JSParseState<'s> {
 
         // parse body
         match self.token.val {
-            CHAR_CURLY_L => {
-                // {: parse { body }
+            TokenKind::Char('{') => {
+                // parse { body }
                 self.parse_destructuring_curly(tok, is_arg, has_ellipsis != 0, export)?;
             }
-            CHAR_SQUARE_L => {
-                // [: parse [ body ]
+            TokenKind::Char('[') => {
+                // parse [ body ]
                 self.parse_destructuring_square(tok, is_arg, skip_bits, export)?;
             }
             _ => {
@@ -582,7 +583,7 @@ impl<'s> JSParseState<'s> {
         }
 
         // body was parsed.
-        let has_initializer = if self.token.val == '=' as i32 && allow_initializer {
+        let has_initializer = if self.token.val == TokenKind::Char('=') && allow_initializer {
             let label_done = self.emit_goto(OpCode::GOTO, -1);
 
             self.next_token()?;
@@ -614,7 +615,7 @@ impl<'s> JSParseState<'s> {
 
     fn parse_destructuring_var(&mut self, is_arg: bool) -> Result<Atom, i32> {
         if unlikely(
-            (self.token.val != TOK_IDENT || self.token.data.is_reserved())
+            (self.token.val != TokenKind::IDENT || self.token.data.is_reserved())
                 || (self.cur_func().attrs.exec_mode.contains(ExecMode::STRICT)
                     && matches!(
                         self.token.atom().unwrap(),

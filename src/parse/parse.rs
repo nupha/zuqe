@@ -12,13 +12,7 @@ use super::{
     function::JSParseFunctionEnum,
     state::{JSParseState, SKIP_HAS_ASSIGNMENT, SKIP_HAS_ELLIPSIS, SKIP_HAS_SEMI},
     statement::DECL_MASK_ALL,
-    tokenize::{
-        CHAR_BRACKET_L, CHAR_BRACKET_R, CHAR_CURLY_L, CHAR_CURLY_R, CHAR_DOT, CHAR_EQUAL,
-        CHAR_SEMI, CHAR_SLASH, CHAR_SQUARE_L, CHAR_SQUARE_R, TOK_CONST, TOK_DEC, TOK_DIV_ASSIGN,
-        TOK_ELLIPSIS, TOK_EOF, TOK_EXPORT, TOK_FALSE, TOK_FUNCTION, TOK_IDENT, TOK_IMPORT, TOK_INC,
-        TOK_LET, TOK_NULL, TOK_NUMBER, TOK_OF, TOK_REGEXP, TOK_STRING, TOK_TEMPLATE, TOK_THIS,
-        TOK_TRUE, TOK_VAR, token_keyword_to_str,
-    },
+    tokenize::TokenKind,
 };
 
 impl<'s> JSParseState<'s> {
@@ -49,7 +43,7 @@ impl<'s> JSParseState<'s> {
             fd.eval_ret_idx.replace(idx);
         }
 
-        while self.token.val != TOK_EOF {
+        while self.token.val != TokenKind::EOF {
             self.parse_source_element()?;
         }
 
@@ -69,7 +63,7 @@ impl<'s> JSParseState<'s> {
         let is_module = self.cur_func().module.is_some();
 
         match self.token.val {
-            TOK_FUNCTION => {
+            TokenKind::FUNCTION => {
                 // function
                 self.parse_function_decl(
                     JSParseFunctionEnum::JS_PARSE_FUNC_STATEMENT,
@@ -78,16 +72,20 @@ impl<'s> JSParseState<'s> {
                     self.token.line_num,
                 )
             }
-            TOK_EXPORT if is_module => self.parse_export(),
+            TokenKind::EXPORT if is_module => self.parse_export(),
             // peek_token is needed to avoid confusion with 'import()' or 'import.meta'
-            TOK_IMPORT
-                if is_module && !matches!(self.peek_token(false), CHAR_BRACKET_L | CHAR_DOT) =>
+            TokenKind::IMPORT
+                if is_module
+                    && !matches!(
+                        self.peek_token(false),
+                        TokenKind::Char('(') | TokenKind::Char('.')
+                    ) =>
             {
                 self.parse_import()
             }
             _ => {
                 if self.token_is_pseudo_keyword(Atom::CONST_async)
-                    && self.peek_token(true) == TOK_FUNCTION
+                    && self.peek_token(true) == TokenKind::FUNCTION
                 {
                     // async function
                     self.parse_function_decl(
@@ -205,18 +203,18 @@ impl<'s> JSParseState<'s> {
     pub(super) fn parse_var(
         &mut self,
         parse_flags: i32,
-        tok: i32,
+        tok: TokenKind,
         export: bool,
     ) -> Result<(), i32> {
         loop {
-            if self.token.val == TOK_IDENT {
+            if self.token.val == TokenKind::IDENT {
                 if self.token.data.is_reserved() {
                     self.throw_reserved_identifier_error();
                     return Err(-1);
                 }
 
                 let name = self.token.atom().unwrap();
-                if name == Atom::CONST_let && matches!(tok, TOK_LET | TOK_CONST) {
+                if name == Atom::CONST_let && matches!(tok, TokenKind::LET | TokenKind::CONST) {
                     self.throw_syntax_error("'let' is not a valid lexical identifier");
                     return Err(-1);
                 }
@@ -224,10 +222,10 @@ impl<'s> JSParseState<'s> {
                 self.next_token()?;
                 self.define_var(name, tok, export)?;
 
-                if self.token.val == '=' as i32 {
+                if self.token.val == TokenKind::Char('=') {
                     self.next_token()?;
 
-                    if tok == TOK_VAR {
+                    if tok == TokenKind::VAR {
                         // Must make a reference for proper `with` semantics
                         self.emit_op_temp(OpCodeTemp::SCOPE_GET_VAR);
                         self.emit_atom(name);
@@ -244,7 +242,7 @@ impl<'s> JSParseState<'s> {
                             &mut label,
                             std::ptr::null_mut(),
                             false,
-                            CHAR_EQUAL,
+                            TokenKind::Char('='),
                         )?;
 
                         self.parse_assign_expr2(parse_flags)?;
@@ -260,7 +258,7 @@ impl<'s> JSParseState<'s> {
                     } else {
                         self.parse_assign_expr2(parse_flags)?;
                         self.set_object_name(name);
-                        self.emit_op_temp(if tok == TOK_CONST || tok == TOK_LET {
+                        self.emit_op_temp(if matches!(tok, TokenKind::CONST | TokenKind::LET) {
                             OpCodeTemp::SCOPE_PUT_VAR_INIT
                         } else {
                             OpCodeTemp::SCOPE_PUT_VAR
@@ -268,10 +266,10 @@ impl<'s> JSParseState<'s> {
                         self.emit_atom(name);
                         self.emit_u16(self.cur_func().scope_level as u16);
                     }
-                } else if tok == TOK_CONST {
+                } else if tok == TokenKind::CONST {
                     self.throw_syntax_error("missing initializer for const variable");
                     return Err(-1);
-                } else if tok == TOK_LET {
+                } else if tok == TokenKind::LET {
                     // initialize lexical variable upon entering its scope
                     self.emit_op(OpCode::UNDEFINED);
                     self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
@@ -281,8 +279,8 @@ impl<'s> JSParseState<'s> {
             } else {
                 let mut skip_bits: i32 = 0;
 
-                if matches!(self.token.val, CHAR_SQUARE_L | CHAR_CURLY_L) // '[' '{'
-                    && self.parse_skip_parens_token(&mut skip_bits, false)? == '=' as i32
+                if matches!(self.token.val, TokenKind::Char('[' | '{'))
+                    && self.parse_skip_parens_token(&mut skip_bits, false)? == TokenKind::Char('=')
                 {
                     // destructing
                     self.emit_op(OpCode::UNDEFINED);
@@ -300,7 +298,7 @@ impl<'s> JSParseState<'s> {
                 }
             }
 
-            if self.token.val != ',' as i32 {
+            if self.token.val != TokenKind::Char(',') {
                 break;
             }
             self.next_token()?;
@@ -313,31 +311,25 @@ impl<'s> JSParseState<'s> {
     ///
     /// - If yes, advance to next token;
     /// - If no, throw syntax error.
-    pub(super) fn parse_expect(&mut self, tok: i32) -> Result<i32, i32> {
+    pub(super) fn parse_expect(&mut self, tok: TokenKind) -> Result<TokenKind, i32> {
         if self.token.val != tok {
-            if tok > 0 {
-                // is char
-                self.throw_syntax_error(&format!(
-                    "expecting '{}'",
-                    std::char::from_u32(tok as u32).unwrap()
-                ));
+            if let TokenKind::Char(ch) = tok {
+                self.throw_syntax_error(&format!("expecting '{ch}'"));
             } else {
-                // is token
                 self.throw_syntax_error(&format!(
                     "expecting '{}'",
-                    token_keyword_to_str(tok).unwrap_or("<unknown>")
+                    tok.keyword_str().unwrap_or("<unknown>")
                 ));
             }
-
             Err(-1)
         } else {
             self.next_token()
         }
     }
 
-    pub(super) fn parse_expect_semi(&mut self) -> Result<i32, i32> {
-        if self.token.val != CHAR_SEMI {
-            if matches!(self.token.val, TOK_EOF | CHAR_CURLY_R) || self.got_lf {
+    pub(super) fn parse_expect_semi(&mut self) -> Result<TokenKind, i32> {
+        if self.token.val != TokenKind::Char(';') {
+            if matches!(self.token.val, TokenKind::EOF | TokenKind::Char('}')) || self.got_lf {
                 // automatic insertion of ';'
                 Ok(self.token.val)
             } else {
@@ -356,49 +348,47 @@ impl<'s> JSParseState<'s> {
         &mut self,
         pbits: &mut i32,
         no_line_terminator: bool,
-    ) -> Result<i32, i32> {
-        let mut tok: i32 = TOK_EOF;
+    ) -> Result<TokenKind, i32> {
+        let mut tok = TokenKind::EOF;
         let mut bits: i32 = 0;
 
         // protect from underflow
-        let mut state = [0u8; 256];
+        let mut state = [0_u8; 128];
         let mut level = 1_usize;
 
         let pos = self.get_pos();
-        let mut last_tok = 0;
+        let mut last_tok = TokenKind::default();
 
         loop {
             match self.token.val {
-                // '(',  '[',  '{'
-                CHAR_BRACKET_L | CHAR_SQUARE_L | CHAR_CURLY_L => {
+                TokenKind::Char(c @ ('(' | '[' | '{')) => {
                     if level >= state.len() {
                         break;
                     }
-                    state[level] = self.token.val as u8;
+                    state[level] = c as u8;
                     level += 1;
                 }
-                // ')'
-                CHAR_BRACKET_R => {
+                TokenKind::Char(')') => {
                     level -= 1;
                     if state[level] != b'(' {
                         break;
                     }
                 }
                 // ']'
-                CHAR_SQUARE_R => {
+                TokenKind::Char(']') => {
                     level -= 1;
                     if state[level] != b'[' {
                         break;
                     }
                 }
                 // '}'
-                CHAR_CURLY_R => {
+                TokenKind::Char('}') => {
                     level -= 1;
-                    let c = state[level] as i32;
-                    if c == '`' as i32 {
+                    let c = state[level];
+                    if c == b'`' {
                         // continue the parsing of the template
                         self.clear_token_data();
-                        // Resume TOK_TEMPLATE parsing (s->token.line_num and s->token.ptr are OK)
+                        // Resume TEMPLATE parsing (s->token.line_num and s->token.ptr are OK)
                         self.got_lf = false;
                         self.last_line_num = self.token.line_num;
 
@@ -415,25 +405,23 @@ impl<'s> JSParseState<'s> {
                         } else {
                             continue;
                         }
-                    } else if c != '{' as i32 {
+                    } else if c != b'{' {
                         break;
                     }
                 }
-                // ';'
-                CHAR_SEMI => {
+                TokenKind::Char(';') => {
                     if level == 2 {
                         bits |= SKIP_HAS_SEMI;
                     }
                 }
-                // '='
-                CHAR_EQUAL => {
+                TokenKind::Char('=') => {
                     bits |= SKIP_HAS_ASSIGNMENT;
                 }
-                t @ (TOK_DIV_ASSIGN | CHAR_SLASH) => {
+                t @ (TokenKind::DIV_ASSIGN | TokenKind::Char('/')) => {
                     if is_regexp_allowed(last_tok) {
                         self.buf_ptr = unsafe {
                             self.buf_ptr
-                                .offset(if t == TOK_DIV_ASSIGN { -2 } else { -1 })
+                                .offset(if t == TokenKind::DIV_ASSIGN { -2 } else { -1 })
                         };
                         if self.parse_regexp().is_err() {
                             let _ = self.ctx.rt_ptr().take_exception(); //clear the exception
@@ -441,7 +429,7 @@ impl<'s> JSParseState<'s> {
                         }
                     }
                 }
-                TOK_TEMPLATE => {
+                TokenKind::TEMPLATE => {
                     // handle_template:
                     if self.token.data.string_sep().unwrap() != '`' as i32 {
                         // '${' inside the template : closing '}' and continue
@@ -453,10 +441,10 @@ impl<'s> JSParseState<'s> {
                         level += 1;
                     }
                 }
-                TOK_EOF => {
+                TokenKind::EOF => {
                     break;
                 }
-                TOK_ELLIPSIS => {
+                TokenKind::ELLIPSIS => {
                     if level == 2 {
                         bits |= SKIP_HAS_ELLIPSIS;
                     }
@@ -466,11 +454,11 @@ impl<'s> JSParseState<'s> {
             }
 
             // last_tok is only used to recognize regexps
-            last_tok = if self.token.val == TOK_IDENT
+            last_tok = if self.token.val == TokenKind::IDENT
                 && (self.token_is_pseudo_keyword(Atom::CONST_of)
                     || self.token_is_pseudo_keyword(Atom::CONST_yield))
             {
-                TOK_OF
+                TokenKind::OF
             } else {
                 self.token.val
             };
@@ -482,10 +470,10 @@ impl<'s> JSParseState<'s> {
             if level <= 1 {
                 tok = self.token.val;
                 if self.token_is_pseudo_keyword(Atom::CONST_of) {
-                    tok = TOK_OF;
+                    tok = TokenKind::OF;
                 }
                 if no_line_terminator && self.last_line_num != self.token.line_num {
-                    tok = '\n' as i32;
+                    tok = TokenKind::Char('\n');
                 }
                 break;
             }
@@ -516,22 +504,20 @@ pub(super) fn skip_shebang(buf: &[u8]) -> usize {
 
 /// return TRUE if a regexp literal is allowed after token `tok`
 #[inline(always)]
-const fn is_regexp_allowed(tok: i32) -> bool {
+const fn is_regexp_allowed(tok: TokenKind) -> bool {
     // regexp may occur after
     !matches!(
         tok,
-        TOK_NUMBER
-            | TOK_STRING
-            | TOK_REGEXP
-            | TOK_DEC
-            | TOK_INC
-            | TOK_NULL
-            | TOK_FALSE
-            | TOK_TRUE
-            | TOK_THIS
-            | TOK_IDENT
-            | CHAR_BRACKET_R
-            | CHAR_SQUARE_R
-            | CHAR_CURLY_R /* XXX: regexp may occur after */
+        TokenKind::NUMBER
+            | TokenKind::STRING
+            | TokenKind::REGEXP
+            | TokenKind::DEC
+            | TokenKind::INC
+            | TokenKind::NULL
+            | TokenKind::FALSE
+            | TokenKind::TRUE
+            | TokenKind::THIS
+            | TokenKind::IDENT
+            | TokenKind::Char(')' | ']' | '}') /* XXX: regexp may occur after */
     )
 }

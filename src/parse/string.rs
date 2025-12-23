@@ -1,12 +1,11 @@
 use crate::{
-    parse::tokenize::TokenData,
     stack_frame::ExecMode,
     string::{CharCode, StringBuf, Utf8Stream},
 };
 
 use super::{
     state::JSParseState,
-    tokenize::{TOK_STRING, Token},
+    tokenize::{Token, TokenData, TokenKind},
 };
 
 impl<'s> JSParseState<'s> {
@@ -197,7 +196,7 @@ impl<'s> JSParseState<'s> {
         if let Some(consume) = consume {
             // update token
             let tok = token.unwrap_or(&mut self.token);
-            tok.val = TOK_STRING;
+            tok.val = TokenKind::STRING;
             tok.data = TokenData::Str {
                 str: sbuf,
                 sep: sep as i32,

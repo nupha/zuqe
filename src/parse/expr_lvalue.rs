@@ -8,7 +8,7 @@ use crate::{
 use super::{
     emit::get_prev_opcode,
     state::{JSParseState, PF_POSTFIX_CALL},
-    tokenize::{TOK_DEC, TOK_FOR, TOK_INC},
+    tokenize::TokenKind,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,15 +35,14 @@ impl<'s> JSParseState<'s> {
         plabel: &mut i32,
         pdepth: *mut i32,
         keep: bool,
-        tok: i32,
+        tok: TokenKind,
     ) -> Result<(), i32> {
         macro_rules! throw_error {
             () => {
                 self.throw_syntax_error(match tok {
-                    TOK_FOR => "invalid for in/of left hand-side",
-                    TOK_INC | TOK_DEC => "invalid increment/decrement operand",
-                    // 91='[', 123='{'
-                    91 | 123 => "invalid destructuring target",
+                    TokenKind::FOR => "invalid for in/of left hand-side",
+                    TokenKind::INC | TokenKind::DEC => "invalid increment/decrement operand",
+                    TokenKind::Char('[' | '{') => "invalid destructuring target",
                     _ => "invalid assignment left-hand side",
                 });
             };

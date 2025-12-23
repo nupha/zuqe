@@ -5,11 +5,7 @@ use crate::{
     utils::read_from_ptr,
 };
 
-use super::{
-    emit::get_prev_opcode,
-    state::JSParseState,
-    tokenize::{CHAR_COMMA, TOK_ELLIPSIS},
-};
+use super::{emit::get_prev_opcode, state::JSParseState, tokenize::TokenKind};
 
 impl<'s> JSParseState<'s> {
     /// parse function call for current function def.
@@ -70,12 +66,12 @@ impl<'s> JSParseState<'s> {
 
         // parse arguments
         let mut arg_count = 0;
-        while self.token.val != ')' as i32 {
-            if arg_count >= 65535 {
+        while self.token.val != TokenKind::Char(')') {
+            if arg_count >= 0xFFFF {
                 self.throw_syntax_error("Too many call arguments");
                 return Err(-1);
             }
-            if self.token.val == TOK_ELLIPSIS {
+            if self.token.val == TokenKind::ELLIPSIS {
                 break;
             }
 
@@ -83,17 +79,17 @@ impl<'s> JSParseState<'s> {
 
             arg_count += 1;
 
-            if self.token.val == ')' as i32 {
+            if self.token.val == TokenKind::Char(')') {
                 break;
             }
 
             // accept a trailing comma before the ')'
-            self.parse_expect(',' as i32)?;
+            self.parse_expect(TokenKind::Char(','))?;
         }
 
         // TODO: use match self.token.val {} instead
         // XXX
-        if self.token.val == TOK_ELLIPSIS {
+        if self.token.val == TokenKind::ELLIPSIS {
             // ellipsis args, e.g.: f(...[a,b,c]), f(a,b, ...[x,y,z])
             self.emit_op(OpCode::ARRAY_FROM);
             self.emit_u16(arg_count as _);
@@ -101,8 +97,8 @@ impl<'s> JSParseState<'s> {
             self.emit_u32(arg_count as _);
 
             // on stack: array idx
-            while self.token.val != ')' as i32 {
-                if self.token.val == TOK_ELLIPSIS {
+            while self.token.val != TokenKind::Char(')') {
+                if self.token.val == TokenKind::ELLIPSIS {
                     self.next_token()?;
                     self.parse_assign_expr()?;
 
@@ -115,12 +111,12 @@ impl<'s> JSParseState<'s> {
                     self.emit_op(OpCode::DEFINE_ARRAY_EL);
                     self.emit_op(OpCode::INC);
                 }
-                if self.token.val == ')' as i32 {
+                if self.token.val == TokenKind::Char(')') {
                     break;
                 }
 
                 /* accept a trailing comma before the ')' */
-                self.parse_expect(CHAR_COMMA)?;
+                self.parse_expect(TokenKind::Char(','))?;
             } // while
 
             self.next_token()?;

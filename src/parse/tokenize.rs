@@ -1,5 +1,6 @@
 use crate::{
     atom::{ATOM_CONST_KEYWORD_RANGE, ATOM_CONST_STRICT_KEYWORD_RANGE, Atom},
+    bytecode::OpCode,
     function::JSFunctionKindEnum,
     number::{
         ATOD_ACCEPT_BIN_OCT, ATOD_ACCEPT_LEGACY_OCTAL, ATOD_ACCEPT_SUFFIX, ATOD_ACCEPT_UNDERSCORES,
@@ -16,9 +17,6 @@ use super::{
 };
 
 include!(concat!(env!("OUT_DIR"), "/tokens.rs"));
-
-pub const TOK_FIRST_KEYWORD: i32 = TOK_NULL;
-pub const TOK_LAST_KEYWORD: i32 = TOK_AWAIT;
 
 pub const CHAR_DOT: i32 = '.' as i32;
 pub const CHAR_COMMA: i32 = ',' as i32;
@@ -42,9 +40,66 @@ pub const CHAR_CR: i32 = '\r' as i32;
 pub const CHAR_BACK_SLASH: i32 = '\\' as i32;
 pub const CHAR_BACKTICK: i32 = '`' as i32;
 
+impl Default for TokenKind {
+    fn default() -> Self {
+        Self::Char('\0')
+    }
+}
+
+impl TokenKind {
+    /// in range Self::MUL_ASSIGN..=Self::POW_ASSIGN
+    #[inline(always)]
+    pub fn is_op_assign(&self) -> bool {
+        (Self::MUL_ASSIGN..=Self::POW_ASSIGN).contains(self)
+    }
+
+    /// get opcode for op-assign: *=, /=, +=, -= ...
+    pub const fn op_assign_opcode(&self) -> Option<OpCode> {
+        // Memo: following unsafe code can calc sequence of an enum item.
+        // TokenKind has repr(u8) attr.
+        // use seq to get OpCode from opcode array is faster.
+        // unsafe {
+        //     let n = *(self as *const Self as *const u8);
+        //     let b = *(&Self::MUL_ASSIGN as *const Self as *const u8);
+        //     let seq = b - n;
+        // }
+        // const assign_opcodes: [OpCode; 12] = [
+        //     OpCode::MUL,
+        //     OpCode::DIV,
+        //     OpCode::MOD,
+        //     OpCode::ADD,
+        //     OpCode::SUB,
+        //     OpCode::SHL,
+        //     OpCode::SAR,
+        //     OpCode::SHR,
+        //     OpCode::AND,
+        //     OpCode::XOR,
+        //     OpCode::OR,
+        //     OpCode::POW,
+        // ];
+        // ...
+
+        match self {
+            Self::MUL_ASSIGN => Some(OpCode::MUL),
+            Self::DIV_ASSIGN => Some(OpCode::DIV),
+            Self::MOD_ASSIGN => Some(OpCode::MOD),
+            Self::PLUS_ASSIGN => Some(OpCode::ADD),
+            Self::MINUS_ASSIGN => Some(OpCode::SUB),
+            Self::SHL_ASSIGN => Some(OpCode::SHL),
+            Self::SAR_ASSIGN => Some(OpCode::SAR),
+            Self::SHR_ASSIGN => Some(OpCode::SHR),
+            Self::AND_ASSIGN => Some(OpCode::AND),
+            Self::XOR_ASSIGN => Some(OpCode::XOR),
+            Self::OR_ASSIGN => Some(OpCode::OR),
+            Self::POW_ASSIGN => Some(OpCode::POW),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Default, Debug)]
 pub struct Token {
-    pub val: i32,
+    pub val: TokenKind,
     /// line number of token start
     pub line_num: i32,
     /// raw point (within input buf) to start of token
@@ -53,17 +108,11 @@ pub struct Token {
 }
 
 impl Token {
-    /// if data is ident type or is reserved keyword TOK_, returns atom.
-    pub(crate) fn atom(&self) -> Option<Atom> {
+    /// if data is ident type or is reserved keyword, returns atom.
+    pub(crate) const fn atom(&self) -> Option<Atom> {
         match self.val {
-            TOK_IDENT | TOK_PRIVATE_NAME => self.data.ident_atom(),
-            t @ (TOK_FIRST_KEYWORD..=TOK_LAST_KEYWORD) => {
-                // convert keyword token to atom
-                debug_assert!(t - TOK_FIRST_KEYWORD + 1 > 0);
-                let a = (t - TOK_FIRST_KEYWORD + 1) as u32;
-                Some(Atom::new_const(a))
-            }
-            _ => None,
+            TokenKind::IDENT | TokenKind::PRIVATE_NAME => self.data.ident_atom(),
+            t => t.keyword_atom(),
         }
     }
 
@@ -90,6 +139,7 @@ impl Token {
 pub enum TokenData {
     #[default]
     None,
+    #[deprecated]
     Char(char),
     Str {
         str: StringBuf,
@@ -184,7 +234,7 @@ impl<'s> JSParseState<'s> {
     // and will consume large stack space for each function that call this method,
     // which will soon use up stack space, and cause stack overflow.
     #[inline(never)]
-    pub(super) fn next_token(&mut self) -> Result<i32, i32> {
+    pub(super) fn next_token(&mut self) -> Result<TokenKind, i32> {
         if js_check_stack_overflow(&self.ctx.rt_ptr(), 0) {
             self.throw_syntax_error("stack overflow");
             return Err(-1);
@@ -256,7 +306,7 @@ impl<'s> JSParseState<'s> {
                                 } else {
                                     // at end of stream, but block comment is not closed.
                                     self.throw_syntax_error("unexpected end of comment");
-                                    self.token.val = TOK_ERROR;
+                                    self.token.val = TokenKind::ERROR;
                                     self.token.data = TokenData::None;
                                     return Err(-1);
                                 }
@@ -270,11 +320,11 @@ impl<'s> JSParseState<'s> {
                             CharCode::Char('=') => {
                                 // /=
                                 input.move_cursor_by(1); // skip '='
-                                self.token.val = TOK_DIV_ASSIGN;
+                                self.token.val = TokenKind::DIV_ASSIGN;
                                 self.token.data = TokenData::None;
                             }
                             _ => {
-                                self.token.val = b'/' as i32;
+                                self.token.val = TokenKind::Char('/');
                                 self.token.data = TokenData::Char('/')
                             }
                         }
@@ -346,7 +396,7 @@ impl<'s> JSParseState<'s> {
                         } else if let Ok((atom, has_escape, consumed)) =
                             self.parse_ident(input.remainder_bytes(), c1, true)
                         {
-                            self.token.val = TOK_PRIVATE_NAME;
+                            self.token.val = TokenKind::PRIVATE_NAME;
                             self.token.data = TokenData::Ident {
                                 atom,
                                 has_escape,
@@ -365,7 +415,7 @@ impl<'s> JSParseState<'s> {
                         (b'.', b'.') => {
                             // ...
                             input.move_cursor_by(2);
-                            self.token.val = TOK_ELLIPSIS;
+                            self.token.val = TokenKind::ELLIPSIS;
                             self.token.data = TokenData::None;
                         }
                         (b'0'..=b'9', _) => {
@@ -396,18 +446,18 @@ impl<'s> JSParseState<'s> {
                     match input.current_byte() {
                         Some(b'=') => {
                             input.move_cursor_by(1);
-                            self.token.val = TOK_MUL_ASSIGN;
+                            self.token.val = TokenKind::MUL_ASSIGN;
                             self.token.data = TokenData::None;
                         }
                         Some(b'*') => {
                             if let Some(b'=') = input.peek_byte_at(1) {
                                 // **=
                                 input.move_cursor_by(2);
-                                self.token.val = TOK_POW_ASSIGN;
+                                self.token.val = TokenKind::POW_ASSIGN;
                             } else {
                                 // **
                                 input.move_cursor_by(1);
-                                self.token.val = TOK_POW;
+                                self.token.val = TokenKind::POW;
                             }
                             self.token.data = TokenData::None;
                         }
@@ -419,7 +469,7 @@ impl<'s> JSParseState<'s> {
                 CharCode::Char('%') => {
                     if let Some(b'=') = input.current_byte() {
                         input.move_cursor_by(1);
-                        self.token.val = TOK_MOD_ASSIGN;
+                        self.token.val = TokenKind::MOD_ASSIGN;
                         self.token.data = TokenData::None;
                     } else {
                         todo = Some(Todo::Char('%'));
@@ -428,12 +478,12 @@ impl<'s> JSParseState<'s> {
                 CharCode::Char('+') => match input.current_byte() {
                     Some(b'=') => {
                         input.move_cursor_by(1);
-                        self.token.val = TOK_PLUS_ASSIGN;
+                        self.token.val = TokenKind::PLUS_ASSIGN;
                         self.token.data = TokenData::None;
                     }
                     Some(b'+') => {
                         input.move_cursor_by(1);
-                        self.token.val = TOK_INC;
+                        self.token.val = TokenKind::INC;
                         self.token.data = TokenData::None;
                     }
                     _ => {
@@ -444,7 +494,7 @@ impl<'s> JSParseState<'s> {
                     match input.current_byte() {
                         Some(b'=') => {
                             input.move_cursor_by(1);
-                            self.token.val = TOK_MINUS_ASSIGN;
+                            self.token.val = TokenKind::MINUS_ASSIGN;
                             self.token.data = TokenData::None;
                         }
                         Some(b'-') => {
@@ -459,7 +509,7 @@ impl<'s> JSParseState<'s> {
                                 continue;
                             } else {
                                 input.move_cursor_by(1);
-                                self.token.val = TOK_DEC;
+                                self.token.val = TokenKind::DEC;
                                 self.token.data = TokenData::None;
                             }
                         }
@@ -473,19 +523,19 @@ impl<'s> JSParseState<'s> {
                         Some(b'=') => {
                             // <=
                             input.move_cursor_by(1);
-                            self.token.val = TOK_LTE;
+                            self.token.val = TokenKind::LTE;
                             self.token.data = TokenData::None;
                         }
                         Some(b'<') => {
                             if let Some(b'=') = input.peek_byte_at(1) {
                                 // <<=
                                 input.move_cursor_by(2);
-                                self.token.val = TOK_SHL_ASSIGN;
+                                self.token.val = TokenKind::SHL_ASSIGN;
                                 self.token.data = TokenData::None;
                             } else {
                                 // <<
                                 input.move_cursor_by(1);
-                                self.token.val = TOK_SHL;
+                                self.token.val = TokenKind::SHL;
                                 self.token.data = TokenData::None;
                             }
                         }
@@ -507,31 +557,31 @@ impl<'s> JSParseState<'s> {
                         (b'=', _, _) => {
                             // >=
                             input.move_cursor_by(1);
-                            self.token.val = TOK_GTE;
+                            self.token.val = TokenKind::GTE;
                             self.token.data = TokenData::None;
                         }
                         (b'>', b'>', b'=') => {
                             // >>>=
                             input.move_cursor_by(3);
-                            self.token.val = TOK_SHR_ASSIGN;
+                            self.token.val = TokenKind::SHR_ASSIGN;
                             self.token.data = TokenData::None;
                         }
                         (b'>', b'>', _) => {
                             // >>>
                             input.move_cursor_by(2);
-                            self.token.val = TOK_SHR;
+                            self.token.val = TokenKind::SHR;
                             self.token.data = TokenData::None;
                         }
                         (b'>', b'=', _) => {
                             // >>=
                             input.move_cursor_by(2);
-                            self.token.val = TOK_SAR_ASSIGN;
+                            self.token.val = TokenKind::SAR_ASSIGN;
                             self.token.data = TokenData::None;
                         }
                         (b'>', _, _) => {
                             // >>
                             input.move_cursor_by(1);
-                            self.token.val = TOK_SAR;
+                            self.token.val = TokenKind::SAR;
                             self.token.data = TokenData::None;
                         }
                         _ => {
@@ -547,23 +597,23 @@ impl<'s> JSParseState<'s> {
                             if bb.starts_with(b"==") {
                                 // ===
                                 input.move_cursor_by(2);
-                                self.token.val = TOK_STRICT_EQ;
+                                self.token.val = TokenKind::STRICT_EQ;
                                 self.token.data = TokenData::None;
                             } else {
                                 // ==
                                 input.move_cursor_by(1);
-                                self.token.val = TOK_EQ;
+                                self.token.val = TokenKind::EQ;
                                 self.token.data = TokenData::None;
                             }
                         }
                         b'>' => {
                             // =>
                             input.move_cursor_by(1);
-                            self.token.val = TOK_ARROW;
+                            self.token.val = TokenKind::ARROW;
                             self.token.data = TokenData::None;
                         }
                         _ => {
-                            self.token.val = '=' as i32;
+                            self.token.val = TokenKind::Char('=');
                             self.token.data = TokenData::Char('=');
                         }
                     }
@@ -576,12 +626,12 @@ impl<'s> JSParseState<'s> {
                             if bb.starts_with(b"==") {
                                 // !==
                                 input.move_cursor_by(2);
-                                self.token.val = TOK_STRICT_NEQ;
+                                self.token.val = TokenKind::STRICT_NEQ;
                                 self.token.data = TokenData::None;
                             } else {
                                 // !=
                                 input.move_cursor_by(1);
-                                self.token.val = TOK_NEQ;
+                                self.token.val = TokenKind::NEQ;
                                 self.token.data = TokenData::None;
                             }
                         }
@@ -597,19 +647,19 @@ impl<'s> JSParseState<'s> {
                         (b'=', _) => {
                             // &=
                             input.move_cursor_by(1);
-                            self.token.val = TOK_AND_ASSIGN;
+                            self.token.val = TokenKind::AND_ASSIGN;
                             self.token.data = TokenData::None;
                         }
                         (b'&', b'=') => {
                             // &&=
                             input.move_cursor_by(2);
-                            self.token.val = TOK_LAND_ASSIGN;
+                            self.token.val = TokenKind::LAND_ASSIGN;
                             self.token.data = TokenData::None;
                         }
                         (b'&', _) => {
                             // &&
                             input.move_cursor_by(1);
-                            self.token.val = TOK_LAND;
+                            self.token.val = TokenKind::LAND;
                             self.token.data = TokenData::None;
                         }
                         _ => {
@@ -621,7 +671,7 @@ impl<'s> JSParseState<'s> {
                     if let Some(b'=') = input.current_byte() {
                         // ^=
                         input.move_cursor_by(1);
-                        self.token.val = TOK_XOR_ASSIGN;
+                        self.token.val = TokenKind::XOR_ASSIGN;
                         self.token.data = TokenData::None;
                     } else {
                         todo = Some(Todo::Char('^'))
@@ -634,19 +684,19 @@ impl<'s> JSParseState<'s> {
                         (b'=', _) => {
                             // |=
                             input.move_cursor_by(1);
-                            self.token.val = TOK_OR_ASSIGN;
+                            self.token.val = TokenKind::OR_ASSIGN;
                             self.token.data = TokenData::None;
                         }
                         (b'|', b'=') => {
                             // ||=
                             input.move_cursor_by(2);
-                            self.token.val = TOK_LOR_ASSIGN;
+                            self.token.val = TokenKind::LOR_ASSIGN;
                             self.token.data = TokenData::None;
                         }
                         (b'|', _) => {
                             // ||
                             input.move_cursor_by(1);
-                            self.token.val = TOK_LOR;
+                            self.token.val = TokenKind::LOR;
                             self.token.data = TokenData::None;
                         }
                         _ => {
@@ -661,19 +711,19 @@ impl<'s> JSParseState<'s> {
                         (b'?', b'=') => {
                             // ??=
                             input.move_cursor_by(2);
-                            self.token.val = TOK_DOUBLE_QUESTION_MARK_ASSIGN;
+                            self.token.val = TokenKind::DOUBLE_QUESTION_MARK_ASSIGN;
                             self.token.data = TokenData::None;
                         }
                         (b'?', _) => {
                             // ??
                             input.move_cursor_by(1);
-                            self.token.val = TOK_DOUBLE_QUESTION_MARK;
+                            self.token.val = TokenKind::DOUBLE_QUESTION_MARK;
                             self.token.data = TokenData::None;
                         }
                         (b'.', x) if !x.is_ascii_digit() => {
                             // ?.
                             input.move_cursor_by(1);
-                            self.token.val = TOK_QUESTION_MARK_DOT;
+                            self.token.val = TokenKind::QUESTION_MARK_DOT;
                             self.token.data = TokenData::None;
                         }
                         _ => {
@@ -713,14 +763,14 @@ impl<'s> JSParseState<'s> {
             if let Some(what) = todo.take() {
                 match what {
                     Todo::Char(ch) => {
-                        self.token.val = ch as i32;
+                        self.token.val = TokenKind::Char(ch);
                         self.token.data = TokenData::Char(ch);
                     }
                     Todo::HasIdent(first_char, escaped) => {
                         if let Ok((atom, has_escape, consumed)) =
                             self.parse_ident(input.remainder_bytes(), first_char, false)
                         {
-                            self.token.val = TOK_IDENT;
+                            self.token.val = TokenKind::IDENT;
                             self.token.data = TokenData::Ident {
                                 atom,
                                 has_escape: has_escape || escaped,
@@ -729,10 +779,10 @@ impl<'s> JSParseState<'s> {
                             input.move_cursor_by(consumed as _);
 
                             // check if atom is a reserved keyword.
-                            // if yes, convert token value to TOK_XXX
+                            // if yes, convert to TokenKind
                             self.update_token_ident();
                         } else {
-                            self.token.val = TOK_ERROR;
+                            self.token.val = TokenKind::ERROR;
                             self.token.data = TokenData::None;
                             return Err(-1);
                         }
@@ -740,13 +790,13 @@ impl<'s> JSParseState<'s> {
                     Todo::ParseNumber => {
                         let p0 = input.current_ptr().unwrap().as_ptr();
                         let p = self.parse_number(p0).inspect_err(|_| {
-                            self.token.val = TOK_ERROR;
+                            self.token.val = TokenKind::ERROR;
                             self.token.data = TokenData::None;
                         })?;
                         input.move_cursor_by(unsafe { p.offset_from(p0) as _ });
                     }
                     Todo::SyntaxError => {
-                        self.token.val = TOK_ERROR;
+                        self.token.val = TokenKind::ERROR;
                         self.token.data = TokenData::None;
                         return Err(-1);
                     }
@@ -760,7 +810,7 @@ impl<'s> JSParseState<'s> {
 
         // reach end of stream
         self.buf_ptr = input.current_ptr().map_or(self.input_end, |x| x.as_ptr());
-        self.token.val = TOK_EOF;
+        self.token.val = TokenKind::EOF;
         self.token.data = TokenData::None;
         Ok(self.token.val)
     }
@@ -805,7 +855,7 @@ impl<'s> JSParseState<'s> {
             return Err(-1);
         }
 
-        self.token.val = TOK_NUMBER;
+        self.token.val = TokenKind::NUMBER;
         self.token.data = TokenData::Num(ret);
 
         debug_assert!(p >= ptr);
@@ -853,7 +903,7 @@ impl<'s> JSParseState<'s> {
     }
 
     /// start to seek token from `pos`
-    pub(super) fn seek_token(&mut self, pos: &JSParsePos) -> Result<i32, i32> {
+    pub(super) fn seek_token(&mut self, pos: &JSParsePos) -> Result<TokenKind, i32> {
         self.token.line_num = pos.last_line_num;
         self.line_num = pos.line_num;
         self.buf_ptr = pos.ptr;
@@ -863,14 +913,14 @@ impl<'s> JSParseState<'s> {
     }
 
     #[inline(always)]
-    pub fn token_is_ident(tok: i32) -> bool {
+    pub fn token_is_ident(tok: TokenKind) -> bool {
         // Accept keywords and reserved words as property names
-        tok == TOK_IDENT || (TOK_FIRST_KEYWORD..=TOK_LAST_KEYWORD).contains(&tok)
+        matches!(tok, TokenKind::IDENT) || tok.is_keyword()
     }
 
     #[inline(always)]
     pub fn token_is_pseudo_keyword(&self, atom: Atom) -> bool {
-        self.token.val == TOK_IDENT
+        self.token.val == TokenKind::IDENT
             && self.token.data.ident_atom().is_some_and(|a| a == atom)
             && !self.token.data.ident_has_escape()
     }
@@ -878,11 +928,11 @@ impl<'s> JSParseState<'s> {
     /// check if token is reserved keyword or not.
     ///  if it is a keyword, convert keyword token.
     pub(super) fn update_token_ident(&mut self) {
-        if matches!(self.token.val, TOK_FIRST_KEYWORD..=TOK_LAST_KEYWORD) {
+        if self.token.val.is_keyword() {
             return;
         }
 
-        debug_assert_eq!(self.token.val, TOK_IDENT);
+        debug_assert_eq!(self.token.val, TokenKind::IDENT);
 
         let (func_type, func_kind, in_function_body, parent, js_mode) = {
             let fd = self.cur_func();
@@ -940,7 +990,7 @@ impl<'s> JSParseState<'s> {
 
             if *is_reserved && !*has_escape {
                 // convert ident token to keyword token.
-                self.token.val = atom.id() as i32 - 1 + TOK_FIRST_KEYWORD;
+                self.token.val = TokenKind::from_keyword_atom(*atom).unwrap();
                 self.token.data = TokenData::None;
             }
         }
@@ -948,12 +998,12 @@ impl<'s> JSParseState<'s> {
 
     /// only used for ':' and '=>', 'let' or 'function' look-ahead.
     /// `inp` stream will update its cursor to end of token.
-    pub(super) fn peek_token_internal(inp: &mut Utf8Stream, no_line_terminator: bool) -> i32 {
+    pub(super) fn peek_token_internal(inp: &mut Utf8Stream, no_line_terminator: bool) -> TokenKind {
         while let Some((_, sc)) = inp.next() {
             match sc {
                 CharCode::Char('\r' | '\n') => {
                     if no_line_terminator {
-                        return '\n' as i32;
+                        return TokenKind::Char('\n');
                     }
                 }
                 // 0x0c: \f, 0x0b: \v
@@ -963,7 +1013,7 @@ impl<'s> JSParseState<'s> {
                         Some(b'/') => {
                             // '//'
                             if no_line_terminator {
-                                return b'\n' as i32;
+                                return TokenKind::Char('\n');
                             } else {
                                 inp.move_cursor_by(1); // skip /
                                 while inp
@@ -980,7 +1030,7 @@ impl<'s> JSParseState<'s> {
                             while let Some(b2) = inp.current_byte() {
                                 match b2 {
                                     b'\r' | b'\n' if no_line_terminator => {
-                                        return '\n' as i32;
+                                        return TokenKind::Char('\n');
                                     }
                                     b'*' if inp.peek_byte_at(1).is_some_and(|x| x == b'/') => {
                                         // '*/'
@@ -1003,9 +1053,9 @@ impl<'s> JSParseState<'s> {
                     return if let Some(b'>') = inp.current_byte() {
                         // '=>'
                         inp.move_cursor_by(1);
-                        TOK_ARROW
+                        TokenKind::ARROW
                     } else {
-                        '=' as i32
+                        TokenKind::Char('=')
                     };
                 }
                 CharCode::Char('i') => {
@@ -1015,58 +1065,58 @@ impl<'s> JSParseState<'s> {
                     match (bb[0], bb[1], bb[2], bb[3], bb[4]) {
                         (b'n', ..) => {
                             inp.move_cursor_by(1);
-                            return TOK_IN;
+                            return TokenKind::IN;
                         }
                         (b'm', b'p', b'o', b'r', b't') => {
                             inp.move_cursor_by(5);
-                            return TOK_IMPORT;
+                            return TokenKind::IMPORT;
                         }
                         _ => {
-                            return TOK_IDENT;
+                            return TokenKind::IDENT;
                         }
                     }
                 }
                 CharCode::Char('o') => {
                     return if inp.current_byte().is_some_and(|x| x == b'f') {
                         inp.move_cursor_by(1);
-                        TOK_OF
+                        TokenKind::OF
                     } else {
-                        TOK_IDENT
+                        TokenKind::IDENT
                     };
                 }
                 CharCode::Char('e') => {
                     return if inp.match_bytes(b"xport") {
                         inp.move_cursor_by(5);
-                        TOK_EXPORT
+                        TokenKind::EXPORT
                     } else {
-                        TOK_IDENT
+                        TokenKind::IDENT
                     };
                 }
                 CharCode::Char('f') => {
                     return if inp.match_bytes(b"unction") {
                         inp.move_cursor_by(7);
-                        TOK_FUNCTION
+                        TokenKind::FUNCTION
                     } else {
-                        TOK_IDENT
+                        TokenKind::IDENT
                     };
                 }
                 CharCode::Char(c) => {
                     return if Self::is_ident_first(c) {
-                        TOK_IDENT
+                        TokenKind::IDENT
                     } else {
-                        c as i32
+                        TokenKind::Char(c)
                     };
                 }
                 _ => {}
             }
         }
 
-        TOK_EOF
+        TokenKind::EOF
     }
 
     /// peek next token since current bytes cursor.
     /// this function won't update cursor position.
-    pub(super) fn peek_token(&self, no_line_terminator: bool) -> i32 {
+    pub(super) fn peek_token(&self, no_line_terminator: bool) -> TokenKind {
         if self.buf_ptr < self.input_end {
             Self::peek_token_internal(
                 &mut Utf8Stream::new(unsafe {
@@ -1078,7 +1128,7 @@ impl<'s> JSParseState<'s> {
                 no_line_terminator,
             )
         } else {
-            TOK_EOF
+            TokenKind::EOF
         }
     }
 }

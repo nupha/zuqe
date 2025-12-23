@@ -3,11 +3,7 @@ use crate::{
     function::JSFunctionDef,
 };
 
-use super::{
-    emit::get_prev_opcode,
-    state::JSParseState,
-    tokenize::{CHAR_SQUARE_R, TOK_PRIVATE_NAME},
-};
+use super::{emit::get_prev_opcode, state::JSParseState, tokenize::TokenKind};
 
 impl<'s> JSParseState<'s> {
     pub(super) fn parse_property(
@@ -16,7 +12,7 @@ impl<'s> JSParseState<'s> {
         has_optional_chain: bool,
         optional_chaining_label: &mut i32,
     ) -> Result<(), i32> {
-        if self.token.val == TOK_PRIVATE_NAME {
+        if self.token.val == TokenKind::PRIVATE_NAME {
             // private class field
             if get_prev_opcode(fd) == opcodes::OP_get_super {
                 self.throw_syntax_error("private class field forbidden after super");
@@ -65,7 +61,7 @@ impl<'s> JSParseState<'s> {
         // NOTE: current token is '['; current buffer starts at next char of '['
         self.next_token()?;
         self.parse_expr()?;
-        self.parse_expect(CHAR_SQUARE_R)?;
+        self.parse_expect(TokenKind::Char(']'))?;
 
         if prev_op == opcodes::OP_get_super {
             self.emit_op(OpCode::GET_SUPER_VALUE);

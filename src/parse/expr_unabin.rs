@@ -2,10 +2,6 @@ use crate::{
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp, opcodes},
     error::JS_THROW_ERROR_DELETE_SUPER,
-    parse::{
-        state::{PF_ARROW_FUNC, PF_IN_ACCEPTED, PF_POW_ALLOWED},
-        tokenize::TOK_IN,
-    },
     stack_frame::ExecMode,
     utils::read_from_ptr,
 };
@@ -13,12 +9,11 @@ use crate::{
 use super::{
     emit::get_prev_opcode,
     expr_lvalue::PutLValueEnum,
-    state::{JSParseState, PF_POSTFIX_CALL, PF_POW_FORBIDDEN},
-    tokenize::{
-        CHAR_MINUS, CHAR_PERCENT, CHAR_PLUS, CHAR_SLASH, CHAR_STAR, TOK_AWAIT, TOK_DEC, TOK_DELETE,
-        TOK_EQ, TOK_GTE, TOK_INC, TOK_INSTANCEOF, TOK_LTE, TOK_NEQ, TOK_POW, TOK_PRIVATE_NAME,
-        TOK_SAR, TOK_SHL, TOK_SHR, TOK_STRICT_EQ, TOK_STRICT_NEQ, TOK_TYPEOF, TOK_VOID,
+    state::{
+        JSParseState, PF_ARROW_FUNC, PF_IN_ACCEPTED, PF_POSTFIX_CALL, PF_POW_ALLOWED,
+        PF_POW_FORBIDDEN,
     },
+    tokenize::TokenKind,
 };
 
 impl<'s> JSParseState<'s> {
@@ -26,15 +21,15 @@ impl<'s> JSParseState<'s> {
     pub(super) fn parse_expr_binary(&mut self, level: i32, parse_flags: i32) -> Result<(), i32> {
         if level == 0 {
             return self.parse_unary((parse_flags & PF_ARROW_FUNC) | PF_POW_ALLOWED);
-        } else if self.token.val == TOK_PRIVATE_NAME
+        } else if self.token.val == TokenKind::PRIVATE_NAME
             && parse_flags & PF_IN_ACCEPTED != 0
             && level == 4
-            && self.peek_token(false) == TOK_IN
+            && self.peek_token(false) == TokenKind::IN
         {
             let atom = self.token.atom().unwrap();
 
             self.next_token()?;
-            if self.token.val != TOK_IN {
+            if self.token.val != TokenKind::IN {
                 self.throw_syntax_error("expect 'in'");
                 return Err(-1);
             }
@@ -55,35 +50,35 @@ impl<'s> JSParseState<'s> {
             let op = self.token.val;
             let opcode = match level {
                 1 => match op {
-                    CHAR_STAR => OpCode::MUL,    // '*'
-                    CHAR_SLASH => OpCode::DIV,   // '/'
-                    CHAR_PERCENT => OpCode::MOD, // '%'
+                    TokenKind::Char('*') => OpCode::MUL,
+                    TokenKind::Char('/') => OpCode::DIV,
+                    TokenKind::Char('%') => OpCode::MOD,
                     _ => {
                         return Ok(());
                     }
                 },
                 2 => match op {
-                    CHAR_PLUS => OpCode::ADD,  // '+'
-                    CHAR_MINUS => OpCode::SUB, // '-'
+                    TokenKind::Char('+') => OpCode::ADD,
+                    TokenKind::Char('-') => OpCode::SUB,
                     _ => {
                         return Ok(());
                     }
                 },
                 3 => match op {
-                    TOK_SHL => OpCode::SHL,
-                    TOK_SAR => OpCode::SAR,
-                    TOK_SHR => OpCode::SHR,
+                    TokenKind::SHL => OpCode::SHL,
+                    TokenKind::SAR => OpCode::SAR,
+                    TokenKind::SHR => OpCode::SHR,
                     _ => {
                         return Ok(());
                     }
                 },
                 4 => match op {
-                    0x3c => OpCode::LT, // '<'
-                    0x3e => OpCode::GT, // '>'
-                    TOK_LTE => OpCode::LTE,
-                    TOK_GTE => OpCode::GTE,
-                    TOK_INSTANCEOF => OpCode::INSTANCEOF,
-                    TOK_IN => {
+                    TokenKind::Char('<') => OpCode::LT,
+                    TokenKind::Char('>') => OpCode::GT,
+                    TokenKind::LTE => OpCode::LTE,
+                    TokenKind::GTE => OpCode::GTE,
+                    TokenKind::INSTANCEOF => OpCode::INSTANCEOF,
+                    TokenKind::IN => {
                         if parse_flags & PF_IN_ACCEPTED != 0 {
                             OpCode::IN
                         } else {
@@ -95,28 +90,28 @@ impl<'s> JSParseState<'s> {
                     }
                 },
                 5 => match op {
-                    TOK_EQ => OpCode::EQ,
-                    TOK_NEQ => OpCode::NEQ,
-                    TOK_STRICT_EQ => OpCode::STRICT_EQ,
-                    TOK_STRICT_NEQ => OpCode::STRICT_NEQ,
+                    TokenKind::EQ => OpCode::EQ,
+                    TokenKind::NEQ => OpCode::NEQ,
+                    TokenKind::STRICT_EQ => OpCode::STRICT_EQ,
+                    TokenKind::STRICT_NEQ => OpCode::STRICT_NEQ,
                     _ => {
                         return Ok(());
                     }
                 },
                 6 => match op {
-                    0x26 => OpCode::AND, // '&'
+                    TokenKind::Char('&') => OpCode::AND,
                     _ => {
                         return Ok(());
                     }
                 },
                 7 => match op {
-                    0x5e => OpCode::XOR, // '^'
+                    TokenKind::Char('^') => OpCode::XOR,
                     _ => {
                         return Ok(());
                     }
                 },
                 8 => match op {
-                    0x7c => OpCode::OR, // '|'
+                    TokenKind::Char('|') => OpCode::OR,
                     _ => {
                         return Ok(());
                     }
@@ -134,17 +129,15 @@ impl<'s> JSParseState<'s> {
     // allowed parse_flags: PF_ARROW_FUNC, PF_POW_ALLOWED, PF_POW_FORBIDDEN
     pub(super) fn parse_unary(&mut self, mut parse_flags: i32) -> Result<(), i32> {
         match self.token.val {
-            // '+', '-', '!', '~'
-            op @ (CHAR_PLUS | CHAR_MINUS | 0x21 | 0x7e | TOK_VOID) => {
+            op @ (TokenKind::Char('+' | '-' | '!' | '~') | TokenKind::VOID) => {
                 self.next_token()?;
                 self.parse_unary(PF_POW_FORBIDDEN)?;
-
                 match op {
-                    0x2d => self.emit_op(OpCode::NEG),  // '-'
-                    0x2b => self.emit_op(OpCode::PLUS), // '+'
-                    0x21 => self.emit_op(OpCode::LNOT), // '!'
-                    0x7e => self.emit_op(OpCode::NOT),  // '~'
-                    TOK_VOID => {
+                    TokenKind::Char('-') => self.emit_op(OpCode::NEG),
+                    TokenKind::Char('+') => self.emit_op(OpCode::PLUS),
+                    TokenKind::Char('!') => self.emit_op(OpCode::LNOT),
+                    TokenKind::Char('~') => self.emit_op(OpCode::NOT),
+                    TokenKind::VOID => {
                         self.emit_op(OpCode::DROP);
                         self.emit_op(OpCode::UNDEFINED);
                     }
@@ -152,7 +145,7 @@ impl<'s> JSParseState<'s> {
                 }
                 parse_flags = 0;
             }
-            op @ (TOK_DEC | TOK_INC) => {
+            op @ (TokenKind::DEC | TokenKind::INC) => {
                 self.next_token()?;
                 self.parse_unary(0)?;
 
@@ -171,11 +164,11 @@ impl<'s> JSParseState<'s> {
                     op,
                 )?;
 
-                self.emit_op(if op == TOK_DEC {
+                self.emit_op(if op == TokenKind::DEC {
                     OpCode::DEC
                 } else {
                     OpCode::INC
-                }); //emit_op_u8(s, (OpCode::DEC as i32 + op - TOK_DEC) as u8);
+                });
 
                 self.put_lvalue(
                     opcode,
@@ -186,7 +179,7 @@ impl<'s> JSParseState<'s> {
                     false,
                 );
             }
-            TOK_TYPEOF => {
+            TokenKind::TYPEOF => {
                 self.next_token()?;
                 self.parse_unary(PF_POW_FORBIDDEN)?;
 
@@ -199,11 +192,11 @@ impl<'s> JSParseState<'s> {
                 self.emit_op(OpCode::TYPEOF);
                 parse_flags = 0;
             }
-            TOK_DELETE => {
+            TokenKind::DELETE => {
                 self.parse_delete()?;
                 parse_flags = 0;
             }
-            TOK_AWAIT => {
+            TokenKind::AWAIT => {
                 if !self.cur_func().attrs.func_kind.is_async() {
                     self.throw_syntax_error("unexpected 'await' keyword");
                     return Err(-1);
@@ -223,7 +216,7 @@ impl<'s> JSParseState<'s> {
             _ => {
                 self.parse_postfix_expr((parse_flags & PF_ARROW_FUNC) | PF_POSTFIX_CALL)?;
 
-                if !self.got_lf && (self.token.val == TOK_DEC || self.token.val == TOK_INC) {
+                if !self.got_lf && matches!(self.token.val, TokenKind::DEC | TokenKind::INC) {
                     let mut opcode: i32 = 0;
                     let mut scope: i32 = 0;
                     let mut label: i32 = 0;
@@ -239,11 +232,11 @@ impl<'s> JSParseState<'s> {
                         tok,
                     )?;
 
-                    self.emit_op(if self.token.val == TOK_DEC {
+                    self.emit_op(if self.token.val == TokenKind::DEC {
                         OpCode::POST_DEC
                     } else {
                         OpCode::POST_INC
-                    }); //  emit_op_u8(s, (OpCode::POST_DEC as i32 + op - TOK_DEC) as u8);
+                    });
 
                     self.put_lvalue(
                         opcode,
@@ -259,7 +252,9 @@ impl<'s> JSParseState<'s> {
             }
         }
 
-        if parse_flags & (PF_POW_ALLOWED | PF_POW_FORBIDDEN) != 0 && self.token.val == TOK_POW {
+        if parse_flags & (PF_POW_ALLOWED | PF_POW_FORBIDDEN) != 0
+            && self.token.val == TokenKind::POW
+        {
             /* Strict ES7 exponentiation syntax rules: To solve
             conficting semantics between different implementations
             regarding the precedence of prefix operators and the

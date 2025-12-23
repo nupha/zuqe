@@ -12,16 +12,13 @@ use crate::{
         PROP_TYPE_ASYNC, PROP_TYPE_ASYNC_STAR, PROP_TYPE_GET, PROP_TYPE_IDENT, PROP_TYPE_PRIVATE,
         PROP_TYPE_SET, PROP_TYPE_STAR,
     },
-    parse::obj::set_object_name_computed,
     stack_frame::ExecMode,
     utils::write_to_ptr,
 };
 
 use super::{
-    esm::JSParseExportEnum,
-    function::JSParseFunctionEnum,
-    state::JSParseState,
-    tokenize::{TOK_EXTENDS, TOK_IDENT, TOK_STATIC},
+    esm::JSParseExportEnum, function::JSParseFunctionEnum, obj::set_object_name_computed,
+    state::JSParseState, tokenize::TokenKind,
 };
 
 impl<'s> JSParseState<'s> {
@@ -31,7 +28,7 @@ impl<'s> JSParseState<'s> {
         is_class_expr: bool,
         export_flag: JSParseExportEnum,
     ) -> Result<Atom, i32> {
-        if self.token.val == TOK_IDENT {
+        if self.token.val == TokenKind::IDENT {
             if self.token.data.is_reserved() {
                 self.throw_reserved_identifier_error();
                 return Err(-1);
@@ -261,26 +258,26 @@ impl<'s> JSParseState<'s> {
         // class function defination
         let mut ctor_fd: *mut JSFunctionDef = std::ptr::null_mut();
 
-        while self.token.val != '}' as i32 {
-            if self.token.val == ';' as i32 {
+        while self.token.val != TokenKind::Char('}') {
+            if self.token.val == TokenKind::Char(';') {
                 self.next_token()?;
                 continue;
             }
 
-            let mut is_static = self.token.val == TOK_STATIC;
+            let mut is_static = self.token.val == TokenKind::STATIC;
             prop_type = -1;
 
             if is_static {
                 self.next_token()?;
 
                 // "static" method
-                if self.token.val == '{' as i32 {
+                if self.token.val == TokenKind::Char('{') {
                     self.parse_class_field(&mut class_fields[1])?; // 1: static field
                     continue;
                 }
 
                 // "static" field name
-                if self.token.val == ';' as i32 || self.token.val == '=' as i32 {
+                if matches!(self.token.val, TokenKind::Char(';' | '=')) {
                     is_static = false;
                     name = Atom::CONST_static;
                     prop_type = PROP_TYPE_IDENT;
@@ -319,7 +316,7 @@ impl<'s> JSParseState<'s> {
                         start_ptr,
                     )?;
                 }
-                PROP_TYPE_IDENT if self.token.val != '(' as i32 => {
+                PROP_TYPE_IDENT if self.token.val != TokenKind::Char('(') => {
                     let cf = &mut class_fields[is_static as usize];
                     let mut field_var_name = Atom::NULL;
 
@@ -397,7 +394,7 @@ impl<'s> JSParseState<'s> {
                         self.emit_u16(self.cur_func().scope_level as _);
                     }
 
-                    if self.token.val == '=' as i32 {
+                    if self.token.val == TokenKind::Char('=') {
                         self.next_token()?;
                         self.parse_assign_expr()?;
                     } else {
@@ -514,7 +511,7 @@ impl<'s> JSParseState<'s> {
             name = Atom::NULL;
         }
 
-        if self.token.val != '}' as i32 {
+        if self.token.val != TokenKind::Char('}') {
             self.throw_syntax_error("expecting '}'");
             return Err(-1);
         }
@@ -606,7 +603,7 @@ impl<'s> JSParseState<'s> {
 
         // parse class flags: extends.
         let mut class_flags: i32 = 0;
-        if self.token.val == TOK_EXTENDS {
+        if self.token.val == TokenKind::EXTENDS {
             class_flags = JS_DEFINE_CLASS_HAS_HERITAGE;
             self.next_token()?;
             self.parse_left_hand_side_expr()?;
@@ -619,7 +616,7 @@ impl<'s> JSParseState<'s> {
             self.define_var_cur_func(class_name, JSVarDefEnum::JS_VAR_DEF_CONST)?;
         }
 
-        self.parse_expect('{' as i32)?;
+        self.parse_expect(TokenKind::Char('{'))?;
 
         let mut class_fields = [
             // for instance

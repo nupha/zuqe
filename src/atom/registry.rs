@@ -418,7 +418,7 @@ impl Atom {
 
     /// Create const atom
     #[inline(always)]
-    pub fn new_const(id: u32) -> Self {
+    pub const fn new_const(id: u32) -> Self {
         debug_assert!(is_const_atom(id));
         Self(id)
     }

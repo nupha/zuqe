@@ -1,19 +1,13 @@
 use crate::{
-    atom::Atom,
-    bytecode::OpCode,
-    error::JS_THROW_ERROR_ITERATOR_THROW,
+    atom::Atom, bytecode::OpCode, error::JS_THROW_ERROR_ITERATOR_THROW,
     function::JSFunctionKindEnum,
-    parse::tokenize::{
-        CHAR_BRACKET_R, CHAR_COLON, CHAR_COMMA, CHAR_CURLY_R, CHAR_SEMI, CHAR_SQUARE_R, CHAR_STAR,
-        TOK_YIELD,
-    },
 };
 
-use super::JSParseState;
+use super::{JSParseState, tokenize::TokenKind};
 
 impl<'s> JSParseState<'s> {
     pub(super) fn parse_yield(&mut self, parse_flags: i32) -> Result<(), i32> {
-        debug_assert_eq!(self.token.val, TOK_YIELD);
+        debug_assert_eq!(self.token.val, TokenKind::YIELD);
 
         if !matches!(
             self.cur_func().attrs.func_kind,
@@ -36,10 +30,10 @@ impl<'s> JSParseState<'s> {
         if !self.got_lf
             && !matches!(
                 self.token.val,
-                CHAR_SEMI | CHAR_BRACKET_R | CHAR_SQUARE_R | CHAR_CURLY_R | CHAR_COMMA | CHAR_COLON
+                TokenKind::Char(';' | ')' | ']' | '}' | ',' | ':')
             )
         {
-            if self.token.val == CHAR_STAR {
+            if self.token.val == TokenKind::Char('*') {
                 is_star = true;
                 self.next_token()?;
             }

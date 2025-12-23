@@ -2,13 +2,15 @@ use crate::{
     atom::Atom,
     bytecode::OpCode,
     object::{JS_PROP_ENUMERABLE, JS_PROP_THROW, seal_template_obj},
-    parse::tokenize::{Token, TokenData},
     string::{CharCode, StringBuf, Utf8Stream},
     utils::unlikely,
     value::JSValue,
 };
 
-use super::{state::JSParseState, tokenize::TOK_TEMPLATE};
+use super::{
+    state::JSParseState,
+    tokenize::{Token, TokenData, TokenKind},
+};
 
 impl<'s> JSParseState<'s> {
     /// returns number of bytes consumed (include ending delimitor)
@@ -91,7 +93,7 @@ impl<'s> JSParseState<'s> {
             self.throw_syntax_error("unexpected end of string");
             Err(-1)
         } else {
-            self.token.val = TOK_TEMPLATE;
+            self.token.val = TokenKind::TEMPLATE;
             self.token.data = TokenData::Str {
                 sep: sep as i32,
                 str: sbuf,
@@ -102,7 +104,7 @@ impl<'s> JSParseState<'s> {
         }
     }
 
-    pub(super) fn parse_template(&mut self, call: bool, argc: &mut i32) -> Result<i32, i32> {
+    pub(super) fn parse_template(&mut self, call: bool, argc: &mut i32) -> Result<TokenKind, i32> {
         let mut raw_array = JSValue::UNDEFINED;
         let mut template_object = JSValue::UNDEFINED;
 
@@ -123,7 +125,7 @@ impl<'s> JSParseState<'s> {
 
         let mut depth = 0;
 
-        while self.token.val == TOK_TEMPLATE {
+        while self.token.val == TokenKind::TEMPLATE {
             // the template content stream since token.ptr through input end, w/o starting quote.
             let mut tmpl = unsafe {
                 let p = self.token.ptr.add(1); // skip '`'
@@ -216,14 +218,14 @@ impl<'s> JSParseState<'s> {
             self.parse_expr()?;
 
             depth += 1;
-            if self.token.val != b'}' as i32 {
+            if self.token.val != TokenKind::Char('}') {
                 self.throw_syntax_error("expected '}' after template expression");
                 return Err(-1);
             }
 
             // XXX: should convert to string at this stage?
             self.clear_token_data();
-            // Resume TOK_TEMPLATE parsing (s->token.line_num and  s->token.ptr are OK)
+            // Resume TEMPLATE parsing (s->token.line_num and  s->token.ptr are OK)
             self.got_lf = false;
             self.last_line_num = self.token.line_num;
 
@@ -235,6 +237,6 @@ impl<'s> JSParseState<'s> {
             })?;
         }
 
-        self.parse_expect(TOK_TEMPLATE)
+        self.parse_expect(TokenKind::TEMPLATE)
     }
 }

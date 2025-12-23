@@ -1,6 +1,7 @@
 mod array;
 mod class;
 mod destructing;
+mod directives;
 mod emit;
 mod error;
 mod esm;
@@ -15,7 +16,6 @@ mod expr_yield;
 mod function;
 mod obj;
 mod parse;
-mod parse_directives;
 mod regexp;
 mod state;
 mod statement;

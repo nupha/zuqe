@@ -3,11 +3,10 @@ use crate::{
     eval::EvalType,
     function::{GLOBAL_VAR_OFFSET, JSFunctionKindEnum, JSVarDefEnum, JSVarKindEnum},
     module::ExportType,
-    parse::tokenize::{TOK_CATCH, TOK_CONST, TOK_LET, TOK_VAR},
     stack_frame::ExecMode,
 };
 
-use super::state::JSParseState;
+use super::{state::JSParseState, tokenize::TokenKind};
 
 impl<'s> JSParseState<'s> {
     /// define variable for current function.
@@ -141,12 +140,15 @@ impl<'s> JSParseState<'s> {
         Ok(var_id)
     }
 
-    /// `name` is not consumed.
     /// in case current function def contains module, `export` suggests if this var is exported.
-    pub fn define_var(&mut self, name: Atom, tok: i32, export: bool) -> Result<(), i32> {
+    pub(super) fn define_var(
+        &mut self,
+        name: Atom,
+        tok: TokenKind,
+        export: bool,
+    ) -> Result<(), i32> {
         {
             let func = self.cur_func();
-
             match name {
                 Atom::CONST_yield
                     if func.attrs.func_kind == JSFunctionKindEnum::JS_FUNC_GENERATOR =>
@@ -160,7 +162,9 @@ impl<'s> JSParseState<'s> {
                     self.throw_syntax_error("invalid variable name in strict mode");
                     return Err(-1);
                 }
-                Atom::CONST_let | Atom::CONST_undefined if matches!(tok, TOK_LET | TOK_CONST) => {
+                Atom::CONST_let | Atom::CONST_undefined
+                    if matches!(tok, TokenKind::LET | TokenKind::CONST) =>
+                {
                     self.throw_syntax_error("invalid lexical variable name");
                     return Err(-1);
                 }
@@ -171,10 +175,10 @@ impl<'s> JSParseState<'s> {
         self.define_var_cur_func(
             name,
             match tok {
-                TOK_LET => JSVarDefEnum::JS_VAR_DEF_LET,
-                TOK_CONST => JSVarDefEnum::JS_VAR_DEF_CONST,
-                TOK_VAR => JSVarDefEnum::JS_VAR_DEF_VAR,
-                TOK_CATCH => JSVarDefEnum::JS_VAR_DEF_CATCH,
+                TokenKind::LET => JSVarDefEnum::JS_VAR_DEF_LET,
+                TokenKind::CONST => JSVarDefEnum::JS_VAR_DEF_CONST,
+                TokenKind::VAR => JSVarDefEnum::JS_VAR_DEF_VAR,
+                TokenKind::CATCH => JSVarDefEnum::JS_VAR_DEF_CATCH,
                 _ => unreachable!(),
             },
         )?;
