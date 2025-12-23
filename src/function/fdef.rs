@@ -10,8 +10,8 @@ use crate::{
     },
     module::ModuleDef,
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
-    parse::JSParseFunctionEnum,
-    utils::{push_vec_atom, push_vec_u8, push_vec_u16, push_vec_u32, read_from_ptr},
+    parse::{JSParseFunctionEnum, push_vec_atom, push_vec_u8, push_vec_u16, push_vec_u32},
+    utils::read_from_ptr,
     value::JSValue,
 };
 

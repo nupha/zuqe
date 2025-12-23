@@ -3,7 +3,6 @@ use crate::{
     bytecode::{OpCode, OpCodeTemp, opcodes},
     class::ClassFieldsDef,
     function::{JSFunctionDef, JSFunctionKindEnum},
-    utils::{push_vec_u8, push_vec_u16, push_vec_u32},
     value::JSValue,
 };
 
@@ -610,4 +609,150 @@ pub fn js_is_live_code(s: &JSParseState) -> bool {
 
         _ => true,
     }
+}
+
+#[inline(always)]
+pub(crate) fn push_vec_u8(buf: &mut Vec<u8>, val: u8) {
+    buf.push(val);
+}
+
+#[inline(always)]
+pub(crate) fn push_vec_u16(buf: &mut Vec<u8>, val: u16) {
+    buf.extend_from_slice(&val.to_ne_bytes());
+}
+
+#[inline(always)]
+pub(crate) fn push_vec_u32(buf: &mut Vec<u8>, val: u32) {
+    buf.extend_from_slice(&val.to_ne_bytes());
+}
+
+#[inline(always)]
+pub(crate) fn push_vec_atom(buf: &mut Vec<u8>, a: Atom) {
+    push_vec_u32(buf, a.id());
+}
+
+pub(crate) fn push_vec_short_code(buf: &mut Vec<u8>, op: u8, idx: u16) {
+    #[cfg(feature = "short_opcode")]
+    {
+        if idx < 4 {
+            match op {
+                opcodes::OP_get_loc => {
+                    push_vec_u8(buf, OP_get_loc0 + idx);
+                    return;
+                }
+                opcodes::OP_put_loc => {
+                    push_vec_u8(buf, OP_put_loc0 + idx);
+                    return;
+                }
+                opcodes::OP_set_loc => {
+                    push_vec_u8(buf, OP_set_loc0 + idx);
+                    return;
+                }
+                opcodes::OP_get_arg => {
+                    push_vec_u8(buf, OP_get_arg0 + idx);
+                    return;
+                }
+                opcodes::OP_put_arg => {
+                    push_vec_u8(buf, OP_put_arg0 + idx);
+                    return;
+                }
+                opcodes::OP_set_arg => {
+                    push_vec_u8(buf, OP_set_arg0 + idx);
+                    return;
+                }
+                opcodes::OP_get_var_ref => {
+                    push_vec_u8(buf, OP_get_var_ref0 + idx);
+                    return;
+                }
+                opcodes::OP_put_var_ref => {
+                    push_vec_u8(buf, OP_put_var_ref0 + idx);
+                    return;
+                }
+                opcodes::OP_set_var_ref => {
+                    push_vec_u8(buf, OP_set_var_ref0 + idx);
+                    return;
+                }
+                opcodes::OP_call => {
+                    push_vec_u8(buf, OP_call0 + idx);
+                    return;
+                }
+                _ => {}
+            }
+        }
+
+        if idx < 256 {
+            match op {
+                opcodes::OP_get_loc => {
+                    push_vec_u8(buf, OP_get_loc8);
+                    push_vec_u8(buf, idx);
+                    return;
+                }
+                opcodes::OP_put_loc => {
+                    push_vec_u8(buf, OP_put_loc8);
+                    push_vec_u8(buf, idx);
+                    return;
+                }
+                opcodes::OP_set_loc => {
+                    push_vec_u8(buf, OP_set_loc8);
+                    push_vec_u8(buf, idx);
+                    return;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    push_vec_u8(buf, op);
+    push_vec_u16(buf, idx);
+}
+
+pub(crate) fn push_vec_short_int(buf: &mut Vec<u8>, val: i32) {
+    #[cfg(feature = "short_opcode")]
+    {
+        if val >= -1 && val <= 7 {
+            put_vec_u8(buf, OP_push_0 + val);
+            return;
+        }
+        if val == (val as i8) as i32 {
+            put_vec_u8(buf, OP_push_i8);
+            put_vec_u8(buf, val as _);
+            return;
+        }
+        if val == (val as i16) as i32 {
+            put_vec_u8(buf, OP_push_i16);
+            dbuf_put_u16(buf, val as _);
+            return;
+        }
+    }
+
+    push_vec_u8(buf, opcodes::OP_push_i32);
+    push_vec_u32(buf, val as _);
+}
+
+pub(crate) fn push_vec_slice(buf: &mut Vec<u8>, data: *const u8, len: usize) -> Result<(), i32> {
+    if buf.len() + len < buf.capacity() {
+        buf.try_reserve(len).map_err(|_| -1)?;
+    }
+    buf.extend_from_slice(unsafe { std::slice::from_raw_parts(data, len) });
+    Ok(())
+}
+
+pub(crate) fn push_vec_leb128(buf: &mut Vec<u8>, val: u32) {
+    let mut v = val;
+    loop {
+        let a = (v & 0x7f) as u8;
+        v >>= 7;
+
+        if v != 0 {
+            buf.push(a | 0x80);
+        } else {
+            buf.push(a);
+            break;
+        }
+    }
+}
+
+pub(crate) fn push_vec_sleb128(s: &mut Vec<u8>, val: i32) {
+    let v = if val < 0 { 2 * val + 1 } else { 2 * val } as u32;
+    push_vec_leb128(s, v);
 }

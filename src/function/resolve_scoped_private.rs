@@ -4,7 +4,7 @@ use crate::{
     context::ContextImpl,
     error::JS_THROW_VAR_RO,
     function::{JSFunctionDef, JSVarKindEnum, get_loc_or_ref},
-    utils::{push_vec_atom, push_vec_u8, push_vec_u16},
+    parse::{push_vec_atom, push_vec_u8, push_vec_u16},
 };
 
 impl JSFunctionDef {

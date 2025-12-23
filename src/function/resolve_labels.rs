@@ -2,11 +2,12 @@ use crate::{
     bytecode::{OpCode, SpecialObject, opcode_info_intermediate, opcodes},
     context::ContextImpl,
     function::{CodeMatchState, JSFunctionDef, skip_dead_code},
-    stack_frame::ExecMode,
-    utils::{
-        M2, M3, M4, push_vec_atom, push_vec_short_code, push_vec_short_int, push_vec_slice,
-        push_vec_u8, push_vec_u16, push_vec_u32, read_from_ptr, write_to_ptr,
+    parse::{
+        push_vec_atom, push_vec_short_code, push_vec_short_int, push_vec_slice, push_vec_u8,
+        push_vec_u16, push_vec_u32,
     },
+    stack_frame::ExecMode,
+    utils::{M2, M3, M4, read_from_ptr, write_to_ptr},
 };
 
 use super::optimize::OPTIMIZE;

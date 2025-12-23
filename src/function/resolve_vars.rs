@@ -8,9 +8,8 @@ use crate::{
         JSFunctionDef, JSVarKindEnum, get_label_pos, instantiate_hoisted_definitions,
         skip_dead_code,
     },
-    utils::{
-        M2, push_vec_atom, push_vec_slice, push_vec_u8, push_vec_u16, push_vec_u32, read_from_ptr,
-    },
+    parse::{push_vec_atom, push_vec_slice, push_vec_u8, push_vec_u16, push_vec_u32},
+    utils::{M2, read_from_ptr},
 };
 
 use super::{DEFINE_GLOBAL_FUNC_VAR, DEFINE_GLOBAL_LEX_VAR, optimize::OPTIMIZE};

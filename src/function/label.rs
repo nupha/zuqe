@@ -4,8 +4,9 @@ use crate::{
     function::{
         BlockEnv, JSFunctionDef, PC2LINE_BASE, PC2LINE_DIFF_PC_MAX, PC2LINE_OP_FIRST, PC2LINE_RANGE,
     },
+    parse::{push_vec_leb128, push_vec_sleb128, push_vec_u8},
     stack_frame::ExecMode,
-    utils::{push_vec_leb128, push_vec_sleb128, push_vec_u8, read_from_ptr},
+    utils::read_from_ptr,
 };
 
 #[derive(Debug)]

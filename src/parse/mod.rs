@@ -28,3 +28,5 @@ mod var;
 mod json;
 
 pub use {esm::JSParseExportEnum, function::JSParseFunctionEnum, state::JSParseState};
+
+pub(crate) use emit::*;

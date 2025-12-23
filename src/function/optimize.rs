@@ -2,11 +2,9 @@ use crate::{
     atom::Atom,
     bytecode::{OpCode, OpcodeFormat, opcode_info_intermediate, opcodes},
     function::{JSFunctionDef, Label},
+    parse::{push_vec_atom, push_vec_short_code, push_vec_short_int, push_vec_u8, push_vec_u16},
     stack_frame::ExecMode,
-    utils::{
-        M2, M3, push_vec_atom, push_vec_short_code, push_vec_short_int, push_vec_u8, push_vec_u16,
-        read_from_ptr, write_to_ptr,
-    },
+    utils::{M2, M3, read_from_ptr, write_to_ptr},
 };
 
 pub const OPTIMIZE: bool = true;
