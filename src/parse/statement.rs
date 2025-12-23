@@ -259,7 +259,8 @@ impl<'s> JSParseState<'s> {
     }
 }
 
-pub fn js_unsupported_keyword(s: &JSParseState, atom: Atom) -> i32 {
+#[inline(always)]
+fn js_unsupported_keyword(s: &JSParseState, atom: Atom) -> i32 {
     s.throw_syntax_error(&format!("unsupported keyword: {}", atom.to_utf8()));
     -1
 }
@@ -384,7 +385,6 @@ fn stmt_do(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
     Ok(())
 }
 
-#[inline(always)]
 fn stmt_for(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
     s.next_token()?;
     s.set_eval_ret_undefined();
@@ -540,7 +540,6 @@ fn stmt_for(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
     Ok(())
 }
 
-#[inline(always)]
 fn stmt_while(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
     let (label_cont, label_break) = {
         let fd = s.cur_func_mut();
@@ -568,7 +567,6 @@ fn stmt_while(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
     Ok(())
 }
 
-#[inline(always)]
 fn stmt_if(s: &mut JSParseState) -> Result<(), i32> {
     s.next_token()?;
 
@@ -601,7 +599,6 @@ fn stmt_if(s: &mut JSParseState) -> Result<(), i32> {
     Ok(())
 }
 
-#[inline(always)]
 fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
     s.set_eval_ret_undefined();
     s.next_token()?;
@@ -907,7 +904,6 @@ fn stmt_with(s: &mut JSParseState) -> Result<(), i32> {
     }
 }
 
-#[inline(always)]
 fn stmt_ident(s: &mut JSParseState, decl_mask: i32) -> Result<TodoState, i32> {
     if s.token.data.is_reserved() {
         s.throw_reserved_identifier_error();
@@ -928,7 +924,6 @@ fn stmt_ident(s: &mut JSParseState, decl_mask: i32) -> Result<TodoState, i32> {
     Ok(TodoState::HasExpr)
 }
 
-#[inline(always)]
 fn hasexpr(s: &mut JSParseState) -> Result<(), i32> {
     s.parse_expr()?;
 

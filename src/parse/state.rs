@@ -210,7 +210,7 @@ impl<'s> JSParseState<'s> {
     }
 
     /// get parse pos
-    pub const fn get_pos(&self) -> JSParsePos {
+    pub(super) const fn get_pos(&self) -> JSParsePos {
         JSParsePos {
             last_line_num: self.last_line_num,
             line_num: self.token.line_num,
@@ -224,7 +224,7 @@ impl<'s> JSParseState<'s> {
 ///
 /// Used for backtracking and position tracking during parsing operations.
 #[derive(Debug)]
-pub struct JSParsePos {
+pub(super) struct JSParsePos {
     /// Line number of the last processed token
     pub last_line_num: i32,
     /// Current line number

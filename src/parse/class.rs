@@ -100,8 +100,7 @@ impl<'s> JSParseState<'s> {
         if is_private {
             let fd = unsafe { &mut *self.cur_func_def };
 
-            let idx = find_private_class_field(fd, name, fd.scope_level);
-            if idx >= 0 {
+            if let Some(idx) = find_private_class_field(fd, name, fd.scope_level) {
                 let vd = fd.vars.get_mut(idx as usize).unwrap();
                 let var_kind = vd.var_kind();
 
@@ -129,19 +128,18 @@ impl<'s> JSParseState<'s> {
                 }
 
                 vd.set_var_kind(JSVarKindEnum::JS_VAR_PRIVATE_GETTER_SETTER);
-            } else if add_private_class_field(
-                self,
-                fd,
-                name,
-                if is_set {
-                    JSVarKindEnum::JS_VAR_PRIVATE_SETTER
-                } else {
-                    JSVarKindEnum::JS_VAR_PRIVATE_GETTER
-                },
-                is_static,
-            ) < 0
-            {
-                return Err(-1);
+            } else {
+                add_private_class_field(
+                    self,
+                    fd,
+                    name,
+                    if is_set {
+                        JSVarKindEnum::JS_VAR_PRIVATE_SETTER
+                    } else {
+                        JSVarKindEnum::JS_VAR_PRIVATE_GETTER
+                    },
+                    is_static,
+                )?;
             }
 
             cf.need_brand = true;
@@ -175,18 +173,13 @@ impl<'s> JSParseState<'s> {
                 let setter_name = js_atom_concat_str(&self.ctx, name, "<set>")?;
                 self.emit_atom(setter_name);
 
-                let ret = add_private_class_field(
+                add_private_class_field(
                     self,
                     self.cur_func_mut(),
                     setter_name,
                     JSVarKindEnum::JS_VAR_PRIVATE_SETTER,
                     is_static,
-                );
-
-                // setter_name.free(self.ctx.rt_mut());
-                if ret < 0 {
-                    return Err(-1);
-                }
+                )?;
             } else {
                 self.emit_atom(name);
             }
@@ -218,12 +211,8 @@ impl<'s> JSParseState<'s> {
         class_flags: i32,
         class_fields: &mut [ClassFieldsDef; 2],
     ) -> Result<i32, i32> {
-        macro_rules! private_field_already_defined {
-            () => {
-                self.throw_syntax_error("private class field is already defined");
-                return Err(-1);
-            };
-        }
+        const MSG_PRIVATE_CLASS_FIELD_IS_ALREADY_DEFINED: &str =
+            "private class field is already defined";
 
         // class item type
         let mut prop_type: i32;
@@ -330,24 +319,21 @@ impl<'s> JSParseState<'s> {
                     }
 
                     if is_private {
-                        if find_private_class_field(
-                            self.cur_func_def,
-                            name,
-                            self.cur_func().scope_level,
-                        ) >= 0
                         {
-                            private_field_already_defined!();
+                            let fd = self.cur_func();
+                            if find_private_class_field(fd, name, fd.scope_level).is_some() {
+                                self.throw_syntax_error(MSG_PRIVATE_CLASS_FIELD_IS_ALREADY_DEFINED);
+                                return Err(-1);
+                            }
                         }
-                        if add_private_class_field(
+
+                        add_private_class_field(
                             self,
                             self.cur_func_mut(),
                             name,
                             JSVarKindEnum::JS_VAR_PRIVATE_FIELD,
                             is_static,
-                        ) < 0
-                        {
-                            return Err(-1);
-                        }
+                        )?;
                         self.emit_op(OpCode::PRIVATE_SYMBOL);
                         self.emit_atom(name);
                         self.emit_op_temp(OpCodeTemp::SCOPE_PUT_VAR_INIT);
@@ -468,25 +454,21 @@ impl<'s> JSParseState<'s> {
                             (*method_fd).attrs.need_home_object = true; // needed for brand check
                         }
 
-                        if find_private_class_field(
-                            self.cur_func_def,
-                            name,
-                            self.cur_func().scope_level,
-                        ) >= 0
                         {
-                            private_field_already_defined!();
+                            let fd = self.cur_func();
+                            if find_private_class_field(fd, name, fd.scope_level).is_some() {
+                                self.throw_syntax_error(MSG_PRIVATE_CLASS_FIELD_IS_ALREADY_DEFINED);
+                                return Err(-1);
+                            }
                         }
 
-                        if add_private_class_field(
+                        add_private_class_field(
                             self,
                             self.cur_func_mut(),
                             name,
                             JSVarKindEnum::JS_VAR_PRIVATE_METHOD,
                             is_static,
-                        ) < 0
-                        {
-                            return Err(-1);
-                        }
+                        )?;
                         self.emit_op(OpCode::SET_HOME_OBJECT);
                         self.emit_op(OpCode::SET_NAME);
                         self.emit_atom(name);
@@ -564,7 +546,7 @@ impl<'s> JSParseState<'s> {
         Ok(define_class_offset)
     }
 
-    pub fn parse_class(
+    pub(super) fn parse_class(
         &mut self,
         is_class_expr: bool,
         export_flag: JSParseExportEnum,
@@ -780,7 +762,7 @@ impl<'s> JSParseState<'s> {
         self.input_end = unsafe { src.as_ptr().add(src.len()) };
         self.buf_ptr = src.as_ptr();
 
-        let mut fd_fixed = fd;
+        let mut fd = fd;
 
         // Note: calling graph: next_token -> parse_function_decl2 -> seek_token
         let ret = self.next_token().and_then(|_| {
@@ -790,7 +772,7 @@ impl<'s> JSParseState<'s> {
                 src.as_ptr(),
                 orig_token.line_num,
                 JSParseExportEnum::JS_PARSE_EXPORT_NONE,
-                &mut fd_fixed,
+                &mut fd,
             )
         });
 
@@ -804,7 +786,7 @@ impl<'s> JSParseState<'s> {
             Err(-1)
         } else {
             self.seek_token(&pos)?;
-            Ok(fd_fixed)
+            Ok(fd)
         }
     }
 }
@@ -816,34 +798,29 @@ fn add_private_class_field(
     name: Atom,
     var_kind: JSVarKindEnum,
     is_static: bool,
-) -> i32 {
-    let idx = if let Ok(i) = fd.add_scope_var(&s.ctx, name, var_kind) {
-        i
-    } else {
-        return -1;
-    };
-
+) -> Result<u16, i32> {
+    let idx = fd.add_scope_var(&s.ctx, name, var_kind)?;
     let vd = fd.vars.get_mut(idx as usize).unwrap();
     vd.set_is_lexical(true);
     vd.set_is_const(true);
     vd.set_is_static_private(is_static);
-
-    idx as i32
+    Ok(idx)
 }
 
-// find field in the current scope
-fn find_private_class_field(fd: *mut JSFunctionDef, name: Atom, scope_level: i32) -> i32 {
-    let mut idx = unsafe { (&*fd).scopes[scope_level as usize].first };
-    while idx != -1 {
-        let vd = unsafe { (&*fd).vars.get_unchecked(idx as usize) };
+/// find field in the current scope
+fn find_private_class_field(fd: &JSFunctionDef, name: Atom, scope_level: i32) -> Option<u16> {
+    let mut i = fd.scopes[scope_level as usize].first;
+
+    while i != -1 {
+        let vd = unsafe { fd.vars.get_unchecked(i as usize) };
         if vd.scope_level != scope_level {
             break;
+        } else if vd.var_name == name {
+            return Some(i as _);
+        } else {
+            i = vd.scope_next;
         }
-        if vd.var_name == name {
-            return idx;
-        }
-        idx = vd.scope_next;
     }
 
-    -1
+    None
 }

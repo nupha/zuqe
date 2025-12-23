@@ -22,11 +22,13 @@ impl<'s> JSParseState<'s> {
     }
 
     /// emit on current function def
+    #[inline(always)]
     pub fn emit_u32(&mut self, val: u32) {
         self.cur_func_mut().emit_u32(val);
     }
 
     /// emit an atom.
+    #[inline(always)]
     pub fn emit_atom(&mut self, atom: Atom) {
         self.cur_func_mut().emit_atom(atom);
     }
@@ -37,30 +39,28 @@ impl<'s> JSParseState<'s> {
         self.cur_func_mut().emit_op_u8(op, ln);
     }
 
+    /// don't update the last opcode and don't emit line number info
+    /// emit on current function def
+    #[inline(always)]
+    pub(super) fn emit_label_raw(&mut self, label: i32) {
+        self.cur_func_mut().emit_label_raw(label);
+    }
+
+    /* return the label ID offset */
+    /// emit on current function def
+    pub fn emit_label(&mut self, label: i32) -> i32 {
+        let ln = self.last_line_num;
+        self.cur_func_mut().emit_label(label, ln)
+    }
+
     /// emit on current function def
     pub fn emit_op(&mut self, op: OpCode) {
         let ln = self.last_line_num;
         self.cur_func_mut().emit_op(op, ln);
     }
 
-    /// don't update the last opcode and don't emit line number info
-    /// emit on current function def
-    #[inline(always)]
-    pub fn emit_label_raw(&mut self, label: i32) {
-        self.cur_func_mut().emit_label_raw(label);
-    }
-
-    /* return the label ID offset */
-    /// emit on current function def
-    #[inline]
-    pub fn emit_label(&mut self, label: i32) -> i32 {
-        let ln = self.last_line_num;
-        self.cur_func_mut().emit_label(label, ln)
-    }
-
     /// emit on current function def.
     /// return label or -1 if dead code.
-    #[inline]
     pub fn emit_goto(&mut self, opcode: OpCode, label: i32) -> i32 {
         let ln = self.last_line_num;
         self.cur_func_mut().emit_goto(opcode, label, ln)
