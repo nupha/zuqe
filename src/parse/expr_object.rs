@@ -23,12 +23,12 @@ impl<'s> JSParseState<'s> {
 
         let mut has_proto = false;
 
-        while self.token.val != TokenKind::Char('}') {
+        while self.token.kind != TokenKind::Char('}') {
             // specific case for getter/setter
             let start_ptr = self.token.ptr;
             let start_line = self.token.line_num;
 
-            if self.token.val == TokenKind::ELLIPSIS {
+            if self.token.kind == TokenKind::ELLIPSIS {
                 self.next_token()?;
                 self.parse_assign_expr()?;
 
@@ -47,7 +47,7 @@ impl<'s> JSParseState<'s> {
                     self.emit_u16(self.cur_func().scope_level as _);
                     self.emit_op(OpCode::DEFINE_FIELD);
                     self.emit_atom(name);
-                } else if self.token.val == TokenKind::Char('(') {
+                } else if self.token.kind == TokenKind::Char('(') {
                     let is_getset = matches!(prop_type, PROP_TYPE_GET | PROP_TYPE_SET);
                     let (func_type, func_kind, op_flags): (
                         JSParseFunctionEnum,
@@ -118,7 +118,7 @@ impl<'s> JSParseState<'s> {
             }
 
             // next
-            if self.token.val != TokenKind::Char(',') {
+            if self.token.kind != TokenKind::Char(',') {
                 break;
             }
             self.next_token()?;
@@ -164,7 +164,7 @@ impl<'s> JSParseState<'s> {
                         };
                     }
                 }
-            } else if self.token.val == TokenKind::Char('*') {
+            } else if self.token.kind == TokenKind::Char('*') {
                 self.next_token()?;
                 prop_type = PROP_TYPE_STAR;
             } else if self.token_is_pseudo_keyword(Atom::CONST_async)
@@ -174,11 +174,11 @@ impl<'s> JSParseState<'s> {
 
                 self.next_token()?;
 
-                if matches!(self.token.val, TokenKind::Char(':' | ',' | '}' | '(')) {
+                if matches!(self.token.kind, TokenKind::Char(':' | ',' | '}' | '(')) {
                     is_non_reserved_ident = true;
                 } else {
                     name.take();
-                    prop_type = if self.token.val == TokenKind::Char('*') {
+                    prop_type = if self.token.kind == TokenKind::Char('*') {
                         self.next_token()?;
                         PROP_TYPE_ASYNC_STAR
                     } else {
@@ -189,7 +189,7 @@ impl<'s> JSParseState<'s> {
         }
 
         if name.is_none() {
-            match self.token.val {
+            match self.token.kind {
                 TokenKind::STRING => {
                     let sbuf = self.token.data.take_string().unwrap();
                     name.replace(
@@ -218,7 +218,7 @@ impl<'s> JSParseState<'s> {
                 t if Self::token_is_ident(t) => {
                     /* variable can only be a non-reserved identifier */
                     is_non_reserved_ident =
-                        self.token.val == TokenKind::IDENT && !self.token.data.is_reserved();
+                        self.token.kind == TokenKind::IDENT && !self.token.data.is_reserved();
 
                     /* keywords and reserved words have a valid atom */
                     name.replace(self.token.atom().unwrap());
@@ -235,14 +235,14 @@ impl<'s> JSParseState<'s> {
         if is_non_reserved_ident
             && prop_type == PROP_TYPE_IDENT
             && allow_var
-            && !(self.token.val == TokenKind::Char(':')
-                || (allow_method && self.token.val == TokenKind::Char('(')))
+            && !(self.token.kind == TokenKind::Char(':')
+                || (allow_method && self.token.kind == TokenKind::Char('(')))
         {
             prop_type = PROP_TYPE_VAR;
         }
 
         if !matches!(prop_type, PROP_TYPE_IDENT | PROP_TYPE_VAR)
-            && self.token.val != TokenKind::Char('(')
+            && self.token.kind != TokenKind::Char('(')
         {
             self.throw_syntax_error("invalid property name");
             return Err(-1);

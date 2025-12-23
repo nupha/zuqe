@@ -43,7 +43,7 @@ impl<'s> JSParseState<'s> {
             fd.eval_ret_idx.replace(idx);
         }
 
-        while self.token.val != TokenKind::EOF {
+        while self.token.kind != TokenKind::EOF {
             self.parse_source_element()?;
         }
 
@@ -62,7 +62,7 @@ impl<'s> JSParseState<'s> {
     pub(super) fn parse_source_element(&mut self) -> Result<(), i32> {
         let is_module = self.cur_func().module.is_some();
 
-        match self.token.val {
+        match self.token.kind {
             TokenKind::FUNCTION => {
                 // function
                 self.parse_function_decl(
@@ -207,7 +207,7 @@ impl<'s> JSParseState<'s> {
         export: bool,
     ) -> Result<(), i32> {
         loop {
-            if self.token.val == TokenKind::IDENT {
+            if self.token.kind == TokenKind::IDENT {
                 if self.token.data.is_reserved() {
                     self.throw_reserved_identifier_error();
                     return Err(-1);
@@ -222,7 +222,7 @@ impl<'s> JSParseState<'s> {
                 self.next_token()?;
                 self.define_var(name, tok, export)?;
 
-                if self.token.val == TokenKind::Char('=') {
+                if self.token.kind == TokenKind::Char('=') {
                     self.next_token()?;
 
                     if tok == TokenKind::VAR {
@@ -279,7 +279,7 @@ impl<'s> JSParseState<'s> {
             } else {
                 let mut skip_bits: i32 = 0;
 
-                if matches!(self.token.val, TokenKind::Char('[' | '{'))
+                if matches!(self.token.kind, TokenKind::Char('[' | '{'))
                     && self.parse_skip_parens_token(&mut skip_bits, false)? == TokenKind::Char('=')
                 {
                     // destructing
@@ -298,7 +298,7 @@ impl<'s> JSParseState<'s> {
                 }
             }
 
-            if self.token.val != TokenKind::Char(',') {
+            if self.token.kind != TokenKind::Char(',') {
                 break;
             }
             self.next_token()?;
@@ -312,7 +312,7 @@ impl<'s> JSParseState<'s> {
     /// - If yes, advance to next token;
     /// - If no, throw syntax error.
     pub(super) fn parse_expect(&mut self, tok: TokenKind) -> Result<TokenKind, i32> {
-        if self.token.val != tok {
+        if self.token.kind != tok {
             if let TokenKind::Char(ch) = tok {
                 self.throw_syntax_error(&format!("expecting '{ch}'"));
             } else {
@@ -328,10 +328,10 @@ impl<'s> JSParseState<'s> {
     }
 
     pub(super) fn parse_expect_semi(&mut self) -> Result<TokenKind, i32> {
-        if self.token.val != TokenKind::Char(';') {
-            if matches!(self.token.val, TokenKind::EOF | TokenKind::Char('}')) || self.got_lf {
+        if self.token.kind != TokenKind::Char(';') {
+            if matches!(self.token.kind, TokenKind::EOF | TokenKind::Char('}')) || self.got_lf {
                 // automatic insertion of ';'
-                Ok(self.token.val)
+                Ok(self.token.kind)
             } else {
                 self.throw_syntax_error("expecting ';'");
                 Err(-1)
@@ -360,7 +360,7 @@ impl<'s> JSParseState<'s> {
         let mut last_tok = TokenKind::default();
 
         loop {
-            match self.token.val {
+            match self.token.kind {
                 TokenKind::Char(c @ ('(' | '[' | '{')) => {
                     if level >= state.len() {
                         break;
@@ -454,13 +454,13 @@ impl<'s> JSParseState<'s> {
             }
 
             // last_tok is only used to recognize regexps
-            last_tok = if self.token.val == TokenKind::IDENT
+            last_tok = if self.token.kind == TokenKind::IDENT
                 && (self.token_is_pseudo_keyword(Atom::CONST_of)
                     || self.token_is_pseudo_keyword(Atom::CONST_yield))
             {
                 TokenKind::OF
             } else {
-                self.token.val
+                self.token.kind
             };
 
             if self.next_token().is_err() {
@@ -468,7 +468,7 @@ impl<'s> JSParseState<'s> {
                 break;
             }
             if level <= 1 {
-                tok = self.token.val;
+                tok = self.token.kind;
                 if self.token_is_pseudo_keyword(Atom::CONST_of) {
                     tok = TokenKind::OF;
                 }

@@ -17,7 +17,7 @@ impl JSParseState<'_> {
         // seeking sole strings within current code block to check for directives.
         while let TokenData::Str { .. } = &self.token.data {
             debug_assert!(
-                matches!(self.token.val, TokenKind::STRING | TokenKind::TEMPLATE),
+                matches!(self.token.kind, TokenKind::STRING | TokenKind::TEMPLATE),
                 "{:?}",
                 self.token
             );
@@ -39,7 +39,7 @@ impl JSParseState<'_> {
             self.next_token()?;
 
             let mut has_semi = false;
-            match self.token.val {
+            match self.token.kind {
                 TokenKind::Char(';') => {
                     self.next_token()?;
                     has_semi = true;

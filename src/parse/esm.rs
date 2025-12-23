@@ -29,7 +29,7 @@ impl<'s> JSParseState<'s> {
 
         self.next_token()?;
 
-        if self.token.val != TokenKind::STRING {
+        if self.token.kind != TokenKind::STRING {
             self.throw_syntax_error("string expected");
             return Err(-1);
         }
@@ -53,7 +53,7 @@ impl<'s> JSParseState<'s> {
         let first_import = md.import_entries.len();
         let module_name: Atom;
 
-        if self.token.val == TokenKind::STRING {
+        if self.token.kind == TokenKind::STRING {
             // import "module-name"
             module_name = Atom::from_str(
                 self.ctx.rt_ptr(),
@@ -63,7 +63,7 @@ impl<'s> JSParseState<'s> {
 
             self.next_token()?;
         } else {
-            let done = if self.token.val == TokenKind::IDENT {
+            let done = if self.token.kind == TokenKind::IDENT {
                 // import <default>
                 if self.token.data.is_reserved() {
                     self.throw_reserved_identifier_error();
@@ -74,7 +74,7 @@ impl<'s> JSParseState<'s> {
                 self.next_token()?;
                 self.add_module_import(md, local_name, Atom::CONST_default)?;
 
-                if self.token.val == TokenKind::Char(',') {
+                if self.token.kind == TokenKind::Char(',') {
                     // default import mixed with namespace or named import.
                     self.next_token()?;
                     false // <-- go on parsing namespace or named import.
@@ -86,7 +86,7 @@ impl<'s> JSParseState<'s> {
             };
 
             if !done {
-                match self.token.val {
+                match self.token.kind {
                     //'*'
                     TokenKind::Char('*') => {
                         // namespace
@@ -99,7 +99,7 @@ impl<'s> JSParseState<'s> {
 
                         self.next_token()?;
 
-                        if !Self::token_is_ident(self.token.val) {
+                        if !Self::token_is_ident(self.token.kind) {
                             self.throw_syntax_error("identifier expected");
                             return Err(-1);
                         }
@@ -113,8 +113,8 @@ impl<'s> JSParseState<'s> {
                         // name dict
                         self.next_token()?;
 
-                        while self.token.val != TokenKind::Char('}') {
-                            let import_name = match self.token.val {
+                        while self.token.kind != TokenKind::Char('}') {
+                            let import_name = match self.token.kind {
                                 TokenKind::IDENT => self.token.atom().unwrap(),
                                 TokenKind::STRING => Atom::from_str(
                                     self.ctx.rt_ptr(),
@@ -133,7 +133,7 @@ impl<'s> JSParseState<'s> {
                             let local_name = if self.token_is_pseudo_keyword(Atom::CONST_as) {
                                 self.next_token()?;
 
-                                if !Self::token_is_ident(self.token.val) {
+                                if !Self::token_is_ident(self.token.kind) {
                                     self.throw_syntax_error("identifier expected");
                                     return Err(-1);
                                 }
@@ -147,7 +147,7 @@ impl<'s> JSParseState<'s> {
 
                             self.add_module_import(md, local_name, import_name)?;
 
-                            if self.token.val == TokenKind::Char(',') {
+                            if self.token.kind == TokenKind::Char(',') {
                                 self.next_token()?;
                             } else {
                                 break;
@@ -222,8 +222,8 @@ impl<'s> JSParseState<'s> {
 
                 let first_export = md.export_entries.len();
 
-                while self.token.val != TokenKind::Char('}') {
-                    let local_name = match self.token.val {
+                while self.token.kind != TokenKind::Char('}') {
+                    let local_name = match self.token.kind {
                         TokenKind::IDENT => self.token.atom().unwrap(),
                         TokenKind::STRING => {
                             let s = self.token.data.string().unwrap();
@@ -242,7 +242,7 @@ impl<'s> JSParseState<'s> {
                         // <local_name> as <export_name>
                         self.next_token()?;
 
-                        let n = match self.token.val {
+                        let n = match self.token.kind {
                             TokenKind::IDENT => self.token.atom().unwrap(),
                             TokenKind::STRING => {
                                 let s = self.token.data.string().unwrap();
@@ -271,7 +271,7 @@ impl<'s> JSParseState<'s> {
                         },
                     )?;
 
-                    if self.token.val != TokenKind::Char(',') {
+                    if self.token.kind != TokenKind::Char(',') {
                         break;
                     }
 
@@ -297,7 +297,7 @@ impl<'s> JSParseState<'s> {
                     // export ns from
                     self.next_token()?;
 
-                    let export_name = match self.token.val {
+                    let export_name = match self.token.kind {
                         TokenKind::IDENT => {
                             // Accept ident, keywords and reserved words as property names
                             self.token.atom().unwrap()
@@ -336,9 +336,9 @@ impl<'s> JSParseState<'s> {
             TokenKind::DEFAULT => {
                 self.next_token()?;
 
-                if self.token.val == TokenKind::CLASS {
+                if self.token.kind == TokenKind::CLASS {
                     return self.parse_class(false, JSParseExportEnum::JS_PARSE_EXPORT_DEFAULT);
-                } else if self.token.val == TokenKind::FUNCTION
+                } else if self.token.kind == TokenKind::FUNCTION
                     || (self.token_is_pseudo_keyword(Atom::CONST_async)
                         && self.peek_token(true) == TokenKind::FUNCTION)
                 {

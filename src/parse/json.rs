@@ -141,7 +141,7 @@ impl<'s> JSParseState<'s> {
                             has_escape: false,
                             is_reserved: false,
                         };
-                        self.token.val = TokenKind::IDENT;
+                        self.token.kind = TokenKind::IDENT;
                         self.buf_ptr = input.current_ptr().map_or(self.input_end, |p| p.as_ptr());
                         return Ok(());
                     } else {
@@ -226,18 +226,18 @@ impl<'s> JSParseState<'s> {
         if let Some(todo) = todo {
             match todo {
                 Todo::Token(c) => {
-                    self.token.val = TokenKind::Char(c as _);
+                    self.token.kind = TokenKind::Char(c as _);
                     input.move_cursor_by(1);
                     self.buf_ptr = input.current_ptr().map_or(self.input_end, |p| p.as_ptr());
                     Ok(())
                 }
                 Todo::Fail => {
-                    self.token.val = TokenKind::ERROR;
+                    self.token.kind = TokenKind::ERROR;
                     Err(-1)
                 }
             }
         } else {
-            self.token.val = TokenKind::EOF;
+            self.token.kind = TokenKind::EOF;
             self.token.data = TokenData::None;
             self.buf_ptr = self.input_end;
             Ok(())
@@ -260,11 +260,11 @@ impl<'s> JSParseState<'s> {
         let p0 = p;
 
         if let Ok(num) = unsafe { js_atof(&self.ctx, p, &mut p, radix, flags) } {
-            self.token.val = TokenKind::NUMBER;
+            self.token.kind = TokenKind::NUMBER;
             self.token.data = TokenData::Num(num);
             Ok(unsafe { p.offset_from(p0) as usize })
         } else {
-            self.token.val = TokenKind::ERROR;
+            self.token.kind = TokenKind::ERROR;
             Err(-1)
         }
     }
@@ -297,20 +297,20 @@ impl<'s> JSParseState<'s> {
     fn json_parse_value(&mut self) -> JSResult {
         let mut val: JSValue;
 
-        match self.token.val {
+        match self.token.kind {
             TokenKind::Char('{') => {
                 self.json_next_token()?;
 
                 val = self.ctx.create_base_object()?.into();
-                if self.token.val != TokenKind::Char('}') {
+                if self.token.kind != TokenKind::Char('}') {
                     loop {
-                        let prop_name = if self.token.val == TokenKind::STRING {
+                        let prop_name = if self.token.kind == TokenKind::STRING {
                             Atom::from_str(
                                 self.ctx.rt_ptr(),
                                 &escape_str(&self.token.data.string().unwrap().to_utf8()),
                                 AtomKind::String,
                             )?
-                        } else if self.ext_json && self.token.val == TokenKind::IDENT {
+                        } else if self.ext_json && self.token.kind == TokenKind::IDENT {
                             self.token.data.ident_atom().unwrap()
                         } else {
                             self.throw_syntax_error("expecting property name");
@@ -318,28 +318,28 @@ impl<'s> JSParseState<'s> {
                         };
 
                         self.json_next_token()?;
-                        json_parse_expect(self, ':')?;
+                        json_parse_expect(self, b':')?;
 
                         let prop_val = self.json_parse_value()?;
                         val.define_property_value(&self.ctx, prop_name, prop_val, JS_PROP_C_W_E)?;
 
-                        if self.token.val != TokenKind::Char(',') {
+                        if self.token.kind != TokenKind::Char(',') {
                             break;
                         }
                         self.json_next_token()?;
-                        if self.ext_json && self.token.val == TokenKind::Char('}') {
+                        if self.ext_json && self.token.kind == TokenKind::Char('}') {
                             break;
                         }
                     }
                 }
-                json_parse_expect(self, '}')?;
+                json_parse_expect(self, b'}')?;
             }
 
             TokenKind::Char('[') => {
                 self.json_next_token()?;
 
                 let mut lst = Vec::<JSValue>::new();
-                if self.token.val != TokenKind::Char(']') {
+                if self.token.kind != TokenKind::Char(']') {
                     'arr: loop {
                         let el = self.json_parse_value()?;
 
@@ -351,13 +351,13 @@ impl<'s> JSParseState<'s> {
                         }
                         lst.push(el);
 
-                        if self.token.val != TokenKind::Char(',') {
+                        if self.token.kind != TokenKind::Char(',') {
                             break 'arr;
                         }
 
                         self.json_next_token()?;
 
-                        if self.ext_json && self.token.val == TokenKind::Char(']') {
+                        if self.ext_json && self.token.kind == TokenKind::Char(']') {
                             break 'arr;
                         }
                     }
@@ -367,7 +367,7 @@ impl<'s> JSParseState<'s> {
                 lst.shrink_to_fit();
                 val = self.ctx.create_array_with_values(lst)?.into();
 
-                json_parse_expect(self, ']')?;
+                json_parse_expect(self, b']')?;
             }
             TokenKind::STRING => {
                 let sbuf = self.token.data.take_string().unwrap();
@@ -384,7 +384,7 @@ impl<'s> JSParseState<'s> {
                     Atom::CONST_false => JSValue::Bool(false),
                     Atom::CONST_null => JSValue::NULL,
                     _ => {
-                        if self.token.val == TokenKind::EOF {
+                        if self.token.kind == TokenKind::EOF {
                             self.throw_syntax_error("unexpected end of input");
                         } else {
                             self.throw_syntax_error(&format!("unexpected token: '{}'", unsafe {
@@ -402,7 +402,7 @@ impl<'s> JSParseState<'s> {
                 self.json_next_token()?;
             }
             _ => {
-                if self.token.val == TokenKind::EOF {
+                if self.token.kind == TokenKind::EOF {
                     self.throw_syntax_error("unexpected end of input");
                 } else {
                     self.throw_syntax_error(&format!("unexpected token: '{}'", unsafe {
@@ -421,8 +421,8 @@ impl<'s> JSParseState<'s> {
     }
 }
 
-fn json_parse_expect(s: &mut JSParseState, ch: char) -> Result<(), i32> {
-    if s.token.val != TokenKind::Char(ch) {
+fn json_parse_expect(s: &mut JSParseState, ch: u8) -> Result<(), i32> {
+    if s.token.kind != TokenKind::Char(ch as _) {
         s.throw_syntax_error(&format!("expecting '{ch}'"));
         Err(-1)
     } else {
@@ -441,7 +441,7 @@ impl ContextImpl {
         parser.json_next_token()?;
         let val = parser.json_parse_value()?;
 
-        if unlikely(parser.token.val != TokenKind::EOF) {
+        if unlikely(parser.token.kind != TokenKind::EOF) {
             parser.throw_syntax_error("unexpected data at the end");
             Err(-1)
         } else {

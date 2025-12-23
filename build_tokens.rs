@@ -128,6 +128,16 @@ pub fn gen_tokens(outfile: &Path) {
         .position(|s| s.eq(&TOKEN_LAST_KEYWORD))
         .unwrap();
 
+    output.push(
+        r#"impl Default for TokenKind {
+            fn default() -> Self {
+                Self::Char('\0')
+            }
+        }
+        "#
+        .into(),
+    );
+
     output.push("impl TokenKind {\n".into());
 
     output.push("pub const KEYWORD_TOKEN_RANGE: std::ops::RangeInclusive<TokenKind> = Self::NULL..=Self::AWAIT;".into());

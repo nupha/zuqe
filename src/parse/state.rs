@@ -103,7 +103,7 @@ impl<'s> JSParseState<'s> {
             line_num: 1,
             filename,
             token: Token {
-                val: TokenKind::Char(' '),
+                kind: TokenKind::Char(' '),
                 line_num: 1,
                 ptr: std::ptr::null(),
                 data: TokenData::Num(IntOrFloat::Int64(0)),

@@ -32,9 +32,9 @@ impl<'s> JSParseState<'s> {
     fn parse_block(&mut self) -> Result<TokenKind, i32> {
         self.parse_expect(TokenKind::Char('{'))?;
 
-        if self.token.val != TokenKind::Char('}') {
+        if self.token.kind != TokenKind::Char('}') {
             self.push_scope()?;
-            while self.token.val != TokenKind::Char('}') {
+            while self.token.kind != TokenKind::Char('}') {
                 self.parse_stmt_or_decl(DECL_MASK_ALL)?;
             }
             self.pop_scope();
@@ -64,7 +64,7 @@ impl<'s> JSParseState<'s> {
             self.parse_expect(TokenKind::Char(':'))?;
 
             if !matches!(
-                self.token.val,
+                self.token.kind,
                 TokenKind::FOR | TokenKind::DO | TokenKind::WHILE
             ) {
                 // labelled regular statement
@@ -95,7 +95,7 @@ impl<'s> JSParseState<'s> {
 
         let mut todo: Option<TodoState> = None;
 
-        match self.token.val {
+        match self.token.kind {
             TokenKind::Char('{') => {
                 self.parse_block()?;
             }
@@ -111,7 +111,7 @@ impl<'s> JSParseState<'s> {
 
                 self.next_token()?;
 
-                if !matches!(self.token.val, TokenKind::Char(';' | '}')) && !self.got_lf {
+                if !matches!(self.token.kind, TokenKind::Char(';' | '}')) && !self.got_lf {
                     self.parse_expr()?;
                     self.emit_return(true);
                 } else {
@@ -150,7 +150,7 @@ impl<'s> JSParseState<'s> {
 
                 // check for continue or break label
                 let label = if !self.got_lf
-                    && self.token.val == TokenKind::IDENT
+                    && self.token.kind == TokenKind::IDENT
                     && !self.token.data.is_reserved()
                 {
                     self.token.atom().unwrap()
@@ -268,7 +268,7 @@ pub fn js_unsupported_keyword(s: &JSParseState, atom: Atom) -> i32 {
 
 // test if the current token is a label. Use simplistic look-ahead scanner
 fn is_label(s: &JSParseState) -> bool {
-    s.token.val == TokenKind::IDENT
+    s.token.kind == TokenKind::IDENT
         && !s.token.data.is_reserved()
         && s.peek_token(false) == TokenKind::Char(':')
 }
@@ -281,7 +281,7 @@ fn is_let(s: &mut JSParseState, decl_mask: i32) -> Result<bool, i32> {
         let pos = s.get_pos();
 
         s.next_token()?;
-        let tok = s.token.val;
+        let tok = s.token.kind;
 
         if tok == TokenKind::Char('[') {
             // let [ is a syntax restriction:
@@ -376,7 +376,7 @@ fn stmt_do(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
     s.parse_expr_parens()?;
 
     // Insert semicolon if missing
-    if s.token.val == TokenKind::Char(';') {
+    if s.token.kind == TokenKind::Char(';') {
         s.next_token()?;
     }
     s.emit_goto(OpCode::IF_TRUE, label1);
@@ -394,9 +394,9 @@ fn stmt_for(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
     let mut bits = 0;
     let mut is_async = false;
 
-    if s.token.val == TokenKind::Char('(') {
+    if s.token.kind == TokenKind::Char('(') {
         s.parse_skip_parens_token(&mut bits, false)?;
-    } else if s.token.val == TokenKind::AWAIT {
+    } else if s.token.kind == TokenKind::AWAIT {
         if !matches!(
             s.cur_func().attrs.func_kind,
             JSFunctionKindEnum::JS_FUNC_ASYNC | JSFunctionKindEnum::JS_FUNC_ASYNC_GENERATOR
@@ -423,7 +423,7 @@ fn stmt_for(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
     s.push_scope()?;
 
     // initial expression
-    let mut tok = s.token.val;
+    let mut tok = s.token.kind;
     if tok != TokenKind::Char(';') {
         if is_let(s, DECL_MASK_OTHER)? {
             tok = TokenKind::LET;
@@ -464,7 +464,7 @@ fn stmt_for(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
     s.cur_func_mut().push_break_entry(&mut break_entry);
 
     // test expression
-    if s.token.val == TokenKind::Char(';') {
+    if s.token.kind == TokenKind::Char(';') {
         // no test expression
         label_test = label_body;
     } else {
@@ -475,7 +475,7 @@ fn stmt_for(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
 
     s.parse_expect(TokenKind::Char(';'))?;
 
-    let pos_cont = if s.token.val == TokenKind::Char(')') {
+    let pos_cont = if s.token.kind == TokenKind::Char(')') {
         // no end expression
         label_cont = label_test;
         break_entry.label_cont = label_cont;
@@ -588,7 +588,7 @@ fn stmt_if(s: &mut JSParseState) -> Result<(), i32> {
 
     s.parse_stmt_or_decl(mask)?;
 
-    if s.token.val == TokenKind::ELSE {
+    if s.token.kind == TokenKind::ELSE {
         let label2 = s.emit_goto(OpCode::GOTO, -1);
         s.next_token()?;
 
@@ -641,19 +641,19 @@ fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
         s.emit_goto(OpCode::GOTO, label_end);
     }
 
-    if s.token.val == TokenKind::CATCH {
+    if s.token.kind == TokenKind::CATCH {
         s.next_token()?;
         s.push_scope()?; // catch variable
         s.emit_label(label_catch);
 
-        if s.token.val == TokenKind::Char('{') {
+        if s.token.kind == TokenKind::Char('{') {
             // support optional-catch-binding feature
             s.emit_op(OpCode::DROP); // pop the exception object
         } else {
             s.parse_expect(TokenKind::Char('('))?;
 
-            if s.token.val != TokenKind::IDENT || s.token.data.is_reserved() {
-                if matches!(s.token.val, TokenKind::Char('[') | TokenKind::Char('{')) {
+            if s.token.kind != TokenKind::IDENT || s.token.data.is_reserved() {
+                if matches!(s.token.kind, TokenKind::Char('[') | TokenKind::Char('{')) {
                     // XXX: LET is not completely correct
                     s.parse_destructuring_element(TokenKind::LET, false, true, -1, true, false)?;
                 } else {
@@ -711,7 +711,7 @@ fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
         // catch value is at TOS, no need to push undefined
         s.emit_goto(OpCode::GOSUB, label_finally);
         s.emit_op(OpCode::THROW);
-    } else if s.token.val == TokenKind::FINALLY {
+    } else if s.token.kind == TokenKind::FINALLY {
         // finally without catch : execute the finally clause
         // and rethrow the exception
         s.emit_label(label_catch);
@@ -725,7 +725,7 @@ fn stmt_try(s: &mut JSParseState) -> Result<(), i32> {
 
     s.emit_label(label_finally);
 
-    if s.token.val == TokenKind::FINALLY {
+    if s.token.kind == TokenKind::FINALLY {
         s.next_token()?;
 
         // on the stack: ret_value gosub_ret_value
@@ -803,8 +803,8 @@ fn stmt_switch(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
     let mut label_case = -1;
     let mut label1: i32;
 
-    while s.token.val != TokenKind::Char('}') {
-        if s.token.val == TokenKind::CASE {
+    while s.token.kind != TokenKind::Char('}') {
+        if s.token.kind == TokenKind::CASE {
             label1 = if label_case >= 0 {
                 // skip the case if needed
                 s.emit_goto(OpCode::GOTO, -1)
@@ -822,7 +822,7 @@ fn stmt_switch(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
                 s.parse_expect(TokenKind::Char(':'))?;
 
                 s.emit_op(OpCode::STRICT_EQ);
-                if s.token.val == TokenKind::CASE {
+                if s.token.kind == TokenKind::CASE {
                     label1 = s.emit_goto(OpCode::IF_TRUE, label1);
                 } else {
                     label_case = s.emit_goto(OpCode::IF_FALSE, -1);
@@ -830,7 +830,7 @@ fn stmt_switch(s: &mut JSParseState, label_name: Atom) -> Result<(), i32> {
                     break;
                 }
             }
-        } else if s.token.val == TokenKind::DEFAULT {
+        } else if s.token.kind == TokenKind::DEFAULT {
             s.next_token()?;
             s.parse_expect(TokenKind::Char(':'))?;
 
@@ -988,7 +988,7 @@ fn js_parse_for_in_of(s: &mut JSParseState, label_name: Atom, is_async: bool) ->
     let tok = if is_let(s, DECL_MASK_OTHER)? {
         TokenKind::LET
     } else {
-        s.token.val
+        s.token.kind
     };
 
     let var_name: Atom;
@@ -997,8 +997,8 @@ fn js_parse_for_in_of(s: &mut JSParseState, label_name: Atom, is_async: bool) ->
     if matches!(tok, TokenKind::VAR | TokenKind::LET | TokenKind::CONST) {
         s.next_token()?;
 
-        if s.token.val != TokenKind::IDENT || s.token.data.is_reserved() {
-            if matches!(s.token.val, TokenKind::Char('[' | '{')) {
+        if s.token.kind != TokenKind::IDENT || s.token.data.is_reserved() {
+            if matches!(s.token.kind, TokenKind::Char('[' | '{')) {
                 s.parse_destructuring_element(tok, false, true, -1, false, false)?;
                 has_destructuring = true;
             } else {
@@ -1028,7 +1028,7 @@ fn js_parse_for_in_of(s: &mut JSParseState, label_name: Atom, is_async: bool) ->
         return Err(-1);
     } else {
         let mut skip_bits: i32 = 0;
-        if matches!(s.token.val, TokenKind::Char('[' | '{'))
+        if matches!(s.token.kind, TokenKind::Char('[' | '{'))
             && matches!(
                 s.parse_skip_parens_token(&mut skip_bits, false)?,
                 TokenKind::IN | TokenKind::OF
@@ -1079,7 +1079,7 @@ fn js_parse_for_in_of(s: &mut JSParseState, label_name: Atom, is_async: bool) ->
 
     let mut has_initializer = false;
 
-    if s.token.val == TokenKind::Char('=') {
+    if s.token.kind == TokenKind::Char('=') {
         // XXX: potential scoping issue if inside `with` statement
         has_initializer = true;
         // parse and evaluate initializer prior to evaluating the
@@ -1108,7 +1108,7 @@ fn js_parse_for_in_of(s: &mut JSParseState, label_name: Atom, is_async: bool) ->
             ));
             return Err(-1);
         }
-    } else if s.token.val == TokenKind::IN {
+    } else if s.token.kind == TokenKind::IN {
         if is_async {
             s.throw_syntax_error("'for await' loop should be used with 'of'");
             return Err(-1);

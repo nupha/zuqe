@@ -23,7 +23,7 @@ impl<'s> JSParseState<'s> {
         export: bool,
     ) -> Result<(), i32> {
         debug_assert_eq!(
-            self.token.val,
+            self.token.kind,
             TokenKind::Char('{'),
             "body starts with '{{'"
         );
@@ -52,7 +52,7 @@ impl<'s> JSParseState<'s> {
                     scope = self.cur_func().scope_level as _;
                 }
 
-                if self.token.val == TokenKind::Char('=') {
+                if self.token.kind == TokenKind::Char('=') {
                     // handle optional default value
                     self.emit_op(OpCode::DUP);
                     self.emit_op(OpCode::UNDEFINED);
@@ -82,7 +82,7 @@ impl<'s> JSParseState<'s> {
                     matches!(tok, TokenKind::CONST | TokenKind::LET),
                 );
 
-                if self.token.val == TokenKind::Char('}') {
+                if self.token.kind == TokenKind::Char('}') {
                     break;
                 }
 
@@ -142,8 +142,8 @@ impl<'s> JSParseState<'s> {
         }
 
         // parse till '}'
-        while self.token.val != TokenKind::Char('}') {
-            if self.token.val == TokenKind::ELLIPSIS {
+        while self.token.kind != TokenKind::Char('}') {
+            if self.token.kind == TokenKind::ELLIPSIS {
                 if !has_ellipsis {
                     self.ctx.throw_internal_error("unexpected ellipsis token");
                     return Err(-1);
@@ -174,7 +174,7 @@ impl<'s> JSParseState<'s> {
                     var_name = a;
                 }
 
-                if self.token.val != TokenKind::Char('}') {
+                if self.token.kind != TokenKind::Char('}') {
                     self.throw_syntax_error("assignment rest property must be last");
                     return Err(-1);
                 }
@@ -200,7 +200,7 @@ impl<'s> JSParseState<'s> {
                 self.next_token()?;
 
                 // token: [{ && after-parens-token: ,=}
-                if matches!(self.token.val, TokenKind::Char('[' | '{'))
+                if matches!(self.token.kind, TokenKind::Char('[' | '{'))
                     && matches!(
                         {
                             let mut _p = 0;
@@ -238,7 +238,7 @@ impl<'s> JSParseState<'s> {
 
                     self.parse_destructuring_element(tok, is_arg, true, -1, true, export)?;
 
-                    if self.token.val == TokenKind::Char('}') {
+                    if self.token.kind == TokenKind::Char('}') {
                         break;
                     } else {
                         // accept a trailing comma before the '}'
@@ -370,7 +370,11 @@ impl<'s> JSParseState<'s> {
         mut skip_bits: i32,
         export: bool,
     ) -> Result<(), i32> {
-        debug_assert_eq!(self.token.val, TokenKind::Char('['), "body starts with '['");
+        debug_assert_eq!(
+            self.token.kind,
+            TokenKind::Char('['),
+            "body starts with '['"
+        );
 
         self.next_token()?;
 
@@ -386,11 +390,11 @@ impl<'s> JSParseState<'s> {
         let mut has_spread = false;
 
         // parse till ']'
-        while self.token.val != TokenKind::Char(']') {
+        while self.token.kind != TokenKind::Char(']') {
             // get the next value
-            if self.token.val == TokenKind::ELLIPSIS {
+            if self.token.kind == TokenKind::ELLIPSIS {
                 self.next_token()?;
-                if matches!(self.token.val, TokenKind::Char(',' | ']')) {
+                if matches!(self.token.kind, TokenKind::Char(',' | ']')) {
                     self.throw_syntax_error("missing binding pattern...");
                     return Err(-1);
                 }
@@ -401,7 +405,7 @@ impl<'s> JSParseState<'s> {
             let mut scope: i32 = 0;
             let mut label_lvalue = -1;
 
-            let parse_expr = match self.token.val {
+            let parse_expr = match self.token.kind {
                 TokenKind::Char(',') => {
                     // do nothing, skip the value, has_spread is false */
                     self.emit_op(OpCode::FOR_OF_NEXT);
@@ -475,7 +479,7 @@ impl<'s> JSParseState<'s> {
                     self.emit_op(OpCode::DROP);
                 }
 
-                if self.token.val == TokenKind::Char('=') && !has_spread {
+                if self.token.kind == TokenKind::Char('=') && !has_spread {
                     /* handle optional default value */
                     self.emit_op(OpCode::DUP);
                     self.emit_op(OpCode::UNDEFINED);
@@ -506,7 +510,7 @@ impl<'s> JSParseState<'s> {
                 );
             }
 
-            if self.token.val == TokenKind::Char(']') {
+            if self.token.kind == TokenKind::Char(']') {
                 break;
             }
             if has_spread {
@@ -528,9 +532,7 @@ impl<'s> JSParseState<'s> {
         Ok(())
     }
 
-    /// TODO: add argument export:bool to allow add variables to module export entry,
-    /// like that in parse_var() does.
-    pub fn parse_destructuring_element(
+    pub(super) fn parse_destructuring_element(
         &mut self,
         tok: TokenKind,
         is_arg: bool,
@@ -567,7 +569,7 @@ impl<'s> JSParseState<'s> {
         let assign_addr = self.cur_func().byte_code.len();
 
         // parse body
-        match self.token.val {
+        match self.token.kind {
             TokenKind::Char('{') => {
                 // parse { body }
                 self.parse_destructuring_curly(tok, is_arg, has_ellipsis != 0, export)?;
@@ -583,7 +585,7 @@ impl<'s> JSParseState<'s> {
         }
 
         // body was parsed.
-        let has_initializer = if self.token.val == TokenKind::Char('=') && allow_initializer {
+        let has_initializer = if self.token.kind == TokenKind::Char('=') && allow_initializer {
             let label_done = self.emit_goto(OpCode::GOTO, -1);
 
             self.next_token()?;
@@ -615,7 +617,7 @@ impl<'s> JSParseState<'s> {
 
     fn parse_destructuring_var(&mut self, is_arg: bool) -> Result<Atom, i32> {
         if unlikely(
-            (self.token.val != TokenKind::IDENT || self.token.data.is_reserved())
+            (self.token.kind != TokenKind::IDENT || self.token.data.is_reserved())
                 || (self.cur_func().attrs.exec_mode.contains(ExecMode::STRICT)
                     && matches!(
                         self.token.atom().unwrap(),

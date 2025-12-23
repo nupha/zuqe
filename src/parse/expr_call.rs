@@ -66,12 +66,12 @@ impl<'s> JSParseState<'s> {
 
         // parse arguments
         let mut arg_count = 0;
-        while self.token.val != TokenKind::Char(')') {
+        while self.token.kind != TokenKind::Char(')') {
             if arg_count >= 0xFFFF {
                 self.throw_syntax_error("Too many call arguments");
                 return Err(-1);
             }
-            if self.token.val == TokenKind::ELLIPSIS {
+            if self.token.kind == TokenKind::ELLIPSIS {
                 break;
             }
 
@@ -79,7 +79,7 @@ impl<'s> JSParseState<'s> {
 
             arg_count += 1;
 
-            if self.token.val == TokenKind::Char(')') {
+            if self.token.kind == TokenKind::Char(')') {
                 break;
             }
 
@@ -89,7 +89,7 @@ impl<'s> JSParseState<'s> {
 
         // TODO: use match self.token.val {} instead
         // XXX
-        if self.token.val == TokenKind::ELLIPSIS {
+        if self.token.kind == TokenKind::ELLIPSIS {
             // ellipsis args, e.g.: f(...[a,b,c]), f(a,b, ...[x,y,z])
             self.emit_op(OpCode::ARRAY_FROM);
             self.emit_u16(arg_count as _);
@@ -97,8 +97,8 @@ impl<'s> JSParseState<'s> {
             self.emit_u32(arg_count as _);
 
             // on stack: array idx
-            while self.token.val != TokenKind::Char(')') {
-                if self.token.val == TokenKind::ELLIPSIS {
+            while self.token.kind != TokenKind::Char(')') {
+                if self.token.kind == TokenKind::ELLIPSIS {
                     self.next_token()?;
                     self.parse_assign_expr()?;
 
@@ -111,7 +111,7 @@ impl<'s> JSParseState<'s> {
                     self.emit_op(OpCode::DEFINE_ARRAY_EL);
                     self.emit_op(OpCode::INC);
                 }
-                if self.token.val == TokenKind::Char(')') {
+                if self.token.kind == TokenKind::Char(')') {
                     break;
                 }
 

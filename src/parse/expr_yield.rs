@@ -7,7 +7,7 @@ use super::{JSParseState, tokenize::TokenKind};
 
 impl<'s> JSParseState<'s> {
     pub(super) fn parse_yield(&mut self, parse_flags: i32) -> Result<(), i32> {
-        debug_assert_eq!(self.token.val, TokenKind::YIELD);
+        debug_assert_eq!(self.token.kind, TokenKind::YIELD);
 
         if !matches!(
             self.cur_func().attrs.func_kind,
@@ -29,11 +29,11 @@ impl<'s> JSParseState<'s> {
         // XXX: is there a better method to detect 'yield' without parameters?
         if !self.got_lf
             && !matches!(
-                self.token.val,
+                self.token.kind,
                 TokenKind::Char(';' | ')' | ']' | '}' | ',' | ':')
             )
         {
-            if self.token.val == TokenKind::Char('*') {
+            if self.token.kind == TokenKind::Char('*') {
                 is_star = true;
                 self.next_token()?;
             }

@@ -147,7 +147,7 @@ impl<'s> JSParseState<'s> {
         let mut has_opt_arg = false;
 
         if func_type == JSParseFunctionEnum::JS_PARSE_FUNC_ARROW
-            && self.token.val == TokenKind::IDENT
+            && self.token.kind == TokenKind::IDENT
         {
             if self.token.data.is_reserved() {
                 self.throw_reserved_identifier_error();
@@ -157,7 +157,7 @@ impl<'s> JSParseState<'s> {
             fd1.add_arg(&self.ctx, self.token.atom().unwrap())?;
             fd1.attrs.defined_arg_count = 1;
         } else if func_type != JSParseFunctionEnum::JS_PARSE_FUNC_CLASS_STATIC_INIT {
-            if self.token.val == TokenKind::Char('(') {
+            if self.token.kind == TokenKind::Char('(') {
                 let mut skip_bits: i32 = 0;
                 /* if there is an '=' inside the parameter list, we
                 consider there is a parameter expression inside */
@@ -176,8 +176,8 @@ impl<'s> JSParseState<'s> {
             }
 
             // arguments
-            while self.token.val != TokenKind::Char(')') {
-                let rest = if self.token.val == TokenKind::ELLIPSIS {
+            while self.token.kind != TokenKind::Char(')') {
+                let rest = if self.token.kind == TokenKind::ELLIPSIS {
                     fd1.attrs.has_simple_parameter_list = false;
                     self.next_token()?;
                     true
@@ -185,7 +185,7 @@ impl<'s> JSParseState<'s> {
                     false
                 };
 
-                if matches!(self.token.val, TokenKind::Char('[' | '{')) {
+                if matches!(self.token.kind, TokenKind::Char('[' | '{')) {
                     fd1.attrs.has_simple_parameter_list = false;
                     if rest {
                         fd1.emit_op(OpCode::REST, self.last_line_num);
@@ -215,7 +215,7 @@ impl<'s> JSParseState<'s> {
                     if !has_opt_arg {
                         fd1.attrs.defined_arg_count += 1;
                     }
-                } else if self.token.val == TokenKind::IDENT {
+                } else if self.token.kind == TokenKind::IDENT {
                     if self.token.data.is_reserved() {
                         self.throw_reserved_identifier_error();
                         return Err(-1);
@@ -253,7 +253,7 @@ impl<'s> JSParseState<'s> {
 
                         fd1.attrs.has_simple_parameter_list = false;
                         has_opt_arg = true;
-                    } else if self.token.val == TokenKind::Char('=') {
+                    } else if self.token.kind == TokenKind::Char('=') {
                         fd1.attrs.has_simple_parameter_list = false;
                         has_opt_arg = true;
 
@@ -299,11 +299,11 @@ impl<'s> JSParseState<'s> {
                     return Err(-1);
                 }
 
-                if rest && self.token.val != TokenKind::Char(')') {
+                if rest && self.token.kind != TokenKind::Char(')') {
                     let _ = self.parse_expect(TokenKind::Char(')'));
                     return Err(-1);
                 }
-                if self.token.val == TokenKind::Char(')') {
+                if self.token.kind == TokenKind::Char(')') {
                     break;
                 }
 
@@ -375,9 +375,9 @@ impl<'s> JSParseState<'s> {
         // enter body scope
         fd1.body_scope = self.push_scope().unwrap() as i32;
 
-        if self.token.val == TokenKind::ARROW {
+        if self.token.kind == TokenKind::ARROW {
             self.next_token()?;
-            if self.token.val != TokenKind::Char('{') {
+            if self.token.kind != TokenKind::Char('{') {
                 self.parse_function_check_names(fd1, func_name)?;
                 self.parse_assign_expr()?;
 
@@ -425,7 +425,7 @@ impl<'s> JSParseState<'s> {
         // in strict_mode, check function and argument names
         self.parse_function_check_names(fd1, func_name)?;
 
-        while self.token.val != TokenKind::Char('}') {
+        while self.token.kind != TokenKind::Char('}') {
             self.parse_source_element()?;
         }
 
@@ -498,7 +498,7 @@ impl<'s> JSParseState<'s> {
 
                 self.next_token()?;
 
-                if self.token.val == TokenKind::Char('*') {
+                if self.token.kind == TokenKind::Char('*') {
                     self.next_token()?;
                     func_kind = unsafe {
                         std::mem::transmute::<u8, JSFunctionKindEnum>(
@@ -507,7 +507,7 @@ impl<'s> JSParseState<'s> {
                     }
                 }
 
-                if self.token.val == TokenKind::IDENT {
+                if self.token.kind == TokenKind::IDENT {
                     let atom = self.token.atom().unwrap();
                     if self.token.data.is_reserved()
                         || (atom == Atom::CONST_yield
@@ -525,10 +525,10 @@ impl<'s> JSParseState<'s> {
                     }
                 }
 
-                if self.token.val == TokenKind::IDENT
-                    || ((self.token.val == TokenKind::YIELD
+                if self.token.kind == TokenKind::IDENT
+                    || ((self.token.kind == TokenKind::YIELD
                         && !cur_fd.attrs.exec_mode.contains(ExecMode::STRICT)
-                        || (self.token.val == TokenKind::AWAIT && !self.is_module))
+                        || (self.token.kind == TokenKind::AWAIT && !self.is_module))
                         && func_type == JSParseFunctionEnum::JS_PARSE_FUNC_EXPR)
                 {
                     func_name = self.token.atom().unwrap();
@@ -621,7 +621,7 @@ impl<'s> JSParseState<'s> {
         // reparse_ident_token:
         // if the current token is an identifier or keyword, reparse it
         // according to the current function type
-        if self.token.val == TokenKind::IDENT || self.token.val.is_keyword() {
+        if self.token.kind == TokenKind::IDENT || self.token.kind.is_keyword() {
             self.update_token_ident();
         }
 

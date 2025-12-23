@@ -127,7 +127,7 @@ impl<'s> JSParseState<'s> {
         self.ctx.rt_ptr().regexp_precompiled.push(regexp);
         let id = self.ctx.rt_ptr().regexp_precompiled.len() - 1;
 
-        self.token.val = TokenKind::REGEXP;
+        self.token.kind = TokenKind::REGEXP;
         self.token.data = TokenData::Regexp(id);
 
         self.buf_ptr = inp.current_ptr().map_or(self.input_end, |x| x.as_ptr());

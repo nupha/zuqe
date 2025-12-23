@@ -28,7 +28,7 @@ impl<'s> JSParseState<'s> {
         is_class_expr: bool,
         export_flag: JSParseExportEnum,
     ) -> Result<Atom, i32> {
-        if self.token.val == TokenKind::IDENT {
+        if self.token.kind == TokenKind::IDENT {
             if self.token.data.is_reserved() {
                 self.throw_reserved_identifier_error();
                 return Err(-1);
@@ -258,26 +258,26 @@ impl<'s> JSParseState<'s> {
         // class function defination
         let mut ctor_fd: *mut JSFunctionDef = std::ptr::null_mut();
 
-        while self.token.val != TokenKind::Char('}') {
-            if self.token.val == TokenKind::Char(';') {
+        while self.token.kind != TokenKind::Char('}') {
+            if self.token.kind == TokenKind::Char(';') {
                 self.next_token()?;
                 continue;
             }
 
-            let mut is_static = self.token.val == TokenKind::STATIC;
+            let mut is_static = self.token.kind == TokenKind::STATIC;
             prop_type = -1;
 
             if is_static {
                 self.next_token()?;
 
                 // "static" method
-                if self.token.val == TokenKind::Char('{') {
+                if self.token.kind == TokenKind::Char('{') {
                     self.parse_class_field(&mut class_fields[1])?; // 1: static field
                     continue;
                 }
 
                 // "static" field name
-                if matches!(self.token.val, TokenKind::Char(';' | '=')) {
+                if matches!(self.token.kind, TokenKind::Char(';' | '=')) {
                     is_static = false;
                     name = Atom::CONST_static;
                     prop_type = PROP_TYPE_IDENT;
@@ -316,7 +316,7 @@ impl<'s> JSParseState<'s> {
                         start_ptr,
                     )?;
                 }
-                PROP_TYPE_IDENT if self.token.val != TokenKind::Char('(') => {
+                PROP_TYPE_IDENT if self.token.kind != TokenKind::Char('(') => {
                     let cf = &mut class_fields[is_static as usize];
                     let mut field_var_name = Atom::NULL;
 
@@ -394,7 +394,7 @@ impl<'s> JSParseState<'s> {
                         self.emit_u16(self.cur_func().scope_level as _);
                     }
 
-                    if self.token.val == TokenKind::Char('=') {
+                    if self.token.kind == TokenKind::Char('=') {
                         self.next_token()?;
                         self.parse_assign_expr()?;
                     } else {
@@ -511,7 +511,7 @@ impl<'s> JSParseState<'s> {
             name = Atom::NULL;
         }
 
-        if self.token.val != TokenKind::Char('}') {
+        if self.token.kind != TokenKind::Char('}') {
             self.throw_syntax_error("expecting '}'");
             return Err(-1);
         }
@@ -603,7 +603,7 @@ impl<'s> JSParseState<'s> {
 
         // parse class flags: extends.
         let mut class_flags: i32 = 0;
-        if self.token.val == TokenKind::EXTENDS {
+        if self.token.kind == TokenKind::EXTENDS {
             class_flags = JS_DEFINE_CLASS_HAS_HERITAGE;
             self.next_token()?;
             self.parse_left_hand_side_expr()?;

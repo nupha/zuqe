@@ -12,7 +12,7 @@ impl<'s> JSParseState<'s> {
         has_optional_chain: bool,
         optional_chaining_label: &mut i32,
     ) -> Result<(), i32> {
-        if self.token.val == TokenKind::PRIVATE_NAME {
+        if self.token.kind == TokenKind::PRIVATE_NAME {
             // private class field
             if get_prev_opcode(fd) == opcodes::OP_get_super {
                 self.throw_syntax_error("private class field forbidden after super");
@@ -25,7 +25,7 @@ impl<'s> JSParseState<'s> {
             self.emit_atom(self.token.atom().unwrap());
             self.emit_u16(self.cur_func().scope_level as _);
         } else {
-            if !Self::token_is_ident(self.token.val) {
+            if !Self::token_is_ident(self.token.kind) {
                 self.throw_syntax_error("expecting field name");
                 return Err(-1);
             }

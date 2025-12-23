@@ -21,7 +21,7 @@ impl<'s> JSParseState<'s> {
     pub(super) fn parse_expr_binary(&mut self, level: i32, parse_flags: i32) -> Result<(), i32> {
         if level == 0 {
             return self.parse_unary((parse_flags & PF_ARROW_FUNC) | PF_POW_ALLOWED);
-        } else if self.token.val == TokenKind::PRIVATE_NAME
+        } else if self.token.kind == TokenKind::PRIVATE_NAME
             && parse_flags & PF_IN_ACCEPTED != 0
             && level == 4
             && self.peek_token(false) == TokenKind::IN
@@ -29,7 +29,7 @@ impl<'s> JSParseState<'s> {
             let atom = self.token.atom().unwrap();
 
             self.next_token()?;
-            if self.token.val != TokenKind::IN {
+            if self.token.kind != TokenKind::IN {
                 self.throw_syntax_error("expect 'in'");
                 return Err(-1);
             }
@@ -47,7 +47,7 @@ impl<'s> JSParseState<'s> {
         }
 
         loop {
-            let op = self.token.val;
+            let op = self.token.kind;
             let opcode = match level {
                 1 => match op {
                     TokenKind::Char('*') => OpCode::MUL,
@@ -128,7 +128,7 @@ impl<'s> JSParseState<'s> {
 
     // allowed parse_flags: PF_ARROW_FUNC, PF_POW_ALLOWED, PF_POW_FORBIDDEN
     pub(super) fn parse_unary(&mut self, mut parse_flags: i32) -> Result<(), i32> {
-        match self.token.val {
+        match self.token.kind {
             op @ (TokenKind::Char('+' | '-' | '!' | '~') | TokenKind::VOID) => {
                 self.next_token()?;
                 self.parse_unary(PF_POW_FORBIDDEN)?;
@@ -216,12 +216,12 @@ impl<'s> JSParseState<'s> {
             _ => {
                 self.parse_postfix_expr((parse_flags & PF_ARROW_FUNC) | PF_POSTFIX_CALL)?;
 
-                if !self.got_lf && matches!(self.token.val, TokenKind::DEC | TokenKind::INC) {
+                if !self.got_lf && matches!(self.token.kind, TokenKind::DEC | TokenKind::INC) {
                     let mut opcode: i32 = 0;
                     let mut scope: i32 = 0;
                     let mut label: i32 = 0;
                     let mut name = Atom::NULL;
-                    let tok = self.token.val;
+                    let tok = self.token.kind;
                     self.get_lvalue(
                         &mut opcode,
                         &mut scope,
@@ -232,7 +232,7 @@ impl<'s> JSParseState<'s> {
                         tok,
                     )?;
 
-                    self.emit_op(if self.token.val == TokenKind::DEC {
+                    self.emit_op(if self.token.kind == TokenKind::DEC {
                         OpCode::POST_DEC
                     } else {
                         OpCode::POST_INC
@@ -253,7 +253,7 @@ impl<'s> JSParseState<'s> {
         }
 
         if parse_flags & (PF_POW_ALLOWED | PF_POW_FORBIDDEN) != 0
-            && self.token.val == TokenKind::POW
+            && self.token.kind == TokenKind::POW
         {
             /* Strict ES7 exponentiation syntax rules: To solve
             conficting semantics between different implementations

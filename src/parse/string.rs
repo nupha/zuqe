@@ -196,7 +196,7 @@ impl<'s> JSParseState<'s> {
         if let Some(consume) = consume {
             // update token
             let tok = token.unwrap_or(&mut self.token);
-            tok.val = TokenKind::STRING;
+            tok.kind = TokenKind::STRING;
             tok.data = TokenData::Str {
                 str: sbuf,
                 sep: sep as i32,

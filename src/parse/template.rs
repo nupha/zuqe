@@ -93,7 +93,7 @@ impl<'s> JSParseState<'s> {
             self.throw_syntax_error("unexpected end of string");
             Err(-1)
         } else {
-            self.token.val = TokenKind::TEMPLATE;
+            self.token.kind = TokenKind::TEMPLATE;
             self.token.data = TokenData::Str {
                 sep: sep as i32,
                 str: sbuf,
@@ -125,7 +125,7 @@ impl<'s> JSParseState<'s> {
 
         let mut depth = 0;
 
-        while self.token.val == TokenKind::TEMPLATE {
+        while self.token.kind == TokenKind::TEMPLATE {
             // the template content stream since token.ptr through input end, w/o starting quote.
             let mut tmpl = unsafe {
                 let p = self.token.ptr.add(1); // skip '`'
@@ -138,7 +138,7 @@ impl<'s> JSParseState<'s> {
             };
 
             let mut cooked = Token {
-                val: self.token.val,
+                kind: self.token.kind,
                 line_num: self.token.line_num,
                 ptr: self.token.ptr,
                 data: std::mem::replace(&mut self.token.data, TokenData::None),
@@ -218,7 +218,7 @@ impl<'s> JSParseState<'s> {
             self.parse_expr()?;
 
             depth += 1;
-            if self.token.val != TokenKind::Char('}') {
+            if self.token.kind != TokenKind::Char('}') {
                 self.throw_syntax_error("expected '}' after template expression");
                 return Err(-1);
             }

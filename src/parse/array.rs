@@ -17,8 +17,8 @@ pub fn js_parse_array_literal(s: &mut JSParseState) -> i32 {
     let mut idx = 0_u32;
 
     // small regular arrays are created on the stack
-    while s.token.val != TokenKind::Char(']') && idx < 32 {
-        if matches!(s.token.val, TokenKind::Char(',') | TokenKind::ELLIPSIS) {
+    while s.token.kind != TokenKind::Char(']') && idx < 32 {
+        if matches!(s.token.kind, TokenKind::Char(',') | TokenKind::ELLIPSIS) {
             break;
         }
         if s.parse_assign_expr().is_err() {
@@ -26,11 +26,11 @@ pub fn js_parse_array_literal(s: &mut JSParseState) -> i32 {
         }
         idx += 1;
         // accept trailing comma
-        if s.token.val == TokenKind::Char(',') {
+        if s.token.kind == TokenKind::Char(',') {
             if s.next_token().is_err() {
                 return -1;
             }
-        } else if s.token.val != TokenKind::Char(']') {
+        } else if s.token.kind != TokenKind::Char(']') {
             done!();
         }
     }
@@ -40,12 +40,12 @@ pub fn js_parse_array_literal(s: &mut JSParseState) -> i32 {
 
     // larger arrays and holes are handled with explicit indices
     let mut need_length = false;
-    while s.token.val != TokenKind::Char(']') && idx < 0x7fffffff {
-        if s.token.val == TokenKind::ELLIPSIS {
+    while s.token.kind != TokenKind::Char(']') && idx < 0x7fffffff {
+        if s.token.kind == TokenKind::ELLIPSIS {
             break;
         }
         need_length = true;
-        if s.token.val != TokenKind::Char(',') {
+        if s.token.kind != TokenKind::Char(',') {
             if s.parse_assign_expr().is_err() {
                 return -1;
             }
@@ -56,12 +56,12 @@ pub fn js_parse_array_literal(s: &mut JSParseState) -> i32 {
         idx += 1;
 
         // accept trailing comma
-        if s.token.val == TokenKind::Char(',') && s.next_token().is_err() {
+        if s.token.kind == TokenKind::Char(',') && s.next_token().is_err() {
             return -1;
         }
     }
 
-    if s.token.val == TokenKind::Char(']') {
+    if s.token.kind == TokenKind::Char(']') {
         if need_length {
             // Set the length: Cannot use OP_define_field because
             // length is not configurable
@@ -79,8 +79,8 @@ pub fn js_parse_array_literal(s: &mut JSParseState) -> i32 {
     s.emit_u32(idx);
 
     // stack has array, index
-    while s.token.val != TokenKind::Char(']') {
-        if s.token.val == TokenKind::ELLIPSIS {
+    while s.token.kind != TokenKind::Char(']') {
+        if s.token.kind == TokenKind::ELLIPSIS {
             if s.next_token().is_err() {
                 return -1;
             }
@@ -119,7 +119,7 @@ pub fn js_parse_array_literal(s: &mut JSParseState) -> i32 {
             // }
         } else {
             need_length = true;
-            if s.token.val != TokenKind::Char(',') {
+            if s.token.kind != TokenKind::Char(',') {
                 if s.parse_assign_expr().is_err() {
                     return -1;
                 }
@@ -129,7 +129,7 @@ pub fn js_parse_array_literal(s: &mut JSParseState) -> i32 {
             }
             s.emit_op(OpCode::INC);
         }
-        if s.token.val != TokenKind::Char(',') {
+        if s.token.kind != TokenKind::Char(',') {
             break;
         }
         if s.next_token().is_err() {

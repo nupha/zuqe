@@ -20,13 +20,13 @@ use super::{
 impl<'s> JSParseState<'s> {
     // allowed parse_flags: PF_IN_ACCEPTED
     pub(super) fn parse_assign_expr2(&mut self, parse_flags: i32) -> Result<(), i32> {
-        if self.token.val == TokenKind::YIELD {
+        if self.token.kind == TokenKind::YIELD {
             return self.parse_yield(parse_flags);
         }
 
         // name0 is used to check for OP_set_name pattern,
         // this atom is not duplicated
-        let name0 = if self.token.val == TokenKind::IDENT {
+        let name0 = if self.token.kind == TokenKind::IDENT {
             self.token.atom().unwrap()
         } else {
             Atom::NULL
@@ -37,7 +37,7 @@ impl<'s> JSParseState<'s> {
         let mut opcode: i32 = 0;
         let mut scope: i32 = 0;
 
-        match self.token.val {
+        match self.token.kind {
             op if op == TokenKind::Char('=') || op.is_op_assign() => {
                 self.next_token()?;
 
@@ -169,7 +169,7 @@ impl<'s> JSParseState<'s> {
                 self.cur_func_mut().last_opcode_pos = -1;
             }
 
-            if self.token.val != TokenKind::Char(',') {
+            if self.token.kind != TokenKind::Char(',') {
                 break;
             }
 
@@ -208,7 +208,7 @@ impl<'s> JSParseState<'s> {
         let mut accept_lparen: bool = (parse_flags & PF_POSTFIX_CALL) != 0;
         let mut call_type = FuncCallType::FUNC_CALL_NORMAL;
 
-        match self.token.val {
+        match self.token.kind {
             TokenKind::NUMBER => {
                 match self.token.data.number().unwrap() {
                     IntOrFloat::Int64(i) if (i32::MIN as i64..=i32::MAX as i64).contains(&i) => {
@@ -322,7 +322,7 @@ impl<'s> JSParseState<'s> {
 
                     self.next_token()?;
 
-                    if self.token.val == TokenKind::FUNCTION {
+                    if self.token.kind == TokenKind::FUNCTION {
                         self.parse_function_decl(
                             JSParseFunctionEnum::JS_PARSE_FUNC_EXPR,
                             JSFunctionKindEnum::JS_FUNC_ASYNC,
@@ -330,11 +330,11 @@ impl<'s> JSParseState<'s> {
                             source_line_num,
                         )?;
                     } else if (parse_flags & PF_ARROW_FUNC) != 0
-                        && (self.token.val == TokenKind::Char('(') && {
+                        && (self.token.kind == TokenKind::Char('(') && {
                             let mut _p = 0;
                             self.parse_skip_parens_token(&mut _p, true)? == TokenKind::ARROW
                         })
-                        || (self.token.val == TokenKind::IDENT
+                        || (self.token.kind == TokenKind::IDENT
                             && !self.token.data.is_reserved()
                             && self.peek_token(true) == TokenKind::ARROW)
                     {
@@ -380,7 +380,7 @@ impl<'s> JSParseState<'s> {
                         true,
                         false,
                     )?;
-                } else if self.token.val == TokenKind::Char('{') {
+                } else if self.token.kind == TokenKind::Char('{') {
                     self.parse_object_literal()?;
                 } else if js_parse_array_literal(self) != 0 {
                     return Err(-1);
@@ -389,7 +389,7 @@ impl<'s> JSParseState<'s> {
             TokenKind::NEW => {
                 self.next_token()?;
 
-                if self.token.val == TokenKind::Char('.') {
+                if self.token.kind == TokenKind::Char('.') {
                     self.next_token()?;
 
                     if !self.token_is_pseudo_keyword(Atom::CONST_target) {
@@ -410,7 +410,7 @@ impl<'s> JSParseState<'s> {
                     self.parse_postfix_expr(0)?;
 
                     accept_lparen = true;
-                    if self.token.val != TokenKind::Char('(') {
+                    if self.token.kind != TokenKind::Char('(') {
                         /* new operator on an object */
                         self.emit_op(OpCode::DUP);
                         self.emit_op(OpCode::CALL_CONSTRUCTOR);
@@ -422,7 +422,7 @@ impl<'s> JSParseState<'s> {
             }
             TokenKind::SUPER => {
                 self.next_token()?;
-                if self.token.val == TokenKind::Char('(') {
+                if self.token.kind == TokenKind::Char('(') {
                     if !self.cur_func().attrs.super_call_allowed {
                         self.throw_syntax_error(
                             "super() is only valid in a derived class constructor",
@@ -430,7 +430,7 @@ impl<'s> JSParseState<'s> {
                         return Err(-1);
                     }
                     call_type = FuncCallType::FUNC_CALL_SUPER_CTOR;
-                } else if matches!(self.token.val, TokenKind::Char('.' | '[')) {
+                } else if matches!(self.token.kind, TokenKind::Char('.' | '[')) {
                     if !self.cur_func().attrs.super_allowed {
                         self.throw_syntax_error("'super' is only valid in a method");
                         return Err(-1);
@@ -450,7 +450,7 @@ impl<'s> JSParseState<'s> {
             }
             TokenKind::IMPORT => {
                 self.next_token()?;
-                if self.token.val == TokenKind::Char('.') {
+                if self.token.kind == TokenKind::Char('.') {
                     self.next_token()?;
 
                     if !self.token_is_pseudo_keyword(Atom::CONST_meta) {
@@ -492,20 +492,20 @@ impl<'s> JSParseState<'s> {
         loop {
             let mut has_optional_chain: bool = false;
 
-            if self.token.val == TokenKind::QUESTION_MARK_DOT {
+            if self.token.kind == TokenKind::QUESTION_MARK_DOT {
                 // optional chaining
                 self.next_token()?;
 
                 has_optional_chain = true;
 
-                if self.token.val == TokenKind::Char('(') && accept_lparen {
+                if self.token.kind == TokenKind::Char('(') && accept_lparen {
                     self.parse_func_call(
                         call_type,
                         has_optional_chain,
                         &mut optional_chaining_label,
                     )?;
                     call_type = FuncCallType::FUNC_CALL_NORMAL;
-                } else if self.token.val == TokenKind::Char('[') {
+                } else if self.token.kind == TokenKind::Char('[') {
                     self.parse_array_access(
                         unsafe { self.cur_func_def.as_ref().unwrap() },
                         has_optional_chain,
@@ -518,7 +518,7 @@ impl<'s> JSParseState<'s> {
                         &mut optional_chaining_label,
                     )?;
                 }
-            } else if self.token.val == TokenKind::TEMPLATE
+            } else if self.token.kind == TokenKind::TEMPLATE
                 && call_type == FuncCallType::FUNC_CALL_NORMAL
             {
                 if optional_chaining_label >= 0 {
@@ -541,18 +541,18 @@ impl<'s> JSParseState<'s> {
                     opcode,
                     argc as _,
                 );
-            } else if self.token.val == TokenKind::Char('(') && accept_lparen {
+            } else if self.token.kind == TokenKind::Char('(') && accept_lparen {
                 // function call
                 self.parse_func_call(call_type, has_optional_chain, &mut optional_chaining_label)?;
                 call_type = FuncCallType::FUNC_CALL_NORMAL;
-            } else if self.token.val == TokenKind::Char('.') {
+            } else if self.token.kind == TokenKind::Char('.') {
                 self.next_token()?;
                 self.parse_property(
                     unsafe { self.cur_func_def.as_ref().unwrap() },
                     has_optional_chain,
                     &mut optional_chaining_label,
                 )?;
-            } else if self.token.val == TokenKind::Char('[') {
+            } else if self.token.kind == TokenKind::Char('[') {
                 self.parse_array_access(
                     unsafe { self.cur_func_def.as_ref().unwrap() },
                     has_optional_chain,

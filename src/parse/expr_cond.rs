@@ -11,7 +11,7 @@ impl<'s> JSParseState<'s> {
     pub(super) fn parse_cond_expr(&mut self, parse_flags: i32) -> Result<(), i32> {
         self.parse_coalesce_expr(parse_flags)?;
 
-        if self.token.val == TokenKind::Char('?') {
+        if self.token.kind == TokenKind::Char('?') {
             self.next_token()?;
 
             self.with_cur_func_mut(|s, fd| -> Result<(), i32> {
@@ -37,7 +37,7 @@ impl<'s> JSParseState<'s> {
     fn parse_coalesce_expr(&mut self, parse_flags: i32) -> Result<(), i32> {
         self.parse_logical_and_or(TokenKind::LOR, parse_flags)?;
 
-        if self.token.val == TokenKind::DOUBLE_QUESTION_MARK {
+        if self.token.kind == TokenKind::DOUBLE_QUESTION_MARK {
             self.with_cur_func_mut(|s, fd| -> Result<(), i32> {
                 let label1 = fd.add_label()? as i32;
 
@@ -52,7 +52,7 @@ impl<'s> JSParseState<'s> {
 
                     s.parse_expr_binary(8, parse_flags & !PF_ARROW_FUNC)?;
 
-                    if s.token.val != TokenKind::DOUBLE_QUESTION_MARK {
+                    if s.token.kind != TokenKind::DOUBLE_QUESTION_MARK {
                         break;
                     }
                 }
@@ -74,7 +74,7 @@ impl<'s> JSParseState<'s> {
             self.parse_logical_and_or(TokenKind::LAND, parse_flags)?;
         }
 
-        if self.token.val == op {
+        if self.token.kind == op {
             let label1 = self.cur_func_mut().add_label()? as i32;
 
             loop {
@@ -97,8 +97,8 @@ impl<'s> JSParseState<'s> {
                     self.parse_logical_and_or(TokenKind::LAND, parse_flags & !PF_ARROW_FUNC)?;
                 }
 
-                if self.token.val != op {
-                    if self.token.val == TokenKind::DOUBLE_QUESTION_MARK {
+                if self.token.kind != op {
+                    if self.token.kind == TokenKind::DOUBLE_QUESTION_MARK {
                         self.throw_syntax_error("cannot mix ?? with && or ||");
                         return Err(-1);
                     }
