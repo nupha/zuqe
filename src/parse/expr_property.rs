@@ -25,7 +25,7 @@ impl<'s> JSParseState<'s> {
             self.emit_atom(self.token.atom().unwrap());
             self.emit_u16(self.cur_func().scope_level as _);
         } else {
-            if !Self::token_is_ident(self.token.kind) {
+            if !self.token.kind.is_ident() {
                 self.throw_syntax_error("expecting field name");
                 return Err(-1);
             }

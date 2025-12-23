@@ -215,7 +215,7 @@ impl<'s> JSParseState<'s> {
                     self.next_token()?;
                     private = PROP_TYPE_PRIVATE;
                 }
-                t if Self::token_is_ident(t) => {
+                t if t.is_ident() => {
                     /* variable can only be a non-reserved identifier */
                     is_non_reserved_ident =
                         self.token.kind == TokenKind::IDENT && !self.token.data.is_reserved();

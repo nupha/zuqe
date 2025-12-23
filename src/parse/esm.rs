@@ -99,7 +99,7 @@ impl<'s> JSParseState<'s> {
 
                         self.next_token()?;
 
-                        if !Self::token_is_ident(self.token.kind) {
+                        if !self.token.kind.is_ident() {
                             self.throw_syntax_error("identifier expected");
                             return Err(-1);
                         }
@@ -133,7 +133,7 @@ impl<'s> JSParseState<'s> {
                             let local_name = if self.token_is_pseudo_keyword(Atom::CONST_as) {
                                 self.next_token()?;
 
-                                if !Self::token_is_ident(self.token.kind) {
+                                if !self.token.kind.is_ident() {
                                     self.throw_syntax_error("identifier expected");
                                     return Err(-1);
                                 }

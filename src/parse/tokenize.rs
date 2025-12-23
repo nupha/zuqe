@@ -19,6 +19,12 @@ use super::{
 include!(concat!(env!("OUT_DIR"), "/tokens.rs"));
 
 impl TokenKind {
+    #[inline(always)]
+    pub(super) fn is_ident(&self) -> bool {
+        // Accept keywords and reserved words as property names
+        matches!(self, TokenKind::IDENT) || self.is_keyword()
+    }
+
     /// in range Self::MUL_ASSIGN..=Self::POW_ASSIGN
     #[inline(always)]
     pub fn is_op_assign(&self) -> bool {
@@ -76,6 +82,7 @@ pub(super) struct Token {
     pub line_num: i32,
     /// raw point (within input buf) to start of token
     pub ptr: *const u8,
+    /// token data
     pub data: TokenData,
 }
 
@@ -108,11 +115,9 @@ impl Token {
 }
 
 #[derive(Debug, Default)]
-pub enum TokenData {
+pub(super) enum TokenData {
     #[default]
     None,
-    #[deprecated]
-    Char(char),
     Str {
         str: StringBuf,
         sep: i32,
@@ -216,7 +221,7 @@ impl<'s> JSParseState<'s> {
 
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         enum Todo {
-            Char(char),
+            Ascii(u8),
             HasIdent(char, bool),
             ParseNumber,
             SyntaxError,
@@ -297,7 +302,7 @@ impl<'s> JSParseState<'s> {
                             }
                             _ => {
                                 self.token.kind = TokenKind::Char('/');
-                                self.token.data = TokenData::Char('/')
+                                self.token.data = TokenData::None;
                             }
                         }
                     }
@@ -328,7 +333,7 @@ impl<'s> JSParseState<'s> {
                             return Err(-1);
                         }
                     } else {
-                        todo = Some(Todo::Char('\\'));
+                        todo = Some(Todo::Ascii(b'\\'));
                     }
                 }
                 CharCode::Char(ch @ ('a'..='z' | 'A'..='Z' | '_' | '$')) => {
@@ -395,7 +400,7 @@ impl<'s> JSParseState<'s> {
                             todo = Some(Todo::ParseNumber);
                         }
                         _ => {
-                            todo = Some(Todo::Char('.'));
+                            todo = Some(Todo::Ascii(b'.'));
                         }
                     }
                 }
@@ -434,7 +439,7 @@ impl<'s> JSParseState<'s> {
                             self.token.data = TokenData::None;
                         }
                         _ => {
-                            todo = Some(Todo::Char('*'));
+                            todo = Some(Todo::Ascii(b'*'));
                         }
                     }
                 }
@@ -444,7 +449,7 @@ impl<'s> JSParseState<'s> {
                         self.token.kind = TokenKind::MOD_ASSIGN;
                         self.token.data = TokenData::None;
                     } else {
-                        todo = Some(Todo::Char('%'));
+                        todo = Some(Todo::Ascii(b'%'));
                     }
                 }
                 CharCode::Char('+') => match input.current_byte() {
@@ -459,7 +464,7 @@ impl<'s> JSParseState<'s> {
                         self.token.data = TokenData::None;
                     }
                     _ => {
-                        todo = Some(Todo::Char('+'));
+                        todo = Some(Todo::Ascii(b'+'));
                     }
                 },
                 CharCode::Char('-') => {
@@ -486,7 +491,7 @@ impl<'s> JSParseState<'s> {
                             }
                         }
                         _ => {
-                            todo = Some(Todo::Char('-'));
+                            todo = Some(Todo::Ascii(b'-'));
                         }
                     }
                 }
@@ -517,7 +522,7 @@ impl<'s> JSParseState<'s> {
                             continue;
                         }
                         _ => {
-                            todo = Some(Todo::Char('<'));
+                            todo = Some(Todo::Ascii(b'<'));
                         }
                     }
                 }
@@ -557,7 +562,7 @@ impl<'s> JSParseState<'s> {
                             self.token.data = TokenData::None;
                         }
                         _ => {
-                            todo = Some(Todo::Char('>'));
+                            todo = Some(Todo::Ascii(b'>'));
                         }
                     }
                 }
@@ -586,7 +591,7 @@ impl<'s> JSParseState<'s> {
                         }
                         _ => {
                             self.token.kind = TokenKind::Char('=');
-                            self.token.data = TokenData::Char('=');
+                            self.token.data = TokenData::None;
                         }
                     }
                 }
@@ -608,7 +613,7 @@ impl<'s> JSParseState<'s> {
                             }
                         }
                         _ => {
-                            todo = Some(Todo::Char('!'));
+                            todo = Some(Todo::Ascii(b'!'));
                         }
                     }
                 }
@@ -635,7 +640,7 @@ impl<'s> JSParseState<'s> {
                             self.token.data = TokenData::None;
                         }
                         _ => {
-                            todo = Some(Todo::Char('&'));
+                            todo = Some(Todo::Ascii(b'&'));
                         }
                     }
                 }
@@ -646,7 +651,7 @@ impl<'s> JSParseState<'s> {
                         self.token.kind = TokenKind::XOR_ASSIGN;
                         self.token.data = TokenData::None;
                     } else {
-                        todo = Some(Todo::Char('^'))
+                        todo = Some(Todo::Ascii(b'^'))
                     }
                 }
                 CharCode::Char('|') => {
@@ -672,7 +677,7 @@ impl<'s> JSParseState<'s> {
                             self.token.data = TokenData::None;
                         }
                         _ => {
-                            todo = Some(Todo::Char('|'));
+                            todo = Some(Todo::Ascii(b'|'));
                         }
                     }
                 }
@@ -699,7 +704,7 @@ impl<'s> JSParseState<'s> {
                             self.token.data = TokenData::None;
                         }
                         _ => {
-                            todo = Some(Todo::Char('?'));
+                            todo = Some(Todo::Ascii(b'?'));
                         }
                     }
                 }
@@ -715,7 +720,7 @@ impl<'s> JSParseState<'s> {
                     }
 
                     todo = if ch.is_ascii() {
-                        Some(Todo::Char(ch))
+                        Some(Todo::Ascii(ch as u8))
                     } else {
                         // non-ascii
                         if JSParseState::is_ident_first(ch) {
@@ -735,8 +740,8 @@ impl<'s> JSParseState<'s> {
 
             if let Some(what) = todo.take() {
                 match what {
-                    Todo::Char(ch) => {
-                        self.token.kind = TokenKind::Char(ch);
+                    Todo::Ascii(ch) => {
+                        self.token.kind = TokenKind::Char(ch as _);
                         self.token.data = TokenData::None;
                     }
                     Todo::HasIdent(first_char, escaped) => {
@@ -886,13 +891,7 @@ impl<'s> JSParseState<'s> {
     }
 
     #[inline(always)]
-    pub fn token_is_ident(tok: TokenKind) -> bool {
-        // Accept keywords and reserved words as property names
-        matches!(tok, TokenKind::IDENT) || tok.is_keyword()
-    }
-
-    #[inline(always)]
-    pub fn token_is_pseudo_keyword(&self, atom: Atom) -> bool {
+    pub(super) fn token_is_pseudo_keyword(&self, atom: Atom) -> bool {
         self.token.kind == TokenKind::IDENT
             && self.token.data.ident_atom().is_some_and(|a| a == atom)
             && !self.token.data.ident_has_escape()
