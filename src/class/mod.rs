@@ -29,8 +29,7 @@ pub type ClassCallFn = fn(
 
 /// initialize class proto, constructor to ctx.
 /// returns the class proto object created for specified ctx.
-pub type ClassInitializeFn =
-    fn(ctx: Context, class_id: ClassID) -> Result<Option<ObjectRef>, i32>;
+pub type ClassInitializeFn = fn(ctx: Context, class_id: ClassID) -> Result<Option<ObjectRef>, i32>;
 
 /// class instance finalize callback.
 pub type ClassFinalizeFn = fn(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize);

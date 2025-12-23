@@ -1442,15 +1442,6 @@ impl Bytecode {
                         } else {
                             break State::Exception;
                         }
-
-                        // let r = js_for_of_start(ctx, sp, is_async);
-                        // if unlikely(r.is_err()) {
-                        //     break State::Exception;
-                        // } else {
-                        //     SP_GO!(1);
-                        //     SP_PUT!(0, JSValue::CatchOffset(0)); // mark for_of_start
-                        //     SP_GO!(1);
-                        // }
                     }
                     OpCode::FOR_OF_NEXT => {
                         let offset = -3 - PC_FETCH!(u8) as i32;
