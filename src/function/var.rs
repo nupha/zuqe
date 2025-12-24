@@ -239,7 +239,6 @@ impl JSFunctionDef {
     }
 
     #[inline]
-    /// `name` is not consumed.
     pub fn find_lexical_global_var(&self, name: Atom) -> Option<&JSGlobalVar> {
         self.find_global_var(name)
             .and_then(|v| if v.is_lexical() { Some(v) } else { None })
@@ -253,7 +252,6 @@ impl JSFunctionDef {
     }
 
     /// add new argument to the function, returns arg index or error.
-    /// `name` is not consumed.
     pub fn add_arg(&mut self, ctx: &ContextImpl, name: Atom) -> Result<u16, i32> {
         // the local variable indexes are currently stored on 16 bits
         if self.args.len() >= JS_MAX_LOCAL_VARS as usize {
@@ -370,7 +368,6 @@ impl JSFunctionDef {
     }
 
     /// find argument var by `name`.
-    /// `name` is not consumed.
     ///
     /// returns
     /// * the variable index or'ed with ARGUMENT_VAR_OFFSET as var id
@@ -391,7 +388,6 @@ impl JSFunctionDef {
 
     /// find variable by `name`. if `name` is not found in vars, find it in arguments.
     /// for argument var, returned id is or'ed with ARGUMENT_VAR_OFFSET.
-    /// `name` is not consumed.
     pub fn find_var(&self, name: Atom) -> Option<u32> {
         self.vars
             .iter()
@@ -404,7 +400,7 @@ impl JSFunctionDef {
                     None
                 }
             })
-            .or(self.find_arg(name)) // not found is vars, then search in args
+            .or(self.find_arg(name)) // not found is vars, search in args
     }
 
     /// will check global lexcical only when `scope` is minus.
