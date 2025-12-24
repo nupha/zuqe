@@ -328,16 +328,16 @@ impl<'a> Utf8Stream<'a> {
     }
 
     /// get N bytes since current position (inclusive), to given `buf`.
-    /// returns actual bytes count.
-    pub fn peek_bytes(&self, buf: &mut [u8]) -> usize {
+    /// returns actual bytes slice.
+    pub fn peek_bytes<'b>(&self, buf: &'b mut [u8]) -> &'b [u8] {
         if self.index < self.bytes.len() {
             let cnt = std::cmp::min(self.bytes.len() - self.index, buf.len());
             unsafe {
                 std::ptr::copy(self.bytes.as_ptr().add(self.index), buf.as_mut_ptr(), cnt);
             }
-            cnt
+            &buf[..cnt]
         } else {
-            0
+            &[]
         }
     }
 

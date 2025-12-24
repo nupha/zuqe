@@ -1,7 +1,7 @@
 use std::{borrow::Cow, cell::Cell, ops::Range, rc::Rc};
 
 use gc_lite::{GcRef, GcTracable};
-use regex::bytes::{Regex, RegexBuilder};
+use pcre2::bytes::{Regex, RegexBuilder};
 
 use crate::{
     JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR,
@@ -12,7 +12,7 @@ use crate::{
         JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, ObjectImpl, ObjectPayload, ObjectRef,
     },
     object_cast,
-    string::{StringData, StringRef, map_utf8_to_utf16_range},
+    string::{CharCode, StringData, StringRef, Utf8Stream, map_utf8_to_utf16_range},
     value::JSValue,
 };
 
@@ -151,90 +151,169 @@ impl RegExpData {
             }
         }
 
-        // Note: pattern `[]`， `[^]` is valid for js, but is invalid for Regex.
-        // should replace with equivalent pattern for Regex.
-        let pat: Cow<str> = match pattern {
-            "[]" => {
-                // pattern `[]` is not allowed in regex.
-                // use `$^` to mimic equivelent effect.
-                "$^"
-            }
-            "[^]" => {
-                // pattern `[^]` is not allowed in regex.
-                // use `.` to mimic equivelent effect.
-                "."
-            }
-            _ => pattern,
-        }
-        .into();
-
         // in some cases, regexp is supposed to enable unicode mode by default:
         // 1. pattern contains non-ascii characters
         // 2. pattern has \xFF or \uFFFF pattern char.
-        if !pat.is_ascii() {
+        if !pattern.is_ascii() {
             ff |= LRE_FLAG_UTF16 as u8;
         }
 
-        // let cnt_slash = pat.chars().filter(|x| *x == '\\').count();
-        // if cnt_slash > 0 {
-        //     // has escape
-        //     let mut pat2 = String::with_capacity(pat.len() + cnt_slash);
-        //     let mut has_unicode = ff & LRE_FLAG_UTF16 as u8 != 0;
-        //     let mut expect_hex: Option<i32> = None;
-        //     let mut it = pattern.chars().peekable();
+        //
+        // fix behaviour difference between ECMAScript and PCRE2 regexp.
+        //
+        if pattern.eq("\\") {
+            ctx.throw_syntax_error("Invalid RegExp pattern");
+            return Err(-1);
+        }
+        if pattern.starts_with('^') || pattern.ends_with('$') {
+            ff |= LRE_FLAG_MULTILINE as u8;
+        }
 
-        //     while let Some(c) = it.next() {
-        //         pat2.push(c);
-        //         if c == '\\' {
-        //             //pat2.push('\\');
-        //         }
+        let mut is_unicode = ff & LRE_FLAG_UTF16 as u8 != 0;
 
-        //         // match c {
-        //         //     '\\' => {
-        //         //         if let Some(c1) = it.peek() {
-        //         //             match *c1 {
-        //         //                 'x' if !has_unicode => {
-        //         //                     // \xFF
-        //         //                     expect_hex = Some(2);
-        //         //                     it.next();
-        //         //                     pat2.push('x');
-        //         //                 }
-        //         //                 'u' if !has_unicode => {
-        //         //                     // \uFFFF
-        //         //                     expect_hex = Some(4);
-        //         //                     it.next();
-        //         //                     pat2.push('u');
-        //         //                 }
-        //         //                 '>' | '<' => {
-        //         //                     // replace `\>` with `>`, `\\<` with `<`
-        //         //                     pat2.pop(); // chop `\`
-        //         //                 }
-        //         //                 _ => {}
-        //         //             }
-        //         //         }
-        //         //     }
-        //         //     '0'..='9' | 'A'..='F' | 'a'..='f' if !has_unicode => {
-        //         //         if let Some(cnt) = &mut expect_hex {
-        //         //             *cnt -= 1;
-        //         //             if *cnt == 0 {
-        //         //                 ff |= LRE_FLAG_UTF16 as u8;
-        //         //                 has_unicode = true;
-        //         //                 expect_hex = None;
-        //         //             }
-        //         //         }
-        //         //     }
-        //         //     _ => {}
-        //         // }
-        //     }
+        let pat: Cow<'_, str> = if pattern
+            .as_bytes()
+            .iter()
+            .any(|x| matches!(*x, b'\\' | b'['))
+        {
+            let mut buf = String::with_capacity(pattern.len() * 3 / 2);
+            let mut sio = Utf8Stream::new(pattern.as_bytes());
 
-        //     pat = Cow::Owned(pat2);
-        // }
+            while let Some((_, cc)) = sio.next() {
+                match cc {
+                    CharCode::Char('\\') => {
+                        if let Some(b) = sio.current_byte() {
+                            match b {
+                                b'd' => {
+                                    // \d -> [0-9]
+                                    buf.push_str("[0-9]");
+                                    sio.move_cursor_by(1);
+                                }
+                                b'w' => {
+                                    // \w -> [0-9A-Za-z_]
+                                    buf.push_str("[0-9A-Za-z_]");
+                                    sio.move_cursor_by(1);
+                                }
+                                b's' => {
+                                    // \s -> [ \t\n\r]
+                                    buf.push_str(r#"[ \t\n\r]"#);
+                                    sio.move_cursor_by(1);
+                                }
+                                b'S' => {
+                                    // \S -> ...
+                                    ff |= LRE_FLAG_UTF16 as u8;
+                                    is_unicode = true;
+                                    buf.push_str(r#"[\S&&[^\xFEFF]]"#);
+                                    sio.move_cursor_by(1);
+                                }
+                                _ => {
+                                    buf.push('\\');
+                                }
+                            }
+                        }
+                    }
+                    CharCode::Char('[') => {
+                        let mut bb = [0u8; 2];
+                        sio.peek_bytes(&mut bb);
+                        match (bb[0], bb[1]) {
+                            (b']', _) => {
+                                // [] -> (?!)
+                                buf.push_str("(?!)");
+                                sio.move_cursor_by(1);
+                            }
+                            (b'^', b']') => {
+                                // [^] -> [\s\S]
+                                buf.push_str("[\\s\\S]");
+                                sio.move_cursor_by(2);
+                            }
+                            _ => {
+                                buf.push('[');
+                            }
+                        }
+                    }
+                    CharCode::Char(c) => {
+                        buf.push(c);
+                    }
+                    CharCode::Code(_) => {
+                        ctx.throw_syntax_error("invalid UTF-8 sequence");
+                        return Err(-1);
+                    }
+                }
+            }
 
-        let re = RegexBuilder::new(pat.as_ref())
-            .unicode(ff & LRE_FLAG_UTF16 as u8 != 0)
+            // let mut expect_hex: Option<i32> = None;
+            // let mut it = pattern.chars().peekable();
+            // while let Some(c) = it.next() {
+            //     match c {
+            //         '\\' => {
+            //             if let Some(c1) = it.peek() {
+            //                 match *c1 {
+            //                     'd' if is_unicode => {
+            //                         // \d -> [0-9]
+            //                         pat2.push_str("[0-9]");
+            //                         it.next();
+            //                     }
+            //                     'w' => {
+            //                         // \w -> [0-9A-Za-z_]
+            //                         pat2.push_str("[0-9A-Za-z_]");
+            //                         it.next();
+            //                     }
+            //                     's' => {
+            //                         // \s -> [ \t\n\r]
+            //                         pat2.push_str("[ \t\n\r]");
+            //                         it.next();
+            //                     }
+            //                     // 'x' if !is_unicode => {
+            //                     //     // \xFF
+            //                     //     expect_hex = Some(2);
+            //                     //     it.next();
+            //                     //     pat2.push('x');
+            //                     // }
+            //                     // 'u' if !is_unicode => {
+            //                     //     // \uFFFF
+            //                     //     expect_hex = Some(4);
+            //                     //     it.next();
+            //                     //     pat2.push('u');
+            //                     // }
+            //                     // '>' | '<' => {
+            //                     //     // replace `\>` with `>`, `\\<` with `<`
+            //                     //     pat2.pop(); // chop `\`
+            //                     // }
+            //                     _ => {
+            //                         pat2.push('\\');
+            //                     }
+            //                 }
+            //             }
+            //         }
+            //         '0'..='9' | 'A'..='F' | 'a'..='f' if !is_unicode => {
+            //             if let Some(cnt) = &mut expect_hex {
+            //                 *cnt -= 1;
+            //                 if *cnt == 0 {
+            //                     ff |= LRE_FLAG_UTF16 as u8;
+            //                     is_unicode = true;
+            //                     expect_hex = None;
+            //                 }
+            //             }
+            //         }
+            //         _ => {
+            //             pat2.push(c);
+            //         }
+            //     }
+            // }
+
+            buf.into()
+        } else {
+            pattern.into()
+        };
+
+        let re = RegexBuilder::new()
+            .utf(is_unicode)
+            .ucp(ff & LRE_FLAG_UTF16 as u8 != 0)
             .multi_line(ff & LRE_FLAG_MULTILINE as u8 != 0)
-            .case_insensitive(ff & LRE_FLAG_IGNORECASE as u8 != 0)
-            .build()
+            .caseless(ff & LRE_FLAG_IGNORECASE as u8 != 0)
+            .dotall(ff & LRE_FLAG_DOTALL as u8 != 0)
+            .crlf(true)
+            .build(pat.as_ref())
             .map_err(|e| {
                 ctx.throw_syntax_error(&e.to_string());
                 -1
@@ -277,6 +356,13 @@ impl RegExpData {
             .find_iter(utf8_str.as_bytes())
             .take(if is_global { usize::MAX } else { 1 })
         {
+            let m = m
+                .map_err(|e| {
+                    eprintln!("[O.o] RegExp error: {e}");
+                    -1
+                })
+                .unwrap();
+
             if is_sticky && m.start() != cursor {
                 break;
             }
@@ -285,9 +371,9 @@ impl RegExpData {
 
             let range = if let Some(w) = content.utf16() {
                 let s16 = &w[from..];
-                map_utf8_to_utf16_range(utf8_str.as_bytes(), s16, m.range())
+                map_utf8_to_utf16_range(utf8_str.as_bytes(), s16, m.start()..m.end())
             } else {
-                m.range()
+                m.start()..m.end()
             };
 
             let start_index = range.start + from;
@@ -314,20 +400,35 @@ impl RegExpData {
 
         let utf8_str = content.to_utf8_range(from..content.len(), false);
 
-        if let Some(caps) = self.regex.captures(utf8_str.as_bytes()) {
+        if let Some(caps) = self
+            .regex
+            .captures(utf8_str.as_bytes())
+            .map_err(|e| {
+                eprintln!("[O.o] RegExp error: {e}");
+                -1
+            })
+            .unwrap()
+        {
             if self.flags & LRE_FLAG_STICKY as u8 != 0 && caps.get(0).unwrap().start() != 0 {
                 return None;
             }
 
             let mut res = Vec::<(Option<Range<usize>>, Option<&str>)>::new();
+            let names = self.regex.capture_names();
 
-            for (cap, name) in caps.iter().zip(self.regex.capture_names()) {
-                if let Some(m) = cap {
+            for i in 0..caps.len() {
+                let name = if let Some(n) = names.get(i) {
+                    n.as_deref()
+                } else {
+                    None
+                };
+
+                if let Some(m) = caps.get(i) {
                     let range = if let Some(w) = content.utf16() {
                         let s16 = &w[from..];
-                        map_utf8_to_utf16_range(utf8_str.as_bytes(), s16, m.range())
+                        map_utf8_to_utf16_range(utf8_str.as_bytes(), s16, m.start()..m.end())
                     } else {
-                        m.range()
+                        m.start()..m.end()
                     };
 
                     let start_index = range.start + from;

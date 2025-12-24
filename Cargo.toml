@@ -59,10 +59,7 @@ fallible_collections = "0.5"
 unicode-xid = "0.2"
 unicode-normalization = "0.1"
 gc-lite = { version = "0.3", path = "../gc-lite-v2" }
-regex = { version = "1.11", default-features = false, features = [
-    "std",
-    "unicode-case",
-] }
+pcre2 = "0.2"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
