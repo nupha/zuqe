@@ -271,12 +271,13 @@ impl StringData {
         matches!(self, Self::Utf16(_))
     }
 
-    /// get u8 slice if content is ascii
+    /// get u8 slice if content is ascii only
     pub fn ascii(&self) -> Option<&[u8]> {
-        if let Self::Ascii(s) = self {
-            Some(s.as_ref())
-        } else {
-            None
+        match self {
+            Self::Ascii(s) => Some(s.as_ref()),
+            Self::AsciiStatic(s) => Some(s.as_bytes()),
+            Self::Empty | Self::Ident => Some(&[]),
+            Self::Utf16(_) => None,
         }
     }
 

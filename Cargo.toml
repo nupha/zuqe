@@ -58,8 +58,9 @@ widestring = "1.1"
 fallible_collections = "0.5"
 unicode-xid = "0.2"
 unicode-normalization = "0.1"
+zerocopy = "0.8"
 gc-lite = { version = "0.3", path = "../gc-lite-v2" }
-pcre2 = "0.2"
+lre = { version = "0.1", path = "../libregexp-rs" }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
