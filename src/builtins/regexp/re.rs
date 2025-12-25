@@ -13,7 +13,7 @@ use crate::{
         JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, ObjectImpl, ObjectPayload, ObjectRef,
     },
     object_cast,
-    string::{StringData, StringRef, map_utf8_to_utf16_range},
+    string::{StringData, StringRef},
     value::JSValue,
 };
 
@@ -121,39 +121,29 @@ impl RegExpData {
         pattern: &str,
         flags: impl Iterator<Item = char>,
     ) -> Result<(Regex, LreFlags), i32> {
-        let mut ff = 0u8;
         let mut opts = LreFlags::new();
-        let mut is_unicode = false;
 
         for c in flags {
             match c {
                 'd' => {
-                    ff |= LRE_FLAG_INDICES as u8;
                     opts = opts.indices();
                 }
                 'g' => {
-                    ff |= LRE_FLAG_GLOBAL as u8;
                     opts = opts.global();
                 }
                 'i' => {
-                    ff |= LRE_FLAG_IGNORECASE as u8;
                     opts = opts.ignore_case();
                 }
                 'm' => {
-                    ff |= LRE_FLAG_MULTILINE as u8;
                     opts = opts.multi_line();
                 }
                 's' => {
-                    ff |= LRE_FLAG_DOTALL as u8;
                     opts = opts.dotall();
                 }
                 'u' | 'v' => {
-                    ff |= LRE_FLAG_UTF16 as u8;
                     opts = opts.unicode();
-                    is_unicode = true;
                 }
                 'y' => {
-                    ff |= LRE_FLAG_STICKY as u8;
                     opts = opts.sticky();
                 }
                 _ => {
@@ -167,7 +157,6 @@ impl RegExpData {
         // 1. pattern contains non-ascii characters
         // 2. pattern has \xFF or \uFFFF pattern char.
         if !pattern.is_ascii() {
-            ff |= LRE_FLAG_UTF16 as u8;
             opts = opts.unicode();
         }
 
