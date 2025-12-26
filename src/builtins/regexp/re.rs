@@ -40,8 +40,8 @@ pub const LRE_FLAG_NAMED_GROUPS: i32 = 1 << 7; // named groups are present in th
 pub struct RegExpStringIterPayload {
     iterating_regexp: ObjectRef,
     iterated_string: StringRef,
-    pub global: bool,
-    pub unicode: bool,
+    global: bool,
+    unicode: bool,
     done: Cell<bool>,
 }
 
@@ -106,7 +106,6 @@ pub enum RegExpExecMode {
 pub struct RegExpData {
     pub(crate) pattern: StringData,
     pub(crate) flags_str: StringData,
-    pub(crate) flags: LreFlags,
     pub(super) regex: Rc<Regex>,
 }
 
@@ -116,34 +115,39 @@ unsafe impl GcTracable for RegExpData {
 }
 
 impl RegExpData {
-    pub(crate) fn compile_re(
+    fn compile_regex(
         ctx: &ContextImpl,
         pattern: &str,
         flags: impl Iterator<Item = char>,
-    ) -> Result<(Regex, LreFlags), i32> {
-        let mut opts = LreFlags::new();
-
+    ) -> Result<Regex, i32> {
+        // Note: 1) can duplicate same flag; 2) 'u' and 'v' cannot be both set
+        let mut opts = LreFlags::empty();
         for c in flags {
             match c {
-                'd' => {
+                'd' if !opts.has_indices() => {
                     opts = opts.indices();
                 }
-                'g' => {
+                'g' if !opts.has_global() => {
                     opts = opts.global();
                 }
-                'i' => {
+                'i' if !opts.has_ignore_case() => {
                     opts = opts.ignore_case();
                 }
-                'm' => {
+                'm' if !opts.has_multi_line() => {
                     opts = opts.multi_line();
                 }
-                's' => {
+                's' if !opts.has_dotall() => {
                     opts = opts.dotall();
                 }
-                'u' | 'v' => {
+                'u' if !opts.has_unicode() && !opts.has_unicode_sets() => {
+                    // 'u' and 'v' cannot be both set
                     opts = opts.unicode();
                 }
-                'y' => {
+                'v' if !opts.has_unicode() && !opts.has_unicode_sets() => {
+                    // 'u' and 'v' cannot be both set
+                    opts = opts.unicode_sets();
+                }
+                'y' if !opts.has_sticky() => {
                     opts = opts.sticky();
                 }
                 _ => {
@@ -153,19 +157,17 @@ impl RegExpData {
             }
         }
 
-        // in some cases, regexp is supposed to enable unicode mode by default:
-        // 1. pattern contains non-ascii characters
-        // 2. pattern has \xFF or \uFFFF pattern char.
-        if !pattern.is_ascii() {
-            opts = opts.unicode();
-        }
+        // // in some cases, regexp is supposed to enable unicode mode by default:
+        // // 1. pattern contains non-ascii characters
+        // // 2. pattern has \xFF or \uFFFF pattern char.
+        // if !pattern.is_ascii() {
+        //     opts = opts.unicode();
+        // }
 
-        let re = Regex::with_flags(pattern, opts).map_err(|e| {
+        Regex::with_flags(pattern, opts).map_err(|e| {
             ctx.throw_syntax_error(&e.to_string());
             -1
-        })?;
-
-        Ok((re, opts))
+        })
     }
 
     pub(crate) fn create(
@@ -173,13 +175,20 @@ impl RegExpData {
         pattern: StringData,
         flags: StringData,
     ) -> Result<Self, i32> {
-        let (re, ff) = Self::compile_re(ctx, &pattern.to_utf8(false), flags.chars_lossy())?;
         Ok(Self {
+            regex: Rc::new(Self::compile_regex(
+                ctx,
+                &pattern.to_utf8(false),
+                flags.chars_lossy(),
+            )?),
             pattern,
             flags_str: flags,
-            regex: Rc::new(re),
-            flags: ff,
         })
+    }
+
+    #[inline(always)]
+    pub fn flags(&self) -> LreFlags {
+        self.regex.flags()
     }
 
     pub fn find(&self, content: &StringData, from: usize) -> Box<[Range<usize>]> {
@@ -189,20 +198,20 @@ impl RegExpData {
 
         let is_wide = content.is_wide();
         let bytes = if is_wide {
-            content.utf16().unwrap()[from..].as_bytes()
+            content.utf16().unwrap().as_bytes()
         } else {
-            &content.ascii().unwrap()[from..]
+            content.ascii().unwrap()
         };
 
-        let is_sticky = self.flags.has_sticky();
+        let is_sticky = self.flags().has_sticky();
         let mut cursor = 0;
         let mut last_range = usize::MAX..usize::MAX;
         let mut res = Vec::<Range<usize>>::with_capacity(32);
 
         for m in self
             .regex
-            .find_iter(bytes, is_wide)
-            .take(if self.flags.has_global() {
+            .find_iter(bytes, if is_wide { from << 1 } else { from }, is_wide)
+            .take(if self.flags().has_global() {
                 usize::MAX
             } else {
                 1
@@ -214,15 +223,11 @@ impl RegExpData {
 
             cursor = m.end();
 
-            let range = if is_wide {
+            let match_range = if is_wide {
                 m.start() >> 1..m.end() >> 1
             } else {
                 m.start()..m.end()
             };
-
-            let start_index = range.start + from;
-            let end_index = range.end + from;
-            let match_range = start_index..end_index;
 
             if last_range != match_range {
                 res.push(match_range.clone());
@@ -244,22 +249,21 @@ impl RegExpData {
 
         let is_wide = content.is_wide();
         let bytes = if is_wide {
-            content.utf16().unwrap()[from..].as_bytes()
+            content.utf16().unwrap().as_bytes()
         } else {
-            &content.ascii().unwrap()[from..]
+            content.ascii().unwrap()
         };
-        // let utf8_str = content.to_utf8_range(from..content.len(), false);
 
         if let Some(caps) = self
             .regex
-            .captures(bytes, is_wide)
+            .captures_at(bytes, if is_wide { from << 1 } else { from }, is_wide)
             .map_err(|e| {
                 eprintln!("[O.o] regexp error {e}");
                 -1
             })
             .unwrap()
         {
-            if self.flags.has_sticky() && caps.get(0).is_none_or(|m| m.start() != 0) {
+            if self.flags().has_sticky() && caps.get(0).is_none_or(|m| m.start() != 0) {
                 return None;
             }
 
@@ -273,26 +277,20 @@ impl RegExpData {
                     } else {
                         m.start()..m.end()
                     };
-
-                    // let range = if let Some(w) = content.utf16() {
-                    //     let s16 = &w[from..];
-                    //     map_utf8_to_utf16_range(utf8_str.as_bytes(), s16, m.start()..m.end())
-                    // } else {
-                    //     m.start()..m.end()
-                    // };
-
-                    let start_index = range.start + from;
-                    let end_index = range.end + from;
-                    res.push((Some(start_index..end_index), None));
+                    res.push((Some(range), None));
                 } else {
                     res.push((None, None))
                 }
             }
 
-            // update group names
-            for (i, name) in self.regex.group_names().iter().enumerate() {
-                debug_assert!(i < res.len());
-                res[i].1 = Some(name.into());
+            // set group names. index #0 don't have capture name.
+            if let Some(names) = self.regex.group_names() {
+                for (i, name) in names.iter().enumerate() {
+                    // Note: #0 is while match, captures starting from index #1
+                    let i = i + 1;
+                    debug_assert!(i < res.len());
+                    res[i].1 = Some(name.into());
+                }
             }
 
             Some(res.into())
@@ -380,47 +378,46 @@ pub(super) fn make_regexp_capture_array(
     range_and_name: &[(Option<Range<usize>>, Option<String>)],
     with_indices: bool,
 ) -> Result<(JSValue, usize), i32> {
-    let mut start_index = 0;
-    let mut last_index = 0;
-
-    let mut lst = Vec::<JSValue>::new();
-    lst.try_reserve(range_and_name.len()).map_err(|_| {
+    let mut items = Vec::<JSValue>::new();
+    items.try_reserve(range_and_name.len()).map_err(|_| {
         ctx.throw_out_of_memory();
         -1
     })?;
 
     let mut indices = if with_indices {
-        let mut idx_lst = Vec::<JSValue>::new();
-        idx_lst.try_reserve(range_and_name.len()).map_err(|_| {
+        let mut lst = Vec::<JSValue>::new();
+        lst.try_reserve(range_and_name.len()).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
         })?;
-        Some((idx_lst, JSValue::UNDEFINED))
+        Some((lst, JSValue::UNDEFINED))
     } else {
         None
     };
 
     let prop_flags = JS_PROP_C_W_E | JS_PROP_THROW;
-    let mut group = JSValue::UNDEFINED;
+    let mut groups = JSValue::UNDEFINED;
+
+    let mut start_index = 0;
+    let mut last_index = 0;
 
     for (i, (range, name)) in range_and_name.iter().enumerate() {
-        let val: JSValue = if let Some(range) = range {
+        let substr: JSValue = if let Some(span) = range.clone() {
             if i == 0 {
-                start_index = range.start;
-                last_index = range.end;
+                start_index = span.start;
+                last_index = span.end;
             }
-            text.sub_string(ctx, range.clone())?.into()
+            text.sub_string(ctx, span)?.into()
         } else {
             JSValue::UNDEFINED
         };
-
-        lst.push(val);
+        items.push(substr);
 
         if let Some(name) = name {
-            if group.is_undefined() {
-                group = ctx.create_base_object()?.into();
+            if groups.is_undefined() {
+                groups = ctx.create_base_object()?.into();
             }
-            group.define_property_value_str(ctx, name, val, prop_flags)?;
+            groups.define_property_value_str(ctx, name, substr, prop_flags)?;
         }
 
         if let Some((idxlst, idxgroup)) = &mut indices {
@@ -435,30 +432,32 @@ pub(super) fn make_regexp_capture_array(
             };
             idxlst.push(idx);
 
-            if let Some(name) = name {
+            if let Some(n) = name {
                 if idxgroup.is_undefined() {
                     *idxgroup = ctx.create_base_object()?.into();
                 }
-                idxgroup.define_property_value_str(ctx, name, idx, prop_flags)?;
+                idxgroup.define_property_value_str(ctx, n, idx, prop_flags)?;
             }
         }
     }
 
-    let mut arr = ctx.create_array_with_values(lst)?;
-    arr.define_property_value(
+    let mut res = ctx.create_array_with_values(items)?;
+
+    res.define_property_value(
         ctx,
         Atom::CONST_index,
         JSValue::Int(start_index as i32),
         prop_flags,
     )?;
-    arr.define_property_value(ctx, Atom::CONST_groups, group, prop_flags)?;
-    arr.define_property_value(ctx, Atom::CONST_input, text.into(), prop_flags)?;
+    res.define_property_value(ctx, Atom::CONST_input, text.into(), prop_flags)?;
+    res.define_property_value(ctx, Atom::CONST_groups, groups, prop_flags)?;
 
-    if let Some((idxlst, idxgrp)) = indices {
-        let mut idxarr = ctx.create_array_with_values(idxlst)?;
-        idxarr.define_property_value(ctx, Atom::CONST_groups, idxgrp, prop_flags)?;
-        arr.define_property_value(ctx, Atom::CONST_indices, idxarr.into(), prop_flags)?;
+    if let Some((idx_lst, idx_grp)) = indices {
+        let mut indices = ctx.create_array_with_values(idx_lst)?;
+        indices.define_property_value(ctx, Atom::CONST_groups, idx_grp, prop_flags)?;
+
+        res.define_property_value(ctx, Atom::CONST_indices, indices.into(), prop_flags)?;
     }
 
-    Ok((arr.into(), last_index))
+    Ok((res.into(), last_index))
 }
