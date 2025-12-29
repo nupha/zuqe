@@ -273,7 +273,10 @@ impl ObjectImpl {
 
             class_id @ (JS_CLASS_NUMBER | JS_CLASS_STRING | JS_CLASS_BOOLEAN | JS_CLASS_SYMBOL
             | JS_CLASS_DATE | JS_CLASS_BIG_INT) => {
-                if ctx.rt_ptr().class_registry[class_id as usize].exotic.is_some() {
+                if ctx.rt_ptr().class_registry[class_id as usize]
+                    .exotic
+                    .is_some()
+                {
                     flags.set_exotic(true);
                 }
             }
@@ -296,7 +299,10 @@ impl ObjectImpl {
             }
 
             class_id => {
-                if ctx.rt_ptr().class_registry[class_id as usize].exotic.is_some() {
+                if ctx.rt_ptr().class_registry[class_id as usize]
+                    .exotic
+                    .is_some()
+                {
                     flags.set_exotic(true);
                 }
             }
@@ -696,7 +702,6 @@ impl JSValue {
     /// - "abc" => \[object "abc"\]
     /// - Symbol() => \[object Symbol()\]
     /// - null, undefined => Error
-    #[inline]
     pub fn objectify(&self, ctx: &ContextImpl) -> Result<ObjectRef, i32> {
         match self {
             Self::Object(o) => Ok(*o),

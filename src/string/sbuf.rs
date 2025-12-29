@@ -8,7 +8,6 @@ use super::{CharCode, StringData, char_is_space, string::JS_STRING_LEN_MAX};
 #[repr(u8)]
 #[derive(Debug, Default)]
 pub enum StringBuf {
-    #[deprecated]
     #[default]
     Empty,
     Ascii(Vec<u8>), // TODO: upgrade to ISO8859 variant to hold 0..=255 chars
@@ -504,7 +503,7 @@ impl StringBuf {
         content: &StringData,
         range: Range<usize>,
     ) -> Result<(), TryReserveError> {
-        if range.is_empty() || range.start >= content.len() || content.is_empty() {
+        if range.is_empty() || range.start >= content.len() {
             return Ok(());
         }
 
@@ -590,6 +589,20 @@ impl StringBuf {
         self.push_content_range(content, 0..content.len())
     }
 
+    #[inline(always)]
+    pub const fn is_empty(&self) -> bool {
+        match self {
+            Self::Empty => true,
+            Self::Ascii(s) => s.is_empty(),
+            Self::Utf16(s) => s.is_empty(),
+        }
+    }
+
+    #[inline(always)]
+    pub const fn is_wide(&self) -> bool {
+        matches!(self, Self::Utf16(_))
+    }
+
     /// buffer capacity
     pub const fn capacity(&self) -> usize {
         match self {
@@ -621,24 +634,10 @@ impl StringBuf {
     /// returns None if index is out of bound.
     pub fn get(&self, index: usize) -> Option<u16> {
         match self {
-            Self::Empty => None,
-            Self::Ascii(lst) => lst.get(index).map(|n| *n as u16),
-            Self::Utf16(lst) => lst.get(index).copied(),
+            Self::Ascii(lst) if !lst.is_empty() => lst.get(index).map(|n| *n as u16),
+            Self::Utf16(lst) if !lst.is_empty() => lst.get(index).copied(),
+            _ => None,
         }
-    }
-
-    #[inline(always)]
-    pub const fn is_empty(&self) -> bool {
-        match self {
-            Self::Empty => true,
-            Self::Ascii(s) => s.is_empty(),
-            Self::Utf16(s) => s.is_empty(),
-        }
-    }
-
-    #[inline(always)]
-    pub const fn is_wide(&self) -> bool {
-        matches!(self, Self::Utf16(_))
     }
 
     pub fn trim(&mut self, left: bool, right: bool) {

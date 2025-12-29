@@ -393,7 +393,7 @@ pub(crate) fn js_function_apply(cc: CallContext) -> JSResult {
     let this_arg = *cc.arg(0);
     let array_arg = *cc.arg(1);
 
-    if unlikely(array_arg.is_undefined_or_null() && cc.magic() != 2) {
+    if array_arg.is_undefined_or_null() && cc.magic() != 2 {
         this_val.call(ctx, this_arg, &[])
     } else {
         let arg_list = build_arg_list(ctx, array_arg)?;

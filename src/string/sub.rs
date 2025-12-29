@@ -102,10 +102,7 @@ fn do_substitution<NC: Fn(&str) -> Result<Option<StringData>, i32>>(
                         sbuf.push_str("$<")?;
 
                         for (_, c1) in replace_chars.by_ref() {
-                            println!("[O.o] c1: {c1:?}");
-
                             if c1 == CharCode::Char('>') {
-                                // extract name
                                 let name = sbuf
                                     .iter_since(name_start)
                                     .map(|(_, c)| match c {
@@ -117,7 +114,6 @@ fn do_substitution<NC: Fn(&str) -> Result<Option<StringData>, i32>>(
 
                                 sbuf.drain(name_start..sbuf.len());
                                 if let Some(s) = named_captures(&name).map_err(|_| None)? {
-                                    println!("[O.o].   cap value: {:?}", s.to_utf8(false));
                                     sbuf.push_content(&s)?;
                                 }
                                 break; // end of $<...>

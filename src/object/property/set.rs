@@ -538,7 +538,6 @@ impl JSValue {
         }
     }
 
-    /// `prop` is not consumed.
     #[inline(always)]
     pub fn set_property(&self, ctx: &ContextImpl, prop: Atom, val: Self) -> Result<bool, i32> {
         self.set_property_internal(ctx, prop, val, None, JS_PROP_THROW)
