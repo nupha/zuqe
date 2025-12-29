@@ -5,14 +5,15 @@ use crate::string::{CharCode, StringBuf, StringCharIter, StringData};
 use super::UTF8_CHAR_LEN_MAX;
 
 impl StringData {
-    pub fn substitution_buf(
+    pub fn substitution_buf<NC: Fn(&str) -> Result<Option<StringData>, i32>>(
         matched: &Self,     // 匹配到的子字符串（对应 $&）
         str: &Self,         // 原字串
         position: usize,    // 匹配发生的位置索引
         replacement: &Self, // 替换字符串或替换函数。
         captures: impl Fn(usize) -> Result<Option<StringData>, i32>, // 捕获（对应 $1, $2 等）
         captures_len: usize, // 最大捕获ID
-        named_captures: impl Fn(&str) -> Result<Option<StringData>, i32>, // 命名捕获（对应 $<name>）
+        has_named_captures: bool, // enable named_captures
+        named_captures: NC, // 命名捕获（对应 $<name>）
     ) -> Result<StringBuf, Option<TryReserveError>> {
         do_substitution(
             str,
@@ -21,6 +22,7 @@ impl StringData {
             replacement,
             captures,
             captures_len,
+            has_named_captures,
             named_captures,
         )
     }
@@ -37,14 +39,15 @@ impl StringData {
 /// 实现 JavaScript 字符串替换中的特殊替换模式（如 $&, $1, `$`` 等）
 /// 对应规范：ECMAScript 的 GetSubstitution 抽象操作.
 /// 返回: 包含替换后的字符串值
-fn do_substitution(
-    str: &StringData,                                                 // 原始字符串。
-    position: usize,                                                  // 匹配发生的位置索引
-    matched: &StringData,                                             // 匹配到的子字符串（对应 $&）
-    replacement: &StringData,                                         // 替换字符串或替换函数。
-    captures: impl Fn(usize) -> Result<Option<StringData>, i32>,      // 捕获（对应 $1, $2 等）
-    captures_len: usize,                                              // 最大捕获ID
-    named_captures: impl Fn(&str) -> Result<Option<StringData>, i32>, // 命名捕获（对应 $<name>）
+fn do_substitution<NC: Fn(&str) -> Result<Option<StringData>, i32>>(
+    str: &StringData,                                            // 原始字符串。
+    position: usize,                                             // 匹配发生的位置索引
+    matched: &StringData,                                        // 匹配到的子字符串（对应 $&）
+    replacement: &StringData,                                    // 替换字符串或替换函数。
+    captures: impl Fn(usize) -> Result<Option<StringData>, i32>, // 捕获（对应 $1, $2 等）
+    captures_len: usize,                                         // 最大捕获ID
+    has_named_captures: bool,                                    // enable named_captures handler
+    named_captures: NC,                                          // 命名捕获（对应 $<name>）
 ) -> Result<StringBuf, Option<TryReserveError>> {
     // alloc result string buf
     let mut sbuf = StringBuf::with_capacity(matched.len(), false)?;
@@ -93,12 +96,14 @@ fn do_substitution(
                             sbuf.push_char(a)?; // 0
                         }
                     }
-                    CharCode::Char('<') => {
+                    CharCode::Char('<') if has_named_captures => {
                         // $<name> -> names_captures[name]
                         let name_start = sbuf.len();
                         sbuf.push_str("$<")?;
 
                         for (_, c1) in replace_chars.by_ref() {
+                            println!("[O.o] c1: {c1:?}");
+
                             if c1 == CharCode::Char('>') {
                                 // extract name
                                 let name = sbuf
@@ -112,8 +117,10 @@ fn do_substitution(
 
                                 sbuf.drain(name_start..sbuf.len());
                                 if let Some(s) = named_captures(&name).map_err(|_| None)? {
+                                    println!("[O.o].   cap value: {:?}", s.to_utf8(false));
                                     sbuf.push_content(&s)?;
                                 }
+                                break; // end of $<...>
                             } else {
                                 sbuf.push_char(c1)?;
                             }

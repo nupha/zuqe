@@ -575,9 +575,7 @@ pub fn js_regexp_Symbol_replace(cc: CallContext) -> JSResult {
         ctx.throw_type_error_not_an_object();
         return Err(-1);
     };
-
     let str = cc.arg(0).to_string(ctx)?;
-
     let rep = *cc.arg(1);
     let rep_is_func = rep.is_function();
     let rep_str: Option<StringData> = if !rep_is_func {
@@ -593,18 +591,19 @@ pub fn js_regexp_Symbol_replace(cc: CallContext) -> JSResult {
     let is_global = flags.content().index_of_char('g', 0).is_some();
     let is_unicode = if is_global {
         this.set_property(ctx, Atom::CONST_lastIndex, JSValue::Int(0))?;
-        flags.content().index_of_char('u', 0).is_some()
+        let f = flags.content();
+        f.index_of_char('u', 0).is_some() || f.index_of_char('v', 0).is_some()
     } else {
         false
     };
 
-    // if rep_str.as_ref().map_or(false, |s| s.is_empty())
+    // if let Some(rp) = rep_str.as_ref()
+    //     && rp.is_empty()
     //     && is_global
     //     && js_is_standard_regexp(ctx, this)?
     // {
-    //     // fast path: delete only
-    //     // return JS_RegExpDelete(ctx, this, sp);
-    //     todo!();
+    //     // fast path: delete
+    //     // return JS_RegExpDelete(ctx, this, rp);
     // }
 
     let mut sbuf = StringBuf::with_capacity(str.len(), false).map_err(|_| {
@@ -613,7 +612,8 @@ pub fn js_regexp_Symbol_replace(cc: CallContext) -> JSResult {
     })?;
 
     // regexp match results list
-    let mut matches = SmallVec::<[ObjectRef; 10]>::new();
+    let mut matche_list = SmallVec::<[ObjectRef; 10]>::new();
+
     while let Ok(m) = ObjectRef::try_from(JS_RegExpExec(ctx, this, str)?) {
         if let Ok(s) = StringRef::try_from(m.get_property_u32(ctx, 0)?)
             && s.is_empty()
@@ -630,7 +630,7 @@ pub fn js_regexp_Symbol_replace(cc: CallContext) -> JSResult {
             this.set_property(ctx, Atom::CONST_lastIndex, JSValue::from(next_index as u32))?;
         }
 
-        matches.push(m);
+        matche_list.push(m);
         if !is_global {
             break;
         }
@@ -638,14 +638,16 @@ pub fn js_regexp_Symbol_replace(cc: CallContext) -> JSResult {
 
     let mut pos = 0;
 
-    for mut m in matches {
-        let matched = m.get_property_u32(ctx, 0).and_then(|v| v.to_string(ctx))?;
+    for mut mat in matche_list {
+        let match_str = mat
+            .get_property_u32(ctx, 0)
+            .and_then(|v| v.to_string(ctx))?;
 
-        let index = m
+        let index = mat
             .get_property(ctx, Atom::CONST_index)
             .and_then(|v| v.to_u32(ctx))? as usize;
 
-        let length = m
+        let length = mat
             .get_property(ctx, Atom::CONST_length)
             .and_then(|v| v.to_u32(ctx))? as usize;
 
@@ -655,20 +657,19 @@ pub fn js_regexp_Symbol_replace(cc: CallContext) -> JSResult {
                 -1
             })?;
 
-        pos = index + matched.len();
+        pos = index + match_str.len();
+        let groups = ObjectRef::try_from(mat.get_property(ctx, Atom::CONST_groups)?).ok();
 
-        if let Some(rep_str) = rep_str.as_ref() {
-            // replacement string
-            let groups = ObjectRef::try_from(m.get_property(ctx, Atom::CONST_groups)?).ok();
-
+        if let Some(rp) = rep_str.as_ref() {
+            // replacement is string
             let t = StringData::substitution_buf(
-                matched.content(),
+                match_str.content(),
                 str.content(),
                 index,
-                rep_str,
+                rp,
                 |n| {
                     if n < length {
-                        let v = m.get_property_u32(ctx, n as _)?;
+                        let v = mat.get_property_u32(ctx, n as _)?;
                         if !v.is_undefined() {
                             Ok(Some(v.to_string(ctx)?.content().clone()))
                         } else {
@@ -679,14 +680,11 @@ pub fn js_regexp_Symbol_replace(cc: CallContext) -> JSResult {
                     }
                 },
                 length,
+                groups.is_some(),
                 |name| {
-                    if let Some(g) = groups.as_ref() {
-                        let val = g.get_property_str(ctx, name)?;
-                        if !val.is_undefined() {
-                            Ok(Some(val.to_string(ctx)?.content().clone()))
-                        } else {
-                            Ok(None)
-                        }
+                    let val = groups.as_ref().unwrap().get_property_str(ctx, name)?;
+                    if !val.is_undefined() {
+                        Ok(Some(val.to_string(ctx)?.content().clone()))
                     } else {
                         Ok(None)
                     }
@@ -704,27 +702,32 @@ pub fn js_regexp_Symbol_replace(cc: CallContext) -> JSResult {
                 -1
             })?;
         } else {
-            // functional replacement.
-
-            // append extra argument `index`, `str` to array
-            m.define_property_value_i64(
+            // replacement is function
+            mat.define_property_value_i64(
                 ctx,
                 length as i64,
                 JSValue::Int(index as i32),
                 JS_PROP_C_W_E | JS_PROP_THROW,
             )?;
-            m.define_property_value_i64(
+            mat.define_property_value_i64(
                 ctx,
                 length as i64 + 1,
                 str.into(),
                 JS_PROP_C_W_E | JS_PROP_THROW,
             )?;
+            if let Some(g) = groups {
+                mat.define_property_value_i64(
+                    ctx,
+                    length as i64 + 2,
+                    g.into(),
+                    JS_PROP_C_W_E | JS_PROP_THROW,
+                )?;
+            }
 
-            // apply replacement function
             let t = js_function_apply(CallContext::new(
                 cc.ctx_ptr(),
                 rep,
-                &[JSValue::UNDEFINED, m.into()],
+                &[JSValue::UNDEFINED, mat.into()],
                 0,
                 None,
             ))?

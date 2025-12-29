@@ -10,7 +10,7 @@ use crate::{
     function::{CallContext, FieldDef, IteratorState, JS_CallConstructor},
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, ObjectPayload},
     string::{
-        JS_ConcatString, JS_ConcatString3, JS_STRING_LEN_MAX, StringBuf, CharCode, StringData,
+        CharCode, JS_ConcatString, JS_ConcatString3, JS_STRING_LEN_MAX, StringBuf, StringData,
         StringImpl, StringRef,
     },
     utils::unlikely,
@@ -277,6 +277,7 @@ fn js_string_replace(cc: CallContext) -> JSResult {
                     replace_str.as_ref().unwrap().content(),
                     |_| Ok(None),
                     0,
+                    false,
                     |_| Ok(None),
                 )
                 .map_err(|e| {

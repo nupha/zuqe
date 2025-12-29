@@ -8,6 +8,7 @@ use super::{CharCode, StringData, char_is_space, string::JS_STRING_LEN_MAX};
 #[repr(u8)]
 #[derive(Debug, Default)]
 pub enum StringBuf {
+    #[deprecated]
     #[default]
     Empty,
     Ascii(Vec<u8>), // TODO: upgrade to ISO8859 variant to hold 0..=255 chars
@@ -179,6 +180,10 @@ impl StringBuf {
 
     /// concat other string content to self content, returns a new result string content.
     pub fn push_buf_slice(&mut self, source: &StringBufSlice) -> Result<(), TryReserveError> {
+        if source.is_empty() {
+            return Ok(());
+        }
+
         // use a temp var to hold current self content
         let orig_content = std::mem::replace(self, Self::Empty);
 
@@ -248,7 +253,11 @@ impl StringBuf {
 
     /// concat other string buf to `self`, returns a new string buf.
     pub fn push(&mut self, other: &Self) -> Result<(), TryReserveError> {
-        self.push_buf_slice(&other.slice(0..other.len()))
+        if !other.is_empty() {
+            self.push_buf_slice(&other.slice(0..other.len()))
+        } else {
+            Ok(())
+        }
     }
 
     pub fn push_u8_slice(&mut self, s8: &[u8]) -> Result<(), TryReserveError> {
@@ -495,7 +504,7 @@ impl StringBuf {
         content: &StringData,
         range: Range<usize>,
     ) -> Result<(), TryReserveError> {
-        if range.is_empty() || range.start >= content.len() {
+        if range.is_empty() || range.start >= content.len() || content.is_empty() {
             return Ok(());
         }
 
@@ -620,7 +629,11 @@ impl StringBuf {
 
     #[inline(always)]
     pub const fn is_empty(&self) -> bool {
-        matches!(self, Self::Empty)
+        match self {
+            Self::Empty => true,
+            Self::Ascii(s) => s.is_empty(),
+            Self::Utf16(s) => s.is_empty(),
+        }
     }
 
     #[inline(always)]
