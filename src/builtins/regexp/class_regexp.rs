@@ -87,16 +87,16 @@ pub fn js_regexp_constructor(cc: CallContext) -> JSResult {
             None
         }
     } else {
-        let mut pattern_val = JSValue::UNDEFINED;
+        let mut pat_str = pat;
         if pat_is_regexp {
-            pattern_val = pat.get_property(ctx, Atom::CONST_source)?;
+            pat_str = pat.get_property(ctx, Atom::CONST_source)?;
             if flags1.is_undefined() {
                 flags1 = pat.get_property(ctx, Atom::CONST_flags)?;
             }
         }
 
-        if !pattern_val.is_undefined() {
-            pattern = pat.to_string(ctx)?.content().clone();
+        if !pat_str.is_undefined() {
+            pattern = pat_str.to_string(ctx)?.content().clone();
         }
         if !flags1.is_undefined() {
             flags_str = flags1.to_string(ctx)?.content().clone();
@@ -105,21 +105,24 @@ pub fn js_regexp_constructor(cc: CallContext) -> JSResult {
         None
     };
 
-    let re = if let Some(re) = re {
-        re.clone()
-    } else {
-        RegExpData::create(ctx, pattern, flags_str)?
-    };
-
     let mut obj = ctx
-        .create_object_from_ctor(*cc.this(), ObjectPayload::REGEXP(Box::new(re)))
+        .create_object_from_ctor(
+            *cc.this(),
+            ObjectPayload::REGEXP(Box::new(if let Some(d) = re {
+                d.clone()
+            } else {
+                RegExpData::create(ctx, pattern, flags_str)?
+            })),
+        )
         .map_err(|_| -1)?;
+
     obj.define_property_value(
         ctx,
         Atom::CONST_lastIndex,
         JSValue::Int(0),
         JS_PROP_WRITABLE,
     )?;
+
     Ok(obj.into())
 }
 

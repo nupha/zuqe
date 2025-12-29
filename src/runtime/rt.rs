@@ -31,7 +31,7 @@ use crate::{
 
 pub const JS_MAX_LOCAL_VARS: u16 = 65535;
 pub const JS_STACK_SIZE_MAX: u16 = 65534;
-pub const JS_DEFAULT_STACK_SIZE: usize = 640 * 1024; // 512 * 1024;
+pub const JS_DEFAULT_STACK_SIZE: usize = 720 * 1024; // 512 * 1024;
 
 /// interrupt returns true to break execution
 pub trait InterruptFn: Fn(&RuntimeImpl) -> bool {}

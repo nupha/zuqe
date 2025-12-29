@@ -434,7 +434,7 @@ pub(super) fn make_regexp_capture_array(
 
             if let Some(n) = name {
                 if idxgroup.is_undefined() {
-                    *idxgroup = ctx.create_base_object()?.into();
+                    *idxgroup = ctx.create_base_object_with_proto(None)?.into();
                 }
                 idxgroup.define_property_value_str(ctx, n, idx, prop_flags)?;
             }
