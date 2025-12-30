@@ -701,7 +701,7 @@ pub fn check_regexp_g_flag(ctx: &ContextImpl, regexp: &JSValue) -> i32 {
             return -1;
         };
 
-        let idx = flags.content().index_of_char('g', 0);
+        let idx = flags.index_of_char('g', 0);
         if idx.is_none() {
             ctx.throw_type_error("regexp must have the 'g' flag");
             return -1;

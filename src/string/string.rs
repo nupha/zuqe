@@ -357,19 +357,7 @@ impl StringRef {
     /// * `Err(-1)` - Memory allocation or UTF-8 validation failed
     pub(crate) fn from_str(rt: RuntimePtr, s: &str) -> Result<Self, i32> {
         let sbuf = StringBuf::from_str(s)?;
-        let data = StringData::from_buf(sbuf);
-        Self::new_internal(Some(rt), data, None)
-    }
-
-    /// static str `s` must be ascii str.
-    #[inline(always)]
-    pub(crate) fn from_static(
-        rt: Option<RuntimePtr>,
-        s: &'static str,
-        atom_info: Option<AtomInfo>,
-    ) -> Result<Self, i32> {
-        debug_assert!(s.is_ascii());
-        Self::new_internal(rt, StringData::AsciiStatic(s), atom_info)
+        Self::new_internal(Some(rt), StringData::from_buf(sbuf), None)
     }
 
     /// Creates a StringImpl from UTF-8 encoded bytes
@@ -388,6 +376,16 @@ impl StringRef {
     pub(crate) fn from_utf8(rt: RuntimePtr, bytes: Vec<u8>) -> Result<Self, i32> {
         let data = StringData::from_buf(StringBuf::from_utf8(bytes).map_err(|_| -1)?);
         Self::new(rt, data)
+    }
+
+    /// static str `s` must be ascii str.
+    #[inline(always)]
+    pub(crate) fn from_static(
+        rt: Option<RuntimePtr>,
+        s: &'static str,
+        atom_info: Option<AtomInfo>,
+    ) -> Result<Self, i32> {
+        Self::new_internal(rt, StringData::from_static(s), atom_info)
     }
 
     /// convert string to a String instance with content transfered.

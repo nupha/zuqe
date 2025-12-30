@@ -10,7 +10,6 @@ use crate::{
     error::JSResult,
     function::build_arg_list,
     object::{ObjectPayload, ObjectRef},
-    utils::unlikely,
     value::JSValue,
 };
 

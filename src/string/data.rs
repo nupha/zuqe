@@ -715,6 +715,22 @@ impl StringData {
         None
     }
 
+    pub(crate) fn index_of_next_i64(&self, pos: i64, must_char: bool) -> Option<i64> {
+        if (0..self.len() as i64).contains(&pos) {
+            #[cfg(target_pointer_width = "64")]
+            let next_index = self
+                .index_of_next(pos as usize, must_char)
+                .map(|x| x as i64);
+
+            #[cfg(target_pointer_width = "32")]
+            let next_index = str.index_of_next(pos as usize, must_char).map(|x| x as i64);
+
+            next_index
+        } else {
+            None
+        }
+    }
+
     /// compare content with str
     pub fn eq_str(&self, other: &str) -> bool {
         match self {
@@ -799,18 +815,7 @@ impl StringData {
             None
         }
     }
-}
 
-// /// calculates hash of a sequence of chars (code points)
-// fn hash_codepoints(s: impl Iterator<Item = CharCode>) -> u32 {
-//     let mut h = 0; // init hash
-//     s.for_each(|c| {
-//         h = hash_u32_from_base(h, c.to_u32());
-//     });
-//     h
-// }
-
-impl StringData {
     pub fn from_buf(buf: StringBuf) -> Self {
         match buf {
             StringBuf::Empty => Self::Empty,
@@ -833,6 +838,17 @@ impl StringData {
                     Self::Utf16(s.into_boxed_slice())
                 }
             }
+        }
+    }
+
+    /// static str `s` must be ascii str.
+    #[inline]
+    pub fn from_static(s: &'static str) -> Self {
+        if s.is_empty() {
+            Self::Empty
+        } else {
+            debug_assert!(s.is_ascii());
+            Self::AsciiStatic(s)
         }
     }
 }

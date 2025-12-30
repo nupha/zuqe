@@ -27,14 +27,14 @@ pub const RE_HEADER_CAPTURE_COUNT: usize = 1;
 pub const RE_HEADER_STACK_SIZE: usize = 2;
 pub const RE_HEADER_LEN: usize = 7;
 
-pub const LRE_FLAG_GLOBAL: i32 = 1 << 0;
-pub const LRE_FLAG_IGNORECASE: i32 = 1 << 1;
-pub const LRE_FLAG_MULTILINE: i32 = 1 << 2;
-pub const LRE_FLAG_DOTALL: i32 = 1 << 3;
-pub const LRE_FLAG_UTF16: i32 = 1 << 4;
-pub const LRE_FLAG_STICKY: i32 = 1 << 5;
-pub const LRE_FLAG_INDICES: i32 = 1 << 6; // Unused by libregexp, just recorded.
-pub const LRE_FLAG_NAMED_GROUPS: i32 = 1 << 7; // named groups are present in the regexp
+// pub const LRE_FLAG_GLOBAL: i32 = 1 << 0;
+// pub const LRE_FLAG_IGNORECASE: i32 = 1 << 1;
+// pub const LRE_FLAG_MULTILINE: i32 = 1 << 2;
+// pub const LRE_FLAG_DOTALL: i32 = 1 << 3;
+// pub const LRE_FLAG_UTF16: i32 = 1 << 4;
+// pub const LRE_FLAG_STICKY: i32 = 1 << 5;
+// pub const LRE_FLAG_INDICES: i32 = 1 << 6; // Unused by libregexp, just recorded.
+// pub const LRE_FLAG_NAMED_GROUPS: i32 = 1 << 7; // named groups are present in the regexp
 
 #[derive(Debug)]
 pub struct RegExpStringIterPayload {
@@ -170,6 +170,7 @@ impl RegExpData {
         })
     }
 
+    #[inline(always)]
     pub(crate) fn create(
         ctx: &ContextImpl,
         pattern: StringData,
@@ -263,9 +264,9 @@ impl RegExpData {
             })
             .unwrap()
         {
-            if self.flags().has_sticky() && caps.get(0).is_none_or(|m| m.start() != 0) {
-                return None;
-            }
+            // if self.flags().has_sticky() && caps.get(0).is_none_or(|m| m.start() != 0) {
+            //     return None;
+            // }
 
             let cnt = caps.len();
             let mut res = Vec::<(Option<Range<usize>>, Option<String>)>::with_capacity(cnt);

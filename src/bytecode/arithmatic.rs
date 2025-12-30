@@ -506,13 +506,13 @@ impl JSValue {
         self.strict_eq_with_mode(other, StrictEqMode::JS_EQ_STRICT)
     }
 
-    /// test if two values are strictly same. (-0!=0)
+    /// test if two values are strictly same. (-0, 0) not same
     #[inline(always)]
     pub fn is_same(&self, other: Self) -> bool {
         self.strict_eq_with_mode(other, StrictEqMode::JS_EQ_SAME_VALUE)
     }
 
-    /// test if two values are strictly same. (-0==0)
+    /// test if two values are strictly same. (-0, 0) is same
     #[inline(always)]
     pub fn is_same0(&self, other: Self) -> bool {
         self.strict_eq_with_mode(other, StrictEqMode::JS_EQ_SAME_VALUE_ZERO)
