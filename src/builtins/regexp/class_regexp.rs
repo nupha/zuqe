@@ -211,7 +211,7 @@ pub fn js_regexp_get_source(cc: CallContext) -> JSResult {
                 }
 
                 CharCode::Char('/') => {
-                    if bra {
+                    if !bra {
                         let _ = buf.push_str("\\/");
                     } else {
                         let _ = buf.push_char('/');
@@ -592,6 +592,10 @@ pub fn js_regexp_Symbol_replace(cc: CallContext) -> JSResult {
             .and_then(|v| v.to_u32(ctx))?
             .max(1) as usize;
 
+        let matched = mat
+            .get_property_u32(ctx, 0)
+            .and_then(|v| v.to_string(ctx))?;
+
         let captures = {
             let mut lst = Vec::<JSValue>::with_capacity(
                 count
@@ -601,8 +605,9 @@ pub fn js_regexp_Symbol_replace(cc: CallContext) -> JSResult {
                         3 // reserved extra slots for function call args
                     },
             );
+            lst.push(matched.into()); // [0]: matched string
 
-            for i in 0..count {
+            for i in 1..count {
                 let c = mat.get_property_u32(ctx, i as _)?;
                 lst.push(if !c.is_undefined() {
                     c.to_string(ctx)?.into()
@@ -610,10 +615,8 @@ pub fn js_regexp_Symbol_replace(cc: CallContext) -> JSResult {
                     JSValue::UNDEFINED
                 });
             }
-
             lst
         };
-        let matched = captures[0].to_string(ctx)?;
 
         let named_captures = mat.get_property(ctx, Atom::CONST_groups)?;
 
@@ -642,7 +645,6 @@ pub fn js_regexp_Symbol_replace(cc: CallContext) -> JSResult {
                     } else {
                         Ok(None)
                     }
-                    // Ok(Some(captures[n].to_string(ctx)?.content().clone()))
                 },
                 count,
                 named_dict.is_some(),
