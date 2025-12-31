@@ -2,8 +2,6 @@ use std::collections::TryReserveError;
 
 use crate::string::{CharCode, CharCodeDecoder, StringBuf, StringData, Utf8Stream, Utf16Stream};
 
-use super::UTF8_CHAR_LEN_MAX;
-
 impl StringData {
     pub fn substitution_buf<NC: Fn(&str) -> Result<Option<StringData>, i32>>(
         matched: &Self,     // 匹配到的子字符串（对应 $&）
@@ -94,13 +92,13 @@ fn do_substitution<NC: Fn(&str) -> Result<Option<StringData>, i32>>(
                     CharCode::Char(a @ ('0'..='9')) => {
                         // $k -> captures[k]
                         let mut id = a as u32 - '0' as u32;
-                        if let Some(c2) = replace_chars.peek()
-                            && (c2 < 0x80 && (c2 as u8).is_ascii_digit())
+                        if let Some((CharCode::Char(c2), _)) = replace_chars.current_char()
+                            && c2.is_ascii_digit()
                         {
                             let n1 = id * 10 + (c2 as u32 - '0' as u32);
                             if (1..captures_len as u32).contains(&n1) {
                                 id = n1;
-                                let _ = replace_chars.next(); // consume digit
+                                replace_chars.move_cursor_by(1); // consume digit
                             }
                         }
 

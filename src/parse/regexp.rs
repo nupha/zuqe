@@ -19,7 +19,7 @@ impl<'s> JSParseState<'s> {
         let mut pattern_str = StringBuf::Empty;
 
         // pattern
-        while let Some((_, sc)) = inp.next_char() {
+        while let Some((_, sc)) = inp.next() {
             if pattern_str.len() == pattern_str.capacity() {
                 pattern_str.try_reserve(1).map_err(|_| {
                     self.ctx.throw_out_of_memory();

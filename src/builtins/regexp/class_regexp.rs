@@ -12,7 +12,7 @@ use crate::{
         JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, JS_SpeciesConstructor, ObjectPayload,
         ObjectRef,
     },
-    string::{CharCode, JS_ConcatString3, StringBuf, StringData, StringRef},
+    string::{CharCode, CharCodeDecoder, JS_ConcatString3, StringBuf, StringData, StringRef},
     utils::unlikely,
     value::JSValue,
 };
@@ -178,12 +178,12 @@ pub fn js_regexp_get_source(cc: CallContext) -> JSResult {
 
         // Escape '/' and newline sequences as needed
         let mut bra = false;
-        let mut chars = re.pattern.iter();
-        while let Some((_, c)) = chars.next() {
+        let mut it = re.pattern.iter();
+        while let Some((_, c)) = it.next() {
             match c {
                 CharCode::Char('\\') => {
                     let _ = buf.push_u8(b'\\');
-                    if let Some((_, x)) = chars.next() {
+                    if let Some((_, x)) = it.next() {
                         let _ = buf.push_char(x);
                     }
                 }
@@ -193,9 +193,9 @@ pub fn js_regexp_get_source(cc: CallContext) -> JSResult {
                 }
                 CharCode::Char('[') => {
                     if !bra {
-                        if chars.peek() == Some(']' as u32 as u16) {
+                        if let Some((CharCode::Char(']'), _)) = it.current_char() {
                             // [] case
-                            chars.next(); // consume ']'
+                            it.move_cursor_by(1); // consume ']'
                             let _ = buf.push_u8_slice(b"[]");
                             continue;
                         }

@@ -592,7 +592,8 @@ impl StringBuf {
             let mut end: usize = if right { 0 } else { len };
 
             let mut pos = 0;
-            for (i, c) in self.iter() {
+            for (span, c) in self.iter() {
+                let i = span.end;
                 if let CharCode::Char(ch) = c
                     && !char_is_space(ch)
                 {

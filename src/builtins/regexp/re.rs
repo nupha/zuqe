@@ -13,7 +13,7 @@ use crate::{
         JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, ObjectImpl, ObjectPayload, ObjectRef,
     },
     object_cast,
-    string::{StringData, StringRef},
+    string::{CharCode, StringData, StringRef},
     value::JSValue,
 };
 
@@ -115,45 +115,47 @@ unsafe impl GcTracable for RegExpData {
 }
 
 impl RegExpData {
-    /// `pattern` is utf8 encoded
-    fn compile_regex(
+    #[inline(always)]
+    pub(crate) fn create(
         ctx: &ContextImpl,
-        pattern: &[u8],
-        flags: impl Iterator<Item = char>,
-    ) -> Result<Regex, i32> {
+        pattern: StringData,
+        flags: StringData,
+    ) -> Result<Self, i32> {
         // Note: 1) can duplicate same flag; 2) 'u' and 'v' cannot be both set
         let mut opts = LreFlags::empty();
-        for c in flags {
-            match c {
-                'd' if !opts.has_indices() => {
-                    opts = opts.indices();
-                }
-                'g' if !opts.has_global() => {
-                    opts = opts.global();
-                }
-                'i' if !opts.has_ignore_case() => {
-                    opts = opts.ignore_case();
-                }
-                'm' if !opts.has_multi_line() => {
-                    opts = opts.multi_line();
-                }
-                's' if !opts.has_dotall() => {
-                    opts = opts.dotall();
-                }
-                'u' if !opts.has_unicode() && !opts.has_unicode_sets() => {
-                    // 'u' and 'v' cannot be both set
-                    opts = opts.unicode();
-                }
-                'v' if !opts.has_unicode() && !opts.has_unicode_sets() => {
-                    // 'u' and 'v' cannot be both set
-                    opts = opts.unicode_sets();
-                }
-                'y' if !opts.has_sticky() => {
-                    opts = opts.sticky();
-                }
-                _ => {
-                    ctx.throw_syntax_error("Invalid regular expression flags");
-                    return Err(-1);
+        for (_, cc) in flags.iter() {
+            if let CharCode::Char(c) = cc {
+                match c {
+                    'd' if !opts.has_indices() => {
+                        opts = opts.indices();
+                    }
+                    'g' if !opts.has_global() => {
+                        opts = opts.global();
+                    }
+                    'i' if !opts.has_ignore_case() => {
+                        opts = opts.ignore_case();
+                    }
+                    'm' if !opts.has_multi_line() => {
+                        opts = opts.multi_line();
+                    }
+                    's' if !opts.has_dotall() => {
+                        opts = opts.dotall();
+                    }
+                    'u' if !opts.has_unicode() && !opts.has_unicode_sets() => {
+                        // 'u' and 'v' cannot be both set
+                        opts = opts.unicode();
+                    }
+                    'v' if !opts.has_unicode() && !opts.has_unicode_sets() => {
+                        // 'u' and 'v' cannot be both set
+                        opts = opts.unicode_sets();
+                    }
+                    'y' if !opts.has_sticky() => {
+                        opts = opts.sticky();
+                    }
+                    _ => {
+                        ctx.throw_syntax_error("Invalid regular expression flags");
+                        return Err(-1);
+                    }
                 }
             }
         }
@@ -165,24 +167,17 @@ impl RegExpData {
         //     opts = opts.unicode();
         // }
 
-        Regex::with_flags(pattern, opts).map_err(|e| {
+        let regex = Regex::with_flags(
+            &pattern.encode_utf8_bytes_internal(0..pattern.len(), true, !opts.is_unicode()),
+            opts,
+        )
+        .map_err(|e| {
             ctx.throw_syntax_error(&e.to_string());
             -1
-        })
-    }
+        })?;
 
-    #[inline(always)]
-    pub(crate) fn create(
-        ctx: &ContextImpl,
-        pattern: StringData,
-        flags: StringData,
-    ) -> Result<Self, i32> {
         Ok(Self {
-            regex: Rc::new(Self::compile_regex(
-                ctx,
-                &pattern.encode_utf8_bytes(true),
-                flags.chars_lossy(),
-            )?),
+            regex: Rc::new(regex),
             pattern,
             flags_str: flags,
         })

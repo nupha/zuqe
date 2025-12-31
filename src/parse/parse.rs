@@ -489,9 +489,9 @@ impl<'s> JSParseState<'s> {
 pub(super) fn skip_shebang(buf: &[u8]) -> usize {
     if buf.starts_with(b"#!") {
         Utf8Stream::new(&buf[2..])
-            .find_map(|(i, c)| {
-                if let CharCode::Char(ch @ ('\n' | '\r' | '\u{2028}' | '\u{2029}')) = c {
-                    Some(i + ch.len_utf8() + 2)
+            .find_map(|(span, c)| {
+                if let CharCode::Char('\n' | '\r' | '\u{2028}' | '\u{2029}') = c {
+                    Some(span.end + 2)
                 } else {
                     None
                 }

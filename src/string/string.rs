@@ -111,6 +111,7 @@ impl std::fmt::Debug for StringImpl {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = self.content().encode_utf8(true);
         write!(f, "{s}")
+
         // f.debug_struct("StringImpl")
         //     .field("rt", &self.rt)
         //     .field("content", &self.content)

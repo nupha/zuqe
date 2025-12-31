@@ -1,5 +1,9 @@
 use std::{iter::Peekable, ops::Range};
 
+use widestring::error::Utf16Error;
+
+use crate::string::{CharCodeDecoder, StringData, Utf8Stream, Utf16Stream};
+
 use super::StringBuf;
 
 /// Represent unichar (for valid unicode) or code point (for invalid unicode)
@@ -199,57 +203,91 @@ impl<'a> U16CharIter<'a> {
     }
 }
 
-#[derive(Clone)]
 pub enum StringCharIter<'a> {
-    U16(U16CharIter<'a>),
-    U8 {
-        it: Peekable<std::slice::Iter<'a, u8>>,
-        cursor: usize,
-    },
+    U8(Utf8Stream<'a>),
+    U16(Utf16Stream<'a>),
+}
+
+impl<'a> CharCodeDecoder for StringCharIter<'a> {
+    fn decode_char(&self, since: usize) -> Result<(char, usize), super::DecodeCharError> {
+        match self {
+            Self::U8(s) => s.decode_char(since),
+            Self::U16(s) => s.decode_char(since),
+        }
+    }
+
+    fn current_char(&self) -> Option<(CharCode, usize)> {
+        match self {
+            Self::U8(s) => s.current_char(),
+            Self::U16(s) => s.current_char(),
+        }
+    }
+
+    fn next_char(&mut self) -> Option<(Range<usize>, CharCode)> {
+        match self {
+            Self::U8(s) => s.next_char(),
+            Self::U16(s) => s.next_char(),
+        }
+    }
+
+    fn position(&self) -> Option<usize> {
+        match self {
+            Self::U8(s) => s.position(),
+            Self::U16(s) => s.position(),
+        }
+    }
+
+    fn move_cursor_by(&mut self, offset: i32) {
+        match self {
+            Self::U8(s) => s.move_cursor_by(offset),
+            Self::U16(s) => s.move_cursor_by(offset),
+        }
+    }
+
+    fn is_end(&self) -> bool {
+        match self {
+            Self::U8(s) => s.is_end(),
+            Self::U16(s) => s.is_end(),
+        }
+    }
 }
 
 impl<'a> Iterator for StringCharIter<'a> {
-    type Item = (usize, CharCode);
+    type Item = (Range<usize>, CharCode);
 
-    /// returns (next_pos, char)
     fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            Self::U16(it) => it.next(),
-            Self::U8 { it, cursor } => it.next().map(|c| {
-                *cursor += 1;
-                (*cursor, CharCode::Char(*c as char))
-            }),
-        }
+        self.next_char()
     }
 }
 
 impl<'a> StringCharIter<'a> {
-    pub fn from_u16(slice: &'a [u16], base_index: usize) -> Self {
-        Self::U16(U16CharIter::new(slice, base_index))
+    pub fn from_u8(slice: &'a [u8], start: usize) -> Self {
+        let mut s = Utf8Stream::new(slice);
+        s.move_cursor_by(start as _);
+        Self::U8(s)
     }
 
-    pub fn from_u8(slice: &'a [u8], base_index: usize) -> Self {
-        Self::U8 {
-            it: slice.iter().peekable(),
-            cursor: base_index,
-        }
+    pub fn from_u16(slice: &'a [u16], start: usize) -> Self {
+        let mut s = Utf16Stream::new(slice);
+        s.move_cursor_by(start as _);
+        Self::U16(s)
     }
 
-    /// get current cursor
-    pub const fn cursor(&self) -> usize {
-        match self {
-            Self::U8 { cursor, .. } => *cursor,
-            Self::U16(it) => it.cursor,
-        }
-    }
+    // /// get current cursor
+    // pub const fn cursor(&self) -> usize {
+    //     match self {
+    //         Self::U8 { cursor, .. } => *cursor,
+    //         Self::U16(it) => it.cursor,
+    //     }
+    // }
 
-    /// peek next code (not char).
-    pub fn peek(&mut self) -> Option<u16> {
-        match self {
-            Self::U8 { it, .. } => it.peek().copied().map(|c| *c as _),
-            Self::U16(it) => it.peek(),
-        }
-    }
+    // /// peek next code (not char).
+    // pub fn peek(&mut self) -> Option<u16> {
+    //     match self {
+    //         Self::U8 { it, .. } => it.peek().copied().map(|c| *c as _),
+    //         Self::U16(it) => it.peek(),
+    //     }
+    // }
 }
 
 #[derive(Clone)]
@@ -322,10 +360,9 @@ impl StringBuf {
         } else {
             match self {
                 Self::Empty => StringCharIter::from_u8(&[], 0),
-                Self::Ascii(s) => StringCharIter::from_u8(
-                    &s[range.start..std::cmp::min(range.end, s.len())],
-                    range.start,
-                ),
+                Self::Ascii(s) => {
+                    StringCharIter::from_u8(&s[0..std::cmp::min(range.end, s.len())], range.start)
+                }
                 Self::Utf16(s) => StringCharIter::from_u16(
                     &s[range.start..std::cmp::min(range.end, s.len())],
                     range.start,

@@ -21,9 +21,9 @@ pub(super) fn escape_str(s: &str) -> std::borrow::Cow<'_, str> {
                 '\\' => {
                     buf.push_str(r"\\");
                 }
-                '"' => {
-                    buf.push_str("\\\"");
-                }
+                // '"' => {
+                //     buf.push_str("\\\"");
+                // }
                 _ => {
                     buf.push(c);
                 }

@@ -356,10 +356,11 @@ impl StringData {
     ///
     /// For invalid code point or broken surrogate, when `allow_invalid` is true, force encode it to utf8;
     /// otherwise encode U+FFFD instead.
-    pub(crate) fn encode_utf8_bytes_range(
+    pub(crate) fn encode_utf8_bytes_internal(
         &self,
         range: Range<usize>,
         allow_invalid: bool,
+        keep_surrogate: bool,
     ) -> Cow<'_, [u8]> {
         if range.is_empty() || range.start >= self.len() {
             Cow::Borrowed(&[])
@@ -386,20 +387,26 @@ impl StringData {
                                 buf.push(n as u8);
                             } else {
                                 let mut cp = n as u32;
-                                if (0xd800..0xdc00).contains(&cp)
+                                let is_surrogate = if keep_surrogate {
+                                    (0xd800..0xe000).contains(&cp)
+                                } else {
+                                    if (0xd800..0xdc00).contains(&cp) // high
+                                    && !keep_surrogate
                                     && let Some(c1) = it.peek()
                                     && (0xdc00..0xe000).contains(*c1)
-                                {
-                                    // valid surrogate pair
-                                    let lo = **c1 as u32;
-                                    cp = (((cp & 0x3ff) << 10) | (lo & 0x3ff)) + 0x10000;
-                                    it.next();
-                                }
+                                    {
+                                        // valid surrogate pair
+                                        let lo = **c1 as u32;
+                                        cp = (((cp & 0x3ff) << 10) | (lo & 0x3ff)) + 0x10000;
+                                        it.next();
+                                    }
+                                    false
+                                };
 
                                 buf.extend_from_slice(u32_encode_utf8(
                                     cp,
                                     &mut [0; 6],
-                                    allow_invalid,
+                                    allow_invalid || is_surrogate,
                                 ));
                             }
                         }
@@ -418,7 +425,7 @@ impl StringData {
     /// otherwise encode U+FFFD instead.
     #[inline(always)]
     pub fn encode_utf8_bytes(&self, allow_invalid: bool) -> Cow<'_, [u8]> {
-        self.encode_utf8_bytes_range(0..self.len(), allow_invalid)
+        self.encode_utf8_bytes_internal(0..self.len(), allow_invalid, false)
     }
 
     /// Encode content to utf8 str.
@@ -466,9 +473,9 @@ impl StringData {
                                     CharCode::Char('\\') => {
                                         buf.push_str(r"\\");
                                     }
-                                    CharCode::Char('"') => {
-                                        buf.push_str("\\\"");
-                                    }
+                                    // CharCode::Char('"') => {
+                                    //     buf.push_str("\\\"");
+                                    // }
                                     CharCode::Char(c) => {
                                         buf.push(c);
                                     }
@@ -559,16 +566,14 @@ impl StringData {
         } else {
             match self {
                 Self::Empty | Self::Ident => StringCharIter::from_u8(&[], 0),
-                Self::Ascii(s) => StringCharIter::from_u8(
-                    &s[range.start..std::cmp::min(range.end, s.len())],
-                    range.start,
-                ),
-                Self::Utf16(s) => StringCharIter::from_u16(
-                    &s[range.start..std::cmp::min(range.end, s.len())],
-                    range.start,
-                ),
+                Self::Ascii(s) => {
+                    StringCharIter::from_u8(&s[0..std::cmp::min(range.end, s.len())], range.start)
+                }
+                Self::Utf16(s) => {
+                    StringCharIter::from_u16(&s[0..std::cmp::min(range.end, s.len())], range.start)
+                }
                 Self::AsciiStatic(s) => StringCharIter::from_u8(
-                    &s.as_bytes()[range.start..std::cmp::min(range.end, s.len())],
+                    &s.as_bytes()[0..std::cmp::min(range.end, s.len())],
                     range.start,
                 ),
             }
@@ -661,7 +666,6 @@ impl StringData {
             Some(from_index)
         } else {
             let first = needle.get(0).unwrap();
-            let it2 = needle.iter();
             let mut cursor = from_index;
 
             while let Some(i) = self.index_of_code(first, cursor) {
@@ -670,7 +674,7 @@ impl StringData {
                 if i + needle_len <= len
                     && self
                         .iter_range(i..(i + needle_len))
-                        .zip(it2.clone())
+                        .zip(needle.iter())
                         .all(|((_, c1), (_, c2))| c1 == c2)
                 {
                     return Some(i); // found at cursor
@@ -696,7 +700,7 @@ impl StringData {
             let ch: CharCode = ch.into();
             self.iter_since(from_index)
                 .find(|(_, c)| ch.eq(c))
-                .map(|(i, _)| i + from_index)
+                .map(|(r, _)| r.end + from_index)
         }
     }
 
@@ -704,9 +708,9 @@ impl StringData {
     pub fn index_of_next(&self, pos: usize, must_char: bool) -> Option<usize> {
         if pos < self.len() {
             if must_char && self.is_wide() {
-                for (i, c) in self.iter_since(pos) {
+                for (span, c) in self.iter_since(pos) {
                     if matches!(c, CharCode::Char(_)) {
-                        return Some(i);
+                        return Some(span.end);
                     }
                 }
             } else {

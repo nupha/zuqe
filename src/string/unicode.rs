@@ -32,7 +32,7 @@ pub(crate) const fn char_is_space(ch: char) -> bool {
         )
 }
 
-pub(crate) trait CharCodeDecoder: Iterator<Item = (usize, CharCode)> {
+pub(crate) trait CharCodeDecoder: Iterator<Item = (Range<usize>, CharCode)> {
     /// Attempt to decode the UTF-8 character at current cursor position
     /// Returns (char, bytes_consumed) or error
     fn decode_char(&self, since: usize) -> Result<(char, usize), DecodeCharError>;
@@ -263,11 +263,11 @@ impl<'a> CharCodeDecoder for Utf8Stream<'a> {
 }
 
 impl<'a> Iterator for Utf8Stream<'a> {
-    type Item = (usize, CharCode); // (byte_position, char_or_code)
+    type Item = (Range<usize>, CharCode);
 
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
-        self.next_char().map(|(r, c)| (r.start, c))
+        self.next_char()
     }
 }
 
@@ -448,10 +448,10 @@ impl<'a> CharCodeDecoder for Utf16Stream<'a> {
 }
 
 impl<'a> Iterator for Utf16Stream<'a> {
-    type Item = (usize, CharCode); // (position, char_or_code)
+    type Item = (Range<usize>, CharCode);
 
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
-        self.next_char().map(|(r, c)| (r.start, c))
+        self.next_char()
     }
 }

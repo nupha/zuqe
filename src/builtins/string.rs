@@ -83,14 +83,14 @@ fn js_string_at(cc: CallContext) -> JSResult {
 
 fn js_string_codePointAt(cc: CallContext) -> JSResult {
     let ctx = cc.ctx();
-
     let s = cc.this().to_string_non_undefined_or_null(ctx)?;
-    let buf_idx: i32 = cc.arg(0).to_i32_saturating(ctx)?;
-    if buf_idx < 0 || buf_idx >= s.len() as i32 {
-        Ok(JSValue::UNDEFINED)
-    } else {
-        let (_, c) = s.content().iter_since(buf_idx as usize).next().unwrap();
+    let i: i32 = cc.arg(0).to_i32_saturating(ctx)?;
+
+    if (0..s.len() as i32).contains(&i) {
+        let (_, c) = s.content().iter_since(i as usize).next().unwrap();
         Ok(JSValue::from(c.to_u32()))
+    } else {
+        Ok(JSValue::UNDEFINED)
     }
 }
 
@@ -565,9 +565,13 @@ fn js_string_repeat(cc: CallContext) -> JSResult {
         cx.throw_out_of_memory();
         -1
     })?;
-    res_string
-        .push_chars_iter(std::iter::repeat_n(p.content().iter().map(|(_, c)| c), n).flatten())
-        .unwrap();
+
+    let sdata = p.content();
+    for _ in 0..n {
+        res_string
+            .push_chars_iter(sdata.iter().map(|(_, c)| c))
+            .unwrap();
+    }
     res_string.shrink_to_fit();
 
     cx.create_string_with_buf(res_string).map(JSValue::String)
@@ -1018,8 +1022,8 @@ fn js_string_iterator_next(cc: CallContext, state: &mut IteratorState) -> JSResu
             }
             JSValue::String(ss) => {
                 // iterate over string buf to get char or code at `idx`
-                if let Some((next_idx, c)) = ss.content().iter_since(it.index() as usize).next() {
-                    it.set_index(next_idx as u32);
+                if let Some((span, c)) = ss.content().iter_since(it.index() as usize).next() {
+                    it.set_index(span.end as u32);
                     *state = IteratorState::NotDone;
                     ctx.create_string_from_char(c).map(JSValue::String)
                 } else {
@@ -1052,7 +1056,7 @@ fn js_string_fromCharCode(cc: CallContext) -> JSResult {
 
     for a in cc.arguments() {
         let cp = a.to_i32(ctx)?;
-        sbuf.push_u32(cp as u32).map_err(|_| {
+        sbuf.push_u32(cp as u32 & 0xffff).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
         })?;
