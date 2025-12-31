@@ -54,7 +54,8 @@ pub(crate) trait CharCodeDecoder: Iterator<Item = (Range<usize>, CharCode)> {
     fn is_end(&self) -> bool;
 }
 
-pub(crate) struct Utf8Stream<'a> {
+#[derive(Debug)]
+pub struct Utf8Stream<'a> {
     data: &'a [u8], // UTF-8 bytes
     index: usize,   // current byte index
 }
@@ -271,7 +272,8 @@ impl<'a> Iterator for Utf8Stream<'a> {
     }
 }
 
-pub(crate) struct Utf16Stream<'a> {
+#[derive(Debug)]
+pub struct Utf16Stream<'a> {
     data: &'a [u16], // UTF16 data
     index: usize,    // current index
 }

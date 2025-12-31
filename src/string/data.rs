@@ -561,21 +561,21 @@ impl StringData {
     /// if `range` is out of bounds, the intersected range is applied.
     /// for broken surrogate, returns raw code directly, otherwise returns unichar
     pub fn iter_range(&self, range: Range<usize>) -> StringCharIter<'_> {
-        if range.is_empty() || range.start >= self.len() {
-            StringCharIter::from_u8(&[], range.start)
+        if unlikely(range.is_empty() || range.start >= self.len()) {
+            StringCharIter::from_u8(&[], 0)
         } else {
             match self {
-                Self::Empty | Self::Ident => StringCharIter::from_u8(&[], 0),
                 Self::Ascii(s) => {
                     StringCharIter::from_u8(&s[0..std::cmp::min(range.end, s.len())], range.start)
-                }
-                Self::Utf16(s) => {
-                    StringCharIter::from_u16(&s[0..std::cmp::min(range.end, s.len())], range.start)
                 }
                 Self::AsciiStatic(s) => StringCharIter::from_u8(
                     &s.as_bytes()[0..std::cmp::min(range.end, s.len())],
                     range.start,
                 ),
+                Self::Utf16(s) => {
+                    StringCharIter::from_u16(&s[0..std::cmp::min(range.end, s.len())], range.start)
+                }
+                Self::Empty | Self::Ident => StringCharIter::from_u8(&[], 0),
             }
         }
     }
@@ -610,63 +610,59 @@ impl StringData {
     pub fn chars_count(&self) -> usize {
         match self {
             Self::Empty | Self::Ident => 0,
-            Self::Ascii(s) => s.as_ref().len(),
+            Self::Ascii(s) => s.len(),
             Self::Utf16(_) => self.iter().count(),
             Self::AsciiStatic(s) => s.len(),
         }
     }
 
     /// find index of code occurrence.
-    pub fn index_of_code(&self, code: u16, from_index: usize) -> Option<usize> {
-        if !(0..self.len()).contains(&from_index) {
-            return None;
-        }
-
-        match self {
-            Self::Empty | Self::Ident => None,
-            Self::Ascii(s) => {
-                if code > 0x7F {
-                    None
-                } else {
-                    let c1 = code as u8;
-
-                    s[from_index..]
-                        .iter()
-                        .position(|&c| c == c1)
-                        .map(|n| n + from_index)
+    pub fn index_of_code(&self, code: u16, start: usize) -> Option<usize> {
+        if (0..self.len()).contains(&start) {
+            match self {
+                Self::Empty | Self::Ident => None,
+                Self::Ascii(s) => {
+                    if code > 0x7F {
+                        None
+                    } else {
+                        let c1 = code as u8;
+                        s[start..].iter().position(|&c| c == c1).map(|n| n + start)
+                    }
+                }
+                Self::Utf16(s) => s[start..]
+                    .iter()
+                    .position(|&c| c == code)
+                    .map(|n| n + start),
+                Self::AsciiStatic(s) => {
+                    if code > 0x7F {
+                        None
+                    } else {
+                        let c1 = code as u8;
+                        s.as_bytes()[start..]
+                            .iter()
+                            .position(|&c| c == c1)
+                            .map(|n| n + start)
+                    }
                 }
             }
-            Self::Utf16(s) => s[from_index..]
-                .iter()
-                .position(|&c| c == code)
-                .map(|n| n + from_index),
-            Self::AsciiStatic(s) => {
-                if code > 0x7F {
-                    None
-                } else {
-                    let c1 = code as u8;
-                    s.as_bytes()[from_index..]
-                        .iter()
-                        .position(|&c| c == c1)
-                        .map(|n| n + from_index)
-                }
-            }
+        } else {
+            None
         }
     }
 
-    /// find index of string buf occurrence in haystack `self`, starting at `from_index`.
-    pub fn index_of(&self, needle: &Self, from_index: usize) -> Option<usize> {
+    /// find index of string buf occurrence in haystack `self`, starting since `start`.
+    pub fn index_of(&self, needle: &Self, start: usize) -> Option<usize> {
         let len = self.len();
         let needle_len = needle.len();
 
-        if from_index + needle_len > len {
+        if start + needle_len > len {
             // range out of bound
             None
         } else if needle.is_empty() {
-            Some(from_index)
+            Some(start)
         } else {
             let first = needle.get(0).unwrap();
-            let mut cursor = from_index;
+            let mut cursor = start;
 
             while let Some(i) = self.index_of_code(first, cursor) {
                 debug_assert!(cursor + needle_len <= len, "{i} + {needle_len} <= {len}");
@@ -691,16 +687,16 @@ impl StringData {
         }
     }
 
-    /// find index of char occurrence in self, starting at from.
-    pub fn index_of_char<C: Into<CharCode>>(&self, ch: C, from_index: usize) -> Option<usize> {
+    /// find index of char occurrence in self, starting since `start`.
+    pub fn index_of_char<C: Into<CharCode>>(&self, ch: C, start: usize) -> Option<usize> {
         let len = self.len();
-        if !(0..len).contains(&from_index) {
+        if !(0..len).contains(&start) {
             None
         } else {
             let ch: CharCode = ch.into();
-            self.iter_since(from_index)
+            self.iter_since(start)
                 .find(|(_, c)| ch.eq(c))
-                .map(|(r, _)| r.end + from_index)
+                .map(|(r, _)| r.end + start)
         }
     }
 

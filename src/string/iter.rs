@@ -1,8 +1,6 @@
 use std::{iter::Peekable, ops::Range};
 
-use widestring::error::Utf16Error;
-
-use crate::string::{CharCodeDecoder, StringData, Utf8Stream, Utf16Stream};
+use crate::string::{CharCodeDecoder, Utf8Stream, Utf16Stream};
 
 use super::StringBuf;
 
@@ -203,6 +201,7 @@ impl<'a> U16CharIter<'a> {
     }
 }
 
+#[derive(Debug)]
 pub enum StringCharIter<'a> {
     U8(Utf8Stream<'a>),
     U16(Utf16Stream<'a>),
