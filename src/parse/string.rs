@@ -1,6 +1,6 @@
 use crate::{
     stack_frame::ExecMode,
-    string::{CharCode, StringBuf, Utf8Stream},
+    string::{CharCode, CharCodeDecoder, StringBuf, Utf8Stream},
 };
 
 use super::{
@@ -151,7 +151,7 @@ impl<'s> JSParseState<'s> {
                         }
 
                         if let Some(ch) = should_parse_escape.take() {
-                            let bytes = input.remainder_bytes(); //&buf[j..];
+                            let bytes = input.remainder(); //&buf[j..];
                             match self.parse_string_escape(bytes, 1) {
                                 Ok((code, consume)) => {
                                     input.move_cursor_by(consume as _);

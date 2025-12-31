@@ -32,7 +32,7 @@ pub(crate) const fn char_is_space(ch: char) -> bool {
         )
 }
 
-pub(crate) trait CharCodeDecoder {
+pub(crate) trait CharCodeDecoder: Iterator<Item = (usize, CharCode)> {
     /// Attempt to decode the UTF-8 character at current cursor position
     /// Returns (char, bytes_consumed) or error
     fn decode_char(&self, since: usize) -> Result<(char, usize), DecodeCharError>;
@@ -49,6 +49,9 @@ pub(crate) trait CharCodeDecoder {
 
     /// advance or rewind cursor by offset relative to current position
     fn move_cursor_by(&mut self, offset: i32);
+
+    /// check current cursor is at end of data?
+    fn is_end(&self) -> bool;
 }
 
 pub(crate) struct Utf8Stream<'a> {
@@ -61,9 +64,78 @@ impl<'a> Utf8Stream<'a> {
         Self { data, index: 0 }
     }
 
-    /// Attempt to decode the UTF-8 character at current cursor position
-    /// Returns (char, bytes_consumed) or error
-    pub fn decode_char(&self, since: usize) -> Result<(char, usize), DecodeCharError> {
+    /// load data since current position (inclusive), to given `buf`.
+    /// returns actual bytes slice.
+    pub fn peek_data<'b>(&self, buf: &'b mut [u8]) -> &'b [u8] {
+        if self.index < self.data.len() {
+            let cnt = std::cmp::min(self.data.len() - self.index, buf.len());
+            unsafe {
+                std::ptr::copy(self.data.as_ptr().add(self.index), buf.as_mut_ptr(), cnt);
+            }
+            &buf[..cnt]
+        } else {
+            &[]
+        }
+    }
+
+    /// test if remainder bytes starts with given pattern.
+    ///
+    /// this roughly equivelent to `s.remainder_bytes().starts_with(needle)`
+    pub fn match_bytes(&self, needle: &[u8]) -> bool {
+        let n = self.index + needle.len();
+        if n <= self.data.len() {
+            self.data[self.index..n].eq(needle)
+        } else {
+            false
+        }
+    }
+
+    /// get byte at offset relative to current position
+    /// e.g. 0=current index, 1=next of current index, -1=prev of current index
+    #[inline]
+    pub fn peek_byte_at(&self, offset: i32) -> Option<u8> {
+        let i = self.index as i32 + offset;
+        if i >= 0 {
+            self.data.get(i as usize).copied()
+        } else {
+            None
+        }
+    }
+
+    /// data slice since current position (inclusive) through end
+    pub fn remainder(&self) -> &[u8] {
+        if self.index < self.data.len() {
+            &self.data[self.index..]
+        } else {
+            &[]
+        }
+    }
+
+    /// Get byte at current cursor.
+    /// For semantic meaning, this is actually an alias to `::peek_byte_at(0)`
+    #[inline(always)]
+    pub fn current_byte(&self) -> Option<u8> {
+        self.peek_byte_at(0)
+    }
+
+    /// get raw pointer to current cursor in bytes.
+    /// if cursor index out of bound, returns None
+    pub const fn current_ptr(&self) -> Option<NonNull<u8>> {
+        if self.index < self.data.len() {
+            Some(unsafe { NonNull::new_unchecked(self.data.as_ptr().add(self.index) as _) })
+        } else {
+            None
+        }
+    }
+
+    #[inline(always)]
+    pub const fn start_ptr(&self) -> NonNull<u8> {
+        unsafe { NonNull::new_unchecked(self.data.as_ptr() as _) }
+    }
+}
+
+impl<'a> CharCodeDecoder for Utf8Stream<'a> {
+    fn decode_char(&self, since: usize) -> Result<(char, usize), DecodeCharError> {
         if since < self.data.len() {
             let b = self.data[since];
             if b <= 0x7F {
@@ -132,9 +204,7 @@ impl<'a> Utf8Stream<'a> {
         }
     }
 
-    /// decode char at current position, don't advance cursor.
-    /// returns char or code and sequence length
-    pub fn current_char(&self) -> Option<(CharCode, usize)> {
+    fn current_char(&self) -> Option<(CharCode, usize)> {
         let pos = self.index;
 
         match self.decode_char(pos) {
@@ -151,8 +221,7 @@ impl<'a> Utf8Stream<'a> {
         }
     }
 
-    /// decode char at current cursur, then advance cursor to next char.
-    pub fn next_char(&mut self) -> Option<(Range<usize>, CharCode)> {
+    fn next_char(&mut self) -> Option<(Range<usize>, CharCode)> {
         let pos = self.index;
         if pos < self.data.len() {
             match self.current_char() {
@@ -170,55 +239,7 @@ impl<'a> Utf8Stream<'a> {
         }
     }
 
-    /// get N bytes since current position (inclusive), to given `buf`.
-    /// returns actual bytes slice.
-    pub fn peek_bytes<'b>(&self, buf: &'b mut [u8]) -> &'b [u8] {
-        if self.index < self.data.len() {
-            let cnt = std::cmp::min(self.data.len() - self.index, buf.len());
-            unsafe {
-                std::ptr::copy(self.data.as_ptr().add(self.index), buf.as_mut_ptr(), cnt);
-            }
-            &buf[..cnt]
-        } else {
-            &[]
-        }
-    }
-
-    /// test if remainder bytes starts with given pattern.
-    ///
-    /// this roughly equivelent to `s.remainder_bytes().starts_with(needle)`
-    pub fn match_bytes(&self, needle: &[u8]) -> bool {
-        let n = self.index + needle.len();
-        if n <= self.data.len() {
-            self.data[self.index..n].eq(needle)
-        } else {
-            false
-        }
-    }
-
-    /// get byte at offset relative to current position
-    /// e.g. 0=current index, 1=next of current index, -1=prev of current index
-    #[inline]
-    pub fn peek_byte_at(&self, offset: i32) -> Option<u8> {
-        let i = self.index as i32 + offset;
-        if i >= 0 {
-            self.data.get(i as usize).copied()
-        } else {
-            None
-        }
-    }
-
-    /// bytes since current position (inclusive) through end
-    pub fn remainder_bytes(&self) -> &[u8] {
-        if self.index < self.data.len() {
-            &self.data[self.index..]
-        } else {
-            &[]
-        }
-    }
-
-    /// get current cursor position.
-    pub const fn position(&self) -> Option<usize> {
+    fn position(&self) -> Option<usize> {
         if self.index < self.data.len() {
             Some(self.index)
         } else {
@@ -226,25 +247,8 @@ impl<'a> Utf8Stream<'a> {
         }
     }
 
-    /// Get byte at current cursor.
-    /// For semantic meaning, this is actually an alias to `::peek_byte_at(0)`
-    #[inline(always)]
-    pub fn current_byte(&self) -> Option<u8> {
-        self.peek_byte_at(0)
-    }
-
-    /// get raw pointer to current cursor in bytes.
-    /// if cursor index out of bound, returns None
-    pub const fn current_ptr(&self) -> Option<NonNull<u8>> {
-        if self.index < self.data.len() {
-            Some(unsafe { NonNull::new_unchecked(self.data.as_ptr().add(self.index) as _) })
-        } else {
-            None
-        }
-    }
-
     /// advance or rewind cursor by offset relative to current position
-    pub fn move_cursor_by(&mut self, offset: i32) {
+    fn move_cursor_by(&mut self, offset: i32) {
         self.index = if offset >= 0 {
             std::cmp::min(self.index + offset as usize, self.data.len())
         } else {
@@ -253,13 +257,7 @@ impl<'a> Utf8Stream<'a> {
     }
 
     #[inline(always)]
-    pub const fn start_ptr(&self) -> NonNull<u8> {
-        unsafe { NonNull::new_unchecked(self.data.as_ptr() as _) }
-    }
-
-    /// move cursor to end
-    #[inline(always)]
-    pub const fn is_end(&self) -> bool {
+    fn is_end(&self) -> bool {
         self.index >= self.data.len()
     }
 }
@@ -281,84 +279,6 @@ pub(crate) struct Utf16Stream<'a> {
 impl<'a> Utf16Stream<'a> {
     pub const fn new(data: &'a [u16]) -> Self {
         Self { data, index: 0 }
-    }
-
-    /// Attempt to decode the UTF-16 character at current cursor position
-    /// Returns (char, data_consumed) or error
-    pub fn decode_char(&self, since: usize) -> Result<(char, usize), DecodeCharError> {
-        if since < self.data.len() {
-            let cp1 = self.data[since] as u32;
-
-            if cp1 <= 0x7F {
-                return Ok((cp1 as u8 as char, 1));
-            }
-
-            let mut len = 1;
-            let mut code_point = cp1;
-
-            if (0xD800..=0xDBFF).contains(&cp1)
-                && let Some(cp2) = self.data.get(since + 1)
-                && (0xDC00..=0xDFFF).contains(cp2)
-            {
-                // surrogate pair
-                len += 1;
-                code_point = ((cp1 - 0xD800) << 10) + (*cp2 as u32 - 0xDC00) + 0x10000;
-            }
-
-            // Check surrogate pair range (U+D800..U+DFFF)
-            if (0xD800..=0xDFFF).contains(&code_point) {
-                return Err(DecodeCharError::Surrogate(code_point, len));
-            }
-            // Check code point validity
-            if code_point > 0x10FFFF {
-                return Err(DecodeCharError::InvalidCodePoint(code_point, len));
-            }
-
-            // Convert to character
-            char::from_u32(code_point)
-                .ok_or(DecodeCharError::InvalidCodePoint(code_point, len))
-                .map(|c| (c, len))
-        } else {
-            Err(DecodeCharError::EndOfInput)
-        }
-    }
-
-    /// decode char at current position, don't advance cursor.
-    /// returns char or code and sequence length
-    pub fn current_char(&self) -> Option<(CharCode, usize)> {
-        let pos = self.index;
-
-        match self.decode_char(pos) {
-            Ok((c, n)) => Some((CharCode::Char(c), n)),
-            Err(DecodeCharError::Surrogate(cp, n) | DecodeCharError::InvalidCodePoint(cp, n)) => {
-                Some((CharCode::Code(cp), n))
-            }
-            Err(DecodeCharError::EndOfInput) => None,
-            Err(
-                DecodeCharError::Incomplete
-                | DecodeCharError::Overlong(..)
-                | DecodeCharError::InvalidSeq(..),
-            ) => Some((CharCode::Code(self.data[pos] as _), 1)),
-        }
-    }
-
-    /// decode char at current cursur, then advance cursor to next char.
-    pub fn next_char(&mut self) -> Option<(Range<usize>, CharCode)> {
-        let pos = self.index;
-        if pos < self.data.len() {
-            match self.current_char() {
-                Some((c, n)) => {
-                    self.index += n;
-                    Some((pos..pos + n, c))
-                }
-                None => {
-                    self.index += 1; // skip one element when invalid utf8 sequence
-                    Some((pos..pos + 1, CharCode::Code(self.data[pos] as _)))
-                }
-            }
-        } else {
-            None
-        }
     }
 
     /// get N data since current position (inclusive), to given `buf`.
@@ -400,20 +320,11 @@ impl<'a> Utf16Stream<'a> {
     }
 
     /// data since current position (inclusive) through end
-    pub fn remainder_data(&self) -> &[u16] {
+    pub fn remainder(&self) -> &[u16] {
         if self.index < self.data.len() {
             &self.data[self.index..]
         } else {
             &[]
-        }
-    }
-
-    /// get current cursor position.
-    pub const fn position(&self) -> Option<usize> {
-        if self.index < self.data.len() {
-            Some(self.index)
-        } else {
-            None
         }
     }
 
@@ -434,8 +345,95 @@ impl<'a> Utf16Stream<'a> {
         }
     }
 
-    /// advance or rewind cursor by offset relative to current position
-    pub fn move_cursor_by(&mut self, offset: i32) {
+    #[inline(always)]
+    pub const fn start_ptr(&self) -> NonNull<u16> {
+        unsafe { NonNull::new_unchecked(self.data.as_ptr() as _) }
+    }
+}
+
+impl<'a> CharCodeDecoder for Utf16Stream<'a> {
+    fn decode_char(&self, since: usize) -> Result<(char, usize), DecodeCharError> {
+        if since < self.data.len() {
+            let cp1 = self.data[since] as u32;
+
+            if cp1 <= 0x7F {
+                return Ok((cp1 as u8 as char, 1));
+            }
+
+            let mut len = 1;
+            let mut code_point = cp1;
+
+            if (0xD800..=0xDBFF).contains(&cp1)
+                && let Some(cp2) = self.data.get(since + 1)
+                && (0xDC00..=0xDFFF).contains(cp2)
+            {
+                // surrogate pair
+                len += 1;
+                code_point = ((cp1 - 0xD800) << 10) + (*cp2 as u32 - 0xDC00) + 0x10000;
+            }
+
+            // Check surrogate pair range (U+D800..U+DFFF)
+            if (0xD800..=0xDFFF).contains(&code_point) {
+                return Err(DecodeCharError::Surrogate(code_point, len));
+            }
+            // Check code point validity
+            if code_point > 0x10FFFF {
+                return Err(DecodeCharError::InvalidCodePoint(code_point, len));
+            }
+
+            // Convert to character
+            char::from_u32(code_point)
+                .ok_or(DecodeCharError::InvalidCodePoint(code_point, len))
+                .map(|c| (c, len))
+        } else {
+            Err(DecodeCharError::EndOfInput)
+        }
+    }
+
+    fn current_char(&self) -> Option<(CharCode, usize)> {
+        let pos = self.index;
+
+        match self.decode_char(pos) {
+            Ok((c, n)) => Some((CharCode::Char(c), n)),
+            Err(DecodeCharError::Surrogate(cp, n) | DecodeCharError::InvalidCodePoint(cp, n)) => {
+                Some((CharCode::Code(cp), n))
+            }
+            Err(DecodeCharError::EndOfInput) => None,
+            Err(
+                DecodeCharError::Incomplete
+                | DecodeCharError::Overlong(..)
+                | DecodeCharError::InvalidSeq(..),
+            ) => Some((CharCode::Code(self.data[pos] as _), 1)),
+        }
+    }
+
+    fn next_char(&mut self) -> Option<(Range<usize>, CharCode)> {
+        let pos = self.index;
+        if pos < self.data.len() {
+            match self.current_char() {
+                Some((c, n)) => {
+                    self.index += n;
+                    Some((pos..pos + n, c))
+                }
+                None => {
+                    self.index += 1; // skip one element when invalid utf8 sequence
+                    Some((pos..pos + 1, CharCode::Code(self.data[pos] as _)))
+                }
+            }
+        } else {
+            None
+        }
+    }
+
+    fn position(&self) -> Option<usize> {
+        if self.index < self.data.len() {
+            Some(self.index)
+        } else {
+            None
+        }
+    }
+
+    fn move_cursor_by(&mut self, offset: i32) {
         self.index = if offset >= 0 {
             std::cmp::min(self.index + offset as usize, self.data.len())
         } else {
@@ -444,13 +442,7 @@ impl<'a> Utf16Stream<'a> {
     }
 
     #[inline(always)]
-    pub const fn start_ptr(&self) -> NonNull<u16> {
-        unsafe { NonNull::new_unchecked(self.data.as_ptr() as _) }
-    }
-
-    /// move cursor to end
-    #[inline(always)]
-    pub const fn is_end(&self) -> bool {
+    fn is_end(&self) -> bool {
         self.index >= self.data.len()
     }
 }

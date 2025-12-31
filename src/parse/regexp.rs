@@ -1,6 +1,6 @@
 use crate::{
     builtins::regexp::RegExpData,
-    string::{CharCode, StringBuf, Utf8Stream},
+    string::{CharCode, CharCodeDecoder, StringBuf, Utf8Stream},
 };
 
 use super::{

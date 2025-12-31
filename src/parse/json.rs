@@ -7,7 +7,7 @@ use crate::{
     number::{ATOD_ACCEPT_BIN_OCT, js_atof},
     object::JS_PROP_C_W_E,
     runtime::js_check_stack_overflow,
-    string::{UTF8_CHAR_LEN_MAX, Utf8Stream, escape_str},
+    string::{CharCodeDecoder, UTF8_CHAR_LEN_MAX, Utf8Stream, escape_str},
     utils::unlikely,
     value::JSValue,
 };

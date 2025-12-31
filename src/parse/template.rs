@@ -2,7 +2,7 @@ use crate::{
     atom::Atom,
     bytecode::OpCode,
     object::{JS_PROP_ENUMERABLE, JS_PROP_THROW, seal_template_obj},
-    string::{CharCode, StringBuf, Utf8Stream},
+    string::{CharCode, CharCodeDecoder, StringBuf, Utf8Stream},
     utils::unlikely,
     value::JSValue,
 };

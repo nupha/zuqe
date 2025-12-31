@@ -10,7 +10,8 @@ use crate::{
 };
 
 use super::{
-    CharCode, StringBuf, StringCharIter, StringCodepointIter, s16_into_s8, u32_encode_utf8,
+    CharCode, CharCodeDecoder, StringBuf, StringCharIter, StringCodepointIter, s16_into_s8,
+    u32_encode_utf8,
 };
 
 /// read-only string content.

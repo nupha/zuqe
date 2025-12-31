@@ -8,7 +8,7 @@ use crate::{
     },
     runtime::js_check_stack_overflow,
     stack_frame::ExecMode,
-    string::{CharCode, StringBuf, Utf8Stream, char_is_space},
+    string::{CharCode, CharCodeDecoder, StringBuf, Utf8Stream, char_is_space},
 };
 
 use super::{
@@ -247,7 +247,7 @@ impl<'s> JSParseState<'s> {
 
             match sc {
                 CharCode::Char('`') => {
-                    if let Ok(n) = self.parse_template_part(input.remainder_bytes()) {
+                    if let Ok(n) = self.parse_template_part(input.remainder()) {
                         input.move_cursor_by(n as _);
                     } else {
                         todo = Some(Todo::SyntaxError);
@@ -311,7 +311,7 @@ impl<'s> JSParseState<'s> {
                     if let Some(b'u') = input.current_byte() {
                         // \u
                         let is_bad = if let Ok((code, consumed)) =
-                            self.parse_string_escape(input.remainder_bytes(), 1)
+                            self.parse_string_escape(input.remainder(), 1)
                         {
                             if let Some(c1) = char::from_u32(code) {
                                 if Self::is_ident_first(c1) {
@@ -348,7 +348,7 @@ impl<'s> JSParseState<'s> {
                                 if let Some(b'u') = input.current_byte() {
                                     // \u
                                     let (code, consumed) =
-                                        self.parse_string_escape(input.remainder_bytes(), 1)?;
+                                        self.parse_string_escape(input.remainder(), 1)?;
                                     if let Some(x) = char::from_u32(code) {
                                         input.move_cursor_by(consumed as _);
                                         x
@@ -371,7 +371,7 @@ impl<'s> JSParseState<'s> {
                             self.throw_syntax_error("invalid first charactor of private name");
                             todo = Some(Todo::SyntaxError);
                         } else if let Ok((atom, has_escape, consumed)) =
-                            self.parse_ident(input.remainder_bytes(), c1, true)
+                            self.parse_ident(input.remainder(), c1, true)
                         {
                             self.token.kind = TokenKind::PRIVATE_NAME;
                             self.token.data = TokenData::Ident {
@@ -387,7 +387,7 @@ impl<'s> JSParseState<'s> {
                 }
                 CharCode::Char('.') => {
                     let mut bb = [0u8; 2];
-                    input.peek_bytes(&mut bb);
+                    input.peek_data(&mut bb);
                     match (bb[0], bb[1]) {
                         (b'.', b'.') => {
                             // ...
@@ -528,7 +528,7 @@ impl<'s> JSParseState<'s> {
                 }
                 CharCode::Char('>') => {
                     let mut bb = [0u8; 3];
-                    input.peek_bytes(&mut bb);
+                    input.peek_data(&mut bb);
 
                     match (bb[0], bb[1], bb[2]) {
                         (b'=', _, _) => {
@@ -568,7 +568,7 @@ impl<'s> JSParseState<'s> {
                 }
                 CharCode::Char('=') => {
                     let mut bb = [0u8; 2];
-                    input.peek_bytes(&mut bb);
+                    input.peek_data(&mut bb);
                     match bb[0] {
                         b'=' => {
                             if bb.starts_with(b"==") {
@@ -597,7 +597,7 @@ impl<'s> JSParseState<'s> {
                 }
                 CharCode::Char('!') => {
                     let mut bb = [0u8; 2];
-                    input.peek_bytes(&mut bb);
+                    input.peek_data(&mut bb);
                     match bb[0] {
                         b'=' => {
                             if bb.starts_with(b"==") {
@@ -619,7 +619,7 @@ impl<'s> JSParseState<'s> {
                 }
                 CharCode::Char('&') => {
                     let mut bb = [0u8; 2];
-                    input.peek_bytes(&mut bb);
+                    input.peek_data(&mut bb);
                     match (bb[0], bb[1]) {
                         (b'=', _) => {
                             // &=
@@ -656,7 +656,7 @@ impl<'s> JSParseState<'s> {
                 }
                 CharCode::Char('|') => {
                     let mut bb = [0u8; 2];
-                    input.peek_bytes(&mut bb);
+                    input.peek_data(&mut bb);
                     match (bb[0], bb[1]) {
                         (b'=', _) => {
                             // |=
@@ -683,7 +683,7 @@ impl<'s> JSParseState<'s> {
                 }
                 CharCode::Char('?') => {
                     let mut bb = [0u8; 2];
-                    input.peek_bytes(&mut bb);
+                    input.peek_data(&mut bb);
                     match (bb[0], bb[1]) {
                         (b'?', b'=') => {
                             // ??=
@@ -746,7 +746,7 @@ impl<'s> JSParseState<'s> {
                     }
                     Todo::HasIdent(first_char, escaped) => {
                         if let Ok((atom, has_escape, consumed)) =
-                            self.parse_ident(input.remainder_bytes(), first_char, false)
+                            self.parse_ident(input.remainder(), first_char, false)
                         {
                             self.token.kind = TokenKind::IDENT;
                             self.token.data = TokenData::Ident {
@@ -1032,7 +1032,7 @@ impl<'s> JSParseState<'s> {
                 }
                 CharCode::Char('i') => {
                     let mut bb = [0u8; 5];
-                    inp.peek_bytes(&mut bb);
+                    inp.peek_data(&mut bb);
 
                     match (bb[0], bb[1], bb[2], bb[3], bb[4]) {
                         (b'n', ..) => {
