@@ -182,39 +182,39 @@ pub fn js_regexp_get_source(cc: CallContext) -> JSResult {
         while let Some((_, c)) = chars.next() {
             match c {
                 CharCode::Char('\\') => {
-                    let _ = buf.push_char('\\');
+                    let _ = buf.push_u8(b'\\');
                     if let Some((_, x)) = chars.next() {
                         let _ = buf.push_char(x);
                     }
                 }
                 CharCode::Char(']') => {
                     bra = false;
-                    let _ = buf.push_char(']');
+                    let _ = buf.push_u8(b']');
                 }
                 CharCode::Char('[') => {
                     if !bra {
                         if chars.peek() == Some(']' as u32 as u16) {
                             // [] case
                             chars.next(); // consume ']'
-                            let _ = buf.push_str("[]");
+                            let _ = buf.push_u8_slice(b"[]");
                             continue;
                         }
                         bra = true;
                     }
-                    let _ = buf.push_char('[');
+                    let _ = buf.push_u8(b'[');
                 }
                 CharCode::Char('\n') => {
-                    let _ = buf.push_str("\\n");
+                    let _ = buf.push_u8_slice(b"\\n");
                 }
                 CharCode::Char('\r') => {
-                    let _ = buf.push_str("\\r");
+                    let _ = buf.push_u8_slice(b"\\r");
                 }
 
                 CharCode::Char('/') => {
                     if !bra {
-                        let _ = buf.push_str("\\/");
+                        let _ = buf.push_u8_slice(b"\\/");
                     } else {
-                        let _ = buf.push_char('/');
+                        let _ = buf.push_u8(b'/');
                     }
                 }
                 c => {

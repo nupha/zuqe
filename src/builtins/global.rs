@@ -132,11 +132,10 @@ fn js_global_decodeURI(cc: CallContext) -> JSResult {
                     ctx.throw_type_error("malformed UTF-8");
                     return Err(-1);
                 } else {
-                    buf.push_char(unsafe { char::from_u32_unchecked(uc) })
-                        .map_err(|_| {
-                            ctx.throw_out_of_memory();
-                            -1
-                        })?;
+                    buf.push_u32(uc).map_err(|_| {
+                        ctx.throw_out_of_memory();
+                        -1
+                    })?;
                 }
             }
         } else {

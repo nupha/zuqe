@@ -36,7 +36,7 @@ impl<'s> JSParseState<'s> {
 
                     if sep == '`' {
                         if c == '\r' {
-                            if let Some((_, CharCode::Char('\n'))) = input.peek_char() {
+                            if let Some(b'\n') = input.current_byte() {
                                 let _ = input.next(); // skip \n after \r
                             }
                             c = '\n'
@@ -63,17 +63,17 @@ impl<'s> JSParseState<'s> {
                     break;
                 }
 
-                let mut char_code = CharCode::Char(c);
+                let mut cc = c as u32;
 
                 if c == '\\' {
                     // handle escape sequence
-                    if let Some((_, sc2)) = input.peek_char() {
+                    if let Some((sc2, _)) = input.current_char() {
                         let mut should_parse_escape: Option<char> = None;
 
                         match sc2 {
                             CharCode::Char(c1 @ ('\'' | '\"' | '\\')) => {
                                 input.move_cursor_by(1);
-                                char_code = CharCode::Code(c1 as _);
+                                cc = c1 as u32;
                             }
                             CharCode::Char(n @ ('\r' | '\n')) => {
                                 if n == '\r'
@@ -111,7 +111,7 @@ impl<'s> JSParseState<'s> {
                                 {
                                     // found \0
                                     input.move_cursor_by(1); // skip '0'
-                                    char_code = CharCode::Char('\0');
+                                    cc = 0;
                                 } else {
                                     // ES2021: octal escapes 8/9 not allowed in strict mode/templates
                                     if throw_err {
@@ -134,7 +134,7 @@ impl<'s> JSParseState<'s> {
                                     should_parse_escape = Some(c1)
                                 } else {
                                     input.move_cursor_by(c1.len_utf8() as i32);
-                                    char_code = CharCode::Char(c1);
+                                    cc = c1 as u32;
                                 }
                             }
                             CharCode::Code(_) => {
@@ -149,9 +149,8 @@ impl<'s> JSParseState<'s> {
                             let bytes = input.remainder_bytes(); //&buf[j..];
                             match self.parse_string_escape(bytes, 1) {
                                 Ok((code, consume)) => {
-                                    let _ = input.nth(consume - 1);
-                                    char_code = char::from_u32(code)
-                                        .map_or(CharCode::Code(code as u16), CharCode::Char);
+                                    input.move_cursor_by(consume as _);
+                                    cc = code;
                                 }
                                 Err(-1) => {
                                     if throw_err {
@@ -163,8 +162,8 @@ impl<'s> JSParseState<'s> {
                                 }
                                 Err(-2) => {
                                     // ignore the '\' (could output a warning)
-                                    let _ = input.next();
-                                    char_code = CharCode::Char(ch);
+                                    input.move_cursor_by(1);
+                                    cc = ch as u32;
                                 }
                                 _ => unreachable!(),
                             }
@@ -184,7 +183,7 @@ impl<'s> JSParseState<'s> {
                         -1
                     })?;
                 }
-                let _ = sbuf.push_char(char_code); // can't fail
+                let _ = sbuf.push_u32(cc); // can't fail
             } else {
                 if throw_err {
                     self.throw_syntax_error("invalid UTF-8 sequence");

@@ -60,7 +60,7 @@ fn do_substitution<NC: Fn(&str) -> Result<Option<StringData>, i32>>(
                 match c1 {
                     CharCode::Char('$') => {
                         // $$ -> $
-                        sbuf.push_char('$')?;
+                        sbuf.push_u8(b'$')?;
                     }
                     CharCode::Char('&') => {
                         // $& -> matched
@@ -157,7 +157,7 @@ impl StringBuf {
 /// quote string with leading and tailing '"'.
 fn quote_string_internal(src: StringCharIter, len: usize) -> Result<StringBuf, TryReserveError> {
     let mut buf = StringBuf::with_capacity(len + 2, false)?;
-    buf.push_char('"').unwrap();
+    buf.push_u8(b'"').unwrap();
 
     for (_, ch) in src {
         if buf.capacity() - buf.len() < UTF8_CHAR_LEN_MAX {
@@ -167,90 +167,47 @@ fn quote_string_internal(src: StringCharIter, len: usize) -> Result<StringBuf, T
         match ch {
             CharCode::Char(c) => match c {
                 '\t' => {
-                    buf.push_str("\\t")?;
+                    buf.push_u8_slice(b"\\t")?;
                     continue;
                 }
                 '\r' => {
-                    buf.push_str("\\r")?;
+                    buf.push_u8_slice(b"\\r")?;
                     continue;
                 }
                 '\n' => {
-                    buf.push_str("\\n")?;
+                    buf.push_u8_slice(b"\\n")?;
                     continue;
                 }
                 '\u{0008}' => {
-                    buf.push_str("\\b")?;
+                    buf.push_u8_slice(b"\\b")?;
                     continue;
                 }
                 '\u{000C}' => {
-                    buf.push_str("\\f")?;
+                    buf.push_u8_slice(b"\\f")?;
                     continue;
                 }
                 '"' => {
-                    buf.push_str("\\\"")?;
+                    buf.push_u8_slice(b"\\\"")?;
                     continue;
                 }
                 '\\' => {
-                    buf.push_str("\\\\")?;
+                    buf.push_u8_slice(b"\\\\")?;
                     continue;
                 }
                 c if (c as u32) < 32 => {
-                    buf.push_str(&format!("\\u{:04x}", c as u8))?;
+                    buf.push_u8_slice(format!("\\u{:04x}", c as u8).as_bytes())?;
                 }
                 _ => {
                     buf.push_char(c)?;
                 }
             },
             CharCode::Code(c) => {
-                buf.push_str(&format!("\\u{:04x}", c))?;
+                buf.push_u8_slice(format!("\\u{:04x}", c).as_bytes())?;
             }
         }
-
-        // if c < 0x80 {
-        //     match c as u8 {
-        //         b'\t' => {
-        //             buf.push_str("\\t")?;
-        //             continue;
-        //         }
-        //         b'\r' => {
-        //             buf.push_str("\\r")?;
-        //             continue;
-        //         }
-        //         b'\n' => {
-        //             buf.push_str("\\n")?;
-        //             continue;
-        //         }
-        //         0x08 => {
-        //             buf.push_str("\\x08")?;
-        //             continue;
-        //         }
-        //         0x0C => {
-        //             buf.push_str("\\x0C")?;
-        //             continue;
-        //         }
-        //         b'"' => {
-        //             buf.push_str("\\\"")?;
-        //             continue;
-        //         }
-        //         b'\\' => {
-        //             buf.push_str("\\\\")?;
-        //             continue;
-        //         }
-        //         c if c < 32 => {
-        //             buf.push_str(&format!("\\u{:04x}", c))?;
-        //         }
-        //         _ => {
-        //             buf.push_u8(c as u8)?;
-        //         }
-        //     }
-        // } else if (0xd800..0xe000).contains(&c) {
-        //     buf.push_str(&format!("\\u{:04x}", c))?;
-        // } else {
-        //     buf.push_u16(c)?;
-        // }
     }
 
-    buf.push_char('"')?;
+    buf.push_u8(b'"')?;
     buf.shrink_to_fit();
     Ok(buf)
 }

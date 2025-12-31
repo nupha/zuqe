@@ -273,7 +273,7 @@ impl<'s> JSParseState<'s> {
                     continue;
                 }
                 CharCode::Char('/') => {
-                    if let Some((_, sc2)) = input.peek_char() {
+                    if let Some((sc2, _)) = input.current_char() {
                         match sc2 {
                             CharCode::Char('*') => {
                                 // block comment

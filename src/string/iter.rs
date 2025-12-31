@@ -6,10 +6,10 @@ use super::StringBuf;
 #[repr(u8)]
 #[derive(Clone, Copy, PartialEq)]
 pub enum CharCode {
-    /// unichar - for valid unicode
+    /// unichar - for valid unichar
     Char(char),
-    /// code - for invalid unicode
-    Code(u16),
+    /// code - for invalid unichar
+    Code(u32),
 }
 
 impl From<char> for CharCode {
@@ -26,12 +26,20 @@ impl From<u8> for CharCode {
 
 impl From<u16> for CharCode {
     fn from(value: u16) -> Self {
-        if matches!(value, 0xD800..=0xDFFF) {
-            // invalid high or low surrogate.
-            Self::Code(value)
-        } else {
-            Self::Char(char::from_u32(value as u32).unwrap())
-        }
+        char::from_u32(value as u32).map_or_else(|| Self::Code(value as _), Self::Char)
+
+        // if (0xD800..=0xDFFF).contains(&value) {
+        //     // invalid high or low surrogate.
+        //     Self::Code(value as u32)
+        // } else {
+        //     Self::Char(char::from_u32(value as u32).unwrap())
+        // }
+    }
+}
+
+impl From<u32> for CharCode {
+    fn from(value: u32) -> Self {
+        char::from_u32(value).map_or_else(|| Self::Code(value), Self::Char)
     }
 }
 
@@ -58,17 +66,35 @@ impl CharCode {
     pub const fn to_u32(self) -> u32 {
         match self {
             Self::Char(c) => c as u32,
-            Self::Code(c) => c as u32,
+            Self::Code(c) => c,
         }
     }
 
-    /// if is broken code, returns None. otherwise returns the char
+    /// if is broken code, returns None. otherwise returns the unichar
     pub const fn char(&self) -> Option<char> {
         if let Self::Char(c) = self {
             Some(*c)
         } else {
             None
         }
+    }
+
+    #[inline(always)]
+    pub fn encode_utf16<'a>(&self, buf: &'a mut [u16; 2]) -> &'a [u16] {
+        u32_encode_utf16(self.to_u32(), buf)
+    }
+}
+
+pub(super) fn u32_encode_utf16(c: u32, buf: &mut [u16; 2]) -> &[u16] {
+    if c < 0x10000 {
+        buf[0] = c as u16;
+        &buf[0..1]
+    } else {
+        // surrogate pair
+        let h = c - 0x10000;
+        buf[0] = ((h >> 10) + 0xd800) as u16;
+        buf[1] = ((h & 0x3ff) + 0xdc00) as u16;
+        buf
     }
 }
 

@@ -227,7 +227,7 @@ fn js_json_to_str(
                     -1
                 })?;
                 if !jsc.gap.is_empty() {
-                    s1.push_char('\n').unwrap();
+                    s1.push_u8(b'\n').unwrap();
                 }
                 s1.push(&indent1).unwrap();
                 (s1, StringBuf::from_str(" ")?)
@@ -245,14 +245,14 @@ fn js_json_to_str(
             if val.is_array(ctx)? {
                 let len = val.get_length_prop(ctx)?;
 
-                jsc.buf.push_char('[').map_err(|_| {
+                jsc.buf.push_u8(b'[').map_err(|_| {
                     ctx.throw_out_of_memory();
                     -1
                 })?;
 
                 for i in 0..len {
                     if i > 0 {
-                        jsc.buf.push_char(',').map_err(|_| {
+                        jsc.buf.push_u8(b',').map_err(|_| {
                             ctx.throw_out_of_memory();
                             -1
                         })?;
@@ -281,10 +281,10 @@ fn js_json_to_str(
                     -1
                 })?;
                 if len > 0 && !jsc.gap.is_empty() {
-                    jsc.buf.push_char('\n').unwrap();
+                    jsc.buf.push_u8(b'\n').unwrap();
                     jsc.buf.push(indent).unwrap();
                 }
-                jsc.buf.push_char(']').unwrap();
+                jsc.buf.push_u8(b']').unwrap();
             } else {
                 let tab: Cow<[StringRef]> = if let Some(lst) = jsc.replacer_props.as_ref() {
                     // Unsafe: use raw pointer to avoid borrowing jsc,
@@ -311,7 +311,7 @@ fn js_json_to_str(
                     lst.into()
                 };
 
-                jsc.buf.push_char('{').map_err(|_| {
+                jsc.buf.push_u8(b'{').map_err(|_| {
                     ctx.throw_out_of_memory();
                     -1
                 })?;
@@ -330,7 +330,7 @@ fn js_json_to_str(
 
                     if !v.is_undefined() {
                         if has_content {
-                            jsc.buf.push_char(',').map_err(|_| {
+                            jsc.buf.push_u8(b',').map_err(|_| {
                                 ctx.throw_out_of_memory();
                                 -1
                             })?;
@@ -349,7 +349,7 @@ fn js_json_to_str(
                             })?;
                         jsc.buf.push(&sep).unwrap();
                         jsc.buf.push(&qkey).unwrap();
-                        jsc.buf.push_char(':').unwrap();
+                        jsc.buf.push_u8(b':').unwrap();
                         jsc.buf.push(&sep1).unwrap();
 
                         js_json_to_str(ctx, jsc, v, &indent1)?;
@@ -362,11 +362,11 @@ fn js_json_to_str(
                         ctx.throw_out_of_memory();
                         -1
                     })?;
-                    jsc.buf.push_char('\n').unwrap();
+                    jsc.buf.push_u8(b'\n').unwrap();
                     jsc.buf.push(indent).unwrap();
                 }
 
-                jsc.buf.push_char('}').map_err(|_| {
+                jsc.buf.push_u8(b'}').map_err(|_| {
                     ctx.throw_out_of_memory();
                     -1
                 })?;

@@ -19,7 +19,7 @@ impl<'s> JSParseState<'s> {
         let mut pattern_str = StringBuf::Empty;
 
         // pattern
-        while let Some((_, sc)) = inp.next() {
+        while let Some((i, sc)) = inp.next() {
             if pattern_str.len() == pattern_str.capacity() {
                 pattern_str.try_reserve(1).map_err(|_| {
                     self.ctx.throw_out_of_memory();
@@ -37,17 +37,17 @@ impl<'s> JSParseState<'s> {
                         pattern_ok = true;
                         break;
                     } else {
-                        let _ = pattern_str.push_char('/');
+                        let _ = pattern_str.push_u8(b'/');
                     }
                 }
                 CharCode::Char('[') => {
                     in_class = true;
-                    let _ = pattern_str.push_char('[');
+                    let _ = pattern_str.push_u8(b'[');
                 }
                 CharCode::Char(']') => {
                     // XXX: incorrect as the first character in a class
                     in_class = false;
-                    let _ = pattern_str.push_char(']');
+                    let _ = pattern_str.push_u8(b']');
                 }
                 CharCode::Char('\\') => {
                     let _ = pattern_str.push_u8(b'\\');
@@ -58,8 +58,8 @@ impl<'s> JSParseState<'s> {
                                 self.throw_syntax_error("unexpected line terminator in regexp");
                                 return Err(-1);
                             }
-                            CharCode::Char(ch) => {
-                                pattern_str.push_char(ch).map_err(|_| {
+                            CharCode::Char(_) => {
+                                pattern_str.push_char(sc2).map_err(|_| {
                                     self.ctx.throw_out_of_memory();
                                     -1
                                 })?;
@@ -77,7 +77,17 @@ impl<'s> JSParseState<'s> {
                 CharCode::Char(c) => {
                     let _ = pattern_str.push_char(c);
                 }
-                CharCode::Code(_) => {
+                CharCode::Code(c) => {
+                    // inp.move_cursor_by(-1);
+                    // println!(
+                    //     "[O.o] bad({c}): {i}, {:?} {:?}",
+                    //     inp.current_byte(),
+                    //     inp.remainder_bytes()
+                    // );
+                    // let c1 = inp.decode_char(i);
+                    // println!("[O.o] {c1:?}");
+                    // let _ = pattern_str.push_u32(c);
+
                     self.throw_syntax_error("invalid utf-8 sequence");
                     return Err(-1);
                 }
@@ -95,7 +105,7 @@ impl<'s> JSParseState<'s> {
             match sc {
                 CharCode::Char(c) => {
                     if JSParseState::is_ident_next(c) {
-                        flags_str.push_char(c).map_err(|_| {
+                        flags_str.push_char(sc).map_err(|_| {
                             self.ctx.throw_out_of_memory();
                             -1
                         })?;

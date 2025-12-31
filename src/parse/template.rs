@@ -16,41 +16,37 @@ impl<'s> JSParseState<'s> {
     /// returns number of bytes consumed (include ending delimitor)
     pub(super) fn parse_template_part(&mut self, buf: &[u8]) -> Result<usize, i32> {
         let mut sbuf = StringBuf::Empty;
-        let mut chars = Utf8Stream::new(buf).peekable();
+        let mut inp = Utf8Stream::new(buf);
 
         let mut sep: char = '\0';
         let mut consume = 0;
 
-        while let Some((i, sc)) = chars.next() {
+        while let Some((i, sc)) = inp.next() {
             match sc {
                 CharCode::Char('`') => {
                     sep = '`';
                     consume = i + 1; // next to '`'
                     break;
                 }
-                CharCode::Char('$')
-                    if chars
-                        .peek()
-                        .is_some_and(|(_, a)| matches!(a, CharCode::Char('{'))) =>
-                {
+                CharCode::Char('$') if inp.current_byte() == Some(b'{') => {
                     // ${ template start or middle part
-                    let _ = chars.next(); // skip '{'
+                    let _ = inp.next(); // skip '{'
                     sep = '$';
                     consume = i + 2; // next to '{'
                     break;
                 }
                 CharCode::Char('\\') => {
-                    sbuf.push_char('\\').map_err(|_| {
+                    sbuf.push_u8(b'\\').map_err(|_| {
                         self.ctx.throw_out_of_memory();
                         -1
                     })?;
 
-                    match chars.peek() {
-                        Some((_, CharCode::Char('\r' | '\n'))) => {
+                    match inp.current_byte() {
+                        Some(b'\r' | b'\n') => {
                             continue; // match \r or \n arm
                         }
                         Some(_) => {
-                            let (_, c1) = chars.next().unwrap();
+                            let (_, c1) = inp.next().unwrap();
                             sbuf.push_char(c1).map_err(|_| {
                                 self.ctx.throw_out_of_memory();
                                 -1
@@ -63,19 +59,17 @@ impl<'s> JSParseState<'s> {
                     }
                 }
                 CharCode::Char(c1 @ ('\r' | '\n')) => {
-                    if c1 == '\r'
-                        && let Some((_, CharCode::Char('\n'))) = chars.peek()
-                    {
-                        let _ = chars.next(); // skip \n after \r
+                    if c1 == '\r' && inp.current_byte() == Some(b'\n') {
+                        inp.move_cursor_by(1);
                     }
-                    sbuf.push_char('\n').map_err(|_| {
+                    sbuf.push_u8(b'\n').map_err(|_| {
                         self.ctx.throw_out_of_memory();
                         -1
                     })?;
                     self.line_num += 1;
                 }
-                CharCode::Char(ch) => {
-                    sbuf.push_char(ch).map_err(|_| {
+                CharCode::Char(_) => {
+                    sbuf.push_char(sc).map_err(|_| {
                         self.ctx.throw_out_of_memory();
                         -1
                     })?;

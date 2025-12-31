@@ -481,23 +481,29 @@ impl ContextImpl {
 
     /// create string value from a single string char.
     pub fn create_string_from_char(&self, ch: CharCode) -> Result<StringRef, i32> {
-        let buf = match ch {
-            CharCode::Char(ch) => {
-                if ch.is_ascii() {
-                    StringBuf::Ascii(vec![ch as u8])
-                } else {
-                    StringBuf::Utf16(ch.encode_utf16(&mut [0; 2]).to_vec())
-                }
-            }
-            CharCode::Code(c) => {
-                if c < 0x80 {
-                    StringBuf::Ascii(vec![c as u8])
-                } else {
-                    StringBuf::Utf16(vec![c])
-                }
-            }
+        let sbuf = match ch.encode_utf16(&mut [0; 2]) {
+            &[b @ (0..0x80), _] => StringBuf::Ascii(vec![b as u8]),
+            bb => StringBuf::Utf16(bb.to_vec()),
         };
-        self.create_string_with_buf(buf)
+
+        // let sbuf = match ch {
+        //     CharCode::Char(ch) => {
+        //         if ch.is_ascii() {
+        //             StringBuf::Ascii(vec![ch as u8])
+        //         } else {
+        //             StringBuf::Utf16(ch.encode_utf16(&mut [0; 2]).to_vec())
+        //         }
+        //     }
+        //     CharCode::Code(c) => {
+        //         if c < 0x80 {
+        //             StringBuf::Ascii(vec![c as u8])
+        //         } else {
+        //             StringBuf::Utf16(vec![c])
+        //         }
+        //     }
+        // };
+
+        self.create_string_with_buf(sbuf)
     }
 }
 
