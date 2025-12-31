@@ -23,7 +23,7 @@ impl<'s> JSParseState<'s> {
         let mut sbuf = StringBuf::Empty;
         let mut consume: Option<usize> = None;
 
-        while let Some((i, sc)) = input.next() {
+        while let Some((span, sc)) = input.next_char() {
             if let CharCode::Char(mut c) = sc {
                 if (c as u32) < 0x20 {
                     // ascii control chars
@@ -37,7 +37,7 @@ impl<'s> JSParseState<'s> {
                     if sep == '`' {
                         if c == '\r' {
                             if let Some(b'\n') = input.current_byte() {
-                                let _ = input.next(); // skip \n after \r
+                                input.move_cursor_by(1); // skip \n after \r
                             }
                             c = '\n'
                         }
@@ -51,15 +51,20 @@ impl<'s> JSParseState<'s> {
 
                 if c == sep {
                     // string end, consumed includes trailing delimitor.
-                    consume = Some(i + c.len_utf8());
+                    debug_assert_eq!(
+                        span.start + span.len(),
+                        span.start + c.len_utf8(),
+                        "{span:?}, [{c}]"
+                    );
+                    consume = Some(span.start + span.len());
                     break;
                 } else if c == '$'
                     && sep == '`'
                     && let Some(b'{') = input.current_byte()
                 {
                     // template expression start
-                    let _ = input.next(); // skip '{'
-                    consume = Some(i + 2);
+                    input.move_cursor_by(1); // skip '{'
+                    consume = Some(span.start + 2);
                     break;
                 }
 

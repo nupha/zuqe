@@ -21,7 +21,7 @@ fn js_std_open(cc: CallContext) -> JSResult {
         cc.arg(1)
             .to_string(&ctx)?
             .content()
-            .to_utf8(false)
+            .encode_utf8(false)
             .to_string()
     } else {
         "r".to_string()
@@ -60,7 +60,7 @@ fn js_std_open(cc: CallContext) -> JSResult {
     let mut err_obj = *cc.arg(2);
     let mut errno = 0;
 
-    let fh = match opts.open(filename.content().to_utf8(false).as_ref()) {
+    let fh = match opts.open(filename.content().encode_utf8(false).as_ref()) {
         Ok(fh) => Some(fh),
         Err(e) => {
             println!("[ERR] {e}");
@@ -122,7 +122,7 @@ fn js_evalScript(mut cc: CallContext) -> JSResult {
     }
 
     let ret = cc.ctx_mut().eval_global(
-        str.content().to_utf8_bytes().as_ref(),
+        str.content().encode_utf8_bytes(true).as_ref(),
         "<evalScript>",
         flags,
     );

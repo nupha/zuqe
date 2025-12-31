@@ -264,7 +264,7 @@ pub fn get_func_name(func: JSValue) -> Option<String> {
             && prs_flags & JS_PROP_TMASK == JS_PROP_NORMAL
         {
             if let Some(JSProperty::Normal(JSValue::String(s))) = obj.prop_values.get(idx) {
-                return Some(s.content().to_utf8(false).into_owned());
+                return Some(s.content().encode_utf8(false).into_owned());
             } else {
                 #[cfg(debug_assertions)]
                 unreachable!();
@@ -466,12 +466,17 @@ impl BytecodeFunction {
                 if i != 0 {
                     buf.push(b',');
                 }
-                buf.extend_from_slice(a.to_string(&ctx)?.content().to_utf8(false).as_bytes());
+                buf.extend_from_slice(a.to_string(&ctx)?.content().encode_utf8(false).as_bytes());
             }
             buf.extend_from_slice(b"\n) {\n");
 
             // function body
-            buf.extend_from_slice(body.to_string(&ctx)?.content().to_utf8(false).as_bytes());
+            buf.extend_from_slice(
+                body.to_string(&ctx)?
+                    .content()
+                    .encode_utf8(false)
+                    .as_bytes(),
+            );
         } else {
             // no arguments
             buf.extend_from_slice(b") {\n");

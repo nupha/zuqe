@@ -241,9 +241,9 @@ impl<'s> JSParseState<'s> {
 
         let base_ptr = input.start_ptr().as_ptr();
 
-        while let Some((i, sc)) = input.next() {
+        while let Some((span, sc)) = input.next_char() {
             self.token.line_num = self.line_num;
-            self.token.ptr = unsafe { base_ptr.add(i) };
+            self.token.ptr = unsafe { base_ptr.add(span.start) };
 
             match sc {
                 CharCode::Char('`') => {
@@ -342,7 +342,7 @@ impl<'s> JSParseState<'s> {
                 }
                 CharCode::Char('#') => {
                     // private name
-                    if let Some((_, c)) = input.next() {
+                    if let Some((_, c)) = input.next_char() {
                         let c1 = match c {
                             CharCode::Char('\\') => {
                                 if let Some(b'u') = input.current_byte() {
@@ -843,7 +843,7 @@ impl<'s> JSParseState<'s> {
     /// when exit, cursor is exactly at the \r, \n, LS or PS char of line.
     #[inline(never)]
     pub(super) fn skip_line_comment(&self, input: &mut Utf8Stream) {
-        while let Some((_, sc)) = input.next() {
+        while let Some((_, sc)) = input.next_char() {
             match sc {
                 CharCode::Char(c @ ('\r' | '\n' | '\u{2028}' | '\u{2029}')) => {
                     input.move_cursor_by(-(c.len_utf8() as i32)); // rewind to line terminator
@@ -858,7 +858,7 @@ impl<'s> JSParseState<'s> {
     /// when exit, cursor is exactly at next char of '*/' (returns true), or at end of stream (returns false).
     #[inline(never)]
     pub(super) fn skip_block_comment(&mut self, input: &mut Utf8Stream) -> bool {
-        while let Some((_, sc)) = input.next() {
+        while let Some((_, sc)) = input.next_char() {
             match sc {
                 CharCode::Char('\n') => {
                     self.line_num += 1;
@@ -971,7 +971,7 @@ impl<'s> JSParseState<'s> {
     /// only used for ':' and '=>', 'let' or 'function' look-ahead.
     /// `inp` stream will update its cursor to end of token.
     pub(super) fn peek_token_internal(inp: &mut Utf8Stream, no_line_terminator: bool) -> TokenKind {
-        while let Some((_, sc)) = inp.next() {
+        while let Some((_, sc)) = inp.next_char() {
             match sc {
                 CharCode::Char('\r' | '\n') => {
                     if no_line_terminator {

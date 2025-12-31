@@ -126,7 +126,7 @@ pub(super) fn js_file_puts(cc: CallContext) -> JSResult {
 
     for arg in cc.arguments() {
         let s = arg.to_string(&ctx)?;
-        let s = s.content().to_utf8(false);
+        let s = s.content().encode_utf8(false);
 
         match fh {
             FileDesc::File(f) => {

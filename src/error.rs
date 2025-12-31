@@ -36,9 +36,9 @@ impl ErrorText {
     /// create error text info from `value`
     pub fn from(ctx: &ContextImpl, value: JSValue) -> Self {
         let mut ret = Self {
-            message: value
-                .to_string(ctx)
-                .map_or("".to_string(), |s| s.content().to_utf8(false).to_string()),
+            message: value.to_string(ctx).map_or("".to_string(), |s| {
+                s.content().encode_utf8(false).to_string()
+            }),
             traceback: None,
         };
 
@@ -432,9 +432,14 @@ pub fn js_error_toString(cc: CallContext) -> JSResult {
     };
 
     let txt: Cow<'_, str> = match (name.is_empty(), message.is_empty()) {
-        (false, false) => format!("{}: {}", name.to_utf8(false), message.to_utf8(false)).into(),
-        (false, true) => name.to_utf8(false),
-        (true, false) => message.to_utf8(false),
+        (false, false) => format!(
+            "{}: {}",
+            name.encode_utf8(false),
+            message.encode_utf8(false)
+        )
+        .into(),
+        (false, true) => name.encode_utf8(false),
+        (true, false) => message.encode_utf8(false),
         (true, true) => "".into(),
     };
 

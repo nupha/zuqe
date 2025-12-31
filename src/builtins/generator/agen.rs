@@ -130,7 +130,7 @@ impl AGenPayload {
                                 ctx.rt_ptr()
                                     .exception()
                                     .to_string(&ctx)
-                                    .map(|s| s.content().to_utf8(false).to_string())
+                                    .map(|s| s.content().encode_utf8(false).to_string())
                                     .unwrap_or("Error".to_string())
                             );
                         }

@@ -886,7 +886,7 @@ fn js_string_normalize(cc: CallContext) -> JSResult {
                 cx.throw_range_error("bad normalization form");
                 return Err(-1);
             }
-            form => match form.to_string(cx)?.content().to_utf8(false).as_ref() {
+            form => match form.to_string(cx)?.content().encode_utf8(false).as_ref() {
                 "NFC" => UnicodeNormalizationEnum::NFC,
                 "NFD" => UnicodeNormalizationEnum::NFD,
                 "NFKC" => UnicodeNormalizationEnum::NFKC,
@@ -920,7 +920,7 @@ fn js_string__quote(cc: CallContext) -> JSResult {
         Err(-1)
     } else {
         let s = val.to_string(cc.ctx())?;
-        let s = s.content().to_utf8(true);
+        let s = s.content().encode_utf8(true);
         cc.ctx()
             .create_string_from_utf8(format!("\"{}\"", s).into_bytes())
             .map(|x| x.into())
@@ -1048,17 +1048,17 @@ pub static js_string_iterator_proto_funcs: [FieldDef; 2] = [
 
 fn js_string_fromCharCode(cc: CallContext) -> JSResult {
     let ctx = cc.ctx();
-    let mut buf = StringBuf::Empty;
+    let mut sbuf = StringBuf::Empty;
 
     for a in cc.arguments() {
-        let c = a.to_i32(ctx)?;
-        buf.push_u16(c as u16).map_err(|_| {
+        let cp = a.to_i32(ctx)?;
+        sbuf.push_u32(cp as u32).map_err(|_| {
             ctx.throw_out_of_memory();
             -1
         })?;
     }
 
-    ctx.create_string_with_buf(buf).map(JSValue::String)
+    ctx.create_string_with_buf(sbuf).map(JSValue::String)
 }
 
 fn js_string_fromCodePoint(cc: CallContext) -> JSResult {

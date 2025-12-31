@@ -64,7 +64,7 @@ fn js_json_parse(cc: CallContext) -> JSResult {
     let ctx = cc.ctx();
 
     let s = cc.arg(0).to_string(ctx)?;
-    let mut obj = ctx.json_parse(&s.content().to_utf8_bytes(), "<input>", 0)?;
+    let mut obj = ctx.json_parse(&s.content().encode_utf8_bytes(true), "<input>", 0)?;
 
     if cc.length() > 1 && cc.arg(1).is_function() {
         let reviver = *cc.arg(1);

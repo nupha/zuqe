@@ -39,7 +39,7 @@ pub(super) fn js_parseInt(cc: CallContext) -> JSResult {
         Ok(JSValue::Float64(f64::NAN))
     } else {
         let str = cc.arg(0).to_string(ctx)?;
-        let s = str.content().to_utf8(false);
+        let s = str.content().encode_utf8(false);
         let str = s.trim();
 
         if unlikely(str.is_empty()) {
@@ -70,7 +70,7 @@ pub(super) fn js_parseInt(cc: CallContext) -> JSResult {
 pub(super) fn js_parseFloat(cc: CallContext) -> JSResult {
     let ctx = cc.ctx();
     let str = cc.arg(0).to_string(ctx)?;
-    let s = str.content().to_utf8(false);
+    let s = str.content().encode_utf8(false);
     let str = s.trim();
 
     if unlikely(str.is_empty()) {

@@ -115,9 +115,10 @@ unsafe impl GcTracable for RegExpData {
 }
 
 impl RegExpData {
+    /// `pattern` is utf8 encoded
     fn compile_regex(
         ctx: &ContextImpl,
-        pattern: &str,
+        pattern: &[u8],
         flags: impl Iterator<Item = char>,
     ) -> Result<Regex, i32> {
         // Note: 1) can duplicate same flag; 2) 'u' and 'v' cannot be both set
@@ -179,7 +180,7 @@ impl RegExpData {
         Ok(Self {
             regex: Rc::new(Self::compile_regex(
                 ctx,
-                &pattern.to_utf8(false),
+                &pattern.encode_utf8_bytes(true),
                 flags.chars_lossy(),
             )?),
             pattern,

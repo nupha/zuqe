@@ -2,13 +2,13 @@ use std::{iter::Peekable, ops::Range};
 
 use super::StringBuf;
 
-/// Represent char (for valid unicode) or code data (for invalid unicode)
+/// Represent unichar (for valid unicode) or code point (for invalid unicode)
 #[repr(u8)]
 #[derive(Clone, Copy, PartialEq)]
 pub enum CharCode {
-    /// unichar - for valid unichar
+    /// unichar
     Char(char),
-    /// code - for invalid unichar
+    /// code point for invalid unichar
     Code(u32),
 }
 
@@ -27,13 +27,6 @@ impl From<u8> for CharCode {
 impl From<u16> for CharCode {
     fn from(value: u16) -> Self {
         char::from_u32(value as u32).map_or_else(|| Self::Code(value as _), Self::Char)
-
-        // if (0xD800..=0xDFFF).contains(&value) {
-        //     // invalid high or low surrogate.
-        //     Self::Code(value as u32)
-        // } else {
-        //     Self::Char(char::from_u32(value as u32).unwrap())
-        // }
     }
 }
 
@@ -50,7 +43,7 @@ impl std::fmt::Display for CharCode {
                 write!(f, "{c}")
             }
             Self::Code(c) => {
-                write!(f, "\\u{{{:4X}}}", *c)
+                write!(f, "\\u{{{c:4X}}}")
             }
         }
     }
@@ -85,19 +78,64 @@ impl CharCode {
     }
 }
 
-pub(super) fn u32_encode_utf16(c: u32, buf: &mut [u16; 2]) -> &[u16] {
-    if c < 0x10000 {
-        buf[0] = c as u16;
+pub(super) fn u32_encode_utf16(cp: u32, buf: &mut [u16; 2]) -> &[u16] {
+    if cp < 0x10000 {
+        buf[0] = cp as u16;
         &buf[0..1]
     } else {
-        // surrogate pair
-        let h = c - 0x10000;
+        // use surrogate pair
+        let h = cp - 0x10000;
         buf[0] = ((h >> 10) + 0xd800) as u16;
         buf[1] = ((h & 0x3ff) + 0xdc00) as u16;
         buf
     }
 }
 
+/// In case cp is valid unichar, encode it to utf8;
+/// In case cp is invalid unicode or broken surrogate and `allow_invalid` is true, force encode it to utf8;
+/// otherwise encode U+FFFD replacement char.
+pub(super) fn u32_encode_utf8(cp: u32, buf: &mut [u8; 6], allow_invalid: bool) -> &[u8] {
+    if cp < 0x80 {
+        // ascii
+        buf[0] = cp as u8;
+        &buf[0..1]
+    } else if let Some(uc) = char::from_u32(cp) {
+        // valid unichar
+        uc.encode_utf8(buf).as_bytes()
+    } else if allow_invalid {
+        if cp <= 0xffff {
+            // 3-bytes
+            buf[0] = 0xE0 | ((cp >> 12) as u8);
+            buf[1] = 0x80 | (((cp >> 6) & 0x3F) as u8);
+            buf[2] = 0x80 | ((cp & 0x3F) as u8);
+            &buf[0..3]
+        } else if cp <= 0x10ffffff {
+            // 4-bytes
+            buf[0] = 0xF0 | ((cp >> 18) as u8);
+            buf[1] = 0x80 | (((cp >> 12) & 0x3F) as u8);
+            buf[2] = 0x80 | (((cp >> 6) & 0x3F) as u8);
+            buf[3] = 0x80 | ((cp & 0x3F) as u8);
+            &buf[0..4]
+        } else {
+            // 6-bytes
+            buf[0] = 0xFC | ((cp >> 30) as u8);
+            buf[1] = 0x80 | (((cp >> 24) & 0x3F) as u8);
+            buf[2] = 0x80 | (((cp >> 18) & 0x3F) as u8);
+            buf[3] = 0x80 | (((cp >> 12) & 0x3F) as u8);
+            buf[4] = 0x80 | (((cp >> 6) & 0x3F) as u8);
+            buf[5] = 0x80 | ((cp & 0x3F) as u8);
+            buf
+        }
+    } else {
+        // U+FFFD
+        buf[0] = 0xEF;
+        buf[1] = 0xBF;
+        buf[2] = 0xBD;
+        &buf[0..3]
+    }
+}
+
+#[deprecated(note = "use Utf16Stream instead")]
 #[derive(Clone)]
 pub struct U16CharIter<'a> {
     data: Peekable<std::slice::Iter<'a, u16>>,
@@ -110,35 +148,32 @@ impl<'a> Iterator for U16CharIter<'a> {
     /// returns (next_pos, char)
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(n) = self.data.next() {
-            let high = *n as u32;
+            let cp1 = *n as u32;
             self.cursor += 1;
 
-            let r = if (0xD800..=0xDBFF).contains(&high) {
-                if let Some(low) = self.data.peek()
-                    && (0xDC00..=0xDFFF).contains(*low)
+            let r = if cp1 < 0x80 {
+                CharCode::Char(cp1 as u8 as _)
+            } else if (0xD800..=0xDBFF).contains(&cp1) {
+                if let Some(cp2) = self.data.peek()
+                    && (0xDC00..=0xDFFF).contains(*cp2)
                 {
-                    // 合法代理对 → 组合成有效的 Unicode 字符
-                    let code_point = ((high - 0xD800) << 10) + (**low as u32 - 0xDC00) + 0x10000;
-
-                    if let Some(ch) = char::from_u32(code_point) {
-                        self.data.next(); // 消耗低代理项
-                        self.cursor += 1;
-                        return Some((self.cursor, CharCode::Char(ch)));
-                    }
+                    // surrogate pair
+                    let cp = ((cp1 - 0xD800) << 10) + (**cp2 as u32 - 0xDC00) + 0x10000;
+                    let ch = char::from_u32(cp).unwrap();
+                    self.data.next();
+                    self.cursor += 1;
+                    return Some((self.cursor, CharCode::Char(ch)));
                 }
 
-                // 非法代理对（单独的高代理或无效组合）→ 保留原始 u16
-                CharCode::Code(high as _)
-            } else if (0xDC00..=0xDFFF).contains(&high) {
-                // 单独的低代理项 → 保留原始 u16
-                CharCode::Code(high as _)
+                // single surrogate
+                CharCode::Code(cp1 as _)
+            } else if (0xDC00..=0xDFFF).contains(&cp1) {
+                // single surrogate
+                CharCode::Code(cp1 as _)
+            } else if let Some(ch) = char::from_u32(cp1) {
+                CharCode::Char(ch)
             } else {
-                // 普通 BMP 字符（U+0000..=U+FFFF）
-                if let Some(ch) = char::from_u32(high) {
-                    CharCode::Char(ch)
-                } else {
-                    CharCode::Code(high as _)
-                }
+                CharCode::Code(cp1 as _)
             };
 
             Some((self.cursor, r))
@@ -246,7 +281,7 @@ impl<'a> StringCodepointIter<'a> {
 impl StringBuf {
     /// iterate over string code points. `range` is the range of buf index.
     /// if `range` has out of bound, range is intersected with buf.
-    pub fn iter_codepoint_range(&self, range: Range<usize>) -> StringCodepointIter<'_> {
+    pub fn iter_cp_range(&self, range: Range<usize>) -> StringCodepointIter<'_> {
         match self {
             Self::Empty => StringCodepointIter::U8([].iter().peekable()),
             Self::Ascii(s) => {
@@ -268,14 +303,14 @@ impl StringBuf {
 
     /// iterate over string code points. `index` is the starting buf index.
     #[inline(always)]
-    pub fn iter_codepoint_since(&self, index: usize) -> StringCodepointIter<'_> {
-        self.iter_codepoint_range(index..self.len())
+    pub fn iter_cp_since(&self, index: usize) -> StringCodepointIter<'_> {
+        self.iter_cp_range(index..self.len())
     }
 
-    /// iterate over string code points. short cut to `::iter_codepoint_since(0)`.
+    /// iterate over string code points. short cut to `::iter_cp_since(0)`.
     #[inline(always)]
-    pub fn iter_codepoint(&self) -> StringCodepointIter<'_> {
-        self.iter_codepoint_since(0)
+    pub fn iter_cp(&self) -> StringCodepointIter<'_> {
+        self.iter_cp_since(0)
     }
 
     /// iterate over string chars. `range` is the range of buf index.

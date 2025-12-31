@@ -308,7 +308,7 @@ impl Atom {
         } else if let Some(n) = self.to_small_int() {
             f(Cow::Owned(format!("{n}")))
         } else {
-            f(self.string().content().to_utf8(false))
+            f(self.string().content().encode_utf8(false))
         }
     }
 
@@ -452,7 +452,7 @@ impl JSValue {
 /// Note: returned atom should be freed by caller.
 pub(crate) fn js_atom_concat_str(ctx: &ContextImpl, atom: Atom, str1: &str) -> Result<Atom, i32> {
     let str_val = atom.force_string(ctx)?;
-    let astr = str_val.content().to_utf8(false);
+    let astr = str_val.content().encode_utf8(false);
 
     let mut buf = String::new();
     buf.try_reserve_exact(astr.len() + str1.len())

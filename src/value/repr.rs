@@ -23,8 +23,8 @@ impl JSValue {
                 })
             }
 
-            Self::String(s) => Ok(s.content().to_utf8(true).into()),
-            Self::Symbol(a) => Ok(format!("Symbol({})", a.string().content().to_utf8(false))),
+            Self::String(s) => Ok(s.content().encode_utf8(true).into()),
+            Self::Symbol(a) => Ok(format!("Symbol({})", a.string().content().encode_utf8(false))),
             Self::Object(o) => o.inspect(ctx),
             Self::Bytecode(b) => Ok(format!("[bytecode {}]", b.func_name.to_utf8())),
 

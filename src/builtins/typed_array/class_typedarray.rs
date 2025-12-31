@@ -1154,7 +1154,7 @@ fn js_typed_array_join(cc: CallContext) -> JSResult {
     let n = js_typed_array_get_length_internal(ctx, *cc.this())?;
     let sep: String = if !to_locale && cc.length() > 0 && !cc.arg(0).is_undefined() {
         let s = cc.arg(0).to_string(ctx)?;
-        s.content().to_utf8(false).to_string()
+        s.content().encode_utf8(false).to_string()
     } else {
         ",".into() // default separator
     };

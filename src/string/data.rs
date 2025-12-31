@@ -3,11 +3,14 @@ use std::{borrow::Cow, cmp::Ordering, collections::TryReserveError, ops::Range};
 use fallible_collections::TryCollect;
 use widestring::U16Str;
 
-use crate::number::{parse_i64, parse_u32};
+use crate::{
+    number::{parse_i64, parse_u32},
+    string::{Utf16Stream, escape_str},
+    utils::unlikely,
+};
 
 use super::{
-    CharCode, StringBuf, StringCharIter, StringCodepointIter, U16CharIter, s16_into_s8,
-    unicode_to_utf8,
+    CharCode, StringBuf, StringCharIter, StringCodepointIter, s16_into_s8, u32_encode_utf8,
 };
 
 /// read-only string content.
@@ -245,11 +248,11 @@ impl PartialOrd for StringData {
 impl std::fmt::Debug for StringData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Empty => write!(f, "Empty"),
-            Self::Ascii(arg0) => f.debug_tuple("Ascii").field(arg0).finish(),
-            Self::Utf16(arg0) => f.debug_tuple("Utf16").field(arg0).finish(),
-            Self::AsciiStatic(s) => write!(f, "AsciiStatic({:?})", s),
-            Self::Ident => write!(f, "Ident"),
+            Self::Ascii(arg0) => f.debug_tuple("StringData::Ascii").field(arg0).finish(),
+            Self::Utf16(arg0) => f.debug_tuple("StringData::Utf16").field(arg0).finish(),
+            Self::AsciiStatic(s) => f.debug_tuple("StringData::AsciiStatic").field(s).finish(),
+            Self::Empty => write!(f, "StringData::Empty"),
+            Self::Ident => write!(f, "StringData::Ident"),
         }
     }
 }
@@ -348,141 +351,139 @@ impl StringData {
         self.to_buf_range(0..self.len())
     }
 
-    /// encode content to utf8 bytes.
+    /// Encode range of content to utf8 bytes.
     ///
-    /// Note: if has invalid utf16 code points, encode to invalid utf8 bytes too.
-    pub fn to_utf8_bytes_range(&self, range: Range<usize>) -> Cow<'_, [u8]> {
+    /// For invalid code point or broken surrogate, when `allow_invalid` is true, force encode it to utf8;
+    /// otherwise encode U+FFFD instead.
+    pub(crate) fn encode_utf8_bytes_range(
+        &self,
+        range: Range<usize>,
+        allow_invalid: bool,
+    ) -> Cow<'_, [u8]> {
         if range.is_empty() || range.start >= self.len() {
             Cow::Borrowed(&[])
         } else {
             let range = range.start..std::cmp::min(range.end, self.len());
-            match self {
-                Self::Empty | Self::Ident => Cow::Borrowed(&[]),
-                Self::Ascii(s) => Cow::Borrowed(s),
-                Self::Utf16(s) => {
-                    let slice = &s[range];
-                    let len = slice
-                        .iter()
-                        .map(|x| if *x >= 0x80 { 4 } else { 1 })
-                        .sum::<usize>();
-                    let mut out = Vec::<u8>::with_capacity(len);
+            if unlikely(range.is_empty()) {
+                Cow::Borrowed(&[])
+            } else {
+                match self {
+                    Self::Empty | Self::Ident => Cow::Borrowed(&[]),
+                    Self::Ascii(s) => Cow::Borrowed(s),
+                    Self::Utf16(s) => {
+                        let src = &s[range];
 
-                    let mut it = slice.iter().peekable();
-                    while let Some(&c) = it.next() {
-                        if c < 0x80 {
-                            out.push(c as u8);
-                        } else {
-                            let mut c = c as u32;
-                            if (0xd800..0xdc00).contains(&c)
-                                && let Some(c1) = it.peek()
-                            {
-                                let c1 = (**c1) as u32;
-                                if (0xdc00..0xe000).contains(&c1) {
-                                    // surrogate pair
-                                    c = (((c & 0x3ff) << 10) | (c1 & 0x3ff)) + 0x10000;
+                        let mut buf = Vec::<u8>::with_capacity(
+                            src.iter()
+                                .map(|x| if *x >= 0x80 { 4 } else { 1 })
+                                .sum::<usize>(),
+                        );
+                        let mut it = src.iter().peekable();
+
+                        while let Some(&n) = it.next() {
+                            if n < 0x80 {
+                                buf.push(n as u8);
+                            } else {
+                                let mut cp = n as u32;
+                                if (0xd800..0xdc00).contains(&cp)
+                                    && let Some(c1) = it.peek()
+                                    && (0xdc00..0xe000).contains(*c1)
+                                {
+                                    // valid surrogate pair
+                                    let lo = **c1 as u32;
+                                    cp = (((cp & 0x3ff) << 10) | (lo & 0x3ff)) + 0x10000;
                                     it.next();
                                 }
-                            }
-                            unicode_to_utf8(&mut out, c)
-                        }
-                    }
 
-                    Cow::Owned(out)
+                                buf.extend_from_slice(u32_encode_utf8(
+                                    cp,
+                                    &mut [0; 6],
+                                    allow_invalid,
+                                ));
+                            }
+                        }
+
+                        Cow::Owned(buf)
+                    }
+                    Self::AsciiStatic(s) => Cow::Borrowed(s.as_bytes()),
                 }
-                Self::AsciiStatic(s) => Cow::Borrowed(s.as_bytes()),
             }
         }
     }
 
     /// Encode string content to utf8 bytes.
     ///
-    /// Note: If content has invalid utf16 code points, encode it as invalid utf8 bytes too.
+    /// For invalid code point or broken surrogate, when `allow_invalid` is true, force encode it to utf8;
+    /// otherwise encode U+FFFD instead.
     #[inline(always)]
-    pub fn to_utf8_bytes(&self) -> Cow<'_, [u8]> {
-        self.to_utf8_bytes_range(0..self.len())
+    pub fn encode_utf8_bytes(&self, allow_invalid: bool) -> Cow<'_, [u8]> {
+        self.encode_utf8_bytes_range(0..self.len(), allow_invalid)
     }
 
-    /// encode content to utf8 str.
-    /// if `escape` is true, invalid code points will be escaped as '\uXXXX',
-    /// otherwise invalid codes will be replaced with 'U+FFFD'.
-    pub fn to_utf8_range(&self, range: Range<usize>, escape: bool) -> Cow<'_, str> {
-        if range.is_empty() || range.start >= self.len() {
+    /// Encode content to utf8 str.
+    ///
+    /// For invalid code points:
+    /// * if `escape` is true, it will be escaped as '\uXXXX',
+    /// * if `escape` is false, it will be encoded as U+FFFD.
+    ///
+    /// If `escape` is true, char '\' will be represented by "\\""
+    pub fn encode_utf8_range(&self, range: Range<usize>, escape: bool) -> Cow<'_, str> {
+        if unlikely(range.is_empty() || range.start >= self.len()) {
             Cow::Borrowed("")
         } else {
             let range = range.start..std::cmp::min(range.end, self.len());
-            match self {
-                Self::Empty | Self::Ident => Cow::Borrowed(""),
-                Self::Ascii(s) => {
-                    if !escape {
-                        Cow::Borrowed(unsafe { std::str::from_utf8_unchecked(&s[range]) })
-                    } else {
-                        let cnt_bs = s[range.clone()].iter().filter(|x| **x == b'\\').count();
-                        if cnt_bs == 0 {
-                            Cow::Borrowed(unsafe { std::str::from_utf8_unchecked(&s[range]) })
+            if unlikely(range.is_empty()) {
+                Cow::Borrowed("")
+            } else {
+                match self {
+                    Self::Ascii(s) => {
+                        let t = unsafe { std::str::from_utf8_unchecked(&s[range]) };
+                        if !escape {
+                            Cow::Borrowed(t)
                         } else {
-                            let mut b = String::with_capacity(s.len() + cnt_bs);
-                            for c in &s[range] {
-                                if *c == b'\\' {
-                                    b.push('\\');
-                                    b.push('\\');
-                                } else {
-                                    b.push(*c as char);
-                                }
-                            }
-                            Cow::Owned(b)
+                            escape_str(t)
                         }
                     }
-                }
-                Self::Utf16(s) => {
-                    let slice = &s[range.clone()];
+                    Self::AsciiStatic(t) => {
+                        let t = &t[range];
+                        if !escape {
+                            Cow::Borrowed(t)
+                        } else {
+                            escape_str(t)
+                        }
+                    }
+                    Self::Utf16(s) => {
+                        let slice = &s[range];
+                        let out = if !escape {
+                            String::from_utf16_lossy(slice)
+                        } else {
+                            let mut buf = String::with_capacity(slice.len() * 4);
+                            let mut it = Utf16Stream::new(slice);
 
-                    let out = if !escape {
-                        String::from_utf16_lossy(slice)
-                    } else {
-                        let mut out = String::with_capacity(slice.len() * 4);
-                        for (_, c) in U16CharIter::new(slice, 0) {
-                            match c {
-                                CharCode::Char(c) => {
-                                    if c == '\\' {
-                                        out.push('\\');
-                                        out.push('\\');
-                                    } else {
-                                        out.push(c)
+                            while let Some((_, cc)) = it.next_char() {
+                                match cc {
+                                    CharCode::Char('\\') => {
+                                        buf.push_str(r"\\");
+                                    }
+                                    CharCode::Char('"') => {
+                                        buf.push_str("\\\"");
+                                    }
+                                    CharCode::Char(c) => {
+                                        buf.push(c);
+                                    }
+                                    CharCode::Code(cp) => {
+                                        buf.push_str(&format!("\\u{cp:04x}"));
                                     }
                                 }
-                                CharCode::Code(c) => {
-                                    out.push_str(&format!("\\u{c:04x}"));
-                                }
                             }
-                        }
-                        out.shrink_to_fit();
-                        out
-                    };
 
-                    Cow::Owned(out)
-                }
-                Self::AsciiStatic(s) => {
-                    let bb = s.as_bytes();
+                            buf.shrink_to_fit();
+                            buf
+                        };
 
-                    if !escape {
-                        Cow::Borrowed(unsafe { std::str::from_utf8_unchecked(&bb[range]) })
-                    } else {
-                        let cnt_bs = bb[range.clone()].iter().filter(|x| **x == b'\\').count();
-                        if cnt_bs == 0 {
-                            Cow::Borrowed(unsafe { std::str::from_utf8_unchecked(&bb[range]) })
-                        } else {
-                            let mut b = String::with_capacity(bb.len() + cnt_bs);
-                            for c in &bb[range] {
-                                if *c == b'\\' {
-                                    b.push('\\');
-                                    b.push('\\');
-                                } else {
-                                    b.push(*c as char);
-                                }
-                            }
-                            Cow::Owned(b)
-                        }
+                        Cow::Owned(out)
                     }
+                    Self::Empty | Self::Ident => Cow::Borrowed(""),
                 }
             }
         }
@@ -492,11 +493,11 @@ impl StringData {
     /// if `escape` is true, invalid char codes will be escaped as '\uXXXX',
     /// otherwise invalid char codes will be replaced with 'U+FFFD'.
     #[inline(always)]
-    pub fn to_utf8(&self, escape: bool) -> Cow<'_, str> {
-        self.to_utf8_range(0..self.len(), escape)
+    pub fn encode_utf8(&self, escape: bool) -> Cow<'_, str> {
+        self.encode_utf8_range(0..self.len(), escape)
     }
 
-    /// get codepoint at index.
+    /// get code point at index.
     /// returns None if index is out of bound.
     pub fn get(&self, index: usize) -> Option<u16> {
         match self {

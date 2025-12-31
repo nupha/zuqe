@@ -366,7 +366,7 @@ impl JSValue {
         if let Self::String(s) = self {
             ctx.eval_internal(
                 this_obj,
-                s.content().to_utf8_bytes().as_ref(),
+                s.content().encode_utf8_bytes(true).as_ref(),
                 "<string>",
                 eval_type,
                 eval_flags,

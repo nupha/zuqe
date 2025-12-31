@@ -102,14 +102,14 @@ impl PartialOrd for StringImpl {
 
 impl std::fmt::Display for StringImpl {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = self.content().to_utf8(false);
+        let s = self.content().encode_utf8(false);
         write!(f, "{s}")
     }
 }
 
 impl std::fmt::Debug for StringImpl {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = self.content().to_utf8(true);
+        let s = self.content().encode_utf8(true);
         write!(f, "{s}")
         // f.debug_struct("StringImpl")
         //     .field("rt", &self.rt)
@@ -210,7 +210,7 @@ impl StringImpl {
 
     /// coerce string to number. if can't convert string to number, returns NAN.
     pub fn to_number(&self, ctx: &ContextImpl) -> JSValue {
-        let str = self.content().to_utf8(false);
+        let str = self.content().encode_utf8(false);
         let str = str.as_ref().trim();
 
         if str.is_empty() {

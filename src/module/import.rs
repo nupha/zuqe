@@ -67,8 +67,8 @@ fn js_dynamic_import_job(
         name.to_string(&ctx).map(|nm| {
             js_load_module_internal(
                 ctx,
-                &base.content().to_utf8(false),
-                &nm.content().to_utf8(false),
+                &base.content().encode_utf8(false),
+                &nm.content().encode_utf8(false),
                 &resolving_funcs,
             );
         })

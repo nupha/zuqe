@@ -21,18 +21,18 @@ impl<'s> JSParseState<'s> {
         let mut sep: char = '\0';
         let mut consume = 0;
 
-        while let Some((i, sc)) = inp.next() {
+        while let Some((span, sc)) = inp.next_char() {
             match sc {
                 CharCode::Char('`') => {
                     sep = '`';
-                    consume = i + 1; // next to '`'
+                    consume = span.start + 1; // next to '`'
                     break;
                 }
                 CharCode::Char('$') if inp.current_byte() == Some(b'{') => {
                     // ${ template start or middle part
-                    let _ = inp.next(); // skip '{'
+                    inp.move_cursor_by(1); // skip '{'
                     sep = '$';
-                    consume = i + 2; // next to '{'
+                    consume = span.start + 2; // next to '{'
                     break;
                 }
                 CharCode::Char('\\') => {
@@ -46,7 +46,7 @@ impl<'s> JSParseState<'s> {
                             continue; // match \r or \n arm
                         }
                         Some(_) => {
-                            let (_, c1) = inp.next().unwrap();
+                            let (_, c1) = inp.next_char().unwrap();
                             sbuf.push_char(c1).map_err(|_| {
                                 self.ctx.throw_out_of_memory();
                                 -1

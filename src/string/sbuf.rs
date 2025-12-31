@@ -4,7 +4,7 @@ use fallible_collections::{FallibleVec, TryClone, TryCollect};
 
 use super::{CharCode, StringData, char_is_space, string::JS_STRING_LEN_MAX, u32_encode_utf16};
 
-/// string content buffer, used to build string
+/// String buffer, used to build string
 #[repr(u8)]
 #[derive(Debug, Default)]
 pub enum StringBuf {
@@ -12,16 +12,6 @@ pub enum StringBuf {
     Empty,
     Ascii(Vec<u8>), // TODO: upgrade to ISO8859 variant to hold 0..=255 chars
     Utf16(Vec<u16>),
-}
-
-impl From<Vec<u8>> for StringBuf {
-    fn from(v: Vec<u8>) -> Self {
-        if v.is_empty() {
-            Self::Empty
-        } else {
-            Self::Ascii(v)
-        }
-    }
 }
 
 impl From<Vec<u16>> for StringBuf {
