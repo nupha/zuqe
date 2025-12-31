@@ -248,7 +248,7 @@ impl StringBuf {
         }
     }
 
-    pub fn push_u8_slice(&mut self, s8: &[u8]) -> Result<(), TryReserveError> {
+    pub(crate) fn push_u8_slice(&mut self, s8: &[u8]) -> Result<(), TryReserveError> {
         match self {
             Self::Empty => {
                 let d = s8.iter().copied().try_collect::<Vec<_>>()?;
@@ -266,7 +266,7 @@ impl StringBuf {
         Ok(())
     }
 
-    pub fn push_u16_slice(&mut self, s16: &[u16]) -> Result<(), TryReserveError> {
+    pub(crate) fn push_u16_slice(&mut self, s16: &[u16]) -> Result<(), TryReserveError> {
         match self {
             Self::Empty => {
                 *self = if s16.iter().any(|x| *x >= 0x80) {
@@ -297,7 +297,7 @@ impl StringBuf {
         Ok(())
     }
 
-    pub fn push_u16_iter(
+    pub(crate) fn push_u16_iter(
         &mut self,
         source: impl Iterator<Item = u16>,
     ) -> Result<(), TryReserveError> {
@@ -418,12 +418,12 @@ impl StringBuf {
     }
 
     #[inline(always)]
-    pub fn push_u8(&mut self, c: u8) -> Result<(), TryReserveError> {
+    pub(crate) fn push_u8(&mut self, c: u8) -> Result<(), TryReserveError> {
         self.push_u8_slice(&[c])
     }
 
     #[inline]
-    pub fn push_u16(&mut self, c: u16) -> Result<(), TryReserveError> {
+    pub(crate) fn push_u16(&mut self, c: u16) -> Result<(), TryReserveError> {
         if c < 0x80 {
             self.push_u8_slice(&[c as u8])
         } else {

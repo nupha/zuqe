@@ -1,6 +1,6 @@
 use std::collections::TryReserveError;
 
-use crate::string::{CharCode, StringBuf, StringCharIter, StringData};
+use crate::string::{CharCode, CharCodeDecoder, StringBuf, StringData, Utf8Stream, Utf16Stream};
 
 use super::UTF8_CHAR_LEN_MAX;
 
@@ -27,10 +27,27 @@ impl StringData {
         )
     }
 
-    /// make quoted string from buf
-    #[inline]
+    /// make quoted string
     pub fn quote(&self) -> Result<StringBuf, TryReserveError> {
-        quote_string_internal(self.iter(), self.len())
+        if self.is_empty() {
+            Ok(StringBuf::Empty)
+        } else {
+            match self {
+                Self::Ascii(s) => quote_string_internal(Utf8Stream::new(s), s.len()),
+                Self::AsciiStatic(s) => {
+                    quote_string_internal(Utf8Stream::new(s.as_bytes()), s.len())
+                }
+                Self::Utf16(s) => quote_string_internal(Utf16Stream::new(s), s.len()),
+                _ => {
+                    #[cfg(debug_assertions)]
+                    unreachable!("{self:?}");
+                    #[cfg(not(debug_assertions))]
+                    unsafe {
+                        std::hint::unreachable_unchecked();
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -148,19 +165,36 @@ fn do_substitution<NC: Fn(&str) -> Result<Option<StringData>, i32>>(
 
 impl StringBuf {
     /// make quoted string from buf
-    #[inline]
     pub fn quote(&self) -> Result<Self, TryReserveError> {
-        quote_string_internal(self.iter(), self.len())
+        if self.is_empty() {
+            Ok(Self::Empty)
+        } else {
+            match self {
+                Self::Ascii(s) => quote_string_internal(Utf8Stream::new(s), s.len()),
+                Self::Utf16(s) => quote_string_internal(Utf16Stream::new(s), s.len()),
+                _ => {
+                    #[cfg(debug_assertions)]
+                    unreachable!();
+                    #[cfg(not(debug_assertions))]
+                    unsafe {
+                        std::hint::unreachable_unchecked();
+                    }
+                }
+            }
+        }
     }
 }
 
 /// quote string with leading and tailing '"'.
-fn quote_string_internal(src: StringCharIter, len: usize) -> Result<StringBuf, TryReserveError> {
+fn quote_string_internal<S: CharCodeDecoder>(
+    src: S,
+    len: usize,
+) -> Result<StringBuf, TryReserveError> {
     let mut buf = StringBuf::with_capacity(len + 2, false)?;
     buf.push_u8(b'"').unwrap();
 
     for (_, ch) in src {
-        if buf.capacity() - buf.len() < UTF8_CHAR_LEN_MAX {
+        if buf.capacity() - buf.len() < 6 {
             buf.try_reserve(64)?;
         }
 
