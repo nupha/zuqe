@@ -731,7 +731,11 @@ fn string_define_own_property(
         let ob = unsafe { this_obj.as_object_unchecked() };
         if let JSValue::String(p1) = ob.payload().value().unwrap() {
             let len = p1.len();
-            let nth_char = p1.content().iter_since(idx as usize).next().map(|(_, c)| c);
+            let nth_char = p1
+                .content()
+                .chars_since(idx as usize)
+                .next()
+                .map(|(_, c)| c);
 
             if idx >= len as u32 {
                 def!();
@@ -748,7 +752,7 @@ fn string_define_own_property(
 
                 let p2 = unsafe { val.string_unchecked() };
                 let len2 = p2.len();
-                let nth_char2 = p2.content().iter().next().map(|(_, c)| c);
+                let nth_char2 = p2.content().chars().next().map(|(_, c)| c);
 
                 if len2 != 1 {
                     fail!();

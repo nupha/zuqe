@@ -44,14 +44,36 @@ pub(crate) trait CharCodeDecoder: Iterator<Item = (Range<usize>, CharCode)> {
     /// decode char at current position, then advance cursor to next char.
     fn next_char(&mut self) -> Option<(Range<usize>, CharCode)>;
 
-    /// Returns the current position of cursor.
-    fn position(&self) -> Option<usize>;
+    /// Set current position (absolute).
+    fn set_pos(&mut self, i: usize);
+
+    /// Returns the current position.
+    fn pos(&self) -> Option<usize>;
 
     /// Seeks relative to the current position.
     fn seek_relative(&mut self, offset: i32);
 
+    /// Returns data length
+    fn len(&self) -> usize;
+
     /// check current cursor is at end of data?
     fn is_end(&self) -> bool;
+
+    /// if has invalid code point, returns false.
+    /// if all code point is valid, returns true.
+    fn is_well_formed(&self) -> bool {
+        let len = self.len();
+        let mut p = 0;
+        while p < len {
+            if let Ok((_, n)) = self.decode_char(p) {
+                p += n;
+            } else {
+                return false;
+            }
+        }
+
+        true
+    }
 }
 
 #[derive(Debug)]
@@ -239,12 +261,21 @@ impl<'a> CharCodeDecoder for Utf8Stream<'a> {
         }
     }
 
-    fn position(&self) -> Option<usize> {
+    #[inline(always)]
+    fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    fn pos(&self) -> Option<usize> {
         if self.index < self.data.len() {
             Some(self.index)
         } else {
             None
         }
+    }
+
+    fn set_pos(&mut self, i: usize) {
+        self.index = std::cmp::min(i, self.data.len());
     }
 
     /// advance or rewind cursor by offset relative to current position
@@ -425,12 +456,21 @@ impl<'a> CharCodeDecoder for Utf16Stream<'a> {
         }
     }
 
-    fn position(&self) -> Option<usize> {
+    #[inline(always)]
+    fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    fn pos(&self) -> Option<usize> {
         if self.index < self.data.len() {
             Some(self.index)
         } else {
             None
         }
+    }
+
+    fn set_pos(&mut self, i: usize) {
+        self.index = std::cmp::min(i, self.data.len());
     }
 
     fn seek_relative(&mut self, offset: i32) {
@@ -453,5 +493,24 @@ impl<'a> Iterator for Utf16Stream<'a> {
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         self.next_char()
+    }
+}
+
+pub(crate) fn is_all_chars_same<S1: CharCodeDecoder, S2: CharCodeDecoder>(
+    mut s1: S1,
+    mut s2: S2,
+) -> bool {
+    loop {
+        match (s1.next(), s2.next()) {
+            (Some((_, a)), Some((_, b))) if a.to_u32() == b.to_u32() => {
+                continue;
+            }
+            (None, None) => {
+                return true;
+            }
+            _ => {
+                return false;
+            }
+        }
     }
 }

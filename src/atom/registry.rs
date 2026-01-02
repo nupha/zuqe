@@ -456,7 +456,7 @@ impl Atom {
     pub(crate) fn calc_atom_hash(str: &StringData, kind: AtomKind) -> u32 {
         let mut h = kind as u32;
         if !str.is_empty() && !str.is_ident() {
-            for (_, c) in str.iter() {
+            for (_, c) in str.chars() {
                 h = hash_u32_from_base(h, c.to_u32());
             }
         }

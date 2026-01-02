@@ -1,13 +1,13 @@
+mod chars;
 mod data;
 mod iter;
 mod sbuf;
 mod string;
 mod sub;
-mod unicode;
 
 pub use {data::*, iter::*, sbuf::*, string::*};
 
-pub(crate) use unicode::*;
+pub(crate) use chars::*;
 
 /// escape quotes and back-slashes in str
 pub(super) fn escape_str(s: &str) -> std::borrow::Cow<'_, str> {

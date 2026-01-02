@@ -66,7 +66,7 @@ fn do_substitution<NC: Fn(&str) -> Result<Option<StringData>, i32>>(
 ) -> Result<StringBuf, Option<TryReserveError>> {
     // alloc result string buf
     let mut sbuf = StringBuf::with_capacity(matched.len(), false)?;
-    let mut replace_chars = replacement.iter();
+    let mut replace_chars = replacement.chars();
 
     // escape $-patterns in `replacement`
     while let Some((_, c)) = replace_chars.next() {

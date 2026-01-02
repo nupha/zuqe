@@ -1,11 +1,10 @@
 use std::{borrow::Cow, cmp::Ordering, collections::TryReserveError, ops::Range};
 
 use fallible_collections::TryCollect;
-use widestring::U16Str;
 
 use crate::{
     number::{parse_i64, parse_u32},
-    string::{Utf16Stream, escape_str},
+    string::{Utf8Stream, Utf16Stream, escape_str, is_all_chars_same},
     utils::unlikely,
 };
 
@@ -42,67 +41,17 @@ impl PartialEq for StringData {
             (Self::Ident, Self::Ident) => false, // idents are never equal
 
             // ascii vs utf16
-            (Self::Ascii(s1), Self::Utf16(s2)) => {
-                let mut it1 = unsafe { std::str::from_utf8_unchecked(s1.as_ref()) }.chars();
-                let mut it2 = U16Str::from_slice(s2.as_ref()).chars_lossy();
-                loop {
-                    match (it1.next(), it2.next()) {
-                        (Some(a), Some(b)) => {
-                            if a != b {
-                                return false;
-                            }
-                        }
-                        (None, None) => {
-                            return true;
-                        }
-                        _ => {
-                            return false;
-                        }
-                    }
-                }
-            }
-            (Self::Utf16(s1), Self::Ascii(s2)) => {
-                let mut it1 = U16Str::from_slice(s1.as_ref()).chars_lossy();
-                let mut it2 = unsafe { std::str::from_utf8_unchecked(s2.as_ref()) }.chars();
-                loop {
-                    match (it1.next(), it2.next()) {
-                        (Some(a), Some(b)) => {
-                            if a != b {
-                                return false;
-                            }
-                        }
-                        (None, None) => {
-                            return true;
-                        }
-                        _ => {
-                            return false;
-                        }
-                    }
-                }
+            (Self::Ascii(s8), Self::Utf16(s16)) | (Self::Utf16(s16), Self::Ascii(s8)) => {
+                is_all_chars_same(Utf8Stream::new(s8), Utf16Stream::new(s16))
             }
 
-            // static str vs ascii, utf16
-            (Self::Ascii(sa), Self::AsciiStatic(ss)) | (Self::AsciiStatic(ss), Self::Ascii(sa)) => {
-                ss.as_bytes().eq(sa.as_ref())
+            // static vs ascii, utf16
+            (Self::Ascii(s8), Self::AsciiStatic(ss)) | (Self::AsciiStatic(ss), Self::Ascii(s8)) => {
+                ss.as_bytes().eq(s8.as_ref())
             }
-            (Self::AsciiStatic(ss), Self::Utf16(us)) | (Self::Utf16(us), Self::AsciiStatic(ss)) => {
-                let mut it1 = U16Str::from_slice(us.as_ref()).chars_lossy();
-                let mut it2 = ss.chars();
-                loop {
-                    match (it1.next(), it2.next()) {
-                        (Some(a), Some(b)) => {
-                            if a != b {
-                                return false;
-                            }
-                        }
-                        (None, None) => {
-                            return true;
-                        }
-                        _ => {
-                            return false;
-                        }
-                    }
-                }
+            (Self::AsciiStatic(ss), Self::Utf16(s16))
+            | (Self::Utf16(s16), Self::AsciiStatic(ss)) => {
+                is_all_chars_same(Utf8Stream::new(ss.as_bytes()), Utf16Stream::new(s16))
             }
 
             #[cfg(debug_assertions)]
@@ -355,12 +304,12 @@ impl StringData {
     /// Encode range of content to utf8 bytes.
     ///
     /// For invalid code point or broken surrogate, when `allow_invalid` is true, force encode it to utf8;
-    /// otherwise encode U+FFFD instead.
+    /// otherwise replaced with U+FFFD.
     pub(crate) fn encode_utf8_bytes_internal(
         &self,
         range: Range<usize>,
         allow_invalid: bool,
-        keep_surrogate: bool,
+        keep_surrogate_pair: bool,
     ) -> Cow<'_, [u8]> {
         if range.is_empty() || range.start >= self.len() {
             Cow::Borrowed(&[])
@@ -387,11 +336,11 @@ impl StringData {
                                 buf.push(n as u8);
                             } else {
                                 let mut cp = n as u32;
-                                let is_surrogate = if keep_surrogate {
+                                let is_surrogate = if keep_surrogate_pair {
                                     (0xd800..0xe000).contains(&cp)
                                 } else {
                                     if (0xd800..0xdc00).contains(&cp) // high
-                                    && !keep_surrogate
+                                    && !keep_surrogate_pair
                                     && let Some(c1) = it.peek()
                                     && (0xdc00..0xe000).contains(*c1)
                                     {
@@ -560,7 +509,7 @@ impl StringData {
     /// iterate over string chars. `range` is the range of buf index.
     /// if `range` is out of bounds, the intersected range is applied.
     /// for broken surrogate, returns raw code directly, otherwise returns unichar
-    pub fn iter_range(&self, range: Range<usize>) -> StringCharIter<'_> {
+    pub fn chars_range(&self, range: Range<usize>) -> StringCharIter<'_> {
         if unlikely(range.is_empty() || range.start >= self.len()) {
             StringCharIter::from_u8(&[], 0)
         } else {
@@ -584,18 +533,18 @@ impl StringData {
     ///
     /// for broken surrogate, returns raw code directly, otherwise returns unichar
     #[inline(always)]
-    pub fn iter_since(&self, index: usize) -> StringCharIter<'_> {
-        self.iter_range(index..self.len())
+    pub fn chars_since(&self, index: usize) -> StringCharIter<'_> {
+        self.chars_range(index..self.len())
     }
 
     /// iterate over string chars. short cut to `::iter_since(0)`.
     #[inline(always)]
-    pub fn iter(&self) -> StringCharIter<'_> {
-        self.iter_range(0..self.len())
+    pub fn chars(&self) -> StringCharIter<'_> {
+        self.chars_range(0..self.len())
     }
 
     pub fn chars_range_lossy(&self, range: Range<usize>) -> impl Iterator<Item = char> {
-        self.iter_range(range).map(|(_, c)| match c {
+        self.chars_range(range).map(|(_, c)| match c {
             CharCode::Char(c) => c,
             CharCode::Code(_) => '\u{FFFD}',
         })
@@ -611,7 +560,7 @@ impl StringData {
         match self {
             Self::Empty | Self::Ident => 0,
             Self::Ascii(s) => s.len(),
-            Self::Utf16(_) => self.iter().count(),
+            Self::Utf16(_) => self.chars().count(),
             Self::AsciiStatic(s) => s.len(),
         }
     }
@@ -669,8 +618,8 @@ impl StringData {
 
                 if i + needle_len <= len
                     && self
-                        .iter_range(i..(i + needle_len))
-                        .zip(needle.iter())
+                        .chars_range(i..(i + needle_len))
+                        .zip(needle.chars())
                         .all(|((_, c1), (_, c2))| c1 == c2)
                 {
                     return Some(i); // found at cursor
@@ -694,7 +643,7 @@ impl StringData {
             None
         } else {
             let ch: CharCode = ch.into();
-            self.iter_since(start)
+            self.chars_since(start)
                 .find(|(_, c)| ch.eq(c))
                 .map(|(r, _)| r.end + start)
         }
@@ -704,7 +653,7 @@ impl StringData {
     pub fn index_of_next(&self, pos: usize, must_char: bool) -> Option<usize> {
         if pos < self.len() {
             if must_char && self.is_wide() {
-                for (span, c) in self.iter_since(pos) {
+                for (span, c) in self.chars_since(pos) {
                     if matches!(c, CharCode::Char(_)) {
                         return Some(span.end);
                     }
@@ -733,20 +682,18 @@ impl StringData {
         }
     }
 
-    /// compare content with str
+    /// Compare string content with `str` char by char
     pub fn eq_str(&self, other: &str) -> bool {
         match self {
-            Self::Empty => other.is_empty(),
             Self::Ascii(s) => s.len() == other.len() && s.as_ref() == other.as_bytes(),
+            Self::AsciiStatic(s) => s.len() == other.len() && s.as_bytes() == other.as_bytes(),
             Self::Utf16(s) => {
-                let mut a = U16Str::from_slice(s.as_ref()).chars_lossy();
-                let mut b = other.chars();
+                let mut it1 = Utf16Stream::new(s);
+                let mut it2 = other.chars();
                 loop {
-                    match (a.next(), b.next()) {
-                        (Some(a), Some(b)) => {
-                            if a != b {
-                                return false;
-                            }
+                    match (it1.next(), it2.next()) {
+                        (Some((_, CharCode::Char(a))), Some(b)) if a == b => {
+                            continue;
                         }
                         (None, None) => {
                             return true;
@@ -757,8 +704,7 @@ impl StringData {
                     }
                 }
             }
-            Self::AsciiStatic(s) => s.len() == other.len() && s.as_bytes() == other.as_bytes(),
-
+            Self::Empty => other.is_empty(),
             Self::Ident => false,
         }
     }

@@ -74,12 +74,14 @@ impl CharCode {
         }
     }
 
+    /// invalid code point is forced to utf16 too.
     #[inline(always)]
     pub fn encode_utf16<'a>(&self, buf: &'a mut [u16; 2]) -> &'a [u16] {
         u32_encode_utf16(self.to_u32(), buf)
     }
 }
 
+/// accept invalid code point too.
 pub(super) fn u32_encode_utf16(cp: u32, buf: &mut [u16; 2]) -> &[u16] {
     if cp < 0x10000 {
         buf[0] = cp as u16;
@@ -137,70 +139,6 @@ pub(super) fn u32_encode_utf8(cp: u32, buf: &mut [u8; 6], allow_invalid: bool) -
     }
 }
 
-#[deprecated(note = "use Utf16Stream instead")]
-#[derive(Clone)]
-pub struct U16CharIter<'a> {
-    data: Peekable<std::slice::Iter<'a, u16>>,
-    cursor: usize,
-}
-
-impl<'a> Iterator for U16CharIter<'a> {
-    type Item = (usize, CharCode);
-
-    /// returns (next_pos, char)
-    fn next(&mut self) -> Option<Self::Item> {
-        if let Some(n) = self.data.next() {
-            let cp1 = *n as u32;
-            self.cursor += 1;
-
-            let r = if cp1 < 0x80 {
-                CharCode::Char(cp1 as u8 as _)
-            } else if (0xD800..=0xDBFF).contains(&cp1) {
-                if let Some(cp2) = self.data.peek()
-                    && (0xDC00..=0xDFFF).contains(*cp2)
-                {
-                    // surrogate pair
-                    let cp = ((cp1 - 0xD800) << 10) + (**cp2 as u32 - 0xDC00) + 0x10000;
-                    let ch = char::from_u32(cp).unwrap();
-                    self.data.next();
-                    self.cursor += 1;
-                    return Some((self.cursor, CharCode::Char(ch)));
-                }
-
-                // single surrogate
-                CharCode::Code(cp1 as _)
-            } else if (0xDC00..=0xDFFF).contains(&cp1) {
-                // single surrogate
-                CharCode::Code(cp1 as _)
-            } else if let Some(ch) = char::from_u32(cp1) {
-                CharCode::Char(ch)
-            } else {
-                CharCode::Code(cp1 as _)
-            };
-
-            Some((self.cursor, r))
-        } else {
-            None
-        }
-    }
-}
-
-impl<'a> U16CharIter<'a> {
-    pub fn new(slice: &'a [u16], base_index: usize) -> Self {
-        let it = slice.iter();
-        let it = it.peekable();
-        Self {
-            data: it,
-            cursor: base_index,
-        }
-    }
-
-    /// peek next code (not char).
-    pub fn peek(&mut self) -> Option<u16> {
-        self.data.peek().copied().copied()
-    }
-}
-
 #[derive(Debug)]
 pub enum StringCharIter<'a> {
     U8(Utf8Stream<'a>),
@@ -229,10 +167,24 @@ impl<'a> CharCodeDecoder for StringCharIter<'a> {
         }
     }
 
-    fn position(&self) -> Option<usize> {
+    fn len(&self) -> usize {
         match self {
-            Self::U8(s) => s.position(),
-            Self::U16(s) => s.position(),
+            Self::U8(s) => s.len(),
+            Self::U16(s) => s.len(),
+        }
+    }
+
+    fn set_pos(&mut self, i: usize) {
+        match self {
+            Self::U8(s) => s.set_pos(i),
+            Self::U16(s) => s.set_pos(i),
+        }
+    }
+
+    fn pos(&self) -> Option<usize> {
+        match self {
+            Self::U8(s) => s.pos(),
+            Self::U16(s) => s.pos(),
         }
     }
 
@@ -247,6 +199,13 @@ impl<'a> CharCodeDecoder for StringCharIter<'a> {
         match self {
             Self::U8(s) => s.is_end(),
             Self::U16(s) => s.is_end(),
+        }
+    }
+
+    fn is_well_formed(&self) -> bool {
+        match self {
+            Self::U8(s) => s.is_well_formed(),
+            Self::U16(s) => s.is_well_formed(),
         }
     }
 }

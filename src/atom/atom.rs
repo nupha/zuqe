@@ -151,7 +151,7 @@ impl Atom {
             let buf_len = content.len();
 
             // check for: -0, Infinity, -Infinity
-            let mut chars = content.iter();
+            let mut chars = content.chars();
 
             if let Some((_, c)) = chars.next() {
                 if let Some(mut ch) = c.char() {

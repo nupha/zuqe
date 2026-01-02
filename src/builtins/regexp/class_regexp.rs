@@ -13,7 +13,6 @@ use crate::{
         ObjectRef,
     },
     string::{CharCode, CharCodeDecoder, JS_ConcatString3, StringBuf, StringData, StringRef},
-    utils::unlikely,
     value::JSValue,
 };
 
@@ -178,7 +177,7 @@ pub fn js_regexp_get_source(cc: CallContext) -> JSResult {
 
         // Escape '/' and newline sequences as needed
         let mut bra = false;
-        let mut it = re.pattern.iter();
+        let mut it = re.pattern.chars();
         while let Some((_, c)) = it.next() {
             match c {
                 CharCode::Char('\\') => {
@@ -431,7 +430,7 @@ pub fn js_regexp_Symbol_match(cc: CallContext) -> JSResult {
     let is_global = flags.index_of_char('g', 0).is_some();
     if is_global {
         let is_unicode = flags
-            .iter()
+            .chars()
             .any(|(_, c)| matches!(c, CharCode::Char('u') | CharCode::Char('v')));
 
         this.set_property(ctx, Atom::CONST_lastIndex, JSValue::Int(0))?;
@@ -492,7 +491,7 @@ pub fn js_regexp_Symbol_matchAll(cc: CallContext) -> JSResult {
             str,
             flags.index_of_char('g', 0).is_some(),
             flags
-                .iter()
+                .chars()
                 .any(|(_, c)| matches!(c, CharCode::Char('u') | CharCode::Char('v'))),
         ),
     ))
@@ -534,7 +533,7 @@ pub fn js_regexp_Symbol_replace(cc: CallContext) -> JSResult {
     let is_unicode = if is_global {
         this_obj.set_property(ctx, Atom::CONST_lastIndex, JSValue::Int(0))?;
         flags
-            .iter()
+            .chars()
             .any(|(_, c)| matches!(c, CharCode::Char('u') | CharCode::Char('v')))
     } else {
         false

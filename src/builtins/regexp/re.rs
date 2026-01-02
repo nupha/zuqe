@@ -27,15 +27,6 @@ pub const RE_HEADER_CAPTURE_COUNT: usize = 1;
 pub const RE_HEADER_STACK_SIZE: usize = 2;
 pub const RE_HEADER_LEN: usize = 7;
 
-// pub const LRE_FLAG_GLOBAL: i32 = 1 << 0;
-// pub const LRE_FLAG_IGNORECASE: i32 = 1 << 1;
-// pub const LRE_FLAG_MULTILINE: i32 = 1 << 2;
-// pub const LRE_FLAG_DOTALL: i32 = 1 << 3;
-// pub const LRE_FLAG_UTF16: i32 = 1 << 4;
-// pub const LRE_FLAG_STICKY: i32 = 1 << 5;
-// pub const LRE_FLAG_INDICES: i32 = 1 << 6; // Unused by libregexp, just recorded.
-// pub const LRE_FLAG_NAMED_GROUPS: i32 = 1 << 7; // named groups are present in the regexp
-
 #[derive(Debug)]
 pub struct RegExpStringIterPayload {
     iterating_regexp: ObjectRef,
@@ -123,7 +114,7 @@ impl RegExpData {
     ) -> Result<Self, i32> {
         // Note: 1) can duplicate same flag; 2) 'u' and 'v' cannot be both set
         let mut opts = LreFlags::empty();
-        for (_, cc) in flags.iter() {
+        for (_, cc) in flags.chars() {
             if let CharCode::Char(c) = cc {
                 match c {
                     'd' if !opts.has_indices() => {
@@ -159,13 +150,6 @@ impl RegExpData {
                 }
             }
         }
-
-        // // in some cases, regexp is supposed to enable unicode mode by default:
-        // // 1. pattern contains non-ascii characters
-        // // 2. pattern has \xFF or \uFFFF pattern char.
-        // if !pattern.is_ascii() {
-        //     opts = opts.unicode();
-        // }
 
         let regex = Regex::with_flags(
             &pattern.encode_utf8_bytes_internal(0..pattern.len(), true, !opts.is_unicode()),

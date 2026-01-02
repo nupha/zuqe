@@ -1,5 +1,4 @@
 use unicode_normalization::UnicodeNormalization;
-use widestring::U16Str;
 
 use crate::{
     JS_CLASS_STRING_ITERATOR,
@@ -10,10 +9,9 @@ use crate::{
     function::{CallContext, FieldDef, IteratorState, JS_CallConstructor},
     object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, ObjectPayload},
     string::{
-        CharCode, JS_ConcatString, JS_ConcatString3, JS_STRING_LEN_MAX, StringBuf, StringData,
-        StringImpl, StringRef,
+        CharCode, CharCodeDecoder, JS_ConcatString, JS_ConcatString3, JS_STRING_LEN_MAX, StringBuf,
+        StringData, StringImpl, StringRef, Utf16Stream,
     },
-    utils::unlikely,
     value::JSValue,
 };
 
@@ -87,7 +85,7 @@ fn js_string_codePointAt(cc: CallContext) -> JSResult {
     let i: i32 = cc.arg(0).to_i32_saturating(ctx)?;
 
     if (0..s.len() as i32).contains(&i) {
-        let (_, c) = s.content().iter_since(i as usize).next().unwrap();
+        let (_, c) = s.content().chars_since(i as usize).next().unwrap();
         Ok(JSValue::from(c.to_u32()))
     } else {
         Ok(JSValue::UNDEFINED)
@@ -105,49 +103,33 @@ fn js_string_concat(cc: CallContext) -> JSResult {
     Ok(s.into())
 }
 
-// return the position of the first invalid character in the string or
-// -1 if none
-pub(crate) unsafe fn js_string_find_invalid_codepoint(p: &StringImpl) -> i32 {
-    if let Some(ws) = p.content().utf16() {
-        U16Str::from_slice(ws)
-            .chars()
-            .position(|c| c.is_err())
-            .map_or(-1, |i| i as i32)
-    } else {
-        -1
-    }
-}
-
 fn js_string_isWellFormed(cc: CallContext) -> JSResult {
     let p = cc.this().to_string_non_undefined_or_null(cc.ctx())?;
-    let ret = unsafe { js_string_find_invalid_codepoint(&p) } < 0;
-    Ok(JSValue::Bool(ret))
+    Ok(p.chars().is_well_formed().into())
 }
 
 fn js_string_toWellFormed(cc: CallContext) -> JSResult {
     let ctx = cc.ctx();
     let p = cc.this().to_string_non_undefined_or_null(ctx)?;
 
-    // avoid reallocating the string if it is well-formed
-    let i = unsafe { js_string_find_invalid_codepoint(&p) };
-    if i < 0 {
-        return Ok(p.into());
-    }
+    if let Some(s16) = p.content().utf16() {
+        let stream = Utf16Stream::new(s16);
+        if !stream.is_well_formed() {
+            let mut buf = Vec::<u16>::new();
+            buf.try_reserve_exact(s16.len() * 3 / 2).map_err(|_| {
+                ctx.throw_out_of_memory();
+                -1
+            })?;
+            for (_, cc) in stream {
+                // invalid code point is replaced with U+FFFD
+                buf.extend_from_slice(cc.char().unwrap_or('\u{FFFD}').encode_utf16(&mut [0; 2]));
+            }
 
-    if let Some(ws) = p.content().utf16() {
-        let mut buf = Vec::<u16>::new();
-        buf.try_reserve_exact(ws.len() * 3 / 2).map_err(|_| {
-            ctx.throw_out_of_memory();
-            -1
-        })?;
-
-        for c in U16Str::from_slice(ws).chars_lossy() {
-            buf.extend_from_slice(c.encode_utf16(&mut [0; 2]));
+            return ctx.create_string_with_buf(buf.into()).map(JSValue::String);
         }
-        ctx.create_string_with_buf(buf.into()).map(JSValue::String)
-    } else {
-        unreachable!()
     }
+
+    Ok(p.into())
 }
 
 pub fn js_string_indexOf(cc: CallContext) -> JSResult {
@@ -322,7 +304,7 @@ fn js_string_replace(cc: CallContext) -> JSResult {
     // concat remainder part of string
     if endOfLastMatch < str.len() {
         res_string
-            .push_chars_iter(cc.iter_since(endOfLastMatch).map(|(_, c)| c))
+            .push_chars_iter(cc.chars_since(endOfLastMatch).map(|(_, c)| c))
             .map_err(|_| {
                 ctx.throw_out_of_memory();
                 -1
@@ -377,7 +359,7 @@ fn js_string_split(cc: CallContext) -> JSResult {
     }
 
     if sep_len == 0 {
-        for (i, (_, c)) in str.content().iter().enumerate().take(lim as usize) {
+        for (i, (_, c)) in str.content().chars().enumerate().take(lim as usize) {
             let t = ctx.create_string_from_char(c)?;
             ret_arr.define_property_value_u32(
                 ctx,
@@ -571,7 +553,7 @@ fn js_string_repeat(cc: CallContext) -> JSResult {
     let sdata = p.content();
     for _ in 0..n {
         res_string
-            .push_chars_iter(sdata.iter().map(|(_, c)| c))
+            .push_chars_iter(sdata.chars().map(|(_, c)| c))
             .unwrap();
     }
     res_string.shrink_to_fit();
@@ -620,14 +602,14 @@ fn js_string_includes(cc: CallContext) -> JSResult {
                 .map_or(JSValue::Bool(false), |_| JSValue::Bool(true))),
 
             m @ (MAGIC_STARTS_WITH | MAGIC_ENDS_WITH) => {
-                let mut it1 = p.content().iter_range(if m == MAGIC_ENDS_WITH {
+                let mut it1 = p.content().chars_range(if m == MAGIC_ENDS_WITH {
                     (str_len - pat_len)..str_len
                 } else if pos > 0 {
                     pos..str_len
                 } else {
                     0..str_len
                 });
-                let mut it2 = pat.content().iter();
+                let mut it2 = pat.content().chars();
 
                 let b = loop {
                     match (it1.next(), it2.next()) {
@@ -770,8 +752,8 @@ fn js_string_trim(cc: CallContext) -> JSResult {
 }
 
 pub fn string_cmp(p1: &StringImpl, p2: &StringImpl, x1: usize, x2: usize, len: usize) -> i32 {
-    let mut it1 = p1.content().iter_since(x1);
-    let mut it2 = p2.content().iter_since(x2);
+    let mut it1 = p1.content().chars_since(x1);
+    let mut it2 = p2.content().chars_since(x2);
 
     for _ in 0..len {
         match (it1.next(), it2.next()) {
@@ -1023,7 +1005,7 @@ fn js_string_iterator_next(cc: CallContext, state: &mut IteratorState) -> JSResu
             }
             JSValue::String(ss) => {
                 // iterate over string buf to get char or code at `idx`
-                if let Some((span, c)) = ss.content().iter_since(it.index() as usize).next() {
+                if let Some((span, c)) = ss.content().chars_since(it.index() as usize).next() {
                     it.set_index(span.end as u32);
                     *state = IteratorState::NotDone;
                     ctx.create_string_from_char(c).map(JSValue::String)
