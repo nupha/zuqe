@@ -1,13 +1,146 @@
 use std::{ops::Range, ptr::NonNull};
 
-use crate::string::CharCode;
-
 // Maximum UTF-8 character length
 pub const UTF8_CHAR_LEN_MAX: usize = 6;
 
 // Unicode code points
 pub const CP_LS: u32 = 0x2028; // Line separator
 pub const CP_PS: u32 = 0x2029; // Paragraph separator
+
+/// Represent unichar (for valid unicode) or code point (for invalid unicode)
+#[repr(u8)]
+#[derive(Clone, Copy, PartialEq)]
+pub enum CharCode {
+    /// unichar
+    Char(char),
+    /// code point for invalid unichar
+    Code(u32),
+}
+
+impl From<char> for CharCode {
+    fn from(value: char) -> Self {
+        Self::Char(value)
+    }
+}
+
+impl From<u8> for CharCode {
+    fn from(value: u8) -> Self {
+        Self::Char(value as char)
+    }
+}
+
+impl From<u16> for CharCode {
+    fn from(value: u16) -> Self {
+        char::from_u32(value as u32).map_or_else(|| Self::Code(value as _), Self::Char)
+    }
+}
+
+impl From<u32> for CharCode {
+    fn from(value: u32) -> Self {
+        char::from_u32(value).map_or_else(|| Self::Code(value), Self::Char)
+    }
+}
+
+impl std::fmt::Display for CharCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Char(c) => {
+                write!(f, "{c}")
+            }
+            Self::Code(c) => {
+                write!(f, "\\u{{{c:4X}}}")
+            }
+        }
+    }
+}
+
+impl std::fmt::Debug for CharCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "'{self}'")
+    }
+}
+
+impl CharCode {
+    pub const fn to_u32(self) -> u32 {
+        match self {
+            Self::Char(c) => c as u32,
+            Self::Code(c) => c,
+        }
+    }
+
+    /// if is broken code, returns None. otherwise returns the unichar
+    pub const fn char(&self) -> Option<char> {
+        if let Self::Char(c) = self {
+            Some(*c)
+        } else {
+            None
+        }
+    }
+
+    /// invalid code point is forced to utf16 too.
+    #[inline(always)]
+    pub fn encode_utf16<'a>(&self, buf: &'a mut [u16; 2]) -> &'a [u16] {
+        u32_encode_utf16(self.to_u32(), buf)
+    }
+}
+
+/// accept invalid code point too.
+pub(super) fn u32_encode_utf16(cp: u32, buf: &mut [u16; 2]) -> &[u16] {
+    if cp < 0x10000 {
+        buf[0] = cp as u16;
+        &buf[0..1]
+    } else {
+        // use surrogate pair
+        let h = cp - 0x10000;
+        buf[0] = ((h >> 10) + 0xd800) as u16;
+        buf[1] = ((h & 0x3ff) + 0xdc00) as u16;
+        buf
+    }
+}
+
+/// In case cp is valid unichar, encode it to utf8;
+/// In case cp is invalid unicode or broken surrogate and `allow_invalid` is true, force encode it to utf8;
+/// otherwise encode U+FFFD replacement char.
+pub(super) fn u32_encode_utf8(cp: u32, buf: &mut [u8; 6], allow_invalid: bool) -> &[u8] {
+    if cp < 0x80 {
+        // ascii
+        buf[0] = cp as u8;
+        &buf[0..1]
+    } else if let Some(uc) = char::from_u32(cp) {
+        // valid unichar
+        uc.encode_utf8(buf).as_bytes()
+    } else if allow_invalid {
+        if cp <= 0xffff {
+            // 3-bytes
+            buf[0] = 0xE0 | ((cp >> 12) as u8);
+            buf[1] = 0x80 | (((cp >> 6) & 0x3F) as u8);
+            buf[2] = 0x80 | ((cp & 0x3F) as u8);
+            &buf[0..3]
+        } else if cp <= 0x10ffffff {
+            // 4-bytes
+            buf[0] = 0xF0 | ((cp >> 18) as u8);
+            buf[1] = 0x80 | (((cp >> 12) & 0x3F) as u8);
+            buf[2] = 0x80 | (((cp >> 6) & 0x3F) as u8);
+            buf[3] = 0x80 | ((cp & 0x3F) as u8);
+            &buf[0..4]
+        } else {
+            // 6-bytes
+            buf[0] = 0xFC | ((cp >> 30) as u8);
+            buf[1] = 0x80 | (((cp >> 24) & 0x3F) as u8);
+            buf[2] = 0x80 | (((cp >> 18) & 0x3F) as u8);
+            buf[3] = 0x80 | (((cp >> 12) & 0x3F) as u8);
+            buf[4] = 0x80 | (((cp >> 6) & 0x3F) as u8);
+            buf[5] = 0x80 | ((cp & 0x3F) as u8);
+            buf
+        }
+    } else {
+        // U+FFFD
+        buf[0] = 0xEF;
+        buf[1] = 0xBF;
+        buf[2] = 0xBD;
+        &buf[0..3]
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DecodeCharError {

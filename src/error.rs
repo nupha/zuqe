@@ -151,6 +151,11 @@ impl ContextImpl {
         self.throw_error(ErrorKind::Type, message);
     }
 
+    #[inline(always)]
+    pub fn throw_uri_error(&self, message: &str) {
+        self.throw_error(ErrorKind::Uri, message);
+    }
+
     /// test if allowed to throw error according to `flags`
     #[inline(always)]
     pub fn can_throw(&self, flags: u32) -> bool {
