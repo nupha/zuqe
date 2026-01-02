@@ -1,6 +1,7 @@
 use std::{borrow::Cow, collections::TryReserveError, ops::Range};
 
 use fallible_collections::{FallibleVec, TryClone, TryCollect};
+use zerocopy::big_endian::U16;
 
 use super::{CharCode, StringData, char_is_space, string::JS_STRING_LEN_MAX, u32_encode_utf16};
 
@@ -263,6 +264,36 @@ impl StringBuf {
                 w.extend(s8.iter().map(|x| *x as u16));
             }
         }
+        Ok(())
+    }
+
+    pub(crate) fn push_u8_iter(
+        &mut self,
+        source: impl Iterator<Item = u8>,
+    ) -> Result<(), TryReserveError> {
+        match self {
+            Self::Empty => {
+                let buf = source.try_collect::<Vec<_>>()?;
+                *self = Self::Ascii(buf);
+            }
+            Self::Ascii(lst) => {
+                for c in source {
+                    if lst.capacity() == lst.len() {
+                        lst.try_reserve(32)?;
+                    }
+                    lst.push(c);
+                }
+            }
+            Self::Utf16(lst) => {
+                for c in source {
+                    if lst.capacity() == lst.len() {
+                        lst.try_reserve(32)?;
+                    }
+                    lst.push(c as u16);
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -571,7 +602,7 @@ impl StringBuf {
         match self {
             Self::Empty => 0,
             Self::Ascii(s) => s.len(),
-            Self::Utf16(_) => self.iter().count(),
+            Self::Utf16(_) => self.chars().count(),
         }
     }
 
@@ -592,7 +623,7 @@ impl StringBuf {
             let mut end: usize = if right { 0 } else { len };
 
             let mut pos = 0;
-            for (span, c) in self.iter() {
+            for (span, c) in self.chars() {
                 let i = span.end;
                 if let CharCode::Char(ch) = c
                     && !char_is_space(ch)

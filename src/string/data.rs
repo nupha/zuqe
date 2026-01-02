@@ -8,10 +8,7 @@ use crate::{
     utils::unlikely,
 };
 
-use super::{
-    CharCode, CharCodeDecoder, StringBuf, StringCharIter, StringCodepointIter, s16_into_s8,
-    u32_encode_utf8,
-};
+use super::{CharCode, CharCodeDecoder, StringBuf, StringCharIter, s16_into_s8, u32_encode_utf8};
 
 /// read-only string content.
 #[repr(u8)]
@@ -463,47 +460,6 @@ impl StringData {
             Self::Utf16(lst) => lst.as_ref().get(index).copied(),
             Self::AsciiStatic(s) => s.as_bytes().get(index).map(|n| *n as u16),
         }
-    }
-
-    /// iterate over string code points. `range` is the range of buf index.
-    /// if `range` has out of bound, range is intersected with buf.
-    pub fn iter_codepoint_range(&self, range: Range<usize>) -> StringCodepointIter<'_> {
-        match self {
-            Self::Empty | Self::Ident => StringCodepointIter::U8([].iter().peekable()),
-            Self::Ascii(s) => {
-                if let Some(slice) = { s.as_ref().get(range) } {
-                    StringCodepointIter::U8(slice.iter().peekable())
-                } else {
-                    StringCodepointIter::U8([].iter().peekable())
-                }
-            }
-            Self::Utf16(s) => {
-                if let Some(slice) = { s.as_ref().get(range) } {
-                    StringCodepointIter::U16(slice.iter().peekable())
-                } else {
-                    StringCodepointIter::U16([].iter().peekable())
-                }
-            }
-            Self::AsciiStatic(s) => {
-                if let Some(slice) = s.as_bytes().get(range) {
-                    StringCodepointIter::U8(slice.iter().peekable())
-                } else {
-                    StringCodepointIter::U8([].iter().peekable())
-                }
-            }
-        }
-    }
-
-    /// iterate over string code points. `index` is the starting buf index.
-    #[inline(always)]
-    pub fn iter_codepoint_since(&self, index: usize) -> StringCodepointIter<'_> {
-        self.iter_codepoint_range(index..self.len())
-    }
-
-    /// iterate over string code points. short cut to `::iter_codepoint_since(0)`.
-    #[inline(always)]
-    pub fn iter_codepoint(&self) -> StringCodepointIter<'_> {
-        self.iter_codepoint_since(0)
     }
 
     /// iterate over string chars. `range` is the range of buf index.

@@ -119,7 +119,7 @@ fn do_substitution<NC: Fn(&str) -> Result<Option<StringData>, i32>>(
                         for (_, c1) in replace_chars.by_ref() {
                             if c1 == CharCode::Char('>') {
                                 let name = sbuf
-                                    .iter_since(name_start)
+                                    .chars_since(name_start)
                                     .map(|(_, c)| match c {
                                         CharCode::Char(c) => c,
                                         CharCode::Code(_) => '\u{FFFD}',

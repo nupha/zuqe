@@ -215,6 +215,16 @@ pub struct Utf8Stream<'a> {
     index: usize,   // current byte index
 }
 
+impl<'a> Clone for Utf8Stream<'a> {
+    /// current position reset to 0 for cloned stream
+    fn clone(&self) -> Self {
+        Self {
+            data: self.data,
+            index: 0,
+        }
+    }
+}
+
 impl<'a> Utf8Stream<'a> {
     pub const fn new(data: &'a [u8]) -> Self {
         Self { data, index: 0 }
@@ -439,6 +449,16 @@ impl<'a> Iterator for Utf8Stream<'a> {
 pub struct Utf16Stream<'a> {
     data: &'a [u16], // UTF16 data
     index: usize,    // current index
+}
+
+impl<'a> Clone for Utf16Stream<'a> {
+    /// current position reset to 0 for cloned stream
+    fn clone(&self) -> Self {
+        Self {
+            data: self.data,
+            index: 0,
+        }
+    }
 }
 
 impl<'a> Utf16Stream<'a> {

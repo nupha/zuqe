@@ -498,14 +498,25 @@ fn js_string_pad(cc: CallContext) -> JSResult {
 
     if let Some(s) = fill_str {
         // fill with str
-        let src = std::iter::repeat_n(
-            s.content().iter_codepoint(),
-            (ttl_len as usize).div_ceil(s.len()),
-        )
-        .flatten()
-        .take(ttl_len as usize);
+        let cnt = (ttl_len as usize).div_ceil(s.len());
 
-        sbuf.push_u16_iter(src)
+        if let Some(bb) = s.ascii() {
+            let fill = std::iter::repeat_n(bb, cnt)
+                .flatten()
+                .copied()
+                .take(ttl_len as usize);
+            sbuf.push_u8_iter(fill)
+        } else {
+            let fill = std::iter::repeat_n(s.content().chars(), cnt)
+                .flatten()
+                .flat_map(|(_, cc)| {
+                    let mut a = [0; 2];
+                    cc.encode_utf16(&mut a);
+                    a
+                })
+                .take(ttl_len as usize);
+            sbuf.push_u16_iter(fill)
+        }
     } else {
         // fill with char
         sbuf.push_chars_iter(std::iter::repeat_n(fill_char, ttl_len as usize))
