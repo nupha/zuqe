@@ -335,7 +335,6 @@ fn js_string_replace(cc: CallContext) -> JSResult {
 
 fn js_string_split(cc: CallContext) -> JSResult {
     let ctx = cc.ctx();
-
     let this = *cc.this();
     if this.is_undefined_or_null() {
         ctx.throw_type_error("cannot convert to object");
@@ -346,7 +345,8 @@ fn js_string_split(cc: CallContext) -> JSResult {
     let limit = *cc.arg(1);
 
     if !separator.is_undefined_or_null()
-        && let Some(r) = separator.invoke_defined(ctx, Atom::CONST_Symbol_split, &[this, limit])?
+        && let Some(o) = separator.as_object()
+        && let Some(r) = o.invoke_defined(ctx, Atom::CONST_Symbol_split, &[this, limit])?
     {
         return r;
     }
@@ -727,20 +727,21 @@ fn js_string_match(cc: CallContext) -> JSResult {
         return Err(-1);
     }
 
-    let match_val = *cc.arg(0);
+    let regexp_val = *cc.arg(0);
 
-    if let JSValue::Object(o) = match_val {
+    if let JSValue::Object(o) = regexp_val {
         let matcher = o.get_property(ctx, magic_method)?;
-        if magic_method == Atom::CONST_Symbol_matchAll && check_regexp_g_flag(ctx, &match_val) < 0 {
+        if magic_method == Atom::CONST_Symbol_matchAll && check_regexp_g_flag(ctx, &regexp_val) < 0
+        {
             return Err(-1);
         } else if !matcher.is_undefined_or_null() {
-            return matcher.call(ctx, match_val, std::slice::from_ref(this));
+            return matcher.call(ctx, regexp_val, std::slice::from_ref(this));
         }
     }
 
     // make RegExp object
     let mut args = [
-        match_val.to_string(ctx)?.into(), // regex pattern
+        regexp_val, // used as pattern
         JSValue::UNDEFINED,
     ];
     let mut args_len = 1;
@@ -748,13 +749,13 @@ fn js_string_match(cc: CallContext) -> JSResult {
         args[args_len] = ctx.create_string_from_char('g'.into())?.into();
         args_len += 1;
     }
-    let regexp = {
+    let regexp_obj = {
         let ctor = ctx.regexp_ctor;
         JS_CallConstructor(ctx, ctor, &args[0..args_len]).err()?
     };
 
     let str = JSValue::String(this.to_string_non_undefined_or_null(ctx)?);
-    regexp.invoke(ctx, magic_method, std::slice::from_ref(&str))
+    regexp_obj.invoke(ctx, magic_method, std::slice::from_ref(&str))
 }
 
 fn js_string_trim(cc: CallContext) -> JSResult {

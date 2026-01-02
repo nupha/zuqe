@@ -260,10 +260,6 @@ impl RegExpData {
             })
             .unwrap()
         {
-            // if self.flags().has_sticky() && caps.get(0).is_none_or(|m| m.start() != 0) {
-            //     return None;
-            // }
-
             let cnt = caps.len();
             let mut res = Vec::<(Option<Range<usize>>, Option<String>)>::with_capacity(cnt);
 
