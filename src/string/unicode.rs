@@ -37,18 +37,18 @@ pub(crate) trait CharCodeDecoder: Iterator<Item = (Range<usize>, CharCode)> {
     /// Returns (char, bytes_consumed) or error
     fn decode_char(&self, since: usize) -> Result<(char, usize), DecodeCharError>;
 
-    /// decode char at current position, don't advance cursor.
+    /// decode char at current position, don't advance position.
     /// returns char or code and sequence length
     fn current_char(&self) -> Option<(CharCode, usize)>;
 
-    /// decode char at current cursur, then advance cursor to next char.
+    /// decode char at current position, then advance cursor to next char.
     fn next_char(&mut self) -> Option<(Range<usize>, CharCode)>;
 
-    /// get current cursor position.
+    /// Returns the current position of cursor.
     fn position(&self) -> Option<usize>;
 
-    /// advance or rewind cursor by offset relative to current position
-    fn move_cursor_by(&mut self, offset: i32);
+    /// Seeks relative to the current position.
+    fn seek_relative(&mut self, offset: i32);
 
     /// check current cursor is at end of data?
     fn is_end(&self) -> bool;
@@ -65,20 +65,6 @@ impl<'a> Utf8Stream<'a> {
         Self { data, index: 0 }
     }
 
-    /// load data since current position (inclusive), to given `buf`.
-    /// returns actual bytes slice.
-    pub fn peek_data<'b>(&self, buf: &'b mut [u8]) -> &'b [u8] {
-        if self.index < self.data.len() {
-            let cnt = std::cmp::min(self.data.len() - self.index, buf.len());
-            unsafe {
-                std::ptr::copy(self.data.as_ptr().add(self.index), buf.as_mut_ptr(), cnt);
-            }
-            &buf[..cnt]
-        } else {
-            &[]
-        }
-    }
-
     /// test if remainder bytes starts with given pattern.
     ///
     /// this roughly equivelent to `s.remainder_bytes().starts_with(needle)`
@@ -91,15 +77,35 @@ impl<'a> Utf8Stream<'a> {
         }
     }
 
-    /// get byte at offset relative to current position
+    /// Return byte at offset relative to current position.
     /// e.g. 0=current index, 1=next of current index, -1=prev of current index
     #[inline]
-    pub fn peek_byte_at(&self, offset: i32) -> Option<u8> {
+    pub fn peek_relative(&self, offset: i32) -> Option<u8> {
         let i = self.index as i32 + offset;
         if i >= 0 {
             self.data.get(i as usize).copied()
         } else {
             None
+        }
+    }
+
+    /// Get byte at current position.
+    /// This is equivelent to `::peek_relative(0)`
+    #[inline(always)]
+    pub fn peek(&self) -> Option<u8> {
+        self.peek_relative(0)
+    }
+
+    /// read data since current position (inclusive), to given `buf`.
+    pub fn read<'b>(&self, buf: &'b mut [u8]) -> &'b [u8] {
+        if self.index < self.data.len() {
+            let n = std::cmp::min(self.data.len() - self.index, buf.len());
+            unsafe {
+                std::ptr::copy(self.data.as_ptr().add(self.index), buf.as_mut_ptr(), n);
+            }
+            &buf[..n]
+        } else {
+            &[]
         }
     }
 
@@ -110,13 +116,6 @@ impl<'a> Utf8Stream<'a> {
         } else {
             &[]
         }
-    }
-
-    /// Get byte at current cursor.
-    /// For semantic meaning, this is actually an alias to `::peek_byte_at(0)`
-    #[inline(always)]
-    pub fn current_byte(&self) -> Option<u8> {
-        self.peek_byte_at(0)
     }
 
     /// get raw pointer to current cursor in bytes.
@@ -249,7 +248,7 @@ impl<'a> CharCodeDecoder for Utf8Stream<'a> {
     }
 
     /// advance or rewind cursor by offset relative to current position
-    fn move_cursor_by(&mut self, offset: i32) {
+    fn seek_relative(&mut self, offset: i32) {
         self.index = if offset >= 0 {
             std::cmp::min(self.index + offset as usize, self.data.len())
         } else {
@@ -283,15 +282,14 @@ impl<'a> Utf16Stream<'a> {
         Self { data, index: 0 }
     }
 
-    /// get N data since current position (inclusive), to given `buf`.
-    /// returns actual data slice.
-    pub fn peek_data<'b>(&self, buf: &'b mut [u16]) -> &'b [u16] {
+    /// read data since current position (inclusive), to given `buf`.
+    pub fn read<'b>(&self, buf: &'b mut [u16]) -> &'b [u16] {
         if self.index < self.data.len() {
-            let cnt = std::cmp::min(self.data.len() - self.index, buf.len());
+            let n = std::cmp::min(self.data.len() - self.index, buf.len());
             unsafe {
-                std::ptr::copy(self.data.as_ptr().add(self.index), buf.as_mut_ptr(), cnt);
+                std::ptr::copy(self.data.as_ptr().add(self.index), buf.as_mut_ptr(), n);
             }
-            &buf[..cnt]
+            &buf[..n]
         } else {
             &[]
         }
@@ -312,13 +310,20 @@ impl<'a> Utf16Stream<'a> {
     /// get element at offset relative to current position
     /// e.g. 0=current index, 1=next of current index, -1=prev of current index
     #[inline]
-    pub fn peek_element_at(&self, offset: i32) -> Option<u16> {
+    pub fn peek_relative(&self, offset: i32) -> Option<u16> {
         let i = self.index as i32 + offset;
         if i >= 0 {
             self.data.get(i as usize).copied()
         } else {
             None
         }
+    }
+
+    /// Get element at current position.
+    /// This is equivelent to `::peek_relative(0)`
+    #[inline(always)]
+    pub fn peek(&self) -> Option<u16> {
+        self.peek_relative(0)
     }
 
     /// data since current position (inclusive) through end
@@ -328,13 +333,6 @@ impl<'a> Utf16Stream<'a> {
         } else {
             &[]
         }
-    }
-
-    /// Get element at current cursor.
-    /// For semantic meaning, this is actually an alias to `::peek_byte_at(0)`
-    #[inline(always)]
-    pub fn current_element(&self) -> Option<u16> {
-        self.peek_element_at(0)
     }
 
     /// get raw pointer to current cursor in data.
@@ -435,7 +433,7 @@ impl<'a> CharCodeDecoder for Utf16Stream<'a> {
         }
     }
 
-    fn move_cursor_by(&mut self, offset: i32) {
+    fn seek_relative(&mut self, offset: i32) {
         self.index = if offset >= 0 {
             std::cmp::min(self.index + offset as usize, self.data.len())
         } else {

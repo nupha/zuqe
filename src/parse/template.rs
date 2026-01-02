@@ -28,9 +28,9 @@ impl<'s> JSParseState<'s> {
                     consume = span.start + 1; // next to '`'
                     break;
                 }
-                CharCode::Char('$') if inp.current_byte() == Some(b'{') => {
+                CharCode::Char('$') if inp.peek() == Some(b'{') => {
                     // ${ template start or middle part
-                    inp.move_cursor_by(1); // skip '{'
+                    inp.seek_relative(1); // skip '{'
                     sep = '$';
                     consume = span.start + 2; // next to '{'
                     break;
@@ -41,7 +41,7 @@ impl<'s> JSParseState<'s> {
                         -1
                     })?;
 
-                    match inp.current_byte() {
+                    match inp.peek() {
                         Some(b'\r' | b'\n') => {
                             continue; // match \r or \n arm
                         }
@@ -59,8 +59,8 @@ impl<'s> JSParseState<'s> {
                     }
                 }
                 CharCode::Char(c1 @ ('\r' | '\n')) => {
-                    if c1 == '\r' && inp.current_byte() == Some(b'\n') {
-                        inp.move_cursor_by(1);
+                    if c1 == '\r' && inp.peek() == Some(b'\n') {
+                        inp.seek_relative(1);
                     }
                     sbuf.push_u8(b'\n').map_err(|_| {
                         self.ctx.throw_out_of_memory();

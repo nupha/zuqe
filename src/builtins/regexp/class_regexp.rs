@@ -195,7 +195,7 @@ pub fn js_regexp_get_source(cc: CallContext) -> JSResult {
                     if !bra {
                         if let Some((CharCode::Char(']'), _)) = it.current_char() {
                             // [] case
-                            it.move_cursor_by(1); // consume ']'
+                            it.seek_relative(1); // consume ']'
                             let _ = buf.push_u8_slice(b"[]");
                             continue;
                         }
@@ -437,7 +437,7 @@ pub fn js_regexp_Symbol_match(cc: CallContext) -> JSResult {
         this.set_property(ctx, Atom::CONST_lastIndex, JSValue::Int(0))?;
 
         let mut lst = Vec::<JSValue>::with_capacity(8);
-        while let JSValue::Object(mat) = JS_RegExpExec(cc.ctx_ptr(), this, str)? {
+        while let JSValue::Object(mat) = regexp_exec(cc.ctx_ptr(), this, str)? {
             let match_str = mat.get_property_u32(ctx, 0)?.to_string(ctx)?;
             lst.push(match_str.into());
 
@@ -465,7 +465,7 @@ pub fn js_regexp_Symbol_match(cc: CallContext) -> JSResult {
             Ok(JSValue::NULL)
         }
     } else {
-        JS_RegExpExec(cc.ctx_ptr(), this, str)
+        regexp_exec(cc.ctx_ptr(), this, str)
     }
 }
 
@@ -559,7 +559,7 @@ pub fn js_regexp_Symbol_replace(cc: CallContext) -> JSResult {
     let ctx_p = cc.ctx_ptr();
     let re_obj: JSValue = this_obj.into();
 
-    while let JSValue::Object(mat) = JS_RegExpExec(ctx_p, re_obj, str)? {
+    while let JSValue::Object(mat) = regexp_exec(ctx_p, re_obj, str)? {
         matche_list.push(mat);
 
         if !is_global {
@@ -729,17 +729,17 @@ fn js_regexp_Symbol_search(cc: CallContext) -> JSResult {
 
     let str = cc.arg(0).to_string(ctx)?;
 
-    let m = JS_RegExpExec(cc.ctx_ptr(), this_obj.into(), str)?;
+    let mat = regexp_exec(cc.ctx_ptr(), this_obj.into(), str)?;
     let cur_last_index = this_obj.get_property(ctx, Atom::CONST_lastIndex)?;
     if !cur_last_index.is_same(prev_last_index) {
         // restore original lastIndex
         this_obj.set_property(ctx, Atom::CONST_lastIndex, prev_last_index)?;
     }
 
-    if m.is_null() {
+    if mat.is_null() {
         Ok(JSValue::Int(-1))
     } else {
-        let index = m.get_property(ctx, Atom::CONST_index)?.to_index(ctx)?;
+        let index = mat.get_property(ctx, Atom::CONST_index)?.to_index(ctx)?;
         Ok(JSValue::Int(index as i32))
     }
 }
@@ -787,7 +787,7 @@ pub fn js_regexp_Symbol_split(cc: CallContext) -> JSResult {
     let mut idx = 0_usize;
 
     if str.is_empty() {
-        let z = JS_RegExpExec(cc.ctx_ptr(), splitter.into(), str)?;
+        let z = regexp_exec(cc.ctx_ptr(), splitter.into(), str)?;
         if z.is_null() {
             // not match: add tail, must be an empty str
             arr.define_property_value_u32(
@@ -809,7 +809,7 @@ pub fn js_regexp_Symbol_split(cc: CallContext) -> JSResult {
         // match regexp from `pos`
         let m = {
             splitter.set_property(cx, Atom::CONST_lastIndex, JSValue::Int(last_index as i32))?;
-            JS_RegExpExec(ctx_p, splitter.into(), str)?
+            regexp_exec(ctx_p, splitter.into(), str)?
         };
 
         if m.is_null() {
@@ -935,26 +935,29 @@ pub static js_regexp_funcs: [FieldDef; 1] = [
     //JS_CFUNC_DEF("__RegExpDelete", 2, js_regexp___RegExpDelete ),
 ];
 
-/// Invoke re.exec() method with a string.
-/// in case property `exec` is not a function, call `js_regexp_exec()` instead.
+/// Invoke regexp.exec() method or run js_regexp_exec().
 /// result must be object or null.
-pub(super) fn JS_RegExpExec(ctx_p: ContextPtr, re: JSValue, str: StringRef) -> JSResult {
+pub(super) fn regexp_exec(ctx_p: ContextPtr, regexp: JSValue, str: StringRef) -> JSResult {
     let ctx = &ctx_p;
-    let exec = re.get_property(ctx, Atom::CONST_exec)?;
     let s: JSValue = str.into();
 
-    if unlikely(
-        exec.is_function() && !exec.match_native_callback(Callback::Func(js_regexp_exec), 0),
-    ) {
-        // is user defined function
-        let ret = exec.call(ctx, re, std::slice::from_ref(&s))?;
-        if ret.is_object() || ret.is_null() {
-            Ok(ret)
-        } else {
-            ctx.throw_type_error("RegExp exec method must return an object or null");
-            Err(-1)
+    if let Some(o) = regexp.as_object() {
+        let exec = o.get_property(ctx, Atom::CONST_exec)?;
+        if !exec.match_native_callback(Callback::Func(js_regexp_exec), 0) {
+            // call method function
+            let ret = exec.call(ctx, regexp, std::slice::from_ref(&s))?;
+            return if ret.is_object() || ret.is_null() {
+                Ok(ret)
+            } else {
+                ctx.throw_type_error("RegExp exec method must return an object or null");
+                Err(-1)
+            };
         }
-    } else {
-        js_regexp_exec(CallContext::new_simple(ctx_p, re, std::slice::from_ref(&s)))
     }
+
+    js_regexp_exec(CallContext::new_simple(
+        ctx_p,
+        regexp,
+        std::slice::from_ref(&s),
+    ))
 }

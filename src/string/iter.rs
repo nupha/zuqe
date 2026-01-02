@@ -236,10 +236,10 @@ impl<'a> CharCodeDecoder for StringCharIter<'a> {
         }
     }
 
-    fn move_cursor_by(&mut self, offset: i32) {
+    fn seek_relative(&mut self, offset: i32) {
         match self {
-            Self::U8(s) => s.move_cursor_by(offset),
-            Self::U16(s) => s.move_cursor_by(offset),
+            Self::U8(s) => s.seek_relative(offset),
+            Self::U16(s) => s.seek_relative(offset),
         }
     }
 
@@ -262,13 +262,13 @@ impl<'a> Iterator for StringCharIter<'a> {
 impl<'a> StringCharIter<'a> {
     pub fn from_u8(slice: &'a [u8], start: usize) -> Self {
         let mut s = Utf8Stream::new(slice);
-        s.move_cursor_by(start as _);
+        s.seek_relative(start as _);
         Self::U8(s)
     }
 
     pub fn from_u16(slice: &'a [u16], start: usize) -> Self {
         let mut s = Utf16Stream::new(slice);
-        s.move_cursor_by(start as _);
+        s.seek_relative(start as _);
         Self::U16(s)
     }
 

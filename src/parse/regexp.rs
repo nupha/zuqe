@@ -11,8 +11,8 @@ use super::{
 impl<'s> JSParseState<'s> {
     /// input stream starts with '/' char
     fn parse_regexp_internal(&mut self, inp: &mut Utf8Stream) -> Result<(), i32> {
-        debug_assert_eq!(inp.current_byte(), Some(b'/'));
-        inp.move_cursor_by(1); // skip leading '/'
+        debug_assert_eq!(inp.peek(), Some(b'/'));
+        inp.seek_relative(1); // skip leading '/'
 
         let mut in_class = false;
         let mut pattern_ok = false;
@@ -98,7 +98,7 @@ impl<'s> JSParseState<'s> {
                             -1
                         })?;
                     } else {
-                        inp.move_cursor_by(-(c.len_utf8() as i32)); // rewind
+                        inp.seek_relative(-(c.len_utf8() as i32)); // rewind
                         break;
                     }
                 }

@@ -98,7 +98,7 @@ fn do_substitution<NC: Fn(&str) -> Result<Option<StringData>, i32>>(
                             let n1 = id * 10 + (c2 as u32 - '0' as u32);
                             if (1..captures_len as u32).contains(&n1) {
                                 id = n1;
-                                replace_chars.move_cursor_by(1); // consume digit
+                                replace_chars.seek_relative(1); // consume digit
                             }
                         }
 

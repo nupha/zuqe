@@ -5380,3 +5380,8 @@ fn JS_LoadModuleInternal(
 pub fn JS_ParseJSON(ctx: &ContextImpl, source: &[u8], filename: &str, flags: i32) -> JSResult {
     todo!()
 }
+
+#[deprecated(note = "use regexp_exec() instead")]
+pub(super) fn JS_RegExpExec2(ctx_p: ContextPtr, re: JSValue, str: StringRef) -> JSResult {
+    unreachable!()
+}

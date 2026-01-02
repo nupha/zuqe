@@ -210,8 +210,8 @@ pub fn js_string_indexOf(cc: CallContext) -> JSResult {
 fn js_string_replace(cc: CallContext) -> JSResult {
     let is_replace_all = cc.magic() != 0;
     let ctx = cc.ctx();
-
     let this = *cc.this();
+
     if this.is_undefined_or_null() {
         ctx.throw_type_error("cannot convert to object");
         return Err(-1);
@@ -225,9 +225,11 @@ fn js_string_replace(cc: CallContext) -> JSResult {
             return Err(-1);
         }
 
-        let replacer = search.get_property(ctx, Atom::CONST_Symbol_replace)?;
-        if !replacer.is_undefined_or_null() {
-            return replacer.call(ctx, search, &[this, replacement]);
+        if let Some(o) = search.as_object() {
+            let replacer = o.get_property(ctx, Atom::CONST_Symbol_replace)?;
+            if !replacer.is_undefined_or_null() {
+                return replacer.call(ctx, search, &[this, replacement]);
+            }
         }
     }
 
@@ -718,43 +720,41 @@ pub fn check_regexp_g_flag(ctx: &ContextImpl, regexp: &JSValue) -> i32 {
 fn js_string_match(cc: CallContext) -> JSResult {
     let magic_method = Atom::from_id(cc.magic() as u32); // match, matchAll, search
     let ctx = cc.ctx();
-
     let this = cc.this();
+
     if this.is_undefined_or_null() {
         ctx.throw_type_error("cannot convert to object");
         return Err(-1);
     }
 
-    let regexp = *cc.arg(0);
+    let match_val = *cc.arg(0);
 
-    if !regexp.is_undefined_or_null() {
-        let matcher = regexp.get_property(ctx, magic_method)?;
-        if unlikely(
-            magic_method == Atom::CONST_Symbol_matchAll && check_regexp_g_flag(ctx, &regexp) < 0,
-        ) {
+    if let JSValue::Object(o) = match_val {
+        let matcher = o.get_property(ctx, magic_method)?;
+        if magic_method == Atom::CONST_Symbol_matchAll && check_regexp_g_flag(ctx, &match_val) < 0 {
             return Err(-1);
-        }
-        if !matcher.is_undefined_or_null() {
-            return matcher.call(ctx, regexp, std::slice::from_ref(this));
+        } else if !matcher.is_undefined_or_null() {
+            return matcher.call(ctx, match_val, std::slice::from_ref(this));
         }
     }
 
-    let str = this.to_string_non_undefined_or_null(ctx)?;
-
     // make RegExp object
+    let mut args = [
+        match_val.to_string(ctx)?.into(), // regex pattern
+        JSValue::UNDEFINED,
+    ];
     let mut args_len = 1;
-    let mut args = [regexp, JSValue::UNDEFINED];
     if magic_method == Atom::CONST_Symbol_matchAll {
         args[args_len] = ctx.create_string_from_char('g'.into())?.into();
         args_len += 1;
     }
-
-    let re_obj = {
-        let ctor = ctx.regexp_ctor; // avoid borrow for long
+    let regexp = {
+        let ctor = ctx.regexp_ctor;
         JS_CallConstructor(ctx, ctor, &args[0..args_len]).err()?
     };
 
-    re_obj.invoke(ctx, magic_method, &[str.into()])
+    let str = JSValue::String(this.to_string_non_undefined_or_null(ctx)?);
+    regexp.invoke(ctx, magic_method, std::slice::from_ref(&str))
 }
 
 fn js_string_trim(cc: CallContext) -> JSResult {

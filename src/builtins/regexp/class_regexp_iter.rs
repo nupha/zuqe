@@ -7,7 +7,7 @@ use crate::{
     value::JSValue,
 };
 
-use super::JS_RegExpExec;
+use super::regexp_exec;
 
 fn js_regexp_string_iterator_next(cc: CallContext, state: &mut IteratorState) -> JSResult {
     let ctx = cc.ctx();
@@ -24,7 +24,7 @@ fn js_regexp_string_iterator_next(cc: CallContext, state: &mut IteratorState) ->
         // initialize state
         *state = IteratorState::NotDone;
 
-        match JS_RegExpExec(cc.ctx_ptr(), it.regexp().into(), it.string())? {
+        match regexp_exec(cc.ctx_ptr(), it.regexp().into(), it.string())? {
             JSValue::Object(mat) => {
                 if it.is_global() {
                     let str = mat

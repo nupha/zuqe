@@ -248,7 +248,7 @@ impl<'s> JSParseState<'s> {
             match sc {
                 CharCode::Char('`') => {
                     if let Ok(n) = self.parse_template_part(input.remainder()) {
-                        input.move_cursor_by(n as _);
+                        input.seek_relative(n as _);
                     } else {
                         todo = Some(Todo::SyntaxError);
                     }
@@ -260,9 +260,9 @@ impl<'s> JSParseState<'s> {
                 }
                 CharCode::Char(c @ ('\r' | '\n')) => {
                     if c == '\r'
-                        && let Some(b'\n') = input.current_byte()
+                        && let Some(b'\n') = input.peek()
                     {
-                        input.move_cursor_by(1);
+                        input.seek_relative(1);
                     }
                     self.got_lf = true;
                     self.line_num += 1;
@@ -277,7 +277,7 @@ impl<'s> JSParseState<'s> {
                         match sc2 {
                             CharCode::Char('*') => {
                                 // block comment
-                                input.move_cursor_by(1); // skip '*'
+                                input.seek_relative(1); // skip '*'
                                 if self.skip_block_comment(&mut input) {
                                     continue;
                                 } else {
@@ -290,13 +290,13 @@ impl<'s> JSParseState<'s> {
                             }
                             CharCode::Char('/') => {
                                 // line comment
-                                input.move_cursor_by(1); // skip '/'
+                                input.seek_relative(1); // skip '/'
                                 self.skip_line_comment(&mut input);
                                 continue;
                             }
                             CharCode::Char('=') => {
                                 // /=
-                                input.move_cursor_by(1); // skip '='
+                                input.seek_relative(1); // skip '='
                                 self.token.kind = TokenKind::DIV_ASSIGN;
                                 self.token.data = TokenData::None;
                             }
@@ -308,14 +308,14 @@ impl<'s> JSParseState<'s> {
                     }
                 }
                 CharCode::Char('\\') => {
-                    if let Some(b'u') = input.current_byte() {
+                    if let Some(b'u') = input.peek() {
                         // \u
                         let is_bad = if let Ok((code, consumed)) =
                             self.parse_string_escape(input.remainder(), 1)
                         {
                             if let Some(c1) = char::from_u32(code) {
                                 if Self::is_ident_first(c1) {
-                                    input.move_cursor_by(consumed as _);
+                                    input.seek_relative(consumed as _);
                                     todo = Some(Todo::HasIdent(c1, true));
                                     false
                                 } else {
@@ -345,12 +345,12 @@ impl<'s> JSParseState<'s> {
                     if let Some((_, c)) = input.next_char() {
                         let c1 = match c {
                             CharCode::Char('\\') => {
-                                if let Some(b'u') = input.current_byte() {
+                                if let Some(b'u') = input.peek() {
                                     // \u
                                     let (code, consumed) =
                                         self.parse_string_escape(input.remainder(), 1)?;
                                     if let Some(x) = char::from_u32(code) {
-                                        input.move_cursor_by(consumed as _);
+                                        input.seek_relative(consumed as _);
                                         x
                                     } else {
                                         self.throw_syntax_error("Invalid Unicode escape sequence");
@@ -379,7 +379,7 @@ impl<'s> JSParseState<'s> {
                                 has_escape,
                                 is_reserved: false,
                             };
-                            input.move_cursor_by(consumed as _);
+                            input.seek_relative(consumed as _);
                         } else {
                             todo = Some(Todo::SyntaxError);
                         }
@@ -387,16 +387,16 @@ impl<'s> JSParseState<'s> {
                 }
                 CharCode::Char('.') => {
                     let mut bb = [0u8; 2];
-                    input.peek_data(&mut bb);
+                    input.read(&mut bb);
                     match (bb[0], bb[1]) {
                         (b'.', b'.') => {
                             // ...
-                            input.move_cursor_by(2);
+                            input.seek_relative(2);
                             self.token.kind = TokenKind::ELLIPSIS;
                             self.token.data = TokenData::None;
                         }
                         (b'0'..=b'9', _) => {
-                            input.move_cursor_by(-1); // rewind to .
+                            input.seek_relative(-1); // rewind to .
                             todo = Some(Todo::ParseNumber);
                         }
                         _ => {
@@ -405,35 +405,35 @@ impl<'s> JSParseState<'s> {
                     }
                 }
                 CharCode::Char('0') => {
-                    todo = if input.current_byte().is_some_and(|b| b.is_ascii_digit())
+                    todo = if input.peek().is_some_and(|b| b.is_ascii_digit())
                         && self.cur_func().attrs.exec_mode.contains(ExecMode::STRICT)
                     {
                         self.throw_syntax_error("octal literals are deprecated in strict mode");
                         Some(Todo::SyntaxError)
                     } else {
-                        input.move_cursor_by(-1); // rewind to first '0'
+                        input.seek_relative(-1); // rewind to first '0'
                         Some(Todo::ParseNumber)
                     };
                 }
                 CharCode::Char('1'..='9') => {
-                    input.move_cursor_by(-1); // rewind to first digit
+                    input.seek_relative(-1); // rewind to first digit
                     todo = Some(Todo::ParseNumber);
                 }
                 CharCode::Char('*') => {
-                    match input.current_byte() {
+                    match input.peek() {
                         Some(b'=') => {
-                            input.move_cursor_by(1);
+                            input.seek_relative(1);
                             self.token.kind = TokenKind::MUL_ASSIGN;
                             self.token.data = TokenData::None;
                         }
                         Some(b'*') => {
-                            if let Some(b'=') = input.peek_byte_at(1) {
+                            if let Some(b'=') = input.peek_relative(1) {
                                 // **=
-                                input.move_cursor_by(2);
+                                input.seek_relative(2);
                                 self.token.kind = TokenKind::POW_ASSIGN;
                             } else {
                                 // **
-                                input.move_cursor_by(1);
+                                input.seek_relative(1);
                                 self.token.kind = TokenKind::POW;
                             }
                             self.token.data = TokenData::None;
@@ -444,22 +444,22 @@ impl<'s> JSParseState<'s> {
                     }
                 }
                 CharCode::Char('%') => {
-                    if let Some(b'=') = input.current_byte() {
-                        input.move_cursor_by(1);
+                    if let Some(b'=') = input.peek() {
+                        input.seek_relative(1);
                         self.token.kind = TokenKind::MOD_ASSIGN;
                         self.token.data = TokenData::None;
                     } else {
                         todo = Some(Todo::Ascii(b'%'));
                     }
                 }
-                CharCode::Char('+') => match input.current_byte() {
+                CharCode::Char('+') => match input.peek() {
                     Some(b'=') => {
-                        input.move_cursor_by(1);
+                        input.seek_relative(1);
                         self.token.kind = TokenKind::PLUS_ASSIGN;
                         self.token.data = TokenData::None;
                     }
                     Some(b'+') => {
-                        input.move_cursor_by(1);
+                        input.seek_relative(1);
                         self.token.kind = TokenKind::INC;
                         self.token.data = TokenData::None;
                     }
@@ -468,24 +468,24 @@ impl<'s> JSParseState<'s> {
                     }
                 },
                 CharCode::Char('-') => {
-                    match input.current_byte() {
+                    match input.peek() {
                         Some(b'=') => {
-                            input.move_cursor_by(1);
+                            input.seek_relative(1);
                             self.token.kind = TokenKind::MINUS_ASSIGN;
                             self.token.data = TokenData::None;
                         }
                         Some(b'-') => {
                             if self.allow_html_comments
-                                && let Some(b'>') = input.peek_byte_at(1)
+                                && let Some(b'>') = input.peek_relative(1)
                                 && self.last_line_num != self.line_num
                             {
                                 // Annex B: `-->` at beginning of line is an html comment end.
                                 // It extends to the end of the line.
-                                input.move_cursor_by(-1);
+                                input.seek_relative(-1);
                                 self.skip_line_comment(&mut input);
                                 continue;
                             } else {
-                                input.move_cursor_by(1);
+                                input.seek_relative(1);
                                 self.token.kind = TokenKind::DEC;
                                 self.token.data = TokenData::None;
                             }
@@ -496,22 +496,22 @@ impl<'s> JSParseState<'s> {
                     }
                 }
                 CharCode::Char('<') => {
-                    match input.current_byte() {
+                    match input.peek() {
                         Some(b'=') => {
                             // <=
-                            input.move_cursor_by(1);
+                            input.seek_relative(1);
                             self.token.kind = TokenKind::LTE;
                             self.token.data = TokenData::None;
                         }
                         Some(b'<') => {
-                            if let Some(b'=') = input.peek_byte_at(1) {
+                            if let Some(b'=') = input.peek_relative(1) {
                                 // <<=
-                                input.move_cursor_by(2);
+                                input.seek_relative(2);
                                 self.token.kind = TokenKind::SHL_ASSIGN;
                                 self.token.data = TokenData::None;
                             } else {
                                 // <<
-                                input.move_cursor_by(1);
+                                input.seek_relative(1);
                                 self.token.kind = TokenKind::SHL;
                                 self.token.data = TokenData::None;
                             }
@@ -528,36 +528,36 @@ impl<'s> JSParseState<'s> {
                 }
                 CharCode::Char('>') => {
                     let mut bb = [0u8; 3];
-                    input.peek_data(&mut bb);
+                    input.read(&mut bb);
 
                     match (bb[0], bb[1], bb[2]) {
                         (b'=', _, _) => {
                             // >=
-                            input.move_cursor_by(1);
+                            input.seek_relative(1);
                             self.token.kind = TokenKind::GTE;
                             self.token.data = TokenData::None;
                         }
                         (b'>', b'>', b'=') => {
                             // >>>=
-                            input.move_cursor_by(3);
+                            input.seek_relative(3);
                             self.token.kind = TokenKind::SHR_ASSIGN;
                             self.token.data = TokenData::None;
                         }
                         (b'>', b'>', _) => {
                             // >>>
-                            input.move_cursor_by(2);
+                            input.seek_relative(2);
                             self.token.kind = TokenKind::SHR;
                             self.token.data = TokenData::None;
                         }
                         (b'>', b'=', _) => {
                             // >>=
-                            input.move_cursor_by(2);
+                            input.seek_relative(2);
                             self.token.kind = TokenKind::SAR_ASSIGN;
                             self.token.data = TokenData::None;
                         }
                         (b'>', _, _) => {
                             // >>
-                            input.move_cursor_by(1);
+                            input.seek_relative(1);
                             self.token.kind = TokenKind::SAR;
                             self.token.data = TokenData::None;
                         }
@@ -568,24 +568,24 @@ impl<'s> JSParseState<'s> {
                 }
                 CharCode::Char('=') => {
                     let mut bb = [0u8; 2];
-                    input.peek_data(&mut bb);
+                    input.read(&mut bb);
                     match bb[0] {
                         b'=' => {
                             if bb.starts_with(b"==") {
                                 // ===
-                                input.move_cursor_by(2);
+                                input.seek_relative(2);
                                 self.token.kind = TokenKind::STRICT_EQ;
                                 self.token.data = TokenData::None;
                             } else {
                                 // ==
-                                input.move_cursor_by(1);
+                                input.seek_relative(1);
                                 self.token.kind = TokenKind::EQ;
                                 self.token.data = TokenData::None;
                             }
                         }
                         b'>' => {
                             // =>
-                            input.move_cursor_by(1);
+                            input.seek_relative(1);
                             self.token.kind = TokenKind::ARROW;
                             self.token.data = TokenData::None;
                         }
@@ -597,17 +597,17 @@ impl<'s> JSParseState<'s> {
                 }
                 CharCode::Char('!') => {
                     let mut bb = [0u8; 2];
-                    input.peek_data(&mut bb);
+                    input.read(&mut bb);
                     match bb[0] {
                         b'=' => {
                             if bb.starts_with(b"==") {
                                 // !==
-                                input.move_cursor_by(2);
+                                input.seek_relative(2);
                                 self.token.kind = TokenKind::STRICT_NEQ;
                                 self.token.data = TokenData::None;
                             } else {
                                 // !=
-                                input.move_cursor_by(1);
+                                input.seek_relative(1);
                                 self.token.kind = TokenKind::NEQ;
                                 self.token.data = TokenData::None;
                             }
@@ -619,23 +619,23 @@ impl<'s> JSParseState<'s> {
                 }
                 CharCode::Char('&') => {
                     let mut bb = [0u8; 2];
-                    input.peek_data(&mut bb);
+                    input.read(&mut bb);
                     match (bb[0], bb[1]) {
                         (b'=', _) => {
                             // &=
-                            input.move_cursor_by(1);
+                            input.seek_relative(1);
                             self.token.kind = TokenKind::AND_ASSIGN;
                             self.token.data = TokenData::None;
                         }
                         (b'&', b'=') => {
                             // &&=
-                            input.move_cursor_by(2);
+                            input.seek_relative(2);
                             self.token.kind = TokenKind::LAND_ASSIGN;
                             self.token.data = TokenData::None;
                         }
                         (b'&', _) => {
                             // &&
-                            input.move_cursor_by(1);
+                            input.seek_relative(1);
                             self.token.kind = TokenKind::LAND;
                             self.token.data = TokenData::None;
                         }
@@ -645,9 +645,9 @@ impl<'s> JSParseState<'s> {
                     }
                 }
                 CharCode::Char('^') => {
-                    if let Some(b'=') = input.current_byte() {
+                    if let Some(b'=') = input.peek() {
                         // ^=
-                        input.move_cursor_by(1);
+                        input.seek_relative(1);
                         self.token.kind = TokenKind::XOR_ASSIGN;
                         self.token.data = TokenData::None;
                     } else {
@@ -656,23 +656,23 @@ impl<'s> JSParseState<'s> {
                 }
                 CharCode::Char('|') => {
                     let mut bb = [0u8; 2];
-                    input.peek_data(&mut bb);
+                    input.read(&mut bb);
                     match (bb[0], bb[1]) {
                         (b'=', _) => {
                             // |=
-                            input.move_cursor_by(1);
+                            input.seek_relative(1);
                             self.token.kind = TokenKind::OR_ASSIGN;
                             self.token.data = TokenData::None;
                         }
                         (b'|', b'=') => {
                             // ||=
-                            input.move_cursor_by(2);
+                            input.seek_relative(2);
                             self.token.kind = TokenKind::LOR_ASSIGN;
                             self.token.data = TokenData::None;
                         }
                         (b'|', _) => {
                             // ||
-                            input.move_cursor_by(1);
+                            input.seek_relative(1);
                             self.token.kind = TokenKind::LOR;
                             self.token.data = TokenData::None;
                         }
@@ -683,23 +683,23 @@ impl<'s> JSParseState<'s> {
                 }
                 CharCode::Char('?') => {
                     let mut bb = [0u8; 2];
-                    input.peek_data(&mut bb);
+                    input.read(&mut bb);
                     match (bb[0], bb[1]) {
                         (b'?', b'=') => {
                             // ??=
-                            input.move_cursor_by(2);
+                            input.seek_relative(2);
                             self.token.kind = TokenKind::DOUBLE_QUESTION_MARK_ASSIGN;
                             self.token.data = TokenData::None;
                         }
                         (b'?', _) => {
                             // ??
-                            input.move_cursor_by(1);
+                            input.seek_relative(1);
                             self.token.kind = TokenKind::DOUBLE_QUESTION_MARK;
                             self.token.data = TokenData::None;
                         }
                         (b'.', x) if !x.is_ascii_digit() => {
                             // ?.
-                            input.move_cursor_by(1);
+                            input.seek_relative(1);
                             self.token.kind = TokenKind::QUESTION_MARK_DOT;
                             self.token.data = TokenData::None;
                         }
@@ -754,7 +754,7 @@ impl<'s> JSParseState<'s> {
                                 has_escape: has_escape || escaped,
                                 is_reserved: false,
                             };
-                            input.move_cursor_by(consumed as _);
+                            input.seek_relative(consumed as _);
 
                             // check if atom is a reserved keyword.
                             // if yes, convert to TokenKind
@@ -771,7 +771,7 @@ impl<'s> JSParseState<'s> {
                             self.token.kind = TokenKind::ERROR;
                             self.token.data = TokenData::None;
                         })?;
-                        input.move_cursor_by(unsafe { p.offset_from(p0) as _ });
+                        input.seek_relative(unsafe { p.offset_from(p0) as _ });
                     }
                     Todo::SyntaxError => {
                         self.token.kind = TokenKind::ERROR;
@@ -846,7 +846,7 @@ impl<'s> JSParseState<'s> {
         while let Some((_, sc)) = input.next_char() {
             match sc {
                 CharCode::Char(c @ ('\r' | '\n' | '\u{2028}' | '\u{2029}')) => {
-                    input.move_cursor_by(-(c.len_utf8() as i32)); // rewind to line terminator
+                    input.seek_relative(-(c.len_utf8() as i32)); // rewind to line terminator
                     return;
                 }
                 CharCode::Char(_) => {}
@@ -868,8 +868,8 @@ impl<'s> JSParseState<'s> {
                     self.got_lf = true;
                 }
                 CharCode::Char('*') => {
-                    if let Some(b'/') = input.current_byte() {
-                        input.move_cursor_by(1); // skip '/'
+                    if let Some(b'/') = input.peek() {
+                        input.seek_relative(1); // skip '/'
                         return true;
                     }
                 }
@@ -981,36 +981,33 @@ impl<'s> JSParseState<'s> {
                 // 0x0c: \f, 0x0b: \v
                 CharCode::Char(' ' | '\t' | '\x0c' | '\x0b') => {}
                 CharCode::Char('/') => {
-                    match inp.current_byte() {
+                    match inp.peek() {
                         Some(b'/') => {
                             // '//'
                             if no_line_terminator {
                                 return TokenKind::Char('\n');
                             } else {
-                                inp.move_cursor_by(1); // skip /
-                                while inp
-                                    .current_byte()
-                                    .is_some_and(|x| !matches!(x, b'\r' | b'\n'))
-                                {
-                                    inp.move_cursor_by(1);
+                                inp.seek_relative(1); // skip /
+                                while inp.peek().is_some_and(|x| !matches!(x, b'\r' | b'\n')) {
+                                    inp.seek_relative(1);
                                 }
                             }
                         }
                         Some(b'*') => {
                             // '/*'
-                            inp.move_cursor_by(1); // skip *
-                            while let Some(b2) = inp.current_byte() {
+                            inp.seek_relative(1); // skip *
+                            while let Some(b2) = inp.peek() {
                                 match b2 {
                                     b'\r' | b'\n' if no_line_terminator => {
                                         return TokenKind::Char('\n');
                                     }
-                                    b'*' if inp.peek_byte_at(1).is_some_and(|x| x == b'/') => {
+                                    b'*' if inp.peek_relative(1).is_some_and(|x| x == b'/') => {
                                         // '*/'
-                                        inp.move_cursor_by(1); // skip /
+                                        inp.seek_relative(1); // skip /
                                         break;
                                     }
                                     _ => {
-                                        inp.move_cursor_by(1);
+                                        inp.seek_relative(1);
                                     }
                                 }
                             }
@@ -1022,9 +1019,9 @@ impl<'s> JSParseState<'s> {
                     }
                 }
                 CharCode::Char('=') => {
-                    return if let Some(b'>') = inp.current_byte() {
+                    return if let Some(b'>') = inp.peek() {
                         // '=>'
-                        inp.move_cursor_by(1);
+                        inp.seek_relative(1);
                         TokenKind::ARROW
                     } else {
                         TokenKind::Char('=')
@@ -1032,15 +1029,15 @@ impl<'s> JSParseState<'s> {
                 }
                 CharCode::Char('i') => {
                     let mut bb = [0u8; 5];
-                    inp.peek_data(&mut bb);
+                    inp.read(&mut bb);
 
                     match (bb[0], bb[1], bb[2], bb[3], bb[4]) {
                         (b'n', ..) => {
-                            inp.move_cursor_by(1);
+                            inp.seek_relative(1);
                             return TokenKind::IN;
                         }
                         (b'm', b'p', b'o', b'r', b't') => {
-                            inp.move_cursor_by(5);
+                            inp.seek_relative(5);
                             return TokenKind::IMPORT;
                         }
                         _ => {
@@ -1049,8 +1046,8 @@ impl<'s> JSParseState<'s> {
                     }
                 }
                 CharCode::Char('o') => {
-                    return if inp.current_byte().is_some_and(|x| x == b'f') {
-                        inp.move_cursor_by(1);
+                    return if inp.peek().is_some_and(|x| x == b'f') {
+                        inp.seek_relative(1);
                         TokenKind::OF
                     } else {
                         TokenKind::IDENT
@@ -1058,7 +1055,7 @@ impl<'s> JSParseState<'s> {
                 }
                 CharCode::Char('e') => {
                     return if inp.match_bytes(b"xport") {
-                        inp.move_cursor_by(5);
+                        inp.seek_relative(5);
                         TokenKind::EXPORT
                     } else {
                         TokenKind::IDENT
@@ -1066,7 +1063,7 @@ impl<'s> JSParseState<'s> {
                 }
                 CharCode::Char('f') => {
                     return if inp.match_bytes(b"unction") {
-                        inp.move_cursor_by(7);
+                        inp.seek_relative(7);
                         TokenKind::FUNCTION
                     } else {
                         TokenKind::IDENT

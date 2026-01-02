@@ -36,8 +36,8 @@ impl<'s> JSParseState<'s> {
 
                     if sep == '`' {
                         if c == '\r' {
-                            if let Some(b'\n') = input.current_byte() {
-                                input.move_cursor_by(1); // skip \n after \r
+                            if let Some(b'\n') = input.peek() {
+                                input.seek_relative(1); // skip \n after \r
                             }
                             c = '\n'
                         }
@@ -60,10 +60,10 @@ impl<'s> JSParseState<'s> {
                     break;
                 } else if c == '$'
                     && sep == '`'
-                    && let Some(b'{') = input.current_byte()
+                    && let Some(b'{') = input.peek()
                 {
                     // template expression start
-                    input.move_cursor_by(1); // skip '{'
+                    input.seek_relative(1); // skip '{'
                     consume = Some(span.start + 2);
                     break;
                 }
@@ -77,16 +77,16 @@ impl<'s> JSParseState<'s> {
 
                         match sc2 {
                             CharCode::Char(c1 @ ('\'' | '\"' | '\\')) => {
-                                input.move_cursor_by(1);
+                                input.seek_relative(1);
                                 cc = c1 as u32;
                             }
                             CharCode::Char(n @ ('\r' | '\n')) => {
                                 if n == '\r'
-                                    && let Some(b'\n') = input.peek_byte_at(1)
+                                    && let Some(b'\n') = input.peek_relative(1)
                                 {
-                                    input.move_cursor_by(2); // skip \r\n
+                                    input.seek_relative(2); // skip \r\n
                                 } else {
-                                    input.move_cursor_by(1); // skip \r or \n
+                                    input.seek_relative(1); // skip \r or \n
                                 }
 
                                 // skip escaped line breaks
@@ -112,10 +112,10 @@ impl<'s> JSParseState<'s> {
                                     // parse escape sequence in non-strict mode
                                     should_parse_escape = Some(d);
                                 } else if d == '0'
-                                    && input.peek_byte_at(1).is_none_or(|x| !x.is_ascii_digit())
+                                    && input.peek_relative(1).is_none_or(|x| !x.is_ascii_digit())
                                 {
                                     // found \0
-                                    input.move_cursor_by(1); // skip '0'
+                                    input.seek_relative(1); // skip '0'
                                     cc = 0;
                                 } else {
                                     // ES2021: octal escapes 8/9 not allowed in strict mode/templates
@@ -131,14 +131,14 @@ impl<'s> JSParseState<'s> {
                             }
                             CharCode::Char(c1 @ ('\u{2028}' | '\u{2029}')) => {
                                 // skip line/paragraph separators
-                                input.move_cursor_by(c1.len_utf8() as _);
+                                input.seek_relative(c1.len_utf8() as _);
                                 continue;
                             }
                             CharCode::Char(c1) => {
                                 if c1.is_ascii() {
                                     should_parse_escape = Some(c1)
                                 } else {
-                                    input.move_cursor_by(c1.len_utf8() as i32);
+                                    input.seek_relative(c1.len_utf8() as i32);
                                     cc = c1 as u32;
                                 }
                             }
@@ -154,7 +154,7 @@ impl<'s> JSParseState<'s> {
                             let bytes = input.remainder(); //&buf[j..];
                             match self.parse_string_escape(bytes, 1) {
                                 Ok((code, consume)) => {
-                                    input.move_cursor_by(consume as _);
+                                    input.seek_relative(consume as _);
                                     cc = code;
                                 }
                                 Err(-1) => {
@@ -167,7 +167,7 @@ impl<'s> JSParseState<'s> {
                                 }
                                 Err(-2) => {
                                     // ignore the '\' (could output a warning)
-                                    input.move_cursor_by(1);
+                                    input.seek_relative(1);
                                     cc = ch as u32;
                                 }
                                 _ => unreachable!(),
