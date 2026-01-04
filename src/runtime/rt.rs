@@ -66,8 +66,6 @@ pub struct RuntimeImpl {
     /* timestamp for internal use in module evaluation */
     pub(crate) module_async_evaluation_next_timestamp: i64,
 
-    pub(crate) can_block: bool, /* TRUE if Atomics.wait can block */
-
     /// callbacks to allocate, free and clone SharedArrayBuffers
     pub(crate) sab_funcs: Option<JSSharedArrayBufferFunctions>,
 
@@ -127,7 +125,6 @@ impl RuntimeImpl {
             class_registry: Vec::with_capacity(USER_CLASS_ID_START as usize),
 
             cur_stack_frame: std::ptr::null_mut(),
-            host_promise_rejection_tracker_opaque: std::ptr::null_mut(),
             module_load_opaque: std::ptr::null_mut(),
             sab_funcs: None,
 
@@ -140,12 +137,10 @@ impl RuntimeImpl {
             regexp_precompiled: Vec::new(),
             in_out_of_memory: false,
             interrupt_handler: None,
-            host_promise_rejection_tracker: None,
 
             module_normalize_func: None,
             module_load_func: None,
             module_async_evaluation_next_timestamp: 0,
-            can_block: false,
 
             shape_registry: ShapeRegistry::new(),
 
@@ -155,6 +150,9 @@ impl RuntimeImpl {
             gc_user_trace: None,
             gc_req: false,
             stop: None,
+
+            host_promise_rejection_tracker_opaque: std::ptr::null_mut(),
+            host_promise_rejection_tracker: None,
         });
 
         // register builtin classes

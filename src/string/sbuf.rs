@@ -1,7 +1,6 @@
 use std::{borrow::Cow, collections::TryReserveError, ops::Range};
 
 use fallible_collections::{FallibleVec, TryClone, TryCollect};
-use zerocopy::big_endian::U16;
 
 use super::{CharCode, StringData, char_is_space, string::JS_STRING_LEN_MAX, u32_encode_utf16};
 

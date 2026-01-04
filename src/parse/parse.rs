@@ -4,7 +4,7 @@ use crate::{
     eval::EvalType,
     function::JSFunctionKindEnum,
     stack_frame::ExecMode,
-    string::{CharCode, UTF8_CHAR_LEN_MAX, Utf8Stream},
+    string::{CharCode, Utf8Stream},
 };
 
 use super::{
@@ -152,8 +152,8 @@ impl<'s> JSParseState<'s> {
                 consumed += c.len_utf8();
             }
 
-            if buf.capacity() - buf.len() <= UTF8_CHAR_LEN_MAX {
-                buf.try_reserve(UTF8_CHAR_LEN_MAX).map_err(|_| {
+            if buf.capacity() - buf.len() <= 6 {
+                buf.try_reserve(6).map_err(|_| {
                     self.ctx.throw_out_of_memory();
                     -1
                 })?;

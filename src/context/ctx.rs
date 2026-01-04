@@ -12,7 +12,7 @@ use gc_lite::{GcRef, GcTracable, GcWeak};
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_ERROR, JS_CLASS_OBJECT,
     atom::Atom,
-    builtins::{array::ArrayPayload, promise::Job, regexp::RegExpData},
+    builtins::{array::ArrayPayload, promise::Job},
     class::ClassID,
     error::{STD_ERROR_COUNT, STD_ERROR_NAMES, js_error_proto_funcs},
     eval::EvalFn,
@@ -32,14 +32,6 @@ use crate::{
 /// TODO: make this in-crate visible.
 pub struct ContextImpl {
     rt: RuntimePtr,
-
-    pub(crate) flags: u8,
-
-    /// Count of binary objects in this context
-    pub(crate) binary_object_count: u16,
-
-    /// Total size of binary objects in this context
-    pub(crate) binary_object_size: i32,
 
     /// Initial shape for Array objects
     pub(crate) array_shape: Option<ShapeHandle>,
@@ -80,12 +72,6 @@ pub struct ContextImpl {
 
     /// List of loaded modules
     pub(crate) loaded_modules: Vec<ModuleDef>,
-
-    /// Regexp compilation callback
-    #[deprecated(note = "unused")]
-    pub compile_regexp: Option<
-        fn(ctx: ContextPtr, pattern: JSValue, flags: Option<&str>) -> Result<RegExpData, i32>,
-    >,
 
     /// eval callback
     pub(crate) eval_handle: Option<EvalFn>,
@@ -139,10 +125,6 @@ impl ContextImpl {
 
         let c = Self {
             rt: (&*rt).into(),
-            flags: 0,
-
-            binary_object_count: 0,
-            binary_object_size: 0,
 
             array_shape: None,
 
@@ -166,7 +148,6 @@ impl ContextImpl {
             random_state: 0,
             interrupt_counter: Cell::new(0),
             loaded_modules: Vec::new(),
-            compile_regexp: None,
             eval_handle: None,
 
             job_list: VecDeque::new(),

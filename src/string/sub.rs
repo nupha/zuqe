@@ -3,6 +3,7 @@ use std::collections::TryReserveError;
 use crate::string::{CharCode, CharCodeDecoder, StringBuf, StringData, Utf8Stream, Utf16Stream};
 
 impl StringData {
+    #[allow(clippy::too_many_arguments)]
     pub fn substitution_buf<NC: Fn(&str) -> Result<Option<StringData>, i32>>(
         matched: &Self,     // 匹配到的子字符串（对应 $&）
         str: &Self,         // 原字串
@@ -54,6 +55,7 @@ impl StringData {
 /// 实现 JavaScript 字符串替换中的特殊替换模式（如 $&, $1, `$`` 等）
 /// 对应规范：ECMAScript 的 GetSubstitution 抽象操作.
 /// 返回: 包含替换后的字符串值
+#[allow(clippy::too_many_arguments)]
 fn do_substitution<NC: Fn(&str) -> Result<Option<StringData>, i32>>(
     str: &StringData,                                            // 原始字符串。
     position: usize,                                             // 匹配发生的位置索引

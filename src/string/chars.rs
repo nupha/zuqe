@@ -1,12 +1,5 @@
 use std::{ops::Range, ptr::NonNull};
 
-// Maximum UTF-8 character length
-pub const UTF8_CHAR_LEN_MAX: usize = 6;
-
-// Unicode code points
-pub const CP_LS: u32 = 0x2028; // Line separator
-pub const CP_PS: u32 = 0x2029; // Paragraph separator
-
 /// Represent unichar (for valid unicode) or code point (for invalid unicode)
 #[repr(u8)]
 #[derive(Clone, Copy, PartialEq)]

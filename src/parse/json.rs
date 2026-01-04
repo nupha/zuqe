@@ -7,7 +7,7 @@ use crate::{
     number::{ATOD_ACCEPT_BIN_OCT, js_atof},
     object::JS_PROP_C_W_E,
     runtime::js_check_stack_overflow,
-    string::{CharCodeDecoder, UTF8_CHAR_LEN_MAX, Utf8Stream, escape_str},
+    string::{CharCodeDecoder, Utf8Stream, escape_str},
     utils::unlikely,
     value::JSValue,
 };
@@ -278,7 +278,7 @@ impl<'s> JSParseState<'s> {
             && c.is_ascii()
             && Self::is_ident_next(c as _)
         {
-            if buf.capacity() - buf.len() >= UTF8_CHAR_LEN_MAX {
+            if buf.capacity() - buf.len() >= 6 {
                 buf.try_reserve(64).map_err(|_| {
                     self.ctx.throw_out_of_memory();
                     -1
