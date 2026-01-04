@@ -9,14 +9,8 @@ use std::{
 
 use serde::Deserialize;
 use zuqe::{
-    context::Context,
-    error::{ErrorText, JSResult},
-    eval::{EvalFlags, EvalType},
-    function::{CallContext, Callback},
-    module::ModuleDef,
-    object::JS_PROP_C_W_E,
-    runtime::Runtime,
-    value::JSValue,
+    CallContext, Callback, Context, ErrorText, EvalFlags, EvalType, JS_PROP_C_W_E, JSResult,
+    JSValue, ModuleDef, Runtime,
 };
 
 /// counter of "Test262:AsyncTestComplete" messages

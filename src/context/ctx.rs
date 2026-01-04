@@ -29,7 +29,6 @@ use crate::{
 };
 
 /// An execution context, holds environment with global object, calling stack, and execution state.
-/// TODO: make this in-crate visible.
 pub struct ContextImpl {
     rt: RuntimePtr,
 

@@ -8,13 +8,7 @@ mod mod_std;
 use std::process::ExitCode;
 
 use colorized::{Colors::*, colorize_println};
-use zuqe::{
-    context::Context,
-    eval::{EvalFlags, EvalType},
-    module::ModuleDef,
-    parse::JSParseState,
-    runtime::Runtime,
-};
+use zuqe::{Context, EvalFlags, EvalType, ModuleDef, Runtime};
 
 use crate::{
     class_file::JSFile,
@@ -58,7 +52,7 @@ fn main() -> ExitCode {
 
     setup_globals(ctx).unwrap();
 
-    let is_module = filename.ends_with(".mjs") || JSParseState::detect_module(script.as_bytes());
+    let is_module = filename.ends_with(".mjs") || ModuleDef::detect_module(script.as_bytes());
     let cx = ctx;
 
     let res = ctx.run_wait_with(

@@ -1,4 +1,5 @@
 use crate::{
+    Runtime, RuntimeImpl,
     atom::{Atom, AtomKind},
     bytecode::OpCodeTemp,
     error::{ErrorKind, JS_BACKTRACE_FLAG_SINGLE_LEVEL},
@@ -472,6 +473,28 @@ impl<'s> JSParseState<'s> {
         Ok(())
     }
 
+    // /// return true if script `buf` is module.
+    // pub fn detect_module(buf: &[u8]) -> bool {
+    //     // skip comments and expect:
+    //     // * 'import' keyword not followed by '(' or '.' char;
+    //     // * 'export' keyword;
+
+    //     let n = skip_shebang(buf);
+
+    //     let mut inp = Utf8Stream::new(&buf[n..]);
+
+    //     match Self::peek_token_internal(&mut inp, false) {
+    //         TokenKind::IMPORT => !matches!(
+    //             Self::peek_token_internal(&mut inp, false),
+    //             TokenKind::Char('(' | '.')
+    //         ),
+    //         TokenKind::EXPORT => true,
+    //         _ => false,
+    //     }
+    // }
+}
+
+impl ModuleDef {
     /// return true if script `buf` is module.
     pub fn detect_module(buf: &[u8]) -> bool {
         // skip comments and expect:
@@ -482,9 +505,9 @@ impl<'s> JSParseState<'s> {
 
         let mut inp = Utf8Stream::new(&buf[n..]);
 
-        match Self::peek_token_internal(&mut inp, false) {
+        match JSParseState::peek_token_internal(&mut inp, false) {
             TokenKind::IMPORT => !matches!(
-                Self::peek_token_internal(&mut inp, false),
+                JSParseState::peek_token_internal(&mut inp, false),
                 TokenKind::Char('(' | '.')
             ),
             TokenKind::EXPORT => true,

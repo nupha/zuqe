@@ -8,11 +8,7 @@ use gc_lite::{GcTracable, GcTracer};
 use once_cell::sync::Lazy;
 use smallvec::SmallVec;
 use zuqe::{
-    context::Context,
-    error::JSResult,
-    function::{CallContext, FieldDef},
-    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE},
-    value::JSValue,
+    CallContext, Context, FieldDef, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JSResult, JSValue,
 };
 
 fn js_os_now(_: CallContext) -> JSResult {

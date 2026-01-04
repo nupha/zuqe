@@ -7,25 +7,43 @@
 #![allow(clippy::missing_safety_doc)]
 #![warn(clippy::missing_const_for_fn)]
 
-pub mod atom;
+mod atom;
+mod bytecode;
+mod class;
+mod context;
+mod error;
+mod eval;
+mod function;
+mod gc;
+mod module;
+mod number;
+mod object;
+mod parse;
+mod resource;
+mod runtime;
+mod stack_frame;
+mod string;
+mod utils;
+mod value;
+
 pub mod builtins;
-pub mod bytecode;
-pub mod class;
-pub mod context;
-pub mod error;
-pub mod eval;
-pub mod function;
-pub mod gc;
-pub mod module;
-pub mod number;
-pub mod object;
-pub mod parse;
-pub mod runtime;
-pub mod stack_frame;
-pub mod string;
-pub mod utils;
-pub mod value;
 
-pub(crate) mod resource;
+pub use {
+    atom::Atom,
+    class::{ClassDef, ClassID, StdClassDef},
+    context::{Context, ContextBuilder},
+    error::{ErrorText, JS_SetUncatchableError, JSResult},
+    eval::{EvalFlags, EvalType},
+    function::{CallContext, Callback, FieldDef},
+    module::ModuleDef,
+    object::{
+        JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_WRITABLE, ObjectRef,
+    },
+    runtime::{Runtime, RuntimeImpl},
+    value::JSValue,
+};
 
-include!(concat!(env!("OUT_DIR"), "/std_class_def.rs"));
+mod stdcls {
+    include!(concat!(env!("OUT_DIR"), "/std_class_def.rs"));
+}
+pub use stdcls::*;

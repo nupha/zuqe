@@ -27,4 +27,4 @@ mod var;
 #[cfg(feature = "builtin_json")]
 mod json;
 
-pub use {esm::JSParseExportEnum, function::JSParseFunctionEnum, state::JSParseState};
+pub use {function::JSParseFunctionEnum, state::JSParseState};

@@ -1,11 +1,5 @@
 use colorized::{Colors, colorize_print, colorize_println};
-use zuqe::{
-    context::Context,
-    error::JSResult,
-    function::{CallContext, Callback},
-    object::JS_PROP_C_W_E,
-    value::JSValue,
-};
+use zuqe::{CallContext, Callback, Context, JS_PROP_C_W_E, JSResult, JSValue};
 
 fn js_print(cc: CallContext) -> JSResult {
     let ctx = cc.context();

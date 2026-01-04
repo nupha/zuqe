@@ -1,13 +1,7 @@
 use std::cell::Cell;
 
 use once_cell::sync::Lazy;
-use zuqe::{
-    context::Context,
-    error::{JS_SetUncatchableError, JSResult},
-    eval::EvalFlags,
-    function::{CallContext, FieldDef},
-    value::JSValue,
-};
+use zuqe::{CallContext, Context, EvalFlags, FieldDef, JS_SetUncatchableError, JSResult, JSValue};
 
 use crate::{
     class_file::{JSFile, js_file_puts},
